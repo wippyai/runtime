@@ -4,10 +4,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/payload"
-	regapi "github.com/ponyruntime/pony/api/registry"
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
-	lua "github.com/yuin/gopher-lua"
+	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/api/payload"
+	regapi "github.com/wippyai/runtime/api/registry"
+	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	lua "github.com/wippyai/go-lua"
 )
 
 // luaTableToEntry converts a Lua table to a registry entry
@@ -26,8 +28,7 @@ func luaTableToEntry(l *lua.LState, table *lua.LTable) (regapi.Entry, error) {
 		}
 	case lua.LTString:
 		entry.ID = regapi.ParseID(idVal.String())
-	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
-		// FIXME rework on demand
+	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTInteger, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
 		fallthrough
 	default:
 		return entry, errors.New("entry must have valid id field")
@@ -43,25 +44,24 @@ func luaTableToEntry(l *lua.LState, table *lua.LTable) (regapi.Entry, error) {
 	// Extract metadata
 	metaVal := table.RawGetString("meta")
 	if metaVal.Type() == lua.LTTable {
-		meta := regapi.Metadata{}
+		meta := attrs.Bag{}
 		metaTable := metaVal.(*lua.LTable)
 
 		metaTable.ForEach(func(k, v lua.LValue) {
 			if kStr, ok := k.(lua.LString); ok {
-				meta[string(kStr)] = luaconv.ToGoAny(v)
+				meta[string(kStr)] = value.ToGoAny(v)
 			}
 		})
 
 		entry.Meta = meta
 	} else {
-		entry.Meta = regapi.Metadata{}
+		entry.Meta = attrs.Bag{}
 	}
 
 	// Extract data
 	dataVal := table.RawGetString("data")
 	if dataVal != lua.LNil {
-		// Convert to payload
-		entry.Data = luaconv.ExportPayload(dataVal)
+		entry.Data = payload.NewPayload(value.ToGoAny(dataVal), payload.Golang)
 	}
 
 	return entry, nil
@@ -69,7 +69,6 @@ func luaTableToEntry(l *lua.LState, table *lua.LTable) (regapi.Entry, error) {
 
 // entryToLuaTable converts a registry Entry to a Lua table
 func entryToLuaTable(l *lua.LState, entry regapi.Entry) (*lua.LTable, error) {
-	// Create the base table
 	entryTable := l.CreateTable(0, 4)
 
 	// Convert ID
@@ -92,14 +91,23 @@ func entryToLuaTable(l *lua.LState, entry regapi.Entry) (*lua.LTable, error) {
 	// Convert data payload using transcoder if available
 	if entry.Data != nil {
 		dtt := payload.GetTranscoder(l.Context())
-		if dtt != nil {
-			luaData, err := dtt.Transcode(entry.Data, payload.Lua)
-			if err != nil {
-				return nil, fmt.Errorf("failed to transcode entry data: %w", err)
+		if dtt == nil {
+			return nil, fmt.Errorf("failed to transcode entry data: no transcoder in context")
+		}
+
+		luaData, err := dtt.Transcode(entry.Data, payload.Lua)
+		if err != nil {
+			return nil, fmt.Errorf("failed to transcode entry data: %w", err)
+		}
+
+		if luaData != nil {
+			if lv, ok := luaData.Data().(lua.LValue); ok {
+				entryTable.RawSetString("data", lv)
+			} else {
+				entryTable.RawSetString("data", lua.LNil)
 			}
-			entryTable.RawSetString("data", luaData.Data().(lua.LValue))
 		} else {
-			return nil, fmt.Errorf("failed to transcode entry data: no transcoder")
+			entryTable.RawSetString("data", lua.LNil)
 		}
 	} else {
 		entryTable.RawSetString("data", lua.LNil)
@@ -109,22 +117,18 @@ func entryToLuaTable(l *lua.LState, entry regapi.Entry) (*lua.LTable, error) {
 }
 
 // convertFilterToMetadata converts a Lua filter table to registry metadata
-// for use with the finder interface
-func convertFilterToMetadata(_ *lua.LState, filterTable *lua.LTable) regapi.Metadata {
-	meta := regapi.Metadata{}
+func convertFilterToMetadata(_ *lua.LState, filterTable *lua.LTable) attrs.Bag {
+	meta := attrs.Bag{}
 
-	// Process top-level filter properties directly
 	filterTable.ForEach(func(k, v lua.LValue) {
 		if kStr, ok := k.(lua.LString); ok {
 			key := string(kStr)
 
-			// Skip "meta" key as it's handled separately
 			if key == "meta" {
 				return
 			}
 
-			// Convert the Lua value to a Go value
-			meta[key] = luaconv.ToGoAny(v)
+			meta[key] = value.ToGoAny(v)
 		}
 	})
 
@@ -135,8 +139,7 @@ func convertFilterToMetadata(_ *lua.LState, filterTable *lua.LTable) regapi.Meta
 		metaTable.ForEach(func(k, v lua.LValue) {
 			if kStr, ok := k.(lua.LString); ok {
 				key := string(kStr)
-
-				meta[key] = luaconv.ToGoAny(v)
+				meta[key] = value.ToGoAny(v)
 			}
 		})
 	}

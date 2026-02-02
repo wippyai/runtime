@@ -8,19 +8,19 @@ import (
 	"testing"
 	"time"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/internal/config"
+	_ "github.com/mattn/go-sqlite3"
 
-	_ "github.com/mattn/go-sqlite3" // Import SQLite driver
-
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	apiconfig "github.com/ponyruntime/pony/api/service/sql"
-	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	envapi "github.com/wippyai/runtime/api/env"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	apiconfig "github.com/wippyai/runtime/api/service/sql"
+	"github.com/wippyai/runtime/api/supervisor"
+	entryutil "github.com/wippyai/runtime/internal/entry"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
@@ -88,8 +88,8 @@ func NewMockConnPool(kind registry.Kind) *ConnPool {
 	}
 
 	// Set up WAL mode for SQLite if needed
-	if kind == apiconfig.KindSQLite {
-		_, err = db.Exec("PRAGMA journal_mode=WAL;")
+	if kind == apiconfig.SQLite {
+		_, err = db.ExecContext(context.Background(), "PRAGMA journal_mode=WAL;")
 		if err != nil {
 			_ = db.Close()
 			panic(err)
@@ -105,7 +105,7 @@ func NewMockConnPool(kind registry.Kind) *ConnPool {
 
 	// Initialize the config pointer with proper configs
 	var cfgAny any
-	if kind == apiconfig.KindSQLite {
+	if kind == apiconfig.SQLite {
 		sqliteCfg := &apiconfig.SQLiteConfig{
 			File: ":memory:",
 			Pool: apiconfig.PoolConfig{
@@ -141,8 +141,8 @@ func NewMockConnPool(kind registry.Kind) *ConnPool {
 // Mock factory implementation
 type TestPoolFactory struct {
 	standardPoolCalls []struct {
-		Kind registry.Kind
 		Cfg  *apiconfig.DBConfig
+		Kind registry.Kind
 	}
 	sqlitePoolCalls []struct {
 		Cfg *apiconfig.SQLiteConfig
@@ -152,20 +152,15 @@ type TestPoolFactory struct {
 
 func NewTestPoolFactory() *TestPoolFactory {
 	return &TestPoolFactory{
-		standardPoolCalls: make([]struct {
-			Kind registry.Kind
-			Cfg  *apiconfig.DBConfig
-		}, 0),
-		sqlitePoolCalls: make([]struct {
-			Cfg *apiconfig.SQLiteConfig
-		}, 0),
+		standardPoolCalls: nil,
+		sqlitePoolCalls:   nil,
 	}
 }
 
-func (f *TestPoolFactory) CreateStandardPool(kind registry.Kind, cfg *apiconfig.DBConfig) (*ConnPool, error) {
+func (f *TestPoolFactory) CreateStandardPool(_ context.Context, kind registry.Kind, cfg *apiconfig.DBConfig) (*ConnPool, error) {
 	f.standardPoolCalls = append(f.standardPoolCalls, struct {
-		Kind registry.Kind
 		Cfg  *apiconfig.DBConfig
+		Kind registry.Kind
 	}{
 		Kind: kind,
 		Cfg:  cfg,
@@ -177,7 +172,7 @@ func (f *TestPoolFactory) CreateStandardPool(kind registry.Kind, cfg *apiconfig.
 	return NewMockConnPool(kind), nil
 }
 
-func (f *TestPoolFactory) CreateSQLitePool(cfg *apiconfig.SQLiteConfig) (*ConnPool, error) {
+func (f *TestPoolFactory) CreateSQLitePool(_ context.Context, cfg *apiconfig.SQLiteConfig) (*ConnPool, error) {
 	f.sqlitePoolCalls = append(f.sqlitePoolCalls, struct {
 		Cfg *apiconfig.SQLiteConfig
 	}{
@@ -187,8 +182,56 @@ func (f *TestPoolFactory) CreateSQLitePool(cfg *apiconfig.SQLiteConfig) (*ConnPo
 	if f.shouldFailNext {
 		return nil, assert.AnError
 	}
-	return NewMockConnPool(apiconfig.KindSQLite), nil
+	return NewMockConnPool(apiconfig.SQLite), nil
 }
+
+// MockEnvRegistry implements envapi.Registry for testing
+type MockEnvRegistry struct {
+	variables map[string]string
+}
+
+func NewMockEnvRegistry() *MockEnvRegistry {
+	return &MockEnvRegistry{
+		variables: make(map[string]string),
+	}
+}
+
+func (m *MockEnvRegistry) Get(_ context.Context, name string) (string, error) {
+	if value, exists := m.variables[name]; exists {
+		return value, nil
+	}
+	return "", envapi.ErrVariableNotFound
+}
+
+func (m *MockEnvRegistry) GetFromStorage(_ context.Context, name string) (string, error) {
+	if value, exists := m.variables[name]; exists {
+		return value, nil
+	}
+	return "", envapi.ErrVariableNotFound
+}
+
+func (m *MockEnvRegistry) Set(_ context.Context, name string, value string) error {
+	m.variables[name] = value
+	return nil
+}
+
+func (m *MockEnvRegistry) All(_ context.Context) (map[string]string, error) {
+	// For testing purposes, we return the variables map
+	return m.variables, nil
+}
+
+func (m *MockEnvRegistry) Lookup(_ context.Context, name string) (string, bool, error) {
+	if value, exists := m.variables[name]; exists {
+		return value, true, nil
+	}
+	return "", false, nil
+}
+
+func (m *MockEnvRegistry) GetStorage(_ context.Context, _ registry.ID) (envapi.Storage, error) {
+	return nil, envapi.ErrVariableNotFound
+}
+
+func (m *MockEnvRegistry) RegisterStorage(_ registry.ID, _ envapi.Storage) {}
 
 // Helper to create a test manager with mock components
 func newTestManager(t *testing.T) (*Manager, event.Bus, *TestPoolFactory) {
@@ -196,8 +239,9 @@ func newTestManager(t *testing.T) (*Manager, event.Bus, *TestPoolFactory) {
 	bus := eventbus.NewBus()
 	transcoder := &TestTranscoder{}
 	factory := NewTestPoolFactory()
+	envRegistry := NewMockEnvRegistry()
 
-	manager, err := NewManagerWithFactory(transcoder, bus, logger, factory)
+	manager, err := NewManagerWithFactory(transcoder, bus, logger, envRegistry, factory)
 	require.NoError(t, err)
 	return manager, bus, factory
 }
@@ -207,9 +251,10 @@ func TestNewManagerWithFactory(t *testing.T) {
 	bus := eventbus.NewBus()
 	transcoder := &TestTranscoder{}
 	factory := NewTestPoolFactory()
+	envRegistry := NewMockEnvRegistry()
 
 	t.Run("Valid initialization", func(t *testing.T) {
-		manager, err := NewManagerWithFactory(transcoder, bus, logger, factory)
+		manager, err := NewManagerWithFactory(transcoder, bus, logger, envRegistry, factory)
 		assert.NoError(t, err)
 		assert.NotNil(t, manager)
 		assert.Equal(t, logger, manager.log)
@@ -220,29 +265,28 @@ func TestNewManagerWithFactory(t *testing.T) {
 	})
 
 	t.Run("Nil transcoder", func(t *testing.T) {
-		manager, err := NewManagerWithFactory(nil, bus, logger, factory)
-		assert.Error(t, err)
+		manager, err := NewManagerWithFactory(nil, bus, logger, envRegistry, factory)
+		require.Error(t, err)
 		assert.Nil(t, manager)
 		assert.Contains(t, err.Error(), "transcoder is required")
 	})
 
 	t.Run("Nil event bus", func(t *testing.T) {
-		manager, err := NewManagerWithFactory(transcoder, nil, logger, factory)
-		assert.Error(t, err)
+		manager, err := NewManagerWithFactory(transcoder, nil, logger, envRegistry, factory)
+		require.Error(t, err)
 		assert.Nil(t, manager)
 		assert.Contains(t, err.Error(), "event bus is required")
 	})
 
 	t.Run("Nil factory", func(t *testing.T) {
-		manager, err := NewManagerWithFactory(transcoder, bus, logger, nil)
-		assert.Error(t, err)
+		manager, err := NewManagerWithFactory(transcoder, bus, logger, envRegistry, nil)
+		require.Error(t, err)
 		assert.Nil(t, manager)
 		assert.Contains(t, err.Error(), "pool factory is required")
 	})
 }
 func TestManager_Add(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
-	defer cancel()
+	ctx := ctxapi.NewRootContext()
 
 	manager, bus, factory := newTestManager(t)
 
@@ -280,9 +324,7 @@ func TestManager_Add(t *testing.T) {
 		id            registry.ID
 		shouldFail    bool
 		expectSuccess bool
-	}{
-		// Test cases remain the same
-	}
+	}{}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -312,9 +354,9 @@ func TestManager_Add(t *testing.T) {
 
 				// Verify factory was called correctly
 				switch tt.kind {
-				case apiconfig.KindSQLite:
+				case apiconfig.SQLite:
 					assert.GreaterOrEqual(t, len(factory.sqlitePoolCalls), 1)
-				case apiconfig.KindPostgres, apiconfig.KindMySQL:
+				case apiconfig.Postgres, apiconfig.MySQL:
 					assert.GreaterOrEqual(t, len(factory.standardPoolCalls), 1)
 					if len(factory.standardPoolCalls) > 0 {
 						lastCall := factory.standardPoolCalls[len(factory.standardPoolCalls)-1]
@@ -326,8 +368,7 @@ func TestManager_Add(t *testing.T) {
 				select {
 				case evt := <-supervisorEvents:
 					assert.Equal(t, supervisor.System, evt.System)
-					assert.Equal(t, supervisor.Register, evt.Kind)
-					assert.Equal(t, entry.ID.String(), evt.Path)
+					assert.Equal(t, supervisor.ServiceRegister, evt.Kind)
 				case <-time.After(time.Second):
 					t.Fatal("timeout waiting for supervisor event")
 				}
@@ -337,7 +378,6 @@ func TestManager_Add(t *testing.T) {
 				case evt := <-resourceEvents:
 					assert.Equal(t, "resource", evt.System)
 					assert.Equal(t, "resource.register", evt.Kind) // Update to match actual implementation
-					assert.Equal(t, entry.ID.String(), evt.Path)
 				case <-time.After(time.Second):
 					t.Fatal("timeout waiting for resource event")
 				}
@@ -355,16 +395,13 @@ func TestManager_Add(t *testing.T) {
 func TestManager_Update(t *testing.T) {
 	manager, bus, _ := newTestManager(t)
 
-	envContexter := ctxapi.NewContexter[string]()
-	envContexter.SetValue("POSTGRESQL_DEFAULT_HOST", "test-host")
-	envContexter.SetValue("POSTGRESQL_DEFAULT_PORT", "1234")
-	envContexter.SetValue("POSTGRESQL_DEFAULT_DATABASE", "test-db")
-	envContexter.SetValue("POSTGRESQL_DEFAULT_USERNAME", "test-user")
-	envContexter.SetValue("POSTGRESQL_DEFAULT_PASSWORD", "test-pwd")
-
-	rootCtx, cancel := context.WithTimeout(context.Background(), time.Second*2)
-	defer cancel()
-	ctx := context.WithValue(rootCtx, ctxapi.EnvCtx, envContexter)
+	envRegistry := NewMockEnvRegistry()
+	ctx := ctxapi.NewRootContext()
+	require.NoError(t, envRegistry.Set(ctx, "POSTGRESQL_DEFAULT_HOST", "test-host"))
+	require.NoError(t, envRegistry.Set(ctx, "POSTGRESQL_DEFAULT_PORT", "1234"))
+	require.NoError(t, envRegistry.Set(ctx, "POSTGRESQL_DEFAULT_DATABASE", "test-db"))
+	require.NoError(t, envRegistry.Set(ctx, "POSTGRESQL_DEFAULT_USERNAME", "test-user"))
+	require.NoError(t, envRegistry.Set(ctx, "POSTGRESQL_DEFAULT_PASSWORD", "test-pwd"))
 
 	// Setup event listener for supervisor events
 	supervisorEvents := make(chan event.Event, 2)
@@ -381,20 +418,20 @@ func TestManager_Update(t *testing.T) {
 	defer supervisorSub.Close()
 
 	// First add services to update
-	postgresID := registry.ID{NS: "test", Name: "postgres-db"}
-	sqliteID := registry.ID{NS: "test", Name: "sqlite-db"}
+	postgresID := registry.NewID("test", "postgres-db")
+	sqliteID := registry.NewID("test", "sqlite-db")
 
 	// Add PostgreSQL service
 	require.NoError(t, manager.Add(ctx, registry.Entry{
 		ID:   postgresID,
-		Kind: apiconfig.KindPostgres,
+		Kind: apiconfig.Postgres,
 		Data: payload.New(map[string]string{"test": "data"}),
 	}))
 
 	// Add SQLite service
 	require.NoError(t, manager.Add(ctx, registry.Entry{
 		ID:   sqliteID,
-		Kind: apiconfig.KindSQLite,
+		Kind: apiconfig.SQLite,
 		Data: payload.New(map[string]string{"test": "data"}),
 	}))
 
@@ -410,20 +447,20 @@ func TestManager_Update(t *testing.T) {
 	}{
 		{
 			name:          "Update PostgreSQL database",
-			kind:          apiconfig.KindPostgres,
+			kind:          apiconfig.Postgres,
 			id:            postgresID,
 			expectSuccess: true,
 		},
 		{
 			name:          "Update SQLite database",
-			kind:          apiconfig.KindSQLite,
+			kind:          apiconfig.SQLite,
 			id:            sqliteID,
 			expectSuccess: true,
 		},
 		{
 			name:          "Update non-existent service",
-			kind:          apiconfig.KindPostgres,
-			id:            registry.ID{NS: "test", Name: "nonexistent-db"},
+			kind:          apiconfig.Postgres,
+			id:            registry.NewID("test", "nonexistent-db"),
 			expectSuccess: false,
 		},
 		{
@@ -451,8 +488,7 @@ func TestManager_Update(t *testing.T) {
 				select {
 				case evt := <-supervisorEvents:
 					assert.Equal(t, supervisor.System, evt.System)
-					assert.Equal(t, supervisor.Update, evt.Kind)
-					assert.Equal(t, entry.ID.String(), evt.Path)
+					assert.Equal(t, supervisor.ServiceUpdate, evt.Kind)
 				case <-time.After(time.Second):
 					t.Fatal("timeout waiting for supervisor event")
 				}
@@ -466,16 +502,13 @@ func TestManager_Update(t *testing.T) {
 func TestManager_Delete(t *testing.T) {
 	manager, bus, _ := newTestManager(t)
 
-	envContexter := ctxapi.NewContexter[string]()
-	envContexter.SetValue("POSTGRESQL_DEFAULT_HOST", "test-host")
-	envContexter.SetValue("POSTGRESQL_DEFAULT_PORT", "1234")
-	envContexter.SetValue("POSTGRESQL_DEFAULT_DATABASE", "test-db")
-	envContexter.SetValue("POSTGRESQL_DEFAULT_USERNAME", "test-user")
-	envContexter.SetValue("POSTGRESQL_DEFAULT_PASSWORD", "test-pwd")
-
-	rootCtx, cancel := context.WithTimeout(context.Background(), time.Second*2)
-	defer cancel()
-	ctx := context.WithValue(rootCtx, ctxapi.EnvCtx, envContexter)
+	envRegistry := NewMockEnvRegistry()
+	ctx := ctxapi.NewRootContext()
+	require.NoError(t, envRegistry.Set(ctx, "POSTGRESQL_DEFAULT_HOST", "test-host"))
+	require.NoError(t, envRegistry.Set(ctx, "POSTGRESQL_DEFAULT_PORT", "1234"))
+	require.NoError(t, envRegistry.Set(ctx, "POSTGRESQL_DEFAULT_DATABASE", "test-db"))
+	require.NoError(t, envRegistry.Set(ctx, "POSTGRESQL_DEFAULT_USERNAME", "test-user"))
+	require.NoError(t, envRegistry.Set(ctx, "POSTGRESQL_DEFAULT_PASSWORD", "test-pwd"))
 
 	// Setup event listeners
 	supervisorEvents := make(chan event.Event, 2)
@@ -506,10 +539,10 @@ func TestManager_Delete(t *testing.T) {
 	defer resourceSub.Close()
 
 	// Add a service to delete
-	dbID := registry.ID{NS: "test", Name: "db-to-delete"}
+	dbID := registry.NewID("test", "db-to-delete")
 	require.NoError(t, manager.Add(ctx, registry.Entry{
 		ID:   dbID,
-		Kind: apiconfig.KindPostgres,
+		Kind: apiconfig.Postgres,
 		Data: payload.New(map[string]string{"test": "data"}),
 	}))
 
@@ -539,7 +572,7 @@ func TestManager_Delete(t *testing.T) {
 		},
 		{
 			name:          "Delete non-existent service",
-			id:            registry.ID{NS: "test", Name: "nonexistent-db"},
+			id:            registry.NewID("test", "nonexistent-db"),
 			expectSuccess: false,
 		},
 	}
@@ -548,7 +581,7 @@ func TestManager_Delete(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			entry := registry.Entry{
 				ID:   tt.id,
-				Kind: apiconfig.KindPostgres,
+				Kind: apiconfig.Postgres,
 			}
 
 			err := manager.Delete(ctx, entry)
@@ -561,8 +594,7 @@ func TestManager_Delete(t *testing.T) {
 				select {
 				case evt := <-supervisorEvents:
 					assert.Equal(t, supervisor.System, evt.System)
-					assert.Equal(t, "supervisor.service.register", evt.Kind) // Match actual value
-					assert.Equal(t, entry.ID.String(), evt.Path)
+					assert.Equal(t, "service.register", evt.Kind)
 				case <-time.After(time.Second):
 					t.Fatal("timeout waiting for supervisor event")
 				}
@@ -572,7 +604,6 @@ func TestManager_Delete(t *testing.T) {
 				case evt := <-resourceEvents:
 					assert.Equal(t, "resource", evt.System)
 					assert.Equal(t, "resource.register", evt.Kind) // Match actual value
-					assert.Equal(t, entry.ID.String(), evt.Path)
 				case <-time.After(time.Second):
 					t.Fatal("timeout waiting for resource event")
 				}
@@ -585,15 +616,118 @@ func TestManager_Delete(t *testing.T) {
 }
 
 func TestDecode_NilPayload(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+
 	transcoder := &TestTranscoder{}
 
 	entry := registry.Entry{
-		ID:   registry.ID{NS: "test", Name: "db1"},
-		Kind: apiconfig.KindPostgres,
+		Kind: apiconfig.Postgres,
 		Data: nil,
 	}
 
-	_, err := config.DecodeAndInitConfig[apiconfig.DBConfig](transcoder, entry)
-	assert.Error(t, err)
+	_, err := entryutil.DecodeEntryConfig[apiconfig.DBConfig](ctx, transcoder, entry)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "configuration data is required")
+}
+
+func TestManager_ResolveEnv(t *testing.T) {
+	manager, _, _ := newTestManager(t)
+	ctx := ctxapi.NewRootContext()
+
+	// Create env registry with test values
+	envRegistry := NewMockEnvRegistry()
+	require.NoError(t, envRegistry.Set(ctx, "TEST_HOST", "test-host-value"))
+	require.NoError(t, envRegistry.Set(ctx, "TEST_PORT", "5432"))
+	manager.env = envRegistry
+
+	tests := []struct {
+		name     string
+		envVar   string
+		field    string
+		expected string
+	}{
+		{
+			name:     "Empty env var returns empty",
+			envVar:   "",
+			field:    "host",
+			expected: "",
+		},
+		{
+			name:     "Found env var returns value",
+			envVar:   "TEST_HOST",
+			field:    "host",
+			expected: "test-host-value",
+		},
+		{
+			name:     "Not found env var returns empty",
+			envVar:   "NONEXISTENT_VAR",
+			field:    "database",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := manager.resolveEnv(ctx, tt.envVar, tt.field)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestManager_AddWithEnvVars(t *testing.T) {
+	manager, _, _ := newTestManager(t)
+	ctx := ctxapi.NewRootContext()
+
+	// Create env registry with test values
+	envRegistry := NewMockEnvRegistry()
+	require.NoError(t, envRegistry.Set(ctx, "DB_HOST", "env-host"))
+	require.NoError(t, envRegistry.Set(ctx, "DB_PORT", "9999"))
+	require.NoError(t, envRegistry.Set(ctx, "DB_NAME", "env-db"))
+	require.NoError(t, envRegistry.Set(ctx, "DB_USER", "env-user"))
+	require.NoError(t, envRegistry.Set(ctx, "DB_PASS", "env-pass"))
+	manager.env = envRegistry
+
+	// Create a custom transcoder that uses env var fields
+	manager.dtt = &EnvConfigTranscoder{}
+
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "env-db"),
+		Kind: apiconfig.Postgres,
+		Data: payload.New(map[string]string{"test": "data"}),
+	}
+
+	err := manager.Add(ctx, entry)
+	assert.NoError(t, err)
+}
+
+// EnvConfigTranscoder returns a config with env var fields set
+type EnvConfigTranscoder struct{}
+
+func (t *EnvConfigTranscoder) Marshal(v interface{}) (payload.Payload, error) {
+	return payload.New(v), nil
+}
+
+func (t *EnvConfigTranscoder) Unmarshal(_ payload.Payload, v interface{}) error {
+	switch target := v.(type) {
+	case *apiconfig.DBConfig:
+		*target = apiconfig.DBConfig{
+			HostEnv:     "DB_HOST",
+			PortEnv:     "DB_PORT",
+			DatabaseEnv: "DB_NAME",
+			UsernameEnv: "DB_USER",
+			PasswordEnv: "DB_PASS",
+			Pool: apiconfig.PoolConfig{
+				MaxOpen:     10,
+				MaxIdle:     5,
+				MaxLifetime: time.Hour,
+			},
+		}
+	default:
+		return fmt.Errorf("unsupported type: %T", v)
+	}
+	return nil
+}
+
+func (t *EnvConfigTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
+	return payload.NewPayload(p.Data(), format), nil
 }

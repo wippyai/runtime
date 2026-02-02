@@ -1,323 +1,408 @@
 package system
 
 import (
-	"context"
+	"os"
 	"testing"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/security"
+	lua "github.com/wippyai/go-lua"
 )
 
-func TestSystemModuleWithVM(t *testing.T) {
-	logger := zap.NewNop()
+func TestLoad(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
 
-	t.Run("module creation and loading", func(t *testing.T) {
-		mod := NewSystemModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+	tbl, yields := Module.Build()
+	if tbl == nil {
+		t.Fatal("module table is nil")
+	}
+	if yields != nil {
+		t.Error("expected nil yields")
+	}
 
-		err = vm.DoString(context.Background(), `
-			local system = require("system")
-			assert(type(system) == "table")
-			assert(type(system.mem_stats) == "function")
-			assert(type(system.allocated) == "function")
-			assert(type(system.heap_objects) == "function")
-			assert(type(system.gc) == "function")
-			assert(type(system.set_gc_percent) == "function")
-			assert(type(system.get_gc_percent) == "function")
-			assert(type(system.num_goroutines) == "function")
-			assert(type(system.go_max_procs) == "function")
-			assert(type(system.num_cpu) == "function")
-			assert(type(system.hostname) == "function")
-			assert(type(system.pid) == "function")
-		`, "test")
-		assert.NoError(t, err)
+	l.SetGlobal("system", tbl)
+
+	mod := l.GetGlobal("system")
+	if mod.Type() != lua.LTTable {
+		t.Fatal("module not registered as table")
+	}
+
+	// Check child tables exist
+	checkTable(t, l, "system", "memory")
+	checkTable(t, l, "system", "gc")
+	checkTable(t, l, "system", "runtime")
+	checkTable(t, l, "system", "process")
+	checkTable(t, l, "system", "supervisor")
+
+	// Check functions exist
+	checkFunction(t, l, "system", "exit")
+	checkFunction(t, l, "system", "modules")
+}
+
+func TestLoadReuse(t *testing.T) {
+	l1 := lua.NewState()
+	defer l1.Close()
+	l2 := lua.NewState()
+	defer l2.Close()
+
+	tbl1, _ := Module.Build()
+	tbl2, _ := Module.Build()
+
+	if tbl1 != tbl2 {
+		t.Error("module table should be reused across states")
+	}
+}
+
+func TestMemoryFunctions(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
+
+	tbl, _ := Module.Build()
+	l.SetGlobal("system", tbl)
+
+	t.Run("stats", func(t *testing.T) {
+		err := l.DoString(`
+			local stats, err = system.memory.stats()
+			assert(err == nil, "expected nil error")
+			assert(type(stats) == "table", "expected table")
+			assert(stats.alloc > 0, "alloc should be > 0")
+			assert(stats.heap_objects > 0, "heap_objects should be > 0")
+			assert(stats.num_gc ~= nil, "num_gc should exist")
+		`)
+		if err != nil {
+			t.Errorf("stats test failed: %v", err)
+		}
 	})
 
-	t.Run("mem_stats function", func(t *testing.T) {
-		mod := NewSystemModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
-
-		script := `
-			local system = require("system")
-			function test()
-				local stats, err = system.mem_stats()
-				if err then
-					return nil, err
-				end
-				
-				-- Check some basic expectations
-				if type(stats) ~= "table" then
-					return nil, "expected table result"
-				end
-				
-				if stats.alloc == nil or stats.heap_objects == nil or stats.num_gc == nil then
-					return nil, "missing expected fields"
-				end
-				
-				return {
-					has_alloc = stats.alloc > 0,
-					has_heap_objects = stats.heap_objects > 0
-				}
-			end
-			return test
-		`
-		err = vm.Import(script, "test", "test")
-		require.NoError(t, err)
-
-		result, err := vm.Execute(context.Background(), "test")
-		require.NoError(t, err)
-		require.IsType(t, &lua.LTable{}, result)
-
-		tbl := result.(*lua.LTable)
-		hasAlloc := tbl.RawGetString("has_alloc").(lua.LBool)
-		hasHeapObjects := tbl.RawGetString("has_heap_objects").(lua.LBool)
-
-		assert.True(t, bool(hasAlloc), "mem_stats should return alloc > 0")
-		assert.True(t, bool(hasHeapObjects), "mem_stats should return heap_objects > 0")
+	t.Run("allocated", func(t *testing.T) {
+		err := l.DoString(`
+			local alloc, err = system.memory.allocated()
+			assert(err == nil, "expected nil error")
+			assert(type(alloc) == "number", "expected number")
+			assert(alloc > 0, "alloc should be > 0")
+		`)
+		if err != nil {
+			t.Errorf("allocated test failed: %v", err)
+		}
 	})
 
-	t.Run("gc and allocated functions", func(t *testing.T) {
-		mod := NewSystemModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
-
-		script := `
-			local system = require("system")
-			function test()
-				-- Get current allocation
-				local alloc_before, err = system.allocated()
-				if err then
-					return nil, err
-				end
-				
-				-- Force garbage collection
-				local gc_success, err = system.gc()
-				if err then
-					return nil, err
-				end
-				
-				-- Get allocation after GC
-				local alloc_after, err = system.allocated()
-				if err then
-					return nil, err
-				end
-				
-				return {
-					gc_success = gc_success,
-					alloc_before = alloc_before,
-					alloc_after = alloc_after
-				}
-			end
-			return test
-		`
-		err = vm.Import(script, "test", "test")
-		require.NoError(t, err)
-
-		result, err := vm.Execute(context.Background(), "test")
-		require.NoError(t, err)
-		require.IsType(t, &lua.LTable{}, result)
-
-		tbl := result.(*lua.LTable)
-		gcSuccess := tbl.RawGetString("gc_success").(lua.LBool)
-		allocBefore := float64(tbl.RawGetString("alloc_before").(lua.LNumber))
-		allocAfter := float64(tbl.RawGetString("alloc_after").(lua.LNumber))
-
-		assert.True(t, bool(gcSuccess), "gc() should return true")
-		assert.True(t, allocBefore > 0, "allocated() should return positive value")
-		assert.True(t, allocAfter > 0, "allocated() should return positive value after GC")
+	t.Run("heap_objects", func(t *testing.T) {
+		err := l.DoString(`
+			local objs, err = system.memory.heap_objects()
+			assert(err == nil, "expected nil error")
+			assert(type(objs) == "number", "expected number")
+			assert(objs > 0, "heap_objects should be > 0")
+		`)
+		if err != nil {
+			t.Errorf("heap_objects test failed: %v", err)
+		}
 	})
 
-	t.Run("gc_percent functions", func(t *testing.T) {
-		mod := NewSystemModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+	t.Run("memory_limit", func(t *testing.T) {
+		err := l.DoString(`
+			local limit, err = system.memory.get_limit()
+			assert(err == nil, "expected nil error")
+			assert(type(limit) == "number", "expected number")
+		`)
+		if err != nil {
+			t.Errorf("get_limit test failed: %v", err)
+		}
+	})
+}
 
-		script := `
-			local system = require("system")
-			function test()
-				-- Get current GC percent
-				local original, err = system.get_gc_percent()
-				if err then
-					return nil, err
-				end
-				
-				-- Set new value
-				local old, err = system.set_gc_percent(200)
-				if err then
-					return nil, err
-				end
-				
-				-- Get updated value
-				local new, err = system.get_gc_percent()
-				if err then
-					return nil, err
-				end
-				
-				-- Restore original value
-				system.set_gc_percent(original)
-				
-				return {
-					original = original,
-					old_from_set = old,
-					new_value = new
-				}
-			end
-			return test
-		`
-		err = vm.Import(script, "test", "test")
-		require.NoError(t, err)
+func TestGCFunctions(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
 
-		result, err := vm.Execute(context.Background(), "test")
-		require.NoError(t, err)
-		require.IsType(t, &lua.LTable{}, result)
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
 
-		tbl := result.(*lua.LTable)
-		original := int(tbl.RawGetString("original").(lua.LNumber))
-		oldFromSet := int(tbl.RawGetString("old_from_set").(lua.LNumber))
-		newValue := int(tbl.RawGetString("new_value").(lua.LNumber))
+	tbl, _ := Module.Build()
+	l.SetGlobal("system", tbl)
 
-		// Both should be normalized to 100
-		assert.Equal(t, 100, original, "get_gc_percent should normalize initial value")
-		assert.Equal(t, 100, oldFromSet, "set_gc_percent should return normalized old value")
-		assert.Equal(t, 200, newValue, "get_gc_percent should return new value")
+	t.Run("collect", func(t *testing.T) {
+		err := l.DoString(`
+			local ok, err = system.gc.collect()
+			assert(err == nil, "expected nil error")
+			assert(ok == true, "expected true")
+		`)
+		if err != nil {
+			t.Errorf("collect test failed: %v", err)
+		}
 	})
 
-	t.Run("system info functions", func(t *testing.T) {
-		mod := NewSystemModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+	t.Run("gc_percent", func(t *testing.T) {
+		err := l.DoString(`
+			local orig, err = system.gc.get_percent()
+			assert(err == nil, "expected nil error")
+			assert(type(orig) == "number", "expected number")
 
-		script := `
-			local system = require("system")
-			function test()
-				-- Get number of goroutines
-				local goroutines, err = system.num_goroutines()
-				if err then
-					return nil, err
-				end
-				
-				-- Get number of CPUs
-				local cpus, err = system.num_cpu()
-				if err then
-					return nil, err
-				end
-				
-				-- Get GOMAXPROCS
-				local procs, err = system.go_max_procs()
-				if err then
-					return nil, err
-				end
-				
-				-- Get hostname
-				local hostname, err = system.hostname()
-				if err then
-					return nil, err
-				end
-				
-				-- Get PID
-				local pid, err = system.pid()
-				if err then
-					return nil, err
-				end
-				
-				return {
-					goroutines = goroutines,
-					cpus = cpus,
-					procs = procs,
-					hostname_type = type(hostname),
-					hostname_exists = hostname ~= nil and hostname ~= "",
-					pid = pid
-				}
-			end
-			return test
-		`
-		err = vm.Import(script, "test", "test")
-		require.NoError(t, err)
+			local old, err = system.gc.set_percent(200)
+			assert(err == nil, "expected nil error")
 
-		result, err := vm.Execute(context.Background(), "test")
-		require.NoError(t, err)
-		require.IsType(t, &lua.LTable{}, result)
+			local new, err = system.gc.get_percent()
+			assert(err == nil, "expected nil error")
+			assert(new == 200, "expected 200, got " .. tostring(new))
 
-		tbl := result.(*lua.LTable)
-		goroutines := int(tbl.RawGetString("goroutines").(lua.LNumber))
-		cpus := int(tbl.RawGetString("cpus").(lua.LNumber))
-		procs := int(tbl.RawGetString("procs").(lua.LNumber))
-		hostnameType := tbl.RawGetString("hostname_type").String()
-		hostnameExists := tbl.RawGetString("hostname_exists").(lua.LBool)
-		pid := int(tbl.RawGetString("pid").(lua.LNumber))
+			-- restore
+			system.gc.set_percent(orig)
+		`)
+		if err != nil {
+			t.Errorf("gc_percent test failed: %v", err)
+		}
+	})
+}
 
-		assert.True(t, goroutines > 0, "num_goroutines should return positive count")
-		assert.True(t, cpus > 0, "num_cpu should return positive count")
-		assert.True(t, procs > 0, "go_max_procs should return positive count")
-		assert.Equal(t, "string", hostnameType, "hostname should return string")
-		assert.True(t, bool(hostnameExists), "hostname should return non-empty string")
-		assert.True(t, pid > 0, "pid should return positive number")
+func TestRuntimeFunctions(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
+
+	tbl, _ := Module.Build()
+	l.SetGlobal("system", tbl)
+
+	t.Run("goroutines", func(t *testing.T) {
+		err := l.DoString(`
+			local count, err = system.runtime.goroutines()
+			assert(err == nil, "expected nil error")
+			assert(type(count) == "number", "expected number")
+			assert(count > 0, "goroutines should be > 0")
+		`)
+		if err != nil {
+			t.Errorf("goroutines test failed: %v", err)
+		}
 	})
 
-	t.Run("go_max_procs set function", func(t *testing.T) {
-		mod := NewSystemModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
-
-		script := `
-			local system = require("system")
-			function test()
-				-- Get current GOMAXPROCS
-				local original, err = system.go_max_procs()
-				if err then
-					return nil, err
-				end
-				
-				-- Set to 2 (or current if already 2)
-				local target = original == 2 and 3 or 2
-				local old, err = system.go_max_procs(target)
-				if err then
-					return nil, err
-				end
-				
-				-- Get new value
-				local new, err = system.go_max_procs()
-				if err then
-					return nil, err
-				end
-				
-				-- Restore original
-				system.go_max_procs(original)
-				
-				return {
-					original = original,
-					old_returned = old,
-					new_value = new,
-					target_value = target
-				}
-			end
-			return test
-		`
-		err = vm.Import(script, "test", "test")
-		require.NoError(t, err)
-
-		result, err := vm.Execute(context.Background(), "test")
-		require.NoError(t, err)
-		require.IsType(t, &lua.LTable{}, result)
-
-		tbl := result.(*lua.LTable)
-		original := int(tbl.RawGetString("original").(lua.LNumber))
-		oldReturned := int(tbl.RawGetString("old_returned").(lua.LNumber))
-		newValue := int(tbl.RawGetString("new_value").(lua.LNumber))
-		targetValue := int(tbl.RawGetString("target_value").(lua.LNumber))
-
-		assert.Equal(t, original, oldReturned, "go_max_procs should return old value")
-		assert.Equal(t, targetValue, newValue, "go_max_procs should have changed to target value")
+	t.Run("cpu_count", func(t *testing.T) {
+		err := l.DoString(`
+			local count, err = system.runtime.cpu_count()
+			assert(err == nil, "expected nil error")
+			assert(type(count) == "number", "expected number")
+			assert(count > 0, "cpu_count should be > 0")
+		`)
+		if err != nil {
+			t.Errorf("cpu_count test failed: %v", err)
+		}
 	})
+
+	t.Run("max_procs_get", func(t *testing.T) {
+		err := l.DoString(`
+			local procs, err = system.runtime.max_procs()
+			assert(err == nil, "expected nil error")
+			assert(type(procs) == "number", "expected number")
+			assert(procs > 0, "max_procs should be > 0")
+		`)
+		if err != nil {
+			t.Errorf("max_procs get test failed: %v", err)
+		}
+	})
+
+	t.Run("max_procs_set", func(t *testing.T) {
+		err := l.DoString(`
+			local orig, err = system.runtime.max_procs()
+			assert(err == nil, "expected nil error")
+
+			local target = orig == 2 and 3 or 2
+			local old, err = system.runtime.max_procs(target)
+			assert(err == nil, "expected nil error")
+			assert(old == orig, "expected old value")
+
+			local new, err = system.runtime.max_procs()
+			assert(err == nil, "expected nil error")
+			assert(new == target, "expected target value")
+
+			-- restore
+			system.runtime.max_procs(orig)
+		`)
+		if err != nil {
+			t.Errorf("max_procs set test failed: %v", err)
+		}
+	})
+}
+
+func TestProcessFunctions(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
+
+	tbl, _ := Module.Build()
+	l.SetGlobal("system", tbl)
+
+	t.Run("pid", func(t *testing.T) {
+		expectedPID := os.Getpid()
+		err := l.DoString(`
+			local pid, err = system.process.pid()
+			assert(err == nil, "expected nil error")
+			assert(type(pid) == "number", "expected number")
+			assert(pid > 0, "pid should be > 0")
+			return pid
+		`)
+		if err != nil {
+			t.Errorf("pid test failed: %v", err)
+		}
+
+		gotPID := int(l.Get(-1).(lua.LNumber))
+		if gotPID != expectedPID {
+			t.Errorf("expected pid %d, got %d", expectedPID, gotPID)
+		}
+	})
+
+	t.Run("hostname", func(t *testing.T) {
+		err := l.DoString(`
+			local name, err = system.process.hostname()
+			assert(err == nil, "expected nil error")
+			assert(type(name) == "string", "expected string")
+			assert(#name > 0, "hostname should not be empty")
+		`)
+		if err != nil {
+			t.Errorf("hostname test failed: %v", err)
+		}
+	})
+}
+
+func TestSupervisorFunctions(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	tbl, _ := Module.Build()
+	l.SetGlobal("system", tbl)
+
+	t.Run("state_no_context", func(t *testing.T) {
+		err := l.DoString(`
+			local state, err = system.supervisor.state("test:service")
+			assert(state == nil, "expected nil state")
+			assert(err ~= nil, "expected error")
+		`)
+		if err != nil {
+			t.Errorf("supervisor.state test failed: %v", err)
+		}
+	})
+
+	t.Run("states_no_context", func(t *testing.T) {
+		err := l.DoString(`
+			local states, err = system.supervisor.states()
+			assert(states == nil, "expected nil states")
+			assert(err ~= nil, "expected error")
+		`)
+		if err != nil {
+			t.Errorf("supervisor.states test failed: %v", err)
+		}
+	})
+}
+
+func TestExitFunction(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	tbl, _ := Module.Build()
+	l.SetGlobal("system", tbl)
+
+	// Without proper context, exit will fail
+	err := l.DoString(`
+		local ok, err = system.exit()
+		-- May succeed or fail depending on context
+		return ok, err
+	`)
+	if err != nil {
+		t.Errorf("exit test failed: %v", err)
+	}
+}
+
+func TestModulesFunction(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	tbl, _ := Module.Build()
+	l.SetGlobal("system", tbl)
+
+	// Without code manager context, returns error
+	err := l.DoString(`
+		local mods, err = system.modules()
+		assert(mods == nil, "expected nil without code manager")
+		assert(err ~= nil, "expected error")
+	`)
+	if err != nil {
+		t.Errorf("modules test failed: %v", err)
+	}
+}
+
+func TestErrorKinds(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	lua.OpenErrors(l)
+
+	tbl, _ := Module.Build()
+	l.SetGlobal("system", tbl)
+
+	// Test structured errors for validation failures
+	t.Run("set_gc_percent_no_arg", func(t *testing.T) {
+		err := l.DoString(`
+			local result, err = system.gc.set_percent()
+			assert(result == nil, "expected nil result")
+			assert(err ~= nil, "expected error")
+			assert(err:kind() == errors.INVALID, "expected INVALID kind, got: " .. tostring(err:kind()))
+			assert(err:retryable() == false, "expected not retryable")
+		`)
+		if err != nil {
+			t.Errorf("set_gc_percent error test failed: %v", err)
+		}
+	})
+
+	t.Run("set_memory_limit_no_arg", func(t *testing.T) {
+		err := l.DoString(`
+			local result, err = system.memory.set_limit()
+			assert(result == nil, "expected nil result")
+			assert(err ~= nil, "expected error")
+			assert(err:kind() == errors.INVALID, "expected INVALID kind")
+		`)
+		if err != nil {
+			t.Errorf("set_memory_limit error test failed: %v", err)
+		}
+	})
+
+	t.Run("max_procs_invalid", func(t *testing.T) {
+		err := l.DoString(`
+			local result, err = system.runtime.max_procs(0)
+			assert(result == nil, "expected nil result")
+			assert(err ~= nil, "expected error")
+			assert(err:kind() == errors.INVALID, "expected INVALID kind")
+		`)
+		if err != nil {
+			t.Errorf("max_procs invalid test failed: %v", err)
+		}
+	})
+}
+
+func checkTable(t *testing.T, l *lua.LState, _, name string) {
+	t.Helper()
+	err := l.DoString(`return type(system.` + name + `) == "table"`)
+	if err != nil {
+		t.Errorf("error checking system.%s: %v", name, err)
+		return
+	}
+	if l.Get(-1) != lua.LTrue {
+		t.Errorf("system.%s is not a table", name)
+	}
+	l.Pop(1)
+}
+
+func checkFunction(t *testing.T, l *lua.LState, parent, name string) {
+	t.Helper()
+	err := l.DoString(`return type(` + parent + `.` + name + `) == "function"`)
+	if err != nil {
+		t.Errorf("error checking %s.%s: %v", parent, name, err)
+		return
+	}
+	if l.Get(-1) != lua.LTrue {
+		t.Errorf("%s.%s is not a function", parent, name)
+	}
+	l.Pop(1)
 }

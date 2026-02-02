@@ -3,139 +3,137 @@ package fs
 import (
 	"io/fs"
 
-	"github.com/ponyruntime/pony/runtime/lua/security"
-
-	fsapi "github.com/ponyruntime/pony/api/fs"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	lua "github.com/yuin/gopher-lua"
+	fsapi "github.com/wippyai/runtime/api/fs"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/security"
+	lua "github.com/wippyai/go-lua"
 )
 
-// Module represents a fs Lua module
-type Module struct{}
-
 const (
-	// Type constants
+	fsTypeName   = "fs.FS"
+	fileTypeName = "fs.File"
+
 	typeFile = "file"
 	typeDir  = "directory"
 
-	// Seek constants
 	seekSet = "set"
 	seekCur = "cur"
 	seekEnd = "end"
 )
 
-// NewFSModule creates and returns a new instance of the fs Module
-func NewFSModule() *Module {
-	return &Module{}
+var (
+	fsMetatable          *lua.LTable
+	fileMetatable        *lua.LTable
+	fileScannerMetatable *lua.LTable
+)
+
+func init() {
+	fsMetatable = value.RegisterTypeMethods(nil, fsTypeName,
+		map[string]lua.LGoFunc{"__tostring": fsToString},
+		fsMethods)
+	fileMetatable = value.RegisterTypeMethods(nil, fileTypeName,
+		map[string]lua.LGoFunc{"__tostring": fileToString},
+		fileMethods)
+	fileScannerMetatable = value.RegisterTypeMethods(nil, fileScannerTypeName,
+		nil,
+		fileScannerMethods)
 }
 
-// Name returns the module's name
-func (m *Module) Name() string {
-	return "fs"
+// Module is the fs module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "fs",
+	Description: "Filesystem operations",
+	Class:       []string{luaapi.ClassStorage, luaapi.ClassIO, luaapi.ClassNondeterministic},
+	Build:       buildModule,
+	Types:       ModuleTypes,
 }
 
-// Loader loads the module into the given Lua state
-func (m *Module) Loader(l *lua.LState) int {
-	t := l.CreateTable(0, 3) // 3 fields: type, seek, and get function
+func buildModule() (*lua.LTable, []luaapi.YieldType) {
+	mod := lua.CreateTable(0, 4)
 
-	// Register type constants
-	typeTable := l.CreateTable(0, 2)
+	typeTable := lua.CreateTable(0, 2)
 	typeTable.RawSetString("FILE", lua.LString(typeFile))
 	typeTable.RawSetString("DIR", lua.LString(typeDir))
-	l.SetField(t, "type", typeTable)
+	typeTable.Immutable = true
+	mod.RawSetString("type", typeTable)
 
-	// Register seek constants
-	seekTable := l.CreateTable(0, 3)
+	seekTable := lua.CreateTable(0, 3)
 	seekTable.RawSetString("SET", lua.LString(seekSet))
 	seekTable.RawSetString("CUR", lua.LString(seekCur))
 	seekTable.RawSetString("END", lua.LString(seekEnd))
-	l.SetField(t, "seek", seekTable)
+	seekTable.Immutable = true
+	mod.RawSetString("seek", seekTable)
 
-	t.RawSetString("get", l.NewFunction(apiGet))
+	mod.RawSetString("get", lua.LGoFunc(fsGet))
 
-	registerFile(l)
-	registerFS(l)
-
-	l.Push(t)
-	return 1
+	mod.Immutable = true
+	return mod, nil
 }
 
-func apiGet(l *lua.LState) int {
+func fsGet(l *lua.LState) int {
+	ctx := l.Context()
+	if ctx == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no context"))
+		return 2
+	}
+
 	name := l.CheckString(1)
 	if name == "" {
-		l.ArgError(1, "filesystem name required")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("filesystem name required"))
+		return 2
 	}
 
-	// Add security check to control filesystem access
-	if !security.IsAllowed(l.Context(), "fs.get", name, nil) {
-		l.RaiseError("not allowed to access filesystem: %s", name)
-		return 0
+	if !security.IsAllowed(ctx, "fs.get", name, nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.LString("not allowed to access filesystem: " + name))
+		return 2
 	}
 
-	reg := fsapi.GetRegistry(l.Context())
+	reg := fsapi.GetRegistry(ctx)
 	if reg == nil {
-		l.RaiseError("no filesystem registry in context")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("no filesystem registry in context"))
+		return 2
 	}
 
 	f, ok := reg.GetFS(name)
 	if !ok {
-		l.RaiseError("filesystem not found: %s", name)
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.LString("filesystem not found: " + name))
+		return 2
 	}
 
-	l.Push(WrapFS(l, f))
-	return 1
+	value.PushUserData(l, NewFS(f, "."), fsMetatable)
+	l.Push(lua.LNil)
+	return 2
 }
 
-func CheckFS(l *lua.LState, n int) *FS {
-	ud := l.CheckUserData(n)
+func checkFS(l *lua.LState, idx int) *FS { //nolint:unparam
+	ud := l.CheckUserData(idx)
 	if v, ok := ud.Value.(*FS); ok {
 		return v
 	}
-
-	l.ArgError(n, "filesystem expected")
+	l.ArgError(idx, "filesystem expected")
 	return nil
 }
 
-func WrapFS(l *lua.LState, fs fsapi.FS) *lua.LUserData {
-	ud := l.NewUserData()
-	ud.Value = NewFS(fs, ".")
-	l.SetMetatable(ud, l.GetTypeMetatable("fs.FS"))
-	return ud
-}
-
-func CheckFile(l *lua.LState, n int) *File {
-	ud := l.CheckUserData(n)
+func checkFile(l *lua.LState, idx int) *File { //nolint:unparam
+	ud := l.CheckUserData(idx)
 	if v, ok := ud.Value.(*File); ok {
 		return v
 	}
-	l.ArgError(n, "file expected")
+	l.ArgError(idx, "file expected")
 	return nil
-}
-
-// WrapFile creates a new File userdata with UoW integration
-func WrapFile(l *lua.LState, file fsapi.File) *lua.LUserData {
-	// Get Unit of Work from context
-	uw := engine.GetUnitOfWork(l.Context())
-	if uw == nil {
-		l.RaiseError("unit of work missing from context")
-		return nil
-	}
-
-	// Create a new File with UoW integration
-	ud := l.NewUserData()
-	ud.Value = NewFile(uw, file)
-	l.SetMetatable(ud, l.GetTypeMetatable("fs.File"))
-	return ud
 }
 
 func pushFileInfo(l *lua.LState, info fs.FileInfo) *lua.LTable {
 	t := l.NewTable()
 	t.RawSetString("name", lua.LString(info.Name()))
 	t.RawSetString("size", lua.LNumber(info.Size()))
-	t.RawSetString("mode", lua.LNumber(uint32(info.Mode())))
+	t.RawSetString("mode", lua.LNumber(info.Mode()))
 	t.RawSetString("modified", lua.LNumber(info.ModTime().Unix()))
 	t.RawSetString("is_dir", lua.LBool(info.IsDir()))
 	t.RawSetString("type", lua.LString(typeFile))

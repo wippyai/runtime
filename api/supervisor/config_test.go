@@ -1,3 +1,4 @@
+// Package supervisor provides service lifecycle management and supervision.
 package supervisor
 
 import (
@@ -12,8 +13,8 @@ import (
 func TestLifecycleConfig_MarshalJSON(t *testing.T) {
 	tests := []struct {
 		name     string
-		config   LifecycleConfig
 		expected string
+		config   LifecycleConfig
 		wantErr  bool
 	}{
 		{
@@ -55,12 +56,7 @@ func TestLifecycleConfig_MarshalJSON(t *testing.T) {
 			},
 			expected: `{
 				"auto_start": false,
-				"start_timeout": "0s",
-				"stop_timeout": "0s",
-				"stable_threshold": "0s",
 				"restart": {
-					"initial_delay": "0s",
-					"max_delay": "0s",
 					"backoff_factor": 0,
 					"jitter": 0,
 					"max_attempts": 0
@@ -208,8 +204,8 @@ func TestLifecycleConfig_UnmarshalJSON(t *testing.T) {
 func TestRetryPolicy_MarshalJSON(t *testing.T) {
 	tests := []struct {
 		name     string
-		policy   RetryPolicy
 		expected string
+		policy   RetryPolicy
 		wantErr  bool
 	}{
 		{
@@ -234,8 +230,6 @@ func TestRetryPolicy_MarshalJSON(t *testing.T) {
 			name:   "zero values",
 			policy: RetryPolicy{},
 			expected: `{
-				"initial_delay": "0s",
-				"max_delay": "0s",
 				"backoff_factor": 0,
 				"jitter": 0,
 				"max_attempts": 0
@@ -360,4 +354,60 @@ func TestRetryPolicy_UnmarshalJSON(t *testing.T) {
 			assert.Equal(t, tt.expected, policy)
 		})
 	}
+}
+
+func TestLifecycleConfig_InitDefaults(t *testing.T) {
+	t.Run("sets all defaults for zero values", func(t *testing.T) {
+		config := &LifecycleConfig{}
+		config.InitDefaults()
+
+		assert.Equal(t, 10*time.Second, config.StartTimeout)
+		assert.Equal(t, 10*time.Second, config.StopTimeout)
+		assert.Equal(t, 5*time.Second, config.StableThreshold)
+		assert.Equal(t, 1*time.Second, config.RetryPolicy.InitialDelay)
+		assert.Equal(t, 90*time.Second, config.RetryPolicy.MaxDelay)
+		assert.Equal(t, 2.0, config.RetryPolicy.BackoffFactor)
+		assert.Equal(t, 0.1, config.RetryPolicy.Jitter)
+	})
+
+	t.Run("preserves existing non-zero values", func(t *testing.T) {
+		config := &LifecycleConfig{
+			StartTimeout:    30 * time.Second,
+			StopTimeout:     60 * time.Second,
+			StableThreshold: 15 * time.Second,
+			RetryPolicy: RetryPolicy{
+				InitialDelay:  2 * time.Second,
+				MaxDelay:      120 * time.Second,
+				BackoffFactor: 3.0,
+				Jitter:        0.2,
+			},
+		}
+		config.InitDefaults()
+
+		assert.Equal(t, 30*time.Second, config.StartTimeout)
+		assert.Equal(t, 60*time.Second, config.StopTimeout)
+		assert.Equal(t, 15*time.Second, config.StableThreshold)
+		assert.Equal(t, 2*time.Second, config.RetryPolicy.InitialDelay)
+		assert.Equal(t, 120*time.Second, config.RetryPolicy.MaxDelay)
+		assert.Equal(t, 3.0, config.RetryPolicy.BackoffFactor)
+		assert.Equal(t, 0.2, config.RetryPolicy.Jitter)
+	})
+
+	t.Run("sets only missing defaults with partial values", func(t *testing.T) {
+		config := &LifecycleConfig{
+			StartTimeout: 20 * time.Second,
+			RetryPolicy: RetryPolicy{
+				InitialDelay: 3 * time.Second,
+			},
+		}
+		config.InitDefaults()
+
+		assert.Equal(t, 20*time.Second, config.StartTimeout)
+		assert.Equal(t, 10*time.Second, config.StopTimeout)
+		assert.Equal(t, 5*time.Second, config.StableThreshold)
+		assert.Equal(t, 3*time.Second, config.RetryPolicy.InitialDelay)
+		assert.Equal(t, 90*time.Second, config.RetryPolicy.MaxDelay)
+		assert.Equal(t, 2.0, config.RetryPolicy.BackoffFactor)
+		assert.Equal(t, 0.1, config.RetryPolicy.Jitter)
+	})
 }

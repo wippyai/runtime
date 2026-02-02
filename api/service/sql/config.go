@@ -1,3 +1,4 @@
+// Package sql provides SQL database service configuration.
 package sql
 
 import (
@@ -5,35 +6,35 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/supervisor"
 )
 
 // Registry kind constants for different SQL database types
 const (
-	// KindPostgres identifies a PostgreSQL database in the registry
-	KindPostgres registry.Kind = "db.sql.postgres"
+	// Postgres identifies a PostgreSQL database in the registry
+	Postgres registry.Kind = "db.sql.postgres"
 
-	// KindMySQL identifies a MySQL database in the registry
-	KindMySQL registry.Kind = "db.sql.mysql"
+	// MySQL identifies a MySQL database in the registry
+	MySQL registry.Kind = "db.sql.mysql"
 
-	// KindSQLite identifies a SQLite database in the registry
-	KindSQLite registry.Kind = "db.sql.sqlite"
+	// SQLite identifies a SQLite database in the registry
+	SQLite registry.Kind = "db.sql.sqlite"
 
-	// KindMSSQL identifies a Microsoft SQL Server database in the registry
-	KindMSSQL registry.Kind = "db.sql.mssql"
+	// MSSQL identifies a Microsoft SQL Server database in the registry
+	MSSQL registry.Kind = "db.sql.mssql"
 
-	// KindOracle identifies an Oracle database in the registry
-	KindOracle registry.Kind = "db.sql.oracle"
+	// Oracle identifies an Oracle database in the registry
+	Oracle registry.Kind = "db.sql.oracle"
 )
 
 // Default configuration values
 const (
 	// DefaultMaxOpen is the default maximum number of open connections
-	DefaultMaxOpen = 10
+	DefaultMaxOpen = 0
 
 	// DefaultMaxIdle is the default maximum number of idle connections
-	DefaultMaxIdle = 5
+	DefaultMaxIdle = 0
 
 	// DefaultMaxLifetime is the default maximum lifetime of a connection
 	DefaultMaxLifetime = 1 * time.Hour
@@ -42,74 +43,36 @@ const (
 type (
 	// PoolConfig defines settings for a database connection pool
 	PoolConfig struct {
-		MaxOpen     int           `json:"max_open"`     // Maximum number of open connections
-		MaxIdle     int           `json:"max_idle"`     // Maximum number of idle connections
-		MaxLifetime time.Duration `json:"max_lifetime"` // Maximum lifetime of a connection
+		MaxOpen     int           `json:"max_open"`                           // Maximum number of open connections
+		MaxIdle     int           `json:"max_idle"`                           // Maximum number of idle connections
+		MaxLifetime time.Duration `json:"max_lifetime,omitzero,format:units"` // Maximum lifetime of a connection
 	}
 
 	// DBConfig defines the base configuration for SQL databases
 	DBConfig struct {
-		HostEnv     string `json:"host_env,omitempty"`     // Database host address env variable
-		PortEnv     string `json:"port_env,omitempty"`     // Database port number env variable
-		DatabaseEnv string `json:"database_env,omitempty"` // Database name env variable
-		UsernameEnv string `json:"username_env,omitempty"` // Database user env variable
-		PasswordEnv string `json:"password_env,omitempty"` // Database password env variable
-
-		Host      string                     `json:"host"`      // Database host address
-		Port      int                        `json:"port"`      // Database port number
-		Database  string                     `json:"database"`  // Database name
-		Username  string                     `json:"username"`  // Database user
-		Password  string                     `json:"password"`  // Database password
-		Pool      PoolConfig                 `json:"pool"`      // Connection pool settings
-		Options   map[string]string          `json:"options"`   // Database-specific options
-		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"` // Lifecycle configuration
+		Options     map[string]string          `json:"options"`
+		Database    string                     `json:"database"`
+		Password    string                     `json:"password"`
+		UsernameEnv string                     `json:"username_env,omitempty"`
+		PasswordEnv string                     `json:"password_env,omitempty"`
+		Host        string                     `json:"host"`
+		Username    string                     `json:"username"`
+		HostEnv     string                     `json:"host_env,omitempty"`
+		DatabaseEnv string                     `json:"database_env,omitempty"`
+		PortEnv     string                     `json:"port_env,omitempty"`
+		Lifecycle   supervisor.LifecycleConfig `json:"lifecycle"`
+		Pool        PoolConfig                 `json:"pool"`
+		Port        int                        `json:"port"`
 	}
 
 	// SQLiteConfig defines SQLite-specific configuration
 	SQLiteConfig struct {
-		File      string                     `json:"file"`      // Database file path, use :memory: for in-memory database, server fs level
-		Pool      PoolConfig                 `json:"pool"`      // Connection pool settings
-		Options   map[string]string          `json:"options"`   // SQLite-specific options
-		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"` // Lifecycle configuration
+		Options   map[string]string          `json:"options"`
+		File      string                     `json:"file"`
+		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
+		Pool      PoolConfig                 `json:"pool"`
 	}
 )
-
-// UnmarshalJSON provides custom unmarshaling for PoolConfig to handle time.Duration
-func (c *PoolConfig) UnmarshalJSON(data []byte) error {
-	type Alias PoolConfig
-	aux := &struct {
-		MaxLifetime string `json:"max_lifetime"`
-		*Alias
-	}{
-		Alias: (*Alias)(c),
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	if aux.MaxLifetime != "" {
-		duration, err := time.ParseDuration(aux.MaxLifetime)
-		if err != nil {
-			return fmt.Errorf("invalid max_lifetime duration format: %w", err)
-		}
-		c.MaxLifetime = duration
-	}
-
-	return nil
-}
-
-// MarshalJSON provides custom marshaling for PoolConfig to handle time.Duration
-func (c *PoolConfig) MarshalJSON() ([]byte, error) {
-	type Alias PoolConfig
-	return json.Marshal(&struct {
-		MaxLifetime string `json:"max_lifetime"`
-		*Alias
-	}{
-		MaxLifetime: c.MaxLifetime.String(),
-		Alias:       (*Alias)(c),
-	})
-}
 
 // InitDefaults initializes the PoolConfig with default values if not set
 func (c *PoolConfig) InitDefaults() {
@@ -155,35 +118,35 @@ func (c *SQLiteConfig) InitDefaults() {
 // Validate checks if the DBConfig has all required fields set to valid values
 func (c *DBConfig) Validate() error {
 	if c.Host == "" && c.HostEnv == "" {
-		return fmt.Errorf("host is required")
+		return ErrHostRequired
 	}
 
 	if c.Port <= 0 && c.PortEnv == "" {
-		return fmt.Errorf("port must be greater than 0")
+		return ErrInvalidPort
 	}
 
 	if c.Database == "" && c.DatabaseEnv == "" {
-		return fmt.Errorf("database is required")
+		return ErrDatabaseRequired
 	}
 
 	if c.Username == "" && c.UsernameEnv == "" {
-		return fmt.Errorf("username is required")
+		return ErrUsernameRequired
 	}
 
 	if c.Password == "" && c.PasswordEnv == "" {
-		return fmt.Errorf("password is required")
+		return ErrPasswordRequired
 	}
 
-	if c.Pool.MaxOpen <= 0 {
-		return fmt.Errorf("pool.max_open must be greater than 0")
+	if c.Pool.MaxOpen < 0 {
+		return ErrInvalidMaxOpen
 	}
 
 	if c.Pool.MaxIdle < 0 {
-		return fmt.Errorf("pool.max_idle must be greater than or equal to 0")
+		return ErrInvalidMaxIdle
 	}
 
 	if c.Pool.MaxLifetime <= 0 {
-		return fmt.Errorf("pool.max_lifetime must be greater than 0")
+		return ErrInvalidMaxLifetime
 	}
 
 	return nil
@@ -192,12 +155,52 @@ func (c *DBConfig) Validate() error {
 // Validate checks if the SQLiteConfig has all required fields set to valid values
 func (c *SQLiteConfig) Validate() error {
 	if c.File == "" {
-		return fmt.Errorf("file is required")
+		return ErrFileRequired
 	}
 
 	if c.Pool.MaxLifetime <= 0 {
-		return fmt.Errorf("pool.max_lifetime must be greater than 0")
+		return ErrInvalidMaxLifetime
 	}
 
+	return nil
+}
+
+// MarshalJSON implements custom marshaling for PoolConfig to output durations as strings.
+func (c *PoolConfig) MarshalJSON() ([]byte, error) {
+	type alias struct {
+		MaxLifetime string `json:"max_lifetime,omitempty"`
+		MaxOpen     int    `json:"max_open"`
+		MaxIdle     int    `json:"max_idle"`
+	}
+	a := alias{
+		MaxOpen: c.MaxOpen,
+		MaxIdle: c.MaxIdle,
+	}
+	if c.MaxLifetime != 0 {
+		a.MaxLifetime = c.MaxLifetime.String()
+	}
+	return json.Marshal(a)
+}
+
+// UnmarshalJSON implements custom unmarshaling for PoolConfig to parse duration strings.
+func (c *PoolConfig) UnmarshalJSON(data []byte) error {
+	type alias struct {
+		MaxLifetime string `json:"max_lifetime"`
+		MaxOpen     int    `json:"max_open"`
+		MaxIdle     int    `json:"max_idle"`
+	}
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	c.MaxOpen = a.MaxOpen
+	c.MaxIdle = a.MaxIdle
+	if a.MaxLifetime != "" {
+		d, err := time.ParseDuration(a.MaxLifetime)
+		if err != nil {
+			return fmt.Errorf("invalid max_lifetime: %w", err)
+		}
+		c.MaxLifetime = d
+	}
 	return nil
 }

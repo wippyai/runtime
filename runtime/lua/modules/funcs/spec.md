@@ -1,271 +1,370 @@
-# Lua Functions Module Specification
+# funcs
 
-## Overview
+Function calls and async execution. Workflow, nondeterministic.
 
-The Functions module provides a Lua interface for executing tasks both synchronously and asynchronously. It enables
-namespace-aware function calls with proper context management, method chaining, and cancellation support.
-
-## Module Interface
-
-### Module Loading
+## Loading
 
 ```lua
 local funcs = require("funcs")
 ```
 
-### Creating Function Executor
+## Functions
+
+### call(target: string, ...args) -> result, error
+
+Calls a registered function synchronously.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| target | string | yes | - | Function ID in format "namespace:name" |
+| ...args | any | no | - | Arguments passed to the function |
+
+**Returns:**
+- Success: `result, nil` - the function's return value
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| target empty | errors.INVALID | no |
+| namespace missing | errors.INVALID | no |
+| name missing | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
+| function error | varies | varies |
+
+**Yields:** until function completes
+
+**Context inheritance:** Automatically inherits actor, scope, and values from calling frame context.
 
 ```lua
-local executor = funcs.new()
+local result, err = funcs.call("app.test:echo", "hello")
+if err then error(err) end
+print(result.echo)  -- "hello"
 ```
 
-Returns a new function executor instance or raises an error if dependencies are missing.
+### async(target: string, ...args) -> Future, error
 
-### Methods
+Starts an async function call, returns immediately.
 
-#### with_context(context_table)
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| target | string | yes | - | Function ID in format "namespace:name" |
+| ...args | any | no | - | Arguments passed to the function |
 
-Creates a new executor instance with merged context values.
+**Returns:**
+- Success: `Future, nil` - Future object for awaiting result
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| target empty | errors.INVALID | no |
+| namespace missing | errors.INVALID | no |
+| name missing | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
+| subscribe failed | errors.INTERNAL | no |
+
+**Yields:** until async operation starts (not until completion)
+
+**Context inheritance:** Automatically inherits actor, scope, and values from calling frame context.
 
 ```lua
--- Create new executor with context
-local executor2 = executor:with_context({
-    tenant_id = "123",
-    user_id = "456"
+local future, err = funcs.async("app.process:heavy", 42)
+if err then error(err) end
+
+local ch = future:response()
+local payload, ok = ch:receive()
+local data = payload:data()
+```
+
+### new() -> Executor
+
+Creates a new Executor for building function calls with custom context.
+
+**Returns:** `Executor` - new executor instance
+
+```lua
+local exec = funcs.new()
+local result = exec:call("app.test:echo", "test")
+```
+
+## Types
+
+### Executor
+
+Builder for function calls with custom context options. Methods return new Executor instances (immutable chaining).
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| with_context | (values: table) | Executor | Merges context values |
+| with_actor | (actor: Actor) | Executor | Sets security actor |
+| with_scope | (scope: Scope) | Executor | Sets security scope |
+| with_options | (options: table) | Executor | Sets call options |
+| call | (target: string, ...args) | result, error | Sync call |
+| async | (target: string, ...args) | Future, error | Async call |
+
+#### executor:with_context(values: table) -> Executor
+
+Adds or merges context values for called functions.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| values | table | yes | - | Key-value pairs to add to context |
+
+**Returns:** New `Executor` with merged context
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| permission denied | errors.PERMISSION_DENIED | no |
+
+**Context merging:** Values from calling frame are inherited, then overlaid with explicit values. Explicit values take precedence for conflicts.
+
+```lua
+local exec = funcs.new():with_context({
+    request_id = "req-123",
+    user_id = 456
 })
-
--- Original executor remains unchanged
--- Chain multiple contexts
-local executor3 = funcs.new()
-    :with_context({ tenant = "123" })
-    :with_context({ user = "john" })
+local result = exec:call("app.api:handler")
 ```
 
-Parameters:
+#### executor:with_actor(actor: Actor) -> Executor
 
-- `context_table`: Table with string keys and any values
+Sets the security actor for called functions.
 
-Returns:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| actor | Actor | yes | - | Security actor (from security module) |
 
-- New executor instance with updated context (immutable operation)
+**Returns:** New `Executor` with actor set
 
-#### call(target, ...)
+**Errors (structured):**
 
-Executes function synchronously and blocks until completion.
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| actor is nil | error | no |
+| permission denied | errors.PERMISSION_DENIED | no |
 
 ```lua
--- Call with single values
-local result, err = executor:call("myapp:process", 1, 2, 3)
+local security = require("security")
+local actor = security.new_actor("user123", {role = "admin"})
 
--- Call with table
-local result, err = executor:call("myapp:process", {
-    user_id = 123,
-    data = "some data"
+local exec = funcs.new():with_actor(actor)
+local result = exec:call("app.secure:operation")
+```
+
+#### executor:with_scope(scope: Scope) -> Executor
+
+Sets the security scope for called functions.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| scope | Scope | yes | - | Security scope (from security module) |
+
+**Returns:** New `Executor` with scope set
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| scope is nil | error | no |
+| permission denied | errors.PERMISSION_DENIED | no |
+
+```lua
+local security = require("security")
+local scope = security.new_scope()
+
+local exec = funcs.new():with_scope(scope)
+local result = exec:call("app.secure:operation")
+```
+
+#### executor:with_options(options: table) -> Executor
+
+Sets call options (timeout, retries, etc).
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| options | table | yes | - | Implementation-specific options |
+
+**Returns:** New `Executor` with options set
+
+Options are passed as Task.Options to the scheduler. Available options depend on the runtime configuration.
+
+```lua
+local exec = funcs.new():with_options({
+    timeout = 5000,
+    priority = "high"
 })
 ```
 
-Parameters:
+#### executor:call(target: string, ...args) -> result, error
 
-- `target`: String in "namespace:name" format (namespace required)
-- `...`: Arguments to pass (auto-wrapped in payloads)
+Calls a function with the executor's context settings.
 
-Returns:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| target | string | yes | - | Function ID in format "namespace:name" |
+| ...args | any | no | - | Arguments passed to the function |
 
-- `result`: Function result or nil on error
-- `err`: Error message or nil on success
+**Returns:**
+- Success: `result, nil` - the function's return value
+- Error: `nil, error` - structured error
 
-#### async(target, ...)
+**Errors:** Same as `funcs.call()`
 
-Executes function asynchronously and returns a task object.
+**Yields:** until function completes
 
-```lua
--- Start async execution with single values
-local task = executor:async("myapp:worker", 1, 2, 3)
-
--- Start async execution with table argument
-local task = executor:async("myapp:worker", {
-    job_id = "job123",
-    data = "async data"
-})
-```
-
-Parameters:
-
-- `target`: String in "namespace:name" format (namespace required)
-- `...`: Arguments to pass (auto-wrapped in payloads)
-
-Returns:
-
-- Task object with methods for managing execution and a response property
-
-## Task Object
-
-The task object returned by `async()` has the following methods:
+**Context application:** Starts with inherited frame context (actor, scope, values), then overlays with executor's explicit settings. Explicit settings take precedence.
 
 ```lua
--- Check if task has completed (successfully or with error)
-local completed = task:is_complete()
-
--- Get error message if any occurred, nil otherwise
-local err = task:error()
-
--- Get result and error (only if task is complete)
-local result, err = task:result()
-
--- Check if task was cancelled
-local canceled = task:is_canceled()
-
--- Cancel the task execution
-task:cancel()
-```
-
-The task object also has a response property:
-
-```lua
--- Get result from the response channel
-local value, ok = task.response:receive()
-```
-
-## Usage Examples
-
-### Basic Usage
-
-```lua
-local funcs = require("funcs")
-
--- Create executor
-local executor = funcs.new()
-
--- Synchronous call
-local result, err = executor:call("myapp:process", 1, 2, 3)
-if err then
-    print("Error:", err)
-else
-    print("Result:", result)
-end
-
--- Asynchronous call with result handling
-local task = executor:async("myapp:worker", { job_id = "123" })
-
--- Do other work while the function executes
-do_something_else()
-
--- Get the result when ready
-local value, ok = task.response:receive()
-if not ok then
-    print("Channel closed without result")
-    return
-end
-
--- Access task information
-if task:is_complete() then
-    local result, err = task:result()
-    if err then
-        print("Error:", err)
-    else
-        print("Success:", result)
-    end
-end
-```
-
-### Context and Chaining
-
-```lua
-local funcs = require("funcs")
-
--- Chain operations with context
 local result, err = funcs.new()
-    :with_context({ tenant = "123" })
-    :with_context({ user = "john" })
-    :call("myapp:process", 1, 2, 3)
-
--- Context is immutable
-local base = funcs.new():with_context({ tenant = "123" })
-local exec1 = base:with_context({ user = "john" })
-local exec2 = base:with_context({ user = "jane" })
+    :with_context({trace_id = "abc"})
+    :call("app.test:echo", "hello")
 ```
 
-### Cancellation
+#### executor:async(target: string, ...args) -> Future, error
+
+Starts an async call with the executor's context settings.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| target | string | yes | - | Function ID in format "namespace:name" |
+| ...args | any | no | - | Arguments passed to the function |
+
+**Returns:**
+- Success: `Future, nil` - Future object for awaiting result
+- Error: `nil, error` - structured error
+
+**Errors:** Same as `funcs.async()`
+
+**Yields:** until async operation starts
+
+**Context application:** Same as `executor:call()`
 
 ```lua
--- Start async task
-local task = executor:async("myapp:long_process", data)
+local future, err = funcs.new()
+    :with_context({session_id = "sess-123"})
+    :async("app.process:heavy", 42)
+```
 
--- Check if we should continue or cancel
-if should_cancel() then
-    task:cancel()
-    print("Task cancelled")
-end
+## Dependencies
 
--- Check completion and cancellation status
-if task:is_complete() then
-    if task:is_canceled() then
-        print("Task was cancelled")
-    else
-        -- Check for errors
-        local err = task:error()
-        if err then
-            print("Task failed with error:", err)
-        else
-            local result, err = task:result()
-            if not err then
-                print("Task succeeded with result:", result)
-            end
-        end
+### Future (from future module)
+
+Returned by `funcs.async()` and `executor:async()`.
+
+| Method | Signature | Returns |
+|--------|-----------|---------|
+| response | () | Channel |
+| channel | () | Channel |
+| is_complete | () | boolean |
+| is_canceled | () | boolean |
+| result | () | value, error |
+| error | () | error, boolean |
+| cancel | () | - |
+
+See: `runtime/lua/modules/future/spec.md`
+
+### Channel (from engine)
+
+Used by Future for receiving async results.
+
+| Method | Signature | Returns |
+|--------|-----------|---------|
+| receive | () | value, ok: boolean |
+| close | () | - |
+| case_receive | () | case |
+
+See: `runtime/lua/engine/spec.md`
+
+### Payload (from payload module)
+
+Async results are returned as Payload userdata.
+
+| Method | Signature | Returns |
+|--------|-----------|---------|
+| data | () | value, error |
+| get_format | () | string |
+
+See: `runtime/lua/modules/payload/spec.md`
+
+### Actor and Scope (from security module)
+
+Used by `with_actor()` and `with_scope()`.
+
+See: `runtime/lua/modules/security/spec.md`
+
+## Errors
+
+This module returns structured errors. Check kind with `errors.*` constants:
+
+```lua
+local result, err = funcs.call("app.test:echo", "hello")
+if err then
+    if err:kind() == errors.INVALID then
+        -- bad input (empty target, missing namespace/name)
+    elseif err:kind() == errors.PERMISSION_DENIED then
+        -- not allowed to call this function
+    elseif err:kind() == errors.INTERNAL then
+        -- function execution failed
     end
 end
 ```
 
-### Integration with Channel System
+**Possible kinds:** `errors.INVALID`, `errors.PERMISSION_DENIED`, `errors.INTERNAL`, `errors.CANCELED`, or any error kind from the called function
+
+## Example
 
 ```lua
 local funcs = require("funcs")
-local time = require("time")
 
--- Start async task
-local task = executor:async("myapp:process", data)
+-- Simple synchronous call
+local result, err = funcs.call("app.test:echo", "hello world")
+if err then error(err) end
+print(result.echo)  -- "hello world"
 
--- Create a ticker for timeout
-local ticker = time.ticker(5000) -- 5 seconds
+-- Async call with Future
+local future, err = funcs.async("app.process:heavy_compute", 42)
+if err then error(err) end
 
--- Use select to wait for either result or timeout
-local result = channel.select{
-    task.response:case_receive(),
-    ticker:channel():case_receive()
-}
+-- Wait for result via channel
+local ch = future:response()
+local payload, ok = ch:receive()
+if not ok then error("channel closed") end
+local data = payload:data()
+print("async result:", data)
 
-if result.channel == ticker:channel() then
-    -- Timeout occurred, cancel task
-    task:cancel()
-    ticker:stop()
-    print("Operation timed out")
-else
-    -- Task completed
-    ticker:stop()
-    handle_result(result.value)
-end
-```
+-- Using executor with context
+local exec = funcs.new():with_context({
+    request_id = "req-456",
+    user_id = 123
+})
 
-### Parallel Execution
+local r1, e1 = exec:call("app.api:get_user")
+if e1 then error(e1) end
 
-```lua
--- Execute multiple tasks in parallel
-local tasks = {}
-for i = 1, 5 do
-    tasks[i] = executor:async("myapp:process_chunk", {
-        chunk_id = i,
-        data = chunks[i]
-    })
-end
+-- Chaining multiple context settings
+local security = require("security")
+local actor = security.new_actor("admin", {role = "admin"})
 
--- Collect all results
-local results = {}
-for i, task in ipairs(tasks) do
-    local value, ok = task.response:receive()
-    if ok then
-        results[i] = value
-    else
-        print("Task", i, "failed:", task:error())
-    end
-end
+local result2 = funcs.new()
+    :with_actor(actor)
+    :with_context({operation = "delete"})
+    :with_options({timeout = 5000})
+    :call("app.admin:delete_user", 999)
+
+-- Multiple concurrent async calls
+local f1 = funcs.async("app.process:task_a")
+local f2 = funcs.async("app.process:task_b")
+local f3 = funcs.async("app.process:task_c")
+
+-- Wait for all
+local p1 = f1:response():receive()
+local p2 = f2:response():receive()
+local p3 = f3:response():receive()
+
+print("all tasks complete")
 ```

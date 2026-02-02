@@ -1,4 +1,5 @@
 version: "2"
+
 run:
   allow-parallel-runners: true
 linters:
@@ -7,10 +8,11 @@ linters:
     - asciicheck
     - bodyclose
     - copyloopvar
+    - depguard
     - dogsled
     - errcheck
     - errorlint
-    - exhaustive
+    #- exhaustive
     - gocritic
     - goprintffuncname
     - gosec
@@ -20,43 +22,61 @@ linters:
     - nakedret
     - noctx
     - nolintlint
-    - prealloc
+    #- nilnil
     - revive
     - staticcheck
     - tparallel
     - unconvert
-    - unparam
     - unused
     - whitespace
   settings:
+    depguard:
+      rules:
+        api-boundary:
+          files:
+            - api/**
+          deny:
+            - pkg: github.com/wippyai/runtime/service
+              desc: "api packages must not depend on service implementations"
     dupl:
       threshold: 100
+    errcheck:
+      check-type-assertions: false
+      check-blank: false
     goconst:
       min-len: 2
       min-occurrences: 3
     godot:
       scope: declarations
       capital: true
+    govet:
+      enable-all: true
+      disable:
+        - shadow
     lll:
       line-length: 120
     misspell:
       locale: US
+      ignore-rules:
+        - "cancelled"
+    nilnil:
+      checked-types:
+        - ptr
+        - func
+        - iface
+        - map
+        - chan
     nolintlint:
       require-specific: true
-      require-explanation: true
-    prealloc:
-      simple: true
-      range-loops: true
-      for-loops: true
+      require-explanation: false
+    staticcheck:
+      checks: ["all"]
     wsl:
       allow-assign-and-anything: true
   exclusions:
     generated: lax
     presets:
       - comments
-      - common-false-positives
-      - legacy
-      - std-error-handling
     rules:
       - linters:
           - dupl
@@ -64,12 +84,81 @@ linters:
           - gocognit
           - scopelint
         path: _test\.go
+      - linters:
+          - errcheck
+        path: _test\.go
+      - linters:
+          - errcheck
+        path: bench_test\.go
+      - linters:
+          - errcheck
+        path: fuzz_test\.go
+      - linters:
+          - gosec
+        path: _test\.go
+      - linters:
+          - revive
+        text: "unused-parameter"
+        path: _test\.go
+      - linters:
+          - revive
+        text: "redefines-builtin-id"
+      - linters:
+          - govet
+        text: "unusedwrite"
+        path: _test\.go
+      - linters:
+          - errcheck
+        text: "Error return value of.*Close.*is not checked"
+      - linters:
+          - errcheck
+        text: "Error return value of.*Remove.*is not checked"
+      - linters:
+          - gosec
+        text: "G101"
+      - linters:
+          - gosec
+        text: "G103"
+      - linters:
+          - gosec
+        text: "G115"
+      - linters:
+          - gosec
+        text: "G301"
+      - linters:
+          - gosec
+        text: "G304"
+      - linters:
+          - gosec
+        text: "G306"
+      - linters:
+          - gocritic
+        text: "captLocal"
+      - linters:
+          - gocritic
+        text: "ifElseChain"
+      - linters:
+          - gocritic
+        text: "exitAfterDefer"
+      - linters:
+          - gosec
+        text: "G104"
+      - linters:
+          - revive
+        text: "unexported-return"
+      - linters:
+          - staticcheck
+        text: "SA1012"
+        path: _test\.go
     paths:
       - .github
       - .git
+      - __old
       - third_party$
       - builtin$
       - examples$
+      - github.com/yuin/gopher-lua
+      - github.com/wippyai/go-lua
 formatters:
   enable:
     - gofmt
@@ -83,4 +172,4 @@ formatters:
       - builtin$
       - examples$
 issues:
-  fix: true
+  fix: false

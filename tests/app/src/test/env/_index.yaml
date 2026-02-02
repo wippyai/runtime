@@ -1,0 +1,101 @@
+version: "1.0"
+namespace: app.test.env
+
+entries:
+  # Memory storage for testing
+  - name: memory
+    kind: env.storage.memory
+    meta:
+      comment: In-memory env storage for tests
+
+  # OS environment storage
+  - name: os
+    kind: env.storage.os
+    meta:
+      comment: OS environment variables
+
+  # Composite router storage
+  - name: router
+    kind: env.storage.router
+    meta:
+      comment: Routes to memory then os
+    storages:
+      - app.test.env:memory
+      - app.test.env:os
+
+  # Environment variables for testing
+  - name: PATH
+    kind: env.variable
+    variable: PATH
+    storage: app.test.env:os
+
+  - name: TEST_VAR_123
+    kind: env.variable
+    variable: TEST_VAR_123
+    storage: app.test.env:memory
+
+  - name: TEST_VAR_EMPTY
+    kind: env.variable
+    variable: TEST_VAR_EMPTY
+    storage: app.test.env:memory
+
+  - name: ROUTER_TEST_VAR
+    kind: env.variable
+    variable: ROUTER_TEST_VAR
+    storage: app.test.env:router
+
+  # Basic operations test
+  - name: basic
+    kind: function.lua
+    meta:
+      type: test
+      suite: env
+      description: env module basic operations
+    source: file://basic.lua
+    method: main
+    modules:
+      - env
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Get/Set operations test
+  - name: getset
+    kind: function.lua
+    meta:
+      type: test
+      suite: env
+      description: env get and set operations
+    source: file://getset.lua
+    method: main
+    modules:
+      - env
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Router test
+  - name: router_test
+    kind: function.lua
+    meta:
+      type: test
+      suite: env
+      description: env router storage
+    source: file://router.lua
+    method: main
+    modules:
+      - env
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Error handling test
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: env
+      description: env error handling
+    source: file://errors.lua
+    method: main
+    modules:
+      - env
+    imports:
+      assert_primitives: app.lib:assert

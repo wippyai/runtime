@@ -1,0 +1,81 @@
+version: "1.0"
+namespace: app.test.system
+
+entries:
+  - name: module
+    kind: function.lua
+    meta:
+      type: test
+      suite: system
+      description: system module loading and structure
+    source: file://module.lua
+    method: main
+    modules:
+      - system
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: memory
+    kind: function.lua
+    meta:
+      type: test
+      suite: system
+      description: system.memory functions
+    source: file://memory.lua
+    method: main
+    modules:
+      - system
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: gc
+    kind: function.lua
+    meta:
+      type: test
+      suite: system
+      description: system.gc functions
+    source: file://gc.lua
+    method: main
+    modules:
+      - system
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: runtime
+    kind: function.lua
+    meta:
+      type: test
+      suite: system
+      description: system.runtime functions
+    source: file://runtime.lua
+    method: main
+    modules:
+      - system
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: process
+    kind: function.lua
+    meta:
+      type: test
+      suite: system
+      description: system.process functions
+    source: file://process.lua
+    method: main
+    modules:
+      - system
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: system
+      description: system module error handling
+    source: file://errors.lua
+    method: main
+    modules:
+      - system
+    imports:
+      assert_primitives: app.lib:assert

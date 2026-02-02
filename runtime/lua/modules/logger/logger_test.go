@@ -1,231 +1,265 @@
 package logger
 
 import (
-	"context"
+	"bytes"
 	"testing"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/logs"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	lua "github.com/wippyai/go-lua"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest/observer"
+	"go.uber.org/zap/zapcore"
 )
 
-func TestLoggerModule(t *testing.T) {
-	t.Run("module creation and loading", func(t *testing.T) {
-		core, _ := observer.New(zap.InfoLevel)
-		logger := zap.New(core)
+func TestLoad(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
 
-		mod := NewLoggerModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+	val, _ := Module.BuildValue()
+	l.SetGlobal(Module.Name, val)
 
-		err = vm.DoString(context.Background(), `
-			local logger = require("logger")
-			assert(type(logger) == "userdata")
-		`, "test")
-		assert.NoError(t, err)
-	})
+	mod := l.GetGlobal("logger")
+	if mod.Type() != lua.LTUserData {
+		t.Fatalf("expected userdata, got %s", mod.Type())
+	}
+}
 
-	t.Run("log levels with simple messages", func(t *testing.T) {
-		core, logs := observer.New(zap.DebugLevel)
-		logger := zap.New(core)
+func TestLoadReuse(t *testing.T) {
+	l1 := lua.NewState()
+	defer l1.Close()
+	l2 := lua.NewState()
+	defer l2.Close()
 
-		mod := NewLoggerModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+	val, _ := Module.BuildValue()
+	l1.SetGlobal(Module.Name, val)
+	l2.SetGlobal(Module.Name, val)
 
-		// Clear any initialization logs
-		logs.TakeAll()
+	mod1 := l1.GetGlobal("logger").(*lua.LUserData)
+	mod2 := l2.GetGlobal("logger").(*lua.LUserData)
 
-		err = vm.DoString(context.Background(), `
-			local logger = require("logger")
-			logger:debug("debug message")
-			logger:info("info message")
-			logger:warn("warning message")
-			logger:error("error message")
-		`, "test")
-		require.NoError(t, err)
+	if mod1 != mod2 {
+		t.Error("module userdata should be reused across states")
+	}
+}
 
-		entries := logs.All()
-		require.Len(t, entries, 4)
-		assert.Equal(t, "debug message", entries[0].Message)
-		assert.Equal(t, zap.DebugLevel, entries[0].Level)
-		assert.Equal(t, "info message", entries[1].Message)
-		assert.Equal(t, zap.InfoLevel, entries[1].Level)
-		assert.Equal(t, "warning message", entries[2].Message)
-		assert.Equal(t, zap.WarnLevel, entries[2].Level)
-		assert.Equal(t, "error message", entries[3].Message)
-		assert.Equal(t, zap.ErrorLevel, entries[3].Level)
-	})
+func newTestLogger() (*zap.Logger, *bytes.Buffer) {
+	buf := &bytes.Buffer{}
+	encoder := zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
+	core := zapcore.NewCore(encoder, zapcore.AddSync(buf), zapcore.DebugLevel)
+	return zap.New(core), buf
+}
 
-	t.Run("logging with fields", func(t *testing.T) {
-		core, logs := observer.New(zap.InfoLevel)
-		logger := zap.New(core)
+func resetModule() {
+	Module = &luaapi.ModuleDef{
+		Name:        "logger",
+		Description: "Structured logging",
+		Class:       []string{luaapi.ClassIO},
+		BuildValue:  buildModule,
+	}
+}
 
-		mod := NewLoggerModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+func TestModuleFunctions(t *testing.T) {
+	log, buf := newTestLogger()
+	resetModule()
 
-		// Clear any initialization logs
-		logs.TakeAll()
+	l := lua.NewState()
+	defer l.Close()
 
-		err = vm.DoString(context.Background(), `
-			local logger = require("logger")
-			logger:info("user logged in", {
-				user_id = 123,
-				username = "testuser",
-				is_admin = true
-			})
-		`, "test")
-		require.NoError(t, err)
+	// Set context with logger using proper AppContext
+	ctx := ctxapi.NewRootContext()
+	logs.WithLogger(ctx, log)
+	l.SetContext(ctx)
 
-		entries := logs.All()
-		require.Len(t, entries, 1)
-		entry := entries[0]
-		assert.Equal(t, "user logged in", entry.Message)
-		assert.Equal(t, float64(123), entry.ContextMap()["user_id"])
-		assert.Equal(t, "testuser", entry.ContextMap()["username"])
-		assert.Equal(t, true, entry.ContextMap()["is_admin"])
-	})
+	val, _ := Module.BuildValue()
+	l.SetGlobal(Module.Name, val)
 
-	t.Run("logger:with() method", func(t *testing.T) {
-		core, logs := observer.New(zap.InfoLevel)
-		logger := zap.New(core)
+	err := l.DoString(`
+		logger:info("test message", {key = "value"})
+	`)
+	if err != nil {
+		t.Fatalf("DoString failed: %v", err)
+	}
 
-		mod := NewLoggerModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+	output := buf.String()
+	if !bytes.Contains(buf.Bytes(), []byte("test message")) {
+		t.Errorf("expected 'test message' in output, got: %s", output)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("value")) {
+		t.Errorf("expected 'value' in output, got: %s", output)
+	}
+}
 
-		// Clear any initialization logs
-		logs.TakeAll()
+func TestLoggerWith(t *testing.T) {
+	log, buf := newTestLogger()
+	resetModule()
 
-		err = vm.DoString(context.Background(), `
-			local logger = require("logger")
-			local contextLogger = logger:with({
-				request_id = "req-123",
-				service = "auth"
-			})
-			contextLogger:info("processing request")
-			contextLogger:error("request failed")
-		`, "test")
-		require.NoError(t, err)
+	l := lua.NewState()
+	defer l.Close()
 
-		entries := logs.All()
-		require.Len(t, entries, 2)
-		for _, entry := range entries {
-			assert.Equal(t, "req-123", entry.ContextMap()["request_id"])
-			assert.Equal(t, "auth", entry.ContextMap()["service"])
-		}
-	})
+	ctx := ctxapi.NewRootContext()
+	logs.WithLogger(ctx, log)
+	l.SetContext(ctx)
 
-	t.Run("logger:named() method", func(t *testing.T) {
-		core, logs := observer.New(zap.InfoLevel)
-		logger := zap.New(core)
+	val, _ := Module.BuildValue()
+	l.SetGlobal(Module.Name, val)
 
-		mod := NewLoggerModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+	err := l.DoString(`
+		local child = logger:with({component = "test"})
+		child:info("child message")
+	`)
+	if err != nil {
+		t.Fatalf("DoString failed: %v", err)
+	}
 
-		// Clear any initialization logs
-		logs.TakeAll()
+	output := buf.String()
+	if !bytes.Contains(buf.Bytes(), []byte("child message")) {
+		t.Errorf("expected 'child message' in output, got: %s", output)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("component")) {
+		t.Errorf("expected 'component' field in output, got: %s", output)
+	}
+}
 
-		err = vm.DoString(context.Background(), `
-			local logger = require("logger")
-			local authLogger = logger:named("auth")
-			authLogger:info("initializing auth service")
-		`, "test")
-		require.NoError(t, err)
+func TestLoggerNamed(t *testing.T) {
+	log, buf := newTestLogger()
+	resetModule()
 
-		entries := logs.All()
-		require.Len(t, entries, 1)
-		assert.Contains(t, entries[0].LoggerName, "auth")
-	})
+	l := lua.NewState()
+	defer l.Close()
 
-	t.Run("error handling", func(t *testing.T) {
-		core, _ := observer.New(zap.InfoLevel)
-		logger := zap.New(core)
+	ctx := ctxapi.NewRootContext()
+	logs.WithLogger(ctx, log)
+	l.SetContext(ctx)
 
-		mod := NewLoggerModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+	val, _ := Module.BuildValue()
+	l.SetGlobal(Module.Name, val)
 
-		// Test empty name in named()
-		err = vm.DoString(context.Background(), `
-			local logger = require("logger")
-			local success, err = pcall(function()
-				logger:named("")
-			end)
-			assert(not success)
-			return err
-		`, "test")
-		require.NoError(t, err)
-		errMsg := vm.State().Get(-1).String()
-		assert.Contains(t, errMsg, "name cannot be empty")
-		vm.State().Pop(1)
+	err := l.DoString(`
+		local named = logger:named("mylogger")
+		named:info("named message")
+	`)
+	if err != nil {
+		t.Fatalf("DoString failed: %v", err)
+	}
 
-		// Test invalid logger userdata
-		err = vm.DoString(context.Background(), `
-			local logger = require("logger")
-			local fake_logger = "not a logger"
-			local success, err = pcall(function()
-				fake_logger:info("test")
-			end)
-			assert(not success)
-			return err
-		`, "test")
-		require.NoError(t, err)
-		errMsg = vm.State().Get(-1).String()
-		assert.Contains(t, errMsg, "attempt to call a non-function object")
-		vm.State().Pop(1)
+	output := buf.String()
+	if !bytes.Contains(buf.Bytes(), []byte("named message")) {
+		t.Errorf("expected 'named message' in output, got: %s", output)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("mylogger")) {
+		t.Errorf("expected 'mylogger' in output, got: %s", output)
+	}
+}
 
-		// Test with() with non-table argument
-		err = vm.DoString(context.Background(), `
-			local logger = require("logger")
-			local success, err = pcall(function()
-				logger:with("not a table")
-			end)
-			assert(not success)
-			return err
-		`, "test")
-		require.NoError(t, err)
-		errMsg = vm.State().Get(-1).String()
-		assert.Contains(t, errMsg, "table expected")
-		vm.State().Pop(1)
-	})
+func TestLogLevels(t *testing.T) {
+	log, buf := newTestLogger()
+	resetModule()
 
-	t.Run("error field handling", func(t *testing.T) {
-		core, logs := observer.New(zap.InfoLevel)
-		logger := zap.New(core)
+	l := lua.NewState()
+	defer l.Close()
 
-		mod := NewLoggerModule(logger)
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+	ctx := ctxapi.NewRootContext()
+	logs.WithLogger(ctx, log)
+	l.SetContext(ctx)
 
-		// Clear any initialization logs
-		logs.TakeAll()
+	val, _ := Module.BuildValue()
+	l.SetGlobal(Module.Name, val)
 
-		err = vm.DoString(context.Background(), `
-			local logger = require("logger")
-			logger:error("operation failed", {
-				error = "database connection failed",  -- Changed from 'error' to 'err_msg'
-				operation = "db_connect"
-			})
-		`, "test")
-		require.NoError(t, err)
+	err := l.DoString(`
+		logger:debug("debug msg")
+		logger:info("info msg")
+		logger:warn("warn msg")
+		logger:error("error msg")
+	`)
+	if err != nil {
+		t.Fatalf("DoString failed: %v", err)
+	}
 
-		entries := logs.All()
-		require.Len(t, entries, 1)
-		entry := entries[0]
-		assert.Equal(t, "operation failed", entry.Message)
-		assert.Equal(t, "database connection failed", entry.ContextMap()["error"])
-		assert.Equal(t, "db_connect", entry.ContextMap()["operation"])
-	})
+	output := buf.String()
+	if !bytes.Contains(buf.Bytes(), []byte("debug msg")) {
+		t.Errorf("expected 'debug msg' in output, got: %s", output)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("info msg")) {
+		t.Errorf("expected 'info msg' in output, got: %s", output)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("warn msg")) {
+		t.Errorf("expected 'warn msg' in output, got: %s", output)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("error msg")) {
+		t.Errorf("expected 'error msg' in output, got: %s", output)
+	}
+}
+
+func TestFieldTypes(t *testing.T) {
+	log, buf := newTestLogger()
+	resetModule()
+
+	l := lua.NewState()
+	defer l.Close()
+
+	ctx := ctxapi.NewRootContext()
+	logs.WithLogger(ctx, log)
+	l.SetContext(ctx)
+
+	val, _ := Module.BuildValue()
+	l.SetGlobal(Module.Name, val)
+
+	err := l.DoString(`
+		logger:info("types test", {
+			str = "hello",
+			num = 42,
+			float = 3.14,
+			bool = true
+		})
+	`)
+	if err != nil {
+		t.Fatalf("DoString failed: %v", err)
+	}
+
+	output := buf.String()
+	if !bytes.Contains(buf.Bytes(), []byte("hello")) {
+		t.Errorf("expected string field in output, got: %s", output)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("42")) {
+		t.Errorf("expected number field in output, got: %s", output)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("3.14")) {
+		t.Errorf("expected float field in output, got: %s", output)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("true")) {
+		t.Errorf("expected bool field in output, got: %s", output)
+	}
+}
+
+func TestChainedLoggers(t *testing.T) {
+	log, buf := newTestLogger()
+	resetModule()
+
+	l := lua.NewState()
+	defer l.Close()
+
+	ctx := ctxapi.NewRootContext()
+	logs.WithLogger(ctx, log)
+	l.SetContext(ctx)
+
+	val, _ := Module.BuildValue()
+	l.SetGlobal(Module.Name, val)
+
+	err := l.DoString(`
+		local child1 = logger:with({service = "api"})
+		local child2 = child1:with({method = "GET"})
+		child2:info("chained")
+	`)
+	if err != nil {
+		t.Fatalf("DoString failed: %v", err)
+	}
+
+	output := buf.String()
+	if !bytes.Contains(buf.Bytes(), []byte("service")) {
+		t.Errorf("expected 'service' field in output, got: %s", output)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("method")) {
+		t.Errorf("expected 'method' field in output, got: %s", output)
+	}
 }

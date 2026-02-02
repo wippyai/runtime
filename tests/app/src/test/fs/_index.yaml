@@ -1,0 +1,81 @@
+version: "1.0"
+namespace: app.test.fs
+
+entries:
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: fs
+      description: Filesystem error handling
+    source: file://errors.lua
+    method: main
+    modules:
+      - fs
+    imports:
+      assert2: app.lib:assert
+
+  - name: directory
+    kind: function.lua
+    meta:
+      type: test
+      suite: fs
+      description: Directory operations
+    source: file://directory.lua
+    method: main
+    modules:
+      - fs
+    imports:
+      assert2: app.lib:assert
+
+  - name: file
+    kind: function.lua
+    meta:
+      type: test
+      suite: fs
+      description: File read/write operations
+    source: file://file.lua
+    method: main
+    modules:
+      - fs
+    imports:
+      assert2: app.lib:assert
+
+  - name: seek
+    kind: function.lua
+    meta:
+      type: test
+      suite: fs
+      description: File seek operations
+    source: file://seek.lua
+    method: main
+    modules:
+      - fs
+    imports:
+      assert2: app.lib:assert
+
+  - name: readdir
+    kind: function.lua
+    meta:
+      type: test
+      suite: fs
+      description: Directory iteration
+    source: file://readdir.lua
+    method: main
+    modules:
+      - fs
+    imports:
+      assert2: app.lib:assert
+
+  - name: path
+    kind: function.lua
+    meta:
+      type: test
+      suite: fs
+      description: Path navigation (chdir/pwd)
+    source: file://path.lua
+    method: main
+    modules:
+      - fs
+    imports:
+      assert2: app.lib:assert

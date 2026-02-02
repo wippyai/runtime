@@ -3,69 +3,70 @@ package topology
 import (
 	"testing"
 
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"
+	pidapi "github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
 )
 
 func TestPIDRegistry_Register(t *testing.T) {
-	logger := zap.NewNop()
-	reg := NewPIDRegistry(PIDRegistryConfig{
-		Logger: logger,
-	})
+	reg := NewPIDRegistry(WithLogger(zap.NewNop()))
 
 	// Create test PIDs
-	pid1 := pubsub.PID{
+	pid1 := pidapi.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ParseID("test:proc1"),
 		UniqID: "uniq1",
 	}
 
-	pid2 := pubsub.PID{
+	pid2 := pidapi.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ParseID("test:proc2"),
 		UniqID: "uniq2",
 	}
 
-	// Test successful registration
-	err := reg.Register("name1", pid1)
+	// Test successful registration - returns the registered PID
+	existingPID, err := reg.Register("name1", pid1)
 	assert.NoError(t, err)
+	assert.Equal(t, pid1, existingPID)
 
-	// Test overwriting existing registration (should be allowed for atomic pointer changes)
-	err = reg.Register("name1", pid2)
+	// Test re-registering same name with same PID (should be allowed)
+	existingPID, err = reg.Register("name1", pid1)
 	assert.NoError(t, err)
+	assert.Equal(t, pid1, existingPID)
 
-	// Verify the name now points to pid2
+	// Test registering existing name with different PID (should fail and return existing)
+	existingPID, err = reg.Register("name1", pid2)
+	assert.ErrorIs(t, err, topology.ErrNameAlreadyRegistered)
+	assert.Equal(t, pid1, existingPID) // Returns the existing PID
+
+	// Verify the name still points to pid1
 	resolvedPID, found := reg.Lookup("name1")
 	assert.True(t, found)
-	assert.Equal(t, pid2, resolvedPID)
+	assert.Equal(t, pid1, resolvedPID)
 
-	// Test successful registration of different name and Target
-	err = reg.Register("name2", pid2)
+	// Test successful registration of different name
+	existingPID, err = reg.Register("name2", pid2)
 	assert.NoError(t, err)
+	assert.Equal(t, pid2, existingPID)
 
-	// Test registering same Target with different name (should be allowed)
-	err = reg.Register("name3", pid1)
+	// Test registering same PID with different name (should be allowed)
+	existingPID, err = reg.Register("name3", pid1)
 	assert.NoError(t, err)
+	assert.Equal(t, pid1, existingPID)
 }
-func TestPIDRegistry_Lookup(t *testing.T) {
-	logger := zap.NewNop()
-	reg := NewPIDRegistry(PIDRegistryConfig{
-		Logger: logger,
-	})
 
-	pid := pubsub.PID{
+func TestPIDRegistry_Lookup(t *testing.T) {
+	reg := NewPIDRegistry(WithLogger(zap.NewNop()))
+
+	pid := pidapi.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ParseID("test:proc"),
 		UniqID: "uniq1",
 	}
 
 	// Register a name
-	err := reg.Register("test-name", pid)
+	_, err := reg.Register("test-name", pid)
 	assert.NoError(t, err)
 
 	// Test successful lookup
@@ -79,20 +80,16 @@ func TestPIDRegistry_Lookup(t *testing.T) {
 }
 
 func TestPIDRegistry_Unregister(t *testing.T) {
-	logger := zap.NewNop()
-	reg := NewPIDRegistry(PIDRegistryConfig{
-		Logger: logger,
-	})
+	reg := NewPIDRegistry(WithLogger(zap.NewNop()))
 
-	pid := pubsub.PID{
+	pid := pidapi.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ParseID("test:proc"),
 		UniqID: "uniq1",
 	}
 
 	// Register a name
-	err := reg.Register("test-name", pid)
+	_, err := reg.Register("test-name", pid)
 	assert.NoError(t, err)
 
 	// Test successful unregister
@@ -112,37 +109,30 @@ func TestPIDRegistry_WithParent(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Create parent registry
-	parentReg := NewPIDRegistry(PIDRegistryConfig{
-		Logger: logger,
-	})
+	parentReg := NewPIDRegistry(WithLogger(logger))
 
 	// Create child registry with parent
-	childReg := NewPIDRegistry(PIDRegistryConfig{
-		Parent: parentReg,
-		Logger: logger,
-	})
+	childReg := NewPIDRegistry(WithParent(parentReg), WithLogger(logger))
 
 	// Create test PIDs
-	parentPID := pubsub.PID{
+	parentPID := pidapi.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ParseID("test:parent"),
 		UniqID: "uniq1",
 	}
 
-	childPID := pubsub.PID{
+	childPID := pidapi.PID{
 		Node:   "node1",
 		Host:   "host1",
-		ID:     registry.ParseID("test:child"),
 		UniqID: "uniq2",
 	}
 
 	// Register a name in parent
-	err := parentReg.Register("parent-name", parentPID)
+	_, err := parentReg.Register("parent-name", parentPID)
 	assert.NoError(t, err)
 
 	// Register a name in child
-	err = childReg.Register("child-name", childPID)
+	_, err = childReg.Register("child-name", childPID)
 	assert.NoError(t, err)
 
 	// Test child looking up its own registration
@@ -165,22 +155,22 @@ func TestPIDRegistry_WithParent(t *testing.T) {
 }
 
 func TestPIDRegistry_ThreadSafety(t *testing.T) {
-	logger := zap.NewNop()
-	reg := NewPIDRegistry(PIDRegistryConfig{
-		Logger: logger,
-	})
+	if testing.Short() {
+		t.Skip("skipping thread safety stress test in short mode")
+	}
+
+	reg := NewPIDRegistry(WithLogger(zap.NewNop()))
 
 	const numRoutines = 100
 
 	// Create a bunch of unique PIDs and names
-	pids := make([]pubsub.PID, numRoutines)
+	pids := make([]pidapi.PID, numRoutines)
 	names := make([]string, numRoutines)
 
 	for i := 0; i < numRoutines; i++ {
-		pids[i] = pubsub.PID{
+		pids[i] = pidapi.PID{
 			Node:   "node1",
 			Host:   "host1",
-			ID:     registry.ParseID("test:proc" + string(rune(i))),
 			UniqID: "uniq" + string(rune(i)),
 		}
 		names[i] = "name-" + string(rune(i))
@@ -193,7 +183,7 @@ func TestPIDRegistry_ThreadSafety(t *testing.T) {
 	for i := 0; i < numRoutines; i++ {
 		go func(idx int) {
 			defer func() { done <- true }()
-			err := reg.Register(names[idx], pids[idx])
+			_, err := reg.Register(names[idx], pids[idx])
 			if err != nil {
 				t.Errorf("Failed to register: %v", err)
 			}
@@ -241,4 +231,98 @@ func TestPIDRegistry_ThreadSafety(t *testing.T) {
 		_, found := reg.Lookup(names[i])
 		assert.False(t, found)
 	}
+}
+
+func TestPIDRegistry_Remove(t *testing.T) {
+	reg := NewPIDRegistry(WithLogger(zap.NewNop()))
+
+	pid := pidapi.PID{Node: "node1", Host: "host1", UniqID: "uniq1"}
+
+	// Register multiple names for the same PID
+	_, _ = reg.Register("name1", pid)
+	_, _ = reg.Register("name2", pid)
+	_, _ = reg.Register("name3", pid)
+
+	// Verify all names resolve
+	_, found := reg.Lookup("name1")
+	assert.True(t, found)
+	_, found = reg.Lookup("name2")
+	assert.True(t, found)
+	_, found = reg.Lookup("name3")
+	assert.True(t, found)
+
+	// Remove the PID entirely
+	reg.Remove(pid)
+
+	// All names should be gone
+	_, found = reg.Lookup("name1")
+	assert.False(t, found)
+	_, found = reg.Lookup("name2")
+	assert.False(t, found)
+	_, found = reg.Lookup("name3")
+	assert.False(t, found)
+}
+
+func TestPIDRegistry_RemoveWithParent(t *testing.T) {
+	parent := NewPIDRegistry(WithLogger(zap.NewNop()))
+	child := NewPIDRegistry(WithParent(parent), WithLogger(zap.NewNop()))
+
+	pid := pidapi.PID{Node: "node1", Host: "host1", UniqID: "uniq1"}
+
+	// Register in both
+	_, _ = parent.Register("parent-name", pid)
+	_, _ = child.Register("child-name", pid)
+
+	// Remove from child should propagate to parent
+	child.Remove(pid)
+
+	// Both should be gone
+	_, found := child.Lookup("child-name")
+	assert.False(t, found)
+	_, found = parent.Lookup("parent-name")
+	assert.False(t, found)
+}
+
+func TestPIDRegistry_RemoveNotFoundDelegatesToParent(t *testing.T) {
+	parent := NewPIDRegistry(WithLogger(zap.NewNop()))
+	child := NewPIDRegistry(WithParent(parent), WithLogger(zap.NewNop()))
+
+	pid := pidapi.PID{Node: "node1", Host: "host1", UniqID: "uniq1"}
+
+	// Register only in parent
+	_, _ = parent.Register("parent-only", pid)
+
+	// Remove from child - PID not in child, should delegate to parent
+	child.Remove(pid)
+
+	// Parent registration should be gone
+	_, found := parent.Lookup("parent-only")
+	assert.False(t, found)
+}
+
+func TestPIDRegistry_RemoveNonExistent(t *testing.T) {
+	reg := NewPIDRegistry(WithLogger(zap.NewNop()))
+
+	p := pidapi.PID{Node: "node1", Host: "host1", UniqID: "nonexistent"}
+
+	// Remove non-existent PID - should not panic
+	reg.Remove(p)
+
+	// Verify lookup still returns false
+	_, found := reg.Lookup("nonexistent")
+	assert.False(t, found)
+}
+
+func TestPIDRegistry_RemoveNonExistentWithParent(t *testing.T) {
+	parent := NewPIDRegistry(WithLogger(zap.NewNop()))
+	child := NewPIDRegistry(WithParent(parent), WithLogger(zap.NewNop()))
+
+	p := pidapi.PID{Node: "node1", Host: "host1", UniqID: "nonexistent"}
+
+	// Remove non-existent PID from child - should delegate to parent, not panic
+	child.Remove(p)
+
+	// Verify lookup still returns false
+	_, found := child.Lookup("nonexistent")
+	assert.False(t, found)
 }

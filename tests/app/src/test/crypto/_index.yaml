@@ -1,0 +1,68 @@
+version: "1.0"
+namespace: app.test.crypto
+
+entries:
+  - name: random
+    kind: function.lua
+    meta:
+      type: test
+      suite: crypto
+      description: Random data generation
+    source: file://random.lua
+    method: main
+    modules:
+      - crypto
+    imports:
+      assert2: app.lib:assert
+
+  - name: hmac
+    kind: function.lua
+    meta:
+      type: test
+      suite: crypto
+      description: HMAC functions
+    source: file://hmac.lua
+    method: main
+    modules:
+      - crypto
+    imports:
+      assert2: app.lib:assert
+
+  - name: encrypt
+    kind: function.lua
+    meta:
+      type: test
+      suite: crypto
+      description: Encryption and decryption
+    source: file://encrypt.lua
+    method: main
+    modules:
+      - crypto
+    imports:
+      assert2: app.lib:assert
+
+  - name: jwt
+    kind: function.lua
+    meta:
+      type: test
+      suite: crypto
+      description: JWT encode and verify
+    source: file://jwt.lua
+    method: main
+    modules:
+      - crypto
+    imports:
+      assert2: app.lib:assert
+
+  - name: pbkdf2
+    kind: function.lua
+    meta:
+      type: test
+      suite: crypto
+      description: Key derivation
+    source: file://pbkdf2.lua
+    method: main
+    modules:
+      - crypto
+    imports:
+      assert2: app.lib:assert

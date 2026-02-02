@@ -1,888 +1,998 @@
-# SQL Package Specification
+# sql
 
-## Overview
+SQL database operations with query builder and transaction support. Storage, io, nondeterministic.
 
-The SQL package provides a Lua interface to SQL databases. It exposes a consistent API for database operations that
-works across different database engines (PostgreSQL, SQLite, etc.).
-
-## Module Interface
-
-### Loading the Module
+## Loading
 
 ```lua
 local sql = require("sql")
 ```
 
-### Constants
-
-#### Database Type Constants
-
-Available in `sql.type`:
-
-- `POSTGRES` (string): PostgreSQL database
-- `MYSQL` (string): MySQL database
-- `SQLITE` (string): SQLite database
-- `MSSQL` (string): Microsoft SQL Server database
-- `ORACLE` (string): Oracle database
-- `UNKNOWN` (string): Unknown or unsupported database type
-
-### Type Conversions
-
-The `sql.as` submodule provides functions for explicit type conversion between Lua values and SQL-specific types:
-
-- `sql.as.int(value)`: Converts the value to a SQL INTEGER type
-- `sql.as.float(value)`: Converts the value to a SQL FLOAT/REAL type
-- `sql.as.binary(value)`: Converts the value to a SQL BINARY/BLOB type
-- `sql.as.text(value)`: Converts the value to a SQL TEXT type
-- `sql.as.null()`: Explicitly represents a SQL NULL value
-
-These functions help ensure type compatibility between Lua's dynamic typing and SQL's strict typing system, particularly
-useful when Lua's number type (float) needs to be treated as a specific SQL type.
-
-## Core Concepts
-
-### Resource Management
-
-- Database connections are obtained from the resource registry
-- All resources (connections, statements, transactions) are automatically cleaned up when the containing unit of work
-  completes
-- Resources can be explicitly released earlier if needed
-
-### Error Handling
-
-- Most operations return nil + error message on failure
-- Success is indicated by a result value + nil
-- Database connections are managed as resources with proper cleanup
-
-## Database Operations
-
-### Getting a Database Connection
+## Constants
 
 ```lua
-local db, err = sql.get("resource_id")
--- Parameters: resource_id (string) - Resource ID for the database
--- Returns on success: database object, nil
--- Returns on error: nil, error message
+-- Database types
+sql.type.POSTGRES    -- "postgres"
+sql.type.MYSQL       -- "mysql"
+sql.type.SQLITE      -- "sqlite"
+sql.type.MSSQL       -- "mssql"
+sql.type.ORACLE      -- "oracle"
+sql.type.UNKNOWN     -- "unknown"
+
+-- Transaction isolation levels
+sql.isolation.DEFAULT           -- "default"
+sql.isolation.READ_UNCOMMITTED  -- "read_uncommitted"
+sql.isolation.READ_COMMITTED    -- "read_committed"
+sql.isolation.WRITE_COMMITTED   -- "write_committed"
+sql.isolation.REPEATABLE_READ   -- "repeatable_read"
+sql.isolation.SERIALIZABLE      -- "serializable"
+
+-- NULL marker
+sql.NULL  -- represents SQL NULL value
+
+-- Builder placeholder formats
+sql.builder.question            -- ? placeholder (default)
+sql.builder.dollar              -- $1, $2, ... placeholder
+sql.builder.at                  -- @p1, @p2, ... placeholder
+sql.builder.colon               -- :1, :2, ... placeholder
+sql.builder.default_placeholder -- alias for question
 ```
 
-### Execute Query
+## Functions
+
+### get(id: string) → DB, error
+
+Acquires database connection from resource registry.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| id | string | yes | - | Resource ID (e.g., "app.db:main") |
+
+**Returns:**
+- Success: `DB` - database handle
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| id empty | errors.INVALID | no |
+| permission denied | errors.PERMISSION_DENIED | no |
+| resource not found | errors.NOT_FOUND | no |
+| resource not database | errors.INVALID | no |
+
+**Yields:** until resource acquired
+
+## sql.as
+
+Type coercion functions for explicit SQL type mapping.
+
+### as.int(value: number) → userdata
+
+Coerces value to SQL integer type.
+
+**Returns:** userdata representing typed integer value
+
+### as.float(value: number) → userdata
+
+Coerces value to SQL float type.
+
+**Returns:** userdata representing typed float value
+
+### as.text(value: any) → userdata
+
+Coerces value to SQL text type.
+
+**Returns:** userdata representing typed text value
+
+### as.binary(value: string) → userdata
+
+Coerces value to SQL binary type.
+
+**Returns:** userdata representing typed binary value
+
+### as.null() → userdata
+
+Returns SQL NULL marker (alternative to sql.NULL constant).
+
+**Returns:** userdata representing SQL NULL
+
+## sql.builder
+
+SQL query builder with fluent interface.
+
+### builder.select(columns...: string) → SelectBuilder
+
+Creates SELECT query builder.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| columns | ...string | no | - | Column names (can add more with :columns()) |
+
+**Returns:** `SelectBuilder` - builder instance
+
+### builder.insert(table?: string) → InsertBuilder
+
+Creates INSERT query builder.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| table | string | no | "" | Table name (can set with :into()) |
+
+**Returns:** `InsertBuilder` - builder instance
+
+### builder.update(table?: string) → UpdateBuilder
+
+Creates UPDATE query builder.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| table | string | no | "" | Table name (can set with :table()) |
+
+**Returns:** `UpdateBuilder` - builder instance
+
+### builder.delete(table?: string) → DeleteBuilder
+
+Creates DELETE query builder.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| table | string | no | "" | Table name (can set with :from()) |
+
+**Returns:** `DeleteBuilder` - builder instance
+
+### builder.expr(sql: string, args...: any) → Sqlizer
+
+Creates raw SQL expression for use in where/having clauses.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| sql | string | yes | - | SQL expression with ? placeholders |
+| args | ...any | no | - | Bind arguments |
+
+**Returns:** `Sqlizer` - SQL expression
 
 ```lua
-local result, err = db:query(sql_query[, params])
--- Parameters:
---   sql_query (string): SQL query to execute
---   params (table, optional): Array of parameter values
--- Returns on success: table of result rows, nil
--- Returns on error: nil, error message
--- Note: Each row is a table with column names as keys
+local expr = sql.builder.expr("score BETWEEN ? AND ?", 80, 90)
 ```
 
-### Execute Update/Insert/Delete
+### builder.eq(map: table) → Sqlizer
+
+Creates equality condition from table.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| map | table | yes | - | {column = value} pairs |
+
+**Returns:** `Sqlizer` - equality condition
 
 ```lua
-local result, err = db:execute(sql_statement[, params])
--- Parameters:
---   sql_statement (string): SQL statement to execute
---   params (table, optional): Array of parameter values
--- Returns on success: result table, nil
---   result.rows_affected: Number of rows affected
---   result.last_insert_id: Last insert ID (if applicable)
--- Returns on error: nil, error message
+local cond = sql.builder.eq({active = 1, status = "open"})
 ```
 
-### Prepare Statement
+### builder.not_eq(map: table) → Sqlizer
+
+Creates inequality condition from table.
+
+**Returns:** `Sqlizer` - inequality condition
+
+### builder.lt(map: table) → Sqlizer
+
+Creates less-than condition from table.
+
+**Returns:** `Sqlizer` - less-than condition
+
+### builder.lte(map: table) → Sqlizer
+
+Creates less-than-or-equal condition from table.
+
+**Returns:** `Sqlizer` - less-than-or-equal condition
+
+### builder.gt(map: table) → Sqlizer
+
+Creates greater-than condition from table.
+
+**Returns:** `Sqlizer` - greater-than condition
+
+### builder.gte(map: table) → Sqlizer
+
+Creates greater-than-or-equal condition from table.
+
+**Returns:** `Sqlizer` - greater-than-or-equal condition
+
+### builder.like(map: table) → Sqlizer
+
+Creates LIKE condition from table.
+
+**Returns:** `Sqlizer` - LIKE condition
 
 ```lua
-local stmt, err = db:prepare(sql_query)
--- Parameters: sql_query (string) - SQL query to prepare
--- Returns on success: statement object, nil
--- Returns on error: nil, error message
+local cond = sql.builder.like({name = "john%"})
 ```
 
-### Begin Transaction
+### builder.not_like(map: table) → Sqlizer
+
+Creates NOT LIKE condition from table.
+
+**Returns:** `Sqlizer` - NOT LIKE condition
+
+### builder.and_(conditions: table) → Sqlizer
+
+Combines multiple conditions with AND.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| conditions | table | yes | - | Array of Sqlizer or table conditions |
+
+**Returns:** `Sqlizer` - AND condition
 
 ```lua
-local tx, err = db:begin()
--- Returns on success: transaction object, nil
--- Returns on error: nil, error message
-```
-
-### Get Database Type
-
-```lua
-local type, err = db:type()
--- Returns on success: string representing the database type, nil
--- Returns on error: nil, error message
--- Note: The returned type will be one of the constants in sql.type
-```
-
-### Release Connection
-
-```lua
-local ok, err = db:release()
--- Returns on success: true, nil
--- Returns on error: nil, error message
-```
-
-## Prepared Statement Operations
-
-### Execute Prepared Query
-
-```lua
-local rows, err = stmt:query([params])
--- Parameters: params (table, optional) - Array of parameter values
--- Returns on success: table of result rows, nil
--- Returns on error: nil, error message
-```
-
-### Execute Prepared Statement
-
-```lua
-local result, err = stmt:execute([params])
--- Parameters: params (table, optional) - Array of parameter values
--- Returns on success: result table, nil
---   result.rows_affected: Number of rows affected
---   result.last_insert_id: Last insert ID (if applicable)
--- Returns on error: nil, error message
-```
-
-### Close Statement
-
-```lua
-local ok, err = stmt:close()
--- Returns on success: true, nil
--- Returns on error: nil, error message
-```
-
-## Transaction Operations
-
-### Execute Query in Transaction
-
-```lua
-local rows, err = tx:query(sql_query[, params])
--- Parameters:
---   sql_query (string): SQL query to execute
---   params (table, optional): Array of parameter values
--- Returns on success: table of result rows, nil
--- Returns on error: nil, error message
-```
-
-### Execute Statement in Transaction
-
-```lua
-local result, err = tx:execute(sql_statement[, params])
--- Parameters:
---   sql_statement (string): SQL statement to execute
---   params (table, optional): Array of parameter values
--- Returns on success: result table, nil
---   result.rows_affected: Number of rows affected
---   result.last_insert_id: Last insert ID (if applicable)
--- Returns on error: nil, error message
-```
-
-### Prepare Statement in Transaction
-
-```lua
-local stmt, err = tx:prepare(sql_query)
--- Parameters: sql_query (string) - SQL query to prepare
--- Returns on success: statement object, nil
--- Returns on error: nil, error message
-```
-
-### Create Savepoint
-
-```lua
-local ok, err = tx:savepoint(name)
--- Parameters: name (string) - Savepoint name
--- Returns on success: true, nil
--- Returns on error: nil, error message
-```
-
-### Rollback to Savepoint
-
-```lua
-local ok, err = tx:rollback_to(name)
--- Parameters: name (string) - Savepoint name
--- Returns on success: true, nil
--- Returns on error: nil, error message
-```
-
-### Release Savepoint
-
-```lua
-local ok, err = tx:release(name)
--- Parameters: name (string) - Savepoint name
--- Returns on success: true, nil
--- Returns on error: nil, error message
-```
-
-### Commit Transaction
-
-```lua
-local ok, err = tx:commit()
--- Returns on success: true, nil
--- Returns on error: nil, error message
-```
-
-### Rollback Transaction
-
-```lua
-local ok, err = tx:rollback()
--- Returns on success: true, nil
--- Returns on error: nil, error message
-```
-
-## SQL Query Builder
-
-The SQL package includes a powerful query builder that allows for creating SQL queries programmatically. This provides a
-structured approach to building complex queries with proper parameter binding and escaping.
-
-### Builder Components
-
-The query builder is available under the `sql.builder` namespace with the following main components:
-
-- `sql.builder.select`: Creates a SELECT query builder
-- `sql.builder.insert`: Creates an INSERT query builder
-- `sql.builder.update`: Creates an UPDATE query builder
-- `sql.builder.delete`: Creates a DELETE query builder
-- `sql.builder.expr`: Creates a raw SQL expression
-- Expression conditions (`eq`, `not_eq`, `lt`, `lte`, `gt`, `gte`, `like`, `not_like`, `and_`, `or_`)
-- Placeholder formats (`question`, `dollar`, `at`, `colon`)
-
-### SELECT Builder
-
-```lua
-local select_query = sql.builder.select("column1", "column2")
-  :from("table_name")
-  :where("column1 = ?", value)
-  :order_by("column2 DESC")
-  :limit(10)
-```
-
-#### SELECT Methods
-
-- `from(table_name)`: Specifies the FROM table
-- `join(expr[, args...])`: Adds a JOIN clause
-- `left_join(expr[, args...])`: Adds a LEFT JOIN clause
-- `right_join(expr[, args...])`: Adds a RIGHT JOIN clause
-- `inner_join(expr[, args...])`: Adds an INNER JOIN clause
-- `where(condition[, args...])`: Adds a WHERE condition (can be a string, table, or Sqlizer)
-- `order_by(clauses...)`: Adds ORDER BY clauses
-- `group_by(columns...)`: Adds GROUP BY columns
-- `having(condition[, args...])`: Adds a HAVING condition
-- `limit(count)`: Adds a LIMIT clause
-- `offset(count)`: Adds an OFFSET clause
-- `columns(columns...)`: Adds additional columns
-- `distinct()`: Adds DISTINCT to the query
-- `suffix(expr[, args...])`: Adds a suffix to the query
-- `placeholder_format(format)`: Sets the placeholder format
-- `to_sql()`: Returns the SQL string and parameter values
-- `run_with(db|tx)`: Creates an executor for this query
-
-### INSERT Builder
-
-```lua
-local insert_query = sql.builder.insert("table_name")
-  :columns("column1", "column2")
-  :values(value1, value2)
-```
-
-#### INSERT Methods
-
-- `into(table_name)`: Specifies the table to insert into
-- `columns(columns...)`: Specifies the columns to insert into
-- `values(values...)`: Adds a row of values
-- `set_map(table)`: Sets columns and values from a table
-- `select(select_builder)`: Sets a SELECT query as the source of values
-- `suffix(expr[, args...])`: Adds a suffix to the query
-- `options(options...)`: Adds options to the INSERT statement
-- `placeholder_format(format)`: Sets the placeholder format
-- `to_sql()`: Returns the SQL string and parameter values
-- `run_with(db|tx)`: Creates an executor for this query
-
-### UPDATE Builder
-
-```lua
-local update_query = sql.builder.update("table_name")
-  :set("column1", value1)
-  :set("column2", value2)
-  :where("id = ?", id)
-```
-
-#### UPDATE Methods
-
-- `table(table_name)`: Specifies the table to update
-- `set(column, value)`: Sets a column to a value
-- `set_map(table)`: Sets multiple columns from a table
-- `where(condition[, args...])`: Adds a WHERE condition
-- `order_by(clauses...)`: Adds ORDER BY clauses
-- `limit(count)`: Adds a LIMIT clause
-- `offset(count)`: Adds an OFFSET clause
-- `suffix(expr[, args...])`: Adds a suffix to the query
-- `from(table_name)`: Adds a FROM clause (for Postgres)
-- `from_select(select_builder, alias)`: Adds a FROM (SELECT...) clause
-- `placeholder_format(format)`: Sets the placeholder format
-- `to_sql()`: Returns the SQL string and parameter values
-- `run_with(db|tx)`: Creates an executor for this query
-
-### DELETE Builder
-
-```lua
-local delete_query = sql.builder.delete("table_name")
-  :where("id = ?", id)
-```
-
-#### DELETE Methods
-
-- `from(table_name)`: Specifies the table to delete from
-- `where(condition[, args...])`: Adds a WHERE condition
-- `order_by(clauses...)`: Adds ORDER BY clauses
-- `limit(count)`: Adds a LIMIT clause
-- `offset(count)`: Adds an OFFSET clause
-- `suffix(expr[, args...])`: Adds a suffix to the query
-- `placeholder_format(format)`: Sets the placeholder format
-- `to_sql()`: Returns the SQL string and parameter values
-- `run_with(db|tx)`: Creates an executor for this query
-
-### Expression Builders
-
-```lua
--- Equality condition
-local equals = sql.builder.eq({id = 1, name = "test"})
-
--- Inequality condition
-local not_equals = sql.builder.not_eq({active = false})
-
--- Comparison conditions
-local less_than = sql.builder.lt({age = 30})
-local greater_than = sql.builder.gt({price = 100})
-
--- LIKE condition
-local like_pattern = sql.builder.like({name = "A%"})
-
--- AND/OR conditions
-local combined = sql.builder.and_({
-  sql.builder.eq({status = "active"}),
-  sql.builder.gt({created_at = "2023-01-01"})
+local cond = sql.builder.and_({
+    sql.builder.eq({active = 1}),
+    sql.builder.gt({score = 80})
 })
 ```
 
-#### Expression Methods
+### builder.or_(conditions: table) → Sqlizer
 
-- `to_sql()`: Returns the SQL string and parameter values
+Combines multiple conditions with OR.
 
-### Query Execution
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| conditions | table | yes | - | Array of Sqlizer or table conditions |
 
-Queries built with the builder can be executed directly on a database connection or transaction:
+**Returns:** `Sqlizer` - OR condition
+
+## Types
+
+### DB
+
+Database connection handle. Returned by `sql.get()`. Auto-released on process cleanup.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| type | () | string, error | Database type (sql.type.*) |
+| query | (sql: string, params?: table) | rows: table[], error | Execute SELECT query |
+| execute | (sql: string, params?: table) | result: table, error | Execute INSERT/UPDATE/DELETE |
+| prepare | (sql: string) | Statement, error | Create prepared statement |
+| begin | (options?: table) | Transaction, error | Begin transaction |
+| release | () | boolean, error | Release database resource |
+| stats | () | table, error | Get connection pool statistics |
+
+**Methods yield:** query, execute, prepare, begin
+
+#### db:type() → string, error
+
+Returns database type constant.
+
+**Returns:**
+- Success: `string` - one of sql.type.* constants
+- Error: `nil, error`
+
+**Yields:** no
+
+#### db:query(sql: string, params?: table) → table[], error
+
+Executes SELECT query and returns rows.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| sql | string | yes | - | SQL query with ? placeholders |
+| params | table | no | nil | Array of bind parameters |
+
+**Returns:**
+- Success: `table[]` - array of row tables with column names as keys
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| invalid params type | errors.INVALID | no |
+| SQL syntax error | errors.INVALID | no |
+| query execution error | varies | varies |
+
+**Yields:** until query completes
 
 ```lua
--- Create a query
-local select_query = sql.builder.select("id", "name")
-  :from("users")
-  :where("id > ?", 100)
-  :order_by("id ASC")
-  :limit(10)
-
--- Execute the query
-local executor = select_query:run_with(db)
-local results, err = executor:query()
+local rows, err = db:query("SELECT id, name FROM users WHERE active = ?", {1})
+if err then error(err) end
+for _, row in ipairs(rows) do
+    print(row.id, row.name)  -- access by column name
+end
 ```
 
-#### Executor Methods
+#### db:execute(sql: string, params?: table) → table, error
 
-- `exec()`: Executes the query and returns results (for INSERT, UPDATE, DELETE)
-- `query()`: Executes the query and returns all rows
-- `query_row()`: Executes the query and returns a single row
+Executes INSERT/UPDATE/DELETE query.
 
-## Example Usage
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| sql | string | yes | - | SQL statement with ? placeholders |
+| params | table | no | nil | Array of bind parameters |
 
-### Database Type Check
+**Returns:**
+- Success: `table` - {last_insert_id: integer, rows_affected: integer}
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| invalid params type | errors.INVALID | no |
+| SQL syntax error | errors.INVALID | no |
+| execution error | varies | varies |
+
+**Yields:** until execution completes
 
 ```lua
--- Get database connection from resource registry
-local db, err = sql.get("main_db")
+local result, err = db:execute("INSERT INTO users (name) VALUES (?)", {"alice"})
+if err then error(err) end
+print("Inserted ID:", result.last_insert_id)
+print("Rows affected:", result.rows_affected)
+```
+
+#### db:prepare(sql: string) → Statement, error
+
+Creates prepared statement for repeated execution.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| sql | string | yes | - | SQL with ? placeholders |
+
+**Returns:**
+- Success: `Statement` - prepared statement
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| SQL syntax error | errors.INVALID | no |
+| prepare error | varies | varies |
+
+**Yields:** until prepared
+
+```lua
+local stmt, err = db:prepare("SELECT * FROM users WHERE id = ?")
+if err then error(err) end
+-- use stmt:query() or stmt:execute() multiple times
+stmt:close()
+```
+
+#### db:begin(options?: table) → Transaction, error
+
+Begins database transaction.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| options | table | no | nil | Transaction options |
+
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| isolation | string | sql.isolation.DEFAULT | Isolation level from sql.isolation.* |
+| read_only | boolean | false | Read-only transaction flag |
+
+**Returns:**
+- Success: `Transaction` - transaction handle
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| invalid isolation level | errors.INVALID | no |
+| begin error | varies | varies |
+
+**Yields:** until transaction begins
+
+```lua
+local tx, err = db:begin({
+    isolation = sql.isolation.SERIALIZABLE,
+    read_only = false
+})
+if err then error(err) end
+-- use tx:query(), tx:execute(), etc.
+tx:commit()
+```
+
+#### db:release() → boolean, error
+
+Releases database resource back to pool. Safe to call multiple times.
+
+**Returns:**
+- Success: `true, nil`
+- Error: `nil, error`
+
+**Yields:** no
+
+#### db:stats() → table, error
+
+Returns connection pool statistics.
+
+**Returns:**
+- Success: `table` - statistics object
+- Error: `nil, error`
+
+**Statistics fields:**
+
+| Field | Type | Notes |
+|-------|------|-------|
+| max_open_connections | number | Max allowed open connections |
+| open_connections | number | Current open connections |
+| in_use | number | Connections currently in use |
+| idle | number | Idle connections in pool |
+| wait_count | number | Total connection wait count |
+| wait_duration | string | Total wait duration |
+| max_idle_closed | number | Connections closed due to max idle |
+| max_idle_time_closed | number | Connections closed due to idle timeout |
+| max_lifetime_closed | number | Connections closed due to max lifetime |
+
+**Yields:** no
+
+### Statement
+
+Prepared statement. Auto-closed on process cleanup.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| query | (params?: table) | rows: table[], error | Execute as SELECT |
+| execute | (params?: table) | result: table, error | Execute as INSERT/UPDATE/DELETE |
+| close | () | boolean, error | Close statement |
+
+**Methods yield:** query, execute, close
+
+#### stmt:query(params?: table) → table[], error
+
+Executes prepared statement as SELECT.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| params | table | no | nil | Array of bind parameters |
+
+**Returns:**
+- Success: `table[]` - array of row tables
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| statement closed | errors.INVALID | no |
+| invalid params type | errors.INVALID | no |
+| query error | varies | varies |
+
+**Yields:** until query completes
+
+#### stmt:execute(params?: table) → table, error
+
+Executes prepared statement as INSERT/UPDATE/DELETE.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| params | table | no | nil | Array of bind parameters |
+
+**Returns:**
+- Success: `table` - {last_insert_id: integer, rows_affected: integer}
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| statement closed | errors.INVALID | no |
+| invalid params type | errors.INVALID | no |
+| execution error | varies | varies |
+
+**Yields:** until execution completes
+
+#### stmt:close() → boolean, error
+
+Closes prepared statement. Safe to call multiple times.
+
+**Returns:**
+- Success: `true, nil`
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| already closed | errors.INVALID | no |
+| close error | varies | varies |
+
+**Yields:** until closed
+
+### Transaction
+
+Database transaction. Auto-rollback on process cleanup if not committed.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| db_type | () | string, error | Database type |
+| query | (sql: string, params?: table) | rows: table[], error | Execute SELECT in transaction |
+| execute | (sql: string, params?: table) | result: table, error | Execute INSERT/UPDATE/DELETE in transaction |
+| prepare | (sql: string) | Statement, error | Prepare statement in transaction |
+| commit | () | boolean, error | Commit transaction |
+| rollback | () | boolean, error | Rollback transaction |
+| savepoint | (name: string) | boolean, error | Create savepoint |
+| rollback_to | (name: string) | boolean, error | Rollback to savepoint |
+| release | (name: string) | boolean, error | Release savepoint |
+
+**Methods yield:** query, execute, prepare, commit, rollback, savepoint, rollback_to, release
+
+#### tx:db_type() → string, error
+
+Returns database type constant.
+
+**Returns:**
+- Success: `string` - one of sql.type.* constants
+- Error: `nil, error`
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| transaction not active | errors.INVALID | no |
+
+**Yields:** no
+
+#### tx:query(sql: string, params?: table) → table[], error
+
+Executes SELECT query within transaction. Same as db:query() but within transaction scope.
+
+**Yields:** until query completes
+
+#### tx:execute(sql: string, params?: table) → table, error
+
+Executes INSERT/UPDATE/DELETE within transaction. Same as db:execute() but within transaction scope.
+
+**Yields:** until execution completes
+
+#### tx:prepare(sql: string) → Statement, error
+
+Creates prepared statement within transaction. Same as db:prepare() but within transaction scope.
+
+**Yields:** until prepared
+
+#### tx:commit() → boolean, error
+
+Commits transaction. Transaction becomes inactive after commit.
+
+**Returns:**
+- Success: `true, nil`
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| transaction not active | errors.INVALID | no |
+| commit error | varies | varies |
+
+**Yields:** until committed
+
+#### tx:rollback() → boolean, error
+
+Rolls back transaction. Transaction becomes inactive after rollback.
+
+**Returns:**
+- Success: `true, nil`
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| transaction not active | errors.INVALID | no |
+| rollback error | varies | varies |
+
+**Yields:** until rolled back
+
+#### tx:savepoint(name: string) → boolean, error
+
+Creates named savepoint within transaction.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| name | string | yes | - | Savepoint name (alphanumeric and underscore only) |
+
+**Returns:**
+- Success: `true, nil`
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| transaction not active | errors.INVALID | no |
+| name empty | errors.INVALID | no |
+| invalid name chars | errors.INVALID | no |
+| savepoint error | varies | varies |
+
+**Yields:** until savepoint created
+
+```lua
+local tx, _ = db:begin()
+tx:execute("INSERT INTO users (name) VALUES (?)", {"alice"})
+tx:savepoint("sp1")
+tx:execute("INSERT INTO users (name) VALUES (?)", {"bob"})
+tx:rollback_to("sp1")  -- rolls back bob insert, keeps alice
+tx:commit()
+```
+
+#### tx:rollback_to(name: string) → boolean, error
+
+Rolls back to named savepoint, undoing operations after savepoint creation.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| name | string | yes | - | Savepoint name |
+
+**Returns:**
+- Success: `true, nil`
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| transaction not active | errors.INVALID | no |
+| name empty | errors.INVALID | no |
+| invalid name chars | errors.INVALID | no |
+| rollback error | varies | varies |
+
+**Yields:** until rolled back
+
+#### tx:release(name: string) → boolean, error
+
+Releases savepoint, making it unavailable for rollback. Optional cleanup operation.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| name | string | yes | - | Savepoint name |
+
+**Returns:**
+- Success: `true, nil`
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| transaction not active | errors.INVALID | no |
+| name empty | errors.INVALID | no |
+| invalid name chars | errors.INVALID | no |
+| release error | varies | varies |
+
+**Yields:** until released
+
+### SelectBuilder
+
+Fluent SELECT query builder. All methods return new builder instance (immutable chaining).
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| from | (table: string) | SelectBuilder | Set FROM clause |
+| join | (join: string, args...: any) | SelectBuilder | Add JOIN clause |
+| left_join | (join: string, args...: any) | SelectBuilder | Add LEFT JOIN clause |
+| right_join | (join: string, args...: any) | SelectBuilder | Add RIGHT JOIN clause |
+| inner_join | (join: string, args...: any) | SelectBuilder | Add INNER JOIN clause |
+| where | (condition: string\|table\|Sqlizer, args...: any) | SelectBuilder | Add WHERE condition |
+| order_by | (columns...: string) | SelectBuilder | Add ORDER BY clause |
+| group_by | (columns...: string) | SelectBuilder | Add GROUP BY clause |
+| having | (condition: string\|table\|Sqlizer, args...: any) | SelectBuilder | Add HAVING condition |
+| limit | (n: integer) | SelectBuilder | Set LIMIT |
+| offset | (n: integer) | SelectBuilder | Set OFFSET |
+| columns | (columns...: string) | SelectBuilder | Add columns to SELECT |
+| distinct | () | SelectBuilder | Add DISTINCT modifier |
+| suffix | (sql: string, args...: any) | SelectBuilder | Add SQL suffix |
+| placeholder_format | (format: userdata) | SelectBuilder | Set placeholder format |
+| to_sql | () | string, table | Generate SQL and args |
+| run_with | (db: DB\|Transaction) | QueryExecutor | Create executor |
+
+#### where/having condition formats
+
+The `where()` and `having()` methods accept three formats:
+
+1. **String with args**: `where("status = ? AND score > ?", "active", 80)`
+2. **Table (equality)**: `where({status = "active", active = 1})`
+3. **Sqlizer**: `where(sql.builder.gt({score = 80}))`
+
+#### select:to_sql() → string, table
+
+Generates SQL string and bind arguments.
+
+**Returns:**
+- Success: `string, table` - SQL string and args array
+- Error: `nil, error` - structured error on invalid query
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| invalid query structure | errors.INVALID | no |
+
+```lua
+local query = sql.builder.select("id", "name")
+    :from("users")
+    :where({active = 1})
+    :order_by("name ASC")
+    :limit(10)
+
+local sql_str, args = query:to_sql()
+-- sql_str: "SELECT id, name FROM users WHERE active = ? ORDER BY name ASC LIMIT 10"
+-- args: {1}
+```
+
+#### select:run_with(db: DB|Transaction) → QueryExecutor
+
+Creates executor for query.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| db | DB\|Transaction | yes | - | Database or transaction handle |
+
+**Returns:**
+- Success: `QueryExecutor` - executor instance
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| invalid query structure | errors.INVALID | no |
+
+```lua
+local query = sql.builder.select("*")
+    :from("users")
+    :where({active = 1})
+
+local executor = query:run_with(db)
+local rows, err = executor:query()
+```
+
+### InsertBuilder
+
+Fluent INSERT query builder. All methods return new builder instance.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| into | (table: string) | InsertBuilder | Set table name |
+| columns | (columns...: string) | InsertBuilder | Set column names |
+| values | (values...: any) | InsertBuilder | Add row values |
+| set_map | (map: table) | InsertBuilder | Set columns and values from table |
+| select | (query: SelectBuilder) | InsertBuilder | Insert from SELECT |
+| prefix | (sql: string, args...: any) | InsertBuilder | Add SQL prefix |
+| suffix | (sql: string, args...: any) | InsertBuilder | Add SQL suffix |
+| options | (options...: string) | InsertBuilder | Add INSERT options |
+| placeholder_format | (format: userdata) | InsertBuilder | Set placeholder format |
+| to_sql | () | string, table | Generate SQL and args |
+| run_with | (db: DB\|Transaction) | QueryExecutor | Create executor |
+
+```lua
+local insert = sql.builder.insert("users")
+    :columns("name", "email", "active")
+    :values("alice", "alice@example.com", 1)
+
+local executor = insert:run_with(db)
+local result, err = executor:exec()
+-- result.last_insert_id, result.rows_affected
+```
+
+### UpdateBuilder
+
+Fluent UPDATE query builder. All methods return new builder instance.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| table | (table: string) | UpdateBuilder | Set table name |
+| set | (column: string, value: any) | UpdateBuilder | Set column value |
+| set_map | (map: table) | UpdateBuilder | Set multiple columns from table |
+| where | (condition: string\|table\|Sqlizer, args...: any) | UpdateBuilder | Add WHERE condition |
+| order_by | (columns...: string) | UpdateBuilder | Add ORDER BY clause |
+| limit | (n: integer) | UpdateBuilder | Set LIMIT |
+| offset | (n: integer) | UpdateBuilder | Set OFFSET |
+| suffix | (sql: string, args...: any) | UpdateBuilder | Add SQL suffix |
+| from | (table: string) | UpdateBuilder | Add FROM clause |
+| from_select | (query: SelectBuilder, alias: string) | UpdateBuilder | Update from SELECT |
+| placeholder_format | (format: userdata) | UpdateBuilder | Set placeholder format |
+| to_sql | () | string, table | Generate SQL and args |
+| run_with | (db: DB\|Transaction) | QueryExecutor | Create executor |
+
+```lua
+local update = sql.builder.update("users")
+    :set("status", "active")
+    :set("updated_at", sql.builder.expr("NOW()"))
+    :where({id = 123})
+
+local executor = update:run_with(db)
+local result, err = executor:exec()
+```
+
+### DeleteBuilder
+
+Fluent DELETE query builder. All methods return new builder instance.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| from | (table: string) | DeleteBuilder | Set table name |
+| where | (condition: string\|table\|Sqlizer, args...: any) | DeleteBuilder | Add WHERE condition |
+| order_by | (columns...: string) | DeleteBuilder | Add ORDER BY clause |
+| limit | (n: integer) | DeleteBuilder | Set LIMIT |
+| offset | (n: integer) | DeleteBuilder | Set OFFSET |
+| suffix | (sql: string, args...: any) | DeleteBuilder | Add SQL suffix |
+| placeholder_format | (format: userdata) | DeleteBuilder | Set placeholder format |
+| to_sql | () | string, table | Generate SQL and args |
+| run_with | (db: DB\|Transaction) | QueryExecutor | Create executor |
+
+```lua
+local delete = sql.builder.delete("users")
+    :where({active = 0})
+    :limit(100)
+
+local executor = delete:run_with(db)
+local result, err = executor:exec()
+```
+
+### QueryExecutor
+
+Executes builder-generated queries. Returned by builder:run_with().
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| query | () | rows: table[], error | Execute as SELECT (yields) |
+| exec | () | result: table, error | Execute as INSERT/UPDATE/DELETE (yields) |
+| to_sql | () | string, table | Get SQL and args |
+
+#### executor:query() → table[], error
+
+Executes query and returns rows. Use for SELECT statements.
+
+**Returns:**
+- Success: `table[]` - array of row tables
+- Error: `nil, error` - structured error
+
+**Yields:** until query completes
+
+#### executor:exec() → table, error
+
+Executes query and returns result. Use for INSERT/UPDATE/DELETE statements.
+
+**Returns:**
+- Success: `table` - {last_insert_id: integer, rows_affected: integer}
+- Error: `nil, error` - structured error
+
+**Yields:** until execution completes
+
+#### executor:to_sql() → string, table
+
+Returns generated SQL and arguments without executing.
+
+**Returns:** `string, table` - SQL string and args array
+
+**Yields:** no
+
+### Sqlizer
+
+SQL expression wrapper. Created by builder.expr() and comparison functions.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| to_sql | () | string, table | Generate SQL fragment and args |
+
+## Errors
+
+This module returns structured errors. Check kind with `errors.*` constants:
+
+```lua
+local result, err = db:query("SELECT * FROM users")
+if err then
+    if err:kind() == errors.INVALID then
+        -- invalid query or parameters
+    elseif err:kind() == errors.PERMISSION_DENIED then
+        -- access denied
+    elseif err:kind() == errors.NOT_FOUND then
+        -- resource not found
+    end
+    error(err)
+end
+```
+
+**Possible kinds:** `errors.INVALID`, `errors.PERMISSION_DENIED`, `errors.NOT_FOUND`, `errors.INTERNAL`, `errors.UNAVAILABLE`
+
+## Example
+
+```lua
+local sql = require("sql")
+
+-- Get database connection
+local db, err = sql.get("app.db:main")
 if err then error(err) end
 
 -- Check database type
-local dbType, err = db:type()
+local dbtype, _ = db:type()
+print("Database type:", dbtype)
+
+-- Direct query with parameters
+local users, err = db:query("SELECT id, name FROM users WHERE active = ?", {1})
 if err then error(err) end
 
--- Use type-specific features
-if dbType == sql.type.postgres then
-    -- Use PostgreSQL-specific features
-elseif dbType == sql.type.sqlite then
-    -- Use SQLite-specific features
-else
-    print("Using generic SQL features for " .. dbType)
-end
-```
-
-### Basic Query Operations
-
-```lua
--- Get database connection from resource registry
-local db, err = sql.get("main_db")
-if err then error(err) end
-
--- Execute a simple query
-local users, err = db:query("SELECT * FROM users WHERE active = ?", {true})
-if err then error(err) end
-
--- Process results
-for i, user in ipairs(users) do
-    print(string.format("User %d: %s (%s)", i, user.name, user.email))
+for _, user in ipairs(users) do
+    print(user.id, user.name)
 end
 
--- Release the database when done
-db:release()
-```
-
-### Transaction Example
-
-```lua
--- Get database connection
-local db, err = sql.get("main_db")
-if err then error(err) end
-
--- Begin transaction
-local tx, err = db:begin()
-if err then error(err) end
-
--- Perform multiple operations
-local ok, err = tx:execute("UPDATE accounts SET balance = balance - ? WHERE id = ?", {100, 1})
-if err then
-    tx:rollback()
-    error("Transfer failed: " .. err)
-end
-
-ok, err = tx:execute("UPDATE accounts SET balance = balance + ? WHERE id = ?", {100, 2})
-if err then
-    tx:rollback()
-    error("Transfer failed: " .. err)
-end
-
--- Commit the transaction
-ok, err = tx:commit()
-if err then error("Commit failed: " .. err) end
-
--- Release the database when done
-db:release()
-```
-
-### Prepared Statement Example
-
-```lua
--- Get database connection
-local db, err = sql.get("main_db")
-if err then error(err) end
-
--- Prepare a statement
-local stmt, err = db:prepare("INSERT INTO logs (timestamp, level, message) VALUES (?, ?, ?)")
-if err then error(err) end
-
--- Execute it multiple times
-local now = sql.as.int(os.time())
-local result, err = stmt:execute({now, "INFO", "Application started"})
-if err then error(err) end
-
--- Later...
-result, err = stmt:execute({sql.as.int(os.time() + 60), "ERROR", "Connection failed"})
-if err then error(err) end
-
--- Release the database when done
-db:release()
-```
-
-### Savepoint Example
-
-```lua
--- Get database connection
-local db, err = sql.get("main_db")
-if err then error(err) end
-
--- Begin transaction
-local tx, err = db:begin()
-if err then error(err) end
-
--- First operation
-local ok, err = tx:execute("INSERT INTO products (name, price) VALUES (?, ?)", {"Widget", 9.99})
-if err then
-    tx:rollback()
-    error(err)
-end
-
--- Create savepoint
-ok, err = tx:savepoint("product_added")
-if err then
-    tx:rollback()
-    error(err)
-end
-
--- Second operation
-ok, err = tx:execute("UPDATE inventory SET count = count - 1 WHERE product_id = ?", {last_id})
-if err then
-    -- Roll back to savepoint instead of whole transaction
-    tx:rollback_to("product_added")
-    
-    -- Still commit the product addition
-    tx:commit()
-    print("Product added but inventory not updated")
-else
-    -- Everything succeeded
-    tx:commit()
-    print("Product added and inventory updated")
-end
-
--- Release the database when done
-db:release()
-```
-
-### Type Conversion Example
-
-```lua
--- Get database connection
-local db, err = sql.get("main_db")
-if err then error(err) end
-
--- Example using explicit type conversions
-local result, err = db:execute(
-    "INSERT INTO token_usage (usage_id, prompt_tokens, timestamp) VALUES (?, ?, ?)",
-    { 
-        usage_id,
-        sql.as.int(prompt_tokens),  -- Ensure integer type for count
-        sql.as.int(os.time())       -- Ensure integer type for timestamp
-    }
-)
-if err then error(err) end
-
--- Example with NULL values
-local description = has_description and description_text or sql.as.null()
-result, err = db:execute(
-    "INSERT INTO products (name, price, description) VALUES (?, ?, ?)",
-    { "Widget", 9.99, description }  -- description will be NULL if has_description is false
-)
-if err then error(err) end
-
--- Release the database when done
-db:release()
-```
-
-### Query Builder Examples
-
-#### SELECT Query
-
-```lua
--- Get database connection
-local db, err = sql.get("main_db")
-if err then error(err) end
-
--- Build a SELECT query
-local query = sql.builder.select("id", "name", "email")
-    :from("users")
-    :where(sql.builder.and_({
-        sql.builder.eq({active = true}),
-        sql.builder.gt({created_at = "2023-01-01"})
-    }))
-    :order_by("name ASC")
-    :limit(10)
-    :offset(20)
-
--- Execute the query
-local executor = query:run_with(db)
-local results, err = executor:query()
-if err then error(err) end
-
--- Process results
-for i, row in ipairs(results) do
-    print(string.format("User %d: %s (%s)", row.id, row.name, row.email))
-end
-
--- Alternatively, get the SQL and execute manually
-local sql_str, args = query:to_sql()
-local results, err = db:query(sql_str, args)
-if err then error(err) end
-
--- Release the database
-db:release()
-```
-
-#### INSERT Query
-
-```lua
--- Get database connection
-local db, err = sql.get("main_db")
-if err then error(err) end
-
--- Build an INSERT query with set_map
-local query = sql.builder.insert("users")
-    :set_map({
-        name = "John Doe",
-        email = "john@example.com",
-        created_at = sql.as.int(os.time()),
-        active = true
-    })
-
--- Execute the query
-local executor = query:run_with(db)
-local result, err = executor:exec()
-if err then error(err) end
-
-print("Inserted user with ID: " .. result.last_insert_id)
-
--- Another example with columns and multiple rows
-local batch_insert = sql.builder.insert("logs")
-    :columns("timestamp", "level", "message")
-    :values(sql.as.int(os.time()), "INFO", "System started")
-    :values(sql.as.int(os.time()), "INFO", "User logged in")
-
-local sql_str, args = batch_insert:to_sql()
-print("SQL: " .. sql_str)
-
--- Release the database
-db:release()
-```
-
-#### UPDATE Query
-
-```lua
--- Get database connection
-local db, err = sql.get("main_db")
-if err then error(err) end
-
--- Build an UPDATE query
-local query = sql.builder.update("users")
-    :set("last_login", sql.as.int(os.time()))
-    :set("login_count", sql.builder.expr("login_count + 1"))
-    :where("id = ?", user_id)
-
--- Execute the query
-local executor = query:run_with(db)
-local result, err = executor:exec()
-if err then error(err) end
-
-print("Updated " .. result.rows_affected .. " rows")
-
--- Example with set_map and multiple conditions
-local update_inactive = sql.builder.update("users")
-    :set_map({
-        active = false,
-        updated_at = sql.as.int(os.time())
-    })
-    :where(sql.builder.and_({
-        sql.builder.lt({last_login = sql.as.int(os.time() - 30*24*60*60)}),
-        sql.builder.eq({active = true})
-    }))
-
-local sql_str, args = update_inactive:to_sql()
-print("SQL: " .. sql_str)
-
--- Release the database
-db:release()
-```
-
-#### DELETE Query
-
-```lua
--- Get database connection
-local db, err = sql.get("main_db")
-if err then error(err) end
-
--- Build a DELETE query
-local query = sql.builder.delete("logs")
-    :where(sql.builder.lt({created_at = sql.as.int(os.time() - 30*24*60*60)}))
-    :limit(1000)
-
--- Execute the query
-local executor = query:run_with(db)
-local result, err = executor:exec()
-if err then error(err) end
-
-print("Deleted " .. result.rows_affected .. " old log entries")
-
--- Example with complex conditions
-local delete_inactive = sql.builder.delete("user_sessions")
-    :where(sql.builder.or_({
-        sql.builder.lt({last_active = sql.as.int(os.time() - 24*60*60)}),
-        sql.builder.eq({valid = false})
-    }))
-
-local sql_str, args = delete_inactive:to_sql()
-print("SQL: " .. sql_str)
-
--- Release the database
-db:release()
-```
-
-#### Complex Joins
-
-```lua
--- Get database connection
-local db, err = sql.get("main_db")
-if err then error(err) end
-
--- Build a complex SELECT with multiple joins
-local query = sql.builder.select("u.id", "u.name", "p.phone", "a.city", "a.country")
+-- Builder pattern for complex queries
+local query = sql.builder.select("u.id", "u.name", "COUNT(o.id) as order_count")
     :from("users u")
-    :left_join("profiles p ON u.id = p.user_id")
-    :left_join("addresses a ON u.id = a.user_id AND a.is_primary = ?", true)
+    :left_join("orders o ON o.user_id = u.id")
     :where(sql.builder.and_({
-        sql.builder.eq({["u.active"] = true}),
-        sql.builder.or_({
-            sql.builder.like({["u.name"] = "A%"}),
-            sql.builder.like({["u.name"] = "B%"})
-        })
+        sql.builder.eq({["u.active"] = 1}),
+        sql.builder.gte({["u.score"] = 80})
     }))
-    :group_by("u.id", "u.name", "p.phone", "a.city", "a.country")
-    :having("COUNT(a.id) > 0")
-    :order_by("u.name ASC")
-
--- Execute the query
-local executor = query:run_with(db)
-local results, err = executor:query()
-if err then error(err) end
-
--- Process results
-for i, row in ipairs(results) do
-    print(string.format("%s lives in %s, %s", row["u.name"], row["a.city"], row["a.country"]))
-end
-
--- Release the database
-db:release()
-```
-
-#### Transaction with Query Builder
-
-```lua
--- Get database connection
-local db, err = sql.get("main_db")
-if err then error(err) end
-
--- Begin transaction
-local tx, err = db:begin()
-if err then error(err) end
-
--- Create a "transfer funds" operation using query builder
-local withdraw = sql.builder.update("accounts")
-    :set("balance", sql.builder.expr("balance - ?", 100))
-    :where("id = ? AND balance >= ?", 1, 100)
-
--- Execute within transaction
-local withdraw_exec = withdraw:run_with(tx)
-local withdraw_result, err = withdraw_exec:exec()
-if err then
-    tx:rollback()
-    error("Transfer failed: " .. err)
-end
-
-if withdraw_result.rows_affected == 0 then
-    tx:rollback()
-    error("Insufficient funds")
-end
-
--- Deposit to the second account
-local deposit = sql.builder.update("accounts")
-    :set("balance", sql.builder.expr("balance + ?", 100))
-    :where("id = ?", 2)
-
--- Execute within transaction
-local deposit_exec = deposit:run_with(tx)
-local deposit_result, err = deposit_exec:exec()
-if err then
-    tx:rollback()
-    error("Transfer failed: " .. err)
-end
-
--- Create a transaction record
-local transaction_insert = sql.builder.insert("transactions")
-    :set_map({
-        from_account = 1,
-        to_account = 2,
-        amount = 100,
-        timestamp = sql.as.int(os.time()),
-        status = "completed"
-    })
-
--- Execute within transaction
-local trans_exec = transaction_insert:run_with(tx)
-local trans_result, err = trans_exec:exec()
-if err then
-    tx:rollback()
-    error("Transfer recording failed: " .. err)
-end
-
--- Commit the transaction
-local ok, err = tx:commit()
-if err then error("Commit failed: " .. err) end
-
-print("Transfer completed successfully")
-
--- Release the database
-db:release()
-```
-
-#### Using Raw Expressions
-
-```lua
--- Get database connection
-local db, err = sql.get("main_db")
-if err then error(err) end
-
--- Build a query with raw SQL expressions
-local query = sql.builder.select("id", "name", 
-                               sql.builder.expr("EXTRACT(YEAR FROM created_at) AS year"),
-                               sql.builder.expr("COUNT(*) AS count"))
-    :from("posts")
-    :where(sql.builder.expr("created_at BETWEEN ? AND ?", 
-                          "2023-01-01", "2023-12-31"))
-    :group_by("id", "name", "year")
-    :having(sql.builder.expr("COUNT(*) > ?", 5))
-
--- Execute the query
-local executor = query:run_with(db)
-local results, err = executor:query()
-if err then error(err) end
-
--- Process results
-for i, row in ipairs(results) do
-    print(string.format("%s created %d posts in %d", 
-                       row.name, row.count, row.year))
-end
-
--- Release the database
-db:release()
-```
-
-#### Subqueries
-
-```lua
--- Get database connection
-local db, err = sql.get("main_db")
-if err then error(err) end
-
--- Create a subquery to find active users
-local active_users = sql.builder.select("id")
-    :from("users")
-    :where(sql.builder.eq({active = true}))
-
--- Use the subquery in the main query
-local query = sql.builder.select("p.id", "p.title", "u.name AS author")
-    :from("posts p")
-    :join("users u ON p.user_id = u.id")
-    :where(sql.builder.expr("p.user_id IN (?)", 
-                         sql.builder.expr("SELECT id FROM users WHERE active = ?", true)))
-    :order_by("p.created_at DESC")
+    :group_by("u.id", "u.name")
+    :having(sql.builder.gt({["COUNT(o.id)"] = 0}))
+    :order_by("order_count DESC")
     :limit(10)
 
--- Execute the query
 local executor = query:run_with(db)
 local results, err = executor:query()
 if err then error(err) end
 
--- Process results
-for i, row in ipairs(results) do
-    print(string.format("Post: %s by %s", row.title, row.author))
+-- Transaction with savepoints
+local tx, err = db:begin({isolation = sql.isolation.SERIALIZABLE})
+if err then error(err) end
+
+local _, err = tx:execute("INSERT INTO users (name) VALUES (?)", {"alice"})
+if err then
+    tx:rollback()
+    error(err)
 end
 
--- Release the database
+tx:savepoint("before_update")
+
+local _, err = tx:execute("UPDATE users SET status = ? WHERE id = ?", {"active", 1})
+if err then
+    tx:rollback_to("before_update")  -- rollback to savepoint
+else
+    tx:release("before_update")  -- release savepoint
+end
+
+local ok, err = tx:commit()
+if err then error(err) end
+
+-- Prepared statements for repeated execution
+local stmt, err = db:prepare("INSERT INTO logs (message, level) VALUES (?, ?)")
+if err then error(err) end
+
+for i = 1, 100 do
+    local _, err = stmt:execute({"log message " .. i, "info"})
+    if err then
+        stmt:close()
+        error(err)
+    end
+end
+
+stmt:close()
+
+-- NULL and typed values
+local insert = sql.builder.insert("products")
+    :columns("name", "price", "description", "data")
+    :values(
+        "Widget",
+        sql.as.float(19.99),
+        sql.NULL,  -- NULL description
+        sql.as.binary("binary data")
+    )
+
+local executor = insert:run_with(db)
+local result, err = executor:exec()
+if err then error(err) end
+
+print("Inserted ID:", result.last_insert_id)
+
+-- Release database
 db:release()
 ```

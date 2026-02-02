@@ -1,68 +1,61 @@
 package loadlib
 
 import (
-	lua "github.com/yuin/gopher-lua"
+	"sync"
+
+	lua "github.com/wippyai/go-lua"
 )
 
-// OpenRestrictedPackage is our replacement for lua.OpenPackage
+var (
+	packageModule *lua.LTable
+	packageOnce   sync.Once
+)
+
+func initPackageModule() {
+	packageModule = lua.CreateTable(0, 4)
+	packageModule.RawSetString("loadlib", lua.LGoFunc(restrictedLoadLib))
+	packageModule.RawSetString("seeall", lua.LGoFunc(seeAll))
+	packageModule.RawSetString("path", lua.LString(""))
+	packageModule.RawSetString("cpath", lua.LString(""))
+	packageModule.Immutable = true
+}
+
+// OpenRestrictedPackage is wippy's minimal package implementation.
+// Modules are in _G, so require() just looks them up there.
+// Zero per-state allocation after warmup.
 func OpenRestrictedPackage(l *lua.LState) int {
-	// Spawn the package table
-	packagemod := l.RegisterModule(lua.LoadLibName, packageFuncs)
+	packageOnce.Do(initPackageModule)
 
-	// Set up the preload table
-	l.SetField(packagemod, "preload", l.NewTable())
+	l.SetGlobal(lua.LoadLibName, packageModule)
+	l.SetGlobal("require", lua.LGoFunc(loRequire))
 
-	// Set up the single preload loader
-	loaders := l.CreateTable(1, 0)
-	l.RawSetInt(loaders, 1, l.NewFunction(preloadLoader))
-	l.SetField(packagemod, "loaders", loaders)
-	l.SetField(l.Get(lua.RegistryIndex), "_LOADERS", loaders)
-
-	// Set up the loaded table
-	loaded := l.NewTable()
-	l.SetField(packagemod, "loaded", loaded)
-	l.SetField(l.Get(lua.RegistryIndex), "_LOADED", loaded)
-
-	// Empty paths
-	l.SetField(packagemod, "path", lua.LString(""))
-	l.SetField(packagemod, "cpath", lua.LString(""))
-
-	l.Push(packagemod)
+	l.Push(packageModule)
 	return 1
 }
 
-// Package functions map
-//
-// ok for now
-var packageFuncs = map[string]lua.LGFunction{
-	"loadlib": restrictedLoadLib,
-	"seeall":  seeAll,
+// loRequire implements require() by looking up _G directly.
+// Modules are pre-loaded into _G by ModuleDef, no preload/loaded tables needed.
+func loRequire(l *lua.LState) int {
+	name := l.CheckString(1)
+
+	// Direct _G lookup - modules are already there
+	result := l.GetGlobal(name)
+	if result == lua.LNil {
+		l.RaiseError("module '%s' not found", name)
+	}
+
+	l.Push(result)
+	return 1
 }
 
-// restrictedLoadLib is our restricted version of loadlib
+// restrictedLoadLib returns an error for loadlib calls.
 func restrictedLoadLib(l *lua.LState) int {
 	name := l.CheckString(1)
 	l.Push(lua.LString("cannot load module '" + name + "': loadlib disabled"))
 	return 1
 }
 
-// preloadLoader only checks the preload table
-func preloadLoader(l *lua.LState) int {
-	name := l.CheckString(1)
-	preload := l.GetField(l.GetField(l.Get(lua.EnvironIndex), "package"), "preload")
-	if _, ok := preload.(*lua.LTable); !ok {
-		l.RaiseError("package.preload must be a table")
-	}
-	lv := l.GetField(preload, name)
-	if lv == lua.LNil {
-		l.Push(lua.LString("module '" + name + "' not found in package.preload"))
-		return 1
-	}
-	l.Push(lv)
-	return 1
-}
-
-// seeall implements package.seeall
+// seeAll implements package.seeall.
 func seeAll(l *lua.LState) int {
 	mod := l.CheckTable(1)
 	mt := l.GetMetatable(mod)

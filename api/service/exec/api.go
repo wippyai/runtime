@@ -1,24 +1,25 @@
+// Package exec provides process execution service.
 package exec
 
 import (
 	"io"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Registry kind constants for executor types
 const (
-	// KindNativeExecutor identifies a native process executor
-	KindNativeExecutor registry.Kind = "exec.native"
+	// NativeExecutor identifies a native process executor
+	NativeExecutor registry.Kind = "exec.native"
+
+	// DockerExecutor identifies a Docker container executor
+	DockerExecutor registry.Kind = "exec.docker"
 )
 
 // ProcessOptions defines options for creating a new process
 type ProcessOptions struct {
-	// Working directory for the process
+	Env     map[string]string
 	WorkDir string
-
-	// Environment variables for the process
-	Env map[string]string
 }
 
 // ProcessExecutor defines the interface for process execution
@@ -46,16 +47,4 @@ type Process interface {
 
 	// Wait waits for the process to complete
 	Wait() error
-}
-
-// NativeExecutorConfig defines configuration for native process execution
-type NativeExecutorConfig struct {
-	// Default working directory for processes
-	DefaultWorkDir string `json:"default_work_dir"`
-
-	// Default environment variables (always extended, never replaced)
-	DefaultEnv map[string]string `json:"default_env"`
-
-	// Command whitelist - if set, only commands in this list will be allowed
-	CommandWhitelist []string `json:"command_whitelist"`
 }

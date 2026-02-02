@@ -1,0 +1,190 @@
+version: "1.0"
+namespace: app.test.funcs
+
+entries:
+  # Helper functions
+  - name: echo
+    kind: function.lua
+    meta:
+      comment: Simple echo function for funcs.call testing
+    source: file://echo.lua
+    method: main
+
+  - name: slow
+    kind: function.lua
+    meta:
+      comment: Slow function with sleep for async timing tests
+    source: file://slow.lua
+    method: main
+    modules:
+      - time
+
+  - name: error_func
+    kind: function.lua
+    meta:
+      comment: Function that raises error for error propagation testing
+    source: file://error_func.lua
+    method: main
+
+  - name: error_with_kind
+    kind: function.lua
+    meta:
+      comment: Function that returns structured errors with kind
+    source: file://error_with_kind.lua
+    method: main
+
+  # Test cases
+  - name: call
+    kind: function.lua
+    meta:
+      type: test
+      suite: funcs
+      description: funcs.call function
+    source: file://call.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - funcs
+
+  - name: async
+    kind: function.lua
+    meta:
+      type: test
+      suite: funcs
+      description: funcs.async basic functionality
+    source: file://async.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - funcs
+
+  - name: future_methods
+    kind: function.lua
+    meta:
+      type: test
+      suite: funcs
+      description: Future is_complete, result, error methods
+    source: file://future_methods.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - funcs
+      - time
+
+  - name: future_error
+    kind: function.lua
+    meta:
+      type: test
+      suite: funcs
+      description: Future error handling
+    source: file://future_error.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - funcs
+
+  - name: parallel
+    kind: function.lua
+    meta:
+      type: test
+      suite: funcs
+      description: Parallel async execution
+    source: file://parallel.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - funcs
+      - time
+
+  - name: select_future
+    kind: function.lua
+    meta:
+      type: test
+      suite: funcs
+      description: channel.select with futures
+    source: file://select_future.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - funcs
+
+  - name: executor
+    kind: function.lua
+    meta:
+      type: test
+      suite: funcs
+      description: funcs.Executor methods
+    source: file://executor.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - funcs
+
+  - name: cancel
+    kind: function.lua
+    meta:
+      type: test
+      suite: funcs
+      description: Future cancellation
+    source: file://cancel.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - funcs
+
+  - name: validation
+    kind: function.lua
+    meta:
+      type: test
+      suite: funcs
+      description: Input validation for funcs
+    source: file://validation.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - funcs
+
+  - name: error_propagation
+    kind: function.lua
+    meta:
+      type: test
+      suite: funcs
+      description: Error propagation through funcs.call
+    source: file://error_propagation.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - funcs
+
+  # Helper for module restriction test - intentionally has NO modules list
+  - name: undeclared_module
+    kind: function.lua
+    meta:
+      comment: Function that tries to require undeclared module (should fail)
+    source: file://undeclared_module.lua
+    method: main
+    # Note: deliberately no modules list - require("json") should fail
+
+  - name: module_restriction
+    kind: function.lua
+    meta:
+      type: test
+      suite: funcs
+      description: Module restriction enforcement
+    source: file://module_restriction.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - funcs
+

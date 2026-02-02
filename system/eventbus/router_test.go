@@ -9,8 +9,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/ponyruntime/pony/api/event"
+	"sync/atomic"
+
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/event"
 	"go.uber.org/zap"
 )
 
@@ -65,10 +67,10 @@ func TestEventRouter(t *testing.T) {
 		defer bus.Stop()
 
 		type handlerEvents struct {
-			events    []event.Event
-			mu        sync.Mutex
-			expecting int
 			done      chan struct{}
+			events    []event.Event
+			expecting int
+			mu        sync.Mutex
 		}
 
 		handlers := map[string]*handlerEvents{
@@ -273,6 +275,320 @@ func TestEventRouter(t *testing.T) {
 			// Test passed
 		case <-ctx.Done():
 			t.Fatal("test timed out")
+		}
+	})
+}
+
+func TestRouterAddHandlerAfterStart(t *testing.T) {
+	bus := NewBus()
+	defer bus.Stop()
+
+	var receivedEvents []event.Event
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	wg.Add(2) // We expect 2 events
+
+	// Create initial handler
+	initialHandler := NewBaseHandler(
+		Pattern{System: "test-system", Kind: "initial"},
+		func(_ context.Context, evt event.Event) error {
+			mu.Lock()
+			receivedEvents = append(receivedEvents, evt)
+			mu.Unlock()
+			wg.Done()
+			return nil
+		},
+	)
+
+	router, err := StartRouter(context.Background(), bus, WithHandlers(initialHandler))
+	require.NoError(t, err)
+	defer func() {
+		err := router.Stop()
+		require.NoError(t, err)
+	}()
+
+	// Add new handler after router is started
+	newHandler := NewBaseHandler(
+		Pattern{System: "test-system", Kind: "new"},
+		func(_ context.Context, evt event.Event) error {
+			mu.Lock()
+			receivedEvents = append(receivedEvents, evt)
+			mu.Unlock()
+			wg.Done()
+			return nil
+		},
+	)
+
+	err = router.addHandler(newHandler)
+	require.NoError(t, err)
+
+	// Send events for both handlers
+	initialEvent := event.Event{
+		System: "test-system",
+		Kind:   "initial",
+		Data:   []byte("initial-data"),
+	}
+	newEvent := event.Event{
+		System: "test-system",
+		Kind:   "new",
+		Data:   []byte("new-data"),
+	}
+
+	bus.Send(context.Background(), initialEvent)
+	bus.Send(context.Background(), newEvent)
+
+	// Wait for both events to be processed with timeout
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Both events processed
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for events")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, receivedEvents, 2)
+	require.Contains(t, receivedEvents, initialEvent)
+	require.Contains(t, receivedEvents, newEvent)
+}
+
+func TestRouterOptions(t *testing.T) {
+	bus := NewBus()
+	defer bus.Stop()
+
+	// Test WithLogger
+	logger := zap.NewNop()
+	router, err := StartRouter(context.Background(), bus, WithLogger(logger))
+	require.NoError(t, err)
+	require.NotNil(t, router.log)
+	require.NoError(t, router.Stop())
+
+	// Test WithHandlers
+	handler := NewBaseHandler(
+		Pattern{System: "test-system", Kind: "test-kind"},
+		func(_ context.Context, _ event.Event) error {
+			return nil
+		},
+	)
+
+	router, err = StartRouter(context.Background(), bus, WithHandlers(handler))
+	require.NoError(t, err)
+	require.NotNil(t, router.subscribers)
+	require.Len(t, router.subscribers, 1)
+	require.NoError(t, router.Stop())
+}
+
+func TestRouterHandlerErrorHandling(t *testing.T) {
+	bus := NewBus()
+	defer bus.Stop()
+
+	var (
+		errorReceived sync.WaitGroup
+		errorCount    atomic.Int32
+	)
+
+	// Create a handler that returns an error
+	handler := NewBaseHandler(
+		Pattern{System: "test-system", Kind: "error"},
+		func(_ context.Context, _ event.Event) error {
+			errorCount.Add(1)
+			errorReceived.Done()
+			return fmt.Errorf("test error")
+		},
+	)
+
+	router, err := StartRouter(context.Background(), bus, WithHandlers(handler))
+	require.NoError(t, err)
+	defer func() {
+		err := router.Stop()
+		require.NoError(t, err)
+	}()
+
+	// Send multiple events
+	numEvents := 3
+	errorReceived.Add(numEvents)
+	for i := 0; i < numEvents; i++ {
+		e := event.Event{
+			System: "test-system",
+			Kind:   "error",
+			Data:   []byte(fmt.Sprintf("data-%d", i)),
+		}
+		bus.Send(context.Background(), e)
+	}
+
+	// Wait for all errors to be processed
+	errorReceived.Wait()
+
+	// Verify all events were processed despite errors
+	require.Equal(t, int32(numEvents), errorCount.Load())
+}
+
+func TestRouterShutdown(t *testing.T) {
+	t.Run("graceful shutdown", func(t *testing.T) {
+		bus := NewBus()
+		defer bus.Stop()
+
+		shutdownComplete := make(chan struct{})
+		eventProcessed := make(chan struct{})
+		handler := NewBaseHandler(
+			Pattern{System: "test", Kind: "shutdown"},
+			func(_ context.Context, _ event.Event) error {
+				time.Sleep(100 * time.Millisecond) // Simulate some work
+				close(eventProcessed)
+				return nil
+			},
+		)
+
+		router, err := StartRouter(context.Background(), bus, WithHandlers(handler))
+		require.NoError(t, err)
+
+		// Send an event that will be processed during shutdown
+		e := event.Event{
+			System: "test",
+			Kind:   "shutdown",
+			Data:   []byte("shutdown-test"),
+		}
+		bus.Send(context.Background(), e)
+
+		// Wait for event to be processed before starting shutdown
+		select {
+		case <-eventProcessed:
+			// Event processed, proceed with shutdown
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for event processing")
+		}
+
+		// Start shutdown in a goroutine
+		go func() {
+			assert.NoError(t, router.Stop())
+			close(shutdownComplete)
+		}()
+
+		// Verify shutdown completes within reasonable time
+		select {
+		case <-shutdownComplete:
+			// Test passed
+		case <-time.After(time.Second):
+			t.Fatal("shutdown timeout")
+		}
+	})
+
+	t.Run("multiple shutdown calls", func(t *testing.T) {
+		bus := NewBus()
+		defer bus.Stop()
+
+		router, err := StartRouter(context.Background(), bus)
+		require.NoError(t, err)
+
+		// First shutdown should succeed
+		require.NoError(t, router.Stop())
+		// Subsequent shutdowns should not error
+		require.NoError(t, router.Stop())
+		require.NoError(t, router.Stop())
+	})
+}
+
+func TestRouterPatternMatching(t *testing.T) {
+	t.Run("empty pattern matching", func(t *testing.T) {
+		bus := NewBus()
+		defer bus.Stop()
+
+		eventReceived := make(chan struct{})
+		handler := NewBaseHandler(
+			Pattern{System: "", Kind: ""},
+			func(_ context.Context, _ event.Event) error {
+				close(eventReceived)
+				return nil
+			},
+		)
+
+		router, err := StartRouter(context.Background(), bus, WithHandlers(handler))
+		require.NoError(t, err)
+		defer func() {
+			err := router.Stop()
+			require.NoError(t, err)
+		}()
+
+		e := event.Event{
+			System: "",
+			Kind:   "",
+			Data:   []byte("empty-pattern"),
+		}
+		bus.Send(context.Background(), e)
+
+		select {
+		case <-eventReceived:
+			// Test passed
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for event")
+		}
+	})
+
+	t.Run("complex wildcard patterns", func(t *testing.T) {
+		bus := NewBus()
+		defer bus.Stop()
+
+		type testCase struct {
+			event       event.Event
+			pattern     Pattern
+			shouldMatch bool
+		}
+
+		testCases := []testCase{
+			{
+				pattern:     Pattern{System: "a.*.c", Kind: "x.*.z"},
+				event:       event.Event{System: "a.b.c", Kind: "x.y.z"},
+				shouldMatch: true,
+			},
+			{
+				pattern:     Pattern{System: "a.**", Kind: "x"},
+				event:       event.Event{System: "a.b.c.d", Kind: "x"},
+				shouldMatch: true,
+			},
+			{
+				pattern:     Pattern{System: "a.*", Kind: "x"},
+				event:       event.Event{System: "a.b.c", Kind: "x"},
+				shouldMatch: false,
+			},
+		}
+
+		for i, tc := range testCases {
+			t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
+				eventReceived := make(chan struct{})
+				handler := NewBaseHandler(
+					tc.pattern,
+					func(_ context.Context, _ event.Event) error {
+						close(eventReceived)
+						return nil
+					},
+				)
+
+				router, err := StartRouter(context.Background(), bus, WithHandlers(handler))
+				require.NoError(t, err)
+				defer func() {
+					err := router.Stop()
+					require.NoError(t, err)
+				}()
+
+				bus.Send(context.Background(), tc.event)
+
+				select {
+				case <-eventReceived:
+					if !tc.shouldMatch {
+						t.Error("unexpected pattern match")
+					}
+				case <-time.After(100 * time.Millisecond):
+					if tc.shouldMatch {
+						t.Error("expected pattern match")
+					}
+				}
+			})
 		}
 	})
 }

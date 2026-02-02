@@ -1,19 +1,23 @@
 package native
 
 import (
-	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 
-	execapi "github.com/ponyruntime/pony/api/service/exec"
+	execapi "github.com/wippyai/runtime/api/service/exec"
 
 	"go.uber.org/zap"
+)
+
+var (
+	_ execapi.ProcessExecutor = (*Executor)(nil)
+	_ execapi.Process         = (*ProcessExecutor)(nil)
 )
 
 const (
@@ -52,7 +56,7 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 		}
 		if !allowed {
 			e.log.Warn("command rejected by whitelist", zap.String("command", cmd))
-			return nil, fmt.Errorf("command not in whitelist: %s", cmd)
+			return nil, NewCommandNotAllowedError(cmd)
 		}
 	}
 
@@ -71,6 +75,11 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 		workDir = e.defaultWD
 	}
 
+	// Clean and validate working directory path
+	if workDir != "" {
+		workDir = filepath.Clean(workDir)
+	}
+
 	// Create a new process executor with the given command and options
 	return NewProcessExecutor(
 		e.log,
@@ -82,25 +91,22 @@ func (e *Executor) NewProcess(cmd string, options execapi.ProcessOptions) (execa
 
 // ProcessExecutor represents a native process implementation
 type ProcessExecutor struct {
-	rwm sync.RWMutex
-	log *zap.Logger
-
-	envs    map[string]string
-	wd      string
-	pid     int
-	state   string
-	command string
-	stopped atomic.Pointer[bool]
-
-	cmd *exec.Cmd
-
 	stderrp   io.ReadCloser
 	stdoutp   io.ReadCloser
 	stdinPipe io.WriteCloser
+	log       *zap.Logger
+	envs      map[string]string
+	stopped   atomic.Pointer[bool]
+	cmd       *exec.Cmd
+	wd        string
+	state     string
+	command   string
+	pid       int
+	mu        sync.RWMutex
 }
 
 // NewProcessExecutor creates a new process executor
-func NewProcessExecutor(log *zap.Logger, opts ...Options) *ProcessExecutor {
+func NewProcessExecutor(log *zap.Logger, opts ...Option) *ProcessExecutor {
 	e := &ProcessExecutor{
 		state: notStarted,
 		log:   log,
@@ -112,8 +118,6 @@ func NewProcessExecutor(log *zap.Logger, opts ...Options) *ProcessExecutor {
 		opt(e)
 	}
 
-	e.log.Debug("initializing command", zap.String("command", e.command))
-
 	// Split command into executable and arguments
 	cmdParts := parseCommand(e.command)
 	if len(cmdParts) == 0 {
@@ -121,6 +125,7 @@ func NewProcessExecutor(log *zap.Logger, opts ...Options) *ProcessExecutor {
 	}
 
 	// Create command with first part as executable and rest as arguments
+	// nolint:noctx // context handled via Stop()/Signal() methods, not automatic cancellation
 	var command *exec.Cmd
 	if len(cmdParts) > 1 {
 		//nolint:gosec //G204: Subprocess launched with a potential tainted input or cmd arguments
@@ -131,7 +136,9 @@ func NewProcessExecutor(log *zap.Logger, opts ...Options) *ProcessExecutor {
 	}
 
 	if e.envs != nil {
-		command.Env = os.Environ()
+		// Use clean environment - only include explicitly configured variables
+		// Do not inherit os.Environ() to prevent LD_PRELOAD, PATH hijacking
+		command.Env = make([]string, 0, len(e.envs))
 		for k, v := range e.envs {
 			command.Env = append(command.Env, k+"="+v)
 		}
@@ -159,8 +166,8 @@ func NewProcessExecutor(log *zap.Logger, opts ...Options) *ProcessExecutor {
 
 // Start implements exec.Process
 func (e *ProcessExecutor) Start() error {
-	e.rwm.Lock()
-	defer e.rwm.Unlock()
+	e.mu.Lock()
+	defer e.mu.Unlock()
 
 	// execute command
 	err := e.cmd.Start()
@@ -176,20 +183,20 @@ func (e *ProcessExecutor) Start() error {
 
 // State returns the current state of the process
 func (e *ProcessExecutor) State() string {
-	e.rwm.RLock()
-	defer e.rwm.RUnlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 
 	return e.state
 }
 
 // WriteStdin implements exec.Process
 func (e *ProcessExecutor) WriteStdin(data []byte) error {
-	e.rwm.RLock()
-	defer e.rwm.RUnlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 
 	if e.state != running {
 		e.log.Error("process is not running", zap.String("state", e.state))
-		return errors.New("process is not running")
+		return ErrProcessNotRunning
 	}
 
 	n, err := e.stdinPipe.Write(data)
@@ -204,17 +211,17 @@ func (e *ProcessExecutor) WriteStdin(data []byte) error {
 
 // Signal implements exec.Process
 func (e *ProcessExecutor) Signal(sig int) error {
-	e.rwm.RLock()
-	defer e.rwm.RUnlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 
 	if e.state != running {
 		e.log.Error("process is not running", zap.String("state", e.state))
-		return errors.New("process is not running")
+		return ErrProcessNotRunning
 	}
 
 	if e.pid <= 0 {
 		e.log.Error("pid is not a positive int", zap.Int("pid", e.pid))
-		return errors.New("pid is not a positive int, process is possibly not running")
+		return ErrInvalidPID
 	}
 
 	// we're using os.FindProcess to avoid touching e.cmd
@@ -236,34 +243,24 @@ func (e *ProcessExecutor) Signal(sig int) error {
 
 // Stderr implements exec.Process
 func (e *ProcessExecutor) Stderr() io.ReadCloser {
-	e.rwm.RLock()
-	defer e.rwm.RUnlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 
 	return e.stderrp
 }
 
 // Stdout implements exec.Process
 func (e *ProcessExecutor) Stdout() io.ReadCloser {
-	e.rwm.RLock()
-	defer e.rwm.RUnlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 
 	return e.stdoutp
 }
 
-// StderrReader return stderr reader (for backward compatibility)
-func (e *ProcessExecutor) StderrReader() io.ReadCloser {
-	return e.Stderr()
-}
-
-// StdoutReader return stdout reader (for backward compatibility)
-func (e *ProcessExecutor) StdoutReader() io.ReadCloser {
-	return e.Stdout()
-}
-
 // Stop stops the process
 func (e *ProcessExecutor) Stop() {
-	e.rwm.Lock()
-	defer e.rwm.Unlock()
+	e.mu.Lock()
+	defer e.mu.Unlock()
 
 	if e.pid <= 0 {
 		e.log.Warn("pid is not a positive int", zap.Int("pid", e.pid))
@@ -298,9 +295,9 @@ func (e *ProcessExecutor) Wait() error {
 		e.log.Error("command wait error", zap.Error(err))
 	}
 
-	e.rwm.Lock()
+	e.mu.Lock()
 	e.state = terminated
-	e.rwm.Unlock()
+	e.mu.Unlock()
 
 	e.stopped.Store(p(true))
 	e.log.Debug("command finished")
@@ -314,70 +311,70 @@ func p[T any](val T) *T {
 
 // parseCommand splits a command string into executable and arguments,
 // handling quoted arguments properly
-//
-//nolint:gocritic //ifElseChain: rewrite if-else to switch statement
 func parseCommand(cmd string) []string {
 	if cmd == "" {
 		return []string{""}
 	}
 
-	// Trim leading/trailing whitespace
 	cmd = strings.TrimSpace(cmd)
 	if cmd == "" {
 		return []string{}
 	}
 
-	// Handle the case of just quotes
 	if cmd == "\"\"" || cmd == "''" {
 		return []string{""}
 	}
 
-	var parts []string
-	var current string
+	// Pre-allocate with estimated capacity
+	estParts := 1 + strings.Count(cmd, " ")
+	parts := make([]string, 0, estParts)
+
+	var current strings.Builder
+	current.Grow(len(cmd))
+
 	inQuote := false
 	quoteChar := rune(0)
 
 	for _, c := range cmd {
 		switch {
 		case c == '"' || c == '\'':
-			if inQuote && c == quoteChar {
+			switch {
+			case inQuote && c == quoteChar:
 				inQuote = false
-				quoteChar = rune(0)
-				// Handle empty quoted strings
-				if current == "" {
+				quoteChar = 0
+				if current.Len() == 0 {
 					parts = append(parts, "")
-					current = ""
 				}
-			} else if !inQuote {
+			case !inQuote:
 				inQuote = true
 				quoteChar = c
-			} else {
-				// Different quote type inside current quote
-				current += string(c)
+			default:
+				current.WriteRune(c)
 			}
 		case c == ' ' && !inQuote:
-			if current != "" {
-				parts = append(parts, current)
-				current = ""
+			if current.Len() > 0 {
+				parts = append(parts, current.String())
+				current.Reset()
 			}
 		default:
-			current += string(c)
+			current.WriteRune(c)
 		}
 	}
 
-	// Handle unbalanced quotes - preserve the quote character at the start
+	// Handle unbalanced quotes
 	if inQuote {
-		if current == "" {
+		if current.Len() == 0 {
 			parts = append(parts, string(quoteChar))
-		} else if quoteChar == '"' {
-			current = "\"" + current
-		} else if quoteChar == '\'' {
-			current = "'" + current
+		} else {
+			// Prepend the quote character
+			result := string(quoteChar) + current.String()
+			parts = append(parts, result)
+			return parts
 		}
 	}
 
-	if current != "" {
-		parts = append(parts, current)
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
 	}
 
 	return parts

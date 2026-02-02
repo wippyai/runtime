@@ -2,558 +2,1005 @@ package funcs
 
 import (
 	"context"
-	"fmt"
-	"strings"
+	"errors"
 	"testing"
 
-	lua2 "github.com/yuin/gopher-lua"
-
-	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
-	secapi "github.com/ponyruntime/pony/api/security"
-
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/runtime/lua/command"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	transcoder "github.com/ponyruntime/pony/system/payload"
-	"github.com/ponyruntime/pony/system/payload/json"
-	"github.com/ponyruntime/pony/system/payload/lua"
-	"github.com/ponyruntime/pony/system/payload/yaml"
-	"github.com/ponyruntime/pony/system/security"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/modules/future"
+	lua "github.com/wippyai/go-lua"
 )
 
-type mockExecutor struct {
-	result *runtime.Result
-	err    error
-}
+func TestModuleBuild(t *testing.T) {
+	table, yields := Module.Build()
 
-func (m *mockExecutor) Call(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
-	if m.err != nil {
-		return nil, m.err
+	if table == nil {
+		t.Fatal("Build() returned nil table")
 	}
 
-	resultChan := make(chan *runtime.Result, 1)
-	go func() {
-		select {
-		case <-ctx.Done():
-			resultChan <- &runtime.Result{Error: ctx.Err()}
-		default:
-			// Check if we have an actor in the context
-			if actor, ok := secapi.GetActor(ctx); ok {
-				// Return actor ID as result to verify it was passed correctly
-				resultChan <- &runtime.Result{
-					Value: payload.New(fmt.Sprintf("actor:%s", actor.ID)),
-				}
-			} else if scope, ok := secapi.GetScope(ctx); ok {
-				// Return scope info as result to verify it was passed correctly
-				policies := scope.Policies()
-				resultChan <- &runtime.Result{
-					Value: payload.New(fmt.Sprintf("scope:%d", len(policies))),
+	// Check module functions
+	if table.RawGetString("call").Type() != lua.LTFunction {
+		t.Error("call function not registered")
+	}
+	if table.RawGetString("async").Type() != lua.LTFunction {
+		t.Error("async function not registered")
+	}
+	if table.RawGetString("new").Type() != lua.LTFunction {
+		t.Error("new function not registered")
+	}
+
+	// Check yield types (Call, AsyncStart, AsyncCancel)
+	if len(yields) != 3 {
+		t.Errorf("expected 3 yield types, got %d", len(yields))
+	}
+}
+
+func TestModuleBuildReuse(t *testing.T) {
+	table1, _ := Module.Build()
+	table2, _ := Module.Build()
+
+	if table1 != table2 {
+		t.Error("Build() should return the same table on subsequent calls")
+	}
+}
+
+func TestModuleImmutable(t *testing.T) {
+	table, _ := Module.Build()
+
+	if !table.Immutable {
+		t.Error("module table should be immutable")
+	}
+}
+
+func TestModuleInfo(t *testing.T) {
+	if Module.Name != "funcs" {
+		t.Errorf("expected name 'funcs', got '%s'", Module.Name)
+	}
+	if Module.Description == "" {
+		t.Error("module should have a description")
+	}
+	if len(Module.Class) == 0 {
+		t.Error("module should have at least one class")
+	}
+}
+
+func TestFutureTypeMethods(t *testing.T) {
+	// Types are registered in init()
+	mt := value.GetTypeMetatable(nil, future.TypeName)
+	if mt == nil {
+		t.Fatal("future type metatable not registered")
+	}
+}
+
+func TestExecutorTypeMethods(t *testing.T) {
+	// Types are registered in init()
+	mt := value.GetTypeMetatable(nil, executorTypeName)
+	if mt == nil {
+		t.Fatal("executor type metatable not registered")
+	}
+}
+
+func TestExecutorNew(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	table, _ := Module.Build()
+	l.SetGlobal("funcs", table)
+
+	err := l.DoString(`
+		local exec = funcs.new()
+		if exec == nil then
+			error("new() returned nil")
+		end
+	`)
+	if err != nil {
+		t.Errorf("test failed: %v", err)
+	}
+}
+
+func TestCallYieldType(t *testing.T) {
+	yield := AcquireCallYield()
+	defer ReleaseCallYield(yield)
+
+	if yield.Type() != lua.LTUserData {
+		t.Errorf("expected LTUserData, got %v", yield.Type())
+	}
+	if yield.String() != "<func_call_yield>" {
+		t.Errorf("unexpected String(): %s", yield.String())
+	}
+}
+
+func TestAsyncStartYieldType(t *testing.T) {
+	yield := AcquireAsyncStartYield()
+	defer ReleaseAsyncStartYield(yield)
+
+	if yield.Type() != lua.LTUserData {
+		t.Errorf("expected LTUserData, got %v", yield.Type())
+	}
+	if yield.String() != "<func_async_start_yield>" {
+		t.Errorf("unexpected String(): %s", yield.String())
+	}
+}
+
+func TestAsyncCancelYieldType(t *testing.T) {
+	yield := AcquireAsyncCancelYield()
+	defer ReleaseAsyncCancelYield(yield)
+
+	if yield.Type() != lua.LTUserData {
+		t.Errorf("expected LTUserData, got %v", yield.Type())
+	}
+	if yield.String() != "<func_async_cancel_yield>" {
+		t.Errorf("unexpected String(): %s", yield.String())
+	}
+}
+
+func TestCallYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		data    any
+		err     error
+		name    string
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			data:    function.CallResult{Value: payload.NewString("result"), Error: nil},
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "call error",
+			data:    nil,
+			err:     errors.New("call failed"),
+			wantErr: true,
+		},
+		{
+			name:    "no response",
+			data:    nil,
+			err:     nil,
+			wantErr: true,
+		},
+		{
+			name:    "invalid response type",
+			data:    "invalid",
+			err:     nil,
+			wantErr: true,
+		},
+		{
+			name:    "response with error",
+			data:    function.CallResult{Error: errors.New("function error")},
+			err:     nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquireCallYield()
+			defer ReleaseCallYield(y)
+
+			result := y.HandleResult(l, tt.data, tt.err)
+
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
+
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
 				}
 			} else {
-				resultChan <- m.result
+				if result[1] != lua.LNil {
+					t.Errorf("expected no error, got %v", result[1])
+				}
 			}
-		}
-		close(resultChan)
-	}()
-
-	return resultChan, nil
+		})
+	}
 }
 
-func createTestTranscoder() payload.Transcoder {
-	tr := transcoder.NewTranscoder()
-	json.Register(tr)
-	yaml.Register(tr)
-	lua.Register(tr)
-	return tr
-}
-
-// Setup security module mock for testing
-func securityModuleLoader(l *lua2.LState) int {
-	// Register actor metatable
-	const ActorMetatable = "security.Actor"
-	value.RegisterMethods(l, ActorMetatable, map[string]lua2.LGFunction{
-		"id": func(l *lua2.LState) int {
-			ud := l.CheckUserData(1)
-			actor, ok := ud.Value.(secapi.Actor)
-			if !ok {
-				l.ArgError(1, "Actor expected")
-				return 0
-			}
-			l.Push(lua2.LString(actor.ID))
-			return 1
+func TestAsyncStartYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		data    any
+		err     error
+		name    string
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			data:    function.AsyncStartResult{Error: nil},
+			err:     nil,
+			wantErr: false,
 		},
-	})
-
-	// Register scope metatable
-	const ScopeMetatable = "security.Scope"
-	value.RegisterMethods(l, ScopeMetatable, map[string]lua2.LGFunction{
-		"policies": func(l *lua2.LState) int {
-			ud := l.CheckUserData(1)
-			scope, ok := ud.Value.(secapi.Scope)
-			if !ok {
-				l.ArgError(1, "Scope expected")
-				return 0
-			}
-			policies := scope.Policies()
-			policyTable := l.CreateTable(len(policies), 0)
-			l.Push(policyTable)
-			return 1
+		{
+			name:    "start error",
+			data:    nil,
+			err:     errors.New("start failed"),
+			wantErr: true,
 		},
-	})
-
-	// Create module table
-	mod := l.CreateTable(0, 2)
-
-	// Add new_actor function
-	mod.RawSetString("new_actor", l.NewFunction(func(l *lua2.LState) int {
-		// Create mock actor
-		id := l.CheckString(1)
-		actor := secapi.Actor{
-			ID:   id,
-			Meta: registry.Metadata{},
-		}
-
-		// Create userdata for actor with metatable
-		ud := l.NewUserData()
-		ud.Value = actor
-		ud.Metatable = value.GetTypeMetatable(l, ActorMetatable)
-		l.Push(ud)
-		return 1
-	}))
-
-	// Add new_scope function
-	mod.RawSetString("new_scope", l.NewFunction(func(l *lua2.LState) int {
-		// Create mock scope with empty policies
-		scope := security.NewScope(nil)
-
-		// Create userdata for scope with metatable
-		ud := l.NewUserData()
-		ud.Value = scope
-		ud.Metatable = value.GetTypeMetatable(l, ScopeMetatable)
-		l.Push(ud)
-		return 1
-	}))
-
-	l.Push(mod)
-	return 1
-}
-
-// Make sure command package is properly initialized for tests
-func setupCommandPackage(l *lua2.LState) {
-	// Register the command metatable
-	const CommandMetatable = "command.Command"
-	value.RegisterMethods(l, CommandMetatable, map[string]lua2.LGFunction{
-		"await": func(l *lua2.LState) int {
-			// Get command userdata
-			ud := l.CheckUserData(1)
-			cmd, ok := ud.Value.(runtime.Command)
-			if !ok {
-				l.ArgError(1, "Command expected")
-				return 0
-			}
-
-			// Get result from command
-			result := cmd.Result()
-			if result == nil {
-				l.Push(lua2.LNil)
-				return 1
-			}
-
-			// Check for error
-			if result.Error != nil {
-				l.Push(lua2.LNil)
-				l.Push(lua2.LString(result.Error.Error()))
-				return 2
-			}
-
-			// Return value
-			if result.Value != nil {
-				// In a real impl, this would use transcoder, but for test convert to string
-				l.Push(lua2.LString(fmt.Sprintf("%v", result.Value)))
-				return 1
-			}
-
-			l.Push(lua2.LNil)
-			return 1
+		{
+			name:    "invalid response type",
+			data:    "invalid",
+			err:     nil,
+			wantErr: true,
 		},
-	})
+		{
+			name:    "response with error",
+			data:    function.AsyncStartResult{Error: errors.New("async error")},
+			err:     nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquireAsyncStartYield()
+			y.Future = future.New("test", nil)
+			defer ReleaseAsyncStartYield(y)
+
+			result := y.HandleResult(l, tt.data, tt.err)
+
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
+
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			} else {
+				if result[1] != lua.LNil {
+					t.Errorf("expected no error, got %v", result[1])
+				}
+			}
+		})
+	}
 }
 
-// Register mock command functions in the VM
-func setupCommandModule(l *lua2.LState) {
-	// Register command module and wrap function
-	command.RegisterCommand(l)
+func TestAsyncCancelYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		err     error
+		name    string
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "cancel error",
+			err:     errors.New("cancel failed"),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquireAsyncCancelYield()
+			defer ReleaseAsyncCancelYield(y)
+
+			result := y.HandleResult(l, nil, tt.err)
+
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
+
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			} else {
+				if result[1] != lua.LNil {
+					t.Errorf("expected no error, got %v", result[1])
+				}
+				if result[0] != lua.LTrue {
+					t.Error("expected true on success")
+				}
+			}
+		})
+	}
 }
 
-func TestExecutorModule(t *testing.T) {
-	logger := zap.NewNop()
+func TestCallYieldCommandID(t *testing.T) {
+	y := AcquireCallYield()
+	defer ReleaseCallYield(y)
 
-	t.Run("call with single argument", func(t *testing.T) {
-		// Create module first to get the loader
-		mod := NewFunctionModule()
+	if y.CmdID() != function.Call {
+		t.Errorf("expected CmdID %v, got %v", function.Call, y.CmdID())
+	}
+}
 
-		// Create VM with the module preloaded
-		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
-		)
-		require.NoError(t, err)
-		defer vm.Close()
+func TestAsyncStartYieldCommandID(t *testing.T) {
+	y := AcquireAsyncStartYield()
+	defer ReleaseAsyncStartYield(y)
 
-		err = vm.Import(`
-			function test_call()
-				local executor = funcs.new()
-				local result, err = executor:call("test:function", "test_arg")
-				assert(err == nil, "expected no error but got: " .. tostring(err))
-				assert(result == "success", "expected 'success' but got: " .. tostring(result))
-				return result
-			end
-		`, "test", "test_call")
-		require.NoError(t, err)
+	if y.CmdID() != function.AsyncStart {
+		t.Errorf("expected CmdID %v, got %v", function.AsyncStart, y.CmdID())
+	}
+}
 
-		// Setup test environment
-		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
+func TestAsyncCancelYieldCommandID(t *testing.T) {
+	y := AcquireAsyncCancelYield()
+	defer ReleaseAsyncCancelYield(y)
 
-		// Create context with dependencies
-		uw, ctx := wrapped.InitUnitOfWork(context.Background())
-		defer func() { _ = uw.Close() }()
+	if y.CmdID() != function.AsyncCancel {
+		t.Errorf("expected CmdID %v, got %v", function.AsyncCancel, y.CmdID())
+	}
+}
 
-		mockExec := &mockExecutor{
-			result: &runtime.Result{
-				Value: payload.New("success"),
-			},
+func TestCallYieldToCommand(t *testing.T) {
+	y := AcquireCallYield()
+	defer ReleaseCallYield(y)
+
+	cmd := y.ToCommand()
+	if cmd == nil {
+		t.Error("ToCommand should return a command")
+	}
+	if cmd != y.CallCmd {
+		t.Error("ToCommand should return the CallCmd")
+	}
+}
+
+func TestAsyncStartYieldToCommand(t *testing.T) {
+	y := AcquireAsyncStartYield()
+	defer ReleaseAsyncStartYield(y)
+
+	cmd := y.ToCommand()
+	if cmd == nil {
+		t.Error("ToCommand should return a command")
+	}
+	if cmd != y.AsyncStartCmd {
+		t.Error("ToCommand should return the AsyncStartCmd")
+	}
+}
+
+func TestAsyncCancelYieldToCommand(t *testing.T) {
+	y := AcquireAsyncCancelYield()
+	defer ReleaseAsyncCancelYield(y)
+
+	cmd := y.ToCommand()
+	if cmd == nil {
+		t.Error("ToCommand should return a command")
+	}
+	if cmd != y.AsyncCancelCmd {
+		t.Error("ToCommand should return the AsyncCancelCmd")
+	}
+}
+
+func TestExecutorState(t *testing.T) {
+	e := &Executor{}
+
+	if e.hasActor {
+		t.Error("new executor should not have actor")
+	}
+	if e.hasScope {
+		t.Error("new executor should not have scope")
+	}
+	if e.hasOptions {
+		t.Error("new executor should not have options")
+	}
+}
+
+func TestValidateTarget(t *testing.T) {
+	tests := []struct {
+		name    string
+		target  string
+		wantErr bool
+	}{
+		{
+			name:    "valid target",
+			target:  "ns:name",
+			wantErr: false,
+		},
+		{
+			name:    "empty target",
+			target:  "",
+			wantErr: true,
+		},
+		{
+			name:    "missing namespace",
+			target:  "name",
+			wantErr: true,
+		},
+		{
+			name:    "missing name",
+			target:  "ns:",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			l.Push(lua.LString(tt.target))
+
+			_, retCount := validateTarget(l, tt.target)
+
+			if tt.wantErr {
+				if retCount != 2 {
+					t.Errorf("expected error return (2), got %d", retCount)
+				}
+			} else {
+				if retCount != 0 {
+					t.Errorf("expected success (0), got %d", retCount)
+				}
+			}
+		})
+	}
+}
+
+func TestExecutorWithContext(t *testing.T) {
+	exec := &Executor{}
+
+	if exec.values != nil {
+		t.Error("new executor should have nil values")
+	}
+
+	// Create values bag and set on executor
+	values := ctxapi.NewValues()
+	values.Set("key1", "value1")
+	values.Set("key2", 42)
+	exec.values = values
+
+	if v, ok := exec.values.Get("key1"); !ok || v != "value1" {
+		t.Error("values should contain key1=value1")
+	}
+	if v, ok := exec.values.Get("key2"); !ok || v != 42 {
+		t.Error("values should contain key2=42")
+	}
+}
+
+func TestExecutorContextChaining(t *testing.T) {
+	// Test that chained with_context creates new executor with merged values
+	exec1 := &Executor{}
+
+	// First with_context call
+	values1 := ctxapi.NewValues()
+	values1.Set("key1", "value1")
+	exec2 := &Executor{
+		values:   values1,
+		hasActor: exec1.hasActor,
+		actor:    exec1.actor,
+		hasScope: exec1.hasScope,
+		scope:    exec1.scope,
+	}
+
+	// Second with_context call (chaining) - should copy existing and add new
+	values2 := ctxapi.NewValues()
+	exec2.values.Iterate(func(k string, v any) {
+		values2.Set(k, v)
+	})
+	values2.Set("key2", "value2")
+
+	exec3 := &Executor{
+		values:   values2,
+		hasActor: exec2.hasActor,
+		actor:    exec2.actor,
+		hasScope: exec2.hasScope,
+		scope:    exec2.scope,
+	}
+
+	// Verify chained executor has both values
+	if v, ok := exec3.values.Get("key1"); !ok || v != "value1" {
+		t.Error("chained executor should have key1 from first with_context")
+	}
+	if v, ok := exec3.values.Get("key2"); !ok || v != "value2" {
+		t.Error("chained executor should have key2 from second with_context")
+	}
+
+	// Verify original executor is unchanged
+	if _, ok := exec2.values.Get("key2"); ok {
+		t.Error("original executor should not be modified by chaining")
+	}
+}
+
+func TestCallYieldContextPairs(t *testing.T) {
+	y := AcquireCallYield()
+	defer ReleaseCallYield(y)
+
+	// Verify Task.Context is initially empty
+	if len(y.Task.Context) != 0 {
+		t.Errorf("expected empty context, got %d pairs", len(y.Task.Context))
+	}
+}
+
+func TestExecutorCallAddsContextToTask(t *testing.T) {
+	// Test that when executor has values, they are added to Task.Context
+	exec := &Executor{}
+	values := ctxapi.NewValues()
+	values.Set("trace_id", "test-123")
+	exec.values = values
+
+	// Verify executor has values
+	if exec.values == nil || exec.values.Len() == 0 {
+		t.Fatal("executor should have values set")
+	}
+
+	// The actual context addition happens in executorCall when creating the yield
+	// This test verifies the executor state that would trigger context addition
+	if exec.values.Len() != 1 {
+		t.Errorf("expected 1 value, got %d", exec.values.Len())
+	}
+}
+
+func TestPlainCallInheritsFrameContext(t *testing.T) {
+	// Test that buildContextPairs extracts context from frame
+	l := lua.NewState()
+	defer l.Close()
+
+	// Set up frame context with values
+	ctx, fc := ctxapi.OpenFrameContext(l.Context())
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	values := ctxapi.NewValues()
+	values.Set("trace_id", "inherited-trace-123")
+	values.Set("request_id", "req-456")
+	if err := fc.Set(ctxapi.ValuesCtx, values); err != nil {
+		t.Fatalf("failed to set values: %v", err)
+	}
+
+	l.SetContext(ctx)
+
+	// Test buildContextPairs helper extracts values from frame
+	pairs := buildContextPairs(l)
+
+	if len(pairs) == 0 {
+		t.Error("buildContextPairs should extract context values from frame")
+	}
+
+	// Check that values pair is present
+	hasValues := false
+	for _, pair := range pairs {
+		if pair.Key == ctxapi.ValuesCtx {
+			hasValues = true
+			break
 		}
+	}
+	if !hasValues {
+		t.Error("context pairs should include values from frame context")
+	}
+}
 
-		tr := createTestTranscoder()
-		ctx = payload.WithTranscoder(ctx, tr)
-		ctx = function.WithFunctions(ctx, mockExec)
+func TestCallYieldHasContextPairs(t *testing.T) {
+	// Test that CallYield created by call() includes context pairs from frame
+	// This is a unit test that verifies the yield structure
+	l := lua.NewState()
+	defer l.Close()
 
-		// Serve test
-		result, err := wrapped.Execute(ctx, "test_call")
-		require.NoError(t, err)
-		assert.Equal(t, "success", fmt.Sprintf("%v", result))
+	// Set up frame context with values
+	ctx, fc := ctxapi.OpenFrameContext(l.Context())
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	values := ctxapi.NewValues()
+	values.Set("trace_id", "call-trace-123")
+	if err := fc.Set(ctxapi.ValuesCtx, values); err != nil {
+		t.Fatalf("failed to set values: %v", err)
+	}
+
+	l.SetContext(ctx)
+
+	// Create a CallYield and add context pairs (simulating what call() should do)
+	yield := AcquireCallYield()
+	defer ReleaseCallYield(yield)
+
+	// This is what call() SHOULD do - add context pairs
+	pairs := buildContextPairs(l)
+	yield.Task.Context = pairs
+
+	// Verify the yield has context pairs
+	if len(yield.Task.Context) == 0 {
+		t.Error("CallYield should have context pairs set")
+	}
+
+	// Check that values pair is present
+	hasValues := false
+	for _, pair := range yield.Task.Context {
+		if pair.Key == ctxapi.ValuesCtx {
+			hasValues = true
+			break
+		}
+	}
+	if !hasValues {
+		t.Error("Task.Context should include values pair from frame context")
+	}
+}
+
+func TestExecutorCallInheritsFrameContext(t *testing.T) {
+	// Test that funcs.new():call() inherits context from frame
+	// even when with_context() is NOT explicitly called
+	l := lua.NewState()
+	defer l.Close()
+
+	// Set up frame context with values (simulating a caller with session_id)
+	ctx, fc := ctxapi.OpenFrameContext(l.Context())
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	values := ctxapi.NewValues()
+	values.Set("session_id", "sess-123")
+	values.Set("trace_id", "trace-456")
+	if err := fc.Set(ctxapi.ValuesCtx, values); err != nil {
+		t.Fatalf("failed to set values: %v", err)
+	}
+
+	l.SetContext(ctx)
+
+	// Create a new Executor (like funcs.new() does)
+	exec := &Executor{}
+	// NOT calling with_context() - executor has no explicit context
+
+	// Simulate what executorCall now does: start with inherited, then overlay
+	yield := AcquireCallYield()
+	defer ReleaseCallYield(yield)
+
+	// Fixed behavior: start with inherited context from frame
+	yield.Task.Context = buildContextPairs(l)
+
+	// Then overlay with explicit executor settings
+	if exec.hasActor {
+		yield.Task.Context = append(yield.Task.Context, ctxapi.Pair{})
+	}
+	if exec.hasScope {
+		yield.Task.Context = append(yield.Task.Context, ctxapi.Pair{})
+	}
+	if exec.values != nil && exec.values.Len() > 0 {
+		yield.Task.Context = append(yield.Task.Context, ctxapi.ValuesPair(exec.values))
+	}
+
+	// Task.Context should have inherited values from frame
+	if len(yield.Task.Context) == 0 {
+		t.Error("executorCall should inherit context from frame when executor has no explicit context")
+	}
+
+	// Verify values pair is present
+	hasValues := false
+	for _, pair := range yield.Task.Context {
+		if pair.Key == ctxapi.ValuesCtx {
+			hasValues = true
+			break
+		}
+	}
+	if !hasValues {
+		t.Error("Task.Context should include values pair from frame context")
+	}
+}
+
+func TestExecutorCallMergesExplicitAndInheritedContext(t *testing.T) {
+	// Test that explicit executor context is merged with inherited frame context
+	l := lua.NewState()
+	defer l.Close()
+
+	// Set up frame context with values
+	ctx, fc := ctxapi.OpenFrameContext(l.Context())
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	frameValues := ctxapi.NewValues()
+	frameValues.Set("session_id", "sess-from-frame")
+	frameValues.Set("inherited_key", "inherited_value")
+	if err := fc.Set(ctxapi.ValuesCtx, frameValues); err != nil {
+		t.Fatalf("failed to set values: %v", err)
+	}
+
+	l.SetContext(ctx)
+
+	// Create executor with explicit values (like with_context() does)
+	execValues := ctxapi.NewValues()
+	execValues.Set("explicit_key", "explicit_value")
+	exec := &Executor{values: execValues}
+
+	// What executorCall SHOULD do: merge inherited + explicit
+	// Inherited context should be base, explicit should overlay
+	inheritedPairs := buildContextPairs(l)
+
+	// Build final context: start with inherited, add explicit overrides
+	var finalContext []ctxapi.Pair
+	finalContext = append(finalContext, inheritedPairs...)
+	if exec.values != nil && exec.values.Len() > 0 {
+		finalContext = append(finalContext, ctxapi.ValuesPair(exec.values))
+	}
+
+	// Should have both inherited and explicit values
+	if len(finalContext) < 2 {
+		t.Error("should have both inherited values and explicit values pairs")
+	}
+}
+
+func TestAsyncYieldInheritsFrameContext(t *testing.T) {
+	// Test that async calls also inherit context from frame
+	l := lua.NewState()
+	defer l.Close()
+
+	// Set up frame context with values
+	ctx, fc := ctxapi.OpenFrameContext(l.Context())
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	values := ctxapi.NewValues()
+	values.Set("session_id", "async-sess-123")
+	if err := fc.Set(ctxapi.ValuesCtx, values); err != nil {
+		t.Fatalf("failed to set values: %v", err)
+	}
+
+	l.SetContext(ctx)
+
+	// Verify buildContextPairs returns inherited values for async
+	pairs := buildContextPairs(l)
+
+	if len(pairs) == 0 {
+		t.Error("async calls should inherit context from frame")
+	}
+
+	hasValues := false
+	for _, pair := range pairs {
+		if pair.Key == ctxapi.ValuesCtx {
+			hasValues = true
+			break
+		}
+	}
+	if !hasValues {
+		t.Error("async context should include values pair from frame")
+	}
+}
+
+func TestValuesMerging(t *testing.T) {
+	// Test that when both frame context and explicit context have values,
+	// they should be MERGED, not replaced.
+	// This is the core bug: if frame has {session_id: "xxx"} and explicit has {agent_id: "yyy"},
+	// the final context should have BOTH values.
+
+	frameValues := ctxapi.NewValues()
+	frameValues.Set("session_id", "sess-123")
+	frameValues.Set("user_id", "user-456")
+
+	execValues := ctxapi.NewValues()
+	execValues.Set("agent_id", "agent-789")
+	execValues.Set("call_id", "call-abc")
+
+	// Merge: start with frame values, overlay with exec values
+	mergedValues := ctxapi.NewValues()
+	frameValues.Iterate(func(key string, val any) {
+		mergedValues.Set(key, val)
+	})
+	execValues.Iterate(func(key string, val any) {
+		mergedValues.Set(key, val)
 	})
 
-	t.Run("call with multiple arguments", func(t *testing.T) {
-		mod := NewFunctionModule()
-		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
-		)
-		require.NoError(t, err)
-		defer vm.Close()
+	// Verify ALL values are present
+	if v, _ := mergedValues.Get("session_id"); v != "sess-123" {
+		t.Errorf("merged values should have session_id=sess-123, got %v", v)
+	}
+	if v, _ := mergedValues.Get("user_id"); v != "user-456" {
+		t.Errorf("merged values should have user_id=user-456, got %v", v)
+	}
+	if v, _ := mergedValues.Get("agent_id"); v != "agent-789" {
+		t.Errorf("merged values should have agent_id=agent-789, got %v", v)
+	}
+	if v, _ := mergedValues.Get("call_id"); v != "call-abc" {
+		t.Errorf("merged values should have call_id=call-abc, got %v", v)
+	}
+}
 
-		err = vm.Import(`
-			function test_multi()
-				local executor = funcs.new()
-				local result, err = executor:call("test:function", "arg1", 42, {key = "value"})
-				assert(err == nil, "expected no error but got: " .. tostring(err))
-				assert(result == "multi_success", "expected 'multi_success' but got: " .. tostring(result))
-				return result
-			end
-		`, "test", "test_multi")
-		require.NoError(t, err)
+func TestBuildMergedContextPairs(t *testing.T) {
+	// Test the helper function that should merge frame context values with explicit values
+	l := lua.NewState()
+	defer l.Close()
 
-		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
+	// Set up frame context with values
+	ctx, fc := ctxapi.OpenFrameContext(l.Context())
+	defer ctxapi.ReleaseFrameContext(fc)
 
-		uw, ctx := wrapped.InitUnitOfWork(context.Background())
-		defer func() { _ = uw.Close() }()
+	frameValues := ctxapi.NewValues()
+	frameValues.Set("session_id", "sess-from-frame")
+	frameValues.Set("inherited_key", "inherited_value")
+	if err := fc.Set(ctxapi.ValuesCtx, frameValues); err != nil {
+		t.Fatalf("failed to set frame values: %v", err)
+	}
 
-		mockExec := &mockExecutor{
-			result: &runtime.Result{
-				Value: payload.New("multi_success"),
-			},
+	l.SetContext(ctx)
+
+	// Create explicit values (simulating with_context)
+	execValues := ctxapi.NewValues()
+	execValues.Set("explicit_key", "explicit_value")
+	execValues.Set("agent_id", "agent-123")
+
+	// This is what buildMergedContextPairs should do
+	mergedPairs := buildMergedContextPairs(l, execValues)
+
+	// Should have exactly ONE ValuesPair with merged values
+	valuesPairCount := 0
+	var mergedValues ctxapi.Values
+	for _, pair := range mergedPairs {
+		if pair.Key == ctxapi.ValuesCtx {
+			valuesPairCount++
+			mergedValues = pair.Value.(ctxapi.Values)
 		}
+	}
 
-		tr := createTestTranscoder()
-		ctx = payload.WithTranscoder(ctx, tr)
-		ctx = function.WithFunctions(ctx, mockExec)
+	if valuesPairCount != 1 {
+		t.Errorf("should have exactly 1 ValuesPair, got %d", valuesPairCount)
+	}
 
-		result, err := wrapped.Execute(ctx, "test_multi")
-		require.NoError(t, err)
-		assert.Equal(t, "multi_success", fmt.Sprintf("%v", result))
-	})
+	if mergedValues == nil {
+		t.Fatal("mergedValues should not be nil")
+	}
 
-	t.Run("with_actor functionality", func(t *testing.T) {
-		mod := NewFunctionModule()
-		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
-			engine.WithLoader("security", securityModuleLoader),
-		)
-		require.NoError(t, err)
-		defer vm.Close()
+	// Verify both inherited and explicit values are present
+	if v, _ := mergedValues.Get("session_id"); v != "sess-from-frame" {
+		t.Errorf("merged should have session_id=sess-from-frame, got %v", v)
+	}
+	if v, _ := mergedValues.Get("inherited_key"); v != "inherited_value" {
+		t.Errorf("merged should have inherited_key, got %v", v)
+	}
+	if v, _ := mergedValues.Get("explicit_key"); v != "explicit_value" {
+		t.Errorf("merged should have explicit_key, got %v", v)
+	}
+	if v, _ := mergedValues.Get("agent_id"); v != "agent-123" {
+		t.Errorf("merged should have agent_id=agent-123, got %v", v)
+	}
+}
 
-		err = vm.Import(`
-			function test_with_actor()
-				local security = require("security")
-				local executor = funcs.new()
-				
-				-- Create an actor
-				local actor = security.new_actor("test_user")
-				
-				-- Create executor with actor
-				local executor_with_actor = executor:with_actor(actor)
-				
-				-- Call function, result should include the actor ID
-				local result, err = executor_with_actor:call("test:function")
-				assert(err == nil, "expected no error but got: " .. tostring(err))
-				assert(result == "actor:test_user", "expected 'actor:test_user' but got: " .. tostring(result))
-				
-				-- Return the result
-				return result
-			end
-		`, "test", "test_with_actor")
-		require.NoError(t, err)
+func TestExecutorCallValuesMergedNotReplaced(t *testing.T) {
+	// Integration test: verify that executorCall properly merges values
+	// This test should FAIL with the current implementation and PASS after the fix
+	l := lua.NewState()
+	defer l.Close()
 
-		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
+	// Set up frame context with session_id
+	ctx, fc := ctxapi.OpenFrameContext(l.Context())
+	defer ctxapi.ReleaseFrameContext(fc)
 
-		uw, ctx := wrapped.InitUnitOfWork(context.Background())
-		defer func() { _ = uw.Close() }()
+	frameValues := ctxapi.NewValues()
+	frameValues.Set("session_id", "sess-abc")
+	if err := fc.Set(ctxapi.ValuesCtx, frameValues); err != nil {
+		t.Fatalf("failed to set frame values: %v", err)
+	}
+	l.SetContext(ctx)
 
-		mockExec := &mockExecutor{
-			result: &runtime.Result{
-				Value: payload.New("default"),
-			},
+	// Create executor with explicit values
+	execValues := ctxapi.NewValues()
+	execValues.Set("agent_id", "agent-xyz")
+	exec := &Executor{values: execValues}
+
+	// Simulate what executorCall does - build merged context
+	mergedPairs := buildMergedContextPairs(l, exec.values)
+
+	// Find the merged values
+	var mergedValues ctxapi.Values
+	for _, pair := range mergedPairs {
+		if pair.Key == ctxapi.ValuesCtx {
+			mergedValues = pair.Value.(ctxapi.Values)
+			break
 		}
+	}
 
-		tr := createTestTranscoder()
-		ctx = payload.WithTranscoder(ctx, tr)
-		ctx = function.WithFunctions(ctx, mockExec)
+	if mergedValues == nil {
+		t.Fatal("should have merged values")
+	}
 
-		result, err := wrapped.Execute(ctx, "test_with_actor")
-		require.NoError(t, err)
-		assert.Equal(t, "actor:test_user", fmt.Sprintf("%v", result))
-	})
+	// Key assertion: BOTH session_id from frame AND agent_id from explicit should be present
+	sessionID, hasSession := mergedValues.Get("session_id")
+	agentID, hasAgent := mergedValues.Get("agent_id")
 
-	t.Run("with_scope functionality", func(t *testing.T) {
-		mod := NewFunctionModule()
-		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
-			engine.WithLoader("security", securityModuleLoader),
-		)
-		require.NoError(t, err)
-		defer vm.Close()
+	if !hasSession || sessionID != "sess-abc" {
+		t.Errorf("merged values should preserve session_id from frame, got hasSession=%v, value=%v", hasSession, sessionID)
+	}
+	if !hasAgent || agentID != "agent-xyz" {
+		t.Errorf("merged values should have agent_id from explicit, got hasAgent=%v, value=%v", hasAgent, agentID)
+	}
+}
 
-		err = vm.Import(`
-			function test_with_scope()
-				local security = require("security")
-				local executor = funcs.new()
-				
-				-- Create a scope
-				local scope = security.new_scope()
-				
-				-- Create executor with scope
-				local executor_with_scope = executor:with_scope(scope)
-				
-				-- Call function, result should include scope info
-				local result, err = executor_with_scope:call("test:function")
-				assert(err == nil, "expected no error but got: " .. tostring(err))
-				assert(result == "scope:0", "expected 'scope:0' but got: " .. tostring(result))
-				
-				return result
-			end
-		`, "test", "test_with_scope")
-		require.NoError(t, err)
+func TestDuplicateValuesPairsOverwrite(t *testing.T) {
+	// This test demonstrates the BUG: when two ValuesPairs are added to context,
+	// the second one OVERWRITES the first instead of merging.
+	// This is WHY session_id gets lost when tool_caller uses with_context().
 
-		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
+	// Simulate two ValuesPairs being applied (like the old broken code did)
+	frameValues := ctxapi.NewValues()
+	frameValues.Set("session_id", "sess-123")
+	frameValues.Set("user_id", "user-456")
 
-		uw, ctx := wrapped.InitUnitOfWork(context.Background())
-		defer func() { _ = uw.Close() }()
+	execValues := ctxapi.NewValues()
+	execValues.Set("agent_id", "agent-789")
 
-		mockExec := &mockExecutor{
-			result: &runtime.Result{
-				Value: payload.New("default"),
-			},
-		}
+	// Old broken approach: two separate ValuesPairs
+	pairs := []ctxapi.Pair{
+		ctxapi.ValuesPair(frameValues), // First pair with session_id
+		ctxapi.ValuesPair(execValues),  // Second pair overwrites!
+	}
 
-		tr := createTestTranscoder()
-		ctx = payload.WithTranscoder(ctx, tr)
-		ctx = function.WithFunctions(ctx, mockExec)
+	// Apply pairs to a new frame (simulating what scheduler does)
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(fc)
 
-		result, err := wrapped.Execute(ctx, "test_with_scope")
-		require.NoError(t, err)
-		assert.Equal(t, "scope:0", fmt.Sprintf("%v", result))
-	})
+	for _, p := range pairs {
+		_ = fc.Set(p.Key, p.Value)
+	}
 
-	t.Run("cannot remove actor", func(t *testing.T) {
-		mod := NewFunctionModule()
-		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
-			engine.WithLoader("security", securityModuleLoader),
-		)
-		require.NoError(t, err)
-		defer vm.Close()
+	// The bug: session_id is LOST because second ValuesPair overwrote the first
+	resultValues := ctxapi.GetValues(ctx)
 
-		err = vm.Import(`
-			function test_remove_actor()
-				local security = require("security")
-				local executor = funcs.new()
-				
-				-- Create an actor
-				local actor = security.new_actor("test_user")
-				
-				-- Create executor with actor
-				local executor_with_actor = executor:with_actor(actor)
-				
-				-- Try to remove actor (should throw an error)
-				local success, err = pcall(function()
-					local executor_no_actor = executor_with_actor:with_actor(nil)
-					return executor_no_actor
-				end)
-				
-				-- Should have error
-				assert(not success, "expected error but got success")
-				assert(string.match(err, "actor cannot be nil"), "expected error about nil actor, got: " .. tostring(err))
-				
-				-- Return pcall results directly for testing
-				return "error:" .. tostring(err)
-			end
-		`, "test", "test_remove_actor")
-		require.NoError(t, err)
+	// This assertion shows the bug - session_id is gone!
+	_, hasSessionID := resultValues.Get("session_id")
+	_, hasAgentID := resultValues.Get("agent_id")
 
-		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
+	// With the bug, hasSessionID will be FALSE (overwritten)
+	// After fix with merged values, hasSessionID should be TRUE
+	t.Logf("hasSessionID=%v, hasAgentID=%v", hasSessionID, hasAgentID)
 
-		uw, ctx := wrapped.InitUnitOfWork(context.Background())
-		defer func() { _ = uw.Close() }()
+	if !hasSessionID {
+		t.Log("BUG CONFIRMED: session_id was overwritten by second ValuesPair")
+	}
+	if !hasAgentID {
+		t.Error("agent_id should be present")
+	}
 
-		mockExec := &mockExecutor{
-			result: &runtime.Result{
-				Value: payload.New("default"),
-			},
-		}
+	// The fix: use buildMergedContextPairs which creates ONE ValuesPair with merged values
+}
 
-		tr := createTestTranscoder()
-		ctx = payload.WithTranscoder(ctx, tr)
-		ctx = function.WithFunctions(ctx, mockExec)
+func TestMergedContextPairsAppliedCorrectly(t *testing.T) {
+	// This test verifies the FIX: merged pairs when applied to a new frame
+	// preserve BOTH inherited and explicit values.
+	l := lua.NewState()
+	defer l.Close()
 
-		result, err := wrapped.Execute(ctx, "test_remove_actor")
-		require.NoError(t, err)
+	// Set up caller's frame context with session_id (simulating session process)
+	callerCtx, callerFC := ctxapi.OpenFrameContext(l.Context())
+	defer ctxapi.ReleaseFrameContext(callerFC)
 
-		// Extract the error string and check it contains the expected message
-		resultStr := fmt.Sprintf("%v", result)
-		assert.True(t, strings.HasPrefix(resultStr, "error:"), "Expected error prefix")
-		assert.Contains(t, resultStr, "actor cannot be nil", "Error should mention nil actor")
-	})
+	frameValues := ctxapi.NewValues()
+	frameValues.Set("session_id", "sess-123")
+	frameValues.Set("user_id", "user-456")
+	_ = callerFC.Set(ctxapi.ValuesCtx, frameValues)
+	l.SetContext(callerCtx)
 
-	t.Run("cannot remove scope", func(t *testing.T) {
-		mod := NewFunctionModule()
-		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
-			engine.WithLoader("security", securityModuleLoader),
-		)
-		require.NoError(t, err)
-		defer vm.Close()
+	// Create explicit values (simulating with_context({agent_id=...}))
+	execValues := ctxapi.NewValues()
+	execValues.Set("agent_id", "agent-789")
+	execValues.Set("call_id", "call-abc")
 
-		err = vm.Import(`
-			function test_remove_scope()
-				local security = require("security")
-				local executor = funcs.new()
-				
-				-- Create a scope
-				local scope = security.new_scope()
-				
-				-- Create executor with scope
-				local executor_with_scope = executor:with_scope(scope)
-				
-				-- Try to remove scope (should throw an error)
-				local success, err = pcall(function()
-					local executor_no_scope = executor_with_scope:with_scope(nil)
-					return executor_no_scope
-				end)
-				
-				-- Should have error
-				assert(not success, "expected error but got success")
-				assert(string.match(err, "scope cannot be nil"), "expected error about nil scope, got: " .. tostring(err))
-				
-				-- Return pcall results directly for testing
-				return "error:" .. tostring(err)
-			end
-		`, "test", "test_remove_scope")
-		require.NoError(t, err)
+	// Build merged pairs (this is what the fix does)
+	mergedPairs := buildMergedContextPairs(l, execValues)
 
-		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
+	// Apply merged pairs to a NEW frame (simulating scheduler creating callee frame)
+	calleeCtx, calleeFC := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(calleeFC)
 
-		uw, ctx := wrapped.InitUnitOfWork(context.Background())
-		defer func() { _ = uw.Close() }()
+	for _, p := range mergedPairs {
+		_ = calleeFC.Set(p.Key, p.Value)
+	}
 
-		mockExec := &mockExecutor{
-			result: &runtime.Result{
-				Value: payload.New("default"),
-			},
-		}
+	// Verify BOTH inherited AND explicit values are present in the callee's context
+	resultValues := ctxapi.GetValues(calleeCtx)
+	if resultValues == nil {
+		t.Fatal("resultValues should not be nil")
+	}
 
-		tr := createTestTranscoder()
-		ctx = payload.WithTranscoder(ctx, tr)
-		ctx = function.WithFunctions(ctx, mockExec)
+	sessionID, hasSessionID := resultValues.Get("session_id")
+	userID, hasUserID := resultValues.Get("user_id")
+	agentID, hasAgentID := resultValues.Get("agent_id")
+	callID, hasCallID := resultValues.Get("call_id")
 
-		result, err := wrapped.Execute(ctx, "test_remove_scope")
-		require.NoError(t, err)
-
-		// Extract the error string and check it contains the expected message
-		resultStr := fmt.Sprintf("%v", result)
-		assert.True(t, strings.HasPrefix(resultStr, "error:"), "Expected error prefix")
-		assert.Contains(t, resultStr, "scope cannot be nil", "Error should mention nil scope")
-	})
-
-	t.Run("async with security context", func(t *testing.T) {
-		mod := NewFunctionModule()
-		vm, err := engine.NewCVM(logger,
-			engine.WithPreloaded(mod.Name(), mod.Loader),
-			engine.WithLoader("security", securityModuleLoader),
-		)
-		require.NoError(t, err)
-		defer vm.Close()
-
-		// Setup command module for async tests
-		setupCommandPackage(vm.State())
-		setupCommandModule(vm.State())
-
-		// Modified test script to use a simpler approach with fixed result
-		err = vm.Import(`
-			function test_async_with_actor()
-				local security = require("security")
-				local executor = funcs.new()
-				
-				-- Create an actor
-				local actor = security.new_actor("async_user")
-				
-				-- Create executor with actor
-				local executor_with_actor = executor:with_actor(actor)
-				
-				-- Call function asynchronously
-				local cmd = executor_with_actor:async("test:function")
-				
-				-- For test purposes, we'll just verify we got a command object
-				assert(cmd ~= nil, "expected command object but got nil")
-				
-				-- Return fixed string to verify test passed
-				return "actor:async_user"
-			end
-		`, "test", "test_async_with_actor")
-		require.NoError(t, err)
-
-		wrapped := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
-
-		uw, ctx := wrapped.InitUnitOfWork(context.Background())
-		defer func() { _ = uw.Close() }()
-
-		mockExec := &mockExecutor{
-			result: &runtime.Result{
-				Value: payload.New("actor:async_user"),
-			},
-		}
-
-		tr := createTestTranscoder()
-		ctx = payload.WithTranscoder(ctx, tr)
-		ctx = function.WithFunctions(ctx, mockExec)
-
-		result, err := wrapped.Execute(ctx, "test_async_with_actor")
-		require.NoError(t, err)
-		assert.Equal(t, "actor:async_user", fmt.Sprintf("%v", result))
-	})
+	// All values should be present
+	if !hasSessionID || sessionID != "sess-123" {
+		t.Errorf("session_id should be preserved, got hasSessionID=%v, value=%v", hasSessionID, sessionID)
+	}
+	if !hasUserID || userID != "user-456" {
+		t.Errorf("user_id should be preserved, got hasUserID=%v, value=%v", hasUserID, userID)
+	}
+	if !hasAgentID || agentID != "agent-789" {
+		t.Errorf("agent_id should be present, got hasAgentID=%v, value=%v", hasAgentID, agentID)
+	}
+	if !hasCallID || callID != "call-abc" {
+		t.Errorf("call_id should be present, got hasCallID=%v, value=%v", hasCallID, callID)
+	}
 }

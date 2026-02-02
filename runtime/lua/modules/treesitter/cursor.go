@@ -3,96 +3,86 @@ package treesitter
 import (
 	"context"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	treesitter "github.com/tree-sitter/go-tree-sitter"
-	lua "github.com/yuin/gopher-lua"
+	"github.com/wippyai/runtime/api/runtime/resource"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	lua "github.com/wippyai/go-lua"
 )
+
+const typeCursor = "treesitter.Cursor"
+
+// pushCursor pushes a Cursor userdata to the stack
+func pushCursor(l *lua.LState, cw *CursorWrapper) {
+	value.PushTypedUserData(l, cw, typeCursor)
+}
 
 // CursorWrapper wraps a tree-sitter TreeCursor for Lua integration
 type CursorWrapper struct {
-	cursor  *treesitter.TreeCursor
-	source  *string
-	closed  bool
-	release context.CancelFunc // Cancel function from UoW
+	cursor        *treesitter.TreeCursor
+	source        *string
+	cancelCleanup func()
+	closed        bool
 }
 
-// Register the Cursor type to Lua
-func registerCursor(l *lua.LState) {
-	methods := map[string]lua.LGFunction{
-		"current_node":               cursorCurrentNode,
-		"current_field_id":           cursorCurrentFieldID,
-		"current_field_name":         cursorCurrentFieldName,
-		"current_depth":              cursorCurrentDepth,
-		"current_descendant_index":   cursorCurrentDescendantIndex,
-		"goto_parent":                cursorGotoParent,
-		"goto_first_child":           cursorGotoFirstChild,
-		"goto_last_child":            cursorGotoLastChild,
-		"goto_next_sibling":          cursorGotoNextSibling,
-		"goto_previous_sibling":      cursorGotoPreviousSibling,
-		"goto_descendant":            cursorGotoDescendant,
-		"goto_first_child_for_byte":  cursorGotoFirstChildForByte,
-		"goto_first_child_for_point": cursorGotoFirstChildForPoint,
-		"reset":                      cursorReset,
-		"reset_to":                   cursorResetTo,
-		"copy":                       cursorCopy,
-		"close":                      cursorClose,
-	}
-
-	value.RegisterMethods(l, "treesitter.Cursor", methods)
-}
-
-func NewCursor(uw engine.UnitOfWork, cursor *treesitter.TreeCursor, source *string) *CursorWrapper {
+func NewCursor(ctx context.Context, cursor *treesitter.TreeCursor, source *string) *CursorWrapper {
 	wrapper := &CursorWrapper{
 		cursor: cursor,
 		source: source,
 	}
 
-	// Register cleanup with UoW, storing the cancel function
-	wrapper.release = uw.AddCleanup(func() error {
-		if wrapper.cursor != nil && !wrapper.closed {
-			wrapper.cursor.Close()
-			wrapper.cursor = nil
-			wrapper.closed = true
-		}
-		return nil
-	})
+	// Register cleanup with resource store
+	store := resource.GetStore(ctx)
+	if store != nil {
+		wrapper.cancelCleanup = store.AddCleanup(func() error {
+			if wrapper.cursor != nil && !wrapper.closed {
+				wrapper.cursor.Close()
+				wrapper.cursor = nil
+				wrapper.closed = true
+			}
+			return nil
+		})
+	}
 
 	return wrapper
 }
 
 func (c *CursorWrapper) Close() {
-	if !c.closed && c.release != nil {
+	if !c.closed && c.cancelCleanup != nil {
 		c.closed = true
-		c.release() // Remove cleanup from UoW but don't execute it
-		c.release = nil
+		c.cancelCleanup()
+		c.cancelCleanup = nil
 	}
 }
 
 func cursorCurrentNode(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	node := cursor.cursor.Node()
 	if node == nil {
 		l.Push(lua.LNil)
 		return 1
 	}
 
-	ud := l.NewUserData()
-	ud.Value = &NodeWrapper{node: node, source: cursor.source}
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Node")
-
-	l.Push(ud)
+	pushNode(l, node, cursor.source)
 	return 1
 }
 
 func cursorCurrentFieldID(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	l.Push(lua.LNumber(cursor.cursor.FieldId()))
 	return 1
 }
 
 func cursorCurrentFieldName(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	fieldName := cursor.cursor.FieldName()
 	if fieldName == "" {
 		l.Push(lua.LNil)
@@ -104,18 +94,27 @@ func cursorCurrentFieldName(l *lua.LState) int {
 
 func cursorCurrentDepth(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	l.Push(lua.LNumber(cursor.cursor.Depth()))
 	return 1
 }
 
 func cursorCurrentDescendantIndex(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	l.Push(lua.LNumber(cursor.cursor.DescendantIndex()))
 	return 1
 }
 
 func cursorGotoParent(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	success := cursor.cursor.GotoParent()
 	l.Push(lua.LBool(success))
 	return 1
@@ -123,6 +122,9 @@ func cursorGotoParent(l *lua.LState) int {
 
 func cursorGotoFirstChild(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	success := cursor.cursor.GotoFirstChild()
 	l.Push(lua.LBool(success))
 	return 1
@@ -130,6 +132,9 @@ func cursorGotoFirstChild(l *lua.LState) int {
 
 func cursorGotoLastChild(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	success := cursor.cursor.GotoLastChild()
 	l.Push(lua.LBool(success))
 	return 1
@@ -137,6 +142,9 @@ func cursorGotoLastChild(l *lua.LState) int {
 
 func cursorGotoNextSibling(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	success := cursor.cursor.GotoNextSibling()
 	l.Push(lua.LBool(success))
 	return 1
@@ -144,6 +152,9 @@ func cursorGotoNextSibling(l *lua.LState) int {
 
 func cursorGotoPreviousSibling(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	success := cursor.cursor.GotoPreviousSibling()
 	l.Push(lua.LBool(success))
 	return 1
@@ -151,6 +162,9 @@ func cursorGotoPreviousSibling(l *lua.LState) int {
 
 func cursorGotoDescendant(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	index := uint32(l.CheckNumber(2))
 	cursor.cursor.GotoDescendant(index)
 	return 0
@@ -158,6 +172,9 @@ func cursorGotoDescendant(l *lua.LState) int {
 
 func cursorGotoFirstChildForByte(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	byteIndex := uint32(l.CheckNumber(2))
 	if index := cursor.cursor.GotoFirstChildForByte(byteIndex); index != nil {
 		l.Push(lua.LNumber(*index))
@@ -169,11 +186,14 @@ func cursorGotoFirstChildForByte(l *lua.LState) int {
 
 func cursorGotoFirstChildForPoint(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 
 	// Spawn point table argument
 	pointTbl := l.CheckTable(2)
-	row := uint(pointTbl.RawGetString("row").(lua.LNumber))
-	col := uint(pointTbl.RawGetString("column").(lua.LNumber))
+	row := toUint(pointTbl.RawGetString("row"))
+	col := toUint(pointTbl.RawGetString("column"))
 
 	point := treesitter.Point{Row: row, Column: col}
 	if index := cursor.cursor.GotoFirstChildForPoint(point); index != nil {
@@ -186,6 +206,9 @@ func cursorGotoFirstChildForPoint(l *lua.LState) int {
 
 func cursorReset(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	ud := l.CheckUserData(2)
 	if node, ok := ud.Value.(*NodeWrapper); ok {
 		cursor.cursor.Reset(*node.node)
@@ -196,6 +219,9 @@ func cursorReset(l *lua.LState) int {
 
 func cursorResetTo(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	ud := l.CheckUserData(2)
 	if otherCursor, ok := ud.Value.(*CursorWrapper); ok {
 		cursor.cursor.ResetTo(otherCursor.cursor)
@@ -207,19 +233,30 @@ func cursorResetTo(l *lua.LState) int {
 
 func cursorCopy(l *lua.LState) int {
 	cursor := checkCursor(l)
+	if cursor == nil {
+		return 0
+	}
 	copied := cursor.cursor.Copy()
 
-	ud := l.NewUserData()
-	ud.Value = &CursorWrapper{cursor: copied, source: cursor.source}
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Cursor")
+	ctx := l.Context()
+	if ctx == nil {
+		err := lua.NewLuaError(l, "no context found").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
+	}
 
-	l.Push(ud)
+	pushCursor(l, NewCursor(ctx, copied, cursor.source))
 	return 1
 }
 
 func cursorClose(l *lua.LState) int {
-	c := checkCursor(l)
-	c.Close()
+	ud := l.CheckUserData(1)
+	if v, ok := ud.Value.(*CursorWrapper); ok {
+		v.Close()
+	}
 	return 0
 }
 

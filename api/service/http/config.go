@@ -1,3 +1,4 @@
+// Package http provides HTTP service configuration.
 package http
 
 import (
@@ -7,21 +8,22 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/supervisor"
 )
 
 // Registry kind constants for HTTP service components.
 // These identify different types of HTTP-related components in the registry.
 const (
-	// KindServer identifies an HTTP server component
-	KindServer registry.Kind = "http.service"
-	// KindRouter identifies an HTTP router component
-	KindRouter registry.Kind = "http.router"
-	// KindEndpoint identifies an HTTP endpoint component
-	KindEndpoint registry.Kind = "http.endpoint"
-	// KindStatic identifies a static file server component
-	KindStatic registry.Kind = "http.static"
+	// Server identifies an HTTP server component
+	Server registry.Kind = "http.service"
+	// Router identifies an HTTP router component
+	Router registry.Kind = "http.router"
+	// Endpoint identifies an HTTP endpoint component
+	Endpoint registry.Kind = "http.endpoint"
+	// Static identifies a static file server component
+	Static registry.Kind = "http.static"
 
 	// ServerID is the key used to identify the server in configuration metadata
 	ServerID string = "server"
@@ -32,10 +34,10 @@ const (
 // ServerConfig represents the initial configuration for the Timeouts service.
 type (
 	ServerConfig struct {
-		Meta      registry.Metadata          `json:"meta"`
+		Meta      attrs.Bag                  `json:"meta"`
 		Addr      string                     `json:"addr"`
-		Timeouts  TimeoutConfig              `json:"timeouts"`
 		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
+		Timeouts  TimeoutConfig              `json:"timeouts"`
 		Host      HostConfig                 `json:"host"`
 	}
 
@@ -46,53 +48,198 @@ type (
 
 	// TimeoutConfig represents global Timeouts-level configuration options.
 	TimeoutConfig struct {
-		ReadTimeout  time.Duration `json:"read"`
-		WriteTimeout time.Duration `json:"write"`
-		IdleTimeout  time.Duration `json:"idle"`
+		ReadTimeout  time.Duration `json:"read,omitzero,format:units"`
+		WriteTimeout time.Duration `json:"write,omitzero,format:units"`
+		IdleTimeout  time.Duration `json:"idle,omitzero,format:units"`
 	}
 
 	// RouterConfig represents the configuration for a group of endpoints (a router).
 	RouterConfig struct {
-		Meta           registry.Metadata `json:"meta"`            // Metadata
-		Server         registry.ID       `json:"server"`          // Server Source
-		Prefix         string            `json:"prefix"`          // URL prefix for this group
-		Middleware     []string          `json:"middleware"`      // Middleware names
-		Options        map[string]string `json:"options"`         // Middleware options
-		PostMiddleware []string          `json:"post_middleware"` // Post-match middleware names
-		PostOptions    map[string]string `json:"post_options"`    // Post-match middleware options
+		Meta           attrs.Bag         `json:"meta"`
+		Options        map[string]string `json:"options"`
+		PostOptions    map[string]string `json:"post_options"`
+		Server         registry.ID       `json:"server"`
+		Prefix         string            `json:"prefix"`
+		Middleware     []string          `json:"middleware"`
+		PostMiddleware []string          `json:"post_middleware"`
 	}
 
 	// EndpointConfig represents the configuration for a single endpoint.
 	EndpointConfig struct {
-		Meta   registry.Metadata `json:"meta"`   // Metadata
-		Path   string            `json:"path"`   // URL path
-		Method string            `json:"method"` // Timeouts method
-		Func   registry.ID       `json:"func"`   // Func function
+		Meta   attrs.Bag   `json:"meta"`   // Metadata, todo: migrate to avoid use of this
+		Path   string      `json:"path"`   // URL path
+		Method string      `json:"method"` // Timeouts method
+		Func   registry.ID `json:"func"`   // Func function
 	}
 
 	// StaticConfig represents the configuration for a static file server endpoint
 	StaticConfig struct {
-		Meta      registry.Metadata `json:"meta"`      // Metadata
-		Path      string            `json:"path"`      // URL path prefix to serve under
-		FS        registry.ID       `json:"fs"`        // Name of the filesystem to serve from
-		Directory string            `json:"directory"` // Directory within the filesystem to serve
-		Options   StaticOptions     `json:"options"`   // Optional configuration
+		Meta          attrs.Bag         `json:"meta"`
+		Options       map[string]string `json:"options"`
+		FS            registry.ID       `json:"fs"`
+		StaticOptions StaticOptions     `json:"static_options"`
+		Path          string            `json:"path"`
+		Directory     string            `json:"directory"`
+		Middleware    []string          `json:"middleware"`
 	}
 
 	StaticOptions struct {
-		IndexFile    string `json:"index"` // Index file (e.g. "index.html")
-		SPA          bool   `json:"spa"`   // If true, serve IndexFile for all paths
-		CacheControl string `json:"cache"` // Cache-Control header value
+		IndexFile    string `json:"index"`
+		CacheControl string `json:"cache"`
+		SPA          bool   `json:"spa"`
 	}
 )
 
-// UnmarshalJSON implements custom unmarshaling for TimeoutConfig to handle time.Duration fields.
-func (c *TimeoutConfig) UnmarshalJSON(data []byte) error {
-	type Alias TimeoutConfig
+// SetMeta sets the metadata for ServerConfig
+func (c *ServerConfig) SetMeta(meta attrs.Bag) {
+	if c.Meta == nil { // todo: remove later once we migrate away from using meta for config!
+		c.Meta = meta
+	}
+}
+
+// SetMeta sets the metadata for RouterConfig
+func (c *RouterConfig) SetMeta(meta attrs.Bag) {
+	if c.Meta == nil { // todo: remove later once we migrate away from using meta for config!
+		c.Meta = meta
+	}
+}
+
+// SetMeta sets the metadata for EndpointConfig
+func (c *EndpointConfig) SetMeta(meta attrs.Bag) {
+	if c.Meta == nil { // todo: remove later once we migrate away from using meta for config!
+		c.Meta = meta
+	}
+}
+
+// SetMeta sets the metadata for StaticConfig
+func (c *StaticConfig) SetMeta(meta attrs.Bag) {
+	if c.Meta == nil { // todo: remove later once we migrate away from using meta for config!
+		c.Meta = meta
+	}
+}
+
+// Validate checks if the server configuration is valid
+func (c *ServerConfig) Validate() error {
+	if c.Addr == "" {
+		return ErrEmptyAddr
+	}
+
+	if err := c.Timeouts.Validate(); err != nil {
+		return NewInvalidTimeoutConfigError(err)
+	}
+
+	if c.Lifecycle.StartTimeout < 0 {
+		return NewInvalidTimeoutError("start timeout")
+	}
+
+	if c.Lifecycle.StopTimeout < 0 {
+		return NewInvalidTimeoutError("stop timeout")
+	}
+
+	if c.Host.BufferSize < 0 {
+		return NewNegativeConfigError("buffer size")
+	}
+
+	if c.Host.WorkerCount < 0 {
+		return NewNegativeConfigError("worker count")
+	}
+
+	return nil
+}
+
+// Validate checks if the timeout configuration is valid
+func (c *TimeoutConfig) Validate() error {
+	if c.ReadTimeout < 0 {
+		return NewInvalidTimeoutError("read timeout")
+	}
+	if c.WriteTimeout < 0 {
+		return NewInvalidTimeoutError("write timeout")
+	}
+	if c.IdleTimeout < 0 {
+		return NewInvalidTimeoutError("idle timeout")
+	}
+	return nil
+}
+
+// Validate checks if the router configuration is valid
+func (c *RouterConfig) Validate() error {
+	if c.Meta == nil {
+		return ErrNilMetadata
+	}
+
+	serverID := c.Meta.GetString(ServerID, "")
+	if serverID == "" {
+		return NewMissingMetadataError("server")
+	}
+
+	return nil
+}
+
+// Validate checks if the endpoint configuration is valid
+func (c *EndpointConfig) Validate() error {
+	if c.Func.Name == "" {
+		return ErrEmptyFuncName
+	}
+
+	if c.Path == "" {
+		return ErrEmptyPath
+	}
+
+	if !strings.HasPrefix(c.Path, "/") {
+		return NewPathMustStartWithSlashError()
+	}
+
+	if c.Method == "" {
+		return ErrEmptyMethod
+	}
+
+	switch c.Method {
+	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete,
+		http.MethodPatch, http.MethodHead, http.MethodOptions, http.MethodTrace:
+	default:
+		return NewInvalidHTTPMethodError(c.Method)
+	}
+
+	if c.Meta == nil {
+		return ErrNilMetadata
+	}
+
+	routerID := c.Meta.GetString(RouterID, "")
+	if routerID == "" {
+		return NewMissingMetadataError("router")
+	}
+
+	return nil
+}
+
+// Validate checks if the endpoint configuration is valid
+func (c *StaticConfig) Validate() error {
+	if c.Path == "" {
+		return ErrEmptyPath
+	}
+
+	if !strings.HasPrefix(c.Path, "/") {
+		return NewPathMustStartWithSlashError()
+	}
+
+	if c.Meta == nil {
+		return ErrNilMetadata
+	}
+
+	serverID := c.Meta.GetString(ServerID, "")
+	if serverID == "" {
+		return NewMissingMetadataError("server")
+	}
+
+	return nil
+}
+
+// UnmarshalJSON implements custom unmarshaling for StaticConfig to handle backward compatibility.
+// Migrates legacy options like "spa" from options map to static_options struct.
+func (c *StaticConfig) UnmarshalJSON(data []byte) error {
+	type Alias StaticConfig
 	aux := &struct {
-		ReadTimeout  string `json:"read"`
-		WriteTimeout string `json:"write"`
-		IdleTimeout  string `json:"idle"`
+		Options map[string]interface{} `json:"options"`
 		*Alias
 	}{
 		Alias: (*Alias)(c),
@@ -102,165 +249,92 @@ func (c *TimeoutConfig) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	var err error
-	if aux.ReadTimeout != "" {
-		c.ReadTimeout, err = time.ParseDuration(aux.ReadTimeout)
-		if err != nil {
-			return fmt.Errorf("invalid ReadTimeout duration format: %w", err)
+	// Migrate legacy options from map to StaticOptions struct
+	if aux.Options != nil {
+		if c.Options == nil {
+			c.Options = make(map[string]string)
+		}
+
+		for key, val := range aux.Options {
+			switch key {
+			case "spa":
+				// Migrate spa from options map to static_options.spa
+				if boolVal, ok := val.(bool); ok {
+					c.StaticOptions.SPA = boolVal
+				} else if strVal, ok := val.(string); ok {
+					// Support string "true"/"false" for backward compatibility
+					c.StaticOptions.SPA = strVal == "true"
+				}
+			case "index":
+				// Migrate index from options map to static_options.index
+				if strVal, ok := val.(string); ok {
+					c.StaticOptions.IndexFile = strVal
+				}
+			case "cache":
+				// Migrate cache from options map to static_options.cache
+				if strVal, ok := val.(string); ok {
+					c.StaticOptions.CacheControl = strVal
+				}
+			default:
+				// Keep other options in the map as middleware options
+				if strVal, ok := val.(string); ok {
+					c.Options[key] = strVal
+				} else {
+					c.Options[key] = anyToString(val)
+				}
+			}
 		}
 	}
 
-	if aux.WriteTimeout != "" {
-		c.WriteTimeout, err = time.ParseDuration(aux.WriteTimeout)
-		if err != nil {
-			return fmt.Errorf("invalid WriteTimeout duration format: %w", err)
-		}
-	}
-
-	if aux.IdleTimeout != "" {
-		c.IdleTimeout, err = time.ParseDuration(aux.IdleTimeout)
-		if err != nil {
-			return fmt.Errorf("invalid IdleTimeout duration format: %w", err)
-		}
-	}
-
 	return nil
 }
 
-// Validate checks if the server configuration is valid
-func (c *ServerConfig) Validate() error {
-	if c.Addr == "" {
-		return fmt.Errorf("server address cannot be empty")
-	}
-
-	// Validate timeouts
-	if err := c.Timeouts.Validate(); err != nil {
-		return fmt.Errorf("invalid timeout configuration: %w", err)
-	}
-
-	// Validate lifecycle config
-	if c.Lifecycle.StartTimeout < 0 {
-		return fmt.Errorf("start timeout must be positive or zero (default)")
-	}
-
-	if c.Lifecycle.StopTimeout < 0 {
-		return fmt.Errorf("stop timeout must be positive or zero (default)")
-	}
-
-	if c.Host.BufferSize < 0 {
-		return fmt.Errorf("host buffer size must be positive or zero (default)")
-	}
-
-	if c.Host.WorkerCount < 0 {
-		return fmt.Errorf("host worker count must be positive or zero (default)")
-	}
-
-	return nil
+func anyToString(val any) string {
+	return fmt.Sprintf("%v", val)
 }
 
-// Validate checks if the timeout configuration is valid
-func (c *TimeoutConfig) Validate() error {
-	if c.ReadTimeout < 0 {
-		return fmt.Errorf("read timeout must be positive or zero (default)")
-	}
-	if c.WriteTimeout < 0 {
-		return fmt.Errorf("write timeout must be positive or zero (default)")
-	}
-	if c.IdleTimeout < 0 {
-		return fmt.Errorf("idle timeout must be positive or zero (default)")
-	}
-	return nil
-}
-
-// Validate checks if the router configuration is valid
-func (c *RouterConfig) Validate() error {
-	if c.Meta == nil {
-		return fmt.Errorf("metadata cannot be nil")
-	}
-
-	serverID := c.Meta.StringValue(ServerID)
-	if serverID == "" {
-		return fmt.Errorf("server in metadata cannot be empty")
-	}
-
-	return nil
-}
-
-// Validate checks if the endpoint configuration is valid
-func (c *EndpointConfig) Validate() error {
-	if c.Func.Name == "" {
-		return fmt.Errorf("func name cannot be empty")
-	}
-
-	if c.Path == "" {
-		return fmt.Errorf("endpoint path cannot be empty")
-	}
-
-	if !strings.HasPrefix(c.Path, "/") {
-		return fmt.Errorf("endpoint path must start with /")
-	}
-
-	if c.Method == "" {
-		return fmt.Errorf("endpoint method cannot be empty")
-	}
-
-	// Validate HTTP method
-	switch c.Method {
-	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete,
-		http.MethodPatch, http.MethodHead, http.MethodOptions, http.MethodTrace:
-		// Valid HTTP methods
-	default:
-		return fmt.Errorf("invalid HTTP method: %s", c.Method)
-	}
-
-	if c.Meta == nil {
-		return fmt.Errorf("metadata cannot be nil")
-	}
-
-	// Verify required metadata
-	routerID := c.Meta.StringValue(RouterID)
-	if routerID == "" {
-		return fmt.Errorf("router in metadata cannot be empty")
-	}
-
-	return nil
-}
-
-// Validate checks if the endpoint configuration is valid
-func (c *StaticConfig) Validate() error {
-	if c.Path == "" {
-		return fmt.Errorf("endpoint path cannot be empty")
-	}
-
-	if !strings.HasPrefix(c.Path, "/") {
-		return fmt.Errorf("endpoint path must start with /")
-	}
-
-	if c.Meta == nil {
-		return fmt.Errorf("metadata cannot be nil")
-	}
-
-	// Verify required metadata
-	serverID := c.Meta.StringValue(ServerID)
-	if serverID == "" {
-		return fmt.Errorf("server in metadata cannot be empty")
-	}
-
-	return nil
-}
-
-// MarshalJSON implements custom marshaling for TimeoutConfig to handle time.Duration fields.
+// MarshalJSON implements custom marshaling for TimeoutConfig to output durations as strings.
 func (c *TimeoutConfig) MarshalJSON() ([]byte, error) {
-	type Alias TimeoutConfig
-	return json.Marshal(&struct {
-		ReadTimeout  string `json:"read"`
-		WriteTimeout string `json:"write"`
-		IdleTimeout  string `json:"idle"`
-		*Alias
-	}{
-		ReadTimeout:  c.ReadTimeout.String(),
-		WriteTimeout: c.WriteTimeout.String(),
-		IdleTimeout:  c.IdleTimeout.String(),
-		Alias:        (*Alias)(c),
-	})
+	m := make(map[string]string)
+	if c.ReadTimeout != 0 {
+		m["read"] = c.ReadTimeout.String()
+	}
+	if c.WriteTimeout != 0 {
+		m["write"] = c.WriteTimeout.String()
+	}
+	if c.IdleTimeout != 0 {
+		m["idle"] = c.IdleTimeout.String()
+	}
+	return json.Marshal(m)
+}
+
+// UnmarshalJSON implements custom unmarshaling for TimeoutConfig to parse duration strings.
+func (c *TimeoutConfig) UnmarshalJSON(data []byte) error {
+	var m map[string]string
+	if err := json.Unmarshal(data, &m); err != nil {
+		return err
+	}
+
+	if v, ok := m["read"]; ok && v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid read timeout: %w", err)
+		}
+		c.ReadTimeout = d
+	}
+	if v, ok := m["write"]; ok && v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid write timeout: %w", err)
+		}
+		c.WriteTimeout = d
+	}
+	if v, ok := m["idle"]; ok && v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid idle timeout: %w", err)
+		}
+		c.IdleTimeout = d
+	}
+	return nil
 }

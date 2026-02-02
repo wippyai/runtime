@@ -4,11 +4,11 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
-// StateMap is a representation of the registry state using a map for faster lookups.
-type StateMap map[registry.ID]registry.Entry
+// StateMap is an alias for registry.StateMap for internal use
+type StateMap = registry.StateMap
 
 // NewStateMap creates a new StateMap from a registry.State
 func NewStateMap(state registry.State) StateMap {
@@ -19,8 +19,8 @@ func NewStateMap(state registry.State) StateMap {
 	return m
 }
 
-// Copy creates a shallow copy of the StateMap.
-func (sm StateMap) Copy() StateMap {
+// CopyStateMap creates a shallow copy of the StateMap.
+func CopyStateMap(sm StateMap) StateMap {
 	newMap := make(StateMap)
 	for k, v := range sm {
 		newMap[k] = v
@@ -28,8 +28,8 @@ func (sm StateMap) Copy() StateMap {
 	return newMap
 }
 
-// ToSlice converts a StateMap (map) to a State (slice).
-func (sm StateMap) ToSlice() registry.State {
+// StateMapToSlice converts a StateMap (map) to a State (slice).
+func StateMapToSlice(sm StateMap) registry.State {
 	slice := make(registry.State, 0, len(sm))
 	for _, entry := range sm {
 		slice = append(slice, entry)

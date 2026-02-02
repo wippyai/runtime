@@ -2,61 +2,65 @@ package security
 
 import (
 	"context"
-	"errors"
+	"sync"
 	"time"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	secapi "github.com/ponyruntime/pony/api/security"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	securityapi "github.com/ponyruntime/pony/runtime/lua/security"
-	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
+	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	rtresource "github.com/wippyai/runtime/api/runtime/resource"
+	"github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	luasec "github.com/wippyai/runtime/runtime/lua/security"
+	lua "github.com/wippyai/go-lua"
 )
 
-const TokenStoreMetatable = "security.TokenStore"
+const tokenStoreTypeName = "security.TokenStore"
 
-// TokenStore wraps a security.TokenStore with resource handling
+// TokenStore wraps a token store resource with cleanup handling.
 type TokenStore struct {
-	id         registry.ID
-	resource   resource.Resource[any]
-	tokenStore secapi.TokenStore
-	log        *zap.Logger
-	onRelease  context.CancelFunc // Cancel function from UoW
+	resource      resource.Resource[any]
+	tokenStore    security.TokenStore
+	cancelCleanup func()
+	id            registry.ID
+	mu            sync.Mutex
+	released      bool
 }
 
-// NewTokenStore creates a new token store wrapper with UoW integration
-func NewTokenStore(uw engine.UnitOfWork, id registry.ID, res resource.Resource[any], tokenStore secapi.TokenStore, log *zap.Logger) *TokenStore {
+// NewTokenStore creates a new token store wrapper.
+func NewTokenStore(ctx context.Context, id registry.ID, res resource.Resource[any], ts security.TokenStore) *TokenStore {
 	wrapper := &TokenStore{
 		id:         id,
 		resource:   res,
-		tokenStore: tokenStore,
-		log:        log,
+		tokenStore: ts,
+		released:   false,
 	}
 
-	// Register cleanup in UoW
-	wrapper.onRelease = uw.AddCleanup(func() error {
-		if wrapper.resource != nil {
-			wrapper.resource.Release()
-			wrapper.resource = nil
-		}
-		return nil
-	})
+	store := rtresource.GetStore(ctx)
+	if store != nil {
+		wrapper.cancelCleanup = store.AddCleanup(func() error {
+			wrapper.mu.Lock()
+			defer wrapper.mu.Unlock()
+			if !wrapper.released && wrapper.resource != nil {
+				wrapper.resource.Release()
+				wrapper.released = true
+			}
+			return nil
+		})
+	}
 
 	return wrapper
 }
 
-// wrapTokenStore wraps a TokenStore as a Lua userdata
-func wrapTokenStore(l *lua.LState, tokenStore *TokenStore) *lua.LUserData {
-	ud := l.NewUserData()
-	ud.Value = tokenStore
-	ud.Metatable = value.GetTypeMetatable(l, TokenStoreMetatable)
-	return ud
+var tokenStoreMethods = map[string]lua.LGoFunc{
+	"validate": tokenStoreValidate,
+	"create":   tokenStoreCreate,
+	"revoke":   tokenStoreRevoke,
+	"close":    tokenStoreClose,
 }
 
-// checkTokenStore checks if the first argument is a TokenStore and returns it
-func checkTokenStore(l *lua.LState) *TokenStore {
+func checkTokenStore(l *lua.LState, _ int) *TokenStore {
 	ud := l.CheckUserData(1)
 	if ts, ok := ud.Value.(*TokenStore); ok {
 		return ts
@@ -65,82 +69,123 @@ func checkTokenStore(l *lua.LState) *TokenStore {
 	return nil
 }
 
-// registerTokenStoreType registers the TokenStore type and methods
-func registerTokenStoreType(l *lua.LState) {
-	value.RegisterMethods(l, TokenStoreMetatable, map[string]lua.LGFunction{
-		"validate": tokenStoreValidate,
-		"create":   tokenStoreCreate,
-		"revoke":   tokenStoreRevoke,
-		"close":    tokenStoreClose,
-	})
-}
-
-// tokenStoreValidate validates a token
-func tokenStoreValidate(l *lua.LState) int {
-	ts := checkTokenStore(l)
-	if ts == nil {
-		return 0
-	}
-
-	if ts.resource == nil {
+// tokenStoreGet acquires a token store resource.
+func tokenStoreGet(l *lua.LState) int {
+	ctx := l.Context()
+	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LNil)
-		l.Push(lua.LString("token store is closed"))
-		return 3
-	}
-
-	tokenStr := l.CheckString(2)
-	token := secapi.Token(tokenStr)
-
-	// Create metadata with token
-	meta := registry.Metadata{
-		"token": tokenStr,
-	}
-
-	// Add permission check with store ID as resource
-	storeID := ts.id.String()
-	if !securityapi.IsAllowed(l.Context(), "security.token.validate", storeID, meta) {
-		l.Push(lua.LNil)
-		l.Push(lua.LNil)
-		l.Push(lua.LString("not allowed to validate token in store: " + storeID))
-		return 3
-	}
-
-	// Validate the token
-	actor, scope, err := ts.tokenStore.Validate(l.Context(), token)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 3
-	}
-
-	// Return actor and scope
-	actorUD := wrapActor(l, actor)
-	scopeUD := wrapScope(l, scope)
-
-	l.Push(actorUD)
-	l.Push(scopeUD)
-	l.Push(lua.LNil)
-	return 3
-}
-
-// tokenStoreCreate creates a new token
-func tokenStoreCreate(l *lua.LState) int {
-	ts := checkTokenStore(l)
-	if ts == nil {
-		return 0
-	}
-
-	if ts.resource == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("token store is closed"))
+		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
+	idStr := l.CheckString(1)
+	if idStr == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "token store id is required").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+
+	if !luasec.IsAllowed(ctx, "security.token_store.get", idStr, nil) {
+		l.RaiseError("not allowed to access token store: %s", idStr)
+		return 0
+	}
+
+	reg := resource.GetRegistry(ctx)
+	if reg == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "resource registry not found").WithKind(lua.Internal).WithRetryable(false))
+		return 2
+	}
+
+	id := registry.ParseID(idStr)
+	res, err := reg.Acquire(ctx, id, resource.ModeNormal)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "acquire token store").WithKind(lua.Internal).WithRetryable(false))
+		return 2
+	}
+
+	storeRes, err := res.Get()
+	if err != nil {
+		res.Release()
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "get token store").WithKind(lua.Internal).WithRetryable(false))
+		return 2
+	}
+
+	tokenStore, ok := storeRes.(security.TokenStore)
+	if !ok {
+		res.Release()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "resource is not a token store").WithKind(lua.Internal).WithRetryable(false))
+		return 2
+	}
+
+	ts := NewTokenStore(ctx, id, res, tokenStore)
+	ud := l.NewUserData()
+	ud.Value = ts
+	ud.Metatable = value.GetTypeMetatable(l, tokenStoreTypeName)
+	l.Push(ud)
+	l.Push(lua.LNil)
+	return 2
+}
+
+// tokenStoreValidate yields to validate a token.
+func tokenStoreValidate(l *lua.LState) int {
+	ts := checkTokenStore(l, 1)
+	if ts == nil {
+		return 0
+	}
+
+	ts.mu.Lock()
+	if ts.released {
+		ts.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "token store is closed").WithKind(lua.Internal).WithRetryable(false))
+		return 3
+	}
+	tokenStore := ts.tokenStore
+	storeID := ts.id.String()
+	ts.mu.Unlock()
+
+	tokenStr := l.CheckString(2)
+	token := security.Token(tokenStr)
+
+	meta := attrs.Bag{"token": tokenStr}
+	if !luasec.IsAllowed(l.Context(), "security.token.validate", storeID, meta) {
+		l.Push(lua.LNil)
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "not allowed to validate token").WithKind(lua.Invalid).WithRetryable(false))
+		return 3
+	}
+
+	yield := acquireValidateYield(tokenStore, token)
+	l.Push(yield)
+	return -1
+}
+
+// tokenStoreCreate yields to create a new token.
+func tokenStoreCreate(l *lua.LState) int {
+	ts := checkTokenStore(l, 1)
+	if ts == nil {
+		return 0
+	}
+
+	ts.mu.Lock()
+	if ts.released {
+		ts.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "token store is closed").WithKind(lua.Internal).WithRetryable(false))
+		return 2
+	}
+	tokenStore := ts.tokenStore
+	storeID := ts.id.String()
+	ts.mu.Unlock()
+
 	// Get actor
 	actorUD := l.CheckUserData(2)
-	actor, ok := actorUD.Value.(secapi.Actor)
+	actor, ok := actorUD.Value.(security.Actor)
 	if !ok {
 		l.ArgError(2, "Actor expected")
 		return 0
@@ -148,156 +193,262 @@ func tokenStoreCreate(l *lua.LState) int {
 
 	// Get scope
 	scopeUD := l.CheckUserData(3)
-	scope, ok := scopeUD.Value.(secapi.Scope)
+	scope, ok := scopeUD.Value.(security.Scope)
 	if !ok {
 		l.ArgError(3, "Scope expected")
 		return 0
 	}
 
-	// Create metadata with actor information
-	meta := registry.Metadata{
-		"actor": actor.ID,
-	}
-
-	// Add permission check with store ID as resource
-	storeID := ts.id.String()
-	if !securityapi.IsAllowed(l.Context(), "security.token.create", storeID, meta) {
+	meta := attrs.Bag{"actor": actor.ID}
+	if !luasec.IsAllowed(l.Context(), "security.token.create", storeID, meta) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("not allowed to create token for actor: " + actor.ID + " in store: " + storeID))
+		l.Push(lua.NewLuaError(l, "not allowed to create token").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
-	// Get options
-	optionsTable := l.OptTable(4, l.NewTable())
-
-	// Parse expiration
+	// Parse options
 	var expiration time.Duration
-	if exp := optionsTable.RawGetString("expiration"); exp != lua.LNil {
-		var err error
-		switch exp.Type() {
-		case lua.LTString:
-			expiration, err = time.ParseDuration(exp.String())
-			if err != nil {
-				l.Push(lua.LNil)
-				l.Push(lua.LString("invalid expiration: " + err.Error()))
-				return 2
-			}
-		case lua.LTNumber:
-			// Assume milliseconds
-			expiration = time.Duration(exp.(lua.LNumber)) * time.Millisecond
-		case lua.LTNil, lua.LTBool, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTTable, lua.LTChannel:
-			// FIXME rework on demand
-			fallthrough
-		default:
-			l.Push(lua.LNil)
-			l.Push(lua.LString("expiration must be string or number"))
-			return 2
-		}
-	}
+	var tokenMeta attrs.Bag
+	if l.GetTop() >= 4 {
+		optionsTable := l.CheckTable(4)
 
-	// Parse metadata from the options table's "meta" field
-	tokenMeta := registry.Metadata{}
-	if metaValue := optionsTable.RawGetString("meta"); metaValue != lua.LNil {
-		if metaTable, ok := metaValue.(*lua.LTable); ok {
-			var err error
-			tokenMeta, err = luaTableToMetadata(l, metaTable)
-			if err != nil {
-				l.RaiseError("%s", err.Error())
-				return 0
+		// Parse expiration
+		if exp := optionsTable.RawGetString("expiration"); exp != lua.LNil {
+			switch v := exp.(type) {
+			case lua.LString:
+				d, err := time.ParseDuration(string(v))
+				if err != nil {
+					l.Push(lua.LNil)
+					l.Push(lua.NewLuaError(l, "invalid expiration format").WithKind(lua.Invalid).WithRetryable(false))
+					return 2
+				}
+				expiration = d
+			case lua.LNumber:
+				expiration = time.Duration(v) * time.Millisecond
+			}
+		}
+
+		// Parse metadata
+		if metaValue := optionsTable.RawGetString("meta"); metaValue != lua.LNil {
+			if metaTable, ok := metaValue.(*lua.LTable); ok {
+				tokenMeta = luaTableToMetadata(l, metaTable)
 			}
 		}
 	}
 
-	// Create token details
-	details := secapi.TokenDetails{
+	details := security.TokenDetails{
 		Expiration: expiration,
 		Meta:       tokenMeta,
 	}
 
-	token, err := ts.tokenStore.Create(l.Context(), actor, scope, details)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("failed to create token: " + err.Error()))
-		return 2
-	}
-
-	l.Push(lua.LString(token))
-	return 1
+	yield := acquireCreateYield(tokenStore, actor, scope, details)
+	l.Push(yield)
+	return -1
 }
 
-// tokenStoreRevoke revokes a token
+// tokenStoreRevoke yields to revoke a token.
 func tokenStoreRevoke(l *lua.LState) int {
-	ts := checkTokenStore(l)
+	ts := checkTokenStore(l, 1)
 	if ts == nil {
 		return 0
 	}
 
-	if ts.resource == nil {
+	ts.mu.Lock()
+	if ts.released {
+		ts.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("token store is closed"))
+		l.Push(lua.NewLuaError(l, "token store is closed").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
-
-	token := l.CheckString(2)
-
-	// Create metadata with token
-	meta := registry.Metadata{
-		"token": token,
-	}
-
-	// Add permission check with store ID as resource
+	tokenStore := ts.tokenStore
 	storeID := ts.id.String()
-	if !securityapi.IsAllowed(l.Context(), "security.token.revoke", storeID, meta) {
+	ts.mu.Unlock()
+
+	tokenStr := l.CheckString(2)
+	token := security.Token(tokenStr)
+
+	meta := attrs.Bag{"token": tokenStr}
+	if !luasec.IsAllowed(l.Context(), "security.token.revoke", storeID, meta) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("not allowed to revoke token in store: " + storeID))
+		l.Push(lua.NewLuaError(l, "not allowed to revoke token").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
-	err := ts.tokenStore.Revoke(l.Context(), secapi.Token(token))
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("failed to revoke token: " + err.Error()))
-		return 2
-	}
-
-	l.Push(lua.LTrue)
-	return 1
+	yield := acquireRevokeYield(tokenStore, token)
+	l.Push(yield)
+	return -1
 }
 
-// tokenStoreClose closes the token store resource
+// tokenStoreClose releases the token store resource.
 func tokenStoreClose(l *lua.LState) int {
-	ts := checkTokenStore(l)
+	ts := checkTokenStore(l, 1)
 	if ts == nil {
 		return 0
 	}
 
-	// Release the resource if it's not already released
-	if ts.resource != nil {
+	ts.mu.Lock()
+	if !ts.released && ts.resource != nil {
 		ts.resource.Release()
 		ts.resource = nil
-	}
-
-	// Cancel the cleanup function in UoW (don't execute it, just remove it)
-	if ts.onRelease != nil {
-		ts.onRelease()
-		ts.onRelease = nil
+		ts.released = true
+		cancel := ts.cancelCleanup
+		ts.cancelCleanup = nil
+		ts.mu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
+	} else {
+		ts.mu.Unlock()
 	}
 
 	l.Push(lua.LTrue)
 	return 1
 }
 
-// getTokenStoreFromResource extracts the token store from a resource
-func getTokenStoreFromResource(res resource.Resource[any]) (secapi.TokenStore, error) {
-	storeImpl, err := res.Get()
+// Yield types
+
+// ValidateYield is yielded to validate a token.
+type ValidateYield struct {
+	TokenStore security.TokenStore
+	Token      security.Token
+}
+
+var validateYieldPool = sync.Pool{New: func() any { return &ValidateYield{} }}
+
+func acquireValidateYield(ts security.TokenStore, token security.Token) *ValidateYield {
+	y := validateYieldPool.Get().(*ValidateYield)
+	y.TokenStore = ts
+	y.Token = token
+	return y
+}
+
+func releaseValidateYield(y *ValidateYield) {
+	y.TokenStore = nil
+	y.Token = ""
+	validateYieldPool.Put(y)
+}
+
+func (y *ValidateYield) Release()                    { releaseValidateYield(y) }
+func (y *ValidateYield) String() string              { return "<token_validate_yield>" }
+func (y *ValidateYield) Type() lua.LValueType        { return lua.LTUserData }
+func (y *ValidateYield) CmdID() dispatcher.CommandID { return security.ValidateToken }
+func (y *ValidateYield) ToCommand() dispatcher.Command {
+	cmd := security.AcquireValidateTokenCmd()
+	cmd.TokenStore = y.TokenStore
+	cmd.Token = y.Token
+	return cmd
+}
+
+func (y *ValidateYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return nil, err
+		return []lua.LValue{lua.LNil, lua.LNil, lua.WrapErrorWithLua(l, err, "validate token").WithKind(lua.Internal).WithRetryable(false)}
 	}
-
-	tokenStore, ok := storeImpl.(secapi.TokenStore)
+	resp, ok := data.(security.ValidateTokenResponse)
 	if !ok {
-		return nil, errors.New("resource is not a token store")
+		return []lua.LValue{lua.LNil, lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal).WithRetryable(false)}
 	}
+	if resp.Error != nil {
+		return []lua.LValue{lua.LNil, lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "validate token").WithKind(lua.Internal).WithRetryable(false)}
+	}
+	return []lua.LValue{wrapActor(l, resp.Actor), wrapScope(l, resp.Scope), lua.LNil}
+}
 
-	return tokenStore, nil
+// CreateYield is yielded to create a token.
+type CreateYield struct {
+	TokenStore security.TokenStore
+	Actor      security.Actor
+	Scope      security.Scope
+	Details    security.TokenDetails
+}
+
+var createYieldPool = sync.Pool{New: func() any { return &CreateYield{} }}
+
+func acquireCreateYield(ts security.TokenStore, actor security.Actor, scope security.Scope, details security.TokenDetails) *CreateYield {
+	y := createYieldPool.Get().(*CreateYield)
+	y.TokenStore = ts
+	y.Actor = actor
+	y.Scope = scope
+	y.Details = details
+	return y
+}
+
+func releaseCreateYield(y *CreateYield) {
+	y.TokenStore = nil
+	y.Actor = security.Actor{}
+	y.Scope = nil
+	y.Details = security.TokenDetails{}
+	createYieldPool.Put(y)
+}
+
+func (y *CreateYield) Release()                    { releaseCreateYield(y) }
+func (y *CreateYield) String() string              { return "<token_create_yield>" }
+func (y *CreateYield) Type() lua.LValueType        { return lua.LTUserData }
+func (y *CreateYield) CmdID() dispatcher.CommandID { return security.CreateToken }
+func (y *CreateYield) ToCommand() dispatcher.Command {
+	cmd := security.AcquireCreateTokenCmd()
+	cmd.TokenStore = y.TokenStore
+	cmd.Actor = y.Actor
+	cmd.Scope = y.Scope
+	cmd.Details = y.Details
+	return cmd
+}
+
+func (y *CreateYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "create token").WithKind(lua.Internal).WithRetryable(false)}
+	}
+	resp, ok := data.(security.CreateTokenResponse)
+	if !ok {
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal).WithRetryable(false)}
+	}
+	if resp.Error != nil {
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "create token").WithKind(lua.Internal).WithRetryable(false)}
+	}
+	return []lua.LValue{lua.LString(resp.Token), lua.LNil}
+}
+
+// RevokeYield is yielded to revoke a token.
+type RevokeYield struct {
+	TokenStore security.TokenStore
+	Token      security.Token
+}
+
+var revokeYieldPool = sync.Pool{New: func() any { return &RevokeYield{} }}
+
+func acquireRevokeYield(ts security.TokenStore, token security.Token) *RevokeYield {
+	y := revokeYieldPool.Get().(*RevokeYield)
+	y.TokenStore = ts
+	y.Token = token
+	return y
+}
+
+func releaseRevokeYield(y *RevokeYield) {
+	y.TokenStore = nil
+	y.Token = ""
+	revokeYieldPool.Put(y)
+}
+
+func (y *RevokeYield) Release()                    { releaseRevokeYield(y) }
+func (y *RevokeYield) String() string              { return "<token_revoke_yield>" }
+func (y *RevokeYield) Type() lua.LValueType        { return lua.LTUserData }
+func (y *RevokeYield) CmdID() dispatcher.CommandID { return security.RevokeToken }
+func (y *RevokeYield) ToCommand() dispatcher.Command {
+	cmd := security.AcquireRevokeTokenCmd()
+	cmd.TokenStore = y.TokenStore
+	cmd.Token = y.Token
+	return cmd
+}
+
+func (y *RevokeYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "revoke token").WithKind(lua.Internal).WithRetryable(false)}
+	}
+	resp, ok := data.(security.RevokeTokenResponse)
+	if !ok {
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal).WithRetryable(false)}
+	}
+	if resp.Error != nil {
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "revoke token").WithKind(lua.Internal).WithRetryable(false)}
+	}
+	return []lua.LValue{lua.LTrue, lua.LNil}
 }

@@ -1,250 +1,248 @@
-# Lua Hash Module Specification
+# hash
 
-## Overview
+Cryptographic hash functions and HMAC. Encoding, security, deterministic.
 
-The `hash` module provides a set of functions for calculating various cryptographic and non-cryptographic hash values of strings. It includes implementations of MD5, SHA-1, SHA-256, SHA-512, FNV-1 32-bit, and FNV-1 64-bit hash algorithms.
-
-## Module Interface
-
-### Module Loading
+## Loading
 
 ```lua
 local hash = require("hash")
 ```
 
-### Global Functions
+## Functions
 
-#### hash.md5(str: string, raw: boolean?)
+### md5(data: string, raw?: boolean) → string, error
 
-Calculates the MD5 hash of a string.
+Computes MD5 hash of input data.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | String to hash |
+| raw | boolean | no | false | If true, returns raw bytes; if false, returns hex string |
 
-- `str`: The string to hash.
-- `raw`: (Optional) If true, returns the raw binary digest instead of hexadecimal string. Default is false.
+**Returns:**
+- Success: hex string (32 chars) or raw bytes (16 bytes)
+- Error: `nil, error` - structured error
 
-Returns:
+**Errors (structured):**
 
-- `digest`: The hash digest, either as a hexadecimal string or raw binary data (or nil on error).
-- `error`: Error message string (or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| data not a string | errors.INVALID | no |
 
-#### hash.sha1(str: string, raw: boolean?)
+### sha1(data: string, raw?: boolean) → string, error
 
-Calculates the SHA-1 hash of a string.
+Computes SHA-1 hash of input data.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | String to hash |
+| raw | boolean | no | false | If true, returns raw bytes; if false, returns hex string |
 
-- `str`: The string to hash.
-- `raw`: (Optional) If true, returns the raw binary digest instead of hexadecimal string. Default is false.
+**Returns:**
+- Success: hex string (40 chars) or raw bytes (20 bytes)
+- Error: `nil, error` - structured error
 
-Returns:
+**Errors (structured):**
 
-- `digest`: The hash digest, either as a hexadecimal string or raw binary data (or nil on error).
-- `error`: Error message string (or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| data not a string | errors.INVALID | no |
 
-#### hash.sha256(str: string, raw: boolean?)
+### sha256(data: string, raw?: boolean) → string, error
 
-Calculates the SHA-256 hash of a string.
+Computes SHA-256 hash of input data.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | String to hash |
+| raw | boolean | no | false | If true, returns raw bytes; if false, returns hex string |
 
-- `str`: The string to hash.
-- `raw`: (Optional) If true, returns the raw binary digest instead of hexadecimal string. Default is false.
+**Returns:**
+- Success: hex string (64 chars) or raw bytes (32 bytes)
+- Error: `nil, error` - structured error
 
-Returns:
+**Errors (structured):**
 
-- `digest`: The hash digest, either as a hexadecimal string or raw binary data (or nil on error).
-- `error`: Error message string (or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| data not a string | errors.INVALID | no |
 
-#### hash.sha512(str: string, raw: boolean?)
+### sha512(data: string, raw?: boolean) → string, error
 
-Calculates the SHA-512 hash of a string.
+Computes SHA-512 hash of input data.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | String to hash |
+| raw | boolean | no | false | If true, returns raw bytes; if false, returns hex string |
 
-- `str`: The string to hash.
-- `raw`: (Optional) If true, returns the raw binary digest instead of hexadecimal string. Default is false.
+**Returns:**
+- Success: hex string (128 chars) or raw bytes (64 bytes)
+- Error: `nil, error` - structured error
 
-Returns:
+**Errors (structured):**
 
-- `digest`: The hash digest, either as a hexadecimal string or raw binary data (or nil on error).
-- `error`: Error message string (or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| data not a string | errors.INVALID | no |
 
-#### hash.fnv32(str: string)
+### fnv32(data: string) → number, error
 
-Calculates the FNV-1 32-bit hash of a string.
+Computes FNV-1a 32-bit hash of input data.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | String to hash |
 
-- `str`: The string to hash.
+**Returns:**
+- Success: number (32-bit unsigned integer)
+- Error: `nil, error` - structured error
 
-Returns:
+**Errors (structured):**
 
-- `value`: The 32-bit FNV-1 hash value as a number (or nil on error).
-- `error`: Error message string (or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| data not a string | errors.INVALID | no |
 
-#### hash.fnv64(str: string)
+### fnv64(data: string) → number, error
 
-Calculates the FNV-1 64-bit hash of a string.
+Computes FNV-1a 64-bit hash of input data.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | String to hash |
 
-- `str`: The string to hash.
+**Returns:**
+- Success: number (64-bit unsigned integer)
+- Error: `nil, error` - structured error
 
-Returns:
+**Errors (structured):**
 
-- `value`: The 64-bit FNV-1 hash value as a number (or nil on error).
-- `error`: Error message string (or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| data not a string | errors.INVALID | no |
 
-#### hash.hmac_sha256(str: string, secret: string, raw: boolean?)
+### hmac_sha256(data: string, secret: string, raw?: boolean) → string, error
 
-Calculates the HMAC SHA-256 hash of a string and secret.
+Computes HMAC-SHA256 of input data with secret key.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | String to authenticate |
+| secret | string | yes | - | Secret key for HMAC |
+| raw | boolean | no | false | If true, returns raw bytes; if false, returns hex string |
 
-- `str`: The string to hash.
-- `secret`: The secret.
-- `raw`: (Optional) If true, returns the raw binary digest instead of hexadecimal string. Default is false.
+**Returns:**
+- Success: hex string (64 chars) or raw bytes (32 bytes)
+- Error: `nil, error` - structured error
 
-Returns:
+**Errors (structured):**
 
-- `digest`: The hash digest, either as a hexadecimal string or raw binary data (or nil on error).
-- `error`: Error message string (or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| data not a string | errors.INVALID | no |
+| secret not a string | errors.INVALID | no |
 
-#### hash.hmac_sha512(str: string, secret: string, raw: boolean?)
+### hmac_sha512(data: string, secret: string, raw?: boolean) → string, error
 
-Calculates the HMAC SHA-512 hash of a string and secret.
+Computes HMAC-SHA512 of input data with secret key.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | String to authenticate |
+| secret | string | yes | - | Secret key for HMAC |
+| raw | boolean | no | false | If true, returns raw bytes; if false, returns hex string |
 
-- `str`: The string to hash.
-- `secret`: The secret.
-- `raw`: (Optional) If true, returns the raw binary digest instead of hexadecimal string. Default is false.
+**Returns:**
+- Success: hex string (128 chars) or raw bytes (64 bytes)
+- Error: `nil, error` - structured error
 
-Returns:
+**Errors (structured):**
 
-- `digest`: The hash digest, either as a hexadecimal string or raw binary data (or nil on error).
-- `error`: Error message string (or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| data not a string | errors.INVALID | no |
+| secret not a string | errors.INVALID | no |
 
-#### hash.hmac_sha1(str: string, secret: string, raw: boolean?)
+### hmac_sha1(data: string, secret: string, raw?: boolean) → string, error
 
-Calculates the HMAC SHA-1 hash of a string and secret.
+Computes HMAC-SHA1 of input data with secret key.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | String to authenticate |
+| secret | string | yes | - | Secret key for HMAC |
+| raw | boolean | no | false | If true, returns raw bytes; if false, returns hex string |
 
-- `str`: The string to hash.
-- `secret`: The secret.
-- `raw`: (Optional) If true, returns the raw binary digest instead of hexadecimal string. Default is false.
+**Returns:**
+- Success: hex string (40 chars) or raw bytes (20 bytes)
+- Error: `nil, error` - structured error
 
-Returns:
+**Errors (structured):**
 
-- `digest`: The hash digest, either as a hexadecimal string or raw binary data (or nil on error).
-- `error`: Error message string (or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| data not a string | errors.INVALID | no |
+| secret not a string | errors.INVALID | no |
 
-#### hash.hmac_md5(str: string, secret: string, raw: boolean?)
+### hmac_md5(data: string, secret: string, raw?: boolean) → string, error
 
-Calculates the HMAC MD5 hash of a string and secret.
+Computes HMAC-MD5 of input data with secret key.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | String to authenticate |
+| secret | string | yes | - | Secret key for HMAC |
+| raw | boolean | no | false | If true, returns raw bytes; if false, returns hex string |
 
-- `str`: The string to hash.
-- `secret`: The secret.
-- `raw`: (Optional) If true, returns the raw binary digest instead of hexadecimal string. Default is false.
+**Returns:**
+- Success: hex string (32 chars) or raw bytes (16 bytes)
+- Error: `nil, error` - structured error
 
-Returns:
+**Errors (structured):**
 
-- `digest`: The hash digest, either as a hexadecimal string or raw binary data (or nil on error).
-- `error`: Error message string (or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| data not a string | errors.INVALID | no |
+| secret not a string | errors.INVALID | no |
 
-## Error Handling
+## Errors
 
-The module functions return errors in the following cases:
+This module returns structured errors. Check kind with `errors.*` constants:
 
-1. **Invalid Input Type:** If the input to any hash function is not a string.
+```lua
+local result, err = hash.sha256(input)
+if err then
+    if err:kind() == errors.INVALID then
+        -- input was not a string
+    end
+end
+```
 
-    ```lua
-    local digest, err = hash.md5(123)  -- digest: nil, err: "string expected"
-    ```
+**Possible kinds:** `errors.INVALID`
 
-2. **Internal Errors:** If an error occurs during the hash computation, the function will return `nil` and an error
-   message.
-
-## Behavior
-
-1. **Hash Output:**
-   - `md5`, `sha1`, `sha256`, and `sha512` return the hash digest as a hexadecimal string by default.
-   - When the `raw` parameter is set to `true`, these functions return the raw binary digest instead.
-   - `fnv32` and `fnv64` return the hash value as a Lua number.
-
-2. **Raw Binary Output:**
-   - MD5: Returns a 16-byte binary string
-   - SHA-1: Returns a 20-byte binary string
-   - SHA-256: Returns a 32-byte binary string
-   - SHA-512: Returns a 64-byte binary string
-
-3. **Error Handling**
-   - Lua's `pcall` can be used to catch errors that occur.
-
-## Thread Safety
-
-- The `hash` module is designed to be thread-safe.
-- It does not maintain any internal state that could be affected by concurrent access.
-
-## Best Practices
-
-1. **Always check for errors:** Always check the returned `error` value to handle potential errors.
-2. **Validate input:** Ensure that the input to the hash functions is of the correct type (string) before calling them.
-3. **Use appropriate hash function:** Choose the hash function that best suits your needs in terms of security and performance.
-4. **Binary vs Hex:** Use raw binary output when working with other binary data or for more efficient storage. Use hex output for human-readable representations.
-
-## Example Usage
+## Example
 
 ```lua
 local hash = require("hash")
 
--- Calculate MD5 hash (hex format)
-local digest, err = hash.md5("Hello, world!")
-if err then
-  print("MD5 Error:", err)
-else
-  print("MD5 (hex):", digest) -- Output: MD5 (hex): 65a8e27d8879283831b664bd8b7f0ad4
-end
+-- Basic hashing
+local digest, err = hash.sha256("hello")
+if err then error(err) end
+print(digest)  -- "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
 
--- Calculate MD5 hash (binary format)
-local digest_bin, err = hash.md5("Hello, world!", true)
-if err then
-  print("MD5 Binary Error:", err)
-else
-  print("MD5 (binary) length:", #digest_bin) -- Output: MD5 (binary) length: 16
-end
+-- Raw bytes output
+local raw = hash.sha256("hello", true)
+print(#raw)  -- 32
 
--- Calculate SHA-256 hash (hex format)
-local digest, err = hash.sha256("Hello, world!")
-if err then
-  print("SHA-256 Error:", err)
-else
-  print("SHA-256 (hex):", digest) -- Output: SHA-256 (hex): 315f5bdb76d078c43b8ac0064e4a0164612b1fce77c869345bfc94c75894edd3
-end
+-- HMAC authentication
+local mac = hash.hmac_sha256("message", "secret-key")
+print(#mac)  -- 64
 
--- Calculate SHA-256 hash (binary format)
-local digest_bin, err = hash.sha256("Hello, world!", true)
-if err then
-  print("SHA-256 Binary Error:", err)
-else
-  print("SHA-256 (binary) length:", #digest_bin) -- Output: SHA-256 (binary) length: 32
-end
+-- FNV hashing (returns number)
+local fnv = hash.fnv32("hello")
+print(type(fnv))  -- "number"
 
--- Calculate FNV-1 32-bit hash
-local value, err = hash.fnv32("Hello, world!")
-if err then
-  print("FNV32 Error:", err)
-else
-  print("FNV32:", value) -- Output: FNV32: <a number>
-end
-
--- Binary output example for cryptographic operations
-local code_verifier = "BoocIEyqWI-m4uYi006AMyea8C8eue486eoasqcEyqMK6Y0eMOcCAWCkW8a266gq"
-local challenge = hash.sha256(code_verifier, true)  -- Raw binary output
-local base64_challenge = require("base64").encode(challenge)  -- Encoding binary output as base64
-print("Base64 Challenge:", base64_challenge)
+-- All hash functions are deterministic
+assert(hash.md5("test") == hash.md5("test"))
 ```

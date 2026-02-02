@@ -4,27 +4,21 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sync"
 
-	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
-
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
+	"github.com/wippyai/runtime/api/runtime/resource"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	lua "github.com/wippyai/go-lua"
 )
 
-// Transaction represents a database transaction for Lua
 type Transaction struct {
-	tx        *sql.Tx
-	db        *DB
-	log       *zap.Logger
-	active    bool
-	onRelease context.CancelFunc
+	tx            *sql.Tx
+	db            *DB
+	cancelCleanup func()
+	mu            sync.Mutex
+	active        bool
 }
 
-// In your sql package, add to Transaction type:
-// GetRawTx exposes the underlying sql.Tx for external components like QueryBuilder
 func (t *Transaction) GetRawTx() *sql.Tx {
 	return t.tx
 }
@@ -33,436 +27,335 @@ func (t *Transaction) GetDBType() string {
 	return t.db.GetDBType()
 }
 
-// NewTransaction creates a new Transaction with UoW integration
-func NewTransaction(uw engine.UnitOfWork, tx *sql.Tx, db *DB, log *zap.Logger) *Transaction {
+func NewTransaction(ctx context.Context, tx *sql.Tx, db *DB) *Transaction {
 	txWrapper := &Transaction{
 		tx:     tx,
 		db:     db,
-		log:    log,
 		active: true,
 	}
 
-	// Register unconditional cleanup in UoW - directly pass tx.Rollback
-	txWrapper.onRelease = uw.AddCleanup(tx.Rollback)
+	store := resource.GetStore(ctx)
+	if store != nil {
+		txWrapper.cancelCleanup = store.AddCleanup(func() error {
+			txWrapper.mu.Lock()
+			defer txWrapper.mu.Unlock()
+			if txWrapper.active {
+				txWrapper.active = false
+				return tx.Rollback()
+			}
+			return nil
+		})
+	}
 
 	return txWrapper
 }
 
-// WrapTransaction wraps a Transaction as Lua userdata
-func WrapTransaction(l *lua.LState, tx *Transaction) *lua.LUserData {
-	ud := l.NewUserData()
-	ud.Value = tx
-	ud.Metatable = value.GetTypeMetatable(l, "sql.Transaction")
-
-	return ud
+func NewTransactionUserData(l *lua.LState, tx *Transaction) *lua.LUserData {
+	return value.NewTypedUserData(l, tx, transactionTypeName)
 }
 
-// CheckTransaction checks if the first argument is a Transaction and returns it
-func CheckTransaction(l *lua.LState) *Transaction {
+var transactionMethods = map[string]lua.LGoFunc{
+	"db_type":     txDBType,
+	"query":       txQuery,
+	"execute":     txExecute,
+	"prepare":     txPrepare,
+	"commit":      txCommit,
+	"rollback":    txRollback,
+	"savepoint":   txSavepoint,
+	"rollback_to": txRollbackTo,
+	"release":     txRelease,
+}
+
+func checkTransaction(l *lua.LState) *Transaction {
 	ud := l.CheckUserData(1)
-	if tx, ok := ud.Value.(*Transaction); ok {
-		return tx
+	if v, ok := ud.Value.(*Transaction); ok {
+		return v
 	}
-	l.ArgError(1, "expected transaction object")
+	l.ArgError(1, "transaction expected")
 	return nil
 }
 
-// registerTransaction registers transaction methods
-func registerTransaction(l *lua.LState, _ *zap.Logger) {
-	methods := map[string]lua.LGFunction{
-		// Standard transaction methods
-		"query":    txQuery,
-		"execute":  txExecute,
-		"prepare":  txPrepare,
-		"commit":   txCommit,
-		"rollback": txRollback,
-
-		// Savepoint methods
-		"savepoint":   txSavepoint,
-		"rollback_to": txRollbackTo,
-		"release":     txReleaseSavepoint,
+func txDBType(l *lua.LState) int {
+	tx := checkTransaction(l)
+	if tx == nil {
+		return 0
 	}
+	tx.mu.Lock()
+	if !tx.active {
+		tx.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "transaction is not active").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	tx.mu.Unlock()
 
-	value.RegisterMethods(l, "sql.Transaction", methods)
+	dbType := mapDBTypeFromResourceKind(tx.GetDBType())
+	l.Push(lua.LString(dbType))
+	l.Push(lua.LNil)
+	return 2
 }
 
-// txQuery executes a query within a transaction and returns rows
 func txQuery(l *lua.LState) int {
-	// Check and get transaction
-	tx := CheckTransaction(l)
+	tx := checkTransaction(l)
 	if tx == nil {
 		return 0
 	}
-
-	// Get query and parameters
-	query := l.CheckString(2)
-	params, err := sqlutil.CheckParams(l, 3)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	// Check if transaction is still active
+	tx.mu.Lock()
 	if !tx.active {
+		tx.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transaction is not active"))
+		l.Push(lua.NewLuaError(l, "transaction is not active").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
+	tx.mu.Unlock()
 
-	var rows *sql.Rows
-
-	// Serve query with appropriate parameter style
-	switch p := params.(type) {
-	case nil:
-		rows, err = tx.tx.Query(query)
-	case []interface{}:
-		rows, err = tx.tx.Query(query, p...)
-	default:
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("unsupported parameter type: %T", params)))
-		return 2
-	}
-
+	query := l.CheckString(2)
+	params, err := checkParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "check params").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
-	var resultTable *lua.LTable
-	// Use a named return parameter to capture errors from both RowsToTable and rows.close
-	err = func() error {
-		defer func() {
-			closeErr := rows.Close()
-			if closeErr != nil {
-				tx.log.Error("failed to close rows", zap.Error(closeErr))
-				// If we don't already have an error, use the close error
-				if err == nil {
-					err = closeErr
-				}
-			}
-		}()
-
-		// Convert rows to Lua table
-		var tableErr error
-		resultTable, tableErr = sqlutil.RowsToTable(l, rows)
-		return tableErr
-	}()
-
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	l.Push(resultTable)
-	l.Push(lua.LNil)
-	return 2
+	yield := AcquireTxQueryYield()
+	yield.Tx = tx.tx
+	yield.Query = query
+	yield.Params = params
+	l.Push(yield)
+	return -1
 }
 
-// txExecute executes a statement within a transaction that doesn't return rows
 func txExecute(l *lua.LState) int {
-	// Check and get transaction
-	tx := CheckTransaction(l)
+	tx := checkTransaction(l)
 	if tx == nil {
 		return 0
 	}
-
-	// Get query and parameters
-	query := l.CheckString(2)
-	params, err := sqlutil.CheckParams(l, 3)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	// Check if transaction is still active
+	tx.mu.Lock()
 	if !tx.active {
+		tx.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transaction is not active"))
+		l.Push(lua.NewLuaError(l, "transaction is not active").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
+	tx.mu.Unlock()
 
-	var result sql.Result
-
-	// Serve with appropriate parameter style
-	switch p := params.(type) {
-	case nil:
-		result, err = tx.tx.Exec(query)
-	case []interface{}:
-		result, err = tx.tx.Exec(query, p...)
-	default:
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("unsupported parameter type: %T", params)))
-		return 2
-	}
-
+	query := l.CheckString(2)
+	params, err := checkParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "check params").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
-	// Convert result to Lua table
-	resultTable := sqlutil.ResultToTable(l, result)
-
-	l.Push(resultTable)
-	l.Push(lua.LNil)
-	return 2
+	yield := AcquireTxExecuteYield()
+	yield.Tx = tx.tx
+	yield.Query = query
+	yield.Params = params
+	l.Push(yield)
+	return -1
 }
 
-// txPrepare prepares a statement within a transaction for repeated execution
 func txPrepare(l *lua.LState) int {
-	// Check and get transaction
-	tx := CheckTransaction(l)
+	tx := checkTransaction(l)
 	if tx == nil {
 		return 0
 	}
+	ctx := l.Context()
 
-	uw := engine.GetUnitOfWork(l.Context())
-	if uw == nil {
-		l.RaiseError("no unit of work found in context")
-		return 0
+	tx.mu.Lock()
+	if !tx.active {
+		tx.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "transaction is not active").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
 	}
+	tx.mu.Unlock()
 
-	// Get query
 	query := l.CheckString(2)
 
-	// Check if transaction is still active
-	if !tx.active {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("transaction is not active"))
-		return 2
+	yield := AcquireTxPrepareYield()
+	yield.Tx = tx.tx
+	yield.Query = query
+	yield.WrapStmt = func(stmt *sql.Stmt) lua.LValue {
+		return NewStatementUserData(l, NewStatement(ctx, stmt, tx.db))
 	}
 
-	// Prepare statement
-	stmt, err := tx.tx.Prepare(query)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	// Create statement wrapper using the constructor
-	stmtObj := NewStatement(uw, stmt, tx.db, tx.log)
-
-	// Create userdata
-	ud := WrapStatement(l, stmtObj)
-
-	l.Push(ud)
-	l.Push(lua.LNil)
-	return 2
+	l.Push(yield)
+	return -1
 }
 
-// txCommit commits the transaction
 func txCommit(l *lua.LState) int {
-	// Check and get transaction
-	tx := CheckTransaction(l)
+	tx := checkTransaction(l)
 	if tx == nil {
 		return 0
 	}
-
-	// Check if transaction is still active
+	tx.mu.Lock()
 	if !tx.active {
+		tx.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transaction is not active"))
+		l.Push(lua.NewLuaError(l, "transaction is not active").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
+	tx.mu.Unlock()
 
-	// Commit transaction
-	if err := tx.tx.Commit(); err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+	yield := AcquireTxCommitYield()
+	yield.Tx = tx.tx
+	yield.OnComplete = func() {
+		tx.mu.Lock()
+		tx.active = false
+		cancel := tx.cancelCleanup
+		tx.cancelCleanup = nil
+		tx.mu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
 	}
 
-	// Mark as inactive
-	tx.active = false
-
-	// Cancel the cleanup function in UoW (don't execute it, just remove it)
-	if tx.onRelease != nil {
-		tx.onRelease()
-		tx.onRelease = nil
-	}
-
-	l.Push(lua.LTrue)
-	l.Push(lua.LNil)
-	return 2
+	l.Push(yield)
+	return -1
 }
 
-// txRollback rolls back the transaction
 func txRollback(l *lua.LState) int {
-	// Check and get transaction
-	tx := CheckTransaction(l)
+	tx := checkTransaction(l)
 	if tx == nil {
 		return 0
 	}
-
-	// Check if transaction is still active
+	tx.mu.Lock()
 	if !tx.active {
+		tx.mu.Unlock()
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transaction is not active"))
+		l.Push(lua.NewLuaError(l, "transaction is not active").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
+	tx.mu.Unlock()
 
-	// Rollback transaction explicitly
-	if err := tx.tx.Rollback(); err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+	yield := AcquireTxRollbackYield()
+	yield.Tx = tx.tx
+	yield.OnComplete = func() {
+		tx.mu.Lock()
+		tx.active = false
+		cancel := tx.cancelCleanup
+		tx.cancelCleanup = nil
+		tx.mu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
 	}
 
-	// Mark as inactive after successful rollback
-	tx.active = false
-
-	// Cancel the cleanup function in UoW (don't execute it, just remove it)
-	if tx.onRelease != nil {
-		tx.onRelease()
-		tx.onRelease = nil
-	}
-
-	l.Push(lua.LTrue)
-	l.Push(lua.LNil)
-	return 2
+	l.Push(yield)
+	return -1
 }
 
-// txSavepoint creates a savepoint in the transaction
 func txSavepoint(l *lua.LState) int {
-	// Check and get transaction
-	tx := CheckTransaction(l)
+	tx := checkTransaction(l)
 	if tx == nil {
 		return 0
 	}
+	tx.mu.Lock()
+	if !tx.active {
+		tx.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "transaction is not active").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	tx.mu.Unlock()
 
-	// Get savepoint name
 	name := l.CheckString(2)
 	if name == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("savepoint name is required"))
+		l.Push(lua.NewLuaError(l, "savepoint name is required").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
-	// Sanitize the savepoint name to prevent SQL injection
-	// Only allow alphanumeric and underscore characters
-	for _, c := range name {
-		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
-			l.Push(lua.LNil)
-			l.Push(lua.LString("savepoint name can only contain alphanumeric characters and underscores"))
-			return 2
-		}
-	}
-
-	// Check if transaction is still active
-	if !tx.active {
+	if !isValidSavepointName(name) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transaction is not active"))
+		l.Push(lua.NewLuaError(l, "savepoint name can only contain alphanumeric characters and underscores").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
-	// Create savepoint
 	query := fmt.Sprintf("SAVEPOINT %s", name)
-	_, err := tx.tx.Exec(query)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to create savepoint: %v", err)))
-		return 2
-	}
-
-	l.Push(lua.LTrue)
-	l.Push(lua.LNil)
-	return 2
+	yield := AcquireTxSavepointYield()
+	yield.Tx = tx.tx
+	yield.Query = query
+	l.Push(yield)
+	return -1
 }
 
-// txRollbackTo rolls back to a savepoint in the transaction
 func txRollbackTo(l *lua.LState) int {
-	// Check and get transaction
-	tx := CheckTransaction(l)
+	tx := checkTransaction(l)
 	if tx == nil {
 		return 0
 	}
+	tx.mu.Lock()
+	if !tx.active {
+		tx.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "transaction is not active").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	tx.mu.Unlock()
 
-	// Get savepoint name
 	name := l.CheckString(2)
 	if name == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("savepoint name is required"))
+		l.Push(lua.NewLuaError(l, "savepoint name is required").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
-	// Sanitize the savepoint name
-	for _, c := range name {
-		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
-			l.Push(lua.LNil)
-			l.Push(lua.LString("savepoint name can only contain alphanumeric characters and underscores"))
-			return 2
-		}
-	}
-
-	// Check if transaction is still active
-	if !tx.active {
+	if !isValidSavepointName(name) {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transaction is not active"))
+		l.Push(lua.NewLuaError(l, "savepoint name can only contain alphanumeric characters and underscores").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
-	// Roll back to savepoint
 	query := fmt.Sprintf("ROLLBACK TO SAVEPOINT %s", name)
-	_, err := tx.tx.Exec(query)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to rollback to savepoint: %v", err)))
-		return 2
-	}
-
-	l.Push(lua.LTrue)
-	l.Push(lua.LNil)
-	return 2
+	yield := AcquireTxSavepointYield()
+	yield.Tx = tx.tx
+	yield.Query = query
+	l.Push(yield)
+	return -1
 }
 
-// txReleaseSavepoint releases a savepoint in the transaction
-func txReleaseSavepoint(l *lua.LState) int {
-	// Check and get transaction
-	tx := CheckTransaction(l)
+func txRelease(l *lua.LState) int {
+	tx := checkTransaction(l)
 	if tx == nil {
 		return 0
 	}
+	tx.mu.Lock()
+	if !tx.active {
+		tx.mu.Unlock()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "transaction is not active").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+	tx.mu.Unlock()
 
-	// Get savepoint name
 	name := l.CheckString(2)
 	if name == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("savepoint name is required"))
+		l.Push(lua.NewLuaError(l, "savepoint name is required").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
-	// Sanitize the savepoint name
+	if !isValidSavepointName(name) {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "savepoint name can only contain alphanumeric characters and underscores").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+
+	query := fmt.Sprintf("RELEASE SAVEPOINT %s", name)
+	yield := AcquireTxSavepointYield()
+	yield.Tx = tx.tx
+	yield.Query = query
+	l.Push(yield)
+	return -1
+}
+
+func isValidSavepointName(name string) bool {
 	for _, c := range name {
 		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
-			l.Push(lua.LNil)
-			l.Push(lua.LString("savepoint name can only contain alphanumeric characters and underscores"))
-			return 2
+			return false
 		}
 	}
-
-	// Check if transaction is still active
-	if !tx.active {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("transaction is not active"))
-		return 2
-	}
-
-	// Release savepoint
-	query := fmt.Sprintf("RELEASE SAVEPOINT %s", name)
-	_, err := tx.tx.Exec(query)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to release savepoint: %v", err)))
-		return 2
-	}
-
-	l.Push(lua.LTrue)
-	l.Push(lua.LNil)
-	return 2
+	return true
 }

@@ -3,8 +3,8 @@ package topology
 import (
 	"sync"
 
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/topology"
+	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
 )
 
@@ -12,57 +12,87 @@ import (
 // It is optimized for concurrent access.
 type PIDRegistry struct {
 	parent   topology.PIDRegistry
-	nameToID sync.Map // Maps from name (string) to Target
-	idToName sync.Map // Maps from Target to name (string) - for efficient removal by Target
 	logger   *zap.Logger
+	nameToID sync.Map
+	idToName sync.Map
 }
 
-// PIDRegistryConfig holds configuration for a PIDRegistry.
-type PIDRegistryConfig struct {
-	Parent topology.PIDRegistry
-	Logger *zap.Logger
+// pidNames holds names for a PID with its own mutex for atomic updates.
+type pidNames struct {
+	names []string
+	mu    sync.Mutex
 }
 
-// NewPIDRegistry creates a new empty Target registry
-func NewPIDRegistry(config PIDRegistryConfig) *PIDRegistry {
-	// If no logger provided, use noop logger
-	if config.Logger == nil {
-		config.Logger = zap.NewNop()
-	}
+// Option configures a PIDRegistry.
+type Option func(*PIDRegistry)
 
-	return &PIDRegistry{
-		parent: config.Parent,
-		logger: config.Logger,
+// WithParent sets a parent registry for fallback lookups.
+func WithParent(parent topology.PIDRegistry) Option {
+	return func(r *PIDRegistry) {
+		r.parent = parent
 	}
 }
 
-// Register associates a name with a Target
-// Returns error if name is already taken
-func (r *PIDRegistry) Register(name string, pid pubsub.PID) error {
-	// Store name → Target mapping
-	r.nameToID.Store(name, pid)
-
-	// Store reverse mapping for efficient removal by Target
-	// Using a sync.Map to store a slice of names for each Target
-	var names []string
-	if existingNames, ok := r.idToName.Load(pid); ok {
-		names = existingNames.([]string)
+// WithLogger sets the logger for the registry.
+func WithLogger(logger *zap.Logger) Option {
+	return func(r *PIDRegistry) {
+		r.logger = logger
 	}
-	names = append(names, name)
-	r.idToName.Store(pid, names)
+}
 
-	r.logger.Debug("registered name to Target mapping",
+// NewPIDRegistry creates a new empty PID registry.
+func NewPIDRegistry(opts ...Option) *PIDRegistry {
+	r := &PIDRegistry{
+		logger: zap.NewNop(),
+	}
+
+	for _, opt := range opts {
+		opt(r)
+	}
+
+	return r
+}
+
+// Register associates a name with a PID atomically.
+// Returns (p, nil) on success.
+// Returns (existingPID, ErrNameAlreadyRegistered) if name is taken by different PID.
+// Re-registering same name with same PID is allowed and returns (p, nil).
+func (r *PIDRegistry) Register(name string, p pid.PID) (pid.PID, error) {
+	actual, loaded := r.nameToID.LoadOrStore(name, p)
+	if loaded {
+		existingPID, ok := actual.(pid.PID)
+		if !ok {
+			return p, nil
+		}
+		// Name already exists - check if it's the same PID (re-registration is ok)
+		if existingPID == p {
+			return p, nil
+		}
+		return existingPID, topology.ErrNameAlreadyRegistered
+	}
+
+	pidKey := p.String()
+	val, _ := r.idToName.LoadOrStore(pidKey, &pidNames{})
+	pn, ok := val.(*pidNames)
+	if !ok {
+		return p, nil
+	}
+
+	pn.mu.Lock()
+	pn.names = append(pn.names, name)
+	pn.mu.Unlock()
+
+	r.logger.Debug("registered name to PID mapping",
 		zap.String("name", name),
-		zap.String("pid", pid.String()))
+		zap.String("pid", pidKey))
 
-	return nil
+	return p, nil
 }
 
-// Unregister removes a name registration
-// Returns true if the name was registered and has been removed
+// Unregister removes a name registration.
+// Returns true if the name was registered and has been removed.
 func (r *PIDRegistry) Unregister(name string) bool {
-	// Load the Target for this name
-	pidVal, exists := r.nameToID.Load(name)
+	pidVal, exists := r.nameToID.LoadAndDelete(name)
 	if !exists {
 		if r.parent != nil {
 			released := r.parent.Unregister(name)
@@ -77,99 +107,89 @@ func (r *PIDRegistry) Unregister(name string) bool {
 		return false
 	}
 
-	pid := pidVal.(pubsub.PID)
+	p, ok := pidVal.(pid.PID)
+	if !ok {
+		return false
+	}
+	pidKey := p.String()
 
-	// Remove from nameToID map
-	r.nameToID.Delete(name)
-
-	// Update the reverse mapping in idToName
-	if namesVal, ok := r.idToName.Load(pid); ok {
-		names := namesVal.([]string)
-		// Filter out the name we're removing
-		updatedNames := make([]string, 0, len(names)-1)
-		for _, n := range names {
-			if n != name {
-				updatedNames = append(updatedNames, n)
-			}
+	if val, ok := r.idToName.Load(pidKey); ok {
+		pn, ok := val.(*pidNames)
+		if !ok {
+			return true
 		}
+		pn.mu.Lock()
+		// Re-check if name was re-registered while waiting for the lock.
+		// If it was, don't remove it from the names list.
+		_, reregistered := r.nameToID.Load(name)
+		if !reregistered {
+			updatedNames := make([]string, 0, len(pn.names)-1)
+			for _, n := range pn.names {
+				if n != name {
+					updatedNames = append(updatedNames, n)
+				}
+			}
+			pn.names = updatedNames
+		}
+		empty := len(pn.names) == 0
+		pn.mu.Unlock()
 
-		// If there are still names, update the map
-		// Otherwise, remove the Target entry entirely
-		if len(updatedNames) > 0 {
-			r.idToName.Store(pid, updatedNames)
-		} else {
-			r.idToName.Delete(pid)
+		if empty && !reregistered {
+			r.idToName.Delete(pidKey)
 		}
 	}
 
 	r.logger.Debug("unregistered name",
 		zap.String("name", name),
-		zap.String("pid", pid.String()))
+		zap.String("pid", pidKey))
 
 	return true
 }
 
-// Lookup finds the Target registered with a given name
-// Returns the Target and true if found, empty Target and false if not found
-func (r *PIDRegistry) Lookup(name string) (pubsub.PID, bool) {
-	pidVal, exists := r.nameToID.Load(name)
-	if !exists {
-		if r.parent != nil {
-			pid, found := r.parent.Lookup(name)
-			if found {
-				r.logger.Debug("looked up name from parent registry",
-					zap.String("name", name),
-					zap.String("pid", pid.String()))
-				return pid, true
-			}
+func (r *PIDRegistry) Lookup(name string) (pid.PID, bool) {
+	if pidVal, exists := r.nameToID.Load(name); exists {
+		if p, ok := pidVal.(pid.PID); ok {
+			return p, true
 		}
-
-		r.logger.Debug("failed to lookup name",
-			zap.String("name", name))
-		return pubsub.PID{}, false
 	}
 
-	pid := pidVal.(pubsub.PID)
+	if r.parent != nil {
+		return r.parent.Lookup(name)
+	}
 
-	// no log in hot operation, can be handled on app level
-
-	return pid, true
+	return pid.PID{}, false
 }
 
-// Remove completely removes a Target from the registry,
-// removing all name associations for that Target
-func (r *PIDRegistry) Remove(pid pubsub.PID) {
-	// Get all names associated with this Target
-	namesVal, exists := r.idToName.Load(pid)
+func (r *PIDRegistry) Remove(p pid.PID) {
+	pidKey := p.String()
+
+	val, exists := r.idToName.LoadAndDelete(pidKey)
 	if !exists {
-		// If no names found in this registry, try parent
 		if r.parent != nil {
-			r.parent.Remove(pid)
+			r.parent.Remove(p)
 		}
 		return
 	}
 
-	names := namesVal.([]string)
+	pn, ok := val.(*pidNames)
+	if !ok {
+		return
+	}
+	pn.mu.Lock()
+	names := pn.names
+	pn.names = nil
+	pn.mu.Unlock()
 
-	// Remove each name from the nameToID map
 	for _, name := range names {
 		r.nameToID.Delete(name)
-
-		r.logger.Debug("removed name during Target removal",
-			zap.String("name", name),
-			zap.String("pid", pid.String()))
 	}
 
-	// Remove the Target from the idToName map
-	r.idToName.Delete(pid)
-
-	r.logger.Debug("removed Target from registry",
-		zap.String("pid", pid.String()),
+	r.logger.Debug("removed PID from registry",
+		zap.String("pid", pidKey),
 		zap.Int("names_removed", len(names)))
 
-	// Propagate to parent if exists
 	if r.parent != nil {
-		r.parent.Remove(pid)
+		r.parent.Remove(p)
 	}
 }
 

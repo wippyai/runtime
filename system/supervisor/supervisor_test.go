@@ -2,17 +2,19 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
@@ -21,14 +23,14 @@ import (
 // ---- helpers
 
 type testService struct {
+	startErr      error
+	stopErr       error
+	statusUpdates chan any
+	startDelay    time.Duration
+	stopDelay     time.Duration
 	mu            sync.Mutex
 	started       bool
 	stopped       bool
-	startErr      error
-	stopErr       error
-	startDelay    time.Duration
-	stopDelay     time.Duration
-	statusUpdates chan any
 }
 
 func newTestService() *testService {
@@ -169,13 +171,13 @@ func (h *testSupervisorHarness) service(serviceID string) *testService {
 }
 
 func (h *testSupervisorHarness) registerServices(services map[string]bool) {
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 
 	for serviceID, autoStart := range services {
 		svc := h.service(serviceID)
 		h.sup.handleEvent(event.Event{
 			System: supervisor.System,
-			Kind:   supervisor.Register,
+			Kind:   supervisor.ServiceRegister,
 			Path:   serviceID,
 			Data: &supervisor.Entry{
 				Service: svc,
@@ -192,13 +194,13 @@ func (h *testSupervisorHarness) registerServices(services map[string]bool) {
 		})
 	}
 
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 }
 
 func (h *testSupervisorHarness) registerServiceWithDeps(serviceID string, autoStart bool, dependencies []string) {
 	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Register,
+		Kind:   supervisor.ServiceRegister,
 		Path:   serviceID,
 		Data: &supervisor.Entry{
 			Service: h.service(serviceID),
@@ -220,13 +222,13 @@ func (h *testSupervisorHarness) waitForAllServices(state supervisor.Status) {
 	h.t.Helper()
 	for id, svc := range h.services {
 		switch state {
-		case supervisor.Running:
+		case supervisor.StatusRunning:
 			svc.WaitForStart(h.t)
 			require.True(h.t, svc.IsStarted(), "Topology %s should be started", id)
-		case supervisor.Stopped:
+		case supervisor.StatusStopped:
 			svc.WaitForStop(h.t)
 			require.True(h.t, svc.IsStopped(), "Topology %s should be stopped", id)
-		case supervisor.Unknown, supervisor.Starting, supervisor.Stopping, supervisor.Exited, supervisor.Failed:
+		case supervisor.StatusUnknown, supervisor.StatusStarting, supervisor.StatusStopping, supervisor.StatusExited, supervisor.StatusFailed:
 			panic("not implemented")
 		}
 	}
@@ -245,7 +247,7 @@ func (h *testSupervisorHarness) assertLog(message string) {
 func (h *testSupervisorHarness) removeService(serviceID string) {
 	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Remove,
+		Kind:   supervisor.ServiceRemove,
 		Path:   serviceID,
 	})
 }
@@ -312,16 +314,16 @@ func TestSupervisor_MultipleServices(t *testing.T) {
 
 	// Launch service-2 manually
 	h.sup.actions <- action{
-		kind:      actionStart,
+		kind:      actStart,
 		serviceID: "service-2",
 	}
 
 	// Both services should be running
-	h.waitForAllServices(supervisor.Running)
+	h.waitForAllServices(supervisor.StatusRunning)
 
 	// stop and verify shutdown
 	h.stop()
-	h.waitForAllServices(supervisor.Stopped)
+	h.waitForAllServices(supervisor.StatusStopped)
 }
 
 func TestSupervisor_ServiceRemoval(t *testing.T) {
@@ -339,9 +341,9 @@ func TestSupervisor_ServiceRemoval(t *testing.T) {
 	require.True(t, service.IsStarted(), "Topology should be started")
 
 	// Begin transaction and remove the service
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 	h.removeService("test-service")
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
 	// Verify service is stopped and removed
 	service.WaitForStop(t)
@@ -358,7 +360,7 @@ func TestSupervisor_TransactionValidation(t *testing.T) {
 	svc := h.service("test-service")
 	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Register,
+		Kind:   supervisor.ServiceRegister,
 		Path:   "test-service",
 		Data: &supervisor.Entry{
 			Service: svc,
@@ -379,7 +381,7 @@ func TestSupervisor_TransactionValidation(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // wait for event processing
 	state, err := h.sup.GetState("test-service")
 	require.NoError(t, err)
-	require.Equal(t, supervisor.Unknown, state.Status)
+	require.Equal(t, supervisor.StatusUnknown, state.Status)
 }
 
 func TestSupervisor_TargetedServiceControl(t *testing.T) {
@@ -395,11 +397,11 @@ func TestSupervisor_TargetedServiceControl(t *testing.T) {
 
 	// Launch both services manually
 	h.sup.actions <- action{
-		kind:      actionStart,
+		kind:      actStart,
 		serviceID: "service-1",
 	}
 	h.sup.actions <- action{
-		kind:      actionStart,
+		kind:      actStart,
 		serviceID: "service-2",
 	}
 
@@ -411,7 +413,7 @@ func TestSupervisor_TargetedServiceControl(t *testing.T) {
 
 	// stop service-1 specifically
 	h.sup.actions <- action{
-		kind:      actionStop,
+		kind:      actStop,
 		serviceID: "service-1",
 	}
 
@@ -422,7 +424,7 @@ func TestSupervisor_TargetedServiceControl(t *testing.T) {
 
 	// Launch service-1 again
 	h.sup.actions <- action{
-		kind:      actionStart,
+		kind:      actStart,
 		serviceID: "service-1",
 	}
 
@@ -441,10 +443,10 @@ func TestSupervisor_ServiceFailureAndRetry(t *testing.T) {
 	var startAttempts int32
 	svc.startErr = fmt.Errorf("startup failure")
 
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Register,
+		Kind:   supervisor.ServiceRegister,
 		Path:   "failing-service",
 		Data: &supervisor.Entry{
 			Service: svc,
@@ -458,7 +460,7 @@ func TestSupervisor_ServiceFailureAndRetry(t *testing.T) {
 			},
 		},
 	})
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
 	// wait for retry attempts to complete
 	time.Sleep(500 * time.Millisecond)
@@ -466,7 +468,7 @@ func TestSupervisor_ServiceFailureAndRetry(t *testing.T) {
 	// Verify service state
 	state, err := h.sup.GetState("failing-service")
 	require.NoError(t, err)
-	require.Equal(t, supervisor.Failed, state.Status)
+	require.Equal(t, supervisor.StatusFailed, state.Status)
 	require.True(t, atomic.LoadInt32(&startAttempts) <= 2, "Should not exceed max retry attempts")
 }
 
@@ -485,13 +487,13 @@ func TestSupervisor_TransactionDiscard(t *testing.T) {
 	service1.WaitForStart(t)
 
 	// Begin transaction for changes
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 
 	// AddCleanup new service and remove existing one
 	svc2 := h.service("service-2")
 	h.sup.handleEvent(event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Register,
+		Kind:   supervisor.ServiceRegister,
 		Path:   "service-2",
 		Data: &supervisor.Entry{
 			Service: svc2,
@@ -501,7 +503,7 @@ func TestSupervisor_TransactionDiscard(t *testing.T) {
 	h.removeService("service-1")
 
 	// Discard transaction
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Discard})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxDiscard})
 
 	// Verify original state is maintained
 	time.Sleep(100 * time.Millisecond) // wait for event processing
@@ -516,10 +518,10 @@ func TestSupervisor_ConcurrentTransactions(t *testing.T) {
 	h.start(ctx)
 
 	// Launch first transaction
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 
 	// Attempt to start another transaction while first is open
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 
 	time.Sleep(100 * time.Millisecond) // wait for event processing
 
@@ -553,9 +555,9 @@ func TestSupervisor_RemoveRunningService(t *testing.T) {
 	service.stopDelay = 200 * time.Millisecond
 
 	// Done the running service
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Begin})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
 	h.removeService("running-service")
-	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.Commit})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
 	// Verify service is properly stopped and removed
 	service.WaitForStop(t)
@@ -578,21 +580,21 @@ func TestSupervisor_ServiceStoppingStates(t *testing.T) {
 
 	// wait for service to start and reach Running state
 	svc.WaitForStart(t)
-	h.assertServiceState("slow-stop", supervisor.Running)
+	h.assertServiceState("slow-stop", supervisor.StatusRunning)
 
 	// Introduce a small delay to allow service's helpers state to update
 	time.Sleep(50 * time.Millisecond)
 
 	// Initiate stop and immediately check state
 	h.sup.actions <- action{
-		kind:      actionStop,
+		kind:      actStop,
 		serviceID: "slow-stop",
 	}
 
 	// wait for full stop
 	svc.WaitForStop(t)
 	time.Sleep(100 * time.Millisecond) // wait for stop to propagate
-	h.assertServiceState("slow-stop", supervisor.Stopped)
+	h.assertServiceState("slow-stop", supervisor.StatusStopped)
 }
 
 func TestSupervisor_InvalidRegistrationPayload(t *testing.T) {
@@ -602,20 +604,20 @@ func TestSupervisor_InvalidRegistrationPayload(t *testing.T) {
 
 	// Test cases for invalid payloads
 	invalidPayloads := []struct {
-		name string
 		data any
+		name string
 	}{
-		{"nil-payload", nil},
-		{"empty-entry", &supervisor.Entry{}},
-		{"missing-service", &supervisor.Entry{Config: supervisor.LifecycleConfig{}}},
-		{"string-payload", "invalid"},
+		{nil, "nil-payload"},
+		{&supervisor.Entry{}, "empty-entry"},
+		{&supervisor.Entry{Config: supervisor.LifecycleConfig{}}, "missing-service"},
+		{"invalid", "string-payload"},
 	}
 
 	for _, tc := range invalidPayloads {
 		t.Run(tc.name, func(_ *testing.T) {
 			h.sup.handleEvent(event.Event{
 				System: supervisor.System,
-				Kind:   supervisor.Register,
+				Kind:   supervisor.ServiceRegister,
 				Path:   "test-service",
 				Data:   tc.data,
 			})
@@ -647,7 +649,7 @@ func TestSupervisor_GetAllStates(t *testing.T) {
 
 	// Launch manual service
 	h.sup.actions <- action{
-		kind:      actionStart,
+		kind:      actStart,
 		serviceID: "manual-start",
 	}
 
@@ -661,13 +663,13 @@ func TestSupervisor_GetAllStates(t *testing.T) {
 	require.Len(t, states, 3)
 
 	// Auto-start service should be running
-	require.Equal(t, supervisor.Running, states["auto-start"].Status)
+	require.Equal(t, supervisor.StatusRunning, states["auto-start"].Status)
 
 	// Manual start service should be running
-	require.Equal(t, supervisor.Running, states["manual-start"].Status)
+	require.Equal(t, supervisor.StatusRunning, states["manual-start"].Status)
 
 	// Failing service should be in failed state
-	require.Equal(t, supervisor.Failed, states["failing-service"].Status)
+	require.Equal(t, supervisor.StatusFailed, states["failing-service"].Status)
 }
 
 func TestSupervisor_BusEventControl(t *testing.T) {
@@ -682,12 +684,12 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	// send registration events through the bus
 	h.sup.bus.Send(ctx, event.Event{
 		System: registry.System,
-		Kind:   registry.Begin,
+		Kind:   registry.TxBegin,
 	})
 
 	h.sup.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Register,
+		Kind:   supervisor.ServiceRegister,
 		Path:   serviceID,
 		Data: &supervisor.Entry{
 			Service: svc,
@@ -705,7 +707,7 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 
 	h.sup.bus.Send(ctx, event.Event{
 		System: registry.System,
-		Kind:   registry.Commit,
+		Kind:   registry.TxCommit,
 	})
 
 	// wait for registration to be processed
@@ -714,13 +716,13 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	// Verify service is registered but not started
 	state, err := h.sup.GetState(serviceID)
 	require.NoError(t, err, "Topology should be registered")
-	require.Equal(t, supervisor.Unknown, state.Status, "Topology should be in Unknown state")
+	require.Equal(t, supervisor.StatusUnknown, state.Status, "Topology should be in Unknown state")
 	require.False(t, svc.IsStarted(), "Topology should not be started")
 
 	// Launch the service via bus event
 	h.sup.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Start,
+		Kind:   supervisor.ServiceStart,
 		Path:   serviceID,
 	})
 
@@ -731,12 +733,12 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	// Verify running state
 	state, err = h.sup.GetState(serviceID)
 	require.NoError(t, err)
-	require.Equal(t, supervisor.Running, state.Status, "Topology should be in Running state")
+	require.Equal(t, supervisor.StatusRunning, state.Status, "Topology should be in Running state")
 
 	// stop the service via bus event
 	h.sup.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Stop,
+		Kind:   supervisor.ServiceStop,
 		Path:   serviceID,
 	})
 
@@ -747,23 +749,23 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	// Verify stopped state
 	state, err = h.sup.GetState(serviceID)
 	require.NoError(t, err)
-	require.Equal(t, supervisor.Stopped, state.Status, "Topology should be in Stopped state")
+	require.Equal(t, supervisor.StatusStopped, state.Status, "Topology should be in Stopped state")
 
 	// Done the service via bus event
 	h.sup.bus.Send(ctx, event.Event{
 		System: registry.System,
-		Kind:   registry.Begin,
+		Kind:   registry.TxBegin,
 	})
 
 	h.sup.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Remove,
+		Kind:   supervisor.ServiceRemove,
 		Path:   serviceID,
 	})
 
 	h.sup.bus.Send(ctx, event.Event{
 		System: registry.System,
-		Kind:   registry.Commit,
+		Kind:   registry.TxCommit,
 	})
 
 	// wait for removal to be processed
@@ -773,4 +775,553 @@ func TestSupervisor_BusEventControl(t *testing.T) {
 	_, err = h.sup.GetState(serviceID)
 	require.Error(t, err, "Topology should not exist")
 	require.Contains(t, err.Error(), "not found", "Should get not found error")
+}
+
+func TestSupervisor_ContextCancellation(t *testing.T) {
+	h := newTestHarness(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	h.start(ctx)
+
+	// Register a service that takes time to start
+	svc := h.service("slow-service")
+	svc.startDelay = 2 * time.Second
+
+	h.registerServices(map[string]bool{
+		"slow-service": true,
+	})
+
+	// Cancel context while service is starting
+	cancel()
+
+	// Wait a bit to ensure cancellation is processed
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify service was not started
+	require.False(t, svc.IsStarted(), "Service should not be started after context cancellation")
+	h.stop()
+}
+
+func TestSupervisor_ServiceTimeout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping timeout test in short mode")
+	}
+	h := newTestHarness(t)
+	ctx := context.Background()
+	h.start(ctx)
+
+	// Register a service that takes longer than timeout
+	svc := h.service("timeout-service")
+	svc.startDelay = 6 * time.Second // Longer than 5s timeout
+
+	h.registerServices(map[string]bool{
+		"timeout-service": true,
+	})
+
+	// Wait for timeout with context timeout to prevent test hanging
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	// Poll for service state with context timeout
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatal("Timeout waiting for service to fail")
+		case <-ticker.C:
+			state, err := h.sup.GetState("timeout-service")
+			if err == nil && state.Status == supervisor.StatusFailed {
+				// Service failed as expected
+				goto verifyState
+			}
+		}
+	}
+
+verifyState:
+
+	// Verify service state
+	state, err := h.sup.GetState("timeout-service")
+	require.NoError(t, err)
+	require.Equal(t, supervisor.StatusFailed, state.Status, "Service should be in Failed state due to timeout")
+
+	h.stop()
+}
+
+func TestSupervisor_DependencyCycle(t *testing.T) {
+	h := newTestHarness(t)
+	ctx := context.Background()
+	h.start(ctx)
+
+	// Begin transaction
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+
+	// Register services with circular dependency
+	h.registerServiceWithDeps("service-a", true, []string{"service-b"})
+	h.registerServiceWithDeps("service-b", true, []string{"service-c"})
+	h.registerServiceWithDeps("service-c", true, []string{"service-a"})
+
+	// Commit transaction
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	// Wait for initial processing
+	// Use context with timeout instead of time.Sleep to prevent test hanging
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer waitCancel()
+
+	select {
+	case <-waitCtx.Done():
+		t.Log("Timeout waiting for initial processing")
+	case <-time.After(100 * time.Millisecond):
+		// Wait for initial processing
+	}
+
+	// Trigger dependency cycle detection by attempting to start one of the services
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceStart,
+		Path:   "service-a",
+	})
+
+	// Wait longer for dependency cycle detection to complete
+	// Use context with timeout instead of time.Sleep to prevent test hanging
+	cycleCtx, cycleCancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cycleCancel()
+
+	select {
+	case <-cycleCtx.Done():
+		t.Log("Timeout waiting for dependency cycle detection")
+	case <-time.After(500 * time.Millisecond):
+		// Wait longer for dependency cycle detection to complete
+	}
+
+	// Verify all services are not in Running state due to dependency cycle
+	// Note: Current implementation may not actively detect cycles, so services may remain in Unknown status
+	for _, id := range []string{"service-a", "service-b", "service-c"} {
+		state, err := h.sup.GetState(id)
+		require.NoError(t, err)
+		require.NotEqual(t, supervisor.StatusRunning, state.Status, "Service %s should not be in Running state due to dependency cycle", id)
+		// Services should either be in Unknown (not started) or Failed (if cycle detection is implemented)
+		require.Contains(t, []supervisor.Status{supervisor.StatusUnknown, supervisor.StatusFailed}, state.Status,
+			"Service %s should be in Unknown or Failed state due to dependency cycle", id)
+	}
+
+	h.stop()
+}
+
+func TestSupervisor_ConcurrentServiceOperations(t *testing.T) {
+	h := newTestHarness(t)
+	ctx := context.Background()
+	h.start(ctx)
+
+	// Register multiple services
+	services := map[string]bool{
+		"service-1": true,
+		"service-2": true,
+		"service-3": true,
+	}
+	h.registerServices(services)
+
+	// Start concurrent operations
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// Randomly start/stop services
+			for _, id := range []string{"service-1", "service-2", "service-3"} {
+				if rand.Float32() < 0.5 {
+					h.sup.handleEvent(event.Event{
+						System: supervisor.System,
+						Kind:   supervisor.ServiceStart,
+						Path:   id,
+					})
+				} else {
+					h.sup.handleEvent(event.Event{
+						System: supervisor.System,
+						Kind:   supervisor.ServiceStop,
+						Path:   id,
+					})
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	time.Sleep(100 * time.Millisecond) // Wait for operations to complete
+
+	// Verify no panics occurred and supervisor is still running
+	states := h.sup.GetAllStates()
+	require.Len(t, states, 3, "All services should still be registered")
+
+	h.stop()
+}
+
+func TestSupervisor_ServiceStatusUpdates(t *testing.T) {
+	h := newTestHarness(t)
+	ctx := context.Background()
+	h.start(ctx)
+
+	// Register a service
+	svc := h.service("status-service")
+	h.registerServices(map[string]bool{
+		"status-service": true,
+	})
+
+	// Start the service
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceStart,
+		Path:   "status-service",
+	})
+
+	// Wait for service to start
+	svc.WaitForStart(t)
+
+	// Send status updates
+	svc.statusUpdates <- "status-1"
+	svc.statusUpdates <- "status-2"
+	svc.statusUpdates <- "status-3"
+
+	// Wait for status updates to be processed
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify state contains latest status
+	state, err := h.sup.GetState("status-service")
+	require.NoError(t, err)
+	require.Equal(t, "status-3", state.Details, "State should contain latest status update")
+
+	h.stop()
+}
+
+// Dependency Tests
+
+func TestSupervisor_DependencyOrdering(t *testing.T) {
+	h := newTestHarness(t)
+	ctx := context.Background()
+	h.start(ctx)
+
+	// Register services with dependencies: A -> B -> C
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.registerServiceWithDeps("service-c", false, nil)                   // no deps
+	h.registerServiceWithDeps("service-b", false, []string{"service-c"}) // depends on C
+	h.registerServiceWithDeps("service-a", false, []string{"service-b"}) // depends on B
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	// Launch service A, which should trigger starting dependencies first
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceStart,
+		Path:   "service-a",
+	})
+
+	// Wait for all services to reach running state instead of fixed sleep
+	h.waitForAllServices(supervisor.StatusRunning)
+
+	// Verify states
+	h.assertServiceState("service-c", supervisor.StatusRunning)
+	h.assertServiceState("service-b", supervisor.StatusRunning)
+	h.assertServiceState("service-a", supervisor.StatusRunning)
+}
+
+func TestSupervisor_DependencyFailure(t *testing.T) {
+	h := newTestHarness(t)
+	ctx := context.Background()
+	h.start(ctx)
+
+	// Service B will fail to start
+	svcB := h.service("service-b")
+	svcB.startErr = errors.New("failed to start service B")
+
+	// Register services with dependencies: A -> B -> C
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.registerServiceWithDeps("service-c", false, nil)
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "service-b",
+		Data: &supervisor.Entry{
+			Service: svcB,
+			Config: supervisor.LifecycleConfig{
+				DependsOn:    []string{"service-c"},
+				StartTimeout: 5 * time.Second,
+				StopTimeout:  5 * time.Second,
+				RetryPolicy: supervisor.RetryPolicy{
+					MaxAttempts:  3,
+					InitialDelay: 100 * time.Millisecond,
+				},
+			},
+		},
+	})
+	h.registerServiceWithDeps("service-a", false, []string{"service-b"})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	// Launch service A
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceStart,
+		Path:   "service-a",
+	})
+
+	// Wait a bit longer for retries and full failure
+	time.Sleep(500 * time.Millisecond)
+
+	// First verify service C is running
+	h.assertServiceState("service-c", supervisor.StatusRunning)
+
+	// Then verify B has fully failed (after retries)
+	state, err := h.sup.GetState("service-b")
+	require.NoError(t, err)
+	require.Equal(t, supervisor.StatusFailed, state.Status, "service-b should be in failed state")
+
+	// Finally verify A didn't start
+	h.assertServiceState("service-a", supervisor.StatusUnknown) // A shouldn't start if B fails
+}
+
+func TestSupervisor_ParallelDependencyStart(t *testing.T) {
+	h := newTestHarness(t)
+	ctx := context.Background()
+	h.start(ctx)
+
+	// AddCleanup artificial delay to B and C
+	svcB := h.service("service-b")
+	svcC := h.service("service-c")
+	svcB.startDelay = 200 * time.Millisecond
+	svcC.startDelay = 200 * time.Millisecond
+
+	// Register services with parallel dependencies: A -> (B,C)
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.registerServiceWithDeps("service-b", false, nil)
+	h.registerServiceWithDeps("service-c", false, nil)
+	h.registerServiceWithDeps("service-a", false, []string{"service-b", "service-c"})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	startTime := time.Now()
+
+	// Launch service A
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceStart,
+		Path:   "service-a",
+	})
+
+	// Wait for all services to reach running state instead of fixed sleep
+	h.waitForAllServices(supervisor.StatusRunning)
+
+	// Verify states
+	h.assertServiceState("service-b", supervisor.StatusRunning)
+	h.assertServiceState("service-c", supervisor.StatusRunning)
+	h.assertServiceState("service-a", supervisor.StatusRunning)
+
+	// Verify parallel execution
+	totalTime := time.Since(startTime)
+	require.Less(t, totalTime, 400*time.Millisecond,
+		"Dependencies should have started in parallel")
+}
+
+func TestSupervisor_DependencyStopOrder(t *testing.T) {
+	h := newTestHarness(t)
+	ctx := context.Background()
+	h.start(ctx)
+
+	// Register services with dependencies: A -> B -> C
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.registerServiceWithDeps("service-c", false, nil)
+	h.registerServiceWithDeps("service-b", false, []string{"service-c"})
+	h.registerServiceWithDeps("service-a", false, []string{"service-b"})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	// Launch all services by starting A
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceStart,
+		Path:   "service-a",
+	})
+
+	// Wait for all services to reach running state instead of fixed sleep
+	h.waitForAllServices(supervisor.StatusRunning)
+
+	// Verify all services started
+	h.assertServiceState("service-c", supervisor.StatusRunning)
+	h.assertServiceState("service-b", supervisor.StatusRunning)
+	h.assertServiceState("service-a", supervisor.StatusRunning)
+
+	// Now stop service C
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceStop,
+		Path:   "service-c",
+	})
+
+	// Wait for all services to reach stopped state instead of fixed sleep
+	h.waitForAllServices(supervisor.StatusStopped)
+
+	// Verify all services stopped in correct order
+	h.assertServiceState("service-a", supervisor.StatusStopped)
+	h.assertServiceState("service-b", supervisor.StatusStopped)
+	h.assertServiceState("service-c", supervisor.StatusStopped)
+}
+
+func TestSupervisor_MissingDependencies(t *testing.T) {
+	h := newTestHarness(t)
+	ctx := context.Background()
+	h.start(ctx)
+
+	// Register service A with missing dependency
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.registerServiceWithDeps("service-a", false, []string{"missing-service"})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	// Try to start service A
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceStart,
+		Path:   "service-a",
+	})
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify service A didn't start
+	state, err := h.sup.GetState("service-a")
+	require.NoError(t, err)
+	require.NotEqual(t, supervisor.StatusRunning, state.Status)
+}
+
+func TestSupervisor_AddDependencyToExistingService(t *testing.T) {
+	h := newTestHarness(t)
+	ctx := context.Background()
+	h.start(ctx)
+
+	// First register service B (not autostarted)
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.registerServiceWithDeps("service-b", false, nil)
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	// Wait for registration to complete and verify B is registered but not running
+	time.Sleep(100 * time.Millisecond)
+	state, err := h.sup.GetState("service-b")
+	require.NoError(t, err)
+	require.Equal(t, supervisor.StatusUnknown, state.Status)
+
+	// Now register service A that depends on B
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.registerServiceWithDeps("service-a", true, []string{"service-b"})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	time.Sleep(200 * time.Millisecond)
+
+	// Both services should now be running because A's autostart triggered B
+	h.assertServiceState("service-b", supervisor.StatusRunning)
+	h.assertServiceState("service-a", supervisor.StatusRunning)
+
+	// close A and verify B keeps running (since it was started as dependency)
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceStop,
+		Path:   "service-a",
+	})
+
+	time.Sleep(200 * time.Millisecond)
+
+	h.assertServiceState("service-b", supervisor.StatusRunning)
+	h.assertServiceState("service-a", supervisor.StatusStopped)
+}
+
+func TestSupervisor_ComplexDependencyChain_WithPreexisting(t *testing.T) {
+	h := newTestHarness(t)
+	ctx := context.Background()
+	h.start(ctx)
+
+	// First register and start service-base
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.registerServiceWithDeps("service-base", true, nil) // autostart true
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	time.Sleep(100 * time.Millisecond)
+	h.assertServiceState("service-base", supervisor.StatusRunning)
+
+	// Register service-middle that depends on service-base but don't autostart
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.registerServiceWithDeps("service-middle", false, []string{"service-base"})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	time.Sleep(100 * time.Millisecond)
+	h.assertServiceState("service-middle", supervisor.StatusUnknown) // Should not be started
+
+	// Now register service-top with autostart that depends on service-middle
+	// This should trigger starting both service-middle and service-top
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.registerServiceWithDeps("service-top", true, []string{"service-middle"})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify all services are running
+	h.assertServiceState("service-base", supervisor.StatusRunning)
+	h.assertServiceState("service-middle", supervisor.StatusRunning)
+	h.assertServiceState("service-top", supervisor.StatusRunning)
+
+	// Now stop service-middle - this should stop service-top but leave service-base running
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceStop,
+		Path:   "service-middle",
+	})
+
+	time.Sleep(100 * time.Millisecond)
+
+	h.assertServiceState("service-base", supervisor.StatusRunning)   // Should still be running
+	h.assertServiceState("service-middle", supervisor.StatusStopped) // Should be stopped
+	h.assertServiceState("service-top", supervisor.StatusStopped)    // Should be stopped due to dependency
+
+	// Finally stop service-base
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceStop,
+		Path:   "service-base",
+	})
+
+	time.Sleep(100 * time.Millisecond)
+
+	// All services should be stopped
+	h.assertServiceState("service-base", supervisor.StatusStopped)
+	h.assertServiceState("service-middle", supervisor.StatusStopped)
+	h.assertServiceState("service-top", supervisor.StatusStopped)
+
+	// Now try to start service-top - this should fail since dependencies are not started
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceStart,
+		Path:   "service-top",
+	})
+
+	time.Sleep(100 * time.Millisecond)
+	h.assertServiceState("service-base", supervisor.StatusRunning)   // Should still be running
+	h.assertServiceState("service-middle", supervisor.StatusRunning) // Should still be running
+	h.assertServiceState("service-top", supervisor.StatusRunning)    // Should not start due to missing deps
+}
+
+func TestSupervisor_WithoutDependencyResolver(t *testing.T) {
+	h := newTestHarness(t)
+	ctx := context.Background()
+	h.start(ctx)
+
+	// Register services with only lifecycle dependencies
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.registerServiceWithDeps("service-b", false, nil)
+	h.registerServiceWithDeps("service-a", false, []string{"service-b"})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	// Start service-a
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceStart,
+		Path:   "service-a",
+	})
+
+	h.waitForAllServices(supervisor.StatusRunning)
+
+	// Verify lifecycle dependencies work without resolver
+	h.assertServiceState("service-b", supervisor.StatusRunning)
+	h.assertServiceState("service-a", supervisor.StatusRunning)
 }

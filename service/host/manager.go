@@ -2,166 +2,170 @@ package host
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/service/host"
-
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/supervisor"
+	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	hostapi "github.com/wippyai/runtime/api/service/host"
+	"github.com/wippyai/runtime/api/supervisor"
+	entryutil "github.com/wippyai/runtime/internal/entry"
+	"github.com/wippyai/runtime/system/scheduler/actor"
 	"go.uber.org/zap"
 )
 
-// Manager handles process host lifecycle and registration
+// Manager manages process host instances.
 type Manager struct {
-	log         *zap.Logger
-	bus         event.Bus
-	dtt         payload.Transcoder
-	mu          sync.RWMutex
-	hosts       sync.Map // map[registry.Source]*Host
-	hostFactory Factory
+	bus             event.Bus
+	dtt             payload.Transcoder
+	commandRegistry dispatcherapi.Registry
+	factory         process.Factory
+	pidGen          process.PIDGenerator
+	log             *zap.Logger
+	hosts           map[registry.ID]*Host
+	mu              sync.RWMutex
 }
 
-// NewHostManager creates a new process host manager with default host factory
-func NewHostManager(bus event.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
-	return NewHostManagerWithFactory(bus, dtt, logger, NewDefaultHostFactory())
-}
-
-// NewHostManagerWithFactory creates a new process host manager with a custom host factory
-func NewHostManagerWithFactory(
-	bus event.Bus,
-	dtt payload.Transcoder,
-	logger *zap.Logger,
-	factory Factory,
-) *Manager {
+// NewManager creates a new host manager.
+func NewManager(bus event.Bus, dtt payload.Transcoder, cmdRegistry dispatcherapi.Registry, factory process.Factory, pidGen process.PIDGenerator, logger *zap.Logger) *Manager {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Manager{
-		log:         logger,
-		bus:         bus,
-		dtt:         dtt,
-		hostFactory: factory,
+		log:             logger,
+		bus:             bus,
+		dtt:             dtt,
+		commandRegistry: cmdRegistry,
+		factory:         factory,
+		pidGen:          pidGen,
+		hosts:           make(map[registry.ID]*Host),
 	}
 }
 
-// Add creates and registers a new process host
+// Add implements registry.EntryListener.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != host.KindHost {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+	if entry.Kind != hostapi.Host {
+		return NewUnsupportedEntryKindError(entry.Kind)
 	}
-
-	cfg := new(host.EntryConfig)
-	if err := m.dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return fmt.Errorf("failed to unmarshal cfg: %w", err)
-	}
-
-	cfg.InitDefaults()
-
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid cfg: %w", err)
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Create new host instance using the factory
-	h, err := m.hostFactory.CreateHost(entry.ID, cfg, m.log)
+	cfg, err := entryutil.DecodeEntryConfig[hostapi.EntryConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return fmt.Errorf("failed to create host: %w", err)
+		return NewDecodeConfigError(err)
 	}
 
-	// Convert to concrete type for our internal storage
-	// This is safe because we know our factory returns a *Host
-	concreteHost, ok := h.(*Host)
-	if !ok {
-		return fmt.Errorf("factory returned unexpected host type: %T", h)
+	h := NewHost(entry.ID, cfg, nil, m.factory, m.pidGen, m.log)
+
+	// Create composite lifecycle: global handlers first, then host-specific
+	lifecycle := &compositeLifecycle{
+		global: process.GetLifecycleRegistry(ctx),
+		host:   h,
 	}
 
-	// Store in hosts map
-	m.hosts.Store(entry.ID, concreteHost)
-
-	m.log.Info("process host created", zap.String("id", entry.ID.String()))
-
-	// Register with necessary subsystems
-	m.registerHost(ctx, entry.ID, concreteHost, cfg)
-
-	return nil
-}
-
-// Delete removes a process host
-func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != host.KindHost {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
-	}
+	scheduler := actor.NewScheduler(m.commandRegistry,
+		actor.WithWorkers(cfg.HostConfig.Workers),
+		actor.WithQueueSize(cfg.HostConfig.QueueSize),
+		actor.WithLocalQueueSize(cfg.HostConfig.LocalQueueSize),
+		actor.WithLifecycle(lifecycle),
+	)
+	h.scheduler = scheduler
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.hosts[entry.ID] = h
+	m.mu.Unlock()
 
-	m.removeHost(ctx, entry.ID)
-	m.hosts.Delete(entry.ID)
-
-	m.log.Info("process host removed", zap.String("id", entry.ID.String()))
-
-	return nil
-}
-
-// registerHost registers the process host with necessary subsystems
-func (m *Manager) registerHost(ctx context.Context, id registry.ID, host *Host, cfg *host.EntryConfig) {
-	// Register with pubsub
 	m.bus.Send(ctx, event.Event{
-		System: pubsub.System,
-		Kind:   pubsub.HostRegister,
-		Path:   id.String(),
-		Data:   process.Host(host),
+		System: relay.System,
+		Kind:   relay.HostRegister,
+		Path:   entry.ID.String(),
+		Data:   relay.Receiver(h),
 	})
 
-	// Register as process host
-	m.bus.Send(ctx, event.Event{
-		System: process.HostSystem,
-		Kind:   process.HostRegister,
-		Path:   id.String(),
-		Data:   process.Managed(host),
-	})
-
-	// Register with supervisor
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Register,
-		Path:   id.String(),
+		Kind:   supervisor.ServiceRegister,
+		Path:   entry.ID.String(),
 		Data: &supervisor.Entry{
-			Service: host,
+			Service: h,
 			Config:  cfg.Lifecycle,
 		},
 	})
+
+	m.log.Info("host added", zap.String("id", entry.ID.String()))
+	return nil
 }
 
-// removeHost removes the process host from all subsystems
-func (m *Manager) removeHost(ctx context.Context, id registry.ID) {
-	// Done from pubsub
-	m.bus.Send(ctx, event.Event{
-		System: pubsub.System,
-		Kind:   pubsub.HostDelete,
-		Path:   id.String(),
-	})
+// Update implements registry.EntryListener.
+func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
+	if entry.Kind != hostapi.Host {
+		return NewUnsupportedEntryKindError(entry.Kind)
+	}
+	if err := m.Delete(ctx, entry); err != nil {
+		return err
+	}
+	return m.Add(ctx, entry)
+}
 
-	// Done from process hosts
-	m.bus.Send(ctx, event.Event{
-		System: process.HostSystem,
-		Kind:   process.HostDelete,
-		Path:   id.String(),
-	})
+// Delete implements registry.EntryListener.
+func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
+	if entry.Kind != hostapi.Host {
+		return NewUnsupportedEntryKindError(entry.Kind)
+	}
+	m.mu.Lock()
+	h, ok := m.hosts[entry.ID]
+	if !ok {
+		m.mu.Unlock()
+		return nil
+	}
+	delete(m.hosts, entry.ID)
+	m.mu.Unlock()
 
-	// Done from supervisor
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Remove,
-		Path:   id.String(),
+		Kind:   supervisor.ServiceRemove,
+		Path:   entry.ID.String(),
 	})
+
+	m.bus.Send(ctx, event.Event{
+		System: relay.System,
+		Kind:   relay.HostDelete,
+		Path:   entry.ID.String(),
+	})
+
+	if err := h.Stop(ctx); err != nil {
+		m.log.Error("failed to stop host", zap.Error(err))
+	}
+
+	m.log.Info("host deleted", zap.String("id", entry.ID.String()))
+	return nil
 }
 
-// Update updates an existing process host
-func (m *Manager) Update(_ context.Context, _ registry.Entry) error {
-	return fmt.Errorf("unable to update process host")
+// GetHost returns a host by ID.
+func (m *Manager) GetHost(hostID string) (process.Host, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	h, ok := m.hosts[registry.ParseID(hostID)]
+	return h, ok
+}
+
+// compositeLifecycle wraps global lifecycle with host-specific handlers.
+type compositeLifecycle struct {
+	global process.Lifecycle
+	host   process.Lifecycle
+}
+
+func (c *compositeLifecycle) OnStart(ctx context.Context, processID pid.PID, proc process.Process) error {
+	if err := c.global.OnStart(ctx, processID, proc); err != nil {
+		return err
+	}
+	return c.host.OnStart(ctx, processID, proc)
+}
+
+func (c *compositeLifecycle) OnComplete(ctx context.Context, processID pid.PID, result *runtime.Result) {
+	c.global.OnComplete(ctx, processID, result)
+	c.host.OnComplete(ctx, processID, result)
 }

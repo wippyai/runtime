@@ -1,65 +1,66 @@
-package payload
+package payload_test
 
 import (
 	"reflect"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/system/payload/json"
-	"github.com/ponyruntime/pony/system/payload/yaml"
+	apipayload "github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/system/payload"
+	"github.com/wippyai/runtime/system/payload/json"
+	"github.com/wippyai/runtime/system/payload/yaml"
 )
 
 func TestTranscoder_Unmarshal_Simple(t *testing.T) {
-	transcoder := NewTranscoder()
+	transcoder := payload.NewTranscoder()
 	json.Register(transcoder)
 	yaml.Register(transcoder)
 
 	tests := []struct {
-		name          string
-		inputPayload  payload.Payload
+		inputPayload  apipayload.Payload
 		targetType    interface{}
 		expectedValue interface{}
+		name          string
 		expectError   bool
 	}{
 		{
 			name:          "Unmarshal JSON to map",
-			inputPayload:  payload.NewPayload(`{"key": "value"}`, payload.JSON),
+			inputPayload:  apipayload.NewPayload(`{"key": "value"}`, apipayload.JSON),
 			targetType:    &map[string]interface{}{},
 			expectedValue: map[string]interface{}{"key": "value"},
 			expectError:   false,
 		},
 		{
 			name:          "Unmarshal YAML to map",
-			inputPayload:  payload.NewPayload("key: value", payload.YAML),
+			inputPayload:  apipayload.NewPayload("key: value", apipayload.YAML),
 			targetType:    &map[string]interface{}{},
 			expectedValue: map[string]interface{}{"key": "value"},
 			expectError:   false,
 		},
 		{
 			name: "Unmarshal JSON to struct",
-			inputPayload: payload.NewPayload(`{
+			inputPayload: apipayload.NewPayload(`{
 				"Name": "John Doe",
 				"Age": 30,
 				"Address": {
 					"Street": "123 Main St",
 					"City": "Anytown"
 				}
-			}`, payload.JSON),
+			}`, apipayload.JSON),
 			targetType: &struct {
-				Name    string
-				Age     int
 				Address struct {
 					Street string
 					City   string
 				}
+				Name string
+				Age  int
 			}{},
 			expectedValue: struct {
-				Name    string
-				Age     int
 				Address struct {
 					Street string
 					City   string
 				}
+				Name string
+				Age  int
 			}{
 				Name: "John Doe",
 				Age:  30,
@@ -75,28 +76,28 @@ func TestTranscoder_Unmarshal_Simple(t *testing.T) {
 		},
 		{
 			name: "Unmarshal YAML to struct",
-			inputPayload: payload.NewPayload(`
+			inputPayload: apipayload.NewPayload(`
 name: "John Doe"
 age: 30
 address:
   street: 123 Main St
   city: Anytown
-`, payload.YAML),
+`, apipayload.YAML),
 			targetType: &struct {
-				Name    string
-				Age     int
 				Address struct {
 					Street string
 					City   string
 				}
+				Name string
+				Age  int
 			}{},
 			expectedValue: struct {
-				Name    string
-				Age     int
 				Address struct {
 					Street string
 					City   string
 				}
+				Name string
+				Age  int
 			}{
 				Name: "John Doe",
 				Age:  30,
@@ -135,36 +136,36 @@ address:
 }
 
 func TestTranscoder_Transcode_MultiStep(t *testing.T) {
-	transcoder := NewTranscoder()
+	transcoder := payload.NewTranscoder()
 	json.Register(transcoder)
 	yaml.Register(transcoder)
 
 	tests := []struct {
+		inputPayload    apipayload.Payload
+		expectedPayload apipayload.Payload
 		name            string
-		inputPayload    payload.Payload
-		targetFormat    payload.Format
-		expectedPayload payload.Payload
+		targetFormat    apipayload.Format
 		expectError     bool
 	}{
 		{
 			name:            "Transcode YAML to JSON",
-			inputPayload:    payload.NewPayload("key: value", payload.YAML),
-			targetFormat:    payload.JSON,
-			expectedPayload: payload.NewPayload(`{"key":"value"}`, payload.JSON),
+			inputPayload:    apipayload.NewPayload("key: value", apipayload.YAML),
+			targetFormat:    apipayload.JSON,
+			expectedPayload: apipayload.NewPayload(`{"key":"value"}`, apipayload.JSON),
 			expectError:     false,
 		},
 		{
 			name: "Transcode YAML to JSON (complex)",
-			inputPayload: payload.NewPayload(`
+			inputPayload: apipayload.NewPayload(`
 person:
   name: John Doe
   age: 30
   address:
     street: 123 Main St
     city: Anytown
-`, payload.YAML),
-			targetFormat:    payload.JSON,
-			expectedPayload: payload.NewPayload(`{"person":{"address":{"city":"Anytown","street":"123 Main St"},"age":30,"name":"John Doe"}}`, payload.JSON),
+`, apipayload.YAML),
+			targetFormat:    apipayload.JSON,
+			expectedPayload: apipayload.NewPayload(`{"person":{"address":{"city":"Anytown","street":"123 Main St"},"age":30,"name":"John Doe"}}`, apipayload.JSON),
 			expectError:     false,
 		},
 	}
@@ -186,7 +187,7 @@ person:
 					t.Errorf("transcoded payload format does not match expected format\ngot:  %v\nwant: %v", transcodedPayload.Format(), tt.expectedPayload.Format())
 				}
 				switch tt.expectedPayload.Format() {
-				case payload.JSON:
+				case apipayload.JSON:
 					var got, want interface{}
 					jt := &json.ToGolang{}
 
@@ -200,7 +201,7 @@ person:
 					if !reflect.DeepEqual(got, want) {
 						t.Errorf("transcoded payload data does not match expected data\ngot:  %v\nwant: %v", got, want)
 					}
-				case payload.YAML, payload.Golang, payload.Lua, payload.String, payload.Bytes, payload.Error:
+				case apipayload.YAML, apipayload.Golang, apipayload.Lua, apipayload.String, apipayload.Bytes, apipayload.GoError:
 					fallthrough
 				default:
 					if !reflect.DeepEqual(transcodedPayload.Data(), tt.expectedPayload.Data()) {
@@ -213,50 +214,50 @@ person:
 }
 
 func TestTranscoder_Unmarshal_AnyToStruct(t *testing.T) {
-	transcoder := NewTranscoder()
+	transcoder := payload.NewTranscoder()
 	json.Register(transcoder)
 	yaml.Register(transcoder)
 
 	tests := []struct {
-		name          string
-		inputPayload  payload.Payload
+		inputPayload  apipayload.Payload
 		targetType    interface{}
 		expectedValue interface{}
+		name          string
 		expectError   bool
 	}{
 		{
 			name: "Unmarshal Golang ANY (from JSON) to struct",
-			inputPayload: func() payload.Payload {
+			inputPayload: func() apipayload.Payload {
 				// Spawn a JSON payload and then transcode it to Golang ANY
-				jsonPayload := payload.NewPayload(`{
+				jsonPayload := apipayload.NewPayload(`{
 					"Name": "Jane Doe",
 					"Age": 25,
 					"Address": {
 						"Street": "456 Oak Ave",
 						"City": "Springfield"
 					}
-				}`, payload.JSON)
-				golangAnyPayload, err := transcoder.Transcode(jsonPayload, payload.Golang)
+				}`, apipayload.JSON)
+				golangAnyPayload, err := transcoder.Transcode(jsonPayload, apipayload.Golang)
 				if err != nil {
 					t.Fatalf("failed to transcode JSON to Golang ANY: %v", err)
 				}
 				return golangAnyPayload
 			}(),
 			targetType: &struct {
-				Name    string
-				Age     int
 				Address struct {
 					Street string
 					City   string
 				}
+				Name string
+				Age  int
 			}{},
 			expectedValue: struct {
-				Name    string
-				Age     int
 				Address struct {
 					Street string
 					City   string
 				}
+				Name string
+				Age  int
 			}{
 				Name: "Jane Doe",
 				Age:  25,
@@ -295,35 +296,35 @@ func TestTranscoder_Unmarshal_AnyToStruct(t *testing.T) {
 }
 
 func TestTranscoder_Transcode_JSONToYAML(t *testing.T) {
-	transcoder := NewTranscoder()
+	transcoder := payload.NewTranscoder()
 	json.Register(transcoder)
 	yaml.Register(transcoder)
 
 	tests := []struct {
+		inputPayload    apipayload.Payload
+		expectedPayload apipayload.Payload
 		name            string
-		inputPayload    payload.Payload
-		targetFormat    payload.Format
-		expectedPayload payload.Payload
+		targetFormat    apipayload.Format
 		expectError     bool
 	}{
 		{
 			name:            "Transcode JSON to YAML",
-			inputPayload:    payload.NewPayload(`{"key":"value"}`, payload.JSON),
-			targetFormat:    payload.YAML,
-			expectedPayload: payload.NewPayload("key: value\n", payload.YAML),
+			inputPayload:    apipayload.NewPayload(`{"key":"value"}`, apipayload.JSON),
+			targetFormat:    apipayload.YAML,
+			expectedPayload: apipayload.NewPayload("key: value\n", apipayload.YAML),
 			expectError:     false,
 		},
 		{
 			name:         "Transcode JSON to YAML (complex)",
-			inputPayload: payload.NewPayload(`{"person":{"address":{"city":"Anytown","street":"123 Main St"},"age":30,"name":"John Doe"}}`, payload.JSON),
-			targetFormat: payload.YAML,
-			expectedPayload: payload.NewPayload(`person:
+			inputPayload: apipayload.NewPayload(`{"person":{"address":{"city":"Anytown","street":"123 Main St"},"age":30,"name":"John Doe"}}`, apipayload.JSON),
+			targetFormat: apipayload.YAML,
+			expectedPayload: apipayload.NewPayload(`person:
     address:
         city: Anytown
         street: 123 Main St
     age: 30
     name: John Doe
-`, payload.YAML),
+`, apipayload.YAML),
 			expectError: false,
 		},
 	}

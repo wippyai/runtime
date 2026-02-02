@@ -1,9 +1,0 @@
-version: "1.0"
-namespace: wippy.lib
-
-entries:
-  - name: bapp
-    kind: library.lua
-    meta:
-      comment: "Unified btea app runner library"
-    source: file://bapp.lua

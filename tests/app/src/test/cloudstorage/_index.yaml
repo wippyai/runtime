@@ -1,0 +1,137 @@
+version: "1.0"
+namespace: app.test.cloudstorage
+
+entries:
+  # OS environment storage for reading credentials
+  - name: os_env
+    kind: env.storage.os
+
+  # Env variable for minio access key
+  - name: MINIO_ACCESS_KEY
+    kind: env.variable
+    variable: MINIO_ACCESS_KEY
+    storage: app.test.cloudstorage:os_env
+    default: minioadmin
+
+  # Env variable for minio secret key
+  - name: MINIO_SECRET_KEY
+    kind: env.variable
+    variable: MINIO_SECRET_KEY
+    storage: app.test.cloudstorage:os_env
+    default: minioadmin
+
+  # AWS config for MinIO (uses env vars for credentials)
+  - name: aws_config
+    kind: config.aws
+    region: us-east-1
+    access_key_id_env: app.test.cloudstorage:MINIO_ACCESS_KEY
+    secret_access_key_env: app.test.cloudstorage:MINIO_SECRET_KEY
+
+  # MinIO S3-compatible storage
+  - name: minio
+    kind: cloudstorage.s3
+    bucket: test-bucket
+    config: app.test.cloudstorage:aws_config
+    endpoint: http://localhost:9000
+
+  # Basic operations test
+  - name: basic
+    kind: function.lua
+    meta:
+      type: test
+      suite: cloudstorage
+      description: cloudstorage basic operations
+    source: file://basic.lua
+    method: main
+    modules:
+      - cloudstorage
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Upload test
+  - name: upload
+    kind: function.lua
+    meta:
+      type: test
+      suite: cloudstorage
+      description: cloudstorage upload operations
+    source: file://upload.lua
+    method: main
+    modules:
+      - cloudstorage
+      - fs
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Download test
+  - name: download
+    kind: function.lua
+    meta:
+      type: test
+      suite: cloudstorage
+      description: cloudstorage download operations
+    source: file://download.lua
+    method: main
+    modules:
+      - cloudstorage
+      - fs
+    imports:
+      assert_primitives: app.lib:assert
+
+  # List objects test
+  - name: list
+    kind: function.lua
+    meta:
+      type: test
+      suite: cloudstorage
+      description: cloudstorage list operations
+    source: file://list.lua
+    method: main
+    modules:
+      - cloudstorage
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Delete test
+  - name: delete
+    kind: function.lua
+    meta:
+      type: test
+      suite: cloudstorage
+      description: cloudstorage delete operations
+    source: file://delete.lua
+    method: main
+    modules:
+      - cloudstorage
+      - fs
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Presigned URL test
+  - name: presigned
+    kind: function.lua
+    meta:
+      type: test
+      suite: cloudstorage
+      description: cloudstorage presigned URL operations
+    source: file://presigned.lua
+    method: main
+    modules:
+      - cloudstorage
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Error handling test
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: cloudstorage
+      description: cloudstorage error handling
+    source: file://errors.lua
+    method: main
+    modules:
+      - cloudstorage
+      - fs
+    imports:
+      assert_primitives: app.lib:assert

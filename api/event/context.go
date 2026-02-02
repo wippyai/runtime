@@ -3,23 +3,33 @@ package event
 import (
 	"context"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
-var busCtx = &ctxapi.Key{Name: "bus"}
+var busKey = &ctxapi.Key{Name: "event.bus"}
 
 // WithBus returns a new context with the provided Bus instance attached.
 // This allows the Bus to be retrieved later using the GetBus function.
 func WithBus(ctx context.Context, bus Bus) context.Context {
-	return context.WithValue(ctx, busCtx, bus)
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(busKey) == nil {
+		ac.With(busKey, bus)
+	}
+	return ctx
 }
 
 // GetBus retrieves the Bus instance from the provided context.
 // Returns nil if no Bus is found in the context.
 func GetBus(ctx context.Context) Bus {
-	if b, ok := ctx.Value(busCtx).(Bus); ok {
-		return b
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
 	}
-
+	if b := ac.Get(busKey); b != nil {
+		return b.(Bus)
+	}
 	return nil
 }

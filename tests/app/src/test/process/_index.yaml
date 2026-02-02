@@ -1,0 +1,1037 @@
+version: "1.0"
+namespace: app.test.process
+
+entries:
+  # Helper processes
+  - name: echo_worker
+    kind: process.lua
+    meta:
+      comment: Worker that echoes messages back to sender
+    source: file://echo_worker.lua
+    method: main
+
+  - name: listen_worker
+    kind: process.lua
+    meta:
+      comment: Worker that listens on custom topic
+    source: file://listen_worker.lua
+    method: main
+
+  - name: short_worker
+    kind: process.lua
+    meta:
+      comment: Short-lived worker that exits immediately
+    source: file://short_worker.lua
+    method: main
+
+  - name: long_worker
+    kind: process.lua
+    meta:
+      comment: Long-running worker that waits for cancel
+    source: file://long_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: events_exit_worker
+    kind: process.lua
+    meta:
+      comment: Worker that tests EXIT event reception
+    source: file://events_exit_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: events_cancel_worker
+    kind: process.lua
+    meta:
+      comment: Worker that tests cancel and EXIT event
+    source: file://events_cancel_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: lifecycle_link_worker
+    kind: process.lua
+    meta:
+      comment: Worker that tests linked process termination
+    source: file://lifecycle_link_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: link_parent_worker
+    kind: process.lua
+    meta:
+      comment: Parent that spawns linked child then exits
+    source: file://link_parent_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: link_down_worker
+    kind: process.lua
+    meta:
+      comment: Worker that tests LINK_DOWN propagation
+    source: file://link_down_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: cancel_verify_worker
+    kind: process.lua
+    meta:
+      comment: Worker that verifies CANCEL event reception
+    source: file://cancel_verify_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: verify_cancel_worker
+    kind: process.lua
+    meta:
+      comment: Worker that spawns child and verifies cancel handling
+    source: file://verify_cancel_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: grandchild_worker
+    kind: process.lua
+    meta:
+      comment: Grandchild in 3-level hierarchy
+    source: file://grandchild_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: child_with_grandchild_worker
+    kind: process.lua
+    meta:
+      comment: Child that spawns linked grandchild
+    source: file://child_with_grandchild_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: complex_topo_worker
+    kind: process.lua
+    meta:
+      comment: Tests 3-level hierarchy cascade
+    source: file://complex_topo_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: normal_exit_worker
+    kind: process.lua
+    meta:
+      comment: Worker that exits normally
+    source: file://normal_exit_worker.lua
+    method: main
+
+  - name: error_exit_worker
+    kind: process.lua
+    meta:
+      comment: Worker that exits with error
+    source: file://error_exit_worker.lua
+    method: main
+
+  - name: linked_child_worker
+    kind: process.lua
+    meta:
+      comment: Child that waits for LINK_DOWN
+    source: file://linked_child_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: verify_link_down_on_error_worker
+    kind: process.lua
+    meta:
+      comment: Tests LINK_DOWN on error exit
+    source: file://verify_link_down_on_error_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: verify_no_link_down_on_normal_worker
+    kind: process.lua
+    meta:
+      comment: Tests no LINK_DOWN on normal exit
+    source: file://verify_no_link_down_on_normal_worker.lua
+    method: main
+    modules:
+      - time
+
+  # Test cases
+  - name: spawn_basic
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Basic process spawn
+    source: file://spawn_basic.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - time
+
+  - name: spawn_monitored
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Spawn with monitoring and wait for exit
+    source: file://spawn_monitored.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - time
+
+  - name: inbox_send
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Send message to process inbox
+    source: file://inbox_send.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - time
+
+  - name: echo_roundtrip
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Echo roundtrip with bidirectional messaging
+    source: file://echo_roundtrip.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: events_exit
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Receive EXIT event when monitored child exits
+    source: file://events_exit.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: events_cancel
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Cancel child and verify EXIT after cancel handling
+    source: file://events_cancel.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: lifecycle_link
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Linked process lifecycle management
+    source: file://lifecycle_link.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: link_down
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: LINK_DOWN propagation when parent exits
+    source: file://link_down.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: verify_cancel
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Verify CANCEL event is properly received and handled
+    source: file://verify_cancel.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: complex_topo
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Complex topology with 3-level cascade
+    source: file://complex_topo.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: link_down_on_error
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: LINK_DOWN sent when linked process errors
+    source: file://link_down_on_error.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: no_link_down_on_normal
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: LINK_DOWN NOT sent on normal exit
+    source: file://no_link_down_on_normal.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  # New topology tests
+  - name: linker_child_worker
+    kind: process.lua
+    meta:
+      comment: Child that links TO parent passed via inbox
+    source: file://linker_child_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: star_parent_worker
+    kind: process.lua
+    meta:
+      comment: Star topology parent with N children linking to it
+    source: file://star_parent_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: star_topo
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Star topology - 10 children link to parent, parent errors
+    source: file://star_topo.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: chain_worker
+    kind: process.lua
+    meta:
+      comment: Chain node that links to parent and spawns child
+    source: file://chain_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: chain_root_worker
+    kind: process.lua
+    meta:
+      comment: Chain root that spawns linked chain
+    source: file://chain_root_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: chain_topo
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Chain topology - A->B->C->D->E cascade on root error
+    source: file://chain_topo.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: error_receiver_worker
+    kind: process.lua
+    meta:
+      comment: Worker that captures LINK_DOWN event details
+    source: file://error_receiver_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: error_parent_worker
+    kind: process.lua
+    meta:
+      comment: Parent that errors with specific message
+    source: file://error_parent_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: link_down_error_info
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Verify LINK_DOWN/EXIT event contains error info
+    source: file://link_down_error_info.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: cancel_receiver_worker
+    kind: process.lua
+    meta:
+      comment: Worker that receives and verifies CANCEL event
+    source: file://cancel_receiver_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: cancel_delivery
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Verify CANCEL event delivery and structure
+    source: file://cancel_delivery.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: terminate_cascade
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Terminate triggers LINK_DOWN cascade
+    source: file://terminate_cascade.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: cancel_simple
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Simple cancel test
+    source: file://cancel_simple.lua
+    method: main
+    modules:
+      - time
+
+  - name: select_timeout
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Test channel.select with process.events and time.after
+    source: file://select_timeout.lua
+    method: main
+    modules:
+      - time
+
+  # Context passing workers
+  - name: context_validator_worker
+    kind: process.lua
+    meta:
+      comment: Worker that validates context values and errors if they dont match
+    source: file://context_validator_worker.lua
+    method: main
+    modules:
+      - ctx
+
+  - name: context_kv_validator_worker
+    kind: process.lua
+    meta:
+      comment: Worker that validates chained context key/value pairs
+    source: file://context_kv_validator_worker.lua
+    method: main
+    modules:
+      - ctx
+
+  - name: actor_validator_worker
+    kind: process.lua
+    meta:
+      comment: Worker that validates actor injection
+    source: file://actor_validator_worker.lua
+    method: main
+    modules:
+      - security
+
+  - name: scope_validator_worker
+    kind: process.lua
+    meta:
+      comment: Worker that validates scope and actor injection
+    source: file://scope_validator_worker.lua
+    method: main
+    modules:
+      - security
+
+  # Context passing tests
+  - name: context_passing
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Context passing through process.with_context spawn
+    source: file://context_passing.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: ctx_actor
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Actor injection through process.with_context spawn
+    source: file://ctx_actor.lua
+    method: main
+    modules:
+      - time
+      - security
+    imports:
+      assert2: app.lib:assert
+
+  - name: ctx_scope
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Scope injection through process.with_context spawn
+    source: file://ctx_scope.lua
+    method: main
+    modules:
+      - time
+      - security
+    imports:
+      assert2: app.lib:assert
+
+  # Multi-level context inheritance test
+  - name: ctx_inherit_worker
+    kind: process.lua
+    meta:
+      comment: Worker that spawns grandchild to test inheritance
+    source: file://ctx_inherit_worker.lua
+    method: main
+    modules:
+      - time
+      - security
+
+  - name: ctx_inherit_grandchild_worker
+    kind: process.lua
+    meta:
+      comment: Grandchild that validates inherited security context
+    source: file://ctx_inherit_grandchild_worker.lua
+    method: main
+    modules:
+      - security
+
+  - name: ctx_inherit
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Multi-level security context inheritance
+    source: file://ctx_inherit.lua
+    method: main
+    modules:
+      - time
+      - security
+    imports:
+      assert2: app.lib:assert
+
+  # Cancel event payload verification
+  - name: cancel_event_payload
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Verify CANCEL event payload structure
+    source: file://cancel_event_payload.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  # Monitor/unmonitor tests
+  - name: monitor_explicit
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Explicit process.monitor function
+    source: file://monitor_explicit.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: unmonitor_test
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Unmonitor stops EXIT event delivery
+    source: file://unmonitor_test.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  # Registry tests
+  - name: registry_basic
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Basic process registry operations
+    source: file://registry_basic.lua
+    method: main
+    modules:
+      - time
+      - os
+    imports:
+      assert2: app.lib:assert
+
+  - name: registry_resolve
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Registry name resolution in send
+    source: file://registry_resolve.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: registry_echo_worker
+    kind: process.lua
+    meta:
+      comment: Worker that registers itself and echoes messages
+    source: file://registry_echo_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: registry_send_to_name
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Send to registered name without resolving PID
+    source: file://registry_send_to_name.lua
+    method: main
+    modules:
+      - time
+      - os
+    imports:
+      assert2: app.lib:assert
+
+  - name: registry_exit_worker
+    kind: process.lua
+    meta:
+      comment: Worker that registers name then exits
+    source: file://registry_exit_worker.lua
+    method: main
+
+  - name: registry_auto_release
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Names auto-released when process exits
+    source: file://registry_auto_release.lua
+    method: main
+    modules:
+      - time
+      - os
+    imports:
+      assert2: app.lib:assert
+
+  # Inbox/events/listen ordering and combination tests
+  - name: inbox_order_worker
+    kind: process.lua
+    meta:
+      comment: Worker that verifies inbox message ordering
+    source: file://inbox_order_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: inbox_ordering
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Inbox messages arrive in order
+    source: file://inbox_ordering.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: multi_topic_worker
+    kind: process.lua
+    meta:
+      comment: Worker that listens on multiple topics
+    source: file://multi_topic_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: multi_topic
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Process listens on multiple topics
+    source: file://multi_topic.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: combined_channels_worker
+    kind: process.lua
+    meta:
+      comment: Worker using inbox, events, and listen together
+    source: file://combined_channels_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: combined_channels
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Combine inbox, events, and listen in select
+    source: file://combined_channels.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: unlisten_worker
+    kind: process.lua
+    meta:
+      comment: Worker that tests unlisten functionality
+    source: file://unlisten_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: unlisten_test
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Unlisten stops receiving messages
+    source: file://unlisten_test.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  # Channel identity tests (critical for actor pattern)
+  - name: instant_exit_worker
+    kind: process.lua
+    meta:
+      comment: Worker that exits immediately
+    source: file://instant_exit_worker.lua
+    method: main
+
+  - name: send_and_exit_worker
+    kind: process.lua
+    meta:
+      comment: Worker that sends message then exits
+    source: file://send_and_exit_worker.lua
+    method: main
+
+  - name: send_custom_worker
+    kind: process.lua
+    meta:
+      comment: Worker that sends to custom topic then exits
+    source: file://send_custom_worker.lua
+    method: main
+
+  - name: channel_identity
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Channel identity stability across calls
+    source: file://channel_identity.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: channel_identity_select
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Channel identity in select (actor pattern)
+    source: file://channel_identity_select.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  # Inbox fallback test
+  - name: inbox_fallback_worker
+    kind: process.lua
+    meta:
+      comment: Worker that tests inbox fallback behavior
+    source: file://inbox_fallback_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: inbox_fallback
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Inbox receives only unmatched topic messages
+    source: file://inbox_fallback.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  # listen default behavior test
+  - name: listen_default
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: process.listen default returns raw payloads
+    source: file://listen_default.lua
+    method: main
+    modules:
+      - time
+      - uuid
+    imports:
+      assert2: app.lib:assert
+
+  # spawn_monitored with reply pattern (gov-like)
+  - name: spawn_monitored_service
+    kind: process.lua
+    meta:
+      comment: Service that handles requests and spawns monitored workers
+    source: file://spawn_monitored_service.lua
+    method: main
+
+  - name: spawn_monitored_worker
+    kind: process.lua
+    meta:
+      comment: Simple worker that processes data and exits
+    source: file://spawn_monitored_worker.lua
+    method: main
+
+  - name: spawn_monitored_reply
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Spawn monitored with reply pattern
+    source: file://spawn_monitored_reply.lua
+    method: main
+    modules:
+      - time
+      - uuid
+    imports:
+      assert2: app.lib:assert
+
+  # process.id and process.pid tests
+  - name: process_id
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: process.id returns registry ID
+    source: file://process_id.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: process_pid
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: process.pid returns PID
+    source: file://process_pid.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  # process options tests
+  - name: options_test
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: process.get_options and set_options
+    source: file://options_test.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  # explicit link/unlink tests
+  - name: link_target
+    kind: process.lua
+    meta:
+      comment: Simple target process that exits on command
+    source: file://link_target.lua
+    method: main
+    modules:
+      - time
+
+  - name: link_explicit_worker
+    kind: process.lua
+    meta:
+      comment: Worker that explicitly links to target PID
+    source: file://link_explicit_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: link_explicit
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: process.link explicit function
+    source: file://link_explicit.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: unlink_test_worker
+    kind: process.lua
+    meta:
+      comment: Worker that links then unlinks
+    source: file://unlink_test_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: unlink_explicit
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: process.unlink explicit function
+    source: file://unlink_explicit.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  # trap_links tests
+  - name: trap_links_default_worker
+    kind: process.lua
+    meta:
+      comment: Worker that links without trap_links (should fail)
+    source: file://trap_links_default_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: trap_links_default
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Without trap_links process fails on LINK_DOWN
+    source: file://trap_links_default.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: trap_links_enabled_worker
+    kind: process.lua
+    meta:
+      comment: Worker that links with trap_links=true (should receive event)
+    source: file://trap_links_enabled_worker.lua
+    method: main
+    modules:
+      - time
+
+  - name: trap_links_enabled
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: With trap_links=true process receives LINK_DOWN
+    source: file://trap_links_enabled.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert

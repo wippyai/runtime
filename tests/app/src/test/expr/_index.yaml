@@ -1,0 +1,42 @@
+version: "1.0"
+namespace: app.test.expr
+
+entries:
+  - name: eval
+    kind: function.lua
+    meta:
+      type: test
+      suite: expr
+      description: expr.eval function
+    source: file://eval.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - expr
+
+  - name: compile
+    kind: function.lua
+    meta:
+      type: test
+      suite: expr
+      description: expr.compile and program:run
+    source: file://compile.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - expr
+
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: expr
+      description: expr error handling
+    source: file://errors.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - expr

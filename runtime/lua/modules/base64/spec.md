@@ -1,120 +1,87 @@
-# Lua Base64 Module Specification
+# base64
 
-## Overview
+Base64 encoding and decoding. Encoding, deterministic.
 
-The `base64` module provides functions for encoding and decoding data using the Base64 encoding scheme. It allows Lua
-code to easily convert strings to and from their Base64 representations.
-
-## Module Interface
-
-### Module Loading
+## Loading
 
 ```lua
 local base64 = require("base64")
 ```
 
-### Global Functions
+## Functions
 
-#### base64.encode(str: string)
+### encode(data: string) → string, error
 
-Encodes a string using the Base64 encoding.
+Encodes string to Base64 (RFC 4648 standard encoding with padding).
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | String to encode (supports binary) |
 
-- `str`: The string to encode.
+**Returns:** `string` - Base64 encoded string, or `nil, error` on failure
 
-Returns:
+**Errors (structured):**
 
-- `encoded`: The Base64 encoded string.
-- `error`: Error message string (or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Input not a string | errors.INVALID | no |
 
-#### base64.decode(encoded: string)
+**Notes:**
+- Empty string input returns empty string (no error)
+- Binary data (null bytes, non-ASCII) is supported
 
-Decodes a Base64 encoded string.
+### decode(data: string) → string, error
 
-Parameters:
+Decodes Base64 string to original data.
 
-- `encoded`: The Base64 encoded string to decode.
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | Base64 encoded string |
 
-Returns:
+**Returns:** `string` - Decoded string, or `nil, error` on failure
 
-- `decoded`: The decoded string.
-- `error`: Error message string (or nil on success).
+**Errors (structured):**
 
-### Error Handling
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Input not a string | errors.INVALID | no |
+| Invalid Base64 data | errors.INVALID | no |
 
-The module returns errors in the following cases:
+**Notes:**
+- Empty string input returns empty string (no error)
+- Requires proper padding (`=` characters)
 
-1. **Invalid Input Type:** If the input to `encode` or `decode` is not a string.
+## Errors
 
-    ```lua
-    local encoded = base64.encode(123)  -- Returns nil, error: "string expected"
-    local decoded = base64.decode(true) -- Returns nil, error: "string expected"
-    ```
+This module returns structured errors. Check kind with `errors.*` constants:
 
-2. **Invalid Base64 String:** If the input to `decode` is not a valid Base64 string.
+```lua
+local result, err = base64.decode(input)
+if err then
+    if err:kind() == errors.INVALID then
+        -- bad input type or malformed base64
+    end
+end
+```
 
-    ```lua
-    local decoded, err = base64.decode("invalid!base64") -- decoded: nil, err: specific error message from base64 library
-    ```
+**Possible kinds:** `errors.INVALID`
 
-## Behavior
-
-1. **Encoding:**
-    - The `encode` function takes any string as input.
-    - It returns the Base64 encoded representation of the input string.
-    - Empty strings are valid input and result in an empty string output.
-
-2. **Decoding:**
-    - The `decode` function takes a Base64 encoded string as input.
-    - It returns the decoded string if the input is valid.
-    - Empty strings are valid input and result in an empty string output.
-    - If the input is not a valid Base64 string, it returns `nil` and an error message.
-
-## Thread Safety
-
-- The `base64` module is designed to be thread-safe.
-- It does not maintain any internal state that could be affected by concurrent access.
-
-## Best Practices
-
-1. **Always check for errors:** When using `decode`, always check the returned `error` value to handle potential
-   decoding failures.
-2. **Validate input:** Ensure that the input to `encode` and `decode` is of the correct type (string) before calling the
-   function.
-3. **Handle empty strings:** Be aware that empty strings are valid input and will result in empty string output for both
-   `encode` and `decode`.
-
-## Example Usage
+## Example
 
 ```lua
 local base64 = require("base64")
 
--- Encode a string
-local encoded = base64.encode("Hello, world!")
-print("Encoded:", encoded) -- Output: Encoded: SGVsbG8sIHdvcmxkIQ==
+local encoded, err = base64.encode("hello")
+if err then error(err) end
+print(encoded)  -- "aGVsbG8="
 
--- Decode a string
 local decoded, err = base64.decode(encoded)
-if err then
-  print("Error decoding:", err)
-else
-  print("Decoded:", decoded) -- Output: Decoded: Hello, world!
-end
+if err then error(err) end
+print(decoded)  -- "hello"
 
--- Handle invalid input
-local decoded, err = base64.decode("invalid base64")
-if err then
-  print("Decoding error:", err) -- Output: Decoding error: <specific error message>
-end
-
--- Encode and decode an empty string
-local encodedEmpty = base64.encode("")
-print("Encoded empty string:", encodedEmpty) -- Output: Encoded empty string:
-local decodedEmpty, err = base64.decode(encodedEmpty)
-if err then
-    print("Error decoding empty string:", err)
-else
-    print("Decoded empty string:", decodedEmpty) -- Output: Decoded empty string:
-end
+-- Binary data round-trip
+local binary = "\x00\x01\x02"
+local enc = base64.encode(binary)
+local dec = base64.decode(enc)
+assert(dec == binary)
 ```

@@ -3,34 +3,95 @@ package code
 import (
 	"context"
 	"fmt"
+	"os"
+	"runtime/pprof"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/registry"
-	api "github.com/ponyruntime/pony/api/runtime/lua"
-	glua "github.com/yuin/gopher-lua"
-	"github.com/yuin/gopher-lua/parse"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/registry"
+	api "github.com/wippyai/runtime/api/runtime/lua"
+	glua "github.com/wippyai/go-lua"
+	"github.com/wippyai/go-lua/compiler/parse"
+	"github.com/wippyai/go-lua/types/diag"
+	"github.com/wippyai/go-lua/types/io"
+
 	"go.uber.org/zap"
 )
+
+var typecheckProfileActive atomic.Bool
+
+func withTypecheckCPUProfile(log *zap.Logger, id string, fn func() (*io.Manifest, []diag.Diagnostic)) (*io.Manifest, []diag.Diagnostic) {
+	stop := startTypecheckCPUProfile(log, id)
+	manifest, diagnostics := fn()
+	if stop != nil {
+		stop()
+	}
+	return manifest, diagnostics
+}
+
+func startTypecheckCPUProfile(log *zap.Logger, id string) func() {
+	profilePath := os.Getenv("WIPPY_TYPECHECK_CPU_PROFILE")
+	if profilePath == "" {
+		return nil
+	}
+	entryFilter := os.Getenv("WIPPY_TYPECHECK_PROFILE_ENTRY")
+	if entryFilter != "" && entryFilter != id {
+		return nil
+	}
+	if !typecheckProfileActive.CompareAndSwap(false, true) {
+		return nil
+	}
+	path := profilePath
+	if strings.Contains(path, "%s") {
+		path = fmt.Sprintf(path, sanitizeProfileID(id))
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		typecheckProfileActive.Store(false)
+		log.Warn("typecheck cpu profile create failed", zap.String("path", path), zap.Error(err))
+		return nil
+	}
+	if err := pprof.StartCPUProfile(f); err != nil {
+		_ = f.Close()
+		typecheckProfileActive.Store(false)
+		log.Warn("typecheck cpu profile start failed", zap.String("path", path), zap.Error(err))
+		return nil
+	}
+	log.Info("typecheck cpu profile started", zap.String("id", id), zap.String("path", path))
+	return func() {
+		pprof.StopCPUProfile()
+		_ = f.Close()
+		typecheckProfileActive.Store(false)
+		log.Info("typecheck cpu profile stopped", zap.String("id", id), zap.String("path", path))
+	}
+}
+
+func sanitizeProfileID(id string) string {
+	replacer := strings.NewReplacer("/", "_", ":", "_", ".", "_")
+	return replacer.Replace(id)
+}
 
 type (
 	// Manager centralizes code and dependency management
 	Manager struct {
-		log      *zap.Logger
-		bus      event.Bus
-		memGraph *MemoryGraph
-		compiler *Compiler
-
-		// Transaction tracking
-		txNodes map[registry.ID]bool
+		bus         event.Bus
+		log         *zap.Logger
+		memGraph    *MemoryGraph
+		compiler    *Compiler
+		typeChecker *TypeChecker
+		txNodes     map[registry.ID]bool
+		txMu        sync.Mutex
 	}
 
 	// Config defines initialization parameters
 	Config struct {
-		Modules        []api.Module
+		Modules        []*api.ModuleDef
 		ProtoCacheSize int
 		MainCacheSize  int
+		TypeCheck      TypeCheckConfig
 	}
 )
 
@@ -44,42 +105,88 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 		cfg.MainCacheSize = 1000
 	}
 
+	typeChecker := NewTypeChecker(cfg.TypeCheck, cfg.Modules)
+
 	cm := &Manager{
-		log:      log,
-		bus:      bus,
-		memGraph: NewMemoryGraph(),
-		compiler: NewCompiler(
-			func(node *Node) (*glua.FunctionProto, error) {
-				chunk, err := parse.Parse(strings.NewReader(node.Source), node.ID.String())
-				if err != nil {
-					return nil, fmt.Errorf("parse error: %w", err)
-				}
-
-				fnProto, err := glua.Compile(chunk, node.ID.String())
-				if err != nil {
-					return nil, fmt.Errorf("compile error: %w", err)
-				}
-
-				return fnProto, nil
-			},
-			cfg.ProtoCacheSize,
-			cfg.MainCacheSize,
-		),
-		txNodes: make(map[registry.ID]bool),
+		log:         log,
+		bus:         bus,
+		memGraph:    NewMemoryGraph(),
+		typeChecker: typeChecker,
+		txNodes:     make(map[registry.ID]bool),
 	}
+
+	// Create compiler with a callback that can access cm.memGraph for dependency manifests
+	cm.compiler = NewCompiler(
+		func(node *Node) (*glua.FunctionProto, error) {
+			chunk, err := parse.Parse(strings.NewReader(node.Source), node.ID.String())
+			if err != nil {
+				return nil, NewParseError(err, node.Source)
+			}
+
+			// Type check if enabled
+			if typeChecker.IsEnabled() {
+				// Get dependency manifests from the graph
+				imports := make(map[string]*io.Manifest)
+				deps, _ := cm.memGraph.GetDependenciesWithAliases(node.ID)
+				for _, dep := range deps {
+					if dep.Node.Manifest != nil {
+						imports[dep.Name] = dep.Node.Manifest
+					}
+				}
+
+				// TODO(wippy): Remove timing logs once typecheck hot spots are identified.
+				typecheckStart := time.Now()
+				manifest, diagnostics := withTypecheckCPUProfile(log, node.ID.String(), func() (*io.Manifest, []diag.Diagnostic) {
+					return typeChecker.CheckParsed(chunk, node.ID.String(), imports)
+				})
+				lineCount := 0
+				if node.Source != "" {
+					lineCount = strings.Count(node.Source, "\n") + 1
+				}
+				cm.log.Debug("lua typecheck completed",
+					zap.String("id", node.ID.String()),
+					zap.Int("imports", len(imports)),
+					zap.Int("lines", lineCount),
+					zap.Int("bytes", len(node.Source)),
+					zap.Duration("duration", time.Since(typecheckStart)))
+
+				// Store manifest on the node for downstream dependencies
+				if manifest != nil {
+					node.Manifest = manifest
+				}
+
+				if HasErrors(diagnostics) && typeChecker.IsStrict() {
+					return nil, NewTypeCheckDiagnosticError(node.ID, diagnostics)
+				}
+			}
+
+			fnProto, err := glua.Compile(chunk, node.ID.String())
+			if err != nil {
+				return nil, NewCompileError(node.ID, err)
+			}
+
+			return fnProto, nil
+		},
+		cfg.ProtoCacheSize,
+		cfg.MainCacheSize,
+	)
 
 	// built-in modules
 	for _, mod := range cfg.Modules {
+		info := mod.Info()
 		node := &Node{
-			ID:     registry.ID{NS: "", Name: mod.Name()},
-			Kind:   api.KindModule,
+			ID:     registry.NewID("", info.Name),
+			Kind:   api.ModuleKind,
 			Module: mod,
 		}
+		if mod.Types != nil {
+			node.Manifest = mod.Types()
+		}
 
-		cm.log.Debug("adding built-in module", zap.String("name", mod.Name()))
+		cm.log.Debug("adding built-in module", zap.String("name", info.Name))
 
 		if err := cm.memGraph.AddNode(node); err != nil {
-			return nil, fmt.Errorf("failed to add module node: %w", err)
+			return nil, NewAddModuleNodeError(err)
 		}
 	}
 
@@ -88,11 +195,14 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 
 // Begin implements TransactionListener
 func (cm *Manager) Begin(_ context.Context) {
+	cm.txMu.Lock()
+	defer cm.txMu.Unlock()
 	cm.txNodes = make(map[registry.ID]bool)
 }
 
 // Commit implements TransactionListener
 func (cm *Manager) Commit(ctx context.Context) {
+	cm.txMu.Lock()
 	// Get all affected nodes
 	affected := make(map[registry.ID]bool)
 	for id := range cm.txNodes {
@@ -121,6 +231,7 @@ func (cm *Manager) Commit(ctx context.Context) {
 
 	// Clear transaction nodes
 	cm.txNodes = make(map[registry.ID]bool)
+	cm.txMu.Unlock()
 
 	// to slice of []registry.Process
 	affectedSlice := make([]registry.ID, 0, len(affected))
@@ -138,6 +249,8 @@ func (cm *Manager) Commit(ctx context.Context) {
 
 // Discard implements TransactionListener
 func (cm *Manager) Discard(_ context.Context) {
+	cm.txMu.Lock()
+	defer cm.txMu.Unlock()
 	cm.txNodes = make(map[registry.ID]bool)
 }
 
@@ -164,30 +277,51 @@ func (cm *Manager) AddNode(_ context.Context, node Node, deps []Import) error {
 		},
 	}
 
+	// Eager compilation check: validate source code before adding to graph
+	// This catches parse errors and type errors at registration time
+	if node.Source != "" && node.Kind != api.ModuleKind {
+		_, err := parse.Parse(strings.NewReader(node.Source), node.ID.String())
+		if err != nil {
+			return NewParseError(err, node.Source)
+		}
+
+		// Type checking happens during compile to avoid duplicate work.
+	}
+
 	if err := cm.memGraph.AddNode(nodePtr); err != nil {
-		return fmt.Errorf("failed to add node: %w", err)
+		return NewAddNodeErrorWithCause(err)
 	}
 
 	for _, dep := range deps {
 		if err := cm.memGraph.AddDependency(node.ID, dep.ID, dep.Alias); err != nil {
 			_ = cm.memGraph.RemoveNode(node.ID)
-			return fmt.Errorf("failed to add dependency %s -> %s: %w",
-				node.ID, dep.ID, err)
+			return NewAddDependencyError(node.ID, dep.ID, err)
 		}
 	}
 
 	// Mark node for transaction
+	cm.txMu.Lock()
 	cm.txNodes[node.ID] = true
+	cm.txMu.Unlock()
 
 	return nil
 }
 
 // UpdateNode updates an existing node with new content and dependencies
 func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error {
-	// Get existing node
 	existing, err := cm.memGraph.GetNode(node.ID)
 	if err != nil {
-		return fmt.Errorf("node not found: %w", err)
+		return NewNodeNotFoundError(node.ID)
+	}
+
+	// Eager compilation check: validate source code before updating
+	if node.Source != "" && existing.Kind != api.ModuleKind {
+		_, err := parse.Parse(strings.NewReader(node.Source), node.ID.String())
+		if err != nil {
+			return NewParseError(err, node.Source)
+		}
+
+		// Type checking happens during compile to avoid duplicate work.
 	}
 
 	// Update fields
@@ -198,32 +332,35 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 		Created: time.Now(),
 	}
 
-	// Done old dependencies
 	oldDeps, err := cm.memGraph.GetDirectDependencies(node.ID)
 	if err != nil {
-		return fmt.Errorf("failed to get old dependencies: %w", err)
+		return NewGetOldDependenciesError(err)
 	}
 
 	for _, dep := range oldDeps {
 		if err := cm.memGraph.RemoveDependency(node.ID, dep.ID); err != nil {
-			return fmt.Errorf("failed to remove old dependency: %w", err)
+			return NewRemoveOldDependencyError(err)
 		}
 	}
 
-	// Add new dependencies
 	for _, dep := range deps {
 		if err := cm.memGraph.AddDependency(node.ID, dep.ID, dep.Alias); err != nil {
-			return fmt.Errorf("failed to add new dependency: %w", err)
+			return NewAddNewDependencyError(err)
 		}
 	}
 
 	// Mark node for transaction
+	cm.txMu.Lock()
 	cm.txNodes[node.ID] = true
+	cm.txMu.Unlock()
 
-	// calculate all dependents
-	//nolint:ineffassign,staticcheck // ok for now
+	// Calculate all dependents for cache invalidation
 	dependents, err := cm.memGraph.GetAllDependents(node.ID)
-	// FIXME do we need to check err?
+	if err != nil {
+		cm.log.Warn("failed to get dependents for cache invalidation",
+			zap.Stringer("node", &node.ID),
+			zap.Error(err))
+	}
 
 	invalidateIDs := make([]registry.ID, 0, len(dependents)+1)
 	invalidateIDs = append(invalidateIDs, node.ID)
@@ -232,26 +369,206 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 		invalidateIDs = append(invalidateIDs, dep.ID)
 	}
 
-	// invalidating cache
+	// Invalidate cache
 	cm.compiler.Invalidate(invalidateIDs)
 
 	return nil
 }
 
+// GetNode retrieves a node from the graph by ID
+func (cm *Manager) GetNode(id registry.ID) (*Node, error) {
+	return cm.memGraph.GetNode(id)
+}
+
+// GetDirectDependencies returns direct dependencies of a node
+func (cm *Manager) GetDirectDependencies(id registry.ID) ([]*Node, error) {
+	return cm.memGraph.GetDirectDependencies(id)
+}
+
 // DeleteNode removes a node and its dependencies from the graph
 func (cm *Manager) DeleteNode(_ context.Context, id registry.ID) error {
-	// Get node to verify it exists
 	if _, err := cm.memGraph.GetNode(id); err != nil {
-		return fmt.Errorf("node not found: %w", err)
+		return NewNodeNotFoundError(id)
 	}
 
-	// Done node (MemoryGraph handles dependency cleanup)
 	if err := cm.memGraph.RemoveNode(id); err != nil {
-		return fmt.Errorf("failed to remove node: %w", err)
+		return NewRemoveNodeError(err)
 	}
 
 	// Mark node for transaction
+	cm.txMu.Lock()
 	cm.txNodes[id] = true
+	cm.txMu.Unlock()
+
+	return nil
+}
+
+// GetModules returns all registered modules with their info
+func (cm *Manager) GetModules() []api.ModuleInfo {
+	var modules []api.ModuleInfo
+	for _, node := range cm.memGraph.nodes {
+		if node.Module != nil {
+			modules = append(modules, node.Module.Info())
+		}
+	}
+	return modules
+}
+
+// GetModuleDefs returns all registered module definitions
+func (cm *Manager) GetModuleDefs() []*api.ModuleDef {
+	var modules []*api.ModuleDef
+	for _, node := range cm.memGraph.nodes {
+		if node.Module != nil {
+			modules = append(modules, node.Module)
+		}
+	}
+	return modules
+}
+
+// GetModuleManifests returns manifests from the code manager graph.
+func (cm *Manager) GetModuleManifests() map[registry.ID]*io.Manifest {
+	manifests := make(map[registry.ID]*io.Manifest)
+	for _, node := range cm.memGraph.nodes {
+		if node.Manifest == nil {
+			continue
+		}
+		manifests[node.ID] = node.Manifest
+	}
+	return manifests
+}
+
+// GetAllNodes returns all nodes in the code manager graph.
+func (cm *Manager) GetAllNodes() []*Node {
+	cm.memGraph.mu.RLock()
+	defer cm.memGraph.mu.RUnlock()
+
+	nodes := make([]*Node, 0, len(cm.memGraph.nodes))
+	for _, node := range cm.memGraph.nodes {
+		nodes = append(nodes, node)
+	}
+	return nodes
+}
+
+// GetNodeDependencyManifests returns manifests of a node's direct dependencies.
+func (cm *Manager) GetNodeDependencyManifests(id registry.ID) map[string]*io.Manifest {
+	deps, err := cm.memGraph.GetDependenciesWithAliases(id)
+	if err != nil {
+		return nil
+	}
+
+	manifests := make(map[string]*io.Manifest)
+	for _, dep := range deps {
+		if dep.Node != nil && dep.Node.Manifest != nil {
+			manifests[dep.Name] = dep.Node.Manifest
+		}
+	}
+	return manifests
+}
+
+// AddBuiltinType registers a module's types in the type checker's built-in environment
+func (cm *Manager) AddBuiltinType(mod *api.ModuleDef) {
+	if cm.typeChecker != nil {
+		cm.typeChecker.AddBuiltin(mod)
+	}
+}
+
+// GetTypeChecker returns the code manager's type checker for linting.
+// The returned type checker has all registered modules available.
+func (cm *Manager) GetTypeChecker() *TypeChecker {
+	return cm.typeChecker
+}
+
+// AddNodeWithProto adds a node with a precompiled prototype (for bytecode entries).
+// The proto is injected directly into the compiler cache, bypassing source compilation.
+func (cm *Manager) AddNodeWithProto(_ context.Context, node Node, deps []Import, proto *glua.FunctionProto) error {
+	nodePtr := &Node{
+		ID:     node.ID,
+		Kind:   node.Kind,
+		Source: node.Source,
+		Method: node.Method,
+		Module: node.Module,
+		Version: Version{
+			Hash:    HashNode(&node),
+			Created: time.Now(),
+		},
+	}
+
+	if err := cm.memGraph.AddNode(nodePtr); err != nil {
+		return NewAddNodeErrorWithCause(err)
+	}
+
+	for _, dep := range deps {
+		if err := cm.memGraph.AddDependency(node.ID, dep.ID, dep.Alias); err != nil {
+			_ = cm.memGraph.RemoveNode(node.ID)
+			return NewAddDependencyError(node.ID, dep.ID, err)
+		}
+	}
+
+	// Inject proto into compiler cache
+	if proto != nil {
+		cm.compiler.SetProto(node.ID, proto)
+	}
+
+	cm.txMu.Lock()
+	cm.txNodes[node.ID] = true
+	cm.txMu.Unlock()
+
+	return nil
+}
+
+// UpdateNodeWithProto updates an existing node with a precompiled prototype.
+func (cm *Manager) UpdateNodeWithProto(_ context.Context, node Node, deps []Import, proto *glua.FunctionProto) error {
+	existing, err := cm.memGraph.GetNode(node.ID)
+	if err != nil {
+		return NewNodeNotFoundError(node.ID)
+	}
+
+	existing.Source = node.Source
+	existing.Method = node.Method
+	existing.Version = Version{
+		Hash:    HashNode(&node),
+		Created: time.Now(),
+	}
+
+	oldDeps, err := cm.memGraph.GetDirectDependencies(node.ID)
+	if err != nil {
+		return NewGetOldDependenciesError(err)
+	}
+
+	for _, dep := range oldDeps {
+		if err := cm.memGraph.RemoveDependency(node.ID, dep.ID); err != nil {
+			return NewRemoveOldDependencyError(err)
+		}
+	}
+
+	for _, dep := range deps {
+		if err := cm.memGraph.AddDependency(node.ID, dep.ID, dep.Alias); err != nil {
+			return NewAddNewDependencyError(err)
+		}
+	}
+
+	cm.txMu.Lock()
+	cm.txNodes[node.ID] = true
+	cm.txMu.Unlock()
+
+	dependents, err := cm.memGraph.GetAllDependents(node.ID)
+	if err != nil {
+		cm.log.Warn("failed to get dependents for cache invalidation",
+			zap.Stringer("node", &node.ID),
+			zap.Error(err))
+	}
+
+	invalidateIDs := make([]registry.ID, 0, len(dependents)+1)
+	invalidateIDs = append(invalidateIDs, node.ID)
+	for _, dep := range dependents {
+		invalidateIDs = append(invalidateIDs, dep.ID)
+	}
+	cm.compiler.Invalidate(invalidateIDs)
+
+	// Inject updated proto into compiler cache
+	if proto != nil {
+		cm.compiler.SetProto(node.ID, proto)
+	}
 
 	return nil
 }

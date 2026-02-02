@@ -1,0 +1,16 @@
+version: "1.0"
+namespace: app.test.stream
+
+entries:
+  - name: scanner
+    kind: function.lua
+    meta:
+      type: test
+      suite: stream
+      description: Stream scanner operations
+    source: file://scanner.lua
+    method: main
+    modules:
+      - fs
+    imports:
+      assert2: app.lib:assert

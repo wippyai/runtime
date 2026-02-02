@@ -3,12 +3,11 @@ package events
 import (
 	"context"
 	"errors"
-	"fmt"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/internal/wildcard"
-	"github.com/ponyruntime/pony/system/eventbus"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/internal/wildcard"
+	"github.com/wippyai/runtime/system/eventbus"
 )
 
 // ErrSkipOperation is a special error type that indicates the operation should be skipped
@@ -27,17 +26,17 @@ func NewRegistryHandler(kinds registry.Kind, listener registry.EntryListener) ev
 			if !ok {
 				// Handle transaction events
 				switch evt.Kind {
-				case registry.Begin:
+				case registry.TxBegin:
 					if tx, ok := listener.(registry.TransactionListener); ok {
 						tx.Begin(ctx)
 					}
 					return nil
-				case registry.Commit:
+				case registry.TxCommit:
 					if tx, ok := listener.(registry.TransactionListener); ok {
 						tx.Commit(ctx)
 					}
 					return nil
-				case registry.Discard:
+				case registry.TxDiscard:
 					if tx, ok := listener.(registry.TransactionListener); ok {
 						tx.Discard(ctx)
 					}
@@ -54,21 +53,21 @@ func NewRegistryHandler(kinds registry.Kind, listener registry.EntryListener) ev
 			}
 
 			// Validate data for non-delete operations
-			if evt.Kind != registry.Delete && entry.Data == nil {
-				reject(ctx, bus, entry.ID, fmt.Errorf("configuration data is required for create/update operations"))
+			if evt.Kind != registry.EntryDelete && entry.Data == nil {
+				reject(ctx, bus, entry.ID, NewConfigDataRequiredError())
 				return nil
 			}
 
 			var err error
 			switch evt.Kind {
-			case registry.Create:
+			case registry.EntryCreate:
 				err = listener.Add(ctx, entry)
-			case registry.Update:
+			case registry.EntryUpdate:
 				err = listener.Update(ctx, entry)
-			case registry.Delete:
+			case registry.EntryDelete:
 				err = listener.Delete(ctx, entry)
 			default:
-				err = fmt.Errorf("unknown event kind: %s", evt.Kind)
+				err = NewUnknownEventKindError(evt.Kind)
 			}
 
 			if err != nil {
@@ -88,7 +87,7 @@ func NewRegistryHandler(kinds registry.Kind, listener registry.EntryListener) ev
 func accept(ctx context.Context, bus event.Bus, id registry.ID) {
 	bus.Send(ctx, event.Event{
 		System: registry.System,
-		Kind:   registry.Accept,
+		Kind:   registry.EntryAccept,
 		Path:   id.String(),
 	})
 }
@@ -96,7 +95,7 @@ func accept(ctx context.Context, bus event.Bus, id registry.ID) {
 func reject(ctx context.Context, bus event.Bus, id registry.ID, err error) {
 	bus.Send(ctx, event.Event{
 		System: registry.System,
-		Kind:   registry.Reject,
+		Kind:   registry.EntryReject,
 		Path:   id.String(),
 		Data:   err,
 	})
@@ -108,13 +107,13 @@ func NewTransactionHandler(listener registry.TransactionListener) eventbus.Event
 		eventbus.Pattern{System: registry.System, Kind: registry.AllEvents},
 		func(ctx context.Context, evt event.Event) error {
 			switch evt.Kind {
-			case registry.Begin:
+			case registry.TxBegin:
 				listener.Begin(ctx)
 				return nil
-			case registry.Commit:
+			case registry.TxCommit:
 				listener.Commit(ctx)
 				return nil
-			case registry.Discard:
+			case registry.TxDiscard:
 				listener.Discard(ctx)
 				return nil
 			default:

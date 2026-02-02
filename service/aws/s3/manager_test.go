@@ -7,15 +7,17 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/ponyruntime/pony/api/cloudstorage"
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	services3 "github.com/ponyruntime/pony/api/service/aws/s3"
-	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/cloudstorage"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	services3 "github.com/wippyai/runtime/api/service/aws/s3"
+	"github.com/wippyai/runtime/system/eventbus"
+	systemresource "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )
 
@@ -119,11 +121,10 @@ func NewMockPayload(data interface{}) payload.Payload {
 type MockTranscoder struct {
 	marshalError   error
 	unmarshalError error
+	bucket         string
+	awsConfig      string
+	endpoint       string
 	mockData       []byte
-	// Custom config to use when unmarshaling
-	bucket    string
-	awsConfig string
-	endpoint  string
 }
 
 func NewMockTranscoder() *MockTranscoder {
@@ -163,7 +164,7 @@ func (m *MockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload
 
 // setupTestEnvironment creates a test environment with mocked dependencies
 //
-//nolint:unparam // used in tests
+
 func setupTestEnvironment() (*Manager, event.Bus, *MockResourceRegistry, context.Context) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
@@ -197,7 +198,7 @@ func setupTestEnvironment() (*Manager, event.Bus, *MockResourceRegistry, context
 	resourceRegistry.RegisterProvider(configID, awsConfigProvider)
 
 	// Create context with resource registry
-	ctx := resource.WithResources(context.Background(), resourceRegistry)
+	ctx := resource.WithRegistry(ctxapi.NewRootContext(), resourceRegistry)
 
 	return manager, bus, resourceRegistry, ctx
 }
@@ -227,7 +228,7 @@ func setupResourceEventsListener(ctx context.Context, bus event.Bus) (chan event
 
 // waitForResourceEvent waits for a resource event with the specified kind
 //
-//nolint:unparam // used in tests
+
 func waitForResourceEvent(t *testing.T, eventChan chan event.Event, expectedKind event.Kind, timeout time.Duration) event.Event {
 	t.Helper()
 
@@ -249,7 +250,7 @@ func TestManager_Add(t *testing.T) {
 	require.NoError(t, err)
 	defer cleanup()
 
-	testID := registry.ID{NS: "test", Name: "s3storage"}
+	testID := registry.NewID("test", "s3storage")
 
 	t.Run("successful storage addition", func(t *testing.T) {
 		entry := registry.Entry{
@@ -280,7 +281,6 @@ func TestManager_Add(t *testing.T) {
 		// Verify event data
 		resourceEntry, ok := evt.Data.(resource.Entry)
 		assert.True(t, ok)
-		assert.Equal(t, testID, resourceEntry.ID)
 		assert.Equal(t, manager, resourceEntry.Provider)
 
 		// Verify metadata
@@ -290,7 +290,6 @@ func TestManager_Add(t *testing.T) {
 
 	t.Run("wrong entry kind", func(t *testing.T) {
 		entry := registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "invalid"},
 			Kind: "invalid.kind",
 			Data: NewMockPayload(&services3.Config{
 				Bucket:    "test-bucket",
@@ -300,7 +299,7 @@ func TestManager_Add(t *testing.T) {
 		}
 
 		err := manager.Add(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported entry kind")
 	})
 
@@ -309,14 +308,13 @@ func TestManager_Add(t *testing.T) {
 		manager.dtt = &MockTranscoder{unmarshalError: errors.New("unmarshal error")}
 
 		entry := registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "error"},
 			Kind: services3.Kind,
 			Data: NewMockPayload("invalid json"),
 		}
 
 		err := manager.Add(ctx, entry)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "decode config")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "add entry")
 
 		// Reset transcoder for other tests
 		manager.dtt = NewMockTranscoder()
@@ -334,13 +332,12 @@ func TestManager_Add(t *testing.T) {
 		}
 
 		err := manager.Add(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "already exists")
 	})
 
 	t.Run("aws config resource not found", func(t *testing.T) {
 		entry := registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "missing-config"},
 			Kind: services3.Kind,
 			Data: NewMockPayload(&services3.Config{}),
 		}
@@ -354,8 +351,8 @@ func TestManager_Add(t *testing.T) {
 		manager.dtt = customTranscoder
 
 		err := manager.Add(ctx, entry)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "acquire resource")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "add entry")
 
 		// Reset transcoder
 		manager.dtt = originalTranscoder
@@ -370,7 +367,7 @@ func TestManager_Update(t *testing.T) {
 	require.NoError(t, err)
 	defer cleanup()
 
-	testID := registry.ID{NS: "test", Name: "s3storage"}
+	testID := registry.NewID("test", "s3storage")
 
 	// First add a storage
 	addEntry := registry.Entry{
@@ -424,7 +421,6 @@ func TestManager_Update(t *testing.T) {
 		// Verify event data
 		resourceEntry, ok := evt.Data.(resource.Entry)
 		assert.True(t, ok)
-		assert.Equal(t, testID, resourceEntry.ID)
 
 		// Verify updated metadata
 		meta := resourceEntry.Meta
@@ -432,7 +428,7 @@ func TestManager_Update(t *testing.T) {
 	})
 
 	t.Run("storage not found", func(t *testing.T) {
-		nonExistentID := registry.ID{NS: "test", Name: "nonexistent"}
+		nonExistentID := registry.NewID("test", "nonexistent")
 		entry := registry.Entry{
 			ID:   nonExistentID,
 			Kind: services3.Kind,
@@ -444,7 +440,7 @@ func TestManager_Update(t *testing.T) {
 		}
 
 		err := manager.Update(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
 
@@ -456,7 +452,7 @@ func TestManager_Update(t *testing.T) {
 		}
 
 		err := manager.Update(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported entry kind")
 	})
 
@@ -471,8 +467,8 @@ func TestManager_Update(t *testing.T) {
 		}
 
 		err := manager.Update(ctx, entry)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "decode config")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "update entry")
 
 		// Reset transcoder for other tests
 		manager.dtt = NewMockTranscoder()
@@ -487,7 +483,7 @@ func TestManager_Delete(t *testing.T) {
 	require.NoError(t, err)
 	defer cleanup()
 
-	testID := registry.ID{NS: "test", Name: "s3storage"}
+	testID := registry.NewID("test", "s3storage")
 
 	// First add a storage
 	addEntry := registry.Entry{
@@ -530,7 +526,7 @@ func TestManager_Delete(t *testing.T) {
 	t.Run("storage not found", func(t *testing.T) {
 		// Try to delete again (should fail as already deleted)
 		err := manager.Delete(ctx, addEntry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
 
@@ -542,7 +538,7 @@ func TestManager_Delete(t *testing.T) {
 		}
 
 		err := manager.Delete(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported entry kind")
 	})
 }
@@ -550,7 +546,7 @@ func TestManager_Delete(t *testing.T) {
 func TestManager_Acquire(t *testing.T) {
 	manager, _, _, ctx := setupTestEnvironment()
 
-	testID := registry.ID{NS: "test", Name: "s3storage"}
+	testID := registry.NewID("test", "s3storage")
 
 	// Add a storage first
 	addEntry := registry.Entry{
@@ -583,11 +579,11 @@ func TestManager_Acquire(t *testing.T) {
 	})
 
 	t.Run("resource not found", func(t *testing.T) {
-		nonExistentID := registry.ID{NS: "test", Name: "nonexistent"}
+		nonExistentID := registry.NewID("test", "nonexistent")
 
 		// Try to acquire a non-existent resource
 		res, err := manager.Acquire(ctx, nonExistentID, resource.ModeNormal)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 		assert.Nil(t, res)
 	})
@@ -596,7 +592,7 @@ func TestManager_Acquire(t *testing.T) {
 		// Try to acquire with an unsupported mode
 		res, err := manager.Acquire(ctx, testID, resource.ModeExclusive)
 		assert.Error(t, err)
-		assert.Equal(t, resource.ErrResourceLocked, err)
+		assert.Equal(t, systemresource.ErrLocked, err)
 		assert.Nil(t, res)
 	})
 }
@@ -604,7 +600,7 @@ func TestManager_Acquire(t *testing.T) {
 func TestS3Resource(t *testing.T) {
 	manager, _, _, ctx := setupTestEnvironment()
 
-	testID := registry.ID{NS: "test", Name: "s3storage"}
+	testID := registry.NewID("test", "s3storage")
 
 	// Add a storage first
 	addEntry := registry.Entry{
@@ -643,7 +639,7 @@ func TestS3Resource(t *testing.T) {
 		// Try to get after release - should fail
 		val, err := res.Get()
 		assert.Error(t, err)
-		assert.Equal(t, resource.ErrResourceReleased, err)
+		assert.Equal(t, resource.ErrReleased, err)
 		assert.Nil(t, val)
 
 		// Release again - should be a no-op

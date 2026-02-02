@@ -3,37 +3,37 @@ package sql
 import (
 	"context"
 	"database/sql"
-	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 
-	config "github.com/ponyruntime/pony/api/service/sql"
+	config "github.com/wippyai/runtime/api/service/sql"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
 )
 
 // ConnPool represents a database connection pool that acts both as a service
 // and a resource provider
 type ConnPool struct {
-	kind   registry.Kind
 	db     *sql.DB
 	status chan any
-
-	wg     sync.WaitGroup // tracks active resource users
+	config atomic.Pointer[any]
+	kind   registry.Kind
+	wg     sync.WaitGroup
 	closed atomic.Bool
-	config atomic.Pointer[any] // either *config.DBConfig or *config.SQLiteConfig
 }
 
 // Start implements supervisor.Service
 func (p *ConnPool) Start(ctx context.Context) (<-chan any, error) {
 	if p.closed.Load() {
-		return nil, fmt.Errorf("connection pool is closed")
+		return nil, ErrPoolClosed
 	}
 
 	// Test connection
 	if err := p.db.PingContext(ctx); err != nil {
-		return nil, fmt.Errorf("failed to ping database: %w", err)
+		return nil, NewPingError(err)
 	}
 
 	// Signal ready status
@@ -70,17 +70,17 @@ func (p *ConnPool) Stop(ctx context.Context) error {
 // UpdateConfig updates the pool configuration
 func (p *ConnPool) UpdateConfig(cfg interface{}) error {
 	if p.closed.Load() {
-		return fmt.Errorf("connection pool is closed")
+		return ErrPoolClosed
 	}
 
 	switch c := cfg.(type) {
 	case *config.DBConfig:
-		if p.kind == config.KindSQLite {
-			return fmt.Errorf("invalid config type for SQLite")
+		if p.kind == config.SQLite {
+			return NewInvalidConfigTypeError("DBConfig", config.SQLite)
 		}
 
 		if err := c.Validate(); err != nil {
-			return fmt.Errorf("invalid configuration: %w", err)
+			return NewInvalidConfigError(err)
 		}
 
 		p.db.SetMaxOpenConns(c.Pool.MaxOpen)
@@ -91,12 +91,12 @@ func (p *ConnPool) UpdateConfig(cfg interface{}) error {
 		p.config.Store(&cfg)
 
 	case *config.SQLiteConfig:
-		if p.kind != config.KindSQLite {
-			return fmt.Errorf("invalid config type for non-SQLite database")
+		if p.kind != config.SQLite {
+			return NewInvalidConfigTypeError("SQLiteConfig", p.kind)
 		}
 
 		if err := c.Validate(); err != nil {
-			return fmt.Errorf("invalid configuration: %w", err)
+			return NewInvalidConfigError(err)
 		}
 
 		p.db.SetConnMaxLifetime(c.Pool.MaxLifetime)
@@ -105,7 +105,7 @@ func (p *ConnPool) UpdateConfig(cfg interface{}) error {
 		p.config.Store(&cfg)
 
 	default:
-		return fmt.Errorf("unsupported config type: %T", cfg)
+		return NewUnsupportedConfigTypeError(p.kind)
 	}
 
 	return nil
@@ -117,42 +117,72 @@ func (p *ConnPool) Acquire(
 	_ registry.ID,
 	mode resource.AccessMode,
 ) (resource.Resource[any], error) {
-	if p.closed.Load() {
-		return nil, fmt.Errorf("connection pool is closed")
-	}
-
 	// Only support normal mode for now
 	if mode != resource.ModeNormal {
-		return nil, fmt.Errorf("unsupported access mode: %v", mode)
+		return nil, NewUnsupportedAccessModeError(string(mode))
 	}
 
-	// Track resource usage
+	// Track resource usage before checking closed state to avoid race with Stop()
 	p.wg.Add(1)
+
+	if p.closed.Load() {
+		p.wg.Done()
+		return nil, ErrPoolClosed
+	}
 
 	return newDBConn(p, p.db, p.kind), nil
 }
 
 // Helper to build DSN string for different database types
 func buildDSN(kind registry.Kind, cfg *config.DBConfig) (string, error) {
-	switch kind {
-	case config.KindPostgres:
-		return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s %s",
-			cfg.Host, cfg.Port, cfg.Username, cfg.Password, cfg.Database,
-			buildOptionsString(cfg.Options)), nil
+	opts := buildOptionsString(cfg.Options)
 
-	case config.KindMySQL:
-		return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?%s",
-			cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.Database,
-			buildOptionsString(cfg.Options)), nil
+	switch kind {
+	case config.Postgres:
+		var b strings.Builder
+		b.Grow(128)
+		b.WriteString("host=")
+		b.WriteString(cfg.Host)
+		b.WriteString(" port=")
+		b.WriteString(strconv.Itoa(cfg.Port))
+		b.WriteString(" user=")
+		b.WriteString(cfg.Username)
+		b.WriteString(" password=")
+		b.WriteString(cfg.Password)
+		b.WriteString(" dbname=")
+		b.WriteString(cfg.Database)
+		if opts != "" {
+			b.WriteString(" ")
+			b.WriteString(opts)
+		}
+		return b.String(), nil
+
+	case config.MySQL:
+		var b strings.Builder
+		b.Grow(128)
+		b.WriteString(cfg.Username)
+		b.WriteString(":")
+		b.WriteString(cfg.Password)
+		b.WriteString("@tcp(")
+		b.WriteString(cfg.Host)
+		b.WriteString(":")
+		b.WriteString(strconv.Itoa(cfg.Port))
+		b.WriteString(")/")
+		b.WriteString(cfg.Database)
+		if opts != "" {
+			b.WriteString("?")
+			b.WriteString(opts)
+		}
+		return b.String(), nil
 
 	default:
-		return "", fmt.Errorf("unsupported database type: %s", kind)
+		return "", NewUnsupportedDatabaseTypeError(kind)
 	}
 }
 
 func getDriver(kind registry.Kind) string {
 	switch kind {
-	case config.KindPostgres:
+	case config.Postgres:
 
 		return "postgres"
 
@@ -167,23 +197,28 @@ func buildOptionsString(options map[string]string) string {
 		return ""
 	}
 
-	var opts string
+	var b strings.Builder
+	b.Grow(len(options) * 20)
+	first := true
 	for k, v := range options {
-		if opts != "" {
-			opts += " "
+		if !first {
+			b.WriteString(" ")
 		}
-		opts += fmt.Sprintf("%s=%s", k, v)
+		first = false
+		b.WriteString(k)
+		b.WriteString("=")
+		b.WriteString(v)
 	}
 
-	return opts
+	return b.String()
 }
 
 // DBConn represents a database connection resource
 type DBConn struct {
 	pool     *ConnPool
-	released atomic.Bool
 	db       *sql.DB
 	dbType   registry.Kind
+	released atomic.Bool
 }
 
 // DBResource contains both the database connection and its type
@@ -204,7 +239,7 @@ func newDBConn(pool *ConnPool, db *sql.DB, dbType registry.Kind) *DBConn {
 // Get implements resource.Resource
 func (r *DBConn) Get() (any, error) {
 	if r.released.Load() {
-		return nil, resource.ErrResourceReleased
+		return nil, resource.ErrReleased
 	}
 
 	// Return both the DB and its type

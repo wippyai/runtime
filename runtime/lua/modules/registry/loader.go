@@ -1,14 +1,13 @@
 package registry
 
 import (
-	"fmt"
-
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	fsapi "github.com/ponyruntime/pony/api/fs"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/system/registry/loader"
-	"github.com/ponyruntime/pony/system/registry/loader/interpolate"
-	lua "github.com/yuin/gopher-lua"
+	fsapi "github.com/wippyai/runtime/api/fs"
+	"github.com/wippyai/runtime/api/payload"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/boot/loader"
+	"github.com/wippyai/runtime/boot/loader/interpolate"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	lua "github.com/wippyai/go-lua"
 	"go.uber.org/zap"
 )
 
@@ -17,9 +16,12 @@ const (
 	loaderInstanceMetatable = "registry.Loader"
 )
 
-// LoaderModule represents the registry.loader submodule
-type LoaderModule struct {
-	log *zap.Logger
+func init() {
+	value.RegisterTypeMethods(nil, loaderInstanceMetatable, nil,
+		map[string]lua.LGoFunc{
+			"load_directory": loaderLoadDirectory,
+			"load_file":      loaderLoadFile,
+		})
 }
 
 // LoaderInstance represents a filesystem-bound loader instance
@@ -31,147 +33,141 @@ type LoaderInstance struct {
 	folderLoader *loader.Loader
 }
 
-// NewLoaderModule creates a new loader module
-func NewLoaderModule(log *zap.Logger) *LoaderModule {
-	if log == nil {
-		log = zap.NewNop()
-	}
-	return &LoaderModule{
-		log: log,
+// LoaderOptions for loader module configuration.
+type LoaderOptions struct {
+	Log *zap.Logger
+}
+
+// DefaultLoaderOptions returns default configuration.
+func DefaultLoaderOptions() LoaderOptions {
+	return LoaderOptions{
+		Log: zap.NewNop(),
 	}
 }
 
-// Name returns the module name
-func (m *LoaderModule) Name() string {
-	return loaderModuleName
+// LoaderModule is the default loader module with default options.
+var LoaderModule = NewLoaderModule(DefaultLoaderOptions())
+
+// NewLoaderModule creates a loader module with given options.
+func NewLoaderModule(opts LoaderOptions) *luaapi.ModuleDef {
+	if opts.Log == nil {
+		opts.Log = zap.NewNop()
+	}
+
+	return &luaapi.ModuleDef{
+		Name:        loaderModuleName,
+		Description: "Registry loader for filesystem-bound loading",
+		Class:       []string{luaapi.ClassStorage, luaapi.ClassIO},
+		Build: func() (*lua.LTable, []luaapi.YieldType) {
+			mod := lua.CreateTable(0, 1)
+			mod.RawSetString("new", makeCreateLoader(opts.Log))
+			mod.Immutable = true
+			return mod, nil
+		},
+	}
 }
 
-// Loader loads the module into the Lua state
-func (m *LoaderModule) Loader(l *lua.LState) int {
-	// Create module table
-	mod := l.CreateTable(0, 1)
+// makeCreateLoader creates a loader factory function with the given logger
+func makeCreateLoader(log *zap.Logger) lua.LGoFunc {
+	return func(l *lua.LState) int {
+		ctx := l.Context()
 
-	// Register the loader instance metatable
-	mt := l.NewTypeMetatable(loaderInstanceMetatable)
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"load_directory": loaderLoadDirectory,
-		"load_file":      loaderLoadFile,
-	}))
+		dtt := payload.GetTranscoder(ctx)
+		if dtt == nil {
+			err := lua.NewLuaError(l, "transcoder not found in context").
+				WithKind(lua.Internal).
+				WithRetryable(false)
+			l.Push(lua.LNil)
+			l.Push(err)
+			return 2
+		}
 
-	// Add the "new" function to the module table
-	mod.RawSetString("new", l.NewFunction(m.createLoader))
+		fsRegistry := fsapi.GetRegistry(ctx)
+		if fsRegistry == nil {
+			err := lua.NewLuaError(l, "filesystem registry not found in context").
+				WithKind(lua.Internal).
+				WithRetryable(false)
+			l.Push(lua.LNil)
+			l.Push(err)
+			return 2
+		}
 
-	// Push the module table
-	l.Push(mod)
-	return 1
-}
+		fsName := l.CheckString(1)
+		if fsName == "" {
+			err := lua.NewLuaError(l, "filesystem name required").
+				WithKind(lua.Invalid).
+				WithRetryable(false)
+			l.Push(lua.LNil)
+			l.Push(err)
+			return 2
+		}
 
-// createLoader creates a new loader instance bound to a filesystem
-func (m *LoaderModule) createLoader(l *lua.LState) int {
-	// Get context from Lua state
-	ctx := l.Context()
+		fsys, ok := fsRegistry.GetFS(fsName)
+		if !ok {
+			err := lua.NewLuaError(l, "filesystem '"+fsName+"' not found").
+				WithKind(lua.NotFound).
+				WithRetryable(false)
+			l.Push(lua.LNil)
+			l.Push(err)
+			return 2
+		}
 
-	// Get transcoder from context
-	dtt := payload.GetTranscoder(ctx)
-	if dtt == nil {
+		interpolators := interpolate.NewEntryInterpolator(dtt,
+			interpolate.WithInterpolator(interpolate.LoadFile),
+		)
+
+		folderLoader := loader.NewLoader(dtt, log, interpolators)
+
+		loaderInstance := &LoaderInstance{
+			fs:           fsys,
+			dtt:          dtt,
+			log:          log,
+			interpolator: interpolators,
+			folderLoader: folderLoader,
+		}
+
+		value.PushTypedUserData(l, loaderInstance, loaderInstanceMetatable)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transcoder not found in context"))
 		return 2
 	}
-
-	// Get filesystem registry from context
-	fsRegistry := fsapi.GetRegistry(ctx)
-	if fsRegistry == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("filesystem registry not found in context"))
-		return 2
-	}
-
-	// Get filesystem name
-	fsName := l.CheckString(1)
-	if fsName == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("filesystem name required"))
-		return 2
-	}
-
-	// Get the filesystem from the registry
-	fsys, ok := fsRegistry.GetFS(fsName)
-	if !ok {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("filesystem '%s' not found", fsName)))
-		return 2
-	}
-
-	// Create interpolator with FS support
-	interpolators := interpolate.NewEntryInterpolator(dtt,
-		interpolate.WithInterpolator(interpolate.LoadVars),
-		interpolate.WithInterpolator(interpolate.LoadFile),
-	)
-
-	// Create folder loader with FS support
-	folderLoader := loader.NewLoader(dtt, m.log, interpolators)
-
-	// Create loader instance
-	loaderInstance := &LoaderInstance{
-		fs:           fsys,
-		dtt:          dtt,
-		log:          m.log,
-		interpolator: interpolators,
-		folderLoader: folderLoader,
-	}
-
-	// Create userdata
-	ud := l.NewUserData()
-	ud.Value = loaderInstance
-	l.SetMetatable(ud, l.GetTypeMetatable(loaderInstanceMetatable))
-
-	l.Push(ud)
-	return 1
 }
 
 // loaderLoadDirectory loads entries from a directory
 func loaderLoadDirectory(l *lua.LState) int {
-	// Get loader instance
 	fl := checkLoaderInstance(l)
 	if fl == nil {
 		return 0
 	}
 
-	// Get directory path
 	dirPath := l.CheckString(2)
 	if dirPath == "" {
+		err := lua.NewLuaError(l, "directory path required").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("directory path required"))
+		l.Push(err)
 		return 2
 	}
 
-	// Get variables table (optional)
-	varsTable := l.OptTable(3, l.CreateTable(0, 8))
-
-	// Convert Lua variables table to Go map
-	vars := makeVariables(varsTable)
-	if envCtx, ok := l.Context().Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string]); ok && envCtx != nil {
-		envCtx.Iterate(func(key string, value string) {
-			vars[key] = value
-		})
-	}
-
-	// Load entries
-	entries, err := fl.folderLoader.LoadDir(fl.fs, dirPath, vars)
-	if err != nil {
+	entries, loadErr := fl.folderLoader.LoadDir(l.Context(), fl.fs, dirPath)
+	if loadErr != nil {
+		err := lua.WrapErrorWithLua(l, loadErr, "load entries").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to load entries: %v", err)))
+		l.Push(err)
 		return 2
 	}
 
-	// Convert entries to Lua table
-	entriesTable := l.CreateTable(0, len(entries))
+	entriesTable := l.CreateTable(len(entries), 0)
 	for i, entry := range entries {
-		entryTable, err := entryToLuaTable(l, entry)
-		if err != nil {
+		entryTable, convErr := entryToLuaTable(l, entry)
+		if convErr != nil {
+			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
+				WithKind(lua.Internal).
+				WithRetryable(false)
 			l.Push(lua.LNil)
-			l.Push(lua.LString(fmt.Sprintf("failed to convert entry: %v", err)))
+			l.Push(err)
 			return 2
 		}
 		entriesTable.RawSetInt(i+1, entryTable)
@@ -184,46 +180,40 @@ func loaderLoadDirectory(l *lua.LState) int {
 
 // loaderLoadFile loads entries from a single file
 func loaderLoadFile(l *lua.LState) int {
-	// Get loader instance
 	fl := checkLoaderInstance(l)
 	if fl == nil {
 		return 0
 	}
 
-	// Get file path
 	filePath := l.CheckString(2)
 	if filePath == "" {
+		err := lua.NewLuaError(l, "file path required").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("file path required"))
+		l.Push(err)
 		return 2
 	}
 
-	// Get variables table (optional)
-	varsTable := l.OptTable(3, l.CreateTable(0, 8))
-
-	// Convert Lua variables table to Go map
-	vars := makeVariables(varsTable)
-	if envCtx, ok := l.Context().Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string]); ok && envCtx != nil {
-		envCtx.Iterate(func(key string, value string) {
-			vars[key] = value
-		})
-	}
-
-	// Load entries from file
-	entries, err := fl.folderLoader.LoadFile(fl.fs, filePath, vars)
-	if err != nil {
+	entries, loadErr := fl.folderLoader.LoadFile(l.Context(), fl.fs, filePath)
+	if loadErr != nil {
+		err := lua.WrapErrorWithLua(l, loadErr, "load entries").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to load entries: %v", err)))
+		l.Push(err)
 		return 2
 	}
 
-	// Convert entries to Lua table
-	entriesTable := l.NewTable()
+	entriesTable := l.CreateTable(len(entries), 0)
 	for i, entry := range entries {
-		entryTable, err := entryToLuaTable(l, entry)
-		if err != nil {
+		entryTable, convErr := entryToLuaTable(l, entry)
+		if convErr != nil {
+			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
+				WithKind(lua.Internal).
+				WithRetryable(false)
 			l.Push(lua.LNil)
-			l.Push(lua.LString(fmt.Sprintf("failed to convert entry: %v", err)))
+			l.Push(err)
 			return 2
 		}
 		entriesTable.RawSetInt(i+1, entryTable)
@@ -234,18 +224,7 @@ func loaderLoadFile(l *lua.LState) int {
 	return 2
 }
 
-// Helper function to convert variables table to Go map
-func makeVariables(varsTable *lua.LTable) interpolate.Variables {
-	vars := make(interpolate.Variables)
-	varsTable.ForEach(func(k, v lua.LValue) {
-		if kStr, ok := k.(lua.LString); ok && v.Type() == lua.LTString {
-			vars[string(kStr)] = v.String()
-		}
-	})
-	return vars
-}
-
-// Helper function to check if the first argument is a LoaderInstance and return it
+// checkLoaderInstance checks if the first argument is a LoaderInstance userdata
 func checkLoaderInstance(l *lua.LState) *LoaderInstance {
 	ud := l.CheckUserData(1)
 	if fl, ok := ud.Value.(*LoaderInstance); ok {

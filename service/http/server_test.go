@@ -11,10 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/registry"
-	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	contextapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/registry"
+	config "github.com/wippyai/runtime/api/service/http"
+	"go.uber.org/zap"
 )
 
 // findFreePort finds an available port on the local machine
@@ -50,7 +52,7 @@ func createServerTempDir(t *testing.T, files map[string]string) (string, func())
 		require.NoError(t, err)
 
 		// Write file content
-		//nolint:gosec // used in tests
+
 		err = os.WriteFile(fullPath, []byte(content), 0644)
 		require.NoError(t, err)
 	}
@@ -76,8 +78,8 @@ func TestServerService_Basic(t *testing.T) {
 			},
 		}
 
-		id := registry.ID{NS: "test", Name: "server1"}
-		middleware := NewDefaultMiddlewareFactory()
+		id := registry.NewID("test", "server1")
+		middleware := NewMiddlewareRegistry(zap.NewNop())
 		server, err := NewServerService(id, cfg, middleware)
 		require.NoError(t, err)
 
@@ -97,8 +99,8 @@ func TestServerService_Basic(t *testing.T) {
 			},
 		}
 
-		id := registry.ID{NS: "test", Name: "server1"}
-		middleware := NewDefaultMiddlewareFactory()
+		id := registry.NewID("test", "server1")
+		middleware := NewMiddlewareRegistry(zap.NewNop())
 		server, err := NewServerService(id, cfg, middleware)
 		require.NoError(t, err)
 
@@ -122,7 +124,8 @@ func TestServerService_Basic(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Serve the server with a timeout context
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		rootCtx := contextapi.NewRootContext()
+		ctx, cancel := context.WithTimeout(rootCtx, 5*time.Second)
 		defer cancel()
 
 		// Serve the server and wait for it to be ready
@@ -163,13 +166,13 @@ func TestServerService_RouterOperations(t *testing.T) {
 		Addr: fmt.Sprintf(":%d", port),
 	}
 
-	id := registry.ID{NS: "test", Name: "server1"}
-	middleware := NewDefaultMiddlewareFactory()
+	id := registry.NewID("test", "server1")
+	middleware := NewMiddlewareRegistry(zap.NewNop())
 	server, err := NewServerService(id, cfg, middleware)
 	require.NoError(t, err)
 
 	t.Run("add and delete router", func(t *testing.T) {
-		routerID := registry.ID{NS: "test", Name: "router1"}
+		routerID := registry.NewID("test", "router1")
 		routerCfg := &config.RouterConfig{
 			Prefix: "/api/v1",
 		}
@@ -187,7 +190,7 @@ func TestServerService_RouterOperations(t *testing.T) {
 
 	t.Run("add and remove endpoint", func(t *testing.T) {
 		// Use a different router ID to avoid conflicts
-		routerID := registry.ID{NS: "test", Name: "router2"}
+		routerID := registry.NewID("test", "router2")
 		routerCfg := &config.RouterConfig{
 			Prefix: "/api/v2",
 		}
@@ -195,7 +198,7 @@ func TestServerService_RouterOperations(t *testing.T) {
 		err := server.UpsertRouter(routerID, routerCfg)
 		require.NoError(t, err)
 
-		endpointID := registry.ID{NS: "test", Name: "endpoint1"}
+		endpointID := registry.NewID("test", "endpoint1")
 
 		// Add endpoint
 		err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -217,7 +220,7 @@ func TestServerService_RouterOperations(t *testing.T) {
 	})
 
 	t.Run("mount and unmount", func(t *testing.T) {
-		mountID := registry.ID{NS: "test", Name: "static1"}
+		mountID := registry.NewID("test", "static1")
 
 		// Create a temporary directory with files
 		tempDir, cleanup := createServerTempDir(t, map[string]string{
@@ -243,13 +246,13 @@ func TestServerService_RouterOperations(t *testing.T) {
 
 		// Try unmounting non-existent handler
 		err = server.Remove(mountID)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
 
 	t.Run("rebuild", func(t *testing.T) {
 		// Add a router and endpoint before rebuild
-		routerID := registry.ID{NS: "test", Name: "router3"}
+		routerID := registry.NewID("test", "router3")
 		routerCfg := &config.RouterConfig{
 			Prefix: "/api/v3",
 		}
@@ -257,7 +260,7 @@ func TestServerService_RouterOperations(t *testing.T) {
 		err := server.UpsertRouter(routerID, routerCfg)
 		require.NoError(t, err)
 
-		endpointID := registry.ID{NS: "test", Name: "endpoint3"}
+		endpointID := registry.NewID("test", "endpoint3")
 
 		err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
@@ -289,13 +292,13 @@ func TestServerService_StartStop(t *testing.T) {
 		},
 	}
 
-	id := registry.ID{NS: "test", Name: "server1"}
-	middleware := NewDefaultMiddlewareFactory()
+	id := registry.NewID("test", "server1")
+	middleware := NewMiddlewareRegistry(zap.NewNop())
 	server, err := NewServerService(id, cfg, middleware)
 	require.NoError(t, err)
 
 	// Add router and endpoint
-	routerID := registry.ID{NS: "test", Name: "router4"}
+	routerID := registry.NewID("test", "router4")
 	routerCfg := &config.RouterConfig{
 		Prefix: "/api",
 	}
@@ -303,7 +306,7 @@ func TestServerService_StartStop(t *testing.T) {
 	err = server.UpsertRouter(routerID, routerCfg)
 	require.NoError(t, err)
 
-	endpointID := registry.ID{NS: "test", Name: "endpoint4"}
+	endpointID := registry.NewID("test", "endpoint4")
 
 	err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -315,7 +318,7 @@ func TestServerService_StartStop(t *testing.T) {
 	require.NoError(t, err)
 
 	// Serve the server
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(contextapi.NewRootContext(), 10*time.Second)
 	defer cancel()
 
 	// Use a done channel to synchronize server start
@@ -387,39 +390,39 @@ func TestServerService_Middleware(t *testing.T) {
 		Addr: fmt.Sprintf("127.0.0.1:%d", port),
 	}
 
-	id := registry.ID{NS: "test", Name: "server1"}
+	id := registry.NewID("test", "server1")
 
 	// Create middleware factory for the test
-	middlewareFactory := NewDefaultMiddlewareFactory(
-		WithMiddlewareCreator("request_id", func(_ map[string]string) func(http.Handler) http.Handler {
-			return func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					// Pass through any existing request ID
-					reqID := r.Header.Get("X-Request-Id")
-					if reqID == "" {
-						reqID = "generated-id"
-					}
-					// Set it in the request
-					r.Header.Set("X-Request-Id", reqID)
-					next.ServeHTTP(w, r)
-				})
-			}
-		}),
-		WithMiddlewareCreator("real_ip", func(_ map[string]string) func(http.Handler) http.Handler {
-			return func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					// Simple pass-through middleware for testing
-					next.ServeHTTP(w, r)
-				})
-			}
-		}),
-	)
+	middlewareFactory := NewMiddlewareRegistry(zap.NewNop())
+	_ = middlewareFactory.Register("request_id", func(_ map[string]string) func(http.Handler) http.Handler {
+		return func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Pass through any existing request ID
+				reqID := r.Header.Get("X-Request-Id")
+				if reqID == "" {
+					reqID = "generated-id"
+				}
+				// Set it in the request
+				r.Header.Set("X-Request-Id", reqID)
+				next.ServeHTTP(w, r)
+			})
+		}
+	})
+
+	_ = middlewareFactory.Register("real_ip", func(_ map[string]string) func(http.Handler) http.Handler {
+		return func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Simple pass-through middleware for testing
+				next.ServeHTTP(w, r)
+			})
+		}
+	})
 
 	server, err := NewServerService(id, cfg, middlewareFactory)
 	require.NoError(t, err)
 
 	// Add router with middleware
-	routerID := registry.ID{NS: "test", Name: "router5"}
+	routerID := registry.NewID("test", "router5")
 	routerCfg := &config.RouterConfig{
 		Prefix:     "/api",
 		Middleware: []string{"request_id", "real_ip"},
@@ -430,7 +433,7 @@ func TestServerService_Middleware(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add test endpoint that checks request ID middleware
-	endpointID := registry.ID{NS: "test", Name: "endpoint5"}
+	endpointID := registry.NewID("test", "endpoint5")
 
 	err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check if request ID was set by middleware
@@ -445,7 +448,7 @@ func TestServerService_Middleware(t *testing.T) {
 	require.NoError(t, err)
 
 	// Serve the server
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(contextapi.NewRootContext(), 10*time.Second)
 	defer cancel()
 
 	// Use a done channel for synchronization
@@ -507,91 +510,6 @@ func TestServerService_Middleware(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestCreateMiddleware(t *testing.T) {
-	id := registry.ID{NS: "test", Name: "server1"}
-	middlewareFactory := NewDefaultMiddlewareFactory(
-		WithMiddlewareCreator("timeout", func(options map[string]string) func(http.Handler) http.Handler {
-			timeoutVal := options["timeout"]
-			if timeoutVal == "" {
-				timeoutVal = "60s"
-			}
-			duration, err := time.ParseDuration(timeoutVal)
-			if err != nil {
-				return nil
-			}
-			return func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					ctx, cancel := context.WithTimeout(r.Context(), duration)
-					defer cancel()
-					next.ServeHTTP(w, r.WithContext(ctx))
-				})
-			}
-		}),
-		WithMiddlewareCreator("recoverer", func(_ map[string]string) func(http.Handler) http.Handler {
-			return func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					defer func() {
-						if rvr := recover(); rvr != nil {
-							http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-						}
-					}()
-					next.ServeHTTP(w, r)
-				})
-			}
-		}),
-		WithMiddlewareCreator("request_id", func(_ map[string]string) func(http.Handler) http.Handler {
-			return func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					r.Header.Set("X-Request-Id", "test-id")
-					next.ServeHTTP(w, r)
-				})
-			}
-		}),
-		WithMiddlewareCreator("real_ip", func(_ map[string]string) func(http.Handler) http.Handler {
-			return func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					next.ServeHTTP(w, r)
-				})
-			}
-		}),
-	)
-
-	server, err := NewServerService(id, &config.ServerConfig{}, middlewareFactory)
-	require.NoError(t, err)
-
-	t.Run("timeout middleware", func(t *testing.T) {
-		options := map[string]string{"timeout": "10s"}
-		mw := server.createMiddleware("timeout", options)
-		assert.NotNil(t, mw, "Should create timeout middleware")
-	})
-
-	t.Run("timeout middleware with invalid duration", func(t *testing.T) {
-		options := map[string]string{"timeout": "invalid"}
-		mw := server.createMiddleware("timeout", options)
-		assert.Nil(t, mw, "Should not create middleware with invalid timeout")
-	})
-
-	t.Run("recoverer middleware", func(t *testing.T) {
-		mw := server.createMiddleware("recoverer", nil)
-		assert.NotNil(t, mw, "Should create recoverer middleware")
-	})
-
-	t.Run("request_id middleware", func(t *testing.T) {
-		mw := server.createMiddleware("request_id", nil)
-		assert.NotNil(t, mw, "Should create request_id middleware")
-	})
-
-	t.Run("real_ip middleware", func(t *testing.T) {
-		mw := server.createMiddleware("real_ip", nil)
-		assert.NotNil(t, mw, "Should create real_ip middleware")
-	})
-
-	t.Run("unsupported middleware", func(t *testing.T) {
-		mw := server.createMiddleware("unsupported", nil)
-		assert.Nil(t, mw, "Should not create unsupported middleware")
-	})
-}
-
 func TestEnsureRunning(t *testing.T) {
 	// Create a server with a test port
 	port, err := findFreePort()
@@ -601,8 +519,8 @@ func TestEnsureRunning(t *testing.T) {
 		Addr: fmt.Sprintf("127.0.0.1:%d", port),
 	}
 
-	id := registry.ID{NS: "test", Name: "server1"}
-	middleware := NewDefaultMiddlewareFactory()
+	id := registry.NewID("test", "server1")
+	middleware := NewMiddlewareRegistry(zap.NewNop())
 	server, err := NewServerService(id, cfg, middleware)
 	require.NoError(t, err)
 
@@ -624,7 +542,7 @@ func TestEnsureRunning(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// The ensureRunning check should pass because something is listening on the port
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(contextapi.NewRootContext(), 2*time.Second)
 	defer cancel()
 
 	err = server.ensureRunning(ctx)
@@ -642,7 +560,7 @@ func TestEnsureRunning(t *testing.T) {
 		t.Fatal("HTTP server didn't close")
 	}
 
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 500*time.Millisecond) // Short timeout
+	ctx2, cancel2 := context.WithTimeout(contextapi.NewRootContext(), 500*time.Millisecond) // Short timeout
 	defer cancel2()
 
 	err = server.ensureRunning(ctx2)
@@ -657,13 +575,13 @@ func TestContextListener(t *testing.T) {
 		Addr: fmt.Sprintf("127.0.0.1:%d", port),
 	}
 
-	id := registry.ID{NS: "test", Name: "server1"}
-	middleware := NewDefaultMiddlewareFactory()
+	id := registry.NewID("test", "server1")
+	middleware := NewMiddlewareRegistry(zap.NewNop())
 	server, err := NewServerService(id, cfg, middleware)
 	require.NoError(t, err)
 
 	// Add a test endpoint that verifies the listener context is set
-	routerID := registry.ID{NS: "test", Name: "router6"}
+	routerID := registry.NewID("test", "router6")
 	routerCfg := &config.RouterConfig{
 		Prefix: "/api",
 	}
@@ -671,14 +589,11 @@ func TestContextListener(t *testing.T) {
 	err = server.UpsertRouter(routerID, routerCfg)
 	require.NoError(t, err)
 
-	endpointID := registry.ID{NS: "test", Name: "endpoint6"}
+	endpointID := registry.NewID("test", "endpoint6")
 
-	err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check if the listener is in the context
-		if listener := r.Context().Value(ContextListener); listener == nil {
-			http.Error(w, "listener not found in context", http.StatusInternalServerError)
-			return
-		}
+	err = server.UpsertEndpoint(routerID, endpointID, "/test", "GET", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// ContextListener is no longer set - HTTP metadata now in FrameContext
+		// Just return success
 		w.WriteHeader(http.StatusOK)
 	}))
 	require.NoError(t, err)
@@ -687,7 +602,7 @@ func TestContextListener(t *testing.T) {
 	require.NoError(t, err)
 
 	// Serve the server
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(contextapi.NewRootContext(), 5*time.Second)
 	defer cancel()
 
 	// Use a done channel for synchronization

@@ -1,283 +1,204 @@
-# Lua WebSocket Client Module Specification
+# websocket
 
-## Overview
+WebSocket client connections. Network, io, nondeterministic.
 
-The `websocket` module provides a client-side WebSocket implementation for Lua that integrates seamlessly with our Wippy
-coroutine VM and channel system. It leverages a thread context automatically behind the scenes and exposes a clean,
-idiomatic API for establishing connections, sending/receiving messages, and managing connection lifecycles.
+## Loading
 
-Library automatically handles ping requests.
-
----
-
-## Module Interface
-
-Since the module is globally available, you can directly use the WebSocket functionality without an explicit `require`
-call.
+```lua
+local websocket = require("websocket")
+```
 
 ## Constants
 
-### Message Types
-
 ```lua
-websocket.TYPE_TEXT    = "text"    -- Text frame
-websocket.TYPE_BINARY  = "binary"  -- Binary frame
-websocket.TYPE_PING    = "ping"    -- Ping control frame
-websocket.TYPE_PONG    = "pong"    -- Pong control frame
-websocket.TYPE_CLOSE   = "close"   -- Close control frame
+websocket.TYPE_TEXT                    -- "text"
+websocket.TYPE_BINARY                  -- "binary"
+websocket.TYPE_PING                    -- "ping"
+websocket.TYPE_PONG                    -- "pong"
+websocket.TYPE_CLOSE                   -- "close"
+websocket.TEXT                         -- 1
+websocket.BINARY                       -- 2
+websocket.COMPRESSION.DISABLED         -- 0
+websocket.COMPRESSION.CONTEXT_TAKEOVER -- 1
+websocket.COMPRESSION.NO_CONTEXT       -- 2
+websocket.CLOSE_CODES.NORMAL           -- 1000
+websocket.CLOSE_CODES.GOING_AWAY       -- 1001
+websocket.CLOSE_CODES.PROTOCOL_ERROR   -- 1002
+websocket.CLOSE_CODES.UNSUPPORTED_DATA -- 1003
+websocket.CLOSE_CODES.RESERVED         -- 1004
+websocket.CLOSE_CODES.NO_STATUS        -- 1005
+websocket.CLOSE_CODES.ABNORMAL_CLOSURE -- 1006
+websocket.CLOSE_CODES.INVALID_PAYLOAD  -- 1007
+websocket.CLOSE_CODES.POLICY_VIOLATION -- 1008
+websocket.CLOSE_CODES.MESSAGE_TOO_BIG  -- 1009
+websocket.CLOSE_CODES.MANDATORY_EXTENSION -- 1010
+websocket.CLOSE_CODES.INTERNAL_ERROR   -- 1011
+websocket.CLOSE_CODES.SERVICE_RESTART  -- 1012
+websocket.CLOSE_CODES.TRY_AGAIN_LATER  -- 1013
+websocket.CLOSE_CODES.BAD_GATEWAY      -- 1014
+websocket.CLOSE_CODES.TLS_HANDSHAKE    -- 1015
 ```
 
-### Close Status Codes
+## Dependencies
 
-```lua
-websocket.CLOSE_CODES = {
-    NORMAL              = 1000,  -- Normal closure
-    GOING_AWAY          = 1001,  -- Going away (endpoint shutting down)
-    PROTOCOL_ERROR      = 1002,  -- Protocol error
-    UNSUPPORTED_DATA    = 1003,  -- Unsupported data type
-    RESERVED            = 1004,  -- Reserved
-    NO_STATUS           = 1005,  -- No status received
-    ABNORMAL_CLOSURE    = 1006,  -- Abnormal closure
-    INVALID_PAYLOAD     = 1007,  -- Invalid frame payload data
-    POLICY_VIOLATION    = 1008,  -- Policy violation
-    MESSAGE_TOO_BIG     = 1009,  -- Message too large
-    MANDATORY_EXTENSION = 1010,  -- Mandatory extension missing
-    INTERNAL_ERROR      = 1011,  -- Internal server error
-    SERVICE_RESTART     = 1012,  -- Service restart
-    TRY_AGAIN_LATER    = 1013,  -- Try again later (temporary)
-    BAD_GATEWAY        = 1014,  -- Bad gateway
-    TLS_HANDSHAKE      = 1015   -- TLS handshake failure
-}
-```
+### channel (from engine)
 
----
+Used by `client:channel()` for receiving messages.
 
-## Global Functions
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| receive | () | value, ok: boolean | Blocks until value available. ok=false when closed |
+| close | () | - | Closes channel |
 
-### `websocket.connect(url: string, options?: table)`
+See: `runtime/lua/engine/spec.md`
 
-**Description:**  
-Establishes a WebSocket connection to the given URL.
+## Functions
 
-**Parameters:**
+### connect(url: string, options?: table) -> Client, error
 
-- **`url`** (string): The WebSocket URL (e.g., `"ws://example.com/socket"` or `"wss://..."`).
-- **`options`** (table, optional): A table with connection options:
-    - **`headers`** (table): Additional HTTP headers.
-    - **`protocols`** (array): List of sub-protocols to request.
-    - **`dial_timeout`** (number|string): Timeout for the initial connection (milliseconds if number, or duration
-      string, e.g., `"5s"`).
-    - **`read_timeout`** (number|string): Timeout for read operations (e.g., `"30s"`).
-    - **`write_timeout`** (number|string): Timeout for write operations (e.g., `"10s"`).
+Establishes a WebSocket connection.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| url | string | yes | - | WebSocket URL (ws:// or wss://) |
+| options | table | no | nil | Connection options |
+
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| headers | {[string]: string} | nil | HTTP headers for handshake |
+| protocols | string[] | nil | WebSocket subprotocols |
+| dial_timeout | integer\|string | 0 | Milliseconds or Go duration ("5s") |
+| read_timeout | integer\|string | 0 | Milliseconds or Go duration ("5s") |
+| write_timeout | integer\|string | 0 | Milliseconds or Go duration ("5s") |
+| compression | integer\|string | 0 | Mode: 0/"disabled", 1/"context_takeover", 2/"no_context_takeover" |
+| compression_threshold | integer | 0 | Minimum message size for compression (0-104857600 bytes) |
+| read_limit | integer | 0 | Maximum message size in bytes (0-134217728) |
+| channel_capacity | integer | 32 | Channel buffer size (1-10000) |
 
 **Returns:**
+- Success: `Client, nil` - Client userdata
+- Error: `nil, error` - error is string
 
-- **On success:** A WebSocket client object (userdata) with instance methods.
-- **On failure:** `nil` and an error message string.
+**Errors (strings):**
+- `"no context"` - missing context
+- `"websocket connections not allowed"` - security policy
+- `"not allowed: {url}"` - URL not allowed by policy
+- Connection errors from underlying transport
 
-**Example:**
+**Yields:** until connection established or timeout
 
 ```lua
-local client, err = websocket.connect("ws://example.com/socket", {
-    headers = { ["User-Agent"] = "Lua WebSocket Client" },
-    dial_timeout = "5s",
-    read_timeout = "30s",
-    write_timeout = "10s"
+local client, err = websocket.connect("wss://echo.example.com", {
+    headers = { Authorization = "Bearer token" },
+    dial_timeout = 5000,
+    compression = "context_takeover"
 })
-if not client then
-    error("Connection failed: " .. err)
+```
+
+## Types
+
+### Client
+
+Returned by `websocket.connect()`.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| send | (data: string, type?: integer) | - | Yields until sent. type: websocket.TEXT (1) or websocket.BINARY (2) |
+| channel | () | channel | First call yields to subscribe, subsequent calls return same channel |
+| receive | () | channel | Alias for channel() |
+| ping | () | - | Yields until ping sent |
+| close | (code?: integer, reason?: string) | - | Yields until close sent. code default 1000 |
+
+#### client:send(data: string, type?: integer)
+
+Sends a message to the server.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | Message data |
+| type | integer | no | 1 | websocket.TEXT (1) or websocket.BINARY (2) |
+
+**Yields:** until message sent
+
+```lua
+client:send("Hello")
+client:send("\x00\x01\x02", websocket.BINARY)
+```
+
+#### client:channel() -> channel
+
+Returns channel for receiving messages. First call yields to subscribe and returns channel. Subsequent calls return the same channel without yielding.
+
+**Returns:** channel userdata
+
+**Yields:** on first call only, until subscription established
+
+**Channel messages:**
+
+Messages received on the channel are tables with:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| type | string | "text" or "binary" |
+| data | string | Message data |
+
+```lua
+local ch = client:channel()  -- first call yields
+while true do
+    local msg, ok = ch:receive()
+    if not ok then break end   -- channel closed
+    print(msg.type, msg.data)
 end
 ```
 
----
+#### client:receive() -> channel
 
-## WebSocket Client Object Methods
+Alias for `client:channel()`. Provided for v1 API compatibility.
 
-Once connected, the returned client object provides the following methods:
+#### client:ping()
 
-### `client:send(data: string)`
+Sends a ping to the server.
 
-**Description:**  
-Sends a text message over the WebSocket connection.
-
-**Parameters:**
-
-- **`data`** (string): The text message to send.
-
-**Returns:**
-
-- `true` on success, or `false` and an error message if sending fails.
-
-**Example:**
+**Yields:** until ping sent
 
 ```lua
-local ok, err = client:send("Hello, WebSocket!")
-if not ok then
-    print("Send failed:", err)
-end
+client:ping()
 ```
 
----
+#### client:close(code?: integer, reason?: string)
 
-### `client:close(code?: number, reason?: string)`
+Closes the WebSocket connection.
 
-**Description:**  
-Gracefully closes the WebSocket connection. Will close receive channel if such exists.
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| code | integer | no | 1000 | Close code (1000-4999) |
+| reason | string | no | "" | Close reason |
 
-**Parameters:**
-
-- **`code`** (number, optional): The close status code (default is websocket.CLOSE_CODES.NORMAL).
-- **`reason`** (string, optional): A reason for closing.
-
-**Returns:**
-
-- `true` on success, or `false` and an error message if closing fails.
-
-**Example:**
+**Yields:** until close sent
 
 ```lua
-local ok, err = client:close(websocket.CLOSE_CODES.NORMAL, "Goodbye")
-if not ok then
-    print("Close error:", err)
-end
+client:close(websocket.CLOSE_CODES.NORMAL, "done")
 ```
 
----
-
-### `client:receive()`
-
-**Description:**  
-Returns a channel object dedicated to receiving messages from the WebSocket. Internally, a goroutine reads from the
-connection and pushes incoming messages into this channel.
-
-**Returns:**
-
-- A channel object that emits message tables.
-
-**Channel Message Format:**
-
-Each message received via the channel is a table structured as follows:
+## Example
 
 ```lua
-{
-    type = websocket.TYPE_TEXT | websocket.TYPE_BINARY | websocket.TYPE_PING | 
-           websocket.TYPE_PONG | websocket.TYPE_CLOSE,
-    data = string,  -- Message payload
-    code = number,  -- For close messages (optional)
-    reason = string -- For close messages (optional)
-}
-```
+local websocket = require("websocket")
 
-**Example:**
-
-```lua
-local ch = client:receive()
-coroutine.spawn(function()
-    while true do
-        local msg, ok = ch:receive()
-        if not ok then
-            print("Connection closed or error occurred")
-            break
-        end
-
-        if msg.type == websocket.TYPE_TEXT then
-            print("Received text:", msg.data)
-        elseif msg.type == websocket.TYPE_CLOSE then
-            print("Server closed connection:", msg.code, msg.reason)
-            break
-        end
-    end
-end)
-```
-
----
-
-## Error Handling
-
-The module returns errors in cases such as:
-
-1. Connection failures (e.g., invalid URL, network issues)
-2. Protocol errors
-3. Timeouts during dialing or message exchange
-4. Invalid message types or operations
-
-Each function returns an error message string on failure that should be checked by the caller.
-
----
-
-## Concurrency and Thread Safety
-
-- **Safe for Multiple Coroutines:** All operations are designed to be safe when called from different coroutines.
-- **Internal State Management:** The module manages the connection state internally.
-- **Synchronized Sends:** Concurrent send operations are automatically synchronized.
-- **Channel-Based Receives:** The receive channel uses our runtime's channel system, ensuring asynchronous delivery of
-  messages. The channel is automatically closed once the connection terminates.
-
----
-
-## Best Practices
-
-1. **Error Checking:** Always verify return values from `connect`, `send`, and other methods.
-2. **Coroutines for Receives:** Use coroutines (or select operations) to process incoming messages from the receive
-   channel.
-3. **Graceful Shutdown:** Use `client:close()` to close connections and free associated resources.
-4. **Timeout Management:** Set appropriate timeouts (dial, read, write, ping, pong) to prevent indefinite blocking.
-5. **Message Handling:** Check the `type` field of received messages to handle text, binary, or control frames (like
-   close) appropriately.
-6. **Use Constants:** Always use the provided constants for message types and close codes instead of magic numbers or
-   strings.
-
----
-
-## Complete Example Usage
-
-```lua
--- Connect to the WebSocket server
-local client, err = websocket.connect("ws://example.com/socket", {
-    headers = { ["User-Agent"] = "Lua WebSocket Client" },
-    dial_timeout = "5s",
-    read_timeout = "30s",
-    write_timeout = "10s",
-    ping_interval = "15s",
-    pong_timeout = "20s"
+local client, err = websocket.connect("wss://echo.websocket.org", {
+    dial_timeout = 5000
 })
-if not client then
-    error("Connection failed: " .. err)
+if err then error(err) end
+
+client:send("Hello WebSocket!")
+
+local ch = client:channel()
+local msg, ok = ch:receive()
+if ok and msg.type == "text" then
+    print("Received:", msg.data)
 end
 
--- Start a receive loop in a coroutine
-coroutine.spawn(function()
-    local ch = client:receive()
-    while true do
-        local msg, ok = ch:receive()
-        if not ok then
-            print("Connection closed")
-            break
-        end
-
-        if msg.type == websocket.TYPE_TEXT then
-            print("Received:", msg.data)
-        elseif msg.type == websocket.TYPE_CLOSE then
-            print("Server closed connection:", msg.code, msg.reason)
-            break
-        elseif msg.type == websocket.TYPE_PING then
-            -- Library handles pings automatically, but you can still observe them
-            print("Received ping")
-        end
-    end
-end)
-
--- Send a message
-local ok, err = client:send("Hello")
-if not ok then
-    print("Send failed:", err)
-end
-
--- Later, gracefully close the connection
-client:close(websocket.CLOSE_CODES.NORMAL, "Goodbye")
+client:close(websocket.CLOSE_CODES.NORMAL)
 ```
-
----
-
-This complete spec includes all WebSocket message type constants and close codes, uses the global context automatically
-behind the scenes, and provides fine-grained timeout controls that align with idiomatic patterns.

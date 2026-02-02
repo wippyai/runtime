@@ -1,0 +1,111 @@
+version: "1.0"
+namespace: app.test.template
+
+entries:
+  # Template set for testing
+  - name: test_set
+    kind: template.set
+    engine:
+      development_mode: true
+      delimiters:
+        left: "{{"
+        right: "}}"
+      globals:
+        siteName: "Test Site"
+        version: "1.0.0"
+
+  # Base layout template
+  - name: base
+    kind: template.jet
+    meta:
+      name: base
+    set: app.test.template:test_set
+    source: "<!DOCTYPE html><html><head><title>{{yield title()}}</title></head><body>{{yield body()}}</body></html>"
+
+  # Page that extends base
+  - name: page
+    kind: template.jet
+    meta:
+      name: page
+    set: app.test.template:test_set
+    source: "{{extends \"base\"}}\n{{block title()}}{{title}}{{end}}\n{{block body()}}<h1>{{heading}}</h1><p>{{bodyText}}</p>{{end}}"
+
+  # Simple greeting template
+  - name: greeting
+    kind: template.jet
+    meta:
+      name: greeting
+    set: app.test.template:test_set
+    source: "Hello, {{name}}!"
+
+  # Template with globals
+  - name: with_globals
+    kind: template.jet
+    meta:
+      name: with_globals
+    set: app.test.template:test_set
+    source: "Site: {{siteName}}, Version: {{version}}"
+
+  # Template with array iteration
+  - name: list
+    kind: template.jet
+    meta:
+      name: list
+    set: app.test.template:test_set
+    source: "Items: {{range i, item := items}}{{if i > 0}}, {{end}}{{item}}{{end}}"
+
+  # Test: basic render
+  - name: basic_render
+    kind: function.lua
+    meta:
+      type: test
+      suite: template
+      description: basic template rendering
+    source: file://basic_render.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - templates
+
+  # Test: render with variables
+  - name: variables
+    kind: function.lua
+    meta:
+      type: test
+      suite: template
+      description: template rendering with variables
+    source: file://variables.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - templates
+
+  # Test: template inheritance
+  - name: inheritance
+    kind: function.lua
+    meta:
+      type: test
+      suite: template
+      description: template inheritance (extends/blocks)
+    source: file://inheritance.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - templates
+
+  # Test: error handling
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: template
+      description: template error handling
+    source: file://errors.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - templates

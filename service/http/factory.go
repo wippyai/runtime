@@ -2,17 +2,29 @@ package http
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"path"
 	"strings"
 
-	"github.com/ponyruntime/pony/api/fs"
-	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
-	config "github.com/ponyruntime/pony/api/service/http"
+	contextapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/fs"
+	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/runtime"
+	config "github.com/wippyai/runtime/api/service/http"
 )
+
+// newRequestContext creates a RequestContext for the request.
+// Note: We don't pool RequestContext because the Lua worker may still be
+// accessing it after the HTTP handler returns (e.g., when request is canceled
+// but the pool worker is still executing). Pooling would cause races.
+func newRequestContext(r *http.Request, w http.ResponseWriter) *config.RequestContext {
+	ctx := &config.RequestContext{}
+	ctx.SetRequest(r)
+	ctx.SetResponseWriter(w)
+	ctx.ResetHandled()
+	return ctx
+}
 
 // EndpointFactory creates HTTP handlers for function endpoints
 type EndpointFactory struct {
@@ -25,7 +37,7 @@ var _ EndpointFactoryAPI = (*EndpointFactory)(nil)
 // NewEndpointFactory creates a new endpoint factory instance with the provided function registry
 func NewEndpointFactory(funcs function.Registry) (*EndpointFactory, error) {
 	if funcs == nil {
-		return nil, fmt.Errorf("function registry is required")
+		return nil, ErrFunctionRegistryRequired
 	}
 	return &EndpointFactory{
 		funcs: funcs,
@@ -35,14 +47,36 @@ func NewEndpointFactory(funcs function.Registry) (*EndpointFactory, error) {
 // CreateHandler creates an HTTP handler from the provided endpoint configuration
 func (f *EndpointFactory) CreateHandler(_ context.Context, cfg *config.EndpointConfig) (http.Handler, error) {
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid endpoint config: %w", err)
+		return nil, NewInvalidEndpointConfigError(err)
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rCtx := config.NewRequestContext(r, w)
-		execCtx := context.WithValue(r.Context(), config.RequestCtx, rCtx)
+		// Create RequestContext for this request
+		rCtx := newRequestContext(r, w)
 
-		resultCh, err := f.funcs.Call(execCtx, runtime.Task{ID: cfg.Func})
+		// Use existing context (FrameContext already created in handler wrapper)
+		execCtx := r.Context()
+
+		// Seal the frame context before calling the function
+		// This allows middleware to set values (actor, etc.) in unsealed frame
+		// while preventing request context from leaking to child functions
+		fc := contextapi.FrameFromContext(execCtx)
+		if fc != nil {
+			fc.Seal()
+		}
+
+		// Create task with request context as pairs (not in frame)
+		// This prevents request context from leaking to child function calls
+		// Note: We don't pre-read the body here - the Lua function can access it
+		// via req:body() or req:stream() as needed
+		task := runtime.Task{
+			ID: cfg.Func,
+			Context: []contextapi.Pair{
+				{Key: config.RequestKey(), Value: rCtx},
+			},
+		}
+
+		result, err := f.funcs.Call(execCtx, task)
 		if err != nil {
 			if !rCtx.ResponseHandled() {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -50,27 +84,30 @@ func (f *EndpointFactory) CreateHandler(_ context.Context, cfg *config.EndpointC
 			return
 		}
 
-		select {
-		case result := <-resultCh:
-			if rCtx.ResponseHandled() {
-				return
-			}
+		if rCtx.ResponseHandled() {
+			return
+		}
 
-			if result == nil {
-				http.Error(w, "received nil result", http.StatusInternalServerError)
-				return
+		if result == nil {
+			http.Error(w, "received nil result", http.StatusInternalServerError)
+			return
+		}
+		if result.Error != nil {
+			http.Error(w, result.Error.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// If function returned a result payload, write it as JSON response
+		if result.Value != nil && !rCtx.ResponseHandled() {
+			w.Header().Set("Content-Type", "application/json")
+			if data, ok := result.Value.Data().([]byte); ok {
+				_, _ = w.Write(data)
 			}
-			if result.Error != nil {
-				http.Error(w, result.Error.Error(), http.StatusInternalServerError)
-				return
-			}
-			if !rCtx.ResponseHandled() {
-				http.Error(w, "no response sent", http.StatusInternalServerError)
-			}
-		case <-r.Context().Done():
-			if rCtx.ResponseHandled() {
-				return
-			}
+			return
+		}
+
+		if !rCtx.ResponseHandled() {
+			http.Error(w, "no response sent", http.StatusInternalServerError)
 		}
 	}), nil
 }
@@ -124,55 +161,80 @@ func (h *SPAHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // StaticFactory creates HTTP handlers for static file serving
 type StaticFactory struct {
-	fsReg fs.Registry
+	fsReg             fs.Registry
+	middlewareFactory MiddlewareAPI
 }
 
 // Ensure StaticFactory implements StaticFactoryAPI
 var _ StaticFactoryAPI = (*StaticFactory)(nil)
 
 // NewStaticFactory creates a new static file factory instance with the provided filesystem registry
-func NewStaticFactory(fsReg fs.Registry) (*StaticFactory, error) {
+func NewStaticFactory(fsReg fs.Registry, middlewareFactory MiddlewareAPI) (*StaticFactory, error) {
 	if fsReg == nil {
-		return nil, fmt.Errorf("filesystem registry is required")
+		return nil, ErrFilesystemRegistryRequired
+	}
+	if middlewareFactory == nil {
+		return nil, ErrMiddlewareFactoryRequired
 	}
 	return &StaticFactory{
-		fsReg: fsReg,
+		fsReg:             fsReg,
+		middlewareFactory: middlewareFactory,
 	}, nil
 }
 
 // CreateHandler creates an HTTP handler from the provided static file configuration
 func (f *StaticFactory) CreateHandler(_ context.Context, cfg *config.StaticConfig) (http.Handler, error) {
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid static config: %w", err)
+		return nil, NewInvalidStaticConfigError(err)
 	}
 
 	fsys, ok := f.fsReg.GetFS(cfg.FS.String())
 	if !ok {
-		return nil, fmt.Errorf("filesystem not found: %s", cfg.FS)
+		return nil, NewFilesystemNotFoundError(cfg.FS.String())
 	}
+
+	// Create base handler
+	var handler http.Handler
 
 	// For SPA mode, use our custom handler
-	if cfg.Options.SPA {
-		if cfg.Options.IndexFile == "" {
-			return nil, fmt.Errorf("index file must be specified for SPA mode")
+	if cfg.StaticOptions.SPA {
+		if cfg.StaticOptions.IndexFile == "" {
+			return nil, ErrIndexFileRequired
 		}
-		handler := NewSPAHandler(fsys, cfg.Options.IndexFile)
+		handler = NewSPAHandler(fsys, cfg.StaticOptions.IndexFile)
 
-		if cfg.Options.CacheControl != "" {
-			handler = wrapWithCacheControl(handler, cfg.Options.CacheControl)
+		if cfg.StaticOptions.CacheControl != "" {
+			handler = wrapWithCacheControl(handler, cfg.StaticOptions.CacheControl)
+		}
+	} else {
+		handler = http.FileServer(http.FS(fsys))
+
+		// Always strip the path prefix so the file server receives paths relative to the fs root
+		if cfg.Path != "" && cfg.Path != "/" {
+			handler = http.StripPrefix(cfg.Path, handler)
 		}
 
-		return handler, nil
+		if cfg.StaticOptions.CacheControl != "" {
+			handler = wrapWithCacheControl(handler, cfg.StaticOptions.CacheControl)
+		}
 	}
 
-	handler := http.FileServer(http.FS(fsys))
+	// Apply middleware if configured
+	if len(cfg.Middleware) > 0 {
+		// Build middleware chain
+		middlewareHandlers := make([]func(http.Handler) http.Handler, len(cfg.Middleware))
+		for i, name := range cfg.Middleware {
+			mw, err := f.middlewareFactory.CreateMiddleware(name, cfg.Options)
+			if err != nil {
+				return nil, NewMiddlewareCreateError(name, err)
+			}
+			middlewareHandlers[i] = mw
+		}
 
-	if cfg.Directory != "" {
-		handler = http.StripPrefix(cfg.Path, handler)
-	}
-
-	if cfg.Options.CacheControl != "" {
-		handler = wrapWithCacheControl(handler, cfg.Options.CacheControl)
+		// Apply middleware chain in reverse order
+		for i := len(middlewareHandlers) - 1; i >= 0; i-- {
+			handler = middlewareHandlers[i](handler)
+		}
 	}
 
 	return handler, nil

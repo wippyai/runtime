@@ -1,0 +1,14 @@
+version: "1.0"
+namespace: app.test
+
+entries:
+  - name: base64
+    kind: function.lua
+    meta:
+      type: test
+      suite: base64
+      description: Base64 encoding and decoding
+    source: file://base64.lua
+    method: main
+    modules:
+      - base64

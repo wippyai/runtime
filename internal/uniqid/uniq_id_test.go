@@ -101,4 +101,43 @@ func TestUniqIDGenerator(t *testing.T) {
 			t.Errorf("after %d generations, last Source = %v, want %v", count, last, want)
 		}
 	})
+
+	t.Run("format at boundaries", func(t *testing.T) {
+		tests := []struct {
+			want    string
+			counter uint64
+		}{
+			{"0x00001", 0},                     // first ID (5 digits)
+			{"0xfffff", 0xFFFFE},               // 5 digits max
+			{"0x100000", 0xFFFFF},              // 6 digits start
+			{"0x01000000", 0xFFFFFF},           // 8 digits start
+			{"0x0000000100000000", 0xFFFFFFFF}, // 16 digits start
+		}
+
+		for _, tt := range tests {
+			gen := &Generator{counter: tt.counter}
+			got := gen.Generate()
+			if got != tt.want {
+				t.Errorf("Generate() at counter %x = %v, want %v", tt.counter, got, tt.want)
+			}
+		}
+	})
+}
+
+func BenchmarkGenerate(b *testing.B) {
+	gen := NewGenerator()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = gen.Generate()
+	}
+}
+
+func BenchmarkGenerateParallel(b *testing.B) {
+	gen := NewGenerator()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_ = gen.Generate()
+		}
+	})
 }

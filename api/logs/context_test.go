@@ -1,3 +1,4 @@
+// Package logs provides logging and log management.
 package logs
 
 import (
@@ -6,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -15,12 +17,12 @@ func TestWithLogger(t *testing.T) {
 	// Create a test logger
 	logger := zap.NewExample()
 
-	// Create a context with the logger
-	ctx := context.Background()
+	// Create a context with AppContext
+	ctx := ctxapi.NewRootContext()
 	ctxWithLogger := WithLogger(ctx, logger)
 
-	// Verify the logger was stored in the context
-	storedLogger := ctxWithLogger.Value(loggerCtx)
+	// Verify the logger was stored
+	storedLogger := GetLogger(ctxWithLogger)
 	assert.NotNil(t, storedLogger)
 	assert.Equal(t, logger, storedLogger)
 }
@@ -28,27 +30,21 @@ func TestWithLogger(t *testing.T) {
 // TestGetLogger tests the GetLogger function
 func TestGetLogger(t *testing.T) {
 	tests := []struct {
-		name            string
 		setupContext    func() context.Context
+		name            string
 		expectNopLogger bool
 	}{
 		{
 			name: "context with logger",
 			setupContext: func() context.Context {
-				return WithLogger(context.Background(), zap.NewExample())
+				ctx := ctxapi.NewRootContext()
+				return WithLogger(ctx, zap.NewExample())
 			},
 			expectNopLogger: false,
 		},
 		{
 			name:            "context without logger",
-			setupContext:    context.Background,
-			expectNopLogger: true,
-		},
-		{
-			name: "context with wrong type",
-			setupContext: func() context.Context {
-				return context.WithValue(context.Background(), loggerCtx, "not a logger")
-			},
+			setupContext:    ctxapi.NewRootContext,
 			expectNopLogger: true,
 		},
 	}
@@ -134,4 +130,63 @@ func TestConfigJSON(t *testing.T) {
 	assert.Equal(t, config.PropagateDownstream, unmarshaledConfig.PropagateDownstream)
 	assert.Equal(t, config.StreamToEvents, unmarshaledConfig.StreamToEvents)
 	assert.Equal(t, config.MinLevel, unmarshaledConfig.MinLevel)
+}
+
+func TestEventConstants(t *testing.T) {
+	assert.Equal(t, "logs", System)
+	assert.Equal(t, "logs.entry", Entry)
+	assert.Equal(t, "logs.config.set", SetConfig)
+	assert.Equal(t, "logs.config.get", GetConfig)
+	assert.Equal(t, "logs.config.state", ConfigState)
+}
+
+func TestWithLogger_NoAppContext(t *testing.T) {
+	ctx := context.Background()
+	logger := zap.NewExample()
+
+	ctx = WithLogger(ctx, logger)
+	assert.Equal(t, context.Background(), ctx)
+}
+
+func TestGetLogger_NoAppContext(t *testing.T) {
+	ctx := context.Background()
+	logger := GetLogger(ctx)
+	assert.NotNil(t, logger)
+}
+
+type mockManager struct {
+	config Config
+}
+
+func (m *mockManager) Start(_ context.Context) error { return nil }
+func (m *mockManager) Stop() error                   { return nil }
+func (m *mockManager) GetConfig() Config             { return m.config }
+
+func TestContext_Manager(t *testing.T) {
+	t.Run("with app context", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+
+		mgr := GetManager(ctx)
+		assert.Nil(t, mgr)
+
+		mockMgr := &mockManager{}
+		ctx = WithManager(ctx, mockMgr)
+
+		retrieved := GetManager(ctx)
+		assert.Equal(t, mockMgr, retrieved)
+	})
+
+	t.Run("without app context", func(t *testing.T) {
+		ctx := context.Background()
+
+		mgr := GetManager(ctx)
+		assert.Nil(t, mgr)
+
+		mockMgr := &mockManager{}
+		ctx = WithManager(ctx, mockMgr)
+		assert.Equal(t, context.Background(), ctx)
+
+		mgr = GetManager(ctx)
+		assert.Nil(t, mgr)
+	})
 }

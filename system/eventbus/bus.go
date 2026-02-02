@@ -2,47 +2,50 @@ package eventbus
 
 import (
 	"context"
-	"errors"
-	"fmt"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/internal/wildcard"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/internal/wildcard"
 )
 
-type actionType int
+type actKind int
 
 const (
-	subscribe actionType = iota
-	unsubscribe
-	send
-	stop
+	actSubscribe actKind = iota
+	actUnsubscribe
+	actSend
+	actStop
 )
 
+const defaultQueueCap = 64
+const subscriberChanBuffer = 16
+
 type action struct {
-	actionType  actionType
-	subscribe   sub
-	unsubscribe unsub
-	event       sendEvent
+	ctx         context.Context
+	subscribe   *subscribeRequest
+	unsubscribe *unsubscribeRequest
+	event       event.Event
+	kind        actKind
 }
 
-type sendEvent struct {
-	event event.Event
-	ctx   context.Context
+type subscribeRequest struct {
+	doneCh chan error
+	sub    sub
+}
+
+type unsubscribeRequest struct {
+	doneCh chan struct{}
+	subID  event.SubscriberID
 }
 
 type sub struct {
-	subID   event.SubscriberID
+	ctx     context.Context
 	system  *wildcard.Wildcard
 	kind    *wildcard.Wildcard
 	eventCh chan<- event.Event
-	doneCh  chan bool
-}
-
-type unsub struct {
-	subID  event.SubscriberID
-	doneCh chan bool
+	subID   event.SubscriberID
 }
 
 // Bus is an event bus that handles pub/sub message distribution with support for
@@ -50,29 +53,31 @@ type unsub struct {
 // for subscribing, unsubscribing, and sending events.
 type Bus struct {
 	subscribers       map[event.SubscriberID]sub
-	actions           chan action
+	actionReady       chan struct{}
+	actionQueue       []action
+	spareQueue        []action
 	wg                sync.WaitGroup
 	subscriberCounter uint64
-	closed            chan any
+	actionMu          sync.Mutex
+	closed            atomic.Bool
 }
 
-// NewBus creates a new event bus instance with the provided logger.
-// It initializes internal channels and starts the event handling goroutine.
+// NewBus creates a new event bus instance.
 func NewBus() *Bus {
 	b := &Bus{
 		subscribers: make(map[event.SubscriberID]sub),
-		actions:     make(chan action, 100), // Buffered channel for all actions
-		closed:      make(chan any),
+		actionQueue: make([]action, 0, defaultQueueCap),
+		spareQueue:  make([]action, 0, defaultQueueCap),
+		actionReady: make(chan struct{}, 1), // Buffered so signal never blocks
 	}
 
 	b.wg.Add(1)
-	go b.handleActions()
+	go b.dispatcher()
 
 	return b
 }
 
 // Subscribe creates a new subscription for events from the specified system.
-// It returns a unique subscriber Alias that can be used to unsubscribe later.
 func (b *Bus) Subscribe(
 	ctx context.Context,
 	system event.System,
@@ -82,7 +87,6 @@ func (b *Bus) Subscribe(
 }
 
 // SubscribeP creates a new subscription for events matching both system and kind filters.
-// It supports wildcard patterns in both system and kind parameters.
 func (b *Bus) SubscribeP(
 	ctx context.Context,
 	system event.System,
@@ -94,8 +98,9 @@ func (b *Bus) SubscribeP(
 	}
 
 	if ch == nil {
-		return "", errors.New("nil channel provided")
+		return "", ErrNilChannel
 	}
+
 	subID := b.generateSubscriberID()
 	var w *wildcard.Wildcard
 	if kind != "" {
@@ -109,134 +114,252 @@ func (b *Bus) SubscribeP(
 
 	sub := sub{
 		subID:   subID,
+		ctx:     ctx,
 		system:  sw,
 		kind:    w,
 		eventCh: ch,
-		doneCh:  make(chan bool),
 	}
 
-	select {
-	case b.actions <- action{actionType: subscribe, subscribe: sub}:
-	case <-b.closed:
-		return "", errors.New("bus is closed")
-	case <-ctx.Done():
-		return "", ctx.Err()
+	req := &subscribeRequest{
+		sub:    sub,
+		doneCh: make(chan error, 1),
 	}
 
+	// Enqueue subscribe request
+	if err := b.enqueueAction(action{
+		kind:      actSubscribe,
+		subscribe: req,
+	}); err != nil {
+		return "", err
+	}
+
+	// Wait for response
 	select {
+	case err := <-req.doneCh:
+		return subID, err
 	case <-ctx.Done():
 		return "", ctx.Err()
-	case <-b.closed:
-		return "", errors.New("bus is closed")
-	case <-sub.doneCh:
-		return subID, nil
 	}
 }
 
-// Unsubscribe removes the subscription identified by the given subscriber Alias.
-// It closes the associated event channel.
+// Unsubscribe removes the subscription identified by the given subscriber ID.
 func (b *Bus) Unsubscribe(ctx context.Context, subID event.SubscriberID) {
 	if ctx.Err() != nil {
 		return
 	}
 
-	unsub := unsub{
+	req := &unsubscribeRequest{
 		subID:  subID,
-		doneCh: make(chan bool),
+		doneCh: make(chan struct{}, 1),
 	}
 
-	select {
-	case b.actions <- action{actionType: unsubscribe, unsubscribe: unsub}:
-	case <-b.closed:
-	case <-ctx.Done():
-	}
+	// Enqueue unsubscribe request (ignore error, already closed)
+	_ = b.enqueueAction(action{
+		kind:        actUnsubscribe,
+		unsubscribe: req,
+	})
 
+	// Wait for response
 	select {
+	case <-req.doneCh:
 	case <-ctx.Done():
-	case <-b.closed:
-	case <-unsub.doneCh:
 	}
 }
 
-// Send publishes an event to all matching subscribers based on their system and kind filters.
-// The event delivery is skipped if the context is canceled.
+// Send publishes an event to all matching subscribers.
+// This is guaranteed to never block and never lose messages.
 func (b *Bus) Send(ctx context.Context, e event.Event) {
-	select {
-	case b.actions <- action{actionType: send, event: sendEvent{event: e, ctx: ctx}}:
-	case <-b.closed:
-	case <-ctx.Done():
+	if ctx.Err() != nil {
+		return
 	}
+
+	// Enqueue send event (ignore error if closed)
+	_ = b.enqueueAction(action{
+		kind:  actSend,
+		event: e,
+		ctx:   ctx,
+	})
 }
 
-// todo: add send and block for critical events
-
-// Stop gracefully shuts down the event bus by closing all subscriber channels
-// and stopping the event handling goroutine.
+// Stop gracefully shuts down the event bus.
 func (b *Bus) Stop() {
+	// Atomically set closed and enqueue stop action
+	b.actionMu.Lock()
+	if b.closed.Swap(true) {
+		b.actionMu.Unlock()
+		return // Already closed
+	}
+	b.actionQueue = append(b.actionQueue, action{
+		kind: actStop,
+	})
+	b.actionMu.Unlock()
+
+	// Signal dispatcher
 	select {
-	case b.actions <- action{actionType: stop}:
-	case <-b.closed:
+	case b.actionReady <- struct{}{}:
+	default:
 	}
 
 	b.wg.Wait()
 }
 
-func (b *Bus) handleActions() {
+// enqueueAction adds an action to the queue and signals the dispatcher.
+// Returns error if bus is closed.
+func (b *Bus) enqueueAction(a action) error {
+	b.actionMu.Lock()
+
+	if b.closed.Load() {
+		b.actionMu.Unlock()
+		// Respond to control operations immediately
+		switch a.kind {
+		case actSubscribe:
+			a.subscribe.doneCh <- ErrBusClosed
+		case actUnsubscribe:
+			a.unsubscribe.doneCh <- struct{}{}
+		case actSend:
+			// Silently drop send operations when closed
+		case actStop:
+			// Should not happen, but handle gracefully
+		}
+		return ErrBusClosed
+	}
+
+	b.actionQueue = append(b.actionQueue, a)
+	b.actionMu.Unlock()
+
+	// Signal dispatcher (non-blocking due to buffered channel)
+	select {
+	case b.actionReady <- struct{}{}:
+	default:
+		// Signal already pending, dispatcher will process all queued actions
+	}
+
+	return nil
+}
+
+// dispatcher is the main event loop that processes all operations
+func (b *Bus) dispatcher() {
 	defer b.wg.Done()
 
-	for a := range b.actions {
-		select {
-		case <-b.closed:
-			return
-		default:
-		}
+	for {
+		<-b.actionReady
 
-		switch a.actionType {
-		case subscribe:
-			b.subscribers[a.subscribe.subID] = a.subscribe
-			a.subscribe.doneCh <- true
-		case unsubscribe:
-			b.handleUnsubscribe(a.unsubscribe.subID)
-			a.unsubscribe.doneCh <- true
-		case send:
-			if a.event.ctx.Err() != nil {
-				continue
-			}
-
-			for _, s := range b.subscribers {
-				if s.system != nil && !s.system.Match(a.event.event.System) {
-					continue
-				}
-
-				if s.kind != nil && !s.kind.Match(a.event.event.Kind) {
-					continue
-				}
-
-				select {
-				case <-a.event.ctx.Done():
-					continue
-				case <-b.closed:
-					continue
-				case s.eventCh <- a.event.event:
-					continue
-				}
-			}
-
-		case stop:
-			// todo: possibly have more strategies
-			for id := range b.subscribers {
-				b.handleUnsubscribe(id)
-			}
-			close(b.closed)
-			return
+		if !b.processActions() {
+			return // Stop requested
 		}
 	}
 }
 
-func (b *Bus) handleUnsubscribe(subID event.SubscriberID) {
-	delete(b.subscribers, subID)
+// processActions drains the action queue and processes all actions
+// Returns false if stop was requested
+func (b *Bus) processActions() bool {
+	// Swap queues atomically - reuse spare to avoid allocation
+	b.actionMu.Lock()
+	if len(b.actionQueue) == 0 {
+		b.actionMu.Unlock()
+		return true
+	}
+	actions := b.actionQueue
+	b.actionQueue = b.spareQueue[:0] // reuse spare capacity
+	b.spareQueue = nil               // will be set after processing
+	b.actionMu.Unlock()
+
+	// Process all actions
+	for i := range actions {
+		a := actions[i]
+
+		switch a.kind {
+		case actSubscribe:
+			b.subscribers[a.subscribe.sub.subID] = a.subscribe.sub
+			a.subscribe.doneCh <- nil
+
+		case actUnsubscribe:
+			delete(b.subscribers, a.unsubscribe.subID)
+			a.unsubscribe.doneCh <- struct{}{}
+
+		case actSend:
+			if a.ctx.Err() != nil {
+				continue
+			}
+
+			var expiredSubs []event.SubscriberID
+
+			for id, s := range b.subscribers {
+				// Check filters
+				if s.system != nil && !s.system.Match(a.event.System) {
+					continue
+				}
+				if s.kind != nil && !s.kind.Match(a.event.Kind) {
+					continue
+				}
+
+				// Check contexts and deliver
+				select {
+				case <-a.ctx.Done():
+					goto cleanup
+				case <-s.ctx.Done():
+					expiredSubs = append(expiredSubs, id)
+					continue
+				case s.eventCh <- a.event:
+				}
+			}
+
+		cleanup:
+			// Clean up expired subscribers
+			for _, id := range expiredSubs {
+				delete(b.subscribers, id)
+			}
+
+		case actStop:
+			// Clean up all subscribers
+			b.subscribers = make(map[event.SubscriberID]sub)
+
+			// Clear references to prevent memory leaks
+			clear(actions)
+
+			// Drain remaining actions and reject any control requests
+			b.drainQueue()
+
+			return false // Signal to exit dispatcher
+		}
+	}
+
+	// Clear references to prevent memory leaks, then recycle slice
+	clear(actions)
+	b.actionMu.Lock()
+	b.spareQueue = actions[:0]
+	b.actionMu.Unlock()
+
+	return true
+}
+
+// drainQueue processes remaining actions after stop, rejecting control operations
+func (b *Bus) drainQueue() {
+	b.actionMu.Lock()
+	remaining := b.actionQueue
+	b.actionQueue = nil
+	b.spareQueue = nil
+	b.actionMu.Unlock()
+
+	// Process remaining actions
+	for i := range remaining {
+		a := remaining[i]
+
+		switch a.kind {
+		case actSubscribe:
+			// Reject with error
+			a.subscribe.doneCh <- ErrBusClosed
+		case actUnsubscribe:
+			// Acknowledge unsubscribe (no-op since we're stopping)
+			a.unsubscribe.doneCh <- struct{}{}
+		case actSend:
+			// Drop send events during shutdown
+		case actStop:
+			// Ignore additional stop actions
+		}
+	}
 }
 
 func (b *Bus) generateSubscriberID() event.SubscriberID {
-	return fmt.Sprintf("sub.%d", atomic.AddUint64(&b.subscriberCounter, 1))
+	return "sub." + strconv.FormatUint(atomic.AddUint64(&b.subscriberCounter, 1), 10)
 }

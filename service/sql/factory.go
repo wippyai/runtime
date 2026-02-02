@@ -1,20 +1,20 @@
 package sql
 
 import (
+	"context"
 	"database/sql"
-	"fmt"
 
-	"github.com/ponyruntime/pony/api/registry"
-	config "github.com/ponyruntime/pony/api/service/sql"
+	"github.com/wippyai/runtime/api/registry"
+	config "github.com/wippyai/runtime/api/service/sql"
 )
 
 // PoolFactoryAPI defines the interface for creating database connection pools
 type PoolFactoryAPI interface {
 	// CreateStandardPool creates a connection pool for standard SQL databases (Postgres, MySQL)
-	CreateStandardPool(kind registry.Kind, cfg *config.DBConfig) (*ConnPool, error)
+	CreateStandardPool(ctx context.Context, kind registry.Kind, cfg *config.DBConfig) (*ConnPool, error)
 
 	// CreateSQLitePool creates a connection pool for SQLite databases
-	CreateSQLitePool(cfg *config.SQLiteConfig) (*ConnPool, error)
+	CreateSQLitePool(ctx context.Context, cfg *config.SQLiteConfig) (*ConnPool, error)
 }
 
 // DefaultPoolFactory is the default implementation of PoolFactoryAPI
@@ -26,19 +26,19 @@ func NewDefaultPoolFactory() PoolFactoryAPI {
 }
 
 // CreateStandardPool implements PoolFactoryAPI.CreateStandardPool
-func (f *DefaultPoolFactory) CreateStandardPool(kind registry.Kind, cfg *config.DBConfig) (*ConnPool, error) {
+func (f *DefaultPoolFactory) CreateStandardPool(_ context.Context, kind registry.Kind, cfg *config.DBConfig) (*ConnPool, error) {
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid configuration: %w", err)
+		return nil, NewInvalidConfigError(err)
 	}
 
 	dsn, err := buildDSN(kind, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("invalid connection config: %w", err)
+		return nil, NewInvalidDSNError(err)
 	}
 
 	db, err := sql.Open(getDriver(kind), dsn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create connection pool: %w", err)
+		return nil, NewConnectionPoolCreationError(err)
 	}
 
 	// Configure pool settings
@@ -59,9 +59,9 @@ func (f *DefaultPoolFactory) CreateStandardPool(kind registry.Kind, cfg *config.
 }
 
 // CreateSQLitePool implements PoolFactoryAPI.CreateSQLitePool
-func (f *DefaultPoolFactory) CreateSQLitePool(cfg *config.SQLiteConfig) (*ConnPool, error) {
+func (f *DefaultPoolFactory) CreateSQLitePool(ctx context.Context, cfg *config.SQLiteConfig) (*ConnPool, error) {
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid configuration: %w", err)
+		return nil, NewInvalidConfigError(err)
 	}
 
 	var dsn string
@@ -71,18 +71,18 @@ func (f *DefaultPoolFactory) CreateSQLitePool(cfg *config.SQLiteConfig) (*ConnPo
 		dsn = ":memory:"
 	} else {
 		// Use the file path directly
-		dsn = fmt.Sprintf("file:%s?mode=rwc", cfg.File)
+		dsn = "file:" + cfg.File + "?mode=rwc"
 	}
 
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create SQLite connection: %w", err)
+		return nil, NewSQLiteConnectionCreationError(err)
 	}
 
 	// Enable WAL mode for better concurrency
-	if _, err := db.Exec("PRAGMA journal_mode=WAL;"); err != nil {
+	if _, err := db.ExecContext(ctx, "PRAGMA journal_mode=WAL;"); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
+		return nil, NewWALModeError(err)
 	}
 
 	// SQLite specific settings
@@ -91,7 +91,7 @@ func (f *DefaultPoolFactory) CreateSQLitePool(cfg *config.SQLiteConfig) (*ConnPo
 	db.SetConnMaxLifetime(cfg.Pool.MaxLifetime)
 
 	pool := &ConnPool{
-		kind:   config.KindSQLite,
+		kind:   config.SQLite,
 		db:     db,
 		status: make(chan any, 1),
 	}

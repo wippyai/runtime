@@ -1,24 +1,58 @@
-// Package context is used to pass context between different parts of the application and not allocate
+// Package context provides application-level context management utilities.
+// It includes AppContext for global key-value storage and FrameContext for
+// hierarchical scoped values with parent-child relationships.
 package context
 
-// Key represents a context key used for storing and retrieving values from the context.
-// It provides a type-safe way to store context values using string names.
-type Key struct {
-	Name string
-}
+import "github.com/wippyai/runtime/api/attrs"
 
-func (ck *Key) String() string {
-	return ck.Name
-}
+type (
+	// Key represents a context key used for storing and retrieving values.
+	// When Inherit is true, the value will be automatically copied to new frames
+	// created from sealed parent frames.
+	Key struct {
+		Name    string
+		Inherit bool
+	}
 
-// todo: move to individual packages and make proper accessor funcs
-var (
-	// EnvCtx represents the environment variables context key
-	EnvCtx = &Key{Name: "env"}
-	// ValuesCtx represents the values storage context key
-	ValuesCtx = &Key{Name: "values"}
-	// WakeUpKey represents a callback that can be used to notify process host about async process activity
-	WakeUpKey = &Key{Name: "wakeup"}
-	// TerminalCtx represents the terminal manager context key
-	TerminalCtx = &Key{Name: "terminal"}
+	// Pair represents a key-value pair for batch operations.
+	Pair struct {
+		Key   any
+		Value any
+	}
+
+	// Cloner is implemented by types that can create a copy of themselves.
+	// Used during frame inheritance to prevent shared mutable state.
+	Cloner interface {
+		Clone() any
+	}
+
+	// Propagator is implemented by values that need transformation for cross-process propagation.
+	// When spawning a child process, values implementing this interface will have PropagateValue()
+	// called to get the appropriate cross-process representation.
+	// Return nil to skip propagation entirely.
+	Propagator interface {
+		PropagateValue() any
+	}
+
+	// Closer is implemented by values that need cleanup when frame is released.
+	Closer interface {
+		Close() error
+	}
+
+	// CloserFunc is a function that implements Closer interface.
+	CloserFunc func() error
+
+	// Values is an alias to attrs.Bag for storing arbitrary key-value pairs.
+	Values = attrs.Bag
 )
+
+// String returns the key name.
+func (ck *Key) String() string { return ck.Name }
+
+// Close implements Closer interface.
+func (f CloserFunc) Close() error { return f() }
+
+// NewValues creates a new Values instance.
+func NewValues() Values {
+	return attrs.NewBag()
+}

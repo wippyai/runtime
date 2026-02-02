@@ -1,25 +1,31 @@
 package security
 
 import (
-	"github.com/ponyruntime/pony/api/registry"
-	secapi "github.com/ponyruntime/pony/api/security"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	securityapi "github.com/ponyruntime/pony/runtime/lua/security"
-	lua "github.com/yuin/gopher-lua"
+	"github.com/wippyai/runtime/api/registry"
+	secapi "github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/security"
+	lua "github.com/wippyai/go-lua"
 )
 
-const ScopeMetatable = "security.Scope"
+const scopeTypeName = "security.Scope"
 
-// wrapScope wraps a security.Scope as a Lua userdata
+var scopeMethods = map[string]lua.LGoFunc{
+	"with":     scopeWith,
+	"without":  scopeWithout,
+	"evaluate": scopeEvaluate,
+	"contains": scopeContains,
+	"policies": scopePolicies,
+}
+
 func wrapScope(l *lua.LState, scope secapi.Scope) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = scope
-	ud.Metatable = value.GetTypeMetatable(l, ScopeMetatable)
+	ud.Metatable = value.GetTypeMetatable(l, scopeTypeName)
 	return ud
 }
 
-// checkScope checks if the first argument is a Scope and returns it
-func checkScope(l *lua.LState) secapi.Scope {
+func checkScope(l *lua.LState, _ int) secapi.Scope {
 	ud := l.CheckUserData(1)
 	if scope, ok := ud.Value.(secapi.Scope); ok {
 		return scope
@@ -28,88 +34,62 @@ func checkScope(l *lua.LState) secapi.Scope {
 	return nil
 }
 
-// registerScopeType registers the Scope type and methods
-func registerScopeType(l *lua.LState) {
-	value.RegisterMethods(l, ScopeMetatable, map[string]lua.LGFunction{
-		"with":     scopeWith,
-		"without":  scopeWithout,
-		"evaluate": scopeEvaluate,
-		"contains": scopeContains,
-		"policies": scopePolicies,
-	})
-}
-
-// scopeWith adds a policy to the scope
 func scopeWith(l *lua.LState) int {
-	scope := checkScope(l)
+	scope := checkScope(l, 1)
 	if scope == nil {
 		return 0
 	}
-
 	policyUD := l.CheckUserData(2)
-	policy, ok := policyUD.Value.(secapi.Policy)
+	pol, ok := policyUD.Value.(secapi.Policy)
 	if !ok {
 		l.ArgError(2, "Policy expected")
 		return 0
 	}
 
-	if !securityapi.IsAllowed(l.Context(), "security.scope.create", "with", nil) {
+	ctx := l.Context()
+	if ctx == nil || !security.IsAllowed(ctx, "security.scope.create", "with", nil) {
 		l.RaiseError("not allowed to add policy to scope")
 		return 0
 	}
 
-	newScope := scope.With(policy)
+	newScope := scope.With(pol)
 	l.Push(wrapScope(l, newScope))
 	return 1
 }
 
-// scopeWithout removes a policy from the scope
 func scopeWithout(l *lua.LState) int {
-	scope := checkScope(l)
+	scope := checkScope(l, 1)
 	if scope == nil {
 		return 0
 	}
-
-	// Check if the policy ID is passed as string or ID object
 	var policyID registry.ID
 
-	switch l.Get(2).Type() {
-	case lua.LTString:
-		idStr := l.CheckString(2)
-		policyID = registry.ParseID(idStr)
-	case lua.LTUserData:
-		// Assuming userdata might be a Policy with ID() method
-		policyUD := l.CheckUserData(2)
-		if policy, ok := policyUD.Value.(secapi.Policy); ok {
-			policyID = policy.ID()
+	arg := l.Get(2)
+	switch v := arg.(type) {
+	case lua.LString:
+		policyID = registry.ParseID(string(v))
+	case *lua.LUserData:
+		if pol, ok := v.Value.(secapi.Policy); ok {
+			policyID = pol.ID()
 		} else {
 			l.ArgError(2, "Policy or policy ID string expected")
 			return 0
 		}
-	case lua.LTTable:
-		// ID might be represented as a table with ns and name fields
-		idTable := l.CheckTable(2)
-		ns := idTable.RawGetString("ns")
-		name := idTable.RawGetString("name")
-
+	case *lua.LTable:
+		ns := v.RawGetString("ns")
+		name := v.RawGetString("name")
 		if ns == lua.LNil || name == lua.LNil {
 			l.ArgError(2, "ID table must have ns and name fields")
 			return 0
 		}
-
-		policyID = registry.ID{
-			NS:   ns.String(),
-			Name: name.String(),
-		}
-	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTFunction, lua.LTThread, lua.LTChannel:
-		// FIXME rework on demand
-		fallthrough
+		policyID = registry.NewID(ns.String(), name.String())
 	default:
 		l.ArgError(2, "Policy ID expected as string, table, or policy object")
 		return 0
 	}
 
-	if !securityapi.IsAllowed(l.Context(), "security.scope.create", "without", nil) {
+	ctx := l.Context()
+	if ctx == nil || !security.IsAllowed(ctx, "security.scope.create", "without", nil) {
 		l.RaiseError("not allowed to remove policy from scope")
 		return 0
 	}
@@ -119,36 +99,19 @@ func scopeWithout(l *lua.LState) int {
 	return 1
 }
 
-// scopeEvaluate evaluates if an action is allowed
 func scopeEvaluate(l *lua.LState) int {
-	scope := checkScope(l)
+	scope := checkScope(l, 1)
 	if scope == nil {
 		return 0
 	}
-
-	// Get actor
-	actorUD := l.CheckUserData(2)
-	actor, ok := actorUD.Value.(secapi.Actor)
-	if !ok {
-		l.ArgError(2, "Actor expected")
-		return 0
-	}
-
-	// Get action and resource
+	actor := checkActor(l, 2)
 	action := l.CheckString(3)
-	resourceStr := l.CheckString(4)
+	resource := l.CheckString(4)
 
-	// Get metadata (optional)
-	meta, err := optMetadataFromLuaTable(l, 5)
-	if err != nil {
-		l.RaiseError("%s", err.Error())
-		return 0
-	}
+	meta := optMetadataFromLuaTable(l, 5)
 
-	// Evaluate the action
-	result := scope.Evaluate(actor, action, resourceStr, meta)
+	result := scope.Evaluate(actor, action, resource, meta)
 
-	// Convert result to Lua value
 	var resultValue lua.LValue
 	switch result {
 	case secapi.Allow:
@@ -165,47 +128,32 @@ func scopeEvaluate(l *lua.LState) int {
 	return 1
 }
 
-// scopeContains checks if a policy is in the scope
 func scopeContains(l *lua.LState) int {
-	scope := checkScope(l)
+	scope := checkScope(l, 1)
 	if scope == nil {
 		return 0
 	}
-
-	// Get policy ID
 	var policyID registry.ID
 
-	switch l.Get(2).Type() {
-	case lua.LTString:
-		idStr := l.CheckString(2)
-		policyID = registry.ParseID(idStr)
-	case lua.LTUserData:
-		// Check if userdata is a Policy
-		policyUD := l.CheckUserData(2)
-		if policy, ok := policyUD.Value.(secapi.Policy); ok {
-			policyID = policy.ID()
+	arg := l.Get(2)
+	switch v := arg.(type) {
+	case lua.LString:
+		policyID = registry.ParseID(string(v))
+	case *lua.LUserData:
+		if pol, ok := v.Value.(secapi.Policy); ok {
+			policyID = pol.ID()
 		} else {
 			l.ArgError(2, "Policy or policy ID string expected")
 			return 0
 		}
-	case lua.LTTable:
-		// ID might be represented as a table with ns and name fields
-		idTable := l.CheckTable(2)
-		ns := idTable.RawGetString("ns")
-		name := idTable.RawGetString("name")
-
+	case *lua.LTable:
+		ns := v.RawGetString("ns")
+		name := v.RawGetString("name")
 		if ns == lua.LNil || name == lua.LNil {
 			l.ArgError(2, "ID table must have ns and name fields")
 			return 0
 		}
-
-		policyID = registry.ID{
-			NS:   ns.String(),
-			Name: name.String(),
-		}
-	case lua.LTNil, lua.LTBool, lua.LTNumber, lua.LTFunction, lua.LTThread, lua.LTChannel:
-		// FIXME rework on demand
-		fallthrough
+		policyID = registry.NewID(ns.String(), name.String())
 	default:
 		l.ArgError(2, "Policy ID expected as string, table, or policy object")
 		return 0
@@ -215,19 +163,16 @@ func scopeContains(l *lua.LState) int {
 	return 1
 }
 
-// scopePolicies returns all policies in the scope
 func scopePolicies(l *lua.LState) int {
-	scope := checkScope(l)
+	scope := checkScope(l, 1)
 	if scope == nil {
 		return 0
 	}
-
 	policies := scope.Policies()
 
-	// Convert policies to Lua table
-	policiesTable := l.CreateTable(len(policies), 0)
-	for i, policy := range policies {
-		policyUD := wrapPolicy(l, policy)
+	policiesTable := lua.CreateTable(len(policies), 0)
+	for i, pol := range policies {
+		policyUD := wrapPolicy(l, pol)
 		policiesTable.RawSetInt(i+1, policyUD)
 	}
 

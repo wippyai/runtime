@@ -1,131 +1,124 @@
-# Lua Environment Module Specification
+# env
 
-## Overview
+Environment variable access. Process, nondeterministic.
 
-The `env` module provides a Lua interface for accessing environment variables that are shared from the Go runtime. It
-allows
-Lua code to retrieve environment variables in a safe and controlled manner.
-
-## Module Interface
-
-### Module Loading
+## Loading
 
 ```lua
 local env = require("env")
 ```
 
-### Functions
+## Functions
 
-#### env.get(key: string)
+### get(key: string) → string, error
 
-Retrieves the value of a specific environment variable.
+Gets the value of an environment variable.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| key | string | yes | - | Environment variable name |
 
-- `key`: String identifier for the environment variable to retrieve
+**Returns:** `string` - Variable value, or `nil, error` on failure
 
-Returns:
+**Errors (structured):**
 
-- `value`: The value of the environment variable (or nil if not found)
-- `error`: Error message string (or nil on success)
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Empty key | errors.INVALID | no |
+| Variable not found | errors.NOT_FOUND | no |
+| Permission denied | errors.PERMISSION_DENIED | no |
+| No context | errors.INTERNAL | no |
+| Registry not found | errors.INTERNAL | no |
 
-Example:
+**Notes:**
+- Subject to security policy restrictions
+- May access OS environment or runtime-managed storage
+
+### set(key: string, value: string) → boolean, error
+
+Sets the value of an environment variable.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| key | string | yes | - | Environment variable name |
+| value | string | yes | - | Value to set |
+
+**Returns:** `true` on success, or `nil, error` on failure
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Empty key | errors.INVALID | no |
+| Permission denied | errors.PERMISSION_DENIED | no |
+| No context | errors.INTERNAL | no |
+| Registry not found | errors.INTERNAL | no |
+
+**Notes:**
+- Subject to security policy restrictions
+- May write to runtime-managed storage, not OS environment
+- Overwrites existing values
+
+### get_all() → table, error
+
+Gets all accessible environment variables.
+
+**Returns:** `table` - Map of variable names to values, or `nil, error` on failure
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| No context | errors.INTERNAL | no |
+| Registry not found | errors.INTERNAL | no |
+
+**Notes:**
+- Only includes variables permitted by security policy
+- Returns both OS environment and runtime-managed variables
+- Empty table if no variables are accessible
+
+## Errors
+
+This module returns structured errors. Check kind with `errors.*` constants:
 
 ```lua
-local value, err = env.get("PATH")
+local val, err = env.get("MY_VAR")
 if err then
-    print("Error:", err)
-else
-    print("PATH =", value)
-end
-```
-
-#### env.get_all()
-
-Retrieves all available environment variables as a table.
-
-Returns:
-
-- `table`: Table containing all environment variables (key-value pairs)
-- `error`: Error message string (or nil on success)
-
-Example:
-
-```lua
-local vars, err = env.get_all()
-if err then
-    print("Error:", err)
-else
-    for k, v in pairs(vars) do
-        print(k, "=", v)
+    if err:kind() == errors.NOT_FOUND then
+        -- variable doesn't exist
+    elseif err:kind() == errors.PERMISSION_DENIED then
+        -- access denied by security policy
+    elseif err:kind() == errors.INVALID then
+        -- empty key
     end
 end
 ```
 
-## Error Handling
+**Possible kinds:** `errors.INVALID`, `errors.NOT_FOUND`, `errors.PERMISSION_DENIED`, `errors.INTERNAL`
 
-The module returns errors in the following cases:
-
-1. **Missing Context:** When no context is found or the context is invalid
+## Example
 
 ```lua
-local value, err = env.get("PATH")  -- err: "no context found" or "invalid environment context"
-```
+local env = require("env")
 
-2. **Empty Key:** When an empty key is provided
+-- Get environment variable
+local path, err = env.get("PATH")
+if err then error(err) end
+print(path)
 
-```lua
-local value, err = env.get("")  -- err: "empty key provided"
-```
+-- Set environment variable
+local ok, err = env.set("MY_VAR", "my_value")
+if err then error(err) end
 
-3. **Variable Not Found:** When the requested environment variable doesn't exist
+-- Read it back
+local val, err = env.get("MY_VAR")
+if err then error(err) end
+print(val)  -- "my_value"
 
-```lua
-local value, err = env.get("NON_EXISTENT")  -- err: "environment variable not found: NON_EXISTENT"
-```
-
-## Best Practices
-
-1. **Always check for errors:** Check both the value and error return values
-
-```lua
-local value, err = env.get("MY_VAR")
-if err then
-    -- Handle error
-    return nil, err
-end
--- Use value
-```
-
-2. **Use meaningful variable names:** Choose clear and descriptive environment variable names
-
-3. **Cache frequently used values:** If you need to access the same environment variable multiple times
-
-```lua
-local config_path, err = env.get("CONFIG_PATH")
-if err then
-    return nil, err
-end
--- Use config_path multiple times
-```
-
-4. **Validate environment variables early:** Check for required environment variables at startup
-
-```lua
-local function check_required_env()
-    local required = {"API_KEY", "DATABASE_URL", "PORT"}
-    for _, key in ipairs(required) do
-        local value, err = env.get(key)
-        if err then
-            return false, "Missing required env var: " .. key
-        end
-    end
-    return true
+-- Get all accessible variables
+local all, err = env.get_all()
+if err then error(err) end
+for k, v in pairs(all) do
+    print(k, v)
 end
 ```
-
-## Thread Safety
-
-- The environment module is thread-safe
-- Values are read-only from the Lua side
-- Environment variables are managed by the Go runtime

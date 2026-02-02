@@ -1,0 +1,75 @@
+version: "1.0"
+namespace: app.test.eval
+
+entries:
+  - name: runner_compile
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval
+      description: eval_runner compile function
+    source: file://runner_compile.lua
+    method: main
+    modules:
+      - eval_runner
+      - json
+    imports:
+      assert: app.lib:assert
+
+  - name: runner_run
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval
+      description: eval_runner run function
+    source: file://runner_run.lua
+    method: main
+    modules:
+      - eval_runner
+      - json
+    imports:
+      assert: app.lib:assert
+
+  - name: runner_allow_classes
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval
+      description: eval_runner allow_classes feature
+    source: file://runner_allow_classes.lua
+    method: main
+    modules:
+      - eval_runner
+    imports:
+      assert: app.lib:assert
+    security:
+      - action: eval.run
+        resource: ""
+      - action: eval.module
+        resource: http_client
+      - action: eval.class
+        resource: network
+      - action: eval.class
+        resource: io
+
+  - name: runner_imports
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval
+      description: eval_runner imports feature
+    source: file://runner_imports.lua
+    method: main
+    modules:
+      - eval_runner
+      - json
+    imports:
+      assert: app.lib:assert
+    security:
+      - action: eval.run
+        resource: ""
+      - action: eval.module
+        resource: json
+      - action: eval.import
+        resource: app.lib:test_sdk
+
