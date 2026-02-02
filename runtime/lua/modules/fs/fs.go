@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	lua "github.com/wippyai/go-lua"
 	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	lua "github.com/wippyai/go-lua"
 )
 
 type FS struct {

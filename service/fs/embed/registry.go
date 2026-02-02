@@ -7,10 +7,10 @@ import (
 	"os"
 	"sync"
 
-	"github.com/wippyai/wapp"
 	"github.com/wippyai/runtime/api/registry"
 	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
 	systemfs "github.com/wippyai/runtime/system/fs"
+	"github.com/wippyai/wapp"
 )
 
 // Registry implements embedapi.Registry by storing Readers.

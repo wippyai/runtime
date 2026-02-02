@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/wippyai/runtime/api/runtime/workflow"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/runtime/workflow"
 )
 
 func TestNewYield(t *testing.T) {

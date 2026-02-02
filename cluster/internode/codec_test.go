@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
@@ -12,7 +13,6 @@ import (
 	"github.com/wippyai/runtime/system/payload/json"
 	"github.com/wippyai/runtime/system/payload/msgpack"
 	"github.com/wippyai/runtime/system/payload/yaml"
-	lua "github.com/wippyai/go-lua"
 )
 
 // mockTranscoder for testing

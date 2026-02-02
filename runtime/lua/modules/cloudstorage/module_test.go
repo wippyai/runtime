@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	csapi "github.com/wippyai/runtime/api/cloudstorage"
 	lua "github.com/wippyai/go-lua"
+	csapi "github.com/wippyai/runtime/api/cloudstorage"
 )
 
 func TestModuleLoads(t *testing.T) {

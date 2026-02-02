@@ -5,10 +5,10 @@ import (
 	"testing"
 	stdtime "time"
 
+	lua "github.com/wippyai/go-lua"
 	clockapi "github.com/wippyai/runtime/api/clock"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/runtime/lua/engine"
-	lua "github.com/wippyai/go-lua"
 )
 
 func TestSleepYieldPool(t *testing.T) {

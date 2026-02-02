@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
+	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/runtime/workflow"
 	luaworkflow "github.com/wippyai/runtime/runtime/lua/workflow"
-	lua "github.com/wippyai/go-lua"
 )
 
 func TestUUIDV4_NormalMode(t *testing.T) {

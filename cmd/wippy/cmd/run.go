@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/wippyai/wapp"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/boot"
@@ -35,6 +34,7 @@ import (
 	"github.com/wippyai/runtime/cmd/internal/shutdown"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
 	supervisorpkg "github.com/wippyai/runtime/system/supervisor"
+	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )

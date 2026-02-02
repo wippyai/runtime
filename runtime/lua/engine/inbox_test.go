@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
@@ -11,7 +12,6 @@ import (
 	"github.com/wippyai/runtime/api/topology"
 	luapayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	systempayload "github.com/wippyai/runtime/system/payload"
-	lua "github.com/wippyai/go-lua"
 )
 
 // Inbox Tests

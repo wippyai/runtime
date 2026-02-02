@@ -3,8 +3,8 @@ package payload
 import (
 	"testing"
 
-	"github.com/wippyai/runtime/api/payload"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/payload"
 )
 
 func TestToMsgPack_Transcode(t *testing.T) {

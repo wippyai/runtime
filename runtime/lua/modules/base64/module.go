@@ -3,8 +3,8 @@ package base64
 import (
 	"encoding/base64"
 
-	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/wippyai/go-lua"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 )
 
 // Module is the base64 module definition.

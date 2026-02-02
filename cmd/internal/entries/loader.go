@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/wippyai/wapp"
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/payload"
@@ -21,6 +20,7 @@ import (
 	"github.com/wippyai/runtime/cmd/internal/hubclient"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
 	regtop "github.com/wippyai/runtime/system/registry/topology"
+	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
 

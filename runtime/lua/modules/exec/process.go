@@ -5,11 +5,11 @@ import (
 	"sync"
 	"syscall"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	apiexec "github.com/wippyai/runtime/api/service/exec"
 	"github.com/wippyai/runtime/runtime/lua/modules/stream"
 	fsstream "github.com/wippyai/runtime/system/stream"
-	lua "github.com/wippyai/go-lua"
 )
 
 type Process struct {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apicontract "github.com/wippyai/runtime/api/contract"
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -32,7 +33,6 @@ import (
 	sysrelay "github.com/wippyai/runtime/system/relay"
 	"github.com/wippyai/runtime/system/scheduler"
 	"github.com/wippyai/runtime/system/scheduler/actor"
-	lua "github.com/wippyai/go-lua"
 	"go.uber.org/zap"
 )
 

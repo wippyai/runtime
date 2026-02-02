@@ -4,10 +4,10 @@ package evalhost
 import (
 	"strings"
 
-	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/go-lua/compiler/parse"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 )
 
 // ForbiddenClasses are module classes that cannot be used in eval'd code.

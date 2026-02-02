@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 
+	lua "github.com/wippyai/go-lua"
 	csapi "github.com/wippyai/runtime/api/cloudstorage"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
@@ -11,7 +12,6 @@ import (
 	rtresource "github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
-	lua "github.com/wippyai/go-lua"
 )
 
 const storageTypeName = "cloudstorage.Storage"

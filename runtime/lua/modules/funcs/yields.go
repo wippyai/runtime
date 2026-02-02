@@ -3,12 +3,12 @@ package funcs
 import (
 	"sync"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/function"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/modules/future"
-	lua "github.com/wippyai/go-lua"
 )
 
 // CallYield wraps CallCmd for Lua.

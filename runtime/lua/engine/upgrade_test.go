@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
+	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
-	lua "github.com/wippyai/go-lua"
 )
 
 func TestUpgradeRequest_LuaValue(t *testing.T) {

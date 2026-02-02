@@ -1,9 +1,9 @@
 package ctx
 
 import (
+	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	lua "github.com/wippyai/go-lua"
 )
 
 var moduleTable *lua.LTable

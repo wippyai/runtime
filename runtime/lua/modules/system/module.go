@@ -7,10 +7,10 @@ import (
 	"runtime/debug"
 	"sync"
 
+	lua "github.com/wippyai/go-lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/runtime/lua/security"
-	lua "github.com/wippyai/go-lua"
 )
 
 var (

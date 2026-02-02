@@ -5,13 +5,13 @@ import (
 	"os"
 	"sync"
 
-	"github.com/wippyai/wapp"
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	dirapi "github.com/wippyai/runtime/api/service/fs/directory"
 	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
+	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
 

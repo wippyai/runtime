@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
+	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/security"
 	wsapi "github.com/wippyai/runtime/api/service/websocket"
-	lua "github.com/wippyai/go-lua"
 )
 
 func bind(l *lua.LState) {

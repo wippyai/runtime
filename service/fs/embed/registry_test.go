@@ -8,10 +8,10 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/wippyai/wapp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/wapp"
 )
 
 func TestRegistry_NewRegistry(t *testing.T) {

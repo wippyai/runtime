@@ -4,8 +4,6 @@ package treesitter
 import (
 	"unsafe"
 
-	tsmd "github.com/wippyai/tree-sitter-markdown/bindings/go"
-	tssql "github.com/wippyai/tree-sitter-sql/bindings/go"
 	tslua "github.com/tree-sitter-grammars/tree-sitter-lua/bindings/go"
 	cscsharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 	tsgo "github.com/tree-sitter/tree-sitter-go/bindings/go"
@@ -14,6 +12,8 @@ import (
 	tsphp "github.com/tree-sitter/tree-sitter-php/bindings/go"
 	tspython "github.com/tree-sitter/tree-sitter-python/bindings/go"
 	tsts "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
+	tsmd "github.com/wippyai/tree-sitter-markdown/bindings/go"
+	tssql "github.com/wippyai/tree-sitter-sql/bindings/go"
 )
 
 // LanguageInfo holds information about a supported language.

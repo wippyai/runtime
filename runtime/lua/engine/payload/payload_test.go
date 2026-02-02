@@ -12,9 +12,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	lua "github.com/wippyai/go-lua"
 )
 
 // skipUnlessStress skips the test unless WIPPY_STRESS_TESTS=1

@@ -125,14 +125,12 @@ func NewProcessExecutor(log *zap.Logger, opts ...Option) *ProcessExecutor {
 	}
 
 	// Create command with first part as executable and rest as arguments
-	// nolint:noctx // context handled via Stop()/Signal() methods, not automatic cancellation
+	// Context handled via Stop()/Signal() methods, not automatic cancellation
 	var command *exec.Cmd
 	if len(cmdParts) > 1 {
-		//nolint:gosec //G204: Subprocess launched with a potential tainted input or cmd arguments
-		command = exec.Command(cmdParts[0], cmdParts[1:]...)
+		command = exec.Command(cmdParts[0], cmdParts[1:]...) //nolint:gosec,noctx // G204: user-provided command, noctx: lifecycle managed via Stop/Signal
 	} else {
-		//nolint:gosec //G204: Subprocess launched with a potential tainted input or cmd arguments
-		command = exec.Command(cmdParts[0])
+		command = exec.Command(cmdParts[0]) //nolint:gosec,noctx // G204: user-provided command, noctx: lifecycle managed via Stop/Signal
 	}
 
 	if e.envs != nil {

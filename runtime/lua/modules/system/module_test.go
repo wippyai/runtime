@@ -4,9 +4,9 @@ import (
 	"os"
 	"testing"
 
+	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/security"
-	lua "github.com/wippyai/go-lua"
 )
 
 func TestLoad(t *testing.T) {

@@ -1,8 +1,8 @@
 package rules
 
 import (
-	"github.com/wippyai/runtime/runtime/lua/code/lint"
 	"github.com/wippyai/go-lua/compiler/cfg"
+	"github.com/wippyai/runtime/runtime/lua/code/lint"
 )
 
 func init() {

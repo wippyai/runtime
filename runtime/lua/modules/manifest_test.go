@@ -3,6 +3,8 @@ package modules_test
 import (
 	"testing"
 
+	"github.com/wippyai/go-lua/types/io"
+	"github.com/wippyai/go-lua/types/typ"
 	"github.com/wippyai/runtime/runtime/lua/modules/base64"
 	"github.com/wippyai/runtime/runtime/lua/modules/cloudstorage"
 	"github.com/wippyai/runtime/runtime/lua/modules/crypto"
@@ -14,8 +16,6 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/modules/queue"
 	"github.com/wippyai/runtime/runtime/lua/modules/store"
 	"github.com/wippyai/runtime/runtime/lua/modules/websocket"
-	"github.com/wippyai/go-lua/types/io"
-	"github.com/wippyai/go-lua/types/typ"
 )
 
 type methodCheck struct {

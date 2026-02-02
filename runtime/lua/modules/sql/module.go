@@ -3,10 +3,10 @@ package sql
 import (
 	"sync"
 
+	lua "github.com/wippyai/go-lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	lua "github.com/wippyai/go-lua"
 )
 
 const (

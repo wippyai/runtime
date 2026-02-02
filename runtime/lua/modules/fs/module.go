@@ -3,11 +3,11 @@ package fs
 import (
 	"io/fs"
 
+	lua "github.com/wippyai/go-lua"
 	fsapi "github.com/wippyai/runtime/api/fs"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
-	lua "github.com/wippyai/go-lua"
 )
 
 const (

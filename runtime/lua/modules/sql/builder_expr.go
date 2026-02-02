@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/Masterminds/squirrel"
-	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 )
 
 var sqlizerMethods = map[string]lua.LGoFunc{

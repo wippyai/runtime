@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	streamapi "github.com/wippyai/runtime/api/stream"
 	streamsys "github.com/wippyai/runtime/system/stream"
-	lua "github.com/wippyai/go-lua"
 )
 
 func TestStreamTableIntegration(t *testing.T) {

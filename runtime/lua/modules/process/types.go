@@ -1,11 +1,11 @@
 package process
 
 import (
-	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/go-lua/types/constraint"
 	"github.com/wippyai/go-lua/types/contract"
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/go-lua/types/typ"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 )
 
 var (

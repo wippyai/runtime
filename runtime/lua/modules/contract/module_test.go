@@ -5,11 +5,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/contract"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
-	lua "github.com/wippyai/go-lua"
 )
 
 func TestModule_Info(t *testing.T) {

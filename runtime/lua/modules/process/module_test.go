@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	ctxapi "github.com/wippyai/runtime/api/context"
 	lua "github.com/wippyai/go-lua"
+	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
 func bindProcess(l *lua.LState) {

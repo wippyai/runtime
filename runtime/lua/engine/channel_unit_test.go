@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/topology"
-	lua "github.com/wippyai/go-lua"
 )
 
 // Channel Unit Tests

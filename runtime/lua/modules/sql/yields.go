@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sync"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
 	sqlapi "github.com/wippyai/runtime/api/service/sql"
-	lua "github.com/wippyai/go-lua"
 )
 
 // anyToLua converts Go values to Lua values for SQL results.

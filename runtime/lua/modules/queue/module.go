@@ -3,13 +3,13 @@ package queue
 import (
 	"fmt"
 
+	lua "github.com/wippyai/go-lua"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
-	lua "github.com/wippyai/go-lua"
 )
 
 const messageTypeName = "queue.Message"

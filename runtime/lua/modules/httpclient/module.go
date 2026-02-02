@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
+	lua "github.com/wippyai/go-lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	httpapi "github.com/wippyai/runtime/api/service/http"
 	"github.com/wippyai/runtime/runtime/lua/security"
-	lua "github.com/wippyai/go-lua"
 )
 
 // isPrivateIP checks if an IP is private, loopback, or otherwise internal.

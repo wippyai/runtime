@@ -3,11 +3,11 @@ package lint_test
 import (
 	"testing"
 
+	"github.com/wippyai/go-lua/types/io"
+	"github.com/wippyai/go-lua/types/typ"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/code/lint"
 	_ "github.com/wippyai/runtime/runtime/lua/code/lint/rules"
-	"github.com/wippyai/go-lua/types/io"
-	"github.com/wippyai/go-lua/types/typ"
 )
 
 func newTestTypeChecker() *code.TypeChecker {

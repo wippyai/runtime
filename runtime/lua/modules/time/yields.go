@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	stdtime "time"
 
+	lua "github.com/wippyai/go-lua"
 	clockapi "github.com/wippyai/runtime/api/clock"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
@@ -16,7 +17,6 @@ import (
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	lua "github.com/wippyai/go-lua"
 )
 
 const (

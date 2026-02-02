@@ -1,9 +1,9 @@
 package http
 
 import (
+	lua "github.com/wippyai/go-lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	lua "github.com/wippyai/go-lua"
 )
 
 const (

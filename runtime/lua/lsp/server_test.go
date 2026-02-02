@@ -176,7 +176,7 @@ func TestServer_StopWithoutStart(t *testing.T) {
 }
 
 func TestServer_TCPConnection(t *testing.T) {
-	listener, err := net.Listen //nolint:noctx // test code("tcp", "127.0.0.1:0")
+	listener, err := net.Listen("tcp", "127.0.0.1:0") //nolint:noctx // test code
 	require.NoError(t, err)
 	defer listener.Close()
 
@@ -197,7 +197,7 @@ func TestServer_TCPConnection(t *testing.T) {
 	err = server.Start(ctx)
 	require.NoError(t, err)
 
-	conn, err := net.Dial //nolint:noctx // test code("tcp", cfg.Address)
+	conn, err := net.Dial("tcp", cfg.Address) //nolint:noctx // test code
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -236,7 +236,7 @@ func TestServer_MultipleConnections(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			conn, err := net.Dial //nolint:noctx // test code("tcp", addr)
+			conn, err := net.Dial("tcp", addr) //nolint:noctx // test code
 			if err != nil {
 				return
 			}
@@ -273,7 +273,7 @@ func TestServer_ConnectionCleanupOnStop(t *testing.T) {
 
 	conns := make([]net.Conn, 5)
 	for i := 0; i < 5; i++ {
-		conn, err := net.Dial //nolint:noctx // test code("tcp", addr)
+		conn, err := net.Dial("tcp", addr) //nolint:noctx // test code
 		require.NoError(t, err)
 		conns[i] = conn
 	}
@@ -315,7 +315,7 @@ func TestServer_ContextCancellation(t *testing.T) {
 
 	addr := server.listener.Addr().String()
 
-	conn, err := net.Dial //nolint:noctx // test code("tcp", addr)
+	conn, err := net.Dial("tcp", addr) //nolint:noctx // test code
 	require.NoError(t, err)
 	defer conn.Close()
 

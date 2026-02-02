@@ -4,12 +4,12 @@ import (
 	"context"
 	"sync"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	payloadmod "github.com/wippyai/runtime/runtime/lua/modules/payload"
-	lua "github.com/wippyai/go-lua"
 )
 
 const TypeName = "Future"

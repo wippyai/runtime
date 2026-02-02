@@ -3,9 +3,9 @@ package exec
 import (
 	"sync"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
 	execapi "github.com/wippyai/runtime/api/service/exec"
-	lua "github.com/wippyai/go-lua"
 )
 
 // ProcessWaitYield wraps ProcessWaitCmd for Lua.

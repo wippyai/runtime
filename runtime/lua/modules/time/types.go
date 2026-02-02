@@ -1,9 +1,9 @@
 package time
 
 import (
-	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/go-lua/types/typ"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 )
 
 // Forward declarations for mutually referential types

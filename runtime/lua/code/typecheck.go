@@ -1,7 +1,6 @@
 package code
 
 import (
-	api "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/go-lua/compiler/ast"
 	"github.com/wippyai/go-lua/compiler/check"
 	"github.com/wippyai/go-lua/compiler/check/hooks"
@@ -13,6 +12,7 @@ import (
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/go-lua/types/query/core"
 	"github.com/wippyai/go-lua/types/typ"
+	api "github.com/wippyai/runtime/api/runtime/lua"
 )
 
 // TypeCheckConfig configures the type checking system

@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"sync"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	rtresource "github.com/wippyai/runtime/api/runtime/resource"
 	apiexec "github.com/wippyai/runtime/api/service/exec"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
-	lua "github.com/wippyai/go-lua"
 )
 
 type Executor struct {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
@@ -13,7 +14,6 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/security"
 	servicetemplate "github.com/wippyai/runtime/service/template"
 	"github.com/wippyai/runtime/service/template/jet"
-	lua "github.com/wippyai/go-lua"
 )
 
 const typeTemplateSet = "template.Set"

@@ -1,9 +1,9 @@
 package metrics
 
 import (
+	lua "github.com/wippyai/go-lua"
 	api "github.com/wippyai/runtime/api/metrics"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	lua "github.com/wippyai/go-lua"
 )
 
 var moduleTable *lua.LTable

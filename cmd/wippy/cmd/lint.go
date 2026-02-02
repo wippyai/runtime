@@ -16,6 +16,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+	"github.com/wippyai/go-lua/compiler/parse"
+	"github.com/wippyai/go-lua/types/diag"
+	"github.com/wippyai/go-lua/types/io"
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootpkg "github.com/wippyai/runtime/boot"
 	luaboot "github.com/wippyai/runtime/boot/components/runtime/lua"
@@ -28,9 +31,6 @@ import (
 	_ "github.com/wippyai/runtime/runtime/lua/code/lint/rules" // register lint rules
 	transcoder "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/registry/topology"
-	"github.com/wippyai/go-lua/compiler/parse"
-	"github.com/wippyai/go-lua/types/diag"
-	"github.com/wippyai/go-lua/types/io"
 	"go.uber.org/zap"
 )
 

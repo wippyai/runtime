@@ -5,9 +5,9 @@ import (
 	"sync"
 	"testing"
 
+	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	api "github.com/wippyai/runtime/api/metrics"
-	lua "github.com/wippyai/go-lua"
 )
 
 // mockCollector implements api.Collector for testing

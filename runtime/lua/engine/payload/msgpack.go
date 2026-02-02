@@ -6,10 +6,10 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	lua "github.com/wippyai/go-lua"
 )
 
 var (

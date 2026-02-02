@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/wippyai/go-lua/types/diag"
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/go-lua/types/diag"
 )
 
 var (

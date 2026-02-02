@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/wippyai/go-lua/types/diag"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/engine"
@@ -12,7 +13,6 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/modules/process"
 	"github.com/wippyai/runtime/runtime/lua/modules/registry"
 	"github.com/wippyai/runtime/runtime/lua/modules/time"
-	"github.com/wippyai/go-lua/types/diag"
 )
 
 func TestScopeConvergence_FullRunner(t *testing.T) {

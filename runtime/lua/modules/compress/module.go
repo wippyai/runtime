@@ -10,8 +10,8 @@ import (
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
-	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/wippyai/go-lua"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 )
 
 const (

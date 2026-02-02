@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/wippyai/runtime/api/payload"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/payload"
 )
 
 // MockTranscoder is a mock implementation of payload.Transcoder for testing.

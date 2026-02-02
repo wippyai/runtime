@@ -5,13 +5,13 @@ import (
 	"sync"
 	"time"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	wsapi "github.com/wippyai/runtime/api/service/websocket"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	lua "github.com/wippyai/go-lua"
 )
 
 // WsConnectYield is yielded to connect to a WebSocket server.

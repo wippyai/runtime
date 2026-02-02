@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
+	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
-	lua "github.com/wippyai/go-lua"
 )
 
 func TestMessageScalingReuse(t *testing.T) {

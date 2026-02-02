@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wippyai/wapp"
 	"github.com/Masterminds/semver/v3"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -26,6 +25,7 @@ import (
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"github.com/wippyai/runtime/cmd/internal/entries"
 	"github.com/wippyai/runtime/cmd/wippy/version"
+	"github.com/wippyai/wapp"
 )
 
 var publishCmd = &cobra.Command{

@@ -1,9 +1,9 @@
 package stream
 
 import (
+	lua "github.com/wippyai/go-lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	streamapi "github.com/wippyai/runtime/api/stream"
-	lua "github.com/wippyai/go-lua"
 )
 
 // Module is the stream module definition.

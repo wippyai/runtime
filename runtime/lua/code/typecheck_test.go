@@ -5,14 +5,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	base64mod "github.com/wippyai/runtime/runtime/lua/modules/base64"
-	sqlmod "github.com/wippyai/runtime/runtime/lua/modules/sql"
 	"github.com/wippyai/go-lua/types/constraint"
 	"github.com/wippyai/go-lua/types/contract"
 	"github.com/wippyai/go-lua/types/diag"
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/go-lua/types/query/core"
 	"github.com/wippyai/go-lua/types/typ"
+	base64mod "github.com/wippyai/runtime/runtime/lua/modules/base64"
+	sqlmod "github.com/wippyai/runtime/runtime/lua/modules/sql"
 )
 
 func testModuleTypes() *io.Manifest {

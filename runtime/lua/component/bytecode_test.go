@@ -12,10 +12,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	fsapi "github.com/wippyai/runtime/api/fs"
 	glua "github.com/wippyai/go-lua"
 	"github.com/wippyai/go-lua/compiler/bytecode"
 	"github.com/wippyai/go-lua/compiler/parse"
+	fsapi "github.com/wippyai/runtime/api/fs"
 )
 
 // Test Lua sources of varying complexity

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/registry"
@@ -13,7 +14,6 @@ import (
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	luasec "github.com/wippyai/runtime/runtime/lua/security"
-	lua "github.com/wippyai/go-lua"
 )
 
 const tokenStoreTypeName = "security.TokenStore"

@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	"github.com/Masterminds/squirrel"
+	lua "github.com/wippyai/go-lua"
 	servicesql "github.com/wippyai/runtime/api/service/sql"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	lua "github.com/wippyai/go-lua"
 )
 
 const queryExecutorTypeName = "sql.QueryExecutor"

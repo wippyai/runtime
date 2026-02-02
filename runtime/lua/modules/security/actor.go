@@ -1,9 +1,9 @@
 package security
 
 import (
+	lua "github.com/wippyai/go-lua"
 	secapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	lua "github.com/wippyai/go-lua"
 )
 
 const actorTypeName = "security.Actor"

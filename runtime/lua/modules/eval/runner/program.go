@@ -1,8 +1,8 @@
 package runner
 
 import (
-	"github.com/wippyai/runtime/runtime/lua/evalhost"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/runtime/lua/evalhost"
 )
 
 // Program wraps an evalhost.Program for Lua userdata.

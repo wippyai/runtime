@@ -3,8 +3,8 @@ package engine
 import (
 	"sync"
 
-	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/wippyai/go-lua"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 )
 
 // moduleCache holds built module data.

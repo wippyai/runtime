@@ -26,7 +26,7 @@ func (g *Generator) Generate() string {
 
 	if count <= 0xFFFFF {
 		// Fast path: 5 hex digits (covers first ~1M IDs)
-		var buf [7]byte //nolint:gosec // fixed-size array, bounds are safe
+		var buf [7]byte
 		buf[0] = '0'
 		buf[1] = 'x'
 		buf[2] = hexDigits[(count>>16)&0xF]
@@ -53,7 +53,7 @@ func (g *Generator) Generate() string {
 
 	if count <= 0xFFFFFFFF {
 		// 8 hex digits (covers up to 4B IDs)
-		var buf [10]byte //nolint:gosec // fixed-size array, bounds are safe
+		var buf [10]byte
 		buf[0] = '0'
 		buf[1] = 'x'
 		buf[2] = hexDigits[(count>>28)&0xF]

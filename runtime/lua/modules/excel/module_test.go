@@ -7,8 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/xuri/excelize/v2"
 	lua "github.com/wippyai/go-lua"
+	"github.com/xuri/excelize/v2"
 )
 
 func bindExcel(l *lua.LState) {

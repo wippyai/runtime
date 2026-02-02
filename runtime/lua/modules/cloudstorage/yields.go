@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
+	lua "github.com/wippyai/go-lua"
 	csapi "github.com/wippyai/runtime/api/cloudstorage"
 	"github.com/wippyai/runtime/api/dispatcher"
-	lua "github.com/wippyai/go-lua"
 )
 
 // ListObjectsYield wraps ListObjectsCmd for Lua.

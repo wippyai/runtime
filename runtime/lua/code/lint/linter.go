@@ -1,12 +1,12 @@
 package lint
 
 import (
-	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/go-lua/compiler/ast"
 	"github.com/wippyai/go-lua/compiler/cfg"
 	"github.com/wippyai/go-lua/compiler/parse"
 	"github.com/wippyai/go-lua/types/diag"
 	"github.com/wippyai/go-lua/types/io"
+	"github.com/wippyai/runtime/runtime/lua/code"
 )
 
 // Linter coordinates type checking and lint rule execution

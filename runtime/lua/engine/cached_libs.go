@@ -3,8 +3,8 @@ package engine
 import (
 	"sync"
 
-	"github.com/wippyai/runtime/runtime/lua/modules/ostime"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/runtime/lua/modules/ostime"
 )
 
 var (

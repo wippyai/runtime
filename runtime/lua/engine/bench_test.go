@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
@@ -18,7 +19,6 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	scheduler "github.com/wippyai/runtime/system/scheduler/actor"
-	lua "github.com/wippyai/go-lua"
 )
 
 // BenchmarkProcessCreate measures process creation overhead.

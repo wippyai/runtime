@@ -5,13 +5,13 @@ import (
 	"database/sql"
 	"fmt"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	rtresource "github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
 	sqlres "github.com/wippyai/runtime/service/sql"
-	lua "github.com/wippyai/go-lua"
 )
 
 type DB struct {

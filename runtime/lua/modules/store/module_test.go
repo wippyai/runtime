@@ -5,13 +5,13 @@ import (
 	"sync"
 	"testing"
 
+	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/store"
-	lua "github.com/wippyai/go-lua"
 )
 
 // memoryStore is a simple in-memory store for testing

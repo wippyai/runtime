@@ -3,10 +3,10 @@ package payload
 import (
 	"fmt"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"
-	lua "github.com/wippyai/go-lua"
 )
 
 // RegisterJSON registers JSON<->Lua transcoders

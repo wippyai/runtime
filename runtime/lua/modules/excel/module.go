@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"io"
 
+	lua "github.com/wippyai/go-lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/xuri/excelize/v2"
-	lua "github.com/wippyai/go-lua"
 )
 
 const workbookTypeName = "excel.Workbook"

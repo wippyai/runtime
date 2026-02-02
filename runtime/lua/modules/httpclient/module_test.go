@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
+	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/security"
-	lua "github.com/wippyai/go-lua"
 )
 
 // bind loads the module into the given state for testing.

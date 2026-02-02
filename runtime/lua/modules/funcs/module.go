@@ -2,6 +2,7 @@ package funcs
 
 import (
 	"github.com/google/uuid"
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
 	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/function"
@@ -15,7 +16,6 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/modules/future"
 	"github.com/wippyai/runtime/runtime/lua/security"
-	lua "github.com/wippyai/go-lua"
 )
 
 const executorTypeName = "funcs.Executor"

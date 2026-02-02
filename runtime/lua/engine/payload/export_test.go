@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/wippyai/runtime/api/payload"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/payload"
 )
 
 // Helper function to create nested tables for testing

@@ -4,9 +4,9 @@ import (
 	"context"
 
 	treesitter "github.com/tree-sitter/go-tree-sitter"
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	lua "github.com/wippyai/go-lua"
 )
 
 const typeCursor = "treesitter.Cursor"

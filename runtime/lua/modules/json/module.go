@@ -1,8 +1,8 @@
 package json
 
 import (
-	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	lua "github.com/wippyai/go-lua"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 )
 
 // Module is the json module definition.

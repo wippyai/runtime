@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wippyai/wapp"
 	"github.com/charmbracelet/bubbles/progress"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -22,6 +21,7 @@ import (
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"github.com/wippyai/runtime/cmd/internal/entries"
 	"github.com/wippyai/runtime/cmd/wippy/version"
+	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
 

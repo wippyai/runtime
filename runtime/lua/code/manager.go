@@ -10,13 +10,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wippyai/runtime/api/event"
-	"github.com/wippyai/runtime/api/registry"
-	api "github.com/wippyai/runtime/api/runtime/lua"
 	glua "github.com/wippyai/go-lua"
 	"github.com/wippyai/go-lua/compiler/parse"
 	"github.com/wippyai/go-lua/types/diag"
 	"github.com/wippyai/go-lua/types/io"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/registry"
+	api "github.com/wippyai/runtime/api/runtime/lua"
 
 	"go.uber.org/zap"
 )

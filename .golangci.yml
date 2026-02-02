@@ -144,8 +144,14 @@ linters:
           - gosec
         text: "G104"
       - linters:
+          - gosec
+        text: "G602"
+      - linters:
           - revive
         text: "unexported-return"
+      - linters:
+          - revive
+        text: "var-naming: avoid package names"
       - linters:
           - staticcheck
         text: "SA1012"

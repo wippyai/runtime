@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wippyai/go-lua/types/diag"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/code/lint"
 	_ "github.com/wippyai/runtime/runtime/lua/code/lint/rules"
-	"github.com/wippyai/go-lua/types/diag"
 )
 
 func newLinter() *lint.Linter {

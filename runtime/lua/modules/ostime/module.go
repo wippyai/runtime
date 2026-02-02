@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
+	lua "github.com/wippyai/go-lua"
 	clockapi "github.com/wippyai/runtime/api/clock"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	lua "github.com/wippyai/go-lua"
 )
 
 var startTime = time.Now()

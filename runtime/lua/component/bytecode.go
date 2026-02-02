@@ -6,10 +6,10 @@ import (
 	"io"
 	"strings"
 
-	fsapi "github.com/wippyai/runtime/api/fs"
-	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	glua "github.com/wippyai/go-lua"
 	"github.com/wippyai/go-lua/compiler/bytecode"
+	fsapi "github.com/wippyai/runtime/api/fs"
+	runtimelua "github.com/wippyai/runtime/runtime/lua"
 )
 
 // LoadBytecode reads bytecode bytes from the specified filesystem and path.

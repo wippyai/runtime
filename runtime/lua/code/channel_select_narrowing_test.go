@@ -5,13 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/wippyai/go-lua/types/diag"
+	"github.com/wippyai/go-lua/types/io"
 	api "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
-	"github.com/wippyai/go-lua/types/diag"
-	"github.com/wippyai/go-lua/types/io"
 )
 
 func TestChannelSelectNarrowing_ProcessEvent(t *testing.T) {

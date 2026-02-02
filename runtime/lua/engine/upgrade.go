@@ -1,9 +1,9 @@
 package engine
 
 import (
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
-	lua "github.com/wippyai/go-lua"
 )
 
 // UpgradeRequest is yielded to request process upgrade.

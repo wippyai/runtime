@@ -4,10 +4,10 @@ package workflow
 import (
 	"sync"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/runtime/workflow"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
-	lua "github.com/wippyai/go-lua"
 )
 
 // Yield wraps a side effect closure for deterministic execution.

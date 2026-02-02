@@ -4,11 +4,11 @@ import (
 	jsongo "encoding/json"
 	"fmt"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	jsonlua "github.com/wippyai/runtime/runtime/lua/modules/json"
-	lua "github.com/wippyai/go-lua"
 )
 
 // can be optimized

@@ -2,8 +2,8 @@ package treesitter
 
 import (
 	treesitter "github.com/tree-sitter/go-tree-sitter"
-	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 )
 
 const typeNode = "treesitter.Node"

@@ -1,13 +1,12 @@
-//nolint:revive // intentional package name
 package io
 
 import (
 	"bytes"
 	"testing"
 
+	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/service/terminal"
-	lua "github.com/wippyai/go-lua"
 )
 
 func bindIO(l *lua.LState) {

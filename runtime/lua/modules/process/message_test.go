@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
-	lua "github.com/wippyai/go-lua"
 )
 
 func TestNewMessage(t *testing.T) {

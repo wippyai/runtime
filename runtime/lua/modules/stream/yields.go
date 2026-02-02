@@ -6,12 +6,12 @@ import (
 	"io"
 	"sync"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	streamapi "github.com/wippyai/runtime/api/stream"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	streamsys "github.com/wippyai/runtime/system/stream"
-	lua "github.com/wippyai/go-lua"
 )
 
 // ReadYield is yielded to read a chunk from a stream.

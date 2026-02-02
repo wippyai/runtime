@@ -3,8 +3,8 @@ package registry
 import (
 	"testing"
 
-	regapi "github.com/wippyai/runtime/api/registry"
 	lua "github.com/wippyai/go-lua"
+	regapi "github.com/wippyai/runtime/api/registry"
 	"go.uber.org/zap"
 )
 

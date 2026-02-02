@@ -4,10 +4,10 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	lua "github.com/wippyai/go-lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/runtime/workflow"
 	luaworkflow "github.com/wippyai/runtime/runtime/lua/workflow"
-	lua "github.com/wippyai/go-lua"
 )
 
 // Module is the uuid module definition.

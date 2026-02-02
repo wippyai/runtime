@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"time"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	wsapi "github.com/wippyai/runtime/api/service/websocket"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
-	lua "github.com/wippyai/go-lua"
 )
 
 // parseDuration parses a Lua value into time.Duration.

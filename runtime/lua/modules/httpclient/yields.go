@@ -3,10 +3,10 @@ package httpclient
 import (
 	"sync"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
 	httpapi "github.com/wippyai/runtime/api/service/http"
 	"github.com/wippyai/runtime/runtime/lua/modules/stream"
-	lua "github.com/wippyai/go-lua"
 )
 
 // RequestYield wraps the generic RequestCmd for Lua.

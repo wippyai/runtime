@@ -4,9 +4,9 @@ package io
 import (
 	"bufio"
 
+	lua "github.com/wippyai/go-lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/service/terminal"
-	lua "github.com/wippyai/go-lua"
 )
 
 // Module is the io module definition.

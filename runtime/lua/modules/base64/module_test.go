@@ -3,8 +3,8 @@ package base64
 import (
 	"testing"
 
-	"github.com/wippyai/runtime/runtime/lua/engine"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 )
 
 func bindModule(l *lua.LState) {

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	apierror "github.com/wippyai/runtime/api/error"
@@ -18,7 +19,6 @@ import (
 	"github.com/wippyai/runtime/api/topology"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
-	lua "github.com/wippyai/go-lua"
 )
 
 // processPool holds reusable Process structs with pre-allocated slices

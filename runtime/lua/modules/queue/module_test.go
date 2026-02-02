@@ -5,12 +5,12 @@ import (
 	"sync"
 	"testing"
 
+	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
-	lua "github.com/wippyai/go-lua"
 )
 
 // mockManager implements queueapi.Manager for testing

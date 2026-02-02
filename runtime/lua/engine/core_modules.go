@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"strings"
 
+	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/go-lua/inspect"
 	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/modules/ostime"
 	"github.com/wippyai/runtime/runtime/lua/modules/payload"
-	lua "github.com/wippyai/go-lua"
-	"github.com/wippyai/go-lua/inspect"
 	"go.uber.org/zap"
 )
 

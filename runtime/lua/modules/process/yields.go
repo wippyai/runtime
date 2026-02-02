@@ -3,10 +3,10 @@ package process
 import (
 	"sync"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/process"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
-	lua "github.com/wippyai/go-lua"
 )
 
 // SendYield wraps SendCmd for Lua.

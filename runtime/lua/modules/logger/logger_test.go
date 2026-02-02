@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"testing"
 
+	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/logs"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	lua "github.com/wippyai/go-lua"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )

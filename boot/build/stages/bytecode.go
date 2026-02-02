@@ -10,16 +10,16 @@ import (
 	"sync"
 	"testing/fstest"
 
-	"github.com/wippyai/wapp"
+	glua "github.com/wippyai/go-lua"
+	"github.com/wippyai/go-lua/compiler/bytecode"
+	"github.com/wippyai/go-lua/compiler/parse"
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
-	glua "github.com/wippyai/go-lua"
-	"github.com/wippyai/go-lua/compiler/bytecode"
-	"github.com/wippyai/go-lua/compiler/parse"
+	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
 

@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	lua "github.com/wippyai/go-lua"
 	"go.uber.org/zap"
 )
 

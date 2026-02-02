@@ -6,6 +6,8 @@ import (
 
 	"strings"
 
+	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/go-lua/compiler/parse"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -13,8 +15,6 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	payloadconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
-	lua "github.com/wippyai/go-lua"
-	"github.com/wippyai/go-lua/compiler/parse"
 	"go.uber.org/zap"
 )
 

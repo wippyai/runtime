@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
@@ -17,7 +18,6 @@ import (
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/system/clock"
 	"github.com/wippyai/runtime/system/scheduler/pool/static"
-	lua "github.com/wippyai/go-lua"
 )
 
 // testYieldCmdID is a test command ID for simulating external yields

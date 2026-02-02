@@ -1,10 +1,10 @@
 package env
 
 import (
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/env"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/security"
-	lua "github.com/wippyai/go-lua"
 )
 
 // Module is the env module definition.

@@ -4,11 +4,11 @@ import (
 	"context"
 	"sync"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
-	lua "github.com/wippyai/go-lua"
 )
 
 // TopicHandler processes incoming messages for a topic before channel delivery.

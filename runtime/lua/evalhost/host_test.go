@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wippyai/runtime/api/registry"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/registry"
 	"go.uber.org/zap"
 )
 

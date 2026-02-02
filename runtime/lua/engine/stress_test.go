@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
+	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/process"
-	lua "github.com/wippyai/go-lua"
 )
 
 // skipUnlessStress skips the test unless WIPPY_STRESS_TESTS=1 and not in short mode

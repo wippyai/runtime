@@ -3,10 +3,10 @@ package rules
 import (
 	"strings"
 
-	"github.com/wippyai/runtime/runtime/lua/code/lint"
 	"github.com/wippyai/go-lua/compiler/ast"
 	"github.com/wippyai/go-lua/compiler/bind"
 	"github.com/wippyai/go-lua/compiler/cfg"
+	"github.com/wippyai/runtime/runtime/lua/code/lint"
 )
 
 func init() {

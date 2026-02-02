@@ -3,11 +3,11 @@ package engine
 import (
 	"fmt"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code"
-	lua "github.com/wippyai/go-lua"
 )
 
 // CompiledFactory creates processes from compiled code.

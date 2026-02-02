@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/runtime/api/registry"
 	runtime "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/internal/graph"
-	"github.com/wippyai/go-lua/types/io"
 )
 
 type (

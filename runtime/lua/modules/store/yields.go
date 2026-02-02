@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"sync"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/store"
-	lua "github.com/wippyai/go-lua"
 )
 
 // GetYield wraps GetCmd for Lua.

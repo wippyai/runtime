@@ -4,14 +4,14 @@ import (
 	"context"
 	"sync"
 
-	"github.com/wippyai/runtime/api/event"
-	"github.com/wippyai/runtime/api/registry"
-	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	"github.com/wippyai/runtime/runtime/lua/code"
 	golualsp "github.com/wippyai/go-lua/lsp"
 	"github.com/wippyai/go-lua/lsp/completion"
 	"github.com/wippyai/go-lua/lsp/index"
 	"github.com/wippyai/go-lua/lsp/signature"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/registry"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/code"
 	"go.uber.org/zap"
 )
 

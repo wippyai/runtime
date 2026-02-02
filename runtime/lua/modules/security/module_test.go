@@ -4,12 +4,12 @@ import (
 	"context"
 	"testing"
 
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/registry"
 	secapi "github.com/wippyai/runtime/api/security"
 	secsystem "github.com/wippyai/runtime/system/security"
-	lua "github.com/wippyai/go-lua"
 )
 
 // mockPolicy implements secapi.Policy for testing

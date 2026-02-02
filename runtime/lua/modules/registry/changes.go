@@ -3,10 +3,10 @@ package registry
 import (
 	"github.com/wippyai/runtime/system/registry/topology"
 
+	lua "github.com/wippyai/go-lua"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/security"
-	lua "github.com/wippyai/go-lua"
 	"go.uber.org/zap"
 )
 

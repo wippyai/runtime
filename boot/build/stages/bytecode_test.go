@@ -6,11 +6,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	glua "github.com/wippyai/go-lua"
+	"github.com/wippyai/go-lua/compiler/bytecode"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
-	glua "github.com/wippyai/go-lua"
-	"github.com/wippyai/go-lua/compiler/bytecode"
 )
 
 func TestBytecode_CompileFunction(t *testing.T) {

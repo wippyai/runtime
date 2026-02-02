@@ -11,9 +11,9 @@ import (
 	"sync"
 
 	"github.com/kaptinlin/jsonschema"
+	lua "github.com/wippyai/go-lua"
 	lru "github.com/wippyai/runtime/internal/cache"
 	luavalue "github.com/wippyai/runtime/runtime/lua/engine/value"
-	lua "github.com/wippyai/go-lua"
 )
 
 var (

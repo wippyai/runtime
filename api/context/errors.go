@@ -1,4 +1,3 @@
-//nolint:revive // intentional package name
 package context
 
 import (

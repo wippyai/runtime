@@ -4,8 +4,8 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/wippyai/runtime/api/payload"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/payload"
 )
 
 const (

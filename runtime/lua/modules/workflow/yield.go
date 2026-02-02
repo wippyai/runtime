@@ -1,10 +1,10 @@
 package workflow
 
 import (
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
 	workflowapi "github.com/wippyai/runtime/api/runtime/workflow"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
-	lua "github.com/wippyai/go-lua"
 )
 
 // ExecYield is yielded when executing a child workflow.
