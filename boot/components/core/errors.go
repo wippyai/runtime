@@ -5,9 +5,10 @@ import (
 )
 
 var (
-	ErrLoggerNotAvailable   = apierror.New(apierror.Internal, "logger not available in context").WithRetryable(apierror.False)
-	ErrEventBusNotAvailable = apierror.New(apierror.Internal, "event bus not available in context").WithRetryable(apierror.False)
-	ErrRegistryNotAvailable = apierror.New(apierror.Internal, "registry not available in context").WithRetryable(apierror.False)
+	ErrLoggerNotAvailable     = apierror.New(apierror.Internal, "logger not available in context").WithRetryable(apierror.False)
+	ErrEventBusNotAvailable   = apierror.New(apierror.Internal, "event bus not available in context").WithRetryable(apierror.False)
+	ErrRegistryNotAvailable   = apierror.New(apierror.Internal, "registry not available in context").WithRetryable(apierror.False)
+	ErrTranscoderNotAvailable = apierror.New(apierror.Internal, "transcoder not available in context").WithRetryable(apierror.False)
 )
 
 func NewHistoryPathError(cause error) apierror.Error {

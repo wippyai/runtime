@@ -57,12 +57,19 @@ func BindCachedLibs(L *lua.LState) {
 	L.SetGlobal(lua.MathLibName, cachedMathLib)
 	L.SetGlobal("os", cachedOsLib)
 	L.SetGlobal(lua.CoroutineLibName, cachedCoroutineLib)
-	L.SetGlobal(lua.StringLibName, cachedStringLib)
 	L.SetGlobal(lua.ErrorsLibName, cachedErrorsLib)
 
 	// Register error metatable (needed per-LState for builtinMts)
 	lua.RegisterErrorMetatable(L)
 
-	// String lib as metatable for string type
+	// Register primitive type globals for typecasting via LType singletons.
+	// LType values are callable via VM's native typeCall dispatch.
+	// string(x), integer(x), number(x), boolean(x) all use VM fast path.
+	L.SetGlobal("string", lua.LTypeString)
+	L.SetGlobal("integer", lua.LTypeInteger)
+	L.SetGlobal("number", lua.LTypeNumber)
+	L.SetGlobal("boolean", lua.LTypeBoolean)
+
+	// String lib as metatable for string values (enables "hello":upper())
 	L.SetMetatable(lua.LString(""), cachedStringLib)
 }

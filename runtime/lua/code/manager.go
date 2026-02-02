@@ -11,12 +11,14 @@ import (
 	"time"
 
 	glua "github.com/wippyai/go-lua"
+	"github.com/wippyai/go-lua/compiler/ast"
 	"github.com/wippyai/go-lua/compiler/parse"
 	"github.com/wippyai/go-lua/types/diag"
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/code/cache"
 
 	"go.uber.org/zap"
 )
@@ -84,6 +86,10 @@ type (
 		typeChecker *TypeChecker
 		txNodes     map[registry.ID]bool
 		txMu        sync.Mutex
+		cacheCfg    cache.Config
+		cacheStore  cache.Store
+		typeCfgHash string
+		builtinHash string
 	}
 
 	// Config defines initialization parameters
@@ -92,6 +98,7 @@ type (
 		ProtoCacheSize int
 		MainCacheSize  int
 		TypeCheck      TypeCheckConfig
+		Cache          cache.Config
 	}
 )
 
@@ -106,6 +113,7 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 	}
 
 	typeChecker := NewTypeChecker(cfg.TypeCheck, cfg.Modules)
+	cacheCfg := cfg.Cache.Normalize()
 
 	cm := &Manager{
 		log:         log,
@@ -113,46 +121,81 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 		memGraph:    NewMemoryGraph(),
 		typeChecker: typeChecker,
 		txNodes:     make(map[registry.ID]bool),
+		cacheCfg:    cacheCfg,
+		typeCfgHash: TypecheckConfigHash(cfg.TypeCheck),
+	}
+	if cacheCfg.Enabled {
+		cm.cacheStore = cache.NewDiskStore(cacheCfg.Dir)
 	}
 
 	// Create compiler with a callback that can access cm.memGraph for dependency manifests
 	cm.compiler = NewCompiler(
 		func(node *Node) (*glua.FunctionProto, error) {
-			chunk, err := parse.Parse(strings.NewReader(node.Source), node.ID.String())
-			if err != nil {
-				return nil, NewParseError(err, node.Source)
+			var chunk []ast.Stmt
+			var parsed bool
+			parseOnce := func() error {
+				if parsed {
+					return nil
+				}
+				parsed = true
+				parsedChunk, err := parse.Parse(strings.NewReader(node.Source), node.ID.String())
+				if err != nil {
+					return NewParseError(err, node.Source)
+				}
+				chunk = parsedChunk
+				return nil
 			}
 
 			// Type check if enabled
-			if typeChecker.IsEnabled() {
-				// Get dependency manifests from the graph
-				imports := make(map[string]*io.Manifest)
-				deps, _ := cm.memGraph.GetDependenciesWithAliases(node.ID)
-				for _, dep := range deps {
-					if dep.Node.Manifest != nil {
-						imports[dep.Name] = dep.Node.Manifest
+			var diagnostics []diag.Diagnostic
+			if typeChecker.IsEnabled() && node.Source != "" {
+				var tcDeps []cache.DepMeta
+				var tcFP string
+				if fingerprint, deps, err := cm.typecheckFingerprint(node.ID); err == nil {
+					tcFP = fingerprint
+					tcDeps = deps
+					if manifest, cachedDiagnostics, ok := cm.loadTypecheckCache(node.ID, fingerprint); ok {
+						node.Manifest = manifest
+						diagnostics = cachedDiagnostics
 					}
 				}
+				if diagnostics == nil {
+					if err := parseOnce(); err != nil {
+						return nil, err
+					}
+					// Get dependency manifests from the graph
+					imports := make(map[string]*io.Manifest)
+					deps, _ := cm.memGraph.GetDependenciesWithAliases(node.ID)
+					for _, dep := range deps {
+						if dep.Node.Manifest != nil {
+							imports[dep.Name] = dep.Node.Manifest
+						}
+					}
 
-				// TODO(wippy): Remove timing logs once typecheck hot spots are identified.
-				typecheckStart := time.Now()
-				manifest, diagnostics := withTypecheckCPUProfile(log, node.ID.String(), func() (*io.Manifest, []diag.Diagnostic) {
-					return typeChecker.CheckParsed(chunk, node.ID.String(), imports)
-				})
-				lineCount := 0
-				if node.Source != "" {
-					lineCount = strings.Count(node.Source, "\n") + 1
-				}
-				cm.log.Debug("lua typecheck completed",
-					zap.String("id", node.ID.String()),
-					zap.Int("imports", len(imports)),
-					zap.Int("lines", lineCount),
-					zap.Int("bytes", len(node.Source)),
-					zap.Duration("duration", time.Since(typecheckStart)))
+					// TODO(wippy): Remove timing logs once typecheck hot spots are identified.
+					typecheckStart := time.Now()
+					manifest, diags := withTypecheckCPUProfile(log, node.ID.String(), func() (*io.Manifest, []diag.Diagnostic) {
+						return typeChecker.CheckParsed(chunk, node.ID.String(), imports)
+					})
+					diagnostics = diags
+					lineCount := 0
+					if node.Source != "" {
+						lineCount = strings.Count(node.Source, "\n") + 1
+					}
+					cm.log.Debug("lua typecheck completed",
+						zap.String("id", node.ID.String()),
+						zap.Int("imports", len(imports)),
+						zap.Int("lines", lineCount),
+						zap.Int("bytes", len(node.Source)),
+						zap.Duration("duration", time.Since(typecheckStart)))
 
-				// Store manifest on the node for downstream dependencies
-				if manifest != nil {
-					node.Manifest = manifest
+					// Store manifest on the node for downstream dependencies
+					if manifest != nil {
+						node.Manifest = manifest
+					}
+					if tcFP != "" {
+						cm.saveTypecheckCache(node, tcFP, tcDeps, manifest, diagnostics)
+					}
 				}
 
 				if HasErrors(diagnostics) && typeChecker.IsStrict() {
@@ -160,9 +203,27 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 				}
 			}
 
+			var compileFP string
+			var compileDeps []cache.DepMeta
+			if fingerprint, deps, err := cm.compileFingerprint(node.ID); err == nil {
+				compileFP = fingerprint
+				compileDeps = deps
+				if proto, ok := cm.loadCompileCache(node.ID, fingerprint); ok {
+					return proto, nil
+				}
+			}
+
+			if err := parseOnce(); err != nil {
+				return nil, err
+			}
+
 			fnProto, err := glua.Compile(chunk, node.ID.String())
 			if err != nil {
 				return nil, NewCompileError(node.ID, err)
+			}
+
+			if compileFP != "" {
+				cm.saveCompileCache(node, compileFP, compileDeps, fnProto)
 			}
 
 			return fnProto, nil
@@ -189,6 +250,8 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 			return nil, NewAddModuleNodeError(err)
 		}
 	}
+
+	cm.refreshBuiltinHash()
 
 	return cm, nil
 }
@@ -314,6 +377,19 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 		return NewNodeNotFoundError(node.ID)
 	}
 
+	dependents, depErr := cm.memGraph.GetAllDependents(node.ID)
+	var oldCompileFPs map[registry.ID]string
+	var oldTypecheckFPs map[registry.ID]string
+	if cm.cacheAllowsWrite() {
+		invalidateIDs := make([]registry.ID, 0, len(dependents)+1)
+		invalidateIDs = append(invalidateIDs, node.ID)
+		for _, dep := range dependents {
+			invalidateIDs = append(invalidateIDs, dep.ID)
+		}
+		oldCompileFPs = cm.compileFingerprints(invalidateIDs)
+		oldTypecheckFPs = cm.typecheckFingerprints(invalidateIDs)
+	}
+
 	// Eager compilation check: validate source code before updating
 	if node.Source != "" && existing.Kind != api.ModuleKind {
 		_, err := parse.Parse(strings.NewReader(node.Source), node.ID.String())
@@ -355,11 +431,10 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 	cm.txMu.Unlock()
 
 	// Calculate all dependents for cache invalidation
-	dependents, err := cm.memGraph.GetAllDependents(node.ID)
-	if err != nil {
+	if depErr != nil {
 		cm.log.Warn("failed to get dependents for cache invalidation",
 			zap.Stringer("node", &node.ID),
-			zap.Error(err))
+			zap.Error(depErr))
 	}
 
 	invalidateIDs := make([]registry.ID, 0, len(dependents)+1)
@@ -371,6 +446,10 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 
 	// Invalidate cache
 	cm.compiler.Invalidate(invalidateIDs)
+
+	if oldCompileFPs != nil || oldTypecheckFPs != nil {
+		cm.deleteCacheFingerprints(oldCompileFPs, oldTypecheckFPs)
+	}
 
 	return nil
 }
@@ -391,6 +470,13 @@ func (cm *Manager) DeleteNode(_ context.Context, id registry.ID) error {
 		return NewNodeNotFoundError(id)
 	}
 
+	var oldCompileFPs map[registry.ID]string
+	var oldTypecheckFPs map[registry.ID]string
+	if cm.cacheAllowsWrite() {
+		oldCompileFPs = cm.compileFingerprints([]registry.ID{id})
+		oldTypecheckFPs = cm.typecheckFingerprints([]registry.ID{id})
+	}
+
 	if err := cm.memGraph.RemoveNode(id); err != nil {
 		return NewRemoveNodeError(err)
 	}
@@ -399,6 +485,10 @@ func (cm *Manager) DeleteNode(_ context.Context, id registry.ID) error {
 	cm.txMu.Lock()
 	cm.txNodes[id] = true
 	cm.txMu.Unlock()
+
+	if oldCompileFPs != nil || oldTypecheckFPs != nil {
+		cm.deleteCacheFingerprints(oldCompileFPs, oldTypecheckFPs)
+	}
 
 	return nil
 }
@@ -470,6 +560,7 @@ func (cm *Manager) AddBuiltinType(mod *api.ModuleDef) {
 	if cm.typeChecker != nil {
 		cm.typeChecker.AddBuiltin(mod)
 	}
+	cm.refreshBuiltinHash()
 }
 
 // GetTypeChecker returns the code manager's type checker for linting.

@@ -198,17 +198,23 @@ func (m *Manager) Commit(ctx context.Context) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if len(m.pending) == 0 {
+		return
+	}
+
+	failed := make(map[registry.ID]bool)
 	for serverID := range m.pending {
 		if server, exists := m.servers[serverID]; exists {
 			if err := server.Rebuild(ctx); err != nil {
-				m.log.Fatal("failed to rebuild router",
+				m.log.Error("failed to rebuild router",
 					zap.String("server", serverID.String()),
 					zap.Error(err))
+				failed[serverID] = true
 			}
 		}
 	}
 
-	m.pending = make(map[registry.ID]bool)
+	m.pending = failed
 }
 
 // Discard cancels any pending changes without applying them

@@ -44,6 +44,7 @@ func NewMessageCodec(transcoder payload.Transcoder) *MessageCodec {
 	mh.SliceType = reflect.TypeOf([]any(nil))
 
 	if err := registerPIDExtension(mh); err != nil {
+		// Logical invariant: PID extension registration should always succeed.
 		panic(NewRegisterPIDExtensionError(err))
 	}
 

@@ -20,6 +20,7 @@ import (
 	"github.com/wippyai/go-lua/types/diag"
 	"github.com/wippyai/go-lua/types/io"
 	regapi "github.com/wippyai/runtime/api/registry"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	bootpkg "github.com/wippyai/runtime/boot"
 	luaboot "github.com/wippyai/runtime/boot/components/runtime/lua"
 	"github.com/wippyai/runtime/boot/deps/lock"
@@ -70,6 +71,7 @@ func init() {
 	lintCmd.Flags().StringSlice("code", nil, "filter by error codes (e.g., E0001, E0004)")
 	lintCmd.Flags().Int("limit", 0, "limit number of diagnostics shown (0 = unlimited)")
 	lintCmd.Flags().Bool("rules", false, "enable lint rules (style and quality warnings)")
+	lintCmd.Flags().Bool("cache-reset", false, "clear lua cache before linting")
 }
 
 // ----------------------------------------------------------------------------
@@ -190,6 +192,7 @@ type entryResult struct {
 type entryData struct {
 	Imports map[string]regapi.ID
 	Source  string
+	Method  string
 }
 
 // lintConfig holds runtime configuration for a lint session.
@@ -235,7 +238,12 @@ func runLint(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	linter := createLinter(ctx, opts.enableRules)
+	linter, lcache := createLinter(ctx, opts.enableRules)
+	if opts.cacheReset {
+		if err := resetLintCache(lcache); err != nil {
+			return err
+		}
+	}
 	cfg := lintConfig{
 		minSeverity: opts.minSeverity,
 		workers:     runtime.NumCPU(),
@@ -243,9 +251,9 @@ func runLint(cmd *cobra.Command, _ []string) error {
 
 	var result *LintResult
 	if console {
-		result, err = runLintWithUI(luaEntries, reportSet, linter, cfg)
+		result, err = runLintWithUI(luaEntries, reportSet, linter, lcache, cfg)
 	} else {
-		result = runLintSimple(luaEntries, reportSet, linter, cfg)
+		result = runLintSimple(luaEntries, reportSet, linter, lcache, cfg)
 	}
 	if err != nil {
 		return err
@@ -266,6 +274,7 @@ type lintOptions struct {
 	noColor     bool
 	showSummary bool
 	enableRules bool
+	cacheReset  bool
 }
 
 func parseLintFlags(cmd *cobra.Command) (lintOptions, error) {
@@ -278,6 +287,7 @@ func parseLintFlags(cmd *cobra.Command) (lintOptions, error) {
 	codeFilters, _ := cmd.Flags().GetStringSlice("code")
 	limit, _ := cmd.Flags().GetInt("limit")
 	enableRules, _ := cmd.Flags().GetBool("rules")
+	cacheReset, _ := cmd.Flags().GetBool("cache-reset")
 
 	return lintOptions{
 		lockFile:    lockFile,
@@ -289,6 +299,7 @@ func parseLintFlags(cmd *cobra.Command) (lintOptions, error) {
 		codeFilters: codeFilters,
 		limit:       limit,
 		enableRules: enableRules,
+		cacheReset:  cacheReset,
 	}, nil
 }
 
@@ -373,14 +384,18 @@ func loadLuaEntries(cmd *cobra.Command, lockFile string, nsFilters []string) ([]
 	return expanded, reportSet, nil
 }
 
-func createLinter(ctx context.Context, enableRules bool) *lint.Linter {
+func createLinter(ctx context.Context, enableRules bool) (*lint.Linter, lintCache) {
 	cm := luaboot.GetCodeManager(ctx)
-	mods := cm.GetModuleDefs()
+	var mods []*luaapi.ModuleDef
+	if cm != nil {
+		mods = cm.GetModuleDefs()
+	}
 
-	typeChecker := code.NewTypeChecker(code.TypeCheckConfig{
+	typeCfg := code.TypeCheckConfig{
 		Enabled: true,
 		Strict:  true,
-	}, mods)
+	}
+	typeChecker := code.NewTypeChecker(typeCfg, mods)
 
 	var registry *lint.Registry
 	if enableRules {
@@ -389,7 +404,28 @@ func createLinter(ctx context.Context, enableRules bool) *lint.Linter {
 		registry = lint.NewRegistry()
 	}
 
-	return lint.New(typeChecker, registry)
+	lcache := lintCache{}
+	if cm != nil {
+		lcache.store = cm.CacheStore()
+		lcache.cfg = cm.CacheConfig()
+	}
+	lcache.typecheckHash = code.TypecheckConfigHash(typeCfg)
+	lcache.builtinModules = make([]string, 0, len(mods))
+	builtinManifests := make(map[string]*io.Manifest)
+	for _, mod := range mods {
+		if mod == nil || mod.Types == nil {
+			continue
+		}
+		manifest := mod.Types()
+		if manifest == nil {
+			continue
+		}
+		lcache.builtinModules = append(lcache.builtinModules, mod.Name)
+		builtinManifests[mod.Name] = manifest
+	}
+	lcache.builtinHash = code.BuiltinManifestHash(builtinManifests)
+
+	return lint.New(typeChecker, registry), lcache
 }
 
 func applyFilters(result *LintResult, codeFilters []string, limit int) *LintResult {
@@ -423,7 +459,7 @@ func outputResults(result *LintResult, opts lintOptions) error {
 // Linting execution
 // ----------------------------------------------------------------------------
 
-func runLintWithUI(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter *lint.Linter, cfg lintConfig) (*LintResult, error) {
+func runLintWithUI(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter *lint.Linter, lcache lintCache, cfg lintConfig) (*LintResult, error) {
 	prog := progress.New(progress.WithDefaultGradient())
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -443,7 +479,7 @@ func runLintWithUI(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, lint
 				p.Send(lintErrorMsg{err: fmt.Errorf("lint panic: %v", r)})
 			}
 		}()
-		result := lintEntries(luaEntries, reportSet, linter, cfg, p)
+		result := lintEntries(luaEntries, reportSet, linter, lcache, cfg, p)
 		p.Send(lintCompleteMsg{result: result})
 	}()
 
@@ -465,17 +501,22 @@ func runLintWithUI(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, lint
 	return nil, fmt.Errorf("lint operation was interrupted")
 }
 
-func runLintSimple(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter *lint.Linter, cfg lintConfig) *LintResult {
-	result := lintEntries(luaEntries, reportSet, linter, cfg, nil)
+func runLintSimple(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter *lint.Linter, lcache lintCache, cfg lintConfig) *LintResult {
+	result := lintEntries(luaEntries, reportSet, linter, lcache, cfg, nil)
 	fmt.Fprintf(os.Stderr, "\r                    \r")
 	return result
 }
 
 // lintEntries is the core linting loop. If prog is non-nil, sends UI updates.
-func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter *lint.Linter, cfg lintConfig, prog *tea.Program) *LintResult {
+func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter *lint.Linter, lcache lintCache, cfg lintConfig, prog *tea.Program) *LintResult {
 	result := &LintResult{TotalEntries: len(luaEntries)}
 
 	levels, _ := topology.LevelSortEntriesByDependency(luaEntries, &luaImportResolver{})
+	entryDataMap := make(map[regapi.ID]entryData, len(luaEntries))
+	for _, entry := range luaEntries {
+		entryDataMap[entry.ID] = extractEntryData(entry)
+	}
+	fps := computeLintFingerprints(levels, entryDataMap, lcache)
 	manifestMap := make(map[regapi.ID]*io.Manifest)
 
 	var checked, errorCount, warnCount atomic.Int64
@@ -512,7 +553,7 @@ func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter
 				prog.Send(lintEntryMsg{entry: entry.ID.String()})
 			}
 
-			er := lintOneEntry(entry, linter, manifestMap, cfg.minSeverity)
+			er := lintOneEntry(entry, entryDataMap[entry.ID], linter, manifestMap, cfg.minSeverity, lcache, fps)
 			checked.Add(1)
 
 			entryIssues := 0
@@ -545,7 +586,7 @@ func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter
 				}
 
 				clone := linter.Clone()
-				er := lintOneEntry(e, clone, manifestMap, cfg.minSeverity)
+				er := lintOneEntry(e, entryDataMap[e.ID], clone, manifestMap, cfg.minSeverity, lcache, fps)
 				checked.Add(1)
 
 				entryIssues := 0
@@ -571,8 +612,7 @@ func lintEntries(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, linter
 	return result
 }
 
-func lintOneEntry(entry regapi.Entry, linter *lint.Linter, manifestMap map[regapi.ID]*io.Manifest, minSev severity) *entryResult {
-	data := extractEntryData(entry)
+func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manifestMap map[regapi.ID]*io.Manifest, minSev severity, lcache lintCache, fps lintFingerprints) *entryResult {
 	if data.Source == "" {
 		return nil
 	}
@@ -607,8 +647,34 @@ func lintOneEntry(entry regapi.Entry, linter *lint.Linter, manifestMap map[regap
 		}
 	}
 
-	lintResult := linter.CheckParsed(stmts, entryID, imports)
+	var cachedManifest *io.Manifest
+	var cachedDiagnostics []diag.Diagnostic
+	if tcFP := fps.typecheck[entry.ID]; tcFP != "" {
+		if manifest, diags, ok := lintLoadTypecheckCache(lcache, entry.ID, tcFP); ok {
+			cachedManifest = manifest
+			cachedDiagnostics = diags
+		}
+	}
+
+	enableTypecheck := cachedDiagnostics == nil
+	lintResult := linter.CheckParsedWithTypecheck(stmts, entryID, imports, enableTypecheck)
 	linter.ClearCache()
+
+	if cachedDiagnostics != nil {
+		lintResult.Manifest = cachedManifest
+		lintResult.Diagnostics = append(cachedDiagnostics, lintResult.Diagnostics...)
+	}
+
+	typeDiags := filterTypecheckDiagnostics(lintResult.Diagnostics)
+	if lintResult.Manifest != nil {
+		lintSaveTypecheckCache(lcache, entry, data, fps.typecheck[entry.ID], fps.typeDeps[entry.ID], lintResult.Manifest, typeDiags)
+	}
+
+	if fp := fps.compile[entry.ID]; fp != "" {
+		if !code.HasErrors(typeDiags) {
+			lintEnsureCompileCache(lcache, entry, data, fp, fps.compileDeps[entry.ID], stmts)
+		}
+	}
 
 	er := &entryResult{
 		entryID:  entry.ID,
@@ -760,6 +826,7 @@ func extractEntryData(entry regapi.Entry) entryData {
 
 	var cfg struct {
 		Source  string               `json:"source"`
+		Method  string               `json:"method"`
 		Imports map[string]regapi.ID `json:"imports,omitempty"`
 		Modules []string             `json:"modules,omitempty"`
 	}
@@ -776,7 +843,7 @@ func extractEntryData(entry regapi.Entry) entryData {
 		imports[mod] = regapi.NewID("", mod)
 	}
 
-	return entryData{Source: cfg.Source, Imports: imports}
+	return entryData{Source: cfg.Source, Imports: imports, Method: cfg.Method}
 }
 
 // luaImportResolver extracts Lua import dependencies from entries.

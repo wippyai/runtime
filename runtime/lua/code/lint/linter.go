@@ -46,6 +46,11 @@ func (l *Linter) Check(source, entryID string, imports map[string]*io.Manifest) 
 
 // CheckParsed analyzes already-parsed AST
 func (l *Linter) CheckParsed(stmts []ast.Stmt, entryID string, imports map[string]*io.Manifest) (result *Result) {
+	return l.CheckParsedWithTypecheck(stmts, entryID, imports, true)
+}
+
+// CheckParsedWithTypecheck analyzes parsed AST with optional type checking.
+func (l *Linter) CheckParsedWithTypecheck(stmts []ast.Stmt, entryID string, imports map[string]*io.Manifest, enableTypecheck bool) (result *Result) {
 	result = &Result{}
 
 	// Recover from type checker panics
@@ -61,7 +66,7 @@ func (l *Linter) CheckParsed(stmts []ast.Stmt, entryID string, imports map[strin
 	}()
 
 	// Phase 1: Type checking (core errors)
-	if l.typeChecker != nil && l.typeChecker.IsEnabled() {
+	if enableTypecheck && l.typeChecker != nil && l.typeChecker.IsEnabled() {
 		manifest, diagnostics := l.typeChecker.CheckParsed(stmts, entryID, imports)
 		result.Manifest = manifest
 		result.Diagnostics = diagnostics

@@ -216,6 +216,7 @@ func GetRegistry(ctx context.Context) *Registry {
 func MustGetRegistry(ctx context.Context) *Registry {
 	registry := GetRegistry(ctx)
 	if registry == nil {
+		// Logical invariant: registry must exist in context at this call site.
 		panic("websocket: no resource.Table in context")
 	}
 	return registry

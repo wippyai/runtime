@@ -19,7 +19,8 @@ func Loader() boot.Component {
 			dtt := payload.GetTranscoder(ctx)
 
 			if dtt == nil {
-				logger.Fatal("transcoder not found in context")
+				logger.Error("transcoder not available in context")
+				return ctx, ErrTranscoderNotAvailable
 			}
 
 			interpolator := interpolate.NewEntryInterpolator(dtt,

@@ -56,7 +56,7 @@ lua:
   main_cache_size: 10000      # Lua main cache size
   type_system:
     enabled: true             # Enable type checking during compilation
-    strict: false             # Strict mode treats all issues as compile errors
+    strict: true              # Strict mode treats all issues as compile errors
   expr:
     cache_enabled: true       # Enable expression caching
     capacity: 5000            # Expression cache capacity

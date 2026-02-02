@@ -2,6 +2,7 @@ package lua
 
 import (
 	"context"
+	"path/filepath"
 
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
@@ -12,6 +13,7 @@ import (
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/components/dispatchers"
 	"github.com/wippyai/runtime/runtime/lua/code"
+	"github.com/wippyai/runtime/runtime/lua/code/cache"
 	"github.com/wippyai/runtime/runtime/lua/component"
 	funclua "github.com/wippyai/runtime/runtime/lua/component/function"
 	"github.com/wippyai/runtime/runtime/lua/component/library"
@@ -40,6 +42,13 @@ func Engine() boot.Component {
 			mainCacheSize := 10000
 			typeCheckEnabled := false
 			typeCheckStrict := false
+			cacheCfg := cache.Config{
+				Enabled:          false,
+				Dir:              cache.DefaultDir,
+				Mode:             cache.ModeReadWrite,
+				CompileEnabled:   true,
+				TypecheckEnabled: true,
+			}
 			if cfg != nil {
 				luaCfg := cfg.Sub("lua")
 				if luaCfg != nil {
@@ -50,6 +59,19 @@ func Engine() boot.Component {
 						typeCheckEnabled = typeSysCfg.GetBool("enabled", false)
 						typeCheckStrict = typeSysCfg.GetBool("strict", typeCheckStrict)
 					}
+					cacheCfg.Enabled = typeCheckEnabled
+					if _, ok := luaCfg.Get("cache.enabled"); ok {
+						cacheCfg.Enabled = luaCfg.GetBool("cache.enabled", cacheCfg.Enabled)
+					}
+					cacheCfg.Dir = luaCfg.GetString("cache.dir", cacheCfg.Dir)
+					if cfg != nil && cacheCfg.Dir != "" && !filepath.IsAbs(cacheCfg.Dir) {
+						if baseDir := cfg.GetString("boot.config_dir", ""); baseDir != "" {
+							cacheCfg.Dir = filepath.Join(baseDir, cacheCfg.Dir)
+						}
+					}
+					cacheCfg.Mode = cache.ParseMode(luaCfg.GetString("cache.mode", string(cacheCfg.Mode)))
+					cacheCfg.CompileEnabled = luaCfg.GetBool("cache.compile.enabled", cacheCfg.CompileEnabled)
+					cacheCfg.TypecheckEnabled = luaCfg.GetBool("cache.typecheck.enabled", cacheCfg.TypecheckEnabled)
 				}
 			}
 
@@ -68,6 +90,7 @@ func Engine() boot.Component {
 						Enabled: typeCheckEnabled,
 						Strict:  typeCheckStrict,
 					},
+					Cache: cacheCfg,
 				},
 			)
 			if err != nil {

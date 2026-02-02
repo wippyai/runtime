@@ -41,9 +41,11 @@ func (a *appContext) Get(key any) any {
 }
 
 func (a *appContext) With(key any, value any) AppContext {
+	// Logical invariant: writes only happen during boot before Seal().
 	if a.sealed.Load() {
 		panic("cannot modify sealed AppContext")
 	}
+	// Logical invariant: keys are write-once to keep AppContext immutable after boot.
 	if _, exists := a.values[key]; exists {
 		panic("cannot overwrite AppContext key: key already set")
 	}

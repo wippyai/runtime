@@ -118,6 +118,12 @@ func (d *Dispatcher) execute(j job) {
 }
 
 func (d *Dispatcher) executeConnect(ctx context.Context, cmd wsapi.ConnectCmd, tag uint64, receiver dispatcher.ResultReceiver) {
+	registry := GetRegistry(ctx)
+	if registry == nil {
+		receiver.CompleteYield(tag, nil, NewNoRegistryError())
+		return
+	}
+
 	opts := &websocket.DialOptions{}
 
 	if len(cmd.Headers) > 0 {
@@ -167,7 +173,6 @@ func (d *Dispatcher) executeConnect(ctx context.Context, cmd wsapi.ConnectCmd, t
 	}
 	conn.SetReadLimit(readLimit)
 
-	registry := MustGetRegistry(ctx)
 	id := registry.Register(ctx, conn, cmd.ChannelCapacity, cmd.ReadTimeout)
 	receiver.CompleteYield(tag, id, nil)
 }

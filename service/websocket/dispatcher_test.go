@@ -130,6 +130,42 @@ func TestConnectHandler(t *testing.T) {
 	}
 }
 
+func TestConnectHandlerNoRegistry(t *testing.T) {
+	ctx := context.Background()
+
+	d := NewDispatcher()
+	_ = d.Start(ctx)
+	defer func() { _ = d.Stop(ctx) }()
+
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
+
+	done := make(chan struct{})
+	var recvErr error
+	err := handlers[wsapi.Connect].Handle(ctx, wsapi.ConnectCmd{URL: "ws://example.invalid"}, 1, &testReceiver{fn: func(_ uint64, _ any, err error) {
+		recvErr = err
+		close(done)
+	}})
+	if err != nil {
+		t.Fatalf("handle failed: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for connect error")
+	}
+
+	if recvErr == nil {
+		t.Fatal("expected error for missing registry")
+	}
+	if !errors.Is(recvErr, NewNoRegistryError()) {
+		t.Fatalf("expected no-registry error, got %v", recvErr)
+	}
+}
+
 func TestConnectHandlerWithHeaders(t *testing.T) {
 	var receivedHeaders http.Header
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

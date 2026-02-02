@@ -18,6 +18,7 @@ import (
 	"github.com/wippyai/runtime/api/supervisor"
 	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
@@ -28,11 +29,15 @@ const (
 	relaySendActivityName = "__wippy_relay_send"
 )
 
-var _ supervisor.Service = (*Worker)(nil)
+var (
+	_ supervisor.Service = (*Worker)(nil)
+	_ relay.Receiver     = (*Worker)(nil)
+)
 
 // Worker wraps a Temporal SDK worker with lifecycle management
 type Worker struct {
 	clientResource resource.Resource[any]
+	temporalClient client.Client
 	ctx            context.Context
 	funcRegistry   function.Registry
 	resourceReg    resource.Registry
@@ -124,6 +129,7 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 		statusCh <- supervisor.StatusFailed
 		return statusCh, fmt.Errorf("temporal client is nil")
 	}
+	w.temporalClient = temporalClient
 
 	// Apply task queue prefix from client
 	taskQueue := temporalRes.GetTaskQueueName(w.config.TaskQueue)
@@ -509,6 +515,50 @@ func (w *Worker) createActivityHandler(_ context.Context, funcID registry.ID) fu
 
 		return []payload.Payload{result.Value}, nil
 	}
+}
+
+// Send implements relay.Receiver by translating relay packages to Temporal signals.
+func (w *Worker) Send(pkg *relay.Package) error {
+	if w.closed.Load() {
+		return fmt.Errorf("worker is closed")
+	}
+	if w.temporalClient == nil {
+		return fmt.Errorf("temporal client not available")
+	}
+
+	workflowID := pkg.Target.UniqID
+	if workflowID == "" {
+		return fmt.Errorf("target workflow ID is empty")
+	}
+
+	for _, msg := range pkg.Messages {
+		if msg.Topic == "" {
+			continue
+		}
+
+		// Pass payloads directly - client's DataConverter handles format conversion
+		var signalArg any
+		if len(msg.Payloads) == 1 {
+			signalArg = msg.Payloads[0]
+		} else if len(msg.Payloads) > 1 {
+			signalArg = payload.Payloads(msg.Payloads)
+		}
+
+		w.log.Debug("sending signal to workflow",
+			zap.String("workflow_id", workflowID),
+			zap.String("signal", msg.Topic),
+			zap.Int("payloads", len(msg.Payloads)))
+
+		if err := w.temporalClient.SignalWorkflow(w.ctx, workflowID, "", msg.Topic, signalArg); err != nil {
+			w.log.Error("failed to signal workflow",
+				zap.String("workflow_id", workflowID),
+				zap.String("signal", msg.Topic),
+				zap.Error(err))
+			return err
+		}
+	}
+
+	return nil
 }
 
 // mapVersioningBehavior converts API versioning behavior to SDK type

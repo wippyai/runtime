@@ -84,6 +84,7 @@ func RegisterTypeMethods(
 	} else if len(metamethods) > 0 {
 		// This should not happen due to shouldCreateNew logic above,
 		// but guard against it for safety
+		// Logical invariant: immutable metatables must never be modified.
 		panic("attempting to modify immutable metatable")
 	}
 
@@ -113,6 +114,7 @@ func RegisterTypeMethods(
 	} else if len(methods) > 0 {
 		// This should not happen due to shouldCreateNew logic above,
 		// but guard against it for safety
+		// Logical invariant: immutable metatables must never be modified.
 		panic("attempting to add methods to immutable metatable")
 	}
 

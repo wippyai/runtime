@@ -413,6 +413,14 @@ func loadBootConfig() (boot.Config, error) {
 	if cfgPath == "" {
 		cfgPath = defaultConfigFile
 	}
+	cfgPathAbs, err := filepath.Abs(cfgPath)
+	if err != nil {
+		cfgPathAbs = cfgPath
+	}
+	configMeta := boot.NewConfig(boot.WithSection("boot", map[string]any{
+		"config_path": cfgPathAbs,
+		"config_dir":  filepath.Dir(cfgPathAbs),
+	}))
 
 	cfg, err := bootconfig.Load(cfgPath)
 	if err != nil {
@@ -421,10 +429,10 @@ func loadBootConfig() (boot.Config, error) {
 
 	defaults := createDefaultConfig()
 	if cfg == nil {
-		return defaults, nil
+		return bootconfig.Merge(defaults, configMeta), nil
 	}
 
-	return bootconfig.Merge(defaults, cfg), nil
+	return bootconfig.Merge(bootconfig.Merge(defaults, cfg), configMeta), nil
 }
 
 func createDefaultConfig() boot.Config {

@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -42,6 +43,25 @@ func TestLoader(t *testing.T) {
 	ldr := boot.GetLoader(ctx)
 	if ldr == nil {
 		t.Fatal("loader not found in context")
+	}
+}
+
+func TestLoader_NoTranscoder(t *testing.T) {
+	ctx := context.Background()
+
+	appCtx := contextapi.NewAppContext()
+	ctx = contextapi.WithAppContext(ctx, appCtx)
+
+	logger, _ := zap.NewDevelopment()
+	ctx = logapi.WithLogger(ctx, logger)
+
+	component := Loader()
+	_, err := component.Load(ctx)
+	if err == nil {
+		t.Fatal("expected error when transcoder is missing")
+	}
+	if !errors.Is(err, ErrTranscoderNotAvailable) {
+		t.Fatalf("expected ErrTranscoderNotAvailable, got %v", err)
 	}
 }
 

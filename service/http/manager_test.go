@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	apiregistry "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
 	config "github.com/wippyai/runtime/api/service/http"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
@@ -57,6 +59,56 @@ func (t *SimpleTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
 	}
 
 	return nil // Let's assume success for simplicity
+}
+
+type failingServer struct {
+	rebuildErr error
+}
+
+func (s *failingServer) Start(_ context.Context) (<-chan any, error) {
+	ch := make(chan any)
+	close(ch)
+	return ch, nil
+}
+
+func (s *failingServer) Stop(_ context.Context) error {
+	return nil
+}
+
+func (s *failingServer) Send(_ *relay.Package) error {
+	return nil
+}
+
+func (s *failingServer) UpdateConfig(_ *config.ServerConfig) error {
+	return nil
+}
+
+func (s *failingServer) UpsertRouter(_ apiregistry.ID, _ *config.RouterConfig) error {
+	return nil
+}
+
+func (s *failingServer) DeleteRouter(_ apiregistry.ID) error {
+	return nil
+}
+
+func (s *failingServer) UpsertEndpoint(_ apiregistry.ID, _ apiregistry.ID, _ string, _ string, _ http.Handler) error {
+	return nil
+}
+
+func (s *failingServer) RemoveEndpoint(_ apiregistry.ID, _ apiregistry.ID) error {
+	return nil
+}
+
+func (s *failingServer) Mount(_ apiregistry.ID, _ string, _ http.Handler) error {
+	return nil
+}
+
+func (s *failingServer) Remove(_ apiregistry.ID) error {
+	return nil
+}
+
+func (s *failingServer) Rebuild(_ context.Context) error {
+	return s.rebuildErr
 }
 
 // createManagerTempDir for filesystem testing
@@ -542,6 +594,20 @@ func TestManager_TransactionOperations(t *testing.T) {
 	// Test Commit - should trigger rebuild and clear pending
 	manager.Commit(ctx)
 	assert.Empty(t, manager.pending)
+}
+
+func TestManager_CommitKeepsPendingOnRebuildError(t *testing.T) {
+	manager, ctx := setupManager(t)
+
+	serverID := apiregistry.NewID("test", "server-rebuild-fail")
+	manager.servers[serverID] = &failingServer{rebuildErr: errors.New("rebuild failed")}
+	manager.pending[serverID] = true
+
+	manager.Commit(ctx)
+
+	if _, stillPending := manager.pending[serverID]; !stillPending {
+		t.Fatal("expected pending server to remain after rebuild error")
+	}
 }
 
 func TestManager_UnsupportedKinds(t *testing.T) {
