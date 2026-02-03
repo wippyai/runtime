@@ -78,7 +78,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		Token:   token,
 	})
 	if err != nil {
-		return NewAddClientError(err)
+		return NewAddClientError(registryURL, err)
 	}
 
 	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
@@ -104,7 +104,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 
 	info, err := client.GetDownloadURL(ctx, params)
 	if err != nil {
-		return NewAddResolveError(err)
+		return NewAddResolveError(moduleRef, err)
 	}
 
 	fmt.Printf("%s %s\n", labelStyle.Render("Resolved:"), infoStyle.Render(info.Version))
@@ -179,10 +179,10 @@ func NewAddParseError(cause error) error {
 	return fmt.Errorf("invalid module reference: %w", cause)
 }
 
-func NewAddClientError(cause error) error {
-	return fmt.Errorf("failed to create hub client: %w", cause)
+func NewAddClientError(registryURL string, cause error) error {
+	return fmt.Errorf("failed to create hub client for %s: %w", registryURL, cause)
 }
 
-func NewAddResolveError(cause error) error {
-	return fmt.Errorf("failed to resolve module: %w", cause)
+func NewAddResolveError(moduleRef string, cause error) error {
+	return fmt.Errorf("failed to resolve module %s: %w", moduleRef, cause)
 }

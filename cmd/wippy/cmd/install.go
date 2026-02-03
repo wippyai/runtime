@@ -124,7 +124,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		Token:   token,
 	})
 	if err != nil {
-		return NewCreateHubClientError(err)
+		return NewCreateHubClientError(fmt.Errorf("registry %s: %w", registryURL, err))
 	}
 
 	lockDir := filepath.Dir(lockObj.Path())

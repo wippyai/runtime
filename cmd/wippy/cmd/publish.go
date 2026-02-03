@@ -102,7 +102,7 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 
 	cred, err := store.Get(registryURL)
 	if err != nil {
-		return NewPublishNotAuthenticatedError(err)
+		return NewPublishNotAuthenticatedError(registryURL, err)
 	}
 
 	// Resolve version interactively when not provided and not publishing a label
@@ -112,7 +112,7 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 			Token:   cred.Token,
 		})
 		if clientErr != nil {
-			return NewPublishClientError(clientErr)
+			return NewPublishClientError(registryURL, clientErr)
 		}
 
 		resolved, resolveErr := promptVersion(cmd.Context(), hubClient, cfg)
@@ -165,7 +165,7 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 		Token:   cred.Token,
 	})
 	if err != nil {
-		return NewPublishClientError(err)
+		return NewPublishClientError(registryURL, err)
 	}
 
 	params := &hub.PublishParams{
@@ -501,12 +501,12 @@ func NewPublishConfigError(cause error) error {
 	return fmt.Errorf("invalid publish config: %w", cause)
 }
 
-func NewPublishNotAuthenticatedError(cause error) error {
-	return fmt.Errorf("not authenticated - run 'wippy auth login' first: %w", cause)
+func NewPublishNotAuthenticatedError(registryURL string, cause error) error {
+	return fmt.Errorf("not authenticated for %s - run 'wippy auth login' first: %w", registryURL, cause)
 }
 
-func NewPublishClientError(cause error) error {
-	return fmt.Errorf("failed to create hub client: %w", cause)
+func NewPublishClientError(registryURL string, cause error) error {
+	return fmt.Errorf("failed to create hub client for %s: %w", registryURL, cause)
 }
 
 func NewPublishInitiateError(cause error) error {
