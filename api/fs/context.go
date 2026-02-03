@@ -1,27 +1,35 @@
-// Package fs provides filesystem abstractions and a registry for managing
-// multiple filesystem instances.
 package fs
 
 import (
 	"context"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
-var registryCtx = &ctxapi.Key{Name: "fs.registry"}
+var registryKey = &ctxapi.Key{Name: "fs.registry"}
 
-// WithFSRegistry returns a new context with the provided filesystem Registry attached.
+// WithRegistry returns a new context with the provided filesystem Registry attached.
 // This allows the Registry to be retrieved later using the GetRegistry function.
-func WithFSRegistry(ctx context.Context, reg Registry) context.Context {
-	return context.WithValue(ctx, registryCtx, reg)
+func WithRegistry(ctx context.Context, reg Registry) context.Context {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(registryKey) == nil {
+		ac.With(registryKey, reg)
+	}
+	return ctx
 }
 
 // GetRegistry retrieves the filesystem Registry instance from the provided context.
 // Returns nil if no Registry is found in the context.
 func GetRegistry(ctx context.Context) Registry {
-	if reg, ok := ctx.Value(registryCtx).(Registry); ok {
-		return reg
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
 	}
-
+	if reg := ac.Get(registryKey); reg != nil {
+		return reg.(Registry)
+	}
 	return nil
 }

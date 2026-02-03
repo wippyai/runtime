@@ -1,75 +1,73 @@
+// Package store provides generic storage abstractions.
 package store
 
 import (
 	"context"
-	"errors"
 	"time"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-)
-
-// Common errors that can be returned by Store implementations
-var (
-	// ErrKeyNotFound indicates the requested key doesn't exist in the store
-	// Returned by Get and Delete operations when the key cannot be found
-	ErrKeyNotFound = errors.New("key not found")
-
-	// ErrKeyExists indicates attempted creation of a key that already exists
-	// Used when trying to create a new entry with a key that's already in use
-	ErrKeyExists = errors.New("key already exists")
-
-	// ErrInvalidKey indicates the key format is invalid
-	// Returned when a key doesn't conform to the expected format or contains invalid characters
-	ErrInvalidKey = errors.New("invalid key format")
-
-	// ErrStoreFull indicates the store has reached its maximum capacity
-	// Returned by Set operations when the store cannot accept more entries due to size constraints
-	ErrStoreFull = errors.New("store is full, cannot add more entries")
-
-	// ErrStoreClosed indicates the store is not open for operations
-	// Returned when attempting to perform operations on a store that has been shut down
-	ErrStoreClosed = errors.New("store is closed for operations, cannot perform action")
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 type (
-	// Entry represents a complete key-value entry to be stored
-	// Contains all the information needed to store a value in the key-value store
+	// Entry represents a key-value entry with optional TTL.
 	Entry struct {
-		// Key is the unique identifier for this entry
-		Key registry.ID
-
-		// Value is the data payload associated with this key
 		Value payload.Payload
-
-		// TTL (Time To Live) is the duration after which this entry should expire
-		// Zero value (0) means the entry never expires
-		TTL time.Duration
+		Key   registry.ID
+		TTL   time.Duration
 	}
 
-	// Store defines the primary interface for a key-value store
-	// All KV store implementations must satisfy this interface
+	// Store defines the interface for a key-value store.
 	Store interface {
-		// Get retrieves a value by key
-		// Returns the payload associated with the given registry.ID or ErrKeyNotFound if not present
-		// Other possible errors include ErrStoreClosed or implementation-specific errors
+		// Get retrieves a value by key.
 		Get(ctx context.Context, key registry.ID) (payload.Payload, error)
 
-		// Set stores or updates a value with the given key
-		// Overwrites any existing value if the key already exists
-		// Returns ErrStoreFull if the store has reached capacity and cannot accept more entries
-		// May also return ErrStoreClosed or implementation-specific errors
+		// Set stores or updates a value with the given key.
 		Set(ctx context.Context, entry Entry) error
 
-		// Delete removes a value with the given key
-		// Returns ErrKeyNotFound if the key doesn't exist
-		// May also return ErrStoreClosed or implementation-specific errors
+		// Delete removes a value by key.
 		Delete(ctx context.Context, key registry.ID) error
 
-		// Has checks if a key exists without retrieving the value
-		// More efficient than Get when only checking for existence
-		// Returns true if the key exists, false otherwise
-		// May return errors like ErrStoreClosed or implementation-specific errors
+		// Has checks if a key exists without retrieving the value.
 		Has(ctx context.Context, key registry.ID) (bool, error)
+	}
+
+	// ScanOptions configures a prefix scan operation.
+	ScanOptions struct {
+		Prefix string
+		After  string
+		Limit  int
+	}
+
+	// Scanner extends Store with prefix scan capability.
+	Scanner interface {
+		Store
+		// Scan iterates over entries matching the prefix.
+		// The callback returns true to continue, false to stop.
+		Scan(ctx context.Context, opts ScanOptions, fn func(Entry) bool) error
+	}
+
+	// Version represents an entry version for optimistic concurrency.
+	Version uint64
+
+	// VersionedEntry adds version tracking to Entry.
+	VersionedEntry struct {
+		Entry
+		Version Version // Version for CAS operations (0 = not found).
+	}
+
+	// Atomic extends Store with compare-and-swap capability.
+	Atomic interface {
+		Store
+		// GetVersioned retrieves a value with its version.
+		GetVersioned(ctx context.Context, key registry.ID) (VersionedEntry, error)
+
+		// CompareAndSwap updates the entry only if version matches.
+		// Returns true if swap succeeded, false if version mismatch.
+		CompareAndSwap(ctx context.Context, key registry.ID, expected Version, entry Entry) (bool, error)
+
+		// SetIfAbsent stores the entry only if the key does not exist.
+		// Returns true if stored, false if key already exists.
+		SetIfAbsent(ctx context.Context, entry Entry) (bool, error)
 	}
 )

@@ -1,39 +1,26 @@
 package time
 
 import (
-	lua "github.com/yuin/gopher-lua"
+	stdtime "time"
 )
 
-// Duration constants in nanoseconds
-const (
-	Nanosecond  = 1
-	Microsecond = 1000 * Nanosecond
-	Millisecond = 1000 * Microsecond
-	Second      = 1000 * Millisecond
-	Minute      = 60 * Second
-	Hour        = 60 * Minute
+// Time wraps time.Time for Lua userdata.
+type Time struct {
+	time stdtime.Time
+}
+
+// Duration wraps time.Duration for Lua userdata.
+type Duration struct {
+	duration stdtime.Duration
+}
+
+// Location wraps time.Location for Lua userdata.
+type Location struct {
+	location *stdtime.Location
+}
+
+// Pre-created location values (cached, immutable)
+var (
+	utcLocation   = &Location{location: stdtime.UTC}
+	localLocation = &Location{location: stdtime.Local}
 )
-
-// NewTimeModule creates and returns a new instance of the time Module
-func NewTimeModule() *Module {
-	return &Module{}
-}
-
-// Name returns the module's name
-func (m *Module) Name() string {
-	return "time"
-}
-
-// Loader registers the module's functions and constants into Lua state
-func (m *Module) Loader(l *lua.LState) int {
-	mod := l.CreateTable(0, 24)
-
-	registerDuration(l, mod)
-	registerLocation(l, mod)
-	registerTime(l, mod)
-	registerTimer(l, mod)
-	registerTicker(l, mod)
-
-	l.Push(mod)
-	return 1
-}

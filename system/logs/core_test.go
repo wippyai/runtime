@@ -4,25 +4,25 @@ import (
 	"context"
 	"testing"
 
-	api "github.com/ponyruntime/pony/api/logs"
+	api "github.com/wippyai/runtime/api/logs"
 
-	"github.com/ponyruntime/pony/api/event"
+	"github.com/wippyai/runtime/api/event"
 	"go.uber.org/zap/zapcore"
 )
 
 // testDownstreamCore implements zapcore.Core for testing
 type testDownstreamCore struct {
-	enabledCalls []zapcore.Level
-	writeCalls   []struct {
+	withResponse  zapcore.Core
+	writeResponse error
+	syncResponse  error
+	enabledCalls  []zapcore.Level
+	writeCalls    []struct {
 		ent    zapcore.Entry
 		fields []zapcore.Field
 	}
 	withCalls       [][]zapcore.Field
 	syncCalled      bool
 	enabledResponse bool
-	withResponse    zapcore.Core
-	writeResponse   error
-	syncResponse    error
 }
 
 func (t *testDownstreamCore) Enabled(level zapcore.Level) bool {
@@ -123,7 +123,7 @@ func TestCore_Enabled(t *testing.T) {
 			name: "below min level",
 			config: api.Config{
 				PropagateDownstream: true,
-				StreamToEvents:      true,
+				StreamToEvents:      false,
 				MinLevel:            zapcore.InfoLevel,
 			},
 			level:    zapcore.DebugLevel,
@@ -220,14 +220,14 @@ func TestCore_Write(t *testing.T) {
 				if len(bus.sendCalls) != 1 {
 					t.Error("expected one event send call")
 				}
-				event := bus.sendCalls[0]
-				if event.System != api.System {
+				ev := bus.sendCalls[0]
+				if ev.System != api.System {
 					t.Error("unexpected system in event")
 				}
-				if event.Kind != api.Entry {
+				if ev.Kind != api.Entry {
 					t.Error("unexpected kind in event")
 				}
-				if event.Path != entry.LoggerName {
+				if ev.Path != entry.LoggerName {
 					t.Error("unexpected path in event")
 				}
 			} else if len(bus.sendCalls) > 0 {

@@ -1,103 +1,119 @@
 package sql
 
 import (
-	"github.com/ponyruntime/pony/api/service/sql"
-	"github.com/ponyruntime/pony/runtime/lua/modules/sql/builder"
-	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
-	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
+	"sync"
+
+	lua "github.com/wippyai/go-lua"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	sqlapi "github.com/wippyai/runtime/api/service/sql"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 )
 
 const (
-	// TypePostgres identifies a PostgreSQL database
 	TypePostgres = "postgres"
+	TypeMySQL    = "mysql"
+	TypeSQLite   = "sqlite"
+	TypeMSSQL    = "mssql"
+	TypeOracle   = "oracle"
+	TypeUnknown  = "unknown"
 
-	// TypeMySQL identifies a MySQL database
-	TypeMySQL = "mysql"
+	IsolationDefault         = "default"
+	IsolationReadUncommitted = "read_uncommitted"
+	IsolationReadCommitted   = "read_committed"
+	IsolationWriteCommitted  = "write_committed"
+	IsolationRepeatableRead  = "repeatable_read"
+	IsolationSerializable    = "serializable"
 
-	// TypeSQLite identifies a SQLite database
-	TypeSQLite = "sqlite"
-
-	// TypeMSSQL identifies a Microsoft SQL Server database
-	TypeMSSQL = "mssql"
-
-	// TypeOracle identifies an Oracle database
-	TypeOracle = "oracle"
-
-	// TypeUnknown for unrecognized database types
-	TypeUnknown = "unknown"
+	dbTypeName          = "sql.DB"
+	statementTypeName   = "sql.Statement"
+	transactionTypeName = "sql.Transaction"
 )
 
-// mapDBTypeFromResourceKind maps a registry.Kind to a database type string
-func mapDBTypeFromResourceKind(dbType string) string {
-	switch dbType {
-	case sql.KindPostgres:
-		return TypePostgres
-	case sql.KindMySQL:
-		return TypeMySQL
-	case sql.KindSQLite:
-		return TypeSQLite
-	case sql.KindMSSQL:
-		return TypeMSSQL
-	case sql.KindOracle:
-		return TypeOracle
-	default:
-		return TypeUnknown
-	}
+var (
+	moduleTable *lua.LTable
+	initOnce    sync.Once
+)
+
+func init() {
+	value.RegisterTypeMethods(nil, dbTypeName, nil, dbMethods)
+	value.RegisterTypeMethods(nil, statementTypeName, nil, statementMethods)
+	value.RegisterTypeMethods(nil, transactionTypeName, nil, transactionMethods)
 }
 
-// NewSQLModule creates a new SQL module
-func NewSQLModule(log *zap.Logger) *Module {
-	return &Module{
-		log: log,
-	}
-}
+func initModuleTable() {
+	mod := lua.CreateTable(0, 6)
 
-// Module represents the SQL module for Lua
-type Module struct {
-	log *zap.Logger
-}
+	mod.RawSetString("get", lua.LGoFunc(sqlGet))
 
-// Name returns the module name
-func (m *Module) Name() string {
-	return "sql"
-}
+	nullUD := &lua.LUserData{Value: "SQL_NULL"}
+	mod.RawSetString("NULL", nullUD)
 
-// Loader is the entry point for loading the module into Lua
-func (m *Module) Loader(l *lua.LState) int {
-	mod := l.CreateTable(0, 4) // 4 elements: NULL, type table, vec sub-module, and DB functions
-
-	registerDB(l, mod, m.log)
-
-	// Register statement and transaction functions
-	registerStatement(l, m.log)
-	registerTransaction(l, m.log)
-
-	// Create NULL value
-	nullUserData := l.NewUserData()
-	nullUserData.Value = "SQL_NULL" // Marker value
-	mod.RawSetString("NULL", nullUserData)
-
-	// Create database type constants table with exact capacity
-	types := l.CreateTable(0, 6) // 6 database types
-
-	// Add database types directly - UPPERCASE for Lua constants
+	types := lua.CreateTable(0, 6)
 	types.RawSetString("POSTGRES", lua.LString(TypePostgres))
 	types.RawSetString("MYSQL", lua.LString(TypeMySQL))
 	types.RawSetString("SQLITE", lua.LString(TypeSQLite))
 	types.RawSetString("MSSQL", lua.LString(TypeMSSQL))
 	types.RawSetString("ORACLE", lua.LString(TypeOracle))
 	types.RawSetString("UNKNOWN", lua.LString(TypeUnknown))
-
-	// Add types table to module
+	types.Immutable = true
 	mod.RawSetString("type", types)
 
-	sqlutil.RegisterAsModule(l, mod)
+	isolation := lua.CreateTable(0, 6)
+	isolation.RawSetString("DEFAULT", lua.LString(IsolationDefault))
+	isolation.RawSetString("READ_UNCOMMITTED", lua.LString(IsolationReadUncommitted))
+	isolation.RawSetString("READ_COMMITTED", lua.LString(IsolationReadCommitted))
+	isolation.RawSetString("WRITE_COMMITTED", lua.LString(IsolationWriteCommitted))
+	isolation.RawSetString("REPEATABLE_READ", lua.LString(IsolationRepeatableRead))
+	isolation.RawSetString("SERIALIZABLE", lua.LString(IsolationSerializable))
+	isolation.Immutable = true
+	mod.RawSetString("isolation", isolation)
 
-	// Register the builder submodule
-	builder.RegisterBuilderModule(l, mod)
+	registerAsSubmodule(mod)
+	registerBuilderSubmodule(mod)
 
-	// Return module
-	l.Push(mod)
-	return 1
+	mod.Immutable = true
+	moduleTable = mod
+}
+
+// Module is the sql module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "sql",
+	Description: "SQL database operations",
+	Class:       []string{luaapi.ClassStorage, luaapi.ClassIO, luaapi.ClassNondeterministic},
+	Build: func() (*lua.LTable, []luaapi.YieldType) {
+		initOnce.Do(initModuleTable)
+		return moduleTable, []luaapi.YieldType{
+			{Sample: &QueryYield{}, CmdID: sqlapi.Query},
+			{Sample: &ExecuteYield{}, CmdID: sqlapi.Execute},
+			{Sample: &PrepareYield{}, CmdID: sqlapi.Prepare},
+			{Sample: &BeginYield{}, CmdID: sqlapi.Begin},
+			{Sample: &StmtQueryYield{}, CmdID: sqlapi.StmtQuery},
+			{Sample: &StmtExecuteYield{}, CmdID: sqlapi.StmtExecute},
+			{Sample: &StmtCloseYield{}, CmdID: sqlapi.StmtClose},
+			{Sample: &TxQueryYield{}, CmdID: sqlapi.TxQuery},
+			{Sample: &TxExecuteYield{}, CmdID: sqlapi.TxExecute},
+			{Sample: &TxSavepointYield{}, CmdID: sqlapi.TxExecute},
+			{Sample: &TxPrepareYield{}, CmdID: sqlapi.TxPrepare},
+			{Sample: &TxCommitYield{}, CmdID: sqlapi.TxCommit},
+			{Sample: &TxRollbackYield{}, CmdID: sqlapi.TxRollback},
+		}
+	},
+	Types: ModuleTypes,
+}
+
+func mapDBTypeFromResourceKind(dbType string) string {
+	switch dbType {
+	case sqlapi.Postgres:
+		return TypePostgres
+	case sqlapi.MySQL:
+		return TypeMySQL
+	case sqlapi.SQLite:
+		return TypeSQLite
+	case sqlapi.MSSQL:
+		return TypeMSSQL
+	case sqlapi.Oracle:
+		return TypeOracle
+	default:
+		return TypeUnknown
+	}
 }

@@ -7,19 +7,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
 func setupTest() (*Registry, event.Bus) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
-	return NewResourceRegistry(bus, logger), bus
+	return NewRegistry(bus, logger), bus
 }
 
 type mockResourceProvider struct {
@@ -36,12 +37,12 @@ func newMockResourceProvider() *mockResourceProvider {
 }
 
 type mockResource struct {
+	data     interface{}
 	provider *mockResourceProvider
 	id       registry.ID
-	data     interface{}
+	mu       sync.RWMutex
 	mode     resource.AccessMode
 	released bool
-	mu       sync.RWMutex
 }
 
 func (m *mockResource) Get() (any, error) {
@@ -49,7 +50,7 @@ func (m *mockResource) Get() (any, error) {
 	defer m.mu.RUnlock()
 
 	if m.released {
-		return nil, resource.ErrResourceReleased
+		return nil, resource.ErrReleased
 	}
 	return m.data, nil
 }
@@ -83,12 +84,12 @@ func (m *mockResourceProvider) Acquire(ctx context.Context, id registry.ID, mode
 	// Check if resource exists
 	data, exists := m.resources[id]
 	if !exists {
-		return nil, resource.ErrResourceNotFound
+		return nil, resource.ErrNotFound
 	}
 
 	// Check for exclusive lock
 	if _, locked := m.lockedResources[id]; locked {
-		return nil, resource.ErrResourceLocked
+		return nil, ErrLocked
 	}
 
 	// If requesting exclusive access, lock the resource
@@ -105,7 +106,7 @@ func (m *mockResourceProvider) Acquire(ctx context.Context, id registry.ID, mode
 }
 
 func TestService_StartStop(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	service, _ := setupTest()
 
 	err := service.Start(ctx)
@@ -117,7 +118,7 @@ func TestService_StartStop(t *testing.T) {
 }
 
 func TestService_ResourceLifecycle(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	service, bus := setupTest()
 	require.NoError(t, service.Start(ctx))
 	defer func() {
@@ -125,7 +126,7 @@ func TestService_ResourceLifecycle(t *testing.T) {
 	}()
 
 	provider := newMockResourceProvider()
-	id := registry.ID{NS: "test", Name: "resource1"}
+	id := registry.NewID("test", "resource1")
 
 	// Test registration
 	entry := resource.Entry{
@@ -169,7 +170,7 @@ func TestService_ResourceLifecycle(t *testing.T) {
 
 	// Verify other acquires fail while exclusive lock is held
 	_, err = service.Acquire(ctx, id, resource.ModeNormal)
-	assert.Equal(t, resource.ErrResourceLocked, err)
+	assert.Equal(t, ErrLocked, err)
 
 	// Release exclusive lock
 	res.Release()
@@ -192,7 +193,7 @@ func TestService_ResourceLifecycle(t *testing.T) {
 }
 
 func TestService_ResourceAccess(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	service, bus := setupTest()
 	require.NoError(t, service.Start(ctx))
 	defer func() {
@@ -200,7 +201,7 @@ func TestService_ResourceAccess(t *testing.T) {
 	}()
 
 	provider := newMockResourceProvider()
-	id := registry.ID{NS: "test", Name: "resource1"}
+	id := registry.NewID("test", "resource1")
 
 	// Initialize the provider with the resource
 	provider.resources[id] = "test-data"
@@ -221,10 +222,10 @@ func TestService_ResourceAccess(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	tests := []struct {
+		errorType   error
 		name        string
 		mode        resource.AccessMode
 		shouldError bool
-		errorType   error
 	}{
 		{
 			name:        "normal mode",
@@ -260,7 +261,7 @@ func TestService_ResourceAccess(t *testing.T) {
 
 					// Verify can't Get after Release
 					_, err = res.Get()
-					assert.Equal(t, resource.ErrResourceReleased, err)
+					assert.Equal(t, resource.ErrReleased, err)
 
 					// Verify multiple Release calls are safe
 					res.Release()
@@ -279,7 +280,7 @@ func TestService_ContextCancellation(t *testing.T) {
 	}()
 
 	provider := newMockResourceProvider()
-	id := registry.ID{NS: "test", Name: "resource1"}
+	id := registry.NewID("test", "resource1")
 
 	// Initialize the provider with the resource
 	provider.resources[id] = "test-data"
@@ -304,26 +305,26 @@ func TestService_ContextCancellation(t *testing.T) {
 
 	// Attempt to acquire resource with canceled context
 	_, err := service.Acquire(ctx, id, resource.ModeExclusive)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "context canceled")
 }
 
 func TestService_GetResources(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	service, _ := setupTest()
 
 	// Test without registry in context
-	assert.Nil(t, resource.GetResources(ctx))
+	assert.Nil(t, resource.GetRegistry(ctx))
 
 	// Test with registry in context
-	ctxWithReg := resource.WithResources(ctx, service)
-	reg := resource.GetResources(ctxWithReg)
+	ctxWithReg := resource.WithRegistry(ctx, service)
+	reg := resource.GetRegistry(ctxWithReg)
 	assert.NotNil(t, reg)
 	assert.Equal(t, service, reg)
 }
 
 func TestService_ResourceListing(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	service, bus := setupTest()
 	require.NoError(t, service.Start(ctx))
 	defer func() { assert.NoError(t, service.Stop()) }()
@@ -385,13 +386,13 @@ func TestService_ResourceListing(t *testing.T) {
 }
 
 func TestService_UpdateResource(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	service, bus := setupTest()
 	require.NoError(t, service.Start(ctx))
 	defer func() { assert.NoError(t, service.Stop()) }()
 
 	provider := newMockResourceProvider()
-	id := registry.ID{NS: "test", Name: "resource1"}
+	id := registry.NewID("test", "resource1")
 	provider.resources[id] = "initial-data"
 
 	// Register initial resource
@@ -429,7 +430,7 @@ func TestService_UpdateResource(t *testing.T) {
 	})
 
 	t.Run("update non-existent resource", func(_ *testing.T) {
-		nonExistentID := registry.ID{NS: "test", Name: "nonexistent"}
+		nonExistentID := registry.NewID("test", "nonexistent")
 		updatedEntry := resource.Entry{
 			ID:       nonExistentID,
 			Provider: provider,
@@ -447,7 +448,7 @@ func TestService_UpdateResource(t *testing.T) {
 }
 
 func TestService_HandleEvent(t *testing.T) {
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 	service, bus := setupTest()
 	require.NoError(t, service.Start(ctx))
 	defer func() { assert.NoError(t, service.Stop()) }()
@@ -491,4 +492,331 @@ func TestService_HandleEvent(t *testing.T) {
 		})
 		time.Sleep(10 * time.Millisecond)
 	})
+}
+
+func TestService_EventHandlingErrors(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	service, bus := setupTest()
+	require.NoError(t, service.Start(ctx))
+	defer func() {
+		require.NoError(t, service.Stop())
+	}()
+
+	// Test invalid event data for register
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Register,
+		Path:   "test/resource1",
+		Data:   "invalid-data", // Should be resource.Entry
+	})
+
+	// Test invalid event data for update
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Update,
+		Path:   "test/resource1",
+		Data:   "invalid-data", // Should be resource.Entry
+	})
+
+	// Test invalid event data for delete
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Delete,
+		Path:   "test/resource1",
+		Data:   "invalid-data", // Should be registry.ID
+	})
+
+	// Test unknown event kind
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   "unknown",
+		Path:   "test/resource1",
+		Data:   nil,
+	})
+
+	// Give some time for event processing
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify no resources were registered due to invalid events
+	ids, err := service.List()
+	require.NoError(t, err)
+	assert.Empty(t, ids, "No resources should be registered after invalid events")
+}
+
+func TestService_ResourceUpdateScenarios(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	service, bus := setupTest()
+	require.NoError(t, service.Start(ctx))
+	defer func() {
+		require.NoError(t, service.Stop())
+	}()
+
+	provider := newMockResourceProvider()
+	id := registry.NewID("test", "resource1")
+
+	// Initialize the provider with the resource
+	provider.resources[id] = "initial-data"
+
+	// Register initial resource
+	entry := resource.Entry{
+		ID:       id,
+		Provider: provider,
+		Meta:     map[string]interface{}{"type": "test", "version": 1},
+	}
+
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Register,
+		Path:   id.String(),
+		Data:   entry,
+	})
+
+	time.Sleep(10 * time.Millisecond)
+
+	// Test updating non-existent resource
+	nonExistentID := registry.NewID("test", "nonexistent")
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Update,
+		Path:   nonExistentID.String(),
+		Data: resource.Entry{
+			ID:       nonExistentID,
+			Provider: provider,
+			Meta:     map[string]interface{}{"type": "test"},
+		},
+	})
+
+	// Update existing resource
+	updatedEntry := resource.Entry{
+		ID:       id,
+		Provider: provider,
+		Meta:     map[string]interface{}{"type": "test", "version": 2},
+	}
+
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Update,
+		Path:   id.String(),
+		Data:   updatedEntry,
+	})
+
+	time.Sleep(10 * time.Millisecond)
+
+	// Verify resource still exists after update
+	assert.True(t, service.Exists(id))
+}
+
+func TestService_ResourceAcquisitionEdgeCases(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	service, bus := setupTest()
+	require.NoError(t, service.Start(ctx))
+	defer func() {
+		require.NoError(t, service.Stop())
+	}()
+
+	provider := newMockResourceProvider()
+	id := registry.NewID("test", "resource1")
+
+	// Test acquiring non-existent resource
+	_, err := service.Acquire(ctx, id, resource.ModeNormal)
+	assert.Equal(t, resource.ErrNotFound, err)
+
+	// Register resource
+	entry := resource.Entry{
+		ID:       id,
+		Provider: provider,
+		Meta:     map[string]interface{}{"type": "test"},
+	}
+
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Register,
+		Path:   id.String(),
+		Data:   entry,
+	})
+
+	time.Sleep(10 * time.Millisecond)
+
+	// Test acquiring with canceled context
+	cancelledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	_, err = service.Acquire(cancelledCtx, id, resource.ModeNormal)
+	assert.Equal(t, context.Canceled, err)
+
+	// Test acquiring with deadline exceeded
+	deadlineCtx, cancel := context.WithTimeout(ctx, 1*time.Nanosecond)
+	defer cancel()
+	time.Sleep(1 * time.Millisecond) // Ensure deadline is exceeded
+	_, err = service.Acquire(deadlineCtx, id, resource.ModeNormal)
+	assert.Equal(t, context.DeadlineExceeded, err)
+}
+
+func TestService_ResourceListingEdgeCases(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	service, bus := setupTest()
+	require.NoError(t, service.Start(ctx))
+	defer func() {
+		require.NoError(t, service.Stop())
+	}()
+
+	// Test empty listing
+	ids, err := service.List()
+	require.NoError(t, err)
+	assert.Empty(t, ids)
+
+	// Register multiple resources
+	provider := newMockResourceProvider()
+	resources := []registry.ID{
+		{NS: "test", Name: "resource1"},
+		{NS: "test", Name: "resource2"},
+		{NS: "other", Name: "resource1"},
+	}
+
+	for _, id := range resources {
+		entry := resource.Entry{
+			ID:       id,
+			Provider: provider,
+			Meta:     map[string]interface{}{"type": "test"},
+		}
+
+		bus.Send(ctx, event.Event{
+			System: resource.System,
+			Kind:   resource.Register,
+			Path:   id.String(),
+			Data:   entry,
+		})
+	}
+
+	time.Sleep(10 * time.Millisecond)
+
+	// Test listing all resources
+	ids, err = service.List()
+	require.NoError(t, err)
+	assert.Len(t, ids, len(resources))
+
+	// Verify all registered resources are in the list
+	for _, id := range resources {
+		assert.Contains(t, ids, id)
+	}
+
+	// Remove one resource and verify listing
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Delete,
+		Path:   resources[0].String(),
+		Data:   resources[0],
+	})
+
+	time.Sleep(10 * time.Millisecond)
+
+	ids, err = service.List()
+	require.NoError(t, err)
+	assert.Len(t, ids, len(resources)-1)
+	assert.NotContains(t, ids, resources[0])
+}
+
+func TestService_AcquireProviderError(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	service, bus := setupTest()
+	require.NoError(t, service.Start(ctx))
+	defer func() { assert.NoError(t, service.Stop()) }()
+
+	provider := newMockResourceProvider()
+	id := registry.NewID("test", "missing")
+
+	// Register resource but don't add to provider's internal map
+	entry := resource.Entry{
+		ID:       id,
+		Provider: provider,
+		Meta:     map[string]interface{}{"type": "test"},
+	}
+
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Register,
+		Path:   id.String(),
+		Data:   entry,
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	// Acquire should fail because provider doesn't have the resource
+	_, err := service.Acquire(ctx, id, resource.ModeNormal)
+	assert.Equal(t, resource.ErrNotFound, err)
+}
+
+func TestService_DeleteNonExistentResource(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	service, bus := setupTest()
+	require.NoError(t, service.Start(ctx))
+	defer func() { assert.NoError(t, service.Stop()) }()
+
+	id := registry.NewID("test", "nonexistent")
+
+	// Try to delete non-existent resource - should log warning but not panic
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Delete,
+		Path:   id.String(),
+		Data:   id,
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	assert.False(t, service.Exists(id))
+}
+
+func TestService_DeleteBorrowedResource(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	service, bus := setupTest()
+	require.NoError(t, service.Start(ctx))
+	defer func() { assert.NoError(t, service.Stop()) }()
+
+	provider := newMockResourceProvider()
+	id := registry.NewID("test", "borrowed")
+	provider.resources[id] = "borrowed-data"
+
+	entry := resource.Entry{
+		ID:       id,
+		Provider: provider,
+		Meta:     map[string]interface{}{"type": "test"},
+	}
+
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Register,
+		Path:   id.String(),
+		Data:   entry,
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	// Acquire resource (borrow it)
+	res, err := service.Acquire(ctx, id, resource.ModeNormal)
+	require.NoError(t, err)
+
+	// Try to delete while borrowed - should fail silently
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Delete,
+		Path:   id.String(),
+		Data:   id,
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	// Resource should still exist
+	assert.True(t, service.Exists(id))
+
+	// Release the resource
+	res.Release()
+
+	// Now delete should succeed
+	bus.Send(ctx, event.Event{
+		System: resource.System,
+		Kind:   resource.Delete,
+		Path:   id.String(),
+		Data:   id,
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	assert.False(t, service.Exists(id))
 }

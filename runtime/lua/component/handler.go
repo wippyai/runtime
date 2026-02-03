@@ -2,15 +2,15 @@ package component
 
 import (
 	"context"
-	"fmt"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	api "github.com/ponyruntime/pony/api/runtime/lua"
-	lua "github.com/ponyruntime/pony/runtime/lua/code"
-	"github.com/ponyruntime/pony/system/eventbus"
-	eventhandlers "github.com/ponyruntime/pony/system/registry/events"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	runtimelua "github.com/wippyai/runtime/runtime/lua"
+	lua "github.com/wippyai/runtime/runtime/lua/code"
+	"github.com/wippyai/runtime/system/eventbus"
+	eventhandlers "github.com/wippyai/runtime/system/registry/events"
 )
 
 type EntityHandler interface {
@@ -39,8 +39,8 @@ func (h *Handler) Pattern() eventbus.Pattern {
 
 func (h *Handler) Handle(ctx context.Context, evt event.Event) error {
 	// Handle Lua events first
-	if evt.System == api.System {
-		if evt.Kind == api.InvalidateNodes {
+	if evt.System == luaapi.System {
+		if evt.Kind == luaapi.InvalidateNodes {
 			if ids, ok := evt.Data.([]registry.ID); ok {
 				h.entity.Invalidate(ctx, ids)
 			}
@@ -51,20 +51,21 @@ func (h *Handler) Handle(ctx context.Context, evt event.Event) error {
 	return h.inner.Handle(ctx, evt)
 }
 
+// UnpackConfig unpacks entry configuration (todo: see internal entry unpack)
 func UnpackConfig[T any](ctx context.Context, entry registry.Entry) (*T, error) {
 	dtt := payload.GetTranscoder(ctx)
 	if dtt == nil {
-		return nil, fmt.Errorf("transcoder not found in context")
+		return nil, luaapi.ErrTranscoderNotFound
 	}
 
 	cfg := new(T)
 	if err := dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+		return nil, runtimelua.NewUnmarshalConfigError(err)
 	}
 
 	if validator, ok := interface{}(cfg).(interface{ Validate() error }); ok {
 		if err := validator.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid configuration: %w", err)
+			return nil, runtimelua.NewValidationError(err)
 		}
 	}
 
@@ -79,7 +80,7 @@ func BuildImports(imports map[string]registry.ID, modules []string) []lua.Import
 	}
 
 	for _, module := range modules {
-		out = append(out, lua.Import{ID: registry.ID{Name: module}, Alias: module})
+		out = append(out, lua.Import{ID: registry.NewID("", module), Alias: module})
 	}
 
 	return out

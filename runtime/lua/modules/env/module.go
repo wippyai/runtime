@@ -1,95 +1,171 @@
 package env
 
 import (
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/runtime/lua/security"
-	lua "github.com/yuin/gopher-lua"
+	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/env"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/security"
 )
 
-// Module provides Lua bindings for accessing environment variables
-type Module struct {
+// Module is the env module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "env",
+	Description: "Environment variable access",
+	Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
+	Build: func() (*lua.LTable, []luaapi.YieldType) {
+		mod := lua.CreateTable(0, 3)
+		mod.RawSetString("get", lua.LGoFunc(envGet))
+		mod.RawSetString("set", lua.LGoFunc(envSet))
+		mod.RawSetString("get_all", lua.LGoFunc(envGetAll))
+		mod.Immutable = true
+		return mod, nil
+	},
+	Types: ModuleTypes,
 }
 
-// NewEnvModule creates a new environment module
-func NewEnvModule() *Module {
-	return &Module{}
-}
-
-// Name returns the module name
-func (m *Module) Name() string {
-	return "env"
-}
-
-// Loader is the entry point for loading the module into Lua
-func (m *Module) Loader(l *lua.LState) int {
-	t := l.CreateTable(0, 2) // Exactly 2 functions: get and get_all
-
-	t.RawSetString("get", l.NewFunction(m.get))
-	t.RawSetString("get_all", l.NewFunction(m.getAll))
-
-	l.Push(t)
-	return 1
-}
-
-func (m *Module) get(l *lua.LState) int {
+func envGet(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
-		l.RaiseError("no context found")
-		return 0
+		luaErr := lua.NewLuaError(l, "no context found").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
 	}
 
 	key := l.CheckString(1)
 	if key == "" {
-		l.ArgError(1, "empty key")
-		return 0
-	}
-
-	// Add security check for accessing specific environment variable
-	if !security.IsAllowed(l.Context(), "env.get", key, nil) {
-		l.RaiseError("not allowed to access environment variable: %s", key)
-		return 0
-	}
-
-	envCtx, ok := ctx.Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string])
-	if !ok {
-		l.RaiseError("invalid environment context")
-		return 0
-	}
-
-	value, ok := envCtx.Value(key)
-	if !ok {
+		luaErr := lua.NewLuaError(l, "empty key").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LNil)
+		l.Push(luaErr)
 		return 2
 	}
 
+	if !security.IsAllowed(ctx, "env.get", key, nil) {
+		luaErr := lua.NewLuaError(l, "not allowed to access environment variable: "+key).
+			WithKind(lua.PermissionDenied).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
+
+	envRegistry := env.GetRegistry(ctx)
+	if envRegistry == nil {
+		luaErr := lua.NewLuaError(l, "environment registry not found").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
+
+	value, err := envRegistry.Get(ctx, key)
+	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "get environment variable failed")
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
 	l.Push(lua.LString(value))
 	l.Push(lua.LNil)
 	return 2
 }
 
-func (m *Module) getAll(l *lua.LState) int {
+func envSet(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
+		luaErr := lua.NewLuaError(l, "no context found").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no context found"))
+		l.Push(luaErr)
 		return 2
 	}
 
-	envCtx, ok := ctx.Value(ctxapi.EnvCtx).(*ctxapi.Contexter[string])
-	if !ok {
+	key := l.CheckString(1)
+	if key == "" {
+		luaErr := lua.NewLuaError(l, "empty key").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid environment context"))
+		l.Push(luaErr)
 		return 2
 	}
 
-	result := l.CreateTable(0, envCtx.Len())
-	envCtx.Iterate(func(key string, value string) {
-		// Only include variables that the user has permission to access
-		if security.IsAllowed(l.Context(), "env.get", key, nil) {
+	value := l.CheckString(2)
+
+	if !security.IsAllowed(ctx, "env.set", key, nil) {
+		luaErr := lua.NewLuaError(l, "not allowed to set environment variable: "+key).
+			WithKind(lua.PermissionDenied).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
+
+	envRegistry := env.GetRegistry(ctx)
+	if envRegistry == nil {
+		luaErr := lua.NewLuaError(l, "environment registry not found").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
+
+	err := envRegistry.Set(ctx, key, value)
+	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "set environment variable failed")
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
+
+	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+	return 2
+}
+
+func envGetAll(l *lua.LState) int {
+	ctx := l.Context()
+	if ctx == nil {
+		luaErr := lua.NewLuaError(l, "no context found").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
+
+	envRegistry := env.GetRegistry(ctx)
+	if envRegistry == nil {
+		luaErr := lua.NewLuaError(l, "environment registry not found").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
+
+	variables, err := envRegistry.All(ctx)
+	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "get all environment variables failed")
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
+
+	result := l.CreateTable(0, len(variables))
+
+	for key, value := range variables {
+		if security.IsAllowed(ctx, "env.get", key, nil) {
 			result.RawSetString(key, lua.LString(value))
 		}
-	})
+	}
 
 	l.Push(result)
 	l.Push(lua.LNil)

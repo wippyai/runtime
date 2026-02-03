@@ -1,3 +1,4 @@
+// Package supervisor provides registry-driven process supervision.
 package supervisor
 
 import (
@@ -5,155 +6,188 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	supervisorapi "github.com/ponyruntime/pony/api/service/supervisor"
-	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/api/topology"
-	"github.com/ponyruntime/pony/internal/uniqid"
+	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
+	processapi "github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	supervisorapi "github.com/wippyai/runtime/api/service/supervisor"
+	"github.com/wippyai/runtime/api/supervisor"
+	topologyapi "github.com/wippyai/runtime/api/topology"
 )
 
-var supID = uniqid.NewGenerator()
-
-// Service represents a running process service instance
+// Service represents a running process service instance managed by supervisor.
+// It monitors a child process via topology and reports status changes.
 type Service struct {
+	pidGen        processapi.PIDGenerator
+	statusCh      chan any
+	detachFn      context.CancelFunc
+	supervisorPID pid.PID
+	childPID      pid.PID
 	id            registry.ID
-	pid           pubsub.PID
-	supervisorPID pubsub.PID
 	config        supervisorapi.ServiceConfig
-	status        chan any
 }
 
-// Start implements supervisor.Service
+// NewService creates a new process service instance.
+func NewService(id registry.ID, config supervisorapi.ServiceConfig, pidGen processapi.PIDGenerator) *Service {
+	return &Service{
+		id:     id,
+		config: config,
+		pidGen: pidGen,
+	}
+}
+
+// Start initiates the supervised process and begins monitoring.
+// The flow is TOCTOU-safe:
+// 1. Register supervisor PID in topology
+// 2. Attach to relay for events
+// 3. Start child process with monitoring enabled
+// 4. Child registration + Wait() happens atomically in lifecycle
 func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
-	// Get node from context
-	node := pubsub.GetNode(ctx)
+	node := relay.GetNode(ctx)
 	if node == nil {
-		return nil, fmt.Errorf("no node found in context")
+		return nil, ErrNoRelayNode
 	}
 
-	// Get process manager from context
-	proc := process.GetProcesses(ctx)
-	if proc == nil {
-		return nil, fmt.Errorf("no process manager found in context")
+	topo := topologyapi.GetTopology(ctx)
+	if topo == nil {
+		return nil, ErrNoTopology
 	}
 
-	// Setup monitor pid
-	svc.supervisorPID = pubsub.PID{
-		Node:   node.ID(),
-		Host:   topology.ControlHost,
-		ID:     registry.ID{Name: "supervisor"},
-		UniqID: supID.Generate(),
+	manager := processapi.GetManager(ctx)
+	if manager == nil {
+		return nil, ErrNoProcessManager
 	}
 
-	// Create monitoring channel
-	monitorCh := make(chan *pubsub.Package, 1)
+	// Generate supervisor PID for monitoring (using control host)
+	svc.supervisorPID = svc.pidGen.Generate(topologyapi.ControlHost)
 
+	// Register supervisor in topology FIRST (before starting child)
+	if err := topo.Register(svc.supervisorPID); err != nil {
+		return nil, newRegisterPIDError(err)
+	}
+
+	// Attach to relay to receive exit events
+	monitorCh := make(chan *relay.Package, 1)
 	detach, err := node.Attach(svc.supervisorPID, monitorCh)
 	if err != nil {
-		return nil, fmt.Errorf("failed to attach monitor: %w", err)
+		topo.Remove(svc.supervisorPID)
+		return nil, newAttachRelayError(err)
 	}
+	svc.detachFn = detach
 
-	// Initialize status channel
-	svc.status = make(chan any, 1)
+	// Prepare process start options with monitoring
+	opts := attrs.NewBag()
+	opts.Set(processapi.LifecycleParentKey, svc.supervisorPID)
+	opts.Set(processapi.LifecycleMonitorKey, true)
 
-	processID := svc.config.Process
-	if processID.NS == "" {
-		processID.NS = svc.id.NS
-	}
-
+	// Prepare input payloads
 	var payloads payload.Payloads
 	for _, p := range svc.config.Input {
 		payloads = append(payloads, payload.New(p))
 	}
 
-	// Launch monitored process
-	pid, err := proc.Start(ctx, &process.Start{
-		HostID: svc.config.HostID,
-		Source: processID,
-		Input:  payloads,
-		Lifecycle: process.Lifecycle{
-			Parent:  svc.supervisorPID,
-			Monitor: true,
-		},
+	// Start the child process
+	// lifecycle.OnStart will atomically:
+	// - Register child PID in topology
+	// - Call topology.Wait(supervisorPID, childPID)
+	childPID, err := manager.Start(ctx, &processapi.Start{
+		HostID:  svc.config.HostID,
+		Source:  svc.config.Process,
+		Input:   payloads,
+		Options: opts,
 	})
 	if err != nil {
 		detach()
-		return nil, fmt.Errorf("failed to start process: %w", err)
+		topo.Remove(svc.supervisorPID)
+		return nil, newStartProcessError(err)
 	}
 
-	svc.pid = pid
+	svc.childPID = childPID
+	svc.statusCh = make(chan any, 1)
 
-	// Topology process status
-	go func() {
-		defer close(svc.status)
-		defer detach()
+	// Start monitor goroutine
+	go svc.monitorLoop(ctx, monitorCh)
 
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case batch, ok := <-monitorCh:
-				if !ok {
-					select {
-					case svc.status <- supervisor.ErrExit:
-					default:
-					}
-					return
-				}
-
-				for _, msg := range batch.Messages {
-					if msg.Topic == topology.TopicEvents {
-						for _, p := range msg.Payloads {
-							// we always require to pass system events within go runtime, to verify legitimacy
-							if event, ok := p.Data().(*topology.ExitEvent); ok {
-								if event.Result.Error != nil {
-									select {
-									case svc.status <- fmt.Errorf("process failed: %w", event.Result.Error):
-									default:
-									}
-								} else {
-									select {
-									case svc.status <- supervisor.ErrExit:
-									default:
-									}
-								}
-								return
-							}
-						}
-					}
-				}
-			}
-		}
-	}()
-
-	return svc.status, nil
+	return svc.statusCh, nil
 }
 
-// Stop implements supervisor.Service
+// Stop terminates the supervised process gracefully.
 func (svc *Service) Stop(ctx context.Context) error {
-	if svc.pid.ID.Name == "" {
-		return nil // Not running
+	// Not started or already stopped
+	if svc.statusCh == nil {
+		return nil
 	}
 
-	err := pubsub.GetNode(ctx).Send(topology.Cancel(
-		svc.supervisorPID,
-		svc.pid,
-		time.Now().Add(svc.config.Lifecycle.StopTimeout),
-	))
-	// FIXME handle error
-	//nolint:revive,staticcheck // ignore for now
-	if err != nil {
-		// ignoring for now
+	node := relay.GetNode(ctx)
+	if node == nil {
+		return ErrNoRelayNode
 	}
 
-	// wait for completion
+	cancelPkg := topologyapi.CancelPackage(svc.supervisorPID, svc.childPID, time.Now().Add(svc.config.Lifecycle.StopTimeout))
+	if err := node.Send(cancelPkg); err != nil {
+		return newSendCancelError(err)
+	}
+
+	// Wait for status channel to close (indicating process exit)
 	select {
-	case <-svc.status:
+	case <-svc.statusCh:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 }
+
+// monitorLoop listens for topology exit events and reports them via status channel.
+func (svc *Service) monitorLoop(ctx context.Context, ch <-chan *relay.Package) {
+	defer close(svc.statusCh)
+	defer func() {
+		if svc.detachFn != nil {
+			svc.detachFn()
+		}
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case pkg, ok := <-ch:
+			if !ok {
+				select {
+				case svc.statusCh <- supervisor.ErrExit:
+				default:
+				}
+				return
+			}
+
+			for _, msg := range pkg.Messages {
+				if msg.Topic != topologyapi.TopicEvents {
+					continue
+				}
+				for _, p := range msg.Payloads {
+					event, ok := p.Data().(*topologyapi.ExitEvent)
+					if !ok {
+						continue
+					}
+
+					if event.Result != nil && event.Result.Error != nil {
+						select {
+						case svc.statusCh <- fmt.Errorf("process failed: %w", event.Result.Error):
+						default:
+						}
+					} else {
+						select {
+						case svc.statusCh <- supervisor.ErrExit:
+						default:
+						}
+					}
+					return
+				}
+			}
+		}
+	}
+}
+
+var _ supervisor.Service = (*Service)(nil)

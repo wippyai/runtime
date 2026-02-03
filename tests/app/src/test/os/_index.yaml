@@ -1,0 +1,58 @@
+version: "1.0"
+namespace: app.test.os
+
+entries:
+  - name: time
+    kind: function.lua
+    meta:
+      type: test
+      suite: os
+      description: os.time function
+    source: file://time.lua
+    method: main
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: date
+    kind: function.lua
+    meta:
+      type: test
+      suite: os
+      description: os.date function
+    source: file://date.lua
+    method: main
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: clock
+    kind: function.lua
+    meta:
+      type: test
+      suite: os
+      description: os.clock function
+    source: file://clock.lua
+    method: main
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: difftime
+    kind: function.lua
+    meta:
+      type: test
+      suite: os
+      description: os.difftime function
+    source: file://difftime.lua
+    method: main
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: platform
+    kind: function.lua
+    meta:
+      type: test
+      suite: os
+      description: os.platform constant
+    source: file://platform.lua
+    method: main
+    imports:
+      assert_primitives: app.lib:assert

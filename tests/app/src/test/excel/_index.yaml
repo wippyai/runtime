@@ -1,0 +1,81 @@
+version: "1.0"
+namespace: app.test.excel
+
+entries:
+  - name: new
+    kind: function.lua
+    meta:
+      type: test
+      suite: excel
+      description: excel.new function
+    source: file://new.lua
+    method: main
+    modules:
+      - excel
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: sheets
+    kind: function.lua
+    meta:
+      type: test
+      suite: excel
+      description: excel workbook sheet operations
+    source: file://sheets.lua
+    method: main
+    modules:
+      - excel
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: cells
+    kind: function.lua
+    meta:
+      type: test
+      suite: excel
+      description: excel workbook cell operations
+    source: file://cells.lua
+    method: main
+    modules:
+      - excel
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: rows
+    kind: function.lua
+    meta:
+      type: test
+      suite: excel
+      description: excel workbook get_rows
+    source: file://rows.lua
+    method: main
+    modules:
+      - excel
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: excel
+      description: excel error handling
+    source: file://errors.lua
+    method: main
+    modules:
+      - excel
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: excel
+      description: excel complete workflow
+    source: file://workflow.lua
+    method: main
+    modules:
+      - excel
+    imports:
+      assert_primitives: app.lib:assert

@@ -6,23 +6,18 @@ import (
 	"io"
 	"io/fs"
 
-	"github.com/ponyruntime/pony/api/event"
+	"github.com/wippyai/runtime/api/event"
 )
 
-// Event bus constants for filesystem operations
+// System identifies the fs system in the event bus.
+const System event.System = "fs"
+
+// Event kinds for filesystem operations.
 const (
-	// System represents the filesystem event bus system identifier
-	System event.System = "fs"
-
-	// Register is a command event to register a new filesystem
-	Register event.Kind = "fs.register"
-	// Delete is a command event to remove a filesystem from the registry
-	Delete event.Kind = "fs.delete"
-
-	// Accept is emitted when a filesystem command is successfully processed
-	Accept event.Kind = "fs.accept"
-	// Reject is emitted when a filesystem command fails
-	Reject event.Kind = "fs.reject"
+	FsRegister event.Kind = "fs.register"
+	FsDelete   event.Kind = "fs.delete"
+	FsAccept   event.Kind = "fs.accept"
+	FsReject   event.Kind = "fs.reject"
 )
 
 type (

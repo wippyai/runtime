@@ -2,44 +2,44 @@
 package topology
 
 import (
-	"errors"
 	"time"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/runtime"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
 )
 
 // System constants for host and topic identifiers
 const (
 	// ControlHost identifies the control node in the pub/sub system
-	ControlHost pubsub.HostID = "node:control"
+	ControlHost pid.HostID = "node:control"
 
 	// TopicInbox is the inbox topic for process messages
-	TopicInbox pubsub.Topic = "@pid/inbox"
+	TopicInbox relay.Topic = "@pid/inbox"
 	// TopicEvents is the events topic for process lifecycle events
-	TopicEvents pubsub.Topic = "@pid/events"
+	TopicEvents relay.Topic = "@pid/events"
 )
 
-// Event kind constants for process lifecycle events
+// SystemPID is the sender PID for topology system messages.
+var SystemPID = pid.PID{UniqID: "topology"}
+
+// Event kind constants for process lifecycle events.
 const (
-	// KindCancel indicates a cancellation request
-	KindCancel Kind = "pid.cancel"
-	// KindExit indicates a process has exited
-	KindExit Kind = "pid.exit"
-
-	// KindLinkDown indicates a linked process is down
-	KindLinkDown Kind = "pid.link.down"
-	// KindLinkEstablished indicates a link has been established
-	KindLinkEstablished Kind = "pid.link.established"
-	// KindLinkRemoved indicates a link has been removed
-	KindLinkRemoved Kind = "pid.link.removed"
-)
-
-// PIDRegistry errors that can occur during name registration operations
-var (
-	// ErrNameAlreadyRegistered indicates a name is already associated with a Target
-	ErrNameAlreadyRegistered = errors.New("name already registered")
+	// Cancel indicates a cancellation request.
+	Cancel Kind = "pid.cancel"
+	// Exit indicates a process has exited.
+	Exit Kind = "pid.exit"
+	// LinkDown indicates a linked process is down.
+	LinkDown Kind = "pid.link.down"
+	// MonitorRequest requests monitoring of a remote PID.
+	MonitorRequest Kind = "pid.monitor.request"
+	// MonitorRelease releases monitoring of a remote PID.
+	MonitorRelease Kind = "pid.monitor.release"
+	// LinkRequest requests linking with a remote PID.
+	LinkRequest Kind = "pid.link.request"
+	// UnlinkRequest requests unlinking from a remote PID.
+	UnlinkRequest Kind = "pid.unlink.request"
 )
 
 type (
@@ -48,9 +48,11 @@ type (
 
 	// PIDRegistry defines the interface for a Target registry with Erlang-style semantics
 	PIDRegistry interface {
-		// Register associates a name with a Target
-		// Returns error if name is already taken
-		Register(name string, pid pubsub.PID) error
+		// Register associates a name with a PID atomically.
+		// Returns (p, nil) on success.
+		// Returns (existingPID, ErrNameAlreadyRegistered) if name is taken by a different PID.
+		// Re-registering the same name with same PID is allowed and returns (p, nil).
+		Register(name string, p pid.PID) (pid.PID, error)
 
 		// Unregister removes a name registration
 		// Returns true if the name was registered and has been removed
@@ -58,33 +60,33 @@ type (
 
 		// Lookup finds the Target registered with a given name
 		// Returns the Target and true if found, empty Target and false if not found
-		Lookup(name string) (pubsub.PID, bool)
+		Lookup(name string) (pid.PID, bool)
 
 		// Remove completely removes a pid from a registry
-		Remove(pid pubsub.PID)
+		Remove(p pid.PID)
 	}
 
 	// Monitor defines the interface for process monitoring
 	Monitor interface {
-		// Wait attaches a caller to monitor a specific pid.
+		// Monitor attaches a caller to monitor a specific pid.
 		// Returns error if pid is not registered or already being monitored by caller.
-		Wait(caller, pid pubsub.PID) error
+		Monitor(caller, target pid.PID) error
 
-		// Release removes a caller's monitoring of a specific pid.
-		Release(caller, pid pubsub.PID) error
+		// Demonitor removes a caller's monitoring of a specific pid.
+		Demonitor(caller, target pid.PID) error
 	}
 
 	// Links defines the interface for managing process links
 	Links interface {
 		// Link establishes a bidirectional link between two processes.
 		// Both processes must be registered first.
-		Link(from, to pubsub.PID) error
+		Link(from, to pid.PID) error
 
 		// Unlink removes a bidirectional link between two processes.
-		Unlink(from, to pubsub.PID) error
+		Unlink(from, to pid.PID) error
 
 		// GetLinks returns all processes linked to the given pid
-		GetLinks(pid pubsub.PID) []pubsub.PID
+		GetLinks(p pid.PID) []pid.PID
 	}
 
 	// Topology combines monitoring and linking capabilities
@@ -94,71 +96,136 @@ type (
 
 		// Register registers a pid that can be monitored.
 		// This should be called before any process can be monitored.
-		Register(pid pubsub.PID) error
+		Register(p pid.PID) error
 
-		// Notify sends exit event to all watchers and links of a pid.
-		Notify(pid pubsub.PID, result *runtime.Result)
+		// Complete notifies watchers/links and removes the pid in one operation.
+		Complete(p pid.PID, result *runtime.Result)
 
 		// Remove completely removes a pid and all its watchers, destroying all links.
-		Remove(pid pubsub.PID)
+		Remove(p pid.PID)
 	}
 
 	// ExitEvent represents a process exit notification
 	ExitEvent struct {
-		// At is the timestamp when the event occurred
-		At time.Time `json:"at"`
-		// Kind identifies the type of event
-		Kind Kind `json:"kind"`
-		// From identifies the source process
-		From pubsub.PID `json:"from"`
-		// Result contains the exit result information
+		At     time.Time       `json:"at"`
 		Result *runtime.Result `json:"result"`
+		From   pid.PID         `json:"from"`
+		Kind   Kind            `json:"kind"`
 	}
 
 	// CancelEvent represents a process cancellation request
 	CancelEvent struct {
-		// At is the timestamp when the event occurred
-		At time.Time `json:"at"`
-		// Kind identifies the type of event
-		Kind Kind `json:"kind"`
-		// From identifies the source process
-		From pubsub.PID `json:"from"`
-		// Deadline specifies when the cancellation should take effect
+		At       time.Time `json:"at"`
 		Deadline time.Time `json:"deadline"`
+		From     pid.PID   `json:"from"`
+		Kind     Kind      `json:"kind"`
+	}
+
+	// MonitorRequestEvent requests monitoring of a PID
+	MonitorRequestEvent struct {
+		At     time.Time `json:"at"`
+		Kind   Kind      `json:"kind"`
+		Caller pid.PID   `json:"caller"`
+		Target pid.PID   `json:"target"`
+	}
+
+	// MonitorReleaseEvent releases monitoring of a PID
+	MonitorReleaseEvent struct {
+		At     time.Time `json:"at"`
+		Kind   Kind      `json:"kind"`
+		Caller pid.PID   `json:"caller"`
+		Target pid.PID   `json:"target"`
+	}
+
+	// LinkRequestEvent requests bidirectional link with a PID
+	LinkRequestEvent struct {
+		At   time.Time `json:"at"`
+		Kind Kind      `json:"kind"`
+		From pid.PID   `json:"from"`
+		To   pid.PID   `json:"to"`
+	}
+
+	// UnlinkRequestEvent requests removing bidirectional link
+	UnlinkRequestEvent struct {
+		At   time.Time `json:"at"`
+		Kind Kind      `json:"kind"`
+		From pid.PID   `json:"from"`
+		To   pid.PID   `json:"to"`
 	}
 )
 
-// Cancel creates a package for requesting cancellation of a process.
+// CancelPackage creates a package for requesting cancellation of a process.
 // The package is sent to the target process with a specified deadline.
-func Cancel(from, to pubsub.PID, deadline time.Time) *pubsub.Package {
-	return pubsub.NewPackage(
-		pubsub.PID{UniqID: "topology"},
+func CancelPackage(from, to pid.PID, deadline time.Time) *relay.Package {
+	return relay.NewPackage(
+		SystemPID,
 		to,
 		TopicEvents,
 		payload.New(&CancelEvent{
 			At:       time.Now(),
 			From:     from,
-			Kind:     KindCancel,
+			Kind:     Cancel,
 			Deadline: deadline,
 		}),
 	)
 }
 
-// Exit creates a package for notifying about a process exit.
-// The package includes the process result and any error that occurred.
-func Exit(pid pubsub.PID, result payload.Payload, err error) *pubsub.Package {
-	return pubsub.NewPackage(
-		pubsub.PID{UniqID: "topology"},
-		pid,
+// MonitorRequestPackage creates a package for requesting monitoring of a remote PID.
+func MonitorRequestPackage(caller, target pid.PID) *relay.Package {
+	return relay.NewPackage(
+		caller,
+		target,
 		TopicEvents,
-		payload.New(&ExitEvent{
+		payload.New(&MonitorRequestEvent{
+			At:     time.Now(),
+			Kind:   MonitorRequest,
+			Caller: caller,
+			Target: target,
+		}),
+	)
+}
+
+// MonitorReleasePackage creates a package for releasing monitoring of a remote PID.
+func MonitorReleasePackage(caller, target pid.PID) *relay.Package {
+	return relay.NewPackage(
+		caller,
+		target,
+		TopicEvents,
+		payload.New(&MonitorReleaseEvent{
+			At:     time.Now(),
+			Kind:   MonitorRelease,
+			Caller: caller,
+			Target: target,
+		}),
+	)
+}
+
+// LinkRequestPackage creates a package for requesting a link with a remote PID.
+func LinkRequestPackage(from, to pid.PID) *relay.Package {
+	return relay.NewPackage(
+		from,
+		to,
+		TopicEvents,
+		payload.New(&LinkRequestEvent{
 			At:   time.Now(),
-			From: pid,
-			Kind: KindExit,
-			Result: &runtime.Result{
-				Value: result,
-				Error: err,
-			},
+			Kind: LinkRequest,
+			From: from,
+			To:   to,
+		}),
+	)
+}
+
+// UnlinkRequestPackage creates a package for requesting unlinking from a remote PID.
+func UnlinkRequestPackage(from, to pid.PID) *relay.Package {
+	return relay.NewPackage(
+		from,
+		to,
+		TopicEvents,
+		payload.New(&UnlinkRequestEvent{
+			At:   time.Now(),
+			Kind: UnlinkRequest,
+			From: from,
+			To:   to,
 		}),
 	)
 }

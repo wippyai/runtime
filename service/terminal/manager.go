@@ -2,173 +2,184 @@ package terminal
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/internal/config"
-
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	api "github.com/ponyruntime/pony/api/service/terminal"
+	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	terminalapi "github.com/wippyai/runtime/api/service/terminal"
+	"github.com/wippyai/runtime/api/supervisor"
+	entryutil "github.com/wippyai/runtime/internal/entry"
+	"github.com/wippyai/runtime/system/logs"
+	"github.com/wippyai/runtime/system/scheduler/actor"
 	"go.uber.org/zap"
 )
 
-// Manager handles terminal service lifecycle and registration
+// Manager manages terminal host instances.
 type Manager struct {
-	log      *zap.Logger
-	bus      event.Bus
-	dtt      payload.Transcoder
-	mu       sync.RWMutex
-	terminal *Terminal
-	factory  ServiceFactory
+	bus             event.Bus
+	dtt             payload.Transcoder
+	commandRegistry dispatcherapi.Registry
+	factory         process.Factory
+	log             *zap.Logger
+	hosts           map[registry.ID]*Host
+	mu              sync.RWMutex
 }
 
-// NewTerminalManager creates a new terminal manager instance
-func NewTerminalManager(bus event.Bus, dtt payload.Transcoder, logger *zap.Logger) *Manager {
-	return &Manager{
-		log:     logger,
-		bus:     bus,
-		dtt:     dtt,
-		factory: NewDefaultServiceFactory(bus, logger),
-	}
-}
-
-// NewTerminalManagerWithFactory creates a new terminal manager with a custom factory
-func NewTerminalManagerWithFactory(
+// NewManager creates a new terminal manager.
+func NewManager(
 	bus event.Bus,
 	dtt payload.Transcoder,
+	cmdRegistry dispatcherapi.Registry,
+	factory process.Factory,
 	logger *zap.Logger,
-	factory ServiceFactory,
 ) *Manager {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Manager{
-		log:     logger,
-		bus:     bus,
-		dtt:     dtt,
-		factory: factory,
+		log:             logger,
+		bus:             bus,
+		dtt:             dtt,
+		commandRegistry: cmdRegistry,
+		factory:         factory,
+		hosts:           make(map[registry.ID]*Host),
 	}
 }
 
-// Add creates and registers a new terminal service
+// Add implements registry.EntryListener.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.KindHost {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+	cfg, err := entryutil.DecodeEntryConfig[terminalapi.HostConfig](ctx, m.dtt, entry)
+	if err != nil {
+		return NewDecodeConfigError(err)
 	}
 
-	cfg, err := config.DecodeAndInitConfig[api.HostConfig](m.dtt, entry)
-	if err != nil {
-		return err
+	logCtrl := logs.NewConfigurator(m.bus, m.log)
+
+	h := NewHost(entry.ID, cfg, nil, m.factory, logCtrl, m.log)
+
+	// Create composite lifecycle: global handlers first, then host-specific
+	lifecycle := &compositeLifecycle{
+		global: process.GetLifecycleRegistry(ctx),
+		host:   h,
 	}
+
+	scheduler := actor.NewScheduler(m.commandRegistry,
+		actor.WithWorkers(1),
+		actor.WithLifecycle(lifecycle),
+	)
+	h.scheduler = scheduler
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.hosts[entry.ID] = h
+	m.mu.Unlock()
 
-	// Factory now handles log switcher creation internally
-	m.terminal = m.factory.CreateTerminal(entry.ID, cfg)
-	m.log.Info("terminal service created", zap.String("id", m.terminal.id.String()))
-
-	// Register as process host
-	m.registerHost(ctx, m.terminal)
-
-	return nil
-}
-
-// Update updates an existing terminal service
-func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.KindHost {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
-	}
-
-	cfg, err := config.DecodeAndInitConfig[api.HostConfig](m.dtt, entry)
-	if err != nil {
-		return err
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.terminal == nil {
-		return fmt.Errorf("terminal %s not found", entry.ID)
-	}
-
-	// Update service configuration
-	err = m.terminal.UpdateConfig(ctx, cfg)
-	if err != nil {
-		return fmt.Errorf("failed to update terminal config: %w", err)
-	}
-
-	m.registerHost(ctx, m.terminal)
-
-	m.log.Info("terminal service updated", zap.String("id", m.terminal.id.String()))
-
-	return nil
-}
-
-// Delete removes a terminal service
-func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.removeHost(ctx, entry.ID)
-	m.terminal = nil // stop controlled by supervisor
-	m.log.Info("terminal service removed", zap.String("id", entry.ID.String()))
-
-	return nil
-}
-
-// registerHost registers the terminal service as a process host
-func (m *Manager) registerHost(ctx context.Context, terminal *Terminal) {
-	// connect to pubsub
+	// Register with relay system
 	m.bus.Send(ctx, event.Event{
-		System: pubsub.System,
-		Kind:   pubsub.HostRegister,
-		Path:   terminal.id.String(),
-		Data:   pubsub.Host(terminal),
+		System: relay.System,
+		Kind:   relay.HostRegister,
+		Path:   entry.ID.String(),
+		Data:   relay.Receiver(h),
 	})
 
-	// we can host processes
-	m.bus.Send(ctx, event.Event{
-		System: process.HostSystem,
-		Kind:   process.HostRegister,
-		Path:   terminal.id.String(),
-		Data:   process.Managed(terminal),
-	})
-
-	// we run!
+	// Register with supervisor
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Register,
-		Path:   terminal.id.String(),
+		Kind:   supervisor.ServiceRegister,
+		Path:   entry.ID.String(),
 		Data: &supervisor.Entry{
-			Service: terminal,
-			Config:  terminal.config.Lifecycle,
+			Service: h,
+			Config:  cfg.Lifecycle,
 		},
 	})
+
+	m.log.Info("terminal host added", zap.String("id", entry.ID.String()))
+	return nil
 }
 
-// removeHost removes the terminal service from process host system
-func (m *Manager) removeHost(ctx context.Context, id registry.ID) {
-	// disconnect from pubsub
-	m.bus.Send(ctx, event.Event{
-		System: pubsub.System,
-		Kind:   pubsub.HostDelete,
-		Path:   id.String(),
-	})
+// Update implements registry.EntryListener.
+func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
+	if err := m.Delete(ctx, entry); err != nil {
+		return err
+	}
+	return m.Add(ctx, entry)
+}
 
-	// we can no longer host processes
+// Delete implements registry.EntryListener.
+func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
+	m.mu.Lock()
+	h, ok := m.hosts[entry.ID]
+	if !ok {
+		m.mu.Unlock()
+		return nil
+	}
+	delete(m.hosts, entry.ID)
+	m.mu.Unlock()
+
+	// Unregister from supervisor
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Remove,
-		Path:   id.String(),
+		Kind:   supervisor.ServiceRemove,
+		Path:   entry.ID.String(),
 	})
 
-	// we no longer run!
+	// Unregister from relay
 	m.bus.Send(ctx, event.Event{
-		System: process.HostSystem,
-		Kind:   process.HostDelete,
-		Path:   id.String(),
+		System: relay.System,
+		Kind:   relay.HostDelete,
+		Path:   entry.ID.String(),
 	})
+
+	// Stop the host
+	if err := h.Stop(ctx); err != nil {
+		m.log.Error("failed to stop host", zap.Error(err))
+	}
+
+	m.log.Info("terminal host deleted", zap.String("id", entry.ID.String()))
+	return nil
+}
+
+// GetHost returns a host by ID.
+func (m *Manager) GetHost(hostID string) (process.Host, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for id, h := range m.hosts {
+		if id.String() == hostID {
+			return h, true
+		}
+	}
+	return nil, false
+}
+
+// compositeLifecycle wraps global lifecycle with host-specific handlers.
+type compositeLifecycle struct {
+	global process.Lifecycle
+	host   process.Lifecycle
+}
+
+func (c *compositeLifecycle) OnStart(ctx context.Context, processID pid.PID, proc process.Process) error {
+	if c.global != nil {
+		if err := c.global.OnStart(ctx, processID, proc); err != nil {
+			return err
+		}
+	}
+	if c.host != nil {
+		return c.host.OnStart(ctx, processID, proc)
+	}
+	return nil
+}
+
+func (c *compositeLifecycle) OnComplete(ctx context.Context, processID pid.PID, result *runtime.Result) {
+	if c.global != nil {
+		c.global.OnComplete(ctx, processID, result)
+	}
+	if c.host != nil {
+		c.host.OnComplete(ctx, processID, result)
+	}
 }

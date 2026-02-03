@@ -2,18 +2,23 @@ package http
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/payload"
-	apiregistry "github.com/ponyruntime/pony/api/registry"
-	config "github.com/ponyruntime/pony/api/service/http"
-	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
+	"github.com/wippyai/runtime/api/payload"
+	apiregistry "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	config "github.com/wippyai/runtime/api/service/http"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
@@ -56,6 +61,56 @@ func (t *SimpleTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
 	return nil // Let's assume success for simplicity
 }
 
+type failingServer struct {
+	rebuildErr error
+}
+
+func (s *failingServer) Start(_ context.Context) (<-chan any, error) {
+	ch := make(chan any)
+	close(ch)
+	return ch, nil
+}
+
+func (s *failingServer) Stop(_ context.Context) error {
+	return nil
+}
+
+func (s *failingServer) Send(_ *relay.Package) error {
+	return nil
+}
+
+func (s *failingServer) UpdateConfig(_ *config.ServerConfig) error {
+	return nil
+}
+
+func (s *failingServer) UpsertRouter(_ apiregistry.ID, _ *config.RouterConfig) error {
+	return nil
+}
+
+func (s *failingServer) DeleteRouter(_ apiregistry.ID) error {
+	return nil
+}
+
+func (s *failingServer) UpsertEndpoint(_ apiregistry.ID, _ apiregistry.ID, _ string, _ string, _ http.Handler) error {
+	return nil
+}
+
+func (s *failingServer) RemoveEndpoint(_ apiregistry.ID, _ apiregistry.ID) error {
+	return nil
+}
+
+func (s *failingServer) Mount(_ apiregistry.ID, _ string, _ http.Handler) error {
+	return nil
+}
+
+func (s *failingServer) Remove(_ apiregistry.ID) error {
+	return nil
+}
+
+func (s *failingServer) Rebuild(_ context.Context) error {
+	return s.rebuildErr
+}
+
 // createManagerTempDir for filesystem testing
 func createManagerTempDir(t *testing.T, files map[string]string) (string, func()) {
 	dir, err := os.MkdirTemp("", "ponytest-*")
@@ -69,7 +124,7 @@ func createManagerTempDir(t *testing.T, files map[string]string) (string, func()
 		require.NoError(t, err)
 
 		// Write file content
-		//nolint:gosec // used in tests
+
 		err = os.WriteFile(fullPath, []byte(content), 0644)
 		require.NoError(t, err)
 	}
@@ -96,7 +151,7 @@ func setupManager(t *testing.T) (*Manager, context.Context) {
 	fsRegistry := NewSimpleFSRegistry()
 
 	// Create middleware factory
-	middlewareFactory := NewDefaultMiddlewareFactory()
+	middlewareFactory := NewMiddlewareRegistry(zap.NewNop())
 
 	// Create temporary files directory
 	tempDir, cleanup := createManagerTempDir(t, map[string]string{
@@ -113,7 +168,7 @@ func setupManager(t *testing.T) (*Manager, context.Context) {
 	serverFactory := NewServerFactory(middlewareFactory)
 	endpointFactory, err := NewEndpointFactory(functionRegistry)
 	require.NoError(t, err)
-	staticFactory, err := NewStaticFactory(fsRegistry)
+	staticFactory, err := NewStaticFactory(fsRegistry, middlewareFactory)
 	require.NoError(t, err)
 
 	// Create manager
@@ -127,7 +182,7 @@ func setupManager(t *testing.T) (*Manager, context.Context) {
 	)
 	require.NoError(t, err)
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	return manager, ctx
 }
@@ -138,11 +193,11 @@ func TestManager_NewManager(t *testing.T) {
 	transcoder := NewSimpleTranscoder()
 	functionRegistry := NewSimpleFunctionRegistry()
 	fsRegistry := NewSimpleFSRegistry()
-	middlewareFactory := NewDefaultMiddlewareFactory()
+	middlewareFactory := NewMiddlewareRegistry(zap.NewNop())
 
 	serverFactory := NewServerFactory(middlewareFactory)
 	endpointFactory, _ := NewEndpointFactory(functionRegistry)
-	staticFactory, _ := NewStaticFactory(fsRegistry)
+	staticFactory, _ := NewStaticFactory(fsRegistry, middlewareFactory)
 
 	t.Run("valid creation", func(t *testing.T) {
 		manager, err := NewManager(
@@ -166,7 +221,7 @@ func TestManager_NewManager(t *testing.T) {
 			staticFactory,
 			logger,
 		)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "transcoder is required")
 
 		_, err = NewManager(
@@ -177,7 +232,7 @@ func TestManager_NewManager(t *testing.T) {
 			staticFactory,
 			logger,
 		)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "event bus is required")
 
 		_, err = NewManager(
@@ -188,7 +243,7 @@ func TestManager_NewManager(t *testing.T) {
 			staticFactory,
 			logger,
 		)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "server factory is required")
 
 		_, err = NewManager(
@@ -199,7 +254,7 @@ func TestManager_NewManager(t *testing.T) {
 			staticFactory,
 			logger,
 		)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "endpoint factory is required")
 
 		_, err = NewManager(
@@ -210,7 +265,7 @@ func TestManager_NewManager(t *testing.T) {
 			nil, // Missing static factory
 			logger,
 		)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "static factory is required")
 	})
 }
@@ -219,7 +274,7 @@ func TestManager_ServerOperations(t *testing.T) {
 	manager, ctx := setupManager(t)
 
 	// Create server config
-	serverID := apiregistry.ID{NS: "test", Name: "server1"}
+	serverID := apiregistry.NewID("test", "server1")
 	serverCfg := &config.ServerConfig{
 		Addr: ":0", // Dynamic port
 		Meta: map[string]interface{}{},
@@ -228,7 +283,7 @@ func TestManager_ServerOperations(t *testing.T) {
 	// Add server
 	entry := apiregistry.Entry{
 		ID:   serverID,
-		Kind: config.KindServer,
+		Kind: config.Server,
 		Data: payload.New(serverCfg),
 	}
 
@@ -250,7 +305,7 @@ func TestManager_ServerOperations(t *testing.T) {
 
 	updatedEntry := apiregistry.Entry{
 		ID:   serverID,
-		Kind: config.KindServer,
+		Kind: config.Server,
 		Data: payload.New(updatedCfg),
 	}
 
@@ -276,7 +331,7 @@ func TestManager_RouterOperations(t *testing.T) {
 
 	functionRegistry := NewSimpleFunctionRegistry()
 	fsRegistry := NewSimpleFSRegistry()
-	middlewareFactory := NewDefaultMiddlewareFactory()
+	middlewareFactory := NewMiddlewareRegistry(zap.NewNop())
 
 	tempDir, cleanup := createManagerTempDir(t, map[string]string{
 		"index.html": "<html><body>Test</body></html>",
@@ -289,7 +344,7 @@ func TestManager_RouterOperations(t *testing.T) {
 	serverFactory := NewServerFactory(middlewareFactory)
 	endpointFactory, err := NewEndpointFactory(functionRegistry)
 	require.NoError(t, err)
-	staticFactory, err := NewStaticFactory(fsRegistry)
+	staticFactory, err := NewStaticFactory(fsRegistry, middlewareFactory)
 	require.NoError(t, err)
 
 	manager, err := NewManager(
@@ -302,10 +357,10 @@ func TestManager_RouterOperations(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	ctx := context.Background()
+	ctx := ctxapi.NewRootContext()
 
 	// First add a server with a unique Source
-	serverID := apiregistry.ID{NS: "test", Name: testID + "_server"}
+	serverID := apiregistry.NewID("test", testID+"_server")
 	serverCfg := &config.ServerConfig{
 		Addr: ":0", // Dynamic port
 		Meta: map[string]interface{}{},
@@ -313,7 +368,7 @@ func TestManager_RouterOperations(t *testing.T) {
 
 	serverEntry := apiregistry.Entry{
 		ID:   serverID,
-		Kind: config.KindServer,
+		Kind: config.Server,
 		Data: payload.New(serverCfg),
 	}
 
@@ -321,7 +376,7 @@ func TestManager_RouterOperations(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add router with a unique Source
-	routerID := apiregistry.ID{NS: "test", Name: testID + "_router"}
+	routerID := apiregistry.NewID("test", testID+"_router")
 	routerCfg := &config.RouterConfig{
 		Prefix: "/api",
 		Meta: map[string]interface{}{
@@ -331,7 +386,7 @@ func TestManager_RouterOperations(t *testing.T) {
 
 	routerEntry := apiregistry.Entry{
 		ID:   routerID,
-		Kind: config.KindRouter,
+		Kind: config.Router,
 		Data: payload.New(routerCfg),
 	}
 
@@ -352,7 +407,7 @@ func TestManager_RouterOperations(t *testing.T) {
 
 	updatedRouterEntry := apiregistry.Entry{
 		ID:   routerID,
-		Kind: config.KindRouter,
+		Kind: config.Router,
 		Data: payload.New(updatedRouterCfg),
 	}
 
@@ -375,7 +430,7 @@ func TestManager_EndpointOperations(t *testing.T) {
 	manager, ctx := setupManager(t)
 
 	// Add a server
-	serverID := apiregistry.ID{NS: "test", Name: "server1"}
+	serverID := apiregistry.NewID("test", "server1")
 	serverCfg := &config.ServerConfig{
 		Addr: ":0", // Dynamic port
 		Meta: map[string]interface{}{},
@@ -383,7 +438,7 @@ func TestManager_EndpointOperations(t *testing.T) {
 
 	serverEntry := apiregistry.Entry{
 		ID:   serverID,
-		Kind: config.KindServer,
+		Kind: config.Server,
 		Data: payload.New(serverCfg),
 	}
 
@@ -391,7 +446,7 @@ func TestManager_EndpointOperations(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add a router
-	routerID := apiregistry.ID{NS: "test", Name: "router1"}
+	routerID := apiregistry.NewID("test", "router1")
 	routerCfg := &config.RouterConfig{
 		Prefix: "/api",
 		Meta: map[string]interface{}{
@@ -401,7 +456,7 @@ func TestManager_EndpointOperations(t *testing.T) {
 
 	routerEntry := apiregistry.Entry{
 		ID:   routerID,
-		Kind: config.KindRouter,
+		Kind: config.Router,
 		Data: payload.New(routerCfg),
 	}
 
@@ -409,11 +464,11 @@ func TestManager_EndpointOperations(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add an endpoint
-	endpointID := apiregistry.ID{NS: "test", Name: "endpoint1"}
+	endpointID := apiregistry.NewID("test", "endpoint1")
 	endpointCfg := &config.EndpointConfig{
 		Path:   "/test",
 		Method: "GET",
-		Func:   apiregistry.ID{NS: "test", Name: "func1"},
+		Func:   apiregistry.NewID("test", "func1"),
 		Meta: map[string]interface{}{
 			config.RouterID: routerID.String(),
 		},
@@ -421,7 +476,7 @@ func TestManager_EndpointOperations(t *testing.T) {
 
 	endpointEntry := apiregistry.Entry{
 		ID:   endpointID,
-		Kind: config.KindEndpoint,
+		Kind: config.Endpoint,
 		Data: payload.New(endpointCfg),
 	}
 
@@ -440,7 +495,7 @@ func TestManager_StaticOperations(t *testing.T) {
 	manager, ctx := setupManager(t)
 
 	// Add a server
-	serverID := apiregistry.ID{NS: "test", Name: "server1"}
+	serverID := apiregistry.NewID("test", "server1")
 	serverCfg := &config.ServerConfig{
 		Addr: ":0", // Dynamic port
 		Meta: map[string]interface{}{},
@@ -448,7 +503,7 @@ func TestManager_StaticOperations(t *testing.T) {
 
 	serverEntry := apiregistry.Entry{
 		ID:   serverID,
-		Kind: config.KindServer,
+		Kind: config.Server,
 		Data: payload.New(serverCfg),
 	}
 
@@ -456,10 +511,10 @@ func TestManager_StaticOperations(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add a static handler
-	staticID := apiregistry.ID{NS: "test", Name: "static1"}
+	staticID := apiregistry.NewID("test", "static1")
 	staticCfg := &config.StaticConfig{
 		Path: "/static",
-		FS:   apiregistry.ID{NS: "test", Name: "files"},
+		FS:   apiregistry.NewID("test", "files"),
 		Meta: map[string]interface{}{
 			config.ServerID: serverID.String(),
 		},
@@ -467,7 +522,7 @@ func TestManager_StaticOperations(t *testing.T) {
 
 	staticEntry := apiregistry.Entry{
 		ID:   staticID,
-		Kind: config.KindStatic,
+		Kind: config.Static,
 		Data: payload.New(staticCfg),
 	}
 
@@ -486,7 +541,7 @@ func TestManager_TransactionOperations(t *testing.T) {
 	manager, ctx := setupManager(t)
 
 	// Add a server and mark it pending
-	serverID := apiregistry.ID{NS: "test", Name: "server1"}
+	serverID := apiregistry.NewID("test", "server1")
 	serverCfg := &config.ServerConfig{
 		Addr: ":0", // Dynamic port
 		Meta: map[string]interface{}{},
@@ -494,7 +549,7 @@ func TestManager_TransactionOperations(t *testing.T) {
 
 	serverEntry := apiregistry.Entry{
 		ID:   serverID,
-		Kind: config.KindServer,
+		Kind: config.Server,
 		Data: payload.New(serverCfg),
 	}
 
@@ -502,7 +557,7 @@ func TestManager_TransactionOperations(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add a router to create a pending rebuild
-	routerID := apiregistry.ID{NS: "test", Name: "router1"}
+	routerID := apiregistry.NewID("test", "router1")
 	routerCfg := &config.RouterConfig{
 		Prefix: "/api",
 		Meta: map[string]interface{}{
@@ -512,7 +567,7 @@ func TestManager_TransactionOperations(t *testing.T) {
 
 	routerEntry := apiregistry.Entry{
 		ID:   routerID,
-		Kind: config.KindRouter,
+		Kind: config.Router,
 		Data: payload.New(routerCfg),
 	}
 
@@ -541,36 +596,60 @@ func TestManager_TransactionOperations(t *testing.T) {
 	assert.Empty(t, manager.pending)
 }
 
+func TestManager_CommitKeepsPendingOnRebuildError(t *testing.T) {
+	manager, ctx := setupManager(t)
+
+	serverID := apiregistry.NewID("test", "server-rebuild-fail")
+	manager.servers[serverID] = &failingServer{rebuildErr: errors.New("rebuild failed")}
+	manager.pending[serverID] = true
+
+	manager.Commit(ctx)
+
+	if _, stillPending := manager.pending[serverID]; !stillPending {
+		t.Fatal("expected pending server to remain after rebuild error")
+	}
+}
+
 func TestManager_UnsupportedKinds(t *testing.T) {
 	manager, ctx := setupManager(t)
 
 	unsupportedEntry := apiregistry.Entry{
-		ID:   apiregistry.ID{NS: "test", Name: "unsupported"},
+		ID:   apiregistry.NewID("test", "unsupported"),
 		Kind: "unsupported.kind",
 		Data: payload.New("test"),
 	}
 
 	// Test Add with unsupported kind
 	err := manager.Add(ctx, unsupportedEntry)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported entry kind")
+	require.Error(t, err)
+	var apiErr apierror.Error
+	ok := errors.As(err, &apiErr)
+	require.True(t, ok)
+	assert.Contains(t, apiErr.Error(), "unsupported entry kind")
+	assert.Equal(t, "unsupported.kind", apiErr.Details().GetString("kind", ""))
 
 	// Test Update with unsupported kind
 	err = manager.Update(ctx, unsupportedEntry)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported entry kind")
+	require.Error(t, err)
+	ok = errors.As(err, &apiErr)
+	require.True(t, ok)
+	assert.Contains(t, apiErr.Error(), "unsupported entry kind")
+	assert.Equal(t, "unsupported.kind", apiErr.Details().GetString("kind", ""))
 
 	// Test Delete with unsupported kind
 	err = manager.Delete(ctx, unsupportedEntry)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported entry kind")
+	require.Error(t, err)
+	ok = errors.As(err, &apiErr)
+	require.True(t, ok)
+	assert.Contains(t, apiErr.Error(), "unsupported entry kind")
+	assert.Equal(t, "unsupported.kind", apiErr.Details().GetString("kind", ""))
 }
 
 func TestManager_ErrorHandling(t *testing.T) {
 	manager, ctx := setupManager(t)
 
 	// Test server not found for router
-	routerID := apiregistry.ID{NS: "test", Name: "router1"}
+	routerID := apiregistry.NewID("test", "router1")
 	routerCfg := &config.RouterConfig{
 		Prefix: "/api",
 		Meta: map[string]interface{}{
@@ -580,20 +659,24 @@ func TestManager_ErrorHandling(t *testing.T) {
 
 	routerEntry := apiregistry.Entry{
 		ID:   routerID,
-		Kind: config.KindRouter,
+		Kind: config.Router,
 		Data: payload.New(routerCfg),
 	}
 
 	err := manager.Add(ctx, routerEntry)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "server test:nonexistent not found")
+	require.Error(t, err)
+	var apiErr apierror.Error
+	ok := errors.As(err, &apiErr)
+	require.True(t, ok)
+	assert.Contains(t, apiErr.Error(), "server not found")
+	assert.Equal(t, "test:nonexistent", apiErr.Details().GetString("id", ""))
 
 	// Test router not found for endpoint
-	endpointID := apiregistry.ID{NS: "test", Name: "endpoint1"}
+	endpointID := apiregistry.NewID("test", "endpoint1")
 	endpointCfg := &config.EndpointConfig{
 		Path:   "/test",
 		Method: "GET",
-		Func:   apiregistry.ID{NS: "test", Name: "func1"},
+		Func:   apiregistry.NewID("test", "func1"),
 		Meta: map[string]interface{}{
 			config.RouterID: "test:nonexistent",
 		},
@@ -601,11 +684,14 @@ func TestManager_ErrorHandling(t *testing.T) {
 
 	endpointEntry := apiregistry.Entry{
 		ID:   endpointID,
-		Kind: config.KindEndpoint,
+		Kind: config.Endpoint,
 		Data: payload.New(endpointCfg),
 	}
 
 	err = manager.Add(ctx, endpointEntry)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "router test:nonexistent not found")
+	require.Error(t, err)
+	ok = errors.As(err, &apiErr)
+	require.True(t, ok)
+	assert.Contains(t, apiErr.Error(), "router not found")
+	assert.Equal(t, "test:nonexistent", apiErr.Details().GetString("router_id", ""))
 }

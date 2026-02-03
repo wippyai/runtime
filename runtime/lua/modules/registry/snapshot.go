@@ -3,11 +3,11 @@ package registry
 import (
 	"fmt"
 
-	regapi "github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	"github.com/ponyruntime/pony/runtime/lua/security"
-	"github.com/ponyruntime/pony/system/registry"
-	lua "github.com/yuin/gopher-lua"
+	lua "github.com/wippyai/go-lua"
+	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/security"
+	"github.com/wippyai/runtime/system/registry/finder"
 	"go.uber.org/zap"
 )
 
@@ -15,8 +15,8 @@ import (
 type Snapshot struct {
 	reg     regapi.Registry
 	version regapi.Version
-	entries []regapi.Entry
 	log     *zap.Logger
+	entries []regapi.Entry
 }
 
 // GetAllEntries returns all entries in the snapshot
@@ -27,54 +27,44 @@ func (s *Snapshot) GetAllEntries() ([]regapi.Entry, error) {
 // GetEntry returns a specific entry by ID
 func (s *Snapshot) GetEntry(id regapi.ID) (regapi.Entry, error) {
 	for _, entry := range s.entries {
-		if entry.ID == id {
+		if entry.ID.Equal(id) {
 			return entry, nil
 		}
 	}
 	return regapi.Entry{}, fmt.Errorf("entry not found: %s", id)
 }
 
-// registerSnapshotType registers the Snapshot type and methods
-func (m *Module) registerSnapshotType(l *lua.LState) {
-	value.RegisterMethods(l, snapshotMetatable, map[string]lua.LGFunction{
-		"entries":   snapshotEntries,
-		"get":       snapshotGet,
-		"namespace": snapshotNamespace,
-		"find":      snapshotFind,
-		"changes":   snapshotChanges,
-		"version":   snapshotVersion,
-	})
-}
-
 // snapshotEntries returns all entries in the snapshot
 func snapshotEntries(l *lua.LState) int {
-	// Get snapshot
-	snap := CheckSnapshot(l)
+	snap := checkSnapshot(l)
 	if snap == nil {
 		return 0
 	}
 
-	// Get all entries using the EntryReader interface method
-	entries, err := snap.GetAllEntries()
-	if err != nil {
+	entries, getErr := snap.GetAllEntries()
+	if getErr != nil {
+		err := lua.WrapErrorWithLua(l, getErr, "get entries").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(err)
 		return 2
 	}
 
-	// Convert to Lua table with security filtering
 	entriesTable := l.CreateTable(len(entries), 0)
 	idx := 1
 	for _, entry := range entries {
-		// Add security check for each entry
 		if !security.IsAllowed(l.Context(), "registry.get", entry.ID.String(), nil) {
-			continue // Skip entries the user doesn't have permission to access
+			continue
 		}
 
-		entryTable, err := entryToLuaTable(l, entry)
-		if err != nil {
+		entryTable, convErr := entryToLuaTable(l, entry)
+		if convErr != nil {
+			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
+				WithKind(lua.Internal).
+				WithRetryable(false)
 			l.Push(lua.LNil)
-			l.Push(lua.LString(err.Error()))
+			l.Push(err)
 			return 2
 		}
 		entriesTable.RawSetInt(idx, entryTable)
@@ -82,40 +72,46 @@ func snapshotEntries(l *lua.LState) int {
 	}
 
 	l.Push(entriesTable)
-	return 1
+	l.Push(lua.LNil)
+	return 2
 }
 
 // snapshotGet retrieves a specific entry by ID
 func snapshotGet(l *lua.LState) int {
-	// Get snapshot
-	snap := CheckSnapshot(l)
+	snap := checkSnapshot(l)
 	if snap == nil {
 		return 0
 	}
 
-	// Get ID
 	idStr := l.CheckString(2)
 	id := regapi.ParseID(idStr)
 
-	// Add security check for getting a specific entry
 	if !security.IsAllowed(l.Context(), "registry.get", id.String(), nil) {
-		l.RaiseError("not allowed to access entry: %s", id.String())
-		return 0
-	}
-
-	// Find entry using the EntryReader interface method
-	entry, err := snap.GetEntry(id)
-	if err != nil {
+		err := lua.NewLuaError(l, "not allowed to access entry: "+id.String()).
+			WithKind(lua.PermissionDenied).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(err)
 		return 2
 	}
 
-	// Convert to Lua table
-	entryTable, err := entryToLuaTable(l, entry)
-	if err != nil {
+	entry, getErr := snap.GetEntry(id)
+	if getErr != nil {
+		err := lua.NewLuaError(l, "entry not found: "+id.String()).
+			WithKind(lua.NotFound).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(err)
+		return 2
+	}
+
+	entryTable, convErr := entryToLuaTable(l, entry)
+	if convErr != nil {
+		err := lua.WrapErrorWithLua(l, convErr, "convert entry").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
 		return 2
 	}
 
@@ -126,33 +122,31 @@ func snapshotGet(l *lua.LState) int {
 
 // snapshotNamespace returns all entries in a namespace
 func snapshotNamespace(l *lua.LState) int {
-	// Get snapshot
-	snap := CheckSnapshot(l)
+	snap := checkSnapshot(l)
 	if snap == nil {
 		return 0
 	}
 
-	// Get namespace
 	ns := l.CheckString(2)
 
-	// Filter entries by namespace - this is a simple operation with in-memory data
 	var result []regapi.Entry
 	for _, entry := range snap.entries {
 		if entry.ID.NS == ns {
-			// Add security check for each entry
 			if security.IsAllowed(l.Context(), "registry.get", entry.ID.String(), nil) {
 				result = append(result, entry)
 			}
 		}
 	}
 
-	// Convert to Lua table
-	entriesTable := l.NewTable()
+	entriesTable := l.CreateTable(len(result), 0)
 	for i, entry := range result {
-		entryTable, err := entryToLuaTable(l, entry)
-		if err != nil {
+		entryTable, convErr := entryToLuaTable(l, entry)
+		if convErr != nil {
+			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
+				WithKind(lua.Internal).
+				WithRetryable(false)
 			l.Push(lua.LNil)
-			l.Push(lua.LString(err.Error()))
+			l.Push(err)
 			return 2
 		}
 		entriesTable.RawSetInt(i+1, entryTable)
@@ -164,43 +158,49 @@ func snapshotNamespace(l *lua.LState) int {
 
 // snapshotFind returns entries matching criteria using the Finder interface
 func snapshotFind(l *lua.LState) int {
-	// Get snapshot
-	snap := CheckSnapshot(l)
+	snap := checkSnapshot(l)
 	if snap == nil {
 		return 0
 	}
 
-	// Get filter criteria
 	filterTable := l.CheckTable(2)
-
-	// Convert filter to metadata for finder
 	meta := convertFilterToMetadata(l, filterTable)
 
-	// Create a finder using the snapshot as an EntryReader
-	// This uses the same implementation as registryFind for consistent behavior
-	finder := registry.NewFinder(snap)
+	mainFinder := regapi.GetFinder(l.Context())
+	var entries []regapi.Entry
+	var findErr error
 
-	// Find entries using the Finder interface
-	entries, err := finder.Find(meta)
-	if err != nil {
+	if mainFinder != nil {
+		f := finder.Fork(mainFinder, snap, snap.log)
+		entries, findErr = f.Find(meta)
+	} else {
+		f := finder.NewFinder(snap, snap.log)
+		entries, findErr = f.Find(meta)
+	}
+
+	if findErr != nil {
+		err := lua.WrapErrorWithLua(l, findErr, "find entries").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(err)
 		return 2
 	}
 
-	// Convert to Lua table with security filtering
 	entriesTable := l.CreateTable(len(entries), 0)
 	idx := 1
 	for _, entry := range entries {
-		// Add security check for each entry
 		if !security.IsAllowed(l.Context(), "registry.get", entry.ID.String(), nil) {
-			continue // Skip entries the user doesn't have permission to access
+			continue
 		}
 
-		entryTable, err := entryToLuaTable(l, entry)
-		if err != nil {
+		entryTable, convErr := entryToLuaTable(l, entry)
+		if convErr != nil {
+			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
+				WithKind(lua.Internal).
+				WithRetryable(false)
 			l.Push(lua.LNil)
-			l.Push(lua.LString(err.Error()))
+			l.Push(err)
 			return 2
 		}
 		entriesTable.RawSetInt(idx, entryTable)
@@ -213,44 +213,34 @@ func snapshotFind(l *lua.LState) int {
 
 // snapshotChanges creates a changeset for modifying the registry
 func snapshotChanges(l *lua.LState) int {
-	// Get snapshot
-	snap := CheckSnapshot(l)
+	snap := checkSnapshot(l)
 	if snap == nil {
 		return 0
 	}
 
-	// Create changes
 	changes := &Changes{
 		snapshot: snap,
 		ops:      []regapi.Operation{},
 		log:      snap.log,
 	}
 
-	// Create userdata
-	ud := l.NewUserData()
-	ud.Value = changes
-	ud.Metatable = value.GetTypeMetatable(l, changesMetatable)
-
-	l.Push(ud)
+	value.PushTypedUserData(l, changes, typeChanges)
 	return 1
 }
 
 // snapshotVersion returns the version of the snapshot
 func snapshotVersion(l *lua.LState) int {
-	// Get snapshot
-	snap := CheckSnapshot(l)
+	snap := checkSnapshot(l)
 	if snap == nil {
 		return 0
 	}
 
-	// Create userdata for Version
-	ud := wrapVersion(l, snap.version)
-	l.Push(ud)
+	value.PushTypedUserData(l, snap.version, typeVersion)
 	return 1
 }
 
-// CheckSnapshot checks if the first argument is a Snapshot userdata
-func CheckSnapshot(l *lua.LState) *Snapshot {
+// checkSnapshot checks if the first argument is a Snapshot userdata
+func checkSnapshot(l *lua.LState) *Snapshot {
 	ud := l.CheckUserData(1)
 	if snapshot, ok := ud.Value.(*Snapshot); ok {
 		return snapshot

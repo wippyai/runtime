@@ -1,0 +1,218 @@
+package dispatcher
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+)
+
+type mockCommand struct {
+	id CommandID
+}
+
+func (m mockCommand) CmdID() CommandID { return m.id }
+
+type mockResultReceiver struct {
+	data any
+	err  error
+	tag  uint64
+}
+
+func (m *mockResultReceiver) CompleteYield(tag uint64, data any, err error) {
+	m.tag = tag
+	m.data = data
+	m.err = err
+}
+
+type mockRegistry struct {
+	handlers map[CommandID]Handler
+}
+
+func (m *mockRegistry) Get(id CommandID) Handler {
+	return m.handlers[id]
+}
+
+func (m *mockRegistry) Has(id CommandID) bool {
+	_, ok := m.handlers[id]
+	return ok
+}
+
+func (m *mockRegistry) Register(id CommandID, h Handler) {
+	m.handlers[id] = h
+}
+
+func (m *mockRegistry) Dispatch(cmd Command) Handler {
+	return m.handlers[cmd.CmdID()]
+}
+
+func TestHandlerFunc(t *testing.T) {
+	var calledCtx context.Context
+	var calledCmd Command
+	var calledTag uint64
+	var calledReceiver ResultReceiver
+
+	fn := HandlerFunc(func(ctx context.Context, cmd Command, tag uint64, receiver ResultReceiver) error {
+		calledCtx = ctx
+		calledCmd = cmd
+		calledTag = tag
+		calledReceiver = receiver
+		return nil
+	})
+
+	ctx := context.Background()
+	cmd := mockCommand{id: 1}
+	receiver := &mockResultReceiver{}
+
+	err := fn.Handle(ctx, cmd, 42, receiver)
+
+	assert.NoError(t, err)
+	assert.Equal(t, ctx, calledCtx)
+	assert.Equal(t, cmd, calledCmd)
+	assert.Equal(t, uint64(42), calledTag)
+	assert.Equal(t, receiver, calledReceiver)
+}
+
+func TestHandlerFunc_Error(t *testing.T) {
+	expectedErr := errors.New("handler error")
+	fn := HandlerFunc(func(_ context.Context, _ Command, _ uint64, _ ResultReceiver) error {
+		return expectedErr
+	})
+
+	err := fn.Handle(context.Background(), mockCommand{}, 0, nil)
+	assert.Equal(t, expectedErr, err)
+}
+
+func TestWithRegistry(t *testing.T) {
+	t.Run("with app context", func(t *testing.T) {
+		ac := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), ac)
+
+		reg := &mockRegistry{handlers: make(map[CommandID]Handler)}
+		err := WithRegistry(ctx, reg)
+		require.NoError(t, err)
+
+		got := GetRegistry(ctx)
+		assert.Equal(t, reg, got)
+	})
+
+	t.Run("without app context", func(t *testing.T) {
+		ctx := context.Background()
+		reg := &mockRegistry{handlers: make(map[CommandID]Handler)}
+
+		err := WithRegistry(ctx, reg)
+		assert.Equal(t, ctxapi.ErrNoAppContext, err)
+	})
+}
+
+func TestGetRegistry(t *testing.T) {
+	t.Run("no app context", func(t *testing.T) {
+		ctx := context.Background()
+		got := GetRegistry(ctx)
+		assert.Nil(t, got)
+	})
+
+	t.Run("app context without registry", func(t *testing.T) {
+		ac := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), ac)
+
+		got := GetRegistry(ctx)
+		assert.Nil(t, got)
+	})
+
+	t.Run("app context with wrong type", func(t *testing.T) {
+		ac := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), ac)
+		ac.With(registryKey, "not a registry")
+
+		got := GetRegistry(ctx)
+		assert.Nil(t, got)
+	})
+}
+
+func TestGetRegistrar(t *testing.T) {
+	t.Run("no app context", func(t *testing.T) {
+		ctx := context.Background()
+		got := GetRegistrar(ctx)
+		assert.Nil(t, got)
+	})
+
+	t.Run("with registrar", func(t *testing.T) {
+		ac := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), ac)
+
+		reg := &mockRegistry{handlers: make(map[CommandID]Handler)}
+		ac.With(registryKey, reg)
+
+		got := GetRegistrar(ctx)
+		assert.Equal(t, reg, got)
+	})
+
+	t.Run("app context with non-registrar", func(t *testing.T) {
+		ac := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), ac)
+		ac.With(registryKey, "not a registrar")
+
+		got := GetRegistrar(ctx)
+		assert.Nil(t, got)
+	})
+}
+
+func TestGetDispatcher(t *testing.T) {
+	t.Run("no app context", func(t *testing.T) {
+		ctx := context.Background()
+		got := GetDispatcher(ctx)
+		assert.Nil(t, got)
+	})
+
+	t.Run("with dispatcher", func(t *testing.T) {
+		ac := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), ac)
+
+		reg := &mockRegistry{handlers: make(map[CommandID]Handler)}
+		ac.With(registryKey, reg)
+
+		got := GetDispatcher(ctx)
+		assert.Equal(t, reg, got)
+	})
+
+	t.Run("app context with non-dispatcher", func(t *testing.T) {
+		ac := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), ac)
+		ac.With(registryKey, "not a dispatcher")
+
+		got := GetDispatcher(ctx)
+		assert.Nil(t, got)
+	})
+}
+
+func TestMockResultReceiver(t *testing.T) {
+	receiver := &mockResultReceiver{}
+	receiver.CompleteYield(123, "data", errors.New("test error"))
+
+	assert.Equal(t, uint64(123), receiver.tag)
+	assert.Equal(t, "data", receiver.data)
+	assert.EqualError(t, receiver.err, "test error")
+}
+
+func TestMustRegisterCommands(t *testing.T) {
+	t.Run("successful registration", func(t *testing.T) {
+		// Use high command IDs unlikely to collide with existing registrations
+		assert.NotPanics(t, func() {
+			MustRegisterCommands("test_module_1", 9990, 9991)
+		})
+	})
+
+	t.Run("duplicate registration panics", func(t *testing.T) {
+		// First register a unique ID
+		MustRegisterCommands("test_module_2", 9992)
+
+		// Attempting to register the same ID again should panic
+		assert.Panics(t, func() {
+			MustRegisterCommands("test_module_3", 9992)
+		})
+	})
+}

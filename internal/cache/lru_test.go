@@ -1,6 +1,7 @@
 package lru
 
 import (
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -21,7 +22,7 @@ func TestBasicOperations(t *testing.T) {
 		cache := New[string, int]()
 		defer cache.Close()
 
-		cache.Set("key1", 100)
+		_ = cache.Set("key1", 100)
 
 		value, exists := cache.Get("key1")
 		if !exists {
@@ -36,7 +37,7 @@ func TestBasicOperations(t *testing.T) {
 		cache := New[string, int]()
 		defer cache.Close()
 
-		cache.Set("key1", 100)
+		_ = cache.Set("key1", 100)
 		cache.Delete("key1")
 
 		_, exists := cache.Get("key1")
@@ -53,7 +54,7 @@ func TestBasicOperations(t *testing.T) {
 			t.Error("expected empty cache to have length 0")
 		}
 
-		cache.Set("key1", 100)
+		_ = cache.Set("key1", 100)
 		if cache.Len() != 1 {
 			t.Error("expected cache to have length 1")
 		}
@@ -65,9 +66,9 @@ func TestLRUEviction(t *testing.T) {
 		cache := New[string, int](WithCapacity(2))
 		defer cache.Close()
 
-		cache.Set("key1", 1)
-		cache.Set("key2", 2)
-		cache.Set("key3", 3) // should evict key1
+		_ = cache.Set("key1", 1)
+		_ = cache.Set("key2", 2)
+		_ = cache.Set("key3", 3) // should evict key1
 
 		_, exists := cache.Get("key1")
 		if exists {
@@ -86,10 +87,10 @@ func TestLRUEviction(t *testing.T) {
 		cache := New[string, int](WithCapacity(2))
 		defer cache.Close()
 
-		cache.Set("key1", 1)
-		cache.Set("key2", 2)
-		cache.Get("key1")    // moves key1 to front
-		cache.Set("key3", 3) // should evict key2
+		_ = cache.Set("key1", 1)
+		_ = cache.Set("key2", 2)
+		cache.Get("key1")        // moves key1 to front
+		_ = cache.Set("key3", 3) // should evict key2
 
 		if _, exists := cache.Get("key2"); exists {
 			t.Error("expected key2 to be evicted")
@@ -105,7 +106,7 @@ func TestTTL(t *testing.T) {
 		cache := New[string, int](WithTTL(50 * time.Millisecond))
 		defer cache.Close()
 
-		cache.Set("key1", 100)
+		_ = cache.Set("key1", 100)
 		time.Sleep(100 * time.Millisecond)
 
 		_, exists := cache.Get("key1")
@@ -118,7 +119,7 @@ func TestTTL(t *testing.T) {
 		cache := New[string, int]()
 		defer cache.Close()
 
-		cache.Set("key1", 100)
+		_ = cache.Set("key1", 100)
 		time.Sleep(100 * time.Millisecond)
 
 		_, exists := cache.Get("key1")
@@ -133,7 +134,7 @@ func TestConcurrency(t *testing.T) {
 		cache := New[string, int]()
 		defer cache.Close()
 
-		cache.Set("key1", 100)
+		_ = cache.Set("key1", 100)
 
 		var wg sync.WaitGroup
 		for i := 0; i < 100; i++ {
@@ -156,7 +157,7 @@ func TestConcurrency(t *testing.T) {
 
 			go func() {
 				defer wg.Done()
-				cache.Set("key", i)
+				_ = cache.Set("key", i)
 			}()
 		}
 		wg.Wait()
@@ -176,7 +177,7 @@ func TestConcurrency(t *testing.T) {
 
 			go func() {
 				defer wg.Done()
-				cache.Set(string(rune(i)), i)
+				_ = cache.Set(string(rune(i)), i)
 			}()
 			go func() {
 				defer wg.Done()
@@ -194,7 +195,7 @@ func TestConfiguration(t *testing.T) {
 
 		// Fill beyond default capacity (1000)
 		for i := 0; i < 1001; i++ {
-			cache.Set(string(rune(i)), i)
+			_ = cache.Set(string(rune(i)), i)
 		}
 
 		if cache.Len() > 1000 {
@@ -207,7 +208,7 @@ func TestConfiguration(t *testing.T) {
 		defer cache.Close()
 
 		for i := 0; i < 10; i++ {
-			cache.Set(string(rune(i)), i)
+			_ = cache.Set(string(rune(i)), i)
 		}
 
 		if cache.Len() > 5 {
@@ -219,7 +220,7 @@ func TestConfiguration(t *testing.T) {
 		cache := New[string, int](WithTTL(50 * time.Millisecond))
 		defer cache.Close()
 
-		cache.Set("key1", 100)
+		_ = cache.Set("key1", 100)
 		time.Sleep(25 * time.Millisecond)
 
 		if _, exists := cache.Get("key1"); !exists {
@@ -243,9 +244,9 @@ func TestCleanup(t *testing.T) {
 		defer cache.Close()
 
 		// Add some items
-		cache.Set("key1", 1)
-		cache.Set("key2", 2)
-		cache.Set("key3", 3)
+		_ = cache.Set("key1", 1)
+		_ = cache.Set("key2", 2)
+		_ = cache.Set("key3", 3)
 
 		// Verify items exist
 		if cache.Len() != 3 {
@@ -269,8 +270,8 @@ func TestCleanup(t *testing.T) {
 		defer cache.Close()
 
 		// Add some items
-		cache.Set("key1", 1)
-		cache.Set("key2", 2)
+		_ = cache.Set("key1", 1)
+		_ = cache.Set("key2", 2)
 
 		// Wait for cleanup interval
 		time.Sleep(100 * time.Millisecond)
@@ -290,14 +291,14 @@ func TestCleanup(t *testing.T) {
 		defer cache.Close()
 
 		// Add items at different times
-		cache.Set("expire-first", 1)
-		cache.Set("expire-last", 2)
+		_ = cache.Set("expire-first", 1)
+		_ = cache.Set("expire-last", 2)
 
 		// Wait for first cleanup
 		time.Sleep(75 * time.Millisecond)
 
 		// Update expire-last to reset its TTL
-		cache.Set("expire-last", 2)
+		_ = cache.Set("expire-last", 2)
 
 		// Wait for first item to expire and be cleaned
 		time.Sleep(100 * time.Millisecond)
@@ -327,12 +328,36 @@ func TestCleanup(t *testing.T) {
 		)
 
 		// Add an item with long TTL
-		cache.Set("test-key", 1)
+		_ = cache.Set("test-key", 1)
 
 		// close the cache (should stop the cleanup goroutine)
 		cache.Close()
 
 		// This should not panic
 		cache.Close() // Test double-close safety
+	})
+
+	t.Run("operations after close", func(t *testing.T) {
+		cache := New[string, int]()
+
+		_ = cache.Set("key1", 100)
+		cache.Close()
+
+		// Get should return false after close
+		_, exists := cache.Get("key1")
+		if exists {
+			t.Error("expected Get to return false after Close")
+		}
+
+		// Set should return error after close
+		err := cache.Set("key2", 200)
+		if !errors.Is(err, ErrCacheClosed) {
+			t.Error("expected Set to return ErrCacheClosed after Close")
+		}
+
+		// Len should return 0 after close
+		if cache.Len() != 0 {
+			t.Error("expected Len to return 0 after Close")
+		}
 	})
 }

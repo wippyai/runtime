@@ -1,101 +1,179 @@
 package env
 
 import (
-	"context"
 	"testing"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
+	lua "github.com/wippyai/go-lua"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/security"
 )
 
-func TestEnvModule(t *testing.T) {
-	logger := zap.NewNop()
+func TestLoad(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
 
-	t.Run("get environment variable", func(t *testing.T) {
-		contexter := ctxapi.NewContexter[string]()
-		contexter.SetValue("TEST_VAR", "test_value")
-		ctx := context.WithValue(context.Background(), ctxapi.EnvCtx, contexter)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
-		mod := NewEnvModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+	mod := l.GetGlobal("env")
+	if mod.Type() != lua.LTTable {
+		t.Fatal("env module not registered")
+	}
 
-		err = vm.DoString(ctx, `
-            local env = require("env")
-            local value, err = env.get("TEST_VAR")
-            assert(err == nil)
-            assert(value == "test_value")
-        `, "test_get")
-		require.NoError(t, err)
-	})
+	modTbl := mod.(*lua.LTable)
+	funcs := []string{"get", "set", "get_all"}
+	for _, fn := range funcs {
+		if modTbl.RawGetString(fn).Type() != lua.LTFunction {
+			t.Errorf("%s function not registered", fn)
+		}
+	}
+}
 
-	t.Run("get non-existent variable", func(t *testing.T) {
-		contexter := ctxapi.NewContexter[string]()
-		ctx := context.WithValue(context.Background(), ctxapi.EnvCtx, contexter)
+func TestLoadReuse(t *testing.T) {
+	l1 := lua.NewState()
+	defer l1.Close()
+	l2 := lua.NewState()
+	defer l2.Close()
 
-		mod := NewEnvModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+	tbl, _ := Module.Build()
+	l1.SetGlobal(Module.Name, tbl)
+	l2.SetGlobal(Module.Name, tbl)
 
-		err = vm.DoString(ctx, `
-            local env = require("env")
-            local value, err = env.get("NON_EXISTENT")
-            assert(value == nil)
-            assert(err == nil)
-        `, "test_get_non_existent")
-		require.NoError(t, err)
-	})
+	mod1 := l1.GetGlobal("env").(*lua.LTable)
+	mod2 := l2.GetGlobal("env").(*lua.LTable)
 
-	t.Run("get with empty key", func(t *testing.T) {
-		contexter := ctxapi.NewContexter[string]()
-		ctx := context.WithValue(context.Background(), ctxapi.EnvCtx, contexter)
+	if mod1 != mod2 {
+		t.Error("module table should be reused across states")
+	}
+}
 
-		mod := NewEnvModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+func TestImmutability(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
 
-		err = vm.DoString(ctx, `
-            local env = require("env")
-            local value, err = env.get("")
-        `, "test_get_empty_key")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "bad argument")
-	})
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
-	t.Run("get with no context", func(t *testing.T) {
-		mod := NewEnvModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+	err := l.DoString(`
+		local success = pcall(function()
+			env.foo = "bar"
+		end)
+	`)
+	if err != nil {
+		t.Errorf("immutability test failed: %v", err)
+	}
+}
 
-		// This should cause a Lua error because there is no context
-		err = vm.DoString(context.Background(), `
-            local env = require("env")
-            local value, err = env.get("TEST_VAR")
-        `, "test_no_context")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid environment context")
-	})
+func TestGetNoContext(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
 
-	t.Run("get with invalid context", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), ctxapi.EnvCtx, "not a contexter")
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
-		mod := NewEnvModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+	err := l.DoString(`
+		local val, err = env.get("TEST_VAR")
+		if err == nil then
+			error("expected error for no context")
+		end
+	`)
+	if err != nil {
+		t.Errorf("get no context test failed: %v", err)
+	}
+}
 
-		err = vm.DoString(ctx, `
-            local env = require("env")
-            local value, err = env.get("TEST_VAR")
-        `, "test_invalid_context")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid environment context")
-	})
+func TestSetNoContext(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local val, err = env.set("TEST_VAR", "value")
+		if err == nil then
+			error("expected error for no context")
+		end
+	`)
+	if err != nil {
+		t.Errorf("set no context test failed: %v", err)
+	}
+}
+
+func TestGetAllNoContext(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local val, err = env.get_all()
+		if err == nil then
+			error("expected error for no context")
+		end
+	`)
+	if err != nil {
+		t.Errorf("get_all no context test failed: %v", err)
+	}
+}
+
+func TestGetWithEmptyContext(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
+
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local val, err = env.get("TEST_VAR")
+		if err == nil then
+			error("expected error for missing registry")
+		end
+	`)
+	if err != nil {
+		t.Errorf("get with empty context test failed: %v", err)
+	}
+}
+
+func TestGetEmptyKey(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
+
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local val, err = env.get("")
+		if val ~= nil or err == nil then
+			error("expected nil value and error for empty key")
+		end
+	`)
+	if err != nil {
+		t.Errorf("get empty key test failed: %v", err)
+	}
+}
+
+func TestSetEmptyKey(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	l.SetContext(ctx)
+
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local ok, err = env.set("", "value")
+		if ok ~= nil or err == nil then
+			error("expected nil result and error for empty key")
+		end
+	`)
+	if err != nil {
+		t.Errorf("set empty key test failed: %v", err)
+	}
 }

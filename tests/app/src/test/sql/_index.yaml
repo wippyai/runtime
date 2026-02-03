@@ -1,0 +1,94 @@
+version: "1.0"
+namespace: app.test.sql
+
+entries:
+  # In-memory SQLite database for testing
+  - name: testdb
+    kind: db.sql.sqlite
+    file: ":memory:"
+    lifecycle:
+      auto_start: true
+
+  # Basic operations test
+  - name: basic
+    kind: function.lua
+    meta:
+      type: test
+      suite: sql
+      description: sql basic operations
+    source: file://basic.lua
+    method: main
+    modules:
+      - sql
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Query test
+  - name: query
+    kind: function.lua
+    meta:
+      type: test
+      suite: sql
+      description: sql query operations
+    source: file://query.lua
+    method: main
+    modules:
+      - sql
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Execute test
+  - name: execute
+    kind: function.lua
+    meta:
+      type: test
+      suite: sql
+      description: sql execute operations
+    source: file://execute.lua
+    method: main
+    modules:
+      - sql
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Transaction test
+  - name: transaction
+    kind: function.lua
+    meta:
+      type: test
+      suite: sql
+      description: sql transaction operations
+    source: file://transaction.lua
+    method: main
+    modules:
+      - sql
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Prepared statement test
+  - name: prepared
+    kind: function.lua
+    meta:
+      type: test
+      suite: sql
+      description: sql prepared statement operations
+    source: file://prepared.lua
+    method: main
+    modules:
+      - sql
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Error handling test
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: sql
+      description: sql structured errors
+    source: file://errors.lua
+    method: main
+    modules:
+      - sql
+    imports:
+      assert_primitives: app.lib:assert

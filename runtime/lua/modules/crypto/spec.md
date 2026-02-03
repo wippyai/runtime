@@ -1,357 +1,325 @@
-# Lua Crypto Module Specification
+# crypto
 
-## Overview
+Cryptographic operations including random generation, HMAC, encryption/decryption, JWT handling, and key derivation. Security, nondeterministic.
 
-The `crypto` module provides cryptographic functions for secure implementations of OAuth 2.0 and other security-related
-applications. It includes submodules for random data generation, HMAC computation, symmetric encryption/decryption, JWT
-handling, and utility functions.
-
-## Module Interface
-
-### Module Loading
+## Loading
 
 ```lua
 local crypto = require("crypto")
 ```
 
-### Submodules and Functions
+## Functions
 
-#### Random Data Generation
-
-##### crypto.random.bytes(length: number)
+### crypto.random.bytes(length: integer) → string, error
 
 Generates cryptographically secure random bytes.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| length | integer | yes | - | Number of bytes (1 to 1,048,576) |
 
-- `length`: Number of random bytes to generate.
+**Returns:** `string, error` - random bytes as string or nil + structured error
 
-Returns:
+**Errors (structured):**
 
-- `bytes`: Random bytes as a string (or nil on error).
-- `error`: Error message string (or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| length <= 0 | errors.INVALID | no |
+| length > 1MB | errors.INVALID | no |
+| random generation fails | errors.INTERNAL | no |
 
-##### crypto.random.string(length: number, charset: string)
+### crypto.random.string(length: integer, charset?: string) → string, error
 
-Generates a random string using the specified character set.
+Generates random string from character set.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| length | integer | yes | - | String length (1 to 1,048,576) |
+| charset | string | no | alphanumeric | Characters to use |
 
-- `length`: Length of the string to generate.
-- `charset`: (Optional) Characters to use (default: alphanumeric).
+**Returns:** `string, error` - random string or nil + structured error
 
-Returns:
+**Errors (structured):**
 
-- `str`: Random string (or nil on error).
-- `error`: Error message string (or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| length <= 0 | errors.INVALID | no |
+| length > 1MB | errors.INVALID | no |
+| charset empty | errors.INVALID | no |
+| random generation fails | errors.INTERNAL | no |
 
-##### crypto.random.uuid()
+### crypto.random.uuid() → string, error
 
-Generates a random UUID (v4).
+Generates UUID v4.
 
-Returns:
+**Returns:** `string, error` - UUID string (36 chars) or nil + structured error
 
-- `uuid`: UUID string (or nil on error).
-- `error`: Error message string (or nil on success).
+**Errors (structured):**
 
-#### HMAC Functions
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| UUID generation fails | errors.INTERNAL | no |
 
-##### crypto.hmac.sha256(key: string, data: string)
+### crypto.hmac.sha256(key: string, data: string) → string, error
 
-Calculates HMAC-SHA256.
+Computes HMAC-SHA256 digest.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| key | string | yes | - | HMAC key (cannot be empty) |
+| data | string | yes | - | Data to authenticate |
 
-- `key`: HMAC key.
-- `data`: Data to authenticate.
+**Returns:** `string, error` - hex-encoded digest (64 chars) or nil + structured error
 
-Returns:
+**Errors (structured):**
 
-- `digest`: Hex-encoded HMAC digest (or nil on error).
-- `error`: Error message string (or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| key empty | errors.INVALID | no |
+| HMAC computation fails | errors.INTERNAL | no |
 
-##### crypto.hmac.sha512(key: string, data: string)
+### crypto.hmac.sha512(key: string, data: string) → string, error
 
-Calculates HMAC-SHA512.
+Computes HMAC-SHA512 digest.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| key | string | yes | - | HMAC key (cannot be empty) |
+| data | string | yes | - | Data to authenticate |
 
-- `key`: HMAC key.
-- `data`: Data to authenticate.
+**Returns:** `string, error` - hex-encoded digest (128 chars) or nil + structured error
 
-Returns:
+**Errors (structured):**
 
-- `digest`: Hex-encoded HMAC digest (or nil on error).
-- `error`: Error message string (or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| key empty | errors.INVALID | no |
+| HMAC computation fails | errors.INTERNAL | no |
 
-#### Encryption Functions
+### crypto.encrypt.aes(data: string, key: string, aad?: string) → string, error
 
-##### crypto.encrypt.aes(data: string, key: string, aad: string)
+Encrypts data using AES-GCM authenticated encryption. Nonce is randomly generated and prepended to ciphertext.
 
-Encrypts data using AES-GCM (authenticated encryption).
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | Plaintext to encrypt |
+| key | string | yes | - | Encryption key (16, 24, or 32 bytes) |
+| aad | string | no | nil | Additional authenticated data |
 
-Parameters:
+**Returns:** `string, error` - encrypted data (nonce+ciphertext+tag) or nil + structured error
 
-- `data`: Data to encrypt.
-- `key`: Encryption key (16, 24, or 32 bytes).
-- `aad`: (Optional) Additional authenticated data.
+**Errors (structured):**
 
-Returns:
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| key not 16/24/32 bytes | errors.INVALID | no |
+| cipher creation fails | errors.INTERNAL | no |
+| nonce generation fails | errors.INTERNAL | no |
 
-- `encrypted`: Encrypted data (nonce prefixed) (or nil on error).
-- `error`: Error message string (or nil on success).
+### crypto.encrypt.chacha20(data: string, key: string, aad?: string) → string, error
 
-##### crypto.encrypt.chacha20(data: string, key: string, aad: string)
+Encrypts data using ChaCha20-Poly1305 authenticated encryption. Nonce is randomly generated and prepended to ciphertext.
 
-Encrypts data using ChaCha20-Poly1305 (authenticated encryption).
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | Plaintext to encrypt |
+| key | string | yes | - | Encryption key (must be 32 bytes) |
+| aad | string | no | nil | Additional authenticated data |
 
-Parameters:
+**Returns:** `string, error` - encrypted data (nonce+ciphertext+tag) or nil + structured error
 
-- `data`: Data to encrypt.
-- `key`: Encryption key (32 bytes).
-- `aad`: (Optional) Additional authenticated data.
+**Errors (structured):**
 
-Returns:
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| key not 32 bytes | errors.INVALID | no |
+| cipher creation fails | errors.INTERNAL | no |
+| nonce generation fails | errors.INTERNAL | no |
 
-- `encrypted`: Encrypted data (nonce prefixed) (or nil on error).
-- `error`: Error message string (or nil on success).
+### crypto.decrypt.aes(data: string, key: string, aad?: string) → string, error
 
-#### Decryption Functions
+Decrypts AES-GCM encrypted data.
 
-##### crypto.decrypt.aes(data: string, key: string, aad: string)
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | Encrypted data (from encrypt.aes) |
+| key | string | yes | - | Decryption key (16, 24, or 32 bytes) |
+| aad | string | no | nil | Additional authenticated data (must match encryption) |
 
-Decrypts data using AES-GCM.
+**Returns:** `string, error` - plaintext or nil + structured error
 
-Parameters:
+**Errors (structured):**
 
-- `data`: Encrypted data (with nonce prefixed).
-- `key`: Decryption key (16, 24, or 32 bytes).
-- `aad`: (Optional) Additional authenticated data.
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| key not 16/24/32 bytes | errors.INVALID | no |
+| data too short | errors.INVALID | no |
+| cipher creation fails | errors.INTERNAL | no |
+| decryption fails | errors.INTERNAL | no |
+| authentication fails | errors.INTERNAL | no |
 
-Returns:
+### crypto.decrypt.chacha20(data: string, key: string, aad?: string) → string, error
 
-- `decrypted`: Decrypted data (or nil on error).
-- `error`: Error message string (or nil on success).
+Decrypts ChaCha20-Poly1305 encrypted data.
 
-##### crypto.decrypt.chacha20(data: string, key: string, aad: string)
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | Encrypted data (from encrypt.chacha20) |
+| key | string | yes | - | Decryption key (must be 32 bytes) |
+| aad | string | no | nil | Additional authenticated data (must match encryption) |
 
-Decrypts data using ChaCha20-Poly1305.
+**Returns:** `string, error` - plaintext or nil + structured error
 
-Parameters:
+**Errors (structured):**
 
-- `data`: Encrypted data (with nonce prefixed).
-- `key`: Decryption key (32 bytes).
-- `aad`: (Optional) Additional authenticated data.
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| key not 32 bytes | errors.INVALID | no |
+| data too short | errors.INVALID | no |
+| cipher creation fails | errors.INTERNAL | no |
+| decryption fails | errors.INTERNAL | no |
+| authentication fails | errors.INTERNAL | no |
 
-Returns:
+### crypto.jwt.encode(payload: table, key: string, alg?: string) → string, error
 
-- `decrypted`: Decrypted data (or nil on error).
-- `error`: Error message string (or nil on success).
+Creates and signs JWT token.
 
-#### JWT Functions
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| payload | table | yes | - | JWT claims |
+| key | string | yes | - | Signing key (secret for HMAC, PEM private key for RS256) |
+| alg | string | no | "HS256" | Algorithm: "HS256", "HS384", "HS512", "RS256" |
 
-##### crypto.jwt.encode(payload: table, key: string, alg: string)
+**payload fields:**
+- Any claim fields (sub, iss, exp, iat, etc.)
+- `_header`: optional table for custom JWT header fields (e.g., {kid = "key-id"})
 
-Creates and signs a JWT.
+**Returns:** `string, error` - JWT token string or nil + structured error
 
-Parameters:
+**Errors (structured):**
 
-- `payload`: JWT claims as a table. Can include a special `_header` field to set custom header values.
-- `key`: Signing key. For HMAC algorithms, this is the secret key. For RS256, this should be the RSA private key in PEM format.
-- `alg`: (Optional) Algorithm ('HS256', 'HS384', 'HS512', 'RS256', default: 'HS256').
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| payload not table | errors.INVALID | no |
+| invalid RSA private key (RS256) | errors.INVALID | no |
+| token signing fails | errors.INTERNAL | no |
 
-Returns:
+### crypto.jwt.verify(token: string, key: string, alg?: string, require_exp?: boolean) → table, error
 
-- `token`: JWT token (or nil on error).
-- `error`: Error message string (or nil on success).
+Verifies and decodes JWT token.
 
-##### crypto.jwt.verify(token: string, key: string, alg: string)
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| token | string | yes | - | JWT token to verify |
+| key | string | yes | - | Verification key (secret for HMAC, PEM public key for RS256) |
+| alg | string | no | "HS256" | Expected algorithm: "HS256", "HS384", "HS512", "RS256" |
+| require_exp | boolean | no | true | Require exp claim and validate expiration |
 
-Verifies and decodes a JWT.
+**Returns:** `table, error` - JWT claims as table or nil + structured error
 
-Parameters:
+**Errors (structured):**
 
-- `token`: JWT to verify.
-- `key`: Verification key. For HMAC algorithms, this is the secret key. For RS256, this should be the RSA public key in PEM format.
-- `alg`: (Optional) Expected algorithm ('HS256', 'HS384', 'HS512', 'RS256', default: 'HS256').
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| token format invalid | errors.INTERNAL | no |
+| signature invalid | errors.INTERNAL | no |
+| algorithm mismatch | errors.INTERNAL | no |
+| token expired | errors.INTERNAL | no |
+| missing exp (when require_exp=true) | errors.INTERNAL | no |
+| invalid RSA public key (RS256) | errors.INTERNAL | no |
 
-Returns:
+### crypto.pbkdf2(password: string, salt: string, iterations: integer, key_length: integer, hash?: string) → string, error
 
-- `payload`: JWT payload as a table (or nil on error).
-- `error`: Error message string (or nil on success).
+Derives key using PBKDF2 key derivation function.
 
-#### Utility Functions
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| password | string | yes | - | Password/passphrase (cannot be empty) |
+| salt | string | yes | - | Salt value (cannot be empty) |
+| iterations | integer | yes | - | Iteration count (1 to 10,000,000) |
+| key_length | integer | yes | - | Desired key length in bytes |
+| hash | string | no | "sha256" | Hash function: "sha256" or "sha512" |
 
-##### crypto.constant_time_compare(a: string, b: string)
+**Returns:** `string, error` - derived key as bytes or nil + structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| password empty | errors.INVALID | no |
+| salt empty | errors.INVALID | no |
+| iterations <= 0 | errors.INVALID | no |
+| iterations > 10,000,000 | errors.INVALID | no |
+| key_length <= 0 | errors.INVALID | no |
+| unsupported hash function | errors.INVALID | no |
+
+### crypto.constant_time_compare(a: string, b: string) → boolean
 
 Compares two strings in constant time to prevent timing attacks.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| a | string | yes | - | First string |
+| b | string | yes | - | Second string |
 
-- `a`: First string.
-- `b`: Second string.
+**Returns:** `boolean` - true if strings are equal, false otherwise
 
-Returns:
+## Errors
 
-- `equal`: Boolean indicating if strings are equal.
-
-##### crypto.pbkdf2(password: string, salt: string, iterations: number, key_length: number, hash_func: string)
-
-Derives a key using PBKDF2.
-
-Parameters:
-
-- `password`: Base password/key.
-- `salt`: Salt value.
-- `iterations`: Number of iterations (recommend ≥ 10000).
-- `key_length`: Desired key length in bytes.
-- `hash_func`: (Optional) Hash function to use ('sha256', 'sha512', default: 'sha256').
-
-Returns:
-
-- `key`: Derived key (or nil on error).
-- `error`: Error message string (or nil on success).
-
-## Error Handling
-
-The module returns errors in the following cases:
-
-1. **Invalid Input Type:** If inputs are not of the expected type.
+This module returns structured errors. Check kind with `errors.*` constants:
 
 ```lua
-local bytes, err = crypto.random.bytes("ten") -- bytes: nil, err: "number expected for length"
+local result, err = crypto.random.bytes(16)
+if err then
+    if err:kind() == errors.INVALID then
+        -- invalid input
+    elseif err:kind() == errors.INTERNAL then
+        -- internal crypto error
+    end
+end
 ```
 
-2. **Invalid Parameters:** If function parameters don't meet requirements.
+**Possible kinds:** `errors.INVALID`, `errors.INTERNAL`
 
-```lua
-local encrypted, err = crypto.encrypt.aes("data", "short_key") -- encrypted: nil, err: "key must be 16, 24, or 32 bytes"
-```
-
-3. **Operation Failures:** If cryptographic operations fail.
-
-```lua
-local verified, err = crypto.jwt.verify("invalid.token", "key") -- verified: nil, err: specific error message
-```
-
-## Behavior
-
-1. **Random Data Generation**
-   - Functions generate cryptographically secure random data.
-   - Empty or negative lengths result in errors.
-
-2. **Encryption/Decryption**
-   - Functions validate key lengths and parameter types.
-   - Nonces are automatically generated and prefixed to encrypted data.
-   - Encrypted data format: `<nonce><tag><ciphertext>`.
-
-3. **JWT Handling**
-   - `jwt.encode` validates the payload and signs with the specified algorithm.
-   - Custom header fields can be set using the special `_header` table field in the payload.
-   - For RS256, private keys must be in PEM format.
-   - `jwt.verify` validates the token signature and returns the payload.
-   - For RS256, public keys must be in PEM format.
-
-## Thread Safety
-
-- The `crypto` module is thread-safe.
-- It does not maintain any internal state affected by concurrent access.
-
-## Best Practices
-
-1. **Always check for errors:** Validate return values to handle potential errors.
-2. **Use strong keys:** Use appropriate key lengths (AES: 16/24/32 bytes, ChaCha20: 32 bytes).
-3. **Validate JWT expiration:** Check expiration claims manually after verification.
-4. **Secure random data:** Use `random.bytes` or `random.string` for security-sensitive values.
-5. **Constant-time comparison:** Use `constant_time_compare` for comparing sensitive strings.
-6. **RSA key security:** Protect RSA private keys properly and use appropriate key lengths.
-
-## Example Usage
+## Example
 
 ```lua
 local crypto = require("crypto")
 
--- Generate a secure state parameter for OAuth
+-- Generate random state parameter
 local state, err = crypto.random.string(32)
-if err then
-  print("Error:", err)
-else
-  print("State parameter:", state)
-end
+if err then error(err) end
 
--- Encrypt an OAuth token for storage
-local token = "gho_REDACTED_TOKEN"
-local key, err = crypto.pbkdf2("master_secret", "oauth-token-salt", 10000, 32)
-if err then
-  print("PBKDF2 error:", err)
-else
-  local encrypted, err = crypto.encrypt.aes(token, key)
-  if err then
-    print("Encryption error:", err)
-  else
-    -- Later, decrypt the token
-    local decrypted, err = crypto.decrypt.aes(encrypted, key)
-    print("Decrypted token:", decrypted)
-  end
-end
+-- HMAC signature
+local sig, err = crypto.hmac.sha256("api_secret", "request_data")
+if err then error(err) end
 
--- Generate HMAC for API request signing
-local signature, err = crypto.hmac.sha256("api_secret_key", "request_data")
-if err then
-  print("HMAC error:", err)
-else
-  print("Request signature:", signature)
-end
+-- Encrypt sensitive data
+local key = string.rep("a", 32)
+local encrypted, err = crypto.encrypt.aes("secret data", key)
+if err then error(err) end
 
--- Create and verify a JWT with HMAC
+local decrypted, err = crypto.decrypt.aes(encrypted, key)
+if err then error(err) end
+-- decrypted == "secret data"
+
+-- JWT with HMAC
 local payload = {
-  sub = "user123",
-  exp = os.time() + 3600
+    sub = "user123",
+    exp = os.time() + 3600,
+    _header = { kid = "key-id" }
 }
-local jwt, err = crypto.jwt.encode(payload, "secret_key")
-if err then
-  print("JWT encode error:", err)
-else
-  local verified, err = crypto.jwt.verify(jwt, "secret_key")
-  if err then
-    print("JWT verification error:", err)
-  else
-    print("JWT verified, subject:", verified.sub)
-  end
-end
+local token, err = crypto.jwt.encode(payload, "secret")
+if err then error(err) end
 
--- Create a JWT with RS256 and custom header
-local rs256_payload = {
-  iss = "service-account@example.com",
-  scope = "https://api.example.com/auth",
-  aud = "https://auth.example.com/token",
-  exp = os.time() + 3600,
-  iat = os.time(),
-  _header = {  -- Special field for custom header values
-    kid = "key-id-12345"
-  }
-}
-local rs256_jwt, err = crypto.jwt.encode(rs256_payload, pem_private_key, "RS256")
-if err then
-  print("RS256 JWT encode error:", err)
-else
-  -- Verify with the public key
-  local verified, err = crypto.jwt.verify(rs256_jwt, pem_public_key, "RS256")
-  if err then
-    print("RS256 JWT verification error:", err)
-  else
-    print("RS256 JWT verified, issuer:", verified.iss)
-  end
-end
+local claims, err = crypto.jwt.verify(token, "secret")
+if err then error(err) end
+-- claims.sub == "user123"
 
--- PKCE for OAuth
-local verifier, err = crypto.random.string(64)
-if err then
-  print("Error:", err)
-else
-  local verifier_hash = require("hash").sha256(verifier)
-  -- URL-safe encoding would be done with the base64 module
-  print("Code verifier:", verifier)
-  print("Code challenge:", verifier_hash)
-end
+-- PBKDF2 key derivation
+local derived, err = crypto.pbkdf2("password", "salt", 10000, 32, "sha256")
+if err then error(err) end
+
+-- Constant-time comparison
+local equal = crypto.constant_time_compare("hash1", "hash2")
 ```

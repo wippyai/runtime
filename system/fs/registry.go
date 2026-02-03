@@ -2,26 +2,30 @@ package fs
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/event"
-	fsapi "github.com/ponyruntime/pony/api/fs"
-	"github.com/ponyruntime/pony/system/eventbus"
+	"github.com/wippyai/runtime/api/event"
+	fsapi "github.com/wippyai/runtime/api/fs"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
 // Registry manages filesystem mounts and their registration
 type Registry struct {
 	ctx         context.Context
-	log         *zap.Logger
 	bus         event.Bus
-	filesystems sync.Map // map[string]FS
+	log         *zap.Logger
 	subscriber  *eventbus.Subscriber
+	filesystems sync.Map
 }
 
-// NewFSRegistry creates a new filesystem registry instance
-func NewFSRegistry(bus event.Bus, log *zap.Logger) *Registry {
+const fsEventPattern = "fs.*"
+
+// NewRegistry creates a new filesystem registry instance.
+func NewRegistry(bus event.Bus, log *zap.Logger) *Registry {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	return &Registry{
 		log: log,
 		bus: bus,
@@ -32,9 +36,9 @@ func NewFSRegistry(bus event.Bus, log *zap.Logger) *Registry {
 func (r *Registry) Start(ctx context.Context) error {
 	r.ctx = ctx
 
-	sub, err := eventbus.NewSubscriber(r.ctx, r.bus, fsapi.System, "fs.*", r.handleEvent)
+	sub, err := eventbus.NewSubscriber(r.ctx, r.bus, fsapi.System, fsEventPattern, r.handleEvent)
 	if err != nil {
-		return fmt.Errorf("failed to create subscriber: %w", err)
+		return NewSubscriberError(err)
 	}
 	r.subscriber = sub
 
@@ -51,11 +55,11 @@ func (r *Registry) Stop() error {
 
 func (r *Registry) handleEvent(e event.Event) {
 	switch e.Kind {
-	case fsapi.Register:
+	case fsapi.FsRegister:
 		r.registerFS(e)
-	case fsapi.Delete:
+	case fsapi.FsDelete:
 		r.deleteFS(e)
-	case fsapi.Accept, fsapi.Reject:
+	case fsapi.FsAccept, fsapi.FsReject:
 		// nothing, self emitted
 	default:
 		r.log.Warn("unknown event kind",
@@ -69,14 +73,14 @@ func (r *Registry) registerFS(e event.Event) {
 	if !ok {
 		r.log.Error("invalid filesystem payload",
 			zap.String("fs", e.Path),
-			zap.String("type", fmt.Sprintf("%T", e.Data)))
+			zap.Any("data", e.Data))
 
 		r.sendReject(e.Path, "invalid filesystem data type")
 		return
 	}
 
 	r.filesystems.Store(e.Path, fs)
-	r.log.Debug("filesystem registered", zap.String("fs", e.Path))
+	r.log.Debug("filesystem registered successfully", zap.String("fs", e.Path))
 	r.sendAccept(e.Path)
 }
 
@@ -87,14 +91,14 @@ func (r *Registry) deleteFS(e event.Event) {
 		return
 	}
 
-	r.log.Debug("filesystem removed", zap.String("fs", e.Path))
+	r.log.Debug("filesystem removed successfully", zap.String("fs", e.Path))
 	r.sendAccept(e.Path)
 }
 
 func (r *Registry) sendAccept(path event.Path) {
 	r.bus.Send(r.ctx, event.Event{
 		System: fsapi.System,
-		Kind:   fsapi.Accept,
+		Kind:   fsapi.FsAccept,
 		Path:   path,
 	})
 }
@@ -102,7 +106,7 @@ func (r *Registry) sendAccept(path event.Path) {
 func (r *Registry) sendReject(path event.Path, reason string) {
 	r.bus.Send(r.ctx, event.Event{
 		System: fsapi.System,
-		Kind:   fsapi.Reject,
+		Kind:   fsapi.FsReject,
 		Path:   path,
 		Data:   reason,
 	})
@@ -111,10 +115,12 @@ func (r *Registry) sendReject(path event.Path, reason string) {
 // GetFS returns a filesystem by path
 func (r *Registry) GetFS(path string) (fsapi.FS, bool) {
 	if val, ok := r.filesystems.Load(path); ok {
-		return val.(fsapi.FS), true
+		if fs, ok := val.(fsapi.FS); ok {
+			return fs, true
+		}
 	}
 	return nil, false
 }
 
-// Ensure Registry implements the operation.Registry interface
+// Ensure Registry implements the fsapi.Registry interface
 var _ fsapi.Registry = (*Registry)(nil)

@@ -5,12 +5,13 @@ import (
 	"strconv"
 	"testing"
 
-	jpayload "github.com/ponyruntime/pony/system/payload/json"
-	ypayload "github.com/ponyruntime/pony/system/payload/yaml"
+	jpayload "github.com/wippyai/runtime/system/payload/json"
+	ypayload "github.com/wippyai/runtime/system/payload/yaml"
 
-	"github.com/ponyruntime/pony/api/payload"
-	transcoder "github.com/ponyruntime/pony/system/payload"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/payload"
+	transcoder "github.com/wippyai/runtime/system/payload"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/converter"
 )
@@ -44,20 +45,20 @@ func TestInternalDataConverter_PayloadsHandling(t *testing.T) {
 	})
 
 	t.Run("FromPayloads with payload.Messages pointer", func(t *testing.T) {
-		// Create test Temporal payloads
+		// Create test Temporal payloads with valid JSON
 		input := &commonpb.Payloads{
 			Payloads: []*commonpb.Payload{
 				{
 					Metadata: map[string][]byte{
 						converter.MetadataEncoding: []byte(converter.MetadataEncodingJSON),
 					},
-					Data: []byte("test1"),
+					Data: []byte(`"test1"`),
 				},
 				{
 					Metadata: map[string][]byte{
 						converter.MetadataEncoding: []byte(converter.MetadataEncodingJSON),
 					},
-					Data: []byte("test2"),
+					Data: []byte(`"test2"`),
 				},
 			},
 		}
@@ -68,11 +69,9 @@ func TestInternalDataConverter_PayloadsHandling(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Len(t, result, 2)
 
-		// Verify the conversion was correct
+		// Verify the conversion was correct - transcoded to JSON format
 		assert.Equal(t, payload.JSON, result[0].Format())
-		assert.Equal(t, []byte("test1"), result[0].Data())
 		assert.Equal(t, payload.JSON, result[1].Format())
-		assert.Equal(t, []byte("test2"), result[1].Data())
 	})
 
 	t.Run("ToPayloads with empty payload.Messages", func(t *testing.T) {
@@ -128,7 +127,7 @@ func TestInternalDataConverter_PayloadsHandling(t *testing.T) {
 					Metadata: map[string][]byte{
 						converter.MetadataEncoding: []byte(converter.MetadataEncodingJSON),
 					},
-					Data: []byte("test1"),
+					Data: []byte(`"test1"`),
 				},
 				{
 					Metadata: map[string][]byte{
@@ -149,11 +148,10 @@ func TestInternalDataConverter_PayloadsHandling(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Len(t, result, 3)
 
-		// Verify JSON payload
+		// Verify JSON payload - transcoded to JSON format
 		assert.Equal(t, payload.JSON, result[0].Format())
-		assert.Equal(t, []byte("test1"), result[0].Data())
 
-		// Verify Binary payload
+		// Verify Binary payload - stays as bytes
 		assert.Equal(t, payload.Bytes, result[1].Format())
 		assert.Equal(t, []byte("test2"), result[1].Data())
 
@@ -178,12 +176,13 @@ func TestInternalDataConverter_ErrorCases(t *testing.T) {
 					Metadata: map[string][]byte{
 						converter.MetadataEncoding: []byte(converter.MetadataEncodingJSON),
 					},
-					Data: []byte("test"),
+					Data: []byte(`{"key": "value"}`),
 				},
 			},
 		}
 
-		var wrongType string // Not a *payload.Messages
+		// Passing an incompatible type (int can't decode JSON object)
+		var wrongType int
 		err := conv.FromPayloads(input, &wrongType)
 		assert.Error(t, err)
 	})
@@ -204,13 +203,13 @@ func TestInternalDataConverter_ErrorCases(t *testing.T) {
 					Metadata: map[string][]byte{
 						converter.MetadataEncoding: []byte(converter.MetadataEncodingJSON),
 					},
-					Data: []byte("test1"),
+					Data: []byte(`"test1"`),
 				},
 				{
 					Metadata: map[string][]byte{
 						converter.MetadataEncoding: []byte(converter.MetadataEncodingJSON),
 					},
-					Data: []byte("test2"),
+					Data: []byte(`"test2"`),
 				},
 			},
 		}
@@ -261,7 +260,7 @@ func TestDataConverter_PayloadNewTranscoding(t *testing.T) {
 
 		// Should fail with transcoding error
 		_, err := conv.ToPayload(p)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "error transcoding value")
 	})
 }

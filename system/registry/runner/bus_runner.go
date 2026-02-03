@@ -3,37 +3,44 @@ package runner
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"slices"
+	"time"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/system/registry/topology"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/registry"
 	"go.uber.org/zap"
 )
+
+// runnerBuilder defines the operations needed by BusRunner for state transitions
+type runnerBuilder interface {
+	ValidateOperation(registry.StateMap, registry.Operation) error
+	ApplyOperation(registry.StateMap, registry.Operation) (registry.StateMap, error)
+	BuildDelta(registry.State, registry.State) (registry.ChangeSet, error)
+}
 
 // BusRunner executes registry operations sequentially through an event bus, handling
 // state transitions, rollbacks, and error handling. It maintains operation order
 // and provides transactional semantics through the event bus.
 type BusRunner struct {
 	bus         event.Bus
+	builder     runnerBuilder
 	log         *zap.Logger
 	acceptChan  chan event.Event
 	rejectChan  chan event.Event
 	acceptSubID event.SubscriberID
 	rejectSubID event.SubscriberID
-	builder     *topology.StateBuilder
 }
 
+const eventWaitTimeout = 30 * time.Second
+
 // NewBusRunner creates a new BusRunner. This is a sequential bus, order of operations matter.
-func NewBusRunner(bus event.Bus, log *zap.Logger) *BusRunner {
+func NewBusRunner(bus event.Bus, log *zap.Logger, builder runnerBuilder) *BusRunner {
 	return &BusRunner{
 		bus:        bus,
 		log:        log,
 		acceptChan: make(chan event.Event),
 		rejectChan: make(chan event.Event),
-		builder:    topology.NewStateBuilder(log),
+		builder:    builder,
 	}
 }
 
@@ -46,8 +53,8 @@ func (br *BusRunner) Transition(
 	initialState registry.State,
 	cs registry.ChangeSet,
 ) (registry.State, error) {
-	currentState := topology.NewStateMap(initialState)
-	originalState := topology.NewStateMap(initialState) // Keep a copy of the original state for rollbacks
+	currentState := newStateMap(initialState)
+	originalState := newStateMap(initialState) // Keep a copy of the original state for rollbacks
 
 	if err := br.subscribeToEvents(ctx); err != nil {
 		return nil, err
@@ -56,7 +63,7 @@ func (br *BusRunner) Transition(
 
 	br.bus.Send(ctx, event.Event{
 		System: registry.System,
-		Kind:   registry.Begin,
+		Kind:   registry.TxBegin,
 	})
 
 	for _, op := range cs {
@@ -66,17 +73,17 @@ func (br *BusRunner) Transition(
 				return nil, err
 			}
 
-			br.log.Warn("operation failed, initiating rollback", zap.Any("operation", op), zap.Error(err))
+			br.log.Error("operation failed, initiating rollback", zap.Any("operation", op), zap.Error(err))
 			newState = br.rollback(ctx, originalState, newState)
 
 			// Only send Discard if there was an error, and rollback already happened
 			br.bus.Send(ctx, event.Event{
 				System: registry.System,
-				Kind:   registry.Discard,
+				Kind:   registry.TxDiscard,
 				Data:   err,
 			})
 
-			return newState.ToSlice(), fmt.Errorf("operation failed: %w", err)
+			return stateMapToSlice(newState), err // Already has context from applyOperation
 		}
 
 		currentState = newState
@@ -84,55 +91,47 @@ func (br *BusRunner) Transition(
 
 	br.bus.Send(ctx, event.Event{
 		System: registry.System,
-		Kind:   registry.Commit,
+		Kind:   registry.TxCommit,
 	})
 
-	return currentState.ToSlice(), nil
+	return stateMapToSlice(currentState), nil
 }
 
 func (br *BusRunner) applyOperation(
 	ctx context.Context,
-	state topology.StateMap,
+	state registry.StateMap,
 	op registry.Operation,
-) (topology.StateMap, error) {
+) (registry.StateMap, error) {
 	if err := br.builder.ValidateOperation(state, op); err != nil {
-		return state, fmt.Errorf("invalid operation: %w", err)
+		return state, NewInvalidOperationError(err)
 	}
 
 	if op.Entry.Kind == "" {
 		// resolve from reg or fail
 		entry, ok := state[op.Entry.ID]
 		if !ok {
-			return state, fmt.Errorf("entry kind can not be found: %s", entry.ID)
+			return state, NewEntryKindNotFoundError(op.Entry.ID)
 		}
 
 		op.Entry.Kind = entry.Kind
 	}
 
 	allowProcess := []registry.Kind{
-		registry.KindEntry,
-		registry.KindNamespaceDefinition,
-		registry.KindDependencyComponent,
+		registry.EntryKind,
+		registry.NamespaceDependency,
+		registry.NamespaceRequirement,
+		registry.NamespaceDefinition,
 	}
 	if slices.Contains(allowProcess, op.Entry.Kind) {
-		br.log.Debug("processing entry",
-			zap.String("id", op.Entry.ID.String()),
-			zap.Any("meta", op.Entry.Meta))
-
 		// with entry events we dont propagate any events and handle them internally
 		// use registry.entry for dynamic configs
 		newState, err := br.builder.ApplyOperation(state, op)
 		if err != nil {
-			return state, fmt.Errorf("applying change to state: %w", err)
+			return state, NewApplyChangeError(err)
 		}
 
 		return newState, nil
 	}
-
-	br.log.Debug("starting operation",
-		zap.String("kind", op.Kind),
-		zap.String("id", op.Entry.ID.String()),
-		zap.Any("meta", op.Entry.Meta))
 
 	// send the operation event
 	br.bus.Send(ctx, event.Event{
@@ -142,22 +141,31 @@ func (br *BusRunner) applyOperation(
 		Data:   op.Entry,
 	})
 
+	timeoutCtx, cancel := context.WithTimeout(ctx, eventWaitTimeout)
+	defer cancel()
+
 	for {
 		select {
 		case confirmation := <-br.acceptChan:
 			id := registry.ParseID(confirmation.Path)
 			br.log.Debug("received accept event",
 				zap.String("id", id.String()),
-				zap.String("expected", op.Entry.ID.String()))
+				zap.String("expected", op.Entry.ID.String()),
+				zap.String("system", confirmation.System),
+				zap.String("kind", confirmation.Kind))
 
-			if id != op.Entry.ID {
-				return state, errors.New("unrelated accept event")
+			if !id.Equal(op.Entry.ID) {
+				br.log.Error("unrelated accept event details",
+					zap.String("received_id", id.String()),
+					zap.String("expected_id", op.Entry.ID.String()),
+					zap.String("expected_kind", op.Entry.Kind))
+				return state, ErrUnrelatedAcceptEvent
 			}
 
 			// Apply the change to the state
 			newState, err := br.builder.ApplyOperation(state, op)
 			if err != nil {
-				return state, fmt.Errorf("applying change to state: %w", err)
+				return state, NewApplyChangeError(err)
 			}
 
 			return newState, nil
@@ -166,34 +174,42 @@ func (br *BusRunner) applyOperation(
 			id := registry.ParseID(rejection.Path)
 			br.log.Debug("received reject event",
 				zap.String("id", id.String()),
-				zap.String("expected", op.Entry.ID.String()),
-				zap.Any("data", rejection.Data))
+				zap.String("expected", op.Entry.ID.String()))
 
-			if id != op.Entry.ID {
-				return state, errors.New("unrelated reject event")
+			if !id.Equal(op.Entry.ID) {
+				return state, ErrUnrelatedRejectEvent
 			}
 
 			err, ok := rejection.Data.(error)
 			if !ok {
-				return state, errors.New("operation rejected, no details")
+				return state, NewOperationRejectedError(op.Entry.ID, nil)
 			}
-			return state, err
+			return state, NewOperationRejectedError(op.Entry.ID, err)
 
-		case <-ctx.Done():
-			return state, fmt.Errorf("failed to apply operation %s (%s): %w", op.Entry.ID, op.Entry.Kind, ctx.Err())
+		case <-timeoutCtx.Done():
+			if ctx.Err() != nil {
+				return state, NewOperationCanceledError(op.Entry.ID, op.Entry.Kind, ctx.Err())
+			}
+			br.log.Error("event handler timeout - no listener responded",
+				zap.String("id", op.Entry.ID.String()),
+				zap.String("kind", op.Entry.Kind),
+				zap.String("operation", op.Kind),
+				zap.Duration("timeout", eventWaitTimeout),
+				zap.String("hint", "check if a listener is registered for this entry kind"))
+			return state, NewEventHandlerTimeoutError(eventWaitTimeout, op.Entry.ID, op.Entry.Kind)
 		}
 	}
 }
 
 func (br *BusRunner) rollback(
 	ctx context.Context,
-	originalState, currentState topology.StateMap,
-) topology.StateMap {
+	originalState, currentState registry.StateMap,
+) registry.StateMap {
 	br.log.Debug("starting rollback")
 
 	// Convert states to registry.State format for BuildDelta
-	fromState := currentState.ToSlice()
-	toState := originalState.ToSlice()
+	fromState := stateMapToSlice(currentState)
+	toState := stateMapToSlice(originalState)
 
 	// Use BuildDelta to generate ordered operations
 	delta, err := br.builder.BuildDelta(fromState, toState)
@@ -227,15 +243,15 @@ func (br *BusRunner) rollback(
 // subscribeToEvents subscribes to Accept and Reject eventbus.
 func (br *BusRunner) subscribeToEvents(ctx context.Context) error {
 	var err error
-	br.acceptSubID, err = br.bus.SubscribeP(ctx, registry.System, registry.Accept, br.acceptChan)
+	br.acceptSubID, err = br.bus.SubscribeP(ctx, registry.System, registry.EntryAccept, br.acceptChan)
 	if err != nil {
-		return fmt.Errorf("listening events: %w", err)
+		return NewListenEventsError(err)
 	}
 
-	br.rejectSubID, err = br.bus.SubscribeP(ctx, registry.System, registry.Reject, br.rejectChan)
+	br.rejectSubID, err = br.bus.SubscribeP(ctx, registry.System, registry.EntryReject, br.rejectChan)
 	if err != nil {
 		br.bus.Unsubscribe(ctx, br.acceptSubID) // Clean up accept subscription if reject subscription fails
-		return fmt.Errorf("listening events: %w", err)
+		return NewListenEventsError(err)
 	}
 
 	return nil
@@ -245,4 +261,22 @@ func (br *BusRunner) subscribeToEvents(ctx context.Context) error {
 func (br *BusRunner) unsubscribeFromEvents(ctx context.Context) {
 	br.bus.Unsubscribe(ctx, br.acceptSubID)
 	br.bus.Unsubscribe(ctx, br.rejectSubID)
+}
+
+// newStateMap creates a StateMap from a State slice
+func newStateMap(state registry.State) registry.StateMap {
+	m := make(registry.StateMap)
+	for _, entry := range state {
+		m[entry.ID] = entry
+	}
+	return m
+}
+
+// stateMapToSlice converts a StateMap to a State slice
+func stateMapToSlice(sm registry.StateMap) registry.State {
+	slice := make(registry.State, 0, len(sm))
+	for _, entry := range sm {
+		slice = append(slice, entry)
+	}
+	return slice
 }

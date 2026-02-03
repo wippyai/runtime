@@ -2,49 +2,53 @@ package logs
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
-	api "github.com/ponyruntime/pony/api/logs"
+	api "github.com/wippyai/runtime/api/logs"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/system/eventbus"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 // Manager manages logging configuration and event handling. This is considered to be a root service since it trunks
 // all the logs from the system and sends them to the event bus. Unmanaged.
 type Manager struct {
-	log    *zap.Logger
 	bus    event.Bus
 	core   api.Core
+	ctx    context.Context
+	log    *zap.Logger
+	sub    *eventbus.Subscriber
 	mu     sync.RWMutex
 	config api.Config
-	ctx    context.Context
-	sub    *eventbus.Subscriber
 }
 
-// NewManager creates a new logging service instance
-func NewManager(bus event.Bus, core api.Core, logger *zap.Logger, level zapcore.Level) *Manager {
+const configEventPattern = "logs.config.(set|get)"
+
+// NewManager creates a new logging service instance.
+func NewManager(
+	bus event.Bus,
+	core api.Core,
+	logger *zap.Logger,
+	config api.Config,
+) *Manager {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Manager{
-		log:  logger,
-		bus:  bus,
-		core: core,
-		config: api.Config{
-			PropagateDownstream: true,
-			StreamToEvents:      false,
-			MinLevel:            level,
-		},
+		log:    logger,
+		bus:    bus,
+		core:   core,
+		config: config,
 	}
 }
 
 // Start initializes the service and starts listening for events
 func (m *Manager) Start(ctx context.Context) error {
 	// Subscribe to log configuration events and config requests
-	sub, err := eventbus.NewSubscriber(ctx, m.bus, api.System, "logs.config.(set|get)", m.handleEvent)
+	sub, err := eventbus.NewSubscriber(ctx, m.bus, api.System, configEventPattern, m.handleEvent)
 	if err != nil {
-		return fmt.Errorf("failed to subscribe to events: %w", err)
+		return NewSubscriberError(err)
 	}
 	m.sub = sub
 
@@ -56,7 +60,6 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.log.Info("logging service started",
 		zap.Bool("propagate", m.config.PropagateDownstream),
 		zap.Bool("stream", m.config.StreamToEvents),
-		zap.String("min_level", m.config.MinLevel.String()),
 	)
 
 	return nil
@@ -95,6 +98,8 @@ func (m *Manager) handleConfigEvent(ctx context.Context, e event.Event) {
 
 	// Check for actual changes
 	if m.config == cfg {
+		// Even if config hasn't changed, send confirmation to prevent timeouts.
+		m.sendConfigState(ctx, e.Path, cfg)
 		return
 	}
 
@@ -103,8 +108,6 @@ func (m *Manager) handleConfigEvent(ctx context.Context, e event.Event) {
 		zap.Bool("new_propagate", cfg.PropagateDownstream),
 		zap.Bool("old_stream", m.config.StreamToEvents),
 		zap.Bool("new_stream", cfg.StreamToEvents),
-		zap.String("old_level", m.config.MinLevel.String()),
-		zap.String("new_level", cfg.MinLevel.String()),
 	)
 
 	m.handleSetConfigEvent(ctx, e.Path, cfg)
@@ -116,20 +119,17 @@ func (m *Manager) handleGetConfigEvent(ctx context.Context, e event.Event) {
 	currentConfig := m.config
 	m.mu.RUnlock()
 
-	// send response with current config
-	m.bus.Send(ctx, event.Event{
-		System: api.System,
-		Kind:   api.ConfigState,
-		Path:   e.Path,
-		Data:   currentConfig,
-	})
+	m.sendConfigState(ctx, e.Path, currentConfig)
 }
 
 // handleSetConfigEvent applies a new logging configuration
 func (m *Manager) handleSetConfigEvent(ctx context.Context, path event.Path, cfg api.Config) {
 	m.config = cfg
 	m.core.Configure(cfg)
-	// send confirmation that config was applied
+	m.sendConfigState(ctx, path, cfg)
+}
+
+func (m *Manager) sendConfigState(ctx context.Context, path event.Path, cfg api.Config) {
 	m.bus.Send(ctx, event.Event{
 		System: api.System,
 		Kind:   api.ConfigState,

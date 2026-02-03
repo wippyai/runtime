@@ -1,277 +1,299 @@
+// Package processfunc provides a bridge between process entries and function handlers.
 package processfunc
 
 import (
 	"context"
-	"fmt"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/api/topology"
-	"github.com/ponyruntime/pony/internal/uniqid"
-	"github.com/ponyruntime/pony/system/eventbus"
+	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	topapi "github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/internal/uniqid"
 	"go.uber.org/zap"
 )
 
-// DefaultHostMeta is the metadata key used to identify the default host for a process
-const DefaultHostMeta = "default_host"
-const DefaultCancelTimeout = 5 * time.Second // Default timeout for process cancellation
+const DefaultCancelTimeout = 5 * time.Second
 
-// Listener implements registry.EntryListener for bridging processes to functions.
-// It listens for process.* entries with default_host metadata and creates function
-// handlers that start processes and return their results.
+// Listener bridges process.* registry entries to function handlers.
+// When a process entry has default_host in options/meta, it registers
+// a function handler that starts the process and returns its result.
 type Listener struct {
-	log        *zap.Logger
 	bus        event.Bus
-	procs      process.Manager
-	uniqID     *uniqid.Generator
-	registered map[string]pubsub.HostID // Map of registered process IDs to their host IDs
+	pidGen     process.PIDGenerator
+	node       relay.Node
+	topo       topapi.Topology
+	manager    process.Manager
+	log        *zap.Logger
+	registered map[string]pid.HostID
+	mu         sync.RWMutex
 }
 
-// NewListener creates a new process function bridge listener
-func NewListener(log *zap.Logger, bus event.Bus, procs process.Manager) *Listener {
+// NewListener creates a new process function bridge listener.
+func NewListener(
+	log *zap.Logger,
+	bus event.Bus,
+	pidGen process.PIDGenerator,
+	node relay.Node,
+	topo topapi.Topology,
+	manager process.Manager,
+) *Listener {
+	if log == nil {
+		log = zap.NewNop()
+	}
+	if pidGen == nil {
+		pidGen = uniqid.NewPIDGenerator(uniqid.NewGenerator(), "processfunc")
+	}
 	return &Listener{
 		log:        log,
 		bus:        bus,
-		procs:      procs,
-		uniqID:     uniqid.NewGenerator(),
-		registered: make(map[string]pubsub.HostID),
+		pidGen:     pidGen,
+		node:       node,
+		topo:       topo,
+		manager:    manager,
+		registered: make(map[string]pid.HostID),
 	}
 }
 
-// processEntry handles a registry entry based on the event kind
+// Add implements registry.EntryListener.
+func (l *Listener) Add(ctx context.Context, entry registry.Entry) error {
+	l.processEntry(ctx, registry.EntryCreate, entry)
+	return nil
+}
+
+// Update implements registry.EntryListener.
+func (l *Listener) Update(ctx context.Context, entry registry.Entry) error {
+	l.processEntry(ctx, registry.EntryUpdate, entry)
+	return nil
+}
+
+// Delete implements registry.EntryListener.
+func (l *Listener) Delete(ctx context.Context, entry registry.Entry) error {
+	l.processEntry(ctx, registry.EntryDelete, entry)
+	return nil
+}
+
+// processEntry handles a registry entry based on the event kind.
 func (l *Listener) processEntry(ctx context.Context, kind event.Kind, entry registry.Entry) {
-	// Skip if not a process entry
 	if !strings.HasPrefix(entry.Kind, "process.") {
 		return
 	}
 
-	processIDStr := entry.ID.String()
-	defaultHost := entry.Meta.StringValue(DefaultHostMeta)
+	// Extract options bag if present
+	opts, hasOptions := entry.Meta.GetBag("options")
+
+	// Get default_host from options first, fallback to meta
+	defaultHostStr := ""
+	if hasOptions {
+		defaultHostStr = opts.GetString("default_host", "")
+	}
+
+	if defaultHostStr == "" {
+		defaultHostStr = entry.Meta.GetString("default_host", "")
+		if defaultHostStr != "" {
+			// Ensure options bag exists and has default_host
+			if !hasOptions {
+				opts = attrs.NewBag()
+			}
+			opts.Set("default_host", defaultHostStr)
+		}
+	}
+
+	// No default_host found anywhere - skip or unregister
+	if defaultHostStr == "" {
+		opts = nil
+	}
+
+	defaultHost := defaultHostStr
+	idStr := entry.ID.String()
+
+	// No default_host - unregister if previously registered
+	if defaultHost == "" {
+		l.mu.RLock()
+		_, exists := l.registered[idStr]
+		l.mu.RUnlock()
+		if exists {
+			l.unregisterFunction(ctx, idStr)
+		}
+		return
+	}
 
 	switch kind {
-	case registry.Create:
-		// Skip if no default host
-		if defaultHost == "" {
-			return
-		}
-		// Register function handler
-		l.registerFunction(ctx, entry.ID, defaultHost)
+	case registry.EntryCreate:
+		l.registerFunction(ctx, idStr, defaultHost, opts)
 
-	case registry.Update:
-		// If entry previously had a host but no longer does, unregister it
-		if defaultHost == "" {
-			if _, exists := l.registered[processIDStr]; exists {
-				l.unregisterFunction(ctx, entry.ID)
-			}
+	case registry.EntryUpdate:
+		l.mu.RLock()
+		existingHost, exists := l.registered[idStr]
+		l.mu.RUnlock()
+
+		if exists && existingHost != defaultHost {
+			l.unregisterFunction(ctx, idStr)
+			l.registerFunction(ctx, idStr, defaultHost, opts)
 			return
 		}
 
-		// Check if host changed - if so, update registration
-		if existingHost, exists := l.registered[processIDStr]; exists && existingHost != defaultHost {
-			l.unregisterFunction(ctx, entry.ID)
-			l.registerFunction(ctx, entry.ID, defaultHost)
-			return
+		if !exists {
+			l.registerFunction(ctx, idStr, defaultHost, opts)
 		}
 
-		// If not previously registered, register it now
-		if _, exists := l.registered[processIDStr]; !exists {
-			l.registerFunction(ctx, entry.ID, defaultHost)
-		}
-
-	case registry.Delete:
-		// Always unregister on delete if we registered it
-		if _, exists := l.registered[processIDStr]; exists {
-			l.unregisterFunction(ctx, entry.ID)
+	case registry.EntryDelete:
+		l.mu.RLock()
+		_, exists := l.registered[idStr]
+		l.mu.RUnlock()
+		if exists {
+			l.unregisterFunction(ctx, idStr)
 		}
 	}
 }
 
-// registerFunction registers a process function handler in the function system
-func (l *Listener) registerFunction(ctx context.Context, id registry.ID, hostID pubsub.HostID) {
-	handler := l.createProcessHandler(id, hostID)
+// registerFunction registers a process function handler.
+func (l *Listener) registerFunction(ctx context.Context, idStr string, hostID pid.HostID, opts attrs.Bag) {
+	handler := &processHandler{
+		log:       l.log,
+		pidGen:    l.pidGen,
+		node:      l.node,
+		topo:      l.topo,
+		manager:   l.manager,
+		processID: idStr,
+		hostID:    hostID,
+	}
 
-	// Register the function handler
 	l.bus.Send(ctx, event.Event{
 		System: function.System,
-		Kind:   function.Register,
-		Path:   id.String(),
-		Data:   handler,
+		Kind:   function.FunctionRegister,
+		Path:   idStr,
+		Data: &function.FuncEntry{
+			Handler: handler.Call,
+			Options: opts,
+		},
 	})
 
-	// Track registered function
-	l.registered[id.String()] = hostID
+	l.mu.Lock()
+	l.registered[idStr] = hostID
+	l.mu.Unlock()
 
-	l.log.Info("registered process function handler",
-		zap.String("id", id.String()),
+	l.log.Debug("registered process function handler",
+		zap.String("id", idStr),
 		zap.String("host", hostID))
 }
 
-// unregisterFunction removes a process function handler from the function system
-func (l *Listener) unregisterFunction(ctx context.Context, id registry.ID) {
-	idStr := id.String()
-
-	// Send deregistration event
+// unregisterFunction removes a process function handler.
+func (l *Listener) unregisterFunction(ctx context.Context, idStr string) {
 	l.bus.Send(ctx, event.Event{
 		System: function.System,
-		Kind:   function.Delete,
+		Kind:   function.FunctionDelete,
 		Path:   idStr,
 	})
 
-	// Remove from tracking map
+	l.mu.Lock()
 	delete(l.registered, idStr)
+	l.mu.Unlock()
 
-	l.log.Info("unregistered process function handler", zap.String("id", idStr))
+	l.log.Debug("unregistered process function handler", zap.String("id", idStr))
 }
 
-// createProcessHandler creates a function handler that starts a process and returns its result
-func (l *Listener) createProcessHandler(processID registry.ID, hostID pubsub.HostID) function.Func {
-	return func(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
-		// Create result channel
-		resultCh := make(chan *runtime.Result, 1)
+// processHandler handles function calls by starting a process and returning its result.
+type processHandler struct {
+	log       *zap.Logger
+	pidGen    process.PIDGenerator
+	node      relay.Node
+	topo      topapi.Topology
+	manager   process.Manager
+	processID string
+	hostID    pid.HostID
+}
 
-		// Get node from context
-		node := pubsub.GetNode(ctx)
-		if node == nil {
-			close(resultCh)
-			return resultCh, fmt.Errorf("no pubsub node found in context")
-		}
+// Call implements function.Func via TOCTOU-safe monitoring.
+func (h *processHandler) Call(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+	// Generate caller PID for monitoring (using control host)
+	callerPID := h.pidGen.Generate(topapi.ControlHost)
 
-		// Create caller PID
-		callerPID := pubsub.PID{
-			Node:   node.ID(),
-			Host:   topology.ControlHost,
-			ID:     registry.ID{Name: "pfunc"},
-			UniqID: l.uniqID.Generate(),
-		}
+	// Register caller in topology FIRST
+	if err := h.topo.Register(callerPID); err != nil {
+		return nil, newRegisterPIDError(err)
+	}
+	defer h.topo.Remove(callerPID)
 
-		// Create monitor channel for process events
-		monitorCh := make(chan *pubsub.Package, 1)
+	// Attach to relay to receive exit events
+	monitorCh := make(chan *relay.Package, 1)
+	detach, err := h.node.Attach(callerPID, monitorCh)
+	if err != nil {
+		return nil, newAttachRelayError(err)
+	}
+	defer detach()
 
-		// Attach to pubsub
-		detach, err := node.Attach(callerPID, monitorCh)
-		if err != nil {
-			close(resultCh)
-			return resultCh, fmt.Errorf("failed to attach to pubsub: %w", err)
-		}
+	// Prepare start options with monitoring
+	options := attrs.NewBag()
+	options.Set(process.LifecycleParentKey, callerPID)
+	options.Set(process.LifecycleMonitorKey, true)
 
-		// Start process
-		pid, err := l.procs.Start(ctx, &process.Start{
-			HostID: hostID,
-			Source: processID,
-			Input:  task.Payloads,
-			Lifecycle: process.Lifecycle{
-				Parent:  callerPID,
-				Monitor: true,
-			},
-		})
+	// Start process - lifecycle.OnStart will atomically:
+	// - Register child PID in topology
+	// - Call topology.Wait(callerPID, childPID)
+	processPID, err := h.manager.Start(ctx, &process.Start{
+		HostID:  h.hostID,
+		Source:  registry.ParseID(h.processID),
+		Input:   task.Payloads,
+		Options: options,
+	})
+	if err != nil {
+		return nil, newStartProcessError(err)
+	}
 
-		if err != nil {
-			detach()
-			close(resultCh)
-			return resultCh, fmt.Errorf("failed to start process: %w", err)
-		}
+	pidStr := processPID.String()
+	h.log.Debug("started process function",
+		zap.String("process_id", h.processID),
+		zap.String("pid", pidStr))
 
-		l.log.Debug("started process function",
-			zap.String("process_id", processID.String()),
-			zap.String("pid", pid.String()))
+	// Monitor for exit (blocking)
+	for {
+		select {
+		case <-ctx.Done():
+			// Context canceled - release monitor and send cancel
+			_ = h.topo.Demonitor(callerPID, processPID)
 
-		// Monitor process exit
-		go func() {
-			defer close(resultCh)
-			defer detach()
+			if err := h.node.Send(topapi.CancelPackage(
+				callerPID,
+				processPID,
+				time.Now().Add(DefaultCancelTimeout),
+			)); err != nil {
+				h.log.Warn("failed to send cancel",
+					zap.String("pid", pidStr),
+					zap.Error(err))
+			}
 
-			for {
-				select {
-				case <-ctx.Done():
-					// Context canceled - release the monitor first
-					topo := topology.GetTopology(ctx)
-					if topo != nil {
-						if err := topo.Release(callerPID, pid); err != nil {
-							l.log.Warn("failed to release monitor before cancel",
-								zap.String("pid", pid.String()),
-								zap.Error(err))
-						}
-					} else {
-						l.log.Warn("topology not found in context, skipping monitor release")
-					}
+			return &runtime.Result{Error: ctx.Err()}, nil
 
-					// Send cancel request
-					if err := node.Send(topology.Cancel(
-						callerPID,
-						pid,
-						time.Now().Add(DefaultCancelTimeout),
-					)); err != nil {
-						l.log.Warn("failed to send cancel request",
-							zap.String("pid", pid.String()),
-							zap.Error(err))
-					}
+		case batch, ok := <-monitorCh:
+			if !ok {
+				return &runtime.Result{
+					Error: ErrMonitorChannelClosed,
+				}, nil
+			}
 
-					// Return context error immediately
-					resultCh <- &runtime.Result{
-						Error: ctx.Err(),
-					}
-					return
-
-				case batch, ok := <-monitorCh:
-					if !ok {
-						// Channel closed unexpectedly
-						resultCh <- &runtime.Result{
-							Error: fmt.Errorf("monitor channel closed unexpectedly"),
-						}
-						return
-					}
-
-					for _, msg := range batch.Messages {
-						if msg.Topic == topology.TopicEvents {
-							for _, p := range msg.Payloads {
-								// Process exit event
-								if e, ok := p.Data().(*topology.ExitEvent); ok {
-									// Forward process result to function result channel
-									l.log.Debug("received exit event from process",
-										zap.String("process_id", processID.String()),
-										zap.String("pid", pid.String()),
-										zap.Error(e.Result.Error))
-
-									resultCh <- e.Result
-									return
-								}
-							}
-						}
+			for _, msg := range batch.Messages {
+				if msg.Topic != topapi.TopicEvents {
+					continue
+				}
+				for _, p := range msg.Payloads {
+					if e, ok := p.Data().(*topapi.ExitEvent); ok {
+						h.log.Debug("received exit event",
+							zap.String("process_id", h.processID),
+							zap.String("pid", pidStr))
+						return e.Result, nil
 					}
 				}
 			}
-		}()
-
-		return resultCh, nil
+		}
 	}
 }
 
-// WithProcessFunctionBridge creates an event handler that bridges processes to functions
-func WithProcessFunctionBridge(log *zap.Logger, bus event.Bus, procs process.Manager) eventbus.EventHandler {
-	listener := NewListener(log, bus, procs)
-
-	// Create base handler that subscribes to registry events
-	return eventbus.NewBaseHandler(
-		eventbus.Pattern{
-			System: registry.System,
-			Kind:   registry.Changes,
-		},
-		func(ctx context.Context, evt event.Event) error {
-			entry, ok := evt.Data.(registry.Entry)
-			if !ok {
-				// Not a registry entry event
-				return nil
-			}
-
-			// Process the entry based on event kind
-			listener.processEntry(ctx, evt.Kind, entry)
-			return nil
-		},
-	)
-}
+var _ registry.EntryListener = (*Listener)(nil)

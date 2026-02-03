@@ -1,0 +1,42 @@
+version: "1.0"
+namespace: app.test.yaml
+
+entries:
+  - name: encode
+    kind: function.lua
+    meta:
+      type: test
+      suite: yaml
+      description: yaml.encode function
+    source: file://encode.lua
+    method: main
+    modules:
+      - yaml
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: decode
+    kind: function.lua
+    meta:
+      type: test
+      suite: yaml
+      description: yaml.decode function
+    source: file://decode.lua
+    method: main
+    modules:
+      - yaml
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: roundtrip
+    kind: function.lua
+    meta:
+      type: test
+      suite: yaml
+      description: yaml encode/decode round-trip
+    source: file://roundtrip.lua
+    method: main
+    modules:
+      - yaml
+    imports:
+      assert_primitives: app.lib:assert

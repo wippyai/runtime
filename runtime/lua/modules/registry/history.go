@@ -1,10 +1,10 @@
 package registry
 
 import (
-	regapi "github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	"github.com/ponyruntime/pony/system/registry/topology"
-	lua "github.com/yuin/gopher-lua"
+	lua "github.com/wippyai/go-lua"
+	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
 )
 
@@ -15,37 +15,28 @@ type History struct {
 	log  *zap.Logger
 }
 
-// registerHistoryType registers the History type and methods
-func (m *Module) registerHistoryType(l *lua.LState) {
-	value.RegisterMethods(l, historyMetatable, map[string]lua.LGFunction{
-		"versions":    historyVersions,
-		"get_version": historyGetVersion,
-		"snapshot_at": historySnapshotAt,
-	})
-}
-
 // historyVersions returns all available versions in the registry history
 func historyVersions(l *lua.LState) int {
-	// Get history
 	history := checkHistory(l)
 	if history == nil {
 		return 0
 	}
 
-	// Get versions from history
-	versions, err := history.hist.Versions()
-	if err != nil {
+	versions, versErr := history.hist.Versions()
+	if versErr != nil {
+		err := lua.WrapErrorWithLua(l, versErr, "get versions").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(err)
 		return 2
 	}
 
-	// Convert to Lua table
-	versionsTable := l.NewTable()
+	versionsTable := l.CreateTable(len(versions), 0)
 	for i, ver := range versions {
-		// Create userdata for Version
-		ud := wrapVersion(l, ver)
-		versionsTable.RawSetInt(i+1, ud)
+		value.PushTypedUserData(l, ver, typeVersion)
+		versionsTable.RawSetInt(i+1, l.Get(-1))
+		l.Pop(1)
 	}
 
 	l.Push(versionsTable)
@@ -55,29 +46,31 @@ func historyVersions(l *lua.LState) int {
 
 // historyGetVersion retrieves a specific version by ID
 func historyGetVersion(l *lua.LState) int {
-	// Get history
 	history := checkHistory(l)
 	if history == nil {
 		return 0
 	}
 
-	// Get version ID - parameter check
 	vID := l.CheckNumber(2)
-	if vID <= 0 {
+	if vID < 0 {
+		err := lua.NewLuaError(l, "invalid version ID").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid version ID"))
+		l.Push(err)
 		return 2
 	}
 
-	// Get versions from history
-	versions, err := history.hist.Versions()
-	if err != nil {
+	versions, versErr := history.hist.Versions()
+	if versErr != nil {
+		err := lua.WrapErrorWithLua(l, versErr, "get versions").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(err)
 		return 2
 	}
 
-	// Find the requested version
 	var foundVersion regapi.Version
 	for _, ver := range versions {
 		if ver.ID() == uint(vID) {
@@ -87,47 +80,50 @@ func historyGetVersion(l *lua.LState) int {
 	}
 
 	if foundVersion == nil {
+		err := lua.NewLuaError(l, "version not found").
+			WithKind(lua.NotFound).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("version not found"))
+		l.Push(err)
 		return 2
 	}
 
-	// Create userdata for Version
-	ud := wrapVersion(l, foundVersion)
-	l.Push(ud)
+	value.PushTypedUserData(l, foundVersion, typeVersion)
 	l.Push(lua.LNil)
 	return 2
 }
 
 // historySnapshotAt returns a snapshot of the registry at a specific version
 func historySnapshotAt(l *lua.LState) int {
-	// Get history
 	history := checkHistory(l)
 	if history == nil {
 		return 0
 	}
 
-	// Get version - parameter check
 	ud := l.CheckUserData(2)
 	version, ok := ud.Value.(regapi.Version)
 	if !ok {
+		err := lua.NewLuaError(l, "expected version object").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("expected version object"))
+		l.Push(err)
 		return 2
 	}
 
-	// Create state builder
-	stateBuilder := topology.NewStateBuilder(history.log)
+	resolver := regapi.GetResolver(l.Context())
+	stateBuilder := topology.NewStateBuilder(history.log, resolver)
 
-	// Build state at the specified version
-	state, err := stateBuilder.BuildState(history.hist, version)
-	if err != nil {
+	state, buildErr := stateBuilder.BuildState(history.hist, version)
+	if buildErr != nil {
+		err := lua.WrapErrorWithLua(l, buildErr, "build snapshot state").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(err)
 		return 2
 	}
 
-	// Create snapshot from state
 	snap := &Snapshot{
 		reg:     history.reg,
 		version: version,
@@ -135,17 +131,12 @@ func historySnapshotAt(l *lua.LState) int {
 		log:     history.log,
 	}
 
-	// Create userdata
-	snapUD := l.NewUserData()
-	snapUD.Value = snap
-	l.SetMetatable(snapUD, l.GetTypeMetatable(snapshotMetatable))
-
-	l.Push(snapUD)
+	value.PushTypedUserData(l, snap, typeSnapshot)
 	l.Push(lua.LNil)
 	return 2
 }
 
-// Helper function to check if the first argument is a History and return it
+// checkHistory checks if the first argument is a History userdata
 func checkHistory(l *lua.LState) *History {
 	ud := l.CheckUserData(1)
 	if history, ok := ud.Value.(*History); ok {

@@ -1,153 +1,301 @@
-# Lua Stream Module Specification
+# stream
 
-## Overview
+Stream read/write operations. IO, nondeterministic.
 
-The `Stream` module provides a Lua interface for reading data in chunks from a stream. It supports configurable chunk
-sizes, error handling, and iteration over the stream's contents.
+## Types
 
-## Module Interface
+Stream module does not export module-level functions. Stream objects are obtained from other modules (e.g., `http.request():stream()`, `fs.open()`).
 
-### Module Loading
+### Stream
+
+Stream object for reading, writing, and seeking through data.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| read | (size?: integer) | string, error | Yields. size=0 reads all available |
+| write | (data: string) | integer, error | Yields. Returns bytes written |
+| seek | (whence?: string, offset?: integer) | integer, error | Yields. Returns new position |
+| flush | () | boolean, error | Yields. Returns true on success |
+| stat | () | table, error | Yields. Returns stream info |
+| close | () | boolean, error | Yields. Returns true on success |
+| scanner | (split?: string) | Scanner, error | Yields. Creates scanner for tokenization |
+
+#### stream:read(size?: integer) → string, error
+
+Reads data from stream.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| size | integer | no | 0 | Bytes to read. 0 = read all available |
+
+**Returns:**
+- Success: `string, nil` - data read (may be empty string)
+- EOF: `nil, nil` - end of stream
+- Error: `nil, error` - structured error
+
+**Yields:** until data available or EOF
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| stream closed | errors.INTERNAL | no |
+| read failure | errors.INTERNAL | no |
+
+#### stream:write(data: string) → integer, error
+
+Writes data to stream.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | Data to write |
+
+**Returns:**
+- Success: `integer, nil` - number of bytes written
+- Error: `0, error` - structured error
+
+**Yields:** until write completes
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| stream closed | errors.INTERNAL | no |
+| stream not writable | errors.INTERNAL | no |
+| write failure | errors.INTERNAL | no |
+
+#### stream:seek(whence?: string, offset?: integer) → integer, error
+
+Seeks to position in stream.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| whence | string | no | "set" | "set" (from start), "cur" (from current), "end" (from end) |
+| offset | integer | no | 0 | Offset in bytes |
+
+**Returns:**
+- Success: `integer, nil` - new position from start
+- Error: `-1, error` - structured error
+
+**Yields:** until seek completes
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| invalid whence | errors.INVALID | no |
+| stream not seekable | errors.INTERNAL | no |
+| seek failure | errors.INTERNAL | no |
+
+#### stream:flush() → boolean, error
+
+Flushes buffered data to underlying storage.
+
+**Returns:**
+- Success: `true, nil`
+- Error: `false, error` - structured error
+
+**Yields:** until flush completes
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| stream closed | errors.INTERNAL | no |
+| flush failure | errors.INTERNAL | no |
+
+#### stream:stat() → table, error
+
+Returns stream metadata and capabilities.
+
+**Returns:**
+- Success: `table, nil` - info table with fields below
+- Error: `nil, error` - structured error
+
+**Info table fields:**
+
+| Field | Type | Notes |
+|-------|------|-------|
+| size | integer | Total size in bytes (-1 if unknown) |
+| position | integer | Current position in bytes |
+| readable | boolean | Stream supports reading |
+| writable | boolean | Stream supports writing |
+| seekable | boolean | Stream supports seeking |
+
+**Yields:** until stat completes
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| stream closed | errors.INTERNAL | no |
+| stat failure | errors.INTERNAL | no |
+
+#### stream:close() → boolean, error
+
+Closes stream and releases resources.
+
+**Returns:**
+- Success: `true, nil`
+- Error: `false, error` - structured error
+
+**Yields:** until close completes
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| close failure | errors.INTERNAL | no |
+
+**Notes:**
+- Safe to call multiple times
+- Further operations after close will fail
+
+#### stream:scanner(split?: string) → Scanner, error
+
+Creates a scanner for tokenizing stream content.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| split | string | no | "lines" | Split mode: "lines", "words", "bytes", "runes" |
+
+**Returns:**
+- Success: `Scanner, nil` - scanner object
+- Error: `nil, error` - structured error
+
+**Yields:** until scanner created
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| invalid split type | errors.INVALID | no |
+| stream closed | errors.INTERNAL | no |
+| scanner creation failure | errors.INTERNAL | no |
+
+### Scanner
+
+Scanner for tokenizing stream content. Returned by `stream:scanner()`.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| scan | () | boolean, error | Yields. Returns true if token available |
+| text | () | string | Returns last scanned token text |
+| err | () | string\|nil | Returns scanner error if any |
+
+#### scanner:scan() → boolean, error
+
+Scans for next token.
+
+**Returns:**
+- Success with token: `true, nil` - token available via `text()`
+- Success at EOF: `false, nil` - no more tokens
+- Error: `false, error` - structured error
+
+**Yields:** until next token scanned or EOF
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| scanner closed | errors.INTERNAL | no |
+| scan failure | errors.INTERNAL | no |
+
+**Notes:**
+- Must call before `text()` to advance scanner
+- Returns false at EOF without error
+- Updates internal state for `text()` and `err()`
+
+#### scanner:text() → string
+
+Returns text of last scanned token.
+
+**Returns:** `string` - token text (empty if no token scanned yet)
+
+**Notes:**
+- Non-yielding, synchronous operation
+- Returns last token from previous `scan()` call
+- Empty string if `scan()` not called or returned false
+
+#### scanner:err() → string|nil
+
+Returns scanner error if any occurred during scanning.
+
+**Returns:** `string|nil` - error message or nil if no error
+
+**Notes:**
+- Non-yielding, synchronous operation
+- Returns error from last `scan()` call
+- Nil if no error occurred
+
+## Errors
+
+This module returns structured errors. Check kind with `errors.*` constants:
 
 ```lua
-local Stream = require("stream")
+local data, err = stream:read(100)
+if err then
+    if err:kind() == errors.INTERNAL then
+        -- internal stream error
+    elseif err:kind() == errors.INVALID then
+        -- invalid parameters
+    end
+end
 ```
 
-### Stream Object
+**Possible kinds:** `errors.INVALID`, `errors.INTERNAL`
 
-The module primarily works with `Stream` objects, which represent a readable data stream.
-
-### Stream Creation
-
-`Stream` objects are not created directly from Lua. They are expected to be created and passed from an external
-environment.
-
-## Methods
-
-### Stream:read([size])
-
-Reads a chunk of data from the stream with an optional size parameter.
-
-Parameters:
-
-- `size` (optional number): The maximum number of bytes to read. If not provided, a default size (32KB) is used.
-
-Returns:
-
-- `string`: The chunk of data read, or `nil` if the end of the stream is reached.
-- `string`: An error message, or `nil` if no error occurred.
-
-### Stream:close()
-
-Closes the stream.
-
-Returns:
-
-- `bool` on success
-- `string`: An error message if the operation failed
-
-### Stream:bytes_read()
-
-Returns the total number of bytes read from the stream.
-
-Returns:
-
-- `number`: The total number of bytes read.
-
-### Stream.__call([size])
-
-Enables iteration over the stream using a `for` loop with an optional chunk size.
-
-Parameters:
-
-- `size` (optional number): The maximum number of bytes to read per iteration. If not provided, a default size (32KB) is
-  used.
-
-Returns:
-
-- `function`: An iterator function that returns the next chunk of data on each call.
-
-## Iteration
-
-The `Stream` object can be used in a `for` loop to iterate over the stream's contents:
+## Example
 
 ```lua
--- Default chunk size
-for chunk in test_stream() do
-  -- Process the chunk of data
+-- Stream obtained from HTTP request
+local http = require("http")
+
+local function handler()
+    local req = http.request()
+    local res = http.response()
+
+    -- Get request body as stream
+    local stream, err = req:stream()
+    if err then error(err) end
+
+    -- Read chunks
+    local chunks = {}
+    while true do
+        local chunk, read_err = stream:read(1024)
+        if read_err then break end
+        if chunk == nil then break end  -- EOF
+        table.insert(chunks, chunk)
+    end
+    stream:close()
+
+    -- Write response
+    res:set_status(http.STATUS.OK)
+    for _, chunk in ipairs(chunks) do
+        res:write(chunk)
+    end
 end
 
--- Custom chunk size (1KB)
-for chunk in test_stream(1024) do
-  -- Process the chunk of data
-end
-```
+-- Scanner example with file stream
+local fs = require("fs")
 
-## Error Handling
+local vol = fs.get("app:temp")
+local file, err = vol:open("/data.txt", "r")
+if err then error(err) end
 
-- Methods return an error message as the second return value if an error occurs.
-- The `read()` method returns `nil` as the first value to indicate the end of the stream.
-- Attempting to read from a closed stream will return an error.
+-- Create line scanner
+local scanner, err = file:scanner("lines")
+if err then error(err) end
 
-## Behavior
-
-- The `read()` method reads a chunk of data from the underlying stream. The chunk size is determined by the size
-  parameter or the default size if not specified.
-- The `close()` method closes the underlying stream.
-- The `bytes_read()` method returns the cumulative number of bytes read from the stream.
-- The iterator function returned by `__call()` allows iterating over the stream in a `for` loop. Each iteration yields
-  the next chunk of data until the end of the stream is reached.
-- If the iterator function encounters an error, it terminates the iteration and returns `nil` in the next iteration.
-
-## Thread Safety
-
-- The `Stream` module does not provide explicit thread safety guarantees. Concurrent access to the same `Stream` object
-  from multiple threads may lead to undefined behavior.
-
-## Best Practices
-
-- Check for errors after each method call, especially `read()` and `close()`.
-- Use the `for` loop iteration pattern to process streams in a concise and idiomatic way.
-- Consider providing an explicit chunk size for better performance when working with known data formats.
-- Close the stream when finished to release resources.
-- Avoid concurrent access to the same `Stream` object from multiple threads.
-
-## Example Usage
-
-```lua
--- Assuming a Stream object named 'test_stream' is available
-
--- Read and print all chunks from the stream with default chunk size
+-- Scan all lines
 while true do
-  local chunk, err = test_stream:read()
-  if err then
-    error("Error reading stream: " .. err)
-  end
-  if not chunk then
-    break
-  end
-  print("Chunk:", chunk)
+    local has_token, err = scanner:scan()
+    if err then error(err) end
+    if not has_token then break end  -- EOF
+
+    local line = scanner:text()
+    print(line)
 end
 
--- Read with specific chunk size (1KB)
-local chunk, err = test_stream:read(1024)
-if err then
-  error("Error reading stream: " .. err)
-end
-print("1KB chunk:", chunk)
-
--- Get the total number of bytes read
-local totalBytes = test_stream:bytes_read()
-print("Total bytes read:", totalBytes)
-
--- Close the stream
-local err = test_stream:close()
-if err then
-  error("Error closing stream: " .. err)
-end
-
--- Iterate over the stream using a for loop with custom chunk size
-for chunk in test_stream(512) do
-  print("512-byte chunk:", chunk)
-end
+file:close()
 ```

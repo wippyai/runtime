@@ -8,32 +8,31 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"github.com/ponyruntime/pony/api/cloudstorage"
-	services3 "github.com/ponyruntime/pony/api/service/aws/s3"
+	"github.com/wippyai/runtime/api/cloudstorage"
 	"go.uber.org/zap"
 )
 
+// DefaultPresignExpiration is the default expiration time for presigned URLs.
+const DefaultPresignExpiration = 15 * time.Minute
+
+// Compile-time interface check.
+var _ cloudstorage.Storage = (*Storage)(nil)
+
 // Storage implements the cloudstorage.Storage interface for AWS S3
 type Storage struct {
-	// client is the AWS S3 client instance
 	client *s3.Client
-
-	// bucket is the default S3 bucket name
+	log    *zap.Logger
 	bucket string
-
-	// config holds the provider configuration
-	config *services3.Config
-
-	// log is the logger instance
-	log *zap.Logger
 }
 
-// NewStorage creates a new Storage instance with the provided client and bucket
-func NewStorage(client *s3.Client, bucket string, config *services3.Config, log *zap.Logger) *Storage {
+// NewStorage creates a new Storage instance.
+func NewStorage(client *s3.Client, bucket string, log *zap.Logger) *Storage {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	return &Storage{
 		client: client,
 		bucket: bucket,
-		config: config,
 		log:    log.With(zap.String("component", "s3storage"), zap.String("bucket", bucket)),
 	}
 }
@@ -51,7 +50,6 @@ func (s *Storage) ListObjects(ctx context.Context, opts *cloudstorage.ListObject
 			input.Prefix = aws.String(opts.Prefix)
 		}
 		if opts.MaxKeys > 0 {
-			//nolint:gosec // impossible to overflow
 			input.MaxKeys = aws.Int32(int32(opts.MaxKeys))
 		}
 		if opts.ContinuationToken != "" {
@@ -107,7 +105,7 @@ func (s *Storage) DownloadObject(ctx context.Context, key string, w io.Writer, o
 			zap.Error(err))
 		return err
 	}
-	defer output.Body.Close()
+	defer func() { _ = output.Body.Close() }()
 
 	// Copy the data to the provided writer
 	if _, err = io.Copy(w, output.Body); err != nil {
@@ -178,8 +176,7 @@ func (s *Storage) DeleteObjects(ctx context.Context, keys []string) error {
 
 // PresignedGetURL generates a presigned URL for downloading an object from S3
 func (s *Storage) PresignedGetURL(ctx context.Context, key string, opts *cloudstorage.PresignedGetOptions) (string, error) {
-	// Set default expiration if not provided
-	expiration := 15 * time.Minute
+	expiration := DefaultPresignExpiration
 	if opts != nil && opts.Expiration > 0 {
 		expiration = opts.Expiration
 	}
@@ -209,8 +206,7 @@ func (s *Storage) PresignedGetURL(ctx context.Context, key string, opts *cloudst
 
 // PresignedPutURL generates a presigned URL for uploading an object to S3
 func (s *Storage) PresignedPutURL(ctx context.Context, key string, opts *cloudstorage.PresignedPutOptions) (string, error) {
-	// Set default expiration if not provided
-	expiration := 15 * time.Minute
+	expiration := DefaultPresignExpiration
 	if opts != nil && opts.Expiration > 0 {
 		expiration = opts.Expiration
 	}

@@ -1,0 +1,42 @@
+version: "1.0"
+namespace: app.test.html
+
+entries:
+  - name: sanitize
+    kind: function.lua
+    meta:
+      type: test
+      suite: html
+      description: HTML sanitization policies
+    source: file://sanitize.lua
+    method: main
+    modules:
+      - html
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: policy
+    kind: function.lua
+    meta:
+      type: test
+      suite: html
+      description: Policy configuration methods
+    source: file://policy.lua
+    method: main
+    modules:
+      - html
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: html
+      description: HTML module error handling
+    source: file://errors.lua
+    method: main
+    modules:
+      - html
+    imports:
+      assert_primitives: app.lib:assert

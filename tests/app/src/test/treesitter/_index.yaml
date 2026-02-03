@@ -1,0 +1,161 @@
+version: "1.0"
+namespace: app.test.treesitter
+
+entries:
+  # Core functionality tests
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: treesitter
+      description: Tree-sitter error handling
+    source: file://errors.lua
+    method: main
+    modules:
+      - treesitter
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: resources
+    kind: function.lua
+    meta:
+      type: test
+      suite: treesitter
+      description: Tree-sitter resource management and cleanup
+    source: file://resources.lua
+    method: main
+    modules:
+      - treesitter
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Language-specific tests
+  - name: lang_go
+    kind: function.lua
+    meta:
+      type: test
+      suite: treesitter
+      description: Tree-sitter Go language support
+    source: file://lang_go.lua
+    method: main
+    modules:
+      - treesitter
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: lang_javascript
+    kind: function.lua
+    meta:
+      type: test
+      suite: treesitter
+      description: Tree-sitter JavaScript language support
+    source: file://lang_javascript.lua
+    method: main
+    modules:
+      - treesitter
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: lang_typescript
+    kind: function.lua
+    meta:
+      type: test
+      suite: treesitter
+      description: Tree-sitter TypeScript language support
+    source: file://lang_typescript.lua
+    method: main
+    modules:
+      - treesitter
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: lang_python
+    kind: function.lua
+    meta:
+      type: test
+      suite: treesitter
+      description: Tree-sitter Python language support
+    source: file://lang_python.lua
+    method: main
+    modules:
+      - treesitter
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: lang_lua
+    kind: function.lua
+    meta:
+      type: test
+      suite: treesitter
+      description: Tree-sitter Lua language support
+    source: file://lang_lua.lua
+    method: main
+    modules:
+      - treesitter
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: lang_php
+    kind: function.lua
+    meta:
+      type: test
+      suite: treesitter
+      description: Tree-sitter PHP language support
+    source: file://lang_php.lua
+    method: main
+    modules:
+      - treesitter
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: lang_csharp
+    kind: function.lua
+    meta:
+      type: test
+      suite: treesitter
+      description: Tree-sitter C# language support
+    source: file://lang_csharp.lua
+    method: main
+    modules:
+      - treesitter
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: lang_html
+    kind: function.lua
+    meta:
+      type: test
+      suite: treesitter
+      description: Tree-sitter HTML language support
+    source: file://lang_html.lua
+    method: main
+    modules:
+      - treesitter
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: lang_markdown
+    kind: function.lua
+    meta:
+      type: test
+      suite: treesitter
+      description: Tree-sitter Markdown language support
+    source: file://lang_markdown.lua
+    method: main
+    modules:
+      - treesitter
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: lang_sql
+    kind: function.lua
+    meta:
+      type: test
+      suite: treesitter
+      description: Tree-sitter SQL language support
+    source: file://lang_sql.lua
+    method: main
+    modules:
+      - treesitter
+    imports:
+      assert_primitives: app.lib:assert

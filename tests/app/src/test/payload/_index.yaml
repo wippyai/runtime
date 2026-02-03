@@ -1,0 +1,47 @@
+version: "1.0"
+namespace: app.test.payload
+
+entries:
+  - name: new
+    kind: function.lua
+    meta:
+      type: test
+      suite: payload
+      description: Payload creation
+    source: file://new.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: format
+    kind: function.lua
+    meta:
+      type: test
+      suite: payload
+      description: Format constants and get_format
+    source: file://format.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: methods
+    kind: function.lua
+    meta:
+      type: test
+      suite: payload
+      description: Payload methods
+    source: file://methods.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: payload
+      description: Payload error handling
+    source: file://errors.lua
+    method: main
+    imports:
+      assert2: app.lib:assert

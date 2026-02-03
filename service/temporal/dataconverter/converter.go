@@ -3,10 +3,12 @@ package dataconverter
 import (
 	"fmt"
 
-	"github.com/ponyruntime/pony/api/payload"
+	"github.com/wippyai/runtime/api/payload"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/converter"
 )
+
+var _ converter.DataConverter = (*DataConverter)(nil)
 
 // DataConverter implements converter.DataConverter interface for internal payloads.
 type DataConverter struct {
@@ -27,7 +29,7 @@ func NewDataConverter(
 // ToPayloads converts a list of values to Temporal payloads.
 func (c *DataConverter) ToPayloads(values ...any) (*commonpb.Payloads, error) {
 	if len(values) == 0 {
-		return nil, nil
+		return &commonpb.Payloads{}, nil
 	}
 
 	// Special handling for payload.Messages
@@ -68,10 +70,23 @@ func (c *DataConverter) FromPayloads(payloads *commonpb.Payloads, valuePtrs ...a
 		return nil
 	}
 
-	// Special handling for payload.Messages pointer
+	// Special handling for payload.Payloads pointer (named type)
 	if len(valuePtrs) == 1 {
 		if ptr, ok := valuePtrs[0].(*payload.Payloads); ok {
 			*ptr = make(payload.Payloads, len(payloads.Payloads))
+			for i, p := range payloads.Payloads {
+				var pload payload.Payload
+				if err := c.FromPayload(p, &pload); err != nil {
+					return fmt.Errorf("error converting payload at index %d: %w", i, err)
+				}
+				(*ptr)[i] = pload
+			}
+			return nil
+		}
+
+		// Special handling for *[]payload.Payload (underlying type)
+		if ptr, ok := valuePtrs[0].(*[]payload.Payload); ok {
+			*ptr = make([]payload.Payload, len(payloads.Payloads))
 			for i, p := range payloads.Payloads {
 				var pload payload.Payload
 				if err := c.FromPayload(p, &pload); err != nil {
@@ -118,23 +133,29 @@ func (c *DataConverter) ToPayload(value any) (*commonpb.Payload, error) {
 	}
 
 	if pValue.Format() == payload.Bytes {
+		data, ok := pValue.Data().([]byte)
+		if !ok {
+			return nil, fmt.Errorf("bytes payload data is not []byte")
+		}
 		return &commonpb.Payload{
-				Metadata: map[string][]byte{
-					converter.MetadataEncoding: []byte(converter.MetadataEncodingBinary),
-				},
-				Data: pValue.Data().([]byte),
+			Metadata: map[string][]byte{
+				converter.MetadataEncoding: []byte(converter.MetadataEncodingBinary),
 			},
-			nil
+			Data: data,
+		}, nil
 	}
 
 	if pValue.Format() == payload.JSON {
+		data, ok := pValue.Data().([]byte)
+		if !ok {
+			return nil, fmt.Errorf("json payload data is not []byte")
+		}
 		return &commonpb.Payload{
-				Metadata: map[string][]byte{
-					converter.MetadataEncoding: []byte(converter.MetadataEncodingJSON),
-				},
-				Data: pValue.Data().([]byte),
+			Metadata: map[string][]byte{
+				converter.MetadataEncoding: []byte(converter.MetadataEncodingJSON),
 			},
-			nil
+			Data: data,
+		}, nil
 	}
 
 	// we need some common format, and for now it's JSON
@@ -170,15 +191,13 @@ func (c *DataConverter) FromPayload(p *commonpb.Payload, valuePtr any) error {
 		return c.fallback.FromPayload(p, valuePtr)
 	}
 
-	// we only support JSON encoding for now
 	enc, ok := p.Metadata[converter.MetadataEncoding]
 	if !ok {
-		return fmt.Errorf("unsupported paylolad to payload encoding %s", enc)
+		return fmt.Errorf("missing encoding metadata in payload")
 	}
 
 	switch {
 	case string(enc) == converter.MetadataEncodingJSON:
-		// we only support JSON encoding for now
 		*ptr = payload.NewPayload(p.Data, payload.JSON)
 		return nil
 	case string(enc) == converter.MetadataEncodingNil:

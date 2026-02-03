@@ -9,11 +9,11 @@ import (
 // TestReplaceString tests the basic string replacement functionality.
 func TestReplaceString(t *testing.T) {
 	tests := []struct {
+		expectedError  error
 		name           string
 		input          string
 		replacement    string
 		expectedOutput string
-		expectedError  error
 	}{
 		{
 			name:           "simple replacement",
@@ -74,11 +74,11 @@ func TestReplaceString(t *testing.T) {
 // TestReplace tests the Replace method with various data structures.
 func TestReplace(t *testing.T) {
 	tests := []struct {
-		name            string
 		input           any
-		replacementFunc stringReplacer
 		expectedOutput  any
 		expectedError   error
+		replacementFunc stringReplacer
+		name            string
 	}{
 		{
 			name:  "simple string",
@@ -186,8 +186,8 @@ func TestReplace(t *testing.T) {
 			input: struct {
 				Field1 string
 				Field2 string
+				field4 string
 				Field3 int
-				field4 string // unexported field, should not be modified
 			}{
 				Field1: "hello",
 				Field2: "world",
@@ -201,8 +201,8 @@ func TestReplace(t *testing.T) {
 			expectedOutput: struct {
 				Field1 string
 				Field2 string
-				Field3 int
 				field4 string
+				Field3 int
 			}{
 				Field1: "VALUE",
 				Field2: "VALUE",
@@ -419,8 +419,8 @@ func TestReplace(t *testing.T) {
 
 func TestReplaceStructWithMap(t *testing.T) {
 	type MyStruct struct {
-		Name string
 		Data map[string]string
+		Name string
 	}
 
 	input := MyStruct{

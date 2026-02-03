@@ -1,588 +1,615 @@
 package cloudstorage
 
 import (
-	"bytes"
-	"context"
 	"errors"
-	"io"
-	"strconv"
+	"strings"
 	"testing"
-	"time"
 
-	"github.com/ponyruntime/pony/api/cloudstorage"
-	"github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap/zaptest"
+	lua "github.com/wippyai/go-lua"
+	csapi "github.com/wippyai/runtime/api/cloudstorage"
 )
 
-// testObject represents an object in our test cloud storage
-type testObject struct {
-	cloudstorage.ObjectMetadata
-	content []byte
-}
+func TestModuleLoads(t *testing.T) {
+	mod, yields := Module.Build()
 
-// mockCloudStorage implements a test version of the cloudstorage.Storage interface
-type mockCloudStorage struct {
-	objects map[string]testObject
-}
+	if mod == nil {
+		t.Fatal("expected module table to be non-nil")
+	}
 
-// newMockCloudStorage creates a new mock storage with some test objects
-func newMockCloudStorage() *mockCloudStorage {
-	return &mockCloudStorage{
-		objects: map[string]testObject{
-			"test.txt": {
-				ObjectMetadata: cloudstorage.ObjectMetadata{
-					Key:         "test.txt",
-					Size:        11,
-					ContentType: "text/plain",
-					ETag:        "etag1",
-				},
-				content: []byte("Hello World"),
-			},
-			"data.json": {
-				ObjectMetadata: cloudstorage.ObjectMetadata{
-					Key:         "data.json",
-					Size:        20,
-					ContentType: "application/json",
-					ETag:        "etag2",
-				},
-				content: []byte(`{"test": "data"}`),
-			},
-		},
+	if len(yields) != 6 {
+		t.Errorf("expected 6 yield types, got %d", len(yields))
 	}
 }
 
-// ListObjects implements the cloudstorage.Storage interface
-func (m *mockCloudStorage) ListObjects(_ context.Context, opts *cloudstorage.ListObjectsOptions) (*cloudstorage.ListObjectsResult, error) {
-	result := &cloudstorage.ListObjectsResult{
-		Objects:     []cloudstorage.ObjectMetadata{},
-		IsTruncated: false,
+func TestModuleHasGet(t *testing.T) {
+	mod, _ := Module.Build()
+
+	getFunc := mod.RawGetString("get")
+	if getFunc == lua.LNil {
+		t.Error("expected module to have 'get' function")
+	}
+}
+
+func TestModuleIsImmutable(t *testing.T) {
+	mod, _ := Module.Build()
+
+	if !mod.Immutable {
+		t.Error("expected module to be immutable")
+	}
+}
+
+func TestYieldTypes(t *testing.T) {
+	_, yields := Module.Build()
+
+	expectedCmds := map[int]bool{
+		int(csapi.ListObjects):     false,
+		int(csapi.DownloadObject):  false,
+		int(csapi.UploadObject):    false,
+		int(csapi.DeleteObjects):   false,
+		int(csapi.PresignedGetURL): false,
+		int(csapi.PresignedPutURL): false,
 	}
 
-	count := 0
-	for _, obj := range m.objects {
-		// Apply prefix filter if specified
-		if opts.Prefix != "" && !bytes.HasPrefix([]byte(obj.Key), []byte(opts.Prefix)) {
-			continue
-		}
-
-		result.Objects = append(result.Objects, obj.ObjectMetadata)
-		count++
-
-		// Apply max keys limit if specified
-		if opts.MaxKeys > 0 && count >= opts.MaxKeys {
-			result.IsTruncated = true
-			result.NextContinuationToken = "next-token"
-			break
+	for _, y := range yields {
+		cmdID := int(y.CmdID)
+		if _, ok := expectedCmds[cmdID]; ok {
+			expectedCmds[cmdID] = true
 		}
 	}
 
-	return result, nil
+	for cmdID, found := range expectedCmds {
+		if !found {
+			t.Errorf("missing yield type for command ID %d", cmdID)
+		}
+	}
 }
 
-// DownloadObject implements the cloudstorage.Storage interface
-func (m *mockCloudStorage) DownloadObject(_ context.Context, key string, w io.Writer, _ *cloudstorage.DownloadOptions) error {
-	obj, exists := m.objects[key]
-	if !exists {
-		return errors.New("object not found")
+func TestListObjectsYieldPool(t *testing.T) {
+	y1 := AcquireListObjectsYield()
+	if y1 == nil {
+		t.Fatal("expected non-nil yield")
+	}
+	if y1.ListObjectsCmd == nil {
+		t.Fatal("expected non-nil command")
 	}
 
-	// Simple implementation without handling Range option for now
-	_, err := w.Write(obj.content)
-	return err
+	ReleaseListObjectsYield(y1)
+
+	y2 := AcquireListObjectsYield()
+	if y2 == nil {
+		t.Fatal("expected non-nil yield after release")
+	}
+	ReleaseListObjectsYield(y2)
 }
 
-// UploadObject implements the cloudstorage.Storage interface
-func (m *mockCloudStorage) UploadObject(_ context.Context, key string, content io.Reader) error {
-	data, err := io.ReadAll(content)
-	if err != nil {
-		return err
+func TestDownloadObjectYieldPool(t *testing.T) {
+	y1 := AcquireDownloadObjectYield()
+	if y1 == nil {
+		t.Fatal("expected non-nil yield")
+	}
+	if y1.DownloadObjectCmd == nil {
+		t.Fatal("expected non-nil command")
 	}
 
-	m.objects[key] = testObject{
-		ObjectMetadata: cloudstorage.ObjectMetadata{
-			Key:         key,
-			Size:        int64(len(data)),
-			ContentType: "application/octet-stream", // Default
-			ETag:        "etag-new",
+	ReleaseDownloadObjectYield(y1)
+
+	y2 := AcquireDownloadObjectYield()
+	if y2 == nil {
+		t.Fatal("expected non-nil yield after release")
+	}
+	ReleaseDownloadObjectYield(y2)
+}
+
+func TestUploadObjectYieldPool(t *testing.T) {
+	y1 := AcquireUploadObjectYield()
+	if y1 == nil {
+		t.Fatal("expected non-nil yield")
+	}
+	if y1.UploadObjectCmd == nil {
+		t.Fatal("expected non-nil command")
+	}
+
+	ReleaseUploadObjectYield(y1)
+
+	y2 := AcquireUploadObjectYield()
+	if y2 == nil {
+		t.Fatal("expected non-nil yield after release")
+	}
+	ReleaseUploadObjectYield(y2)
+}
+
+func TestDeleteObjectsYieldPool(t *testing.T) {
+	y1 := AcquireDeleteObjectsYield()
+	if y1 == nil {
+		t.Fatal("expected non-nil yield")
+	}
+	if y1.DeleteObjectsCmd == nil {
+		t.Fatal("expected non-nil command")
+	}
+
+	ReleaseDeleteObjectsYield(y1)
+
+	y2 := AcquireDeleteObjectsYield()
+	if y2 == nil {
+		t.Fatal("expected non-nil yield after release")
+	}
+	ReleaseDeleteObjectsYield(y2)
+}
+
+func TestPresignedGetURLYieldPool(t *testing.T) {
+	y1 := AcquirePresignedGetURLYield()
+	if y1 == nil {
+		t.Fatal("expected non-nil yield")
+	}
+	if y1.PresignedGetURLCmd == nil {
+		t.Fatal("expected non-nil command")
+	}
+
+	ReleasePresignedGetURLYield(y1)
+
+	y2 := AcquirePresignedGetURLYield()
+	if y2 == nil {
+		t.Fatal("expected non-nil yield after release")
+	}
+	ReleasePresignedGetURLYield(y2)
+}
+
+func TestPresignedPutURLYieldPool(t *testing.T) {
+	y1 := AcquirePresignedPutURLYield()
+	if y1 == nil {
+		t.Fatal("expected non-nil yield")
+	}
+	if y1.PresignedPutURLCmd == nil {
+		t.Fatal("expected non-nil command")
+	}
+
+	ReleasePresignedPutURLYield(y1)
+
+	y2 := AcquirePresignedPutURLYield()
+	if y2 == nil {
+		t.Fatal("expected non-nil yield after release")
+	}
+	ReleasePresignedPutURLYield(y2)
+}
+
+func TestYieldStrings(t *testing.T) {
+	tests := []struct {
+		name     string
+		yield    lua.LValue
+		expected string
+	}{
+		{"ListObjects", AcquireListObjectsYield(), "<cloudstorage_list_objects_yield>"},
+		{"DownloadObject", AcquireDownloadObjectYield(), "<cloudstorage_download_object_yield>"},
+		{"UploadObject", AcquireUploadObjectYield(), "<cloudstorage_upload_object_yield>"},
+		{"DeleteObjects", AcquireDeleteObjectsYield(), "<cloudstorage_delete_objects_yield>"},
+		{"PresignedGetURL", AcquirePresignedGetURLYield(), "<cloudstorage_presigned_get_url_yield>"},
+		{"PresignedPutURL", AcquirePresignedPutURLYield(), "<cloudstorage_presigned_put_url_yield>"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.yield.String() != tt.expected {
+				t.Errorf("expected %s, got %s", tt.expected, tt.yield.String())
+			}
+		})
+	}
+}
+
+func TestYieldTypes_LuaType(t *testing.T) {
+	yields := []lua.LValue{
+		AcquireListObjectsYield(),
+		AcquireDownloadObjectYield(),
+		AcquireUploadObjectYield(),
+		AcquireDeleteObjectsYield(),
+		AcquirePresignedGetURLYield(),
+		AcquirePresignedPutURLYield(),
+	}
+
+	for _, y := range yields {
+		if y.Type() != lua.LTUserData {
+			t.Errorf("expected LTUserData, got %v for %s", y.Type(), y.String())
+		}
+	}
+}
+
+func TestListObjectsYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		data    any
+		err     error
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "success",
+			data: csapi.ListObjectsResponse{
+				Result: &csapi.ListObjectsResult{
+					Objects: []csapi.ObjectMetadata{
+						{Key: "test.txt", Size: 100, ContentType: "text/plain", ETag: "etag1"},
+					},
+					IsTruncated:           false,
+					NextContinuationToken: "",
+				},
+				Error: nil,
+			},
+			err:     nil,
+			wantErr: false,
 		},
-		content: data,
-	}
-
-	return nil
-}
-
-// DeleteObjects implements the cloudstorage.Storage interface
-func (m *mockCloudStorage) DeleteObjects(_ context.Context, keys []string) error {
-	for _, key := range keys {
-		delete(m.objects, key)
-	}
-	return nil
-}
-
-// PresignedGetURL implements the cloudstorage.Storage interface
-func (m *mockCloudStorage) PresignedGetURL(_ context.Context, key string, opts *cloudstorage.PresignedGetOptions) (string, error) {
-	_, exists := m.objects[key]
-	if !exists {
-		return "", errors.New("object not found")
-	}
-
-	expiration := opts.Expiration
-	if expiration == 0 {
-		expiration = time.Hour
-	}
-
-	return "https://example.com/" + key + "?expires=" + expiration.String(), nil
-}
-
-// PresignedPutURL implements the cloudstorage.Storage interface
-func (m *mockCloudStorage) PresignedPutURL(_ context.Context, key string, opts *cloudstorage.PresignedPutOptions) (string, error) {
-	expiration := opts.Expiration
-	if expiration == 0 {
-		expiration = time.Hour
-	}
-
-	url := "https://example.com/" + key + "?expires=" + expiration.String()
-	if opts.ContentType != "" {
-		url += "&contentType=" + opts.ContentType
-	}
-	if opts.ContentLength > 0 {
-		url += "&contentLength=" + strconv.FormatInt(opts.ContentLength, 10)
-	}
-
-	return url, nil
-}
-
-// Mock resource for testing
-type mockResource struct {
-	resValue any
-	released bool
-}
-
-func (m *mockResource) Get() (any, error) {
-	return m.resValue, nil
-}
-
-func (m *mockResource) Release() {
-	m.released = true
-}
-
-func (m *mockResource) Mode() resource.AccessMode {
-	return resource.ModeNormal
-}
-
-// Mock registry for resource lookup
-type mockResourceRegistry struct {
-	resources map[registry.ID]resource.Resource[any]
-}
-
-func (m *mockResourceRegistry) Acquire(_ context.Context, id registry.ID, _ resource.AccessMode,
-) (resource.Resource[any], error) {
-	res, ok := m.resources[id]
-	if !ok {
-		return nil, resource.ErrResourceNotFound
-	}
-	return res, nil
-}
-
-func (m *mockResourceRegistry) List() ([]registry.ID, error) {
-	ids := make([]registry.ID, 0, len(m.resources))
-	for id := range m.resources {
-		ids = append(ids, id)
-	}
-	return ids, nil
-}
-
-func (m *mockResourceRegistry) Exists(id registry.ID) bool {
-	_, ok := m.resources[id]
-	return ok
-}
-
-// setupTestEnvironment creates a test environment with CloudStorage module and mock storage
-//
-//nolint:unparam // ok for now
-func setupTestEnvironment(t *testing.T, mockStorage cloudstorage.Storage) (*engine.CoroutineVM, *lua.LState, engine.UnitOfWork, *engine.Runner) {
-	logger := zaptest.NewLogger(t)
-
-	// Create the CloudStorage module
-	module := NewModule()
-
-	// Create a mock resource registry with our test cloud storage
-	mockRegistry := &mockResourceRegistry{
-		resources: map[registry.ID]resource.Resource[any]{
-			registry.ParseID("test_storage"): &mockResource{resValue: mockStorage},
+		{
+			name:    "error",
+			data:    nil,
+			err:     errors.New("list failed"),
+			wantErr: true,
+		},
+		{
+			name:    "invalid response type",
+			data:    "invalid",
+			err:     nil,
+			wantErr: true,
+		},
+		{
+			name: "response with error",
+			data: csapi.ListObjectsResponse{
+				Error: errors.New("operation error"),
+			},
+			err:     nil,
+			wantErr: true,
 		},
 	}
 
-	// Create a VM with coroutine support
-	vm, err := engine.NewCVM(logger)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
 
-	// Get the Lua state
-	L := vm.State()
+			y := AcquireListObjectsYield()
+			defer ReleaseListObjectsYield(y)
 
-	// Register the CloudStorage module
-	L.PreloadModule(module.Name(), module.Loader)
+			result := y.HandleResult(l, tt.data, tt.err)
 
-	// Create a runner with the coroutine layer
-	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
 
-	// Add the resource registry to the context
-	ctx := resource.WithResources(context.Background(), mockRegistry)
-	ctx = logs.WithLogger(ctx, logger)
-
-	// Create a UOW for resource management
-	uw, ctx := runner.InitUnitOfWork(ctx)
-
-	// Set the context in the Lua state
-	L.SetContext(ctx)
-
-	return vm, L, uw, runner
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			}
+		})
+	}
 }
 
-// registerTestHelpers registers any helper functions needed for testing
-func registerTestHelpers(l *lua.LState) {
-	// Register function to create a buffer in Lua
-	l.SetGlobal("create_buffer", l.NewFunction(func(L *lua.LState) int {
-		buf := &bytes.Buffer{}
-		ud := L.NewUserData()
-		ud.Value = buf
-		L.Push(ud)
-		return 1
-	}))
+func TestDownloadObjectYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		data    any
+		err     error
+		name    string
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			data:    csapi.DownloadObjectResponse{Error: nil},
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "error",
+			data:    nil,
+			err:     errors.New("download failed"),
+			wantErr: true,
+		},
+		{
+			name:    "invalid response type",
+			data:    "invalid",
+			err:     nil,
+			wantErr: true,
+		},
+		{
+			name:    "response with error",
+			data:    csapi.DownloadObjectResponse{Error: errors.New("operation error")},
+			err:     nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquireDownloadObjectYield()
+			defer ReleaseDownloadObjectYield(y)
+
+			result := y.HandleResult(l, tt.data, tt.err)
+
+			if tt.wantErr {
+				if len(result) != 2 {
+					t.Fatalf("expected 2 return values for error, got %d", len(result))
+				}
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			}
+		})
+	}
 }
 
-func TestCloudStorageModule(t *testing.T) {
-	t.Run("Module_Get", func(t *testing.T) {
-		mockStorage := newMockCloudStorage()
-		vm, L, uw, _ := setupTestEnvironment(t, mockStorage)
-		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
+func TestUploadObjectYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		data    any
+		err     error
+		name    string
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			data:    csapi.UploadObjectResponse{Error: nil},
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "error",
+			data:    nil,
+			err:     errors.New("upload failed"),
+			wantErr: true,
+		},
+		{
+			name:    "invalid response type",
+			data:    "invalid",
+			err:     nil,
+			wantErr: true,
+		},
+		{
+			name:    "response with error",
+			data:    csapi.UploadObjectResponse{Error: errors.New("operation error")},
+			err:     nil,
+			wantErr: true,
+		},
+	}
 
-		err := L.DoString(`
-			local cs = require("cloudstorage")
-			local storage, err = cs.get("test_storage")
-			if err then 
-				error("Error getting cloudstorage: " .. err)
-			end
-			
-			-- Check that we got a valid object
-			assert(storage ~= nil, "Storage should not be nil")
-		`)
-		assert.NoError(t, err, "Getting cloud storage should succeed")
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
 
-	t.Run("ListObjects_Basic", func(t *testing.T) {
-		mockStorage := newMockCloudStorage()
-		vm, L, uw, _ := setupTestEnvironment(t, mockStorage)
-		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
+			y := AcquireUploadObjectYield()
+			defer ReleaseUploadObjectYield(y)
 
-		err := L.DoString(`
-			local cs = require("cloudstorage")
-			local storage, err = cs.get("test_storage")
-			if err then 
-				error("Error getting cloudstorage: " .. err)
-			end
-			
-			-- Call list_objects with no options
-			local result = storage:list_objects()
-			
-			-- Verify result structure
-			assert(result ~= nil, "Result should not be nil")
-			assert(result.objects ~= nil, "Objects array should not be nil")
-			assert(#result.objects >= 2, "Should have at least two objects")
-			
-			-- Verify object metadata
-			local foundTestTxt = false
-			local foundDataJson = false
-			
-			for i, obj in ipairs(result.objects) do
-				assert(obj.key ~= nil, "Object key should not be nil")
-				assert(obj.size ~= nil, "Object size should not be nil")
-				assert(obj.content_type ~= nil, "Content type should not be nil")
-				assert(obj.etag ~= nil, "ETag should not be nil")
-				
-				if obj.key == "test.txt" then
-					foundTestTxt = true
-					assert(obj.size == 11, "test.txt size should be 11")
-					assert(obj.content_type == "text/plain", "test.txt content type should be text/plain")
-				elseif obj.key == "data.json" then
-					foundDataJson = true
-					assert(obj.size == 20, "data.json size should be 20")
-					assert(obj.content_type == "application/json", "data.json content type should be application/json")
-				end
-			end
-			
-			assert(foundTestTxt, "test.txt should be in results")
-			assert(foundDataJson, "data.json should be in results")
-		`)
-		assert.NoError(t, err, "Basic list objects test failed")
-	})
+			result := y.HandleResult(l, tt.data, tt.err)
 
-	t.Run("ListObjects_WithOptions", func(t *testing.T) {
-		mockStorage := newMockCloudStorage()
-		vm, L, uw, _ := setupTestEnvironment(t, mockStorage)
-		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
 
-		err := L.DoString(`
-			local cs = require("cloudstorage")
-			local storage, err = cs.get("test_storage")
-			if err then 
-				error("Error getting cloudstorage: " .. err)
-			end
-			
-			-- Call list_objects with prefix option
-			local result = storage:list_objects({
-				prefix = "test",
-				max_keys = 1
-			})
-			
-			-- Verify filtering and pagination
-			assert(result ~= nil, "Result should not be nil")
-			assert(#result.objects == 1, "Should have exactly one object with prefix 'test'")
-			assert(result.is_truncated == true, "Result should be truncated")
-			assert(result.next_continuation_token ~= nil, "Should have continuation token")
-		`)
-		assert.NoError(t, err, "ListObjects with options test failed")
-	})
-
-	t.Run("DownloadObject", func(t *testing.T) {
-		mockStorage := newMockCloudStorage()
-		vm, L, uw, _ := setupTestEnvironment(t, mockStorage)
-		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
-
-		registerTestHelpers(L)
-
-		err := L.DoString(`
-			local cs = require("cloudstorage")
-			local storage, err = cs.get("test_storage")
-			if err then 
-				error("Error getting cloudstorage: " .. err)
-			end
-			
-			-- Create a buffer to download into
-			local buf = create_buffer()
-			
-			-- Download test.txt
-			local success = storage:download_object("test.txt", buf)
-			assert(success, "Download should succeed")
-			
-			-- Since we can't directly access the buffer contents from Lua,
-			-- we'll test upload using this buffer to verify the round trip
-			success = storage:upload_object("test_copy.txt", buf)
-			assert(success, "Upload should succeed")
-			
-			-- List objects to verify the new file exists
-			local result = storage:list_objects()
-			
-			local found = false
-			for _, obj in ipairs(result.objects) do
-				if obj.key == "test_copy.txt" then
-					found = true
-					assert(obj.size == 11, "Size should be 11")
-					break
-				end
-			end
-			
-			assert(found, "test_copy.txt should exist after upload")
-		`)
-		assert.NoError(t, err, "DownloadObject test failed")
-	})
-
-	t.Run("UploadObject", func(t *testing.T) {
-		mockStorage := newMockCloudStorage()
-		vm, L, uw, _ := setupTestEnvironment(t, mockStorage)
-		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
-
-		err := L.DoString(`
-			local cs = require("cloudstorage")
-			local storage, err = cs.get("test_storage")
-			if err then 
-				error("Error getting cloudstorage: " .. err)
-			end
-			
-			-- Upload string content
-			local content = "New object content"
-			local success = storage:upload_object("new-file.txt", content)
-			assert(success, "Upload should succeed")
-			
-			-- List objects to verify the new file exists
-			local result = storage:list_objects()
-			
-			local found = false
-			for _, obj in ipairs(result.objects) do
-				if obj.key == "new-file.txt" then
-					found = true
-					assert(obj.size == #content, "Size should match content length")
-					break
-				end
-			end
-			
-			assert(found, "new-file.txt should exist after upload")
-		`)
-		assert.NoError(t, err, "UploadObject test failed")
-	})
-
-	t.Run("DeleteObjects", func(t *testing.T) {
-		mockStorage := newMockCloudStorage()
-		vm, L, uw, _ := setupTestEnvironment(t, mockStorage)
-		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
-
-		err := L.DoString(`
-			local cs = require("cloudstorage")
-			local storage, err = cs.get("test_storage")
-			if err then 
-				error("Error getting cloudstorage: " .. err)
-			end
-			
-			-- First verify we have the expected objects
-			local result = storage:list_objects()
-			assert(#result.objects >= 2, "Should have at least two objects initially")
-			
-			-- Delete test.txt
-			local success = storage:delete_objects({"test.txt"})
-			assert(success, "Delete should succeed")
-			
-			-- Verify test.txt is gone
-			result = storage:list_objects()
-			
-			for _, obj in ipairs(result.objects) do
-				assert(obj.key ~= "test.txt", "test.txt should be deleted")
-			end
-			
-			-- Delete multiple objects
-			success = storage:delete_objects({"data.json"})
-			assert(success, "Delete should succeed")
-			
-			-- Verify all objects are gone
-			result = storage:list_objects()
-			assert(#result.objects == 0, "All objects should be deleted")
-		`)
-		assert.NoError(t, err, "DeleteObjects test failed")
-	})
-
-	t.Run("PresignedURLs", func(t *testing.T) {
-		mockStorage := newMockCloudStorage()
-		vm, L, uw, _ := setupTestEnvironment(t, mockStorage)
-		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
-
-		err := L.DoString(`
-			local cs = require("cloudstorage")
-			local storage, err = cs.get("test_storage")
-			if err then 
-				error("Error getting cloudstorage: " .. err)
-			end
-			
-			-- Generate presigned GET URL
-			local getUrl = storage:presigned_get_url("test.txt", {
-				expiration = 3600 -- 1 hour
-			})
-			
-			assert(getUrl ~= nil, "GET URL should not be nil")
-			assert(string.find(getUrl, "https://"), "URL should be HTTPS")
-			assert(string.find(getUrl, "test.txt"), "URL should contain object key")
-			assert(string.find(getUrl, "expires"), "URL should contain expiration")
-			
-			-- Generate presigned PUT URL
-			local putUrl = storage:presigned_put_url("newupload.txt", {
-				expiration = 1800, -- 30 minutes
-				content_type = "text/plain",
-				content_length = 1024
-			})
-
-			assert(putUrl ~= nil, "PUT URL should not be nil")
-			assert(string.find(putUrl, "https://"), "URL should be HTTPS")
-			assert(string.find(putUrl, "newupload.txt"), "URL should contain object key")
-			assert(string.find(putUrl, "expires"), "URL should contain expiration")
-			assert(string.find(putUrl, "contentType"), "URL should contain content type")
-		`)
-		assert.NoError(t, err, "PresignedURLs test failed")
-	})
-
-	t.Run("ErrorHandling", func(t *testing.T) {
-		mockStorage := newMockCloudStorage()
-		vm, L, uw, _ := setupTestEnvironment(t, mockStorage)
-		defer vm.Close()
-		defer func() {
-			err := uw.Close()
-			assert.NoError(t, err, "Unit of work cleanup failed")
-		}()
-
-		// Test error when trying to get an object that doesn't exist
-		err := L.DoString(`
-			local cs = require("cloudstorage")
-			local storage, err = cs.get("nonexistent_storage")
-			assert(storage == nil, "Storage should be nil for nonexistent resource")
-			assert(err ~= nil, "Error should not be nil for nonexistent resource")
-			assert(string.find(err, "failed to acquire resource"), "Error should mention resource acquisition")
-		`)
-		assert.NoError(t, err, "ErrorHandling test failed")
-	})
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			}
+		})
+	}
 }
 
-func TestCloudStorageRelease(t *testing.T) {
-	mockStorage := newMockCloudStorage()
-	vm, L, uw, _ := setupTestEnvironment(t, mockStorage)
-	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
+func TestUploadObjectYieldToCommand(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
 
-	// Run a test that explicitly closes the CloudStorage resource
-	err := L.DoString(`
-		local cs = require("cloudstorage")
-		local storage, err = cs.get("test_storage")
-		if err then 
-			error("Error getting cloudstorage: " .. err)
-		end
-		
-		-- Verify we can use the storage
-		local result = storage:list_objects()
-		assert(result ~= nil, "Should be able to list objects before closing")
-		
-		-- Release the storage connection
-		local success = storage:release()
-		assert(success == true, "Release should return true")
-	`)
-	assert.NoError(t, err, "CloudStorage release test failed")
+	y := AcquireUploadObjectYield()
+	defer ReleaseUploadObjectYield(y)
 
-	// Verify the test resource was released
-	mockRes, ok := uw.Context().Value("test_storage_resource").(*mockResource)
-	if ok {
-		assert.True(t, mockRes.released, "Resource should be released by release method")
+	y.Content = lua.LString("test content")
+	cmd := y.ToCommand()
+
+	if cmd == nil {
+		t.Fatal("expected non-nil command")
+	}
+}
+
+func TestUploadObjectYieldToCommandUserData(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	y := AcquireUploadObjectYield()
+	defer ReleaseUploadObjectYield(y)
+
+	reader := strings.NewReader("test")
+	ud := l.NewUserData()
+	ud.Value = reader
+	y.Content = ud
+
+	cmd := y.ToCommand()
+
+	if cmd == nil {
+		t.Fatal("expected non-nil command")
+	}
+}
+
+func TestDeleteObjectsYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		data    any
+		err     error
+		name    string
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			data:    csapi.DeleteObjectsResponse{Error: nil},
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "error",
+			data:    nil,
+			err:     errors.New("delete failed"),
+			wantErr: true,
+		},
+		{
+			name:    "invalid response type",
+			data:    "invalid",
+			err:     nil,
+			wantErr: true,
+		},
+		{
+			name:    "response with error",
+			data:    csapi.DeleteObjectsResponse{Error: errors.New("operation error")},
+			err:     nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquireDeleteObjectsYield()
+			defer ReleaseDeleteObjectsYield(y)
+
+			result := y.HandleResult(l, tt.data, tt.err)
+
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
+
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			}
+		})
+	}
+}
+
+func TestPresignedGetURLYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		data    any
+		err     error
+		name    string
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			data:    csapi.PresignedGetURLResponse{URL: "https://example.com", Error: nil},
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "error",
+			data:    nil,
+			err:     errors.New("presign failed"),
+			wantErr: true,
+		},
+		{
+			name:    "invalid response type",
+			data:    "invalid",
+			err:     nil,
+			wantErr: true,
+		},
+		{
+			name:    "response with error",
+			data:    csapi.PresignedGetURLResponse{Error: errors.New("operation error")},
+			err:     nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquirePresignedGetURLYield()
+			defer ReleasePresignedGetURLYield(y)
+
+			result := y.HandleResult(l, tt.data, tt.err)
+
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
+
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			}
+		})
+	}
+}
+
+func TestPresignedPutURLYieldHandleResult(t *testing.T) {
+	tests := []struct {
+		data    any
+		err     error
+		name    string
+		wantErr bool
+	}{
+		{
+			name:    "success",
+			data:    csapi.PresignedPutURLResponse{URL: "https://example.com", Error: nil},
+			err:     nil,
+			wantErr: false,
+		},
+		{
+			name:    "error",
+			data:    nil,
+			err:     errors.New("presign failed"),
+			wantErr: true,
+		},
+		{
+			name:    "invalid response type",
+			data:    "invalid",
+			err:     nil,
+			wantErr: true,
+		},
+		{
+			name:    "response with error",
+			data:    csapi.PresignedPutURLResponse{Error: errors.New("operation error")},
+			err:     nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := lua.NewState()
+			defer l.Close()
+
+			y := AcquirePresignedPutURLYield()
+			defer ReleasePresignedPutURLYield(y)
+
+			result := y.HandleResult(l, tt.data, tt.err)
+
+			if len(result) != 2 {
+				t.Fatalf("expected 2 return values, got %d", len(result))
+			}
+
+			if tt.wantErr {
+				if result[1] == lua.LNil {
+					t.Error("expected error, got nil")
+				}
+			}
+		})
+	}
+}
+
+func TestStorageWrapper(t *testing.T) {
+	w := &storageWrapper{
+		released: false,
+	}
+
+	if w.released {
+		t.Error("new wrapper should not be released")
+	}
+}
+
+func TestModuleInfo(t *testing.T) {
+	if Module.Name != "cloudstorage" {
+		t.Errorf("expected name 'cloudstorage', got '%s'", Module.Name)
+	}
+	if Module.Description == "" {
+		t.Error("module should have a description")
+	}
+	if len(Module.Class) == 0 {
+		t.Error("module should have at least one class")
 	}
 }

@@ -1,24 +1,28 @@
 package version
 
 import (
-	"fmt"
 	"sort"
+	"sync"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/internal/graph"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/internal/graph"
 )
 
 type (
 	// Map represents a version history that maintains relationships between different
 	// versions and provides operations to traverse and manage the version graph.
 	Map interface {
-		// Path returns the ordered sequence of version instances connecting a starting
-		// version ('from') and an ending version ('to'), including both 'from' and 'to'.
+		// Path returns the ordered sequence of version instances representing
+		// the changesets that must be applied to transition from 'from' to 'to'.
+		// The 'from' version is EXCLUDED (you're already at that state).
+		// The 'to' version is INCLUDED (you want to reach that state).
+		//
+		// Example: Path(v0, v2) returns [v1, v2] - apply changesets v1 then v2
 		//
 		// Constraints:
-		//   - Both 'from' and 'to' MUST exist; otherwise, nil is returned.
-		//   - If 'from' and 'to' are identical, the returned slice contains only 'from'.
-		//   - If no valid path exists, nil is returned.
+		//   - Both 'from' and 'to' MUST exist; otherwise, error is returned.
+		//   - If 'from' and 'to' are identical, returns empty slice (no changes).
+		//   - If no valid path exists, error is returned.
 		Path(from, to registry.Version) ([]registry.Version, error)
 
 		// Len returns the number of versions.
@@ -34,6 +38,7 @@ type (
 
 type versionHistory struct {
 	versions map[string]registry.Version
+	mu       sync.RWMutex
 }
 
 // NewVersionMap creates a new empty version map for tracking version history
@@ -46,25 +51,27 @@ func NewVersionMap() Map {
 }
 
 func (vm *versionHistory) Path(from, to registry.Version) ([]registry.Version, error) {
+	vm.mu.RLock()
+	defer vm.mu.RUnlock()
+
 	if _, ok := vm.versions[from.String()]; !ok {
-		return nil, fmt.Errorf("version %v not found", from.ID())
+		return nil, NewVersionNotFoundError(from.ID())
 	}
 	if _, ok := vm.versions[to.String()]; !ok {
-		return nil, fmt.Errorf("version %v not found", to.ID())
+		return nil, NewVersionNotFoundError(to.ID())
 	}
 
 	if from.ID() == to.ID() {
-		return []registry.Version{from}, nil
+		// Already at target version, no changes needed
+		return []registry.Version{}, nil
 	}
-
-	// todo: can be optimized as `typically` we always event source from root
 
 	// Construct the graph on demand
 	g := graph.New[string, any]()
 	for _, v := range vm.versions {
 		g.AddNode(v.String())
 		if prev := v.Previous(); prev != nil {
-			// AddCleanup bidirectional edges with different weights
+			// Add bidirectional edges with different weights
 			g.AddEdge(prev.String(), v.String(), 1, nil) // Forward edge
 			g.AddEdge(v.String(), prev.String(), 2, nil) // Backward edge
 		}
@@ -76,9 +83,15 @@ func (vm *versionHistory) Path(from, to registry.Version) ([]registry.Version, e
 		return nil, err
 	}
 
-	// Convert the graph path to a version path
-	versionPath := make([]registry.Version, len(path.Nodes))
-	for i, node := range path.Nodes {
+	// Convert the graph path to a version path, excluding the starting version
+	// Path represents the changesets to apply, not the states visited
+	// Example: Path(v0, v2) returns [v1, v2] (apply changesets for v1 and v2)
+	if len(path.Nodes) <= 1 {
+		return []registry.Version{}, nil
+	}
+
+	versionPath := make([]registry.Version, len(path.Nodes)-1)
+	for i, node := range path.Nodes[1:] { // Skip the first node (from)
 		versionPath[i] = vm.versions[node]
 	}
 
@@ -86,8 +99,11 @@ func (vm *versionHistory) Path(from, to registry.Version) ([]registry.Version, e
 }
 
 func (vm *versionHistory) Add(v registry.Version) error {
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+
 	if _, ok := vm.versions[v.String()]; ok {
-		return fmt.Errorf("version %v already exists", v.ID())
+		return NewVersionAlreadyExistsError(v.ID())
 	}
 
 	vm.versions[v.String()] = v
@@ -95,15 +111,19 @@ func (vm *versionHistory) Add(v registry.Version) error {
 }
 
 func (vm *versionHistory) Len() int {
+	vm.mu.RLock()
+	defer vm.mu.RUnlock()
 	return len(vm.versions)
 }
 
 func (vm *versionHistory) Range(f func(uint, registry.Version) bool) {
+	vm.mu.RLock()
 	// Collect versions into a slice for sorting
 	versions := make([]registry.Version, 0, len(vm.versions))
 	for _, v := range vm.versions {
 		versions = append(versions, v)
 	}
+	vm.mu.RUnlock()
 
 	// Sort the versions
 	sort.Slice(versions, func(i, j int) bool {

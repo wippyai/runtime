@@ -2,60 +2,214 @@ package logger
 
 import (
 	"errors"
+	"fmt"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/api/logs"
+	runtimeapi "github.com/wippyai/runtime/api/runtime"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 
-	transcoder "github.com/ponyruntime/pony/system/payload/lua"
-	lua "github.com/yuin/gopher-lua"
+	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/go-lua/inspect"
 	"go.uber.org/zap"
 )
 
-// todo: can it work via dot notation?
+const typeLoggerName = "logger.Logger"
 
-// Module represents a logger Lua module
-type Module struct {
-	baseLogger *zap.Logger
-}
+var loggerMetatable *lua.LTable
 
-// Logger represents a Lua userdata object wrapping zap.Logger
-type Logger struct {
-	logger *zap.Logger
-}
-
-// NewLoggerModule creates a new logger module
-func NewLoggerModule(log *zap.Logger) *Module {
-	return &Module{
-		baseLogger: log,
-	}
-}
-
-// Name returns the module name
-func (m *Module) Name() string {
-	return "logger"
-}
-
-// Loader is the entry point for loading the plugin
-func (m *Module) Loader(l *lua.LState) int {
-	// Register all methods at once using the efficient method from util.go
-	methods := map[string]lua.LGFunction{
+func init() {
+	loggerMetatable = value.RegisterTypeMethods(nil, typeLoggerName, nil, map[string]lua.LGoFunc{
 		"debug": loggerDebug,
 		"info":  loggerInfo,
 		"warn":  loggerWarn,
 		"error": loggerError,
 		"with":  loggerWith,
 		"named": loggerNamed,
+	})
+}
+
+// Logger wraps zap.Logger for Lua.
+// If logger is nil, it gets the logger from context at call time.
+type Logger struct {
+	logger *zap.Logger
+}
+
+// Module is the logger ModuleDef.
+var Module = &luaapi.ModuleDef{
+	Name:        "logger",
+	Description: "Structured logging",
+	Class:       []string{luaapi.ClassIO},
+	BuildValue:  buildModule,
+	Types:       ModuleTypes,
+}
+
+func buildModule() (lua.LValue, []luaapi.YieldType) {
+	// Return shared userdata for V1 API compatibility
+	// V1: local log = require("logger"); log:info("msg")
+	// Logger.logger is nil - will be fetched from context at call time
+	ud := &lua.LUserData{
+		Value:     &Logger{},
+		Metatable: loggerMetatable,
+	}
+	return ud, nil
+}
+
+// getLogger returns the zap logger, either from the Logger struct or from context
+func (lg *Logger) getLogger(l *lua.LState) *zap.Logger {
+	if lg.logger != nil {
+		return lg.logger
+	}
+	// Get logger from Lua context
+	ctx := l.Context()
+	if ctx != nil {
+		return logs.GetLogger(ctx)
+	}
+	return zap.NewNop()
+}
+
+// Instance methods for Logger userdata
+
+func checkLogger(l *lua.LState, _ int) *Logger {
+	ud := l.CheckUserData(1)
+	if ud == nil {
+		l.ArgError(1, "expected logger.Logger")
+		return nil
+	}
+	if logger, ok := ud.Value.(*Logger); ok {
+		return logger
+	}
+	l.ArgError(1, "expected logger.Logger")
+	return nil
+}
+
+func loggerDebug(l *lua.LState) int {
+	logger := checkLogger(l, 1)
+	if logger == nil {
+		return 0
 	}
 
-	// Base logger is our module entry
-	ud := l.NewUserData()
-	ud.Value = &Logger{logger: m.baseLogger}
-	ud.Metatable = value.RegisterMethods(l, "logger.Logger", methods)
+	msg := l.CheckString(2)
+	var fields []zap.Field
 
-	l.Push(ud)
+	if l.GetTop() > 2 {
+		if tbl := l.CheckTable(3); tbl != nil {
+			fields = tableToFields(tbl)
+		}
+	}
+
+	contextFields := getContextFields(l)
+	allFields := contextFields
+	allFields = append(allFields, fields...)
+	logger.getLogger(l).Debug(msg, allFields...)
+	return 0
+}
+
+func loggerInfo(l *lua.LState) int {
+	logger := checkLogger(l, 1)
+	if logger == nil {
+		return 0
+	}
+
+	msg := l.CheckString(2)
+	var fields []zap.Field
+
+	if l.GetTop() > 2 {
+		if tbl := l.CheckTable(3); tbl != nil {
+			fields = tableToFields(tbl)
+		}
+	}
+
+	contextFields := getContextFields(l)
+	allFields := contextFields
+	allFields = append(allFields, fields...)
+	logger.getLogger(l).Info(msg, allFields...)
+	return 0
+}
+
+func loggerWarn(l *lua.LState) int {
+	logger := checkLogger(l, 1)
+	if logger == nil {
+		return 0
+	}
+
+	msg := l.CheckString(2)
+	var fields []zap.Field
+
+	if l.GetTop() > 2 {
+		if tbl := l.CheckTable(3); tbl != nil {
+			fields = tableToFields(tbl)
+		}
+	}
+
+	contextFields := getContextFields(l)
+	allFields := contextFields
+	allFields = append(allFields, fields...)
+	logger.getLogger(l).Warn(msg, allFields...)
+	return 0
+}
+
+func loggerError(l *lua.LState) int {
+	logger := checkLogger(l, 1)
+	if logger == nil {
+		return 0
+	}
+
+	msg := l.CheckString(2)
+	var fields []zap.Field
+
+	if l.GetTop() > 2 {
+		if tbl := l.CheckTable(3); tbl != nil {
+			if errValue := tbl.RawGetString("error"); errValue != lua.LNil {
+				fields = append(fields, zap.Error(errors.New(lua.LVAsString(errValue))))
+				tbl.RawSetString("error", lua.LNil)
+			}
+			fields = append(fields, tableToFields(tbl)...)
+		}
+	}
+
+	contextFields := getContextFields(l)
+	allFields := contextFields
+	allFields = append(allFields, fields...)
+	logger.getLogger(l).Error(msg, allFields...)
+	return 0
+}
+
+func loggerWith(l *lua.LState) int {
+	logger := checkLogger(l, 1)
+	if logger == nil {
+		return 0
+	}
+
+	fields := l.CheckTable(2)
+	if fields == nil {
+		l.ArgError(2, "table expected")
+		return 0
+	}
+
+	newLogger := logger.getLogger(l).With(tableToFields(fields)...)
+	value.PushTypedUserData(l, &Logger{logger: newLogger}, typeLoggerName)
 	return 1
 }
 
-// Helper function to convert Lua table to zap fields
+func loggerNamed(l *lua.LState) int {
+	logger := checkLogger(l, 1)
+	if logger == nil {
+		return 0
+	}
+
+	name := l.CheckString(2)
+	if name == "" {
+		l.ArgError(2, "name cannot be empty")
+		return 0
+	}
+
+	newLogger := logger.getLogger(l).Named(name)
+	value.PushTypedUserData(l, &Logger{logger: newLogger}, typeLoggerName)
+	return 1
+}
+
+// tableToFields converts Lua table to zap fields.
 func tableToFields(table *lua.LTable) []zap.Field {
 	fields := make([]zap.Field, 0)
 	table.ForEach(func(k, v lua.LValue) {
@@ -69,158 +223,55 @@ func tableToFields(table *lua.LTable) []zap.Field {
 			fields = append(fields, zap.String(string(key), string(v.(lua.LString))))
 		case lua.LTNumber:
 			fields = append(fields, zap.Float64(string(key), float64(v.(lua.LNumber))))
+		case lua.LTInteger:
+			fields = append(fields, zap.Int64(string(key), int64(v.(lua.LInteger))))
 		case lua.LTBool:
 			fields = append(fields, zap.Bool(string(key), bool(v.(lua.LBool))))
-		case lua.LTNil, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTTable, lua.LTChannel:
+		case lua.LTUserData:
+			if ud, ok := v.(*lua.LUserData); ok {
+				if err, ok := ud.Value.(error); ok && err != nil {
+					var luaErr *lua.Error
+					if errors.As(err, &luaErr) {
+						fields = append(fields, zap.String(string(key), luaErr.Error()))
+					} else {
+						fields = append(fields, zap.String(string(key), err.Error()))
+					}
+				} else {
+					strValue := lua.LVAsString(v)
+					if strValue != "" {
+						fields = append(fields, zap.String(string(key), strValue))
+					}
+				}
+			}
+		case lua.LTNil, lua.LTFunction, lua.LTThread, lua.LTTable, lua.LTChannel:
 			fallthrough
 		default:
-			fields = append(fields, zap.Any(string(key), transcoder.ToGoAny(v)))
+			fields = append(fields, zap.Any(string(key), value.ToGoAny(v)))
 		}
 	})
 
 	return fields
 }
 
-// Logger methods implementations
-func loggerDebug(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	logger, ok := ud.Value.(*Logger)
-	if !ok {
-		l.ArgError(1, "logger expected")
-		return 0
+// getContextFields extracts PID and location from the Lua context.
+func getContextFields(l *lua.LState) []zap.Field {
+	ctx := l.Context()
+	if ctx == nil {
+		return nil
 	}
 
-	msg := l.CheckString(2)
-	var fields []zap.Field
+	fields := make([]zap.Field, 0, 2)
 
-	if l.GetTop() > 2 {
-		if tbl := l.CheckTable(3); tbl != nil {
-			fields = tableToFields(tbl)
+	if pid, ok := runtimeapi.GetFramePID(ctx); ok {
+		fields = append(fields, zap.String("pid", pid.String()))
+	}
+
+	if id, ok := runtimeapi.GetFrameID(ctx); ok {
+		if line, ok := inspect.GetCallerLine(l, 2); ok {
+			location := fmt.Sprintf("%s:%d", id.String(), line)
+			fields = append(fields, zap.String("location", location))
 		}
 	}
 
-	logger.logger.Debug(msg, fields...)
-	return 0
-}
-
-func loggerInfo(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	logger, ok := ud.Value.(*Logger)
-	if !ok {
-		l.ArgError(1, "logger expected")
-		return 0
-	}
-
-	msg := l.CheckString(2)
-	var fields []zap.Field
-
-	if l.GetTop() > 2 {
-		if tbl := l.CheckTable(3); tbl != nil {
-			fields = tableToFields(tbl)
-		}
-	}
-
-	logger.logger.Info(msg, fields...)
-	return 0
-}
-
-func loggerWarn(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	logger, ok := ud.Value.(*Logger)
-	if !ok {
-		l.ArgError(1, "logger expected")
-		return 0
-	}
-
-	msg := l.CheckString(2)
-	var fields []zap.Field
-
-	if l.GetTop() > 2 {
-		if tbl := l.CheckTable(3); tbl != nil {
-			fields = tableToFields(tbl)
-		}
-	}
-
-	logger.logger.Warn(msg, fields...)
-	return 0
-}
-
-func loggerError(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	logger, ok := ud.Value.(*Logger)
-	if !ok {
-		l.ArgError(1, "logger expected")
-		return 0
-	}
-
-	msg := l.CheckString(2)
-	var fields []zap.Field
-
-	if l.GetTop() > 2 {
-		if tbl := l.CheckTable(3); tbl != nil {
-			// Handle special error field
-			if errValue := tbl.RawGetString("error"); errValue != lua.LNil {
-				fields = append(fields, zap.Error(errors.New(errValue.String())))
-				tbl.RawSetString("error", lua.LNil) // Done error from table
-			}
-
-			fields = append(fields, tableToFields(tbl)...)
-		}
-	}
-
-	logger.logger.Error(msg, fields...)
-	return 0
-}
-
-func loggerWith(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	logger, ok := ud.Value.(*Logger)
-	if !ok {
-		l.ArgError(1, "logger expected")
-		return 0
-	}
-
-	fields := l.CheckTable(2)
-	if fields == nil {
-		l.ArgError(2, "table expected")
-		return 0
-	}
-
-	// Spawn new logger with fields
-	newLogger := logger.logger.With(tableToFields(fields)...)
-
-	// Spawn new userdata
-	newUd := l.NewUserData()
-	newUd.Value = &Logger{logger: newLogger}
-	newUd.Metatable = value.GetTypeMetatable(l, "logger.Logger")
-
-	l.Push(newUd)
-
-	return 1
-}
-
-func loggerNamed(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	logger, ok := ud.Value.(*Logger)
-	if !ok {
-		l.ArgError(1, "logger expected")
-		return 0
-	}
-
-	name := l.CheckString(2)
-	if name == "" {
-		l.ArgError(2, "name cannot be empty")
-		return 0
-	}
-
-	// Spawn new named logger
-	newLogger := logger.logger.Named(name)
-
-	// Spawn new userdata
-	newUd := l.NewUserData()
-	newUd.Value = &Logger{logger: newLogger}
-	newUd.Metatable = value.GetTypeMetatable(l, "logger.Logger")
-	l.Push(newUd)
-
-	return 1
+	return fields
 }

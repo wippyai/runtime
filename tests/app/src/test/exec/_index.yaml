@@ -1,0 +1,94 @@
+version: "1.0"
+namespace: app.test.exec
+
+entries:
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: exec
+      description: Exec module error handling
+    source: file://errors.lua
+    method: main
+    modules:
+      - exec
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: basic
+    kind: function.lua
+    meta:
+      type: test
+      suite: exec
+      description: Basic process execution
+    source: file://basic.lua
+    method: main
+    modules:
+      - exec
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: signals
+    kind: function.lua
+    meta:
+      type: test
+      suite: exec
+      description: Process signal handling
+    source: file://signals.lua
+    method: main
+    modules:
+      - exec
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: streams
+    kind: function.lua
+    meta:
+      type: test
+      suite: exec
+      description: Process stdout/stderr streams
+    source: file://streams.lua
+    method: main
+    modules:
+      - exec
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: docker_basic
+    kind: function.lua
+    meta:
+      type: test
+      suite: exec
+      description: Docker container basic execution
+    source: file://docker_basic.lua
+    method: main
+    modules:
+      - exec
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: docker_signals
+    kind: function.lua
+    meta:
+      type: test
+      suite: exec
+      description: Docker container signal handling
+    source: file://docker_signals.lua
+    method: main
+    modules:
+      - exec
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: docker_streams
+    kind: function.lua
+    meta:
+      type: test
+      suite: exec
+      description: Docker container stdout/stderr streams
+    source: file://docker_streams.lua
+    method: main
+    modules:
+      - exec
+    imports:
+      assert_primitives: app.lib:assert

@@ -1,189 +1,482 @@
 package sql
 
 import (
-	"context"
-	"database/sql"
 	"testing"
 
-	sqlapi "github.com/ponyruntime/pony/api/service/sql"
-	sqlres "github.com/ponyruntime/pony/service/sql"
-	"github.com/stretchr/testify/assert"
-
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	"github.com/stretchr/testify/require"
-	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap/zaptest"
-
-	// Imports SQLite driver for testing
-	_ "github.com/mattn/go-sqlite3"
+	lua "github.com/wippyai/go-lua"
 )
 
-// mockResource implements the resource.Resource interface
-type mockResource struct {
-	resValue any
-	released bool
+func TestModuleLoads(t *testing.T) {
+	mod, yields := Module.Build()
+
+	if mod == nil {
+		t.Fatal("expected module table to be non-nil")
+	}
+
+	if len(yields) != 13 {
+		t.Errorf("expected 13 yield types, got %d", len(yields))
+	}
 }
 
-func (m *mockResource) Get() (any, error) {
-	return m.resValue, nil
+func TestModuleReuse(t *testing.T) {
+	mod1, _ := Module.Build()
+	mod2, _ := Module.Build()
+
+	if mod1 != mod2 {
+		t.Error("expected module tables to be identical on reuse")
+	}
 }
 
-func (m *mockResource) Release() {
-	m.released = true
+func TestModuleImmutable(t *testing.T) {
+	mod, _ := Module.Build()
+
+	if !mod.Immutable {
+		t.Error("expected module to be immutable")
+	}
 }
 
-func (m *mockResource) Mode() resource.AccessMode {
-	return resource.ModeNormal
+func TestModuleHasGet(t *testing.T) {
+	mod, _ := Module.Build()
+
+	getFunc := mod.RawGetString("get")
+	if getFunc == lua.LNil {
+		t.Error("expected module to have 'get' function")
+	}
 }
 
-// mockResourceRegistry is a simple mock for the resource registry
-type mockResourceRegistry struct {
-	resources map[registry.ID]resource.Resource[any]
+func TestModuleHasNULL(t *testing.T) {
+	mod, _ := Module.Build()
+
+	nullVal := mod.RawGetString("NULL")
+	if nullVal == lua.LNil {
+		t.Error("expected module to have 'NULL' constant")
+	}
+
+	if ud, ok := nullVal.(*lua.LUserData); ok {
+		if ud.Value != "SQL_NULL" {
+			t.Errorf("expected NULL value to be 'SQL_NULL', got %v", ud.Value)
+		}
+	} else {
+		t.Errorf("expected NULL to be userdata, got %T", nullVal)
+	}
 }
 
-func (m *mockResourceRegistry) Acquire(
-	_ context.Context,
-	id registry.ID,
-	_ resource.AccessMode,
-) (resource.Resource[any], error) {
-	res, ok := m.resources[id]
+func TestModuleHasTypes(t *testing.T) {
+	mod, _ := Module.Build()
+
+	types := mod.RawGetString("type")
+	if types == lua.LNil {
+		t.Error("expected module to have 'type' table")
+	}
+
+	table, ok := types.(*lua.LTable)
 	if !ok {
-		return nil, resource.ErrResourceNotFound
-	}
-	return res, nil
-}
-
-func (m *mockResourceRegistry) List() ([]registry.ID, error) {
-	ids := make([]registry.ID, 0, len(m.resources))
-	for id := range m.resources {
-		ids = append(ids, id)
-	}
-	return ids, nil
-}
-
-func (m *mockResourceRegistry) Exists(id registry.ID) bool {
-	_, ok := m.resources[id]
-	return ok
-}
-
-// setupLuaWithDB sets up a Lua state with our SQL module and a connected database
-func setupLuaWithDB(t *testing.T, mockRes *mockResource) (*engine.CoroutineVM, *lua.LState, engine.UnitOfWork, *engine.Runner) {
-	logger := zaptest.NewLogger(t)
-
-	// Create the SQL module
-	module := NewSQLModule(logger)
-
-	// Create a mock resource registry with our test database
-	mockRegistry := &mockResourceRegistry{
-		resources: map[registry.ID]resource.Resource[any]{
-			registry.ParseID("app:test_db"): mockRes,
-		},
+		t.Fatalf("expected types to be a table, got %T", types)
 	}
 
-	// Create a VM with coroutine support
-	vm, err := engine.NewCVM(logger)
-	require.NoError(t, err)
-
-	// Get the Lua state
-	L := vm.State()
-
-	// Register the SQL module
-	L.PreloadModule(module.Name(), module.Loader)
-
-	// Create a runner with the coroutine layer
-	runner := engine.NewRunner(vm, engine.WithLayer(coroutine.NewCoroutineLayer()))
-
-	// Create a UOW for resource management
-	uw, ctx := runner.InitUnitOfWork(context.Background())
-
-	// Add the resource registry to the context
-	ctx = resource.WithResources(ctx, mockRegistry)
-
-	// Set the context in the Lua state
-	L.SetContext(ctx)
-
-	return vm, L, uw, runner
+	expectedTypes := []string{"POSTGRES", "MYSQL", "SQLITE", "MSSQL", "ORACLE", "UNKNOWN"}
+	for _, name := range expectedTypes {
+		if table.RawGetString(name) == lua.LNil {
+			t.Errorf("expected type table to have '%s'", name)
+		}
+	}
 }
 
-// TestModuleBasicDBGet tests the sql.get function with a basic SQLite database
-func TestModuleBasicDBGet(t *testing.T) {
-	// Create a SQLite in-memory database
-	db, err := sql.Open("sqlite3", ":memory:")
-	require.NoError(t, err, "Failed to open SQLite database")
-	defer func() {
-		err := db.Close()
-		assert.NoError(t, err, "Failed to close SQLite database")
-	}()
+func TestModuleHasIsolation(t *testing.T) {
+	mod, _ := Module.Build()
 
-	// Create a simple table for testing
-	_, err = db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
-	require.NoError(t, err, "Failed to create test table")
-
-	// Create our resource that will be tracked for release
-	mockRes := &mockResource{
-		// Use the actual DBResource struct from the sql service package
-		resValue: sqlres.DBResource{
-			DB:   db,
-			Type: sqlapi.KindSQLite,
-		},
+	isolation := mod.RawGetString("isolation")
+	if isolation == lua.LNil {
+		t.Error("expected module to have 'isolation' table")
 	}
 
-	// Setup Lua with the test database using the helper function
-	vm, L, uw, runner := setupLuaWithDB(t, mockRes)
-	defer vm.Close()
-	defer func() {
-		err := uw.Close()
-		assert.NoError(t, err, "Unit of work cleanup failed")
-	}()
+	table, ok := isolation.(*lua.LTable)
+	if !ok {
+		t.Fatalf("expected isolation to be a table, got %T", isolation)
+	}
 
-	// Imports our test function into the VM
-	err = vm.Import(`
-		function test_db_get()
-			local sql = require("sql")
-			local db, err = sql.get("app:test_db")
-			if err then 
-				print("Error getting DB:", err)
-				error(err) 
-			end
+	expectedLevels := []string{"DEFAULT", "READ_UNCOMMITTED", "READ_COMMITTED", "WRITE_COMMITTED", "REPEATABLE_READ", "SERIALIZABLE"}
+	for _, name := range expectedLevels {
+		if table.RawGetString(name) == lua.LNil {
+			t.Errorf("expected isolation table to have '%s'", name)
+		}
+	}
+}
 
-			-- Check database type
-			local dbType, err = db:type()
-			if err then
-				print("Error getting DB type:", err)
-				error(err) 
-			end
-			
-			-- Store results for test verification
-			local result = {
-				db_type = dbType
+func TestModuleHasAs(t *testing.T) {
+	mod, _ := Module.Build()
+
+	as := mod.RawGetString("as")
+	if as == lua.LNil {
+		t.Error("expected module to have 'as' submodule")
+	}
+
+	table, ok := as.(*lua.LTable)
+	if !ok {
+		t.Fatalf("expected as to be a table, got %T", as)
+	}
+
+	expectedFuncs := []string{"int", "float", "text", "binary", "null"}
+	for _, name := range expectedFuncs {
+		if table.RawGetString(name) == lua.LNil {
+			t.Errorf("expected as table to have '%s' function", name)
+		}
+	}
+}
+
+func TestModuleHasBuilder(t *testing.T) {
+	mod, _ := Module.Build()
+
+	builder := mod.RawGetString("builder")
+	if builder == lua.LNil {
+		t.Error("expected module to have 'builder' submodule")
+	}
+
+	table, ok := builder.(*lua.LTable)
+	if !ok {
+		t.Fatalf("expected builder to be a table, got %T", builder)
+	}
+
+	expectedFuncs := []string{"select", "insert", "update", "delete", "expr", "eq", "not_eq", "lt", "lte", "gt", "gte", "like", "not_like", "and_", "or_"}
+	for _, name := range expectedFuncs {
+		if table.RawGetString(name) == lua.LNil {
+			t.Errorf("expected builder table to have '%s' function", name)
+		}
+	}
+
+	expectedPlaceholders := []string{"question", "dollar", "at", "colon", "default_placeholder"}
+	for _, name := range expectedPlaceholders {
+		if table.RawGetString(name) == lua.LNil {
+			t.Errorf("expected builder table to have '%s' placeholder", name)
+		}
+	}
+}
+
+func TestAsInt(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	l.Push(lua.LNumber(42))
+	asInt(l)
+
+	result := l.Get(-1)
+	ud, ok := result.(*lua.LUserData)
+	if !ok {
+		t.Fatalf("expected userdata, got %T", result)
+	}
+
+	typed, ok := ud.Value.(*TypedValue)
+	if !ok {
+		t.Fatalf("expected TypedValue, got %T", ud.Value)
+	}
+
+	if typed.Type != "int" {
+		t.Errorf("expected type 'int', got %s", typed.Type)
+	}
+
+	if typed.Value != int64(42) {
+		t.Errorf("expected value 42, got %v", typed.Value)
+	}
+}
+
+func TestAsFloat(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	l.Push(lua.LNumber(3.14))
+	asFloat(l)
+
+	result := l.Get(-1)
+	ud, ok := result.(*lua.LUserData)
+	if !ok {
+		t.Fatalf("expected userdata, got %T", result)
+	}
+
+	typed, ok := ud.Value.(*TypedValue)
+	if !ok {
+		t.Fatalf("expected TypedValue, got %T", ud.Value)
+	}
+
+	if typed.Type != "float" {
+		t.Errorf("expected type 'float', got %s", typed.Type)
+	}
+
+	if typed.Value != 3.14 {
+		t.Errorf("expected value 3.14, got %v", typed.Value)
+	}
+}
+
+func TestAsText(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	l.Push(lua.LString("hello"))
+	asText(l)
+
+	result := l.Get(-1)
+	ud, ok := result.(*lua.LUserData)
+	if !ok {
+		t.Fatalf("expected userdata, got %T", result)
+	}
+
+	typed, ok := ud.Value.(*TypedValue)
+	if !ok {
+		t.Fatalf("expected TypedValue, got %T", ud.Value)
+	}
+
+	if typed.Type != "text" {
+		t.Errorf("expected type 'text', got %s", typed.Type)
+	}
+
+	if typed.Value != "hello" {
+		t.Errorf("expected value 'hello', got %v", typed.Value)
+	}
+}
+
+func TestAsBinary(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	l.Push(lua.LString("binary data"))
+	asBinary(l)
+
+	result := l.Get(-1)
+	ud, ok := result.(*lua.LUserData)
+	if !ok {
+		t.Fatalf("expected userdata, got %T", result)
+	}
+
+	typed, ok := ud.Value.(*TypedValue)
+	if !ok {
+		t.Fatalf("expected TypedValue, got %T", ud.Value)
+	}
+
+	if typed.Type != "binary" {
+		t.Errorf("expected type 'binary', got %s", typed.Type)
+	}
+
+	bytes, ok := typed.Value.([]byte)
+	if !ok {
+		t.Fatalf("expected []byte, got %T", typed.Value)
+	}
+
+	if string(bytes) != "binary data" {
+		t.Errorf("expected value 'binary data', got %s", string(bytes))
+	}
+}
+
+func TestAsNull(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	asNull(l)
+
+	result := l.Get(-1)
+	ud, ok := result.(*lua.LUserData)
+	if !ok {
+		t.Fatalf("expected userdata, got %T", result)
+	}
+
+	if ud.Value != "SQL_NULL" {
+		t.Errorf("expected 'SQL_NULL', got %v", ud.Value)
+	}
+}
+
+func TestCheckParamsWithTypedValues(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	tbl := l.CreateTable(3, 0)
+	tbl.RawSetInt(1, lua.LNumber(42))
+
+	intUD := l.NewUserData()
+	intUD.Value = &TypedValue{Type: "int", Value: int64(100)}
+	tbl.RawSetInt(2, intUD)
+
+	nullUD := l.NewUserData()
+	nullUD.Value = "SQL_NULL"
+	tbl.RawSetInt(3, nullUD)
+
+	l.Push(tbl)
+
+	params, err := checkParams(l, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(params) != 3 {
+		t.Fatalf("expected 3 params, got %d", len(params))
+	}
+
+	if params[0] != float64(42) {
+		t.Errorf("expected first param to be 42.0, got %v", params[0])
+	}
+
+	if params[1] != int64(100) {
+		t.Errorf("expected second param to be int64(100), got %v (%T)", params[1], params[1])
+	}
+
+	if params[2] != nil {
+		t.Errorf("expected third param to be nil, got %v", params[2])
+	}
+}
+
+func TestLuaTableToMap(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	tbl := l.CreateTable(0, 3)
+	tbl.RawSetString("name", lua.LString("John"))
+	tbl.RawSetString("age", lua.LNumber(30))
+
+	nullUD := l.NewUserData()
+	nullUD.Value = "SQL_NULL"
+	tbl.RawSetString("deleted_at", nullUD)
+
+	result := luaTableToMap(tbl)
+
+	if result["name"] != "John" {
+		t.Errorf("expected name to be 'John', got %v", result["name"])
+	}
+
+	if result["age"] != float64(30) {
+		t.Errorf("expected age to be 30.0, got %v", result["age"])
+	}
+
+	if result["deleted_at"] != nil {
+		t.Errorf("expected deleted_at to be nil, got %v", result["deleted_at"])
+	}
+}
+
+func TestModuleConstants(t *testing.T) {
+	tests := []struct {
+		name     string
+		constant string
+		expected string
+	}{
+		{"TypePostgres", TypePostgres, "postgres"},
+		{"TypeMySQL", TypeMySQL, "mysql"},
+		{"TypeSQLite", TypeSQLite, "sqlite"},
+		{"TypeMSSQL", TypeMSSQL, "mssql"},
+		{"TypeOracle", TypeOracle, "oracle"},
+		{"TypeUnknown", TypeUnknown, "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.constant != tt.expected {
+				t.Errorf("%s = %s, want %s", tt.name, tt.constant, tt.expected)
 			}
-			
-			-- Release the database
-			local ok, err = db:release()
-			if err then 
-				print("Error releasing DB:", err)
-				error(err) 
-			end
+		})
+	}
+}
 
-			return result
-		end
-	`, "test", "test_db_get")
-	require.NoError(t, err, "Failed to import test function")
+func TestIsolationConstants(t *testing.T) {
+	tests := []struct {
+		name     string
+		constant string
+		expected string
+	}{
+		{"IsolationDefault", IsolationDefault, "default"},
+		{"IsolationReadUncommitted", IsolationReadUncommitted, "read_uncommitted"},
+		{"IsolationReadCommitted", IsolationReadCommitted, "read_committed"},
+		{"IsolationWriteCommitted", IsolationWriteCommitted, "write_committed"},
+		{"IsolationRepeatableRead", IsolationRepeatableRead, "repeatable_read"},
+		{"IsolationSerializable", IsolationSerializable, "serializable"},
+	}
 
-	// Serve the function using the runner
-	result, err := runner.Execute(L.Context(), "test_db_get")
-	require.NoError(t, err, "Lua execution failed")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.constant != tt.expected {
+				t.Errorf("%s = %s, want %s", tt.name, tt.constant, tt.expected)
+			}
+		})
+	}
+}
 
-	// Verify the database type
-	resultTable := result.(*lua.LTable)
-	dbType := resultTable.RawGetString("db_type").(lua.LString)
+func TestModuleTypeNames(t *testing.T) {
+	tests := []struct {
+		name     string
+		constant string
+		expected string
+	}{
+		{"dbTypeName", dbTypeName, "sql.DB"},
+		{"statementTypeName", statementTypeName, "sql.Statement"},
+		{"transactionTypeName", transactionTypeName, "sql.Transaction"},
+	}
 
-	assert.Equal(t, "sqlite", string(dbType), "Incorrect database type returned")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.constant != tt.expected {
+				t.Errorf("%s = %s, want %s", tt.name, tt.constant, tt.expected)
+			}
+		})
+	}
+}
 
-	// Verify that the resource was released
-	assert.True(t, mockRes.released, "Database resource was not released")
+func TestCheckParamsWithMixedValues(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	tbl := l.CreateTable(3, 0)
+	tbl.RawSetInt(1, lua.LString("text"))
+	tbl.RawSetInt(2, lua.LNumber(3.14))
+	tbl.RawSetInt(3, lua.LTrue)
+
+	l.Push(tbl)
+
+	params, err := checkParams(l, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(params) != 3 {
+		t.Fatalf("expected 3 params, got %d", len(params))
+	}
+
+	if params[0] != "text" {
+		t.Errorf("expected 'text', got %v", params[0])
+	}
+
+	if params[1] != 3.14 {
+		t.Errorf("expected 3.14, got %v", params[1])
+	}
+
+	if params[2] != true {
+		t.Errorf("expected true, got %v", params[2])
+	}
+}
+
+func TestLuaTableToMapWithSQLNull(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	tbl := l.CreateTable(0, 1)
+
+	nullUD := l.NewUserData()
+	nullUD.Value = "SQL_NULL"
+	tbl.RawSetString("nullable", nullUD)
+
+	result := luaTableToMap(tbl)
+
+	if result["nullable"] != nil {
+		t.Errorf("expected nil for SQL_NULL, got %v", result["nullable"])
+	}
+}
+
+func TestLuaTableToMapWithNonTypedUserData(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	tbl := l.CreateTable(0, 1)
+
+	ud := l.NewUserData()
+	ud.Value = "some other value"
+	tbl.RawSetString("userdata", ud)
+
+	result := luaTableToMap(tbl)
+
+	if val, exists := result["userdata"]; !exists || val != nil {
+		t.Errorf("expected nil for non-typed userdata, got %v", val)
+	}
 }

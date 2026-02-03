@@ -1,0 +1,87 @@
+version: "1.0"
+namespace: app.test.httpclient
+
+entries:
+  - name: get
+    kind: function.lua
+    meta:
+      type: test
+      suite: httpclient
+      description: HTTP GET request
+    source: file://get.lua
+    method: main
+    modules:
+      - http_client
+      - json
+    imports:
+      assert2: app.lib:assert
+
+  - name: post
+    kind: function.lua
+    meta:
+      type: test
+      suite: httpclient
+      description: HTTP POST request
+    source: file://post.lua
+    method: main
+    modules:
+      - http_client
+      - json
+    imports:
+      assert2: app.lib:assert
+
+  - name: query
+    kind: function.lua
+    meta:
+      type: test
+      suite: httpclient
+      description: HTTP query parameters
+    source: file://query.lua
+    method: main
+    modules:
+      - http_client
+      - json
+    imports:
+      assert2: app.lib:assert
+
+  - name: headers
+    kind: function.lua
+    meta:
+      type: test
+      suite: httpclient
+      description: HTTP custom headers
+    source: file://headers.lua
+    method: main
+    modules:
+      - http_client
+      - json
+    imports:
+      assert2: app.lib:assert
+
+  - name: stream
+    kind: function.lua
+    meta:
+      type: test
+      suite: httpclient
+      description: HTTP streaming response
+    source: file://stream.lua
+    method: main
+    modules:
+      - http_client
+      - stream
+    imports:
+      assert2: app.lib:assert
+
+  - name: sse
+    kind: function.lua
+    meta:
+      type: test
+      suite: httpclient
+      description: Server-Sent Events
+    source: file://sse.lua
+    method: main
+    modules:
+      - http_client
+      - stream
+    imports:
+      assert2: app.lib:assert

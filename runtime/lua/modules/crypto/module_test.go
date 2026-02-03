@@ -1,219 +1,870 @@
 package crypto
 
 import (
-	"context"
 	"testing"
+	"time"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
+	lua "github.com/wippyai/go-lua"
 )
 
-func TestCryptoModuleWithVM(t *testing.T) {
-	logger := zap.NewNop()
+func setTimeGlobals(l *lua.LState) {
+	l.SetGlobal("FUTURE_TIME", lua.LNumber(time.Now().Unix()+3600))
+	l.SetGlobal("PAST_TIME", lua.LNumber(time.Now().Unix()-3600))
+}
 
-	t.Run("module creation and loading", func(t *testing.T) {
-		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+func TestBind(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
 
-		err = vm.DoString(context.Background(), `
-			local crypto = require("crypto")
-			assert(type(crypto) == "table")
-			assert(type(crypto.random) == "table")
-			assert(type(crypto.hmac) == "table")
-			assert(type(crypto.encrypt) == "table")
-			assert(type(crypto.decrypt) == "table")
-			assert(type(crypto.jwt) == "table")
-			assert(type(crypto.pbkdf2) == "function")
-			assert(type(crypto.constant_time_compare) == "function")
-		`, "test")
-		assert.NoError(t, err)
-	})
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
-	t.Run("pbkdf2 function with Serve", func(t *testing.T) {
-		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+	mod := l.GetGlobal("crypto")
+	if mod.Type() != lua.LTTable {
+		t.Fatal("crypto module not registered")
+	}
 
-		script := `
-			local crypto = require("crypto")
-			function test_pbkdf2(password, salt, iterations, key_length, hash_func)
-				local result, err = crypto.pbkdf2(password, salt, iterations, key_length, hash_func)
-				if err then
-					return nil, err
-				end
-				return result
+	modTbl := mod.(*lua.LTable)
+	if modTbl.RawGetString("random").Type() != lua.LTTable {
+		t.Error("random submodule not registered")
+	}
+	if modTbl.RawGetString("encrypt").Type() != lua.LTTable {
+		t.Error("encrypt submodule not registered")
+	}
+	if modTbl.RawGetString("decrypt").Type() != lua.LTTable {
+		t.Error("decrypt submodule not registered")
+	}
+	if modTbl.RawGetString("pbkdf2").Type() != lua.LTFunction {
+		t.Error("pbkdf2 function not registered")
+	}
+	if modTbl.RawGetString("constant_time_compare").Type() != lua.LTFunction {
+		t.Error("constant_time_compare function not registered")
+	}
+}
+
+func TestRandomBytes(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local bytes, err = crypto.random.bytes(16)
+		if not bytes then error(err) end
+		if #bytes ~= 16 then error("expected 16 bytes") end
+	`)
+	if err != nil {
+		t.Errorf("random bytes test failed: %v", err)
+	}
+}
+
+func TestRandomBytesInvalidLength(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local _, err = crypto.random.bytes(0)
+		if err == nil then error("expected error for zero length") end
+
+		_, err = crypto.random.bytes(-1)
+		if err == nil then error("expected error for negative length") end
+	`)
+	if err != nil {
+		t.Errorf("random bytes invalid length test failed: %v", err)
+	}
+}
+
+func TestRandomString(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local str, err = crypto.random.string(16)
+		if not str then error(err) end
+		if #str ~= 16 then error("expected 16 chars") end
+	`)
+	if err != nil {
+		t.Errorf("random string test failed: %v", err)
+	}
+}
+
+func TestRandomStringWithCharset(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local str, err = crypto.random.string(10, "abc")
+		if not str then error(err) end
+		for i = 1, #str do
+			local c = str:sub(i, i)
+			if c ~= "a" and c ~= "b" and c ~= "c" then
+				error("invalid character in result")
 			end
-			return test_pbkdf2
-		`
-		err = vm.Import(script, "test", "test_pbkdf2")
-		require.NoError(t, err)
+		end
+	`)
+	if err != nil {
+		t.Errorf("random string with charset test failed: %v", err)
+	}
+}
 
-		// Test with valid parameters
-		password := "password"
-		salt := "salt"
-		iterations := 1000
-		keyLength := 32
-		hashFunc := "sha256"
+func TestRandomStringEmptyCharset(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
-		result, err := vm.Execute(context.Background(), "test_pbkdf2",
-			lua.LString(password),
-			lua.LString(salt),
-			lua.LNumber(iterations),
-			lua.LNumber(keyLength),
-			lua.LString(hashFunc))
-		require.NoError(t, err)
-		require.NotNil(t, result)
-		assert.Equal(t, lua.LTString, result.Type())
-		assert.Equal(t, keyLength, len([]byte(result.String())))
+	err := l.DoString(`
+		local _, err = crypto.random.string(10, "")
+		if err == nil then error("expected error for empty charset") end
+	`)
+	if err != nil {
+		t.Errorf("random string empty charset test failed: %v", err)
+	}
+}
 
-		// Test with SHA512
-		result, err = vm.Execute(context.Background(), "test_pbkdf2",
-			lua.LString(password),
-			lua.LString(salt),
-			lua.LNumber(iterations),
-			lua.LNumber(keyLength),
-			lua.LString("sha512"))
-		require.NoError(t, err)
-		require.NotNil(t, result)
-		assert.Equal(t, lua.LTString, result.Type())
-		assert.Equal(t, keyLength, len([]byte(result.String())))
-	})
+func TestRandomUUID(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
-	t.Run("pbkdf2 function error cases", func(t *testing.T) {
-		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+	err := l.DoString(`
+		local id, err = crypto.random.uuid()
+		if not id then error(err) end
+		if #id ~= 36 then error("expected 36 char uuid") end
+	`)
+	if err != nil {
+		t.Errorf("random uuid test failed: %v", err)
+	}
+}
 
-		// Test with invalid iterations
-		err = vm.DoString(context.Background(), `
-			local crypto = require("crypto")
-			local password = "password"
-			local salt = "salt"
-			local iterations = -1
-			local key_length = 32
-			local hash_func = "sha256"
-			
-			local result, err = crypto.pbkdf2(password, salt, iterations, key_length, hash_func)
-			assert(result == nil, "Expected result to be nil")
-			assert(err ~= nil, "Expected error")
-			assert(string.find(err, "iterations must be positive"), "Expected error about iterations")
-		`, "test_invalid_iterations")
-		assert.NoError(t, err)
+func TestEncryptDecryptAES(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
-		// Test with invalid key length
-		err = vm.DoString(context.Background(), `
-			local crypto = require("crypto")
-			local password = "password"
-			local salt = "salt"
-			local iterations = 1000
-			local key_length = -1
-			local hash_func = "sha256"
-			
-			local result, err = crypto.pbkdf2(password, salt, iterations, key_length, hash_func)
-			assert(result == nil, "Expected result to be nil")
-			assert(err ~= nil, "Expected error")
-			assert(string.find(err, "key length must be positive"), "Expected error about key length")
-		`, "test_invalid_key_length")
-		assert.NoError(t, err)
+	err := l.DoString(`
+		local key = string.rep("a", 32)
+		local plaintext = "Hello, World!"
 
-		// Test with empty password
-		err = vm.DoString(context.Background(), `
-			local crypto = require("crypto")
-			local password = ""
-			local salt = "salt"
-			local iterations = 1000
-			local key_length = 32
-			local hash_func = "sha256"
-			
-			local result, err = crypto.pbkdf2(password, salt, iterations, key_length, hash_func)
-			assert(result == nil, "Expected result to be nil")
-			assert(err ~= nil, "Expected error")
-			assert(string.find(err, "password cannot be empty"), "Expected error about empty password")
-		`, "test_empty_password")
-		assert.NoError(t, err)
+		local ciphertext, err = crypto.encrypt.aes(plaintext, key)
+		if not ciphertext then error(err) end
 
-		// Test with empty salt
-		err = vm.DoString(context.Background(), `
-			local crypto = require("crypto")
-			local password = "password"
-			local salt = ""
-			local iterations = 1000
-			local key_length = 32
-			local hash_func = "sha256"
-			
-			local result, err = crypto.pbkdf2(password, salt, iterations, key_length, hash_func)
-			assert(result == nil, "Expected result to be nil")
-			assert(err ~= nil, "Expected error")
-			assert(string.find(err, "salt cannot be empty"), "Expected error about empty salt")
-		`, "test_empty_salt")
-		assert.NoError(t, err)
+		local decrypted, err = crypto.decrypt.aes(ciphertext, key)
+		if not decrypted then error(err) end
 
-		// Test with invalid hash function
-		err = vm.DoString(context.Background(), `
-			local crypto = require("crypto")
-			local password = "password"
-			local salt = "salt"
-			local iterations = 1000
-			local key_length = 32
-			local hash_func = "invalid_hash"
-			
-			local result, err = crypto.pbkdf2(password, salt, iterations, key_length, hash_func)
-			assert(result == nil, "Expected result to be nil")
-			assert(err ~= nil, "Expected error")
-			assert(string.find(err, "unsupported hash function"), "Expected error about unsupported hash function")
-		`, "test_invalid_hash")
-		assert.NoError(t, err)
-	})
+		if decrypted ~= plaintext then error("AES round trip failed") end
+	`)
+	if err != nil {
+		t.Errorf("AES encrypt/decrypt test failed: %v", err)
+	}
+}
 
-	t.Run("constant_time_compare function", func(t *testing.T) {
-		mod := NewCryptoModule()
-		vm, err := engine.NewVM(logger, engine.WithLoader(mod.Name(), mod.Loader))
-		require.NoError(t, err)
-		defer vm.Close()
+func TestEncryptDecryptAESWithAAD(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
 
-		script := `
-			local crypto = require("crypto")
-			function test_compare(a, b)
-				return crypto.constant_time_compare(a, b)
-			end
-			return test_compare
-		`
-		err = vm.Import(script, "test", "test_compare")
-		require.NoError(t, err)
+	err := l.DoString(`
+		local key = string.rep("a", 32)
+		local plaintext = "Hello, World!"
+		local aad = "additional data"
 
-		// Test with equal strings
-		result, err := vm.Execute(context.Background(), "test_compare",
-			lua.LString("test"),
-			lua.LString("test"))
-		require.NoError(t, err)
-		assert.Equal(t, lua.LTrue, result)
+		local ciphertext, err = crypto.encrypt.aes(plaintext, key, aad)
+		if not ciphertext then error(err) end
 
-		// Test with different strings of same length
-		result, err = vm.Execute(context.Background(), "test_compare",
-			lua.LString("test"),
-			lua.LString("tess"))
-		require.NoError(t, err)
-		assert.Equal(t, lua.LFalse, result)
+		local decrypted, err = crypto.decrypt.aes(ciphertext, key, aad)
+		if not decrypted then error(err) end
 
-		// Test with different length strings
-		result, err = vm.Execute(context.Background(), "test_compare",
-			lua.LString("test"),
-			lua.LString("testing"))
-		require.NoError(t, err)
-		assert.Equal(t, lua.LFalse, result)
+		if decrypted ~= plaintext then error("AES with AAD round trip failed") end
+	`)
+	if err != nil {
+		t.Errorf("AES with AAD test failed: %v", err)
+	}
+}
 
-		// Test with empty strings
-		result, err = vm.Execute(context.Background(), "test_compare",
-			lua.LString(""),
-			lua.LString(""))
-		require.NoError(t, err)
-		assert.Equal(t, lua.LTrue, result)
-	})
+func TestAESInvalidKeyLength(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local _, err = crypto.encrypt.aes("test", "short")
+		if err == nil then error("expected error for invalid key length") end
+	`)
+	if err != nil {
+		t.Errorf("AES invalid key length test failed: %v", err)
+	}
+}
+
+func TestAESDecryptInvalidData(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local key = string.rep("a", 32)
+		local _, err = crypto.decrypt.aes("short", key)
+		if err == nil then error("expected error for short ciphertext") end
+	`)
+	if err != nil {
+		t.Errorf("AES decrypt invalid data test failed: %v", err)
+	}
+}
+
+func TestEncryptDecryptChaCha20(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local key = string.rep("a", 32)
+		local plaintext = "Hello, World!"
+
+		local ciphertext, err = crypto.encrypt.chacha20(plaintext, key)
+		if not ciphertext then error(err) end
+
+		local decrypted, err = crypto.decrypt.chacha20(ciphertext, key)
+		if not decrypted then error(err) end
+
+		if decrypted ~= plaintext then error("ChaCha20 round trip failed") end
+	`)
+	if err != nil {
+		t.Errorf("ChaCha20 encrypt/decrypt test failed: %v", err)
+	}
+}
+
+func TestChaCha20InvalidKeyLength(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local _, err = crypto.encrypt.chacha20("test", "short")
+		if err == nil then error("expected error for invalid key length") end
+	`)
+	if err != nil {
+		t.Errorf("ChaCha20 invalid key length test failed: %v", err)
+	}
+}
+
+func TestChaCha20DecryptInvalidData(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local key = string.rep("a", 32)
+		local _, err = crypto.decrypt.chacha20("short", key)
+		if err == nil then error("expected error for short ciphertext") end
+	`)
+	if err != nil {
+		t.Errorf("ChaCha20 decrypt invalid data test failed: %v", err)
+	}
+}
+
+func TestPBKDF2(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local key, err = crypto.pbkdf2("password", "salt", 1000, 32)
+		if not key then error(err) end
+		if #key ~= 32 then error("expected 32 byte key") end
+	`)
+	if err != nil {
+		t.Errorf("pbkdf2 test failed: %v", err)
+	}
+}
+
+func TestPBKDF2WithSHA512(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local key, err = crypto.pbkdf2("password", "salt", 1000, 64, "sha512")
+		if not key then error(err) end
+		if #key ~= 64 then error("expected 64 byte key") end
+	`)
+	if err != nil {
+		t.Errorf("pbkdf2 with sha512 test failed: %v", err)
+	}
+}
+
+func TestPBKDF2InvalidHash(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local _, err = crypto.pbkdf2("password", "salt", 1000, 32, "md5")
+		if err == nil then error("expected error for unsupported hash") end
+	`)
+	if err != nil {
+		t.Errorf("pbkdf2 invalid hash test failed: %v", err)
+	}
+}
+
+func TestPBKDF2EmptyPassword(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local _, err = crypto.pbkdf2("", "salt", 1000, 32)
+		if err == nil then error("expected error for empty password") end
+	`)
+	if err != nil {
+		t.Errorf("pbkdf2 empty password test failed: %v", err)
+	}
+}
+
+func TestPBKDF2EmptySalt(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local _, err = crypto.pbkdf2("password", "", 1000, 32)
+		if err == nil then error("expected error for empty salt") end
+	`)
+	if err != nil {
+		t.Errorf("pbkdf2 empty salt test failed: %v", err)
+	}
+}
+
+func TestPBKDF2InvalidIterations(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local _, err = crypto.pbkdf2("password", "salt", 0, 32)
+		if err == nil then error("expected error for zero iterations") end
+	`)
+	if err != nil {
+		t.Errorf("pbkdf2 invalid iterations test failed: %v", err)
+	}
+}
+
+func TestPBKDF2InvalidKeyLength(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local _, err = crypto.pbkdf2("password", "salt", 1000, 0)
+		if err == nil then error("expected error for zero key length") end
+	`)
+	if err != nil {
+		t.Errorf("pbkdf2 invalid key length test failed: %v", err)
+	}
+}
+
+func TestPBKDF2MaxIterations(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local _, err = crypto.pbkdf2("password", "salt", 20000000, 32)
+		if err == nil then error("expected error for excessive iterations") end
+		if not string.find(err, "exceeds maximum") then
+			error("expected 'exceeds maximum' in error: " .. err)
+		end
+	`)
+	if err != nil {
+		t.Errorf("pbkdf2 max iterations test failed: %v", err)
+	}
+}
+
+func TestConstantTimeCompare(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local result = crypto.constant_time_compare("hello", "hello")
+		if not result then error("expected true for equal strings") end
+
+		result = crypto.constant_time_compare("hello", "world")
+		if result then error("expected false for different strings") end
+	`)
+	if err != nil {
+		t.Errorf("constant time compare test failed: %v", err)
+	}
+}
+
+func TestAES128Key(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local key = string.rep("a", 16)
+		local plaintext = "Hello"
+		local ciphertext, err = crypto.encrypt.aes(plaintext, key)
+		if not ciphertext then error(err) end
+		local decrypted, err = crypto.decrypt.aes(ciphertext, key)
+		if decrypted ~= plaintext then error("AES-128 round trip failed") end
+	`)
+	if err != nil {
+		t.Errorf("AES-128 test failed: %v", err)
+	}
+}
+
+func TestAES192Key(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local key = string.rep("a", 24)
+		local plaintext = "Hello"
+		local ciphertext, err = crypto.encrypt.aes(plaintext, key)
+		if not ciphertext then error(err) end
+		local decrypted, err = crypto.decrypt.aes(ciphertext, key)
+		if decrypted ~= plaintext then error("AES-192 round trip failed") end
+	`)
+	if err != nil {
+		t.Errorf("AES-192 test failed: %v", err)
+	}
+}
+
+func TestAESDecryptWrongKey(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local key = string.rep("a", 32)
+		local wrongKey = string.rep("b", 32)
+		local ciphertext, _ = crypto.encrypt.aes("test", key)
+		local _, err = crypto.decrypt.aes(ciphertext, wrongKey)
+		if err == nil then error("expected error for wrong key") end
+	`)
+	if err != nil {
+		t.Errorf("AES wrong key test failed: %v", err)
+	}
+}
+
+func TestChaCha20WithAAD(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local key = string.rep("a", 32)
+		local aad = "additional"
+		local ciphertext, _ = crypto.encrypt.chacha20("test", key, aad)
+		local decrypted, _ = crypto.decrypt.chacha20(ciphertext, key, aad)
+		if decrypted ~= "test" then error("ChaCha20 with AAD failed") end
+	`)
+	if err != nil {
+		t.Errorf("ChaCha20 with AAD test failed: %v", err)
+	}
+}
+
+func TestChaCha20DecryptWrongKey(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local key = string.rep("a", 32)
+		local wrongKey = string.rep("b", 32)
+		local ciphertext, _ = crypto.encrypt.chacha20("test", key)
+		local _, err = crypto.decrypt.chacha20(ciphertext, wrongKey)
+		if err == nil then error("expected error for wrong key") end
+	`)
+	if err != nil {
+		t.Errorf("ChaCha20 wrong key test failed: %v", err)
+	}
+}
+
+func TestRandomStringInvalidLength(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local _, err = crypto.random.string(0)
+		if err == nil then error("expected error for zero length") end
+	`)
+	if err != nil {
+		t.Errorf("random string invalid length test failed: %v", err)
+	}
+}
+
+func TestAESDecryptInvalidKeyLength(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local _, err = crypto.decrypt.aes("data", "short")
+		if err == nil then error("expected error for invalid key length") end
+	`)
+	if err != nil {
+		t.Errorf("AES decrypt invalid key test failed: %v", err)
+	}
+}
+
+func TestChaCha20DecryptInvalidKeyLength(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local _, err = crypto.decrypt.chacha20("data", "short")
+		if err == nil then error("expected error for invalid key length") end
+	`)
+	if err != nil {
+		t.Errorf("ChaCha20 decrypt invalid key test failed: %v", err)
+	}
+}
+
+func TestHMACSubmodule(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	mod := l.GetGlobal("crypto").(*lua.LTable)
+	hmacMod := mod.RawGetString("hmac")
+	if hmacMod.Type() != lua.LTTable {
+		t.Fatal("hmac submodule not registered")
+	}
+
+	hmacTbl := hmacMod.(*lua.LTable)
+	if hmacTbl.RawGetString("sha256").Type() != lua.LTFunction {
+		t.Error("hmac.sha256 function not registered")
+	}
+	if hmacTbl.RawGetString("sha512").Type() != lua.LTFunction {
+		t.Error("hmac.sha512 function not registered")
+	}
+}
+
+func TestHMACSha256(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local digest, err = crypto.hmac.sha256("secret", "data")
+		if not digest then error(err) end
+		if #digest ~= 64 then error("expected 64 char hex digest") end
+	`)
+	if err != nil {
+		t.Errorf("HMAC SHA256 test failed: %v", err)
+	}
+}
+
+func TestHMACSha512(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local digest, err = crypto.hmac.sha512("secret", "data")
+		if not digest then error(err) end
+		if #digest ~= 128 then error("expected 128 char hex digest") end
+	`)
+	if err != nil {
+		t.Errorf("HMAC SHA512 test failed: %v", err)
+	}
+}
+
+func TestHMACEmptyKey(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local _, err = crypto.hmac.sha256("", "data")
+		if err == nil then error("expected error for empty key") end
+	`)
+	if err != nil {
+		t.Errorf("HMAC empty key test failed: %v", err)
+	}
+}
+
+func TestHMACEmptyData(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local digest, err = crypto.hmac.sha256("secret", "")
+		if not digest then error(err) end
+	`)
+	if err != nil {
+		t.Errorf("HMAC empty data test failed: %v", err)
+	}
+}
+
+func TestJWTSubmodule(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	mod := l.GetGlobal("crypto").(*lua.LTable)
+	jwtMod := mod.RawGetString("jwt")
+	if jwtMod.Type() != lua.LTTable {
+		t.Fatal("jwt submodule not registered")
+	}
+
+	jwtTbl := jwtMod.(*lua.LTable)
+	if jwtTbl.RawGetString("encode").Type() != lua.LTFunction {
+		t.Error("jwt.encode function not registered")
+	}
+	if jwtTbl.RawGetString("verify").Type() != lua.LTFunction {
+		t.Error("jwt.verify function not registered")
+	}
+}
+
+func TestJWTEncodeVerify(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	setTimeGlobals(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local payload = { sub = "user123", name = "Test User", exp = FUTURE_TIME }
+		local token, err = crypto.jwt.encode(payload, "secret")
+		if not token then error(err) end
+
+		local decoded, err = crypto.jwt.verify(token, "secret")
+		if not decoded then error(err) end
+		if decoded.sub ~= "user123" then error("sub mismatch") end
+		if decoded.name ~= "Test User" then error("name mismatch") end
+	`)
+	if err != nil {
+		t.Errorf("JWT encode/verify test failed: %v", err)
+	}
+}
+
+func TestJWTVerifyInvalidToken(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local _, err = crypto.jwt.verify("invalid.token.here", "secret")
+		if err == nil then error("expected error for invalid token") end
+	`)
+	if err != nil {
+		t.Errorf("JWT invalid token test failed: %v", err)
+	}
+}
+
+func TestJWTVerifyWrongKey(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	setTimeGlobals(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local payload = { sub = "user123", exp = FUTURE_TIME }
+		local token, _ = crypto.jwt.encode(payload, "secret1")
+		local _, err = crypto.jwt.verify(token, "secret2")
+		if err == nil then error("expected error for wrong key") end
+	`)
+	if err != nil {
+		t.Errorf("JWT wrong key test failed: %v", err)
+	}
+}
+
+func TestJWTAlgorithms(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	setTimeGlobals(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local payload = { sub = "test", exp = FUTURE_TIME }
+
+		-- HS256 (default)
+		local t1, e1 = crypto.jwt.encode(payload, "secret")
+		if not t1 then error(e1) end
+		local d1, e1 = crypto.jwt.verify(t1, "secret")
+		if not d1 then error(e1) end
+
+		-- HS384
+		local t2, e2 = crypto.jwt.encode(payload, "secret", "HS384")
+		if not t2 then error(e2) end
+		local d2, e2 = crypto.jwt.verify(t2, "secret", "HS384")
+		if not d2 then error(e2) end
+
+		-- HS512
+		local t3, e3 = crypto.jwt.encode(payload, "secret", "HS512")
+		if not t3 then error(e3) end
+		local d3, e3 = crypto.jwt.verify(t3, "secret", "HS512")
+		if not d3 then error(e3) end
+	`)
+	if err != nil {
+		t.Errorf("JWT algorithms test failed: %v", err)
+	}
+}
+
+// Security hardening tests
+
+func TestRandomBytesMaxSizeLimit(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	// Test that exceeding max size returns error
+	err := l.DoString(`
+		local _, err = crypto.random.bytes(1024 * 1024 + 1)
+		if err == nil then error("expected error for exceeding max size") end
+		if not string.find(tostring(err), "exceeds maximum") then
+			error("expected 'exceeds maximum' in error message")
+		end
+	`)
+	if err != nil {
+		t.Errorf("max size limit test failed: %v", err)
+	}
+
+	// Test that max size exactly works
+	err = l.DoString(`
+		local bytes, err = crypto.random.bytes(1024 * 1024)
+		if not bytes then error(err) end
+		if #bytes ~= 1024 * 1024 then error("expected 1MB bytes") end
+	`)
+	if err != nil {
+		t.Errorf("max size exact test failed: %v", err)
+	}
+}
+
+func TestRandomStringMaxSizeLimit(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	// Test that exceeding max size returns error
+	err := l.DoString(`
+		local _, err = crypto.random.string(1024 * 1024 + 1)
+		if err == nil then error("expected error for exceeding max size") end
+		if not string.find(tostring(err), "exceeds maximum") then
+			error("expected 'exceeds maximum' in error message")
+		end
+	`)
+	if err != nil {
+		t.Errorf("max size limit test failed: %v", err)
+	}
+}
+
+func TestJWTExpirationRequired(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	// Token without exp is rejected by default (secure)
+	// but allowed when requireExp=false (4th param)
+	err := l.DoString(`
+		local payload = { sub = "user123", name = "Test User" }
+		local token, err = crypto.jwt.encode(payload, "secret")
+		if not token then error(err) end
+
+		-- Without exp should fail by default
+		local decoded, err = crypto.jwt.verify(token, "secret")
+		if decoded ~= nil then error("token without exp should be rejected by default") end
+		if err == nil then error("expected error for missing exp") end
+
+		-- But work when requireExp=false
+		local decoded2, err2 = crypto.jwt.verify(token, "secret", "HS256", false)
+		if not decoded2 then error("token should be allowed when requireExp=false: " .. tostring(err2)) end
+	`)
+	if err != nil {
+		t.Errorf("JWT expiration required test failed: %v", err)
+	}
+}
+
+func TestJWTExpiredTokenRejected(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	setTimeGlobals(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	// Expired token should be rejected
+	err := l.DoString(`
+		local payload = { sub = "user123", exp = PAST_TIME }
+		local token, err = crypto.jwt.encode(payload, "secret")
+		if not token then error(err) end
+
+		local decoded, err = crypto.jwt.verify(token, "secret")
+		if decoded ~= nil then error("expected expired token to be rejected") end
+		if err == nil then error("expected error for expired token") end
+	`)
+	if err != nil {
+		t.Errorf("JWT expired token test failed: %v", err)
+	}
+}
+
+func TestJWTRequireExpiration(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	setTimeGlobals(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	// Can require exp with 4th parameter = true
+	err := l.DoString(`
+		local payload = { sub = "user123", exp = FUTURE_TIME }
+		local token, err = crypto.jwt.encode(payload, "secret")
+		if not token then error(err) end
+
+		local decoded, err = crypto.jwt.verify(token, "secret", "HS256", true)
+		if not decoded then error(err) end
+		if decoded.sub ~= "user123" then error("sub mismatch") end
+	`)
+	if err != nil {
+		t.Errorf("JWT require expiration test failed: %v", err)
+	}
 }

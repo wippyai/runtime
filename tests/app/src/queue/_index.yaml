@@ -1,0 +1,42 @@
+version: "1.0"
+namespace: app.queue
+
+entries:
+  # Memory queue driver
+  - name: memory_driver
+    kind: queue.driver.memory
+    meta:
+      comment: In-memory queue driver for testing
+    lifecycle:
+      auto_start: true
+
+  # Test queue using memory driver
+  - name: tasks
+    kind: queue.queue
+    meta:
+      comment: Task processing queue
+    driver: app.queue:memory_driver
+
+  # Consumer function that processes queue messages
+  - name: task_handler
+    kind: function.lua
+    meta:
+      comment: Handles task messages from queue
+    source: file://task_handler.lua
+    method: main
+    modules:
+      - queue
+      - store
+      - logger
+
+  # Consumer that connects queue to handler
+  - name: task_consumer
+    kind: queue.consumer
+    meta:
+      comment: Consumes tasks from queue
+    queue: app.queue:tasks
+    func: app.queue:task_handler
+    concurrency: 2
+    prefetch: 5
+    lifecycle:
+      auto_start: true

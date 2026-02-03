@@ -1,20 +1,24 @@
 package payload
 
 import (
-	"fmt"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/internal/graph"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/internal/graph"
 )
 
-// Transcoder is the global instance of the json service.
+// pathKey is a cache key for transcoding paths (avoids string concatenation)
+type pathKey struct {
+	from, to string
+}
+
+// Transcoder handles payload format conversions using a graph-based routing system.
 type Transcoder struct {
 	graph           *graph.Graph[string, any]
 	transcoders     map[string]map[string]payload.FormatTranscoder
 	unmarshalers    map[string]payload.Unmarshaler
-	unmarshalerPath *sync.Map // thread-safe cache for unmarshaler paths
-	transcodePath   *sync.Map // thread-safe cache for transcoder paths
+	unmarshalerPath *sync.Map // map[string]*graph.Path[string]
+	transcodePath   *sync.Map // map[pathKey]*graph.Path[string]
 }
 
 var globalTranscoder *Transcoder
@@ -42,45 +46,41 @@ func NewTranscoder() *Transcoder {
 // RegisterTranscoder registers a transcoder for a specific format conversion.
 // Expected to be called only during initialization.
 func (t *Transcoder) RegisterTranscoder(from, to payload.Format, weight int, tt payload.FormatTranscoder) {
-	fromStr := string(from)
-	toStr := string(to)
+	t.graph.AddNode(from)
+	t.graph.AddNode(to)
+	t.graph.AddEdge(from, to, weight, nil)
 
-	t.graph.AddNode(fromStr)
-	t.graph.AddNode(toStr)
-	t.graph.AddEdge(fromStr, toStr, weight, nil)
-
-	if _, ok := t.transcoders[fromStr]; !ok {
-		t.transcoders[fromStr] = make(map[string]payload.FormatTranscoder)
+	if _, ok := t.transcoders[from]; !ok {
+		t.transcoders[from] = make(map[string]payload.FormatTranscoder)
 	}
 
-	t.transcoders[fromStr][toStr] = tt
+	t.transcoders[from][to] = tt
 }
 
 // RegisterUnmarshaler registers an unmarshaler from a specific format.
 // Expected to be called only during initialization.
 func (t *Transcoder) RegisterUnmarshaler(from payload.Format, unmarshaler payload.Unmarshaler) {
-	formatStr := string(from)
-	t.graph.AddNode(formatStr)
-	t.unmarshalers[formatStr] = unmarshaler
+	t.graph.AddNode(from)
+	t.unmarshalers[from] = unmarshaler
 }
 
 // getTranscodePath returns the cached path or computes and caches a new path
 func (t *Transcoder) getTranscodePath(from, to string) (*graph.Path[string], error) {
-	cacheKey := fmt.Sprintf("%s:%s", from, to)
+	key := pathKey{from, to}
 
 	// Fast path: check if path is already cached
-	if path, ok := t.transcodePath.Load(cacheKey); ok {
+	if path, ok := t.transcodePath.Load(key); ok {
 		return path.(*graph.Path[string]), nil
 	}
 
 	// Slow path: compute path and cache it
 	path, err := t.graph.ShortestPath(from, to)
 	if err != nil {
-		return nil, fmt.Errorf("no transcoding path found from %s to %s", from, to)
+		return nil, NewNoTranscodingPathError(from, to)
 	}
 
 	// Store computed path in cache
-	t.transcodePath.Store(cacheKey, path)
+	t.transcodePath.Store(key, path)
 	return path, nil
 }
 
@@ -90,10 +90,7 @@ func (t *Transcoder) Transcode(p payload.Payload, to payload.Format) (payload.Pa
 		return p, nil
 	}
 
-	fromStr := string(p.Format())
-	toStr := string(to)
-
-	path, err := t.getTranscodePath(fromStr, toStr)
+	path, err := t.getTranscodePath(p.Format(), to)
 	if err != nil {
 		return nil, err
 	}
@@ -105,13 +102,12 @@ func (t *Transcoder) Transcode(p payload.Payload, to payload.Format) (payload.Pa
 
 		tt, ok := t.transcoders[currentFrom][currentTo]
 		if !ok || tt == nil {
-			return nil, fmt.Errorf("no transcoder registered for %s to %s", currentFrom, currentTo)
+			return nil, NewNoTranscoderError(currentFrom, currentTo)
 		}
 
-		var err error
 		currentPayload, err = tt.Transcode(currentPayload)
 		if err != nil {
-			return nil, fmt.Errorf("error transcoding from %s to %s: %w", currentFrom, currentTo, err)
+			return nil, NewTranscodeError(currentFrom, currentTo, err)
 		}
 	}
 
@@ -140,7 +136,7 @@ func (t *Transcoder) findUnmarshalPath(from string) (*graph.Path[string], error)
 	}
 
 	if unmarshalPath == nil {
-		return nil, fmt.Errorf("no unmarshaling path found for format %s", from)
+		return nil, NewNoUnmarshalPathError(from)
 	}
 
 	// Store computed path in cache
@@ -151,33 +147,28 @@ func (t *Transcoder) findUnmarshalPath(from string) (*graph.Path[string], error)
 // Unmarshal unmarshals a payload into a given struct.
 func (t *Transcoder) Unmarshal(p payload.Payload, v interface{}) error {
 	if p.Format() == "" {
-		return fmt.Errorf("payload format is empty")
+		return payload.ErrEmptyFormat
 	}
 
-	fromStr := string(p.Format())
-
 	// Check if the current format has a direct unmarshaler
-	unmarshaler, ok := t.unmarshalers[fromStr]
+	unmarshaler, ok := t.unmarshalers[p.Format()]
 	if ok {
 		return unmarshaler.Unmarshal(p, v)
 	}
 
-	path, err := t.findUnmarshalPath(fromStr)
+	path, err := t.findUnmarshalPath(p.Format())
 	if err != nil {
 		return err
 	}
 
-	transcodedPayload, err := t.Transcode(p, payload.Format(path.Nodes[len(path.Nodes)-1]))
+	transcodedPayload, err := t.Transcode(p, path.Nodes[len(path.Nodes)-1])
 	if err != nil {
-		return fmt.Errorf("error transcoding payload for unmarshaling: %w", err)
+		return NewUnmarshalTranscodeError(err)
 	}
 
 	unmarshaler, ok = t.unmarshalers[path.Nodes[len(path.Nodes)-1]]
 	if !ok {
-		return fmt.Errorf(
-			"unmarshaler not found for format %s, even though a path was found",
-			path.Nodes[len(path.Nodes)-1],
-		)
+		return NewUnmarshalerNotFoundError(path.Nodes[len(path.Nodes)-1])
 	}
 
 	return unmarshaler.Unmarshal(transcodedPayload, v)

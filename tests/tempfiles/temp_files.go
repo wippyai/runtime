@@ -6,6 +6,8 @@ import (
 	"testing"
 )
 
+// todo: ensure consistently used or removed
+
 // TempDirWithFiles creates a temporary directory with the given file structure and content.
 // It returns the path of the created directory and a cleanup function to remove the
 // directory and all its content when done.

@@ -6,77 +6,242 @@
         </picture>
     </a>
 </p>
-<h1 align="center">Runtime</h1>
+<h1 align="center">Adaptive Runtime</h1>
 <div align="center">
 
-[![Documentation](https://img.shields.io/badge/documentation-0F6640.svg?style=for-the-badge&logo=gitbook)][documentation]
+[![Documentation](https://img.shields.io/badge/docs-wippy.ai-0F6640.svg?style=for-the-badge)][documentation]
+[![Go Version](https://img.shields.io/badge/go-1.25+-00ADD8.svg?style=for-the-badge&logo=go)](#installation)
+[![License](https://img.shields.io/badge/license-MPL%202.0-blue.svg?style=for-the-badge)](LICENSE)
 
 </div>
 
-Wippy Runtime provides a dedicated environment for deploying, managing, and dynamically updating software components, particularly AI agents and system extensions, without disrupting your core infrastructure. It's designed for agility, isolation, control, and continuous evolution.
+Wippy is a process-oriented runtime for building adaptive software systems. It combines Lua 5.3 scripting with Go's performance to create isolated, supervised processes that can be updated without downtime. The entire application state can be exported to a single file for portable deployments.
 
-Think of Wippy as a live, adaptable layer integrated with your systems. It allows specialized components and AI agents to operate, learn, and even modify the system itself—all within defined boundaries—in response to new requirements or observed patterns.
+The architecture enables declarative composition of complex applications that can introspect and modify their own structure at runtime. Designed for AI agents, automation platforms, and systems where components need to evolve based on operational feedback.
 
-## Core Concepts
+## Features
 
-Wippy enables systems that can understand their own structure and adapt over time, while maintaining stability and security. Key concepts include:
+**Process System**
+- Erlang-style supervision trees with configurable restart policies
+- Process isolation with message passing (no shared state)
+- Go-style channels and coroutines for concurrency
+- Pluggable schedulers and dispatchers
+- Process monitoring and linking for failure propagation
+- Location-transparent PIDs across cluster nodes
 
-*   **Isolation:** Components run in lightweight processes, preventing failures from cascading and ensuring security boundaries.
-*   **Dynamic Updates:** Code and configuration can be updated live via a versioned registry, eliminating downtime for many changes.
-*   **Introspection & Adaptation:** The platform and its agents can inspect the system's composition and operational state, enabling automated analysis, optimization recommendations, and self-modification.
-*   **AI-Native Integration:** Built-in features facilitate seamless integration with Large Language Models (LLMs), vector databases, and agentic workflows.
-*   **Governance:** Robust mechanisms control component behavior, resource access (via the Security Layer and Resource Management), and lifecycle (via the Supervision System), ensuring predictable and secure operation even during dynamic updates.
-*   **Concurrency Model:** Utilizes coroutines and Go-inspired channels for efficient, non-blocking concurrency within and between processes.
+**Registry**
+- Versioned component store with transactional updates
+- Hot-reload without service interruption
+- Dependency-aware ordering for safe updates
+- SQLite-backed history with forward/backward traversal
+- Rollback to any previous version
 
-## Architecture Overview
+**Security**
+- Attribute-based access control (ABAC)
+- Expression policies via expr-lang for complex rules
+- Token authentication with HMAC signing
+- Request-scoped actor and policy enforcement
+- Configurable strict mode for security contexts
 
-Wippy's architecture is built on several key pillars:
+**Lua Runtime**
+- 40+ built-in modules for common operations
+- Proto caching for fast script loading
+- Function interceptors (retry, metrics, tracing)
+- Temporal.io workflow and activity integration
+- Contract-based service abstraction
+- Native command execution and Docker containers
 
-*   **Process System:** Manages isolated Lua processes with supervision, message passing, coroutine-based concurrency, and location-transparent addressing.
-*   **Registry System:** A versioned store for all component definitions, configurations, and metadata, enabling transactional updates and history tracking.
-*   **Security Layer:** Enforces fine-grained, policy-based access control across all operations and resources. *Part of the core governance mechanism.*
-*   **Communication Infrastructure:** Supports direct messaging, pub/sub patterns (via channels and events), and integrates natively with HTTP/WebSockets.
-*   **Resource Management:** Provides centralized, controlled access to databases, file systems, external APIs, and caches. *Part of the core governance mechanism.*
+**Networking**
+- HTTP server with dynamic route registration
+- WebSocket client and server support
+- Middleware: CORS, rate limiting, compression, real IP
+- Firewall middleware for endpoint protection
+- SSE and chunked transfer encoding
 
-## Key Features
+**Storage**
+- KV stores with memory and SQL backends
+- SQL databases: Postgres, MySQL, SQLite, MSSQL
+- Message queues with consumer worker pools
+- AWS S3 and cloud storage abstraction
+- Environment variable providers (OS, file, memory, composite)
 
-*   **Dynamic Code Loading:** Hot-swap component implementations without service disruption.
-*   **Lua Runtime Environment:** Leverage a flexible scripting environment with coroutines for concurrency.
-*   **Channel-Based Concurrency:** Utilize Go-like channels for managing concurrent operations and communication between coroutines safely and efficiently.
-*   **HTTP Services:** Define dynamic API endpoints, webhooks, and WebSocket connections.
-*   **AI Integration:** Standardized LLM interfaces, tool management, prompt engineering support, and vector operations.
-*   **Supervision System:** Ensures resilience through automatic process restarts and configurable strategies. *Part of the core governance mechanism.*
-*   **Self-Introspection & Modification:** Enables components to query the runtime state and update themselves or other parts of the system dynamically, within governed limits.
+**Observability**
+- OpenTelemetry traces and metrics
+- Prometheus exporter endpoint
+- Structured logging with Zap
+- Function-level instrumentation
+- HTTP request tracing
 
-## Why Wippy?
+**Clustering**
+- Gossip-based membership discovery
+- Cross-node process messaging via relay
+- Distributed topology tracking
+- Secret-based cluster authentication
 
-Wippy addresses common challenges in modern software development, especially when integrating AI:
+**Extensibility**
+- Pluggable command dispatchers
+- Custom Lua module registration
+- Function interceptor chains
+- Event-driven component lifecycle
+- WebAssembly runtime (planned)
 
-*   **Agility:** Rapidly iterate on AI agents, integrations, or features without complex deployment cycles.
-*   **Isolation & Control:** Safely test experimental features or customer-specific logic without impacting core stability, thanks to strong isolation and governance.
-*   **Maintainability:** Decouple extensions and AI logic from monolithic applications, simplifying updates and reducing technical debt.
-*   **Adaptability:** Build systems capable of self-optimization and evolution driven by AI agents or operational data, operating within secure boundaries.
-*   **Centralized Management:** Unify the control, monitoring, and governance of diverse integrations and extensions.
-*   **Efficient Concurrency:** Manage complex, asynchronous operations reliably using a proven channel-based model.
+## Installation
 
-## Common Use Cases
+```
+git clone https://github.com/wippyai/runtime.git
+cd runtime
+go build -o wippy ./cmd/runner/
+```
 
-*   **AI Agent Platform:** Deploy, manage, and rapidly update multiple specialized AI agents under controlled policies.
-*   **Customer-Specific Customizations:** Implement bespoke logic or integrations for individual tenants in SaaS applications with enforced resource limits.
-*   **Integration Hub:** Create resilient adapters and transformation pipelines between disparate systems with centralized monitoring and security.
-*   **Feature Experimentation:** Safely roll out and test new features to targeted user segments in production, with clear boundaries.
-*   **Multi-Tenant Processing:** Run isolated, customizable data processing logic for different tenants with resource governance.
+## Usage
 
-## Getting Started
+```
+wippy init        # Initialize project with lock file
+wippy install     # Install dependencies from lock file
+wippy update      # Update dependencies to latest versions
+wippy run         # Run application
+wippy replace     # Manage local module overrides
+```
 
-*(Placeholder: Add instructions on installation, basic configuration, and running a simple example)*
+## Cluster Mode
 
-## Contributing
+```
+wippy run --cluster --cluster-name=node1 --cluster-join=seed:7946
+```
 
-*(Placeholder: Add guidelines for contributing to the Wippy Runtime project)*
+## Configuration
+
+Runtime configuration via `.wippy.yaml`:
+
+```yaml
+version: "1.0"
+
+logger:
+  level: info
+  encoding: console
+
+logmanager:
+  stream_to_events: false
+
+security:
+  strict_mode: false
+
+registry:
+  enable_history: true
+  history_type: memory # memory | sqlite | nil
+  history_path: .wippy/registry.db
+
+finder:
+  query_cache_size: 1000
+  regex_cache_size: 100
+
+profiler:
+  enabled: false
+  address: localhost:6060
+
+lua:
+  proto_cache_size: 60000
+  main_cache_size: 10000
+  type_system:
+    enabled: true
+    strict: false
+  cache:
+    enabled: true
+    dir: .wippy/cache/lua
+    mode: readwrite # off | readonly | readwrite
+    compile:
+      enabled: true
+    typecheck:
+      enabled: true
+
+lsp:
+  enabled: false
+  address: 127.0.0.1:7777
+
+otel:
+  enabled: false
+  endpoint: localhost:4318
+  protocol: http/protobuf
+  traces_enabled: true
+  metrics_enabled: false
+  http:
+    enabled: true
+    extract_headers: true
+    inject_headers: true
+  process:
+    enabled: true
+    trace_lifecycle: true
+  interceptor:
+    enabled: true
+    order: 100
+  queue:
+    enabled: true
+  temporal:
+    enabled: false
+
+metrics:
+  interceptor:
+    enabled: false
+  buffer:
+    size: 10000
+
+prometheus:
+  enabled: false
+  address: ":9090"
+
+modules:
+  registry_url: https://hub.wippy.ai
+
+relay:
+  node_name: local
+
+supervisor:
+  host:
+    buffer_size: 1024
+    worker_count: 16
+
+cluster:
+  enabled: false
+  node_name: ""
+  membership:
+    bind_addr: 0.0.0.0
+    bind_port: 7946
+    join: ""
+    secret_file: ""
+    secret: ""
+    advertise: ""
+  internode:
+    bind_addr: 0.0.0.0
+    bind_port: 0
+    auto_port: true
+
+extensions:
+  enabled: true
+  paths: []
+
+override: {}
+
+disable:
+  namespaces: []
+  entries: []
+  meta: {}
+
+shutdown:
+  timeout: 30s
+```
+
+## Requirements
+
+- Go 1.25+
 
 ## License
 
-*(Placeholder: Specify the project's license, e.g., MPL 2.0, MIT)*
+Mozilla Public License 2.0
+
+## Links
+
+- [Documentation][documentation]
+- [Issues](https://github.com/wippyai/runtime/issues)
 
 [documentation]: https://docs.wippy.ai
+

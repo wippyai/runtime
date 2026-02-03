@@ -1,0 +1,55 @@
+version: "1.0"
+namespace: app.test.json
+
+entries:
+  - name: encode
+    kind: function.lua
+    meta:
+      type: test
+      suite: json
+      description: json.encode function
+    source: file://encode.lua
+    method: main
+    modules:
+      - json
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: decode
+    kind: function.lua
+    meta:
+      type: test
+      suite: json
+      description: json.decode function
+    source: file://decode.lua
+    method: main
+    modules:
+      - json
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: validate
+    kind: function.lua
+    meta:
+      type: test
+      suite: json
+      description: json.validate and validate_string functions
+    source: file://validate.lua
+    method: main
+    modules:
+      - json
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: roundtrip
+    kind: function.lua
+    meta:
+      type: test
+      suite: json
+      description: json encode/decode round-trip
+    source: file://roundtrip.lua
+    method: main
+    modules:
+      - json
+    imports:
+      assert_primitives: app.lib:assert

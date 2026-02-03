@@ -1,34 +1,42 @@
 package registry
 
 import (
-	"fmt"
-
-	"github.com/ponyruntime/pony/api/payload"
-	regapi "github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/system/registry/topology"
-	lua "github.com/yuin/gopher-lua"
+	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/payload"
+	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
 )
 
+// makeBuildDelta creates a build_delta function with the given logger
+func makeBuildDelta(log *zap.Logger) lua.LGoFunc {
+	return func(l *lua.LState) int {
+		return buildDelta(l, log)
+	}
+}
+
 // buildDelta creates a changeset for transitioning from one state to another
-func (m *Module) buildDelta(l *lua.LState) int {
-	// Get the "from" entries
+func buildDelta(l *lua.LState, log *zap.Logger) int {
 	fromTable := l.CheckTable(1)
 	if fromTable == nil {
+		err := lua.NewLuaError(l, "from_entries table required").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("from_entries table required"))
+		l.Push(err)
 		return 2
 	}
 
-	// Get the "to" entries
 	toTable := l.CheckTable(2)
 	if toTable == nil {
+		err := lua.NewLuaError(l, "to_entries table required").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("to_entries table required"))
+		l.Push(err)
 		return 2
 	}
 
-	// Convert Lua tables to Go registry.State
 	fromEntries := make(regapi.State, 0)
 	toEntries := make(regapi.State, 0)
 
@@ -37,8 +45,8 @@ func (m *Module) buildDelta(l *lua.LState) int {
 			entry, err := luaTableToEntry(l, entryTable)
 			if err == nil {
 				fromEntries = append(fromEntries, entry)
-			} else {
-				m.log.Debug("error converting entry", zap.Error(err))
+			} else if log != nil {
+				log.Debug("error converting entry", zap.Error(err))
 			}
 		}
 	})
@@ -48,63 +56,63 @@ func (m *Module) buildDelta(l *lua.LState) int {
 			entry, err := luaTableToEntry(l, entryTable)
 			if err == nil {
 				toEntries = append(toEntries, entry)
-			} else {
-				m.log.Debug("error converting entry", zap.Error(err))
+			} else if log != nil {
+				log.Debug("error converting entry", zap.Error(err))
 			}
 		}
 	})
 
 	dtt := payload.GetTranscoder(l.Context())
 	if dtt == nil {
+		err := lua.NewLuaError(l, "transcoder not available").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("transcoder not available"))
+		l.Push(err)
 		return 2
 	}
 
-	// Create state builder
-	// Create state builder with comparison function
-	stateBuilder := topology.NewStateBuilder(m.log, topology.WithCompareFunc(func(a, b regapi.Entry) bool {
-		// Fast check for ID and Kind equality first
+	resolver := regapi.GetResolver(l.Context())
+	stateBuilder := topology.NewStateBuilder(log, resolver, topology.WithCompareFunc(func(a, b regapi.Entry) bool {
 		if a.ID.NS != b.ID.NS || a.ID.Name != b.ID.Name || a.Kind != b.Kind {
 			return false
 		}
 
-		// Unmarshal both entries' Data fields into maps
 		aMap := make(map[string]any)
 		bMap := make(map[string]any)
 
 		if err := dtt.Unmarshal(a.Data, &aMap); err != nil {
-			m.log.Debug("error unmarshaling entry a data", zap.Error(err))
 			return false
 		}
-
 		if err := dtt.Unmarshal(b.Data, &bMap); err != nil {
-			m.log.Debug("error unmarshaling entry b data", zap.Error(err))
 			return false
 		}
 
-		// Compare maps ignoring key order
 		return mapsEqual(aMap, bMap)
 	}))
 
-	// Build delta between states
-	changeSet, err := stateBuilder.BuildDelta(fromEntries, toEntries)
-	if err != nil {
+	changeSet, buildErr := stateBuilder.BuildDelta(fromEntries, toEntries)
+	if buildErr != nil {
+		err := lua.WrapErrorWithLua(l, buildErr, "build delta").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(err)
 		return 2
 	}
 
-	// Convert changeSet to Lua table
-	resultTable := l.NewTable()
+	resultTable := l.CreateTable(len(changeSet), 0)
 	for i, op := range changeSet {
-		opTable := l.NewTable()
+		opTable := l.CreateTable(0, 2)
 		opTable.RawSetString("kind", lua.LString(op.Kind))
 
-		entryTable, err := entryToLuaTable(l, op.Entry)
-		if err != nil {
+		entryTable, convErr := entryToLuaTable(l, op.Entry)
+		if convErr != nil {
+			err := lua.WrapErrorWithLua(l, convErr, "convert entry").
+				WithKind(lua.Internal).
+				WithRetryable(false)
 			l.Push(lua.LNil)
-			l.Push(lua.LString(fmt.Sprintf("failed to convert entry: %v", err)))
+			l.Push(err)
 			return 2
 		}
 

@@ -1,187 +1,266 @@
 package process
 
 import (
-	contextbase "context"
 	"strings"
 
-	"github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	secapi "github.com/ponyruntime/pony/api/security"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	"github.com/ponyruntime/pony/runtime/lua/security"
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
-	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
+	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	secapi "github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/security"
 )
 
-// WithContext represents a process spawner with context values
-type WithContext struct {
-	module *Module
-	values *context.Contexter[any]
+const spawnerTypeName = "process.Spawner"
 
-	// Dedicated fields for security context to prevent overwriting/conflicting with user values
+// Spawner represents a process spawner with context values
+type Spawner struct {
 	actor    secapi.Actor
-	hasActor bool
 	scope    secapi.Scope
+	values   ctxapi.Values
+	name     string
+	messages []*relay.Message
+	hasActor bool
 	hasScope bool
 }
 
-// withContext creates a new process spawner with context values
-func (m *Module) withContext(l *lua.LState) int {
-	// Check if this is a chained call on an existing WithContext
-	if l.GetTop() >= 1 && l.Get(1).Type() == lua.LTUserData {
-		ud := l.CheckUserData(1)
-		spawner, ok := ud.Value.(*WithContext)
-		if !ok {
-			l.ArgError(1, "process spawner expected")
-			return 0
-		}
+func init() {
+	value.RegisterTypeMethods(nil, spawnerTypeName, nil, map[string]lua.LGoFunc{
+		"with_context":           spawnerWithContext,
+		"with_actor":             spawnerWithActor,
+		"with_scope":             spawnerWithScope,
+		"with_name":              spawnerWithName,
+		"with_message":           spawnerWithMessage,
+		"spawn":                  spawnerSpawn,
+		"spawn_monitored":        spawnerSpawnMonitored,
+		"spawn_linked":           spawnerSpawnLinked,
+		"spawn_linked_monitored": spawnerSpawnLinkedMonitored,
+	})
+}
 
-		// Add security check for custom application context
-		if !security.IsAllowed(l.Context(), "process.context", "context", nil) {
-			l.RaiseError("not allowed to spawn processes with custom context")
-			return 0
-		}
+// spawnerNew creates a new process spawner (process.with_context)
+func spawnerNew(l *lua.LState) int {
+	ctx := l.Context()
 
-		// Check context table from second argument
-		ctxTable := l.CheckTable(2)
-
-		// Check for security-related keys before proceeding
-		hasSecurity := false
-		ctxTable.ForEach(func(k, _ lua.LValue) {
-			if hasSecurity {
-				return
-			}
-
-			key, ok := k.(lua.LString)
-			if !ok {
-				return
-			}
-
-			keyStr := string(key)
-			if strings.HasPrefix(keyStr, "security.") ||
-				keyStr == "security.actor" ||
-				keyStr == "security.scope" {
-				hasSecurity = true
-			}
-		})
-
-		// If attempting to set security context, verify permission
-		if hasSecurity && !security.IsAllowed(l.Context(), "process.security", "security", nil) {
-			l.RaiseError("not allowed to spawn processes with custom security context")
-			return 0
-		}
-
-		// Create new contexter and copy existing values
-		newValues := context.NewContexter[any]()
-		if spawner.values != nil {
-			spawner.values.Iterate(func(key string, value any) {
-				newValues.SetValue(key, value)
-			})
-		}
-
-		// Add new values from table
-		ctxTable.ForEach(func(k, v lua.LValue) {
-			key, ok := k.(lua.LString)
-			if !ok {
-				l.ArgError(2, "context keys must be strings")
-				return
-			}
-
-			newValues.SetValue(string(key), luaconv.ToGoAny(v))
-		})
-
-		// Create new spawner with merged context, preserving security context
-		newSpawner := &WithContext{
-			module:   m,
-			values:   newValues,
-			actor:    spawner.actor,
-			hasActor: spawner.hasActor,
-			scope:    spawner.scope,
-			hasScope: spawner.hasScope,
-		}
-
-		// Create userdata with the new spawner
-		newUd := l.NewUserData()
-		newUd.Value = newSpawner
-		newUd.Metatable = value.GetTypeMetatable(l, "process.WithContext")
-		l.Push(newUd)
-		return 1
+	self, ok := runtime.GetFramePID(ctx)
+	if !ok {
+		l.RaiseError("no PID found in frame context")
+		return 0
 	}
 
-	// Add security check for custom application context
-	if !security.IsAllowed(l.Context(), "process.context", "context", nil) {
+	secAttrs := map[string]any{"pid": self.String()}
+
+	if !security.IsAllowed(ctx, "process.context", "context", secAttrs) {
 		l.RaiseError("not allowed to spawn processes with custom context")
 		return 0
 	}
 
-	// First call - create a new contexter
-	values := context.NewContexter[any]()
-
-	// check existing
-	if ctxr, ok := l.Context().Value(context.ValuesCtx).(*context.Contexter[any]); ok {
-		values = ctxr.Clone()
+	values := ctxapi.GetValues(ctx)
+	if values != nil {
+		values = values.Clone().(ctxapi.Values)
+	} else {
+		values = ctxapi.NewValues()
 	}
 
-	// Get context table from first argument
 	ctxTable := l.CheckTable(1)
-
-	// All context values are now allowed as we have dedicated methods for security context
-
-	// Add values from table
 	ctxTable.ForEach(func(k, v lua.LValue) {
 		key, ok := k.(lua.LString)
 		if !ok {
 			l.ArgError(1, "context keys must be strings")
 			return
 		}
-
-		values.SetValue(string(key), luaconv.ToGoAny(v))
+		values.Set(string(key), value.ToGoAny(v))
 	})
 
-	// Create new spawner with context
-	spawner := &WithContext{
-		module:   m,
-		values:   values,
-		hasActor: false,
-		hasScope: false,
+	var actor secapi.Actor
+	var scope secapi.Scope
+	hasActor := false
+	hasScope := false
+
+	if a, ok := secapi.GetActor(ctx); ok {
+		actor = a
+		hasActor = true
+	}
+	if s, ok := secapi.GetScope(ctx); ok {
+		scope = s
+		hasScope = true
 	}
 
-	// Create userdata with metatable for method chaining
-	ud := l.NewUserData()
-	ud.Value = spawner
-	ud.Metatable = value.GetTypeMetatable(l, "process.WithContext")
+	spawner := &Spawner{
+		values:   values,
+		actor:    actor,
+		hasActor: hasActor,
+		scope:    scope,
+		hasScope: hasScope,
+	}
 
-	l.Push(ud)
+	value.PushTypedUserData(l, spawner, spawnerTypeName)
 	return 1
 }
 
-// withActor creates a new process spawner with a specific actor
-func (m *Module) withActor(l *lua.LState) int {
-	// Check if this is a chained call on an existing WithContext
+// spawnerWithName sets the process name for spawn-or-signal
+func spawnerWithName(l *lua.LState) int {
 	ud := l.CheckUserData(1)
-	spawner, ok := ud.Value.(*WithContext)
+	spawner, ok := ud.Value.(*Spawner)
 	if !ok {
-		l.ArgError(1, "process spawner expected")
+		l.ArgError(1, "Spawner expected")
 		return 0
 	}
 
-	// Add security check for custom security context
-	if !security.IsAllowed(l.Context(), "process.security", "security", nil) {
+	name := l.CheckString(2)
+	if name == "" {
+		l.ArgError(2, "name cannot be empty")
+		return 0
+	}
+
+	newSpawner := &Spawner{
+		values:   spawner.values,
+		actor:    spawner.actor,
+		hasActor: spawner.hasActor,
+		scope:    spawner.scope,
+		hasScope: spawner.hasScope,
+		name:     name,
+		messages: spawner.messages,
+	}
+
+	value.PushTypedUserData(l, newSpawner, spawnerTypeName)
+	return 1
+}
+
+// spawnerWithMessage adds a message to be sent after spawn (or to existing process if name taken)
+func spawnerWithMessage(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	spawner, ok := ud.Value.(*Spawner)
+	if !ok {
+		l.ArgError(1, "Spawner expected")
+		return 0
+	}
+
+	topic := l.CheckString(2)
+	if strings.HasPrefix(topic, "@") {
+		l.ArgError(2, "cannot send to @ topics")
+		return 0
+	}
+
+	var payloads payload.Payloads
+	for i := 3; i <= l.GetTop(); i++ {
+		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
+	}
+
+	msg := relay.AcquireMessage()
+	msg.Topic = topic
+	msg.Payloads = payloads
+
+	newMessages := make([]*relay.Message, len(spawner.messages)+1)
+	copy(newMessages, spawner.messages)
+	newMessages[len(spawner.messages)] = msg
+
+	newSpawner := &Spawner{
+		values:   spawner.values,
+		actor:    spawner.actor,
+		hasActor: spawner.hasActor,
+		scope:    spawner.scope,
+		hasScope: spawner.hasScope,
+		name:     spawner.name,
+		messages: newMessages,
+	}
+
+	value.PushTypedUserData(l, newSpawner, spawnerTypeName)
+	return 1
+}
+
+// spawnerWithContext adds context values to the spawner
+func spawnerWithContext(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	spawner, ok := ud.Value.(*Spawner)
+	if !ok {
+		l.ArgError(1, "Spawner expected")
+		return 0
+	}
+
+	ctx := l.Context()
+
+	self, ok := runtime.GetFramePID(ctx)
+	if !ok {
+		l.RaiseError("no PID found in frame context")
+		return 0
+	}
+
+	secAttrs := map[string]any{"pid": self.String()}
+
+	if !security.IsAllowed(ctx, "process.context", "context", secAttrs) {
+		l.RaiseError("not allowed to spawn processes with custom context")
+		return 0
+	}
+
+	ctxTable := l.CheckTable(2)
+
+	if (spawner.hasScope || spawner.hasActor) && !security.IsAllowed(ctx, "process.security", "security", secAttrs) {
 		l.RaiseError("not allowed to spawn processes with custom security context")
 		return 0
 	}
 
-	// Check if we're setting actor
-	if l.Get(2).Type() == lua.LTNil {
-		l.ArgError(2, "actor cannot be nil - security context cannot be removed")
+	newValues := ctxapi.NewValues()
+	if spawner.values != nil {
+		spawner.values.Iterate(func(key string, val any) {
+			newValues.Set(key, val)
+		})
+	}
+
+	ctxTable.ForEach(func(k, v lua.LValue) {
+		if key, ok := k.(lua.LString); ok {
+			newValues.Set(string(key), value.ToGoAny(v))
+		}
+	})
+
+	newSpawner := &Spawner{
+		values:   newValues,
+		actor:    spawner.actor,
+		hasActor: spawner.hasActor,
+		scope:    spawner.scope,
+		hasScope: spawner.hasScope,
+		name:     spawner.name,
+		messages: spawner.messages,
+	}
+
+	value.PushTypedUserData(l, newSpawner, spawnerTypeName)
+	return 1
+}
+
+// spawnerWithActor sets the actor on the spawner
+func spawnerWithActor(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	spawner, ok := ud.Value.(*Spawner)
+	if !ok {
+		l.ArgError(1, "Spawner expected")
 		return 0
 	}
 
-	// Get actor
+	ctx := l.Context()
+
+	self, ok := runtime.GetFramePID(ctx)
+	if !ok {
+		l.RaiseError("no PID found in frame context")
+		return 0
+	}
+
+	secAttrs := map[string]any{"pid": self.String()}
+
+	if !security.IsAllowed(ctx, "process.security", "security", secAttrs) {
+		l.RaiseError("not allowed to spawn processes with custom security context")
+		return 0
+	}
+
+	if l.Get(2).Type() == lua.LTNil {
+		l.ArgError(2, "actor cannot be nil")
+		return 0
+	}
+
 	actorUD := l.CheckUserData(2)
 	actor, ok := actorUD.Value.(secapi.Actor)
 	if !ok {
@@ -189,48 +268,49 @@ func (m *Module) withActor(l *lua.LState) int {
 		return 0
 	}
 
-	// Create new spawner with copied values and new actor
-	newSpawner := &WithContext{
-		module:   spawner.module,
-		values:   spawner.values.Clone(), // Clone the values
+	newSpawner := &Spawner{
+		values:   spawner.values,
 		actor:    actor,
 		hasActor: true,
 		scope:    spawner.scope,
 		hasScope: spawner.hasScope,
+		name:     spawner.name,
+		messages: spawner.messages,
 	}
 
-	// Create userdata with the new spawner
-	newUd := l.NewUserData()
-	newUd.Value = newSpawner
-	newUd.Metatable = value.GetTypeMetatable(l, "process.WithContext")
-	l.Push(newUd)
-
+	value.PushTypedUserData(l, newSpawner, spawnerTypeName)
 	return 1
 }
 
-// withScope creates a new process spawner with a specific scope
-func (m *Module) withScope(l *lua.LState) int {
-	// Check if this is a chained call on an existing WithContext
+// spawnerWithScope sets the scope on the spawner
+func spawnerWithScope(l *lua.LState) int {
 	ud := l.CheckUserData(1)
-	spawner, ok := ud.Value.(*WithContext)
+	spawner, ok := ud.Value.(*Spawner)
 	if !ok {
-		l.ArgError(1, "process spawner expected")
+		l.ArgError(1, "Spawner expected")
 		return 0
 	}
 
-	// Add security check for custom security context
-	if !security.IsAllowed(l.Context(), "process.security", "security", nil) {
+	ctx := l.Context()
+
+	self, ok := runtime.GetFramePID(ctx)
+	if !ok {
+		l.RaiseError("no PID found in frame context")
+		return 0
+	}
+
+	secAttrs := map[string]any{"pid": self.String()}
+
+	if !security.IsAllowed(ctx, "process.security", "security", secAttrs) {
 		l.RaiseError("not allowed to spawn processes with custom security context")
 		return 0
 	}
 
-	// Check if we're setting scope
 	if l.Get(2).Type() == lua.LTNil {
-		l.ArgError(2, "scope cannot be nil - security context cannot be removed")
+		l.ArgError(2, "scope cannot be nil")
 		return 0
 	}
 
-	// Get scope
 	scopeUD := l.CheckUserData(2)
 	scope, ok := scopeUD.Value.(secapi.Scope)
 	if !ok {
@@ -238,60 +318,52 @@ func (m *Module) withScope(l *lua.LState) int {
 		return 0
 	}
 
-	// Create new spawner with copied values and new scope
-	newSpawner := &WithContext{
-		module:   spawner.module,
-		values:   spawner.values.Clone(), // Clone the values
+	newSpawner := &Spawner{
+		values:   spawner.values,
 		actor:    spawner.actor,
 		hasActor: spawner.hasActor,
 		scope:    scope,
 		hasScope: true,
+		name:     spawner.name,
+		messages: spawner.messages,
 	}
 
-	// Create userdata with the new spawner
-	newUd := l.NewUserData()
-	newUd.Value = newSpawner
-	newUd.Metatable = value.GetTypeMetatable(l, "process.WithContext")
-	l.Push(newUd)
-
+	value.PushTypedUserData(l, newSpawner, spawnerTypeName)
 	return 1
 }
 
-// applyContextToProcess applies context values from a Contexter to a process context
-func applyContextToProcess(ctx contextbase.Context, spawner *WithContext) contextbase.Context {
+// buildSpawnerContext builds context.Pair slice from Spawner
+func buildSpawnerContext(spawner *Spawner) []ctxapi.Pair {
 	if spawner == nil {
-		return ctx
+		return nil
 	}
 
-	// Apply regular context values
-	if spawner.values != nil && spawner.values.Len() > 0 {
-		ctx = contextbase.WithValue(ctx, context.ValuesCtx, spawner.values)
-	}
+	var pairs []ctxapi.Pair
 
-	// Apply actor if set
 	if spawner.hasActor {
-		ctx = secapi.WithActor(ctx, spawner.actor)
+		pairs = append(pairs, secapi.ActorPair(spawner.actor))
 	}
 
-	// Apply scope if set
 	if spawner.hasScope {
-		ctx = secapi.WithScope(ctx, spawner.scope)
+		pairs = append(pairs, secapi.ScopePair(spawner.scope))
 	}
 
-	return ctx
+	if spawner.values != nil && spawner.values.Len() > 0 {
+		pairs = append(pairs, ctxapi.ValuesPair(spawner.values))
+	}
+
+	return pairs
 }
 
-// contextSpawn spawns a process with context values
-func (m *Module) contextSpawn(l *lua.LState) int {
-	// Get spawner from userdata
+// doSpawnerSpawn is the common implementation for all spawner spawn variants
+func doSpawnerSpawn(l *lua.LState, monitored, linked bool) int {
 	ud := l.CheckUserData(1)
-	spawner, ok := ud.Value.(*WithContext)
+	spawner, ok := ud.Value.(*Spawner)
 	if !ok {
-		l.ArgError(1, "process spawner expected")
+		l.ArgError(1, "Spawner expected")
 		return 0
 	}
 
-	// Get arguments
 	if l.GetTop() < 3 {
 		l.RaiseError("spawn requires at least id and host arguments")
 		return 0
@@ -300,353 +372,60 @@ func (m *Module) contextSpawn(l *lua.LState) int {
 	id := l.CheckString(2)
 	hostID := l.CheckString(3)
 
-	// Add security check for spawning processes
-	if !security.IsAllowed(l.Context(), "process.spawn", id, nil) {
-		l.RaiseError("not allowed to spawn process: %s", id)
-		return 0
-	}
-
-	// Get context and PID
 	ctx := l.Context()
-	self, ok := pubsub.GetPID(ctx)
+
+	self, ok := runtime.GetFramePID(ctx)
 	if !ok {
-		l.RaiseError("no PID found in context")
+		l.RaiseError("no PID found in frame context")
 		return 0
 	}
 
-	// Apply context values using the updated function
-	ctx = applyContextToProcess(ctx, spawner)
+	secAttrs := map[string]any{"pid": self.String()}
 
-	// Get process manager
-	manager := process.GetProcesses(ctx)
-	if manager == nil {
-		l.RaiseError("no process manager found")
-		return 0
-	}
-
-	// Create payloads from remaining args
-	var payloads payload.Payloads
-	for i := 4; i <= l.GetTop(); i++ {
-		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
-	}
-
-	// Create start configuration
-	start := &process.Start{
-		HostID: hostID,
-		Source: registry.ParseID(id),
-		Input:  payloads,
-		Lifecycle: process.Lifecycle{
-			Parent:  self,
-			Monitor: false,
-			Link:    false,
-		},
-	}
-
-	// Start the process with our context
-	pid, err := manager.Start(ctx, start)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	// Log the operation
-	spawner.module.log.Debug("process spawned with context",
-		zap.String("from", self.String()),
-		zap.String("pid", pid.String()),
-		zap.String("host", hostID),
-		zap.String("process", id),
-		zap.Int("num_args", len(payloads)),
-	)
-
-	// Return PID string
-	l.Push(lua.LString(pid.String()))
-	return 1
-}
-
-// contextSpawnMonitored spawns a monitored process with context
-func (m *Module) contextSpawnMonitored(l *lua.LState) int {
-	// Get spawner from userdata
-	ud := l.CheckUserData(1)
-	spawner, ok := ud.Value.(*WithContext)
-	if !ok {
-		l.ArgError(1, "process spawner expected")
-		return 0
-	}
-
-	// Get arguments
-	if l.GetTop() < 3 {
-		l.RaiseError("spawn_monitored requires at least id and host arguments")
-		return 0
-	}
-
-	id := l.CheckString(2)
-	hostID := l.CheckString(3)
-
-	// Add security check for spawning processes
-	if !security.IsAllowed(l.Context(), "process.spawn", id, nil) {
+	if !security.IsAllowed(ctx, "process.spawn", id, secAttrs) {
 		l.RaiseError("not allowed to spawn process: %s", id)
 		return 0
 	}
 
-	// Add security check for monitoring
-	if !security.IsAllowed(l.Context(), "process.spawn.monitored", id, nil) {
+	if monitored && !security.IsAllowed(ctx, "process.spawn.monitored", id, secAttrs) {
 		l.RaiseError("not allowed to spawn monitored process: %s", id)
 		return 0
 	}
 
-	// Get context and PID
-	ctx := l.Context()
-	self, ok := pubsub.GetPID(ctx)
-	if !ok {
-		l.RaiseError("no PID found in context")
-		return 0
-	}
-
-	// Apply context values using the updated function
-	ctx = applyContextToProcess(ctx, spawner)
-
-	// Get process manager
-	manager := process.GetProcesses(ctx)
-	if manager == nil {
-		l.RaiseError("no process manager found")
-		return 0
-	}
-
-	// Create payloads from remaining args
-	var payloads payload.Payloads
-	for i := 4; i <= l.GetTop(); i++ {
-		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
-	}
-
-	// Create start configuration with monitoring
-	start := &process.Start{
-		HostID: hostID,
-		Source: registry.ParseID(id),
-		Input:  payloads,
-		Lifecycle: process.Lifecycle{
-			Parent:  self,
-			Monitor: true,
-			Link:    false,
-		},
-	}
-
-	// Start the process with monitoring
-	pid, err := manager.Start(ctx, start)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	// Log the operation
-	spawner.module.log.Debug("process spawned with context and monitoring",
-		zap.String("from", self.String()),
-		zap.String("pid", pid.String()),
-		zap.String("host", hostID),
-		zap.String("process", id),
-		zap.Int("num_args", len(payloads)),
-	)
-
-	// Return PID string
-	l.Push(lua.LString(pid.String()))
-	return 1
-}
-
-// contextSpawnLinked spawns a linked process with context
-func (m *Module) contextSpawnLinked(l *lua.LState) int {
-	// Get spawner from userdata
-	ud := l.CheckUserData(1)
-	spawner, ok := ud.Value.(*WithContext)
-	if !ok {
-		l.ArgError(1, "process spawner expected")
-		return 0
-	}
-
-	// Get arguments
-	if l.GetTop() < 3 {
-		l.RaiseError("spawn_linked requires at least id and host arguments")
-		return 0
-	}
-
-	id := l.CheckString(2)
-	hostID := l.CheckString(3)
-
-	// Add security check for spawning processes
-	if !security.IsAllowed(l.Context(), "process.spawn", id, nil) {
-		l.RaiseError("not allowed to spawn process: %s", id)
-		return 0
-	}
-
-	// Add security check for linking
-	if !security.IsAllowed(l.Context(), "process.spawn.linked", id, nil) {
+	if linked && !security.IsAllowed(ctx, "process.spawn.linked", id, secAttrs) {
 		l.RaiseError("not allowed to spawn linked process: %s", id)
 		return 0
 	}
 
-	// Get context and PID
-	ctx := l.Context()
-	self, ok := pubsub.GetPID(ctx)
-	if !ok {
-		l.RaiseError("no PID found in context")
-		return 0
-	}
-
-	// Apply context values using the updated function
-	ctx = applyContextToProcess(ctx, spawner)
-
-	// Get process manager
-	manager := process.GetProcesses(ctx)
-	if manager == nil {
-		l.RaiseError("no process manager found")
-		return 0
-	}
-
-	// Create payloads from remaining args
 	var payloads payload.Payloads
 	for i := 4; i <= l.GetTop(); i++ {
 		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
 	}
 
-	// Create start configuration with linking
-	start := &process.Start{
-		HostID: hostID,
-		Source: registry.ParseID(id),
-		Input:  payloads,
-		Lifecycle: process.Lifecycle{
-			Parent:  self,
-			Monitor: false,
-			Link:    true,
-		},
+	options := attrs.NewBag()
+	options.Set(process.LifecycleParentKey, self)
+	if spawner.name != "" {
+		options.Set(process.LifecycleNameKey, spawner.name)
 	}
 
-	// Start the process with linking
-	pid, err := manager.Start(ctx, start)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+	yield := AcquireSpawnYield()
+	yield.Start = &process.Start{
+		HostID:   hostID,
+		Source:   registry.ParseID(id),
+		Input:    payloads,
+		Context:  buildSpawnerContext(spawner),
+		Options:  options,
+		Name:     spawner.name,
+		Messages: spawner.messages,
 	}
+	yield.Monitor = monitored
+	yield.Link = linked
 
-	// Log the operation
-	spawner.module.log.Debug("process spawned with context and linking",
-		zap.String("from", self.String()),
-		zap.String("pid", pid.String()),
-		zap.String("host", hostID),
-		zap.String("process", id),
-		zap.Int("num_args", len(payloads)),
-	)
-
-	// Return PID string
-	l.Push(lua.LString(pid.String()))
-	return 1
+	l.Push(yield)
+	return -1
 }
 
-// contextSpawnLinkedMonitored spawns a linked and monitored process with context
-func (m *Module) contextSpawnLinkedMonitored(l *lua.LState) int {
-	// Get spawner from userdata
-	ud := l.CheckUserData(1)
-	spawner, ok := ud.Value.(*WithContext)
-	if !ok {
-		l.ArgError(1, "process spawner expected")
-		return 0
-	}
-
-	// Get arguments
-	if l.GetTop() < 3 {
-		l.RaiseError("spawn_linked_monitored requires at least id and host arguments")
-		return 0
-	}
-
-	id := l.CheckString(2)
-	hostID := l.CheckString(3)
-
-	// Add security check for spawning processes
-	if !security.IsAllowed(l.Context(), "process.spawn", id, nil) {
-		l.RaiseError("not allowed to spawn process: %s", id)
-		return 0
-	}
-
-	// Add security check for monitoring
-	if !security.IsAllowed(l.Context(), "process.spawn.monitored", id, nil) {
-		l.RaiseError("not allowed to spawn monitored process: %s", id)
-		return 0
-	}
-
-	// Add security check for linking
-	if !security.IsAllowed(l.Context(), "process.spawn.linked", id, nil) {
-		l.RaiseError("not allowed to spawn linked process: %s", id)
-		return 0
-	}
-
-	// Get context and PID
-	ctx := l.Context()
-	self, ok := pubsub.GetPID(ctx)
-	if !ok {
-		l.RaiseError("no PID found in context")
-		return 0
-	}
-
-	// Apply context values using the updated function
-	ctx = applyContextToProcess(ctx, spawner)
-
-	// Get process manager
-	manager := process.GetProcesses(ctx)
-	if manager == nil {
-		l.RaiseError("no process manager found")
-		return 0
-	}
-
-	// Create payloads from remaining args
-	var payloads payload.Payloads
-	for i := 4; i <= l.GetTop(); i++ {
-		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
-	}
-
-	// Create start configuration with both linking and monitoring
-	start := &process.Start{
-		HostID: hostID,
-		Source: registry.ParseID(id),
-		Input:  payloads,
-		Lifecycle: process.Lifecycle{
-			Parent:  self,
-			Monitor: true,
-			Link:    true,
-		},
-	}
-
-	// Start the process with linking and monitoring
-	pid, err := manager.Start(ctx, start)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	// Log the operation
-	spawner.module.log.Debug("process spawned with context, linking and monitoring",
-		zap.String("from", self.String()),
-		zap.String("pid", pid.String()),
-		zap.String("host", hostID),
-		zap.String("process", id),
-		zap.Int("num_args", len(payloads)),
-	)
-
-	// Return PID string
-	l.Push(lua.LString(pid.String()))
-	return 1
-}
-
-// registerContextType registers the WithContext type and its methods
-func (m *Module) registerContextType(l *lua.LState) {
-	// Register WithContext type
-	value.RegisterTypeMethods(l, "process.WithContext", nil, map[string]lua.LGFunction{
-		"with_context":           m.withContext,
-		"with_actor":             m.withActor,
-		"with_scope":             m.withScope,
-		"spawn":                  m.contextSpawn,
-		"spawn_monitored":        m.contextSpawnMonitored,
-		"spawn_linked":           m.contextSpawnLinked,
-		"spawn_linked_monitored": m.contextSpawnLinkedMonitored,
-	})
-}
+func spawnerSpawn(l *lua.LState) int                { return doSpawnerSpawn(l, false, false) }
+func spawnerSpawnMonitored(l *lua.LState) int       { return doSpawnerSpawn(l, true, false) }
+func spawnerSpawnLinked(l *lua.LState) int          { return doSpawnerSpawn(l, false, true) }
+func spawnerSpawnLinkedMonitored(l *lua.LState) int { return doSpawnerSpawn(l, true, true) }
