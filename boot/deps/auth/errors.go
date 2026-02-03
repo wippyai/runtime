@@ -16,18 +16,34 @@ func NewTokenInvalidError(cause error) apierror.Error {
 	return apierror.New(apierror.Invalid, "invalid token format").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewValidationError(cause error) apierror.Error {
-	return apierror.New(apierror.PermissionDenied, "token validation failed").WithCause(cause).WithRetryable(apierror.False)
+func NewValidationError(registry string, cause error) apierror.Error {
+	msg := "token validation failed"
+	if registry != "" {
+		msg = msg + " for " + registry
+	}
+	return apierror.New(apierror.PermissionDenied, msg).WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewStoreError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to store credentials").WithCause(cause).WithRetryable(apierror.False)
+func NewStoreError(registry string, cause error) apierror.Error {
+	msg := "failed to store credentials"
+	if registry != "" {
+		msg = msg + " for " + registry
+	}
+	return apierror.New(apierror.Internal, msg).WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewRemoveError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to remove credentials").WithCause(cause).WithRetryable(apierror.False)
+func NewRemoveError(registry string, cause error) apierror.Error {
+	msg := "failed to remove credentials"
+	if registry != "" {
+		msg = msg + " for " + registry
+	}
+	return apierror.New(apierror.Internal, msg).WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewClientError(cause error) apierror.Error {
-	return apierror.New(apierror.Invalid, "failed to create auth client").WithCause(cause).WithRetryable(apierror.False)
+func NewClientError(registry string, cause error) apierror.Error {
+	msg := "failed to create auth client"
+	if registry != "" {
+		msg = msg + " for " + registry
+	}
+	return apierror.New(apierror.Invalid, msg).WithCause(cause).WithRetryable(apierror.False)
 }

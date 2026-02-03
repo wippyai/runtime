@@ -138,7 +138,7 @@ func runAuthLogin(cmd *cobra.Command, _ []string) error {
 
 	client, err := bootauth.NewClient(registry)
 	if err != nil {
-		return bootauth.NewClientError(err)
+		return bootauth.NewClientError(registry, err)
 	}
 
 	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
@@ -146,7 +146,7 @@ func runAuthLogin(cmd *cobra.Command, _ []string) error {
 
 	result, err := client.Validate(ctx, token)
 	if err != nil {
-		return bootauth.NewValidationError(err)
+		return bootauth.NewValidationError(registry, err)
 	}
 
 	cred := &auth.Credential{
@@ -163,7 +163,7 @@ func runAuthLogin(cmd *cobra.Command, _ []string) error {
 	}
 
 	if err := store.Set(cred, !local); err != nil {
-		return bootauth.NewStoreError(err)
+		return bootauth.NewStoreError(registry, err)
 	}
 
 	printLoginSuccess(registry, cred.Orgs, local, isConsole)
@@ -185,7 +185,7 @@ func runAuthLogout(cmd *cobra.Command, _ []string) error {
 	}
 
 	if err := store.Remove(registry, !local); err != nil {
-		return bootauth.NewRemoveError(err)
+		return bootauth.NewRemoveError(registry, err)
 	}
 
 	if isConsole {
