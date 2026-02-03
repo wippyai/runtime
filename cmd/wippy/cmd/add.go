@@ -128,7 +128,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	lockObj.SetModule(mod)
 
 	if err := lockObj.Write(); err != nil {
-		return NewWriteLockFileError(err)
+		return NewWriteLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 
 	fmt.Printf("%s Added %s@%s\n", successStyle.Render("Done!"), moduleName, mod.Version)

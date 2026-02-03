@@ -223,7 +223,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	// Save updated lock file
 	if installed > 0 {
 		if err := lockObj.Write(); err != nil {
-			logger.Warn("failed to update lock file", zap.Error(err))
+			logger.Warn("failed to update lock file", zap.Error(fmt.Errorf("lock file %s: %w", lockObj.Path(), err)))
 		}
 	}
 

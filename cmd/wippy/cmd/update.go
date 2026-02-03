@@ -185,7 +185,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	// Save lock file
 	if err := newLockObj.Write(); err != nil {
-		return NewWriteLockFileError(err)
+		return NewWriteLockFileError(fmt.Errorf("lock file %s: %w", newLockObj.Path(), err))
 	}
 
 	logger.Info("lock file updated")
@@ -435,7 +435,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 
 	// Save lock file
 	if err := newLockObj.Write(); err != nil {
-		return NewWriteLockFileError(err)
+		return NewWriteLockFileError(fmt.Errorf("lock file %s: %w", newLockObj.Path(), err))
 	}
 
 	logger.Info("lock file updated")
