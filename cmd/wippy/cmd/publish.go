@@ -57,6 +57,7 @@ func init() {
 	publishCmd.Flags().Bool("protected", false, "mark version as protected")
 	publishCmd.Flags().String("config", ".", "path to directory containing wippy.yaml")
 	publishCmd.Flags().String("registry", "", "registry URL (default: from credentials)")
+	publishCmd.Flags().StringSlice("embed", nil, "embed fs.directory entries by id or name (default: none)")
 }
 
 func runPublish(cmd *cobra.Command, _ []string) error {
@@ -69,6 +70,8 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 	releaseNotes, _ := cmd.Flags().GetString("release-notes")
 	protected, _ := cmd.Flags().GetBool("protected")
 	registryURL, _ := cmd.Flags().GetString("registry")
+	embedFlag, _ := cmd.Flags().GetStringSlice("embed")
+	embedChanged := cmd.Flags().Changed("embed")
 
 	cfg, err := config.Load(configDir)
 	if err != nil {
@@ -138,7 +141,11 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 
 	printStatus("Packing module...")
 
-	packResult, err := packModule(app.Ctx, app, cfg, configDir, outputFile)
+	embedPatterns := cfg.Embed
+	if embedChanged {
+		embedPatterns = embedFlag
+	}
+	packResult, err := packModule(app.Ctx, app, cfg, configDir, outputFile, embedPatterns)
 	if err != nil {
 		return err
 	}
@@ -319,7 +326,7 @@ type packResult struct {
 	Size   int64
 }
 
-func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleConfig, srcDir, outputPath string) (*packResult, error) {
+func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleConfig, srcDir, outputPath string, embedPatterns []string) (*packResult, error) {
 	srcPath := srcDir
 	if _, err := os.Stat(filepath.Join(srcDir, "src")); err == nil {
 		srcPath = filepath.Join(srcDir, "src")
@@ -355,7 +362,9 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		stages.Override(),
 		stages.DisableWithOptions(disableOpts),
 		stages.Link(),
-		stages.EmbedFS(),
+	}
+	if len(embedPatterns) > 0 {
+		pipelineStages = append(pipelineStages, stages.EmbedFS(embedPatterns...))
 	}
 
 	pipeline := build.New(pipelineStages...)
