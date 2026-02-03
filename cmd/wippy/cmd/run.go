@@ -840,7 +840,7 @@ func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]s
 		Token:   token,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create hub client: %w", err)
+		return nil, fmt.Errorf("failed to create hub client for %s: %w", registryURL, err)
 	}
 
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
@@ -870,7 +870,7 @@ func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]s
 
 	resolved, err := client.ResolveDependencies(downloadCtx, resolveParams)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve dependencies: %w", err)
+		return nil, fmt.Errorf("failed to resolve dependencies from %s: %w", registryURL, err)
 	}
 
 	if len(resolved.Errors) > 0 {
