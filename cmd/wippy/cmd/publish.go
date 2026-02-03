@@ -190,19 +190,19 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 
 	result, err := client.InitiatePublish(ctx, params)
 	if err != nil {
-		return NewPublishInitiateError(err)
+		return NewPublishInitiateError(registryURL, err)
 	}
 
 	printStatus("Uploading package...")
 
 	if err := client.Upload(ctx, result.UploadURL, outputFile); err != nil {
-		return NewPublishUploadError(err)
+		return NewPublishUploadError(registryURL, err)
 	}
 
 	printStatus("Confirming upload...")
 
 	if err := client.ConfirmPublish(ctx, result.PublishID); err != nil {
-		return NewPublishConfirmError(err)
+		return NewPublishConfirmError(registryURL, err)
 	}
 
 	printStatus("Processing...")
@@ -211,7 +211,7 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 		printStatus(fmt.Sprintf("Status: %s", s.StatusString()))
 	})
 	if err != nil {
-		return NewPublishProcessingError(err)
+		return NewPublishProcessingError(registryURL, err)
 	}
 
 	fmt.Println()
@@ -509,20 +509,20 @@ func NewPublishClientError(registryURL string, cause error) error {
 	return fmt.Errorf("failed to create hub client for %s: %w", registryURL, cause)
 }
 
-func NewPublishInitiateError(cause error) error {
-	return fmt.Errorf("failed to initiate publish: %w", cause)
+func NewPublishInitiateError(registryURL string, cause error) error {
+	return fmt.Errorf("failed to initiate publish on %s: %w", registryURL, cause)
 }
 
-func NewPublishUploadError(cause error) error {
-	return fmt.Errorf("failed to upload package: %w", cause)
+func NewPublishUploadError(registryURL string, cause error) error {
+	return fmt.Errorf("failed to upload package to %s: %w", registryURL, cause)
 }
 
-func NewPublishConfirmError(cause error) error {
-	return fmt.Errorf("failed to confirm upload: %w", cause)
+func NewPublishConfirmError(registryURL string, cause error) error {
+	return fmt.Errorf("failed to confirm upload on %s: %w", registryURL, cause)
 }
 
-func NewPublishProcessingError(cause error) error {
-	return fmt.Errorf("publish processing failed: %w", cause)
+func NewPublishProcessingError(registryURL string, cause error) error {
+	return fmt.Errorf("publish processing failed on %s: %w", registryURL, cause)
 }
 
 func NewPublishDigestError(cause error) error {

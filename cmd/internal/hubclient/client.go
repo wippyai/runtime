@@ -2,6 +2,7 @@
 package hubclient
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/wippyai/runtime/boot/deps/auth"
@@ -40,10 +41,14 @@ func New(opts Options) (*hub.Client, error) {
 		token = cred.Token
 	}
 
-	return hub.NewClient(hub.Options{
+	client, err := hub.NewClient(hub.Options{
 		BaseURL: registryURL,
 		Token:   token,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("registry %s: %w", registryURL, err)
+	}
+	return client, nil
 }
 
 // NewDefault creates a hub client with default options.

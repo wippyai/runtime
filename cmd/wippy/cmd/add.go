@@ -104,7 +104,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 
 	info, err := client.GetDownloadURL(ctx, params)
 	if err != nil {
-		return NewAddResolveError(moduleRef, err)
+		return NewAddResolveError(moduleRef, registryURL, err)
 	}
 
 	fmt.Printf("%s %s\n", labelStyle.Render("Resolved:"), infoStyle.Render(info.Version))
@@ -183,6 +183,6 @@ func NewAddClientError(registryURL string, cause error) error {
 	return fmt.Errorf("failed to create hub client for %s: %w", registryURL, cause)
 }
 
-func NewAddResolveError(moduleRef string, cause error) error {
-	return fmt.Errorf("failed to resolve module %s: %w", moduleRef, cause)
+func NewAddResolveError(moduleRef, registryURL string, cause error) error {
+	return fmt.Errorf("failed to resolve module %s from %s: %w", moduleRef, registryURL, cause)
 }

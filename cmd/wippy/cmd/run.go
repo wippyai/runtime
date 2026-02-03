@@ -900,10 +900,10 @@ func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]s
 		} else {
 			fmt.Printf("%s Downloading %s@%s...\n", dimStyle.Render(""), moduleName, m.Version)
 			if m.URL == "" {
-				return nil, fmt.Errorf("no download URL for %s@%s", moduleName, m.Version)
+				return nil, fmt.Errorf("no download URL for %s@%s from %s", moduleName, m.Version, registryURL)
 			}
 			if err := client.DownloadToFile(downloadCtx, m.URL, packPath); err != nil {
-				return nil, fmt.Errorf("failed to download %s: %w", moduleName, err)
+				return nil, fmt.Errorf("failed to download %s@%s from %s to %s: %w", moduleName, m.Version, registryURL, packPath, err)
 			}
 		}
 
