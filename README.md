@@ -114,19 +114,120 @@ wippy run --cluster --cluster-name=node1 --cluster-join=seed:7946
 Runtime configuration via `.wippy.yaml`:
 
 ```yaml
+version: "1.0"
+
 logger:
-  level: debug
+  level: info
   encoding: console
 
+logmanager:
+  stream_to_events: false
+
 security:
-  strict_mode: true
+  strict_mode: false
+
+registry:
+  enable_history: true
+  history_type: memory # memory | sqlite | nil
+  history_path: .wippy/registry.db
+
+finder:
+  query_cache_size: 1000
+  regex_cache_size: 100
+
+profiler:
+  enabled: false
+  address: localhost:6060
 
 lua:
   proto_cache_size: 60000
+  main_cache_size: 10000
+  type_system:
+    enabled: true
+    strict: false
+  cache:
+    enabled: true
+    dir: .wippy/cache/lua
+    mode: readwrite # off | readonly | readwrite
+    compile:
+      enabled: true
+    typecheck:
+      enabled: true
+
+lsp:
+  enabled: false
+  address: 127.0.0.1:7777
 
 otel:
+  enabled: false
+  endpoint: localhost:4318
+  protocol: http/protobuf
+  traces_enabled: true
+  metrics_enabled: false
+  http:
+    enabled: true
+    extract_headers: true
+    inject_headers: true
+  process:
+    enabled: true
+    trace_lifecycle: true
+  interceptor:
+    enabled: true
+    order: 100
+  queue:
+    enabled: true
+  temporal:
+    enabled: false
+
+metrics:
+  interceptor:
+    enabled: false
+  buffer:
+    size: 10000
+
+prometheus:
+  enabled: false
+  address: ":9090"
+
+modules:
+  registry_url: https://hub.wippy.ai
+
+relay:
+  node_name: local
+
+supervisor:
+  host:
+    buffer_size: 1024
+    worker_count: 16
+
+cluster:
+  enabled: false
+  node_name: ""
+  membership:
+    bind_addr: 0.0.0.0
+    bind_port: 7946
+    join: ""
+    secret_file: ""
+    secret: ""
+    advertise: ""
+  internode:
+    bind_addr: 0.0.0.0
+    bind_port: 0
+    auto_port: true
+
+extensions:
   enabled: true
-  endpoint: http://localhost:4318
+  paths: []
+
+override: {}
+
+disable:
+  namespaces: []
+  entries: []
+  meta: {}
+
+shutdown:
+  timeout: 30s
 ```
 
 ## Requirements
@@ -143,5 +244,4 @@ Apache License 2.0
 - [Issues](https://github.com/wippyai/runtime/issues)
 
 [documentation]: https://docs.wippy.ai
-
 

@@ -874,7 +874,11 @@ func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]s
 	}
 
 	if len(resolved.Errors) > 0 {
-		return nil, fmt.Errorf("dependency resolution errors: %v", resolved.Errors)
+		details := make([]string, 0, len(resolved.Errors))
+		for _, resErr := range resolved.Errors {
+			details = append(details, formatResolutionError(resErr))
+		}
+		return nil, fmt.Errorf("dependency resolution errors (%d): %s", len(resolved.Errors), strings.Join(details, "; "))
 	}
 
 	if len(resolved.Modules) == 0 {
