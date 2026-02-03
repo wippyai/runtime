@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	apierror "github.com/wippyai/runtime/api/error"
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
 	"github.com/wippyai/runtime/boot/deps/hub"
@@ -163,7 +164,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		for _, resErr := range result.Errors {
 			logger.Error("error", zap.String("module", resErr.Org+"/"+resErr.Name), zap.String("reason", resErr.Message))
 		}
-		return NewDependencyConflictsError(len(result.Errors))
+		return newResolutionConflictsError("dependency conflicts detected", result.Errors)
 	}
 
 	logger.Info("dependency graph resolved", zap.Int("total_modules", len(result.Modules)))
@@ -374,7 +375,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 		for _, resErr := range result.Errors {
 			logger.Error("error", zap.String("module", resErr.Org+"/"+resErr.Name), zap.String("reason", resErr.Message))
 		}
-		return NewUpdateConflictsError(len(result.Errors))
+		return newResolutionConflictsError("update conflicts detected", result.Errors)
 	}
 
 	// Build new lock file
@@ -470,4 +471,30 @@ func logChanges(logger *zap.Logger, changes *lock.Changes) {
 	} else {
 		logger.Info("no changes detected")
 	}
+}
+
+func newResolutionConflictsError(prefix string, errs []hub.ResolutionError) apierror.Error {
+	if len(errs) == 0 {
+		return apierror.New(apierror.Invalid, prefix+" (0)").WithRetryable(apierror.False)
+	}
+	details := make([]string, 0, len(errs))
+	for _, resErr := range errs {
+		details = append(details, formatResolutionError(resErr))
+	}
+	msg := fmt.Sprintf("%s (%d): %s", prefix, len(errs), strings.Join(details, "; "))
+	return apierror.New(apierror.Invalid, msg).WithRetryable(apierror.False)
+}
+
+func formatResolutionError(resErr hub.ResolutionError) string {
+	module := strings.Trim(resErr.Org+"/"+resErr.Name, "/")
+	if module == "" {
+		module = "unknown-module"
+	}
+	if resErr.Constraint != "" {
+		module = module + "@" + resErr.Constraint
+	}
+	if resErr.Message != "" {
+		return module + ": " + resErr.Message
+	}
+	return module
 }
