@@ -53,7 +53,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		BaseURL: registryURL,
 	})
 	if err != nil {
-		return NewSearchClientError(err)
+		return NewSearchClientError(registryURL, err)
 	}
 
 	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
@@ -64,7 +64,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		PageSize: limit,
 	})
 	if err != nil {
-		return NewSearchError(err)
+		return NewSearchError(query, registryURL, err)
 	}
 
 	if jsonOutput {
@@ -152,10 +152,10 @@ func padRight(s string, width int) string {
 	return s + strings.Repeat(" ", width-len(s))
 }
 
-func NewSearchClientError(cause error) error {
-	return fmt.Errorf("failed to create hub client: %w", cause)
+func NewSearchClientError(registryURL string, cause error) error {
+	return fmt.Errorf("failed to create hub client for %s: %w", registryURL, cause)
 }
 
-func NewSearchError(cause error) error {
-	return fmt.Errorf("search failed: %w", cause)
+func NewSearchError(query, registryURL string, cause error) error {
+	return fmt.Errorf("search failed for %q on %s: %w", query, registryURL, cause)
 }

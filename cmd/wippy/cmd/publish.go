@@ -115,7 +115,7 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 			return NewPublishClientError(registryURL, clientErr)
 		}
 
-		resolved, resolveErr := promptVersion(cmd.Context(), hubClient, cfg)
+		resolved, resolveErr := promptVersion(cmd.Context(), hubClient, cfg, registryURL)
 		if resolveErr != nil {
 			return resolveErr
 		}
@@ -231,7 +231,7 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 
 // promptVersion fetches the latest published version from the hub and presents
 // bump options for the user to select interactively.
-func promptVersion(ctx context.Context, client *hub.Client, cfg *config.ModuleConfig) (string, error) {
+func promptVersion(ctx context.Context, client *hub.Client, cfg *config.ModuleConfig, registryURL string) (string, error) {
 	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 
@@ -240,7 +240,7 @@ func promptVersion(ctx context.Context, client *hub.Client, cfg *config.ModuleCo
 
 	info, err := client.GetModule(ctx, cfg.Organization, cfg.ModuleName)
 	if err != nil && !errors.Is(err, hub.ErrModuleNotFound) {
-		return "", fmt.Errorf("failed to fetch module info: %w", err)
+		return "", fmt.Errorf("failed to fetch module info for %s/%s from %s: %w", cfg.Organization, cfg.ModuleName, registryURL, err)
 	}
 
 	// New module with no published versions
