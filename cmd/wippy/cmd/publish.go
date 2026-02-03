@@ -335,7 +335,7 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 	dirFS := os.DirFS(srcPath)
 	srcEntries, err := app.Loader.LoadFS(ctx, dirFS)
 	if err != nil {
-		return nil, NewLoadEntriesError(srcPath, err)
+		return nil, NewLoadEntriesError(fmt.Sprintf("source path %s", srcPath), err)
 	}
 
 	definitionCount := 0
@@ -407,7 +407,7 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 
 	file, err := os.Create(outputPath)
 	if err != nil {
-		return nil, NewCreatePackFileError(err)
+		return nil, NewCreatePackFileError(fmt.Errorf("pack file %s: %w", outputPath, err))
 	}
 	defer file.Close()
 
@@ -416,21 +416,21 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 
 	if len(resources) > 0 {
 		if err := packWriter.PackWithResources(wappMetadata, wappEntries, resources, file); err != nil {
-			return nil, NewPackWithResourcesError(err)
+			return nil, NewPackWithResourcesError(fmt.Errorf("pack file %s: %w", outputPath, err))
 		}
 	} else {
 		if err := packWriter.PackEntries(wappMetadata, wappEntries, file); err != nil {
-			return nil, NewPackEntriesError(err)
+			return nil, NewPackEntriesError(fmt.Errorf("pack file %s: %w", outputPath, err))
 		}
 	}
 
 	if err := file.Close(); err != nil {
-		return nil, NewClosePackFileError(err)
+		return nil, NewClosePackFileError(fmt.Errorf("pack file %s: %w", outputPath, err))
 	}
 
 	stat, err := os.Stat(outputPath)
 	if err != nil {
-		return nil, NewStatOutputFileError(err)
+		return nil, NewStatOutputFileError(fmt.Errorf("pack file %s: %w", outputPath, err))
 	}
 
 	digest, err := computeFileDigest(outputPath)

@@ -578,7 +578,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 
 	file, err := os.Create(outputFile)
 	if err != nil {
-		return NewCreatePackFileError(err)
+		return NewCreatePackFileError(fmt.Errorf("pack file %s: %w", outputFile, err))
 	}
 	defer func() { _ = file.Close() }()
 
@@ -587,21 +587,21 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 
 	if len(resources) > 0 {
 		if err := packWriter.PackWithResources(wappMetadata, wappEntries, resources, file); err != nil {
-			return NewPackWithResourcesError(err)
+			return NewPackWithResourcesError(fmt.Errorf("pack file %s: %w", outputFile, err))
 		}
 	} else {
 		if err := packWriter.PackEntries(wappMetadata, wappEntries, file); err != nil {
-			return NewPackEntriesError(err)
+			return NewPackEntriesError(fmt.Errorf("pack file %s: %w", outputFile, err))
 		}
 	}
 
 	if err := file.Close(); err != nil {
-		return NewClosePackFileError(err)
+		return NewClosePackFileError(fmt.Errorf("pack file %s: %w", outputFile, err))
 	}
 
 	fileInfo, err := os.Stat(outputFile)
 	if err != nil {
-		return NewStatOutputFileError(err)
+		return NewStatOutputFileError(fmt.Errorf("pack file %s: %w", outputFile, err))
 	}
 	p.Send(completedMsg{
 		fileSize: fileInfo.Size(),
