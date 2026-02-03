@@ -12,10 +12,10 @@ import (
 )
 
 type stubRawController struct {
-	enableCalls  int
-	disableCalls int
 	enableErr    error
 	disableErr   error
+	enableCalls  int
+	disableCalls int
 }
 
 func (s *stubRawController) Enable() error {

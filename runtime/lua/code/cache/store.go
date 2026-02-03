@@ -11,10 +11,10 @@ const SchemaVersion = 1
 
 // Entry represents a cached Lua artifact set.
 type Entry struct {
-	Meta        Meta
 	Manifest    []byte
 	Diagnostics []diag.Diagnostic
 	Proto       []byte
+	Meta        Meta
 }
 
 // Store defines read/write behavior for cache entries.
@@ -30,7 +30,7 @@ type Deleter interface {
 
 // Meta stores identifying information for an entry.
 type Meta struct {
-	SchemaVersion        int       `json:"schema_version"`
+	CreatedAt            time.Time `json:"created_at"`
 	CompileFingerprint   string    `json:"compile_fingerprint"`
 	TypecheckFingerprint string    `json:"typecheck_fingerprint,omitempty"`
 	EntryID              string    `json:"entry_id"`
@@ -40,7 +40,7 @@ type Meta struct {
 	BuiltinHash          string    `json:"builtin_hash,omitempty"`
 	TypecheckConfigHash  string    `json:"typecheck_config_hash,omitempty"`
 	Deps                 []DepMeta `json:"deps,omitempty"`
-	CreatedAt            time.Time `json:"created_at"`
+	SchemaVersion        int       `json:"schema_version"`
 }
 
 // DepMeta records dependency fingerprints for debugging.

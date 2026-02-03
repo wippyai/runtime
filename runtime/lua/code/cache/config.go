@@ -14,9 +14,9 @@ const (
 
 // Config controls cache behavior.
 type Config struct {
-	Enabled          bool
 	Dir              string
 	Mode             Mode
+	Enabled          bool
 	CompileEnabled   bool
 	TypecheckEnabled bool
 }

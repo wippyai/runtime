@@ -12,9 +12,9 @@ var errNotTerminal = errors.New("stdin is not a terminal")
 
 // RawManager controls terminal raw mode with reference counting.
 type RawManager struct {
-	mu     sync.Mutex
 	file   *os.File
 	state  *term.State
+	mu     sync.Mutex
 	refs   int
 	active bool
 }

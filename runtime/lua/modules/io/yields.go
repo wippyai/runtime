@@ -44,7 +44,7 @@ func (y *ReadYield) CmdID() dispatcher.CommandID   { return ttyapi.Read }
 func (y *ReadYield) ToCommand() dispatcher.Command { return ttyapi.ReadCmd{Size: y.Size} }
 func (y *ReadYield) Release()                      { ReleaseReadYield(y) }
 
-func (y *ReadYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *ReadYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 	}
@@ -77,7 +77,7 @@ func (y *ReadLineYield) CmdID() dispatcher.CommandID   { return ttyapi.ReadLine 
 func (y *ReadLineYield) ToCommand() dispatcher.Command { return ttyapi.ReadLineCmd{} }
 func (y *ReadLineYield) Release()                      { ReleaseReadLineYield(y) }
 
-func (y *ReadLineYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+func (y *ReadLineYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 	}
@@ -137,7 +137,7 @@ func (y *RawDisableYield) HandleResult(l *lua.LState, data any, err error) []lua
 	return handleRawResult(l, data, err)
 }
 
-func handleRawResult(l *lua.LState, data any, err error) []lua.LValue {
+func handleRawResult(_ *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
 	}

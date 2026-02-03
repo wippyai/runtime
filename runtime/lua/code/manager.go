@@ -80,25 +80,25 @@ type (
 	// Manager centralizes code and dependency management
 	Manager struct {
 		bus         event.Bus
+		cacheStore  cache.Store
 		log         *zap.Logger
 		memGraph    *MemoryGraph
 		compiler    *Compiler
 		typeChecker *TypeChecker
 		txNodes     map[registry.ID]bool
-		txMu        sync.Mutex
-		cacheCfg    cache.Config
-		cacheStore  cache.Store
 		typeCfgHash string
 		builtinHash string
+		cacheCfg    cache.Config
+		txMu        sync.Mutex
 	}
 
 	// Config defines initialization parameters
 	Config struct {
+		Cache          cache.Config
 		Modules        []*api.ModuleDef
 		ProtoCacheSize int
 		MainCacheSize  int
 		TypeCheck      TypeCheckConfig
-		Cache          cache.Config
 	}
 )
 

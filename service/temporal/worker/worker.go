@@ -541,7 +541,7 @@ func (w *Worker) Send(pkg *relay.Package) error {
 		if len(msg.Payloads) == 1 {
 			signalArg = msg.Payloads[0]
 		} else if len(msg.Payloads) > 1 {
-			signalArg = payload.Payloads(msg.Payloads)
+			signalArg = msg.Payloads
 		}
 
 		w.log.Debug("sending signal to workflow",

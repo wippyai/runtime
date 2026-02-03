@@ -29,10 +29,10 @@ type Host struct {
 	log       *zap.Logger
 	scheduler *actor.Scheduler
 	logCtrl   *logs.Configurator
+	raw       *RawManager
 	statusCh  chan any
 	doneCh    chan struct{}
 	id        registry.ID
-	raw       *RawManager
 	running   atomic.Bool
 	shutdown  atomic.Bool
 }
