@@ -64,7 +64,7 @@ func Engine() boot.Component {
 						cacheCfg.Enabled = luaCfg.GetBool("cache.enabled", cacheCfg.Enabled)
 					}
 					cacheCfg.Dir = luaCfg.GetString("cache.dir", cacheCfg.Dir)
-					if cfg != nil && cacheCfg.Dir != "" && !filepath.IsAbs(cacheCfg.Dir) {
+					if cacheCfg.Dir != "" && !filepath.IsAbs(cacheCfg.Dir) {
 						if baseDir := cfg.GetString("boot.config_dir", ""); baseDir != "" {
 							cacheCfg.Dir = filepath.Join(baseDir, cacheCfg.Dir)
 						}

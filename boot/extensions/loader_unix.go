@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/wippyai/runtime/api/boot"
-	logapi "github.com/wippyai/runtime/api/logs"
 	extensionapi "github.com/wippyai/runtime/api/extension"
+	logapi "github.com/wippyai/runtime/api/logs"
 	"go.uber.org/zap"
 )
 

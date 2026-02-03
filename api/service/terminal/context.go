@@ -17,11 +17,11 @@ func Key() *contextapi.Key {
 
 // PipeContext holds the standard input/output/error streams for terminal operations.
 type PipeContext struct {
+	Raw    RawController
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
 	Args   []string
-	Raw    RawController
 }
 
 // RawController manages terminal raw mode.

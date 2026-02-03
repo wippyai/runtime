@@ -17,9 +17,9 @@ const (
 // Manifest describes a loadable extension.
 // Extensions are expected to export a variable named Symbol with this type.
 type Manifest struct {
+	Init       func(context.Context) (context.Context, error)
 	Name       string
 	Version    string
-	ABI        int
 	Components []boot.Component
-	Init       func(context.Context) (context.Context, error)
+	ABI        int
 }
