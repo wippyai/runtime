@@ -352,7 +352,7 @@ func runList(cmd *cobra.Command, _ []string) error {
 
 	allEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, app.Logger)
 	if err != nil {
-		return NewLoadEntriesError("lock paths", err)
+		return NewLoadEntriesError(fmt.Sprintf("lock paths (%s)", lockPath), err)
 	}
 
 	for _, e := range allEntries {

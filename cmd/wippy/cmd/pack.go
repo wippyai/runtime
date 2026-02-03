@@ -415,7 +415,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 
 	loadedEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, logger)
 	if err != nil {
-		return NewLoadEntriesError("lock paths", err)
+		return NewLoadEntriesError(fmt.Sprintf("lock paths (%s)", lockPath), err)
 	}
 	p.Send(progressMsg{
 		stage:   stageLoadEntries,
@@ -673,7 +673,7 @@ func runListMode(app *appinit.Context, lockPath, _ string) error {
 
 	allEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, app.Logger)
 	if err != nil {
-		return NewLoadEntriesError("lock paths", err)
+		return NewLoadEntriesError(fmt.Sprintf("lock paths (%s)", lockPath), err)
 	}
 
 	titleStyle := lipgloss.NewStyle().

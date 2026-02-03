@@ -188,16 +188,8 @@ func NewBuildDependencyGraphError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to build dependency graph").WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewDependencyConflictsError(count int) apierror.Error {
-	return apierror.New(apierror.Invalid, fmt.Sprintf("dependency conflicts detected (%d)", count)).WithRetryable(apierror.False)
-}
-
 func NewInstallFailedError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "install failed").WithCause(cause).WithRetryable(apierror.False)
-}
-
-func NewUpdateConflictsError(count int) apierror.Error {
-	return apierror.New(apierror.Invalid, fmt.Sprintf("update conflicts detected (%d)", count)).WithRetryable(apierror.False)
 }
 
 func NewLintFailedError(errors, warnings int) apierror.Error {

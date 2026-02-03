@@ -129,7 +129,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	dirFS := os.DirFS(srcDir)
 	entries, err := app.Loader.LoadFS(app.Ctx, dirFS)
 	if err != nil {
-		return NewLoadEntriesFromSourceError(err)
+		return NewLoadEntriesFromSourceError(fmt.Errorf("source dir %s: %w", srcDir, err))
 	}
 
 	// Extract root dependencies from entries
@@ -297,7 +297,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	dirFS := os.DirFS(srcDir)
 	entries, err := app.Loader.LoadFS(app.Ctx, dirFS)
 	if err != nil {
-		return NewLoadEntriesFromSourceError(err)
+		return NewLoadEntriesFromSourceError(fmt.Errorf("source dir %s: %w", srcDir, err))
 	}
 
 	// Extract source constraints

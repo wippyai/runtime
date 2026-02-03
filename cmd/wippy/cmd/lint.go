@@ -386,7 +386,7 @@ func loadLuaEntries(cmd *cobra.Command, lockFile string, nsFilters []string) ([]
 
 	allEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, app.Logger)
 	if err != nil {
-		return nil, nil, NewLoadEntriesError("lock paths", err)
+		return nil, nil, NewLoadEntriesError(fmt.Sprintf("lock paths (%s)", lockPath), err)
 	}
 
 	allLua := filterLuaEntries(allEntries, nil)
