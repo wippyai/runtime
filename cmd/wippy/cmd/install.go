@@ -143,6 +143,11 @@ func runInstall(cmd *cobra.Command, args []string) error {
 			return NewParseModuleNameError(module.Name, fmt.Errorf("invalid format, expected org/module"))
 		}
 
+		moduleRef := module.Name
+		if module.Version != "" {
+			moduleRef = moduleRef + "@" + module.Version
+		}
+
 		dirPath := filepath.Join(vendorDir, lock.ModulePath(modName))
 
 		if !force {
@@ -179,26 +184,26 @@ func runInstall(cmd *cobra.Command, args []string) error {
 			Version: module.Version,
 		})
 		if err != nil {
-			return NewDownloadModuleError(module.Name, err)
+			return NewDownloadModuleError(moduleRef, err)
 		}
 
 		if downloadInfo.URL == "" {
-			return NewNoContentDownloadedError(module.Name)
+			return NewNoContentDownloadedError(moduleRef)
 		}
 
 		// Download .wapp file
 		wappPath := filepath.Join(vendorDir, lock.WappPath(modName, module.Version))
 		if err := hubClient.DownloadToFile(app.Ctx, downloadInfo.URL, wappPath); err != nil {
-			return NewDownloadModuleError(module.Name, err)
+			return NewDownloadModuleError(moduleRef, err)
 		}
 
 		if shouldUnpack {
 			// Remove old directory (handles version updates) and extract
 			if err := os.RemoveAll(dirPath); err != nil {
-				return NewStoreModuleError(module.Name, err)
+				return NewStoreModuleError(moduleRef, err)
 			}
 			if err := entries.ExtractWappToDir(wappPath, dirPath, lockDir); err != nil {
-				return NewExtractModuleError(module.Name, err)
+				return NewExtractModuleError(moduleRef, err)
 			}
 		}
 		// When unpack=false, keep .wapp file as-is

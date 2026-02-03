@@ -9,8 +9,6 @@ var (
 
 	ErrModuleMissingHash = apierror.New(apierror.Invalid, "module missing hash").WithRetryable(apierror.False)
 
-	ErrNoContentDownloaded = apierror.New(apierror.Internal, "no content downloaded").WithRetryable(apierror.False)
-
 	ErrTranscoderNotFound = apierror.New(apierror.NotFound, "transcoder not found").WithRetryable(apierror.False)
 
 	ErrLoaderNotFound = apierror.New(apierror.NotFound, "loader not found").WithRetryable(apierror.False)
@@ -38,6 +36,10 @@ func NewLoadEntriesFromPathsError(cause error) apierror.Error {
 
 func NewDownloadModuleError(module string, cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to download module: "+module).WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewNoContentDownloadedError(module string) apierror.Error {
+	return apierror.New(apierror.Internal, "no content downloaded for module: "+module).WithRetryable(apierror.False)
 }
 
 func NewStoreModuleError(module string, cause error) apierror.Error {

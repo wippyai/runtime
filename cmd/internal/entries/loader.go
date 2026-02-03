@@ -156,6 +156,11 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 			zap.String("module", mod.Name),
 			zap.String("version", mod.Version))
 
+		moduleRef := mod.Name
+		if mod.Version != "" {
+			moduleRef = moduleRef + "@" + mod.Version
+		}
+
 		// Get download URL from hub
 		downloadInfo, err := hubClient.GetDownloadURL(ctx, &hub.DownloadParams{
 			Org:     name.Organization,
@@ -163,11 +168,11 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 			Version: mod.Version,
 		})
 		if err != nil {
-			return NewDownloadModuleError(mod.Name, err)
+			return NewDownloadModuleError(moduleRef, err)
 		}
 
 		if downloadInfo.URL == "" {
-			return ErrNoContentDownloaded
+			return NewNoContentDownloadedError(moduleRef)
 		}
 
 		// Download .wapp file
@@ -175,17 +180,17 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 		fullWappPath := filepath.Join(vendorPath, wappPath)
 
 		if err := hubClient.DownloadToFile(ctx, downloadInfo.URL, fullWappPath); err != nil {
-			return NewDownloadModuleError(mod.Name, err)
+			return NewDownloadModuleError(moduleRef, err)
 		}
 
 		if shouldUnpack {
 			// Extract .wapp to source directory and remove the .wapp file
 			dirPath := filepath.Join(vendorPath, lock.ModulePath(name))
 			if err := os.RemoveAll(dirPath); err != nil {
-				return NewExtractModuleError(mod.Name, err)
+				return NewExtractModuleError(moduleRef, err)
 			}
 			if err := ExtractWappToDir(fullWappPath, dirPath, lockDir); err != nil {
-				return NewExtractModuleError(mod.Name, err)
+				return NewExtractModuleError(moduleRef, err)
 			}
 		}
 		// When unpack=false, keep .wapp file as-is
