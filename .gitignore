@@ -33,6 +33,7 @@ app/data
 dist/
 /bin/
 /.wippy/
+/wippy
 *.log
 /.claude/
 /protocols/

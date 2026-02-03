@@ -5,6 +5,7 @@ import (
 	stdjson "encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -367,10 +368,21 @@ func loadLuaEntries(cmd *cobra.Command, lockFile string, nsFilters []string) ([]
 
 	var allEntries []regapi.Entry
 	for _, path := range lockObj.GetLoadPaths() {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
+		stat, err := os.Stat(path)
+		if os.IsNotExist(err) {
 			continue
 		}
-		pathEntries, err := app.Loader.LoadFS(app.Ctx, os.DirFS(path))
+
+		var pathEntries []regapi.Entry
+
+		if stat.IsDir() {
+			pathEntries, err = app.Loader.LoadFS(app.Ctx, os.DirFS(path))
+		} else if filepath.Ext(path) == ".wapp" {
+			pathEntries, err = entries.LoadEntriesFromPaths(app.Ctx, []string{path}, app.Logger)
+		} else {
+			continue
+		}
+
 		if err != nil {
 			return nil, nil, NewLoadEntriesError(path, err)
 		}

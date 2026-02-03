@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -416,7 +417,8 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 
 	var loadedEntries []regapi.Entry
 	for i, path := range paths {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
+		stat, err := os.Stat(path)
+		if os.IsNotExist(err) {
 			logger.Warn("path not found, skipping", zap.String("path", path))
 			p.Send(logMsg{level: "warn", message: "Path not found", fields: map[string]interface{}{"path": path}})
 			continue
@@ -424,8 +426,16 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 
 		p.Send(logMsg{level: "info", message: "Loading entries", fields: map[string]interface{}{"path": path}})
 
-		dirFS := os.DirFS(path)
-		pathEntries, err := app.Loader.LoadFS(app.Ctx, dirFS)
+		var pathEntries []regapi.Entry
+
+		if stat.IsDir() {
+			pathEntries, err = app.Loader.LoadFS(app.Ctx, os.DirFS(path))
+		} else if filepath.Ext(path) == ".wapp" {
+			pathEntries, err = entries.LoadEntriesFromPaths(app.Ctx, []string{path}, logger)
+		} else {
+			continue
+		}
+
 		if err != nil {
 			return NewLoadEntriesError(path, err)
 		}
@@ -690,12 +700,21 @@ func runListMode(app *appinit.Context, lockPath, _ string) error {
 
 	var allEntries []regapi.Entry
 	for _, path := range paths {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
+		stat, err := os.Stat(path)
+		if os.IsNotExist(err) {
 			continue
 		}
 
-		dirFS := os.DirFS(path)
-		pathEntries, err := app.Loader.LoadFS(app.Ctx, dirFS)
+		var pathEntries []regapi.Entry
+
+		if stat.IsDir() {
+			pathEntries, err = app.Loader.LoadFS(app.Ctx, os.DirFS(path))
+		} else if filepath.Ext(path) == ".wapp" {
+			pathEntries, err = entries.LoadEntriesFromPaths(app.Ctx, []string{path}, app.Logger)
+		} else {
+			continue
+		}
+
 		if err != nil {
 			return NewLoadEntriesError(path, err)
 		}

@@ -345,12 +345,21 @@ func runList(cmd *cobra.Command, _ []string) error {
 	}
 
 	for _, path := range paths {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
+		stat, err := os.Stat(path)
+		if os.IsNotExist(err) {
 			continue
 		}
 
-		dirFS := os.DirFS(path)
-		pathEntries, err := app.Loader.LoadFS(app.Ctx, dirFS)
+		var pathEntries []registry.Entry
+
+		if stat.IsDir() {
+			pathEntries, err = app.Loader.LoadFS(app.Ctx, os.DirFS(path))
+		} else if filepath.Ext(path) == ".wapp" {
+			pathEntries, err = entries.LoadEntriesFromPaths(app.Ctx, []string{path}, app.Logger)
+		} else {
+			continue
+		}
+
 		if err != nil {
 			continue
 		}

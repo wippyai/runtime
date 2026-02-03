@@ -31,10 +31,6 @@ func Validate(l *Lock) error {
 		return ErrSrcDirectoryEmpty
 	}
 
-	if l.data.Directories.Src == "." {
-		return ErrSrcDirectoryRoot
-	}
-
 	return nil
 }
 

@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"fmt"
 
 	"connectrpc.com/connect"
 	manifestv1 "github.com/wippyai/runtime/api/hub/wippy/api/hub/manifest/v1"
@@ -36,9 +37,24 @@ type ResolveDependenciesParams struct {
 	Installed []InstalledModule
 }
 
+type ResolutionError struct {
+	Org        string
+	Name       string
+	Constraint string
+	Message    string
+}
+
+func (e ResolutionError) String() string {
+	module := e.Org + "/" + e.Name
+	if e.Constraint != "" {
+		return fmt.Sprintf("%s@%s: %s", module, e.Constraint, e.Message)
+	}
+	return fmt.Sprintf("%s: %s", module, e.Message)
+}
+
 type ResolveDependenciesResult struct {
 	Modules []ResolvedModule
-	Errors  []string
+	Errors  []ResolutionError
 }
 
 func (c *Client) ResolveDependencies(ctx context.Context, params *ResolveDependenciesParams) (*ResolveDependenciesResult, error) {
@@ -93,7 +109,12 @@ func (c *Client) ResolveDependencies(ctx context.Context, params *ResolveDepende
 
 	for _, e := range resp.Msg.Errors {
 		if e != nil && e.Error != nil {
-			result.Errors = append(result.Errors, e.Error.Message)
+			result.Errors = append(result.Errors, ResolutionError{
+				Org:        e.Org,
+				Name:       e.Name,
+				Constraint: e.Constraint,
+				Message:    e.Error.Message,
+			})
 		}
 	}
 

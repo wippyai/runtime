@@ -64,7 +64,7 @@ local function test_invalid_type_syntax(): boolean
 		id = "app.test.types:_err_invalid_type",
 		kind = "function.lua",
 		data = {
-			source = [[local x: number number = 42]],
+			source = [[local x: number< = 42]],
 			method = "main"
 		}
 	})

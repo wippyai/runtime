@@ -160,8 +160,8 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	if len(result.Errors) > 0 {
 		logger.Error("dependency resolution errors", zap.Int("count", len(result.Errors)))
-		for _, errMsg := range result.Errors {
-			logger.Error("error", zap.String("message", errMsg))
+		for _, resErr := range result.Errors {
+			logger.Error("error", zap.String("module", resErr.Org+"/"+resErr.Name), zap.String("reason", resErr.Message))
 		}
 		return NewDependencyConflictsError(len(result.Errors))
 	}
@@ -371,8 +371,8 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 
 	if len(result.Errors) > 0 {
 		logger.Error("resolution errors", zap.Int("count", len(result.Errors)))
-		for _, errMsg := range result.Errors {
-			logger.Error("error", zap.String("message", errMsg))
+		for _, resErr := range result.Errors {
+			logger.Error("error", zap.String("module", resErr.Org+"/"+resErr.Name), zap.String("reason", resErr.Message))
 		}
 		return NewUpdateConflictsError(len(result.Errors))
 	}

@@ -209,6 +209,11 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 				compileFP = fingerprint
 				compileDeps = deps
 				if proto, ok := cm.loadCompileCache(node.ID, fingerprint); ok {
+					if node.Manifest != nil && len(proto.TypeInfo) == 0 {
+						if data, err := node.Manifest.Encode(); err == nil {
+							proto.SetTypeInfo(data)
+						}
+					}
 					return proto, nil
 				}
 			}
@@ -220,6 +225,12 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 			fnProto, err := glua.Compile(chunk, node.ID.String())
 			if err != nil {
 				return nil, NewCompileError(node.ID, err)
+			}
+
+			if node.Manifest != nil {
+				if data, err := node.Manifest.Encode(); err == nil {
+					fnProto.SetTypeInfo(data)
+				}
 			}
 
 			if compileFP != "" {

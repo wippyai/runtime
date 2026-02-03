@@ -32,7 +32,14 @@ var channelType = typ.NewInterface("channel.Channel", []typ.Method{
 	},
 	{
 		Name: "receive",
-		Type: typ.Func().Param("self", typ.Self).Returns(channelElem, typ.Boolean).Build(),
+		Type: typ.Func().
+			Param("self", typ.Self).
+			Returns(channelElem, typ.Boolean).
+			Spec(contract.NewSpec().WithEffects(effect.Return{
+				ReturnIndex: 0,
+				Transform:   effect.ElementOf{Source: effect.ParamRef{Index: 0}},
+			})).
+			Build(),
 	},
 	{
 		Name: "case_send",
