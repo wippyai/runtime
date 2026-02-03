@@ -55,7 +55,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 
 	lockObj, err := lock.New(lockPath)
 	if err != nil {
-		return NewLoadLockFileError(err)
+		return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
 	}
 
 	projectDir, _ := os.Getwd()

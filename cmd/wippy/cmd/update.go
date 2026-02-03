@@ -118,7 +118,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		oldLockObj, _ = lock.New(lockFilePath)
 		if oldLockObj != nil {
 			if err := lock.Validate(oldLockObj); err != nil {
-				return NewInvalidExistingLockFileError(err)
+				return NewInvalidExistingLockFileError(fmt.Errorf("lock file %s: %w", lockFilePath, err))
 			}
 		}
 	}
@@ -258,7 +258,7 @@ func extractRootDependencies(entries []regapi.Entry) []dependencyRequest {
 func convertResolvedToLock(modules []hub.ResolvedModule, modulesDir, srcDir string) (*lock.Lock, error) {
 	lockObj, err := lock.New(defaultLockFile)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("lock file %s: %w", defaultLockFile, err)
 	}
 
 	lockObj.SetDirectories(lock.Directories{
@@ -284,11 +284,11 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	// Load current lock file
 	lockObj, err := lock.New(lockFilePath)
 	if err != nil {
-		return NewLoadLockFileError(err)
+		return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockFilePath, err))
 	}
 
 	if err := lock.Validate(lockObj); err != nil {
-		return NewInvalidLockFileError(err)
+		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 
 	oldLockObj, _ := lock.New(lockFilePath)

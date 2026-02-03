@@ -65,11 +65,11 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	lockObj, err := lock.New(lockPath)
 	if err != nil {
-		return NewLoadLockFileError(err)
+		return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
 	}
 
 	if err := lock.Validate(lockObj); err != nil {
-		return NewInvalidLockFileError(err)
+		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 
 	modules := lockObj.GetModules()

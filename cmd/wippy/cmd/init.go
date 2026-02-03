@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
@@ -54,7 +56,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 
 	lockObj, err := lock.New(lockFile)
 	if err != nil {
-		return NewLoadLockFileError(err)
+		return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockFile, err))
 	}
 
 	lockObj.SetDirectories(lock.Directories{

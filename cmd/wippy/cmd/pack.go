@@ -401,11 +401,11 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 
 	lockObj, err := lock.New(lockPath)
 	if err != nil {
-		return NewLoadLockFileError(err)
+		return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
 	}
 
 	if err := lock.Validate(lockObj); err != nil {
-		return NewInvalidLockFileError(err)
+		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 
 	paths := lockObj.GetLoadPaths()
@@ -662,11 +662,11 @@ func parseMetadataValue(value string) any {
 func runListMode(app *appinit.Context, lockPath, _ string) error {
 	lockObj, err := lock.New(lockPath)
 	if err != nil {
-		return NewLoadLockFileError(err)
+		return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
 	}
 
 	if err := lock.Validate(lockObj); err != nil {
-		return NewInvalidLockFileError(err)
+		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 
 	_ = lockObj.GetLoadPaths()

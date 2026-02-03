@@ -337,11 +337,11 @@ func runList(cmd *cobra.Command, _ []string) error {
 
 	lockObj, err := lock.New(lockPath)
 	if err != nil {
-		return NewLoadLockFileError(err)
+		return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
 	}
 
 	if err := lock.Validate(lockObj); err != nil {
-		return NewInvalidLockFileError(err)
+		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 
 	var commands []struct {
@@ -931,7 +931,7 @@ func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]s
 func updateLockFile(moduleName, version, digest string) error {
 	lockObj, err := lock.New(defaultLockFile)
 	if err != nil {
-		return err
+		return fmt.Errorf("lock file %s: %w", defaultLockFile, err)
 	}
 
 	mod := lock.Module{
@@ -941,7 +941,10 @@ func updateLockFile(moduleName, version, digest string) error {
 	}
 
 	lockObj.SetModule(mod)
-	return lockObj.Write()
+	if err := lockObj.Write(); err != nil {
+		return fmt.Errorf("lock file %s: %w", lockObj.Path(), err)
+	}
+	return nil
 }
 
 func isVersionString(s string) bool {

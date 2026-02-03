@@ -248,11 +248,11 @@ func loadRegistryEntries(cmd *cobra.Command, lockFile string) ([]regapi.Entry, e
 
 	lockObj, err := lock.New(lockPath)
 	if err != nil {
-		return nil, NewLoadLockFileError(err)
+		return nil, NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
 	}
 
 	if err := lock.Validate(lockObj); err != nil {
-		return nil, NewInvalidLockFileError(err)
+		return nil, NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 
 	allEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, app.Logger)

@@ -377,11 +377,11 @@ func loadLuaEntries(cmd *cobra.Command, lockFile string, nsFilters []string) ([]
 
 	lockObj, err := lock.New(lockPath)
 	if err != nil {
-		return nil, nil, NewLoadLockFileError(err)
+		return nil, nil, NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
 	}
 
 	if err := lock.Validate(lockObj); err != nil {
-		return nil, nil, NewInvalidLockFileError(err)
+		return nil, nil, NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 
 	allEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, app.Logger)

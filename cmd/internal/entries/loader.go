@@ -40,11 +40,11 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 
 	lockObj, err := lock.New(lockPath)
 	if err != nil {
-		return NewLoadLockFileError(err)
+		return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
 	}
 
 	if err := lock.Validate(lockObj); err != nil {
-		return NewInvalidLockFileError(err)
+		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 
 	if err := ensureModulesInstalledFromLock(ctx, lockObj, logger); err != nil {
@@ -79,11 +79,11 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 func EnsureModulesInstalled(ctx context.Context, lockPath string, logger *zap.Logger) error {
 	lockObj, err := lock.New(lockPath)
 	if err != nil {
-		return NewLoadLockFileError(err)
+		return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
 	}
 
 	if err := lock.Validate(lockObj); err != nil {
-		return NewInvalidLockFileError(err)
+		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 
 	return ensureModulesInstalledFromLock(ctx, lockObj, logger)
