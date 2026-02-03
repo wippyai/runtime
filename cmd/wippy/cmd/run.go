@@ -276,7 +276,7 @@ func resolveCommandToEntry(ctx context.Context, name string) (string, error) {
 
 	allEntries, err := reg.GetAllEntries()
 	if err != nil {
-		return "", fmt.Errorf("failed to query registry: %w", err)
+		return "", fmt.Errorf("failed to query registry for commands: %w", err)
 	}
 
 	for _, e := range allEntries {
@@ -624,7 +624,7 @@ func findTerminalHost(ctx context.Context) (string, error) {
 
 	allEntries, err := reg.GetAllEntries()
 	if err != nil {
-		return "", fmt.Errorf("failed to query registry: %w", err)
+		return "", fmt.Errorf("failed to query registry for terminal hosts: %w", err)
 	}
 
 	var hosts []string
@@ -749,7 +749,7 @@ func findPackCommand(ctx context.Context, commandName string) (string, error) {
 
 	allEntries, err := reg.GetAllEntries()
 	if err != nil {
-		return "", fmt.Errorf("failed to query registry: %w", err)
+		return "", fmt.Errorf("failed to query registry for pack commands: %w", err)
 	}
 
 	var commands []struct {
