@@ -21,6 +21,15 @@ type PipeContext struct {
 	Stdout io.Writer
 	Stderr io.Writer
 	Args   []string
+	Raw    RawController
+}
+
+// RawController manages terminal raw mode.
+type RawController interface {
+	Enable() error
+	Disable() error
+	Reset() error
+	Enabled() bool
 }
 
 // NewTerminalContext creates a new terminal context with the provided input/output streams.
@@ -40,6 +49,14 @@ func NewTerminalContextWithArgs(stdin io.Reader, stdout, stderr io.Writer, args 
 		Stderr: stderr,
 		Args:   args,
 	}
+}
+
+// Close releases any terminal resources associated with the context.
+func (pc *PipeContext) Close() error {
+	if pc == nil || pc.Raw == nil {
+		return nil
+	}
+	return pc.Raw.Reset()
 }
 
 // GetTerminalContext retrieves the terminal context from the given context if available.

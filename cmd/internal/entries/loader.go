@@ -216,30 +216,36 @@ func LoadEntriesFromPaths(ctx context.Context, paths []string, logger *zap.Logge
 	var entries []regapi.Entry
 
 	for _, path := range paths {
-		stat, err := os.Stat(path)
-		if os.IsNotExist(err) {
-			logger.Warn("path not found, skipping", zap.String("path", path))
-			continue
-		}
-
 		var loadedEntries []regapi.Entry
 
-		if stat.IsDir() {
-			// Directory: load via FS
-			dirFS := os.DirFS(path)
-			loadedEntries, err = ldr.LoadFS(ctx, dirFS)
-			if err != nil {
-				return nil, NewLoadFromPathError(path, err)
-			}
-		} else if filepath.Ext(path) == ".wapp" {
+		if filepath.Ext(path) == ".wapp" {
 			// Wapp file: load via PackReader
+			var err error
 			loadedEntries, err = loadEntriesFromWapp(path, dtt)
 			if err != nil {
 				return nil, NewLoadFromPathError(path, err)
 			}
 		} else {
-			logger.Warn("unknown path type, skipping", zap.String("path", path))
-			continue
+			stat, err := os.Stat(path)
+			if os.IsNotExist(err) {
+				logger.Warn("path not found, skipping", zap.String("path", path))
+				continue
+			}
+			if err != nil {
+				return nil, NewLoadFromPathError(path, err)
+			}
+
+			if stat.IsDir() {
+				// Directory: load via FS
+				dirFS := os.DirFS(path)
+				loadedEntries, err = ldr.LoadFS(ctx, dirFS)
+				if err != nil {
+					return nil, NewLoadFromPathError(path, err)
+				}
+			} else {
+				logger.Warn("unknown path type, skipping", zap.String("path", path))
+				continue
+			}
 		}
 
 		entries = append(entries, loadedEntries...)

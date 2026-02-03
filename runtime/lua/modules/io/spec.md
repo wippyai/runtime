@@ -91,6 +91,7 @@ Reads up to n bytes from stdin.
 **Notes:**
 - Returns actual bytes read, which may be less than requested
 - Returns empty string if no data available
+- Suspends the current coroutine while waiting for input
 
 ### readline() → string, error
 
@@ -108,6 +109,29 @@ Reads a line from stdin up to newline character.
 - Strips trailing `\n` and `\r` from result
 - If EOF reached with partial data, returns partial line without error
 - If EOF with no data, returns `nil, error`
+- Suspends the current coroutine while waiting for input
+
+### raw(enable?: boolean) → boolean, error
+
+Enables or disables raw terminal mode.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| enable | boolean | no | true | `true` to enable raw mode, `false` to disable |
+
+**Returns:**
+- Success: `true`
+- Error: `nil, error` - error is string
+
+**Errors (strings):**
+- `"no terminal context"` - no terminal context available
+- `"raw terminal control unavailable"` - terminal host does not support raw mode
+- Terminal error message - raw mode operation failed
+
+**Notes:**
+- Raw mode is reference-counted; enabling multiple times requires the same number of disables
+- Always resets to normal mode when the terminal process exits
+- Suspends the current coroutine while updating the terminal
 
 ### flush() → boolean, error
 

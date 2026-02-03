@@ -2,8 +2,6 @@
 package io
 
 import (
-	"bufio"
-
 	lua "github.com/wippyai/go-lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/service/terminal"
@@ -19,18 +17,19 @@ var Module = &luaapi.ModuleDef{
 }
 
 func buildModule() (*lua.LTable, []luaapi.YieldType) {
-	mod := lua.CreateTable(0, 7)
+	mod := lua.CreateTable(0, 8)
 
 	mod.RawSetString("write", lua.LGoFunc(ioWrite))
 	mod.RawSetString("print", lua.LGoFunc(ioPrint))
 	mod.RawSetString("eprint", lua.LGoFunc(ioEprint))
-	mod.RawSetString("read", lua.LGoFunc(ioRead))
-	mod.RawSetString("readline", lua.LGoFunc(ioReadline))
+	mod.RawSetString("read", lua.LGoFunc(ioReadYielding))
+	mod.RawSetString("readline", lua.LGoFunc(ioReadlineYielding))
+	mod.RawSetString("raw", lua.LGoFunc(ioRaw))
 	mod.RawSetString("flush", lua.LGoFunc(ioFlush))
 	mod.RawSetString("args", lua.LGoFunc(ioArgs))
 
 	mod.Immutable = true
-	return mod, nil
+	return mod, yieldTypes
 }
 
 // ioWrite writes strings to stdout without newline.
@@ -103,68 +102,6 @@ func ioEprint(l *lua.LState) int {
 	_, _ = tc.Stderr.Write([]byte("\n"))
 
 	l.Push(lua.LTrue)
-	return 1
-}
-
-// ioRead reads n bytes from stdin.
-// io.read(n) -> string, err
-func ioRead(l *lua.LState) int {
-	tc := terminal.GetTerminalContext(l.Context())
-	if tc == nil || tc.Stdin == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no terminal context"))
-		return 2
-	}
-
-	n := l.OptInt(1, 1024)
-	if n <= 0 {
-		n = 1024
-	}
-
-	buf := make([]byte, n)
-	read, err := tc.Stdin.Read(buf)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	l.Push(lua.LString(buf[:read]))
-	return 1
-}
-
-// ioReadline reads a line from stdin (up to newline).
-// io.readline() -> string, err
-func ioReadline(l *lua.LState) int {
-	tc := terminal.GetTerminalContext(l.Context())
-	if tc == nil || tc.Stdin == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no terminal context"))
-		return 2
-	}
-
-	reader := bufio.NewReader(tc.Stdin)
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		// Return partial line if we got EOF with data
-		if len(line) > 0 {
-			l.Push(lua.LString(line))
-			return 1
-		}
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	// Strip trailing newline
-	if len(line) > 0 && line[len(line)-1] == '\n' {
-		line = line[:len(line)-1]
-	}
-	if len(line) > 0 && line[len(line)-1] == '\r' {
-		line = line[:len(line)-1]
-	}
-
-	l.Push(lua.LString(line))
 	return 1
 }
 

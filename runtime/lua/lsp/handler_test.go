@@ -210,7 +210,7 @@ func TestHandler_HoverWithValidParams(t *testing.T) {
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "textDocument/hover",
-		Params:  json.RawMessage(`{"textDocument":{"uri":"file:///test.lua"},"position":{"line":0,"character":0}}`),
+		Params:  json.RawMessage(`{"textDocument":{"uri":"wippy://@test/module"},"position":{"line":0,"character":0}}`),
 	}
 
 	resp := h.Handle(context.Background(), req)
@@ -225,7 +225,7 @@ func TestHandler_DefinitionWithValidParams(t *testing.T) {
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "textDocument/definition",
-		Params:  json.RawMessage(`{"textDocument":{"uri":"file:///test.lua"},"position":{"line":0,"character":0}}`),
+		Params:  json.RawMessage(`{"textDocument":{"uri":"wippy://@test/module"},"position":{"line":0,"character":0}}`),
 	}
 
 	resp := h.Handle(context.Background(), req)
@@ -240,7 +240,7 @@ func TestHandler_DocumentSymbolWithValidParams(t *testing.T) {
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "textDocument/documentSymbol",
-		Params:  json.RawMessage(`{"textDocument":{"uri":"file:///test.lua"}}`),
+		Params:  json.RawMessage(`{"textDocument":{"uri":"wippy://@test/module"}}`),
 	}
 
 	resp := h.Handle(context.Background(), req)
@@ -274,17 +274,17 @@ func TestHandler_CallHierarchyWithValidParams(t *testing.T) {
 		{
 			name:   "prepareCallHierarchy",
 			method: "textDocument/prepareCallHierarchy",
-			params: `{"textDocument":{"uri":"file:///test.lua"},"position":{"line":0,"character":0}}`,
+			params: `{"textDocument":{"uri":"wippy://@test/module"},"position":{"line":0,"character":0}}`,
 		},
 		{
 			name:   "incomingCalls",
 			method: "callHierarchy/incomingCalls",
-			params: `{"item":{"name":"test","kind":12,"uri":"file:///test.lua","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}}}}`,
+			params: `{"item":{"name":"test","kind":12,"uri":"wippy://@test/module","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}}}}`,
 		},
 		{
 			name:   "outgoingCalls",
 			method: "callHierarchy/outgoingCalls",
-			params: `{"item":{"name":"test","kind":12,"uri":"file:///test.lua","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}}}}`,
+			params: `{"item":{"name":"test","kind":12,"uri":"wippy://@test/module","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}}}}`,
 		},
 	}
 
@@ -314,7 +314,7 @@ func TestHandler_EarlyCancellation(t *testing.T) {
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "textDocument/hover",
-		Params:  json.RawMessage(`{"textDocument":{"uri":"file:///test.lua"},"position":{"line":0,"character":0}}`),
+		Params:  json.RawMessage(`{"textDocument":{"uri":"wippy://@test/module"},"position":{"line":0,"character":0}}`),
 	}
 
 	resp := h.Handle(ctx, req)
@@ -331,8 +331,8 @@ func TestHandler_NilLSPService(t *testing.T) {
 		name   string
 		params string
 	}{
-		{"callHierarchy/incomingCalls", `{"item":{"name":"test","kind":12,"uri":"file:///test.lua","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}}}}`},
-		{"callHierarchy/outgoingCalls", `{"item":{"name":"test","kind":12,"uri":"file:///test.lua","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}}}}`},
+		{"callHierarchy/incomingCalls", `{"item":{"name":"test","kind":12,"uri":"wippy://@test/module","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}}}}`},
+		{"callHierarchy/outgoingCalls", `{"item":{"name":"test","kind":12,"uri":"wippy://@test/module","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}}}}`},
 	}
 
 	for _, tt := range methods {

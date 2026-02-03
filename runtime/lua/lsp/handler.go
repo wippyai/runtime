@@ -3,6 +3,7 @@ package lsp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	golualsp "github.com/wippyai/go-lua/lsp"
@@ -156,6 +157,14 @@ func invalidParams(err error) *ResponseError {
 	return &ResponseError{Code: InvalidParams, Message: err.Error()}
 }
 
+func fileIDFromURI(uri string) (string, *ResponseError) {
+	id := URIToID(uri)
+	if id == "" {
+		return "", invalidParams(fmt.Errorf("unsupported document uri: %s", uri))
+	}
+	return id, nil
+}
+
 // LSP initialization
 
 func (h *Handler) initialize(_ json.RawMessage) (any, *ResponseError) {
@@ -190,7 +199,10 @@ func (h *Handler) hover(params json.RawMessage) (any, *ResponseError) {
 		return nil, invalidParams(jsonErr)
 	}
 
-	fileID := URIToID(p.TextDocument.URI)
+	fileID, uriErr := fileIDFromURI(p.TextDocument.URI)
+	if uriErr != nil {
+		return nil, uriErr
+	}
 	result := lspSvc.HoverAt(fileID, p.Position.Line+1, p.Position.Character+1)
 	if result == nil {
 		return nil, nil
@@ -217,7 +229,10 @@ func (h *Handler) definition(params json.RawMessage) (any, *ResponseError) {
 		return nil, invalidParams(jsonErr)
 	}
 
-	fileID := URIToID(p.TextDocument.URI)
+	fileID, uriErr := fileIDFromURI(p.TextDocument.URI)
+	if uriErr != nil {
+		return nil, uriErr
+	}
 	result := lspSvc.DefinitionAt(fileID, p.Position.Line+1, p.Position.Character+1)
 	if result == nil {
 		return nil, nil
@@ -240,7 +255,10 @@ func (h *Handler) references(params json.RawMessage) (any, *ResponseError) {
 		return nil, invalidParams(jsonErr)
 	}
 
-	fileID := URIToID(p.TextDocument.URI)
+	fileID, uriErr := fileIDFromURI(p.TextDocument.URI)
+	if uriErr != nil {
+		return nil, uriErr
+	}
 	results := lspSvc.ReferencesAt(
 		fileID,
 		p.Position.Line+1,
@@ -272,7 +290,10 @@ func (h *Handler) documentSymbol(params json.RawMessage) (any, *ResponseError) {
 		return nil, invalidParams(jsonErr)
 	}
 
-	fileID := URIToID(p.TextDocument.URI)
+	fileID, uriErr := fileIDFromURI(p.TextDocument.URI)
+	if uriErr != nil {
+		return nil, uriErr
+	}
 	results := lspSvc.DocumentSymbols(fileID)
 	return convertDocumentSymbols(results), nil
 }
@@ -321,7 +342,10 @@ func (h *Handler) completion(params json.RawMessage) (any, *ResponseError) {
 		return nil, nil
 	}
 
-	fileID := URIToID(p.TextDocument.URI)
+	fileID, uriErr := fileIDFromURI(p.TextDocument.URI)
+	if uriErr != nil {
+		return nil, uriErr
+	}
 	ctx := &completion.Context{
 		File: fileID,
 		Line: p.Position.Line + 1,
@@ -364,7 +388,10 @@ func (h *Handler) signatureHelp(params json.RawMessage) (any, *ResponseError) {
 		return nil, nil
 	}
 
-	fileID := URIToID(p.TextDocument.URI)
+	fileID, uriErr := fileIDFromURI(p.TextDocument.URI)
+	if uriErr != nil {
+		return nil, uriErr
+	}
 	sig := sp.Help(fileID, p.Position.Line+1, p.Position.Character+1)
 	if sig == nil {
 		return nil, nil
@@ -402,7 +429,10 @@ func (h *Handler) prepareCallHierarchy(params json.RawMessage) (any, *ResponseEr
 		return nil, invalidParams(jsonErr)
 	}
 
-	fileID := URIToID(p.TextDocument.URI)
+	fileID, uriErr := fileIDFromURI(p.TextDocument.URI)
+	if uriErr != nil {
+		return nil, uriErr
+	}
 	result := lspSvc.HoverAt(fileID, p.Position.Line+1, p.Position.Character+1)
 	if result == nil || result.Symbol == nil {
 		return nil, nil
@@ -434,7 +464,10 @@ func (h *Handler) incomingCalls(params json.RawMessage) (any, *ResponseError) {
 		return nil, nil
 	}
 
-	fileID := URIToID(p.Item.URI)
+	fileID, uriErr := fileIDFromURI(p.Item.URI)
+	if uriErr != nil {
+		return nil, uriErr
+	}
 	edges := cg.CallersOf(fileID, p.Item.Name)
 	results := make([]CallHierarchyIncomingCall, 0, len(edges))
 	for _, edge := range edges {
@@ -469,7 +502,10 @@ func (h *Handler) outgoingCalls(params json.RawMessage) (any, *ResponseError) {
 		return nil, nil
 	}
 
-	fileID := URIToID(p.Item.URI)
+	fileID, uriErr := fileIDFromURI(p.Item.URI)
+	if uriErr != nil {
+		return nil, uriErr
+	}
 	edges := cg.CalleesOf(fileID, p.Item.Name)
 	results := make([]CallHierarchyOutgoingCall, 0, len(edges))
 	for _, edge := range edges {

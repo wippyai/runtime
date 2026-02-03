@@ -342,7 +342,7 @@ func (h *Host) loadLibrarySource(l *lua.LState, source, name string) (lua.LValue
 		return nil, err
 	}
 
-	proto, err := lua.Compile(chunk, name)
+	proto, err := lua.CompileWithOptions(chunk, name, lua.CompileOptions{})
 	if err != nil {
 		return nil, err
 	}

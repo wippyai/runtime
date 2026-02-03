@@ -59,7 +59,18 @@ local function progress_bar(current: number, total: number, width: number?)
 	end
 	local filled = math.floor((current / total) * width)
 	local empty = width - filled
-	return cyan(string.rep(bar_full, filled)) .. dim(string.rep(bar_empty, empty))
+	return cyan(
+
+
+
+		string.rep(bar_full, filled)
+
+
+
+	)
+	..
+	dim(string.rep(bar_empty, empty)
+	)
 end
 
 -- Results

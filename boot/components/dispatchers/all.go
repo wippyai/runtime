@@ -15,6 +15,7 @@ func All() []boot.Component {
 		WS(),
 		Exec(),
 		Stream(),
+		TTY(),
 		SQL(),
 		Events(),
 	}

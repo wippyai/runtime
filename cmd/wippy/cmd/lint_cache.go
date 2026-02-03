@@ -222,7 +222,7 @@ func lintSaveTypecheckCache(lcache lintCache, entry regapi.Entry, data entryData
 	_ = lcache.store.Put(lintTypecheckCacheKey(fingerprint), cacheEntry)
 }
 
-func lintEnsureCompileCache(lcache lintCache, entry regapi.Entry, data entryData, fingerprint string, deps []cache.DepMeta, stmts []ast.Stmt) {
+func lintEnsureCompileCache(lcache lintCache, entry regapi.Entry, data entryData, fingerprint string, deps []cache.DepMeta, stmts []ast.Stmt, manifest *io.Manifest) {
 	cfg := lintCacheConfig(lcache)
 	if fingerprint == "" || !cfg.CompileEnabled || lcache.store == nil {
 		return
@@ -246,7 +246,11 @@ func lintEnsureCompileCache(lcache lintCache, entry regapi.Entry, data entryData
 	if entry.Kind == luaapi.ModuleKind || len(stmts) == 0 {
 		return
 	}
-	proto, err := glua.Compile(stmts, entry.ID.String())
+	compileOpts, err := code.CompileOptionsForManifest(manifest)
+	if err != nil {
+		return
+	}
+	proto, err := glua.CompileWithOptions(stmts, entry.ID.String(), compileOpts)
 	if err != nil {
 		return
 	}

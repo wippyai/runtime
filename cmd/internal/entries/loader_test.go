@@ -295,17 +295,9 @@ func TestLoadEntriesFromPathsNonExistent(t *testing.T) {
 	nonExistentPath := filepath.Join(tmpDir, "nonexistent.wapp")
 
 	paths := []string{nonExistentPath, existingPath}
-	result, err := LoadEntriesFromPaths(ctx, paths, logger)
-	if err != nil {
-		t.Fatalf("LoadEntriesFromPaths failed: %v", err)
-	}
-
-	if len(result) != 1 {
-		t.Fatalf("Entry count = %d, want 1", len(result))
-	}
-
-	if result[0].ID.String() != "test:entry" {
-		t.Errorf("Entry ID = %v, want test:entry", result[0].ID)
+	_, err := LoadEntriesFromPaths(ctx, paths, logger)
+	if err == nil {
+		t.Fatal("expected error for non-existent .wapp path")
 	}
 }
 

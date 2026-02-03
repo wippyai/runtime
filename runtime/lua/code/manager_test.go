@@ -388,6 +388,49 @@ func TestManager_Compile(t *testing.T) {
 	}
 }
 
+func TestManager_Compile_TypeCallsFromManifest(t *testing.T) {
+	logger := zap.NewNop()
+	bus := &testEventBus{}
+	typeCfg := DefaultTypeCheckConfig()
+	typeCfg.Enabled = true
+	cm, err := NewCodeManager(logger, bus, Config{TypeCheck: typeCfg})
+	require.NoError(t, err)
+
+	node := Node{
+		ID:     registry.NewID("", "typeCall"),
+		Kind:   api.Function,
+		Source: "type MyStr = string\nreturn MyStr(\"ok\")",
+		Method: "main",
+	}
+	err = cm.AddNode(context.Background(), node, nil)
+	require.NoError(t, err)
+
+	compiled, err := cm.Compile(node.ID, nil)
+	require.NoError(t, err)
+	require.NotNil(t, compiled.Main)
+	if len(compiled.Main.TypeInfo) == 0 {
+		t.Fatal("expected type info on compiled proto")
+	}
+	checkedNode, err := cm.memGraph.GetNode(node.ID)
+	require.NoError(t, err)
+	if checkedNode.Manifest == nil || checkedNode.Manifest.Types == nil {
+		t.Fatal("expected manifest types on node")
+	}
+	if _, ok := checkedNode.Manifest.Types["MyStr"]; !ok {
+		t.Fatalf("expected manifest to include MyStr, got %v", checkedNode.Manifest.Types)
+	}
+
+	l := glua.NewState()
+	defer l.Close()
+	fn := l.LoadProto(compiled.Main)
+	l.Push(fn)
+	err = l.PCall(0, 1, nil)
+	require.NoError(t, err)
+	if got := l.Get(-1).String(); got != "ok" {
+		t.Fatalf("expected 'ok', got %q", got)
+	}
+}
+
 func TestManager_AddNodeWithProto(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &testEventBus{}

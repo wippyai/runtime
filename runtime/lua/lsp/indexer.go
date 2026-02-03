@@ -2,7 +2,6 @@ package lsp
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"sync"
 
@@ -24,19 +23,18 @@ import (
 	"go.uber.org/zap"
 )
 
-var errTypeCheckErrors = errors.New("type check errors")
-
 const luaKindSuffix = ".lua"
 
 // Indexer builds type information and populates LSP indexes.
 type Indexer struct {
-	log        *zap.Logger
-	cm         *code.Manager
-	lspService *golualsp.Service
-	symbols    *index.SymbolIndex
-	callGraph  *index.CallGraph
-	checker    *check.Checker
-	mu         sync.Mutex
+	log         *zap.Logger
+	cm          *code.Manager
+	lspService  *golualsp.Service
+	symbols     *index.SymbolIndex
+	callGraph   *index.CallGraph
+	checker     *check.Checker
+	builtinHash string
+	mu          sync.Mutex
 }
 
 // NewIndexer creates a new indexer.
@@ -50,12 +48,14 @@ func NewIndexer(log *zap.Logger, cm *code.Manager, lspService *golualsp.Service,
 	}
 	if cm != nil {
 		idx.checker = buildCheckerFromModules(cm.GetModuleDefs(), symbols, callGraph)
+		idx.builtinHash = cm.BuiltinManifestHash()
 	}
 	return idx
 }
 
 // IndexAll indexes all Lua entries from the code manager.
 func (idx *Indexer) IndexAll(ctx context.Context) error {
+	idx.ensureChecker()
 	if idx.cm == nil || idx.checker == nil {
 		return nil
 	}
@@ -101,6 +101,7 @@ func (idx *Indexer) IndexEntry(ctx context.Context, id registry.ID) error {
 	default:
 	}
 
+	idx.ensureChecker()
 	if idx.cm == nil || idx.checker == nil {
 		return nil
 	}
@@ -144,17 +145,17 @@ func (idx *Indexer) collectLuaEntries() []*entryInfo {
 func (idx *Indexer) indexEntryLocked(entry *entryInfo) error {
 	fileID := entry.ID.String()
 
-	// Invalidate old data before re-indexing
+	stmts, err := parse.Parse(strings.NewReader(entry.Source), fileID)
+	if err != nil {
+		return err
+	}
+
+	// Invalidate old data after successful parse to avoid dropping last good index on parse errors.
 	if idx.symbols != nil {
 		idx.symbols.InvalidateFile(fileID)
 	}
 	if idx.callGraph != nil {
 		idx.callGraph.InvalidateFile(fileID)
-	}
-
-	stmts, err := parse.Parse(strings.NewReader(entry.Source), fileID)
-	if err != nil {
-		return err
 	}
 
 	// Connect dependency manifests to the checker's database
@@ -172,7 +173,8 @@ func (idx *Indexer) indexEntryLocked(entry *entryInfo) error {
 	sess.Release()
 
 	if hasErr {
-		return errTypeCheckErrors
+		idx.log.Debug("lsp indexed with typecheck errors", zap.String("id", fileID))
+		return nil
 	}
 	return nil
 }
@@ -234,6 +236,17 @@ func buildCheckerFromModules(modules []*luaapi.ModuleDef, symbols *index.SymbolI
 			IndexFunc: core.Index,
 		},
 	}, hooks.WithAssign(), hooks.WithReturn(), hooks.WithCall(), hooks.WithField(), hooks.WithLSPIndex(lspIndexer))
+}
+
+func (idx *Indexer) ensureChecker() {
+	if idx.cm == nil {
+		return
+	}
+	hash := idx.cm.BuiltinManifestHash()
+	if idx.checker == nil || hash != idx.builtinHash {
+		idx.checker = buildCheckerFromModules(idx.cm.GetModuleDefs(), idx.symbols, idx.callGraph)
+		idx.builtinHash = hash
+	}
 }
 
 // hasErrors checks if any diagnostic is an error.

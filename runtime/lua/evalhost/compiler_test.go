@@ -6,6 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
+	typeio "github.com/wippyai/go-lua/types/io"
+	"github.com/wippyai/go-lua/types/typ"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/modules/json"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
@@ -40,6 +42,33 @@ func TestCompiler_Compile_Basic(t *testing.T) {
 	assert.Equal(t, "handle", program.Method())
 	assert.Equal(t, []string{"json"}, program.Modules())
 	assert.NotNil(t, program.Proto())
+}
+
+func TestCompiler_Compile_ModuleTypesAreIncluded(t *testing.T) {
+	manifest := typeio.NewManifest("mock")
+	manifest.DefineType("Point", typ.NewRecord().Field("x", typ.Number).Build())
+	mockMod := &luaapi.ModuleDef{
+		Name:  "mock",
+		Class: []string{luaapi.ClassDeterministic},
+		Types: func() *typeio.Manifest { return manifest },
+	}
+	compiler := NewCompiler(func() []*luaapi.ModuleDef { return []*luaapi.ModuleDef{mockMod} })
+
+	program, err := compiler.Compile(CompileCmd{
+		Source:  `local p = Point({x = 1}); return p`,
+		Method:  "handle",
+		Modules: []string{"mock"},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, program)
+	require.NotNil(t, program.Proto())
+	require.NotEmpty(t, program.Proto().TypeInfo)
+
+	decoded, err := typeio.DecodeManifest(program.Proto().TypeInfo)
+	require.NoError(t, err)
+	_, ok := decoded.Types["Point"]
+	assert.True(t, ok, "expected Point in type info")
 }
 
 func TestCompiler_Compile_SyntaxError(t *testing.T) {

@@ -26,6 +26,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/client"
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	bootextensions "github.com/wippyai/runtime/boot/extensions"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"github.com/wippyai/runtime/cmd/internal/banner"
 	"github.com/wippyai/runtime/cmd/internal/bootconfig"
@@ -186,6 +187,13 @@ func runApp(cmd *cobra.Command, args []string) error {
 	defer embedReg.Close()
 
 	components := StandardComponents()
+	ctx, extensionComponents, err := loadExtensionComponents(ctx, logger, components)
+	if err != nil {
+		logger.Error("failed to load extensions", zap.Error(err))
+		return err
+	}
+
+	components = append(components, extensionComponents...)
 	logger.Info("registered components", zap.Int("count", len(components)))
 
 	loader, err := bootpkg.NewLoader(components...)
@@ -336,54 +344,36 @@ func runList(cmd *cobra.Command, _ []string) error {
 		return NewInvalidLockFileError(err)
 	}
 
-	paths := lockObj.GetLoadPaths()
-
 	var commands []struct {
 		Name    string
 		Short   string
 		EntryID string
 	}
 
-	for _, path := range paths {
-		stat, err := os.Stat(path)
-		if os.IsNotExist(err) {
+	allEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, app.Logger)
+	if err != nil {
+		return NewLoadEntriesError("lock paths", err)
+	}
+
+	for _, e := range allEntries {
+		if !strings.HasPrefix(e.Kind, "process.lua") {
 			continue
 		}
 
-		var pathEntries []registry.Entry
-
-		if stat.IsDir() {
-			pathEntries, err = app.Loader.LoadFS(app.Ctx, os.DirFS(path))
-		} else if filepath.Ext(path) == ".wapp" {
-			pathEntries, err = entries.LoadEntriesFromPaths(app.Ctx, []string{path}, app.Logger)
-		} else {
+		cmdMeta := extractCommandMeta(e.Meta)
+		if cmdMeta == nil {
 			continue
 		}
 
-		if err != nil {
-			continue
-		}
-
-		for _, e := range pathEntries {
-			if !strings.HasPrefix(e.Kind, "process.lua") {
-				continue
-			}
-
-			cmdMeta := extractCommandMeta(e.Meta)
-			if cmdMeta == nil {
-				continue
-			}
-
-			commands = append(commands, struct {
-				Name    string
-				Short   string
-				EntryID string
-			}{
-				Name:    cmdMeta.Name,
-				Short:   cmdMeta.Short,
-				EntryID: e.ID.String(),
-			})
-		}
+		commands = append(commands, struct {
+			Name    string
+			Short   string
+			EntryID string
+		}{
+			Name:    cmdMeta.Name,
+			Short:   cmdMeta.Short,
+			EntryID: e.ID.String(),
+		})
 	}
 
 	if len(commands) == 0 {
@@ -455,6 +445,38 @@ func createDefaultConfig() boot.Config {
 	}
 
 	return boot.NewConfig(opts...)
+}
+
+func loadExtensionComponents(ctx context.Context, logger *zap.Logger, reserved []boot.Component) (context.Context, []boot.Component, error) {
+	reservedNames := make(map[string]struct{}, len(reserved))
+	for _, comp := range reserved {
+		if comp == nil {
+			continue
+		}
+		name := comp.Name()
+		if name == "" {
+			continue
+		}
+		reservedNames[name] = struct{}{}
+	}
+
+	next, res, err := bootextensions.LoadWithReserved(ctx, boot.GetConfig(ctx), reservedNames)
+	if err != nil {
+		return ctx, nil, err
+	}
+	if next != nil {
+		ctx = next
+	}
+
+	if logger != nil && len(res.Extensions) > 0 {
+		names := make([]string, 0, len(res.Extensions))
+		for _, p := range res.Extensions {
+			names = append(names, p.Name)
+		}
+		logger.Info("extensions loaded", zap.Int("count", len(res.Extensions)), zap.Strings("extensions", names))
+	}
+
+	return ctx, res.Components, nil
 }
 
 func applyCLIOverrides(cfg boot.Config) boot.Config {
@@ -994,6 +1016,13 @@ func runFromPackFile(_ *cobra.Command, packFile string, args []string) error {
 	defer embedReg.Close()
 
 	components := StandardComponents()
+	ctx, extensionComponents, err := loadExtensionComponents(ctx, logger, components)
+	if err != nil {
+		logger.Error("failed to load extensions", zap.Error(err))
+		return err
+	}
+
+	components = append(components, extensionComponents...)
 	logger.Info("registered components", zap.Int("count", len(components)))
 
 	loader, err := bootpkg.NewLoader(components...)
@@ -1158,6 +1187,13 @@ func runFromPackFiles(_ *cobra.Command, packFiles []string, args []string) error
 	defer embedReg.Close()
 
 	components := StandardComponents()
+	ctx, extensionComponents, err := loadExtensionComponents(ctx, logger, components)
+	if err != nil {
+		logger.Error("failed to load extensions", zap.Error(err))
+		return err
+	}
+
+	components = append(components, extensionComponents...)
 	logger.Info("registered components", zap.Int("count", len(components)))
 
 	loader, err := bootpkg.NewLoader(components...)

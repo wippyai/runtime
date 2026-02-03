@@ -5,7 +5,6 @@ import (
 	stdjson "encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -25,6 +24,7 @@ import (
 	bootpkg "github.com/wippyai/runtime/boot"
 	luaboot "github.com/wippyai/runtime/boot/components/runtime/lua"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	bootextensions "github.com/wippyai/runtime/boot/extensions"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"github.com/wippyai/runtime/cmd/internal/entries"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
@@ -327,6 +327,24 @@ func bootstrapLintContext() (ctx context.Context, loader *bootpkg.Loader, err er
 	}
 
 	components := StandardComponents()
+	reservedNames := make(map[string]struct{}, len(components))
+	for _, comp := range components {
+		if comp == nil {
+			continue
+		}
+		name := comp.Name()
+		if name == "" {
+			continue
+		}
+		reservedNames[name] = struct{}{}
+	}
+
+	bctx, extensionResult, err := bootextensions.LoadWithReserved(bctx, cfg, reservedNames)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	components = append(components, extensionResult.Components...)
 	loader, err = bootpkg.NewLoader(components...)
 	if err != nil {
 		return nil, nil, NewCreateLoaderError(err)
@@ -366,27 +384,9 @@ func loadLuaEntries(cmd *cobra.Command, lockFile string, nsFilters []string) ([]
 		return nil, nil, NewInvalidLockFileError(err)
 	}
 
-	var allEntries []regapi.Entry
-	for _, path := range lockObj.GetLoadPaths() {
-		stat, err := os.Stat(path)
-		if os.IsNotExist(err) {
-			continue
-		}
-
-		var pathEntries []regapi.Entry
-
-		if stat.IsDir() {
-			pathEntries, err = app.Loader.LoadFS(app.Ctx, os.DirFS(path))
-		} else if filepath.Ext(path) == ".wapp" {
-			pathEntries, err = entries.LoadEntriesFromPaths(app.Ctx, []string{path}, app.Logger)
-		} else {
-			continue
-		}
-
-		if err != nil {
-			return nil, nil, NewLoadEntriesError(path, err)
-		}
-		allEntries = append(allEntries, pathEntries...)
+	allEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, app.Logger)
+	if err != nil {
+		return nil, nil, NewLoadEntriesError("lock paths", err)
 	}
 
 	allLua := filterLuaEntries(allEntries, nil)
@@ -684,7 +684,7 @@ func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manif
 
 	if fp := fps.compile[entry.ID]; fp != "" {
 		if !code.HasErrors(typeDiags) {
-			lintEnsureCompileCache(lcache, entry, data, fp, fps.compileDeps[entry.ID], stmts)
+			lintEnsureCompileCache(lcache, entry, data, fp, fps.compileDeps[entry.ID], stmts, lintResult.Manifest)
 		}
 	}
 

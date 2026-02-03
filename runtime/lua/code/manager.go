@@ -222,15 +222,13 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 				return nil, err
 			}
 
-			fnProto, err := glua.Compile(chunk, node.ID.String())
+			compileOpts, err := CompileOptionsForManifest(node.Manifest)
+			if err != nil {
+				return nil, fmt.Errorf("encode manifest for %s: %w", node.ID.String(), err)
+			}
+			fnProto, err := glua.CompileWithOptions(chunk, node.ID.String(), compileOpts)
 			if err != nil {
 				return nil, NewCompileError(node.ID, err)
-			}
-
-			if node.Manifest != nil {
-				if data, err := node.Manifest.Encode(); err == nil {
-					fnProto.SetTypeInfo(data)
-				}
 			}
 
 			if compileFP != "" {

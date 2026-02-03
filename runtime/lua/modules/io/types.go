@@ -31,6 +31,10 @@ func ModuleTypes() *typio.Manifest {
 			Type: typ.Func().Returns(typ.String, typ.NewOptional(typ.LuaError)).Build(),
 		},
 		{
+			Name: "raw",
+			Type: typ.Func().OptParam("enable", typ.Boolean).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build(),
+		},
+		{
 			Name: "flush",
 			Type: typ.Func().Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build(),
 		},

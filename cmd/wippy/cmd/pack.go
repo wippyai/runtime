@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -15,7 +14,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
-	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
 	"github.com/wippyai/runtime/boot/deps/lock"
@@ -415,41 +413,16 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	p.Send(progressMsg{stage: stageLoadEntries, percent: 0.2, status: fmt.Sprintf("Loading entries from %d paths...", len(paths))})
 	p.Send(logMsg{level: "info", message: fmt.Sprintf("Loading from %d paths", len(paths))})
 
-	var loadedEntries []regapi.Entry
-	for i, path := range paths {
-		stat, err := os.Stat(path)
-		if os.IsNotExist(err) {
-			logger.Warn("path not found, skipping", zap.String("path", path))
-			p.Send(logMsg{level: "warn", message: "Path not found", fields: map[string]interface{}{"path": path}})
-			continue
-		}
-
-		p.Send(logMsg{level: "info", message: "Loading entries", fields: map[string]interface{}{"path": path}})
-
-		var pathEntries []regapi.Entry
-
-		if stat.IsDir() {
-			pathEntries, err = app.Loader.LoadFS(app.Ctx, os.DirFS(path))
-		} else if filepath.Ext(path) == ".wapp" {
-			pathEntries, err = entries.LoadEntriesFromPaths(app.Ctx, []string{path}, logger)
-		} else {
-			continue
-		}
-
-		if err != nil {
-			return NewLoadEntriesError(path, err)
-		}
-
-		loadedEntries = append(loadedEntries, pathEntries...)
-
-		pct := 0.2 + (float64(i+1)/float64(len(paths)))*0.2
-		p.Send(progressMsg{
-			stage:   stageLoadEntries,
-			percent: pct,
-			status:  fmt.Sprintf("Loaded %d entries from %d/%d paths", len(loadedEntries), i+1, len(paths)),
-		})
-		p.Send(logMsg{level: "info", message: fmt.Sprintf("Loaded %d entries total", len(loadedEntries))})
+	loadedEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, logger)
+	if err != nil {
+		return NewLoadEntriesError("lock paths", err)
 	}
+	p.Send(progressMsg{
+		stage:   stageLoadEntries,
+		percent: 0.4,
+		status:  fmt.Sprintf("Loaded %d entries", len(loadedEntries)),
+	})
+	p.Send(logMsg{level: "info", message: fmt.Sprintf("Loaded %d entries total", len(loadedEntries))})
 
 	p.Send(statsMsg{entryCount: len(loadedEntries)})
 
@@ -696,30 +669,11 @@ func runListMode(app *appinit.Context, lockPath, _ string) error {
 		return NewInvalidLockFileError(err)
 	}
 
-	paths := lockObj.GetLoadPaths()
+	_ = lockObj.GetLoadPaths()
 
-	var allEntries []regapi.Entry
-	for _, path := range paths {
-		stat, err := os.Stat(path)
-		if os.IsNotExist(err) {
-			continue
-		}
-
-		var pathEntries []regapi.Entry
-
-		if stat.IsDir() {
-			pathEntries, err = app.Loader.LoadFS(app.Ctx, os.DirFS(path))
-		} else if filepath.Ext(path) == ".wapp" {
-			pathEntries, err = entries.LoadEntriesFromPaths(app.Ctx, []string{path}, app.Logger)
-		} else {
-			continue
-		}
-
-		if err != nil {
-			return NewLoadEntriesError(path, err)
-		}
-
-		allEntries = append(allEntries, pathEntries...)
+	allEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, app.Logger)
+	if err != nil {
+		return NewLoadEntriesError("lock paths", err)
 	}
 
 	titleStyle := lipgloss.NewStyle().

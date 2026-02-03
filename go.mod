@@ -190,3 +190,5 @@ require (
 )
 
 tool go.uber.org/mock/mockgen
+
+replace github.com/wippyai/go-lua => ../go-lua

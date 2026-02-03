@@ -1,7 +1,6 @@
 package lsp
 
 import (
-	"net/url"
 	"strings"
 
 	"github.com/wippyai/go-lua/lsp/index"
@@ -275,9 +274,6 @@ const (
 
 	// URIPrefix is the full prefix for wippy URIs.
 	URIPrefix = URIScheme + uriSchemeSeparator
-
-	// fileURIPrefix is the file:// URI prefix.
-	fileURIPrefix = "file" + uriSchemeSeparator
 )
 
 // URIToID converts an LSP document URI to a registry ID string.
@@ -287,14 +283,8 @@ func URIToID(uri string) string {
 	if strings.HasPrefix(uri, URIPrefix) {
 		return strings.TrimPrefix(uri, URIPrefix)
 	}
-
-	// Handle file:// scheme - extract path and use as ID
-	if strings.HasPrefix(uri, fileURIPrefix) {
-		parsed, err := url.Parse(uri)
-		if err != nil {
-			return uri
-		}
-		return parsed.Path
+	if strings.Contains(uri, uriSchemeSeparator) {
+		return ""
 	}
 
 	// Assume raw ID

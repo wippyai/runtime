@@ -935,7 +935,7 @@ func (p *Process) vmStep(tasks ...*Task) ([]*Task, error) {
 		}
 
 		thread := task.Thread()
-		state, err, values := p.state.ResumeInto(thread, task.Function(), task.retBuf, task.Resumed...)
+		state, values, err := p.state.ResumeInto(thread, task.Function(), task.retBuf, task.Resumed...)
 		if err != nil {
 			// Wrap error BEFORE removing task - removeTask closes the thread
 			// which returns it to pool, causing race if another goroutine reuses it

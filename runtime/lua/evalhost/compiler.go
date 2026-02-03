@@ -6,6 +6,8 @@ import (
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/go-lua/compiler/parse"
+	typeio "github.com/wippyai/go-lua/types/io"
+	"github.com/wippyai/go-lua/types/typ"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 )
@@ -115,7 +117,11 @@ func (c *Compiler) Compile(cmd CompileCmd) (*Program, error) {
 		return nil, NewParseError(err)
 	}
 
-	proto, err := lua.Compile(chunk, "eval")
+	compileOpts, err := compileOptionsForModules(modules, available)
+	if err != nil {
+		return nil, NewCompileScriptError(err)
+	}
+	proto, err := lua.CompileWithOptions(chunk, "eval", compileOpts)
 	if err != nil {
 		return nil, NewCompileScriptError(err)
 	}
@@ -126,6 +132,53 @@ func (c *Compiler) Compile(cmd CompileCmd) (*Program, error) {
 		modules: modules,
 		proto:   proto,
 	}, nil
+}
+
+func compileOptionsForModules(modules []string, available map[string]*luaapi.ModuleDef) (lua.CompileOptions, error) {
+	if len(modules) == 0 {
+		return lua.CompileOptions{}, nil
+	}
+	manifest := typeio.NewManifest("eval")
+	conflicts := make(map[string]struct{})
+	for _, name := range modules {
+		mod := available[name]
+		if mod == nil || mod.Types == nil {
+			continue
+		}
+		typesManifest := mod.Types()
+		if typesManifest == nil || len(typesManifest.Types) == 0 {
+			continue
+		}
+		for typeName, t := range typesManifest.Types {
+			if typeName == "" || t == nil {
+				continue
+			}
+			if _, blocked := conflicts[typeName]; blocked {
+				continue
+			}
+			if existing, ok := manifest.Types[typeName]; ok {
+				if typ.TypeEquals(existing, t) {
+					continue
+				}
+				delete(manifest.Types, typeName)
+				conflicts[typeName] = struct{}{}
+				continue
+			}
+			manifest.Types[typeName] = t
+		}
+	}
+	if len(manifest.Types) == 0 {
+		return lua.CompileOptions{}, nil
+	}
+	data, err := manifest.Encode()
+	if err != nil {
+		return lua.CompileOptions{}, err
+	}
+	typeNames := make(map[string]struct{}, len(manifest.Types))
+	for name := range manifest.Types {
+		typeNames[name] = struct{}{}
+	}
+	return lua.CompileOptions{TypeInfo: data, TypeNames: typeNames}, nil
 }
 
 // validateModuleClasses checks if a module's classes pass filtering.

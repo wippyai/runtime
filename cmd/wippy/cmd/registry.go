@@ -3,8 +3,6 @@ package cmd
 import (
 	stdjson "encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -257,29 +255,9 @@ func loadRegistryEntries(cmd *cobra.Command, lockFile string) ([]regapi.Entry, e
 		return nil, NewInvalidLockFileError(err)
 	}
 
-	paths := lockObj.GetLoadPaths()
-
-	var allEntries []regapi.Entry
-	for _, path := range paths {
-		stat, err := os.Stat(path)
-		if os.IsNotExist(err) {
-			continue
-		}
-
-		var pathEntries []regapi.Entry
-
-		if stat.IsDir() {
-			pathEntries, err = app.Loader.LoadFS(app.Ctx, os.DirFS(path))
-		} else if filepath.Ext(path) == ".wapp" {
-			pathEntries, err = entries.LoadEntriesFromPaths(app.Ctx, []string{path}, app.Logger)
-		} else {
-			continue
-		}
-
-		if err != nil {
-			return nil, NewLoadEntriesError(path, err)
-		}
-		allEntries = append(allEntries, pathEntries...)
+	allEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, app.Logger)
+	if err != nil {
+		return nil, NewLoadEntriesError("lock paths", err)
 	}
 
 	return allEntries, nil

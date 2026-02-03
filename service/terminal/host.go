@@ -32,6 +32,7 @@ type Host struct {
 	statusCh  chan any
 	doneCh    chan struct{}
 	id        registry.ID
+	raw       *RawManager
 	running   atomic.Bool
 	shutdown  atomic.Bool
 }
@@ -60,6 +61,7 @@ func NewHost(
 		logCtrl:   logCtrl,
 		statusCh:  make(chan any, 1),
 		doneCh:    make(chan struct{}),
+		raw:       NewRawManager(os.Stdin),
 	}
 }
 
@@ -69,6 +71,9 @@ func (h *Host) OnStart(context.Context, pid.PID, process.Process) error { return
 // OnComplete implements scheduler.Lifecycle.
 func (h *Host) OnComplete(ctx context.Context, _ pid.PID, result *runtime.Result) {
 	h.logCtrl.RestoreBaseConfig(ctx)
+	if h.raw != nil {
+		_ = h.raw.Reset()
+	}
 	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
 		_ = fc.Close()
 	}
@@ -178,6 +183,9 @@ func (h *Host) Stop(ctx context.Context) error {
 	h.running.Store(false)
 	close(h.statusCh)
 
+	if h.raw != nil {
+		_ = h.raw.Reset()
+	}
 	// Restore logging on shutdown
 	h.logCtrl.RestoreBaseConfig(ctx)
 
@@ -215,7 +223,9 @@ func (h *Host) prepareContext(ctx context.Context, processID pid.PID, start *pro
 	pairs := make([]ctxapi.Pair, pairsLen)
 	pairs[0] = ctxapi.Pair{Key: runtime.FrameIDKey, Value: start.Source}
 	pairs[1] = ctxapi.Pair{Key: runtime.FramePIDKey, Value: processID}
-	pairs[2] = ctxapi.Pair{Key: terminalapi.Key(), Value: terminalapi.NewTerminalContextWithArgs(os.Stdin, os.Stdout, os.Stderr, args)}
+	tc := terminalapi.NewTerminalContextWithArgs(os.Stdin, os.Stdout, os.Stderr, args)
+	tc.Raw = h.raw
+	pairs[2] = ctxapi.Pair{Key: terminalapi.Key(), Value: tc}
 	copy(pairs[3:], start.Context)
 
 	if err := fc.SetMultiple(pairs...); err != nil {

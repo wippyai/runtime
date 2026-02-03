@@ -82,9 +82,9 @@ func TestURIToID(t *testing.T) {
 		want string
 	}{
 		{"wippy scheme", "wippy://@test/module", "@test/module"},
-		{"file scheme", "file:///path/to/file.lua", "/path/to/file.lua"},
 		{"raw id", "@test/module", "@test/module"},
-		{"already raw path", "/some/path", "/some/path"},
+		{"file scheme rejected", "file:///path/to/file.lua", ""},
+		{"other scheme rejected", "http://example.com", ""},
 	}
 
 	for _, tt := range tests {
@@ -102,7 +102,6 @@ func TestIDToURI(t *testing.T) {
 	}{
 		{"registry id", "@test/module", "wippy://@test/module"},
 		{"already wippy uri", "wippy://@test/module", "wippy://@test/module"},
-		{"already file uri", "file:///path/to/file.lua", "file:///path/to/file.lua"},
 	}
 
 	for _, tt := range tests {
