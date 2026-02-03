@@ -253,7 +253,7 @@ func runAuthStatus(cmd *cobra.Command, _ []string) error {
 func readTokenInteractive(registry string) (string, error) {
 	fmt.Printf("Enter API token for %s: ", registry)
 
-	tokenBytes, err := term.ReadPassword(syscall.Stdin)
+	tokenBytes, err := term.ReadPassword(int(syscall.Stdin))
 	if err != nil {
 		reader := bufio.NewReader(os.Stdin)
 		token, err := reader.ReadString('\n')
