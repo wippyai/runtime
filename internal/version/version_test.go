@@ -3,17 +3,17 @@ package version
 import (
 	"testing"
 
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 func TestVersion(t *testing.T) {
 	testCases := []struct {
-		name     string
 		v1       registry.Version
 		v2       registry.Version
+		name     string
+		v1String string
 		v1ID     uint
 		v1PrevID uint
-		v1String string
 	}{
 		{
 			name:     "Equal versions",
@@ -58,5 +58,16 @@ func TestVersion(t *testing.T) {
 				t.Errorf("Expected String() for %v to be %v, got %v", tc.v1, tc.v1String, v1String)
 			}
 		})
+	}
+}
+
+func TestChain(_ *testing.T) {
+	v1 := New(1)
+	v2 := FromParent(v1, 2)
+	v3 := FromParent(v2, 3)
+
+	v := v3
+	for i := 3; i > 0; i-- {
+		v = v.Previous()
 	}
 }

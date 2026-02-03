@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/internal/version"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/internal/version"
 	"go.uber.org/zap"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // testEntry is a helper to create test entries with less boilerplate
@@ -34,10 +34,7 @@ func (te testEntry) toEntry() registry.Entry {
 	}
 
 	return registry.Entry{
-		ID: registry.ID{
-			NS:   te.ns,
-			Name: te.name,
-		},
+		ID:   registry.NewID(te.ns, te.name),
 		Kind: te.kind,
 		Data: payload.NewString(te.data),
 		Meta: meta,
@@ -84,6 +81,12 @@ func (m *MockHistory) Save(v registry.Version, cs registry.ChangeSet, head bool)
 func (m *MockHistory) Head() (registry.Version, error) {
 	m.callStack = append(m.callStack, "Head")
 	return m.head, nil
+}
+
+func (m *MockHistory) SetHead(v registry.Version) error {
+	m.callStack = append(m.callStack, fmt.Sprintf("SetHead(%d)", v.ID()))
+	m.head = v
+	return nil
 }
 
 // Helper functions for common operations
@@ -135,8 +138,8 @@ func formatDelta(cs registry.ChangeSet) string {
 
 // Helper struct to group operations by kind
 type opGroup struct {
-	entries []registry.Entry
 	deps    map[string]bool
+	entries []registry.Entry
 }
 
 // verifyDeltaWithinLevel helper function
@@ -206,7 +209,7 @@ func verifyDeltaWithinLevel(t *testing.T, got, want registry.ChangeSet) {
 }
 
 func TestValidateOperation(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	baseEntry := testEntry{
 		ns:   "test",
@@ -220,7 +223,7 @@ func TestValidateOperation(t *testing.T) {
 
 		// Valid create
 		err := builder.ValidateOperation(state, registry.Operation{
-			Kind:  registry.Create,
+			Kind:  registry.EntryCreate,
 			Entry: baseEntry,
 		})
 		if err != nil {
@@ -230,7 +233,7 @@ func TestValidateOperation(t *testing.T) {
 		// Invalid - already exists
 		state[baseEntry.ID] = baseEntry
 		err = builder.ValidateOperation(state, registry.Operation{
-			Kind:  registry.Create,
+			Kind:  registry.EntryCreate,
 			Entry: baseEntry,
 		})
 		if err == nil || !strings.Contains(err.Error(), "already exists") {
@@ -243,7 +246,7 @@ func TestValidateOperation(t *testing.T) {
 
 		// Invalid - doesn't exist
 		err := builder.ValidateOperation(state, registry.Operation{
-			Kind:  registry.Update,
+			Kind:  registry.EntryUpdate,
 			Entry: baseEntry,
 		})
 		if err == nil || !strings.Contains(err.Error(), "does not exist") {
@@ -255,7 +258,7 @@ func TestValidateOperation(t *testing.T) {
 		differentKindEntry := baseEntry
 		differentKindEntry.Kind = "different"
 		err = builder.ValidateOperation(state, registry.Operation{
-			Kind:  registry.Update,
+			Kind:  registry.EntryUpdate,
 			Entry: differentKindEntry,
 		})
 		if err == nil || !strings.Contains(err.Error(), "cannot change entry kind") {
@@ -266,7 +269,7 @@ func TestValidateOperation(t *testing.T) {
 		updatedEntry := baseEntry
 		updatedEntry.Data = payload.NewString("updated")
 		err = builder.ValidateOperation(state, registry.Operation{
-			Kind:  registry.Update,
+			Kind:  registry.EntryUpdate,
 			Entry: updatedEntry,
 		})
 		if err != nil {
@@ -279,7 +282,7 @@ func TestValidateOperation(t *testing.T) {
 
 		// Invalid - doesn't exist
 		err := builder.ValidateOperation(state, registry.Operation{
-			Kind:  registry.Delete,
+			Kind:  registry.EntryDelete,
 			Entry: baseEntry,
 		})
 		if err == nil || !strings.Contains(err.Error(), "cannot delete non-existent") {
@@ -289,7 +292,7 @@ func TestValidateOperation(t *testing.T) {
 		// Valid delete
 		state[baseEntry.ID] = baseEntry
 		err = builder.ValidateOperation(state, registry.Operation{
-			Kind:  registry.Delete,
+			Kind:  registry.EntryDelete,
 			Entry: baseEntry,
 		})
 		if err != nil {
@@ -310,7 +313,7 @@ func TestValidateOperation(t *testing.T) {
 }
 
 func TestApplyOperation(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	baseEntry := testEntry{
 		ns:   "test",
@@ -323,7 +326,7 @@ func TestApplyOperation(t *testing.T) {
 		state := NewStateMap(nil)
 
 		newState, err := builder.ApplyOperation(state, registry.Operation{
-			Kind:  registry.Create,
+			Kind:  registry.EntryCreate,
 			Entry: baseEntry,
 		})
 		if err != nil {
@@ -351,7 +354,7 @@ func TestApplyOperation(t *testing.T) {
 		updatedEntry.Data = payload.NewString("updated")
 
 		newState, err := builder.ApplyOperation(state, registry.Operation{
-			Kind:  registry.Update,
+			Kind:  registry.EntryUpdate,
 			Entry: updatedEntry,
 		})
 		if err != nil {
@@ -376,7 +379,7 @@ func TestApplyOperation(t *testing.T) {
 		state[baseEntry.ID] = baseEntry
 
 		newState, err := builder.ApplyOperation(state, registry.Operation{
-			Kind:  registry.Delete,
+			Kind:  registry.EntryDelete,
 			Entry: baseEntry,
 		})
 		if err != nil {
@@ -407,7 +410,7 @@ func TestApplyOperation(t *testing.T) {
 }
 
 func TestGetInverseOperation(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	baseEntry := testEntry{
 		ns:   "test",
@@ -417,17 +420,15 @@ func TestGetInverseOperation(t *testing.T) {
 	}.toEntry()
 
 	t.Run("Spawn", func(t *testing.T) {
-		state := NewStateMap(nil)
-
-		inverse, err := builder.GetInverseOperation(state, registry.Operation{
-			Kind:  registry.Create,
+		inverse, err := builder.GetInverseOperation(registry.Operation{
+			Kind:  registry.EntryCreate,
 			Entry: baseEntry,
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		if inverse.Kind != registry.Delete {
+		if inverse.Kind != registry.EntryDelete {
 			t.Error("inverse of Spawn should be Delete")
 		}
 		if !reflect.DeepEqual(inverse.Entry, baseEntry) {
@@ -436,21 +437,19 @@ func TestGetInverseOperation(t *testing.T) {
 	})
 
 	t.Run("Update", func(t *testing.T) {
-		state := NewStateMap(nil)
-		state[baseEntry.ID] = baseEntry
-
 		updatedEntry := baseEntry
 		updatedEntry.Data = payload.NewString("updated")
 
-		inverse, err := builder.GetInverseOperation(state, registry.Operation{
-			Kind:  registry.Update,
-			Entry: updatedEntry,
+		inverse, err := builder.GetInverseOperation(registry.Operation{
+			Kind:          registry.EntryUpdate,
+			Entry:         updatedEntry,
+			OriginalEntry: &baseEntry,
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		if inverse.Kind != registry.Update {
+		if inverse.Kind != registry.EntryUpdate {
 			t.Error("inverse of Update should be Update")
 		}
 		if !reflect.DeepEqual(inverse.Entry, baseEntry) {
@@ -459,18 +458,16 @@ func TestGetInverseOperation(t *testing.T) {
 	})
 
 	t.Run("Delete", func(t *testing.T) {
-		state := NewStateMap(nil)
-		state[baseEntry.ID] = baseEntry
-
-		inverse, err := builder.GetInverseOperation(state, registry.Operation{
-			Kind:  registry.Delete,
-			Entry: baseEntry,
+		inverse, err := builder.GetInverseOperation(registry.Operation{
+			Kind:          registry.EntryDelete,
+			Entry:         baseEntry,
+			OriginalEntry: &baseEntry,
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		if inverse.Kind != registry.Create {
+		if inverse.Kind != registry.EntryCreate {
 			t.Error("inverse of Delete should be Spawn")
 		}
 		if !reflect.DeepEqual(inverse.Entry, baseEntry) {
@@ -479,9 +476,8 @@ func TestGetInverseOperation(t *testing.T) {
 	})
 
 	t.Run("Update Non-Existent", func(t *testing.T) {
-		state := NewStateMap(nil)
-		_, err := builder.GetInverseOperation(state, registry.Operation{
-			Kind:  registry.Update,
+		_, err := builder.GetInverseOperation(registry.Operation{
+			Kind:  registry.EntryUpdate,
 			Entry: baseEntry,
 		})
 		if err == nil || !strings.Contains(err.Error(), "not found") {
@@ -490,9 +486,8 @@ func TestGetInverseOperation(t *testing.T) {
 	})
 
 	t.Run("Delete Non-Existent", func(t *testing.T) {
-		state := NewStateMap(nil)
-		_, err := builder.GetInverseOperation(state, registry.Operation{
-			Kind:  registry.Delete,
+		_, err := builder.GetInverseOperation(registry.Operation{
+			Kind:  registry.EntryDelete,
 			Entry: baseEntry,
 		})
 		if err == nil || !strings.Contains(err.Error(), "not found") {
@@ -501,8 +496,7 @@ func TestGetInverseOperation(t *testing.T) {
 	})
 
 	t.Run("Invalid Operation", func(t *testing.T) {
-		state := NewStateMap(nil)
-		_, err := builder.GetInverseOperation(state, registry.Operation{
+		_, err := builder.GetInverseOperation(registry.Operation{
 			Kind:  "invalid",
 			Entry: baseEntry,
 		})
@@ -513,7 +507,7 @@ func TestGetInverseOperation(t *testing.T) {
 }
 
 func TestBuildState_Empty(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 	history := NewMockHistory()
 
 	v0 := version.New(registry.RootVersion)
@@ -528,12 +522,13 @@ func TestBuildState_Empty(t *testing.T) {
 		t.Errorf("expected empty state, got %d entries", len(state))
 	}
 
+	// Path(v0, v0) returns empty array, but we still Get v0's changeset
 	expectedCallStack := []string{"Save", "Versions", "Get(0)"}
 	verifyCallStack(t, history.callStack, expectedCallStack)
 }
 
 func TestBuildState_SingleVersion(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 	history := NewMockHistory()
 
 	// Spawn test entries
@@ -554,8 +549,8 @@ func TestBuildState_SingleVersion(t *testing.T) {
 	// Save changes
 	_ = history.Save(v0, registry.ChangeSet{}, false)
 	_ = history.Save(v1, registry.ChangeSet{
-		{Kind: registry.Create, Entry: entry1},
-		{Kind: registry.Create, Entry: entry2},
+		{Kind: registry.EntryCreate, Entry: entry1},
+		{Kind: registry.EntryCreate, Entry: entry2},
 	}, false)
 
 	// Build state
@@ -567,12 +562,13 @@ func TestBuildState_SingleVersion(t *testing.T) {
 	expectedState := registry.State{entry1, entry2}
 	verifyState(t, state, expectedState)
 
-	expectedCallStack := []string{"Save", "Save", "Versions", "Get(0)", "Get(1)"}
+	// Path(v0, v1) now returns [v1] (only changesets to apply)
+	expectedCallStack := []string{"Save", "Save", "Versions", "Get(1)"}
 	verifyCallStack(t, history.callStack, expectedCallStack)
 }
 
 func TestBuildState_MultipleVersions(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 	history := NewMockHistory()
 
 	// Spawn test entries
@@ -600,14 +596,14 @@ func TestBuildState_MultipleVersions(t *testing.T) {
 	// Save changes
 	_ = history.Save(v0, registry.ChangeSet{}, false)
 	_ = history.Save(v1, registry.ChangeSet{
-		{Kind: registry.Create, Entry: entry1},
+		{Kind: registry.EntryCreate, Entry: entry1},
 	}, false)
 	_ = history.Save(v2, registry.ChangeSet{
-		{Kind: registry.Create, Entry: entry2},
-		{Kind: registry.Update, Entry: entry1Updated},
+		{Kind: registry.EntryCreate, Entry: entry2},
+		{Kind: registry.EntryUpdate, Entry: entry1Updated},
 	}, false)
 	_ = history.Save(v3, registry.ChangeSet{
-		{Kind: registry.Delete, Entry: entry2},
+		{Kind: registry.EntryDelete, Entry: entry2},
 	}, false)
 
 	// Build final state
@@ -619,16 +615,17 @@ func TestBuildState_MultipleVersions(t *testing.T) {
 	expectedState := registry.State{entry1Updated}
 	verifyState(t, state, expectedState)
 
+	// Path(v0, v3) now returns [v1, v2, v3] (no v0)
 	expectedCallStack := []string{
 		"Save", "Save", "Save", "Save",
 		"Versions",
-		"Get(0)", "Get(1)", "Get(2)", "Get(3)",
+		"Get(1)", "Get(2)", "Get(3)",
 	}
 	verifyCallStack(t, history.callStack, expectedCallStack)
 }
 
 func TestBuildState_ConflictingOperations(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 	history := NewMockHistory()
 
 	entry := testEntry{
@@ -649,25 +646,21 @@ func TestBuildState_ConflictingOperations(t *testing.T) {
 	// Save changes with conflict
 	_ = history.Save(v0, registry.ChangeSet{}, false)
 	_ = history.Save(v1, registry.ChangeSet{
-		{Kind: registry.Create, Entry: entry},
+		{Kind: registry.EntryCreate, Entry: entry},
 	}, false)
 	_ = history.Save(v2, registry.ChangeSet{
-		{Kind: registry.Create, Entry: conflictingEntry}, // Conflicting create
+		{Kind: registry.EntryCreate, Entry: conflictingEntry}, // Conflicting create
 	}, false)
 
-	// Build state
-	state, err := builder.BuildState(history, v2)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// Build state should return an error for conflicting operations
+	_, err := builder.BuildState(history, v2)
+	if err == nil {
+		t.Fatal("expected error for conflicting operations, got nil")
 	}
-
-	// First create should win
-	expectedState := registry.State{entry}
-	verifyState(t, state, expectedState)
 }
 
 func TestBuildState_UnreachableVersion(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 	history := NewMockHistory()
 
 	// Spawn disconnected versions
@@ -682,7 +675,7 @@ func TestBuildState_UnreachableVersion(t *testing.T) {
 
 	_ = history.Save(v0, registry.ChangeSet{}, false)
 	_ = history.Save(v1, registry.ChangeSet{
-		{Kind: registry.Create, Entry: entry},
+		{Kind: registry.EntryCreate, Entry: entry},
 	}, false)
 	_ = history.Save(v2, registry.ChangeSet{}, false)
 
@@ -697,7 +690,7 @@ func TestBuildState_UnreachableVersion(t *testing.T) {
 }
 
 func TestBuildState_IntermediateVersion(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 	history := NewMockHistory()
 
 	// Spawn test entries
@@ -720,13 +713,13 @@ func TestBuildState_IntermediateVersion(t *testing.T) {
 	// Save changes
 	_ = history.Save(v0, registry.ChangeSet{}, false)
 	_ = history.Save(v1, registry.ChangeSet{
-		{Kind: registry.Create, Entry: entry1},
+		{Kind: registry.EntryCreate, Entry: entry1},
 	}, false)
 	_ = history.Save(v2, registry.ChangeSet{
-		{Kind: registry.Create, Entry: entry2},
+		{Kind: registry.EntryCreate, Entry: entry2},
 	}, false)
 	_ = history.Save(v3, registry.ChangeSet{
-		{Kind: registry.Delete, Entry: entry2},
+		{Kind: registry.EntryDelete, Entry: entry2},
 	}, false)
 
 	// Build state up to intermediate version v2
@@ -738,16 +731,17 @@ func TestBuildState_IntermediateVersion(t *testing.T) {
 	expectedState := registry.State{entry1, entry2}
 	verifyState(t, state, expectedState)
 
+	// Path(v0, v2) now returns [v1, v2] (no v3)
 	expectedCallStack := []string{
 		"Save", "Save", "Save", "Save",
 		"Versions",
-		"Get(0)", "Get(1)", "Get(2)", // Should not get v3
+		"Get(1)", "Get(2)", // Should not get v3
 	}
 	verifyCallStack(t, history.callStack, expectedCallStack)
 }
 
 func TestBuildDelta_Empty(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	t.Run("Both Empty", func(t *testing.T) {
 		delta, err := builder.BuildDelta(registry.State{}, registry.State{})
@@ -771,7 +765,7 @@ func TestBuildDelta_Empty(t *testing.T) {
 		}
 
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Create, Entry: entry},
+			{Kind: registry.EntryCreate, Entry: entry},
 		}
 		verifyDelta(t, delta, expectedDelta)
 	})
@@ -788,14 +782,14 @@ func TestBuildDelta_Empty(t *testing.T) {
 		}
 
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Delete, Entry: entry},
+			{Kind: registry.EntryDelete, Entry: entry},
 		}
 		verifyDelta(t, delta, expectedDelta)
 	})
 }
 
 func TestBuildDelta_SimpleOperations(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	// Base entries
 	entry1 := testEntry{
@@ -823,7 +817,7 @@ func TestBuildDelta_SimpleOperations(t *testing.T) {
 		}
 
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Create, Entry: entry2},
+			{Kind: registry.EntryCreate, Entry: entry2},
 		}
 		verifyDelta(t, delta, expectedDelta)
 	})
@@ -838,7 +832,7 @@ func TestBuildDelta_SimpleOperations(t *testing.T) {
 		}
 
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Update, Entry: entry1Updated},
+			{Kind: registry.EntryUpdate, Entry: entry1Updated},
 		}
 		verifyDelta(t, delta, expectedDelta)
 	})
@@ -853,7 +847,7 @@ func TestBuildDelta_SimpleOperations(t *testing.T) {
 		}
 
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Delete, Entry: entry2},
+			{Kind: registry.EntryDelete, Entry: entry2},
 		}
 		verifyDelta(t, delta, expectedDelta)
 	})
@@ -873,9 +867,9 @@ func TestBuildDelta_SimpleOperations(t *testing.T) {
 		}
 
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Delete, Entry: entry2},
-			{Kind: registry.Update, Entry: entry1Updated},
-			{Kind: registry.Create, Entry: entry3},
+			{Kind: registry.EntryDelete, Entry: entry2},
+			{Kind: registry.EntryUpdate, Entry: entry1Updated},
+			{Kind: registry.EntryCreate, Entry: entry3},
 		}
 		verifyDelta(t, delta, expectedDelta)
 	})
@@ -890,7 +884,7 @@ func verifyDelta(t *testing.T, got, want registry.ChangeSet) {
 }
 
 func TestBuildDelta_Groups(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	t.Run("Spawn With Group Dependencies", func(t *testing.T) {
 		// Spawn entries with group dependencies
@@ -937,9 +931,9 @@ func TestBuildDelta_Groups(t *testing.T) {
 
 		// Verify all entries are present, allowing any order within backend group
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Create, Entry: service1},
-			{Kind: registry.Create, Entry: service2},
-			{Kind: registry.Create, Entry: frontend},
+			{Kind: registry.EntryCreate, Entry: service1},
+			{Kind: registry.EntryCreate, Entry: service2},
+			{Kind: registry.EntryCreate, Entry: frontend},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -985,9 +979,9 @@ func TestBuildDelta_Groups(t *testing.T) {
 
 		// Verify all entries are present
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Delete, Entry: frontend},
-			{Kind: registry.Delete, Entry: service1},
-			{Kind: registry.Delete, Entry: service2},
+			{Kind: registry.EntryDelete, Entry: frontend},
+			{Kind: registry.EntryDelete, Entry: service1},
+			{Kind: registry.EntryDelete, Entry: service2},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1057,16 +1051,16 @@ func TestBuildDelta_Groups(t *testing.T) {
 		// Delete and Updates can happen in any order, but creates must respect dependencies
 		// No need to verify exact order, just presence and group dependency maintenance
 		verifyDeltaWithinLevel(t, delta, registry.ChangeSet{
-			{Kind: registry.Delete, Entry: service2},
-			{Kind: registry.Update, Entry: service1Updated},
-			{Kind: registry.Create, Entry: service3},
-			{Kind: registry.Update, Entry: frontendUpdated},
+			{Kind: registry.EntryDelete, Entry: service2},
+			{Kind: registry.EntryUpdate, Entry: service1Updated},
+			{Kind: registry.EntryCreate, Entry: service3},
+			{Kind: registry.EntryUpdate, Entry: frontendUpdated},
 		})
 	})
 }
 
 func TestBuildDelta_NamespaceDependencies(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	t.Run("Simple Namespace Dependencies", func(t *testing.T) {
 		// Spawn entries in different namespaces
@@ -1101,9 +1095,9 @@ func TestBuildDelta_NamespaceDependencies(t *testing.T) {
 
 		// Verify all entries are present without enforcing order within namespaces
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Create, Entry: infraDB},
-			{Kind: registry.Create, Entry: infraCache},
-			{Kind: registry.Create, Entry: appService},
+			{Kind: registry.EntryCreate, Entry: infraDB},
+			{Kind: registry.EntryCreate, Entry: infraCache},
+			{Kind: registry.EntryCreate, Entry: appService},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1151,9 +1145,9 @@ func TestBuildDelta_NamespaceDependencies(t *testing.T) {
 
 		// Verify all entries are present
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Create, Entry: infraDB},
-			{Kind: registry.Create, Entry: appAuth},
-			{Kind: registry.Create, Entry: appService},
+			{Kind: registry.EntryCreate, Entry: infraDB},
+			{Kind: registry.EntryCreate, Entry: appAuth},
+			{Kind: registry.EntryCreate, Entry: appService},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1206,10 +1200,10 @@ func TestBuildDelta_NamespaceDependencies(t *testing.T) {
 
 		// Verify all deletions are present
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Delete, Entry: appService},
-			{Kind: registry.Delete, Entry: appAuth},
-			{Kind: registry.Delete, Entry: infraDB},
-			{Kind: registry.Delete, Entry: infraCache},
+			{Kind: registry.EntryDelete, Entry: appService},
+			{Kind: registry.EntryDelete, Entry: appAuth},
+			{Kind: registry.EntryDelete, Entry: infraDB},
+			{Kind: registry.EntryDelete, Entry: infraCache},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1257,7 +1251,7 @@ func validateNamespaceOrder(t *testing.T, delta registry.ChangeSet, dependencies
 }
 
 func TestBuildDelta_Dependencies(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	t.Run("Simple Dependencies", func(t *testing.T) {
 		// Spawn entries with dependencies
@@ -1299,9 +1293,9 @@ func TestBuildDelta_Dependencies(t *testing.T) {
 
 		// Also verify all entries are present
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Create, Entry: service},
-			{Kind: registry.Create, Entry: database},
-			{Kind: registry.Create, Entry: cache},
+			{Kind: registry.EntryCreate, Entry: service},
+			{Kind: registry.EntryCreate, Entry: database},
+			{Kind: registry.EntryCreate, Entry: cache},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1349,9 +1343,9 @@ func TestBuildDelta_Dependencies(t *testing.T) {
 		})
 
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Create, Entry: service},
-			{Kind: registry.Create, Entry: database},
-			{Kind: registry.Create, Entry: backup},
+			{Kind: registry.EntryCreate, Entry: service},
+			{Kind: registry.EntryCreate, Entry: database},
+			{Kind: registry.EntryCreate, Entry: backup},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1389,8 +1383,8 @@ func TestBuildDelta_Dependencies(t *testing.T) {
 		})
 
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Delete, Entry: database},
-			{Kind: registry.Delete, Entry: service},
+			{Kind: registry.EntryDelete, Entry: database},
+			{Kind: registry.EntryDelete, Entry: service},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1434,7 +1428,7 @@ func validateDependencyOrder(t *testing.T, delta registry.ChangeSet, checks []st
 }
 
 func TestBuildDelta_CircularDependencies(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	tests := []struct {
 		name    string
@@ -1507,7 +1501,7 @@ func TestBuildDelta_CircularDependencies(t *testing.T) {
 }
 
 func TestBuildDelta_ComplexTransformations(t *testing.T) {
-	builder := NewStateBuilder(zap.NewNop())
+	builder := NewStateBuilder(zap.NewNop(), nil)
 
 	t.Run("Mixed Dependency Types", func(t *testing.T) {
 		// Base infrastructure
@@ -1576,11 +1570,11 @@ func TestBuildDelta_ComplexTransformations(t *testing.T) {
 
 		// Verify operations
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Create, Entry: infraDB},
-			{Kind: registry.Create, Entry: infraCache},
-			{Kind: registry.Create, Entry: appAuth},
-			{Kind: registry.Create, Entry: appAPI},
-			{Kind: registry.Create, Entry: webUI},
+			{Kind: registry.EntryCreate, Entry: infraDB},
+			{Kind: registry.EntryCreate, Entry: infraCache},
+			{Kind: registry.EntryCreate, Entry: appAuth},
+			{Kind: registry.EntryCreate, Entry: appAPI},
+			{Kind: registry.EntryCreate, Entry: webUI},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1640,9 +1634,9 @@ func TestBuildDelta_ComplexTransformations(t *testing.T) {
 
 		// Verify operations
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Update, Entry: infraDBv2},
-			{Kind: registry.Update, Entry: appServicev2},
-			{Kind: registry.Create, Entry: monitoring},
+			{Kind: registry.EntryUpdate, Entry: infraDBv2},
+			{Kind: registry.EntryUpdate, Entry: appServicev2},
+			{Kind: registry.EntryCreate, Entry: monitoring},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1704,10 +1698,10 @@ func TestBuildDelta_ComplexTransformations(t *testing.T) {
 
 		// Verify operations - note that order between cache and database doesn't matter
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Delete, Entry: api},
-			{Kind: registry.Delete, Entry: auth},
-			{Kind: registry.Delete, Entry: cache},
-			{Kind: registry.Delete, Entry: database},
+			{Kind: registry.EntryDelete, Entry: api},
+			{Kind: registry.EntryDelete, Entry: auth},
+			{Kind: registry.EntryDelete, Entry: cache},
+			{Kind: registry.EntryDelete, Entry: database},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
 	})
@@ -1774,11 +1768,279 @@ func TestBuildDelta_ComplexTransformations(t *testing.T) {
 
 		// Verify operations
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.Delete, Entry: api},
-			{Kind: registry.Update, Entry: databaseV2},
-			{Kind: registry.Update, Entry: authV2},
-			{Kind: registry.Create, Entry: monitoring},
+			{Kind: registry.EntryDelete, Entry: api},
+			{Kind: registry.EntryUpdate, Entry: databaseV2},
+			{Kind: registry.EntryUpdate, Entry: authV2},
+			{Kind: registry.EntryCreate, Entry: monitoring},
 		}
 		verifyDeltaWithinLevel(t, delta, expectedDelta)
+	})
+}
+
+func TestBuildDelta_RollbackToEmptyState(t *testing.T) {
+	builder := NewStateBuilder(zap.NewNop(), nil)
+
+	t.Run("HTTP-like hierarchy rollback", func(t *testing.T) {
+		// Simulates HTTP server -> router -> endpoint -> static handler hierarchy
+		server := testEntry{
+			ns: "app", name: "gateway",
+			kind: "http.service", data: "server",
+		}.toEntry()
+
+		router := testEntry{
+			ns: "app", name: "api",
+			kind: "http.router", data: "router",
+			dependsOn: []string{"gateway"},
+		}.toEntry()
+
+		endpoint := testEntry{
+			ns: "app", name: "hello",
+			kind: "http.endpoint", data: "endpoint",
+			dependsOn: []string{"api"},
+		}.toEntry()
+
+		staticHandler := testEntry{
+			ns: "app", name: "frontend",
+			kind: "http.static", data: "static",
+			dependsOn: []string{"gateway"},
+		}.toEntry()
+
+		// Rollback scenario: from populated state to empty
+		from := registry.State{server, router, endpoint, staticHandler}
+		to := registry.State{}
+
+		delta, err := builder.BuildDelta(from, to)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// All operations should be deletes
+		if len(delta) != 4 {
+			t.Fatalf("expected 4 delete operations, got %d", len(delta))
+		}
+
+		for _, op := range delta {
+			if op.Kind != registry.EntryDelete {
+				t.Errorf("expected delete operation, got %s", op.Kind)
+			}
+		}
+
+		// Verify delete order: dependents before dependencies
+		// endpoint must be deleted before router
+		// router must be deleted before server
+		// staticHandler must be deleted before server
+		validateDependencyOrder(t, delta, []struct {
+			entry           registry.Entry
+			mustBeforeNames []string
+		}{
+			{entry: endpoint, mustBeforeNames: []string{"api", "gateway"}},
+			{entry: router, mustBeforeNames: []string{"gateway"}},
+			{entry: staticHandler, mustBeforeNames: []string{"gateway"}},
+		})
+	})
+
+	t.Run("Deep dependency chain rollback", func(t *testing.T) {
+		// A -> B -> C -> D (D depends on C, C on B, B on A)
+		entryA := testEntry{
+			ns: "test", name: "a",
+			kind: "service", data: "a",
+		}.toEntry()
+
+		entryB := testEntry{
+			ns: "test", name: "b",
+			kind: "service", data: "b",
+			dependsOn: []string{"a"},
+		}.toEntry()
+
+		entryC := testEntry{
+			ns: "test", name: "c",
+			kind: "service", data: "c",
+			dependsOn: []string{"b"},
+		}.toEntry()
+
+		entryD := testEntry{
+			ns: "test", name: "d",
+			kind: "service", data: "d",
+			dependsOn: []string{"c"},
+		}.toEntry()
+
+		from := registry.State{entryA, entryB, entryC, entryD}
+		to := registry.State{}
+
+		delta, err := builder.BuildDelta(from, to)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Must delete in order: D, C, B, A
+		validateDependencyOrder(t, delta, []struct {
+			entry           registry.Entry
+			mustBeforeNames []string
+		}{
+			{entry: entryD, mustBeforeNames: []string{"c", "b", "a"}},
+			{entry: entryC, mustBeforeNames: []string{"b", "a"}},
+			{entry: entryB, mustBeforeNames: []string{"a"}},
+		})
+	})
+
+	t.Run("Diamond dependency rollback", func(t *testing.T) {
+		// Diamond: A -> B, A -> C, B -> D, C -> D
+		entryA := testEntry{
+			ns: "test", name: "a",
+			kind: "service", data: "a",
+		}.toEntry()
+
+		entryB := testEntry{
+			ns: "test", name: "b",
+			kind: "service", data: "b",
+			dependsOn: []string{"a"},
+		}.toEntry()
+
+		entryC := testEntry{
+			ns: "test", name: "c",
+			kind: "service", data: "c",
+			dependsOn: []string{"a"},
+		}.toEntry()
+
+		entryD := testEntry{
+			ns: "test", name: "d",
+			kind: "service", data: "d",
+			dependsOn: []string{"b", "c"},
+		}.toEntry()
+
+		from := registry.State{entryA, entryB, entryC, entryD}
+		to := registry.State{}
+
+		delta, err := builder.BuildDelta(from, to)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// D must be deleted first, then B and C (any order), then A
+		validateDependencyOrder(t, delta, []struct {
+			entry           registry.Entry
+			mustBeforeNames []string
+		}{
+			{entry: entryD, mustBeforeNames: []string{"b", "c", "a"}},
+			{entry: entryB, mustBeforeNames: []string{"a"}},
+			{entry: entryC, mustBeforeNames: []string{"a"}},
+		})
+	})
+
+	t.Run("Multiple independent trees rollback", func(t *testing.T) {
+		// Tree 1: server1 -> router1
+		server1 := testEntry{
+			ns: "app1", name: "server",
+			kind: "http.service", data: "server1",
+		}.toEntry()
+
+		router1 := testEntry{
+			ns: "app1", name: "router",
+			kind: "http.router", data: "router1",
+			dependsOn: []string{"server"},
+		}.toEntry()
+
+		// Tree 2: server2 -> router2
+		server2 := testEntry{
+			ns: "app2", name: "server",
+			kind: "http.service", data: "server2",
+		}.toEntry()
+
+		router2 := testEntry{
+			ns: "app2", name: "router",
+			kind: "http.router", data: "router2",
+			dependsOn: []string{"server"},
+		}.toEntry()
+
+		from := registry.State{server1, router1, server2, router2}
+		to := registry.State{}
+
+		delta, err := builder.BuildDelta(from, to)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Each router must be deleted before its server
+		validateDependencyOrder(t, delta, []struct {
+			entry           registry.Entry
+			mustBeforeNames []string
+		}{
+			{entry: router1, mustBeforeNames: []string{"server"}},
+			{entry: router2, mustBeforeNames: []string{"server"}},
+		})
+	})
+
+	t.Run("Namespace dependency rollback", func(t *testing.T) {
+		// infra namespace with db and cache
+		infraDB := testEntry{
+			ns: "infra", name: "db",
+			kind: "service", data: "db",
+		}.toEntry()
+
+		infraCache := testEntry{
+			ns: "infra", name: "cache",
+			kind: "service", data: "cache",
+		}.toEntry()
+
+		// app namespace depends on infra
+		appService := testEntry{
+			ns: "app", name: "service",
+			kind: "service", data: "service",
+			dependsOn: []string{"ns:infra"},
+		}.toEntry()
+
+		from := registry.State{infraDB, infraCache, appService}
+		to := registry.State{}
+
+		delta, err := builder.BuildDelta(from, to)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// app:service must be deleted before any infra entry
+		validateDependencyOrder(t, delta, []struct {
+			entry           registry.Entry
+			mustBeforeNames []string
+		}{
+			{entry: appService, mustBeforeNames: []string{"db", "cache"}},
+		})
+	})
+
+	t.Run("Group dependency rollback", func(t *testing.T) {
+		// Storage group
+		db := testEntry{
+			ns: "infra", name: "db",
+			kind: "service", data: "db",
+			groups: []string{"storage"},
+		}.toEntry()
+
+		cache := testEntry{
+			ns: "infra", name: "cache",
+			kind: "service", data: "cache",
+			groups: []string{"storage"},
+		}.toEntry()
+
+		// Service depends on storage group
+		service := testEntry{
+			ns: "app", name: "service",
+			kind: "service", data: "service",
+			dependsOn: []string{"group:storage"},
+		}.toEntry()
+
+		from := registry.State{db, cache, service}
+		to := registry.State{}
+
+		delta, err := builder.BuildDelta(from, to)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// service must be deleted before any storage group member
+		validateDependencyOrder(t, delta, []struct {
+			entry           registry.Entry
+			mustBeforeNames []string
+		}{
+			{entry: service, mustBeforeNames: []string{"db", "cache"}},
+		})
 	})
 }

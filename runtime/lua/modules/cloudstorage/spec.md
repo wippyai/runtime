@@ -1,423 +1,401 @@
-# Lua CloudStorage API Module Specification
+# cloudstorage
 
-## Overview
+Cloud storage operations for S3, GCS, and other providers. Storage, network, IO.
 
-The `cloudstorage` module provides an interface for interacting with cloud storage providers within a Lua environment. It allows operations such as listing, uploading, downloading, and deleting objects, as well as generating presigned URLs for temporary access.
-
-## Module Interface
-
-### Module Loading
+## Loading
 
 ```lua
 local cloudstorage = require("cloudstorage")
 ```
 
-### Module Functions
+## Functions
 
-#### `cloudstorage.get(resource_id)`
+### get(id: string) → Storage, error
 
-Retrieves a cloud storage instance by its resource ID.
+Acquires a cloud storage resource by ID.
 
-Parameters:
-- `resource_id`: String identifier for the cloud storage resource.
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| id | string | yes | - | Resource ID (format: "namespace:name") |
 
-Returns:
-- `storage`: A cloud storage object (or nil on error).
-- `error`: Error message (string, or nil on success).
+**Returns:**
+- Success: `Storage` - storage connection object
+- Error: `nil, error` - error is structured (has `:kind()`, `:message()`)
 
-## Storage Methods
+**Errors (structured):**
 
-### Resource Management
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| id is empty string | errors.INVALID | no |
+| resource not found | errors.NOT_FOUND | no |
+| resource is not cloud storage | errors.INVALID | no |
+| resource store/registry not found | errors.INTERNAL | no |
+| permission denied | - | no (raises error) |
 
-#### `storage:release()`
+**Notes:**
+- Resource is automatically released when script completes
+- Call `storage:release()` to release early
+- Security policy enforced via `cloudstorage.get` permission
 
-Explicitly releases the cloud storage resource. This method should be called when you are done using the storage connection and want to release resources before the unit of work completes.
+## Types
 
-Returns:
-- `success`: Boolean (true) indicating the resource was released.
+### Storage
 
-Note: After releasing, any attempts to use the storage object may result in errors.
+Returned by `cloudstorage.get()`. Provides methods for cloud storage operations.
 
-### Object Listing
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| list_objects | (options?: table) | table, error | Lists objects with optional filtering |
+| download_object | (key: string, writer: io.Writer, options?: table) | boolean, error | Downloads object to writer |
+| upload_object | (key: string, content: string \| io.Reader) | boolean, error | Uploads object from string or reader |
+| delete_objects | (keys: string[]) | boolean, error | Deletes multiple objects |
+| presigned_get_url | (key: string, options?: table) | string, error | Generates presigned download URL |
+| presigned_put_url | (key: string, options?: table) | string, error | Generates presigned upload URL |
+| release | () | boolean | Releases storage resource |
 
-#### `storage:list_objects([options])`
+#### storage:list_objects(options?: table) → table, error
 
-Lists objects in the cloud storage bucket with optional filtering.
+Lists objects in storage with optional filtering.
 
-Parameters:
-- `options`: (optional) Table containing listing options:
-    - `prefix`: String prefix to filter objects by key.
-    - `max_keys`: Maximum number of keys to return.
-    - `continuation_token`: Token for pagination from a previous truncated response.
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| options | table | no | nil | Filtering and pagination options |
 
-Returns:
-- `result`: Table containing:
-    - `objects`: Array of object metadata tables, each with:
-        - `key`: Object key (string).
-        - `size`: Object size in bytes (number).
-        - `content_type`: MIME type of the object (string).
-        - `etag`: Entity tag for the object (string).
-    - `is_truncated`: Boolean indicating if more results are available.
-    - `next_continuation_token`: Token to use for the next page of results (if truncated).
+**options fields:**
 
-### Object Download
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| prefix | string | "" | Filter objects starting with prefix |
+| max_keys | integer | 0 | Maximum objects to return (0 = unlimited) |
+| continuation_token | string | "" | Token for pagination |
 
-#### `storage:download_object(key, writer, [options])`
+**Returns:**
+- Success: `table` - result table with fields below
+- Error: `nil, error` - error is structured
 
-Downloads an object from cloud storage to a writer.
+**Result table:**
 
-Parameters:
-- `key`: Object key to download.
-- `writer`: An object that have obj:write operation.
-- `options`: (optional) Table containing download options:
-    - `range`: HTTP range header value (e.g., "bytes=0-1023").
+| Field | Type | Notes |
+|-------|------|-------|
+| objects | table[] | Array of object metadata tables |
+| is_truncated | boolean | True if more results available |
+| next_continuation_token | string | Token for next page (empty if !is_truncated) |
 
-Returns:
-- `success`: Boolean indicating if the download was successful.
-- `error`: Error message (string, or nil on success).
+**Object metadata table:**
 
-### Object Upload
+| Field | Type | Notes |
+|-------|------|-------|
+| key | string | Object key/path |
+| size | integer | Object size in bytes |
+| content_type | string | MIME type |
+| etag | string | Entity tag |
 
-#### `storage:upload_object(key, content)`
+**Errors (structured):**
 
-Uploads content to cloud storage.
+| Condition | Kind |
+|-----------|------|
+| storage released | errors.INVALID |
+| operation failed | errors.INTERNAL |
 
-Parameters:
-- `key`: Object key to create or overwrite.
-- `content`: Either a string or an object that has obj:read operation.
-
-Returns:
-- `success`: Boolean indicating if the upload was successful.
-- `error`: Error message (string, or nil on success).
-
-### Object Deletion
-
-#### `storage:delete_objects(keys)`
-
-Deletes one or more objects from cloud storage.
-
-Parameters:
-- `keys`: Array of object keys to delete.
-
-Returns:
-- `success`: Boolean indicating if all deletes were successful.
-- `error`: Error message (string, or nil on success).
-
-### Presigned URLs
-
-#### `storage:presigned_get_url(key, [options])`
-
-Generates a presigned URL for temporary GET access to an object.
-
-Parameters:
-- `key`: Object key to generate the URL for.
-- `options`: (optional) Table containing URL options:
-    - `expiration`: Duration in seconds for URL validity (defaults to 3600).
-
-Returns:
-- `url`: Presigned URL as a string (or nil on error).
-- `error`: Error message (string, or nil on success).
-
-#### `storage:presigned_put_url(key, [options])`
-
-Generates a presigned URL for temporary PUT access to upload an object.
-
-Parameters:
-- `key`: Object key to generate the URL for.
-- `options`: (optional) Table containing URL options:
-    - `expiration`: Duration in seconds for URL validity (defaults to 3600).
-    - `content_type`: MIME type for the uploaded content.
-    - `content_length`: Expected size of the uploaded content in bytes.
-
-Returns:
-- `url`: Presigned URL as a string (or nil on error).
-- `error`: Error message (string, or nil on success).
-
-## Error Handling
-
-Most methods return either the expected value and nil (for success) or nil and an error message (for failure). Some methods like `download_object`, `upload_object`, and `delete_objects` return a boolean success value and an optional error message.
-
-Example error handling:
+**Yields:** until operation completes
 
 ```lua
-local cloudstorage = require("cloudstorage")
-local storage, err = cloudstorage.get("my_bucket")
-if err then
-    print("Failed to get storage:", err)
-    return
-end
+local result, err = storage:list_objects({ prefix = "photos/", max_keys = 100 })
+if err then error(err) end
 
-local result, err = storage:list_objects()
-if err then
-    print("Failed to list objects:", err)
-    return
-end
-
--- Process the results
 for _, obj in ipairs(result.objects) do
     print(obj.key, obj.size, obj.content_type)
 end
 
--- Be sure to release the storage connection when done
-storage:release()
-```
-
-## Example Usage
-
-### Listing Objects
-
-```lua
-local cloudstorage = require("cloudstorage")
-
--- Get the storage resource
-local storage, err = cloudstorage.get("my_bucket")
-if err then
-    print("Error getting storage:", err)
-    return
-end
-
--- List all objects
-local result = storage:list_objects()
-print("Objects in storage:")
-for i, obj in ipairs(result.objects) do
-    print(i, obj.key, obj.size, obj.content_type)
-end
-
--- List objects with a prefix and limit
-local filtered = storage:list_objects({
-    prefix = "documents/",
-    max_keys = 10
-})
-
-print("Filtered objects:")
-for i, obj in ipairs(filtered.objects) do
-    print(i, obj.key, obj.size)
-end
-
--- Handle pagination if results were truncated
-if filtered.is_truncated then
-    local next_page = storage:list_objects({
-        prefix = "documents/",
-        max_keys = 10,
-        continuation_token = filtered.next_continuation_token
+if result.is_truncated then
+    local next_result = storage:list_objects({
+        prefix = "photos/",
+        continuation_token = result.next_continuation_token
     })
-    
-    print("Additional objects:")
-    for i, obj in ipairs(next_page.objects) do
-        print(i, obj.key, obj.size)
-    end
 end
-
--- Release the storage connection when done
-storage:release()
 ```
 
-### Downloading and Uploading Objects
+#### storage:download_object(key: string, writer: io.Writer, options?: table) → boolean, error
+
+Downloads an object to an io.Writer (typically fs.File).
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| key | string | yes | - | Object key to download |
+| writer | io.Writer | yes | - | Destination writer (e.g., fs.File) |
+| options | table | no | nil | Download options |
+
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| range | string | "" | Byte range (e.g., "bytes=0-1023" for first 1KB) |
+
+**Returns:**
+- Success: `true`
+- Error: `nil, error` - error is structured
+
+**Errors (structured):**
+
+| Condition | Kind |
+|-----------|------|
+| key empty | errors.INVALID |
+| storage released | errors.INVALID |
+| writer not io.Writer | errors.INVALID |
+| object not found | errors.NOT_FOUND |
+| operation failed | errors.INTERNAL |
+
+**Yields:** until download completes
+
+**Notes:**
+- Writer must implement io.Writer interface (e.g., fs.File opened with "w" or "a" mode)
+- Content is written to writer as it's downloaded
 
 ```lua
-local cloudstorage = require("cloudstorage")
-local fs = require("fs")  -- Assuming a filesystem module is available
-
--- Get the storage resource
-local storage, err = cloudstorage.get("my_bucket")
-if err then
-    print("Error getting storage:", err)
-    return
-end
-
--- Create a buffer for downloading
-local fs_instance = fs.get("system:fs")
-local file = fs_instance:open("downloaded_file.txt", "w")
-if not file then
-    print("Error opening file for writing")
-    return
-end
-
--- Download an object to the file
-local success = storage:download_object("readme.txt", file)
-if not success then
-    print("Failed to download object")
-    file:close()
-    return
-end
-
+local fs = require("fs")
+local vol, _ = fs.get("app:temp")
+local file, _ = vol:open("/downloaded.txt", "w")
+local ok, err = storage:download_object("data/file.txt", file)
 file:close()
-print("File downloaded successfully")
-
--- Upload a string as an object
-local content = "Hello, this is a test upload!"
-local success = storage:upload_object("hello.txt", content)
-if not success then
-    print("Failed to upload string content")
-    return
-end
-
-print("String content uploaded successfully")
-
--- Upload a file
-local upload_file = fs_instance:open("local_file.txt", "r")
-if not upload_file then
-    print("Error opening file for reading")
-    return
-end
-
-local success = storage:upload_object("uploaded_file.txt", upload_file)
-upload_file:close()
-
-if not success then
-    print("Failed to upload file")
-    return
-end
-
-print("File uploaded successfully")
-
--- Close the storage connection when done
-storage:close()
+if err then error(err) end
 ```
 
-### Generating Presigned URLs
+#### storage:upload_object(key: string, content: string | io.Reader) → boolean, error
+
+Uploads an object from string or io.Reader.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| key | string | yes | - | Object key/path |
+| content | string \| io.Reader | yes | - | Content as string or reader (e.g., fs.File) |
+
+**Returns:**
+- Success: `true`
+- Error: `nil, error` - error is structured
+
+**Errors (structured):**
+
+| Condition | Kind |
+|-----------|------|
+| key empty | errors.INVALID |
+| content nil | errors.INVALID |
+| storage released | errors.INVALID |
+| operation failed | errors.INTERNAL |
+
+**Yields:** until upload completes
+
+**Notes:**
+- String content is converted to bytes automatically
+- io.Reader content (e.g., fs.File) should be opened in read mode ("r")
+- File is read completely during upload
 
 ```lua
-local cloudstorage = require("cloudstorage")
+-- Upload string
+storage:upload_object("data/hello.txt", "Hello, World!")
 
--- Get the storage resource
-local storage, err = cloudstorage.get("my_bucket")
-if err then
-    print("Error getting storage:", err)
-    return
-end
-
--- Generate a presigned URL for downloading
-local get_url = storage:presigned_get_url("documents/report.pdf", {
-    expiration = 1800  -- 30 minutes
-})
-
-print("Download URL (valid for 30 minutes):", get_url)
-
--- Generate a presigned URL for uploading
-local put_url = storage:presigned_put_url("uploads/user_photo.jpg", {
-    expiration = 3600,  -- 1 hour
-    content_type = "image/jpeg",
-    content_length = 1024 * 1024  -- 1MB
-})
-
-print("Upload URL (valid for 1 hour):", put_url)
-
--- Close the storage connection when done
-storage:close()
+-- Upload from file
+local fs = require("fs")
+local vol, _ = fs.get("app:temp")
+local file, _ = vol:open("/local.txt", "r")
+storage:upload_object("data/uploaded.txt", file)
+file:close()
 ```
 
-### Deleting Objects
+#### storage:delete_objects(keys: string[]) → boolean, error
+
+Deletes multiple objects.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| keys | string[] | yes | - | Array of object keys to delete |
+
+**Returns:**
+- Success: `true`
+- Error: `nil, error` - error is structured
+
+**Errors (structured):**
+
+| Condition | Kind |
+|-----------|------|
+| storage released | errors.INVALID |
+| operation failed | errors.INTERNAL |
+
+**Yields:** until deletion completes
+
+**Notes:**
+- Deleting non-existent objects does not cause error
+- All deletions are attempted even if some fail
 
 ```lua
-local cloudstorage = require("cloudstorage")
+storage:delete_objects({"file1.txt", "file2.txt", "dir/file3.txt"})
+```
 
--- Get the storage resource
-local storage, err = cloudstorage.get("my_bucket")
-if err then
-    print("Error getting storage:", err)
-    return
-end
+#### storage:presigned_get_url(key: string, options?: table) → string, error
 
--- Delete a single object
-local success = storage:delete_objects({"temporary.txt"})
-if not success then
-    print("Failed to delete object")
-    return
-end
+Generates a presigned URL for downloading an object without credentials.
 
-print("Object deleted successfully")
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| key | string | yes | - | Object key |
+| options | table | no | nil | URL options |
 
--- Delete multiple objects at once
-local success = storage:delete_objects({
-    "logs/2023-01-01.log",
-    "logs/2023-01-02.log",
-    "logs/2023-01-03.log"
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| expiration | integer | 3600 | Seconds until URL expires (default 1 hour) |
+
+**Returns:**
+- Success: `string` - presigned URL
+- Error: `nil, error` - error is structured
+
+**Errors (structured):**
+
+| Condition | Kind |
+|-----------|------|
+| key empty | errors.INVALID |
+| storage released | errors.INVALID |
+| operation failed | errors.INTERNAL |
+
+**Yields:** until URL generation completes
+
+**Notes:**
+- URL is valid for specified expiration time
+- Anyone with URL can download the object during expiration window
+- Expiration is in seconds
+
+```lua
+local url, err = storage:presigned_get_url("data/file.txt", { expiration = 7200 })
+if err then error(err) end
+print("Download URL:", url)
+```
+
+#### storage:presigned_put_url(key: string, options?: table) → string, error
+
+Generates a presigned URL for uploading an object without credentials.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| key | string | yes | - | Object key |
+| options | table | no | nil | URL options |
+
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| expiration | integer | 3600 | Seconds until URL expires (default 1 hour) |
+| content_type | string | "" | Expected content type |
+| content_length | integer | 0 | Expected content length in bytes |
+
+**Returns:**
+- Success: `string` - presigned URL
+- Error: `nil, error` - error is structured
+
+**Errors (structured):**
+
+| Condition | Kind |
+|-----------|------|
+| key empty | errors.INVALID |
+| storage released | errors.INVALID |
+| operation failed | errors.INTERNAL |
+
+**Yields:** until URL generation completes
+
+**Notes:**
+- URL is valid for specified expiration time
+- Anyone with URL can upload to the object during expiration window
+- content_type and content_length constraints may be enforced by provider
+
+```lua
+local url, err = storage:presigned_put_url("data/upload.txt", {
+    expiration = 3600,
+    content_type = "text/plain",
+    content_length = 1024
 })
+if err then error(err) end
+print("Upload URL:", url)
+```
 
-if not success then
-    print("Failed to delete multiple objects")
-    return
-end
+#### storage:release() → boolean
 
-print("Multiple objects deleted successfully")
+Releases the storage resource.
 
--- Close the storage connection when done
+**Returns:** `true` (always)
+
+**Notes:**
+- Idempotent - safe to call multiple times
+- All subsequent operations will fail with "storage has been released" error
+- Resource is automatically released when script completes
+
+```lua
 storage:release()
 ```
 
-### Complete Storage Workflow
+## Dependencies
+
+### io.Writer and io.Reader
+
+Used by `download_object` (writer) and `upload_object` (reader/content).
+
+The fs.File type implements both io.Writer and io.Reader:
+- io.Writer: file opened with "w" or "a" mode
+- io.Reader: file opened with "r" mode
+
+See fs module spec for File type details.
+
+## Errors
+
+This module returns structured errors. Check kind with `errors.*` constants:
+
+```lua
+local storage, err = cloudstorage.get("app:storage")
+if err then
+    if err:kind() == errors.NOT_FOUND then
+        -- resource doesn't exist
+    elseif err:kind() == errors.INVALID then
+        -- bad input or storage released
+    end
+    error(err:message())
+end
+```
+
+**Possible kinds:** `errors.INVALID`, `errors.NOT_FOUND`, `errors.INTERNAL`
+
+## Example
 
 ```lua
 local cloudstorage = require("cloudstorage")
 local fs = require("fs")
 
--- Get the filesystem
-local fs_instance = fs.default()
+-- Get storage connection
+local storage, err = cloudstorage.get("app.production:s3-bucket")
+if err then error(err) end
 
--- Get the storage resource
-local storage, err = cloudstorage.get("my_bucket")
-if err then
-    print("Error getting storage:", err)
-    return
-end
+-- Upload a file
+local ok, err = storage:upload_object("backups/data.txt", "Backup data content")
+if err then error(err) end
 
--- Create a text file
-local content = "This is a test file for cloud storage operations."
-local success = storage:upload_object("test/sample.txt", content)
-if not success then
-    print("Failed to upload test file")
-    storage:release()
-    return
-end
+-- List objects
+local result, err = storage:list_objects({ prefix = "backups/", max_keys = 10 })
+if err then error(err) end
 
--- List the objects in the test directory
-local result = storage:list_objects({
-    prefix = "test/"
-})
-
-print("Objects in test directory:")
 for _, obj in ipairs(result.objects) do
-    print(obj.key, obj.size, "bytes")
+    print(string.format("%s - %d bytes", obj.key, obj.size))
 end
 
--- Generate a download URL
-local url = storage:presigned_get_url("test/sample.txt", {
-    expiration = 300  -- 5 minutes
-})
-
-print("You can download the file using this URL for the next 5 minutes:")
-print(url)
-
--- Download the file we just uploaded
-local file = fs_instance:open("downloaded_sample.txt", "w")
-if not file then
-    print("Error opening local file for writing")
-    storage:release()
-    return
-end
-
-local success = storage:download_object("test/sample.txt", file)
+-- Download to file
+local vol, _ = fs.get("app:temp")
+local file, _ = vol:open("/downloaded.txt", "w")
+local ok, err = storage:download_object("backups/data.txt", file)
 file:close()
+if err then error(err) end
 
-if not success then
-    print("Failed to download test file")
-    storage:release()
-    return
-end
+-- Generate presigned URL
+local url, err = storage:presigned_get_url("backups/data.txt", { expiration = 3600 })
+if err then error(err) end
+print("Share this URL:", url)
 
-print("File downloaded successfully")
-
--- Clean up by deleting the test file
-local success = storage:delete_objects({"test/sample.txt"})
-if not success then
-    print("Failed to delete test file")
-    storage:release()
-    return
-end
-
-print("Test file deleted successfully")
-
--- Close the storage connection when done
+-- Cleanup
+storage:delete_objects({"backups/data.txt"})
 storage:release()
 ```

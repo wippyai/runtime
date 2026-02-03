@@ -5,18 +5,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Helper function to create an Process with just a name (no namespace)
 func id(name string) registry.ID {
-	return registry.ID{Name: name}
+	return registry.NewID("", name)
 }
 
 // Helper function to create an Process with both namespace and name
 func nsID(namespace, name string) registry.ID {
-	return registry.ID{NS: namespace, Name: name}
+	return registry.NewID(namespace, name)
 }
 
 // deepEqualPayloads compares two payloads, assuming the Data field is always a string.
@@ -56,7 +56,7 @@ func makeEntryWithMeta(id registry.ID, kind string, data string, meta map[string
 
 // Helper function to compare change sets and report detailed differences
 //
-//nolint:unparam // bool return value is required by testing pattern but not used
+
 func compareChangeSets(t *testing.T, got, want registry.ChangeSet) bool {
 	t.Helper()
 
@@ -72,7 +72,7 @@ func compareChangeSets(t *testing.T, got, want registry.ChangeSet) bool {
 		}
 
 		if got[i].Entry.ID != want[i].Entry.ID {
-			t.Errorf("Operation[%d].Entry.Process mismatch: got %v, want %v", i, got[i].Entry.ID, want[i].Entry.ID)
+			t.Errorf("Operation[%d].Entry.ID mismatch: got %v, want %v", i, got[i].Entry.ID, want[i].Entry.ID)
 			return false
 		}
 
@@ -108,7 +108,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 			},
 			want: registry.ChangeSet{
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: makeEntryWithMeta(
 						id("service.url"),
 						"listener",
@@ -129,23 +129,23 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 			},
 			want: registry.ChangeSet{
 				{
-					Kind:  registry.Create,
+					Kind:  registry.EntryCreate,
 					Entry: makeEntry(id("listener.bool"), "listener", "true"),
 				},
 				{
-					Kind:  registry.Create,
+					Kind:  registry.EntryCreate,
 					Entry: makeEntry(id("listener.map"), "listener", `{"a": 1, "b": 2}`),
 				},
 				{
-					Kind:  registry.Create,
+					Kind:  registry.EntryCreate,
 					Entry: makeEntry(id("listener.number"), "listener", "123"),
 				},
 				{
-					Kind:  registry.Create,
+					Kind:  registry.EntryCreate,
 					Entry: makeEntry(id("listener.slice"), "listener", "[1, 2, 3]"),
 				},
 				{
-					Kind:  registry.Create,
+					Kind:  registry.EntryCreate,
 					Entry: makeEntry(id("listener.string"), "listener", "hello"),
 				},
 			},
@@ -154,7 +154,7 @@ func TestCreateChangeSetFromEntries(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, _ := CreateChangeSetFromEntries(tt.entries)
+			got, _ := CreateChangeSetFromEntries(tt.entries, nil)
 			_ = compareChangeSets(t, got, tt.want)
 		})
 	}
@@ -187,7 +187,7 @@ func TestCreateChangeSetFromEntries_Dependencies(t *testing.T) {
 			},
 			want: registry.ChangeSet{
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: makeEntryWithMeta(
 						nsID("ns1", "service.db"),
 						"service",
@@ -196,7 +196,7 @@ func TestCreateChangeSetFromEntries_Dependencies(t *testing.T) {
 					),
 				},
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: makeEntryWithMeta(
 						nsID("ns1", "service.api"),
 						"service",
@@ -242,7 +242,7 @@ func TestCreateChangeSetFromEntries_Dependencies(t *testing.T) {
 			},
 			want: registry.ChangeSet{
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: makeEntryWithMeta(
 						nsID("backend", "service.api"),
 						"service",
@@ -253,7 +253,7 @@ func TestCreateChangeSetFromEntries_Dependencies(t *testing.T) {
 					),
 				},
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: makeEntryWithMeta(
 						nsID("frontend", "service.cache"),
 						"service",
@@ -262,7 +262,7 @@ func TestCreateChangeSetFromEntries_Dependencies(t *testing.T) {
 					),
 				},
 				{
-					Kind: registry.Create,
+					Kind: registry.EntryCreate,
 					Entry: makeEntryWithMeta(
 						nsID("frontend", "webapp"),
 						"webapp",
@@ -309,7 +309,7 @@ func TestCreateChangeSetFromEntries_Dependencies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := CreateChangeSetFromEntries(tt.entries)
+			got, err := CreateChangeSetFromEntries(tt.entries, nil)
 
 			// Check error expectation
 			if tt.expectError && err == nil {
@@ -328,9 +328,9 @@ func TestCreateChangeSetFromEntries_Dependencies(t *testing.T) {
 
 func TestCreateChangeSetFromEntries_GroupDependencies(t *testing.T) {
 	tests := []struct {
+		validate func(registry.ChangeSet) error
 		name     string
 		entries  []registry.Entry
-		validate func(registry.ChangeSet) error
 	}{
 		{
 			name: "simple group dependency",
@@ -549,7 +549,7 @@ func TestCreateChangeSetFromEntries_GroupDependencies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cs, _ := CreateChangeSetFromEntries(tt.entries)
+			cs, _ := CreateChangeSetFromEntries(tt.entries, nil)
 
 			// Verify changeset length matches input
 			if len(cs) != len(tt.entries) {
@@ -584,9 +584,9 @@ func TestCreateChangeSetFromEntries_GroupDependencies(t *testing.T) {
 
 func TestCreateChangeSetFromEntries_ImplicitNamespaceGroup(t *testing.T) {
 	tests := []struct {
+		validate func(registry.ChangeSet) error
 		name     string
 		entries  []registry.Entry
-		validate func(registry.ChangeSet) error
 	}{
 		{
 			name: "implicit namespace group dependency via depends_on_groups",
@@ -733,7 +733,7 @@ func TestCreateChangeSetFromEntries_ImplicitNamespaceGroup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cs, _ := CreateChangeSetFromEntries(tt.entries)
+			cs, _ := CreateChangeSetFromEntries(tt.entries, nil)
 
 			// Verify changeset length matches input
 			if len(cs) != len(tt.entries) {
@@ -768,9 +768,9 @@ func TestCreateChangeSetFromEntries_ImplicitNamespaceGroup(t *testing.T) {
 
 func TestCreateChangeSetFromEntries_NamespaceInheritance(t *testing.T) {
 	tests := []struct {
+		validate func(registry.ChangeSet) error
 		name     string
 		entries  []registry.Entry
-		validate func(registry.ChangeSet) error
 	}{
 		{
 			name: "non-qualified dependencies inherit source namespace",
@@ -944,7 +944,7 @@ func TestCreateChangeSetFromEntries_NamespaceInheritance(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cs, _ := CreateChangeSetFromEntries(tt.entries)
+			cs, _ := CreateChangeSetFromEntries(tt.entries, nil)
 
 			// Verify changeset length matches input
 			if len(cs) != len(tt.entries) {
@@ -979,9 +979,9 @@ func TestCreateChangeSetFromEntries_NamespaceInheritance(t *testing.T) {
 
 func TestNamespaceDependencyOrdering(t *testing.T) {
 	tests := []struct {
+		validate func(registry.ChangeSet) error
 		name     string
 		entries  []registry.Entry
-		validate func(registry.ChangeSet) error
 	}{
 		{
 			name: "multiple namespace dependency chains",
@@ -1125,7 +1125,7 @@ func TestNamespaceDependencyOrdering(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cs, _ := CreateChangeSetFromEntries(tt.entries)
+			cs, _ := CreateChangeSetFromEntries(tt.entries, nil)
 
 			if len(cs) != len(tt.entries) {
 				t.Errorf("expected changeset length %d, got %d", len(tt.entries), len(cs))

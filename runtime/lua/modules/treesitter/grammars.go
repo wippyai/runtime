@@ -4,8 +4,6 @@ package treesitter
 import (
 	"unsafe"
 
-	tsmd "github.com/ponyruntime/tree-sitter-markdown/bindings/go"
-	tssql "github.com/ponyruntime/tree-sitter-sql/bindings/go"
 	tslua "github.com/tree-sitter-grammars/tree-sitter-lua/bindings/go"
 	cscsharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 	tsgo "github.com/tree-sitter/tree-sitter-go/bindings/go"
@@ -14,19 +12,21 @@ import (
 	tsphp "github.com/tree-sitter/tree-sitter-php/bindings/go"
 	tspython "github.com/tree-sitter/tree-sitter-python/bindings/go"
 	tsts "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
+	tsmd "github.com/wippyai/tree-sitter-markdown/bindings/go"
+	tssql "github.com/wippyai/tree-sitter-sql/bindings/go"
 )
 
 // LanguageInfo holds information about a supported language.
 type LanguageInfo struct {
-	Name     string                // Full lowercased language name (e.g., "javascript")
-	Aliases  []string              // Alternative names or short codes (e.g., ["js", "javascript"])
-	Language func() unsafe.Pointer // Func to get the Tree-sitter language object
+	Language func() unsafe.Pointer
+	Name     string
+	Aliases  []string
 }
 
 // Languages maintains a registry of supported programming languages and their aliases
 type Languages struct {
-	li        []*LanguageInfo
 	supported map[string]*LanguageInfo
+	li        []*LanguageInfo
 }
 
 // NewLanguages creates and initializes a new Languages registry with all supported languages

@@ -1,11 +1,12 @@
+// Package lua provides Lua runtime integration types.
 package lua
 
 import (
-	"context"
+	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/event"
 
-	"github.com/ponyruntime/pony/api/event"
-
-	lua "github.com/yuin/gopher-lua"
+	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/go-lua/types/io"
 )
 
 const (
@@ -13,32 +14,76 @@ const (
 	InvalidateNodes event.Kind   = "lua.reset_code"
 )
 
-type (
-	// Module represents a loadable Lua module that can be registered with the VM.
-	// It provides methods to load the module into a Lua state and identify the module by name.
-	Module interface {
-		// Loader initializes the module in the given Lua state and returns the number of
-		// values pushed onto the stack.
-		Loader(*lua.LState) int
-		// Name returns the identifier for this module.
-		Name() string
-	}
-
-	// Factory creates new instances of the Lua virtual machine with compiled code.
-	// It handles the compilation and instantiation of Lua environments.
-	Factory interface {
-		// Compile prepares the Lua code for execution.
-		Compile() error
-		// CreateVM creates a new instance of the Lua virtual machine.
-		CreateVM() (VM, error)
-	}
-
-	// VM represents a Lua virtual machine instance that can execute Lua code.
-	// It provides methods to run Lua functions and manage the VM lifecycle.
-	VM interface {
-		// Execute runs a Lua function with the given name and arguments in the VM.
-		Execute(ctx context.Context, name string, args ...lua.LValue) (lua.LValue, error)
-		// Close cleans up the VM resources.
-		Close()
-	}
+// Module class constants
+const (
+	ClassDeterministic    = "deterministic"
+	ClassNondeterministic = "nondeterministic"
+	ClassIO               = "io"
+	ClassNetwork          = "network"
+	ClassEncoding         = "encoding"
+	ClassTime             = "time"
+	ClassProcess          = "process"
+	ClassSecurity         = "security"
+	ClassStorage          = "storage"
+	ClassWorkflow         = "workflow"
 )
+
+// ModuleInfo contains metadata about a Lua module
+type ModuleInfo struct {
+	Name        string
+	Description string
+	Class       []string
+}
+
+// YieldType describes a yield and how to handle it.
+type YieldType struct {
+	Sample any
+	CmdID  dispatcher.CommandID
+}
+
+// Module is the interface for Lua modules (used by code graph).
+type Module interface {
+	Info() ModuleInfo
+	Value() lua.LValue
+	Yields() []YieldType
+}
+
+// Registration contains module configuration.
+type Registration struct {
+	Table      *lua.LTable
+	YieldTypes []YieldType
+}
+
+// YieldConverter is implemented by yield values to convert to dispatcher commands.
+type YieldConverter interface {
+	lua.LValue
+	CmdID() dispatcher.CommandID
+	ToCommand() dispatcher.Command
+}
+
+// Releasable is implemented by pooled yields for cleanup.
+type Releasable interface {
+	Release()
+}
+
+// HandledYield is implemented by yields that know how to convert
+// handler results back to Lua values.
+type HandledYield interface {
+	lua.LValue
+	HandleResult(l *lua.LState, data any, err error) []lua.LValue
+}
+
+// ModuleDef is a module definition struct. Caching and loading in engine.
+type ModuleDef struct {
+	Build       func() (*lua.LTable, []YieldType)
+	BuildValue  func() (lua.LValue, []YieldType)
+	Types       func() *io.Manifest
+	Name        string
+	Description string
+	Class       []string
+}
+
+// Info returns module metadata.
+func (m *ModuleDef) Info() ModuleInfo {
+	return ModuleInfo{Name: m.Name, Description: m.Description, Class: m.Class}
+}

@@ -158,6 +158,11 @@ Resource identifiers follow the format `namespace:name` and are used to scope pe
 - `system.gc` - Force garbage collection (resource: "gc" or "gc_percent")
 - `system.control` - Control system settings (resource: "gomaxprocs")
 
+### OpenTelemetry
+- `otel.attribute` - Add attributes to the current span
+- `otel.event` - Add events to the current span
+- `otel.status` - Set the status of the current span
+
 ## Permission Handling Examples
 
 ### Rejection Example

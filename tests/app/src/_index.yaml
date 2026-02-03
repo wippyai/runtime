@@ -1,0 +1,94 @@
+version: "1.0"
+namespace: app
+
+entries:
+  # app:gateway - HTTP server
+  - name: gateway
+    kind: http.service
+    meta:
+      comment: Main HTTP gateway service
+    addr: :8085
+    lifecycle:
+      auto_start: true
+
+  # app:api.public - public router
+  - name: api.public
+    kind: http.router
+    meta:
+      comment: Public API router
+      server: gateway
+    prefix: /
+    middleware:
+      - cors
+    options:
+      cors.allow.origins: "localhost"
+
+  # app:api.ws - WebSocket router with wsrelay middleware
+  - name: api.ws
+    kind: http.router
+    meta:
+      comment: WebSocket API router
+      server: gateway
+    prefix: /ws
+    middleware:
+      - websocket_relay
+    options:
+      wsrelay.allowed.origins: "*"
+
+  # app:processes - process host
+  - name: processes
+    kind: process.host
+    meta:
+      comment: Process execution host
+    host:
+      max_processes: 10000
+      workers: 32
+    lifecycle:
+      auto_start: true
+
+  # app:terminal - terminal host for CLI apps
+  - name: terminal
+    kind: terminal.host
+    meta:
+      comment: Terminal host for CLI processes
+    hide_logs: false
+    lifecycle:
+      auto_start: true
+
+  # app:temp - Temp filesystem for tests
+  - name: temp
+    kind: fs.directory
+    meta:
+      comment: Temporary filesystem for testing
+    directory: /tmp/wippy-test
+    auto_init: true
+
+  # app:exec - Native process executor for tests
+  - name: exec
+    kind: exec.native
+    meta:
+      comment: Native process executor for exec module tests
+
+  # app:exec_docker - Docker container executor for tests
+  - name: exec_docker
+    kind: exec.docker
+    meta:
+      comment: Docker executor for exec module tests
+    image: alpine:latest
+    auto_remove: true
+
+  # app:test_runner - Test runner process
+  - name: test_runner
+    kind: process.lua
+    meta:
+      comment: Runs all tests with meta.type=test
+      command:
+        name: test
+        short: Run application tests
+    source: file://runner.lua
+    method: main
+    modules:
+      - io
+      - registry
+      - funcs
+      - time

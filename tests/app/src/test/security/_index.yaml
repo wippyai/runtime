@@ -1,0 +1,160 @@
+version: "1.0"
+namespace: app.test.security
+
+entries:
+  # Allow-all policy for testing
+  - name: allow_all
+    kind: security.policy
+    policy:
+      actions: "*"
+      resources: "*"
+      effect: allow
+    groups:
+      - test_group
+
+  # Deny-all policy for testing
+  - name: deny_all
+    kind: security.policy
+    policy:
+      actions: "*"
+      resources: "*"
+      effect: deny
+    groups:
+      - test_deny_group
+
+  # Read-only policy
+  - name: read_only
+    kind: security.policy
+    policy:
+      actions:
+        - read
+        - list
+        - get
+      resources: "*"
+      effect: allow
+    groups:
+      - test_read_group
+
+  # Actor conditional policy
+  - name: actor_match
+    kind: security.policy
+    policy:
+      actions: "*"
+      resources: "*"
+      effect: allow
+      conditions:
+        - field: actor.id
+          operator: eq
+          value: admin
+
+  # Helper function for verifying security context
+  - name: verify_context
+    kind: function.lua
+    meta:
+      comment: Helper for security tests - returns current security context
+    source: file://verify_context.lua
+    method: main
+    modules:
+      - security
+
+  # Module loading test
+  - name: module
+    kind: function.lua
+    meta:
+      type: test
+      suite: security
+      description: security module loading and basic API
+    source: file://module.lua
+    method: main
+    modules:
+      - security
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Actor tests
+  - name: actor
+    kind: function.lua
+    meta:
+      type: test
+      suite: security
+      description: security.new_actor and funcs with_actor
+    source: file://actor.lua
+    method: main
+    modules:
+      - security
+      - funcs
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Scope tests
+  - name: scope
+    kind: function.lua
+    meta:
+      type: test
+      suite: security
+      description: security.new_scope and funcs with_scope
+    source: file://scope.lua
+    method: main
+    modules:
+      - security
+      - funcs
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Policy evaluation tests
+  - name: policy_eval
+    kind: function.lua
+    meta:
+      type: test
+      suite: security
+      description: scope and actor creation and evaluation
+    source: file://policy_eval.lua
+    method: main
+    modules:
+      - security
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Named scope tests
+  - name: named_scope
+    kind: function.lua
+    meta:
+      type: test
+      suite: security
+      description: scope operations and named_scope lookup
+    source: file://named_scope.lua
+    method: main
+    modules:
+      - security
+    imports:
+      assert_primitives: app.lib:assert
+
+  # security.can() tests
+  - name: can
+    kind: function.lua
+    meta:
+      type: test
+      suite: security
+      description: security.can() with injected security context
+    source: file://can.lua
+    method: main
+    modules:
+      - security
+      - funcs
+    imports:
+      assert_primitives: app.lib:assert
+
+  # Registry policy tests - verifies policies are loaded from yaml
+  - name: registry
+    kind: function.lua
+    meta:
+      type: test
+      suite: security
+      description: policies loaded from registry
+    source: file://registry.lua
+    method: main
+    modules:
+      - security
+      - funcs
+    imports:
+      assert_primitives: app.lib:assert

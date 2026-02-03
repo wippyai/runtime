@@ -1,198 +1,156 @@
 package funcs
 
 import (
-	"context"
-	"errors"
-	"fmt"
-
-	contextapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
-	secapi "github.com/ponyruntime/pony/api/security"
-	"github.com/ponyruntime/pony/runtime/lua/command"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/coroutine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	payloadmod "github.com/ponyruntime/pony/runtime/lua/modules/payload"
-	"github.com/ponyruntime/pony/runtime/lua/security"
-	luaconv "github.com/ponyruntime/pony/system/payload/lua"
-	lua "github.com/yuin/gopher-lua"
+	"github.com/google/uuid"
+	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/attrs"
+	contextapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/runtime"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	secapi "github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/modules/future"
+	"github.com/wippyai/runtime/runtime/lua/security"
 )
 
-// Module represents the function module
-type Module struct{}
+const executorTypeName = "funcs.Executor"
 
-// Functions represents a function executor with context values
-type Functions struct {
-	funcs  function.Registry
-	dtt    payload.Transcoder
-	values *contextapi.Contexter[any]
+var (
+	moduleTable *lua.LTable
+	yieldTypes  []luaapi.YieldType
+)
 
-	// Dedicated fields for security context to prevent overwriting/conflicting with user values
-	actor    secapi.Actor
-	hasActor bool
-	scope    secapi.Scope
-	hasScope bool
-}
-
-// NewFunctionModule creates a new function module
-func NewFunctionModule() *Module {
-	return &Module{}
-}
-
-// Name returns the module name
-func (m *Module) Name() string {
-	return "funcs"
-}
-
-// Loader registers the module functions
-func (m *Module) Loader(l *lua.LState) int {
-	// Register the function executor methods
-	value.RegisterTypeMethods(l, "function.Executor", nil, map[string]lua.LGFunction{
-		"with_context": m.withContext,
-		"with_actor":   m.withActor,
-		"with_scope":   m.withScope,
-		"call":         m.call,
-		"async":        m.async,
+func init() {
+	value.RegisterTypeMethods(nil, executorTypeName, nil, map[string]lua.LGoFunc{
+		"with_context": executorWithContext,
+		"with_actor":   executorWithActor,
+		"with_scope":   executorWithScope,
+		"with_options": executorWithOptions,
+		"call":         executorCall,
+		"async":        executorAsync,
 	})
 
-	// Create module table
-	mod := l.CreateTable(0, 1)
-	mod.RawSetString("new", l.NewFunction(m.new))
+	// Set cancel function for Future type
+	future.CancelFunc = futureCancelImpl
 
-	command.RegisterCommand(l)
+	moduleTable = lua.CreateTable(0, 3)
+	moduleTable.RawSetString("new", lua.LGoFunc(executorNew))
+	moduleTable.RawSetString("call", lua.LGoFunc(call))
+	moduleTable.RawSetString("async", lua.LGoFunc(async))
+	moduleTable.Immutable = true
 
-	l.Push(mod)
+	yieldTypes = []luaapi.YieldType{
+		{Sample: &CallYield{}, CmdID: function.Call},
+		{Sample: &AsyncStartYield{}, CmdID: function.AsyncStart},
+		{Sample: &AsyncCancelYield{}, CmdID: function.AsyncCancel},
+	}
+}
+
+// Module is the funcs module definition.
+var Module = &luaapi.ModuleDef{
+	Name:        "funcs",
+	Description: "Function calls and async execution",
+	Class:       []string{luaapi.ClassWorkflow, luaapi.ClassNondeterministic},
+	Build: func() (*lua.LTable, []luaapi.YieldType) {
+		return moduleTable, yieldTypes
+	},
+	Types: ModuleTypes,
+}
+
+// Executor represents a function executor with context values.
+type Executor struct {
+	scope      secapi.Scope
+	values     contextapi.Values
+	options    attrs.Bag
+	actor      secapi.Actor
+	hasActor   bool
+	hasScope   bool
+	hasOptions bool
+}
+
+func executorNew(l *lua.LState) int {
+	exec := &Executor{}
+	value.PushTypedUserData(l, exec, executorTypeName)
 	return 1
 }
 
-// extractDependencies gets the required dependencies from context
-func (m *Module) extractDependencies(l *lua.LState) (function.Registry, payload.Transcoder, error) {
-	uw := engine.GetUnitOfWork(l.Context())
-	if uw == nil {
-		return nil, nil, errors.New("no unit of work context found")
-	}
-
-	funcs := function.GetRegistry(uw.Context())
-	if funcs == nil {
-		return nil, nil, errors.New("function registry not found in context")
-	}
-
-	dtt := payload.GetTranscoder(uw.Context())
-	if dtt == nil {
-		return nil, nil, errors.New("transcoder not found in context")
-	}
-
-	return funcs, dtt, nil
-}
-
-// new creates a new function executor
-func (m *Module) new(l *lua.LState) int {
-	funcs, dtt, err := m.extractDependencies(l)
-	if err != nil {
-		l.RaiseError("failed to create executor: %v", err)
-		return 0
-	}
-
-	values := contextapi.NewContexter[any]()
-	if ctxr, ok := l.Context().Value(contextapi.ValuesCtx).(*contextapi.Contexter[any]); ok {
-		values = ctxr.Clone()
-	}
-
-	functions := &Functions{
-		funcs:    funcs,
-		dtt:      dtt,
-		values:   values,
-		hasActor: false,
-		hasScope: false,
-	}
-
-	ud := l.NewUserData()
-	ud.Value = functions
-	ud.Metatable = value.GetTypeMetatable(l, "function.Executor")
-	l.Push(ud)
-	return 1
-}
-
-// withContext creates a new executor with additional context values
-func (m *Module) withContext(l *lua.LState) int {
+func executorWithContext(l *lua.LState) int {
 	ud := l.CheckUserData(1)
-	functions, ok := ud.Value.(*Functions)
+	exec, ok := ud.Value.(*Executor)
 	if !ok {
-		l.ArgError(1, "functions executor expected")
+		l.ArgError(1, "Executor expected")
 		return 0
 	}
 
-	// Add security check for custom application context
-	if !security.IsAllowed(l.Context(), "funcs.context", "context", nil) {
-		l.RaiseError("not allowed to call functions with custom context")
-		return 0
+	ctx := l.Context()
+	if !security.IsAllowed(ctx, "funcs.context", "context", nil) {
+		err := lua.NewLuaError(l, "not allowed to call functions with custom context").
+			WithKind(lua.PermissionDenied).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
 	ctxTable := l.CheckTable(2)
 
-	// Create new contexter and copy existing values
-	newValues := contextapi.NewContexter[any]()
-	if functions.values != nil {
-		functions.values.Iterate(func(key string, value any) {
-			newValues.SetValue(key, value)
+	// Create new values bag, copying existing values
+	newValues := contextapi.NewValues()
+	if exec.values != nil {
+		exec.values.Iterate(func(key string, val any) {
+			newValues.Set(key, val)
 		})
 	}
 
-	// Add new values
+	// Add new values from table
 	ctxTable.ForEach(func(k, v lua.LValue) {
-		key, ok := k.(lua.LString)
-		if !ok {
-			l.ArgError(2, "context keys must be strings")
-			return
+		if key, ok := k.(lua.LString); ok {
+			newValues.Set(string(key), value.ToGoAny(v))
 		}
-		newValues.SetValue(string(key), luaconv.ToGoAny(v))
 	})
 
-	// Create new Functions instance with copied security context
-	newFunctions := &Functions{
-		funcs:    functions.funcs,
-		dtt:      functions.dtt,
-		values:   newValues,
-		actor:    functions.actor,
-		hasActor: functions.hasActor,
-		scope:    functions.scope,
-		hasScope: functions.hasScope,
+	newExec := &Executor{
+		values:     newValues,
+		actor:      exec.actor,
+		hasActor:   exec.hasActor,
+		scope:      exec.scope,
+		hasScope:   exec.hasScope,
+		options:    exec.options,
+		hasOptions: exec.hasOptions,
 	}
 
-	// Create new userdata with the new Functions instance
-	newUd := l.NewUserData()
-	newUd.Value = newFunctions
-	newUd.Metatable = value.GetTypeMetatable(l, "function.Executor")
-	l.Push(newUd)
-
+	value.PushTypedUserData(l, newExec, executorTypeName)
 	return 1
 }
 
-// withActor creates a new executor with a specific actor
-func (m *Module) withActor(l *lua.LState) int {
+func executorWithActor(l *lua.LState) int {
 	ud := l.CheckUserData(1)
-	functions, ok := ud.Value.(*Functions)
+	exec, ok := ud.Value.(*Executor)
 	if !ok {
-		l.ArgError(1, "functions executor expected")
+		l.ArgError(1, "Executor expected")
 		return 0
 	}
 
-	// Add security check for custom security context
-	if !security.IsAllowed(l.Context(), "funcs.security", "security", nil) {
-		l.RaiseError("not allowed to call functions with custom security context")
-		return 0
+	ctx := l.Context()
+	if !security.IsAllowed(ctx, "funcs.security", "security", nil) {
+		err := lua.NewLuaError(l, "not allowed to call functions with custom security context").
+			WithKind(lua.PermissionDenied).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
-	// Check if we're setting actor
 	if l.Get(2).Type() == lua.LTNil {
-		l.ArgError(2, "actor cannot be nil - security context cannot be removed")
+		l.ArgError(2, "actor cannot be nil")
 		return 0
 	}
 
-	// Get actor
 	actorUD := l.CheckUserData(2)
 	actor, ok := actorUD.Value.(secapi.Actor)
 	if !ok {
@@ -200,48 +158,43 @@ func (m *Module) withActor(l *lua.LState) int {
 		return 0
 	}
 
-	// Create new Functions instance with copied values and new actor
-	newFunctions := &Functions{
-		funcs:    functions.funcs,
-		dtt:      functions.dtt,
-		values:   functions.values.Clone(), // Clone the values
-		actor:    actor,
-		hasActor: true,
-		scope:    functions.scope,
-		hasScope: functions.hasScope,
+	newExec := &Executor{
+		values:     exec.values,
+		actor:      actor,
+		hasActor:   true,
+		scope:      exec.scope,
+		hasScope:   exec.hasScope,
+		options:    exec.options,
+		hasOptions: exec.hasOptions,
 	}
 
-	// Create new userdata with the new Functions instance
-	newUd := l.NewUserData()
-	newUd.Value = newFunctions
-	newUd.Metatable = value.GetTypeMetatable(l, "function.Executor")
-	l.Push(newUd)
-
+	value.PushTypedUserData(l, newExec, executorTypeName)
 	return 1
 }
 
-// withScope creates a new executor with a specific scope
-func (m *Module) withScope(l *lua.LState) int {
+func executorWithScope(l *lua.LState) int {
 	ud := l.CheckUserData(1)
-	functions, ok := ud.Value.(*Functions)
+	exec, ok := ud.Value.(*Executor)
 	if !ok {
-		l.ArgError(1, "functions executor expected")
+		l.ArgError(1, "Executor expected")
 		return 0
 	}
 
-	// Add security check for custom security context
-	if !security.IsAllowed(l.Context(), "funcs.security", "security", nil) {
-		l.RaiseError("not allowed to call functions with custom security context")
-		return 0
+	ctx := l.Context()
+	if !security.IsAllowed(ctx, "funcs.security", "security", nil) {
+		err := lua.NewLuaError(l, "not allowed to call functions with custom security context").
+			WithKind(lua.PermissionDenied).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
-	// Check if we're setting scope
 	if l.Get(2).Type() == lua.LTNil {
-		l.ArgError(2, "scope cannot be nil - security context cannot be removed")
+		l.ArgError(2, "scope cannot be nil")
 		return 0
 	}
 
-	// Get scope
 	scopeUD := l.CheckUserData(2)
 	scope, ok := scopeUD.Value.(secapi.Scope)
 	if !ok {
@@ -249,269 +202,376 @@ func (m *Module) withScope(l *lua.LState) int {
 		return 0
 	}
 
-	// Create new Functions instance with copied values and new scope
-	newFunctions := &Functions{
-		funcs:    functions.funcs,
-		dtt:      functions.dtt,
-		values:   functions.values.Clone(), // Clone the values
-		actor:    functions.actor,
-		hasActor: functions.hasActor,
-		scope:    scope,
-		hasScope: true,
+	newExec := &Executor{
+		values:     exec.values,
+		actor:      exec.actor,
+		hasActor:   exec.hasActor,
+		scope:      scope,
+		hasScope:   true,
+		options:    exec.options,
+		hasOptions: exec.hasOptions,
 	}
 
-	// Create new userdata with the new Functions instance
-	newUd := l.NewUserData()
-	newUd.Value = newFunctions
-	newUd.Metatable = value.GetTypeMetatable(l, "function.Executor")
-	l.Push(newUd)
-
+	value.PushTypedUserData(l, newExec, executorTypeName)
 	return 1
 }
 
-// validateRegistryID validates a registry ID
-func validateRegistryID(id registry.ID) error {
-	if id.NS == "" {
-		return fmt.Errorf("namespace is required, got empty namespace in ID: %s", id.String())
-	}
-	if id.Name == "" {
-		return fmt.Errorf("name is required, got empty name in ID: %s", id.String())
-	}
-	return nil
-}
-
-// call synchronously executes a function
-func (m *Module) call(l *lua.LState) int {
+func executorWithOptions(l *lua.LState) int {
 	ud := l.CheckUserData(1)
-	functions, ok := ud.Value.(*Functions)
+	exec, ok := ud.Value.(*Executor)
 	if !ok {
-		l.ArgError(1, "functions executor expected")
+		l.ArgError(1, "Executor expected")
 		return 0
 	}
 
-	// Get unit of work context
-	uw := engine.GetUnitOfWork(l.Context())
-	if uw == nil {
-		l.RaiseError("no unit of work context found")
-		return 0
-	}
-
-	// Get target function ID for security check
-	targetIndex := 1
-	if l.Get(1).Type() == lua.LTUserData {
-		targetIndex = 2 // Skip self parameter
-	}
-
-	target := l.CheckString(targetIndex)
-	if target == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("target name is required"))
-		return 2
-	}
-
-	// Parse registry ID for security check
-	regID := registry.ParseID(target)
-	if err := validateRegistryID(regID); err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("invalid registry ID: %v", err)))
-		return 2
-	}
-
-	// Add security check for function call permission
-	if !security.IsAllowed(l.Context(), "funcs.call", target, nil) {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to call function: %s", target)))
-		return 2
-	}
-
-	// Create task with proper context
-	t, err := functions.createTask(l)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	// Wrap in coroutine for execution
-	coroutine.Wrap(l, func() *engine.Update {
-		// Create execution context with security context values
-		execCtx := engine.DetachUnitOfWork(uw.Context())
-		execCtx = functions.applySecurityContext(execCtx)
-		execCtx = context.WithValue(execCtx, contextapi.ValuesCtx, functions.values)
-
-		resultChan, err := functions.funcs.Call(execCtx, t)
-		if err != nil {
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-		}
-
-		select {
-		case result := <-resultChan:
-			if result.Error != nil {
-				return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(result.Error.Error())}, nil)
-			}
-
-			if result.Value != nil {
-				res, err := functions.dtt.Transcode(result.Value, payload.Lua)
-				if err != nil {
-					return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString(err.Error())}, nil)
-				}
-
-				return engine.NewUpdate(nil, []lua.LValue{res.Data().(lua.LValue), lua.LNil}, nil)
-			}
-
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LNil}, nil)
-
-		case <-uw.Context().Done():
-			return engine.NewUpdate(nil, []lua.LValue{lua.LNil, lua.LString("execution canceled")}, nil)
+	optionsTable := l.CheckTable(2)
+	options := attrs.NewBag()
+	optionsTable.ForEach(func(k, v lua.LValue) {
+		if key, ok := k.(lua.LString); ok {
+			options.Set(string(key), value.ToGoAny(v))
 		}
 	})
 
-	return -1 // Yield for coroutine
-}
-
-// async asynchronously executes a function and returns a command
-func (m *Module) async(l *lua.LState) int {
-	ud := l.CheckUserData(1)
-	functions, ok := ud.Value.(*Functions)
-	if !ok {
-		l.ArgError(1, "functions executor expected")
-		return 0
+	newExec := &Executor{
+		values:     exec.values,
+		actor:      exec.actor,
+		hasActor:   exec.hasActor,
+		scope:      exec.scope,
+		hasScope:   exec.hasScope,
+		options:    options,
+		hasOptions: true,
 	}
 
-	// Get target function ID for security check
-	targetIndex := 1
-	if l.Get(1).Type() == lua.LTUserData {
-		targetIndex = 2 // Skip self parameter
-	}
-
-	target := l.CheckString(targetIndex)
-	if target == "" {
-		l.RaiseError("target name is required")
-		return 0
-	}
-
-	// Parse registry ID for security check
-	regID := registry.ParseID(target)
-	if err := validateRegistryID(regID); err != nil {
-		l.RaiseError("invalid registry ID: %v", err)
-		return 0
-	}
-
-	// Add security check for function call permission
-	if !security.IsAllowed(l.Context(), "funcs.call", target, nil) {
-		l.RaiseError("not allowed to call function: %s", target)
-		return 0
-	}
-
-	// Create task with proper validation
-	runtimeTask, err := functions.createTask(l)
-	if err != nil {
-		l.RaiseError("failed to create task: %v", err)
-		return 0
-	}
-
-	// Serve the function execution in a goroutine
-	uw := engine.GetUnitOfWork(l.Context())
-	if uw == nil {
-		l.RaiseError("no unit of work context found")
-		return 0
-	}
-
-	baseCtx := engine.DetachUnitOfWork(uw.Context())
-
-	// Apply security context
-	execCtx := functions.applySecurityContext(baseCtx)
-	execCtx = context.WithValue(execCtx, contextapi.ValuesCtx, functions.values)
-
-	ctx, cancel := context.WithCancel(execCtx)
-
-	// Create a Command for the function call with the task's params
-	cmd := command.NewCommand(
-		l,
-		runtimeTask.ID.String(),
-		func(_ runtime.Command) { cancel() },
-		runtimeTask.Payloads...,
-	)
-
-	uw.Run(func(work engine.UnitOfWork) {
-		// Run the function
-		resultChan, err := functions.funcs.Call(ctx, runtimeTask)
-		if err != nil {
-			_ = cmd.Complete(&runtime.Result{
-				Error: err,
-			})
-			return
-		}
-
-		// Wait for result
-		select {
-		case result := <-resultChan:
-			_ = cmd.Complete(&runtime.Result{
-				Value: result.Value,
-				Error: result.Error,
-			})
-		case <-work.Context().Done():
-			_ = cmd.Cancel()
-		}
-	})
-
-	// Return the command object
-	l.Push(command.WrapCommand(l, cmd))
+	value.PushTypedUserData(l, newExec, executorTypeName)
 	return 1
 }
 
-// applySecurityContext applies the actor and scope values to the context
-func (f *Functions) applySecurityContext(ctx context.Context) context.Context {
-	// Apply actor if set
-	if f.hasActor {
-		ctx = secapi.WithActor(ctx, f.actor)
+func executorCall(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	exec, ok := ud.Value.(*Executor)
+	if !ok {
+		l.ArgError(1, "Executor expected")
+		return 0
 	}
 
-	// Apply scope if set
-	if f.hasScope {
-		ctx = secapi.WithScope(ctx, f.scope)
+	target := l.CheckString(2)
+	regID, retCount := validateTarget(l, target)
+	if retCount != 0 {
+		return retCount
 	}
 
-	return ctx
-}
-
-// createTask creates a runtime.Task from Lua parameters
-func (f *Functions) createTask(l *lua.LState) (runtime.Task, error) {
-	targetIndex := 1
-	if l.Get(1).Type() == lua.LTUserData {
-		targetIndex = 2 // Skip self parameter
+	ctx := l.Context()
+	if !security.IsAllowed(ctx, "funcs.call", target, nil) {
+		luaErr := lua.NewLuaError(l, "not allowed: "+target).
+			WithKind(lua.PermissionDenied).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
 	}
 
-	target := l.CheckString(targetIndex)
-	if target == "" {
-		return runtime.Task{}, errors.New("target name is required")
-	}
-
-	// Parse and validate registry ID
-	regID := registry.ParseID(target)
-	if err := validateRegistryID(regID); err != nil {
-		return runtime.Task{}, fmt.Errorf("invalid registry ID: %w", err)
-	}
-
-	//nolint:prealloc // ok for now
 	var payloads []payload.Payload
-	for i := targetIndex + 1; i <= l.GetTop(); i++ {
-		val := l.Get(i)
-
-		// Check if argument is already a payload wrapper
-		if ud, ok := val.(*lua.LUserData); ok {
-			if pw, ok := ud.Value.(*payloadmod.Wrapper); ok {
-				payloads = append(payloads, pw.Payload)
-				continue
-			}
-		}
-
-		// Otherwise create a new payload
-		payloads = append(payloads, luaconv.ExportPayload(val))
+	for i := 3; i <= l.GetTop(); i++ {
+		payloads = append(payloads, luaconv.ExportPayload(l.Get(i)))
 	}
 
-	return runtime.Task{
+	yield := AcquireCallYield()
+	yield.Task = runtime.Task{
 		ID:       regID,
 		Payloads: payloads,
-	}, nil
+	}
+
+	// Build context with merged values (frame values + explicit values in one ValuesPair)
+	yield.Task.Context = buildMergedContextPairs(l, exec.values)
+
+	// Overlay with explicit actor/scope if set (these take precedence over inherited)
+	if exec.hasActor {
+		yield.Task.Context = append(yield.Task.Context, secapi.ActorPair(exec.actor))
+	}
+	if exec.hasScope {
+		yield.Task.Context = append(yield.Task.Context, secapi.ScopePair(exec.scope))
+	}
+
+	if exec.hasOptions {
+		yield.Task.Options = exec.options
+	}
+
+	l.Push(yield)
+	return -1
+}
+
+func executorAsync(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	exec, ok := ud.Value.(*Executor)
+	if !ok {
+		l.ArgError(1, "Executor expected")
+		return 0
+	}
+
+	target := l.CheckString(2)
+	regID, retCount := validateTarget(l, target)
+	if retCount != 0 {
+		return retCount
+	}
+
+	ctx := l.Context()
+	if !security.IsAllowed(ctx, "funcs.call", target, nil) {
+		luaErr := lua.NewLuaError(l, "not allowed: "+target).
+			WithKind(lua.PermissionDenied).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
+
+	var payloads []payload.Payload
+	for i := 3; i <= l.GetTop(); i++ {
+		payloads = append(payloads, luaconv.ExportPayload(l.Get(i)))
+	}
+
+	yield, retCount := setupAsyncYieldWithValues(l, regID, payloads, exec.values)
+	if retCount != 0 {
+		return retCount
+	}
+
+	// Overlay with explicit actor/scope if set (these take precedence over inherited)
+	if exec.hasActor {
+		yield.Task.Context = append(yield.Task.Context, secapi.ActorPair(exec.actor))
+	}
+	if exec.hasScope {
+		yield.Task.Context = append(yield.Task.Context, secapi.ScopePair(exec.scope))
+	}
+
+	if exec.hasOptions {
+		yield.Task.Options = exec.options
+	}
+
+	l.Push(yield)
+	return -1
+}
+
+// call is a shortcut for funcs.call(target, ...).
+func call(l *lua.LState) int {
+	target := l.CheckString(1)
+	regID, retCount := validateTarget(l, target)
+	if retCount != 0 {
+		return retCount
+	}
+
+	ctx := l.Context()
+	if !security.IsAllowed(ctx, "funcs.call", target, nil) {
+		luaErr := lua.NewLuaError(l, "not allowed: "+target).
+			WithKind(lua.PermissionDenied).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
+
+	var payloads []payload.Payload
+	for i := 2; i <= l.GetTop(); i++ {
+		payloads = append(payloads, luaconv.ExportPayload(l.Get(i)))
+	}
+
+	yield := AcquireCallYield()
+	yield.Task = runtime.Task{
+		ID:       regID,
+		Payloads: payloads,
+		Context:  buildContextPairs(l),
+	}
+
+	l.Push(yield)
+	return -1
+}
+
+// async is a shortcut for funcs.async(target, ...).
+func async(l *lua.LState) int {
+	target := l.CheckString(1)
+	regID, retCount := validateTarget(l, target)
+	if retCount != 0 {
+		return retCount
+	}
+
+	ctx := l.Context()
+	if !security.IsAllowed(ctx, "funcs.call", target, nil) {
+		luaErr := lua.NewLuaError(l, "not allowed: "+target).
+			WithKind(lua.PermissionDenied).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return 2
+	}
+
+	var payloads []payload.Payload
+	for i := 2; i <= l.GetTop(); i++ {
+		payloads = append(payloads, luaconv.ExportPayload(l.Get(i)))
+	}
+
+	yield, retCount := setupAsyncYield(l, regID, payloads)
+	if retCount != 0 {
+		return retCount
+	}
+
+	l.Push(yield)
+	return -1
+}
+
+// setupAsyncYield creates the async yield with topic, channel, and future.
+func setupAsyncYield(l *lua.LState, regID registry.ID, payloads []payload.Payload) (*AsyncStartYield, int) {
+	return setupAsyncYieldWithValues(l, regID, payloads, nil)
+}
+
+// setupAsyncYieldWithValues creates the async yield with merged context values.
+func setupAsyncYieldWithValues(l *lua.LState, regID registry.ID, payloads []payload.Payload, explicitValues contextapi.Values) (*AsyncStartYield, int) {
+	proc := engine.GetProcess(l)
+	if proc == nil {
+		luaErr := lua.NewLuaError(l, "no process context").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return nil, 2
+	}
+
+	topic := "@future:" + uuid.New().String()
+	ch, subErr := proc.Subscribe(topic, 1)
+	if subErr != nil {
+		luaErr := lua.WrapErrorWithLua(l, subErr, "subscribe failed").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(luaErr)
+		return nil, 2
+	}
+
+	f := future.New(topic, ch)
+	proc.SetTopicHandler(topic, f.CreateHandler())
+
+	yield := AcquireAsyncStartYield()
+	yield.Task = runtime.Task{
+		ID:       regID,
+		Payloads: payloads,
+		Context:  buildMergedContextPairs(l, explicitValues),
+	}
+	yield.Topic = topic
+	yield.Future = f
+
+	return yield, 0
+}
+
+func validateTarget(l *lua.LState, target string) (registry.ID, int) {
+	if target == "" {
+		err := lua.NewLuaError(l, "function ID required").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return registry.ID{}, 2
+	}
+
+	regID := registry.ParseID(target)
+	if regID.NS == "" {
+		err := lua.NewLuaError(l, "namespace required in function ID").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return registry.ID{}, 2
+	}
+	if regID.Name == "" {
+		err := lua.NewLuaError(l, "name required in function ID").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return registry.ID{}, 2
+	}
+
+	return regID, 0
+}
+
+// futureCancelImpl yields an async cancel command for the future's topic.
+func futureCancelImpl(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	f, ok := ud.Value.(*future.Future)
+	if !ok {
+		l.ArgError(1, "Future expected")
+		return 0
+	}
+
+	f.MarkCanceled()
+
+	yield := AcquireAsyncCancelYield()
+	yield.Topic = f.Topic
+	l.Push(yield)
+	return -1
+}
+
+// buildContextPairs extracts context pairs from the Lua state's frame context
+// to be passed to called functions for context inheritance.
+func buildContextPairs(l *lua.LState) []contextapi.Pair {
+	ctx := l.Context()
+	if ctx == nil {
+		return nil
+	}
+
+	var pairs []contextapi.Pair
+	if actor, ok := secapi.GetActor(ctx); ok {
+		pairs = append(pairs, secapi.ActorPair(actor))
+	}
+	if scope, ok := secapi.GetScope(ctx); ok {
+		pairs = append(pairs, secapi.ScopePair(scope))
+	}
+	if values := contextapi.GetValues(ctx); values != nil && values.Len() > 0 {
+		pairs = append(pairs, contextapi.ValuesPair(values))
+	}
+	return pairs
+}
+
+// buildMergedContextPairs extracts context pairs from the Lua state's frame context
+// and merges them with explicit values, ensuring only ONE ValuesPair with merged values.
+// This prevents the second ValuesPair from overwriting the first when context pairs are applied.
+func buildMergedContextPairs(l *lua.LState, explicitValues contextapi.Values) []contextapi.Pair {
+	ctx := l.Context()
+	if ctx == nil && (explicitValues == nil || explicitValues.Len() == 0) {
+		return nil
+	}
+
+	var pairs []contextapi.Pair
+
+	// Add actor and scope from frame context
+	if ctx != nil {
+		if actor, ok := secapi.GetActor(ctx); ok {
+			pairs = append(pairs, secapi.ActorPair(actor))
+		}
+		if scope, ok := secapi.GetScope(ctx); ok {
+			pairs = append(pairs, secapi.ScopePair(scope))
+		}
+	}
+
+	// Merge values: frame values first, then explicit values (explicit takes precedence)
+	var mergedValues contextapi.Values
+	frameValues := contextapi.GetValues(ctx)
+
+	if (frameValues != nil && frameValues.Len() > 0) || (explicitValues != nil && explicitValues.Len() > 0) {
+		mergedValues = contextapi.NewValues()
+
+		// First, copy all frame values
+		if frameValues != nil {
+			frameValues.Iterate(func(key string, val any) {
+				mergedValues.Set(key, val)
+			})
+		}
+
+		// Then overlay explicit values (these take precedence for conflicts)
+		if explicitValues != nil {
+			explicitValues.Iterate(func(key string, val any) {
+				mergedValues.Set(key, val)
+			})
+		}
+
+		pairs = append(pairs, contextapi.ValuesPair(mergedValues))
+	}
+
+	return pairs
 }

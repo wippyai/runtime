@@ -1,11 +1,34 @@
 package code
 
 import (
+	"errors"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	apierror "github.com/wippyai/runtime/api/error"
+	"github.com/wippyai/runtime/api/registry"
+	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 )
+
+// Test helper functions for slice containment checks
+func contains(slice []registry.ID, item registry.ID) bool {
+	for _, id := range slice {
+		if id == item {
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
 
 func TestBuildOptions_WithMethods(t *testing.T) {
 	opts := NewBuildOptions()
@@ -15,24 +38,24 @@ func TestBuildOptions_WithMethods(t *testing.T) {
 	assert.Equal(t, AllowListed, opts.Mode)
 
 	// Test WithAllowed
-	fooID := registry.ID{Name: "foo"}
-	barID := registry.ID{Name: "bar"}
+	fooID := registry.NewID("", "foo")
+	barID := registry.NewID("", "bar")
 	opts.WithAllowed(fooID, barID)
 	assert.True(t, contains(opts.Allowed, fooID))
 	assert.True(t, contains(opts.Allowed, barID))
-	assert.False(t, contains(opts.Allowed, registry.ID{Name: "baz"}))
+	assert.False(t, contains(opts.Allowed, registry.NewID("", "baz")))
 
 	// Test WithDenied
-	bazID := registry.ID{Name: "baz"}
-	quxID := registry.ID{Name: "qux"}
+	bazID := registry.NewID("", "baz")
+	quxID := registry.NewID("", "qux")
 	opts.WithDenied(bazID, quxID)
 	assert.True(t, contains(opts.Denied, bazID))
 	assert.True(t, contains(opts.Denied, quxID))
 	assert.False(t, contains(opts.Denied, fooID))
 
 	// Test WithRequired
-	req1ID := registry.ID{Name: "req1"}
-	req2ID := registry.ID{Name: "req2"}
+	req1ID := registry.NewID("", "req1")
+	req2ID := registry.NewID("", "req2")
 	opts.WithRequired(req1ID, req2ID)
 	assert.True(t, contains(opts.Required, req1ID))
 	assert.True(t, contains(opts.Required, req2ID))
@@ -41,11 +64,11 @@ func TestBuildOptions_WithMethods(t *testing.T) {
 	// Test WithPreloaded
 	preload1 := Preload{
 		Name:     "dep1",
-		ModuleID: registry.ID{Name: "node1"},
+		ModuleID: registry.NewID("", "node1"),
 	}
 	preload2 := Preload{
 		Name:     "dep2",
-		ModuleID: registry.ID{Name: "node2"},
+		ModuleID: registry.NewID("", "node2"),
 	}
 	opts.WithPreloaded(preload1, preload2)
 	assert.Len(t, opts.Preloaded, 2)
@@ -61,10 +84,111 @@ func TestBuildOptions_WithMethods(t *testing.T) {
 	assert.Equal(t, DenyAll, opts2.Mode)
 	assert.True(t, contains(opts2.Required, fooID))
 	assert.True(t, contains(opts2.Allowed, barID))
+
+	// Test WithDeniedClasses
+	opts3 := NewBuildOptions().
+		WithDeniedClasses(luaapi.ClassNetwork, luaapi.ClassIO)
+	assert.Len(t, opts3.DeniedClasses, 2)
+	assert.True(t, containsString(opts3.DeniedClasses, luaapi.ClassNetwork))
+	assert.True(t, containsString(opts3.DeniedClasses, luaapi.ClassIO))
+
+	// Test WithAllowedClasses
+	opts4 := NewBuildOptions().
+		WithAllowedClasses(luaapi.ClassDeterministic, luaapi.ClassEncoding)
+	assert.Len(t, opts4.AllowedClasses, 2)
+	assert.True(t, containsString(opts4.AllowedClasses, luaapi.ClassDeterministic))
+	assert.True(t, containsString(opts4.AllowedClasses, luaapi.ClassEncoding))
+}
+
+func TestBuildOptions_ClassFiltering(t *testing.T) {
+	netModID := registry.NewID("", "network_mod")
+	ioModID := registry.NewID("", "io_mod")
+	deterministicModID := registry.NewID("", "deterministic_mod")
+
+	netModule := &luaapi.ModuleDef{Name: "network_mod", Class: []string{luaapi.ClassNetwork}}
+	ioModule := &luaapi.ModuleDef{Name: "io_mod", Class: []string{luaapi.ClassIO}}
+	deterministicModule := &luaapi.ModuleDef{Name: "deterministic_mod", Class: []string{luaapi.ClassDeterministic, luaapi.ClassEncoding}}
+
+	t.Run("deny network class", func(t *testing.T) {
+		opts := NewBuildOptions().
+			WithDeniedClasses(luaapi.ClassNetwork)
+
+		nodes := map[registry.ID]*Node{
+			netModID: {ID: netModID, Kind: luaapi.ModuleKind, Module: netModule},
+		}
+
+		err := opts.Validate(nodes)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "denied class")
+	})
+
+	t.Run("deny multiple classes", func(t *testing.T) {
+		opts := NewBuildOptions().
+			WithDeniedClasses(luaapi.ClassNetwork, luaapi.ClassIO)
+
+		nodes := map[registry.ID]*Node{
+			ioModID: {ID: ioModID, Kind: luaapi.ModuleKind, Module: ioModule},
+		}
+
+		err := opts.Validate(nodes)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "denied class")
+	})
+
+	t.Run("allow only deterministic", func(t *testing.T) {
+		opts := NewBuildOptions().
+			WithAllowedClasses(luaapi.ClassDeterministic)
+
+		nodes := map[registry.ID]*Node{
+			deterministicModID: {ID: deterministicModID, Kind: luaapi.ModuleKind, Module: deterministicModule},
+		}
+
+		err := opts.Validate(nodes)
+		assert.NoError(t, err)
+	})
+
+	t.Run("reject non-deterministic when only deterministic allowed", func(t *testing.T) {
+		opts := NewBuildOptions().
+			WithAllowedClasses(luaapi.ClassDeterministic)
+
+		nodes := map[registry.ID]*Node{
+			netModID: {ID: netModID, Kind: luaapi.ModuleKind, Module: netModule},
+		}
+
+		err := opts.Validate(nodes)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "does not have any allowed class")
+	})
+
+	t.Run("mixed modules with class filtering", func(t *testing.T) {
+		opts := NewBuildOptions().
+			WithDeniedClasses(luaapi.ClassNetwork)
+
+		nodes := map[registry.ID]*Node{
+			deterministicModID: {ID: deterministicModID, Kind: luaapi.ModuleKind, Module: deterministicModule},
+			ioModID:            {ID: ioModID, Kind: luaapi.ModuleKind, Module: ioModule},
+		}
+
+		err := opts.Validate(nodes)
+		assert.NoError(t, err)
+	})
+
+	t.Run("non-module nodes are not affected by class filtering", func(t *testing.T) {
+		opts := NewBuildOptions().
+			WithDeniedClasses(luaapi.ClassNetwork)
+
+		funcID := registry.NewID("", "some_func")
+		nodes := map[registry.ID]*Node{
+			funcID: {ID: funcID, Kind: luaapi.Function, Source: "return 1"},
+		}
+
+		err := opts.Validate(nodes)
+		assert.NoError(t, err)
+	})
 }
 
 func TestBuildOptions_StateConsistency(t *testing.T) {
-	fooID := registry.ID{Name: "foo"}
+	fooID := registry.NewID("", "foo")
 
 	t.Run("same Process in allowed and denied", func(t *testing.T) {
 		opts := NewBuildOptions().
@@ -77,7 +201,9 @@ func TestBuildOptions_StateConsistency(t *testing.T) {
 		}
 		err := opts.Validate(nodes)
 		assert.Error(t, err)
-		assert.Equal(t, "process `:foo` is not allowed in this build", err.Error())
+		var apiErr apierror.Error
+		assert.True(t, errors.As(err, &apiErr), "error should implement apierror.Error")
+		assert.Equal(t, apierror.PermissionDenied, apiErr.Kind())
 	})
 
 	t.Run("same Process in required and denied", func(t *testing.T) {
@@ -91,7 +217,9 @@ func TestBuildOptions_StateConsistency(t *testing.T) {
 		}
 		err := opts.Validate(nodes)
 		assert.Error(t, err)
-		assert.Equal(t, "process `:foo` is not allowed in this build", err.Error())
+		var apiErr apierror.Error
+		assert.True(t, errors.As(err, &apiErr), "error should implement apierror.Error")
+		assert.Equal(t, apierror.PermissionDenied, apiErr.Kind())
 	})
 
 	t.Run("same Process added multiple times to lists", func(t *testing.T) {
@@ -114,7 +242,7 @@ func TestBuildOptions_PreloadedDependencies(t *testing.T) {
 	createPreload := func(name string) Preload {
 		return Preload{
 			Name:     name,
-			ModuleID: registry.ID{Name: name},
+			ModuleID: registry.NewID("", name),
 		}
 	}
 
@@ -158,10 +286,10 @@ func TestBuildOptions_PreloadedDependencies(t *testing.T) {
 
 func TestBuildOptions_EmptyNodes(t *testing.T) {
 	tests := []struct {
-		name      string
 		opts      *BuildOptions
+		name      string
+		errorKind apierror.Kind
 		wantError bool
-		errorMsg  string
 	}{
 		{
 			name: "empty nodes with no requirements",
@@ -173,9 +301,9 @@ func TestBuildOptions_EmptyNodes(t *testing.T) {
 			name: "empty nodes with required IDs",
 			opts: NewBuildOptions().
 				WithMode(AllowAll).
-				WithRequired(registry.ID{Name: "foo"}),
+				WithRequired(registry.NewID("", "foo")),
 			wantError: true,
-			errorMsg:  "required process `:foo` was not found",
+			errorKind: apierror.PermissionDenied,
 		},
 		{
 			name: "empty nodes in DenyAll mode",
@@ -187,10 +315,10 @@ func TestBuildOptions_EmptyNodes(t *testing.T) {
 			name: "empty nodes in StrictListed mode",
 			opts: NewBuildOptions().
 				WithMode(StrictListed).
-				WithAllowed(registry.ID{Name: "foo"}).
-				WithRequired(registry.ID{Name: "foo"}),
+				WithAllowed(registry.NewID("", "foo")).
+				WithRequired(registry.NewID("", "foo")),
 			wantError: true,
-			errorMsg:  "required process `:foo` was not found",
+			errorKind: apierror.PermissionDenied,
 		},
 	}
 
@@ -199,9 +327,9 @@ func TestBuildOptions_EmptyNodes(t *testing.T) {
 			err := tt.opts.Validate(map[registry.ID]*Node{})
 			if tt.wantError {
 				assert.Error(t, err)
-				if tt.errorMsg != "" {
-					assert.Equal(t, tt.errorMsg, err.Error())
-				}
+				var apiErr apierror.Error
+				assert.True(t, errors.As(err, &apiErr), "error should implement apierror.Error")
+				assert.Equal(t, tt.errorKind, apiErr.Kind())
 			} else {
 				assert.NoError(t, err)
 			}
@@ -210,8 +338,8 @@ func TestBuildOptions_EmptyNodes(t *testing.T) {
 }
 
 func TestBuildOptions_ModificationAfterSetup(t *testing.T) {
-	fooID := registry.ID{Name: "foo"}
-	barID := registry.ID{Name: "bar"}
+	fooID := registry.NewID("", "foo")
+	barID := registry.NewID("", "bar")
 
 	opts := NewBuildOptions().
 		WithMode(AllowListed).
@@ -231,15 +359,17 @@ func TestBuildOptions_ModificationAfterSetup(t *testing.T) {
 	// AddCleanup denied Process and test
 	opts.WithDenied(fooID)
 	err := opts.Validate(nodes)
-	assert.Error(t, err)
-	assert.Equal(t, "process `:foo` is not allowed in this build", err.Error())
+	if assert.Error(t, err) {
+		var apiErr apierror.Error
+		assert.True(t, errors.As(err, &apiErr), "error should implement apierror.Error")
+		assert.Equal(t, apierror.PermissionDenied, apiErr.Kind())
+	}
 }
 
 func TestBuildOptions_Validate(t *testing.T) {
 	// Helper function to create test nodes
 	createNode := func(name string) *Node {
 		return &Node{
-			ID:     registry.ID{Name: name},
 			Kind:   "function.lua",
 			Source: "function " + name + "() return 'test' end",
 			Method: "test",
@@ -247,19 +377,19 @@ func TestBuildOptions_Validate(t *testing.T) {
 	}
 
 	tests := []struct {
-		name      string
 		opts      *BuildOptions
 		nodes     map[registry.ID]*Node
+		name      string
+		errorKind apierror.Kind
 		wantError bool
-		errorMsg  string
 	}{
 		{
 			name: "AllowAll mode - allow everything not denied",
 			opts: NewBuildOptions().
 				WithMode(AllowAll),
 			nodes: map[registry.ID]*Node{
-				{Name: "foo"}: createNode("foo"),
-				{Name: "bar"}: createNode("bar"),
+				registry.NewID("", "foo"): createNode("foo"),
+				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: false,
 		},
@@ -267,22 +397,22 @@ func TestBuildOptions_Validate(t *testing.T) {
 			name: "AllowAll mode with denied Process",
 			opts: NewBuildOptions().
 				WithMode(AllowAll).
-				WithDenied(registry.ID{Name: "foo"}),
+				WithDenied(registry.NewID("", "foo")),
 			nodes: map[registry.ID]*Node{
-				{Name: "foo"}: createNode("foo"),
-				{Name: "bar"}: createNode("bar"),
+				registry.NewID("", "foo"): createNode("foo"),
+				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: true,
-			errorMsg:  "process `:foo` is not allowed in this build",
+			errorKind: apierror.PermissionDenied,
 		},
 		{
 			name: "AllowListed mode - only allow listed",
 			opts: NewBuildOptions().
 				WithMode(AllowListed).
-				WithAllowed(registry.ID{Name: "foo"}, registry.ID{Name: "bar"}),
+				WithAllowed(registry.NewID("", "foo"), registry.NewID("", "bar")),
 			nodes: map[registry.ID]*Node{
-				{Name: "foo"}: createNode("foo"),
-				{Name: "bar"}: createNode("bar"),
+				registry.NewID("", "foo"): createNode("foo"),
+				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: false,
 		},
@@ -290,21 +420,21 @@ func TestBuildOptions_Validate(t *testing.T) {
 			name: "AllowListed mode - reject unlisted",
 			opts: NewBuildOptions().
 				WithMode(AllowListed).
-				WithAllowed(registry.ID{Name: "foo"}),
+				WithAllowed(registry.NewID("", "foo")),
 			nodes: map[registry.ID]*Node{
-				{Name: "foo"}: createNode("foo"),
-				{Name: "bar"}: createNode("bar"),
+				registry.NewID("", "foo"): createNode("foo"),
+				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: true,
-			errorMsg:  "process `:bar` is not in the allowed IDs list",
+			errorKind: apierror.PermissionDenied,
 		},
 		{
 			name: "DenyAll mode - only allow required",
 			opts: NewBuildOptions().
 				WithMode(DenyAll).
-				WithRequired(registry.ID{Name: "foo"}),
+				WithRequired(registry.NewID("", "foo")),
 			nodes: map[registry.ID]*Node{
-				{Name: "foo"}: createNode("foo"),
+				registry.NewID("", "foo"): createNode("foo"),
 			},
 			wantError: false,
 		},
@@ -312,23 +442,23 @@ func TestBuildOptions_Validate(t *testing.T) {
 			name: "DenyAll mode - reject non-required",
 			opts: NewBuildOptions().
 				WithMode(DenyAll).
-				WithRequired(registry.ID{Name: "foo"}),
+				WithRequired(registry.NewID("", "foo")),
 			nodes: map[registry.ID]*Node{
-				{Name: "foo"}: createNode("foo"),
-				{Name: "bar"}: createNode("bar"),
+				registry.NewID("", "foo"): createNode("foo"),
+				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: true,
-			errorMsg:  "process `:bar` is not allowed (DenyAll mode)",
+			errorKind: apierror.PermissionDenied,
 		},
 		{
 			name: "StrictListed mode - required must be allowed",
 			opts: NewBuildOptions().
 				WithMode(StrictListed).
-				WithAllowed(registry.ID{Name: "foo"}, registry.ID{Name: "bar"}).
-				WithRequired(registry.ID{Name: "foo"}),
+				WithAllowed(registry.NewID("", "foo"), registry.NewID("", "bar")).
+				WithRequired(registry.NewID("", "foo")),
 			nodes: map[registry.ID]*Node{
-				{Name: "foo"}: createNode("foo"),
-				{Name: "bar"}: createNode("bar"),
+				registry.NewID("", "foo"): createNode("foo"),
+				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: false,
 		},
@@ -336,37 +466,37 @@ func TestBuildOptions_Validate(t *testing.T) {
 			name: "StrictListed mode - fail if required not allowed",
 			opts: NewBuildOptions().
 				WithMode(StrictListed).
-				WithAllowed(registry.ID{Name: "bar"}).
-				WithRequired(registry.ID{Name: "foo"}),
+				WithAllowed(registry.NewID("", "bar")).
+				WithRequired(registry.NewID("", "foo")),
 			nodes: map[registry.ID]*Node{
-				{Name: "foo"}: createNode("foo"),
-				{Name: "bar"}: createNode("bar"),
+				registry.NewID("", "foo"): createNode("foo"),
+				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: true,
-			errorMsg:  "required process `:foo` must also be in allowed list (StrictListed mode)",
+			errorKind: apierror.PermissionDenied,
 		},
 		{
 			name: "Missing required Process",
 			opts: NewBuildOptions().
 				WithMode(AllowAll).
-				WithRequired(registry.ID{Name: "foo"}),
+				WithRequired(registry.NewID("", "foo")),
 			nodes: map[registry.ID]*Node{
-				{Name: "bar"}: createNode("bar"),
+				registry.NewID("", "bar"): createNode("bar"),
 			},
 			wantError: true,
-			errorMsg:  "required process `:foo` was not found",
+			errorKind: apierror.PermissionDenied,
 		},
 		{
 			name: "Denied takes precedence over required",
 			opts: NewBuildOptions().
 				WithMode(AllowAll).
-				WithRequired(registry.ID{Name: "foo"}).
-				WithDenied(registry.ID{Name: "foo"}),
+				WithRequired(registry.NewID("", "foo")).
+				WithDenied(registry.NewID("", "foo")),
 			nodes: map[registry.ID]*Node{
-				{Name: "foo"}: createNode("foo"),
+				registry.NewID("", "foo"): createNode("foo"),
 			},
 			wantError: true,
-			errorMsg:  "process `:foo` is not allowed in this build",
+			errorKind: apierror.PermissionDenied,
 		},
 	}
 
@@ -375,9 +505,9 @@ func TestBuildOptions_Validate(t *testing.T) {
 			err := tt.opts.Validate(tt.nodes)
 			if tt.wantError {
 				assert.Error(t, err)
-				if tt.errorMsg != "" {
-					assert.Equal(t, tt.errorMsg, err.Error())
-				}
+				var apiErr apierror.Error
+				assert.True(t, errors.As(err, &apiErr), "error should implement apierror.Error")
+				assert.Equal(t, tt.errorKind, apiErr.Kind())
 			} else {
 				assert.NoError(t, err)
 			}

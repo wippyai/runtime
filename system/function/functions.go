@@ -5,14 +5,13 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/internal/uniqid"
-
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/system/eventbus"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
+	runtimeapi "github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
@@ -20,22 +19,25 @@ import (
 // It uses an event bus for communication and supports dynamic handler registration.
 type Registry struct {
 	ctx        context.Context
-	host       pubsub.Host
-	uniqID     *uniqid.Generator
-	logger     *zap.Logger
 	bus        event.Bus
-	handlers   sync.Map
+	logger     *zap.Logger
 	subscriber *eventbus.Subscriber
+	handlers   sync.Map
+	options    sync.Map
 }
 
+const functionEventPattern = "function.(register|delete)"
+
 // NewFunctionRegistry creates a new Registry instance with the provided event bus and logger.
-func NewFunctionRegistry(bus event.Bus, host pubsub.Host, logger *zap.Logger) *Registry {
+func NewFunctionRegistry(bus event.Bus, logger *zap.Logger) *Registry {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Registry{
-		uniqID:   uniqid.NewGenerator(),
 		bus:      bus,
-		host:     host,
 		logger:   logger,
 		handlers: sync.Map{},
+		options:  sync.Map{},
 	}
 }
 
@@ -49,11 +51,11 @@ func (f *Registry) Start(ctx context.Context) error {
 		f.ctx,
 		f.bus,
 		function.System,
-		"function.(register|delete)",
+		functionEventPattern,
 		f.handleEvent,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create subscriber: %w", err)
+		return NewSubscriberError(err)
 	}
 	f.subscriber = sub
 
@@ -70,9 +72,9 @@ func (f *Registry) Stop() error {
 
 func (f *Registry) handleEvent(e event.Event) {
 	switch e.Kind {
-	case function.Register:
+	case function.FunctionRegister:
 		f.registerFunction(e)
-	case function.Delete:
+	case function.FunctionDelete:
 		f.deleteFunction(e)
 	default:
 		f.logger.Warn("unknown event kind",
@@ -82,7 +84,7 @@ func (f *Registry) handleEvent(e event.Event) {
 }
 
 func (f *Registry) registerFunction(e event.Event) {
-	fn, ok := e.Data.(function.Func)
+	reg, ok := e.Data.(*function.FuncEntry)
 	if !ok {
 		f.logger.Error("invalid register function payload",
 			zap.String("function", e.Path),
@@ -92,81 +94,143 @@ func (f *Registry) registerFunction(e event.Event) {
 		return
 	}
 
-	// Store the function
-	f.handlers.Store(registry.ParseID(e.Path), fn)
-	f.logger.Debug("function registered", zap.String("function", e.Path))
+	id := registry.ParseID(e.Path)
 
+	// Store the function handler
+	f.handlers.Store(id, reg.Handler)
+
+	// Store options if provided
+	if reg.Options != nil {
+		f.options.Store(id, reg.Options)
+	} else {
+		// Remove options if nil (handles updates that clear options)
+		f.options.Delete(id)
+	}
+
+	f.logger.Debug("function registered", zap.String("function", e.Path))
 	f.sendAccept(e.Path)
 }
 
 func (f *Registry) deleteFunction(e event.Event) {
+	id := registry.ParseID(e.Path)
+
 	// Check if the function exists before removing
-	_, exists := f.handlers.Load(registry.ParseID(e.Path))
+	_, exists := f.handlers.Load(id)
 	if !exists {
 		f.logger.Warn("function not found", zap.String("function", e.Path))
 		f.sendReject(e.Path, "function not found")
 		return
 	}
 
-	// Done the function
-	f.handlers.Delete(registry.ParseID(e.Path))
-	f.logger.Debug("function removed", zap.String("function", e.Path))
+	// Remove the function handler
+	f.handlers.Delete(id)
 
+	// Remove associated options
+	f.options.Delete(id)
+
+	f.logger.Debug("function removed", zap.String("function", e.Path))
 	f.sendAccept(e.Path)
 }
 
 func (f *Registry) sendAccept(path event.Path) {
-	f.bus.Send(f.ctx, event.Event{
-		System: function.System,
-		Kind:   function.Accept,
-		Path:   path,
-	})
+	f.sendResponse(path, function.FunctionAccept, nil)
 }
 
 func (f *Registry) sendReject(path event.Path, reason string) {
+	f.sendResponse(path, function.FunctionReject, reason)
+}
+
+func (f *Registry) sendResponse(path event.Path, kind event.Kind, data any) {
 	f.bus.Send(f.ctx, event.Event{
 		System: function.System,
-		Kind:   function.Reject,
+		Kind:   kind,
 		Path:   path,
-		Data:   reason,
+		Data:   data,
 	})
 }
 
-// Call runs the given task using its registered handler and returns a channel
-// for receiving the execution result(s). Returns an error if no handler is registered
-// for the task's target or if the handler type is invalid.
-func (f *Registry) Call(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
-	handler, exists := f.handlers.Load(task.ID)
-	if !exists {
-		return nil, fmt.Errorf("no handler registered for target: %s", task.ID)
+// Call runs the given task using its registered handler synchronously.
+// Returns an error if no handler is registered for the task's target or if the handler type is invalid.
+// Blocks until execution completes or context is canceled.
+func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (*runtimeapi.Result, error) {
+	if ctx == nil {
+		return nil, function.ErrNilContext
 	}
 
-	// keep context boundaries
-	if ctx == nil {
-		ctx = context.Background()
+	handler, exists := f.handlers.Load(task.ID)
+	if !exists {
+		return nil, NewHandlerNotFoundError(task.ID)
 	}
 
 	execHandler, ok := handler.(function.Func)
 	if !ok {
-		return nil, fmt.Errorf("invalid handler type for target: %s", task.ID)
-	}
-	pid := pubsub.PID{
-		Node:   pubsub.GetNode(ctx).ID(),
-		Host:   function.HostID,
-		ID:     task.ID,
-		UniqID: f.uniqID.Generate(),
-	}
-	ctx = pubsub.WithHost(ctx, f.host)
-	ctx = pubsub.WithPID(ctx, pid)
-
-	ch, err := execHandler(ctx, task)
-	if err != nil {
-		f.logger.Error(err.Error(),
-			zap.String("function", task.ID.String()),
-			zap.String("pid", pid.String()))
+		return nil, NewInvalidHandlerError(task.ID)
 	}
 
-	return ch, err
+	// Merge preset and runtime options into task.Options before calling interceptors
+	var bag runtimeapi.Bag
+	if storedOptions, ok := f.options.Load(task.ID); ok {
+		bag, _ = storedOptions.(runtimeapi.Bag)
+	}
+	if runtimeBag, ok := task.Options.(runtimeapi.Bag); ok {
+		if bag != nil {
+			bag = bag.Merge(runtimeBag)
+		} else {
+			bag = runtimeBag
+		}
+	}
+	if bag != nil {
+		task.Options = bag
+	}
+
+	// Create executor wrapper that will be called by chain or directly
+	executorFunc := func(ctx context.Context, task runtimeapi.Task) (*runtimeapi.Result, error) {
+		return f.executor(ctx, execHandler, task)
+	}
+
+	// Execute through interceptor chain if available
+	if interceptors := function.GetInterceptorRegistry(ctx); interceptors != nil {
+		return interceptors.Execute(ctx, executorFunc, task)
+	}
+
+	return executorFunc(ctx, task)
+}
+
+// executor creates frame context and executes the function handler.
+// This is called as the final step in the interceptor chain or directly if no chain exists.
+// PID is generated with Host set to the function ID - each function is its own mini-host.
+func (f *Registry) executor(ctx context.Context, handler function.Func, task runtimeapi.Task) (*runtimeapi.Result, error) {
+	// Open frame context with inheritance from sealed parent (actor, scope, etc.)
+	ctx, fc := ctxapi.OpenFrameContext(ctx)
+
+	// Generate PID with function ID as Host - function is its own host for message routing
+	gen := process.GetPIDGenerator(ctx)
+	if gen == nil {
+		ctxapi.ReleaseFrameContext(fc)
+		return nil, function.ErrPIDGeneratorNotFound
+	}
+	pid := gen.Generate(task.ID.String())
+
+	// Build pairs slice with capacity for base pairs + task context.
+	pairs := make([]ctxapi.Pair, 0, 2+len(task.Context))
+	pairs = append(pairs,
+		ctxapi.Pair{Key: runtimeapi.FrameIDKey, Value: task.ID},
+		ctxapi.Pair{Key: runtimeapi.FramePIDKey, Value: pid},
+	)
+	pairs = append(pairs, task.Context...)
+
+	if err := fc.SetMultiple(pairs...); err != nil {
+		ctxapi.ReleaseFrameContext(fc)
+		return nil, NewFrameContextError(err)
+	}
+
+	// Execute function handler
+	result, err := handler(ctx, task)
+
+	// Release frame back to pool
+	ctxapi.ReleaseFrameContext(fc)
+
+	return result, err
 }
 
 // Ensure Registry implements the operation.Registry interface

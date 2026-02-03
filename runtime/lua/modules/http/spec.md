@@ -1,595 +1,713 @@
-# Lua HTTP Context Module Specification
+# http
 
-## Overview
+HTTP request and response types for server-side handlers. Network, IO, nondeterministic.
 
-The `http` module provides access to the current HTTP request and response within a Lua environment, typically in the
-context of a web server handler. It allows reading request data (method, path, headers, query parameters, body) and
-writing response data (status, headers, body). It also supports advanced features like streaming request bodies, chunked
-transfer encoding, and server-sent events.
-
-## Module Interface
-
-### Module Loading
+## Loading
 
 ```lua
 local http = require("http")
 ```
 
-### Constants
+## Constants
+
+```lua
+-- HTTP Methods
+http.METHOD.GET                    -- "GET"
+http.METHOD.POST                   -- "POST"
+http.METHOD.PUT                    -- "PUT"
+http.METHOD.DELETE                 -- "DELETE"
+http.METHOD.PATCH                  -- "PATCH"
+http.METHOD.HEAD                   -- "HEAD"
+http.METHOD.OPTIONS                -- "OPTIONS"
+
+-- HTTP Status Codes
+http.STATUS.OK                     -- 200
+http.STATUS.CREATED                -- 201
+http.STATUS.ACCEPTED               -- 202
+http.STATUS.NO_CONTENT             -- 204
+http.STATUS.PARTIAL_CONTENT        -- 206
+http.STATUS.MOVED_PERMANENTLY      -- 301
+http.STATUS.FOUND                  -- 302
+http.STATUS.SEE_OTHER              -- 303
+http.STATUS.NOT_MODIFIED           -- 304
+http.STATUS.TEMPORARY_REDIRECT     -- 307
+http.STATUS.PERMANENT_REDIRECT     -- 308
+http.STATUS.BAD_REQUEST            -- 400
+http.STATUS.UNAUTHORIZED           -- 401
+http.STATUS.PAYMENT_REQUIRED       -- 402
+http.STATUS.FORBIDDEN              -- 403
+http.STATUS.NOT_FOUND              -- 404
+http.STATUS.METHOD_NOT_ALLOWED     -- 405
+http.STATUS.NOT_ACCEPTABLE         -- 406
+http.STATUS.CONFLICT               -- 409
+http.STATUS.GONE                   -- 410
+http.STATUS.UNPROCESSABLE          -- 422
+http.STATUS.TOO_MANY_REQUESTS      -- 429
+http.STATUS.INTERNAL_ERROR         -- 500
+http.STATUS.NOT_IMPLEMENTED        -- 501
+http.STATUS.BAD_GATEWAY            -- 502
+http.STATUS.SERVICE_UNAVAILABLE    -- 503
+http.STATUS.GATEWAY_TIMEOUT        -- 504
+http.STATUS.VERSION_NOT_SUPPORTED  -- 505
+
+-- Content Types
+http.CONTENT.JSON                  -- "application/json"
+http.CONTENT.FORM                  -- "application/x-www-form-urlencoded"
+http.CONTENT.MULTIPART             -- "multipart/form-data"
+http.CONTENT.TEXT                  -- "text/plain"
+http.CONTENT.STREAM                -- "application/octet-stream"
+
+-- Transfer Modes
+http.TRANSFER.CHUNKED              -- "chunked"
+http.TRANSFER.SSE                  -- "sse"
+
+-- Error Types
+http.ERROR.PARSE_FAILED            -- "PARSE_FAILED"
+http.ERROR.INVALID_STATE           -- "INVALID_STATE"
+http.ERROR.WRITE_FAILED            -- "WRITE_FAILED"
+http.ERROR.STREAM_ERROR            -- "STREAM_ERROR"
+```
+
+## Dependencies
+
+### stream
+
+Used by `request:stream()` and `multipart_file:stream()` for streaming request bodies.
+
+See: `runtime/lua/modules/stream/spec.md`
+
+## Functions
+
+### request(options?: table) → Request, error
 
-The module provides several tables containing constants for common HTTP elements:
+Creates a Request object from current HTTP context.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| options | table | no | nil | Configuration options |
 
-#### `http.METHOD`
+**options fields:**
 
-- `GET`
-- `POST`
-- `PUT`
-- `DELETE`
-- `PATCH`
-- `HEAD`
-- `OPTIONS`
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| timeout | integer | 0 | Timeout in milliseconds for body reads |
+| max_body | integer | 125829120 | Maximum body size in bytes (default 120MB) |
 
-#### `http.STATUS`
+**Returns:**
+- Success: `Request, nil` - Request object and nil error
+- Error: `nil, error` - nil and structured error
 
-- `OK` (200)
-- `CREATED` (201)
-- `NO_CONTENT` (204)
-- `BAD_REQUEST` (400)
-- `UNAUTHORIZED` (401)
-- `NOT_FOUND` (404)
-- `INTERNAL_ERROR` (500)
+**Errors (structured):**
 
-#### `http.CONTENT`
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| no context available | errors.INTERNAL | no |
+| no HTTP request context | errors.INTERNAL | no |
 
-- `JSON` ("application/json")
-- `FORM` ("application/x-www-form-urlencoded")
-- `MULTIPART` ("multipart/form-data")
-- `TEXT` ("text/plain")
-- `STREAM` ("application/octet-stream")
+### response() → Response, error
 
-#### `http.TRANSFER`
+Creates a Response object from current HTTP context.
 
-- `CHUNKED` ("chunked")
-- `SSE` ("sse")
+**Returns:**
+- Success: `Response, nil` - Response object and nil error
+- Error: `nil, error` - nil and structured error
 
-#### `http.ERROR`
+**Errors (structured):**
 
-- `PARSE_FAILED`
-- `INVALID_STATE`
-- `WRITE_FAILED`
-- `STREAM_ERROR`
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| no context available | errors.INTERNAL | no |
+| no HTTP request context | errors.INTERNAL | no |
 
-### Request Object
+## Types
 
-The `http.request()` function creates a new `Request` object representing the current HTTP request.
+### Request
 
-#### `http.request(options: table)`
+Returned by `http.request()`. Provides access to incoming HTTP request data.
 
-Creates a new `Request` object.
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| method | () | string, error | HTTP method (GET, POST, etc) |
+| path | () | string, error | Request path |
+| query | (key: string) | string?, error | Single query parameter value |
+| query_params | () | table, error | All query parameters as table |
+| header | (name: string) | string?, error | Header value, multiple values joined with ", " |
+| content_type | () | string?, error | Content-Type header value |
+| content_length | () | number, error | Content-Length as number |
+| host | () | string, error | Host header value |
+| remote_addr | () | string, error | Remote address (IP:port) |
+| body | () | string, error | Full request body as string |
+| body_json | () | any, error | Request body parsed as JSON |
+| has_body | () | boolean, error | Whether request has body |
+| accepts | (content_type: string) | boolean, error | Check if Accept header matches |
+| is_content_type | (expected: string) | boolean, error | Check if Content-Type starts with expected |
+| param | (name: string) | string?, error | Single route parameter value |
+| params | () | table, error | All route parameters as table |
+| stream | () | Stream, error | Request body as stream |
+| parse_multipart | (max_memory?: integer) | table, error | Parse multipart form data |
 
-Parameters:
+#### request:method() → string, error
 
-- `options`: (Optional) A table with the following optional fields:
-    - `timeout`: Request timeout in milliseconds (number).
-    - `max_body`: Maximum request body size in bytes (number).
+Returns HTTP request method.
 
-Returns:
+**Returns:** `string, error` - method name (e.g. "GET", "POST") or nil + error
 
-- `request`: A `Request` object (or nil on error).
-- `error`: An error message string (or nil on success).
+#### request:path() → string, error
 
-#### Request Methods
+Returns request URL path.
 
-##### `request:method()`
+**Returns:** `string, error` - URL path (e.g. "/api/users") or nil + error
 
-Returns the HTTP method of the request.
+#### request:query(key: string) → string?, error
 
-Returns:
+Returns single query parameter value.
 
-- `method`: The HTTP method (string).
-- `error`: nil
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| key | string | yes | - | Query parameter name |
 
-##### `request:path()`
+**Returns:** `string?, error` - parameter value or nil if not present, plus error
 
-Returns the path of the request.
+#### request:query_params() → table, error
 
-Returns:
+Returns all query parameters as a table. Multiple values are joined with commas.
 
-- `path`: The request path (string).
-- `error`: nil
+**Returns:** `table, error` - table of key-value pairs or nil + error
 
-##### `request:query(key: string)`
+#### request:header(name: string) → string?, error
 
-Returns the value of the specified query parameter.
+Returns request header value. Multiple header values are joined with ", ".
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| name | string | yes | - | Header name (case-sensitive) |
 
-- `key`: The query parameter name.
+**Returns:** `string?, error` - header value or nil if not present, plus error
 
-Returns:
+#### request:content_type() → string?, error
 
-- `value`: The value of the query parameter (string, or nil if not found).
-- `error`: Error message (string, or nil on success).
+Returns Content-Type header value.
 
-##### `request:header(key: string)`
+**Returns:** `string?, error` - content type or nil if not set, plus error
 
-Returns the value of the specified header.
+#### request:content_length() → number, error
 
-Parameters:
+Returns Content-Length header value as number.
 
-- `key`: The header name.
+**Returns:** `number, error` - content length in bytes or nil + error
 
-Returns:
+#### request:host() → string, error
 
-- `value`: The value of the header (string, or nil if not found).
-- `error`: Error message (string, or nil on success).
+Returns Host header value.
 
-##### `request:content_type()`
+**Returns:** `string, error` - host value or nil + error
 
-Returns the Content-Type of the request.
+#### request:remote_addr() → string, error
 
-Returns:
+Returns remote client address (IP:port format).
 
-- `content_type`: The Content-Type header value (string, or nil if not set).
-- `error`: nil
+**Returns:** `string, error` - remote address or nil + error
 
-##### `request:content_length()`
+#### request:body() → string, error
 
-Returns the Content-Length of the request.
+Reads and returns full request body as string. Enforces max_body limit and optional timeout.
 
-Returns:
+**Returns:**
+- Success: `string, nil` - body content as string
+- Error: `nil, error` - nil and structured error
 
-- `content_length`: The Content-Length header value (number).
-- `error`: nil
+**Errors (structured):**
 
-##### `request:host()`
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| no body | errors.INVALID | no |
+| body too large | errors.INVALID | no |
+| read timeout | errors.INTERNAL | no |
+| read failed | errors.INTERNAL | no |
 
-Returns the Host header of the request.
+**Notes:**
+- Body can only be read once
+- Default max_body is 120MB (125829120 bytes)
+- Timeout applies to entire read operation
 
-Returns:
+#### request:body_json() → any, error
 
-- `host`: The Host header value (string).
-- `error`: nil
+Reads request body and parses as JSON. Enforces max_body limit.
 
-##### `request:remote_addr()`
+**Returns:**
+- Success: `table|string|number|boolean, nil` - parsed JSON value
+- Error: `nil, error` - nil and structured error
 
-Returns the remote address of the client.
+**Errors (structured):**
 
-Returns:
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| no body | errors.INVALID | no |
+| body too large | errors.INVALID | no |
+| invalid JSON | errors.INVALID | no |
+| read failed | errors.INTERNAL | no |
 
-- `remote_addr`: The remote address (string).
-- `error`: nil
+**Notes:**
+- Body can only be read once
+- Does not enforce Content-Type header
 
-##### `request:body()`
+#### request:has_body() → boolean, error
 
-Returns the raw request body.
+Checks if request has a body (ContentLength > 0).
 
-Returns:
+**Returns:** `boolean, error` - true if body present, false otherwise, plus error
 
-- `body`: The request body (string, or nil if no body or error).
-- `error`: Error message (string, or nil on success).
+#### request:accepts(content_type: string) → boolean, error
 
-##### `request:body_json()`
+Checks if Accept header matches given content type or includes "*/*".
 
-Parses the request body as JSON and returns the decoded value.
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| content_type | string | yes | - | Content type to check |
 
-Returns:
+**Returns:** `boolean, error` - true if accepted, false otherwise, plus error
 
-- `value`: The decoded JSON value (Lua table, or nil on error).
-- `error`: Error message (string, or nil on success).
+#### request:is_content_type(expected: string) → boolean, error
 
-##### `request:has_body()`
+Checks if Content-Type header starts with expected value.
 
-Checks if the request has a body.
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| expected | string | yes | - | Expected content type prefix |
 
-Returns:
+**Returns:** `boolean, error` - true if matches, false otherwise, plus error
 
-- `has_body`: True if the request has a body, false otherwise.
-- `error`: nil
+#### request:param(name: string) → string?, error
 
-##### `request:accepts(content_type: string)`
+Returns single route parameter value extracted from URL path.
 
-Checks if the request accepts the specified content type.
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| name | string | yes | - | Route parameter name |
 
-Parameters:
+**Returns:** `string?, error` - parameter value or nil if not present, plus error
 
-- `content_type`: The content type to check.
+**Errors (structured):**
 
-Returns:
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| no route parameters | errors.INTERNAL | no |
 
-- `accepts`: True if the content type is accepted, false otherwise.
-- `error`: Error message (string, or nil on success).
+#### request:params() → table, error
 
-##### `request:is_content_type(content_type: string)`
+Returns all route parameters as a table.
 
-Checks if the request's Content-Type matches the specified content type.
+**Returns:** `table, error` - table of parameter key-value pairs or nil + error
 
-Parameters:
+**Errors (structured):**
 
-- `content_type`: The content type to check.
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| no route parameters | errors.INTERNAL | no |
 
-Returns:
+#### request:stream() → Stream, error
 
-- `is_content_type`: True if the Content-Type matches, false otherwise.
-- `error`: Error message (string, or nil on success).
+Returns request body as a stream for reading.
 
-##### `request:stream_body(options: table)`
+**Returns:** `Stream, error` - stream object or nil + structured error
 
-Returns an iterator function for streaming the request body.
+**Errors (structured):**
 
-Parameters:
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| no body | errors.INVALID | no |
+| no resource table | errors.INTERNAL | no |
 
-- `options`: (Optional) A table with the following optional fields:
-    - `buffer_size`: The buffer size to use for reading (number, defaults to 32KB).
+**Notes:**
+- Returns stream.Stream object (see stream module spec)
+- Use for large bodies to avoid loading entirely into memory
+- Stream size is set to ContentLength
 
-Returns:
+#### request:parse_multipart(max_memory?: integer) → table, error
 
-- `iterator`: An iterator function that returns the next chunk of the body (string) on each call, and nil when the body
-  is exhausted.
-- `error`: Error message (string, or nil on success).
+Parses multipart/form-data request body.
 
-##### `request:parse_multipart(max_memory: number)`
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| max_memory | integer | no | 33554432 | Max memory in bytes for form parsing (32MB) |
 
-Parses multipart form data from the request and returns file attachments.
+**Returns:** `table, error` - form data table or nil + structured error
 
-Parameters:
-- `max_memory`: (Optional) Maximum memory in bytes to use for parsing the multipart form. Default is 10MB.
+**Return table structure:**
 
-Returns:
-- `form`: A table containing the form data with these fields:
-  - `files`: A table mapping field names to arrays of file objects
-- `error`: Error message (string, or nil on success)
+```lua
+{
+  files = {
+    [field_name] = { MultipartFile, ... }
+  },
+  values = {
+    [field_name] = string | string[]
+  }
+}
+```
 
-##### MultipartFile Object Methods
+**Errors (structured):**
 
-When using `request:parse_multipart()`, each file is represented as a MultipartFile object with the following methods:
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| not multipart/form-data | errors.INVALID | no |
+| parse failed | errors.INTERNAL | no |
 
-###### `file:name()`
+**Notes:**
+- Content-Type must be "multipart/form-data"
+- Files are stored as MultipartFile objects
+- Values are strings; multiple values become arrays
 
-Returns the original filename of the file as sent by the client.
+### Response
 
-Returns:
-- `name`: The filename (string)
-- `error`: nil
+Returned by `http.response()`. Provides methods to build and send HTTP responses.
 
-###### `file:size()`
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| set_status | (code: integer) | error | Set HTTP status code |
+| set_header | (name: string, value: string) | error | Set response header |
+| set_content_type | (content_type: string) | error | Set Content-Type header |
+| write | (data: string) | error | Write response body |
+| write_json | (value: any) | error | Encode value as JSON and write |
+| flush | () | error | Flush buffered response data |
+| set_transfer | (mode: string) | error | Set transfer mode (chunked or sse) |
+| write_event | (event: table) | error | Write Server-Sent Event |
 
-Returns the size of the file in bytes.
+#### response:set_status(code: integer) → error
 
-Returns:
-- `size`: The file size in bytes (number)
-- `error`: nil
+Sets HTTP response status code.
 
-###### `file:stream()`
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| code | integer | yes | - | HTTP status code (e.g. 200, 404) |
 
-Creates a Stream object for reading the file contents incrementally.
+**Returns:** `error?` - nil on success, structured error if headers already sent
 
-Returns:
-- `stream`: A Stream object for reading the file
-- `error`: Error message (string, or nil on success)
+**Errors (structured):**
 
-### Response Object
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| headers already sent | errors.INVALID | no |
 
-The `http.response()` function creates a new `Response` object representing the current HTTP response.
+**Notes:**
+- Must be called before any write operations
+- Automatically marks response as handled
 
-#### `http.response()`
-
-Creates a new `Response` object.
-
-Returns:
-
-- `response`: A `Response` object.
-
-#### Response Methods
-
-##### `response:set_status(code: number)`
-
-Sets the HTTP status code.
-
-Parameters:
-
-- `code`: The HTTP status code.
-
-Returns:
-
-- `error`: Error message (string, or nil on success).
-
-##### `response:set_header(key: string, value: string)`
+#### response:set_header(name: string, value: string) → error
 
 Sets a response header.
 
-Parameters:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| name | string | yes | - | Header name |
+| value | string | yes | - | Header value |
 
-- `key`: The header name.
-- `value`: The header value.
+**Returns:** `error?` - nil on success, structured error if headers already sent
 
-Returns:
+**Errors (structured):**
 
-- `error`: Error message (string, or nil on success).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| headers already sent | errors.INVALID | no |
 
-##### `response:write(data: string)`
+**Notes:**
+- Must be called before any write operations
+- Automatically marks response as handled
 
-Writes data to the response body.
+#### response:set_content_type(content_type: string) → error
 
-Parameters:
+Sets Content-Type header.
 
-- `data`: The data to write.
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| content_type | string | yes | - | Content type value |
 
-Returns:
+**Returns:** `error?` - nil on success, structured error if headers already sent
 
-- `error`: Error message (string, or nil on success).
+**Errors (structured):**
 
-##### `response:flush()`
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| headers already sent | errors.INVALID | no |
 
-Flushes the response writer.
+**Notes:**
+- Convenience method for `set_header("Content-Type", value)`
+- Must be called before any write operations
 
-Returns:
+#### response:write(data: string) → error
 
-- `error`: Error message (string, or nil on success).
+Writes data to response body.
 
-##### `response:write_json(value: any)`
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| data | string | yes | - | Data to write |
 
-Encodes the given Lua value as JSON and writes it to the response body. Sets the `Content-Type` to `application/json` if
-not already set.
+**Returns:** `error?` - nil on success, structured error on write failure
 
-Parameters:
+**Errors (structured):**
 
-- `value`: The Lua value to encode (typically a table).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| write failed | errors.INTERNAL | no |
 
-Returns:
+**Notes:**
+- Automatically sends headers on first write
+- Marks response as handled
 
-- `error`: Error message (string, or nil on success).
+#### response:write_json(value: any) → error
 
-##### `response:set_content_type(content_type: string)`
+Encodes value as JSON and writes to response body.
 
-Sets the Content-Type of the response.
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| value | any | yes | - | Value to encode as JSON |
 
-Parameters:
+**Returns:** `error?` - nil on success, structured error on failure
 
-- `content_type`: The Content-Type to set.
+**Errors (structured):**
 
-Returns:
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| JSON encoding failed | errors.INVALID | no |
+| write failed | errors.INTERNAL | no |
 
-- `error`: Error message (string, or nil on success).
+**Notes:**
+- Automatically sets Content-Type to "application/json" if headers not sent
+- Marks response as handled
 
-##### `response:write_event(event: table)`
+#### response:flush() → error
 
-Writes a Server-Sent Event to the response.
+Flushes buffered response data to client.
 
-Parameters:
+**Returns:** `error?` - always nil
 
-- `event`: A table with the following fields:
-    - `name`: The event name (string).
-    - `data`: The event data (any).
+**Notes:**
+- Useful for streaming responses
+- Marks headers as sent
+- No-op if underlying writer doesn't support flushing
 
-Returns:
+#### response:set_transfer(mode: string) → error
 
-- `error`: Error message (string, or nil on success).
+Sets transfer encoding mode.
 
-##### `response:set_transfer(transfer_type: string)`
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| mode | string | yes | - | Transfer mode: http.TRANSFER.CHUNKED or http.TRANSFER.SSE |
 
-Sets the transfer encoding for the response.
+**Returns:** `error?` - nil on success, structured error if headers already sent
 
-Parameters:
+**Errors (structured):**
 
-- `transfer_type`: The transfer type (`http.TRANSFER.CHUNKED` or `http.TRANSFER.SSE`).
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| headers already sent | errors.INVALID | no |
 
-Returns:
+**Notes:**
+- "chunked": Sets Transfer-Encoding: chunked
+- "sse": Sets Content-Type: text/event-stream and Connection: keep-alive
+- Must be called before write operations
 
-- `error`: Error message (string, or nil on success).
+#### response:write_event(event: table) → error
 
-## Error Handling
+Writes a Server-Sent Event (SSE).
 
-- Most methods return an error message as their last return value if an error occurs.
-- Errors typically occur due to invalid input, invalid state (e.g., setting headers after they have been sent), or I/O
-  errors.
-- `request:stream_body` iterator function returns chunks of data until the body is exhausted, then it returns `nil`. Any
-  error during reading will be returned by the `read()` method of the underlying `Stream` object.
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| event | table | yes | - | Event data with name and data fields |
 
-## Behavior
+**Event table structure:**
 
-- The module provides a way to interact with the underlying HTTP request and response objects.
-- Request methods provide read-only access to request data.
-- Response methods allow writing to the response.
-- `response:set_status`, `response:set_header`, and `response:set_content_type` must be called before any data is
-  written to the response body.
-- `response:write_json` automatically sets the `Content-Type` to `application/json` if it hasn't already been set.
-- `response:set_transfer` can be used to enable chunked transfer encoding or server-sent events.
-- `response:write_event` is used for sending server-sent events. It automatically sets the necessary headers for SSE if
-  `set_transfer` hasn't been called with `http.TRANSFER.SSE`.
-- The `request:stream_body` method allows streaming the request body in chunks.
-- The `options` parameter in `http.request()` and `request:stream_body()` allows configuring request handling behavior.
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| name | string | yes | Event name |
+| data | any | yes | Event data (will be JSON encoded) |
 
-## Best Practices
+**Returns:** `error?` - nil on success, structured error on failure
 
-- Always check for errors returned by methods.
-- Set response headers and status code before writing any body data.
-- Use `request:stream_body` for efficiently handling large request bodies.
-- Use `response:set_transfer` and `response:write_event` for implementing server-sent events.
-- Be mindful of potential concurrency issues if accessing `Request` or `Response` objects from multiple threads.
+**Errors (structured):**
 
-## Example Usage
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| SSE mode after headers sent | errors.INVALID | no |
+| missing event name | errors.INVALID | no |
+| missing event data | errors.INVALID | no |
+| JSON encoding failed | errors.INVALID | no |
+| write failed | errors.INTERNAL | no |
+
+**Notes:**
+- Automatically switches to SSE mode on first call if headers not sent
+- Automatically flushes after each event
+- Format: `event: <name>\ndata: <json>\n\n`
+
+### MultipartFile
+
+Returned by `request:parse_multipart()` for uploaded files.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| name | () | string, error | Original filename |
+| size | () | number, error | File size in bytes |
+| header | (name: string) | string? | File-specific header value |
+| stream | () | Stream, error | File content as stream |
+
+#### multipart_file:name() → string, error
+
+Returns original filename from upload.
+
+**Returns:** `string, error` - filename or nil + error
+
+#### multipart_file:size() → number, error
+
+Returns file size in bytes.
+
+**Returns:** `number, error` - size in bytes or nil + error
+
+#### multipart_file:header(name: string) → string?
+
+Returns file-specific header value from multipart section.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| name | string | yes | - | Header name |
+
+**Returns:** `string?` - header value or nil if not present
+
+**Notes:**
+- Common headers: "Content-Type", "Content-Disposition"
+- Returns only a single value (not an error tuple)
+
+#### multipart_file:stream() → Stream, error
+
+Returns file content as a stream.
+
+**Returns:** `Stream, error` - stream object or nil + structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| file open failed | errors.INTERNAL | no |
+| no resource table | errors.INTERNAL | no |
+
+**Notes:**
+- Returns stream.Stream object (see stream module spec)
+- Stream size is set to file size
+
+## Errors
+
+This module returns structured errors. Check kind with `errors.*` constants:
+
+```lua
+local req, err = http.request()
+if err then
+    if err:kind() == errors.INTERNAL then
+        -- Internal server error
+    elseif err:kind() == errors.INVALID then
+        -- Invalid request (bad input, constraints violated)
+    end
+end
+```
+
+**Possible kinds:** `errors.INTERNAL`, `errors.INVALID`
+
+## Example
 
 ```lua
 local http = require("http")
 
--- Get request and response objects
-local req = http.request()
-local res = http.response()
+local function handler()
+    local req, err = http.request()
+    if err then error(err) end
 
--- Handle GET request
-if req:method() == http.METHOD.GET then
-  local name = req:query("name")
-  if name then
-    res:set_status(http.STATUS.OK)
-    res:write("Hello, " .. name .. "!")
-  else
-    res:set_status(http.STATUS.BAD_REQUEST)
-    res:write("Missing 'name' parameter")
-  end
-end
+    local res, err = http.response()
+    if err then error(err) end
 
--- Handle POST request with JSON body
-if req:method() == http.METHOD.POST and req:is_content_type(http.CONTENT.JSON) then
-  local data, err = req:body_json()
-  if err then
-    res:set_status(http.STATUS.BAD_REQUEST)
-    res:write_json({ error = http.ERROR.PARSE_FAILED, message = err })
-  else
-    res:set_status(http.STATUS.CREATED)
-    res:write_json({ message = "Received data", data = data })
-  end
-end
+    -- Handle different request methods
+    local method = req:method()
+    if method == http.METHOD.GET then
+        -- Query parameters
+        local name = req:query("name") or "World"
+        res:set_status(http.STATUS.OK)
+        res:write_json({greeting = "Hello, " .. name})
 
--- Handle large request body with streaming
-if req:method() == http.METHOD.POST and req:content_type() == http.CONTENT.STREAM then
-    local iterator, err = req:stream_body({ buffer_size = 4096 })
-    if err then
-      res:set_status(http.STATUS.INTERNAL_ERROR)
-      res:write(err)
+    elseif method == http.METHOD.POST then
+        -- JSON body
+        local data, err = req:body_json()
+        if err then
+            res:set_status(http.STATUS.BAD_REQUEST)
+            res:write_json({error = "Invalid JSON"})
+            return
+        end
+
+        res:set_status(http.STATUS.CREATED)
+        res:write_json({received = data})
+
     else
-      res:set_status(http.STATUS.OK)
-      res:set_transfer(http.TRANSFER.CHUNKED)
-
-      for chunk in iterator do
-        if chunk == nil then break end
-        -- Process each chunk (e.g., calculate a checksum, store, etc.)
-        res:write("Received chunk: " .. chunk .. "\n")
-      end
+        res:set_status(http.STATUS.METHOD_NOT_ALLOWED)
+        res:write_json({error = "Method not allowed"})
     end
 end
 
--- Handle server-sent events
-if req:method() == http.METHOD.GET and req:path() == "/events" then
-  res:set_transfer(http.TRANSFER.SSE)
-
-  res:write_event({ name = "start", data = { message = "Starting event stream" } })
-
-  for i = 1, 5 do
-    res:write_event({ name = "progress", data = { percent = i * 20 } })
-    res:flush() -- Important to send the event immediately
-  end
-
-  res:write_event({ name = "end", data = { message = "Event stream finished" } })
-end
+return {handler = handler}
 ```
-### Example: Handling Multipart Form Uploads
+
+### SSE Example
 
 ```lua
 local http = require("http")
 
--- Get request object
-local req = http.request()
-local res = http.response()
+local function handler()
+    local res = http.response()
 
--- Check if the request is multipart/form-data
-if req:is_content_type(http.CONTENT.MULTIPART) then
-  -- Parse multipart form with 20MB limit
-  local form, err = req:parse_multipart(20 * 1024 * 1024)
-  if err then
-    res:set_status(http.STATUS.BAD_REQUEST)
-    res:write("Failed to parse form: " .. err)
-    return
-  end
-  
-  -- Process uploaded files
-  if form.files.avatar and #form.files.avatar > 0 then
-    local avatar = form.files.avatar[1]
-    local filename = avatar:name()
-    local size = avatar:size()
-    local stream, err = avatar:stream()
+    -- Stream multiple events
+    res:write_event({name = "start", data = {status = "beginning"}})
+    res:write_event({name = "progress", data = {percent = 50}})
+    res:write_event({name = "complete", data = {status = "done"}})
+end
+
+return {handler = handler}
+```
+
+### Multipart Upload Example
+
+```lua
+local http = require("http")
+
+local function handler()
+    local req = http.request()
+    local res = http.response()
+
+    -- Parse multipart form
+    local form, err = req:parse_multipart()
     if err then
-      res:set_status(http.STATUS.INTERNAL_ERROR)
-      res:write("Failed to create stream: " .. err)
-      return
+        res:set_status(http.STATUS.BAD_REQUEST)
+        res:write_json({error = tostring(err)})
+        return
     end
-    
-    -- Use the filesystem module to write the stream to a file
-    local fsObj = fs.get("local")  -- Get the local filesystem
-    local targetPath = "/uploads/" .. image:name()
-    
-    -- Write the stream directly to a file
-    local success, err = fsObj:writefile(targetPath, stream)
-    if not success then
-      res:set_status(http.STATUS.INTERNAL_ERROR)
-      res:write("Failed to save file: " .. err)
-      return
+
+    -- Access uploaded file
+    if form.files.upload then
+        local file = form.files.upload[1]
+        local filename = file:name()
+        local size = file:size()
+
+        -- Get file stream
+        local stream, err = file:stream()
+        if err then error(err) end
+
+        -- Process file...
+        stream:close()
+
+        res:set_status(http.STATUS.OK)
+        res:write_json({
+            filename = filename,
+            size = size
+        })
+    else
+        res:set_status(http.STATUS.BAD_REQUEST)
+        res:write_json({error = "No file uploaded"})
     end
-    
-    res:set_status(http.STATUS.OK)
-    res:write_json({
-      message = "Image saved to filesystem",
-      path = targetPath,
-      size = image:size()
-    })
-  end
 end
+
+return {handler = handler}
 ```
-
-##### `request:param(name: string)`
-
-Returns the value of a named parameter from the route path.
-
-Parameters:
-
-- `name`: The parameter name as defined in the route path (without the colon or curly braces).
-
-Returns:
-
-- `value`: The value of the route parameter (string, or nil if not found).
-- `error`: Error message (string, or nil on success).
-
-Examples:
-
-For a route defined as `/users/:id` or `/users/{id}`:
-```lua
-local id, err = request:param("id")
-if err then
-  -- Handle error
-elseif not id then
-  -- Parameter not found
-else
-  -- Use the id parameter
-end
-```
-
-> Use params() to get all params table.
-
-Notes:
-- Route parameters are extracted from the URL path based on pattern matching.
-- Parameter names in route definitions can use either `:param` or `{param}` syntax.
-- If the parameter doesn't exist in the current route, nil is returned (not an error).
-- Errors are only returned if there's no route information in the request context.
-
-##### `request:param(name: string)`
-
-Returns the value of a named parameter from the route path.
-
-Parameters:
-
-- `name`: The parameter name as defined in the route path (without the colon or curly braces).
-
-Returns:
-
-- `value`: The value of the route parameter (string, or nil if not found).
-- `error`: Error message (string, or nil on success).
-
-Examples:
-
-For a route defined as `/users/:id` or `/users/{id}`:
-```lua
-local id, err = request:param("id")
-if err then
-  -- Handle error
-elseif not id then
-  -- Parameter not found
-else
-  -- Use the id parameter
-end
-```
-
-Notes:
-- Route parameters are extracted from the URL path based on pattern matching.
-- Parameter names in route definitions can use either `:param` or `{param}` syntax.
-- If the parameter doesn't exist in the current route, nil is returned (not an error).
-- Errors are only returned if there's no route information in the request context.

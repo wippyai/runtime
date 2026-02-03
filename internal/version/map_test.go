@@ -1,13 +1,11 @@
 package version
 
 import (
-	"errors"
-	"fmt"
 	"reflect"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/registry"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // TestVersionMap_Path_Simple tests a simple linear path.
@@ -24,7 +22,8 @@ func TestVersionMap_Path_Simple(t *testing.T) {
 	from := v1
 	to := v3
 	actualPath, _ := vm.Path(from, to)
-	expectedPath := []registry.Version{v1, v2, v3}
+	// Path now excludes the starting version (v1)
+	expectedPath := []registry.Version{v2, v3}
 
 	if !reflect.DeepEqual(actualPath, expectedPath) {
 		t.Errorf("Expected path: %v, got: %v", expectedPath, actualPath)
@@ -46,7 +45,8 @@ func TestVersionMap_Path_Backwards(t *testing.T) {
 	from := v3
 	to := v1
 	actualPath, _ := vm.Path(from, to)
-	expectedPath := []registry.Version{v3, v2, v1} // Alias in reverse
+	// Path excludes starting version, so going from v3 to v1 returns [v2, v1]
+	expectedPath := []registry.Version{v2, v1}
 
 	if !reflect.DeepEqual(actualPath, expectedPath) {
 		t.Errorf("Expected path: %v, got: %v", expectedPath, actualPath)
@@ -70,7 +70,8 @@ func TestVersionMap_Path_Branches(t *testing.T) {
 	from := v3
 	to := v4
 	actualPath, _ := vm.Path(from, to)
-	expectedPath := []registry.Version{v3, v2, v4}
+	// Path excludes starting version v3, returns [v2, v4]
+	expectedPath := []registry.Version{v2, v4}
 
 	if !reflect.DeepEqual(actualPath, expectedPath) {
 		t.Errorf("Expected path: %v, got: %v", expectedPath, actualPath)
@@ -87,12 +88,12 @@ func TestVersionMap(t *testing.T) {
 
 	// Test Cases
 	testCases := []struct {
-		name        string
-		setup       func(vm Map) // Func to set up the versionHistory
 		from        registry.Version
 		to          registry.Version
-		expected    []registry.Version
 		expectError error
+		setup       func(vm Map)
+		name        string
+		expected    []registry.Version
 	}{
 		{
 			name: "Alias within a branch",
@@ -104,7 +105,7 @@ func TestVersionMap(t *testing.T) {
 			},
 			from:     v1,
 			to:       v4,
-			expected: []registry.Version{v1, v2, v3, v4},
+			expected: []registry.Version{v2, v3, v4}, // Path excludes starting version
 		},
 		{
 			name: "Alias to the past",
@@ -116,7 +117,7 @@ func TestVersionMap(t *testing.T) {
 			},
 			from:     v4,
 			to:       v1,
-			expected: []registry.Version{v4, v3, v2, v1},
+			expected: []registry.Version{v3, v2, v1}, // Path excludes starting version
 		},
 		{
 			name: "Alias across branches",
@@ -129,7 +130,7 @@ func TestVersionMap(t *testing.T) {
 			},
 			from:     v3,
 			to:       v5,
-			expected: []registry.Version{v3, v2, v5},
+			expected: []registry.Version{v2, v5}, // Path excludes starting version (v3)
 		},
 		{
 			name: "Target and to are identical",
@@ -138,7 +139,7 @@ func TestVersionMap(t *testing.T) {
 			},
 			from:     v1,
 			to:       v1,
-			expected: []registry.Version{v1},
+			expected: []registry.Version{}, // No changes needed when from == to
 		},
 		{
 			name: "Target version not found",
@@ -148,7 +149,7 @@ func TestVersionMap(t *testing.T) {
 			from:        v2,
 			to:          v1,
 			expected:    nil,
-			expectError: fmt.Errorf("version %v not found", v2.ID()),
+			expectError: NewVersionNotFoundError(v2.ID()),
 		},
 		{
 			name: "To version not found",
@@ -158,7 +159,7 @@ func TestVersionMap(t *testing.T) {
 			from:        v1,
 			to:          v2,
 			expected:    nil,
-			expectError: fmt.Errorf("version %v not found", v2.ID()),
+			expectError: NewVersionNotFoundError(v2.ID()),
 		},
 		{
 			name: "No path exists",
@@ -169,7 +170,7 @@ func TestVersionMap(t *testing.T) {
 			from:        v1,
 			to:          New(2),
 			expected:    nil,
-			expectError: errors.New("no path exists from v1 to v2"),
+			expectError: NewNoPathError(v1, New(2)),
 		},
 		{
 			name: "AddCleanup and Spawn version",
@@ -178,7 +179,7 @@ func TestVersionMap(t *testing.T) {
 			},
 			from:     v1,
 			to:       v1,
-			expected: []registry.Version{v1},
+			expected: []registry.Version{}, // No changes needed when from == to
 		},
 		{
 			name: "Spawn non-existent version",
@@ -188,7 +189,7 @@ func TestVersionMap(t *testing.T) {
 			from:        v1,
 			to:          v1,
 			expected:    nil,
-			expectError: fmt.Errorf("version %v not found", v1.ID()),
+			expectError: NewVersionNotFoundError(v1.ID()),
 		},
 		{
 			name: "Len of empty version map",

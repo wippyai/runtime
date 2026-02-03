@@ -46,8 +46,8 @@ func (e LoggedEntry) ContextMap() map[string]any {
 
 // ObservedLogs is a concurrency-safe, ordered collection of observed logs.
 type ObservedLogs struct {
-	mu   sync.RWMutex
 	logs []LoggedEntry
+	mu   sync.RWMutex
 }
 
 // Len returns the number of items in the collection.

@@ -1,29 +1,63 @@
-// Package logs provides a structured logging system with context integration.
 package logs
 
 import (
 	"context"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"go.uber.org/zap"
 )
 
-// loggerCtx is the context key used to store and retrieve the logger instance
-var loggerCtx = &ctxapi.Key{Name: "logger"}
+var (
+	loggerKey  = &ctxapi.Key{Name: "logger"}
+	managerKey = &ctxapi.Key{Name: "logs.manager"}
+)
 
-// WithLogger creates a new context with the provided logger instance.
-// This function is used to inject a logger into the context for later retrieval.
+// WithLogger attaches a logger to the context.
 func WithLogger(ctx context.Context, logger *zap.Logger) context.Context {
-	return context.WithValue(ctx, loggerCtx, logger)
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(loggerKey) == nil {
+		ac.With(loggerKey, logger)
+	}
+	return ctx
 }
 
-// GetLogger retrieves the logger instance from the provided context.
-// If no logger is found in the context, it returns a no-op logger.
-// This ensures that logging calls will not panic when no logger is configured.
+// GetLogger retrieves the logger from the context. Returns a no-op logger if not found.
 func GetLogger(ctx context.Context) *zap.Logger {
-	if l, ok := ctx.Value(loggerCtx).(*zap.Logger); ok {
-		return l
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return zap.NewNop()
 	}
-
+	if l := ac.Get(loggerKey); l != nil {
+		return l.(*zap.Logger)
+	}
 	return zap.NewNop()
+}
+
+// WithManager attaches a Manager to the context.
+func WithManager(ctx context.Context, mgr Manager) context.Context {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(managerKey) == nil {
+		ac.With(managerKey, mgr)
+	}
+	return ctx
+}
+
+// GetManager retrieves the Manager from the context.
+func GetManager(ctx context.Context) Manager {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+	if val := ac.Get(managerKey); val != nil {
+		if mgr, ok := val.(Manager); ok {
+			return mgr
+		}
+	}
+	return nil
 }

@@ -4,42 +4,114 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"mime/multipart"
 	basehttp "net/http"
 	"strings"
 	"time"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-
-	"github.com/ponyruntime/pony/api/service/http"
-	"github.com/ponyruntime/pony/runtime/lua/modules/json"
-	"github.com/ponyruntime/pony/runtime/lua/modules/stream"
-	lua "github.com/yuin/gopher-lua"
+	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/runtime/resource"
+	httpservice "github.com/wippyai/runtime/api/service/http"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	jsonmod "github.com/wippyai/runtime/runtime/lua/modules/json"
+	streammod "github.com/wippyai/runtime/runtime/lua/modules/stream"
+	streamsys "github.com/wippyai/runtime/system/stream"
 )
 
-// Request represents a Lua userdata object wrapping http.Request
+const (
+	defaultMaxBodySize = 120 * 1024 * 1024 // 120MB default limit
+	defaultBodyTimeout = 300000            // 5 minute default timeout
+)
+
 type Request struct {
 	request *basehttp.Request
 	config  RequestConfig
 }
 
-// RequestConfig holds initialization options for requests
 type RequestConfig struct {
-	Timeout int64 // request timeout in milliseconds
-	MaxBody int64 // maximum body size in bytes
+	Timeout int64
+	MaxBody int64
 }
 
-// checkRequest gets and verifies Request userdata from Lua state
-func checkRequest(l *lua.LState, n int) (*Request, error) { //nolint:unparam // ok for now
-	ud := l.CheckUserData(n)
-	if ud == nil {
-		return nil, fmt.Errorf("argument %d must be a Request", n)
+// MultipartFile represents a file from a multipart form.
+type MultipartFile struct {
+	fileHeader *multipart.FileHeader
+	request    *basehttp.Request
+}
+
+var requestMethods = map[string]lua.LGoFunc{
+	"method":          requestMethod,
+	"path":            requestPath,
+	"query":           requestQuery,
+	"query_params":    requestQueryParams,
+	"header":          requestHeader,
+	"content_type":    requestContentType,
+	"content_length":  requestContentLength,
+	"host":            requestHost,
+	"remote_addr":     requestRemoteAddr,
+	"body":            requestBody,
+	"body_json":       requestBodyJSON,
+	"has_body":        requestHasBody,
+	"accepts":         requestAccepts,
+	"is_content_type": requestIsContentType,
+	"param":           requestParam,
+	"params":          requestParams,
+	"stream":          requestStream,
+	"parse_multipart": requestParseMultipart,
+}
+
+var multipartFileMethods = map[string]lua.LGoFunc{
+	"stream": multipartFileStream,
+	"size":   multipartFileSize,
+	"name":   multipartFileName,
+	"header": multipartFileHeader,
+}
+
+func pushRequest(l *lua.LState, req *Request) {
+	value.PushTypedUserData(l, req, requestTypeName)
+}
+
+func newRequest(l *lua.LState) int {
+	var cfg RequestConfig
+	if l.GetTop() > 0 {
+		cfg = parseRequestOptions(l, 1)
 	}
 
-	if req, ok := ud.Value.(*Request); ok {
-		return req, nil
+	ctx := l.Context()
+	if ctx == nil {
+		err := lua.NewLuaError(l, "no context available").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
-	return nil, fmt.Errorf("argument %d must be a Request, got %T", n, ud.Value)
+
+	reqCtx, ok := httpservice.GetRequestContext(ctx)
+	if !ok {
+		err := lua.NewLuaError(l, "no HTTP request context found").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
+	}
+
+	pushRequest(l, &Request{
+		request: reqCtx.Request(),
+		config:  cfg,
+	})
+	l.Push(lua.LNil)
+	return 2
+}
+
+func checkRequest(l *lua.LState, idx int) *Request { //nolint:unparam
+	ud := l.CheckUserData(idx)
+	if req, ok := ud.Value.(*Request); ok {
+		return req
+	}
+	l.ArgError(idx, "http.Request expected")
+	return nil
 }
 
 func parseRequestOptions(l *lua.LState, idx int) RequestConfig {
@@ -55,263 +127,224 @@ func parseRequestOptions(l *lua.LState, idx int) RequestConfig {
 	}
 
 	timeoutLV := l.GetField(opts, "timeout")
-	if timeout, ok := timeoutLV.(lua.LNumber); ok {
-		cfg.Timeout = int64(timeout)
+	switch v := timeoutLV.(type) {
+	case lua.LNumber:
+		cfg.Timeout = int64(v)
+	case lua.LInteger:
+		cfg.Timeout = int64(v)
 	}
 
 	maxBodyLV := l.GetField(opts, "max_body")
-	if maxBody, ok := maxBodyLV.(lua.LNumber); ok {
-		cfg.MaxBody = int64(maxBody)
+	switch v := maxBodyLV.(type) {
+	case lua.LNumber:
+		cfg.MaxBody = int64(v)
+	case lua.LInteger:
+		cfg.MaxBody = int64(v)
 	}
 
 	return cfg
 }
 
-// requestMethod returns the HTTP method
 func requestMethod(l *lua.LState) int {
-	req, err := checkRequest(l, 1)
-	if err != nil {
-		l.ArgError(1, err.Error())
+	req := checkRequest(l, 1)
+	if req == nil {
 		return 0
 	}
-
 	l.Push(lua.LString(req.request.Method))
 	l.Push(lua.LNil)
 	return 2
 }
 
-// requestPath returns the request path
 func requestPath(l *lua.LState) int {
-	req, err := checkRequest(l, 1)
-	if err != nil {
-		l.ArgError(1, err.Error())
+	req := checkRequest(l, 1)
+	if req == nil {
 		return 0
 	}
-
 	l.Push(lua.LString(req.request.URL.Path))
 	l.Push(lua.LNil)
 	return 2
 }
 
-// requestQuery returns query parameters
 func requestQuery(l *lua.LState) int {
-	req, err := checkRequest(l, 1)
-	if err != nil {
-		l.ArgError(1, err.Error())
+	req := checkRequest(l, 1)
+	if req == nil {
 		return 0
 	}
-
 	key := l.CheckString(2)
-	if key == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("query key cannot be empty"))
-		return 2
-	}
-
 	values := req.request.URL.Query()[key]
 	if len(values) == 0 {
 		l.Push(lua.LNil)
 		l.Push(lua.LNil)
 		return 2
 	}
-
 	l.Push(lua.LString(values[0]))
 	l.Push(lua.LNil)
 	return 2
 }
 
-// requestQuery returns query parameters
-func requestQueryAll(l *lua.LState) int {
-	req, err := checkRequest(l, 1)
-	if err != nil {
-		l.ArgError(1, err.Error())
+func requestQueryParams(l *lua.LState) int {
+	req := checkRequest(l, 1)
+	if req == nil {
 		return 0
 	}
-
-	table := l.CreateTable(0, len(req.request.URL.Query()))
-	for key, values := range req.request.URL.Query() {
-		if len(values) == 0 {
-			continue
+	tbl := l.CreateTable(0, len(req.request.URL.Query()))
+	for k, vals := range req.request.URL.Query() {
+		if len(vals) > 0 {
+			tbl.RawSetString(k, lua.LString(strings.Join(vals, ",")))
 		}
-
-		table.RawSetString(key, lua.LString(strings.Join(values, ",")))
 	}
-
-	l.Push(table)
+	l.Push(tbl)
 	l.Push(lua.LNil)
 	return 2
 }
 
-// requestHeader returns a request header value
 func requestHeader(l *lua.LState) int {
-	req, err := checkRequest(l, 1)
-	if err != nil {
-		l.ArgError(1, err.Error())
+	req := checkRequest(l, 1)
+	if req == nil {
 		return 0
 	}
-
 	key := l.CheckString(2)
-	if key == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("header key cannot be empty"))
-		return 2
-	}
-
-	// Use req.request.Header to get all values for the key.
 	values := req.request.Header[key]
 	if len(values) == 0 {
 		l.Push(lua.LNil)
 		l.Push(lua.LNil)
 		return 2
 	}
-
 	l.Push(lua.LString(strings.Join(values, ", ")))
 	l.Push(lua.LNil)
 	return 2
 }
 
-// requestContentType returns the Content-type header
 func requestContentType(l *lua.LState) int {
-	req, err := checkRequest(l, 1)
-	if err != nil {
-		l.ArgError(1, err.Error())
+	req := checkRequest(l, 1)
+	if req == nil {
 		return 0
 	}
-
-	contentType := req.request.Header.Get("Content-Type")
-	if contentType == "" {
+	ct := req.request.Header.Get("Content-Type")
+	if ct == "" {
 		l.Push(lua.LNil)
 		l.Push(lua.LNil)
 		return 2
 	}
-
-	l.Push(lua.LString(contentType))
+	l.Push(lua.LString(ct))
 	l.Push(lua.LNil)
 	return 2
 }
 
-// requestContentLength returns the Content-Length as number
 func requestContentLength(l *lua.LState) int {
-	req, err := checkRequest(l, 1)
-	if err != nil {
-		l.ArgError(1, err.Error())
+	req := checkRequest(l, 1)
+	if req == nil {
 		return 0
 	}
-
 	l.Push(lua.LNumber(req.request.ContentLength))
 	l.Push(lua.LNil)
 	return 2
 }
 
-// requestIsContentType checks if request has specific content type
-func requestIsContentType(l *lua.LState) int {
-	req, err := checkRequest(l, 1)
-	if err != nil {
-		l.ArgError(1, err.Error())
-		return 0
-	}
-
-	expectedType := l.CheckString(2)
-	if expectedType == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("content type cannot be empty"))
-		return 2
-	}
-
-	actualType := req.request.Header.Get("Content-Type")
-	isMatch := strings.HasPrefix(actualType, expectedType)
-
-	l.Push(lua.LBool(isMatch))
-	l.Push(lua.LNil)
-	return 2
-}
-
-// requestHost returns the request host
 func requestHost(l *lua.LState) int {
-	req, err := checkRequest(l, 1)
-	if err != nil {
-		l.ArgError(1, err.Error())
+	req := checkRequest(l, 1)
+	if req == nil {
 		return 0
 	}
-
 	l.Push(lua.LString(req.request.Host))
 	l.Push(lua.LNil)
 	return 2
 }
 
-// requestRemoteAddr returns the remote address
 func requestRemoteAddr(l *lua.LState) int {
-	req, err := checkRequest(l, 1)
-	if err != nil {
-		l.ArgError(1, err.Error())
+	req := checkRequest(l, 1)
+	if req == nil {
 		return 0
 	}
-
 	l.Push(lua.LString(req.request.RemoteAddr))
 	l.Push(lua.LNil)
 	return 2
 }
 
-// requestBody returns the raw request body
 func requestBody(l *lua.LState) int {
-	req, err := checkRequest(l, 1)
-	if err != nil {
-		l.ArgError(1, err.Error())
+	req := checkRequest(l, 1)
+	if req == nil {
 		return 0
 	}
-
 	if req.request.Body == nil {
+		err := lua.NewLuaError(l, "no body").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no body"))
+		l.Push(err)
 		return 2
 	}
 
-	if req.config.MaxBody > 0 && req.request.ContentLength > req.config.MaxBody {
+	maxBody := req.config.MaxBody
+	if maxBody <= 0 {
+		maxBody = defaultMaxBodySize
+	}
+
+	if req.request.ContentLength > maxBody {
+		err := lua.NewLuaError(l, "request body too large").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("request body too large"))
+		l.Push(err)
 		return 2
+	}
+
+	// Use LimitReader to enforce actual byte limit (Content-Length can be spoofed)
+	limitedReader := io.LimitReader(req.request.Body, maxBody+1)
+
+	timeout := req.config.Timeout
+	if timeout <= 0 {
+		timeout = defaultBodyTimeout
 	}
 
 	var body []byte
 	var readErr error
 
-	if req.config.Timeout > 0 {
-		ctx, cancel := context.WithTimeout(
-			req.request.Context(),
-			time.Duration(req.config.Timeout)*time.Second,
-		)
-		defer cancel()
+	ctx, cancel := context.WithTimeout(
+		req.request.Context(),
+		time.Duration(timeout)*time.Millisecond,
+	)
+	defer cancel()
 
-		bodyChan := make(chan []byte)
-		errChan := make(chan error)
+	bodyChan := make(chan []byte)
+	errChan := make(chan error)
 
-		go func() {
-			b, err := io.ReadAll(req.request.Body)
-			if err != nil {
-				errChan <- err
-				return
-			}
-			select {
-			case bodyChan <- b:
-			case <-ctx.Done():
-			}
-		}()
-
-		select {
-		case body = <-bodyChan:
-		case readErr = <-errChan:
-		case <-ctx.Done():
-			readErr = fmt.Errorf("request timeout after %dms", req.config.Timeout)
+	go func() {
+		b, err := io.ReadAll(limitedReader)
+		if err != nil {
+			errChan <- err
+			return
 		}
-	} else {
-		body, readErr = io.ReadAll(req.request.Body)
+		select {
+		case bodyChan <- b:
+		case <-ctx.Done():
+		}
+	}()
+
+	select {
+	case body = <-bodyChan:
+	case readErr = <-errChan:
+	case <-ctx.Done():
+		readErr = fmt.Errorf("request timeout after %dms", timeout)
 	}
 
 	defer func() { _ = req.request.Body.Close() }()
 
 	if readErr != nil {
+		luaErr := lua.WrapErrorWithLua(l, readErr, "failed to read body").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to read body: %v", readErr)))
+		l.Push(luaErr)
+		return 2
+	}
+
+	if int64(len(body)) > maxBody {
+		err := lua.NewLuaError(l, "request body too large").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
 		return 2
 	}
 
@@ -320,362 +353,402 @@ func requestBody(l *lua.LState) int {
 	return 2
 }
 
-// requestStream returns an iterator for streaming the request body
-func requestStream(l *lua.LState) int {
-	req, err := checkRequest(l, 1)
-	if err != nil {
-		l.ArgError(1, err.Error())
-		return 0
-	}
-
-	if req.request.Body == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no body"))
-		return 2
-	}
-
-	uw := engine.GetUnitOfWork(l.Context())
-	if uw == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no unit of work available"))
-		return 2
-	}
-
-	req.request = req.request.WithContext(uw.Context())
-
-	s, err := stream.NewStream(req.request.Context(), req.request.Body)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to create stream: %v", err)))
-		return 2
-	}
-
-	// we expect that the stream is closed by the end of UoW, after all you can only use it functions
-	// or user can close it directly
-	luaStream := stream.NewLuaStream(uw, s, nil)
-
-	ud := l.NewUserData()
-	ud.Value = luaStream
-	ud.Metatable = value.GetTypeMetatable(l, "Stream")
-
-	l.Push(ud)
-	return 1
-}
-
-// requestBodyJSON returns the body parsed as JSON
 func requestBodyJSON(l *lua.LState) int {
-	req, err := checkRequest(l, 1)
-	if err != nil {
-		l.ArgError(1, err.Error())
+	req := checkRequest(l, 1)
+	if req == nil {
 		return 0
 	}
-
 	if req.request.Body == nil {
+		err := lua.NewLuaError(l, "no body").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no body"))
+		l.Push(err)
 		return 2
 	}
 
-	if req.config.MaxBody > 0 && req.request.ContentLength > req.config.MaxBody {
+	maxBody := req.config.MaxBody
+	if maxBody <= 0 {
+		maxBody = defaultMaxBodySize
+	}
+
+	if req.request.ContentLength > maxBody {
+		err := lua.NewLuaError(l, "request body too large").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("request body too large"))
+		l.Push(err)
 		return 2
 	}
 
-	body, readErr := io.ReadAll(req.request.Body)
-	defer func() {
-		err := req.request.Body.Close()
-		//nolint:revive,staticcheck // ignore for now
+	// Use LimitReader to enforce actual byte limit (Content-Length can be spoofed)
+	limitedReader := io.LimitReader(req.request.Body, maxBody+1)
+
+	timeout := req.config.Timeout
+	if timeout <= 0 {
+		timeout = defaultBodyTimeout
+	}
+
+	ctx, cancel := context.WithTimeout(
+		req.request.Context(),
+		time.Duration(timeout)*time.Millisecond,
+	)
+	defer cancel()
+
+	var body []byte
+	var readErr error
+
+	bodyChan := make(chan []byte)
+	errChan := make(chan error)
+
+	go func() {
+		b, err := io.ReadAll(limitedReader)
 		if err != nil {
-			// suppressed for now
+			errChan <- err
+			return
+		}
+		select {
+		case bodyChan <- b:
+		case <-ctx.Done():
 		}
 	}()
 
+	select {
+	case body = <-bodyChan:
+	case readErr = <-errChan:
+	case <-ctx.Done():
+		readErr = fmt.Errorf("request timeout after %dms", timeout)
+	}
+
+	defer func() { _ = req.request.Body.Close() }()
+
 	if readErr != nil {
+		luaErr := lua.WrapErrorWithLua(l, readErr, "failed to read body").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to read body: %v", readErr)))
+		l.Push(luaErr)
 		return 2
 	}
 
-	// Parse JSON into Lua value
-	luaValue, err := json.Decode(l, body)
+	if int64(len(body)) > maxBody {
+		err := lua.NewLuaError(l, "request body too large").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
+	}
+
+	val, err := jsonmod.Decode(body)
 	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "invalid JSON").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("invalid JSON: %v", err)))
+		l.Push(luaErr)
 		return 2
 	}
-
-	l.Push(luaValue)
+	l.Push(val)
 	l.Push(lua.LNil)
 	return 2
 }
 
-// requestHasBody checks if request has a body
 func requestHasBody(l *lua.LState) int {
-	req, err := checkRequest(l, 1)
-	if err != nil {
-		l.ArgError(1, err.Error())
+	req := checkRequest(l, 1)
+	if req == nil {
 		return 0
 	}
-
-	hasBody := req.request.Body != nil && req.request.ContentLength > 0
-	l.Push(lua.LBool(hasBody))
+	has := req.request.Body != nil && req.request.ContentLength > 0
+	l.Push(lua.LBool(has))
 	l.Push(lua.LNil)
 	return 2
 }
 
-// requestAccepts checks if request accepts a content type
 func requestAccepts(l *lua.LState) int {
-	req, err := checkRequest(l, 1)
-	if err != nil {
-		l.ArgError(1, err.Error())
+	req := checkRequest(l, 1)
+	if req == nil {
 		return 0
 	}
-
-	contentType := l.CheckString(2)
-	if contentType == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("content type cannot be empty"))
-		return 2
-	}
-
+	ct := l.CheckString(2)
 	accept := req.request.Header.Get("Accept")
 	if accept == "" {
-		l.Push(lua.LBool(false))
+		l.Push(lua.LFalse)
 		l.Push(lua.LNil)
 		return 2
 	}
-
-	accepts := strings.Split(accept, ",")
-	for _, a := range accepts {
+	for _, a := range strings.Split(accept, ",") {
 		a = strings.TrimSpace(a)
-		if a == contentType || a == "*/*" {
-			l.Push(lua.LBool(true))
+		if a == ct || a == "*/*" {
+			l.Push(lua.LTrue)
 			l.Push(lua.LNil)
 			return 2
 		}
 	}
-
-	l.Push(lua.LBool(false))
+	l.Push(lua.LFalse)
 	l.Push(lua.LNil)
 	return 2
 }
 
-// requestToString implements the __tostring metamethod for Request
-func requestToString(l *lua.LState) int {
-	req, err := checkRequest(l, 1)
-	if err != nil {
-		l.ArgError(1, err.Error())
+func requestIsContentType(l *lua.LState) int {
+	req := checkRequest(l, 1)
+	if req == nil {
 		return 0
 	}
+	expected := l.CheckString(2)
+	actual := req.request.Header.Get("Content-Type")
+	l.Push(lua.LBool(strings.HasPrefix(actual, expected)))
+	l.Push(lua.LNil)
+	return 2
+}
 
+func requestParam(l *lua.LState) int {
+	req := checkRequest(l, 1)
+	if req == nil {
+		return 0
+	}
+	name := l.CheckString(2)
+	routeInfo, ok := httpservice.GetRouteInfo(req.request.Context())
+	if !ok {
+		err := lua.NewLuaError(l, "no route parameters found").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
+	}
+	val, exists := routeInfo.Params[name]
+	if !exists {
+		l.Push(lua.LNil)
+		l.Push(lua.LNil)
+		return 2
+	}
+	l.Push(lua.LString(val))
+	l.Push(lua.LNil)
+	return 2
+}
+
+func requestParams(l *lua.LState) int {
+	req := checkRequest(l, 1)
+	if req == nil {
+		return 0
+	}
+	routeInfo, ok := httpservice.GetRouteInfo(req.request.Context())
+	if !ok {
+		err := lua.NewLuaError(l, "no route parameters found").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
+	}
+	params := l.CreateTable(0, len(routeInfo.Params))
+	for k, v := range routeInfo.Params {
+		params.RawSetString(k, lua.LString(v))
+	}
+	l.Push(params)
+	l.Push(lua.LNil)
+	return 2
+}
+
+func requestToString(l *lua.LState) int {
+	req := checkRequest(l, 1)
+	if req == nil {
+		return 0
+	}
 	l.Push(lua.LString(fmt.Sprintf("http.Request{method=%s, path=%s}",
 		req.request.Method, req.request.URL.Path)))
 	return 1
 }
 
-// newRequest creates a new Request from the context
-func newRequest(l *lua.LState) int {
-	// Parse configuration if provided
-	var cfg RequestConfig
-	if l.GetTop() > 0 {
-		cfg = parseRequestOptions(l, 1)
+// requestStream returns a stream for reading the request body.
+func requestStream(l *lua.LState) int {
+	req := checkRequest(l, 1)
+	if req == nil {
+		return 0
 	}
 
-	// Spawn HTTP context from Lua state context
-	ctx := l.Context()
-	if ctx == nil {
+	if req.request.Body == nil {
+		err := lua.NewLuaError(l, "no body").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no context available"))
+		l.Push(err)
 		return 2
 	}
 
-	// Spawn HTTP request context
-	val := ctx.Value(http.RequestCtx)
-	if val == nil {
+	table := resource.GetTable(l.Context())
+	if table == nil {
+		err := lua.NewLuaError(l, "no resource table available").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no HTTP request context found"))
+		l.Push(err)
 		return 2
 	}
 
-	reqCtx, ok := val.(*http.RequestContext)
-	if !ok {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid HTTP request context type"))
-		return 2
-	}
-
-	// Spawn request userdata with config
-	ud := l.NewUserData()
-	ud.Value = &Request{
-		request: reqCtx.Request(),
-		config:  cfg,
-	}
-
-	l.SetMetatable(ud, l.GetTypeMetatable("Request"))
-	l.Push(ud)
+	id := streamsys.InsertWithSize(table, req.request.Body, req.request.ContentLength)
+	l.Push(streammod.NewStream(l, id))
 	l.Push(lua.LNil)
 	return 2
 }
 
-// requestParseMultipart parses multipart form data from the request
+// requestParseMultipart parses multipart form data from the request.
 func requestParseMultipart(l *lua.LState) int {
-	req, err := checkRequest(l, 1)
-	if err != nil {
-		l.ArgError(1, err.Error())
+	req := checkRequest(l, 1)
+	if req == nil {
 		return 0
 	}
 
-	// Check if the content type is multipart/form-data
 	contentType := req.request.Header.Get("Content-Type")
 	if !strings.HasPrefix(contentType, "multipart/form-data") {
+		err := lua.NewLuaError(l, "content type is not multipart/form-data").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("content type is not multipart/form-data"))
+		l.Push(err)
 		return 2
 	}
 
-	// Parse multipart form with default max memory
 	maxMemory := int64(32 << 20) // 32MB default
 	if l.GetTop() > 1 {
-		maxMemoryOpt := l.CheckInt64(2)
-		if maxMemoryOpt > 0 {
-			maxMemory = maxMemoryOpt
-		}
+		maxMemory = int64(l.CheckNumber(2))
 	}
 
 	if err := req.request.ParseMultipartForm(maxMemory); err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "failed to parse multipart form").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to parse multipart form: %v", err)))
+		l.Push(luaErr)
 		return 2
 	}
 
-	// Create result table
-	result := l.CreateTable(0, 1)
+	result := l.CreateTable(0, 2)
 
-	// Add file objects
+	// Add files
 	files := l.CreateTable(0, len(req.request.MultipartForm.File))
 	for key, fileHeaders := range req.request.MultipartForm.File {
 		filesList := l.CreateTable(len(fileHeaders), 0)
-		for i, fileHeader := range fileHeaders {
-			// Create MultipartFile userdata
-			ud := l.NewUserData()
-			ud.Value = &MultipartFile{
-				fileHeader: fileHeader,
+		for i, fh := range fileHeaders {
+			value.PushTypedUserData(l, &MultipartFile{
+				fileHeader: fh,
 				request:    req.request,
-			}
-			ud.Metatable = value.GetTypeMetatable(l, "MultipartFile")
-
-			filesList.RawSetInt(i+1, ud)
+			}, multipartFileTypeName)
+			filesList.RawSetInt(i+1, l.Get(-1))
+			l.Pop(1)
 		}
 		files.RawSetString(key, filesList)
 	}
 	result.RawSetString("files", files)
+
+	// Add form values
+	if req.request.MultipartForm.Value != nil {
+		values := l.CreateTable(0, len(req.request.MultipartForm.Value))
+		for key, vals := range req.request.MultipartForm.Value {
+			if len(vals) == 1 {
+				values.RawSetString(key, lua.LString(vals[0]))
+			} else if len(vals) > 1 {
+				valList := l.CreateTable(len(vals), 0)
+				for i, v := range vals {
+					valList.RawSetInt(i+1, lua.LString(v))
+				}
+				values.RawSetString(key, valList)
+			}
+		}
+		result.RawSetString("values", values)
+	}
 
 	l.Push(result)
 	l.Push(lua.LNil)
 	return 2
 }
 
-// requestParam returns a route parameter value
-func requestParam(l *lua.LState) int {
-	req, err := checkRequest(l, 1)
-	if err != nil {
-		l.ArgError(1, err.Error())
+// MultipartFile methods
+
+func checkMultipartFile(l *lua.LState, idx int) *MultipartFile { //nolint:unparam
+	ud := l.CheckUserData(idx)
+	if mf, ok := ud.Value.(*MultipartFile); ok {
+		return mf
+	}
+	l.ArgError(idx, "http.MultipartFile expected")
+	return nil
+}
+
+func multipartFileStream(l *lua.LState) int {
+	mf := checkMultipartFile(l, 1)
+	if mf == nil {
 		return 0
 	}
 
-	paramName := l.CheckString(2)
-	if paramName == "" {
+	file, err := mf.fileHeader.Open()
+	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "failed to open file").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("parameter name cannot be empty"))
+		l.Push(luaErr)
 		return 2
 	}
 
-	// Get route info from context
-	routeInfoVal := req.request.Context().Value(http.RouteCtx)
-	if routeInfoVal == nil {
+	table := resource.GetTable(l.Context())
+	if table == nil {
+		_ = file.Close()
+		err := lua.NewLuaError(l, "no resource table available").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no route parameters found in request context"))
+		l.Push(err)
 		return 2
 	}
 
-	routeInfo, ok := routeInfoVal.(*http.RouteInfo)
-	if !ok {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid route info type in request context"))
-		return 2
-	}
-
-	// Get parameter value
-	paramValue, exists := routeInfo.Params[paramName]
-	if !exists {
-		l.Push(lua.LNil)
-		l.Push(lua.LNil)
-		return 2
-	}
-
-	l.Push(lua.LString(paramValue))
+	id := streamsys.InsertWithSize(table, file, mf.fileHeader.Size)
+	l.Push(streammod.NewStream(l, id))
 	l.Push(lua.LNil)
 	return 2
 }
 
-// requestParam returns a route parameter value
-func requestParams(l *lua.LState) int {
-	req, err := checkRequest(l, 1)
-	if err != nil {
-		l.ArgError(1, err.Error())
+func multipartFileSize(l *lua.LState) int {
+	mf := checkMultipartFile(l, 1)
+	if mf == nil {
 		return 0
 	}
+	l.Push(lua.LNumber(mf.fileHeader.Size))
+	l.Push(lua.LNil)
+	return 2
+}
 
-	// Get route info from context
-	routeInfoVal := req.request.Context().Value(http.RouteCtx)
-	if routeInfoVal == nil {
+func multipartFileName(l *lua.LState) int {
+	mf := checkMultipartFile(l, 1)
+	if mf == nil {
+		return 0
+	}
+	l.Push(lua.LString(mf.fileHeader.Filename))
+	l.Push(lua.LNil)
+	return 2
+}
+
+func multipartFileHeader(l *lua.LState) int {
+	mf := checkMultipartFile(l, 1)
+	if mf == nil {
+		return 0
+	}
+	name := l.CheckString(2)
+	headerValue := mf.fileHeader.Header.Get(name)
+	if headerValue == "" {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no route parameters found in request context"))
-		return 2
+	} else {
+		l.Push(lua.LString(headerValue))
 	}
-
-	routeInfo, ok := routeInfoVal.(*http.RouteInfo)
-	if !ok {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid route info type in request context"))
-		return 2
-	}
-
-	params := l.CreateTable(0, len(routeInfo.Params))
-	for key, v := range routeInfo.Params {
-		params.RawSetString(key, lua.LString(v))
-	}
-
-	l.Push(params)
 	return 1
 }
 
-// registerRequest registers the Request type and its methods
-func registerRequest(l *lua.LState, mod *lua.LTable) {
-	mt := l.NewTypeMetatable("Request")
-	l.SetField(mt, "__index", l.SetFuncs(l.NewTable(), map[string]lua.LGFunction{
-		"method":          requestMethod,
-		"path":            requestPath,
-		"query":           requestQuery,
-		"query_params":    requestQueryAll,
-		"header":          requestHeader,
-		"content_type":    requestContentType,
-		"content_length":  requestContentLength,
-		"host":            requestHost,
-		"remote_addr":     requestRemoteAddr,
-		"body":            requestBody,
-		"body_json":       requestBodyJSON,
-		"has_body":        requestHasBody,
-		"accepts":         requestAccepts,
-		"is_content_type": requestIsContentType,
-		"stream":          requestStream,
-		"parse_multipart": requestParseMultipart,
-		"param":           requestParam,
-		"params":          requestParams,
-	}))
-	l.SetField(mt, "__tostring", l.NewFunction(requestToString))
-
-	// Register constructor
-	l.SetField(mod, "request", l.NewFunction(newRequest))
+func multipartFileToString(l *lua.LState) int {
+	mf := checkMultipartFile(l, 1)
+	if mf == nil {
+		return 0
+	}
+	l.Push(lua.LString(fmt.Sprintf("http.MultipartFile{name=%s, size=%d}",
+		mf.fileHeader.Filename, mf.fileHeader.Size)))
+	return 1
 }

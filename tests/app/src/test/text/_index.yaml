@@ -1,0 +1,55 @@
+version: "1.0"
+namespace: app.test.text
+
+entries:
+  - name: regexp
+    kind: function.lua
+    meta:
+      type: test
+      suite: text
+      description: Regular expression functionality
+    source: file://regexp.lua
+    method: main
+    modules:
+      - text
+    imports:
+      assert2: app.lib:assert
+
+  - name: diff
+    kind: function.lua
+    meta:
+      type: test
+      suite: text
+      description: Diff and patch functionality
+    source: file://diff.lua
+    method: main
+    modules:
+      - text
+    imports:
+      assert2: app.lib:assert
+
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: text
+      description: Text module error handling
+    source: file://errors.lua
+    method: main
+    modules:
+      - text
+    imports:
+      assert2: app.lib:assert
+
+  - name: splitter
+    kind: function.lua
+    meta:
+      type: test
+      suite: text
+      description: Text splitter functionality
+    source: file://splitter.lua
+    method: main
+    modules:
+      - text
+    imports:
+      assert2: app.lib:assert

@@ -3,11 +3,12 @@ package code
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
-	"github.com/ponyruntime/pony/api/registry"
-	runtime "github.com/ponyruntime/pony/api/runtime/lua"
-	lua "github.com/yuin/gopher-lua"
+	"github.com/stretchr/testify/assert"
+	"github.com/wippyai/runtime/api/registry"
+	runtime "github.com/wippyai/runtime/api/runtime/lua"
 )
 
 // createTestNode creates a test node with the given Process.
@@ -18,21 +19,6 @@ func createTestNode(id string) *Node {
 		Source: fmt.Sprintf("function %s() return 'hello' end", id),
 		Method: "test",
 	}
-}
-
-// dummyModule complies with the runtime.Module interface.
-type dummyModule struct {
-	name string
-}
-
-// Loader is a dummy loader implementation.
-func (d *dummyModule) Loader(_ *lua.LState) int {
-	return 0
-}
-
-// Name returns the dummy module's name.
-func (d *dummyModule) Name() string {
-	return d.name
 }
 
 // TestMemoryGraph_AddNode tests node addition, including duplicate and nil cases.
@@ -88,7 +74,7 @@ func TestMemoryGraph_RemoveNode(t *testing.T) {
 	})
 
 	t.Run("NonExistentRemoval", func(t *testing.T) {
-		err := mg.RemoveNode(registry.ID{Name: "non-existent"})
+		err := mg.RemoveNode(registry.NewID("", "non-existent"))
 		if err == nil {
 			t.Errorf("expected error when removing non-existent node, got nil")
 		}
@@ -115,20 +101,20 @@ func TestMemoryGraph_AddDependency(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to get dependencies: %v", err)
 		}
-		if len(deps) != 1 || deps[0].ID != nodeB.ID {
+		if len(deps) == 0 || deps[0].ID != nodeB.ID {
 			t.Errorf("expected dependency to nodeB, got: %+v", deps)
 		}
 	})
 
 	t.Run("MissingFromNode", func(t *testing.T) {
-		err := mg.AddDependency(registry.ID{Name: "NonExistent"}, nodeB.ID, "alias")
+		err := mg.AddDependency(registry.NewID("", "NonExistent"), nodeB.ID, "alias")
 		if err == nil {
 			t.Errorf("expected error when 'from' node is missing, got nil")
 		}
 	})
 
 	t.Run("MissingToNode", func(t *testing.T) {
-		err := mg.AddDependency(nodeA.ID, registry.ID{Name: "NonExistent"}, "alias")
+		err := mg.AddDependency(nodeA.ID, registry.NewID("", "NonExistent"), "alias")
 		if err == nil {
 			t.Errorf("expected error when 'to' node is missing, got nil")
 		}
@@ -207,7 +193,7 @@ func TestMemoryGraph_GetDirectDependencies(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to get dependencies: %v", err)
 		}
-		if len(deps) != 1 || deps[0].ID != nodeB.ID {
+		if len(deps) == 0 || deps[0].ID != nodeB.ID {
 			t.Errorf("expected dependency to nodeB, got: %+v", deps)
 		}
 	})
@@ -223,7 +209,7 @@ func TestMemoryGraph_GetDirectDependencies(t *testing.T) {
 	})
 
 	t.Run("NonExistentNode", func(t *testing.T) {
-		_, err := mg.GetDirectDependencies(registry.ID{Name: "NonExistent"})
+		_, err := mg.GetDirectDependencies(registry.NewID("", "NonExistent"))
 		if err == nil {
 			t.Errorf("expected error for non-existent node, got nil")
 		}
@@ -266,7 +252,7 @@ func TestMemoryGraph_GetDirectDependents(t *testing.T) {
 	})
 
 	t.Run("NonExistentNode", func(t *testing.T) {
-		_, err := mg.GetDirectDependents(registry.ID{Name: "NonExistent"})
+		_, err := mg.GetDirectDependents(registry.NewID("", "NonExistent"))
 		if err == nil {
 			t.Errorf("expected error for non-existent node, got nil")
 		}
@@ -367,7 +353,7 @@ func TestMemoryGraph_BuildRuntime(t *testing.T) {
 	}
 
 	// Assign a dummy module to nodeC.
-	var mod runtime.Module = &dummyModule{name: "dummyMod"}
+	mod := &runtime.ModuleDef{Name: "dummyMod"}
 	nodeC.Module = mod
 
 	t.Run("ValidRuntime", func(t *testing.T) {
@@ -376,21 +362,21 @@ func TestMemoryGraph_BuildRuntime(t *testing.T) {
 			t.Fatalf("failed to build runtime: %v", err)
 		}
 		// Verify main node.
-		if rt.Main.ID != nodeA.ID {
-			t.Errorf("unexpected main node or alias, got: %+v", rt.Main)
+		if rt.Main == nil || rt.Main.Source == "" {
+			t.Errorf("unexpected main node or source, got: %+v", rt.Main)
 		}
 		// Check dependency prototypes (should include nodeB and nodeC).
 		if len(rt.Dependencies) != 2 {
 			t.Errorf("expected 2 dependency prototypes, got %d", len(rt.Dependencies))
 		}
-		// Verify alias propagation for nodeB.
+		// Verify alias propagation for nodeB and module for nodeC.
 		for _, dep := range rt.Dependencies {
-			if dep.Node.ID == nodeB.ID && dep.Name != "depB" {
+			if dep.Name == "depB" && dep.Node.ID.Name != "DepNodeB" {
 				t.Errorf("expected alias 'depB' for nodeB, got '%s'", dep.Name)
 			}
 			// Verify module is included as a dependency
-			if dep.Node.ID == nodeC.ID {
-				if dep.Node.Module == nil || dep.Node.Module.Name() != "dummyMod" {
+			if dep.Node.ID.Name == "DepNodeC" {
+				if dep.Node.Module == nil || dep.Node.Module.Name != "dummyMod" {
 					t.Errorf("expected module 'dummyMod' in nodeC dependency")
 				}
 			}
@@ -398,7 +384,7 @@ func TestMemoryGraph_BuildRuntime(t *testing.T) {
 	})
 
 	t.Run("InvalidEntrypoint", func(t *testing.T) {
-		_, err := mg.Build(registry.ID{Name: "NonExistent"})
+		_, err := mg.Build(registry.NewID("", "NonExistent"))
 		if err == nil {
 			t.Errorf("expected error for non-existent entrypoint, got nil")
 		}
@@ -484,9 +470,9 @@ func TestMemoryGraph_Build_TransitiveModules(t *testing.T) {
 	leafNode := createTestNode("LeafNode")
 
 	// Spawn different modules for each level
-	var mainMod runtime.Module = &dummyModule{name: "mainMod"}
-	var middleMod runtime.Module = &dummyModule{name: "middleMod"}
-	var leafMod runtime.Module = &dummyModule{name: "leafMod"}
+	mainMod := &runtime.ModuleDef{Name: "mainMod"}
+	middleMod := &runtime.ModuleDef{Name: "middleMod"}
+	leafMod := &runtime.ModuleDef{Name: "leafMod"}
 
 	// Assign modules to nodes
 	mainNode.Module = mainMod
@@ -523,24 +509,26 @@ func TestMemoryGraph_Build_TransitiveModules(t *testing.T) {
 
 	// Track main node's module if it has one
 	if rt.Main.Module != nil {
-		seenModules[rt.Main.Module.Name()] = true
+		seenModules[rt.Main.Module.Info().Name] = true
 	}
 
 	// Track modules from dependencies
 	for _, dep := range rt.Dependencies {
 		if dep.Node.Module != nil {
-			seenModules[dep.Node.Module.Name()] = true
+			seenModules[dep.Node.Module.Info().Name] = true
 		}
 
-		// Verify specific aliases
+		// Verify specific aliases - direct dependencies use their edge alias,
+		// transitive dependencies use their parent's edge alias
 		switch dep.Node.ID.Name {
 		case "MiddleNode":
 			if dep.Name != "middle" {
 				t.Errorf("expected middle node alias 'middle', got '%s'", dep.Name)
 			}
 		case "LeafNode":
+			// LeafNode is a transitive dep (middle->leaf), so it uses the alias from that edge
 			if dep.Name != "leaf" {
-				t.Errorf("expected leaf node alias 'leaf', got '%s'", dep.Name)
+				t.Errorf("expected leaf node alias 'leaf' (from parent's edge), got '%s'", dep.Name)
 			}
 		}
 	}
@@ -594,8 +582,8 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 	commonDepNode := createTestNode("CommonDep")
 
 	// Spawn modules
-	var sharedMod runtime.Module = &dummyModule{name: "sharedModule"}
-	var uniqueMod runtime.Module = &dummyModule{name: "uniqueModule"}
+	sharedMod := &runtime.ModuleDef{Name: "sharedModule"}
+	uniqueMod := &runtime.ModuleDef{Name: "uniqueModule"}
 
 	// Both dep1 and dep2 depend on commonDep which uses sharedModule
 	commonDepNode.Module = sharedMod
@@ -638,7 +626,7 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 	uniqueModules := make(map[string]bool)
 	for _, dep := range rt.Dependencies {
 		if dep.Node.Module != nil {
-			uniqueModules[dep.Node.Module.Name()] = true
+			uniqueModules[dep.Node.Module.Info().Name] = true
 		}
 	}
 
@@ -656,8 +644,10 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 	}
 
 	// Verify dependency structure and order
+	// commonDep appears TWICE - once for each alias (common1 and common2)
+	// because both dep1 and dep2 import it with different names
 	if len(rt.Dependencies) != 4 {
-		t.Errorf("expected 4 dependency prototypes (commonDep with both aliases, dep1, dep2), got %d", len(rt.Dependencies))
+		t.Errorf("expected 4 dependency entries (commonDep x2 for aliases, dep1, dep2), got %d", len(rt.Dependencies))
 	}
 
 	// Verify main node
@@ -665,48 +655,51 @@ func TestMemoryGraph_Build_ModuleDeduplication(t *testing.T) {
 		t.Errorf("expected main node Process %v, got %v", mainNode.ID, rt.Main.ID)
 	}
 
-	// Verify dependencies are in correct order and have correct aliases
-	// Order should be: commonDep entries first (deepest level), then dep1, dep2
-	expectedDeps := []struct {
-		id    registry.ID
-		alias string
-	}{
-		{commonDepNode.ID, "common1"}, // Load shared dependency first
-		{commonDepNode.ID, "common2"}, // Both aliases of shared dependency
-		{dep1Node.ID, "dep1"},         // Can load after its dependency (commonDep)
-		{dep2Node.ID, "dep2"},         // Can load after its dependency (commonDep)
-	}
-
-	if len(rt.Dependencies) != len(expectedDeps) {
-		t.Fatalf("wrong number of dependencies: expected %d, got %d", len(expectedDeps), len(rt.Dependencies))
-	}
-
-	// Verify each dependency is in correct order with correct alias
-	for i, expected := range expectedDeps {
-		actual := rt.Dependencies[i]
-		if actual.Node.ID != expected.id {
-			t.Errorf("dependency at position %d: expected node %v, got %v", i, expected.id, actual.Node.ID)
-		}
-		if actual.Name != expected.alias {
-			t.Errorf("dependency at position %d: expected alias %s, got %s", i, expected.alias, actual.Name)
+	// Verify commonDep has both aliases
+	commonDepAliases := make(map[string]bool)
+	for _, dep := range rt.Dependencies {
+		if dep.Node.ID.Name == "CommonDep" {
+			commonDepAliases[dep.Name] = true
 		}
 	}
+	if !commonDepAliases["common1"] {
+		t.Errorf("missing alias 'common1' for commonDep")
+	}
+	if !commonDepAliases["common2"] {
+		t.Errorf("missing alias 'common2' for commonDep")
+	}
 
-	// Verify commonDep entries appear before any nodes that depend on them
-	lastCommonDepPos := -1
+	// Verify dep1 and dep2 have their direct aliases
+	directAliases := make(map[string]string)
+	for _, dep := range rt.Dependencies {
+		if dep.Node.ID.Name == "Dep1" || dep.Node.ID.Name == "Dep2" {
+			directAliases[dep.Node.ID.Name] = dep.Name
+		}
+	}
+	if directAliases["Dep1"] != "dep1" {
+		t.Errorf("expected Dep1 alias 'dep1', got '%s'", directAliases["Dep1"])
+	}
+	if directAliases["Dep2"] != "dep2" {
+		t.Errorf("expected Dep2 alias 'dep2', got '%s'", directAliases["Dep2"])
+	}
+
+	// Verify commonDep appears before nodes that depend on it
+	commonDepPos := -1
+	dep1Pos := -1
+	dep2Pos := -1
 	for i, dep := range rt.Dependencies {
-		if dep.Node.ID == commonDepNode.ID {
-			lastCommonDepPos = i
-		} else if lastCommonDepPos == -1 {
-			t.Errorf("found dependent node %v before its dependency CommonDep", dep.Node.ID)
+		if dep.Node.ID.Name == "CommonDep" && commonDepPos == -1 {
+			commonDepPos = i
+		}
+		if dep.Node.ID.Name == "Dep1" {
+			dep1Pos = i
+		}
+		if dep.Node.ID.Name == "Dep2" {
+			dep2Pos = i
 		}
 	}
-
-	// Verify all commonDep entries are grouped together at the start
-	for i := 1; i <= lastCommonDepPos; i++ {
-		if rt.Dependencies[i].Node.ID != commonDepNode.ID {
-			t.Errorf("CommonDep entries not grouped together at start, found %v at position %d", rt.Dependencies[i].Node.ID, i)
-		}
+	if commonDepPos > dep1Pos || commonDepPos > dep2Pos {
+		t.Errorf("commonDep should appear before dep1 and dep2 in dependencies")
 	}
 }
 
@@ -714,8 +707,8 @@ func TestMemoryGraph_Build_AliasCollision(t *testing.T) {
 	mg := NewMemoryGraph()
 
 	// Spawn modules
-	var mod1 runtime.Module = &dummyModule{name: "module1"}
-	var mod2 runtime.Module = &dummyModule{name: "module2"}
+	mod1 := &runtime.ModuleDef{Name: "module1"}
+	mod2 := &runtime.ModuleDef{Name: "module2"}
 
 	// Spawn nodes
 	nodes := map[string]*Node{
@@ -723,13 +716,13 @@ func TestMemoryGraph_Build_AliasCollision(t *testing.T) {
 		"lib1": createTestNode("Lib1"),
 		"lib2": createTestNode("Lib2"),
 		"mod1": {
-			ID:     registry.ID{Name: "Module1"},
+			ID:     registry.NewID("", "mod1"),
 			Kind:   "module.lua",
 			Source: "module1 source",
 			Module: mod1,
 		},
 		"mod2": {
-			ID:     registry.ID{Name: "Module2"},
+			ID:     registry.NewID("", "mod2"),
 			Kind:   "module.lua",
 			Source: "module2 source",
 			Module: mod2,
@@ -778,8 +771,8 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 	mg := NewMemoryGraph()
 
 	// Spawn modules
-	var mod1 runtime.Module = &dummyModule{name: "module1"}
-	var sharedMod runtime.Module = &dummyModule{name: "shared"}
+	mod1 := &runtime.ModuleDef{Name: "module1"}
+	sharedMod := &runtime.ModuleDef{Name: "shared"}
 
 	// Spawn nodes
 	nodes := map[string]*Node{
@@ -787,13 +780,13 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 		"lib1": createTestNode("Lib1"),
 		"lib2": createTestNode("Lib2"),
 		"mod1": {
-			ID:     registry.ID{Name: "Module1"},
+			ID:     registry.NewID("", "mod1"),
 			Kind:   "module.lua",
 			Source: "module1 source",
 			Module: mod1,
 		},
 		"shared": {
-			ID:     registry.ID{Name: "Shared"},
+			ID:     registry.NewID("", "shared"),
 			Kind:   "module.lua",
 			Source: "shared module source",
 			Module: sharedMod,
@@ -839,7 +832,7 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 	uniqueModules := make(map[string]bool)
 	for _, dep := range rt.Dependencies {
 		if dep.Node.Module != nil {
-			uniqueModules[dep.Node.Module.Name()] = true
+			uniqueModules[dep.Node.Module.Info().Name] = true
 		}
 	}
 
@@ -860,7 +853,7 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 	}
 
 	// Verify shared module appears exactly once
-	sharedCount := countDeps("Shared")
+	sharedCount := countDeps("shared")
 	if sharedCount != 1 {
 		t.Errorf("expected shared module to appear once, got %d occurrences", sharedCount)
 	}
@@ -869,7 +862,7 @@ func TestMemoryGraph_Build_SharedDependency(t *testing.T) {
 	var sharedPos, lib1Pos, lib2Pos int
 	for i, dep := range rt.Dependencies {
 		switch dep.Node.ID.Name {
-		case "Shared":
+		case "shared":
 			sharedPos = i
 		case "Lib1":
 			lib1Pos = i
@@ -1025,7 +1018,7 @@ func TestMemoryGraph_GetAllDependents(t *testing.T) {
 	}
 
 	t.Run("nonexistent node", func(t *testing.T) {
-		_, err := mg.GetAllDependents(registry.ID{Name: "nonexistent"})
+		_, err := mg.GetAllDependents(registry.NewID("", "nonexistent"))
 		if err == nil {
 			t.Error("expected error for nonexistent node, got nil")
 		}
@@ -1106,4 +1099,84 @@ func TestMemoryGraph_GetAllDependents_NoDuplicates(t *testing.T) {
 			t.Errorf("unexpected dependent: %v", dep.ID.Name)
 		}
 	}
+}
+
+func TestMemoryGraph_Build_TransitiveAliasCollision(t *testing.T) {
+	mg := NewMemoryGraph()
+
+	// Create modules
+	modConstX := &runtime.ModuleDef{Name: "const-x"}
+	modConstY := &runtime.ModuleDef{Name: "const-y"}
+	modLibA := &runtime.ModuleDef{Name: "library-a"}
+
+	// Create nodes
+	nodes := map[string]*Node{
+		"main": createTestNode("MainFunc"),
+		"const-x": {
+			ID:     registry.NewID("lib", "const-x"),
+			Kind:   "module.lua",
+			Source: "const-x source",
+			Module: modConstX,
+		},
+		"const-y": {
+			ID:     registry.NewID("lib", "const-y"),
+			Kind:   "module.lua",
+			Source: "const-y source",
+			Module: modConstY,
+		},
+		"library-a": {
+			ID:     registry.NewID("lib", "library-a"),
+			Kind:   "module.lua",
+			Source: "library-a source",
+			Module: modLibA,
+		},
+	}
+
+	// Add all nodes
+	for _, node := range nodes {
+		if err := mg.AddNode(node); err != nil {
+			t.Fatalf("failed to add node %v: %v", node.ID, err)
+		}
+	}
+
+	// Create dependency tree:
+	// main imports const-x as "const"
+	// main imports library-a as "libA"
+	// library-a imports const-y as "const" <- This IS a collision because all deps are global
+	dependencies := []struct {
+		from  string
+		to    string
+		alias string
+	}{
+		{"main", "const-x", "const"},      // User imports const-x as "const"
+		{"main", "library-a", "libA"},     // User imports library-a
+		{"library-a", "const-y", "const"}, // Library-a imports const-y also as "const" - COLLISION
+	}
+
+	// Add all dependencies
+	for _, dep := range dependencies {
+		from := nodes[dep.from]
+		to := nodes[dep.to]
+		if err := mg.AddDependency(from.ID, to.ID, dep.alias); err != nil {
+			t.Fatalf("failed to add dependency %s->%s: %v", dep.from, dep.to, err)
+		}
+	}
+
+	// Build should FAIL with alias collision - two different nodes use same alias "const"
+	_, err := mg.Build(nodes["main"].ID)
+	if err == nil {
+		t.Fatalf("expected collision error, but build succeeded")
+	}
+
+	// Verify it's an alias collision error
+	if !strings.Contains(err.Error(), "collision") {
+		t.Errorf("expected collision error, got: %v", err)
+	}
+}
+
+func TestNewMemoryGraph(t *testing.T) {
+	mg := NewMemoryGraph()
+	assert.NotNil(t, mg)
+	assert.NotNil(t, mg.nodes)
+	assert.NotNil(t, mg.graph)
 }

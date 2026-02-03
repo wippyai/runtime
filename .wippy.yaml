@@ -1,0 +1,137 @@
+# Wippy Configuration File
+# Version 1.0
+version: "1.0"
+
+# Logger configuration
+# Controls system logging behavior
+logger:
+  mode: development          # production | development
+  level: debug               # debug | info | warn | error
+  encoding: console          # json | console
+
+# Log Manager configuration
+# Controls log propagation and streaming
+logmanager:
+  propagate_downstream: true  # Propagate logs to downstream components
+  stream_to_events: false     # Stream logs to event bus
+  min_level: 0                # Minimum log level (-1=debug, 0=info, 1=warn, 2=error)
+
+# Profiler configuration
+# Enables pprof profiling endpoints for performance analysis
+profiler:
+  enabled: true               # Enable profiler HTTP server
+  address: localhost:6060     # Profiler server address
+  read_timeout: 15s           # HTTP read timeout
+  write_timeout: 15s          # HTTP write timeout
+  idle_timeout: 60s           # HTTP idle timeout
+
+# Security configuration
+# Controls security enforcement behavior
+security:
+  strict_mode: false          # When true, deny access if security context is incomplete
+
+# Registry configuration
+# Controls registry history and rollback capabilities
+registry:
+  enable_history: true        # Enable version history (memory-based), false uses nil history (forward-only)
+
+# Relay configuration
+# Controls local node messaging infrastructure
+relay:
+  node_name: local            # Name of this relay node
+
+# Supervisor configuration
+# Controls process supervisor relay host settings
+supervisor:
+  host:
+    buffer_size: 1024         # Control host message buffer size
+    worker_count: 16          # Control host worker goroutine count
+
+# Functions configuration
+# Controls function execution relay host settings
+functions:
+  host:
+    buffer_size: 1024         # Function host message buffer size
+    worker_count: 16          # Function host worker goroutine count
+
+# Lua runtime configuration
+# Controls Lua VM cache sizes
+lua:
+  proto_cache_size: 60000     # Lua proto cache size
+  main_cache_size: 10000      # Lua main cache size
+  type_system:
+    enabled: true             # Enable type checking during compilation
+    strict: true              # Strict mode treats all issues as compile errors
+  expr:
+    cache_enabled: true       # Enable expression caching
+    capacity: 5000            # Expression cache capacity
+  json:
+    cache_enabled: true       # Enable schema validation caching
+    capacity: 1000            # Schema cache capacity
+
+# OpenTelemetry configuration
+# Distributed tracing and observability
+otel:
+  enabled: false                # Enable OpenTelemetry tracing
+  endpoint: http://localhost:4318  # OTLP exporter endpoint
+  protocol: http/protobuf       # OTLP protocol: grpc | http/protobuf
+  service_name: wippy           # Service name in traces
+  service_version: ""           # Service version in traces
+  insecure: true                # Allow non-TLS connections
+  sample_rate: 1.0              # Trace sampling rate (0.0 to 1.0)
+  propagators:                  # Trace context propagators
+    - tracecontext
+    - baggage
+  traces_enabled: false         # Enable trace collection
+  metrics_enabled: false        # Enable metrics collection
+  http:
+    enabled: true               # Enable HTTP middleware
+    extract_headers: true       # Extract trace context from incoming requests
+    inject_headers: true        # Inject trace context into responses
+  process:
+    enabled: true               # Enable process lifecycle tracing
+    trace_lifecycle: true       # Trace process start and termination events
+  interceptor:
+    enabled: false              # Enable function call interceptor
+    order: 0                    # Interceptor execution order
+
+# HTTP Client configuration
+# Controls outbound HTTP request behavior
+http_client:
+  block_private_ips: false      # Enable SSRF protection (blocks requests to localhost, 10.x, 172.16-31.x, 192.168.x)
+
+# Shutdown configuration
+# Controls graceful shutdown behavior
+shutdown:
+  timeout: 30s                  # Global shutdown timeout (max time to wait for all components to stop)
+
+# Metrics configuration
+# Application metrics collection and export
+metrics:
+  buffer:
+    size: 10000                   # Metrics buffer size
+  interceptor:
+    enabled: true                 # Auto-track function calls
+
+# Prometheus configuration
+# Prometheus metrics export
+prometheus:
+  enabled: true                   # Enable Prometheus exporter
+  address: localhost:9090         # HTTP server address for /metrics endpoint
+
+# Cluster configuration
+# Multi-node clustering with gossip-based membership and TCP internode communication
+cluster:
+  enabled: false                # Enable multi-node clustering
+  name: ""                      # Node name (defaults to hostname if empty)
+  internode:
+    bind_addr: "0.0.0.0"        # Bind address for TCP internode communication
+    bind_port: 0                # Bind port (0 = auto-select available port)
+    auto_port: true             # Automatically select port if bind_port unavailable
+  membership:
+    bind_addr: "0.0.0.0"        # Bind address for gossip protocol
+    bind_port: 7946             # Bind port for gossip protocol
+    advertise_addr: ""          # Advertise address (use if behind NAT)
+    join_addrs: ""              # Comma-separated seed nodes to join (e.g. "10.0.0.1:7946,10.0.0.2:7946")
+    secret_key: ""              # Cluster secret key (base64 encoded)
+    secret_file: ""             # Path to file containing cluster secret key

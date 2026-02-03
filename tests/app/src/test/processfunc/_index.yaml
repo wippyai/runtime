@@ -1,0 +1,105 @@
+version: "1.0"
+namespace: app.test.processfunc
+
+entries:
+  # Helper processes (with default_host for processfunc)
+  - name: echo_process
+    kind: process.lua
+    meta:
+      comment: Simple process that echoes input
+      default_host: app:processes
+    source: file://echo_process.lua
+    method: main
+
+  - name: error_process
+    kind: process.lua
+    meta:
+      comment: Process that throws error
+      default_host: app:processes
+    source: file://error_process.lua
+    method: main
+
+  - name: slow_process
+    kind: process.lua
+    meta:
+      comment: Process that sleeps before returning
+      default_host: app:processes
+    source: file://slow_process.lua
+    method: main
+    modules:
+      - time
+
+  - name: multi_arg_process
+    kind: process.lua
+    meta:
+      comment: Process that accepts multiple arguments
+      default_host: app:processes
+    source: file://multi_arg_process.lua
+    method: main
+
+  # Test cases
+  - name: call_basic
+    kind: function.lua
+    meta:
+      type: test
+      suite: processfunc
+      description: Call process as function via funcs.call
+    source: file://call_basic.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - funcs
+
+  - name: call_error
+    kind: function.lua
+    meta:
+      type: test
+      suite: processfunc
+      description: Process error propagation
+    source: file://call_error.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - funcs
+
+  - name: call_multi_args
+    kind: function.lua
+    meta:
+      type: test
+      suite: processfunc
+      description: Process with multiple arguments
+    source: file://call_multi_args.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - funcs
+
+  - name: async_basic
+    kind: function.lua
+    meta:
+      type: test
+      suite: processfunc
+      description: Async call to process function
+    source: file://async_basic.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - funcs
+
+  - name: async_parallel
+    kind: function.lua
+    meta:
+      type: test
+      suite: processfunc
+      description: Parallel async process calls
+    source: file://async_parallel.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - funcs
+      - time

@@ -1,0 +1,97 @@
+// Package security provides token store command handlers for the dispatcher system.
+package security
+
+import (
+	"context"
+	"sync"
+
+	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/security"
+)
+
+// Dispatcher handles security commands via async worker pool.
+type Dispatcher struct {
+	ctx     context.Context
+	jobs    chan job
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
+	workers int
+}
+
+type job struct {
+	ctx      context.Context
+	cmd      dispatcher.Command
+	receiver dispatcher.ResultReceiver
+	tag      uint64
+}
+
+// NewDispatcher creates a security dispatcher with the specified worker count.
+func NewDispatcher(workers int) *Dispatcher {
+	if workers <= 0 {
+		workers = 4
+	}
+	return &Dispatcher{workers: workers}
+}
+
+// Start initializes the worker pool.
+func (d *Dispatcher) Start(ctx context.Context) error {
+	d.ctx, d.cancel = context.WithCancel(ctx)
+	d.jobs = make(chan job, d.workers*2)
+
+	for i := 0; i < d.workers; i++ {
+		d.wg.Add(1)
+		go d.worker()
+	}
+	return nil
+}
+
+// Stop shuts down the dispatcher and drains pending jobs.
+func (d *Dispatcher) Stop(_ context.Context) error {
+	d.cancel()
+	close(d.jobs)
+	d.wg.Wait()
+	return nil
+}
+
+func (d *Dispatcher) worker() {
+	defer d.wg.Done()
+	for j := range d.jobs {
+		d.execute(j)
+	}
+}
+
+func (d *Dispatcher) submit(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) {
+	select {
+	case d.jobs <- job{ctx: ctx, cmd: cmd, tag: tag, receiver: receiver}:
+	case <-d.ctx.Done():
+	}
+}
+
+func (d *Dispatcher) execute(j job) {
+	switch c := j.cmd.(type) {
+	case *security.ValidateTokenCmd:
+		actor, scope, err := c.TokenStore.Validate(j.ctx, c.Token)
+		j.receiver.CompleteYield(j.tag, security.ValidateTokenResponse{Actor: actor, Scope: scope, Error: err}, nil)
+
+	case *security.CreateTokenCmd:
+		token, err := c.TokenStore.Create(j.ctx, c.Actor, c.Scope, c.Details)
+		j.receiver.CompleteYield(j.tag, security.CreateTokenResponse{Token: token, Error: err}, nil)
+
+	case *security.RevokeTokenCmd:
+		err := c.TokenStore.Revoke(j.ctx, c.Token)
+		j.receiver.CompleteYield(j.tag, security.RevokeTokenResponse{Error: err}, nil)
+	}
+}
+
+func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	d.submit(ctx, cmd, tag, receiver)
+	return nil
+}
+
+// RegisterAll registers all security handlers.
+func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispatcher.Handler)) {
+	h := dispatcher.HandlerFunc(d.handle)
+	register(security.ValidateToken, h)
+	register(security.CreateToken, h)
+	register(security.RevokeToken, h)
+}

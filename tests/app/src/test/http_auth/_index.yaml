@@ -1,0 +1,139 @@
+version: "1.0"
+namespace: app.test.http_auth
+
+entries:
+  # Memory store for token storage
+  - name: tokens_store
+    kind: store.memory
+    meta:
+      comment: In-memory store for auth tokens
+    max_size: 1000
+    cleanup_interval: "1m"
+    lifecycle:
+      auto_start: true
+
+  # Token store configuration
+  - name: tokens
+    kind: security.token_store
+    meta:
+      comment: Token store for auth tests
+    store: tokens_store
+    token_length: 32
+    default_expiration: "1h"
+
+  # Security policy that allows access to protected endpoints
+  - name: allow_access
+    kind: security.policy
+    policy:
+      actions:
+        - access
+      resources: "*"
+      effect: allow
+
+  # Router with token_auth middleware
+  - name: router
+    kind: http.router
+    meta:
+      comment: Auth test router
+      server: app:gateway
+    prefix: /auth
+    middleware:
+      - token_auth
+    options:
+      token_store: app.test.http_auth:tokens
+
+  # Login endpoint - creates token
+  - name: login
+    kind: function.lua
+    meta:
+      comment: Login endpoint - creates and returns auth token
+    source: file://login.lua
+    method: handler
+    modules:
+      - http
+      - security
+      - json
+    pool:
+      type: static
+      size: 2
+
+  # Login route (no auth required)
+  - name: login_route
+    kind: http.endpoint
+    meta:
+      comment: Login endpoint route
+      router: app:api.public
+    method: POST
+    func: login
+    path: /auth/login
+
+  # Protected endpoint
+  - name: protected
+    kind: function.lua
+    meta:
+      comment: Protected endpoint - requires authentication
+    source: file://protected.lua
+    method: handler
+    modules:
+      - http
+      - security
+    pool:
+      type: static
+      size: 2
+
+  # Protected route via Bearer token
+  - name: protected_route
+    kind: http.endpoint
+    meta:
+      comment: Protected endpoint route
+      router: router
+    method: GET
+    func: protected
+    path: /protected
+    post_middleware:
+      - endpoint_firewall
+
+  # Test: unauthorized rejection
+  - name: test_unauthorized
+    kind: function.lua
+    meta:
+      type: test
+      suite: http_auth
+      description: Auth rejection without token
+    source: file://test_unauthorized.lua
+    method: main
+    modules:
+      - http_client
+      - json
+    imports:
+      assert2: app.lib:assert
+
+  # Test: Bearer token auth
+  - name: test_bearer
+    kind: function.lua
+    meta:
+      type: test
+      suite: http_auth
+      description: Auth with Bearer token
+    source: file://test_bearer.lua
+    method: main
+    modules:
+      - http_client
+      - json
+    imports:
+      assert2: app.lib:assert
+
+  # Test: query param token auth
+  - name: test_query
+    kind: function.lua
+    meta:
+      type: test
+      suite: http_auth
+      description: Auth with query token
+    source: file://test_query.lua
+    method: main
+    modules:
+      - http_client
+      - json
+    imports:
+      assert2: app.lib:assert

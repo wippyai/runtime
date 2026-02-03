@@ -1,0 +1,113 @@
+version: "1.0"
+namespace: app.test.errors
+
+entries:
+  - name: constants
+    kind: function.lua
+    meta:
+      type: test
+      suite: errors
+      description: Error kind constants are available
+    source: file://constants.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: new
+    kind: function.lua
+    meta:
+      type: test
+      suite: errors
+      description: errors.new creates structured errors
+    source: file://new.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: is
+    kind: function.lua
+    meta:
+      type: test
+      suite: errors
+      description: errors.is checks error kind
+    source: file://is.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: strings
+    kind: function.lua
+    meta:
+      type: test
+      suite: errors
+      description: Error string operations
+    source: file://strings.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: wrap
+    kind: function.lua
+    meta:
+      type: test
+      suite: errors
+      description: errors.wrap preserves properties
+    source: file://wrap.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: stack
+    kind: function.lua
+    meta:
+      type: test
+      suite: errors
+      description: Error stack traces
+    source: file://stack.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: retryable
+    kind: function.lua
+    meta:
+      type: test
+      suite: errors
+      description: Error retryable flag
+    source: file://retryable.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: details
+    kind: function.lua
+    meta:
+      type: test
+      suite: errors
+      description: Error details handling
+    source: file://details.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: patterns
+    kind: function.lua
+    meta:
+      type: test
+      suite: errors
+      description: Idiomatic error handling patterns
+    source: file://patterns.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: internal
+    kind: function.lua
+    meta:
+      type: test
+      suite: errors
+      description: Internal Lua errors via pcall
+    source: file://internal.lua
+    method: main
+    imports:
+      assert2: app.lib:assert

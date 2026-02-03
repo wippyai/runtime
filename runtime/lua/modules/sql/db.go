@@ -5,28 +5,23 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/ponyruntime/pony/runtime/lua/modules/sql/sqlutil"
-	"github.com/ponyruntime/pony/runtime/lua/security"
-
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	sqlres "github.com/ponyruntime/pony/service/sql"
-	lua "github.com/yuin/gopher-lua"
-	"go.uber.org/zap"
+	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	rtresource "github.com/wippyai/runtime/api/runtime/resource"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/runtime/lua/security"
+	sqlres "github.com/wippyai/runtime/service/sql"
 )
 
-// DB represents a database connection wrapper for Lua
 type DB struct {
-	resource  resource.Resource[any]
-	db        *sql.DB
-	dbType    string
-	log       *zap.Logger
-	onRelease context.CancelFunc
+	resource      resource.Resource[any]
+	db            *sql.DB
+	cancelCleanup func()
+	dbType        string
+	released      bool
 }
 
-// GetRawDB exposes the underlying sql.DB for external components like QueryBuilder
 func (d *DB) GetRawDB() *sql.DB {
 	return d.db
 }
@@ -35,361 +30,270 @@ func (d *DB) GetDBType() string {
 	return d.dbType
 }
 
-// NewDB creates a new database connection wrapper with UoW integration
-func NewDB(uw engine.UnitOfWork, resource resource.Resource[any], db *sql.DB, dbType string, log *zap.Logger) *DB {
+func NewDB(ctx context.Context, res resource.Resource[any], db *sql.DB, dbType string) *DB {
 	dbWrapper := &DB{
-		resource: resource,
+		resource: res,
 		db:       db,
 		dbType:   dbType,
-		log:      log,
+		released: false,
 	}
 
-	// Register unconditional cleanup in UoW - directly pass resource.Release
-	dbWrapper.onRelease = uw.AddCleanup(func() error {
-		resource.Release()
-		return nil
-	})
+	store := rtresource.GetStore(ctx)
+	if store != nil {
+		dbWrapper.cancelCleanup = store.AddCleanup(func() error {
+			if !dbWrapper.released && dbWrapper.resource != nil {
+				dbWrapper.resource.Release()
+			}
+			return nil
+		})
+	}
 
 	return dbWrapper
 }
 
-// WrapDB wraps a DB as a Lua userdata
-func WrapDB(l *lua.LState, db *DB) *lua.LUserData {
-	ud := l.NewUserData()
-	ud.Value = db
-	ud.Metatable = value.GetTypeMetatable(l, "sql.DB")
-	return ud
+var dbMethods = map[string]lua.LGoFunc{
+	"type":    dbType,
+	"query":   dbQuery,
+	"execute": dbExecute,
+	"prepare": dbPrepare,
+	"begin":   dbBegin,
+	"release": dbRelease,
+	"stats":   dbStats,
 }
 
-// CheckDB checks if the first argument is a DB and returns it
-func CheckDB(l *lua.LState) *DB {
+func checkDB(l *lua.LState) *DB {
 	ud := l.CheckUserData(1)
-	if db, ok := ud.Value.(*DB); ok {
-		return db
+	if v, ok := ud.Value.(*DB); ok {
+		return v
 	}
-	l.ArgError(1, "expected database object")
+	l.ArgError(1, "database expected")
 	return nil
 }
 
-// registerDB registers database functions in the module
-func registerDB(l *lua.LState, mod *lua.LTable, log *zap.Logger) {
-	mod.RawSetString("get", l.NewFunction(func(l *lua.LState) int {
-		return dbGet(l, log)
-	}))
-
-	methods := map[string]lua.LGFunction{
-		"type":    dbType,
-		"query":   dbQuery,
-		"execute": dbExecute,
-		"prepare": dbPrepare,
-		"begin":   dbBegin,
-		"release": dbRelease,
+func sqlGet(l *lua.LState) int {
+	ctx := l.Context()
+	if ctx == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "no context").WithKind(lua.Internal))
+		return 2
 	}
 
-	value.RegisterMethods(l, "sql.DB", methods)
+	id := l.CheckString(1)
+	if id == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "resource id is required").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+
+	if !security.IsAllowed(ctx, "db.get", id, nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, fmt.Sprintf("not allowed to access database: %s", id)).WithKind(lua.PermissionDenied).WithRetryable(false))
+		return 2
+	}
+
+	reg := resource.GetRegistry(ctx)
+	if reg == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "resource registry not found").WithKind(lua.Internal))
+		return 2
+	}
+
+	resID := registry.ParseID(id)
+	res, err := reg.Acquire(ctx, resID, resource.ModeNormal)
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "acquire resource"))
+		return 2
+	}
+
+	dbRes, err := res.Get()
+	if err != nil {
+		res.Release()
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "get resource"))
+		return 2
+	}
+
+	sqlDBRes, ok := dbRes.(sqlres.DBResource)
+	if !ok {
+		res.Release()
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, fmt.Sprintf("resource is not a database: %T", dbRes)).WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+
+	db := NewDB(ctx, res, sqlDBRes.DB, sqlDBRes.Type)
+
+	value.PushTypedUserData(l, db, dbTypeName)
+	l.Push(lua.LNil)
+	return 2
 }
 
-// dbType returns the database type (kind)
 func dbType(l *lua.LState) int {
-	// Check and get database
-	db := CheckDB(l)
+	db := checkDB(l)
 	if db == nil {
 		return 0
 	}
-
-	// Map the resource type to our constant type
 	mappedType := mapDBTypeFromResourceKind(db.dbType)
-
-	// Return the database type as a string
 	l.Push(lua.LString(mappedType))
 	l.Push(lua.LNil)
 	return 2
 }
 
-// dbGet retrieves a database resource by Source
-func dbGet(l *lua.LState, log *zap.Logger) int {
-	// Get resource Source
-	id := l.CheckString(1)
-	if id == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("resource Source is required"))
-		return 2
-	}
-
-	// Add security check for accessing the database
-	if !security.IsAllowed(l.Context(), "db.get", id, nil) {
-		l.RaiseError("not allowed to access database: %s", id)
-		return 0
-	}
-
-	uw := engine.GetUnitOfWork(l.Context())
-	if uw == nil {
-		l.RaiseError("no unit of work found in context")
-		return 0
-	}
-
-	reg := resource.GetResources(uw.Context())
-	if reg == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("resource registry not found"))
-		return 2
-	}
-
-	// Parse resource Source
-	resID := registry.ParseID(id)
-
-	// Acquire resource
-	res, err := reg.Acquire(uw.Context(), resID, resource.ModeNormal)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to acquire resource: %v", err)))
-		return 2
-	}
-
-	// Get DB instance
-	dbRes, err := res.Get()
-	if err != nil {
-		res.Release()
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("failed to get resource: %v", err)))
-		return 2
-	}
-
-	// Check if it's a DBResource
-	sqlRes, ok := dbRes.(sqlres.DBResource)
-	if !ok {
-		res.Release()
-
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("resource is not a database: %T", dbRes)))
-		return 2
-	}
-
-	// Create and wrap DB with UoW integration
-	db := NewDB(uw, res, sqlRes.DB, sqlRes.Type, log)
-
-	// Create userdata
-	ud := WrapDB(l, db)
-	l.Push(ud)
-	l.Push(lua.LNil)
-	return 2
-}
-
-// dbQuery executes a query and returns rows
 func dbQuery(l *lua.LState) int {
-	// Check and get database
-	db := CheckDB(l)
+	db := checkDB(l)
 	if db == nil {
 		return 0
 	}
-
-	// Get query and parameters
 	query := l.CheckString(2)
-	params, err := sqlutil.CheckParams(l, 3)
+	params, err := checkParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "check params").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
-	var rows *sql.Rows
+	yield := AcquireQueryYield()
+	yield.DB = db.db
+	yield.Query = query
+	yield.Params = params
+	l.Push(yield)
+	return -1
+}
 
-	// Serve query with appropriate parameter style
-	switch p := params.(type) {
-	case nil:
-		rows, err = db.db.Query(query)
-	case []interface{}:
-		rows, err = db.db.Query(query, p...)
-	case map[string]interface{}:
-		// Support for named parameters (placeholder for future implementation)
-		l.Push(lua.LNil)
-		l.Push(lua.LString("named parameters not yet implemented"))
-		return 2
-	default:
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("unsupported parameter type: %T", params)))
-		return 2
+func dbExecute(l *lua.LState) int {
+	db := checkDB(l)
+	if db == nil {
+		return 0
 	}
-
+	query := l.CheckString(2)
+	params, err := checkParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "check params").WithKind(lua.Invalid).WithRetryable(false))
 		return 2
 	}
 
-	var resultTable *lua.LTable
-	// Use a named return parameter to capture errors from both RowsToTable and rows.close
-	err = func() error {
-		defer func() {
-			closeErr := rows.Close()
-			if closeErr != nil {
-				db.log.Error("failed to close rows", zap.Error(closeErr))
-				// If we don't already have an error, use the close error
-				if err == nil {
-					err = closeErr
+	yield := AcquireExecuteYield()
+	yield.DB = db.db
+	yield.Query = query
+	yield.Params = params
+	l.Push(yield)
+	return -1
+}
+
+func dbPrepare(l *lua.LState) int {
+	db := checkDB(l)
+	if db == nil {
+		return 0
+	}
+	ctx := l.Context()
+	query := l.CheckString(2)
+
+	yield := AcquirePrepareYield()
+	yield.DB = db.db
+	yield.Query = query
+	yield.WrapStmt = func(stmt *sql.Stmt) lua.LValue {
+		return NewStatementUserData(l, NewStatement(ctx, stmt, db))
+	}
+
+	l.Push(yield)
+	return -1
+}
+
+func dbBegin(l *lua.LState) int {
+	db := checkDB(l)
+	if db == nil {
+		return 0
+	}
+	ctx := l.Context()
+	var txOptions *sql.TxOptions
+
+	if l.GetTop() >= 2 && l.Get(2).Type() == lua.LTTable {
+		optsTable := l.CheckTable(2)
+		txOptions = &sql.TxOptions{}
+
+		if readOnlyVal := optsTable.RawGet(lua.LString("read_only")); readOnlyVal != lua.LNil {
+			if readOnlyBool, ok := readOnlyVal.(lua.LBool); ok {
+				txOptions.ReadOnly = bool(readOnlyBool)
+			}
+		}
+
+		if isolationVal := optsTable.RawGet(lua.LString("isolation")); isolationVal != lua.LNil {
+			if isolationStr, ok := isolationVal.(lua.LString); ok {
+				switch string(isolationStr) {
+				case IsolationDefault:
+					txOptions.Isolation = sql.LevelDefault
+				case IsolationReadUncommitted:
+					txOptions.Isolation = sql.LevelReadUncommitted
+				case IsolationReadCommitted:
+					txOptions.Isolation = sql.LevelReadCommitted
+				case IsolationWriteCommitted:
+					txOptions.Isolation = sql.LevelWriteCommitted
+				case IsolationRepeatableRead:
+					txOptions.Isolation = sql.LevelRepeatableRead
+				case IsolationSerializable:
+					txOptions.Isolation = sql.LevelSerializable
+				default:
+					l.Push(lua.LNil)
+					l.Push(lua.LString(fmt.Sprintf("invalid isolation level: %s", string(isolationStr))))
+					return 2
 				}
 			}
-		}()
-
-		// Convert rows to Lua table
-		var tableErr error
-		resultTable, tableErr = sqlutil.RowsToTable(l, rows)
-		return tableErr
-	}()
-
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		}
 	}
 
-	l.Push(resultTable)
-	l.Push(lua.LNil)
-	return 2
+	yield := AcquireBeginYield()
+	yield.DB = db.db
+	yield.Options = txOptions
+	yield.WrapTx = func(tx *sql.Tx) lua.LValue {
+		return NewTransactionUserData(l, NewTransaction(ctx, tx, db))
+	}
+
+	l.Push(yield)
+	return -1
 }
 
-// dbExecute executes a statement that doesn't return rows
-func dbExecute(l *lua.LState) int {
-	// Check and get database
-	db := CheckDB(l)
-	if db == nil {
-		return 0
-	}
-
-	// Get query and parameters
-	query := l.CheckString(2)
-	params, err := sqlutil.CheckParams(l, 3)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	var result sql.Result
-
-	// Serve with appropriate parameter style
-	switch p := params.(type) {
-	case nil:
-		result, err = db.db.Exec(query)
-	case []interface{}:
-		result, err = db.db.Exec(query, p...)
-	case map[string]interface{}:
-		// Support for named parameters (placeholder for future implementation)
-		l.Push(lua.LNil)
-		l.Push(lua.LString("named parameters not yet implemented"))
-		return 2
-	default:
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("unsupported parameter type: %T", params)))
-		return 2
-	}
-
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	// Convert result to Lua table
-	resultTable := sqlutil.ResultToTable(l, result)
-
-	l.Push(resultTable)
-	l.Push(lua.LNil)
-	return 2
-}
-
-// dbPrepare prepares a statement for repeated execution
-func dbPrepare(l *lua.LState) int {
-	// Check and get database
-	db := CheckDB(l)
-	if db == nil {
-		return 0
-	}
-
-	uw := engine.GetUnitOfWork(l.Context())
-	if uw == nil {
-		l.RaiseError("no unit of work found in context")
-		return 0
-	}
-
-	// Get query
-	query := l.CheckString(2)
-
-	// Prepare statement
-	stmt, err := db.db.Prepare(query)
-	if err != nil {
-		// Return the error to Lua instead of failing the test
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	// Create statement wrapper using the constructor
-	stmtObj := NewStatement(uw, stmt, db, db.log)
-
-	// Create userdata
-	ud := WrapStatement(l, stmtObj)
-
-	l.Push(ud)
-	l.Push(lua.LNil)
-	return 2
-}
-
-// dbBegin starts a new transaction
-func dbBegin(l *lua.LState) int {
-	// Check and get database
-	db := CheckDB(l)
-	if db == nil {
-		return 0
-	}
-
-	uw := engine.GetUnitOfWork(l.Context())
-	if uw == nil {
-		l.RaiseError("no unit of work found in context")
-		return 0
-	}
-
-	// Begin transaction
-	tx, err := db.db.Begin()
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	// Create transaction wrapper using the constructor
-	txObj := NewTransaction(uw, tx, db, db.log)
-
-	// Create userdata
-	ud := WrapTransaction(l, txObj)
-
-	l.Push(ud)
-	l.Push(lua.LNil)
-	return 2
-}
-
-// dbRelease releases a database resource
-// This is a direct operation without coroutine since resource release is fast
 func dbRelease(l *lua.LState) int {
-	// Check and get database
-	db := CheckDB(l)
+	db := checkDB(l)
 	if db == nil {
 		return 0
 	}
-
-	// Release the resource directly
-	if db.resource != nil {
+	if !db.released && db.resource != nil {
 		db.resource.Release()
 		db.resource = nil
-	}
-
-	// Cancel the cleanup function in UoW (don't execute it, just remove it)
-	if db.onRelease != nil {
-		db.onRelease()
-		db.onRelease = nil
+		db.released = true
+		if db.cancelCleanup != nil {
+			db.cancelCleanup()
+			db.cancelCleanup = nil
+		}
 	}
 
 	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+	return 2
+}
+
+func dbStats(l *lua.LState) int {
+	db := checkDB(l)
+	if db == nil {
+		return 0
+	}
+	stats := db.db.Stats()
+
+	statsTable := l.CreateTable(0, 9)
+	statsTable.RawSetString("max_open_connections", lua.LNumber(stats.MaxOpenConnections))
+	statsTable.RawSetString("open_connections", lua.LNumber(stats.OpenConnections))
+	statsTable.RawSetString("in_use", lua.LNumber(stats.InUse))
+	statsTable.RawSetString("idle", lua.LNumber(stats.Idle))
+	statsTable.RawSetString("wait_count", lua.LNumber(stats.WaitCount))
+	statsTable.RawSetString("wait_duration", lua.LString(stats.WaitDuration.String()))
+	statsTable.RawSetString("max_idle_closed", lua.LNumber(stats.MaxIdleClosed))
+	statsTable.RawSetString("max_idle_time_closed", lua.LNumber(stats.MaxIdleTimeClosed))
+	statsTable.RawSetString("max_lifetime_closed", lua.LNumber(stats.MaxLifetimeClosed))
+	statsTable.Immutable = true
+
+	l.Push(statsTable)
 	l.Push(lua.LNil)
 	return 2
 }

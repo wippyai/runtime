@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/ponyruntime/pony/api/logs"
+	api "github.com/wippyai/runtime/api/logs"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -21,7 +21,11 @@ func setupManagerTest(t *testing.T) (*Manager, *eventbus.Bus) {
 	logger := zap.NewNop()
 
 	core := NewCore(downstream, bus)
-	manager := NewManager(bus, core, logger, zapcore.InfoLevel)
+	manager := NewManager(bus, core, logger, api.Config{
+		PropagateDownstream: true,
+		StreamToEvents:      true,
+		MinLevel:            zapcore.InfoLevel,
+	})
 
 	t.Cleanup(func() {
 		_ = manager.Stop()
@@ -42,8 +46,8 @@ func TestManager_StartStop(t *testing.T) {
 
 	// Verify initial config
 	cfg := manager.GetConfig()
-	require.True(t, cfg.PropagateDownstream, "PropagateDownstream should be true by default")
-	require.False(t, cfg.StreamToEvents, "StreamToEvents should be false by default")
+	require.True(t, cfg.PropagateDownstream, "PropagateDownstream should be true")
+	require.True(t, cfg.StreamToEvents, "StreamToEvents should be true")
 	require.Equal(t, zapcore.InfoLevel, cfg.MinLevel, "Default level should be Info")
 
 	err = manager.Stop()
@@ -84,9 +88,9 @@ func TestManager_ConfigFlow(t *testing.T) {
 	defer cancel()
 
 	require.NoError(t, manager.Start(ctx))
-	cfgm := NewConfigurationManager()
+	cfgm := NewConfigurator(bus, zap.NewNop())
 	// Spawn initial config using helper
-	initialConfig, err := cfgm.GetConfig(ctx, bus)
+	initialConfig, err := cfgm.GetConfig(ctx)
 	require.NoError(t, err)
 	require.Equal(t, manager.GetConfig(), initialConfig)
 
@@ -96,7 +100,7 @@ func TestManager_ConfigFlow(t *testing.T) {
 		StreamToEvents:      true,
 		MinLevel:            zapcore.WarnLevel,
 	}
-	err = cfgm.SetConfig(ctx, bus, newConfig)
+	err = cfgm.SetConfig(ctx, newConfig)
 	require.NoError(t, err)
 
 	// Verify config was updated in manager
@@ -104,7 +108,7 @@ func TestManager_ConfigFlow(t *testing.T) {
 	require.Equal(t, newConfig, managerConfig)
 
 	// Spawn config again using helper
-	updatedConfig, err := cfgm.GetConfig(ctx, bus)
+	updatedConfig, err := cfgm.GetConfig(ctx)
 	require.NoError(t, err)
 	require.Equal(t, newConfig, updatedConfig)
 }
@@ -118,8 +122,8 @@ func TestManager_InvalidConfigChanges(t *testing.T) {
 	require.NoError(t, manager.Start(ctx))
 
 	tests := []struct {
-		name      string
 		sendEvent event.Event
+		name      string
 	}{
 		{
 			name: "invalid data type",
@@ -189,16 +193,16 @@ func TestManager_MultipleConfigUpdates(t *testing.T) {
 		},
 	}
 
-	cfgm := NewConfigurationManager()
+	cfgm := NewConfigurator(bus, zap.NewNop())
 
 	for i, cfg := range configs {
-		err := cfgm.SetConfig(ctx, bus, cfg)
+		err := cfgm.SetConfig(ctx, cfg)
 		require.NoError(t, err, "Failed to set config %d", i)
 
 		managerConfig := manager.GetConfig()
 		require.Equal(t, cfg, managerConfig, "Manager config should match set config %d", i)
 
-		fetchedConfig, err := cfgm.GetConfig(ctx, bus)
+		fetchedConfig, err := cfgm.GetConfig(ctx)
 		require.NoError(t, err, "Failed to get config %d", i)
 		require.Equal(t, cfg, fetchedConfig, "Fetched config should match set config %d", i)
 	}
@@ -214,12 +218,188 @@ func TestManager_StopBehavior(t *testing.T) {
 
 	// close the manager
 	require.NoError(t, manager.Stop())
-	cfgm := NewConfigurationManager()
+	cfgm := NewConfigurator(bus, zap.NewNop())
 
 	// Verify get/set operations fail after stop
-	_, err := cfgm.GetConfig(ctx, bus)
+	_, err := cfgm.GetConfig(ctx)
 	require.Error(t, err, "GetConfig should fail after manager is stopped")
 
-	err = cfgm.SetConfig(ctx, bus, api.Config{})
+	err = cfgm.SetConfig(ctx, api.Config{})
 	require.Error(t, err, "SetConfig should fail after manager is stopped")
+}
+
+func TestManager_EventHandling(t *testing.T) {
+	manager, bus := setupManagerTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	require.NoError(t, manager.Start(ctx))
+
+	// Set initial config
+	initialConfig := api.Config{
+		PropagateDownstream: true,
+		StreamToEvents:      false,
+		MinLevel:            0,
+	}
+	manager.handleConfigEvent(ctx, event.Event{
+		System: api.System,
+		Kind:   api.ConfigState,
+		Data:   initialConfig,
+	})
+
+	t.Run("unknown_event_kind", func(_ *testing.T) {
+		bus.Send(ctx, event.Event{
+			System: api.System,
+			Kind:   "unknown.kind",
+			Path:   "test",
+		})
+		time.Sleep(50 * time.Millisecond) // Give manager time to process
+	})
+
+	t.Run("wrong_system_for_get_config", func(_ *testing.T) {
+		bus.Send(ctx, event.Event{
+			System: "wrong.system",
+			Kind:   api.GetConfig,
+			Path:   "test",
+		})
+		time.Sleep(50 * time.Millisecond) // Give manager time to process
+	})
+
+	t.Run("valid_get_config", func(t *testing.T) {
+		// Create a channel to receive the response
+		responseCh := make(chan event.Event, 1)
+		subID, err := bus.SubscribeP(context.Background(), api.System, api.ConfigState, responseCh)
+		require.NoError(t, err)
+		defer bus.Unsubscribe(context.Background(), subID)
+
+		// Send get config request
+		bus.Send(ctx, event.Event{
+			System: api.System,
+			Kind:   api.GetConfig,
+			Path:   "test",
+		})
+
+		// Wait for response
+		select {
+		case evt := <-responseCh:
+			require.Equal(t, api.System, evt.System)
+			require.Equal(t, api.ConfigState, evt.Kind)
+			require.NotNil(t, evt.Data)
+			config, ok := evt.Data.(api.Config)
+			require.True(t, ok)
+			require.Equal(t, initialConfig, config)
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for config response")
+		}
+	})
+}
+
+func TestManager_ConfigValidation(t *testing.T) {
+	manager, bus := setupManagerTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	require.NoError(t, manager.Start(ctx))
+
+	tests := []struct {
+		config    interface{}
+		name      string
+		expectErr bool
+	}{
+		{
+			name:      "nil config",
+			config:    nil,
+			expectErr: true,
+		},
+		{
+			name:      "invalid type",
+			config:    "not a config",
+			expectErr: true,
+		},
+		{
+			name: "valid config",
+			config: api.Config{
+				PropagateDownstream: true,
+				StreamToEvents:      true,
+				MinLevel:            zapcore.InfoLevel,
+			},
+			expectErr: false,
+		},
+		{
+			name: "same config (no change)",
+			config: api.Config{
+				PropagateDownstream: true,
+				StreamToEvents:      false,
+				MinLevel:            zapcore.InfoLevel,
+			},
+			expectErr: false,
+		},
+	}
+
+	initialConfig := manager.GetConfig()
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bus.Send(ctx, event.Event{
+				System: api.System,
+				Kind:   api.SetConfig,
+				Path:   "test",
+				Data:   tt.config,
+			})
+
+			time.Sleep(50 * time.Millisecond) // Give manager time to process
+
+			currentConfig := manager.GetConfig()
+			if tt.expectErr {
+				require.Equal(t, initialConfig, currentConfig, "Config should remain unchanged after invalid update")
+			} else if tt.config != nil {
+				cfg := tt.config.(api.Config)
+				if cfg != initialConfig {
+					require.Equal(t, cfg, currentConfig, "Config should be updated with valid config")
+				} else {
+					require.Equal(t, initialConfig, currentConfig, "Config should remain unchanged for same config")
+				}
+			}
+		})
+	}
+}
+
+func TestManager_GetConfigConcurrent(t *testing.T) {
+	manager, bus := setupManagerTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	require.NoError(t, manager.Start(ctx))
+
+	// Start multiple goroutines to get config concurrently
+	const numGoroutines = 10
+	done := make(chan struct{})
+
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer func() { done <- struct{}{} }()
+
+			// Send get config request
+			bus.Send(ctx, event.Event{
+				System: api.System,
+				Kind:   api.GetConfig,
+				Path:   "test",
+			})
+
+			// Also call GetConfig directly
+			_ = manager.GetConfig()
+		}()
+	}
+
+	// Wait for all goroutines to complete
+	for i := 0; i < numGoroutines; i++ {
+		<-done
+	}
+
+	// Verify manager is still in a valid state
+	cfg := manager.GetConfig()
+	require.NotNil(t, cfg, "Config should not be nil after concurrent access")
 }

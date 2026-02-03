@@ -7,72 +7,77 @@ import (
 	"os"
 	"sync"
 
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
+	"github.com/wippyai/runtime/api/runtime/resource"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 
 	treesitter "github.com/tree-sitter/go-tree-sitter"
-	lua "github.com/yuin/gopher-lua"
+	lua "github.com/wippyai/go-lua"
 )
+
+const typeTree = "treesitter.Tree"
+
+// pushTree pushes a Tree userdata to the stack
+func pushTree(ctx context.Context, l *lua.LState, tree *treesitter.Tree, source string) {
+	value.PushTypedUserData(l, NewTree(ctx, tree, source), typeTree)
+}
+
+// pushLanguageUD pushes a Language userdata to the stack
+func pushLanguageUD(l *lua.LState, lang *treesitter.Language) {
+	value.PushTypedUserData(l, &LanguageWrapper{lang: lang}, typeLanguage)
+}
 
 // TreeWrapper wraps a tree-sitter Tree for Lua integration
 type TreeWrapper struct {
-	tree    *treesitter.Tree
-	source  string // todo: change to byte
-	closed  bool
-	release context.CancelFunc // Cancel function from UoW
+	tree          *treesitter.Tree
+	cancelCleanup func()
+	source        string
+	closed        bool
 }
 
-// NewTree creates a new tree wrapper with proper UoW integration
-func NewTree(uw engine.UnitOfWork, tree *treesitter.Tree, source string) *TreeWrapper {
+// NewTree creates a new tree wrapper with proper resource store integration
+func NewTree(ctx context.Context, tree *treesitter.Tree, source string) *TreeWrapper {
 	wrapper := &TreeWrapper{
 		tree:   tree,
 		source: source,
 	}
 
-	// Register cleanup with UoW, storing the cancel function
-	wrapper.release = uw.AddCleanup(func() error {
-		if wrapper.tree != nil && !wrapper.closed {
-			wrapper.tree.Close()
-			wrapper.tree = nil
-			wrapper.closed = true
-		}
-		return nil
-	})
+	// Register cleanup with resource store
+	store := resource.GetStore(ctx)
+	if store != nil {
+		wrapper.cancelCleanup = store.AddCleanup(func() error {
+			if wrapper.tree != nil && !wrapper.closed {
+				wrapper.tree.Close()
+				wrapper.tree = nil
+				wrapper.closed = true
+			}
+			return nil
+		})
+	}
 
 	return wrapper
 }
 
-// Close marks the tree as closed and cancels the UoW cleanup
+// Close marks the tree as closed and cancels the cleanup
 func (t *TreeWrapper) Close() {
-	if !t.closed && t.release != nil {
+	if !t.closed && t.cancelCleanup != nil {
 		t.closed = true
-		t.release() // Remove cleanup from UoW but don't execute it
-		t.release = nil
+		t.cancelCleanup()
+		t.cancelCleanup = nil
 	}
-}
-
-// Register the Tree type to Lua
-func registerTree(l *lua.LState) {
-	methods := map[string]lua.LGFunction{
-		"root_node":             treeRootNode,
-		"root_node_with_offset": treeRootNodeWithOffset,
-		"language":              treeLanguage,
-		"copy":                  treeCopy,
-		"walk":                  treeWalk,
-		"edit":                  treeEdit,
-		"close":                 treeClose,
-		"changed_ranges":        treeChangedRanges,
-		"included_ranges":       treeIncludedRanges,
-		"dot_graph":             treePrintDotGraph,
-	}
-	value.RegisterMethods(l, "treesitter.Tree", methods)
 }
 
 func treeRootNode(l *lua.LState) int {
 	tree := checkTree(l)
-	if tree.tree == nil {
-		l.RaiseError("tree is closed")
+	if tree == nil {
 		return 0
+	}
+	if tree.tree == nil {
+		err := lua.NewLuaError(l, "tree is closed").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
 	root := tree.tree.RootNode()
@@ -81,30 +86,31 @@ func treeRootNode(l *lua.LState) int {
 		return 1
 	}
 
-	// Spawn and push new Node userdata
-	ud := l.NewUserData()
-	ud.Value = &NodeWrapper{node: root, source: &tree.source}
-	ud.Metatable = l.NewTypeMetatable("treesitter.Node")
-
-	l.Push(ud)
+	pushNode(l, root, &tree.source)
 	return 1
 }
 
 // RootNodeWithOffset implementation
 func treeRootNodeWithOffset(l *lua.LState) int {
 	tree := checkTree(l)
-	if tree.tree == nil {
-		l.RaiseError("tree is closed")
+	if tree == nil {
 		return 0
 	}
+	if tree.tree == nil {
+		err := lua.NewLuaError(l, "tree is closed").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
+	}
 
-	// Spawn offset parameters
 	offsetBytes := int(l.CheckNumber(2))
 	offsetTable := l.CheckTable(3)
 
 	offsetPoint := treesitter.Point{
-		Row:    uint(offsetTable.RawGetString("row").(lua.LNumber)),
-		Column: uint(offsetTable.RawGetString("column").(lua.LNumber)),
+		Row:    toUint(offsetTable.RawGetString("row")),
+		Column: toUint(offsetTable.RawGetString("column")),
 	}
 
 	root := tree.tree.RootNodeWithOffset(offsetBytes, offsetPoint)
@@ -113,20 +119,23 @@ func treeRootNodeWithOffset(l *lua.LState) int {
 		return 1
 	}
 
-	ud := l.NewUserData()
-	ud.Value = &NodeWrapper{node: root, source: &tree.source}
-	ud.Metatable = l.NewTypeMetatable("treesitter.Node")
-
-	l.Push(ud)
+	pushNode(l, root, &tree.source)
 	return 1
 }
 
 // Language implementation
 func treeLanguage(l *lua.LState) int {
 	tree := checkTree(l)
-	if tree.tree == nil {
-		l.RaiseError("tree is closed")
+	if tree == nil {
 		return 0
+	}
+	if tree.tree == nil {
+		err := lua.NewLuaError(l, "tree is closed").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
 	lang := tree.tree.Language()
@@ -135,20 +144,22 @@ func treeLanguage(l *lua.LState) int {
 		return 1
 	}
 
-	// Spawn and return Language userdata
-	ud := l.NewUserData()
-	ud.Value = &LanguageWrapper{lang: lang}
-	ud.Metatable = l.NewTypeMetatable("treesitter.Language")
-
-	l.Push(ud)
+	pushLanguageUD(l, lang)
 	return 1
 }
 
 func treeCopy(l *lua.LState) int {
 	tree := checkTree(l)
-	if tree.tree == nil {
-		l.RaiseError("tree is closed")
+	if tree == nil {
 		return 0
+	}
+	if tree.tree == nil {
+		err := lua.NewLuaError(l, "tree is closed").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
 	copied := tree.tree.Clone()
@@ -157,19 +168,32 @@ func treeCopy(l *lua.LState) int {
 		return 1
 	}
 
-	ud := l.NewUserData()
-	ud.Value = &TreeWrapper{tree: copied, source: tree.source}
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Tree")
+	ctx := l.Context()
+	if ctx == nil {
+		err := lua.NewLuaError(l, "no context found").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
+	}
 
-	l.Push(ud)
+	pushTree(ctx, l, copied, tree.source)
 	return 1
 }
 
 func treeWalk(l *lua.LState) int {
 	tree := checkTree(l)
-	if tree.tree == nil {
-		l.RaiseError("tree is closed")
+	if tree == nil {
 		return 0
+	}
+	if tree.tree == nil {
+		err := lua.NewLuaError(l, "tree is closed").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
 	cursor := tree.tree.Walk()
@@ -178,23 +202,23 @@ func treeWalk(l *lua.LState) int {
 		return 1
 	}
 
-	uw := engine.GetUnitOfWork(l.Context())
-	if uw == nil {
-		l.RaiseError("unit of work is not found")
-		return 1
+	ctx := l.Context()
+	if ctx == nil {
+		err := lua.NewLuaError(l, "no context found").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
 	}
 
-	cw := NewCursor(uw, cursor, &tree.source)
+	cw := NewCursor(ctx, cursor, &tree.source)
 	if cw == nil {
 		l.Push(lua.LNil)
 		return 1
 	}
 
-	ud := l.NewUserData()
-	ud.Value = cw
-	ud.Metatable = value.GetTypeMetatable(l, "treesitter.Cursor")
-
-	l.Push(ud)
+	pushCursor(l, cw)
 	return 1
 }
 
@@ -206,70 +230,124 @@ func (t *TreeWrapper) edit(edit *treesitter.InputEdit) error {
 	return nil
 }
 
+// toNumber converts LValue to float64, handling both LNumber and LInteger
+func toNumber(v lua.LValue) (float64, bool) {
+	switch n := v.(type) {
+	case lua.LNumber:
+		return float64(n), true
+	case lua.LInteger:
+		return float64(n), true
+	default:
+		return 0, false
+	}
+}
+
 // AddCleanup Lua binding
 func treeEdit(l *lua.LState) int {
 	tree := checkTree(l)
-	if tree.tree == nil {
-		l.RaiseError("tree is closed")
+	if tree == nil {
 		return 0
+	}
+	if tree.tree == nil {
+		err := lua.NewLuaError(l, "tree is closed").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
+		l.Push(lua.LFalse)
+		l.Push(err)
+		return 2
 	}
 
 	editTable := l.CheckTable(2)
 
+	// Helper for validation errors
+	validationErr := func(msg string) int {
+		err := lua.NewLuaError(l, msg).
+			WithKind(lua.Invalid).
+			WithRetryable(false)
+		l.Push(lua.LFalse)
+		l.Push(err)
+		return 2
+	}
+
 	// Validate edit parameters
-	startByte := editTable.RawGetString("start_byte").(lua.LNumber)
-	oldEndByte := editTable.RawGetString("old_end_byte").(lua.LNumber)
-	newEndByte := editTable.RawGetString("new_end_byte").(lua.LNumber)
+	startByteVal, ok := toNumber(editTable.RawGetString("start_byte"))
+	if !ok {
+		return validationErr("start_byte must be a number")
+	}
+	oldEndByteVal, ok := toNumber(editTable.RawGetString("old_end_byte"))
+	if !ok {
+		return validationErr("old_end_byte must be a number")
+	}
+	newEndByteVal, ok := toNumber(editTable.RawGetString("new_end_byte"))
+	if !ok {
+		return validationErr("new_end_byte must be a number")
+	}
 
 	// Basic validation of byte positions
-	if startByte < 0 || oldEndByte < startByte || newEndByte < 0 {
-		l.Push(lua.LFalse)
-		l.Push(lua.LString("invalid byte position"))
-		return 2
+	if startByteVal < 0 || oldEndByteVal < startByteVal || newEndByteVal < 0 {
+		return validationErr("invalid byte position")
 	}
 
 	// Validate row/column positions
-	// TODO: potentially dangerous type assertion, todo: fix it!
-	startRow := editTable.RawGetString("start_row").(lua.LNumber)
-	startCol := editTable.RawGetString("start_column").(lua.LNumber)
-	oldEndRow := editTable.RawGetString("old_end_row").(lua.LNumber)
-	oldEndCol := editTable.RawGetString("old_end_column").(lua.LNumber)
-	newEndRow := editTable.RawGetString("new_end_row").(lua.LNumber)
-	newEndCol := editTable.RawGetString("new_end_column").(lua.LNumber)
+	startRowVal, ok := toNumber(editTable.RawGetString("start_row"))
+	if !ok {
+		return validationErr("start_row must be a number")
+	}
+	startColVal, ok := toNumber(editTable.RawGetString("start_column"))
+	if !ok {
+		return validationErr("start_column must be a number")
+	}
+	oldEndRowVal, ok := toNumber(editTable.RawGetString("old_end_row"))
+	if !ok {
+		return validationErr("old_end_row must be a number")
+	}
+	oldEndColVal, ok := toNumber(editTable.RawGetString("old_end_column"))
+	if !ok {
+		return validationErr("old_end_column must be a number")
+	}
+	newEndRowVal, ok := toNumber(editTable.RawGetString("new_end_row"))
+	if !ok {
+		return validationErr("new_end_row must be a number")
+	}
+	newEndColVal, ok := toNumber(editTable.RawGetString("new_end_column"))
+	if !ok {
+		return validationErr("new_end_column must be a number")
+	}
 
-	if startRow < 0 || startCol < 0 || oldEndRow < startRow ||
-		(oldEndRow == startRow && oldEndCol < startCol) ||
-		newEndRow < 0 || newEndCol < 0 {
-		l.Push(lua.LFalse)
-		l.Push(lua.LString("invalid point position"))
-		return 2
+	if startRowVal < 0 || startColVal < 0 || oldEndRowVal < startRowVal ||
+		(oldEndRowVal == startRowVal && oldEndColVal < startColVal) ||
+		newEndRowVal < 0 || newEndColVal < 0 {
+		return validationErr("invalid point position")
 	}
 
 	startPoint := treesitter.Point{
-		Row:    uint(startRow),
-		Column: uint(startCol),
+		Row:    uint(startRowVal),
+		Column: uint(startColVal),
 	}
 	oldEndPoint := treesitter.Point{
-		Row:    uint(oldEndRow),
-		Column: uint(oldEndCol),
+		Row:    uint(oldEndRowVal),
+		Column: uint(oldEndColVal),
 	}
 	newEndPoint := treesitter.Point{
-		Row:    uint(newEndRow),
-		Column: uint(newEndCol),
+		Row:    uint(newEndRowVal),
+		Column: uint(newEndColVal),
 	}
 
 	edit := &treesitter.InputEdit{
-		StartByte:      uint(startByte),
-		OldEndByte:     uint(oldEndByte),
-		NewEndByte:     uint(newEndByte),
+		StartByte:      uint(startByteVal),
+		OldEndByte:     uint(oldEndByteVal),
+		NewEndByte:     uint(newEndByteVal),
 		StartPosition:  startPoint,
 		OldEndPosition: oldEndPoint,
 		NewEndPosition: newEndPoint,
 	}
 
-	if err := tree.edit(edit); err != nil {
+	if editErr := tree.edit(edit); editErr != nil {
+		err := lua.WrapErrorWithLua(l, editErr, "edit failed").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LFalse)
-		l.Push(lua.LString(err.Error()))
+		l.Push(err)
 		return 2
 	}
 
@@ -280,6 +358,9 @@ func treeEdit(l *lua.LState) int {
 // ChangedRanges implementation
 func treeChangedRanges(l *lua.LState) int {
 	tree := checkTree(l)
+	if tree == nil {
+		return 0
+	}
 	if tree.tree == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -321,6 +402,9 @@ func treeChangedRanges(l *lua.LState) int {
 // IncludedRanges implementation
 func treeIncludedRanges(l *lua.LState) int {
 	tree := checkTree(l)
+	if tree == nil {
+		return 0
+	}
 	if tree.tree == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -355,17 +439,26 @@ func treeIncludedRanges(l *lua.LState) int {
 // Print a graph of the tree and return it as a string
 func treePrintDotGraph(l *lua.LState) int {
 	tree := checkTree(l)
+	if tree == nil {
+		return 0
+	}
 	if tree.tree == nil {
+		err := lua.NewLuaError(l, "tree is nil").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("tree is nil"))
+		l.Push(err)
 		return 2
 	}
 
 	// Spawn a pipe
-	r, w, err := os.Pipe()
-	if err != nil {
+	r, w, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		err := lua.WrapErrorWithLua(l, pipeErr, "failed to create pipe").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("failed to create pipe: " + err.Error()))
+		l.Push(err)
 		return 2
 	}
 	defer func() { _ = r.Close(); _ = w.Close() }()
@@ -377,7 +470,7 @@ func treePrintDotGraph(l *lua.LState) int {
 	// Read from the pipe in a goroutine
 	var buf bytes.Buffer
 	var readErr error
-	go func() {
+	go func() { // todo: WTF
 		defer wg.Done()
 		_, readErr = buf.ReadFrom(r)
 	}()
@@ -390,8 +483,11 @@ func treePrintDotGraph(l *lua.LState) int {
 	wg.Wait()
 
 	if readErr != nil {
+		err := lua.WrapErrorWithLua(l, readErr, "failed to read DOT graph").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("failed to read DOT graph: " + readErr.Error()))
+		l.Push(err)
 		return 2
 	}
 
@@ -401,8 +497,10 @@ func treePrintDotGraph(l *lua.LState) int {
 }
 
 func treeClose(l *lua.LState) int {
-	tree := checkTree(l)
-	tree.Close()
+	ud := l.CheckUserData(1)
+	if v, ok := ud.Value.(*TreeWrapper); ok {
+		v.Close()
+	}
 	return 0
 }
 

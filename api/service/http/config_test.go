@@ -1,21 +1,25 @@
+// Package http provides HTTP service configuration.
 package http
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/supervisor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/supervisor"
 )
 
 func TestTimeoutConfig_MarshalJSON(t *testing.T) {
 	tests := []struct {
 		name     string
-		config   TimeoutConfig
 		expected string
+		config   TimeoutConfig
 		wantErr  bool
 	}{
 		{
@@ -31,7 +35,7 @@ func TestTimeoutConfig_MarshalJSON(t *testing.T) {
 		{
 			name:     "zero values",
 			config:   TimeoutConfig{},
-			expected: `{"read":"0s","write":"0s","idle":"0s"}`,
+			expected: `{}`,
 			wantErr:  false,
 		},
 		{
@@ -271,7 +275,7 @@ func TestRouterConfig_Validate(t *testing.T) {
 		{
 			name: "valid config",
 			config: RouterConfig{
-				Meta:       registry.Metadata{ServerID: "test-server"},
+				Meta:       attrs.Bag{ServerID: "test-server"},
 				Prefix:     "/api",
 				Middleware: []string{"timeout", "recoverer"},
 				Options: map[string]string{
@@ -291,7 +295,7 @@ func TestRouterConfig_Validate(t *testing.T) {
 		{
 			name: "missing server alias",
 			config: RouterConfig{
-				Meta:   registry.Metadata{},
+				Meta:   attrs.Bag{},
 				Prefix: "/api",
 			},
 			wantErr: true,
@@ -319,58 +323,58 @@ func TestEndpointConfig_Validate(t *testing.T) {
 		{
 			name: "valid config",
 			config: EndpointConfig{
-				Meta: registry.Metadata{
+				Meta: attrs.Bag{
 					RouterID: "test-router", // Added required RouterID
 				},
 				Path:   "/test",
 				Method: "GET",
-				Func:   registry.ID{NS: "default", Name: "test_handler"},
+				Func:   registry.NewID("default", "test_handler"),
 			},
 			wantErr: false,
 		},
 		{
 			name: "empty path",
 			config: EndpointConfig{
-				Meta: registry.Metadata{
+				Meta: attrs.Bag{
 					RouterID: "test-router",
 				},
 				Method: "GET",
-				Func:   registry.ID{NS: "default", Name: "test_handler"},
+				Func:   registry.NewID("default", "test_handler"),
 			},
 			wantErr: true,
 		},
 		{
 			name: "path without leading slash",
 			config: EndpointConfig{
-				Meta: registry.Metadata{
+				Meta: attrs.Bag{
 					RouterID: "test-router",
 				},
 				Path:   "test",
 				Method: "GET",
-				Func:   registry.ID{NS: "default", Name: "test_handler"},
+				Func:   registry.NewID("default", "test_handler"),
 			},
 			wantErr: true,
 		},
 		{
 			name: "empty method",
 			config: EndpointConfig{
-				Meta: registry.Metadata{
+				Meta: attrs.Bag{
 					RouterID: "test-router",
 				},
 				Path: "/test",
-				Func: registry.ID{NS: "default", Name: "test_handler"},
+				Func: registry.NewID("default", "test_handler"),
 			},
 			wantErr: true,
 		},
 		{
 			name: "invalid method",
 			config: EndpointConfig{
-				Meta: registry.Metadata{
+				Meta: attrs.Bag{
 					RouterID: "test-router",
 				},
 				Path:   "/test",
 				Method: "INVALID",
-				Func:   registry.ID{NS: "default", Name: "test_handler"},
+				Func:   registry.NewID("default", "test_handler"),
 			},
 			wantErr: true,
 		},
@@ -379,29 +383,29 @@ func TestEndpointConfig_Validate(t *testing.T) {
 			config: EndpointConfig{
 				Path:   "/test",
 				Method: "GET",
-				Func:   registry.ID{NS: "default", Name: "test_handler"},
+				Func:   registry.NewID("default", "test_handler"),
 			},
 			wantErr: true,
 		},
 		{
 			name: "missing router Source",
 			config: EndpointConfig{
-				Meta:   registry.Metadata{},
+				Meta:   attrs.Bag{},
 				Path:   "/test",
 				Method: "GET",
-				Func:   registry.ID{NS: "default", Name: "test_handler"},
+				Func:   registry.NewID("default", "test_handler"),
 			},
 			wantErr: true,
 		},
 		{
 			name: "empty function name",
 			config: EndpointConfig{
-				Meta: registry.Metadata{
+				Meta: attrs.Bag{
 					RouterID: "test-router",
 				},
 				Path:   "/test",
 				Method: "GET",
-				Func:   registry.ID{NS: "default", Name: ""},
+				Func:   registry.NewID("default", ""),
 			},
 			wantErr: true,
 		},
@@ -488,7 +492,7 @@ func TestServerConfig_Validate_Lifecycle(t *testing.T) {
 			if tt.wantErr {
 				assert.Error(t, err)
 				if err != nil {
-					assert.Contains(t, err.Error(), "timeout must be positive or zero")
+					assert.Contains(t, err.Error(), "must be non-negative")
 				}
 			} else {
 				assert.NoError(t, err)
@@ -559,4 +563,413 @@ func TestServerConfig_UnmarshalJSON(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestServerConfig_SetMeta(t *testing.T) {
+	t.Run("sets meta when nil", func(t *testing.T) {
+		config := &ServerConfig{}
+		meta := attrs.Bag{"key": "value"}
+		config.SetMeta(meta)
+		assert.Equal(t, meta, config.Meta)
+	})
+
+	t.Run("does not override existing meta", func(t *testing.T) {
+		existingMeta := attrs.Bag{"existing": "value"}
+		config := &ServerConfig{Meta: existingMeta}
+		newMeta := attrs.Bag{"new": "value"}
+		config.SetMeta(newMeta)
+		assert.Equal(t, existingMeta, config.Meta)
+	})
+}
+
+func TestRouterConfig_SetMeta(t *testing.T) {
+	t.Run("sets meta when nil", func(t *testing.T) {
+		config := &RouterConfig{}
+		meta := attrs.Bag{"key": "value"}
+		config.SetMeta(meta)
+		assert.Equal(t, meta, config.Meta)
+	})
+
+	t.Run("does not override existing meta", func(t *testing.T) {
+		existingMeta := attrs.Bag{"existing": "value"}
+		config := &RouterConfig{Meta: existingMeta}
+		newMeta := attrs.Bag{"new": "value"}
+		config.SetMeta(newMeta)
+		assert.Equal(t, existingMeta, config.Meta)
+	})
+}
+
+func TestEndpointConfig_SetMeta(t *testing.T) {
+	t.Run("sets meta when nil", func(t *testing.T) {
+		config := &EndpointConfig{}
+		meta := attrs.Bag{"key": "value"}
+		config.SetMeta(meta)
+		assert.Equal(t, meta, config.Meta)
+	})
+
+	t.Run("does not override existing meta", func(t *testing.T) {
+		existingMeta := attrs.Bag{"existing": "value"}
+		config := &EndpointConfig{Meta: existingMeta}
+		newMeta := attrs.Bag{"new": "value"}
+		config.SetMeta(newMeta)
+		assert.Equal(t, existingMeta, config.Meta)
+	})
+}
+
+func TestStaticConfig_SetMeta(t *testing.T) {
+	t.Run("sets meta when nil", func(t *testing.T) {
+		config := &StaticConfig{}
+		meta := attrs.Bag{"key": "value"}
+		config.SetMeta(meta)
+		assert.Equal(t, meta, config.Meta)
+	})
+
+	t.Run("does not override existing meta", func(t *testing.T) {
+		existingMeta := attrs.Bag{"existing": "value"}
+		config := &StaticConfig{Meta: existingMeta}
+		newMeta := attrs.Bag{"new": "value"}
+		config.SetMeta(newMeta)
+		assert.Equal(t, existingMeta, config.Meta)
+	})
+}
+
+func TestStaticConfig_Validate(t *testing.T) {
+	t.Run("valid config", func(t *testing.T) {
+		config := &StaticConfig{
+			Path: "/static",
+			Meta: attrs.Bag{
+				ServerID: "server1",
+			},
+		}
+		err := config.Validate()
+		assert.NoError(t, err)
+	})
+
+	t.Run("empty path", func(t *testing.T) {
+		config := &StaticConfig{
+			Path: "",
+			Meta: attrs.Bag{ServerID: "server1"},
+		}
+		err := config.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "path is required")
+	})
+
+	t.Run("path without leading slash", func(t *testing.T) {
+		config := &StaticConfig{
+			Path: "static",
+			Meta: attrs.Bag{ServerID: "server1"},
+		}
+		err := config.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "must start with /")
+	})
+
+	t.Run("nil metadata", func(t *testing.T) {
+		config := &StaticConfig{
+			Path: "/static",
+			Meta: nil,
+		}
+		err := config.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "metadata is required")
+	})
+
+	t.Run("missing server in metadata", func(t *testing.T) {
+		config := &StaticConfig{
+			Path: "/static",
+			Meta: attrs.Bag{},
+		}
+		err := config.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "server metadata is required")
+	})
+}
+
+func TestStaticConfig_UnmarshalJSON_BackwardCompatibility(t *testing.T) {
+	t.Run("migrate spa from options map (bool)", func(t *testing.T) {
+		jsonData := `{
+			"meta": {},
+			"path": "/app",
+			"fs": {"ns": "fs", "name": "public"},
+			"directory": "/",
+			"options": {
+				"spa": true,
+				"index": "index.html",
+				"cache": "public, max-age=3600"
+			}
+		}`
+
+		var config StaticConfig
+		err := json.Unmarshal([]byte(jsonData), &config)
+		require.NoError(t, err)
+
+		assert.True(t, config.StaticOptions.SPA)
+		assert.Equal(t, "index.html", config.StaticOptions.IndexFile)
+		assert.Equal(t, "public, max-age=3600", config.StaticOptions.CacheControl)
+		assert.Empty(t, config.Options)
+	})
+
+	t.Run("migrate spa from options map (string true)", func(t *testing.T) {
+		jsonData := `{
+			"meta": {},
+			"path": "/app",
+			"fs": {"ns": "fs", "name": "public"},
+			"directory": "/",
+			"options": {
+				"spa": "true"
+			}
+		}`
+
+		var config StaticConfig
+		err := json.Unmarshal([]byte(jsonData), &config)
+		require.NoError(t, err)
+
+		assert.True(t, config.StaticOptions.SPA)
+	})
+
+	t.Run("spa false as string", func(t *testing.T) {
+		jsonData := `{
+			"meta": {},
+			"path": "/app",
+			"fs": {"ns": "fs", "name": "public"},
+			"directory": "/",
+			"options": {
+				"spa": "false"
+			}
+		}`
+
+		var config StaticConfig
+		err := json.Unmarshal([]byte(jsonData), &config)
+		require.NoError(t, err)
+
+		assert.False(t, config.StaticOptions.SPA)
+	})
+
+	t.Run("new format with static_options", func(t *testing.T) {
+		jsonData := `{
+			"meta": {},
+			"path": "/app",
+			"fs": {"ns": "fs", "name": "public"},
+			"directory": "/",
+			"static_options": {
+				"spa": true,
+				"index": "index.html",
+				"cache": "public, max-age=3600"
+			}
+		}`
+
+		var config StaticConfig
+		err := json.Unmarshal([]byte(jsonData), &config)
+		require.NoError(t, err)
+
+		assert.True(t, config.StaticOptions.SPA)
+		assert.Equal(t, "index.html", config.StaticOptions.IndexFile)
+		assert.Equal(t, "public, max-age=3600", config.StaticOptions.CacheControl)
+	})
+
+	t.Run("middleware options preserved", func(t *testing.T) {
+		jsonData := `{
+			"meta": {},
+			"path": "/app",
+			"fs": {"ns": "fs", "name": "public"},
+			"directory": "/",
+			"options": {
+				"cors.allow.origins": "*",
+				"compress.level": "best"
+			}
+		}`
+
+		var config StaticConfig
+		err := json.Unmarshal([]byte(jsonData), &config)
+		require.NoError(t, err)
+
+		assert.Equal(t, "*", config.Options["cors.allow.origins"])
+		assert.Equal(t, "best", config.Options["compress.level"])
+	})
+
+	t.Run("mixed old and new options", func(t *testing.T) {
+		jsonData := `{
+			"meta": {},
+			"path": "/app",
+			"fs": {"ns": "fs", "name": "public"},
+			"directory": "/",
+			"options": {
+				"spa": true,
+				"cors.allow.origins": "*"
+			},
+			"static_options": {
+				"index": "app.html"
+			}
+		}`
+
+		var config StaticConfig
+		err := json.Unmarshal([]byte(jsonData), &config)
+		require.NoError(t, err)
+
+		assert.True(t, config.StaticOptions.SPA)
+		assert.Equal(t, "app.html", config.StaticOptions.IndexFile)
+		assert.Equal(t, "*", config.Options["cors.allow.origins"])
+	})
+
+	t.Run("non-string option values are converted", func(t *testing.T) {
+		jsonData := `{
+			"meta": {},
+			"path": "/app",
+			"fs": {"ns": "fs", "name": "public"},
+			"directory": "/",
+			"options": {
+				"timeout": 30,
+				"enabled": true,
+				"rate": 1.5
+			}
+		}`
+
+		var config StaticConfig
+		err := json.Unmarshal([]byte(jsonData), &config)
+		require.NoError(t, err)
+
+		assert.Equal(t, "30", config.Options["timeout"])
+		assert.Equal(t, "true", config.Options["enabled"])
+		assert.Equal(t, "1.5", config.Options["rate"])
+	})
+}
+
+func TestCommandIDs(t *testing.T) {
+	assert.Equal(t, dispatcher.CommandID(60), Request)
+	assert.Equal(t, dispatcher.CommandID(61), RequestBatch)
+}
+
+func TestRequestCmd(t *testing.T) {
+	cmd := AcquireRequestCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, Request, cmd.CmdID())
+
+	cmd.Method = "POST"
+	cmd.URL = "https://example.com/api"
+	cmd.Headers = map[string]string{"Content-Type": "application/json"}
+	cmd.Body = []byte(`{"test": true}`)
+	cmd.Timeout = 30 * time.Second
+	cmd.UnixSocket = "/var/run/socket.sock"
+	cmd.Query = map[string]string{"q": "test"}
+	cmd.Cookies = map[string]string{"session": "abc"}
+	cmd.Form = map[string]string{"field": "value"}
+	cmd.Files = []FileUpload{{FieldName: "file", FileName: "test.txt", Data: []byte("content")}}
+	cmd.BasicAuthUser = "user"
+	cmd.BasicAuthPass = "pass"
+	cmd.Stream = true
+	cmd.MaxResponseBody = 1024
+	cmd.Release()
+
+	cmd2 := AcquireRequestCmd()
+	assert.Empty(t, cmd2.Method)
+	assert.Empty(t, cmd2.URL)
+	assert.Nil(t, cmd2.Headers)
+	assert.Nil(t, cmd2.Body)
+	assert.Zero(t, cmd2.Timeout)
+	assert.Empty(t, cmd2.UnixSocket)
+	assert.Nil(t, cmd2.Query)
+	assert.Nil(t, cmd2.Cookies)
+	assert.Nil(t, cmd2.Form)
+	assert.Nil(t, cmd2.Files)
+	assert.Empty(t, cmd2.BasicAuthUser)
+	assert.Empty(t, cmd2.BasicAuthPass)
+	assert.False(t, cmd2.Stream)
+	assert.Zero(t, cmd2.MaxResponseBody)
+	cmd2.Release()
+}
+
+func TestRequestBatchCmd(t *testing.T) {
+	cmd := AcquireRequestBatchCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, RequestBatch, cmd.CmdID())
+
+	req := AcquireRequestCmd()
+	req.URL = "https://example.com"
+	cmd.Requests = []*RequestCmd{req}
+	cmd.Release()
+
+	cmd2 := AcquireRequestBatchCmd()
+	assert.Nil(t, cmd2.Requests)
+	cmd2.Release()
+}
+
+func TestResponse(t *testing.T) {
+	resp := Response{
+		StatusCode: 200,
+		Headers:    map[string]string{"Content-Type": "application/json"},
+		Cookies:    map[string]string{"session": "xyz"},
+		Body:       []byte(`{"ok": true}`),
+		URL:        "https://example.com/api",
+		StreamID:   123,
+	}
+
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, "application/json", resp.Headers["Content-Type"])
+	assert.Equal(t, "xyz", resp.Cookies["session"])
+	assert.NotNil(t, resp.Body)
+	assert.Equal(t, uint64(123), resp.StreamID)
+}
+
+func TestBatchResponse(t *testing.T) {
+	batch := BatchResponse{
+		Responses: []Response{
+			{StatusCode: 200},
+			{StatusCode: 201},
+		},
+	}
+	assert.Len(t, batch.Responses, 2)
+}
+
+func TestFileUpload(t *testing.T) {
+	file := FileUpload{
+		FieldName: "document",
+		FileName:  "report.pdf",
+		Data:      []byte("pdf content"),
+	}
+
+	assert.Equal(t, "document", file.FieldName)
+	assert.Equal(t, "report.pdf", file.FileName)
+	assert.NotNil(t, file.Data)
+}
+
+func TestErrorConstants(t *testing.T) {
+	assert.Contains(t, ErrEmptyAddr.Error(), "address is required")
+	assert.Contains(t, ErrNilMetadata.Error(), "metadata is required")
+	assert.Contains(t, ErrEmptyFuncName.Error(), "function name is required")
+	assert.Contains(t, ErrEmptyPath.Error(), "path is required")
+	assert.Contains(t, ErrEmptyMethod.Error(), "method is required")
+}
+
+func TestErrorFactories(t *testing.T) {
+	t.Run("NewMissingMetadataError", func(t *testing.T) {
+		err := NewMissingMetadataError("router")
+		assert.Contains(t, err.Error(), "router metadata is required")
+	})
+
+	t.Run("NewPathMustStartWithSlashError", func(t *testing.T) {
+		err := NewPathMustStartWithSlashError()
+		assert.Contains(t, err.Error(), "must start with /")
+	})
+
+	t.Run("NewInvalidHTTPMethodError", func(t *testing.T) {
+		err := NewInvalidHTTPMethodError("PATCH2")
+		assert.Contains(t, err.Error(), "invalid HTTP method: PATCH2")
+	})
+
+	t.Run("NewInvalidTimeoutConfigError", func(t *testing.T) {
+		cause := errors.New("config error")
+		err := NewInvalidTimeoutConfigError(cause)
+		assert.Contains(t, err.Error(), "invalid timeout configuration")
+	})
+
+	t.Run("NewInvalidTimeoutError", func(t *testing.T) {
+		err := NewInvalidTimeoutError("read_timeout")
+		assert.Contains(t, err.Error(), "read_timeout must be non-negative")
+	})
+
+	t.Run("NewNegativeConfigError", func(t *testing.T) {
+		err := NewNegativeConfigError("max_connections")
+		assert.Contains(t, err.Error(), "max_connections must be non-negative")
+	})
 }

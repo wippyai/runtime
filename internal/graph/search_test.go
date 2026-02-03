@@ -24,16 +24,17 @@ func TestShortestPathScenarios(t *testing.T) {
 		}
 
 		edges := []struct {
-			from, to string
-			weight   int
-			info     string
+			from   string
+			to     string
+			info   string
+			weight int
 		}{
-			{"A", "B", 4, "path1"},
-			{"A", "C", 2, "path2"},
-			{"C", "D", 5, "path3"},
-			{"D", "B", 1, "path4"},
-			{"B", "E", 3, "path5"},
-			{"D", "E", 2, "path6"},
+			{"A", "B", "path1", 4},
+			{"A", "C", "path2", 2},
+			{"C", "D", "path3", 5},
+			{"D", "B", "path4", 1},
+			{"B", "E", "path5", 3},
+			{"D", "E", "path6", 2},
 		}
 
 		for _, e := range edges {
@@ -41,10 +42,11 @@ func TestShortestPathScenarios(t *testing.T) {
 		}
 
 		tests := []struct {
-			name     string
-			from, to string
-			want     *Path[string]
-			wantErr  bool
+			want    *Path[string]
+			name    string
+			from    string
+			to      string
+			wantErr bool
 		}{
 			{
 				name: "shortest via multiple nodes",
@@ -92,10 +94,11 @@ func TestShortestPathScenarios(t *testing.T) {
 		g.AddNode("B")
 
 		tests := []struct {
-			name     string
-			from, to string
-			setup    func()
-			wantErr  bool
+			setup   func()
+			name    string
+			from    string
+			to      string
+			wantErr bool
 		}{
 			{
 				name:    "single node path",

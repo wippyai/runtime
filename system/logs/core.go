@@ -4,20 +4,18 @@ import (
 	"context"
 	"sync/atomic"
 
-	api "github.com/ponyruntime/pony/api/logs"
+	api "github.com/wippyai/runtime/api/logs"
 
-	"github.com/ponyruntime/pony/api/event"
+	"github.com/wippyai/runtime/api/event"
 	"go.uber.org/zap/zapcore"
 )
 
-// Core implements the api.Core interface and handles log interception and routing
 type Core struct {
 	downstream zapcore.Core
 	bus        event.Bus
-	config     *atomic.Value // holds api.Config
+	config     *atomic.Value
 }
 
-// NewCore creates a new Core instance
 func NewCore(downstream zapcore.Core, bus event.Bus) api.Core {
 	c := &Core{
 		downstream: downstream,
@@ -25,35 +23,36 @@ func NewCore(downstream zapcore.Core, bus event.Bus) api.Core {
 		config:     &atomic.Value{},
 	}
 
-	// Set default configuration
 	c.config.Store(api.Config{
 		PropagateDownstream: true,
 		StreamToEvents:      false,
-		MinLevel:            zapcore.InfoLevel,
+		MinLevel:            zapcore.DebugLevel,
 	})
 	return c
 }
 
-// Configure implements api.Core
 func (c *Core) Configure(cfg api.Config) {
 	c.config.Store(cfg)
 }
 
-// GetConfig implements api.Core
 func (c *Core) GetConfig() api.Config {
 	return c.config.Load().(api.Config)
 }
 
-// Enabled implements zapcore.Core
 func (c *Core) Enabled(level zapcore.Level) bool {
 	cfg := c.config.Load().(api.Config)
-	if level < cfg.MinLevel {
-		return false
+
+	if cfg.StreamToEvents {
+		return true
 	}
-	return cfg.PropagateDownstream || cfg.StreamToEvents
+
+	if cfg.PropagateDownstream && level >= cfg.MinLevel {
+		return true
+	}
+
+	return false
 }
 
-// With implements zapcore.Core
 func (c *Core) With(fields []zapcore.Field) zapcore.Core {
 	return &Core{
 		downstream: c.downstream.With(fields),
@@ -62,30 +61,24 @@ func (c *Core) With(fields []zapcore.Field) zapcore.Core {
 	}
 }
 
-// Check implements zapcore.Core
 func (c *Core) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
 	if !c.Enabled(ent.Level) {
 		return ce
 	}
 
-	// Always add our Core if enabled
 	ce = ce.AddCore(ent, c)
-
 	return ce
 }
 
-// Write implements zapcore.Core
 func (c *Core) Write(ent zapcore.Entry, fields []zapcore.Field) error {
 	cfg := c.config.Load().(api.Config)
 
-	// Handle downstream propagation
-	if cfg.PropagateDownstream {
+	if cfg.PropagateDownstream && ent.Level >= cfg.MinLevel {
 		if err := c.downstream.Write(ent, fields); err != nil {
 			return err
 		}
 	}
 
-	// Handle event streaming
 	if cfg.StreamToEvents {
 		c.publishLogEvent(ent, fields)
 	}
@@ -93,7 +86,6 @@ func (c *Core) Write(ent zapcore.Entry, fields []zapcore.Field) error {
 	return nil
 }
 
-// Sync implements zapcore.Core
 func (c *Core) Sync() error {
 	cfg := c.config.Load().(api.Config)
 
@@ -104,18 +96,80 @@ func (c *Core) Sync() error {
 	return nil
 }
 
-// publishLogEvent publishes the log entry to the event bus
+type logEntry struct {
+	LoggerName string `json:"logger_name"`
+	Message    string `json:"message"`
+	Caller     string `json:"caller"`
+	Stack      string `json:"stack"`
+	Level      int    `json:"level"`
+	Time       int64  `json:"time"`
+}
+
+type logField struct {
+	Key    string `json:"key"`
+	Type   string `json:"type"`
+	String string `json:"string"`
+	Int    int64  `json:"int"`
+}
+
+var fieldTypeNames = map[zapcore.FieldType]string{
+	zapcore.StringType: "string",
+	zapcore.Int64Type:  "int64",
+	zapcore.Int32Type:  "int32",
+	zapcore.Uint64Type: "uint64",
+	zapcore.Uint32Type: "uint32",
+	zapcore.Int16Type:  "int16",
+	zapcore.Uint16Type: "uint16",
+	zapcore.Int8Type:   "int8",
+	zapcore.Uint8Type:  "uint8",
+}
+
+func fieldTypeToString(ft zapcore.FieldType) string {
+	if name, ok := fieldTypeNames[ft]; ok {
+		return name
+	}
+	return "unknown"
+}
+
 func (c *Core) publishLogEvent(ent zapcore.Entry, fields []zapcore.Field) {
+	entry := logEntry{
+		Level:      int(ent.Level),
+		Time:       ent.Time.UnixNano(),
+		LoggerName: ent.LoggerName,
+		Message:    ent.Message,
+		Caller:     ent.Caller.String(),
+		Stack:      ent.Stack,
+	}
+
+	logFields := make([]logField, 0, len(fields))
+	for _, f := range fields {
+		field := logField{
+			Key:  f.Key,
+			Type: fieldTypeToString(f.Type),
+		}
+
+		switch f.Type {
+		case zapcore.Int64Type, zapcore.Int32Type, zapcore.Int16Type, zapcore.Int8Type,
+			zapcore.Uint64Type, zapcore.Uint32Type, zapcore.Uint16Type, zapcore.Uint8Type:
+			field.Int = f.Integer
+		default:
+			field.String = f.String
+		}
+
+		logFields = append(logFields, field)
+	}
+
+	// we only run this code in debug mode, so a second timeout is fine
 	c.bus.Send(context.Background(), event.Event{
 		System: api.System,
 		Kind:   api.Entry,
 		Path:   ent.LoggerName,
 		Data: struct {
-			Entry  zapcore.Entry   `json:"entry"`
-			Fields []zapcore.Field `json:"fields"`
+			Fields []logField `json:"fields"`
+			Entry  logEntry   `json:"entry"`
 		}{
-			Entry:  ent,
-			Fields: fields,
+			Entry:  entry,
+			Fields: logFields,
 		},
 	})
 }

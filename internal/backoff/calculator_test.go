@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/wippyai/runtime/api/supervisor"
 )
 
 func TestNewBackoffCalculator(t *testing.T) {
@@ -104,10 +104,10 @@ func TestBackoffCalculator_Jitter(t *testing.T) {
 		interval := calc.NextInterval()
 
 		// Calculate expected range
-		minInterval := time.Duration(float64(policy.InitialDelay) * (1 - policy.Jitter))
-		maxInterval := time.Duration(float64(policy.InitialDelay) * (1 + policy.Jitter))
+		minInterval := float64(policy.InitialDelay) * (1 - policy.Jitter)
+		maxInterval := float64(policy.InitialDelay) * (1 + policy.Jitter)
 
-		if interval < minInterval || interval > maxInterval {
+		if float64(interval) < minInterval || float64(interval) > maxInterval {
 			t.Errorf("Interval %v outside expected range [%v, %v]", interval, minInterval, maxInterval)
 		}
 	}

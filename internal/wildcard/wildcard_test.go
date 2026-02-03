@@ -4,6 +4,35 @@ import (
 	"testing"
 )
 
+func TestWildcard_FastPaths(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		str     string
+		want    bool
+	}{
+		// Star pattern fast path
+		{"star matches single segment", "*", "anything", true},
+		{"star no match multi segment", "*", "a.b", false},
+		{"star no match empty", "*", "", false},
+
+		// Exact match fast path (no wildcards)
+		{"exact match", "system.event", "system.event", true},
+		{"exact no match", "system.event", "system.other", false},
+		{"exact no match partial", "system.event", "system", false},
+		{"exact no match longer", "system.event", "system.event.extra", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := NewWildcard(tt.pattern)
+			if got := w.Match(tt.str); got != tt.want {
+				t.Errorf("Match() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestWildcardMatching(t *testing.T) {
 	testCases := []struct {
 		pattern string
@@ -81,6 +110,73 @@ func TestWildcardMatching(t *testing.T) {
 		if result != tc.matches {
 			t.Errorf("Pattern: %s, String: %s, Expected: %t, Got: %t",
 				tc.pattern, tc.str, tc.matches, result)
+		}
+	}
+}
+
+// Benchmarks
+
+func BenchmarkMatch_ExactMatch(b *testing.B) {
+	w := NewWildcard("system.events.user.created")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		w.Match("system.events.user.created")
+	}
+}
+
+func BenchmarkMatch_Star(b *testing.B) {
+	w := NewWildcard("*")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		w.Match("anything")
+	}
+}
+
+func BenchmarkMatch_SingleWildcard(b *testing.B) {
+	w := NewWildcard("system.*.created")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		w.Match("system.events.created")
+	}
+}
+
+func BenchmarkMatch_DoubleWildcard(b *testing.B) {
+	w := NewWildcard("system.**")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		w.Match("system.events.user.created")
+	}
+}
+
+func BenchmarkMatch_Alternation(b *testing.B) {
+	w := NewWildcard("(a|b|c).event")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		w.Match("b.event")
+	}
+}
+
+func BenchmarkNewWildcard(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		NewWildcard("system.events.*.created")
+	}
+}
+
+func TestAlternation(t *testing.T) {
+	w := NewWildcard("function.(register|delete)")
+
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"function.register", true},
+		{"function.delete", true},
+		{"function.accept", false},
+	}
+
+	for _, tt := range tests {
+		if got := w.Match(tt.input); got != tt.want {
+			t.Errorf("Match(%q) = %v, want %v", tt.input, got, tt.want)
 		}
 	}
 }

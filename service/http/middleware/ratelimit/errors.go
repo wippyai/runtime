@@ -1,0 +1,18 @@
+package ratelimit
+
+import apierror "github.com/wippyai/runtime/api/error"
+
+func NewInvalidDurationError(s string) apierror.Error {
+	return apierror.New(apierror.Invalid, "invalid duration: "+s).
+		WithRetryable(apierror.False)
+}
+
+func NewInvalidDurationValueError(s string) apierror.Error {
+	return apierror.New(apierror.Invalid, "invalid duration value: "+s).
+		WithRetryable(apierror.False)
+}
+
+func NewInvalidDurationUnitError(unit string) apierror.Error {
+	return apierror.New(apierror.Invalid, "invalid duration unit: "+unit+" (use s, m, or h)").
+		WithRetryable(apierror.False)
+}

@@ -1,70 +1,90 @@
-### Global Functions
+# ctx
 
-#### ctx.get(key: string)
+Read-only context value access. Nondeterministic.
 
-Retrieves a value from the context associated with the given key.
+## Loading
 
-Parameters:
+```lua
+local ctx = require("ctx")
+```
 
-- `key`: String identifier for the value to retrieve
+## Functions
 
-Returns:
+### get(key: string) → any, error
 
-- `value`: The value associated with the key (or nil if not found or an error occurs)
-- `error`: Error message string (or nil on success)
+Retrieves a single value from the execution context by key.
 
-#### ctx.set(key: string, value: any)
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| key | string | yes | - | Context key to retrieve |
 
-Sets a value in the context for the given key.
+**Returns:** Value of any type (string, number, boolean, table) and nil error on success, or `nil, error` on failure
 
-Parameters:
+**Errors (structured):**
 
-- `key`: String identifier for the value to set
-- `value`: The value to associate with the key
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| key is empty string | errors.INVALID | no |
+| key not found in context | errors.NOT_FOUND | no |
+| no context available | errors.INTERNAL | no |
 
-Returns:
+**Notes:**
+- Values can be any Lua type: string, number, boolean, table (map or array)
+- Tables are recursively converted from Go types
+- Context values are read-only; use this to access values passed from parent processes or functions
 
-- `ok`: Boolean indicating success (true) or failure (false)
-- `error`: Error message string (or nil on success)
+### all() → table, error
 
-#### ctx.all()
+Retrieves all context values as a table.
 
-Retrieves all values from the context as a table.
+**Returns:** Table with all context key-value pairs, or empty table if no values exist. Always returns `table, nil` (no errors).
 
-Parameters:
-- None
+**Notes:**
+- Returns empty table `{}` when no context values are set
+- Table keys are strings, values can be any type
+- Useful for inspecting all available context data
 
-Returns:
-- `table`: Table containing all key-value pairs from the context
-- `error`: Error message string (or nil on success)
+## Errors
 
-## Example Usage with all
+This module returns structured errors. Check kind with `errors.*` constants:
+
+```lua
+local val, err = ctx.get("request_id")
+if err then
+    if err:kind() == errors.NOT_FOUND then
+        -- key doesn't exist in context
+    elseif err:kind() == errors.INVALID then
+        -- empty key provided
+    end
+end
+```
+
+**Possible kinds:** `errors.INVALID`, `errors.NOT_FOUND`, `errors.INTERNAL`
+
+## Example
 
 ```lua
 local ctx = require("ctx")
 
--- Set some values in the context
-ctx.set("user", "john")
-ctx.set("role", "admin")
-ctx.set("preferences", { theme = "dark", notifications = true })
-
--- Get all values from the context
-local allValues, err = ctx.all()
+-- Get single value
+local request_id, err = ctx.get("request_id")
 if err then
-  print("Error getting all values:", err)
-else
-  -- Access specific values from the table
-  print("User:", allValues.user)
-  print("Role:", allValues.role)
-  print("Theme preference:", allValues.preferences.theme)
-  
-  -- Iterate over all values
-  for key, value in pairs(allValues) do
-    if type(value) ~= "table" then
-      print(key, "=", value)
+    if err:kind() == errors.NOT_FOUND then
+        print("No request_id in context")
     else
-      print(key, "= [table]")
+        error(err)
     end
-  end
+end
+
+-- Get complex value (table)
+local config, err = ctx.get("config")
+if not err then
+    print(config.max_retries, config.timeout)
+end
+
+-- Get all context values
+local all, err = ctx.all()
+for key, value in pairs(all) do
+    print(key, value)
 end
 ```

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
@@ -13,12 +14,12 @@ func TestMiddlewareFactory(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("create middleware factory", func(t *testing.T) {
-		factory := NewDefaultMiddlewareFactory()
+		factory := NewMiddlewareRegistry(zap.NewNop())
 		assert.NotNil(t, factory)
 		assert.Empty(t, factory.middlewareMap)
 
-		// Create with logger option
-		factory = NewDefaultMiddlewareFactory(WithLogger(logger))
+		// Create with logger
+		factory = NewMiddlewareRegistry(logger)
 		assert.NotNil(t, factory)
 		assert.Equal(t, logger, factory.logger)
 	})
@@ -32,9 +33,10 @@ func TestMiddlewareFactory(t *testing.T) {
 			})
 		}
 
-		factory := NewDefaultMiddlewareFactory(
-			WithMiddleware("test", testMiddleware),
-		)
+		factory := NewMiddlewareRegistry(zap.NewNop())
+		_ = factory.Register("test", func(_ map[string]string) func(http.Handler) http.Handler {
+			return testMiddleware
+		})
 
 		// Test the middleware
 		handler, err := factory.CreateMiddleware("test", nil)
@@ -61,7 +63,7 @@ func TestMiddlewareFactory(t *testing.T) {
 		// Try to get non-existent middleware - should now return an error
 		handler, err = factory.CreateMiddleware("nonexistent", nil)
 		assert.Nil(t, handler)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "middleware not found")
 	})
 
@@ -80,9 +82,8 @@ func TestMiddlewareFactory(t *testing.T) {
 			}
 		}
 
-		factory := NewDefaultMiddlewareFactory(
-			WithMiddlewareCreator("configurable", testCreator),
-		)
+		factory := NewMiddlewareRegistry(zap.NewNop())
+		_ = factory.Register("configurable", testCreator)
 
 		// Test with default options
 		handler, err := factory.CreateMiddleware("configurable", nil)
@@ -115,17 +116,15 @@ func TestMiddlewareFactory(t *testing.T) {
 	})
 
 	t.Run("middleware creator returning nil", func(t *testing.T) {
-		factory := NewDefaultMiddlewareFactory(
-			WithLogger(logger),
-			WithMiddlewareCreator("nil-creator", func(_ map[string]string) func(http.Handler) http.Handler {
-				return nil
-			}),
-		)
+		factory := NewMiddlewareRegistry(logger)
+		_ = factory.Register("nil-creator", func(_ map[string]string) func(http.Handler) http.Handler {
+			return nil
+		})
 
 		// Should now return an error when the creator returns nil
 		handler, err := factory.CreateMiddleware("nil-creator", nil)
 		assert.Nil(t, handler)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "middleware not found")
 	})
 }

@@ -1,46 +1,51 @@
 package fs
 
 import (
+	"bufio"
 	"context"
 	"errors"
-	"fmt"
 	"io"
-	"io/fs"
+	basefs "io/fs"
+	"sync"
 
-	fsapi "github.com/ponyruntime/pony/api/fs"
-	"github.com/ponyruntime/pony/runtime/lua/engine"
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
-	lua "github.com/yuin/gopher-lua"
+	lua "github.com/wippyai/go-lua"
+	fsapi "github.com/wippyai/runtime/api/fs"
+	"github.com/wippyai/runtime/api/runtime/resource"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 )
 
 type File struct {
-	file    fsapi.File
-	release context.CancelFunc
-	closed  bool
+	file          fsapi.File
+	cancelCleanup func()
+	mu            sync.Mutex
+	closed        bool
 }
 
-// NewFile creates a new wrapped file with UoW integration
-func NewFile(uw engine.UnitOfWork, file fsapi.File) *File {
-	wrappedFile := &File{file: file}
+func NewFileWithCleanup(ctx context.Context, file fsapi.File) *File {
+	f := &File{file: file}
 
-	// Register cleanup in UoW
-	wrappedFile.release = uw.AddCleanup(func() error {
-		// Close the file directly
-		err := file.Close()
-		if err != nil && errors.Is(err, fs.ErrClosed) {
-			// Don't report "already closed" as an error
+	store := resource.GetStore(ctx)
+	if store != nil {
+		f.cancelCleanup = store.AddCleanup(func() error {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if !f.closed {
+				f.closed = true
+				return f.file.Close()
+			}
 			return nil
-		}
-		return err
-	})
+		})
+	}
 
-	return wrappedFile
+	return f
 }
 
-// Read implements io.Reader.
 func (f *File) Read(p []byte) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	if f.closed {
-		return 0, fmt.Errorf("failed to read: file already closed")
+		return 0, ErrFileAlreadyClosed
 	}
 
 	n, err := f.file.Read(p)
@@ -48,126 +53,112 @@ func (f *File) Read(p []byte) (int, error) {
 		if errors.Is(err, io.EOF) {
 			return n, err
 		}
-		if errors.Is(err, fs.ErrClosed) {
-			return n, fmt.Errorf("failed to read: file already closed")
+		if errors.Is(err, basefs.ErrClosed) {
+			return n, ErrFileAlreadyClosed
 		}
-		return n, fmt.Errorf("failed to read: %w", err)
+		return n, NewReadError(err)
 	}
 	return n, nil
 }
 
-// Write implements io.Writer.
 func (f *File) Write(p []byte) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	if f.closed {
-		return 0, fmt.Errorf("failed to write: file already closed")
+		return 0, ErrFileAlreadyClosed
 	}
 
 	n, err := f.file.Write(p)
 	if err != nil {
-		return n, fmt.Errorf("failed to write: %w", err)
-	}
-	if n < len(p) {
-		return n, fmt.Errorf("partial write: wrote %d of %d bytes", n, len(p))
+		return n, NewWriteError(err)
 	}
 	return n, nil
 }
 
-// Seek implements io.Seeker.
 func (f *File) Seek(offset int64, whence int) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	if f.closed {
-		return 0, fmt.Errorf("failed to seek: file already closed")
+		return 0, ErrFileAlreadyClosed
 	}
 
 	pos, err := f.file.Seek(offset, whence)
 	if err != nil {
-		return pos, fmt.Errorf("failed to seek: %w", err)
+		return pos, NewSeekError(err)
 	}
 	return pos, nil
 }
 
-// Stat implements fs.File.
-func (f *File) Stat() (fs.FileInfo, error) {
+func (f *File) Stat() (basefs.FileInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	if f.closed {
-		return nil, fmt.Errorf("failed to stat: file already closed")
+		return nil, ErrFileAlreadyClosed
 	}
 
 	info, err := f.file.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("failed to stat file: %w", err)
+		return nil, NewStatError(err)
 	}
 	return info, nil
 }
 
 func (f *File) Sync() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	if f.closed {
-		return fmt.Errorf("failed to sync: file already closed")
+		return ErrFileAlreadyClosed
 	}
 
-	// Check if underlying file implements Sync
 	if err := f.file.Sync(); err != nil {
-		return fmt.Errorf("failed to sync: %w", err)
+		return NewSyncError(err)
 	}
 	return nil
 }
 
-// Close implements io.Closer with UoW integration.
-// Calls the release function which will both close the file and remove the cleanup from UoW.
 func (f *File) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	if f.closed {
-		return nil // Already closed, no error
-	}
-
-	// Mark as closed first to prevent re-entry
-	f.closed = true
-
-	// Execute release function which will both close the file and remove the cleanup from UoW
-	if f.release != nil {
-		f.release()
-		f.release = nil
-	}
-
-	return nil
-}
-
-// Lua integration
-
-func registerFile(l *lua.LState) {
-	methods := map[string]lua.LGFunction{
-		"read":  fileRead,
-		"write": fileWrite,
-		"seek":  fileSeek,
-		"close": fileClose,
-		"stat":  fileStat,
-		"sync":  fileSync,
-	}
-
-	value.RegisterTypeMethods(l, "fs.File", nil, methods)
-}
-
-// Helper function to extract Unit of Work from Lua state
-//
-//nolint:unused // to be used in tests
-func getUnitOfWork(l *lua.LState) engine.UnitOfWork {
-	uw := engine.GetUnitOfWork(l.Context())
-	if uw == nil {
-		l.RaiseError("unit of work missing from context")
 		return nil
 	}
-	return uw
-}
 
-// Lua method implementations
+	f.closed = true
+	cancel := f.cancelCleanup
+	f.cancelCleanup = nil
 
-func fileRead(l *lua.LState) int {
-	f := CheckFile(l, 1)
-	if f == nil {
-		return 0 // CheckFile will raise error
+	if cancel != nil {
+		cancel()
 	}
 
+	return f.file.Close()
+}
+
+var fileMethods = map[string]lua.LGoFunc{
+	"read":    fileRead,
+	"write":   fileWrite,
+	"seek":    fileSeek,
+	"close":   fileClose,
+	"stat":    fileStat,
+	"sync":    fileSync,
+	"scanner": fileScanner,
+}
+
+func fileRead(l *lua.LState) int {
+	f := checkFile(l, 1)
+	if f == nil {
+		return 0
+	}
 	size := l.OptInt(2, 4096)
 	if size <= 0 {
-		l.ArgError(2, "size must be positive")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "size must be positive").WithKind(lua.Invalid))
+		return 2
 	}
 
 	buf := make([]byte, size)
@@ -176,47 +167,48 @@ func fileRead(l *lua.LState) int {
 	if err != nil {
 		if errors.Is(err, io.EOF) {
 			l.Push(lua.LNil)
-			l.Push(lua.LString("EOF"))
+			l.Push(lua.NewLuaError(l, "EOF").WithKind(lua.NotFound))
 			return 2
 		}
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "read failed").WithKind(lua.Internal))
 		return 2
 	}
 
 	l.Push(lua.LString(buf[:n]))
-	return 1
+	l.Push(lua.LNil)
+	return 2
 }
 
 func fileWrite(l *lua.LState) int {
-	f := CheckFile(l, 1)
+	f := checkFile(l, 1)
 	if f == nil {
 		return 0
 	}
-
 	data := l.CheckString(2)
 	if data == "" {
-		l.ArgError(2, "data required")
-		return 0
+		l.Push(lua.LFalse)
+		l.Push(lua.NewLuaError(l, "data required").WithKind(lua.Invalid))
+		return 2
 	}
 
 	_, err := f.Write([]byte(data))
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.LFalse)
+		l.Push(lua.WrapErrorWithLua(l, err, "write failed").WithKind(lua.Internal))
 		return 2
 	}
 
-	l.Push(lua.LBool(true))
-	return 1
+	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+	return 2
 }
 
 func fileSeek(l *lua.LState) int {
-	f := CheckFile(l, 1)
+	f := checkFile(l, 1)
 	if f == nil {
 		return 0
 	}
-
 	whence := l.CheckString(2)
 	offset := l.CheckInt64(3)
 
@@ -229,72 +221,194 @@ func fileSeek(l *lua.LState) int {
 	case seekEnd:
 		w = io.SeekEnd
 	default:
-		l.ArgError(2, "invalid whence: must be 'set', 'cur', or 'end'")
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "invalid whence: must be 'set', 'cur', or 'end'").WithKind(lua.Invalid))
+		return 2
 	}
 
 	pos, err := f.Seek(offset, w)
 	if err != nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.WrapErrorWithLua(l, err, "seek failed").WithKind(lua.Internal))
 		return 2
 	}
 
 	l.Push(lua.LNumber(pos))
-	return 1
+	l.Push(lua.LNil)
+	return 2
 }
 
 func fileClose(l *lua.LState) int {
-	f := CheckFile(l, 1)
+	f := checkFile(l, 1)
 	if f == nil {
 		return 0
 	}
-
 	err := f.Close()
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.LFalse)
+		l.Push(lua.WrapErrorWithLua(l, err, "close failed").WithKind(lua.Internal))
 		return 2
 	}
-
-	// Success: the file was either successfully closed or was already closed
-	l.Push(lua.LBool(true))
-	return 1
+	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+	return 2
 }
 
 func fileStat(l *lua.LState) int {
-	f := CheckFile(l, 1)
+	f := checkFile(l, 1)
 	if f == nil {
 		return 0
 	}
-
 	info, err := f.Stat()
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			l.RaiseError("file does not exist")
-			return 0
-		}
-		l.RaiseError("%s", err.Error())
-		return 0
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "stat failed").WithKind(lua.Internal))
+		return 2
 	}
-
 	l.Push(pushFileInfo(l, info))
-	return 1
+	l.Push(lua.LNil)
+	return 2
 }
 
 func fileSync(l *lua.LState) int {
-	f := CheckFile(l, 1)
+	f := checkFile(l, 1)
 	if f == nil {
 		return 0
 	}
-
 	err := f.Sync()
 	if err != nil {
+		l.Push(lua.LFalse)
+		l.Push(lua.WrapErrorWithLua(l, err, "sync failed").WithKind(lua.Internal))
+		return 2
+	}
+	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+	return 2
+}
+
+func fileToString(l *lua.LState) int {
+	f := checkFile(l, 1)
+	if f == nil {
+		return 0
+	}
+	if f.closed {
+		l.Push(lua.LString("fs.File{closed}"))
+	} else {
+		l.Push(lua.LString("fs.File{}"))
+	}
+	return 1
+}
+
+const (
+	splitLines = 0
+	splitWords = 1
+	splitBytes = 2
+	splitRunes = 3
+)
+
+func fileScanner(l *lua.LState) int {
+	f := checkFile(l, 1)
+	if f == nil {
+		return 0
+	}
+	if f.closed {
 		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
+		l.Push(lua.NewLuaError(l, "file is closed").WithKind(lua.Invalid))
 		return 2
 	}
 
-	l.Push(lua.LBool(true))
+	splitType := splitLines
+	if l.GetTop() >= 2 {
+		splitStr := l.CheckString(2)
+		switch splitStr {
+		case "lines":
+			splitType = splitLines
+		case "words":
+			splitType = splitWords
+		case "bytes":
+			splitType = splitBytes
+		case "runes":
+			splitType = splitRunes
+		default:
+			l.Push(lua.LNil)
+			l.Push(lua.NewLuaError(l, "invalid split type: must be 'lines', 'words', 'bytes', or 'runes'").WithKind(lua.Invalid))
+			return 2
+		}
+	}
+
+	scanner := bufio.NewScanner(f.file)
+	switch splitType {
+	case splitWords:
+		scanner.Split(bufio.ScanWords)
+	case splitBytes:
+		scanner.Split(bufio.ScanBytes)
+	case splitRunes:
+		scanner.Split(bufio.ScanRunes)
+	default:
+		// splitLines is default for bufio.Scanner
+	}
+
+	fs := &FileScanner{scanner: scanner}
+	value.PushUserData(l, fs, fileScannerMetatable)
+	l.Push(lua.LNil)
+	return 2
+}
+
+type FileScanner struct {
+	lastErr  error
+	scanner  *bufio.Scanner
+	lastText string
+}
+
+const fileScannerTypeName = "fs.Scanner"
+
+var fileScannerMethods = map[string]lua.LGoFunc{
+	"scan": fileScannerScan,
+	"text": fileScannerText,
+	"err":  fileScannerErr,
+}
+
+func checkFileScanner(l *lua.LState, n int) *FileScanner {
+	ud := l.CheckUserData(n)
+	if v, ok := ud.Value.(*FileScanner); ok {
+		return v
+	}
+	l.ArgError(n, "Scanner expected")
+	return nil
+}
+
+func fileScannerScan(l *lua.LState) int {
+	s := checkFileScanner(l, 1)
+	if s == nil {
+		return 0
+	}
+
+	hasToken := s.scanner.Scan()
+	s.lastText = s.scanner.Text()
+	s.lastErr = s.scanner.Err()
+
+	l.Push(lua.LBool(hasToken))
+	return 1
+}
+
+func fileScannerText(l *lua.LState) int {
+	s := checkFileScanner(l, 1)
+	if s == nil {
+		return 0
+	}
+	l.Push(lua.LString(s.lastText))
+	return 1
+}
+
+func fileScannerErr(l *lua.LState) int {
+	s := checkFileScanner(l, 1)
+	if s == nil {
+		return 0
+	}
+	if s.lastErr == nil {
+		l.Push(lua.LNil)
+	} else {
+		l.Push(lua.LString(s.lastErr.Error()))
+	}
 	return 1
 }

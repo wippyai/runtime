@@ -1,0 +1,94 @@
+package system
+
+import (
+	"github.com/wippyai/go-lua/types/io"
+	"github.com/wippyai/go-lua/types/typ"
+)
+
+// MemStats type
+var memStatsType = typ.NewRecord().
+	Field("alloc", typ.Number).
+	Field("total_alloc", typ.Number).
+	Field("sys", typ.Number).
+	Field("heap_alloc", typ.Number).
+	Field("heap_sys", typ.Number).
+	Field("heap_idle", typ.Number).
+	Field("heap_in_use", typ.Number).
+	Field("heap_released", typ.Number).
+	Field("heap_objects", typ.Number).
+	Field("stack_in_use", typ.Number).
+	Field("stack_sys", typ.Number).
+	Field("mspan_in_use", typ.Number).
+	Field("mspan_sys", typ.Number).
+	Field("num_gc", typ.Number).
+	Field("next_gc", typ.Number).
+	Build()
+
+// ModuleInfo type
+var moduleInfoType = typ.NewRecord().
+	Field("name", typ.String).
+	Field("description", typ.String).
+	Field("class", typ.NewArray(typ.String)).
+	Build()
+
+// memory submodule type
+var memoryType = typ.NewInterface("system.memory", []typ.Method{
+	{Name: "stats", Type: typ.Func().Returns(memStatsType, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "allocated", Type: typ.Func().Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "heap_objects", Type: typ.Func().Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "set_limit", Type: typ.Func().Param("limit", typ.Number).Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "get_limit", Type: typ.Func().Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
+})
+
+// gc submodule type
+var gcType = typ.NewInterface("system.gc", []typ.Method{
+	{Name: "collect", Type: typ.Func().Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "set_percent", Type: typ.Func().Param("percent", typ.Number).Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "get_percent", Type: typ.Func().Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
+})
+
+// runtime submodule type
+var runtimeType = typ.NewInterface("system.runtime", []typ.Method{
+	{Name: "goroutines", Type: typ.Func().Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "max_procs", Type: typ.Func().OptParam("procs", typ.Number).Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "cpu_count", Type: typ.Func().Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
+})
+
+// process submodule type
+var processSubType = typ.NewInterface("system.process", []typ.Method{
+	{Name: "pid", Type: typ.Func().Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "hostname", Type: typ.Func().Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+})
+
+// supervisor submodule type
+var supervisorType = typ.NewInterface("system.supervisor", []typ.Method{
+	{Name: "state", Type: typ.Func().Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "states", Type: typ.Func().Returns(typ.NewMap(typ.String, typ.String), typ.NewOptional(typ.LuaError)).Build()},
+})
+
+// Methods interface
+var systemMethodsType = typ.NewInterface("system", []typ.Method{
+	{Name: "exit", Type: typ.Func().OptParam("code", typ.Number).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "modules", Type: typ.Func().Returns(typ.NewArray(moduleInfoType), typ.NewOptional(typ.LuaError)).Build()},
+})
+
+// ModuleTypes returns the type manifest for the system module.
+func ModuleTypes() *io.Manifest {
+	m := io.NewManifest("system")
+
+	m.DefineType("MemStats", memStatsType)
+	m.DefineType("ModuleInfo", moduleInfoType)
+
+	// Submodule fields
+	submodulesType := typ.NewRecord().
+		Field("memory", memoryType).
+		Field("gc", gcType).
+		Field("runtime", runtimeType).
+		Field("process", processSubType).
+		Field("supervisor", supervisorType).
+		Build()
+
+	// Combine methods and fields via intersection
+	m.SetExport(typ.NewIntersection(systemMethodsType, submodulesType))
+	return m
+}

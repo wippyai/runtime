@@ -1,0 +1,159 @@
+version: "1.0"
+namespace: app.test.time
+
+entries:
+  - name: now
+    kind: function.lua
+    meta:
+      type: test
+      suite: time
+      description: time.now function
+    source: file://now.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: date
+    kind: function.lua
+    meta:
+      type: test
+      suite: time
+      description: time.date function
+    source: file://date.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: parse
+    kind: function.lua
+    meta:
+      type: test
+      suite: time
+      description: time.parse and parse_duration
+    source: file://parse.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: duration
+    kind: function.lua
+    meta:
+      type: test
+      suite: time
+      description: duration methods
+    source: file://duration.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: location
+    kind: function.lua
+    meta:
+      type: test
+      suite: time
+      description: location methods
+    source: file://location.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: methods
+    kind: function.lua
+    meta:
+      type: test
+      suite: time
+      description: time methods
+    source: file://methods.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: constants
+    kind: function.lua
+    meta:
+      type: test
+      suite: time
+      description: time constants
+    source: file://constants.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: time
+      description: time error handling
+    source: file://errors.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: sleep
+    kind: function.lua
+    meta:
+      type: test
+      suite: time
+      description: time.sleep function
+    source: file://sleep.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: timer
+    kind: function.lua
+    meta:
+      type: test
+      suite: time
+      description: time.timer with stop/reset
+    source: file://timer.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: ticker
+    kind: function.lua
+    meta:
+      type: test
+      suite: time
+      description: time.ticker operations
+    source: file://ticker.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: after
+    kind: function.lua
+    meta:
+      type: test
+      suite: time
+      description: time.after function
+    source: file://after.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert_primitives: app.lib:assert

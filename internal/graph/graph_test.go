@@ -1,8 +1,11 @@
 package graph
 
 import (
+	"errors"
 	"sync"
 	"testing"
+
+	apierror "github.com/wippyai/runtime/api/error"
 )
 
 type TestEdgeData struct {
@@ -380,6 +383,62 @@ func TestGraphDependencyLevels(t *testing.T) {
 			t.Error("expected error for cyclic dependencies")
 		}
 	})
+
+	t.Run("cyclic dependencies error details", func(t *testing.T) {
+		g := New[string, TestEdgeData]()
+
+		nodes := []string{"Component-A", "Component-B", "Component-C"}
+		for _, node := range nodes {
+			g.AddNode(node)
+		}
+
+		edgeData := TestEdgeData{Label: "cycle"}
+		g.AddEdge("Component-A", "Component-B", 1, edgeData)
+		g.AddEdge("Component-B", "Component-C", 1, edgeData)
+		g.AddEdge("Component-C", "Component-A", 1, edgeData)
+
+		_, err := g.DependencyLevels()
+		if err == nil {
+			t.Fatal("expected error for cyclic dependencies")
+		}
+
+		errMsg := err.Error()
+		// Verify error contains "cycle detected"
+		if !contains(errMsg, "cycle detected") {
+			t.Errorf("error should mention 'cycle detected', got: %s", errMsg)
+		}
+
+		// Check error has details via Details() method
+		var graphErr apierror.Error
+		if !errors.As(err, &graphErr) {
+			t.Fatalf("expected *Error, got %T", err)
+		}
+
+		details := graphErr.Details()
+		if details == nil {
+			t.Fatal("expected error details")
+		}
+
+		// Details should contain cycle or stuck_nodes
+		_, hasCycle := details.Get("cycle")
+		_, hasStuck := details.Get("stuck_nodes")
+		if !hasCycle && !hasStuck {
+			t.Errorf("error details should contain cycle info, got: %v", details)
+		}
+	})
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && findSubstring(s, substr))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 func TestGraphMissingDependencyNotAutoAdded(t *testing.T) {

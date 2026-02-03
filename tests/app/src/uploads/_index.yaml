@@ -1,0 +1,51 @@
+version: "1.0"
+namespace: app.uploads
+
+entries:
+  # app.uploads:storage - Temp filesystem for uploads
+  - name: storage
+    kind: fs.directory
+    meta:
+      comment: Temporary storage for uploaded files
+    directory: /tmp/wippy-uploads
+    auto_init: true
+
+  # app.uploads:handler - Upload handler function
+  - name: handler
+    kind: function.lua
+    meta:
+      comment: Handles multipart file uploads
+    source: file://handler.lua
+    modules:
+      - http
+      - json
+      - fs
+    method: handler
+    pool:
+      type: inline
+
+  # app.uploads:endpoint - HTTP endpoint
+  - name: endpoint
+    kind: http.endpoint
+    meta:
+      comment: File upload endpoint
+      router: app:api.public
+    method: POST
+    func: handler
+    path: /test/upload
+
+  # app.uploads:test - Upload test
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      suite: uploads
+      description: Multipart file upload to filesystem
+    source: file://test.lua
+    method: main
+    modules:
+      - http_client
+      - json
+      - fs
+    imports:
+      assert2: app.lib:assert

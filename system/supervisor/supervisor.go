@@ -7,30 +7,30 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/supervisor"
-	"github.com/ponyruntime/pony/system/eventbus"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
 const (
-	actionRegister actionType = iota
-	actionRemove
-	actionStart
-	actionStop
-	actionBegin
-	actionCommit
-	actionDiscard
+	actRegister actKind = iota
+	actRemove
+	actStart
+	actStop
+	actBegin
+	actCommit
+	actDiscard
 )
 
 type (
-	actionType int
+	actKind int
 
 	action struct {
-		kind      actionType
-		serviceID string
 		entry     *supervisor.Entry
+		serviceID string
+		kind      actKind
 	}
 
 	// Supervisor manages the lifecycle of registered services, handling their
@@ -38,40 +38,58 @@ type (
 	// support for service state changes and integrates with the event system
 	// for coordinated operations.
 	Supervisor struct {
-		ctx         context.Context
-		bus         event.Bus
-		subscriber  *eventbus.Subscriber
-		logger      *zap.Logger
-		mu          sync.RWMutex
-		controllers map[string]*Controller
-		actions     chan action
-		wg          sync.WaitGroup
-		tx          *registryTX
-		sequencer   *Sequencer
+		ctx                context.Context
+		bus                event.Bus
+		subscriber         *eventbus.Subscriber
+		logger             *zap.Logger
+		controllers        map[string]*Controller
+		actions            chan action
+		tx                 *regTx
+		sequencer          *sequencer
+		dependencyResolver supervisor.DependencyResolver
+		wg                 sync.WaitGroup
+		mu                 sync.RWMutex
 	}
+
+	// Option is a functional option for configuring a Supervisor.
+	Option func(*Supervisor)
 )
 
 // NewSupervisor creates a new Supervisor instance with the provided event bus
 // and logger. The supervisor is initially inactive and must be started with
 // the Launch method.
-func NewSupervisor(bus event.Bus, logger *zap.Logger) *Supervisor {
-	return &Supervisor{
+func NewSupervisor(bus event.Bus, logger *zap.Logger, opts ...Option) *Supervisor {
+	s := &Supervisor{
 		bus:         bus,
 		logger:      logger,
 		controllers: make(map[string]*Controller),
 		actions:     make(chan action, 1024),
-		tx:          newTransactionHelper(logger),
-		sequencer:   NewSequencer(logger),
+		tx:          newRegTx(logger),
+		sequencer:   newSequencer(logger),
+	}
+
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	return s
+}
+
+// WithDependencyResolver configures the supervisor to use the provided resolver
+// for discovering additional service dependencies beyond those declared in the
+// lifecycle configuration.
+func WithDependencyResolver(resolver supervisor.DependencyResolver) Option {
+	return func(s *Supervisor) {
+		s.dependencyResolver = resolver
 	}
 }
 
-// executeOperations executes a list of operations using the sequencer
-func (s *Supervisor) executeOperations(ctx context.Context, operations []Operation) error {
+func (s *Supervisor) executeOperations(ctx context.Context, operations []operation) error {
 	if len(operations) == 0 {
 		return nil
 	}
 
-	return s.sequencer.Transition(ctx, operations...)
+	return s.sequencer.transition(ctx, operations...)
 }
 
 // GetState returns the current state of a service identified by its Alias.
@@ -82,7 +100,7 @@ func (s *Supervisor) GetState(id string) (State, error) {
 
 	controller, exists := s.controllers[id]
 	if !exists {
-		return State{}, fmt.Errorf("service %s not found", id)
+		return State{}, NewServiceNotFoundError(id)
 	}
 
 	return controller.State(), nil
@@ -105,6 +123,9 @@ func (s *Supervisor) GetAllStates() map[string]State {
 // Start initializes the supervisor and begins listening for events.
 // It sets up event subscriptions and starts the main control loop.
 func (s *Supervisor) Start(ctx context.Context) error {
+	// Set context before launching goroutine to avoid race with Stop()
+	s.ctx = ctx
+
 	// Subscribe to all relevant events using a single subscriber with patterns
 	sub, err := eventbus.NewSubscriber(
 		ctx,
@@ -115,7 +136,7 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	)
 
 	if err != nil {
-		return fmt.Errorf("failed to create event subscriber: %w", err)
+		return NewSubscriberError(err)
 	}
 	s.subscriber = sub
 
@@ -138,21 +159,21 @@ func (s *Supervisor) Stop() error {
 		s.subscriber = nil
 	}
 
-	// Spawn all controllers under lock
+	// Collect all controllers under lock
 	s.mu.RLock()
-	operations := make([]Operation, 0)
+	operations := make([]operation, 0)
 	for id, ctrl := range s.controllers {
-		operations = append(operations, Operation{
-			Type:         OperationStop,
-			ID:           id,
-			Controller:   ctrl,
-			Dependencies: ctrl.config.DependsOn,
+		operations = append(operations, operation{
+			kind:         opStop,
+			id:           id,
+			controller:   ctrl,
+			dependencies: ctrl.config.DependsOn,
 		})
 	}
 	s.mu.RUnlock()
 
 	// close all controllers in proper dependency order
-	if err := s.sequencer.Transition(s.ctx, operations...); err != nil {
+	if err := s.sequencer.transition(s.ctx, operations...); err != nil {
 		s.logger.Error("failed to stop controllers during shutdown", zap.Error(err))
 	}
 
@@ -166,12 +187,12 @@ func (s *Supervisor) Stop() error {
 func (s *Supervisor) handleEvent(e event.Event) {
 	if e.System == registry.System {
 		switch e.Kind {
-		case registry.Begin:
-			s.actions <- action{kind: actionBegin}
-		case registry.Commit:
-			s.actions <- action{kind: actionCommit}
-		case registry.Discard:
-			s.actions <- action{kind: actionDiscard}
+		case registry.TxBegin:
+			s.actions <- action{kind: actBegin}
+		case registry.TxCommit:
+			s.actions <- action{kind: actCommit}
+		case registry.TxDiscard:
+			s.actions <- action{kind: actDiscard}
 		}
 		return
 	}
@@ -181,7 +202,7 @@ func (s *Supervisor) handleEvent(e event.Event) {
 	}
 
 	switch e.Kind {
-	case supervisor.Register:
+	case supervisor.ServiceRegister:
 		entry, ok := e.Data.(*supervisor.Entry)
 		if !ok {
 			s.logger.Error(
@@ -193,18 +214,18 @@ func (s *Supervisor) handleEvent(e event.Event) {
 
 		s.actions <- action{
 			serviceID: e.Path,
-			kind:      actionRegister,
+			kind:      actRegister,
 			entry:     entry,
 		}
 
-	case supervisor.Remove:
-		s.actions <- action{serviceID: e.Path, kind: actionRemove}
+	case supervisor.ServiceRemove:
+		s.actions <- action{serviceID: e.Path, kind: actRemove}
 
-	case supervisor.Start:
-		s.actions <- action{serviceID: e.Path, kind: actionStart}
+	case supervisor.ServiceStart:
+		s.actions <- action{serviceID: e.Path, kind: actStart}
 
-	case supervisor.Stop:
-		s.actions <- action{serviceID: e.Path, kind: actionStop}
+	case supervisor.ServiceStop:
+		s.actions <- action{serviceID: e.Path, kind: actStop}
 	}
 }
 
@@ -212,17 +233,15 @@ func (s *Supervisor) run(ctx context.Context) {
 	defer s.logger.Info("supervisor control loop stopped")
 	defer s.wg.Done()
 
-	s.ctx = ctx
-
 	for action := range s.actions {
 		switch action.kind {
-		case actionBegin:
+		case actBegin:
 			s.tx.begin()
 
-		case actionDiscard:
+		case actDiscard:
 			s.tx.discard()
 
-		case actionCommit:
+		case actCommit:
 			// execute commit protocol
 			err := s.execute(ctx, s.tx)
 			if err != nil {
@@ -233,7 +252,7 @@ func (s *Supervisor) run(ctx context.Context) {
 
 			s.tx.reset()
 
-		case actionRegister:
+		case actRegister:
 			action.entry.Config.InitDefaults()
 
 			if err := s.tx.registerService(action.serviceID, action.entry); err != nil {
@@ -244,7 +263,7 @@ func (s *Supervisor) run(ctx context.Context) {
 			}
 			s.logger.Info("service registered", zap.String("serviceID", action.serviceID))
 
-		case actionRemove:
+		case actRemove:
 			if err := s.tx.removeService(action.serviceID); err != nil {
 				s.logger.Error("failed to remove service from transaction",
 					zap.String("serviceID", action.serviceID),
@@ -254,7 +273,7 @@ func (s *Supervisor) run(ctx context.Context) {
 
 			s.logger.Info("service removed", zap.String("serviceID", action.serviceID))
 
-		case actionStart:
+		case actStart:
 			if s.tx.open {
 				s.logger.Warn("transaction already open")
 				continue
@@ -269,7 +288,7 @@ func (s *Supervisor) run(ctx context.Context) {
 				}
 			}
 
-		case actionStop:
+		case actStop:
 			if s.tx.open {
 				s.logger.Warn("transaction already open")
 				continue
@@ -322,7 +341,7 @@ func (s *Supervisor) createStateHandler(id string) func(supervisor.Status, any) 
 		s.bus.Send(s.ctx, event.Event{
 			System: supervisor.System,
 			Path:   id,
-			Kind:   supervisor.Update,
+			Kind:   supervisor.ServiceUpdate,
 			Data: State{
 				Status:     status,
 				Details:    details,
@@ -334,9 +353,45 @@ func (s *Supervisor) createStateHandler(id string) func(supervisor.Status, any) 
 	}
 }
 
+// resolveDependencies returns the complete list of dependencies for a service,
+// combining lifecycle dependencies with registry-extracted dependencies.
+func (s *Supervisor) resolveDependencies(serviceID string) ([]string, error) {
+	ctrl, exists := s.controllers[serviceID]
+	if !exists {
+		return nil, NewServiceNotFoundError(serviceID)
+	}
+
+	// Start with lifecycle dependencies
+	deps := make(map[string]struct{})
+	for _, dep := range ctrl.config.DependsOn {
+		deps[dep] = struct{}{}
+	}
+
+	// Add registry-extracted dependencies if resolver is configured
+	if s.dependencyResolver != nil {
+		id := registry.ParseID(serviceID)
+		registryDeps, err := s.dependencyResolver(id)
+		if err != nil {
+			return nil, NewDependencyResolveError(serviceID, err)
+		}
+
+		for _, dep := range registryDeps {
+			deps[dep.String()] = struct{}{}
+		}
+	}
+
+	// Convert to slice
+	result := make([]string, 0, len(deps))
+	for dep := range deps {
+		result = append(result, dep)
+	}
+
+	return result, nil
+}
+
 // execute processes the transaction by creating new services,
 // stopping removed services, and starting auto-start services
-func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
+func (s *Supervisor) execute(ctx context.Context, tx *regTx) error {
 	// Lock during the entire execution
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -348,16 +403,20 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 		}
 	}
 
-	var operations []Operation
+	var operations []operation
 
 	// Queue stop operations for services being removed
 	for id := range tx.remove {
 		if ctrl, exists := s.controllers[id]; exists {
-			operations = append(operations, Operation{
-				Type:         OperationStop,
-				ID:           id,
-				Controller:   ctrl,
-				Dependencies: ctrl.config.DependsOn,
+			deps, err := s.resolveDependencies(id)
+			if err != nil {
+				return NewDependencyResolveError(id, err)
+			}
+			operations = append(operations, operation{
+				kind:         opStop,
+				id:           id,
+				controller:   ctrl,
+				dependencies: deps,
 			})
 		}
 	}
@@ -373,21 +432,37 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 
 		ctrl, exists := s.controllers[id]
 		if !exists {
-			return fmt.Errorf("service %s not found", id)
+			return NewServiceNotFoundError(id)
 		}
 
-		// Visit dependencies first
-		for _, depID := range ctrl.config.DependsOn {
+		// Resolve all dependencies (lifecycle + registry-extracted)
+		deps, err := s.resolveDependencies(id)
+		if err != nil {
+			return err
+		}
+
+		// Visit dependencies first and filter out non-existent ones
+		validDeps := make([]string, 0, len(deps))
+		for _, depID := range deps {
+			// Skip dependencies that don't exist as controllers
+			// (registry-extracted deps might include non-service references)
+			if _, exists := s.controllers[depID]; !exists {
+				s.logger.Debug("skipping non-existent dependency",
+					zap.String("service_id", id),
+					zap.String("dependency", depID))
+				continue
+			}
+			validDeps = append(validDeps, depID)
 			if err := buildStartOps(depID); err != nil {
 				return err
 			}
 		}
 
-		operations = append(operations, Operation{
-			Type:         OperationStart,
-			ID:           id,
-			Controller:   ctrl,
-			Dependencies: ctrl.config.DependsOn,
+		operations = append(operations, operation{
+			kind:         opStart,
+			id:           id,
+			controller:   ctrl,
+			dependencies: validDeps,
 		})
 
 		return nil
@@ -397,14 +472,14 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 	for id, entry := range tx.register {
 		if entry.Config.AutoStart {
 			if err := buildStartOps(id); err != nil {
-				return fmt.Errorf("failed to build start operations: %w", err)
+				return NewStartOperationsError(err)
 			}
 		}
 	}
 
-	// Spawn transitions in dependency order
-	if err := s.sequencer.Transition(ctx, operations...); err != nil {
-		return fmt.Errorf("failed to execute transitions: %w", err)
+	// Execute transitions in dependency order
+	if err := s.sequencer.transition(ctx, operations...); err != nil {
+		return NewTransitionError(err)
 	}
 
 	// Done stopped services
@@ -415,10 +490,9 @@ func (s *Supervisor) execute(ctx context.Context, tx *registryTX) error {
 	return nil
 }
 
-// buildStartOperations creates a list of operations for starting a service and its dependencies
-func (s *Supervisor) buildStartOperations(serviceID string) []Operation {
+func (s *Supervisor) buildStartOperations(serviceID string) []operation {
 	visited := make(map[string]bool)
-	var operations []Operation
+	var operations []operation
 
 	var visit func(id string)
 	visit = func(id string) {
@@ -437,12 +511,12 @@ func (s *Supervisor) buildStartOperations(serviceID string) []Operation {
 			visit(depID)
 		}
 
-		// AddCleanup operation after dependencies
-		operations = append(operations, Operation{
-			Type:         OperationStart,
-			ID:           id,
-			Controller:   ctrl,
-			Dependencies: ctrl.config.DependsOn,
+		// Add operation after dependencies
+		operations = append(operations, operation{
+			kind:         opStart,
+			id:           id,
+			controller:   ctrl,
+			dependencies: ctrl.config.DependsOn,
 		})
 	}
 
@@ -450,10 +524,9 @@ func (s *Supervisor) buildStartOperations(serviceID string) []Operation {
 	return operations
 }
 
-// buildStopOperations creates a list of operations for stopping a service and its dependents
-func (s *Supervisor) buildStopOperations(serviceID string) []Operation {
+func (s *Supervisor) buildStopOperations(serviceID string) []operation {
 	visited := make(map[string]bool)
-	var operations []Operation
+	var operations []operation
 
 	// First, build a reverse dependency map
 	dependedOnBy := make(map[string][]string)
@@ -475,13 +548,13 @@ func (s *Supervisor) buildStopOperations(serviceID string) []Operation {
 			visit(depID)
 		}
 
-		// AddCleanup operation after dependents
+		// Add operation after dependents
 		if ctrl, exists := s.controllers[id]; exists {
-			operations = append(operations, Operation{
-				Type:         OperationStop,
-				ID:           id,
-				Controller:   ctrl,
-				Dependencies: ctrl.config.DependsOn,
+			operations = append(operations, operation{
+				kind:         opStop,
+				id:           id,
+				controller:   ctrl,
+				dependencies: ctrl.config.DependsOn,
 			})
 		}
 	}

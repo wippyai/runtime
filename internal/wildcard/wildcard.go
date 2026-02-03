@@ -6,7 +6,10 @@ import (
 
 // Wildcard represents a wildcard pattern that can match strings.
 type Wildcard struct {
-	segments []string
+	exactMatch string
+	segments   []string
+	isExact    bool
+	isStar     bool
 }
 
 // NewWildcard splits the pattern into segments.
@@ -14,12 +17,47 @@ func NewWildcard(pattern string) *Wildcard {
 	if pattern == "" {
 		return &Wildcard{segments: []string{}}
 	}
+
+	// Fast path: single "*" matches any single segment
+	if pattern == "*" {
+		return &Wildcard{isStar: true}
+	}
+
 	segments := strings.Split(pattern, ".")
+
+	// Check if pattern has no wildcards (exact match)
+	hasWildcard := false
+	for _, seg := range segments {
+		if seg == "*" || seg == "**" || (strings.HasPrefix(seg, "(") && strings.HasSuffix(seg, ")")) {
+			hasWildcard = true
+			break
+		}
+	}
+
+	if !hasWildcard {
+		return &Wildcard{
+			segments:   segments,
+			isExact:    true,
+			exactMatch: pattern,
+		}
+	}
+
 	return &Wildcard{segments: segments}
 }
 
 // Match checks if the input string matches the Wildcard pattern.
 func (w *Wildcard) Match(str string) bool {
+	// Fast path: "*" matches any non-empty single segment
+	if w.isStar {
+		return str != "" && !strings.Contains(str, ".")
+	}
+
+	// Fast path: exact string match (no wildcards in pattern)
+	if w.isExact {
+		return str == w.exactMatch
+	}
+
+	// Slow path: need to split and match segments
 	strSegments := strings.Split(str, ".")
 	return matchSegments(w.segments, strSegments)
 }

@@ -1,0 +1,57 @@
+version: "1.0"
+namespace: app.test.websocket.echo_server
+
+entries:
+  # Echo server process
+  - name: server
+    kind: process.lua
+    meta:
+      comment: WebSocket echo server that echoes messages back
+    source: file://server.lua
+    method: main
+    modules:
+      - process
+      - channel
+      - time
+      - json
+
+  # HTTP endpoint handler
+  - name: endpoint
+    kind: function.lua
+    meta:
+      comment: Spawns echo server and triggers WebSocket upgrade
+    source: file://endpoint.lua
+    modules:
+      - http
+      - json
+      - process
+    method: handler
+    pool:
+      type: static
+      size: 4
+
+  # HTTP route
+  - name: route
+    kind: http.endpoint
+    meta:
+      comment: WebSocket echo endpoint
+      router: app:api.ws
+    method: GET
+    func: endpoint
+    path: /echo
+
+  # Integration test
+  - name: test
+    kind: function.lua
+    meta:
+      type: test
+      suite: websocket
+      description: WebSocket echo integration with wsrelay
+    source: file://test.lua
+    method: main
+    modules:
+      - websocket
+      - json
+      - time
+    imports:
+      assert2: app.lib:assert

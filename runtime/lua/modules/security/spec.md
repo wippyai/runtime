@@ -1,352 +1,417 @@
-# Security Package Specification
+# security
 
-## Overview
+Security actors, scopes, and policies for access control. Security, nondeterministic.
 
-The security package provides a Lua interface for managing authentication, authorization, and access control. It includes functionality for working with actors, scopes, policies, and token stores.
-
-## Loading the Module
+## Loading
 
 ```lua
 local security = require("security")
 ```
 
-## Core Concepts
+## Functions
+
+### actor() → Actor | nil
+
+Returns the current security actor from the execution context.
+
+**Returns:**
+- Success: `Actor` - current actor if one exists in context
+- No actor: `nil` - no actor in current execution context
+
+### scope() → Scope | nil
+
+Returns the current security scope from the execution context.
+
+**Returns:**
+- Success: `Scope` - current scope if one exists in context
+- No scope: `nil` - no scope in current execution context
+
+### can(action: string, resource: string, meta?: table) → boolean
+
+Checks if the current context allows the specified action on a resource.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| action | string | yes | - | Action to check (e.g., "read", "write") |
+| resource | string | yes | - | Resource identifier |
+| meta | table | no | nil | Additional metadata for policy evaluation |
+
+**Returns:** `boolean` - true if allowed, false if denied or no security context
+
+**Example:**
+
+```lua
+if security.can("read", "user:123") then
+    -- perform read operation
+end
+```
+
+### policy(id: string) → Policy, error
+
+Retrieves a policy from the registry by its ID.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| id | string | yes | - | Policy ID in format "namespace:name" |
+
+**Returns:**
+- Success: `Policy, nil` - policy object and no error
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| no context | errors.INTERNAL | no |
+| permission denied | errors.INVALID | no |
+| policy not found | errors.INTERNAL | no |
+
+### named_scope(id: string) → Scope, error
+
+Retrieves a policy group (named scope) from the registry by its ID.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| id | string | yes | - | Policy group ID in format "namespace:name" |
+
+**Returns:**
+- Success: `Scope, nil` - scope containing all policies in the group
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| no context | errors.INTERNAL | no |
+| permission denied | errors.INVALID | no |
+| policy group not found | errors.INTERNAL | no |
+
+### new_scope(policies?: Policy[]) → Scope
+
+Creates a new custom scope, optionally initialized with policies.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| policies | Policy[] | no | nil | Array of policy objects to include |
+
+**Returns:** `Scope` - new scope object
+
+**Raises:** Lua error if permission denied to create custom scopes
+
+**Example:**
+
+```lua
+local scope = security.new_scope()
+
+-- or with policies
+local pol, _ = security.policy("app:allow-read")
+local scope = security.new_scope({ pol })
+```
+
+### new_actor(id: string, meta?: table) → Actor
+
+Creates a new actor with the specified ID and metadata.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| id | string | yes | - | Unique actor identifier |
+| meta | table | no | nil | Metadata key-value pairs |
+
+**Returns:** `Actor` - new actor object
+
+**Raises:** Lua error if permission denied to create actor with specified ID
+
+**Example:**
+
+```lua
+local actor = security.new_actor("user123", {
+    role = "admin",
+    department = "engineering"
+})
+```
+
+### token_store(id: string) → TokenStore, error
+
+Acquires a token store resource for managing authentication tokens.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| id | string | yes | - | Token store resource ID in format "namespace:name" |
+
+**Returns:**
+- Success: `TokenStore, nil` - token store object and no error
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| no context | errors.INTERNAL | no |
+| id required | errors.INVALID | no |
+| permission denied | errors.INVALID | no |
+| resource registry not found | errors.INTERNAL | no |
+| acquire failed | errors.INTERNAL | no |
+| not a token store | errors.INTERNAL | no |
+
+## Types
 
 ### Actor
 
-Represents an entity performing actions in the system:
-- Has an ID (string)
-- Contains metadata (key-value pairs)
+Returned by `security.actor()` and `security.new_actor()`.
 
-### Scope
-
-A collection of policies that define permissions:
-- Can be extended or reduced with policies
-- Can evaluate actions against actors and resources
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| id | () | string | Actor's unique identifier |
+| meta | () | table | Actor's metadata as key-value table |
 
 ### Policy
 
-Defines rules for authorization decisions:
-- Has an ID (namespace:name format)
-- Evaluates if an actor can perform an action on a resource
+Returned by `security.policy()`. Represents an authorization policy.
 
-### Token Store
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| id | () | string | Policy ID in format "namespace:name" |
+| evaluate | (actor: Actor, action: string, resource: string, meta?: table) | string | Returns "allow", "deny", or "undefined" |
 
-Manages authentication tokens:
-- Validates tokens to get actor and scope
-- Creates new tokens for actors with specific scopes
+#### policy:evaluate(actor: Actor, action: string, resource: string, meta?: table) → string
 
-## API Reference
+Evaluates the policy for the given actor, action, and resource.
 
-### Context Operations
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| actor | Actor | yes | - | Actor to evaluate |
+| action | string | yes | - | Action being performed |
+| resource | string | yes | - | Resource being accessed |
+| meta | table | no | nil | Additional evaluation metadata |
 
-#### Get Current Actor
+**Returns:** `string` - one of "allow", "deny", or "undefined"
+
+### Scope
+
+Returned by `security.scope()`, `security.named_scope()`, and `security.new_scope()`. An immutable collection of policies.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| with | (policy: Policy) | Scope | Returns new scope with policy added |
+| without | (policyID: string \| Policy \| table) | Scope | Returns new scope without specified policy |
+| evaluate | (actor: Actor, action: string, resource: string, meta?: table) | string | Evaluates all policies, returns "allow", "deny", or "undefined" |
+| contains | (policyID: string \| Policy \| table) | boolean | Checks if policy is in scope |
+| policies | () | Policy[] | Returns array of all policies |
+
+#### scope:with(policy: Policy) → Scope
+
+Returns a new scope with the specified policy added.
+
+**Raises:** Lua error if permission denied to add policy to scope
+
+#### scope:without(policyID: string | Policy | table) → Scope
+
+Returns a new scope without the specified policy.
+
+| Param Type | Format | Example |
+|------------|--------|---------|
+| string | "namespace:name" | "app:read-only" |
+| Policy | Policy object | policy from `security.policy()` |
+| table | `{ns="namespace", name="name"}` | `{ns="app", name="read-only"}` |
+
+**Raises:** Lua error if permission denied to remove policy from scope
+
+#### scope:evaluate(actor: Actor, action: string, resource: string, meta?: table) → string
+
+Evaluates all policies in the scope and returns the combined result.
+
+**Returns:** `string` - one of "allow", "deny", or "undefined"
+
+#### scope:contains(policyID: string | Policy | table) → boolean
+
+Checks if the scope contains the specified policy.
+
+| Param Type | Format | Example |
+|------------|--------|---------|
+| string | "namespace:name" | "app:read-only" |
+| Policy | Policy object | policy from `security.policy()` |
+| table | `{ns="namespace", name="name"}` | `{ns="app", name="read-only"}` |
+
+**Returns:** `boolean` - true if policy is in scope, false otherwise
+
+#### scope:policies() → Policy[]
+
+Returns an array of all policies in the scope.
+
+**Returns:** `Policy[]` - array of policy objects (1-indexed)
+
+### TokenStore
+
+Returned by `security.token_store()`. Manages authentication tokens.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| validate | (token: string) | Actor, Scope, error | Validates token, yields |
+| create | (actor: Actor, scope: Scope, options?: table) | string, error | Creates token, yields |
+| revoke | (token: string) | boolean, error | Revokes token, yields |
+| close | () | boolean | Releases token store resource |
+
+#### store:validate(token: string) → Actor, Scope, error
+
+Validates a token and returns the associated actor and scope.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| token | string | yes | - | Token to validate |
+
+**Returns:**
+- Success: `Actor, Scope, nil` - actor, scope, and no error
+- Error: `nil, nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| store closed | errors.INTERNAL | no |
+| permission denied | errors.INVALID | no |
+| validation failed | errors.INTERNAL | no |
+
+**Yields:** until token validation completes
+
+#### store:create(actor: Actor, scope: Scope, options?: table) → string, error
+
+Creates a new authentication token for the actor with the specified scope.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| actor | Actor | yes | - | Actor to associate with token |
+| scope | Scope | yes | - | Scope to associate with token |
+| options | table | no | nil | Token creation options |
+
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| expiration | integer\|string | 0 | Token expiration: milliseconds or Go duration ("1h", "5m") |
+| meta | table | nil | Additional metadata to store with token |
+
+**Returns:**
+- Success: `string, nil` - token string and no error
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| store closed | errors.INTERNAL | no |
+| permission denied | errors.INVALID | no |
+| invalid expiration | errors.INVALID | no |
+| creation failed | errors.INTERNAL | no |
+
+**Yields:** until token creation completes
+
+**Example:**
 
 ```lua
--- Returns the actor from the current context or nil if not available
+local token, err = store:create(actor, scope, {
+    expiration = "1h",
+    meta = { login_time = os.time() }
+})
+```
+
+#### store:revoke(token: string) → boolean, error
+
+Revokes a token, making it invalid for future validation.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| token | string | yes | - | Token to revoke |
+
+**Returns:**
+- Success: `true, nil` - token revoked successfully
+- Error: `nil, error` - structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| store closed | errors.INTERNAL | no |
+| permission denied | errors.INVALID | no |
+| revocation failed | errors.INTERNAL | no |
+
+**Yields:** until token revocation completes
+
+#### store:close() → boolean
+
+Releases the token store resource. After calling close, the store cannot be used.
+
+**Returns:** `boolean` - true
+
+## Errors
+
+This module returns structured errors. Check kind with `errors.*` constants:
+
+```lua
+local store, err = security.token_store("app:tokens")
+if err then
+    if err:kind() == errors.INVALID then
+        -- permission denied or bad input
+    elseif err:kind() == errors.INTERNAL then
+        -- internal error
+    end
+end
+```
+
+**Possible kinds:** `errors.INVALID`, `errors.INTERNAL`
+
+## Example
+
+```lua
+local security = require("security")
+
+-- Get current security context
 local actor = security.actor()
--- Return: actor userdata or nil
-```
-
-#### Get Current Scope
-
-```lua
--- Returns the scope from the current context or nil if not available
 local scope = security.scope()
--- Return: scope userdata or nil
-```
 
-#### Check Permission
-
-```lua
--- Checks if the current actor can perform an action on a resource
-local allowed = security.can("update", "document:123", {owner = "user456"})
--- Parameters:
---   action (string): The action to check (e.g., "read", "update", "delete")
---   resource (string): The resource identifier
---   metadata (table, optional): Additional context for the permission check
--- Return: boolean (true if allowed, false otherwise)
-```
-
-### Policy Management
-
-#### Get Policy
-
-```lua
--- Retrieves a policy by ID
-local policy, err = security.policy("system:admin_policy")
--- Parameters:
---   id (string): Policy ID in "namespace:name" format
--- Returns on success: policy userdata, nil
--- Returns on error: nil, error message
-```
-
-#### Get Named Scope
-
-```lua
--- Retrieves a policy group as a scope
-local scope, err = security.named_scope("global:admin")
--- Parameters:
---   id (string): Policy group ID in "namespace:name" format
--- Returns on success: scope userdata, nil
--- Returns on error: nil, error message
-```
-
-#### Create New Scope
-
-```lua
--- Creates a new scope, optionally with initial policies
-local new_scope = security.new_scope({policy1, policy2})
--- Parameters:
---   policies (table, optional): Array of policy objects to include in scope
--- Return: scope userdata
-```
-
-#### Create Actor
-
-```lua
--- Creates a new actor
-local actor = security.new_actor("user123", {role = "admin", org = "company"})
--- Parameters:
---   id (string): Actor identifier
---   metadata (table, optional): Actor metadata
--- Return: actor userdata
-```
-
-### Token Store Operations
-
-#### Get Token Store
-
-```lua
--- Retrieves a token store resource
-local token_store, err = security.token_store("system.security:auth.tokens")
--- Parameters:
---   id (string): Resource ID in "namespace:name" format
--- Returns on success: token_store userdata, nil
--- Returns on error: nil, error message
-```
-
-## Actor Methods
-
-#### Get Actor ID
-
-```lua
--- Returns the actor's ID
-local id = actor:id()
--- Return: string
-```
-
-#### Get Actor Metadata
-
-```lua
--- Returns the actor's metadata as a table
-local metadata = actor:meta()
--- Return: table of key-value pairs
-```
-
-## Scope Methods
-
-#### Check if Scope Contains Policy
-
-```lua
--- Checks if the scope contains a specific policy
-local has_policy = scope:contains("system:admin_policy")
--- Parameters:
---   policy_id (string or userdata or table): Policy ID as string, policy object, or table with ns/name fields
--- Return: boolean
-```
-
-#### Get All Policies in Scope
-
-```lua
--- Returns an array of all policies in the scope
-local policies = scope:policies()
--- Return: array of policy objects
-```
-
-#### Evaluate Permission
-
-```lua
--- Evaluates if an action is allowed for an actor on a resource
-local result = scope:evaluate(actor, "delete", "resource:xyz", {owner = "user789"})
--- Parameters:
---   actor (userdata): Actor object
---   action (string): Action to check
---   resource (string): Resource identifier
---   metadata (table, optional): Additional context
--- Return: string ("allow", "deny", or "undefined")
-```
-
-#### Add Policy to Scope
-
-```lua
--- Creates a new scope with an additional policy
-local extended_scope = scope:with(policy)
--- Parameters:
---   policy (userdata): Policy to add
--- Return: new scope userdata
-```
-
-#### Remove Policy from Scope
-
-```lua
--- Creates a new scope without a specific policy
-local reduced_scope = scope:without("system:read_only")
--- Parameters:
---   policy_id (string or userdata or table): Policy ID as string, policy object, or table with ns/name fields
--- Return: new scope userdata
-```
-
-## Policy Methods
-
-#### Get Policy ID
-
-```lua
--- Returns the policy's ID
-local id = policy:id()
--- Return: string in "namespace:name" format
-```
-
-#### Evaluate Policy
-
-```lua
--- Evaluates if this policy allows an action for an actor on a resource
-local result = policy:evaluate(actor, "read", "document:456", {owner = "user789"})
--- Parameters:
---   actor (userdata): Actor object
---   action (string): Action to check
---   resource (string): Resource identifier
---   metadata (table, optional): Additional context
--- Return: string ("allow", "deny", or "undefined")
-```
-
-## Token Store Methods
-
-#### Validate Token
-
-```lua
--- Validates a token and returns the associated actor and scope
-local actor, scope, err = token_store:validate("eyJhbGciOiJ...")
--- Parameters:
---   token (string): Token to validate
--- Returns on success: actor userdata, scope userdata, nil
--- Returns on error: nil, nil, error message
-```
-
-#### Create Token
-
-```lua
--- Creates a new token for an actor with a specific scope
-local token, err = token_store:create(actor, scope, {
-  expiration = "24h",
-  meta = {
-    device = "mobile",
-    ip = "192.168.1.1"
-  }
-})
--- Parameters:
---   actor (userdata): Actor for the token
---   scope (userdata): Scope for the token
---   options (table, optional):
---     expiration (string or number): Token lifetime as duration string ("24h", "30m") or milliseconds
---     meta (table): Additional metadata for the token
--- Returns on success: token string, nil
--- Returns on error: nil, error message
-```
-
-#### Close Token Store
-
-```lua
--- Releases the token store resource
-local success = token_store:close()
--- Return: boolean (true on success)
-```
-
-## Example Usage
-
-### Basic Authorization
-
-```lua
-local security = require("security")
-
--- Check if current actor can perform an action
-local can_update = security.can("update", "document:123")
-if can_update then
-    -- Proceed with update
-else
-    -- Handle permission denied
-end
-```
-
-### Working with Scopes and Policies
-
-```lua
-local security = require("security")
-
--- Get named scope and policy
-local admin_scope, err = security.named_scope("global:admin")
-local read_policy, err = security.policy("system:read_only")
-
-if admin_scope and read_policy then
-    -- Check if admin scope contains read policy
-    if admin_scope:contains(read_policy) then
-        print("Admin scope includes read-only policy")
-    end
-    
-    -- Create a new restricted scope
-    local restricted = admin_scope:without("system:full_access")
-    
-    -- Create a new actor
-    local actor = security.new_actor("user123", {role = "viewer"})
-    
-    -- Check if actor can perform action with the restricted scope
-    local result = restricted:evaluate(actor, "view", "document:456")
-    print("View permission: " .. result) -- "allow", "deny", or "undefined"
-end
-```
-
-### Token Management
-
-```lua
-local security = require("security")
-
--- Get token store
-local token_store, err = security.token_store("system.security:auth.tokens")
-if not token_store then
-    error("Failed to get token store: " .. (err or "unknown error"))
+if actor then
+    print("Current actor:", actor:id())
 end
 
--- Validate an existing token
-local actor, scope, err = token_store:validate("eyJhbGciOiJ...")
-if actor and scope then
-    print("Token is valid for actor: " .. actor:id())
-    
-    -- Check specific permission with the token's scope
-    local can_access = scope:evaluate(actor, "access", "api:endpoint")
-    if can_access == "allow" then
-        -- Grant access
-    end
-else
-    print("Invalid token: " .. (err or "unknown error"))
+-- Check permissions
+if security.can("read", "user:123") then
+    -- perform read
 end
 
--- Create a new token
-local actor = security.new_actor("user456", {role = "editor"})
-local base_scope, _ = security.named_scope("roles:editor")
-local token, err = token_store:create(actor, base_scope, {
-    expiration = "8h",
-    meta = {
-        device = "desktop",
-        source = "login"
-    }
+-- Create custom actor and scope
+local custom_actor = security.new_actor("service-worker", {
+    type = "service"
 })
 
-if token then
-    print("Created new token: " .. token)
+local policy, err = security.policy("app:read-only")
+if err then error(err) end
+
+local custom_scope = security.new_scope():with(policy)
+
+-- Evaluate policy
+local result = custom_scope:evaluate(custom_actor, "read", "resource")
+if result == "allow" then
+    -- allowed
+elseif result == "deny" then
+    -- denied
 else
-    print("Failed to create token: " .. err)
+    -- undefined
 end
 
--- Always close the token store when done
-token_store:close()
+-- Token management
+local store, err = security.token_store("app:tokens")
+if err then error(err) end
+
+local token, err = store:create(custom_actor, custom_scope, {
+    expiration = "1h"
+})
+if err then error(err) end
+
+-- Validate token later
+local validated_actor, validated_scope, err = store:validate(token)
+if err then error(err) end
+
+print("Token actor:", validated_actor:id())
+
+-- Clean up
+store:close()
 ```

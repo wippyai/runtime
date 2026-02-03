@@ -3,10 +3,9 @@ package eventbus
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/event"
+	"github.com/wippyai/runtime/api/event"
 	"go.uber.org/zap"
 )
 
@@ -33,8 +32,8 @@ type Pattern struct {
 // BaseHandler provides a basic implementation of EventHandler.
 // It simplifies creation of event handlers with a function-based approach.
 type BaseHandler struct {
-	pattern Pattern
 	handler func(context.Context, event.Event) error
+	pattern Pattern
 }
 
 // NewBaseHandler creates a new handler with the specified pattern and handler function.
@@ -119,6 +118,11 @@ func StartRouter(ctx context.Context, bus event.Bus, opts ...RouterOption) (*Eve
 	return r, nil
 }
 
+// AddHandler registers a new handler with the router.
+func (r *EventRouter) AddHandler(h EventHandler) error {
+	return r.addHandler(h)
+}
+
 // Stop gracefully shuts down the router and all its subscriptions.
 // It cancels the internal context and waits for all subscribers to close.
 // Returns any error encountered during shutdown.
@@ -159,7 +163,7 @@ func (r *EventRouter) addHandler(h EventHandler) error {
 
 	// Check context before proceeding
 	if r.ctx.Err() != nil {
-		return fmt.Errorf("router context canceled: %w", r.ctx.Err())
+		return NewRouterCanceledError(r.ctx.Err())
 	}
 
 	pattern := h.Pattern()
@@ -172,7 +176,7 @@ func (r *EventRouter) addHandler(h EventHandler) error {
 	)
 
 	if err != nil {
-		return fmt.Errorf("failed to create subscriber: %w", err)
+		return NewSubscriberError(err)
 	}
 
 	r.subscribers = append(r.subscribers, handlerSubscription{

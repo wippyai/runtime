@@ -10,41 +10,24 @@ import (
 type (
 	// ObjectMetadata represents metadata for an object stored in cloud storage.
 	ObjectMetadata struct {
-		// Key is the unique identifier for the object within a bucket.
-		Key string
-
-		// Size is the size of the object in bytes.
-		Size int64
-
-		// ContentType is the MIME type of the object.
+		Key         string
 		ContentType string
-
-		// ETag is the entity tag of the object.
-		ETag string
+		ETag        string
+		Size        int64
 	}
 
 	// ListObjectsOptions defines options for listing objects.
 	ListObjectsOptions struct {
-		// Prefix filters objects that start with this prefix.
-		Prefix string
-
-		// MaxKeys is the maximum number of keys to return.
-		MaxKeys int
-
-		// ContinuationToken is used for pagination.
+		Prefix            string
 		ContinuationToken string
+		MaxKeys           int
 	}
 
 	// ListObjectsResult contains the results of a list operation.
 	ListObjectsResult struct {
-		// Objects is the list of objects.
-		Objects []ObjectMetadata
-
-		// IsTruncated indicates if there are more results.
-		IsTruncated bool
-
-		// NextContinuationToken is used to get the next page of results.
 		NextContinuationToken string
+		Objects               []ObjectMetadata
+		IsTruncated           bool
 	}
 
 	// PresignedGetOptions contains options for generating presigned download URLs.
@@ -55,13 +38,8 @@ type (
 
 	// PresignedPutOptions contains options for generating presigned upload URLs.
 	PresignedPutOptions struct {
-		// Expiration is the duration after which the URL expires.
-		Expiration time.Duration
-
-		// ContentType specifies the content type for the object.
-		ContentType string
-
-		// ContentLength specifies the maximum allowed content length.
+		ContentType   string
+		Expiration    time.Duration
 		ContentLength int64
 	}
 

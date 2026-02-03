@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -10,14 +11,17 @@ import (
 	"path/filepath"
 	"testing"
 
-	apifsLib "github.com/ponyruntime/pony/api/fs"
-	"github.com/ponyruntime/pony/api/function"
-	"github.com/ponyruntime/pony/api/payload"
-	apiregistry "github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
-	config "github.com/ponyruntime/pony/api/service/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
+	apifsLib "github.com/wippyai/runtime/api/fs"
+	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/payload"
+	apiregistry "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/runtime"
+	config "github.com/wippyai/runtime/api/service/http"
+	"go.uber.org/zap"
 )
 
 // SimpleFunctionRegistry for testing
@@ -35,12 +39,23 @@ func (r *SimpleFunctionRegistry) Register(id apiregistry.ID, fn function.Func) {
 	r.functions[id] = fn
 }
 
-func (r *SimpleFunctionRegistry) Call(ctx context.Context, task runtime.Task) (chan *runtime.Result, error) {
+func (r *SimpleFunctionRegistry) Call(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 	fn, exists := r.functions[task.ID]
 	if !exists {
 		return nil, fmt.Errorf("function not found: %s", task.ID)
 	}
-	return fn(ctx, task)
+
+	// Open a new frame context and apply task context pairs
+	// This mimics what the real function registry does
+	execCtx, frame := ctxapi.OpenFrameContext(ctx)
+	if frame != nil {
+		for _, pair := range task.Context {
+			_ = frame.Set(pair.Key, pair.Value)
+		}
+		frame.Seal()
+	}
+
+	return fn(execCtx, task)
 }
 
 // MockFS implements apifsLib.FS for testing
@@ -132,7 +147,7 @@ func createFactoryTempDir(t *testing.T, files map[string]string) (string, func()
 		require.NoError(t, err)
 
 		// Write file content
-		//nolint:gosec // used in tests
+
 		err = os.WriteFile(fullPath, []byte(content), 0644)
 		require.NoError(t, err)
 	}
@@ -161,16 +176,19 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 		},
 		Method: "GET",
 		Path:   "/test",
-		Func:   apiregistry.ID{NS: "test", Name: "func1"},
+		Func:   apiregistry.NewID("test", "func1"),
 	}
 
 	t.Run("successful handler creation", func(t *testing.T) {
-		// Register test function
-		registry.Register(cfg.Func, func(ctx context.Context, _ runtime.Task) (chan *runtime.Result, error) {
-			resultCh := make(chan *runtime.Result, 1)
+		ctx := ctxapi.NewRootContext()
 
-			// Get request context
-			rctx := ctx.Value(config.RequestCtx).(*config.RequestContext)
+		// Register test function
+		registry.Register(cfg.Func, func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+			// Get request context from FrameContext
+			rctx, ok := config.GetRequestContext(ctx)
+			if !ok {
+				panic("RequestContext not found")
+			}
 
 			// send response
 			rctx.MarkHandled()
@@ -179,12 +197,10 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 			_, _ = w.Write([]byte("success"))
 
 			// Return success
-			resultCh <- &runtime.Result{
+			return &runtime.Result{
 				Value: payload.New("success"),
 				Error: nil,
-			}
-			close(resultCh)
-			return resultCh, nil
+			}, nil
 		})
 
 		// Create handler
@@ -194,6 +210,10 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 		// Test handler
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+
+		// Create FrameContext like the HTTP server does
+		ctxWithFrame, _ := ctxapi.OpenFrameContext(ctx)
+		req = req.WithContext(ctxWithFrame)
 		handler.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -207,13 +227,15 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 
 		// Create handler should fail with invalid config
 		_, err := factory.CreateHandler(context.Background(), invalidCfg)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid endpoint config")
 	})
 
 	t.Run("function registry error", func(t *testing.T) {
+		ctx := ctxapi.NewRootContext()
+
 		// Register test function that returns an error
-		registry.Register(cfg.Func, func(_ context.Context, _ runtime.Task) (chan *runtime.Result, error) {
+		registry.Register(cfg.Func, func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
 			return nil, fmt.Errorf("function error")
 		})
 
@@ -224,6 +246,10 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 		// Test handler
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+
+		// Create FrameContext like the HTTP server does
+		ctxWithFrame, _ := ctxapi.OpenFrameContext(ctx)
+		req = req.WithContext(ctxWithFrame)
 		handler.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -243,7 +269,7 @@ func TestNewEndpointFactory(t *testing.T) {
 	t.Run("with nil registry", func(t *testing.T) {
 		factory, err := NewEndpointFactory(nil)
 
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, factory)
 		assert.Contains(t, err.Error(), "function registry is required")
 	})
@@ -252,7 +278,8 @@ func TestNewEndpointFactory(t *testing.T) {
 // File System Registry Tests
 func TestStaticFactory_CreateHandler(t *testing.T) {
 	fsRegistry := NewSimpleFSRegistry()
-	factory, err := NewStaticFactory(fsRegistry)
+	middlewareFactory := NewMiddlewareRegistry(nil)
+	factory, err := NewStaticFactory(fsRegistry, middlewareFactory)
 	require.NoError(t, err)
 
 	// Create a temp directory with test files
@@ -273,7 +300,7 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 			},
 			Path:      "/static",
 			Directory: "/static", // Add Directory field to match Path
-			FS:        apiregistry.ID{NS: "test", Name: "files"},
+			FS:        apiregistry.NewID("test", "files"),
 		}
 
 		handler, err := factory.CreateHandler(context.Background(), cfg)
@@ -295,8 +322,8 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 				config.ServerID: "test:server1",
 			},
 			Path: "/app",
-			FS:   apiregistry.ID{NS: "test", Name: "files"},
-			Options: config.StaticOptions{
+			FS:   apiregistry.NewID("test", "files"),
+			StaticOptions: config.StaticOptions{
 				SPA:       true,
 				IndexFile: "index.html",
 			},
@@ -322,7 +349,7 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 		}
 
 		_, err := factory.CreateHandler(context.Background(), invalidCfg)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid static config")
 	})
 
@@ -332,12 +359,16 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 				config.ServerID: "test:server1",
 			},
 			Path: "/static",
-			FS:   apiregistry.ID{NS: "test", Name: "nonexistent"},
+			FS:   apiregistry.NewID("test", "nonexistent"),
 		}
 
 		_, err := factory.CreateHandler(context.Background(), cfg)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "filesystem not found")
+		require.Error(t, err)
+		var apiErr apierror.Error
+		ok := errors.As(err, &apiErr)
+		require.True(t, ok)
+		assert.Contains(t, apiErr.Error(), "filesystem not found")
+		assert.Equal(t, "test:nonexistent", apiErr.Details().GetString("filesystem_id", ""))
 	})
 
 	t.Run("SPA without index file", func(t *testing.T) {
@@ -346,15 +377,15 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 				config.ServerID: "test:server1",
 			},
 			Path: "/app",
-			FS:   apiregistry.ID{NS: "test", Name: "files"},
-			Options: config.StaticOptions{
+			FS:   apiregistry.NewID("test", "files"),
+			StaticOptions: config.StaticOptions{
 				SPA: true,
 				// No index file specified
 			},
 		}
 
 		_, err := factory.CreateHandler(context.Background(), cfg)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "index file must be specified for SPA mode")
 	})
 }
@@ -362,18 +393,29 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 func TestNewStaticFactory(t *testing.T) {
 	t.Run("with valid registry", func(t *testing.T) {
 		fsRegistry := NewSimpleFSRegistry()
-		factory, err := NewStaticFactory(fsRegistry)
+		middlewareFactory := NewMiddlewareRegistry(nil)
+		factory, err := NewStaticFactory(fsRegistry, middlewareFactory)
 
 		assert.NoError(t, err)
 		assert.NotNil(t, factory)
 	})
 
 	t.Run("with nil registry", func(t *testing.T) {
-		factory, err := NewStaticFactory(nil)
+		middlewareFactory := NewMiddlewareRegistry(nil)
+		factory, err := NewStaticFactory(nil, middlewareFactory)
 
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, factory)
 		assert.Contains(t, err.Error(), "filesystem registry is required")
+	})
+
+	t.Run("with nil middleware factory", func(t *testing.T) {
+		fsRegistry := NewSimpleFSRegistry()
+		factory, err := NewStaticFactory(fsRegistry, nil)
+
+		require.Error(t, err)
+		assert.Nil(t, factory)
+		assert.Contains(t, err.Error(), "middleware factory is required")
 	})
 }
 
@@ -447,7 +489,7 @@ func TestWrapWithCacheControl(t *testing.T) {
 
 func TestServerFactory(t *testing.T) {
 	// Create middleware factory for server factory
-	middlewareFactory := NewDefaultMiddlewareFactory()
+	middlewareFactory := NewMiddlewareRegistry(zap.NewNop())
 
 	factory := NewServerFactory(middlewareFactory)
 
@@ -456,7 +498,7 @@ func TestServerFactory(t *testing.T) {
 	}
 
 	// Create server with ID
-	serverID := apiregistry.ID{NS: "test", Name: "server1"}
+	serverID := apiregistry.NewID("test", "server1")
 	server, err := factory.CreateServer(serverID, cfg)
 	require.NoError(t, err)
 	assert.NotNil(t, server)

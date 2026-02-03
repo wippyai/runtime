@@ -1,9 +1,5 @@
 package graph
 
-import (
-	"fmt"
-)
-
 // Infinity represents an infinite cost in the graph
 const Infinity = -1
 
@@ -19,7 +15,7 @@ type DependencyLevels[T comparable] struct {
 // Level numbering starts at 0.
 func (d *DependencyLevels[T]) GetLevel(level int) ([]T, error) {
 	if level < 0 || level >= len(d.levels) {
-		return nil, fmt.Errorf("invalid level: %d", level)
+		return nil, NewInvalidLevelError(level)
 	}
 	return d.levels[level], nil
 }

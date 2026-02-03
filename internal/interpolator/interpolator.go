@@ -31,8 +31,8 @@ func (i *Interpolator) Interpolate(in any, ctx any) (any, error) {
 // replaceContext holds the Replacers and context for a single replacement operation.
 // It is used by the helpers replacer.
 type replaceContext struct {
-	replacers []Replacer // List of replacer function.
-	ctx       any        // Context passed to the replacers.
+	ctx       any
+	replacers []Replacer
 }
 
 // replaceString applies a chain of Replacer functions to a single string.

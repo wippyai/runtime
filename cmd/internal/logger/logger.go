@@ -1,0 +1,143 @@
+package logger
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/fatih/color"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+)
+
+var (
+	levelColors = map[zapcore.Level]*color.Color{
+		zapcore.DebugLevel: color.New(color.FgCyan),
+		zapcore.InfoLevel:  color.New(color.FgGreen),
+		zapcore.WarnLevel:  color.New(color.FgYellow),
+		zapcore.ErrorLevel: color.New(color.FgRed),
+		zapcore.PanicLevel: color.New(color.FgMagenta),
+		zapcore.FatalLevel: color.New(color.FgMagenta, color.Bold),
+	}
+
+	componentColors = []*color.Color{
+		color.New(color.FgBlue),
+		color.New(color.FgMagenta),
+		color.New(color.FgCyan),
+		color.New(color.FgYellow),
+		color.New(color.FgGreen),
+		color.New(color.FgRed),
+		color.New(color.FgWhite),
+		color.New(color.FgHiBlue),
+		color.New(color.FgHiMagenta),
+		color.New(color.FgHiCyan),
+		color.New(color.FgHiYellow),
+		color.New(color.FgHiGreen),
+		color.New(color.FgHiRed),
+		color.New(color.FgHiWhite),
+		color.New(color.FgBlue, color.Bold),
+		color.New(color.FgMagenta, color.Bold),
+		color.New(color.FgCyan, color.Bold),
+		color.New(color.FgYellow, color.Bold),
+		color.New(color.FgGreen, color.Bold),
+		color.New(color.FgRed, color.Bold),
+		color.New(color.FgWhite, color.Bold),
+	}
+)
+
+type Config struct {
+	AppStartTime time.Time
+	Verbose      bool
+	VeryVerbose  bool
+	Console      bool
+	Silent       bool
+}
+
+func consoleTimeEncoder(startTime time.Time) zapcore.TimeEncoder {
+	return func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
+		elapsed := t.Sub(startTime)
+		enc.AppendString(fmt.Sprintf("%6.2fs", elapsed.Seconds()))
+	}
+}
+
+func consoleLevelEncoder(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) {
+	if levelColor, ok := levelColors[level]; ok {
+		enc.AppendString(levelColor.Sprintf("%-5s", level.CapitalString()))
+	} else {
+		enc.AppendString(fmt.Sprintf("%-5s", level.CapitalString()))
+	}
+}
+
+func consoleNameEncoder(loggerName string, enc zapcore.PrimitiveArrayEncoder) {
+	if loggerName == "" {
+		enc.AppendString("")
+		return
+	}
+
+	hash := 0
+	for _, r := range loggerName {
+		hash = hash*31 + int(r)
+	}
+	colorIndex := hash % len(componentColors)
+	if colorIndex < 0 {
+		colorIndex = -colorIndex
+	}
+
+	componentColor := componentColors[colorIndex]
+	enc.AppendString(componentColor.Sprintf("%-12s", loggerName))
+}
+
+func CreateLogger(cfg Config) (*zap.Logger, error) {
+	if cfg.Silent {
+		return zap.NewNop(), nil
+	}
+
+	var zapCfg zap.Config
+
+	if cfg.Console {
+		zapCfg = zap.Config{
+			Level:       zap.NewAtomicLevelAt(zapcore.InfoLevel),
+			Development: true,
+			Encoding:    "console",
+			EncoderConfig: zapcore.EncoderConfig{
+				TimeKey:       "time",
+				LevelKey:      "level",
+				NameKey:       "name",
+				CallerKey:     "",
+				MessageKey:    "msg",
+				StacktraceKey: "",
+				LineEnding:    zapcore.DefaultLineEnding,
+				EncodeTime:    consoleTimeEncoder(cfg.AppStartTime),
+				EncodeLevel:   consoleLevelEncoder,
+				EncodeName:    consoleNameEncoder,
+				EncodeCaller:  nil,
+			},
+			OutputPaths:      []string{"stdout"},
+			ErrorOutputPaths: []string{"stderr"},
+		}
+	} else {
+		zapCfg = zap.NewDevelopmentConfig()
+		zapCfg.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.DateTime)
+		zapCfg.DisableCaller = true
+	}
+
+	switch {
+	case cfg.VeryVerbose:
+		zapCfg.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
+		if !cfg.Console {
+			zapCfg.DisableStacktrace = false
+		}
+	case cfg.Verbose:
+		zapCfg.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
+		zapCfg.DisableStacktrace = true
+	default:
+		zapCfg.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
+		zapCfg.DisableStacktrace = true
+	}
+
+	logger, err := zapCfg.Build()
+	if err != nil {
+		return nil, NewBuildLoggerError(err)
+	}
+
+	return logger, nil
+}

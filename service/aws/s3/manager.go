@@ -2,28 +2,29 @@ package s3
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/ponyruntime/pony/api/cloudstorage"
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	services3 "github.com/ponyruntime/pony/api/service/aws/s3"
-	internalconfig "github.com/ponyruntime/pony/internal/config"
+	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/api/cloudstorage"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	services3 "github.com/wippyai/runtime/api/service/aws/s3"
+	entryutil "github.com/wippyai/runtime/internal/entry"
+	systemresource "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )
 
 // Manager handles S3 storage lifecycle and functions as a resource provider
 type Manager struct {
-	log      *zap.Logger
 	dtt      payload.Transcoder
 	bus      event.Bus
-	mu       sync.RWMutex
+	log      *zap.Logger
 	storages map[registry.ID]*Storage
+	mu       sync.RWMutex
 }
 
 // NewManager creates a new S3 storage manager
@@ -32,6 +33,9 @@ func NewManager(
 	dtt payload.Transcoder,
 	log *zap.Logger,
 ) *Manager {
+	if log == nil {
+		log = zap.NewNop()
+	}
 	return &Manager{
 		log:      log,
 		dtt:      dtt,
@@ -43,7 +47,7 @@ func NewManager(
 // Add implements registry.EntryListener
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != services3.Kind {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -51,12 +55,12 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	// Check if storage already exists
 	if _, exists := m.storages[entry.ID]; exists {
-		return fmt.Errorf("storage %s already exists", entry.ID)
+		return NewStorageAlreadyExistsError(entry.ID.String())
 	}
 
 	meta, err := m.set(ctx, entry)
 	if err != nil {
-		return fmt.Errorf("add entry: %w", err)
+		return NewAddEntryError(err)
 	}
 
 	// Register Manager as resource provider
@@ -73,7 +77,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	m.log.Info("added S3 storage",
 		zap.String("id", entry.ID.String()),
-		zap.String("bucket", meta.StringValue("meta")),
+		zap.String("bucket", meta.GetString("bucket", "")),
 	)
 
 	return nil
@@ -82,7 +86,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 // Update implements registry.EntryListener
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != services3.Kind {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -90,12 +94,12 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	// Check if storage already exists
 	if _, exists := m.storages[entry.ID]; !exists {
-		return fmt.Errorf("storage %s not found", entry.ID)
+		return NewStorageNotFoundError(entry.ID.String())
 	}
 
 	meta, err := m.set(ctx, entry)
 	if err != nil {
-		return fmt.Errorf("update entry: %w", err)
+		return NewUpdateEntryError(err)
 	}
 
 	// Update resource provider metadata (provider remains the same)
@@ -112,7 +116,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	m.log.Info("updated S3 storage",
 		zap.String("id", entry.ID.String()),
-		zap.String("bucket", meta.StringValue("bucket")),
+		zap.String("bucket", meta.GetString("bucket", "")),
 	)
 
 	return nil
@@ -121,7 +125,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 // Delete implements registry.EntryListener
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != services3.Kind {
-		return fmt.Errorf("unsupported entry kind: %s", entry.Kind)
+		return NewUnsupportedKindError(entry.Kind)
 	}
 
 	m.mu.Lock()
@@ -130,7 +134,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	// Check if storage exists
 	_, exists := m.storages[entry.ID]
 	if !exists {
-		return fmt.Errorf("storage %s not found", entry.ID)
+		return NewStorageNotFoundError(entry.ID.String())
 	}
 
 	// Unregister resource provider
@@ -156,12 +160,12 @@ func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.Acces
 
 	_, exists := m.storages[id]
 	if !exists {
-		return nil, fmt.Errorf("storage %s not found", id)
+		return nil, NewStorageNotFoundError(id.String())
 	}
 
 	// Only support normal mode for now
 	if mode != resource.ModeNormal {
-		return nil, resource.ErrResourceLocked
+		return nil, systemresource.ErrLocked
 	}
 
 	return &s3Resource{
@@ -170,26 +174,26 @@ func (m *Manager) Acquire(_ context.Context, id registry.ID, mode resource.Acces
 	}, nil
 }
 
-func (m *Manager) set(ctx context.Context, entry registry.Entry) (registry.Metadata, error) {
+func (m *Manager) set(ctx context.Context, entry registry.Entry) (attrs.Bag, error) {
 	// Decode and initialize configuration
-	cfg, err := internalconfig.DecodeAndInitConfig[services3.Config](m.dtt, entry)
+	cfg, err := entryutil.DecodeEntryConfig[services3.Config](ctx, m.dtt, entry)
 	if err != nil {
-		return nil, fmt.Errorf("decode config: %w", err)
+		return nil, NewDecodeConfigError(err)
 	}
 
-	resourceRegistry := resource.GetResources(ctx)
+	resourceRegistry := resource.GetRegistry(ctx)
 	rsc, err := resourceRegistry.Acquire(ctx, registry.ParseID(cfg.AWSConfig), resource.ModeNormal)
 	if err != nil {
-		return nil, fmt.Errorf("acquire resource: %w", err)
+		return nil, NewAcquireResourceError(err)
 	}
 
 	gotConfig, err := rsc.Get()
 	if err != nil {
-		return nil, fmt.Errorf("get config: %w", err)
+		return nil, NewGetConfigError(err)
 	}
 	awsCfg, ok := gotConfig.(aws.Config)
 	if !ok {
-		return nil, fmt.Errorf("aws config not config")
+		return nil, NewAWSConfigInvalidError()
 	}
 
 	// Create S3 client
@@ -201,7 +205,7 @@ func (m *Manager) set(ctx context.Context, entry registry.Entry) (registry.Metad
 	})
 
 	// Create S3 storage
-	storage := NewStorage(client, cfg.Bucket, cfg, m.log)
+	storage := NewStorage(client, cfg.Bucket, m.log)
 	m.storages[entry.ID] = storage
 	return map[string]any{
 		"bucket": cfg.Bucket,
@@ -222,7 +226,7 @@ func (r *s3Resource) Get() (any, error) {
 	defer r.mu.Unlock()
 
 	if r.closed {
-		return nil, resource.ErrResourceReleased
+		return nil, resource.ErrReleased
 	}
 
 	// Ensure storage still exists in manager
@@ -231,7 +235,7 @@ func (r *s3Resource) Get() (any, error) {
 	r.manager.mu.RUnlock()
 
 	if !exists {
-		return nil, resource.ErrResourceReleased
+		return nil, resource.ErrReleased
 	}
 
 	return cloudstorage.Storage(storage), nil

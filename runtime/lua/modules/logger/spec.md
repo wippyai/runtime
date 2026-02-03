@@ -1,141 +1,149 @@
-# Lua Logger Module Specification
+# logger
 
-## Overview
+Structured logging with level-based output and field attachments. IO, nondeterministic.
 
-The `logger` module provides a Lua interface for structured logging. It allows Lua scripts to log messages at different
-levels (debug, info, warn, error) with optional fields for additional context. It also supports creating new loggers
-with pre-defined fields or names.
-
-## Module Interface
-
-### Module Loading
+## Loading
 
 ```lua
 local logger = require("logger")
 ```
 
-### Logger Object
+## Functions
 
-The `logger` module returns a single userdata object representing the initial logger. This object has methods for
-logging and creating new loggers.
+### debug(message: string, fields?: table) → nil
 
-### Methods
+Logs message at debug level.
 
-#### logger:debug(message: string, fields?: table)
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| message | string | yes | - | Log message text |
+| fields | table | no | nil | Key-value pairs to attach |
 
-Logs a debug message.
+**fields table:**
 
-- **message:** The message string.
-- **fields:** (Optional) A table containing key-value pairs to be added as structured fields to the log entry.
+| Key | Type | Notes |
+|-----|------|-------|
+| (any string) | string\|integer\|number\|boolean\|table | Field value, tables converted to JSON |
 
-#### logger:info(message: string, fields?: table)
+**Returns:** Nothing
 
-Logs an info message.
+**Notes:**
+- Automatically adds `pid` and `location` fields from context
+- Non-string keys in fields table are ignored
 
-- **message:** The message string.
-- **fields:** (Optional) A table containing key-value pairs to be added as structured fields to the log entry.
+### info(message: string, fields?: table) → nil
 
-#### logger:warn(message: string, fields?: table)
+Logs message at info level.
 
-Logs a warning message.
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| message | string | yes | - | Log message text |
+| fields | table | no | nil | Key-value pairs to attach |
 
-- **message:** The message string.
-- **fields:** (Optional) A table containing key-value pairs to be added as structured fields to the log entry.
+**Returns:** Nothing
 
-#### logger:error(message: string, fields?: table)
+### warn(message: string, fields?: table) → nil
 
-Logs an error message.
+Logs message at warn level.
 
-- **message:** The message string.
-- **fields:** (Optional) A table containing key-value pairs to be added as structured fields to the log entry. The
-  `error` field in this table is treated specially, and if present its value is used to construct an error log entry.
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| message | string | yes | - | Log message text |
+| fields | table | no | nil | Key-value pairs to attach |
 
-#### logger:with(fields: table)
+**Returns:** Nothing
 
-Creates a new logger that includes the specified fields in every log entry.
+### error(message: string, fields?: table) → nil
 
-- **fields:** A table containing key-value pairs to be added as structured fields to all log entries made with the new
-  logger.
+Logs message at error level.
 
-Returns:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| message | string | yes | - | Log message text |
+| fields | table | no | nil | Key-value pairs to attach |
 
-- A new logger object.
+**Returns:** Nothing
 
-#### logger:named(name: string)
+**Notes:**
+- If fields table contains `error` key, it's treated specially and formatted as error object
 
-Creates a new logger with a specific name. This is useful for categorizing logs from different parts of an application.
+### with(fields: table) → Logger
 
-- **name:** The name of the new logger.
+Creates child logger with permanently attached fields.
 
-Returns:
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| fields | table | yes | - | Key-value pairs to attach to all logs |
 
-- A new logger object.
+**Returns:** `Logger` - new logger instance with fields attached
 
-## Field Handling
+**Notes:**
+- Child logger can be chained with additional `with()` or `named()` calls
+- Original logger is unchanged
+- Fields are added to all subsequent log calls from child
 
-- The `fields` table in logging methods can contain string, number, and boolean values, these will be logged as
-  corresponding types in the log output.
-- The `fields` table can contain values that are not strings, numbers, or booleans. These will be logged using a
-  generic "any" type representation.
-- The `error` field in `logger:error()` is handled specially. When included in the fields table, the value associated
-  with `error` will be used as the error message in the log.
+```lua
+local child = logger:with({service = "api"})
+child:info("request")  -- includes service="api" field
+```
 
-## Error Handling
+### named(name: string) → Logger
 
-- If any of the methods are called with incorrect argument types (e.g., a number instead of a string for the message),
-  an error will be raised.
-- If `logger:named()` is called with an empty string as the name, an error will be raised.
+Creates child logger with named prefix.
 
-## Behavior
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| name | string | yes | - | Logger name |
 
-- The logger methods (`debug`, `info`, `warn`, `error`) log messages to the underlying logging system.
-- The `with` method creates a new logger that inherits the properties of the original logger but also includes the
-  specified fields in all subsequent log entries made with that logger.
-- The `named` method creates a new logger that inherits the properties of the original logger but also includes the
-  specified name in all subsequent log entries made with that logger.
-- Log entries are structured and may include a timestamp, log level, message, and any fields provided.
+**Returns:** `Logger` - new logger instance with name
 
-## Thread Safety
+**Errors:**
+- `"name cannot be empty"` - empty string provided
 
-- The `logger` module relies on the underlying logging implementation to handle thread safety.
+**Notes:**
+- Name appears in log output as logger name
+- Can be chained with `with()` or additional `named()` calls
 
-## Best Practices
+```lua
+local named = logger:named("handler")
+named:info("started")  -- logged with "handler" name
+```
 
-- Use the `with` method to create loggers with contextual information that is common to multiple log entries (e.g.,
-  request ID, user ID).
-- Use the `named` method to categorize logs from different parts of your application.
-- Use descriptive field names to make logs easier to understand.
-- Check for errors returned by the logger methods, especially when using `with` or `named`.
-- Use `logger:error()` with an `error` field in the fields table to clearly denote errors in the log output.
+## Types
 
-## Example Usage
+### Logger
+
+Returned by `logger:with()` and `logger:named()`.
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| debug | (message: string, fields?: table) | - | Log at debug level |
+| info | (message: string, fields?: table) | - | Log at info level |
+| warn | (message: string, fields?: table) | - | Log at warn level |
+| error | (message: string, fields?: table) | - | Log at error level |
+| with | (fields: table) | Logger | Create child with fields |
+| named | (name: string) | Logger | Create child with name |
+
+## Example
 
 ```lua
 local logger = require("logger")
 
--- Log a simple info message
-logger:info("application started")
+-- Basic logging
+logger:info("server started", {port = 8080})
+logger:debug("processing request")
+logger:warn("rate limit approaching", {current = 95, max = 100})
+logger:error("connection failed", {error = "timeout"})
 
--- Log a debug message with fields
-logger:debug("processing request", {
-  request_id = "req-123",
-  method = "GET",
-  path = "/api/users"
-})
+-- Create child logger with context fields
+local api = logger:with({component = "api", version = "1.0"})
+api:info("handling request", {path = "/users"})
 
--- Create a new logger with context
-local reqLogger = logger:with({request_id = "req-456"})
-reqLogger:info("handling request")
-reqLogger:warn("slow database query", {duration_ms = 250})
+-- Create named logger
+local auth = logger:named("auth")
+auth:info("login attempt", {user = "admin"})
 
--- Create a named logger
-local authLogger = logger:named("auth")
-authLogger:info("user logged in", {user_id = 123, username = "johndoe"})
-
--- Log an error with a special error field
-logger:error("operation failed", {
-  error = "file not found",
-  operation = "read_file",
-  filename = "/tmp/data.txt"
-})
+-- Chain logger creation
+local handler = api:with({request_id = "abc123"})
+handler:info("processing")  -- includes component, version, and request_id
 ```

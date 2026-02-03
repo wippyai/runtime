@@ -1,0 +1,55 @@
+version: "1.0"
+namespace: app.test.metrics
+
+entries:
+  - name: counters
+    kind: function.lua
+    meta:
+      type: test
+      suite: metrics
+      description: Counter operations
+    source: file://counters.lua
+    method: main
+    modules:
+      - metrics
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: gauges
+    kind: function.lua
+    meta:
+      type: test
+      suite: metrics
+      description: Gauge operations
+    source: file://gauges.lua
+    method: main
+    modules:
+      - metrics
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: histogram
+    kind: function.lua
+    meta:
+      type: test
+      suite: metrics
+      description: Histogram operations
+    source: file://histogram.lua
+    method: main
+    modules:
+      - metrics
+    imports:
+      assert_primitives: app.lib:assert
+
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: metrics
+      description: Metrics error handling
+    source: file://errors.lua
+    method: main
+    modules:
+      - metrics
+    imports:
+      assert_primitives: app.lib:assert

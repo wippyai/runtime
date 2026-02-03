@@ -1,31 +1,15 @@
 package treesitter
 
-import "C"
 import (
-	"github.com/ponyruntime/pony/runtime/lua/engine/value"
 	treesitter "github.com/tree-sitter/go-tree-sitter"
-	lua "github.com/yuin/gopher-lua"
+	lua "github.com/wippyai/go-lua"
 )
+
+const typeLanguage = "treesitter.Language"
 
 // LanguageWrapper wraps a tree-sitter Language for Lua integration
 type LanguageWrapper struct {
 	lang *treesitter.Language
-}
-
-// Register the Language type to Lua
-func registerLanguage(l *lua.LState) {
-	methods := map[string]lua.LGFunction{
-		"version":            languageVersion,
-		"node_kind_count":    languageNodeKindCount,
-		"parse_state_count":  languageParseStateCount,
-		"node_kind_for_id":   languageNodeKindForID,
-		"id_for_node_kind":   languageIDForNodeKind,
-		"node_kind_is_named": languageNodeKindIsNamed,
-		"field_count":        languageFieldCount,
-		"field_name_for_id":  languageFieldNameForID,
-		"field_id_for_name":  languageFieldIDForName,
-	}
-	value.RegisterMethods(l, "treesitter.Language", methods)
 }
 
 func checkLanguage(l *lua.LState) *LanguageWrapper {
@@ -40,16 +24,22 @@ func checkLanguage(l *lua.LState) *LanguageWrapper {
 // Language methods implementation
 func languageVersion(l *lua.LState) int {
 	lang := checkLanguage(l)
+	if lang == nil {
+		return 0
+	}
 	if lang.lang == nil {
 		l.Push(lua.LNil)
 		return 1
 	}
-	l.Push(lua.LNumber(lang.lang.Version()))
+	l.Push(lua.LNumber(lang.lang.AbiVersion()))
 	return 1
 }
 
 func languageNodeKindCount(l *lua.LState) int {
 	lang := checkLanguage(l)
+	if lang == nil {
+		return 0
+	}
 	if lang.lang == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -60,6 +50,9 @@ func languageNodeKindCount(l *lua.LState) int {
 
 func languageParseStateCount(l *lua.LState) int {
 	lang := checkLanguage(l)
+	if lang == nil {
+		return 0
+	}
 	if lang.lang == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -70,6 +63,9 @@ func languageParseStateCount(l *lua.LState) int {
 
 func languageNodeKindForID(l *lua.LState) int {
 	lang := checkLanguage(l)
+	if lang == nil {
+		return 0
+	}
 	if lang.lang == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -81,6 +77,9 @@ func languageNodeKindForID(l *lua.LState) int {
 
 func languageIDForNodeKind(l *lua.LState) int {
 	lang := checkLanguage(l)
+	if lang == nil {
+		return 0
+	}
 	if lang.lang == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -93,6 +92,9 @@ func languageIDForNodeKind(l *lua.LState) int {
 
 func languageNodeKindIsNamed(l *lua.LState) int {
 	lang := checkLanguage(l)
+	if lang == nil {
+		return 0
+	}
 	if lang.lang == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -104,6 +106,9 @@ func languageNodeKindIsNamed(l *lua.LState) int {
 
 func languageFieldCount(l *lua.LState) int {
 	lang := checkLanguage(l)
+	if lang == nil {
+		return 0
+	}
 	if lang.lang == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -114,6 +119,9 @@ func languageFieldCount(l *lua.LState) int {
 
 func languageFieldNameForID(l *lua.LState) int {
 	lang := checkLanguage(l)
+	if lang == nil {
+		return 0
+	}
 	if lang.lang == nil {
 		l.Push(lua.LNil)
 		return 1
@@ -125,6 +133,9 @@ func languageFieldNameForID(l *lua.LState) int {
 
 func languageFieldIDForName(l *lua.LState) int {
 	lang := checkLanguage(l)
+	if lang == nil {
+		return 0
+	}
 	if lang.lang == nil {
 		l.Push(lua.LNil)
 		return 1

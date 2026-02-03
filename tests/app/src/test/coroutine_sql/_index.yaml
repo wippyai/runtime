@@ -1,0 +1,86 @@
+version: "1.0"
+namespace: app.test.coroutine_sql
+
+entries:
+  - name: testdb
+    kind: db.sql.sqlite
+    file: ":memory:"
+    lifecycle:
+      auto_start: true
+
+  - name: coroutine_query
+    kind: function.lua
+    meta:
+      type: test
+      suite: coroutine_sql
+      description: SQL query inside coroutine.spawn completes correctly
+    source: file://coroutine_query.lua
+    method: main
+    modules:
+      - sql
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: nested_select
+    kind: function.lua
+    meta:
+      type: test
+      suite: coroutine_sql
+      description: SQL query inside nested channel.select completes correctly
+    source: file://nested_select.lua
+    method: main
+    modules:
+      - sql
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: inbox_select
+    kind: function.lua
+    meta:
+      type: test
+      suite: coroutine_sql
+      description: SQL query inside coroutine while main loop uses process.inbox
+    source: file://inbox_select.lua
+    method: main
+    modules:
+      - sql
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: spawned_worker
+    kind: process.lua
+    source: file://spawned_worker.lua
+    method: run
+    modules:
+      - sql
+      - time
+
+  - name: spawned_process
+    kind: function.lua
+    meta:
+      type: test
+      suite: coroutine_sql
+      description: SQL query inside coroutine in spawned process completes correctly
+    source: file://spawned_process.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: bus_pattern
+    kind: function.lua
+    meta:
+      type: test
+      suite: coroutine_sql
+      description: Coroutine in select loop receives buffered channel message
+    source: file://bus_pattern.lua
+    method: main
+    modules:
+      - sql
+      - time
+    imports:
+      assert2: app.lib:assert

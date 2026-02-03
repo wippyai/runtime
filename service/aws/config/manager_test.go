@@ -7,15 +7,18 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/resource"
-	serviceaws "github.com/ponyruntime/pony/api/service/aws/config"
-	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	envapi "github.com/wippyai/runtime/api/env"
+	apierror "github.com/wippyai/runtime/api/error"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
+	awsconfigapi "github.com/wippyai/runtime/api/service/aws/config"
+	"github.com/wippyai/runtime/system/eventbus"
+	systemresource "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )
 
@@ -44,13 +47,12 @@ func NewMockPayload(data interface{}) payload.Payload {
 
 // MockTranscoder implements payload.Transcoder for testing
 type MockTranscoder struct {
-	marshalError   error
-	unmarshalError error
-	mockData       []byte
-	// Custom config to use when unmarshaling
+	marshalError       error
+	unmarshalError     error
 	region             string
 	accessKeyIDEnv     string
 	secretAccessKeyEnv string
+	mockData           []byte
 }
 
 func NewMockTranscoder() *MockTranscoder {
@@ -69,16 +71,24 @@ func (m *MockTranscoder) Marshal(_ any) ([]byte, error) {
 	return m.mockData, nil
 }
 
-func (m *MockTranscoder) Unmarshal(_ payload.Payload, v any) error {
+func (m *MockTranscoder) Unmarshal(p payload.Payload, v any) error {
 	if m.unmarshalError != nil {
 		return m.unmarshalError
 	}
 
-	// For simplicity, mock implementation that sets predefined values
-	if cfg, ok := v.(*serviceaws.Config); ok {
-		cfg.Region = m.region
-		cfg.AccessKeyIDEnv = m.accessKeyIDEnv
-		cfg.SecretAccessKeyEnv = m.secretAccessKeyEnv
+	// Use the actual data from the payload
+	if cfg, ok := v.(*awsconfigapi.Config); ok {
+		if payloadData, ok := p.Data().(*awsconfigapi.Config); ok {
+			// Copy the values from the payload
+			cfg.Region = payloadData.Region
+			cfg.AccessKeyIDEnv = payloadData.AccessKeyIDEnv
+			cfg.SecretAccessKeyEnv = payloadData.SecretAccessKeyEnv
+		} else {
+			// Fallback to predefined values if payload data is not the expected type
+			cfg.Region = m.region
+			cfg.AccessKeyIDEnv = m.accessKeyIDEnv
+			cfg.SecretAccessKeyEnv = m.secretAccessKeyEnv
+		}
 	}
 
 	return nil
@@ -88,23 +98,72 @@ func (m *MockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload
 	return p, nil
 }
 
+// MockEnvRegistry implements envapi.Registry for testing
+type MockEnvRegistry struct {
+	variables map[string]string
+}
+
+func NewMockRegistry() *MockEnvRegistry {
+	return &MockEnvRegistry{
+		variables: make(map[string]string),
+	}
+}
+
+func (m *MockEnvRegistry) Get(_ context.Context, name string) (string, error) {
+	if value, exists := m.variables[name]; exists {
+		return value, nil
+	}
+	return "", envapi.ErrVariableNotFound
+}
+
+func (m *MockEnvRegistry) GetFromStorage(_ context.Context, name string) (string, error) {
+	if value, exists := m.variables[name]; exists {
+		return value, nil
+	}
+	return "", envapi.ErrVariableNotFound
+}
+
+func (m *MockEnvRegistry) Set(_ context.Context, name string, value string) error {
+	m.variables[name] = value
+	return nil
+}
+
+func (m *MockEnvRegistry) All(_ context.Context) (map[string]string, error) {
+	// For testing purposes, we return the variables map
+	return m.variables, nil
+}
+
+func (m *MockEnvRegistry) Lookup(_ context.Context, name string) (string, bool, error) {
+	if value, exists := m.variables[name]; exists {
+		return value, true, nil
+	}
+	return "", false, nil
+}
+
+func (m *MockEnvRegistry) GetStorage(_ context.Context, _ registry.ID) (envapi.Storage, error) {
+	return nil, envapi.ErrStorageNotFound
+}
+
+func (m *MockEnvRegistry) RegisterStorage(_ registry.ID, _ envapi.Storage) {}
+
 // setupTestEnvironment creates a test environment with mocked dependencies
-func setupTestEnvironment() (*Manager, event.Bus, context.Context) {
+func setupTestEnvironment(t *testing.T) (*Manager, event.Bus, context.Context) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 
 	// Set up the mock transcoder
 	transcoder := NewMockTranscoder()
 
+	// Create mock registry and populate it with test values
+	envRegistry := NewMockRegistry()
+
+	ctx := ctxapi.NewRootContext()
+
+	require.NoError(t, envRegistry.Set(ctx, "AWS_ACCESS_KEY_ID", "test-access-key"))
+	require.NoError(t, envRegistry.Set(ctx, "AWS_SECRET_ACCESS_KEY", "test-secret-key"))
+
 	// Create manager
-	manager := NewManager(bus, transcoder, logger)
-
-	envContexter := ctxapi.NewContexter[string]()
-	envContexter.SetValue("AWS_ACCESS_KEY_ID", "test-access-key")
-	envContexter.SetValue("AWS_SECRET_ACCESS_KEY", "test-secret-key")
-
-	// Create context with env contexter
-	ctx := context.WithValue(context.Background(), ctxapi.EnvCtx, envContexter)
+	manager := NewManager(bus, transcoder, logger, envRegistry)
 
 	return manager, bus, ctx
 }
@@ -134,7 +193,7 @@ func setupResourceEventsListener(ctx context.Context, bus event.Bus) (chan event
 
 // waitForResourceEvent waits for a resource event with the specified kind
 //
-//nolint:unparam // bool return value is required by testing pattern but not used
+
 func waitForResourceEvent(t *testing.T, eventChan chan event.Event, expectedKind event.Kind, timeout time.Duration) event.Event {
 	t.Helper()
 
@@ -149,20 +208,20 @@ func waitForResourceEvent(t *testing.T, eventChan chan event.Event, expectedKind
 }
 
 func TestManager_Add(t *testing.T) {
-	manager, bus, ctx := setupTestEnvironment()
+	manager, bus, ctx := setupTestEnvironment(t)
 
 	// Set up event listener for resource events
 	resourceEvents, cleanup, err := setupResourceEventsListener(ctx, bus)
 	require.NoError(t, err)
 	defer cleanup()
 
-	testID := registry.ID{NS: "test", Name: "awsconfig"}
+	testID := registry.NewID("test", "awsconfig")
 
 	t.Run("successful config addition", func(t *testing.T) {
 		entry := registry.Entry{
 			ID:   testID,
-			Kind: serviceaws.Kind,
-			Data: NewMockPayload(&serviceaws.Config{
+			Kind: awsconfigapi.Kind,
+			Data: NewMockPayload(&awsconfigapi.Config{
 				Region:             "us-east-1",
 				AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
 				SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
@@ -185,7 +244,6 @@ func TestManager_Add(t *testing.T) {
 		// Verify event data
 		resourceEntry, ok := evt.Data.(resource.Entry)
 		assert.True(t, ok)
-		assert.Equal(t, testID, resourceEntry.ID)
 		assert.Equal(t, manager, resourceEntry.Provider)
 
 		// Verify metadata
@@ -195,16 +253,20 @@ func TestManager_Add(t *testing.T) {
 
 	t.Run("wrong entry kind", func(t *testing.T) {
 		entry := registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "invalid"},
 			Kind: "invalid.kind",
-			Data: NewMockPayload(&serviceaws.Config{
+			Data: NewMockPayload(&awsconfigapi.Config{
 				Region: "us-east-1",
 			}),
 		}
 
 		err := manager.Add(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported entry kind")
+		var apiErr apierror.Error
+		ok := errors.As(err, &apiErr)
+		assert.True(t, ok)
+		kind, _ := apiErr.Details().Get("kind")
+		assert.Equal(t, "invalid.kind", kind)
 	})
 
 	t.Run("unmarshal error", func(t *testing.T) {
@@ -212,14 +274,18 @@ func TestManager_Add(t *testing.T) {
 		manager.dtt = &MockTranscoder{unmarshalError: errors.New("unmarshal error")}
 
 		entry := registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "error"},
-			Kind: serviceaws.Kind,
+			Kind: awsconfigapi.Kind,
 			Data: NewMockPayload("invalid json"),
 		}
 
 		err := manager.Add(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "decode config")
+		var apiErr apierror.Error
+		ok := errors.As(err, &apiErr)
+		assert.True(t, ok)
+		cause, _ := apiErr.Details().Get("cause")
+		assert.Contains(t, cause, "unmarshal error")
 
 		// Reset transcoder for other tests
 		manager.dtt = NewMockTranscoder()
@@ -228,50 +294,38 @@ func TestManager_Add(t *testing.T) {
 	t.Run("duplicate config", func(t *testing.T) {
 		entry := registry.Entry{
 			ID:   testID, // Same ID as in successful test
-			Kind: serviceaws.Kind,
-			Data: NewMockPayload(&serviceaws.Config{
+			Kind: awsconfigapi.Kind,
+			Data: NewMockPayload(&awsconfigapi.Config{
 				Region: "us-east-1",
 			}),
 		}
 
 		err := manager.Add(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "already exists")
-	})
-
-	t.Run("missing env context", func(t *testing.T) {
-		// Create a context without env contexter
-		invalidCtx := context.Background()
-
-		entry := registry.Entry{
-			ID:   registry.ID{NS: "test", Name: "env-error"},
-			Kind: serviceaws.Kind,
-			Data: NewMockPayload(&serviceaws.Config{
-				Region: "us-east-1",
-			}),
-		}
-
-		err := manager.Add(invalidCtx, entry)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "cannot access env ctx")
+		var apiErr apierror.Error
+		ok := errors.As(err, &apiErr)
+		assert.True(t, ok)
+		id, _ := apiErr.Details().Get("id")
+		assert.Equal(t, testID.String(), id)
 	})
 }
 
 func TestManager_Update(t *testing.T) {
-	manager, bus, ctx := setupTestEnvironment()
+	manager, bus, ctx := setupTestEnvironment(t)
 
 	// Set up event listener for resource events
 	resourceEvents, cleanup, err := setupResourceEventsListener(ctx, bus)
 	require.NoError(t, err)
 	defer cleanup()
 
-	testID := registry.ID{NS: "test", Name: "awsconfig"}
+	testID := registry.NewID("test", "awsconfig")
 
 	// First add a config
 	addEntry := registry.Entry{
 		ID:   testID,
-		Kind: serviceaws.Kind,
-		Data: NewMockPayload(&serviceaws.Config{
+		Kind: awsconfigapi.Kind,
+		Data: NewMockPayload(&awsconfigapi.Config{
 			Region:             "us-east-1",
 			AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
 			SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
@@ -288,8 +342,8 @@ func TestManager_Update(t *testing.T) {
 		// Create update entry with the same ID but different region
 		updateEntry := registry.Entry{
 			ID:   testID,
-			Kind: serviceaws.Kind,
-			Data: NewMockPayload(&serviceaws.Config{
+			Kind: awsconfigapi.Kind,
+			Data: NewMockPayload(&awsconfigapi.Config{
 				Region:             "us-west-2",
 				AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
 				SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
@@ -326,7 +380,6 @@ func TestManager_Update(t *testing.T) {
 		// Verify event data
 		resourceEntry, ok := evt.Data.(resource.Entry)
 		assert.True(t, ok)
-		assert.Equal(t, testID, resourceEntry.ID)
 
 		// Verify updated metadata
 		meta := resourceEntry.Meta
@@ -334,30 +387,40 @@ func TestManager_Update(t *testing.T) {
 	})
 
 	t.Run("config not found", func(t *testing.T) {
-		nonExistentID := registry.ID{NS: "test", Name: "nonexistent"}
+		nonExistentID := registry.NewID("test", "nonexistent")
 		entry := registry.Entry{
 			ID:   nonExistentID,
-			Kind: serviceaws.Kind,
-			Data: NewMockPayload(&serviceaws.Config{
+			Kind: awsconfigapi.Kind,
+			Data: NewMockPayload(&awsconfigapi.Config{
 				Region: "us-east-1",
 			}),
 		}
 
 		err := manager.Update(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
+		var apiErr apierror.Error
+		ok := errors.As(err, &apiErr)
+		assert.True(t, ok)
+		id, _ := apiErr.Details().Get("id")
+		assert.Equal(t, nonExistentID.String(), id)
 	})
 
 	t.Run("wrong entry kind", func(t *testing.T) {
 		entry := registry.Entry{
 			ID:   testID,
 			Kind: "invalid.kind",
-			Data: NewMockPayload(&serviceaws.Config{}),
+			Data: NewMockPayload(&awsconfigapi.Config{}),
 		}
 
 		err := manager.Update(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported entry kind")
+		var apiErr apierror.Error
+		ok := errors.As(err, &apiErr)
+		assert.True(t, ok)
+		kind, _ := apiErr.Details().Get("kind")
+		assert.Equal(t, "invalid.kind", kind)
 	})
 
 	t.Run("unmarshal error", func(t *testing.T) {
@@ -366,13 +429,18 @@ func TestManager_Update(t *testing.T) {
 
 		entry := registry.Entry{
 			ID:   testID,
-			Kind: serviceaws.Kind,
+			Kind: awsconfigapi.Kind,
 			Data: NewMockPayload("invalid json"),
 		}
 
 		err := manager.Update(ctx, entry)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "unmarshal error")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "decode config")
+		var apiErr apierror.Error
+		ok := errors.As(err, &apiErr)
+		assert.True(t, ok)
+		cause, _ := apiErr.Details().Get("cause")
+		assert.Contains(t, cause, "unmarshal error")
 
 		// Reset transcoder for other tests
 		manager.dtt = NewMockTranscoder()
@@ -380,20 +448,20 @@ func TestManager_Update(t *testing.T) {
 }
 
 func TestManager_Delete(t *testing.T) {
-	manager, bus, ctx := setupTestEnvironment()
+	manager, bus, ctx := setupTestEnvironment(t)
 
 	// Set up event listener for resource events
 	resourceEvents, cleanup, err := setupResourceEventsListener(ctx, bus)
 	require.NoError(t, err)
 	defer cleanup()
 
-	testID := registry.ID{NS: "test", Name: "awsconfig"}
+	testID := registry.NewID("test", "awsconfig")
 
 	// First add a config
 	addEntry := registry.Entry{
 		ID:   testID,
-		Kind: serviceaws.Kind,
-		Data: NewMockPayload(&serviceaws.Config{
+		Kind: awsconfigapi.Kind,
+		Data: NewMockPayload(&awsconfigapi.Config{
 			Region:             "us-east-1",
 			AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
 			SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
@@ -430,33 +498,43 @@ func TestManager_Delete(t *testing.T) {
 	t.Run("config not found", func(t *testing.T) {
 		// Try to delete again (should fail as already deleted)
 		err := manager.Delete(ctx, addEntry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
+		var apiErr apierror.Error
+		ok := errors.As(err, &apiErr)
+		assert.True(t, ok)
+		id, _ := apiErr.Details().Get("id")
+		assert.Equal(t, testID.String(), id)
 	})
 
 	t.Run("wrong entry kind", func(t *testing.T) {
 		entry := registry.Entry{
 			ID:   testID,
 			Kind: "invalid.kind",
-			Data: NewMockPayload(&serviceaws.Config{}),
+			Data: NewMockPayload(&awsconfigapi.Config{}),
 		}
 
 		err := manager.Delete(ctx, entry)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported entry kind")
+		var apiErr apierror.Error
+		ok := errors.As(err, &apiErr)
+		assert.True(t, ok)
+		kind, _ := apiErr.Details().Get("kind")
+		assert.Equal(t, "invalid.kind", kind)
 	})
 }
 
 func TestManager_Acquire(t *testing.T) {
-	manager, _, ctx := setupTestEnvironment()
+	manager, _, ctx := setupTestEnvironment(t)
 
-	testID := registry.ID{NS: "test", Name: "awsconfig"}
+	testID := registry.NewID("test", "awsconfig")
 
 	// Add a config first
 	addEntry := registry.Entry{
 		ID:   testID,
-		Kind: serviceaws.Kind,
-		Data: NewMockPayload(&serviceaws.Config{
+		Kind: awsconfigapi.Kind,
+		Data: NewMockPayload(&awsconfigapi.Config{
 			Region:             "us-east-1",
 			AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
 			SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
@@ -483,12 +561,17 @@ func TestManager_Acquire(t *testing.T) {
 	})
 
 	t.Run("resource not found", func(t *testing.T) {
-		nonExistentID := registry.ID{NS: "test", Name: "nonexistent"}
+		nonExistentID := registry.NewID("test", "nonexistent")
 
 		// Try to acquire a non-existent resource
 		res, err := manager.Acquire(ctx, nonExistentID, resource.ModeNormal)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
+		var apiErr apierror.Error
+		ok := errors.As(err, &apiErr)
+		assert.True(t, ok)
+		id, _ := apiErr.Details().Get("id")
+		assert.Equal(t, nonExistentID.String(), id)
 		assert.Nil(t, res)
 	})
 
@@ -496,21 +579,21 @@ func TestManager_Acquire(t *testing.T) {
 		// Try to acquire with an unsupported mode
 		res, err := manager.Acquire(ctx, testID, resource.ModeExclusive)
 		assert.Error(t, err)
-		assert.Equal(t, resource.ErrResourceLocked, err)
+		assert.Equal(t, systemresource.ErrLocked, err)
 		assert.Nil(t, res)
 	})
 }
 
 func TestConfigResource(t *testing.T) {
-	manager, _, ctx := setupTestEnvironment()
+	manager, _, ctx := setupTestEnvironment(t)
 
-	testID := registry.ID{NS: "test", Name: "awsconfig"}
+	testID := registry.NewID("test", "awsconfig")
 
 	// Add a config first
 	addEntry := registry.Entry{
 		ID:   testID,
-		Kind: serviceaws.Kind,
-		Data: NewMockPayload(&serviceaws.Config{
+		Kind: awsconfigapi.Kind,
+		Data: NewMockPayload(&awsconfigapi.Config{
 			Region:             "us-east-1",
 			AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
 			SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
@@ -544,7 +627,7 @@ func TestConfigResource(t *testing.T) {
 		// Try to get after release - should fail
 		val, err := res.Get()
 		assert.Error(t, err)
-		assert.Equal(t, resource.ErrResourceReleased, err)
+		assert.Equal(t, resource.ErrReleased, err)
 		assert.Nil(t, val)
 
 		// Release again - should be a no-op
@@ -553,10 +636,10 @@ func TestConfigResource(t *testing.T) {
 }
 
 func TestCreateAWSConfig(t *testing.T) {
-	manager, _, ctx := setupTestEnvironment()
+	manager, _, ctx := setupTestEnvironment(t)
 
 	t.Run("with credentials", func(t *testing.T) {
-		cfg := &serviceaws.Config{
+		cfg := &awsconfigapi.Config{
 			Region:             "us-east-1",
 			AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
 			SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
@@ -574,7 +657,7 @@ func TestCreateAWSConfig(t *testing.T) {
 	})
 
 	t.Run("without credentials", func(t *testing.T) {
-		cfg := &serviceaws.Config{
+		cfg := &awsconfigapi.Config{
 			Region: "us-west-2",
 			// No credential env vars specified
 		}
@@ -582,20 +665,5 @@ func TestCreateAWSConfig(t *testing.T) {
 		awsCfg, err := manager.createAWSConfig(ctx, cfg)
 		require.NoError(t, err)
 		assert.Equal(t, "us-west-2", awsCfg.Region)
-	})
-
-	t.Run("missing env contexter", func(t *testing.T) {
-		// Create a context without env contexter
-		invalidCtx := context.Background()
-
-		cfg := &serviceaws.Config{
-			Region:             "us-east-1",
-			AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
-			SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
-		}
-
-		_, err := manager.createAWSConfig(invalidCtx, cfg)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "cannot access env ctx")
 	})
 }

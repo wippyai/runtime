@@ -1,0 +1,94 @@
+version: "1.0"
+namespace: app.test.compress
+
+entries:
+  - name: gzip
+    kind: function.lua
+    meta:
+      type: test
+      suite: compress
+      description: gzip encode/decode round-trip
+    source: file://gzip.lua
+    method: main
+    modules:
+      - compress
+    imports:
+      assert2: app.lib:assert
+
+  - name: deflate
+    kind: function.lua
+    meta:
+      type: test
+      suite: compress
+      description: deflate encode/decode round-trip
+    source: file://deflate.lua
+    method: main
+    modules:
+      - compress
+    imports:
+      assert2: app.lib:assert
+
+  - name: zlib
+    kind: function.lua
+    meta:
+      type: test
+      suite: compress
+      description: zlib encode/decode round-trip
+    source: file://zlib.lua
+    method: main
+    modules:
+      - compress
+    imports:
+      assert2: app.lib:assert
+
+  - name: brotli
+    kind: function.lua
+    meta:
+      type: test
+      suite: compress
+      description: brotli encode/decode round-trip
+    source: file://brotli.lua
+    method: main
+    modules:
+      - compress
+    imports:
+      assert2: app.lib:assert
+
+  - name: zstd
+    kind: function.lua
+    meta:
+      type: test
+      suite: compress
+      description: zstd encode/decode round-trip
+    source: file://zstd.lua
+    method: main
+    modules:
+      - compress
+    imports:
+      assert2: app.lib:assert
+
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: compress
+      description: Compression error handling
+    source: file://errors.lua
+    method: main
+    modules:
+      - compress
+    imports:
+      assert2: app.lib:assert
+
+  - name: levels
+    kind: function.lua
+    meta:
+      type: test
+      suite: compress
+      description: Compression level options
+    source: file://levels.lua
+    method: main
+    modules:
+      - compress
+    imports:
+      assert2: app.lib:assert

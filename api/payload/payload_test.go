@@ -1,11 +1,16 @@
+// Package payload provides data encoding and transcoding.
 package payload
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	apierror "github.com/wippyai/runtime/api/error"
 )
 
 func TestNewPayload(t *testing.T) {
@@ -40,9 +45,9 @@ func TestNewPayload(t *testing.T) {
 		{
 			name:         "error with Error format",
 			data:         errors.New("test error"),
-			format:       Error,
+			format:       GoError,
 			expectData:   errors.New("test error"),
-			expectFormat: Error,
+			expectFormat: GoError,
 		},
 	}
 
@@ -138,19 +143,19 @@ func TestNewError(t *testing.T) {
 			name:         "simple error",
 			err:          errors.New("test error"),
 			expectData:   errors.New("test error"),
-			expectFormat: Error,
+			expectFormat: GoError,
 		},
 		{
 			name:         "nil error",
 			err:          nil,
 			expectData:   nil,
-			expectFormat: Error,
+			expectFormat: GoError,
 		},
 		{
 			name:         "wrapped error",
 			err:          fmt.Errorf("wrapped: %w", errors.New("original")),
 			expectData:   fmt.Errorf("wrapped: %w", errors.New("original")),
-			expectFormat: Error,
+			expectFormat: GoError,
 		},
 	}
 
@@ -165,4 +170,119 @@ func TestNewError(t *testing.T) {
 			}
 		})
 	}
+}
+
+type mockTranscoder struct{}
+
+func (m *mockTranscoder) Transcode(p Payload, f Format) (Payload, error) {
+	return NewPayload(p.Data(), f), nil
+}
+
+func (m *mockTranscoder) Unmarshal(_ Payload, _ interface{}) error {
+	return nil
+}
+
+func TestGetTranscoder(t *testing.T) {
+	t.Run("returns nil when AppContext is nil", func(t *testing.T) {
+		ctx := context.Background()
+		transcoder := GetTranscoder(ctx)
+		assert.Nil(t, transcoder)
+	})
+
+	t.Run("returns nil when transcoder not set", func(t *testing.T) {
+		ctx := context.Background()
+		ctx = ctxapi.WithAppContext(ctx, ctxapi.NewAppContext())
+		transcoder := GetTranscoder(ctx)
+		assert.Nil(t, transcoder)
+	})
+
+	t.Run("returns transcoder when set", func(t *testing.T) {
+		ctx := context.Background()
+		ctx = ctxapi.WithAppContext(ctx, ctxapi.NewAppContext())
+		mockTc := &mockTranscoder{}
+		ctx = WithTranscoder(ctx, mockTc)
+
+		transcoder := GetTranscoder(ctx)
+		require.NotNil(t, transcoder)
+		assert.Equal(t, mockTc, transcoder)
+	})
+}
+
+func TestWithTranscoder(t *testing.T) {
+	t.Run("returns same context when AppContext is nil", func(t *testing.T) {
+		ctx := context.Background()
+		mockTc := &mockTranscoder{}
+		newCtx := WithTranscoder(ctx, mockTc)
+
+		assert.Equal(t, ctx, newCtx)
+		assert.Nil(t, GetTranscoder(newCtx))
+	})
+
+	t.Run("attaches transcoder successfully", func(t *testing.T) {
+		ctx := context.Background()
+		ctx = ctxapi.WithAppContext(ctx, ctxapi.NewAppContext())
+		mockTc := &mockTranscoder{}
+
+		ctx = WithTranscoder(ctx, mockTc)
+		transcoder := GetTranscoder(ctx)
+
+		require.NotNil(t, transcoder)
+		assert.Equal(t, mockTc, transcoder)
+	})
+
+	t.Run("idempotent when transcoder already set", func(t *testing.T) {
+		ctx := context.Background()
+		ctx = ctxapi.WithAppContext(ctx, ctxapi.NewAppContext())
+
+		firstTc := &mockTranscoder{}
+		ctx = WithTranscoder(ctx, firstTc)
+
+		secondTc := &mockTranscoder{}
+		ctx = WithTranscoder(ctx, secondTc)
+
+		transcoder := GetTranscoder(ctx)
+		require.NotNil(t, transcoder)
+		assert.Equal(t, firstTc, transcoder)
+	})
+}
+
+func TestErrorInterface(t *testing.T) {
+	t.Run("ErrEmptyFormat", func(t *testing.T) {
+		err := ErrEmptyFormat
+		assert.Equal(t, "payload format is empty", err.Error())
+		assert.Equal(t, apierror.Invalid, err.Kind())
+		assert.Equal(t, apierror.False, err.Retryable())
+		assert.Nil(t, err.Details())
+	})
+}
+
+func TestNewTerminal(t *testing.T) {
+	p := NewTerminal()
+	assert.Equal(t, Terminal, p.Format())
+	assert.Nil(t, p.Data())
+
+	// Verify singleton behavior
+	p2 := NewTerminal()
+	assert.Equal(t, p, p2)
+}
+
+func TestIsTerminal(t *testing.T) {
+	t.Run("terminal payload", func(t *testing.T) {
+		p := NewTerminal()
+		assert.True(t, IsTerminal(p))
+	})
+
+	t.Run("non-terminal payload", func(t *testing.T) {
+		p := New("data")
+		assert.False(t, IsTerminal(p))
+	})
+
+	t.Run("nil payload", func(t *testing.T) {
+		assert.False(t, IsTerminal(nil))
+	})
+
+	t.Run("payload with terminal format but different instance", func(t *testing.T) {
+		p := NewPayload(nil, Terminal)
+		assert.True(t, IsTerminal(p))
+	})
 }

@@ -7,23 +7,24 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/system/eventbus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/system/eventbus"
 )
 
 // mockEntryListener implements registry.EntryListener and registry.TransactionListener
 type mockEntryListener struct {
+	returnError   error
 	addCalls      []registry.Entry
 	updateCalls   []registry.Entry
 	deleteCalls   []registry.Entry
 	beginCalled   bool
 	commitCalled  bool
 	discardCalled bool
-	returnError   error
 }
 
 func (m *mockEntryListener) Add(_ context.Context, entry registry.Entry) error {
@@ -54,10 +55,10 @@ func (m *mockEntryListener) Discard(_ context.Context) {
 }
 
 type eventCollector struct {
+	eventReceived chan struct{}
 	mu            sync.Mutex
 	acceptCalled  bool
 	rejectCalled  bool
-	eventReceived chan struct{}
 }
 
 func newEventCollector() *eventCollector {
@@ -71,9 +72,9 @@ func (c *eventCollector) handleEvent(evt event.Event) {
 	defer c.mu.Unlock()
 
 	switch evt.Kind {
-	case registry.Accept:
+	case registry.EntryAccept:
 		c.acceptCalled = true
-	case registry.Reject:
+	case registry.EntryReject:
 		c.rejectCalled = true
 	}
 	select {
@@ -98,13 +99,13 @@ func (c *eventCollector) getResults() (bool, bool) {
 
 func TestNewRegistryHandler(t *testing.T) {
 	tests := []struct {
-		name          string
-		kinds         registry.Kind
 		event         event.Event
-		expectAccept  bool
-		expectReject  bool
 		returnError   error
 		expectCalls   map[string]int
+		name          string
+		kinds         registry.Kind
+		expectAccept  bool
+		expectReject  bool
 		checkTxEvents bool
 	}{
 		{
@@ -112,9 +113,8 @@ func TestNewRegistryHandler(t *testing.T) {
 			kinds: "test.*",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Create,
+				Kind:   registry.EntryCreate,
 				Data: registry.Entry{
-					ID:   registry.ID{Name: "test1"},
 					Kind: "test.resource",
 					Data: payload.NewString("test-data"),
 				},
@@ -127,9 +127,8 @@ func TestNewRegistryHandler(t *testing.T) {
 			kinds: "test.*",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Update,
+				Kind:   registry.EntryUpdate,
 				Data: registry.Entry{
-					ID:   registry.ID{Name: "test1"},
 					Kind: "test.resource",
 					Data: payload.NewString("updated-data"),
 				},
@@ -142,9 +141,8 @@ func TestNewRegistryHandler(t *testing.T) {
 			kinds: "test.*",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Delete,
+				Kind:   registry.EntryDelete,
 				Data: registry.Entry{
-					ID:   registry.ID{Name: "test1"},
 					Kind: "test.resource",
 				},
 			},
@@ -156,9 +154,8 @@ func TestNewRegistryHandler(t *testing.T) {
 			kinds: "test.*",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Create,
+				Kind:   registry.EntryCreate,
 				Data: registry.Entry{
-					ID:   registry.ID{Name: "other1"},
 					Kind: "other.resource",
 					Data: payload.NewString("test-data"),
 				},
@@ -170,9 +167,8 @@ func TestNewRegistryHandler(t *testing.T) {
 			kinds: "test.*",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Create,
+				Kind:   registry.EntryCreate,
 				Data: registry.Entry{
-					ID:   registry.ID{Name: "test1"},
 					Kind: "test.resource",
 				},
 			},
@@ -184,9 +180,8 @@ func TestNewRegistryHandler(t *testing.T) {
 			kinds: "test.*",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Create,
+				Kind:   registry.EntryCreate,
 				Data: registry.Entry{
-					ID:   registry.ID{Name: "test1"},
 					Kind: "test.resource",
 					Data: payload.NewString("test-data"),
 				},
@@ -200,9 +195,8 @@ func TestNewRegistryHandler(t *testing.T) {
 			kinds: "test.*",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Create,
+				Kind:   registry.EntryCreate,
 				Data: registry.Entry{
-					ID:   registry.ID{Name: "test1"},
 					Kind: "test.resource",
 					Data: payload.NewString("test-data"),
 				},
@@ -215,7 +209,7 @@ func TestNewRegistryHandler(t *testing.T) {
 			kinds: "test.*",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Begin,
+				Kind:   registry.TxBegin,
 			},
 			checkTxEvents: true,
 			expectCalls:   map[string]int{"begin": 1},
@@ -225,7 +219,7 @@ func TestNewRegistryHandler(t *testing.T) {
 			kinds: "test.*",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Commit,
+				Kind:   registry.TxCommit,
 			},
 			checkTxEvents: true,
 			expectCalls:   map[string]int{"commit": 1},
@@ -235,7 +229,7 @@ func TestNewRegistryHandler(t *testing.T) {
 			kinds: "test.*",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Discard,
+				Kind:   registry.TxDiscard,
 			},
 			checkTxEvents: true,
 			expectCalls:   map[string]int{"discard": 1},
@@ -244,7 +238,7 @@ func TestNewRegistryHandler(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := ctxapi.NewRootContext()
 			bus := eventbus.NewBus()
 			listener := &mockEntryListener{returnError: tc.returnError}
 			handler := NewRegistryHandler(tc.kinds, listener)
@@ -283,8 +277,8 @@ func TestNewRegistryHandler(t *testing.T) {
 
 func TestNewTransactionHandler(t *testing.T) {
 	tests := []struct {
-		name          string
 		event         event.Event
+		name          string
 		expectBegin   bool
 		expectCommit  bool
 		expectDiscard bool
@@ -293,7 +287,7 @@ func TestNewTransactionHandler(t *testing.T) {
 			name: "begin transaction",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Begin,
+				Kind:   registry.TxBegin,
 			},
 			expectBegin: true,
 		},
@@ -301,7 +295,7 @@ func TestNewTransactionHandler(t *testing.T) {
 			name: "commit transaction",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Commit,
+				Kind:   registry.TxCommit,
 			},
 			expectCommit: true,
 		},
@@ -309,7 +303,7 @@ func TestNewTransactionHandler(t *testing.T) {
 			name: "discard transaction",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Discard,
+				Kind:   registry.TxDiscard,
 			},
 			expectDiscard: true,
 		},
@@ -317,9 +311,8 @@ func TestNewTransactionHandler(t *testing.T) {
 			name: "ignore non-transaction event",
 			event: event.Event{
 				System: registry.System,
-				Kind:   registry.Create,
+				Kind:   registry.EntryCreate,
 				Data: registry.Entry{
-					ID:   registry.ID{Name: "test1"},
 					Kind: "test.resource",
 					Data: payload.NewString("test-data"),
 				},

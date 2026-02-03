@@ -1,0 +1,221 @@
+version: "1.0"
+namespace: app.test.contract
+
+entries:
+  # Contract definitions
+  - name: greeter
+    kind: contract.definition
+    meta:
+      comment: Greeting service contract
+    methods:
+      - name: greet
+        description: Returns a greeting message
+      - name: greet_with_name
+        description: Returns a personalized greeting
+
+  - name: calculator
+    kind: contract.definition
+    meta:
+      comment: Basic calculator contract
+    methods:
+      - name: add
+        description: Add two numbers
+      - name: multiply
+        description: Multiply two numbers
+
+  # Implementation functions
+  - name: greeter_greet
+    kind: function.lua
+    meta:
+      comment: Greeter greet implementation
+    source: file://greeter_greet.lua
+    method: main
+
+  - name: greeter_greet_name
+    kind: function.lua
+    meta:
+      comment: Greeter greet with name implementation
+    source: file://greeter_greet_name.lua
+    method: main
+
+  - name: calculator_add
+    kind: function.lua
+    meta:
+      comment: Calculator add implementation
+    source: file://calculator_add.lua
+    method: main
+
+  - name: calculator_multiply
+    kind: function.lua
+    meta:
+      comment: Calculator multiply implementation
+    source: file://calculator_multiply.lua
+    method: main
+
+  # Contract bindings
+  - name: greeter_impl
+    kind: contract.binding
+    meta:
+      comment: Default greeter implementation
+    contracts:
+      - contract: app.test.contract:greeter
+        default: true
+        methods:
+          greet: app.test.contract:greeter_greet
+          greet_with_name: app.test.contract:greeter_greet_name
+
+  - name: calculator_impl
+    kind: contract.binding
+    meta:
+      comment: Default calculator implementation
+    contracts:
+      - contract: app.test.contract:calculator
+        default: true
+        methods:
+          add: app.test.contract:calculator_add
+          multiply: app.test.contract:calculator_multiply
+
+  # Test functions
+  - name: open
+    kind: function.lua
+    meta:
+      type: test
+      suite: contract
+      description: contract.open function
+    source: file://open.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - contract
+
+  - name: call
+    kind: function.lua
+    meta:
+      type: test
+      suite: contract
+      description: contract instance method calls
+    source: file://call.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - contract
+
+  - name: scope
+    kind: function.lua
+    meta:
+      type: test
+      suite: contract
+      description: contract scope/context
+    source: file://scope.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - contract
+
+  - name: implements
+    kind: function.lua
+    meta:
+      type: test
+      suite: contract
+      description: contract implements method
+    source: file://implements.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - contract
+
+  - name: introspection
+    kind: function.lua
+    meta:
+      type: test
+      suite: contract
+      description: contract introspection (id, methods)
+    source: file://introspection.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - contract
+
+  - name: get_introspect
+    kind: function.lua
+    meta:
+      type: test
+      suite: contract
+      description: contract.get and full introspection API
+    source: file://get_introspect.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - contract
+
+  - name: async_call
+    kind: function.lua
+    meta:
+      type: test
+      suite: contract
+      description: async contract method calls with futures
+    source: file://async_call.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - contract
+      - time
+
+  - name: find_implementations
+    kind: function.lua
+    meta:
+      type: test
+      suite: contract
+      description: contract.find_implementations function
+    source: file://find_implementations.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - contract
+
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: contract
+      description: contract error handling
+    source: file://errors.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - contract
+
+  - name: query_params
+    kind: function.lua
+    meta:
+      type: test
+      suite: contract
+      description: contract.open with query parameters
+    source: file://query_params.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - contract
+
+  - name: wrapper_open
+    kind: function.lua
+    meta:
+      type: test
+      suite: contract
+      description: opening contract via wrapper (contract.get then open)
+    source: file://wrapper_open.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - contract

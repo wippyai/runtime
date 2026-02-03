@@ -3,6 +3,7 @@ package http
 import (
 	"errors"
 	"net/http"
+	"sync"
 
 	"go.uber.org/zap"
 )
@@ -11,65 +12,73 @@ import (
 type MiddlewareAPI interface {
 	// CreateMiddleware creates a middleware handler from name and options
 	CreateMiddleware(name string, options map[string]string) (func(http.Handler) http.Handler, error)
+	// Register adds a middleware creator to the registry
+	Register(name string, creator MiddlewareCreator) error
+	// Unregister removes a middleware creator from the registry
+	Unregister(name string) error
 }
 
-// MiddlewareFactory is the default implementation of MiddlewareAPI
-type MiddlewareFactory struct {
+// MiddlewareRegistry is the implementation of MiddlewareAPI with registration support
+type MiddlewareRegistry struct {
 	logger        *zap.Logger
 	middlewareMap map[string]MiddlewareCreator
+	mu            sync.RWMutex
 }
 
 // MiddlewareCreator is a function that creates a middleware handler from options
-type MiddlewareCreator func(options map[string]string) func(http.Handler) http.Handler
+type MiddlewareCreator = func(options map[string]string) func(http.Handler) http.Handler
 
-// MiddlewareFactoryOption configures a MiddlewareFactory
-type MiddlewareFactoryOption func(*MiddlewareFactory)
-
-// WithLogger sets the logger for the middleware factory
-func WithLogger(logger *zap.Logger) MiddlewareFactoryOption {
-	return func(f *MiddlewareFactory) {
-		f.logger = logger
-	}
-}
-
-// WithMiddleware adds a simple middleware handler to the factory
-func WithMiddleware(name string, handler func(http.Handler) http.Handler) MiddlewareFactoryOption {
-	return func(f *MiddlewareFactory) {
-		f.middlewareMap[name] = func(_ map[string]string) func(http.Handler) http.Handler {
-			return handler
-		}
-	}
-}
-
-// WithMiddlewareCreator adds a configurable middleware creator to the factory
-func WithMiddlewareCreator(name string, creator MiddlewareCreator) MiddlewareFactoryOption {
-	return func(f *MiddlewareFactory) {
-		f.middlewareMap[name] = creator
-	}
-}
-
-// NewDefaultMiddlewareFactory creates a new default middleware factory with the provided options
-func NewDefaultMiddlewareFactory(options ...MiddlewareFactoryOption) *MiddlewareFactory {
-	factory := &MiddlewareFactory{
-		logger:        zap.NewNop(),
+// NewMiddlewareRegistry creates a new middleware registry
+func NewMiddlewareRegistry(logger *zap.Logger) *MiddlewareRegistry {
+	return &MiddlewareRegistry{
+		logger:        logger,
 		middlewareMap: make(map[string]MiddlewareCreator),
+		mu:            sync.RWMutex{},
+	}
+}
+
+// Register adds a middleware creator to the registry
+func (r *MiddlewareRegistry) Register(name string, creator MiddlewareCreator) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, exists := r.middlewareMap[name]; exists {
+		return errors.New("middleware already registered: " + name)
 	}
 
-	// Apply options
-	for _, option := range options {
-		option(factory)
+	r.middlewareMap[name] = creator
+	r.logger.Debug("middleware registered", zap.String("name", name))
+
+	return nil
+}
+
+// Unregister removes a middleware creator from the registry
+func (r *MiddlewareRegistry) Unregister(name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, exists := r.middlewareMap[name]; !exists {
+		return errors.New("middleware not found: " + name)
 	}
 
-	return factory
+	delete(r.middlewareMap, name)
+	r.logger.Debug("middleware unregistered", zap.String("name", name))
+
+	return nil
 }
 
 // CreateMiddleware creates a middleware handler from name and options
-func (f *MiddlewareFactory) CreateMiddleware(name string, options map[string]string) (func(http.Handler) http.Handler, error) {
-	if creator, exists := f.middlewareMap[name]; exists {
+func (r *MiddlewareRegistry) CreateMiddleware(name string, options map[string]string) (func(http.Handler) http.Handler, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if creator, exists := r.middlewareMap[name]; exists {
 		handler := creator(options)
 		if handler != nil {
+			r.logger.Debug("middleware created", zap.String("name", name))
 			return handler, nil
 		}
+		r.logger.Warn("middleware creator returned nil", zap.String("name", name))
 	}
 
 	return nil, errors.New("middleware not found: " + name)

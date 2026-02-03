@@ -1,22 +1,22 @@
+// Package template provides template service configuration.
 package template
 
 import (
-	"fmt"
-
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Registry kind constants for Template components
 const (
-	// KindTemplate identifies a template component
-	KindTemplate registry.Kind = "template.jet"
-	// KindTemplateSet identifies a template set component
-	KindTemplateSet registry.Kind = "template.set"
+	// Jet identifies a template component
+	Jet registry.Kind = "template.jet"
+	// Set identifies a template set component
+	Set registry.Kind = "template.set"
 )
 
 // Config represents configuration for a template entry
 type Config struct {
-	Meta registry.Metadata `json:"meta"`
+	Meta attrs.Bag `json:"meta"`
 
 	// Source defines the template content or location
 	Source string `json:"source"`
@@ -27,17 +27,10 @@ type Config struct {
 
 // EngineConfig contains Jet template engine configuration
 type EngineConfig struct {
-	// DevelopmentMode disables caching when true
-	DevelopmentMode bool `json:"development_mode"`
-
-	// Delimiters customizes template variable delimiters
-	Delimiters DelimiterConfig `json:"delimiters"`
-
-	// Extensions defines file extensions to try when resolving templates
-	Extensions []string `json:"extensions"`
-
-	// Globals defines global variables available to all templates
-	Globals map[string]interface{} `json:"globals"`
+	Globals         map[string]any  `json:"globals"`
+	Delimiters      DelimiterConfig `json:"delimiters"`
+	Extensions      []string        `json:"extensions"`
+	DevelopmentMode bool            `json:"development_mode"`
 }
 
 // DelimiterConfig allows customizing template delimiters
@@ -61,12 +54,8 @@ type SetConfig struct {
 	Engine EngineConfig `json:"engine"`
 }
 
-// InitDefaults initializes default values for Config
-func (c *Config) InitDefaults() {
-}
-
-// InitDefaults initializes default values for EngineConfig
-func (e *EngineConfig) InitDefaults() {
+// initDefaults initializes default values for EngineConfig
+func (e *EngineConfig) initDefaults() {
 	// Default delimiters if not specified
 	if e.Delimiters.Left == "" {
 		e.Delimiters.Left = "{{"
@@ -88,25 +77,18 @@ func (e *EngineConfig) InitDefaults() {
 
 	// Initialize globals map if nil
 	if e.Globals == nil {
-		e.Globals = make(map[string]interface{})
+		e.Globals = make(map[string]any)
 	}
-}
-
-// InitDefaults initializes default values for SetConfig
-func (c *SetConfig) InitDefaults() {
-	// Initialize engine defaults
-	c.Engine.InitDefaults()
 }
 
 // Validate checks if the Config is valid
 func (c *Config) Validate() error {
 	if c.Source == "" {
-		return fmt.Errorf("template source cannot be empty")
+		return ErrEmptySource
 	}
 
-	// Validate template set
 	if c.Set.Name == "" {
-		return fmt.Errorf("template set name cannot be empty")
+		return ErrEmptySetName
 	}
 
 	return nil
@@ -114,24 +96,23 @@ func (c *Config) Validate() error {
 
 // Validate checks if the EngineConfig is valid
 func (e *EngineConfig) Validate() error {
-	// Validate delimiters
+	e.initDefaults()
+
 	if e.Delimiters.Left == "" || e.Delimiters.Right == "" {
-		return fmt.Errorf("template delimiters cannot be empty")
+		return ErrEmptyDelimiters
 	}
 
 	if e.Delimiters.CommentLeft == "" || e.Delimiters.CommentRight == "" {
-		return fmt.Errorf("comment delimiters cannot be empty")
+		return ErrEmptyCommentDelimiters
 	}
 
-	// Ensure delimiters don't conflict
 	if e.Delimiters.Left == e.Delimiters.CommentLeft ||
 		e.Delimiters.Right == e.Delimiters.CommentRight {
-		return fmt.Errorf("template and comment delimiters must be different")
+		return ErrConflictingDelimiters
 	}
 
-	// Validate extensions
 	if len(e.Extensions) == 0 {
-		return fmt.Errorf("template extensions cannot be empty")
+		return ErrEmptyExtensions
 	}
 
 	return nil

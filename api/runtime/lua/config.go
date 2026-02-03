@@ -1,56 +1,72 @@
+// Package lua provides Lua runtime integration.
 package lua
 
 import (
-	"fmt"
-
-	"github.com/ponyruntime/pony/api/registry"
+	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // Registry kind constants for different Lua component types.
 // These are used to identify different types of Lua-based components in the registry.
 const (
-	// KindFunction identifies a Lua function component in the registry
-	KindFunction registry.Kind = "function.lua"
+	// Function identifies a Lua function component in the registry
+	Function registry.Kind = "function.lua"
 
-	KindBteaApp registry.Kind = "btea.app.lua"
-	KindProcess registry.Kind = "process.lua"
+	Process  registry.Kind = "process.lua"
+	Workflow registry.Kind = "workflow.lua"
 
-	// KindLibrary identifies a Lua library component in the registry
-	KindLibrary registry.Kind = "library.lua"
+	// Library identifies a Lua library component in the registry
+	Library registry.Kind = "library.lua"
 
-	// KindModule identifies a Lua module component in the registry
-	KindModule registry.Kind = "module.lua"
+	// ModuleKind identifies a Lua module component in the registry
+	ModuleKind registry.Kind = "module.lua"
 
-	// DefaultMaxSize how many concurrent executions are allowed in a flex pool by default
+	// FunctionBytecode is a bytecode kind for precompiled Lua loaded from filesystem
+	FunctionBytecode registry.Kind = "function.lua.bc"
+	LibraryBytecode  registry.Kind = "library.lua.bc"
+	ProcessBytecode  registry.Kind = "process.lua.bc"
+
+	// DefaultMaxSize defines how many concurrent executions are allowed in a flex pool by default
 	DefaultMaxSize = 100
+)
+
+// PoolTypeLazy is a pool type constant for selecting scheduler implementation.
+const (
+	PoolTypeLazy     = "lazy"     // Zero processes at idle, creates on demand
+	PoolTypeStatic   = "static"   // Fixed-size channel-based pool (default for high load)
+	PoolTypeInline   = "inline"   // Synchronous inline execution
+	PoolTypeAdaptive = "adaptive" // Auto-scaling pool, scales up under load, down when idle
 )
 
 type (
 	// PoolConfig defines settings for a pool of Lua VMs.
 	// It manages the number of VMs and workers available for executing Lua code.
 	PoolConfig struct {
-		Size    int `json:"size"`    // Total number of VMs in the pool
-		Workers int `json:"workers"` // Number of worker threads
-		// lazy/flex pool specifics
+		Type    string `json:"type"`    // Pool type: static, lazy, inline
+		Size    int    `json:"size"`    // Total number of VMs in the pool / workers for engine2
+		Workers int    `json:"workers"` // Number of worker threads
+		Buffer  int    `json:"buffer"`  // Task queue buffer size (default: workers * 64)
+		// elastic pool specifics
 		WarmStart bool `json:"warm_start"` // Whether to precompile (default: false)
-		MaxSize   int  `json:"max_size"`   // Maximum size for lazy pool / concurrent executions (default: 100)
+		MaxSize   int  `json:"max_size"`   // Maximum workers for elastic pool (default: 16)
 	}
 
 	// FunctionConfig defines the configuration for a Lua function component.
 	// It includes the source code, execution method, required libraries and modules,
 	// and VM pool settings.
 	FunctionConfig struct {
-		Source  string                 `json:"source"`            // Lua source code
-		Method  string                 `json:"method"`            // Alias of the Lua method to execute
-		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
-		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
-		Pool    PoolConfig             `json:"pool,omitempty"`    // VM pool configuration
+		Imports map[string]registry.ID `json:"imports,omitempty"`
+		Meta    attrs.Bag              `json:"meta,omitempty"`
+		Source  string                 `json:"source"`
+		Method  string                 `json:"method"`
+		Modules []string               `json:"modules,omitempty"`
+		Pool    PoolConfig             `json:"pool,omitempty"`
 	}
 
 	// LibraryConfig defines the configuration for a Lua library component.
 	// It includes the library source code and required modules.
 	LibraryConfig struct {
-		Meta    registry.Metadata      `json:"meta"`              // Metadata for the library
+		Meta    attrs.Bag              `json:"meta"`              // Metadata for the library
 		Source  string                 `json:"source"`            // Library source code
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
 		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
@@ -58,7 +74,17 @@ type (
 
 	// ProcessConfig defines the configuration for a Lua processes.
 	ProcessConfig struct {
-		Meta    registry.Metadata      `json:"meta"`              // Metadata for the terminal
+		Meta    attrs.Bag              `json:"meta"`              // Metadata for the terminal
+		Source  string                 `json:"source"`            // Lua source code
+		Method  string                 `json:"method"`            // Alias of the Lua method to execute
+		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
+		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
+	}
+
+	// WorkflowConfig defines the configuration for a Lua workflow.
+	// Workflows have restricted module access for deterministic execution.
+	WorkflowConfig struct {
+		Meta    attrs.Bag              `json:"meta"`              // Metadata for the workflow
 		Source  string                 `json:"source"`            // Lua source code
 		Method  string                 `json:"method"`            // Alias of the Lua method to execute
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
@@ -67,11 +93,67 @@ type (
 
 	// BteaConfig defines the configuration for a Lua terminal app, this is custom process with host expectations.
 	BteaConfig struct {
-		Meta    registry.Metadata      `json:"meta"`              // Metadata for the terminal
+		Meta    attrs.Bag              `json:"meta"`              // Metadata for the terminal
 		Source  string                 `json:"source"`            // Lua source code
 		Method  string                 `json:"method"`            // Alias of the Lua method to execute
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
 		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
+	}
+
+	// BytecodeFunctionConfig defines configuration for a precompiled Lua function.
+	// The bytecode is loaded from a filesystem and verified by hash before use.
+	BytecodeFunctionConfig struct {
+		Imports map[string]registry.ID `json:"imports,omitempty"`
+		Meta    attrs.Bag              `json:"meta,omitempty"`
+		FS      string                 `json:"fs"`
+		Path    string                 `json:"path"`
+		Hash    string                 `json:"hash"`
+		Method  string                 `json:"method"`
+		Modules []string               `json:"modules,omitempty"`
+		Pool    PoolConfig             `json:"pool,omitempty"`
+	}
+
+	// BytecodeLibraryConfig defines configuration for a precompiled Lua library.
+	BytecodeLibraryConfig struct {
+		Imports map[string]registry.ID `json:"imports,omitempty"`
+		Meta    attrs.Bag              `json:"meta,omitempty"`
+		FS      string                 `json:"fs"`
+		Path    string                 `json:"path"`
+		Hash    string                 `json:"hash"`
+		Modules []string               `json:"modules,omitempty"`
+	}
+
+	// BytecodeProcessConfig defines configuration for a precompiled Lua process.
+	BytecodeProcessConfig struct {
+		Imports map[string]registry.ID `json:"imports,omitempty"`
+		Meta    attrs.Bag              `json:"meta,omitempty"`
+		FS      string                 `json:"fs"`
+		Path    string                 `json:"path"`
+		Hash    string                 `json:"hash"`
+		Method  string                 `json:"method"`
+		Modules []string               `json:"modules,omitempty"`
+	}
+
+	// BytecodeWorkflowConfig defines configuration for a precompiled Lua workflow.
+	BytecodeWorkflowConfig struct {
+		Imports map[string]registry.ID `json:"imports,omitempty"`
+		Meta    attrs.Bag              `json:"meta,omitempty"`
+		FS      string                 `json:"fs"`
+		Path    string                 `json:"path"`
+		Hash    string                 `json:"hash"`
+		Method  string                 `json:"method"`
+		Modules []string               `json:"modules,omitempty"`
+	}
+
+	// BytecodeBteaConfig defines configuration for a precompiled Lua terminal app.
+	BytecodeBteaConfig struct {
+		Imports map[string]registry.ID `json:"imports,omitempty"`
+		Meta    attrs.Bag              `json:"meta,omitempty"`
+		FS      string                 `json:"fs"`
+		Path    string                 `json:"path"`
+		Hash    string                 `json:"hash"`
+		Method  string                 `json:"method"`
+		Modules []string               `json:"modules,omitempty"`
 	}
 )
 
@@ -79,11 +161,11 @@ type (
 // It returns an error if any validation check fails.
 func (c *FunctionConfig) Validate() error {
 	if c.Source == "" {
-		return fmt.Errorf("source is required")
+		return ErrSourceRequired
 	}
 
 	if c.Method == "" {
-		return fmt.Errorf("method is required")
+		return ErrMethodRequired
 	}
 
 	// Pool validation for different pool types
@@ -91,39 +173,33 @@ func (c *FunctionConfig) Validate() error {
 
 	// For non-flex pools, validate Size
 	if !isFlexPool && c.Pool.Size <= 0 {
-		return fmt.Errorf("pool.size must be greater than 0 for non-flex pools")
-	}
-
-	// For flex pools, validate MaxSize
-	//nolint:revive,staticcheck // ok for now
-	if isFlexPool && c.Pool.MaxSize <= 0 {
-		// No validation error since we'll use DefaultMaxSize
+		return ErrInvalidPoolSize
 	}
 
 	// Worker pools validation
 	if c.Pool.Workers > 0 && c.Pool.Size <= 0 {
-		return fmt.Errorf("pool.size must be greater than 0 for worker pools")
+		return ErrInvalidWorkerPoolSize
 	}
 
 	// Validate imports
 	for alias, id := range c.Imports {
 		if alias == "" {
-			return fmt.Errorf("import alias cannot be empty")
+			return ErrEmptyImportAlias
 		}
 		if id.Name == "" {
-			return fmt.Errorf("import :name cannot be empty")
+			return ErrEmptyImportName
 		}
 	}
 
 	// Validate modules
 	for _, module := range c.Modules {
 		if module == "" {
-			return fmt.Errorf("module cannot be empty")
+			return ErrEmptyModule
 		}
 
 		id := registry.ParseID(module)
 		if id.NS != "" {
-			return fmt.Errorf("module cannot have a namespace")
+			return ErrModuleNamespace
 		}
 	}
 
@@ -134,28 +210,130 @@ func (c *FunctionConfig) Validate() error {
 // It returns an error if any validation check fails.
 func (c *LibraryConfig) Validate() error {
 	if c.Source == "" {
-		return fmt.Errorf("source is required")
+		return ErrSourceRequired
 	}
 
 	for alias, id := range c.Imports {
 		if alias == "" {
-			return fmt.Errorf("import alias cannot be empty")
+			return ErrEmptyImportAlias
 		}
 		if id.Name == "" {
-			return fmt.Errorf("import :name cannot be empty")
+			return ErrEmptyImportName
 		}
 	}
 
 	for _, module := range c.Modules {
 		if module == "" {
-			return fmt.Errorf("module cannot be empty")
+			return ErrEmptyModule
 		}
 
 		id := registry.ParseID(module)
 		if id.NS != "" {
-			return fmt.Errorf("module cannot have a namespace")
+			return ErrModuleNamespace
 		}
 	}
 
 	return nil
+}
+
+// validateBytecodeBase validates common bytecode config fields.
+func validateBytecodeBase(fs, path, hash string) error {
+	if fs == "" {
+		return ErrFSRequired
+	}
+	if path == "" {
+		return ErrPathRequired
+	}
+	if hash == "" {
+		return ErrHashRequired
+	}
+	return nil
+}
+
+// validateImportsAndModules validates imports and modules fields.
+func validateImportsAndModules(imports map[string]registry.ID, modules []string) error {
+	for alias, id := range imports {
+		if alias == "" {
+			return ErrEmptyImportAlias
+		}
+		if id.Name == "" {
+			return ErrEmptyImportName
+		}
+	}
+
+	for _, module := range modules {
+		if module == "" {
+			return ErrEmptyModule
+		}
+		id := registry.ParseID(module)
+		if id.NS != "" {
+			return ErrModuleNamespace
+		}
+	}
+
+	return nil
+}
+
+// Validate checks if the BytecodeFunctionConfig has all required fields.
+func (c *BytecodeFunctionConfig) Validate() error {
+	if err := validateBytecodeBase(c.FS, c.Path, c.Hash); err != nil {
+		return err
+	}
+	if c.Method == "" {
+		return ErrMethodRequired
+	}
+	if err := validateImportsAndModules(c.Imports, c.Modules); err != nil {
+		return err
+	}
+
+	isFlexPool := c.Pool.Workers == 0 && (c.Pool.Size == 0 || c.Pool.MaxSize > 0)
+	if !isFlexPool && c.Pool.Size <= 0 {
+		return ErrInvalidPoolSize
+	}
+	if c.Pool.Workers > 0 && c.Pool.Size <= 0 {
+		return ErrInvalidWorkerPoolSize
+	}
+
+	return nil
+}
+
+// Validate checks if the BytecodeLibraryConfig has all required fields.
+func (c *BytecodeLibraryConfig) Validate() error {
+	if err := validateBytecodeBase(c.FS, c.Path, c.Hash); err != nil {
+		return err
+	}
+	return validateImportsAndModules(c.Imports, c.Modules)
+}
+
+// Validate checks if the BytecodeProcessConfig has all required fields.
+func (c *BytecodeProcessConfig) Validate() error {
+	if err := validateBytecodeBase(c.FS, c.Path, c.Hash); err != nil {
+		return err
+	}
+	if c.Method == "" {
+		return ErrMethodRequired
+	}
+	return validateImportsAndModules(c.Imports, c.Modules)
+}
+
+// Validate checks if the BytecodeWorkflowConfig has all required fields.
+func (c *BytecodeWorkflowConfig) Validate() error {
+	if err := validateBytecodeBase(c.FS, c.Path, c.Hash); err != nil {
+		return err
+	}
+	if c.Method == "" {
+		return ErrMethodRequired
+	}
+	return validateImportsAndModules(c.Imports, c.Modules)
+}
+
+// Validate checks if the BytecodeBteaConfig has all required fields.
+func (c *BytecodeBteaConfig) Validate() error {
+	if err := validateBytecodeBase(c.FS, c.Path, c.Hash); err != nil {
+		return err
+	}
+	if c.Method == "" {
+		return ErrMethodRequired
+	}
+	return validateImportsAndModules(c.Imports, c.Modules)
 }

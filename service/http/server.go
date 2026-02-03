@@ -8,17 +8,18 @@ import (
 	"net/http"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	pubsubsys "github.com/ponyruntime/pony/system/pubsub"
+	relaysys "github.com/wippyai/runtime/system/relay"
 
-	"github.com/go-chi/chi/v5/middleware"
-	contextapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	config "github.com/ponyruntime/pony/api/service/http"
-	"github.com/ponyruntime/pony/api/supervisor"
+	contextapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	config "github.com/wippyai/runtime/api/service/http"
+	"github.com/wippyai/runtime/api/supervisor"
 )
 
 const (
@@ -32,24 +33,21 @@ const (
 	StatusBuffer = 10
 )
 
-// ContextListener is the context key for the HTTP listener
-//
-
-var ContextListener = &contextapi.Key{Name: "listener"}
-
 // ServerService combines HTTP server and router functionality
 type ServerService struct {
 	ctx           context.Context
-	id            registry.ID
-	config        *config.ServerConfig
-	routeMgr      *RouteManager
-	server        *http.Server
-	mu            sync.RWMutex
+	handlerFunc   http.Handler
+	middlewareFac MiddlewareAPI
+	host          relay.AttachableReceiver
 	statusChan    chan any
-	started       bool                   // Track if server has been started
-	mountPaths    map[registry.ID]string // Track mount paths by Source
-	host          pubsub.Host            // pubsub host
-	middlewareFac MiddlewareAPI          // Middleware factory
+	server        *http.Server
+	mountPaths    map[registry.ID]string
+	routeMgr      *RouteManager
+	config        *config.ServerConfig
+	id            registry.ID
+	mu            sync.RWMutex
+	shutdownOnce  sync.Once
+	started       atomic.Bool
 }
 
 // NewServerService creates a new ServerService instance
@@ -69,6 +67,13 @@ func NewServerService(id registry.ID, cfg *config.ServerConfig, middleware Middl
 	}, nil
 }
 
+// SetHandlerFunc sets the server-level handler function
+func (s *ServerService) SetHandlerFunc(handler http.Handler) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.handlerFunc = handler
+}
+
 // UpdateConfig updates the server configuration
 // Returns an error if trying to change the address while the server is running
 func (s *ServerService) UpdateConfig(cfg *config.ServerConfig) error {
@@ -76,9 +81,9 @@ func (s *ServerService) UpdateConfig(cfg *config.ServerConfig) error {
 	defer s.mu.Unlock()
 
 	// Check if address changes while server is running
-	if s.started {
+	if s.started.Load() {
 		if s.config.Addr != cfg.Addr {
-			return fmt.Errorf("cannot change server address while running")
+			return ErrServerAddressChangeWhileRunning
 		}
 	}
 
@@ -95,7 +100,7 @@ func (s *ServerService) UpsertRouter(id registry.ID, cfg *config.RouterConfig) e
 		for _, mw := range cfg.Middleware {
 			m, err := s.middlewareFac.CreateMiddleware(mw, cfg.Options)
 			if err != nil {
-				return fmt.Errorf("failed to create middleware %s: %w", mw, err)
+				return NewMiddlewareCreateError(mw, err)
 			}
 
 			middlewares = append(middlewares, m)
@@ -108,7 +113,7 @@ func (s *ServerService) UpsertRouter(id registry.ID, cfg *config.RouterConfig) e
 		for _, mw := range cfg.PostMiddleware {
 			m, err := s.middlewareFac.CreateMiddleware(mw, cfg.PostOptions)
 			if err != nil {
-				return fmt.Errorf("failed to create post-match middleware %s: %w", mw, err)
+				return NewPostMiddlewareCreateError(mw, err)
 			}
 
 			postMiddlewares = append(postMiddlewares, m)
@@ -154,7 +159,7 @@ func (s *ServerService) Remove(id registry.ID) error {
 
 	path, exists := s.mountPaths[id]
 	if !exists {
-		return fmt.Errorf("mount for Source %s not found", id)
+		return NewMountNotFoundError(id.String())
 	}
 
 	if err := s.routeMgr.Unmount(path); err != nil {
@@ -171,13 +176,18 @@ func (s *ServerService) Rebuild(_ context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// If handler function is set, don't rebuild router
+	if s.handlerFunc != nil {
+		return nil
+	}
+
 	err := s.routeMgr.Build()
 	if err != nil {
 		return err
 	}
 
 	// If server is running, we need to update its handler
-	if s.started && s.server != nil {
+	if s.started.Load() && s.server != nil {
 		s.server.Handler = s.routeMgr
 	}
 
@@ -188,40 +198,60 @@ func (s *ServerService) Rebuild(_ context.Context) error {
 func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	s.mu.Lock()
 
-	// Initialize host with config
-	hostConfig := pubsubsys.HostConfig{
-		BufferSize:  s.config.Host.BufferSize,
-		WorkerCount: s.config.Host.WorkerCount,
-		Logger:      logs.GetLogger(ctx),
+	// Initialize mailbox with config
+	bufferSize := s.config.Host.BufferSize
+	if bufferSize <= 0 {
+		bufferSize = 1024 // Default buffer size
 	}
 
-	// If values not specified, set reasonable defaults
-	if hostConfig.BufferSize <= 0 {
-		hostConfig.BufferSize = 1024 // Default buffer size
+	workerCount := s.config.Host.WorkerCount
+	if workerCount <= 0 {
+		workerCount = runtime.NumCPU() // Default to number of CPUs
 	}
 
-	if hostConfig.WorkerCount <= 0 {
-		hostConfig.WorkerCount = runtime.NumCPU() // Default to number of CPUs
-	}
+	// Create the mailbox
+	s.host = relaysys.NewMailbox(ctx,
+		relaysys.WithBufferSize(bufferSize),
+		relaysys.WithWorkerCount(workerCount),
+		relaysys.WithLogger(logs.GetLogger(ctx)),
+	)
 
-	// Create the host
-	s.host = pubsubsys.NewHost(ctx, hostConfig)
-
-	ctx = context.WithValue(ctx, config.ContextServerID, s.id)
-	ctx = pubsub.WithHost(ctx, s)
 	s.ctx = ctx
+
+	// Use handler function if set, otherwise use route manager
+	var baseHandler http.Handler
+	if s.handlerFunc != nil {
+		baseHandler = s.handlerFunc
+	} else {
+		baseHandler = s.routeMgr
+	}
+
+	// Wrap handler with per-request FrameContext creation
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Create unsealed FrameContext for each HTTP request
+		ctx, fc := contextapi.OpenFrameContext(r.Context())
+		defer contextapi.ReleaseFrameContext(fc)
+
+		// Set all HTTP-specific metadata in FrameContext in one place
+		_ = config.SetServerID(ctx, s.id.String())
+		_ = config.SetServerHost(ctx, s.config.Addr)
+		_ = fc.Set(config.ServerKey(), s)
+
+		baseHandler.ServeHTTP(w, r.WithContext(ctx))
+	})
 
 	s.server = &http.Server{
 		Addr:         s.config.Addr,
-		Handler:      s.routeMgr,
+		Handler:      handler,
 		ReadTimeout:  s.config.Timeouts.ReadTimeout,
 		WriteTimeout: s.config.Timeouts.WriteTimeout,
 		IdleTimeout:  s.config.Timeouts.IdleTimeout,
-		BaseContext: func(l net.Listener) context.Context {
-			return context.WithValue(s.ctx, ContextListener, l)
+		BaseContext: func(_ net.Listener) context.Context {
+			// Return app-level context only
+			return s.ctx
 		},
 	}
-	s.started = true
+	s.started.Store(true)
 
 	s.mu.Unlock()
 
@@ -230,36 +260,34 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 		err := s.server.ListenAndServe()
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			select {
-			case s.statusChan <- fmt.Errorf("server error: %w", err):
+			case s.statusChan <- NewServerError(err):
 			default:
 			}
 		}
 
-		s.mu.Lock()
-		s.started = false
-		s.mu.Unlock()
+		s.started.Store(false)
 	}()
 
 	if err := s.ensureRunning(ctx); err != nil {
-		s.mu.Lock()
-		s.started = false
-		s.mu.Unlock()
-		return nil, fmt.Errorf("startup check failed: %w", err)
+		s.started.Store(false)
+		return nil, NewStartupCheckError(err)
 	}
 
-	// Handle shutdown via context
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+	// Handle shutdown via context (only once)
+	s.shutdownOnce.Do(func() {
+		go func() {
+			<-ctx.Done()
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
 
-		if err := s.Stop(shutdownCtx); err != nil {
-			select {
-			case s.statusChan <- fmt.Errorf("shutdown error: %w", err):
-			default:
+			if err := s.Stop(shutdownCtx); err != nil {
+				select {
+				case s.statusChan <- NewShutdownError(err):
+				default:
+				}
 			}
-		}
-	}()
+		}()
+	})
 
 	select {
 	case s.statusChan <- fmt.Sprintf("service listening on %s", s.config.Addr):
@@ -277,14 +305,14 @@ func (s *ServerService) Stop(ctx context.Context) error {
 	// Gracefully shutdown the server
 	if s.server != nil {
 		if err := s.server.Shutdown(ctx); err != nil {
-			return fmt.Errorf("graceful shutdown failed: %w", err)
+			return NewGracefulShutdownError(err)
 		}
 		s.server = nil
 	}
 
 	// Host will be cleaned up via context cancellation
 	s.host = nil
-	s.started = false
+	s.started.Store(false)
 
 	return nil
 }
@@ -298,11 +326,14 @@ func (s *ServerService) ensureRunning(ctx context.Context) error {
 	for {
 		select {
 		case <-timeout:
-			return fmt.Errorf("service failed to start within %v timeout", BootTimeout)
+			return NewStartupTimeoutError(BootTimeout.String())
 		case <-ctx.Done():
-			return fmt.Errorf("startup canceled: %w", ctx.Err())
+			return NewStartupCanceledError(ctx.Err())
 		case <-ticker.C:
-			conn, err := net.DialTimeout("tcp", s.config.Addr, time.Second)
+			dialCtx, cancel := context.WithTimeout(ctx, time.Second)
+			dialer := &net.Dialer{}
+			conn, err := dialer.DialContext(dialCtx, "tcp", s.config.Addr)
+			cancel()
 			if err == nil {
 				_ = conn.Close()
 				return nil
@@ -311,46 +342,22 @@ func (s *ServerService) ensureRunning(ctx context.Context) error {
 	}
 }
 
-// createMiddleware converts a middleware name to its handler function
-// This is now a fallback if no middleware factory is provided
-func (s *ServerService) createMiddleware(name string, options map[string]string) func(http.Handler) http.Handler {
-	switch name {
-	case "timeout":
-		timeoutVal := options["timeout"]
-		if timeoutVal == "" {
-			timeoutVal = "60s"
-		}
-		duration, err := time.ParseDuration(timeoutVal)
-		if err == nil {
-			return middleware.Timeout(duration)
-		}
-	case "recoverer":
-		return middleware.Recoverer
-	case "request_id":
-		return middleware.RequestID
-	case "real_ip":
-		return middleware.RealIP
-	}
+// Implement Receiver interface methods by delegating to embedded host
 
-	return nil
-}
-
-// Implement Host interface methods by delegating to embedded host
-
-// Attach implements pubsub.Host Attach method
-func (s *ServerService) Attach(pid pubsub.PID, ch chan *pubsub.Package) (context.CancelFunc, error) {
+// Attach implements relay.AttachableReceiver
+func (s *ServerService) Attach(p pid.PID, ch chan *relay.Package) (context.CancelFunc, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	if s.host == nil {
-		return nil, fmt.Errorf("server host not initialized")
+		return nil, ErrServerHostNotInitialized
 	}
 
-	return s.host.Attach(pid, ch)
+	return s.host.Attach(p, ch)
 }
 
-// Detach implements pubsub.Host Detach method
-func (s *ServerService) Detach(pid pubsub.PID) {
+// Detach implements relay.AttachableReceiver
+func (s *ServerService) Detach(p pid.PID) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -358,16 +365,16 @@ func (s *ServerService) Detach(pid pubsub.PID) {
 		return
 	}
 
-	s.host.Detach(pid)
+	s.host.Detach(p)
 }
 
-// Send implements pubsub.Host Send method
-func (s *ServerService) Send(pkg *pubsub.Package) error {
+// Send implements relay.Receiver
+func (s *ServerService) Send(pkg *relay.Package) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	if s.host == nil {
-		return fmt.Errorf("server host not initialized")
+		return ErrServerHostNotInitialized
 	}
 
 	return s.host.Send(pkg)

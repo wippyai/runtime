@@ -1,341 +1,247 @@
+// Package terminal provides terminal host using the actor scheduler.
 package terminal
 
 import (
 	"context"
-	"errors"
 	"os"
+	"strings"
 	"sync/atomic"
-	"time"
 
-	ctxapi "github.com/ponyruntime/pony/api/context"
-	"github.com/ponyruntime/pony/api/security"
-
-	logsapi "github.com/ponyruntime/pony/api/logs"
-	"github.com/ponyruntime/pony/api/process"
-	"github.com/ponyruntime/pony/api/pubsub"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/runtime"
-	"github.com/ponyruntime/pony/api/service/terminal"
-	"github.com/ponyruntime/pony/api/topology"
-	"github.com/ponyruntime/pony/system/logs"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	logsapi "github.com/wippyai/runtime/api/logs"
+	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/runtime"
+	terminalapi "github.com/wippyai/runtime/api/service/terminal"
+	supervisorapi "github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/system/logs"
+	"github.com/wippyai/runtime/system/scheduler/actor"
 	"go.uber.org/zap"
 )
 
-type opType int
-
-const (
-	opLaunch opType = iota
-	opTerminate
-	opSend
-	opUpdateConfig
-)
-
-type op struct {
-	typ      opType
-	ctx      context.Context
-	launch   *process.Launch
-	msg      *pubsub.Package
-	cfg      *terminal.HostConfig
-	result   chan error
-	response chan pubsub.PID
-	// For attach operation
+// Host implements process.Host for terminal processes using actor scheduler.
+type Host struct {
+	factory   process.Factory
+	ctx       context.Context
+	cfg       *terminalapi.HostConfig
+	log       *zap.Logger
+	scheduler *actor.Scheduler
+	logCtrl   *logs.Configurator
+	raw       *RawManager
+	statusCh  chan any
+	doneCh    chan struct{}
+	id        registry.ID
+	running   atomic.Bool
+	shutdown  atomic.Bool
 }
 
-// Terminal manages a terminal session and hosts terminal processes.
-// It implements the process.Host interface to allow running terminal processes,
-// and the supervisor.Service interface to manage its lifecycle.
-type Terminal struct {
-	id            registry.ID
-	ctx           context.Context
-	config        *terminal.HostConfig
-	opCh          chan op
-	done          chan struct{}
-	logCtrl       *logs.ConfigSwitcher
-	log           *zap.Logger
-	runner        atomic.Pointer[Runner]
-	runnerFactory RunnerFactory
-}
-
-// NewTerminalHost creates a new Terminal with custom runner factory.
-func NewTerminalHost(
+// NewHost creates a new terminal host with actor scheduler.
+func NewHost(
 	id registry.ID,
-	cfg *terminal.HostConfig,
-	logCtrl *logs.ConfigSwitcher,
-	log *zap.Logger,
-	runnerFactory RunnerFactory,
-) *Terminal {
-	return &Terminal{
-		id:            id,
-		config:        cfg,
-		opCh:          make(chan op, 10),
-		done:          make(chan struct{}),
-		logCtrl:       logCtrl,
-		log:           log,
-		runnerFactory: runnerFactory,
+	cfg *terminalapi.HostConfig,
+	scheduler *actor.Scheduler,
+	factory process.Factory,
+	logCtrl *logs.Configurator,
+	logger *zap.Logger,
+) *Host {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	if logCtrl == nil {
+		logCtrl = logs.NewConfigurator(nil, logger)
+	}
+	return &Host{
+		id:        id,
+		cfg:       cfg,
+		log:       logger,
+		scheduler: scheduler,
+		factory:   factory,
+		logCtrl:   logCtrl,
+		statusCh:  make(chan any, 1),
+		doneCh:    make(chan struct{}),
+		raw:       NewRawManager(os.Stdin),
 	}
 }
 
-// Start begins the terminal service and returns a status channel.
-// It implements the supervisor.Service interface.
-func (t *Terminal) Start(ctx context.Context) (<-chan any, error) {
-	status := make(chan any, 1)
-	go t.run(ctx, status)
-	status <- "started"
-	return status, nil
-}
+// OnStart implements scheduler.Lifecycle.
+func (h *Host) OnStart(context.Context, pid.PID, process.Process) error { return nil }
 
-func (t *Terminal) run(ctx context.Context, status chan<- any) {
-	defer close(t.done)
-	defer close(status)
-	defer t.cleanup(nil)
+// OnComplete implements scheduler.Lifecycle.
+func (h *Host) OnComplete(ctx context.Context, _ pid.PID, result *runtime.Result) {
+	h.logCtrl.RestoreBaseConfig(ctx)
+	if h.raw != nil {
+		_ = h.raw.Reset()
+	}
+	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+		_ = fc.Close()
+	}
+	close(h.doneCh)
 
-	t.ctx = logsapi.WithLogger(pubsub.WithHost(ctx, t), t.log)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case op := <-t.opCh:
-			var err error
-
-			switch op.typ {
-			case opLaunch:
-				err = t.handleLaunch(op.ctx, op.launch, op.response)
-			case opTerminate:
-				err = t.handleTerminate()
-			case opSend:
-				err = t.handleSend(op.msg)
-			case opUpdateConfig:
-				t.config = op.cfg
-				t.log.Info("config updated")
-			}
-
-			if op.result != nil {
-				select {
-				case op.result <- err:
-				default:
-					t.log.Warn("failed to send operation result")
-				}
+	// Determine exit code from result
+	exitCode := 0
+	if result != nil && result.Error != nil {
+		exitCode = 1
+		// Print error to stderr, deduplicate if message is repeated
+		errStr := result.Error.Error()
+		if idx := strings.Index(errStr, ": "); idx > 0 {
+			prefix := errStr[:idx+2]
+			rest := errStr[idx+2:]
+			if strings.HasPrefix(rest, prefix) {
+				errStr = rest
 			}
 		}
+		_, _ = os.Stderr.WriteString(errStr + "\n")
 	}
+	supervisorapi.TriggerShutdown(h.ctx, exitCode)
 }
 
-func (t *Terminal) handleLaunch(ctx context.Context, pl *process.Launch, response chan pubsub.PID) error {
-	if t.runner.Load() != nil {
-		close(response)
-		return process.ErrHostBusy
+// Done returns a channel that is closed when the terminal process completes.
+func (h *Host) Done() <-chan struct{} {
+	return h.doneCh
+}
+
+// Run implements process.Host.
+func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
+	if !h.running.Load() {
+		return pid.PID{}, ErrHostNotRunning
+	}
+	if h.shutdown.Load() {
+		return pid.PID{}, ErrHostShuttingDown
 	}
 
-	cfg := &RunnerConfig{
-		Stdin:  os.Stdin,
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
-	}
-
-	if t.config.HideLogs {
-		if err := t.setupLogging(); err != nil {
-			close(response)
-			return err
-		}
-	}
-
-	rCtx := terminal.WithTerminalContext(
-		t.prepareContext(ctx, pl.PID, pl.Lifecycle),
-		terminal.NewTerminalContext(cfg.Stdin, cfg.Stdout, cfg.Stderr),
-	)
-
-	// Use the runner factory to create a runner
-	runner, err := t.runnerFactory.CreateRunner(rCtx, cfg, pl)
+	proc, meta, err := h.factory.Create(start.Source)
 	if err != nil {
-		t.log.Error("failed to create terminal runner",
-			zap.Error(err))
-
-		t.cleanup(nil)
-		close(response)
-		return err
+		return pid.PID{}, err
 	}
 
-	t.runner.Store(runner)
-	response <- pl.PID
-	close(response)
+	processID := h.preparePID(ctx, start)
+
+	if h.cfg.HideLogs {
+		if err := h.setupLogging(ctx); err != nil {
+			h.log.Error("failed to setup logging", zap.Error(err))
+		}
+	}
+
+	frameCtx := h.prepareContext(ctx, processID, start)
+
+	method := "main"
+	if meta != nil && meta.Method != "" {
+		method = meta.Method
+	}
+
+	if _, err = h.scheduler.Submit(frameCtx, processID, proc, method, start.Input); err != nil {
+		return pid.PID{}, err
+	}
+
+	h.log.Debug("terminal process started",
+		zap.String("pid", processID.String()),
+		zap.String("source", start.Source.String()),
+		zap.String("method", method))
+
+	return processID, nil
+}
+
+// Terminate implements process.Host.
+func (h *Host) Terminate(_ context.Context, processID pid.PID) error {
+	h.log.Debug("process terminate requested", zap.String("pid", processID.String()))
 	return nil
 }
 
-func (t *Terminal) prepareContext(
-	ctx context.Context,
-	pid pubsub.PID,
-	lifecycle process.Lifecycle,
-) context.Context {
-	pCtx := security.CopyContext(ctx, t.ctx)
+// Send implements relay.Receiver.
+func (h *Host) Send(pkg *relay.Package) error {
+	if h.shutdown.Load() {
+		return ErrHostShuttingDown
+	}
+	return h.scheduler.Send(pkg)
+}
 
-	contexter := ctx.Value(ctxapi.ValuesCtx)
-	if ctxr, ok := contexter.(*ctxapi.Contexter[any]); ok {
-		pCtx = context.WithValue(pCtx, ctxapi.ValuesCtx, ctxr)
+// Start implements supervisor.Service.
+func (h *Host) Start(ctx context.Context) (<-chan any, error) {
+	if h.running.Swap(true) {
+		return nil, ErrHostAlreadyRunning
 	}
 
-	// global lifecycle
-	pCtx = process.GetProcesses(ctx).AttachLifecycle(pCtx, lifecycle)
+	h.ctx = ctx
+	h.scheduler.Start()
 
-	// service lifecycle
-	pCtx = process.WithAddedOnComplete(pCtx, func(pid pubsub.PID, result *runtime.Result) {
-		if result.Error != nil {
-			t.log.Error("terminal process execution failed",
-				zap.String("pid", pid.String()),
-				zap.Error(result.Error))
-		} else {
-			t.log.Info("terminal process execution completed",
-				zap.String("pid", pid.String()),
-				zap.Any("result", result.Value.Data()))
+	h.log.Info("terminal host started", zap.String("id", h.id.String()))
+	return h.statusCh, nil
+}
+
+// Stop implements supervisor.Service.
+func (h *Host) Stop(ctx context.Context) error {
+	if !h.running.Load() {
+		return nil
+	}
+
+	h.shutdown.Store(true)
+	h.log.Info("terminal host stopping", zap.String("id", h.id.String()))
+
+	h.scheduler.Stop(ctx)
+	h.running.Store(false)
+	close(h.statusCh)
+
+	if h.raw != nil {
+		_ = h.raw.Reset()
+	}
+	// Restore logging on shutdown
+	h.logCtrl.RestoreBaseConfig(ctx)
+
+	h.log.Info("terminal host stopped", zap.String("id", h.id.String()))
+	return nil
+}
+
+// preparePID generates a PID or uses one from options.
+func (h *Host) preparePID(ctx context.Context, start *process.Start) pid.PID {
+	if start.Options != nil {
+		if pidVal, ok := start.Options.Get(process.OptionPID); ok {
+			if processID, ok := pidVal.(pid.PID); ok {
+				return processID
+			}
 		}
-		t.cleanup(result)
-	})
+	}
 
-	pCtx = pubsub.WithHost(pCtx, t)
-	pCtx = logsapi.WithLogger(pCtx, t.log.Named(pid.UniqID))
+	gen := process.GetPIDGenerator(ctx)
+	return gen.Generate(h.id.String())
+}
+
+// prepareContext creates a frame context for the terminal process.
+func (h *Host) prepareContext(ctx context.Context, processID pid.PID, start *process.Start) context.Context {
+	pCtx, fc := ctxapi.OpenFrameContextOn(h.ctx, ctx)
+
+	// Extract args from Input payloads
+	var args []string
+	for _, p := range start.Input {
+		if s, ok := p.Data().(string); ok {
+			args = append(args, s)
+		}
+	}
+
+	pairsLen := 3 + len(start.Context)
+	pairs := make([]ctxapi.Pair, pairsLen)
+	pairs[0] = ctxapi.Pair{Key: runtime.FrameIDKey, Value: start.Source}
+	pairs[1] = ctxapi.Pair{Key: runtime.FramePIDKey, Value: processID}
+	tc := terminalapi.NewTerminalContextWithArgs(os.Stdin, os.Stdout, os.Stderr, args)
+	tc.Raw = h.raw
+	pairs[2] = ctxapi.Pair{Key: terminalapi.Key(), Value: tc}
+	copy(pairs[3:], start.Context)
+
+	if err := fc.SetMultiple(pairs...); err != nil {
+		h.log.Error("failed to set frame context", zap.Error(err))
+	}
 
 	return pCtx
 }
 
-//nolint:unparam // ok for now
-func (t *Terminal) handleTerminate() error {
-	if runner := t.runner.Load(); runner != nil {
-		runner.Stop()
-	}
-	return nil
-}
-
-func (t *Terminal) handleSend(msgBatch *pubsub.Package) error {
-	runner := t.runner.Load()
-	if runner == nil {
-		return process.ErrNoProcess
-	}
-	return runner.Send(msgBatch)
-}
-
-func (t *Terminal) cleanup(_ *runtime.Result) {
-	t.logCtrl.RestoreBaseConfig(context.Background())
-	t.runner.Swap(nil)
-}
-
-func (t *Terminal) setupLogging() error {
-	return t.logCtrl.EnableTemporaryConfig(t.ctx, logsapi.Config{
+// setupLogging redirects logs to event bus for terminal output.
+func (h *Host) setupLogging(ctx context.Context) error {
+	return h.logCtrl.EnableTemporaryConfig(ctx, logsapi.Config{
 		MinLevel:            zap.DebugLevel,
 		StreamToEvents:      true,
 		PropagateDownstream: false,
 	})
 }
 
-func (t *Terminal) execOp(ctx context.Context, op op) error {
-	select {
-	case t.opCh <- op:
-	default:
-		return process.ErrHostBusy
-	}
-
-	if op.result == nil {
-		return nil
-	}
-
-	select {
-	case err := <-op.result:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-// Attach attaches a process to the terminal.
-// This implementation always returns an error as only terminal processes
-// can be attached to the terminal host.
-// It implements part of the pubsub.Host interface.
-func (t *Terminal) Attach(_ pubsub.PID, _ chan *pubsub.Package) (context.CancelFunc, error) {
-	return nil, errors.New("only terminal process can be attached to the host")
-}
-
-// Detach detaches a process from the terminal.
-// This is a no-op in the current implementation.
-// It implements part of the pubsub.Host interface.
-func (t *Terminal) Detach(_ pubsub.PID) {
-	// nothing
-}
-
-// Send sends a message to the currently running process.
-// It implements part of the pubsub.Host interface.
-func (t *Terminal) Send(msg *pubsub.Package) error {
-	// we dont really use pid since we always host a single process
-	return t.execOp(t.ctx, op{
-		typ:    opSend,
-		msg:    msg,
-		result: make(chan error, 1),
-	})
-}
-
-// Launch launches a new process in the terminal.
-// It implements part of the process.Host interface.
-func (t *Terminal) Launch(ctx context.Context, pl *process.Launch) (pubsub.PID, error) {
-	resp := make(chan pubsub.PID, 1)
-	err := t.execOp(ctx, op{
-		ctx:      ctx,
-		typ:      opLaunch,
-		launch:   pl,
-		result:   make(chan error, 1),
-		response: resp,
-	})
-	if err != nil {
-		return pubsub.PID{}, err
-	}
-
-	select {
-	case newPid := <-resp:
-		return newPid, nil
-	case <-ctx.Done():
-		return pubsub.PID{}, ctx.Err()
-	}
-}
-
-// Terminate terminates the currently running process.
-// It implements part of the process.Host interface.
-func (t *Terminal) Terminate(ctx context.Context, _ pubsub.PID) error {
-	return t.execOp(ctx, op{
-		typ:    opTerminate,
-		result: make(chan error, 1),
-	})
-}
-
-// Stop gracefully stops the terminal service.
-// It implements the supervisor.Service interface.
-func (t *Terminal) Stop(ctx context.Context) error {
-	if runner := t.runner.Load(); runner != nil {
-		err := t.Send(
-			topology.Cancel(
-				pubsub.PID{ID: t.id},
-				runner.pid,
-				time.Now().Add(t.config.Lifecycle.StopTimeout),
-			),
-		)
-
-		if err != nil {
-			t.log.Warn("failed to send cancel event", zap.Error(err))
-		}
-
-		select {
-		case <-runner.Wait():
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-
-	return nil
-}
-
-// UpdateConfig updates the terminal configuration.
-// It allows changing configuration parameters without restarting the service.
-func (t *Terminal) UpdateConfig(ctx context.Context, cfg *terminal.HostConfig) error {
-	return t.execOp(ctx, op{
-		typ:    opUpdateConfig,
-		cfg:    cfg,
-		result: make(chan error, 1),
-	})
-}
+var _ process.Host = (*Host)(nil)

@@ -30,7 +30,7 @@ func (r *replacer) replaceString(s string, ctx any) (string, error) {
 // replaceRecursive is the helpers recursive function for value replacement with context.
 func (r *replacer) replaceRecursive(val reflect.Value, ctx any) (any, error) {
 	if !val.IsValid() {
-		return nil, nil
+		return nil, nil //nolint:nilnil // nil passthrough for invalid values
 	}
 
 	switch val.Kind() {
@@ -111,7 +111,7 @@ func (r *replacer) replaceRecursive(val reflect.Value, ctx any) (any, error) {
 // Replace is the main entry point for string replacement within 'data' with context.
 func (r *replacer) Replace(data any, ctx any) (any, error) {
 	if data == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // nil passthrough for nil input
 	}
 
 	result, err := r.replaceRecursive(reflect.ValueOf(data), ctx)

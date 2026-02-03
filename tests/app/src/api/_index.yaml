@@ -1,0 +1,189 @@
+version: "1.0"
+namespace: app.api
+
+entries:
+  # app.api:worker - Lua process
+  - name: worker
+    kind: process.lua
+    meta:
+      comment: Simple worker process
+    source: file://worker.lua
+    method: main
+    modules:
+      - process
+
+  # app.api:hello - Lua function with pool
+  - name: hello
+    kind: function.lua
+    meta:
+      comment: Returns hello world JSON
+    source: file://hello.lua
+    modules:
+      - http
+      - time
+    method: handler
+    pool:
+      type: adaptive
+      max_size: 512
+      #size: 16
+      #buffer: 1024
+
+  # app.api:hello.endpoint - HTTP endpoint
+  - name: hello.endpoint
+    kind: http.endpoint
+    meta:
+      comment: Public hello endpoint
+      router: app:api.public
+    method: GET
+    func: hello
+    path: /hello
+
+  # app.api:stats - Memory and runtime stats
+  - name: stats
+    kind: function.lua
+    meta:
+      comment: Go runtime memory stats
+    source: file://stats.lua
+    modules:
+      - http
+      - system
+    method: handler
+    pool:
+      type: inline
+
+  # app.api:stats.endpoint - HTTP endpoint
+  - name: stats.endpoint
+    kind: http.endpoint
+    meta:
+      comment: Runtime stats endpoint
+      router: app:api.public
+    method: GET
+    func: stats
+    path: /stats
+
+  # app.api:cli - CLI process for terminal host
+  - name: cli
+    kind: process.lua
+    meta:
+      comment: Simple CLI demo app
+    source: file://cli.lua
+    method: main
+    modules:
+      - io
+      - system
+
+  # app.api:spawn_test - Spawn 10k processes test
+  - name: spawn_test
+    kind: process.lua
+    meta:
+      comment: Memory leak test - spawns 10k processes
+    source: file://spawn_test.lua
+    method: main
+    modules:
+      - io
+      - process
+      - system
+      - time
+
+  # app.api:stream_echo - Stream echo function
+  - name: stream_echo
+    kind: function.lua
+    meta:
+      comment: Echoes request body as chunked response
+    source: file://stream_echo.lua
+    modules:
+      - http
+      - stream
+    method: handler
+    pool:
+      type: inline
+
+  # app.api:stream_echo.endpoint - HTTP endpoint
+  - name: stream_echo.endpoint
+    kind: http.endpoint
+    meta:
+      comment: Stream echo endpoint
+      router: app:api.public
+    method: POST
+    func: stream_echo
+    path: /stream-echo
+
+  # app.api:test_request_stream - Test request stream
+  - name: test_request_stream
+    kind: function.lua
+    meta:
+      comment: Tests request stream functionality
+    source: file://test_request_stream.lua
+    modules:
+      - http
+      - stream
+      - json
+    method: handler
+    pool:
+      type: inline
+
+  # app.api:test_request_stream.endpoint - HTTP endpoint
+  - name: test_request_stream.endpoint
+    kind: http.endpoint
+    meta:
+      comment: Test request stream endpoint
+      router: app:api.public
+    method: POST
+    func: test_request_stream
+    path: /test/request-stream
+
+  # app.api:test_response_headers - Test response headers
+  - name: test_response_headers
+    kind: function.lua
+    meta:
+      comment: Tests response header tracking
+    source: file://test_response_headers.lua
+    modules:
+      - http
+      - json
+    method: handler
+    pool:
+      type: inline
+
+  # app.api:test_response_headers.endpoint - HTTP endpoint
+  - name: test_response_headers.endpoint
+    kind: http.endpoint
+    meta:
+      comment: Test response headers endpoint
+      router: app:api.public
+    method: GET
+    func: test_response_headers
+    path: /test/response-headers
+
+  # app.api:test_echo - Test echo function
+  - name: test_echo
+    kind: function.lua
+    meta:
+      comment: Echo request properties for testing
+    source: file://test_echo.lua
+    modules:
+      - http
+      - json
+    method: handler
+    pool:
+      type: inline
+
+  # app.api:test_echo.endpoint.get - HTTP endpoint (GET)
+  - name: test_echo.endpoint.get
+    kind: http.endpoint
+    meta:
+      comment: Test echo endpoint (GET)
+      router: app:api.public
+    method: GET
+    func: test_echo
+    path: /test/echo
+
+  # app.api:test_echo.endpoint.post - HTTP endpoint (POST)
+  - name: test_echo.endpoint.post
+    kind: http.endpoint
+    meta:
+      comment: Test echo endpoint (POST)
+      router: app:api.public
+    method: POST
+    func: test_echo
+    path: /test/echo

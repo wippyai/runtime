@@ -2,97 +2,74 @@ package supervisor
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
-	processapi "github.com/ponyruntime/pony/api/service/supervisor"
-	"github.com/ponyruntime/pony/internal/config"
-	"github.com/ponyruntime/pony/system/process"
-
-	"github.com/ponyruntime/pony/api/event"
-	"github.com/ponyruntime/pony/api/payload"
-	"github.com/ponyruntime/pony/api/registry"
-	"github.com/ponyruntime/pony/api/supervisor"
+	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
+	supervisorapi "github.com/wippyai/runtime/api/service/supervisor"
+	"github.com/wippyai/runtime/api/supervisor"
+	entryutil "github.com/wippyai/runtime/internal/entry"
 	"go.uber.org/zap"
 )
 
-// ServiceFactory is an interface for creating service instances
-type ServiceFactory interface {
-	// CreateService creates a new service instance with the given configuration
-	CreateService(id registry.ID, config processapi.ServiceConfig) supervisor.Service
-}
-
-// Manager handles process services lifecycle and monitoring
+// Manager handles process service lifecycle and registration.
+// It listens to registry for process.service entries and registers
+// them with the supervisor system.
 type Manager struct {
 	log      *zap.Logger
 	bus      event.Bus
-	proc     *process.Manager
-	services sync.Map // map[registry.ID]supervisor.Service
-	factory  ServiceFactory
+	dtt      payload.Transcoder
+	pidGen   process.PIDGenerator
+	services sync.Map // map[registry.ID]*Service
 }
 
-// NewSupervisorServiceManager creates a new process service manager
-func NewSupervisorServiceManager(
+// NewManager creates a new process supervisor manager.
+func NewManager(
 	bus event.Bus,
-	proc *process.Manager,
-	log *zap.Logger,
+	dtt payload.Transcoder,
+	pidGen process.PIDGenerator,
+	logger *zap.Logger,
 ) *Manager {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &Manager{
-		log:     log,
-		bus:     bus,
-		proc:    proc,
-		factory: NewDefaultServiceFactory(),
+		log:    logger,
+		bus:    bus,
+		dtt:    dtt,
+		pidGen: pidGen,
 	}
 }
 
-// NewSupervisorServiceManagerWithFactory creates a new process service manager with factory
-func NewSupervisorServiceManagerWithFactory(
-	bus event.Bus,
-	proc *process.Manager,
-	log *zap.Logger,
-	factory ServiceFactory,
-) *Manager {
-	return &Manager{
-		log:     log,
-		bus:     bus,
-		proc:    proc,
-		factory: factory,
+func (m *Manager) validateEntryKind(entry registry.Entry) error {
+	if entry.Kind != supervisorapi.ProcessService {
+		return newInvalidEntryKindError(entry.Kind, supervisorapi.ProcessService)
 	}
+	return nil
 }
 
-// Add implements registry.EntryListener
+// Add implements registry.EntryListener.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != processapi.KindProcessService {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, processapi.KindProcessService)
+	if err := m.validateEntryKind(entry); err != nil {
+		return err
 	}
 
-	// Unmarshal config
-	cfg, err := config.DecodeAndInitConfig[processapi.ServiceConfig](payload.GetTranscoder(ctx), entry)
+	cfg, err := entryutil.DecodeEntryConfig[supervisorapi.ServiceConfig](ctx, m.dtt, entry)
 	if err != nil {
-		return err
+		return newDecodeConfigError(err)
 	}
 
 	cfg.Process = cfg.Process.WithDefaultNS(entry.ID.NS)
 
-	// Create service instance
-	var svc supervisor.Service
-	if m.factory != nil {
-		svc = m.factory.CreateService(entry.ID, *cfg)
-	} else {
-		svc = &Service{
-			id:     entry.ID,
-			config: *cfg,
-			status: make(chan any, 1),
-		}
-	}
-
-	// Store service
+	svc := NewService(entry.ID, *cfg, m.pidGen)
 	m.services.Store(entry.ID, svc)
 
-	// Register with supervisor
+	// Register with supervisor system
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Register,
+		Kind:   supervisor.ServiceRegister,
 		Path:   entry.ID.String(),
 		Data: &supervisor.Entry{
 			Service: svc,
@@ -100,63 +77,60 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		},
 	})
 
-	m.log.Info("process supervisor added", zap.String("id", entry.ID.String()))
-
+	m.log.Debug("process service added", zap.String("id", entry.ID.String()))
 	return nil
 }
 
-// Update implements registry.EntryListener
+// Update implements registry.EntryListener.
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != processapi.KindProcessService {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, processapi.KindProcessService)
-	}
-
-	// Get existing service
-	_, exists := m.services.Load(entry.ID)
-	if !exists {
-		return fmt.Errorf("service %s not found", entry.ID)
-	}
-
-	// Unmarshal new config
-	cfg, err := config.DecodeAndInitConfig[processapi.ServiceConfig](payload.GetTranscoder(ctx), entry)
-	if err != nil {
+	if err := m.validateEntryKind(entry); err != nil {
 		return err
+	}
+
+	svc, exists := m.services.Load(entry.ID)
+	if !exists {
+		return newServiceNotFoundError(entry.ID.String())
+	}
+
+	cfg, err := entryutil.DecodeEntryConfig[supervisorapi.ServiceConfig](ctx, m.dtt, entry)
+	if err != nil {
+		return newDecodeConfigError(err)
 	}
 
 	cfg.Process = cfg.Process.WithDefaultNS(entry.ID.NS)
 
-	// Update supervisor config
+	// Update stored service config
+	svc.(*Service).config = *cfg
+
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Update,
+		Kind:   supervisor.ServiceUpdate,
 		Path:   entry.ID.String(),
 		Data: &supervisor.Entry{
 			Config: cfg.Lifecycle,
 		},
 	})
 
-	m.log.Info("process supervisor updated", zap.String("id", entry.ID.String()))
-
+	m.log.Debug("process service updated", zap.String("id", entry.ID.String()))
 	return nil
 }
 
-// Delete implements registry.EntryListener
+// Delete implements registry.EntryListener.
 func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != processapi.KindProcessService {
-		return fmt.Errorf("invalid entry kind %s, expected %s", entry.Kind, processapi.KindProcessService)
+	if err := m.validateEntryKind(entry); err != nil {
+		return err
 	}
 
-	// Done from supervisor
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.Remove,
+		Kind:   supervisor.ServiceRemove,
 		Path:   entry.ID.String(),
 	})
 
-	// Done from services map
 	m.services.Delete(entry.ID)
 
-	m.log.Info("process supervisor removed", zap.String("id", entry.ID.String()))
-
+	m.log.Debug("process service removed", zap.String("id", entry.ID.String()))
 	return nil
 }
+
+var _ registry.EntryListener = (*Manager)(nil)

@@ -4,22 +4,22 @@ import (
 	"context"
 	"sync"
 
-	"github.com/ponyruntime/pony/api/event"
+	"github.com/wippyai/runtime/api/event"
 )
 
 // Subscriber is a helper struct that simplifies subscribing to and handling events from an event bus.
 type Subscriber struct {
 	bus          event.Bus
-	subscriberID event.SubscriberID
-	handlerFunc  func(event.Event)
 	ctx          context.Context
+	handlerFunc  func(event.Event)
 	cancel       context.CancelFunc
+	subscriberID event.SubscriberID
 	wg           sync.WaitGroup
 }
 
 // NewSubscriber creates a new Subscriber that subscribes to events matching the given system and kind pattern.
-// It starts an helpers goroutine that listens for events and calls the provided handlerFunc for each received event.
-// The context provided will be used to start the listener and will be used during shutdown
+// It starts a helper goroutine that listens for events and calls the provided handlerFunc for each received event.
+// The context provided will be used to start the listener and will be used during shutdown.
 func NewSubscriber(
 	ctx context.Context,
 	b event.Bus,
@@ -35,7 +35,7 @@ func NewSubscriber(
 		cancel:      cancel,
 	}
 
-	ch := make(chan event.Event)
+	ch := make(chan event.Event, subscriberChanBuffer)
 	var err error
 	if kind == "" || kind == "*" {
 		h.subscriberID, err = b.Subscribe(ctx, system, ch)
@@ -85,7 +85,7 @@ func NewSubscriber(
 // Close stops the helpers goroutine, unsubscribes from the event bus, and waits for the goroutine to exit.
 func (s *Subscriber) Close() {
 	s.cancel()
-	s.wg.Wait()
+	s.wg.Wait() // blocks here waiting for goroutines
 }
 
 // ID returns the subscriber ID.
