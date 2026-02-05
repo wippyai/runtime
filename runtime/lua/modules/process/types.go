@@ -230,10 +230,10 @@ func ModuleTypes() *io.Manifest {
 			Returns(spawnBuilderType).
 			Build()},
 		{Name: "inbox", Type: typ.Func().
-			Returns(messageChannelType, typ.NewOptional(typ.String)).
+			Returns(messageChannelType).
 			Build()},
 		{Name: "events", Type: typ.Func().
-			Returns(eventChannelType, typ.NewOptional(typ.String)).
+			Returns(eventChannelType).
 			Build()},
 		{Name: "listen", Type: typ.Func().
 			Param("topic", typ.String).

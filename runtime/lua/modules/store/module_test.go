@@ -130,7 +130,7 @@ func (t *mockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload
 	return p, nil
 }
 
-func (t *mockTranscoder) Unmarshal(_ payload.Payload, _ interface{}) error {
+func (t *mockTranscoder) Unmarshal(_ payload.Payload, _ any) error {
 	return nil
 }
 

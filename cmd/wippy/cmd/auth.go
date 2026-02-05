@@ -26,7 +26,7 @@ var (
 )
 
 // authPrintf prints formatted output with optional styling for console mode.
-func authPrintf(console bool, format string, style lipgloss.Style, args ...interface{}) {
+func authPrintf(console bool, format string, style lipgloss.Style, args ...any) {
 	if console {
 		styled := style.Render(fmt.Sprintf(format, args...))
 		fmt.Println(styled)
@@ -288,7 +288,7 @@ func printLoginSuccess(registry string, orgs []string, local bool, console bool)
 }
 
 func printStatusJSON(registry string, cred *auth.Credential, err error) error {
-	status := map[string]interface{}{
+	status := map[string]any{
 		"authenticated": cred != nil && err == nil,
 		"registry":      registry,
 	}

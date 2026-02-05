@@ -41,7 +41,7 @@ func (f *FS) resolvePath(p string) (string, error) {
 	case p == "":
 		res = f.cwd
 	case p[0] == '/':
-		res = p[1:]
+		res = strings.TrimLeft(p, "/")
 	default:
 		res = filepath.Join(f.cwd, p)
 	}

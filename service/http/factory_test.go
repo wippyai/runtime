@@ -171,7 +171,7 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 
 	// Create test endpoint config
 	cfg := &config.EndpointConfig{
-		Meta: map[string]interface{}{
+		Meta: map[string]any{
 			config.RouterID: "test:router1",
 		},
 		Method: "GET",
@@ -295,7 +295,7 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 
 	t.Run("standard static handler", func(t *testing.T) {
 		cfg := &config.StaticConfig{
-			Meta: map[string]interface{}{
+			Meta: map[string]any{
 				config.ServerID: "test:server1",
 			},
 			Path:      "/static",
@@ -318,7 +318,7 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 
 	t.Run("SPA handler", func(t *testing.T) {
 		cfg := &config.StaticConfig{
-			Meta: map[string]interface{}{
+			Meta: map[string]any{
 				config.ServerID: "test:server1",
 			},
 			Path: "/app",
@@ -355,7 +355,7 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 
 	t.Run("filesystem not found", func(t *testing.T) {
 		cfg := &config.StaticConfig{
-			Meta: map[string]interface{}{
+			Meta: map[string]any{
 				config.ServerID: "test:server1",
 			},
 			Path: "/static",
@@ -373,7 +373,7 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 
 	t.Run("SPA without index file", func(t *testing.T) {
 		cfg := &config.StaticConfig{
-			Meta: map[string]interface{}{
+			Meta: map[string]any{
 				config.ServerID: "test:server1",
 			},
 			Path: "/app",

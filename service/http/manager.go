@@ -636,12 +636,12 @@ func decodeEntity[T any](entry registry.Entry, transcoder payload.Transcoder) (*
 	}
 
 	// set meta if applicable
-	if metaHolder, ok := interface{}(cfg).(interface{ SetMeta(attrs.Bag) }); ok {
+	if metaHolder, ok := any(cfg).(interface{ SetMeta(attrs.Bag) }); ok {
 		metaHolder.SetMeta(entry.Meta)
 	}
 
 	// Validate if the config implements Validate()
-	if validator, ok := interface{}(cfg).(interface{ Validate() error }); ok {
+	if validator, ok := any(cfg).(interface{ Validate() error }); ok {
 		if err := validator.Validate(); err != nil {
 			return nil, NewInvalidConfigError(err)
 		}

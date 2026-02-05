@@ -3,6 +3,7 @@ package workflow
 import (
 	"fmt"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
@@ -11,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	temporalapi "github.com/wippyai/runtime/api/service/temporal"
 	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
+	"github.com/wippyai/runtime/service/temporal/propagator"
 	commonpb "go.temporal.io/api/common/v1"
 	bindings "go.temporal.io/sdk/internalbindings"
 	"go.uber.org/zap"
@@ -65,6 +67,18 @@ func (d *Definition) signalExternalWorkflow(cmd *process.SendCmd, tag uint64) er
 		}
 	}
 
+	selfPID, ok := runtime.GetFramePID(d.execCtx)
+	if !ok {
+		selfPID = pid.PID{
+			Node:   temporalapi.GetClientID(d.ctx),
+			Host:   d.env.WorkflowInfo().TaskQueueName,
+			UniqID: d.env.WorkflowInfo().WorkflowExecution.ID,
+		}
+	}
+	header := d.getContextHeaderWithValues(map[string]any{
+		propagator.SignalFromValueKey: selfPID.String(),
+	})
+
 	d.env.SignalExternalWorkflow(
 		"",
 		cmd.To.UniqID,
@@ -72,7 +86,7 @@ func (d *Definition) signalExternalWorkflow(cmd *process.SendCmd, tag uint64) er
 		cmd.Topic,
 		arg,
 		nil,
-		nil,
+		header,
 		false,
 		func(_ *commonpb.Payloads, err error) {
 			d.resumeProcess(tag, process.SendResult{Error: temporalerrors.FromTemporalError(err)}, nil)
@@ -154,6 +168,16 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 	if cmd.Start.HostID != "" {
 		params.TaskQueueName = cmd.Start.HostID
 	}
+	if len(cmd.Start.Context) > 0 {
+		spawnCtx, fc := ctxapi.OpenFrameContextOn(d.execCtx, d.execCtx)
+		if err := fc.SetMultiple(cmd.Start.Context...); err != nil {
+			ctxapi.ReleaseFrameContext(fc)
+			d.resumeProcess(tag, process.SpawnResult{Error: fmt.Errorf("failed to apply spawn context: %w", err)}, nil)
+			return nil
+		}
+		params.Header = d.getContextHeaderFrom(spawnCtx, nil)
+		ctxapi.ReleaseFrameContext(fc)
+	}
 
 	var childPID pid.PID
 	d.env.ExecuteChildWorkflow(params, func(result *commonpb.Payloads, err error) {
@@ -166,6 +190,9 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 			var values payload.Payloads
 			if decodeErr := d.dc.FromPayloads(result, &values); decodeErr == nil && len(values) > 0 {
 				resultPayload = values[0]
+				d.replayLog.Debug("decoded child workflow result",
+					zap.String("child_pid", childPID.String()),
+					zap.String("format", resultPayload.Format()))
 			}
 		}
 

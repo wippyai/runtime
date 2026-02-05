@@ -368,7 +368,7 @@ func TestReceiver_NotifyCompletion(t *testing.T) {
 		}
 		r.watchers[watcher.workflowID] = watcher
 
-		r.notifyCompletion(watcher, "success-result", nil)
+		r.notifyCompletion(watcher, payload.Payloads{payload.New("success-result")}, nil)
 
 		// Verify EXIT was sent to monitor
 		require.Len(t, router.packages, 1)
@@ -419,7 +419,7 @@ func TestReceiver_NotifyCompletion(t *testing.T) {
 		}
 		r.watchers[watcher.workflowID] = watcher
 
-		r.notifyCompletion(watcher, "result", nil)
+		r.notifyCompletion(watcher, payload.Payloads{payload.New("result")}, nil)
 
 		// Verify EXIT was sent (not LINK_DOWN)
 		require.Len(t, router.packages, 1)
@@ -448,6 +448,72 @@ func TestReceiver_CleanupWatcherWithCancel(t *testing.T) {
 
 	assert.True(t, canceled, "cancel function should be called")
 	assert.Empty(t, r.watchers)
+}
+
+func TestReceiver_HandleMonitorRelease_CancelsWatcher(t *testing.T) {
+	logger := zap.NewNop()
+	router := &mockRouter{}
+
+	r := NewReceiver(context.Background(), "temporal-client", nil, router, logger)
+
+	canceled := false
+	workflowPID := pid.PID{Node: "temporal-client", Host: "task-queue", UniqID: "workflow-cancel-monitor"}
+	workflowPID.Precomputed()
+	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "process-1"}
+	localPID.Precomputed()
+
+	r.mu.Lock()
+	r.watchers[workflowPID.UniqID] = &workflowWatcher{
+		workflowID: workflowPID.UniqID,
+		taskQueue:  workflowPID.Host,
+		monitors:   map[string]pid.PID{localPID.String(): localPID},
+		links:      make(map[string]pid.PID),
+		cancel:     func() { canceled = true },
+		watching:   true,
+	}
+	r.mu.Unlock()
+
+	releaseReq := &topology.MonitorReleaseEvent{Kind: topology.MonitorRelease, Caller: localPID, Target: workflowPID}
+	require.NoError(t, r.Send(relay.NewPackage(localPID, workflowPID, topology.TopicEvents, payload.New(releaseReq))))
+
+	assert.True(t, canceled, "watcher cancel should be called on last monitor removal")
+	r.mu.RLock()
+	_, exists := r.watchers[workflowPID.UniqID]
+	r.mu.RUnlock()
+	assert.False(t, exists, "watcher should be removed when last monitor is released")
+}
+
+func TestReceiver_HandleUnlinkRequest_CancelsWatcher(t *testing.T) {
+	logger := zap.NewNop()
+	router := &mockRouter{}
+
+	r := NewReceiver(context.Background(), "temporal-client", nil, router, logger)
+
+	canceled := false
+	workflowPID := pid.PID{Node: "temporal-client", Host: "task-queue", UniqID: "workflow-cancel-link"}
+	workflowPID.Precomputed()
+	localPID := pid.PID{Node: "local", Host: "host1", UniqID: "process-1"}
+	localPID.Precomputed()
+
+	r.mu.Lock()
+	r.watchers[workflowPID.UniqID] = &workflowWatcher{
+		workflowID: workflowPID.UniqID,
+		taskQueue:  workflowPID.Host,
+		monitors:   make(map[string]pid.PID),
+		links:      map[string]pid.PID{localPID.String(): localPID},
+		cancel:     func() { canceled = true },
+		watching:   true,
+	}
+	r.mu.Unlock()
+
+	unlinkReq := &topology.UnlinkRequestEvent{From: localPID, To: workflowPID}
+	require.NoError(t, r.Send(relay.NewPackage(localPID, workflowPID, topology.TopicEvents, payload.New(unlinkReq))))
+
+	assert.True(t, canceled, "watcher cancel should be called on last link removal")
+	r.mu.RLock()
+	_, exists := r.watchers[workflowPID.UniqID]
+	r.mu.RUnlock()
+	assert.False(t, exists, "watcher should be removed when last link is removed")
 }
 
 func TestReceiver_StopWithCancelFunctions(t *testing.T) {

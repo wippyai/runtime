@@ -9,7 +9,7 @@ import (
 
 // Task pool for reuse
 var taskPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return &Task{
 			retBuf:    make([]lua.LValue, 0, 8),
 			resumeBuf: make([]lua.LValue, 0, 4),

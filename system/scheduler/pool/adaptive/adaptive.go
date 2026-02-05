@@ -157,7 +157,7 @@ func New(factory process.FactoryFunc, d dispatcher.Dispatcher, opts ...Option) (
 func (a *Pool) Start() {
 	a.startOnce.Do(func() {
 		if a.log != nil {
-			a.log.Info("starting pool",
+			a.log.Debug("starting pool",
 				zap.Int("min", a.minWorkers),
 				zap.Int("max", a.maxWorkers),
 				zap.Int("queue", cap(a.tasks)))
@@ -193,7 +193,7 @@ func (a *Pool) Stop() {
 	a.wg.Wait()
 
 	if a.log != nil {
-		a.log.Info("pool stopped")
+		a.log.Debug("pool stopped")
 	}
 }
 

@@ -22,7 +22,7 @@ func (mt *mockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payloa
 	return p, nil // Pass through
 }
 
-func (mt *mockTranscoder) Unmarshal(_ payload.Payload, _ interface{}) error {
+func (mt *mockTranscoder) Unmarshal(_ payload.Payload, _ any) error {
 	return nil
 }
 

@@ -82,7 +82,7 @@ func TestNewBootstrapContext(t *testing.T) {
 	t.Run("configures custom relay node name", func(t *testing.T) {
 		logger := zap.NewExample()
 		cfg := boot.NewConfig(
-			boot.WithSection("relay", map[string]interface{}{
+			boot.WithSection("relay", map[string]any{
 				"node_name": "custom-node",
 			}),
 		)
@@ -97,8 +97,8 @@ func TestNewBootstrapContext(t *testing.T) {
 	t.Run("configures custom supervisor host settings", func(t *testing.T) {
 		logger := zap.NewExample()
 		cfg := boot.NewConfig(
-			boot.WithSection("supervisor", map[string]interface{}{
-				"host": map[string]interface{}{
+			boot.WithSection("supervisor", map[string]any{
+				"host": map[string]any{
 					"buffer_size":  2048,
 					"worker_count": 32,
 				},
@@ -116,8 +116,8 @@ func TestNewBootstrapContext(t *testing.T) {
 	t.Run("configures custom functions host settings", func(t *testing.T) {
 		logger := zap.NewExample()
 		cfg := boot.NewConfig(
-			boot.WithSection("functions", map[string]interface{}{
-				"host": map[string]interface{}{
+			boot.WithSection("functions", map[string]any{
+				"host": map[string]any{
 					"buffer_size":  4096,
 					"worker_count": 64,
 				},
@@ -198,7 +198,7 @@ func TestBootstrapContextIntegration(t *testing.T) {
 	t.Run("full bootstrap lifecycle", func(t *testing.T) {
 		logger := zap.NewExample()
 		cfg := boot.NewConfig(
-			boot.WithSection("relay", map[string]interface{}{
+			boot.WithSection("relay", map[string]any{
 				"node_name": "test-node",
 			}),
 		)

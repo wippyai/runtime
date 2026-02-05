@@ -749,15 +749,14 @@ func TestDispatcher_HandleSpawn_WithMonitor(t *testing.T) {
 	parentPID := pid.PID{Host: "test", UniqID: "parent"}
 	spawnedPID := pid.PID{Host: "test", UniqID: "spawned"}
 	manager.On("Start", mock.Anything, mock.Anything).Return(spawnedPID, nil)
-	topo.On("Monitor", parentPID, spawnedPID).Return(nil)
 
 	d := NewDispatcher(manager, router, topo, nil)
 
 	options := attrs.NewBag()
 	options.Set(process.LifecycleParentKey, parentPID)
+	options.Set(process.LifecycleMonitorKey, true)
 
 	cmd := &process.SpawnCmd{
-		Monitor: true,
 		Start: &process.Start{
 			HostID:  "test",
 			Options: options,
@@ -773,7 +772,7 @@ func TestDispatcher_HandleSpawn_WithMonitor(t *testing.T) {
 	assert.Equal(t, spawnedPID, result.PID)
 
 	manager.AssertExpectations(t)
-	topo.AssertExpectations(t)
+	topo.AssertNotCalled(t, "Monitor", mock.Anything, mock.Anything)
 }
 
 func TestDispatcher_HandleSpawn_WithLink(t *testing.T) {
@@ -784,15 +783,14 @@ func TestDispatcher_HandleSpawn_WithLink(t *testing.T) {
 	parentPID := pid.PID{Host: "test", UniqID: "parent"}
 	spawnedPID := pid.PID{Host: "test", UniqID: "spawned"}
 	manager.On("Start", mock.Anything, mock.Anything).Return(spawnedPID, nil)
-	topo.On("Link", parentPID, spawnedPID).Return(nil)
 
 	d := NewDispatcher(manager, router, topo, nil)
 
 	options := attrs.NewBag()
 	options.Set(process.LifecycleParentKey, parentPID)
+	options.Set(process.LifecycleLinkKey, true)
 
 	cmd := &process.SpawnCmd{
-		Link: true,
 		Start: &process.Start{
 			HostID:  "test",
 			Options: options,
@@ -808,7 +806,7 @@ func TestDispatcher_HandleSpawn_WithLink(t *testing.T) {
 	assert.Equal(t, spawnedPID, result.PID)
 
 	manager.AssertExpectations(t)
-	topo.AssertExpectations(t)
+	topo.AssertNotCalled(t, "Link", mock.Anything, mock.Anything)
 }
 
 func TestDispatcher_HandleSpawn_MonitorError(t *testing.T) {
@@ -819,15 +817,14 @@ func TestDispatcher_HandleSpawn_MonitorError(t *testing.T) {
 	parentPID := pid.PID{Host: "test", UniqID: "parent"}
 	spawnedPID := pid.PID{Host: "test", UniqID: "spawned"}
 	manager.On("Start", mock.Anything, mock.Anything).Return(spawnedPID, nil)
-	topo.On("Monitor", parentPID, spawnedPID).Return(errors.New("monitor failed"))
 
 	d := NewDispatcher(manager, router, topo, nil)
 
 	options := attrs.NewBag()
 	options.Set(process.LifecycleParentKey, parentPID)
+	options.Set(process.LifecycleMonitorKey, true)
 
 	cmd := &process.SpawnCmd{
-		Monitor: true,
 		Start: &process.Start{
 			HostID:  "test",
 			Options: options,
@@ -844,7 +841,7 @@ func TestDispatcher_HandleSpawn_MonitorError(t *testing.T) {
 	assert.Equal(t, spawnedPID, result.PID)
 
 	manager.AssertExpectations(t)
-	topo.AssertExpectations(t)
+	topo.AssertNotCalled(t, "Monitor", mock.Anything, mock.Anything)
 }
 
 func TestDispatcher_HandleSpawn_LinkError(t *testing.T) {
@@ -855,15 +852,14 @@ func TestDispatcher_HandleSpawn_LinkError(t *testing.T) {
 	parentPID := pid.PID{Host: "test", UniqID: "parent"}
 	spawnedPID := pid.PID{Host: "test", UniqID: "spawned"}
 	manager.On("Start", mock.Anything, mock.Anything).Return(spawnedPID, nil)
-	topo.On("Link", parentPID, spawnedPID).Return(errors.New("link failed"))
 
 	d := NewDispatcher(manager, router, topo, nil)
 
 	options := attrs.NewBag()
 	options.Set(process.LifecycleParentKey, parentPID)
+	options.Set(process.LifecycleLinkKey, true)
 
 	cmd := &process.SpawnCmd{
-		Link: true,
 		Start: &process.Start{
 			HostID:  "test",
 			Options: options,
@@ -880,7 +876,7 @@ func TestDispatcher_HandleSpawn_LinkError(t *testing.T) {
 	assert.Equal(t, spawnedPID, result.PID)
 
 	manager.AssertExpectations(t)
-	topo.AssertExpectations(t)
+	topo.AssertNotCalled(t, "Link", mock.Anything, mock.Anything)
 }
 
 func TestDispatcher_HandleUnmonitor_NoTopology(t *testing.T) {

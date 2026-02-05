@@ -407,6 +407,12 @@ func doSpawnerSpawn(l *lua.LState, monitored, linked bool) int {
 	if spawner.name != "" {
 		options.Set(process.LifecycleNameKey, spawner.name)
 	}
+	if monitored {
+		options.Set(process.LifecycleMonitorKey, true)
+	}
+	if linked {
+		options.Set(process.LifecycleLinkKey, true)
+	}
 
 	yield := AcquireSpawnYield()
 	yield.Start = &process.Start{
@@ -418,8 +424,6 @@ func doSpawnerSpawn(l *lua.LState, monitored, linked bool) int {
 		Name:     spawner.name,
 		Messages: spawner.messages,
 	}
-	yield.Monitor = monitored
-	yield.Link = linked
 
 	l.Push(yield)
 	return -1

@@ -16,7 +16,7 @@ type EntryContext struct {
 }
 
 // InterpolatorFunc defines the signature for interpolation functions
-type InterpolatorFunc func(string, interface{}) (string, error)
+type InterpolatorFunc func(string, any) (string, error)
 
 // Helper provides a convenient way to manage payload interpolation
 type Helper struct {
@@ -51,7 +51,7 @@ func NewEntryInterpolator(dtt payload.Transcoder, opts ...Option) *Helper {
 
 // Interpolate processes a payload through all registered interpolators
 func (h *Helper) Interpolate(p payload.Payload, ctx EntryContext) (payload.Payload, error) {
-	var data interface{}
+	var data any
 	if err := h.dtt.Unmarshal(p, &data); err != nil {
 		return p, NewUnmarshalPayloadError(err)
 	}
@@ -65,13 +65,13 @@ func (h *Helper) Interpolate(p payload.Payload, ctx EntryContext) (payload.Paylo
 }
 
 // interpolateValue recursively processes values through all interpolators
-func (h *Helper) interpolateValue(v interface{}, ctx EntryContext) (interface{}, error) {
+func (h *Helper) interpolateValue(v any, ctx EntryContext) (any, error) {
 	switch val := v.(type) {
 	case string:
 		return h.interpolateString(val, ctx)
-	case map[string]interface{}:
+	case map[string]any:
 		return h.interpolateMap(val, ctx)
-	case []interface{}:
+	case []any:
 		return h.interpolateSlice(val, ctx)
 	default:
 		return v, nil
@@ -90,8 +90,8 @@ func (h *Helper) interpolateString(s string, ctx EntryContext) (string, error) {
 	return result, nil
 }
 
-func (h *Helper) interpolateMap(m map[string]interface{}, ctx EntryContext) (map[string]interface{}, error) {
-	result := make(map[string]interface{})
+func (h *Helper) interpolateMap(m map[string]any, ctx EntryContext) (map[string]any, error) {
+	result := make(map[string]any)
 	for k, v := range m {
 		interpolated, err := h.interpolateValue(v, ctx)
 		if err != nil {
@@ -102,8 +102,8 @@ func (h *Helper) interpolateMap(m map[string]interface{}, ctx EntryContext) (map
 	return result, nil
 }
 
-func (h *Helper) interpolateSlice(s []interface{}, ctx EntryContext) ([]interface{}, error) {
-	result := make([]interface{}, len(s))
+func (h *Helper) interpolateSlice(s []any, ctx EntryContext) ([]any, error) {
+	result := make([]any, len(s))
 	for i, v := range s {
 		interpolated, err := h.interpolateValue(v, ctx)
 		if err != nil {

@@ -147,3 +147,79 @@ entries:
       - registry
       - funcs
       - time
+
+  - name: dependency_resolution_error
+    kind: function.lua
+    meta:
+      type: test
+      suite: registry
+      order: 90
+      description: dependency resolution error details
+    source: file://dependency_resolution_error.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+
+  - name: dependency_install
+    kind: function.lua
+    meta:
+      type: test
+      suite: registry
+      order: 100
+      description: dependency install/uninstall via hub
+    source: file://dependency_install.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+      - fs
+
+  - name: dependency_update
+    kind: function.lua
+    meta:
+      type: test
+      suite: registry
+      order: 110
+      description: dependency update via hub
+    source: file://dependency_update.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+      - hub
+
+  - name: dependency_version_jump
+    kind: function.lua
+    meta:
+      type: test
+      suite: registry
+      order: 115
+      description: dependency version rollback/forward via apply_version
+    source: file://dependency_version_jump.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+      - hub
+
+  - name: dependency_requirements
+    kind: function.lua
+    meta:
+      type: test
+      suite: registry
+      order: 120
+      description: dependency requirements resolve and endpoints are public
+    source: file://dependency_requirements.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+      - http_client
+      - json
+      - time

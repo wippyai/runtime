@@ -24,11 +24,11 @@ import (
 
 // MockPayload implements payload.Payload for testing
 type MockPayload struct {
-	data   interface{}
+	data   any
 	format payload.Format
 }
 
-func (p *MockPayload) Data() interface{} {
+func (p *MockPayload) Data() any {
 	return p.data
 }
 
@@ -41,7 +41,7 @@ func (p *MockPayload) Transcode(format payload.Format) (payload.Payload, error) 
 }
 
 // Function to create mock payloads
-func NewMockPayload(data interface{}) payload.Payload {
+func NewMockPayload(data any) payload.Payload {
 	return &MockPayload{data: data, format: payload.Golang}
 }
 

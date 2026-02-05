@@ -3581,7 +3581,7 @@ func (m *mockTranscoder) Transcode(p payload.Payload, f payload.Format) (payload
 	return payload.NewPayload(p.Data(), f), nil
 }
 
-func (m *mockTranscoder) Unmarshal(_ payload.Payload, _ interface{}) error {
+func (m *mockTranscoder) Unmarshal(_ payload.Payload, _ any) error {
 	return nil
 }
 

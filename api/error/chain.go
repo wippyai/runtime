@@ -1,6 +1,10 @@
 package error
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/wippyai/runtime/api/attrs"
+)
 
 // Chain is the serializable format for errors crossing process boundaries.
 // Used by Temporal, queues, and other transports.
@@ -28,9 +32,9 @@ type MessageProvider interface {
 	Msg() string
 }
 
-// BuildChain walks an error chain and extracts metadata via interfaces.
-// Works with any error implementing Kind(), Retryable(), Details(), StackFrames().
-// Supports both apierror types and lua types (same semantics, different packages).
+// BuildChain walks an error chain and extracts metadata via api/error interfaces.
+// Errors that don't implement Error or Rich are serialized with message only.
+// Convert domain errors to api/error before calling if you need kind/retryable/details.
 func BuildChain(err error) *Chain {
 	if err == nil {
 		return nil
@@ -46,23 +50,48 @@ func BuildChain(err error) *Chain {
 			ce.Message = mp.Msg()
 		}
 
-		// Extract Kind - try multiple interface patterns
-		ce.Kind = extractKindString(e)
+		switch typed := e.(type) {
+		case Rich:
+			kind := typed.Kind()
+			if kind != "" && kind != Unknown {
+				ce.Kind = kind.String()
+			}
 
-		// Extract Retryable - try multiple interface patterns
-		ce.Retryable = extractRetryable(e)
+			retryable := typed.Retryable()
+			if retryable != Unspecified {
+				b := retryable.Bool()
+				ce.Retryable = &b
+			}
 
-		// Extract Details via interface
-		if de, ok := e.(interface{ Details() map[string]any }); ok {
-			if d := de.Details(); len(d) > 0 {
+			if d := typed.Details(); len(d) > 0 {
 				ce.Details = d
 			}
-		}
 
-		// Extract Stack via interface
-		if se, ok := e.(StackProvider); ok {
-			if s := se.StackFrames(); len(s) > 0 {
+			if s := typed.StackFrames(); len(s) > 0 {
 				ce.Stack = s
+			}
+		case Error:
+			kind := typed.Kind()
+			if kind != "" && kind != Unknown {
+				ce.Kind = kind.String()
+			}
+
+			retryable := typed.Retryable()
+			if retryable != Unspecified {
+				b := retryable.Bool()
+				ce.Retryable = &b
+			}
+
+			if d := typed.Details(); d != nil {
+				if bag, ok := d.(attrs.Bag); ok && len(bag) > 0 {
+					ce.Details = map[string]any(bag)
+				}
+			}
+		default:
+			if se, ok := e.(StackProvider); ok {
+				if s := se.StackFrames(); len(s) > 0 {
+					ce.Stack = s
+				}
 			}
 		}
 
@@ -73,56 +102,6 @@ func BuildChain(err error) *Chain {
 	}
 
 	return chain
-}
-
-// extractKindString extracts Kind as string from error using various interface patterns.
-func extractKindString(e error) string {
-	// Try apierror.Kind return type (Kind has String() method)
-	if ke, ok := e.(interface{ Kind() Kind }); ok {
-		if s := ke.Kind().String(); s != "" && s != "Unknown" {
-			return s
-		}
-	}
-
-	// Try interface returning interface{} (for cross-package compatibility)
-	if ke, ok := e.(interface {
-		Kind() interface{ String() string }
-	}); ok {
-		if k := ke.Kind(); k != nil {
-			if s := k.String(); s != "" && s != "Unknown" {
-				return s
-			}
-		}
-	}
-
-	return ""
-}
-
-// extractRetryable extracts retryable flag from error using various interface patterns.
-func extractRetryable(e error) *bool {
-	// Try apierror.Ternary return type
-	if re, ok := e.(interface{ Retryable() Ternary }); ok {
-		r := re.Retryable()
-		if r != Unspecified {
-			b := r.Bool()
-			return &b
-		}
-	}
-
-	// Try interface returning interface{} with Bool() and String() (for lua.Ternary etc)
-	if re, ok := e.(interface {
-		Retryable() interface{ Bool() bool }
-	}); ok {
-		r := re.Retryable()
-		if rt, ok := r.(interface{ String() string }); ok {
-			if s := rt.String(); s != "Unspecified" && s != "Unknown" {
-				b := r.Bool()
-				return &b
-			}
-		}
-	}
-
-	return nil
 }
 
 // Root returns the first (outermost) error in the chain, or nil if empty.

@@ -178,7 +178,7 @@ func (m *mockTranscoder) Transcode(p Payload, f Format) (Payload, error) {
 	return NewPayload(p.Data(), f), nil
 }
 
-func (m *mockTranscoder) Unmarshal(_ Payload, _ interface{}) error {
+func (m *mockTranscoder) Unmarshal(_ Payload, _ any) error {
 	return nil
 }
 

@@ -75,7 +75,7 @@ func LoadConfig(bootCfg boot.Config) otelapi.Config {
 	if v, ok := otelCfg.Get("propagators"); ok {
 		if propagators, ok := v.([]string); ok && len(propagators) > 0 {
 			cfg.Propagators = propagators
-		} else if propagators, ok := v.([]interface{}); ok && len(propagators) > 0 {
+		} else if propagators, ok := v.([]any); ok && len(propagators) > 0 {
 			cfg.Propagators = make([]string, len(propagators))
 			for i, p := range propagators {
 				if s, ok := p.(string); ok {

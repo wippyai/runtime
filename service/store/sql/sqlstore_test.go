@@ -80,11 +80,11 @@ func (r *MockRegistry) Exists(id registry.ID) bool {
 
 // MockPayload implements payload.Payload for testing
 type MockPayload struct {
-	data   interface{}
+	data   any
 	format payload.Format
 }
 
-func (p *MockPayload) Data() interface{} {
+func (p *MockPayload) Data() any {
 	return p.data
 }
 
@@ -142,7 +142,7 @@ func setupSQLStoreTable(t *testing.T, db *sql.DB, config *sqlstore.Config) {
 func insertTestData(t *testing.T, db *sql.DB, config *sqlstore.Config, key string, value []byte, expire *time.Time) {
 	ctx := t.Context()
 
-	var expireVal interface{}
+	var expireVal any
 	if expire != nil {
 		expireVal = expire.UTC()
 	} else {

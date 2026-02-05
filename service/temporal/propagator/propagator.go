@@ -2,7 +2,6 @@ package propagator
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -16,16 +15,21 @@ import (
 // Format is JSON-encoded map[string]any for cross-language compatibility.
 const HeaderKey = "wippy-context"
 
+// SignalFromValueKey is the context values map key used to propagate signal sender PID.
+const SignalFromValueKey = "temporal.signal.from"
+
 var _ workflow.ContextPropagator = (*Propagator)(nil)
 
 // Propagator implements Temporal's ContextPropagator interface
 // to propagate wippy context values across workflow boundaries.
 // Values are serialized as JSON for cross-language compatibility.
-type Propagator struct{}
+type Propagator struct {
+	dc converter.DataConverter
+}
 
 // New creates a new context propagator.
-func New() *Propagator {
-	return &Propagator{}
+func New(dc converter.DataConverter) *Propagator {
+	return &Propagator{dc: dc}
 }
 
 // contextValuesKey is the key for storing simple context values when not using FrameContext.
@@ -51,6 +55,9 @@ func GetContextValues(ctx context.Context) map[string]any {
 // Inject extracts values from Go context and writes them to Temporal headers.
 // Called when starting workflows or activities from Go code.
 func (p *Propagator) Inject(ctx context.Context, writer workflow.HeaderWriter) error {
+	if p.dc == nil {
+		return fmt.Errorf("data converter not available")
+	}
 	var data map[string]any
 
 	// First, try to get values from simple context key (for tests/simple clients)
@@ -68,21 +75,13 @@ func (p *Propagator) Inject(ctx context.Context, writer workflow.HeaderWriter) e
 			data = make(map[string]any)
 		}
 		values.Iterate(func(key string, val any) {
-			// Only propagate JSON-serializable types
-			switch val.(type) {
-			case string, int, int64, float64, bool, map[string]any, []any:
-				data[key] = val
-			}
+			data[key] = val
 		})
 	}
 
+	data = sanitizeContextValues(data)
 	if len(data) > 0 {
-		jsonBytes, err := json.Marshal(data)
-		if err != nil {
-			return fmt.Errorf("failed to serialize context values: %w", err)
-		}
-
-		payload, err := converter.GetDefaultDataConverter().ToPayload(jsonBytes)
+		payload, err := p.dc.ToPayload(data)
 		if err != nil {
 			return fmt.Errorf("failed to convert context to payload: %w", err)
 		}
@@ -93,12 +92,7 @@ func (p *Propagator) Inject(ctx context.Context, writer workflow.HeaderWriter) e
 	// Inject security context
 	secPayload := ExtractSecurityPayload(ctx)
 	if secPayload != nil {
-		jsonBytes, err := json.Marshal(secPayload)
-		if err != nil {
-			return fmt.Errorf("failed to serialize security context: %w", err)
-		}
-
-		payload, err := converter.GetDefaultDataConverter().ToPayload(jsonBytes)
+		payload, err := p.dc.ToPayload(secPayload)
 		if err != nil {
 			return fmt.Errorf("failed to convert security to payload: %w", err)
 		}
@@ -112,17 +106,15 @@ func (p *Propagator) Inject(ctx context.Context, writer workflow.HeaderWriter) e
 // Extract reads values from Temporal headers into Go context.
 // Called when receiving workflow tasks or activity tasks.
 func (p *Propagator) Extract(ctx context.Context, reader workflow.HeaderReader) (context.Context, error) {
+	if p.dc == nil {
+		return ctx, fmt.Errorf("data converter not available")
+	}
 	// Extract context values
 	payload, ok := reader.Get(HeaderKey)
 	if ok && payload != nil {
-		var jsonBytes []byte
-		if err := converter.GetDefaultDataConverter().FromPayload(payload, &jsonBytes); err != nil {
-			return ctx, fmt.Errorf("failed to decode context payload: %w", err)
-		}
-
 		var data map[string]any
-		if err := json.Unmarshal(jsonBytes, &data); err != nil {
-			return ctx, fmt.Errorf("failed to unmarshal context values: %w", err)
+		if err := p.dc.FromPayload(payload, &data); err != nil {
+			return ctx, fmt.Errorf("failed to decode context values: %w", err)
 		}
 
 		if len(data) > 0 {
@@ -142,13 +134,9 @@ func (p *Propagator) Extract(ctx context.Context, reader workflow.HeaderReader) 
 	// Extract security context
 	secPayload, ok := reader.Get(SecurityHeaderKey)
 	if ok && secPayload != nil {
-		var jsonBytes []byte
-		if err := converter.GetDefaultDataConverter().FromPayload(secPayload, &jsonBytes); err != nil {
-			return ctx, fmt.Errorf("failed to decode security payload: %w", err)
-		}
 		var sec SecurityPayload
-		if err := json.Unmarshal(jsonBytes, &sec); err != nil {
-			return ctx, fmt.Errorf("failed to unmarshal security context: %w", err)
+		if err := p.dc.FromPayload(secPayload, &sec); err != nil {
+			return ctx, fmt.Errorf("failed to decode security context: %w", err)
 		}
 		ctx = WithSecurityCtx(ctx, &sec)
 	}
@@ -159,18 +147,16 @@ func (p *Propagator) Extract(ctx context.Context, reader workflow.HeaderReader) 
 // InjectFromWorkflow extracts values from workflow context and writes to headers.
 // Called when workflow starts child workflows or activities.
 func (p *Propagator) InjectFromWorkflow(ctx workflow.Context, writer workflow.HeaderWriter) error {
+	if p.dc == nil {
+		return fmt.Errorf("data converter not available")
+	}
 	// Get values from workflow context if available
-	values := getWorkflowValues(ctx)
+	values := sanitizeContextValues(getWorkflowValues(ctx))
 	if len(values) == 0 {
 		return nil
 	}
 
-	jsonBytes, err := json.Marshal(values)
-	if err != nil {
-		return fmt.Errorf("failed to serialize context values: %w", err)
-	}
-
-	payload, err := converter.GetDefaultDataConverter().ToPayload(jsonBytes)
+	payload, err := p.dc.ToPayload(values)
 	if err != nil {
 		return fmt.Errorf("failed to convert context to payload: %w", err)
 	}
@@ -182,19 +168,17 @@ func (p *Propagator) InjectFromWorkflow(ctx workflow.Context, writer workflow.He
 // ExtractToWorkflow reads values from headers into workflow context.
 // Called when workflow receives headers from parent or client.
 func (p *Propagator) ExtractToWorkflow(ctx workflow.Context, reader workflow.HeaderReader) (workflow.Context, error) {
+	if p.dc == nil {
+		return ctx, fmt.Errorf("data converter not available")
+	}
 	payload, ok := reader.Get(HeaderKey)
 	if !ok || payload == nil {
 		return ctx, nil
 	}
 
-	var jsonBytes []byte
-	if err := converter.GetDefaultDataConverter().FromPayload(payload, &jsonBytes); err != nil {
-		return ctx, fmt.Errorf("failed to decode context payload: %w", err)
-	}
-
 	var data map[string]any
-	if err := json.Unmarshal(jsonBytes, &data); err != nil {
-		return ctx, fmt.Errorf("failed to unmarshal context values: %w", err)
+	if err := p.dc.FromPayload(payload, &data); err != nil {
+		return ctx, fmt.Errorf("failed to decode context values: %w", err)
 	}
 
 	if len(data) == 0 {
@@ -224,17 +208,16 @@ func getWorkflowValues(ctx workflow.Context) map[string]any {
 
 // CreateHeader creates a Temporal header from context values.
 // This is used by the workflow definition to pass context to activities and child workflows.
-func CreateHeader(values map[string]any) (*commonpb.Header, error) {
+func CreateHeader(dc converter.DataConverter, values map[string]any) (*commonpb.Header, error) {
+	if dc == nil {
+		return nil, fmt.Errorf("data converter not available")
+	}
+	values = sanitizeContextValues(values)
 	if len(values) == 0 {
 		return nil, nil
 	}
 
-	jsonBytes, err := json.Marshal(values)
-	if err != nil {
-		return nil, fmt.Errorf("failed to serialize context values: %w", err)
-	}
-
-	payload, err := converter.GetDefaultDataConverter().ToPayload(jsonBytes)
+	payload, err := dc.ToPayload(values)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert context to payload: %w", err)
 	}
@@ -248,7 +231,10 @@ func CreateHeader(values map[string]any) (*commonpb.Header, error) {
 
 // ExtractFromHeader extracts context values directly from a Temporal header.
 // This is used by the workflow definition to extract values from incoming headers.
-func ExtractFromHeader(header *commonpb.Header) (map[string]any, error) {
+func ExtractFromHeader(dc converter.DataConverter, header *commonpb.Header) (map[string]any, error) {
+	if dc == nil {
+		return nil, fmt.Errorf("data converter not available")
+	}
 	if header == nil || header.Fields == nil {
 		return nil, nil
 	}
@@ -258,15 +244,57 @@ func ExtractFromHeader(header *commonpb.Header) (map[string]any, error) {
 		return nil, nil
 	}
 
-	var jsonBytes []byte
-	if err := converter.GetDefaultDataConverter().FromPayload(payload, &jsonBytes); err != nil {
-		return nil, fmt.Errorf("failed to decode context payload: %w", err)
-	}
-
 	var data map[string]any
-	if err := json.Unmarshal(jsonBytes, &data); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal context values: %w", err)
+	if err := dc.FromPayload(payload, &data); err != nil {
+		return nil, fmt.Errorf("failed to decode context values: %w", err)
 	}
 
 	return data, nil
+}
+
+func sanitizeContextValues(values map[string]any) map[string]any {
+	if len(values) == 0 {
+		return nil
+	}
+
+	out := make(map[string]any, len(values))
+	for k, v := range values {
+		if normalized, ok := normalizeContextValue(v); ok {
+			out[k] = normalized
+		}
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func normalizeContextValue(v any) (any, bool) {
+	switch val := v.(type) {
+	case string, int, int64, float64, bool:
+		return val, true
+	case map[string]any:
+		nested := make(map[string]any, len(val))
+		for k, inner := range val {
+			norm, ok := normalizeContextValue(inner)
+			if !ok {
+				return nil, false
+			}
+			nested[k] = norm
+		}
+		return nested, true
+	case []any:
+		nested := make([]any, 0, len(val))
+		for _, inner := range val {
+			norm, ok := normalizeContextValue(inner)
+			if !ok {
+				return nil, false
+			}
+			nested = append(nested, norm)
+		}
+		return nested, true
+	default:
+		return nil, false
+	}
 }

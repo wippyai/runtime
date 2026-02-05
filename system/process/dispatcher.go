@@ -6,7 +6,6 @@ import (
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/dispatcher"
-	pidpkg "github.com/wippyai/runtime/api/pid"
 	api "github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	topapi "github.com/wippyai/runtime/api/topology"
@@ -71,41 +70,13 @@ func (d *Dispatcher) handleSend(_ context.Context, cmd dispatcher.Command, tag u
 func (d *Dispatcher) handleSpawn(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	spawnCmd := cmd.(*api.SpawnCmd)
 
-	pid, err := d.manager.Start(ctx, spawnCmd.Start)
+	childPID, err := d.manager.Start(ctx, spawnCmd.Start)
 	if err != nil {
 		receiver.CompleteYield(tag, api.SpawnResult{Error: err}, nil)
 		return nil
 	}
 
-	// Handle monitoring if requested
-	if spawnCmd.Monitor && d.topo != nil {
-		if parent, ok := spawnCmd.Start.Options.Get(api.LifecycleParentKey); ok && parent != nil {
-			if parentPID, ok := parent.(pidpkg.PID); ok {
-				if err := d.topo.Monitor(parentPID, pid); err != nil {
-					d.logger.Debug("failed to monitor spawned process",
-						zap.String("parent", parentPID.String()),
-						zap.String("child", pid.String()),
-						zap.Error(err))
-				}
-			}
-		}
-	}
-
-	// Handle linking if requested
-	if spawnCmd.Link && d.topo != nil {
-		if parent, ok := spawnCmd.Start.Options.Get(api.LifecycleParentKey); ok && parent != nil {
-			if parentPID, ok := parent.(pidpkg.PID); ok {
-				if err := d.topo.Link(parentPID, pid); err != nil {
-					d.logger.Debug("failed to link spawned process",
-						zap.String("parent", parentPID.String()),
-						zap.String("child", pid.String()),
-						zap.Error(err))
-				}
-			}
-		}
-	}
-
-	receiver.CompleteYield(tag, api.SpawnResult{PID: pid}, nil)
+	receiver.CompleteYield(tag, api.SpawnResult{PID: childPID}, nil)
 	return nil
 }
 

@@ -22,23 +22,11 @@ import (
 	"github.com/wippyai/runtime/system/eventbus"
 	sysfunction "github.com/wippyai/runtime/system/function"
 	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/testsuite"
 	sdkworker "go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 	"go.uber.org/zap"
 )
-
-// fullTestTranscoder implements payload.Transcoder for testing
-type fullTestTranscoder struct{}
-
-func (m *fullTestTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
-	return p, nil
-}
-
-func (m *fullTestTranscoder) Unmarshal(_ payload.Payload, _ interface{}) error {
-	return nil
-}
 
 // mockResourceRegistry provides a mock resource registry for testing
 type mockResourceRegistry struct {
@@ -121,7 +109,7 @@ func TestFullStackActivityExecution(t *testing.T) {
 	})
 
 	// Create data converter
-	dc := dataconverter.NewDataConverter(&fullTestTranscoder{}, converter.GetDefaultDataConverter())
+	dc := dataconverter.NewDataConverter(newTestTranscoder())
 
 	// Start Temporal test server with custom data converter
 	server, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
@@ -152,14 +140,14 @@ func TestFullStackActivityExecution(t *testing.T) {
 		},
 	}
 
-	wippyWorker := worker.NewWorker(
-		logger,
-		registry.NewID("test", "worker"),
-		workerConfig,
-		resourceReg,
-		nil,
-		nil,
-	)
+	wippyWorker, err := worker.NewWorkerBuilder().
+		WithLogger(logger).
+		WithID(registry.NewID("test", "worker")).
+		WithConfig(workerConfig).
+		WithResourceRegistry(resourceReg).
+		WithTranscoder(newTestTranscoder()).
+		Build()
+	require.NoError(t, err)
 
 	// Register activity before starting worker
 	activityName := funcID.String()
@@ -188,7 +176,7 @@ func TestFullStackActivityExecution(t *testing.T) {
 		TaskQueue: taskQueue,
 	}
 
-	testInput := map[string]interface{}{
+	testInput := map[string]any{
 		"message": "hello full stack",
 		"number":  42,
 	}
@@ -196,7 +184,7 @@ func TestFullStackActivityExecution(t *testing.T) {
 	we, err := temporalClient.ExecuteWorkflow(ctx, workflowOptions, testFullStackWorkflow, activityName, testInput)
 	require.NoError(t, err)
 
-	var result map[string]interface{}
+	var result map[string]any
 	err = we.Get(ctx, &result)
 	require.NoError(t, err)
 
@@ -206,17 +194,26 @@ func TestFullStackActivityExecution(t *testing.T) {
 
 	// Verify result
 	require.Equal(t, "hello full stack", result["message"])
-	require.Equal(t, float64(42), result["number"])
+	switch v := result["number"].(type) {
+	case int:
+		require.Equal(t, 42, v)
+	case int64:
+		require.Equal(t, int64(42), v)
+	case float64:
+		require.Equal(t, float64(42), v)
+	default:
+		t.Fatalf("unexpected number type: %T", result["number"])
+	}
 }
 
 // testFullStackWorkflow is a Go workflow that calls a wippy activity
-func testFullStackWorkflow(ctx workflow.Context, activityName string, input interface{}) (interface{}, error) {
+func testFullStackWorkflow(ctx workflow.Context, activityName string, input any) (any, error) {
 	options := workflow.ActivityOptions{
 		StartToCloseTimeout: 10 * time.Second,
 	}
 	ctx = workflow.WithActivityOptions(ctx, options)
 
-	var result interface{}
+	var result any
 	err := workflow.ExecuteActivity(ctx, activityName, input).Get(ctx, &result)
 	if err != nil {
 		return nil, err

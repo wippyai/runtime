@@ -1,0 +1,227 @@
+version: "1.0"
+namespace: app.test.temporal.workflows
+
+entries:
+  # Hello workflow - simple workflow that returns a greeting
+  - name: hello_workflow
+    kind: workflow.lua
+    source: file://hello_workflow.lua
+    method: main
+    modules:
+      - time
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Concurrent workflow - demonstrates coroutines, channels, and timers
+  - name: concurrent_workflow
+    kind: workflow.lua
+    source: file://concurrent_workflow.lua
+    method: main
+    modules:
+      - time
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Timed workflow - demonstrates time progression with multiple sleeps
+  - name: timed_workflow
+    kind: workflow.lua
+    source: file://timed_workflow.lua
+    method: main
+    modules:
+      - time
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Activity workflow - demonstrates calling activities via funcs.call
+  - name: activity_workflow
+    kind: workflow.lua
+    source: file://activity_workflow.lua
+    method: main
+    modules:
+      - funcs
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Signal workflow - demonstrates receiving signals and calling activities
+  - name: signal_workflow
+    kind: workflow.lua
+    source: file://signal_workflow.lua
+    method: main
+    modules:
+      - funcs
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Long-running workflow - for cancellation testing
+  - name: long_workflow
+    kind: workflow.lua
+    source: file://long_workflow.lua
+    method: main
+    modules:
+      - time
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Inbox workflow - receives signals via process.inbox()
+  - name: inbox_workflow
+    kind: workflow.lua
+    source: file://inbox_workflow.lua
+    method: main
+    modules:
+      - time
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Child workflow - simple child that returns a result
+  - name: child_workflow
+    kind: workflow.lua
+    source: file://child_workflow.lua
+    method: main
+    modules:
+      - time
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Spawn child workflow - spawns child and waits for EXIT event
+  - name: spawn_child_workflow
+    kind: workflow.lua
+    source: file://spawn_child_workflow.lua
+    method: main
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Error child workflow - child that returns an error
+  - name: error_child_workflow
+    kind: workflow.lua
+    source: file://error_child_workflow.lua
+    method: main
+    modules:
+      - time
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Spawn error child workflow - spawns child that errors and captures error
+  - name: spawn_error_child_workflow
+    kind: workflow.lua
+    source: file://spawn_error_child_workflow.lua
+    method: main
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Activity error workflow - calls activity that errors and captures error
+  - name: activity_error_workflow
+    kind: workflow.lua
+    source: file://activity_error_workflow.lua
+    method: main
+    modules:
+      - funcs
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # UUID workflow - generates UUIDs using side effects
+  - name: uuid_workflow
+    kind: workflow.lua
+    source: file://uuid_workflow.lua
+    method: main
+    modules:
+      - uuid
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Update workflow - handles updates via process.listen and process.send
+  - name: update_workflow
+    kind: workflow.lua
+    source: file://update_workflow.lua
+    method: main
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Crypto workflow - tests crypto operations with side effects
+  - name: crypto_workflow
+    kind: workflow.lua
+    source: file://crypto_workflow.lua
+    method: main
+    modules:
+      - crypto
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Side effect child workflow - executes child workflows with side effects
+  - name: side_effect_child_workflow
+    kind: workflow.lua
+    source: file://side_effect_child_workflow.lua
+    method: main
+    modules:
+      - workflow
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Context workflow - tests context propagation via headers
+  - name: ctx_workflow
+    kind: workflow.lua
+    source: file://ctx_workflow.lua
+    method: main
+    modules:
+      - ctx
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Context activity workflow - calls activity and verifies context propagation
+  - name: ctx_activity_workflow
+    kind: workflow.lua
+    source: file://ctx_activity_workflow.lua
+    method: main
+    modules:
+      - ctx
+      - funcs
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Workflow module test - tests workflow.exec, workflow.version, workflow.info
+  - name: workflow_module_test
+    kind: workflow.lua
+    source: file://workflow_module_test.lua
+    method: main
+    modules:
+      - workflow
+      - time
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker

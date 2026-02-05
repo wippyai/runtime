@@ -44,7 +44,7 @@ func (t *jsonTranscoder) Transcode(p payload.Payload, format payload.Format) (pa
 	return payload.NewPayload(string(data), payload.JSON), nil
 }
 
-func (t *jsonTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
+func (t *jsonTranscoder) Unmarshal(p payload.Payload, v any) error {
 	switch p.Format() {
 	case payload.JSON:
 		jsonStr, ok := p.Data().(string)
@@ -60,7 +60,7 @@ func (t *jsonTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
 		}
 
 		// Try to use type assertion first
-		if v, ok := v.(*interface{}); ok {
+		if v, ok := v.(*any); ok {
 			*v = src
 			return nil
 		}

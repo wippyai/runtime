@@ -19,6 +19,15 @@ import (
 	"github.com/wippyai/runtime/system/eventbus"
 )
 
+func internalDispatchPolicy() *KindDispatchPolicy {
+	return NewKindDispatchPolicy([]registry.Kind{
+		registry.EntryKind,
+		registry.NamespaceDependency,
+		registry.NamespaceRequirement,
+		registry.NamespaceDefinition,
+	})
+}
+
 // testComponent represents a component that can be configured via registry events.
 type testComponent struct {
 	bus             event.Bus
@@ -160,7 +169,7 @@ func setupTestEnvironment(t *testing.T) (context.Context, event.Bus, *BusRunner,
 	ctx, cancel := context.WithCancel(context.Background())
 
 	bus := eventbus.NewBus()
-	busRunner := NewBusRunner(bus, zap.NewNop(), newTestBuilder(nil))
+	busRunner := NewBusRunner(bus, zap.NewNop(), newTestBuilder(nil), WithDispatchPolicy(internalDispatchPolicy()))
 	component := newTestComponent(bus)
 
 	componentCleanup := attachComponent(ctx, t, bus, component)
@@ -597,7 +606,7 @@ func TestBusRunner_ErrorPropagation(t *testing.T) {
 	defer cancel()
 
 	bus := eventbus.NewBus()
-	busRunner := NewBusRunner(bus, zap.NewNop(), newTestBuilder(nil))
+	busRunner := NewBusRunner(bus, zap.NewNop(), newTestBuilder(nil), WithDispatchPolicy(internalDispatchPolicy()))
 	expectedError := errors2.New("component configuration not allowed")
 
 	// Spawn a test component specifically for error testing
@@ -722,7 +731,7 @@ func TestBusRunner_RollbackOrderWithResolver(t *testing.T) {
 		},
 	}
 
-	busRunner := NewBusRunner(bus, zap.NewNop(), newTestBuilder(resolver))
+	busRunner := NewBusRunner(bus, zap.NewNop(), newTestBuilder(resolver), WithDispatchPolicy(internalDispatchPolicy()))
 
 	// Track deletion order
 	var mu sync.Mutex

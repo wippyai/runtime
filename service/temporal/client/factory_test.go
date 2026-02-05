@@ -9,8 +9,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	api "github.com/wippyai/runtime/api/service/temporal"
+	"github.com/wippyai/runtime/service/temporal/dataconverter"
+	syspayload "github.com/wippyai/runtime/system/payload"
+	msgpayload "github.com/wippyai/runtime/system/payload/msgpack"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/interceptor"
 	"go.uber.org/zap"
 )
@@ -27,7 +31,7 @@ func TestNewDefaultClientFactory(t *testing.T) {
 
 func TestDefaultClientFactory_buildClientOptions(t *testing.T) {
 	t.Run("basic options", func(t *testing.T) {
-		factory := NewDefaultClientFactory(nil, nil, nil)
+		factory := NewDefaultClientFactory(nil, newTestDataConverterProvider(), nil)
 		config := &api.ClientConfig{
 			Address:   "localhost:7233",
 			Namespace: "default",
@@ -45,7 +49,7 @@ func TestDefaultClientFactory_buildClientOptions(t *testing.T) {
 
 	t.Run("with data converter", func(t *testing.T) {
 		dc := &mockDataConverter{}
-		factory := NewDefaultClientFactory(nil, dc, nil)
+		factory := NewDefaultClientFactory(nil, func() converter.DataConverter { return dc }, nil)
 		config := &api.ClientConfig{
 			Address:   "localhost:7233",
 			Namespace: "test",
@@ -60,7 +64,7 @@ func TestDefaultClientFactory_buildClientOptions(t *testing.T) {
 
 	t.Run("with interceptors", func(t *testing.T) {
 		interceptors := []interceptor.ClientInterceptor{&mockClientInterceptor{}}
-		factory := NewDefaultClientFactory(nil, nil, interceptors)
+		factory := NewDefaultClientFactory(nil, newTestDataConverterProvider(), interceptors)
 		config := &api.ClientConfig{
 			Address:   "localhost:7233",
 			Namespace: "test",
@@ -72,6 +76,14 @@ func TestDefaultClientFactory_buildClientOptions(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, opts.Interceptors, 1)
 	})
+}
+
+func newTestDataConverterProvider() func() converter.DataConverter {
+	return func() converter.DataConverter {
+		dtt := syspayload.NewTranscoder()
+		msgpayload.Register(dtt)
+		return dataconverter.NewDataConverter(dtt)
+	}
 }
 
 func TestDefaultClientFactory_configureAuth(t *testing.T) {
@@ -386,14 +398,14 @@ func TestDefaultClientFactory_configureTLS(t *testing.T) {
 // mockDataConverter for testing
 type mockDataConverter struct{}
 
-func (m *mockDataConverter) ToPayloads(_ ...interface{}) (*commonpb.Payloads, error) {
+func (m *mockDataConverter) ToPayloads(_ ...any) (*commonpb.Payloads, error) {
 	return nil, nil
 }
-func (m *mockDataConverter) FromPayloads(_ *commonpb.Payloads, _ ...interface{}) error {
+func (m *mockDataConverter) FromPayloads(_ *commonpb.Payloads, _ ...any) error {
 	return nil
 }
-func (m *mockDataConverter) ToPayload(_ interface{}) (*commonpb.Payload, error) { return nil, nil }
-func (m *mockDataConverter) FromPayload(_ *commonpb.Payload, _ interface{}) error {
+func (m *mockDataConverter) ToPayload(_ any) (*commonpb.Payload, error) { return nil, nil }
+func (m *mockDataConverter) FromPayload(_ *commonpb.Payload, _ any) error {
 	return nil
 }
 func (m *mockDataConverter) ToString(_ *commonpb.Payload) string     { return "" }

@@ -174,7 +174,12 @@ func ReadBuffered(table *resource.Table, id uint64, size int64) (*streamapi.Buff
 	}
 
 	buf := streamapi.AcquireBuffer(int(size))
-	n, err := entry.reader.Read(buf.Data[:size])
+	// Clamp read size to actual buffer capacity
+	readSize := size
+	if readSize > int64(len(buf.Data)) {
+		readSize = int64(len(buf.Data))
+	}
+	n, err := entry.reader.Read(buf.Data[:readSize])
 	buf.N = n
 
 	if errors.Is(err, io.EOF) {

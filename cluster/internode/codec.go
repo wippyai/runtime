@@ -175,7 +175,7 @@ func (c *MessageCodec) normalizePayload(p payload.Payload) (payload.Payload, err
 
 type pidExtension struct{}
 
-func (pidExtension) WriteExt(v interface{}) []byte {
+func (pidExtension) WriteExt(v any) []byte {
 	p, ok := v.(*pid.PID)
 	if !ok {
 		pv, ok := v.(pid.PID)
@@ -188,7 +188,7 @@ func (pidExtension) WriteExt(v interface{}) []byte {
 	return []byte(p.String())
 }
 
-func (pidExtension) ReadExt(dst interface{}, src []byte) {
+func (pidExtension) ReadExt(dst any, src []byte) {
 	p, err := pid.ParsePID(string(src))
 	if err != nil {
 		return

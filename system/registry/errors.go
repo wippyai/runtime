@@ -49,6 +49,43 @@ func NewSaveVersionError(err error, rollbackErr error) apierror.Error {
 		WithCause(err)
 }
 
+// NewExpandChangesError creates an error when changeset expansion fails.
+func NewExpandChangesError(err error) apierror.Error {
+	return apierror.New(apierror.Internal, "failed to expand changeset").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
+}
+
+// NewPrepareEffectsError creates an error when preparing effects fails.
+func NewPrepareEffectsError(err error) apierror.Error {
+	return apierror.New(apierror.Internal, "failed to prepare effects").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
+}
+
+// NewCommitEffectsError creates an error when committing effects fails.
+func NewCommitEffectsError(err error, rollbackErr error) apierror.Error {
+	if rollbackErr != nil {
+		return apierror.New(apierror.Internal, "failed to commit effects").
+			WithRetryable(apierror.False).
+			WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error(), "rollback_error": rollbackErr.Error()})).
+			WithCause(err)
+	}
+	return apierror.New(apierror.Internal, "failed to commit effects").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
+}
+
+// NewConcurrentApplyError creates an error when registry state changes mid-apply.
+func NewConcurrentApplyError(expected, actual uint) apierror.Error {
+	return apierror.New(apierror.Conflict, "registry changed during apply").
+		WithRetryable(apierror.True).
+		WithDetails(attrs.NewBagFrom(map[string]any{"expected_version": expected, "actual_version": actual}))
+}
+
 // NewGetVersionsError creates an error when getting versions fails
 func NewGetVersionsError(err error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to get versions from history").

@@ -294,7 +294,7 @@ func resolveCommandToEntry(ctx context.Context, name string) (string, error) {
 }
 
 // extractCommandMeta extracts command metadata from entry.Meta
-func extractCommandMeta(meta map[string]interface{}) *commandMeta {
+func extractCommandMeta(meta map[string]any) *commandMeta {
 	if meta == nil {
 		return nil
 	}
@@ -304,7 +304,7 @@ func extractCommandMeta(meta map[string]interface{}) *commandMeta {
 		return nil
 	}
 
-	cmdMap, ok := cmdData.(map[string]interface{})
+	cmdMap, ok := cmdData.(map[string]any)
 	if !ok {
 		return nil
 	}
@@ -438,7 +438,7 @@ func createDefaultConfig() boot.Config {
 	var opts []boot.ConfigOption
 
 	if profiler {
-		opts = append(opts, boot.WithSection("profiler", map[string]interface{}{
+		opts = append(opts, boot.WithSection("profiler", map[string]any{
 			"enabled": true,
 			"address": "localhost:6060",
 		}))
@@ -483,7 +483,7 @@ func applyCLIOverrides(cfg boot.Config) boot.Config {
 	var opts []boot.ConfigOption
 
 	if verbose || veryVerbose || console {
-		loggerCfg := map[string]interface{}{}
+		loggerCfg := map[string]any{}
 
 		if verbose || veryVerbose {
 			loggerCfg["mode"] = "development"
@@ -499,7 +499,7 @@ func applyCLIOverrides(cfg boot.Config) boot.Config {
 		}
 	}
 
-	logmanagerCfg := map[string]interface{}{}
+	logmanagerCfg := map[string]any{}
 	if verbose || veryVerbose {
 		logmanagerCfg["min_level"] = int(zapcore.DebugLevel)
 	} else {
@@ -516,7 +516,7 @@ func applyCLIOverrides(cfg boot.Config) boot.Config {
 }
 
 func applyOverrideFlags(cfg boot.Config, overrides []string, logger *zap.Logger) (boot.Config, error) {
-	overrideMap := make(map[string]interface{})
+	overrideMap := make(map[string]any)
 
 	if cfg != nil {
 		sub := cfg.Sub("override")

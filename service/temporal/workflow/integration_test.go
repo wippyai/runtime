@@ -26,9 +26,10 @@ import (
 	"github.com/wippyai/runtime/service/temporal/workflow"
 	"github.com/wippyai/runtime/system/eventbus"
 	sysfunc "github.com/wippyai/runtime/system/function"
+	syspayload "github.com/wippyai/runtime/system/payload"
+	msgpayload "github.com/wippyai/runtime/system/payload/msgpack"
 	sysprocess "github.com/wippyai/runtime/system/process"
 	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/testsuite"
 	"go.uber.org/zap"
 )
@@ -48,6 +49,20 @@ end
 
 return main
 `
+
+func newTestWorker(t *testing.T, logger *zap.Logger, id registry.ID, cfg *api.WorkerConfig, resourceReg resource.Registry) *worker.Worker {
+	t.Helper()
+
+	w, err := worker.NewWorkerBuilder().
+		WithLogger(logger).
+		WithID(id).
+		WithConfig(cfg).
+		WithResourceRegistry(resourceReg).
+		WithTranscoder(newTestTranscoder()).
+		Build()
+	require.NoError(t, err)
+	return w
+}
 
 // TestWorkflowExecution_Integration tests that Lua workflows can be executed via Temporal.
 func TestWorkflowExecution_Integration(t *testing.T) {
@@ -130,7 +145,7 @@ func TestWorkflowExecution_Integration(t *testing.T) {
 	require.True(t, result.Accepted, "factory should be accepted")
 
 	// Create data converter
-	dc := dataconverter.NewDataConverter(newTestTranscoder(), converter.GetDefaultDataConverter())
+	dc := dataconverter.NewDataConverter(newTestTranscoder())
 
 	// Start Temporal test server
 	server, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
@@ -161,14 +176,7 @@ func TestWorkflowExecution_Integration(t *testing.T) {
 		},
 	}
 
-	wippyWorker := worker.NewWorker(
-		logger,
-		registry.NewID("test", "worker"),
-		workerConfig,
-		resourceReg,
-		nil,
-		nil,
-	)
+	wippyWorker := newTestWorker(t, logger, registry.NewID("test", "worker"), workerConfig, resourceReg)
 
 	// Create and register workflow definition factory
 	defFactory := &workflow.DefinitionFactory{
@@ -194,14 +202,14 @@ func TestWorkflowExecution_Integration(t *testing.T) {
 		TaskQueue: taskQueue,
 	}
 
-	testInput := map[string]interface{}{
+	testInput := map[string]any{
 		"name": "Temporal",
 	}
 
 	we, err := temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowName, testInput)
 	require.NoError(t, err)
 
-	var workflowResult map[string]interface{}
+	var workflowResult map[string]any
 	err = we.Get(ctx, &workflowResult)
 	require.NoError(t, err)
 
@@ -210,31 +218,11 @@ func TestWorkflowExecution_Integration(t *testing.T) {
 	require.Equal(t, "completed", workflowResult["status"])
 }
 
-// testTranscoder implements payload.Transcoder for testing using real Lua<->JSON conversion
-type testTranscoder struct {
-	luaToJSON *enginepayload.ToJSON
-	jsonToLua *enginepayload.JSONToLua
-}
-
-func newTestTranscoder() *testTranscoder {
-	return &testTranscoder{
-		luaToJSON: &enginepayload.ToJSON{},
-		jsonToLua: &enginepayload.JSONToLua{},
-	}
-}
-
-func (m *testTranscoder) Transcode(p payload.Payload, target payload.Format) (payload.Payload, error) {
-	if p.Format() == payload.Lua && target == payload.JSON {
-		return m.luaToJSON.Transcode(p)
-	}
-	if p.Format() == payload.JSON && target == payload.Lua {
-		return m.jsonToLua.Transcode(p)
-	}
-	return p, nil
-}
-
-func (m *testTranscoder) Unmarshal(_ payload.Payload, _ interface{}) error {
-	return nil
+func newTestTranscoder() payload.Transcoder {
+	transcoder := syspayload.NewTranscoder()
+	enginepayload.RegisterAllBasicFormats(transcoder)
+	msgpayload.Register(transcoder)
+	return transcoder
 }
 
 // testResourceRegistry provides a mock resource registry for testing
@@ -393,7 +381,7 @@ func TestConcurrentWorkflow_Integration(t *testing.T) {
 	result := waiter.Wait()
 	require.True(t, result.Accepted, "factory should be accepted")
 
-	dc := dataconverter.NewDataConverter(newTestTranscoder(), converter.GetDefaultDataConverter())
+	dc := dataconverter.NewDataConverter(newTestTranscoder())
 
 	server, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
 		LogLevel:      "error",
@@ -421,14 +409,7 @@ func TestConcurrentWorkflow_Integration(t *testing.T) {
 		},
 	}
 
-	wippyWorker := worker.NewWorker(
-		logger,
-		registry.NewID("test", "worker"),
-		workerConfig,
-		resourceReg,
-		nil,
-		nil,
-	)
+	wippyWorker := newTestWorker(t, logger, registry.NewID("test", "worker"), workerConfig, resourceReg)
 
 	defFactory := &workflow.DefinitionFactory{
 		ID: workflowID,
@@ -450,7 +431,7 @@ func TestConcurrentWorkflow_Integration(t *testing.T) {
 		TaskQueue: taskQueue,
 	}
 
-	testInput := map[string]interface{}{
+	testInput := map[string]any{
 		"workers": 3,
 		"jobs":    6,
 	}
@@ -461,14 +442,41 @@ func TestConcurrentWorkflow_Integration(t *testing.T) {
 	getCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	var workflowResult map[string]interface{}
+	var workflowResult map[string]any
 	err = we.Get(getCtx, &workflowResult)
 	require.NoError(t, err)
 
 	// sum of (1+2+3+4+5+6)*2 = 42
-	require.Equal(t, float64(42), workflowResult["total"])
-	require.Equal(t, float64(6), workflowResult["job_count"])
-	require.Equal(t, float64(3), workflowResult["worker_count"])
+	switch v := workflowResult["total"].(type) {
+	case int:
+		require.Equal(t, 42, v)
+	case int64:
+		require.Equal(t, int64(42), v)
+	case float64:
+		require.Equal(t, float64(42), v)
+	default:
+		t.Fatalf("unexpected total type: %T", workflowResult["total"])
+	}
+	switch v := workflowResult["job_count"].(type) {
+	case int:
+		require.Equal(t, 6, v)
+	case int64:
+		require.Equal(t, int64(6), v)
+	case float64:
+		require.Equal(t, float64(6), v)
+	default:
+		t.Fatalf("unexpected job_count type: %T", workflowResult["job_count"])
+	}
+	switch v := workflowResult["worker_count"].(type) {
+	case int:
+		require.Equal(t, 3, v)
+	case int64:
+		require.Equal(t, int64(3), v)
+	case float64:
+		require.Equal(t, float64(3), v)
+	default:
+		t.Fatalf("unexpected worker_count type: %T", workflowResult["worker_count"])
+	}
 }
 
 // Sample long-running workflow for cancellation tests
@@ -623,7 +631,7 @@ func TestWorkflowCancellation_Integration(t *testing.T) {
 	result := waiter.Wait()
 	require.True(t, result.Accepted, "factory should be accepted")
 
-	dc := dataconverter.NewDataConverter(newTestTranscoder(), converter.GetDefaultDataConverter())
+	dc := dataconverter.NewDataConverter(newTestTranscoder())
 
 	server, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
 		LogLevel:      "error",
@@ -651,14 +659,7 @@ func TestWorkflowCancellation_Integration(t *testing.T) {
 		},
 	}
 
-	wippyWorker := worker.NewWorker(
-		logger,
-		registry.NewID("test", "worker"),
-		workerConfig,
-		resourceReg,
-		nil,
-		nil,
-	)
+	wippyWorker := newTestWorker(t, logger, registry.NewID("test", "worker"), workerConfig, resourceReg)
 
 	defFactory := &workflow.DefinitionFactory{
 		ID: workflowID,
@@ -681,7 +682,7 @@ func TestWorkflowCancellation_Integration(t *testing.T) {
 		TaskQueue: taskQueue,
 	}
 
-	testInput := map[string]interface{}{
+	testInput := map[string]any{
 		"timeout": 10000, // 10 second timeout
 	}
 
@@ -699,7 +700,7 @@ func TestWorkflowCancellation_Integration(t *testing.T) {
 	getCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	var workflowResult map[string]interface{}
+	var workflowResult map[string]any
 	err = we.Get(getCtx, &workflowResult)
 
 	// Workflow handles cancellation gracefully and returns result
@@ -780,7 +781,7 @@ func TestWorkflowSignal_Integration(t *testing.T) {
 	result := waiter.Wait()
 	require.True(t, result.Accepted, "factory should be accepted")
 
-	dc := dataconverter.NewDataConverter(newTestTranscoder(), converter.GetDefaultDataConverter())
+	dc := dataconverter.NewDataConverter(newTestTranscoder())
 
 	server, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
 		LogLevel:      "error",
@@ -808,14 +809,7 @@ func TestWorkflowSignal_Integration(t *testing.T) {
 		},
 	}
 
-	wippyWorker := worker.NewWorker(
-		logger,
-		registry.NewID("test", "worker"),
-		workerConfig,
-		resourceReg,
-		nil,
-		nil,
-	)
+	wippyWorker := newTestWorker(t, logger, registry.NewID("test", "worker"), workerConfig, resourceReg)
 
 	defFactory := &workflow.DefinitionFactory{
 		ID: workflowID,
@@ -838,7 +832,7 @@ func TestWorkflowSignal_Integration(t *testing.T) {
 		TaskQueue: taskQueue,
 	}
 
-	testInput := map[string]interface{}{
+	testInput := map[string]any{
 		"timeout": 10000, // 10 second timeout
 	}
 
@@ -849,7 +843,7 @@ func TestWorkflowSignal_Integration(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Send signal from Go - this is received via process.listen() in the workflow
-	err = temporalClient.SignalWorkflow(ctx, we.GetID(), we.GetRunID(), "greeting", map[string]interface{}{
+	err = temporalClient.SignalWorkflow(ctx, we.GetID(), we.GetRunID(), "greeting", map[string]any{
 		"text": "hello from Go",
 	})
 	require.NoError(t, err)
@@ -858,7 +852,7 @@ func TestWorkflowSignal_Integration(t *testing.T) {
 	getCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	var workflowResult map[string]interface{}
+	var workflowResult map[string]any
 	err = we.Get(getCtx, &workflowResult)
 	require.NoError(t, err)
 
@@ -971,7 +965,7 @@ func TestWorkflowTicker_Integration(t *testing.T) {
 	result := waiter.Wait()
 	require.True(t, result.Accepted, "factory should be accepted")
 
-	dc := dataconverter.NewDataConverter(newTestTranscoder(), converter.GetDefaultDataConverter())
+	dc := dataconverter.NewDataConverter(newTestTranscoder())
 
 	server, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
 		LogLevel:      "error",
@@ -999,14 +993,7 @@ func TestWorkflowTicker_Integration(t *testing.T) {
 		},
 	}
 
-	wippyWorker := worker.NewWorker(
-		logger,
-		registry.NewID("test", "worker"),
-		workerConfig,
-		resourceReg,
-		nil,
-		nil,
-	)
+	wippyWorker := newTestWorker(t, logger, registry.NewID("test", "worker"), workerConfig, resourceReg)
 
 	defFactory := &workflow.DefinitionFactory{
 		ID: workflowID,
@@ -1028,7 +1015,7 @@ func TestWorkflowTicker_Integration(t *testing.T) {
 		TaskQueue: taskQueue,
 	}
 
-	testInput := map[string]interface{}{
+	testInput := map[string]any{
 		"count":    3,
 		"interval": 100, // 100ms between ticks
 	}
@@ -1039,10 +1026,19 @@ func TestWorkflowTicker_Integration(t *testing.T) {
 	getCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	var workflowResult map[string]interface{}
+	var workflowResult map[string]any
 	err = we.Get(getCtx, &workflowResult)
 	require.NoError(t, err)
 
 	require.Equal(t, "completed", workflowResult["status"])
-	require.Equal(t, float64(3), workflowResult["tick_count"])
+	switch v := workflowResult["tick_count"].(type) {
+	case int:
+		require.Equal(t, 3, v)
+	case int64:
+		require.Equal(t, int64(3), v)
+	case float64:
+		require.Equal(t, float64(3), v)
+	default:
+		t.Fatalf("unexpected tick_count type: %T", workflowResult["tick_count"])
+	}
 }

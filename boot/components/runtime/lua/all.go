@@ -22,6 +22,7 @@ func All() []boot.Component {
 		Funcs(),
 		HTML(),
 		HTTP(),
+		Hub(),
 		IO(),
 		JSON(),
 		Logger(),

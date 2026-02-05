@@ -255,7 +255,7 @@ func (c *controller) startProbe(now time.Time, workers int32, queueLen int) (sca
 	c.workersAdded = workersToAdd
 
 	if c.log != nil {
-		c.log.Info("probe: scaling up",
+		c.log.Debug("probe: scaling up",
 			zap.Int32("from", workers),
 			zap.Int32("to", workers+workersToAdd),
 			zap.Int32("adding", workersToAdd),
@@ -323,7 +323,7 @@ func (c *controller) evaluateProbe(now time.Time, queueLen int) (scaleDecision, 
 		}
 
 		if c.log != nil {
-			c.log.Info("probe: success",
+			c.log.Debug("probe: success",
 				zap.Int32("workers", c.workersBefore+c.workersAdded),
 				zap.Int32("added", c.workersAdded),
 				zap.Float64("improvement", improvement),
@@ -353,7 +353,7 @@ func (c *controller) evaluateProbe(now time.Time, queueLen int) (scaleDecision, 
 	c.setCooldown(now, false)
 
 	if c.log != nil {
-		c.log.Info("probe: failed",
+		c.log.Debug("probe: failed",
 			zap.Int32("workers", c.workersBefore),
 			zap.Int32("removing", c.workersAdded),
 			zap.Float64("improvement", improvement),
@@ -389,7 +389,7 @@ func (c *controller) decideScaleDown(now time.Time, workers, busy int32) (scaleD
 	c.peakEma = 0 // reset peak for new regime
 
 	if c.log != nil {
-		c.log.Info("scaling down",
+		c.log.Debug("scaling down",
 			zap.Int32("from", workers),
 			zap.Int32("to", target),
 			zap.Int32("busy", busy))

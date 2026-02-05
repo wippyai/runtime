@@ -58,8 +58,8 @@ func TestMapsEqualNestedArrayMismatch(t *testing.T) {
 
 func TestValuesEqualNumericEdgeCases(t *testing.T) {
 	tests := []struct {
-		a    interface{}
-		b    interface{}
+		a    any
+		b    any
 		name string
 		want bool
 	}{
@@ -94,7 +94,7 @@ func TestIsNumericEdgeCases(t *testing.T) {
 
 func TestToFloat64Boundaries(t *testing.T) {
 	tests := []struct {
-		value interface{}
+		value any
 		name  string
 		want  float64
 	}{

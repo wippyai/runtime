@@ -68,6 +68,12 @@ func (m *TestRunner) TransitionCount() int {
 	return len(m.transitions)
 }
 
+type directiveFunc func(context.Context, registry.Operation, registry.State) (registry.DirectiveResult, error)
+
+func (f directiveFunc) Expand(ctx context.Context, op registry.Operation, snap registry.State) (registry.DirectiveResult, error) {
+	return f(ctx, op, snap)
+}
+
 func TestApplyVersion_ForwardWithSquashing(t *testing.T) {
 	ctx := context.Background()
 	logger := zap.NewNop()
@@ -429,4 +435,93 @@ func TestApplyVersion_PreservesBaseline(t *testing.T) {
 			assert.Equal(t, "feature1-data", e.Data.Data().(string))
 		}
 	}
+}
+
+func TestApplyVersion_RunsDirectives(t *testing.T) {
+	ctx := context.Background()
+	logger := zap.NewNop()
+
+	hist := historymem.New()
+	runner := NewTestRunner()
+	resolver := topology.NewResolver()
+	builder := topology.NewStateBuilder(logger, resolver)
+
+	depID := registry.NewID("app", "dep")
+	modID := registry.NewID("mod", "svc")
+
+	expander := directiveFunc(func(_ context.Context, op registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+		if op.Entry.Kind != registry.NamespaceDependency {
+			return registry.DirectiveResult{}, nil
+		}
+		val := ""
+		if op.Entry.Data != nil {
+			if data, ok := op.Entry.Data.Data().(map[string]any); ok {
+				if v, ok := data["value"].(string); ok {
+					val = v
+				}
+			}
+		}
+		kind := registry.EntryUpdate
+		if op.Kind == registry.EntryCreate {
+			kind = registry.EntryCreate
+		}
+		modEntry := registry.Entry{
+			ID:   modID,
+			Kind: "service",
+			Data: payload.NewString(val),
+		}
+		return registry.DirectiveResult{
+			Applied: true,
+			Additional: []registry.ScopedOperation{
+				{
+					Operation: registry.Operation{Kind: kind, Entry: modEntry},
+					Scope:     registry.ScopeBaseline,
+				},
+			},
+		}, nil
+	})
+
+	reg := NewRegistry(hist, runner, builder, resolver, logger,
+		WithKindDirective(registry.NamespaceDependency, expander),
+	)
+
+	v1, err := reg.Apply(ctx, registry.ChangeSet{
+		{
+			Kind: registry.EntryCreate,
+			Entry: registry.Entry{
+				ID:   depID,
+				Kind: registry.NamespaceDependency,
+				Data: payload.New(map[string]any{"value": "v1"}),
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, v1)
+
+	entry, err := reg.GetEntry(modID)
+	require.NoError(t, err)
+	assert.Equal(t, "v1", entry.Data.Data().(string))
+
+	_, err = reg.Apply(ctx, registry.ChangeSet{
+		{
+			Kind: registry.EntryUpdate,
+			Entry: registry.Entry{
+				ID:   depID,
+				Kind: registry.NamespaceDependency,
+				Data: payload.New(map[string]any{"value": "v2"}),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	entry, err = reg.GetEntry(modID)
+	require.NoError(t, err)
+	assert.Equal(t, "v2", entry.Data.Data().(string))
+
+	err = reg.ApplyVersion(ctx, v1)
+	require.NoError(t, err)
+
+	entry, err = reg.GetEntry(modID)
+	require.NoError(t, err)
+	assert.Equal(t, "v1", entry.Data.Data().(string))
 }

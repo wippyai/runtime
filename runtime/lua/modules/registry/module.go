@@ -601,10 +601,7 @@ func tableToID(_ *lua.LState, table *lua.LTable) (regapi.ID, error) {
 		return regapi.ID{}, errIDFieldsRequired
 	}
 
-	return regapi.ID{
-		NS:   ns.String(),
-		Name: name.String(),
-	}, nil
+	return regapi.NewID(ns.String(), name.String()), nil
 }
 
 // tostring helpers

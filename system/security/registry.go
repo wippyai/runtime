@@ -281,7 +281,7 @@ func (r *PolicyRegistry) GetPolicyGroup(groupID registry.ID) (security.Scope, er
 func (r *PolicyRegistry) ListGroups() []registry.ID {
 	var groups []registry.ID
 
-	r.groups.Range(func(key, _ interface{}) bool {
+	r.groups.Range(func(key, _ any) bool {
 		if id, ok := key.(registry.ID); ok {
 			groups = append(groups, id)
 		}
@@ -294,7 +294,7 @@ func (r *PolicyRegistry) ListGroups() []registry.ID {
 func (r *PolicyRegistry) ListPolicies() []registry.ID {
 	var policies []registry.ID
 
-	r.policies.Range(func(key, _ interface{}) bool {
+	r.policies.Range(func(key, _ any) bool {
 		if id, ok := key.(registry.ID); ok {
 			policies = append(policies, id)
 		}

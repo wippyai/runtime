@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/env"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	api "github.com/wippyai/runtime/api/service/temporal"
@@ -26,13 +27,15 @@ type Factory interface {
 type DefaultWorkerFactory struct {
 	envReg       env.Registry
 	interceptors []interceptor.WorkerInterceptor
+	dtt          payload.Transcoder
 }
 
 // NewDefaultWorkerFactory creates a new DefaultWorkerFactory
-func NewDefaultWorkerFactory(envReg env.Registry, interceptors []interceptor.WorkerInterceptor) *DefaultWorkerFactory {
+func NewDefaultWorkerFactory(envReg env.Registry, interceptors []interceptor.WorkerInterceptor, dtt payload.Transcoder) *DefaultWorkerFactory {
 	return &DefaultWorkerFactory{
 		envReg:       envReg,
 		interceptors: interceptors,
+		dtt:          dtt,
 	}
 }
 
@@ -44,5 +47,13 @@ func (f *DefaultWorkerFactory) CreateWorker(
 	config *api.WorkerConfig,
 	resourceReg resource.Registry,
 ) (*Worker, error) {
-	return NewWorker(logger, id, config, resourceReg, f.envReg, f.interceptors), nil
+	return NewWorkerBuilder().
+		WithLogger(logger).
+		WithID(id).
+		WithConfig(config).
+		WithResourceRegistry(resourceReg).
+		WithEnvRegistry(f.envReg).
+		WithInterceptors(f.interceptors).
+		WithTranscoder(f.dtt).
+		Build()
 }

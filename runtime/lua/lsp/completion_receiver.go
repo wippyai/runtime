@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/go-lua/compiler/check/scope"
 	"github.com/wippyai/go-lua/compiler/parse"
 	"github.com/wippyai/go-lua/compiler/stdlib"
+	lspindex "github.com/wippyai/go-lua/lsp/index"
 	"github.com/wippyai/go-lua/types/db"
 	"github.com/wippyai/go-lua/types/diag"
 	"github.com/wippyai/go-lua/types/io"
@@ -114,6 +115,94 @@ func (s *Service) ResolveReceiverTypeAt(fileID string, line, col int) typ.Type {
 	}
 
 	return result.NarrowSynth.TypeOf(receiver, point)
+}
+
+func (s *Service) ResolveLocalSymbolsAt(fileID string, line, col int) []*lspindex.Symbol {
+	if fileID == "" || line < 1 || col < 1 {
+		return nil
+	}
+
+	source, _, ok := s.documentSnapshot(fileID)
+	if !ok || source == "" {
+		return nil
+	}
+
+	stmts, placeholder, err := parseCompletionSourceForLocals(source, fileID, line, col)
+	if err != nil || len(stmts) == 0 {
+		return nil
+	}
+
+	s.mu.RLock()
+	provider := s.provider
+	s.mu.RUnlock()
+	if provider == nil {
+		return nil
+	}
+
+	parsedID := registry.ParseID(fileID)
+	var deps map[string]*io.Manifest
+	if parsedID != (registry.ID{}) {
+		deps = provider.DependencyManifests(parsedID)
+	}
+
+	var sess *check.Session
+	s.completionMu.Lock()
+	checker := s.ensureCompletionCheckerLocked(provider, deps)
+	if checker != nil {
+		sess = checker.checker.CheckChunk(stmts, fileID)
+		checker.checker.ClearCache()
+	}
+	s.completionMu.Unlock()
+
+	if sess == nil {
+		return nil
+	}
+	defer sess.Release()
+
+	_, result := funcResultAtPosition(sess, line, col)
+	if result == nil && col > 1 {
+		_, result = funcResultAtPosition(sess, line, col-1)
+	}
+	if result == nil || result.Graph == nil {
+		return nil
+	}
+
+	point, ok := pointForPosition(result.Graph, line, col)
+	if !ok && col > 1 {
+		point, ok = pointForPosition(result.Graph, line, col-1)
+	}
+	if !ok {
+		point = result.Graph.Entry()
+	}
+
+	visible := result.Graph.AllSymbolsAt(point)
+	if len(visible) == 0 {
+		return nil
+	}
+
+	symbols := make([]*lspindex.Symbol, 0, len(visible))
+	for name, symID := range visible {
+		if name == "" || name == placeholder || strings.Contains(name, completionPlaceholder) || strings.HasPrefix(name, "(") {
+			continue
+		}
+		kind, ok := symbolKindForCompletion(result.Graph, symID)
+		if !ok {
+			continue
+		}
+		typed := result.EffectiveTypeAt(point, symID)
+		t := typed.Type
+		if t == nil {
+			t = typ.Unknown
+		}
+		symbols = append(symbols, &lspindex.Symbol{
+			Name: name,
+			Kind: kind,
+			Type: t,
+			File: fileID,
+		})
+	}
+
+	return symbols
 }
 
 func (s *Service) documentSnapshot(id string) (string, int, bool) {
@@ -288,6 +377,61 @@ func parseCompletionSource(source string, fileID string, line, col int, member m
 	}
 
 	return nil, "", err
+}
+
+func parseCompletionSourceForLocals(source string, fileID string, line, col int) ([]ast.Stmt, string, error) {
+	stmts, err := parse.ParseString(source, fileID)
+	if err == nil {
+		return stmts, "", nil
+	}
+
+	patched, placeholder := insertCompletionPlaceholder(source, line, col)
+	if patched != source {
+		if stmts, err2 := parse.ParseString(patched, fileID); err2 == nil {
+			return stmts, placeholder, nil
+		} else {
+			err = err2
+		}
+	}
+
+	stub := completionStub(patched, line)
+	if stub != "" {
+		if stmts, err2 := parse.ParseString(stub, fileID); err2 == nil {
+			return stmts, placeholder, nil
+		} else {
+			err = err2
+		}
+	}
+
+	return nil, "", err
+}
+
+func insertCompletionPlaceholder(source string, line, col int) (string, string) {
+	if line < 1 || col < 1 {
+		return source, ""
+	}
+	lineText, lineStart := lineAtWithOffset(source, line)
+	if lineText == "" {
+		return source, ""
+	}
+	col0 := col - 1
+	if col0 < 0 {
+		col0 = 0
+	}
+	if col0 > len(lineText) {
+		col0 = len(lineText)
+	}
+	globalInsert := lineStart + col0
+	if globalInsert < 0 || globalInsert > len(source) {
+		return source, ""
+	}
+
+	var b strings.Builder
+	b.Grow(len(source) + len(completionPlaceholder))
+	b.WriteString(source[:globalInsert])
+	b.WriteString(completionPlaceholder)
+	b.WriteString(source[globalInsert:])
+	return b.String(), completionPlaceholder
 }
 
 func patchSourceForCompletion(source string, line, col int, member memberLocation) (string, string) {
@@ -968,6 +1112,26 @@ func pointForPosition(graph *cfg.Graph, line, col int) (cfg.Point, bool) {
 	}
 
 	return bestPoint, found
+}
+
+func symbolKindForCompletion(graph *cfg.Graph, sym cfg.SymbolID) (lspindex.SymbolKind, bool) {
+	if graph == nil {
+		return 0, false
+	}
+	kind, ok := graph.SymbolKind(sym)
+	if !ok {
+		return 0, false
+	}
+	switch kind {
+	case cfg.SymbolParam:
+		return lspindex.SymbolParameter, true
+	case cfg.SymbolLocal, cfg.SymbolUpvalue:
+		return lspindex.SymbolVariable, true
+	case cfg.SymbolGlobal:
+		return 0, false
+	default:
+		return lspindex.SymbolVariable, true
+	}
 }
 
 func nodeSpans(info cfg.NodeInfo) []diag.Span {

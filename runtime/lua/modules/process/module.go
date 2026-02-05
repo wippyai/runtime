@@ -324,6 +324,7 @@ func spawnMonitored(l *lua.LState) int {
 
 	options := attrs.NewBag()
 	options.Set(process.LifecycleParentKey, self)
+	options.Set(process.LifecycleMonitorKey, true)
 
 	yield := AcquireSpawnYield()
 	yield.Start = &process.Start{
@@ -333,7 +334,6 @@ func spawnMonitored(l *lua.LState) int {
 		Context: ctxapi.PropagatedPairs(l.Context()),
 		Options: options,
 	}
-	yield.Monitor = true
 
 	l.Push(yield)
 	return -1
@@ -371,6 +371,7 @@ func spawnLinked(l *lua.LState) int {
 
 	options := attrs.NewBag()
 	options.Set(process.LifecycleParentKey, self)
+	options.Set(process.LifecycleLinkKey, true)
 
 	yield := AcquireSpawnYield()
 	yield.Start = &process.Start{
@@ -380,7 +381,6 @@ func spawnLinked(l *lua.LState) int {
 		Context: ctxapi.PropagatedPairs(l.Context()),
 		Options: options,
 	}
-	yield.Link = true
 
 	l.Push(yield)
 	return -1
@@ -424,6 +424,8 @@ func spawnLinkedMonitored(l *lua.LState) int {
 
 	options := attrs.NewBag()
 	options.Set(process.LifecycleParentKey, self)
+	options.Set(process.LifecycleMonitorKey, true)
+	options.Set(process.LifecycleLinkKey, true)
 
 	yield := AcquireSpawnYield()
 	yield.Start = &process.Start{
@@ -433,8 +435,6 @@ func spawnLinkedMonitored(l *lua.LState) int {
 		Context: ctxapi.PropagatedPairs(l.Context()),
 		Options: options,
 	}
-	yield.Monitor = true
-	yield.Link = true
 
 	l.Push(yield)
 	return -1

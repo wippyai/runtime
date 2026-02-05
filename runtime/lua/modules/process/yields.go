@@ -5,8 +5,8 @@ import (
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
-	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 )
 
 // SendYield wraps SendCmd for Lua.
@@ -45,9 +45,7 @@ func (y *SendYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 	}
 	if data != nil {
 		if result, ok := data.(process.SendResult); ok && result.Error != nil {
-			luaErr := lua.WrapErrorWithLua(l, result.Error, "").
-				WithKind(lua.Internal).
-				WithRetryable(false)
+			luaErr := lua.WrapErrorWithLua(l, result.Error, "")
 			return []lua.LValue{lua.LNil, luaErr}
 		}
 	}
@@ -382,9 +380,7 @@ func (y *ExecYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 	}
 
 	if result.Result.Error != nil {
-		luaErr := lua.WrapErrorWithLua(l, result.Result.Error, "").
-			WithKind(lua.Internal).
-			WithRetryable(false)
+		luaErr := lua.WrapErrorWithLua(l, result.Result.Error, "")
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 
@@ -393,12 +389,42 @@ func (y *ExecYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 		return []lua.LValue{lua.LNil, lua.LNil}
 	}
 
-	luaValue, err := luaconv.GoToLua(result.Result.Value.Data())
-	if err != nil {
-		luaErr := lua.WrapErrorWithLua(l, err, "failed to convert result").
+	if result.Result.Value.Format() == payload.Lua {
+		if lv, ok := result.Result.Value.Data().(lua.LValue); ok {
+			return []lua.LValue{lv, lua.LNil}
+		}
+	}
+
+	ctx := l.Context()
+	if ctx == nil {
+		luaErr := lua.NewLuaError(l, "no context available").
 			WithKind(lua.Internal).
 			WithRetryable(false)
 		return []lua.LValue{lua.LNil, luaErr}
 	}
-	return []lua.LValue{luaValue, lua.LNil}
+
+	dtt := payload.GetTranscoder(ctx)
+	if dtt == nil {
+		luaErr := lua.NewLuaError(l, "transcoder not found").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		return []lua.LValue{lua.LNil, luaErr}
+	}
+
+	luaPayload, err := dtt.Transcode(result.Result.Value, payload.Lua)
+	if err != nil {
+		luaErr := lua.WrapErrorWithLua(l, err, "failed to transcode result").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		return []lua.LValue{lua.LNil, luaErr}
+	}
+
+	if lv, ok := luaPayload.Data().(lua.LValue); ok {
+		return []lua.LValue{lv, lua.LNil}
+	}
+
+	luaErr := lua.NewLuaError(l, "transcoded data is not a valid Lua value").
+		WithKind(lua.Internal).
+		WithRetryable(false)
+	return []lua.LValue{lua.LNil, luaErr}
 }

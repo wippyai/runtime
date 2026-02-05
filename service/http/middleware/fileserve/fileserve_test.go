@@ -132,7 +132,7 @@ func (fi *MockFileInfo) Size() int64        { return fi.size }
 func (fi *MockFileInfo) Mode() fs.FileMode  { return 0644 }
 func (fi *MockFileInfo) ModTime() time.Time { return time.Now() }
 func (fi *MockFileInfo) IsDir() bool        { return false }
-func (fi *MockFileInfo) Sys() interface{}   { return nil }
+func (fi *MockFileInfo) Sys() any           { return nil }
 
 // MockFSRegistry implements FSRegistry
 type MockFSRegistry struct {

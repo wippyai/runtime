@@ -93,7 +93,7 @@ type EventSubscribeYield struct {
 }
 
 var eventSubscribeYieldPool = sync.Pool{
-	New: func() interface{} { return &EventSubscribeYield{} },
+	New: func() any { return &EventSubscribeYield{} },
 }
 
 func AcquireEventSubscribeYield(system, kind string, ch *engine.Channel, p pid.PID, topic string) *EventSubscribeYield {
@@ -257,7 +257,7 @@ type EventSendYield struct {
 }
 
 var eventSendYieldPool = sync.Pool{
-	New: func() interface{} { return &EventSendYield{} },
+	New: func() any { return &EventSendYield{} },
 }
 
 func AcquireEventSendYield(system, kind, path string, data any) *EventSendYield {

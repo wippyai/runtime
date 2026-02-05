@@ -64,6 +64,7 @@ func (f *DefinitionFactory) NewWorkflowDefinition() bindings.WorkflowDefinition 
 type incomingSignal struct {
 	Name     string
 	Payloads payload.Payloads
+	From     pid.PID
 }
 
 // childExitEvent represents a child workflow completion to be delivered as EXIT event.
@@ -115,7 +116,12 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 
 	var payloads payload.Payloads
 	if err := d.dc.FromPayloads(input, &payloads); err != nil {
-		d.env.Complete(nil, fmt.Errorf("failed to decode input payloads: %w", err))
+		d.env.Complete(nil, fmt.Errorf(
+			"failed to decode input payloads (converter=%T workflow=%s): %w",
+			d.dc,
+			d.id.String(),
+			err,
+		))
 		return
 	}
 
@@ -136,7 +142,7 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 		return
 	}
 
-	if ctxValues, err := propagator.ExtractFromHeader(header); err != nil {
+	if ctxValues, err := propagator.ExtractFromHeader(d.dc, header); err != nil {
 		d.replayLog.Warn("failed to extract context from header", zap.Error(err))
 	} else if len(ctxValues) > 0 {
 		values, err := ctxapi.GetOrCreateValues(execCtx)
@@ -149,7 +155,7 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 		}
 	}
 
-	if secPayload, err := propagator.ExtractSecurityFromHeader(header); err != nil {
+	if secPayload, err := propagator.ExtractSecurityFromHeader(d.dc, header); err != nil {
 		d.replayLog.Warn("failed to extract security from header", zap.Error(err))
 	} else if secPayload != nil {
 		if err := propagator.ApplySecurityPayload(execCtx, secPayload); err != nil {
@@ -223,31 +229,44 @@ func (d *Definition) completeWithResult() {
 
 // getContextHeader creates a header from current FrameContext values for propagation.
 func (d *Definition) getContextHeader() *commonpb.Header {
+	return d.getContextHeaderFrom(d.execCtx, nil)
+}
+
+func (d *Definition) getContextHeaderWithValues(extra map[string]any) *commonpb.Header {
+	return d.getContextHeaderFrom(d.execCtx, extra)
+}
+
+func (d *Definition) getContextHeaderFrom(ctx context.Context, extra map[string]any) *commonpb.Header {
 	var header *commonpb.Header
 
-	values := ctxapi.GetValues(d.execCtx)
+	values := ctxapi.GetValues(ctx)
+	data := make(map[string]any)
 	if values != nil && values.Len() > 0 {
-		data := make(map[string]any)
 		values.Iterate(func(key string, val any) {
 			switch val.(type) {
 			case string, int, int64, float64, bool, map[string]any, []any:
 				data[key] = val
 			}
 		})
-
-		if len(data) > 0 {
-			var err error
-			header, err = propagator.CreateHeader(data)
-			if err != nil {
-				d.replayLog.Warn("failed to create context header", zap.Error(err))
-			}
+	}
+	if len(extra) > 0 {
+		for k, v := range extra {
+			data[k] = v
 		}
 	}
 
-	secPayload := propagator.ExtractSecurityPayload(d.execCtx)
+	if len(data) > 0 {
+		var err error
+		header, err = propagator.CreateHeader(d.dc, data)
+		if err != nil {
+			d.replayLog.Warn("failed to create context header", zap.Error(err))
+		}
+	}
+
+	secPayload := propagator.ExtractSecurityPayload(ctx)
 	if secPayload != nil {
 		var err error
-		header, err = propagator.AddSecurityToHeader(header, secPayload)
+		header, err = propagator.AddSecurityToHeader(d.dc, header, secPayload)
 		if err != nil {
 			d.replayLog.Warn("failed to add security to header", zap.Error(err))
 		}

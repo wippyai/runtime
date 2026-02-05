@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/payload"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/testsuite"
@@ -13,7 +14,7 @@ import (
 )
 
 func TestNew(t *testing.T) {
-	p := New()
+	p := New(newTestDataConverter())
 	require.NotNil(t, p)
 }
 
@@ -39,57 +40,68 @@ func TestGetContextValues_Empty(t *testing.T) {
 }
 
 func TestCreateHeader(t *testing.T) {
+	dc := newTestDataConverter()
 	t.Run("with values", func(t *testing.T) {
 		values := map[string]any{
 			"user": "alice",
 			"role": "admin",
 		}
 
-		header, err := CreateHeader(values)
+		header, err := CreateHeader(dc, values)
 		require.NoError(t, err)
 		require.NotNil(t, header)
 		assert.Contains(t, header.Fields, HeaderKey)
 	})
 
 	t.Run("empty values", func(t *testing.T) {
-		header, err := CreateHeader(map[string]any{})
+		header, err := CreateHeader(dc, map[string]any{})
 		require.NoError(t, err)
 		assert.Nil(t, header)
 	})
 
 	t.Run("nil values", func(t *testing.T) {
-		header, err := CreateHeader(nil)
+		header, err := CreateHeader(dc, nil)
 		require.NoError(t, err)
 		assert.Nil(t, header)
 	})
 }
 
 func TestExtractFromHeader(t *testing.T) {
+	dc := newTestDataConverter()
 	t.Run("with valid header", func(t *testing.T) {
 		values := map[string]any{
 			"user":  "alice",
-			"count": float64(42), // JSON numbers become float64
+			"count": 42,
 		}
 
-		header, err := CreateHeader(values)
+		header, err := CreateHeader(dc, values)
 		require.NoError(t, err)
 
-		extracted, err := ExtractFromHeader(header)
+		extracted, err := ExtractFromHeader(dc, header)
 		require.NoError(t, err)
 		require.NotNil(t, extracted)
 		assert.Equal(t, "alice", extracted["user"])
-		assert.Equal(t, float64(42), extracted["count"])
+		switch v := extracted["count"].(type) {
+		case int:
+			assert.Equal(t, 42, v)
+		case int64:
+			assert.Equal(t, int64(42), v)
+		case float64:
+			assert.Equal(t, float64(42), v)
+		default:
+			t.Fatalf("unexpected count type: %T", extracted["count"])
+		}
 	})
 
 	t.Run("nil header", func(t *testing.T) {
-		extracted, err := ExtractFromHeader(nil)
+		extracted, err := ExtractFromHeader(dc, nil)
 		require.NoError(t, err)
 		assert.Nil(t, extracted)
 	})
 
 	t.Run("header without fields", func(t *testing.T) {
 		header := &commonpb.Header{}
-		extracted, err := ExtractFromHeader(header)
+		extracted, err := ExtractFromHeader(dc, header)
 		require.NoError(t, err)
 		assert.Nil(t, extracted)
 	})
@@ -100,42 +112,57 @@ func TestExtractFromHeader(t *testing.T) {
 				"other-key": {},
 			},
 		}
-		extracted, err := ExtractFromHeader(header)
+		extracted, err := ExtractFromHeader(dc, header)
 		require.NoError(t, err)
 		assert.Nil(t, extracted)
 	})
 
-	t.Run("header with invalid JSON", func(t *testing.T) {
-		payload, _ := converter.GetDefaultDataConverter().ToPayload([]byte("invalid json"))
+	t.Run("header with invalid msgpack", func(t *testing.T) {
+		payload := &commonpb.Payload{
+			Metadata: map[string][]byte{
+				converter.MetadataEncoding: []byte(payload.MsgPack),
+			},
+			Data: []byte("invalid msgpack"),
+		}
 		header := &commonpb.Header{
 			Fields: map[string]*commonpb.Payload{
 				HeaderKey: payload,
 			},
 		}
-		_, err := ExtractFromHeader(header)
+		_, err := ExtractFromHeader(dc, header)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "unmarshal")
+		assert.Contains(t, err.Error(), "decode")
 	})
 }
 
 func TestCreateAndExtractRoundTrip(t *testing.T) {
+	dc := newTestDataConverter()
 	original := map[string]any{
 		"string": "hello",
-		"int":    float64(123), // JSON numbers are float64
+		"int":    123,
 		"bool":   true,
 		"nested": map[string]any{
 			"inner": "value",
 		},
 	}
 
-	header, err := CreateHeader(original)
+	header, err := CreateHeader(dc, original)
 	require.NoError(t, err)
 
-	extracted, err := ExtractFromHeader(header)
+	extracted, err := ExtractFromHeader(dc, header)
 	require.NoError(t, err)
 
 	assert.Equal(t, original["string"], extracted["string"])
-	assert.Equal(t, original["int"], extracted["int"])
+	switch v := extracted["int"].(type) {
+	case int:
+		assert.Equal(t, 123, v)
+	case int64:
+		assert.Equal(t, int64(123), v)
+	case float64:
+		assert.Equal(t, float64(123), v)
+	default:
+		t.Fatalf("unexpected int type: %T", extracted["int"])
+	}
 	assert.Equal(t, original["bool"], extracted["bool"])
 
 	nested, ok := extracted["nested"].(map[string]any)
@@ -145,7 +172,8 @@ func TestCreateAndExtractRoundTrip(t *testing.T) {
 
 func TestPropagator_Inject(t *testing.T) {
 	t.Run("with simple context values", func(t *testing.T) {
-		p := New()
+		dc := newTestDataConverter()
+		p := New(dc)
 		writer := &mockHeaderWriter{fields: make(map[string]*commonpb.Payload)}
 
 		ctx := WithValues(context.Background(), map[string]any{
@@ -158,7 +186,8 @@ func TestPropagator_Inject(t *testing.T) {
 	})
 
 	t.Run("empty context", func(t *testing.T) {
-		p := New()
+		dc := newTestDataConverter()
+		p := New(dc)
 		writer := &mockHeaderWriter{fields: make(map[string]*commonpb.Payload)}
 
 		err := p.Inject(context.Background(), writer)
@@ -169,11 +198,12 @@ func TestPropagator_Inject(t *testing.T) {
 
 func TestPropagator_Extract(t *testing.T) {
 	t.Run("with valid header", func(t *testing.T) {
-		p := New()
+		dc := newTestDataConverter()
+		p := New(dc)
 
 		// Create header with values
 		values := map[string]any{"user": "bob"}
-		header, _ := CreateHeader(values)
+		header, _ := CreateHeader(dc, values)
 
 		reader := &mockHeaderReader{fields: header.Fields}
 
@@ -186,7 +216,8 @@ func TestPropagator_Extract(t *testing.T) {
 	})
 
 	t.Run("without header", func(t *testing.T) {
-		p := New()
+		dc := newTestDataConverter()
+		p := New(dc)
 		reader := &mockHeaderReader{fields: make(map[string]*commonpb.Payload)}
 
 		ctx, err := p.Extract(context.Background(), reader)
@@ -229,6 +260,7 @@ func TestPropagator_InjectFromWorkflow(t *testing.T) {
 	t.Run("with workflow values", func(t *testing.T) {
 		var s testsuite.WorkflowTestSuite
 		env := s.NewTestWorkflowEnvironment()
+		dc := newTestDataConverter()
 
 		env.RegisterWorkflowWithOptions(func(ctx workflow.Context) error {
 			ctx = workflow.WithValue(ctx, workflowValuesKey, map[string]any{
@@ -236,13 +268,13 @@ func TestPropagator_InjectFromWorkflow(t *testing.T) {
 				"user":   "alice",
 			})
 
-			p := New()
+			p := New(dc)
 			writer := &mockHeaderWriter{fields: make(map[string]*commonpb.Payload)}
 			err := p.InjectFromWorkflow(ctx, writer)
 			assert.NoError(t, err)
 			assert.Contains(t, writer.fields, HeaderKey)
 
-			extracted, err := ExtractFromHeader(&commonpb.Header{Fields: writer.fields})
+			extracted, err := ExtractFromHeader(dc, &commonpb.Header{Fields: writer.fields})
 			assert.NoError(t, err)
 			assert.Equal(t, "acme", extracted["tenant"])
 			assert.Equal(t, "alice", extracted["user"])
@@ -257,9 +289,10 @@ func TestPropagator_InjectFromWorkflow(t *testing.T) {
 	t.Run("without workflow values", func(t *testing.T) {
 		var s testsuite.WorkflowTestSuite
 		env := s.NewTestWorkflowEnvironment()
+		dc := newTestDataConverter()
 
 		env.RegisterWorkflowWithOptions(func(ctx workflow.Context) error {
-			p := New()
+			p := New(dc)
 			writer := &mockHeaderWriter{fields: make(map[string]*commonpb.Payload)}
 			err := p.InjectFromWorkflow(ctx, writer)
 			assert.NoError(t, err)
@@ -277,20 +310,30 @@ func TestPropagator_ExtractToWorkflow(t *testing.T) {
 	t.Run("with valid header", func(t *testing.T) {
 		var s testsuite.WorkflowTestSuite
 		env := s.NewTestWorkflowEnvironment()
+		dc := newTestDataConverter()
 
 		env.RegisterWorkflowWithOptions(func(ctx workflow.Context) error {
-			values := map[string]any{"user": "bob", "count": float64(42)}
-			header, _ := CreateHeader(values)
+			values := map[string]any{"user": "bob", "count": 42}
+			header, _ := CreateHeader(dc, values)
 			reader := &mockHeaderReader{fields: header.Fields}
 
-			p := New()
+			p := New(dc)
 			newCtx, err := p.ExtractToWorkflow(ctx, reader)
 			assert.NoError(t, err)
 
 			extracted := getWorkflowValues(newCtx)
 			assert.NotNil(t, extracted)
 			assert.Equal(t, "bob", extracted["user"])
-			assert.Equal(t, float64(42), extracted["count"])
+			switch v := extracted["count"].(type) {
+			case int:
+				assert.Equal(t, 42, v)
+			case int64:
+				assert.Equal(t, int64(42), v)
+			case float64:
+				assert.Equal(t, float64(42), v)
+			default:
+				t.Fatalf("unexpected count type: %T", extracted["count"])
+			}
 			return nil
 		}, workflow.RegisterOptions{Name: "test-extract-workflow"})
 
@@ -302,11 +345,12 @@ func TestPropagator_ExtractToWorkflow(t *testing.T) {
 	t.Run("without header", func(t *testing.T) {
 		var s testsuite.WorkflowTestSuite
 		env := s.NewTestWorkflowEnvironment()
+		dc := newTestDataConverter()
 
 		env.RegisterWorkflowWithOptions(func(ctx workflow.Context) error {
 			reader := &mockHeaderReader{fields: make(map[string]*commonpb.Payload)}
 
-			p := New()
+			p := New(dc)
 			newCtx, err := p.ExtractToWorkflow(ctx, reader)
 			assert.NoError(t, err)
 
@@ -323,17 +367,23 @@ func TestPropagator_ExtractToWorkflow(t *testing.T) {
 	t.Run("with invalid payload", func(t *testing.T) {
 		var s testsuite.WorkflowTestSuite
 		env := s.NewTestWorkflowEnvironment()
+		dc := newTestDataConverter()
 
 		env.RegisterWorkflowWithOptions(func(ctx workflow.Context) error {
-			payload, _ := converter.GetDefaultDataConverter().ToPayload([]byte("invalid json"))
+			payload := &commonpb.Payload{
+				Metadata: map[string][]byte{
+					converter.MetadataEncoding: []byte(payload.MsgPack),
+				},
+				Data: []byte("invalid msgpack"),
+			}
 			reader := &mockHeaderReader{fields: map[string]*commonpb.Payload{
 				HeaderKey: payload,
 			}}
 
-			p := New()
+			p := New(dc)
 			_, err := p.ExtractToWorkflow(ctx, reader)
 			assert.Error(t, err)
-			assert.Contains(t, err.Error(), "unmarshal")
+			assert.Contains(t, err.Error(), "decode")
 			return nil
 		}, workflow.RegisterOptions{Name: "test-extract-invalid"})
 
@@ -346,17 +396,18 @@ func TestPropagator_ExtractToWorkflow(t *testing.T) {
 func TestPropagator_WorkflowRoundTrip(t *testing.T) {
 	var s testsuite.WorkflowTestSuite
 	env := s.NewTestWorkflowEnvironment()
+	dc := newTestDataConverter()
 
 	env.RegisterWorkflowWithOptions(func(ctx workflow.Context) error {
 		original := map[string]any{
 			"tenant": "acme",
 			"user":   "alice",
-			"count":  float64(123),
+			"count":  123,
 		}
 
 		ctx = workflow.WithValue(ctx, workflowValuesKey, original)
 
-		p := New()
+		p := New(dc)
 		writer := &mockHeaderWriter{fields: make(map[string]*commonpb.Payload)}
 		err := p.InjectFromWorkflow(ctx, writer)
 		assert.NoError(t, err)
@@ -370,7 +421,16 @@ func TestPropagator_WorkflowRoundTrip(t *testing.T) {
 		assert.NotNil(t, extracted)
 		assert.Equal(t, original["tenant"], extracted["tenant"])
 		assert.Equal(t, original["user"], extracted["user"])
-		assert.Equal(t, original["count"], extracted["count"])
+		switch v := extracted["count"].(type) {
+		case int:
+			assert.Equal(t, 123, v)
+		case int64:
+			assert.Equal(t, int64(123), v)
+		case float64:
+			assert.Equal(t, float64(123), v)
+		default:
+			t.Fatalf("unexpected count type: %T", extracted["count"])
+		}
 		return nil
 	}, workflow.RegisterOptions{Name: "test-roundtrip"})
 

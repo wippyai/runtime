@@ -27,14 +27,14 @@ type Factory interface {
 // DefaultClientFactory implements Factory
 type DefaultClientFactory struct {
 	env                env.Registry
-	dataConverter      converter.DataConverter
+	dataConverter      func() converter.DataConverter
 	clientInterceptors []interceptor.ClientInterceptor
 }
 
 // NewDefaultClientFactory creates a new default factory
 func NewDefaultClientFactory(
 	env env.Registry,
-	dataConverter converter.DataConverter,
+	dataConverter func() converter.DataConverter,
 	clientInterceptors []interceptor.ClientInterceptor,
 ) *DefaultClientFactory {
 	return &DefaultClientFactory{
@@ -79,9 +79,14 @@ func (f *DefaultClientFactory) buildClientOptions(ctx context.Context, logger *z
 	}
 
 	// Set data converter if available
+	var dc converter.DataConverter
 	if f.dataConverter != nil {
-		opts.DataConverter = f.dataConverter
+		dc = f.dataConverter()
 	}
+	if dc == nil {
+		return opts, fmt.Errorf("data converter not available")
+	}
+	opts.DataConverter = dc
 
 	// Set client interceptors if available
 	if len(f.clientInterceptors) > 0 {
@@ -90,7 +95,7 @@ func (f *DefaultClientFactory) buildClientOptions(ctx context.Context, logger *z
 
 	// Add context propagator for wippy context values
 	opts.ContextPropagators = []workflow.ContextPropagator{
-		propagator.New(),
+		propagator.New(dc),
 	}
 
 	// Configure authentication

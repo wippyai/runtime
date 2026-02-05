@@ -15,7 +15,6 @@ import (
 	sysfunc "github.com/wippyai/runtime/system/function"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
@@ -45,17 +44,6 @@ func (r *mockFuncRegistry) Call(ctx context.Context, task runtime.Task) (*runtim
 	return fn(ctx, task)
 }
 
-// mockTranscoder implements payload.Transcoder for testing
-type mockTranscoder struct{}
-
-func (m *mockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
-	return p, nil
-}
-
-func (m *mockTranscoder) Unmarshal(_ payload.Payload, _ interface{}) error {
-	return nil
-}
-
 // TestWippyActivityWithDataConverter tests the activity execution pipeline
 // using the wippy data converter for proper payload handling.
 func TestWippyActivityWithDataConverter(t *testing.T) {
@@ -67,7 +55,7 @@ func TestWippyActivityWithDataConverter(t *testing.T) {
 	log := zap.NewNop()
 
 	// Create wippy data converter
-	dc := dataconverter.NewDataConverter(&mockTranscoder{}, converter.GetDefaultDataConverter())
+	dc := dataconverter.NewDataConverter(newTestTranscoder())
 
 	// Start Temporal test server with custom data converter
 	server, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
@@ -105,7 +93,7 @@ func TestWippyActivityWithDataConverter(t *testing.T) {
 	// Register activity with proper handler that uses data converter
 	activityName := funcID.String()
 	w.RegisterActivityWithOptions(
-		createDataConverterActivityHandler(ctx, funcReg, funcID, dc, log),
+		createDataConverterActivityHandler(ctx, funcReg, funcID, log),
 		activity.RegisterOptions{Name: activityName},
 	)
 
@@ -121,7 +109,7 @@ func TestWippyActivityWithDataConverter(t *testing.T) {
 		TaskQueue: taskQueue,
 	}
 
-	testInput := map[string]interface{}{
+	testInput := map[string]any{
 		"message": "hello from dc test",
 		"count":   123,
 	}
@@ -129,7 +117,7 @@ func TestWippyActivityWithDataConverter(t *testing.T) {
 	we, err := c.ExecuteWorkflow(ctx, workflowOptions, dcEchoWorkflow, activityName, testInput)
 	require.NoError(t, err)
 
-	var result map[string]interface{}
+	var result map[string]any
 	err = we.Get(ctx, &result)
 	require.NoError(t, err)
 
@@ -138,7 +126,16 @@ func TestWippyActivityWithDataConverter(t *testing.T) {
 
 	// Verify the result matches input (echo)
 	require.Equal(t, "hello from dc test", result["message"])
-	require.Equal(t, float64(123), result["count"])
+	switch v := result["count"].(type) {
+	case int:
+		require.Equal(t, 123, v)
+	case int64:
+		require.Equal(t, int64(123), v)
+	case float64:
+		require.Equal(t, float64(123), v)
+	default:
+		t.Fatalf("unexpected count type: %T", result["count"])
+	}
 }
 
 // createDataConverterActivityHandler creates an activity handler that converts
@@ -147,10 +144,9 @@ func createDataConverterActivityHandler(
 	ctx context.Context,
 	funcReg function.Registry,
 	funcID registry.ID,
-	_ converter.DataConverter,
 	_ *zap.Logger,
-) func(context.Context, interface{}) (interface{}, error) {
-	return func(_ context.Context, input interface{}) (interface{}, error) {
+) func(context.Context, any) (any, error) {
+	return func(_ context.Context, input any) (any, error) {
 		// Convert input to wippy payload
 		inputPayload := payload.New(input)
 		payloads := []payload.Payload{inputPayload}
@@ -176,13 +172,13 @@ func createDataConverterActivityHandler(
 }
 
 // dcEchoWorkflow calls an activity with data converter support
-func dcEchoWorkflow(ctx workflow.Context, activityName string, input interface{}) (interface{}, error) {
+func dcEchoWorkflow(ctx workflow.Context, activityName string, input any) (any, error) {
 	options := workflow.ActivityOptions{
 		StartToCloseTimeout: 10 * time.Second,
 	}
 	ctx = workflow.WithActivityOptions(ctx, options)
 
-	var result interface{}
+	var result any
 	err := workflow.ExecuteActivity(ctx, activityName, input).Get(ctx, &result)
 	if err != nil {
 		return nil, err
@@ -243,8 +239,8 @@ func (m *mockWorkerRegistry) UnregisterActivity(_ context.Context, _ registry.ID
 // Helper to create activity metadata
 func createActivityMeta(workerID string) attrs.Bag {
 	meta := attrs.NewBag()
-	meta.Set("temporal", map[string]interface{}{
-		"activity": map[string]interface{}{
+	meta.Set("temporal", map[string]any{
+		"activity": map[string]any{
 			"worker": workerID,
 		},
 	})

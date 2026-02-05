@@ -45,6 +45,11 @@ func LSP() boot.Component {
 				if lspSub != nil {
 					lspCfg.Enabled = lspSub.GetBool("enabled", lspCfg.Enabled)
 					lspCfg.Address = lspSub.GetString("address", lspCfg.Address)
+					lspCfg.MaxMessageBytes = lspSub.GetInt("max_message_bytes", lspCfg.MaxMessageBytes)
+					lspCfg.HTTPEnabled = lspSub.GetBool("http_enabled", lspCfg.HTTPEnabled)
+					lspCfg.HTTPAddress = lspSub.GetString("http_address", lspCfg.HTTPAddress)
+					lspCfg.HTTPPath = lspSub.GetString("http_path", lspCfg.HTTPPath)
+					lspCfg.HTTPAllowOrigin = lspSub.GetString("http_allow_origin", lspCfg.HTTPAllowOrigin)
 				}
 			}
 			lspCfg.Validate()

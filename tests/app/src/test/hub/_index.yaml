@@ -1,0 +1,94 @@
+version: "1.0"
+namespace: app.test.hub
+
+entries:
+  - name: search_invalid
+    kind: function.lua
+    meta:
+      type: test
+      suite: hub
+      description: hub.modules.search rejects empty query
+    source: file://search_invalid.lua
+    method: main
+    modules:
+      - hub
+    imports:
+      assert2: app.lib:assert
+
+  - name: list_invalid_options
+    kind: function.lua
+    meta:
+      type: test
+      suite: hub
+      description: hub.modules.list rejects non-table options
+    source: file://list_invalid_options.lua
+    method: main
+    modules:
+      - hub
+    imports:
+      assert2: app.lib:assert
+
+  - name: get_invalid_ref
+    kind: function.lua
+    meta:
+      type: test
+      suite: hub
+      description: hub.modules.get rejects invalid module reference
+    source: file://get_invalid_ref.lua
+    method: main
+    modules:
+      - hub
+    imports:
+      assert2: app.lib:assert
+
+  - name: readme_invalid_version
+    kind: function.lua
+    meta:
+      type: test
+      suite: hub
+      description: hub.modules.readme rejects invalid version reference
+    source: file://readme_invalid_version.lua
+    method: main
+    modules:
+      - hub
+    imports:
+      assert2: app.lib:assert
+
+  - name: versions_missing
+    kind: function.lua
+    meta:
+      type: test
+      suite: hub
+      description: hub.versions.get requires version
+    source: file://versions_missing.lua
+    method: main
+    modules:
+      - hub
+    imports:
+      assert2: app.lib:assert
+
+  - name: files_missing_version
+    kind: function.lua
+    meta:
+      type: test
+      suite: hub
+      description: hub.files.list requires version
+    source: file://files_missing_version.lua
+    method: main
+    modules:
+      - hub
+    imports:
+      assert2: app.lib:assert
+
+  - name: dependencies_invalid_version
+    kind: function.lua
+    meta:
+      type: test
+      suite: hub
+      description: hub.dependencies.get rejects invalid version
+    source: file://dependencies_invalid_version.lua
+    method: main
+    modules:
+      - hub
+    imports:
+      assert2: app.lib:assert

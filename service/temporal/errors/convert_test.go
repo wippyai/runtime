@@ -2,6 +2,7 @@ package errors
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -213,6 +214,20 @@ func TestFromTemporalError_UnknownError(t *testing.T) {
 	richErr, ok := result.(*apierror.RichError)
 	require.True(t, ok)
 	assert.Equal(t, apierror.Internal, richErr.Kind())
+}
+
+func TestFromTemporalError_UnwrapsUnknownWrapper(t *testing.T) {
+	appErr := temporal.NewApplicationError("child workflow intentional error", "NotFound")
+	wrapped := errors.New("outer wrapper: " + appErr.Error())
+	err := fmt.Errorf("%w: %w", wrapped, appErr)
+
+	result := FromTemporalError(err)
+	require.NotNil(t, result)
+
+	richErr, ok := result.(*apierror.RichError)
+	require.True(t, ok)
+	assert.Equal(t, apierror.NotFound, richErr.Kind())
+	assert.Contains(t, richErr.Error(), "intentional error")
 }
 
 func TestMapTypeToKind(t *testing.T) {

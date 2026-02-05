@@ -10,13 +10,17 @@ import (
 	"github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/service/temporal"
 	"github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/internal/uniqid"
 	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
+	temporalprop "github.com/wippyai/runtime/service/temporal/propagator"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/interceptor"
@@ -32,6 +36,7 @@ const (
 var (
 	_ supervisor.Service = (*Worker)(nil)
 	_ relay.Receiver     = (*Worker)(nil)
+	_ process.Host       = (*Worker)(nil)
 )
 
 // Worker wraps a Temporal SDK worker with lifecycle management
@@ -44,12 +49,16 @@ type Worker struct {
 	envReg         env.Registry
 	worker         worker.Worker
 	config         *api.WorkerConfig
+	taskQueue      string
+	pidGen         process.PIDGenerator
+	clientNodeID   pid.NodeID
 	cancel         context.CancelFunc
 	activities     map[string]*activityRegistration
 	workflows      map[string]*workflowRegistration
 	log            *zap.Logger
 	id             registry.ID
 	interceptors   []interceptor.WorkerInterceptor
+	dtt            payload.Transcoder
 	mu             sync.RWMutex
 	closed         atomic.Bool
 }
@@ -67,18 +76,21 @@ type workflowRegistration struct {
 	name    string
 }
 
-// NewWorker creates a new Worker instance
-func NewWorker(
+// newWorker creates a new Worker instance (use WorkerBuilder in production code).
+func newWorker(
 	logger *zap.Logger,
 	id registry.ID,
 	config *api.WorkerConfig,
 	resourceReg resource.Registry,
 	envReg env.Registry,
 	interceptors []interceptor.WorkerInterceptor,
+	dtt payload.Transcoder,
 ) *Worker {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
+	clientNodeID := pid.NodeID(config.Client.String())
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), clientNodeID)
 	return &Worker{
 		id:           id,
 		config:       config,
@@ -88,6 +100,9 @@ func NewWorker(
 		interceptors: interceptors,
 		activities:   make(map[string]*activityRegistration),
 		workflows:    make(map[string]*workflowRegistration),
+		clientNodeID: clientNodeID,
+		pidGen:       pidGen,
+		dtt:          dtt,
 	}
 }
 
@@ -138,6 +153,7 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 			zap.String("original", w.config.TaskQueue),
 			zap.String("prefixed", taskQueue))
 	}
+	w.taskQueue = taskQueue
 
 	// Get function registry from context
 	w.funcRegistry = function.GetRegistry(ctx)
@@ -478,6 +494,13 @@ func (w *Worker) createActivityHandler(_ context.Context, funcID registry.ID) fu
 			}()
 		}
 
+		execCtx, release, err := temporalprop.MergeActivityContext(execCtx, activityCtx)
+		if err != nil {
+			w.log.Warn("failed to merge activity context", zap.Error(err))
+		} else {
+			defer release()
+		}
+
 		result, err := w.funcRegistry.Call(execCtx, runtime.Task{
 			ID:       funcID,
 			Payloads: input,
@@ -549,7 +572,24 @@ func (w *Worker) Send(pkg *relay.Package) error {
 			zap.String("signal", msg.Topic),
 			zap.Int("payloads", len(msg.Payloads)))
 
-		if err := w.temporalClient.SignalWorkflow(w.ctx, workflowID, "", msg.Topic, signalArg); err != nil {
+		ctx := w.ctx
+		var fc ctxapi.FrameContext
+		if pkg.Source.Node != "" || pkg.Source.Host != "" || pkg.Source.UniqID != "" {
+			ctx, fc = ctxapi.OpenFrameContextOn(ctx, ctx)
+			if fc != nil {
+				values, err := ctxapi.GetOrCreateValues(ctx)
+				if err == nil {
+					values.Set(temporalprop.SignalFromValueKey, pkg.Source.String())
+				}
+			}
+			ctx = withContextValuesFallback(ctx)
+		}
+
+		err := w.temporalClient.SignalWorkflow(ctx, workflowID, "", msg.Topic, signalArg)
+		if fc != nil {
+			ctxapi.ReleaseFrameContext(fc)
+		}
+		if err != nil {
 			w.log.Error("failed to signal workflow",
 				zap.String("workflow_id", workflowID),
 				zap.String("signal", msg.Topic),

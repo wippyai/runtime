@@ -2,7 +2,7 @@ package propagator
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
@@ -110,7 +110,10 @@ func ApplySecurityPayload(ctx context.Context, payload *SecurityPayload) error {
 }
 
 // ExtractSecurityFromHeader extracts security payload from a Temporal header.
-func ExtractSecurityFromHeader(header *commonpb.Header) (*SecurityPayload, error) {
+func ExtractSecurityFromHeader(dc converter.DataConverter, header *commonpb.Header) (*SecurityPayload, error) {
+	if dc == nil {
+		return nil, fmt.Errorf("data converter not available")
+	}
 	if header == nil || header.Fields == nil {
 		return nil, nil
 	}
@@ -120,13 +123,8 @@ func ExtractSecurityFromHeader(header *commonpb.Header) (*SecurityPayload, error
 		return nil, nil
 	}
 
-	var jsonBytes []byte
-	if err := converter.GetDefaultDataConverter().FromPayload(p, &jsonBytes); err != nil {
-		return nil, err
-	}
-
 	var payload SecurityPayload
-	if err := json.Unmarshal(jsonBytes, &payload); err != nil {
+	if err := dc.FromPayload(p, &payload); err != nil {
 		return nil, err
 	}
 
@@ -155,17 +153,15 @@ func GetSecurityFromCtx(ctx context.Context) *SecurityPayload {
 }
 
 // AddSecurityToHeader adds security payload to an existing header (or creates one).
-func AddSecurityToHeader(header *commonpb.Header, payload *SecurityPayload) (*commonpb.Header, error) {
+func AddSecurityToHeader(dc converter.DataConverter, header *commonpb.Header, payload *SecurityPayload) (*commonpb.Header, error) {
+	if dc == nil {
+		return header, fmt.Errorf("data converter not available")
+	}
 	if payload == nil {
 		return header, nil
 	}
 
-	jsonBytes, err := json.Marshal(payload)
-	if err != nil {
-		return header, err
-	}
-
-	secPayload, err := converter.GetDefaultDataConverter().ToPayload(jsonBytes)
+	secPayload, err := dc.ToPayload(payload)
 	if err != nil {
 		return header, err
 	}

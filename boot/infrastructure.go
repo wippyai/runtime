@@ -10,12 +10,9 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	relayapi "github.com/wippyai/runtime/api/relay"
 	topapi "github.com/wippyai/runtime/api/topology"
-	luapayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/system/eventbus"
 	"github.com/wippyai/runtime/system/logs"
-	transcoder "github.com/wippyai/runtime/system/payload"
-	"github.com/wippyai/runtime/system/payload/json"
-	"github.com/wippyai/runtime/system/payload/yaml"
+	syspayload "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/relay"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -66,10 +63,7 @@ func NewBootstrapContext(logger *zap.Logger, cfg boot.Config) (context.Context, 
 	awaitSvc := eventbus.NewAwaitService(bus)
 	ctx = event.WithAwaitService(ctx, awaitSvc)
 
-	dtt := transcoder.GlobalTranscoder()
-	json.Register(dtt)
-	yaml.Register(dtt)
-	luapayload.Register(dtt)
+	dtt := ConfigureTranscoder(ctx, syspayload.NewTranscoder())
 	ctx = payload.WithTranscoder(ctx, dtt)
 
 	// Setup event infrastructure (logger with event streaming)

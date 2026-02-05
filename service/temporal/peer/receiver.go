@@ -2,13 +2,17 @@ package peer
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/topology"
+	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
+	temporalprop "github.com/wippyai/runtime/service/temporal/propagator"
 	"go.temporal.io/sdk/client"
 	"go.uber.org/zap"
 )
@@ -58,23 +62,109 @@ func NewReceiver(ctx context.Context, nodeID pid.NodeID, temporalClient client.C
 // Send implements relay.Receiver.
 // Handles topology events routed to this Temporal peer.
 func (r *Receiver) Send(pkg *relay.Package) error {
+	var firstErr error
+
 	for _, msg := range pkg.Messages {
 		for _, p := range msg.Payloads {
 			switch event := p.Data().(type) {
 			case *topology.MonitorRequestEvent:
-				return r.handleMonitorRequest(event.Caller, event.Target)
+				if err := r.handleMonitorRequest(event.Caller, event.Target); err != nil && firstErr == nil {
+					firstErr = err
+				}
 			case *topology.MonitorReleaseEvent:
-				return r.handleMonitorRelease(event.Caller, event.Target)
+				if err := r.handleMonitorRelease(event.Caller, event.Target); err != nil && firstErr == nil {
+					firstErr = err
+				}
 			case *topology.LinkRequestEvent:
-				return r.handleLinkRequest(event.From, event.To)
+				if err := r.handleLinkRequest(event.From, event.To); err != nil && firstErr == nil {
+					firstErr = err
+				}
 			case *topology.UnlinkRequestEvent:
-				return r.handleUnlinkRequest(event.From, event.To)
+				if err := r.handleUnlinkRequest(event.From, event.To); err != nil && firstErr == nil {
+					firstErr = err
+				}
+			case *topology.CancelEvent:
+				if err := r.handleCancelRequest(event, pkg.Target); err != nil && firstErr == nil {
+					firstErr = err
+				}
 			case *topology.ExitEvent:
-				return r.handleExitEvent(event.From, pkg.Target)
+				if err := r.handleExitEvent(event.From, pkg.Target); err != nil && firstErr == nil {
+					firstErr = err
+				}
 			}
 		}
 	}
-	return nil
+
+	for _, msg := range pkg.Messages {
+		if msg.Topic == topology.TopicEvents {
+			continue
+		}
+		if r.client == nil {
+			continue
+		}
+		if err := r.signalWorkflow(pkg.Source, pkg.Target, msg); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	return firstErr
+}
+
+func (r *Receiver) handleCancelRequest(event *topology.CancelEvent, target pid.PID) error {
+	if r.client == nil {
+		return fmt.Errorf("temporal client not available")
+	}
+
+	workflowID := target.UniqID
+	if workflowID == "" {
+		return fmt.Errorf("workflow ID is empty")
+	}
+
+	ctx := r.ctx
+	if !event.Deadline.IsZero() {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(r.ctx, event.Deadline)
+		defer cancel()
+	}
+
+	return r.client.CancelWorkflow(ctx, workflowID, "")
+}
+
+func (r *Receiver) signalWorkflow(from, target pid.PID, msg *relay.Message) error {
+	if r.client == nil {
+		return fmt.Errorf("temporal client not available")
+	}
+	if msg == nil || msg.Topic == "" {
+		return nil
+	}
+	if target.UniqID == "" {
+		return fmt.Errorf("workflow ID is empty")
+	}
+
+	var signalArg any
+	switch len(msg.Payloads) {
+	case 0:
+		signalArg = nil
+	case 1:
+		signalArg = msg.Payloads[0]
+	default:
+		signalArg = msg.Payloads
+	}
+
+	ctx := r.ctx
+	var fc ctxapi.FrameContext
+	if from.Node != "" || from.Host != "" || from.UniqID != "" {
+		ctx, fc = ctxapi.OpenFrameContextOn(ctx, ctx)
+		values, err := ctxapi.GetOrCreateValues(ctx)
+		if err == nil {
+			values.Set(temporalprop.SignalFromValueKey, from.String())
+		}
+	}
+	if fc != nil {
+		defer ctxapi.ReleaseFrameContext(fc)
+	}
+
+	return r.client.SignalWorkflow(ctx, target.UniqID, "", msg.Topic, signalArg)
 }
 
 // handleExitEvent handles exit/linkdown from a linked process.
@@ -230,8 +320,8 @@ func (r *Receiver) watchWorkflow(ctx context.Context, watcher *workflowWatcher) 
 	run := r.client.GetWorkflow(ctx, workflowID, watcher.runID)
 
 	// Wait for completion
-	var result any
-	err := run.Get(ctx, &result)
+	var payloads payload.Payloads
+	err := run.Get(ctx, &payloads)
 
 	// Check if canceled
 	if ctx.Err() != nil {
@@ -242,15 +332,15 @@ func (r *Receiver) watchWorkflow(ctx context.Context, watcher *workflowWatcher) 
 
 	r.log.Debug("workflow completed",
 		zap.String("workflow_id", workflowID),
-		zap.Any("result", result),
+		zap.Int("payloads", len(payloads)),
 		zap.Error(err))
 
 	// Notify all watchers
-	r.notifyCompletion(watcher, result, err)
+	r.notifyCompletion(watcher, payloads, err)
 }
 
 // notifyCompletion sends EXIT events to all monitors and LINK_DOWN to linked processes.
-func (r *Receiver) notifyCompletion(watcher *workflowWatcher, result any, err error) {
+func (r *Receiver) notifyCompletion(watcher *workflowWatcher, payloads payload.Payloads, err error) {
 	r.mu.Lock()
 	monitors := make([]pid.PID, 0, len(watcher.monitors))
 	for _, p := range watcher.monitors {
@@ -274,9 +364,15 @@ func (r *Receiver) notifyCompletion(watcher *workflowWatcher, result any, err er
 	// Build result
 	runtimeResult := &runtime.Result{}
 	if err != nil {
-		runtimeResult.Error = err
-	} else if result != nil {
-		runtimeResult.Value = payload.New(result)
+		runtimeResult.Error = temporalerrors.FromTemporalError(err)
+	} else if len(payloads) > 0 {
+		runtimeResult.Value = payloads[0]
+		if runtimeResult.Value != nil {
+			r.log.Debug("temporal completion payload",
+				zap.String("workflow_id", watcher.workflowID),
+				zap.String("format", runtimeResult.Value.Format()),
+				zap.String("data_type", fmt.Sprintf("%T", runtimeResult.Value.Data())))
+		}
 	}
 
 	// Send EXIT to monitors
@@ -314,10 +410,17 @@ func (r *Receiver) sendExitEvent(from, to pid.PID, kind topology.Kind, result *r
 			zap.String("kind", kind),
 			zap.Error(err))
 	} else {
-		r.log.Debug("sent exit event",
+		fields := []zap.Field{
 			zap.String("from", from.String()),
 			zap.String("to", to.String()),
-			zap.String("kind", kind))
+			zap.String("kind", kind),
+		}
+		if result != nil && result.Value != nil {
+			fields = append(fields,
+				zap.String("result_format", result.Value.Format()),
+				zap.String("result_data_type", fmt.Sprintf("%T", result.Value.Data())))
+		}
+		r.log.Debug("sent exit event", fields...)
 	}
 }
 

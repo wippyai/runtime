@@ -263,7 +263,7 @@ func (nsm *NodeStateManager) RemoveNodeState(nodeID cluster.NodeID) {
 
 func (nsm *NodeStateManager) GetConnectedNodes() []cluster.NodeID {
 	var connected []cluster.NodeID
-	nsm.nodeStates.Range(func(key, value interface{}) bool {
+	nsm.nodeStates.Range(func(key, value any) bool {
 		nodeID := key.(cluster.NodeID)
 		state := value.(*NodeState)
 		state.stateMu.RLock()

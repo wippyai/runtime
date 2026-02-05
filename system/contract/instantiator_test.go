@@ -397,13 +397,13 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	// Function that checks context values
 	funcID := registry.NewID("test", "context_func")
 	testFunc := function.Func(func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
-		result := map[string]interface{}{"has_context": false}
+		result := map[string]any{"has_context": false}
 		if values := ctxapi.GetValues(ctx); values != nil {
 			existing, existingOk := values.Get("existing")
 			scope, scopeOk := values.Get("context")
 			override, overrideOk := values.Get("override")
 
-			result = map[string]interface{}{
+			result = map[string]any{
 				"has_context":    true,
 				"existing_ok":    existingOk,
 				"existing_value": existing,
@@ -470,7 +470,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	result, err := instanceNil.Call(ctx, "contextMethod", payload.Payloads{})
 	require.NoError(t, err)
 
-	values := result.Value.Data().(map[string]interface{})
+	values := result.Value.Data().(map[string]any)
 	assert.False(t, values["has_context"].(bool))
 
 	// Test context merging - context values should be merged with existing context
@@ -491,7 +491,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	result, err = instance.Call(callCtx, "contextMethod", payload.Payloads{})
 	require.NoError(t, err)
 
-	values = result.Value.Data().(map[string]interface{})
+	values = result.Value.Data().(map[string]any)
 
 	assert.True(t, values["has_context"].(bool))
 	assert.True(t, values["existing_ok"].(bool))
@@ -542,7 +542,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 	// Function that captures and returns all context values it receives
 	funcID := registry.NewID("test", "capture_context_func")
 	testFunc := function.Func(func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
-		captured := map[string]interface{}{}
+		captured := map[string]any{}
 		if values := ctxapi.GetValues(ctx); values != nil {
 			// Capture all values from the context
 			values.Iterate(func(key string, value any) {
@@ -606,7 +606,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 		result, err := instance.Call(ctx, "captureMethod", payload.Payloads{})
 		require.NoError(t, err)
 
-		captured := result.Value.Data().(map[string]interface{})
+		captured := result.Value.Data().(map[string]any)
 
 		// Should be empty since no context was provided and no existing context
 		assert.Empty(t, captured)
@@ -629,7 +629,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 		result, err := instance.Call(ctx, "captureMethod", payload.Payloads{})
 		require.NoError(t, err)
 
-		captured := result.Value.Data().(map[string]interface{})
+		captured := result.Value.Data().(map[string]any)
 
 		// All context values should be present in the context
 		assert.Equal(t, "test_app", captured["app_name"])
@@ -658,7 +658,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 		result, err := instance.Call(callCtx, "captureMethod", payload.Payloads{})
 		require.NoError(t, err)
 
-		captured := result.Value.Data().(map[string]interface{})
+		captured := result.Value.Data().(map[string]any)
 
 		// Should have both existing and context values, with context winning conflicts
 		assert.Equal(t, "existing_value", captured["from_existing"])

@@ -123,6 +123,178 @@ entries:
     source: file://type_alias.lua
     method: main
 
+  - name: runtime_is
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: runtime type validation with :is() method
+    source: file://runtime_is.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: runtime_is_annotations
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: runtime type validation with annotations
+    source: file://runtime_is_annotations.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: runtime_is_stress
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: runtime type validation stress cases
+    source: file://runtime_is_stress.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: runtime_is_collections
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: runtime type validation for collections and unions
+    source: file://runtime_is_collections.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: runtime_is_aliases
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: runtime type validation with aliases and unions
+    source: file://runtime_is_aliases.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: runtime_is_literals
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: runtime type validation with literal types
+    source: file://runtime_is_literals.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: runtime_is_maps
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: runtime type validation for maps with annotations
+    source: file://runtime_is_maps.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: runtime_is_generics
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: runtime type validation for generic aliases
+    source: file://runtime_is_generics.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: runtime_is_typeof
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: runtime type validation for typeof aliases
+    source: file://runtime_is_typeof.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: runtime_is_readonly_optional
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: runtime type validation for readonly and optional fields
+    source: file://runtime_is_readonly_optional.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: runtime_is_functions
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: runtime type validation for function types
+    source: file://runtime_is_functions.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  - name: lib_with_types
+    kind: library.lua
+    source: file://lib_with_types.lua
+
+  - name: lib_inner_types
+    kind: library.lua
+    source: file://lib_inner_types.lua
+
+  - name: lib_outer_types
+    kind: library.lua
+    source: file://lib_outer_types.lua
+    imports:
+      inner: app.test.types:lib_inner_types
+
+  - name: runtime_is_lib
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: runtime type validation with library types
+    source: file://runtime_is_lib.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+      mylib: app.test.types:lib_with_types
+
+  - name: runtime_is_lib_stress
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: runtime type validation with library types (stress)
+    source: file://runtime_is_lib_stress.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+      mylib: app.test.types:lib_with_types
+
+  - name: runtime_is_nested_lib
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: runtime type validation with nested library types
+    source: file://runtime_is_nested_lib.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+      inner: app.test.types:lib_inner_types
+      outer: app.test.types:lib_outer_types
+
   - name: intersection_types
     kind: function.lua
     meta:

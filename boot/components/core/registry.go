@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"path/filepath"
+	"strings"
 
 	"go.uber.org/zap"
 
@@ -11,7 +12,9 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	regapi "github.com/wippyai/runtime/api/registry"
+	hubdeps "github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/system/registry"
+	regexp "github.com/wippyai/runtime/system/registry/expansion"
 	historymem "github.com/wippyai/runtime/system/registry/history/memory"
 	historynil "github.com/wippyai/runtime/system/registry/history/nil"
 	"github.com/wippyai/runtime/system/registry/history/sqlite"
@@ -87,13 +90,35 @@ func Registry() boot.Component {
 			// Create state builder
 			stateBuilder := regtop.NewStateBuilder(logger, resolver)
 
+			internalKinds := defaultDispatchInternalKinds()
+			if cfg != nil {
+				registryCfg := cfg.Sub(RegistryName)
+				if kinds, ok := readKindSlice(registryCfg, RegistryDispatchInternalKinds); ok {
+					internalKinds = kinds
+				}
+			}
+
+			registryOpts := []registry.Option{}
+
+			depHandler, err := newDependencyHandler(cfg, logger.Named("dependency"))
+			if err != nil {
+				logger.Warn("dependency handler disabled", zap.Error(err))
+			} else if depHandler != nil {
+				registryOpts = append(registryOpts,
+					registry.WithKindDirective(regapi.NamespaceDependency, regexp.NewDependencyDirective(depHandler.Expand)),
+				)
+			}
+
 			// Create registry with resolver
 			reg := registry.NewRegistry(
 				hist,
-				runner.NewBusRunner(bus, logger.Named("runner"), stateBuilder),
+				runner.NewBusRunner(bus, logger.Named("runner"), stateBuilder,
+					runner.WithDispatchPolicy(runner.NewKindDispatchPolicy(internalKinds)),
+				),
 				stateBuilder,
 				resolver,
 				logger.Named("registry"),
+				registryOpts...,
 			)
 
 			ctx = regapi.WithResolver(ctx, resolver)
@@ -122,4 +147,67 @@ func getDefaultDependencyPatterns() []regapi.DependencyPattern {
 		{Path: "data.imports.*", Description: "Imported components (values only)", AllowWildcard: true},
 		{Path: "data.*.depends_on", Description: "Explicit dependencies in nested structures", AllowWildcard: true},
 	}
+}
+
+func defaultDispatchInternalKinds() []regapi.Kind {
+	return []regapi.Kind{
+		regapi.EntryKind,
+		regapi.NamespaceDependency,
+		regapi.NamespaceRequirement,
+		regapi.NamespaceDefinition,
+	}
+}
+
+func readKindSlice(cfg boot.Config, key boot.Name) ([]regapi.Kind, bool) {
+	raw, ok := cfg.Get(string(key))
+	if !ok {
+		return nil, false
+	}
+
+	var values []string
+	switch v := raw.(type) {
+	case []string:
+		values = v
+	case []any:
+		values = make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				values = append(values, s)
+			}
+		}
+	case string:
+		values = []string{v}
+	default:
+		return nil, false
+	}
+
+	kinds := make([]regapi.Kind, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		kinds = append(kinds, regapi.Kind(trimmed))
+	}
+	return kinds, true
+}
+
+func newDependencyHandler(cfg boot.Config, logger *zap.Logger) (*hubdeps.DependencyHandler, error) {
+	var registryCfg boot.Config
+	if cfg != nil {
+		registryCfg = cfg.Sub(RegistryName)
+	}
+
+	opts := hubdeps.DependencyHandlerOptions{
+		Logger: logger,
+	}
+
+	if registryCfg != nil {
+		opts.ResolveTimeout = registryCfg.GetDuration(RegistryDependencyResolveTimeout, 0)
+		opts.DownloadTimeout = registryCfg.GetDuration(RegistryDependencyDownloadTimeout, 0)
+		opts.LockPath = registryCfg.GetString(RegistryDependencyLockPath, "")
+		opts.VendorDir = registryCfg.GetString(RegistryDependencyVendorDir, "")
+	}
+
+	return hubdeps.NewDependencyHandler(opts)
 }

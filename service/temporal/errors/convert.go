@@ -145,6 +145,11 @@ func fromTemporalErrorInner(err error) apierror.Rich {
 			WithRetryable(apierror.False)
 	}
 
+	// Preserve error metadata through unknown wrapper layers.
+	if cause := errors.Unwrap(err); cause != nil {
+		return fromTemporalErrorInner(cause)
+	}
+
 	return apierror.NewRich(apierror.Internal, err.Error())
 }
 

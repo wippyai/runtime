@@ -34,8 +34,8 @@ func TestMapsEqualOneNilOneNotNil(t *testing.T) {
 
 func TestValuesEqualMixedNumbers(t *testing.T) {
 	tests := []struct {
-		a    interface{}
-		b    interface{}
+		a    any
+		b    any
 		name string
 		want bool
 	}{

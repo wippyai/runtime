@@ -44,10 +44,30 @@ func InterceptorComponent() boot.Component {
 	})
 }
 
+// DataConverterComponent creates the data converter registry used by Temporal clients.
+func DataConverterComponent() boot.Component {
+	return boot.New(boot.P{
+		Name:      DataConverterName,
+		DependsOn: []boot.Name{},
+		Load: func(ctx context.Context) (context.Context, error) {
+			dtt := payload.GetTranscoder(ctx)
+			if dtt == nil {
+				return ctx, fmt.Errorf("transcoder not available")
+			}
+
+			base := dataconverter.NewDataConverter(dtt)
+			reg := dataconverter.NewRegistry(base)
+			ctx = temporalapi.WithDataConverterRegistry(ctx, reg)
+
+			return ctx, nil
+		},
+	})
+}
+
 func Component() boot.Component {
 	return boot.New(boot.P{
 		Name:      Name,
-		DependsOn: []boot.Name{bootcore.RegistryName, bootsystem.FunctionsName, bootsystem.ResourcesName, InterceptorName},
+		DependsOn: []boot.Name{bootcore.RegistryName, bootsystem.FunctionsName, bootsystem.ResourcesName, InterceptorName, DataConverterName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx).Named("temporal")
 			if logger == nil {
@@ -107,9 +127,11 @@ func Component() boot.Component {
 				}
 			}
 
-			// Create data converter with transcoder
-			dc := dataconverter.NewDataConverter(dtt, converter.GetDefaultDataConverter())
-
+			// Create data converter with transcoder and registered codecs
+			dcRegistry := temporalapi.GetDataConverterRegistry(ctx)
+			if dcRegistry == nil {
+				return ctx, fmt.Errorf("data converter registry not available")
+			}
 			// Collect interceptors from registries
 			var clientInterceptors []sdkinterceptor.ClientInterceptor
 			var workerInterceptors []sdkinterceptor.WorkerInterceptor
@@ -126,7 +148,9 @@ func Component() boot.Component {
 				client.WithTranscoder(dtt),
 				client.WithEventBus(bus),
 				client.WithEnvRegistry(envRegistry),
-				client.WithDataConverter(dc),
+				client.WithDataConverterProvider(func() converter.DataConverter {
+					return dcRegistry.Build()
+				}),
 				client.WithInterceptors(clientInterceptors),
 			)
 			if err != nil {
@@ -180,6 +204,7 @@ func Component() boot.Component {
 func All() []boot.Component {
 	return []boot.Component{
 		InterceptorComponent(),
+		DataConverterComponent(),
 		Component(),
 	}
 }

@@ -90,12 +90,12 @@ func DecodeEntryConfig[T any](_ context.Context, dtt payload.Transcoder, entry r
 	}
 
 	// Initialize defaults if the config implements InitDefaults
-	if initer, ok := interface{}(cfg).(interface{ InitDefaults() }); ok {
+	if initer, ok := any(cfg).(interface{ InitDefaults() }); ok {
 		initer.InitDefaults()
 	}
 
 	// Validate if the config implements Validate
-	if validator, ok := interface{}(cfg).(interface{ Validate() error }); ok {
+	if validator, ok := any(cfg).(interface{ Validate() error }); ok {
 		if err := validator.Validate(); err != nil {
 			return nil, NewInvalidConfigurationError(err)
 		}

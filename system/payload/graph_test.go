@@ -17,23 +17,23 @@ func TestTranscoder_Unmarshal_Simple(t *testing.T) {
 
 	tests := []struct {
 		inputPayload  apipayload.Payload
-		targetType    interface{}
-		expectedValue interface{}
+		targetType    any
+		expectedValue any
 		name          string
 		expectError   bool
 	}{
 		{
 			name:          "Unmarshal JSON to map",
 			inputPayload:  apipayload.NewPayload(`{"key": "value"}`, apipayload.JSON),
-			targetType:    &map[string]interface{}{},
-			expectedValue: map[string]interface{}{"key": "value"},
+			targetType:    &map[string]any{},
+			expectedValue: map[string]any{"key": "value"},
 			expectError:   false,
 		},
 		{
 			name:          "Unmarshal YAML to map",
 			inputPayload:  apipayload.NewPayload("key: value", apipayload.YAML),
-			targetType:    &map[string]interface{}{},
-			expectedValue: map[string]interface{}{"key": "value"},
+			targetType:    &map[string]any{},
+			expectedValue: map[string]any{"key": "value"},
 			expectError:   false,
 		},
 		{
@@ -188,7 +188,7 @@ person:
 				}
 				switch tt.expectedPayload.Format() {
 				case apipayload.JSON:
-					var got, want interface{}
+					var got, want any
 					jt := &json.ToGolang{}
 
 					if err := jt.Unmarshal(transcodedPayload, &got); err != nil {
@@ -220,8 +220,8 @@ func TestTranscoder_Unmarshal_AnyToStruct(t *testing.T) {
 
 	tests := []struct {
 		inputPayload  apipayload.Payload
-		targetType    interface{}
-		expectedValue interface{}
+		targetType    any
+		expectedValue any
 		name          string
 		expectError   bool
 	}{

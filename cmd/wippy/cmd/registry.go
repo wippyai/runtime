@@ -422,7 +422,7 @@ func outputEntryJSON(entry *regapi.Entry) error {
 	// Convert data to map for JSON output
 	dataMap := extractDataMap(entry)
 
-	output := map[string]interface{}{
+	output := map[string]any{
 		"id":   entry.ID.String(),
 		"kind": entry.Kind,
 		"meta": entry.Meta,
@@ -440,7 +440,7 @@ func outputEntryJSON(entry *regapi.Entry) error {
 func outputEntryYAML(entry *regapi.Entry) error {
 	dataMap := extractDataMap(entry)
 
-	output := map[string]interface{}{
+	output := map[string]any{
 		"id":   entry.ID.String(),
 		"kind": entry.Kind,
 		"meta": entry.Meta,
@@ -555,12 +555,12 @@ func showEntryField(entry *regapi.Entry, fieldName string, jsonOutput, yamlOutpu
 	return nil
 }
 
-func extractDataMap(entry *regapi.Entry) map[string]interface{} {
+func extractDataMap(entry *regapi.Entry) map[string]any {
 	if entry.Data == nil {
 		return nil
 	}
 
-	var dataMap map[string]interface{}
+	var dataMap map[string]any
 	if err := transcoder.GlobalTranscoder().Unmarshal(entry.Data, &dataMap); err != nil {
 		return nil
 	}

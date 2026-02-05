@@ -227,15 +227,16 @@ func TestUpdateManager_HandleResponse(t *testing.T) {
 			State:     updateAccepted,
 			Callbacks: callbacks,
 		}
+		resultPayload := payload.NewString("result")
 
 		var resumeErr error
-		m.HandleResponse("update-1", "ok", payload.Payloads{payload.NewString("result")}, func(data any, err error) {
+		m.HandleResponse("update-1", "ok", payload.Payloads{resultPayload}, func(data any, err error) {
 			resumeErr = err
 		})
 
 		assert.NoError(t, resumeErr)
 		assert.True(t, callbacks.completed)
-		assert.Equal(t, "result", callbacks.result)
+		assert.Equal(t, resultPayload, callbacks.result)
 		assert.NotContains(t, m.active, "update-1")
 	})
 

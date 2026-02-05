@@ -114,7 +114,7 @@ type errorMsg struct {
 }
 
 type logMsg struct {
-	fields  map[string]interface{}
+	fields  map[string]any
 	level   string
 	message string
 }
@@ -433,7 +433,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	pipelineStages = append(pipelineStages, stages.Override())
 
 	if len(excludeNS) > 0 || len(excludeEntries) > 0 {
-		p.Send(logMsg{level: "info", message: "Adding exclude filters", fields: map[string]interface{}{
+		p.Send(logMsg{level: "info", message: "Adding exclude filters", fields: map[string]any{
 			"ns_patterns":    len(excludeNS),
 			"entry_patterns": len(excludeEntries),
 		}})
@@ -457,7 +457,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 			p.Send(logMsg{level: "info", message: "Adding bytecode compilation (all entries)"})
 			pipelineStages = append(pipelineStages, stages.Bytecode())
 		} else {
-			p.Send(logMsg{level: "info", message: "Adding bytecode compilation", fields: map[string]interface{}{
+			p.Send(logMsg{level: "info", message: "Adding bytecode compilation", fields: map[string]any{
 				"patterns": bytecodePatterns,
 			}})
 			pipelineStages = append(pipelineStages, stages.Bytecode(bytecodePatterns...))
@@ -488,12 +488,12 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 
 	var resInfos []resourceInfo
 	if len(resources) > 0 {
-		p.Send(logMsg{level: "info", message: "Collecting embedded resources", fields: map[string]interface{}{
+		p.Send(logMsg{level: "info", message: "Collecting embedded resources", fields: map[string]any{
 			"count": len(resources),
 		}})
 
 		for _, res := range resources {
-			p.Send(logMsg{level: "info", message: "Processing resource", fields: map[string]interface{}{
+			p.Send(logMsg{level: "info", message: "Processing resource", fields: map[string]any{
 				"id": res.ID.String(),
 			}})
 
@@ -517,7 +517,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 					fileCount: fileCount,
 					size:      totalSize,
 				})
-				p.Send(logMsg{level: "info", message: "Resource collected", fields: map[string]interface{}{
+				p.Send(logMsg{level: "info", message: "Resource collected", fields: map[string]any{
 					"id":    res.ID.String(),
 					"files": fileCount,
 					"size":  fmt.Sprintf("%.2fKB", float64(totalSize)/1024),
@@ -694,7 +694,7 @@ func runListMode(app *appinit.Context, lockPath, _ string) error {
 
 		count++
 		data := e.Data.Data()
-		cfg, ok := data.(map[string]interface{})
+		cfg, ok := data.(map[string]any)
 		if !ok {
 			continue
 		}

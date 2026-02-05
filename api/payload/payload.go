@@ -58,6 +58,38 @@ type (
 		// Transcode converts the payload to a different format.
 		Transcode(Payload) (Payload, error)
 	}
+
+	// ContextFormatTranscoder optionally receives transcoding context for a step.
+	// Implement this when a transcoder needs access to the active parent transcoder
+	// (for nested payload conversion) or step metadata.
+	ContextFormatTranscoder interface {
+		// TranscodeWith converts payload using contextual metadata for this step.
+		TranscodeWith(*TranscodeContext, Payload) (Payload, error)
+	}
+
+	// TranscodeOptions carries optional hints for future transcoding features.
+	TranscodeOptions struct {
+		// TypeHint can point to a global type registry entry.
+		TypeHint string
+		// TargetKind can specify a platform-specific target hint.
+		TargetKind string
+		// Extras carries non-standard, optional metadata.
+		Extras map[string]any
+	}
+
+	// TranscodeContext describes the current transcoding step.
+	TranscodeContext struct {
+		// Parent is the active root transcoder executing this path.
+		Parent Transcoder
+		// From is the source format of the current step.
+		From Format
+		// To is the target format of the current step.
+		To Format
+		// Depth is the current step index (1-based) within the path.
+		Depth int
+		// Options is reserved for future type/driver hints.
+		Options *TranscodeOptions
+	}
 )
 
 // payload is a concrete implementation of the Payload interface.

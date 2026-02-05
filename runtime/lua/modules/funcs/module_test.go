@@ -9,8 +9,10 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
+	enginepayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/modules/future"
+	systempayload "github.com/wippyai/runtime/system/payload"
 )
 
 func TestModuleBuild(t *testing.T) {
@@ -179,6 +181,14 @@ func TestCallYieldHandleResult(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			l := lua.NewState()
 			defer l.Close()
+
+			root := ctxapi.NewRootContext()
+			ctx, fc := ctxapi.OpenFrameContext(root)
+			defer ctxapi.ReleaseFrameContext(fc)
+			transcoder := systempayload.NewTranscoder()
+			enginepayload.RegisterAllBasicFormats(transcoder)
+			ctx = payload.WithTranscoder(ctx, transcoder)
+			l.SetContext(ctx)
 
 			y := AcquireCallYield()
 			defer ReleaseCallYield(y)

@@ -9,9 +9,9 @@ import (
 var supervisorKey = &ctxapi.Key{Name: "supervisor"}
 
 // GetSupervisor retrieves the supervisor from the context.
-// Returns the supervisor as interface{} to avoid import cycles.
+// Returns the supervisor as any to avoid import cycles.
 // Callers should type-assert to *supervisor.Supervisor from system/supervisor package.
-func GetSupervisor(ctx context.Context) interface{} {
+func GetSupervisor(ctx context.Context) any {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return nil
@@ -20,7 +20,7 @@ func GetSupervisor(ctx context.Context) interface{} {
 }
 
 // WithSupervisor stores the supervisor in the context.
-func WithSupervisor(ctx context.Context, supervisor interface{}) context.Context {
+func WithSupervisor(ctx context.Context, supervisor any) context.Context {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac == nil {
 		return ctx

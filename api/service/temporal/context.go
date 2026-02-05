@@ -4,6 +4,7 @@ import (
 	"context"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/interceptor"
 )
 
@@ -13,6 +14,7 @@ var (
 	clientIDKey             = &ctxapi.Key{Name: "temporal.client.id"}
 	clientInterceptorRegKey = &ctxapi.Key{Name: "temporal.interceptor.client"}
 	workerInterceptorRegKey = &ctxapi.Key{Name: "temporal.interceptor.worker"}
+	dataConverterRegKey     = &ctxapi.Key{Name: "temporal.dataconverter.registry"}
 )
 
 // ClientInterceptorRegistry provides methods to register client interceptors
@@ -27,16 +29,37 @@ type WorkerInterceptorRegistry interface {
 	GetAll() []interceptor.WorkerInterceptor
 }
 
+// DataConverterRegistry provides methods to register payload codecs.
+type DataConverterRegistry interface {
+	RegisterCodec(codec converter.PayloadCodec)
+	Build() converter.DataConverter
+}
+
 // WithClientInterceptorRegistry stores the client interceptor registry in context
 func WithClientInterceptorRegistry(ctx context.Context, reg ClientInterceptorRegistry) context.Context {
-	return context.WithValue(ctx, clientInterceptorRegKey, reg)
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return context.WithValue(ctx, clientInterceptorRegKey, reg)
+	}
+	if ac.Get(clientInterceptorRegKey) == nil {
+		ac.With(clientInterceptorRegKey, reg)
+	}
+	return ctx
 }
 
 // GetClientInterceptorRegistry retrieves the client interceptor registry from context
 func GetClientInterceptorRegistry(ctx context.Context) ClientInterceptorRegistry {
-	if v := ctx.Value(clientInterceptorRegKey); v != nil {
-		if r, ok := v.(ClientInterceptorRegistry); ok {
-			return r
+	ac := ctxapi.AppFromContext(ctx)
+	if ac != nil {
+		if val := ac.Get(clientInterceptorRegKey); val != nil {
+			if reg, ok := val.(ClientInterceptorRegistry); ok {
+				return reg
+			}
+		}
+	}
+	if val := ctx.Value(clientInterceptorRegKey); val != nil {
+		if reg, ok := val.(ClientInterceptorRegistry); ok {
+			return reg
 		}
 	}
 	return nil
@@ -44,14 +67,59 @@ func GetClientInterceptorRegistry(ctx context.Context) ClientInterceptorRegistry
 
 // WithWorkerInterceptorRegistry stores the worker interceptor registry in context
 func WithWorkerInterceptorRegistry(ctx context.Context, reg WorkerInterceptorRegistry) context.Context {
-	return context.WithValue(ctx, workerInterceptorRegKey, reg)
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return context.WithValue(ctx, workerInterceptorRegKey, reg)
+	}
+	if ac.Get(workerInterceptorRegKey) == nil {
+		ac.With(workerInterceptorRegKey, reg)
+	}
+	return ctx
 }
 
 // GetWorkerInterceptorRegistry retrieves the worker interceptor registry from context
 func GetWorkerInterceptorRegistry(ctx context.Context) WorkerInterceptorRegistry {
-	if v := ctx.Value(workerInterceptorRegKey); v != nil {
-		if r, ok := v.(WorkerInterceptorRegistry); ok {
-			return r
+	ac := ctxapi.AppFromContext(ctx)
+	if ac != nil {
+		if val := ac.Get(workerInterceptorRegKey); val != nil {
+			if reg, ok := val.(WorkerInterceptorRegistry); ok {
+				return reg
+			}
+		}
+	}
+	if val := ctx.Value(workerInterceptorRegKey); val != nil {
+		if reg, ok := val.(WorkerInterceptorRegistry); ok {
+			return reg
+		}
+	}
+	return nil
+}
+
+// WithDataConverterRegistry stores the data converter registry in context.
+func WithDataConverterRegistry(ctx context.Context, reg DataConverterRegistry) context.Context {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return context.WithValue(ctx, dataConverterRegKey, reg)
+	}
+	if ac.Get(dataConverterRegKey) == nil {
+		ac.With(dataConverterRegKey, reg)
+	}
+	return ctx
+}
+
+// GetDataConverterRegistry retrieves the data converter registry from context.
+func GetDataConverterRegistry(ctx context.Context) DataConverterRegistry {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac != nil {
+		if val := ac.Get(dataConverterRegKey); val != nil {
+			if reg, ok := val.(DataConverterRegistry); ok {
+				return reg
+			}
+		}
+	}
+	if val := ctx.Value(dataConverterRegKey); val != nil {
+		if reg, ok := val.(DataConverterRegistry); ok {
+			return reg
 		}
 	}
 	return nil
@@ -64,13 +132,24 @@ func ActivityContextKey() *ctxapi.Key {
 
 // WithClientID stores the temporal client ID in context for peer routing
 func WithClientID(ctx context.Context, clientID string) context.Context {
+	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+		_ = fc.Set(clientIDKey, clientID)
+		return ctx
+	}
 	return context.WithValue(ctx, clientIDKey, clientID)
 }
 
 // GetClientID retrieves the temporal client ID from context
 func GetClientID(ctx context.Context) string {
-	if v := ctx.Value(clientIDKey); v != nil {
-		if s, ok := v.(string); ok {
+	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+		if val, ok := fc.Get(clientIDKey); ok {
+			if s, ok := val.(string); ok {
+				return s
+			}
+		}
+	}
+	if val := ctx.Value(clientIDKey); val != nil {
+		if s, ok := val.(string); ok {
 			return s
 		}
 	}

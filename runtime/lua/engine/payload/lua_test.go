@@ -1,11 +1,18 @@
 package payload
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
+	runtimeapi "github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/topology"
+	systempayload "github.com/wippyai/runtime/system/payload"
 )
 
 // MockTranscoder is a mock implementation of payload.Transcoder for testing.
@@ -41,7 +48,7 @@ func (m *MockTranscoder) Transcode(p payload.Payload, to payload.Format) (payloa
 	return nil, fmt.Errorf("no transcoder found for %s to %s", p.Format(), to)
 }
 
-func (m *MockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
+func (m *MockTranscoder) Unmarshal(p payload.Payload, v any) error {
 	if unmarshaler, ok := m.registeredUnmarshalers[p.Format()]; ok {
 		return unmarshaler.Unmarshal(p, v)
 	}
@@ -61,7 +68,7 @@ func TestLuaTranscodersAndUnmarshaler(t *testing.T) {
 	l.SetTable(tbl, lua.LString("age"), lua.LNumber(30))
 
 	// Test Golang -> Lua
-	golangPayload := payload.NewPayload(map[string]interface{}{"name": "Jane Doe", "age": 25}, payload.Golang)
+	golangPayload := payload.NewPayload(map[string]any{"name": "Jane Doe", "age": 25}, payload.Golang)
 	luaPayload, err := mockTranscoder.Transcode(golangPayload, payload.Lua)
 	if err != nil {
 		t.Fatalf("Error transcoding to Lua: %v", err)
@@ -82,9 +89,9 @@ func TestLuaTranscodersAndUnmarshaler(t *testing.T) {
 		t.Errorf("Expected Golang format, got %s", golangPayload.Format())
 	}
 
-	data, ok := golangPayload.Data().(map[string]interface{})
+	data, ok := golangPayload.Data().(map[string]any)
 	if !ok {
-		t.Fatalf("Expected map[string]interface{}, got %T", golangPayload.Data())
+		t.Fatalf("Expected map[string]any, got %T", golangPayload.Data())
 	}
 
 	if data["name"] != "John Doe" || int(data["age"].(float64)) != 30 {
@@ -113,7 +120,7 @@ type Address struct {
 }
 
 type Person struct {
-	InterfaceField interface{}     `lua:"interfaceField" json:"interfaceField"`
+	InterfaceField any             `lua:"interfaceField" json:"interfaceField"`
 	Roles          map[string]bool `lua:"roles" json:"roles"`
 	NonNilPointer  *int            `lua:"nonNilPointer" json:"nonNilPointer"`
 	NilPointer     *int            `lua:"nilPointer" json:"nilPointer"`
@@ -231,11 +238,11 @@ func TestLuaUnmarshalerRecursive(t *testing.T) {
 		t.Errorf("Expected InterfaceField to be not nil")
 	} else {
 		// Assert the type of the interface field's value
-		if _, ok := p.InterfaceField.(map[string]interface{}); !ok {
-			t.Errorf("Expected InterfaceField to be map[string]interface{}, got %T", p.InterfaceField)
+		if _, ok := p.InterfaceField.(map[string]any); !ok {
+			t.Errorf("Expected InterfaceField to be map[string]any, got %T", p.InterfaceField)
 		}
 		// Assert the content of the interface field's value (if needed)
-		innerMap, _ := p.InterfaceField.(map[string]interface{})
+		innerMap, _ := p.InterfaceField.(map[string]any)
 		if innerMap["innerKey"] != "innerValue" {
 			t.Errorf("Expected InterfaceField.innerKey to be 'innerValue', got '%s'", innerMap["innerKey"])
 		}
@@ -293,9 +300,9 @@ func TestLuaTranscoderNilAndEmptyValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error transcoding empty table: %v", err)
 	}
-	data, ok := golangPayload.Data().(map[string]interface{})
+	data, ok := golangPayload.Data().(map[string]any)
 	if !ok {
-		t.Fatalf("Expected map[string]interface{}, got %T", golangPayload.Data())
+		t.Fatalf("Expected map[string]any, got %T", golangPayload.Data())
 	}
 	if len(data) != 0 {
 		t.Errorf("Expected empty map, got %v", data)
@@ -326,7 +333,7 @@ func TestLuaTranscoderNilAndEmptyValues(t *testing.T) {
 	t.Logf("Golang payload: %v", golangPayload.Data())
 
 	// First try to unmarshal to a map to verify the structure
-	var mapData map[string]interface{}
+	var mapData map[string]any
 	err = mockTranscoder.Unmarshal(nilPtrPayload, &mapData)
 	if err != nil {
 		t.Fatalf("Error unmarshalling to map: %v", err)
@@ -365,5 +372,169 @@ func TestLuaTranscoderRegistration(t *testing.T) {
 	// Verify unmarshaler
 	if _, ok := mockTranscoder.registeredUnmarshalers[payload.Lua]; !ok {
 		t.Error("Lua unmarshaler not registered")
+	}
+}
+
+func TestFromGolang_NestedPayloadUsesParentTranscoder(t *testing.T) {
+	dtt := systempayload.NewTranscoder()
+	Register(dtt)
+
+	input := map[string]any{
+		"result": payload.NewPayload([]byte(`{"user_id":"u1","count":2}`), payload.JSON),
+	}
+
+	out, err := dtt.Transcode(payload.NewPayload(input, payload.Golang), payload.Lua)
+	if err != nil {
+		t.Fatalf("transcode failed: %v", err)
+	}
+
+	root, ok := out.Data().(*lua.LTable)
+	if !ok {
+		t.Fatalf("expected Lua table, got %T", out.Data())
+	}
+
+	resultVal := root.RawGetString("result")
+	resultTbl, ok := resultVal.(*lua.LTable)
+	if !ok {
+		t.Fatalf("expected result to be Lua table, got %T (%v)", resultVal, resultVal)
+	}
+
+	if got := resultTbl.RawGetString("user_id").String(); got != "u1" {
+		t.Fatalf("expected user_id=u1, got %s", got)
+	}
+	if got := resultTbl.RawGetString("count"); got.String() != "2" {
+		t.Fatalf("expected count=2, got %v", got)
+	}
+}
+
+func TestFromGolang_PreservesSpecialTypesInStructs(t *testing.T) {
+	dtt := systempayload.NewTranscoder()
+	Register(dtt)
+
+	type eventLike struct {
+		Wait time.Duration `json:"wait"`
+		At   time.Time     `json:"at"`
+		From pid.PID       `json:"from"`
+		Err  error         `json:"err"`
+	}
+
+	at := time.Date(2026, 2, 5, 12, 0, 0, 0, time.UTC)
+	wait := 3*time.Second + 250*time.Millisecond
+	input := eventLike{
+		At:   at,
+		Wait: wait,
+		From: pid.PID{Node: "node1", Host: "app:processes", UniqID: "abc123"},
+		Err:  errors.New("boom"),
+	}
+
+	out, err := dtt.Transcode(payload.NewPayload(input, payload.Golang), payload.Lua)
+	if err != nil {
+		t.Fatalf("transcode failed: %v", err)
+	}
+
+	root, ok := out.Data().(*lua.LTable)
+	if !ok {
+		t.Fatalf("expected Lua table, got %T", out.Data())
+	}
+
+	fromVal := root.RawGetString("from")
+	if fromVal.Type() != lua.LTString {
+		t.Fatalf("expected from to be string, got %s (%T)", fromVal.Type(), fromVal)
+	}
+	if got := fromVal.String(); got != "{node1@app:processes|abc123}" {
+		t.Fatalf("expected canonical pid string, got %s", got)
+	}
+
+	atVal := root.RawGetString("at")
+	if atVal.Type() != lua.LTNumber && atVal.Type() != lua.LTInteger {
+		t.Fatalf("expected at to be number/integer, got %s (%v)", atVal.Type(), atVal)
+	}
+	if got := atVal.String(); got != fmt.Sprintf("%d", at.Unix()) {
+		t.Fatalf("expected unix seconds %d, got %s", at.Unix(), got)
+	}
+
+	waitVal := root.RawGetString("wait")
+	if waitVal.Type() != lua.LTInteger {
+		t.Fatalf("expected wait to be integer, got %s (%v)", waitVal.Type(), waitVal)
+	}
+	if got := waitVal.String(); got != fmt.Sprintf("%d", wait.Nanoseconds()) {
+		t.Fatalf("expected duration nanoseconds %d, got %s", wait.Nanoseconds(), got)
+	}
+
+	errVal := root.RawGetString("err")
+	if errVal == lua.LNil {
+		t.Fatal("expected err field to be non-nil")
+	}
+	luaErr, ok := errVal.(*lua.Error)
+	if !ok {
+		t.Fatalf("expected err to be *lua.Error, got %T (%v)", errVal, errVal)
+	}
+	if got := luaErr.Error(); !strings.Contains(got, "boom") {
+		t.Fatalf("expected err to contain boom, got %s", got)
+	}
+}
+
+func TestFromGolang_TemporalExitEvent_NestedPayloads(t *testing.T) {
+	dtt := systempayload.NewTranscoder()
+	Register(dtt)
+
+	jsonResult := payload.NewPayload([]byte(`{"received":"hello from parent","status":"child done"}`), payload.JSON)
+	event := &topology.ExitEvent{
+		At:   time.Date(2026, 2, 5, 12, 0, 0, 0, time.UTC),
+		Kind: topology.Exit,
+		From: pid.PID{Node: "node1", Host: "test-queue", UniqID: "child-1"},
+		Result: &runtimeapi.Result{
+			Value: jsonResult,
+		},
+	}
+
+	out, err := dtt.Transcode(payload.NewPayload(event, payload.Golang), payload.Lua)
+	if err != nil {
+		t.Fatalf("transcode failed: %v", err)
+	}
+
+	root, ok := out.Data().(*lua.LTable)
+	if !ok {
+		t.Fatalf("expected Lua table, got %T", out.Data())
+	}
+
+	fromVal := root.RawGetString("from")
+	if fromVal.Type() != lua.LTString {
+		t.Fatalf("expected from string, got %s (%T)", fromVal.Type(), fromVal)
+	}
+	if got := fromVal.String(); got != "{node1@test-queue|child-1}" {
+		t.Fatalf("expected canonical pid string, got %s", got)
+	}
+
+	resultTbl, ok := root.RawGetString("result").(*lua.LTable)
+	if !ok {
+		t.Fatalf("expected result table, got %T", root.RawGetString("result"))
+	}
+	valueTbl, ok := resultTbl.RawGetString("value").(*lua.LTable)
+	if !ok {
+		t.Fatalf("expected result.value table, got %T (%v)", resultTbl.RawGetString("value"), resultTbl.RawGetString("value"))
+	}
+	if got := valueTbl.RawGetString("received").String(); got != "hello from parent" {
+		t.Fatalf("expected received field to decode as JSON table, got %s", got)
+	}
+	if got := valueTbl.RawGetString("status").String(); got != "child done" {
+		t.Fatalf("expected status field to decode as JSON table, got %s", got)
+	}
+
+	// Bytes payload should remain Lua string bytes, not stringified Go slice.
+	event.Result.Value = payload.NewPayload([]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}, payload.Bytes)
+	out, err = dtt.Transcode(payload.NewPayload(event, payload.Golang), payload.Lua)
+	if err != nil {
+		t.Fatalf("transcode failed for bytes payload: %v", err)
+	}
+
+	root = out.Data().(*lua.LTable)
+	resultTbl = root.RawGetString("result").(*lua.LTable)
+	bytesVal := resultTbl.RawGetString("value")
+	if bytesVal.Type() != lua.LTString {
+		t.Fatalf("expected result.value bytes to be Lua string, got %s (%T)", bytesVal.Type(), bytesVal)
+	}
+	if len([]byte(bytesVal.String())) != 16 {
+		t.Fatalf("expected 16 byte Lua string, got %d", len([]byte(bytesVal.String())))
 	}
 }

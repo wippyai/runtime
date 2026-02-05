@@ -75,7 +75,7 @@ func TestLoadFile(t *testing.T) {
 				FS:       root.FS(),
 			},
 			expectedOut: "file:///../outside.txt",
-			expectErr: func(t assert.TestingT, err error, i ...interface{}) bool {
+			expectErr: func(t assert.TestingT, err error, i ...any) bool {
 				return assert.ErrorIs(t, err, fs.ErrNotExist, i...)
 			},
 		},
@@ -87,7 +87,7 @@ func TestLoadFile(t *testing.T) {
 				FS:       root.FS(),
 			},
 			expectedOut: "file://../outside.txt",
-			expectErr: assert.ErrorAssertionFunc(func(t assert.TestingT, err error, i ...interface{}) bool {
+			expectErr: assert.ErrorAssertionFunc(func(t assert.TestingT, err error, i ...any) bool {
 				return assert.ErrorContains(t, err, "path traversal detected", i...)
 			}),
 		},

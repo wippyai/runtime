@@ -348,7 +348,7 @@ func (r *Registry) setValue(ctx context.Context, variable *env.Variable, value s
 func (r *Registry) All(ctx context.Context) (map[string]string, error) {
 	result := make(map[string]string)
 
-	r.storages.Range(func(key, value interface{}) bool {
+	r.storages.Range(func(key, value any) bool {
 		storage, ok := value.(env.Storage)
 		if !ok {
 			return true

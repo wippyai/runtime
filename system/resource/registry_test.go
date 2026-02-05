@@ -24,20 +24,20 @@ func setupTest() (*Registry, event.Bus) {
 }
 
 type mockResourceProvider struct {
-	resources       map[registry.ID]interface{}
+	resources       map[registry.ID]any
 	lockedResources map[registry.ID]struct{}
 	mu              sync.RWMutex
 }
 
 func newMockResourceProvider() *mockResourceProvider {
 	return &mockResourceProvider{
-		resources:       make(map[registry.ID]interface{}),
+		resources:       make(map[registry.ID]any),
 		lockedResources: make(map[registry.ID]struct{}),
 	}
 }
 
 type mockResource struct {
-	data     interface{}
+	data     any
 	provider *mockResourceProvider
 	id       registry.ID
 	mu       sync.RWMutex
@@ -132,7 +132,7 @@ func TestService_ResourceLifecycle(t *testing.T) {
 	entry := resource.Entry{
 		ID:       id,
 		Provider: provider,
-		Meta:     map[string]interface{}{"type": "test"},
+		Meta:     map[string]any{"type": "test"},
 	}
 
 	// Initialize the provider with the resource
@@ -209,7 +209,7 @@ func TestService_ResourceAccess(t *testing.T) {
 	entry := resource.Entry{
 		ID:       id,
 		Provider: provider,
-		Meta:     map[string]interface{}{"type": "test"},
+		Meta:     map[string]any{"type": "test"},
 	}
 
 	bus.Send(ctx, event.Event{
@@ -288,7 +288,7 @@ func TestService_ContextCancellation(t *testing.T) {
 	entry := resource.Entry{
 		ID:       id,
 		Provider: provider,
-		Meta:     map[string]interface{}{"type": "test"},
+		Meta:     map[string]any{"type": "test"},
 	}
 
 	bus.Send(ctx, event.Event{
@@ -342,7 +342,7 @@ func TestService_ResourceListing(t *testing.T) {
 		entry := resource.Entry{
 			ID:       id,
 			Provider: provider,
-			Meta:     map[string]interface{}{"type": "test"},
+			Meta:     map[string]any{"type": "test"},
 		}
 
 		bus.Send(ctx, event.Event{
@@ -399,7 +399,7 @@ func TestService_UpdateResource(t *testing.T) {
 	entry := resource.Entry{
 		ID:       id,
 		Provider: provider,
-		Meta:     map[string]interface{}{"version": "1.0"},
+		Meta:     map[string]any{"version": "1.0"},
 	}
 
 	bus.Send(ctx, event.Event{
@@ -414,7 +414,7 @@ func TestService_UpdateResource(t *testing.T) {
 		updatedEntry := resource.Entry{
 			ID:       id,
 			Provider: provider,
-			Meta:     map[string]interface{}{"version": "2.0"},
+			Meta:     map[string]any{"version": "2.0"},
 		}
 
 		bus.Send(ctx, event.Event{
@@ -434,7 +434,7 @@ func TestService_UpdateResource(t *testing.T) {
 		updatedEntry := resource.Entry{
 			ID:       nonExistentID,
 			Provider: provider,
-			Meta:     map[string]interface{}{"version": "1.0"},
+			Meta:     map[string]any{"version": "1.0"},
 		}
 
 		bus.Send(ctx, event.Event{
@@ -563,7 +563,7 @@ func TestService_ResourceUpdateScenarios(t *testing.T) {
 	entry := resource.Entry{
 		ID:       id,
 		Provider: provider,
-		Meta:     map[string]interface{}{"type": "test", "version": 1},
+		Meta:     map[string]any{"type": "test", "version": 1},
 	}
 
 	bus.Send(ctx, event.Event{
@@ -584,7 +584,7 @@ func TestService_ResourceUpdateScenarios(t *testing.T) {
 		Data: resource.Entry{
 			ID:       nonExistentID,
 			Provider: provider,
-			Meta:     map[string]interface{}{"type": "test"},
+			Meta:     map[string]any{"type": "test"},
 		},
 	})
 
@@ -592,7 +592,7 @@ func TestService_ResourceUpdateScenarios(t *testing.T) {
 	updatedEntry := resource.Entry{
 		ID:       id,
 		Provider: provider,
-		Meta:     map[string]interface{}{"type": "test", "version": 2},
+		Meta:     map[string]any{"type": "test", "version": 2},
 	}
 
 	bus.Send(ctx, event.Event{
@@ -627,7 +627,7 @@ func TestService_ResourceAcquisitionEdgeCases(t *testing.T) {
 	entry := resource.Entry{
 		ID:       id,
 		Provider: provider,
-		Meta:     map[string]interface{}{"type": "test"},
+		Meta:     map[string]any{"type": "test"},
 	}
 
 	bus.Send(ctx, event.Event{
@@ -678,7 +678,7 @@ func TestService_ResourceListingEdgeCases(t *testing.T) {
 		entry := resource.Entry{
 			ID:       id,
 			Provider: provider,
-			Meta:     map[string]interface{}{"type": "test"},
+			Meta:     map[string]any{"type": "test"},
 		}
 
 		bus.Send(ctx, event.Event{
@@ -730,7 +730,7 @@ func TestService_AcquireProviderError(t *testing.T) {
 	entry := resource.Entry{
 		ID:       id,
 		Provider: provider,
-		Meta:     map[string]interface{}{"type": "test"},
+		Meta:     map[string]any{"type": "test"},
 	}
 
 	bus.Send(ctx, event.Event{
@@ -779,7 +779,7 @@ func TestService_DeleteBorrowedResource(t *testing.T) {
 	entry := resource.Entry{
 		ID:       id,
 		Provider: provider,
-		Meta:     map[string]interface{}{"type": "test"},
+		Meta:     map[string]any{"type": "test"},
 	}
 
 	bus.Send(ctx, event.Event{

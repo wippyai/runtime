@@ -3,8 +3,8 @@ package workflow
 import (
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/payload"
 	workflowapi "github.com/wippyai/runtime/api/runtime/workflow"
-	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 )
 
 // ExecYield is yielded when executing a child workflow.
@@ -58,16 +58,44 @@ func (y *ExecYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 		return []lua.LValue{lua.LNil, luaErr}
 	}
 
-	// Convert payload to Lua value
 	if result.Value != nil {
-		lv, convErr := luaconv.GoToLua(result.Value.Data())
-		if convErr != nil {
-			luaErr := lua.WrapErrorWithLua(l, convErr, "failed to convert result").
+		if result.Value.Format() == payload.Lua {
+			if lv, ok := result.Value.Data().(lua.LValue); ok {
+				return []lua.LValue{lv, lua.LNil}
+			}
+		}
+
+		ctx := l.Context()
+		if ctx == nil {
+			luaErr := lua.NewLuaError(l, "no context available").
 				WithKind(lua.Internal).
 				WithRetryable(false)
 			return []lua.LValue{lua.LNil, luaErr}
 		}
-		return []lua.LValue{lv, lua.LNil}
+
+		dtt := payload.GetTranscoder(ctx)
+		if dtt == nil {
+			luaErr := lua.NewLuaError(l, "transcoder not found").
+				WithKind(lua.Internal).
+				WithRetryable(false)
+			return []lua.LValue{lua.LNil, luaErr}
+		}
+
+		luaPayload, err := dtt.Transcode(result.Value, payload.Lua)
+		if err != nil {
+			luaErr := lua.WrapErrorWithLua(l, err, "failed to transcode result").
+				WithKind(lua.Internal).
+				WithRetryable(false)
+			return []lua.LValue{lua.LNil, luaErr}
+		}
+		if lv, ok := luaPayload.Data().(lua.LValue); ok {
+			return []lua.LValue{lv, lua.LNil}
+		}
+
+		luaErr := lua.NewLuaError(l, "transcoded data is not a valid Lua value").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		return []lua.LValue{lua.LNil, luaErr}
 	}
 	return []lua.LValue{lua.LNil, lua.LNil}
 }

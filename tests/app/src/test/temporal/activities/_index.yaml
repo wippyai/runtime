@@ -1,0 +1,45 @@
+version: "1.0"
+namespace: app.test.temporal.activities
+
+entries:
+  # Echo activity - simple echo for testing
+  - name: echo_activity
+    kind: function.lua
+    source: file://echo_activity.lua
+    method: main
+    meta:
+      temporal:
+        activity:
+          worker: app.test.temporal:test_worker
+
+  # ProcessData activity - processes data with id and name
+  - name: process_data
+    kind: function.lua
+    source: file://process_data.lua
+    method: main
+    meta:
+      temporal:
+        activity:
+          worker: app.test.temporal:test_worker
+
+  # Error activity - activity that returns an error with specific kind
+  - name: error_activity
+    kind: function.lua
+    source: file://error_activity.lua
+    method: main
+    meta:
+      temporal:
+        activity:
+          worker: app.test.temporal:test_worker
+
+  # Context activity - reads and returns context values
+  - name: ctx_activity
+    kind: function.lua
+    source: file://ctx_activity.lua
+    method: main
+    modules:
+      - ctx
+    meta:
+      temporal:
+        activity:
+          worker: app.test.temporal:test_worker

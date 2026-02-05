@@ -11,6 +11,7 @@ import (
 	commonpb "go.temporal.io/api/common/v1"
 	bindings "go.temporal.io/sdk/internalbindings"
 	"go.temporal.io/sdk/workflow"
+	"go.uber.org/zap"
 )
 
 // Default timeouts for activity execution
@@ -83,23 +84,16 @@ func (d *Definition) executeSideEffect(cmd *workflowapi.SideEffectCmd, tag uint6
 			d.resumeProcess(tag, workflowapi.Result{Error: temporalerrors.FromTemporalError(err)}, nil)
 			return
 		}
-		var p payload.Payload
-		if err := d.dc.FromPayloads(result, &p); err == nil {
-			if p.Format() == payload.Bytes {
-				if data, ok := p.Data().([]byte); ok {
-					d.resumeProcess(tag, workflowapi.Result{Value: string(data)}, nil)
-					return
-				}
-			}
-			d.resumeProcess(tag, workflowapi.Result{Value: p.Data()}, nil)
-			return
-		}
-		var value any
-		if err := d.dc.FromPayloads(result, &value); err != nil {
+		var values payload.Payloads
+		if err := d.dc.FromPayloads(result, &values); err != nil {
 			d.resumeProcess(tag, workflowapi.Result{Error: temporalerrors.FromTemporalError(err)}, nil)
 			return
 		}
-		d.resumeProcess(tag, workflowapi.Result{Value: value}, nil)
+		if len(values) > 0 {
+			d.resumeProcess(tag, workflowapi.Result{Value: values[0]}, nil)
+			return
+		}
+		d.resumeProcess(tag, workflowapi.Result{}, nil)
 	})
 	return nil
 }
@@ -180,6 +174,11 @@ func (d *Definition) executeWorkflowExec(cmd *workflowapi.ExecCmd, tag uint64) e
 			return
 		}
 		if len(values) > 0 {
+			if values[0] != nil {
+				d.replayLog.Debug("decoded workflow.exec result",
+					zap.String("workflow", workflowName),
+					zap.String("format", values[0].Format()))
+			}
 			d.resumeProcess(tag, workflowapi.ExecResult{Value: values[0]}, nil)
 		} else {
 			d.resumeProcess(tag, workflowapi.ExecResult{}, nil)

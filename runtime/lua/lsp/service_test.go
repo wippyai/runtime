@@ -20,6 +20,8 @@ func newTestService(t *testing.T) (*Service, *eventbus.Bus) {
 	bus := eventbus.NewBus()
 	log := zap.NewNop()
 	cfg := DefaultConfig()
+	cfg.Enabled = true
+	cfg.Address = "127.0.0.1:0"
 
 	svc := New(cfg, log, bus, nil)
 	return svc, bus
@@ -78,6 +80,32 @@ func TestService_StopTwice(t *testing.T) {
 
 	err = svc.Stop()
 	require.NoError(t, err)
+
+	err = svc.Stop()
+	require.NoError(t, err)
+}
+
+func TestService_StartWithCanceledContextDoesNotLeaveRunningState(t *testing.T) {
+	svc, bus := newTestService(t)
+	defer bus.Stop()
+
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := svc.Start(canceledCtx)
+	require.NoError(t, err)
+
+	svc.mu.RLock()
+	running := svc.running
+	lspSvc := svc.lspService
+	svc.mu.RUnlock()
+
+	assert.False(t, running)
+	assert.Nil(t, lspSvc)
+
+	err = svc.Start(context.Background())
+	require.NoError(t, err)
+	assert.NotNil(t, svc.LSPService())
 
 	err = svc.Stop()
 	require.NoError(t, err)
@@ -222,19 +250,40 @@ func TestService_EventsDuringShutdown(t *testing.T) {
 
 func TestConfig_Validate(t *testing.T) {
 	tests := []struct {
-		name     string
-		wantAddr string
-		cfg      Config
+		name           string
+		wantAddr       string
+		wantMax        int
+		wantHTTPAddr   string
+		wantHTTPPath   string
+		wantHTTPOrigin string
+		cfg            Config
 	}{
 		{
-			name:     "valid address",
-			cfg:      Config{Address: ":8080"},
-			wantAddr: ":8080",
+			name:           "valid address",
+			cfg:            Config{Address: ":8080"},
+			wantAddr:       ":8080",
+			wantMax:        DefaultMaxMessageBytes,
+			wantHTTPAddr:   DefaultHTTPAddress,
+			wantHTTPPath:   DefaultHTTPPath,
+			wantHTTPOrigin: DefaultHTTPAllowOrigin,
 		},
 		{
-			name:     "empty address gets default",
-			cfg:      Config{Address: ""},
-			wantAddr: DefaultAddress,
+			name:           "empty address gets default",
+			cfg:            Config{Address: ""},
+			wantAddr:       DefaultAddress,
+			wantMax:        DefaultMaxMessageBytes,
+			wantHTTPAddr:   DefaultHTTPAddress,
+			wantHTTPPath:   DefaultHTTPPath,
+			wantHTTPOrigin: DefaultHTTPAllowOrigin,
+		},
+		{
+			name:           "invalid max gets default",
+			cfg:            Config{MaxMessageBytes: -1},
+			wantAddr:       DefaultAddress,
+			wantMax:        DefaultMaxMessageBytes,
+			wantHTTPAddr:   DefaultHTTPAddress,
+			wantHTTPPath:   DefaultHTTPPath,
+			wantHTTPOrigin: DefaultHTTPAllowOrigin,
 		},
 	}
 
@@ -242,6 +291,10 @@ func TestConfig_Validate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.cfg.Validate()
 			assert.Equal(t, tt.wantAddr, tt.cfg.Address)
+			assert.Equal(t, tt.wantMax, tt.cfg.MaxMessageBytes)
+			assert.Equal(t, tt.wantHTTPAddr, tt.cfg.HTTPAddress)
+			assert.Equal(t, tt.wantHTTPPath, tt.cfg.HTTPPath)
+			assert.Equal(t, tt.wantHTTPOrigin, tt.cfg.HTTPAllowOrigin)
 		})
 	}
 }
@@ -250,6 +303,11 @@ func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	assert.False(t, cfg.Enabled)
 	assert.Equal(t, DefaultAddress, cfg.Address)
+	assert.Equal(t, DefaultMaxMessageBytes, cfg.MaxMessageBytes)
+	assert.False(t, cfg.HTTPEnabled)
+	assert.Equal(t, DefaultHTTPAddress, cfg.HTTPAddress)
+	assert.Equal(t, DefaultHTTPPath, cfg.HTTPPath)
+	assert.Equal(t, DefaultHTTPAllowOrigin, cfg.HTTPAllowOrigin)
 }
 
 func TestService_NilBus(t *testing.T) {

@@ -36,7 +36,7 @@ type Message struct {
 }
 
 var messagePool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return &Message{
 			Headers: attrs.NewBag(),
 		}

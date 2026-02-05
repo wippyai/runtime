@@ -60,13 +60,13 @@ type Export struct {
 // It supports both single entry and batch entries formats, with common
 // metadata that can be applied to all entries in a file.
 type FileContent struct {
-	Meta       attrs.Bag                `json:"meta,omitempty" yaml:"meta,omitempty"`
-	Data       map[string]interface{}   `json:",inline"`
-	Version    string                   `json:"version,omitempty" yaml:"version,omitempty"`
-	Namespace  string                   `json:"namespace"`
-	Name       string                   `json:"name,omitempty" yaml:"name,omitempty"`
-	Kind       string                   `json:"kind,omitempty" yaml:"kind,omitempty"`
-	RawEntries []map[string]interface{} `json:"entries,omitempty" yaml:"entries,omitempty"`
+	Meta       attrs.Bag        `json:"meta,omitempty" yaml:"meta,omitempty"`
+	Data       map[string]any   `json:",inline"`
+	Version    string           `json:"version,omitempty" yaml:"version,omitempty"`
+	Namespace  string           `json:"namespace"`
+	Name       string           `json:"name,omitempty" yaml:"name,omitempty"`
+	Kind       string           `json:"kind,omitempty" yaml:"kind,omitempty"`
+	RawEntries []map[string]any `json:"entries,omitempty" yaml:"entries,omitempty"`
 }
 
 // EntryProcessor handles the processing of registry entries
@@ -145,7 +145,7 @@ func (ep *EntryProcessor) processBatchEntries(ctx context.Context, content *File
 }
 
 // processRawEntry processes a single raw entry from the batch
-func (ep *EntryProcessor) processRawEntry(_ context.Context, content *FileContent, rawEntry map[string]interface{}, index int) (registry.Entry, error) {
+func (ep *EntryProcessor) processRawEntry(_ context.Context, content *FileContent, rawEntry map[string]any, index int) (registry.Entry, error) {
 	// Validate required fields
 	if err := ep.validator.ValidateRawEntry(rawEntry, index); err != nil {
 		return registry.Entry{}, err
@@ -205,7 +205,7 @@ func (ep *EntryProcessor) processSingleEntry(_ context.Context, content *FileCon
 }
 
 // extractMetadata extracts metadata from a raw entry
-func (ep *EntryProcessor) extractMetadata(rawEntry map[string]interface{}) attrs.Bag {
+func (ep *EntryProcessor) extractMetadata(rawEntry map[string]any) attrs.Bag {
 	if metaRaw, ok := rawEntry["meta"]; ok && metaRaw != nil {
 		if metaMap, ok := metaRaw.(map[string]any); ok {
 			return metaMap
@@ -215,7 +215,7 @@ func (ep *EntryProcessor) extractMetadata(rawEntry map[string]interface{}) attrs
 }
 
 // extractDataFields extracts data fields from raw entry, excluding structural fields
-func (ep *EntryProcessor) extractDataFields(rawEntry map[string]interface{}) map[string]interface{} {
+func (ep *EntryProcessor) extractDataFields(rawEntry map[string]any) map[string]any {
 	excluded := map[string]bool{
 		"name": true,
 		"kind": true,
@@ -223,7 +223,7 @@ func (ep *EntryProcessor) extractDataFields(rawEntry map[string]interface{}) map
 		"data": true,
 	}
 
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 	for k, v := range rawEntry {
 		if !excluded[k] {
 			result[k] = v
@@ -233,7 +233,7 @@ func (ep *EntryProcessor) extractDataFields(rawEntry map[string]interface{}) map
 }
 
 // extractCustomFields extracts custom fields from FileContent.Data, excluding structural fields
-func (ep *EntryProcessor) extractCustomFields(data map[string]interface{}) map[string]interface{} {
+func (ep *EntryProcessor) extractCustomFields(data map[string]any) map[string]any {
 	excluded := map[string]bool{
 		"namespace":    true,
 		"name":         true,
@@ -244,7 +244,7 @@ func (ep *EntryProcessor) extractCustomFields(data map[string]interface{}) map[s
 		"entries":      true,
 	}
 
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 	for k, v := range data {
 		if !excluded[k] {
 			result[k] = v
@@ -308,7 +308,7 @@ func (ev *EntryValidator) ValidateFileContent(content *FileContent) error {
 }
 
 // ValidateRawEntry validates a single raw entry
-func (ev *EntryValidator) ValidateRawEntry(rawEntry map[string]interface{}, index int) error {
+func (ev *EntryValidator) ValidateRawEntry(rawEntry map[string]any, index int) error {
 	if rawEntry == nil {
 		return &ValidationError{Field: "entry", Message: "entry cannot be nil", Index: index}
 	}

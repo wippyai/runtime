@@ -14,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	workflowapi "github.com/wippyai/runtime/api/runtime/workflow"
 	"github.com/wippyai/runtime/api/topology"
+	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
 	commonpb "go.temporal.io/api/common/v1"
 	bindings "go.temporal.io/sdk/internalbindings"
 	"go.uber.org/zap"
@@ -25,14 +26,18 @@ func (d *Definition) OnWorkflowTaskStarted(_ time.Duration) {
 		var events []process.Event
 		if len(d.signals) > 0 {
 			for _, sig := range d.signals {
+				pkg := &relay.Package{
+					Messages: []*relay.Message{{
+						Topic:    sig.Name,
+						Payloads: sig.Payloads,
+					}},
+				}
+				if sig.From.UniqID != "" || sig.From.Host != "" || sig.From.Node != "" {
+					pkg.Source = sig.From
+				}
 				events = append(events, process.Event{
 					Type: process.EventMessage,
-					Data: &relay.Package{
-						Messages: []*relay.Message{{
-							Topic:    sig.Name,
-							Payloads: sig.Payloads,
-						}},
-					},
+					Data: pkg,
 				})
 			}
 			d.signals = d.signals[:0]
@@ -90,7 +95,7 @@ func (d *Definition) OnWorkflowTaskStarted(_ time.Duration) {
 		}
 
 		if err != nil {
-			d.env.Complete(nil, fmt.Errorf("workflow step failed: %w", err))
+			d.env.Complete(nil, temporalerrors.ToApplicationError(err))
 			return
 		}
 
@@ -102,7 +107,7 @@ func (d *Definition) OnWorkflowTaskStarted(_ time.Duration) {
 				}
 				if err := d.executeCommand(y.Cmd, y.Tag); err != nil {
 					d.completed = true
-					d.env.Complete(nil, fmt.Errorf("failed to execute command: %w", err))
+					d.env.Complete(nil, temporalerrors.ToApplicationError(err))
 				}
 			})
 			return
@@ -134,7 +139,7 @@ func (d *Definition) OnWorkflowTaskStarted(_ time.Duration) {
 				}
 				if err := d.executeCommand(y.Cmd, y.Tag); err != nil {
 					d.completed = true
-					d.env.Complete(nil, fmt.Errorf("failed to execute command: %w", err))
+					d.env.Complete(nil, temporalerrors.ToApplicationError(err))
 				}
 			})
 		}
@@ -248,7 +253,7 @@ func (d *Definition) resumeProcess(tag uint64, data any, err error) {
 			}
 			if err := d.executeCommand(y.Cmd, y.Tag); err != nil {
 				d.completed = true
-				d.env.Complete(nil, fmt.Errorf("failed to execute command: %w", err))
+				d.env.Complete(nil, temporalerrors.ToApplicationError(err))
 			}
 		})
 	case process.StepUpgrade:
