@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
 	enumspb "go.temporal.io/api/enums/v1"
+	"go.temporal.io/sdk/client"
 	bindings "go.temporal.io/sdk/internalbindings"
 	"go.temporal.io/sdk/temporal"
 )
@@ -87,7 +88,6 @@ func TestApplyChildWorkflowOptions_AllMappedFields(t *testing.T) {
 	})
 	bag.Set(OptionWorkflowCronSchedule, "*/5 * * * *")
 	bag.Set(OptionWorkflowMemo, map[string]any{"req": "1"})
-	bag.Set(OptionWorkflowSearchAttributes, map[string]any{"CustomKeywordField": "tenant-a"})
 	bag.Set(OptionWorkflowTypedSearchAttributes, typedSearchAttributes)
 	bag.Set(OptionWorkflowStaticSummary, "child summary")
 	bag.Set(OptionWorkflowStaticDetails, "child details")
@@ -121,7 +121,6 @@ func TestApplyChildWorkflowOptions_AllMappedFields(t *testing.T) {
 	assert.Equal(t, "Validation", params.RetryPolicy.NonRetryableErrorTypes[0])
 	assert.Equal(t, "*/5 * * * *", params.CronSchedule)
 	assert.Equal(t, map[string]any{"req": "1"}, params.Memo)
-	assert.Equal(t, map[string]any{"CustomKeywordField": "tenant-a"}, params.SearchAttributes)
 	assert.Equal(t, typedSearchAttributes, params.TypedSearchAttributes)
 	assert.Equal(t, "child summary", params.StaticSummary)
 	assert.Equal(t, "child details", params.StaticDetails)
@@ -135,4 +134,58 @@ func TestApplyChildWorkflowOptions_AllMappedFields(t *testing.T) {
 	expectedWorkflowIntent, err := parseVersioningIntent("test.intent", "default")
 	require.NoError(t, err)
 	assert.Equal(t, expectedWorkflowIntent, params.VersioningIntent)
+}
+
+func TestApplyStartWorkflowOptions_LegacyAliasFallback(t *testing.T) {
+	bag := attrs.NewBag()
+	bag.Set("temporal.workflow.task_queue", "legacy-start-queue")
+	bag.Set("temporal.workflow.static_summary", "legacy summary")
+
+	opts := &client.StartWorkflowOptions{}
+	_, err := ApplyStartWorkflowOptions(opts, bag)
+	require.NoError(t, err)
+
+	assert.Equal(t, "legacy-start-queue", opts.TaskQueue)
+	assert.Equal(t, "legacy summary", opts.StaticSummary)
+}
+
+func TestApplyStartWorkflowOptions_CanonicalPrecedenceOverLegacy(t *testing.T) {
+	bag := attrs.NewBag()
+	bag.Set(OptionWorkflowTaskQueue, "canonical-start-queue")
+	bag.Set("temporal.workflow.task_queue", "legacy-start-queue")
+
+	opts := &client.StartWorkflowOptions{}
+	_, err := ApplyStartWorkflowOptions(opts, bag)
+	require.NoError(t, err)
+
+	assert.Equal(t, "canonical-start-queue", opts.TaskQueue)
+}
+
+func TestApplyActivityOptions_CanonicalPrecedenceOverLegacy(t *testing.T) {
+	bag := attrs.NewBag()
+	bag.Set(OptionActivityTaskQueue, "canonical-activity-queue")
+	bag.Set("temporal.activity.task_queue", "legacy-activity-queue")
+
+	opts := &bindings.ExecuteActivityOptions{}
+	err := ApplyActivityOptions(opts, bag)
+	require.NoError(t, err)
+
+	assert.Equal(t, "canonical-activity-queue", opts.TaskQueueName)
+}
+
+func TestApplyChildWorkflowOptions_LegacyTypedSearchAttributesAlias(t *testing.T) {
+	typedSearchAttributes := temporal.NewSearchAttributes(
+		temporal.NewSearchAttributeKeyKeyword("LegacyAliasField").ValueSet("alias-value"),
+	)
+
+	bag := attrs.NewBag()
+	bag.Set("temporal.workflow.typed_search_attributes", typedSearchAttributes)
+
+	params := &bindings.ExecuteWorkflowParams{
+		WorkflowOptions: bindings.WorkflowOptions{TaskQueueName: "default-queue"},
+	}
+	err := ApplyChildWorkflowOptions(params, bag)
+	require.NoError(t, err)
+
+	assert.Equal(t, typedSearchAttributes, params.TypedSearchAttributes)
 }

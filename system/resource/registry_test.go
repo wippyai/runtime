@@ -145,7 +145,9 @@ func TestService_ResourceLifecycle(t *testing.T) {
 		Data:   entry,
 	})
 
-	time.Sleep(10 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		return service.Exists(id)
+	}, 500*time.Millisecond, 5*time.Millisecond)
 	assert.True(t, service.Exists(id))
 
 	// Test concurrent access with normal mode

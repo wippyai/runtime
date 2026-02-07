@@ -18,47 +18,93 @@ import (
 )
 
 const (
-	OptionWorkflowID                               = "temporal.workflow.id"
-	OptionWorkflowTaskQueue                        = "temporal.workflow.task_queue"
-	OptionWorkflowExecutionTimeout                 = "temporal.workflow.execution_timeout"
-	OptionWorkflowRunTimeout                       = "temporal.workflow.run_timeout"
-	OptionWorkflowTaskTimeout                      = "temporal.workflow.task_timeout"
-	OptionWorkflowIDConflictPolicy                 = "temporal.workflow.id_conflict_policy"
-	OptionWorkflowIDReusePolicy                    = "temporal.workflow.id_reuse_policy"
-	OptionWorkflowExecutionErrorWhenAlreadyStarted = "temporal.workflow.execution_error_when_already_started"
-	OptionWorkflowRetryPolicy                      = "temporal.workflow.retry_policy"
-	OptionWorkflowCronSchedule                     = "temporal.workflow.cron_schedule"
-	OptionWorkflowMemo                             = "temporal.workflow.memo"
-	OptionWorkflowSearchAttributes                 = "temporal.workflow.search_attributes"
-	OptionWorkflowTypedSearchAttributes            = "temporal.workflow.typed_search_attributes"
-	OptionWorkflowEnableEagerStart                 = "temporal.workflow.enable_eager_start"
-	OptionWorkflowStartDelay                       = "temporal.workflow.start_delay"
-	OptionWorkflowStaticSummary                    = "temporal.workflow.static_summary"
-	OptionWorkflowStaticDetails                    = "temporal.workflow.static_details"
-	OptionWorkflowVersioningOverride               = "temporal.workflow.versioning_override"
-	OptionWorkflowPriority                         = "temporal.workflow.priority"
+	OptionWorkflowID                               = "workflow.id"
+	OptionWorkflowTaskQueue                        = "workflow.task_queue"
+	OptionWorkflowExecutionTimeout                 = "workflow.execution_timeout"
+	OptionWorkflowRunTimeout                       = "workflow.run_timeout"
+	OptionWorkflowTaskTimeout                      = "workflow.task_timeout"
+	OptionWorkflowIDConflictPolicy                 = "workflow.id_conflict_policy"
+	OptionWorkflowIDReusePolicy                    = "workflow.id_reuse_policy"
+	OptionWorkflowExecutionErrorWhenAlreadyStarted = "workflow.execution_error_when_already_started"
+	OptionWorkflowRetryPolicy                      = "workflow.retry_policy"
+	OptionWorkflowCronSchedule                     = "workflow.cron_schedule"
+	OptionWorkflowMemo                             = "workflow.memo"
+	OptionWorkflowSearchAttributes                 = "workflow.search_attributes"
+	OptionWorkflowTypedSearchAttributes            = OptionWorkflowSearchAttributes
+	OptionWorkflowEnableEagerStart                 = "workflow.enable_eager_start"
+	OptionWorkflowStartDelay                       = "workflow.start_delay"
+	OptionWorkflowStaticSummary                    = "workflow.summary"
+	OptionWorkflowStaticDetails                    = "workflow.details"
+	OptionWorkflowVersioningOverride               = "workflow.versioning_override"
+	OptionWorkflowPriority                         = "workflow.priority"
 
-	OptionWorkflowNamespace           = "temporal.workflow.namespace"
-	OptionWorkflowWaitForCancellation = "temporal.workflow.wait_for_cancellation"
-	OptionWorkflowParentClosePolicy   = "temporal.workflow.parent_close_policy"
-	OptionWorkflowVersioningIntent    = "temporal.workflow.versioning_intent"
+	OptionWorkflowNamespace           = "workflow.namespace"
+	OptionWorkflowWaitForCancellation = "workflow.wait_for_cancellation"
+	OptionWorkflowParentClosePolicy   = "workflow.parent_close_policy"
+	OptionWorkflowVersioningIntent    = "workflow.versioning_intent"
 
-	OptionActivityID               = "temporal.activity.id"
-	OptionActivityTaskQueue        = "temporal.activity.task_queue"
-	OptionActivityScheduleToClose  = "temporal.activity.schedule_to_close_timeout"
-	OptionActivityScheduleToStart  = "temporal.activity.schedule_to_start_timeout"
-	OptionActivityStartToClose     = "temporal.activity.start_to_close_timeout"
-	OptionActivityHeartbeatTimeout = "temporal.activity.heartbeat_timeout"
-	OptionActivityWaitForCancel    = "temporal.activity.wait_for_cancellation"
-	OptionActivityRetryPolicy      = "temporal.activity.retry_policy"
-	OptionActivityDisableEager     = "temporal.activity.disable_eager_execution"
-	OptionActivityVersioningIntent = "temporal.activity.versioning_intent"
-	OptionActivitySummary          = "temporal.activity.summary"
-	OptionActivityPriority         = "temporal.activity.priority"
+	OptionActivityID               = "activity.id"
+	OptionActivityTaskQueue        = "activity.task_queue"
+	OptionActivityScheduleToClose  = "activity.schedule_to_close_timeout"
+	OptionActivityScheduleToStart  = "activity.schedule_to_start_timeout"
+	OptionActivityStartToClose     = "activity.start_to_close_timeout"
+	OptionActivityHeartbeatTimeout = "activity.heartbeat_timeout"
+	OptionActivityWaitForCancel    = "activity.wait_for_cancellation"
+	OptionActivityRetryPolicy      = "activity.retry_policy"
+	OptionActivityDisableEager     = "activity.disable_eager_execution"
+	OptionActivityVersioningIntent = "activity.versioning_intent"
+	OptionActivitySummary          = "activity.summary"
+	OptionActivityPriority         = "activity.priority"
+
+	legacyWorkflowSearchAttributes      = "temporal.workflow.search_attributes"
+	legacyWorkflowTypedSearchAttributes = "temporal.workflow.typed_search_attributes"
+	legacyWorkflowStaticSummary         = "temporal.workflow.static_summary"
+	legacyWorkflowStaticDetails         = "temporal.workflow.static_details"
 
 	WorkflowVersioningOverrideModePinned      = "pinned"
 	WorkflowVersioningOverrideModeAutoUpgrade = "auto_upgrade"
 )
+
+var legacyOptionAliases = map[string][]string{
+	OptionWorkflowID:                               {"temporal.workflow.id"},
+	OptionWorkflowTaskQueue:                        {"temporal.workflow.task_queue"},
+	OptionWorkflowExecutionTimeout:                 {"temporal.workflow.execution_timeout"},
+	OptionWorkflowRunTimeout:                       {"temporal.workflow.run_timeout"},
+	OptionWorkflowTaskTimeout:                      {"temporal.workflow.task_timeout"},
+	OptionWorkflowIDConflictPolicy:                 {"temporal.workflow.id_conflict_policy"},
+	OptionWorkflowIDReusePolicy:                    {"temporal.workflow.id_reuse_policy"},
+	OptionWorkflowExecutionErrorWhenAlreadyStarted: {"temporal.workflow.execution_error_when_already_started"},
+	OptionWorkflowRetryPolicy:                      {"temporal.workflow.retry_policy"},
+	OptionWorkflowCronSchedule:                     {"temporal.workflow.cron_schedule"},
+	OptionWorkflowMemo:                             {"temporal.workflow.memo"},
+	OptionWorkflowSearchAttributes: {
+		legacyWorkflowSearchAttributes,
+		legacyWorkflowTypedSearchAttributes,
+	},
+	OptionWorkflowEnableEagerStart:    {"temporal.workflow.enable_eager_start"},
+	OptionWorkflowStartDelay:          {"temporal.workflow.start_delay"},
+	OptionWorkflowStaticSummary:       {legacyWorkflowStaticSummary},
+	OptionWorkflowStaticDetails:       {legacyWorkflowStaticDetails},
+	OptionWorkflowVersioningOverride:  {"temporal.workflow.versioning_override"},
+	OptionWorkflowPriority:            {"temporal.workflow.priority"},
+	OptionWorkflowNamespace:           {"temporal.workflow.namespace"},
+	OptionWorkflowWaitForCancellation: {"temporal.workflow.wait_for_cancellation"},
+	OptionWorkflowParentClosePolicy:   {"temporal.workflow.parent_close_policy"},
+	OptionWorkflowVersioningIntent:    {"temporal.workflow.versioning_intent"},
+
+	OptionActivityID:               {"temporal.activity.id"},
+	OptionActivityTaskQueue:        {"temporal.activity.task_queue"},
+	OptionActivityScheduleToClose:  {"temporal.activity.schedule_to_close_timeout"},
+	OptionActivityScheduleToStart:  {"temporal.activity.schedule_to_start_timeout"},
+	OptionActivityStartToClose:     {"temporal.activity.start_to_close_timeout"},
+	OptionActivityHeartbeatTimeout: {"temporal.activity.heartbeat_timeout"},
+	OptionActivityWaitForCancel:    {"temporal.activity.wait_for_cancellation"},
+	OptionActivityRetryPolicy:      {"temporal.activity.retry_policy"},
+	OptionActivityDisableEager:     {"temporal.activity.disable_eager_execution"},
+	OptionActivityVersioningIntent: {"temporal.activity.versioning_intent"},
+	OptionActivitySummary:          {"temporal.activity.summary"},
+	OptionActivityPriority:         {"temporal.activity.priority"},
+}
 
 type StartOptionState struct {
 	HasConflictPolicy bool
@@ -71,7 +117,7 @@ func ApplyStartWorkflowOptions(opts *client.StartWorkflowOptions, options attrs.
 		return state, nil
 	}
 
-	if raw, ok := options.Get(OptionWorkflowID); ok {
+	if raw, ok := optionGet(options, OptionWorkflowID); ok {
 		v, err := parseString(OptionWorkflowID, raw)
 		if err != nil {
 			return state, err
@@ -82,7 +128,7 @@ func ApplyStartWorkflowOptions(opts *client.StartWorkflowOptions, options attrs.
 		opts.ID = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowTaskQueue); ok {
+	if raw, ok := optionGet(options, OptionWorkflowTaskQueue); ok {
 		v, err := parseString(OptionWorkflowTaskQueue, raw)
 		if err != nil {
 			return state, err
@@ -93,7 +139,7 @@ func ApplyStartWorkflowOptions(opts *client.StartWorkflowOptions, options attrs.
 		opts.TaskQueue = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowExecutionTimeout); ok {
+	if raw, ok := optionGet(options, OptionWorkflowExecutionTimeout); ok {
 		v, err := parseDuration(OptionWorkflowExecutionTimeout, raw)
 		if err != nil {
 			return state, err
@@ -101,7 +147,7 @@ func ApplyStartWorkflowOptions(opts *client.StartWorkflowOptions, options attrs.
 		opts.WorkflowExecutionTimeout = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowRunTimeout); ok {
+	if raw, ok := optionGet(options, OptionWorkflowRunTimeout); ok {
 		v, err := parseDuration(OptionWorkflowRunTimeout, raw)
 		if err != nil {
 			return state, err
@@ -109,7 +155,7 @@ func ApplyStartWorkflowOptions(opts *client.StartWorkflowOptions, options attrs.
 		opts.WorkflowRunTimeout = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowTaskTimeout); ok {
+	if raw, ok := optionGet(options, OptionWorkflowTaskTimeout); ok {
 		v, err := parseDuration(OptionWorkflowTaskTimeout, raw)
 		if err != nil {
 			return state, err
@@ -117,7 +163,7 @@ func ApplyStartWorkflowOptions(opts *client.StartWorkflowOptions, options attrs.
 		opts.WorkflowTaskTimeout = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowIDConflictPolicy); ok {
+	if raw, ok := optionGet(options, OptionWorkflowIDConflictPolicy); ok {
 		v, err := parseConflictPolicy(OptionWorkflowIDConflictPolicy, raw)
 		if err != nil {
 			return state, err
@@ -126,7 +172,7 @@ func ApplyStartWorkflowOptions(opts *client.StartWorkflowOptions, options attrs.
 		state.HasConflictPolicy = true
 	}
 
-	if raw, ok := options.Get(OptionWorkflowIDReusePolicy); ok {
+	if raw, ok := optionGet(options, OptionWorkflowIDReusePolicy); ok {
 		v, err := parseReusePolicy(OptionWorkflowIDReusePolicy, raw)
 		if err != nil {
 			return state, err
@@ -134,7 +180,7 @@ func ApplyStartWorkflowOptions(opts *client.StartWorkflowOptions, options attrs.
 		opts.WorkflowIDReusePolicy = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowExecutionErrorWhenAlreadyStarted); ok {
+	if raw, ok := optionGet(options, OptionWorkflowExecutionErrorWhenAlreadyStarted); ok {
 		v, err := parseBool(OptionWorkflowExecutionErrorWhenAlreadyStarted, raw)
 		if err != nil {
 			return state, err
@@ -143,7 +189,7 @@ func ApplyStartWorkflowOptions(opts *client.StartWorkflowOptions, options attrs.
 		state.HasErrorOnStarted = true
 	}
 
-	if raw, ok := options.Get(OptionWorkflowRetryPolicy); ok {
+	if raw, ok := optionGet(options, OptionWorkflowRetryPolicy); ok {
 		v, err := parseRetryPolicyTemporal(OptionWorkflowRetryPolicy, raw)
 		if err != nil {
 			return state, err
@@ -151,7 +197,7 @@ func ApplyStartWorkflowOptions(opts *client.StartWorkflowOptions, options attrs.
 		opts.RetryPolicy = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowCronSchedule); ok {
+	if raw, ok := optionGet(options, OptionWorkflowCronSchedule); ok {
 		v, err := parseString(OptionWorkflowCronSchedule, raw)
 		if err != nil {
 			return state, err
@@ -159,7 +205,7 @@ func ApplyStartWorkflowOptions(opts *client.StartWorkflowOptions, options attrs.
 		opts.CronSchedule = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowMemo); ok {
+	if raw, ok := optionGet(options, OptionWorkflowMemo); ok {
 		v, err := parseMap(OptionWorkflowMemo, raw)
 		if err != nil {
 			return state, err
@@ -167,15 +213,7 @@ func ApplyStartWorkflowOptions(opts *client.StartWorkflowOptions, options attrs.
 		opts.Memo = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowSearchAttributes); ok {
-		v, err := parseMap(OptionWorkflowSearchAttributes, raw)
-		if err != nil {
-			return state, err
-		}
-		opts.SearchAttributes = v
-	}
-
-	if raw, ok := options.Get(OptionWorkflowTypedSearchAttributes); ok {
+	if raw, ok := optionGet(options, OptionWorkflowTypedSearchAttributes); ok {
 		v, err := parseTypedSearchAttributes(OptionWorkflowTypedSearchAttributes, raw)
 		if err != nil {
 			return state, err
@@ -183,7 +221,7 @@ func ApplyStartWorkflowOptions(opts *client.StartWorkflowOptions, options attrs.
 		opts.TypedSearchAttributes = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowEnableEagerStart); ok {
+	if raw, ok := optionGet(options, OptionWorkflowEnableEagerStart); ok {
 		v, err := parseBool(OptionWorkflowEnableEagerStart, raw)
 		if err != nil {
 			return state, err
@@ -191,7 +229,7 @@ func ApplyStartWorkflowOptions(opts *client.StartWorkflowOptions, options attrs.
 		opts.EnableEagerStart = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowStartDelay); ok {
+	if raw, ok := optionGet(options, OptionWorkflowStartDelay); ok {
 		v, err := parseDuration(OptionWorkflowStartDelay, raw)
 		if err != nil {
 			return state, err
@@ -199,7 +237,7 @@ func ApplyStartWorkflowOptions(opts *client.StartWorkflowOptions, options attrs.
 		opts.StartDelay = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowStaticSummary); ok {
+	if raw, ok := optionGet(options, OptionWorkflowStaticSummary); ok {
 		v, err := parseString(OptionWorkflowStaticSummary, raw)
 		if err != nil {
 			return state, err
@@ -207,7 +245,7 @@ func ApplyStartWorkflowOptions(opts *client.StartWorkflowOptions, options attrs.
 		opts.StaticSummary = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowStaticDetails); ok {
+	if raw, ok := optionGet(options, OptionWorkflowStaticDetails); ok {
 		v, err := parseString(OptionWorkflowStaticDetails, raw)
 		if err != nil {
 			return state, err
@@ -215,7 +253,7 @@ func ApplyStartWorkflowOptions(opts *client.StartWorkflowOptions, options attrs.
 		opts.StaticDetails = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowVersioningOverride); ok {
+	if raw, ok := optionGet(options, OptionWorkflowVersioningOverride); ok {
 		v, err := parseVersioningOverride(OptionWorkflowVersioningOverride, raw)
 		if err != nil {
 			return state, err
@@ -223,7 +261,7 @@ func ApplyStartWorkflowOptions(opts *client.StartWorkflowOptions, options attrs.
 		opts.VersioningOverride = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowPriority); ok {
+	if raw, ok := optionGet(options, OptionWorkflowPriority); ok {
 		v, err := parsePriorityTemporal(OptionWorkflowPriority, raw)
 		if err != nil {
 			return state, err
@@ -239,14 +277,14 @@ func ApplyActivityOptions(opts *bindings.ExecuteActivityOptions, options attrs.A
 		return nil
 	}
 
-	if raw, ok := options.Get(OptionActivityID); ok {
+	if raw, ok := optionGet(options, OptionActivityID); ok {
 		v, err := parseString(OptionActivityID, raw)
 		if err != nil {
 			return err
 		}
 		opts.ActivityID = v
 	}
-	if raw, ok := options.Get(OptionActivityTaskQueue); ok {
+	if raw, ok := optionGet(options, OptionActivityTaskQueue); ok {
 		v, err := parseString(OptionActivityTaskQueue, raw)
 		if err != nil {
 			return err
@@ -256,70 +294,70 @@ func ApplyActivityOptions(opts *bindings.ExecuteActivityOptions, options attrs.A
 		}
 		opts.TaskQueueName = v
 	}
-	if raw, ok := options.Get(OptionActivityScheduleToClose); ok {
+	if raw, ok := optionGet(options, OptionActivityScheduleToClose); ok {
 		v, err := parseDuration(OptionActivityScheduleToClose, raw)
 		if err != nil {
 			return err
 		}
 		opts.ScheduleToCloseTimeout = v
 	}
-	if raw, ok := options.Get(OptionActivityScheduleToStart); ok {
+	if raw, ok := optionGet(options, OptionActivityScheduleToStart); ok {
 		v, err := parseDuration(OptionActivityScheduleToStart, raw)
 		if err != nil {
 			return err
 		}
 		opts.ScheduleToStartTimeout = v
 	}
-	if raw, ok := options.Get(OptionActivityStartToClose); ok {
+	if raw, ok := optionGet(options, OptionActivityStartToClose); ok {
 		v, err := parseDuration(OptionActivityStartToClose, raw)
 		if err != nil {
 			return err
 		}
 		opts.StartToCloseTimeout = v
 	}
-	if raw, ok := options.Get(OptionActivityHeartbeatTimeout); ok {
+	if raw, ok := optionGet(options, OptionActivityHeartbeatTimeout); ok {
 		v, err := parseDuration(OptionActivityHeartbeatTimeout, raw)
 		if err != nil {
 			return err
 		}
 		opts.HeartbeatTimeout = v
 	}
-	if raw, ok := options.Get(OptionActivityWaitForCancel); ok {
+	if raw, ok := optionGet(options, OptionActivityWaitForCancel); ok {
 		v, err := parseBool(OptionActivityWaitForCancel, raw)
 		if err != nil {
 			return err
 		}
 		opts.WaitForCancellation = v
 	}
-	if raw, ok := options.Get(OptionActivityRetryPolicy); ok {
+	if raw, ok := optionGet(options, OptionActivityRetryPolicy); ok {
 		v, err := parseRetryPolicyPB(OptionActivityRetryPolicy, raw)
 		if err != nil {
 			return err
 		}
 		opts.RetryPolicy = v
 	}
-	if raw, ok := options.Get(OptionActivityDisableEager); ok {
+	if raw, ok := optionGet(options, OptionActivityDisableEager); ok {
 		v, err := parseBool(OptionActivityDisableEager, raw)
 		if err != nil {
 			return err
 		}
 		opts.DisableEagerExecution = v
 	}
-	if raw, ok := options.Get(OptionActivityVersioningIntent); ok {
+	if raw, ok := optionGet(options, OptionActivityVersioningIntent); ok {
 		v, err := parseVersioningIntent(OptionActivityVersioningIntent, raw)
 		if err != nil {
 			return err
 		}
 		opts.VersioningIntent = v
 	}
-	if raw, ok := options.Get(OptionActivitySummary); ok {
+	if raw, ok := optionGet(options, OptionActivitySummary); ok {
 		v, err := parseString(OptionActivitySummary, raw)
 		if err != nil {
 			return err
 		}
 		opts.Summary = v
 	}
-	if raw, ok := options.Get(OptionActivityPriority); ok {
+	if raw, ok := optionGet(options, OptionActivityPriority); ok {
 		v, err := parsePriorityPB(OptionActivityPriority, raw)
 		if err != nil {
 			return err
@@ -335,7 +373,7 @@ func ApplyChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options a
 		return nil
 	}
 
-	if raw, ok := options.Get(OptionWorkflowID); ok {
+	if raw, ok := optionGet(options, OptionWorkflowID); ok {
 		v, err := parseString(OptionWorkflowID, raw)
 		if err != nil {
 			return err
@@ -346,7 +384,7 @@ func ApplyChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options a
 		params.WorkflowID = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowTaskQueue); ok {
+	if raw, ok := optionGet(options, OptionWorkflowTaskQueue); ok {
 		v, err := parseString(OptionWorkflowTaskQueue, raw)
 		if err != nil {
 			return err
@@ -357,7 +395,7 @@ func ApplyChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options a
 		params.TaskQueueName = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowExecutionTimeout); ok {
+	if raw, ok := optionGet(options, OptionWorkflowExecutionTimeout); ok {
 		v, err := parseDuration(OptionWorkflowExecutionTimeout, raw)
 		if err != nil {
 			return err
@@ -365,7 +403,7 @@ func ApplyChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options a
 		params.WorkflowExecutionTimeout = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowRunTimeout); ok {
+	if raw, ok := optionGet(options, OptionWorkflowRunTimeout); ok {
 		v, err := parseDuration(OptionWorkflowRunTimeout, raw)
 		if err != nil {
 			return err
@@ -373,7 +411,7 @@ func ApplyChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options a
 		params.WorkflowRunTimeout = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowTaskTimeout); ok {
+	if raw, ok := optionGet(options, OptionWorkflowTaskTimeout); ok {
 		v, err := parseDuration(OptionWorkflowTaskTimeout, raw)
 		if err != nil {
 			return err
@@ -381,7 +419,7 @@ func ApplyChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options a
 		params.WorkflowTaskTimeout = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowIDConflictPolicy); ok {
+	if raw, ok := optionGet(options, OptionWorkflowIDConflictPolicy); ok {
 		v, err := parseConflictPolicy(OptionWorkflowIDConflictPolicy, raw)
 		if err != nil {
 			return err
@@ -389,7 +427,7 @@ func ApplyChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options a
 		params.WorkflowIDConflictPolicy = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowIDReusePolicy); ok {
+	if raw, ok := optionGet(options, OptionWorkflowIDReusePolicy); ok {
 		v, err := parseReusePolicy(OptionWorkflowIDReusePolicy, raw)
 		if err != nil {
 			return err
@@ -397,7 +435,7 @@ func ApplyChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options a
 		params.WorkflowIDReusePolicy = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowRetryPolicy); ok {
+	if raw, ok := optionGet(options, OptionWorkflowRetryPolicy); ok {
 		v, err := parseRetryPolicyPB(OptionWorkflowRetryPolicy, raw)
 		if err != nil {
 			return err
@@ -405,7 +443,7 @@ func ApplyChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options a
 		params.RetryPolicy = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowCronSchedule); ok {
+	if raw, ok := optionGet(options, OptionWorkflowCronSchedule); ok {
 		v, err := parseString(OptionWorkflowCronSchedule, raw)
 		if err != nil {
 			return err
@@ -413,7 +451,7 @@ func ApplyChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options a
 		params.CronSchedule = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowMemo); ok {
+	if raw, ok := optionGet(options, OptionWorkflowMemo); ok {
 		v, err := parseMap(OptionWorkflowMemo, raw)
 		if err != nil {
 			return err
@@ -421,15 +459,7 @@ func ApplyChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options a
 		params.Memo = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowSearchAttributes); ok {
-		v, err := parseMap(OptionWorkflowSearchAttributes, raw)
-		if err != nil {
-			return err
-		}
-		params.SearchAttributes = v
-	}
-
-	if raw, ok := options.Get(OptionWorkflowTypedSearchAttributes); ok {
+	if raw, ok := optionGet(options, OptionWorkflowTypedSearchAttributes); ok {
 		v, err := parseTypedSearchAttributes(OptionWorkflowTypedSearchAttributes, raw)
 		if err != nil {
 			return err
@@ -437,7 +467,7 @@ func ApplyChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options a
 		params.TypedSearchAttributes = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowStaticSummary); ok {
+	if raw, ok := optionGet(options, OptionWorkflowStaticSummary); ok {
 		v, err := parseString(OptionWorkflowStaticSummary, raw)
 		if err != nil {
 			return err
@@ -445,7 +475,7 @@ func ApplyChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options a
 		params.StaticSummary = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowStaticDetails); ok {
+	if raw, ok := optionGet(options, OptionWorkflowStaticDetails); ok {
 		v, err := parseString(OptionWorkflowStaticDetails, raw)
 		if err != nil {
 			return err
@@ -453,7 +483,7 @@ func ApplyChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options a
 		params.StaticDetails = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowPriority); ok {
+	if raw, ok := optionGet(options, OptionWorkflowPriority); ok {
 		v, err := parsePriorityPB(OptionWorkflowPriority, raw)
 		if err != nil {
 			return err
@@ -461,7 +491,7 @@ func ApplyChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options a
 		params.Priority = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowNamespace); ok {
+	if raw, ok := optionGet(options, OptionWorkflowNamespace); ok {
 		v, err := parseString(OptionWorkflowNamespace, raw)
 		if err != nil {
 			return err
@@ -469,7 +499,7 @@ func ApplyChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options a
 		params.Namespace = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowWaitForCancellation); ok {
+	if raw, ok := optionGet(options, OptionWorkflowWaitForCancellation); ok {
 		v, err := parseBool(OptionWorkflowWaitForCancellation, raw)
 		if err != nil {
 			return err
@@ -477,7 +507,7 @@ func ApplyChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options a
 		params.WaitForCancellation = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowParentClosePolicy); ok {
+	if raw, ok := optionGet(options, OptionWorkflowParentClosePolicy); ok {
 		v, err := parseParentClosePolicy(OptionWorkflowParentClosePolicy, raw)
 		if err != nil {
 			return err
@@ -485,7 +515,7 @@ func ApplyChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options a
 		params.ParentClosePolicy = v
 	}
 
-	if raw, ok := options.Get(OptionWorkflowVersioningIntent); ok {
+	if raw, ok := optionGet(options, OptionWorkflowVersioningIntent); ok {
 		v, err := parseVersioningIntent(OptionWorkflowVersioningIntent, raw)
 		if err != nil {
 			return err
@@ -1059,6 +1089,25 @@ func parseStringSlice(key string, value any) ([]string, error) {
 	default:
 		return nil, fmt.Errorf("%s must be string or string array, got %T", key, value)
 	}
+}
+
+func optionGet(options attrs.Attributes, key string) (any, bool) {
+	if options == nil {
+		return nil, false
+	}
+	if v, ok := options.Get(key); ok {
+		return v, true
+	}
+	aliases, ok := legacyOptionAliases[key]
+	if !ok {
+		return nil, false
+	}
+	for _, alias := range aliases {
+		if v, ok := options.Get(alias); ok {
+			return v, true
+		}
+	}
+	return nil, false
 }
 
 func mapGet(m map[string]any, keys ...string) (any, bool) {
