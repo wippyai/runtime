@@ -579,6 +579,7 @@ func TestParseParentClosePolicy(t *testing.T) {
 	})
 }
 
+//nolint:staticcheck // coverage for legacy build-id intent compatibility behavior.
 func TestParseVersioningIntent(t *testing.T) {
 	t.Run("unspecified", func(t *testing.T) {
 		v, err := parseVersioningIntent("test", "unspecified")
@@ -845,7 +846,7 @@ func TestParseRetryPolicyPB(t *testing.T) {
 	})
 
 	t.Run("commonpb.RetryPolicy value", func(t *testing.T) {
-		input := commonpb.RetryPolicy{
+		input := &commonpb.RetryPolicy{
 			MaximumAttempts: 7,
 		}
 		v, err := parseRetryPolicyPB("test", input)
@@ -1047,7 +1048,7 @@ func TestParsePriorityPB(t *testing.T) {
 	})
 
 	t.Run("commonpb.Priority value", func(t *testing.T) {
-		input := commonpb.Priority{PriorityKey: 9}
+		input := &commonpb.Priority{PriorityKey: 9}
 		v, err := parsePriorityPB("test", input)
 		require.NoError(t, err)
 		assert.Equal(t, int32(9), v.PriorityKey)
