@@ -221,7 +221,18 @@ func TestService_ResourceAccess(t *testing.T) {
 		Data:   entry,
 	})
 
-	time.Sleep(10 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		ids, listErr := service.List()
+		if listErr != nil {
+			return false
+		}
+		for _, existing := range ids {
+			if existing == id {
+				return true
+			}
+		}
+		return false
+	}, 500*time.Millisecond, 10*time.Millisecond)
 
 	tests := []struct {
 		errorType   error
