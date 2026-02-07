@@ -131,15 +131,18 @@ func TestTimerRegistry_StopAlreadyFired(t *testing.T) {
 	r := newTimerRegistry()
 	defer r.close()
 
-	// Use a callback so timer removes itself from map after firing
-	var fired atomic.Bool
+	// Use explicit signal from callback to avoid sleep-based flakiness.
+	fired := make(chan struct{}, 1)
 	id := r.startWithCallback(5*time.Millisecond, func() {
-		fired.Store(true)
+		select {
+		case fired <- struct{}{}:
+		default:
+		}
 	})
 
-	time.Sleep(20 * time.Millisecond)
-
-	if !fired.Load() {
+	select {
+	case <-fired:
+	case <-time.After(time.Second):
 		t.Fatal("expected timer to fire")
 	}
 
