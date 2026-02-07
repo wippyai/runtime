@@ -8,8 +8,8 @@ import (
 func TestCommonDotPrefix(t *testing.T) {
 	tests := []struct {
 		name string
-		in   []string
 		want string
+		in   []string
 	}{
 		{name: "empty", in: nil, want: ""},
 		{name: "single", in: []string{"app.test"}, want: "app.test"},
@@ -31,9 +31,9 @@ func TestResolveNamespaceDirs(t *testing.T) {
 	root := filepath.Join("tmp", "extract")
 
 	tests := []struct {
+		want       map[string]string
 		name       string
 		namespaces []string
-		want       map[string]string
 	}{
 		{
 			name:       "single namespace stays at root",

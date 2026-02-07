@@ -108,6 +108,7 @@ build-wippy-darwin-arm64:
 .PHONY: build-wippy-windows-amd64
 build-wippy-windows-amd64:
 	mkdir -p ./dist
+	CGO_LDFLAGS="" CGO_CFLAGS="" CC=x86_64-w64-mingw32-gcc \
 	CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build --tags "fts5 sqlite_vec" \
 		-ldflags="$(WIPPY_LDFLAGS)" \
 		-trimpath \

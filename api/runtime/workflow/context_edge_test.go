@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/stretchr/testify/assert"
@@ -96,8 +97,8 @@ func TestVersionCmd_CmdID(t *testing.T) {
 
 func TestUpsertAttrsCmd_CmdID(t *testing.T) {
 	cmd := &UpsertAttrsCmd{
-		SearchAttrs: map[string]any{"key": "val"},
-		Memo:        map[string]any{"memo": "data"},
+		SearchAttrs: attrs.Bag{"key": "val"},
+		Memo:        attrs.Bag{"memo": "data"},
 	}
 	assert.Equal(t, UpsertAttrs, cmd.CmdID())
 }

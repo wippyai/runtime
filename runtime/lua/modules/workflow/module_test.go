@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
+	attrsapi "github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	workflowapi "github.com/wippyai/runtime/api/runtime/workflow"
@@ -52,7 +53,7 @@ func TestModuleTypes(t *testing.T) {
 	require.NotNil(t, m)
 }
 
-// --- luaTableToMap / luaValueToGo ---
+// --- luaTableToBag / luaValueToGo ---
 
 func TestLuaValueToGo_String(t *testing.T) {
 	assert.Equal(t, "hello", luaValueToGo(lua.LString("hello")))
@@ -71,39 +72,52 @@ func TestLuaValueToGo_Nil(t *testing.T) {
 	assert.Nil(t, luaValueToGo(lua.LNil))
 }
 
-func TestLuaTableToMap(t *testing.T) {
+func TestLuaTableToBag(t *testing.T) {
 	tbl := lua.CreateTable(0, 3)
 	tbl.RawSetString("name", lua.LString("test"))
 	tbl.RawSetString("count", lua.LNumber(5))
 	tbl.RawSetString("active", lua.LTrue)
 
-	result := luaTableToMap(tbl)
+	result := luaTableToBag(tbl)
 	assert.Equal(t, "test", result["name"])
 	assert.Equal(t, float64(5), result["count"])
 	assert.Equal(t, true, result["active"])
 }
 
-func TestLuaTableToMap_NestedTable(t *testing.T) {
+func TestLuaTableToBag_NestedTable(t *testing.T) {
 	inner := lua.CreateTable(0, 1)
 	inner.RawSetString("key", lua.LString("value"))
 
 	outer := lua.CreateTable(0, 1)
 	outer.RawSetString("nested", inner)
 
-	result := luaTableToMap(outer)
-	nested, ok := result["nested"].(map[string]any)
+	result := luaTableToBag(outer)
+	nested, ok := result["nested"].(attrsapi.Bag)
 	require.True(t, ok)
 	assert.Equal(t, "value", nested["key"])
 }
 
-func TestLuaTableToMap_IntegerKeysSkipped(t *testing.T) {
+func TestLuaTableToBag_IntegerKeysSkipped(t *testing.T) {
 	tbl := lua.CreateTable(2, 0)
 	tbl.RawSetInt(1, lua.LString("first"))
 	tbl.RawSetString("key", lua.LString("value"))
 
-	result := luaTableToMap(tbl)
+	result := luaTableToBag(tbl)
 	assert.Equal(t, "value", result["key"])
 	assert.Nil(t, result["1"])
+}
+
+func TestLuaValueToGo_TableSequence(t *testing.T) {
+	tbl := lua.CreateTable(2, 0)
+	tbl.RawSetInt(1, lua.LString("a"))
+	tbl.RawSetInt(2, lua.LString("b"))
+
+	result := luaValueToGo(tbl)
+	values, ok := result.([]any)
+	require.True(t, ok)
+	require.Len(t, values, 2)
+	assert.Equal(t, "a", values[0])
+	assert.Equal(t, "b", values[1])
 }
 
 // --- helpers ---

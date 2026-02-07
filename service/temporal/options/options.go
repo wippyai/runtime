@@ -772,8 +772,83 @@ func parseMap(key string, value any) (map[string]any, error) {
 	}
 }
 
+// MapToSearchAttributes converts a map of key-value pairs to typed
+// SearchAttributes by inferring the attribute key type from each Go value:
+//
+//	string       → Keyword
+//	bool         → Bool
+//	int/int64    → Int64
+//	float64 int  → Int64
+//	float64 frac → Float64
+//	[]string     → KeywordList
+//	time.Time    → Time
+func MapToSearchAttributes(attrs map[string]any) (temporal.SearchAttributes, error) {
+	if len(attrs) == 0 {
+		return temporal.SearchAttributes{}, nil
+	}
+
+	updates := make([]temporal.SearchAttributeUpdate, 0, len(attrs))
+	for name, val := range attrs {
+		update, err := valueToSearchAttributeUpdate(name, val)
+		if err != nil {
+			return temporal.SearchAttributes{}, err
+		}
+		updates = append(updates, update)
+	}
+
+	return temporal.NewSearchAttributes(updates...), nil
+}
+
+func valueToSearchAttributeUpdate(name string, val any) (temporal.SearchAttributeUpdate, error) {
+	switch v := val.(type) {
+	case string:
+		return temporal.NewSearchAttributeKeyKeyword(name).ValueSet(v), nil
+	case bool:
+		return temporal.NewSearchAttributeKeyBool(name).ValueSet(v), nil
+	case int:
+		return temporal.NewSearchAttributeKeyInt64(name).ValueSet(int64(v)), nil
+	case int8:
+		return temporal.NewSearchAttributeKeyInt64(name).ValueSet(int64(v)), nil
+	case int16:
+		return temporal.NewSearchAttributeKeyInt64(name).ValueSet(int64(v)), nil
+	case int32:
+		return temporal.NewSearchAttributeKeyInt64(name).ValueSet(int64(v)), nil
+	case int64:
+		return temporal.NewSearchAttributeKeyInt64(name).ValueSet(v), nil
+	case float64:
+		if v == math.Trunc(v) && !math.IsInf(v, 0) && !math.IsNaN(v) {
+			return temporal.NewSearchAttributeKeyInt64(name).ValueSet(int64(v)), nil
+		}
+		return temporal.NewSearchAttributeKeyFloat64(name).ValueSet(v), nil
+	case float32:
+		f := float64(v)
+		if f == math.Trunc(f) && !math.IsInf(f, 0) && !math.IsNaN(f) {
+			return temporal.NewSearchAttributeKeyInt64(name).ValueSet(int64(v)), nil
+		}
+		return temporal.NewSearchAttributeKeyFloat64(name).ValueSet(f), nil
+	case []string:
+		return temporal.NewSearchAttributeKeyKeywordList(name).ValueSet(v), nil
+	case []any:
+		values := make([]string, 0, len(v))
+		for i, item := range v {
+			s, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("search attribute %q: keyword list item at index %d must be string, got %T", name, i, item)
+			}
+			values = append(values, s)
+		}
+		return temporal.NewSearchAttributeKeyKeywordList(name).ValueSet(values), nil
+	case time.Time:
+		return temporal.NewSearchAttributeKeyTime(name).ValueSet(v), nil
+	default:
+		return nil, fmt.Errorf("search attribute %q: unsupported value type %T", name, val)
+	}
+}
+
 func parseTypedSearchAttributes(key string, value any) (temporal.SearchAttributes, error) {
 	switch v := value.(type) {
+	case nil:
+		return temporal.SearchAttributes{}, nil
 	case temporal.SearchAttributes:
 		return v, nil
 	case *temporal.SearchAttributes:
@@ -781,8 +856,12 @@ func parseTypedSearchAttributes(key string, value any) (temporal.SearchAttribute
 			return temporal.SearchAttributes{}, nil
 		}
 		return *v, nil
+	case map[string]any:
+		return MapToSearchAttributes(v)
+	case attrs.Bag:
+		return MapToSearchAttributes(map[string]any(v))
 	default:
-		return temporal.SearchAttributes{}, fmt.Errorf("%s must be temporal.SearchAttributes, got %T", key, value)
+		return temporal.SearchAttributes{}, fmt.Errorf("%s must be temporal.SearchAttributes or map, got %T", key, value)
 	}
 }
 

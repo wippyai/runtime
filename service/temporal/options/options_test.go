@@ -980,7 +980,46 @@ func TestParseTypedSearchAttributes(t *testing.T) {
 	t.Run("invalid type", func(t *testing.T) {
 		_, err := parseTypedSearchAttributes("test", "not-sa")
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "must be temporal.SearchAttributes")
+		assert.Contains(t, err.Error(), "must be temporal.SearchAttributes or map")
+	})
+
+	t.Run("map[string]any input", func(t *testing.T) {
+		v, err := parseTypedSearchAttributes("test", map[string]any{
+			"Tenant": "tenant-a",
+			"Score":  float64(7),
+			"Tags":   []any{"a", "b"},
+		})
+		require.NoError(t, err)
+
+		tenant, ok := v.GetKeyword(temporal.NewSearchAttributeKeyKeyword("Tenant"))
+		require.True(t, ok)
+		assert.Equal(t, "tenant-a", tenant)
+
+		score, ok := v.GetInt64(temporal.NewSearchAttributeKeyInt64("Score"))
+		require.True(t, ok)
+		assert.EqualValues(t, 7, score)
+
+		tags, ok := v.GetKeywordList(temporal.NewSearchAttributeKeyKeywordList("Tags"))
+		require.True(t, ok)
+		assert.Equal(t, []string{"a", "b"}, tags)
+	})
+
+	t.Run("attrs.Bag input", func(t *testing.T) {
+		bag := attrs.NewBag()
+		bag.Set("Tenant", "tenant-a")
+		v, err := parseTypedSearchAttributes("test", bag)
+		require.NoError(t, err)
+		tenant, ok := v.GetKeyword(temporal.NewSearchAttributeKeyKeyword("Tenant"))
+		require.True(t, ok)
+		assert.Equal(t, "tenant-a", tenant)
+	})
+
+	t.Run("keyword list invalid item type", func(t *testing.T) {
+		_, err := parseTypedSearchAttributes("test", map[string]any{
+			"Tags": []any{"a", 2},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "keyword list item")
 	})
 }
 

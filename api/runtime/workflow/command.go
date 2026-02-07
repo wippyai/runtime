@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -82,8 +83,8 @@ type VersionResult struct {
 // SearchAttrs are indexed metadata that enable workflow queries.
 // Memo is arbitrary non-indexed data attached to the workflow.
 type UpsertAttrsCmd struct {
-	SearchAttrs map[string]any `json:"search,omitempty"`
-	Memo        map[string]any `json:"memo,omitempty"`
+	SearchAttrs attrs.Bag `json:"search,omitempty"`
+	Memo        attrs.Bag `json:"memo,omitempty"`
 }
 
 // CmdID implements dispatcher.Command.

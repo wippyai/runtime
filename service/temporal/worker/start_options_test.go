@@ -104,13 +104,15 @@ func TestApplyTemporalStartWorkflowOptions_KeepsDefaultTaskQueueWhenUnset(t *tes
 	assert.Equal(t, "default-task-queue", opts.TaskQueue)
 }
 
-func TestApplyTemporalStartWorkflowOptions_InvalidTypedSearchAttributes(t *testing.T) {
+func TestApplyTemporalStartWorkflowOptions_MapTypedSearchAttributes(t *testing.T) {
 	startOptions := attrs.NewBag()
-	startOptions.Set(optionWorkflowTypedSearchAttributes, map[string]any{"k": "v"})
+	startOptions.Set(optionWorkflowTypedSearchAttributes, map[string]any{"CustomKeywordField": "tenant-a"})
 	start := &process.Start{Options: startOptions}
 
 	var opts client.StartWorkflowOptions
 	_, err := applyTemporalStartWorkflowOptions(&opts, start)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), optionWorkflowTypedSearchAttributes+" must be temporal.SearchAttributes")
+	require.NoError(t, err)
+	got, ok := opts.TypedSearchAttributes.GetKeyword(temporal.NewSearchAttributeKeyKeyword("CustomKeywordField"))
+	require.True(t, ok)
+	assert.Equal(t, "tenant-a", got)
 }

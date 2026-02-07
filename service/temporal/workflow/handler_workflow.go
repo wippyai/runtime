@@ -11,6 +11,7 @@ import (
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	workflowapi "github.com/wippyai/runtime/api/runtime/workflow"
 	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
+	temporaloptions "github.com/wippyai/runtime/service/temporal/options"
 	commonpb "go.temporal.io/api/common/v1"
 	bindings "go.temporal.io/sdk/internalbindings"
 	"go.temporal.io/sdk/workflow"
@@ -205,14 +206,19 @@ func (d *Definition) executeVersion(cmd *workflowapi.VersionCmd, tag uint64) err
 // executeUpsertAttrs updates workflow search attributes and/or memo.
 func (d *Definition) executeUpsertAttrs(cmd *workflowapi.UpsertAttrsCmd, tag uint64) error {
 	if len(cmd.SearchAttrs) > 0 {
-		if err := d.env.UpsertSearchAttributes(cmd.SearchAttrs); err != nil {
+		searchAttributes, err := temporaloptions.MapToSearchAttributes(map[string]any(cmd.SearchAttrs))
+		if err != nil {
+			d.resumeProcess(tag, nil, temporalerrors.FromTemporalError(err))
+			return nil
+		}
+		if err := d.env.UpsertTypedSearchAttributes(searchAttributes); err != nil {
 			d.resumeProcess(tag, nil, temporalerrors.FromTemporalError(err))
 			return nil
 		}
 	}
 
 	if len(cmd.Memo) > 0 {
-		if err := d.env.UpsertMemo(cmd.Memo); err != nil {
+		if err := d.env.UpsertMemo(map[string]any(cmd.Memo)); err != nil {
 			d.resumeProcess(tag, nil, temporalerrors.FromTemporalError(err))
 			return nil
 		}
