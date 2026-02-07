@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,12 +11,17 @@ import (
 // resolvePath only strips one leading slash. Double-slash input bypasses
 // the traversal check and produces an absolute path.
 
+func assertResolvedPath(t *testing.T, expectedSlashPath, actual string, msgAndArgs ...any) {
+	t.Helper()
+	assert.Equal(t, filepath.FromSlash(expectedSlashPath), actual, msgAndArgs...)
+}
+
 func TestResolvePath_DoubleSlashStrippedToRelative(t *testing.T) {
 	f := NewFS(nil, "app/src")
 
 	resolved, err := f.resolvePath("//etc/passwd")
 	require.NoError(t, err)
-	assert.Equal(t, "etc/passwd", resolved,
+	assertResolvedPath(t, "etc/passwd", resolved,
 		"all leading slashes stripped, resolves as relative path")
 }
 
@@ -24,7 +30,7 @@ func TestResolvePath_TripleSlashStrippedToRelative(t *testing.T) {
 
 	resolved, err := f.resolvePath("///etc/passwd")
 	require.NoError(t, err)
-	assert.Equal(t, "etc/passwd", resolved,
+	assertResolvedPath(t, "etc/passwd", resolved,
 		"all leading slashes stripped, resolves as relative path")
 }
 
@@ -77,7 +83,7 @@ func TestResolvePath_RelativeTraversalWithinSandbox(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			resolved, err := f.resolvePath(tt.path)
 			require.NoError(t, err)
-			assert.Equal(t, tt.want, resolved)
+			assertResolvedPath(t, tt.want, resolved)
 		})
 	}
 }
@@ -116,7 +122,7 @@ func TestResolvePath_SingleSlashStripped(t *testing.T) {
 
 	resolved, err := f.resolvePath("/etc/passwd")
 	require.NoError(t, err)
-	assert.Equal(t, "etc/passwd", resolved, "single slash stripped to relative path")
+	assertResolvedPath(t, "etc/passwd", resolved, "single slash stripped to relative path")
 }
 
 // Paths that resolve within the sandbox are allowed.
@@ -140,7 +146,7 @@ func TestResolvePath_SafePathsAllowed(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			resolved, err := f.resolvePath(tt.path)
 			require.NoError(t, err)
-			assert.Equal(t, tt.want, resolved)
+			assertResolvedPath(t, tt.want, resolved)
 		})
 	}
 }
