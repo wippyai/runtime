@@ -1,3 +1,5 @@
+// Package propagator implements Temporal context propagation for security
+// contexts, frame values, and cross-workflow/activity header passing.
 package propagator
 
 import (

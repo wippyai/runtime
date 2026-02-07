@@ -23,10 +23,8 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	bootpkg "github.com/wippyai/runtime/boot"
 	luaboot "github.com/wippyai/runtime/boot/components/runtime/lua"
-	"github.com/wippyai/runtime/boot/deps/lock"
 	bootextensions "github.com/wippyai/runtime/boot/extensions"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
-	"github.com/wippyai/runtime/cmd/internal/entries"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/code/lint"
@@ -361,9 +359,9 @@ func bootstrapLintContext() (ctx context.Context, loader *bootpkg.Loader, err er
 func loadLuaEntries(cmd *cobra.Command, lockFile string, nsFilters []string) ([]regapi.Entry, map[regapi.ID]bool, error) {
 	logger := zap.NewNop()
 
-	lockPath, err := lock.Find(".", lockFile)
+	lockPath, lockObj, err := loadValidatedLock(".", lockFile)
 	if err != nil {
-		return nil, nil, NewLockFileNotFoundError(err)
+		return nil, nil, err
 	}
 
 	app, err := appinit.Init(cmd.Context(), verbose, veryVerbose, console, silentLogs, appStartTime)
@@ -371,22 +369,9 @@ func loadLuaEntries(cmd *cobra.Command, lockFile string, nsFilters []string) ([]
 		return nil, nil, NewInitAppError(err)
 	}
 
-	if err := entries.EnsureModulesInstalled(app.Ctx, lockPath, logger); err != nil {
-		return nil, nil, NewEnsureModulesInstalledError(err)
-	}
-
-	lockObj, err := lock.New(lockPath)
+	allEntries, err := ensureModulesAndLoadEntries(app.Ctx, lockPath, lockObj, logger)
 	if err != nil {
-		return nil, nil, NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
-	}
-
-	if err := lock.Validate(lockObj); err != nil {
-		return nil, nil, NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
-	}
-
-	allEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, app.Logger)
-	if err != nil {
-		return nil, nil, NewLoadEntriesError(fmt.Sprintf("lock paths (%s)", lockPath), err)
+		return nil, nil, err
 	}
 
 	allLua := filterLuaEntries(allEntries, nil)

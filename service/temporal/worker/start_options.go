@@ -28,11 +28,14 @@ const (
 	optionWorkflowPriority                         = temporaloptions.OptionWorkflowPriority
 )
 
+// temporalStartOptionState tracks which conflict-resolution options were explicitly set
+// during option application, so callers can decide whether to apply defaults.
 type temporalStartOptionState struct {
 	hasConflictPolicy bool
 	hasErrorOnStarted bool
 }
 
+// applyTemporalStartWorkflowOptions maps process.Start options to Temporal StartWorkflowOptions.
 func applyTemporalStartWorkflowOptions(opts *client.StartWorkflowOptions, start *process.Start) (temporalStartOptionState, error) {
 	var state temporalStartOptionState
 	if opts == nil || start == nil {

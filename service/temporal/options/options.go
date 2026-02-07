@@ -1,3 +1,5 @@
+// Package options maps wippy attribute bags to Temporal SDK option structs
+// for workflow start, activity execution, and child workflow configuration.
 package options
 
 import (
@@ -106,11 +108,15 @@ var legacyOptionAliases = map[string][]string{
 	OptionActivityPriority:         {"temporal.activity.priority"},
 }
 
+// StartOptionState tracks which optional fields were explicitly set during option application.
 type StartOptionState struct {
 	HasConflictPolicy bool
 	HasErrorOnStarted bool
 }
 
+// ApplyStartWorkflowOptions reads temporal workflow options from an attribute bag
+// and applies them to StartWorkflowOptions. Returns state indicating which optional
+// fields were explicitly set, allowing callers to apply defaults for unset fields.
 func ApplyStartWorkflowOptions(opts *client.StartWorkflowOptions, options attrs.Attributes) (StartOptionState, error) {
 	var state StartOptionState
 	if opts == nil || options == nil {
@@ -272,6 +278,8 @@ func ApplyStartWorkflowOptions(opts *client.StartWorkflowOptions, options attrs.
 	return state, nil
 }
 
+// ApplyActivityOptions reads temporal activity options from an attribute bag
+// and applies them to ExecuteActivityOptions (timeouts, retry policy, task queue, etc.).
 func ApplyActivityOptions(opts *bindings.ExecuteActivityOptions, options attrs.Attributes) error {
 	if opts == nil || options == nil {
 		return nil
@@ -368,6 +376,8 @@ func ApplyActivityOptions(opts *bindings.ExecuteActivityOptions, options attrs.A
 	return nil
 }
 
+// ApplyChildWorkflowOptions reads temporal child workflow options from an attribute bag
+// and applies them to ExecuteWorkflowParams (timeouts, parent close policy, search attributes, etc.).
 func ApplyChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options attrs.Attributes) error {
 	if params == nil || options == nil {
 		return nil

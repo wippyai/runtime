@@ -34,107 +34,94 @@ import (
 	"go.uber.org/zap"
 )
 
-const helloWorkflowSource = `
-local function main(input)
-    local name = "World"
-    if input ~= nil and input.name ~= nil then
-        name = input.name
-    end
-
-    return {
-        message = string.format("Hello, %s!", name),
-        status = "completed"
-    }
-end
-
-return main
-`
-
-func newTestWorker(t *testing.T, logger *zap.Logger, id registry.ID, cfg *api.WorkerConfig, resourceReg resource.Registry) *worker.Worker {
-	t.Helper()
-
-	w, err := worker.NewWorkerBuilder().
-		WithLogger(logger).
-		WithID(id).
-		WithConfig(cfg).
-		WithResourceRegistry(resourceReg).
-		WithTranscoder(newTestTranscoder()).
-		Build()
-	require.NoError(t, err)
-	return w
+// workflowTestFixture bundles the shared infrastructure for workflow integration tests.
+type workflowTestFixture struct {
+	t              *testing.T
+	ctx            context.Context
+	temporalClient client.Client
+	taskQueue      string
+	wippyWorker    *worker.Worker
+	cleanups       []func()
 }
 
-// TestWorkflowExecution_Integration tests that Lua workflows can be executed via Temporal.
-func TestWorkflowExecution_Integration(t *testing.T) {
+// workflowTestOpts configures a workflow integration test.
+type workflowTestOpts struct {
+	workflowID     registry.ID
+	source         string
+	taskQueue      string
+	modules        []*luaapi.ModuleDef
+	allowedClasses []string
+	engineOpts     []engine.FactoryOption
+	imports        []code.Import
+}
+
+func newWorkflowTestFixture(t *testing.T, opts workflowTestOpts) *workflowTestFixture {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
 
+	f := &workflowTestFixture{t: t, taskQueue: opts.taskQueue}
+
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 
-	// Set up code manager for Lua compilation
 	codeManager, err := code.NewCodeManager(logger, nil, code.Config{
-		Modules:        nil,
+		Modules:        opts.modules,
 		ProtoCacheSize: 100,
 		MainCacheSize:  100,
 	})
 	require.NoError(t, err)
 
-	// Set up process factory for creating Lua processes
 	processFactory := engine.NewProcessFactory(codeManager)
-
-	// Set up factory registry
 	factoryRegistry := sysprocess.NewFactoryRegistry(bus, logger.Named("factory"))
-
-	// Set up function registry
 	funcRegistry := sysfunc.NewFunctionRegistry(bus, logger.Named("function"))
 
-	// Set up root context with all dependencies
 	ctx := ctxapi.NewRootContext()
 	ctx = function.WithRegistry(ctx, funcRegistry)
 	ctx = process.WithFactory(ctx, factoryRegistry)
 
-	// Set up PID generator
 	uniqGen := uniqid.NewGenerator()
 	pidGen := uniqid.NewPIDGenerator(uniqGen, "test")
 	ctx = process.WithPIDGenerator(ctx, pidGen)
 
-	// Set up transcoder for Lua<->JSON conversion
-	payload.WithTranscoder(ctx, newTestTranscoder())
+	transcoder := newTestTranscoder()
+	payload.WithTranscoder(ctx, transcoder)
 
-	// Start registries
 	require.NoError(t, funcRegistry.Start(ctx))
-	defer func() { _ = funcRegistry.Stop() }()
+	f.cleanups = append(f.cleanups, func() { _ = funcRegistry.Stop() })
 
 	require.NoError(t, factoryRegistry.Start(ctx))
-	defer func() { _ = factoryRegistry.Stop() }()
+	f.cleanups = append(f.cleanups, func() { _ = factoryRegistry.Stop() })
 
-	// Add workflow code to code manager
-	workflowID := registry.NewID("test.workflow", "hello")
 	node := code.Node{
-		ID:     workflowID,
+		ID:     opts.workflowID,
 		Kind:   luaapi.Workflow,
-		Source: helloWorkflowSource,
+		Source: opts.source,
 		Method: "main",
 	}
-	require.NoError(t, codeManager.AddNode(ctx, node, nil))
+	require.NoError(t, codeManager.AddNode(ctx, node, opts.imports))
 
-	// Create factory for the workflow with deterministic module restrictions
-	factoryFn, err := processFactory.CreateFactory(workflowID,
-		engine.WithAllowedClasses(luaapi.ClassDeterministic, luaapi.ClassWorkflow),
-	)
+	classes := opts.allowedClasses
+	if len(classes) == 0 {
+		classes = []string{luaapi.ClassDeterministic, luaapi.ClassWorkflow}
+	}
+	factoryOpts := []engine.FactoryOption{
+		engine.WithAllowedClasses(classes...),
+	}
+	factoryOpts = append(factoryOpts, opts.engineOpts...)
+
+	factoryFn, err := processFactory.CreateFactory(opts.workflowID, factoryOpts...)
 	require.NoError(t, err)
 
-	// Register factory with the factory registry
 	awaiter := eventbus.NewAwaiter(bus, process.System, "factory.(accept|reject)")
-	waiter, err := awaiter.Prepare(ctx, workflowID.String())
+	waiter, err := awaiter.Prepare(ctx, opts.workflowID.String())
 	require.NoError(t, err)
 
 	bus.Send(ctx, event.Event{
 		System: process.System,
 		Kind:   process.FactoryRegister,
-		Path:   workflowID.String(),
+		Path:   opts.workflowID.String(),
 		Data: &process.FactoryEntry{
 			Factory: factoryFn,
 			Meta:    process.Meta{Method: "main"},
@@ -144,78 +131,91 @@ func TestWorkflowExecution_Integration(t *testing.T) {
 	result := waiter.Wait()
 	require.True(t, result.Accepted, "factory should be accepted")
 
-	// Create data converter
-	dc := dataconverter.NewDataConverter(newTestTranscoder())
+	dc := dataconverter.NewDataConverter(transcoder)
 
-	// Start Temporal test server
 	server, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
 		LogLevel:      "error",
 		ClientOptions: &client.Options{DataConverter: dc},
 	})
 	require.NoError(t, err)
-	defer func() { _ = server.Stop() }()
+	f.cleanups = append(f.cleanups, func() { _ = server.Stop() })
 
-	temporalClient := server.Client()
-	defer temporalClient.Close()
+	f.temporalClient = server.Client()
+	f.cleanups = append(f.cleanups, func() { f.temporalClient.Close() })
 
-	// Create mock resource registry with the client
 	resourceReg := newTestResourceRegistry()
-	clientResource := api.ClientResource{
-		Client: temporalClient,
-	}
 	clientID := registry.NewID("test", "client")
-	resourceReg.resources[clientID] = clientResource
+	resourceReg.resources[clientID] = api.ClientResource{Client: f.temporalClient}
 
-	// Create wippy worker with workflow support
-	taskQueue := "test-workflow-queue"
 	workerConfig := &api.WorkerConfig{
 		Client:    clientID,
-		TaskQueue: taskQueue,
+		TaskQueue: opts.taskQueue,
 		WorkerOptions: api.WorkerOptionsConfig{
 			MaxConcurrentWorkflowTaskExecutionSize: 10,
 		},
 	}
 
-	wippyWorker := newTestWorker(t, logger, registry.NewID("test", "worker"), workerConfig, resourceReg)
+	wippyWorker, err := worker.NewWorkerBuilder().
+		WithLogger(logger).
+		WithID(registry.NewID("test", "worker")).
+		WithConfig(workerConfig).
+		WithResourceRegistry(resourceReg).
+		WithTranscoder(transcoder).
+		Build()
+	require.NoError(t, err)
 
-	// Create and register workflow definition factory
-	defFactory := &workflow.DefinitionFactory{
-		ID: workflowID,
-	}
+	workflowName := opts.workflowID.String()
+	require.NoError(t, wippyWorker.RegisterWorkflow(ctx, workflowName, &workflow.DefinitionFactory{
+		ID: opts.workflowID,
+	}))
 
-	workflowName := workflowID.String()
-	require.NoError(t, wippyWorker.RegisterWorkflow(ctx, workflowName, defFactory))
-
-	// Start the worker
 	statusCh, err := wippyWorker.Start(ctx)
 	require.NoError(t, err)
+	<-statusCh
+	f.cleanups = append(f.cleanups, func() { _ = wippyWorker.Stop(ctx) })
 
-	// Wait for worker to be running
-	status := <-statusCh
-	require.NotNil(t, status)
+	f.ctx = ctx
+	f.wippyWorker = wippyWorker
+	return f
+}
 
-	defer func() { _ = wippyWorker.Stop(ctx) }()
+func (f *workflowTestFixture) cleanup() {
+	for i := len(f.cleanups) - 1; i >= 0; i-- {
+		f.cleanups[i]()
+	}
+}
 
-	// Execute workflow
-	workflowOptions := client.StartWorkflowOptions{
-		ID:        "workflow-test-" + time.Now().Format("20060102-150405"),
-		TaskQueue: taskQueue,
+func (f *workflowTestFixture) executeWorkflow(workflowName string, input any) map[string]any {
+	f.t.Helper()
+
+	opts := client.StartWorkflowOptions{
+		ID:        workflowName + "-" + time.Now().Format("20060102-150405.000"),
+		TaskQueue: f.taskQueue,
 	}
 
-	testInput := map[string]any{
-		"name": "Temporal",
+	we, err := f.temporalClient.ExecuteWorkflow(f.ctx, opts, workflowName, input)
+	require.NoError(f.t, err)
+
+	ctx, cancel := context.WithTimeout(f.ctx, 30*time.Second)
+	defer cancel()
+
+	var result map[string]any
+	err = we.Get(ctx, &result)
+	require.NoError(f.t, err)
+	return result
+}
+
+func (f *workflowTestFixture) startWorkflow(workflowName string, input any) client.WorkflowRun {
+	f.t.Helper()
+
+	opts := client.StartWorkflowOptions{
+		ID:        workflowName + "-" + time.Now().Format("20060102-150405.000"),
+		TaskQueue: f.taskQueue,
 	}
 
-	we, err := temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowName, testInput)
-	require.NoError(t, err)
-
-	var workflowResult map[string]any
-	err = we.Get(ctx, &workflowResult)
-	require.NoError(t, err)
-
-	// Verify result
-	require.Equal(t, "Hello, Temporal!", workflowResult["message"])
-	require.Equal(t, "completed", workflowResult["status"])
+	we, err := f.temporalClient.ExecuteWorkflow(f.ctx, opts, workflowName, input)
+	require.NoError(f.t, err)
+	return we
 }
 
 func newTestTranscoder() payload.Transcoder {
@@ -225,15 +225,12 @@ func newTestTranscoder() payload.Transcoder {
 	return transcoder
 }
 
-// testResourceRegistry provides a mock resource registry for testing
 type testResourceRegistry struct {
 	resources map[registry.ID]any
 }
 
 func newTestResourceRegistry() *testResourceRegistry {
-	return &testResourceRegistry{
-		resources: make(map[registry.ID]any),
-	}
+	return &testResourceRegistry{resources: make(map[registry.ID]any)}
 }
 
 func (m *testResourceRegistry) Acquire(_ context.Context, id registry.ID, _ resource.AccessMode) (resource.Resource[any], error) {
@@ -263,6 +260,45 @@ type testResource struct {
 
 func (r *testResource) Get() (any, error) { return r.value, nil }
 func (r *testResource) Release()          {}
+
+// requireNumericEqual asserts that a JSON-decoded numeric value matches the expected float64.
+// JSON roundtrip through Temporal's data converter produces float64 for all numbers.
+func requireNumericEqual(t *testing.T, expected float64, actual any, msgAndArgs ...any) {
+	t.Helper()
+	v, ok := actual.(float64)
+	require.True(t, ok, "expected float64, got %T", actual)
+	require.Equal(t, expected, v, msgAndArgs...)
+}
+
+const helloWorkflowSource = `
+local function main(input)
+    local name = "World"
+    if input ~= nil and input.name ~= nil then
+        name = input.name
+    end
+
+    return {
+        message = string.format("Hello, %s!", name),
+        status = "completed"
+    }
+end
+
+return main
+`
+
+func TestWorkflowExecution_Integration(t *testing.T) {
+	wfID := registry.NewID("test.workflow", "hello")
+	f := newWorkflowTestFixture(t, workflowTestOpts{
+		workflowID: wfID,
+		source:     helloWorkflowSource,
+		taskQueue:  "test-workflow-queue",
+	})
+	defer f.cleanup()
+
+	result := f.executeWorkflow(wfID.String(), map[string]any{"name": "Temporal"})
+	require.Equal(t, "Hello, Temporal!", result["message"])
+	require.Equal(t, "completed", result["status"])
+}
 
 const concurrentWorkflowSource = `
 local time = require("time")
@@ -313,173 +349,25 @@ end
 return main
 `
 
-// TestConcurrentWorkflow_Integration tests workflow with coroutines, channels, and timers.
 func TestConcurrentWorkflow_Integration(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-
-	logger := zap.NewNop()
-	bus := eventbus.NewBus()
-
-	codeManager, err := code.NewCodeManager(logger, nil, code.Config{
-		Modules:        []*luaapi.ModuleDef{timemod.Module},
-		ProtoCacheSize: 100,
-		MainCacheSize:  100,
+	wfID := registry.NewID("test.workflow", "concurrent")
+	f := newWorkflowTestFixture(t, workflowTestOpts{
+		modules:    []*luaapi.ModuleDef{timemod.Module},
+		workflowID: wfID,
+		source:     concurrentWorkflowSource,
+		taskQueue:  "test-concurrent-queue",
+		imports:    []code.Import{{ID: registry.NewID("", "time"), Alias: "time"}},
 	})
-	require.NoError(t, err)
+	defer f.cleanup()
 
-	processFactory := engine.NewProcessFactory(codeManager)
-	factoryRegistry := sysprocess.NewFactoryRegistry(bus, logger.Named("factory"))
-	funcRegistry := sysfunc.NewFunctionRegistry(bus, logger.Named("function"))
-
-	ctx := ctxapi.NewRootContext()
-	ctx = function.WithRegistry(ctx, funcRegistry)
-	ctx = process.WithFactory(ctx, factoryRegistry)
-
-	uniqGen := uniqid.NewGenerator()
-	pidGen := uniqid.NewPIDGenerator(uniqGen, "test")
-	ctx = process.WithPIDGenerator(ctx, pidGen)
-
-	payload.WithTranscoder(ctx, newTestTranscoder())
-
-	require.NoError(t, funcRegistry.Start(ctx))
-	defer func() { _ = funcRegistry.Stop() }()
-
-	require.NoError(t, factoryRegistry.Start(ctx))
-	defer func() { _ = factoryRegistry.Stop() }()
-
-	workflowID := registry.NewID("test.workflow", "concurrent")
-	node := code.Node{
-		ID:     workflowID,
-		Kind:   luaapi.Workflow,
-		Source: concurrentWorkflowSource,
-		Method: "main",
-	}
-	imports := []code.Import{{ID: registry.NewID("", "time"), Alias: "time"}}
-	require.NoError(t, codeManager.AddNode(ctx, node, imports))
-
-	factoryFn, err := processFactory.CreateFactory(workflowID,
-		engine.WithAllowedClasses(luaapi.ClassDeterministic, luaapi.ClassWorkflow),
-	)
-	require.NoError(t, err)
-
-	awaiter := eventbus.NewAwaiter(bus, process.System, "factory.(accept|reject)")
-	waiter, err := awaiter.Prepare(ctx, workflowID.String())
-	require.NoError(t, err)
-
-	bus.Send(ctx, event.Event{
-		System: process.System,
-		Kind:   process.FactoryRegister,
-		Path:   workflowID.String(),
-		Data: &process.FactoryEntry{
-			Factory: factoryFn,
-			Meta:    process.Meta{Method: "main"},
-		},
-	})
-
-	result := waiter.Wait()
-	require.True(t, result.Accepted, "factory should be accepted")
-
-	dc := dataconverter.NewDataConverter(newTestTranscoder())
-
-	server, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
-		LogLevel:      "error",
-		ClientOptions: &client.Options{DataConverter: dc},
-	})
-	require.NoError(t, err)
-	defer func() { _ = server.Stop() }()
-
-	temporalClient := server.Client()
-	defer temporalClient.Close()
-
-	resourceReg := newTestResourceRegistry()
-	clientResource := api.ClientResource{
-		Client: temporalClient,
-	}
-	clientID := registry.NewID("test", "client")
-	resourceReg.resources[clientID] = clientResource
-
-	taskQueue := "test-concurrent-queue"
-	workerConfig := &api.WorkerConfig{
-		Client:    clientID,
-		TaskQueue: taskQueue,
-		WorkerOptions: api.WorkerOptionsConfig{
-			MaxConcurrentWorkflowTaskExecutionSize: 10,
-		},
-	}
-
-	wippyWorker := newTestWorker(t, logger, registry.NewID("test", "worker"), workerConfig, resourceReg)
-
-	defFactory := &workflow.DefinitionFactory{
-		ID: workflowID,
-	}
-
-	workflowName := workflowID.String()
-	require.NoError(t, wippyWorker.RegisterWorkflow(ctx, workflowName, defFactory))
-
-	statusCh, err := wippyWorker.Start(ctx)
-	require.NoError(t, err)
-
-	status := <-statusCh
-	require.NotNil(t, status)
-
-	defer func() { _ = wippyWorker.Stop(ctx) }()
-
-	workflowOptions := client.StartWorkflowOptions{
-		ID:        "concurrent-test-" + time.Now().Format("20060102-150405"),
-		TaskQueue: taskQueue,
-	}
-
-	testInput := map[string]any{
-		"workers": 3,
-		"jobs":    6,
-	}
-
-	we, err := temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowName, testInput)
-	require.NoError(t, err)
-
-	getCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	var workflowResult map[string]any
-	err = we.Get(getCtx, &workflowResult)
-	require.NoError(t, err)
+	result := f.executeWorkflow(wfID.String(), map[string]any{"workers": 3, "jobs": 6})
 
 	// sum of (1+2+3+4+5+6)*2 = 42
-	switch v := workflowResult["total"].(type) {
-	case int:
-		require.Equal(t, 42, v)
-	case int64:
-		require.Equal(t, int64(42), v)
-	case float64:
-		require.Equal(t, float64(42), v)
-	default:
-		t.Fatalf("unexpected total type: %T", workflowResult["total"])
-	}
-	switch v := workflowResult["job_count"].(type) {
-	case int:
-		require.Equal(t, 6, v)
-	case int64:
-		require.Equal(t, int64(6), v)
-	case float64:
-		require.Equal(t, float64(6), v)
-	default:
-		t.Fatalf("unexpected job_count type: %T", workflowResult["job_count"])
-	}
-	switch v := workflowResult["worker_count"].(type) {
-	case int:
-		require.Equal(t, 3, v)
-	case int64:
-		require.Equal(t, int64(3), v)
-	case float64:
-		require.Equal(t, float64(3), v)
-	default:
-		t.Fatalf("unexpected worker_count type: %T", workflowResult["worker_count"])
-	}
+	requireNumericEqual(t, 42, result["total"])
+	requireNumericEqual(t, 6, result["job_count"])
+	requireNumericEqual(t, 3, result["worker_count"])
 }
 
-// Sample long-running workflow for cancellation tests
 const cancellableWorkflowSource = `
 local time = require("time")
 local channel = require("channel")
@@ -516,7 +404,44 @@ end
 return main
 `
 
-// Sample workflow that receives signals
+var processWorkflowClasses = []string{
+	luaapi.ClassDeterministic, luaapi.ClassWorkflow, luaapi.ClassProcess, luaapi.ClassTime,
+}
+
+var processWorkflowImports = []code.Import{
+	{ID: registry.NewID("", "time"), Alias: "time"},
+	{ID: registry.NewID("", "process"), Alias: "process"},
+}
+
+func TestWorkflowCancellation_Integration(t *testing.T) {
+	wfID := registry.NewID("test.workflow", "cancellable")
+	f := newWorkflowTestFixture(t, workflowTestOpts{
+		modules:        []*luaapi.ModuleDef{timemod.Module, processmod.Module},
+		allowedClasses: processWorkflowClasses,
+		engineOpts:     []engine.FactoryOption{engine.WithModule(processmod.Module)},
+		workflowID:     wfID,
+		source:         cancellableWorkflowSource,
+		taskQueue:      "test-cancel-queue",
+		imports:        processWorkflowImports,
+	})
+	defer f.cleanup()
+
+	we := f.startWorkflow(wfID.String(), map[string]any{"timeout": 10000})
+
+	time.Sleep(500 * time.Millisecond)
+
+	err := f.temporalClient.CancelWorkflow(f.ctx, we.GetID(), we.GetRunID())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(f.ctx, 10*time.Second)
+	defer cancel()
+
+	var result map[string]any
+	err = we.Get(ctx, &result)
+	require.NoError(t, err)
+	require.Equal(t, "canceled", result["status"])
+}
+
 const signalReceiverWorkflowSource = `
 local time = require("time")
 local channel = require("channel")
@@ -526,7 +451,6 @@ local function main(input)
     local my_pid = process.pid()
     local timeout_ms = input and input.timeout or 5000
 
-    -- Subscribe to the specific signal topic
     local greeting_ch, err = process.listen("greeting", {message = true})
     if err then
         return { pid = my_pid, status = "listen_error", error = tostring(err) }
@@ -537,7 +461,6 @@ local function main(input)
         return { pid = my_pid, status = "timer_error", error = tostring(err2) }
     end
 
-    -- Wait for either signal or timeout using select
     local result = channel.select{
         greeting_ch:case_receive(),
         timeout_ch:case_receive()
@@ -558,310 +481,38 @@ end
 return main
 `
 
-// TestWorkflowCancellation_Integration tests canceling a running workflow from Go.
-func TestWorkflowCancellation_Integration(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-
-	logger := zap.NewNop()
-	bus := eventbus.NewBus()
-
-	codeManager, err := code.NewCodeManager(logger, nil, code.Config{
-		Modules:        []*luaapi.ModuleDef{timemod.Module, processmod.Module},
-		ProtoCacheSize: 100,
-		MainCacheSize:  100,
-	})
-	require.NoError(t, err)
-
-	processFactory := engine.NewProcessFactory(codeManager)
-	factoryRegistry := sysprocess.NewFactoryRegistry(bus, logger.Named("factory"))
-	funcRegistry := sysfunc.NewFunctionRegistry(bus, logger.Named("function"))
-
-	ctx := ctxapi.NewRootContext()
-	ctx = function.WithRegistry(ctx, funcRegistry)
-	ctx = process.WithFactory(ctx, factoryRegistry)
-
-	uniqGen := uniqid.NewGenerator()
-	pidGen := uniqid.NewPIDGenerator(uniqGen, "test")
-	ctx = process.WithPIDGenerator(ctx, pidGen)
-
-	payload.WithTranscoder(ctx, newTestTranscoder())
-
-	require.NoError(t, funcRegistry.Start(ctx))
-	defer func() { _ = funcRegistry.Stop() }()
-
-	require.NoError(t, factoryRegistry.Start(ctx))
-	defer func() { _ = factoryRegistry.Stop() }()
-
-	// Register long-running workflow
-	workflowID := registry.NewID("test.workflow", "cancellable")
-	node := code.Node{
-		ID:     workflowID,
-		Kind:   luaapi.Workflow,
-		Source: cancellableWorkflowSource,
-		Method: "main",
-	}
-	imports := []code.Import{
-		{ID: registry.NewID("", "time"), Alias: "time"},
-		{ID: registry.NewID("", "process"), Alias: "process"},
-	}
-	require.NoError(t, codeManager.AddNode(ctx, node, imports))
-
-	factoryFn, err := processFactory.CreateFactory(workflowID,
-		engine.WithAllowedClasses(luaapi.ClassDeterministic, luaapi.ClassWorkflow, luaapi.ClassProcess, luaapi.ClassTime),
-		engine.WithModule(processmod.Module),
-	)
-	require.NoError(t, err)
-
-	awaiter := eventbus.NewAwaiter(bus, process.System, "factory.(accept|reject)")
-	waiter, err := awaiter.Prepare(ctx, workflowID.String())
-	require.NoError(t, err)
-
-	bus.Send(ctx, event.Event{
-		System: process.System,
-		Kind:   process.FactoryRegister,
-		Path:   workflowID.String(),
-		Data: &process.FactoryEntry{
-			Factory: factoryFn,
-			Meta:    process.Meta{Method: "main"},
-		},
-	})
-
-	result := waiter.Wait()
-	require.True(t, result.Accepted, "factory should be accepted")
-
-	dc := dataconverter.NewDataConverter(newTestTranscoder())
-
-	server, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
-		LogLevel:      "error",
-		ClientOptions: &client.Options{DataConverter: dc},
-	})
-	require.NoError(t, err)
-	defer func() { _ = server.Stop() }()
-
-	temporalClient := server.Client()
-	defer temporalClient.Close()
-
-	resourceReg := newTestResourceRegistry()
-	clientResource := api.ClientResource{
-		Client: temporalClient,
-	}
-	clientID := registry.NewID("test", "client")
-	resourceReg.resources[clientID] = clientResource
-
-	taskQueue := "test-cancel-queue"
-	workerConfig := &api.WorkerConfig{
-		Client:    clientID,
-		TaskQueue: taskQueue,
-		WorkerOptions: api.WorkerOptionsConfig{
-			MaxConcurrentWorkflowTaskExecutionSize: 10,
-		},
-	}
-
-	wippyWorker := newTestWorker(t, logger, registry.NewID("test", "worker"), workerConfig, resourceReg)
-
-	defFactory := &workflow.DefinitionFactory{
-		ID: workflowID,
-	}
-
-	workflowName := workflowID.String()
-	require.NoError(t, wippyWorker.RegisterWorkflow(ctx, workflowName, defFactory))
-
-	statusCh, err := wippyWorker.Start(ctx)
-	require.NoError(t, err)
-
-	status := <-statusCh
-	require.NotNil(t, status)
-
-	defer func() { _ = wippyWorker.Stop(ctx) }()
-
-	// Start a long-running workflow
-	workflowOptions := client.StartWorkflowOptions{
-		ID:        "cancel-test-" + time.Now().Format("20060102-150405"),
-		TaskQueue: taskQueue,
-	}
-
-	testInput := map[string]any{
-		"timeout": 10000, // 10 second timeout
-	}
-
-	we, err := temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowName, testInput)
-	require.NoError(t, err)
-
-	// Let workflow start and run a bit
-	time.Sleep(500 * time.Millisecond)
-
-	// Cancel the workflow from Go
-	err = temporalClient.CancelWorkflow(ctx, we.GetID(), we.GetRunID())
-	require.NoError(t, err)
-
-	// Wait for workflow - should complete gracefully with canceled status
-	getCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	var workflowResult map[string]any
-	err = we.Get(getCtx, &workflowResult)
-
-	// Workflow handles cancellation gracefully and returns result
-	require.NoError(t, err, "workflow should complete gracefully")
-	require.Equal(t, "canceled", workflowResult["status"], "workflow should return canceled status")
-}
-
-// TestWorkflowSignal_Integration tests sending signals to a running workflow from Go.
 func TestWorkflowSignal_Integration(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-
-	logger := zap.NewNop()
-	bus := eventbus.NewBus()
-
-	codeManager, err := code.NewCodeManager(logger, nil, code.Config{
-		Modules:        []*luaapi.ModuleDef{timemod.Module, processmod.Module},
-		ProtoCacheSize: 100,
-		MainCacheSize:  100,
+	wfID := registry.NewID("test.workflow", "signal_receiver")
+	f := newWorkflowTestFixture(t, workflowTestOpts{
+		modules:        []*luaapi.ModuleDef{timemod.Module, processmod.Module},
+		allowedClasses: processWorkflowClasses,
+		engineOpts:     []engine.FactoryOption{engine.WithModule(processmod.Module)},
+		workflowID:     wfID,
+		source:         signalReceiverWorkflowSource,
+		taskQueue:      "test-signal-queue",
+		imports:        processWorkflowImports,
 	})
-	require.NoError(t, err)
+	defer f.cleanup()
 
-	processFactory := engine.NewProcessFactory(codeManager)
-	factoryRegistry := sysprocess.NewFactoryRegistry(bus, logger.Named("factory"))
-	funcRegistry := sysfunc.NewFunctionRegistry(bus, logger.Named("function"))
+	we := f.startWorkflow(wfID.String(), map[string]any{"timeout": 10000})
 
-	ctx := ctxapi.NewRootContext()
-	ctx = function.WithRegistry(ctx, funcRegistry)
-	ctx = process.WithFactory(ctx, factoryRegistry)
-
-	uniqGen := uniqid.NewGenerator()
-	pidGen := uniqid.NewPIDGenerator(uniqGen, "test")
-	ctx = process.WithPIDGenerator(ctx, pidGen)
-
-	payload.WithTranscoder(ctx, newTestTranscoder())
-
-	require.NoError(t, funcRegistry.Start(ctx))
-	defer func() { _ = funcRegistry.Stop() }()
-
-	require.NoError(t, factoryRegistry.Start(ctx))
-	defer func() { _ = factoryRegistry.Stop() }()
-
-	// Register signal receiver workflow
-	workflowID := registry.NewID("test.workflow", "signal_receiver")
-	node := code.Node{
-		ID:     workflowID,
-		Kind:   luaapi.Workflow,
-		Source: signalReceiverWorkflowSource,
-		Method: "main",
-	}
-	imports := []code.Import{
-		{ID: registry.NewID("", "time"), Alias: "time"},
-		{ID: registry.NewID("", "process"), Alias: "process"},
-	}
-	require.NoError(t, codeManager.AddNode(ctx, node, imports))
-
-	factoryFn, err := processFactory.CreateFactory(workflowID,
-		engine.WithAllowedClasses(luaapi.ClassDeterministic, luaapi.ClassWorkflow, luaapi.ClassProcess, luaapi.ClassTime),
-		engine.WithModule(processmod.Module),
-	)
-	require.NoError(t, err)
-
-	awaiter := eventbus.NewAwaiter(bus, process.System, "factory.(accept|reject)")
-	waiter, err := awaiter.Prepare(ctx, workflowID.String())
-	require.NoError(t, err)
-
-	bus.Send(ctx, event.Event{
-		System: process.System,
-		Kind:   process.FactoryRegister,
-		Path:   workflowID.String(),
-		Data: &process.FactoryEntry{
-			Factory: factoryFn,
-			Meta:    process.Meta{Method: "main"},
-		},
-	})
-
-	result := waiter.Wait()
-	require.True(t, result.Accepted, "factory should be accepted")
-
-	dc := dataconverter.NewDataConverter(newTestTranscoder())
-
-	server, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
-		LogLevel:      "error",
-		ClientOptions: &client.Options{DataConverter: dc},
-	})
-	require.NoError(t, err)
-	defer func() { _ = server.Stop() }()
-
-	temporalClient := server.Client()
-	defer temporalClient.Close()
-
-	resourceReg := newTestResourceRegistry()
-	clientResource := api.ClientResource{
-		Client: temporalClient,
-	}
-	clientID := registry.NewID("test", "client")
-	resourceReg.resources[clientID] = clientResource
-
-	taskQueue := "test-signal-queue"
-	workerConfig := &api.WorkerConfig{
-		Client:    clientID,
-		TaskQueue: taskQueue,
-		WorkerOptions: api.WorkerOptionsConfig{
-			MaxConcurrentWorkflowTaskExecutionSize: 10,
-		},
-	}
-
-	wippyWorker := newTestWorker(t, logger, registry.NewID("test", "worker"), workerConfig, resourceReg)
-
-	defFactory := &workflow.DefinitionFactory{
-		ID: workflowID,
-	}
-
-	workflowName := workflowID.String()
-	require.NoError(t, wippyWorker.RegisterWorkflow(ctx, workflowName, defFactory))
-
-	statusCh, err := wippyWorker.Start(ctx)
-	require.NoError(t, err)
-
-	status := <-statusCh
-	require.NotNil(t, status)
-
-	defer func() { _ = wippyWorker.Stop(ctx) }()
-
-	// Start workflow that waits for signal
-	workflowOptions := client.StartWorkflowOptions{
-		ID:        "signal-test-" + time.Now().Format("20060102-150405"),
-		TaskQueue: taskQueue,
-	}
-
-	testInput := map[string]any{
-		"timeout": 10000, // 10 second timeout
-	}
-
-	we, err := temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowName, testInput)
-	require.NoError(t, err)
-
-	// Let workflow start
 	time.Sleep(200 * time.Millisecond)
 
-	// Send signal from Go - this is received via process.listen() in the workflow
-	err = temporalClient.SignalWorkflow(ctx, we.GetID(), we.GetRunID(), "greeting", map[string]any{
+	err := f.temporalClient.SignalWorkflow(f.ctx, we.GetID(), we.GetRunID(), "greeting", map[string]any{
 		"text": "hello from Go",
 	})
 	require.NoError(t, err)
 
-	// Wait for workflow to complete
-	getCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	ctx, cancel := context.WithTimeout(f.ctx, 15*time.Second)
 	defer cancel()
 
-	var workflowResult map[string]any
-	err = we.Get(getCtx, &workflowResult)
+	var result map[string]any
+	err = we.Get(ctx, &result)
 	require.NoError(t, err)
-
-	// Verify workflow received the signal
-	require.Equal(t, "received", workflowResult["status"])
-	require.Equal(t, "greeting", workflowResult["received_topic"])
+	require.Equal(t, "received", result["status"])
+	require.Equal(t, "greeting", result["received_topic"])
 }
 
-// Sample workflow that uses ticker
 const tickerWorkflowSource = `
 local time = require("time")
 local channel = require("channel")
@@ -893,152 +544,20 @@ end
 return main
 `
 
-// TestWorkflowTicker_Integration tests that tickers work in workflow context.
 func TestWorkflowTicker_Integration(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-
-	logger := zap.NewNop()
-	bus := eventbus.NewBus()
-
-	codeManager, err := code.NewCodeManager(logger, nil, code.Config{
-		Modules:        []*luaapi.ModuleDef{timemod.Module, processmod.Module},
-		ProtoCacheSize: 100,
-		MainCacheSize:  100,
+	wfID := registry.NewID("test.workflow", "ticker_test")
+	f := newWorkflowTestFixture(t, workflowTestOpts{
+		modules:        []*luaapi.ModuleDef{timemod.Module, processmod.Module},
+		allowedClasses: processWorkflowClasses,
+		engineOpts:     []engine.FactoryOption{engine.WithModule(processmod.Module)},
+		workflowID:     wfID,
+		source:         tickerWorkflowSource,
+		taskQueue:      "test-ticker-queue",
+		imports:        processWorkflowImports,
 	})
-	require.NoError(t, err)
+	defer f.cleanup()
 
-	processFactory := engine.NewProcessFactory(codeManager)
-	factoryRegistry := sysprocess.NewFactoryRegistry(bus, logger.Named("factory"))
-	funcRegistry := sysfunc.NewFunctionRegistry(bus, logger.Named("function"))
-
-	ctx := ctxapi.NewRootContext()
-	ctx = function.WithRegistry(ctx, funcRegistry)
-	ctx = process.WithFactory(ctx, factoryRegistry)
-
-	uniqGen := uniqid.NewGenerator()
-	pidGen := uniqid.NewPIDGenerator(uniqGen, "test")
-	ctx = process.WithPIDGenerator(ctx, pidGen)
-
-	payload.WithTranscoder(ctx, newTestTranscoder())
-
-	require.NoError(t, funcRegistry.Start(ctx))
-	defer func() { _ = funcRegistry.Stop() }()
-
-	require.NoError(t, factoryRegistry.Start(ctx))
-	defer func() { _ = factoryRegistry.Stop() }()
-
-	workflowID := registry.NewID("test.workflow", "ticker_test")
-	node := code.Node{
-		ID:     workflowID,
-		Kind:   luaapi.Workflow,
-		Source: tickerWorkflowSource,
-		Method: "main",
-	}
-	imports := []code.Import{
-		{ID: registry.NewID("", "time"), Alias: "time"},
-		{ID: registry.NewID("", "process"), Alias: "process"},
-	}
-	require.NoError(t, codeManager.AddNode(ctx, node, imports))
-
-	factoryFn, err := processFactory.CreateFactory(workflowID,
-		engine.WithAllowedClasses(luaapi.ClassDeterministic, luaapi.ClassWorkflow, luaapi.ClassProcess, luaapi.ClassTime),
-		engine.WithModule(processmod.Module),
-	)
-	require.NoError(t, err)
-
-	awaiter := eventbus.NewAwaiter(bus, process.System, "factory.(accept|reject)")
-	waiter, err := awaiter.Prepare(ctx, workflowID.String())
-	require.NoError(t, err)
-
-	bus.Send(ctx, event.Event{
-		System: process.System,
-		Kind:   process.FactoryRegister,
-		Path:   workflowID.String(),
-		Data: &process.FactoryEntry{
-			Factory: factoryFn,
-			Meta:    process.Meta{Method: "main"},
-		},
-	})
-
-	result := waiter.Wait()
-	require.True(t, result.Accepted, "factory should be accepted")
-
-	dc := dataconverter.NewDataConverter(newTestTranscoder())
-
-	server, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
-		LogLevel:      "error",
-		ClientOptions: &client.Options{DataConverter: dc},
-	})
-	require.NoError(t, err)
-	defer func() { _ = server.Stop() }()
-
-	temporalClient := server.Client()
-	defer temporalClient.Close()
-
-	resourceReg := newTestResourceRegistry()
-	clientResource := api.ClientResource{
-		Client: temporalClient,
-	}
-	clientID := registry.NewID("test", "client")
-	resourceReg.resources[clientID] = clientResource
-
-	taskQueue := "test-ticker-queue"
-	workerConfig := &api.WorkerConfig{
-		Client:    clientID,
-		TaskQueue: taskQueue,
-		WorkerOptions: api.WorkerOptionsConfig{
-			MaxConcurrentWorkflowTaskExecutionSize: 10,
-		},
-	}
-
-	wippyWorker := newTestWorker(t, logger, registry.NewID("test", "worker"), workerConfig, resourceReg)
-
-	defFactory := &workflow.DefinitionFactory{
-		ID: workflowID,
-	}
-
-	workflowName := workflowID.String()
-	require.NoError(t, wippyWorker.RegisterWorkflow(ctx, workflowName, defFactory))
-
-	statusCh, err := wippyWorker.Start(ctx)
-	require.NoError(t, err)
-
-	status := <-statusCh
-	require.NotNil(t, status)
-
-	defer func() { _ = wippyWorker.Stop(ctx) }()
-
-	workflowOptions := client.StartWorkflowOptions{
-		ID:        "ticker-test-" + time.Now().Format("20060102-150405"),
-		TaskQueue: taskQueue,
-	}
-
-	testInput := map[string]any{
-		"count":    3,
-		"interval": 100, // 100ms between ticks
-	}
-
-	we, err := temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowName, testInput)
-	require.NoError(t, err)
-
-	getCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	var workflowResult map[string]any
-	err = we.Get(getCtx, &workflowResult)
-	require.NoError(t, err)
-
-	require.Equal(t, "completed", workflowResult["status"])
-	switch v := workflowResult["tick_count"].(type) {
-	case int:
-		require.Equal(t, 3, v)
-	case int64:
-		require.Equal(t, int64(3), v)
-	case float64:
-		require.Equal(t, float64(3), v)
-	default:
-		t.Fatalf("unexpected tick_count type: %T", workflowResult["tick_count"])
-	}
+	result := f.executeWorkflow(wfID.String(), map[string]any{"count": 3, "interval": 100})
+	require.Equal(t, "completed", result["status"])
+	requireNumericEqual(t, 3, result["tick_count"])
 }

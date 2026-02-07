@@ -1,3 +1,5 @@
+// Package temporal provides boot components that wire up Temporal clients,
+// workers, activity listeners, and workflow listeners into the application.
 package temporal
 
 import "github.com/wippyai/runtime/api/boot"

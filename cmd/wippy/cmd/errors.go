@@ -168,10 +168,6 @@ func NewReadEntriesError(path string, cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to read entries from: "+path).WithCause(cause).WithRetryable(apierror.False)
 }
 
-func NewStartRuntimeServicesError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to start runtime services").WithCause(cause).WithRetryable(apierror.False)
-}
-
 func NewInvalidExistingLockFileError(cause error) apierror.Error {
 	return apierror.New(apierror.Invalid, "invalid existing lock file").WithCause(cause).WithRetryable(apierror.False)
 }

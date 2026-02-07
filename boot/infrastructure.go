@@ -80,6 +80,7 @@ func NewBootstrapContext(logger *zap.Logger, cfg boot.Config) (context.Context, 
 	// Create HandlerRegistry for component event handlers
 	handlerRegistry := NewHandlerRegistry()
 	ctx = WithHandlerRegistry(ctx, handlerRegistry)
+	ctx = WithReadiness(ctx, NewReadiness())
 
 	// Store managers in AppContext for later Start/Stop
 	ctx = logapi.WithManager(ctx, logManager)

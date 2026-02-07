@@ -1,3 +1,5 @@
+// Package interceptor provides registries for collecting and distributing
+// Temporal SDK client and worker interceptors.
 package interceptor
 
 import (

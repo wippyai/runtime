@@ -14,13 +14,18 @@ const (
 	Worker registry.Kind = "temporal.worker"
 )
 
-// WorkerConfig represents the configuration for a Temporal worker
+// WorkerConfig represents the configuration for a Temporal worker.
 type WorkerConfig struct {
-	Meta          attrs.Bag                  `json:"meta"`
-	Client        registry.ID                `json:"client"`
-	TaskQueue     string                     `json:"task_queue"`
-	Lifecycle     supervisor.LifecycleConfig `json:"lifecycle"`
-	WorkerOptions WorkerOptionsConfig        `json:"worker_options"`
+	// Meta holds arbitrary metadata associated with this worker entry.
+	Meta attrs.Bag `json:"meta"`
+	// Client references the Temporal client this worker connects through.
+	Client registry.ID `json:"client"`
+	// TaskQueue is the Temporal task queue this worker polls.
+	TaskQueue string `json:"task_queue"`
+	// Lifecycle controls supervisor start/stop behavior and dependency ordering.
+	Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
+	// WorkerOptions configures Temporal SDK worker tuning parameters.
+	WorkerOptions WorkerOptionsConfig `json:"worker_options"`
 }
 
 // WorkerOptionsConfig represents configuration options for a Temporal worker

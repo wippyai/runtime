@@ -1,3 +1,5 @@
+// Package dataconverter implements a Temporal DataConverter that bridges
+// between wippy payload formats and Temporal's protobuf serialization.
 package dataconverter
 
 import (

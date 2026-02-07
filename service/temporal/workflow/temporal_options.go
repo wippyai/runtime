@@ -32,10 +32,12 @@ const (
 	optionWorkflowVersioningIntent                 = temporaloptions.OptionWorkflowVersioningIntent
 )
 
+// applyTemporalActivityOptions maps attribute options to Temporal activity execution options.
 func applyTemporalActivityOptions(opts *bindings.ExecuteActivityOptions, options attrs.Attributes) error {
 	return temporaloptions.ApplyActivityOptions(opts, options)
 }
 
+// applyTemporalChildWorkflowOptions maps attribute options to Temporal child workflow params.
 func applyTemporalChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options attrs.Attributes) error {
 	return temporaloptions.ApplyChildWorkflowOptions(params, options)
 }

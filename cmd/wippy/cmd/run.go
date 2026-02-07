@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -22,20 +21,15 @@ import (
 	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	bootpkg "github.com/wippyai/runtime/boot"
-	bootauth "github.com/wippyai/runtime/boot/deps/auth"
 	"github.com/wippyai/runtime/boot/deps/client"
-	"github.com/wippyai/runtime/boot/deps/hub"
-	"github.com/wippyai/runtime/boot/deps/lock"
 	bootextensions "github.com/wippyai/runtime/boot/extensions"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"github.com/wippyai/runtime/cmd/internal/banner"
 	"github.com/wippyai/runtime/cmd/internal/bootconfig"
 	"github.com/wippyai/runtime/cmd/internal/entries"
-	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
 	"github.com/wippyai/runtime/cmd/internal/shutdown"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
 	supervisorpkg "github.com/wippyai/runtime/system/supervisor"
-	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -88,6 +82,9 @@ type commandMeta struct {
 	Short string `json:"short"`
 }
 
+// runApp is the primary `wippy run` execution flow.
+// It resolves invocation mode (runtime, pack, hub module, exec), bootstraps
+// components, loads registry entries, and blocks until shutdown.
 func runApp(cmd *cobra.Command, args []string) error {
 	memLimit := initMemoryLimit()
 
@@ -130,13 +127,7 @@ func runApp(cmd *cobra.Command, args []string) error {
 
 	banner.Print(silentLogs)
 
-	logger, err := clilogger.CreateLogger(clilogger.Config{
-		Verbose:      verbose,
-		VeryVerbose:  veryVerbose,
-		Console:      console,
-		Silent:       silentLogs,
-		AppStartTime: appStartTime,
-	})
+	logger, err := createCommandLogger()
 	if err != nil {
 		return NewCreateLoggerError(err)
 	}
@@ -209,9 +200,8 @@ func runApp(cmd *cobra.Command, args []string) error {
 	}
 	logger.Info("components loaded successfully")
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	supervisorapi.SetSignalChannel(ctx, sigChan)
+	sigChan := setupSupervisorSignalChannel(ctx)
+	defer signal.Stop(sigChan)
 
 	err = loader.Start(ctx)
 	if err != nil {
@@ -246,17 +236,7 @@ func runApp(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	<-sigChan
-
-	go func() {
-		<-sigChan
-		logger.Error("force exit")
-		os.Exit(1)
-	}()
-
-	if !silentLogs {
-		logger.Info("shutting down (press Ctrl+C again to force exit)")
-	}
+	waitForShutdownSignal(sigChan, logger, nil)
 
 	exitCode := shutdown.Perform(ctx, loader, logger, silentLogs)
 	if exitCode != 0 {
@@ -318,6 +298,7 @@ func extractCommandMeta(meta map[string]any) *commandMeta {
 	return &commandMeta{Name: name, Short: short}
 }
 
+// runList prints all command-enabled process entries from resolved lock modules.
 func runList(cmd *cobra.Command, _ []string) error {
 	silentLogs = true
 
@@ -326,22 +307,9 @@ func runList(cmd *cobra.Command, _ []string) error {
 		return NewInitAppError(err)
 	}
 
-	lockPath, err := lock.Find(".", defaultLockFile)
+	lockPath, lockObj, err := loadValidatedLock(".", defaultLockFile)
 	if err != nil {
-		return NewLockFileNotFoundError(err)
-	}
-
-	if err := entries.EnsureModulesInstalled(app.Ctx, lockPath, app.Logger.Named("list")); err != nil {
-		return NewEnsureModulesInstalledError(err)
-	}
-
-	lockObj, err := lock.New(lockPath)
-	if err != nil {
-		return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
-	}
-
-	if err := lock.Validate(lockObj); err != nil {
-		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
+		return err
 	}
 
 	var commands []struct {
@@ -350,9 +318,9 @@ func runList(cmd *cobra.Command, _ []string) error {
 		EntryID string
 	}
 
-	allEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, app.Logger)
+	allEntries, err := ensureModulesAndLoadEntries(app.Ctx, lockPath, lockObj, app.Logger.Named("list"))
 	if err != nil {
-		return NewLoadEntriesError(fmt.Sprintf("lock paths (%s)", lockPath), err)
+		return err
 	}
 
 	for _, e := range allEntries {
@@ -407,6 +375,8 @@ func runList(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+// loadBootConfig reads config from file, applies defaults, and injects boot
+// metadata (config path + directory) into the effective config.
 func loadBootConfig() (boot.Config, error) {
 	cfgPath := configFile
 	if cfgPath == "" {
@@ -434,6 +404,7 @@ func loadBootConfig() (boot.Config, error) {
 	return bootconfig.Merge(bootconfig.Merge(defaults, cfg), configMeta), nil
 }
 
+// createDefaultConfig returns the baseline config implied by global CLI flags.
 func createDefaultConfig() boot.Config {
 	var opts []boot.ConfigOption
 
@@ -447,6 +418,8 @@ func createDefaultConfig() boot.Config {
 	return boot.NewConfig(opts...)
 }
 
+// loadExtensionComponents loads extension components while reserving existing
+// component names so extensions cannot shadow built-ins.
 func loadExtensionComponents(ctx context.Context, logger *zap.Logger, reserved []boot.Component) (context.Context, []boot.Component, error) {
 	reservedNames := make(map[string]struct{}, len(reserved))
 	for _, comp := range reserved {
@@ -479,6 +452,7 @@ func loadExtensionComponents(ctx context.Context, logger *zap.Logger, reserved [
 	return ctx, res.Components, nil
 }
 
+// applyCLIOverrides converts global runtime flags into boot config overrides.
 func applyCLIOverrides(cfg boot.Config) boot.Config {
 	var opts []boot.ConfigOption
 
@@ -515,6 +489,8 @@ func applyCLIOverrides(cfg boot.Config) boot.Config {
 	return bootconfig.Merge(cfg, boot.NewConfig(opts...))
 }
 
+// applyOverrideFlags parses repeated `-o namespace:entry:field=value` flags and
+// stores them under config.override.
 func applyOverrideFlags(cfg boot.Config, overrides []string, logger *zap.Logger) (boot.Config, error) {
 	overrideMap := make(map[string]any)
 
@@ -556,6 +532,7 @@ func applyOverrideFlags(cfg boot.Config, overrides []string, logger *zap.Logger)
 	return boot.NewConfig(opts...), nil
 }
 
+// parseOverride parses `namespace:entry:field=value`.
 func parseOverride(input string) (namespace, entry, field, value string, err error) {
 	eqIdx := strings.Index(input, "=")
 	if eqIdx == -1 {
@@ -596,6 +573,7 @@ func parseOverride(input string) (namespace, entry, field, value string, err err
 	return namespace, entry, field, value, nil
 }
 
+// parseExecSpec parses `namespace:entry`.
 func parseExecSpec(spec string) (namespace, entry string, err error) {
 	colonIdx := strings.Index(spec, ":")
 	if colonIdx == -1 {
@@ -616,6 +594,7 @@ func parseExecSpec(spec string) (namespace, entry string, err error) {
 	return namespace, entry, nil
 }
 
+// findTerminalHost resolves terminal host automatically when --host is omitted.
 func findTerminalHost(ctx context.Context) (string, error) {
 	reg := registry.GetRegistry(ctx)
 	if reg == nil {
@@ -643,6 +622,8 @@ func findTerminalHost(ctx context.Context) (string, error) {
 	return hosts[0], nil
 }
 
+// launchExecProcess starts a process from exec spec and forwards CLI args
+// as string payloads.
 func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID string, args []string) error {
 	namespace, entry, err := parseExecSpec(execSpec)
 	if err != nil {
@@ -692,6 +673,8 @@ func launchExecProcess(ctx context.Context, logger *zap.Logger, execSpec, hostID
 	return nil
 }
 
+// waitForHostRunning waits until host is both running in supervisor state and
+// discoverable in relay node routing.
 func waitForHostRunning(ctx context.Context, hostID string) error {
 	sup, ok := supervisorapi.GetSupervisor(ctx).(*supervisorpkg.Supervisor)
 	if !ok || sup == nil {
@@ -737,400 +720,23 @@ func waitForHostRunning(ctx context.Context, hostID string) error {
 	}
 }
 
-var hubModulePattern = regexp.MustCompile(`^([a-z][a-z0-9-]*)/([a-z][a-z0-9-]*)(?:@(.+))?$`)
-
-// findPackCommand finds a command entry in the pack
-// If commandName is empty, returns the first available command (preferring "run")
-func findPackCommand(ctx context.Context, commandName string) (string, error) {
-	reg := registry.GetRegistry(ctx)
-	if reg == nil {
-		return "", fmt.Errorf("registry not available")
-	}
-
-	allEntries, err := reg.GetAllEntries()
-	if err != nil {
-		return "", fmt.Errorf("failed to query registry for pack commands: %w", err)
-	}
-
-	var commands []struct {
-		name    string
-		entryID string
-	}
-
-	for _, e := range allEntries {
-		if !strings.HasPrefix(e.Kind, "process.lua") {
-			continue
-		}
-
-		cmdMeta := extractCommandMeta(e.Meta)
-		if cmdMeta == nil {
-			continue
-		}
-
-		commands = append(commands, struct {
-			name    string
-			entryID string
-		}{name: cmdMeta.Name, entryID: e.ID.String()})
-	}
-
-	if len(commands) == 0 {
-		return "", nil
-	}
-
-	if commandName != "" {
-		for _, c := range commands {
-			if c.name == commandName {
-				return c.entryID, nil
-			}
-		}
-		return "", fmt.Errorf("command %q not found in pack", commandName)
-	}
-
-	for _, c := range commands {
-		if c.name == "run" {
-			return c.entryID, nil
-		}
-	}
-
-	return commands[0].entryID, nil
-}
-
-func isHubModuleRef(s string) bool {
-	if strings.HasSuffix(s, ".wapp") {
-		return false
-	}
-
-	if _, err := os.Stat(s); err == nil {
-		return false
-	}
-
-	return hubModulePattern.MatchString(s)
-}
-
-func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]string, error) {
-	matches := hubModulePattern.FindStringSubmatch(ref)
-	if matches == nil {
-		return nil, fmt.Errorf("invalid hub module reference: %s", ref)
-	}
-
-	org := matches[1]
-	module := matches[2]
-	versionOrLabel := ""
-	if len(matches) > 3 {
-		versionOrLabel = matches[3]
-	}
-
-	projectDir, _ := os.Getwd()
-	authCfg := bootauth.NewConfig(projectDir)
-	store := bootauth.NewStore(authCfg)
-
-	if registryURL == "" {
-		registryURL = store.DefaultRegistry()
-	}
-
-	cred, _ := store.Get(registryURL)
-
-	var token string
-	if cred != nil {
-		token = cred.Token
-	}
-
-	client, err := hub.NewClient(hub.Options{
-		BaseURL: registryURL,
-		Token:   token,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create hub client for %s: %w", registryURL, err)
-	}
-
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	fmt.Printf("%s %s/%s", dimStyle.Render("Resolving dependencies for"), org, module)
-	if versionOrLabel != "" {
-		fmt.Printf("@%s", versionOrLabel)
-	}
-	fmt.Println("...")
-
-	downloadCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-
-	constraint := ""
-	if versionOrLabel != "" {
-		if isVersionString(versionOrLabel) {
-			constraint = versionOrLabel
-		} else {
-			constraint = "@" + versionOrLabel
-		}
-	}
-
-	resolveParams := &hub.ResolveDependenciesParams{
-		Roots: []hub.DependencySpec{
-			{Org: org, Name: module, Constraint: constraint},
-		},
-	}
-
-	resolved, err := client.ResolveDependencies(downloadCtx, resolveParams)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve dependencies from %s: %w", registryURL, err)
-	}
-
-	if len(resolved.Errors) > 0 {
-		details := make([]string, 0, len(resolved.Errors))
-		for _, resErr := range resolved.Errors {
-			details = append(details, formatResolutionError(resErr))
-		}
-		return nil, fmt.Errorf("dependency resolution errors (%d): %s", len(resolved.Errors), strings.Join(details, "; "))
-	}
-
-	if len(resolved.Modules) == 0 {
-		return nil, fmt.Errorf("no modules resolved for %s/%s", org, module)
-	}
-
-	fmt.Printf("%s Resolved %d module(s)\n", dimStyle.Render(""), len(resolved.Modules))
-
-	cacheDir := getCacheDir()
-	var packPaths []string
-	var mainPackPath string
-
-	for _, m := range resolved.Modules {
-		moduleName := fmt.Sprintf("%s/%s", m.Org, m.Name)
-		packPath := filepath.Join(cacheDir, m.Org, fmt.Sprintf("%s-%s.wapp", m.Name, m.Version))
-
-		if _, err := os.Stat(packPath); err == nil {
-			fmt.Printf("%s %s@%s (cached)\n", dimStyle.Render(""), moduleName, m.Version)
-		} else {
-			fmt.Printf("%s Downloading %s@%s...\n", dimStyle.Render(""), moduleName, m.Version)
-			if m.URL == "" {
-				return nil, fmt.Errorf("no download URL for %s@%s from %s", moduleName, m.Version, registryURL)
-			}
-			if err := client.DownloadToFile(downloadCtx, m.URL, packPath); err != nil {
-				return nil, fmt.Errorf("failed to download %s@%s from %s to %s: %w", moduleName, m.Version, registryURL, packPath, err)
-			}
-		}
-
-		if err := updateLockFile(moduleName, m.Version, m.Digest); err != nil {
-			fmt.Printf("%s Warning: could not update lock file for %s: %v\n", dimStyle.Render(""), moduleName, err)
-		}
-
-		if m.Org == org && m.Name == module {
-			mainPackPath = packPath
-		} else {
-			packPaths = append(packPaths, packPath)
-		}
-	}
-
-	if mainPackPath == "" {
-		return nil, fmt.Errorf("main module %s/%s not found in resolved modules", org, module)
-	}
-
-	packPaths = append(packPaths, mainPackPath)
-
-	fmt.Println()
-	return packPaths, nil
-}
-
-func updateLockFile(moduleName, version, digest string) error {
-	lockObj, err := lock.New(defaultLockFile)
-	if err != nil {
-		return fmt.Errorf("lock file %s: %w", defaultLockFile, err)
-	}
-
-	mod := lock.Module{
-		Name:    moduleName,
-		Version: version,
-		Hash:    digest,
-	}
-
-	lockObj.SetModule(mod)
-	if err := lockObj.Write(); err != nil {
-		return fmt.Errorf("lock file %s: %w", lockObj.Path(), err)
-	}
-	return nil
-}
-
-func isVersionString(s string) bool {
-	if s == "" {
-		return false
-	}
-	if s[0] == 'v' {
-		s = s[1:]
-	}
-	parts := strings.Split(s, ".")
-	if len(parts) < 2 {
-		return false
-	}
-	for _, p := range parts {
-		for _, c := range p {
-			if c < '0' || c > '9' {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func getCacheDir() string {
-	if cacheDir := os.Getenv("WIPPY_CACHE_DIR"); cacheDir != "" {
-		return cacheDir
-	}
-
-	if homeDir, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(homeDir, ".wippy", "cache")
-	}
-
-	return filepath.Join(os.TempDir(), "wippy-cache")
-}
-
-func runFromPackFile(_ *cobra.Command, packFile string, args []string) error {
-	memLimit := initMemoryLimit()
-
-	banner.Print(silentLogs)
-
-	logger, err := clilogger.CreateLogger(clilogger.Config{
-		Verbose:      verbose,
-		VeryVerbose:  veryVerbose,
-		Console:      console,
-		Silent:       silentLogs,
-		AppStartTime: appStartTime,
-	})
-	if err != nil {
-		return NewCreateLoggerError(err)
-	}
-	defer func() { _ = logger.Sync() }()
-
-	logger.Info("loading pack file", zap.String("file", packFile), zap.String("memory_limit", formatBytes(memLimit)))
-
-	cfg, err := loadBootConfig()
-	if err != nil {
-		logger.Error("failed to load config", zap.Error(err))
-		return err
-	}
-
-	if cfg == nil {
-		cfg = createDefaultConfig()
-	}
-
-	ctx, err := bootpkg.NewBootstrapContext(logger, cfg)
-	if err != nil {
-		logger.Error("failed to initialize bootstrap context", zap.Error(err))
-		return NewInitializeBootstrapContextError(err)
-	}
-
-	logger = logapi.GetLogger(ctx).Named("run-pack")
-	logger.Info("infrastructure initialized")
-
-	embedReg := embedpkg.NewRegistry()
-	ctx = embedapi.WithRegistry(ctx, embedReg)
-	defer embedReg.Close()
-
-	components := StandardComponents()
-	ctx, extensionComponents, err := loadExtensionComponents(ctx, logger, components)
-	if err != nil {
-		logger.Error("failed to load extensions", zap.Error(err))
-		return err
-	}
-
-	components = append(components, extensionComponents...)
-	logger.Info("registered components", zap.Int("count", len(components)))
-
-	loader, err := bootpkg.NewLoader(components...)
-	if err != nil {
-		logger.Error("failed to create loader", zap.Error(err))
-		return NewCreateLoaderError(err)
-	}
-
-	ctx, err = loader.Load(ctx)
-	if err != nil {
-		logger.Error("load failed", zap.Error(err))
-		return NewLoadComponentsError(err)
-	}
-	logger.Info("components loaded successfully")
-
-	transcoder := payload.GetTranscoder(ctx)
-	if transcoder == nil {
-		return ErrTranscoderNotFound
-	}
-
-	file, err := os.Open(packFile)
-	if err != nil {
-		return NewOpenPackFileError(packFile, err)
-	}
-
-	packReader, err := entries.NewPackReader(file, transcoder)
-	if err != nil {
-		file.Close()
-		return NewCreatePackReaderError(packFile, err)
-	}
-
-	if err := embedReg.Register(packFile, packReader.Reader(), file); err != nil {
-		file.Close()
-		return fmt.Errorf("register embed resources: %w", err)
-	}
-
-	packEntries, err := packReader.GetEntries()
-	if err != nil {
-		return NewReadEntriesError(packFile, err)
-	}
-
-	logger.Info("loaded entries from pack", zap.Int("count", len(packEntries)))
-
+// setupSupervisorSignalChannel wires OS termination signals into supervisor
+// signal handling.
+func setupSupervisorSignalChannel(ctx context.Context) chan os.Signal {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	supervisorapi.SetSignalChannel(ctx, sigChan)
+	return sigChan
+}
 
-	appCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	if err := bootpkg.StartRuntimeServices(appCtx); err != nil {
-		logger.Error("failed to start runtime services", zap.Error(err))
-		return NewStartRuntimeServicesError(err)
-	}
-
-	if err := loader.Start(appCtx); err != nil {
-		logger.Error("start failed", zap.Error(err))
-		return NewStartComponentsError(err)
-	}
-
-	reg := registry.GetRegistry(appCtx)
-	if reg == nil {
-		return ErrRegistryNotFound
-	}
-
-	resolver := registry.GetResolver(appCtx)
-	if resolver == nil {
-		return ErrDependencyResolverNotFound
-	}
-
-	if err := entries.ApplyToRegistry(appCtx, packEntries, resolver, reg, logger); err != nil {
-		return err
-	}
-
-	if !silentLogs {
-		logger.Info("runtime ready")
-	}
-
-	// Auto-execute command from pack
-	commandName := ""
-	if len(args) > 0 {
-		commandName = args[0]
-		args = args[1:]
-	}
-
-	entryID, err := findPackCommand(appCtx, commandName)
-	if err != nil {
-		logger.Error("failed to find command", zap.Error(err))
-		return err
-	}
-
-	if entryID != "" {
-		if err := launchExecProcess(appCtx, logger, entryID, "", args); err != nil {
-			logger.Error("exec launch failed", zap.Error(err))
-			return err
-		}
-	}
-
+// waitForShutdownSignal handles first-signal graceful shutdown and second-signal
+// forced process termination.
+func waitForShutdownSignal(sigChan chan os.Signal, logger *zap.Logger, onFirstSignal func()) {
 	sig := <-sigChan
 	logger.Info("received shutdown signal", zap.String("signal", sig.String()))
-	cancel()
+	if onFirstSignal != nil {
+		onFirstSignal()
+	}
 
 	go func() {
 		<-sigChan
@@ -1141,184 +747,4 @@ func runFromPackFile(_ *cobra.Command, packFile string, args []string) error {
 	if !silentLogs {
 		logger.Info("shutting down (press Ctrl+C again to force exit)")
 	}
-
-	exitCode := shutdown.Perform(ctx, loader, logger, silentLogs)
-	if exitCode != 0 {
-		_ = logger.Sync()
-		os.Exit(exitCode)
-	}
-
-	return nil
-}
-
-func runFromPackFiles(_ *cobra.Command, packFiles []string, args []string) error {
-	memLimit := initMemoryLimit()
-
-	banner.Print(silentLogs)
-
-	logger, err := clilogger.CreateLogger(clilogger.Config{
-		Verbose:      verbose,
-		VeryVerbose:  veryVerbose,
-		Console:      console,
-		Silent:       silentLogs,
-		AppStartTime: appStartTime,
-	})
-	if err != nil {
-		return NewCreateLoggerError(err)
-	}
-	defer func() { _ = logger.Sync() }()
-
-	logger.Info("loading pack files", zap.Strings("files", packFiles), zap.String("memory_limit", formatBytes(memLimit)))
-
-	cfg, err := loadBootConfig()
-	if err != nil {
-		logger.Error("failed to load config", zap.Error(err))
-		return err
-	}
-
-	if cfg == nil {
-		cfg = createDefaultConfig()
-	}
-
-	ctx, err := bootpkg.NewBootstrapContext(logger, cfg)
-	if err != nil {
-		logger.Error("failed to initialize bootstrap context", zap.Error(err))
-		return NewInitializeBootstrapContextError(err)
-	}
-
-	logger = logapi.GetLogger(ctx).Named("run-pack")
-	logger.Info("infrastructure initialized")
-
-	embedReg := embedpkg.NewRegistry()
-	ctx = embedapi.WithRegistry(ctx, embedReg)
-	defer embedReg.Close()
-
-	components := StandardComponents()
-	ctx, extensionComponents, err := loadExtensionComponents(ctx, logger, components)
-	if err != nil {
-		logger.Error("failed to load extensions", zap.Error(err))
-		return err
-	}
-
-	components = append(components, extensionComponents...)
-	logger.Info("registered components", zap.Int("count", len(components)))
-
-	loader, err := bootpkg.NewLoader(components...)
-	if err != nil {
-		logger.Error("failed to create loader", zap.Error(err))
-		return NewCreateLoaderError(err)
-	}
-
-	ctx, err = loader.Load(ctx)
-	if err != nil {
-		logger.Error("load failed", zap.Error(err))
-		return NewLoadComponentsError(err)
-	}
-	logger.Info("components loaded successfully")
-
-	packEntries, err := entries.LoadEntriesFromPaths(ctx, packFiles, logger)
-	if err != nil {
-		logger.Error("failed to load entries from packs", zap.Error(err))
-		return NewLoadEntriesError("pack files", err)
-	}
-
-	// Register .wapp pack readers with embed registry for fs.embed support
-	for _, pf := range packFiles {
-		if filepath.Ext(pf) != ".wapp" {
-			continue
-		}
-		f, err := os.Open(pf)
-		if err != nil {
-			return fmt.Errorf("open pack for embed: %w", err)
-		}
-
-		reader, err := wapp.NewReader(f)
-		if err != nil {
-			f.Close()
-			return fmt.Errorf("read pack for embed: %w", err)
-		}
-
-		if err := embedReg.Register(pf, reader, f); err != nil {
-			f.Close()
-			return fmt.Errorf("register embed resources: %w", err)
-		}
-	}
-
-	logger.Info("loaded entries from packs", zap.Int("count", len(packEntries)))
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	supervisorapi.SetSignalChannel(ctx, sigChan)
-
-	appCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	if err := bootpkg.StartRuntimeServices(appCtx); err != nil {
-		logger.Error("failed to start runtime services", zap.Error(err))
-		return NewStartRuntimeServicesError(err)
-	}
-
-	if err := loader.Start(appCtx); err != nil {
-		logger.Error("start failed", zap.Error(err))
-		return NewStartComponentsError(err)
-	}
-
-	reg := registry.GetRegistry(appCtx)
-	if reg == nil {
-		return ErrRegistryNotFound
-	}
-
-	resolver := registry.GetResolver(appCtx)
-	if resolver == nil {
-		return ErrDependencyResolverNotFound
-	}
-
-	if err := entries.ApplyToRegistry(appCtx, packEntries, resolver, reg, logger); err != nil {
-		return err
-	}
-
-	if !silentLogs {
-		logger.Info("runtime ready")
-	}
-
-	commandName := ""
-	if len(args) > 0 {
-		commandName = args[0]
-		args = args[1:]
-	}
-
-	entryID, err := findPackCommand(appCtx, commandName)
-	if err != nil {
-		logger.Error("failed to find command", zap.Error(err))
-		return err
-	}
-
-	if entryID != "" {
-		if err := launchExecProcess(appCtx, logger, entryID, "", args); err != nil {
-			logger.Error("exec launch failed", zap.Error(err))
-			return err
-		}
-	}
-
-	sig := <-sigChan
-	logger.Info("received shutdown signal", zap.String("signal", sig.String()))
-	cancel()
-
-	go func() {
-		<-sigChan
-		logger.Error("force exit")
-		os.Exit(1)
-	}()
-
-	if !silentLogs {
-		logger.Info("shutting down (press Ctrl+C again to force exit)")
-	}
-
-	exitCode := shutdown.Perform(ctx, loader, logger, silentLogs)
-	if exitCode != 0 {
-		_ = logger.Sync()
-		os.Exit(exitCode)
-	}
-
-	return nil
 }

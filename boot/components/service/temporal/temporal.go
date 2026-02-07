@@ -65,6 +65,8 @@ func DataConverterComponent() boot.Component {
 	})
 }
 
+// Component creates the main Temporal boot component that sets up client,
+// worker, activity, and workflow managers and wires them into the registry.
 func Component() boot.Component {
 	return boot.New(boot.P{
 		Name:      Name,
@@ -206,6 +208,7 @@ func Component() boot.Component {
 	})
 }
 
+// All returns all Temporal boot components in dependency order.
 func All() []boot.Component {
 	return []boot.Component{
 		InterceptorComponent(),

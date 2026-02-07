@@ -64,6 +64,10 @@ func TestNewBootstrapContext(t *testing.T) {
 		// Verify HandlerRegistry
 		handlerReg := GetHandlerRegistry(ctx)
 		assert.NotNil(t, handlerReg, "HandlerRegistry should be available")
+
+		// Verify Readiness
+		readiness := GetReadiness(ctx)
+		assert.NotNil(t, readiness, "Readiness should be available")
 	})
 
 	t.Run("works with nil config", func(t *testing.T) {
