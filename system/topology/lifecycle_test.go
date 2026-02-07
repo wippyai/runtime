@@ -126,13 +126,13 @@ func createContextWithOptions(parent pid.PID, monitor, link bool) context.Contex
 
 	options := attrs.NewBag()
 	if parent.UniqID != "" {
-		options.Set(process.LifecycleParentKey, parent)
+		options.Set(process.ProcessParentKey, parent)
 	}
 	if monitor {
-		options.Set(process.LifecycleMonitorKey, true)
+		options.Set(process.ProcessMonitorKey, true)
 	}
 	if link {
-		options.Set(process.LifecycleLinkKey, true)
+		options.Set(process.ProcessLinkKey, true)
 	}
 
 	_ = fc.Set(runtime.FrameLifecycleOptionsKey, options)
@@ -380,7 +380,7 @@ func TestLifecycle_OnStart_NameRegistration(t *testing.T) {
 	ctx := ctxapi.WithAppContext(context.Background(), appCtx)
 	ctx, fc := ctxapi.OpenFrameContext(ctx)
 	options := attrs.NewBag()
-	options.Set(process.LifecycleNameKey, "my-service")
+	options.Set(process.ProcessNameKey, "my-service")
 	_ = fc.Set(runtime.FrameLifecycleOptionsKey, options)
 
 	err := lc.OnStart(ctx, testPID, nil)
@@ -411,7 +411,7 @@ func TestLifecycle_OnStart_NameAlreadyTaken(t *testing.T) {
 	ctx := ctxapi.WithAppContext(context.Background(), appCtx)
 	ctx, fc := ctxapi.OpenFrameContext(ctx)
 	options := attrs.NewBag()
-	options.Set(process.LifecycleNameKey, "my-service")
+	options.Set(process.ProcessNameKey, "my-service")
 	_ = fc.Set(runtime.FrameLifecycleOptionsKey, options)
 
 	err = lc.OnStart(ctx, newPID, nil)

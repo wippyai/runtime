@@ -290,6 +290,6 @@ func (c *DataConverter) encoding() string {
 	case payload.Bytes:
 		return converter.MetadataEncodingBinary
 	default:
-		return string(c.wireFormat)
+		return c.wireFormat
 	}
 }

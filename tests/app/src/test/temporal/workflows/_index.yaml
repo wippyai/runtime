@@ -154,10 +154,40 @@ entries:
         workflow:
           worker: app.test.temporal:test_worker
 
-  # Update workflow - handles updates via process.listen and process.send
-  - name: update_workflow
+  # Signal-updates workflow - handles signal messages via process.listen/process.send
+  - name: signal_updates_workflow
     kind: workflow.lua
-    source: file://update_workflow.lua
+    source: file://signal_updates_workflow.lua
+    method: main
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Workflow signal peer workflow - sends external signal to another workflow process
+  - name: workflow_signal_peer_workflow
+    kind: workflow.lua
+    source: file://workflow_signal_peer_workflow.lua
+    method: main
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Workflow cross-host send workflow - sends to host process and waits reply
+  - name: workflow_cross_host_send_workflow
+    kind: workflow.lua
+    source: file://workflow_cross_host_send_workflow.lua
+    method: main
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Workflow link unsupported probe - validates workflow-context link rejection path
+  - name: workflow_link_unsupported_probe
+    kind: workflow.lua
+    source: file://workflow_link_unsupported_probe.lua
     method: main
     meta:
       temporal:
@@ -221,6 +251,18 @@ entries:
     modules:
       - workflow
       - time
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Activity failure modes workflow - exercises runtime and missing activity failures
+  - name: activity_failure_modes_workflow
+    kind: workflow.lua
+    source: file://activity_failure_modes_workflow.lua
+    method: main
+    modules:
+      - funcs
     meta:
       temporal:
         workflow:

@@ -26,8 +26,8 @@ type Factory interface {
 // DefaultWorkerFactory is the default implementation of Factory
 type DefaultWorkerFactory struct {
 	envReg       env.Registry
-	interceptors []interceptor.WorkerInterceptor
 	dtt          payload.Transcoder
+	interceptors []interceptor.WorkerInterceptor
 }
 
 // NewDefaultWorkerFactory creates a new DefaultWorkerFactory

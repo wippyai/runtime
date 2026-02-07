@@ -753,8 +753,8 @@ func TestDispatcher_HandleSpawn_WithMonitor(t *testing.T) {
 	d := NewDispatcher(manager, router, topo, nil)
 
 	options := attrs.NewBag()
-	options.Set(process.LifecycleParentKey, parentPID)
-	options.Set(process.LifecycleMonitorKey, true)
+	options.Set(process.ProcessParentKey, parentPID)
+	options.Set(process.ProcessMonitorKey, true)
 
 	cmd := &process.SpawnCmd{
 		Start: &process.Start{
@@ -787,8 +787,8 @@ func TestDispatcher_HandleSpawn_WithLink(t *testing.T) {
 	d := NewDispatcher(manager, router, topo, nil)
 
 	options := attrs.NewBag()
-	options.Set(process.LifecycleParentKey, parentPID)
-	options.Set(process.LifecycleLinkKey, true)
+	options.Set(process.ProcessParentKey, parentPID)
+	options.Set(process.ProcessLinkKey, true)
 
 	cmd := &process.SpawnCmd{
 		Start: &process.Start{
@@ -821,8 +821,8 @@ func TestDispatcher_HandleSpawn_MonitorError(t *testing.T) {
 	d := NewDispatcher(manager, router, topo, nil)
 
 	options := attrs.NewBag()
-	options.Set(process.LifecycleParentKey, parentPID)
-	options.Set(process.LifecycleMonitorKey, true)
+	options.Set(process.ProcessParentKey, parentPID)
+	options.Set(process.ProcessMonitorKey, true)
 
 	cmd := &process.SpawnCmd{
 		Start: &process.Start{
@@ -856,8 +856,8 @@ func TestDispatcher_HandleSpawn_LinkError(t *testing.T) {
 	d := NewDispatcher(manager, router, topo, nil)
 
 	options := attrs.NewBag()
-	options.Set(process.LifecycleParentKey, parentPID)
-	options.Set(process.LifecycleLinkKey, true)
+	options.Set(process.ProcessParentKey, parentPID)
+	options.Set(process.ProcessLinkKey, true)
 
 	cmd := &process.SpawnCmd{
 		Start: &process.Start{

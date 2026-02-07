@@ -29,8 +29,8 @@ func (b *testEventBus) SubscribeP(_ context.Context, _ event.System, _ event.Kin
 func (b *testEventBus) Unsubscribe(_ context.Context, _ event.SubscriberID) {}
 
 type testDiagStore struct {
-	mu          sync.Mutex
 	diagnostics map[string][]diag.Diagnostic
+	mu          sync.Mutex
 }
 
 func (s *testDiagStore) StoreDiagnostics(fileID string, diagnostics []diag.Diagnostic) {

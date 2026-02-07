@@ -40,31 +40,41 @@ type DefinitionFactory struct {
 	ctx context.Context
 	log *zap.Logger
 	ID  registry.ID
+	// Captured at registration time from worker context to avoid identity loss
+	// if SDK-invoked definition instances don't preserve context values.
+	clientID string
+	workerID string
 }
 
 // WithContext returns a new factory with the given context.
 func (f *DefinitionFactory) WithContext(ctx context.Context) any {
+	clientID := temporalapi.GetClientID(ctx)
+	workerID := temporalapi.GetWorkerID(ctx)
 	return &DefinitionFactory{
-		ID:  f.ID,
-		log: f.log,
-		ctx: ctx,
+		ID:       f.ID,
+		log:      f.log,
+		ctx:      ctx,
+		clientID: clientID,
+		workerID: workerID,
 	}
 }
 
 // NewWorkflowDefinition creates a new workflow definition instance.
 func (f *DefinitionFactory) NewWorkflowDefinition() bindings.WorkflowDefinition {
 	return &Definition{
-		id:  f.ID,
-		log: f.log,
-		ctx: f.ctx,
+		id:       f.ID,
+		log:      f.log,
+		ctx:      f.ctx,
+		clientID: f.clientID,
+		workerID: f.workerID,
 	}
 }
 
 // incomingSignal represents a queued signal to be delivered to the workflow.
 type incomingSignal struct {
+	From     pid.PID
 	Name     string
 	Payloads payload.Payloads
-	From     pid.PID
 }
 
 // childExitEvent represents a child workflow completion to be delivered as EXIT event.
@@ -88,6 +98,8 @@ type Definition struct {
 	timers     *TimerManager
 	updates    *UpdateManager
 	id         registry.ID
+	clientID   string
+	workerID   string
 	signals    []incomingSignal
 	childExits []childExitEvent
 	output     process.StepOutput
@@ -125,9 +137,11 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 		return
 	}
 
+	clientID := d.resolveClientID()
+	workerID := d.resolveWorkerID(env.WorkflowInfo().TaskQueueName)
 	processPID := pid.PID{
-		Node:   temporalapi.GetClientID(d.ctx),
-		Host:   env.WorkflowInfo().TaskQueueName,
+		Node:   clientID,
+		Host:   workerID,
 		UniqID: env.WorkflowInfo().WorkflowExecution.ID,
 	}
 
@@ -199,6 +213,23 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 		d.env.Complete(nil, fmt.Errorf("failed to start workflow: %w", err))
 		return
 	}
+}
+
+func (d *Definition) resolveClientID() string {
+	if clientID := temporalapi.GetClientID(d.ctx); clientID != "" {
+		return clientID
+	}
+	return d.clientID
+}
+
+func (d *Definition) resolveWorkerID(fallback string) string {
+	if workerID := temporalapi.GetWorkerID(d.ctx); workerID != "" {
+		return workerID
+	}
+	if d.workerID != "" {
+		return d.workerID
+	}
+	return fallback
 }
 
 func (d *Definition) completeWithResult() {

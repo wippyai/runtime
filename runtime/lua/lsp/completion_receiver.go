@@ -1,6 +1,11 @@
 package lsp
 
 import (
+	"hash/fnv"
+	"sort"
+	"strconv"
+	"strings"
+
 	"github.com/wippyai/go-lua/compiler/ast"
 	"github.com/wippyai/go-lua/compiler/cfg"
 	"github.com/wippyai/go-lua/compiler/check"
@@ -17,10 +22,6 @@ import (
 	"github.com/wippyai/go-lua/types/typ"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/lua/lsp/indexing"
-	"hash/fnv"
-	"sort"
-	"strconv"
-	"strings"
 )
 
 const completionPlaceholder = "__wippy_lsp_completion__"
@@ -360,20 +361,20 @@ func parseCompletionSource(source string, fileID string, line, col int, member m
 
 	patched, placeholder := patchSourceForCompletion(source, line, col, member)
 	if patched != source {
-		if stmts, err2 := parse.ParseString(patched, fileID); err2 == nil {
-			return stmts, placeholder, nil
-		} else {
-			err = err2
+		parsed, parseErr := parse.ParseString(patched, fileID)
+		if parseErr == nil {
+			return parsed, placeholder, nil
 		}
+		err = parseErr
 	}
 
 	stub := completionStub(patched, line)
 	if stub != "" {
-		if stmts, err2 := parse.ParseString(stub, fileID); err2 == nil {
-			return stmts, placeholder, nil
-		} else {
-			err = err2
+		parsed, parseErr := parse.ParseString(stub, fileID)
+		if parseErr == nil {
+			return parsed, placeholder, nil
 		}
+		err = parseErr
 	}
 
 	return nil, "", err
@@ -387,20 +388,20 @@ func parseCompletionSourceForLocals(source string, fileID string, line, col int)
 
 	patched, placeholder := insertCompletionPlaceholder(source, line, col)
 	if patched != source {
-		if stmts, err2 := parse.ParseString(patched, fileID); err2 == nil {
-			return stmts, placeholder, nil
-		} else {
-			err = err2
+		parsed, parseErr := parse.ParseString(patched, fileID)
+		if parseErr == nil {
+			return parsed, placeholder, nil
 		}
+		err = parseErr
 	}
 
 	stub := completionStub(patched, line)
 	if stub != "" {
-		if stmts, err2 := parse.ParseString(stub, fileID); err2 == nil {
-			return stmts, placeholder, nil
-		} else {
-			err = err2
+		parsed, parseErr := parse.ParseString(stub, fileID)
+		if parseErr == nil {
+			return parsed, placeholder, nil
 		}
+		err = parseErr
 	}
 
 	return nil, "", err
@@ -617,12 +618,13 @@ func lineEndOffset(text string, line int) int {
 	}
 	end := start + len(lineText)
 	if end < len(text) {
-		if text[end] == '\r' {
+		switch text[end] {
+		case '\r':
 			end++
 			if end < len(text) && text[end] == '\n' {
 				end++
 			}
-		} else if text[end] == '\n' {
+		case '\n':
 			end++
 			if end < len(text) && text[end] == '\r' {
 				end++

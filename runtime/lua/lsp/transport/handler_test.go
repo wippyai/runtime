@@ -22,14 +22,14 @@ type testDoc struct {
 }
 
 type testService struct {
+	indexCtx    context.Context
 	lsp         *golualsp.Service
 	completion  *completion.Provider
 	signature   *signature.Provider
-	mu          sync.Mutex
 	docs        map[string]testDoc
 	diagnostics map[string][]Diagnostic
 	indexCalls  int
-	indexCtx    context.Context
+	mu          sync.Mutex
 }
 
 func (s *testService) LSPService() *golualsp.Service {

@@ -26,15 +26,15 @@ func TestEntry_Drop(t *testing.T) {
 	}
 	entry.Drop()
 	assert.True(t, closed)
-	assert.True(t, entry.closed)
+	assert.True(t, entry.closed.Load())
 }
 
 func TestEntry_Drop_AlreadyClosed(t *testing.T) {
 	closed := false
 	entry := &Entry{
 		closer: &trackingCloser{Reader: strings.NewReader("test"), closed: &closed},
-		closed: true,
 	}
+	entry.closed.Store(true)
 	entry.Drop()
 	assert.False(t, closed) // should not close again
 }
@@ -415,7 +415,7 @@ func TestClose_AlreadyClosedViaEntry(t *testing.T) {
 	// get entry and mark closed
 	entry, err := Get(table, id)
 	require.NoError(t, err)
-	entry.closed = true
+	entry.closed.Store(true)
 
 	// remove from table manually to simulate
 	table.Remove(resource.Handle(id))

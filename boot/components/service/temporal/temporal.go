@@ -20,6 +20,7 @@ import (
 	"github.com/wippyai/runtime/service/temporal/client"
 	"github.com/wippyai/runtime/service/temporal/dataconverter"
 	temporalinterceptor "github.com/wippyai/runtime/service/temporal/interceptor"
+	"github.com/wippyai/runtime/service/temporal/runref"
 	"github.com/wippyai/runtime/service/temporal/worker"
 	temporalworkflow "github.com/wippyai/runtime/service/temporal/workflow"
 	"go.temporal.io/sdk/converter"
@@ -132,6 +133,10 @@ func Component() boot.Component {
 			if dcRegistry == nil {
 				return ctx, fmt.Errorf("data converter registry not available")
 			}
+
+			// Share one-shot workflow run metadata between start and monitor/link setup.
+			ctx = temporalapi.WithWorkflowRunHandoff(ctx, runref.NewHandoff())
+
 			// Collect interceptors from registries
 			var clientInterceptors []sdkinterceptor.ClientInterceptor
 			var workerInterceptors []sdkinterceptor.WorkerInterceptor

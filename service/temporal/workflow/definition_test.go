@@ -1,10 +1,14 @@
 package workflow
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	temporalapi "github.com/wippyai/runtime/api/service/temporal"
+	"go.uber.org/zap"
 )
 
 func TestStateString(t *testing.T) {
@@ -77,4 +81,54 @@ func TestUpdateStateConstants(t *testing.T) {
 	assert.Equal(t, updateState(1), updateAccepted)
 	assert.Equal(t, updateState(2), updateRejected)
 	assert.Equal(t, updateState(3), updateComplete)
+}
+
+func TestDefinitionFactory_WithContextCapturesIDs(t *testing.T) {
+	ctx := temporalapi.WithClientID(context.Background(), "app.test.temporal:test_client")
+	ctx = temporalapi.WithWorkerID(ctx, "app.test.temporal:test_worker")
+
+	factory := &DefinitionFactory{
+		ID:  registry.ParseID("app.test.temporal.workflows:update_workflow"),
+		log: zap.NewNop(),
+	}
+
+	withCtx, ok := factory.WithContext(ctx).(*DefinitionFactory)
+	assert.True(t, ok)
+	assert.Equal(t, "app.test.temporal:test_client", withCtx.clientID)
+	assert.Equal(t, "app.test.temporal:test_worker", withCtx.workerID)
+
+	def, ok := withCtx.NewWorkflowDefinition().(*Definition)
+	assert.True(t, ok)
+	assert.Equal(t, "app.test.temporal:test_client", def.clientID)
+	assert.Equal(t, "app.test.temporal:test_worker", def.workerID)
+}
+
+func TestDefinitionResolveIDs(t *testing.T) {
+	t.Run("uses context IDs when available", func(t *testing.T) {
+		ctx := temporalapi.WithClientID(context.Background(), "ctx-client")
+		ctx = temporalapi.WithWorkerID(ctx, "ctx-worker")
+		d := &Definition{
+			ctx:      ctx,
+			clientID: "captured-client",
+			workerID: "captured-worker",
+		}
+		assert.Equal(t, "ctx-client", d.resolveClientID())
+		assert.Equal(t, "ctx-worker", d.resolveWorkerID("fallback-worker"))
+	})
+
+	t.Run("falls back to captured IDs", func(t *testing.T) {
+		d := &Definition{
+			ctx:      context.Background(),
+			clientID: "captured-client",
+			workerID: "captured-worker",
+		}
+		assert.Equal(t, "captured-client", d.resolveClientID())
+		assert.Equal(t, "captured-worker", d.resolveWorkerID("fallback-worker"))
+	})
+
+	t.Run("falls back to provided worker fallback", func(t *testing.T) {
+		d := &Definition{ctx: context.Background()}
+		assert.Equal(t, "", d.resolveClientID())
+		assert.Equal(t, "fallback-worker", d.resolveWorkerID("fallback-worker"))
+	})
 }

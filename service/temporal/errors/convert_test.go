@@ -159,6 +159,20 @@ func TestFromTemporalError_NoChainInDetails(t *testing.T) {
 	assert.Equal(t, apierror.True, richErr.Retryable())
 }
 
+func TestFromTemporalError_NotFoundWithoutChain_PreservesNonRetryable(t *testing.T) {
+	appErr := temporal.NewApplicationErrorWithOptions("missing workflow", "NotFound", temporal.ApplicationErrorOptions{
+		NonRetryable: true,
+	})
+
+	result := FromTemporalError(appErr)
+	require.NotNil(t, result)
+
+	richErr, ok := result.(*apierror.RichError)
+	require.True(t, ok)
+	assert.Equal(t, apierror.NotFound, richErr.Kind())
+	assert.Equal(t, apierror.False, richErr.Retryable())
+}
+
 func TestRoundTrip_PreservesAllMetadata(t *testing.T) {
 	original := apierror.NewRich(apierror.Conflict, "version mismatch").
 		WithRetryable(apierror.False).
@@ -236,6 +250,7 @@ func TestMapTypeToKind(t *testing.T) {
 		expected apierror.Kind
 	}{
 		{"NotFound", apierror.NotFound},
+		{"ActivityNotRegisteredError", apierror.NotFound},
 		{"AlreadyExists", apierror.AlreadyExists},
 		{"Invalid", apierror.Invalid},
 		{"PermissionDenied", apierror.PermissionDenied},

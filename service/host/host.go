@@ -68,14 +68,16 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 		return pid.PID{}, ErrHostShuttingDown
 	}
 
+	processName := processName(start)
+
 	// Shortcut: if name specified and already exists, route directly to existing process
-	if start.Name != "" && h.pidReg != nil {
-		if existingPID, ok := h.pidReg.Lookup(start.Name); ok {
+	if processName != "" && h.pidReg != nil {
+		if existingPID, ok := h.pidReg.Lookup(processName); ok {
 			if len(start.Messages) > 0 {
 				h.sendMessages(existingPID, start.Messages)
 			}
 			h.log.Debug("spawn-or-signal: shortcut to existing process",
-				zap.String("name", start.Name),
+				zap.String("name", processName),
 				zap.String("existing_pid", existingPID.String()))
 			return existingPID, nil
 		}
@@ -122,15 +124,24 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 
 // handleNameTaken routes messages to existing process when name is already taken.
 func (h *Host) handleNameTaken(existingPID pid.PID, start *process.Start) (pid.PID, error) {
+	name := processName(start)
+
 	if len(start.Messages) > 0 {
 		h.sendMessages(existingPID, start.Messages)
 	}
 
 	h.log.Debug("spawn-or-signal: routed to existing process",
-		zap.String("name", start.Name),
+		zap.String("name", name),
 		zap.String("existing_pid", existingPID.String()))
 
 	return existingPID, nil
+}
+
+func processName(start *process.Start) string {
+	if start == nil || start.Options == nil {
+		return ""
+	}
+	return start.Options.GetString(process.ProcessNameKey, "")
 }
 
 // sendMessages sends messages to the target PID.
@@ -185,16 +196,9 @@ func (h *Host) Stop(ctx context.Context) error {
 	return nil
 }
 
-// preparePID generates a PID or uses one from options.
+// preparePID generates a PID for the process.
 func (h *Host) preparePID(_ context.Context, start *process.Start) pid.PID {
-	if start.Options != nil {
-		if pidVal, ok := start.Options.Get(process.OptionPID); ok {
-			if processID, ok := pidVal.(pid.PID); ok {
-				return processID
-			}
-		}
-	}
-
+	_ = start
 	return h.pidGen.Generate(h.id.String())
 }
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/runtime/resource"
@@ -39,13 +40,15 @@ type Entry struct {
 	stater  Stater
 	size    int64
 	caps    Capabilities
-	closed  bool
+	closed  atomic.Bool
 }
 
 // Drop implements resource.Dropper for automatic cleanup.
 func (e *Entry) Drop() {
-	if !e.closed && e.closer != nil {
-		e.closed = true
+	if !e.closed.CompareAndSwap(false, true) {
+		return
+	}
+	if e.closer != nil {
 		_ = e.closer.Close()
 	}
 }
@@ -99,7 +102,6 @@ func InsertWithSize(table *resource.Table, stream io.Closer, size int64) uint64 
 	entry := &Entry{
 		closer: stream,
 		size:   size,
-		closed: false,
 	}
 
 	if rd, ok := stream.(io.Reader); ok {
@@ -134,7 +136,7 @@ func Get(table *resource.Table, id uint64) (*Entry, error) {
 		return nil, streamapi.ErrNotFound
 	}
 	entry := val.(*Entry)
-	if entry.closed {
+	if entry.closed.Load() {
 		return nil, streamapi.ErrClosed
 	}
 	return entry, nil
@@ -265,10 +267,9 @@ func Close(table *resource.Table, id uint64) error {
 		return streamapi.ErrNotFound
 	}
 	entry := val.(*Entry)
-	if entry.closed {
+	if !entry.closed.CompareAndSwap(false, true) {
 		return nil
 	}
-	entry.closed = true
 	if entry.closer != nil {
 		return entry.closer.Close()
 	}

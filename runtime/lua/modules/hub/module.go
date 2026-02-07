@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -20,11 +21,11 @@ import (
 
 // Options configure the hub module.
 type Options struct {
+	ModuleClient modulev1connect.ModuleServiceClient
+	AuthStore    *bootauth.Store
 	BaseURL      string
 	Token        string
 	Timeout      time.Duration
-	ModuleClient modulev1connect.ModuleServiceClient
-	AuthStore    *bootauth.Store
 }
 
 // DefaultOptions returns the default module options.
@@ -36,8 +37,8 @@ func DefaultOptions() Options {
 var Module = NewModule(DefaultOptions())
 
 type hubModule struct {
-	opts  Options
 	store *bootauth.Store
+	opts  Options
 }
 
 // NewModule creates a hub module with the given options.
@@ -530,10 +531,10 @@ type listModulesOptions struct {
 }
 
 type searchModulesOptions struct {
+	license           string
+	keywords          []string
 	page              int32
 	pageSize          int32
-	keywords          []string
-	license           string
 	includeDeprecated bool
 }
 
@@ -1047,7 +1048,6 @@ func tableStringSlice(l *lua.LState, tbl *lua.LTable, key string) ([]string, boo
 	}
 	items := make([]string, 0, table.Len())
 	var typeErr *lua.Error
-	index := 0
 	table.ForEach(func(_, v lua.LValue) {
 		if typeErr != nil {
 			return
@@ -1057,12 +1057,7 @@ func tableStringSlice(l *lua.LState, tbl *lua.LTable, key string) ([]string, boo
 			typeErr = invalidOptionError(l, key, "array of strings", v)
 			return
 		}
-		if index < cap(items) {
-			items = append(items, string(str))
-		} else {
-			items = append(items, string(str))
-		}
-		index++
+		items = append(items, string(str))
 	})
 	if typeErr != nil {
 		return nil, false, typeErr
@@ -1308,7 +1303,7 @@ func versionToTable(l *lua.LState, v *versionv1.Version) *lua.LTable {
 	return result
 }
 
-func dependencyToTable(l *lua.LState, dep *versionv1.Dependency) *lua.LTable {
+func dependencyToTable(_ *lua.LState, dep *versionv1.Dependency) *lua.LTable {
 	result := lua.CreateTable(0, 3)
 	if dep == nil {
 		return result
@@ -1319,7 +1314,7 @@ func dependencyToTable(l *lua.LState, dep *versionv1.Dependency) *lua.LTable {
 	return result
 }
 
-func dependentToTable(l *lua.LState, dep *modulev1.DependentModule) *lua.LTable {
+func dependentToTable(_ *lua.LState, dep *modulev1.DependentModule) *lua.LTable {
 	result := lua.CreateTable(0, 4)
 	if dep == nil {
 		return result
@@ -1331,7 +1326,7 @@ func dependentToTable(l *lua.LState, dep *modulev1.DependentModule) *lua.LTable 
 	return result
 }
 
-func versionFileToTable(l *lua.LState, file *versionv1.VersionFile) *lua.LTable {
+func versionFileToTable(_ *lua.LState, file *versionv1.VersionFile) *lua.LTable {
 	result := lua.CreateTable(0, 2)
 	if file == nil {
 		return result
@@ -1365,7 +1360,7 @@ func contractToTable(l *lua.LState, contract *modulev1.Contract) *lua.LTable {
 	return result
 }
 
-func contractMethodToTable(l *lua.LState, method *modulev1.ContractMethod) *lua.LTable {
+func contractMethodToTable(_ *lua.LState, method *modulev1.ContractMethod) *lua.LTable {
 	result := lua.CreateTable(0, 2)
 	if method == nil {
 		return result
@@ -1375,7 +1370,7 @@ func contractMethodToTable(l *lua.LState, method *modulev1.ContractMethod) *lua.
 	return result
 }
 
-func downloadStatsToTable(l *lua.LState, stats []*modulev1.DownloadStat) *lua.LTable {
+func downloadStatsToTable(_ *lua.LState, stats []*modulev1.DownloadStat) *lua.LTable {
 	items := lua.CreateTable(len(stats), 0)
 	for i, stat := range stats {
 		result := lua.CreateTable(0, 2)
@@ -1411,7 +1406,7 @@ func requirementsToTable(l *lua.LState, reqs []*versionv1.Requirement) *lua.LTab
 	return items
 }
 
-func requirementTargetsToTable(l *lua.LState, targets []*versionv1.RequirementTarget) *lua.LTable {
+func requirementTargetsToTable(_ *lua.LState, targets []*versionv1.RequirementTarget) *lua.LTable {
 	items := lua.CreateTable(len(targets), 0)
 	for i, target := range targets {
 		result := lua.CreateTable(0, 2)
@@ -1448,7 +1443,7 @@ func versionMetadataToTable(l *lua.LState, meta *versionv1.VersionMetadata) *lua
 	return result
 }
 
-func stringSliceToTable(l *lua.LState, values []string) *lua.LTable {
+func stringSliceToTable(_ *lua.LState, values []string) *lua.LTable {
 	items := lua.CreateTable(len(values), 0)
 	for i, value := range values {
 		items.RawSetInt(i+1, lua.LString(value))
@@ -1521,7 +1516,8 @@ func hubCallError(l *lua.LState, err error) *lua.Error {
 		return nil
 	}
 
-	if connectErr, ok := err.(*connect.Error); ok {
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) {
 		luaErr := lua.WrapErrorWithLua(l, connectErr, "hub request failed")
 		kind := mapConnectError(connectErr.Code())
 		return luaErr.WithKind(kind).WithRetryable(isRetryableConnect(connectErr.Code())).WithDetails(map[string]any{
@@ -1529,10 +1525,10 @@ func hubCallError(l *lua.LState, err error) *lua.Error {
 		})
 	}
 
-	if err == context.DeadlineExceeded {
+	if errors.Is(err, context.DeadlineExceeded) {
 		return lua.WrapErrorWithLua(l, err, "hub request timed out").WithKind(lua.Timeout).WithRetryable(true)
 	}
-	if err == context.Canceled {
+	if errors.Is(err, context.Canceled) {
 		return lua.WrapErrorWithLua(l, err, "hub request canceled").WithKind(lua.Canceled).WithRetryable(false)
 	}
 

@@ -239,15 +239,15 @@ func TestFromChain_NestedChain(t *testing.T) {
 	assert.Equal(t, Kind("Internal"), result.Kind())
 
 	// Middle
-	middle, ok := result.Unwrap().(*RichError)
-	require.True(t, ok)
+	var middle *RichError
+	require.ErrorAs(t, result.Unwrap(), &middle)
 	assert.Equal(t, "middle", middle.Msg())
 	assert.Equal(t, Kind("Unavailable"), middle.Kind())
 	assert.Equal(t, False, middle.Retryable())
 
 	// Innermost
-	inner, ok := middle.Unwrap().(*RichError)
-	require.True(t, ok)
+	var inner *RichError
+	require.ErrorAs(t, middle.Unwrap(), &inner)
 	assert.Equal(t, "root cause", inner.Msg())
 	assert.Nil(t, inner.Unwrap())
 }
@@ -274,7 +274,9 @@ func TestChain_Roundtrip_ApiError(t *testing.T) {
 
 	cause := restored.Unwrap()
 	require.NotNil(t, cause)
-	assert.Equal(t, "missing token", cause.(*RichError).Msg())
+	var richCause *RichError
+	require.ErrorAs(t, cause, &richCause)
+	assert.Equal(t, "missing token", richCause.Msg())
 }
 
 func TestChain_Roundtrip_RichError(t *testing.T) {

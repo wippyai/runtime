@@ -13,13 +13,13 @@ import (
 )
 
 type mockTokenStore struct {
-	mu             sync.Mutex
-	validateCalled int
-	createCalled   int
-	revokeCalled   int
 	validateErr    error
 	createErr      error
 	revokeErr      error
+	validateCalled int
+	createCalled   int
+	revokeCalled   int
+	mu             sync.Mutex
 }
 
 func (m *mockTokenStore) Validate(_ context.Context, _ security.Token) (security.Actor, security.Scope, error) {
@@ -50,10 +50,10 @@ func (m *mockTokenStore) Revoke(_ context.Context, _ security.Token) error {
 }
 
 type testResultReceiver struct {
-	mu   sync.Mutex
 	data any
 	err  error
 	done chan struct{}
+	mu   sync.Mutex
 }
 
 func newTestResultReceiver() *testResultReceiver {

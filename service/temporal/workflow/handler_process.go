@@ -10,7 +10,6 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
-	temporalapi "github.com/wippyai/runtime/api/service/temporal"
 	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
 	"github.com/wippyai/runtime/service/temporal/propagator"
 	commonpb "go.temporal.io/api/common/v1"
@@ -28,10 +27,13 @@ const (
 func (d *Definition) executeProcessSend(cmd *process.SendCmd, tag uint64) error {
 	taskQueue := d.env.WorkflowInfo().TaskQueueName
 
-	selfPID := pid.PID{
-		Node:   temporalapi.GetClientID(d.ctx),
-		Host:   taskQueue,
-		UniqID: d.env.WorkflowInfo().WorkflowExecution.ID,
+	selfPID, ok := runtime.GetFramePID(d.execCtx)
+	if !ok {
+		selfPID = pid.PID{
+			Node:   d.resolveClientID(),
+			Host:   d.resolveWorkerID(taskQueue),
+			UniqID: d.env.WorkflowInfo().WorkflowExecution.ID,
+		}
 	}
 
 	// Update response: target has host="update"
@@ -46,7 +48,10 @@ func (d *Definition) executeProcessSend(cmd *process.SendCmd, tag uint64) error 
 	}
 
 	// Temporal workflow target
-	isTemporalTarget := cmd.To.Host == taskQueue || cmd.To.Host == pidHostTemporal
+	clientID := d.resolveClientID()
+	isTemporalTarget := (cmd.To.Node != "" && cmd.To.Node == clientID) ||
+		cmd.To.Host == taskQueue ||
+		cmd.To.Host == pidHostTemporal
 	if isTemporalTarget {
 		return d.signalExternalWorkflow(cmd, tag)
 	}
@@ -70,8 +75,8 @@ func (d *Definition) signalExternalWorkflow(cmd *process.SendCmd, tag uint64) er
 	selfPID, ok := runtime.GetFramePID(d.execCtx)
 	if !ok {
 		selfPID = pid.PID{
-			Node:   temporalapi.GetClientID(d.ctx),
-			Host:   d.env.WorkflowInfo().TaskQueueName,
+			Node:   d.resolveClientID(),
+			Host:   d.resolveWorkerID(d.env.WorkflowInfo().TaskQueueName),
 			UniqID: d.env.WorkflowInfo().WorkflowExecution.ID,
 		}
 	}
@@ -165,6 +170,13 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 		},
 	}
 
+	if err := applyTemporalChildWorkflowOptions(&params, cmd.Start.Options); err != nil {
+		d.resumeProcess(tag, process.SpawnResult{
+			Error: fmt.Errorf("invalid temporal child workflow options for %s: %w", workflowName, err),
+		}, nil)
+		return nil
+	}
+
 	if cmd.Start.HostID != "" {
 		params.TaskQueueName = cmd.Start.HostID
 	}
@@ -177,6 +189,15 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 		}
 		params.Header = d.getContextHeaderFrom(spawnCtx, nil)
 		ctxapi.ReleaseFrameContext(fc)
+	}
+
+	selfPID, ok := runtime.GetFramePID(d.execCtx)
+	if !ok {
+		selfPID = pid.PID{
+			Node:   d.resolveClientID(),
+			Host:   d.resolveWorkerID(d.env.WorkflowInfo().TaskQueueName),
+			UniqID: d.env.WorkflowInfo().WorkflowExecution.ID,
+		}
 	}
 
 	var childPID pid.PID
@@ -216,9 +237,15 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 			d.resumeProcess(tag, process.SpawnResult{Error: temporalerrors.FromTemporalError(err)}, nil)
 			return
 		}
+
+		childHost := cmd.Start.HostID
+		if childHost == "" {
+			childHost = selfPID.Host
+		}
+
 		childPID = pid.PID{
-			Node:   temporalapi.GetClientID(d.ctx),
-			Host:   params.TaskQueueName,
+			Node:   d.resolveClientID(),
+			Host:   childHost,
 			UniqID: execution.ID,
 		}
 		d.resumeProcess(tag, process.SpawnResult{PID: childPID}, nil)

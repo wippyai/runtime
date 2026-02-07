@@ -8,8 +8,8 @@ import (
 )
 
 func TestReadKindSlice_InvalidTypeDoesNotOverrideDefaults(t *testing.T) {
-	cfg := boot.NewConfig(boot.WithSection(string(RegistryName), map[string]any{
-		string(RegistryDispatchInternalKinds): 42,
+	cfg := boot.NewConfig(boot.WithSection(RegistryName, map[string]any{
+		RegistryDispatchInternalKinds: 42,
 	}))
 
 	kinds, ok := readKindSlice(cfg.Sub(RegistryName), RegistryDispatchInternalKinds)
@@ -18,21 +18,21 @@ func TestReadKindSlice_InvalidTypeDoesNotOverrideDefaults(t *testing.T) {
 }
 
 func TestReadKindSlice_ValidList(t *testing.T) {
-	cfg := boot.NewConfig(boot.WithSection(string(RegistryName), map[string]any{
-		string(RegistryDispatchInternalKinds): []string{"registry.entry", "ns.dependency"},
+	cfg := boot.NewConfig(boot.WithSection(RegistryName, map[string]any{
+		RegistryDispatchInternalKinds: []string{"registry.entry", "ns.dependency"},
 	}))
 
 	kinds, ok := readKindSlice(cfg.Sub(RegistryName), RegistryDispatchInternalKinds)
 	assert.True(t, ok)
-	assert.Equal(t, []string{"registry.entry", "ns.dependency"}, []string(kinds))
+	assert.Equal(t, []string{"registry.entry", "ns.dependency"}, kinds)
 }
 
 func TestReadKindSlice_MixedAnyValues(t *testing.T) {
-	cfg := boot.NewConfig(boot.WithSection(string(RegistryName), map[string]any{
-		string(RegistryDispatchInternalKinds): []any{"registry.entry", 7, "ns.definition"},
+	cfg := boot.NewConfig(boot.WithSection(RegistryName, map[string]any{
+		RegistryDispatchInternalKinds: []any{"registry.entry", 7, "ns.definition"},
 	}))
 
 	kinds, ok := readKindSlice(cfg.Sub(RegistryName), RegistryDispatchInternalKinds)
 	assert.True(t, ok)
-	assert.Equal(t, []string{"registry.entry", "ns.definition"}, []string(kinds))
+	assert.Equal(t, []string{"registry.entry", "ns.definition"}, kinds)
 }

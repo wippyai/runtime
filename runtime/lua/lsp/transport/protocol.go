@@ -42,8 +42,8 @@ type VersionedTextDocumentIdentifier struct {
 type TextDocumentItem struct {
 	URI        string `json:"uri"`
 	LanguageID string `json:"languageId,omitempty"`
-	Version    int    `json:"version"`
 	Text       string `json:"text"`
+	Version    int    `json:"version"`
 }
 
 // TextDocumentContentChangeEvent represents a change event for full sync.
@@ -254,10 +254,10 @@ type DocumentDiagnosticParams struct {
 
 // Diagnostic represents a diagnostic item.
 type Diagnostic struct {
-	Range    Range  `json:"range"`
 	Message  string `json:"message"`
-	Severity int    `json:"severity,omitempty"`
 	Source   string `json:"source,omitempty"`
+	Range    Range  `json:"range"`
+	Severity int    `json:"severity,omitempty"`
 }
 
 // DiagnosticSeverity values.

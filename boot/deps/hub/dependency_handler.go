@@ -53,6 +53,8 @@ type DependencyHandler struct {
 }
 
 // HubClient defines the hub operations required for dependency handling.
+//
+//nolint:revive // keeps explicit package-disambiguated API name.
 type HubClient interface {
 	ResolveDependencies(ctx context.Context, params *ResolveDependenciesParams) (*ResolveDependenciesResult, error)
 	GetDownloadURL(ctx context.Context, params *DownloadParams) (*DownloadInfo, error)
@@ -273,12 +275,8 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 		})
 	}
 
-	resolveCtx := ctx
-	var cancel context.CancelFunc
-	if h.resolveTimeout > 0 {
-		resolveCtx, cancel = context.WithTimeout(ctx, h.resolveTimeout)
-		defer cancel()
-	}
+	resolveCtx, cancel := withOptionalTimeout(ctx, h.resolveTimeout)
+	defer cancel()
 
 	result, err := h.hub.ResolveDependencies(resolveCtx, &ResolveDependenciesParams{
 		Roots:     roots,
@@ -352,7 +350,10 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 
 	url := mod.URL
 	if url == "" {
-		info, err := h.hub.GetDownloadURL(ctx, &DownloadParams{
+		downloadURLCtx, cancel := withOptionalTimeout(ctx, h.downloadTimeout)
+		defer cancel()
+
+		info, err := h.hub.GetDownloadURL(downloadURLCtx, &DownloadParams{
 			Org:     mod.Org,
 			Module:  mod.Name,
 			Version: mod.Version,
@@ -372,12 +373,8 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 		return "", NewDependencyDownloadError(modKey(mod), ErrDependencyNoContent)
 	}
 
-	downloadCtx := ctx
-	var cancel context.CancelFunc
-	if h.downloadTimeout > 0 {
-		downloadCtx, cancel = context.WithTimeout(ctx, h.downloadTimeout)
-		defer cancel()
-	}
+	downloadCtx, cancel := withOptionalTimeout(ctx, h.downloadTimeout)
+	defer cancel()
 
 	if err := h.hub.DownloadToFile(downloadCtx, url, wappPath); err != nil {
 		return "", NewDependencyDownloadError(modKey(mod), err)
@@ -717,6 +714,13 @@ func decodeDependency(ctx context.Context, transcoder payload.Transcoder, entry 
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func withOptionalTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, timeout)
 }
 
 func modKey(mod ResolvedModule) string {

@@ -14,8 +14,8 @@ type Document struct {
 
 // DocumentStore keeps unsaved document contents for LSP indexing.
 type DocumentStore struct {
-	mu   sync.RWMutex
 	docs map[registry.ID]Document
+	mu   sync.RWMutex
 }
 
 // NewDocumentStore creates a new document store.

@@ -14,7 +14,7 @@ import (
 	manifestv1connect "github.com/wippyai/runtime/api/hub/wippy/api/hub/manifest/v1/manifestv1connect"
 	modulev1connect "github.com/wippyai/runtime/api/hub/wippy/api/hub/module/v1/modulev1connect"
 	publishv1connect "github.com/wippyai/runtime/api/hub/wippy/api/hub/publish/v1/publishv1connect"
-	"github.com/wippyai/runtime/cmd/wippy/version"
+	"github.com/wippyai/runtime/api/version"
 )
 
 const (

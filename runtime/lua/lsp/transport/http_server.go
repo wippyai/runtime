@@ -19,18 +19,17 @@ const defaultHTTPPath = "/lsp"
 // HTTPServer exposes the LSP JSON-RPC handler over HTTP for browser clients.
 // It accepts POST requests with JSON-RPC payloads and returns JSON-RPC responses.
 type HTTPServer struct {
+	listener    net.Listener
 	log         *zap.Logger
 	handler     *Handler
+	server      *http.Server
+	cancel      context.CancelFunc
 	addr        string
 	path        string
-	maxBytes    int
 	allowOrigin string
-
-	server   *http.Server
-	listener net.Listener
-	cancel   context.CancelFunc
-	mu       sync.Mutex
-	running  bool
+	maxBytes    int
+	mu          sync.Mutex
+	running     bool
 }
 
 // NewHTTPServer creates a new HTTP LSP server.

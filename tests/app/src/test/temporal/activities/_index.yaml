@@ -43,3 +43,13 @@ entries:
       temporal:
         activity:
           worker: app.test.temporal:test_worker
+
+  # Runtime error activity - raises a raw Lua runtime error
+  - name: runtime_error_activity
+    kind: function.lua
+    source: file://runtime_error_activity.lua
+    method: main
+    meta:
+      temporal:
+        activity:
+          worker: app.test.temporal:test_worker

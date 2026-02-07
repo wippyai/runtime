@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -252,6 +253,108 @@ func TestDependencyHandler_RedownloadsCorruptCachedArtifact(t *testing.T) {
 	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), downloadCalls.Load())
+}
+
+func TestDependencyHandler_ResolveTimeoutSetsDeadline(t *testing.T) {
+	ctx := newTestContext()
+
+	var resolveHadDeadline bool
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			resolve: func(callCtx context.Context, _ *ResolveDependenciesParams) (*ResolveDependenciesResult, error) {
+				deadline, ok := callCtx.Deadline()
+				if ok && time.Until(deadline) > 0 {
+					resolveHadDeadline = true
+				}
+				return &ResolveDependenciesResult{}, nil
+			},
+		},
+		Logger:         zap.NewNop(),
+		VendorDir:      t.TempDir(),
+		ResolveTimeout: 2 * time.Second,
+	})
+	require.NoError(t, err)
+
+	depEntry := regapi.Entry{
+		ID:   regapi.NewID("app", "dep"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/http","version":"v1.0.0"}`, payload.JSON),
+	}
+
+	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, nil)
+	require.NoError(t, err)
+	assert.True(t, resolveHadDeadline, "resolve call should have timeout deadline")
+}
+
+func TestDependencyHandler_DownloadTimeoutSetsDeadlinesForURLAndDownload(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, "vendor")
+
+	moduleData := buildWappBytes(t, []wapp.Entry{
+		{
+			ID:   wapp.NewID("mod", "svc"),
+			Kind: "service",
+			Data: map[string]any{"ok": true},
+		},
+	})
+	sum := sha256.Sum256(moduleData)
+	expectedDigest := "sha256:" + hex.EncodeToString(sum[:])
+
+	var urlHadDeadline bool
+	var downloadHadDeadline bool
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			resolve: func(context.Context, *ResolveDependenciesParams) (*ResolveDependenciesResult, error) {
+				return &ResolveDependenciesResult{
+					Modules: []ResolvedModule{
+						{
+							Org:     "acme",
+							Name:    "http",
+							Version: "v1.0.0",
+						},
+					},
+				}, nil
+			},
+			getDownload: func(callCtx context.Context, _ *DownloadParams) (*DownloadInfo, error) {
+				deadline, ok := callCtx.Deadline()
+				if ok && time.Until(deadline) > 0 {
+					urlHadDeadline = true
+				}
+				return &DownloadInfo{
+					URL:    "https://example.invalid/http-v1.0.0.wapp",
+					Digest: expectedDigest,
+					Size:   uint64(len(moduleData)),
+				}, nil
+			},
+			downloadFile: func(callCtx context.Context, _ string, destPath string) error {
+				deadline, ok := callCtx.Deadline()
+				if ok && time.Until(deadline) > 0 {
+					downloadHadDeadline = true
+				}
+				if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+					return err
+				}
+				return os.WriteFile(destPath, moduleData, 0600)
+			},
+		},
+		Logger:          zap.NewNop(),
+		VendorDir:       vendorDir,
+		DownloadTimeout: 2 * time.Second,
+	})
+	require.NoError(t, err)
+
+	depEntry := regapi.Entry{
+		ID:   regapi.NewID("app", "dep"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/http","version":"v1.0.0"}`, payload.JSON),
+	}
+
+	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, nil)
+	require.NoError(t, err)
+	assert.True(t, urlHadDeadline, "download URL request should have timeout deadline")
+	assert.True(t, downloadHadDeadline, "artifact download should have timeout deadline")
 }
 
 func newTestContext() context.Context {

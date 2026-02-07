@@ -158,6 +158,8 @@ func mapTypeToKind(errType string) apierror.Kind {
 	switch errType {
 	case "NotFound":
 		return apierror.NotFound
+	case "ActivityNotRegisteredError", "ActivityNotRegistered", "WorkflowNotRegisteredError", "NamespaceNotFoundError":
+		return apierror.NotFound
 	case "AlreadyExists":
 		return apierror.AlreadyExists
 	case "Invalid":

@@ -441,8 +441,8 @@ func (h *Handler) completion(ctx context.Context, params json.RawMessage) (any, 
 		}
 	}
 	if text, ok := h.svc.DocumentText(fileID); ok {
-		lineText := lineAt(text, int(p.Position.Line))
-		prefix, receiver := completionPrefixAndReceiver(lineText, int(p.Position.Character))
+		lineText := lineAt(text, p.Position.Line)
+		prefix, receiver := completionPrefixAndReceiver(lineText, p.Position.Character)
 		compCtx.Prefix = prefix
 		if receiver != "" && compCtx.Kind != completion.ContextMember {
 			compCtx.Kind = completion.ContextMember

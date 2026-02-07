@@ -76,10 +76,10 @@ type TypeChecker struct {
 	globalTypes      map[string]typ.Type
 	db               *db.DB
 	checker          *check.Checker
-	config           TypeCheckConfig
+	invalidateHook   func(string)
 	baseHookOptions  []check.Option
 	hookOptions      []check.Option
-	invalidateHook   func(string)
+	config           TypeCheckConfig
 }
 
 // NewTypeChecker creates a configured type checker.

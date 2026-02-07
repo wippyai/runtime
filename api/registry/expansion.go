@@ -20,10 +20,10 @@ type ScopedOperation struct {
 
 // DirectiveResult is returned by a Directive to augment a registry operation.
 type DirectiveResult struct {
-	Applied       bool
 	OriginalScope *Scope
 	Additional    []ScopedOperation
 	Effects       []Effect
+	Applied       bool
 }
 
 // Directive can augment a registry operation with additional operations or effects.

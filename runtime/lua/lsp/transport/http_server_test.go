@@ -17,7 +17,10 @@ func TestHTTPServer_RequestResponse(t *testing.T) {
 	defer srv.Stop()
 
 	body := []byte(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`)
-	resp, err := http.Post("http://"+srv.Addr()+"/lsp", "application/json", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "http://"+srv.Addr()+"/lsp", bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -36,7 +39,10 @@ func TestHTTPServer_Notification(t *testing.T) {
 	defer srv.Stop()
 
 	body := []byte(`{"jsonrpc":"2.0","method":"initialized","params":{}}`)
-	resp, err := http.Post("http://"+srv.Addr()+"/lsp", "application/json", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "http://"+srv.Addr()+"/lsp", bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -48,7 +54,7 @@ func TestHTTPServer_CORS(t *testing.T) {
 	require.NoError(t, srv.Start(context.Background()))
 	defer srv.Stop()
 
-	req, err := http.NewRequest(http.MethodOptions, "http://"+srv.Addr()+"/lsp", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodOptions, "http://"+srv.Addr()+"/lsp", nil)
 	require.NoError(t, err)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)

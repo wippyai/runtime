@@ -20,18 +20,6 @@ func (s *stubDirective) Expand(ctx context.Context, op registry.Operation, snap 
 	return s.expandFunc(ctx, op, snap)
 }
 
-type stubResolver struct {
-	deps map[registry.ID][]registry.ID
-	err  error
-}
-
-func (r *stubResolver) ResolveDependencies(entry registry.Entry) ([]registry.ID, error) {
-	if r.err != nil {
-		return nil, r.err
-	}
-	return r.deps[entry.ID], nil
-}
-
 func newEntry(ns, name string, kind registry.Kind) registry.Entry {
 	return registry.Entry{
 		ID:   registry.NewID(ns, name),

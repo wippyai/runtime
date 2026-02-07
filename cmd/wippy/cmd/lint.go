@@ -836,6 +836,14 @@ func extractEntryData(entry regapi.Entry) entryData {
 		return entryData{}
 	}
 
+	// Fast path: loader entries usually carry golang map payloads.
+	if m, ok := entry.Data.Data().(map[string]any); ok {
+		return entryDataFromMap(m)
+	}
+	if m, ok := entry.Data.Data().(map[string]interface{}); ok {
+		return entryDataFromMap(m)
+	}
+
 	var cfg struct {
 		Source  string               `json:"source"`
 		Method  string               `json:"method"`
@@ -856,6 +864,74 @@ func extractEntryData(entry regapi.Entry) entryData {
 	}
 
 	return entryData{Source: cfg.Source, Imports: imports, Method: cfg.Method}
+}
+
+func entryDataFromMap(m map[string]any) entryData {
+	if m == nil {
+		return entryData{}
+	}
+
+	data := entryData{
+		Imports: make(map[string]regapi.ID),
+	}
+
+	if source, ok := m["source"].(string); ok {
+		data.Source = source
+	}
+	if method, ok := m["method"].(string); ok {
+		data.Method = method
+	}
+
+	if rawImports, ok := m["imports"].(map[string]any); ok {
+		for alias, raw := range rawImports {
+			if id, ok := parseRegistryID(raw); ok {
+				data.Imports[alias] = id
+			}
+		}
+	}
+	if rawImports, ok := m["imports"].(map[string]regapi.ID); ok {
+		for alias, id := range rawImports {
+			data.Imports[alias] = id
+		}
+	}
+
+	if rawModules, ok := m["modules"].([]any); ok {
+		for _, mod := range rawModules {
+			if modName, ok := mod.(string); ok && modName != "" {
+				data.Imports[modName] = regapi.NewID("", modName)
+			}
+		}
+	}
+	if rawModules, ok := m["modules"].([]string); ok {
+		for _, modName := range rawModules {
+			if modName != "" {
+				data.Imports[modName] = regapi.NewID("", modName)
+			}
+		}
+	}
+
+	return data
+}
+
+func parseRegistryID(v any) (regapi.ID, bool) {
+	switch typed := v.(type) {
+	case regapi.ID:
+		return typed, true
+	case string:
+		if typed == "" {
+			return regapi.ID{}, false
+		}
+		return regapi.ParseID(typed), true
+	case map[string]any:
+		ns, _ := typed["ns"].(string)
+		name, _ := typed["name"].(string)
+		if name == "" {
+			return regapi.ID{}, false
+		}
+		return regapi.NewID(ns, name), true
+	default:
+		return regapi.ID{}, false
+	}
 }
 
 // luaImportResolver extracts Lua import dependencies from entries.

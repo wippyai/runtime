@@ -15,14 +15,14 @@ import (
 
 func TestSeverityString(t *testing.T) {
 	tests := []struct {
-		severity Severity
 		expected string
+		severity Severity
 	}{
-		{SeverityOff, "off"},
-		{SeverityHint, "hint"},
-		{SeverityWarning, "warning"},
-		{SeverityError, "error"},
-		{Severity(99), "unknown"},
+		{severity: SeverityOff, expected: "off"},
+		{severity: SeverityHint, expected: "hint"},
+		{severity: SeverityWarning, expected: "warning"},
+		{severity: SeverityError, expected: "error"},
+		{severity: Severity(99), expected: "unknown"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
@@ -35,13 +35,13 @@ func TestSeverityString(t *testing.T) {
 
 func TestFormatLintCode(t *testing.T) {
 	tests := []struct {
-		code     diag.Code
 		expected string
+		code     diag.Code
 	}{
-		{LintW0001, "W0001"},
-		{LintW0007, "W0007"},
-		{LintCodeBase + 42, "W0042"},
-		{LintCodeBase + 100, "W0100"},
+		{code: LintW0001, expected: "W0001"},
+		{code: LintW0007, expected: "W0007"},
+		{code: LintCodeBase + 42, expected: "W0042"},
+		{code: LintCodeBase + 100, expected: "W0100"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {

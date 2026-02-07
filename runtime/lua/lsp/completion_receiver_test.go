@@ -14,9 +14,9 @@ import (
 )
 
 type testProvider struct {
-	modules     []*luaapi.ModuleDef
 	deps        map[string]*io.Manifest
 	builtinHash string
+	modules     []*luaapi.ModuleDef
 }
 
 func (p *testProvider) AllNodes() []indexing.NodeInfo {

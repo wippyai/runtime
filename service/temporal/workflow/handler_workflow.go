@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	workflowapi "github.com/wippyai/runtime/api/runtime/workflow"
 	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
 	commonpb "go.temporal.io/api/common/v1"
@@ -31,6 +34,12 @@ func (d *Definition) executeFunctionCall(cmd *function.CallCmd, tag uint64) erro
 	opts := bindings.ExecuteActivityOptions{
 		TaskQueueName:       d.env.WorkflowInfo().TaskQueueName,
 		StartToCloseTimeout: defaultActivityTimeout,
+	}
+	if err := applyTemporalActivityOptions(&opts, d.mergedFunctionTaskOptions(cmd.Task)); err != nil {
+		d.resumeProcess(tag, function.CallResult{
+			Error: fmt.Errorf("invalid temporal activity options for %s: %w", activityName, err),
+		}, nil)
+		return nil
 	}
 
 	d.env.ExecuteActivity(bindings.ExecuteActivityParams{
@@ -137,29 +146,27 @@ func (d *Definition) executeWorkflowExec(cmd *workflowapi.ExecCmd, tag uint64) e
 	}
 
 	if cmd.Options != nil {
+		overrides := attrs.NewBag()
 		if cmd.Options.WorkflowID != "" {
-			params.WorkflowID = cmd.Options.WorkflowID
+			overrides.Set(optionWorkflowID, cmd.Options.WorkflowID)
 		}
 		if cmd.Options.TaskQueue != "" {
-			params.TaskQueueName = cmd.Options.TaskQueue
+			overrides.Set(optionWorkflowTaskQueue, cmd.Options.TaskQueue)
 		}
 		if cmd.Options.ExecutionTimeout != "" {
-			dur, err := time.ParseDuration(cmd.Options.ExecutionTimeout)
-			if err == nil {
-				params.WorkflowExecutionTimeout = dur
-			}
+			overrides.Set(optionWorkflowExecutionTimeout, cmd.Options.ExecutionTimeout)
 		}
 		if cmd.Options.RunTimeout != "" {
-			dur, err := time.ParseDuration(cmd.Options.RunTimeout)
-			if err == nil {
-				params.WorkflowRunTimeout = dur
-			}
+			overrides.Set(optionWorkflowRunTimeout, cmd.Options.RunTimeout)
 		}
 		if cmd.Options.TaskTimeout != "" {
-			dur, err := time.ParseDuration(cmd.Options.TaskTimeout)
-			if err == nil {
-				params.WorkflowTaskTimeout = dur
-			}
+			overrides.Set(optionWorkflowTaskTimeout, cmd.Options.TaskTimeout)
+		}
+		if err := applyTemporalChildWorkflowOptions(&params, overrides); err != nil {
+			d.resumeProcess(tag, workflowapi.ExecResult{
+				Error: fmt.Errorf("invalid temporal child workflow options for %s: %w", workflowName, err),
+			}, nil)
+			return nil
 		}
 	}
 
@@ -213,4 +220,34 @@ func (d *Definition) executeUpsertAttrs(cmd *workflowapi.UpsertAttrsCmd, tag uin
 
 	d.resumeProcess(tag, true, nil)
 	return nil
+}
+
+type functionOptionsProvider interface {
+	GetOptions(id registry.ID) (runtimeapi.Bag, bool)
+}
+
+func (d *Definition) mergedFunctionTaskOptions(task runtimeapi.Task) attrs.Bag {
+	var merged attrs.Bag
+
+	if reg := function.GetRegistry(d.ctx); reg != nil {
+		if provider, ok := reg.(functionOptionsProvider); ok {
+			if defaults, ok := provider.GetOptions(task.ID); ok && defaults != nil {
+				if cloned, ok := defaults.Clone().(attrs.Bag); ok {
+					merged = cloned
+				}
+			}
+		}
+	}
+
+	if overrides, ok := task.Options.(attrs.Bag); ok && overrides != nil {
+		if merged == nil {
+			if cloned, ok := overrides.Clone().(attrs.Bag); ok {
+				return cloned
+			}
+			return overrides
+		}
+		return merged.Merge(overrides)
+	}
+
+	return merged
 }

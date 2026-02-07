@@ -11,30 +11,27 @@ import (
 
 // Scheduler manages dependency-ordered, parallel indexing.
 type Scheduler struct {
-	log      *zap.Logger
-	idx      *Indexer
-	provider Provider
-
-	workers int
-	enabled bool
-
-	mu         sync.Mutex
+	provider   Provider
+	ctx        context.Context
+	idleCh     chan struct{}
+	deps       map[registry.ID]map[registry.ID]bool
+	idx        *Indexer
+	workCh     chan registry.ID
 	queued     map[registry.ID]bool
 	inFlight   map[registry.ID]bool
 	dirty      map[registry.ID]bool
 	indegree   map[registry.ID]int
 	dependents map[registry.ID]map[registry.ID]bool
-	deps       map[registry.ID]map[registry.ID]bool
-	ready      []registry.ID
+	doneCh     chan registry.ID
+	enqueueCh  chan []registry.ID
 	readySet   map[registry.ID]bool
+	log        *zap.Logger
+	ready      []registry.ID
+	wg         sync.WaitGroup
 	inCount    int
-	idleCh     chan struct{}
-
-	enqueueCh chan []registry.ID
-	doneCh    chan registry.ID
-	workCh    chan registry.ID
-	wg        sync.WaitGroup
-	ctx       context.Context
+	workers    int
+	mu         sync.Mutex
+	enabled    bool
 }
 
 // NewScheduler constructs a scheduler with a worker pool.

@@ -5,6 +5,7 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -91,11 +92,13 @@ func Registry() boot.Component {
 			stateBuilder := regtop.NewStateBuilder(logger, resolver)
 
 			internalKinds := defaultDispatchInternalKinds()
+			eventWaitTimeout := 30 * time.Second
 			if cfg != nil {
 				registryCfg := cfg.Sub(RegistryName)
 				if kinds, ok := readKindSlice(registryCfg, RegistryDispatchInternalKinds); ok {
 					internalKinds = kinds
 				}
+				eventWaitTimeout = registryCfg.GetDuration(RegistryEventWaitTimeout, eventWaitTimeout)
 			}
 
 			registryOpts := []registry.Option{}
@@ -114,6 +117,7 @@ func Registry() boot.Component {
 				hist,
 				runner.NewBusRunner(bus, logger.Named("runner"), stateBuilder,
 					runner.WithDispatchPolicy(runner.NewKindDispatchPolicy(internalKinds)),
+					runner.WithEventWaitTimeout(eventWaitTimeout),
 				),
 				stateBuilder,
 				resolver,
@@ -159,7 +163,7 @@ func defaultDispatchInternalKinds() []regapi.Kind {
 }
 
 func readKindSlice(cfg boot.Config, key boot.Name) ([]regapi.Kind, bool) {
-	raw, ok := cfg.Get(string(key))
+	raw, ok := cfg.Get(key)
 	if !ok {
 		return nil, false
 	}
@@ -187,7 +191,7 @@ func readKindSlice(cfg boot.Config, key boot.Name) ([]regapi.Kind, bool) {
 		if trimmed == "" {
 			continue
 		}
-		kinds = append(kinds, regapi.Kind(trimmed))
+		kinds = append(kinds, trimmed)
 	}
 	return kinds, true
 }

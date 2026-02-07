@@ -69,26 +69,18 @@ type (
 
 	// TranscodeOptions carries optional hints for future transcoding features.
 	TranscodeOptions struct {
-		// TypeHint can point to a global type registry entry.
-		TypeHint string
-		// TargetKind can specify a platform-specific target hint.
+		Extras     map[string]any
+		TypeHint   string
 		TargetKind string
-		// Extras carries non-standard, optional metadata.
-		Extras map[string]any
 	}
 
 	// TranscodeContext describes the current transcoding step.
 	TranscodeContext struct {
-		// Parent is the active root transcoder executing this path.
-		Parent Transcoder
-		// From is the source format of the current step.
-		From Format
-		// To is the target format of the current step.
-		To Format
-		// Depth is the current step index (1-based) within the path.
-		Depth int
-		// Options is reserved for future type/driver hints.
+		Parent  Transcoder
 		Options *TranscodeOptions
+		From    Format
+		To      Format
+		Depth   int
 	}
 )
 

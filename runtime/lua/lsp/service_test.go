@@ -252,11 +252,11 @@ func TestConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name           string
 		wantAddr       string
-		wantMax        int
 		wantHTTPAddr   string
 		wantHTTPPath   string
 		wantHTTPOrigin string
 		cfg            Config
+		wantMax        int
 	}{
 		{
 			name:           "valid address",

@@ -47,9 +47,9 @@ func (t *testEffect) Rollback(context.Context) error {
 }
 
 type blockingEffect struct {
-	testEffect
 	start   chan struct{}
 	proceed chan struct{}
+	testEffect
 }
 
 func (b *blockingEffect) Prepare(context.Context) error {

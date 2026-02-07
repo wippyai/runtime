@@ -579,7 +579,13 @@ func TestServerService_RebuildPreservesFrameContext(t *testing.T) {
 		var resp *http.Response
 		var lastErr error
 		for i := 0; i < 3; i++ {
-			resp, lastErr = client.Get(fmt.Sprintf("http://%s%s", cfg.Addr, path))
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, fmt.Sprintf("http://%s%s", cfg.Addr, path), nil)
+			if err != nil {
+				lastErr = err
+				time.Sleep(200 * time.Millisecond)
+				continue
+			}
+			resp, lastErr = client.Do(req)
 			if lastErr == nil {
 				return resp
 			}

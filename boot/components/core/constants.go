@@ -30,6 +30,8 @@ const (
 	RegistryDependencyResolveTimeout boot.Name = "dependency_resolve_timeout"
 	// RegistryDependencyDownloadTimeout configures dependency download timeout.
 	RegistryDependencyDownloadTimeout boot.Name = "dependency_download_timeout"
+	// RegistryEventWaitTimeout configures per-operation listener wait timeout in registry runner.
+	RegistryEventWaitTimeout boot.Name = "event_wait_timeout"
 	// RegistryDependencyLockPath overrides lock file path for dependency installs.
 	RegistryDependencyLockPath boot.Name = "dependency_lock_path"
 	// RegistryDependencyVendorDir overrides vendor directory for dependency installs.

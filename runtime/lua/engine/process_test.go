@@ -11,6 +11,7 @@ import (
 	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
@@ -214,26 +215,10 @@ func TestErrorPropagationFromRaiseError(t *testing.T) {
 		t.Error("Error string is empty")
 	}
 
-	// Check if we can extract lua.Error
-	we := lua.GetError(err)
-	if we == nil {
-		t.Logf("Error type: %T", err)
-		t.Logf("Error: %v", err)
-		t.Fatal("Failed to extract lua.Error from error")
-	}
-
-	// Verify Lua stack is captured (may be empty for simple errors)
-	if we.LuaStack != nil && len(we.LuaStack.Frames) > 0 {
-		hasSource := false
-		for _, frame := range we.LuaStack.Frames {
-			if frame.Source != "" {
-				hasSource = true
-				break
-			}
-		}
-		if !hasSource {
-			t.Log("No source file info in Lua stack frames (may be expected)")
-		}
+	// Step() crosses runtime boundary and should return apierror.Error.
+	var apiErr apierror.Error
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("Expected apierror.Error, got %T", err)
 	}
 }
 
@@ -322,17 +307,10 @@ func TestLuaErrorWithStack(t *testing.T) {
 		t.Errorf("Error message doesn't contain 'deep error': %s", errStr)
 	}
 
-	// Check that error is wrapped properly
-	we := lua.GetError(err)
-	if we == nil {
-		t.Logf("Error type: %T", err)
-		t.Logf("Error: %v", err)
-		t.Fatal("Failed to extract lua.Error")
-	}
-
-	// Verify the wrapped error contains the original message
-	if !containsString(we.Error(), "deep error") {
-		t.Errorf("lua.Error doesn't contain 'deep error': %s", we.Error())
+	// Step() crosses runtime boundary and should return apierror.Error.
+	var apiErr apierror.Error
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("Expected apierror.Error, got %T", err)
 	}
 }
 
@@ -520,18 +498,22 @@ func TestProcessReturnsLuaError(t *testing.T) {
 		t.Fatal("Expected error from second return value, got nil")
 	}
 
-	// Check that it's a lua.Error
-	luaErr := lua.GetError(stepErr)
-	if luaErr == nil {
-		t.Fatalf("Expected lua.Error, got %T", stepErr)
+	// Step() crosses runtime boundary and should return apierror.Error.
+	var apiErr apierror.Error
+	if !errors.As(stepErr, &apiErr) {
+		t.Fatalf("Expected apierror.Error, got %T", stepErr)
 	}
 
-	if luaErr.Message != "validation failed" {
-		t.Errorf("Expected message 'validation failed', got '%s'", luaErr.Message)
+	if apiErr.Error() != "validation failed" {
+		t.Errorf("Expected message 'validation failed', got '%s'", apiErr.Error())
 	}
 
-	if luaErr.Kind() != lua.Invalid {
-		t.Errorf("Expected kind Invalid, got %s", luaErr.Kind())
+	if apiErr.Kind() != apierror.Invalid {
+		t.Errorf("Expected kind Invalid, got %s", apiErr.Kind())
+	}
+
+	if apiErr.Retryable() != apierror.False {
+		t.Errorf("Expected retryable False, got %s", apiErr.Retryable())
 	}
 }
 

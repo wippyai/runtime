@@ -88,7 +88,7 @@ func TestEntry_ConcurrentDropAndAccess(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		_ = entry.closed
+		_ = entry.closed.Load()
 	}()
 
 	wg.Wait()

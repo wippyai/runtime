@@ -30,7 +30,7 @@ func TestIsLuaKind(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(string(tt.kind), func(t *testing.T) {
+		t.Run(tt.kind, func(t *testing.T) {
 			assert.Equal(t, tt.want, isLuaKind(tt.kind))
 		})
 	}
@@ -136,8 +136,8 @@ func TestScheduler_Disabled_Start(t *testing.T) {
 // --- Scheduler with real indexer ---
 
 type stubProvider struct {
-	nodes []NodeInfo
 	deps  map[registry.ID][]registry.ID
+	nodes []NodeInfo
 }
 
 func (p *stubProvider) AllNodes() []NodeInfo { return p.nodes }

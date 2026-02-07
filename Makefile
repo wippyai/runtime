@@ -58,10 +58,10 @@ WIPPY_DATE ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 WIPPY_BUILDER ?= $(shell whoami)@$(shell hostname)
 
 WIPPY_LDFLAGS := -s -w \
-	-X github.com/wippyai/runtime/cmd/wippy/version.Version=$(WIPPY_VERSION) \
-	-X github.com/wippyai/runtime/cmd/wippy/version.Commit=$(WIPPY_COMMIT) \
-	-X github.com/wippyai/runtime/cmd/wippy/version.Date=$(WIPPY_DATE) \
-	-X github.com/wippyai/runtime/cmd/wippy/version.BuiltBy=$(WIPPY_BUILDER)
+	-X github.com/wippyai/runtime/api/version.Version=$(WIPPY_VERSION) \
+	-X github.com/wippyai/runtime/api/version.Commit=$(WIPPY_COMMIT) \
+	-X github.com/wippyai/runtime/api/version.Date=$(WIPPY_DATE) \
+	-X github.com/wippyai/runtime/api/version.BuiltBy=$(WIPPY_BUILDER)
 
 .PHONY: build-wippy
 build-wippy: build-wippy-local

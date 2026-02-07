@@ -50,47 +50,50 @@ func BuildChain(err error) *Chain {
 			ce.Message = mp.Msg()
 		}
 
-		switch typed := e.(type) {
-		case Rich:
-			kind := typed.Kind()
+		var richErr Rich
+		if errors.As(e, &richErr) {
+			kind := richErr.Kind()
 			if kind != "" && kind != Unknown {
 				ce.Kind = kind.String()
 			}
 
-			retryable := typed.Retryable()
+			retryable := richErr.Retryable()
 			if retryable != Unspecified {
 				b := retryable.Bool()
 				ce.Retryable = &b
 			}
 
-			if d := typed.Details(); len(d) > 0 {
+			if d := richErr.Details(); len(d) > 0 {
 				ce.Details = d
 			}
 
-			if s := typed.StackFrames(); len(s) > 0 {
+			if s := richErr.StackFrames(); len(s) > 0 {
 				ce.Stack = s
 			}
-		case Error:
-			kind := typed.Kind()
-			if kind != "" && kind != Unknown {
-				ce.Kind = kind.String()
-			}
-
-			retryable := typed.Retryable()
-			if retryable != Unspecified {
-				b := retryable.Bool()
-				ce.Retryable = &b
-			}
-
-			if d := typed.Details(); d != nil {
-				if bag, ok := d.(attrs.Bag); ok && len(bag) > 0 {
-					ce.Details = map[string]any(bag)
+		} else {
+			var baseErr Error
+			if errors.As(e, &baseErr) {
+				kind := baseErr.Kind()
+				if kind != "" && kind != Unknown {
+					ce.Kind = kind.String()
 				}
-			}
-		default:
-			if se, ok := e.(StackProvider); ok {
-				if s := se.StackFrames(); len(s) > 0 {
-					ce.Stack = s
+
+				retryable := baseErr.Retryable()
+				if retryable != Unspecified {
+					b := retryable.Bool()
+					ce.Retryable = &b
+				}
+
+				if d := baseErr.Details(); d != nil {
+					if bag, ok := d.(attrs.Bag); ok && len(bag) > 0 {
+						ce.Details = map[string]any(bag)
+					}
+				}
+			} else {
+				if se, ok := e.(StackProvider); ok {
+					if s := se.StackFrames(); len(s) > 0 {
+						ce.Stack = s
+					}
 				}
 			}
 		}

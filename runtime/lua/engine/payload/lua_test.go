@@ -412,10 +412,10 @@ func TestFromGolang_PreservesSpecialTypesInStructs(t *testing.T) {
 	Register(dtt)
 
 	type eventLike struct {
-		Wait time.Duration `json:"wait"`
 		At   time.Time     `json:"at"`
-		From pid.PID       `json:"from"`
 		Err  error         `json:"err"`
+		From pid.PID       `json:"from"`
+		Wait time.Duration `json:"wait"`
 	}
 
 	at := time.Date(2026, 2, 5, 12, 0, 0, 0, time.UTC)

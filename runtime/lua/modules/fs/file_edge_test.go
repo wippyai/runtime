@@ -608,15 +608,15 @@ func TestFS_ResolvePath_Traversal(t *testing.T) {
 	f := NewFS(fsys, "subdir")
 
 	tests := []struct {
+		err  error
 		name string
 		path string
-		err  error
 	}{
-		{"parent escape", "../../etc/passwd", ErrPathTraversal},
-		{"null byte", "test\x00file", ErrNullBytePath},
-		{"absolute ok", "/test.txt", nil},
-		{"relative ok", "test.txt", nil},
-		{"empty uses cwd", "", nil},
+		{name: "parent escape", path: "../../etc/passwd", err: ErrPathTraversal},
+		{name: "null byte", path: "test\x00file", err: ErrNullBytePath},
+		{name: "absolute ok", path: "/test.txt", err: nil},
+		{name: "relative ok", path: "test.txt", err: nil},
+		{name: "empty uses cwd", path: "", err: nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -796,18 +796,18 @@ func TestBuildModule(t *testing.T) {
 
 func TestFileLuaOps_ClosedFile(t *testing.T) {
 	tests := []struct {
-		name string
 		fn   func(l *lua.LState) int
 		push func(l *lua.LState)
+		name string
 	}{
-		{"read", fileRead, nil},
-		{"write", fileWrite, func(l *lua.LState) { l.Push(lua.LString("data")) }},
-		{"seek", fileSeek, func(l *lua.LState) {
+		{name: "read", fn: fileRead, push: nil},
+		{name: "write", fn: fileWrite, push: func(l *lua.LState) { l.Push(lua.LString("data")) }},
+		{name: "seek", fn: fileSeek, push: func(l *lua.LState) {
 			l.Push(lua.LString("set"))
 			l.Push(lua.LNumber(0))
 		}},
-		{"stat", fileStat, nil},
-		{"sync", fileSync, nil},
+		{name: "stat", fn: fileStat, push: nil},
+		{name: "sync", fn: fileSync, push: nil},
 	}
 
 	for _, tt := range tests {

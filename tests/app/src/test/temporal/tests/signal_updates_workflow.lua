@@ -51,13 +51,15 @@ local function main()
 	assert.not_nil(inbox, "got inbox channel")
 	assert.not_nil(events_ch, "got events channel")
 
-	local pid, err = process.spawn_monitored(
-		"app.test.temporal.workflows:update_workflow",
-		"app.test.temporal:test_worker",
-		{ initial = 2 }
-	)
+	local pid, err = process
+		.with_options({})
+		:spawn_monitored(
+			"app.test.temporal.workflows:signal_updates_workflow",
+			"app.test.temporal:test_worker",
+			{ initial = 2 }
+		)
 
-	assert.is_nil(err, "spawn update workflow no error")
+	assert.is_nil(err, "spawn signal-updates workflow no error")
 	assert.is_string(pid, "got pid")
 
 	local ok, send_err = process.send(pid, "increment", { amount = 3 })

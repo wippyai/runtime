@@ -18,7 +18,7 @@ var ErrDirectiveExpansionConflict = apierror.New(apierror.Internal, "expansion o
 func NewDirectiveResultInvalidError(entryID registry.ID, entryKind registry.Kind) apierror.Error {
 	return apierror.SetDetails(ErrDirectiveResultInvalid, attrs.NewBagFrom(map[string]any{
 		"entry_id":   entryID.String(),
-		"entry_kind": string(entryKind),
+		"entry_kind": entryKind,
 	}))
 }
 

@@ -233,5 +233,26 @@ func (f *Registry) executor(ctx context.Context, handler function.Func, task run
 	return result, err
 }
 
+// GetOptions returns registered default options for a function ID.
+// The returned bag is cloned to prevent callers from mutating registry state.
+func (f *Registry) GetOptions(id registry.ID) (runtimeapi.Bag, bool) {
+	raw, ok := f.options.Load(id)
+	if !ok {
+		return nil, false
+	}
+
+	bag, ok := raw.(runtimeapi.Bag)
+	if !ok || bag == nil {
+		return nil, false
+	}
+
+	cloned, ok := bag.Clone().(runtimeapi.Bag)
+	if !ok {
+		return nil, false
+	}
+
+	return cloned, true
+}
+
 // Ensure Registry implements the operation.Registry interface
 var _ function.Registry = (*Registry)(nil)

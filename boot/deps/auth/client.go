@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/auth"
-	"github.com/wippyai/runtime/cmd/wippy/version"
+	"github.com/wippyai/runtime/api/version"
 )
 
 const (

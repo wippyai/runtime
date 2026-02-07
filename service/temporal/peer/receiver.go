@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	temporalapi "github.com/wippyai/runtime/api/service/temporal"
 	"github.com/wippyai/runtime/api/topology"
 	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
 	temporalprop "github.com/wippyai/runtime/service/temporal/propagator"
@@ -24,10 +25,12 @@ type Receiver struct {
 	client   client.Client
 	router   relay.Receiver
 	ctx      context.Context
+	handoff  temporalapi.WorkflowRunHandoff
 	log      *zap.Logger
 	watchers map[string]*workflowWatcher
 	cancel   context.CancelFunc
 	nodeID   pid.NodeID
+	clientID string
 	mu       sync.RWMutex
 }
 
@@ -50,12 +53,14 @@ func NewReceiver(ctx context.Context, nodeID pid.NodeID, temporalClient client.C
 	}
 	return &Receiver{
 		nodeID:   nodeID,
+		clientID: nodeID,
 		client:   temporalClient,
 		router:   router,
 		log:      logger,
 		watchers: make(map[string]*workflowWatcher),
 		ctx:      ctx,
 		cancel:   cancel,
+		handoff:  temporalapi.GetWorkflowRunHandoff(ctx),
 	}
 }
 
@@ -140,7 +145,6 @@ func (r *Receiver) signalWorkflow(from, target pid.PID, msg *relay.Message) erro
 	if target.UniqID == "" {
 		return fmt.Errorf("workflow ID is empty")
 	}
-
 	var signalArg any
 	switch len(msg.Payloads) {
 	case 0:
@@ -163,7 +167,6 @@ func (r *Receiver) signalWorkflow(from, target pid.PID, msg *relay.Message) erro
 	if fc != nil {
 		defer ctxapi.ReleaseFrameContext(fc)
 	}
-
 	return r.client.SignalWorkflow(ctx, target.UniqID, "", msg.Topic, signalArg)
 }
 
@@ -213,6 +216,7 @@ func (r *Receiver) handleMonitorRequest(caller, target pid.PID) error {
 		r.watchers[target.UniqID] = watcher
 	}
 
+	r.assignRunIDIfAvailable(watcher)
 	watcher.monitors[caller.String()] = caller
 
 	// Start watching if not already
@@ -266,6 +270,7 @@ func (r *Receiver) handleLinkRequest(from, to pid.PID) error {
 		r.watchers[to.UniqID] = watcher
 	}
 
+	r.assignRunIDIfAvailable(watcher)
 	watcher.links[from.String()] = from
 
 	// Start watching if not already
@@ -309,12 +314,34 @@ func (r *Receiver) cleanupWatcherIfEmpty(watcher *workflowWatcher) {
 	}
 }
 
+func (r *Receiver) assignRunIDIfAvailable(watcher *workflowWatcher) {
+	if watcher == nil || watcher.runID != "" || watcher.workflowID == "" {
+		return
+	}
+	if r.handoff == nil || r.clientID == "" {
+		return
+	}
+
+	runID, ok := r.handoff.Consume(r.clientID, watcher.workflowID)
+	if !ok || runID == "" {
+		return
+	}
+
+	watcher.runID = runID
+}
+
 // watchWorkflow watches a workflow for completion and notifies watchers.
 func (r *Receiver) watchWorkflow(ctx context.Context, watcher *workflowWatcher) {
 	workflowID := watcher.workflowID
 
 	r.log.Debug("starting workflow watch",
-		zap.String("workflow_id", workflowID))
+		zap.String("workflow_id", workflowID),
+		zap.String("run_id", watcher.runID))
+
+	if watcher.runID == "" {
+		r.log.Warn("watching workflow without run id; result may resolve to non-target execution",
+			zap.String("workflow_id", workflowID))
+	}
 
 	// Get workflow run handle
 	run := r.client.GetWorkflow(ctx, workflowID, watcher.runID)
@@ -342,23 +369,31 @@ func (r *Receiver) watchWorkflow(ctx context.Context, watcher *workflowWatcher) 
 // notifyCompletion sends EXIT events to all monitors and LINK_DOWN to linked processes.
 func (r *Receiver) notifyCompletion(watcher *workflowWatcher, payloads payload.Payloads, err error) {
 	r.mu.Lock()
-	monitors := make([]pid.PID, 0, len(watcher.monitors))
-	for _, p := range watcher.monitors {
+	current, ok := r.watchers[watcher.workflowID]
+	if !ok || current != watcher {
+		r.mu.Unlock()
+		return
+	}
+	monitors := make([]pid.PID, 0, len(current.monitors))
+	for _, p := range current.monitors {
 		monitors = append(monitors, p)
 	}
-	links := make([]pid.PID, 0, len(watcher.links))
-	for _, p := range watcher.links {
+	links := make([]pid.PID, 0, len(current.links))
+	for _, p := range current.links {
 		links = append(links, p)
 	}
+	if current.cancel != nil {
+		current.cancel()
+	}
 	// Clear and remove watcher
-	delete(r.watchers, watcher.workflowID)
+	delete(r.watchers, current.workflowID)
 	r.mu.Unlock()
 
 	// Build workflow PID
 	workflowPID := pid.PID{
 		Node:   r.nodeID,
-		Host:   watcher.taskQueue,
-		UniqID: watcher.workflowID,
+		Host:   current.taskQueue,
+		UniqID: current.workflowID,
 	}
 
 	// Build result
@@ -369,7 +404,7 @@ func (r *Receiver) notifyCompletion(watcher *workflowWatcher, payloads payload.P
 		runtimeResult.Value = payloads[0]
 		if runtimeResult.Value != nil {
 			r.log.Debug("temporal completion payload",
-				zap.String("workflow_id", watcher.workflowID),
+				zap.String("workflow_id", current.workflowID),
 				zap.String("format", runtimeResult.Value.Format()),
 				zap.String("data_type", fmt.Sprintf("%T", runtimeResult.Value.Data())))
 		}

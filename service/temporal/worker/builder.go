@@ -13,14 +13,16 @@ import (
 )
 
 // WorkerBuilder configures and constructs Worker instances.
+//
+//nolint:revive // keep explicit API naming for external callers.
 type WorkerBuilder struct {
-	logger       *zap.Logger
-	id           registry.ID
-	config       *api.WorkerConfig
 	resourceReg  resource.Registry
 	envReg       env.Registry
-	interceptors []interceptor.WorkerInterceptor
 	dtt          payload.Transcoder
+	logger       *zap.Logger
+	config       *api.WorkerConfig
+	id           registry.ID
+	interceptors []interceptor.WorkerInterceptor
 }
 
 // NewWorkerBuilder creates a new WorkerBuilder.

@@ -11,12 +11,22 @@ import (
 	"github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/service/temporal"
+	apiversion "github.com/wippyai/runtime/api/version"
+	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
 	"github.com/wippyai/runtime/service/temporal/propagator"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/workflow"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
+)
+
+const (
+	temporalClientNameHeader    = "client-name"
+	temporalClientVersionHeader = "client-version"
+	temporalClientNameValue     = "wippy-go"
 )
 
 // Factory creates Temporal clients from configuration
@@ -87,6 +97,7 @@ func (f *DefaultClientFactory) buildClientOptions(ctx context.Context, logger *z
 		return opts, fmt.Errorf("data converter not available")
 	}
 	opts.DataConverter = dc
+	opts.FailureConverter = temporalerrors.NewFailureConverter(dc)
 
 	// Set client interceptors if available
 	if len(f.clientInterceptors) > 0 {
@@ -107,6 +118,7 @@ func (f *DefaultClientFactory) buildClientOptions(ctx context.Context, logger *z
 	if err := f.configureTLS(logger, config, &opts); err != nil {
 		return opts, fmt.Errorf("failed to configure TLS: %w", err)
 	}
+	f.configureTransportHeaders(&opts)
 
 	return opts, nil
 }
@@ -253,4 +265,38 @@ func (f *DefaultClientFactory) configureTLS(logger *zap.Logger, config *api.Clie
 	}
 
 	return nil
+}
+
+func (f *DefaultClientFactory) configureTransportHeaders(opts *client.Options) {
+	opts.ConnectionOptions.DialOptions = append(
+		opts.ConnectionOptions.DialOptions,
+		grpc.WithUnaryInterceptor(rewriteClientHeadersInterceptor(
+			temporalClientNameValue,
+			apiversion.Version,
+		)),
+	)
+}
+
+func rewriteClientHeadersInterceptor(clientName, clientVersion string) grpc.UnaryClientInterceptor {
+	return func(
+		ctx context.Context,
+		method string,
+		req any,
+		reply any,
+		cc *grpc.ClientConn,
+		invoker grpc.UnaryInvoker,
+		opts ...grpc.CallOption,
+	) error {
+		md, ok := metadata.FromOutgoingContext(ctx)
+		if !ok || md == nil {
+			md = metadata.MD{}
+		} else {
+			md = md.Copy()
+		}
+		md.Set(temporalClientNameHeader, clientName)
+		md.Set(temporalClientVersionHeader, clientVersion)
+
+		ctx = metadata.NewOutgoingContext(ctx, md)
+		return invoker(ctx, method, req, reply, cc, opts...)
+	}
 }

@@ -2,13 +2,16 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
+	temporalapi "github.com/wippyai/runtime/api/service/temporal"
 	temporalprop "github.com/wippyai/runtime/service/temporal/propagator"
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
 )
@@ -31,7 +34,7 @@ func (w *Worker) Run(ctx context.Context, start *process.Start) (pid.PID, error)
 	}
 
 	workflowName := start.Source.String()
-	hostID := pid.HostID(w.id.String())
+	hostID := w.id.String()
 
 	execCtx := ctx
 	var fc ctxapi.FrameContext
@@ -45,12 +48,42 @@ func (w *Worker) Run(ctx context.Context, start *process.Start) (pid.PID, error)
 	}
 	execCtx = withContextValuesFallback(execCtx)
 
-	workflowID := start.Name
+	opts := client.StartWorkflowOptions{
+		TaskQueue: taskQueue,
+	}
+	optState, err := applyTemporalStartWorkflowOptions(&opts, start)
+	if err != nil {
+		return pid.PID{}, err
+	}
+
+	workflowID := processName(start)
+	if opts.ID != "" {
+		workflowID = opts.ID
+	}
+	manualWorkflowID := workflowID != ""
+
+	if !optState.hasErrorOnStarted {
+		// Named/explicit IDs default to singleton semantics (use existing).
+		// Generated IDs default to strict fresh-run semantics (fail on duplicate).
+		opts.WorkflowExecutionErrorWhenAlreadyStarted = !manualWorkflowID
+	}
+	if !optState.hasConflictPolicy {
+		opts.WorkflowIDConflictPolicy = resolveConflictPolicy(opts.WorkflowExecutionErrorWhenAlreadyStarted)
+	}
+
 	var workflowPID pid.PID
-	if workflowID == "" {
-		workflowPID = w.pidGen.Generate(hostID)
-		workflowID = workflowPID.UniqID
+	if manualWorkflowID {
+		workflowPID = (&pid.PID{
+			Node:   w.clientNodeID,
+			Host:   hostID,
+			UniqID: workflowID,
+		}).Precomputed()
 	} else {
+		basePID := w.pidGen.Generate(hostID)
+		workflowID = basePID.UniqID
+		if w.workflowPrefix != "" {
+			workflowID = w.workflowPrefix + "_" + workflowID
+		}
 		workflowPID = (&pid.PID{
 			Node:   w.clientNodeID,
 			Host:   hostID,
@@ -58,31 +91,63 @@ func (w *Worker) Run(ctx context.Context, start *process.Start) (pid.PID, error)
 		}).Precomputed()
 	}
 
-	opts := client.StartWorkflowOptions{
-		ID:        workflowID,
-		TaskQueue: taskQueue,
-	}
+	opts.ID = workflowID
 
-	_, err := w.temporalClient.ExecuteWorkflow(execCtx, opts, workflowName, start.Input)
-	if err != nil {
-		if start.Name != "" {
-			if _, ok := err.(*serviceerror.WorkflowExecutionAlreadyStarted); ok {
+	firstSignalIdx, firstSignal := firstSignalMessage(start.Messages)
+	if firstSignal != nil {
+		run, err := w.signalWithStartMessage(execCtx, workflowID, workflowName, opts, start, firstSignal)
+		if err != nil {
+			var alreadyStarted *serviceerror.WorkflowExecutionAlreadyStarted
+			if errors.As(err, &alreadyStarted) && shouldUseExistingOnAlreadyStarted(opts) {
+				w.publishRunHandoff(start, workflowID, alreadyStarted.RunId)
 				if err := w.signalMessages(execCtx, workflowID, start.Messages, start); err != nil {
 					return pid.PID{}, err
 				}
 				return workflowPID, nil
 			}
+			return pid.PID{}, err
+		}
+		if run != nil {
+			w.publishRunHandoff(start, workflowID, run.GetRunID())
+		}
+		if err := w.signalMessages(execCtx, workflowID, start.Messages[firstSignalIdx+1:], start); err != nil {
+			return pid.PID{}, err
+		}
+		return workflowPID, nil
+	}
+
+	run, err := w.temporalClient.ExecuteWorkflow(execCtx, opts, workflowName, start.Input)
+	if err != nil {
+		var alreadyStarted *serviceerror.WorkflowExecutionAlreadyStarted
+		if errors.As(err, &alreadyStarted) && shouldUseExistingOnAlreadyStarted(opts) {
+			w.publishRunHandoff(start, workflowID, alreadyStarted.RunId)
+			return workflowPID, nil
 		}
 		return pid.PID{}, err
 	}
-
-	if len(start.Messages) > 0 {
-		if err := w.signalMessages(execCtx, workflowID, start.Messages, start); err != nil {
-			return workflowPID, err
-		}
+	if run != nil {
+		w.publishRunHandoff(start, workflowID, run.GetRunID())
 	}
 
 	return workflowPID, nil
+}
+
+func resolveConflictPolicy(errorWhenAlreadyStarted bool) enumspb.WorkflowIdConflictPolicy {
+	if errorWhenAlreadyStarted {
+		return enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL
+	}
+	return enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
+}
+
+func shouldUseExistingOnAlreadyStarted(opts client.StartWorkflowOptions) bool {
+	switch opts.WorkflowIDConflictPolicy {
+	case enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING:
+		return true
+	case enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL:
+		return false
+	default:
+		return !opts.WorkflowExecutionErrorWhenAlreadyStarted
+	}
 }
 
 // Terminate stops a running Temporal workflow.
@@ -100,46 +165,106 @@ func (w *Worker) signalMessages(ctx context.Context, workflowID string, messages
 	if len(messages) == 0 {
 		return nil
 	}
-	var sender pid.PID
-	if start != nil && start.Options != nil {
-		if v, ok := start.Options.Get(process.LifecycleParentKey); ok {
-			if p, ok := v.(pid.PID); ok {
-				sender = p
-			}
-		}
-	}
+	sender := resolveSignalSender(start)
 	for _, msg := range messages {
 		if msg == nil || msg.Topic == "" {
 			continue
 		}
-		var signalArg any
-		switch len(msg.Payloads) {
-		case 0:
-			signalArg = nil
-		case 1:
-			signalArg = msg.Payloads[0]
-		default:
-			signalArg = msg.Payloads
-		}
-		signalCtx := ctx
-		var fc ctxapi.FrameContext
-		if sender.Node != "" || sender.Host != "" || sender.UniqID != "" {
-			signalCtx, fc = ctxapi.OpenFrameContextOn(ctx, ctx)
-			values, err := ctxapi.GetOrCreateValues(signalCtx)
-			if err == nil {
-				values.Set(temporalprop.SignalFromValueKey, sender.String())
-			}
-		}
-		signalCtx = withContextValuesFallback(signalCtx)
-		err := w.temporalClient.SignalWorkflow(signalCtx, workflowID, "", msg.Topic, signalArg)
-		if fc != nil {
-			ctxapi.ReleaseFrameContext(fc)
-		}
+		signalCtx, fc := withSignalSender(ctx, sender)
+		err := w.temporalClient.SignalWorkflow(signalCtx, workflowID, "", msg.Topic, signalArg(msg))
+		releaseSignalFrame(fc)
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (w *Worker) signalWithStartMessage(
+	ctx context.Context,
+	workflowID string,
+	workflowName string,
+	opts client.StartWorkflowOptions,
+	start *process.Start,
+	msg *relay.Message,
+) (client.WorkflowRun, error) {
+	sender := resolveSignalSender(start)
+	signalCtx, fc := withSignalSender(ctx, sender)
+	defer releaseSignalFrame(fc)
+
+	return w.temporalClient.SignalWithStartWorkflow(
+		signalCtx,
+		workflowID,
+		msg.Topic,
+		signalArg(msg),
+		opts,
+		workflowName,
+		start.Input,
+	)
+}
+
+func firstSignalMessage(messages []*relay.Message) (int, *relay.Message) {
+	for i, msg := range messages {
+		if msg == nil || msg.Topic == "" {
+			continue
+		}
+		return i, msg
+	}
+	return -1, nil
+}
+
+func processName(start *process.Start) string {
+	if start == nil || start.Options == nil {
+		return ""
+	}
+	return start.Options.GetString(process.ProcessNameKey, "")
+}
+
+func resolveSignalSender(start *process.Start) pid.PID {
+	if start == nil || start.Options == nil {
+		return pid.PID{}
+	}
+	v, ok := start.Options.Get(process.ProcessParentKey)
+	if !ok {
+		return pid.PID{}
+	}
+	p, ok := v.(pid.PID)
+	if !ok {
+		return pid.PID{}
+	}
+	return p
+}
+
+func withSignalSender(ctx context.Context, sender pid.PID) (context.Context, ctxapi.FrameContext) {
+	signalCtx := ctx
+	var fc ctxapi.FrameContext
+
+	if sender.Node != "" || sender.Host != "" || sender.UniqID != "" {
+		signalCtx, fc = ctxapi.OpenFrameContextOn(ctx, ctx)
+		values, err := ctxapi.GetOrCreateValues(signalCtx)
+		if err == nil {
+			values.Set(temporalprop.SignalFromValueKey, sender.String())
+		}
+	}
+
+	return withContextValuesFallback(signalCtx), fc
+}
+
+func releaseSignalFrame(fc ctxapi.FrameContext) {
+	if fc != nil {
+		ctxapi.ReleaseFrameContext(fc)
+	}
+}
+
+func signalArg(msg *relay.Message) any {
+	switch len(msg.Payloads) {
+	case 0:
+		return nil
+	case 1:
+		return msg.Payloads[0]
+	default:
+		return msg.Payloads
+	}
 }
 
 // withContextValuesFallback mirrors FrameContext values into plain context values.
@@ -167,4 +292,33 @@ func withContextValuesFallback(ctx context.Context) context.Context {
 	}
 
 	return temporalprop.WithValues(ctx, merged)
+}
+
+func shouldPublishRunHandoff(start *process.Start) bool {
+	if start == nil || start.Options == nil {
+		return false
+	}
+	if start.Options.GetBool(process.ProcessMonitorKey, false) {
+		return true
+	}
+	if start.Options.GetBool(process.ProcessLinkKey, false) {
+		return true
+	}
+	return false
+}
+
+func (w *Worker) publishRunHandoff(start *process.Start, workflowID, runID string) {
+	if !shouldPublishRunHandoff(start) || workflowID == "" || runID == "" {
+		return
+	}
+	if w.ctx == nil || w.config == nil {
+		return
+	}
+
+	registry := temporalapi.GetWorkflowRunHandoff(w.ctx)
+	if registry == nil {
+		return
+	}
+
+	registry.Publish(w.config.Client.String(), workflowID, runID)
 }

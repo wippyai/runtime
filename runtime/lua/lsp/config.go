@@ -18,12 +18,12 @@ const DefaultMaxMessageBytes = 8 << 20
 // Config defines LSP server configuration.
 type Config struct {
 	Address         string `json:"address" yaml:"address"`
-	Enabled         bool   `json:"enabled" yaml:"enabled"`
-	MaxMessageBytes int    `json:"max_message_bytes" yaml:"max_message_bytes"`
-	HTTPEnabled     bool   `json:"http_enabled" yaml:"http_enabled"`
 	HTTPAddress     string `json:"http_address" yaml:"http_address"`
 	HTTPPath        string `json:"http_path" yaml:"http_path"`
 	HTTPAllowOrigin string `json:"http_allow_origin" yaml:"http_allow_origin"`
+	MaxMessageBytes int    `json:"max_message_bytes" yaml:"max_message_bytes"`
+	Enabled         bool   `json:"enabled" yaml:"enabled"`
+	HTTPEnabled     bool   `json:"http_enabled" yaml:"http_enabled"`
 }
 
 // DefaultConfig returns sensible defaults.

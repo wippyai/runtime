@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	api "github.com/wippyai/runtime/api/service/temporal"
 	"github.com/wippyai/runtime/service/temporal/dataconverter"
+	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
 	syspayload "github.com/wippyai/runtime/system/payload"
 	msgpayload "github.com/wippyai/runtime/system/payload/msgpack"
 	commonpb "go.temporal.io/api/common/v1"
@@ -17,6 +19,8 @@ import (
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/interceptor"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 func TestNewDefaultClientFactory(t *testing.T) {
@@ -45,6 +49,8 @@ func TestDefaultClientFactory_buildClientOptions(t *testing.T) {
 		assert.Equal(t, "default", opts.Namespace)
 		assert.NotNil(t, opts.Logger)
 		assert.Len(t, opts.ContextPropagators, 1)
+		assert.NotNil(t, opts.FailureConverter)
+		assert.NotEmpty(t, opts.ConnectionOptions.DialOptions)
 	})
 
 	t.Run("with data converter", func(t *testing.T) {
@@ -60,6 +66,9 @@ func TestDefaultClientFactory_buildClientOptions(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, dc, opts.DataConverter)
+		f := opts.FailureConverter.ErrorToFailure(errors.New("x"))
+		require.NotNil(t, f)
+		assert.Equal(t, temporalerrors.FailureSource, f.Source)
 	})
 
 	t.Run("with interceptors", func(t *testing.T) {
@@ -393,6 +402,42 @@ func TestDefaultClientFactory_configureTLS(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to parse CA certificate")
 	})
+}
+
+func TestRewriteClientHeadersInterceptor(t *testing.T) {
+	interceptor := rewriteClientHeadersInterceptor("wippy-go", "1.2.3")
+
+	var captured metadata.MD
+	invoker := func(
+		ctx context.Context,
+		_ string,
+		_ any,
+		_ any,
+		_ *grpc.ClientConn,
+		_ ...grpc.CallOption,
+	) error {
+		md, ok := metadata.FromOutgoingContext(ctx)
+		require.True(t, ok)
+		captured = md
+		return nil
+	}
+
+	ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("foo", "bar"))
+	err := interceptor(ctx, "/svc/method", nil, nil, nil, invoker)
+	require.NoError(t, err)
+
+	assert.Equal(t, "bar", captured.Get("foo")[0])
+	assert.Equal(t, "wippy-go", captured.Get(temporalClientNameHeader)[0])
+	assert.Equal(t, "1.2.3", captured.Get(temporalClientVersionHeader)[0])
+}
+
+func TestConfigureTransportHeaders_AppendsInterceptor(t *testing.T) {
+	factory := NewDefaultClientFactory(nil, nil, nil)
+	opts := &client.Options{}
+
+	factory.configureTransportHeaders(opts)
+
+	assert.NotEmpty(t, opts.ConnectionOptions.DialOptions)
 }
 
 // mockDataConverter for testing

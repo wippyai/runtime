@@ -1,4 +1,4 @@
--- Workflow that handles updates as normal messages
+-- Workflow that handles signal messages as update-like requests
 
 local function main(input)
 	local counter = input.initial or 0

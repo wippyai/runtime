@@ -5,6 +5,7 @@ local errors = require("errors")
 
 local module_name = "wippy/terminal"
 local dep_id = "app.test.registry:terminal_dependency_version_jump"
+local hub_timeout = "20s"
 
 local function find_module_entries()
 	local entries, err = registry.find({ ["meta.module"] = module_name })
@@ -51,7 +52,7 @@ local function ensure_dependency_removed()
 end
 
 local function module_versions()
-	local res, err = hub.versions.list(module_name, { page_size = 10 })
+	local res, err = hub.versions.list(module_name, { page_size = 10, timeout = hub_timeout })
 	assert.is_nil(err, "hub.versions.list no error")
 	assert.is_table(res, "versions list response")
 	local items = res.items or {}

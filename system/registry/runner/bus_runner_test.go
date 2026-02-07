@@ -714,6 +714,39 @@ func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
 	assert.Equal(t, registry.TxDiscard, receivedEvents[1].Kind, "Second event should be Discard")
 }
 
+func TestBusRunner_CustomEventWaitTimeout(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	bus := eventbus.NewBus()
+	busRunner := NewBusRunner(
+		bus,
+		zap.NewNop(),
+		newTestBuilder(nil),
+		WithEventWaitTimeout(20*time.Millisecond),
+	)
+
+	initialState := registry.State{}
+	changeSet := registry.ChangeSet{
+		{
+			Kind: registry.EntryCreate,
+			Entry: createEntry(
+				registry.ParseID("component/listener/timeout"),
+				"listener",
+				"value",
+			),
+		},
+	}
+
+	start := time.Now()
+	_, err := busRunner.Transition(ctx, initialState, changeSet)
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "event handler timeout")
+	assert.Less(t, elapsed, 500*time.Millisecond)
+}
+
 // TestBusRunner_RollbackOrderWithResolver verifies that rollback deletes dependents before dependencies
 // when using a resolver that can extract dependencies from metadata.
 func TestBusRunner_RollbackOrderWithResolver(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/google/uuid"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/function"
@@ -41,24 +42,25 @@ var (
 
 // Worker wraps a Temporal SDK worker with lifecycle management
 type Worker struct {
-	clientResource resource.Resource[any]
+	pidGen         process.PIDGenerator
 	temporalClient client.Client
 	ctx            context.Context
 	funcRegistry   function.Registry
 	resourceReg    resource.Registry
 	envReg         env.Registry
 	worker         worker.Worker
-	config         *api.WorkerConfig
-	taskQueue      string
-	pidGen         process.PIDGenerator
-	clientNodeID   pid.NodeID
+	dtt            payload.Transcoder
+	clientResource resource.Resource[any]
+	log            *zap.Logger
 	cancel         context.CancelFunc
 	activities     map[string]*activityRegistration
 	workflows      map[string]*workflowRegistration
-	log            *zap.Logger
+	config         *api.WorkerConfig
 	id             registry.ID
+	clientNodeID   pid.NodeID
+	workflowPrefix string
+	taskQueue      string
 	interceptors   []interceptor.WorkerInterceptor
-	dtt            payload.Transcoder
 	mu             sync.RWMutex
 	closed         atomic.Bool
 }
@@ -89,20 +91,21 @@ func newWorker(
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	clientNodeID := pid.NodeID(config.Client.String())
+	clientNodeID := config.Client.String()
 	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), clientNodeID)
 	return &Worker{
-		id:           id,
-		config:       config,
-		log:          logger,
-		resourceReg:  resourceReg,
-		envReg:       envReg,
-		interceptors: interceptors,
-		activities:   make(map[string]*activityRegistration),
-		workflows:    make(map[string]*workflowRegistration),
-		clientNodeID: clientNodeID,
-		pidGen:       pidGen,
-		dtt:          dtt,
+		id:             id,
+		config:         config,
+		log:            logger,
+		resourceReg:    resourceReg,
+		envReg:         envReg,
+		interceptors:   interceptors,
+		activities:     make(map[string]*activityRegistration),
+		workflows:      make(map[string]*workflowRegistration),
+		clientNodeID:   clientNodeID,
+		pidGen:         pidGen,
+		dtt:            dtt,
+		workflowPrefix: uuid.NewString(),
 	}
 }
 
@@ -163,8 +166,10 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 		return statusCh, fmt.Errorf("function registry not found in context")
 	}
 
-	// Store application context with client ID for workflow peer routing
+	// Store application context with Temporal routing identity.
+	// Client ID identifies the Temporal node; worker ID identifies host-level PID identity.
 	w.ctx = api.WithClientID(ctx, w.config.Client.String())
+	w.ctx = api.WithWorkerID(w.ctx, w.id.String())
 
 	// Create worker options
 	options := worker.Options{
@@ -573,21 +578,19 @@ func (w *Worker) Send(pkg *relay.Package) error {
 			zap.Int("payloads", len(msg.Payloads)))
 
 		ctx := w.ctx
-		var fc ctxapi.FrameContext
+		var frame ctxapi.FrameContext
 		if pkg.Source.Node != "" || pkg.Source.Host != "" || pkg.Source.UniqID != "" {
-			ctx, fc = ctxapi.OpenFrameContextOn(ctx, ctx)
-			if fc != nil {
-				values, err := ctxapi.GetOrCreateValues(ctx)
-				if err == nil {
-					values.Set(temporalprop.SignalFromValueKey, pkg.Source.String())
-				}
+			ctx, frame = ctxapi.OpenFrameContextOn(ctx, ctx)
+			values, err := ctxapi.GetOrCreateValues(ctx)
+			if err == nil {
+				values.Set(temporalprop.SignalFromValueKey, pkg.Source.String())
 			}
 			ctx = withContextValuesFallback(ctx)
 		}
 
 		err := w.temporalClient.SignalWorkflow(ctx, workflowID, "", msg.Topic, signalArg)
-		if fc != nil {
-			ctxapi.ReleaseFrameContext(fc)
+		if frame != nil {
+			ctxapi.ReleaseFrameContext(frame)
 		}
 		if err != nil {
 			w.log.Error("failed to signal workflow",

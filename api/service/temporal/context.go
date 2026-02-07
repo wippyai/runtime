@@ -11,10 +11,12 @@ import (
 // Context keys for storing temporal-related data
 var (
 	activityContextKey      = &ctxapi.Key{Name: "temporal.activity.context"}
-	clientIDKey             = &ctxapi.Key{Name: "temporal.client.id"}
+	clientIDKey             = &ctxapi.Key{Name: "temporal.client.id", Inherit: true}
+	workerIDKey             = &ctxapi.Key{Name: "temporal.worker.id", Inherit: true}
 	clientInterceptorRegKey = &ctxapi.Key{Name: "temporal.interceptor.client"}
 	workerInterceptorRegKey = &ctxapi.Key{Name: "temporal.interceptor.worker"}
 	dataConverterRegKey     = &ctxapi.Key{Name: "temporal.dataconverter.registry"}
+	runHandoffRegKey        = &ctxapi.Key{Name: "temporal.run.handoff.registry"}
 )
 
 // ClientInterceptorRegistry provides methods to register client interceptors
@@ -33,6 +35,12 @@ type WorkerInterceptorRegistry interface {
 type DataConverterRegistry interface {
 	RegisterCodec(codec converter.PayloadCodec)
 	Build() converter.DataConverter
+}
+
+// WorkflowRunHandoff stores one-shot workflow run metadata between start and monitor/link setup.
+type WorkflowRunHandoff interface {
+	Publish(clientID, workflowID, runID string)
+	Consume(clientID, workflowID string) (runID string, ok bool)
 }
 
 // WithClientInterceptorRegistry stores the client interceptor registry in context
@@ -125,6 +133,36 @@ func GetDataConverterRegistry(ctx context.Context) DataConverterRegistry {
 	return nil
 }
 
+// WithWorkflowRunHandoff stores the workflow run handoff registry in context.
+func WithWorkflowRunHandoff(ctx context.Context, reg WorkflowRunHandoff) context.Context {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return context.WithValue(ctx, runHandoffRegKey, reg)
+	}
+	if ac.Get(runHandoffRegKey) == nil {
+		ac.With(runHandoffRegKey, reg)
+	}
+	return ctx
+}
+
+// GetWorkflowRunHandoff retrieves the workflow run handoff registry from context.
+func GetWorkflowRunHandoff(ctx context.Context) WorkflowRunHandoff {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac != nil {
+		if val := ac.Get(runHandoffRegKey); val != nil {
+			if reg, ok := val.(WorkflowRunHandoff); ok {
+				return reg
+			}
+		}
+	}
+	if val := ctx.Value(runHandoffRegKey); val != nil {
+		if reg, ok := val.(WorkflowRunHandoff); ok {
+			return reg
+		}
+	}
+	return nil
+}
+
 // ActivityContextKey returns the context key for activity context storage
 func ActivityContextKey() *ctxapi.Key {
 	return activityContextKey
@@ -133,8 +171,9 @@ func ActivityContextKey() *ctxapi.Key {
 // WithClientID stores the temporal client ID in context for peer routing
 func WithClientID(ctx context.Context, clientID string) context.Context {
 	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
-		_ = fc.Set(clientIDKey, clientID)
-		return ctx
+		if err := fc.Set(clientIDKey, clientID); err == nil {
+			return ctx
+		}
 	}
 	return context.WithValue(ctx, clientIDKey, clientID)
 }
@@ -149,6 +188,33 @@ func GetClientID(ctx context.Context) string {
 		}
 	}
 	if val := ctx.Value(clientIDKey); val != nil {
+		if s, ok := val.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+// WithWorkerID stores the temporal worker ID in context for workflow PID host routing.
+func WithWorkerID(ctx context.Context, workerID string) context.Context {
+	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+		if err := fc.Set(workerIDKey, workerID); err == nil {
+			return ctx
+		}
+	}
+	return context.WithValue(ctx, workerIDKey, workerID)
+}
+
+// GetWorkerID retrieves the temporal worker ID from context.
+func GetWorkerID(ctx context.Context) string {
+	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+		if val, ok := fc.Get(workerIDKey); ok {
+			if s, ok := val.(string); ok {
+				return s
+			}
+		}
+	}
+	if val := ctx.Value(workerIDKey); val != nil {
 		if s, ok := val.(string); ok {
 			return s
 		}

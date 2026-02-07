@@ -196,8 +196,8 @@ func (d *Dispatcher) handleExec(ctx context.Context, cmd dispatcher.Command, tag
 
 	// Prepare start options with monitoring
 	options := attrs.NewBag()
-	options.Set(api.LifecycleParentKey, watcherPID)
-	options.Set(api.LifecycleMonitorKey, true)
+	options.Set(api.ProcessParentKey, watcherPID)
+	options.Set(api.ProcessMonitorKey, true)
 
 	// Start the process
 	processPID, err := d.manager.Start(ctx, &api.Start{

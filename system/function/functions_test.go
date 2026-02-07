@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/function"
@@ -31,6 +32,28 @@ func setupTest() (*Registry, event.Bus) {
 	bus := eventbus.NewBus()
 	executor := NewFunctionRegistry(bus, logger)
 	return executor, bus
+}
+
+func TestFunctions_GetOptions_ClonesValues(t *testing.T) {
+	executor, _ := setupTest()
+
+	id := registry.ParseID("app.test:function_with_options")
+	defaults := attrs.NewBag()
+	defaults.Set("key", "value")
+	executor.options.Store(id, defaults)
+
+	opts, ok := executor.GetOptions(id)
+	require.True(t, ok)
+	require.NotNil(t, opts)
+	assert.Equal(t, "value", opts.GetString("key", ""))
+
+	// Mutating returned options must not mutate registry state.
+	opts.Set("key", "mutated")
+
+	opts2, ok := executor.GetOptions(id)
+	require.True(t, ok)
+	require.NotNil(t, opts2)
+	assert.Equal(t, "value", opts2.GetString("key", ""))
 }
 
 // Keep working test unchanged

@@ -463,7 +463,10 @@ func TestListen_EmptyTopic(t *testing.T) {
 	err := l.DoString(`
 		local ch, err = process.listen("")
 		if ch ~= nil then error("expected nil channel") end
-		if err ~= "topic cannot be empty" then
+		if err:kind() ~= "Invalid" then
+			error("expected Invalid kind, got: " .. tostring(err:kind()))
+		end
+		if tostring(err) ~= "topic cannot be empty" then
 			error("expected 'topic cannot be empty', got: " .. tostring(err))
 		end
 	`)
@@ -478,7 +481,10 @@ func TestListen_AtTopicRejected(t *testing.T) {
 	err := l.DoString(`
 		local ch, err = process.listen("@events")
 		if ch ~= nil then error("expected nil channel") end
-		if err ~= "cannot listen to @ topics" then
+		if err:kind() ~= "Invalid" then
+			error("expected Invalid kind, got: " .. tostring(err:kind()))
+		end
+		if tostring(err) ~= "cannot listen to @ topics" then
 			error("expected '@ topics' error, got: " .. tostring(err))
 		end
 	`)
@@ -504,7 +510,10 @@ func TestExec_EmptyID(t *testing.T) {
 	err := l.DoString(`
 		local val, err = process.exec("", "host")
 		if val ~= nil then error("expected nil") end
-		if err ~= "process ID required" then
+		if err:kind() ~= "Invalid" then
+			error("expected Invalid kind, got: " .. tostring(err:kind()))
+		end
+		if tostring(err) ~= "process ID required" then
 			error("expected 'process ID required', got: " .. tostring(err))
 		end
 	`)
@@ -517,7 +526,10 @@ func TestExec_InvalidFormat(t *testing.T) {
 	err := l.DoString(`
 		local val, err = process.exec("nonamespace", "host")
 		if val ~= nil then error("expected nil") end
-		if err ~= "invalid process ID format (namespace:name required)" then
+		if err:kind() ~= "Invalid" then
+			error("expected Invalid kind, got: " .. tostring(err:kind()))
+		end
+		if tostring(err) ~= "invalid process ID format (namespace:name required)" then
 			error("expected format error, got: " .. tostring(err))
 		end
 	`)
@@ -530,7 +542,10 @@ func TestExec_EmptyHost(t *testing.T) {
 	err := l.DoString(`
 		local val, err = process.exec("ns:name", "")
 		if val ~= nil then error("expected nil") end
-		if err ~= "host ID required" then
+		if err:kind() ~= "Invalid" then
+			error("expected Invalid kind, got: " .. tostring(err:kind()))
+		end
+		if tostring(err) ~= "host ID required" then
 			error("expected 'host ID required', got: " .. tostring(err))
 		end
 	`)
@@ -546,7 +561,10 @@ func TestSend_AtTopicRejected(t *testing.T) {
 	err := l.DoString(fmt.Sprintf(`
 		local ok, err = process.send("%s", "@system")
 		if ok ~= nil then error("expected nil") end
-		if err ~= "cannot send to @ topics" then
+		if err:kind() ~= "Invalid" then
+			error("expected Invalid kind, got: " .. tostring(err:kind()))
+		end
+		if tostring(err) ~= "cannot send to @ topics" then
 			error("expected '@ topics' error, got: " .. tostring(err))
 		end
 	`, pidStr))
@@ -573,7 +591,10 @@ func TestCancel_InvalidDurationString(t *testing.T) {
 	err := l.DoString(fmt.Sprintf(`
 		local ok, err = process.cancel("%s", "not-a-duration")
 		if ok ~= nil then error("expected nil") end
-		if not string.find(err, "invalid duration format") then
+		if err:kind() ~= "Invalid" then
+			error("expected Invalid kind, got: " .. tostring(err:kind()))
+		end
+		if not string.find(tostring(err), "invalid duration format") then
 			error("expected duration format error, got: " .. tostring(err))
 		end
 	`, pidStr))
@@ -587,7 +608,10 @@ func TestCancel_InvalidDeadlineType(t *testing.T) {
 	err := l.DoString(fmt.Sprintf(`
 		local ok, err = process.cancel("%s", true)
 		if ok ~= nil then error("expected nil") end
-		if err ~= "deadline must be either a duration string or milliseconds number" then
+		if err:kind() ~= "Invalid" then
+			error("expected Invalid kind, got: " .. tostring(err:kind()))
+		end
+		if tostring(err) ~= "deadline must be either a duration string or milliseconds number" then
 			error("expected deadline type error, got: " .. tostring(err))
 		end
 	`, pidStr))
@@ -601,7 +625,10 @@ func TestCancel_TableDeadlineType(t *testing.T) {
 	err := l.DoString(fmt.Sprintf(`
 		local ok, err = process.cancel("%s", {})
 		if ok ~= nil then error("expected nil") end
-		if err ~= "deadline must be either a duration string or milliseconds number" then
+		if err:kind() ~= "Invalid" then
+			error("expected Invalid kind, got: " .. tostring(err:kind()))
+		end
+		if tostring(err) ~= "deadline must be either a duration string or milliseconds number" then
 			error("expected deadline type error, got: " .. tostring(err))
 		end
 	`, pidStr))
@@ -639,7 +666,10 @@ func TestRegistryLookup_NotFound(t *testing.T) {
 	err := l.DoString(`
 		local pid, err = process.registry.lookup("nonexistent")
 		if pid ~= nil then error("expected nil, got: " .. tostring(pid)) end
-		if err ~= "name not registered" then
+		if err:kind() ~= "NotFound" then
+			error("expected NotFound kind, got: " .. tostring(err:kind()))
+		end
+		if tostring(err) ~= "name not registered" then
 			error("expected 'name not registered', got: " .. tostring(err))
 		end
 	`)

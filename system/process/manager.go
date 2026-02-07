@@ -57,7 +57,7 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 	}
 
 	if start != nil && start.Options != nil && m.node != nil {
-		parent, ok := start.Options.Get(api.LifecycleParentKey)
+		parent, ok := start.Options.Get(api.ProcessParentKey)
 		if ok {
 			if parentPID, ok := parent.(pid.PID); ok && parentPID.UniqID != "" {
 				if procPID.Node != "" && procPID.Node != m.node.ID() {
@@ -66,13 +66,13 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 						return procPID, NewTopologyNotAvailableError()
 					}
 
-					if start.Options.GetBool(api.LifecycleMonitorKey, false) {
+					if start.Options.GetBool(api.ProcessMonitorKey, false) {
 						if err := topo.Monitor(parentPID, procPID); err != nil {
 							return procPID, err
 						}
 					}
 
-					if start.Options.GetBool(api.LifecycleLinkKey, false) {
+					if start.Options.GetBool(api.ProcessLinkKey, false) {
 						if err := topo.Link(parentPID, procPID); err != nil {
 							return procPID, err
 						}

@@ -329,36 +329,34 @@ func (s *Service) EnsureIndexed(ctx context.Context, fileID string) {
 		return
 	}
 
-	if documents != nil {
-		if doc, ok := documents.Get(id); ok && doc.Text != "" {
-			if doc.Version > 0 {
-				s.mu.RLock()
-				seen := s.indexedVersions
-				last := 0
-				if seen != nil {
-					last = seen[fileID]
-				}
-				s.mu.RUnlock()
-				if last >= doc.Version {
-					return
-				}
+	if doc, ok := documents.Get(id); ok && doc.Text != "" {
+		if doc.Version > 0 {
+			s.mu.RLock()
+			seen := s.indexedVersions
+			last := 0
+			if seen != nil {
+				last = seen[fileID]
 			}
-
-			deps := provider.DependencyManifests(id)
-			if err := indexer.IndexSource(ctx, id, doc.Text, deps); err != nil {
-				s.log.Debug("lsp ensure index failed", zap.String("id", fileID), zap.Error(err))
+			s.mu.RUnlock()
+			if last >= doc.Version {
+				return
 			}
-
-			if doc.Version > 0 {
-				s.mu.Lock()
-				if s.indexedVersions == nil {
-					s.indexedVersions = make(map[string]int)
-				}
-				s.indexedVersions[fileID] = doc.Version
-				s.mu.Unlock()
-			}
-			return
 		}
+
+		deps := provider.DependencyManifests(id)
+		if err := indexer.IndexSource(ctx, id, doc.Text, deps); err != nil {
+			s.log.Debug("lsp ensure index failed", zap.String("id", fileID), zap.Error(err))
+		}
+
+		if doc.Version > 0 {
+			s.mu.Lock()
+			if s.indexedVersions == nil {
+				s.indexedVersions = make(map[string]int)
+			}
+			s.indexedVersions[fileID] = doc.Version
+			s.mu.Unlock()
+		}
+		return
 	}
 
 	if lspSvc != nil {
