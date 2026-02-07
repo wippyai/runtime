@@ -89,6 +89,12 @@ func (r *tickerRegistry) forwardTicks(entry *tickerEntry, node relay.Node) {
 			if !ok || entry.closed.Load() {
 				return
 			}
+			// Prefer cancellation if tick delivery races with context cancellation.
+			select {
+			case <-entry.ctx.Done():
+				return
+			default:
+			}
 
 			sendTick(node, entry.pid, entry.topic, t)
 		}
