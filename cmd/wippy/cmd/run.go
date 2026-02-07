@@ -137,27 +137,10 @@ func runApp(cmd *cobra.Command, args []string) error {
 
 	logger.Info("initializing runtime", zap.String("memory_limit", formatBytes(memLimit)))
 
-	cfg, err := loadBootConfig()
+	cfg, err := loadRuntimeConfig(cmd, logger)
 	if err != nil {
-		logger.Error("failed to load config", zap.Error(err))
+		logger.Error("failed to resolve runtime config", zap.Error(err))
 		return err
-	}
-
-	if cfg == nil {
-		cfg = createDefaultConfig()
-	}
-
-	cfg = applyCLIOverrides(cfg)
-
-	if cmd != nil {
-		overrides, _ := cmd.Flags().GetStringSlice("override")
-		if len(overrides) > 0 {
-			cfg, err = applyOverrideFlags(cfg, overrides, logger)
-			if err != nil {
-				logger.Error("failed to apply override flags", zap.Error(err))
-				return err
-			}
-		}
 	}
 
 	ctx, err := bootpkg.NewBootstrapContext(logger, cfg)
@@ -273,6 +256,35 @@ func resolveCommandToEntry(ctx context.Context, name string) (string, error) {
 	return "", fmt.Errorf("command %q not found. Use 'wippy run list' to see available commands", name)
 }
 
+// loadRuntimeConfig resolves the effective runtime configuration for run-like
+// commands by merging:
+// 1) config file/defaults,
+// 2) CLI logger/event-stream overrides,
+// 3) explicit -o override fields.
+func loadRuntimeConfig(cmd *cobra.Command, logger *zap.Logger) (boot.Config, error) {
+	cfg, err := loadBootConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	if cfg == nil {
+		cfg = createDefaultConfig()
+	}
+
+	cfg = applyCLIOverrides(cfg)
+
+	if cmd == nil {
+		return cfg, nil
+	}
+
+	overrides, _ := cmd.Flags().GetStringSlice("override")
+	if len(overrides) == 0 {
+		return cfg, nil
+	}
+
+	return applyOverrideFlags(cfg, overrides, logger)
+}
+
 // extractCommandMeta extracts command metadata from entry.Meta
 func extractCommandMeta(meta map[string]any) *commandMeta {
 	if meta == nil {
@@ -318,7 +330,7 @@ func runList(cmd *cobra.Command, _ []string) error {
 		EntryID string
 	}
 
-	allEntries, err := ensureModulesAndLoadEntries(app.Ctx, lockPath, lockObj, app.Logger.Named("list"))
+	allEntries, err := ensureModulesAndLoadEntries(app.Ctx, lockPath, lockObj, app.Logger.Named("list"), false)
 	if err != nil {
 		return err
 	}

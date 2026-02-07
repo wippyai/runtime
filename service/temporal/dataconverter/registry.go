@@ -6,7 +6,8 @@ import (
 	"go.temporal.io/sdk/converter"
 )
 
-// Registry manages data converter codecs for Temporal clients
+// Registry collects payload codecs and chains them onto a base DataConverter.
+// Thread-safe for concurrent RegisterCodec and Build calls.
 type Registry struct {
 	base   converter.DataConverter
 	codecs []converter.PayloadCodec
@@ -28,7 +29,8 @@ func (r *Registry) RegisterCodec(codec converter.PayloadCodec) {
 	r.codecs = append(r.codecs, codec)
 }
 
-// Build creates the final data converter with all registered codecs chained
+// Build returns the base converter wrapped with all registered codecs.
+// Returns the base converter directly when no codecs are registered.
 func (r *Registry) Build() converter.DataConverter {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

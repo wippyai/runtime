@@ -41,7 +41,10 @@ type ClientConfig struct {
 	KeepAliveTimeout  time.Duration              `json:"keep_alive_timeout,omitzero,format:units"`
 }
 
-// AuthConfig defines authentication settings
+// AuthConfig defines authentication settings for a Temporal client.
+// Exactly one auth method is active per Type: "none" (default), "api_key"
+// (requires one of APIKey/APIKeyEnv/APIKeyFile), or "mtls" (requires
+// exactly one cert source and one key source).
 type AuthConfig struct {
 	Type AuthType `json:"type"` // none, api_key, mtls
 
@@ -72,7 +75,9 @@ type HealthCheckConfig struct {
 	Interval time.Duration `json:"interval,omitzero,format:units"` // Check interval (default: 30s)
 }
 
-// InitDefaults initializes default values for the configuration
+// InitDefaults sets zero-value fields to sensible defaults: namespace "default",
+// connection timeout 10s, keep-alive time 30s, keep-alive timeout 10s,
+// health check interval 30s (when enabled), and auth type "none".
 func (c *ClientConfig) InitDefaults() {
 	if c.Namespace == "" {
 		c.Namespace = "default"

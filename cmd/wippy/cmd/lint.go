@@ -369,7 +369,7 @@ func loadLuaEntries(cmd *cobra.Command, lockFile string, nsFilters []string) ([]
 		return nil, nil, NewInitAppError(err)
 	}
 
-	allEntries, err := ensureModulesAndLoadEntries(app.Ctx, lockPath, lockObj, logger)
+	allEntries, err := ensureModulesAndLoadEntries(app.Ctx, lockPath, lockObj, logger, false)
 	if err != nil {
 		return nil, nil, err
 	}

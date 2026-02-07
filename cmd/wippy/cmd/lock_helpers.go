@@ -29,21 +29,26 @@ func loadValidatedLock(folderPath, lockFile string) (string, *lock.Lock, error) 
 }
 
 // ensureModulesAndLoadEntries is the shared lock-driven entry load flow used by
-// run/list, lint, and registry commands:
-// 1) ensure modules from lock are installed,
-// 2) load entries from the resolved lock paths.
+// run/list, lint, and registry commands.
+//
+// When installMissing is true, missing lock modules are installed before loading
+// entry sources; when false, it stays read-only and only attempts to load entries
+// from already present lock paths.
 func ensureModulesAndLoadEntries(
 	ctx context.Context,
 	lockPath string,
 	lockObj *lock.Lock,
 	logger *zap.Logger,
+	installMissing bool,
 ) ([]regapi.Entry, error) {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 
-	if err := entries.EnsureModulesInstalled(ctx, lockPath, logger.Named("modules")); err != nil {
-		return nil, NewEnsureModulesInstalledError(err)
+	if installMissing {
+		if err := entries.EnsureModulesInstalled(ctx, lockPath, logger.Named("modules")); err != nil {
+			return nil, NewEnsureModulesInstalledError(err)
+		}
 	}
 
 	allEntries, err := loadEntriesFromLockPaths(ctx, lockObj, logger)

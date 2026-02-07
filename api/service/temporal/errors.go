@@ -2,6 +2,8 @@ package temporal
 
 import apierror "github.com/wippyai/runtime/api/error"
 
+// Validation errors for Temporal client and worker configuration.
+// All errors are non-retryable and returned during config validation.
 var (
 	ErrAddressRequired                         = apierror.New(apierror.Invalid, "address is required").WithRetryable(apierror.False)
 	ErrAPIKeySourceRequired                    = apierror.New(apierror.Invalid, "API key source is required").WithRetryable(apierror.False)

@@ -14,7 +14,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// WorkerBuilder configures and constructs Worker instances.
+// WorkerBuilder is a fluent builder for constructing Worker instances.
+// Config and Transcoder are required; Logger defaults to zap.NewNop().
 //
 //nolint:revive // keep explicit API naming for external callers.
 type WorkerBuilder struct {
@@ -74,7 +75,8 @@ func (b *WorkerBuilder) WithTranscoder(dtt payload.Transcoder) *WorkerBuilder {
 	return b
 }
 
-// Build creates a new Worker with the current configuration.
+// Build validates required fields and creates a Worker.
+// Returns an error when Config or Transcoder is nil.
 func (b *WorkerBuilder) Build() (*Worker, error) {
 	if b.config == nil {
 		return nil, fmt.Errorf("worker config is required")

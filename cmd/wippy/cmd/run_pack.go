@@ -277,7 +277,7 @@ func getCacheDir() string {
 }
 
 // runFromPackFile executes runtime from one .wapp file.
-func runFromPackFile(_ *cobra.Command, packFile string, args []string) error {
+func runFromPackFile(cmd *cobra.Command, packFile string, args []string) error {
 	memLimit := initMemoryLimit()
 
 	banner.Print(silentLogs)
@@ -290,7 +290,7 @@ func runFromPackFile(_ *cobra.Command, packFile string, args []string) error {
 
 	logger.Info("loading pack file", zap.String("file", packFile), zap.String("memory_limit", formatBytes(memLimit)))
 
-	ctx, loader, runLogger, embedReg, err := bootstrapPackRuntime(logger)
+	ctx, loader, runLogger, embedReg, err := bootstrapPackRuntime(cmd, logger)
 	if err != nil {
 		return err
 	}
@@ -328,7 +328,7 @@ func runFromPackFile(_ *cobra.Command, packFile string, args []string) error {
 }
 
 // runFromPackFiles executes runtime from multiple already resolved .wapp files.
-func runFromPackFiles(_ *cobra.Command, packFiles []string, args []string) error {
+func runFromPackFiles(cmd *cobra.Command, packFiles []string, args []string) error {
 	memLimit := initMemoryLimit()
 
 	banner.Print(silentLogs)
@@ -341,7 +341,7 @@ func runFromPackFiles(_ *cobra.Command, packFiles []string, args []string) error
 
 	logger.Info("loading pack files", zap.Strings("files", packFiles), zap.String("memory_limit", formatBytes(memLimit)))
 
-	ctx, loader, runLogger, embedReg, err := bootstrapPackRuntime(logger)
+	ctx, loader, runLogger, embedReg, err := bootstrapPackRuntime(cmd, logger)
 	if err != nil {
 		return err
 	}

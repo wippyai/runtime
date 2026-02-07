@@ -240,7 +240,7 @@ func loadRegistryEntries(cmd *cobra.Command, lockFile string) ([]regapi.Entry, e
 		return nil, NewInitAppError(err)
 	}
 
-	allEntries, err := ensureModulesAndLoadEntries(app.Ctx, lockPath, lockObj, logger)
+	allEntries, err := ensureModulesAndLoadEntries(app.Ctx, lockPath, lockObj, logger, false)
 	if err != nil {
 		return nil, err
 	}
