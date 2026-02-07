@@ -14,6 +14,22 @@ import (
 	"go.uber.org/zap"
 )
 
+func listenTCP(t *testing.T) net.Listener {
+	t.Helper()
+	lc := net.ListenConfig{}
+	l, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	return l
+}
+
+func dialTCP(t *testing.T, addr string) net.Conn {
+	t.Helper()
+	d := net.Dialer{}
+	conn, err := d.DialContext(context.Background(), "tcp", addr)
+	require.NoError(t, err)
+	return conn
+}
+
 func TestResponseError_Codes(t *testing.T) {
 	tests := []struct {
 		name string
@@ -90,8 +106,7 @@ func TestServer_StopWithoutStart(t *testing.T) {
 }
 
 func TestServer_TCPConnection(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
+	listener := listenTCP(t)
 	defer listener.Close()
 
 	cfg := Config{
@@ -108,11 +123,10 @@ func TestServer_TCPConnection(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	err = server.Start(ctx)
+	err := server.Start(ctx)
 	require.NoError(t, err)
 
-	conn, err := net.Dial("tcp", cfg.Address)
-	require.NoError(t, err)
+	conn := dialTCP(t, cfg.Address)
 	defer conn.Close()
 
 	req := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`
@@ -128,8 +142,7 @@ func TestServer_TCPConnection(t *testing.T) {
 }
 
 func TestServer_MultipleConnections(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
+	listener := listenTCP(t)
 	addr := listener.Addr().String()
 	listener.Close()
 
@@ -145,7 +158,7 @@ func TestServer_MultipleConnections(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	err = server.Start(ctx)
+	err := server.Start(ctx)
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -153,7 +166,8 @@ func TestServer_MultipleConnections(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			conn, err := net.Dial("tcp", cfg.Address)
+			d := net.Dialer{}
+			conn, err := d.DialContext(context.Background(), "tcp", cfg.Address)
 			if err != nil {
 				return
 			}
@@ -171,8 +185,7 @@ func TestServer_MultipleConnections(t *testing.T) {
 }
 
 func TestServer_ConnectionCleanupOnStop(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
+	listener := listenTCP(t)
 	addr := listener.Addr().String()
 	listener.Close()
 
@@ -188,13 +201,12 @@ func TestServer_ConnectionCleanupOnStop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	err = server.Start(ctx)
+	err := server.Start(ctx)
 	require.NoError(t, err)
 
 	conns := make([]net.Conn, 5)
 	for i := 0; i < 5; i++ {
-		conn, err := net.Dial("tcp", cfg.Address)
-		require.NoError(t, err)
+		conn := dialTCP(t, cfg.Address)
 		conns[i] = conn
 	}
 
@@ -209,8 +221,7 @@ func TestServer_ConnectionCleanupOnStop(t *testing.T) {
 }
 
 func TestServer_ContextCancellation(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
+	listener := listenTCP(t)
 	addr := listener.Addr().String()
 	listener.Close()
 
@@ -225,11 +236,10 @@ func TestServer_ContextCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	err = server.Start(ctx)
+	err := server.Start(ctx)
 	require.NoError(t, err)
 
-	conn, err := net.Dial("tcp", cfg.Address)
-	require.NoError(t, err)
+	conn := dialTCP(t, cfg.Address)
 	defer conn.Close()
 
 	time.Sleep(50 * time.Millisecond)

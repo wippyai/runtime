@@ -247,7 +247,8 @@ func TestServer_ConnectionCleanupOnStop(t *testing.T) {
 
 	conns := make([]net.Conn, 5)
 	for i := 0; i < 5; i++ {
-		conn, err := net.Dial("tcp", addr)
+		d := net.Dialer{}
+		conn, err := d.DialContext(context.Background(), "tcp", addr)
 		require.NoError(t, err)
 		conns[i] = conn
 	}
@@ -283,7 +284,8 @@ func TestServer_ContextCancellation(t *testing.T) {
 
 	addr := server.listener.Addr().String()
 
-	conn, err := net.Dial("tcp", addr)
+	d := net.Dialer{}
+	conn, err := d.DialContext(context.Background(), "tcp", addr)
 	require.NoError(t, err)
 	defer conn.Close()
 
