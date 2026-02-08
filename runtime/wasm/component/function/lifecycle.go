@@ -243,7 +243,7 @@ func (m *Manager) loadModule(ctx context.Context, cfg *configEntry) (*wasmrt.Mod
 }
 
 func (m *Manager) loadWATModule(ctx context.Context, cfg *api.WATFunctionConfig) (*wasmrt.Module, error) {
-	rt := m.runtimeInstance()
+	rt := m.runtimeInstance(false)
 	if rt == nil {
 		return nil, runtimewasm.ErrRuntimeNotStarted
 	}
@@ -259,18 +259,19 @@ func (m *Manager) loadWATModule(ctx context.Context, cfg *api.WATFunctionConfig)
 }
 
 func (m *Manager) loadWASMModule(ctx context.Context, cfg *api.WASMFunctionConfig) (*wasmrt.Module, error) {
-	rt := m.runtimeInstance()
-	if rt == nil {
-		return nil, runtimewasm.ErrRuntimeNotStarted
-	}
-
 	data, err := wasmcomponent.LoadAndVerifyWASM(m.fsRegistry, cfg.FS, cfg.Path, cfg.Hash)
 	if err != nil {
 		return nil, err
 	}
 
+	isComponent := wasmlib.IsComponent(data)
+	rt := m.runtimeInstance(isComponent)
+	if rt == nil {
+		return nil, runtimewasm.ErrRuntimeNotStarted
+	}
+
 	var module *wasmrt.Module
-	if wasmlib.IsComponent(data) {
+	if isComponent {
 		module, err = rt.LoadComponent(ctx, data)
 	} else {
 		module, err = rt.LoadWASM(ctx, data, cfg.WIT)

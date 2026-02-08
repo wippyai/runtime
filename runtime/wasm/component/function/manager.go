@@ -8,15 +8,17 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
 	fsapi "github.com/wippyai/runtime/api/fs"
+	functionapi "github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/runtime/wasm"
 	"github.com/wippyai/runtime/api/topology"
+	runtimewasm "github.com/wippyai/runtime/runtime/wasm"
 	wasmengine "github.com/wippyai/runtime/runtime/wasm/engine"
+	wippyhost "github.com/wippyai/runtime/runtime/wasm/host/wippy"
 	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
-	"github.com/wippyai/wasm-runtime/wasi/preview2"
 	"go.uber.org/zap"
 )
 
@@ -38,20 +40,20 @@ type poolEntry struct {
 
 // Manager handles WASM function loading, pooling and execution.
 type Manager struct {
-	node       relay.Node
-	topo       topology.Topology
-	bus        event.Bus
-	dispatcher dispatcher.Dispatcher
-	fsRegistry fsapi.Registry
-	pidReg     topology.PIDRegistry
-	ctx        context.Context
-	configs    map[registry.ID]*configEntry
-	log        *zap.Logger
-	pools      map[registry.ID]*poolEntry
-	runtime    *wasmrt.Runtime
-	wasi       *preview2.WASI
-	mu         sync.RWMutex
-	started    bool
+	node        relay.Node
+	topo        topology.Topology
+	bus         event.Bus
+	dispatcher  dispatcher.Dispatcher
+	fsRegistry  fsapi.Registry
+	pidReg      topology.PIDRegistry
+	ctx         context.Context
+	configs     map[registry.ID]*configEntry
+	log         *zap.Logger
+	pools       map[registry.ID]*poolEntry
+	coreRT      *wasmrt.Runtime
+	componentRT *wasmrt.Runtime
+	mu          sync.RWMutex
+	started     bool
 }
 
 // NewManager creates a new WASM function manager.
@@ -78,20 +80,29 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.pidReg = topology.GetRegistry(ctx)
 	m.node = relay.GetNode(ctx)
 
-	rt, err := wasmrt.New(ctx)
+	coreRT, err := wasmrt.New(ctx)
 	if err != nil {
 		return err
 	}
 
-	wasi := preview2.New()
-	if err := rt.RegisterWASI(wasi); err != nil {
-		_ = rt.Close(ctx)
+	componentRT, err := wasmrt.New(ctx)
+	if err != nil {
+		_ = coreRT.Close(ctx)
 		return err
 	}
 
+	if fnReg := functionapi.GetRegistry(ctx); fnReg != nil {
+		if err := componentRT.RegisterHost(wippyhost.NewFuncsHost(fnReg)); err != nil {
+			_ = componentRT.Close(ctx)
+			_ = coreRT.Close(ctx)
+			return runtimewasm.NewRegisterHostError(wippyhost.FuncsNamespace, err)
+		}
+		m.log.Info("wasm host registered", zap.String("namespace", wippyhost.FuncsNamespace))
+	}
+
 	m.mu.Lock()
-	m.runtime = rt
-	m.wasi = wasi
+	m.coreRT = coreRT
+	m.componentRT = componentRT
 	m.started = true
 	m.mu.Unlock()
 
@@ -114,13 +125,13 @@ func (m *Manager) Stop() {
 	m.pools = make(map[registry.ID]*poolEntry)
 	m.started = false
 
-	if m.wasi != nil {
-		m.wasi.Close()
-		m.wasi = nil
+	if m.componentRT != nil {
+		_ = m.componentRT.Close(context.Background())
+		m.componentRT = nil
 	}
-	if m.runtime != nil {
-		_ = m.runtime.Close(context.Background())
-		m.runtime = nil
+	if m.coreRT != nil {
+		_ = m.coreRT.Close(context.Background())
+		m.coreRT = nil
 	}
 
 	m.log.Info("wasm function manager stopped")
@@ -145,9 +156,14 @@ func (m *Manager) deleteConfig(id registry.ID) {
 	m.mu.Unlock()
 }
 
-func (m *Manager) runtimeInstance() *wasmrt.Runtime {
+func (m *Manager) runtimeInstance(component bool) *wasmrt.Runtime {
 	m.mu.RLock()
-	rt := m.runtime
+	var rt *wasmrt.Runtime
+	if component {
+		rt = m.componentRT
+	} else {
+		rt = m.coreRT
+	}
 	m.mu.RUnlock()
 	return rt
 }

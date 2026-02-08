@@ -14,6 +14,8 @@ var (
 	ErrTransportRegistryNotFound = apierror.New(apierror.NotFound, "wasm transport registry not found in context").WithRetryable(apierror.False)
 
 	ErrTranscoderNotFound = apierror.New(apierror.NotFound, "payload transcoder not found in context").WithRetryable(apierror.False)
+
+	ErrFunctionRegistryNotFound = apierror.New(apierror.NotFound, "function registry not found in context").WithRetryable(apierror.False)
 )
 
 func NewUnpackConfigError(component string, cause error) apierror.Error {
@@ -122,4 +124,12 @@ func NewTransportEncodeError(cause error) apierror.Error {
 
 func NewTranscodePayloadError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to transcode payload").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewRegisterHostError(host string, cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "failed to register wasm host: "+host).WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewInvalidFunctionTargetError(target string) apierror.Error {
+	return apierror.New(apierror.Invalid, "invalid function target: "+target).WithRetryable(apierror.False)
 }
