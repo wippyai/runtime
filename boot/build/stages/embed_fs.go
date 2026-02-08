@@ -113,7 +113,7 @@ func collectResources(entries []registry.Entry, logger *zap.Logger) ([]wapp.Reso
 		}
 
 		data := entry.Data.Data()
-		cfg, ok := data.(map[string]interface{})
+		cfg, ok := data.(map[string]any)
 		if !ok {
 			logger.Warn("failed to decode directory config, skipping", zap.String("id", entry.ID.String()))
 			continue
@@ -168,7 +168,7 @@ func transformEntries(entries []registry.Entry, embeddableIDs []registry.ID) []r
 				ID:   entry.ID,
 				Kind: embedapi.Kind,
 				Meta: entry.Meta,
-				Data: payload.New(map[string]interface{}{}),
+				Data: payload.New(map[string]any{}),
 			}
 		} else {
 			transformed[i] = entry

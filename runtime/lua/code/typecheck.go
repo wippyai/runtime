@@ -76,6 +76,9 @@ type TypeChecker struct {
 	globalTypes      map[string]typ.Type
 	db               *db.DB
 	checker          *check.Checker
+	invalidateHook   func(string)
+	baseHookOptions  []check.Option
+	hookOptions      []check.Option
 	config           TypeCheckConfig
 }
 
@@ -117,14 +120,20 @@ func NewTypeChecker(cfg TypeCheckConfig, builtinMods []*api.ModuleDef) *TypeChec
 
 	database := db.New()
 
-	types := core.NewEngineWithStdlib(stdlib.EngineConfig())
-
 	// Connect builtin manifests to database
 	for path, manifest := range manifests {
 		database.Connect(path, manifest)
 	}
 
+	types := core.NewEngineWithStdlib(stdlib.EngineConfig())
+
 	// Create checker with hooks
+	baseHookOptions := []check.Option{
+		hooks.WithAssign(),
+		hooks.WithReturn(),
+		hooks.WithCall(),
+		hooks.WithField(),
+	}
 	checker := check.NewChecker(database, check.Deps{
 		Types:       types,
 		Stdlib:      base,
@@ -133,7 +142,7 @@ func NewTypeChecker(cfg TypeCheckConfig, builtinMods []*api.ModuleDef) *TypeChec
 			FieldFunc: core.Field,
 			IndexFunc: core.Index,
 		},
-	}, hooks.WithAssign(), hooks.WithReturn(), hooks.WithCall(), hooks.WithField())
+	}, baseHookOptions...)
 
 	return &TypeChecker{
 		config:           cfg,
@@ -143,6 +152,7 @@ func NewTypeChecker(cfg TypeCheckConfig, builtinMods []*api.ModuleDef) *TypeChec
 		globalTypes:      globalTypes,
 		db:               database,
 		checker:          checker,
+		baseHookOptions:  baseHookOptions,
 	}
 }
 
@@ -256,7 +266,6 @@ func (tc *TypeChecker) GlobalTypes() map[string]typ.Type {
 // Each clone has its own db.DB for concurrent type checking.
 func (tc *TypeChecker) Clone() *TypeChecker {
 	database := db.New()
-
 	types := core.NewEngineWithStdlib(stdlib.EngineConfig())
 
 	// Connect builtin manifests to new database
@@ -265,6 +274,16 @@ func (tc *TypeChecker) Clone() *TypeChecker {
 	}
 
 	// Create checker with hooks
+	baseHookOptions := tc.baseHookOptions
+	if len(baseHookOptions) == 0 {
+		baseHookOptions = []check.Option{
+			hooks.WithAssign(),
+			hooks.WithReturn(),
+			hooks.WithCall(),
+			hooks.WithField(),
+		}
+	}
+	allHookOptions := append(append([]check.Option{}, baseHookOptions...), tc.hookOptions...)
 	checker := check.NewChecker(database, check.Deps{
 		Types:       types,
 		Stdlib:      tc.base,
@@ -273,7 +292,7 @@ func (tc *TypeChecker) Clone() *TypeChecker {
 			FieldFunc: core.Field,
 			IndexFunc: core.Index,
 		},
-	}, hooks.WithAssign(), hooks.WithReturn(), hooks.WithCall(), hooks.WithField())
+	}, allHookOptions...)
 
 	return &TypeChecker{
 		config:           tc.config,
@@ -283,6 +302,9 @@ func (tc *TypeChecker) Clone() *TypeChecker {
 		globalTypes:      tc.globalTypes,
 		db:               database,
 		checker:          checker,
+		baseHookOptions:  baseHookOptions,
+		hookOptions:      append([]check.Option{}, tc.hookOptions...),
+		invalidateHook:   tc.invalidateHook,
 	}
 }
 
@@ -290,7 +312,6 @@ func (tc *TypeChecker) Clone() *TypeChecker {
 // Used by the linter to enable checking with custom settings.
 func (tc *TypeChecker) WithConfig(cfg TypeCheckConfig) *TypeChecker {
 	database := db.New()
-
 	types := core.NewEngineWithStdlib(stdlib.EngineConfig())
 
 	// Connect builtin manifests to new database
@@ -299,6 +320,16 @@ func (tc *TypeChecker) WithConfig(cfg TypeCheckConfig) *TypeChecker {
 	}
 
 	// Create checker with hooks
+	baseHookOptions := tc.baseHookOptions
+	if len(baseHookOptions) == 0 {
+		baseHookOptions = []check.Option{
+			hooks.WithAssign(),
+			hooks.WithReturn(),
+			hooks.WithCall(),
+			hooks.WithField(),
+		}
+	}
+	allHookOptions := append(append([]check.Option{}, baseHookOptions...), tc.hookOptions...)
 	checker := check.NewChecker(database, check.Deps{
 		Types:       types,
 		Stdlib:      tc.base,
@@ -307,7 +338,7 @@ func (tc *TypeChecker) WithConfig(cfg TypeCheckConfig) *TypeChecker {
 			FieldFunc: core.Field,
 			IndexFunc: core.Index,
 		},
-	}, hooks.WithAssign(), hooks.WithReturn(), hooks.WithCall(), hooks.WithField())
+	}, allHookOptions...)
 
 	return &TypeChecker{
 		config:           cfg,
@@ -317,6 +348,9 @@ func (tc *TypeChecker) WithConfig(cfg TypeCheckConfig) *TypeChecker {
 		globalTypes:      tc.globalTypes,
 		db:               database,
 		checker:          checker,
+		baseHookOptions:  baseHookOptions,
+		hookOptions:      append([]check.Option{}, tc.hookOptions...),
+		invalidateHook:   tc.invalidateHook,
 	}
 }
 
@@ -327,6 +361,60 @@ func (tc *TypeChecker) ClearCache() {
 		return
 	}
 	tc.checker.ClearCache()
+}
+
+// AddHookOptions appends check hooks and rebuilds the checker.
+func (tc *TypeChecker) AddHookOptions(opts ...check.Option) {
+	if tc == nil || len(opts) == 0 {
+		return
+	}
+	tc.hookOptions = append(tc.hookOptions, opts...)
+	tc.rebuildChecker()
+}
+
+// ClearHookOptions removes extra hooks and rebuilds the checker.
+func (tc *TypeChecker) ClearHookOptions() {
+	if tc == nil {
+		return
+	}
+	tc.hookOptions = nil
+	tc.rebuildChecker()
+}
+
+// SetInvalidateHook registers a callback for external cache invalidation.
+// Currently stored for LSP use; the callback is not invoked by this checker.
+func (tc *TypeChecker) SetInvalidateHook(fn func(string)) {
+	if tc == nil {
+		return
+	}
+	tc.invalidateHook = fn
+}
+
+func (tc *TypeChecker) rebuildChecker() {
+	if tc == nil || tc.db == nil {
+		return
+	}
+	types := core.NewEngineWithStdlib(stdlib.EngineConfig())
+	baseHookOptions := tc.baseHookOptions
+	if len(baseHookOptions) == 0 {
+		baseHookOptions = []check.Option{
+			hooks.WithAssign(),
+			hooks.WithReturn(),
+			hooks.WithCall(),
+			hooks.WithField(),
+		}
+		tc.baseHookOptions = baseHookOptions
+	}
+	allHookOptions := append(append([]check.Option{}, baseHookOptions...), tc.hookOptions...)
+	tc.checker = check.NewChecker(tc.db, check.Deps{
+		Types:       types,
+		Stdlib:      tc.base,
+		GlobalTypes: tc.globalTypes,
+		Resolver: &core.FuncResolver{
+			FieldFunc: core.Field,
+			IndexFunc: core.Index,
+		},
+	}, allHookOptions...)
 }
 
 // HasErrors checks if any diagnostic is an error

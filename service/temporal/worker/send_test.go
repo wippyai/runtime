@@ -30,9 +30,9 @@ import (
 	sysfunc "github.com/wippyai/runtime/system/function"
 	syspayload "github.com/wippyai/runtime/system/payload"
 	jsonpayload "github.com/wippyai/runtime/system/payload/json"
+	msgpayload "github.com/wippyai/runtime/system/payload/msgpack"
 	sysprocess "github.com/wippyai/runtime/system/process"
 	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/testsuite"
 	"go.uber.org/zap"
 )
@@ -147,7 +147,7 @@ func TestWorkerSend_Integration(t *testing.T) {
 	result := waiter.Wait()
 	require.True(t, result.Accepted, "factory should be accepted")
 
-	dc := dataconverter.NewDataConverter(newSendTestTranscoder(), converter.GetDefaultDataConverter())
+	dc := dataconverter.NewDataConverter(newSendTestTranscoder())
 
 	server, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
 		LogLevel:      "error",
@@ -175,14 +175,14 @@ func TestWorkerSend_Integration(t *testing.T) {
 		},
 	}
 
-	wippyWorker := worker.NewWorker(
-		logger,
-		registry.NewID("test", "worker"),
-		workerConfig,
-		resourceReg,
-		nil,
-		nil,
-	)
+	wippyWorker, err := worker.NewWorkerBuilder().
+		WithLogger(logger).
+		WithID(registry.NewID("test", "worker")).
+		WithConfig(workerConfig).
+		WithResourceRegistry(resourceReg).
+		WithTranscoder(newSendTestTranscoder()).
+		Build()
+	require.NoError(t, err)
 
 	defFactory := &workflow.DefinitionFactory{
 		ID: workflowID,
@@ -205,7 +205,7 @@ func TestWorkerSend_Integration(t *testing.T) {
 		TaskQueue: taskQueue,
 	}
 
-	testInput := map[string]interface{}{
+	testInput := map[string]any{
 		"timeout": 10000,
 	}
 
@@ -222,7 +222,7 @@ func TestWorkerSend_Integration(t *testing.T) {
 		Messages: []*relay.Message{
 			{
 				Topic:    "data",
-				Payloads: []payload.Payload{payload.New(map[string]interface{}{"key": "value", "num": 42})},
+				Payloads: []payload.Payload{payload.New(map[string]any{"key": "value", "num": 42})},
 			},
 		},
 	}
@@ -234,7 +234,7 @@ func TestWorkerSend_Integration(t *testing.T) {
 	getCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	var workflowResult map[string]interface{}
+	var workflowResult map[string]any
 	err = we.Get(getCtx, &workflowResult)
 	require.NoError(t, err)
 
@@ -243,10 +243,19 @@ func TestWorkerSend_Integration(t *testing.T) {
 	require.Equal(t, "data", workflowResult["topic"])
 
 	// Verify payload was received
-	receivedPayload, ok := workflowResult["payload"].(map[string]interface{})
+	receivedPayload, ok := workflowResult["payload"].(map[string]any)
 	require.True(t, ok, "payload should be a map")
 	require.Equal(t, "value", receivedPayload["key"])
-	require.Equal(t, float64(42), receivedPayload["num"])
+	switch v := receivedPayload["num"].(type) {
+	case int:
+		require.Equal(t, 42, v)
+	case int64:
+		require.Equal(t, int64(42), v)
+	case float64:
+		require.Equal(t, float64(42), v)
+	default:
+		t.Fatalf("unexpected num type: %T", receivedPayload["num"])
+	}
 }
 
 // TestWorkerSend_ClosedWorker verifies Send returns error when worker is closed.
@@ -257,14 +266,13 @@ func TestWorkerSend_ClosedWorker(t *testing.T) {
 		TaskQueue: "test-queue",
 	}
 
-	wippyWorker := worker.NewWorker(
-		logger,
-		registry.NewID("test", "worker"),
-		workerConfig,
-		nil,
-		nil,
-		nil,
-	)
+	wippyWorker, err := worker.NewWorkerBuilder().
+		WithLogger(logger).
+		WithID(registry.NewID("test", "worker")).
+		WithConfig(workerConfig).
+		WithTranscoder(newSendTestTranscoder()).
+		Build()
+	require.NoError(t, err)
 
 	// Worker is not started, so temporalClient is nil
 	pkg := &relay.Package{
@@ -274,7 +282,7 @@ func TestWorkerSend_ClosedWorker(t *testing.T) {
 		},
 	}
 
-	err := wippyWorker.Send(pkg)
+	err = wippyWorker.Send(pkg)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "temporal client not available")
 }
@@ -289,7 +297,7 @@ func TestWorkerSend_EmptyWorkflowID(t *testing.T) {
 	bus := eventbus.NewBus()
 	ctx := ctxapi.NewRootContext()
 
-	dc := dataconverter.NewDataConverter(newSendTestTranscoder(), converter.GetDefaultDataConverter())
+	dc := dataconverter.NewDataConverter(newSendTestTranscoder())
 
 	server, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
 		LogLevel:      "error",
@@ -318,14 +326,14 @@ func TestWorkerSend_EmptyWorkflowID(t *testing.T) {
 		TaskQueue: "test-queue",
 	}
 
-	wippyWorker := worker.NewWorker(
-		logger,
-		registry.NewID("test", "worker"),
-		workerConfig,
-		resourceReg,
-		nil,
-		nil,
-	)
+	wippyWorker, err := worker.NewWorkerBuilder().
+		WithLogger(logger).
+		WithID(registry.NewID("test", "worker")).
+		WithConfig(workerConfig).
+		WithResourceRegistry(resourceReg).
+		WithTranscoder(newSendTestTranscoder()).
+		Build()
+	require.NoError(t, err)
 
 	statusCh, err := wippyWorker.Start(ctx)
 	require.NoError(t, err)
@@ -355,6 +363,7 @@ func newSendTestTranscoder() payload.Transcoder {
 
 	// Register Golang ↔ JSON conversions
 	jsonpayload.Register(transcoder)
+	msgpayload.Register(transcoder)
 
 	return transcoder
 }

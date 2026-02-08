@@ -61,9 +61,9 @@ func TestFlattenMap(t *testing.T) {
 		assert.Len(t, result, 4)
 	})
 
-	t.Run("handles map[interface{}]interface{} from yaml", func(t *testing.T) {
+	t.Run("handles map[any]any from yaml", func(t *testing.T) {
 		input := map[string]any{
-			"section": map[interface{}]interface{}{
+			"section": map[any]any{
 				"key":   "value",
 				"count": 42,
 			},

@@ -6,51 +6,52 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/wippyai/go-lua/lsp/index"
 	"github.com/wippyai/go-lua/types/diag"
+	"github.com/wippyai/runtime/runtime/lua/lsp/transport"
 )
 
 func TestDiagSpanToRange(t *testing.T) {
 	tests := []struct {
 		name string
 		span diag.Span
-		want Range
+		want transport.Range
 	}{
 		{
 			name: "normal span",
 			span: diag.Span{StartLine: 10, StartCol: 5, EndLine: 10, EndCol: 15},
-			want: Range{
-				Start: Position{Line: 9, Character: 4},
-				End:   Position{Line: 9, Character: 14},
+			want: transport.Range{
+				Start: transport.Position{Line: 9, Character: 4},
+				End:   transport.Position{Line: 9, Character: 14},
 			},
 		},
 		{
 			name: "first line first col",
 			span: diag.Span{StartLine: 1, StartCol: 1, EndLine: 1, EndCol: 10},
-			want: Range{
-				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 0, Character: 9},
+			want: transport.Range{
+				Start: transport.Position{Line: 0, Character: 0},
+				End:   transport.Position{Line: 0, Character: 9},
 			},
 		},
 		{
 			name: "zero values clamped",
 			span: diag.Span{StartLine: 0, StartCol: 0, EndLine: 0, EndCol: 0},
-			want: Range{
-				Start: Position{Line: 0, Character: 0},
-				End:   Position{Line: 0, Character: 0},
+			want: transport.Range{
+				Start: transport.Position{Line: 0, Character: 0},
+				End:   transport.Position{Line: 0, Character: 0},
 			},
 		},
 		{
 			name: "multiline span",
 			span: diag.Span{StartLine: 5, StartCol: 10, EndLine: 8, EndCol: 20},
-			want: Range{
-				Start: Position{Line: 4, Character: 9},
-				End:   Position{Line: 7, Character: 19},
+			want: transport.Range{
+				Start: transport.Position{Line: 4, Character: 9},
+				End:   transport.Position{Line: 7, Character: 19},
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := DiagSpanToRange(tt.span)
+			got := transport.DiagSpanToRange(tt.span)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -61,17 +62,17 @@ func TestConvertIndexSymbolKind(t *testing.T) {
 		input index.SymbolKind
 		want  int
 	}{
-		{index.SymbolFunction, SymbolKindFunction},
-		{index.SymbolMethod, SymbolKindMethod},
-		{index.SymbolVariable, SymbolKindVariable},
-		{index.SymbolParameter, SymbolKindVariable},
-		{index.SymbolType, SymbolKindClass},
-		{index.SymbolField, SymbolKindField},
-		{index.SymbolKind(999), SymbolKindVariable}, // unknown defaults to variable
+		{index.SymbolFunction, transport.SymbolKindFunction},
+		{index.SymbolMethod, transport.SymbolKindMethod},
+		{index.SymbolVariable, transport.SymbolKindVariable},
+		{index.SymbolParameter, transport.SymbolKindVariable},
+		{index.SymbolType, transport.SymbolKindClass},
+		{index.SymbolField, transport.SymbolKindField},
+		{index.SymbolKind(999), transport.SymbolKindVariable}, // unknown defaults to variable
 	}
 
 	for _, tt := range tests {
-		assert.Equal(t, tt.want, ConvertIndexSymbolKind(tt.input))
+		assert.Equal(t, tt.want, transport.ConvertIndexSymbolKind(tt.input))
 	}
 }
 
@@ -89,7 +90,7 @@ func TestURIToID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, URIToID(tt.uri))
+			assert.Equal(t, tt.want, transport.URIToID(tt.uri))
 		})
 	}
 }
@@ -106,7 +107,7 @@ func TestIDToURI(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, IDToURI(tt.id))
+			assert.Equal(t, tt.want, transport.IDToURI(tt.id))
 		})
 	}
 }
@@ -117,32 +118,32 @@ func TestSymbolKindConstants(t *testing.T) {
 		value int
 		want  int
 	}{
-		{"File", SymbolKindFile, 1},
-		{"Module", SymbolKindModule, 2},
-		{"Namespace", SymbolKindNamespace, 3},
-		{"Package", SymbolKindPackage, 4},
-		{"Class", SymbolKindClass, 5},
-		{"Method", SymbolKindMethod, 6},
-		{"Property", SymbolKindProperty, 7},
-		{"Field", SymbolKindField, 8},
-		{"Constructor", SymbolKindConstructor, 9},
-		{"Enum", SymbolKindEnum, 10},
-		{"Interface", SymbolKindInterface, 11},
-		{"Function", SymbolKindFunction, 12},
-		{"Variable", SymbolKindVariable, 13},
-		{"Constant", SymbolKindConstant, 14},
-		{"String", SymbolKindString, 15},
-		{"Number", SymbolKindNumber, 16},
-		{"Boolean", SymbolKindBoolean, 17},
-		{"Array", SymbolKindArray, 18},
-		{"Object", SymbolKindObject, 19},
-		{"Key", SymbolKindKey, 20},
-		{"Null", SymbolKindNull, 21},
-		{"EnumMember", SymbolKindEnumMember, 22},
-		{"Struct", SymbolKindStruct, 23},
-		{"Event", SymbolKindEvent, 24},
-		{"Operator", SymbolKindOperator, 25},
-		{"TypeParameter", SymbolKindTypeParameter, 26},
+		{"File", transport.SymbolKindFile, 1},
+		{"Module", transport.SymbolKindModule, 2},
+		{"Namespace", transport.SymbolKindNamespace, 3},
+		{"Package", transport.SymbolKindPackage, 4},
+		{"Class", transport.SymbolKindClass, 5},
+		{"Method", transport.SymbolKindMethod, 6},
+		{"Property", transport.SymbolKindProperty, 7},
+		{"Field", transport.SymbolKindField, 8},
+		{"Constructor", transport.SymbolKindConstructor, 9},
+		{"Enum", transport.SymbolKindEnum, 10},
+		{"Interface", transport.SymbolKindInterface, 11},
+		{"Function", transport.SymbolKindFunction, 12},
+		{"Variable", transport.SymbolKindVariable, 13},
+		{"Constant", transport.SymbolKindConstant, 14},
+		{"String", transport.SymbolKindString, 15},
+		{"Number", transport.SymbolKindNumber, 16},
+		{"Boolean", transport.SymbolKindBoolean, 17},
+		{"Array", transport.SymbolKindArray, 18},
+		{"Object", transport.SymbolKindObject, 19},
+		{"Key", transport.SymbolKindKey, 20},
+		{"Null", transport.SymbolKindNull, 21},
+		{"EnumMember", transport.SymbolKindEnumMember, 22},
+		{"Struct", transport.SymbolKindStruct, 23},
+		{"Event", transport.SymbolKindEvent, 24},
+		{"Operator", transport.SymbolKindOperator, 25},
+		{"TypeParameter", transport.SymbolKindTypeParameter, 26},
 	}
 
 	for _, tt := range tests {

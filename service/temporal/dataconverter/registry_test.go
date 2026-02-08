@@ -162,7 +162,7 @@ func TestRegistry_BuildFunctional(t *testing.T) {
 
 		dataConverter := registry.Build()
 
-		testData := map[string]interface{}{
+		testData := map[string]any{
 			"key": "value",
 			"num": 42,
 		}
@@ -171,7 +171,7 @@ func TestRegistry_BuildFunctional(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotNil(t, payload)
 
-		var decoded map[string]interface{}
+		var decoded map[string]any
 		err = dataConverter.FromPayload(payload, &decoded)
 		require.NoError(t, err)
 		assert.Equal(t, "value", decoded["key"])

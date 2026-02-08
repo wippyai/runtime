@@ -20,6 +20,7 @@ const (
 	FuncName         = "lua.func"
 	HTMLName         = "lua.html"
 	HTTPName         = "lua.http"
+	HubName          = "lua.hub"
 	MetricsName      = "lua.metrics"
 	JSONName         = "lua.json"
 	PayloadName      = "lua.payload"

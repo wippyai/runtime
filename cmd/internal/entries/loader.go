@@ -12,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
 	"github.com/wippyai/runtime/boot/deps/graph"
@@ -287,6 +288,10 @@ func loadEntriesFromWapp(path string, dtt payload.Transcoder) ([]regapi.Entry, e
 
 // loadEntriesToRegistry loads entries into the registry using LoadState to restore from history.
 func loadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger *zap.Logger) error {
+	if err := waitForListenerReadiness(ctx, logger); err != nil {
+		return err
+	}
+
 	reg := regapi.GetRegistry(ctx)
 	if reg == nil {
 		return ErrRegistryNotFound
@@ -410,6 +415,10 @@ func unwrapPayloadData(data any) any {
 
 // ApplyToRegistry applies entries to the registry using topology-sorted change set.
 func ApplyToRegistry(ctx context.Context, entries []regapi.Entry, resolver regapi.DependencyResolver, reg regapi.Registry, logger *zap.Logger) error {
+	if err := waitForListenerReadiness(ctx, logger); err != nil {
+		return err
+	}
+
 	logger.Debug("building change set from entries")
 	changeSet, err := regtop.CreateChangeSetFromEntries(entries, resolver)
 	if err != nil {
@@ -425,6 +434,26 @@ func ApplyToRegistry(ctx context.Context, entries []regapi.Entry, resolver regap
 	}
 
 	logger.Info("entries applied to registry", zap.Any("version", version))
+	return nil
+}
+
+func waitForListenerReadiness(ctx context.Context, logger *zap.Logger) error {
+	readiness := bootpkg.GetReadiness(ctx)
+	if readiness == nil {
+		return nil
+	}
+
+	pending := readiness.Pending()
+	if pending == 0 {
+		return nil
+	}
+
+	logger.Debug("waiting for boot listener readiness", zap.Int64("pending", pending))
+	if err := readiness.Wait(ctx); err != nil {
+		return NewWaitForListenerReadinessError(err)
+	}
+
+	logger.Debug("boot listeners ready")
 	return nil
 }
 

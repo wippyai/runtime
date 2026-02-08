@@ -383,7 +383,7 @@ func (m *CustomizableMockRunner) Transition(_ context.Context, state registry.St
 	return nil, errors.New("RunFunc not set")
 }
 
-func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
+func TestInMemoryRegistry_ConcurrentApply_Serializes(t *testing.T) {
 	v0 := version.New(registry.RootVersion)
 	hist := historymem.New()
 	_ = hist.Save(v0, registry.ChangeSet{}, true)
@@ -394,6 +394,7 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 	var wg sync.WaitGroup
 	numGoroutines := 10
 	changesPerRoutine := 5
+	errCh := make(chan error, numGoroutines*changesPerRoutine)
 
 	// Mock runner behavior: append changes to state
 	runner.RunFunc = func(state registry.State, changes registry.ChangeSet) (registry.State, error) {
@@ -417,9 +418,8 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 						},
 					},
 				}
-				_, err := reg.Apply(context.Background(), change)
-				if err != nil {
-					t.Errorf("Error in Apply: %v", err)
+				if _, err := reg.Apply(context.Background(), change); err != nil {
+					errCh <- err
 					return
 				}
 			}
@@ -427,6 +427,11 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 	}
 
 	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		t.Errorf("Error in Apply: %v", err)
+	}
 
 	// Verify the final state
 	finalState, err := reg.GetAllEntries()
@@ -434,9 +439,7 @@ func TestInMemoryRegistry_ConcurrentApply(t *testing.T) {
 		t.Fatalf("Error getting final state: %v", err)
 	}
 
-	if len(finalState) != numGoroutines*changesPerRoutine {
-		t.Errorf("Expected %d entries, got %d", numGoroutines*changesPerRoutine, len(finalState))
-	}
+	assert.Len(t, finalState, numGoroutines*changesPerRoutine)
 
 	// Verify current version
 	currentVersion, err := reg.Current()
@@ -709,11 +712,11 @@ data:
 	expectedState := registry.State{
 		{
 			Kind: "listener",
-			Data: payload.New(map[string]interface{}{
+			Data: payload.New(map[string]any{
 				"namespace": "default",
 				"name":      "database_url",
 				"kind":      "listener",
-				"data": map[string]interface{}{
+				"data": map[string]any{
 					"host": "localhost",
 					"port": float64(5432), // YAML numbers are unmarshaled as float64
 				},
@@ -721,11 +724,11 @@ data:
 		},
 		{
 			Kind: "service",
-			Data: payload.New(map[string]interface{}{
+			Data: payload.New(map[string]any{
 				"namespace": "default",
 				"name":      "api_service",
 				"kind":      "service",
-				"data": map[string]interface{}{
+				"data": map[string]any{
 					"url": "http://localhost:8080",
 				},
 			}),
@@ -748,7 +751,7 @@ data:
 				found = true
 
 				// Compare Data field using assert.Equal for deep comparison of maps
-				var expectedData, currentData map[string]interface{}
+				var expectedData, currentData map[string]any
 				err = dtt.Unmarshal(expectedEntry.Data, &expectedData)
 				assert.NoError(t, err, "Error unmarshalling expected data")
 				err = dtt.Unmarshal(currentEntry.Data, &currentData)

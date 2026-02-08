@@ -1,3 +1,5 @@
+// Package client manages Temporal client connections, configuration,
+// lifecycle, and peer-to-peer message routing through the relay system.
 package client
 
 import (

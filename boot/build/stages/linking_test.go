@@ -64,7 +64,7 @@ func TestLink_FromDependency(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("test", "db_url"),
+			ID:   registry.NewID("vendor.module", "db_url"),
 			Kind: registry.NamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"targets": []any{
@@ -76,7 +76,7 @@ func TestLink_FromDependency(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("test", "service"),
+			ID:   registry.NewID("vendor.module", "service"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -87,11 +87,74 @@ func TestLink_FromDependency(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify dependency parameter was used
-	target := findEntry(entries, "test", "service")
+	target := findEntry(entries, "vendor.module", "service")
 	require.NotNil(t, target)
 	data := target.Data.Data().(map[string]any)
 	database := data["database"].(map[string]any)
 	assert.Equal(t, "postgres://localhost", database["url"])
+}
+
+func TestLink_ExplicitDependenciesOverride(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "__dependency.module"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "vendor/module",
+				"parameters": []any{
+					map[string]any{
+						"name":  "db_url",
+						"value": "postgres://from-entries",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.module", "db_url"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{
+						"entry": "service",
+						"path":  ".database.url",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.module", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	explicitDeps := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "__dependency.override"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "vendor/module",
+				"parameters": []any{
+					map[string]any{
+						"name":  "db_url",
+						"value": "postgres://explicit",
+					},
+				},
+			}),
+		},
+	}
+
+	stage := Link(WithDependencies(explicitDeps))
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	target := findEntry(entries, "vendor.module", "service")
+	require.NotNil(t, target)
+	data := target.Data.Data().(map[string]any)
+	database := data["database"].(map[string]any)
+	assert.Equal(t, "postgres://explicit", database["url"])
 }
 
 func TestLink_ConflictError(t *testing.T) {
@@ -125,7 +188,7 @@ func TestLink_ConflictError(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("test", "api_key"),
+			ID:   registry.NewID("vendor.module", "api_key"),
 			Kind: registry.NamespaceRequirement,
 			Data: payload.New(map[string]any{
 				"targets": []any{
@@ -137,7 +200,7 @@ func TestLink_ConflictError(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("test", "service"),
+			ID:   registry.NewID("vendor.module", "service"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -147,6 +210,65 @@ func TestLink_ConflictError(t *testing.T) {
 	err := stage.Execute(ctx, &entries)
 	// Linking stage now logs warnings instead of returning errors
 	require.NoError(t, err)
+}
+
+func TestLink_ModuleScopedParameters(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "__dependency.modA"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "vendor/a",
+				"parameters": []any{
+					map[string]any{
+						"name":  "router",
+						"value": "app:router_a",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("app", "__dependency.modB"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "vendor/b",
+				"parameters": []any{
+					map[string]any{
+						"name":  "router",
+						"value": "app:router_b",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.a", "router"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{
+						"entry": "endpoint",
+						"path":  ".meta.router",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.a", "endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link()
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	target := findEntry(entries, "vendor.a", "endpoint")
+	require.NotNil(t, target)
+	assert.Equal(t, "app:router_a", target.Meta["router"])
 }
 
 func TestLink_NoValueError(t *testing.T) {
@@ -422,7 +544,7 @@ func TestLink_MetaPath(t *testing.T) {
 		{
 			ID:   registry.NewID("test", "endpoint"),
 			Kind: "http.endpoint",
-			Meta: map[string]interface{}{},
+			Meta: map[string]any{},
 			Data: payload.New(map[string]any{}),
 		},
 	}
@@ -495,11 +617,11 @@ func (m *mockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload
 	return payload.NewPayload(data, payload.Golang), nil
 }
 
-func (m *mockTranscoder) Marshal(v interface{}) (payload.Payload, error) {
+func (m *mockTranscoder) Marshal(v any) (payload.Payload, error) {
 	return payload.New(v), nil
 }
 
-func (m *mockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
+func (m *mockTranscoder) Unmarshal(p payload.Payload, v any) error {
 	// Use JSON-like conversion for testing
 	data := p.Data()
 	if dataMap, ok := data.(map[string]any); ok {

@@ -51,11 +51,54 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 		zap.Int("context_pairs", len(start.Context)))
 
 	// Delegate to host - it assigns PID internally
-	return host.Run(ctx, start)
+	procPID, err := host.Run(ctx, start)
+	if err != nil {
+		return procPID, err
+	}
+
+	if start != nil && start.Options != nil && m.node != nil {
+		parent, ok := start.Options.Get(api.ProcessParentKey)
+		if ok {
+			if parentPID, ok := parent.(pid.PID); ok && parentPID.UniqID != "" {
+				if procPID.Node != "" && procPID.Node != m.node.ID() {
+					topo := topology.GetTopology(ctx)
+					if topo == nil {
+						return procPID, NewTopologyNotAvailableError()
+					}
+
+					if start.Options.GetBool(api.ProcessMonitorKey, false) {
+						if err := topo.Monitor(parentPID, procPID); err != nil {
+							return procPID, err
+						}
+					}
+
+					if start.Options.GetBool(api.ProcessLinkKey, false) {
+						if err := topo.Link(parentPID, procPID); err != nil {
+							return procPID, err
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return procPID, nil
 }
 
 // Cancel sends a cancellation event to the process.
-func (m *Manager) Cancel(_ context.Context, from, pidArg pid.PID, deadline time.Time) error {
+func (m *Manager) Cancel(ctx context.Context, from, pidArg pid.PID, deadline time.Time) error {
+	if pidArg.Node != "" && m.node != nil && pidArg.Node != m.node.ID() {
+		if router := relay.GetRouter(ctx); router != nil {
+			if err := router.Send(topology.CancelPackage(from, pidArg, deadline)); err != nil {
+				m.logger.Error("failed to send remote cancel",
+					zap.String("pid", pidArg.String()),
+					zap.Error(err))
+				return err
+			}
+			return nil
+		}
+	}
+
 	relayHost, exists := m.node.GetHost(pidArg.Host)
 	if !exists {
 		return NewHostNotFoundError(pidArg.Host)

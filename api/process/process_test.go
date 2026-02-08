@@ -371,11 +371,11 @@ func TestYieldStruct(t *testing.T) {
 	assert.Equal(t, uint64(999), y.Tag)
 }
 
-func TestLifecycleOptionKeys(t *testing.T) {
-	assert.Equal(t, "lifecycle.parent", LifecycleParentKey)
-	assert.Equal(t, "lifecycle.monitor", LifecycleMonitorKey)
-	assert.Equal(t, "lifecycle.link", LifecycleLinkKey)
-	assert.Equal(t, "pid", OptionPID)
+func TestProcessOptionKeys(t *testing.T) {
+	assert.Equal(t, "process.parent", ProcessParentKey)
+	assert.Equal(t, "process.monitor", ProcessMonitorKey)
+	assert.Equal(t, "process.link", ProcessLinkKey)
+	assert.Equal(t, "process.name", ProcessNameKey)
 }
 
 func TestEventKinds(t *testing.T) {

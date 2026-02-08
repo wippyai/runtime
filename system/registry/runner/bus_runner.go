@@ -3,7 +3,6 @@ package runner
 
 import (
 	"context"
-	"slices"
 	"time"
 
 	"github.com/wippyai/runtime/api/event"
@@ -24,24 +23,53 @@ type runnerBuilder interface {
 type BusRunner struct {
 	bus         event.Bus
 	builder     runnerBuilder
+	dispatch    registry.DispatchPolicy
 	log         *zap.Logger
 	acceptChan  chan event.Event
 	rejectChan  chan event.Event
 	acceptSubID event.SubscriberID
 	rejectSubID event.SubscriberID
+	waitTimeout time.Duration
 }
 
-const eventWaitTimeout = 30 * time.Second
+const defaultEventWaitTimeout = 30 * time.Second
+
+// Option configures BusRunner behavior.
+type Option func(*BusRunner)
+
+// WithDispatchPolicy sets the dispatch policy for operations.
+func WithDispatchPolicy(policy registry.DispatchPolicy) Option {
+	return func(br *BusRunner) {
+		br.dispatch = policy
+	}
+}
+
+// WithEventWaitTimeout sets how long the runner waits for accept/reject callbacks
+// from registry listeners before timing out an operation.
+func WithEventWaitTimeout(timeout time.Duration) Option {
+	return func(br *BusRunner) {
+		if timeout > 0 {
+			br.waitTimeout = timeout
+		}
+	}
+}
 
 // NewBusRunner creates a new BusRunner. This is a sequential bus, order of operations matter.
-func NewBusRunner(bus event.Bus, log *zap.Logger, builder runnerBuilder) *BusRunner {
-	return &BusRunner{
-		bus:        bus,
-		log:        log,
-		acceptChan: make(chan event.Event),
-		rejectChan: make(chan event.Event),
-		builder:    builder,
+func NewBusRunner(bus event.Bus, log *zap.Logger, builder runnerBuilder, opts ...Option) *BusRunner {
+	br := &BusRunner{
+		bus:         bus,
+		log:         log,
+		acceptChan:  make(chan event.Event),
+		rejectChan:  make(chan event.Event),
+		builder:     builder,
+		waitTimeout: defaultEventWaitTimeout,
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(br)
+		}
+	}
+	return br
 }
 
 // Transition applies a series of operations to transform the registry from an initial state
@@ -103,6 +131,18 @@ func (br *BusRunner) applyOperation(
 	op registry.Operation,
 ) (registry.StateMap, error) {
 	if err := br.builder.ValidateOperation(state, op); err != nil {
+		existing, exists := state[op.Entry.ID]
+		existingKind := ""
+		if exists {
+			existingKind = existing.Kind
+		}
+		br.log.Warn("invalid operation",
+			zap.String("op_kind", op.Kind),
+			zap.String("entry_id", op.Entry.ID.String()),
+			zap.String("entry_kind", op.Entry.Kind),
+			zap.Bool("exists", exists),
+			zap.String("existing_kind", existingKind),
+			zap.Error(err))
 		return state, NewInvalidOperationError(err)
 	}
 
@@ -116,13 +156,11 @@ func (br *BusRunner) applyOperation(
 		op.Entry.Kind = entry.Kind
 	}
 
-	allowProcess := []registry.Kind{
-		registry.EntryKind,
-		registry.NamespaceDependency,
-		registry.NamespaceRequirement,
-		registry.NamespaceDefinition,
+	mode := registry.DispatchEvents
+	if br.dispatch != nil {
+		mode = br.dispatch.Mode(op)
 	}
-	if slices.Contains(allowProcess, op.Entry.Kind) {
+	if mode == registry.DispatchInternal {
 		// with entry events we dont propagate any events and handle them internally
 		// use registry.entry for dynamic configs
 		newState, err := br.builder.ApplyOperation(state, op)
@@ -141,7 +179,7 @@ func (br *BusRunner) applyOperation(
 		Data:   op.Entry,
 	})
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, eventWaitTimeout)
+	timeoutCtx, cancel := context.WithTimeout(ctx, br.waitTimeout)
 	defer cancel()
 
 	for {
@@ -194,9 +232,9 @@ func (br *BusRunner) applyOperation(
 				zap.String("id", op.Entry.ID.String()),
 				zap.String("kind", op.Entry.Kind),
 				zap.String("operation", op.Kind),
-				zap.Duration("timeout", eventWaitTimeout),
+				zap.Duration("timeout", br.waitTimeout),
 				zap.String("hint", "check if a listener is registered for this entry kind"))
-			return state, NewEventHandlerTimeoutError(eventWaitTimeout, op.Entry.ID, op.Entry.Kind)
+			return state, NewEventHandlerTimeoutError(br.waitTimeout, op.Entry.ID, op.Entry.Kind)
 		}
 	}
 }

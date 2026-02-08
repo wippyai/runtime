@@ -26,7 +26,7 @@ func (m *mockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload
 	return p, nil
 }
 
-func (m *mockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
+func (m *mockTranscoder) Unmarshal(p payload.Payload, v any) error {
 	data := p.Data()
 	if bytes, ok := data.([]byte); ok {
 		return json.Unmarshal(bytes, v)

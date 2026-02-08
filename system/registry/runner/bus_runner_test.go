@@ -19,6 +19,15 @@ import (
 	"github.com/wippyai/runtime/system/eventbus"
 )
 
+func internalDispatchPolicy() *KindDispatchPolicy {
+	return NewKindDispatchPolicy([]registry.Kind{
+		registry.EntryKind,
+		registry.NamespaceDependency,
+		registry.NamespaceRequirement,
+		registry.NamespaceDefinition,
+	})
+}
+
 // testComponent represents a component that can be configured via registry events.
 type testComponent struct {
 	bus             event.Bus
@@ -160,7 +169,7 @@ func setupTestEnvironment(t *testing.T) (context.Context, event.Bus, *BusRunner,
 	ctx, cancel := context.WithCancel(context.Background())
 
 	bus := eventbus.NewBus()
-	busRunner := NewBusRunner(bus, zap.NewNop(), newTestBuilder(nil))
+	busRunner := NewBusRunner(bus, zap.NewNop(), newTestBuilder(nil), WithDispatchPolicy(internalDispatchPolicy()))
 	component := newTestComponent(bus)
 
 	componentCleanup := attachComponent(ctx, t, bus, component)
@@ -597,7 +606,7 @@ func TestBusRunner_ErrorPropagation(t *testing.T) {
 	defer cancel()
 
 	bus := eventbus.NewBus()
-	busRunner := NewBusRunner(bus, zap.NewNop(), newTestBuilder(nil))
+	busRunner := NewBusRunner(bus, zap.NewNop(), newTestBuilder(nil), WithDispatchPolicy(internalDispatchPolicy()))
 	expectedError := errors2.New("component configuration not allowed")
 
 	// Spawn a test component specifically for error testing
@@ -705,6 +714,39 @@ func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
 	assert.Equal(t, registry.TxDiscard, receivedEvents[1].Kind, "Second event should be Discard")
 }
 
+func TestBusRunner_CustomEventWaitTimeout(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	bus := eventbus.NewBus()
+	busRunner := NewBusRunner(
+		bus,
+		zap.NewNop(),
+		newTestBuilder(nil),
+		WithEventWaitTimeout(20*time.Millisecond),
+	)
+
+	initialState := registry.State{}
+	changeSet := registry.ChangeSet{
+		{
+			Kind: registry.EntryCreate,
+			Entry: createEntry(
+				registry.ParseID("component/listener/timeout"),
+				"listener",
+				"value",
+			),
+		},
+	}
+
+	start := time.Now()
+	_, err := busRunner.Transition(ctx, initialState, changeSet)
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "event handler timeout")
+	assert.Less(t, elapsed, 500*time.Millisecond)
+}
+
 // TestBusRunner_RollbackOrderWithResolver verifies that rollback deletes dependents before dependencies
 // when using a resolver that can extract dependencies from metadata.
 func TestBusRunner_RollbackOrderWithResolver(t *testing.T) {
@@ -722,7 +764,7 @@ func TestBusRunner_RollbackOrderWithResolver(t *testing.T) {
 		},
 	}
 
-	busRunner := NewBusRunner(bus, zap.NewNop(), newTestBuilder(resolver))
+	busRunner := NewBusRunner(bus, zap.NewNop(), newTestBuilder(resolver), WithDispatchPolicy(internalDispatchPolicy()))
 
 	// Track deletion order
 	var mu sync.Mutex

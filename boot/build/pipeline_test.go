@@ -120,7 +120,7 @@ func TestPipeline_Execute_StageModifiesEntries(t *testing.T) {
 
 	modifyStage := func(_ context.Context, entries *[]registry.Entry) error {
 		for i := range *entries {
-			(*entries)[i].Meta = map[string]interface{}{"modified": true}
+			(*entries)[i].Meta = map[string]any{"modified": true}
 		}
 		return nil
 	}

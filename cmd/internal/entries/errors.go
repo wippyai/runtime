@@ -81,3 +81,7 @@ func NewOpenWappError(path string, cause error) apierror.Error {
 func NewReadWappError(path string, cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to read wapp: "+path).WithCause(cause).WithRetryable(apierror.False)
 }
+
+func NewWaitForListenerReadinessError(cause error) apierror.Error {
+	return apierror.New(apierror.Timeout, "timed out waiting for boot listener readiness").WithCause(cause).WithRetryable(apierror.True)
+}

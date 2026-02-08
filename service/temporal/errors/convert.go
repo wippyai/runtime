@@ -6,8 +6,43 @@ import (
 
 	apierror "github.com/wippyai/runtime/api/error"
 	enumspb "go.temporal.io/api/enums/v1"
+	failurepb "go.temporal.io/api/failure/v1"
+	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/temporal"
 )
+
+// FailureSource is the error source written into Temporal failures from Wippy.
+const FailureSource = "WippySDK"
+
+// NewFailureConverter creates a failure converter that preserves Temporal default
+// behavior while stamping Wippy source metadata.
+func NewFailureConverter(dc converter.DataConverter) converter.FailureConverter {
+	base := temporal.NewDefaultFailureConverter(temporal.DefaultFailureConverterOptions{
+		DataConverter: dc,
+	})
+	return &sourceFailureConverter{
+		base:   base,
+		source: FailureSource,
+	}
+}
+
+type sourceFailureConverter struct {
+	base   converter.FailureConverter
+	source string
+}
+
+func (c *sourceFailureConverter) ErrorToFailure(err error) *failurepb.Failure {
+	failure := c.base.ErrorToFailure(err)
+	if failure == nil {
+		return nil
+	}
+	failure.Source = c.source
+	return failure
+}
+
+func (c *sourceFailureConverter) FailureToError(failure *failurepb.Failure) error {
+	return c.base.FailureToError(failure)
+}
 
 // ToApplicationError converts any error to a Temporal ApplicationError.
 // Preserves full error chain with stack traces in details.
@@ -145,6 +180,11 @@ func fromTemporalErrorInner(err error) apierror.Rich {
 			WithRetryable(apierror.False)
 	}
 
+	// Preserve error metadata through unknown wrapper layers.
+	if cause := errors.Unwrap(err); cause != nil {
+		return fromTemporalErrorInner(cause)
+	}
+
 	return apierror.NewRich(apierror.Internal, err.Error())
 }
 
@@ -152,6 +192,8 @@ func fromTemporalErrorInner(err error) apierror.Rich {
 func mapTypeToKind(errType string) apierror.Kind {
 	switch errType {
 	case "NotFound":
+		return apierror.NotFound
+	case "ActivityNotRegisteredError", "ActivityNotRegistered", "WorkflowNotRegisteredError", "NamespaceNotFoundError":
 		return apierror.NotFound
 	case "AlreadyExists":
 		return apierror.AlreadyExists

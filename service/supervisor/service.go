@@ -79,8 +79,8 @@ func (svc *Service) Start(ctx context.Context) (<-chan any, error) {
 
 	// Prepare process start options with monitoring
 	opts := attrs.NewBag()
-	opts.Set(processapi.LifecycleParentKey, svc.supervisorPID)
-	opts.Set(processapi.LifecycleMonitorKey, true)
+	opts.Set(processapi.ProcessParentKey, svc.supervisorPID)
+	opts.Set(processapi.ProcessMonitorKey, true)
 
 	// Prepare input payloads
 	var payloads payload.Payloads

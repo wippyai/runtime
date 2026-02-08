@@ -25,17 +25,18 @@ var _ registry.EntryListener = (*Manager)(nil)
 
 // Manager handles Temporal client configuration and lifecycle
 type Manager struct {
-	dtt                payload.Transcoder
-	bus                event.Bus
-	env                env.Registry
-	factory            Factory
-	dataConverter      converter.DataConverter
-	log                *zap.Logger
-	configs            map[registry.ID]*api.ClientConfig
-	services           map[registry.ID]*Client
-	peers              map[registry.ID]*peer.Receiver
-	clientInterceptors []interceptor.ClientInterceptor
-	mu                 sync.RWMutex
+	dtt                   payload.Transcoder
+	bus                   event.Bus
+	env                   env.Registry
+	factory               Factory
+	dataConverter         converter.DataConverter
+	dataConverterProvider func() converter.DataConverter
+	log                   *zap.Logger
+	configs               map[registry.ID]*api.ClientConfig
+	services              map[registry.ID]*Client
+	peers                 map[registry.ID]*peer.Receiver
+	clientInterceptors    []interceptor.ClientInterceptor
+	mu                    sync.RWMutex
 }
 
 // ManagerOption configures a Manager instance
@@ -73,6 +74,14 @@ func WithEnvRegistry(reg env.Registry) ManagerOption {
 func WithDataConverter(dc converter.DataConverter) ManagerOption {
 	return func(m *Manager) {
 		m.dataConverter = dc
+		m.dataConverterProvider = func() converter.DataConverter { return dc }
+	}
+}
+
+// WithDataConverterProvider sets the data converter builder for the Manager.
+func WithDataConverterProvider(provider func() converter.DataConverter) ManagerOption {
+	return func(m *Manager) {
+		m.dataConverterProvider = provider
 	}
 }
 
@@ -116,7 +125,11 @@ func NewManager(opts ...ManagerOption) (*Manager, error) {
 	}
 
 	if m.factory == nil {
-		m.factory = NewDefaultClientFactory(m.env, m.dataConverter, m.clientInterceptors)
+		provider := m.dataConverterProvider
+		if provider == nil && m.dataConverter != nil {
+			provider = func() converter.DataConverter { return m.dataConverter }
+		}
+		m.factory = NewDefaultClientFactory(m.env, provider, m.clientInterceptors)
 	}
 
 	return m, nil

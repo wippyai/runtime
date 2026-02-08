@@ -6,22 +6,31 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/service/temporal"
+	luapayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
+	systempayload "github.com/wippyai/runtime/system/payload"
 	"go.temporal.io/sdk/interceptor"
 	"go.uber.org/zap"
 )
 
+func newFactoryTestTranscoder() payload.Transcoder {
+	transcoder := systempayload.NewTranscoder()
+	luapayload.RegisterAllBasicFormats(transcoder)
+	return transcoder
+}
+
 func TestNewDefaultWorkerFactory(t *testing.T) {
 	t.Run("creates factory without interceptors", func(t *testing.T) {
-		factory := NewDefaultWorkerFactory(nil, nil)
+		factory := NewDefaultWorkerFactory(nil, nil, newFactoryTestTranscoder())
 		require.NotNil(t, factory)
 		assert.Nil(t, factory.interceptors)
 	})
 
 	t.Run("creates factory with interceptors", func(t *testing.T) {
 		interceptors := make([]interceptor.WorkerInterceptor, 0)
-		factory := NewDefaultWorkerFactory(nil, interceptors)
+		factory := NewDefaultWorkerFactory(nil, interceptors, newFactoryTestTranscoder())
 		require.NotNil(t, factory)
 		assert.NotNil(t, factory.interceptors)
 	})
@@ -29,7 +38,7 @@ func TestNewDefaultWorkerFactory(t *testing.T) {
 
 func TestDefaultWorkerFactory_CreateWorker(t *testing.T) {
 	logger := zap.NewNop()
-	factory := NewDefaultWorkerFactory(nil, nil)
+	factory := NewDefaultWorkerFactory(nil, nil, newFactoryTestTranscoder())
 
 	t.Run("creates worker with valid config", func(t *testing.T) {
 		config := &api.WorkerConfig{

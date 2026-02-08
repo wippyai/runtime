@@ -187,6 +187,9 @@ Returns a History object for accessing registry version history.
 ### apply_version(version: Version) → boolean, error
 
 Applies a specific version to the registry, effectively rolling back or forward.
+This operation **re-runs registry directives/effects** on the version changeset,
+so module baseline entries are rebuilt consistently with the dependency set.
+Directive implementations should be deterministic and avoid non-essential I/O.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|

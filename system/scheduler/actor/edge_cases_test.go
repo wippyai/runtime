@@ -45,35 +45,20 @@ func (p *UpgradeProcess) Close()                    {}
 
 // TestUpgradeNoRequest tests upgrade with nil request
 func TestUpgradeNoRequest(t *testing.T) {
-	var completed atomic.Bool
-	var result *runtime.Result
+	reg := scheduler.NewRegistry()
+	reg.Register(CmdComplete, CompleteHandler())
+	reg.Register(CmdYield, YieldHandler())
+	te := newTestExecutorWithRegistry(1, reg)
+	te.Start()
+	defer te.Stop()
 
-	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ pidapi.PID, res *runtime.Result) {
-			result = res
-			completed.Store(true)
-		},
-	}
-
-	sched := newTestSchedulerWithLifecycle(1, lc)
-	sched.Start()
-	defer testStopScheduler(sched)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	pid := pidapi.PID{UniqID: "upgrade-no-req"}
-	proc := &UpgradeProcess{upgradeReq: nil}
-
-	_, err := sched.Submit(context.Background(), pid, proc, "", nil)
+	result, err := te.Execute(ctx, pid, &UpgradeProcess{upgradeReq: nil}, "", nil)
 	if err != nil {
-		t.Fatalf("submit error: %v", err)
-	}
-
-	deadline := time.Now().Add(2 * time.Second)
-	for !completed.Load() && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	if !completed.Load() {
-		t.Fatal("process did not complete")
+		t.Fatalf("execute error: %v", err)
 	}
 
 	if result.Error == nil || result.Error.Error() != "upgrade: no request" {
@@ -83,19 +68,15 @@ func TestUpgradeNoRequest(t *testing.T) {
 
 // TestUpgradeNoFactory tests upgrade without factory in context
 func TestUpgradeNoFactory(t *testing.T) {
-	var completed atomic.Bool
-	var result *runtime.Result
+	reg := scheduler.NewRegistry()
+	reg.Register(CmdComplete, CompleteHandler())
+	reg.Register(CmdYield, YieldHandler())
+	te := newTestExecutorWithRegistry(1, reg)
+	te.Start()
+	defer te.Stop()
 
-	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ pidapi.PID, res *runtime.Result) {
-			result = res
-			completed.Store(true)
-		},
-	}
-
-	sched := newTestSchedulerWithLifecycle(1, lc)
-	sched.Start()
-	defer testStopScheduler(sched)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	pid := pidapi.PID{UniqID: "upgrade-no-factory"}
 	proc := &UpgradeProcess{
@@ -104,18 +85,9 @@ func TestUpgradeNoFactory(t *testing.T) {
 		},
 	}
 
-	_, err := sched.Submit(context.Background(), pid, proc, "", nil)
+	result, err := te.Execute(ctx, pid, proc, "", nil)
 	if err != nil {
-		t.Fatalf("submit error: %v", err)
-	}
-
-	deadline := time.Now().Add(2 * time.Second)
-	for !completed.Load() && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	if !completed.Load() {
-		t.Fatal("process did not complete")
+		t.Fatalf("execute error: %v", err)
 	}
 
 	if result.Error == nil || result.Error.Error() != "upgrade: no factory" {
@@ -137,46 +109,28 @@ func (f *mockFactory) Create(id registry.ID) (process.Process, *process.Meta, er
 
 // TestUpgradeNoSource tests upgrade with empty source and no frame ID
 func TestUpgradeNoSource(t *testing.T) {
-	var completed atomic.Bool
-	var result *runtime.Result
-
-	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ pidapi.PID, res *runtime.Result) {
-			result = res
-			completed.Store(true)
-		},
-	}
-
 	reg := scheduler.NewRegistry()
 	reg.Register(CmdYield, YieldHandler())
-	sched := NewScheduler(reg, WithWorkers(1), WithLifecycle(lc))
-	sched.Start()
-	defer testStopScheduler(sched)
+	te := newTestExecutorWithRegistry(1, reg)
+	te.Start()
+	defer te.Stop()
 
-	// Create context with factory but no frame ID
 	appCtx := ctxapi.NewAppContext()
 	ctx := ctxapi.WithAppContext(context.Background(), appCtx)
 	process.WithFactory(ctx, &mockFactory{})
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 
 	pid := pidapi.PID{UniqID: "upgrade-no-source"}
 	proc := &UpgradeProcess{
 		upgradeReq: &process.UpgradeRequest{
-			Source: registry.ID{}, // empty source
+			Source: registry.ID{},
 		},
 	}
 
-	_, err := sched.Submit(ctx, pid, proc, "", nil)
+	result, err := te.Execute(ctx, pid, proc, "", nil)
 	if err != nil {
-		t.Fatalf("submit error: %v", err)
-	}
-
-	deadline := time.Now().Add(2 * time.Second)
-	for !completed.Load() && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	if !completed.Load() {
-		t.Fatal("process did not complete")
+		t.Fatalf("execute error: %v", err)
 	}
 
 	if result.Error == nil || result.Error.Error() != "upgrade: no source" {
@@ -186,20 +140,10 @@ func TestUpgradeNoSource(t *testing.T) {
 
 // TestUpgradeCreateFailed tests upgrade when factory.Create fails
 func TestUpgradeCreateFailed(t *testing.T) {
-	var completed atomic.Bool
-	var result *runtime.Result
-
-	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ pidapi.PID, res *runtime.Result) {
-			result = res
-			completed.Store(true)
-		},
-	}
-
 	reg := scheduler.NewRegistry()
-	sched := NewScheduler(reg, WithWorkers(1), WithLifecycle(lc))
-	sched.Start()
-	defer testStopScheduler(sched)
+	te := newTestExecutorWithRegistry(1, reg)
+	te.Start()
+	defer te.Stop()
 
 	appCtx := ctxapi.NewAppContext()
 	ctx := ctxapi.WithAppContext(context.Background(), appCtx)
@@ -208,6 +152,8 @@ func TestUpgradeCreateFailed(t *testing.T) {
 			return nil, nil, errors.New("create failed")
 		},
 	})
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 
 	pid := pidapi.PID{UniqID: "upgrade-create-fail"}
 	proc := &UpgradeProcess{
@@ -216,28 +162,16 @@ func TestUpgradeCreateFailed(t *testing.T) {
 		},
 	}
 
-	_, err := sched.Submit(ctx, pid, proc, "", nil)
+	result, err := te.Execute(ctx, pid, proc, "", nil)
 	if err != nil {
-		t.Fatalf("submit error: %v", err)
-	}
-
-	deadline := time.Now().Add(2 * time.Second)
-	for !completed.Load() && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	if !completed.Load() {
-		t.Fatal("process did not complete")
+		t.Fatalf("execute error: %v", err)
 	}
 
 	if result.Error == nil {
 		t.Fatal("expected error")
 	}
-	if !errors.Is(result.Error, errors.New("")) {
-		// Check error message contains expected text
-		if result.Error.Error() != "upgrade: create failed: create failed" {
-			t.Logf("got error: %v", result.Error)
-		}
+	if result.Error.Error() != "upgrade: create failed: create failed" {
+		t.Fatalf("expected 'upgrade: create failed: create failed', got %v", result.Error)
 	}
 }
 
@@ -253,20 +187,10 @@ func (p *FailingInitProcess) Close()                                            
 
 // TestUpgradeInitFailed tests upgrade when new process Init fails
 func TestUpgradeInitFailed(t *testing.T) {
-	var completed atomic.Bool
-	var result *runtime.Result
-
-	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ pidapi.PID, res *runtime.Result) {
-			result = res
-			completed.Store(true)
-		},
-	}
-
 	reg := scheduler.NewRegistry()
-	sched := NewScheduler(reg, WithWorkers(1), WithLifecycle(lc))
-	sched.Start()
-	defer testStopScheduler(sched)
+	te := newTestExecutorWithRegistry(1, reg)
+	te.Start()
+	defer te.Stop()
 
 	appCtx := ctxapi.NewAppContext()
 	ctx := ctxapi.WithAppContext(context.Background(), appCtx)
@@ -275,6 +199,8 @@ func TestUpgradeInitFailed(t *testing.T) {
 			return &FailingInitProcess{}, nil, nil
 		},
 	})
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 
 	pid := pidapi.PID{UniqID: "upgrade-init-fail"}
 	proc := &UpgradeProcess{
@@ -283,18 +209,9 @@ func TestUpgradeInitFailed(t *testing.T) {
 		},
 	}
 
-	_, err := sched.Submit(ctx, pid, proc, "", nil)
+	result, err := te.Execute(ctx, pid, proc, "", nil)
 	if err != nil {
-		t.Fatalf("submit error: %v", err)
-	}
-
-	deadline := time.Now().Add(2 * time.Second)
-	for !completed.Load() && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	if !completed.Load() {
-		t.Fatal("process did not complete")
+		t.Fatalf("execute error: %v", err)
 	}
 
 	if result.Error == nil {
@@ -315,20 +232,10 @@ func (p *ImmediateProcess) Close()                    {}
 
 // TestUpgradeSuccess tests successful upgrade
 func TestUpgradeSuccess(t *testing.T) {
-	var completed atomic.Bool
-	var result *runtime.Result
-
-	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ pidapi.PID, res *runtime.Result) {
-			result = res
-			completed.Store(true)
-		},
-	}
-
 	reg := scheduler.NewRegistry()
-	sched := NewScheduler(reg, WithWorkers(1), WithLifecycle(lc))
-	sched.Start()
-	defer testStopScheduler(sched)
+	te := newTestExecutorWithRegistry(1, reg)
+	te.Start()
+	defer te.Stop()
 
 	appCtx := ctxapi.NewAppContext()
 	ctx := ctxapi.WithAppContext(context.Background(), appCtx)
@@ -337,6 +244,8 @@ func TestUpgradeSuccess(t *testing.T) {
 			return &ImmediateProcess{}, &process.Meta{Method: "run"}, nil
 		},
 	})
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 
 	pid := pidapi.PID{UniqID: "upgrade-success"}
 	proc := &UpgradeProcess{
@@ -345,18 +254,9 @@ func TestUpgradeSuccess(t *testing.T) {
 		},
 	}
 
-	_, err := sched.Submit(ctx, pid, proc, "", nil)
+	result, err := te.Execute(ctx, pid, proc, "", nil)
 	if err != nil {
-		t.Fatalf("submit error: %v", err)
-	}
-
-	deadline := time.Now().Add(2 * time.Second)
-	for !completed.Load() && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	if !completed.Load() {
-		t.Fatal("process did not complete")
+		t.Fatalf("execute error: %v", err)
 	}
 
 	if result.Error != nil {
@@ -398,40 +298,20 @@ func (p *UnknownYieldProcess) Close()                    {}
 
 // TestUnknownCommandHandler tests yield with unregistered command
 func TestUnknownCommandHandler(t *testing.T) {
-	var completed atomic.Bool
-	var result *runtime.Result
-
-	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ pidapi.PID, res *runtime.Result) {
-			result = res
-			completed.Store(true)
-		},
-	}
-
 	reg := scheduler.NewRegistry()
-	// Don't register handler for command 999
-	sched := NewScheduler(reg, WithWorkers(1), WithLifecycle(lc))
-	sched.Start()
-	defer testStopScheduler(sched)
+	te := newTestExecutorWithRegistry(1, reg)
+	te.Start()
+	defer te.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	pid := pidapi.PID{UniqID: "unknown-cmd"}
-	proc := &UnknownYieldProcess{}
-
-	_, err := sched.Submit(context.Background(), pid, proc, "", nil)
+	result, err := te.Execute(ctx, pid, &UnknownYieldProcess{}, "", nil)
 	if err != nil {
-		t.Fatalf("submit error: %v", err)
+		t.Fatalf("execute error: %v", err)
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
-	for !completed.Load() && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	if !completed.Load() {
-		t.Fatal("process did not complete")
-	}
-
-	// Process should complete with unknown command error
 	if result.Error == nil {
 		t.Fatal("expected error for unknown command")
 	}
@@ -474,37 +354,19 @@ func (p *HandlerErrorProcess) Close()                    {}
 
 // TestHandlerError tests handler returning error
 func TestHandlerError(t *testing.T) {
-	var completed atomic.Bool
-	var result *runtime.Result
-
-	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ pidapi.PID, res *runtime.Result) {
-			result = res
-			completed.Store(true)
-		},
-	}
-
 	reg := scheduler.NewRegistry()
 	reg.Register(CmdYield, &FailingHandler{})
-	sched := NewScheduler(reg, WithWorkers(1), WithLifecycle(lc))
-	sched.Start()
-	defer testStopScheduler(sched)
+	te := newTestExecutorWithRegistry(1, reg)
+	te.Start()
+	defer te.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	pid := pidapi.PID{UniqID: "handler-error"}
-	proc := &HandlerErrorProcess{}
-
-	_, err := sched.Submit(context.Background(), pid, proc, "", nil)
+	result, err := te.Execute(ctx, pid, &HandlerErrorProcess{}, "", nil)
 	if err != nil {
-		t.Fatalf("submit error: %v", err)
-	}
-
-	deadline := time.Now().Add(2 * time.Second)
-	for !completed.Load() && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	if !completed.Load() {
-		t.Fatal("process did not complete")
+		t.Fatalf("execute error: %v", err)
 	}
 
 	if result.Error == nil {
@@ -597,33 +459,20 @@ func (p *StepErrorProcess) Close()                    {}
 
 // TestStepError tests process Step returning error
 func TestStepError(t *testing.T) {
-	var completed atomic.Bool
-	var result *runtime.Result
+	reg := scheduler.NewRegistry()
+	reg.Register(CmdComplete, CompleteHandler())
+	reg.Register(CmdYield, YieldHandler())
+	te := newTestExecutorWithRegistry(1, reg)
+	te.Start()
+	defer te.Stop()
 
-	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ pidapi.PID, res *runtime.Result) {
-			result = res
-			completed.Store(true)
-		},
-	}
-
-	sched := newTestSchedulerWithLifecycle(1, lc)
-	sched.Start()
-	defer testStopScheduler(sched)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	pid := pidapi.PID{UniqID: "step-error"}
-	_, err := sched.Submit(context.Background(), pid, &StepErrorProcess{}, "", nil)
+	result, err := te.Execute(ctx, pid, &StepErrorProcess{}, "", nil)
 	if err != nil {
-		t.Fatalf("submit error: %v", err)
-	}
-
-	deadline := time.Now().Add(2 * time.Second)
-	for !completed.Load() && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	if !completed.Load() {
-		t.Fatal("process did not complete")
+		t.Fatalf("execute error: %v", err)
 	}
 
 	if result.Error == nil || result.Error.Error() != "step failed" {
@@ -849,19 +698,9 @@ func TestCollectProcessStatsWithProvider(t *testing.T) {
 
 // TestWakeProcessorPath tests the WakeProcessor mechanism via YieldCompleter
 func TestWakeProcessorPath(t *testing.T) {
-	var completed atomic.Bool
-
-	lc := &testLifecycle{
-		onComplete: func(_ context.Context, _ pidapi.PID, _ *runtime.Result) {
-			completed.Store(true)
-		},
-	}
-
 	reg := scheduler.NewRegistry()
-	// Handler that uses YieldCompleter path (accesses internal fields since same package)
 	reg.Register(CmdYield, dispatcher.HandlerFunc(func(_ context.Context, _ dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 		proc := receiver.(*Processor)
-		// Create YieldCompleter which uses WakeProcessor
 		completer := proc.queue.NewYieldCompleter(proc.scheduler)
 		go func() {
 			time.Sleep(10 * time.Millisecond)
@@ -870,23 +709,17 @@ func TestWakeProcessorPath(t *testing.T) {
 		return nil
 	}))
 
-	sched := NewScheduler(reg, WithWorkers(1), WithLifecycle(lc))
-	sched.Start()
-	defer testStopScheduler(sched)
+	te := newTestExecutorWithRegistry(1, reg)
+	te.Start()
+	defer te.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	pid := pidapi.PID{UniqID: "wake-processor"}
-	_, err := sched.Submit(context.Background(), pid, &YieldingProcess{count: 1}, "", nil)
+	_, err := te.Execute(ctx, pid, &YieldingProcess{count: 1}, "", nil)
 	if err != nil {
-		t.Fatalf("submit error: %v", err)
-	}
-
-	deadline := time.Now().Add(2 * time.Second)
-	for !completed.Load() && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	if !completed.Load() {
-		t.Fatal("process did not complete via WakeProcessor path")
+		t.Fatalf("execute error: %v", err)
 	}
 }
 

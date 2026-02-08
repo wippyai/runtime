@@ -3,6 +3,7 @@ package lsp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -10,9 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 	golualsp "github.com/wippyai/go-lua/lsp"
 	"github.com/wippyai/go-lua/lsp/index"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/runtime/lua/lsp/indexing"
+	"github.com/wippyai/runtime/runtime/lua/lsp/transport"
 )
 
-func newTestHandler() *Handler {
+func newTestHandler() *transport.Handler {
 	cache := index.NewDB()
 	symbols := index.NewSymbolIndex()
 	callGraph := index.NewCallGraph()
@@ -22,24 +26,19 @@ func newTestHandler() *Handler {
 		lspService: lspSvc,
 	}
 
-	return &Handler{svc: svc}
+	return transport.NewHandler(svc)
 }
 
 // respError converts a response error to a standard error for use with require.NoError.
-func respError(resp *Response) error {
+func respError(resp *transport.Response) error {
 	if resp.Error != nil {
-		return resp.Error
+		return errors.New(resp.Error.Message)
 	}
 	return nil
 }
 
-// Error implements the error interface for ResponseError.
-func (e *ResponseError) Error() string {
-	return e.Message
-}
-
 func TestHandler_HandleNotification(t *testing.T) {
-	h := &Handler{}
+	h := transport.NewHandler(nil)
 
 	tests := []struct {
 		name   string
@@ -53,7 +52,7 @@ func TestHandler_HandleNotification(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := &Request{Method: tt.method}
+			req := &transport.Request{Method: tt.method}
 			resp := h.Handle(context.Background(), req)
 			assert.Nil(t, resp, "notification should return nil response")
 		})
@@ -63,7 +62,7 @@ func TestHandler_HandleNotification(t *testing.T) {
 func TestHandler_HandleRequest_MethodNotFound(t *testing.T) {
 	h := newTestHandler()
 
-	req := &Request{
+	req := &transport.Request{
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "unknown/method",
@@ -72,7 +71,7 @@ func TestHandler_HandleRequest_MethodNotFound(t *testing.T) {
 	resp := h.Handle(context.Background(), req)
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.Error)
-	assert.Equal(t, MethodNotFound, resp.Error.Code)
+	assert.Equal(t, transport.MethodNotFound, resp.Error.Code)
 }
 
 func TestHandler_HandleRequest_Timeout(t *testing.T) {
@@ -83,7 +82,7 @@ func TestHandler_HandleRequest_Timeout(t *testing.T) {
 
 	time.Sleep(5 * time.Millisecond)
 
-	req := &Request{
+	req := &transport.Request{
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "shutdown",
@@ -92,13 +91,13 @@ func TestHandler_HandleRequest_Timeout(t *testing.T) {
 	resp := h.Handle(ctx, req)
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.Error)
-	assert.Equal(t, RequestCancelled, resp.Error.Code)
+	assert.Equal(t, transport.RequestCancelled, resp.Error.Code)
 }
 
 func TestHandler_Initialize(t *testing.T) {
 	h := newTestHandler()
 
-	req := &Request{
+	req := &transport.Request{
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "initialize",
@@ -109,8 +108,8 @@ func TestHandler_Initialize(t *testing.T) {
 	require.NotNil(t, resp)
 	require.NoError(t, respError(resp))
 
-	result, ok := resp.Result.(InitializeResult)
-	require.True(t, ok, "expected InitializeResult")
+	result, ok := resp.Result.(transport.InitializeResult)
+	require.True(t, ok, "expected transport.InitializeResult")
 
 	assert.True(t, result.Capabilities.HoverProvider)
 	assert.True(t, result.Capabilities.DefinitionProvider)
@@ -122,7 +121,7 @@ func TestHandler_Initialize(t *testing.T) {
 func TestHandler_Shutdown(t *testing.T) {
 	h := newTestHandler()
 
-	req := &Request{
+	req := &transport.Request{
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "shutdown",
@@ -155,7 +154,7 @@ func TestHandler_InvalidParams(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := &Request{
+			req := &transport.Request{
 				JSONRPC: "2.0",
 				ID:      1,
 				Method:  tt.method,
@@ -165,13 +164,13 @@ func TestHandler_InvalidParams(t *testing.T) {
 			resp := h.Handle(context.Background(), req)
 			require.NotNil(t, resp)
 			require.NotNil(t, resp.Error)
-			assert.Equal(t, InvalidParams, resp.Error.Code)
+			assert.Equal(t, transport.InvalidParams, resp.Error.Code)
 		})
 	}
 }
 
 func TestHandler_NilService(t *testing.T) {
-	h := &Handler{svc: nil}
+	h := transport.NewHandler(nil)
 
 	methods := []string{
 		"textDocument/hover",
@@ -188,7 +187,7 @@ func TestHandler_NilService(t *testing.T) {
 
 	for _, method := range methods {
 		t.Run(method, func(t *testing.T) {
-			req := &Request{
+			req := &transport.Request{
 				JSONRPC: "2.0",
 				ID:      1,
 				Method:  method,
@@ -198,7 +197,7 @@ func TestHandler_NilService(t *testing.T) {
 			resp := h.Handle(context.Background(), req)
 			require.NotNil(t, resp)
 			require.NotNil(t, resp.Error)
-			assert.Equal(t, ServerNotInitialized, resp.Error.Code)
+			assert.Equal(t, transport.ServerNotInitialized, resp.Error.Code)
 		})
 	}
 }
@@ -206,7 +205,7 @@ func TestHandler_NilService(t *testing.T) {
 func TestHandler_HoverWithValidParams(t *testing.T) {
 	h := newTestHandler()
 
-	req := &Request{
+	req := &transport.Request{
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "textDocument/hover",
@@ -221,7 +220,7 @@ func TestHandler_HoverWithValidParams(t *testing.T) {
 func TestHandler_DefinitionWithValidParams(t *testing.T) {
 	h := newTestHandler()
 
-	req := &Request{
+	req := &transport.Request{
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "textDocument/definition",
@@ -236,7 +235,7 @@ func TestHandler_DefinitionWithValidParams(t *testing.T) {
 func TestHandler_DocumentSymbolWithValidParams(t *testing.T) {
 	h := newTestHandler()
 
-	req := &Request{
+	req := &transport.Request{
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "textDocument/documentSymbol",
@@ -251,7 +250,7 @@ func TestHandler_DocumentSymbolWithValidParams(t *testing.T) {
 func TestHandler_WorkspaceSymbolWithValidParams(t *testing.T) {
 	h := newTestHandler()
 
-	req := &Request{
+	req := &transport.Request{
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "workspace/symbol",
@@ -290,7 +289,7 @@ func TestHandler_CallHierarchyWithValidParams(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := &Request{
+			req := &transport.Request{
 				JSONRPC: "2.0",
 				ID:      1,
 				Method:  tt.method,
@@ -310,7 +309,7 @@ func TestHandler_EarlyCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	req := &Request{
+	req := &transport.Request{
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "textDocument/hover",
@@ -320,12 +319,12 @@ func TestHandler_EarlyCancellation(t *testing.T) {
 	resp := h.Handle(ctx, req)
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.Error)
-	assert.Equal(t, RequestCancelled, resp.Error.Code)
+	assert.Equal(t, transport.RequestCancelled, resp.Error.Code)
 }
 
 func TestHandler_NilLSPService(t *testing.T) {
 	svc := &Service{lspService: nil}
-	h := &Handler{svc: svc}
+	h := transport.NewHandler(svc)
 
 	methods := []struct {
 		name   string
@@ -337,7 +336,7 @@ func TestHandler_NilLSPService(t *testing.T) {
 
 	for _, tt := range methods {
 		t.Run(tt.name, func(t *testing.T) {
-			req := &Request{
+			req := &transport.Request{
 				JSONRPC: "2.0",
 				ID:      1,
 				Method:  tt.name,
@@ -347,7 +346,71 @@ func TestHandler_NilLSPService(t *testing.T) {
 			resp := h.Handle(context.Background(), req)
 			require.NotNil(t, resp)
 			require.NotNil(t, resp.Error)
-			assert.Equal(t, ServerNotInitialized, resp.Error.Code)
+			assert.Equal(t, transport.ServerNotInitialized, resp.Error.Code)
 		})
 	}
+}
+
+func TestHandler_DocumentSyncLifecycle(t *testing.T) {
+	svc := &Service{
+		documents: indexing.NewDocumentStore(),
+		running:   true,
+	}
+	h := transport.NewHandler(svc)
+
+	openReq := &transport.Request{
+		Method: "textDocument/didOpen",
+		Params: json.RawMessage(`{"textDocument":{"uri":"wippy://app:test","version":1,"text":"return {}"}}`),
+	}
+	resp := h.Handle(context.Background(), openReq)
+	require.Nil(t, resp)
+
+	doc, ok := svc.documents.Get(registry.ParseID("app:test"))
+	require.True(t, ok)
+	assert.Equal(t, "return {}", doc.Text)
+	assert.Equal(t, 1, doc.Version)
+
+	changeReq := &transport.Request{
+		Method: "textDocument/didChange",
+		Params: json.RawMessage(`{"textDocument":{"uri":"wippy://app:test","version":2},"contentChanges":[{"text":"return {a=1}"}]}`),
+	}
+	resp = h.Handle(context.Background(), changeReq)
+	require.Nil(t, resp)
+
+	doc, ok = svc.documents.Get(registry.ParseID("app:test"))
+	require.True(t, ok)
+	assert.Equal(t, "return {a=1}", doc.Text)
+	assert.Equal(t, 2, doc.Version)
+
+	closeReq := &transport.Request{
+		Method: "textDocument/didClose",
+		Params: json.RawMessage(`{"textDocument":{"uri":"wippy://app:test"}}`),
+	}
+	resp = h.Handle(context.Background(), closeReq)
+	require.Nil(t, resp)
+
+	_, ok = svc.documents.Get(registry.ParseID("app:test"))
+	assert.False(t, ok)
+}
+
+func TestHandler_DocumentSyncOpenResetsVersion(t *testing.T) {
+	svc := &Service{
+		documents: indexing.NewDocumentStore(),
+		running:   true,
+	}
+	h := transport.NewHandler(svc)
+
+	svc.documents.Set(registry.ParseID("app:test"), "return {old=true}", 10)
+
+	openReq := &transport.Request{
+		Method: "textDocument/didOpen",
+		Params: json.RawMessage(`{"textDocument":{"uri":"wippy://app:test","version":1,"text":"return {new=true}"}}`),
+	}
+	resp := h.Handle(context.Background(), openReq)
+	require.Nil(t, resp)
+
+	doc, ok := svc.documents.Get(registry.ParseID("app:test"))
+	require.True(t, ok)
+	assert.Equal(t, "return {new=true}", doc.Text)
+	assert.Equal(t, 1, doc.Version)
 }

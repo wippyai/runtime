@@ -193,16 +193,9 @@ func (h *Host) Stop(ctx context.Context) error {
 	return nil
 }
 
-// preparePID generates a PID or uses one from options.
+// preparePID generates a PID for the process.
 func (h *Host) preparePID(ctx context.Context, start *process.Start) pid.PID {
-	if start.Options != nil {
-		if pidVal, ok := start.Options.Get(process.OptionPID); ok {
-			if processID, ok := pidVal.(pid.PID); ok {
-				return processID
-			}
-		}
-	}
-
+	_ = start
 	gen := process.GetPIDGenerator(ctx)
 	return gen.Generate(h.id.String())
 }

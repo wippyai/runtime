@@ -23,10 +23,8 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	bootpkg "github.com/wippyai/runtime/boot"
 	luaboot "github.com/wippyai/runtime/boot/components/runtime/lua"
-	"github.com/wippyai/runtime/boot/deps/lock"
 	bootextensions "github.com/wippyai/runtime/boot/extensions"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
-	"github.com/wippyai/runtime/cmd/internal/entries"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/code/lint"
@@ -361,9 +359,9 @@ func bootstrapLintContext() (ctx context.Context, loader *bootpkg.Loader, err er
 func loadLuaEntries(cmd *cobra.Command, lockFile string, nsFilters []string) ([]regapi.Entry, map[regapi.ID]bool, error) {
 	logger := zap.NewNop()
 
-	lockPath, err := lock.Find(".", lockFile)
+	lockPath, lockObj, err := loadValidatedLock(".", lockFile)
 	if err != nil {
-		return nil, nil, NewLockFileNotFoundError(err)
+		return nil, nil, err
 	}
 
 	app, err := appinit.Init(cmd.Context(), verbose, veryVerbose, console, silentLogs, appStartTime)
@@ -371,22 +369,9 @@ func loadLuaEntries(cmd *cobra.Command, lockFile string, nsFilters []string) ([]
 		return nil, nil, NewInitAppError(err)
 	}
 
-	if err := entries.EnsureModulesInstalled(app.Ctx, lockPath, logger); err != nil {
-		return nil, nil, NewEnsureModulesInstalledError(err)
-	}
-
-	lockObj, err := lock.New(lockPath)
+	allEntries, err := ensureModulesAndLoadEntries(app.Ctx, lockPath, lockObj, logger, false)
 	if err != nil {
-		return nil, nil, NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
-	}
-
-	if err := lock.Validate(lockObj); err != nil {
-		return nil, nil, NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
-	}
-
-	allEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, app.Logger)
-	if err != nil {
-		return nil, nil, NewLoadEntriesError(fmt.Sprintf("lock paths (%s)", lockPath), err)
+		return nil, nil, err
 	}
 
 	allLua := filterLuaEntries(allEntries, nil)
@@ -836,6 +821,14 @@ func extractEntryData(entry regapi.Entry) entryData {
 		return entryData{}
 	}
 
+	// Fast path: loader entries usually carry golang map payloads.
+	if m, ok := entry.Data.Data().(map[string]any); ok {
+		return entryDataFromMap(m)
+	}
+	if m, ok := entry.Data.Data().(map[string]interface{}); ok {
+		return entryDataFromMap(m)
+	}
+
 	var cfg struct {
 		Source  string               `json:"source"`
 		Method  string               `json:"method"`
@@ -856,6 +849,74 @@ func extractEntryData(entry regapi.Entry) entryData {
 	}
 
 	return entryData{Source: cfg.Source, Imports: imports, Method: cfg.Method}
+}
+
+func entryDataFromMap(m map[string]any) entryData {
+	if m == nil {
+		return entryData{}
+	}
+
+	data := entryData{
+		Imports: make(map[string]regapi.ID),
+	}
+
+	if source, ok := m["source"].(string); ok {
+		data.Source = source
+	}
+	if method, ok := m["method"].(string); ok {
+		data.Method = method
+	}
+
+	if rawImports, ok := m["imports"].(map[string]any); ok {
+		for alias, raw := range rawImports {
+			if id, ok := parseRegistryID(raw); ok {
+				data.Imports[alias] = id
+			}
+		}
+	}
+	if rawImports, ok := m["imports"].(map[string]regapi.ID); ok {
+		for alias, id := range rawImports {
+			data.Imports[alias] = id
+		}
+	}
+
+	if rawModules, ok := m["modules"].([]any); ok {
+		for _, mod := range rawModules {
+			if modName, ok := mod.(string); ok && modName != "" {
+				data.Imports[modName] = regapi.NewID("", modName)
+			}
+		}
+	}
+	if rawModules, ok := m["modules"].([]string); ok {
+		for _, modName := range rawModules {
+			if modName != "" {
+				data.Imports[modName] = regapi.NewID("", modName)
+			}
+		}
+	}
+
+	return data
+}
+
+func parseRegistryID(v any) (regapi.ID, bool) {
+	switch typed := v.(type) {
+	case regapi.ID:
+		return typed, true
+	case string:
+		if typed == "" {
+			return regapi.ID{}, false
+		}
+		return regapi.ParseID(typed), true
+	case map[string]any:
+		ns, _ := typed["ns"].(string)
+		name, _ := typed["name"].(string)
+		if name == "" {
+			return regapi.ID{}, false
+		}
+		return regapi.NewID(ns, name), true
+	default:
+		return regapi.ID{}, false
+	}
 }
 
 // luaImportResolver extracts Lua import dependencies from entries.

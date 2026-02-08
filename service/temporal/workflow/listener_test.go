@@ -162,8 +162,8 @@ func TestWorkflowListenerDefaultNamespace(t *testing.T) {
 // Helper to create workflow metadata
 func createWorkflowMeta(workerID string) attrs.Bag {
 	meta := attrs.NewBag()
-	meta.Set("temporal", map[string]interface{}{
-		"workflow": map[string]interface{}{
+	meta.Set("temporal", map[string]any{
+		"workflow": map[string]any{
 			"worker": workerID,
 		},
 	})

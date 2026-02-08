@@ -154,7 +154,7 @@ func (m *mockDriverForDecl) GetQueueInfo(_ context.Context, _ registry.ID) (attr
 
 type mockDTTForDecl struct{}
 
-func (m *mockDTTForDecl) Unmarshal(p payload.Payload, v interface{}) error {
+func (m *mockDTTForDecl) Unmarshal(p payload.Payload, v any) error {
 	if config, ok := v.(*queuecfg.Config); ok {
 		if src, ok := p.Data().(*queuecfg.Config); ok {
 			*config = *src

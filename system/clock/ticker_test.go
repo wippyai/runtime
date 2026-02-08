@@ -221,21 +221,39 @@ func TestTickerRegistry_ContextCancel(t *testing.T) {
 
 	id := r.start(ctx, 10*time.Millisecond, testPID, "tick-topic", node)
 
-	// Wait for a tick
-	time.Sleep(15 * time.Millisecond)
-	beforeCancel := node.packagesReceived()
+	// Wait for first tick deterministically to avoid scheduler jitter flakiness.
+	beforeCancel := waitForPackages(t, node, 1, 200*time.Millisecond)
 	if beforeCancel == 0 {
 		t.Error("expected at least one tick before cancel")
 	}
 
 	// Cancel context
 	cancel()
-	time.Sleep(30 * time.Millisecond)
 
-	afterCancel := node.packagesReceived()
-	// Ticks should have stopped after context cancel
-	if afterCancel > beforeCancel+1 {
-		t.Errorf("expected ticks to stop after cancel, got %d more", afterCancel-beforeCancel)
+	// Allow at most one in-flight tick, then require count to stabilize.
+	baseline := node.packagesReceived()
+	last := baseline
+	stableSince := time.Now()
+	const stableWindow = 40 * time.Millisecond
+	deadline := time.Now().Add(250 * time.Millisecond)
+
+	for time.Now().Before(deadline) {
+		current := node.packagesReceived()
+		if current != last {
+			last = current
+			stableSince = time.Now()
+		}
+		if time.Since(stableSince) >= stableWindow {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	if time.Since(stableSince) < stableWindow {
+		t.Fatalf("ticker did not stabilize after cancel; last=%d baseline=%d", last, baseline)
+	}
+	if last > baseline+1 {
+		t.Errorf("expected at most one in-flight tick after cancel, got %d", last-baseline)
 	}
 
 	// Entry still exists in registry (context cancel doesn't remove it)

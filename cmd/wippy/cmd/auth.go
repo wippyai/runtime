@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -26,7 +25,7 @@ var (
 )
 
 // authPrintf prints formatted output with optional styling for console mode.
-func authPrintf(console bool, format string, style lipgloss.Style, args ...interface{}) {
+func authPrintf(console bool, format string, style lipgloss.Style, args ...any) {
 	if console {
 		styled := style.Render(fmt.Sprintf(format, args...))
 		fmt.Println(styled)
@@ -253,7 +252,7 @@ func runAuthStatus(cmd *cobra.Command, _ []string) error {
 func readTokenInteractive(registry string) (string, error) {
 	fmt.Printf("Enter API token for %s: ", registry)
 
-	tokenBytes, err := term.ReadPassword(int(syscall.Stdin))
+	tokenBytes, err := term.ReadPassword(stdinFd())
 	if err != nil {
 		reader := bufio.NewReader(os.Stdin)
 		token, err := reader.ReadString('\n')
@@ -288,7 +287,7 @@ func printLoginSuccess(registry string, orgs []string, local bool, console bool)
 }
 
 func printStatusJSON(registry string, cred *auth.Credential, err error) error {
-	status := map[string]interface{}{
+	status := map[string]any{
 		"authenticated": cred != nil && err == nil,
 		"registry":      registry,
 	}

@@ -1,6 +1,7 @@
 package native
 
 import (
+	"context"
 	"io"
 	"os"
 	"os/exec"
@@ -124,13 +125,13 @@ func NewProcessExecutor(log *zap.Logger, opts ...Option) *ProcessExecutor {
 		cmdParts = []string{""}
 	}
 
-	// Create command with first part as executable and rest as arguments
-	// Context handled via Stop()/Signal() methods, not automatic cancellation
+	// Create command with first part as executable and rest as arguments.
+	// Stop()/Signal() still own lifecycle control.
 	var command *exec.Cmd
 	if len(cmdParts) > 1 {
-		command = exec.Command(cmdParts[0], cmdParts[1:]...) //nolint:gosec,noctx // G204: user-provided command, noctx: lifecycle managed via Stop/Signal
+		command = exec.CommandContext(context.Background(), cmdParts[0], cmdParts[1:]...) //nolint:gosec // G204: user-provided command.
 	} else {
-		command = exec.Command(cmdParts[0]) //nolint:gosec,noctx // G204: user-provided command, noctx: lifecycle managed via Stop/Signal
+		command = exec.CommandContext(context.Background(), cmdParts[0]) //nolint:gosec // G204: user-provided command.
 	}
 
 	if e.envs != nil {

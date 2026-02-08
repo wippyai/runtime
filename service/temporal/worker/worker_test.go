@@ -2,15 +2,24 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/resource"
 	api "github.com/wippyai/runtime/api/service/temporal"
+	"github.com/wippyai/runtime/api/supervisor"
+	luapayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
+	systempayload "github.com/wippyai/runtime/system/payload"
+	msgpayload "github.com/wippyai/runtime/system/payload/msgpack"
+	"go.temporal.io/sdk/interceptor"
+	"go.temporal.io/sdk/workflow"
 	"go.uber.org/zap"
 )
 
@@ -33,15 +42,11 @@ func (m *mockEventBus) SubscribeP(_ context.Context, _ event.System, _ event.Kin
 
 func (m *mockEventBus) Unsubscribe(_ context.Context, _ event.SubscriberID) {}
 
-// mockTranscoder implements payload.Transcoder for testing
-type mockTranscoder struct{}
-
-func (m *mockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
-	return p, nil
-}
-
-func (m *mockTranscoder) Unmarshal(_ payload.Payload, _ interface{}) error {
-	return nil
+func newWorkerTestTranscoder() payload.Transcoder {
+	transcoder := systempayload.NewTranscoder()
+	luapayload.RegisterAllBasicFormats(transcoder)
+	msgpayload.Register(transcoder)
+	return transcoder
 }
 
 // mockResourceRegistry implements resource.Registry for testing
@@ -60,7 +65,15 @@ type mockFactory struct {
 }
 
 func (f *mockFactory) CreateWorker(_ context.Context, logger *zap.Logger, id registry.ID, cfg *api.WorkerConfig, _ resource.Registry) (*Worker, error) {
-	w := NewWorker(logger, id, cfg, nil, nil, nil)
+	w, err := NewWorkerBuilder().
+		WithLogger(logger).
+		WithID(id).
+		WithConfig(cfg).
+		WithTranscoder(newWorkerTestTranscoder()).
+		Build()
+	if err != nil {
+		return nil, err
+	}
 	if f.workers == nil {
 		f.workers = make(map[registry.ID]*Worker)
 	}
@@ -68,15 +81,69 @@ func (f *mockFactory) CreateWorker(_ context.Context, logger *zap.Logger, id reg
 	return w, nil
 }
 
+func mustNewWorker(t *testing.T, id registry.ID, cfg *api.WorkerConfig) *Worker {
+	t.Helper()
+
+	worker, err := NewWorkerBuilder().
+		WithLogger(zap.NewNop()).
+		WithID(id).
+		WithConfig(cfg).
+		WithTranscoder(newWorkerTestTranscoder()).
+		Build()
+	require.NoError(t, err)
+	return worker
+}
+
+type failingFactory struct {
+	err error
+}
+
+func (f *failingFactory) CreateWorker(_ context.Context, _ *zap.Logger, _ registry.ID, _ *api.WorkerConfig, _ resource.Registry) (*Worker, error) {
+	return nil, f.err
+}
+
+type mockEnvRegistry struct{}
+
+func (m *mockEnvRegistry) Get(_ context.Context, _ string) (string, error) { return "", nil }
+
+func (m *mockEnvRegistry) Lookup(_ context.Context, _ string) (string, bool, error) {
+	return "", false, nil
+}
+
+func (m *mockEnvRegistry) Set(_ context.Context, _ string, _ string) error { return nil }
+
+func (m *mockEnvRegistry) All(_ context.Context) (map[string]string, error) {
+	return map[string]string{}, nil
+}
+
+func (m *mockEnvRegistry) GetStorage(_ context.Context, _ registry.ID) (env.Storage, error) {
+	return nil, nil
+}
+
+func (m *mockEnvRegistry) RegisterStorage(_ registry.ID, _ env.Storage) {}
+
+func newTestManager(t *testing.T) (*Manager, *mockEventBus) {
+	t.Helper()
+
+	bus := &mockEventBus{}
+	m, err := NewManager(
+		WithLogger(zap.NewNop()),
+		WithTranscoder(newWorkerTestTranscoder()),
+		WithEventBus(bus),
+		WithResourceRegistry(&mockResourceRegistry{}),
+	)
+	require.NoError(t, err)
+	return m, bus
+}
+
 func TestNewWorker(t *testing.T) {
-	logger := zap.NewNop()
 	id := registry.ID{Name: "test-worker"}
 	config := &api.WorkerConfig{
 		Client:    registry.ID{Name: "test-client"},
 		TaskQueue: "test-queue",
 	}
 
-	w := NewWorker(logger, id, config, nil, nil, nil)
+	w := mustNewWorker(t, id, config)
 
 	require.NotNil(t, w)
 	assert.Equal(t, id, w.id)
@@ -88,7 +155,7 @@ func TestNewWorker(t *testing.T) {
 }
 
 func TestWorker_RegisterActivity(t *testing.T) {
-	w := NewWorker(zap.NewNop(), registry.ID{Name: "test"}, &api.WorkerConfig{}, nil, nil, nil)
+	w := mustNewWorker(t, registry.ID{Name: "test"}, &api.WorkerConfig{})
 
 	funcID := registry.ID{Name: "test-func"}
 	err := w.RegisterActivity(context.Background(), "test-activity", funcID)
@@ -104,7 +171,7 @@ func TestWorker_RegisterActivity(t *testing.T) {
 }
 
 func TestWorker_RegisterActivity_Duplicate(t *testing.T) {
-	w := NewWorker(zap.NewNop(), registry.ID{Name: "test"}, &api.WorkerConfig{}, nil, nil, nil)
+	w := mustNewWorker(t, registry.ID{Name: "test"}, &api.WorkerConfig{})
 
 	funcID := registry.ID{Name: "test-func"}
 	err := w.RegisterActivity(context.Background(), "test-activity", funcID)
@@ -116,7 +183,7 @@ func TestWorker_RegisterActivity_Duplicate(t *testing.T) {
 }
 
 func TestWorker_RegisterLocalActivity(t *testing.T) {
-	w := NewWorker(zap.NewNop(), registry.ID{Name: "test"}, &api.WorkerConfig{}, nil, nil, nil)
+	w := mustNewWorker(t, registry.ID{Name: "test"}, &api.WorkerConfig{})
 
 	funcID := registry.ID{Name: "test-func"}
 	err := w.RegisterLocalActivity(context.Background(), "test-local", funcID)
@@ -132,7 +199,7 @@ func TestWorker_RegisterLocalActivity(t *testing.T) {
 }
 
 func TestWorker_RegisterLocalActivity_Duplicate(t *testing.T) {
-	w := NewWorker(zap.NewNop(), registry.ID{Name: "test"}, &api.WorkerConfig{}, nil, nil, nil)
+	w := mustNewWorker(t, registry.ID{Name: "test"}, &api.WorkerConfig{})
 
 	funcID := registry.ID{Name: "test-func"}
 	err := w.RegisterLocalActivity(context.Background(), "test-local", funcID)
@@ -144,7 +211,7 @@ func TestWorker_RegisterLocalActivity_Duplicate(t *testing.T) {
 }
 
 func TestWorker_UnregisterActivity(t *testing.T) {
-	w := NewWorker(zap.NewNop(), registry.ID{Name: "test"}, &api.WorkerConfig{}, nil, nil, nil)
+	w := mustNewWorker(t, registry.ID{Name: "test"}, &api.WorkerConfig{})
 
 	funcID := registry.ID{Name: "test-func"}
 	err := w.RegisterActivity(context.Background(), "test-activity", funcID)
@@ -156,7 +223,7 @@ func TestWorker_UnregisterActivity(t *testing.T) {
 }
 
 func TestWorker_UnregisterActivity_NotFound(t *testing.T) {
-	w := NewWorker(zap.NewNop(), registry.ID{Name: "test"}, &api.WorkerConfig{}, nil, nil, nil)
+	w := mustNewWorker(t, registry.ID{Name: "test"}, &api.WorkerConfig{})
 
 	err := w.UnregisterActivity("nonexistent")
 	require.Error(t, err)
@@ -164,7 +231,7 @@ func TestWorker_UnregisterActivity_NotFound(t *testing.T) {
 }
 
 func TestWorker_RegisterWorkflow(t *testing.T) {
-	w := NewWorker(zap.NewNop(), registry.ID{Name: "test"}, &api.WorkerConfig{}, nil, nil, nil)
+	w := mustNewWorker(t, registry.ID{Name: "test"}, &api.WorkerConfig{})
 
 	handler := func() {}
 	err := w.RegisterWorkflow(context.Background(), "test-workflow", handler)
@@ -179,7 +246,7 @@ func TestWorker_RegisterWorkflow(t *testing.T) {
 }
 
 func TestWorker_RegisterWorkflow_Duplicate(t *testing.T) {
-	w := NewWorker(zap.NewNop(), registry.ID{Name: "test"}, &api.WorkerConfig{}, nil, nil, nil)
+	w := mustNewWorker(t, registry.ID{Name: "test"}, &api.WorkerConfig{})
 
 	handler := func() {}
 	err := w.RegisterWorkflow(context.Background(), "test-workflow", handler)
@@ -191,7 +258,7 @@ func TestWorker_RegisterWorkflow_Duplicate(t *testing.T) {
 }
 
 func TestWorker_UnregisterWorkflow(t *testing.T) {
-	w := NewWorker(zap.NewNop(), registry.ID{Name: "test"}, &api.WorkerConfig{}, nil, nil, nil)
+	w := mustNewWorker(t, registry.ID{Name: "test"}, &api.WorkerConfig{})
 
 	handler := func() {}
 	err := w.RegisterWorkflow(context.Background(), "test-workflow", handler)
@@ -203,7 +270,7 @@ func TestWorker_UnregisterWorkflow(t *testing.T) {
 }
 
 func TestWorker_UnregisterWorkflow_NotFound(t *testing.T) {
-	w := NewWorker(zap.NewNop(), registry.ID{Name: "test"}, &api.WorkerConfig{}, nil, nil, nil)
+	w := mustNewWorker(t, registry.ID{Name: "test"}, &api.WorkerConfig{})
 
 	err := w.UnregisterWorkflow("nonexistent")
 	require.Error(t, err)
@@ -211,7 +278,7 @@ func TestWorker_UnregisterWorkflow_NotFound(t *testing.T) {
 }
 
 func TestWorker_StartClosed(t *testing.T) {
-	w := NewWorker(zap.NewNop(), registry.ID{Name: "test"}, &api.WorkerConfig{}, nil, nil, nil)
+	w := mustNewWorker(t, registry.ID{Name: "test"}, &api.WorkerConfig{})
 	w.closed.Store(true)
 
 	statusCh, err := w.Start(context.Background())
@@ -221,7 +288,7 @@ func TestWorker_StartClosed(t *testing.T) {
 }
 
 func TestWorker_StopIdempotent(t *testing.T) {
-	w := NewWorker(zap.NewNop(), registry.ID{Name: "test"}, &api.WorkerConfig{}, nil, nil, nil)
+	w := mustNewWorker(t, registry.ID{Name: "test"}, &api.WorkerConfig{})
 
 	err := w.Stop(context.Background())
 	require.NoError(t, err)
@@ -231,7 +298,7 @@ func TestWorker_StopIdempotent(t *testing.T) {
 }
 
 func TestWorker_MultipleActivitiesAndWorkflows(t *testing.T) {
-	w := NewWorker(zap.NewNop(), registry.ID{Name: "test"}, &api.WorkerConfig{}, nil, nil, nil)
+	w := mustNewWorker(t, registry.ID{Name: "test"}, &api.WorkerConfig{})
 	ctx := context.Background()
 
 	// Register multiple activities
@@ -274,10 +341,32 @@ func TestWorker_MultipleActivitiesAndWorkflows(t *testing.T) {
 	assert.Equal(t, 5, regularCount)
 }
 
+type testWorkerInterceptor struct {
+	interceptor.WorkerInterceptorBase
+	name string
+}
+
+func TestWorkerBuilder_Interceptors(t *testing.T) {
+	i1 := &testWorkerInterceptor{name: "i1"}
+	i2 := &testWorkerInterceptor{name: "i2"}
+
+	w, err := NewWorkerBuilder().
+		WithLogger(zap.NewNop()).
+		WithID(registry.ID{Name: "test"}).
+		WithConfig(&api.WorkerConfig{}).
+		WithTranscoder(newWorkerTestTranscoder()).
+		WithInterceptors([]interceptor.WorkerInterceptor{i1, i2}).
+		Build()
+	require.NoError(t, err)
+	require.Len(t, w.interceptors, 2)
+	assert.Equal(t, i1, w.interceptors[0])
+	assert.Equal(t, i2, w.interceptors[1])
+}
+
 func TestNewManager(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &mockEventBus{}
-	transcoder := &mockTranscoder{}
+	transcoder := newWorkerTestTranscoder()
 	resourceReg := &mockResourceRegistry{}
 
 	t.Run("creates manager with valid params", func(t *testing.T) {
@@ -335,7 +424,7 @@ func TestNewManager(t *testing.T) {
 func TestManager_AddWorker(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &mockEventBus{}
-	transcoder := &mockTranscoder{}
+	transcoder := newWorkerTestTranscoder()
 	resourceReg := &mockResourceRegistry{}
 
 	t.Run("adds worker successfully", func(t *testing.T) {
@@ -408,7 +497,7 @@ func TestManager_AddWorker(t *testing.T) {
 func TestManager_UpdateWorker(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &mockEventBus{}
-	transcoder := &mockTranscoder{}
+	transcoder := newWorkerTestTranscoder()
 	resourceReg := &mockResourceRegistry{}
 
 	t.Run("updates existing worker", func(t *testing.T) {
@@ -465,7 +554,7 @@ func TestManager_UpdateWorker(t *testing.T) {
 func TestManager_DeleteWorker(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &mockEventBus{}
-	transcoder := &mockTranscoder{}
+	transcoder := newWorkerTestTranscoder()
 	resourceReg := &mockResourceRegistry{}
 
 	t.Run("deletes existing worker", func(t *testing.T) {
@@ -510,7 +599,7 @@ func TestManager_DeleteWorker(t *testing.T) {
 func TestManager_GetWorker(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &mockEventBus{}
-	transcoder := &mockTranscoder{}
+	transcoder := newWorkerTestTranscoder()
 	resourceReg := &mockResourceRegistry{}
 
 	m, _ := NewManager(
@@ -544,7 +633,7 @@ func TestManager_GetWorker(t *testing.T) {
 func TestManager_RegisterActivity(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &mockEventBus{}
-	transcoder := &mockTranscoder{}
+	transcoder := newWorkerTestTranscoder()
 	resourceReg := &mockResourceRegistry{}
 
 	m, _ := NewManager(
@@ -578,7 +667,7 @@ func TestManager_RegisterActivity(t *testing.T) {
 func TestManager_RegisterLocalActivity(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &mockEventBus{}
-	transcoder := &mockTranscoder{}
+	transcoder := newWorkerTestTranscoder()
 	resourceReg := &mockResourceRegistry{}
 
 	m, _ := NewManager(
@@ -612,7 +701,7 @@ func TestManager_RegisterLocalActivity(t *testing.T) {
 func TestManager_UnregisterActivity(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &mockEventBus{}
-	transcoder := &mockTranscoder{}
+	transcoder := newWorkerTestTranscoder()
 	resourceReg := &mockResourceRegistry{}
 
 	m, _ := NewManager(
@@ -647,7 +736,7 @@ func TestManager_UnregisterActivity(t *testing.T) {
 func TestManager_RegisterWorkflow(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &mockEventBus{}
-	transcoder := &mockTranscoder{}
+	transcoder := newWorkerTestTranscoder()
 	resourceReg := &mockResourceRegistry{}
 
 	m, _ := NewManager(
@@ -681,7 +770,7 @@ func TestManager_RegisterWorkflow(t *testing.T) {
 func TestManager_UnregisterWorkflow(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &mockEventBus{}
-	transcoder := &mockTranscoder{}
+	transcoder := newWorkerTestTranscoder()
 	resourceReg := &mockResourceRegistry{}
 
 	m, _ := NewManager(
@@ -716,7 +805,7 @@ func TestManager_UnregisterWorkflow(t *testing.T) {
 func TestManager_Add_WrongKind(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &mockEventBus{}
-	transcoder := &mockTranscoder{}
+	transcoder := newWorkerTestTranscoder()
 	resourceReg := &mockResourceRegistry{}
 
 	m, _ := NewManager(
@@ -739,7 +828,7 @@ func TestManager_Add_WrongKind(t *testing.T) {
 func TestManager_Update_WrongKind(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &mockEventBus{}
-	transcoder := &mockTranscoder{}
+	transcoder := newWorkerTestTranscoder()
 	resourceReg := &mockResourceRegistry{}
 
 	m, _ := NewManager(
@@ -762,7 +851,7 @@ func TestManager_Update_WrongKind(t *testing.T) {
 func TestManager_Delete_WrongKind(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &mockEventBus{}
-	transcoder := &mockTranscoder{}
+	transcoder := newWorkerTestTranscoder()
 	resourceReg := &mockResourceRegistry{}
 
 	m, _ := NewManager(
@@ -780,4 +869,136 @@ func TestManager_Delete_WrongKind(t *testing.T) {
 	err := m.Delete(context.Background(), entry)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unexpected entry kind")
+}
+
+func TestMapVersioningBehavior(t *testing.T) {
+	assert.Equal(t, workflow.VersioningBehaviorPinned, mapVersioningBehavior(api.VersioningBehaviorPinned))
+	assert.Equal(t, workflow.VersioningBehaviorAutoUpgrade, mapVersioningBehavior(api.VersioningBehaviorAutoUpgrade))
+	assert.Equal(t, workflow.VersioningBehaviorUnspecified, mapVersioningBehavior(api.VersioningBehavior("unknown")))
+}
+
+func TestManager_NewManager_UsesEnvAndInterceptorsInDefaultFactory(t *testing.T) {
+	envReg := &mockEnvRegistry{}
+	workerInterceptors := []interceptor.WorkerInterceptor{
+		&testWorkerInterceptor{name: "i1"},
+		&testWorkerInterceptor{name: "i2"},
+	}
+	dtt := newWorkerTestTranscoder()
+
+	m, err := NewManager(
+		WithLogger(zap.NewNop()),
+		WithTranscoder(dtt),
+		WithEventBus(&mockEventBus{}),
+		WithResourceRegistry(&mockResourceRegistry{}),
+		WithEnvRegistry(envReg),
+		WithInterceptors(workerInterceptors),
+	)
+	require.NoError(t, err)
+
+	df, ok := m.factory.(*DefaultWorkerFactory)
+	require.True(t, ok, "default factory should be used")
+	assert.Same(t, envReg, df.envReg)
+	assert.Same(t, dtt, df.dtt)
+	assert.Equal(t, workerInterceptors, df.interceptors)
+}
+
+func TestManager_AddWorker_FactoryFailureRollsBackConfig(t *testing.T) {
+	m, _ := newTestManager(t)
+	m.factory = &failingFactory{err: errors.New("factory boom")}
+
+	id := registry.ID{NS: "test", Name: "worker-fail-create"}
+	cfg := &api.WorkerConfig{
+		Client:    registry.ID{NS: "test", Name: "client"},
+		TaskQueue: "test-queue",
+	}
+
+	err := m.AddWorker(context.Background(), id, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create worker")
+	assert.False(t, m.Has(id), "failed add must not leave config behind")
+
+	m.mu.RLock()
+	_, configExists := m.configs[id]
+	_, serviceExists := m.services[id]
+	m.mu.RUnlock()
+	assert.False(t, configExists)
+	assert.False(t, serviceExists)
+}
+
+func TestManager_AddWorker_ConfigAlreadyExists(t *testing.T) {
+	m, _ := newTestManager(t)
+	id := registry.ID{NS: "test", Name: "worker-existing-config"}
+	m.configs[id] = &api.WorkerConfig{
+		Client:    registry.ID{NS: "test", Name: "client"},
+		TaskQueue: "test-queue",
+	}
+
+	err := m.AddWorker(context.Background(), id, &api.WorkerConfig{
+		Client:    registry.ID{NS: "test", Name: "client"},
+		TaskQueue: "test-queue",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
+}
+
+func TestManager_AddAndUpdate_DecodeErrorOnMissingData(t *testing.T) {
+	m, _ := newTestManager(t)
+	ent := registry.Entry{
+		ID:   registry.ID{NS: "test", Name: "worker-missing-data"},
+		Kind: api.Worker,
+		Data: nil,
+	}
+
+	err := m.Add(context.Background(), ent)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to decode worker config")
+
+	err = m.Update(context.Background(), ent)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to decode worker config")
+}
+
+func TestEnsureClientDependency(t *testing.T) {
+	cfg := &api.WorkerConfig{
+		Client: registry.ID{NS: "test", Name: "client"},
+	}
+
+	ensureClientDependency(cfg)
+	require.Equal(t, []string{"test:client"}, cfg.Lifecycle.DependsOn)
+
+	// Idempotent when called repeatedly.
+	ensureClientDependency(cfg)
+	require.Equal(t, []string{"test:client"}, cfg.Lifecycle.DependsOn)
+
+	// Appends when there are existing dependencies.
+	cfg.Lifecycle.DependsOn = []string{"service:a"}
+	ensureClientDependency(cfg)
+	require.Equal(t, []string{"service:a", "test:client"}, cfg.Lifecycle.DependsOn)
+}
+
+func TestManager_DeleteWorker_EmitsRemoveEvents(t *testing.T) {
+	m, bus := newTestManager(t)
+	m.factory = &mockFactory{}
+
+	id := registry.ID{NS: "test", Name: "worker-delete-events"}
+	cfg := &api.WorkerConfig{
+		Client:    registry.ID{NS: "test", Name: "client"},
+		TaskQueue: "test-queue",
+	}
+	require.NoError(t, m.AddWorker(context.Background(), id, cfg))
+
+	before := len(bus.events)
+	require.NoError(t, m.DeleteWorker(context.Background(), id))
+	require.GreaterOrEqual(t, len(bus.events), before+2)
+
+	removeEvent := bus.events[len(bus.events)-2]
+	hostDeleteEvent := bus.events[len(bus.events)-1]
+
+	assert.Equal(t, supervisor.System, removeEvent.System)
+	assert.Equal(t, supervisor.ServiceRemove, removeEvent.Kind)
+	assert.Equal(t, id.String(), removeEvent.Path)
+
+	assert.Equal(t, relay.System, hostDeleteEvent.System)
+	assert.Equal(t, relay.HostDelete, hostDeleteEvent.Kind)
+	assert.Equal(t, id.String(), hostDeleteEvent.Path)
 }

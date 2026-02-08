@@ -59,7 +59,7 @@ func (s *Storage) Delete(_ context.Context, key string) error {
 // List returns all key-value pairs.
 func (s *Storage) List(_ context.Context) (map[string]string, error) {
 	result := make(map[string]string)
-	s.values.Range(func(key, value interface{}) bool {
+	s.values.Range(func(key, value any) bool {
 		if strKey, ok := key.(string); ok {
 			if strValue, ok := value.(string); ok {
 				result[strKey] = strValue

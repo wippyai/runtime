@@ -116,7 +116,7 @@ func decodeFunc(l *lua.LState) int {
 		return invalidError(l, "input cannot be empty")
 	}
 
-	var data interface{}
+	var data any
 	if err := yaml.Unmarshal([]byte(str), &data); err != nil {
 		return internalError(l, err, "decode failed")
 	}

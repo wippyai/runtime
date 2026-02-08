@@ -17,7 +17,7 @@ import (
 // mockPolicy implements secapi.Policy for testing
 type mockPolicy struct {
 	allowed  map[string]bool
-	metadata map[string]interface{}
+	metadata map[string]any
 	id       registry.ID
 }
 
@@ -25,7 +25,7 @@ func newMockPolicy(id registry.ID) *mockPolicy {
 	return &mockPolicy{
 		id:       id,
 		allowed:  make(map[string]bool),
-		metadata: make(map[string]interface{}),
+		metadata: make(map[string]any),
 	}
 }
 
@@ -49,7 +49,7 @@ func (m *mockPolicy) Deny(action, resource string) {
 	m.allowed[action+":"+resource] = false
 }
 
-func (m *mockPolicy) Metadata() map[string]interface{} {
+func (m *mockPolicy) Metadata() map[string]any {
 	return m.metadata
 }
 
@@ -308,7 +308,7 @@ func TestIsAllowed_WithComplexMetadata(t *testing.T) {
 		"user_id":     123,
 		"role":        "admin",
 		"permissions": []string{"read", "write"},
-		"nested": map[string]interface{}{
+		"nested": map[string]any{
 			"key": "value",
 		},
 	}

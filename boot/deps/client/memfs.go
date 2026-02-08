@@ -225,7 +225,7 @@ func (i *memFileInfo) Mode() fs.FileMode {
 }
 func (i *memFileInfo) ModTime() time.Time { return time.Time{} }
 func (i *memFileInfo) IsDir() bool        { return i.isDir }
-func (i *memFileInfo) Sys() interface{}   { return nil }
+func (i *memFileInfo) Sys() any           { return nil }
 func (i *memFileInfo) Type() fs.FileMode  { return i.Mode().Type() }
 func (i *memFileInfo) Info() (fs.FileInfo, error) {
 	return i, nil

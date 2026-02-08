@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/internal/entry"
 	"go.uber.org/zap"
 )
@@ -38,12 +39,32 @@ type Parameter struct {
 	Value string `json:"value" yaml:"value"`
 }
 
-type linkStage struct{}
+type LinkOption func(*linkStage)
+
+type linkStage struct {
+	dependencyEntries []registry.Entry
+	explicitDeps      bool
+}
 
 // Link creates a new linking stage that resolves requirements to their values
 // and applies them to target entries.
-func Link() boot.Stage {
-	return &linkStage{}
+func Link(opts ...LinkOption) boot.Stage {
+	stage := &linkStage{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(stage)
+		}
+	}
+	return stage
+}
+
+// WithDependencies provides explicit dependency entries for requirement resolution.
+// When set, Link will use these entries instead of scanning the entry list.
+func WithDependencies(entries []registry.Entry) LinkOption {
+	return func(s *linkStage) {
+		s.dependencyEntries = entries
+		s.explicitDeps = true
+	}
 }
 
 func (s *linkStage) Name() string {
@@ -77,22 +98,9 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 		}
 	}
 
-	// Collect and decode dependencies
-	dependencies := make(map[string]decodedDependency)
-	for _, e := range *entries {
-		if e.Kind != registry.NamespaceDependency {
-			continue
-		}
-
-		def, err := entry.DecodeEntryConfig[DependencyDefinition](ctx, transcoder, e)
-		if err != nil {
-			return NewDecodeDependencyError(e.ID.String(), err)
-		}
-
-		dependencies[e.ID.String()] = decodedDependency{
-			entry:      e,
-			definition: def,
-		}
+	dependencies, err := s.collectDependencies(ctx, transcoder, entries)
+	if err != nil {
+		return err
 	}
 
 	// Process each requirement, log warnings instead of failing
@@ -115,14 +123,46 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 	return nil
 }
 
+func (s *linkStage) collectDependencies(ctx context.Context, transcoder payload.Transcoder, entries *[]registry.Entry) (map[string]decodedDependency, error) {
+	source := *entries
+	if s.explicitDeps {
+		source = s.dependencyEntries
+	}
+
+	dependencies := make(map[string]decodedDependency)
+	for _, e := range source {
+		if e.Kind != registry.NamespaceDependency {
+			continue
+		}
+
+		def, err := entry.DecodeEntryConfig[DependencyDefinition](ctx, transcoder, e)
+		if err != nil {
+			return nil, NewDecodeDependencyError(e.ID.String(), err)
+		}
+		moduleNamespace, err := componentToNamespace(def.Component)
+		if err != nil {
+			return nil, NewInvalidDependencyComponentError(e.ID.String(), def.Component, err)
+		}
+
+		dependencies[e.ID.String()] = decodedDependency{
+			entry:           e,
+			definition:      def,
+			moduleNamespace: moduleNamespace,
+		}
+	}
+
+	return dependencies, nil
+}
+
 type decodedRequirement struct {
 	definition *RequirementDefinition
 	entry      registry.Entry
 }
 
 type decodedDependency struct {
-	definition *DependencyDefinition
-	entry      registry.Entry
+	definition      *DependencyDefinition
+	entry           registry.Entry
+	moduleNamespace string
 }
 
 func (s *linkStage) processRequirement(
@@ -134,7 +174,7 @@ func (s *linkStage) processRequirement(
 	requirementName := req.entry.ID.Name
 
 	// Find parameter value from dependencies
-	value, err := s.resolveValue(requirementName, req.definition.Default, dependencies)
+	value, err := s.resolveValue(requirementName, req.definition.Default, req.entry.ID.NS, dependencies)
 	if err != nil {
 		return NewRequirementError(requirementName, req.entry.ID.NS, err)
 	}
@@ -157,6 +197,7 @@ func (s *linkStage) processRequirement(
 func (s *linkStage) resolveValue(
 	requirementName string,
 	defaultValue string,
+	requirementNS string,
 	dependencies map[string]decodedDependency,
 ) (string, error) {
 	// Find all dependencies that have a parameter with this name
@@ -166,6 +207,9 @@ func (s *linkStage) resolveValue(
 	}
 
 	for _, dep := range dependencies {
+		if dep.moduleNamespace != requirementNS {
+			continue
+		}
 		for _, param := range dep.definition.Parameters {
 			if param.Name == requirementName {
 				foundValues = append(foundValues, struct {
@@ -285,4 +329,12 @@ func (s *linkStage) findTargetEntries(
 	}
 
 	return results
+}
+
+func componentToNamespace(component string) (string, error) {
+	name, err := graph.ParseName(component)
+	if err != nil {
+		return "", err
+	}
+	return name.Organization + "." + name.Module, nil
 }

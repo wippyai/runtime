@@ -123,7 +123,7 @@ func TestValuesEqualNestedArrays(t *testing.T) {
 
 func TestIsNumericAllTypes(t *testing.T) {
 	tests := []struct {
-		value interface{}
+		value any
 		name  string
 		want  bool
 	}{
@@ -146,7 +146,7 @@ func TestIsNumericAllTypes(t *testing.T) {
 
 func TestToFloat64AllTypes(t *testing.T) {
 	tests := []struct {
-		value interface{}
+		value any
 		name  string
 		want  float64
 	}{

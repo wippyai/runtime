@@ -44,7 +44,7 @@ func (t *Lifecycle) OnStart(ctx context.Context, p pid.PID, _ process.Process) e
 	// Handle name registration first (before topology registration)
 	// This allows atomic spawn-or-signal: routing is ready, now claim the name
 	if attributes != nil && t.pidReg != nil {
-		if name := attributes.GetString(process.LifecycleNameKey, ""); name != "" {
+		if name := attributes.GetString(process.ProcessNameKey, ""); name != "" {
 			existingPID, err := t.pidReg.Register(name, p)
 			if err != nil {
 				return topology.NameAlreadyRegisteredError(existingPID)
@@ -64,7 +64,7 @@ func (t *Lifecycle) OnStart(ctx context.Context, p pid.PID, _ process.Process) e
 	}
 
 	var parentPID pid.PID
-	if parent, ok := attributes.Get(process.LifecycleParentKey); ok {
+	if parent, ok := attributes.Get(process.ProcessParentKey); ok {
 		if pp, ok := parent.(pid.PID); ok {
 			parentPID = pp
 		}
@@ -74,8 +74,8 @@ func (t *Lifecycle) OnStart(ctx context.Context, p pid.PID, _ process.Process) e
 		return nil
 	}
 
-	monitor := attributes.GetBool(process.LifecycleMonitorKey, false)
-	link := attributes.GetBool(process.LifecycleLinkKey, false)
+	monitor := attributes.GetBool(process.ProcessMonitorKey, false)
+	link := attributes.GetBool(process.ProcessLinkKey, false)
 
 	if monitor {
 		if err := t.topo.Monitor(parentPID, p); err != nil {

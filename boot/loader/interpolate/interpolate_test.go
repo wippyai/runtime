@@ -16,11 +16,11 @@ func (m *MockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload
 	return p, nil
 }
 
-func (m *MockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
-	if data, ok := p.Data().(map[string]interface{}); ok {
-		*(v.(*interface{})) = data
+func (m *MockTranscoder) Unmarshal(p payload.Payload, v any) error {
+	if data, ok := p.Data().(map[string]any); ok {
+		*(v.(*any)) = data
 	} else {
-		*(v.(*interface{})) = p.Data()
+		*(v.(*any)) = p.Data()
 	}
 	return nil
 }
@@ -35,7 +35,7 @@ func TestNewEntryInterpolator(t *testing.T) {
 	})
 
 	t.Run("creates helper with interpolators", func(t *testing.T) {
-		mockInterpolator := func(s string, _ interface{}) (string, error) {
+		mockInterpolator := func(s string, _ any) (string, error) {
 			return s, nil
 		}
 		h := NewEntryInterpolator(dtt, WithInterpolator(mockInterpolator))
@@ -53,7 +53,7 @@ func TestHelper_Interpolate(t *testing.T) {
 
 	tests := []struct {
 		input   payload.Payload
-		want    interface{}
+		want    any
 		setupFn func(*Helper)
 		name    string
 		wantErr bool
@@ -63,41 +63,41 @@ func TestHelper_Interpolate(t *testing.T) {
 			input: payload.New("Hello World"),
 			want:  "Hello World",
 			setupFn: func(h *Helper) {
-				h.interpolators = append(h.interpolators, func(s string, _ interface{}) (string, error) {
+				h.interpolators = append(h.interpolators, func(s string, _ any) (string, error) {
 					return s, nil
 				})
 			},
 		},
 		{
 			name: "interpolate map",
-			input: payload.New(map[string]interface{}{
+			input: payload.New(map[string]any{
 				"greeting": "Hello World",
 				"port":     8080,
 			}),
-			want: map[string]interface{}{
+			want: map[string]any{
 				"greeting": "Hello World",
 				"port":     8080,
 			},
 			setupFn: func(h *Helper) {
-				h.interpolators = append(h.interpolators, func(s string, _ interface{}) (string, error) {
+				h.interpolators = append(h.interpolators, func(s string, _ any) (string, error) {
 					return s, nil
 				})
 			},
 		},
 		{
 			name: "interpolate slice",
-			input: payload.New([]interface{}{
+			input: payload.New([]any{
 				"Hello World",
 				123,
 				"World",
 			}),
-			want: []interface{}{
+			want: []any{
 				"Hello World",
 				123,
 				"World",
 			},
 			setupFn: func(h *Helper) {
-				h.interpolators = append(h.interpolators, func(s string, _ interface{}) (string, error) {
+				h.interpolators = append(h.interpolators, func(s string, _ any) (string, error) {
 					return s, nil
 				})
 			},
@@ -108,7 +108,7 @@ func TestHelper_Interpolate(t *testing.T) {
 			want:  "Hello from config!",
 			setupFn: func(h *Helper) {
 				h.interpolators = append(h.interpolators,
-					func(s string, _ interface{}) (string, error) {
+					func(s string, _ any) (string, error) {
 						if s == "file://config.yaml" {
 							return "Hello from config!", nil
 						}
@@ -157,7 +157,7 @@ func TestHelper_interpolateString(t *testing.T) {
 			input: "Hello World",
 			want:  "Hello World",
 			setupFn: func(h *Helper) {
-				h.interpolators = append(h.interpolators, func(s string, _ interface{}) (string, error) {
+				h.interpolators = append(h.interpolators, func(s string, _ any) (string, error) {
 					return s, nil
 				})
 			},
@@ -168,7 +168,7 @@ func TestHelper_interpolateString(t *testing.T) {
 			want:  "HELLO WORLD",
 			setupFn: func(h *Helper) {
 				h.interpolators = append(h.interpolators,
-					func(s string, _ interface{}) (string, error) {
+					func(s string, _ any) (string, error) {
 						return strings.ToUpper(s), nil
 					},
 				)
@@ -208,30 +208,30 @@ func TestHelper_interpolateMap(t *testing.T) {
 	}
 
 	tests := []struct {
-		input   map[string]interface{}
-		want    map[string]interface{}
+		input   map[string]any
+		want    map[string]any
 		setupFn func(*Helper)
 		name    string
 		wantErr bool
 	}{
 		{
 			name: "nested map interpolation",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"string": "Hello World",
 				"number": 42,
-				"nested": map[string]interface{}{
+				"nested": map[string]any{
 					"key": "value",
 				},
 			},
-			want: map[string]interface{}{
+			want: map[string]any{
 				"string": "Hello World",
 				"number": 42,
-				"nested": map[string]interface{}{
+				"nested": map[string]any{
 					"key": "value",
 				},
 			},
 			setupFn: func(h *Helper) {
-				h.interpolators = append(h.interpolators, func(s string, _ interface{}) (string, error) {
+				h.interpolators = append(h.interpolators, func(s string, _ any) (string, error) {
 					return s, nil
 				})
 			},
@@ -267,28 +267,28 @@ func TestHelper_interpolateSlice(t *testing.T) {
 	tests := []struct {
 		setupFn func(*Helper)
 		name    string
-		input   []interface{}
-		want    []interface{}
+		input   []any
+		want    []any
 		wantErr bool
 	}{
 		{
 			name: "mixed slice interpolation",
-			input: []interface{}{
+			input: []any{
 				"Hello World",
 				42,
-				map[string]interface{}{
+				map[string]any{
 					"key": "value",
 				},
 			},
-			want: []interface{}{
+			want: []any{
 				"Hello World",
 				42,
-				map[string]interface{}{
+				map[string]any{
 					"key": "value",
 				},
 			},
 			setupFn: func(h *Helper) {
-				h.interpolators = append(h.interpolators, func(s string, _ interface{}) (string, error) {
+				h.interpolators = append(h.interpolators, func(s string, _ any) (string, error) {
 					return s, nil
 				})
 			},

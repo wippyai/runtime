@@ -18,24 +18,24 @@ func NewZapAdapter(logger *zap.Logger) log.Logger {
 	return &zapAdapter{zap: logger}
 }
 
-func (l *zapAdapter) Debug(msg string, keyvals ...interface{}) {
+func (l *zapAdapter) Debug(msg string, keyvals ...any) {
 	l.zap.Debug(msg, l.zapFields(keyvals)...)
 }
 
-func (l *zapAdapter) Info(msg string, keyvals ...interface{}) {
+func (l *zapAdapter) Info(msg string, keyvals ...any) {
 	l.zap.Info(msg, l.zapFields(keyvals)...)
 }
 
-func (l *zapAdapter) Warn(msg string, keyvals ...interface{}) {
+func (l *zapAdapter) Warn(msg string, keyvals ...any) {
 	l.zap.Warn(msg, l.zapFields(keyvals)...)
 }
 
-func (l *zapAdapter) Error(msg string, keyvals ...interface{}) {
+func (l *zapAdapter) Error(msg string, keyvals ...any) {
 	l.zap.Error(msg, l.zapFields(keyvals)...)
 }
 
 // zapFields converts key-value pairs to zap fields
-func (l *zapAdapter) zapFields(keyvals []interface{}) []zap.Field {
+func (l *zapAdapter) zapFields(keyvals []any) []zap.Field {
 	if len(keyvals) == 0 {
 		return nil
 	}

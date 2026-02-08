@@ -641,7 +641,7 @@ func TestResponse_Basic(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
 
-		var result map[string]interface{}
+		var result map[string]any
 		err = json.Unmarshal(recorder.Body.Bytes(), &result)
 		assert.NoError(t, err)
 		assert.Equal(t, "Hello", result["message"])

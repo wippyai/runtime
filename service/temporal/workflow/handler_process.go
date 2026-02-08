@@ -3,14 +3,15 @@ package workflow
 import (
 	"fmt"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
-	temporalapi "github.com/wippyai/runtime/api/service/temporal"
 	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
+	"github.com/wippyai/runtime/service/temporal/propagator"
 	commonpb "go.temporal.io/api/common/v1"
 	bindings "go.temporal.io/sdk/internalbindings"
 	"go.uber.org/zap"
@@ -22,15 +23,21 @@ const (
 	pidHostTemporal = "temporal"
 )
 
-// executeProcessSend handles process.send from workflows.
-func (d *Definition) executeProcessSend(cmd *process.SendCmd, tag uint64) error {
-	taskQueue := d.env.WorkflowInfo().TaskQueueName
-
-	selfPID := pid.PID{
-		Node:   temporalapi.GetClientID(d.ctx),
-		Host:   taskQueue,
+// selfPID returns the PID for the current workflow, either from frame context or constructed from env.
+func (d *Definition) selfPID() pid.PID {
+	if p, ok := runtime.GetFramePID(d.execCtx); ok {
+		return p
+	}
+	return pid.PID{
+		Node:   d.resolveClientID(),
+		Host:   d.resolveWorkerID(d.env.WorkflowInfo().TaskQueueName),
 		UniqID: d.env.WorkflowInfo().WorkflowExecution.ID,
 	}
+}
+
+// executeProcessSend handles process.send from workflows.
+func (d *Definition) executeProcessSend(cmd *process.SendCmd, tag uint64) error {
+	selfPID := d.selfPID()
 
 	// Update response: target has host="update"
 	if cmd.To.Host == pidHostUpdate {
@@ -44,7 +51,10 @@ func (d *Definition) executeProcessSend(cmd *process.SendCmd, tag uint64) error 
 	}
 
 	// Temporal workflow target
-	isTemporalTarget := cmd.To.Host == taskQueue || cmd.To.Host == pidHostTemporal
+	clientID := d.resolveClientID()
+	isTemporalTarget := (cmd.To.Node != "" && cmd.To.Node == clientID) ||
+		cmd.To.Host == selfPID.Host ||
+		cmd.To.Host == pidHostTemporal
 	if isTemporalTarget {
 		return d.signalExternalWorkflow(cmd, tag)
 	}
@@ -65,6 +75,11 @@ func (d *Definition) signalExternalWorkflow(cmd *process.SendCmd, tag uint64) er
 		}
 	}
 
+	from := d.selfPID()
+	header := d.getContextHeaderWithValues(map[string]any{
+		propagator.SignalFromValueKey: from.String(),
+	})
+
 	d.env.SignalExternalWorkflow(
 		"",
 		cmd.To.UniqID,
@@ -72,7 +87,7 @@ func (d *Definition) signalExternalWorkflow(cmd *process.SendCmd, tag uint64) er
 		cmd.Topic,
 		arg,
 		nil,
-		nil,
+		header,
 		false,
 		func(_ *commonpb.Payloads, err error) {
 			d.resumeProcess(tag, process.SendResult{Error: temporalerrors.FromTemporalError(err)}, nil)
@@ -151,9 +166,28 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 		},
 	}
 
+	if err := applyTemporalChildWorkflowOptions(&params, cmd.Start.Options); err != nil {
+		d.resumeProcess(tag, process.SpawnResult{
+			Error: fmt.Errorf("invalid temporal child workflow options for %s: %w", workflowName, err),
+		}, nil)
+		return nil
+	}
+
 	if cmd.Start.HostID != "" {
 		params.TaskQueueName = cmd.Start.HostID
 	}
+	if len(cmd.Start.Context) > 0 {
+		spawnCtx, fc := ctxapi.OpenFrameContextOn(d.execCtx, d.execCtx)
+		if err := fc.SetMultiple(cmd.Start.Context...); err != nil {
+			ctxapi.ReleaseFrameContext(fc)
+			d.resumeProcess(tag, process.SpawnResult{Error: fmt.Errorf("failed to apply spawn context: %w", err)}, nil)
+			return nil
+		}
+		params.Header = d.getContextHeaderFrom(spawnCtx, nil)
+		ctxapi.ReleaseFrameContext(fc)
+	}
+
+	selfPID := d.selfPID()
 
 	var childPID pid.PID
 	d.env.ExecuteChildWorkflow(params, func(result *commonpb.Payloads, err error) {
@@ -166,6 +200,9 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 			var values payload.Payloads
 			if decodeErr := d.dc.FromPayloads(result, &values); decodeErr == nil && len(values) > 0 {
 				resultPayload = values[0]
+				d.replayLog.Debug("decoded child workflow result",
+					zap.String("child_pid", childPID.String()),
+					zap.String("format", resultPayload.Format()))
 			}
 		}
 
@@ -189,9 +226,15 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 			d.resumeProcess(tag, process.SpawnResult{Error: temporalerrors.FromTemporalError(err)}, nil)
 			return
 		}
+
+		childHost := cmd.Start.HostID
+		if childHost == "" {
+			childHost = selfPID.Host
+		}
+
 		childPID = pid.PID{
-			Node:   temporalapi.GetClientID(d.ctx),
-			Host:   params.TaskQueueName,
+			Node:   d.resolveClientID(),
+			Host:   childHost,
 			UniqID: execution.ID,
 		}
 		d.resumeProcess(tag, process.SpawnResult{PID: childPID}, nil)
@@ -234,36 +277,27 @@ func (d *Definition) executeProcessCancel(cmd *process.CancelCmd, tag uint64) er
 	return nil
 }
 
-// executeProcessMonitor is not supported in workflows.
+// rejectUnsupportedCommand resumes the process with a non-retryable invalid error.
+func (d *Definition) rejectUnsupportedCommand(tag uint64, msg string) error {
+	err := apierror.New(apierror.Invalid, msg).WithRetryable(apierror.False)
+	d.resumeProcess(tag, nil, err)
+	return nil
+}
+
 func (d *Definition) executeProcessMonitor(_ *process.MonitorCmd, tag uint64) error {
-	err := apierror.New(apierror.Invalid, "process.monitor not supported in workflow context: child workflows are automatically monitored").
-		WithRetryable(apierror.False)
-	d.resumeProcess(tag, nil, err)
-	return nil
+	return d.rejectUnsupportedCommand(tag, "process.monitor not supported in workflow context: child workflows are automatically monitored")
 }
 
-// executeProcessUnmonitor is not supported in workflows.
 func (d *Definition) executeProcessUnmonitor(_ *process.UnmonitorCmd, tag uint64) error {
-	err := apierror.New(apierror.Invalid, "process.unmonitor not supported in workflow context").
-		WithRetryable(apierror.False)
-	d.resumeProcess(tag, nil, err)
-	return nil
+	return d.rejectUnsupportedCommand(tag, "process.unmonitor not supported in workflow context")
 }
 
-// executeProcessLink is not supported in workflows.
 func (d *Definition) executeProcessLink(_ *process.LinkCmd, tag uint64) error {
-	err := apierror.New(apierror.Invalid, "process.link not supported in workflow context: Temporal doesn't support bidirectional linking").
-		WithRetryable(apierror.False)
-	d.resumeProcess(tag, nil, err)
-	return nil
+	return d.rejectUnsupportedCommand(tag, "process.link not supported in workflow context: Temporal doesn't support bidirectional linking")
 }
 
-// executeProcessUnlink is not supported in workflows.
 func (d *Definition) executeProcessUnlink(_ *process.UnlinkCmd, tag uint64) error {
-	err := apierror.New(apierror.Invalid, "process.unlink not supported in workflow context").
-		WithRetryable(apierror.False)
-	d.resumeProcess(tag, nil, err)
-	return nil
+	return d.rejectUnsupportedCommand(tag, "process.unlink not supported in workflow context")
 }
 
 // executeProcessExec handles process.exec from workflows by executing a child workflow synchronously.

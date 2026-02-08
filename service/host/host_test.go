@@ -35,6 +35,12 @@ func ctxWithAppContext() context.Context {
 	return ctxapi.WithAppContext(context.Background(), appCtx)
 }
 
+func namedOptions(name string) attrs.Bag {
+	options := attrs.NewBag()
+	options.Set(process.ProcessNameKey, name)
+	return options
+}
+
 // mockProcess implements process.Process for testing.
 type mockProcess struct {
 	initErr  error
@@ -353,8 +359,8 @@ func TestHost_RunShortcutExistingProcess(t *testing.T) {
 	defer th.stop()
 
 	resultPID, err := th.host.Run(ctxWithAppContext(), &process.Start{
-		Source: registry.NewID("test", "proc"),
-		Name:   "my-service",
+		Source:  registry.NewID("test", "proc"),
+		Options: namedOptions("my-service"),
 	})
 
 	require.NoError(t, err)
@@ -372,7 +378,7 @@ func TestHost_RunShortcutWithMessages(t *testing.T) {
 	messages := []*relay.Message{{Topic: "hello"}}
 	resultPID, err := th.host.Run(ctxWithAppContext(), &process.Start{
 		Source:   registry.NewID("test", "proc"),
-		Name:     "my-service",
+		Options:  namedOptions("my-service"),
 		Messages: messages,
 	})
 
@@ -390,8 +396,8 @@ func TestHost_RunNameTakenAfterSpawn(t *testing.T) {
 	defer th.stop()
 
 	resultPID, err := th.host.Run(ctxWithAppContext(), &process.Start{
-		Source: registry.NewID("test", "proc"),
-		Name:   "contested-name",
+		Source:  registry.NewID("test", "proc"),
+		Options: namedOptions("contested-name"),
 	})
 
 	require.NoError(t, err)
@@ -409,7 +415,7 @@ func TestHost_RunNameTakenWithMessages(t *testing.T) {
 	messages := []*relay.Message{{Topic: "routed"}}
 	resultPID, err := th.host.Run(ctxWithAppContext(), &process.Start{
 		Source:   registry.NewID("test", "proc"),
-		Name:     "contested-name",
+		Options:  namedOptions("contested-name"),
 		Messages: messages,
 	})
 
@@ -435,8 +441,8 @@ func TestHost_RunNoPIDRegistry(t *testing.T) {
 
 	// Should not try shortcut without PIDRegistry
 	resultPID, err := h.Run(ctxWithAppContext(), &process.Start{
-		Source: registry.NewID("test", "proc"),
-		Name:   "my-service",
+		Source:  registry.NewID("test", "proc"),
+		Options: namedOptions("my-service"),
 	})
 
 	require.NoError(t, err)
@@ -467,8 +473,8 @@ func TestHost_RunNameTakenWithoutPID(t *testing.T) {
 	defer th.stop()
 
 	_, err := th.host.Run(ctxWithAppContext(), &process.Start{
-		Source: registry.NewID("test", "proc"),
-		Name:   "contested-name",
+		Source:  registry.NewID("test", "proc"),
+		Options: namedOptions("contested-name"),
 	})
 
 	// Should return the original error since we can't extract PID
@@ -482,7 +488,7 @@ func TestHost_HandleNameTaken(t *testing.T) {
 
 	existingPID := pid.PID{Node: "test", Host: "test:host", UniqID: "existing"}
 	start := &process.Start{
-		Name:     "my-service",
+		Options:  namedOptions("my-service"),
 		Messages: []*relay.Message{{Topic: "test"}},
 	}
 
@@ -496,7 +502,7 @@ func TestHost_HandleNameTakenNoMessages(t *testing.T) {
 	th := newTestHost()
 
 	existingPID := pid.PID{Node: "test", Host: "test:host", UniqID: "existing"}
-	start := &process.Start{Name: "my-service"}
+	start := &process.Start{Options: namedOptions("my-service")}
 
 	resultPID, err := th.host.handleNameTaken(existingPID, start)
 
@@ -544,37 +550,6 @@ func TestHost_PreparePID_Generated(t *testing.T) {
 		Source: registry.NewID("test", "proc"),
 	})
 
-	assert.NotEqual(t, pid.PID{}, resultPID)
-	assert.Equal(t, "test-node", resultPID.Node)
-}
-
-func TestHost_PreparePID_ExplicitPID(t *testing.T) {
-	th := newTestHost()
-
-	explicitPID := pid.PID{Node: "custom-node", Host: "test:host", UniqID: "explicit-123"}
-	opts := attrs.NewBag()
-	opts.Set(process.OptionPID, explicitPID)
-
-	resultPID := th.host.preparePID(ctxWithAppContext(), &process.Start{
-		Source:  registry.NewID("test", "proc"),
-		Options: opts,
-	})
-
-	assert.Equal(t, explicitPID, resultPID)
-}
-
-func TestHost_PreparePID_InvalidOptionType(t *testing.T) {
-	th := newTestHost()
-
-	opts := attrs.NewBag()
-	opts.Set(process.OptionPID, "not-a-pid")
-
-	resultPID := th.host.preparePID(ctxWithAppContext(), &process.Start{
-		Source:  registry.NewID("test", "proc"),
-		Options: opts,
-	})
-
-	// Should fall back to generated PID
 	assert.NotEqual(t, pid.PID{}, resultPID)
 	assert.Equal(t, "test-node", resultPID.Node)
 }

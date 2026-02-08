@@ -70,15 +70,15 @@ func TestExtractDependenciesToEntries(t *testing.T) {
 					Kind: "service",
 					Meta: attrs.Bag{
 						"version": "1.0",
-						"tags":    []interface{}{"test", "service"},
+						"tags":    []any{"test", "service"},
 					},
-					Data: payload.New(map[string]interface{}{
+					Data: payload.New(map[string]any{
 						"namespace": "test",
 						"name":      "single-entry",
 						"kind":      "service",
-						"meta": map[string]interface{}{
+						"meta": map[string]any{
 							"version": "1.0",
-							"tags":    []interface{}{"test", "service"},
+							"tags":    []any{"test", "service"},
 						},
 						"url":  "http://example.com",
 						"port": float64(8080),
@@ -129,14 +129,14 @@ func TestExtractDependenciesToEntries(t *testing.T) {
 						"version": "1.0",
 						"shared":  "value",
 					},
-					Data: payload.New(map[string]interface{}{
+					Data: payload.New(map[string]any{
 						"name": "entry1",
 						"kind": "service",
-						"meta": map[string]interface{}{
+						"meta": map[string]any{
 							"version": "1.0",
 							"shared":  "value",
 						},
-						"data": map[string]interface{}{
+						"data": map[string]any{
 							"url": "http://example1.com",
 						},
 					}),
@@ -151,14 +151,14 @@ func TestExtractDependenciesToEntries(t *testing.T) {
 						"version": "2.0",
 						"shared":  "value",
 					},
-					Data: payload.New(map[string]interface{}{
+					Data: payload.New(map[string]any{
 						"name": "entry2",
 						"kind": "endpoint",
-						"meta": map[string]interface{}{
+						"meta": map[string]any{
 							"version": "2.0",
 							"shared":  "value",
 						},
-						"data": map[string]interface{}{
+						"data": map[string]any{
 							"path": "/api/v2",
 						},
 					}),
@@ -229,13 +229,13 @@ entries:
 					Meta: attrs.Bag{
 						"version": "1.0",
 					},
-					Data: payload.New(map[string]interface{}{
+					Data: payload.New(map[string]any{
 						"name": "service1",
 						"kind": "service",
-						"meta": map[string]interface{}{
+						"meta": map[string]any{
 							"version": "1.0",
 						},
-						"config": map[string]interface{}{
+						"config": map[string]any{
 							"port": 8080,
 						},
 					}),
@@ -249,13 +249,13 @@ entries:
 					Meta: attrs.Bag{
 						"version": "2.0",
 					},
-					Data: payload.New(map[string]interface{}{
+					Data: payload.New(map[string]any{
 						"name": "service2",
 						"kind": "service",
-						"meta": map[string]interface{}{
+						"meta": map[string]any{
 							"version": "2.0",
 						},
-						"config": map[string]interface{}{
+						"config": map[string]any{
 							"port": 8081,
 						},
 					}),
@@ -303,11 +303,11 @@ func TestEntryProcessor(t *testing.T) {
 			Meta: attrs.Bag{
 				"shared": "value",
 			},
-			RawEntries: []map[string]interface{}{
+			RawEntries: []map[string]any{
 				{
 					"name": "test-entry",
 					"kind": "service",
-					"meta": map[string]interface{}{
+					"meta": map[string]any{
 						"version": "1.0",
 					},
 				},
@@ -343,7 +343,7 @@ func TestEntryProcessor(t *testing.T) {
 			Meta: attrs.Bag{
 				"version": "1.0",
 			},
-			Data: map[string]interface{}{
+			Data: map[string]any{
 				"url":  "http://example.com",
 				"port": 8080,
 			},
@@ -431,14 +431,14 @@ func TestEntryValidator(t *testing.T) {
 
 	t.Run("ValidateRawEntry", func(t *testing.T) {
 		tests := []struct {
-			rawEntry map[string]interface{}
+			rawEntry map[string]any
 			name     string
 			index    int
 			wantErr  bool
 		}{
 			{
 				name: "valid entry",
-				rawEntry: map[string]interface{}{
+				rawEntry: map[string]any{
 					"name": "test-entry",
 					"kind": "service",
 				},
@@ -453,7 +453,7 @@ func TestEntryValidator(t *testing.T) {
 			},
 			{
 				name: "missing name",
-				rawEntry: map[string]interface{}{
+				rawEntry: map[string]any{
 					"kind": "service",
 				},
 				index:   0,
@@ -461,7 +461,7 @@ func TestEntryValidator(t *testing.T) {
 			},
 			{
 				name: "empty name",
-				rawEntry: map[string]interface{}{
+				rawEntry: map[string]any{
 					"name": "",
 					"kind": "service",
 				},
@@ -470,7 +470,7 @@ func TestEntryValidator(t *testing.T) {
 			},
 			{
 				name: "whitespace name",
-				rawEntry: map[string]interface{}{
+				rawEntry: map[string]any{
 					"name": "   ",
 					"kind": "service",
 				},
@@ -479,7 +479,7 @@ func TestEntryValidator(t *testing.T) {
 			},
 			{
 				name: "missing kind",
-				rawEntry: map[string]interface{}{
+				rawEntry: map[string]any{
 					"name": "test-entry",
 				},
 				index:   0,
@@ -487,7 +487,7 @@ func TestEntryValidator(t *testing.T) {
 			},
 			{
 				name: "empty kind",
-				rawEntry: map[string]interface{}{
+				rawEntry: map[string]any{
 					"name": "test-entry",
 					"kind": "",
 				},
@@ -654,13 +654,13 @@ func TestMergeMeta(t *testing.T) {
 		{
 			name: "merge with interface slices",
 			base: attrs.Bag{
-				"tags": []interface{}{"base1", "base2"},
+				"tags": []any{"base1", "base2"},
 			},
 			override: attrs.Bag{
-				"tags": []interface{}{"override1"},
+				"tags": []any{"override1"},
 			},
 			want: attrs.Bag{
-				"tags": []interface{}{"override1"}, // Notify replacement
+				"tags": []any{"override1"}, // Notify replacement
 			},
 		},
 	}

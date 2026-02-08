@@ -63,7 +63,7 @@ func UnpackConfig[T any](ctx context.Context, entry registry.Entry) (*T, error) 
 		return nil, runtimelua.NewUnmarshalConfigError(err)
 	}
 
-	if validator, ok := interface{}(cfg).(interface{ Validate() error }); ok {
+	if validator, ok := any(cfg).(interface{ Validate() error }); ok {
 		if err := validator.Validate(); err != nil {
 			return nil, runtimelua.NewValidationError(err)
 		}

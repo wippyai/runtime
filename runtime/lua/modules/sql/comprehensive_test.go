@@ -10,7 +10,7 @@ import (
 func TestToGoValueEdgeCases(t *testing.T) {
 	tests := []struct {
 		input lua.LValue
-		want  interface{}
+		want  any
 		name  string
 	}{
 		{lua.LString(""), "", "empty string"},

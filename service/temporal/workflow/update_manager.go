@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -171,20 +170,7 @@ func (m *UpdateManager) handleOk(upd *updateEntry, payloads payload.Payloads, re
 
 	var result any
 	if len(payloads) > 0 {
-		p := payloads[0]
-		if p.Format() == payload.JSON {
-			jsonBytes, ok := p.Data().([]byte)
-			if !ok {
-				resume(nil, fmt.Errorf("json payload data is not []byte"))
-				return
-			}
-			if err := json.Unmarshal(jsonBytes, &result); err != nil {
-				resume(nil, fmt.Errorf("failed to unmarshal JSON: %w", err))
-				return
-			}
-		} else {
-			result = p.Data()
-		}
+		result = payloads[0]
 	}
 
 	upd.Callbacks.Complete(result, nil)

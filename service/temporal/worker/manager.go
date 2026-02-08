@@ -104,7 +104,7 @@ func NewManager(opts ...ManagerOption) (*Manager, error) {
 	}
 
 	if m.factory == nil {
-		m.factory = NewDefaultWorkerFactory(m.envReg, m.workerInterceptors)
+		m.factory = NewDefaultWorkerFactory(m.envReg, m.workerInterceptors, m.dtt)
 	}
 
 	return m, nil

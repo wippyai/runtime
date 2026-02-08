@@ -22,18 +22,44 @@ func EventRouter() boot.Component {
 			logger := logapi.GetLogger(ctx).Named("router")
 			bus := event.GetBus(ctx)
 			handlerRegistry := bootpkg.GetHandlerRegistry(ctx)
+			readiness := bootpkg.GetReadiness(ctx)
+
+			router, err := eventbus.StartRouter(ctx, bus, eventbus.WithLogger(logger))
+			if err != nil {
+				return err
+			}
 
 			if handlerRegistry == nil {
 				logger.Warn("no handler registry found, starting router without handlers")
-				_, err := eventbus.StartRouter(ctx, bus)
-				return err
+				return nil
 			}
 
 			handlers := handlerRegistry.Handlers()
 			logger.Debug("starting event router", zap.Int("handler_count", len(handlers)))
 
-			_, err := eventbus.StartRouter(ctx, bus, eventbus.WithHandlers(handlers...))
-			return err
+			remaining := 0
+			if readiness != nil && len(handlers) > 0 {
+				readiness.Add(len(handlers))
+				remaining = len(handlers)
+				defer func() {
+					for remaining > 0 {
+						readiness.Done()
+						remaining--
+					}
+				}()
+			}
+
+			for _, handler := range handlers {
+				if err := router.AddHandler(handler); err != nil {
+					return err
+				}
+				if remaining > 0 {
+					readiness.Done()
+					remaining--
+				}
+			}
+
+			return nil
 		},
 	})
 }

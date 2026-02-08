@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/wippyai/runtime/cmd/wippy/version"
+	"github.com/wippyai/runtime/api/version"
 )
 
 // GradientTheme defines a 3-step gradient color theme.

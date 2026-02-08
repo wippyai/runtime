@@ -23,11 +23,11 @@ import (
 
 // MockPayload implements payload.Payload for testing
 type MockPayload struct {
-	data   interface{}
+	data   any
 	format payload.Format
 }
 
-func (p *MockPayload) Data() interface{} {
+func (p *MockPayload) Data() any {
 	return p.data
 }
 
@@ -39,7 +39,7 @@ func (p *MockPayload) Transcode(format payload.Format) (payload.Payload, error) 
 	return &MockPayload{data: p.data, format: format}, nil
 }
 
-func NewMockPayload(data interface{}) payload.Payload {
+func NewMockPayload(data any) payload.Payload {
 	return &MockPayload{data: data, format: payload.Golang}
 }
 
@@ -67,7 +67,7 @@ func assertDetailInt(t *testing.T, apiErr apierror.Error, key string, expected i
 // MockTranscoder implements payload.Transcoder for testing
 type MockTranscoder struct {
 	unmarshalError error
-	unmarshalFunc  func(payload.Payload, interface{}) error
+	unmarshalFunc  func(payload.Payload, any) error
 }
 
 func (m *MockTranscoder) Marshal(v any) ([]byte, error) {

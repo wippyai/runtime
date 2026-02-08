@@ -8,14 +8,12 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
+	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/deps/client"
 	"github.com/wippyai/runtime/boot/loader"
 	"github.com/wippyai/runtime/boot/loader/interpolate"
 	"github.com/wippyai/runtime/cmd/internal/logger"
-	luapayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
-	transcoder "github.com/wippyai/runtime/system/payload"
-	json2 "github.com/wippyai/runtime/system/payload/json"
-	"github.com/wippyai/runtime/system/payload/yaml"
+	syspayload "github.com/wippyai/runtime/system/payload"
 	"go.uber.org/zap"
 )
 
@@ -48,10 +46,7 @@ func Init(ctx context.Context, verbose, veryVerbose, console, silent bool, appSt
 	ctx = ctxapi.WithAppContext(ctx, ctxapi.NewAppContext())
 
 	// Initialize transcoder
-	dtt := transcoder.GlobalTranscoder()
-	json2.Register(dtt)
-	yaml.Register(dtt)
-	luapayload.Register(dtt)
+	dtt := bootpkg.ConfigureTranscoder(ctx, syspayload.NewTranscoder())
 	ctx = payload.WithTranscoder(ctx, dtt)
 
 	// Initialize loader

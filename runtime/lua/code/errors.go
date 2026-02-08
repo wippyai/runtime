@@ -140,7 +140,11 @@ func NewTypeCheckDiagnosticError(id registry.ID, diagnostics []diag.Diagnostic) 
 	var msgs []string
 	for _, d := range diagnostics {
 		if d.Severity == diag.SeverityError {
-			msgs = append(msgs, d.Message)
+			if d.Position.Line > 0 {
+				msgs = append(msgs, fmt.Sprintf("%d:%d %s", d.Position.Line, d.Position.Column, d.Message))
+			} else {
+				msgs = append(msgs, d.Message)
+			}
 		}
 	}
 	return apierror.New(apierror.Invalid, fmt.Sprintf("type errors in %v: %s", id, strings.Join(msgs, "; "))).

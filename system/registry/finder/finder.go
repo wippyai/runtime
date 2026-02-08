@@ -175,7 +175,7 @@ func (f *memoryFinder) Find(meta attrs.Bag) ([]registry.Entry, error) {
 	}
 
 	// Extract special fields and create matchers
-	rootMatchers := make(map[string]interface{})
+	rootMatchers := make(map[string]any)
 	regexMatchers := make(map[string]*regexp.Regexp)
 	containsMatchers := make(map[string]string)
 	prefixMatchers := make(map[string]string)
@@ -319,7 +319,7 @@ func matchGlob(value, pattern string) bool {
 // matchesAllCriteria checks if an entry matches all the search criteria
 func matchesAllCriteria(
 	entry registry.Entry,
-	rootMatchers map[string]interface{},
+	rootMatchers map[string]any,
 	regexMatchers map[string]*regexp.Regexp,
 	containsMatchers map[string]string,
 	prefixMatchers map[string]string,
@@ -405,7 +405,7 @@ func matchesAllCriteria(
 }
 
 // matchContains checks if a value contains a substring (handles strings and arrays)
-func matchContains(value interface{}, substr string) bool {
+func matchContains(value any, substr string) bool {
 	// Handle string fields
 	if strValue, ok := value.(string); ok {
 		return strings.Contains(strValue, substr)
@@ -421,8 +421,8 @@ func matchContains(value interface{}, substr string) bool {
 		return false
 	}
 
-	// Handle []interface{} fields (from JSON unmarshaling)
-	if anyArray, ok := value.([]interface{}); ok {
+	// Handle []any fields (from JSON unmarshaling)
+	if anyArray, ok := value.([]any); ok {
 		for _, anyVal := range anyArray {
 			if strVal, ok := anyVal.(string); ok && strings.Contains(strVal, substr) {
 				return true
@@ -435,7 +435,7 @@ func matchContains(value interface{}, substr string) bool {
 }
 
 // matchArrayContainsAll checks if actual array contains all expected elements
-func matchArrayContainsAll(actual interface{}, expected []string) bool {
+func matchArrayContainsAll(actual any, expected []string) bool {
 	// Handle []string
 	if actualArray, ok := actual.([]string); ok {
 		for _, expectedTag := range expected {
@@ -453,8 +453,8 @@ func matchArrayContainsAll(actual interface{}, expected []string) bool {
 		return true
 	}
 
-	// Handle []interface{} (from JSON)
-	if actualAnyArray, ok := actual.([]interface{}); ok {
+	// Handle []any (from JSON)
+	if actualAnyArray, ok := actual.([]any); ok {
 		for _, expectedTag := range expected {
 			found := false
 			for _, anyVal := range actualAnyArray {

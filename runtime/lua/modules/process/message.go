@@ -64,8 +64,8 @@ func messageFrom(l *lua.LState) int {
 		return 0
 	}
 
-	if msg.From.String() == "{||}" {
-		l.Push(lua.LNil)
+	if msg.From.Node == "" && msg.From.Host == "" && msg.From.UniqID == "" {
+		l.Push(lua.LString(""))
 		return 1
 	}
 

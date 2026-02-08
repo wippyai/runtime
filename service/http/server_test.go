@@ -510,6 +510,107 @@ func TestServerService_Middleware(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestServerService_RebuildPreservesFrameContext(t *testing.T) {
+	port, err := findFreePort()
+	require.NoError(t, err)
+
+	cfg := &config.ServerConfig{
+		Addr: fmt.Sprintf("127.0.0.1:%d", port),
+	}
+
+	middleware := NewMiddlewareRegistry(zap.NewNop())
+	frameKey := &contextapi.Key{Name: "test.frame"}
+	require.NoError(t, middleware.Register("frame_check", func(_ map[string]string) func(http.Handler) http.Handler {
+		return func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fc := contextapi.FrameFromContext(r.Context())
+				if fc == nil {
+					w.Header().Set("X-Frame", "missing")
+				} else if err := fc.Set(frameKey, "ok"); err != nil {
+					w.Header().Set("X-Frame", "sealed")
+				} else {
+					w.Header().Set("X-Frame", "ok")
+				}
+				next.ServeHTTP(w, r)
+			})
+		}
+	}))
+
+	server, err := NewServerService(registry.NewID("test", "server_frame"), cfg, middleware)
+	require.NoError(t, err)
+
+	routerID := registry.NewID("test", "router_frame")
+	routerCfg := &config.RouterConfig{
+		Prefix:     "/api",
+		Middleware: []string{"frame_check"},
+		Options:    map[string]string{},
+	}
+	require.NoError(t, server.UpsertRouter(routerID, routerCfg))
+
+	endpointID := registry.NewID("test", "endpoint_frame")
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	require.NoError(t, server.UpsertEndpoint(routerID, endpointID, "/hello", "GET", handler))
+	require.NoError(t, server.Rebuild(context.Background()))
+
+	ctx, cancel := context.WithTimeout(contextapi.NewRootContext(), 10*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	var statusCh <-chan any
+	var startErr error
+	go func() {
+		statusCh, startErr = server.Start(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Server start timed out")
+	}
+
+	require.NoError(t, startErr)
+	require.NotNil(t, statusCh)
+
+	client := &http.Client{Timeout: 2 * time.Second}
+	doRequest := func(path string) *http.Response {
+		var resp *http.Response
+		var lastErr error
+		for i := 0; i < 3; i++ {
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, fmt.Sprintf("http://%s%s", cfg.Addr, path), nil)
+			if err != nil {
+				lastErr = err
+				time.Sleep(200 * time.Millisecond)
+				continue
+			}
+			resp, lastErr = client.Do(req)
+			if lastErr == nil {
+				return resp
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		require.NoError(t, lastErr)
+		return resp
+	}
+
+	resp := doRequest("/api/hello")
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "ok", resp.Header.Get("X-Frame"))
+	require.NoError(t, resp.Body.Close())
+
+	require.NoError(t, server.UpsertEndpoint(routerID, endpointID, "/hello2", "GET", handler))
+	require.NoError(t, server.Rebuild(context.Background()))
+
+	resp = doRequest("/api/hello2")
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "ok", resp.Header.Get("X-Frame"))
+	require.NoError(t, resp.Body.Close())
+
+	require.NoError(t, server.Stop(ctx))
+}
+
 func TestEnsureRunning(t *testing.T) {
 	// Create a server with a test port
 	port, err := findFreePort()

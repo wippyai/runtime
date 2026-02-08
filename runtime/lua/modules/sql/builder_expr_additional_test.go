@@ -187,7 +187,7 @@ func TestGoValueToLuaAllTypes(t *testing.T) {
 	defer l.Close()
 
 	tests := []struct {
-		input interface{}
+		input any
 		name  string
 	}{
 		{nil, "nil"},

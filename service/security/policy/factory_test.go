@@ -19,7 +19,7 @@ func (m *mockTranscoder) Transcode(p payload.Payload, format payload.Format) (pa
 	return payload.NewPayload(p, format), nil
 }
 
-func (m *mockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
+func (m *mockTranscoder) Unmarshal(p payload.Payload, v any) error {
 	switch dest := v.(type) {
 	case *policyapi.Config:
 		if src, ok := p.Data().(*policyapi.Config); ok {

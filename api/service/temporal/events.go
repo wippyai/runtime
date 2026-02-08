@@ -15,18 +15,26 @@ const (
 	TaskQueueRegister event.Kind = "taskqueue.register"
 )
 
-// TaskQueueRegistration represents a request to register a task queue
+// TaskQueueRegistration represents a request to register a task queue.
 type TaskQueueRegistration struct {
-	ID        registry.ID
-	Client    registry.ID
+	// ID is the worker registry ID that owns this task queue.
+	ID registry.ID
+	// Client is the Temporal client the worker connects through.
+	Client registry.ID
+	// TaskQueue is the Temporal task queue name.
 	TaskQueue string
 }
 
-// WorkflowRegistration represents a workflow registration
+// WorkflowRegistration represents a workflow registration.
 type WorkflowRegistration struct {
-	Handler   any
-	Options   *tmcli.StartWorkflowOptions
-	Source    registry.ID
+	// Handler is the workflow definition factory.
+	Handler any
+	// Options provides default start options for the workflow.
+	Options *tmcli.StartWorkflowOptions
+	// Source is the registry ID of the workflow entry.
+	Source registry.ID
+	// TaskQueue is the worker registry ID where the workflow is registered.
 	TaskQueue registry.ID
-	Name      string
+	// Name is the Temporal workflow type name.
+	Name string
 }

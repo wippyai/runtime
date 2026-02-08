@@ -324,6 +324,7 @@ func (g *Graph[T, E]) ShortestPath(from, to T) (*Path[T], error) {
 	}
 
 	distances := make(map[T]int)
+	hops := make(map[T]int)
 	previous := make(map[T]T)
 	pq := &priorityQueue[T]{items: make([]*item[T], 0)}
 	heap.Init(pq)
@@ -331,9 +332,11 @@ func (g *Graph[T, E]) ShortestPath(from, to T) (*Path[T], error) {
 	for node := range g.nodes {
 		if node == from {
 			distances[node] = 0
+			hops[node] = 0
 			heap.Push(pq, &item[T]{node: node, priority: 0})
 		} else {
 			distances[node] = -1
+			hops[node] = -1
 		}
 	}
 
@@ -344,11 +347,35 @@ func (g *Graph[T, E]) ShortestPath(from, to T) (*Path[T], error) {
 			continue
 		}
 
-		for neighbor, edge := range g.edges[current.node] {
-			newDist := distances[current.node] + edge.Weight
+		neighbors := make([]T, 0, len(g.edges[current.node]))
+		for neighbor := range g.edges[current.node] {
+			neighbors = append(neighbors, neighbor)
+		}
+		sort.Slice(neighbors, func(i, j int) bool {
+			return fmt.Sprintf("%v", neighbors[i]) < fmt.Sprintf("%v", neighbors[j])
+		})
 
-			if distances[neighbor] == -1 || newDist < distances[neighbor] {
+		for _, neighbor := range neighbors {
+			edge := g.edges[current.node][neighbor]
+			newDist := distances[current.node] + edge.Weight
+			newHops := hops[current.node] + 1
+
+			update := false
+			switch {
+			case distances[neighbor] == -1:
+				update = true
+			case newDist < distances[neighbor]:
+				update = true
+			case newDist == distances[neighbor] && (hops[neighbor] == -1 || newHops < hops[neighbor]):
+				update = true
+			case newDist == distances[neighbor] && newHops == hops[neighbor]:
+				prev, ok := previous[neighbor]
+				update = !ok || fmt.Sprintf("%v", current.node) < fmt.Sprintf("%v", prev)
+			}
+
+			if update {
 				distances[neighbor] = newDist
+				hops[neighbor] = newHops
 				previous[neighbor] = current.node
 				heap.Push(pq, &item[T]{
 					node:     neighbor,

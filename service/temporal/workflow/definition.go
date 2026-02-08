@@ -1,3 +1,5 @@
+// Package workflow implements Temporal workflow definitions, signal/update handling,
+// timer management, and process command execution within the Temporal deterministic runtime.
 package workflow
 
 import (
@@ -40,28 +42,39 @@ type DefinitionFactory struct {
 	ctx context.Context
 	log *zap.Logger
 	ID  registry.ID
+	// Captured at registration time from worker context to avoid identity loss
+	// if SDK-invoked definition instances don't preserve context values.
+	clientID string
+	workerID string
 }
 
 // WithContext returns a new factory with the given context.
 func (f *DefinitionFactory) WithContext(ctx context.Context) any {
+	clientID := temporalapi.GetClientID(ctx)
+	workerID := temporalapi.GetWorkerID(ctx)
 	return &DefinitionFactory{
-		ID:  f.ID,
-		log: f.log,
-		ctx: ctx,
+		ID:       f.ID,
+		log:      f.log,
+		ctx:      ctx,
+		clientID: clientID,
+		workerID: workerID,
 	}
 }
 
 // NewWorkflowDefinition creates a new workflow definition instance.
 func (f *DefinitionFactory) NewWorkflowDefinition() bindings.WorkflowDefinition {
 	return &Definition{
-		id:  f.ID,
-		log: f.log,
-		ctx: f.ctx,
+		id:       f.ID,
+		log:      f.log,
+		ctx:      f.ctx,
+		clientID: f.clientID,
+		workerID: f.workerID,
 	}
 }
 
 // incomingSignal represents a queued signal to be delivered to the workflow.
 type incomingSignal struct {
+	From     pid.PID
 	Name     string
 	Payloads payload.Payloads
 }
@@ -87,6 +100,8 @@ type Definition struct {
 	timers     *TimerManager
 	updates    *UpdateManager
 	id         registry.ID
+	clientID   string
+	workerID   string
 	signals    []incomingSignal
 	childExits []childExitEvent
 	output     process.StepOutput
@@ -115,13 +130,20 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 
 	var payloads payload.Payloads
 	if err := d.dc.FromPayloads(input, &payloads); err != nil {
-		d.env.Complete(nil, fmt.Errorf("failed to decode input payloads: %w", err))
+		d.env.Complete(nil, fmt.Errorf(
+			"failed to decode input payloads (converter=%T workflow=%s): %w",
+			d.dc,
+			d.id.String(),
+			err,
+		))
 		return
 	}
 
+	clientID := d.resolveClientID()
+	workerID := d.resolveWorkerID(env.WorkflowInfo().TaskQueueName)
 	processPID := pid.PID{
-		Node:   temporalapi.GetClientID(d.ctx),
-		Host:   env.WorkflowInfo().TaskQueueName,
+		Node:   clientID,
+		Host:   workerID,
 		UniqID: env.WorkflowInfo().WorkflowExecution.ID,
 	}
 
@@ -136,7 +158,7 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 		return
 	}
 
-	if ctxValues, err := propagator.ExtractFromHeader(header); err != nil {
+	if ctxValues, err := propagator.ExtractFromHeader(d.dc, header); err != nil {
 		d.replayLog.Warn("failed to extract context from header", zap.Error(err))
 	} else if len(ctxValues) > 0 {
 		values, err := ctxapi.GetOrCreateValues(execCtx)
@@ -149,7 +171,7 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 		}
 	}
 
-	if secPayload, err := propagator.ExtractSecurityFromHeader(header); err != nil {
+	if secPayload, err := propagator.ExtractSecurityFromHeader(d.dc, header); err != nil {
 		d.replayLog.Warn("failed to extract security from header", zap.Error(err))
 	} else if secPayload != nil {
 		if err := propagator.ApplySecurityPayload(execCtx, secPayload); err != nil {
@@ -195,6 +217,23 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 	}
 }
 
+func (d *Definition) resolveClientID() string {
+	if clientID := temporalapi.GetClientID(d.ctx); clientID != "" {
+		return clientID
+	}
+	return d.clientID
+}
+
+func (d *Definition) resolveWorkerID(fallback string) string {
+	if workerID := temporalapi.GetWorkerID(d.ctx); workerID != "" {
+		return workerID
+	}
+	if d.workerID != "" {
+		return d.workerID
+	}
+	return fallback
+}
+
 func (d *Definition) completeWithResult() {
 	d.completed = true
 	if d.result == nil {
@@ -223,31 +262,44 @@ func (d *Definition) completeWithResult() {
 
 // getContextHeader creates a header from current FrameContext values for propagation.
 func (d *Definition) getContextHeader() *commonpb.Header {
+	return d.getContextHeaderFrom(d.execCtx, nil)
+}
+
+func (d *Definition) getContextHeaderWithValues(extra map[string]any) *commonpb.Header {
+	return d.getContextHeaderFrom(d.execCtx, extra)
+}
+
+func (d *Definition) getContextHeaderFrom(ctx context.Context, extra map[string]any) *commonpb.Header {
 	var header *commonpb.Header
 
-	values := ctxapi.GetValues(d.execCtx)
+	values := ctxapi.GetValues(ctx)
+	data := make(map[string]any)
 	if values != nil && values.Len() > 0 {
-		data := make(map[string]any)
 		values.Iterate(func(key string, val any) {
 			switch val.(type) {
 			case string, int, int64, float64, bool, map[string]any, []any:
 				data[key] = val
 			}
 		})
-
-		if len(data) > 0 {
-			var err error
-			header, err = propagator.CreateHeader(data)
-			if err != nil {
-				d.replayLog.Warn("failed to create context header", zap.Error(err))
-			}
+	}
+	if len(extra) > 0 {
+		for k, v := range extra {
+			data[k] = v
 		}
 	}
 
-	secPayload := propagator.ExtractSecurityPayload(d.execCtx)
+	if len(data) > 0 {
+		var err error
+		header, err = propagator.CreateHeader(d.dc, data)
+		if err != nil {
+			d.replayLog.Warn("failed to create context header", zap.Error(err))
+		}
+	}
+
+	secPayload := propagator.ExtractSecurityPayload(ctx)
 	if secPayload != nil {
 		var err error
-		header, err = propagator.AddSecurityToHeader(header, secPayload)
+		header, err = propagator.AddSecurityToHeader(d.dc, header, secPayload)
 		if err != nil {
 			d.replayLog.Warn("failed to add security to header", zap.Error(err))
 		}

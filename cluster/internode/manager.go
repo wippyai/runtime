@@ -98,7 +98,7 @@ func (mc ManagerConfig) NodeConnectionConfig() NodeConnectionConfig {
 }
 
 type nodeCommand struct {
-	Data interface{}
+	Data any
 	Type commandType
 }
 

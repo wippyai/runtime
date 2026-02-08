@@ -39,7 +39,7 @@ type encodedEntry struct {
 
 func newMsgpackHandle() *codec.MsgpackHandle {
 	mh := &codec.MsgpackHandle{}
-	mh.MapType = reflect.TypeOf(map[string]interface{}(nil))
+	mh.MapType = reflect.TypeOf(map[string]any(nil))
 	mh.SliceType = nil
 	mh.RawToString = true
 	mh.Canonical = true

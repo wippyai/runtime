@@ -269,6 +269,72 @@ func TestGraphPathOperations(t *testing.T) {
 			t.Errorf("expected total cost 3, got %d", path.Cost)
 		}
 	})
+
+	t.Run("equal cost prefers fewer hops", func(t *testing.T) {
+		g := New[string, TestEdgeData]()
+
+		nodes := []string{"A", "B", "D"}
+		for _, node := range nodes {
+			g.AddNode(node)
+		}
+
+		edgeData := TestEdgeData{Label: "path"}
+		g.AddEdge("A", "D", 2, edgeData) // same total cost as A->B->D, fewer hops
+		g.AddEdge("A", "B", 1, edgeData)
+		g.AddEdge("B", "D", 1, edgeData)
+
+		path, err := g.ShortestPath("A", "D")
+		if err != nil {
+			t.Fatalf("unexpected error finding path: %v", err)
+		}
+
+		expectedPath := []string{"A", "D"}
+		if len(path.Nodes) != len(expectedPath) {
+			t.Fatalf("expected path length %d, got %d (%v)", len(expectedPath), len(path.Nodes), path.Nodes)
+		}
+		for i, node := range path.Nodes {
+			if node != expectedPath[i] {
+				t.Fatalf("path mismatch at %d: expected %s, got %s", i, expectedPath[i], node)
+			}
+		}
+		if path.Cost != 2 {
+			t.Fatalf("expected total cost 2, got %d", path.Cost)
+		}
+	})
+
+	t.Run("equal cost and hops uses stable tie break", func(t *testing.T) {
+		g := New[string, TestEdgeData]()
+
+		nodes := []string{"A", "B", "C", "D"}
+		for _, node := range nodes {
+			g.AddNode(node)
+		}
+
+		edgeData := TestEdgeData{Label: "path"}
+		// Insert in reverse lexical order to ensure outcome is not insertion-order dependent.
+		g.AddEdge("A", "C", 1, edgeData)
+		g.AddEdge("C", "D", 1, edgeData)
+		g.AddEdge("A", "B", 1, edgeData)
+		g.AddEdge("B", "D", 1, edgeData)
+
+		path, err := g.ShortestPath("A", "D")
+		if err != nil {
+			t.Fatalf("unexpected error finding path: %v", err)
+		}
+
+		expectedPath := []string{"A", "B", "D"}
+		if len(path.Nodes) != len(expectedPath) {
+			t.Fatalf("expected path length %d, got %d (%v)", len(expectedPath), len(path.Nodes), path.Nodes)
+		}
+		for i, node := range path.Nodes {
+			if node != expectedPath[i] {
+				t.Fatalf("path mismatch at %d: expected %s, got %s", i, expectedPath[i], node)
+			}
+		}
+		if path.Cost != 2 {
+			t.Fatalf("expected total cost 2, got %d", path.Cost)
+		}
+	})
 }
 
 func TestGraphEdgeDataOperations(t *testing.T) {

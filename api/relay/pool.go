@@ -8,7 +8,7 @@ import (
 )
 
 var packagePool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return &Package{
 			Messages: make([]*Message, 0, 1),
 		}
@@ -16,7 +16,7 @@ var packagePool = sync.Pool{
 }
 
 var messagePool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return &Message{}
 	},
 }

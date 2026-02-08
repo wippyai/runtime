@@ -11,7 +11,7 @@ import (
 
 func TestInterpolator_Interpolate_NoReplacements(t *testing.T) {
 	i := NewInterpolator() // No replacers
-	data := map[string]interface{}{"key": "value", "num": 123}
+	data := map[string]any{"key": "value", "num": 123}
 
 	result, err := i.Interpolate(data, nil)
 	if err != nil {
@@ -52,13 +52,13 @@ func TestInterpolator_Interpolate_StringReplacement_Nested(t *testing.T) {
 
 	i := NewInterpolator(replaceFunc)
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"a": "not replaced",
-		"b": map[string]interface{}{
+		"b": map[string]any{
 			"c": []string{"test", "not replaced"},
 			"d": "test",
 		},
-		"e": []interface{}{
+		"e": []any{
 			map[string]string{"f": "test"},
 			"test",
 		},
@@ -74,13 +74,13 @@ func TestInterpolator_Interpolate_StringReplacement_Nested(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	expected := map[string]interface{}{
+	expected := map[string]any{
 		"a": "not replaced",
-		"b": map[string]interface{}{
+		"b": map[string]any{
 			"c": []string{"replaced", "not replaced"},
 			"d": "replaced",
 		},
-		"e": []interface{}{
+		"e": []any{
 			map[string]string{"f": "replaced"},
 			"replaced",
 		},
@@ -127,7 +127,7 @@ func TestInterpolator_Interpolate_ReplacerWithContext(t *testing.T) {
 	type MyContext struct {
 		Prefix string
 	}
-	replaceFunc := func(s string, ctx interface{}) (string, error) {
+	replaceFunc := func(s string, ctx any) (string, error) {
 		if c, ok := ctx.(MyContext); ok && s == "test" {
 			return c.Prefix + s, nil
 		}
@@ -150,7 +150,7 @@ func TestInterpolator_Interpolate_NestedStructuresWithContext(t *testing.T) {
 	type MyContext struct {
 		Prefix string
 	}
-	replaceFunc := func(s string, ctx interface{}) (string, error) {
+	replaceFunc := func(s string, ctx any) (string, error) {
 		if c, ok := ctx.(MyContext); ok {
 			if s == "test" {
 				return c.Prefix + s, nil
@@ -160,13 +160,13 @@ func TestInterpolator_Interpolate_NestedStructuresWithContext(t *testing.T) {
 	}
 
 	i := NewInterpolator(replaceFunc)
-	data := map[string]interface{}{
+	data := map[string]any{
 		"a": "not replaced",
-		"b": map[string]interface{}{
+		"b": map[string]any{
 			"c": []string{"test", "not replaced"},
 			"d": "test",
 		},
-		"e": []interface{}{
+		"e": []any{
 			map[string]string{"f": "test"},
 			"test",
 		},
@@ -183,13 +183,13 @@ func TestInterpolator_Interpolate_NestedStructuresWithContext(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	expected := map[string]interface{}{
+	expected := map[string]any{
 		"a": "not replaced",
-		"b": map[string]interface{}{
+		"b": map[string]any{
 			"c": []string{"prefix-test", "not replaced"},
 			"d": "prefix-test",
 		},
-		"e": []interface{}{
+		"e": []any{
 			map[string]string{"f": "prefix-test"},
 			"prefix-test",
 		},
@@ -231,7 +231,7 @@ func TestInterpolator_Interpolate_NilPointer(t *testing.T) {
 
 func TestInterpolator_Interpolate_EmptyStructures(t *testing.T) {
 	i := NewInterpolator()
-	data := map[string]interface{}{
+	data := map[string]any{
 		"map":   map[string]string{},
 		"slice": []string{},
 		"struct": struct {
@@ -294,7 +294,7 @@ func TestInterpolator_Interpolate_File_Replacement(t *testing.T) {
 		return string(data), nil
 	}
 
-	fileReplacer := func(s string, ctx interface{}) (string, error) {
+	fileReplacer := func(s string, ctx any) (string, error) {
 		if s == "test.txt" {
 			return fileReadFunc(s, ctx)
 		}
@@ -302,7 +302,7 @@ func TestInterpolator_Interpolate_File_Replacement(t *testing.T) {
 	}
 
 	i := NewInterpolator(fileReplacer)
-	p := map[string]interface{}{"content": "test.txt"}
+	p := map[string]any{"content": "test.txt"}
 
 	result, err := i.Interpolate(p, nil)
 	if err != nil {
@@ -310,7 +310,7 @@ func TestInterpolator_Interpolate_File_Replacement(t *testing.T) {
 	}
 
 	// Expected payload after interpolation
-	expected := map[string]interface{}{"content": testFileContent}
+	expected := map[string]any{"content": testFileContent}
 	if !reflect.DeepEqual(result, expected) {
 		t.Errorf("expected data: %v, got: %v", expected, result)
 	}
@@ -320,14 +320,14 @@ func TestInterpolator_Interpolate_File_Missing(t *testing.T) {
 	fileReadFunc := func(path string, _ any) (string, error) {
 		return "", fmt.Errorf("file not found: %s", path)
 	}
-	fileReplacer := func(s string, ctx interface{}) (string, error) {
+	fileReplacer := func(s string, ctx any) (string, error) {
 		if s == "missing.txt" {
 			return fileReadFunc(s, ctx)
 		}
 		return s, nil
 	}
 	i := NewInterpolator(fileReplacer)
-	p := map[string]interface{}{"content": "missing.txt"}
+	p := map[string]any{"content": "missing.txt"}
 
 	_, err := i.Interpolate(p, nil)
 	if err == nil {

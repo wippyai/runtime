@@ -4,8 +4,10 @@ import (
 	"context"
 	"path/filepath"
 
+	glua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	fsapi "github.com/wippyai/runtime/api/fs"
 	logapi "github.com/wippyai/runtime/api/logs"
@@ -32,6 +34,8 @@ func Engine() boot.Component {
 		Name:      EngineName,
 		DependsOn: []boot.Name{dispatchers.ClockDispatcherName},
 		Load: func(ctx context.Context) (context.Context, error) {
+			glua.ConfigureErrorMetadataExtractor(extractLuaErrorMetadata)
+
 			logger := logapi.GetLogger(ctx)
 			bus := event.GetBus(ctx)
 			handlers := bootpkg.GetHandlerRegistry(ctx)
@@ -145,4 +149,39 @@ func Engine() boot.Component {
 			return nil
 		},
 	})
+}
+
+func extractLuaErrorMetadata(err error) *glua.ErrorMetadata {
+	if err == nil {
+		return nil
+	}
+
+	chain := apierror.BuildChain(err)
+	if chain == nil {
+		return nil
+	}
+	root := chain.Root()
+	if root == nil {
+		return nil
+	}
+
+	meta := &glua.ErrorMetadata{}
+	if root.Kind != "" {
+		meta.Kind = glua.Kind(root.Kind)
+	}
+	if root.Retryable != nil {
+		b := *root.Retryable
+		meta.Retryable = &b
+	}
+	if len(root.Details) > 0 {
+		meta.Details = make(map[string]any, len(root.Details))
+		for k, v := range root.Details {
+			meta.Details[k] = v
+		}
+	}
+
+	if meta.Kind == "" && meta.Retryable == nil && meta.Details == nil {
+		return nil
+	}
+	return meta
 }
