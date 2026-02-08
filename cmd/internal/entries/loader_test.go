@@ -7,11 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	contextapi "github.com/wippyai/runtime/api/context"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/components/core"
 	transcoder "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/wapp"
@@ -662,5 +664,59 @@ func TestPackReaderReader(t *testing.T) {
 	reader := pr.Reader()
 	if reader == nil {
 		t.Error("Reader() returned nil")
+	}
+}
+
+func TestWaitForListenerReadiness_NoCoordinator(t *testing.T) {
+	ctx := setupTestContext(t)
+	logger := zap.NewNop()
+
+	err := waitForListenerReadiness(ctx, logger)
+	if err != nil {
+		t.Fatalf("waitForListenerReadiness returned error without coordinator: %v", err)
+	}
+}
+
+func TestWaitForListenerReadiness_PendingCompletes(t *testing.T) {
+	ctx := setupTestContext(t)
+	logger := zap.NewNop()
+
+	ready := bootpkg.NewReadiness()
+	ready.Add(1)
+	ctx = bootpkg.WithReadiness(ctx, ready)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- waitForListenerReadiness(ctx, logger)
+	}()
+
+	// Give waiter a chance to block, then complete readiness.
+	time.Sleep(10 * time.Millisecond)
+	ready.Done()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("waitForListenerReadiness returned error: %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("waitForListenerReadiness did not finish after readiness completion")
+	}
+}
+
+func TestWaitForListenerReadiness_ContextCancelled(t *testing.T) {
+	ctx := setupTestContext(t)
+	logger := zap.NewNop()
+
+	ready := bootpkg.NewReadiness()
+	ready.Add(1)
+	ctx = bootpkg.WithReadiness(ctx, ready)
+
+	cancelCtx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+	defer cancel()
+
+	err := waitForListenerReadiness(cancelCtx, logger)
+	if err == nil {
+		t.Fatal("expected cancellation error, got nil")
 	}
 }

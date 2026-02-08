@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	apierror "github.com/wippyai/runtime/api/error"
@@ -1351,5 +1352,14 @@ func toAPIError(err error) error {
 		kind = apierror.Internal
 	}
 
-	return apierror.New(kind, luaErr.Error()).WithRetryable(retryable).WithCause(luaErr)
+	msg := luaErr.Message
+	if msg == "" {
+		msg = luaErr.Error()
+	}
+
+	builder := apierror.New(kind, msg).WithRetryable(retryable)
+	if details := luaErr.Details(); len(details) > 0 {
+		builder = builder.WithDetails(attrs.NewBagFrom(details))
+	}
+	return builder
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
+	runtimeapi "github.com/wippyai/runtime/api/runtime"
 )
 
 func TestSendYield_HandleResult_Success(t *testing.T) {
@@ -81,6 +82,23 @@ func TestSpawnYield_HandleResult_Error(t *testing.T) {
 	assert.Len(t, result, 2)
 	assert.Equal(t, lua.LNil, result[0])
 	assert.NotEqual(t, lua.LNil, result[1])
+}
+
+func TestSpawnYield_HandleResult_PreservesLuaErrorMetadata(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	yield := AcquireSpawnYield()
+	defer yield.Release()
+
+	original := lua.NewError("spawn failed").WithKind(lua.NotFound).WithRetryable(false)
+	result := yield.HandleResult(l, process.SpawnResult{Error: original}, nil)
+	assert.Len(t, result, 2)
+
+	luaErr, ok := lua.AsError(result[1])
+	assert.True(t, ok, "expected lua error userdata")
+	assert.Equal(t, lua.NotFound, luaErr.Kind())
+	assert.Equal(t, lua.TernaryFalse, luaErr.Retryable())
 }
 
 func TestTerminateYield_HandleResult_Success(t *testing.T) {
@@ -173,6 +191,25 @@ func TestUnlinkYield_HandleResult_Success(t *testing.T) {
 	assert.Len(t, result, 2)
 	assert.Equal(t, lua.LTrue, result[0])
 	assert.Equal(t, lua.LNil, result[1])
+}
+
+func TestExecYield_HandleResult_PreservesLuaErrorMetadata(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	yield := AcquireExecYield()
+	defer yield.Release()
+
+	original := lua.NewError("child failed").WithKind(lua.NotFound).WithRetryable(false)
+	result := yield.HandleResult(l, process.ExecResult{
+		Result: &runtimeapi.Result{Error: original},
+	}, nil)
+	assert.Len(t, result, 2)
+
+	luaErr, ok := lua.AsError(result[1])
+	assert.True(t, ok, "expected lua error userdata")
+	assert.Equal(t, lua.NotFound, luaErr.Kind())
+	assert.Equal(t, lua.TernaryFalse, luaErr.Retryable())
 }
 
 func TestYieldPooling(t *testing.T) {

@@ -105,7 +105,16 @@ func (t *Transcoder) Transcode(p payload.Payload, to payload.Format) (payload.Pa
 			return nil, NewNoTranscoderError(currentFrom, currentTo)
 		}
 
-		currentPayload, err = tt.Transcode(currentPayload)
+		if ctt, ok := tt.(payload.ContextFormatTranscoder); ok {
+			currentPayload, err = ctt.TranscodeWith(&payload.TranscodeContext{
+				Parent: t,
+				From:   currentFrom,
+				To:     currentTo,
+				Depth:  i + 1,
+			}, currentPayload)
+		} else {
+			currentPayload, err = tt.Transcode(currentPayload)
+		}
 		if err != nil {
 			return nil, NewTranscodeError(currentFrom, currentTo, err)
 		}

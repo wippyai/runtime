@@ -134,7 +134,7 @@ func randomBytes(l *lua.LState) int {
 			if _, err := rand.Read(buf); err != nil {
 				return nil, err
 			}
-			return string(buf), nil
+			return buf, nil
 		}))
 		return -1
 	}
@@ -516,7 +516,7 @@ func jwtVerify(l *lua.LState) int {
 		parserOpts = append(parserOpts, jwt.WithExpirationRequired())
 	}
 
-	token, err := jwt.Parse(tokenString, func(_ *jwt.Token) (interface{}, error) {
+	token, err := jwt.Parse(tokenString, func(_ *jwt.Token) (any, error) {
 		if alg == "RS256" {
 			return parsePublicKey(key)
 		}

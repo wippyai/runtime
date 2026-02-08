@@ -29,7 +29,7 @@ type WsConnectYield struct {
 }
 
 var wsConnectYieldPool = sync.Pool{
-	New: func() interface{} { return &WsConnectYield{} },
+	New: func() any { return &WsConnectYield{} },
 }
 
 func AcquireWsConnectYield() *WsConnectYield {
@@ -106,7 +106,7 @@ type WsSendYield struct {
 }
 
 var wsSendYieldPool = sync.Pool{
-	New: func() interface{} { return &WsSendYield{} },
+	New: func() any { return &WsSendYield{} },
 }
 
 func AcquireWsSendYield(connID uint64, data []byte, msgType int) *WsSendYield {
@@ -148,7 +148,7 @@ type WsSubscribeYield struct {
 }
 
 var wsSubscribeYieldPool = sync.Pool{
-	New: func() interface{} { return &WsSubscribeYield{} },
+	New: func() any { return &WsSubscribeYield{} },
 }
 
 func AcquireWsSubscribeYield(connID uint64, ch *engine.Channel, p pid.PID, topic string, conn *WsConn) *WsSubscribeYield {
@@ -250,7 +250,7 @@ type WsCloseYield struct {
 }
 
 var wsCloseYieldPool = sync.Pool{
-	New: func() interface{} { return &WsCloseYield{} },
+	New: func() any { return &WsCloseYield{} },
 }
 
 func AcquireWsCloseYield(connID uint64, code int, reason string) *WsCloseYield {
@@ -288,7 +288,7 @@ type WsPingYield struct {
 }
 
 var wsPingYieldPool = sync.Pool{
-	New: func() interface{} { return &WsPingYield{} },
+	New: func() any { return &WsPingYield{} },
 }
 
 func AcquireWsPingYield(connID uint64, data []byte) *WsPingYield {

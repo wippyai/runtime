@@ -234,7 +234,7 @@ func (m *Manager) registerService(ctx context.Context, entry registry.Entry, poo
 		Data: resource.Entry{
 			ID:       entry.ID,
 			Provider: pool,
-			Meta:     map[string]interface{}{"type": entry.Kind},
+			Meta:     map[string]any{"type": entry.Kind},
 		},
 	})
 

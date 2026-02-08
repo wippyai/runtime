@@ -42,7 +42,7 @@ func (pq *priorityQueue[T]) Swap(i, j int) {
 
 // Push adds an item to the priority queue.
 // Implements part of heap.Interface.
-func (pq *priorityQueue[T]) Push(x interface{}) {
+func (pq *priorityQueue[T]) Push(x any) {
 	n := len(pq.items)
 	item := x.(*item[T])
 	item.index = n
@@ -51,7 +51,7 @@ func (pq *priorityQueue[T]) Push(x interface{}) {
 
 // Pop removes and returns the minimum item (according to Less) from the priority queue.
 // Implements part of heap.Interface.
-func (pq *priorityQueue[T]) Pop() interface{} {
+func (pq *priorityQueue[T]) Pop() any {
 	old := pq.items
 	n := len(old)
 	item := old[n-1]

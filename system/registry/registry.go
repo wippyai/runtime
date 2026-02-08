@@ -9,19 +9,22 @@ import (
 
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
+	regexp "github.com/wippyai/runtime/system/registry/expansion"
 )
 
 type Reg struct {
-	history        registry.History
-	runner         registry.Runner
-	builder        registry.StateBuilder
-	resolver       registry.DependencyResolver
-	currentVersion registry.Version
-	stateIndex     map[registry.ID]int
-	log            *zap.Logger
-	state          registry.State
-	versionNum     atomic.Uint64
-	mu             sync.RWMutex
+	history          registry.History
+	runner           registry.Runner
+	builder          registry.StateBuilder
+	resolver         registry.DependencyResolver
+	directivesByKind map[registry.Kind][]registry.Directive
+	currentVersion   registry.Version
+	stateIndex       map[registry.ID]int
+	log              *zap.Logger
+	state            registry.State
+	versionNum       atomic.Uint64
+	applyMu          sync.Mutex
+	mu               sync.RWMutex
 }
 
 // NewRegistry creates a new registry instance.
@@ -31,6 +34,7 @@ func NewRegistry(
 	builder registry.StateBuilder,
 	resolver registry.DependencyResolver,
 	log *zap.Logger,
+	opts ...Option,
 ) *Reg {
 	if log == nil {
 		log = zap.NewNop()
@@ -47,6 +51,12 @@ func NewRegistry(
 	}
 
 	reg.versionNum.Store(0)
+
+	for _, opt := range opts {
+		if opt != nil {
+			opt(reg)
+		}
+	}
 
 	return reg
 }
@@ -84,60 +94,149 @@ func (r *Reg) GetEntry(path registry.ID) (registry.Entry, error) {
 // --- StateWriter Interface Implementation ---
 
 func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.Version, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.applyMu.Lock()
+	defer r.applyMu.Unlock()
 
 	r.log.Info("apply started", zap.Int("change_count", len(changes)))
 
-	newVersion := version.FromParent(r.currentVersion, r.nextVersionID(r.currentVersion))
+	var (
+		allOps      registry.ChangeSet
+		historyOps  registry.ChangeSet
+		preparedEff []registry.Effect
+		planner     *regexp.Planner
+		snapshot    registry.State
+		baseVersion registry.Version
+	)
+
+	r.mu.RLock()
+	snapshot = make(registry.State, len(r.state))
+	copy(snapshot, r.state)
+	baseVersion = r.currentVersion
+	r.mu.RUnlock()
+
+	if len(r.directivesByKind) > 0 {
+		planner = regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
+
+		plan, err := planner.Expand(ctx, changes, snapshot)
+		if err != nil {
+			return nil, NewExpandChangesError(err)
+		}
+
+		if plan.Expanded {
+			plan.Ops = planner.SortOps(snapshot, plan.Ops)
+		}
+
+		allOps, historyOps = plan.SplitScopes()
+		preparedEff, err = planner.PrepareEffects(ctx, plan.Effects)
+		if err != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+			return nil, NewPrepareEffectsError(err)
+		}
+	} else {
+		allOps = changes
+		historyOps = changes
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if baseVersion != nil && r.currentVersion != nil && r.currentVersion.ID() != baseVersion.ID() {
+		if planner != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+		}
+		return nil, NewConcurrentApplyError(baseVersion.ID(), r.currentVersion.ID())
+	}
+
+	var newVersion registry.Version
+	if len(historyOps) > 0 {
+		newVersion = version.FromParent(r.currentVersion, r.nextVersionID(r.currentVersion))
+	}
 
 	r.log.Debug("calling runner.Transition")
-	newState, err := r.runner.Transition(ctx, r.state, changes)
+	newState, err := r.runner.Transition(ctx, r.state, allOps)
 	if err != nil {
 		r.log.Error("failed to apply changes", zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
 			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+				if planner != nil {
+					planner.RollbackEffects(ctx, preparedEff)
+				}
 				return nil, NewApplyChangesError(err, rerr)
 			}
 		}
-
+		if planner != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+		}
 		return nil, NewApplyChangesError(err, nil)
 	}
 
-	r.log.Debug("saving new version", zap.Any("new_version", newVersion))
+	if planner != nil {
+		if err := planner.CommitEffects(ctx, preparedEff); err != nil {
+			r.log.Error("failed to commit effects", zap.Error(err))
+			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+				planner.RollbackEffects(ctx, preparedEff)
+				return nil, NewCommitEffectsError(err, rerr)
+			}
+			planner.RollbackEffects(ctx, preparedEff)
+			return nil, NewCommitEffectsError(err, nil)
+		}
+	}
 
-	enrichedChanges := r.enrichChangeset(changes)
-	err = r.history.Save(newVersion, enrichedChanges, true)
-	if err != nil {
-		r.log.Error("failed to save new version", zap.Error(err))
-		if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
-			return nil, NewSaveVersionError(err, rerr)
+	if len(historyOps) > 0 {
+		r.log.Debug("saving new version", zap.Any("new_version", newVersion))
+
+		enrichedChanges := r.enrichChangeset(historyOps)
+		err = r.history.Save(newVersion, enrichedChanges, true)
+		if err != nil {
+			r.log.Error("failed to save new version", zap.Error(err))
+			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+				if planner != nil {
+					planner.RollbackEffects(ctx, preparedEff)
+				}
+				return nil, NewSaveVersionError(err, rerr)
+			}
+			if planner != nil {
+				planner.RollbackEffects(ctx, preparedEff)
+			}
+			return nil, NewSaveVersionError(err, nil)
 		}
 
-		return nil, NewSaveVersionError(err, nil)
+		r.state = newState
+		r.rebuildIndex()
+		r.currentVersion = newVersion
+		return newVersion, nil
 	}
 
 	r.state = newState
 	r.rebuildIndex()
-	r.currentVersion = newVersion
-
-	return newVersion, nil
+	return r.currentVersion, nil
 }
 
 func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.applyMu.Lock()
+	defer r.applyMu.Unlock()
 
-	if r.currentVersion != nil && r.currentVersion.ID() == v.ID() {
+	var (
+		snapshot    registry.State
+		baseVersion registry.Version
+	)
+
+	r.mu.RLock()
+	snapshot = make(registry.State, len(r.state))
+	copy(snapshot, r.state)
+	baseVersion = r.currentVersion
+	r.mu.RUnlock()
+
+	if baseVersion != nil && baseVersion.ID() == v.ID() {
 		return nil
 	}
 
 	var currentVersionID uint
-	if r.currentVersion != nil {
-		currentVersionID = r.currentVersion.ID()
+	if baseVersion != nil {
+		currentVersionID = baseVersion.ID()
 	}
 
-	targetVersion, path, err := r.computeVersionPath(v, currentVersionID)
+	targetVersion, path, err := r.computeVersionPath(baseVersion, v, currentVersionID)
 	if err != nil {
 		return err
 	}
@@ -159,15 +258,71 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		return err
 	}
 
-	newState, err := r.runner.Transition(ctx, r.state, changeset)
+	var (
+		allOps      registry.ChangeSet
+		preparedEff []registry.Effect
+		planner     *regexp.Planner
+	)
+
+	if len(r.directivesByKind) > 0 {
+		planner = regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
+
+		plan, err := planner.Expand(ctx, changeset, snapshot)
+		if err != nil {
+			return NewExpandChangesError(err)
+		}
+
+		if plan.Expanded {
+			plan.Ops = planner.SortOps(snapshot, plan.Ops)
+		}
+
+		allOps, _ = plan.SplitScopes()
+		preparedEff, err = planner.PrepareEffects(ctx, plan.Effects)
+		if err != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+			return NewPrepareEffectsError(err)
+		}
+	} else {
+		allOps = changeset
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if baseVersion != nil && r.currentVersion != nil && r.currentVersion.ID() != baseVersion.ID() {
+		if planner != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+		}
+		return NewConcurrentApplyError(baseVersion.ID(), r.currentVersion.ID())
+	}
+
+	newState, err := r.runner.Transition(ctx, r.state, allOps)
 	if err != nil {
 		r.log.Error("failed to apply squashed changeset", zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
 			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+				if planner != nil {
+					planner.RollbackEffects(ctx, preparedEff)
+				}
 				return NewApplyVersionChangesError(err, rerr)
 			}
 		}
+		if planner != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+		}
 		return NewApplyVersionChangesError(err, nil)
+	}
+
+	if planner != nil {
+		if err := planner.CommitEffects(ctx, preparedEff); err != nil {
+			r.log.Error("failed to commit effects", zap.Error(err))
+			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+				planner.RollbackEffects(ctx, preparedEff)
+				return NewCommitEffectsError(err, rerr)
+			}
+			planner.RollbackEffects(ctx, preparedEff)
+			return NewCommitEffectsError(err, nil)
+		}
 	}
 
 	if err := r.history.SetHead(targetVersion); err != nil {
@@ -182,7 +337,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	return nil
 }
 
-func (r *Reg) computeVersionPath(v registry.Version, currentVersionID uint) (registry.Version, []registry.Version, error) {
+func (r *Reg) computeVersionPath(current registry.Version, v registry.Version, currentVersionID uint) (registry.Version, []registry.Version, error) {
 	versions, err := r.history.Versions()
 	if err != nil {
 		return nil, nil, NewGetVersionsError(err)
@@ -206,7 +361,7 @@ func (r *Reg) computeVersionPath(v registry.Version, currentVersionID uint) (reg
 		}
 	}
 
-	path, err := vm.Path(r.currentVersion, targetVersion)
+	path, err := vm.Path(current, targetVersion)
 	if err != nil {
 		return nil, nil, NewComputePathError(currentVersionID, targetVersion.ID(), err)
 	}
@@ -275,6 +430,9 @@ func (r *Reg) collectBackwardChangesets(path []registry.Version, targetVersion r
 // For v0 (empty history): applies baseline directly
 // For v1+: replays changesets v1..targetVersion on top of baseline, then applies final state once
 func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVersion registry.Version) error {
+	r.applyMu.Lock()
+	defer r.applyMu.Unlock()
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

@@ -284,7 +284,7 @@ type SleepYield struct {
 }
 
 var sleepYieldPool = sync.Pool{
-	New: func() interface{} { return &SleepYield{} },
+	New: func() any { return &SleepYield{} },
 }
 
 func acquireSleepYield(d stdtime.Duration) *SleepYield {
@@ -314,7 +314,7 @@ type TimerStartYield struct {
 }
 
 var timerStartYieldPool = sync.Pool{
-	New: func() interface{} { return &TimerStartYield{} },
+	New: func() any { return &TimerStartYield{} },
 }
 
 func acquireTimerStartYield(d stdtime.Duration, ch *engine.Channel, p pid.PID, topic string) *TimerStartYield {
@@ -458,7 +458,7 @@ type TimerStopYield struct {
 }
 
 var timerStopYieldPool = sync.Pool{
-	New: func() interface{} { return &TimerStopYield{} },
+	New: func() any { return &TimerStopYield{} },
 }
 
 func acquireTimerStopYield(id uint64) *TimerStopYield {
@@ -498,7 +498,7 @@ type TimerResetYield struct {
 }
 
 var timerResetYieldPool = sync.Pool{
-	New: func() interface{} { return &TimerResetYield{} },
+	New: func() any { return &TimerResetYield{} },
 }
 
 func acquireTimerResetYield(id uint64, d stdtime.Duration) *TimerResetYield {
@@ -532,7 +532,7 @@ type TickerStartYield struct {
 }
 
 var tickerStartYieldPool = sync.Pool{
-	New: func() interface{} { return &TickerStartYield{} },
+	New: func() any { return &TickerStartYield{} },
 }
 
 func acquireTickerStartYield(d stdtime.Duration, ch *engine.Channel, p pid.PID, topic string) *TickerStartYield {
@@ -641,7 +641,7 @@ type TickerStopYield struct {
 }
 
 var tickerStopYieldPool = sync.Pool{
-	New: func() interface{} { return &TickerStopYield{} },
+	New: func() any { return &TickerStopYield{} },
 }
 
 func acquireTickerStopYield(id uint64) *TickerStopYield {

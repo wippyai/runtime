@@ -22,7 +22,7 @@ type CompileYield struct {
 }
 
 var compileYieldPool = sync.Pool{
-	New: func() interface{} { return &CompileYield{} },
+	New: func() any { return &CompileYield{} },
 }
 
 func AcquireCompileYield() *CompileYield {
@@ -91,7 +91,7 @@ type RunYield struct {
 }
 
 var runYieldPool = sync.Pool{
-	New: func() interface{} { return &RunYield{} },
+	New: func() any { return &RunYield{} },
 }
 
 func AcquireRunYield() *RunYield {

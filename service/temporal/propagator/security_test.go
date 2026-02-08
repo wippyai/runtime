@@ -15,6 +15,7 @@ import (
 )
 
 func TestSecurityPayloadSerialization(t *testing.T) {
+	dc := newTestDataConverter()
 	t.Run("serialize actor only", func(t *testing.T) {
 		payload := &SecurityPayload{
 			Actor: &ActorPayload{
@@ -23,12 +24,12 @@ func TestSecurityPayloadSerialization(t *testing.T) {
 			},
 		}
 
-		header, err := AddSecurityToHeader(nil, payload)
+		header, err := AddSecurityToHeader(dc, nil, payload)
 		require.NoError(t, err)
 		require.NotNil(t, header)
 		require.NotNil(t, header.Fields[SecurityHeaderKey])
 
-		extracted, err := ExtractSecurityFromHeader(header)
+		extracted, err := ExtractSecurityFromHeader(dc, header)
 		require.NoError(t, err)
 		require.NotNil(t, extracted)
 		assert.Equal(t, "user-123", extracted.Actor.ID)
@@ -40,30 +41,30 @@ func TestSecurityPayloadSerialization(t *testing.T) {
 			Policies: []string{"policies:admin", "policies:readonly"},
 		}
 
-		header, err := AddSecurityToHeader(nil, payload)
+		header, err := AddSecurityToHeader(dc, nil, payload)
 		require.NoError(t, err)
 
-		extracted, err := ExtractSecurityFromHeader(header)
+		extracted, err := ExtractSecurityFromHeader(dc, header)
 		require.NoError(t, err)
 		assert.Len(t, extracted.Policies, 2)
 		assert.Contains(t, extracted.Policies, "policies:admin")
 	})
 
 	t.Run("nil payload returns nil header", func(t *testing.T) {
-		header, err := AddSecurityToHeader(nil, nil)
+		header, err := AddSecurityToHeader(dc, nil, nil)
 		require.NoError(t, err)
 		assert.Nil(t, header)
 	})
 
 	t.Run("nil header returns nil payload", func(t *testing.T) {
-		payload, err := ExtractSecurityFromHeader(nil)
+		payload, err := ExtractSecurityFromHeader(dc, nil)
 		require.NoError(t, err)
 		assert.Nil(t, payload)
 	})
 
 	t.Run("empty header returns nil payload", func(t *testing.T) {
 		header := &commonpb.Header{}
-		payload, err := ExtractSecurityFromHeader(header)
+		payload, err := ExtractSecurityFromHeader(dc, header)
 		require.NoError(t, err)
 		assert.Nil(t, payload)
 	})

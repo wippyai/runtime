@@ -239,7 +239,7 @@ func (c *StaticConfig) Validate() error {
 func (c *StaticConfig) UnmarshalJSON(data []byte) error {
 	type Alias StaticConfig
 	aux := &struct {
-		Options map[string]interface{} `json:"options"`
+		Options map[string]any `json:"options"`
 		*Alias
 	}{
 		Alias: (*Alias)(c),

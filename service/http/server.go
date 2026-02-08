@@ -186,11 +186,6 @@ func (s *ServerService) Rebuild(_ context.Context) error {
 		return err
 	}
 
-	// If server is running, we need to update its handler
-	if s.started.Load() && s.server != nil {
-		s.server.Handler = s.routeMgr
-	}
-
 	return nil
 }
 

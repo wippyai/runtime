@@ -88,13 +88,13 @@ func TestContractRegistry_DefinitionEvents(t *testing.T) {
 				InputSchemas: []contract.SchemaDefinition{
 					{
 						Format:     "application/schema+json",
-						Definition: map[string]interface{}{"type": "object"},
+						Definition: map[string]any{"type": "object"},
 					},
 				},
 				OutputSchemas: []contract.SchemaDefinition{
 					{
 						Format:     "application/schema+json",
-						Definition: map[string]interface{}{"type": "string"},
+						Definition: map[string]any{"type": "string"},
 					},
 				},
 			},
@@ -104,7 +104,7 @@ func TestContractRegistry_DefinitionEvents(t *testing.T) {
 	tests := []struct {
 		name         string
 		eventKind    event.Kind
-		eventData    interface{}
+		eventData    any
 		expectedKind event.Kind
 	}{
 		{
@@ -223,7 +223,7 @@ func TestContractRegistry_BindingEvents(t *testing.T) {
 	tests := []struct {
 		name         string
 		eventKind    event.Kind
-		eventData    interface{}
+		eventData    any
 		expectedKind event.Kind
 	}{
 		{

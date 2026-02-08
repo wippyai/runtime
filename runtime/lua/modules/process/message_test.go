@@ -127,6 +127,12 @@ func TestMessageFrom_EmptyPID(t *testing.T) {
 
 	err := l.DoString(`
 		local from = msg:from()
+		if type(from) ~= "string" then
+			error("expected from to be string")
+		end
+		if from ~= "" then
+			error("expected empty string for unset from, got: " .. tostring(from))
+		end
 	`)
 	if err != nil {
 		t.Errorf("test failed: %v", err)

@@ -20,12 +20,15 @@ Retrieves a filesystem instance by name from the registry.
 
 **Returns:** FS object and nil error on success, or `nil, error` on failure
 
-**Errors (strings):**
-- `"no context"` - no execution context available
-- `"filesystem name required"` - empty name provided
-- `"not allowed to access filesystem: {name}"` - security policy denial
-- `"no filesystem registry in context"` - no filesystem registry in context
-- `"filesystem not found: {name}"` - named filesystem not registered
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| no context | errors.INTERNAL | no |
+| empty name | errors.INVALID | no |
+| security policy denial | errors.PERMISSION_DENIED | no |
+| no filesystem registry in context | errors.INTERNAL | no |
+| filesystem not found | errors.NOT_FOUND | no |
 
 **Notes:**
 - Security policies control access via `fs.get` permission
@@ -495,8 +498,7 @@ This module returns structured errors. Check kind with `errors.*` constants:
 ```lua
 local vol, err = fs.get("myfs")
 if err then
-    -- string error
-    error(err)
+    error(tostring(err))
 end
 
 local file, err = vol:open("/test.txt", "r")

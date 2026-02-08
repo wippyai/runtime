@@ -287,7 +287,7 @@ func TestReplace(t *testing.T) {
 		},
 		{
 			name:  "interface with string",
-			input: interface{}("hello"),
+			input: any("hello"),
 			replacementFunc: func(string, any) (string, error) {
 				return "VALUE", nil
 			},
@@ -296,7 +296,7 @@ func TestReplace(t *testing.T) {
 		},
 		{
 			name:  "interface with struct",
-			input: interface{}(struct{ Field string }{Field: "hello"}),
+			input: any(struct{ Field string }{Field: "hello"}),
 			replacementFunc: func(string, any) (string, error) {
 				return "VALUE", nil
 			},
@@ -305,8 +305,8 @@ func TestReplace(t *testing.T) {
 		},
 		{
 			name: "complex nested structure",
-			input: map[string]interface{}{
-				"key1": []interface{}{
+			input: map[string]any{
+				"key1": []any{
 					"hello",
 					map[string]string{
 						"nestedKey": "world",
@@ -335,8 +335,8 @@ func TestReplace(t *testing.T) {
 					return s, nil
 				}
 			},
-			expectedOutput: map[string]interface{}{
-				"keyA": []interface{}{
+			expectedOutput: map[string]any{
+				"keyA": []any{
 					"valueA",
 					map[string]string{
 						"nestedKeyA": "valueB",

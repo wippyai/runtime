@@ -33,7 +33,7 @@ func (t *SimpleTranscoder) Transcode(p payload.Payload, _ payload.Format) (paylo
 	return p, nil
 }
 
-func (t *SimpleTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
+func (t *SimpleTranscoder) Unmarshal(p payload.Payload, v any) error {
 	// Type switches based on expected output type and source payload
 	switch dest := v.(type) {
 	case *config.ServerConfig:
@@ -277,7 +277,7 @@ func TestManager_ServerOperations(t *testing.T) {
 	serverID := apiregistry.NewID("test", "server1")
 	serverCfg := &config.ServerConfig{
 		Addr: ":0", // Dynamic port
-		Meta: map[string]interface{}{},
+		Meta: map[string]any{},
 	}
 
 	// Add server
@@ -297,7 +297,7 @@ func TestManager_ServerOperations(t *testing.T) {
 	// Update server
 	updatedCfg := &config.ServerConfig{
 		Addr: ":0", // Dynamic port
-		Meta: map[string]interface{}{},
+		Meta: map[string]any{},
 		Timeouts: config.TimeoutConfig{
 			ReadTimeout: 30 * time.Second,
 		},
@@ -363,7 +363,7 @@ func TestManager_RouterOperations(t *testing.T) {
 	serverID := apiregistry.NewID("test", testID+"_server")
 	serverCfg := &config.ServerConfig{
 		Addr: ":0", // Dynamic port
-		Meta: map[string]interface{}{},
+		Meta: map[string]any{},
 	}
 
 	serverEntry := apiregistry.Entry{
@@ -379,7 +379,7 @@ func TestManager_RouterOperations(t *testing.T) {
 	routerID := apiregistry.NewID("test", testID+"_router")
 	routerCfg := &config.RouterConfig{
 		Prefix: "/api",
-		Meta: map[string]interface{}{
+		Meta: map[string]any{
 			config.ServerID: serverID.String(),
 		},
 	}
@@ -400,7 +400,7 @@ func TestManager_RouterOperations(t *testing.T) {
 	// Update router
 	updatedRouterCfg := &config.RouterConfig{
 		Prefix: "/api/v2",
-		Meta: map[string]interface{}{
+		Meta: map[string]any{
 			config.ServerID: serverID.String(),
 		},
 	}
@@ -433,7 +433,7 @@ func TestManager_EndpointOperations(t *testing.T) {
 	serverID := apiregistry.NewID("test", "server1")
 	serverCfg := &config.ServerConfig{
 		Addr: ":0", // Dynamic port
-		Meta: map[string]interface{}{},
+		Meta: map[string]any{},
 	}
 
 	serverEntry := apiregistry.Entry{
@@ -449,7 +449,7 @@ func TestManager_EndpointOperations(t *testing.T) {
 	routerID := apiregistry.NewID("test", "router1")
 	routerCfg := &config.RouterConfig{
 		Prefix: "/api",
-		Meta: map[string]interface{}{
+		Meta: map[string]any{
 			config.ServerID: serverID.String(),
 		},
 	}
@@ -469,7 +469,7 @@ func TestManager_EndpointOperations(t *testing.T) {
 		Path:   "/test",
 		Method: "GET",
 		Func:   apiregistry.NewID("test", "func1"),
-		Meta: map[string]interface{}{
+		Meta: map[string]any{
 			config.RouterID: routerID.String(),
 		},
 	}
@@ -498,7 +498,7 @@ func TestManager_StaticOperations(t *testing.T) {
 	serverID := apiregistry.NewID("test", "server1")
 	serverCfg := &config.ServerConfig{
 		Addr: ":0", // Dynamic port
-		Meta: map[string]interface{}{},
+		Meta: map[string]any{},
 	}
 
 	serverEntry := apiregistry.Entry{
@@ -515,7 +515,7 @@ func TestManager_StaticOperations(t *testing.T) {
 	staticCfg := &config.StaticConfig{
 		Path: "/static",
 		FS:   apiregistry.NewID("test", "files"),
-		Meta: map[string]interface{}{
+		Meta: map[string]any{
 			config.ServerID: serverID.String(),
 		},
 	}
@@ -544,7 +544,7 @@ func TestManager_TransactionOperations(t *testing.T) {
 	serverID := apiregistry.NewID("test", "server1")
 	serverCfg := &config.ServerConfig{
 		Addr: ":0", // Dynamic port
-		Meta: map[string]interface{}{},
+		Meta: map[string]any{},
 	}
 
 	serverEntry := apiregistry.Entry{
@@ -560,7 +560,7 @@ func TestManager_TransactionOperations(t *testing.T) {
 	routerID := apiregistry.NewID("test", "router1")
 	routerCfg := &config.RouterConfig{
 		Prefix: "/api",
-		Meta: map[string]interface{}{
+		Meta: map[string]any{
 			config.ServerID: serverID.String(),
 		},
 	}
@@ -652,7 +652,7 @@ func TestManager_ErrorHandling(t *testing.T) {
 	routerID := apiregistry.NewID("test", "router1")
 	routerCfg := &config.RouterConfig{
 		Prefix: "/api",
-		Meta: map[string]interface{}{
+		Meta: map[string]any{
 			config.ServerID: "test:nonexistent",
 		},
 	}
@@ -677,7 +677,7 @@ func TestManager_ErrorHandling(t *testing.T) {
 		Path:   "/test",
 		Method: "GET",
 		Func:   apiregistry.NewID("test", "func1"),
-		Meta: map[string]interface{}{
+		Meta: map[string]any{
 			config.RouterID: "test:nonexistent",
 		},
 	}

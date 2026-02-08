@@ -1,0 +1,35 @@
+version: "1.0"
+namespace: wippy.dummy
+
+entries:
+  - name: definition
+    kind: ns.definition
+    readme: file://README.md
+    meta:
+      title: Dummy Module
+      description: Simple module for integration testing of requirements
+
+  - name: router
+    kind: ns.requirement
+    meta:
+      description: Router to register endpoints on
+    default: app:router
+    targets:
+      - entry: wippy.dummy:ping
+        path: meta.router
+
+  - name: ping_handler
+    kind: function.lua
+    source: file://ping_handler.lua
+    method: handler
+    modules:
+      - json
+      - http
+
+  - name: ping
+    kind: http.endpoint
+    meta:
+      router: app:router
+    method: GET
+    path: /dummy/ping
+    func: ping_handler

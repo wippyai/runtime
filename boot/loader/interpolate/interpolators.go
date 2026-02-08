@@ -12,7 +12,7 @@ import (
 // remains within the root directory to prevent path traversal vulnerabilities.
 // If the file is successfully read, it returns the file's content; otherwise,
 // it returns the original string appended with an error message.
-func LoadFile(s string, ctx interface{}) (string, error) {
+func LoadFile(s string, ctx any) (string, error) {
 	rCtx, ok := ctx.(EntryContext)
 	if !ok {
 		return s, nil // Invalid context, skip

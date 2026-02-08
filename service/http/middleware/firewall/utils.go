@@ -19,7 +19,7 @@ func WriteJSONError(w http.ResponseWriter, status int, success bool, err string,
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"success": success,
 		"error":   err,
 		"details": details,

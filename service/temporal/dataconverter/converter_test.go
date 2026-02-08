@@ -1,11 +1,11 @@
 package dataconverter
 
 import (
-	"encoding/json"
 	"strconv"
 	"testing"
 
 	jpayload "github.com/wippyai/runtime/system/payload/json"
+	msgpayload "github.com/wippyai/runtime/system/payload/msgpack"
 	ypayload "github.com/wippyai/runtime/system/payload/yaml"
 
 	"github.com/stretchr/testify/assert"
@@ -19,10 +19,10 @@ import (
 func TestInternalDataConverter_PayloadsHandling(t *testing.T) {
 	dtt := transcoder.NewTranscoder()
 	jpayload.Register(dtt)
+	msgpayload.Register(dtt)
 	ypayload.Register(dtt)
 
-	defaultConverter := converter.GetDefaultDataConverter()
-	conv := NewDataConverter(dtt, defaultConverter)
+	conv := NewDataConverter(dtt)
 
 	t.Run("ToPayloads with single payload.Messages", func(t *testing.T) {
 		// Create test payloads
@@ -164,10 +164,10 @@ func TestInternalDataConverter_PayloadsHandling(t *testing.T) {
 func TestInternalDataConverter_ErrorCases(t *testing.T) {
 	dtt := transcoder.NewTranscoder()
 	jpayload.Register(dtt)
+	msgpayload.Register(dtt)
 	ypayload.Register(dtt)
 
-	defaultConverter := converter.GetDefaultDataConverter()
-	conv := NewDataConverter(dtt, defaultConverter)
+	conv := NewDataConverter(dtt)
 
 	t.Run("FromPayloads with wrong target type", func(t *testing.T) {
 		input := &commonpb.Payloads{
@@ -187,9 +187,9 @@ func TestInternalDataConverter_ErrorCases(t *testing.T) {
 		assert.Error(t, err)
 	})
 
-	t.Run("ToPayloads with unsupported format", func(t *testing.T) {
+	t.Run("ToPayloads with unsupported non-wire format", func(t *testing.T) {
 		payloads := payload.Payloads{
-			payload.NewPayload("test", "unsupported/format"),
+			payload.NewPayload(map[string]any{"key": "value"}, "unsupported/format"),
 		}
 
 		_, err := conv.ToPayloads(payloads)
@@ -225,14 +225,14 @@ func TestDataConverter_PayloadNewTranscoding(t *testing.T) {
 	// Create a transcoder and register JSON support
 	dtt := transcoder.NewTranscoder()
 	jpayload.Register(dtt)
+	msgpayload.Register(dtt)
 	ypayload.Register(dtt)
 
-	defaultConverter := converter.GetDefaultDataConverter()
-	conv := NewDataConverter(dtt, defaultConverter)
+	conv := NewDataConverter(dtt)
 
 	t.Run("ToPayload with payload.New needing transcoding", func(t *testing.T) {
 		// Create a payload using payload.New (will be Golang format)
-		data := map[string]interface{}{
+		data := map[string]any{
 			"key": "value",
 			"num": float64(42),
 		}
@@ -243,24 +243,32 @@ func TestDataConverter_PayloadNewTranscoding(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
 
-		// Should be transcoded to JSON
+		// Should be transcoded to canonical JSON wire format
 		assert.Equal(t, []byte(converter.MetadataEncodingJSON), result.Metadata[converter.MetadataEncoding])
 
 		// Verify content
-		var decodedData map[string]interface{}
-		err = json.Unmarshal(result.Data, &decodedData)
+		decodedPayload := payload.NewPayload(result.Data, payload.JSON)
+		decoded, err := dtt.Transcode(decodedPayload, payload.Golang)
 		assert.NoError(t, err)
+		decodedData, ok := decoded.Data().(map[string]any)
+		require.True(t, ok)
 		assert.Equal(t, data["key"], decodedData["key"])
-		assert.Equal(t, data["num"], decodedData["num"])
+		switch v := decodedData["num"].(type) {
+		case int:
+			assert.Equal(t, 42, v)
+		case int64:
+			assert.Equal(t, int64(42), v)
+		case float64:
+			assert.Equal(t, float64(42), v)
+		default:
+			t.Fatalf("unexpected num type: %T", decodedData["num"])
+		}
 	})
 
-	t.Run("ToPayload with non-transcodable value", func(t *testing.T) {
-		// Create a payload with a value that can't be transcoded to JSON
-		p := payload.New(make(chan int))
+	t.Run("ToPayload with byte-compatible custom format", func(t *testing.T) {
+		p := payload.NewPayload("value", payload.Format("custom"))
 
-		// Should fail with transcoding error
 		_, err := conv.ToPayload(p)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "error transcoding value")
 	})
 }

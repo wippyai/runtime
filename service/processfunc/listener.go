@@ -232,8 +232,8 @@ func (h *processHandler) Call(ctx context.Context, task runtime.Task) (*runtime.
 
 	// Prepare start options with monitoring
 	options := attrs.NewBag()
-	options.Set(process.LifecycleParentKey, callerPID)
-	options.Set(process.LifecycleMonitorKey, true)
+	options.Set(process.ProcessParentKey, callerPID)
+	options.Set(process.ProcessMonitorKey, true)
 
 	// Start process - lifecycle.OnStart will atomically:
 	// - Register child PID in topology

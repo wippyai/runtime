@@ -60,9 +60,7 @@ type SendResult struct {
 
 // SpawnCmd spawns a new process.
 type SpawnCmd struct {
-	Start   *Start
-	Monitor bool
-	Link    bool
+	Start *Start
 }
 
 var spawnCmdPool = sync.Pool{New: func() any { return &SpawnCmd{} }}
@@ -72,8 +70,6 @@ func AcquireSpawnCmd() *SpawnCmd                { return spawnCmdPool.Get().(*Sp
 func (c *SpawnCmd) CmdID() dispatcher.CommandID { return Spawn }
 func (c *SpawnCmd) Release() {
 	c.Start = nil
-	c.Monitor = false
-	c.Link = false
 	spawnCmdPool.Put(c)
 }
 

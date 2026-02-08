@@ -19,13 +19,13 @@ func TestYamlToGolangTranscoder_Transcode(t *testing.T) {
 		{
 			name:    "Valid YAML string",
 			payload: payload.NewPayload("key: value", payload.YAML),
-			want:    payload.NewPayload(map[string]interface{}{"key": "value"}, payload.Golang),
+			want:    payload.NewPayload(map[string]any{"key": "value"}, payload.Golang),
 			wantErr: false,
 		},
 		{
 			name:    "Valid YAML bytes",
 			payload: payload.NewPayload([]byte("key: value"), payload.YAML),
-			want:    payload.NewPayload(map[string]interface{}{"key": "value"}, payload.Golang),
+			want:    payload.NewPayload(map[string]any{"key": "value"}, payload.Golang),
 			wantErr: false,
 		},
 		{
@@ -55,9 +55,9 @@ func TestYamlToGolangTranscoder_Transcode(t *testing.T) {
 		{
 			name:    "Complex nested YAML",
 			payload: payload.NewPayload("parent:\n  child:\n    - item1\n    - item2\n  value: 42", payload.YAML),
-			want: payload.NewPayload(map[string]interface{}{
-				"parent": map[string]interface{}{
-					"child": []interface{}{"item1", "item2"},
+			want: payload.NewPayload(map[string]any{
+				"parent": map[string]any{
+					"child": []any{"item1", "item2"},
 					"value": 42,
 				},
 			}, payload.Golang),
@@ -72,7 +72,7 @@ func TestYamlToGolangTranscoder_Transcode(t *testing.T) {
 		{
 			name:    "YAML with null value",
 			payload: payload.NewPayload("key: null", payload.YAML),
-			want:    payload.NewPayload(map[string]interface{}{"key": nil}, payload.Golang),
+			want:    payload.NewPayload(map[string]any{"key": nil}, payload.Golang),
 			wantErr: false,
 		},
 	}
@@ -109,8 +109,8 @@ func TestYamlToGolangTranscoder_Unmarshal(t *testing.T) {
 
 	tests := []struct {
 		payload payload.Payload
-		target  interface{}
-		want    interface{}
+		target  any
+		want    any
 		name    string
 		wantErr bool
 	}{
@@ -228,9 +228,9 @@ func TestGolangToYamlTranscoder_Transcode(t *testing.T) {
 		},
 		{
 			name: "Complex nested structure",
-			payload: payload.NewPayload(map[string]interface{}{
-				"parent": map[string]interface{}{
-					"child": []interface{}{"item1", "item2"},
+			payload: payload.NewPayload(map[string]any{
+				"parent": map[string]any{
+					"child": []any{"item1", "item2"},
 					"value": 42,
 				},
 			}, payload.Golang),
@@ -245,13 +245,13 @@ func TestGolangToYamlTranscoder_Transcode(t *testing.T) {
 		},
 		{
 			name:    "Empty map",
-			payload: payload.NewPayload(map[string]interface{}{}, payload.Golang),
+			payload: payload.NewPayload(map[string]any{}, payload.Golang),
 			want:    payload.NewPayload("{}\n", payload.YAML),
 			wantErr: false,
 		},
 		{
 			name:    "Empty slice",
-			payload: payload.NewPayload([]interface{}{}, payload.Golang),
+			payload: payload.NewPayload([]any{}, payload.Golang),
 			want:    payload.NewPayload("[]\n", payload.YAML),
 			wantErr: false,
 		},
@@ -280,7 +280,7 @@ func TestGolangToYamlTranscoder_Transcode(t *testing.T) {
 			}
 			// For comparing YAML strings, unmarshal them first
 			if !tt.wantErr {
-				var gotData, wantData interface{}
+				var gotData, wantData any
 				_ = yaml.Unmarshal([]byte(got.Data().(string)), &gotData)
 				_ = yaml.Unmarshal([]byte(tt.want.Data().(string)), &wantData)
 				if !reflect.DeepEqual(gotData, wantData) {

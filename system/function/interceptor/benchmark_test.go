@@ -139,8 +139,8 @@ func (m *benchInterceptor) Handle(ctx context.Context, task runtime.Task, next f
 
 // benchModifyingInterceptor modifies context for benchmarking
 type benchModifyingInterceptor struct {
-	key   interface{}
-	value interface{}
+	key   any
+	value any
 }
 
 func (m *benchModifyingInterceptor) Handle(ctx context.Context, task runtime.Task, next func(context.Context, runtime.Task) (*runtime.Result, error)) (*runtime.Result, error) {

@@ -74,35 +74,50 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 func fsGet(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
+		err := lua.NewLuaError(l, "no context").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no context"))
+		l.Push(err)
 		return 2
 	}
 
 	name := l.CheckString(1)
 	if name == "" {
+		err := lua.NewLuaError(l, "filesystem name required").
+			WithKind(lua.Invalid).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("filesystem name required"))
+		l.Push(err)
 		return 2
 	}
 
 	if !security.IsAllowed(ctx, "fs.get", name, nil) {
+		err := lua.NewLuaError(l, "not allowed to access filesystem: "+name).
+			WithKind(lua.PermissionDenied).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("not allowed to access filesystem: " + name))
+		l.Push(err)
 		return 2
 	}
 
 	reg := fsapi.GetRegistry(ctx)
 	if reg == nil {
+		err := lua.NewLuaError(l, "no filesystem registry in context").
+			WithKind(lua.Internal).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no filesystem registry in context"))
+		l.Push(err)
 		return 2
 	}
 
 	f, ok := reg.GetFS(name)
 	if !ok {
+		err := lua.NewLuaError(l, "filesystem not found: "+name).
+			WithKind(lua.NotFound).
+			WithRetryable(false)
 		l.Push(lua.LNil)
-		l.Push(lua.LString("filesystem not found: " + name))
+		l.Push(err)
 		return 2
 	}
 

@@ -156,7 +156,7 @@ func readStringSlice(cfg boot.Config, key string) []string {
 	switch v := val.(type) {
 	case []string:
 		return v
-	case []interface{}:
+	case []any:
 		result := make([]string, 0, len(v))
 		for _, item := range v {
 			if s, ok := item.(string); ok {
@@ -181,12 +181,12 @@ func readMetaFilters(cfg boot.Config, key string) map[string][]string {
 	switch v := val.(type) {
 	case map[string][]string:
 		return v
-	case map[string]interface{}:
+	case map[string]any:
 		for k, values := range v {
 			switch vals := values.(type) {
 			case []string:
 				result[k] = vals
-			case []interface{}:
+			case []any:
 				strs := make([]string, 0, len(vals))
 				for _, item := range vals {
 					if s, ok := item.(string); ok {
@@ -200,7 +200,7 @@ func readMetaFilters(cfg boot.Config, key string) map[string][]string {
 				result[k] = []string{vals}
 			}
 		}
-	case map[interface{}]interface{}:
+	case map[any]any:
 		for k, values := range v {
 			key, ok := k.(string)
 			if !ok {
@@ -209,7 +209,7 @@ func readMetaFilters(cfg boot.Config, key string) map[string][]string {
 			switch vals := values.(type) {
 			case []string:
 				result[key] = vals
-			case []interface{}:
+			case []any:
 				strs := make([]string, 0, len(vals))
 				for _, item := range vals {
 					if s, ok := item.(string); ok {

@@ -353,7 +353,7 @@ func appendToArrayAtPath(data map[string]any, segments []string, values ...any) 
 	if existingVal, ok := current[lastSegment]; ok {
 		if existingArray, ok := existingVal.([]any); ok {
 			existing = existingArray
-		} else if existingArray, ok := existingVal.([]interface{}); ok {
+		} else if existingArray, ok := existingVal.([]any); ok {
 			existing = existingArray
 		} else {
 			return NewCannotAppendToNonArrayError(strings.Join(segments, "."))

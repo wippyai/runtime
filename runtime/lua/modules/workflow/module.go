@@ -2,6 +2,7 @@ package workflow
 
 import (
 	lua "github.com/wippyai/go-lua"
+	attrsapi "github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
@@ -215,7 +216,7 @@ func attrs(l *lua.LState) int {
 		if !ok {
 			return invalidError(l, "search must be a table")
 		}
-		cmd.SearchAttrs = luaTableToMap(searchTbl)
+		cmd.SearchAttrs = luaTableToBag(searchTbl)
 	}
 
 	// Extract memo
@@ -224,7 +225,7 @@ func attrs(l *lua.LState) int {
 		if !ok {
 			return invalidError(l, "memo must be a table")
 		}
-		cmd.Memo = luaTableToMap(memoTbl)
+		cmd.Memo = luaTableToBag(memoTbl)
 	}
 
 	if cmd.SearchAttrs == nil && cmd.Memo == nil {
@@ -236,15 +237,51 @@ func attrs(l *lua.LState) int {
 	return -1
 }
 
-// luaTableToMap converts a Lua table to map[string]any.
-func luaTableToMap(tbl *lua.LTable) map[string]any {
-	result := make(map[string]any)
+// luaTableToBag converts a Lua table to attrs.Bag.
+func luaTableToBag(tbl *lua.LTable) attrsapi.Bag {
+	result := attrsapi.NewBag()
 	tbl.ForEach(func(k, v lua.LValue) {
 		if key, ok := k.(lua.LString); ok {
 			result[string(key)] = luaValueToGo(v)
 		}
 	})
 	return result
+}
+
+func luaTableToSlice(tbl *lua.LTable) ([]any, bool) {
+	maxIndex := 0
+	count := 0
+	valid := true
+
+	tbl.ForEach(func(k, _ lua.LValue) {
+		if !valid {
+			return
+		}
+		index, ok := k.(lua.LNumber)
+		if !ok || index <= 0 || lua.LNumber(int(index)) != index {
+			valid = false
+			return
+		}
+		i := int(index)
+		if i > maxIndex {
+			maxIndex = i
+		}
+		count++
+	})
+
+	if !valid || count == 0 || count != maxIndex {
+		return nil, false
+	}
+
+	result := make([]any, maxIndex)
+	for i := 1; i <= maxIndex; i++ {
+		value := tbl.RawGetInt(i)
+		if value == lua.LNil {
+			return nil, false
+		}
+		result[i-1] = luaValueToGo(value)
+	}
+	return result, true
 }
 
 // luaValueToGo converts a Lua value to a Go value.
@@ -257,7 +294,10 @@ func luaValueToGo(v lua.LValue) any {
 	case lua.LBool:
 		return bool(val)
 	case *lua.LTable:
-		return luaTableToMap(val)
+		if sequence, ok := luaTableToSlice(val); ok {
+			return sequence
+		}
+		return luaTableToBag(val)
 	default:
 		return nil
 	}

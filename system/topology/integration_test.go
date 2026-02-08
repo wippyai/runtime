@@ -139,7 +139,7 @@ func (n *MockPeerNode) handleMonitorRelease(caller, target pid.PID) error {
 	state.watchers.Delete(caller.String())
 
 	empty := true
-	state.watchers.Range(func(_, _ interface{}) bool {
+	state.watchers.Range(func(_, _ any) bool {
 		empty = false
 		return false
 	})
@@ -176,7 +176,7 @@ func (n *MockPeerNode) handleUnlinkRequest(from, to pid.PID) error {
 	state.linked.Delete(from.String())
 
 	empty := true
-	state.linked.Range(func(_, _ interface{}) bool {
+	state.linked.Range(func(_, _ any) bool {
 		empty = false
 		return false
 	})
@@ -189,7 +189,7 @@ func (n *MockPeerNode) handleUnlinkRequest(from, to pid.PID) error {
 
 // SimulateCompletion simulates a workflow/process completing on the peer node.
 // Sends exit events to all watchers.
-func (n *MockPeerNode) SimulateCompletion(targetPID pid.PID, result interface{}, err error) error {
+func (n *MockPeerNode) SimulateCompletion(targetPID pid.PID, result any, err error) error {
 	n.logger.Logf("MockPeerNode %s: simulating completion for %s", n.nodeID, targetPID)
 
 	value, ok := n.monitors.Load(targetPID.UniqID)
@@ -199,7 +199,7 @@ func (n *MockPeerNode) SimulateCompletion(targetPID pid.PID, result interface{},
 
 	state := value.(*monitorState)
 
-	state.watchers.Range(func(key, _ interface{}) bool {
+	state.watchers.Range(func(key, _ any) bool {
 		callerPIDStr := key.(string)
 		callerPID, parseErr := pid.ParsePID(callerPIDStr)
 		if parseErr != nil {
@@ -237,7 +237,7 @@ func (n *MockPeerNode) GetWatchers(targetPID pid.PID) []pid.PID {
 	}
 
 	state := value.(*monitorState)
-	state.watchers.Range(func(key, _ interface{}) bool {
+	state.watchers.Range(func(key, _ any) bool {
 		callerPIDStr := key.(string)
 		callerPID, err := pid.ParsePID(callerPIDStr)
 		if err == nil {
@@ -259,7 +259,7 @@ func (n *MockPeerNode) GetLinkedProcesses(targetPID pid.PID) []pid.PID {
 	}
 
 	state := value.(*linkState)
-	state.linked.Range(func(key, _ interface{}) bool {
+	state.linked.Range(func(key, _ any) bool {
 		linkedPIDStr := key.(string)
 		linkedPID, err := pid.ParsePID(linkedPIDStr)
 		if err == nil {
@@ -279,7 +279,7 @@ func (n *MockPeerNode) SimulateFailure(targetPID pid.PID, err error) error {
 	if monValue, ok := n.monitors.Load(targetPID.UniqID); ok {
 		monState := monValue.(*monitorState)
 
-		monState.watchers.Range(func(key, _ interface{}) bool {
+		monState.watchers.Range(func(key, _ any) bool {
 			callerPIDStr := key.(string)
 			callerPID, parseErr := pid.ParsePID(callerPIDStr)
 			if parseErr != nil {
@@ -302,7 +302,7 @@ func (n *MockPeerNode) SimulateFailure(targetPID pid.PID, err error) error {
 	if linkValue, ok := n.links.Load(targetPID.UniqID); ok {
 		lnkState := linkValue.(*linkState)
 
-		lnkState.linked.Range(func(key, _ interface{}) bool {
+		lnkState.linked.Range(func(key, _ any) bool {
 			linkedPIDStr := key.(string)
 			linkedPID, parseErr := pid.ParsePID(linkedPIDStr)
 			if parseErr != nil {

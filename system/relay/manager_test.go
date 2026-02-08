@@ -68,7 +68,7 @@ func TestManager_HandleRegisterHost(t *testing.T) {
 	tests := []struct {
 		name          string
 		hostID        string
-		host          interface{}
+		host          any
 		expectedKind  event.Kind
 		expectedError string
 	}{

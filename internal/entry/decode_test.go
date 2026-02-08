@@ -74,18 +74,18 @@ func (c *ConfigWithAll) Validate() error {
 // Mock transcoder
 
 type mockTranscoder struct {
-	unmarshalFunc func(payload.Payload, interface{}) error
+	unmarshalFunc func(payload.Payload, any) error
 }
 
 func (m *mockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
 	return payload.New(p.Data()), nil
 }
 
-func (m *mockTranscoder) Marshal(_ interface{}) (payload.Payload, error) {
+func (m *mockTranscoder) Marshal(_ any) (payload.Payload, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m *mockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
+func (m *mockTranscoder) Unmarshal(p payload.Payload, v any) error {
 	if m.unmarshalFunc != nil {
 		return m.unmarshalFunc(p, v)
 	}
@@ -113,14 +113,14 @@ func TestDecodeEntryConfig_NilData(t *testing.T) {
 func TestDecodeEntryConfig_UnmarshalError(t *testing.T) {
 	ctx := context.Background()
 	dtt := &mockTranscoder{
-		unmarshalFunc: func(_ payload.Payload, _ interface{}) error {
+		unmarshalFunc: func(_ payload.Payload, _ any) error {
 			return errors.New("unmarshal failed")
 		},
 	}
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
-		Data: payload.New(map[string]interface{}{"name": "test"}),
+		Data: payload.New(map[string]any{"name": "test"}),
 	}
 
 	cfg, err := DecodeEntryConfig[BasicConfig](ctx, dtt, entry)
@@ -133,7 +133,7 @@ func TestDecodeEntryConfig_UnmarshalError(t *testing.T) {
 func TestDecodeEntryConfig_BasicConfig(t *testing.T) {
 	ctx := context.Background()
 	dtt := &mockTranscoder{
-		unmarshalFunc: func(_ payload.Payload, v interface{}) error {
+		unmarshalFunc: func(_ payload.Payload, v any) error {
 			cfg := v.(*BasicConfig)
 			cfg.Name = "test-name"
 			cfg.Value = 42
@@ -143,7 +143,7 @@ func TestDecodeEntryConfig_BasicConfig(t *testing.T) {
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
-		Data: payload.New(map[string]interface{}{"name": "test-name", "value": 42}),
+		Data: payload.New(map[string]any{"name": "test-name", "value": 42}),
 	}
 
 	cfg, err := DecodeEntryConfig[BasicConfig](ctx, dtt, entry)
@@ -157,7 +157,7 @@ func TestDecodeEntryConfig_BasicConfig(t *testing.T) {
 func TestDecodeEntryConfig_WithMeta(t *testing.T) {
 	ctx := context.Background()
 	dtt := &mockTranscoder{
-		unmarshalFunc: func(_ payload.Payload, v interface{}) error {
+		unmarshalFunc: func(_ payload.Payload, v any) error {
 			cfg := v.(*ConfigWithMeta)
 			cfg.Name = "test-name"
 			return nil
@@ -170,7 +170,7 @@ func TestDecodeEntryConfig_WithMeta(t *testing.T) {
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
-		Data: payload.New(map[string]interface{}{"name": "test-name"}),
+		Data: payload.New(map[string]any{"name": "test-name"}),
 		Meta: meta,
 	}
 
@@ -187,7 +187,7 @@ func TestDecodeEntryConfig_WithMeta(t *testing.T) {
 func TestDecodeEntryConfig_WithDefaults(t *testing.T) {
 	ctx := context.Background()
 	dtt := &mockTranscoder{
-		unmarshalFunc: func(_ payload.Payload, v interface{}) error {
+		unmarshalFunc: func(_ payload.Payload, v any) error {
 			cfg := v.(*ConfigWithDefaults)
 			cfg.Name = "test-name"
 			return nil
@@ -196,7 +196,7 @@ func TestDecodeEntryConfig_WithDefaults(t *testing.T) {
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
-		Data: payload.New(map[string]interface{}{"name": "test-name"}),
+		Data: payload.New(map[string]any{"name": "test-name"}),
 	}
 
 	cfg, err := DecodeEntryConfig[ConfigWithDefaults](ctx, dtt, entry)
@@ -210,7 +210,7 @@ func TestDecodeEntryConfig_WithDefaults(t *testing.T) {
 func TestDecodeEntryConfig_ValidationSuccess(t *testing.T) {
 	ctx := context.Background()
 	dtt := &mockTranscoder{
-		unmarshalFunc: func(_ payload.Payload, v interface{}) error {
+		unmarshalFunc: func(_ payload.Payload, v any) error {
 			cfg := v.(*ConfigWithValidation)
 			cfg.Name = "valid-name"
 			return nil
@@ -219,7 +219,7 @@ func TestDecodeEntryConfig_ValidationSuccess(t *testing.T) {
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
-		Data: payload.New(map[string]interface{}{"name": "valid-name"}),
+		Data: payload.New(map[string]any{"name": "valid-name"}),
 	}
 
 	cfg, err := DecodeEntryConfig[ConfigWithValidation](ctx, dtt, entry)
@@ -232,14 +232,14 @@ func TestDecodeEntryConfig_ValidationSuccess(t *testing.T) {
 func TestDecodeEntryConfig_ValidationFailure(t *testing.T) {
 	ctx := context.Background()
 	dtt := &mockTranscoder{
-		unmarshalFunc: func(_ payload.Payload, _ interface{}) error {
+		unmarshalFunc: func(_ payload.Payload, _ any) error {
 			return nil
 		},
 	}
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
-		Data: payload.New(map[string]interface{}{}),
+		Data: payload.New(map[string]any{}),
 	}
 
 	cfg, err := DecodeEntryConfig[ConfigWithValidation](ctx, dtt, entry)
@@ -256,7 +256,7 @@ func TestDecodeEntryConfig_ValidationFailure(t *testing.T) {
 func TestDecodeEntryConfig_AllFeatures(t *testing.T) {
 	ctx := context.Background()
 	dtt := &mockTranscoder{
-		unmarshalFunc: func(_ payload.Payload, v interface{}) error {
+		unmarshalFunc: func(_ payload.Payload, v any) error {
 			cfg := v.(*ConfigWithAll)
 			cfg.Name = "complete-config"
 			return nil
@@ -269,7 +269,7 @@ func TestDecodeEntryConfig_AllFeatures(t *testing.T) {
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
-		Data: payload.New(map[string]interface{}{"name": "complete-config"}),
+		Data: payload.New(map[string]any{"name": "complete-config"}),
 		Meta: meta,
 	}
 
@@ -287,7 +287,7 @@ func TestDecodeEntryConfig_AllFeatures(t *testing.T) {
 func TestDecodeEntryConfig_SetMetaDoesNotOverwriteExisting(t *testing.T) {
 	ctx := context.Background()
 	dtt := &mockTranscoder{
-		unmarshalFunc: func(_ payload.Payload, v interface{}) error {
+		unmarshalFunc: func(_ payload.Payload, v any) error {
 			cfg := v.(*ConfigWithMeta)
 			cfg.Name = "test"
 			cfg.Meta = attrs.Bag{"existing": "data"}
@@ -299,7 +299,7 @@ func TestDecodeEntryConfig_SetMetaDoesNotOverwriteExisting(t *testing.T) {
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
-		Data: payload.New(map[string]interface{}{"name": "test"}),
+		Data: payload.New(map[string]any{"name": "test"}),
 		Meta: meta,
 	}
 
@@ -315,7 +315,7 @@ func TestDecodeEntryConfig_SetMetaDoesNotOverwriteExisting(t *testing.T) {
 func TestDecodeEntryConfig_EmptyMeta(t *testing.T) {
 	ctx := context.Background()
 	dtt := &mockTranscoder{
-		unmarshalFunc: func(_ payload.Payload, v interface{}) error {
+		unmarshalFunc: func(_ payload.Payload, v any) error {
 			cfg := v.(*ConfigWithMeta)
 			cfg.Name = "test-name"
 			return nil
@@ -324,7 +324,7 @@ func TestDecodeEntryConfig_EmptyMeta(t *testing.T) {
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
-		Data: payload.New(map[string]interface{}{"name": "test-name"}),
+		Data: payload.New(map[string]any{"name": "test-name"}),
 		Meta: nil,
 	}
 
@@ -363,7 +363,7 @@ type ConfigWithUnexportedFields struct {
 func TestDecodeEntryConfig_ReflectionID(t *testing.T) {
 	ctx := context.Background()
 	dtt := &mockTranscoder{
-		unmarshalFunc: func(_ payload.Payload, v interface{}) error {
+		unmarshalFunc: func(_ payload.Payload, v any) error {
 			cfg := v.(*ConfigWithID)
 			cfg.Name = "test-name"
 			return nil
@@ -372,7 +372,7 @@ func TestDecodeEntryConfig_ReflectionID(t *testing.T) {
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
-		Data: payload.New(map[string]interface{}{"name": "test-name"}),
+		Data: payload.New(map[string]any{"name": "test-name"}),
 	}
 
 	cfg, err := DecodeEntryConfig[ConfigWithID](ctx, dtt, entry)
@@ -386,7 +386,7 @@ func TestDecodeEntryConfig_ReflectionID(t *testing.T) {
 func TestDecodeEntryConfig_ReflectionIDAndMeta(t *testing.T) {
 	ctx := context.Background()
 	dtt := &mockTranscoder{
-		unmarshalFunc: func(_ payload.Payload, v interface{}) error {
+		unmarshalFunc: func(_ payload.Payload, v any) error {
 			cfg := v.(*ConfigWithIDAndMeta)
 			cfg.Name = "test-name"
 			return nil
@@ -399,7 +399,7 @@ func TestDecodeEntryConfig_ReflectionIDAndMeta(t *testing.T) {
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
-		Data: payload.New(map[string]interface{}{"name": "test-name"}),
+		Data: payload.New(map[string]any{"name": "test-name"}),
 		Meta: meta,
 	}
 
@@ -417,7 +417,7 @@ func TestDecodeEntryConfig_ReflectionIDAndMeta(t *testing.T) {
 func TestDecodeEntryConfig_ReflectionMetaNoMethod(t *testing.T) {
 	ctx := context.Background()
 	dtt := &mockTranscoder{
-		unmarshalFunc: func(_ payload.Payload, v interface{}) error {
+		unmarshalFunc: func(_ payload.Payload, v any) error {
 			cfg := v.(*ConfigWithMetaNoMethod)
 			cfg.Name = "test-name"
 			return nil
@@ -429,7 +429,7 @@ func TestDecodeEntryConfig_ReflectionMetaNoMethod(t *testing.T) {
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
-		Data: payload.New(map[string]interface{}{"name": "test-name"}),
+		Data: payload.New(map[string]any{"name": "test-name"}),
 		Meta: meta,
 	}
 
@@ -445,7 +445,7 @@ func TestDecodeEntryConfig_ReflectionMetaNoMethod(t *testing.T) {
 func TestDecodeEntryConfig_ReflectionDoesNotOverwriteExisting(t *testing.T) {
 	ctx := context.Background()
 	dtt := &mockTranscoder{
-		unmarshalFunc: func(_ payload.Payload, v interface{}) error {
+		unmarshalFunc: func(_ payload.Payload, v any) error {
 			cfg := v.(*ConfigWithIDAndMeta)
 			cfg.Name = "test-name"
 			cfg.ID = registry.NewID("existing", "id")
@@ -457,7 +457,7 @@ func TestDecodeEntryConfig_ReflectionDoesNotOverwriteExisting(t *testing.T) {
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
-		Data: payload.New(map[string]interface{}{"name": "test-name"}),
+		Data: payload.New(map[string]any{"name": "test-name"}),
 		Meta: meta,
 	}
 
@@ -473,7 +473,7 @@ func TestDecodeEntryConfig_ReflectionDoesNotOverwriteExisting(t *testing.T) {
 func TestDecodeEntryConfig_ReflectionUnexportedFields(t *testing.T) {
 	ctx := context.Background()
 	dtt := &mockTranscoder{
-		unmarshalFunc: func(_ payload.Payload, v interface{}) error {
+		unmarshalFunc: func(_ payload.Payload, v any) error {
 			cfg := v.(*ConfigWithUnexportedFields)
 			cfg.Name = "test-name"
 			return nil
@@ -482,7 +482,7 @@ func TestDecodeEntryConfig_ReflectionUnexportedFields(t *testing.T) {
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
-		Data: payload.New(map[string]interface{}{"name": "test-name"}),
+		Data: payload.New(map[string]any{"name": "test-name"}),
 		Meta: attrs.Bag{"key": "value"},
 	}
 
@@ -496,7 +496,7 @@ func TestDecodeEntryConfig_ReflectionUnexportedFields(t *testing.T) {
 func TestDecodeEntryConfig_ReflectionCachingPerformance(t *testing.T) {
 	ctx := context.Background()
 	dtt := &mockTranscoder{
-		unmarshalFunc: func(_ payload.Payload, v interface{}) error {
+		unmarshalFunc: func(_ payload.Payload, v any) error {
 			cfg := v.(*ConfigWithIDAndMeta)
 			cfg.Name = "test"
 			return nil
@@ -505,7 +505,7 @@ func TestDecodeEntryConfig_ReflectionCachingPerformance(t *testing.T) {
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "config"),
 		Kind: "test.config",
-		Data: payload.New(map[string]interface{}{"name": "test"}),
+		Data: payload.New(map[string]any{"name": "test"}),
 		Meta: attrs.Bag{"key": "value"},
 	}
 

@@ -29,6 +29,9 @@ profiler:
 # Controls registry history and rollback capabilities
 registry:
   enable_history: true        # Enable version history (memory-based), false uses nil history (forward-only)
+  event_wait_timeout: 10s     # Max wait per registry operation for event listeners to accept/reject
+  dependency_resolve_timeout: 20s   # Timeout for dependency graph resolution against Hub
+  dependency_download_timeout: 45s  # Timeout for downloading dependency artifacts
 
 # Relay configuration
 # Controls local node messaging infrastructure

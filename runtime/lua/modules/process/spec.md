@@ -335,6 +335,21 @@ Creates a Spawner with custom context values for child processes.
 
 **Returns:** `Spawner` object
 
+### with_options(options: table) -> Spawner
+
+Creates a Spawner with custom spawn options for child processes.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| options | table | yes | - | Key-value pairs mapped into `process.Start.Options` |
+
+**Returns:** `Spawner` object
+
+**Notes:**
+- Options are opaque in this module and are forwarded unchanged to the host/runtime.
+- Host implementations may interpret specific option keys (for example lifecycle, routing, or transport options).
+- Validation of host-specific keys happens at the target host layer, not in `process` Lua module.
+
 ## process.registry
 
 Subtable for process name registration.
@@ -394,11 +409,12 @@ Returned by `process.inbox()` receive or `process.listen()` with `{message = tru
 
 ### Spawner
 
-Returned by `process.with_context()`. Used to spawn processes with custom context.
+Returned by `process.with_context()` or `process.with_options()`. Used to spawn processes with custom context/options.
 
 | Method | Signature | Returns | Notes |
 |--------|-----------|---------|-------|
 | with_context | (values: table) | Spawner | Add more context values (chainable) |
+| with_options | (options: table) | Spawner | Merge spawn options (chainable) |
 | with_actor | (actor: Actor) | Spawner | Set security actor |
 | with_scope | (scope: Scope) | Spawner | Set security scope |
 | spawn | (id: string, host: string, ...) | string, error | Spawn with context |
@@ -449,6 +465,12 @@ local spawner = process.with_context({
     user_id = 42
 })
 local worker_pid = spawner:spawn_monitored("app.workers:handler", "app:processes")
+
+-- Spawn options (opaque passthrough to host)
+local configured_spawner = process
+    .with_options({["custom.policy"] = "strict", ["custom.timeout_ms"] = 2500})
+    :with_name("orders:update")
+local worker_pid = configured_spawner:spawn_monitored("app.workers:update_handler", "app:processes")
 
 -- Linked processes with trap_links
 process.set_options({trap_links = true})

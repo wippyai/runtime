@@ -2,11 +2,13 @@ package errors
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	apierror "github.com/wippyai/runtime/api/error"
+	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/temporal"
 )
 
@@ -158,6 +160,20 @@ func TestFromTemporalError_NoChainInDetails(t *testing.T) {
 	assert.Equal(t, apierror.True, richErr.Retryable())
 }
 
+func TestFromTemporalError_NotFoundWithoutChain_PreservesNonRetryable(t *testing.T) {
+	appErr := temporal.NewApplicationErrorWithOptions("missing workflow", "NotFound", temporal.ApplicationErrorOptions{
+		NonRetryable: true,
+	})
+
+	result := FromTemporalError(appErr)
+	require.NotNil(t, result)
+
+	richErr, ok := result.(*apierror.RichError)
+	require.True(t, ok)
+	assert.Equal(t, apierror.NotFound, richErr.Kind())
+	assert.Equal(t, apierror.False, richErr.Retryable())
+}
+
 func TestRoundTrip_PreservesAllMetadata(t *testing.T) {
 	original := apierror.NewRich(apierror.Conflict, "version mismatch").
 		WithRetryable(apierror.False).
@@ -215,12 +231,27 @@ func TestFromTemporalError_UnknownError(t *testing.T) {
 	assert.Equal(t, apierror.Internal, richErr.Kind())
 }
 
+func TestFromTemporalError_UnwrapsUnknownWrapper(t *testing.T) {
+	appErr := temporal.NewApplicationError("child workflow intentional error", "NotFound")
+	wrapped := errors.New("outer wrapper: " + appErr.Error())
+	err := fmt.Errorf("%w: %w", wrapped, appErr)
+
+	result := FromTemporalError(err)
+	require.NotNil(t, result)
+
+	richErr, ok := result.(*apierror.RichError)
+	require.True(t, ok)
+	assert.Equal(t, apierror.NotFound, richErr.Kind())
+	assert.Contains(t, richErr.Error(), "intentional error")
+}
+
 func TestMapTypeToKind(t *testing.T) {
 	tests := []struct {
 		errType  string
 		expected apierror.Kind
 	}{
 		{"NotFound", apierror.NotFound},
+		{"ActivityNotRegisteredError", apierror.NotFound},
 		{"AlreadyExists", apierror.AlreadyExists},
 		{"Invalid", apierror.Invalid},
 		{"PermissionDenied", apierror.PermissionDenied},
@@ -239,4 +270,26 @@ func TestMapTypeToKind(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestNewFailureConverter_SetsWippySource(t *testing.T) {
+	fc := NewFailureConverter(converter.GetDefaultDataConverter())
+	require.NotNil(t, fc)
+
+	err := apierror.New(apierror.NotFound, "missing")
+	f := fc.ErrorToFailure(err)
+	require.NotNil(t, f)
+	assert.Equal(t, FailureSource, f.Source)
+}
+
+func TestNewFailureConverter_RoundTrip(t *testing.T) {
+	fc := NewFailureConverter(converter.GetDefaultDataConverter())
+
+	err := apierror.New(apierror.Invalid, "bad input")
+	f := fc.ErrorToFailure(err)
+	require.NotNil(t, f)
+
+	decoded := fc.FailureToError(f)
+	require.Error(t, decoded)
+	assert.Contains(t, decoded.Error(), "bad input")
 }

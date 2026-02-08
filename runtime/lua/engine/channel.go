@@ -478,10 +478,10 @@ func toInternalSelect(s *SelectOp) *SelectOp {
 
 // Object pools
 var (
-	chanOpPool     = sync.Pool{New: func() interface{} { return &chanOp{} }}
-	taskUpdatePool = sync.Pool{New: func() interface{} { return &TaskUpdate{} }}
+	chanOpPool     = sync.Pool{New: func() any { return &chanOp{} }}
+	taskUpdatePool = sync.Pool{New: func() any { return &TaskUpdate{} }}
 	resultPool     = sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			return &ChannelResult{
 				Updates: make([]*TaskUpdate, 0, 4),
 				Block:   make([]*Channel, 0, 2),

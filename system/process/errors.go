@@ -84,3 +84,9 @@ func NewSubscriberError(err error) apierror.Error {
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()}))
 }
+
+// NewTopologyNotAvailableError creates an error for missing topology in context.
+func NewTopologyNotAvailableError() apierror.Error {
+	return apierror.New(apiprocess.Internal, "topology not available").
+		WithRetryable(apierror.False)
+}

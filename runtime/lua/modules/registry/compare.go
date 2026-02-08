@@ -49,7 +49,7 @@ func mapsEqual(a, b map[string]any) bool {
 }
 
 // valuesEqual compares two values of any type
-func valuesEqual(a, b interface{}) bool {
+func valuesEqual(a, b any) bool {
 	if aMap, aOk := a.(map[string]any); aOk {
 		if bMap, bOk := b.(map[string]any); bOk {
 			return mapsEqual(aMap, bMap)
@@ -80,7 +80,7 @@ func valuesEqual(a, b interface{}) bool {
 }
 
 // isNumeric checks if a value is a numeric type
-func isNumeric(v interface{}) bool {
+func isNumeric(v any) bool {
 	switch v.(type) {
 	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
 		return true
@@ -90,7 +90,7 @@ func isNumeric(v interface{}) bool {
 }
 
 // toFloat64 converts a numeric value to float64
-func toFloat64(v interface{}) float64 {
+func toFloat64(v any) float64 {
 	rv := reflect.ValueOf(v)
 	switch rv.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:

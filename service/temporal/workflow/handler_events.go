@@ -1,12 +1,13 @@
 package workflow
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/service/temporal/propagator"
 	commonpb "go.temporal.io/api/common/v1"
 	bindings "go.temporal.io/sdk/internalbindings"
 	"go.uber.org/zap"
@@ -20,19 +21,14 @@ func (d *Definition) handleCancel() {
 		"kind": topology.Cancel,
 		"from": topology.SystemPID.String(),
 	}
-	jsonBytes, err := json.Marshal(cancelEvent)
-	if err != nil {
-		d.replayLog.Error("failed to marshal cancel event", zap.Error(err))
-		return
-	}
 	d.signals = append(d.signals, incomingSignal{
 		Name:     topology.TopicEvents,
-		Payloads: payload.Payloads{payload.NewPayload(jsonBytes, payload.JSON)},
+		Payloads: payload.Payloads{payload.New(cancelEvent)},
 	})
 }
 
 // handleSignal queues incoming signals for delivery to the process.
-func (d *Definition) handleSignal(name string, input *commonpb.Payloads, _ *commonpb.Header) error {
+func (d *Definition) handleSignal(name string, input *commonpb.Payloads, header *commonpb.Header) error {
 	if len(d.signals) >= maxSignalQueueSize {
 		d.replayLog.Warn("signal queue full, dropping signal", zap.String("name", name))
 		return nil
@@ -43,7 +39,23 @@ func (d *Definition) handleSignal(name string, input *commonpb.Payloads, _ *comm
 			return fmt.Errorf("failed to decode signal payloads: %w", err)
 		}
 	}
-	d.signals = append(d.signals, incomingSignal{Name: name, Payloads: payloads})
+	var from pid.PID
+	if header != nil {
+		values, err := propagator.ExtractFromHeader(d.dc, header)
+		if err != nil {
+			d.replayLog.Warn("failed to extract signal header", zap.Error(err))
+		} else if val, ok := values[propagator.SignalFromValueKey]; ok {
+			if fromStr, ok := val.(string); ok && fromStr != "" {
+				if parsed, err := pid.ParsePID(fromStr); err == nil {
+					from = parsed
+				} else {
+					d.replayLog.Warn("failed to parse signal sender pid", zap.String("value", fromStr), zap.Error(err))
+				}
+			}
+		}
+	}
+
+	d.signals = append(d.signals, incomingSignal{Name: name, Payloads: payloads, From: from})
 	return nil
 }
 

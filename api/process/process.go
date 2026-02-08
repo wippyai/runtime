@@ -26,13 +26,12 @@ const (
 	FactoryReject   event.Kind = "factory.reject"
 )
 
-// Lifecycle option keys for process supervision.
+// Process option keys for process supervision.
 const (
-	LifecycleParentKey  = "lifecycle.parent"
-	LifecycleMonitorKey = "lifecycle.monitor"
-	LifecycleLinkKey    = "lifecycle.link"
-	LifecycleNameKey    = "lifecycle.name"
-	OptionPID           = "pid"
+	ProcessParentKey  = "process.parent"
+	ProcessMonitorKey = "process.monitor"
+	ProcessLinkKey    = "process.link"
+	ProcessNameKey    = "process.name"
 )
 
 type (
@@ -48,7 +47,6 @@ type (
 		Input    payload.Payloads
 		Context  []ctxapi.Pair
 		Options  attrs.Attributes
-		Name     string           // optional: register process under this name
 		Messages []*relay.Message // optional: initial messages for spawn-or-signal
 	}
 

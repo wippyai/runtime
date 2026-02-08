@@ -24,13 +24,32 @@ func (m *MockFormatTranscoder) Transcode(p payload.Payload) (payload.Payload, er
 	return payload.NewPayload(p.Data(), m.To), nil
 }
 
+type ContextAwareMockTranscoder struct {
+	TranscodeFunc     func(payload.Payload) (payload.Payload, error)
+	TranscodeWithFunc func(*payload.TranscodeContext, payload.Payload) (payload.Payload, error)
+}
+
+func (m *ContextAwareMockTranscoder) Transcode(p payload.Payload) (payload.Payload, error) {
+	if m.TranscodeFunc != nil {
+		return m.TranscodeFunc(p)
+	}
+	return p, nil
+}
+
+func (m *ContextAwareMockTranscoder) TranscodeWith(ctx *payload.TranscodeContext, p payload.Payload) (payload.Payload, error) {
+	if m.TranscodeWithFunc != nil {
+		return m.TranscodeWithFunc(ctx, p)
+	}
+	return p, nil
+}
+
 // MockUnmarshaler is a mock implementation of Unmarshaler for testing.
 type MockUnmarshaler struct {
-	Func   func(payload.Payload, interface{}) error
+	Func   func(payload.Payload, any) error
 	Format payload.Format
 }
 
-func (m *MockUnmarshaler) Unmarshal(p payload.Payload, v interface{}) error {
+func (m *MockUnmarshaler) Unmarshal(p payload.Payload, v any) error {
 	if m.Func != nil {
 		return m.Func(p, v)
 	}
@@ -102,7 +121,7 @@ func TestTranscoder_RegisterUnmarshalerAndUnmarshal(t *testing.T) {
 	// Spawn a mock unmarshaler
 	unmarshalerB := &MockUnmarshaler{
 		Format: formatB,
-		Func: func(p payload.Payload, v interface{}) error {
+		Func: func(p payload.Payload, v any) error {
 			rv := reflect.ValueOf(v)
 			if rv.Kind() != reflect.Ptr || rv.IsNil() {
 				return fmt.Errorf("invalid unmarshal target")
@@ -296,7 +315,7 @@ func TestTranscoder_UnmarshalerErrorHandling(t *testing.T) {
 	// Create an unmarshaler that returns an error
 	errorUnmarshaler := &MockUnmarshaler{
 		Format: formatA,
-		Func: func(_ payload.Payload, _ interface{}) error {
+		Func: func(_ payload.Payload, _ any) error {
 			return fmt.Errorf("unmarshaling error")
 		},
 	}
@@ -359,6 +378,53 @@ func TestTranscoder_EmptyPayloadFormat(t *testing.T) {
 	err := transcoder.Unmarshal(p, &result)
 	if err == nil {
 		t.Error("Expected error for empty format, got nil")
+	}
+}
+
+func TestTranscoder_ContextFormatTranscoder(t *testing.T) {
+	transcoder := NewTranscoder()
+	formatA := "format/A"
+	formatB := "format/B"
+
+	legacyCalled := false
+	ctxCalled := false
+	ct := &ContextAwareMockTranscoder{
+		TranscodeFunc: func(payload.Payload) (payload.Payload, error) {
+			legacyCalled = true
+			return payload.NewPayload("legacy", formatB), nil
+		},
+		TranscodeWithFunc: func(ctx *payload.TranscodeContext, p payload.Payload) (payload.Payload, error) {
+			ctxCalled = true
+			if ctx == nil {
+				t.Fatal("expected context to be provided")
+			}
+			if ctx.Parent != transcoder {
+				t.Fatal("expected parent transcoder in context")
+			}
+			if ctx.From != formatA || ctx.To != formatB {
+				t.Fatalf("unexpected context formats: %s -> %s", ctx.From, ctx.To)
+			}
+			if ctx.Depth != 1 {
+				t.Fatalf("unexpected depth: %d", ctx.Depth)
+			}
+			return payload.NewPayload("context", formatB), nil
+		},
+	}
+
+	transcoder.RegisterTranscoder(formatA, formatB, 1, ct)
+	out, err := transcoder.Transcode(payload.NewPayload("test", formatA), formatB)
+	if err != nil {
+		t.Fatalf("Transcode failed: %v", err)
+	}
+
+	if !ctxCalled {
+		t.Fatal("expected context-aware transcoder to be used")
+	}
+	if legacyCalled {
+		t.Fatal("did not expect legacy Transcode to be called when TranscodeWith is available")
+	}
+	if out.Format() != formatB || out.Data() != "context" {
+		t.Fatalf("unexpected output: format=%s data=%v", out.Format(), out.Data())
 	}
 }
 

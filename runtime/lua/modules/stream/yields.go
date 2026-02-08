@@ -21,7 +21,7 @@ type ReadYield struct {
 }
 
 var readYieldPool = sync.Pool{
-	New: func() interface{} { return &ReadYield{} },
+	New: func() any { return &ReadYield{} },
 }
 
 func AcquireReadYield(id uint64, size int64) *ReadYield {
@@ -80,7 +80,7 @@ type CloseYield struct {
 }
 
 var closeYieldPool = sync.Pool{
-	New: func() interface{} { return &CloseYield{} },
+	New: func() any { return &CloseYield{} },
 }
 
 func AcquireCloseYield(id uint64) *CloseYield {
@@ -124,7 +124,7 @@ type WriteYield struct {
 }
 
 var writeYieldPool = sync.Pool{
-	New: func() interface{} { return &WriteYield{} },
+	New: func() any { return &WriteYield{} },
 }
 
 func AcquireWriteYield(id uint64, data []byte) *WriteYield {
@@ -177,7 +177,7 @@ type SeekYield struct {
 }
 
 var seekYieldPool = sync.Pool{
-	New: func() interface{} { return &SeekYield{} },
+	New: func() any { return &SeekYield{} },
 }
 
 func AcquireSeekYield(id uint64, offset int64, whence int) *SeekYield {
@@ -230,7 +230,7 @@ type FlushYield struct {
 }
 
 var flushYieldPool = sync.Pool{
-	New: func() interface{} { return &FlushYield{} },
+	New: func() any { return &FlushYield{} },
 }
 
 func AcquireFlushYield(id uint64) *FlushYield {
@@ -273,7 +273,7 @@ type StatYield struct {
 }
 
 var statYieldPool = sync.Pool{
-	New: func() interface{} { return &StatYield{} },
+	New: func() any { return &StatYield{} },
 }
 
 func AcquireStatYield(id uint64) *StatYield {
@@ -508,7 +508,7 @@ type ScannerCreateYield struct {
 }
 
 var scannerCreateYieldPool = sync.Pool{
-	New: func() interface{} { return &ScannerCreateYield{} },
+	New: func() any { return &ScannerCreateYield{} },
 }
 
 func AcquireScannerCreateYield(streamID uint64, splitType int) *ScannerCreateYield {
@@ -561,7 +561,7 @@ type ScannerScanYield struct {
 }
 
 var scannerScanYieldPool = sync.Pool{
-	New: func() interface{} { return &ScannerScanYield{} },
+	New: func() any { return &ScannerScanYield{} },
 }
 
 func AcquireScannerScanYield(scannerID uint64, scanner *Scanner) *ScannerScanYield {

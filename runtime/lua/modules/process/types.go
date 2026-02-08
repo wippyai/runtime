@@ -95,6 +95,11 @@ func init() {
 			Param("context", typ.NewMap(typ.String, typ.Any)).
 			Returns(typ.Self).
 			Build()},
+		{Name: "with_options", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("options", typ.NewMap(typ.String, typ.Any)).
+			Returns(typ.Self).
+			Build()},
 		{Name: "with_actor", Type: typ.Func().
 			Param("self", typ.Self).
 			Param("actor", typ.Any).
@@ -161,84 +166,88 @@ func ModuleTypes() *io.Manifest {
 		Build()
 
 	moduleMethodsType := typ.NewInterface("process", []typ.Method{
-		{Name: "id", Type: typ.Func().Returns(typ.String, typ.NewOptional(typ.String)).Build()},
-		{Name: "pid", Type: typ.Func().Returns(typ.String).Build()},
+		{Name: "id", Type: typ.Func().Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "pid", Type: typ.Func().Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "send", Type: typ.Func().
 			Param("pid", typ.String).
 			Param("topic", typ.String).
 			Variadic(typ.Any).
-			Returns(typ.Boolean, typ.NewOptional(typ.String)).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "spawn", Type: typ.Func().
 			Param("module", typ.String).
 			Param("func", typ.String).
 			Variadic(typ.Any).
-			Returns(typ.String, typ.NewOptional(typ.String)).
+			Returns(typ.String, typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "spawn_monitored", Type: typ.Func().
 			Param("module", typ.String).
 			Param("func", typ.String).
 			Variadic(typ.Any).
-			Returns(typ.String, typ.NewOptional(typ.String)).
+			Returns(typ.String, typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "spawn_linked", Type: typ.Func().
 			Param("module", typ.String).
 			Param("func", typ.String).
 			Variadic(typ.Any).
-			Returns(typ.String, typ.NewOptional(typ.String)).
+			Returns(typ.String, typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "spawn_linked_monitored", Type: typ.Func().
 			Param("module", typ.String).
 			Param("func", typ.String).
 			Variadic(typ.Any).
-			Returns(typ.String, typ.NewOptional(typ.String)).
+			Returns(typ.String, typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "terminate", Type: typ.Func().
 			Param("pid", typ.String).
-			Returns(typ.Boolean, typ.NewOptional(typ.String)).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "cancel", Type: typ.Func().
 			Param("pid", typ.String).
 			OptParam("reason", typ.Any).
-			Returns(typ.Boolean, typ.NewOptional(typ.String)).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "get_options", Type: typ.Func().
 			Returns(processOptionsType).
 			Build()},
 		{Name: "set_options", Type: typ.Func().
 			Param("opts", processOptionsType).
-			Returns(typ.Boolean, typ.NewOptional(typ.String)).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "monitor", Type: typ.Func().
 			Param("pid", typ.String).
-			Returns(typ.Boolean, typ.NewOptional(typ.String)).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "unmonitor", Type: typ.Func().
 			Param("pid", typ.String).
-			Returns(typ.Boolean, typ.NewOptional(typ.String)).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "link", Type: typ.Func().
 			Param("pid", typ.String).
-			Returns(typ.Boolean, typ.NewOptional(typ.String)).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "unlink", Type: typ.Func().
 			Param("pid", typ.String).
-			Returns(typ.Boolean, typ.NewOptional(typ.String)).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "with_context", Type: typ.Func().
 			Param("context", typ.NewMap(typ.String, typ.Any)).
 			Returns(spawnBuilderType).
 			Build()},
+		{Name: "with_options", Type: typ.Func().
+			Param("options", typ.NewMap(typ.String, typ.Any)).
+			Returns(spawnBuilderType).
+			Build()},
 		{Name: "inbox", Type: typ.Func().
-			Returns(messageChannelType, typ.NewOptional(typ.String)).
+			Returns(messageChannelType).
 			Build()},
 		{Name: "events", Type: typ.Func().
-			Returns(eventChannelType, typ.NewOptional(typ.String)).
+			Returns(eventChannelType).
 			Build()},
 		{Name: "listen", Type: typ.Func().
 			Param("topic", typ.String).
 			OptParam("options", typ.Any).
-			Returns(rawChannelType, typ.NewOptional(typ.String)).
+			Returns(rawChannelType, typ.NewOptional(typ.LuaError)).
 			Spec(contract.NewSpec().WithReturnCase(
 				constraint.FromConstraints(constraint.FieldEquals{
 					Target: constraint.ParamPath(1),
@@ -250,18 +259,18 @@ func ModuleTypes() *io.Manifest {
 			Build()},
 		{Name: "unlisten", Type: typ.Func().
 			Param("listener", typ.Any).
-			Returns(typ.Boolean, typ.NewOptional(typ.String)).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "upgrade", Type: typ.Func().
 			OptParam("path", typ.String).
 			Variadic(typ.Any).
-			Returns(typ.Boolean, typ.NewOptional(typ.String)).
+			Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "exec", Type: typ.Func().
 			Param("module", typ.String).
 			Param("func", typ.String).
 			Variadic(typ.Any).
-			Returns(typ.Any, typ.NewOptional(typ.String)).
+			Returns(typ.Any, typ.NewOptional(typ.LuaError)).
 			Build()},
 	})
 

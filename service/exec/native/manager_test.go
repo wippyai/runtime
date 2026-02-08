@@ -17,7 +17,7 @@ import (
 
 type mockTranscoder struct{}
 
-func (m *mockTranscoder) Unmarshal(p payload.Payload, v interface{}) error {
+func (m *mockTranscoder) Unmarshal(p payload.Payload, v any) error {
 	if cfg, ok := v.(*exec.NativeExecutorConfig); ok {
 		if src, ok := p.Data().(*exec.NativeExecutorConfig); ok {
 			*cfg = *src

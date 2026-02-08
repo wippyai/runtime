@@ -17,13 +17,13 @@ func TestJsonToGolangTranscoder_Transcode(t *testing.T) {
 		{
 			name:    "Valid JSON string",
 			payload: payload.NewPayload(`{"key": "value"}`, payload.JSON),
-			want:    payload.NewPayload(map[string]interface{}{"key": "value"}, payload.Golang),
+			want:    payload.NewPayload(map[string]any{"key": "value"}, payload.Golang),
 			wantErr: false,
 		},
 		{
 			name:    "Valid JSON bytes",
 			payload: payload.NewPayload([]byte(`{"key": "value"}`), payload.JSON),
-			want:    payload.NewPayload(map[string]interface{}{"key": "value"}, payload.Golang),
+			want:    payload.NewPayload(map[string]any{"key": "value"}, payload.Golang),
 			wantErr: false,
 		},
 		{
@@ -77,8 +77,8 @@ func TestJsonToGolangTranscoder_Unmarshal(t *testing.T) {
 
 	tests := []struct {
 		payload payload.Payload
-		target  interface{}
-		want    interface{}
+		target  any
+		want    any
 		name    string
 		wantErr bool
 	}{
@@ -195,8 +195,8 @@ func TestGolangToJsonTranscoder_Transcode(t *testing.T) {
 func TestRegister(t *testing.T) {
 	// Create a mock transcoder register
 	mockRegister := &mockTranscoderRegister{
-		transcoders:  make(map[string]interface{}),
-		unmarshalers: make(map[string]interface{}),
+		transcoders:  make(map[string]any),
+		unmarshalers: make(map[string]any),
 	}
 
 	// Register the JSON transcoders
@@ -220,8 +220,8 @@ func TestRegister(t *testing.T) {
 
 // Mock implementation of TranscoderRegister for testing
 type mockTranscoderRegister struct {
-	transcoders  map[string]interface{}
-	unmarshalers map[string]interface{}
+	transcoders  map[string]any
+	unmarshalers map[string]any
 }
 
 func (m *mockTranscoderRegister) RegisterTranscoder(from, to payload.Format, _ int, transcoder payload.FormatTranscoder) {
@@ -243,31 +243,31 @@ func TestJsonToGolangTranscoder_Transcode_Complex(t *testing.T) {
 		{
 			name:    "Nested JSON object",
 			payload: payload.NewPayload(`{"outer": {"inner": {"key": "value"}}}`, payload.JSON),
-			want:    payload.NewPayload(map[string]interface{}{"outer": map[string]interface{}{"inner": map[string]interface{}{"key": "value"}}}, payload.Golang),
+			want:    payload.NewPayload(map[string]any{"outer": map[string]any{"inner": map[string]any{"key": "value"}}}, payload.Golang),
 			wantErr: false,
 		},
 		{
 			name:    "JSON array",
 			payload: payload.NewPayload(`[1, 2, 3, "four", true, null]`, payload.JSON),
-			want:    payload.NewPayload([]interface{}{float64(1), float64(2), float64(3), "four", true, nil}, payload.Golang),
+			want:    payload.NewPayload([]any{float64(1), float64(2), float64(3), "four", true, nil}, payload.Golang),
 			wantErr: false,
 		},
 		{
 			name:    "JSON with special values",
 			payload: payload.NewPayload(`{"null": null, "number": 42.5, "boolean": true, "string": "text"}`, payload.JSON),
-			want:    payload.NewPayload(map[string]interface{}{"null": nil, "number": 42.5, "boolean": true, "string": "text"}, payload.Golang),
+			want:    payload.NewPayload(map[string]any{"null": nil, "number": 42.5, "boolean": true, "string": "text"}, payload.Golang),
 			wantErr: false,
 		},
 		{
 			name:    "Empty JSON object",
 			payload: payload.NewPayload(`{}`, payload.JSON),
-			want:    payload.NewPayload(map[string]interface{}{}, payload.Golang),
+			want:    payload.NewPayload(map[string]any{}, payload.Golang),
 			wantErr: false,
 		},
 		{
 			name:    "Empty JSON array",
 			payload: payload.NewPayload(`[]`, payload.JSON),
-			want:    payload.NewPayload([]interface{}{}, payload.Golang),
+			want:    payload.NewPayload([]any{}, payload.Golang),
 			wantErr: false,
 		},
 	}
@@ -323,13 +323,13 @@ func TestGolangToJsonTranscoder_Transcode_Complex(t *testing.T) {
 		},
 		{
 			name:    "Slice with mixed types",
-			payload: payload.NewPayload([]interface{}{1, 2.5, "three", true, nil}, payload.Golang),
+			payload: payload.NewPayload([]any{1, 2.5, "three", true, nil}, payload.Golang),
 			want:    payload.NewPayload([]byte(`[1,2.5,"three",true,null]`), payload.JSON),
 			wantErr: false,
 		},
 		{
 			name: "Map with special values",
-			payload: payload.NewPayload(map[string]interface{}{
+			payload: payload.NewPayload(map[string]any{
 				"null":   nil,
 				"number": 42.5,
 				"bool":   true,
@@ -340,13 +340,13 @@ func TestGolangToJsonTranscoder_Transcode_Complex(t *testing.T) {
 		},
 		{
 			name:    "Empty map",
-			payload: payload.NewPayload(map[string]interface{}{}, payload.Golang),
+			payload: payload.NewPayload(map[string]any{}, payload.Golang),
 			want:    payload.NewPayload([]byte(`{}`), payload.JSON),
 			wantErr: false,
 		},
 		{
 			name:    "Empty slice",
-			payload: payload.NewPayload([]interface{}{}, payload.Golang),
+			payload: payload.NewPayload([]any{}, payload.Golang),
 			want:    payload.NewPayload([]byte(`[]`), payload.JSON),
 			wantErr: false,
 		},

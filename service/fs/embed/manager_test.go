@@ -256,7 +256,7 @@ func (r *mockEmbedRegistry) Close() error {
 	return nil
 }
 
-func (r *mockEmbedRegistry) Register(_ string, _ interface{}) error {
+func (r *mockEmbedRegistry) Register(_ string, _ any) error {
 	return nil
 }
 
@@ -264,7 +264,7 @@ type mockDTT struct {
 	unmarshalErr error
 }
 
-func (m *mockDTT) Unmarshal(p payload.Payload, v interface{}) error {
+func (m *mockDTT) Unmarshal(p payload.Payload, v any) error {
 	if m.unmarshalErr != nil {
 		return m.unmarshalErr
 	}

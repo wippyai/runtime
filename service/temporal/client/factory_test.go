@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,10 +10,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	api "github.com/wippyai/runtime/api/service/temporal"
+	"github.com/wippyai/runtime/service/temporal/dataconverter"
+	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
+	syspayload "github.com/wippyai/runtime/system/payload"
+	msgpayload "github.com/wippyai/runtime/system/payload/msgpack"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/interceptor"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 func TestNewDefaultClientFactory(t *testing.T) {
@@ -27,7 +35,7 @@ func TestNewDefaultClientFactory(t *testing.T) {
 
 func TestDefaultClientFactory_buildClientOptions(t *testing.T) {
 	t.Run("basic options", func(t *testing.T) {
-		factory := NewDefaultClientFactory(nil, nil, nil)
+		factory := NewDefaultClientFactory(nil, newTestDataConverterProvider(), nil)
 		config := &api.ClientConfig{
 			Address:   "localhost:7233",
 			Namespace: "default",
@@ -41,11 +49,13 @@ func TestDefaultClientFactory_buildClientOptions(t *testing.T) {
 		assert.Equal(t, "default", opts.Namespace)
 		assert.NotNil(t, opts.Logger)
 		assert.Len(t, opts.ContextPropagators, 1)
+		assert.NotNil(t, opts.FailureConverter)
+		assert.NotEmpty(t, opts.ConnectionOptions.DialOptions)
 	})
 
 	t.Run("with data converter", func(t *testing.T) {
 		dc := &mockDataConverter{}
-		factory := NewDefaultClientFactory(nil, dc, nil)
+		factory := NewDefaultClientFactory(nil, func() converter.DataConverter { return dc }, nil)
 		config := &api.ClientConfig{
 			Address:   "localhost:7233",
 			Namespace: "test",
@@ -56,11 +66,14 @@ func TestDefaultClientFactory_buildClientOptions(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, dc, opts.DataConverter)
+		f := opts.FailureConverter.ErrorToFailure(errors.New("x"))
+		require.NotNil(t, f)
+		assert.Equal(t, temporalerrors.FailureSource, f.Source)
 	})
 
 	t.Run("with interceptors", func(t *testing.T) {
 		interceptors := []interceptor.ClientInterceptor{&mockClientInterceptor{}}
-		factory := NewDefaultClientFactory(nil, nil, interceptors)
+		factory := NewDefaultClientFactory(nil, newTestDataConverterProvider(), interceptors)
 		config := &api.ClientConfig{
 			Address:   "localhost:7233",
 			Namespace: "test",
@@ -72,6 +85,14 @@ func TestDefaultClientFactory_buildClientOptions(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, opts.Interceptors, 1)
 	})
+}
+
+func newTestDataConverterProvider() func() converter.DataConverter {
+	return func() converter.DataConverter {
+		dtt := syspayload.NewTranscoder()
+		msgpayload.Register(dtt)
+		return dataconverter.NewDataConverter(dtt)
+	}
 }
 
 func TestDefaultClientFactory_configureAuth(t *testing.T) {
@@ -383,17 +404,53 @@ func TestDefaultClientFactory_configureTLS(t *testing.T) {
 	})
 }
 
+func TestRewriteClientHeadersInterceptor(t *testing.T) {
+	interceptor := rewriteClientHeadersInterceptor("wippy-go", "1.2.3")
+
+	var captured metadata.MD
+	invoker := func(
+		ctx context.Context,
+		_ string,
+		_ any,
+		_ any,
+		_ *grpc.ClientConn,
+		_ ...grpc.CallOption,
+	) error {
+		md, ok := metadata.FromOutgoingContext(ctx)
+		require.True(t, ok)
+		captured = md
+		return nil
+	}
+
+	ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("foo", "bar"))
+	err := interceptor(ctx, "/svc/method", nil, nil, nil, invoker)
+	require.NoError(t, err)
+
+	assert.Equal(t, "bar", captured.Get("foo")[0])
+	assert.Equal(t, "wippy-go", captured.Get(temporalClientNameHeader)[0])
+	assert.Equal(t, "1.2.3", captured.Get(temporalClientVersionHeader)[0])
+}
+
+func TestConfigureTransportHeaders_AppendsInterceptor(t *testing.T) {
+	factory := NewDefaultClientFactory(nil, nil, nil)
+	opts := &client.Options{}
+
+	factory.configureTransportHeaders(opts)
+
+	assert.NotEmpty(t, opts.ConnectionOptions.DialOptions)
+}
+
 // mockDataConverter for testing
 type mockDataConverter struct{}
 
-func (m *mockDataConverter) ToPayloads(_ ...interface{}) (*commonpb.Payloads, error) {
+func (m *mockDataConverter) ToPayloads(_ ...any) (*commonpb.Payloads, error) {
 	return nil, nil
 }
-func (m *mockDataConverter) FromPayloads(_ *commonpb.Payloads, _ ...interface{}) error {
+func (m *mockDataConverter) FromPayloads(_ *commonpb.Payloads, _ ...any) error {
 	return nil
 }
-func (m *mockDataConverter) ToPayload(_ interface{}) (*commonpb.Payload, error) { return nil, nil }
-func (m *mockDataConverter) FromPayload(_ *commonpb.Payload, _ interface{}) error {
+func (m *mockDataConverter) ToPayload(_ any) (*commonpb.Payload, error) { return nil, nil }
+func (m *mockDataConverter) FromPayload(_ *commonpb.Payload, _ any) error {
 	return nil
 }
 func (m *mockDataConverter) ToString(_ *commonpb.Payload) string     { return "" }

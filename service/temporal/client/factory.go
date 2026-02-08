@@ -11,12 +11,22 @@ import (
 	"github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/service/temporal"
+	apiversion "github.com/wippyai/runtime/api/version"
+	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
 	"github.com/wippyai/runtime/service/temporal/propagator"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/workflow"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
+)
+
+const (
+	temporalClientNameHeader    = "client-name"
+	temporalClientVersionHeader = "client-version"
+	temporalClientNameValue     = "wippy-go"
 )
 
 // Factory creates Temporal clients from configuration
@@ -27,14 +37,14 @@ type Factory interface {
 // DefaultClientFactory implements Factory
 type DefaultClientFactory struct {
 	env                env.Registry
-	dataConverter      converter.DataConverter
+	dataConverter      func() converter.DataConverter
 	clientInterceptors []interceptor.ClientInterceptor
 }
 
 // NewDefaultClientFactory creates a new default factory
 func NewDefaultClientFactory(
 	env env.Registry,
-	dataConverter converter.DataConverter,
+	dataConverter func() converter.DataConverter,
 	clientInterceptors []interceptor.ClientInterceptor,
 ) *DefaultClientFactory {
 	return &DefaultClientFactory{
@@ -79,9 +89,15 @@ func (f *DefaultClientFactory) buildClientOptions(ctx context.Context, logger *z
 	}
 
 	// Set data converter if available
+	var dc converter.DataConverter
 	if f.dataConverter != nil {
-		opts.DataConverter = f.dataConverter
+		dc = f.dataConverter()
 	}
+	if dc == nil {
+		return opts, fmt.Errorf("data converter not available")
+	}
+	opts.DataConverter = dc
+	opts.FailureConverter = temporalerrors.NewFailureConverter(dc)
 
 	// Set client interceptors if available
 	if len(f.clientInterceptors) > 0 {
@@ -90,7 +106,7 @@ func (f *DefaultClientFactory) buildClientOptions(ctx context.Context, logger *z
 
 	// Add context propagator for wippy context values
 	opts.ContextPropagators = []workflow.ContextPropagator{
-		propagator.New(),
+		propagator.New(dc),
 	}
 
 	// Configure authentication
@@ -102,6 +118,7 @@ func (f *DefaultClientFactory) buildClientOptions(ctx context.Context, logger *z
 	if err := f.configureTLS(logger, config, &opts); err != nil {
 		return opts, fmt.Errorf("failed to configure TLS: %w", err)
 	}
+	f.configureTransportHeaders(&opts)
 
 	return opts, nil
 }
@@ -248,4 +265,38 @@ func (f *DefaultClientFactory) configureTLS(logger *zap.Logger, config *api.Clie
 	}
 
 	return nil
+}
+
+func (f *DefaultClientFactory) configureTransportHeaders(opts *client.Options) {
+	opts.ConnectionOptions.DialOptions = append(
+		opts.ConnectionOptions.DialOptions,
+		grpc.WithUnaryInterceptor(rewriteClientHeadersInterceptor(
+			temporalClientNameValue,
+			apiversion.Version,
+		)),
+	)
+}
+
+func rewriteClientHeadersInterceptor(clientName, clientVersion string) grpc.UnaryClientInterceptor {
+	return func(
+		ctx context.Context,
+		method string,
+		req any,
+		reply any,
+		cc *grpc.ClientConn,
+		invoker grpc.UnaryInvoker,
+		opts ...grpc.CallOption,
+	) error {
+		md, ok := metadata.FromOutgoingContext(ctx)
+		if !ok || md == nil {
+			md = metadata.MD{}
+		} else {
+			md = md.Copy()
+		}
+		md.Set(temporalClientNameHeader, clientName)
+		md.Set(temporalClientVersionHeader, clientVersion)
+
+		ctx = metadata.NewOutgoingContext(ctx, md)
+		return invoker(ctx, method, req, reply, cc, opts...)
+	}
 }

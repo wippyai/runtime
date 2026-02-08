@@ -28,7 +28,7 @@ func (t *ToGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 		return nil, syspayload.NewInvalidFormatError("JSON=>Golang", payload.JSON, p.Format())
 	}
 
-	var data interface{}
+	var data any
 	switch v := p.Data().(type) {
 	case string:
 		err := json.Unmarshal([]byte(v), &data)
@@ -48,7 +48,7 @@ func (t *ToGolang) Transcode(p payload.Payload) (payload.Payload, error) {
 }
 
 // Unmarshal implements the payload.Unmarshaler interface.
-func (t *ToGolang) Unmarshal(p payload.Payload, v interface{}) error {
+func (t *ToGolang) Unmarshal(p payload.Payload, v any) error {
 	if p.Format() != payload.JSON {
 		return syspayload.NewInvalidFormatError("JSON=>Golang", payload.JSON, p.Format())
 	}

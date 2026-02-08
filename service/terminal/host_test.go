@@ -195,19 +195,14 @@ func TestHost_PreparePID_WithOptions(t *testing.T) {
 
 	h := NewHost(id, cfg, nil, factory, logCtrl, log)
 
-	expectedPID := pid.PID{Node: "test-node", Host: "test-host", UniqID: "abc123"}
-	opts := attrs.NewBag()
-	opts.Set(process.OptionPID, expectedPID)
-
-	start := &process.Start{
-		Options: opts,
-	}
+	start := &process.Start{Options: attrs.NewBag()}
 
 	appCtx := ctxapi.NewAppContext()
 	ctx := ctxapi.WithAppContext(context.Background(), appCtx)
 	ctx = process.WithPIDGenerator(ctx, newTestPIDGen())
 	resultPID := h.preparePID(ctx, start)
-	assert.Equal(t, expectedPID, resultPID)
+	assert.NotEqual(t, pid.PID{}, resultPID)
+	assert.Equal(t, "test-node", resultPID.Node)
 }
 
 func TestHost_PreparePID_Generated(t *testing.T) {

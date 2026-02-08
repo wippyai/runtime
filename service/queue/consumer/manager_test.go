@@ -226,7 +226,7 @@ func (m *mockQueueManager) UnregisterInterceptor(_ string) {}
 
 type mockDTT struct{}
 
-func (m *mockDTT) Unmarshal(p payload.Payload, v interface{}) error {
+func (m *mockDTT) Unmarshal(p payload.Payload, v any) error {
 	if config, ok := v.(*consumerapi.Config); ok {
 		if src, ok := p.Data().(*consumerapi.Config); ok {
 			*config = *src

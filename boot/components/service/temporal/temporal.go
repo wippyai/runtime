@@ -20,6 +20,7 @@ import (
 	"github.com/wippyai/runtime/service/temporal/client"
 	"github.com/wippyai/runtime/service/temporal/dataconverter"
 	temporalinterceptor "github.com/wippyai/runtime/service/temporal/interceptor"
+	"github.com/wippyai/runtime/service/temporal/runref"
 	"github.com/wippyai/runtime/service/temporal/worker"
 	temporalworkflow "github.com/wippyai/runtime/service/temporal/workflow"
 	"go.temporal.io/sdk/converter"
@@ -44,10 +45,32 @@ func InterceptorComponent() boot.Component {
 	})
 }
 
+// DataConverterComponent creates the data converter registry used by Temporal clients.
+func DataConverterComponent() boot.Component {
+	return boot.New(boot.P{
+		Name:      DataConverterName,
+		DependsOn: []boot.Name{},
+		Load: func(ctx context.Context) (context.Context, error) {
+			dtt := payload.GetTranscoder(ctx)
+			if dtt == nil {
+				return ctx, fmt.Errorf("transcoder not available")
+			}
+
+			base := dataconverter.NewDataConverter(dtt)
+			reg := dataconverter.NewRegistry(base)
+			ctx = temporalapi.WithDataConverterRegistry(ctx, reg)
+
+			return ctx, nil
+		},
+	})
+}
+
+// Component creates the main Temporal boot component that sets up client,
+// worker, activity, and workflow managers and wires them into the registry.
 func Component() boot.Component {
 	return boot.New(boot.P{
 		Name:      Name,
-		DependsOn: []boot.Name{bootcore.RegistryName, bootsystem.FunctionsName, bootsystem.ResourcesName, InterceptorName},
+		DependsOn: []boot.Name{bootcore.RegistryName, bootsystem.FunctionsName, bootsystem.ResourcesName, InterceptorName, DataConverterName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx).Named("temporal")
 			if logger == nil {
@@ -107,8 +130,14 @@ func Component() boot.Component {
 				}
 			}
 
-			// Create data converter with transcoder
-			dc := dataconverter.NewDataConverter(dtt, converter.GetDefaultDataConverter())
+			// Create data converter with transcoder and registered codecs
+			dcRegistry := temporalapi.GetDataConverterRegistry(ctx)
+			if dcRegistry == nil {
+				return ctx, fmt.Errorf("data converter registry not available")
+			}
+
+			// Share one-shot workflow run metadata between start and monitor/link setup.
+			ctx = temporalapi.WithWorkflowRunHandoff(ctx, runref.NewHandoff())
 
 			// Collect interceptors from registries
 			var clientInterceptors []sdkinterceptor.ClientInterceptor
@@ -126,7 +155,9 @@ func Component() boot.Component {
 				client.WithTranscoder(dtt),
 				client.WithEventBus(bus),
 				client.WithEnvRegistry(envRegistry),
-				client.WithDataConverter(dc),
+				client.WithDataConverterProvider(func() converter.DataConverter {
+					return dcRegistry.Build()
+				}),
 				client.WithInterceptors(clientInterceptors),
 			)
 			if err != nil {
@@ -177,9 +208,11 @@ func Component() boot.Component {
 	})
 }
 
+// All returns all Temporal boot components in dependency order.
 func All() []boot.Component {
 	return []boot.Component{
 		InterceptorComponent(),
+		DataConverterComponent(),
 		Component(),
 	}
 }

@@ -204,7 +204,7 @@ func (s *Store) Set(ctx context.Context, entry store.Entry) error {
 	err = h.db.QueryRowContext(ctx, existsSQL, existsArgs...).Scan(&exists)
 
 	var querySQL string
-	var args []interface{}
+	var args []any
 
 	// Insert or update based on existence
 	if errors.Is(err, sql.ErrNoRows) {

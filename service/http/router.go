@@ -12,7 +12,7 @@ import (
 
 // RouteInfoPool safely pools RouteInfo objects to reduce allocations
 var routeInfoPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return &httpapi.RouteInfo{
 			Params: make(map[string]string, 2),
 		}

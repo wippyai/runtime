@@ -27,11 +27,11 @@ import (
 // TestTranscoder for manager tests that directly returns valid configs
 type TestTranscoder struct{}
 
-func (t *TestTranscoder) Marshal(v interface{}) (payload.Payload, error) {
+func (t *TestTranscoder) Marshal(v any) (payload.Payload, error) {
 	return payload.New(v), nil
 }
 
-func (t *TestTranscoder) Unmarshal(_ payload.Payload, v interface{}) error {
+func (t *TestTranscoder) Unmarshal(_ payload.Payload, v any) error {
 	switch target := v.(type) {
 	case *apiconfig.DBConfig:
 		// Directly set the fields of the target
@@ -703,11 +703,11 @@ func TestManager_AddWithEnvVars(t *testing.T) {
 // EnvConfigTranscoder returns a config with env var fields set
 type EnvConfigTranscoder struct{}
 
-func (t *EnvConfigTranscoder) Marshal(v interface{}) (payload.Payload, error) {
+func (t *EnvConfigTranscoder) Marshal(v any) (payload.Payload, error) {
 	return payload.New(v), nil
 }
 
-func (t *EnvConfigTranscoder) Unmarshal(_ payload.Payload, v interface{}) error {
+func (t *EnvConfigTranscoder) Unmarshal(_ payload.Payload, v any) error {
 	switch target := v.(type) {
 	case *apiconfig.DBConfig:
 		*target = apiconfig.DBConfig{

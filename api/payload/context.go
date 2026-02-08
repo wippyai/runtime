@@ -27,7 +27,8 @@ func GetTranscoder(ctx context.Context) Transcoder {
 		return nil
 	}
 	if t := ac.Get(transcoderCtx); t != nil {
-		return t.(Transcoder)
+		tc := t.(Transcoder)
+		return tc
 	}
 	return nil
 }

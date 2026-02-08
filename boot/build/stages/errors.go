@@ -3,6 +3,7 @@ package stages
 import (
 	"fmt"
 
+	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
@@ -62,6 +63,12 @@ func NewDecodeRequirementError(entryID string, cause error) apierror.Error {
 
 func NewDecodeDependencyError(entryID string, cause error) apierror.Error {
 	return apierror.New(apierror.Internal, fmt.Sprintf("failed to decode dependency %s", entryID)).WithCause(cause)
+}
+
+func NewInvalidDependencyComponentError(entryID, component string, cause error) apierror.Error {
+	return apierror.New(apierror.Invalid, fmt.Sprintf("invalid dependency component %s", component)).
+		WithDetails(attrs.NewBagFrom(map[string]any{"entry_id": entryID, "component": component})).
+		WithCause(cause)
 }
 
 func NewRequirementError(requirementName, namespace string, cause error) apierror.Error {

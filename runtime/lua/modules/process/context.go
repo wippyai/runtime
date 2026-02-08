@@ -23,15 +23,18 @@ type Spawner struct {
 	actor    secapi.Actor
 	scope    secapi.Scope
 	values   ctxapi.Values
+	options  attrs.Bag
 	name     string
 	messages []*relay.Message
 	hasActor bool
 	hasScope bool
+	hasOpts  bool
 }
 
 func init() {
 	value.RegisterTypeMethods(nil, spawnerTypeName, nil, map[string]lua.LGoFunc{
 		"with_context":           spawnerWithContext,
+		"with_options":           spawnerWithOptions,
 		"with_actor":             spawnerWithActor,
 		"with_scope":             spawnerWithScope,
 		"with_name":              spawnerWithName,
@@ -41,6 +44,40 @@ func init() {
 		"spawn_linked":           spawnerSpawnLinked,
 		"spawn_linked_monitored": spawnerSpawnLinkedMonitored,
 	})
+}
+
+func cloneSpawner(spawner *Spawner) *Spawner {
+	if spawner == nil {
+		return &Spawner{}
+	}
+
+	return &Spawner{
+		values:   spawner.values,
+		options:  spawner.options,
+		actor:    spawner.actor,
+		hasActor: spawner.hasActor,
+		scope:    spawner.scope,
+		hasScope: spawner.hasScope,
+		hasOpts:  spawner.hasOpts,
+		name:     spawner.name,
+		messages: spawner.messages,
+	}
+}
+
+func parseSpawnerOptions(l *lua.LState, idx int) attrs.Bag {
+	optionsTable := l.CheckTable(idx)
+	options := attrs.NewBag()
+
+	optionsTable.ForEach(func(k, v lua.LValue) {
+		key, ok := k.(lua.LString)
+		if !ok {
+			l.ArgError(idx, "options keys must be strings")
+			return
+		}
+		options.Set(string(key), value.ToGoAny(v))
+	})
+
+	return options
 }
 
 // spawnerNew creates a new process spawner (process.with_context)
@@ -103,6 +140,58 @@ func spawnerNew(l *lua.LState) int {
 	return 1
 }
 
+// spawnerNewWithOptions creates a new process spawner (process.with_options)
+func spawnerNewWithOptions(l *lua.LState) int {
+	ctx := l.Context()
+
+	self, ok := runtime.GetFramePID(ctx)
+	if !ok {
+		l.RaiseError("no PID found in frame context")
+		return 0
+	}
+
+	secAttrs := map[string]any{"pid": self.String()}
+
+	if !security.IsAllowed(ctx, "process.context", "context", secAttrs) {
+		l.RaiseError("not allowed to spawn processes with custom options")
+		return 0
+	}
+
+	values := ctxapi.GetValues(ctx)
+	if values != nil {
+		values = values.Clone().(ctxapi.Values)
+	} else {
+		values = ctxapi.NewValues()
+	}
+
+	var actor secapi.Actor
+	var scope secapi.Scope
+	hasActor := false
+	hasScope := false
+
+	if a, ok := secapi.GetActor(ctx); ok {
+		actor = a
+		hasActor = true
+	}
+	if s, ok := secapi.GetScope(ctx); ok {
+		scope = s
+		hasScope = true
+	}
+
+	spawner := &Spawner{
+		values:   values,
+		options:  parseSpawnerOptions(l, 1),
+		actor:    actor,
+		hasActor: hasActor,
+		scope:    scope,
+		hasScope: hasScope,
+		hasOpts:  true,
+	}
+
+	value.PushTypedUserData(l, spawner, spawnerTypeName)
+	return 1
+}
+
 // spawnerWithName sets the process name for spawn-or-signal
 func spawnerWithName(l *lua.LState) int {
 	ud := l.CheckUserData(1)
@@ -118,15 +207,8 @@ func spawnerWithName(l *lua.LState) int {
 		return 0
 	}
 
-	newSpawner := &Spawner{
-		values:   spawner.values,
-		actor:    spawner.actor,
-		hasActor: spawner.hasActor,
-		scope:    spawner.scope,
-		hasScope: spawner.hasScope,
-		name:     name,
-		messages: spawner.messages,
-	}
+	newSpawner := cloneSpawner(spawner)
+	newSpawner.name = name
 
 	value.PushTypedUserData(l, newSpawner, spawnerTypeName)
 	return 1
@@ -160,15 +242,8 @@ func spawnerWithMessage(l *lua.LState) int {
 	copy(newMessages, spawner.messages)
 	newMessages[len(spawner.messages)] = msg
 
-	newSpawner := &Spawner{
-		values:   spawner.values,
-		actor:    spawner.actor,
-		hasActor: spawner.hasActor,
-		scope:    spawner.scope,
-		hasScope: spawner.hasScope,
-		name:     spawner.name,
-		messages: newMessages,
-	}
+	newSpawner := cloneSpawner(spawner)
+	newSpawner.messages = newMessages
 
 	value.PushTypedUserData(l, newSpawner, spawnerTypeName)
 	return 1
@@ -220,13 +295,54 @@ func spawnerWithContext(l *lua.LState) int {
 
 	newSpawner := &Spawner{
 		values:   newValues,
+		options:  spawner.options,
 		actor:    spawner.actor,
 		hasActor: spawner.hasActor,
 		scope:    spawner.scope,
 		hasScope: spawner.hasScope,
+		hasOpts:  spawner.hasOpts,
 		name:     spawner.name,
 		messages: spawner.messages,
 	}
+
+	value.PushTypedUserData(l, newSpawner, spawnerTypeName)
+	return 1
+}
+
+// spawnerWithOptions adds spawn options to the spawner
+func spawnerWithOptions(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	spawner, ok := ud.Value.(*Spawner)
+	if !ok {
+		l.ArgError(1, "Spawner expected")
+		return 0
+	}
+
+	ctx := l.Context()
+
+	self, ok := runtime.GetFramePID(ctx)
+	if !ok {
+		l.RaiseError("no PID found in frame context")
+		return 0
+	}
+
+	secAttrs := map[string]any{"pid": self.String()}
+
+	if !security.IsAllowed(ctx, "process.context", "context", secAttrs) {
+		l.RaiseError("not allowed to spawn processes with custom options")
+		return 0
+	}
+
+	newOptions := parseSpawnerOptions(l, 2)
+
+	existing := spawner.options
+	if existing == nil {
+		existing = attrs.NewBag()
+	}
+
+	newSpawner := cloneSpawner(spawner)
+	newSpawner.options = existing.Merge(newOptions)
+	newSpawner.hasOpts = true
 
 	value.PushTypedUserData(l, newSpawner, spawnerTypeName)
 	return 1
@@ -268,15 +384,9 @@ func spawnerWithActor(l *lua.LState) int {
 		return 0
 	}
 
-	newSpawner := &Spawner{
-		values:   spawner.values,
-		actor:    actor,
-		hasActor: true,
-		scope:    spawner.scope,
-		hasScope: spawner.hasScope,
-		name:     spawner.name,
-		messages: spawner.messages,
-	}
+	newSpawner := cloneSpawner(spawner)
+	newSpawner.actor = actor
+	newSpawner.hasActor = true
 
 	value.PushTypedUserData(l, newSpawner, spawnerTypeName)
 	return 1
@@ -318,15 +428,9 @@ func spawnerWithScope(l *lua.LState) int {
 		return 0
 	}
 
-	newSpawner := &Spawner{
-		values:   spawner.values,
-		actor:    spawner.actor,
-		hasActor: spawner.hasActor,
-		scope:    scope,
-		hasScope: true,
-		name:     spawner.name,
-		messages: spawner.messages,
-	}
+	newSpawner := cloneSpawner(spawner)
+	newSpawner.scope = scope
+	newSpawner.hasScope = true
 
 	value.PushTypedUserData(l, newSpawner, spawnerTypeName)
 	return 1
@@ -403,9 +507,18 @@ func doSpawnerSpawn(l *lua.LState, monitored, linked bool) int {
 	}
 
 	options := attrs.NewBag()
-	options.Set(process.LifecycleParentKey, self)
+	if spawner.hasOpts && spawner.options != nil {
+		options = spawner.options.Clone().(attrs.Bag)
+	}
+	options.Set(process.ProcessParentKey, self)
 	if spawner.name != "" {
-		options.Set(process.LifecycleNameKey, spawner.name)
+		options.Set(process.ProcessNameKey, spawner.name)
+	}
+	if monitored {
+		options.Set(process.ProcessMonitorKey, true)
+	}
+	if linked {
+		options.Set(process.ProcessLinkKey, true)
 	}
 
 	yield := AcquireSpawnYield()
@@ -415,11 +528,8 @@ func doSpawnerSpawn(l *lua.LState, monitored, linked bool) int {
 		Input:    payloads,
 		Context:  buildSpawnerContext(spawner),
 		Options:  options,
-		Name:     spawner.name,
 		Messages: spawner.messages,
 	}
-	yield.Monitor = monitored
-	yield.Link = linked
 
 	l.Push(yield)
 	return -1

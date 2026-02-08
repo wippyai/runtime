@@ -86,8 +86,8 @@ func flattenMap(m map[string]any, prefix string) map[string]any {
 			continue
 		}
 
-		// Handle map[interface{}]interface{} from yaml.v3
-		if nestedInterface, ok := v.(map[interface{}]interface{}); ok {
+		// Handle map[any]any from yaml.v3
+		if nestedInterface, ok := v.(map[any]any); ok {
 			converted := make(map[string]any)
 			for nk, nv := range nestedInterface {
 				if strKey, ok := nk.(string); ok {

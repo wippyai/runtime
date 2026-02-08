@@ -227,15 +227,16 @@ func TestUpdateManager_HandleResponse(t *testing.T) {
 			State:     updateAccepted,
 			Callbacks: callbacks,
 		}
+		resultPayload := payload.NewString("result")
 
 		var resumeErr error
-		m.HandleResponse("update-1", "ok", payload.Payloads{payload.NewString("result")}, func(data any, err error) {
+		m.HandleResponse("update-1", "ok", payload.Payloads{resultPayload}, func(data any, err error) {
 			resumeErr = err
 		})
 
 		assert.NoError(t, resumeErr)
 		assert.True(t, callbacks.completed)
-		assert.Equal(t, "result", callbacks.result)
+		assert.Equal(t, resultPayload, callbacks.result)
 		assert.NotContains(t, m.active, "update-1")
 	})
 
@@ -292,6 +293,235 @@ func TestUpdateManager_HandleResponse(t *testing.T) {
 			resumeErr = err
 		})
 
+		require.Error(t, resumeErr)
+		assert.Contains(t, resumeErr.Error(), "not accepted")
+	})
+}
+
+func TestUpdateManager_FlushPending_NonStringPayload(t *testing.T) {
+	m := newTestUpdateManager()
+	callbacks := &mockUpdateCallbacks{}
+
+	upd := &updateEntry{
+		Name:      updateTopicReject,
+		ID:        "update-1",
+		Payloads:  payload.Payloads{payload.New(42)},
+		State:     updatePending,
+		Callbacks: callbacks,
+	}
+	m.pending = append(m.pending, upd)
+
+	m.FlushPending()
+
+	assert.True(t, callbacks.rejected)
+	// Non-string payload data is formatted via Sprintf
+	assert.NotEmpty(t, callbacks.err.Error())
+}
+
+func TestUpdateManager_HandleResponse_OkEmptyPayloads(t *testing.T) {
+	m := newTestUpdateManager()
+	callbacks := &mockUpdateCallbacks{}
+	m.active["update-1"] = &updateEntry{
+		ID:        "update-1",
+		State:     updateAccepted,
+		Callbacks: callbacks,
+	}
+
+	var resumeErr error
+	m.HandleResponse("update-1", "ok", nil, func(data any, err error) {
+		resumeErr = err
+	})
+
+	assert.NoError(t, resumeErr)
+	assert.True(t, callbacks.completed)
+	assert.Nil(t, callbacks.result)
+	assert.Nil(t, callbacks.err)
+	assert.NotContains(t, m.active, "update-1")
+}
+
+func TestUpdateManager_HandleResponse_NakNonStringPayload(t *testing.T) {
+	m := newTestUpdateManager()
+	callbacks := &mockUpdateCallbacks{}
+	m.active["update-1"] = &updateEntry{
+		ID:        "update-1",
+		State:     updatePending,
+		Callbacks: callbacks,
+	}
+
+	var resumeErr error
+	m.HandleResponse("update-1", "nak", payload.Payloads{payload.New(500)}, func(data any, err error) {
+		resumeErr = err
+	})
+
+	assert.NoError(t, resumeErr)
+	assert.True(t, callbacks.rejected)
+	assert.NotEmpty(t, callbacks.err.Error())
+	assert.NotContains(t, m.active, "update-1")
+}
+
+func TestUpdateManager_HandleResponse_ErrorNonStringPayload(t *testing.T) {
+	m := newTestUpdateManager()
+	callbacks := &mockUpdateCallbacks{}
+	m.active["update-1"] = &updateEntry{
+		ID:        "update-1",
+		State:     updateAccepted,
+		Callbacks: callbacks,
+	}
+
+	var resumeErr error
+	m.HandleResponse("update-1", "error", payload.Payloads{payload.New(503)}, func(data any, err error) {
+		resumeErr = err
+	})
+
+	assert.NoError(t, resumeErr)
+	assert.True(t, callbacks.completed)
+	assert.NotEmpty(t, callbacks.err.Error())
+	assert.NotContains(t, m.active, "update-1")
+}
+
+func TestUpdateManager_HandleResponse_NakDefaultMessage(t *testing.T) {
+	m := newTestUpdateManager()
+	callbacks := &mockUpdateCallbacks{}
+	m.active["update-1"] = &updateEntry{
+		ID:        "update-1",
+		State:     updatePending,
+		Callbacks: callbacks,
+	}
+
+	var resumeErr error
+	m.HandleResponse("update-1", "nak", nil, func(data any, err error) {
+		resumeErr = err
+	})
+
+	assert.NoError(t, resumeErr)
+	assert.True(t, callbacks.rejected)
+	assert.Contains(t, callbacks.err.Error(), "update rejected")
+}
+
+func TestUpdateManager_HandleResponse_ErrorDefaultMessage(t *testing.T) {
+	m := newTestUpdateManager()
+	callbacks := &mockUpdateCallbacks{}
+	m.active["update-1"] = &updateEntry{
+		ID:        "update-1",
+		State:     updateAccepted,
+		Callbacks: callbacks,
+	}
+
+	var resumeErr error
+	m.HandleResponse("update-1", "error", nil, func(data any, err error) {
+		resumeErr = err
+	})
+
+	assert.NoError(t, resumeErr)
+	assert.True(t, callbacks.completed)
+	assert.Contains(t, callbacks.err.Error(), "update failed")
+}
+
+func TestUpdateManager_HandleResponse_WrongStateTransitions(t *testing.T) {
+	t.Run("ack on rejected", func(t *testing.T) {
+		m := newTestUpdateManager()
+		callbacks := &mockUpdateCallbacks{}
+		m.active["update-1"] = &updateEntry{
+			ID: "update-1", State: updateRejected, Callbacks: callbacks,
+		}
+
+		var resumeErr error
+		m.HandleResponse("update-1", "ack", nil, func(data any, err error) {
+			resumeErr = err
+		})
+		require.Error(t, resumeErr)
+		assert.Contains(t, resumeErr.Error(), "already rejected")
+	})
+
+	t.Run("ack on completed", func(t *testing.T) {
+		m := newTestUpdateManager()
+		callbacks := &mockUpdateCallbacks{}
+		m.active["update-1"] = &updateEntry{
+			ID: "update-1", State: updateComplete, Callbacks: callbacks,
+		}
+
+		var resumeErr error
+		m.HandleResponse("update-1", "ack", nil, func(data any, err error) {
+			resumeErr = err
+		})
+		require.Error(t, resumeErr)
+		assert.Contains(t, resumeErr.Error(), "already completed")
+	})
+
+	t.Run("nak on accepted", func(t *testing.T) {
+		m := newTestUpdateManager()
+		callbacks := &mockUpdateCallbacks{}
+		m.active["update-1"] = &updateEntry{
+			ID: "update-1", State: updateAccepted, Callbacks: callbacks,
+		}
+
+		var resumeErr error
+		m.HandleResponse("update-1", "nak", nil, func(data any, err error) {
+			resumeErr = err
+		})
+		require.Error(t, resumeErr)
+		assert.Contains(t, resumeErr.Error(), "already accepted")
+		assert.False(t, callbacks.rejected)
+	})
+
+	t.Run("ok on rejected", func(t *testing.T) {
+		m := newTestUpdateManager()
+		callbacks := &mockUpdateCallbacks{}
+		m.active["update-1"] = &updateEntry{
+			ID: "update-1", State: updateRejected, Callbacks: callbacks,
+		}
+
+		var resumeErr error
+		m.HandleResponse("update-1", "ok", nil, func(data any, err error) {
+			resumeErr = err
+		})
+		require.Error(t, resumeErr)
+		assert.Contains(t, resumeErr.Error(), "not accepted")
+		assert.False(t, callbacks.completed)
+	})
+
+	t.Run("ok on completed", func(t *testing.T) {
+		m := newTestUpdateManager()
+		callbacks := &mockUpdateCallbacks{}
+		m.active["update-1"] = &updateEntry{
+			ID: "update-1", State: updateComplete, Callbacks: callbacks,
+		}
+
+		var resumeErr error
+		m.HandleResponse("update-1", "ok", nil, func(data any, err error) {
+			resumeErr = err
+		})
+		require.Error(t, resumeErr)
+		assert.Contains(t, resumeErr.Error(), "not accepted")
+	})
+
+	t.Run("error on rejected", func(t *testing.T) {
+		m := newTestUpdateManager()
+		callbacks := &mockUpdateCallbacks{}
+		m.active["update-1"] = &updateEntry{
+			ID: "update-1", State: updateRejected, Callbacks: callbacks,
+		}
+
+		var resumeErr error
+		m.HandleResponse("update-1", "error", nil, func(data any, err error) {
+			resumeErr = err
+		})
+		require.Error(t, resumeErr)
+		assert.Contains(t, resumeErr.Error(), "not accepted")
+		assert.False(t, callbacks.completed)
+	})
+
+	t.Run("error on completed", func(t *testing.T) {
+		m := newTestUpdateManager()
+		callbacks := &mockUpdateCallbacks{}
+		m.active["update-1"] = &updateEntry{
+			ID: "update-1", State: updateComplete, Callbacks: callbacks,
+		}
+
+		var resumeErr error
+		m.HandleResponse("update-1", "error", nil, func(data any, err error) {
+			resumeErr = err
+		})
 		require.Error(t, resumeErr)
 		assert.Contains(t, resumeErr.Error(), "not accepted")
 	})

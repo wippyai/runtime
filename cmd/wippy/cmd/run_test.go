@@ -5,7 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func TestLoadBootConfigSetsConfigDir(t *testing.T) {
@@ -33,4 +35,49 @@ func TestLoadBootConfigSetsConfigDir(t *testing.T) {
 
 	require.Equal(t, expectedPath, cfg.GetString("boot.config_path", ""))
 	require.Equal(t, expectedDir, cfg.GetString("boot.config_dir", ""))
+}
+
+func TestLoadRuntimeConfigAppliesOverridesAndCLISettings(t *testing.T) {
+	tempDir := t.TempDir()
+	cfgPath := filepath.Join(tempDir, "wippy.yaml")
+	cfgBody := []byte("version: \"1.0\"\n")
+	require.NoError(t, os.WriteFile(cfgPath, cfgBody, 0o644))
+
+	prevConfigFile := configFile
+	prevProfiler := profiler
+	prevVerbose := verbose
+	prevVeryVerbose := veryVerbose
+	prevConsole := console
+	prevEventStreams := eventStreams
+
+	configFile = cfgPath
+	profiler = false
+	verbose = true
+	veryVerbose = false
+	console = false
+	eventStreams = true
+	t.Cleanup(func() {
+		configFile = prevConfigFile
+		profiler = prevProfiler
+		verbose = prevVerbose
+		veryVerbose = prevVeryVerbose
+		console = prevConsole
+		eventStreams = prevEventStreams
+	})
+
+	cmd := &cobra.Command{}
+	cmd.Flags().StringSlice("override", nil, "")
+	require.NoError(t, cmd.Flags().Set("override", "app:test:enabled=true"))
+
+	cfg, err := loadRuntimeConfig(cmd, zap.NewNop())
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	require.Equal(t, "development", cfg.GetString("logger.mode", ""))
+	require.Equal(t, "debug", cfg.GetString("logger.level", ""))
+	require.True(t, cfg.GetBool("logmanager.stream_to_events", false))
+
+	overrideCfg := cfg.Sub("override")
+	require.NotNil(t, overrideCfg)
+	require.Equal(t, "true", overrideCfg.GetString("app:test:enabled", ""))
 }

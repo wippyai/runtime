@@ -43,7 +43,7 @@ func NewBufferPool(size int) *BufferPool {
 		size = DefaultBufferSize
 	}
 	bp := &BufferPool{size: size}
-	bp.pool.New = func() interface{} {
+	bp.pool.New = func() any {
 		return &Buffer{
 			Data: make([]byte, size),
 			pool: &bp.pool,

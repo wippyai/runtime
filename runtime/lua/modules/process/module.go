@@ -27,12 +27,32 @@ var (
 	yieldTypes  []luaapi.YieldType
 )
 
+func newProcessError(l *lua.LState, kind lua.Kind, message string) *lua.Error {
+	return lua.NewLuaError(l, message).
+		WithKind(kind).
+		WithRetryable(false)
+}
+
+func wrapProcessError(l *lua.LState, err error, context string, fallback lua.Kind) *lua.Error {
+	wrapped := lua.WrapErrorWithLua(l, err, context).WithRetryable(false)
+	if wrapped.Kind() == lua.Unknown && fallback != lua.Unknown {
+		wrapped = wrapped.WithKind(fallback)
+	}
+	return wrapped
+}
+
+func pushProcessError(l *lua.LState, value lua.LValue, err *lua.Error) int {
+	l.Push(value)
+	l.Push(err)
+	return 2
+}
+
 func init() {
 	value.RegisterTypeMethods(nil, messageTypeName,
 		map[string]lua.LGoFunc{"__tostring": messageToString},
 		messageMethods)
 
-	moduleTable = lua.CreateTable(0, 21)
+	moduleTable = lua.CreateTable(0, 22)
 
 	moduleTable.RawSetString("id", lua.LGoFunc(processID))
 	moduleTable.RawSetString("pid", lua.LGoFunc(processPID))
@@ -50,6 +70,7 @@ func init() {
 	moduleTable.RawSetString("link", lua.LGoFunc(link))
 	moduleTable.RawSetString("unlink", lua.LGoFunc(unlink))
 	moduleTable.RawSetString("with_context", lua.LGoFunc(spawnerNew))
+	moduleTable.RawSetString("with_options", lua.LGoFunc(spawnerNewWithOptions))
 
 	moduleTable.RawSetString("inbox", lua.LGoFunc(inbox))
 	moduleTable.RawSetString("events", lua.LGoFunc(events))
@@ -101,27 +122,28 @@ var Module = &luaapi.ModuleDef{
 func checkPID(l *lua.LState) (pidapi.PID, bool) {
 	ctx := l.Context()
 	if ctx == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no context found"))
+		pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "no context found"))
 		return pidapi.PID{}, false
 	}
 
 	p, ok := runtime.GetFramePID(ctx)
+	if !ok {
+		pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "no process PID"))
+		return pidapi.PID{}, false
+	}
 	return p, ok
 }
 
 func getRegistry(l *lua.LState) (topology.PIDRegistry, bool) {
 	ctx := l.Context()
 	if ctx == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no context found"))
+		pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "no context found"))
 		return nil, false
 	}
 
 	reg := topology.GetRegistry(ctx)
 	if reg == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no registry found in context"))
+		pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "no registry found in context"))
 		return nil, false
 	}
 
@@ -178,30 +200,22 @@ func processPID(l *lua.LState) int {
 func processID(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("no context found"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "no context found"))
 	}
 
 	cc := ctxapi.FrameFromContext(ctx)
 	if cc == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("FrameContext not found"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "FrameContext not found"))
 	}
 
 	idValue, ok := cc.Get(runtime.FrameIDKey)
 	if !ok {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("call ID not found in context"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "call ID not found in context"))
 	}
 
 	callID, ok := idValue.(registry.ID)
 	if !ok {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid call ID type"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "invalid call ID type"))
 	}
 
 	l.Push(lua.LString(callID.String()))
@@ -215,25 +229,19 @@ func send(l *lua.LState) int {
 	}
 
 	if l.GetTop() < 2 {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("send requires at least destination and topic arguments"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "send requires at least destination and topic arguments"))
 	}
 
 	pidOrName := l.CheckString(1)
 	topic := l.CheckString(2)
 
 	if strings.HasPrefix(topic, "@") {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("cannot send to @ topics"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "cannot send to @ topics"))
 	}
 
 	target, err := resolvePID(l, pidOrName, "process.send", self)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
 
 	yield := AcquireSendYield()
@@ -253,9 +261,7 @@ func spawn(l *lua.LState) int {
 	}
 
 	if l.GetTop() < 2 {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("spawn requires at least id and host arguments"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "spawn requires at least id and host arguments"))
 	}
 
 	id := l.CheckString(1)
@@ -263,21 +269,17 @@ func spawn(l *lua.LState) int {
 	secAttrs := map[string]any{"pid": self.String()}
 
 	if !security.IsAllowed(l.Context(), "process.spawn", id, secAttrs) {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn process: %s", id)))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to spawn process: %s", id)))
 	}
 
 	if !security.IsAllowed(l.Context(), "process.host", hostID, secAttrs) {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn on host: %s", hostID)))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to spawn on host: %s", hostID)))
 	}
 
 	payloads := createPayloadsFromArgs(l)
 
 	options := attrs.NewBag()
-	options.Set(process.LifecycleParentKey, self)
+	options.Set(process.ProcessParentKey, self)
 
 	yield := AcquireSpawnYield()
 	yield.Start = &process.Start{
@@ -299,9 +301,7 @@ func spawnMonitored(l *lua.LState) int {
 	}
 
 	if l.GetTop() < 2 {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("spawn_monitored requires at least id and host arguments"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "spawn_monitored requires at least id and host arguments"))
 	}
 
 	id := l.CheckString(1)
@@ -309,21 +309,18 @@ func spawnMonitored(l *lua.LState) int {
 	secAttrs := map[string]any{"pid": self.String()}
 
 	if !security.IsAllowed(l.Context(), "process.spawn", id, secAttrs) {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn process: %s", id)))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to spawn process: %s", id)))
 	}
 
 	if !security.IsAllowed(l.Context(), "process.spawn.monitored", id, secAttrs) {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn monitored process: %s", id)))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to spawn monitored process: %s", id)))
 	}
 
 	payloads := createPayloadsFromArgs(l)
 
 	options := attrs.NewBag()
-	options.Set(process.LifecycleParentKey, self)
+	options.Set(process.ProcessParentKey, self)
+	options.Set(process.ProcessMonitorKey, true)
 
 	yield := AcquireSpawnYield()
 	yield.Start = &process.Start{
@@ -333,7 +330,6 @@ func spawnMonitored(l *lua.LState) int {
 		Context: ctxapi.PropagatedPairs(l.Context()),
 		Options: options,
 	}
-	yield.Monitor = true
 
 	l.Push(yield)
 	return -1
@@ -346,9 +342,7 @@ func spawnLinked(l *lua.LState) int {
 	}
 
 	if l.GetTop() < 2 {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("spawn_linked requires at least id and host arguments"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "spawn_linked requires at least id and host arguments"))
 	}
 
 	id := l.CheckString(1)
@@ -356,21 +350,18 @@ func spawnLinked(l *lua.LState) int {
 	secAttrs := map[string]any{"pid": self.String()}
 
 	if !security.IsAllowed(l.Context(), "process.spawn", id, secAttrs) {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn process: %s", id)))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to spawn process: %s", id)))
 	}
 
 	if !security.IsAllowed(l.Context(), "process.spawn.linked", id, secAttrs) {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn linked process: %s", id)))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to spawn linked process: %s", id)))
 	}
 
 	payloads := createPayloadsFromArgs(l)
 
 	options := attrs.NewBag()
-	options.Set(process.LifecycleParentKey, self)
+	options.Set(process.ProcessParentKey, self)
+	options.Set(process.ProcessLinkKey, true)
 
 	yield := AcquireSpawnYield()
 	yield.Start = &process.Start{
@@ -380,7 +371,6 @@ func spawnLinked(l *lua.LState) int {
 		Context: ctxapi.PropagatedPairs(l.Context()),
 		Options: options,
 	}
-	yield.Link = true
 
 	l.Push(yield)
 	return -1
@@ -393,9 +383,7 @@ func spawnLinkedMonitored(l *lua.LState) int {
 	}
 
 	if l.GetTop() < 2 {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("spawn_linked_monitored requires at least id and host arguments"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "spawn_linked_monitored requires at least id and host arguments"))
 	}
 
 	id := l.CheckString(1)
@@ -403,27 +391,23 @@ func spawnLinkedMonitored(l *lua.LState) int {
 	secAttrs := map[string]any{"pid": self.String()}
 
 	if !security.IsAllowed(l.Context(), "process.spawn", id, secAttrs) {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn process: %s", id)))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to spawn process: %s", id)))
 	}
 
 	if !security.IsAllowed(l.Context(), "process.spawn.monitored", id, secAttrs) {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn monitored process: %s", id)))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to spawn monitored process: %s", id)))
 	}
 
 	if !security.IsAllowed(l.Context(), "process.spawn.linked", id, secAttrs) {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to spawn linked process: %s", id)))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to spawn linked process: %s", id)))
 	}
 
 	payloads := createPayloadsFromArgs(l)
 
 	options := attrs.NewBag()
-	options.Set(process.LifecycleParentKey, self)
+	options.Set(process.ProcessParentKey, self)
+	options.Set(process.ProcessMonitorKey, true)
+	options.Set(process.ProcessLinkKey, true)
 
 	yield := AcquireSpawnYield()
 	yield.Start = &process.Start{
@@ -433,8 +417,6 @@ func spawnLinkedMonitored(l *lua.LState) int {
 		Context: ctxapi.PropagatedPairs(l.Context()),
 		Options: options,
 	}
-	yield.Monitor = true
-	yield.Link = true
 
 	l.Push(yield)
 	return -1
@@ -450,9 +432,7 @@ func terminate(l *lua.LState) int {
 
 	target, err := resolvePID(l, pidOrName, "process.terminate", self)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
 
 	yield := AcquireTerminateYield()
@@ -469,18 +449,14 @@ func cancel(l *lua.LState) int {
 	}
 
 	if l.GetTop() < 1 {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("cancel requires at least destination argument"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "cancel requires at least destination argument"))
 	}
 
 	pidOrName := l.CheckString(1)
 
 	target, err := resolvePID(l, pidOrName, "process.cancel", self)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
 
 	var deadline time.Time
@@ -490,18 +466,14 @@ func cancel(l *lua.LState) int {
 			durationStr := l.CheckString(2)
 			duration, err := time.ParseDuration(durationStr)
 			if err != nil {
-				l.Push(lua.LNil)
-				l.Push(lua.LString(fmt.Sprintf("invalid duration format: %v", err)))
-				return 2
+				return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, fmt.Sprintf("invalid duration format: %v", err)))
 			}
 			deadline = time.Now().Add(duration)
 		case lua.LTNumber, lua.LTInteger:
 			ms := l.CheckNumber(2)
 			deadline = time.Now().Add(time.Duration(ms) * time.Millisecond)
 		case lua.LTNil, lua.LTBool, lua.LTTable, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
-			l.Push(lua.LNil)
-			l.Push(lua.LString("deadline must be either a duration string or milliseconds number"))
-			return 2
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "deadline must be either a duration string or milliseconds number"))
 		}
 	}
 
@@ -530,16 +502,12 @@ func getOptions(l *lua.LState) int {
 
 func setOptions(l *lua.LState) int {
 	if l.GetTop() < 1 || l.Get(1).Type() != lua.LTTable {
-		l.Push(lua.LBool(false))
-		l.Push(lua.LString("options parameter must be a table"))
-		return 2
+		return pushProcessError(l, lua.LBool(false), newProcessError(l, lua.Invalid, "options parameter must be a table"))
 	}
 
 	proc := engine.GetProcess(l)
 	if proc == nil {
-		l.Push(lua.LBool(false))
-		l.Push(lua.LString("no process context"))
-		return 2
+		return pushProcessError(l, lua.LBool(false), newProcessError(l, lua.Internal, "no process context"))
 	}
 
 	options := l.CheckTable(1)
@@ -567,7 +535,7 @@ func setOptions(l *lua.LState) int {
 
 	if unsupportedOption != "" {
 		l.Push(lua.LBool(false))
-		l.Push(lua.LString(unsupportedOption))
+		l.Push(newProcessError(l, lua.Invalid, unsupportedOption))
 	} else {
 		l.Push(lua.LBool(true))
 		l.Push(lua.LNil)
@@ -583,18 +551,14 @@ func monitor(l *lua.LState) int {
 	}
 
 	if l.GetTop() < 1 {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("monitor requires a destination argument"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "monitor requires a destination argument"))
 	}
 
 	pidOrName := l.CheckString(1)
 
 	target, err := resolvePID(l, pidOrName, "process.monitor", self)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
 
 	yield := AcquireMonitorYield()
@@ -612,18 +576,14 @@ func unmonitor(l *lua.LState) int {
 	}
 
 	if l.GetTop() < 1 {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("unmonitor requires a destination argument"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "unmonitor requires a destination argument"))
 	}
 
 	pidOrName := l.CheckString(1)
 
 	target, err := resolvePID(l, pidOrName, "process.unmonitor", self)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
 
 	yield := AcquireUnmonitorYield()
@@ -641,18 +601,14 @@ func link(l *lua.LState) int {
 	}
 
 	if l.GetTop() < 1 {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("link requires a destination argument"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "link requires a destination argument"))
 	}
 
 	pidOrName := l.CheckString(1)
 
 	target, err := resolvePID(l, pidOrName, "process.link", self)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
 
 	yield := AcquireLinkYield()
@@ -670,18 +626,14 @@ func unlink(l *lua.LState) int {
 	}
 
 	if l.GetTop() < 1 {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("unlink requires a destination argument"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "unlink requires a destination argument"))
 	}
 
 	pidOrName := l.CheckString(1)
 
 	target, err := resolvePID(l, pidOrName, "process.unlink", self)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
 
 	yield := AcquireUnlinkYield()
@@ -707,9 +659,7 @@ func registryRegister(l *lua.LState) int {
 	secAttrs := map[string]any{"pid": self.String()}
 
 	if !security.IsAllowed(l.Context(), "process.registry.register", name, secAttrs) {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to register name: %s", name)))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to register name: %s", name)))
 	}
 
 	var p pidapi.PID
@@ -718,9 +668,7 @@ func registryRegister(l *lua.LState) int {
 		var err error
 		p, err = pidapi.ParsePID(pidStr)
 		if err != nil {
-			l.Push(lua.LNil)
-			l.Push(lua.LString(err.Error()))
-			return 2
+			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Invalid))
 		}
 	} else {
 		p = self
@@ -728,9 +676,7 @@ func registryRegister(l *lua.LState) int {
 
 	_, err := reg.Register(name, p)
 	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(err.Error()))
-		return 2
+		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
 
 	l.Push(lua.LTrue)
@@ -747,9 +693,7 @@ func registryLookup(l *lua.LState) int {
 
 	p, found := reg.Lookup(name)
 	if !found {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("name not registered"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.NotFound, "name not registered"))
 	}
 
 	l.Push(lua.LString(p.String()))
@@ -771,9 +715,7 @@ func registryUnregister(l *lua.LState) int {
 	secAttrs := map[string]any{"pid": self.String()}
 
 	if !security.IsAllowed(l.Context(), "process.registry.unregister", name, secAttrs) {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to unregister name: %s", name)))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to unregister name: %s", name)))
 	}
 
 	unregistered := reg.Unregister(name)
@@ -804,15 +746,11 @@ func events(l *lua.LState) int {
 func listen(l *lua.LState) int {
 	topic := l.CheckString(1)
 	if topic == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("topic cannot be empty"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "topic cannot be empty"))
 	}
 
 	if strings.HasPrefix(topic, "@") {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("cannot listen to @ topics"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "cannot listen to @ topics"))
 	}
 
 	// Check for options table (second argument)
@@ -878,44 +816,32 @@ func exec(l *lua.LState) int {
 	}
 
 	if l.GetTop() < 2 {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("exec requires id and host arguments"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "exec requires id and host arguments"))
 	}
 
 	id := l.CheckString(1)
 	if id == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("process ID required"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "process ID required"))
 	}
 
 	regID := registry.ParseID(id)
 	if regID.NS == "" || regID.Name == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("invalid process ID format (namespace:name required)"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "invalid process ID format (namespace:name required)"))
 	}
 
 	hostID := l.CheckString(2)
 	if hostID == "" {
-		l.Push(lua.LNil)
-		l.Push(lua.LString("host ID required"))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "host ID required"))
 	}
 
 	secAttrs := map[string]any{"pid": self.String()}
 
 	if !security.IsAllowed(l.Context(), "process.exec", id, secAttrs) {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to exec process: %s", id)))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to exec process: %s", id)))
 	}
 
 	if !security.IsAllowed(l.Context(), "process.host", hostID, secAttrs) {
-		l.Push(lua.LNil)
-		l.Push(lua.LString(fmt.Sprintf("not allowed to exec on host: %s", hostID)))
-		return 2
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to exec on host: %s", hostID)))
 	}
 
 	// Collect payload arguments (starting from arg 3)

@@ -190,7 +190,7 @@ func (s *Registry) Acquire(ctx context.Context, id registry.ID, mode resource.Ac
 // List returns all registered resource IDs
 func (s *Registry) List() ([]registry.ID, error) {
 	var resources []registry.ID
-	s.resources.Range(func(key, _ interface{}) bool {
+	s.resources.Range(func(key, _ any) bool {
 		if id, ok := key.(registry.ID); ok {
 			resources = append(resources, id)
 		}

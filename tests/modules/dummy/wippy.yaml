@@ -1,0 +1,11 @@
+organization: wippy
+module: dummy
+version: 0.1.2
+description: Dummy module for integration testing of requirements
+license: Apache-2.0
+repository: https://github.com/wippyai/wippy
+homepage: https://wippy.ai
+keywords:
+  - test
+  - dummy
+  - integration

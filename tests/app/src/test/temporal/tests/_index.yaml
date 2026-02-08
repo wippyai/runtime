@@ -1,0 +1,531 @@
+version: "1.0"
+namespace: app.test.temporal.tests
+
+entries:
+  - name: exec_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: process.exec end-to-end workflow run
+    source: file://exec_workflow.lua
+    method: main
+    modules:
+      - process
+    imports:
+      assert2: app.lib:assert
+
+  - name: spawn_monitored
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: spawn_monitored receives EXIT from workflow
+    source: file://spawn_monitored.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: spawn_monitor_manual
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: spawn + monitor receives EXIT from workflow
+    source: file://spawn_monitor_manual.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: signal_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: signal workflow receives messages and exits
+    source: file://signal_workflow.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: link_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: link to workflow receives EXIT
+    source: file://link_workflow.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: monitor_post_start_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: monitor attached after workflow start still receives EXIT
+    source: file://monitor_post_start_workflow.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: link_post_start_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: link attached after workflow start still receives EXIT
+    source: file://link_post_start_workflow.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: unmonitor_post_start_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: unmonitor after monitor detaches EXIT observer
+    source: file://unmonitor_post_start_workflow.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: unlink_post_start_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: unlink after link detaches LINK_DOWN observer
+    source: file://unlink_post_start_workflow.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: terminate_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: terminate workflow produces EXIT with error
+    source: file://terminate_workflow.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: activity_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: workflow calls activity and returns result
+    source: file://activity_workflow.lua
+    method: main
+    modules:
+      - process
+    imports:
+      assert2: app.lib:assert
+
+  - name: activity_error_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: activity error metadata propagation
+    source: file://activity_error_workflow.lua
+    method: main
+    modules:
+      - process
+    imports:
+      assert2: app.lib:assert
+
+  - name: exec_error_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: exec error propagation from workflow
+    source: file://exec_error_workflow.lua
+    method: main
+    modules:
+      - process
+    imports:
+      assert2: app.lib:assert
+
+  - name: spawn_child_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: workflow spawns child and captures EXIT
+    source: file://spawn_child_workflow.lua
+    method: main
+    modules:
+      - process
+    imports:
+      assert2: app.lib:assert
+
+  - name: spawn_error_child_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: workflow captures child error metadata
+    source: file://spawn_error_child_workflow.lua
+    method: main
+    modules:
+      - process
+    imports:
+      assert2: app.lib:assert
+
+  - name: ctx_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: context propagation into workflow
+    source: file://ctx_workflow.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: ctx_activity_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: context propagation into activity
+    source: file://ctx_activity_workflow.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: inbox_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: workflow inbox receives direct message
+    source: file://inbox_workflow.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: signal_updates_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: workflow handles signal messages and replies
+    source: file://signal_updates_workflow.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: cross_host_send
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: workflow sends to host process and receives reply back
+    source: file://cross_host_send.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: workflow_to_workflow_signal
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: workflow sends external signal to another workflow process
+    source: file://workflow_to_workflow_signal.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: workflow_to_workflow_signal_missing_target
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: workflow->workflow signal missing target returns not found error
+    source: file://workflow_to_workflow_signal_missing_target.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: workflow_link_unsupported
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: workflow process.link is rejected in workflow context
+    source: file://workflow_link_unsupported.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: startup_messages_use_existing
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: named startup messages use existing workflow and deliver once
+    source: file://startup_messages_use_existing.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: startup_messages_conflict_fail
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: named startup messages respect conflict fail policy
+    source: file://startup_messages_conflict_fail.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: concurrent_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: concurrent workflow processes jobs
+    source: file://concurrent_workflow.lua
+    method: main
+    modules:
+      - process
+    imports:
+      assert2: app.lib:assert
+
+  - name: timed_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: timed workflow sleep progression
+    source: file://timed_workflow.lua
+    method: main
+    modules:
+      - process
+    imports:
+      assert2: app.lib:assert
+
+  - name: crypto_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: crypto side effects workflow
+    source: file://crypto_workflow.lua
+    method: main
+    modules:
+      - process
+    imports:
+      assert2: app.lib:assert
+
+  - name: uuid_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: uuid side effects workflow
+    source: file://uuid_workflow.lua
+    method: main
+    modules:
+      - process
+    imports:
+      assert2: app.lib:assert
+
+  - name: workflow_module
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: workflow module functions
+    source: file://workflow_module.lua
+    method: main
+    modules:
+      - process
+    imports:
+      assert2: app.lib:assert
+
+  - name: side_effect_child_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: child workflows with side effects
+    source: file://side_effect_child_workflow.lua
+    method: main
+    modules:
+      - process
+    imports:
+      assert2: app.lib:assert
+
+  - name: startup_messages_batch_signals
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: startup signal batch is applied before finish
+    source: file://startup_messages_batch_signals.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: startup_messages_explicit_id_use_existing
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: explicit workflow id reuses running workflow and applies startup signal
+    source: file://startup_messages_explicit_id_use_existing.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: startup_messages_explicit_id_conflict_fail
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: explicit workflow id conflict fail rejects second startup signal
+    source: file://startup_messages_explicit_id_conflict_fail.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: startup_messages_explicit_id_error_on_started
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: explicit workflow id with error_when_already_started rejects second start
+    source: file://startup_messages_explicit_id_error_on_started.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: activity_runtime_error_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: runtime activity crash propagates as internal workflow error metadata
+    source: file://activity_runtime_error_workflow.lua
+    method: main
+    modules:
+      - process
+    imports:
+      assert2: app.lib:assert
+      runtime_activity: app.test.temporal.activities:runtime_error_activity
+
+  - name: activity_missing_activity_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: missing activity surfaces structured error metadata
+    source: file://activity_missing_activity_workflow.lua
+    method: main
+    modules:
+      - process
+    imports:
+      assert2: app.lib:assert

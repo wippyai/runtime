@@ -10,9 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/attrs"
 	regapi "github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/boot/deps/lock"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
-	"github.com/wippyai/runtime/cmd/internal/entries"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
 	transcoder "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/registry/finder"
@@ -232,9 +230,9 @@ func loadRegistryEntries(cmd *cobra.Command, lockFile string) ([]regapi.Entry, e
 	}
 	defer func() { _ = logger.Sync() }()
 
-	lockPath, err := lock.Find(".", lockFile)
+	lockPath, lockObj, err := loadValidatedLock(".", lockFile)
 	if err != nil {
-		return nil, NewLockFileNotFoundError(err)
+		return nil, err
 	}
 
 	app, err := appinit.Init(cmd.Context(), false, false, false, true, appStartTime)
@@ -242,22 +240,9 @@ func loadRegistryEntries(cmd *cobra.Command, lockFile string) ([]regapi.Entry, e
 		return nil, NewInitAppError(err)
 	}
 
-	if err := entries.EnsureModulesInstalled(app.Ctx, lockPath, logger); err != nil {
-		return nil, NewEnsureModulesInstalledError(err)
-	}
-
-	lockObj, err := lock.New(lockPath)
+	allEntries, err := ensureModulesAndLoadEntries(app.Ctx, lockPath, lockObj, logger, false)
 	if err != nil {
-		return nil, NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
-	}
-
-	if err := lock.Validate(lockObj); err != nil {
-		return nil, NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
-	}
-
-	allEntries, err := loadEntriesFromLockPaths(app.Ctx, lockObj, app.Logger)
-	if err != nil {
-		return nil, NewLoadEntriesError(fmt.Sprintf("lock paths (%s)", lockPath), err)
+		return nil, err
 	}
 
 	return allEntries, nil
@@ -422,7 +407,7 @@ func outputEntryJSON(entry *regapi.Entry) error {
 	// Convert data to map for JSON output
 	dataMap := extractDataMap(entry)
 
-	output := map[string]interface{}{
+	output := map[string]any{
 		"id":   entry.ID.String(),
 		"kind": entry.Kind,
 		"meta": entry.Meta,
@@ -440,7 +425,7 @@ func outputEntryJSON(entry *regapi.Entry) error {
 func outputEntryYAML(entry *regapi.Entry) error {
 	dataMap := extractDataMap(entry)
 
-	output := map[string]interface{}{
+	output := map[string]any{
 		"id":   entry.ID.String(),
 		"kind": entry.Kind,
 		"meta": entry.Meta,
@@ -555,12 +540,12 @@ func showEntryField(entry *regapi.Entry, fieldName string, jsonOutput, yamlOutpu
 	return nil
 }
 
-func extractDataMap(entry *regapi.Entry) map[string]interface{} {
+func extractDataMap(entry *regapi.Entry) map[string]any {
 	if entry.Data == nil {
 		return nil
 	}
 
-	var dataMap map[string]interface{}
+	var dataMap map[string]any
 	if err := transcoder.GlobalTranscoder().Unmarshal(entry.Data, &dataMap); err != nil {
 		return nil
 	}

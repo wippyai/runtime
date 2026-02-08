@@ -4,13 +4,18 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/registry"
+	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	workflowapi "github.com/wippyai/runtime/api/runtime/workflow"
 	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
+	temporaloptions "github.com/wippyai/runtime/service/temporal/options"
 	commonpb "go.temporal.io/api/common/v1"
 	bindings "go.temporal.io/sdk/internalbindings"
 	"go.temporal.io/sdk/workflow"
+	"go.uber.org/zap"
 )
 
 // Default timeouts for activity execution
@@ -30,6 +35,12 @@ func (d *Definition) executeFunctionCall(cmd *function.CallCmd, tag uint64) erro
 	opts := bindings.ExecuteActivityOptions{
 		TaskQueueName:       d.env.WorkflowInfo().TaskQueueName,
 		StartToCloseTimeout: defaultActivityTimeout,
+	}
+	if err := applyTemporalActivityOptions(&opts, d.mergedFunctionTaskOptions(cmd.Task)); err != nil {
+		d.resumeProcess(tag, function.CallResult{
+			Error: fmt.Errorf("invalid temporal activity options for %s: %w", activityName, err),
+		}, nil)
+		return nil
 	}
 
 	d.env.ExecuteActivity(bindings.ExecuteActivityParams{
@@ -83,23 +94,16 @@ func (d *Definition) executeSideEffect(cmd *workflowapi.SideEffectCmd, tag uint6
 			d.resumeProcess(tag, workflowapi.Result{Error: temporalerrors.FromTemporalError(err)}, nil)
 			return
 		}
-		var p payload.Payload
-		if err := d.dc.FromPayloads(result, &p); err == nil {
-			if p.Format() == payload.Bytes {
-				if data, ok := p.Data().([]byte); ok {
-					d.resumeProcess(tag, workflowapi.Result{Value: string(data)}, nil)
-					return
-				}
-			}
-			d.resumeProcess(tag, workflowapi.Result{Value: p.Data()}, nil)
-			return
-		}
-		var value any
-		if err := d.dc.FromPayloads(result, &value); err != nil {
+		var values payload.Payloads
+		if err := d.dc.FromPayloads(result, &values); err != nil {
 			d.resumeProcess(tag, workflowapi.Result{Error: temporalerrors.FromTemporalError(err)}, nil)
 			return
 		}
-		d.resumeProcess(tag, workflowapi.Result{Value: value}, nil)
+		if len(values) > 0 {
+			d.resumeProcess(tag, workflowapi.Result{Value: values[0]}, nil)
+			return
+		}
+		d.resumeProcess(tag, workflowapi.Result{}, nil)
 	})
 	return nil
 }
@@ -143,29 +147,27 @@ func (d *Definition) executeWorkflowExec(cmd *workflowapi.ExecCmd, tag uint64) e
 	}
 
 	if cmd.Options != nil {
+		overrides := attrs.NewBag()
 		if cmd.Options.WorkflowID != "" {
-			params.WorkflowID = cmd.Options.WorkflowID
+			overrides.Set(optionWorkflowID, cmd.Options.WorkflowID)
 		}
 		if cmd.Options.TaskQueue != "" {
-			params.TaskQueueName = cmd.Options.TaskQueue
+			overrides.Set(optionWorkflowTaskQueue, cmd.Options.TaskQueue)
 		}
 		if cmd.Options.ExecutionTimeout != "" {
-			dur, err := time.ParseDuration(cmd.Options.ExecutionTimeout)
-			if err == nil {
-				params.WorkflowExecutionTimeout = dur
-			}
+			overrides.Set(optionWorkflowExecutionTimeout, cmd.Options.ExecutionTimeout)
 		}
 		if cmd.Options.RunTimeout != "" {
-			dur, err := time.ParseDuration(cmd.Options.RunTimeout)
-			if err == nil {
-				params.WorkflowRunTimeout = dur
-			}
+			overrides.Set(optionWorkflowRunTimeout, cmd.Options.RunTimeout)
 		}
 		if cmd.Options.TaskTimeout != "" {
-			dur, err := time.ParseDuration(cmd.Options.TaskTimeout)
-			if err == nil {
-				params.WorkflowTaskTimeout = dur
-			}
+			overrides.Set(optionWorkflowTaskTimeout, cmd.Options.TaskTimeout)
+		}
+		if err := applyTemporalChildWorkflowOptions(&params, overrides); err != nil {
+			d.resumeProcess(tag, workflowapi.ExecResult{
+				Error: fmt.Errorf("invalid temporal child workflow options for %s: %w", workflowName, err),
+			}, nil)
+			return nil
 		}
 	}
 
@@ -180,6 +182,11 @@ func (d *Definition) executeWorkflowExec(cmd *workflowapi.ExecCmd, tag uint64) e
 			return
 		}
 		if len(values) > 0 {
+			if values[0] != nil {
+				d.replayLog.Debug("decoded workflow.exec result",
+					zap.String("workflow", workflowName),
+					zap.String("format", values[0].Format()))
+			}
 			d.resumeProcess(tag, workflowapi.ExecResult{Value: values[0]}, nil)
 		} else {
 			d.resumeProcess(tag, workflowapi.ExecResult{}, nil)
@@ -199,14 +206,19 @@ func (d *Definition) executeVersion(cmd *workflowapi.VersionCmd, tag uint64) err
 // executeUpsertAttrs updates workflow search attributes and/or memo.
 func (d *Definition) executeUpsertAttrs(cmd *workflowapi.UpsertAttrsCmd, tag uint64) error {
 	if len(cmd.SearchAttrs) > 0 {
-		if err := d.env.UpsertSearchAttributes(cmd.SearchAttrs); err != nil {
+		searchAttributes, err := temporaloptions.MapToSearchAttributes(map[string]any(cmd.SearchAttrs))
+		if err != nil {
+			d.resumeProcess(tag, nil, temporalerrors.FromTemporalError(err))
+			return nil
+		}
+		if err := d.env.UpsertTypedSearchAttributes(searchAttributes); err != nil {
 			d.resumeProcess(tag, nil, temporalerrors.FromTemporalError(err))
 			return nil
 		}
 	}
 
 	if len(cmd.Memo) > 0 {
-		if err := d.env.UpsertMemo(cmd.Memo); err != nil {
+		if err := d.env.UpsertMemo(map[string]any(cmd.Memo)); err != nil {
 			d.resumeProcess(tag, nil, temporalerrors.FromTemporalError(err))
 			return nil
 		}
@@ -214,4 +226,34 @@ func (d *Definition) executeUpsertAttrs(cmd *workflowapi.UpsertAttrsCmd, tag uin
 
 	d.resumeProcess(tag, true, nil)
 	return nil
+}
+
+type functionOptionsProvider interface {
+	GetOptions(id registry.ID) (runtimeapi.Bag, bool)
+}
+
+func (d *Definition) mergedFunctionTaskOptions(task runtimeapi.Task) attrs.Bag {
+	var merged attrs.Bag
+
+	if reg := function.GetRegistry(d.ctx); reg != nil {
+		if provider, ok := reg.(functionOptionsProvider); ok {
+			if defaults, ok := provider.GetOptions(task.ID); ok && defaults != nil {
+				if cloned, ok := defaults.Clone().(attrs.Bag); ok {
+					merged = cloned
+				}
+			}
+		}
+	}
+
+	if overrides, ok := task.Options.(attrs.Bag); ok && overrides != nil {
+		if merged == nil {
+			if cloned, ok := overrides.Clone().(attrs.Bag); ok {
+				return cloned
+			}
+			return overrides
+		}
+		return merged.Merge(overrides)
+	}
+
+	return merged
 }

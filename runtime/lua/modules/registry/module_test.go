@@ -323,8 +323,8 @@ func TestMapsEqual(t *testing.T) {
 
 func TestValuesEqual(t *testing.T) {
 	tests := []struct {
-		a        interface{}
-		b        interface{}
+		a        any
+		b        any
 		name     string
 		expected bool
 	}{
@@ -390,7 +390,7 @@ func TestValuesEqual(t *testing.T) {
 
 func TestIsNumeric(t *testing.T) {
 	tests := []struct {
-		value    interface{}
+		value    any
 		name     string
 		expected bool
 	}{
@@ -414,7 +414,7 @@ func TestIsNumeric(t *testing.T) {
 
 func TestToFloat64(t *testing.T) {
 	tests := []struct {
-		value    interface{}
+		value    any
 		name     string
 		expected float64
 	}{

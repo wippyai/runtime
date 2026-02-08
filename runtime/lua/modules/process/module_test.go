@@ -5,7 +5,10 @@ import (
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/process"
 )
 
 func bindProcess(l *lua.LState) {
@@ -50,7 +53,7 @@ func TestLoader(t *testing.T) {
 		"spawn_linked", "spawn_linked_monitored", "terminate",
 		"cancel", "get_options", "set_options", "monitor",
 		"unmonitor", "link", "unlink", "inbox", "events",
-		"listen", "unlisten", "with_context", "upgrade",
+		"listen", "unlisten", "with_context", "with_options", "upgrade",
 	}
 
 	for _, fn := range functions {
@@ -158,7 +161,8 @@ func TestSetOptions_NoProcessContext(t *testing.T) {
 	err := l.DoString(`
 		local ok, err = process.set_options({})
 		if ok then error("set_options without process context should fail") end
-		if err ~= "no process context" then error("expected 'no process context' error, got: " .. tostring(err)) end
+		if err:kind() ~= "Internal" then error("expected Internal error kind, got: " .. tostring(err:kind())) end
+		if tostring(err) ~= "no process context" then error("expected 'no process context' error, got: " .. tostring(err)) end
 	`)
 	if err != nil {
 		t.Errorf("test failed: %v", err)
@@ -229,5 +233,106 @@ func TestSpawnerContextValues(t *testing.T) {
 
 	if v, ok := spawner.values.Get("spawn_key"); !ok || v != "spawn_value" {
 		t.Error("spawner values incorrect")
+	}
+}
+
+func TestProcessWithOptions_ReturnsSpawner(t *testing.T) {
+	l, _ := newLuaWithPID(t)
+
+	err := l.DoString(`
+		local spawner = process.with_options({ custom_option = "enabled" })
+		if type(spawner) ~= "userdata" then
+			error("process.with_options must return spawner userdata")
+		end
+	`)
+	if err != nil {
+		t.Fatalf("test failed: %v", err)
+	}
+}
+
+func TestSpawnerWithOptions_PropagatesToStartOptions(t *testing.T) {
+	l, self := newLuaWithPID(t)
+
+	base := &Spawner{
+		options: attrs.NewBag(),
+		hasOpts: true,
+	}
+	base.options.Set("custom.policy", "keep")
+
+	ud := l.NewUserData()
+	ud.Value = base
+	l.Push(ud)
+
+	optionsTable := l.CreateTable(0, 2)
+	optionsTable.RawSetString("custom.strict_start", lua.LTrue)
+	optionsTable.RawSetString("custom.mode", lua.LString("fast"))
+	l.Push(optionsTable)
+
+	if got := spawnerWithOptions(l); got != 1 {
+		t.Fatalf("expected 1 return value, got %d", got)
+	}
+
+	spawnerUD, ok := l.Get(-1).(*lua.LUserData)
+	if !ok {
+		t.Fatalf("expected userdata return, got %T", l.Get(-1))
+	}
+	spawner, ok := spawnerUD.Value.(*Spawner)
+	if !ok {
+		t.Fatalf("expected *Spawner value, got %T", spawnerUD.Value)
+	}
+
+	l.SetTop(0)
+	spawnUD := l.NewUserData()
+	spawnUD.Value = spawner
+	l.Push(spawnUD)
+	l.Push(lua.LString("app.test:worker"))
+	l.Push(lua.LString("test-host"))
+
+	if got := doSpawnerSpawn(l, true, false); got != -1 {
+		t.Fatalf("expected -1 yield result, got %d", got)
+	}
+
+	var yield *SpawnYield
+	switch v := l.Get(-1).(type) {
+	case *SpawnYield:
+		yield = v
+	case *lua.LUserData:
+		casted, ok := v.Value.(*SpawnYield)
+		if !ok {
+			t.Fatalf("expected *SpawnYield value, got %T", v.Value)
+		}
+		yield = casted
+	default:
+		t.Fatalf("expected spawn yield, got %T", l.Get(-1))
+	}
+
+	opts, ok := yield.Start.Options.(attrs.Bag)
+	if !ok {
+		t.Fatalf("expected attrs.Bag options, got %T", yield.Start.Options)
+	}
+
+	if got := opts.GetString("custom.policy", ""); got != "keep" {
+		t.Fatalf("expected merged custom.policy=keep, got %q", got)
+	}
+	if got := opts.GetString("custom.mode", ""); got != "fast" {
+		t.Fatalf("expected merged custom.mode=fast, got %q", got)
+	}
+	if !opts.GetBool("custom.strict_start", false) {
+		t.Fatal("expected custom.strict_start option to be true")
+	}
+
+	parent, ok := opts.Get(process.ProcessParentKey)
+	if !ok {
+		t.Fatal("expected process.parent in options")
+	}
+	parentPID, ok := parent.(pid.PID)
+	if !ok {
+		t.Fatalf("expected process.parent pid type, got %T", parent)
+	}
+	if parentPID != self {
+		t.Fatalf("expected process.parent %s, got %s", self.String(), parentPID.String())
+	}
+	if !opts.GetBool(process.ProcessMonitorKey, false) {
+		t.Fatal("expected process.monitor=true for monitored spawn")
 	}
 }

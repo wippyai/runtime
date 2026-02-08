@@ -120,10 +120,7 @@ func changesDelete(l *lua.LState) int {
 	case *lua.LTable:
 		ns := v.RawGetString("ns")
 		name := v.RawGetString("name")
-		id = regapi.ID{
-			NS:   ns.String(),
-			Name: name.String(),
-		}
+		id = regapi.NewID(ns.String(), name.String())
 	default:
 		err := lua.NewLuaError(l, "invalid ID format").
 			WithKind(lua.Invalid).

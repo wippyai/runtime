@@ -76,10 +76,10 @@ func (r *Resolver) Extract(entry registry.Entry) []string {
 // fetchDeps extracts dependencies using the registered patterns.
 // This function combines meta and data, then processes all patterns.
 func (r *Resolver) fetchDeps(entry registry.Entry) []string {
-	combined := make(map[string]interface{})
+	combined := make(map[string]any)
 
 	if len(entry.Meta) > 0 {
-		combined["meta"] = map[string]interface{}(entry.Meta)
+		combined["meta"] = map[string]any(entry.Meta)
 	}
 
 	if entry.Data != nil {
@@ -115,7 +115,7 @@ func (r *Resolver) fetchDeps(entry registry.Entry) []string {
 }
 
 // resolverExtractFromPath extracts string values from a specific path in the data using cached segments.
-func resolverExtractFromPath(data map[string]interface{}, pathCfg PathConfig) []string {
+func resolverExtractFromPath(data map[string]any, pathCfg PathConfig) []string {
 	if len(pathCfg.segments) == 0 {
 		return nil
 	}

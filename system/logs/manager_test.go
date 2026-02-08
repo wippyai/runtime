@@ -304,7 +304,7 @@ func TestManager_ConfigValidation(t *testing.T) {
 	require.NoError(t, manager.Start(ctx))
 
 	tests := []struct {
-		config    interface{}
+		config    any
 		name      string
 		expectErr bool
 	}{

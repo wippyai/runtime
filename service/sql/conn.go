@@ -68,7 +68,7 @@ func (p *ConnPool) Stop(ctx context.Context) error {
 }
 
 // UpdateConfig updates the pool configuration
-func (p *ConnPool) UpdateConfig(cfg interface{}) error {
+func (p *ConnPool) UpdateConfig(cfg any) error {
 	if p.closed.Load() {
 		return ErrPoolClosed
 	}

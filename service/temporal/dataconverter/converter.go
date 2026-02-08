@@ -1,3 +1,5 @@
+// Package dataconverter implements a Temporal DataConverter that bridges
+// between wippy payload formats and Temporal's protobuf serialization.
 package dataconverter
 
 import (
@@ -12,17 +14,15 @@ var _ converter.DataConverter = (*DataConverter)(nil)
 
 // DataConverter implements converter.DataConverter interface for internal payloads.
 type DataConverter struct {
-	dtt      payload.Transcoder
-	fallback converter.DataConverter
+	dtt        payload.Transcoder
+	wireFormat payload.Format
 }
 
 // NewDataConverter creates a new data converter that handles internal payloads.
-func NewDataConverter(
-	dtt payload.Transcoder,
-	fallback converter.DataConverter) converter.DataConverter {
+func NewDataConverter(dtt payload.Transcoder) converter.DataConverter {
 	return &DataConverter{
-		dtt:      dtt,
-		fallback: fallback,
+		dtt:        dtt,
+		wireFormat: payload.JSON,
 	}
 }
 
@@ -117,13 +117,76 @@ func (c *DataConverter) FromPayloads(payloads *commonpb.Payloads, valuePtrs ...a
 
 // ToPayload converts a single value to Temporal payload.
 func (c *DataConverter) ToPayload(value any) (*commonpb.Payload, error) {
-	// check if our value instance of payload.Messages
-	pValue, ok := value.(payload.Payload)
-	if !ok {
-		return c.fallback.ToPayload(value)
+	if raw, ok := value.(converter.RawValue); ok {
+		return raw.Payload(), nil
 	}
 
-	// we can handle nil, json and bytes directly without transcoding
+	pValue, ok := value.(payload.Payload)
+	if !ok {
+		pValue = payload.New(value)
+	}
+
+	return c.toTemporalPayload(pValue)
+}
+
+// FromPayload converts a Temporal payload to a value.
+func (c *DataConverter) FromPayload(p *commonpb.Payload, valuePtr any) error {
+	if p == nil {
+		return nil
+	}
+
+	if raw, ok := valuePtr.(*converter.RawValue); ok {
+		*raw = converter.NewRawValue(p)
+		return nil
+	}
+
+	if ptr, ok := valuePtr.(*payload.Payload); ok {
+		converted, err := c.fromTemporalPayload(p)
+		if err != nil {
+			return err
+		}
+		*ptr = converted
+		return nil
+	}
+
+	converted, err := c.fromTemporalPayload(p)
+	if err != nil {
+		return err
+	}
+
+	return c.dtt.Unmarshal(converted, valuePtr)
+}
+
+// ToString converts payload to string.
+func (c *DataConverter) ToString(p *commonpb.Payload) string {
+	if p == nil {
+		return ""
+	}
+	enc, err := encoding(p)
+	if err != nil {
+		return err.Error()
+	}
+	return fmt.Sprintf("%s (%d bytes)", enc, len(p.Data))
+}
+
+// ToStrings converts payloads to strings.
+func (c *DataConverter) ToStrings(payloads *commonpb.Payloads) []string {
+	if payloads == nil {
+		return nil
+	}
+
+	out := make([]string, 0, len(payloads.Payloads))
+	for _, pl := range payloads.Payloads {
+		out = append(out, c.ToString(pl))
+	}
+	return out
+}
+
+func (c *DataConverter) toTemporalPayload(pValue payload.Payload) (*commonpb.Payload, error) {
+	if pValue == nil {
+		return nil, fmt.Errorf("nil payload value")
+	}
+
 	if pValue.Data() == nil {
 		return &commonpb.Payload{
 			Metadata: map[string][]byte{
@@ -132,10 +195,12 @@ func (c *DataConverter) ToPayload(value any) (*commonpb.Payload, error) {
 		}, nil
 	}
 
-	if pValue.Format() == payload.Bytes {
-		data, ok := pValue.Data().([]byte)
-		if !ok {
-			return nil, fmt.Errorf("bytes payload data is not []byte")
+	// Canonical boundary passthrough only: bytes and JSON.
+	switch pValue.Format() {
+	case payload.Bytes:
+		data, err := bytesData(pValue.Data())
+		if err != nil {
+			return nil, err
 		}
 		return &commonpb.Payload{
 			Metadata: map[string][]byte{
@@ -143,12 +208,10 @@ func (c *DataConverter) ToPayload(value any) (*commonpb.Payload, error) {
 			},
 			Data: data,
 		}, nil
-	}
-
-	if pValue.Format() == payload.JSON {
-		data, ok := pValue.Data().([]byte)
-		if !ok {
-			return nil, fmt.Errorf("json payload data is not []byte")
+	case payload.JSON:
+		data, err := bytesData(pValue.Data())
+		if err != nil {
+			return nil, err
 		}
 		return &commonpb.Payload{
 			Metadata: map[string][]byte{
@@ -158,66 +221,77 @@ func (c *DataConverter) ToPayload(value any) (*commonpb.Payload, error) {
 		}, nil
 	}
 
-	// we need some common format, and for now it's JSON
-	jValue, err := c.dtt.Transcode(pValue, payload.JSON)
+	// Canonicalize all non-canonical payloads through shared transcoder.
+	converted, err := c.dtt.Transcode(pValue, c.wireFormat)
 	if err != nil {
 		return nil, fmt.Errorf("error transcoding value: %w", err)
 	}
-
-	// json contract
-	data, ok := jValue.Data().([]byte)
-	if !ok {
-		return nil, fmt.Errorf("error converting data to []byte")
+	if converted.Format() != c.wireFormat {
+		return nil, fmt.Errorf("transcoded to unexpected format: %s", converted.Format())
 	}
 
-	// Handle internal payload type
+	data, err := bytesData(converted.Data())
+	if err != nil {
+		return nil, err
+	}
+
 	return &commonpb.Payload{
 		Metadata: map[string][]byte{
-			converter.MetadataEncoding: []byte(converter.MetadataEncodingJSON),
+			converter.MetadataEncoding: []byte(c.encoding()),
 		},
 		Data: data,
 	}, nil
 }
 
-// FromPayload converts a Temporal payload to a value.
-func (c *DataConverter) FromPayload(p *commonpb.Payload, valuePtr any) error {
-	if p == nil {
-		return nil
+func (c *DataConverter) fromTemporalPayload(p *commonpb.Payload) (payload.Payload, error) {
+	enc, err := encoding(p)
+	if err != nil {
+		return nil, err
 	}
 
-	// are we trying to convert to payload.Messages?
-	ptr, ok := valuePtr.(*payload.Payload)
-	if !ok {
-		return c.fallback.FromPayload(p, valuePtr)
+	switch enc {
+	case converter.MetadataEncodingNil:
+		return payload.New(nil), nil
+	case converter.MetadataEncodingBinary:
+		return payload.NewPayload(p.Data, payload.Bytes), nil
+	case converter.MetadataEncodingJSON:
+		return payload.NewPayload(p.Data, payload.JSON), nil
+	default:
+		return nil, fmt.Errorf("unsupported temporal payload encoding: %s", enc)
 	}
+}
 
+func encoding(p *commonpb.Payload) (string, error) {
+	if p.Metadata == nil {
+		return "", fmt.Errorf("missing encoding metadata in payload")
+	}
 	enc, ok := p.Metadata[converter.MetadataEncoding]
 	if !ok {
-		return fmt.Errorf("missing encoding metadata in payload")
+		return "", fmt.Errorf("missing encoding metadata in payload")
 	}
-
-	switch {
-	case string(enc) == converter.MetadataEncodingJSON:
-		*ptr = payload.NewPayload(p.Data, payload.JSON)
-		return nil
-	case string(enc) == converter.MetadataEncodingNil:
-		*ptr = payload.New(nil)
-		return nil
-	case string(enc) == converter.MetadataEncodingBinary:
-		*ptr = payload.NewPayload(p.Data, payload.Bytes)
-		return nil
-	}
-
-	// Fallback for other types
-	return c.fallback.FromPayload(p, valuePtr)
+	return string(enc), nil
 }
 
-// ToString converts payload to string.
-func (c *DataConverter) ToString(p *commonpb.Payload) string {
-	return c.fallback.ToString(p)
+func bytesData(data any) ([]byte, error) {
+	switch v := data.(type) {
+	case nil:
+		return nil, nil
+	case []byte:
+		return v, nil
+	case string:
+		return []byte(v), nil
+	default:
+		return nil, fmt.Errorf("payload data is not []byte or string")
+	}
 }
 
-// ToStrings converts payloads to strings.
-func (c *DataConverter) ToStrings(payloads *commonpb.Payloads) []string {
-	return c.fallback.ToStrings(payloads)
+func (c *DataConverter) encoding() string {
+	switch c.wireFormat {
+	case payload.JSON:
+		return converter.MetadataEncodingJSON
+	case payload.Bytes:
+		return converter.MetadataEncodingBinary
+	default:
+		return c.wireFormat
+	}
 }
