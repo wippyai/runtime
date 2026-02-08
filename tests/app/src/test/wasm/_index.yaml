@@ -1,0 +1,27 @@
+version: "1.0"
+namespace: app.test.wasm
+
+entries:
+  - name: answer_wat
+    kind: function.wat
+    meta:
+      comment: Simple WASM WAT function for runtime smoke tests
+    source: file://answer.wat
+    wit: |
+      answer: func() -> s32;
+    method: answer
+    pool:
+      type: inline
+
+  - name: call_wat
+    kind: function.lua
+    meta:
+      type: test
+      suite: wasm
+      description: Call WASM WAT function via funcs.call
+    source: file://call_wat.lua
+    method: main
+    modules:
+      - funcs
+    imports:
+      assert2: app.lib:assert
