@@ -11,23 +11,21 @@ import (
 	"go.uber.org/zap"
 )
 
-// The Lua-level IsAllowed returns true when security context is incomplete
+// The runtime-level IsAllowed returns true when security context is incomplete
 // and strict mode is disabled. The API-level secapi.IsAllowed always returns
 // false for incomplete context. This discrepancy means the same action can be
-// allowed in Lua code but denied at the API level.
+// allowed in runtime code but denied at the API level.
 
-func TestIsAllowed_LuaVsApiDiscrepancy(t *testing.T) {
+func TestIsAllowed_RuntimeVsApiDiscrepancy(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, zap.NewNop())
 	ctx = secapi.SetStrictMode(ctx, false)
 
 	// No actor or scope set - security context is incomplete.
 
-	// Lua-level: allows in non-strict mode
-	luaResult := IsAllowed(ctx, "admin.delete", "users.database", nil)
-	assert.True(t, luaResult, "lua-level allows access with no security context in non-strict mode")
+	runtimeResult := IsAllowed(ctx, "admin.delete", "users.database", nil)
+	assert.True(t, runtimeResult, "runtime-level allows access with no security context in non-strict mode")
 
-	// API-level: always denies when actor or scope is missing
 	apiResult := secapi.IsAllowed(ctx, "admin.delete", "users.database", nil)
 	assert.False(t, apiResult, "api-level denies access with no security context regardless of strict mode")
 }
@@ -40,7 +38,6 @@ func TestIsAllowed_EmptyActorIDTreatedAsPresent(t *testing.T) {
 	ctx = logs.WithLogger(ctx, zap.NewNop())
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 
-	// Set actor with empty ID
 	_ = secapi.SetActor(ctx, secapi.Actor{ID: ""})
 
 	policy := newMockPolicy(registry.NewID("test", "allow-all"))
@@ -64,7 +61,7 @@ func TestIsAllowed_EmptyScopeDoesNotAllow(t *testing.T) {
 
 	_ = secapi.SetActor(ctx, secapi.Actor{ID: "user-1"})
 
-	scope := newMockScope() // no policies
+	scope := newMockScope()
 	_ = secapi.SetScope(ctx, scope)
 
 	result := IsAllowed(ctx, "read", "data", nil)
@@ -79,7 +76,6 @@ func TestIsAllowed_NonStrictAllowsDestructiveOps(t *testing.T) {
 	ctx = logs.WithLogger(ctx, zap.NewNop())
 	ctx = secapi.SetStrictMode(ctx, false)
 
-	// No actor, no scope - simulates failed security context setup
 	destructiveOps := []struct{ action, resource string }{
 		{"admin.delete", "users.all"},
 		{"system.shutdown", "cluster"},

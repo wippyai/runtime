@@ -16,7 +16,7 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
 	boothub "github.com/wippyai/runtime/boot/deps/hub"
-	"github.com/wippyai/runtime/runtime/lua/security"
+	"github.com/wippyai/runtime/runtime/security"
 )
 
 // Options configure the hub module.

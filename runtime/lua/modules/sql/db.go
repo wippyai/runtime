@@ -10,7 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	rtresource "github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	"github.com/wippyai/runtime/runtime/lua/security"
+	"github.com/wippyai/runtime/runtime/security"
 	sqlres "github.com/wippyai/runtime/service/sql"
 )
 

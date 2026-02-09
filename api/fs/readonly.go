@@ -3,6 +3,7 @@ package fs
 import (
 	"io/fs"
 	"os"
+	"time"
 )
 
 var _ FS = (*ReadOnlyFS)(nil)
@@ -68,6 +69,48 @@ func (r *ReadOnlyFS) Stat(name string) (fs.FileInfo, error) {
 	}
 	defer func() { _ = file.Close() }()
 	return file.Stat()
+}
+
+// Lstat implements ReadFS.Lstat.
+// Falls back to Stat if the underlying FS does not support Lstat.
+func (r *ReadOnlyFS) Lstat(name string) (fs.FileInfo, error) {
+	type lstater interface {
+		Lstat(name string) (fs.FileInfo, error)
+	}
+	if ls, ok := r.ReadDirFS.(lstater); ok {
+		return ls.Lstat(name)
+	}
+	return r.Stat(name)
+}
+
+// Rename implements WriteFS.Rename.
+// Always returns fs.ErrPermission.
+func (r *ReadOnlyFS) Rename(oldname, _ string) error {
+	return &fs.PathError{
+		Op:   "rename",
+		Path: oldname,
+		Err:  fs.ErrPermission,
+	}
+}
+
+// Truncate implements WriteFS.Truncate.
+// Always returns fs.ErrPermission.
+func (r *ReadOnlyFS) Truncate(name string, _ int64) error {
+	return &fs.PathError{
+		Op:   "truncate",
+		Path: name,
+		Err:  fs.ErrPermission,
+	}
+}
+
+// Chtimes implements WriteFS.Chtimes.
+// Always returns fs.ErrPermission.
+func (r *ReadOnlyFS) Chtimes(name string, _, _ time.Time) error {
+	return &fs.PathError{
+		Op:   "chtimes",
+		Path: name,
+		Err:  fs.ErrPermission,
+	}
 }
 
 // readOnlyFile wraps an fs.File to block write operations.

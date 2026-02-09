@@ -11,7 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	"github.com/wippyai/runtime/runtime/lua/security"
+	"github.com/wippyai/runtime/runtime/security"
 	servicetemplate "github.com/wippyai/runtime/service/template"
 	"github.com/wippyai/runtime/service/template/jet"
 )

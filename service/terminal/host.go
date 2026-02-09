@@ -93,6 +93,12 @@ func (h *Host) OnComplete(ctx context.Context, _ pid.PID, result *runtime.Result
 			}
 		}
 		_, _ = os.Stderr.WriteString(errStr + "\n")
+	} else if result != nil && result.Value != nil {
+		if data := result.Value.Data(); data != nil {
+			if s, ok := data.(string); ok && s != "" {
+				_, _ = os.Stdout.WriteString(s + "\n")
+			}
+		}
 	}
 	supervisorapi.TriggerShutdown(h.ctx, exitCode)
 }

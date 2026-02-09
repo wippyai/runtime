@@ -10,7 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/registry"
 	secapi "github.com/wippyai/runtime/api/security"
-	"github.com/wippyai/runtime/system/security"
+	secsystem "github.com/wippyai/runtime/system/security"
 	"go.uber.org/zap"
 )
 
@@ -109,7 +109,6 @@ func (m *mockScope) AddPolicy(policy secapi.Policy) {
 }
 
 func TestIsAllowed_WithCompleteContext_Allow(t *testing.T) {
-	// Setup
 	logger := zap.NewNop()
 	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
@@ -125,15 +124,12 @@ func TestIsAllowed_WithCompleteContext_Allow(t *testing.T) {
 	scope.AddPolicy(policy)
 	_ = secapi.SetScope(ctx, scope)
 
-	// Execute
 	result := IsAllowed(ctx, "read", "test-resource", nil)
 
-	// Assert
 	assert.True(t, result, "Should allow access when policy permits")
 }
 
 func TestIsAllowed_WithCompleteContext_Deny(t *testing.T) {
-	// Setup
 	logger := zap.NewNop()
 	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
@@ -149,15 +145,12 @@ func TestIsAllowed_WithCompleteContext_Deny(t *testing.T) {
 	scope.AddPolicy(policy)
 	_ = secapi.SetScope(ctx, scope)
 
-	// Execute
 	result := IsAllowed(ctx, "read", "test-resource", nil)
 
-	// Assert
 	assert.False(t, result, "Should deny access when policy denies")
 }
 
 func TestIsAllowed_WithCompleteContext_MultiplePolicies(t *testing.T) {
-	// Setup
 	logger := zap.NewNop()
 	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
@@ -166,11 +159,9 @@ func TestIsAllowed_WithCompleteContext_MultiplePolicies(t *testing.T) {
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_ = secapi.SetActor(ctx, actor)
 
-	// First policy denies
 	policy1 := newMockPolicy(registry.NewID("test", "policy-1"))
 	policy1.Deny("read", "test-resource")
 
-	// Second policy allows
 	policy2 := newMockPolicy(registry.NewID("test", "policy-2"))
 	policy2.Allow("read", "test-resource")
 
@@ -179,15 +170,12 @@ func TestIsAllowed_WithCompleteContext_MultiplePolicies(t *testing.T) {
 	scope.AddPolicy(policy2)
 	_ = secapi.SetScope(ctx, scope)
 
-	// Execute
 	result := IsAllowed(ctx, "read", "test-resource", nil)
 
-	// Assert
 	assert.True(t, result, "Should allow access when any policy permits")
 }
 
 func TestIsAllowed_WithCompleteContext_WithMetadata(t *testing.T) {
-	// Setup
 	logger := zap.NewNop()
 	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
@@ -205,15 +193,12 @@ func TestIsAllowed_WithCompleteContext_WithMetadata(t *testing.T) {
 
 	metadata := attrs.Bag{"key": "value"}
 
-	// Execute
 	result := IsAllowed(ctx, "read", "test-resource", metadata)
 
-	// Assert
 	assert.True(t, result, "Should allow access with metadata")
 }
 
 func TestIsAllowed_WithoutActor_NonStrictMode(t *testing.T) {
-	// Setup
 	logger := zap.NewNop()
 	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
@@ -224,15 +209,12 @@ func TestIsAllowed_WithoutActor_NonStrictMode(t *testing.T) {
 	scope.AddPolicy(policy)
 	_ = secapi.SetScope(ctx, scope)
 
-	// Execute
 	result := IsAllowed(ctx, "read", "test-resource", nil)
 
-	// Assert - strict mode is disabled, should allow access
 	assert.True(t, result, "Should allow access in non-strict mode when actor is missing")
 }
 
 func TestIsAllowed_WithoutScope_NonStrictMode(t *testing.T) {
-	// Setup
 	logger := zap.NewNop()
 	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
@@ -242,29 +224,23 @@ func TestIsAllowed_WithoutScope_NonStrictMode(t *testing.T) {
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_ = secapi.SetActor(ctx, actor)
 
-	// Execute
 	result := IsAllowed(ctx, "read", "test-resource", nil)
 
-	// Assert - strict mode is disabled, should allow access
 	assert.True(t, result, "Should allow access in non-strict mode when scope is missing")
 }
 
 func TestIsAllowed_WithoutActorAndScope_NonStrictMode(t *testing.T) {
-	// Setup
 	logger := zap.NewNop()
 	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
 	ctx = secapi.SetStrictMode(ctx, false)
 
-	// Execute
 	result := IsAllowed(ctx, "read", "test-resource", nil)
 
-	// Assert - strict mode is disabled, should allow access
 	assert.True(t, result, "Should allow access in non-strict mode when both actor and scope are missing")
 }
 
 func TestIsAllowed_WithEmptyActionAndResource(t *testing.T) {
-	// Setup
 	logger := zap.NewNop()
 	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
@@ -280,15 +256,12 @@ func TestIsAllowed_WithEmptyActionAndResource(t *testing.T) {
 	scope.AddPolicy(policy)
 	_ = secapi.SetScope(ctx, scope)
 
-	// Execute
 	result := IsAllowed(ctx, "", "", nil)
 
-	// Assert
 	assert.True(t, result, "Should handle empty action and resource")
 }
 
 func TestIsAllowed_WithComplexMetadata(t *testing.T) {
-	// Setup
 	logger := zap.NewNop()
 	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
@@ -313,15 +286,12 @@ func TestIsAllowed_WithComplexMetadata(t *testing.T) {
 		},
 	}
 
-	// Execute
 	result := IsAllowed(ctx, "read", "test-resource", metadata)
 
-	// Assert
 	assert.True(t, result, "Should handle complex metadata")
 }
 
 func TestIsAllowed_ConcurrentAccess(t *testing.T) {
-	// Setup
 	logger := zap.NewNop()
 	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
@@ -337,7 +307,6 @@ func TestIsAllowed_ConcurrentAccess(t *testing.T) {
 	scope.AddPolicy(policy)
 	_ = secapi.SetScope(ctx, scope)
 
-	// Execute concurrent access
 	const numGoroutines = 100
 	results := make(chan bool, numGoroutines)
 
@@ -347,7 +316,6 @@ func TestIsAllowed_ConcurrentAccess(t *testing.T) {
 		}()
 	}
 
-	// Collect results
 	allAllowed := true
 	for i := 0; i < numGoroutines; i++ {
 		if !<-results {
@@ -355,12 +323,10 @@ func TestIsAllowed_ConcurrentAccess(t *testing.T) {
 		}
 	}
 
-	// Assert
 	assert.True(t, allAllowed, "All concurrent calls should return the same result")
 }
 
 func TestIsAllowed_WithRealSecurityScope(t *testing.T) {
-	// Setup
 	logger := zap.NewNop()
 	ctx := ctxapi.NewRootContext()
 	ctx = logs.WithLogger(ctx, logger)
@@ -369,28 +335,22 @@ func TestIsAllowed_WithRealSecurityScope(t *testing.T) {
 	ctx, _ = ctxapi.OpenFrameContext(ctx)
 	_ = secapi.SetActor(ctx, actor)
 
-	// Use the real security scope implementation
-	scope := security.NewScope(nil)
+	scope := secsystem.NewScope(nil)
 	_ = secapi.SetScope(ctx, scope)
 
-	// Execute
 	result := IsAllowed(ctx, "read", "test-resource", nil)
 
-	// Assert - real scope with no policies should deny by default
 	assert.False(t, result, "Real scope with no policies should deny access")
 }
 
 func TestIsAllowed_StrictMode(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 
-	// Default strict mode should be true (deny when context incomplete)
 	assert.True(t, secapi.IsStrictMode(ctx), "Strict mode should be true by default")
 
-	// Test that SetStrictMode(false) works
 	ctx = secapi.SetStrictMode(ctx, false)
 	assert.False(t, secapi.IsStrictMode(ctx), "Strict mode should be false after setting")
 
-	// Test that SetStrictMode(true) works on a separate context
 	ctx2 := ctxapi.NewRootContext()
 	ctx2 = secapi.SetStrictMode(ctx2, true)
 	assert.True(t, secapi.IsStrictMode(ctx2), "Strict mode should be true after setting")

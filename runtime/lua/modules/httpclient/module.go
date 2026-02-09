@@ -10,26 +10,17 @@ import (
 	lua "github.com/wippyai/go-lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	httpapi "github.com/wippyai/runtime/api/service/http"
-	"github.com/wippyai/runtime/runtime/lua/security"
+	"github.com/wippyai/runtime/runtime/security"
 )
 
-// isPrivateIP checks if an IP is private, loopback, or otherwise internal.
 func isPrivateIP(ip net.IP) bool {
 	if ip == nil {
 		return false
 	}
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
-		return true
-	}
-	if ip4 := ip.To4(); ip4 != nil {
-		return ip4.IsLoopback() || ip4.IsPrivate() || ip4.IsLinkLocalUnicast()
-	}
-	return false
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
 }
 
-// checkPrivateIP checks if the URL resolves to private IPs and if so, checks security policy.
-// Returns error message if not allowed, empty string if allowed.
 func checkPrivateIP(ctx context.Context, urlStr string) string {
 	u, err := url.Parse(urlStr)
 	if err != nil {
@@ -41,7 +32,6 @@ func checkPrivateIP(ctx context.Context, urlStr string) string {
 		return ""
 	}
 
-	// Try to parse as IP directly
 	if ip := net.ParseIP(host); ip != nil {
 		if isPrivateIP(ip) {
 			if !security.IsAllowed(ctx, "http_client.private_ip", host, nil) {
@@ -51,7 +41,6 @@ func checkPrivateIP(ctx context.Context, urlStr string) string {
 		return ""
 	}
 
-	// Resolve hostname
 	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
 	if err != nil {
 		return ""
@@ -224,7 +213,12 @@ func request(l *lua.LState) int {
 func populateYield(yield *RequestYield, method, url string, opts *requestOptions) {
 	yield.Method = method
 	yield.URL = url
-	yield.Headers = opts.headers
+	if len(opts.headers) > 0 {
+		yield.Headers = make(map[string][]string, len(opts.headers))
+		for k, v := range opts.headers {
+			yield.Headers[k] = []string{v}
+		}
+	}
 	yield.Body = opts.body
 	yield.Timeout = opts.timeout
 	yield.UnixSocket = opts.unixSocket
@@ -513,7 +507,12 @@ func requestBatch(l *lua.LState) int {
 		req := httpapi.AcquireRequestCmd()
 		req.Method = method
 		req.URL = urlStr
-		req.Headers = opts.headers
+		if len(opts.headers) > 0 {
+			req.Headers = make(map[string][]string, len(opts.headers))
+			for k, v := range opts.headers {
+				req.Headers[k] = []string{v}
+			}
+		}
 		req.Body = opts.body
 		req.Timeout = opts.timeout
 		req.UnixSocket = opts.unixSocket

@@ -67,8 +67,10 @@ func (y *RequestYield) HandleResult(l *lua.LState, data any, err error) []lua.LV
 
 	if len(resp.Headers) > 0 {
 		headers := l.CreateTable(0, len(resp.Headers))
-		for k, v := range resp.Headers {
-			headers.RawSetString(k, lua.LString(v))
+		for k, vs := range resp.Headers {
+			if len(vs) > 0 {
+				headers.RawSetString(k, lua.LString(vs[0]))
+			}
 		}
 		tbl.RawSetString("headers", headers)
 	}
@@ -146,8 +148,10 @@ func (y *RequestBatchYield) HandleResult(l *lua.LState, data any, err error) []l
 
 		if len(resp.Headers) > 0 {
 			headers := l.CreateTable(0, len(resp.Headers))
-			for k, v := range resp.Headers {
-				headers.RawSetString(k, lua.LString(v))
+			for k, vs := range resp.Headers {
+				if len(vs) > 0 {
+					headers.RawSetString(k, lua.LString(vs[0]))
+				}
 			}
 			tbl.RawSetString("headers", headers)
 		}

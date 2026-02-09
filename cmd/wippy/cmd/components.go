@@ -5,6 +5,7 @@ import (
 	"github.com/wippyai/runtime/boot/components/core"
 	"github.com/wippyai/runtime/boot/components/queue"
 	"github.com/wippyai/runtime/boot/components/runtime/lua"
+	wasmcomponents "github.com/wippyai/runtime/boot/components/runtime/wasm"
 	"github.com/wippyai/runtime/boot/components/service"
 	"github.com/wippyai/runtime/boot/components/store"
 	"github.com/wippyai/runtime/boot/components/system"
@@ -20,5 +21,6 @@ func StandardComponents() []boot.Component {
 	components = append(components, store.All()...)
 	components = append(components, service.All()...)
 	components = append(components, lua.All()...)
+	components = append(components, wasmcomponents.All()...)
 	return components
 }

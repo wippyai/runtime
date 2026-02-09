@@ -206,20 +206,20 @@ func (s *linkStage) resolveValue(
 		depID string
 	}
 
+	requirementID := requirementNS + ":" + requirementName
+
 	for _, dep := range dependencies {
-		if dep.moduleNamespace != requirementNS {
-			continue
-		}
 		for _, param := range dep.definition.Parameters {
-			if param.Name == requirementName {
-				foundValues = append(foundValues, struct {
-					value string
-					depID string
-				}{
-					value: param.Value,
-					depID: dep.entry.ID.String(),
-				})
+			if !matchesRequirement(param.Name, dep.moduleNamespace, requirementNS, requirementName, requirementID) {
+				continue
 			}
+			foundValues = append(foundValues, struct {
+				value string
+				depID string
+			}{
+				value: param.Value,
+				depID: dep.entry.ID.String(),
+			})
 		}
 	}
 
@@ -329,6 +329,17 @@ func (s *linkStage) findTargetEntries(
 	}
 
 	return results
+}
+
+// matchesRequirement checks if a parameter name references a requirement.
+// Supports two conventions:
+//   - Full ID: "ns:name" matches directly against the requirement entry ID
+//   - Bare name: "name" matches against requirement name within the computed module namespace
+func matchesRequirement(paramName, moduleNS, reqNS, reqName, reqID string) bool {
+	if strings.Contains(paramName, ":") {
+		return paramName == reqID
+	}
+	return moduleNS == reqNS && paramName == reqName
 }
 
 func componentToNamespace(component string) (string, error) {

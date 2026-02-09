@@ -15,7 +15,7 @@ import (
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/modules/future"
-	"github.com/wippyai/runtime/runtime/lua/security"
+	"github.com/wippyai/runtime/runtime/security"
 )
 
 const executorTypeName = "funcs.Executor"
@@ -500,7 +500,6 @@ func futureCancelImpl(l *lua.LState) int {
 	}
 
 	f.MarkCanceled()
-
 	yield := AcquireAsyncCancelYield()
 	yield.Topic = f.Topic
 	l.Push(yield)

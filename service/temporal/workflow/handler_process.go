@@ -90,7 +90,7 @@ func (d *Definition) signalExternalWorkflow(cmd *process.SendCmd, tag uint64) er
 		header,
 		false,
 		func(_ *commonpb.Payloads, err error) {
-			d.resumeProcess(tag, process.SendResult{Error: temporalerrors.FromTemporalError(err)}, nil)
+			d.enqueueYieldCompletion(tag, process.SendResult{Error: temporalerrors.FromTemporalError(err)}, nil)
 		},
 	)
 
@@ -223,7 +223,7 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 		})
 	}, func(execution bindings.WorkflowExecution, err error) {
 		if err != nil {
-			d.resumeProcess(tag, process.SpawnResult{Error: temporalerrors.FromTemporalError(err)}, nil)
+			d.enqueueYieldCompletion(tag, process.SpawnResult{Error: temporalerrors.FromTemporalError(err)}, nil)
 			return
 		}
 
@@ -237,7 +237,7 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 			Host:   childHost,
 			UniqID: execution.ID,
 		}
-		d.resumeProcess(tag, process.SpawnResult{PID: childPID}, nil)
+		d.enqueueYieldCompletion(tag, process.SpawnResult{PID: childPID}, nil)
 	})
 
 	return nil
@@ -251,9 +251,9 @@ func (d *Definition) executeProcessTerminate(cmd *process.TerminateCmd, tag uint
 		"",
 		func(_ *commonpb.Payloads, err error) {
 			if err != nil {
-				d.resumeProcess(tag, nil, temporalerrors.FromTemporalError(err))
+				d.enqueueYieldCompletion(tag, nil, temporalerrors.FromTemporalError(err))
 			} else {
-				d.resumeProcess(tag, nil, nil)
+				d.enqueueYieldCompletion(tag, nil, nil)
 			}
 		},
 	)
@@ -268,9 +268,9 @@ func (d *Definition) executeProcessCancel(cmd *process.CancelCmd, tag uint64) er
 		"",
 		func(_ *commonpb.Payloads, err error) {
 			if err != nil {
-				d.resumeProcess(tag, nil, temporalerrors.FromTemporalError(err))
+				d.enqueueYieldCompletion(tag, nil, temporalerrors.FromTemporalError(err))
 			} else {
-				d.resumeProcess(tag, nil, nil)
+				d.enqueueYieldCompletion(tag, nil, nil)
 			}
 		},
 	)
@@ -329,18 +329,18 @@ func (d *Definition) executeProcessExec(cmd *process.ExecCmd, tag uint64) error 
 
 	d.env.ExecuteChildWorkflow(params, func(result *commonpb.Payloads, err error) {
 		if err != nil {
-			d.resumeProcess(tag, process.ExecResult{Result: &runtime.Result{Error: temporalerrors.FromTemporalError(err)}}, nil)
+			d.enqueueYieldCompletion(tag, process.ExecResult{Result: &runtime.Result{Error: temporalerrors.FromTemporalError(err)}}, nil)
 			return
 		}
 		var values payload.Payloads
 		if err := d.dc.FromPayloads(result, &values); err != nil {
-			d.resumeProcess(tag, process.ExecResult{Result: &runtime.Result{Error: temporalerrors.FromTemporalError(err)}}, nil)
+			d.enqueueYieldCompletion(tag, process.ExecResult{Result: &runtime.Result{Error: temporalerrors.FromTemporalError(err)}}, nil)
 			return
 		}
 		if len(values) > 0 {
-			d.resumeProcess(tag, process.ExecResult{Result: &runtime.Result{Value: values[0]}}, nil)
+			d.enqueueYieldCompletion(tag, process.ExecResult{Result: &runtime.Result{Value: values[0]}}, nil)
 		} else {
-			d.resumeProcess(tag, process.ExecResult{Result: &runtime.Result{}}, nil)
+			d.enqueueYieldCompletion(tag, process.ExecResult{Result: &runtime.Result{}}, nil)
 		}
 	}, func(_ bindings.WorkflowExecution, _ error) {})
 

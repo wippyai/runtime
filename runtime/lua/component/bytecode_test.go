@@ -539,6 +539,15 @@ func (m *mockBytecodeFS) OpenFile(_ string, _ int, _ fs.FileMode) (fsapi.File, e
 }
 func (m *mockBytecodeFS) Remove(_ string) error               { return errors.New("not implemented") }
 func (m *mockBytecodeFS) Mkdir(_ string, _ fs.FileMode) error { return errors.New("not implemented") }
+func (m *mockBytecodeFS) Rename(_, _ string) error            { return errors.New("not implemented") }
+func (m *mockBytecodeFS) Truncate(_ string, _ int64) error    { return errors.New("not implemented") }
+func (m *mockBytecodeFS) Chtimes(_ string, _, _ time.Time) error {
+	return errors.New("not implemented")
+}
+
+func (m *mockBytecodeFS) Lstat(name string) (fs.FileInfo, error) {
+	return m.Stat(name)
+}
 
 type mockBytecodeRegistry struct {
 	filesystems map[string]fsapi.FS
