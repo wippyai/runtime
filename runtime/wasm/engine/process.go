@@ -30,23 +30,23 @@ type Transport interface {
 // Asyncified modules run through session-based yield/resume; synchronous
 // modules execute as direct calls.
 type Process struct {
-	module            *wasmrt.Module
-	input             payload.Payloads
+	resolvedTransport Transport
 	ctx               context.Context
 	execCtx           context.Context
 	result            payload.Payload
-	method            string
-	transport         string
-	wasi              wasmapi.WASIConfig
-	limits            wasmapi.LimitsConfig
 	fsReg             fsapi.Registry
-	resolvedTransport Transport
+	cancel            context.CancelFunc
 	inst              *wasmrt.Instance
 	session           *wasmrt.CallSession
 	asyncValues       *wippyhost.AsyncValueStore
-	callArgs          []any
 	pendingYield      *wasmengine.YieldResult
-	cancel            context.CancelFunc
+	module            *wasmrt.Module
+	transport         string
+	method            string
+	wasi              wasmapi.WASIConfig
+	callArgs          []any
+	input             payload.Payloads
+	limits            wasmapi.LimitsConfig
 	pendingTag        uint64
 	yieldSeq          uint64
 	waitingYield      bool

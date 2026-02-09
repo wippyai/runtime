@@ -23,13 +23,13 @@ import (
 type configEntry struct {
 	options   runtime.Options
 	wat       *api.WATFunctionConfig
-	wasm      *api.WASMFunctionConfig
+	wasm      *api.FunctionConfig
 	method    string
 	transport string
+	kind      registry.Kind
 	wasi      api.WASIConfig
 	pool      api.PoolConfig
 	limits    api.LimitsConfig
-	kind      registry.Kind
 }
 
 type poolEntry struct {

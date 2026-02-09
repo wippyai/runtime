@@ -10,7 +10,7 @@ import (
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
 
-func TestStdioHosts_FromTerminalContext(t *testing.T) {
+func TestHosts_FromTerminalContext(t *testing.T) {
 	ctx, fc := ctxapi.OpenFrameContext(context.Background())
 	defer func() { _ = fc.Close() }()
 
@@ -24,7 +24,7 @@ func TestStdioHosts_FromTerminalContext(t *testing.T) {
 
 	res := preview2.NewResourceTable()
 
-	inHost := NewStdioHost(res)
+	inHost := NewHost(res)
 	if inHost.Namespace() != StdinNamespace {
 		t.Fatalf("Namespace() = %q, want %q", inHost.Namespace(), StdinNamespace)
 	}
@@ -128,7 +128,7 @@ func TestTerminalHosts_ContextPresence(t *testing.T) {
 	})
 }
 
-func TestStdioHosts_StdoutWithoutTerminalContextErrors(t *testing.T) {
+func TestHosts_StdoutWithoutTerminalContextErrors(t *testing.T) {
 	res := preview2.NewResourceTable()
 	host := NewStdoutHost(res)
 

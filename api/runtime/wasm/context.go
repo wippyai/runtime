@@ -19,9 +19,9 @@ type TransportRegistry interface {
 
 // AsyncState tracks pending async execution state for a frame.
 type AsyncState struct {
+	Payload any    `json:"payload,omitempty"`
 	Tag     string `json:"tag,omitempty"`
 	Waiting bool   `json:"waiting,omitempty"`
-	Payload any    `json:"payload,omitempty"`
 }
 
 // SetTransportRegistry stores transport registry in AppContext.

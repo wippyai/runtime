@@ -30,7 +30,7 @@ func cliHosts(resources *preview2.ResourceTable) []wasmrt.Host {
 	return []wasmrt.Host{
 		wippycli.NewEnvironmentHost(),
 		wippycli.NewExitHost(),
-		wippystdio.NewStdioHost(resources),
+		wippystdio.NewHost(resources),
 		wippystdio.NewStdoutHost(resources),
 		wippystdio.NewStderrHost(resources),
 		wippystdio.NewTerminalStdinHost(),

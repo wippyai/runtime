@@ -16,29 +16,29 @@ const (
 	FuncsNamespace = "wippy:runtime/funcs@0.1.0"
 )
 
-// FuncsHost bridges component host calls into Wippy function registry execution.
+// Host bridges component host calls into Wippy function registry execution.
 // WIT example:
 //
 //	interface funcs {
 //	  call-string: func(target: string, input: string) -> result<string, string>;
 //	  call-bytes: func(target: string, input: list<u8>) -> result<list<u8>, string>;
 //	}
-type FuncsHost struct {
+type Host struct {
 	registry functionapi.Registry
 }
 
-// NewFuncsHost builds a funcs host bound to runtime function registry.
-func NewFuncsHost(reg functionapi.Registry) *FuncsHost {
-	return &FuncsHost{registry: reg}
+// NewHost builds a funcs host bound to runtime function registry.
+func NewHost(reg functionapi.Registry) *Host {
+	return &Host{registry: reg}
 }
 
 // Namespace implements wasm-runtime Host.
-func (h *FuncsHost) Namespace() string {
+func (h *Host) Namespace() string {
 	return FuncsNamespace
 }
 
 // CallString invokes a runtime function with text input and returns text output.
-func (h *FuncsHost) CallString(ctx context.Context, target string, input string) (string, error) {
+func (h *Host) CallString(ctx context.Context, target string, input string) (string, error) {
 	if h.registry == nil {
 		return "", runtimewasm.ErrFunctionRegistryNotFound
 	}
@@ -69,7 +69,7 @@ func (h *FuncsHost) CallString(ctx context.Context, target string, input string)
 }
 
 // CallBytes invokes a runtime function with byte input and returns byte output.
-func (h *FuncsHost) CallBytes(ctx context.Context, target string, input []byte) ([]byte, error) {
+func (h *Host) CallBytes(ctx context.Context, target string, input []byte) ([]byte, error) {
 	if h.registry == nil {
 		return nil, runtimewasm.ErrFunctionRegistryNotFound
 	}

@@ -28,10 +28,10 @@ const (
 // HostProfile defines a pluggable wasm host import profile.
 // Profiles are resolved from configured imports (aliases/canonical names).
 type HostProfile struct {
+	Register      func(ctx context.Context, rt *wasmrt.Runtime) error
 	Name          string
 	Aliases       []string
 	ComponentOnly bool
-	Register      func(ctx context.Context, rt *wasmrt.Runtime) error
 }
 
 type hostRegistryKey struct{}
@@ -49,12 +49,12 @@ func GetHostRegistry(ctx context.Context) *HostRegistry {
 
 // HostRegistry resolves import IDs to host profiles and registers them once.
 type HostRegistry struct {
-	mu              sync.RWMutex
-	registerMu      sync.Mutex
+	sharedResources any
 	profiles        map[string]HostProfile
 	aliases         map[string]string
 	loaded          map[string]bool
-	sharedResources any
+	mu              sync.RWMutex
+	registerMu      sync.Mutex
 }
 
 // NewHostRegistry creates an empty host registry.

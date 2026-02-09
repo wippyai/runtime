@@ -327,7 +327,7 @@ func (h *OutgoingHandlerHost) Handle(ctx context.Context, requestHandle uint32, 
 	}
 
 	cmd := h.buildRequestCmd(req)
-	op := &HTTPRequestPendingOp{cmd: cmd}
+	op := &RequestPendingOp{cmd: cmd}
 
 	if async == nil {
 		panic("http outgoing handle requires asyncify context")
@@ -531,22 +531,22 @@ func (h *OutgoingHandlerHost) Register() map[string]any {
 	}
 }
 
-// HTTPRequestPendingOp bridges asyncify suspension to Wippy HTTP dispatcher.
-type HTTPRequestPendingOp struct {
+// RequestPendingOp bridges asyncify suspension to Wippy HTTP dispatcher.
+type RequestPendingOp struct {
 	cmd *httpapi.RequestCmd
 }
 
 // CmdID implements wasm async pending op command ID.
-func (o *HTTPRequestPendingOp) CmdID() wasmengine.CommandID {
+func (o *RequestPendingOp) CmdID() wasmengine.CommandID {
 	return wasmengine.CommandID(httpapi.Request)
 }
 
 // ToCommand returns dispatcher command for yield path.
-func (o *HTTPRequestPendingOp) ToCommand() dispatcher.Command {
+func (o *RequestPendingOp) ToCommand() dispatcher.Command {
 	return o.cmd
 }
 
 // Execute is used by standalone wasm-runtime scheduler loops.
-func (o *HTTPRequestPendingOp) Execute(_ context.Context) (uint64, error) {
+func (o *RequestPendingOp) Execute(_ context.Context) (uint64, error) {
 	return 0, fmt.Errorf("HTTP request requires Wippy dispatcher")
 }

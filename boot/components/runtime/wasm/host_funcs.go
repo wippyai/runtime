@@ -21,7 +21,7 @@ func funcsHosts(ctx context.Context) ([]wasmrt.Host, error) {
 		return nil, runtimewasm.ErrFunctionRegistryNotFound
 	}
 	return []wasmrt.Host{
-		wippyfuncs.NewFuncsHost(fnReg),
+		wippyfuncs.NewHost(fnReg),
 	}, nil
 }
 

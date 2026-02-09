@@ -10,11 +10,11 @@ import (
 
 // Factory creates scheduler processes backed by a compiled WASM module.
 type Factory struct {
+	fsReg     fsapi.Registry
 	module    *wasmrt.Module
 	transport string
 	wasi      wasmapi.WASIConfig
 	limits    wasmapi.LimitsConfig
-	fsReg     fsapi.Registry
 }
 
 // NewFactory creates a process factory for a module and runtime settings.

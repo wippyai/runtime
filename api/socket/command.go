@@ -85,6 +85,6 @@ func (c *ResolveCmd) CmdID() dispatcher.CommandID { return SocketResolve }
 
 // ResolveResult holds the result of a resolve operation.
 type ResolveResult struct {
-	Addresses []string
 	Err       error
+	Addresses []string
 }

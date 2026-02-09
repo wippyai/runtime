@@ -115,8 +115,8 @@ func (fs *MockFS) Rename(oldname, newname string) error {
 	return os.Rename(filepath.Join(fs.rootDir, oldname), filepath.Join(fs.rootDir, newname))
 }
 
-func (mfs *MockFS) Truncate(name string, size int64) error {
-	fullPath := filepath.Join(mfs.rootDir, name)
+func (fs *MockFS) Truncate(name string, size int64) error {
+	fullPath := filepath.Join(fs.rootDir, name)
 	f, err := os.OpenFile(fullPath, os.O_WRONLY, 0)
 	if err != nil {
 		return err
@@ -125,8 +125,8 @@ func (mfs *MockFS) Truncate(name string, size int64) error {
 	return f.Truncate(size)
 }
 
-func (mfs *MockFS) Chtimes(name string, atime, mtime time.Time) error {
-	fullPath := filepath.Join(mfs.rootDir, name)
+func (fs *MockFS) Chtimes(name string, atime, mtime time.Time) error {
+	fullPath := filepath.Join(fs.rootDir, name)
 	return os.Chtimes(fullPath, atime, mtime)
 }
 

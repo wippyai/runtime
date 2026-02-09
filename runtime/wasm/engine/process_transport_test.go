@@ -55,7 +55,7 @@ func (t *processTestTranscoder) Transcode(payload.Payload, payload.Format) (payl
 
 func (t *processTestTranscoder) Unmarshal(payload.Payload, interface{}) error { return nil }
 
-func compileEchoModule(t *testing.T, ctx context.Context) (*wasmrt.Runtime, *wasmrt.Module) {
+func compileEchoModule(ctx context.Context, t *testing.T) (*wasmrt.Runtime, *wasmrt.Module) {
 	t.Helper()
 
 	rt, err := wasmrt.New(ctx)
@@ -85,7 +85,7 @@ func compileEchoModule(t *testing.T, ctx context.Context) (*wasmrt.Runtime, *was
 
 func TestProcessInvokeCustomTransport(t *testing.T) {
 	ctx := context.Background()
-	rt, mod := compileEchoModule(t, ctx)
+	rt, mod := compileEchoModule(ctx, t)
 	defer func() { _ = rt.Close(ctx) }()
 
 	inst, err := mod.Instantiate(ctx)
@@ -188,7 +188,7 @@ func TestProcessInvokeCustomTransport(t *testing.T) {
 
 func TestProcessInvokePayload(t *testing.T) {
 	ctx := context.Background()
-	rt, mod := compileEchoModule(t, ctx)
+	rt, mod := compileEchoModule(ctx, t)
 	defer func() { _ = rt.Close(ctx) }()
 
 	inst, err := mod.Instantiate(ctx)

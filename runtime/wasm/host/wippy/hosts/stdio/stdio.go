@@ -75,26 +75,26 @@ func (s *terminalOutputStreamResource) CheckWrite() (uint64, error) {
 	return preview2.DefaultBufferSize, nil
 }
 
-// StdioHost provides stdin handle for WASI CLI.
-type StdioHost struct {
+// Host provides stdin handle for WASI CLI.
+type Host struct {
 	resources *preview2.ResourceTable
 }
 
-// NewStdioHost creates a stdio host.
-func NewStdioHost(resources *preview2.ResourceTable) *StdioHost {
+// NewHost creates a stdio host.
+func NewHost(resources *preview2.ResourceTable) *Host {
 	if resources == nil {
 		resources = preview2.NewResourceTable()
 	}
-	return &StdioHost{resources: resources}
+	return &Host{resources: resources}
 }
 
 // Namespace implements wasm-runtime Host.
-func (h *StdioHost) Namespace() string {
+func (h *Host) Namespace() string {
 	return StdinNamespace
 }
 
 // GetStdin returns an input stream handle backed by terminal stdin context, if available.
-func (h *StdioHost) GetStdin(ctx context.Context) uint32 {
+func (h *Host) GetStdin(ctx context.Context) uint32 {
 	var src any
 	if tc := terminalapi.GetTerminalContext(ctx); tc != nil && tc.Stdin != nil {
 		// Wrap to avoid closing process-wide stdin on resource drop.

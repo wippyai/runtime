@@ -37,10 +37,10 @@ func (m *mockNetService) LookupHost(ctx context.Context, host string) ([]string,
 }
 
 type captureReceiver struct {
-	mu   sync.Mutex
 	data any
 	err  error
 	done chan struct{}
+	mu   sync.Mutex
 }
 
 func newCaptureReceiver() *captureReceiver {
@@ -77,13 +77,13 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 }
 
 func TestDispatcher_HandleConnect(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := new(net.ListenConfig).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer ln.Close()
 
 	svc := &mockNetService{
-		dialFunc: func(_ context.Context, network, address string) (net.Conn, error) {
-			return net.Dial(network, address)
+		dialFunc: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, address)
 		},
 	}
 	d := NewDispatcher(svc)
@@ -102,8 +102,8 @@ func TestDispatcher_HandleConnect(t *testing.T) {
 
 func TestDispatcher_HandleListen(t *testing.T) {
 	svc := &mockNetService{
-		listenFunc: func(_ context.Context, network, address string) (net.Listener, error) {
-			return net.Listen(network, address)
+		listenFunc: func(ctx context.Context, network, address string) (net.Listener, error) {
+			return new(net.ListenConfig).Listen(ctx, network, address)
 		},
 	}
 	d := NewDispatcher(svc)
@@ -121,13 +121,13 @@ func TestDispatcher_HandleListen(t *testing.T) {
 }
 
 func TestDispatcher_HandleAccept(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := new(net.ListenConfig).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer ln.Close()
 
 	// Connect in background so accept has something
 	go func() {
-		conn, _ := net.Dial("tcp", ln.Addr().String())
+		conn, _ := (&net.Dialer{}).DialContext(context.Background(), "tcp", ln.Addr().String())
 		if conn != nil {
 			defer conn.Close()
 		}
@@ -149,8 +149,8 @@ func TestDispatcher_HandleAccept(t *testing.T) {
 
 func TestDispatcher_HandleBind(t *testing.T) {
 	svc := &mockNetService{
-		listenPacketFunc: func(_ context.Context, network, address string) (net.PacketConn, error) {
-			return net.ListenPacket(network, address)
+		listenPacketFunc: func(ctx context.Context, network, address string) (net.PacketConn, error) {
+			return new(net.ListenConfig).ListenPacket(ctx, network, address)
 		},
 	}
 	d := NewDispatcher(svc)

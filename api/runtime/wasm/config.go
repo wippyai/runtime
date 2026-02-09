@@ -52,30 +52,30 @@ type (
 
 	// WATFunctionConfig defines configuration for inline WAT function entries.
 	WATFunctionConfig struct {
-		Imports   []registry.ID `json:"imports,omitempty"`
 		Meta      attrs.Bag     `json:"meta,omitempty"`
 		Source    string        `json:"source"`
 		Method    string        `json:"method"`
 		Transport string        `json:"transport,omitempty"`
+		WIT       string        `json:"wit,omitempty"`
 		WASI      WASIConfig    `json:"wasi,omitempty"`
+		Imports   []registry.ID `json:"imports,omitempty"`
 		Pool      PoolConfig    `json:"pool,omitempty"`
 		Limits    LimitsConfig  `json:"limits,omitempty"`
-		WIT       string        `json:"wit,omitempty"` // Optional for raw/core WASM signatures
 	}
 
-	// WASMFunctionConfig defines configuration for precompiled WASM function entries.
-	WASMFunctionConfig struct {
-		Imports   []registry.ID `json:"imports,omitempty"`
+	// FunctionConfig defines configuration for precompiled WASM function entries.
+	FunctionConfig struct {
 		Meta      attrs.Bag     `json:"meta,omitempty"`
 		FS        string        `json:"fs"`
 		Path      string        `json:"path"`
 		Hash      string        `json:"hash"`
 		Method    string        `json:"method"`
 		Transport string        `json:"transport,omitempty"`
+		WIT       string        `json:"wit,omitempty"`
 		WASI      WASIConfig    `json:"wasi,omitempty"`
+		Imports   []registry.ID `json:"imports,omitempty"`
 		Pool      PoolConfig    `json:"pool,omitempty"`
 		Limits    LimitsConfig  `json:"limits,omitempty"`
-		WIT       string        `json:"wit,omitempty"` // Optional for raw/core WASM signatures
 	}
 )
 
@@ -114,7 +114,7 @@ func (c *WATFunctionConfig) Validate() error {
 }
 
 // EffectiveTransport returns the transport, defaulting to payload.
-func (c *WASMFunctionConfig) EffectiveTransport() string {
+func (c *FunctionConfig) EffectiveTransport() string {
 	if c.Transport == "" {
 		return TransportTypePayload
 	}
@@ -122,7 +122,7 @@ func (c *WASMFunctionConfig) EffectiveTransport() string {
 }
 
 // Validate checks if the WASMFunctionConfig has required fields and valid values.
-func (c *WASMFunctionConfig) Validate() error {
+func (c *FunctionConfig) Validate() error {
 	if c.FS == "" {
 		return ErrFSRequired
 	}

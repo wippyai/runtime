@@ -8,8 +8,8 @@ import (
 
 // Registry stores named WASM transports for runtime lookup.
 type Registry struct {
-	mu         sync.RWMutex
 	transports map[string]any
+	mu         sync.RWMutex
 }
 
 // NewRegistry creates an empty transport registry.

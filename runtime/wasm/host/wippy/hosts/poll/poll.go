@@ -11,28 +11,28 @@ const (
 	PollNamespace = "wasi:io/poll@0.2.8"
 )
 
-// PollHost exposes wasi:io/poll APIs backed by preview2 resource table.
+// Host exposes wasi:io/poll APIs backed by preview2 resource table.
 // pollable.block becomes dispatcher-driven when the pollable implementation
 // uses asyncify suspend (e.g. DispatcherTimerPollable.Block).
-type PollHost struct {
+type Host struct {
 	resources *preview2.ResourceTable
 }
 
-// NewPollHost builds a poll host.
-func NewPollHost(resources *preview2.ResourceTable) *PollHost {
+// NewHost builds a poll host.
+func NewHost(resources *preview2.ResourceTable) *Host {
 	if resources == nil {
 		resources = preview2.NewResourceTable()
 	}
-	return &PollHost{resources: resources}
+	return &Host{resources: resources}
 }
 
 // Namespace implements wasm-runtime Host.
-func (h *PollHost) Namespace() string {
+func (h *Host) Namespace() string {
 	return PollNamespace
 }
 
 // Register returns explicit WIT function mappings for resource methods.
-func (h *PollHost) Register() map[string]any {
+func (h *Host) Register() map[string]any {
 	if h == nil {
 		return map[string]any{}
 	}
@@ -45,12 +45,12 @@ func (h *PollHost) Register() map[string]any {
 }
 
 // AsyncFunctions marks pollable.block as async import for asyncify.
-func (h *PollHost) AsyncFunctions() []string {
+func (h *Host) AsyncFunctions() []string {
 	return []string{"[method]pollable.block"}
 }
 
 // Poll returns indexes of ready pollables.
-func (h *PollHost) Poll(_ context.Context, pollables []uint32) []uint32 {
+func (h *Host) Poll(_ context.Context, pollables []uint32) []uint32 {
 	if h == nil {
 		return nil
 	}
@@ -70,7 +70,7 @@ func (h *PollHost) Poll(_ context.Context, pollables []uint32) []uint32 {
 }
 
 // MethodPollableReady checks readiness for a pollable handle.
-func (h *PollHost) MethodPollableReady(_ context.Context, self uint32) bool {
+func (h *Host) MethodPollableReady(_ context.Context, self uint32) bool {
 	if h == nil {
 		return false
 	}
@@ -87,7 +87,7 @@ func (h *PollHost) MethodPollableReady(_ context.Context, self uint32) bool {
 // MethodPollableBlock blocks until a pollable becomes ready.
 // The actual suspend/resume logic lives in the pollable implementation
 // (e.g. DispatcherTimerPollable.Block uses asyncify suspend).
-func (h *PollHost) MethodPollableBlock(ctx context.Context, self uint32) {
+func (h *Host) MethodPollableBlock(ctx context.Context, self uint32) {
 	if h == nil {
 		return
 	}
@@ -101,7 +101,7 @@ func (h *PollHost) MethodPollableBlock(ctx context.Context, self uint32) {
 }
 
 // ResourceDropPollable drops a pollable handle.
-func (h *PollHost) ResourceDropPollable(_ context.Context, self uint32) {
+func (h *Host) ResourceDropPollable(_ context.Context, self uint32) {
 	if h == nil {
 		return
 	}

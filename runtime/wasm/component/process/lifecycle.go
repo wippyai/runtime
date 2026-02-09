@@ -73,7 +73,7 @@ func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
 }
 
 func (m *Manager) addWASM(ctx context.Context, entry registry.Entry) error {
-	cfg, err := wasmcomponent.UnpackConfig[api.WASMFunctionConfig](ctx, entry)
+	cfg, err := wasmcomponent.UnpackConfig[api.FunctionConfig](ctx, entry)
 	if err != nil {
 		return runtimewasm.NewUnpackConfigError("process.wasm", err)
 	}
@@ -107,7 +107,7 @@ func (m *Manager) addWASM(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) updateWASM(ctx context.Context, entry registry.Entry) error {
-	cfg, err := wasmcomponent.UnpackConfig[api.WASMFunctionConfig](ctx, entry)
+	cfg, err := wasmcomponent.UnpackConfig[api.FunctionConfig](ctx, entry)
 	if err != nil {
 		return runtimewasm.NewUnpackConfigError("process.wasm", err)
 	}
@@ -134,7 +134,7 @@ func (m *Manager) updateWASM(ctx context.Context, entry registry.Entry) error {
 	return nil
 }
 
-func (m *Manager) loadWASMModule(ctx context.Context, cfg *api.WASMFunctionConfig) (*wasmrt.Module, error) {
+func (m *Manager) loadWASMModule(ctx context.Context, cfg *api.FunctionConfig) (*wasmrt.Module, error) {
 	data, err := wasmcomponent.LoadAndVerifyWASM(m.fsRegistry, cfg.FS, cfg.Path, cfg.Hash)
 	if err != nil {
 		return nil, err

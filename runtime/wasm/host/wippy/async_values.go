@@ -10,9 +10,9 @@ type asyncValueStoreKey struct{}
 // AsyncValueStore stores non-scalar dispatcher results for asyncify resume.
 // Hosts receive only uint64 from resume, so complex values are tokenized here.
 type AsyncValueStore struct {
+	values map[uint64]any
 	mu     sync.Mutex
 	nextID uint64
-	values map[uint64]any
 }
 
 // NewAsyncValueStore creates an empty async value store.

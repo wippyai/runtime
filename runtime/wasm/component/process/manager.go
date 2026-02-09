@@ -15,7 +15,7 @@ import (
 )
 
 type configEntry struct {
-	wasm      *api.WASMFunctionConfig
+	wasm      *api.FunctionConfig
 	method    string
 	transport string
 	wasi      api.WASIConfig

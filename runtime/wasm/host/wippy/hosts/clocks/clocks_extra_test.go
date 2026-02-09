@@ -70,8 +70,8 @@ func TestSleepPendingOp(t *testing.T) {
 	}
 }
 
-func TestPollHostPollAndNilGuards(t *testing.T) {
-	var nilHost *wippypoll.PollHost
+func TestHostPollAndNilGuards(t *testing.T) {
+	var nilHost *wippypoll.Host
 	if got := nilHost.Namespace(); got != wippypoll.PollNamespace {
 		t.Fatalf("Namespace() = %q, want %q", got, wippypoll.PollNamespace)
 	}
@@ -81,7 +81,7 @@ func TestPollHostPollAndNilGuards(t *testing.T) {
 
 	res := preview2.NewResourceTable()
 	mono := NewMonotonicClockHost(res)
-	pollHost := wippypoll.NewPollHost(res)
+	pollHost := wippypoll.NewHost(res)
 
 	ready := mono.SubscribeDuration(context.Background(), 0)
 	waiting := mono.SubscribeDuration(context.Background(), uint64(20*time.Millisecond))

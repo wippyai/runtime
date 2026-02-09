@@ -61,11 +61,11 @@ func (p *lifecycleTestPool) Send(*relay.Package) error {
 }
 
 type lifecycleTestTopology struct {
-	completeCalls int
-	registerCalls int
 	registerErr   error
 	lastResult    *runtimeapi.Result
 	lastPID       pid.PID
+	completeCalls int
+	registerCalls int
 }
 
 func (t *lifecycleTestTopology) Monitor(pid.PID, pid.PID) error { return nil }

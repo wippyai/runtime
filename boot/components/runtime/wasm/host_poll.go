@@ -13,6 +13,6 @@ var pollAliases = []string{
 
 func pollHosts(resources *preview2.ResourceTable) []wasmrt.Host {
 	return []wasmrt.Host{
-		wippypoll.NewPollHost(resources),
+		wippypoll.NewHost(resources),
 	}
 }

@@ -23,8 +23,8 @@ func (m *mockFunctionRegistry) Call(ctx context.Context, task runtimeapi.Task) (
 	return m.callFn(ctx, task)
 }
 
-func TestFuncsHost_CallString(t *testing.T) {
-	host := NewFuncsHost(&mockFunctionRegistry{
+func TestHost_CallString(t *testing.T) {
+	host := NewHost(&mockFunctionRegistry{
 		callFn: func(_ context.Context, task runtimeapi.Task) (*runtimeapi.Result, error) {
 			if task.ID.String() != "app:test" {
 				t.Fatalf("unexpected target: %s", task.ID.String())
@@ -48,8 +48,8 @@ func TestFuncsHost_CallString(t *testing.T) {
 	}
 }
 
-func TestFuncsHost_CallBytes(t *testing.T) {
-	host := NewFuncsHost(&mockFunctionRegistry{
+func TestHost_CallBytes(t *testing.T) {
+	host := NewHost(&mockFunctionRegistry{
 		callFn: func(_ context.Context, task runtimeapi.Task) (*runtimeapi.Result, error) {
 			if got := task.Payloads[0].Format(); got != payload.Bytes {
 				t.Fatalf("unexpected input format: %s", got)
@@ -71,9 +71,9 @@ func TestFuncsHost_CallBytes(t *testing.T) {
 	}
 }
 
-func TestFuncsHost_Errors(t *testing.T) {
+func TestHost_Errors(t *testing.T) {
 	t.Run("registry missing", func(t *testing.T) {
-		host := NewFuncsHost(nil)
+		host := NewHost(nil)
 		_, err := host.CallString(context.Background(), "app:test", "x")
 		if !errors.Is(err, wasm.ErrFunctionRegistryNotFound) {
 			t.Fatalf("expected ErrFunctionRegistryNotFound, got %v", err)
@@ -81,7 +81,7 @@ func TestFuncsHost_Errors(t *testing.T) {
 	})
 
 	t.Run("invalid target", func(t *testing.T) {
-		host := NewFuncsHost(&mockFunctionRegistry{})
+		host := NewHost(&mockFunctionRegistry{})
 		_, err := host.CallString(context.Background(), "invalid", "x")
 		if err == nil {
 			t.Fatal("expected invalid target error")
@@ -89,7 +89,7 @@ func TestFuncsHost_Errors(t *testing.T) {
 	})
 
 	t.Run("call error", func(t *testing.T) {
-		host := NewFuncsHost(&mockFunctionRegistry{
+		host := NewHost(&mockFunctionRegistry{
 			callFn: func(_ context.Context, _ runtimeapi.Task) (*runtimeapi.Result, error) {
 				return nil, errors.New("boom")
 			},
@@ -101,7 +101,7 @@ func TestFuncsHost_Errors(t *testing.T) {
 	})
 
 	t.Run("result error", func(t *testing.T) {
-		host := NewFuncsHost(&mockFunctionRegistry{
+		host := NewHost(&mockFunctionRegistry{
 			callFn: func(_ context.Context, _ runtimeapi.Task) (*runtimeapi.Result, error) {
 				return &runtimeapi.Result{Error: errors.New("denied")}, nil
 			},
@@ -113,7 +113,7 @@ func TestFuncsHost_Errors(t *testing.T) {
 	})
 
 	t.Run("empty result", func(t *testing.T) {
-		host := NewFuncsHost(&mockFunctionRegistry{
+		host := NewHost(&mockFunctionRegistry{
 			callFn: func(_ context.Context, _ runtimeapi.Task) (*runtimeapi.Result, error) {
 				return &runtimeapi.Result{Value: nil}, nil
 			},

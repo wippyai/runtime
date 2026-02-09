@@ -13,9 +13,9 @@ import (
 )
 
 type mockPollDispatcher struct {
-	calls       int
-	completeDur time.Duration
 	lastCmd     dispatcher.Command
+	completeDur time.Duration
+	calls       int
 }
 
 func (m *mockPollDispatcher) Dispatch(cmd dispatcher.Command) dispatcher.Handler {
@@ -39,8 +39,8 @@ func (m *mockPollDispatcher) Dispatch(cmd dispatcher.Command) dispatcher.Handler
 	})
 }
 
-func TestPollHost_RegisterAndAsyncFunctions(t *testing.T) {
-	host := NewPollHost(preview2.NewResourceTable())
+func TestHost_RegisterAndAsyncFunctions(t *testing.T) {
+	host := NewHost(preview2.NewResourceTable())
 	funcs := host.Register()
 
 	if _, ok := funcs["poll"]; !ok {
@@ -62,11 +62,11 @@ func TestPollHost_RegisterAndAsyncFunctions(t *testing.T) {
 	}
 }
 
-func TestPollHost_BlockAndDrop(t *testing.T) {
+func TestHost_BlockAndDrop(t *testing.T) {
 	resources := preview2.NewResourceTable()
 	mockDisp := &mockPollDispatcher{}
 	mono := clocks.NewMonotonicClockHost(resources)
-	host := NewPollHost(resources)
+	host := NewHost(resources)
 
 	handle := mono.SubscribeDuration(context.Background(), uint64(8*time.Millisecond))
 	if handle == 0 {
@@ -108,10 +108,10 @@ func TestPollHost_BlockAndDrop(t *testing.T) {
 	}
 }
 
-func TestPollHost_BlockRewindWhenAlreadyReady(t *testing.T) {
+func TestHost_BlockRewindWhenAlreadyReady(t *testing.T) {
 	resources := preview2.NewResourceTable()
 	mono := clocks.NewMonotonicClockHost(resources)
-	host := NewPollHost(resources)
+	host := NewHost(resources)
 
 	handle := mono.SubscribeDuration(context.Background(), uint64(2*time.Millisecond))
 	if handle == 0 {
@@ -139,10 +139,10 @@ func TestPollHost_BlockRewindWhenAlreadyReady(t *testing.T) {
 	}
 }
 
-func TestPollHost_BlockPanicsWithoutAsyncContext(t *testing.T) {
+func TestHost_BlockPanicsWithoutAsyncContext(t *testing.T) {
 	resources := preview2.NewResourceTable()
 	mono := clocks.NewMonotonicClockHost(resources)
-	host := NewPollHost(resources)
+	host := NewHost(resources)
 
 	handle := mono.SubscribeDuration(context.Background(), uint64(5*time.Millisecond))
 	if handle == 0 {
@@ -157,11 +157,11 @@ func TestPollHost_BlockPanicsWithoutAsyncContext(t *testing.T) {
 	host.MethodPollableBlock(context.Background(), handle)
 }
 
-func TestPollHost_BlockDoesNotDispatchSynchronously(t *testing.T) {
+func TestHost_BlockDoesNotDispatchSynchronously(t *testing.T) {
 	resources := preview2.NewResourceTable()
 	mockDisp := &mockPollDispatcher{completeDur: time.Millisecond}
 	mono := clocks.NewMonotonicClockHost(resources)
-	host := NewPollHost(resources)
+	host := NewHost(resources)
 
 	handle := mono.SubscribeDuration(context.Background(), uint64(50*time.Millisecond))
 	if handle == 0 {

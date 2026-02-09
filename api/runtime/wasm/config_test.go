@@ -252,16 +252,16 @@ func TestWATFunctionConfig_EffectiveTransport(t *testing.T) {
 	assert.Equal(t, TransportTypeWASIHTTP, cfg.EffectiveTransport())
 }
 
-func TestWASMFunctionConfig_Validate(t *testing.T) {
+func TestFunctionConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
 		errMsg  string
-		config  WASMFunctionConfig
+		config  FunctionConfig
 		wantErr bool
 	}{
 		{
 			name: "valid config",
-			config: WASMFunctionConfig{
+			config: FunctionConfig{
 				FS:     "app:wasm",
 				Path:   "/svc/handler.wasm",
 				Hash:   "sha256:abc123",
@@ -273,7 +273,7 @@ func TestWASMFunctionConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "valid with optional wit",
-			config: WASMFunctionConfig{
+			config: FunctionConfig{
 				FS:        "app:wasm",
 				Path:      "/svc/handler.wasm",
 				Hash:      "sha256:abc123",
@@ -285,7 +285,7 @@ func TestWASMFunctionConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "valid with wasi mappings",
-			config: WASMFunctionConfig{
+			config: FunctionConfig{
 				FS:     "app:wasm",
 				Path:   "/svc/handler.wasm",
 				Hash:   "sha256:abc123",
@@ -310,7 +310,7 @@ func TestWASMFunctionConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "missing fs",
-			config: WASMFunctionConfig{
+			config: FunctionConfig{
 				Path:   "/svc/handler.wasm",
 				Hash:   "sha256:abc123",
 				Method: "handle",
@@ -320,7 +320,7 @@ func TestWASMFunctionConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "missing path",
-			config: WASMFunctionConfig{
+			config: FunctionConfig{
 				FS:     "app:wasm",
 				Hash:   "sha256:abc123",
 				Method: "handle",
@@ -330,7 +330,7 @@ func TestWASMFunctionConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "missing hash",
-			config: WASMFunctionConfig{
+			config: FunctionConfig{
 				FS:     "app:wasm",
 				Path:   "/svc/handler.wasm",
 				Method: "handle",
@@ -340,7 +340,7 @@ func TestWASMFunctionConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "missing method",
-			config: WASMFunctionConfig{
+			config: FunctionConfig{
 				FS:   "app:wasm",
 				Path: "/svc/handler.wasm",
 				Hash: "sha256:abc123",
@@ -350,7 +350,7 @@ func TestWASMFunctionConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "invalid transport",
-			config: WASMFunctionConfig{
+			config: FunctionConfig{
 				FS:        "app:wasm",
 				Path:      "/svc/handler.wasm",
 				Hash:      "sha256:abc123",
@@ -362,7 +362,7 @@ func TestWASMFunctionConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "negative limits",
-			config: WASMFunctionConfig{
+			config: FunctionConfig{
 				FS:     "app:wasm",
 				Path:   "/svc/handler.wasm",
 				Hash:   "sha256:abc123",
@@ -376,7 +376,7 @@ func TestWASMFunctionConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "workers without size",
-			config: WASMFunctionConfig{
+			config: FunctionConfig{
 				FS:     "app:wasm",
 				Path:   "/svc/handler.wasm",
 				Hash:   "sha256:abc123",
@@ -390,7 +390,7 @@ func TestWASMFunctionConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "invalid wasi mount duplicate guest",
-			config: WASMFunctionConfig{
+			config: FunctionConfig{
 				FS:     "app:wasm",
 				Path:   "/svc/handler.wasm",
 				Hash:   "sha256:abc123",
@@ -420,8 +420,8 @@ func TestWASMFunctionConfig_Validate(t *testing.T) {
 	}
 }
 
-func TestWASMFunctionConfig_EffectiveTransport(t *testing.T) {
-	cfg := &WASMFunctionConfig{}
+func TestFunctionConfig_EffectiveTransport(t *testing.T) {
+	cfg := &FunctionConfig{}
 	assert.Equal(t, TransportTypePayload, cfg.EffectiveTransport())
 
 	cfg.Transport = TransportTypeWASIHTTP

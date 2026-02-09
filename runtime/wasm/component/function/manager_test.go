@@ -39,7 +39,7 @@ func (noopDispatcher) Dispatch(_ dispatcher.Command) dispatcher.Handler {
 func registerDefaultHostProfiles(t *testing.T, m *Manager) {
 	t.Helper()
 	profiles := []wasmcomponent.HostProfile{
-		testFuncsHostProfile(),
+		testHostProfile(),
 		testWASI1HostProfile(),
 	}
 	profiles = append(profiles, testGranularWASIProfiles(m.dispatcher)...)
@@ -58,7 +58,7 @@ func testWASI1HostProfile() wasmcomponent.HostProfile {
 	}
 }
 
-func testFuncsHostProfile() wasmcomponent.HostProfile {
+func testHostProfile() wasmcomponent.HostProfile {
 	return wasmcomponent.HostProfile{
 		Name:          wasmcomponent.HostProfileFuncs,
 		ComponentOnly: true,

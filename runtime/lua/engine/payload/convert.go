@@ -21,7 +21,7 @@ type fieldInfo struct {
 
 var structFieldCache sync.Map // map[reflect.Type][]fieldInfo
 
-const maxLuaInteger = uint64(^uint64(0) >> 1)
+const maxLuaInteger = ^uint64(0) >> 1
 
 // getStructFields returns cached field info for a given struct type.
 func getStructFields(rt reflect.Type) []fieldInfo {

@@ -69,7 +69,7 @@ func TestSecureService_DialContext_Allowed(t *testing.T) {
 	svc := NewSecureService()
 
 	// Start a listener to connect to
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := new(net.ListenConfig).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer ln.Close()
 

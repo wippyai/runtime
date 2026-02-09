@@ -121,7 +121,7 @@ func (m *Manager) addWAT(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) addWASM(ctx context.Context, entry registry.Entry) error {
-	cfg, err := wasmcomponent.UnpackConfig[api.WASMFunctionConfig](ctx, entry)
+	cfg, err := wasmcomponent.UnpackConfig[api.FunctionConfig](ctx, entry)
 	if err != nil {
 		return runtimewasm.NewUnpackConfigError("function.wasm", err)
 	}
@@ -200,7 +200,7 @@ func (m *Manager) updateWAT(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) updateWASM(ctx context.Context, entry registry.Entry) error {
-	cfg, err := wasmcomponent.UnpackConfig[api.WASMFunctionConfig](ctx, entry)
+	cfg, err := wasmcomponent.UnpackConfig[api.FunctionConfig](ctx, entry)
 	if err != nil {
 		return runtimewasm.NewUnpackConfigError("function.wasm", err)
 	}
@@ -242,7 +242,7 @@ func (m *Manager) loadModule(ctx context.Context, cfg *configEntry) (*wasmrt.Mod
 	case api.FunctionWASM:
 		return m.loadWASMModule(ctx, cfg.wasm)
 	default:
-		return nil, runtimewasm.NewInvalidEntryKindError(string(cfg.kind), api.FunctionWAT, api.FunctionWASM)
+		return nil, runtimewasm.NewInvalidEntryKindError(cfg.kind, api.FunctionWAT, api.FunctionWASM)
 	}
 }
 
@@ -266,7 +266,7 @@ func (m *Manager) loadWATModule(ctx context.Context, cfg *api.WATFunctionConfig)
 	return module, nil
 }
 
-func (m *Manager) loadWASMModule(ctx context.Context, cfg *api.WASMFunctionConfig) (*wasmrt.Module, error) {
+func (m *Manager) loadWASMModule(ctx context.Context, cfg *api.FunctionConfig) (*wasmrt.Module, error) {
 	data, err := wasmcomponent.LoadAndVerifyWASM(m.fsRegistry, cfg.FS, cfg.Path, cfg.Hash)
 	if err != nil {
 		return nil, err

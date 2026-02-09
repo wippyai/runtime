@@ -28,9 +28,9 @@ func (poolTestDispatcher) Dispatch(dispatcher.Command) dispatcher.Handler {
 }
 
 type poolTestProcess struct {
-	done   bool
 	method string
 	input  payload.Payloads
+	done   bool
 }
 
 func (p *poolTestProcess) Init(_ context.Context, method string, input payload.Payloads) error {
@@ -67,9 +67,9 @@ func TestAutoSelectPool_SelectsExpectedImplementation(t *testing.T) {
 	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil)
 
 	tests := []struct {
+		assert func(t *testing.T, p pool.Pool)
 		name   string
 		cfg    wasmapi.PoolConfig
-		assert func(t *testing.T, p pool.Pool)
 	}{
 		{
 			name: "default lazy",
@@ -128,10 +128,10 @@ func TestCreatePoolByType_CoversAllPoolTypes(t *testing.T) {
 	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil)
 
 	tests := []struct {
+		assert   func(t *testing.T, p pool.Pool)
 		name     string
 		poolType string
 		cfg      wasmapi.PoolConfig
-		assert   func(t *testing.T, p pool.Pool)
 	}{
 		{
 			name:     "inline",
