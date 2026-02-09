@@ -19,90 +19,133 @@ func DefaultHostProfiles(log *zap.Logger, disp dispatcher.Dispatcher) []wasmcomp
 	return []wasmcomponent.HostProfile{
 		funcsHostProfile(log),
 		wasi1HostProfile(),
-		wasi2HostProfile(disp, log),
+		wasiIOProfile(log),
+		wasiPollProfile(log),
+		wasiClocksProfile(log),
+		wasiCLIProfile(log),
+		wasiFilesystemProfile(log),
+		wasiRandomProfile(log),
+		wasiSocketsProfile(log),
+		wasiHTTPProfile(disp, log),
 	}
 }
 
-// funcsHostProfile composes the wippy function-call host profile.
-func funcsHostProfile(log *zap.Logger) wasmcomponent.HostProfile {
-	aliases := []string{wasmcomponent.HostProfileFuncs}
-	aliases = append(aliases, funcsAliases...)
+// getSharedResources retrieves or creates the shared ResourceTable from the HostRegistry in context.
+func getSharedResources(ctx context.Context) *preview2.ResourceTable {
+	reg := wasmcomponent.GetHostRegistry(ctx)
+	if reg == nil {
+		return preview2.NewResourceTable()
+	}
+	if res := reg.SharedResources(); res != nil {
+		return res.(*preview2.ResourceTable)
+	}
+	rt := preview2.NewResourceTable()
+	reg.SetSharedResources(rt)
+	return rt
+}
 
+func registerHosts(ctx context.Context, rt *wasmrt.Runtime, factories []hostFactory, log *zap.Logger, profileName string) error {
+	resources := getSharedResources(ctx)
+	for _, factory := range factories {
+		for _, host := range factory(resources) {
+			if err := rt.RegisterHost(host); err != nil {
+				return runtimewasm.NewRegisterHostError(host.Namespace(), err)
+			}
+		}
+	}
+	if log != nil {
+		log.Info("wasm host profile registered", zap.String("profile", profileName))
+	}
+	return nil
+}
+
+func wasiIOProfile(log *zap.Logger) wasmcomponent.HostProfile {
 	return wasmcomponent.HostProfile{
-		Name:          wasmcomponent.HostProfileFuncs,
+		Name:          wasmcomponent.HostProfileWASIIO,
 		ComponentOnly: true,
-		Aliases:       aliases,
+		Aliases:       append([]string{wasmcomponent.HostProfileWASIIO}, ioAliases...),
 		Register: func(ctx context.Context, rt *wasmrt.Runtime) error {
-			hosts, err := funcsHosts(ctx)
-			if err != nil {
-				return err
-			}
-			for _, host := range hosts {
-				if err := rt.RegisterHost(host); err != nil {
-					return runtimewasm.NewRegisterHostError(host.Namespace(), err)
-				}
-			}
-			if log != nil {
-				log.Info("wasm host profile registered", zap.String("profile", wasmcomponent.HostProfileFuncs))
-			}
-			return nil
+			return registerHosts(ctx, rt, []hostFactory{ioHosts}, log, wasmcomponent.HostProfileWASIIO)
 		},
 	}
 }
 
-// wasi2HostProfile composes all WASI2 host capabilities into a single profile.
-// Hosts share a per-runtime resource table created during registration.
-func wasi2HostProfile(d dispatcher.Dispatcher, log *zap.Logger) wasmcomponent.HostProfile {
-	aliases := []string{
-		wasmcomponent.HostProfileWASI2,
-		"wasi-preview2",
-		"preview2",
-	}
-	aliases = append(aliases, clocksAliases...)
-	aliases = append(aliases, pollAliases...)
-	aliases = append(aliases, ioAliases...)
-	aliases = append(aliases, cliAliases...)
-	aliases = append(aliases, stdioAliases...)
-	aliases = append(aliases, filesystemAliases...)
-	aliases = append(aliases, randomAliases...)
-	aliases = append(aliases, socketsAliases...)
-	aliases = append(aliases, httpAliases...)
-
-	factories := []hostFactory{
-		clocksHosts,
-		pollHosts,
-		ioHosts,
-		cliHosts,
-		stdioHosts,
-		filesystemHosts,
-		randomHosts,
-		socketsHosts,
-		httpHosts,
-	}
-
+func wasiPollProfile(log *zap.Logger) wasmcomponent.HostProfile {
 	return wasmcomponent.HostProfile{
-		Name:          wasmcomponent.HostProfileWASI2,
+		Name:          wasmcomponent.HostProfileWASIPoll,
 		ComponentOnly: true,
-		Aliases:       aliases,
+		Aliases:       append([]string{wasmcomponent.HostProfileWASIPoll}, pollAliases...),
+		Register: func(ctx context.Context, rt *wasmrt.Runtime) error {
+			return registerHosts(ctx, rt, []hostFactory{pollHosts}, log, wasmcomponent.HostProfileWASIPoll)
+		},
+	}
+}
+
+func wasiClocksProfile(log *zap.Logger) wasmcomponent.HostProfile {
+	return wasmcomponent.HostProfile{
+		Name:          wasmcomponent.HostProfileWASIClocks,
+		ComponentOnly: true,
+		Aliases:       append([]string{wasmcomponent.HostProfileWASIClocks}, clocksAliases...),
+		Register: func(ctx context.Context, rt *wasmrt.Runtime) error {
+			return registerHosts(ctx, rt, []hostFactory{clocksHosts}, log, wasmcomponent.HostProfileWASIClocks)
+		},
+	}
+}
+
+func wasiCLIProfile(log *zap.Logger) wasmcomponent.HostProfile {
+	return wasmcomponent.HostProfile{
+		Name:          wasmcomponent.HostProfileWASICLI,
+		ComponentOnly: true,
+		Aliases:       append([]string{wasmcomponent.HostProfileWASICLI}, cliAliases...),
+		Register: func(ctx context.Context, rt *wasmrt.Runtime) error {
+			return registerHosts(ctx, rt, []hostFactory{cliHosts}, log, wasmcomponent.HostProfileWASICLI)
+		},
+	}
+}
+
+func wasiFilesystemProfile(log *zap.Logger) wasmcomponent.HostProfile {
+	return wasmcomponent.HostProfile{
+		Name:          wasmcomponent.HostProfileWASIFilesystem,
+		ComponentOnly: true,
+		Aliases:       append([]string{wasmcomponent.HostProfileWASIFilesystem}, filesystemAliases...),
+		Register: func(ctx context.Context, rt *wasmrt.Runtime) error {
+			return registerHosts(ctx, rt, []hostFactory{filesystemHosts}, log, wasmcomponent.HostProfileWASIFilesystem)
+		},
+	}
+}
+
+func wasiRandomProfile(log *zap.Logger) wasmcomponent.HostProfile {
+	return wasmcomponent.HostProfile{
+		Name:          wasmcomponent.HostProfileWASIRandom,
+		ComponentOnly: true,
+		Aliases:       append([]string{wasmcomponent.HostProfileWASIRandom}, randomAliases...),
+		Register: func(ctx context.Context, rt *wasmrt.Runtime) error {
+			return registerHosts(ctx, rt, []hostFactory{randomHosts}, log, wasmcomponent.HostProfileWASIRandom)
+		},
+	}
+}
+
+func wasiSocketsProfile(log *zap.Logger) wasmcomponent.HostProfile {
+	return wasmcomponent.HostProfile{
+		Name:          wasmcomponent.HostProfileWASISockets,
+		ComponentOnly: true,
+		Aliases:       append([]string{wasmcomponent.HostProfileWASISockets}, socketsAliases...),
+		Register: func(ctx context.Context, rt *wasmrt.Runtime) error {
+			return registerHosts(ctx, rt, []hostFactory{socketsHosts}, log, wasmcomponent.HostProfileWASISockets)
+		},
+	}
+}
+
+func wasiHTTPProfile(d dispatcher.Dispatcher, log *zap.Logger) wasmcomponent.HostProfile {
+	return wasmcomponent.HostProfile{
+		Name:          wasmcomponent.HostProfileWASIHTTP,
+		ComponentOnly: true,
+		Aliases:       append([]string{wasmcomponent.HostProfileWASIHTTP}, httpAliases...),
 		Register: func(ctx context.Context, rt *wasmrt.Runtime) error {
 			if d == nil {
 				return runtimewasm.ErrDispatcherNotFound
 			}
-
-			resources := preview2.NewResourceTable()
-
-			for _, factory := range factories {
-				for _, host := range factory(resources) {
-					if err := rt.RegisterHost(host); err != nil {
-						return runtimewasm.NewRegisterHostError(host.Namespace(), err)
-					}
-				}
-			}
-
-			if log != nil {
-				log.Info("wasm host profile registered", zap.String("profile", wasmcomponent.HostProfileWASI2))
-			}
-			return nil
+			return registerHosts(ctx, rt, []hostFactory{httpHosts}, log, wasmcomponent.HostProfileWASIHTTP)
 		},
 	}
 }

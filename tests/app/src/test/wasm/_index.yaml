@@ -81,16 +81,19 @@ entries:
       type: adaptive
       max_size: 2
 
-  - name: compute_component_wasi2
+  - name: compute_component_wasi
     kind: function.wasm
     meta:
-      comment: Component wasm with wasi2 host profile registration
+      comment: Component wasm with granular WASI host profile registration
     fs: app.test.wasm:assets
     path: /minimal_component.wasm
     hash: sha256:292b796376f8b4cc360acf2ea6b82d1084871c3607a079f30b446da8e5c984a4
     method: compute
     imports:
-      - wasi2
+      - wasi:io
+      - wasi:poll
+      - wasi:clocks
+      - wasi:cli
     pool:
       type: inline
 
@@ -200,7 +203,9 @@ entries:
     hash: sha256:0044be3a042b7a11dae878667e7eb967c14d041825b1448b72b16d97e9ac706d
     method: "test-sleep#sleep-ms"
     imports:
-      - wasi2
+      - wasi:io
+      - wasi:poll
+      - wasi:clocks
     pool:
       type: inline
 
@@ -213,7 +218,9 @@ entries:
     hash: sha256:0044be3a042b7a11dae878667e7eb967c14d041825b1448b72b16d97e9ac706d
     method: "test-sleep#work-with-sleep"
     imports:
-      - wasi2
+      - wasi:io
+      - wasi:poll
+      - wasi:clocks
     pool:
       type: inline
 
@@ -388,3 +395,4 @@ entries:
       - time
     imports:
       assert2: app.lib:assert
+

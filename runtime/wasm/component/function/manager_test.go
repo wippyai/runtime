@@ -38,11 +38,12 @@ func (noopDispatcher) Dispatch(_ dispatcher.Command) dispatcher.Handler {
 
 func registerDefaultHostProfiles(t *testing.T, m *Manager) {
 	t.Helper()
-	require.NoError(t, m.RegisterHostProfiles(
+	profiles := []wasmcomponent.HostProfile{
 		testFuncsHostProfile(),
 		testWASI1HostProfile(),
-		testWASI2HostProfile(m.dispatcher),
-	))
+	}
+	profiles = append(profiles, testGranularWASIProfiles(m.dispatcher)...)
+	require.NoError(t, m.RegisterHostProfiles(profiles...))
 }
 
 func testWASI1HostProfile() wasmcomponent.HostProfile {
@@ -74,72 +75,102 @@ func testFuncsHostProfile() wasmcomponent.HostProfile {
 	}
 }
 
-func testWASI2HostProfile(d dispatcher.Dispatcher) wasmcomponent.HostProfile {
-	return wasmcomponent.HostProfile{
-		Name:          wasmcomponent.HostProfileWASI2,
-		ComponentOnly: true,
-		Aliases: []string{
-			wasmcomponent.HostProfileWASI2,
-			"wasi-preview2",
-			"preview2",
-			"wasi:clocks/wall-clock@0.2.3",
-			"wasi:clocks/monotonic-clock@0.2.8",
-			"wasi:io/poll@0.2.8",
-			"wasi:io/error@0.2.8",
-			"wasi:io/streams@0.2.8",
-			"wasi:cli/environment@0.2.3",
-			"wasi:cli/exit@0.2.3",
-			"wasi:cli/stdin@0.2.3",
-			"wasi:cli/stdout@0.2.3",
-			"wasi:cli/stderr@0.2.3",
-			"wasi:cli/terminal-stdin@0.2.3",
-			"wasi:cli/terminal-stdout@0.2.3",
-			"wasi:cli/terminal-stderr@0.2.3",
-			"wasi:filesystem/types@0.2.3",
-			"wasi:filesystem/preopens@0.2.3",
-			"wasi:random/random@0.2.0",
-			"wasi:random/insecure@0.2.0",
-			"wasi:random/insecure-seed@0.2.0",
-			"wasi:sockets/instance-network@0.2.0",
-			"wasi:sockets/tcp-create-socket@0.2.0",
-			"wasi:sockets/tcp@0.2.0",
-			"wasi:sockets/udp-create-socket@0.2.0",
-			"wasi:sockets/udp@0.2.0",
-			"wasi:sockets/ip-name-lookup@0.2.0",
-			"wasi:http/types@0.2.8",
-			"wasi:http/outgoing-handler@0.2.8",
-			"wasi:clocks/wall-clock",
-			"wasi:clocks/monotonic-clock",
-			"wasi:io/poll",
-			"wasi:io/error",
-			"wasi:io/streams",
-			"wasi:cli/environment",
-			"wasi:cli/exit",
-			"wasi:cli/stdin",
-			"wasi:cli/stdout",
-			"wasi:cli/stderr",
-			"wasi:cli/terminal-stdin",
-			"wasi:cli/terminal-stdout",
-			"wasi:cli/terminal-stderr",
-			"wasi:filesystem/types",
-			"wasi:filesystem/preopens",
-			"wasi:random/random",
-			"wasi:random/insecure",
-			"wasi:random/insecure-seed",
-			"wasi:sockets/instance-network",
-			"wasi:sockets/tcp-create-socket",
-			"wasi:sockets/tcp",
-			"wasi:sockets/udp-create-socket",
-			"wasi:sockets/udp",
-			"wasi:sockets/ip-name-lookup",
-			"wasi:http/types",
-			"wasi:http/outgoing-handler",
+func testGranularWASIProfiles(d dispatcher.Dispatcher) []wasmcomponent.HostProfile {
+	return []wasmcomponent.HostProfile{
+		{
+			Name:          wasmcomponent.HostProfileWASIIO,
+			ComponentOnly: true,
+			Aliases: []string{
+				wasmcomponent.HostProfileWASIIO,
+				"wasi:io/error",
+				"wasi:io/streams",
+			},
+			Register: func(_ context.Context, _ *wasmrt.Runtime) error { return nil },
 		},
-		Register: func(_ context.Context, rt *wasmrt.Runtime) error {
-			if d == nil {
-				return runtimewasm.ErrDispatcherNotFound
-			}
-			return nil
+		{
+			Name:          wasmcomponent.HostProfileWASIPoll,
+			ComponentOnly: true,
+			Aliases: []string{
+				wasmcomponent.HostProfileWASIPoll,
+				"wasi:io/poll",
+			},
+			Register: func(_ context.Context, _ *wasmrt.Runtime) error { return nil },
+		},
+		{
+			Name:          wasmcomponent.HostProfileWASIClocks,
+			ComponentOnly: true,
+			Aliases: []string{
+				wasmcomponent.HostProfileWASIClocks,
+				"wasi:clocks/wall-clock",
+				"wasi:clocks/monotonic-clock",
+			},
+			Register: func(_ context.Context, _ *wasmrt.Runtime) error { return nil },
+		},
+		{
+			Name:          wasmcomponent.HostProfileWASICLI,
+			ComponentOnly: true,
+			Aliases: []string{
+				wasmcomponent.HostProfileWASICLI,
+				"wasi:cli/environment",
+				"wasi:cli/exit",
+				"wasi:cli/stdin",
+				"wasi:cli/stdout",
+				"wasi:cli/stderr",
+				"wasi:cli/terminal-stdin",
+				"wasi:cli/terminal-stdout",
+				"wasi:cli/terminal-stderr",
+			},
+			Register: func(_ context.Context, _ *wasmrt.Runtime) error { return nil },
+		},
+		{
+			Name:          wasmcomponent.HostProfileWASIFilesystem,
+			ComponentOnly: true,
+			Aliases: []string{
+				wasmcomponent.HostProfileWASIFilesystem,
+				"wasi:filesystem/types",
+				"wasi:filesystem/preopens",
+			},
+			Register: func(_ context.Context, _ *wasmrt.Runtime) error { return nil },
+		},
+		{
+			Name:          wasmcomponent.HostProfileWASIRandom,
+			ComponentOnly: true,
+			Aliases: []string{
+				wasmcomponent.HostProfileWASIRandom,
+				"wasi:random/random",
+				"wasi:random/insecure",
+				"wasi:random/insecure-seed",
+			},
+			Register: func(_ context.Context, _ *wasmrt.Runtime) error { return nil },
+		},
+		{
+			Name:          wasmcomponent.HostProfileWASISockets,
+			ComponentOnly: true,
+			Aliases: []string{
+				wasmcomponent.HostProfileWASISockets,
+				"wasi:sockets/instance-network",
+				"wasi:sockets/tcp-create-socket",
+				"wasi:sockets/tcp",
+				"wasi:sockets/udp-create-socket",
+				"wasi:sockets/udp",
+				"wasi:sockets/ip-name-lookup",
+			},
+			Register: func(_ context.Context, _ *wasmrt.Runtime) error { return nil },
+		},
+		{
+			Name:          wasmcomponent.HostProfileWASIHTTP,
+			ComponentOnly: true,
+			Aliases: []string{
+				wasmcomponent.HostProfileWASIHTTP,
+				"wasi:http/types",
+				"wasi:http/outgoing-handler",
+			},
+			Register: func(_ context.Context, _ *wasmrt.Runtime) error {
+				if d == nil {
+					return runtimewasm.ErrDispatcherNotFound
+				}
+				return nil
+			},
 		},
 	}
 }
@@ -222,7 +253,7 @@ func TestEnsureImportHosts_FuncsRegistersOnce(t *testing.T) {
 	require.NoError(t, m.ensureImportHosts(ctx, imports, true))
 }
 
-func TestEnsureImportHosts_WASI2RegistersOnce(t *testing.T) {
+func TestEnsureImportHosts_GranularProfileRegistersOnce(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 
 	m := NewManager(zap.NewNop(), nil, noopDispatcher{}, nil)
@@ -231,14 +262,14 @@ func TestEnsureImportHosts_WASI2RegistersOnce(t *testing.T) {
 	t.Cleanup(m.Stop)
 
 	imports := []registry.ID{
-		registry.ParseID("wasi2"),
+		registry.ParseID("wasi:clocks"),
 	}
 
 	require.NoError(t, m.ensureImportHosts(ctx, imports, true))
 	require.NoError(t, m.ensureImportHosts(ctx, imports, true))
 }
 
-func TestEnsureImportHosts_WASI2RequiresDispatcher(t *testing.T) {
+func TestEnsureImportHosts_HTTPRequiresDispatcher(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 
 	m := NewManager(zap.NewNop(), nil, nil, nil)
@@ -246,7 +277,7 @@ func TestEnsureImportHosts_WASI2RequiresDispatcher(t *testing.T) {
 	require.NoError(t, m.Start(ctx))
 	t.Cleanup(m.Stop)
 
-	err := m.ensureImportHosts(ctx, []registry.ID{registry.ParseID("wasi2")}, true)
+	err := m.ensureImportHosts(ctx, []registry.ID{registry.ParseID("wasi:http")}, true)
 	require.Error(t, err)
 	assert.Contains(t, strings.ToLower(err.Error()), "dispatcher not found")
 }
@@ -325,23 +356,52 @@ func TestResolveHostProfile(t *testing.T) {
 		want   string
 		wantOK bool
 	}{
+		// funcs
 		{name: "funcs short", id: registry.ParseID("funcs"), want: wasmcomponent.HostProfileFuncs, wantOK: true},
 		{name: "funcs versioned", id: registry.ParseID("funcs@0.1.0"), want: wasmcomponent.HostProfileFuncs, wantOK: true},
 		{name: "funcs namespace", id: registry.ParseID("wippy:runtime/funcs@0.1.0"), want: wasmcomponent.HostProfileFuncs, wantOK: true},
+		// wasi1
 		{name: "wasi1 short", id: registry.ParseID("wasi1"), want: wasmcomponent.HostProfileWASI1, wantOK: true},
 		{name: "wasi preview1", id: registry.ParseID("wasi_snapshot_preview1"), want: wasmcomponent.HostProfileWASI1, wantOK: true},
-		{name: "wasi2 short", id: registry.ParseID("wasi2"), want: wasmcomponent.HostProfileWASI2, wantOK: true},
-		{name: "wasi2 versioned", id: registry.ParseID("wasi2@0.2.8"), want: wasmcomponent.HostProfileWASI2, wantOK: true},
-		{name: "wasi2 canonical poll", id: registry.ParseID("wasi:io/poll@0.2.8"), want: wasmcomponent.HostProfileWASI2, wantOK: true},
-		{name: "wasi2 canonical env", id: registry.ParseID("wasi:cli/environment@0.2.3"), want: wasmcomponent.HostProfileWASI2, wantOK: true},
-		{name: "wasi2 short env", id: registry.ParseID("wasi:cli/environment"), want: wasmcomponent.HostProfileWASI2, wantOK: true},
-		{name: "wasi2 canonical fs types", id: registry.ParseID("wasi:filesystem/types@0.2.3"), want: wasmcomponent.HostProfileWASI2, wantOK: true},
-		{name: "wasi2 canonical http outgoing", id: registry.ParseID("wasi:http/outgoing-handler@0.2.8"), want: wasmcomponent.HostProfileWASI2, wantOK: true},
-		{name: "wasi2 canonical cli stdout", id: registry.ParseID("wasi:cli/stdout@0.2.3"), want: wasmcomponent.HostProfileWASI2, wantOK: true},
-		{name: "wasi2 canonical preopens", id: registry.ParseID("wasi:filesystem/preopens@0.2.3"), want: wasmcomponent.HostProfileWASI2, wantOK: true},
-		{name: "wasi2 canonical sockets tcp", id: registry.ParseID("wasi:sockets/tcp@0.2.0"), want: wasmcomponent.HostProfileWASI2, wantOK: true},
-		{name: "wasi2 incoming handler is export-side", id: registry.ParseID("wasi:http/incoming-handler@0.2.8"), want: "", wantOK: false},
-		{name: "wasi2 cli run is export-side", id: registry.ParseID("wasi:cli/run@0.2.3"), want: "", wantOK: false},
+		// wasi:io
+		{name: "wasi:io short", id: registry.ParseID("wasi:io"), want: wasmcomponent.HostProfileWASIIO, wantOK: true},
+		{name: "wasi:io/error", id: registry.ParseID("wasi:io/error@0.2.8"), want: wasmcomponent.HostProfileWASIIO, wantOK: true},
+		{name: "wasi:io/streams", id: registry.ParseID("wasi:io/streams"), want: wasmcomponent.HostProfileWASIIO, wantOK: true},
+		// wasi:poll
+		{name: "wasi:poll short", id: registry.ParseID("wasi:poll"), want: wasmcomponent.HostProfileWASIPoll, wantOK: true},
+		{name: "wasi:io/poll canonical", id: registry.ParseID("wasi:io/poll@0.2.8"), want: wasmcomponent.HostProfileWASIPoll, wantOK: true},
+		// wasi:clocks
+		{name: "wasi:clocks short", id: registry.ParseID("wasi:clocks"), want: wasmcomponent.HostProfileWASIClocks, wantOK: true},
+		{name: "wasi:clocks/wall-clock", id: registry.ParseID("wasi:clocks/wall-clock@0.2.3"), want: wasmcomponent.HostProfileWASIClocks, wantOK: true},
+		{name: "wasi:clocks/monotonic-clock", id: registry.ParseID("wasi:clocks/monotonic-clock"), want: wasmcomponent.HostProfileWASIClocks, wantOK: true},
+		// wasi:cli
+		{name: "wasi:cli short", id: registry.ParseID("wasi:cli"), want: wasmcomponent.HostProfileWASICLI, wantOK: true},
+		{name: "wasi:cli/environment", id: registry.ParseID("wasi:cli/environment@0.2.3"), want: wasmcomponent.HostProfileWASICLI, wantOK: true},
+		{name: "wasi:cli/exit", id: registry.ParseID("wasi:cli/exit@0.2.3"), want: wasmcomponent.HostProfileWASICLI, wantOK: true},
+		{name: "wasi:cli/stdout", id: registry.ParseID("wasi:cli/stdout@0.2.3"), want: wasmcomponent.HostProfileWASICLI, wantOK: true},
+		{name: "wasi:cli/stderr", id: registry.ParseID("wasi:cli/stderr"), want: wasmcomponent.HostProfileWASICLI, wantOK: true},
+		{name: "wasi:cli/terminal-stdin", id: registry.ParseID("wasi:cli/terminal-stdin"), want: wasmcomponent.HostProfileWASICLI, wantOK: true},
+		// wasi:filesystem
+		{name: "wasi:filesystem short", id: registry.ParseID("wasi:filesystem"), want: wasmcomponent.HostProfileWASIFilesystem, wantOK: true},
+		{name: "wasi:filesystem/types", id: registry.ParseID("wasi:filesystem/types@0.2.3"), want: wasmcomponent.HostProfileWASIFilesystem, wantOK: true},
+		{name: "wasi:filesystem/preopens", id: registry.ParseID("wasi:filesystem/preopens@0.2.3"), want: wasmcomponent.HostProfileWASIFilesystem, wantOK: true},
+		// wasi:random
+		{name: "wasi:random short", id: registry.ParseID("wasi:random"), want: wasmcomponent.HostProfileWASIRandom, wantOK: true},
+		{name: "wasi:random/random", id: registry.ParseID("wasi:random/random@0.2.0"), want: wasmcomponent.HostProfileWASIRandom, wantOK: true},
+		{name: "wasi:random/insecure", id: registry.ParseID("wasi:random/insecure"), want: wasmcomponent.HostProfileWASIRandom, wantOK: true},
+		// wasi:sockets
+		{name: "wasi:sockets short", id: registry.ParseID("wasi:sockets"), want: wasmcomponent.HostProfileWASISockets, wantOK: true},
+		{name: "wasi:sockets/tcp", id: registry.ParseID("wasi:sockets/tcp@0.2.0"), want: wasmcomponent.HostProfileWASISockets, wantOK: true},
+		{name: "wasi:sockets/udp", id: registry.ParseID("wasi:sockets/udp"), want: wasmcomponent.HostProfileWASISockets, wantOK: true},
+		{name: "wasi:sockets/ip-name-lookup", id: registry.ParseID("wasi:sockets/ip-name-lookup"), want: wasmcomponent.HostProfileWASISockets, wantOK: true},
+		// wasi:http
+		{name: "wasi:http short", id: registry.ParseID("wasi:http"), want: wasmcomponent.HostProfileWASIHTTP, wantOK: true},
+		{name: "wasi:http/types", id: registry.ParseID("wasi:http/types@0.2.8"), want: wasmcomponent.HostProfileWASIHTTP, wantOK: true},
+		{name: "wasi:http/outgoing-handler", id: registry.ParseID("wasi:http/outgoing-handler@0.2.8"), want: wasmcomponent.HostProfileWASIHTTP, wantOK: true},
+		// export-side (not imported)
+		{name: "wasi:http/incoming-handler is export-side", id: registry.ParseID("wasi:http/incoming-handler@0.2.8"), want: "", wantOK: false},
+		{name: "wasi:cli/run is export-side", id: registry.ParseID("wasi:cli/run@0.2.3"), want: "", wantOK: false},
+		// unknown
 		{name: "unknown", id: registry.ParseID("custom-host"), want: "", wantOK: false},
 	}
 
@@ -354,6 +414,32 @@ func TestResolveHostProfile(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSharedResourceTable(t *testing.T) {
+	reg := wasmcomponent.NewHostRegistry()
+
+	assert.Nil(t, reg.SharedResources())
+
+	type fakeTable struct{ id int }
+	table := &fakeTable{id: 42}
+	reg.SetSharedResources(table)
+
+	got := reg.SharedResources()
+	require.NotNil(t, got)
+	assert.Equal(t, 42, got.(*fakeTable).id)
+
+	reg.ResetLoaded()
+	assert.Nil(t, reg.SharedResources())
+}
+
+func TestHostRegistryContext(t *testing.T) {
+	ctx := context.Background()
+	assert.Nil(t, wasmcomponent.GetHostRegistry(ctx))
+
+	reg := wasmcomponent.NewHostRegistry()
+	ctx = wasmcomponent.WithHostRegistry(ctx, reg)
+	assert.Equal(t, reg, wasmcomponent.GetHostRegistry(ctx))
 }
 
 var _ functionapi.Registry = noopFunctionRegistry{}

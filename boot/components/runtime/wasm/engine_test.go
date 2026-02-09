@@ -50,17 +50,18 @@ func TestEngineAlias(t *testing.T) {
 
 func TestDefaultHostProfiles(t *testing.T) {
 	profiles := DefaultHostProfiles(nil, nil)
-	if len(profiles) != 3 {
-		t.Fatalf("DefaultHostProfiles() len = %d, want 3", len(profiles))
+	want := []string{
+		"funcs", "wasi1",
+		"wasi:io", "wasi:poll", "wasi:clocks", "wasi:cli",
+		"wasi:filesystem", "wasi:random", "wasi:sockets", "wasi:http",
 	}
-	if profiles[0].Name != "funcs" {
-		t.Fatalf("profiles[0].Name = %q, want funcs", profiles[0].Name)
+	if len(profiles) != len(want) {
+		t.Fatalf("DefaultHostProfiles() len = %d, want %d", len(profiles), len(want))
 	}
-	if profiles[1].Name != "wasi1" {
-		t.Fatalf("profiles[1].Name = %q, want wasi1", profiles[1].Name)
-	}
-	if profiles[2].Name != "wasi2" {
-		t.Fatalf("profiles[2].Name = %q, want wasi2", profiles[2].Name)
+	for i, name := range want {
+		if profiles[i].Name != name {
+			t.Fatalf("profiles[%d].Name = %q, want %q", i, profiles[i].Name, name)
+		}
 	}
 }
 

@@ -17,7 +17,8 @@ func TestHostRegistryResolve(t *testing.T) {
 	r := NewHostRegistry()
 	require.NoError(t, r.RegisterProfiles(
 		HostProfile{Name: "funcs", Aliases: []string{"wippy:runtime/funcs@0.1.0"}},
-		HostProfile{Name: "wasi2", Aliases: []string{"wasi:io/poll@0.2.8", "wasi:filesystem/types@0.2.3"}},
+		HostProfile{Name: HostProfileWASIPoll, Aliases: []string{"wasi:io/poll@0.2.8"}},
+		HostProfile{Name: HostProfileWASIFilesystem, Aliases: []string{"wasi:filesystem/types@0.2.3"}},
 	))
 
 	cases := []struct {
@@ -28,8 +29,8 @@ func TestHostRegistryResolve(t *testing.T) {
 	}{
 		{name: "short", id: registry.ParseID("funcs"), want: "funcs", wantOK: true},
 		{name: "canonical versioned", id: registry.ParseID("wippy:runtime/funcs@0.1.0"), want: "funcs", wantOK: true},
-		{name: "alias stripped version", id: registry.ParseID("wasi:io/poll@0.2.9"), want: "wasi2", wantOK: true},
-		{name: "fs types short", id: registry.ParseID("wasi:filesystem/types"), want: "wasi2", wantOK: true},
+		{name: "alias stripped version", id: registry.ParseID("wasi:io/poll@0.2.9"), want: HostProfileWASIPoll, wantOK: true},
+		{name: "fs types short", id: registry.ParseID("wasi:filesystem/types"), want: HostProfileWASIFilesystem, wantOK: true},
 		{name: "unknown", id: registry.ParseID("unknown"), wantOK: false},
 	}
 

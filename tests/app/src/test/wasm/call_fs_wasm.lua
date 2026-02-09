@@ -16,7 +16,7 @@ local function main()
 	call_and_assert("app.test.wasm:compute_component_lazy", 42, 6, 7)
 	call_and_assert("app.test.wasm:compute_component_static", 42, 6, 7)
 	call_and_assert("app.test.wasm:compute_component_adaptive", 42, 6, 7)
-	call_and_assert("app.test.wasm:compute_component_wasi2", 42, 6, 7)
+	call_and_assert("app.test.wasm:compute_component_wasi", 42, 6, 7)
 
 	return true
 end

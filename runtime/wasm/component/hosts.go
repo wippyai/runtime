@@ -14,7 +14,15 @@ import (
 const (
 	HostProfileFuncs = "funcs"
 	HostProfileWASI1 = "wasi1"
-	HostProfileWASI2 = "wasi2"
+
+	HostProfileWASIIO         = "wasi:io"
+	HostProfileWASIPoll       = "wasi:poll"
+	HostProfileWASIClocks     = "wasi:clocks"
+	HostProfileWASICLI        = "wasi:cli"
+	HostProfileWASIFilesystem = "wasi:filesystem"
+	HostProfileWASIRandom     = "wasi:random"
+	HostProfileWASISockets    = "wasi:sockets"
+	HostProfileWASIHTTP       = "wasi:http"
 )
 
 // HostProfile defines a pluggable wasm host import profile.
@@ -26,13 +34,27 @@ type HostProfile struct {
 	Register      func(ctx context.Context, rt *wasmrt.Runtime) error
 }
 
+type hostRegistryKey struct{}
+
+// WithHostRegistry attaches a HostRegistry to the context.
+func WithHostRegistry(ctx context.Context, reg *HostRegistry) context.Context {
+	return context.WithValue(ctx, hostRegistryKey{}, reg)
+}
+
+// GetHostRegistry extracts the HostRegistry from context.
+func GetHostRegistry(ctx context.Context) *HostRegistry {
+	reg, _ := ctx.Value(hostRegistryKey{}).(*HostRegistry)
+	return reg
+}
+
 // HostRegistry resolves import IDs to host profiles and registers them once.
 type HostRegistry struct {
-	mu         sync.RWMutex
-	registerMu sync.Mutex
-	profiles   map[string]HostProfile
-	aliases    map[string]string
-	loaded     map[string]bool
+	mu              sync.RWMutex
+	registerMu      sync.Mutex
+	profiles        map[string]HostProfile
+	aliases         map[string]string
+	loaded          map[string]bool
+	sharedResources any
 }
 
 // NewHostRegistry creates an empty host registry.
@@ -44,11 +66,26 @@ func NewHostRegistry() *HostRegistry {
 	}
 }
 
-// ResetLoaded clears per-runtime loaded profile state.
+// SharedResources returns the shared resource state for this registry.
+func (r *HostRegistry) SharedResources() any {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.sharedResources
+}
+
+// SetSharedResources stores shared resource state in the registry.
+func (r *HostRegistry) SetSharedResources(v any) {
+	r.mu.Lock()
+	r.sharedResources = v
+	r.mu.Unlock()
+}
+
+// ResetLoaded clears per-runtime loaded profile state and shared resources.
 // Call this when the runtime instance is recreated.
 func (r *HostRegistry) ResetLoaded() {
 	r.mu.Lock()
 	r.loaded = make(map[string]bool)
+	r.sharedResources = nil
 	r.mu.Unlock()
 }
 
@@ -88,7 +125,7 @@ func (r *HostRegistry) RegisterProfiles(profiles ...HostProfile) error {
 // Resolve maps an import ID to a registered host profile.
 func (r *HostRegistry) Resolve(id registry.ID) (HostProfile, bool) {
 	tokens := []string{
-		normalizeImportToken(string(id.Name)),
+		normalizeImportToken(id.Name),
 		normalizeImportToken(id.String()),
 	}
 
@@ -171,7 +208,8 @@ func (r *HostRegistry) ensureLoaded(ctx context.Context, rt *wasmrt.Runtime, pro
 		return nil
 	}
 
-	if err := profile.Register(ctx, rt); err != nil {
+	regCtx := WithHostRegistry(ctx, r)
+	if err := profile.Register(regCtx, rt); err != nil {
 		return err
 	}
 
