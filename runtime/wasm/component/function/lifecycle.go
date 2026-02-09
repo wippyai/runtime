@@ -94,6 +94,7 @@ func (m *Manager) addWAT(ctx context.Context, entry registry.Entry) error {
 		wat:       cfg,
 		method:    cfg.Method,
 		transport: cfg.EffectiveTransport(),
+		wasi:      cfg.WASI,
 		pool:      cfg.Pool,
 		limits:    cfg.Limits,
 		kind:      api.FunctionWAT,
@@ -134,6 +135,7 @@ func (m *Manager) addWASM(ctx context.Context, entry registry.Entry) error {
 		wasm:      cfg,
 		method:    cfg.Method,
 		transport: cfg.EffectiveTransport(),
+		wasi:      cfg.WASI,
 		pool:      cfg.Pool,
 		limits:    cfg.Limits,
 		kind:      api.FunctionWASM,
@@ -176,6 +178,7 @@ func (m *Manager) updateWAT(ctx context.Context, entry registry.Entry) error {
 		wat:       cfg,
 		method:    cfg.Method,
 		transport: cfg.EffectiveTransport(),
+		wasi:      cfg.WASI,
 		pool:      cfg.Pool,
 		limits:    cfg.Limits,
 		kind:      api.FunctionWAT,
@@ -211,6 +214,7 @@ func (m *Manager) updateWASM(ctx context.Context, entry registry.Entry) error {
 		wasm:      cfg,
 		method:    cfg.Method,
 		transport: cfg.EffectiveTransport(),
+		wasi:      cfg.WASI,
 		pool:      cfg.Pool,
 		limits:    cfg.Limits,
 		kind:      api.FunctionWASM,
@@ -243,6 +247,10 @@ func (m *Manager) loadModule(ctx context.Context, cfg *configEntry) (*wasmrt.Mod
 }
 
 func (m *Manager) loadWATModule(ctx context.Context, cfg *api.WATFunctionConfig) (*wasmrt.Module, error) {
+	if err := m.ensureImportHosts(ctx, cfg.Imports, false); err != nil {
+		return nil, err
+	}
+
 	rt := m.runtimeInstance(false)
 	if rt == nil {
 		return nil, runtimewasm.ErrRuntimeNotStarted
@@ -265,6 +273,10 @@ func (m *Manager) loadWASMModule(ctx context.Context, cfg *api.WASMFunctionConfi
 	}
 
 	isComponent := wasmlib.IsComponent(data)
+	if err := m.ensureImportHosts(ctx, cfg.Imports, isComponent); err != nil {
+		return nil, err
+	}
+
 	rt := m.runtimeInstance(isComponent)
 	if rt == nil {
 		return nil, runtimewasm.ErrRuntimeNotStarted

@@ -9,6 +9,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	enginepayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/modules/future"
@@ -385,6 +386,35 @@ func TestAsyncCancelYieldToCommand(t *testing.T) {
 	if cmd != y.AsyncCancelCmd {
 		t.Error("ToCommand should return the AsyncCancelCmd")
 	}
+}
+
+func TestFutureCancelImplYieldsAsyncCancelCommand(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	f := future.New("@future:test", engine.NewChannel(1))
+	ud := l.NewUserData()
+	ud.Value = f
+	l.Push(ud)
+
+	ret := futureCancelImpl(l)
+	if ret != -1 {
+		t.Fatalf("expected Lua yield return -1, got %d", ret)
+	}
+	if !f.IsCanceled() {
+		t.Fatal("future should be marked canceled")
+	}
+
+	yieldVal := l.Get(-1)
+	yield, ok := yieldVal.(*AsyncCancelYield)
+	if !ok {
+		t.Fatalf("expected AsyncCancelYield, got %T", yieldVal)
+	}
+	if yield.Topic != "@future:test" {
+		t.Fatalf("expected topic @future:test, got %q", yield.Topic)
+	}
+
+	ReleaseAsyncCancelYield(yield)
 }
 
 func TestExecutorState(t *testing.T) {

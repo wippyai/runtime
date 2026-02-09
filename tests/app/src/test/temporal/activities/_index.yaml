@@ -53,3 +53,15 @@ entries:
       temporal:
         activity:
           worker: app.test.temporal:test_worker
+
+  # Slow echo activity - used by async cancel workflow tests
+  - name: slow_echo_activity
+    kind: function.lua
+    source: file://slow_echo_activity.lua
+    method: main
+    modules:
+      - time
+    meta:
+      temporal:
+        activity:
+          worker: app.test.temporal:test_worker

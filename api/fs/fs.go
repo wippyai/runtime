@@ -5,6 +5,7 @@ package fs
 import (
 	"io"
 	"io/fs"
+	"time"
 
 	"github.com/wippyai/runtime/api/event"
 )
@@ -27,6 +28,8 @@ type (
 		fs.FS
 		fs.StatFS
 		fs.ReadDirFS
+		// Lstat returns file info without following symlinks.
+		Lstat(name string) (fs.FileInfo, error)
 	}
 
 	// File represents a readable and writable file with additional
@@ -48,6 +51,12 @@ type (
 		Remove(name string) error
 		// Mkdir creates a new directory with the specified name and permission bits.
 		Mkdir(name string, perm fs.FileMode) error
+		// Rename moves or renames a file within the filesystem.
+		Rename(oldname, newname string) error
+		// Truncate changes the size of the named file.
+		Truncate(name string, size int64) error
+		// Chtimes changes the access and modification times of the named file.
+		Chtimes(name string, atime, mtime time.Time) error
 	}
 
 	// FS combines read and write operations into a complete filesystem interface.

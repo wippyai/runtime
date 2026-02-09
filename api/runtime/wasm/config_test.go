@@ -52,10 +52,37 @@ func TestWATFunctionConfig_Validate(t *testing.T) {
 				Source:    "module",
 				Method:    "handle",
 				Transport: TransportTypeWASIHTTP,
-				Imports: map[string]registry.ID{
-					"http": {Name: "server"},
+				Imports: []registry.ID{
+					{Name: "server"},
 				},
 				Pool: PoolConfig{Type: PoolTypeInline},
+			},
+		},
+		{
+			name: "valid with wasi env and mounts",
+			config: WATFunctionConfig{
+				Source: "module",
+				Method: "handle",
+				WASI: WASIConfig{
+					Cwd:  "/work",
+					Args: []string{"--mode", "fast"},
+					Env: []WASIEnvVarConfig{
+						{
+							ID:   registry.ParseID("app.env:api_key"),
+							Name: "API_KEY",
+						},
+					},
+					Mounts: []WASIMountConfig{
+						{
+							FS:       registry.ParseID("app.fs:data"),
+							Guest:    "/data",
+							ReadOnly: true,
+						},
+					},
+				},
+				Pool: PoolConfig{
+					Size: 1,
+				},
 			},
 		},
 		{
@@ -75,24 +102,12 @@ func TestWATFunctionConfig_Validate(t *testing.T) {
 			errMsg:  "method is required",
 		},
 		{
-			name: "empty import alias",
-			config: WATFunctionConfig{
-				Source: "module",
-				Method: "handle",
-				Imports: map[string]registry.ID{
-					"": {Name: "dep"},
-				},
-			},
-			wantErr: true,
-			errMsg:  "import alias cannot be empty",
-		},
-		{
 			name: "empty import name",
 			config: WATFunctionConfig{
 				Source: "module",
 				Method: "handle",
-				Imports: map[string]registry.ID{
-					"dep": {Name: ""},
+				Imports: []registry.ID{
+					{},
 				},
 			},
 			wantErr: true,
@@ -156,6 +171,64 @@ func TestWATFunctionConfig_Validate(t *testing.T) {
 			wantErr: true,
 			errMsg:  "limits.max_execution_ms cannot be negative",
 		},
+		{
+			name: "invalid wasi cwd relative",
+			config: WATFunctionConfig{
+				Source: "module",
+				Method: "handle",
+				WASI: WASIConfig{
+					Cwd: "tmp",
+				},
+			},
+			wantErr: true,
+			errMsg:  "wasi.cwd must be absolute",
+		},
+		{
+			name: "invalid wasi env missing id",
+			config: WATFunctionConfig{
+				Source: "module",
+				Method: "handle",
+				WASI: WASIConfig{
+					Env: []WASIEnvVarConfig{
+						{Name: "TOKEN"},
+					},
+				},
+			},
+			wantErr: true,
+			errMsg:  "wasi.env[].id is required",
+		},
+		{
+			name: "invalid wasi env duplicate names",
+			config: WATFunctionConfig{
+				Source: "module",
+				Method: "handle",
+				WASI: WASIConfig{
+					Env: []WASIEnvVarConfig{
+						{ID: registry.ParseID("app.env:a"), Name: "TOKEN"},
+						{ID: registry.ParseID("app.env:b"), Name: "TOKEN"},
+					},
+				},
+			},
+			wantErr: true,
+			errMsg:  "wasi.env[].name must be unique",
+		},
+		{
+			name: "invalid wasi mount guest relative",
+			config: WATFunctionConfig{
+				Source: "module",
+				Method: "handle",
+				WASI: WASIConfig{
+					Mounts: []WASIMountConfig{
+						{
+							FS:    registry.ParseID("app.fs:data"),
+							Guest: "data",
+						},
+					},
+				},
+			},
+			wantErr: true,
+			errMsg:  "wasi.mounts[].guest must be absolute",
+		},
 	}
 
 	for _, tt := range tests {
@@ -208,6 +281,31 @@ func TestWASMFunctionConfig_Validate(t *testing.T) {
 				WIT:       "interface svc { handle: func() }",
 				Transport: TransportTypePayload,
 				Pool:      PoolConfig{Type: PoolTypeInline},
+			},
+		},
+		{
+			name: "valid with wasi mappings",
+			config: WASMFunctionConfig{
+				FS:     "app:wasm",
+				Path:   "/svc/handler.wasm",
+				Hash:   "sha256:abc123",
+				Method: "handle",
+				WASI: WASIConfig{
+					Env: []WASIEnvVarConfig{
+						{
+							ID:       registry.ParseID("app.env:api_key"),
+							Name:     "API_KEY",
+							Required: true,
+						},
+					},
+					Mounts: []WASIMountConfig{
+						{
+							FS:    registry.ParseID("app.fs:assets"),
+							Guest: "/assets",
+						},
+					},
+				},
+				Pool: PoolConfig{Size: 1},
 			},
 		},
 		{
@@ -289,6 +387,23 @@ func TestWASMFunctionConfig_Validate(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  "pool.size must be greater than 0 for non-flex pools",
+		},
+		{
+			name: "invalid wasi mount duplicate guest",
+			config: WASMFunctionConfig{
+				FS:     "app:wasm",
+				Path:   "/svc/handler.wasm",
+				Hash:   "sha256:abc123",
+				Method: "handle",
+				WASI: WASIConfig{
+					Mounts: []WASIMountConfig{
+						{FS: registry.ParseID("app.fs:a"), Guest: "/data"},
+						{FS: registry.ParseID("app.fs:b"), Guest: "/data"},
+					},
+				},
+			},
+			wantErr: true,
+			errMsg:  "wasi.mounts[].guest must be unique",
 		},
 	}
 

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync/atomic"
+	"time"
 
 	fsapi "github.com/wippyai/runtime/api/fs"
 	systemfs "github.com/wippyai/runtime/system/fs"
@@ -27,6 +28,11 @@ type FS struct {
 	dirPath string // original path for error messages
 	mode    fs.FileMode
 	closed  atomic.Bool
+}
+
+// RootPath returns the absolute host path backing this filesystem.
+func (d *FS) RootPath() string {
+	return d.dirPath
 }
 
 // NewFS creates a new FS instance. It automatically adds execute bits
@@ -266,6 +272,98 @@ func (d *FS) Mkdir(name string, perm fs.FileMode) error {
 	if err := d.root.Mkdir(norm, perm); err != nil {
 		return &fs.PathError{
 			Op:   "mkdir",
+			Path: displayName,
+			Err:  err,
+		}
+	}
+
+	return nil
+}
+
+// Lstat implements fsapi.ReadFS.Lstat.
+func (d *FS) Lstat(name string) (fs.FileInfo, error) {
+	displayName := name
+	norm := d.normalizePath(name)
+
+	if err := d.checkPermissions("lstat", displayName, permRead); err != nil {
+		return nil, err
+	}
+
+	info, err := d.root.Lstat(norm)
+	if err != nil {
+		return nil, &fs.PathError{
+			Op:   "lstat",
+			Path: displayName,
+			Err:  err,
+		}
+	}
+
+	return info, nil
+}
+
+// Rename implements fsapi.WriteFS.Rename.
+func (d *FS) Rename(oldname, newname string) error {
+	displayOld := oldname
+	normOld := d.normalizePath(oldname)
+	normNew := d.normalizePath(newname)
+
+	if err := d.checkPermissions("rename", displayOld, permWrite); err != nil {
+		return err
+	}
+
+	if err := d.root.Rename(normOld, normNew); err != nil {
+		return &fs.PathError{
+			Op:   "rename",
+			Path: displayOld,
+			Err:  err,
+		}
+	}
+
+	return nil
+}
+
+// Truncate implements WriteFS.Truncate.
+func (d *FS) Truncate(name string, size int64) error {
+	displayName := name
+	norm := d.normalizePath(name)
+
+	if err := d.checkPermissions("truncate", displayName, permWrite); err != nil {
+		return err
+	}
+
+	f, err := d.root.OpenFile(norm, os.O_WRONLY, 0)
+	if err != nil {
+		return &fs.PathError{
+			Op:   "truncate",
+			Path: displayName,
+			Err:  err,
+		}
+	}
+	defer func() { _ = f.Close() }()
+
+	if err := f.Truncate(size); err != nil {
+		return &fs.PathError{
+			Op:   "truncate",
+			Path: displayName,
+			Err:  err,
+		}
+	}
+
+	return nil
+}
+
+// Chtimes implements WriteFS.Chtimes.
+func (d *FS) Chtimes(name string, atime, mtime time.Time) error {
+	displayName := name
+	norm := d.normalizePath(name)
+
+	if err := d.checkPermissions("chtimes", displayName, permWrite); err != nil {
+		return err
+	}
+
+	if err := d.root.Chtimes(norm, atime, mtime); err != nil {
+		return &fs.PathError{
+			Op:   "chtimes",
 			Path: displayName,
 			Err:  err,
 		}

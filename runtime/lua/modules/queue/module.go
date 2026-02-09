@@ -9,7 +9,7 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	"github.com/wippyai/runtime/runtime/lua/security"
+	"github.com/wippyai/runtime/runtime/security"
 )
 
 const messageTypeName = "queue.Message"

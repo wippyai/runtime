@@ -10,8 +10,6 @@ import (
 	"github.com/wippyai/runtime/system/eventbus"
 )
 
-const EventsDispatcherName boot.Name = "dispatcher.events"
-
 func Events() boot.Component {
 	var d *eventbus.Dispatcher
 

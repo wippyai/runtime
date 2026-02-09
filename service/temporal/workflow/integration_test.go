@@ -19,8 +19,10 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	enginepayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
+	cryptomod "github.com/wippyai/runtime/runtime/lua/modules/crypto"
 	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
+	uuidmod "github.com/wippyai/runtime/runtime/lua/modules/uuid"
 	"github.com/wippyai/runtime/service/temporal/dataconverter"
 	"github.com/wippyai/runtime/service/temporal/worker"
 	"github.com/wippyai/runtime/service/temporal/workflow"
@@ -560,4 +562,97 @@ func TestWorkflowTicker_Integration(t *testing.T) {
 	result := f.executeWorkflow(wfID.String(), map[string]any{"count": 3, "interval": 100})
 	require.Equal(t, "completed", result["status"])
 	requireNumericEqual(t, 3, result["tick_count"])
+}
+
+const cryptoSideEffectWorkflowSource = `
+local crypto = require("crypto")
+
+local function main(input)
+    local bytes, err = crypto.random.bytes(16)
+    if err then
+        return {status = "error", error = tostring(err)}
+    end
+
+    local id, err = crypto.random.uuid()
+    if err then
+        return {status = "error", error = tostring(err)}
+    end
+
+    local ciphertext, err = crypto.encrypt.aes(input.message or "hello", "0123456789abcdef")
+    if err then
+        return {status = "error", error = tostring(err)}
+    end
+
+    return {
+        status = "completed",
+        bytes_len = #bytes,
+        uuid_len = #id,
+        ciphertext_len = #ciphertext
+    }
+end
+
+return main
+`
+
+func TestWorkflowCryptoSideEffect_Integration(t *testing.T) {
+	wfID := registry.NewID("test.workflow", "crypto_side_effect")
+	f := newWorkflowTestFixture(t, workflowTestOpts{
+		modules:        []*luaapi.ModuleDef{cryptomod.Module},
+		allowedClasses: []string{luaapi.ClassDeterministic, luaapi.ClassWorkflow, luaapi.ClassNondeterministic, luaapi.ClassSecurity},
+		workflowID:     wfID,
+		source:         cryptoSideEffectWorkflowSource,
+		taskQueue:      "test-crypto-side-effect-queue",
+		imports:        []code.Import{{ID: registry.NewID("", "crypto"), Alias: "crypto"}},
+	})
+	defer f.cleanup()
+
+	result := f.executeWorkflow(wfID.String(), map[string]any{"message": "Temporal crypto"})
+	require.Equal(t, "completed", result["status"])
+	requireNumericEqual(t, 16, result["bytes_len"])
+	requireNumericEqual(t, 36, result["uuid_len"])
+	require.True(t, result["ciphertext_len"].(float64) > 0)
+}
+
+const uuidSideEffectWorkflowSource = `
+local uuid = require("uuid")
+
+local function main()
+    local id, err = uuid.v4()
+    if err then
+        return {status = "error", error = tostring(err)}
+    end
+
+    local version, verr = uuid.version(id)
+    if verr then
+        return {status = "error", error = tostring(verr)}
+    end
+
+    local valid = uuid.validate(id)
+    return {
+        status = "completed",
+        id = id,
+        valid = valid,
+        version = version
+    }
+end
+
+return main
+`
+
+func TestWorkflowUUIDSideEffect_Integration(t *testing.T) {
+	wfID := registry.NewID("test.workflow", "uuid_side_effect")
+	f := newWorkflowTestFixture(t, workflowTestOpts{
+		modules:        []*luaapi.ModuleDef{uuidmod.Module},
+		allowedClasses: []string{luaapi.ClassDeterministic, luaapi.ClassWorkflow, luaapi.ClassNondeterministic},
+		workflowID:     wfID,
+		source:         uuidSideEffectWorkflowSource,
+		taskQueue:      "test-uuid-side-effect-queue",
+		imports:        []code.Import{{ID: registry.NewID("", "uuid"), Alias: "uuid"}},
+	})
+	defer f.cleanup()
+
+	result := f.executeWorkflow(wfID.String(), nil)
+	require.Equal(t, "completed", result["status"])
+	require.Equal(t, true, result["valid"])
+	requireNumericEqual(t, 4, result["version"])
 }

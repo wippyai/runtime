@@ -17,6 +17,8 @@ import (
 	"go.uber.org/zap"
 )
 
+var _ fsapi.FS = (*mockFS)(nil)
+
 // mockFS implements FS interface
 type mockFS struct{}
 
@@ -43,6 +45,22 @@ func (m *mockFS) Remove(_ string) error {
 }
 
 func (m *mockFS) Mkdir(_ string, _ fs.FileMode) error {
+	return nil
+}
+
+func (m *mockFS) Lstat(_ string) (fs.FileInfo, error) {
+	return &mockFileInfo{}, nil
+}
+
+func (m *mockFS) Rename(_, _ string) error {
+	return nil
+}
+
+func (m *mockFS) Truncate(_ string, _ int64) error {
+	return nil
+}
+
+func (m *mockFS) Chtimes(_ string, _, _ time.Time) error {
 	return nil
 }
 

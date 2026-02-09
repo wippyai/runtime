@@ -10,7 +10,7 @@ import (
 	wsapi "github.com/wippyai/runtime/api/service/websocket"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	"github.com/wippyai/runtime/runtime/lua/security"
+	"github.com/wippyai/runtime/runtime/security"
 )
 
 // parseDuration parses a Lua value into time.Duration.

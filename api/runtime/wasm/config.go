@@ -2,6 +2,9 @@
 package wasm
 
 import (
+	"path"
+	"strings"
+
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -24,30 +27,55 @@ type (
 		MaxExecutionMS int `json:"max_execution_ms,omitempty"`
 	}
 
+	// WASIEnvVarConfig maps an env registry variable ID to a guest env var name.
+	WASIEnvVarConfig struct {
+		ID       registry.ID `json:"id"`
+		Name     string      `json:"name"`
+		Required bool        `json:"required,omitempty"`
+	}
+
+	// WASIMountConfig maps a runtime filesystem capability to a guest path.
+	WASIMountConfig struct {
+		FS       registry.ID `json:"fs"`
+		Guest    string      `json:"guest"`
+		ReadOnly bool        `json:"read_only,omitempty"`
+	}
+
+	// WASIConfig contains runtime-managed WASI input mapping.
+	// env and mounts are explicit, capability-based mappings.
+	WASIConfig struct {
+		Args   []string           `json:"args,omitempty"`
+		Cwd    string             `json:"cwd,omitempty"`
+		Env    []WASIEnvVarConfig `json:"env,omitempty"`
+		Mounts []WASIMountConfig  `json:"mounts,omitempty"`
+	}
+
 	// WATFunctionConfig defines configuration for inline WAT function entries.
 	WATFunctionConfig struct {
-		Imports   map[string]registry.ID `json:"imports,omitempty"`
-		Meta      attrs.Bag              `json:"meta,omitempty"`
-		Source    string                 `json:"source"`
-		Method    string                 `json:"method"`
-		Transport string                 `json:"transport,omitempty"`
-		Pool      PoolConfig             `json:"pool,omitempty"`
-		Limits    LimitsConfig           `json:"limits,omitempty"`
-		WIT       string                 `json:"wit,omitempty"` // Optional for raw/core WASM signatures
+		Imports   []registry.ID `json:"imports,omitempty"`
+		Meta      attrs.Bag     `json:"meta,omitempty"`
+		Source    string        `json:"source"`
+		Method    string        `json:"method"`
+		Transport string        `json:"transport,omitempty"`
+		WASI      WASIConfig    `json:"wasi,omitempty"`
+		Pool      PoolConfig    `json:"pool,omitempty"`
+		Limits    LimitsConfig  `json:"limits,omitempty"`
+		WIT       string        `json:"wit,omitempty"` // Optional for raw/core WASM signatures
 	}
 
 	// WASMFunctionConfig defines configuration for precompiled WASM function entries.
 	WASMFunctionConfig struct {
-		Imports   map[string]registry.ID `json:"imports,omitempty"`
-		Meta      attrs.Bag              `json:"meta,omitempty"`
-		FS        string                 `json:"fs"`
-		Path      string                 `json:"path"`
-		Hash      string                 `json:"hash"`
-		Method    string                 `json:"method"`
-		Transport string                 `json:"transport,omitempty"`
-		Pool      PoolConfig             `json:"pool,omitempty"`
-		Limits    LimitsConfig           `json:"limits,omitempty"`
-		WIT       string                 `json:"wit,omitempty"` // Optional for raw/core WASM signatures
+		Imports   []registry.ID `json:"imports,omitempty"`
+		Meta      attrs.Bag     `json:"meta,omitempty"`
+		FS        string        `json:"fs"`
+		Path      string        `json:"path"`
+		Hash      string        `json:"hash"`
+		Method    string        `json:"method"`
+		Transport string        `json:"transport,omitempty"`
+		WASI      WASIConfig    `json:"wasi,omitempty"`
+		Pool      PoolConfig    `json:"pool,omitempty"`
+		Limits    LimitsConfig  `json:"limits,omitempty"`
+		WIT       string        `json:"wit,omitempty"` // Optional for raw/core WASM signatures
 	}
 )
 
@@ -77,6 +105,9 @@ func (c *WATFunctionConfig) Validate() error {
 		return err
 	}
 	if err := validateLimits(c.Limits); err != nil {
+		return err
+	}
+	if err := validateWASI(c.WASI); err != nil {
 		return err
 	}
 	return nil
@@ -116,14 +147,14 @@ func (c *WASMFunctionConfig) Validate() error {
 	if err := validateLimits(c.Limits); err != nil {
 		return err
 	}
+	if err := validateWASI(c.WASI); err != nil {
+		return err
+	}
 	return nil
 }
 
-func validateImports(imports map[string]registry.ID) error {
-	for alias, id := range imports {
-		if alias == "" {
-			return ErrEmptyImportAlias
-		}
+func validateImports(imports []registry.ID) error {
+	for _, id := range imports {
 		if id.Name == "" {
 			return ErrEmptyImportName
 		}
@@ -171,5 +202,50 @@ func validateLimits(limits LimitsConfig) error {
 	if limits.MaxExecutionMS < 0 {
 		return ErrInvalidExecutionLimit
 	}
+	return nil
+}
+
+func validateWASI(cfg WASIConfig) error {
+	if cfg.Cwd != "" && !strings.HasPrefix(cfg.Cwd, "/") {
+		return ErrWASICwdMustBeAbsolute
+	}
+
+	seenEnv := make(map[string]struct{}, len(cfg.Env))
+	for _, item := range cfg.Env {
+		if item.ID.Name == "" {
+			return ErrWASIEnvIDRequired
+		}
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			return ErrWASIEnvNameRequired
+		}
+		if _, exists := seenEnv[name]; exists {
+			return ErrWASIEnvNameDuplicate
+		}
+		seenEnv[name] = struct{}{}
+	}
+
+	seenMounts := make(map[string]struct{}, len(cfg.Mounts))
+	for _, item := range cfg.Mounts {
+		if item.FS.Name == "" {
+			return ErrWASIMountFSRequired
+		}
+		guest := strings.TrimSpace(item.Guest)
+		if guest == "" {
+			return ErrWASIMountGuestRequired
+		}
+		if !strings.HasPrefix(guest, "/") {
+			return ErrWASIMountGuestMustBeAbsolute
+		}
+		guest = path.Clean(guest)
+		if guest == "." {
+			return ErrWASIMountGuestRequired
+		}
+		if _, exists := seenMounts[guest]; exists {
+			return ErrWASIMountGuestDuplicate
+		}
+		seenMounts[guest] = struct{}{}
+	}
+
 	return nil
 }

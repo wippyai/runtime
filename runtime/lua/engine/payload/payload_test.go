@@ -123,12 +123,33 @@ func TestGoToLua_BasicTypes(t *testing.T) {
 			},
 		},
 		{
+			name:  "uint32",
+			input: uint32(42),
+			check: func(t *testing.T, lv lua.LValue) {
+				assert.Equal(t, lua.LTInteger, lv.Type())
+				assert.Equal(t, int64(42), int64(lv.(lua.LInteger)))
+			},
+		},
+		{
+			name:  "uint64 within int64 range",
+			input: uint64(42),
+			check: func(t *testing.T, lv lua.LValue) {
+				assert.Equal(t, lua.LTInteger, lv.Type())
+				assert.Equal(t, int64(42), int64(lv.(lua.LInteger)))
+			},
+		},
+		{
 			name:  "int64 large",
 			input: int64(9007199254740992), // 2^53, max safe integer in float64
 			check: func(t *testing.T, lv lua.LValue) {
 				assert.Equal(t, lua.LTInteger, lv.Type())
 				assert.Equal(t, int64(9007199254740992), int64(lv.(lua.LInteger)))
 			},
+		},
+		{
+			name:    "uint64 overflow",
+			input:   ^uint64(0),
+			wantErr: true,
 		},
 		{
 			name:  "bool true",

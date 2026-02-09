@@ -104,9 +104,15 @@ type Definition struct {
 	workerID   string
 	signals    []incomingSignal
 	childExits []childExitEvent
-	output     process.StepOutput
-	canceled   bool
-	completed  bool
+	// asyncActivities tracks in-flight funcs.async activity calls by future topic.
+	asyncActivities map[string]bindings.ActivityID
+	// pendingCompletions buffers async yield completions raised from Temporal callbacks.
+	// They are drained in OnWorkflowTaskStarted so command generation happens only after
+	// the SDK has set command event sequencing for the current workflow task.
+	pendingCompletions []process.Event
+	output             process.StepOutput
+	canceled           bool
+	completed          bool
 }
 
 // Execute implements WorkflowDefinition.Execute.

@@ -8,7 +8,7 @@ import (
 	regapi "github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	"github.com/wippyai/runtime/runtime/lua/security"
+	"github.com/wippyai/runtime/runtime/security"
 	"github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
 )

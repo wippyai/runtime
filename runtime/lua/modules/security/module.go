@@ -8,7 +8,7 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	luasec "github.com/wippyai/runtime/runtime/lua/security"
+	luasec "github.com/wippyai/runtime/runtime/security"
 	secsystem "github.com/wippyai/runtime/system/security"
 )
 

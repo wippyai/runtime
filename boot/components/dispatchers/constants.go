@@ -21,4 +21,6 @@ const (
 	StreamDispatcherName       boot.Name = "dispatcher.stream"
 	TTYDispatcherName          boot.Name = "dispatcher.tty"
 	SQLDispatcherName          boot.Name = "dispatcher.sql"
+	EventsDispatcherName       boot.Name = "dispatcher.events"
+	SocketDispatcherName       boot.Name = "dispatcher.socket"
 )

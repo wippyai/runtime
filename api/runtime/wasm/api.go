@@ -19,19 +19,13 @@ const (
 	FunctionWAT registry.Kind = "function.wat"
 	// FunctionWASM identifies a precompiled WASM function component loaded from FS.
 	FunctionWASM registry.Kind = "function.wasm"
+	// ProcessWASM identifies a precompiled WASM process component loaded from FS.
+	ProcessWASM registry.Kind = "process.wasm"
 )
 
 const (
 	// DefaultMaxSize defines default elastic pool max workers.
 	DefaultMaxSize = 100
-)
-
-// Security inheritance defaults for WASM executions.
-// These are runtime-managed and not configurable per entry.
-const (
-	DefaultInheritActor          = true
-	DefaultInheritScope          = true
-	DefaultInheritRequestContext = true
 )
 
 // Pool type constants for scheduler implementation selection.
@@ -46,16 +40,4 @@ const (
 const (
 	TransportTypePayload  = "payload"
 	TransportTypeWASIHTTP = "wasi-http"
-)
-
-// Host class constants used for capability gating in deterministic contexts.
-const (
-	ClassDeterministic    = "deterministic"
-	ClassNondeterministic = "nondeterministic"
-	ClassIO               = "io"
-	ClassNetwork          = "network"
-	ClassTime             = "time"
-	ClassStorage          = "storage"
-	ClassProcess          = "process"
-	ClassSecurity         = "security"
 )

@@ -13,7 +13,7 @@ import (
 	rtresource "github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	luasec "github.com/wippyai/runtime/runtime/lua/security"
+	luasec "github.com/wippyai/runtime/runtime/security"
 )
 
 const tokenStoreTypeName = "security.TokenStore"

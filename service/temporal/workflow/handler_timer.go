@@ -7,7 +7,7 @@ import (
 // executeSleep handles time.sleep command - blocks for a duration.
 func (d *Definition) executeSleep(cmd clockapi.SleepCmd, tag uint64) error {
 	d.timers.Sleep(cmd.Duration, func(data any, err error) {
-		d.resumeProcess(tag, data, err)
+		d.enqueueYieldCompletion(tag, data, err)
 	})
 	return nil
 }

@@ -24,6 +24,10 @@ import (
 func (d *Definition) OnWorkflowTaskStarted(_ time.Duration) {
 	for {
 		var events []process.Event
+		if len(d.pendingCompletions) > 0 {
+			events = append(events, d.pendingCompletions...)
+			d.pendingCompletions = d.pendingCompletions[:0]
+		}
 		if len(d.signals) > 0 {
 			for _, sig := range d.signals {
 				pkg := &relay.Package{
@@ -101,15 +105,15 @@ func (d *Definition) OnWorkflowTaskStarted(_ time.Duration) {
 
 		switch d.output.Status() {
 		case process.StepYield:
-			d.output.ForEachYield(func(y process.Yield) {
+			for _, y := range copyOutputYields(&d.output) {
 				if d.completed {
-					return
+					break
 				}
 				if err := d.executeCommand(y.Cmd, y.Tag); err != nil {
 					d.completed = true
 					d.env.Complete(nil, temporalerrors.ToApplicationError(err))
 				}
-			})
+			}
 			return
 
 		case process.StepDone:
@@ -133,17 +137,44 @@ func (d *Definition) OnWorkflowTaskStarted(_ time.Duration) {
 			return
 
 		case process.StepContinue:
-			d.output.ForEachYield(func(y process.Yield) {
+			for _, y := range copyOutputYields(&d.output) {
 				if d.completed {
-					return
+					break
 				}
 				if err := d.executeCommand(y.Cmd, y.Tag); err != nil {
 					d.completed = true
 					d.env.Complete(nil, temporalerrors.ToApplicationError(err))
 				}
-			})
+			}
 		}
 	}
+}
+
+// copyOutputYields snapshots yields before dispatch.
+// This avoids iteration corruption when a handler resumes the process re-entrantly,
+// which can reset StepOutput while the outer dispatch loop is still iterating.
+func copyOutputYields(out *process.StepOutput) []process.Yield {
+	count := out.Count()
+	if count == 0 {
+		return nil
+	}
+	yields := make([]process.Yield, 0, count)
+	out.ForEachYield(func(y process.Yield) {
+		yields = append(yields, y)
+	})
+	return yields
+}
+
+func (d *Definition) enqueueYieldCompletion(tag uint64, data any, err error) {
+	if d.completed {
+		return
+	}
+	d.pendingCompletions = append(d.pendingCompletions, process.Event{
+		Type:  process.EventYieldComplete,
+		Tag:   tag,
+		Data:  data,
+		Error: err,
+	})
 }
 
 // executeContinueAsNew handles process.upgrade() by triggering Temporal's ContinueAsNew.
@@ -195,6 +226,10 @@ func (d *Definition) executeCommand(cmd dispatcher.Command, tag uint64) error {
 		return d.executeTickerStop(c, tag)
 	case *function.CallCmd:
 		return d.executeFunctionCall(c, tag)
+	case *function.AsyncStartCmd:
+		return d.executeFunctionAsyncStart(c, tag)
+	case *function.AsyncCancelCmd:
+		return d.executeFunctionAsyncCancel(c, tag)
 	case *process.SendCmd:
 		return d.executeProcessSend(c, tag)
 	case *process.SpawnCmd:
@@ -227,12 +262,15 @@ func (d *Definition) executeCommand(cmd dispatcher.Command, tag uint64) error {
 }
 
 func (d *Definition) resumeProcess(tag uint64, data any, err error) {
-	events := []process.Event{{
+	d.stepProcess([]process.Event{{
 		Type:  process.EventYieldComplete,
 		Tag:   tag,
 		Data:  data,
 		Error: err,
-	}}
+	}})
+}
+
+func (d *Definition) stepProcess(events []process.Event) {
 	d.output.Reset()
 	stepErr := d.proc.Step(events, &d.output)
 
@@ -247,15 +285,15 @@ func (d *Definition) resumeProcess(tag uint64, data any, err error) {
 		d.result = &runtime.Result{Value: d.output.Result()}
 		d.completeWithResult()
 	case process.StepYield:
-		d.output.ForEachYield(func(y process.Yield) {
+		for _, y := range copyOutputYields(&d.output) {
 			if d.completed {
-				return
+				break
 			}
 			if err := d.executeCommand(y.Cmd, y.Tag); err != nil {
 				d.completed = true
 				d.env.Complete(nil, temporalerrors.ToApplicationError(err))
 			}
-		})
+		}
 	case process.StepUpgrade:
 		d.executeContinueAsNew()
 	case process.StepContinue, process.StepIdle:

@@ -2,6 +2,7 @@
 package engine
 
 import (
+	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/process"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
@@ -11,21 +12,31 @@ import (
 type Factory struct {
 	module    *wasmrt.Module
 	transport string
+	wasi      wasmapi.WASIConfig
 	limits    wasmapi.LimitsConfig
+	fsReg     fsapi.Registry
 }
 
 // NewFactory creates a process factory for a module and runtime settings.
-func NewFactory(module *wasmrt.Module, transport string, limits wasmapi.LimitsConfig) *Factory {
+func NewFactory(
+	module *wasmrt.Module,
+	transport string,
+	wasi wasmapi.WASIConfig,
+	limits wasmapi.LimitsConfig,
+	fsReg fsapi.Registry,
+) *Factory {
 	return &Factory{
 		module:    module,
 		transport: transport,
+		wasi:      wasi,
 		limits:    limits,
+		fsReg:     fsReg,
 	}
 }
 
 // Create builds a process.FactoryFunc for pool construction.
 func (f *Factory) Create() process.FactoryFunc {
 	return func() (process.Process, error) {
-		return NewProcess(f.module, f.transport, f.limits), nil
+		return NewProcess(f.module, f.transport, f.wasi, f.limits, f.fsReg), nil
 	}
 }

@@ -55,7 +55,7 @@ func (h *Handler) Handle(ctx context.Context, evt event.Event) error {
 func UnpackConfig[T any](ctx context.Context, entry registry.Entry) (*T, error) {
 	dtt := payload.GetTranscoder(ctx)
 	if dtt == nil {
-		return nil, wasmapi.ErrTranscoderNotFound
+		return nil, runtimewasm.ErrTranscoderNotFound
 	}
 
 	cfg := new(T)

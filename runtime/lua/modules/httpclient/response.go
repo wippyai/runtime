@@ -5,14 +5,14 @@ import (
 )
 
 type httpResponse struct {
-	headers    map[string]string
+	headers    map[string][]string
 	cookies    map[string]string
 	url        string
 	body       []byte
 	statusCode int
 }
 
-func NewResponse(l *lua.LState, statusCode int, headers, cookies map[string]string, body []byte, url string) *lua.LUserData {
+func NewResponse(l *lua.LState, statusCode int, headers map[string][]string, cookies map[string]string, body []byte, url string) *lua.LUserData {
 	ud := l.NewUserData()
 	ud.Value = &httpResponse{
 		statusCode: statusCode,
@@ -39,8 +39,10 @@ func responseIndex(l *lua.LState) int {
 		l.Push(lua.LNumber(res.statusCode))
 	case "headers":
 		tbl := lua.CreateTable(0, len(res.headers))
-		for k, v := range res.headers {
-			tbl.RawSetString(k, lua.LString(v))
+		for k, vs := range res.headers {
+			if len(vs) > 0 {
+				tbl.RawSetString(k, lua.LString(vs[0]))
+			}
 		}
 		l.Push(tbl)
 	case "cookies":

@@ -7,7 +7,9 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	workflowapi "github.com/wippyai/runtime/api/runtime/workflow"
 	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
@@ -55,23 +57,133 @@ func (d *Definition) executeFunctionCall(cmd *function.CallCmd, tag uint64) erro
 	return nil
 }
 
-// handleFunctionCallResult processes the result of a function call.
-func (d *Definition) handleFunctionCallResult(tag uint64, result *commonpb.Payloads, err error) {
+// executeFunctionAsyncStart starts an activity and wires its completion to a future topic.
+func (d *Definition) executeFunctionAsyncStart(cmd *function.AsyncStartCmd, tag uint64) error {
+	activityName := cmd.Task.ID.String()
+
+	args, err := d.dc.ToPayloads(cmd.Task.Payloads)
 	if err != nil {
-		d.resumeProcess(tag, function.CallResult{Error: temporalerrors.FromTemporalError(err)}, nil)
+		return fmt.Errorf("failed to convert arguments: %w", err)
+	}
+
+	opts := bindings.ExecuteActivityOptions{
+		TaskQueueName:       d.env.WorkflowInfo().TaskQueueName,
+		StartToCloseTimeout: defaultActivityTimeout,
+	}
+	if err := applyTemporalActivityOptions(&opts, d.mergedFunctionTaskOptions(cmd.Task)); err != nil {
+		d.resumeProcess(tag, function.AsyncStartResult{
+			Error: fmt.Errorf("invalid temporal activity options for %s: %w", activityName, err),
+		}, nil)
+		return nil
+	}
+
+	if d.asyncActivities == nil {
+		d.asyncActivities = make(map[string]bindings.ActivityID, 4)
+	}
+
+	topic := cmd.Topic
+	activityID := d.env.ExecuteActivity(bindings.ExecuteActivityParams{
+		ExecuteActivityOptions: opts,
+		ActivityType:           bindings.ActivityType{Name: activityName},
+		Input:                  args,
+		Header:                 d.getContextHeader(),
+	}, func(result *commonpb.Payloads, err error) {
+		d.handleFunctionAsyncResult(topic, result, err)
+	})
+	d.asyncActivities[topic] = activityID
+
+	d.resumeProcess(tag, function.AsyncStartResult{}, nil)
+	return nil
+}
+
+// executeFunctionAsyncCancel requests activity cancellation and closes the future topic.
+func (d *Definition) executeFunctionAsyncCancel(cmd *function.AsyncCancelCmd, tag uint64) error {
+	if d.asyncActivities != nil {
+		if activityID, ok := d.asyncActivities[cmd.Topic]; ok {
+			delete(d.asyncActivities, cmd.Topic)
+			d.env.RequestCancelActivity(activityID)
+		}
+	}
+
+	d.stepProcess([]process.Event{
+		{
+			Type: process.EventYieldComplete,
+			Tag:  tag,
+		},
+		{
+			Type: process.EventMessage,
+			Data: &relay.Package{
+				Messages: []*relay.Message{{
+					Topic:    cmd.Topic,
+					Payloads: payload.Payloads{payload.NewTerminal()},
+				}},
+			},
+		},
+	})
+	return nil
+}
+
+func (d *Definition) handleFunctionAsyncResult(topic string, result *commonpb.Payloads, err error) {
+	// Canceled/unknown topics are intentionally ignored.
+	if d.asyncActivities != nil {
+		if _, ok := d.asyncActivities[topic]; !ok {
+			return
+		}
+		delete(d.asyncActivities, topic)
+	}
+
+	if err != nil {
+		d.enqueueInternalSignal(topic, payload.Payloads{
+			payload.NewError(temporalerrors.FromTemporalError(err)),
+			payload.NewTerminal(),
+		})
 		return
 	}
 
 	var values payload.Payloads
 	if err := d.dc.FromPayloads(result, &values); err != nil {
-		d.resumeProcess(tag, function.CallResult{Error: temporalerrors.FromTemporalError(err)}, nil)
+		d.enqueueInternalSignal(topic, payload.Payloads{
+			payload.NewError(temporalerrors.FromTemporalError(err)),
+			payload.NewTerminal(),
+		})
+		return
+	}
+
+	if len(values) == 0 {
+		values = payload.Payloads{payload.New(nil)}
+	}
+	values = append(values, payload.NewTerminal())
+	d.enqueueInternalSignal(topic, values)
+}
+
+func (d *Definition) enqueueInternalSignal(topic string, payloads payload.Payloads) {
+	if len(d.signals) >= maxSignalQueueSize {
+		d.replayLog.Warn("signal queue full, dropping internal signal", zap.String("topic", topic))
+		return
+	}
+	d.signals = append(d.signals, incomingSignal{
+		Name:     topic,
+		Payloads: payloads,
+	})
+}
+
+// handleFunctionCallResult processes the result of a function call.
+func (d *Definition) handleFunctionCallResult(tag uint64, result *commonpb.Payloads, err error) {
+	if err != nil {
+		d.enqueueYieldCompletion(tag, function.CallResult{Error: temporalerrors.FromTemporalError(err)}, nil)
+		return
+	}
+
+	var values payload.Payloads
+	if err := d.dc.FromPayloads(result, &values); err != nil {
+		d.enqueueYieldCompletion(tag, function.CallResult{Error: temporalerrors.FromTemporalError(err)}, nil)
 		return
 	}
 
 	if len(values) > 0 {
-		d.resumeProcess(tag, function.CallResult{Value: values[0]}, nil)
+		d.enqueueYieldCompletion(tag, function.CallResult{Value: values[0]}, nil)
 	} else {
-		d.resumeProcess(tag, function.CallResult{}, nil)
+		d.enqueueYieldCompletion(tag, function.CallResult{}, nil)
 	}
 }
 
@@ -173,12 +285,12 @@ func (d *Definition) executeWorkflowExec(cmd *workflowapi.ExecCmd, tag uint64) e
 
 	d.env.ExecuteChildWorkflow(params, func(result *commonpb.Payloads, err error) {
 		if err != nil {
-			d.resumeProcess(tag, workflowapi.ExecResult{Error: temporalerrors.FromTemporalError(err)}, nil)
+			d.enqueueYieldCompletion(tag, workflowapi.ExecResult{Error: temporalerrors.FromTemporalError(err)}, nil)
 			return
 		}
 		var values payload.Payloads
 		if err := d.dc.FromPayloads(result, &values); err != nil {
-			d.resumeProcess(tag, workflowapi.ExecResult{Error: temporalerrors.FromTemporalError(err)}, nil)
+			d.enqueueYieldCompletion(tag, workflowapi.ExecResult{Error: temporalerrors.FromTemporalError(err)}, nil)
 			return
 		}
 		if len(values) > 0 {
@@ -187,9 +299,9 @@ func (d *Definition) executeWorkflowExec(cmd *workflowapi.ExecCmd, tag uint64) e
 					zap.String("workflow", workflowName),
 					zap.String("format", values[0].Format()))
 			}
-			d.resumeProcess(tag, workflowapi.ExecResult{Value: values[0]}, nil)
+			d.enqueueYieldCompletion(tag, workflowapi.ExecResult{Value: values[0]}, nil)
 		} else {
-			d.resumeProcess(tag, workflowapi.ExecResult{}, nil)
+			d.enqueueYieldCompletion(tag, workflowapi.ExecResult{}, nil)
 		}
 	}, func(_ bindings.WorkflowExecution, _ error) {})
 

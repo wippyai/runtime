@@ -160,7 +160,7 @@ func TestDispatcher_Request(t *testing.T) {
 		if string(resp.Body) != "hello" {
 			t.Errorf("expected 'hello', got %q", resp.Body)
 		}
-		if resp.Headers["X-Custom"] != "test" {
+		if len(resp.Headers["X-Custom"]) == 0 || resp.Headers["X-Custom"][0] != "test" {
 			t.Errorf("missing custom header")
 		}
 		if resp.Cookies["session"] != "abc123" {
@@ -186,7 +186,7 @@ func TestDispatcher_RequestPost(t *testing.T) {
 		Method:  "POST",
 		URL:     ts.URL,
 		Body:    []byte(`{"key":"value"}`),
-		Headers: map[string]string{"Content-Type": "application/json"},
+		Headers: map[string][]string{"Content-Type": {"application/json"}},
 	}, 0, &testReceiver{fn: func(data any) {
 		done <- data.(httpapi.Response)
 	}})
