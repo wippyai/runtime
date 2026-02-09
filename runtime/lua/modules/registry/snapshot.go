@@ -6,7 +6,7 @@ import (
 	lua "github.com/wippyai/go-lua"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	"github.com/wippyai/runtime/runtime/lua/security"
+	"github.com/wippyai/runtime/runtime/security"
 	"github.com/wippyai/runtime/system/registry/finder"
 	"go.uber.org/zap"
 )

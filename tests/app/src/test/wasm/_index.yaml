@@ -1,0 +1,398 @@
+version: "1.0"
+namespace: app.test.wasm
+
+entries:
+  - name: assets
+    kind: fs.directory
+    meta:
+      comment: Filesystem with wasm binaries used by wasm runtime tests
+    directory: ./src/test/wasm
+
+  - name: answer_wat
+    kind: function.wat
+    meta:
+      comment: Simple WASM WAT function for runtime smoke tests
+    source: file://answer.wat
+    wit: |
+      answer: func() -> s32;
+    method: answer
+    pool:
+      type: inline
+
+  - name: answer_wasm_fs
+    kind: function.wasm
+    meta:
+      comment: Raw/core wasm binary loaded from filesystem
+    fs: app.test.wasm:assets
+    path: /answer_raw.wasm
+    hash: sha256:ccf59f0f7a7625ee380ed228905aadfa11072ac14cea1c53d1e7f3953d4d48c6
+    wit: |
+      answer: func() -> s32;
+    method: answer
+    pool:
+      type: inline
+
+  - name: compute_component_inline
+    kind: function.wasm
+    meta:
+      comment: Component wasm loaded from filesystem with inline pool
+    fs: app.test.wasm:assets
+    path: /minimal_component.wasm
+    hash: sha256:292b796376f8b4cc360acf2ea6b82d1084871c3607a079f30b446da8e5c984a4
+    method: compute
+    pool:
+      type: inline
+
+  - name: compute_component_lazy
+    kind: function.wasm
+    meta:
+      comment: Component wasm loaded from filesystem with lazy pool
+    fs: app.test.wasm:assets
+    path: /minimal_component.wasm
+    hash: sha256:292b796376f8b4cc360acf2ea6b82d1084871c3607a079f30b446da8e5c984a4
+    method: compute
+    pool:
+      type: lazy
+      max_size: 2
+
+  - name: compute_component_static
+    kind: function.wasm
+    meta:
+      comment: Component wasm loaded from filesystem with static pool
+    fs: app.test.wasm:assets
+    path: /minimal_component.wasm
+    hash: sha256:292b796376f8b4cc360acf2ea6b82d1084871c3607a079f30b446da8e5c984a4
+    method: compute
+    pool:
+      type: static
+      size: 1
+      workers: 1
+      buffer: 8
+
+  - name: compute_component_adaptive
+    kind: function.wasm
+    meta:
+      comment: Component wasm loaded from filesystem with adaptive pool
+    fs: app.test.wasm:assets
+    path: /minimal_component.wasm
+    hash: sha256:292b796376f8b4cc360acf2ea6b82d1084871c3607a079f30b446da8e5c984a4
+    method: compute
+    pool:
+      type: adaptive
+      max_size: 2
+
+  - name: compute_component_wasi
+    kind: function.wasm
+    meta:
+      comment: Component wasm with granular WASI host profile registration
+    fs: app.test.wasm:assets
+    path: /minimal_component.wasm
+    hash: sha256:292b796376f8b4cc360acf2ea6b82d1084871c3607a079f30b446da8e5c984a4
+    method: compute
+    imports:
+      - wasi:io
+      - wasi:poll
+      - wasi:clocks
+      - wasi:cli
+    pool:
+      type: inline
+
+  - name: compute_component_process
+    kind: process.wasm
+    meta:
+      comment: Component wasm mounted as a process entry for process host execution
+    fs: app.test.wasm:assets
+    path: /minimal_component.wasm
+    hash: sha256:292b796376f8b4cc360acf2ea6b82d1084871c3607a079f30b446da8e5c984a4
+    method: compute
+
+  - name: mapper_component_transform
+    kind: function.wasm
+    meta:
+      comment: Component wasm list/record transform for table-to-WIT mapping
+    fs: app.test.wasm:assets
+    path: /mapper_component.wasm
+    hash: sha256:7304fc7d19778605458ae5804dae9a7343dcd3f5fc22bcc9415e98b5047192dd
+    method: transform-users
+    pool:
+      type: inline
+
+  - name: mapper_component_filter_active
+    kind: function.wasm
+    meta:
+      comment: Component wasm filtering users by active status
+    fs: app.test.wasm:assets
+    path: /mapper_component.wasm
+    hash: sha256:7304fc7d19778605458ae5804dae9a7343dcd3f5fc22bcc9415e98b5047192dd
+    method: filter-active
+    pool:
+      type: inline
+
+  - name: mapper_component_aggregate_tags
+    kind: function.wasm
+    meta:
+      comment: Component wasm aggregation of tags from user records
+    fs: app.test.wasm:assets
+    path: /mapper_component.wasm
+    hash: sha256:7304fc7d19778605458ae5804dae9a7343dcd3f5fc22bcc9415e98b5047192dd
+    method: aggregate-tags
+    pool:
+      type: inline
+
+  - name: encoder_component_echo_rectangle
+    kind: function.wasm
+    meta:
+      comment: Component wasm encoder test for nested record mapping
+    fs: app.test.wasm:assets
+    path: /complex_component.wasm
+    hash: sha256:0b3b555c2dd2e9bb4e09dead45b0ba00c660abb3b9d5ea1f688dee9b17537b55
+    method: echo-rectangle
+    pool:
+      type: inline
+
+  - name: encoder_component_filter_adults
+    kind: function.wasm
+    meta:
+      comment: Component wasm encoder test for list of records mapping
+    fs: app.test.wasm:assets
+    path: /complex_component.wasm
+    hash: sha256:0b3b555c2dd2e9bb4e09dead45b0ba00c660abb3b9d5ea1f688dee9b17537b55
+    method: filter-adults
+    pool:
+      type: inline
+
+  - name: encoder_component_try_divide
+    kind: function.wasm
+    meta:
+      comment: Component wasm encoder test for result variant mapping
+    fs: app.test.wasm:assets
+    path: /complex_component.wasm
+    hash: sha256:0b3b555c2dd2e9bb4e09dead45b0ba00c660abb3b9d5ea1f688dee9b17537b55
+    method: try-divide
+    pool:
+      type: inline
+
+  - name: encoder_component_echo_point
+    kind: function.wasm
+    meta:
+      comment: Component wasm encoder test for point record mapping
+    fs: app.test.wasm:assets
+    path: /complex_component.wasm
+    hash: sha256:0b3b555c2dd2e9bb4e09dead45b0ba00c660abb3b9d5ea1f688dee9b17537b55
+    method: echo-point
+    pool:
+      type: inline
+
+  - name: encoder_component_sum_list
+    kind: function.wasm
+    meta:
+      comment: Component wasm encoder test for list of signed integers
+    fs: app.test.wasm:assets
+    path: /complex_component.wasm
+    hash: sha256:0b3b555c2dd2e9bb4e09dead45b0ba00c660abb3b9d5ea1f688dee9b17537b55
+    method: sum-list
+    pool:
+      type: inline
+
+  - name: sleep_component_sleep_ms
+    kind: function.wasm
+    meta:
+      comment: Component wasm async sleep using wasi clocks+poll host path
+    fs: app.test.wasm:assets
+    path: /sleep_test_component.wasm
+    hash: sha256:0044be3a042b7a11dae878667e7eb967c14d041825b1448b72b16d97e9ac706d
+    method: "test-sleep#sleep-ms"
+    imports:
+      - wasi:io
+      - wasi:poll
+      - wasi:clocks
+    pool:
+      type: inline
+
+  - name: sleep_component_work_with_sleep
+    kind: function.wasm
+    meta:
+      comment: Component wasm repeated async sleep using wasi clocks+poll host path
+    fs: app.test.wasm:assets
+    path: /sleep_test_component.wasm
+    hash: sha256:0044be3a042b7a11dae878667e7eb967c14d041825b1448b72b16d97e9ac706d
+    method: "test-sleep#work-with-sleep"
+    imports:
+      - wasi:io
+      - wasi:poll
+      - wasi:clocks
+    pool:
+      type: inline
+
+  - name: js_add_component
+    kind: function.wasm
+    meta:
+      comment: JavaScript component add function execution through wasm runtime
+    fs: app.test.wasm:assets
+    path: /js_calculator_component.wasm
+    hash: sha256:eda7db3925a40c12b5e8c36b0d228a4be4f2c79ee8b5c86b912cf8b3d9a70a7c
+    method: add
+    pool:
+      type: inline
+
+  - name: js_multiply_component
+    kind: function.wasm
+    meta:
+      comment: JavaScript component multiply function execution through wasm runtime
+    fs: app.test.wasm:assets
+    path: /js_calculator_component.wasm
+    hash: sha256:eda7db3925a40c12b5e8c36b0d228a4be4f2c79ee8b5c86b912cf8b3d9a70a7c
+    method: multiply
+    pool:
+      type: inline
+
+  - name: js_greet_component
+    kind: function.wasm
+    meta:
+      comment: JavaScript component greet function execution through wasm runtime
+    fs: app.test.wasm:assets
+    path: /js_calculator_component.wasm
+    hash: sha256:eda7db3925a40c12b5e8c36b0d228a4be4f2c79ee8b5c86b912cf8b3d9a70a7c
+    method: greet
+    pool:
+      type: inline
+
+  - name: http_greet_component
+    kind: function.wasm
+    meta:
+      comment: Component wasm function exposed through HTTP transport mapping
+    fs: app.test.wasm:assets
+    path: /js_calculator_component.wasm
+    hash: sha256:eda7db3925a40c12b5e8c36b0d228a4be4f2c79ee8b5c86b912cf8b3d9a70a7c
+    method: greet
+    transport: wasi-http
+    pool:
+      type: inline
+
+  - name: http_greet_endpoint
+    kind: http.endpoint
+    meta:
+      comment: HTTP endpoint backed by wasm wasi-http transport
+      router: app:api.public
+    method: POST
+    path: /wasm/greet
+    func: http_greet_component
+
+  - name: call_wat
+    kind: function.lua
+    meta:
+      type: test
+      suite: wasm
+      description: Call WASM WAT function via funcs.call
+    source: file://call_wat.lua
+    method: main
+    modules:
+      - funcs
+    imports:
+      assert2: app.lib:assert
+
+  - name: call_fs_wasm
+    kind: function.lua
+    meta:
+      type: test
+      suite: wasm
+      description: Call raw and component wasm binaries loaded from filesystem
+    source: file://call_fs_wasm.lua
+    method: main
+    modules:
+      - funcs
+    imports:
+      assert2: app.lib:assert
+
+  - name: call_mapper_wasm
+    kind: function.lua
+    meta:
+      type: test
+      suite: wasm
+      description: Lua table list mapped through Go payload into WIT record/list
+    source: file://call_mapper_wasm.lua
+    method: main
+    modules:
+      - funcs
+    imports:
+      assert2: app.lib:assert
+
+  - name: call_encoder_wasm
+    kind: function.lua
+    meta:
+      type: test
+      suite: wasm
+      description: Lua table to Go payload to WIT encoder mapping samples
+    source: file://call_encoder_wasm.lua
+    method: main
+    modules:
+      - funcs
+    imports:
+      assert2: app.lib:assert
+
+  - name: call_wasi_http_wasm
+    kind: function.lua
+    meta:
+      type: test
+      suite: wasm
+      description: HTTP endpoint execution backed by wasm wasi-http transport
+    source: file://call_wasi_http_wasm.lua
+    method: main
+    modules:
+      - http_client
+    imports:
+      assert2: app.lib:assert
+
+  - name: call_js_wasm
+    kind: function.lua
+    meta:
+      type: test
+      suite: wasm
+      description: JavaScript wasm component function calls from Lua
+    source: file://call_js_wasm.lua
+    method: main
+    modules:
+      - funcs
+    imports:
+      assert2: app.lib:assert
+
+  - name: call_complex_wasm
+    kind: function.lua
+    meta:
+      type: test
+      suite: wasm
+      description: Additional complex component methods for record and list mapping
+    source: file://call_complex_wasm.lua
+    method: main
+    modules:
+      - funcs
+    imports:
+      assert2: app.lib:assert
+
+  - name: call_sleep_wasm
+    kind: function.lua
+    meta:
+      type: test
+      suite: wasm
+      description: Async wasi sleep through dispatcher-yield wasm path
+    source: file://call_sleep_wasm.lua
+    method: main
+    modules:
+      - funcs
+    imports:
+      assert2: app.lib:assert
+
+  - name: call_process_wasm
+    kind: function.lua
+    meta:
+      type: test
+      suite: wasm
+      description: Spawn process.wasm entry and assert monitored EXIT result
+    source: file://call_process_wasm.lua
+    method: main
+    modules:
+      - process
+      - time
+    imports:
+      assert2: app.lib:assert
+

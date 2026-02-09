@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/tests/tempfiles"
@@ -469,6 +470,119 @@ func TestFS_Stat_ErrorCases(t *testing.T) {
 	_, err = fsRW.Stat("file1.txt")
 	assert.Error(t, err, "Stat on closed filesystem should fail")
 	assert.ErrorIs(t, err, fsapi.ErrClosed, "Error should be fsapi.ErrClosed")
+}
+
+func TestFS_Truncate(t *testing.T) {
+	root, cleanup := tempfiles.TempDirWithFiles(t, "fs_truncate_test", map[string]string{
+		"file.txt": "hello world",
+	})
+	defer cleanup()
+
+	t.Run("truncate to smaller size", func(t *testing.T) {
+		fs, err := NewFS(root, 0755, false)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, fs.Close()) }()
+
+		err = fs.Truncate("file.txt", 5)
+		require.NoError(t, err)
+
+		content, err := os.ReadFile(filepath.Join(root, "file.txt"))
+		require.NoError(t, err)
+		assert.Equal(t, "hello", string(content))
+	})
+
+	t.Run("truncate to zero", func(t *testing.T) {
+		require.NoError(t, os.WriteFile(filepath.Join(root, "file.txt"), []byte("content"), 0644))
+
+		fs, err := NewFS(root, 0755, false)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, fs.Close()) }()
+
+		err = fs.Truncate("file.txt", 0)
+		require.NoError(t, err)
+
+		content, err := os.ReadFile(filepath.Join(root, "file.txt"))
+		require.NoError(t, err)
+		assert.Empty(t, content)
+	})
+
+	t.Run("read-only permission denied", func(t *testing.T) {
+		fs, err := NewFS(root, 0444, false)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, fs.Close()) }()
+
+		err = fs.Truncate("file.txt", 0)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, fsapi.ErrPermissionDenied)
+	})
+
+	t.Run("nonexistent file", func(t *testing.T) {
+		fs, err := NewFS(root, 0755, false)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, fs.Close()) }()
+
+		err = fs.Truncate("nonexistent.txt", 0)
+		require.Error(t, err)
+	})
+
+	t.Run("closed filesystem", func(t *testing.T) {
+		fs, err := NewFS(root, 0755, false)
+		require.NoError(t, err)
+		require.NoError(t, fs.Close())
+
+		err = fs.Truncate("file.txt", 0)
+		assert.ErrorIs(t, err, fsapi.ErrClosed)
+	})
+}
+
+func TestFS_Chtimes(t *testing.T) {
+	root, cleanup := tempfiles.TempDirWithFiles(t, "fs_chtimes_test", map[string]string{
+		"file.txt": "content",
+	})
+	defer cleanup()
+
+	targetTime := time.Date(2020, 6, 15, 12, 0, 0, 0, time.UTC)
+
+	t.Run("set modification time", func(t *testing.T) {
+		fs, err := NewFS(root, 0755, false)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, fs.Close()) }()
+
+		err = fs.Chtimes("file.txt", targetTime, targetTime)
+		require.NoError(t, err)
+
+		info, err := os.Stat(filepath.Join(root, "file.txt"))
+		require.NoError(t, err)
+		assert.Equal(t, targetTime, info.ModTime().UTC())
+	})
+
+	t.Run("read-only permission denied", func(t *testing.T) {
+		fs, err := NewFS(root, 0444, false)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, fs.Close()) }()
+
+		err = fs.Chtimes("file.txt", targetTime, targetTime)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, fsapi.ErrPermissionDenied)
+	})
+
+	t.Run("nonexistent file", func(t *testing.T) {
+		fs, err := NewFS(root, 0755, false)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, fs.Close()) }()
+
+		err = fs.Chtimes("nonexistent.txt", targetTime, targetTime)
+		require.Error(t, err)
+	})
+
+	t.Run("closed filesystem", func(t *testing.T) {
+		fs, err := NewFS(root, 0755, false)
+		require.NoError(t, err)
+		require.NoError(t, fs.Close())
+
+		err = fs.Chtimes("file.txt", targetTime, targetTime)
+		assert.ErrorIs(t, err, fsapi.ErrClosed)
+	})
 }
 
 func benchSetup(b *testing.B, files map[string]string) (string, func()) {

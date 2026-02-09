@@ -19,7 +19,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	"github.com/wippyai/runtime/runtime/lua/security"
+	"github.com/wippyai/runtime/runtime/security"
 )
 
 var (

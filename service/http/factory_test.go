@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -103,6 +104,30 @@ func (fs *MockFS) Remove(name string) error {
 func (fs *MockFS) Mkdir(name string, perm fs.FileMode) error {
 	fullPath := filepath.Join(fs.rootDir, name)
 	return os.Mkdir(fullPath, perm)
+}
+
+func (fs *MockFS) Lstat(name string) (fs.FileInfo, error) {
+	fullPath := filepath.Join(fs.rootDir, name)
+	return os.Lstat(fullPath)
+}
+
+func (fs *MockFS) Rename(oldname, newname string) error {
+	return os.Rename(filepath.Join(fs.rootDir, oldname), filepath.Join(fs.rootDir, newname))
+}
+
+func (fs *MockFS) Truncate(name string, size int64) error {
+	fullPath := filepath.Join(fs.rootDir, name)
+	f, err := os.OpenFile(fullPath, os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	return f.Truncate(size)
+}
+
+func (fs *MockFS) Chtimes(name string, atime, mtime time.Time) error {
+	fullPath := filepath.Join(fs.rootDir, name)
+	return os.Chtimes(fullPath, atime, mtime)
 }
 
 // OsFileWrapper wraps an os.File to implement apifsLib.File

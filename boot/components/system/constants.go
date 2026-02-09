@@ -6,6 +6,7 @@ const (
 	// FilesystemName is a System component name
 	FilesystemName  boot.Name = "filesystem"
 	EnvironmentName boot.Name = "env"
+	NetworkName     boot.Name = "network"
 	ResourcesName   boot.Name = "resources"
 	InterceptorName boot.Name = "interceptor"
 	FunctionsName   boot.Name = "functions"

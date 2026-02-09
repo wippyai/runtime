@@ -9,6 +9,8 @@ func All() []boot.Component {
 		Lifecycle(),
 		Filesystem(),
 		Environment(),
+		Network(),
+		SocketDispatcher(),
 		Resources(),
 		Factory(),
 		ProcessManager(),

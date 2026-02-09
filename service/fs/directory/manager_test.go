@@ -64,6 +64,22 @@ func (m *MockFS) Mkdir(_ string, _ fs.FileMode) error {
 	return errors.New("not implemented")
 }
 
+func (m *MockFS) Lstat(_ string) (fs.FileInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m *MockFS) Rename(_, _ string) error {
+	return errors.New("not implemented")
+}
+
+func (m *MockFS) Truncate(_ string, _ int64) error {
+	return errors.New("not implemented")
+}
+
+func (m *MockFS) Chtimes(_ string, _, _ time.Time) error {
+	return errors.New("not implemented")
+}
+
 // MockPayload implements payload.Payload for testing
 type MockPayload struct {
 	data   any

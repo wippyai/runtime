@@ -847,7 +847,7 @@ func TestRequestCmd(t *testing.T) {
 
 	cmd.Method = "POST"
 	cmd.URL = "https://example.com/api"
-	cmd.Headers = map[string]string{"Content-Type": "application/json"}
+	cmd.Headers = map[string][]string{"Content-Type": {"application/json"}}
 	cmd.Body = []byte(`{"test": true}`)
 	cmd.Timeout = 30 * time.Second
 	cmd.UnixSocket = "/var/run/socket.sock"
@@ -897,7 +897,7 @@ func TestRequestBatchCmd(t *testing.T) {
 func TestResponse(t *testing.T) {
 	resp := Response{
 		StatusCode: 200,
-		Headers:    map[string]string{"Content-Type": "application/json"},
+		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Cookies:    map[string]string{"session": "xyz"},
 		Body:       []byte(`{"ok": true}`),
 		URL:        "https://example.com/api",
@@ -905,7 +905,7 @@ func TestResponse(t *testing.T) {
 	}
 
 	assert.Equal(t, 200, resp.StatusCode)
-	assert.Equal(t, "application/json", resp.Headers["Content-Type"])
+	assert.Equal(t, []string{"application/json"}, resp.Headers["Content-Type"])
 	assert.Equal(t, "xyz", resp.Cookies["session"])
 	assert.NotNil(t, resp.Body)
 	assert.Equal(t, uint64(123), resp.StreamID)

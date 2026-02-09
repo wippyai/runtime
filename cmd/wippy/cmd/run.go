@@ -243,7 +243,7 @@ func resolveCommandToEntry(ctx context.Context, name string) (string, error) {
 	}
 
 	for _, e := range allEntries {
-		if !strings.HasPrefix(e.Kind, "process.lua") {
+		if !isProcessKind(e.Kind) {
 			continue
 		}
 
@@ -283,6 +283,11 @@ func loadRuntimeConfig(cmd *cobra.Command, logger *zap.Logger) (boot.Config, err
 	}
 
 	return applyOverrideFlags(cfg, overrides, logger)
+}
+
+// isProcessKind returns true if the entry kind is a process type (lua or wasm).
+func isProcessKind(kind registry.Kind) bool {
+	return strings.HasPrefix(kind, "process.")
 }
 
 // extractCommandMeta extracts command metadata from entry.Meta
@@ -336,7 +341,7 @@ func runList(cmd *cobra.Command, _ []string) error {
 	}
 
 	for _, e := range allEntries {
-		if !strings.HasPrefix(e.Kind, "process.lua") {
+		if !isProcessKind(e.Kind) {
 			continue
 		}
 

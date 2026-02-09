@@ -74,6 +74,22 @@ func (m *MockFS) Mkdir(_ string, _ fs.FileMode) error {
 	return nil
 }
 
+func (m *MockFS) Lstat(name string) (fs.FileInfo, error) {
+	return m.Stat(name)
+}
+
+func (m *MockFS) Rename(_, _ string) error {
+	return nil
+}
+
+func (m *MockFS) Truncate(_ string, _ int64) error {
+	return nil
+}
+
+func (m *MockFS) Chtimes(_ string, _, _ time.Time) error {
+	return nil
+}
+
 // MockFile implements fsapi.File
 type MockFile struct {
 	name    string

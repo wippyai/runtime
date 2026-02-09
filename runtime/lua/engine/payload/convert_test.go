@@ -86,6 +86,7 @@ func TestGoToLua(t *testing.T) {
 		{"hello", lua.LString("hello"), "String", false},
 		{42.5, lua.LNumber(42.5), "Float64", false},
 		{10, lua.LInteger(10), "Int", false},
+		{uint32(10), lua.LInteger(10), "Uint32", false},
 		{true, lua.LBool(true), "Bool", false},
 		{nil, lua.LNil, "Nil", false},
 		{[]int{1, 2, 3}, func() lua.LValue {
@@ -135,6 +136,7 @@ func TestGoToLua(t *testing.T) {
 			"Any Array",
 			false,
 		},
+		{^uint64(0), nil, "Uint64 Overflow", true},
 		{make(chan int), nil, "Unsupported", true},
 	}
 

@@ -11,7 +11,7 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	rtresource "github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	"github.com/wippyai/runtime/runtime/lua/security"
+	"github.com/wippyai/runtime/runtime/security"
 )
 
 const storageTypeName = "cloudstorage.Storage"

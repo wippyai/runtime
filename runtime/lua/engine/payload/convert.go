@@ -21,6 +21,8 @@ type fieldInfo struct {
 
 var structFieldCache sync.Map // map[reflect.Type][]fieldInfo
 
+const maxLuaInteger = ^uint64(0) >> 1
+
 // getStructFields returns cached field info for a given struct type.
 func getStructFields(rt reflect.Type) []fieldInfo {
 	if cached, ok := structFieldCache.Load(rt); ok {
@@ -64,6 +66,22 @@ func GoToLua(v any) (lua.LValue, error) {
 		return lua.LInteger(val), nil
 	case int64:
 		return lua.LInteger(val), nil
+	case uint:
+		if uint64(val) > maxLuaInteger {
+			return nil, runtimelua.NewUnsupportedTypeError("unsupported value: uint overflows lua integer")
+		}
+		return lua.LInteger(int64(val)), nil
+	case uint8:
+		return lua.LInteger(int64(val)), nil
+	case uint16:
+		return lua.LInteger(int64(val)), nil
+	case uint32:
+		return lua.LInteger(int64(val)), nil
+	case uint64:
+		if val > maxLuaInteger {
+			return nil, runtimelua.NewUnsupportedTypeError("unsupported value: uint64 overflows lua integer")
+		}
+		return lua.LInteger(int64(val)), nil
 	case bool:
 		return lua.LBool(val), nil
 	case time.Time:

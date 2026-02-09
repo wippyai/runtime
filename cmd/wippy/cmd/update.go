@@ -7,12 +7,12 @@ import (
 
 	"github.com/spf13/cobra"
 	apierror "github.com/wippyai/runtime/api/error"
+	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
-	transcoder "github.com/wippyai/runtime/system/payload"
 	"go.uber.org/zap"
 )
 
@@ -133,7 +133,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Extract root dependencies from entries
-	rootDeps := extractRootDependencies(entries)
+	rootDeps := extractRootDependencies(entries, app.Transcoder)
 	logger.Info("found root dependencies", zap.Int("count", len(rootDeps)))
 
 	if len(rootDeps) == 0 {
@@ -212,7 +212,7 @@ type dependencyRequest struct {
 	Constraint string
 }
 
-func extractRootDependencies(entries []regapi.Entry) []dependencyRequest {
+func extractRootDependencies(entries []regapi.Entry, dtt payload.Transcoder) []dependencyRequest {
 	deps := make([]dependencyRequest, 0, len(entries))
 	seen := make(map[string]bool)
 
@@ -226,7 +226,7 @@ func extractRootDependencies(entries []regapi.Entry) []dependencyRequest {
 			Version   string `json:"version"`
 		}
 
-		if err := transcoder.GlobalTranscoder().Unmarshal(entry.Data, &depData); err != nil {
+		if err := dtt.Unmarshal(entry.Data, &depData); err != nil {
 			continue
 		}
 
@@ -301,7 +301,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	}
 
 	// Extract source constraints
-	rootDeps := extractRootDependencies(entries)
+	rootDeps := extractRootDependencies(entries, app.Transcoder)
 	sourceConstraints := make(map[string]string)
 	for _, dep := range rootDeps {
 		key := fmt.Sprintf("%s/%s", dep.Org, dep.Module)

@@ -529,3 +529,48 @@ entries:
       - process
     imports:
       assert2: app.lib:assert
+
+  - name: activity_chain_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: sequential funcs.call activity chain remains replay deterministic
+    source: file://activity_chain_workflow.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: async_activity_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: funcs.async works in workflow and delivers future result
+    source: file://async_activity_workflow.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
+  - name: async_cancel_activity_workflow
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: funcs.async cancel closes future channel and marks canceled
+    source: file://async_cancel_activity_workflow.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert

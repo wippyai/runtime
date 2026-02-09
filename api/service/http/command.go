@@ -22,7 +22,7 @@ const (
 // RequestCmd represents an HTTP request to be executed.
 // All fields are serializable for WASM/cross-boundary execution.
 type RequestCmd struct {
-	Headers         map[string]string
+	Headers         map[string][]string
 	Query           map[string]string
 	Cookies         map[string]string
 	Form            map[string]string
@@ -81,7 +81,7 @@ func (c *RequestCmd) Release() {
 // Response represents the result of an HTTP request.
 // Returned via emit() by the handler.
 type Response struct {
-	Headers    map[string]string
+	Headers    map[string][]string
 	Cookies    map[string]string
 	URL        string
 	Error      string

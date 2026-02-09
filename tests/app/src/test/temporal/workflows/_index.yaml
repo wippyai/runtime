@@ -267,3 +267,41 @@ entries:
       temporal:
         workflow:
           worker: app.test.temporal:test_worker
+
+  # Activity chain workflow - validates sequential funcs.call replay determinism
+  - name: activity_chain_workflow
+    kind: workflow.lua
+    source: file://activity_chain_workflow.lua
+    method: main
+    modules:
+      - funcs
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Async activity workflow - validates funcs.async support in workflow context
+  - name: async_activity_workflow
+    kind: workflow.lua
+    source: file://async_activity_workflow.lua
+    method: main
+    modules:
+      - funcs
+      - time
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+
+  # Async cancel activity workflow - validates funcs.async cancel support
+  - name: async_cancel_activity_workflow
+    kind: workflow.lua
+    source: file://async_cancel_activity_workflow.lua
+    method: main
+    modules:
+      - funcs
+      - time
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker

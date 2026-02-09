@@ -8,7 +8,7 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	workflowapi "github.com/wippyai/runtime/api/runtime/workflow"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
-	"github.com/wippyai/runtime/runtime/lua/security"
+	"github.com/wippyai/runtime/runtime/security"
 )
 
 var (

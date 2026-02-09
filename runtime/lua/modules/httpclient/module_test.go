@@ -195,7 +195,7 @@ func TestResponse(t *testing.T) {
 
 	bind(l)
 
-	resp := NewResponse(l, 200, map[string]string{"Content-Type": "text/plain"}, map[string]string{"session": "abc"}, []byte("hello"), "http://example.com")
+	resp := NewResponse(l, 200, map[string][]string{"Content-Type": {"text/plain"}}, map[string]string{"session": "abc"}, []byte("hello"), "http://example.com")
 	l.SetGlobal("test_response", resp)
 
 	err := l.DoString(`

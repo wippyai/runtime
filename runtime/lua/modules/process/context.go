@@ -13,7 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	secapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
-	"github.com/wippyai/runtime/runtime/lua/security"
+	"github.com/wippyai/runtime/runtime/security"
 )
 
 const spawnerTypeName = "process.Spawner"

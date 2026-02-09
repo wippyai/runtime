@@ -182,8 +182,10 @@ func executeRequest(ctx context.Context, pool *Pool, req *httpapi.RequestCmd, al
 	if contentType != "" {
 		httpReq.Header.Set("Content-Type", contentType)
 	}
-	for k, v := range req.Headers {
-		httpReq.Header.Set(k, v)
+	for k, vs := range req.Headers {
+		for _, v := range vs {
+			httpReq.Header.Add(k, v)
+		}
 	}
 	for name, value := range req.Cookies {
 		httpReq.AddCookie(&gohttp.Cookie{Name: name, Value: value})
@@ -202,9 +204,9 @@ func executeRequest(ctx context.Context, pool *Pool, req *httpapi.RequestCmd, al
 		return httpapi.Response{Error: err.Error()}
 	}
 
-	headers := make(map[string]string)
-	for k := range resp.Header {
-		headers[k] = resp.Header.Get(k)
+	headers := make(map[string][]string, len(resp.Header))
+	for k, vs := range resp.Header {
+		headers[k] = vs
 	}
 
 	cookies := make(map[string]string)

@@ -271,6 +271,80 @@ func TestLink_ModuleScopedParameters(t *testing.T) {
 	assert.Equal(t, "app:router_a", target.Meta["router"])
 }
 
+func TestLink_FullIDParameterName(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "__dependency.telegram"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "butschster/telegram",
+				"parameters": []any{
+					map[string]any{
+						"name":  "telegram:env_storage",
+						"value": "app:env_file",
+					},
+					map[string]any{
+						"name":  "telegram:webhook_router",
+						"value": "app:router",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("telegram", "env_storage"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{
+						"entry": "telegram:bot_token",
+						"path":  ".storage",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("telegram", "webhook_router"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{
+						"entry": "telegram.handler:webhook_endpoint",
+						"path":  ".meta.router",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("telegram", "bot_token"),
+			Kind: "env.variable",
+			Data: payload.New(map[string]any{}),
+		},
+		{
+			ID:   registry.NewID("telegram.handler", "webhook_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link()
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	// Storage set via data path
+	botToken := findEntry(entries, "telegram", "bot_token")
+	require.NotNil(t, botToken)
+	data := botToken.Data.Data().(map[string]any)
+	assert.Equal(t, "app:env_file", data["storage"])
+
+	// Router set via meta path
+	endpoint := findEntry(entries, "telegram.handler", "webhook_endpoint")
+	require.NotNil(t, endpoint)
+	assert.Equal(t, "app:router", endpoint.Meta["router"])
+}
+
 func TestLink_NoValueError(t *testing.T) {
 	ctx, _ := setupTestContext()
 
