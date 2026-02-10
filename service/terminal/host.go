@@ -35,6 +35,7 @@ type Host struct {
 	id        registry.ID
 	running   atomic.Bool
 	shutdown  atomic.Bool
+	stopCalls atomic.Uint64
 }
 
 // NewHost creates a new terminal host with actor scheduler.
@@ -172,15 +173,21 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 
 // Stop implements supervisor.Service.
 func (h *Host) Stop(ctx context.Context) error {
-	if !h.running.Load() {
+	stopAttempt := h.stopCalls.Add(1)
+	if !h.running.Swap(false) {
+		h.log.Warn("terminal host stop requested while already stopped",
+			zap.String("id", h.id.String()),
+			zap.Uint64("attempt", stopAttempt),
+			zap.Bool("shutdown", h.shutdown.Load()))
 		return nil
 	}
 
 	h.shutdown.Store(true)
-	h.log.Info("terminal host stopping", zap.String("id", h.id.String()))
+	h.log.Info("terminal host stopping",
+		zap.String("id", h.id.String()),
+		zap.Uint64("attempt", stopAttempt))
 
 	h.scheduler.Stop(ctx)
-	h.running.Store(false)
 	close(h.statusCh)
 
 	if h.raw != nil {
