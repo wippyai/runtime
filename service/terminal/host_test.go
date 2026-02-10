@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -117,6 +118,67 @@ func TestHost_StopNotRunning(t *testing.T) {
 
 	err := h.Stop(context.Background())
 	require.NoError(t, err)
+}
+
+func TestHost_StopTwice_NoPanic(t *testing.T) {
+	id := registry.ID{NS: "test", Name: "host1"}
+	cfg := &terminalapi.HostConfig{}
+	factory := &mockFactory{}
+	logCtrl := logs.NewConfigurator(nil, zap.NewNop())
+	log := zap.NewNop()
+
+	scheduler := actor.NewScheduler(&mockCommandRegistry{},
+		actor.WithWorkers(1),
+	)
+
+	h := NewHost(id, cfg, scheduler, factory, logCtrl, log)
+
+	_, err := h.Start(context.Background())
+	require.NoError(t, err)
+
+	err = h.Stop(context.Background())
+	require.NoError(t, err)
+
+	assert.NotPanics(t, func() {
+		err = h.Stop(context.Background())
+	})
+	require.NoError(t, err)
+}
+
+func TestHost_StopConcurrent_NoPanic(t *testing.T) {
+	id := registry.ID{NS: "test", Name: "host1"}
+	cfg := &terminalapi.HostConfig{}
+	factory := &mockFactory{}
+	logCtrl := logs.NewConfigurator(nil, zap.NewNop())
+	log := zap.NewNop()
+
+	scheduler := actor.NewScheduler(&mockCommandRegistry{},
+		actor.WithWorkers(1),
+	)
+
+	h := NewHost(id, cfg, scheduler, factory, logCtrl, log)
+
+	_, err := h.Start(context.Background())
+	require.NoError(t, err)
+
+	const stopCalls = 8
+	errCh := make(chan error, stopCalls)
+	var wg sync.WaitGroup
+	wg.Add(stopCalls)
+
+	for i := 0; i < stopCalls; i++ {
+		go func() {
+			defer wg.Done()
+			errCh <- h.Stop(context.Background())
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for stopErr := range errCh {
+		require.NoError(t, stopErr)
+	}
 }
 
 func TestHost_Run_NotRunning(t *testing.T) {
