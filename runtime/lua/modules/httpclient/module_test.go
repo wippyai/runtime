@@ -1,13 +1,74 @@
 package httpclient
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"testing"
 	"time"
 
 	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/security"
+	httpapi "github.com/wippyai/runtime/api/service/http"
 )
+
+func generateTestCerts(t *testing.T) (caCertPEM, clientCertPEM, clientKeyPEM []byte) {
+	t.Helper()
+
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate CA key: %v", err)
+	}
+
+	caTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Test CA"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	caCertDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("create CA cert: %v", err)
+	}
+	caCertPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCertDER})
+
+	clientKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate client key: %v", err)
+	}
+
+	clientTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: "Test Client"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+
+	clientCertDER, err := x509.CreateCertificate(rand.Reader, clientTemplate, caTemplate, &clientKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("create client cert: %v", err)
+	}
+	clientCertPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: clientCertDER})
+
+	clientKeyDER, err := x509.MarshalECPrivateKey(clientKey)
+	if err != nil {
+		t.Fatalf("marshal client key: %v", err)
+	}
+	clientKeyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: clientKeyDER})
+
+	return caCertPEM, clientCertPEM, clientKeyPEM
+}
 
 // bind loads the module into the given state for testing.
 func bind(l *lua.LState) {
@@ -544,6 +605,227 @@ func TestParseDurationOptions(t *testing.T) {
 			t.Errorf("expected 60s, got %v", parsed.timeout)
 		}
 	})
+}
+
+func TestParseTLSOptions(t *testing.T) {
+	t.Run("full TLS config", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		tlsTbl := l.CreateTable(0, 5)
+		tlsTbl.RawSetString("cert", lua.LString("-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----"))
+		tlsTbl.RawSetString("key", lua.LString("-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----"))
+		tlsTbl.RawSetString("ca", lua.LString("-----BEGIN CERTIFICATE-----\nca\n-----END CERTIFICATE-----"))
+		tlsTbl.RawSetString("server_name", lua.LString("kubernetes"))
+		tlsTbl.RawSetString("insecure_skip_verify", lua.LFalse)
+
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("tls", tlsTbl)
+		l.Push(opts)
+
+		parsed := parseOptions(l, 1)
+		if parsed.tls == nil {
+			t.Fatal("expected TLS config")
+		}
+		if string(parsed.tls.CertPEM) != "-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----" {
+			t.Errorf("cert mismatch: %s", parsed.tls.CertPEM)
+		}
+		if string(parsed.tls.KeyPEM) != "-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----" {
+			t.Errorf("key mismatch: %s", parsed.tls.KeyPEM)
+		}
+		if string(parsed.tls.CAPEM) != "-----BEGIN CERTIFICATE-----\nca\n-----END CERTIFICATE-----" {
+			t.Errorf("ca mismatch: %s", parsed.tls.CAPEM)
+		}
+		if parsed.tls.ServerName != "kubernetes" {
+			t.Errorf("server_name mismatch: %s", parsed.tls.ServerName)
+		}
+		if parsed.tls.InsecureSkipVerify {
+			t.Error("insecure_skip_verify should be false")
+		}
+	})
+
+	t.Run("insecure_skip_verify true", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		tlsTbl := l.CreateTable(0, 1)
+		tlsTbl.RawSetString("insecure_skip_verify", lua.LTrue)
+
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("tls", tlsTbl)
+		l.Push(opts)
+
+		parsed := parseOptions(l, 1)
+		if parsed.tls == nil {
+			t.Fatal("expected TLS config")
+		}
+		if !parsed.tls.InsecureSkipVerify {
+			t.Error("insecure_skip_verify should be true")
+		}
+	})
+
+	t.Run("no TLS config", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("body", lua.LString("test"))
+		l.Push(opts)
+
+		parsed := parseOptions(l, 1)
+		if parsed.tls != nil {
+			t.Error("expected nil TLS config")
+		}
+	})
+
+	t.Run("empty TLS table", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		tlsTbl := l.CreateTable(0, 0)
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("tls", tlsTbl)
+		l.Push(opts)
+
+		parsed := parseOptions(l, 1)
+		if parsed.tls != nil {
+			t.Error("empty tls table should produce nil config")
+		}
+	})
+}
+
+func TestParseTLSOptionsPartial(t *testing.T) {
+	t.Run("only CA", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		tlsTbl := l.CreateTable(0, 1)
+		tlsTbl.RawSetString("ca", lua.LString("ca-pem-data"))
+
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("tls", tlsTbl)
+		l.Push(opts)
+
+		parsed := parseOptions(l, 1)
+		if parsed.tls == nil {
+			t.Fatal("expected TLS config")
+		}
+		if string(parsed.tls.CAPEM) != "ca-pem-data" {
+			t.Errorf("ca mismatch: %s", parsed.tls.CAPEM)
+		}
+		if len(parsed.tls.CertPEM) > 0 {
+			t.Error("cert should be empty")
+		}
+		if len(parsed.tls.KeyPEM) > 0 {
+			t.Error("key should be empty")
+		}
+	})
+
+	t.Run("only insecure_skip_verify", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		tlsTbl := l.CreateTable(0, 1)
+		tlsTbl.RawSetString("insecure_skip_verify", lua.LTrue)
+
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("tls", tlsTbl)
+		l.Push(opts)
+
+		parsed := parseOptions(l, 1)
+		if parsed.tls == nil {
+			t.Fatal("expected TLS config")
+		}
+		if !parsed.tls.InsecureSkipVerify {
+			t.Error("insecure_skip_verify should be true")
+		}
+		if len(parsed.tls.CertPEM) > 0 || len(parsed.tls.KeyPEM) > 0 || len(parsed.tls.CAPEM) > 0 {
+			t.Error("PEM fields should be empty")
+		}
+	})
+
+	t.Run("parseOptionsFromTable with TLS", func(t *testing.T) {
+		l := lua.NewState()
+		defer l.Close()
+
+		tlsTbl := l.CreateTable(0, 2)
+		tlsTbl.RawSetString("cert", lua.LString("cert-data"))
+		tlsTbl.RawSetString("key", lua.LString("key-data"))
+
+		opts := l.CreateTable(0, 1)
+		opts.RawSetString("tls", tlsTbl)
+
+		parsed := parseOptionsFromTable(opts)
+		if parsed.tls == nil {
+			t.Fatal("expected TLS config")
+		}
+		if string(parsed.tls.CertPEM) != "cert-data" {
+			t.Errorf("cert mismatch: %s", parsed.tls.CertPEM)
+		}
+		if string(parsed.tls.KeyPEM) != "key-data" {
+			t.Errorf("key mismatch: %s", parsed.tls.KeyPEM)
+		}
+	})
+}
+
+func TestParseTLSOptionsEmptyStringsIgnored(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	tlsTbl := l.CreateTable(0, 2)
+	tlsTbl.RawSetString("cert", lua.LString(""))
+	tlsTbl.RawSetString("key", lua.LString(""))
+
+	opts := l.CreateTable(0, 1)
+	opts.RawSetString("tls", tlsTbl)
+	l.Push(opts)
+
+	parsed := parseOptions(l, 1)
+	if parsed.tls == nil {
+		t.Fatal("expected TLS config")
+	}
+	if len(parsed.tls.CertPEM) != 0 {
+		t.Error("empty string cert should produce empty bytes")
+	}
+}
+
+func TestPopulateYieldTLS(t *testing.T) {
+	_, clientCert, clientKey := generateTestCerts(t)
+
+	yield := AcquireRequestYield()
+	defer ReleaseRequestYield(yield)
+
+	opts := &requestOptions{
+		tls: &httpapi.TLSConfig{
+			CertPEM:    clientCert,
+			KeyPEM:     clientKey,
+			ServerName: "test.local",
+		},
+	}
+
+	populateYield(yield, "GET", "https://test.local", opts)
+
+	if yield.TLS == nil {
+		t.Fatal("TLS should be set on yield")
+	}
+	if string(yield.TLS.CertPEM) != string(clientCert) {
+		t.Error("cert mismatch on yield")
+	}
+	if yield.TLS.ServerName != "test.local" {
+		t.Errorf("server_name mismatch: %s", yield.TLS.ServerName)
+	}
+}
+
+func TestPopulateYieldNoTLS(t *testing.T) {
+	yield := AcquireRequestYield()
+	defer ReleaseRequestYield(yield)
+
+	opts := &requestOptions{}
+	populateYield(yield, "GET", "https://example.com", opts)
+
+	if yield.TLS != nil {
+		t.Error("TLS should be nil when not configured")
+	}
 }
 
 func TestParseOptionsFromTableDuration(t *testing.T) {

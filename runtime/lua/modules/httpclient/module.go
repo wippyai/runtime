@@ -139,6 +139,14 @@ func makeMethod(method string) lua.LGoFunc {
 			}
 		}
 
+		if opts.tls != nil && opts.tls.InsecureSkipVerify {
+			if !security.IsAllowed(ctx, "http_client.insecure_tls", urlStr, nil) {
+				l.Push(lua.LNil)
+				l.Push(lua.NewLuaError(l, "not allowed: insecure TLS for "+urlStr).WithKind(lua.PermissionDenied).WithRetryable(false))
+				return 2
+			}
+		}
+
 		if !security.IsAllowed(ctx, "http_client.request", urlStr, nil) {
 			l.Push(lua.LNil)
 			l.Push(lua.NewLuaError(l, "not allowed: "+urlStr).WithKind(lua.PermissionDenied).WithRetryable(false))
@@ -190,6 +198,14 @@ func request(l *lua.LState) int {
 		}
 	}
 
+	if opts.tls != nil && opts.tls.InsecureSkipVerify {
+		if !security.IsAllowed(ctx, "http_client.insecure_tls", urlStr, nil) {
+			l.Push(lua.LNil)
+			l.Push(lua.NewLuaError(l, "not allowed: insecure TLS for "+urlStr).WithKind(lua.PermissionDenied).WithRetryable(false))
+			return 2
+		}
+	}
+
 	if !security.IsAllowed(ctx, "http_client.request", urlStr, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "not allowed: "+urlStr).WithKind(lua.PermissionDenied).WithRetryable(false))
@@ -229,6 +245,7 @@ func populateYield(yield *RequestYield, method, url string, opts *requestOptions
 	yield.BasicAuthPass = opts.basicAuthPass
 	yield.Stream = opts.stream
 	yield.MaxResponseBody = opts.maxResponseBody
+	yield.TLS = opts.tls
 
 	// Convert files
 	if len(opts.files) > 0 {
@@ -264,10 +281,11 @@ func populateYield(yield *RequestYield, method, url string, opts *requestOptions
 }
 
 type requestOptions struct {
-	headers         map[string]string
+	tls             *httpapi.TLSConfig
 	query           map[string]string
 	cookies         map[string]string
 	form            map[string]string
+	headers         map[string]string
 	unixSocket      string
 	basicAuthUser   string
 	basicAuthPass   string
@@ -403,6 +421,11 @@ func parseOptions(l *lua.LState, idx int) *requestOptions {
 		opts.maxResponseBody = int64(lua.LVAsNumber(maxBody))
 	}
 
+	// TLS configuration
+	if tlsVal := tbl.RawGetString("tls"); tlsVal.Type() == lua.LTTable {
+		opts.tls = parseTLSConfig(tlsVal.(*lua.LTable))
+	}
+
 	return opts
 }
 
@@ -495,6 +518,13 @@ func requestBatch(l *lua.LState) int {
 					return
 				}
 			}
+			if opts.tls != nil && opts.tls.InsecureSkipVerify {
+				if !security.IsAllowed(ctx, "http_client.insecure_tls", urlStr, nil) {
+					parseErr = "not allowed: insecure TLS for " + urlStr
+					parseErrKind = lua.PermissionDenied
+					return
+				}
+			}
 			// Streaming not supported in batch
 			if opts.stream {
 				parseErr = "streaming not supported in batch requests"
@@ -522,6 +552,7 @@ func requestBatch(l *lua.LState) int {
 		req.BasicAuthUser = opts.basicAuthUser
 		req.BasicAuthPass = opts.basicAuthPass
 		req.MaxResponseBody = opts.maxResponseBody
+		req.TLS = opts.tls
 
 		if len(opts.files) > 0 {
 			req.Files = make([]httpapi.FileUpload, len(opts.files))
@@ -546,6 +577,39 @@ func requestBatch(l *lua.LState) int {
 
 	l.Push(yield)
 	return -1
+}
+
+// parseTLSConfig extracts TLS configuration from a Lua table.
+// Returns nil if the table contains no recognized TLS fields.
+func parseTLSConfig(tbl *lua.LTable) *httpapi.TLSConfig {
+	cfg := &httpapi.TLSConfig{}
+	hasFields := false
+
+	if cert := tbl.RawGetString("cert"); cert.Type() == lua.LTString {
+		cfg.CertPEM = []byte(cert.String())
+		hasFields = true
+	}
+	if key := tbl.RawGetString("key"); key.Type() == lua.LTString {
+		cfg.KeyPEM = []byte(key.String())
+		hasFields = true
+	}
+	if ca := tbl.RawGetString("ca"); ca.Type() == lua.LTString {
+		cfg.CAPEM = []byte(ca.String())
+		hasFields = true
+	}
+	if serverName := tbl.RawGetString("server_name"); serverName.Type() == lua.LTString {
+		cfg.ServerName = serverName.String()
+		hasFields = true
+	}
+	if insecure := tbl.RawGetString("insecure_skip_verify"); insecure.Type() == lua.LTBool {
+		cfg.InsecureSkipVerify = bool(insecure.(lua.LBool))
+		hasFields = true
+	}
+
+	if !hasFields {
+		return nil
+	}
+	return cfg
 }
 
 // parseOptionsFromTable extracts request options from a Lua table.
@@ -648,6 +712,10 @@ func parseOptionsFromTable(tbl *lua.LTable) *requestOptions {
 
 	if maxBody := tbl.RawGetString("max_response_body"); maxBody.Type() == lua.LTNumber || maxBody.Type() == lua.LTInteger {
 		opts.maxResponseBody = int64(lua.LVAsNumber(maxBody))
+	}
+
+	if tlsVal := tbl.RawGetString("tls"); tlsVal.Type() == lua.LTTable {
+		opts.tls = parseTLSConfig(tlsVal.(*lua.LTable))
 	}
 
 	return opts

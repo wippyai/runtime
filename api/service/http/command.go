@@ -19,6 +19,15 @@ const (
 	RequestBatch dispatcher.CommandID = 61 // Execute multiple HTTP requests concurrently
 )
 
+// TLSConfig holds per-request TLS settings for mTLS and custom CA support.
+type TLSConfig struct {
+	ServerName         string
+	CertPEM            []byte
+	KeyPEM             []byte
+	CAPEM              []byte
+	InsecureSkipVerify bool
+}
+
 // RequestCmd represents an HTTP request to be executed.
 // All fields are serializable for WASM/cross-boundary execution.
 type RequestCmd struct {
@@ -26,11 +35,12 @@ type RequestCmd struct {
 	Query           map[string]string
 	Cookies         map[string]string
 	Form            map[string]string
-	BasicAuthUser   string
-	URL             string
+	TLS             *TLSConfig
 	Method          string
+	URL             string
 	BasicAuthPass   string
 	UnixSocket      string
+	BasicAuthUser   string
 	Body            []byte
 	Files           []FileUpload
 	Timeout         time.Duration
@@ -73,6 +83,7 @@ func (c *RequestCmd) Release() {
 	c.Files = nil
 	c.BasicAuthUser = ""
 	c.BasicAuthPass = ""
+	c.TLS = nil
 	c.Stream = false
 	c.MaxResponseBody = 0
 	requestCmdPool.Put(c)

@@ -22,6 +22,15 @@ var responseType = typ.NewRecord().
 	OptField("stream", streamReaderType).
 	Build()
 
+// TLSOptions type for per-request TLS configuration
+var tlsOptionsType = typ.NewRecord().
+	OptField("cert", typ.String).
+	OptField("key", typ.String).
+	OptField("ca", typ.String).
+	OptField("server_name", typ.String).
+	OptField("insecure_skip_verify", typ.Boolean).
+	Build()
+
 // RequestOptions type for request configuration
 var requestOptionsType = typ.NewRecord().
 	OptField("headers", typ.NewMap(typ.String, typ.String)).
@@ -35,6 +44,7 @@ var requestOptionsType = typ.NewRecord().
 	OptField("auth", typ.Any).
 	OptField("stream", typ.Boolean).
 	OptField("max_response_body", typ.Number).
+	OptField("tls", tlsOptionsType).
 	Build()
 
 // ModuleTypes returns the type manifest for the http_client module.
@@ -44,6 +54,7 @@ func ModuleTypes() *io.Manifest {
 	// Register exported types
 	m.DefineType("Response", responseType)
 	m.DefineType("RequestOptions", requestOptionsType)
+	m.DefineType("TLSOptions", tlsOptionsType)
 	m.DefineType("StreamReader", streamReaderType)
 
 	// Function type for HTTP methods (get, post, put, etc.)
