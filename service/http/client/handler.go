@@ -194,7 +194,17 @@ func executeRequest(ctx context.Context, pool *Pool, req *httpapi.RequestCmd, al
 		httpReq.SetBasicAuth(req.BasicAuthUser, req.BasicAuthPass)
 	}
 
-	client := pool.GetClient(req.Timeout, req.UnixSocket)
+	var client *gohttp.Client
+	if req.TLS != nil {
+		var tlsErr error
+		client, tlsErr = pool.GetClientWithTLS(req.Timeout, req.UnixSocket, req.TLS)
+		if tlsErr != nil {
+			return httpapi.Response{Error: tlsErr.Error()}
+		}
+	} else {
+		client = pool.GetClient(req.Timeout, req.UnixSocket)
+	}
+
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		// Per Go docs, resp may be non-nil even on error and body needs closing

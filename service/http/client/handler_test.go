@@ -2,7 +2,15 @@ package client
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"io"
+	"math/big"
 	gohttp "net/http"
 	"net/http/httptest"
 	"strings"
@@ -748,6 +756,739 @@ func TestDispatcher_RequestFileUploadMissingFieldName(t *testing.T) {
 			t.Errorf("unexpected error: %s", resp.Error)
 		}
 	case <-time.After(time.Second):
+		t.Fatal("timeout")
+	}
+}
+
+// generateTestCerts creates a self-signed CA and a client certificate signed by that CA.
+func generateTestCerts(t *testing.T) (caCertPEM, clientCertPEM, clientKeyPEM []byte) {
+	t.Helper()
+
+	// Generate CA key and cert
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate CA key: %v", err)
+	}
+
+	caTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Test CA"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	caCertDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("create CA cert: %v", err)
+	}
+
+	caCertPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCertDER})
+
+	// Generate client key and cert signed by CA
+	clientKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate client key: %v", err)
+	}
+
+	clientTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: "Test Client"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+
+	clientCertDER, err := x509.CreateCertificate(rand.Reader, clientTemplate, caTemplate, &clientKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("create client cert: %v", err)
+	}
+
+	clientCertPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: clientCertDER})
+
+	clientKeyDER, err := x509.MarshalECPrivateKey(clientKey)
+	if err != nil {
+		t.Fatalf("marshal client key: %v", err)
+	}
+	clientKeyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: clientKeyDER})
+
+	return caCertPEM, clientCertPEM, clientKeyPEM
+}
+
+// newMTLSServer creates an httptest server that requires client certificates signed by the given CA.
+func newMTLSServer(t *testing.T, caCertPEM []byte, handler gohttp.Handler) *httptest.Server {
+	t.Helper()
+
+	caPool := x509.NewCertPool()
+	if !caPool.AppendCertsFromPEM(caCertPEM) {
+		t.Fatal("failed to add CA cert to pool")
+	}
+
+	ts := httptest.NewUnstartedServer(handler)
+	ts.TLS = &tls.Config{
+		ClientAuth: tls.RequireAndVerifyClientCert,
+		ClientCAs:  caPool,
+		MinVersion: tls.VersionTLS12,
+	}
+	ts.StartTLS()
+	return ts
+}
+
+func TestClientPoolTLSFingerprint(t *testing.T) {
+	cfg1 := &httpapi.TLSConfig{CertPEM: []byte("cert1"), KeyPEM: []byte("key1")}
+	cfg2 := &httpapi.TLSConfig{CertPEM: []byte("cert1"), KeyPEM: []byte("key1")}
+	cfg3 := &httpapi.TLSConfig{CertPEM: []byte("cert2"), KeyPEM: []byte("key2")}
+
+	fp1 := tlsFingerprint(cfg1)
+	fp2 := tlsFingerprint(cfg2)
+	fp3 := tlsFingerprint(cfg3)
+
+	if fp1 != fp2 {
+		t.Error("identical configs produce different fingerprints")
+	}
+	if fp1 == fp3 {
+		t.Error("different configs produce same fingerprint")
+	}
+	if len(fp1) != 64 {
+		t.Errorf("expected 64-char hex fingerprint, got %d", len(fp1))
+	}
+}
+
+func TestClientPoolTLSFingerprintIncludesAllFields(t *testing.T) {
+	base := &httpapi.TLSConfig{
+		CertPEM:    []byte("cert"),
+		KeyPEM:     []byte("key"),
+		CAPEM:      []byte("ca"),
+		ServerName: "example.com",
+	}
+	withInsecure := &httpapi.TLSConfig{
+		CertPEM:            []byte("cert"),
+		KeyPEM:             []byte("key"),
+		CAPEM:              []byte("ca"),
+		ServerName:         "example.com",
+		InsecureSkipVerify: true,
+	}
+	withDifferentSNI := &httpapi.TLSConfig{
+		CertPEM:    []byte("cert"),
+		KeyPEM:     []byte("key"),
+		CAPEM:      []byte("ca"),
+		ServerName: "other.com",
+	}
+
+	fpBase := tlsFingerprint(base)
+	fpInsecure := tlsFingerprint(withInsecure)
+	fpSNI := tlsFingerprint(withDifferentSNI)
+
+	if fpBase == fpInsecure {
+		t.Error("insecure_skip_verify should change fingerprint")
+	}
+	if fpBase == fpSNI {
+		t.Error("different server_name should change fingerprint")
+	}
+}
+
+func TestClientPoolTLSClientReuse(t *testing.T) {
+	caCert, clientCert, clientKey := generateTestCerts(t)
+	pool := NewClientPool()
+
+	cfg := &httpapi.TLSConfig{CertPEM: clientCert, KeyPEM: clientKey, CAPEM: caCert}
+	c1, err := pool.GetClientWithTLS(0, "", cfg)
+	if err != nil {
+		t.Fatalf("GetClientWithTLS: %v", err)
+	}
+
+	c2, err := pool.GetClientWithTLS(0, "", cfg)
+	if err != nil {
+		t.Fatalf("GetClientWithTLS: %v", err)
+	}
+
+	if c1 != c2 {
+		t.Error("same TLS config should reuse pooled client")
+	}
+}
+
+func TestClientPoolTLSDifferentConfigs(t *testing.T) {
+	caCert, clientCert, clientKey := generateTestCerts(t)
+	_, clientCert2, clientKey2 := generateTestCerts(t)
+	pool := NewClientPool()
+
+	cfg1 := &httpapi.TLSConfig{CertPEM: clientCert, KeyPEM: clientKey, CAPEM: caCert}
+	cfg2 := &httpapi.TLSConfig{CertPEM: clientCert2, KeyPEM: clientKey2, CAPEM: caCert}
+
+	c1, err := pool.GetClientWithTLS(0, "", cfg1)
+	if err != nil {
+		t.Fatalf("GetClientWithTLS: %v", err)
+	}
+
+	c2, err := pool.GetClientWithTLS(0, "", cfg2)
+	if err != nil {
+		t.Fatalf("GetClientWithTLS: %v", err)
+	}
+
+	if c1 == c2 {
+		t.Error("different TLS configs should create separate clients")
+	}
+}
+
+func TestClientPoolTLSInvalidCert(t *testing.T) {
+	pool := NewClientPool()
+
+	cfg := &httpapi.TLSConfig{CertPEM: []byte("bad"), KeyPEM: []byte("bad")}
+	_, err := pool.GetClientWithTLS(0, "", cfg)
+	if err == nil {
+		t.Error("expected error for invalid cert/key pair")
+	}
+}
+
+func TestClientPoolTLSNilConfig(t *testing.T) {
+	pool := NewClientPool()
+	c1, err := pool.GetClientWithTLS(0, "", nil)
+	if err != nil {
+		t.Fatalf("GetClientWithTLS(nil): %v", err)
+	}
+	c2 := pool.GetClient(0, "")
+	if c1 != c2 {
+		t.Error("nil TLS config should return default client")
+	}
+}
+
+func TestBuildTLSConfigClientCert(t *testing.T) {
+	_, clientCert, clientKey := generateTestCerts(t)
+	cfg, err := buildTLSConfig(&httpapi.TLSConfig{CertPEM: clientCert, KeyPEM: clientKey})
+	if err != nil {
+		t.Fatalf("buildTLSConfig: %v", err)
+	}
+	if len(cfg.Certificates) != 1 {
+		t.Errorf("expected 1 certificate, got %d", len(cfg.Certificates))
+	}
+	if cfg.MinVersion != tls.VersionTLS12 {
+		t.Error("expected MinVersion TLS 1.2")
+	}
+}
+
+func TestBuildTLSConfigCA(t *testing.T) {
+	caCert, _, _ := generateTestCerts(t)
+	cfg, err := buildTLSConfig(&httpapi.TLSConfig{CAPEM: caCert})
+	if err != nil {
+		t.Fatalf("buildTLSConfig: %v", err)
+	}
+	if cfg.RootCAs == nil {
+		t.Error("expected RootCAs to be set")
+	}
+}
+
+func TestBuildTLSConfigInvalidCA(t *testing.T) {
+	_, err := buildTLSConfig(&httpapi.TLSConfig{CAPEM: []byte("not a cert")})
+	if err == nil {
+		t.Error("expected error for invalid CA PEM")
+	}
+}
+
+func TestBuildTLSConfigServerName(t *testing.T) {
+	cfg, err := buildTLSConfig(&httpapi.TLSConfig{ServerName: "example.com"})
+	if err != nil {
+		t.Fatalf("buildTLSConfig: %v", err)
+	}
+	if cfg.ServerName != "example.com" {
+		t.Errorf("expected ServerName 'example.com', got %q", cfg.ServerName)
+	}
+}
+
+func TestBuildTLSConfigCertWithoutKey(t *testing.T) {
+	_, err := buildTLSConfig(&httpapi.TLSConfig{CertPEM: []byte("cert-data")})
+	if err == nil {
+		t.Error("expected error for cert without key")
+	}
+	if !strings.Contains(err.Error(), "both cert and key must be provided") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildTLSConfigKeyWithoutCert(t *testing.T) {
+	_, err := buildTLSConfig(&httpapi.TLSConfig{KeyPEM: []byte("key-data")})
+	if err == nil {
+		t.Error("expected error for key without cert")
+	}
+	if !strings.Contains(err.Error(), "both cert and key must be provided") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildTLSConfigInsecure(t *testing.T) {
+	cfg, err := buildTLSConfig(&httpapi.TLSConfig{InsecureSkipVerify: true})
+	if err != nil {
+		t.Fatalf("buildTLSConfig: %v", err)
+	}
+	if !cfg.InsecureSkipVerify {
+		t.Error("expected InsecureSkipVerify true")
+	}
+}
+
+func TestDispatcher_RequestMTLS(t *testing.T) {
+	caCert, clientCert, clientKey := generateTestCerts(t)
+
+	ts := newMTLSServer(t, caCert, gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
+		if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
+			w.WriteHeader(gohttp.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte("mtls-ok"))
+	}))
+	defer ts.Close()
+
+	// Server uses self-signed cert, client needs server's CA too
+	serverCACert := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: ts.TLS.Certificates[0].Certificate[0],
+	})
+
+	d := NewDispatcher()
+	done := make(chan httpapi.Response, 1)
+
+	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
+		Method: "GET",
+		URL:    ts.URL,
+		TLS: &httpapi.TLSConfig{
+			CertPEM: clientCert,
+			KeyPEM:  clientKey,
+			CAPEM:   serverCACert,
+		},
+	}, 0, &testReceiver{fn: func(data any) {
+		done <- data.(httpapi.Response)
+	}})
+
+	if err != nil {
+		t.Fatalf("handleRequest: %v", err)
+	}
+
+	select {
+	case resp := <-done:
+		if resp.Error != "" {
+			t.Fatalf("response error: %s", resp.Error)
+		}
+		if resp.StatusCode != 200 {
+			t.Errorf("expected 200, got %d", resp.StatusCode)
+		}
+		if string(resp.Body) != "mtls-ok" {
+			t.Errorf("expected 'mtls-ok', got %q", resp.Body)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+}
+
+func TestDispatcher_RequestTLSCustomCA(t *testing.T) {
+	// Use a regular TLS server (no client cert required)
+	ts := httptest.NewTLSServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
+		_, _ = w.Write([]byte("tls-ok"))
+	}))
+	defer ts.Close()
+
+	serverCACert := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: ts.TLS.Certificates[0].Certificate[0],
+	})
+
+	d := NewDispatcher()
+	done := make(chan httpapi.Response, 1)
+
+	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
+		Method: "GET",
+		URL:    ts.URL,
+		TLS: &httpapi.TLSConfig{
+			CAPEM: serverCACert,
+		},
+	}, 0, &testReceiver{fn: func(data any) {
+		done <- data.(httpapi.Response)
+	}})
+
+	if err != nil {
+		t.Fatalf("handleRequest: %v", err)
+	}
+
+	select {
+	case resp := <-done:
+		if resp.Error != "" {
+			t.Fatalf("response error: %s", resp.Error)
+		}
+		if resp.StatusCode != 200 {
+			t.Errorf("expected 200, got %d", resp.StatusCode)
+		}
+		if string(resp.Body) != "tls-ok" {
+			t.Errorf("expected 'tls-ok', got %q", resp.Body)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+}
+
+func TestDispatcher_RequestTLSInvalidCert(t *testing.T) {
+	d := NewDispatcher()
+	done := make(chan httpapi.Response, 1)
+
+	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
+		Method: "GET",
+		URL:    "https://example.com",
+		TLS: &httpapi.TLSConfig{
+			CertPEM: []byte("bad-cert"),
+			KeyPEM:  []byte("bad-key"),
+		},
+	}, 0, &testReceiver{fn: func(data any) {
+		done <- data.(httpapi.Response)
+	}})
+
+	if err != nil {
+		t.Fatalf("handleRequest: %v", err)
+	}
+
+	select {
+	case resp := <-done:
+		if resp.Error == "" {
+			t.Error("expected error for invalid cert")
+		}
+		if !strings.Contains(resp.Error, "parse client certificate") {
+			t.Errorf("expected cert parse error, got: %s", resp.Error)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+}
+
+func TestDispatcher_RequestBatchMTLS(t *testing.T) {
+	caCert, clientCert, clientKey := generateTestCerts(t)
+
+	ts := newMTLSServer(t, caCert, gohttp.HandlerFunc(func(w gohttp.ResponseWriter, r *gohttp.Request) {
+		_, _ = w.Write([]byte(r.URL.Path))
+	}))
+	defer ts.Close()
+
+	serverCACert := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: ts.TLS.Certificates[0].Certificate[0],
+	})
+
+	tlsCfg := &httpapi.TLSConfig{
+		CertPEM: clientCert,
+		KeyPEM:  clientKey,
+		CAPEM:   serverCACert,
+	}
+
+	d := NewDispatcher()
+	done := make(chan httpapi.BatchResponse, 1)
+
+	err := d.handleRequestBatch(context.Background(), &httpapi.RequestBatchCmd{
+		Requests: []*httpapi.RequestCmd{
+			{Method: "GET", URL: ts.URL + "/a", TLS: tlsCfg},
+			{Method: "GET", URL: ts.URL + "/b", TLS: tlsCfg},
+		},
+	}, 0, &testReceiver{fn: func(data any) {
+		done <- data.(httpapi.BatchResponse)
+	}})
+
+	if err != nil {
+		t.Fatalf("handleRequestBatch: %v", err)
+	}
+
+	select {
+	case resp := <-done:
+		if len(resp.Responses) != 2 {
+			t.Fatalf("expected 2 responses, got %d", len(resp.Responses))
+		}
+		for i, r := range resp.Responses {
+			if r.Error != "" {
+				t.Errorf("response %d error: %s", i, r.Error)
+			}
+			if r.StatusCode != 200 {
+				t.Errorf("response %d status: %d", i, r.StatusCode)
+			}
+		}
+		if string(resp.Responses[0].Body) != "/a" {
+			t.Errorf("expected '/a', got %q", resp.Responses[0].Body)
+		}
+		if string(resp.Responses[1].Body) != "/b" {
+			t.Errorf("expected '/b', got %q", resp.Responses[1].Body)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+}
+
+func TestDispatcher_RequestTLSInsecureSkipVerify(t *testing.T) {
+	ts := httptest.NewTLSServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
+		_, _ = w.Write([]byte("insecure-ok"))
+	}))
+	defer ts.Close()
+
+	d := NewDispatcher()
+	done := make(chan httpapi.Response, 1)
+
+	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
+		Method: "GET",
+		URL:    ts.URL,
+		TLS: &httpapi.TLSConfig{
+			InsecureSkipVerify: true,
+		},
+	}, 0, &testReceiver{fn: func(data any) {
+		done <- data.(httpapi.Response)
+	}})
+
+	if err != nil {
+		t.Fatalf("handleRequest: %v", err)
+	}
+
+	select {
+	case resp := <-done:
+		if resp.Error != "" {
+			t.Fatalf("response error: %s", resp.Error)
+		}
+		if resp.StatusCode != 200 {
+			t.Errorf("expected 200, got %d", resp.StatusCode)
+		}
+		if string(resp.Body) != "insecure-ok" {
+			t.Errorf("expected 'insecure-ok', got %q", resp.Body)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+}
+
+func TestClientPoolTLSConcurrentAccess(t *testing.T) {
+	caCert, clientCert, clientKey := generateTestCerts(t)
+	pool := NewClientPool()
+	cfg := &httpapi.TLSConfig{CertPEM: clientCert, KeyPEM: clientKey, CAPEM: caCert}
+
+	var wg sync.WaitGroup
+	const goroutines = 50
+	clients := make([]*gohttp.Client, goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			c, err := pool.GetClientWithTLS(0, "", cfg)
+			if err != nil {
+				t.Errorf("goroutine %d: %v", idx, err)
+				return
+			}
+			clients[idx] = c
+		}(i)
+	}
+
+	wg.Wait()
+
+	for i := 1; i < goroutines; i++ {
+		if clients[i] != clients[0] {
+			t.Errorf("goroutine %d got different client", i)
+		}
+	}
+}
+
+func TestClientPoolTLSDoesNotAffectNonTLS(t *testing.T) {
+	caCert, clientCert, clientKey := generateTestCerts(t)
+	pool := NewClientPool()
+
+	defaultClient := pool.GetClient(0, "")
+	cfg := &httpapi.TLSConfig{CertPEM: clientCert, KeyPEM: clientKey, CAPEM: caCert}
+	tlsClient, err := pool.GetClientWithTLS(0, "", cfg)
+	if err != nil {
+		t.Fatalf("GetClientWithTLS: %v", err)
+	}
+	defaultAfter := pool.GetClient(0, "")
+
+	if defaultClient != defaultAfter {
+		t.Error("TLS client creation changed the default client")
+	}
+	if defaultClient == tlsClient {
+		t.Error("TLS client should differ from default client")
+	}
+}
+
+func TestDispatcher_RequestTLSCertWithoutKey(t *testing.T) {
+	d := NewDispatcher()
+	done := make(chan httpapi.Response, 1)
+
+	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
+		Method: "GET",
+		URL:    "https://example.com",
+		TLS: &httpapi.TLSConfig{
+			CertPEM: []byte("-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----"),
+		},
+	}, 0, &testReceiver{fn: func(data any) {
+		done <- data.(httpapi.Response)
+	}})
+
+	if err != nil {
+		t.Fatalf("handleRequest: %v", err)
+	}
+
+	select {
+	case resp := <-done:
+		if resp.Error == "" {
+			t.Error("expected error for cert without key")
+		}
+		if !strings.Contains(resp.Error, "both cert and key must be provided") {
+			t.Errorf("unexpected error: %s", resp.Error)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+}
+
+func TestDispatcher_RequestMTLSWrongClientCert(t *testing.T) {
+	caCert, _, _ := generateTestCerts(t)
+	_, wrongCert, wrongKey := generateTestCerts(t)
+
+	ts := newMTLSServer(t, caCert, gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
+		_, _ = w.Write([]byte("should not reach"))
+	}))
+	defer ts.Close()
+
+	serverCACert := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: ts.TLS.Certificates[0].Certificate[0],
+	})
+
+	d := NewDispatcher()
+	done := make(chan httpapi.Response, 1)
+
+	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
+		Method: "GET",
+		URL:    ts.URL,
+		TLS: &httpapi.TLSConfig{
+			CertPEM: wrongCert,
+			KeyPEM:  wrongKey,
+			CAPEM:   serverCACert,
+		},
+	}, 0, &testReceiver{fn: func(data any) {
+		done <- data.(httpapi.Response)
+	}})
+
+	if err != nil {
+		t.Fatalf("handleRequest: %v", err)
+	}
+
+	select {
+	case resp := <-done:
+		if resp.Error == "" {
+			t.Error("expected TLS handshake error for wrong client cert")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+}
+
+func TestDispatcher_RequestTLSWithoutCA(t *testing.T) {
+	ts := httptest.NewTLSServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
+		_, _ = w.Write([]byte("should not reach"))
+	}))
+	defer ts.Close()
+
+	d := NewDispatcher()
+	done := make(chan httpapi.Response, 1)
+
+	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
+		Method: "GET",
+		URL:    ts.URL,
+		TLS: &httpapi.TLSConfig{
+			ServerName: "127.0.0.1",
+		},
+	}, 0, &testReceiver{fn: func(data any) {
+		done <- data.(httpapi.Response)
+	}})
+
+	if err != nil {
+		t.Fatalf("handleRequest: %v", err)
+	}
+
+	select {
+	case resp := <-done:
+		if resp.Error == "" {
+			t.Error("expected cert verification error without CA")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+}
+
+func TestDispatcher_RequestTLSServerName(t *testing.T) {
+	caCert, clientCert, clientKey := generateTestCerts(t)
+
+	ts := newMTLSServer(t, caCert, gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
+		_, _ = w.Write([]byte("sni-ok"))
+	}))
+	defer ts.Close()
+
+	serverCACert := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: ts.TLS.Certificates[0].Certificate[0],
+	})
+
+	d := NewDispatcher()
+	done := make(chan httpapi.Response, 1)
+
+	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
+		Method: "GET",
+		URL:    ts.URL,
+		TLS: &httpapi.TLSConfig{
+			CertPEM:            clientCert,
+			KeyPEM:             clientKey,
+			CAPEM:              serverCACert,
+			InsecureSkipVerify: true,
+			ServerName:         "custom-sni",
+		},
+	}, 0, &testReceiver{fn: func(data any) {
+		done <- data.(httpapi.Response)
+	}})
+
+	if err != nil {
+		t.Fatalf("handleRequest: %v", err)
+	}
+
+	select {
+	case resp := <-done:
+		if resp.Error != "" {
+			t.Fatalf("response error: %s", resp.Error)
+		}
+		if string(resp.Body) != "sni-ok" {
+			t.Errorf("expected 'sni-ok', got %q", resp.Body)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+}
+
+func TestDispatcher_RequestNoTLSUnchanged(t *testing.T) {
+	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
+		_, _ = w.Write([]byte("plain-ok"))
+	}))
+	defer ts.Close()
+
+	d := NewDispatcher()
+	done := make(chan httpapi.Response, 1)
+
+	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
+		Method: "GET",
+		URL:    ts.URL,
+	}, 0, &testReceiver{fn: func(data any) {
+		done <- data.(httpapi.Response)
+	}})
+
+	if err != nil {
+		t.Fatalf("handleRequest: %v", err)
+	}
+
+	select {
+	case resp := <-done:
+		if resp.Error != "" {
+			t.Fatalf("response error: %s", resp.Error)
+		}
+		if string(resp.Body) != "plain-ok" {
+			t.Errorf("expected 'plain-ok', got %q", resp.Body)
+		}
+	case <-time.After(5 * time.Second):
 		t.Fatal("timeout")
 	}
 }
