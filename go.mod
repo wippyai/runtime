@@ -51,7 +51,7 @@ require (
 	github.com/wippyai/tree-sitter-sql v0.0.4
 	github.com/wippyai/wapp v0.1.0
 	github.com/wippyai/wasm-runtime v0.0.0-20260209224309-586ea6933075
-	github.com/xuri/excelize/v2 v2.9.0
+	github.com/xuri/excelize/v2 v2.10.0
 	go.opentelemetry.io/otel v1.38.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.38.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.38.0
@@ -148,7 +148,6 @@ require (
 	github.com/miekg/dns v1.1.26 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/sys/atomicwriter v0.1.0 // indirect
-	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
@@ -170,9 +169,10 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/tetratelabs/wazero v1.10.1 // indirect
+	github.com/tiendc/go-deepcopy v1.7.1 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
-	github.com/xuri/efp v0.0.0-20240408161823-9ad904a10d6d // indirect
-	github.com/xuri/nfp v0.0.0-20240318013403-ab9948c2c4a7 // indirect
+	github.com/xuri/efp v0.0.1 // indirect
+	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
 	gitlab.com/golang-commonmark/html v0.0.0-20191124015941-a22733972181 // indirect
 	gitlab.com/golang-commonmark/linkify v0.0.0-20191026162114-a0c2df6c8f82 // indirect
 	gitlab.com/golang-commonmark/markdown v0.0.0-20211110145824-bf3e522c626a // indirect
