@@ -416,8 +416,8 @@ github.com/tree-sitter/tree-sitter-rust v0.23.2/go.mod h1:hfeGWic9BAfgTrc7Xf6FaO
 github.com/tree-sitter/tree-sitter-typescript v0.23.2 h1:/Odvphn18PniVixb9e97X0DbNVsU6Qocv9mfkyzdXwU=
 github.com/tree-sitter/tree-sitter-typescript v0.23.2/go.mod h1:zjzMXT/Ulffel2xfOcAkQQkiAkmgnbtPGlFQw/5X4xA=
 github.com/tv42/httpunix v0.0.0-20150427012821-b75d8614f926/go.mod h1:9ESjWnEqriFuLhtthL60Sar/7RFoluCcXsuvEwTV5KM=
-github.com/wippyai/go-lua v1.5.4 h1:7QLePEzW8OCnDiouh+O7D/Z6opgdMMF1Afsin5qc+iI=
-github.com/wippyai/go-lua v1.5.4/go.mod h1:cwD+390gJgx9cs+Zamby/lch5csqPV9RN1aDEfx/27M=
+github.com/wippyai/go-lua v1.5.5 h1:qfeoArGJZc291XNBmwynY0sZR/3DNAwBEMW0gabRvXA=
+github.com/wippyai/go-lua v1.5.5/go.mod h1:cwD+390gJgx9cs+Zamby/lch5csqPV9RN1aDEfx/27M=
 github.com/wippyai/module-registry-proto-go v0.0.1 h1:EYnW8MTrI/gs7TJ0ilTVgJal3e0NWmXQigeamrXu0mk=
 github.com/wippyai/module-registry-proto-go v0.0.1/go.mod h1:p4ihYQKRQuqRVLxaH1YL0IEnkz4zKdyfVADOwvA5Tno=
 github.com/wippyai/tree-sitter-markdown v0.0.3 h1:u6e53+hzPSS848Xhm+I48SwtvWQHrC21wDrogdwCwuc=
