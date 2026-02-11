@@ -76,7 +76,7 @@ build-wippy-local:
 		./cmd/wippy/
 
 .PHONY: build-wippy-all
-build-wippy-all: build-wippy-linux-amd64 build-wippy-darwin-amd64 build-wippy-darwin-arm64 build-wippy-windows-amd64
+build-wippy-all: build-wippy-linux-amd64 build-wippy-linux-arm64 build-wippy-darwin-amd64 build-wippy-darwin-arm64 build-wippy-windows-amd64
 
 .PHONY: build-wippy-linux-amd64
 build-wippy-linux-amd64:
@@ -85,6 +85,16 @@ build-wippy-linux-amd64:
 		-ldflags="$(WIPPY_LDFLAGS)" \
 		-trimpath \
 		-o ./dist/wippy-linux-amd64 \
+		./cmd/wippy/
+
+.PHONY: build-wippy-linux-arm64
+build-wippy-linux-arm64:
+	mkdir -p ./dist
+	CGO_LDFLAGS="" CGO_CFLAGS="" CC=aarch64-linux-gnu-gcc \
+	CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build --tags "fts5 sqlite_vec" \
+		-ldflags="$(WIPPY_LDFLAGS)" \
+		-trimpath \
+		-o ./dist/wippy-linux-arm64 \
 		./cmd/wippy/
 
 .PHONY: build-wippy-darwin-amd64
