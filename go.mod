@@ -33,7 +33,7 @@ require (
 	github.com/microcosm-cc/bluemonday v1.0.26
 	github.com/prometheus/client_golang v1.20.5
 	github.com/sergi/go-diff v1.3.1
-	github.com/spf13/cobra v1.10.1
+	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	github.com/tmc/langchaingo v0.1.14
 	github.com/tree-sitter-grammars/tree-sitter-lua v0.4.0
