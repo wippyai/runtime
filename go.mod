@@ -24,8 +24,8 @@ require (
 	github.com/go-sql-driver/mysql v1.9.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
-	github.com/hashicorp/go-msgpack/v2 v2.1.2
-	github.com/hashicorp/memberlist v0.5.3
+	github.com/hashicorp/go-msgpack/v2 v2.1.5
+	github.com/hashicorp/memberlist v0.5.4
 	github.com/kaptinlin/jsonschema v0.6.1
 	github.com/klauspost/compress v1.18.1
 	github.com/lib/pq v1.10.9
@@ -127,11 +127,11 @@ require (
 	github.com/gorilla/css v1.0.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2 // indirect
-	github.com/hashicorp/errwrap v1.0.0 // indirect
+	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-immutable-radix v1.0.0 // indirect
 	github.com/hashicorp/go-metrics v0.5.4 // indirect
-	github.com/hashicorp/go-multierror v1.0.0 // indirect
-	github.com/hashicorp/go-sockaddr v1.0.0 // indirect
+	github.com/hashicorp/go-multierror v1.1.1 // indirect
+	github.com/hashicorp/go-sockaddr v1.0.7 // indirect
 	github.com/hashicorp/golang-lru v0.5.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/kaptinlin/go-i18n v0.2.0 // indirect
@@ -145,7 +145,7 @@ require (
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect
-	github.com/miekg/dns v1.1.26 // indirect
+	github.com/miekg/dns v1.1.68 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/sys/atomicwriter v0.1.0 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
