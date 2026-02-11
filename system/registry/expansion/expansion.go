@@ -66,10 +66,11 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 		return &Plan{}, nil
 	}
 
-	seenIDs := make(map[registry.ID]struct{}, len(changes))
+	originalIDs := make(map[registry.ID]struct{}, len(changes))
+	expandedIDs := make(map[registry.ID]struct{})
 	scoped := make([]ScopedOp, 0, len(changes))
 	for _, op := range changes {
-		seenIDs[op.Entry.ID] = struct{}{}
+		originalIDs[op.Entry.ID] = struct{}{}
 		scoped = append(scoped, ScopedOp{Operation: op, Scope: registry.ScopeHistory})
 	}
 
@@ -111,10 +112,14 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 				scoped[i].Scope = *res.OriginalScope
 			}
 			for _, add := range res.Additional {
-				if _, exists := seenIDs[add.Operation.Entry.ID]; exists {
-					return nil, NewDirectiveExpansionConflictError(add.Operation.Entry.ID)
+				addID := add.Operation.Entry.ID
+				if _, exists := originalIDs[addID]; exists {
+					continue
 				}
-				seenIDs[add.Operation.Entry.ID] = struct{}{}
+				if _, exists := expandedIDs[addID]; exists {
+					return nil, NewDirectiveExpansionConflictError(addID)
+				}
+				expandedIDs[addID] = struct{}{}
 				scoped = append(scoped, ScopedOp{
 					Operation: add.Operation,
 					Scope:     add.Scope,
