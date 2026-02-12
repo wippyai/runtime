@@ -6,7 +6,7 @@ require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20251209175733-2a1774d88802.1
 	connectrpc.com/connect v1.19.1
 	github.com/CloudyKit/jet/v6 v6.3.1
-	github.com/Masterminds/semver/v3 v3.2.0
+	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/andybalholm/brotli v1.2.0
 	github.com/asg017/sqlite-vec-go-bindings v0.1.6
