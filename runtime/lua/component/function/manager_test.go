@@ -2,11 +2,15 @@ package function
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
@@ -16,6 +20,30 @@ import (
 	"github.com/wippyai/runtime/system/payload/json"
 	"go.uber.org/zap"
 )
+
+type mockPrepareAwaitWaiter struct {
+	result event.AwaitResult
+}
+
+func (w *mockPrepareAwaitWaiter) Wait() event.AwaitResult { return w.result }
+func (w *mockPrepareAwaitWaiter) Close()                  {}
+
+type mockPrepareAwaitService struct {
+	prepared bool
+	result   event.AwaitResult
+}
+
+func (a *mockPrepareAwaitService) Prepare(context.Context, event.System, event.Kind, event.Path, time.Duration) (event.AwaitWaiter, error) {
+	a.prepared = true
+	return &mockPrepareAwaitWaiter{result: a.result}, nil
+}
+
+func (a *mockPrepareAwaitService) Await(context.Context, event.System, event.Kind, event.Path, time.Duration) event.AwaitResult {
+	return event.AwaitResult{Accepted: false, Error: fmt.Errorf("unexpected Await call")}
+}
+
+func (a *mockPrepareAwaitService) Start(context.Context) error { return nil }
+func (a *mockPrepareAwaitService) Stop() error                 { return nil }
 
 func setupTestContext() context.Context {
 	ctx := context.Background()
@@ -358,6 +386,31 @@ func TestManager_ConfigOperations_NonExistent(t *testing.T) {
 	id := registry.NewID("test", "nonexistent")
 	cfg := manager.getConfig(id)
 	assert.Nil(t, cfg)
+}
+
+func TestManager_registerCaller_PreparesBeforeSend(t *testing.T) {
+	log := zap.NewNop()
+	codeManager := &code.Manager{}
+	bus := newMockEventBus()
+	disp := &mockDispatcher{}
+	fsReg := newMockFSRegistry()
+	factory := newMockCompiledFactory()
+	manager := NewManager(log, codeManager, bus, disp, fsReg, factory)
+
+	awaitSvc := &mockPrepareAwaitService{
+		result: event.AwaitResult{Accepted: true},
+	}
+	sendBeforePrepare := false
+	bus.onSend = func() {
+		if !awaitSvc.prepared {
+			sendBeforePrepare = true
+		}
+	}
+
+	ctx := event.WithAwaitService(ctxapi.NewRootContext(), awaitSvc)
+	err := manager.registerCaller(ctx, registry.NewID("app.test", "function"), nil)
+	require.NoError(t, err)
+	assert.False(t, sendBeforePrepare, "function register was sent before await prepare")
 }
 
 func TestManager_PoolTypes(t *testing.T) {

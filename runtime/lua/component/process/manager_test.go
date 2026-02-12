@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/payload"
@@ -24,9 +26,13 @@ const invalid registry.Kind = "invalid.kind"
 
 type mockEventBus struct {
 	events []event.Event
+	onSend func()
 }
 
 func (m *mockEventBus) Send(_ context.Context, e event.Event) {
+	if m.onSend != nil {
+		m.onSend()
+	}
 	m.events = append(m.events, e)
 }
 
@@ -54,6 +60,30 @@ func (m *mockCompiledFactory) CreateFactory(_ registry.ID, _ ...engine.FactoryOp
 		return nil, fmt.Errorf("mock factory not implemented")
 	}, nil
 }
+
+type mockPrepareAwaitWaiter struct {
+	result event.AwaitResult
+}
+
+func (w *mockPrepareAwaitWaiter) Wait() event.AwaitResult { return w.result }
+func (w *mockPrepareAwaitWaiter) Close()                  {}
+
+type mockPrepareAwaitService struct {
+	prepared bool
+	result   event.AwaitResult
+}
+
+func (a *mockPrepareAwaitService) Prepare(context.Context, event.System, event.Kind, event.Path, time.Duration) (event.AwaitWaiter, error) {
+	a.prepared = true
+	return &mockPrepareAwaitWaiter{result: a.result}, nil
+}
+
+func (a *mockPrepareAwaitService) Await(context.Context, event.System, event.Kind, event.Path, time.Duration) event.AwaitResult {
+	return event.AwaitResult{Accepted: false, Error: fmt.Errorf("unexpected Await call")}
+}
+
+func (a *mockPrepareAwaitService) Start(context.Context) error { return nil }
+func (a *mockPrepareAwaitService) Stop() error                 { return nil }
 
 func TestNewManager(t *testing.T) {
 	log := zap.NewNop()
@@ -159,4 +189,28 @@ func TestManager_Invalidate(_ *testing.T) {
 
 	ids := []registry.ID{{Name: "test1"}, {Name: "test2"}}
 	manager.Invalidate(context.Background(), ids)
+}
+
+func TestManager_registerFactory_PreparesBeforeSend(t *testing.T) {
+	log := zap.NewNop()
+	codeManager := &code.Manager{}
+	bus := &mockEventBus{}
+	fsReg := &mockFSRegistry{}
+	factory := &mockCompiledFactory{}
+	manager := NewManager(log, codeManager, bus, fsReg, factory)
+
+	awaitSvc := &mockPrepareAwaitService{
+		result: event.AwaitResult{Accepted: true},
+	}
+	sendBeforePrepare := false
+	bus.onSend = func() {
+		if !awaitSvc.prepared {
+			sendBeforePrepare = true
+		}
+	}
+
+	ctx := event.WithAwaitService(ctxapi.NewRootContext(), awaitSvc)
+	err := manager.registerFactory(ctx, registry.NewID("app.test", "process"), "main")
+	require.NoError(t, err)
+	assert.False(t, sendBeforePrepare, "factory register was sent before await prepare")
 }

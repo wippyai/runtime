@@ -15,6 +15,7 @@ import (
 type mockEventBus struct {
 	acceptChan   chan struct{}
 	events       []event.Event
+	onSend       func()
 	shouldAccept bool
 }
 
@@ -26,6 +27,9 @@ func newMockEventBus() *mockEventBus {
 }
 
 func (m *mockEventBus) Send(_ context.Context, e event.Event) {
+	if m.onSend != nil {
+		m.onSend()
+	}
 	m.events = append(m.events, e)
 }
 
