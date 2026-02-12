@@ -181,6 +181,32 @@ func TestHost_StopConcurrent_NoPanic(t *testing.T) {
 	}
 }
 
+func TestHost_StartStopRestartStop_NoPanic(t *testing.T) {
+	id := registry.ID{NS: "test", Name: "host1"}
+	cfg := &terminalapi.HostConfig{}
+	factory := &mockFactory{}
+	logCtrl := logs.NewConfigurator(nil, zap.NewNop())
+	log := zap.NewNop()
+
+	scheduler := actor.NewScheduler(&mockCommandRegistry{},
+		actor.WithWorkers(1),
+	)
+
+	h := NewHost(id, cfg, scheduler, factory, logCtrl, log)
+
+	_, err := h.Start(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, h.Stop(context.Background()))
+
+	_, err = h.Start(context.Background())
+	require.NoError(t, err)
+
+	assert.NotPanics(t, func() {
+		err = h.Stop(context.Background())
+	})
+	require.NoError(t, err)
+}
+
 func TestHost_Run_NotRunning(t *testing.T) {
 	id := registry.ID{NS: "test", Name: "host1"}
 	cfg := &terminalapi.HostConfig{}
@@ -360,6 +386,27 @@ func TestHost_OnComplete(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("done channel not closed")
 	}
+}
+
+func TestHost_OnCompleteTwice_NoPanic(t *testing.T) {
+	id := registry.ID{NS: "test", Name: "host1"}
+	cfg := &terminalapi.HostConfig{}
+	factory := &mockFactory{}
+	logCtrl := logs.NewConfigurator(nil, zap.NewNop())
+	log := zap.NewNop()
+
+	h := NewHost(id, cfg, nil, factory, logCtrl, log)
+	h.ctx = context.Background()
+
+	ctx := ctxapi.NewRootContext()
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+
+	assert.NotPanics(t, func() {
+		h.OnComplete(ctx, pid.PID{}, nil)
+	})
+	assert.NotPanics(t, func() {
+		h.OnComplete(ctx, pid.PID{}, nil)
+	})
 }
 
 var (
