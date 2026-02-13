@@ -221,3 +221,52 @@ local x = db .. " test"  -- This should work if db is narrowed from string? to s
 		t.Logf("  %s: %s", d.Severity, d.Message)
 	}
 }
+
+func TestManifestExport_TypeCheckerIncludesFunctionSummaries(t *testing.T) {
+	tc := NewTypeChecker(TypeCheckConfig{Enabled: true, Strict: false}, nil)
+
+	source := `
+local M = {}
+
+function M.not_nil(val, msg)
+    if val == nil then error(msg) end
+    return val
+end
+
+return M
+`
+
+	manifest, diags, err := tc.Check(source, "assert.lua", nil)
+	if err != nil {
+		t.Fatalf("Check failed: %v", err)
+	}
+	for _, d := range diags {
+		if d.Severity == diag.SeverityError {
+			t.Fatalf("unexpected diagnostic error: %s", d.Message)
+		}
+	}
+	if manifest == nil {
+		t.Fatal("manifest is nil")
+	}
+
+	summary, ok := manifest.LookupSummary("not_nil")
+	if !ok || summary == nil {
+		t.Fatal("expected not_nil function summary in manifest")
+	}
+	if !summary.Ensures.HasConstraints() {
+		t.Fatal("not_nil summary should include ensures constraints")
+	}
+
+	enriched := manifest.EnrichedExport()
+	notNilType, ok := core.FieldOrMethod(enriched, "not_nil")
+	if !ok {
+		t.Fatal("not_nil not found in enriched export")
+	}
+	fn, ok := notNilType.(*typ.Function)
+	if !ok {
+		t.Fatalf("not_nil should be function, got %T", notNilType)
+	}
+	if fn.Spec == nil && fn.Refinement == nil {
+		t.Fatal("not_nil function should carry spec or refinement from summary")
+	}
+}
