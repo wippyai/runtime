@@ -85,7 +85,7 @@ func makeTableImmutableRecursive(value lua.LValue, visited map[*lua.LTable]bool)
 				return lua.LNil
 			}
 			if err, ok := ud.Value.(error); ok {
-				return lua.LString(err.Error())
+				return lua.WrapError(err, "export")
 			}
 			return lua.LNil
 		}
@@ -178,7 +178,7 @@ func copyValue(value lua.LValue, visited map[*lua.LTable]*lua.LTable) lua.LValue
 			return lua.LNil
 		}
 		if err, ok := v.Value.(error); ok {
-			return lua.LString(err.Error())
+			return lua.WrapError(err, "export")
 		}
 		return lua.LNil
 	default:

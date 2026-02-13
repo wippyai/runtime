@@ -38,7 +38,9 @@ func ioWrite(l *lua.LState) int {
 	tc := terminal.GetTerminalContext(l.Context())
 	if tc == nil || tc.Stdout == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no terminal context"))
+		l.Push(lua.NewLuaError(l, "no terminal context").
+			WithKind(lua.Unavailable).
+			WithRetryable(false))
 		return 2
 	}
 
@@ -48,7 +50,8 @@ func ioWrite(l *lua.LState) int {
 		_, err := tc.Stdout.Write([]byte(s))
 		if err != nil {
 			l.Push(lua.LNil)
-			l.Push(lua.LString(err.Error()))
+			l.Push(lua.WrapErrorWithLua(l, err, "write stdout").
+				WithKind(lua.Internal))
 			return 2
 		}
 	}
@@ -63,7 +66,9 @@ func ioPrint(l *lua.LState) int {
 	tc := terminal.GetTerminalContext(l.Context())
 	if tc == nil || tc.Stdout == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no terminal context"))
+		l.Push(lua.NewLuaError(l, "no terminal context").
+			WithKind(lua.Unavailable).
+			WithRetryable(false))
 		return 2
 	}
 
@@ -87,7 +92,9 @@ func ioEprint(l *lua.LState) int {
 	tc := terminal.GetTerminalContext(l.Context())
 	if tc == nil || tc.Stderr == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no terminal context"))
+		l.Push(lua.NewLuaError(l, "no terminal context").
+			WithKind(lua.Unavailable).
+			WithRetryable(false))
 		return 2
 	}
 
@@ -111,7 +118,9 @@ func ioFlush(l *lua.LState) int {
 	tc := terminal.GetTerminalContext(l.Context())
 	if tc == nil || tc.Stdout == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no terminal context"))
+		l.Push(lua.NewLuaError(l, "no terminal context").
+			WithKind(lua.Unavailable).
+			WithRetryable(false))
 		return 2
 	}
 
@@ -119,7 +128,8 @@ func ioFlush(l *lua.LState) int {
 	if syncer, ok := tc.Stdout.(interface{ Sync() error }); ok {
 		if err := syncer.Sync(); err != nil {
 			l.Push(lua.LNil)
-			l.Push(lua.LString(err.Error()))
+			l.Push(lua.WrapErrorWithLua(l, err, "flush stdout").
+				WithKind(lua.Internal))
 			return 2
 		}
 	}

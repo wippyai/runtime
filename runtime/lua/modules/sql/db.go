@@ -236,7 +236,9 @@ func dbBegin(l *lua.LState) int {
 					txOptions.Isolation = sql.LevelSerializable
 				default:
 					l.Push(lua.LNil)
-					l.Push(lua.LString(fmt.Sprintf("invalid isolation level: %s", string(isolationStr))))
+					l.Push(lua.NewLuaError(l, fmt.Sprintf("invalid isolation level: %s", string(isolationStr))).
+						WithKind(lua.Invalid).
+						WithRetryable(false))
 					return 2
 				}
 			}

@@ -389,7 +389,9 @@ func TestMakeTableImmutableRecursive(t *testing.T) {
 
 		visited := make(map[*lua.LTable]bool)
 		result := makeTableImmutableRecursive(ud, visited)
-		assert.Equal(t, lua.LString("test error"), result)
+		luaErr, ok := result.(*lua.Error)
+		assert.True(t, ok, "expected structured error")
+		assert.Contains(t, luaErr.Error(), "test error")
 	})
 
 	t.Run("Userdata with non-error value", func(t *testing.T) {

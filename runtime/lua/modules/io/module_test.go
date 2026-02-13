@@ -347,8 +347,8 @@ func TestReadYielding_NoTerminalContext(t *testing.T) {
 	if l.Get(1) != lua.LNil {
 		t.Error("expected nil value")
 	}
-	if l.Get(2).Type() != lua.LTString {
-		t.Error("expected string error")
+	if _, ok := l.Get(2).(*lua.Error); !ok {
+		t.Error("expected structured error")
 	}
 }
 
@@ -406,8 +406,8 @@ func TestRaw_NoTerminalContext(t *testing.T) {
 	if l.Get(1) != lua.LNil {
 		t.Error("expected nil value")
 	}
-	if l.Get(2).Type() != lua.LTString {
-		t.Error("expected string error")
+	if _, ok := l.Get(2).(*lua.Error); !ok {
+		t.Error("expected structured error")
 	}
 }
 

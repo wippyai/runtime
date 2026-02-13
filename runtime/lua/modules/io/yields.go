@@ -44,9 +44,9 @@ func (y *ReadYield) CmdID() dispatcher.CommandID   { return ttyapi.Read }
 func (y *ReadYield) ToCommand() dispatcher.Command { return ttyapi.ReadCmd{Size: y.Size} }
 func (y *ReadYield) Release()                      { ReleaseReadYield(y) }
 
-func (y *ReadYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValue {
+func (y *ReadYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "read")}
 	}
 	switch v := data.(type) {
 	case []byte:
@@ -54,7 +54,9 @@ func (y *ReadYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValu
 	case string:
 		return []lua.LValue{lua.LString(v), lua.LNil}
 	default:
-		return []lua.LValue{lua.LNil, lua.LString("invalid response type")}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").
+			WithKind(lua.Internal).
+			WithRetryable(false)}
 	}
 }
 
@@ -77,9 +79,9 @@ func (y *ReadLineYield) CmdID() dispatcher.CommandID   { return ttyapi.ReadLine 
 func (y *ReadLineYield) ToCommand() dispatcher.Command { return ttyapi.ReadLineCmd{} }
 func (y *ReadLineYield) Release()                      { ReleaseReadLineYield(y) }
 
-func (y *ReadLineYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValue {
+func (y *ReadLineYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "readline")}
 	}
 	switch v := data.(type) {
 	case string:
@@ -87,7 +89,9 @@ func (y *ReadLineYield) HandleResult(_ *lua.LState, data any, err error) []lua.L
 	case []byte:
 		return []lua.LValue{lua.LString(v), lua.LNil}
 	default:
-		return []lua.LValue{lua.LNil, lua.LString("invalid response type")}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").
+			WithKind(lua.Internal).
+			WithRetryable(false)}
 	}
 }
 
@@ -137,9 +141,9 @@ func (y *RawDisableYield) HandleResult(l *lua.LState, data any, err error) []lua
 	return handleRawResult(l, data, err)
 }
 
-func handleRawResult(_ *lua.LState, data any, err error) []lua.LValue {
+func handleRawResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "raw terminal")}
 	}
 	switch v := data.(type) {
 	case bool:
@@ -150,7 +154,9 @@ func handleRawResult(_ *lua.LState, data any, err error) []lua.LValue {
 	case nil:
 		return []lua.LValue{lua.LTrue, lua.LNil}
 	default:
-		return []lua.LValue{lua.LNil, lua.LString("invalid response type")}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").
+			WithKind(lua.Internal).
+			WithRetryable(false)}
 	}
 }
 
@@ -160,7 +166,9 @@ func ioReadYielding(l *lua.LState) int {
 	tc := terminal.GetTerminalContext(l.Context())
 	if tc == nil || tc.Stdin == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no terminal context"))
+		l.Push(lua.NewLuaError(l, "no terminal context").
+			WithKind(lua.Unavailable).
+			WithRetryable(false))
 		return 2
 	}
 
@@ -180,7 +188,9 @@ func ioReadlineYielding(l *lua.LState) int {
 	tc := terminal.GetTerminalContext(l.Context())
 	if tc == nil || tc.Stdin == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no terminal context"))
+		l.Push(lua.NewLuaError(l, "no terminal context").
+			WithKind(lua.Unavailable).
+			WithRetryable(false))
 		return 2
 	}
 
@@ -195,12 +205,16 @@ func ioRaw(l *lua.LState) int {
 	tc := terminal.GetTerminalContext(l.Context())
 	if tc == nil || tc.Stdin == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no terminal context"))
+		l.Push(lua.NewLuaError(l, "no terminal context").
+			WithKind(lua.Unavailable).
+			WithRetryable(false))
 		return 2
 	}
 	if tc.Raw == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("raw terminal control unavailable"))
+		l.Push(lua.NewLuaError(l, "raw terminal control unavailable").
+			WithKind(lua.Unavailable).
+			WithRetryable(false))
 		return 2
 	}
 
