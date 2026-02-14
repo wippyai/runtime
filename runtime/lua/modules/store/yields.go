@@ -39,14 +39,16 @@ func (y *GetYield) Release()                      { ReleaseGetYield(y) }
 
 func (y *GetYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "store get")}
 	}
 	resp, ok := data.(store.GetResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.LString("invalid response type")}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").
+			WithKind(lua.Internal).
+			WithRetryable(false)}
 	}
 	if resp.Error != nil {
-		return []lua.LValue{lua.LNil, lua.LString(resp.Error.Error())}
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "store get")}
 	}
 	return []lua.LValue{transcodeToLua(l, resp.Value), lua.LNil}
 }
@@ -107,16 +109,18 @@ func (y *SetYield) CmdID() dispatcher.CommandID   { return store.Set }
 func (y *SetYield) ToCommand() dispatcher.Command { return y.SetCmd }
 func (y *SetYield) Release()                      { ReleaseSetYield(y) }
 
-func (y *SetYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValue {
+func (y *SetYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "store set")}
 	}
 	resp, ok := data.(store.SetResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.LString("invalid response type")}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").
+			WithKind(lua.Internal).
+			WithRetryable(false)}
 	}
 	if resp.Error != nil {
-		return []lua.LValue{lua.LNil, lua.LString(resp.Error.Error())}
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "store set")}
 	}
 	return []lua.LValue{lua.LTrue, lua.LNil}
 }
@@ -148,19 +152,21 @@ func (y *DeleteYield) CmdID() dispatcher.CommandID   { return store.Delete }
 func (y *DeleteYield) ToCommand() dispatcher.Command { return y.DeleteCmd }
 func (y *DeleteYield) Release()                      { ReleaseDeleteYield(y) }
 
-func (y *DeleteYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValue {
+func (y *DeleteYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "store delete")}
 	}
 	resp, ok := data.(store.DeleteResponse)
 	if !ok {
-		return []lua.LValue{lua.LNil, lua.LString("invalid response type")}
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").
+			WithKind(lua.Internal).
+			WithRetryable(false)}
 	}
 	if resp.Error != nil {
 		if resp.NotFound {
 			return []lua.LValue{lua.LFalse, lua.LNil}
 		}
-		return []lua.LValue{lua.LNil, lua.LString(resp.Error.Error())}
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "store delete")}
 	}
 	return []lua.LValue{lua.LTrue, lua.LNil}
 }
@@ -192,16 +198,18 @@ func (y *HasYield) CmdID() dispatcher.CommandID   { return store.Has }
 func (y *HasYield) ToCommand() dispatcher.Command { return y.HasCmd }
 func (y *HasYield) Release()                      { ReleaseHasYield(y) }
 
-func (y *HasYield) HandleResult(_ *lua.LState, data any, err error) []lua.LValue {
+func (y *HasYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LFalse, lua.LString(err.Error())}
+		return []lua.LValue{lua.LFalse, lua.WrapErrorWithLua(l, err, "store has")}
 	}
 	resp, ok := data.(store.HasResponse)
 	if !ok {
-		return []lua.LValue{lua.LFalse, lua.LString("invalid response type")}
+		return []lua.LValue{lua.LFalse, lua.NewLuaError(l, "invalid response type").
+			WithKind(lua.Internal).
+			WithRetryable(false)}
 	}
 	if resp.Error != nil {
-		return []lua.LValue{lua.LFalse, lua.LString(resp.Error.Error())}
+		return []lua.LValue{lua.LFalse, lua.WrapErrorWithLua(l, resp.Error, "store has")}
 	}
 	return []lua.LValue{lua.LBool(resp.Exists), lua.LNil}
 }

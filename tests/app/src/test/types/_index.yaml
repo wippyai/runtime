@@ -332,6 +332,42 @@ entries:
     source: file://method_self.lua
     method: main
 
+  - name: metatable_method
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: metatable method calls through colon dispatch
+    source: file://metatable_method.lua
+    method: main
+
+  - name: metatable_builder_chain
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: metatable fluent builder method chaining
+    source: file://metatable_builder_chain.lua
+    method: main
+
+  - name: metatable_repository_flow
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: metatable repository flow with optional inputs
+    source: file://metatable_repository_flow.lua
+    method: main
+
+  - name: metatable_worker_pipeline
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: metatable worker pipeline across method hops
+    source: file://metatable_worker_pipeline.lua
+    method: main
+
   - name: narrowing
     kind: function.lua
     meta:
@@ -539,3 +575,27 @@ entries:
       assert2: app.lib:assert
     modules:
       - registry
+
+  - name: nested_wrapper_chain
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: nested function wrapper chain preserves module method types
+    source: file://nested_wrapper_chain.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+
+  - name: repro_nested_wrapper_chain
+    kind: function.lua
+    meta:
+      type: test
+      suite: types
+      description: reproduces nested wrapper chain optional-method false positive
+    source: file://repro_nested_wrapper_chain.lua
+    method: main
+    modules:
+      - sql

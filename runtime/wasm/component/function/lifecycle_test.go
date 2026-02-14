@@ -23,6 +23,7 @@ import (
 )
 
 type lifecycleTestBus struct {
+	onSend func()
 	events []event.Event
 }
 
@@ -34,11 +35,27 @@ func (b *lifecycleTestBus) SubscribeP(context.Context, event.System, event.Kind,
 }
 func (b *lifecycleTestBus) Unsubscribe(context.Context, event.SubscriberID) {}
 func (b *lifecycleTestBus) Send(_ context.Context, evt event.Event) {
+	if b.onSend != nil {
+		b.onSend()
+	}
 	b.events = append(b.events, evt)
 }
 
 type lifecycleTestAwaitService struct {
+	result   event.AwaitResult
+	prepared bool
+}
+
+type lifecycleTestAwaitWaiter struct {
 	result event.AwaitResult
+}
+
+func (w *lifecycleTestAwaitWaiter) Wait() event.AwaitResult { return w.result }
+func (w *lifecycleTestAwaitWaiter) Close()                  {}
+
+func (a *lifecycleTestAwaitService) Prepare(context.Context, event.System, event.Kind, event.Path, time.Duration) (event.AwaitWaiter, error) {
+	a.prepared = true
+	return &lifecycleTestAwaitWaiter{result: a.result}, nil
 }
 
 func (a *lifecycleTestAwaitService) Await(context.Context, event.System, event.Kind, event.Path, time.Duration) event.AwaitResult {
@@ -184,6 +201,30 @@ func TestRegisterCaller(t *testing.T) {
 	last := bus.events[len(bus.events)-1]
 	if last.Kind != function.FunctionRegister || last.Path != id.String() {
 		t.Fatalf("registerCaller() sent %#v", last)
+	}
+}
+
+func TestRegisterCallerPreparesBeforeSend(t *testing.T) {
+	id := registry.NewID("app.test", "f")
+	bus := &lifecycleTestBus{}
+	m := NewManager(zap.NewNop(), bus, nil, nil)
+	awaitSvc := &lifecycleTestAwaitService{
+		result: event.AwaitResult{Accepted: true},
+	}
+
+	sendBeforePrepare := false
+	bus.onSend = func() {
+		if !awaitSvc.prepared {
+			sendBeforePrepare = true
+		}
+	}
+
+	ctx := event.WithAwaitService(ctxapi.NewRootContext(), awaitSvc)
+	if err := m.registerCaller(ctx, id, nil); err != nil {
+		t.Fatalf("registerCaller() error = %v", err)
+	}
+	if sendBeforePrepare {
+		t.Fatal("function register was sent before await prepare")
 	}
 }
 

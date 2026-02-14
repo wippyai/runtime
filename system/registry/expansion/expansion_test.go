@@ -146,7 +146,7 @@ func TestPlanner_Expand_DirectiveError(t *testing.T) {
 	assert.Contains(t, err.Error(), "expand failed")
 }
 
-func TestPlanner_Expand_ConflictDetection(t *testing.T) {
+func TestPlanner_Expand_SkipDuplicateFromOriginalChangeset(t *testing.T) {
 	entry := newEntry("app", "dep", "dep")
 	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
 		return registry.DirectiveResult{
@@ -160,8 +160,38 @@ func TestPlanner_Expand_ConflictDetection(t *testing.T) {
 	p := NewPlanner(map[registry.Kind][]registry.Directive{"dep": {dir}}, nil, zap.NewNop())
 	changes := registry.ChangeSet{newOp(registry.EntryCreate, entry)}
 
+	plan, err := p.Expand(context.Background(), changes, nil)
+	require.NoError(t, err)
+	assert.Len(t, plan.Ops, 1)
+	assert.True(t, plan.Expanded)
+}
+
+func TestPlanner_Expand_ConflictBetweenDirectiveExpansions(t *testing.T) {
+	shared := newEntry("mod", "svc", "service")
+	dir1 := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+		return registry.DirectiveResult{
+			Applied: true,
+			Additional: []registry.ScopedOperation{
+				{Operation: newOp(registry.EntryCreate, shared), Scope: registry.ScopeBaseline},
+			},
+		}, nil
+	}}
+	dir2 := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+		return registry.DirectiveResult{
+			Applied: true,
+			Additional: []registry.ScopedOperation{
+				{Operation: newOp(registry.EntryUpdate, shared), Scope: registry.ScopeBaseline},
+			},
+		}, nil
+	}}
+
+	entry := newEntry("app", "dep", "dep")
+	p := NewPlanner(map[registry.Kind][]registry.Directive{"dep": {dir1, dir2}}, nil, zap.NewNop())
+	changes := registry.ChangeSet{newOp(registry.EntryCreate, entry)}
+
 	_, err := p.Expand(context.Background(), changes, nil)
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "expansion produced entry")
 }
 
 func TestPlanner_Expand_InvalidResult_NotAppliedButHasData(t *testing.T) {

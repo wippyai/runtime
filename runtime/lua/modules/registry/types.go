@@ -6,10 +6,10 @@ import (
 )
 
 // ID record type
-var idType = typ.NewInterface("registry.ID", []typ.Method{
-	{Name: "ns", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
-	{Name: "name", Type: typ.Func().Param("self", typ.Self).Returns(typ.String).Build()},
-})
+var idType = typ.NewRecord().
+	Field("ns", typ.String).
+	Field("name", typ.String).
+	Build()
 
 // Entry type represents a registry entry
 var entryType = typ.NewRecord().

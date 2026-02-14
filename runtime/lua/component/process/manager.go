@@ -263,6 +263,12 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 		return runtimelua.NewRegisterFactoryError(nil)
 	}
 
+	waiter, err := awaitSvc.Prepare(ctx, process.System, "factory.(accept|reject)", path, 30*time.Second)
+	if err != nil {
+		return runtimelua.NewRegisterFactoryError(err)
+	}
+	defer waiter.Close()
+
 	m.bus.Send(ctx, event.Event{
 		System: process.System,
 		Kind:   process.FactoryRegister,
@@ -275,7 +281,7 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 		},
 	})
 
-	result := awaitSvc.Await(ctx, process.System, "factory.(accept|reject)", path, 30*time.Second)
+	result := waiter.Wait()
 	if !result.Accepted {
 		return runtimelua.NewRegisterFactoryError(result.Error)
 	}

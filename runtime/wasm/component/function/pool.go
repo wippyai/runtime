@@ -165,6 +165,12 @@ func (m *Manager) registerCaller(ctx context.Context, id registry.ID, options ru
 		return runtimewasm.NewRegisterCallerError(&id, nil)
 	}
 
+	waiter, err := awaitSvc.Prepare(ctx, function.System, "function.(accept|reject)", path, 30*time.Second)
+	if err != nil {
+		return runtimewasm.NewRegisterCallerError(&id, err)
+	}
+	defer waiter.Close()
+
 	m.bus.Send(ctx, event.Event{
 		System: function.System,
 		Kind:   function.FunctionRegister,
@@ -175,7 +181,7 @@ func (m *Manager) registerCaller(ctx context.Context, id registry.ID, options ru
 		},
 	})
 
-	result := awaitSvc.Await(ctx, function.System, "function.(accept|reject)", path, 30*time.Second)
+	result := waiter.Wait()
 	if !result.Accepted {
 		return runtimewasm.NewRegisterCallerError(&id, result.Error)
 	}

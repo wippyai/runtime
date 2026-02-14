@@ -155,13 +155,9 @@ func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]s
 		}
 	}
 
-	resolveParams := &hub.ResolveDependenciesParams{
-		Roots: []hub.DependencySpec{
-			{Org: org, Name: module, Constraint: constraint},
-		},
-	}
-
-	resolved, err := client.ResolveDependencies(downloadCtx, resolveParams)
+	resolved, err := hub.Resolve(downloadCtx, client, []hub.DependencySpec{
+		{Org: org, Name: module, Constraint: constraint},
+	}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve dependencies from %s: %w", registryURL, err)
 	}

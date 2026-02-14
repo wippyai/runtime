@@ -54,6 +54,19 @@ entries:
     imports:
       assert2: app.lib:assert
 
+  - name: readme_invalid_ref
+    kind: function.lua
+    meta:
+      type: test
+      suite: hub
+      description: hub.modules.readme rejects invalid module reference
+    source: file://readme_invalid_ref.lua
+    method: main
+    modules:
+      - hub
+    imports:
+      assert2: app.lib:assert
+
   - name: versions_missing
     kind: function.lua
     meta:

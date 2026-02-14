@@ -67,5 +67,5 @@ func TestNewDirectiveExpansionConflictError(t *testing.T) {
 
 	err := NewDirectiveExpansionConflictError(id)
 	require.NotNil(t, err)
-	assert.Contains(t, err.Error(), "expansion operation conflicts")
+	assert.Contains(t, err.Error(), "expansion produced entry")
 }

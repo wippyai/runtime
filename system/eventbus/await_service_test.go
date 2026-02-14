@@ -235,3 +235,98 @@ func TestAwaitService_ContextCancellation(t *testing.T) {
 		t.Error("timeout waiting for cancellation")
 	}
 }
+
+func TestAwaitService_PrepareThenSend(t *testing.T) {
+	bus := NewBus()
+	defer bus.Stop()
+
+	svc := NewAwaitService(bus)
+	ctx := context.Background()
+	if err := svc.Start(ctx); err != nil {
+		t.Fatalf("failed to start service: %v", err)
+	}
+	defer func() { _ = svc.Stop() }()
+
+	waiter, err := svc.Prepare(ctx, "test", "factory.(accept|reject)", "path/prepared", time.Second)
+	if err != nil {
+		t.Fatalf("prepare failed: %v", err)
+	}
+
+	bus.Send(ctx, event.Event{
+		System: "test",
+		Kind:   "factory.accept",
+		Path:   "path/prepared",
+	})
+
+	result := waiter.Wait()
+	if !result.Accepted {
+		t.Fatalf("expected accepted result, got %#v", result)
+	}
+	if result.Error != nil {
+		t.Fatalf("expected no error, got %v", result.Error)
+	}
+}
+
+func TestAwaitService_PrepareAllowsReplyBeforeWait(t *testing.T) {
+	bus := NewBus()
+	defer bus.Stop()
+
+	svc := NewAwaitService(bus)
+	ctx := context.Background()
+	if err := svc.Start(ctx); err != nil {
+		t.Fatalf("failed to start service: %v", err)
+	}
+	defer func() { _ = svc.Stop() }()
+
+	waiter, err := svc.Prepare(ctx, "test", "factory.(accept|reject)", "path/early", time.Second)
+	if err != nil {
+		t.Fatalf("prepare failed: %v", err)
+	}
+
+	bus.Send(ctx, event.Event{
+		System: "test",
+		Kind:   "factory.accept",
+		Path:   "path/early",
+	})
+
+	time.Sleep(10 * time.Millisecond)
+
+	result := waiter.Wait()
+	if !result.Accepted {
+		t.Fatalf("expected accepted result, got %#v", result)
+	}
+}
+
+func TestAwaitService_PrepareCloseReleasesPath(t *testing.T) {
+	bus := NewBus()
+	defer bus.Stop()
+
+	svc := NewAwaitService(bus)
+	ctx := context.Background()
+	if err := svc.Start(ctx); err != nil {
+		t.Fatalf("failed to start service: %v", err)
+	}
+	defer func() { _ = svc.Stop() }()
+
+	waiter1, err := svc.Prepare(ctx, "test", "factory.(accept|reject)", "path/reuse", time.Second)
+	if err != nil {
+		t.Fatalf("first prepare failed: %v", err)
+	}
+	waiter1.Close()
+
+	waiter2, err := svc.Prepare(ctx, "test", "factory.(accept|reject)", "path/reuse", time.Second)
+	if err != nil {
+		t.Fatalf("second prepare failed: %v", err)
+	}
+
+	bus.Send(ctx, event.Event{
+		System: "test",
+		Kind:   "factory.accept",
+		Path:   "path/reuse",
+	})
+
+	result := waiter2.Wait()
+	if !result.Accepted {
+		t.Fatalf("expected accepted result on reused path, got %#v", result)
+	}
+}
