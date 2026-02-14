@@ -300,6 +300,58 @@ func WappPath(name graph.Name, version string) string {
 	return filepath.Join(name.Organization, name.Module+"-"+version+".wapp")
 }
 
+// ModuleLoadPath pairs a filesystem path with its owning module metadata.
+type ModuleLoadPath struct {
+	Path    string
+	Module  string // module name in org/module format, empty for app source
+	Version string // module version, empty for app source
+}
+
+// GetModuleLoadPaths returns load paths annotated with module ownership.
+// App source and replacement paths have empty Module/Version fields.
+func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
+	lockDir := filepath.Dir(l.path)
+	paths := make([]ModuleLoadPath, 0, 1+len(l.data.Replacements)+len(l.data.Modules))
+
+	if l.data.Directories.Src != "" {
+		paths = append(paths, ModuleLoadPath{
+			Path: filepath.Join(lockDir, l.data.Directories.Src),
+		})
+	}
+
+	for _, repl := range l.data.Replacements {
+		if repl.To != "" {
+			paths = append(paths, ModuleLoadPath{
+				Path:   filepath.Join(lockDir, repl.To),
+				Module: repl.From,
+			})
+		}
+	}
+
+	vendorDir := l.GetVendorPath()
+	fullVendorDir := filepath.Join(lockDir, vendorDir)
+
+	for _, mod := range l.data.Modules {
+		if _, hasReplacement := l.GetReplacement(mod.Name); hasReplacement {
+			continue
+		}
+
+		name, err := graph.ParseName(mod.Name)
+		if err != nil {
+			continue
+		}
+
+		resolved := ResolveModuleDir(fullVendorDir, name, mod.Version)
+		paths = append(paths, ModuleLoadPath{
+			Path:    resolved.Path,
+			Module:  mod.Name,
+			Version: mod.Version,
+		})
+	}
+
+	return paths
+}
+
 // ResolvedPath describes which path was found and its format.
 type ResolvedPath struct {
 	Path     string

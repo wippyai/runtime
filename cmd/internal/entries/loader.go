@@ -52,10 +52,14 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 		return NewEnsureModulesInstalledError(err)
 	}
 
-	paths := lockObj.GetLoadPaths()
-	logger.Debug("load paths from lock file", zap.Strings("paths", paths))
+	modulePaths := lockObj.GetModuleLoadPaths()
+	flatPaths := make([]string, len(modulePaths))
+	for i, mp := range modulePaths {
+		flatPaths[i] = mp.Path
+	}
+	logger.Debug("load paths from lock file", zap.Strings("paths", flatPaths))
 
-	entries, err := LoadEntriesFromPaths(ctx, paths, logger)
+	entries, err := loadEntriesWithModuleMeta(ctx, modulePaths, logger)
 	if err != nil {
 		return NewLoadEntriesFromPathsError(err)
 	}
@@ -63,7 +67,7 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 	logger.Info("loaded entries", zap.Int("count", len(entries)))
 
 	// Register .wapp files with embed registry for fs.embed support
-	if err := registerWappWithEmbedRegistry(ctx, paths, logger); err != nil {
+	if err := registerWappWithEmbedRegistry(ctx, flatPaths, logger); err != nil {
 		return err
 	}
 
@@ -268,6 +272,92 @@ func LoadEntriesFromPaths(ctx context.Context, paths []string, logger *zap.Logge
 	}
 
 	return entries, nil
+}
+
+// loadEntriesWithModuleMeta loads entries from annotated paths and tags module entries
+// with their owning module name and version. App source entries remain untagged.
+func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoadPath, logger *zap.Logger) ([]regapi.Entry, error) {
+	dtt := payload.GetTranscoder(ctx)
+	if dtt == nil {
+		return nil, ErrTranscoderNotFound
+	}
+
+	ldr := boot.GetLoader(ctx)
+	if ldr == nil {
+		return nil, ErrLoaderNotFound
+	}
+
+	var entries []regapi.Entry
+
+	for _, mp := range modulePaths {
+		loaded, err := loadEntriesFromPath(ctx, mp.Path, ldr, dtt, logger)
+		if err != nil {
+			return nil, err
+		}
+
+		if mp.Module != "" {
+			for i := range loaded {
+				loaded[i] = markModuleMeta(loaded[i], mp.Module, mp.Version)
+			}
+		}
+
+		entries = append(entries, loaded...)
+	}
+
+	pipeline := build.New(
+		stages.Override(),
+		stages.Disable(),
+		stages.Link(),
+	)
+
+	if err := pipeline.Execute(ctx, &entries); err != nil {
+		return nil, NewExecutePipelineError(err)
+	}
+
+	return entries, nil
+}
+
+// loadEntriesFromPath loads entries from a single path (directory or .wapp file).
+func loadEntriesFromPath(ctx context.Context, path string, ldr boot.Loader, dtt payload.Transcoder, logger *zap.Logger) ([]regapi.Entry, error) {
+	if filepath.Ext(path) == ".wapp" {
+		return loadEntriesFromWapp(path, dtt)
+	}
+
+	stat, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		logger.Warn("path not found, skipping", zap.String("path", path))
+		return nil, nil
+	}
+	if err != nil {
+		return nil, NewLoadFromPathError(path, err)
+	}
+
+	if stat.IsDir() {
+		dirFS := os.DirFS(path)
+		loaded, err := ldr.LoadFS(ctx, dirFS)
+		if err != nil {
+			return nil, NewLoadFromPathError(path, err)
+		}
+		return loaded, nil
+	}
+
+	logger.Warn("unknown path type, skipping", zap.String("path", path))
+	return nil, nil
+}
+
+func markModuleMeta(entry regapi.Entry, moduleName, moduleVersion string) regapi.Entry {
+	meta := entry.Meta
+	if meta == nil {
+		meta = attrs.NewBag()
+	} else {
+		meta = attrs.NewBagFrom(meta)
+	}
+	meta.Set("module", moduleName)
+	if moduleVersion != "" {
+		meta.Set("module_version", moduleVersion)
+	}
+	entry.Meta = meta
+	return entry
 }
 
 // loadEntriesFromWapp loads entries from a .wapp file.

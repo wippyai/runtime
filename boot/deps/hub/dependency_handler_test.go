@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -25,16 +26,24 @@ import (
 )
 
 type fakeHub struct {
-	resolve      func(context.Context, *ResolveDependenciesParams) (*ResolveDependenciesResult, error)
+	getManifest  func(ctx context.Context, org, module, constraint string) (*ModuleManifest, error)
+	listVersions func(ctx context.Context, org, module string) ([]VersionInfo, error)
 	getDownload  func(context.Context, *DownloadParams) (*DownloadInfo, error)
 	downloadFile func(context.Context, string, string) error
 }
 
-func (f *fakeHub) ResolveDependencies(ctx context.Context, params *ResolveDependenciesParams) (*ResolveDependenciesResult, error) {
-	if f.resolve != nil {
-		return f.resolve(ctx, params)
+func (f *fakeHub) GetManifest(ctx context.Context, org, module, constraint string) (*ModuleManifest, error) {
+	if f.getManifest != nil {
+		return f.getManifest(ctx, org, module, constraint)
 	}
-	return &ResolveDependenciesResult{}, nil
+	return nil, fmt.Errorf("module not found")
+}
+
+func (f *fakeHub) ListAllVersions(ctx context.Context, org, module string) ([]VersionInfo, error) {
+	if f.listVersions != nil {
+		return f.listVersions(ctx, org, module)
+	}
+	return nil, nil
 }
 
 func (f *fakeHub) GetDownloadURL(ctx context.Context, params *DownloadParams) (*DownloadInfo, error) {
@@ -56,12 +65,8 @@ func TestDependencyHandler_ResolveErrors(t *testing.T) {
 
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
 		Hub: &fakeHub{
-			resolve: func(context.Context, *ResolveDependenciesParams) (*ResolveDependenciesResult, error) {
-				return &ResolveDependenciesResult{
-					Errors: []ResolutionError{
-						{Org: "acme", Name: "http", Constraint: "^1.0.0", Message: "no matching version"},
-					},
-				}, nil
+			getManifest: func(_ context.Context, org, module, _ string) (*ModuleManifest, error) {
+				return nil, fmt.Errorf("no matching version")
 			},
 		},
 		Logger:    zap.NewNop(),
@@ -72,7 +77,7 @@ func TestDependencyHandler_ResolveErrors(t *testing.T) {
 	depEntry := regapi.Entry{
 		ID:   regapi.NewID("app", "dep"),
 		Kind: regapi.NamespaceDependency,
-		Data: payload.NewPayload(`{"component":"acme/http","version":"^1.0.0"}`, payload.JSON),
+		Data: payload.NewPayload(`{"component":"acme/http","version":"v1.0.0"}`, payload.JSON),
 	}
 
 	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, nil)
@@ -106,11 +111,9 @@ func TestDependencyHandler_EntryConflict(t *testing.T) {
 
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
 		Hub: &fakeHub{
-			resolve: func(context.Context, *ResolveDependenciesParams) (*ResolveDependenciesResult, error) {
-				return &ResolveDependenciesResult{
-					Modules: []ResolvedModule{
-						{Org: "acme", Name: "http", Version: "v1.0.0"},
-					},
+			getManifest: func(_ context.Context, org, module, _ string) (*ModuleManifest, error) {
+				return &ModuleManifest{
+					Org: org, Name: module, Version: "v1.0.0",
 				}, nil
 			},
 		},
@@ -156,17 +159,11 @@ func TestDependencyHandler_RejectsDownloadedArtifactWithDigestMismatch(t *testin
 
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
 		Hub: &fakeHub{
-			resolve: func(context.Context, *ResolveDependenciesParams) (*ResolveDependenciesResult, error) {
-				return &ResolveDependenciesResult{
-					Modules: []ResolvedModule{
-						{
-							Org:     "acme",
-							Name:    "http",
-							Version: "v1.0.0",
-							URL:     "https://example.invalid/http-v1.0.0.wapp",
-							Digest:  "sha256:deadbeef",
-						},
-					},
+			getManifest: func(_ context.Context, org, module, _ string) (*ModuleManifest, error) {
+				return &ModuleManifest{
+					Org: org, Name: module, Version: "v1.0.0",
+					URL:    "https://example.invalid/http-v1.0.0.wapp",
+					Digest: "sha256:deadbeef",
 				}, nil
 			},
 			downloadFile: func(_ context.Context, _ string, destPath string) error {
@@ -218,17 +215,11 @@ func TestDependencyHandler_RedownloadsCorruptCachedArtifact(t *testing.T) {
 	var downloadCalls atomic.Int32
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
 		Hub: &fakeHub{
-			resolve: func(context.Context, *ResolveDependenciesParams) (*ResolveDependenciesResult, error) {
-				return &ResolveDependenciesResult{
-					Modules: []ResolvedModule{
-						{
-							Org:     "acme",
-							Name:    "http",
-							Version: "v1.0.0",
-							URL:     "https://example.invalid/http-v1.0.0.wapp",
-							Digest:  expectedDigest,
-						},
-					},
+			getManifest: func(_ context.Context, org, module, _ string) (*ModuleManifest, error) {
+				return &ModuleManifest{
+					Org: org, Name: module, Version: "v1.0.0",
+					URL:    "https://example.invalid/http-v1.0.0.wapp",
+					Digest: expectedDigest,
 				}, nil
 			},
 			downloadFile: func(_ context.Context, _ string, destPath string) error {
@@ -257,20 +248,33 @@ func TestDependencyHandler_RedownloadsCorruptCachedArtifact(t *testing.T) {
 
 func TestDependencyHandler_ResolveTimeoutSetsDeadline(t *testing.T) {
 	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, "vendor")
+
+	wappPath := filepath.Join(vendorDir, "acme", "http-v1.0.0.wapp")
+	writeWapp(t, wappPath, []wapp.Entry{
+		{
+			ID:   wapp.NewID("mod", "svc"),
+			Kind: "service",
+			Data: map[string]any{"ok": true},
+		},
+	})
 
 	var resolveHadDeadline bool
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
 		Hub: &fakeHub{
-			resolve: func(callCtx context.Context, _ *ResolveDependenciesParams) (*ResolveDependenciesResult, error) {
+			getManifest: func(callCtx context.Context, org, module, _ string) (*ModuleManifest, error) {
 				deadline, ok := callCtx.Deadline()
 				if ok && time.Until(deadline) > 0 {
 					resolveHadDeadline = true
 				}
-				return &ResolveDependenciesResult{}, nil
+				return &ModuleManifest{
+					Org: org, Name: module, Version: "v1.0.0",
+				}, nil
 			},
 		},
 		Logger:         zap.NewNop(),
-		VendorDir:      t.TempDir(),
+		VendorDir:      vendorDir,
 		ResolveTimeout: 2 * time.Second,
 	})
 	require.NoError(t, err)
@@ -306,15 +310,9 @@ func TestDependencyHandler_DownloadTimeoutSetsDeadlinesForURLAndDownload(t *test
 
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
 		Hub: &fakeHub{
-			resolve: func(context.Context, *ResolveDependenciesParams) (*ResolveDependenciesResult, error) {
-				return &ResolveDependenciesResult{
-					Modules: []ResolvedModule{
-						{
-							Org:     "acme",
-							Name:    "http",
-							Version: "v1.0.0",
-						},
-					},
+			getManifest: func(_ context.Context, org, module, _ string) (*ModuleManifest, error) {
+				return &ModuleManifest{
+					Org: org, Name: module, Version: "v1.0.0",
 				}, nil
 			},
 			getDownload: func(callCtx context.Context, _ *DownloadParams) (*DownloadInfo, error) {

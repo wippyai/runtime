@@ -20,6 +20,9 @@ var dbStatsType = typ.NewRecord().
 	Field("max_lifetime_closed", typ.Integer).
 	Build()
 
+// Query row: {[string]: any} — each row is a table keyed by column name
+var queryRowType = typ.NewMap(typ.String, typ.Any)
+
 // Execute result record
 var executeResultType = typ.NewRecord().
 	Field("rows_affected", typ.Integer).
@@ -51,7 +54,7 @@ var sqlizerType = typ.NewInterface("sql.Sqlizer", []typ.Method{
 var queryExecutorType = typ.NewInterface("sql.QueryExecutor", []typ.Method{
 	{Name: "query", Type: typ.Func().
 		Param("self", typ.Self).
-		Returns(typ.NewArray(typ.Any), typ.NewOptional(typ.LuaError)).
+		Returns(typ.NewArray(queryRowType), typ.NewOptional(typ.LuaError)).
 		Build()},
 	{Name: "exec", Type: typ.Func().
 		Param("self", typ.Self).
@@ -81,7 +84,7 @@ func init() {
 		{Name: "query", Type: typ.Func().
 			Param("self", typ.Self).
 			Variadic(typ.Any).
-			Returns(typ.NewArray(typ.Any), typ.NewOptional(typ.LuaError)).
+			Returns(typ.NewArray(queryRowType), typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "execute", Type: typ.Func().
 			Param("self", typ.Self).
@@ -100,7 +103,7 @@ func init() {
 			Param("self", typ.Self).
 			Param("sql", typ.String).
 			Variadic(typ.Any).
-			Returns(typ.NewArray(typ.Any), typ.NewOptional(typ.LuaError)).
+			Returns(typ.NewArray(queryRowType), typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "execute", Type: typ.Func().
 			Param("self", typ.Self).
@@ -153,7 +156,7 @@ func init() {
 			Param("self", typ.Self).
 			Param("sql", typ.String).
 			Variadic(typ.Any).
-			Returns(typ.NewArray(typ.Any), typ.NewOptional(typ.LuaError)).
+			Returns(typ.NewArray(queryRowType), typ.NewOptional(typ.LuaError)).
 			Build()},
 		{Name: "execute", Type: typ.Func().
 			Param("self", typ.Self).

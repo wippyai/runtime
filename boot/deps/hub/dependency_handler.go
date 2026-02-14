@@ -56,7 +56,7 @@ type DependencyHandler struct {
 //
 //nolint:revive // keeps explicit package-disambiguated API name.
 type HubClient interface {
-	ResolveDependencies(ctx context.Context, params *ResolveDependenciesParams) (*ResolveDependenciesResult, error)
+	ManifestProvider
 	GetDownloadURL(ctx context.Context, params *DownloadParams) (*DownloadInfo, error)
 	DownloadToFile(ctx context.Context, url, destPath string) error
 }
@@ -257,11 +257,6 @@ func (h *DependencyHandler) collectDesiredDependencies(
 }
 
 func (h *DependencyHandler) resolveModules(ctx context.Context, deps []DependencyDefinition) ([]ResolvedModule, error) {
-	installed, err := h.loadInstalledModules()
-	if err != nil {
-		return nil, err
-	}
-
 	roots := make([]DependencySpec, 0, len(deps))
 	for _, dep := range deps {
 		name, err := graph.ParseName(dep.Component)
@@ -278,10 +273,7 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 	resolveCtx, cancel := withOptionalTimeout(ctx, h.resolveTimeout)
 	defer cancel()
 
-	result, err := h.hub.ResolveDependencies(resolveCtx, &ResolveDependenciesParams{
-		Roots:     roots,
-		Installed: installed,
-	})
+	result, err := Resolve(resolveCtx, h.hub, roots, nil)
 	if err != nil {
 		return nil, NewDependencyResolutionError(err)
 	}
@@ -447,35 +439,6 @@ func sha256FileHex(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-func (h *DependencyHandler) loadInstalledModules() ([]InstalledModule, error) {
-	if h.lockPath == "" {
-		return nil, nil
-	}
-	lockObj, err := lock.New(h.lockPath)
-	if err != nil {
-		return nil, err
-	}
-	if err := lock.Validate(lockObj); err != nil {
-		return nil, err
-	}
-
-	modules := lockObj.GetModules()
-	installed := make([]InstalledModule, 0, len(modules))
-	for _, mod := range modules {
-		name, err := graph.ParseName(mod.Name)
-		if err != nil {
-			continue
-		}
-		installed = append(installed, InstalledModule{
-			Org:     name.Organization,
-			Name:    name.Module,
-			Version: mod.Version,
-			Digest:  mod.Hash,
-		})
-	}
-	return installed, nil
 }
 
 func (h *DependencyHandler) installedVersion(moduleName string) (string, bool) {
@@ -848,7 +811,8 @@ func NewDependencyPipelineError(cause error) apierror.Error {
 }
 
 func NewDependencyEntryConflictError(entryID, existingModule, desiredModule string) apierror.Error {
-	return apierror.New(apierror.Conflict, "entry conflict with module").
+	msg := fmt.Sprintf("entry %q conflicts: owned by %q, wanted by %q", entryID, existingModule, desiredModule)
+	return apierror.New(apierror.Conflict, msg).
 		WithDetails(attrs.NewBagFrom(map[string]any{
 			"entry_id":        entryID,
 			"existing_module": existingModule,
