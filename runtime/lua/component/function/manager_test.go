@@ -29,8 +29,8 @@ func (w *mockPrepareAwaitWaiter) Wait() event.AwaitResult { return w.result }
 func (w *mockPrepareAwaitWaiter) Close()                  {}
 
 type mockPrepareAwaitService struct {
-	prepared bool
 	result   event.AwaitResult
+	prepared bool
 }
 
 func (a *mockPrepareAwaitService) Prepare(context.Context, event.System, event.Kind, event.Path, time.Duration) (event.AwaitWaiter, error) {

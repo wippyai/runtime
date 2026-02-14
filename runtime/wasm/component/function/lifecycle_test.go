@@ -23,8 +23,8 @@ import (
 )
 
 type lifecycleTestBus struct {
-	events []event.Event
 	onSend func()
+	events []event.Event
 }
 
 func (b *lifecycleTestBus) Subscribe(context.Context, event.System, chan<- event.Event) (event.SubscriberID, error) {
@@ -42,8 +42,8 @@ func (b *lifecycleTestBus) Send(_ context.Context, evt event.Event) {
 }
 
 type lifecycleTestAwaitService struct {
-	prepared bool
 	result   event.AwaitResult
+	prepared bool
 }
 
 type lifecycleTestAwaitWaiter struct {

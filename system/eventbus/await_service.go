@@ -28,10 +28,10 @@ type awaitDispatcher struct {
 
 type awaitWaiter struct {
 	ctx     context.Context
-	timeout time.Duration
-	path    event.Path
 	d       *awaitDispatcher
 	ch      chan event.Event
+	path    event.Path
+	timeout time.Duration
 	once    sync.Once
 }
 
