@@ -43,7 +43,9 @@ func subscribe(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no context"))
+		l.Push(lua.NewLuaError(l, "no context").
+			WithKind(lua.Internal).
+			WithRetryable(false))
 		return 2
 	}
 
@@ -95,7 +97,9 @@ func send(l *lua.LState) int {
 	ctx := l.Context()
 	if ctx == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.LString("no context"))
+		l.Push(lua.NewLuaError(l, "no context").
+			WithKind(lua.Internal).
+			WithRetryable(false))
 		return 2
 	}
 

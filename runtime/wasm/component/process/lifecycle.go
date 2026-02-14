@@ -178,6 +178,12 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, cfg *conf
 	}
 
 	path := id.String()
+	waiter, err := awaitSvc.Prepare(ctx, processapi.System, "factory.(accept|reject)", path, 30*time.Second)
+	if err != nil {
+		return runtimewasm.NewRegisterProcessFactoryError(&id, err)
+	}
+	defer waiter.Close()
+
 	m.bus.Send(ctx, event.Event{
 		System: processapi.System,
 		Kind:   processapi.FactoryRegister,
@@ -190,7 +196,7 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, cfg *conf
 		},
 	})
 
-	result := awaitSvc.Await(ctx, processapi.System, "factory.(accept|reject)", path, 30*time.Second)
+	result := waiter.Wait()
 	if !result.Accepted {
 		return runtimewasm.NewRegisterProcessFactoryError(&id, result.Error)
 	}

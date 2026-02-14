@@ -380,12 +380,12 @@ func TestApplyExpansion_CommitFailure_RollsBackStateAndEffects_NoHistorySave(t *
 	assert.Error(t, getErr)
 }
 
-func TestApplyExpansion_DisallowAdditionalOpsOnOriginalEntry(t *testing.T) {
+func TestApplyExpansion_SkipAdditionalOpsOnOriginalEntry(t *testing.T) {
 	builder := topology.NewStateBuilder(zap.NewNop(), topology.NewResolver())
 	runner := &applyRunner{builder: builder}
 	hist := historymem.New()
 
-	entry := regapi.Entry{ID: regapi.NewID("app", "dep"), Kind: "ns.dependency"}
+	entry := regapi.Entry{ID: regapi.NewID("app", "dep"), Kind: "ns.dependency", Data: payload.NewString("dep")}
 
 	exp := expanderFunc(func(_ context.Context, op regapi.Operation, _ regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{
@@ -406,8 +406,8 @@ func TestApplyExpansion_DisallowAdditionalOpsOnOriginalEntry(t *testing.T) {
 	_, err := reg.Apply(context.Background(), regapi.ChangeSet{
 		{Kind: regapi.EntryCreate, Entry: entry},
 	})
-	require.Error(t, err)
-	assert.Equal(t, 0, runner.transitionCalls)
+	require.NoError(t, err)
+	assert.Equal(t, 1, runner.transitionCalls)
 }
 
 func TestApplyExpansion_DisallowDuplicateAdditionalIDsAcrossDirectives(t *testing.T) {

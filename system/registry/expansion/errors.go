@@ -16,15 +16,19 @@ var ErrDirectiveExpansionConflict = apierror.New(apierror.Internal, "expansion o
 
 // NewDirectiveResultInvalidError returns a structured error for invalid directive output.
 func NewDirectiveResultInvalidError(entryID registry.ID, entryKind registry.Kind) apierror.Error {
-	return apierror.SetDetails(ErrDirectiveResultInvalid, attrs.NewBagFrom(map[string]any{
-		"entry_id":   entryID.String(),
-		"entry_kind": entryKind,
-	}))
+	return apierror.New(apierror.Internal, "directive returned data without Applied=true for "+entryID.String()+" (kind: "+entryKind+")").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"entry_id":   entryID.String(),
+			"entry_kind": entryKind,
+		}))
 }
 
 // NewDirectiveExpansionConflictError returns a structured error for conflicting expansion output.
 func NewDirectiveExpansionConflictError(entryID registry.ID) apierror.Error {
-	return apierror.SetDetails(ErrDirectiveExpansionConflict, attrs.NewBagFrom(map[string]any{
-		"entry_id": entryID.String(),
-	}))
+	return apierror.New(apierror.Internal, "expansion produced entry "+entryID.String()+" which already exists in the changeset").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"entry_id": entryID.String(),
+		}))
 }

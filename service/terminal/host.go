@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -23,19 +24,22 @@ import (
 
 // Host implements process.Host for terminal processes using actor scheduler.
 type Host struct {
-	factory   process.Factory
-	ctx       context.Context
-	cfg       *terminalapi.HostConfig
-	log       *zap.Logger
-	scheduler *actor.Scheduler
-	logCtrl   *logs.Configurator
-	raw       *RawManager
-	statusCh  chan any
-	doneCh    chan struct{}
-	id        registry.ID
-	running   atomic.Bool
-	shutdown  atomic.Bool
-	stopCalls atomic.Uint64
+	factory      process.Factory
+	ctx          context.Context
+	cfg          *terminalapi.HostConfig
+	log          *zap.Logger
+	scheduler    *actor.Scheduler
+	logCtrl      *logs.Configurator
+	raw          *RawManager
+	statusCh     chan any
+	doneCh       chan struct{}
+	id           registry.ID
+	running      atomic.Bool
+	shutdown     atomic.Bool
+	stopCalls    atomic.Uint64
+	lifecycleMu  sync.RWMutex
+	statusClosed bool
+	doneClosed   bool
 }
 
 // NewHost creates a new terminal host with actor scheduler.
@@ -78,7 +82,7 @@ func (h *Host) OnComplete(ctx context.Context, _ pid.PID, result *runtime.Result
 	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
 		_ = fc.Close()
 	}
-	close(h.doneCh)
+	h.closeDone()
 
 	// Determine exit code from result
 	exitCode := 0
@@ -101,11 +105,13 @@ func (h *Host) OnComplete(ctx context.Context, _ pid.PID, result *runtime.Result
 			}
 		}
 	}
-	supervisorapi.TriggerShutdown(h.ctx, exitCode)
+	supervisorapi.TriggerShutdown(ctx, exitCode)
 }
 
 // Done returns a channel that is closed when the terminal process completes.
 func (h *Host) Done() <-chan struct{} {
+	h.lifecycleMu.RLock()
+	defer h.lifecycleMu.RUnlock()
 	return h.doneCh
 }
 
@@ -170,11 +176,21 @@ func (h *Host) Start(ctx context.Context) (<-chan any, error) {
 		return nil, ErrHostAlreadyRunning
 	}
 
+	h.lifecycleMu.Lock()
 	h.ctx = ctx
+	h.shutdown.Store(false)
+	// Recreate lifecycle channels on each start so stop/restart cycles
+	// don't reuse closed channels from a previous run.
+	h.statusCh = make(chan any, 1)
+	h.doneCh = make(chan struct{})
+	h.statusClosed = false
+	h.doneClosed = false
+	statusCh := h.statusCh
+	h.lifecycleMu.Unlock()
 	h.scheduler.Start()
 
 	h.log.Info("terminal host started", zap.String("id", h.id.String()))
-	return h.statusCh, nil
+	return statusCh, nil
 }
 
 // Stop implements supervisor.Service.
@@ -194,7 +210,7 @@ func (h *Host) Stop(ctx context.Context) error {
 		zap.Uint64("attempt", stopAttempt))
 
 	h.scheduler.Stop(ctx)
-	close(h.statusCh)
+	h.closeStatus()
 
 	if h.raw != nil {
 		_ = h.raw.Reset()
@@ -248,6 +264,28 @@ func (h *Host) setupLogging(ctx context.Context) error {
 		StreamToEvents:      true,
 		PropagateDownstream: false,
 	})
+}
+
+func (h *Host) closeStatus() {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
+
+	if h.statusClosed {
+		return
+	}
+	close(h.statusCh)
+	h.statusClosed = true
+}
+
+func (h *Host) closeDone() {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
+
+	if h.doneClosed {
+		return
+	}
+	close(h.doneCh)
+	h.doneClosed = true
 }
 
 var _ process.Host = (*Host)(nil)

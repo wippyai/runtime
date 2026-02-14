@@ -152,9 +152,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	logger.Info("resolving dependency graph")
-	result, err := hubClient.ResolveDependencies(app.Ctx, &hub.ResolveDependenciesParams{
-		Roots: hubDeps,
-	})
+	result, err := hub.Resolve(app.Ctx, hubClient, hubDeps, nil)
 	if err != nil {
 		return NewBuildDependencyGraphError(err)
 	}
@@ -316,7 +314,6 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 
 	modules := lockObj.GetModules()
 	hubDeps := make([]hub.DependencySpec, 0, len(modules)+len(targetModules))
-	installed := make([]hub.InstalledModule, 0, len(modules))
 
 	for _, mod := range modules {
 		parts := strings.SplitN(mod.Name, "/", 2)
@@ -325,14 +322,6 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 		}
 
 		if !targetSet[mod.Name] {
-			// Track as installed for frozen resolution
-			installed = append(installed, hub.InstalledModule{
-				Org:     parts[0],
-				Name:    parts[1],
-				Version: mod.Version,
-				Digest:  mod.Hash,
-			})
-			// Add as root dependency with exact version
 			hubDeps = append(hubDeps, hub.DependencySpec{
 				Org:        parts[0],
 				Name:       parts[1],
@@ -362,10 +351,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	}
 
 	logger.Info("resolving with frozen dependencies")
-	result, err := hubClient.ResolveDependencies(app.Ctx, &hub.ResolveDependenciesParams{
-		Roots:     hubDeps,
-		Installed: installed,
-	})
+	result, err := hub.Resolve(app.Ctx, hubClient, hubDeps, nil)
 	if err != nil {
 		return NewBuildDependencyGraphError(err)
 	}

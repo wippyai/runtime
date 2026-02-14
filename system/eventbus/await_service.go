@@ -26,6 +26,15 @@ type awaitDispatcher struct {
 	mu         sync.Mutex
 }
 
+type awaitWaiter struct {
+	ctx     context.Context
+	d       *awaitDispatcher
+	ch      chan event.Event
+	path    event.Path
+	timeout time.Duration
+	once    sync.Once
+}
+
 // NewAwaitService creates a new await service.
 func NewAwaitService(bus event.Bus) *AwaitService {
 	return &AwaitService{
@@ -59,30 +68,44 @@ func (s *AwaitService) Stop() error {
 	return nil
 }
 
-// Await waits for an event matching system, kind, and path.
-func (s *AwaitService) Await(ctx context.Context, system event.System, kind event.Kind, path event.Path, timeout time.Duration) event.AwaitResult {
+// Prepare registers a waiter before the triggering request is sent.
+func (s *AwaitService) Prepare(ctx context.Context, system event.System, kind event.Kind, path event.Path, timeout time.Duration) (event.AwaitWaiter, error) {
 	d, err := s.getOrCreateDispatcher(system, kind)
 	if err != nil {
-		return event.AwaitResult{Error: err}
+		return nil, err
 	}
 
 	ch := make(chan event.Event, 1)
-
 	d.mu.Lock()
 	d.pending[path] = ch
 	d.mu.Unlock()
 
-	defer func() {
-		d.mu.Lock()
-		delete(d.pending, path)
-		d.mu.Unlock()
-	}()
+	return &awaitWaiter{
+		ctx:     ctx,
+		timeout: timeout,
+		path:    path,
+		d:       d,
+		ch:      ch,
+	}, nil
+}
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+// Await waits for an event matching system, kind, and path.
+func (s *AwaitService) Await(ctx context.Context, system event.System, kind event.Kind, path event.Path, timeout time.Duration) event.AwaitResult {
+	waiter, err := s.Prepare(ctx, system, kind, path, timeout)
+	if err != nil {
+		return event.AwaitResult{Error: err}
+	}
+	return waiter.Wait()
+}
+
+func (w *awaitWaiter) Wait() event.AwaitResult {
+	defer w.Close()
+
+	timeoutCtx, cancel := context.WithTimeout(w.ctx, w.timeout)
 	defer cancel()
 
 	select {
-	case evt := <-ch:
+	case evt := <-w.ch:
 		accepted := isAcceptKind(evt.Kind)
 		var resultErr error
 		if !accepted {
@@ -93,11 +116,21 @@ func (s *AwaitService) Await(ctx context.Context, system event.System, kind even
 		return event.AwaitResult{Event: evt, Accepted: accepted, Error: resultErr}
 
 	case <-timeoutCtx.Done():
-		if ctx.Err() != nil {
-			return event.AwaitResult{Error: ctx.Err()}
+		if w.ctx.Err() != nil {
+			return event.AwaitResult{Error: w.ctx.Err()}
 		}
-		return event.AwaitResult{Error: NewAwaitTimeoutError(path)}
+		return event.AwaitResult{Error: NewAwaitTimeoutError(w.path)}
 	}
+}
+
+func (w *awaitWaiter) Close() {
+	w.once.Do(func() {
+		w.d.mu.Lock()
+		if current, ok := w.d.pending[w.path]; ok && current == w.ch {
+			delete(w.d.pending, w.path)
+		}
+		w.d.mu.Unlock()
+	})
 }
 
 func (s *AwaitService) getOrCreateDispatcher(system event.System, kind event.Kind) (*awaitDispatcher, error) {

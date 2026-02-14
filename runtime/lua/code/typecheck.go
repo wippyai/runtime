@@ -168,16 +168,8 @@ func (tc *TypeChecker) CheckParsed(chunk []ast.Stmt, entryID string, imports map
 	// Check the chunk
 	sess := tc.checker.CheckChunk(chunk, entryID)
 
-	// Build manifest from checked code
-	manifest := io.NewManifest(entryID)
-	if exportType := sess.ExportType(); exportType != nil {
-		manifest.SetExport(exportType)
-	}
-	if exportTypes := sess.ExportTypes(); exportTypes != nil {
-		for name, t := range exportTypes {
-			manifest.DefineType(name, t)
-		}
-	}
+	// Build manifest from checked code via canonical checker export path.
+	manifest := sess.ExportManifest(entryID)
 
 	diagnostics := sess.Diagnostics
 	sess.Release()

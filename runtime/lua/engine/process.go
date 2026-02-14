@@ -642,7 +642,7 @@ func (p *Process) processChannelYields() ([]*Task, error) {
 					}
 
 					if upd.Error != nil {
-						t.ResumeWith(lua.LNil, lua.LString(upd.Error.Error()))
+						t.ResumeWith(lua.LNil, lua.WrapError(upd.Error, "channel update"))
 					} else {
 						t.ResumeWith(upd.GetResult()...)
 					}
@@ -711,7 +711,7 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, bool, error) {
 				sub, err = subs.add(req.Topic, req.BufSize)
 			}
 			if err != nil {
-				task.ResumeWith(lua.LNil, lua.LString(err.Error()))
+				task.ResumeWith(lua.LNil, lua.WrapError(err, "subscribe"))
 			} else {
 				if req.Handler != nil {
 					p.SetTopicHandler(req.Topic, req.Handler)
@@ -737,7 +737,7 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, bool, error) {
 		if req, ok := lastYield.(*UnsubscribeRequest); ok {
 			err := subs.remove(req.Channel)
 			if err != nil {
-				task.ResumeWith(lua.LFalse, lua.LString(err.Error()))
+				task.ResumeWith(lua.LFalse, lua.WrapError(err, "unsubscribe"))
 			} else {
 				req.Channel.Close(nil)
 				task.ResumeWith(lua.LTrue)

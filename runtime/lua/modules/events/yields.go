@@ -136,7 +136,7 @@ func (y *EventSubscribeYield) Release() { ReleaseEventSubscribeYield(y) }
 // HandleResult sets up the topic subscription and returns a Subscription object.
 func (y *EventSubscribeYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "subscribe")}
 	}
 
 	// Create channel userdata (PushChannel also sets ch.Value internally)
@@ -147,7 +147,7 @@ func (y *EventSubscribeYield) HandleResult(l *lua.LState, data any, err error) [
 	proc := engine.GetProcess(l)
 	if proc != nil {
 		if err := proc.SubscribeExisting(y.Topic, y.Channel); err != nil {
-			return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+			return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "subscribe")}
 		}
 		proc.SetTopicHandler(y.Topic, eventMessageHandler)
 	}
@@ -296,9 +296,9 @@ func (y *EventSendYield) ToCommand() dispatcher.Command {
 func (y *EventSendYield) Release() { ReleaseEventSendYield(y) }
 
 // HandleResult returns success after the event is sent.
-func (y *EventSendYield) HandleResult(_ *lua.LState, _ any, err error) []lua.LValue {
+func (y *EventSendYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.LString(err.Error())}
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "send event")}
 	}
 	return []lua.LValue{lua.LTrue, lua.LNil}
 }

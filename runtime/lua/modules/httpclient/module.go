@@ -153,11 +153,13 @@ func makeMethod(method string) lua.LGoFunc {
 			return 2
 		}
 
-		// Check for private IP access
-		if errMsg := checkPrivateIP(ctx, urlStr); errMsg != "" {
-			l.Push(lua.LNil)
-			l.Push(lua.NewLuaError(l, errMsg).WithKind(lua.PermissionDenied).WithRetryable(false))
-			return 2
+		// Skip private IP check for unix sockets — hostname is irrelevant for local IPC
+		if opts.unixSocket == "" {
+			if errMsg := checkPrivateIP(ctx, urlStr); errMsg != "" {
+				l.Push(lua.LNil)
+				l.Push(lua.NewLuaError(l, errMsg).WithKind(lua.PermissionDenied).WithRetryable(false))
+				return 2
+			}
 		}
 
 		yield := AcquireRequestYield()
@@ -212,11 +214,13 @@ func request(l *lua.LState) int {
 		return 2
 	}
 
-	// Check for private IP access
-	if errMsg := checkPrivateIP(ctx, urlStr); errMsg != "" {
-		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, errMsg).WithKind(lua.PermissionDenied).WithRetryable(false))
-		return 2
+	// Skip private IP check for unix sockets — hostname is irrelevant for local IPC
+	if opts.unixSocket == "" {
+		if errMsg := checkPrivateIP(ctx, urlStr); errMsg != "" {
+			l.Push(lua.LNil)
+			l.Push(lua.NewLuaError(l, errMsg).WithKind(lua.PermissionDenied).WithRetryable(false))
+			return 2
+		}
 	}
 
 	yield := AcquireRequestYield()
@@ -499,13 +503,6 @@ func requestBatch(l *lua.LState) int {
 			return
 		}
 
-		// Check for private IP access
-		if errMsg := checkPrivateIP(ctx, urlStr); errMsg != "" {
-			parseErr = errMsg
-			parseErrKind = lua.PermissionDenied
-			return
-		}
-
 		var opts *requestOptions
 		optsVal := reqTable.RawGetInt(3)
 		if optsVal.Type() == lua.LTTable {
@@ -532,6 +529,15 @@ func requestBatch(l *lua.LState) int {
 			}
 		} else {
 			opts = &requestOptions{}
+		}
+
+		// Skip private IP check for unix sockets — hostname is irrelevant for local IPC
+		if opts.unixSocket == "" {
+			if errMsg := checkPrivateIP(ctx, urlStr); errMsg != "" {
+				parseErr = errMsg
+				parseErrKind = lua.PermissionDenied
+				return
+			}
 		}
 
 		req := httpapi.AcquireRequestCmd()

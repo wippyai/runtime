@@ -408,7 +408,8 @@ func fileScannerErr(l *lua.LState) int {
 	if s.lastErr == nil {
 		l.Push(lua.LNil)
 	} else {
-		l.Push(lua.LString(s.lastErr.Error()))
+		l.Push(lua.WrapErrorWithLua(l, s.lastErr, "scanner").
+			WithKind(lua.Internal))
 	}
 	return 1
 }
