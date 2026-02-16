@@ -6,6 +6,7 @@ import (
 	"io"
 
 	contextapi "github.com/wippyai/runtime/api/context"
+	ttyapi "github.com/wippyai/runtime/api/tty"
 )
 
 var terminalKey = &contextapi.Key{Name: "terminal"}
@@ -18,6 +19,7 @@ func Key() *contextapi.Key {
 // PipeContext holds the standard input/output/error streams for terminal operations.
 type PipeContext struct {
 	Raw    RawController
+	Input  ttyapi.InputController
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer

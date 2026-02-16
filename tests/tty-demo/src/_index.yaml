@@ -1,0 +1,37 @@
+version: "1.0"
+namespace: demo
+
+entries:
+  - name: terminal
+    kind: terminal.host
+    meta:
+      comment: Terminal host for TTY demo
+    hide_logs: true
+    lifecycle:
+      auto_start: true
+
+  - name: tty_demo
+    kind: process.lua
+    meta:
+      comment: TTY toolkit demo
+      command:
+        name: tty-demo
+        short: Demonstrate the tty module toolkit
+    source: file://tty_demo.lua
+    method: main
+    modules:
+      - io
+      - tty
+
+  - name: norton
+    kind: process.lua
+    meta:
+      comment: Norton Commander file manager demo
+      command:
+        name: norton
+        short: Norton Commander-style dual-pane file manager
+    source: file://norton.lua
+    method: main
+    modules:
+      - io
+      - tty
