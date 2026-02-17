@@ -77,6 +77,8 @@ func Host() boot.Component {
 			manager := host.NewManager(bus, dtt, registry, factory, pidGen, logger)
 			handlers.RegisterListener("process.host", manager)
 
+			ctx = process.WithInspector(ctx, manager)
+
 			logger.Info("host manager registered")
 			return ctx, nil
 		},

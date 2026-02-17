@@ -61,6 +61,35 @@ var processSubType = typ.NewInterface("system.process", []typ.Method{
 	{Name: "cwd", Type: typ.Func().Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
 })
 
+// HostStats type
+var hostStatsType = typ.NewRecord().
+	Field("id", typ.String).
+	Field("workers", typ.Number).
+	Field("processes", typ.Number).
+	Field("executed", typ.Number).
+	Field("stolen", typ.Number).
+	Field("queue_depth", typ.Number).
+	Build()
+
+// ProcessStats type
+var processStatsType = typ.NewRecord().
+	Field("pid", typ.String).
+	Field("host", typ.String).
+	Field("source", typ.String).
+	Field("state", typ.String).
+	Field("steps", typ.Number).
+	Field("started_at", typ.Number).
+	Field("parent", typ.NewOptional(typ.String)).
+	Field("actor_id", typ.NewOptional(typ.String)).
+	Field("stats", typ.NewOptional(typ.NewMap(typ.String, typ.Any))).
+	Build()
+
+// hosts submodule type
+var hostsType = typ.NewInterface("system.hosts", []typ.Method{
+	{Name: "list", Type: typ.Func().Returns(typ.NewArray(hostStatsType), typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "processes", Type: typ.Func().Param("host_id", typ.String).Returns(typ.NewArray(processStatsType), typ.NewOptional(typ.LuaError)).Build()},
+})
+
 // supervisor submodule type
 var supervisorType = typ.NewInterface("system.supervisor", []typ.Method{
 	{Name: "state", Type: typ.Func().Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
@@ -79,6 +108,8 @@ func ModuleTypes() *io.Manifest {
 
 	m.DefineType("MemStats", memStatsType)
 	m.DefineType("ModuleInfo", moduleInfoType)
+	m.DefineType("HostStats", hostStatsType)
+	m.DefineType("ProcessStats", processStatsType)
 
 	// Submodule fields
 	submodulesType := typ.NewRecord().
@@ -87,6 +118,7 @@ func ModuleTypes() *io.Manifest {
 		Field("runtime", runtimeType).
 		Field("process", processSubType).
 		Field("supervisor", supervisorType).
+		Field("hosts", hostsType).
 		Build()
 
 	// Combine methods and fields via intersection

@@ -20,13 +20,14 @@ var (
 )
 
 func initModuleTable() {
-	mod := lua.CreateTable(0, 6)
+	mod := lua.CreateTable(0, 8)
 
 	mod.RawSetString("memory", createMemoryTable())
 	mod.RawSetString("gc", createGCTable())
 	mod.RawSetString("runtime", createRuntimeTable())
 	mod.RawSetString("process", createProcessTable())
 	mod.RawSetString("supervisor", createSupervisorTable())
+	mod.RawSetString("hosts", createHostsTable())
 	mod.RawSetString("exit", lua.LGoFunc(exit))
 	mod.RawSetString("modules", lua.LGoFunc(modules))
 
@@ -88,6 +89,14 @@ func createSupervisorTable() *lua.LTable {
 	t := lua.CreateTable(0, 2)
 	t.RawSetString("state", lua.LGoFunc(supervisorState))
 	t.RawSetString("states", lua.LGoFunc(supervisorStates))
+	t.Immutable = true
+	return t
+}
+
+func createHostsTable() *lua.LTable {
+	t := lua.CreateTable(0, 2)
+	t.RawSetString("list", lua.LGoFunc(hostsList))
+	t.RawSetString("processes", lua.LGoFunc(hostsProcesses))
 	t.Immutable = true
 	return t
 }
