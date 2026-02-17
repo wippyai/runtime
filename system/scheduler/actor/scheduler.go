@@ -12,8 +12,10 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/topology"
 )
 
@@ -71,6 +73,7 @@ type Scheduler struct {
 	queueSize      int
 	nextID         atomic.Uint64
 	stopping       atomic.Bool
+	collectStats   atomic.Bool
 }
 
 func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
@@ -260,6 +263,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 	proc.ctx = procCtx
 	proc.cancel = cancel
 	proc.scheduler = s
+	proc.startedAt = time.Now().UnixNano()
 
 	// Reset queue for this execution and cache generation
 	proc.queue.Reset()
@@ -386,6 +390,7 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 	proc.ctx = procCtx
 	proc.cancel = cancel
 	proc.scheduler = s
+	proc.startedAt = time.Now().UnixNano()
 	proc.pooled = true
 	proc.resultCh = make(chan *runtime.Result, 1)
 
@@ -493,4 +498,65 @@ func (s *Scheduler) CollectProcessStats() []attrs.Attributes {
 	})
 
 	return stats
+}
+
+// EnableStats turns on per-process stats snapshots collected after each Step.
+func (s *Scheduler) EnableStats() {
+	s.collectStats.Store(true)
+}
+
+// DisableStats turns off per-process stats snapshots.
+func (s *Scheduler) DisableStats() {
+	s.collectStats.Store(false)
+}
+
+// ProcessInfo holds snapshot data for a single process visible to Inspector.
+type ProcessInfo struct {
+	PID       pid.PID
+	Parent    pid.PID
+	Source    registry.ID
+	State     string
+	Steps     uint64
+	StartedAt int64
+	Stats     attrs.Attributes
+	ActorID   string
+}
+
+// ListProcesses returns a snapshot of all active processes.
+func (s *Scheduler) ListProcesses() []ProcessInfo {
+	var result []ProcessInfo
+
+	s.byPID.Range(func(_, value any) bool {
+		proc := value.(*Processor)
+		info := ProcessInfo{
+			PID:       proc.pid,
+			State:     StateName(ProcessState(proc.state.Load())),
+			Steps:     proc.steps.Load(),
+			StartedAt: proc.startedAt,
+		}
+		if proc.ctx != nil {
+			if src, ok := runtime.GetFrameID(proc.ctx); ok {
+				info.Source = src
+			}
+			if opts := runtime.GetFrameLifecycleOptions(proc.ctx); opts != nil {
+				if a, ok := opts.(attrs.Attributes); ok {
+					if parent, ok := a.Get(process.ProcessParentKey); ok {
+						if pp, ok := parent.(pid.PID); ok {
+							info.Parent = pp
+						}
+					}
+				}
+			}
+			if actor, ok := security.GetActor(proc.ctx); ok {
+				info.ActorID = actor.ID
+			}
+		}
+		if bag := proc.stats.Load(); bag != nil {
+			info.Stats = *bag
+		}
+		result = append(result, info)
+		return true
+	})
+
+	return result
 }

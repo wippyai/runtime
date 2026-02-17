@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/runtime"
@@ -56,7 +57,10 @@ type Processor struct {
 	pid        pid.PID
 	output     process.StepOutput
 	gen        atomic.Uint64
+	steps      atomic.Uint64
+	stats      atomic.Pointer[attrs.Bag]
 	id         uint64
+	startedAt  int64
 	state      atomic.Int32
 	lastWorker atomic.Int32
 	pooled     bool
@@ -141,6 +145,24 @@ func (p *Processor) CompleteYield(tag uint64, data any, err error) {
 	p.setWakeup(StateRunning)
 }
 
+// StateName returns a human-readable name for the process state.
+func StateName(s ProcessState) string {
+	switch s & stateMask {
+	case StateReady:
+		return "ready"
+	case StateRunning:
+		return "running"
+	case StateBlocked:
+		return "blocked"
+	case StateIdle:
+		return "idle"
+	case StateComplete:
+		return "complete"
+	default:
+		return "unknown"
+	}
+}
+
 const noWorkerAffinity = -1
 
 var processorPool = sync.Pool{
@@ -160,6 +182,7 @@ func acquireProcessor() *Processor {
 func releaseProcessor(p *Processor) {
 	p.id = 0
 	p.pid = pid.PID{}
+	p.startedAt = 0
 	p.Process = nil
 	p.state.Store(0)
 	p.ctx = nil
@@ -168,6 +191,8 @@ func releaseProcessor(p *Processor) {
 	p.lastWorker.Store(noWorkerAffinity)
 	p.resultCh = nil
 	p.pooled = false
+	p.steps.Store(0)
+	p.stats.Store(nil)
 	p.output.Reset()
 	processorPool.Put(p)
 }

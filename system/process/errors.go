@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	ErrTerminated = apierror.New(apiprocess.Internal, "process terminated").WithRetryable(apierror.False)
+	ErrTerminated = apierror.New(apiprocess.Internal, "process terminated")
 )
 
 // UnknownCommandError indicates an unregistered command.
