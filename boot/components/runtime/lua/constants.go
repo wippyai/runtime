@@ -35,8 +35,9 @@ const (
 	TimeName         = "lua.time"
 	TreeSitterName   = "lua.treesitter"
 	QueueName        = "lua.queue"
+	TTYName = "lua.tty"
 	// UUIDName is a component name (UpstreamName reserved for future use)
-	UUIDName      = "lua.uuid"
+	UUIDName = "lua.uuid"
 	WorkflowName  = "lua.workflow"
 	WebSocketName = "lua.websocket"
 	YAMLName      = "lua.yaml"

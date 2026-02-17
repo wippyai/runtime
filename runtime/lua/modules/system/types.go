@@ -58,6 +58,7 @@ var runtimeType = typ.NewInterface("system.runtime", []typ.Method{
 var processSubType = typ.NewInterface("system.process", []typ.Method{
 	{Name: "pid", Type: typ.Func().Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "hostname", Type: typ.Func().Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "cwd", Type: typ.Func().Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
 })
 
 // supervisor submodule type

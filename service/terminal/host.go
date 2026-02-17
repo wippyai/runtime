@@ -76,6 +76,9 @@ func (h *Host) OnStart(context.Context, pid.PID, process.Process) error { return
 // OnComplete implements scheduler.Lifecycle.
 func (h *Host) OnComplete(ctx context.Context, _ pid.PID, result *runtime.Result) {
 	h.logCtrl.RestoreBaseConfig(ctx)
+	if tc := terminalapi.GetTerminalContext(ctx); tc != nil && tc.Input != nil {
+		_ = tc.Input.Stop()
+	}
 	if h.raw != nil {
 		_ = h.raw.Reset()
 	}
@@ -247,6 +250,7 @@ func (h *Host) prepareContext(ctx context.Context, processID pid.PID, start *pro
 	pairs[1] = ctxapi.Pair{Key: runtime.FramePIDKey, Value: processID}
 	tc := terminalapi.NewTerminalContextWithArgs(os.Stdin, os.Stdout, os.Stderr, args)
 	tc.Raw = h.raw
+	tc.Input = NewInputReader(os.Stdin, h.raw, h.scheduler, processID)
 	pairs[2] = ctxapi.Pair{Key: terminalapi.Key(), Value: tc}
 	copy(pairs[3:], start.Context)
 
