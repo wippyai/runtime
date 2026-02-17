@@ -5,9 +5,7 @@ import (
 	"errors"
 	"io"
 	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 
 	"github.com/charmbracelet/x/input"
 	"github.com/charmbracelet/x/term"
@@ -181,27 +179,14 @@ func (r *InputReader) readLoop(ctx context.Context, reader *input.Reader) {
 	}
 }
 
-func (r *InputReader) sigwinchLoop(ctx context.Context) {
-	defer r.wg.Done()
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGWINCH)
-	defer signal.Stop(sigCh)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-sigCh:
-			cols, rows, err := r.screenSize()
-			if err == nil {
-				r.sendEvent(&TTYEvent{
-					Type:   "resize",
-					Width:  cols,
-					Height: rows,
-				})
-			}
-		}
+func (r *InputReader) emitResize() {
+	cols, rows, err := r.screenSize()
+	if err == nil {
+		r.sendEvent(&TTYEvent{
+			Type:   "resize",
+			Width:  cols,
+			Height: rows,
+		})
 	}
 }
 
