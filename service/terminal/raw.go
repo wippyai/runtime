@@ -5,7 +5,6 @@ import (
 	"os"
 	"sync"
 
-	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
 
@@ -41,7 +40,7 @@ func (r *RawManager) Enable() error {
 		r.state = state
 		r.active = true
 
-		// MakeRaw disables OPOST which turns off \n → \r\n translation.
+		// MakeRaw disables OPOST which turns off \n -> \r\n translation.
 		// Re-enable output processing so terminal output renders correctly.
 		enableOutputProcessing(int(r.file.Fd()))
 	}
@@ -92,16 +91,4 @@ func (r *RawManager) Enabled() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.active
-}
-
-// enableOutputProcessing re-enables OPOST after MakeRaw so the kernel
-// translates \n to \r\n on output. Without this, line feeds in raw mode
-// move the cursor down without returning to column 0.
-func enableOutputProcessing(fd int) {
-	termios, err := unix.IoctlGetTermios(fd, unix.TCGETS)
-	if err != nil {
-		return
-	}
-	termios.Oflag |= unix.OPOST
-	_ = unix.IoctlSetTermios(fd, unix.TCSETS, termios)
 }
