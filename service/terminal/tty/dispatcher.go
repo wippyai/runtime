@@ -14,8 +14,9 @@ import (
 )
 
 var (
-	errNoTerminalContext = errors.New("no terminal context")
-	errNoRawController   = errors.New("raw terminal control unavailable")
+	errNoTerminalContext  = errors.New("no terminal context")
+	errNoRawController    = errors.New("raw terminal control unavailable")
+	errNoInputController  = errors.New("input controller unavailable")
 )
 
 // Option configures a Dispatcher.
@@ -166,6 +167,56 @@ func (d *Dispatcher) execute(j job) {
 		}
 		j.receiver.CompleteYield(j.tag, true, nil)
 
+	case ttyapi.StartInputCmd:
+		if tc.Input == nil {
+			j.receiver.CompleteYield(j.tag, nil, errNoInputController)
+			return
+		}
+		if err := tc.Input.Start(); err != nil {
+			j.receiver.CompleteYield(j.tag, nil, err)
+			return
+		}
+		j.receiver.CompleteYield(j.tag, true, nil)
+
+	case ttyapi.StopInputCmd:
+		if tc.Input == nil {
+			j.receiver.CompleteYield(j.tag, nil, errNoInputController)
+			return
+		}
+		if err := tc.Input.Stop(); err != nil {
+			j.receiver.CompleteYield(j.tag, nil, err)
+			return
+		}
+		j.receiver.CompleteYield(j.tag, true, nil)
+
+	case ttyapi.ScreenSizeCmd:
+		if tc.Input == nil {
+			j.receiver.CompleteYield(j.tag, nil, errNoInputController)
+			return
+		}
+		cols, rows, err := tc.Input.ScreenSize()
+		if err != nil {
+			j.receiver.CompleteYield(j.tag, nil, err)
+			return
+		}
+		j.receiver.CompleteYield(j.tag, []int{cols, rows}, nil)
+
+	case ttyapi.EnableMouseCmd:
+		if tc.Input == nil {
+			j.receiver.CompleteYield(j.tag, nil, errNoInputController)
+			return
+		}
+		tc.Input.EnableMouse()
+		j.receiver.CompleteYield(j.tag, true, nil)
+
+	case ttyapi.DisableMouseCmd:
+		if tc.Input == nil {
+			j.receiver.CompleteYield(j.tag, nil, errNoInputController)
+			return
+		}
+		tc.Input.DisableMouse()
+		j.receiver.CompleteYield(j.tag, true, nil)
+
 	default:
 		j.receiver.CompleteYield(j.tag, nil, fmt.Errorf("unknown tty command: %T", j.cmd))
 	}
@@ -193,4 +244,9 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(ttyapi.ReadLine, h)
 	register(ttyapi.RawEnable, h)
 	register(ttyapi.RawDisable, h)
+	register(ttyapi.StartInput, h)
+	register(ttyapi.StopInput, h)
+	register(ttyapi.ScreenSize, h)
+	register(ttyapi.EnableMouse, h)
+	register(ttyapi.DisableMouse, h)
 }

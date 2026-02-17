@@ -266,6 +266,25 @@ func TestProcessFunctions(t *testing.T) {
 			t.Errorf("hostname test failed: %v", err)
 		}
 	})
+
+	t.Run("cwd", func(t *testing.T) {
+		expectedCwd, _ := os.Getwd()
+		err := l.DoString(`
+			local dir, err = system.process.cwd()
+			assert(err == nil, "expected nil error")
+			assert(type(dir) == "string", "expected string")
+			assert(#dir > 0, "cwd should not be empty")
+			return dir
+		`)
+		if err != nil {
+			t.Errorf("cwd test failed: %v", err)
+		}
+
+		gotCwd := l.Get(-1).String()
+		if gotCwd != expectedCwd {
+			t.Errorf("expected cwd %q, got %q", expectedCwd, gotCwd)
+		}
+	})
 }
 
 func TestSupervisorFunctions(t *testing.T) {

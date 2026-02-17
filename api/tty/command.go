@@ -4,16 +4,25 @@ package tty
 import "github.com/wippyai/runtime/api/dispatcher"
 
 func init() {
-	dispatcher.MustRegisterCommands("tty", Read, ReadLine, RawEnable, RawDisable)
+	dispatcher.MustRegisterCommands("tty",
+		Read, ReadLine, RawEnable, RawDisable,
+		StartInput, StopInput, ScreenSize,
+		EnableMouse, DisableMouse,
+	)
 }
 
 // Command IDs for terminal I/O.
 // Range 70-79 is reserved for terminal operations.
 const (
-	Read       dispatcher.CommandID = 70 // Read bytes from stdin
-	ReadLine   dispatcher.CommandID = 71 // Read a line from stdin
-	RawEnable  dispatcher.CommandID = 72 // Enable raw terminal mode
-	RawDisable dispatcher.CommandID = 73 // Disable raw terminal mode
+	Read         dispatcher.CommandID = 70 // Read bytes from stdin
+	ReadLine     dispatcher.CommandID = 71 // Read a line from stdin
+	RawEnable    dispatcher.CommandID = 72 // Enable raw terminal mode
+	RawDisable   dispatcher.CommandID = 73 // Disable raw terminal mode
+	StartInput   dispatcher.CommandID = 74 // Start terminal input reader
+	StopInput    dispatcher.CommandID = 75 // Stop terminal input reader
+	ScreenSize   dispatcher.CommandID = 76 // Query terminal screen size
+	EnableMouse  dispatcher.CommandID = 77 // Enable mouse event tracking
+	DisableMouse dispatcher.CommandID = 78 // Disable mouse event tracking
 )
 
 // DefaultReadSize is used when read size is not provided or <= 0.
@@ -51,4 +60,44 @@ type RawDisableCmd struct{}
 // CmdID implements dispatcher.Command.
 func (c RawDisableCmd) CmdID() dispatcher.CommandID {
 	return RawDisable
+}
+
+// StartInputCmd starts the terminal input reader.
+type StartInputCmd struct{}
+
+// CmdID implements dispatcher.Command.
+func (c StartInputCmd) CmdID() dispatcher.CommandID {
+	return StartInput
+}
+
+// StopInputCmd stops the terminal input reader.
+type StopInputCmd struct{}
+
+// CmdID implements dispatcher.Command.
+func (c StopInputCmd) CmdID() dispatcher.CommandID {
+	return StopInput
+}
+
+// ScreenSizeCmd queries the terminal screen size.
+type ScreenSizeCmd struct{}
+
+// CmdID implements dispatcher.Command.
+func (c ScreenSizeCmd) CmdID() dispatcher.CommandID {
+	return ScreenSize
+}
+
+// EnableMouseCmd enables mouse event tracking.
+type EnableMouseCmd struct{}
+
+// CmdID implements dispatcher.Command.
+func (c EnableMouseCmd) CmdID() dispatcher.CommandID {
+	return EnableMouse
+}
+
+// DisableMouseCmd disables mouse event tracking.
+type DisableMouseCmd struct{}
+
+// CmdID implements dispatcher.Command.
+func (c DisableMouseCmd) CmdID() dispatcher.CommandID {
+	return DisableMouse
 }
