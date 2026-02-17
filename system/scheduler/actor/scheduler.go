@@ -15,6 +15,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/topology"
 )
 
@@ -518,6 +519,7 @@ type ProcessInfo struct {
 	Steps     uint64
 	StartedAt int64
 	Stats     attrs.Attributes
+	ActorID   string
 }
 
 // ListProcesses returns a snapshot of all active processes.
@@ -544,6 +546,9 @@ func (s *Scheduler) ListProcesses() []ProcessInfo {
 						}
 					}
 				}
+			}
+			if actor, ok := security.GetActor(proc.ctx); ok {
+				info.ActorID = actor.ID
 			}
 		}
 		if bag := proc.stats.Load(); bag != nil {

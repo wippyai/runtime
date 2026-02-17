@@ -60,6 +60,7 @@ func (m *Manager) HostProcesses(hostID registry.ID) []process.ProcessStats {
 			Steps:     p.Steps,
 			StartedAt: p.StartedAt,
 			Stats:     p.Stats,
+			ActorID:   p.ActorID,
 		}
 	}
 

@@ -78,6 +78,9 @@ func hostsProcesses(l *lua.LState) int {
 		if p.Parent.UniqID != "" {
 			t.RawSetString("parent", lua.LString(p.Parent.String()))
 		}
+		if p.ActorID != "" {
+			t.RawSetString("actor_id", lua.LString(p.ActorID))
+		}
 
 		if p.Stats != nil {
 			if bag, ok := p.Stats.(attrs.Bag); ok {

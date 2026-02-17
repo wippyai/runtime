@@ -31,6 +31,7 @@ type ProcessStats struct {
 	Steps     uint64
 	StartedAt int64
 	Stats     attrs.Attributes
+	ActorID   string
 }
 
 // Inspector provides read-only introspection into running hosts and processes.

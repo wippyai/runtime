@@ -79,6 +79,7 @@ var processStatsType = typ.NewRecord().
 	Field("steps", typ.Number).
 	Field("started_at", typ.Number).
 	Field("parent", typ.NewOptional(typ.String)).
+	Field("actor_id", typ.NewOptional(typ.String)).
 	Field("stats", typ.NewOptional(typ.NewMap(typ.String, typ.Any))).
 	Build()
 
