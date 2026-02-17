@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/runtime"
 	sysprocess "github.com/wippyai/runtime/system/process"
@@ -211,6 +212,18 @@ func (w *Worker) executeOne(proc *Processor) {
 
 	// Step the process
 	err := proc.Process.Step(events, &proc.output)
+	proc.steps.Add(1)
+
+	// Snapshot process stats when collection is enabled
+	if err == nil && w.scheduler.collectStats.Load() {
+		if sp, ok := proc.Process.(process.StatsProvider); ok {
+			if a := sp.Stats(); a != nil {
+				if bag, ok := a.(attrs.Bag); ok {
+					proc.stats.Store(&bag)
+				}
+			}
+		}
+	}
 
 	if err != nil {
 		if !proc.casState(StateRunning, StateComplete) {
