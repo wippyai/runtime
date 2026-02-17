@@ -76,9 +76,10 @@ func createRuntimeTable() *lua.LTable {
 }
 
 func createProcessTable() *lua.LTable {
-	t := lua.CreateTable(0, 2)
+	t := lua.CreateTable(0, 3)
 	t.RawSetString("pid", lua.LGoFunc(pid))
 	t.RawSetString("hostname", lua.LGoFunc(hostname))
+	t.RawSetString("cwd", lua.LGoFunc(cwd))
 	t.Immutable = true
 	return t
 }
@@ -325,6 +326,25 @@ func pid(l *lua.LState) int {
 	}
 
 	l.Push(lua.LNumber(os.Getpid()))
+	l.Push(lua.LNil)
+	return 2
+}
+
+func cwd(l *lua.LState) int {
+	if !security.IsAllowed(l.Context(), "system.read", "cwd", nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on cwd").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+
+	dir, err := os.Getwd()
+	if err != nil {
+		l.Push(lua.LNil)
+		l.Push(lua.WrapErrorWithLua(l, err, "get working directory").WithKind(lua.Internal).WithRetryable(false))
+		return 2
+	}
+
+	l.Push(lua.LString(dir))
 	l.Push(lua.LNil)
 	return 2
 }
