@@ -30,13 +30,13 @@ func TestToLuaValue_String(t *testing.T) {
 func TestToLuaValue_Int(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	assert.Equal(t, lua.LNumber(42), toLuaValue(l, 42))
+	assert.Equal(t, lua.LInteger(42), toLuaValue(l, 42))
 }
 
 func TestToLuaValue_Int64(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-	assert.Equal(t, lua.LNumber(100), toLuaValue(l, int64(100)))
+	assert.Equal(t, lua.LInteger(100), toLuaValue(l, int64(100)))
 }
 
 func TestToLuaValue_Float64(t *testing.T) {
@@ -67,7 +67,7 @@ func TestToLuaValue_Map(t *testing.T) {
 	tbl, ok := result.(*lua.LTable)
 	require.True(t, ok)
 	assert.Equal(t, lua.LString("value"), tbl.RawGetString("key"))
-	assert.Equal(t, lua.LNumber(5), tbl.RawGetString("num"))
+	assert.Equal(t, lua.LInteger(5), tbl.RawGetString("num"))
 }
 
 func TestToLuaValue_Array(t *testing.T) {
@@ -98,7 +98,10 @@ func TestToLuaValue_UnsupportedType(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 	type custom struct{ x int }
-	assert.Equal(t, lua.LNil, toLuaValue(l, custom{x: 1}))
+	result := toLuaValue(l, custom{x: 1})
+	tbl, ok := result.(*lua.LTable)
+	require.True(t, ok)
+	assert.Equal(t, 0, tbl.Len())
 }
 
 // --- toGoValue ---
@@ -408,6 +411,37 @@ func TestNewActor_CreatesActor(t *testing.T) {
 		assert(a:id() == "new-user", "wrong id: " .. a:id())
 		local meta = a:meta()
 		assert(meta.role == "viewer", "wrong role")
+	`)
+	assert.NoError(t, err)
+}
+
+func TestNewActor_PreservesComplexMetadata(t *testing.T) {
+	actor := secapi.Actor{ID: "admin"}
+	pol := newMockPolicy("test", "allow-all", secapi.Allow)
+	scope := &fakeScope{policies: []secapi.Policy{pol}}
+	l := setupStateWithSecurityContext(actor, scope)
+	defer l.Close()
+
+	err := l.DoString(`
+		local a = security.new_actor("new-user", {
+			organization_id = "org-123",
+			org_role_id = 7,
+			org_role_name = "owner",
+			org_permissions = {"read", "write"},
+			org = {active = true, level = 3}
+		})
+		assert(a ~= nil, "expected actor")
+		local meta = a:meta()
+		assert(meta.organization_id == "org-123", "missing organization_id")
+		assert(meta.org_role_id == 7, "missing org_role_id")
+		assert(meta.org_role_name == "owner", "missing org_role_name")
+		assert(type(meta.org_permissions) == "table", "org_permissions should be table")
+		assert(#meta.org_permissions == 2, "org_permissions length mismatch")
+		assert(meta.org_permissions[1] == "read", "org_permissions[1] mismatch")
+		assert(meta.org_permissions[2] == "write", "org_permissions[2] mismatch")
+		assert(type(meta.org) == "table", "org should be table")
+		assert(meta.org.active == true, "org.active mismatch")
+		assert(meta.org.level == 3, "org.level mismatch")
 	`)
 	assert.NoError(t, err)
 }
