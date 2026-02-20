@@ -25,6 +25,7 @@ import (
 	"github.com/wippyai/runtime/service/http/middleware/httpmetrics"
 	"github.com/wippyai/runtime/service/http/middleware/ratelimit"
 	"github.com/wippyai/runtime/service/http/middleware/realip"
+	"github.com/wippyai/runtime/service/http/middleware/sserelay"
 	"github.com/wippyai/runtime/service/http/middleware/wsrelay"
 	"github.com/wippyai/runtime/service/security/tokenstore"
 	"go.uber.org/zap"
@@ -92,6 +93,7 @@ func HTTP() boot.Component {
 			}
 
 			relayManager := wsrelay.NewWebSocketRelay(ctx, logger.Named("ws"), pidGen)
+			sseRelayManager := sserelay.NewSSERelay(ctx, logger.Named("sse"), pidGen)
 
 			midRegistry := http.NewMiddlewareRegistry(logger.Named("mw"))
 
@@ -99,6 +101,7 @@ func HTTP() boot.Component {
 			_ = midRegistry.Register(cors.MiddlewareName, cors.CreateCORSMiddleware)
 			_ = midRegistry.Register(realip.MiddlewareName, realip.CreateRealIPMiddleware)
 			_ = midRegistry.Register("websocket_relay", relayManager.CreateMiddleware)
+			_ = midRegistry.Register(sserelay.MiddlewareName, sseRelayManager.CreateMiddleware)
 			_ = midRegistry.Register(tokenstore.MiddlewareName, tokenstore.CreateTokenAuthMiddleware)
 			_ = midRegistry.Register(firewall.ResourceMiddlewareName, firewall.CreateResourceFirewallMiddleware)
 			_ = midRegistry.Register(firewall.EndpointMiddlewareName, firewall.CreateEndpointFirewallMiddleware)
