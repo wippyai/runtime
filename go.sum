@@ -423,6 +423,8 @@ github.com/tree-sitter/tree-sitter-typescript v0.23.2/go.mod h1:zjzMXT/Ulffel2xf
 github.com/tv42/httpunix v0.0.0-20150427012821-b75d8614f926/go.mod h1:9ESjWnEqriFuLhtthL60Sar/7RFoluCcXsuvEwTV5KM=
 github.com/wippyai/go-lua v1.5.9 h1:Kelm+NTo1UOMo0vJBRbHe/tGCsML68BB5rR+7WMPn3E=
 github.com/wippyai/go-lua v1.5.9/go.mod h1:cwD+390gJgx9cs+Zamby/lch5csqPV9RN1aDEfx/27M=
+github.com/wippyai/go-lua v1.5.10 h1:uoks30sC+0mIZDVeMlQI4Uki7A7AMeq+90cRDxJI4HM=
+github.com/wippyai/go-lua v1.5.10/go.mod h1:cwD+390gJgx9cs+Zamby/lch5csqPV9RN1aDEfx/27M=
 github.com/wippyai/module-registry-proto-go v0.0.1 h1:EYnW8MTrI/gs7TJ0ilTVgJal3e0NWmXQigeamrXu0mk=
 github.com/wippyai/module-registry-proto-go v0.0.1/go.mod h1:p4ihYQKRQuqRVLxaH1YL0IEnkz4zKdyfVADOwvA5Tno=
 github.com/wippyai/tree-sitter-markdown v0.0.3 h1:u6e53+hzPSS848Xhm+I48SwtvWQHrC21wDrogdwCwuc=
