@@ -21,9 +21,9 @@ type InputReader struct {
 	stdin        *os.File
 	raw          *RawManager
 	scheduler    *actor.Scheduler
-	targetPID    pid.PID
 	reader       *input.Reader
 	cancel       context.CancelFunc
+	targetPID    pid.PID
 	wg           sync.WaitGroup
 	mu           sync.Mutex
 	started      bool

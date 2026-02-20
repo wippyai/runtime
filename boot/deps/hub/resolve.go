@@ -63,11 +63,11 @@ func Resolve(ctx context.Context, provider ManifestProvider, roots []DependencyS
 
 type resolver struct {
 	provider   ManifestProvider
-	maxDepth   int
-	maxModules int
 	visited    map[string]bool
 	modules    []ResolvedModule
 	errors     []ResolutionError
+	maxDepth   int
+	maxModules int
 }
 
 func (r *resolver) resolveOne(ctx context.Context, org, name, constraint string, depth int) {
@@ -171,8 +171,8 @@ func (r *resolver) resolveConstraint(ctx context.Context, org, name, constraint 
 	}
 
 	type indexedVersion struct {
-		parsed   semver.Version
 		original string
+		parsed   semver.Version
 	}
 
 	indexed := make([]indexedVersion, 0, len(versions))

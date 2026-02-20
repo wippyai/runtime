@@ -481,6 +481,7 @@ func TestNewModuleWithNilLog(t *testing.T) {
 
 	if mod == nil {
 		t.Fatal("expected module to be non-nil")
+		return
 	}
 
 	if mod.Name != "registry" {
@@ -511,6 +512,7 @@ func TestModuleBuild(t *testing.T) {
 
 	if table == nil {
 		t.Fatal("expected non-nil table")
+		return
 	}
 
 	if !table.Immutable {

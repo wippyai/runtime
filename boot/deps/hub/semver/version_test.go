@@ -6,14 +6,14 @@ import (
 
 func TestVersion_String(t *testing.T) {
 	tests := []struct {
-		version Version
 		want    string
+		version Version
 	}{
-		{Version{Major: 1, Minor: 0, Patch: 0}, "1.0.0"},
-		{Version{Major: 2, Minor: 3, Patch: 4}, "2.3.4"},
-		{Version{Major: 1, Minor: 0, Patch: 0, Prerelease: "alpha"}, "1.0.0-alpha"},
-		{Version{Major: 1, Minor: 0, Patch: 0, Build: "build"}, "1.0.0+build"},
-		{Version{Major: 1, Minor: 0, Patch: 0, Prerelease: "alpha", Build: "build"}, "1.0.0-alpha+build"},
+		{want: "1.0.0", version: Version{Major: 1, Minor: 0, Patch: 0}},
+		{want: "2.3.4", version: Version{Major: 2, Minor: 3, Patch: 4}},
+		{want: "1.0.0-alpha", version: Version{Major: 1, Minor: 0, Patch: 0, Prerelease: "alpha"}},
+		{want: "1.0.0+build", version: Version{Major: 1, Minor: 0, Patch: 0, Build: "build"}},
+		{want: "1.0.0-alpha+build", version: Version{Major: 1, Minor: 0, Patch: 0, Prerelease: "alpha", Build: "build"}},
 	}
 
 	for _, tt := range tests {

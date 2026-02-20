@@ -21,9 +21,9 @@ func init() {
 }
 
 type keyBinding struct {
-	keys     []string
 	helpKey  string
 	helpDesc string
+	keys     []string
 	enabled  bool
 }
 

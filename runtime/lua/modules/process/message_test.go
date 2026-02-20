@@ -20,6 +20,7 @@ func TestNewMessage(t *testing.T) {
 
 	if msg == nil {
 		t.Fatal("NewMessage returned nil")
+		return
 	}
 	if msg.Topic != topic {
 		t.Errorf("expected topic %s, got %s", topic, msg.Topic)

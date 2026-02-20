@@ -158,6 +158,7 @@ func interfaceFromRecordField(t *testing.T, m *io.Manifest, field string) *typ.I
 	f := record.GetField(field)
 	if f == nil {
 		t.Fatalf("field %q not found on export record", field)
+		return nil
 	}
 	iface, ok := interfaceFromType(f.Type)
 	if !ok {

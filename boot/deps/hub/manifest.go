@@ -50,27 +50,27 @@ type ResolveDependenciesResult struct {
 
 // ModuleManifest holds the resolved manifest for a single module version.
 type ModuleManifest struct {
+	Org          string
+	Name         string
+	Version      string
+	VersionID    string
+	Digest       string
+	URL          string
+	Dependencies []ManifestDep
+	SizeBytes    uint64
+	Protected    bool
+}
+
+// ManifestDep represents a dependency declared by a resolved manifest.
+type ManifestDep struct {
 	Org       string
 	Name      string
 	Version   string
 	VersionID string
 	Digest    string
+	URL       string
 	SizeBytes uint64
 	Protected bool
-	URL       string
-	Dependencies []ManifestDep
-}
-
-// ManifestDep represents a dependency declared by a resolved manifest.
-type ManifestDep struct {
-	Org        string
-	Name       string
-	Version    string
-	VersionID  string
-	Digest     string
-	SizeBytes  uint64
-	Protected  bool
-	URL        string
 }
 
 // GetManifest retrieves the manifest for a single module version.

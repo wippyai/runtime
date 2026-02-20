@@ -120,6 +120,7 @@ func TestResolveWASICallConfig_ResolvesEnvAndMounts(t *testing.T) {
 	}
 	if cfg == nil {
 		t.Fatal("resolveWASICallConfig() returned nil config")
+		return
 	}
 	if cfg.Cwd != "/work" {
 		t.Fatalf("cfg.Cwd = %q, want %q", cfg.Cwd, "/work")
@@ -187,6 +188,7 @@ func TestResolveWASICallConfig_OptionalEnvMissing(t *testing.T) {
 	}
 	if cfg == nil {
 		t.Fatal("resolveWASICallConfig() returned nil config")
+		return
 	}
 	if len(cfg.Env) != 0 {
 		t.Fatalf("cfg.Env = %#v, want empty", cfg.Env)

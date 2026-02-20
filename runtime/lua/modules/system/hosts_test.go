@@ -3,6 +3,8 @@ package system
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -10,20 +12,18 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 type mockInspector struct {
+	processes map[string][]process.Stats
 	hosts     []process.HostStats
-	processes map[string][]process.ProcessStats
 }
 
 func (m *mockInspector) ListHosts() []process.HostStats {
 	return m.hosts
 }
 
-func (m *mockInspector) HostProcesses(hostID registry.ID) []process.ProcessStats {
+func (m *mockInspector) HostProcesses(hostID registry.ID) []process.Stats {
 	if m.processes == nil {
 		return nil
 	}
@@ -133,7 +133,7 @@ func TestHostsProcessesWithInspector(t *testing.T) {
 	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
 	hostID := registry.NewID("test", "host-a")
 	inspector := &mockInspector{
-		processes: map[string][]process.ProcessStats{
+		processes: map[string][]process.Stats{
 			hostID.String(): {
 				{
 					PID:       pidapi.PID{Node: "n1", UniqID: "100"},
@@ -190,7 +190,7 @@ func TestHostsProcessesEmptyHost(t *testing.T) {
 
 	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
 	inspector := &mockInspector{
-		processes: map[string][]process.ProcessStats{},
+		processes: map[string][]process.Stats{},
 	}
 	ctx = process.WithInspector(ctx, inspector)
 	l.SetContext(ctx)
