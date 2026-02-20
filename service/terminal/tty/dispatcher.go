@@ -14,9 +14,9 @@ import (
 )
 
 var (
-	errNoTerminalContext  = errors.New("no terminal context")
-	errNoRawController    = errors.New("raw terminal control unavailable")
-	errNoInputController  = errors.New("input controller unavailable")
+	errNoTerminalContext = errors.New("no terminal context")
+	errNoRawController   = errors.New("raw terminal control unavailable")
+	errNoInputController = errors.New("input controller unavailable")
 )
 
 // Option configures a Dispatcher.

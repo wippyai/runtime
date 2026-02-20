@@ -48,8 +48,9 @@ const (
 //	- StateBlocked: no owner, CompleteYield can CAS to Ready and re-queue
 //	- Worker uses CAS loop to atomically check wakeup and transition state
 type Processor struct {
-	Process    process.Process
 	ctx        context.Context
+	Process    process.Process
+	stats      atomic.Pointer[attrs.Bag]
 	resultCh   chan *runtime.Result
 	scheduler  *Scheduler
 	cancel     context.CancelFunc
@@ -58,7 +59,6 @@ type Processor struct {
 	output     process.StepOutput
 	gen        atomic.Uint64
 	steps      atomic.Uint64
-	stats      atomic.Pointer[attrs.Bag]
 	id         uint64
 	startedAt  int64
 	state      atomic.Int32

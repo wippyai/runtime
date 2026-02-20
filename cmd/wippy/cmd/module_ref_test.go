@@ -13,12 +13,12 @@ func TestParseModuleRef(t *testing.T) {
 	tests := []struct {
 		name      string
 		input     string
-		wantErr   bool
 		org       string
 		module    string
 		version   string
-		isLabel   bool
 		errSubstr string
+		wantErr   bool
+		isLabel   bool
 	}{
 		{
 			name:    "no version",
@@ -93,7 +93,6 @@ func TestParseModuleRef(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

@@ -12,16 +12,16 @@ func TestParseVersion(t *testing.T) {
 		wantErr bool
 	}{
 		// Valid versions
-		{"simple", "1.0.0", Version{1, 0, 0, "", ""}, false},
-		{"with minor", "1.2.0", Version{1, 2, 0, "", ""}, false},
-		{"with patch", "1.2.3", Version{1, 2, 3, "", ""}, false},
-		{"zero major", "0.1.0", Version{0, 1, 0, "", ""}, false},
-		{"large numbers", "10.20.30", Version{10, 20, 30, "", ""}, false},
-		{"prerelease alpha", "1.0.0-alpha", Version{1, 0, 0, "alpha", ""}, false},
-		{"prerelease beta.1", "1.0.0-beta.1", Version{1, 0, 0, "beta.1", ""}, false},
-		{"prerelease rc.1", "2.0.0-rc.1", Version{2, 0, 0, "rc.1", ""}, false},
-		{"with build", "1.0.0+build", Version{1, 0, 0, "", "build"}, false},
-		{"prerelease and build", "1.0.0-alpha+build", Version{1, 0, 0, "alpha", "build"}, false},
+		{"simple", "1.0.0", Version{Major: 1, Minor: 0, Patch: 0}, false},
+		{"with minor", "1.2.0", Version{Major: 1, Minor: 2, Patch: 0}, false},
+		{"with patch", "1.2.3", Version{Major: 1, Minor: 2, Patch: 3}, false},
+		{"zero major", "0.1.0", Version{Major: 0, Minor: 1, Patch: 0}, false},
+		{"large numbers", "10.20.30", Version{Major: 10, Minor: 20, Patch: 30}, false},
+		{"prerelease alpha", "1.0.0-alpha", Version{Major: 1, Minor: 0, Patch: 0, Prerelease: "alpha"}, false},
+		{"prerelease beta.1", "1.0.0-beta.1", Version{Major: 1, Minor: 0, Patch: 0, Prerelease: "beta.1"}, false},
+		{"prerelease rc.1", "2.0.0-rc.1", Version{Major: 2, Minor: 0, Patch: 0, Prerelease: "rc.1"}, false},
+		{"with build", "1.0.0+build", Version{Major: 1, Minor: 0, Patch: 0, Build: "build"}, false},
+		{"prerelease and build", "1.0.0-alpha+build", Version{Major: 1, Minor: 0, Patch: 0, Prerelease: "alpha", Build: "build"}, false},
 
 		// Invalid versions
 		{"empty", "", Version{}, true},
@@ -260,8 +260,8 @@ func TestFindBestMatch(t *testing.T) {
 	tests := []struct {
 		name       string
 		constraint string
-		versions   []string
 		want       string
+		versions   []string
 		wantErr    bool
 	}{
 		{

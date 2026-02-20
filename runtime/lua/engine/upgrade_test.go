@@ -69,6 +69,7 @@ func TestProcess_UpgradeRequest_Detection(t *testing.T) {
 	req := output.Upgrade()
 	if req == nil {
 		t.Fatal("Expected upgrade request, got nil")
+		return
 	}
 	if req.Source.String() != "test:new_handler" {
 		t.Errorf("Expected source test:new_handler, got %s", req.Source.String())
@@ -115,6 +116,7 @@ func TestProcess_UpgradeRequest_EmptySource(t *testing.T) {
 	req := output.Upgrade()
 	if req == nil {
 		t.Fatal("Expected upgrade request, got nil")
+		return
 	}
 	if req.Source.Name != "" {
 		t.Errorf("Expected empty source, got %s", req.Source.String())

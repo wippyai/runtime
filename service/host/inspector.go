@@ -37,7 +37,7 @@ func (m *Manager) ListHosts() []process.HostStats {
 
 // HostProcesses returns process info for a specific host.
 // Enables stats collection on the host's scheduler for future snapshots.
-func (m *Manager) HostProcesses(hostID registry.ID) []process.ProcessStats {
+func (m *Manager) HostProcesses(hostID registry.ID) []process.Stats {
 	m.mu.RLock()
 	h, ok := m.hosts[hostID]
 	m.mu.RUnlock()
@@ -49,9 +49,9 @@ func (m *Manager) HostProcesses(hostID registry.ID) []process.ProcessStats {
 	h.scheduler.EnableStats()
 
 	procs := h.scheduler.ListProcesses()
-	result := make([]process.ProcessStats, len(procs))
+	result := make([]process.Stats, len(procs))
 	for i, p := range procs {
-		result[i] = process.ProcessStats{
+		result[i] = process.Stats{
 			PID:       p.PID,
 			Parent:    p.Parent,
 			Host:      hostID,

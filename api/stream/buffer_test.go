@@ -13,6 +13,7 @@ func TestBufferPool(t *testing.T) {
 	buf := pool.Acquire()
 	if buf == nil {
 		t.Fatal("expected non-nil buffer")
+		return
 	}
 	if len(buf.Data) != 1024 {
 		t.Errorf("expected buffer size 1024, got %d", len(buf.Data))

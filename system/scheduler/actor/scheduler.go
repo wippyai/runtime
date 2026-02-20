@@ -512,14 +512,14 @@ func (s *Scheduler) DisableStats() {
 
 // ProcessInfo holds snapshot data for a single process visible to Inspector.
 type ProcessInfo struct {
+	Stats     attrs.Attributes
 	PID       pid.PID
 	Parent    pid.PID
 	Source    registry.ID
 	State     string
+	ActorID   string
 	Steps     uint64
 	StartedAt int64
-	Stats     attrs.Attributes
-	ActorID   string
 }
 
 // ListProcesses returns a snapshot of all active processes.

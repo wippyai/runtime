@@ -197,6 +197,7 @@ func TestNewExecutor(t *testing.T) {
 
 	if e == nil {
 		t.Fatal("expected executor to be created")
+		return
 	}
 	if e.resource != mockRes {
 		t.Error("executor resource mismatch")
@@ -297,6 +298,7 @@ func TestNewProcess(t *testing.T) {
 
 	if p == nil {
 		t.Fatal("expected process to be created")
+		return
 	}
 	if p.handle == nil {
 		t.Error("process handle should be set")
@@ -379,6 +381,7 @@ func TestProcessWaitYield(t *testing.T) {
 
 	if y == nil {
 		t.Fatal("expected yield to be created")
+		return
 	}
 	if y.ProcessWaitCmd == nil {
 		t.Error("yield should have ProcessWaitCmd")
@@ -501,6 +504,7 @@ func TestModuleBuild(t *testing.T) {
 
 	if table == nil {
 		t.Fatal("module table should not be nil")
+		return
 	}
 	if !table.Immutable {
 		t.Error("module table should be immutable")

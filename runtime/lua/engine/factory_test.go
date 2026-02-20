@@ -101,6 +101,7 @@ func TestFactory_New(t *testing.T) {
 	factory := NewProcessFactory(cm)
 	if factory == nil {
 		t.Fatal("expected non-nil factory")
+		return
 	}
 	if factory.code != cm {
 		t.Error("code manager not set")
