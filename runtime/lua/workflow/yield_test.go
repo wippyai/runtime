@@ -15,14 +15,17 @@ func TestNewYield(t *testing.T) {
 
 	if y == nil {
 		t.Fatal("NewYield returned nil")
+		return
 	}
 
 	if y.Cmd == nil {
 		t.Fatal("Cmd is nil")
+		return
 	}
 
 	if y.Cmd.Fn == nil {
 		t.Fatal("Cmd.Fn is nil")
+		return
 	}
 
 	result, err := y.Cmd.Fn()

@@ -5,22 +5,22 @@ import (
 	"testing"
 	"time"
 
-	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	pidapi "github.com/wippyai/runtime/api/pid"
 )
 
 func TestStateName(t *testing.T) {
 	tests := []struct {
-		state ProcessState
 		want  string
+		state ProcessState
 	}{
-		{StateReady, "ready"},
-		{StateRunning, "running"},
-		{StateBlocked, "blocked"},
-		{StateIdle, "idle"},
-		{StateComplete, "complete"},
-		{ProcessState(5), "unknown"},
+		{state: StateReady, want: "ready"},
+		{state: StateRunning, want: "running"},
+		{state: StateBlocked, want: "blocked"},
+		{state: StateIdle, want: "idle"},
+		{state: StateComplete, want: "complete"},
+		{state: ProcessState(5), want: "unknown"},
 	}
 
 	for _, tt := range tests {

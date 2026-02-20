@@ -17,11 +17,11 @@ var (
 
 // Version represents a parsed semantic version.
 type Version struct {
+	Prerelease string
+	Build      string
 	Major      int
 	Minor      int
 	Patch      int
-	Prerelease string
-	Build      string
 }
 
 // ParseVersion parses a semantic version string.

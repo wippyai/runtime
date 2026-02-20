@@ -12,29 +12,29 @@ func init() {
 	value.RegisterTypeMethods(nil, styleTypeName,
 		map[string]lua.LGoFunc{"__tostring": styleToString},
 		map[string]lua.LGoFunc{
-			"render":           styleRender,
-			"foreground":       styleForeground,
-			"background":       styleBackground,
-			"bold":             styleBold,
-			"italic":           styleItalic,
-			"underline":        styleUnderline,
-			"strikethrough":    styleStrikethrough,
-			"faint":            styleFaint,
-			"blink":            styleBlink,
-			"reverse":          styleReverse,
-			"padding":          stylePadding,
-			"margin":           styleMargin,
-			"border":           styleBorder,
+			"render":            styleRender,
+			"foreground":        styleForeground,
+			"background":        styleBackground,
+			"bold":              styleBold,
+			"italic":            styleItalic,
+			"underline":         styleUnderline,
+			"strikethrough":     styleStrikethrough,
+			"faint":             styleFaint,
+			"blink":             styleBlink,
+			"reverse":           styleReverse,
+			"padding":           stylePadding,
+			"margin":            styleMargin,
+			"border":            styleBorder,
 			"border_foreground": styleBorderForeground,
 			"border_background": styleBorderBackground,
-			"width":            styleWidth,
-			"height":           styleHeight,
-			"max_width":        styleMaxWidth,
-			"max_height":       styleMaxHeight,
-			"align":            styleAlign,
-			"align_vertical":   styleAlignVertical,
-			"inline":           styleInline,
-			"copy":             styleCopy,
+			"width":             styleWidth,
+			"height":            styleHeight,
+			"max_width":         styleMaxWidth,
+			"max_height":        styleMaxHeight,
+			"align":             styleAlign,
+			"align_vertical":    styleAlignVertical,
+			"inline":            styleInline,
+			"copy":              styleCopy,
 		})
 }
 
@@ -264,7 +264,7 @@ func styleCopy(l *lua.LState) int {
 	if s == nil {
 		return 0
 	}
-	cp := &styleWrapper{style: s.style.Copy()}
+	cp := &styleWrapper{style: s.style}
 	pushStyle(l, cp)
 	return 1
 }

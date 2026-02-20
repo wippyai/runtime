@@ -21,23 +21,23 @@ type HostStats struct {
 	QueueDepth uint64
 }
 
-// ProcessStats contains information about a running process.
-type ProcessStats struct {
+// Stats contains information about a running process.
+type Stats struct {
+	Stats     attrs.Attributes
 	PID       pid.PID
 	Parent    pid.PID
 	Host      registry.ID
 	Source    registry.ID
 	State     string
+	ActorID   string
 	Steps     uint64
 	StartedAt int64
-	Stats     attrs.Attributes
-	ActorID   string
 }
 
 // Inspector provides read-only introspection into running hosts and processes.
 type Inspector interface {
 	ListHosts() []HostStats
-	HostProcesses(hostID registry.ID) []ProcessStats
+	HostProcesses(hostID registry.ID) []Stats
 }
 
 // WithInspector attaches an Inspector to the app context.

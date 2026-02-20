@@ -3,6 +3,7 @@ package security
 import (
 	lua "github.com/wippyai/go-lua"
 	secapi "github.com/wippyai/runtime/api/security"
+	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 )
 
@@ -39,7 +40,11 @@ func actorMeta(l *lua.LState) int {
 	actor := checkActor(l, 1)
 	tbl := lua.CreateTable(0, len(actor.Meta))
 	for k, v := range actor.Meta {
-		tbl.RawSetString(k, toLuaValue(l, v))
+		lv, err := luaconv.GoToLua(v)
+		if err != nil {
+			lv = lua.LNil
+		}
+		tbl.RawSetString(k, lv)
 	}
 	l.Push(tbl)
 	return 1

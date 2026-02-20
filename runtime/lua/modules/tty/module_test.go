@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
@@ -11,8 +13,6 @@ import (
 	"github.com/wippyai/runtime/api/service/terminal"
 	ttyapi "github.com/wippyai/runtime/api/tty"
 	svcterm "github.com/wippyai/runtime/service/terminal"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func bindTTY(l *lua.LState) {
@@ -109,11 +109,11 @@ func TestModuleConstants(t *testing.T) {
 
 // Stub InputController for testing
 type stubInputController struct {
-	startErr  error
-	stopErr   error
-	sizeCols  int
-	sizeRows  int
-	sizeErr   error
+	startErr   error
+	stopErr    error
+	sizeErr    error
+	sizeCols   int
+	sizeRows   int
 	startCalls int
 	stopCalls  int
 }
@@ -937,21 +937,21 @@ func TestBuildKeystroke(t *testing.T) {
 		name     string
 		key      string
 		keyType  string
+		expected string
 		ctrl     bool
 		alt      bool
 		shift    bool
-		expected string
 	}{
-		{"simple char", "a", "runes", false, false, false, "a"},
-		{"ctrl+c", "c", "runes", true, false, false, "ctrl+c"},
-		{"alt+x", "x", "runes", false, true, false, "alt+x"},
-		{"shift+a", "A", "runes", false, false, true, "shift+A"},
-		{"ctrl+alt+del", "delete", "delete", true, true, false, "ctrl+alt+delete"},
-		{"special key enter", "enter", "enter", false, false, false, "enter"},
-		{"special key esc", "esc", "esc", false, false, false, "esc"},
-		{"ctrl+shift+f1", "f1", "f1", true, false, true, "ctrl+shift+f1"},
-		{"empty key", "", "", false, false, false, ""},
-		{"unknown keytype", "?", "unknown", false, false, false, "?"},
+		{name: "simple char", key: "a", keyType: "runes", expected: "a"},
+		{name: "ctrl+c", key: "c", keyType: "runes", expected: "ctrl+c", ctrl: true},
+		{name: "alt+x", key: "x", keyType: "runes", expected: "alt+x", alt: true},
+		{name: "shift+a", key: "A", keyType: "runes", expected: "shift+A", shift: true},
+		{name: "ctrl+alt+del", key: "delete", keyType: "delete", expected: "ctrl+alt+delete", ctrl: true, alt: true},
+		{name: "special key enter", key: "enter", keyType: "enter", expected: "enter"},
+		{name: "special key esc", key: "esc", keyType: "esc", expected: "esc"},
+		{name: "ctrl+shift+f1", key: "f1", keyType: "f1", expected: "ctrl+shift+f1", ctrl: true, shift: true},
+		{name: "empty key"},
+		{name: "unknown keytype", key: "?", keyType: "unknown", expected: "?"},
 	}
 
 	for _, tt := range tests {

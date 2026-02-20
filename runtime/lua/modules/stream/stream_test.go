@@ -530,6 +530,7 @@ func TestModuleBuild(t *testing.T) {
 
 	if table == nil {
 		t.Fatal("Build() returned nil table")
+		return
 	}
 
 	if !table.Immutable {

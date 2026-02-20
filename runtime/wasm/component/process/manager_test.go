@@ -17,8 +17,8 @@ import (
 )
 
 type testBus struct {
-	events []event.Event
 	onSend func()
+	events []event.Event
 }
 
 func (b *testBus) Subscribe(context.Context, event.System, chan<- event.Event) (event.SubscriberID, error) {
@@ -43,8 +43,8 @@ func (w *testPrepareAwaitWaiter) Wait() event.AwaitResult { return w.result }
 func (w *testPrepareAwaitWaiter) Close()                  {}
 
 type testPrepareAwaitService struct {
-	prepared bool
 	result   event.AwaitResult
+	prepared bool
 }
 
 func (a *testPrepareAwaitService) Prepare(context.Context, event.System, event.Kind, event.Path, time.Duration) (event.AwaitWaiter, error) {

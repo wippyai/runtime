@@ -14,6 +14,7 @@ func TestNewLoaderModule(t *testing.T) {
 
 	if module == nil {
 		t.Fatal("expected module to be non-nil")
+		return
 	}
 
 	if module.Name != loaderModuleName {
@@ -26,6 +27,7 @@ func TestNewLoaderModuleWithDefaultOptions(t *testing.T) {
 
 	if module == nil {
 		t.Fatal("expected module to be non-nil")
+		return
 	}
 
 	if module.Name != loaderModuleName {
