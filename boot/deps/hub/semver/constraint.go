@@ -43,13 +43,12 @@ type Constraint struct {
 }
 
 type constraintPart struct {
-	op      operator
-	version Version
-	// For wildcard constraints
-	wildcard     bool
-	wildcardType string // "major", "minor", "patch"
+	wildcardType string
+	version      Version
 	major        int
 	minor        int
+	op           operator
+	wildcard     bool
 }
 
 // ParseConstraint parses a version constraint string.

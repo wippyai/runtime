@@ -282,10 +282,11 @@ func TestManagerCreatePoolAndExecute_AllPoolTypes(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Execute() error = %v", err)
 				}
-				if result == nil || result.Error != nil {
-					if result == nil {
-						t.Fatalf("Execute() result is nil")
-					}
+				if result == nil {
+					t.Fatalf("Execute() result is nil")
+					return
+				}
+				if result.Error != nil {
 					t.Fatalf("Execute() result.Error = %v", result.Error)
 				}
 				if got := fmt.Sprint(result.Value.Data()); got != "42" {

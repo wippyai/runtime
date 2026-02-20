@@ -45,6 +45,7 @@ func TestDequePushPop(t *testing.T) {
 		p := d.Pop()
 		if p == nil {
 			t.Fatalf("unexpected nil at position %d", i)
+			return
 		}
 		if p.id != uint64(i) {
 			t.Fatalf("expected ID %d, got %d", i, p.id)

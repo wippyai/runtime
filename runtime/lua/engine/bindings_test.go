@@ -115,6 +115,7 @@ func TestPushChannel(t *testing.T) {
 
 	if ud == nil {
 		t.Fatal("PushChannel returned nil")
+		return
 	}
 
 	if ud.Value != ch {
@@ -177,6 +178,7 @@ func TestChannelMetatable(t *testing.T) {
 	mt := value.GetTypeMetatable(nil, ChannelTypeName)
 	if mt == nil {
 		t.Fatal("channel metatable should be registered")
+		return
 	}
 
 	if !mt.Immutable {

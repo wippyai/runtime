@@ -4,22 +4,22 @@ import (
 	"context"
 	"testing"
 
-	ctxapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/api/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 type stubInspector struct {
 	hosts     []HostStats
-	processes []ProcessStats
+	processes []Stats
 }
 
 func (s *stubInspector) ListHosts() []HostStats {
 	return s.hosts
 }
 
-func (s *stubInspector) HostProcesses(_ registry.ID) []ProcessStats {
+func (s *stubInspector) HostProcesses(_ registry.ID) []Stats {
 	return s.processes
 }
 
@@ -89,7 +89,7 @@ func TestInspector_HostProcesses(t *testing.T) {
 	ac := ctxapi.NewAppContext()
 	ctx := ctxapi.WithAppContext(context.Background(), ac)
 
-	processes := []ProcessStats{
+	processes := []Stats{
 		{State: "running", Steps: 42},
 		{State: "blocked", Steps: 7},
 	}

@@ -593,6 +593,7 @@ func TestTaskPool(t *testing.T) {
 	task := NewTask(thread, fn)
 	if task == nil {
 		t.Fatal("NewTask returned nil")
+		return
 	}
 
 	if task.Thread() != thread {

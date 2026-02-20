@@ -27,25 +27,25 @@ func TestConvertInputEvent_KeyPress_Runes(t *testing.T) {
 func TestConvertInputEvent_KeyPress_SpecialKey(t *testing.T) {
 	tests := []struct {
 		name    string
-		code    rune
 		keyType string
+		code    rune
 	}{
-		{"enter", input.KeyEnter, "enter"},
-		{"tab", input.KeyTab, "tab"},
-		{"escape", input.KeyEscape, "esc"},
-		{"backspace", input.KeyBackspace, "backspace"},
-		{"up", input.KeyUp, "up"},
-		{"down", input.KeyDown, "down"},
-		{"left", input.KeyLeft, "left"},
-		{"right", input.KeyRight, "right"},
-		{"home", input.KeyHome, "home"},
-		{"end", input.KeyEnd, "end"},
-		{"pgup", input.KeyPgUp, "pgup"},
-		{"pgdown", input.KeyPgDown, "pgdown"},
-		{"delete", input.KeyDelete, "delete"},
-		{"insert", input.KeyInsert, "insert"},
-		{"f1", input.KeyF1, "f1"},
-		{"f12", input.KeyF12, "f12"},
+		{name: "enter", code: input.KeyEnter, keyType: "enter"},
+		{name: "tab", code: input.KeyTab, keyType: "tab"},
+		{name: "escape", code: input.KeyEscape, keyType: "esc"},
+		{name: "backspace", code: input.KeyBackspace, keyType: "backspace"},
+		{name: "up", code: input.KeyUp, keyType: "up"},
+		{name: "down", code: input.KeyDown, keyType: "down"},
+		{name: "left", code: input.KeyLeft, keyType: "left"},
+		{name: "right", code: input.KeyRight, keyType: "right"},
+		{name: "home", code: input.KeyHome, keyType: "home"},
+		{name: "end", code: input.KeyEnd, keyType: "end"},
+		{name: "pgup", code: input.KeyPgUp, keyType: "pgup"},
+		{name: "pgdown", code: input.KeyPgDown, keyType: "pgdown"},
+		{name: "delete", code: input.KeyDelete, keyType: "delete"},
+		{name: "insert", code: input.KeyInsert, keyType: "insert"},
+		{name: "f1", code: input.KeyF1, keyType: "f1"},
+		{name: "f12", code: input.KeyF12, keyType: "f12"},
 	}
 
 	for _, tt := range tests {
@@ -164,15 +164,15 @@ func TestConvertInputEvent_UnknownReturnsNil(t *testing.T) {
 
 func TestConvertInputEvent_MouseButtons(t *testing.T) {
 	tests := []struct {
-		button ansi.MouseButton
 		name   string
+		button ansi.MouseButton
 	}{
-		{ansi.MouseNone, "none"},
-		{ansi.MouseLeft, "left"},
-		{ansi.MouseMiddle, "middle"},
-		{ansi.MouseRight, "right"},
-		{ansi.MouseWheelUp, "wheel_up"},
-		{ansi.MouseWheelDown, "wheel_down"},
+		{name: "none", button: ansi.MouseNone},
+		{name: "left", button: ansi.MouseLeft},
+		{name: "middle", button: ansi.MouseMiddle},
+		{name: "right", button: ansi.MouseRight},
+		{name: "wheel_up", button: ansi.MouseWheelUp},
+		{name: "wheel_down", button: ansi.MouseWheelDown},
 	}
 
 	for _, tt := range tests {

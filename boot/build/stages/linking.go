@@ -148,6 +148,7 @@ func (s *linkStage) collectDependencies(ctx context.Context, transcoder payload.
 			entry:           e,
 			definition:      def,
 			moduleNamespace: moduleNamespace,
+			component:       def.Component,
 		}
 	}
 
@@ -163,6 +164,7 @@ type decodedDependency struct {
 	definition      *DependencyDefinition
 	entry           registry.Entry
 	moduleNamespace string
+	component       string
 }
 
 func (s *linkStage) processRequirement(
@@ -172,9 +174,10 @@ func (s *linkStage) processRequirement(
 	mutator *entry.Mutator,
 ) error {
 	requirementName := req.entry.ID.Name
+	requirementModule := requirementModuleFromEntry(req.entry)
 
 	// Find parameter value from dependencies
-	value, err := s.resolveValue(requirementName, req.definition.Default, req.entry.ID.NS, dependencies)
+	value, err := s.resolveValue(requirementName, req.definition.Default, req.entry.ID.NS, requirementModule, dependencies)
 	if err != nil {
 		return NewRequirementError(requirementName, req.entry.ID.NS, err)
 	}
@@ -198,6 +201,7 @@ func (s *linkStage) resolveValue(
 	requirementName string,
 	defaultValue string,
 	requirementNS string,
+	requirementModule string,
 	dependencies map[string]decodedDependency,
 ) (string, error) {
 	// Find all dependencies that have a parameter with this name
@@ -210,7 +214,15 @@ func (s *linkStage) resolveValue(
 
 	for _, dep := range dependencies {
 		for _, param := range dep.definition.Parameters {
-			if !matchesRequirement(param.Name, dep.moduleNamespace, requirementNS, requirementName, requirementID) {
+			if !matchesRequirement(
+				param.Name,
+				dep.moduleNamespace,
+				dep.component,
+				requirementNS,
+				requirementName,
+				requirementID,
+				requirementModule,
+			) {
 				continue
 			}
 			foundValues = append(foundValues, struct {
@@ -334,12 +346,34 @@ func (s *linkStage) findTargetEntries(
 // matchesRequirement checks if a parameter name references a requirement.
 // Supports two conventions:
 //   - Full ID: "ns:name" matches directly against the requirement entry ID
-//   - Bare name: "name" matches against requirement name within the computed module namespace
-func matchesRequirement(paramName, moduleNS, reqNS, reqName, reqID string) bool {
+//   - Bare name: "name" matches either:
+//   - requirement name within the computed module namespace, or
+//   - requirement name within the same module identity via requirement meta.module
+func matchesRequirement(paramName, moduleNS, component, reqNS, reqName, reqID, reqModule string) bool {
 	if strings.Contains(paramName, ":") {
 		return paramName == reqID
 	}
-	return moduleNS == reqNS && paramName == reqName
+
+	if paramName != reqName {
+		return false
+	}
+
+	if moduleNS == reqNS {
+		return true
+	}
+
+	// Fallback for modules that publish requirements under a different namespace.
+	return component != "" && reqModule != "" && component == reqModule
+}
+
+func requirementModuleFromEntry(entry registry.Entry) string {
+	if entry.Meta == nil {
+		return ""
+	}
+	if module, ok := entry.Meta["module"].(string); ok {
+		return module
+	}
+	return ""
 }
 
 func componentToNamespace(component string) (string, error) {

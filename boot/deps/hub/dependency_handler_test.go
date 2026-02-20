@@ -355,6 +355,110 @@ func TestDependencyHandler_DownloadTimeoutSetsDeadlinesForURLAndDownload(t *test
 	assert.True(t, downloadHadDeadline, "artifact download should have timeout deadline")
 }
 
+func TestDependencyHandler_Expand_UsesModuleDependencyEntriesForRequirementLinking(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, "vendor")
+
+	writeWapp(t, filepath.Join(vendorDir, "acme", "app-v1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("acme.app", "bootloader"),
+			Kind: regapi.NamespaceDependency,
+			Data: map[string]any{
+				"component": "wippy/bootloader",
+				"version":   "v0.1.0",
+				"parameters": []any{
+					map[string]any{"name": "wippy.bootloader:env_storage", "value": "app:file_env"},
+					map[string]any{"name": "wippy.bootloader:application_host", "value": "app:processes"},
+				},
+			},
+		},
+	})
+
+	writeWapp(t, filepath.Join(vendorDir, "wippy", "bootloader-v0.1.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("wippy.bootloader", "env_storage"),
+			Kind: regapi.NamespaceRequirement,
+			Data: map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "app:service", "path": ".env_storage"},
+				},
+			},
+		},
+		{
+			ID:   wapp.NewID("wippy.bootloader", "application_host"),
+			Kind: regapi.NamespaceRequirement,
+			Data: map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "app:service", "path": ".application_host"},
+				},
+			},
+		},
+	})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				switch {
+				case org == "acme" && module == "app" && version == "v1.0.0":
+					return &ModuleManifest{
+						Org:     org,
+						Name:    module,
+						Version: version,
+						Dependencies: []ManifestDep{
+							{Org: "wippy", Name: "bootloader", Version: "v0.1.0"},
+						},
+					}, nil
+				case org == "wippy" && module == "bootloader" && version == "v0.1.0":
+					return &ModuleManifest{
+						Org:     org,
+						Name:    module,
+						Version: version,
+					}, nil
+				default:
+					return nil, fmt.Errorf("unexpected manifest request: %s/%s@%s", org, module, version)
+				}
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	snapshot := regapi.State{
+		{
+			ID:   regapi.NewID("app", "service"),
+			Kind: "process.lua",
+			Data: payload.NewPayload(`{}`, payload.JSON),
+		},
+	}
+
+	rootDep := regapi.Entry{
+		ID:   regapi.NewID("app", "root"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/app","version":"v1.0.0"}`, payload.JSON),
+	}
+
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, snapshot)
+	require.NoError(t, err)
+	assert.True(t, result.Applied)
+
+	serviceID := regapi.NewID("app", "service")
+	serviceUpdated := false
+	for _, scoped := range result.Additional {
+		if scoped.Operation.Kind != regapi.EntryUpdate || scoped.Operation.Entry.ID != serviceID {
+			continue
+		}
+		serviceUpdated = true
+		data, ok := scoped.Operation.Entry.Data.Data().(map[string]any)
+		require.True(t, ok, "updated service data must be a map")
+		assert.Equal(t, "app:file_env", data["env_storage"])
+		assert.Equal(t, "app:processes", data["application_host"])
+	}
+
+	assert.True(t, serviceUpdated, "expected linked requirement values to update app:service")
+}
+
 func newTestContext() context.Context {
 	ctx := ctxapi.NewRootContext()
 	transcoder := syspayload.NewTranscoder()

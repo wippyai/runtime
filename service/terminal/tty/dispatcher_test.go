@@ -135,13 +135,13 @@ func TestDispatcherRawEnable_NoController(t *testing.T) {
 }
 
 type stubInputController struct {
-	startCalls int
-	stopCalls  int
 	startErr   error
 	stopErr    error
+	sizeErr    error
+	startCalls int
+	stopCalls  int
 	cols       int
 	rows       int
-	sizeErr    error
 }
 
 func (s *stubInputController) Start() error {

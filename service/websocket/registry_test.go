@@ -24,6 +24,7 @@ func TestRegistryNew(t *testing.T) {
 	r := NewRegistry(table, nil)
 	if r == nil {
 		t.Fatal("expected non-nil registry")
+		return
 	}
 	if r.conns == nil {
 		t.Error("expected typed table")

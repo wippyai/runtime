@@ -24,10 +24,10 @@ func newFakeProvider() *fakeManifestProvider {
 func (f *fakeManifestProvider) addModule(org, name, version string, deps ...ManifestDep) {
 	key := org + "/" + name + "@" + version
 	f.manifests[key] = &ModuleManifest{
-		Org:     org,
-		Name:    name,
-		Version: version,
-		Digest:  "sha256:" + version,
+		Org:          org,
+		Name:         name,
+		Version:      version,
+		Digest:       "sha256:" + version,
 		Dependencies: deps,
 	}
 
