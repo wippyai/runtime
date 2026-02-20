@@ -168,6 +168,7 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
+	linkDeps := mergeLinkDependencies(desiredDepEntries, moduleEntries)
 
 	combined := make([]regapi.Entry, 0, len(snapshot)+len(moduleEntries))
 	for _, e := range snapshot {
@@ -181,7 +182,7 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 	pipeline := build.New(
 		stages.Override(),
 		stages.Disable(),
-		stages.Link(stages.WithDependencies(desiredDepEntries)),
+		stages.Link(stages.WithDependencies(linkDeps)),
 	)
 	if err := pipeline.Execute(ctx, &combined); err != nil {
 		return regapi.DirectiveResult{}, NewDependencyPipelineError(err)
@@ -254,6 +255,31 @@ func (h *DependencyHandler) collectDesiredDependencies(
 		result = append(result, dep)
 	}
 	return result, nil
+}
+
+func mergeLinkDependencies(explicitDeps, moduleEntries []regapi.Entry) []regapi.Entry {
+	merged := make([]regapi.Entry, 0, len(explicitDeps)+len(moduleEntries))
+	seen := make(map[regapi.ID]struct{}, len(explicitDeps)+len(moduleEntries))
+
+	appendDep := func(entry regapi.Entry) {
+		if entry.Kind != regapi.NamespaceDependency {
+			return
+		}
+		if _, ok := seen[entry.ID]; ok {
+			return
+		}
+		seen[entry.ID] = struct{}{}
+		merged = append(merged, entry)
+	}
+
+	for _, entry := range explicitDeps {
+		appendDep(entry)
+	}
+	for _, entry := range moduleEntries {
+		appendDep(entry)
+	}
+
+	return merged
 }
 
 func (h *DependencyHandler) resolveModules(ctx context.Context, deps []DependencyDefinition) ([]ResolvedModule, error) {

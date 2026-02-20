@@ -271,6 +271,135 @@ func TestLink_ModuleScopedParameters(t *testing.T) {
 	assert.Equal(t, "app:router_a", target.Meta["router"])
 }
 
+func TestLink_BareParameterMatchesRequirementModuleMeta(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "__dependency.dataflow"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "wippy/dataflow",
+				"parameters": []any{
+					map[string]any{
+						"name":  "target_db",
+						"value": "app:db",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("userspace.dataflow", "target_db"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{
+				"module": "wippy/dataflow",
+			},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{
+						"entry": "app:db",
+						"path":  ".file",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("app", "db"),
+			Kind: "db.sql.sqlite",
+			Data: payload.New(map[string]any{
+				"file": ":memory:",
+			}),
+		},
+	}
+
+	stage := Link()
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	target := findEntry(entries, "app", "db")
+	require.NotNil(t, target)
+	data := target.Data.Data().(map[string]any)
+	assert.Equal(t, "app:db", data["file"])
+}
+
+func TestLink_BareParameterDoesNotCrossDifferentModuleMeta(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "__dependency.dataflow"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "wippy/dataflow",
+				"parameters": []any{
+					map[string]any{
+						"name":  "target_db",
+						"value": "app:db",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("userspace.dataflow", "target_db"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{
+				"module": "wippy/dataflow",
+			},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{
+						"entry": "app:db1",
+						"path":  ".file",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("other.bundle", "target_db"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{
+				"module": "other/module",
+			},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{
+						"entry": "app:db2",
+						"path":  ".file",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("app", "db1"),
+			Kind: "db.sql.sqlite",
+			Data: payload.New(map[string]any{
+				"file": ":memory1:",
+			}),
+		},
+		{
+			ID:   registry.NewID("app", "db2"),
+			Kind: "db.sql.sqlite",
+			Data: payload.New(map[string]any{
+				"file": ":memory2:",
+			}),
+		},
+	}
+
+	stage := Link()
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	target1 := findEntry(entries, "app", "db1")
+	require.NotNil(t, target1)
+	data1 := target1.Data.Data().(map[string]any)
+	assert.Equal(t, "app:db", data1["file"])
+
+	target2 := findEntry(entries, "app", "db2")
+	require.NotNil(t, target2)
+	data2 := target2.Data.Data().(map[string]any)
+	assert.Equal(t, ":memory2:", data2["file"])
+}
+
 func TestLink_FullIDParameterName(t *testing.T) {
 	ctx, _ := setupTestContext()
 
