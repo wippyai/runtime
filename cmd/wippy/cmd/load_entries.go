@@ -13,6 +13,6 @@ func loadEntriesFromLockPaths(ctx context.Context, lockObj *lock.Lock, logger *z
 	if lockObj == nil {
 		return nil, nil
 	}
-	paths := lockObj.GetLoadPaths()
-	return entries.LoadEntriesFromPaths(ctx, paths, logger)
+	modulePaths := lockObj.GetModuleLoadPaths()
+	return entries.LoadEntriesFromModuleLoadPaths(ctx, modulePaths, logger)
 }
