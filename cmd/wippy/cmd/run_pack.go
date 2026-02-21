@@ -29,7 +29,7 @@ import (
 var hubModulePattern = regexp.MustCompile(`^([a-z][a-z0-9-]*)/([a-z][a-z0-9-]*)(?:@(.+))?$`)
 
 // findPackCommand finds a command entry in the pack.
-// If commandName is empty, returns the first available command (preferring "run").
+// If commandName is empty, it only auto-selects a command marked as main.
 func findPackCommand(ctx context.Context, commandName string) (string, error) {
 	reg := registry.GetRegistry(ctx)
 	if reg == nil {
@@ -44,10 +44,11 @@ func findPackCommand(ctx context.Context, commandName string) (string, error) {
 	var commands []struct {
 		name    string
 		entryID string
+		main    bool
 	}
 
 	for _, e := range allEntries {
-		if !strings.HasPrefix(e.Kind, "process.lua") {
+		if !isProcessKind(e.Kind) {
 			continue
 		}
 
@@ -59,9 +60,18 @@ func findPackCommand(ctx context.Context, commandName string) (string, error) {
 		commands = append(commands, struct {
 			name    string
 			entryID string
-		}{name: cmdMeta.Name, entryID: e.ID.String()})
+			main    bool
+		}{name: cmdMeta.Name, entryID: e.ID.String(), main: cmdMeta.Main})
 	}
 
+	return selectPackCommand(commands, commandName)
+}
+
+func selectPackCommand(commands []struct {
+	name    string
+	entryID string
+	main    bool
+}, commandName string) (string, error) {
 	if len(commands) == 0 {
 		return "", nil
 	}
@@ -75,13 +85,24 @@ func findPackCommand(ctx context.Context, commandName string) (string, error) {
 		return "", fmt.Errorf("command %q not found in pack", commandName)
 	}
 
+	var mainCommands []string
+	var mainEntryID string
 	for _, c := range commands {
-		if c.name == "run" {
-			return c.entryID, nil
+		if !c.main {
+			continue
 		}
+		mainCommands = append(mainCommands, c.name)
+		mainEntryID = c.entryID
 	}
 
-	return commands[0].entryID, nil
+	switch len(mainCommands) {
+	case 0:
+		return "", nil
+	case 1:
+		return mainEntryID, nil
+	default:
+		return "", fmt.Errorf("multiple commands marked as main in pack: %s", strings.Join(mainCommands, ", "))
+	}
 }
 
 // isHubModuleRef identifies inputs that should be treated as hub references
@@ -396,17 +417,7 @@ func runPackEntries(
 		return NewStartComponentsError(err)
 	}
 
-	reg := registry.GetRegistry(appCtx)
-	if reg == nil {
-		return ErrRegistryNotFound
-	}
-
-	resolver := registry.GetResolver(appCtx)
-	if resolver == nil {
-		return ErrDependencyResolverNotFound
-	}
-
-	if err := entries.ApplyToRegistry(appCtx, packEntries, resolver, reg, logger); err != nil {
+	if err := entries.LoadEntriesToRegistry(appCtx, packEntries, logger); err != nil {
 		return err
 	}
 

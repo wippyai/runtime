@@ -26,8 +26,9 @@ If the lock file is missing, runs 'wippy init' followed by 'wippy update'.
 Modules are installed to the vendor directory specified in the lock file.
 
 When module names are provided as arguments, only those modules are processed.
-Use with --force or --repair to target specific modules:
-  wippy install --repair keeper/keeper wippy/relay`,
+Use with --refresh to re-download modules when cache might be stale:
+  wippy install --refresh
+  wippy install --refresh keeper/keeper wippy/relay`,
 	RunE: runInstall,
 }
 
@@ -35,8 +36,9 @@ func init() {
 	rootCmd.AddCommand(installCmd)
 
 	installCmd.Flags().StringP("lock-file", "l", defaultLockFile, "path to lock file")
-	installCmd.Flags().Bool("force", false, "bypass cache and always download modules")
-	installCmd.Flags().Bool("repair", false, "verify entry hashes and re-download if mismatch")
+	installCmd.Flags().Bool("refresh", false, "re-download modules even if already cached")
+	installCmd.Flags().Bool("force", false, "alias for --refresh")
+	installCmd.Flags().Bool("repair", false, "alias for --refresh")
 	installCmd.Flags().String("registry", "", "registry URL (default: from credentials)")
 }
 
@@ -132,7 +134,10 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	vendorDir := filepath.Join(lockDir, vendorPath)
 	shouldUnpack := lockObj.ShouldUnpackModules()
 
-	force, _ := cmd.Flags().GetBool("force")
+	refresh := shouldBypassInstallCache(cmd)
+	if refresh {
+		logger.Info("refresh enabled, bypassing module cache")
+	}
 
 	installed := 0
 	cached := 0
@@ -150,7 +155,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 		dirPath := filepath.Join(vendorDir, lock.ModulePath(modName))
 
-		if !force {
+		if !refresh {
 			resolved := lock.ResolveModuleDir(vendorDir, modName, module.Version)
 			if resolved.IsWapp {
 				if shouldUnpack {
@@ -234,6 +239,25 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		zap.Int("total", len(modules)),
 	}
 	logger.Info(logMsg, logFields...)
+	if !refresh && installed == 0 && cached > 0 {
+		logger.Info("all modules were loaded from cache; use --refresh to re-download")
+	}
 
 	return nil
+}
+
+func shouldBypassInstallCache(cmd *cobra.Command) bool {
+	return getBoolFlag(cmd, "refresh") || getBoolFlag(cmd, "force") || getBoolFlag(cmd, "repair")
+}
+
+func getBoolFlag(cmd *cobra.Command, name string) bool {
+	if cmd == nil {
+		return false
+	}
+	flag := cmd.Flags().Lookup(name)
+	if flag == nil {
+		return false
+	}
+	value, err := cmd.Flags().GetBool(name)
+	return err == nil && value
 }
