@@ -2,8 +2,10 @@ package hub
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,6 +15,12 @@ import (
 	downloadv1 "github.com/wippyai/runtime/api/hub/wippy/api/hub/download/v1"
 	modulev1 "github.com/wippyai/runtime/api/hub/wippy/api/hub/module/v1"
 	versionv1 "github.com/wippyai/runtime/api/hub/wippy/api/hub/version/v1"
+	"github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/internal/backoff"
+)
+
+const (
+	downloadMaxAttempts = 3
 )
 
 type DownloadInfo struct {
@@ -80,6 +88,43 @@ func (c *Client) GetDownloadURL(ctx context.Context, params *DownloadParams) (*D
 }
 
 func (c *Client) DownloadToFile(ctx context.Context, url, destPath string) error {
+	// Retry transient download failures with bounded exponential backoff.
+	retry := backoff.NewCalculator(supervisor.RetryPolicy{
+		MaxAttempts:   downloadMaxAttempts - 1, // intervals between attempts
+		InitialDelay:  150 * time.Millisecond,
+		BackoffFactor: 2.0,
+		MaxDelay:      time.Second,
+		Jitter:        0.2,
+	})
+
+	for attempt := 1; attempt <= downloadMaxAttempts; attempt++ {
+		err := c.downloadToFileOnce(ctx, url, destPath)
+		if err == nil {
+			return nil
+		}
+
+		if !isRetriableDownloadError(err) || attempt == downloadMaxAttempts {
+			return err
+		}
+
+		wait := retry.NextInterval()
+		if wait <= 0 {
+			return err
+		}
+
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return err
+		case <-timer.C:
+		}
+	}
+
+	return fmt.Errorf("download failed after retries")
+}
+
+func (c *Client) downloadToFileOnce(ctx context.Context, url, destPath string) error {
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 		return fmt.Errorf("create directory: %w", err)
 	}
@@ -91,13 +136,16 @@ func (c *Client) DownloadToFile(ctx context.Context, url, destPath string) error
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("download failed: %w", err)
+		return &downloadRequestError{err: err}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
-		return fmt.Errorf("download failed with status %d: %s", resp.StatusCode, string(body))
+		return &downloadStatusError{
+			statusCode: resp.StatusCode,
+			body:       string(body),
+		}
 	}
 
 	f, err := os.Create(destPath)
@@ -118,4 +166,50 @@ func (c *Client) DownloadToFile(ctx context.Context, url, destPath string) error
 	}
 
 	return f.Close()
+}
+
+type downloadRequestError struct {
+	err error
+}
+
+func (e *downloadRequestError) Error() string {
+	return fmt.Sprintf("download failed: %v", e.err)
+}
+
+func (e *downloadRequestError) Unwrap() error {
+	return e.err
+}
+
+type downloadStatusError struct {
+	body       string
+	statusCode int
+}
+
+func (e *downloadStatusError) Error() string {
+	return fmt.Sprintf("download failed with status %d: %s", e.statusCode, e.body)
+}
+
+func isRetriableDownloadError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+
+	var statusErr *downloadStatusError
+	if errors.As(err, &statusErr) {
+		code := statusErr.statusCode
+		return code == http.StatusRequestTimeout ||
+			code == http.StatusTooManyRequests ||
+			code >= http.StatusInternalServerError
+	}
+
+	var reqErr *downloadRequestError
+	if errors.As(err, &reqErr) {
+		var netErr net.Error
+		if errors.As(reqErr, &netErr) {
+			return true
+		}
+		return true
+	}
+
+	return false
 }

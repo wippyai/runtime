@@ -402,6 +402,17 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 	if len(cfg.Authors) > 0 {
 		metadata["authors"] = cfg.Authors
 	}
+	for key, value := range cfg.Metadata {
+		trimmed := strings.TrimSpace(key)
+		if trimmed == "" {
+			continue
+		}
+		// Preserve canonical publish metadata fields.
+		if _, exists := metadata[trimmed]; exists {
+			continue
+		}
+		metadata[trimmed] = value
+	}
 
 	packWriter := wapp.NewWriter()
 

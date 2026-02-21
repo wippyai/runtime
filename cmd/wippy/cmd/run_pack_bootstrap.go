@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/spf13/cobra"
+	"github.com/wippyai/runtime/api/boot"
 	logapi "github.com/wippyai/runtime/api/logs"
 	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
 	bootpkg "github.com/wippyai/runtime/boot"
@@ -15,7 +16,13 @@ import (
 // It keeps boot sequencing and config resolution (including CLI overrides) identical
 // for both single-pack and multi-pack execution.
 func bootstrapPackRuntime(cmd *cobra.Command, baseLogger *zap.Logger) (context.Context, *bootpkg.Loader, *zap.Logger, *embedpkg.Registry, error) {
-	cfg, err := loadRuntimeConfig(cmd, baseLogger)
+	return bootstrapPackRuntimeWithDefaults(cmd, baseLogger, nil)
+}
+
+// bootstrapPackRuntimeWithDefaults initializes runtime context for pack execution,
+// seeding runtime config with optional defaults extracted from pack metadata.
+func bootstrapPackRuntimeWithDefaults(cmd *cobra.Command, baseLogger *zap.Logger, runtimeDefaults boot.Config) (context.Context, *bootpkg.Loader, *zap.Logger, *embedpkg.Registry, error) {
+	cfg, err := loadRuntimeConfigWithDefaults(cmd, baseLogger, runtimeDefaults)
 	if err != nil {
 		baseLogger.Error("failed to resolve runtime config", zap.Error(err))
 		return nil, nil, nil, nil, err

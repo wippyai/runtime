@@ -266,3 +266,28 @@ exclude:
 	assert.Equal(t, []string{"*.lua"}, cfg.Include)
 	assert.Equal(t, []string{"*.test.lua"}, cfg.Exclude)
 }
+
+func TestLoad_WithMetadata(t *testing.T) {
+	dir := t.TempDir()
+	content := `
+organization: myorg
+module: mymod
+metadata:
+  runtime.lsp.enabled: true
+  runtime:
+    logger:
+      level: debug
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, DefaultConfigFile), []byte(content), 0644))
+
+	cfg, err := Load(dir)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Metadata)
+	assert.Equal(t, true, cfg.Metadata["runtime.lsp.enabled"])
+
+	runtimeMap, ok := cfg.Metadata["runtime"].(map[string]any)
+	require.True(t, ok)
+	loggerMap, ok := runtimeMap["logger"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "debug", loggerMap["level"])
+}

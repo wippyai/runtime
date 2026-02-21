@@ -80,6 +80,7 @@ func init() {
 type commandMeta struct {
 	Name  string `json:"name"`
 	Short string `json:"short"`
+	Main  bool   `json:"main"`
 }
 
 // runApp is the primary `wippy run` execution flow.
@@ -262,6 +263,13 @@ func resolveCommandToEntry(ctx context.Context, name string) (string, error) {
 // 2) CLI logger/event-stream overrides,
 // 3) explicit -o override fields.
 func loadRuntimeConfig(cmd *cobra.Command, logger *zap.Logger) (boot.Config, error) {
+	return loadRuntimeConfigWithDefaults(cmd, logger, nil)
+}
+
+// loadRuntimeConfigWithDefaults resolves runtime configuration like
+// loadRuntimeConfig, but first seeds it with optional runtime defaults.
+// Defaults are applied with lower precedence than file and CLI settings.
+func loadRuntimeConfigWithDefaults(cmd *cobra.Command, logger *zap.Logger, runtimeDefaults boot.Config) (boot.Config, error) {
 	cfg, err := loadBootConfig()
 	if err != nil {
 		return nil, err
@@ -269,6 +277,10 @@ func loadRuntimeConfig(cmd *cobra.Command, logger *zap.Logger) (boot.Config, err
 
 	if cfg == nil {
 		cfg = createDefaultConfig()
+	}
+
+	if runtimeDefaults != nil {
+		cfg = bootconfig.Merge(runtimeDefaults, cfg)
 	}
 
 	cfg = applyCLIOverrides(cfg)
@@ -312,7 +324,8 @@ func extractCommandMeta(meta map[string]any) *commandMeta {
 	}
 
 	short, _ := cmdMap["short"].(string)
-	return &commandMeta{Name: name, Short: short}
+	main, _ := cmdMap["main"].(bool)
+	return &commandMeta{Name: name, Short: short, Main: main}
 }
 
 // runList prints all command-enabled process entries from resolved lock modules.

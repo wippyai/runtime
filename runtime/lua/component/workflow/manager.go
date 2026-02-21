@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/event"
+	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/lua"
@@ -19,32 +20,108 @@ import (
 	"go.uber.org/zap"
 )
 
+// configEntry holds config for either source or bytecode workflow.
+type configEntry struct {
+	source   *api.WorkflowConfig
+	bytecode *api.BytecodeWorkflowConfig
+	method   string
+}
+
 // Manager handles Lua workflow components for engine2.
 // Workflows have restricted module access compared to processes.
 type Manager struct {
 	log     *zap.Logger
 	code    *code.Manager
 	bus     event.Bus
+	fsReg   fsapi.Registry
 	factory engine.CompiledFactory
-	configs sync.Map // map[registry.ID]*api.WorkflowConfig
+	configs sync.Map // map[registry.ID]*configEntry
 }
 
 // NewManager creates a new workflow manager.
-func NewManager(log *zap.Logger, code *code.Manager, bus event.Bus, factory engine.CompiledFactory) *Manager {
+func NewManager(
+	log *zap.Logger,
+	code *code.Manager,
+	bus event.Bus,
+	fsReg fsapi.Registry,
+	factory engine.CompiledFactory,
+) *Manager {
 	return &Manager{
 		log:     log,
 		code:    code,
 		bus:     bus,
+		fsReg:   fsReg,
 		factory: factory,
 	}
 }
 
 // Add implements registry.EntryListener.
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.Workflow {
+	switch entry.Kind {
+	case api.Workflow:
+		return m.addSource(ctx, entry)
+	case api.WorkflowBytecode:
+		return m.addBytecode(ctx, entry)
+	default:
 		return runtimelua.NewInvalidEntryKindError(entry.Kind, api.Workflow)
 	}
+}
 
+// Update implements registry.EntryListener.
+func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
+	switch entry.Kind {
+	case api.Workflow:
+		return m.updateSource(ctx, entry)
+	case api.WorkflowBytecode:
+		return m.updateBytecode(ctx, entry)
+	default:
+		return runtimelua.NewInvalidEntryKindError(entry.Kind, api.Workflow)
+	}
+}
+
+// Delete implements registry.EntryListener.
+func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
+	switch entry.Kind {
+	case api.Workflow, api.WorkflowBytecode:
+		if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
+			return runtimelua.NewDeleteNodeError("workflow", err)
+		}
+		m.configs.Delete(entry.ID)
+		m.unregisterFactory(ctx, entry.ID)
+		m.log.Debug("deleted workflow", zap.String("id", entry.ID.String()))
+		return nil
+	default:
+		return runtimelua.NewInvalidEntryKindError(entry.Kind, api.Workflow)
+	}
+}
+
+// Invalidate handles code invalidation for hot reload.
+func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
+	for _, id := range ids {
+		cfgAny, exists := m.configs.Load(id)
+		if !exists {
+			continue
+		}
+		cfg := cfgAny.(*configEntry)
+
+		m.log.Debug("invalidating workflow", zap.String("id", id.String()))
+
+		// For bytecode, verify the file is still valid.
+		if cfg.bytecode != nil {
+			if _, err := component.LoadAndVerifyBytecode(m.fsReg, cfg.bytecode.FS, cfg.bytecode.Path, cfg.bytecode.Hash); err != nil {
+				m.log.Error("failed to reload bytecode workflow", zap.Error(err))
+				continue
+			}
+		}
+
+		if err := m.registerFactory(ctx, id, cfg.method); err != nil {
+			m.log.Error("failed to invalidate workflow", zap.Error(err))
+		}
+	}
+}
+
+// addSource adds a source-based workflow.
+func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 	cfg, err := component.UnpackConfig[api.WorkflowConfig](ctx, entry)
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("workflow", err)
@@ -61,7 +138,10 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return runtimelua.NewAddNodeError("workflow", err)
 	}
 
-	m.configs.Store(entry.ID, cfg)
+	m.configs.Store(entry.ID, &configEntry{
+		source: cfg,
+		method: cfg.Method,
+	})
 
 	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
@@ -73,12 +153,49 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	return nil
 }
 
-// Update implements registry.EntryListener.
-func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.Workflow {
-		return runtimelua.NewInvalidEntryKindError(entry.Kind, api.Workflow)
+// addBytecode adds a bytecode-based workflow.
+func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
+	cfg, err := component.UnpackConfig[api.BytecodeWorkflowConfig](ctx, entry)
+	if err != nil {
+		return runtimelua.NewUnpackConfigError("workflow", err)
 	}
 
+	proto, err := component.LoadAndVerifyBytecode(m.fsReg, cfg.FS, cfg.Path, cfg.Hash)
+	if err != nil {
+		return runtimelua.NewLoadBytecodeError(err)
+	}
+
+	node := code.Node{
+		ID:     entry.ID,
+		Kind:   api.WorkflowBytecode,
+		Method: cfg.Method,
+	}
+
+	if err := m.code.AddNodeWithProto(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules), proto); err != nil {
+		return runtimelua.NewAddNodeError("workflow", err)
+	}
+
+	m.configs.Store(entry.ID, &configEntry{
+		bytecode: cfg,
+		method:   cfg.Method,
+	})
+
+	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
+		_ = m.code.DeleteNode(ctx, entry.ID)
+		m.configs.Delete(entry.ID)
+		return runtimelua.NewRegisterFactoryError(err)
+	}
+
+	m.log.Debug("added bytecode workflow",
+		zap.String("id", entry.ID.String()),
+		zap.String("fs", cfg.FS),
+		zap.String("path", cfg.Path),
+	)
+	return nil
+}
+
+// updateSource updates a source-based workflow.
+func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error {
 	cfg, err := component.UnpackConfig[api.WorkflowConfig](ctx, entry)
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("workflow", err)
@@ -95,7 +212,10 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return runtimelua.NewUpdateNodeError("workflow", err)
 	}
 
-	m.configs.Store(entry.ID, cfg)
+	m.configs.Store(entry.ID, &configEntry{
+		source: cfg,
+		method: cfg.Method,
+	})
 
 	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
 		return runtimelua.NewUpdateFactoryError(err)
@@ -105,38 +225,39 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	return nil
 }
 
-// Delete implements registry.EntryListener.
-func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
-	if entry.Kind != api.Workflow {
-		return runtimelua.NewInvalidEntryKindError(entry.Kind, api.Workflow)
+// updateBytecode updates a bytecode-based workflow.
+func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) error {
+	cfg, err := component.UnpackConfig[api.BytecodeWorkflowConfig](ctx, entry)
+	if err != nil {
+		return runtimelua.NewUnpackConfigError("workflow", err)
 	}
 
-	if err := m.code.DeleteNode(ctx, entry.ID); err != nil {
-		return runtimelua.NewDeleteNodeError("workflow", err)
+	proto, err := component.LoadAndVerifyBytecode(m.fsReg, cfg.FS, cfg.Path, cfg.Hash)
+	if err != nil {
+		return runtimelua.NewLoadBytecodeError(err)
 	}
 
-	m.configs.Delete(entry.ID)
-	m.unregisterFactory(ctx, entry.ID)
+	node := code.Node{
+		ID:     entry.ID,
+		Kind:   api.WorkflowBytecode,
+		Method: cfg.Method,
+	}
 
-	m.log.Debug("deleted workflow", zap.String("id", entry.ID.String()))
+	if err := m.code.UpdateNodeWithProto(ctx, node, component.BuildImports(cfg.Imports, cfg.Modules), proto); err != nil {
+		return runtimelua.NewUpdateNodeError("workflow", err)
+	}
+
+	m.configs.Store(entry.ID, &configEntry{
+		bytecode: cfg,
+		method:   cfg.Method,
+	})
+
+	if err := m.registerFactory(ctx, entry.ID, cfg.Method); err != nil {
+		return runtimelua.NewUpdateFactoryError(err)
+	}
+
+	m.log.Debug("updated bytecode workflow", zap.String("id", entry.ID.String()))
 	return nil
-}
-
-// Invalidate handles code invalidation for hot reload.
-func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
-	for _, id := range ids {
-		cfgAny, exists := m.configs.Load(id)
-		if !exists {
-			continue
-		}
-		cfg := cfgAny.(*api.WorkflowConfig)
-
-		m.log.Debug("invalidating workflow", zap.String("id", id.String()))
-
-		if err := m.registerFactory(ctx, id, cfg.Method); err != nil {
-			m.log.Error("failed to invalidate workflow", zap.Error(err))
-		}
-	}
 }
 
 // registerFactory registers a workflow factory with the factory registry.

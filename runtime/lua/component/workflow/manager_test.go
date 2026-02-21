@@ -84,7 +84,7 @@ func TestNewManager(t *testing.T) {
 	bus := &mockEventBus{}
 	factory := &mockCompiledFactory{}
 
-	manager := NewManager(log, codeManager, bus, factory)
+	manager := NewManager(log, codeManager, bus, nil, factory)
 
 	assert.NotNil(t, manager)
 	assert.Equal(t, log, manager.log)
@@ -98,7 +98,7 @@ func TestManager_Add_InvalidKind(t *testing.T) {
 	codeManager := &code.Manager{}
 	bus := &mockEventBus{}
 	factory := &mockCompiledFactory{}
-	manager := NewManager(log, codeManager, bus, factory)
+	manager := NewManager(log, codeManager, bus, nil, factory)
 
 	entry := registry.Entry{
 		Kind: invalid,
@@ -114,7 +114,7 @@ func TestManager_Add_InvalidConfig(t *testing.T) {
 	codeManager := &code.Manager{}
 	bus := &mockEventBus{}
 	factory := &mockCompiledFactory{}
-	manager := NewManager(log, codeManager, bus, factory)
+	manager := NewManager(log, codeManager, bus, nil, factory)
 
 	testData := `{"source": "test", "invalid": }`
 
@@ -139,7 +139,7 @@ func TestManager_Update_InvalidKind(t *testing.T) {
 	codeManager := &code.Manager{}
 	bus := &mockEventBus{}
 	factory := &mockCompiledFactory{}
-	manager := NewManager(log, codeManager, bus, factory)
+	manager := NewManager(log, codeManager, bus, nil, factory)
 
 	entry := registry.Entry{
 		Kind: invalid,
@@ -155,7 +155,7 @@ func TestManager_Delete_InvalidKind(t *testing.T) {
 	codeManager := &code.Manager{}
 	bus := &mockEventBus{}
 	factory := &mockCompiledFactory{}
-	manager := NewManager(log, codeManager, bus, factory)
+	manager := NewManager(log, codeManager, bus, nil, factory)
 
 	entry := registry.Entry{
 		Kind: invalid,
@@ -171,7 +171,7 @@ func TestManager_Invalidate_NoConfig(t *testing.T) {
 	codeManager := &code.Manager{}
 	bus := &mockEventBus{}
 	factory := &mockTrackingFactory{}
-	manager := NewManager(log, codeManager, bus, factory)
+	manager := NewManager(log, codeManager, bus, nil, factory)
 
 	ids := []registry.ID{{Name: "test1"}, {Name: "test2"}}
 	manager.Invalidate(context.Background(), ids)
@@ -185,14 +185,17 @@ func TestManager_Invalidate_WithConfig(t *testing.T) {
 	codeManager := &code.Manager{}
 	bus := &mockEventBus{}
 	factory := &mockTrackingFactory{}
-	manager := NewManager(log, codeManager, bus, factory)
+	manager := NewManager(log, codeManager, bus, nil, factory)
 
 	id := registry.NewID("test", "workflow")
 	cfg := &api.WorkflowConfig{
 		Source: "return {}",
 		Method: "main",
 	}
-	manager.configs.Store(id, cfg)
+	manager.configs.Store(id, &configEntry{
+		source: cfg,
+		method: cfg.Method,
+	})
 
 	manager.Invalidate(context.Background(), []registry.ID{id})
 
@@ -205,7 +208,7 @@ func TestManager_Update_InvalidConfig(t *testing.T) {
 	codeManager := &code.Manager{}
 	bus := &mockEventBus{}
 	factory := &mockCompiledFactory{}
-	manager := NewManager(log, codeManager, bus, factory)
+	manager := NewManager(log, codeManager, bus, nil, factory)
 
 	testData := `{"source": "test", "invalid": }`
 	payloadData := payload.NewPayload(testData, payload.JSON)
@@ -229,7 +232,7 @@ func TestManager_ConfigStoreLoad(t *testing.T) {
 	codeManager := &code.Manager{}
 	bus := &mockEventBus{}
 	factory := &mockCompiledFactory{}
-	manager := NewManager(log, codeManager, bus, factory)
+	manager := NewManager(log, codeManager, bus, nil, factory)
 
 	id := registry.NewID("test", "config")
 	cfg := &api.WorkflowConfig{
@@ -238,15 +241,19 @@ func TestManager_ConfigStoreLoad(t *testing.T) {
 	}
 
 	// Store config
-	manager.configs.Store(id, cfg)
+	manager.configs.Store(id, &configEntry{
+		source: cfg,
+		method: cfg.Method,
+	})
 
 	// Load config
 	loaded, ok := manager.configs.Load(id)
 	require.True(t, ok)
 
-	loadedCfg := loaded.(*api.WorkflowConfig)
-	assert.Equal(t, cfg.Source, loadedCfg.Source)
-	assert.Equal(t, cfg.Method, loadedCfg.Method)
+	loadedCfg := loaded.(*configEntry)
+	require.NotNil(t, loadedCfg.source)
+	assert.Equal(t, cfg.Source, loadedCfg.source.Source)
+	assert.Equal(t, cfg.Method, loadedCfg.method)
 
 	// Delete config
 	manager.configs.Delete(id)
@@ -261,7 +268,7 @@ func TestManager_unregisterFactory_SendsEvent(t *testing.T) {
 	codeManager := &code.Manager{}
 	bus := &mockEventBus{}
 	factory := &mockCompiledFactory{}
-	manager := NewManager(log, codeManager, bus, factory)
+	manager := NewManager(log, codeManager, bus, nil, factory)
 
 	id := registry.NewID("test", "unregister")
 	manager.unregisterFactory(context.Background(), id)
@@ -288,7 +295,7 @@ func TestManager_Concurrency(_ *testing.T) {
 	codeManager := &code.Manager{}
 	bus := &mockEventBus{}
 	factory := &mockCompiledFactory{}
-	manager := NewManager(log, codeManager, bus, factory)
+	manager := NewManager(log, codeManager, bus, nil, factory)
 
 	done := make(chan struct{})
 
@@ -297,7 +304,9 @@ func TestManager_Concurrency(_ *testing.T) {
 		for i := 0; i < 100; i++ {
 			id := registry.NewID("test", "concurrent")
 			cfg := &api.WorkflowConfig{Source: "test"}
-			manager.configs.Store(id, cfg)
+			manager.configs.Store(id, &configEntry{
+				source: cfg,
+			})
 			manager.configs.Load(id)
 			manager.configs.Delete(id)
 		}
@@ -324,7 +333,7 @@ func TestManager_registerFactory_PreparesBeforeSend(t *testing.T) {
 	codeManager := &code.Manager{}
 	bus := &mockEventBus{}
 	factory := &mockCompiledFactory{}
-	manager := NewManager(log, codeManager, bus, factory)
+	manager := NewManager(log, codeManager, bus, nil, factory)
 
 	awaitSvc := &mockPrepareAwaitService{
 		result: event.AwaitResult{Accepted: true},
