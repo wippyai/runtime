@@ -25,6 +25,7 @@ const (
 	FunctionBytecode registry.Kind = "function.lua.bc"
 	LibraryBytecode  registry.Kind = "library.lua.bc"
 	ProcessBytecode  registry.Kind = "process.lua.bc"
+	WorkflowBytecode registry.Kind = "workflow.lua.bc"
 
 	// DefaultMaxSize defines how many concurrent executions are allowed in a flex pool by default
 	DefaultMaxSize = 100

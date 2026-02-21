@@ -71,7 +71,7 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 		return err
 	}
 
-	if err := loadEntriesToRegistry(ctx, entries, logger); err != nil {
+	if err := LoadEntriesToRegistry(ctx, entries, logger); err != nil {
 		return err // Already has context from registry
 	}
 
@@ -376,8 +376,8 @@ func loadEntriesFromWapp(path string, dtt payload.Transcoder) ([]regapi.Entry, e
 	return reader.GetEntries()
 }
 
-// loadEntriesToRegistry loads entries into the registry using LoadState to restore from history.
-func loadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger *zap.Logger) error {
+// LoadEntriesToRegistry loads entries into the registry using LoadState to restore from history.
+func LoadEntriesToRegistry(ctx context.Context, entries []regapi.Entry, logger *zap.Logger) error {
 	if err := waitForListenerReadiness(ctx, logger); err != nil {
 		return err
 	}

@@ -37,6 +37,7 @@ var kindMapping = map[registry.Kind]registry.Kind{
 	luaapi.Function: luaapi.FunctionBytecode,
 	luaapi.Library:  luaapi.LibraryBytecode,
 	luaapi.Process:  luaapi.ProcessBytecode,
+	luaapi.Workflow: luaapi.WorkflowBytecode,
 }
 
 type bytecodeStage struct {

@@ -20,6 +20,7 @@ func TestKindConstants(t *testing.T) {
 		{"storage memory", StorageMemory, "env.storage.memory"},
 		{"storage file", StorageFile, "env.storage.file"},
 		{"storage os", StorageOS, "env.storage.os"},
+		{"storage static", StorageStatic, "env.storage.static"},
 		{"storage router", StorageRouter, "env.storage.router"},
 		{"variable", Variable, "env.variable"},
 	}
@@ -188,6 +189,52 @@ func TestOSStorageConfig_MarshalUnmarshal(t *testing.T) {
 
 func TestOSStorageConfig_Validate(t *testing.T) {
 	config := OSStorageConfig{}
+	assert.NoError(t, config.Validate())
+}
+
+func TestStaticStorageConfig_MarshalUnmarshal(t *testing.T) {
+	tests := []struct {
+		config  StaticStorageConfig
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "with values",
+			config: StaticStorageConfig{
+				Meta: attrs.Bag{"type": "static"},
+				Values: map[string]string{
+					"PUBLIC_API_HOST": "https://example.test",
+					"APP_ENV":         "production",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:    "empty config",
+			config:  StaticStorageConfig{},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(&tt.config)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+
+			var decoded StaticStorageConfig
+			err = json.Unmarshal(data, &decoded)
+			require.NoError(t, err)
+			assert.Equal(t, tt.config, decoded)
+		})
+	}
+}
+
+func TestStaticStorageConfig_Validate(t *testing.T) {
+	config := StaticStorageConfig{}
 	assert.NoError(t, config.Validate())
 }
 

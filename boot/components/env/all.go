@@ -7,6 +7,7 @@ func All() []boot.Component {
 		Memory(),
 		File(),
 		OS(),
+		Static(),
 		Composite(),
 		Variable(),
 	}

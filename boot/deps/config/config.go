@@ -27,6 +27,7 @@ type ModuleConfig struct {
 	Authors      []string            `yaml:"authors,omitempty"`
 	Include      []string            `yaml:"include,omitempty"`
 	Exclude      []string            `yaml:"exclude,omitempty"`
+	Metadata     map[string]any      `yaml:"metadata,omitempty"`
 	Embed        []string            `yaml:"embed,omitempty"`
 }
 

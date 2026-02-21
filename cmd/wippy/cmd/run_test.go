@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/boot"
 	"go.uber.org/zap"
 )
 
@@ -80,4 +81,52 @@ func TestLoadRuntimeConfigAppliesOverridesAndCLISettings(t *testing.T) {
 	overrideCfg := cfg.Sub("override")
 	require.NotNil(t, overrideCfg)
 	require.Equal(t, "true", overrideCfg.GetString("app:test:enabled", ""))
+}
+
+func TestLoadRuntimeConfigWithDefaultsAppliesPackDefaultsWhenFileMissingKey(t *testing.T) {
+	tempDir := t.TempDir()
+	cfgPath := filepath.Join(tempDir, "wippy.yaml")
+	cfgBody := []byte("version: \"1.0\"\n")
+	require.NoError(t, os.WriteFile(cfgPath, cfgBody, 0o644))
+
+	prevConfigFile := configFile
+	prevProfiler := profiler
+	configFile = cfgPath
+	profiler = false
+	t.Cleanup(func() {
+		configFile = prevConfigFile
+		profiler = prevProfiler
+	})
+
+	runtimeDefaults := boot.NewConfig(boot.WithSection("lsp", map[string]any{
+		"enabled": true,
+	}))
+
+	cfg, err := loadRuntimeConfigWithDefaults(nil, zap.NewNop(), runtimeDefaults)
+	require.NoError(t, err)
+	require.True(t, cfg.GetBool("lsp.enabled", false))
+}
+
+func TestLoadRuntimeConfigWithDefaultsFileOverridesPackDefaults(t *testing.T) {
+	tempDir := t.TempDir()
+	cfgPath := filepath.Join(tempDir, "wippy.yaml")
+	cfgBody := []byte("version: \"1.0\"\nlsp:\n  enabled: false\n")
+	require.NoError(t, os.WriteFile(cfgPath, cfgBody, 0o644))
+
+	prevConfigFile := configFile
+	prevProfiler := profiler
+	configFile = cfgPath
+	profiler = false
+	t.Cleanup(func() {
+		configFile = prevConfigFile
+		profiler = prevProfiler
+	})
+
+	runtimeDefaults := boot.NewConfig(boot.WithSection("lsp", map[string]any{
+		"enabled": true,
+	}))
+
+	cfg, err := loadRuntimeConfigWithDefaults(nil, zap.NewNop(), runtimeDefaults)
+	require.NoError(t, err)
+	require.False(t, cfg.GetBool("lsp.enabled", true))
 }
