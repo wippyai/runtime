@@ -308,7 +308,8 @@ type ModuleLoadPath struct {
 }
 
 // GetModuleLoadPaths returns load paths annotated with module ownership.
-// App source and replacement paths have empty Module/Version fields.
+// App source has empty Module/Version.
+// Replacement paths carry Module from replacement "from" and empty Version.
 func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 	lockDir := filepath.Dir(l.path)
 	paths := make([]ModuleLoadPath, 0, 1+len(l.data.Replacements)+len(l.data.Modules))

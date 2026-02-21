@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -142,6 +143,12 @@ func TestIsProcessKind(t *testing.T) {
 	}
 }
 
+func TestIsHubModuleRef_WithUppercaseWappExtension(t *testing.T) {
+	if got := isHubModuleRef("dockerio.WAPP"); got {
+		t.Fatalf("isHubModuleRef returned true for .WAPP path")
+	}
+}
+
 func TestBootstrapPackRuntimeWithDefaults_Harness(t *testing.T) {
 	t.Run("applies runtime defaults when config key is missing", func(t *testing.T) {
 		tmpDir := t.TempDir()
@@ -242,6 +249,70 @@ func TestLoadPackEntries_RawLoadSkipsLinkPipeline(t *testing.T) {
 	}
 }
 
+func TestLoadPackEntries_RejectsUnsupportedExtension(t *testing.T) {
+	embedReg := embedpkg.NewRegistry()
+	defer func() { _ = embedReg.Close() }()
+
+	_, err := loadPackEntries([]string{"./not-a-pack.yaml"}, embedReg)
+	if err == nil {
+		t.Fatal("expected error for unsupported pack extension")
+	}
+	if !strings.Contains(err.Error(), `unsupported pack format "./not-a-pack.yaml"`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadPackEntries_AcceptsUppercaseExtension(t *testing.T) {
+	tmpDir := t.TempDir()
+	packPath := createTestPackFile(t, tmpDir, "uppercase-ext", []wapp.Entry{
+		{
+			ID:   wapp.NewID("app", "runner"),
+			Kind: "process.lua",
+			Meta: wapp.Metadata{
+				"command": map[string]any{"name": "run"},
+			},
+			Data: map[string]any{"source": "return {}"},
+		},
+	})
+	upperPath := filepath.Join(tmpDir, "UPPER.WAPP")
+	if err := os.Rename(packPath, upperPath); err != nil {
+		t.Fatalf("rename pack file: %v", err)
+	}
+
+	embedReg := embedpkg.NewRegistry()
+	defer func() { _ = embedReg.Close() }()
+
+	packEntries, err := loadPackEntries([]string{upperPath}, embedReg)
+	if err != nil {
+		t.Fatalf("loadPackEntries failed: %v", err)
+	}
+	if len(packEntries) != 1 {
+		t.Fatalf("entry count = %d, want 1", len(packEntries))
+	}
+}
+
+func TestLoadPackEntries_RegisterErrorIncludesPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	packPath := createTestPackFile(t, tmpDir, "register-failure", []wapp.Entry{
+		{
+			ID:   wapp.NewID("app", "runner"),
+			Kind: "process.lua",
+			Data: map[string]any{"source": "return {}"},
+		},
+	})
+
+	_, err := loadPackEntries([]string{packPath}, failingPackRegistry{err: errors.New("boom")})
+	if err == nil {
+		t.Fatal("expected register error")
+	}
+	if !strings.Contains(err.Error(), "register embed resources for") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(err.Error(), packPath) {
+		t.Fatalf("error does not include pack path: %v", err)
+	}
+}
+
 func TestLoadPackEntries_MultiPackOrder(t *testing.T) {
 	tmpDir := t.TempDir()
 	depPack := createTestPackFile(t, tmpDir, "dep", []wapp.Entry{
@@ -302,4 +373,12 @@ func createTestPackFile(t *testing.T, dir, name string, entries []wapp.Entry) st
 	}
 
 	return path
+}
+
+type failingPackRegistry struct {
+	err error
+}
+
+func (f failingPackRegistry) Register(_ string, _ *wapp.Reader, _ *os.File) error {
+	return f.err
 }

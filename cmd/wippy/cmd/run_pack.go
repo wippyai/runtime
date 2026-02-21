@@ -107,7 +107,7 @@ func selectPackCommand(commands []struct {
 // isHubModuleRef identifies inputs that should be treated as hub references
 // instead of local files/paths.
 func isHubModuleRef(s string) bool {
-	if strings.HasSuffix(s, ".wapp") {
+	if hasWappExtension(s) {
 		return false
 	}
 
@@ -116,6 +116,10 @@ func isHubModuleRef(s string) bool {
 	}
 
 	return hubModulePattern.MatchString(s)
+}
+
+func hasWappExtension(path string) bool {
+	return strings.EqualFold(filepath.Ext(path), ".wapp")
 }
 
 // downloadHubModule resolves dependency graph for a hub reference, downloads
@@ -442,7 +446,7 @@ func loadPackEntries(packFiles []string, embedReg packReaderRegistry) ([]registr
 	packEntries := make([]registry.Entry, 0)
 
 	for _, packFile := range packFiles {
-		if filepath.Ext(packFile) != ".wapp" {
+		if !hasWappExtension(packFile) {
 			return nil, fmt.Errorf("unsupported pack format %q", packFile)
 		}
 
