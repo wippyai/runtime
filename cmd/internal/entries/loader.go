@@ -274,16 +274,6 @@ func LoadEntriesFromPaths(ctx context.Context, paths []string, logger *zap.Logge
 	return entries, nil
 }
 
-// LoadEntriesFromModuleLoadPaths loads entries from lock module paths with module metadata.
-// Module-owned entries are tagged with meta.module/meta.module_version before pipeline stages.
-func LoadEntriesFromModuleLoadPaths(
-	ctx context.Context,
-	modulePaths []lock.ModuleLoadPath,
-	logger *zap.Logger,
-) ([]regapi.Entry, error) {
-	return loadEntriesWithModuleMeta(ctx, modulePaths, logger)
-}
-
 // loadEntriesWithModuleMeta loads entries from annotated paths and tags module entries
 // with their owning module name and version. App source entries remain untagged.
 func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoadPath, logger *zap.Logger) ([]regapi.Entry, error) {

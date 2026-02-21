@@ -12,6 +12,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	bootpkg "github.com/wippyai/runtime/boot"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
@@ -320,10 +321,30 @@ func runFromPackFile(cmd *cobra.Command, packFile string, args []string) error {
 	}
 	defer embedReg.Close()
 
-	packEntries, err := loadPackEntries([]string{packFile}, embedReg)
+	transcoder := payload.GetTranscoder(ctx)
+	if transcoder == nil {
+		return ErrTranscoderNotFound
+	}
+
+	file, err := os.Open(packFile)
 	if err != nil {
-		runLogger.Error("failed to load entries from pack", zap.Error(err))
-		return NewLoadEntriesError(packFile, err)
+		return NewOpenPackFileError(packFile, err)
+	}
+
+	packReader, err := entries.NewPackReader(file, transcoder)
+	if err != nil {
+		file.Close()
+		return NewCreatePackReaderError(packFile, err)
+	}
+
+	if err := embedReg.Register(packFile, packReader.Reader(), file); err != nil {
+		file.Close()
+		return fmt.Errorf("register embed resources: %w", err)
+	}
+
+	packEntries, err := packReader.GetEntries()
+	if err != nil {
+		return NewReadEntriesError(packFile, err)
 	}
 
 	runLogger.Info("loaded entries from pack", zap.Int("count", len(packEntries)))
@@ -359,10 +380,32 @@ func runFromPackFiles(cmd *cobra.Command, packFiles []string, args []string) err
 	}
 	defer embedReg.Close()
 
-	packEntries, err := loadPackEntries(packFiles, embedReg)
+	packEntries, err := entries.LoadEntriesFromPaths(ctx, packFiles, runLogger)
 	if err != nil {
 		runLogger.Error("failed to load entries from packs", zap.Error(err))
 		return NewLoadEntriesError("pack files", err)
+	}
+
+	// Register .wapp pack readers with embed registry for fs.embed support.
+	for _, pf := range packFiles {
+		if filepath.Ext(pf) != ".wapp" {
+			continue
+		}
+		f, err := os.Open(pf)
+		if err != nil {
+			return fmt.Errorf("open pack for embed: %w", err)
+		}
+
+		reader, err := wapp.NewReader(f)
+		if err != nil {
+			f.Close()
+			return fmt.Errorf("read pack for embed: %w", err)
+		}
+
+		if err := embedReg.Register(pf, reader, f); err != nil {
+			f.Close()
+			return fmt.Errorf("register embed resources: %w", err)
+		}
 	}
 
 	runLogger.Info("loaded entries from packs", zap.Int("count", len(packEntries)))
@@ -390,7 +433,7 @@ func runPackEntries(
 		return NewStartComponentsError(err)
 	}
 
-	if err := applyPackEntries(appCtx, packEntries, logger); err != nil {
+	if err := entries.LoadEntriesToRegistry(appCtx, packEntries, logger); err != nil {
 		return err
 	}
 
@@ -426,49 +469,4 @@ func runPackEntries(
 	}
 
 	return nil
-}
-
-// applyPackEntries restores packed entries as baseline state.
-// Pack execution uses snapshot semantics and does not perform dependency expansion.
-func applyPackEntries(ctx context.Context, packEntries []registry.Entry, logger *zap.Logger) error {
-	return entries.LoadEntriesToRegistry(ctx, packEntries, logger)
-}
-
-type packReaderRegistry interface {
-	Register(packPath string, reader *wapp.Reader, file *os.File) error
-}
-
-func loadPackEntries(packFiles []string, embedReg packReaderRegistry) ([]registry.Entry, error) {
-	packEntries := make([]registry.Entry, 0)
-
-	for _, packFile := range packFiles {
-		if filepath.Ext(packFile) != ".wapp" {
-			return nil, fmt.Errorf("unsupported pack format %q", packFile)
-		}
-
-		file, err := os.Open(packFile)
-		if err != nil {
-			return nil, fmt.Errorf("open pack %s: %w", packFile, err)
-		}
-
-		packReader, err := entries.NewPackReader(file, nil)
-		if err != nil {
-			file.Close()
-			return nil, fmt.Errorf("read pack %s: %w", packFile, err)
-		}
-
-		if err := embedReg.Register(packFile, packReader.Reader(), file); err != nil {
-			file.Close()
-			return nil, fmt.Errorf("register embed resources for %s: %w", packFile, err)
-		}
-
-		entries, err := packReader.GetEntries()
-		if err != nil {
-			return nil, fmt.Errorf("read entries from %s: %w", packFile, err)
-		}
-
-		packEntries = append(packEntries, entries...)
-	}
-
-	return packEntries, nil
 }
