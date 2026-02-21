@@ -181,8 +181,8 @@ func (e *downloadRequestError) Unwrap() error {
 }
 
 type downloadStatusError struct {
-	statusCode int
 	body       string
+	statusCode int
 }
 
 func (e *downloadStatusError) Error() string {
