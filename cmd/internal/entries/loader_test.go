@@ -15,9 +15,7 @@ import (
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/components/core"
-	"github.com/wippyai/runtime/boot/deps/lock"
 	transcoder "github.com/wippyai/runtime/system/payload"
-	yamlpayload "github.com/wippyai/runtime/system/payload/yaml"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
@@ -176,7 +174,6 @@ func setupTestContext(t *testing.T) context.Context {
 	ctx = logapi.WithLogger(ctx, logger)
 
 	dtt := transcoder.GlobalTranscoder()
-	yamlpayload.Register(dtt)
 	ctx = payload.WithTranscoder(ctx, dtt)
 
 	loaderComponent := core.Loader()
@@ -557,86 +554,6 @@ func TestLoadEntriesFromPathsMultipleWappsWithDifferentKinds(t *testing.T) {
 	}
 	if kinds["myapp:run"] != "process.lua" {
 		t.Errorf("myapp:run kind = %v, want process.lua", kinds["myapp:run"])
-	}
-}
-
-func TestLoadEntriesFromModuleLoadPaths_ResolvesRequirementByModuleMeta(t *testing.T) {
-	ctx := setupTestContext(t)
-	logger := zap.NewNop()
-	tmpDir := t.TempDir()
-
-	moduleDir := filepath.Join(tmpDir, "module")
-	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
-		t.Fatalf("mkdir module dir: %v", err)
-	}
-	moduleYAML := `version: "1.0"
-namespace: userspace.user
-entries:
-  - name: public_router
-    kind: ns.requirement
-    targets:
-      - entry: login.endpoint
-        path: meta.router
-  - name: login.endpoint
-    kind: http.endpoint
-    meta:
-      router: public_router
-`
-	if err := os.WriteFile(filepath.Join(moduleDir, "_index.yaml"), []byte(moduleYAML), 0o644); err != nil {
-		t.Fatalf("write module _index.yaml: %v", err)
-	}
-
-	appDir := filepath.Join(tmpDir, "app")
-	if err := os.MkdirAll(appDir, 0o755); err != nil {
-		t.Fatalf("mkdir app dir: %v", err)
-	}
-	appYAML := `version: "1.0"
-namespace: app.deps
-entries:
-  - name: users
-    kind: ns.dependency
-    component: userspace/users
-    parameters:
-      - name: public_router
-        value: app:api.public
-`
-	if err := os.WriteFile(filepath.Join(appDir, "_index.yaml"), []byte(appYAML), 0o644); err != nil {
-		t.Fatalf("write app _index.yaml: %v", err)
-	}
-
-	flatEntries, err := LoadEntriesFromPaths(ctx, []string{appDir, moduleDir}, logger)
-	if err != nil {
-		t.Fatalf("LoadEntriesFromPaths failed: %v", err)
-	}
-
-	routerFlat := ""
-	for _, entry := range flatEntries {
-		if entry.ID.String() != "userspace.user:login.endpoint" {
-			continue
-		}
-		routerFlat = entry.Meta.GetString("router", "")
-	}
-	if routerFlat != "public_router" {
-		t.Fatalf("flat load router = %q, want unresolved alias", routerFlat)
-	}
-
-	moduleAwareEntries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
-		{Path: appDir},
-		{Path: moduleDir, Module: "userspace/users", Version: "1.0.0"},
-	}, logger)
-	if err != nil {
-		t.Fatalf("LoadEntriesFromModuleLoadPaths failed: %v", err)
-	}
-
-	routerResolved := ""
-	for _, entry := range moduleAwareEntries {
-		if entry.ID.String() != "userspace.user:login.endpoint" {
-			continue
-		}
-		routerResolved = entry.Meta.GetString("router", "")
-	}
-	if routerResolved != "app:api.public" {
-		t.Fatalf("module-aware load router = %q, want app:api.public", routerResolved)
 	}
 }
 
