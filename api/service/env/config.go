@@ -13,6 +13,7 @@ const (
 	StorageMemory registry.Kind = "env.storage.memory"
 	StorageFile   registry.Kind = "env.storage.file"
 	StorageOS     registry.Kind = "env.storage.os"
+	StorageStatic registry.Kind = "env.storage.static"
 	StorageRouter registry.Kind = "env.storage.router"
 	Variable      registry.Kind = "env.variable"
 )
@@ -34,6 +35,12 @@ type FileStorageConfig struct {
 // OSStorageConfig provides configuration for OS environment variable storage.
 type OSStorageConfig struct {
 	Meta attrs.Bag `json:"meta"`
+}
+
+// StaticStorageConfig provides configuration for static map-backed environment variable storage.
+type StaticStorageConfig struct {
+	Meta   attrs.Bag         `json:"meta"`
+	Values map[string]string `json:"values"`
 }
 
 // RouterStorageConfig provides configuration for routing environment variable requests across multiple storages.
@@ -68,6 +75,10 @@ func (c *FileStorageConfig) Validate() error {
 }
 
 func (c *OSStorageConfig) Validate() error {
+	return nil
+}
+
+func (c *StaticStorageConfig) Validate() error {
 	return nil
 }
 

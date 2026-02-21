@@ -126,13 +126,13 @@ func Engine() boot.Component {
 			)
 			libraries := library.NewManager(logger.Named("lua.lib"), codeManager, fsReg)
 			processes := proclua.NewManager(logger.Named("lua.process"), codeManager, bus, fsReg, processFactory)
-			workflows := workflowlua.NewManager(logger.Named("lua.workflow"), codeManager, bus, processFactory)
+			workflows := workflowlua.NewManager(logger.Named("lua.workflow"), codeManager, bus, fsReg, processFactory)
 
 			handlers.Register(reghandler.NewTransactionHandler(codeManager))
 			handlers.Register(component.NewHandler("function.lua.**", funcs))
 			handlers.Register(component.NewHandler("library.lua.**", libraries))
 			handlers.Register(component.NewHandler("process.lua.**", processes))
-			handlers.Register(component.NewHandler("workflow.lua", workflows))
+			handlers.Register(component.NewHandler("workflow.lua.**", workflows))
 
 			return ctx, nil
 		},

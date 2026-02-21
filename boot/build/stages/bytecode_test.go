@@ -139,6 +139,40 @@ return { run = run }
 	assert.Equal(t, "run", data["method"])
 }
 
+func TestBytecode_CompileWorkflow(t *testing.T) {
+	ctx, _ := setupTestContext()
+	ClearBytecodeResource()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "wf"),
+			Kind: luaapi.Workflow,
+			Data: payload.New(map[string]any{
+				"source": `
+local function main(ctx)
+    return { ok = true }
+end
+return { main = main }
+`,
+				"method": "main",
+			}),
+		},
+	}
+
+	stage := Bytecode()
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	entry := entries[0]
+	assert.Equal(t, luaapi.WorkflowBytecode, entry.Kind)
+
+	data := entry.Data.Data().(map[string]any)
+	assert.Equal(t, BytecodeFSID, data["fs"])
+	assert.Equal(t, "app/wf.luac", data["path"])
+	assert.NotEmpty(t, data["hash"])
+	assert.Equal(t, "main", data["method"])
+}
+
 func TestBytecode_MultipleEntries(t *testing.T) {
 	ctx, _ := setupTestContext()
 	ClearBytecodeResource()
