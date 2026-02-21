@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/cmd/internal/shutdown"
@@ -94,4 +95,74 @@ func TestIsProcessKind(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBootstrapPackRuntimeWithDefaults_Harness(t *testing.T) {
+	t.Run("applies runtime defaults when config key is missing", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		cfgPath := filepath.Join(tmpDir, "wippy.yaml")
+		if err := os.WriteFile(cfgPath, []byte("version: \"1.0\"\n"), 0o644); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+
+		prevConfigFile := configFile
+		configFile = cfgPath
+		t.Cleanup(func() {
+			configFile = prevConfigFile
+		})
+
+		runtimeDefaults := boot.NewConfig(boot.WithSection("lsp", map[string]any{
+			"enabled": true,
+		}))
+
+		ctx, _, _, embedReg, err := bootstrapPackRuntimeWithDefaults(nil, zap.NewNop(), runtimeDefaults)
+		if err != nil {
+			t.Fatalf("bootstrap pack runtime: %v", err)
+		}
+		t.Cleanup(func() {
+			_ = embedReg.Close()
+		})
+
+		cfg := boot.GetConfig(ctx)
+		if cfg == nil {
+			t.Fatal("missing boot config in context")
+		}
+		if got := cfg.GetBool("lsp.enabled", false); !got {
+			t.Fatalf("lsp.enabled = %v, want true", got)
+		}
+	})
+
+	t.Run("config file overrides runtime defaults", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		cfgPath := filepath.Join(tmpDir, "wippy.yaml")
+		if err := os.WriteFile(cfgPath, []byte("version: \"1.0\"\nlsp:\n  enabled: false\n"), 0o644); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+
+		prevConfigFile := configFile
+		configFile = cfgPath
+		t.Cleanup(func() {
+			configFile = prevConfigFile
+		})
+
+		runtimeDefaults := boot.NewConfig(boot.WithSection("lsp", map[string]any{
+			"enabled": true,
+		}))
+
+		ctx, _, _, embedReg, err := bootstrapPackRuntimeWithDefaults(nil, zap.NewNop(), runtimeDefaults)
+		if err != nil {
+			t.Fatalf("bootstrap pack runtime: %v", err)
+		}
+		t.Cleanup(func() {
+			_ = embedReg.Close()
+		})
+
+		cfg := boot.GetConfig(ctx)
+		if cfg == nil {
+			t.Fatal("missing boot config in context")
+		}
+		if got := cfg.GetBool("lsp.enabled", true); got {
+			t.Fatalf("lsp.enabled = %v, want false", got)
+		}
+	})
 }

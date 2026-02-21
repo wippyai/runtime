@@ -35,8 +35,6 @@ func captureStdout(t *testing.T, fn func()) string {
 }
 
 func TestPrintReadmeJSON(t *testing.T) {
-	t.Parallel()
-
 	ref := &moduleRef{Org: "wippy", Module: "terminal"}
 	info := &hub.ReadmeInfo{
 		Content:  "# Terminal",
@@ -59,8 +57,6 @@ func TestPrintReadmeJSON(t *testing.T) {
 }
 
 func TestPrintReadmeText_WithMetadata(t *testing.T) {
-	t.Parallel()
-
 	ref := &moduleRef{Org: "wippy", Module: "terminal"}
 	info := &hub.ReadmeInfo{
 		Content:  "# Heading\nline\n",
@@ -80,8 +76,6 @@ func TestPrintReadmeText_WithMetadata(t *testing.T) {
 }
 
 func TestPrintReadmeText_AddsTrailingNewlineWhenMissing(t *testing.T) {
-	t.Parallel()
-
 	ref := &moduleRef{Org: "wippy", Module: "terminal"}
 	info := &hub.ReadmeInfo{Content: "no newline"}
 
