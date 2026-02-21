@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/cmd/internal/shutdown"
+	embedpkg "github.com/wippyai/runtime/service/fs/embed"
+	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
 
@@ -72,6 +75,48 @@ func TestRunPackEntries_LoadStatePathSkipsDependencyExpansion(t *testing.T) {
 	}
 	if strings.Contains(errText, "failed to expand changeset") {
 		t.Fatalf("unexpected dependency expansion error: %v", err)
+	}
+}
+
+func TestRunFromPackFiles_SnapshotLoadPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "wippy.yaml")
+	if err := os.WriteFile(cfgPath, []byte("version: \"1.0\"\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	prevConfigFile := configFile
+	configFile = cfgPath
+	t.Cleanup(func() {
+		configFile = prevConfigFile
+	})
+
+	packPath := createTestPackFile(t, tmpDir, "snapshot", []wapp.Entry{
+		{
+			ID:   wapp.NewID("test", "broken.requirement"),
+			Kind: regapi.NamespaceRequirement,
+			Data: "not-a-requirement-definition",
+		},
+		{
+			ID:   wapp.NewID("app", "runner"),
+			Kind: "process.lua",
+			Meta: wapp.Metadata{
+				"command": map[string]any{"name": "run"},
+			},
+			Data: map[string]any{"source": "return {}"},
+		},
+	})
+
+	err := runFromPackFiles(nil, []string{packPath}, []string{"missing"})
+	if err == nil {
+		t.Fatal("expected command lookup error")
+	}
+	errText := err.Error()
+	if !strings.Contains(errText, `command "missing" not found in pack`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(errText, "failed to execute pipeline") || strings.Contains(errText, "failed to decode requirement") {
+		t.Fatalf("unexpected re-link/pipeline error: %v", err)
 	}
 }
 
@@ -165,4 +210,96 @@ func TestBootstrapPackRuntimeWithDefaults_Harness(t *testing.T) {
 			t.Fatalf("lsp.enabled = %v, want false", got)
 		}
 	})
+}
+
+func TestLoadPackEntries_RawLoadSkipsLinkPipeline(t *testing.T) {
+	tmpDir := t.TempDir()
+	packPath := createTestPackFile(t, tmpDir, "raw-load", []wapp.Entry{
+		{
+			ID:   wapp.NewID("test", "broken.requirement"),
+			Kind: regapi.NamespaceRequirement,
+			Data: "not-a-requirement-definition",
+		},
+		{
+			ID:   wapp.NewID("app", "runner"),
+			Kind: "process.lua",
+			Meta: wapp.Metadata{
+				"command": map[string]any{"name": "run"},
+			},
+			Data: map[string]any{"source": "return {}"},
+		},
+	})
+
+	embedReg := embedpkg.NewRegistry()
+	defer func() { _ = embedReg.Close() }()
+
+	packEntries, err := loadPackEntries([]string{packPath}, embedReg)
+	if err != nil {
+		t.Fatalf("loadPackEntries failed: %v", err)
+	}
+	if len(packEntries) != 2 {
+		t.Fatalf("entry count = %d, want 2", len(packEntries))
+	}
+}
+
+func TestLoadPackEntries_MultiPackOrder(t *testing.T) {
+	tmpDir := t.TempDir()
+	depPack := createTestPackFile(t, tmpDir, "dep", []wapp.Entry{
+		{
+			ID:   wapp.NewID("app", "config"),
+			Kind: "state",
+			Data: map[string]any{"value": "dep"},
+		},
+	})
+	mainPack := createTestPackFile(t, tmpDir, "main", []wapp.Entry{
+		{
+			ID:   wapp.NewID("app", "config"),
+			Kind: "state",
+			Data: map[string]any{"value": "main"},
+		},
+	})
+
+	embedReg := embedpkg.NewRegistry()
+	defer func() { _ = embedReg.Close() }()
+
+	packEntries, err := loadPackEntries([]string{depPack, mainPack}, embedReg)
+	if err != nil {
+		t.Fatalf("loadPackEntries failed: %v", err)
+	}
+	if len(packEntries) != 2 {
+		t.Fatalf("entry count = %d, want 2", len(packEntries))
+	}
+
+	first, ok := packEntries[0].Data.Data().(map[string]any)
+	if !ok {
+		t.Fatalf("first data type = %T, want map[string]any", packEntries[0].Data.Data())
+	}
+	second, ok := packEntries[1].Data.Data().(map[string]any)
+	if !ok {
+		t.Fatalf("second data type = %T, want map[string]any", packEntries[1].Data.Data())
+	}
+
+	if first["value"] != "dep" {
+		t.Fatalf("first entry value = %v, want dep", first["value"])
+	}
+	if second["value"] != "main" {
+		t.Fatalf("second entry value = %v, want main", second["value"])
+	}
+}
+
+func createTestPackFile(t *testing.T, dir, name string, entries []wapp.Entry) string {
+	t.Helper()
+
+	var buf bytes.Buffer
+	writer := wapp.NewWriter()
+	if err := writer.PackEntries(wapp.Metadata{"name": name}, entries, &buf); err != nil {
+		t.Fatalf("pack entries: %v", err)
+	}
+
+	path := filepath.Join(dir, name+".wapp")
+	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+		t.Fatalf("write pack file: %v", err)
+	}
+
+	return path
 }
