@@ -307,7 +307,15 @@ func runFromPackFile(cmd *cobra.Command, packFile string, args []string) error {
 
 	logger.Info("loading pack file", zap.String("file", packFile), zap.String("memory_limit", formatBytes(memLimit)))
 
-	ctx, loader, runLogger, embedReg, err := bootstrapPackRuntime(cmd, logger)
+	runtimeDefaults, err := loadPackRuntimeDefaults(packFile, logger)
+	if err != nil {
+		return fmt.Errorf("failed to load runtime defaults from pack metadata: %w", err)
+	}
+	if runtimeDefaults != nil {
+		logger.Info("applied runtime defaults from pack metadata", zap.Int("setting_count", len(runtimeDefaults.Keys())))
+	}
+
+	ctx, loader, runLogger, embedReg, err := bootstrapPackRuntimeWithDefaults(cmd, logger, runtimeDefaults)
 	if err != nil {
 		return err
 	}
@@ -358,7 +366,15 @@ func runFromPackFiles(cmd *cobra.Command, packFiles []string, args []string) err
 
 	logger.Info("loading pack files", zap.Strings("files", packFiles), zap.String("memory_limit", formatBytes(memLimit)))
 
-	ctx, loader, runLogger, embedReg, err := bootstrapPackRuntime(cmd, logger)
+	runtimeDefaults, err := loadPackRuntimeDefaultsFromFiles(packFiles, logger)
+	if err != nil {
+		return fmt.Errorf("failed to load runtime defaults from pack metadata: %w", err)
+	}
+	if runtimeDefaults != nil {
+		logger.Info("applied runtime defaults from pack metadata", zap.Int("setting_count", len(runtimeDefaults.Keys())))
+	}
+
+	ctx, loader, runLogger, embedReg, err := bootstrapPackRuntimeWithDefaults(cmd, logger, runtimeDefaults)
 	if err != nil {
 		return err
 	}

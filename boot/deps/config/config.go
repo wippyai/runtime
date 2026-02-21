@@ -28,6 +28,7 @@ type ModuleConfig struct {
 	Include      []string            `yaml:"include,omitempty"`
 	Exclude      []string            `yaml:"exclude,omitempty"`
 	Embed        []string            `yaml:"embed,omitempty"`
+	Metadata     map[string]any      `yaml:"metadata,omitempty"`
 }
 
 func Load(dir string) (*ModuleConfig, error) {
