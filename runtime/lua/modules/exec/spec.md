@@ -19,7 +19,7 @@ Returned by `process:stdout_stream()` and `process:stderr_stream()` for reading 
 | read | (size?: integer) | string, error | Reads up to size bytes, yields until data available |
 | close | () | boolean, error | Closes the stream |
 
-See: `wippy/runtime/lua/modules/stream/` (no spec yet)
+See: `runtime/lua/modules/stream/` (no spec yet)
 
 ## Functions
 

@@ -19,7 +19,7 @@ Returned by requests with `stream = true` option.
 | read | (size?: integer) | string, error | yields until data read or EOF |
 | close | () | boolean, error | yields until closed |
 
-See: `wippy/runtime/lua/modules/stream/`
+See: `runtime/lua/modules/stream/`
 
 ## Functions
 

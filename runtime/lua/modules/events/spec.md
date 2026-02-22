@@ -19,7 +19,7 @@ Subscriptions return channels for receiving events.
 | receive | () | value, ok: boolean | Blocks until value available. ok=false when closed |
 | case_receive | () | case | Creates receive case for channel.select |
 
-See: `wippy/runtime/lua/engine/spec.md`
+See: `runtime/lua/engine/spec.md`
 
 ### Subscription
 

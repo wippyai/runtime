@@ -1710,7 +1710,7 @@ func TestSubscribeMultipleTopicsPartialUnsubscribe(t *testing.T) {
 	t.Log("Multiple topics partial unsubscribe test passed")
 }
 
-// V1 Compatibility Select Tests - ported from /runtime/lua/engine/channel/select_test.go
+// V1 compatibility select tests ported from legacy channel select coverage.
 
 // TestSelectBlockedReceiveThenSend tests select blocking on receive then sender provides value
 func TestSelectBlockedReceiveThenSend(t *testing.T) {
