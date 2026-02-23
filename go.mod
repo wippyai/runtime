@@ -30,7 +30,7 @@ require (
 	github.com/hashicorp/go-msgpack/v2 v2.1.5
 	github.com/hashicorp/memberlist v0.5.4
 	github.com/kaptinlin/jsonschema v0.7.1
-	github.com/klauspost/compress v1.18.1
+	github.com/klauspost/compress v1.18.4
 	github.com/lib/pq v1.10.9
 	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/microcosm-cc/bluemonday v1.0.27
