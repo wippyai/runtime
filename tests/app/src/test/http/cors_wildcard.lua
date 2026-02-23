@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: CORS wildcard subdomain matching
 local assert = require("assert2")
 

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker: Use inbox, events, and listen together
 local time = require("time")
 

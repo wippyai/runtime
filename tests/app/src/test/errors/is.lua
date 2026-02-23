@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: errors.is checks error kind
 local assert = require("assert2")
 

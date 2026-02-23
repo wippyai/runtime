@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MPL-2.0
+
 organization: wippy
 module: dummy
 version: 0.1.2

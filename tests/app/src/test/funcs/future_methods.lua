@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Future methods (is_complete, result, error)
 local assert = require("assert2")
 local funcs = require("funcs")

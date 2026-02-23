@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 package lock
 
 // File represents the structure of a wippy.lock file.

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Stress case: fluent builder methods using metatable + colon dispatch.
 -- This should type-check without arity errors on self:execute(opts).
 

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: errors.new creates structured errors
 local assert = require("assert2")
 

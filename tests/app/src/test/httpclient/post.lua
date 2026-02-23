@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: HTTP POST requests
 local assert = require("assert2")
 local http = require("http_client")

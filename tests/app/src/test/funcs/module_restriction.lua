@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test that verifies module restrictions work correctly.
 -- Functions should only be able to require modules declared in their modules list.
 

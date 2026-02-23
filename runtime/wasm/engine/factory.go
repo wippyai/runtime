@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package engine provides WASM process integration for the scheduler.
 package engine
 

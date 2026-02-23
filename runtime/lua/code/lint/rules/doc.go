@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package rules contains built-in lint rules for Lua code analysis.
 //
 // Adding a new rule:

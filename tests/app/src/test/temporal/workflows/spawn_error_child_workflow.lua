@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Workflow that spawns a child that errors and captures the error
 
 local function main(input)

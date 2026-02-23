@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package app provides application initialization for wippy CLI commands.
 package app
 

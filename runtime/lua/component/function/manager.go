@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package function provides Lua function management.
 // Uses pluggable pool schedulers for different workload patterns.
 package function

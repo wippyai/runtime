@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Combine inbox, events, and listen in single select
 local assert = require("assert2")
 local time = require("time")

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Directory iteration
 local assert = require("assert2")
 

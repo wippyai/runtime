@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Chain root: spawns first link in chain, waits for all to be ready, then errors
 local function main()
 	local events_ch = process.events()

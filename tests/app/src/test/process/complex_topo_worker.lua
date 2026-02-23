@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Tests complex topology: grandparent → child → grandchild
 -- When grandparent dies, entire tree should die via LINK_DOWN cascade
 local time = require("time")

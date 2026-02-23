@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package processfunc provides a bridge between process entries and function handlers.
 package processfunc
 

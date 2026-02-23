@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # system
 
 System memory, GC, runtime, and process information. Nondeterministic, process.

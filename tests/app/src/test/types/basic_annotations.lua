@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local function main(): boolean
 	local x: number = 42
 	local y: string = "hello"

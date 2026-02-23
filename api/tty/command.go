@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package tty provides terminal I/O command types for the dispatcher system.
 package tty
 

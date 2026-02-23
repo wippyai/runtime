@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Verify process that calls error() dies properly
 local assert = require("assert2")
 local time = require("time")

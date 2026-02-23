@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: process.listen() default behavior returns raw payloads
 -- This is the expected behavior for the gov client pattern
 

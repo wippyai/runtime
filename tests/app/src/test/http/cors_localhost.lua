@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: CORS localhost origin matching with different ports
 local assert = require("assert2")
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package logs provides a structured logging system with context integration.
 package logs
 

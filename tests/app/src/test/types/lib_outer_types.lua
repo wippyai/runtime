@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local inner = require("inner")
 
 type Label = string @min_len(1) @max_len(8)

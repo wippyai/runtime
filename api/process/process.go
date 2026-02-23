@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package process provides process abstractions for schedulable execution.
 package process
 

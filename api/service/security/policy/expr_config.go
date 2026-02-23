@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 package policy
 
 import "github.com/wippyai/runtime/api/registry"

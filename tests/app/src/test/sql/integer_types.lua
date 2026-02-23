@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: sql integer type handling (LInteger support)
 local assert = require("assert_primitives")
 

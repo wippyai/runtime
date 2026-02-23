@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local io = require("io")
 local system = require("system")
 local time = require("time")

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Without trap_links (default), process fails when linked process fails
 -- This tests the spec requirement: "when a linked process fails,
 -- the current process will also fail without receiving an event"

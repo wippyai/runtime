@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Send cancel to child and verify it handles cancel properly
 local assert = require("assert2")
 

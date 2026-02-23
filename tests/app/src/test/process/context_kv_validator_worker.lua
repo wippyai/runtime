@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker that validates chained context key/value pairs
 local ctx = require("ctx")
 

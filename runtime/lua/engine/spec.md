@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # Engine Primitives
 
 Core engine components globally available to all Lua code. Process, concurrency.

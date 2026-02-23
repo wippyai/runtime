@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: ctx.get, ctx.all (read-only context)
 local assert = require("assert2")
 local ctx = require("ctx")

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker: SQL query inside coroutine with channel.select pattern
 
 local sql = require("sql")

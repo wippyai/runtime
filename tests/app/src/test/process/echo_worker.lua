@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker: Echo messages back to sender
 local function main()
 -- Subscribe to "echo" topic with message mode to get :from()

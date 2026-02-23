@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # process
 
 Process management, spawning, messaging, and lifecycle events. Process, nondeterministic.

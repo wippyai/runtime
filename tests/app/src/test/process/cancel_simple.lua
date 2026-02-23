@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Simple cancel test - no timeout, direct check
 local time = require("time")
 

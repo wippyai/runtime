@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: LINK_DOWN propagation - when parent exits, linked child terminates
 local assert = require("assert2")
 local time = require("time")

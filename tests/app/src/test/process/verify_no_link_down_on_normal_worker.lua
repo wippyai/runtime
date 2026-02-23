@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Tests that LINK_DOWN is NOT sent when parent exits normally
 local function main()
 -- Enable trap_links to be able to detect if LINK_DOWN is wrongly sent

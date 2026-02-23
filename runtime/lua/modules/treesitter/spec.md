@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # treesitter
 
 Tree-sitter parsing and syntax analysis for multiple programming languages. Encoding, deterministic.

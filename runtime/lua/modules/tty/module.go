@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package tty provides terminal input events, styles, and rendering for Lua scripts.
 package tty
 

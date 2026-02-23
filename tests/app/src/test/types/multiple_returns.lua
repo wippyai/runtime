@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local function div_mod(a: number, b: number): (number, number)
 	return math.floor(a / b), a % b
 end

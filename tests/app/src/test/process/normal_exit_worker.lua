@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker that exits normally (no error) - should NOT trigger LINK_DOWN
 local function main()
 	return true

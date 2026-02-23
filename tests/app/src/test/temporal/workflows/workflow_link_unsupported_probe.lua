@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Probe workflow API behavior for unsupported link operations in workflow context.
 local function main()
 	local self_pid, pid_err = process.pid()

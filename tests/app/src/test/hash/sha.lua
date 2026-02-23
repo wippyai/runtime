@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: hash.sha1/sha256/sha512 functions
 local assert = require("assert2")
 local hash = require("hash")

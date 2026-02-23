@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package workflow provides support for deterministic execution in workflow contexts.
 // When deterministic mode is enabled, modules that perform non-deterministic operations
 // (UUID generation, random numbers, time) yield their operations to be handled

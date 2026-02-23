@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: process.get_options and process.set_options
 local assert = require("assert2")
 

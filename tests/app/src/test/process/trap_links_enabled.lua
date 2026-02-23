@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: With trap_links=true, process receives LINK_DOWN event
 -- This tests the spec requirement: "link down events will only arrive
 -- if the trap_links option is set to true"

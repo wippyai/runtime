@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package function provides abstractions for managing and executing functions.
 package function
 

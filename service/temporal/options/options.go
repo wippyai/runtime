@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package options maps wippy attribute bags to Temporal SDK option structs
 // for workflow start, activity execution, and child workflow configuration.
 package options

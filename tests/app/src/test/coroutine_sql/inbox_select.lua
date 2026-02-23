@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: SQL query inside coroutine while main loop uses process.inbox
 
 local assert = require("assert2")

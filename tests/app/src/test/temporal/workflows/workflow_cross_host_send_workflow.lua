@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Workflow that initiates a roundtrip with a non-temporal process.
 local function main(input)
 	local target_pid = input and input.target_pid or nil

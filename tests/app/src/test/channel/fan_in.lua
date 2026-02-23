@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Fan-in pattern with multiple producers
 local assert = require("assert2")
 

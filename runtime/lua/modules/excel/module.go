@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package excel provides Excel file operations for Lua.
 package excel
 

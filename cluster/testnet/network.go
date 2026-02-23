@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package testnet provides network simulation for cluster testing.
 // It wraps memberlist's MockTransport with traffic control capabilities.
 package testnet

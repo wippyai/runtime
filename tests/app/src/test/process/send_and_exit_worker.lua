@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker: Sends message to parent then exits (for channel identity test)
 local function main(parent_pid: string)
 	if not parent_pid then

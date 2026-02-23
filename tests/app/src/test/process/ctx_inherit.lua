@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Security context inheritance through multi-level spawn
 -- This test validates that actor/scope is inherited when:
 -- 1. Test spawns Child WITH process.with_context().with_actor().with_scope()

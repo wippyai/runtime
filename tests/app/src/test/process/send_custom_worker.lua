@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker: Sends message to custom topic then exits
 local function main(parent_pid: string, topic: string)
 	if not parent_pid then

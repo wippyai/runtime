@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Process listens on multiple topics simultaneously
 local assert = require("assert2")
 local time = require("time")

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package queue provides message queue abstractions for reliable message passing.
 package queue
 

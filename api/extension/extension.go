@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package extension defines the runtime extension manifest.
 package extension
 

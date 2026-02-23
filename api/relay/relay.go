@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package relay provides message relay and routing for inter-process communication.
 package relay
 

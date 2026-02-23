@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: crypto.pbkdf2 and constant_time_compare
 local assert = require("assert2")
 

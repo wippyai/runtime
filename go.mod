@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 module github.com/wippyai/runtime
 
 go 1.26

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package registry provides service registry and entry management.
 package registry
 

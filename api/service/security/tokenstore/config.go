@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package tokenstore provides token store service configuration.
 package tokenstore
 

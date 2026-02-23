@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Star topology - parent with 10 children that link TO parent
 -- When parent errors, all children should receive LINK_DOWN and die
 local assert = require("assert2")

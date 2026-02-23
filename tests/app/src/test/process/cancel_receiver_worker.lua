@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker that receives CANCEL event and verifies its structure
 local time = require("time")
 

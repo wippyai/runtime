@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test runner with real-time progress and beautiful error display
 -- Finds and runs all functions with meta.type = "test"
 local io = require("io")

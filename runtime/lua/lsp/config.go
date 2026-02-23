@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 package lsp
 
 // DefaultAddress is the default TCP address for the LSP server.

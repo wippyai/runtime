@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker that spawns a short-lived child and waits for EXIT event
 local function main()
 	local events_ch = process.events()

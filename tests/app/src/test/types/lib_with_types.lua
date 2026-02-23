@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 type Config = {host: string, port: number}
 type Host = string @min_len(1) @max_len(64)
 type Port = number @min(1) @max(65535)

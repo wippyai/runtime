@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Complex topology - grandparent -> child -> grandchild cascade
 -- Verifies that when a process dies, its linked children (and grandchildren) also die
 local assert = require("assert2")

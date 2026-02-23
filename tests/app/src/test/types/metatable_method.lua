@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Reproduces E0003 "too many arguments" on metatable-based : method calls.
 -- The type checker should resolve that instances created via setmetatable({}, MT)
 -- can call methods defined with function MT:method() using : syntax.

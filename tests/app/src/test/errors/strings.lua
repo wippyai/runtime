@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: error string operations (tostring, concatenation)
 local assert = require("assert2")
 

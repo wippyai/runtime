@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # wippy/dummy
 
 Simple dummy module for integration testing of the requirement system.

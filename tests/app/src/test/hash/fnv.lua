@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: hash.fnv32/fnv64 functions
 local assert = require("assert2")
 local hash = require("hash")

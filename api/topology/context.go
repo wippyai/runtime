@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package topology provides process communication and lifecycle management.
 package topology
 

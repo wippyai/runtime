@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: channel.select with process.events() and time.after
 -- This ensures channel.select works correctly with external event channels
 local time = require("time")

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 //go:build goexperiment.jsonv2
 
 package json

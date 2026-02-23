@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: process.link explicit function
 -- Tests bidirectional linking where worker links to a short-lived target process.
 -- Flow:

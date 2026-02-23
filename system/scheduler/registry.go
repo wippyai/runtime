@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package scheduler provides scheduling and command dispatch infrastructure.
 package scheduler
 

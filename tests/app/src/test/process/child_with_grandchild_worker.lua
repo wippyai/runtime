@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Child that spawns a linked grandchild, then waits for events
 local time = require("time")
 

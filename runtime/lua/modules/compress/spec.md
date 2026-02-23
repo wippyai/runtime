@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # compress
 
 Data compression and decompression supporting gzip, deflate, zlib, brotli, and zstd. Encoding, deterministic.

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # contract
 
 Contract-based interface invocation with async support. Workflow, nondeterministic.

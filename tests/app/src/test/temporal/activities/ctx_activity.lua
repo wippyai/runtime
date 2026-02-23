@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local ctx = require("ctx")
 
 local function main(input)

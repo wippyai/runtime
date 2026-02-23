@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package boot provides application boot and component loading.
 package boot
 

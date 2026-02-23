@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 package security
 
 import apierror "github.com/wippyai/runtime/api/error"

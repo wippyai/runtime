@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Simple CLI app demonstrating terminal IO
 local io = require("io")
 local system = require("system")

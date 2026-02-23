@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Path navigation (chdir/pwd)
 local assert = require("assert2")
 

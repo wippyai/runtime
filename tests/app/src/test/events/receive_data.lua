@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: events receive with data payload
 local assert = require("assert2")
 

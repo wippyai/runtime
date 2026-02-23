@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package activity provides a registry listener that auto-registers
 // functions and processes as Temporal activities based on entry metadata.
 package activity

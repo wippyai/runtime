@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker that links to parent and captures the LINK_DOWN event details
 local time = require("time")
 

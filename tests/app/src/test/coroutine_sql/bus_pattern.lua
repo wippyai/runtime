@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Coroutine in select loop receives buffered channel message after main blocks
 
 local assert = require("assert2")

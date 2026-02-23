@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package runner provides the eval.runner module for executing untrusted Lua code.
 // Code execution is delegated to the dispatcher which handles yields internally.
 package runner

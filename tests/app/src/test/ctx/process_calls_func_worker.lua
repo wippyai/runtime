@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker that calls a function via funcs.call() to verify context inheritance
 -- This tests whether context passes from process to function call
 local funcs = require("funcs")

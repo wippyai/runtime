@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: json encode/decode round trip
 local assert = require("assert_primitives")
 

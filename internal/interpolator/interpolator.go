@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 package interpolator
 
 // Interpolator performs variable and file interpolation within payloads.

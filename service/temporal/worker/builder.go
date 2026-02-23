@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package worker manages Temporal worker instances, their lifecycle,
 // and registration of activities and workflows on task queues.
 package worker

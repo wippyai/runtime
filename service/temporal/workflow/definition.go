@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package workflow implements Temporal workflow definitions, signal/update handling,
 // timer management, and process command execution within the Temporal deterministic runtime.
 package workflow

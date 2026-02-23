@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package exec provides process execution command handlers for the dispatcher system.
 package exec
 

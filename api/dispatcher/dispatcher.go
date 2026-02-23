@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package dispatcher provides command dispatch interfaces for the process system.
 package dispatcher
 

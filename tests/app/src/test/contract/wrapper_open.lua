@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: opening contract via wrapper (contract.get():open())
 local assert = require("assert2")
 local contract = require("contract")

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # events
 
 Event bus subscribe and send operations. IO, nondeterministic.

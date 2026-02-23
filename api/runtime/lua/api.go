@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package lua provides Lua runtime integration types.
 package lua
 

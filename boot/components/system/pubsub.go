@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 package system
 
 // Pubsub plugin is disabled - cluster mesh initialization happens in app.go

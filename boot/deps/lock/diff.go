@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 package lock
 
 // Diff calculates the differences between two lock files.

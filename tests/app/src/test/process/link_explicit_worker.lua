@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker that explicitly links to a target PID
 -- Receives target PID from sender, links to it, confirms link, waits for LINK_DOWN
 local time = require("time")

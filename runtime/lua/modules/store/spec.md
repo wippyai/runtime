@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # store
 
 Key-value store operations with resource management. Storage, io, nondeterministic.

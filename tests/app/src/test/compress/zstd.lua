@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: zstd encode/decode round-trip
 local assert = require("assert2")
 

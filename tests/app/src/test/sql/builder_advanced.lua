@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: sql builder advanced operations (HAVING, suffix, complex queries)
 local assert = require("assert_primitives")
 

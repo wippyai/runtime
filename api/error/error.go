@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package error provides error categorization and retry metadata.
 package error
 

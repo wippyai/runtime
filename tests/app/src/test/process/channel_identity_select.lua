@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Channel identity in complex select scenarios
 -- This test mimics the actor.lua pattern where channels are stored
 -- and compared after select

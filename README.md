@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 <p align="center">
     <a href="https://wippy.ai" target="_blank">
         <picture>
@@ -11,7 +13,7 @@
 
 [![Documentation](https://img.shields.io/badge/docs-wippy.ai-0F6640.svg?style=for-the-badge)][documentation]
 [![Go Version](https://img.shields.io/badge/go-1.25+-00ADD8.svg?style=for-the-badge&logo=go)](#installation)
-[![License](https://img.shields.io/badge/license-MPL%202.0-blue.svg?style=for-the-badge)](LICENSE)
+[![License](https://img.shields.io/badge/license-MPL%202.0-brightgreen.svg?style=for-the-badge)](LICENSE)
 
 </div>
 

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # eval_runner
 
 Execute untrusted Lua code via dispatcher with security checks. Process, nondeterministic.

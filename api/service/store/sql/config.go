@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package sql provides SQL-backed store service configuration.
 package sql
 

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 type Point = {x: number, y: number}
 type User = {id: string, name: string}
 type OptionalAge = {age?: number}

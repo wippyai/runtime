@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: funcs.Executor methods
 local assert = require("assert2")
 local funcs = require("funcs")

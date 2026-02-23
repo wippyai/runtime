@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package cluster exposes a read-only view of cluster membership.
 package cluster
 

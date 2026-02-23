@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package io provides terminal IO operations for Lua scripts.
 package io
 

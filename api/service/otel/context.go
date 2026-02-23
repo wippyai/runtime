@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package otel provides OpenTelemetry service integration.
 package otel
 

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker that spawns linked child then exits
 -- When this parent exits, the linked child should receive LINK_DOWN
 local function main()

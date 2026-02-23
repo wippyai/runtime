@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Simple target process for link testing
 -- Waits for "exit" message and then exits with error to trigger LINK_DOWN
 

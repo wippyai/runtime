@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Workflow that tests crypto operations with side effects
 -- Tests deterministic replay of random bytes, encryption, etc.
 local crypto = require("crypto")

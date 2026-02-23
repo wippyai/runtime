@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package metrics provides metrics collection and export abstractions.
 package metrics
 

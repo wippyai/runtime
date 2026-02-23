@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # funcs
 
 Function calls and async execution. Workflow, nondeterministic.

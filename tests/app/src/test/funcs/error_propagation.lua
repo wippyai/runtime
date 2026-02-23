@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Error propagation through funcs.call
 local assert = require("assert2")
 local funcs = require("funcs")

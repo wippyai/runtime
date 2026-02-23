@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: cloudstorage list_objects operations
 local assert = require("assert_primitives")
 

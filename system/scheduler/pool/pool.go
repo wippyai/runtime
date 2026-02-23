@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package pool provides function pool scheduler interfaces and implementations.
 //
 // A function pool manages a set of reusable processes that execute function calls.

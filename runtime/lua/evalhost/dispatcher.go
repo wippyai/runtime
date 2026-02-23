@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package evalhost provides Lua evaluation command handlers.
 package evalhost
 

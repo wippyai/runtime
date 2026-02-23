@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Helper function that reads context values and returns them
 local ctx = require("ctx")
 

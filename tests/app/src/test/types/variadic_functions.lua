@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local function sum(...: number): number
 	local total: number = 0
 	for _, v in ipairs({...}) do

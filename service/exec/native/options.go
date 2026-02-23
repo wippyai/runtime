@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 package native
 
 // Option defines function type for process executor configuration

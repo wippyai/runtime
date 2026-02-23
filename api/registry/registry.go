@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package registry provides a versioned storage system for configuration entries.
 package registry
 

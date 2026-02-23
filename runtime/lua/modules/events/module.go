@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package events provides event bus subscribe and send operations for Lua.
 package events
 

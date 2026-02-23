@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package di provides dependency injection service configuration.
 package di
 

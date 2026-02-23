@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: template inheritance (extends/blocks)
 local assert = require("assert2")
 local templates = require("templates")

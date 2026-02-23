@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker that spawns a child, cancels it, and verifies it received CANCEL
 local function main()
 	local events_ch = process.events()

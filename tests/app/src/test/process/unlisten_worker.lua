@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker: Listen, receive one message, unlisten, verify no more
 local time = require("time")
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package workflow provides Lua yield support for deterministic workflow execution.
 package workflow
 

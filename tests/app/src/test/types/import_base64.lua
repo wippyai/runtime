@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local base64 = require("base64")
 
 local function test_encode(): boolean

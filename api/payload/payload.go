@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package payload provides abstractions for handling different data formats and conversions.
 package payload
 

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local hash = require("hash")
 
 local function test_md5(): boolean

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker that tests linked process termination
 local function main()
 	local events_ch = process.events()

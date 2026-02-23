@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # Future
 
 Asynchronous operation result container. Process, workflow.

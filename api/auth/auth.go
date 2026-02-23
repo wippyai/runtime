@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package auth provides authentication types and context integration.
 package auth
 

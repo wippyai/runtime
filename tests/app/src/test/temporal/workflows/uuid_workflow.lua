@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Workflow that generates UUIDs using side effects
 -- Tests deterministic replay of non-deterministic operations
 local uuid = require("uuid")

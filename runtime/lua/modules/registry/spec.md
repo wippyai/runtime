@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # registry
 
 Registry operations for entries, snapshots, and versioning. Storage, nondeterministic.

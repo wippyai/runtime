@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # WebSocket Integration Guide for Wippy Runtime
 
 ## 1. Setup Overview

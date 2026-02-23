@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: SQL query inside nested channel.select completes correctly
 
 local assert = require("assert2")

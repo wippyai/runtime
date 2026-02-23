@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Echo roundtrip - verifies bidirectional messaging with msg:from()
 -- Since functions cannot subscribe to topics, this test simply verifies:
 -- 1. We can spawn an echo worker

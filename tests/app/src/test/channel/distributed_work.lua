@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Distributed work simulation with time.sleep
 -- Simulates async workers processing jobs with varying delays
 local assert = require("assert2")

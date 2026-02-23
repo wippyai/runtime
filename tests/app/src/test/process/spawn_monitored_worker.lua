@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Simple worker that processes data and exits with result
 
 local function main(args)

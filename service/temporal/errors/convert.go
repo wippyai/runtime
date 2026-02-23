@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package errors provides error conversion between Temporal SDK errors and apierror.Rich.
 package errors
 

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker that tests inbox fallback behavior
 -- Receives messages on both specific topic and inbox, counts them
 

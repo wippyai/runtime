@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Grandchild worker - waits for events, should die when grandparent dies
 local time = require("time")
 

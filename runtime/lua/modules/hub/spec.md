@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # hub
 
 Hub module registry browsing and metadata access.

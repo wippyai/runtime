@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # queue
 
 Message queue operations for publishing and consuming messages. IO, nondeterministic.

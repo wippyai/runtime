@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local text = require("text")
 
 local function test_regexp_match(): boolean

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: WebSocket echo integration with local wsrelay server
 local assert = require("assert2")
 local websocket = require("websocket")

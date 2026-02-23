@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Child that waits for LINK_DOWN event
 local function main()
 -- Enable trap_links to receive LINK_DOWN events

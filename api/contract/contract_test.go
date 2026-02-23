@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package contract provides contract and service definitions.
 package contract
 

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: process.unlisten stops receiving messages on topic
 local assert = require("assert2")
 local time = require("time")

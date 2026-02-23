@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Child workflow that returns an error with kind
 local time = require("time")
 

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local function handler()
 	local http = require("http")
 	local security = require("security")

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local function identity<T>(x: T): T
 	return x
 end

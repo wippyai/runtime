@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # http_client
 
 HTTP client for making requests (GET, POST, etc.). Network, io, nondeterministic.

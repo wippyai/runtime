@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Workflow that tests context value propagation
 -- Reads context values set via headers and returns them
 local ctx = require("ctx")

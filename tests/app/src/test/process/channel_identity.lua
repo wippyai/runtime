@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Channel identity stability
 -- Verifies that channels from inbox(), events(), listen() maintain identity
 -- across multiple accesses and in channel.select results

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Chain topology - A -> B -> C -> D -> E -> F
 -- Each node links to its parent. When root errors, cascade kills all.
 local assert = require("assert2")

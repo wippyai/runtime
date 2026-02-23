@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Input validation for funcs
 local assert = require("assert2")
 local funcs = require("funcs")

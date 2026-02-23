@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Context inheritance through nested funcs.call
 -- Verifies that when function A is called with context, and A calls function B
 -- via funcs.new():call() (without with_context), B should still see the context

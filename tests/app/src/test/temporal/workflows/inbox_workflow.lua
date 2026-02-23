@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Workflow that receives signals via process.inbox()
 local function main(input)
 	local my_pid = process.pid()

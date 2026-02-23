@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Simple process that returns input as result
 local function main(input)
 	return {

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Basic channel operations
 local assert = require("assert2")
 

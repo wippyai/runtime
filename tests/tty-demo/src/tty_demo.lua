@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- TTY Toolkit Interactive Demo
 -- Full-screen TUI exercising every function in the tty module.
 

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # excel
 
 Excel file operations for reading and writing .xlsx workbooks. IO, encoding, deterministic.

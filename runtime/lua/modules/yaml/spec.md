@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # yaml
 
 YAML encoding and decoding. Encoding, deterministic.

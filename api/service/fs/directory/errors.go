@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 package directory
 
 import apierror "github.com/wippyai/runtime/api/error"
