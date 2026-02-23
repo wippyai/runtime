@@ -185,6 +185,7 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		stages.Override(),
 		stages.Disable(),
 		stages.Link(stages.WithDependencies(linkDeps)),
+		stages.Override(),
 	)
 	if err := pipeline.Execute(ctx, &combined); err != nil {
 		return regapi.DirectiveResult{}, NewDependencyPipelineError(err)

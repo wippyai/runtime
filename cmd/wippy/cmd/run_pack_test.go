@@ -19,7 +19,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestRunPackEntries_LoadStatePathSkipsDependencyExpansion(t *testing.T) {
+func TestRunPackEntries_InvalidRequirementFailsNormalizationPipeline(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "wippy.yaml")
 	if err := os.WriteFile(cfgPath, []byte("version: \"1.0\"\n"), 0o644); err != nil {
@@ -43,15 +43,11 @@ func TestRunPackEntries_LoadStatePathSkipsDependencyExpansion(t *testing.T) {
 		_ = shutdown.Perform(ctx, loader, logger, true)
 	})
 
-	// This malformed ns.dependency entry fails if dependency expansion runs.
-	// For pack execution we expect baseline LoadState behavior.
 	packEntries := []regapi.Entry{
 		{
-			ID:   regapi.NewID("app", "deps"),
-			Kind: regapi.NamespaceDependency,
-			Data: payload.New(map[string]any{
-				"component": "",
-			}),
+			ID:   regapi.NewID("test", "broken.requirement"),
+			Kind: regapi.NamespaceRequirement,
+			Data: payload.New("not-a-requirement-definition"),
 		},
 		{
 			ID:   regapi.NewID("app", "runner"),
@@ -69,19 +65,19 @@ func TestRunPackEntries_LoadStatePathSkipsDependencyExpansion(t *testing.T) {
 
 	err = runPackEntries(ctx, loader, zap.NewNop(), packEntries, []string{"missing"})
 	if err == nil {
-		t.Fatal("expected command lookup error")
+		t.Fatal("expected normalization pipeline error")
 	}
 
 	errText := err.Error()
-	if !strings.Contains(errText, `command "missing" not found in pack`) {
+	if !strings.Contains(errText, "failed to execute pipeline") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if strings.Contains(errText, "failed to expand changeset") {
-		t.Fatalf("unexpected dependency expansion error: %v", err)
+	if !strings.Contains(errText, "failed to decode requirement") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestRunFromPackFiles_SnapshotLoadPath(t *testing.T) {
+func TestRunFromPackFiles_InvalidRequirementFailsNormalizationPipeline(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "wippy.yaml")
 	if err := os.WriteFile(cfgPath, []byte("version: \"1.0\"\n"), 0o644); err != nil {
@@ -115,11 +111,11 @@ func TestRunFromPackFiles_SnapshotLoadPath(t *testing.T) {
 		t.Fatal("expected command lookup error")
 	}
 	errText := err.Error()
-	if !strings.Contains(errText, `command "missing" not found in pack`) {
+	if !strings.Contains(errText, "failed to execute pipeline") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if strings.Contains(errText, "failed to execute pipeline") || strings.Contains(errText, "failed to decode requirement") {
-		t.Fatalf("unexpected re-link/pipeline error: %v", err)
+	if !strings.Contains(errText, "failed to decode requirement") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -360,12 +356,93 @@ func TestLoadPackEntries_MultiPackOrder(t *testing.T) {
 	}
 }
 
+func TestLoadPackEntries_AnnotatesModuleMetadataFromPackMetadata(t *testing.T) {
+	tmpDir := t.TempDir()
+	packPath := createTestPackFileWithMetadata(t, tmpDir, "module-pack", wapp.Metadata{
+		"name":      "users",
+		"namespace": "userspace.users",
+		"version":   "0.1.3",
+	}, []wapp.Entry{
+		{
+			ID:   wapp.NewID("userspace.user", "login.endpoint"),
+			Kind: "http.endpoint",
+			Meta: wapp.Metadata{
+				"router": "public_router",
+			},
+			Data: map[string]any{"func": "login"},
+		},
+	})
+
+	embedReg := embedpkg.NewRegistry()
+	defer func() { _ = embedReg.Close() }()
+
+	packEntries, err := loadPackEntries([]string{packPath}, embedReg)
+	if err != nil {
+		t.Fatalf("loadPackEntries failed: %v", err)
+	}
+	if len(packEntries) != 1 {
+		t.Fatalf("entry count = %d, want 1", len(packEntries))
+	}
+
+	meta := packEntries[0].Meta
+	if got := meta.GetString("module", ""); got != "userspace/users" {
+		t.Fatalf("module = %q, want userspace/users", got)
+	}
+	if got := meta.GetString("module_version", ""); got != "0.1.3" {
+		t.Fatalf("module_version = %q, want 0.1.3", got)
+	}
+}
+
+func TestLoadPackEntries_DoesNotOverrideExistingModuleMetadata(t *testing.T) {
+	tmpDir := t.TempDir()
+	packPath := createTestPackFileWithMetadata(t, tmpDir, "module-pack-existing-meta", wapp.Metadata{
+		"name":      "users",
+		"namespace": "userspace.users",
+		"version":   "0.1.3",
+	}, []wapp.Entry{
+		{
+			ID:   wapp.NewID("userspace.user", "login.endpoint"),
+			Kind: "http.endpoint",
+			Meta: wapp.Metadata{
+				"module":         "custom/module",
+				"module_version": "9.9.9",
+			},
+			Data: map[string]any{"func": "login"},
+		},
+	})
+
+	embedReg := embedpkg.NewRegistry()
+	defer func() { _ = embedReg.Close() }()
+
+	packEntries, err := loadPackEntries([]string{packPath}, embedReg)
+	if err != nil {
+		t.Fatalf("loadPackEntries failed: %v", err)
+	}
+	if len(packEntries) != 1 {
+		t.Fatalf("entry count = %d, want 1", len(packEntries))
+	}
+
+	meta := packEntries[0].Meta
+	if got := meta.GetString("module", ""); got != "custom/module" {
+		t.Fatalf("module = %q, want custom/module", got)
+	}
+	if got := meta.GetString("module_version", ""); got != "9.9.9" {
+		t.Fatalf("module_version = %q, want 9.9.9", got)
+	}
+}
+
 func createTestPackFile(t *testing.T, dir, name string, entries []wapp.Entry) string {
+	t.Helper()
+
+	return createTestPackFileWithMetadata(t, dir, name, wapp.Metadata{"name": name}, entries)
+}
+
+func createTestPackFileWithMetadata(t *testing.T, dir, name string, metadata wapp.Metadata, entries []wapp.Entry) string {
 	t.Helper()
 
 	var buf bytes.Buffer
 	writer := wapp.NewWriter()
-	if err := writer.PackEntries(wapp.Metadata{"name": name}, entries, &buf); err != nil {
+	if err := writer.PackEntries(metadata, entries, &buf); err != nil {
 		t.Fatalf("pack entries: %v", err)
 	}
 

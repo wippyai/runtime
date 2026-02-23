@@ -5,7 +5,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -44,7 +43,7 @@ func loadPackRuntimeDefaultsFromFiles(packFiles []string, logger *zap.Logger) (b
 	var merged boot.Config
 
 	for _, packPath := range packFiles {
-		if filepath.Ext(packPath) != ".wapp" {
+		if !hasWappExtension(packPath) {
 			continue
 		}
 

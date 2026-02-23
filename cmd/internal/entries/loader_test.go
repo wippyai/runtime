@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wippyai/runtime/api/boot"
 	contextapi "github.com/wippyai/runtime/api/context"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
@@ -639,6 +640,123 @@ entries:
 	}
 	if routerResolved != "app:api.public" {
 		t.Fatalf("module-aware load router = %q, want app:api.public", routerResolved)
+	}
+}
+
+func TestNormalizeEntries_PreLinkOverrideAffectsRequirementDefaults(t *testing.T) {
+	ctx := setupTestContext(t)
+	cfg := boot.NewConfig(boot.WithSection("override", map[string]any{
+		"userspace.user:public_router:data.default": "app:api.pre",
+	}))
+	ctx = boot.WithConfig(ctx, cfg)
+
+	items := []regapi.Entry{
+		{
+			ID:   regapi.NewID("userspace.user", "public_router"),
+			Kind: regapi.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"default": "app:api.default",
+				"targets": []any{
+					map[string]any{
+						"entry": "login.endpoint",
+						"path":  "meta.router",
+					},
+				},
+			}),
+		},
+		{
+			ID:   regapi.NewID("userspace.user", "login.endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{
+				"router": "public_router",
+			},
+			Data: payload.New(map[string]any{
+				"path":   "/user/token",
+				"method": "POST",
+				"func":   "login",
+			}),
+		},
+	}
+
+	if err := NormalizeEntries(ctx, &items); err != nil {
+		t.Fatalf("NormalizeEntries failed: %v", err)
+	}
+
+	got := ""
+	for _, entry := range items {
+		if entry.ID.String() == "userspace.user:login.endpoint" {
+			got = entry.Meta.GetString("router", "")
+			break
+		}
+	}
+
+	if got != "app:api.pre" {
+		t.Fatalf("router = %q, want app:api.pre", got)
+	}
+}
+
+func TestNormalizeEntries_PostLinkOverrideWinsFinalValue(t *testing.T) {
+	ctx := setupTestContext(t)
+	cfg := boot.NewConfig(boot.WithSection("override", map[string]any{
+		"userspace.user:login.endpoint:meta.router": "app:api.final",
+	}))
+	ctx = boot.WithConfig(ctx, cfg)
+
+	items := []regapi.Entry{
+		{
+			ID:   regapi.NewID("app.deps", "users"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "userspace/users",
+				"parameters": []any{
+					map[string]any{
+						"name":  "public_router",
+						"value": "app:api.public",
+					},
+				},
+			}),
+		},
+		{
+			ID:   regapi.NewID("userspace.user", "public_router"),
+			Kind: regapi.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{
+						"entry": "login.endpoint",
+						"path":  "meta.router",
+					},
+				},
+			}),
+		},
+		{
+			ID:   regapi.NewID("userspace.user", "login.endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{
+				"router": "public_router",
+				"module": "userspace/users",
+			},
+			Data: payload.New(map[string]any{
+				"path":   "/user/token",
+				"method": "POST",
+				"func":   "login",
+			}),
+		},
+	}
+
+	if err := NormalizeEntries(ctx, &items); err != nil {
+		t.Fatalf("NormalizeEntries failed: %v", err)
+	}
+
+	got := ""
+	for _, entry := range items {
+		if entry.ID.String() == "userspace.user:login.endpoint" {
+			got = entry.Meta.GetString("router", "")
+			break
+		}
+	}
+
+	if got != "app:api.final" {
+		t.Fatalf("router = %q, want app:api.final", got)
 	}
 }
 

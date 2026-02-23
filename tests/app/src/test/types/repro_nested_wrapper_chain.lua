@@ -3,7 +3,7 @@
 local sql = require("sql")
 
 local function connect()
-	local db, err = sql:get("postgres://localhost/test")
+	local db, err = sql.get("app.test.sql:testdb")
 	if err then
 		error(err:message())
 	end
@@ -14,11 +14,10 @@ local function get_connection()
 	return connect()
 end
 
-local db = get_connection()
-local rows, err = db:query("SELECT 1")
-db:release()
-
 local function main(): boolean
+	local db = get_connection()
+	local rows, err = db:query("SELECT 1")
+	db:release()
 	return rows ~= nil or err == nil
 end
 

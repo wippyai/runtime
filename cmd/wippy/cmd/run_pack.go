@@ -14,6 +14,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	bootpkg "github.com/wippyai/runtime/boot"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
@@ -28,6 +29,7 @@ import (
 
 // hubModulePattern matches hub references like org/module[@version|@label].
 var hubModulePattern = regexp.MustCompile(`^([a-z][a-z0-9-]*)/([a-z][a-z0-9-]*)(?:@(.+))?$`)
+var hubIdentPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
 // findPackCommand finds a command entry in the pack.
 // If commandName is empty, it only auto-selects a command marked as main.
@@ -434,9 +436,13 @@ func runPackEntries(
 	return nil
 }
 
-// applyPackEntries restores packed entries as baseline state.
-// Pack execution uses snapshot semantics and does not perform dependency expansion.
+// applyPackEntries restores packed entries as baseline state after applying the
+// canonical entry normalization pipeline.
 func applyPackEntries(ctx context.Context, packEntries []registry.Entry, logger *zap.Logger) error {
+	if err := entries.NormalizeEntries(ctx, &packEntries); err != nil {
+		return err
+	}
+
 	return entries.LoadEntriesToRegistry(ctx, packEntries, logger)
 }
 
@@ -468,13 +474,73 @@ func loadPackEntries(packFiles []string, embedReg packReaderRegistry) ([]registr
 			return nil, fmt.Errorf("register embed resources for %s: %w", packFile, err)
 		}
 
-		entries, err := packReader.GetEntries()
+		loadedEntries, err := packReader.GetEntries()
 		if err != nil {
 			return nil, fmt.Errorf("read entries from %s: %w", packFile, err)
 		}
 
-		packEntries = append(packEntries, entries...)
+		moduleName, moduleVersion := moduleIdentityFromPackMetadata(packReader.Reader())
+		if moduleName != "" {
+			annotateEntriesModuleMeta(loadedEntries, moduleName, moduleVersion)
+		}
+
+		packEntries = append(packEntries, loadedEntries...)
 	}
 
 	return packEntries, nil
+}
+
+func moduleIdentityFromPackMetadata(reader *wapp.Reader) (moduleName string, moduleVersion string) {
+	if reader == nil {
+		return "", ""
+	}
+
+	metadata, err := reader.GetMetadata()
+	if err != nil || len(metadata) == 0 {
+		return "", ""
+	}
+
+	version, _ := metadata["version"].(string)
+	namespace, _ := metadata["namespace"].(string)
+	name, _ := metadata["name"].(string)
+
+	if namespace == "" || name == "" {
+		return "", version
+	}
+
+	suffix := "." + name
+	if !strings.HasSuffix(namespace, suffix) {
+		return "", version
+	}
+
+	org := strings.TrimSuffix(namespace, suffix)
+	if !hubIdentPattern.MatchString(org) || !hubIdentPattern.MatchString(name) {
+		return "", version
+	}
+
+	return org + "/" + name, version
+}
+
+func annotateEntriesModuleMeta(items []registry.Entry, moduleName string, moduleVersion string) {
+	if moduleName == "" {
+		return
+	}
+
+	for i := range items {
+		meta := items[i].Meta
+		if meta == nil {
+			meta = attrs.NewBag()
+		}
+
+		if existingModule, _ := meta["module"].(string); existingModule == "" {
+			meta["module"] = moduleName
+		}
+		if moduleVersion != "" {
+			if existingVersion, _ := meta["module_version"].(string); existingVersion == "" {
+				meta["module_version"] = moduleVersion
+			}
+		}
+
+		items[i].Meta = meta
+	}
 }

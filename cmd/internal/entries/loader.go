@@ -263,14 +263,8 @@ func LoadEntriesFromPaths(ctx context.Context, paths []string, logger *zap.Logge
 		entries = append(entries, loadedEntries...)
 	}
 
-	pipeline := build.New(
-		stages.Override(),
-		stages.Disable(),
-		stages.Link(),
-	)
-
-	if err := pipeline.Execute(ctx, &entries); err != nil {
-		return nil, NewExecutePipelineError(err)
+	if err := NormalizeEntries(ctx, &entries); err != nil {
+		return nil, err
 	}
 
 	return entries, nil
@@ -316,17 +310,33 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 		entries = append(entries, loaded...)
 	}
 
+	if err := NormalizeEntries(ctx, &entries); err != nil {
+		return nil, err
+	}
+
+	return entries, nil
+}
+
+// NormalizeEntries applies the canonical entry normalization pipeline.
+//
+// Order is intentional:
+//  1. pre-link override: allows overriding dependency/requirement inputs
+//  2. disable: removes excluded entries before link mutation
+//  3. link: resolves requirements from dependencies/defaults
+//  4. post-link override: allows explicit final-value overrides
+func NormalizeEntries(ctx context.Context, entries *[]regapi.Entry) error {
 	pipeline := build.New(
 		stages.Override(),
 		stages.Disable(),
 		stages.Link(),
+		stages.Override(),
 	)
 
-	if err := pipeline.Execute(ctx, &entries); err != nil {
-		return nil, NewExecutePipelineError(err)
+	if err := pipeline.Execute(ctx, entries); err != nil {
+		return NewExecutePipelineError(err)
 	}
 
-	return entries, nil
+	return nil
 }
 
 // loadEntriesFromPath loads entries from a single path (directory or .wapp file).
