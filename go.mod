@@ -34,7 +34,7 @@ require (
 	github.com/kaptinlin/jsonschema v0.7.1
 	github.com/klauspost/compress v1.18.1
 	github.com/lib/pq v1.11.2
-	github.com/mattn/go-sqlite3 v1.14.24
+	github.com/mattn/go-sqlite3 v1.14.34
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/muesli/termenv v0.16.0
 	github.com/prometheus/client_golang v1.20.5
