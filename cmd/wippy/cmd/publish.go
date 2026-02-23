@@ -364,6 +364,7 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		stages.Override(),
 		stages.DisableWithOptions(disableOpts),
 		stages.Link(),
+		stages.Override(),
 	}
 	if len(embedPatterns) > 0 {
 		pipelineStages = append(pipelineStages, stages.EmbedFS(embedPatterns...))

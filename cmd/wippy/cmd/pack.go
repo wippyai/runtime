@@ -442,7 +442,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 		pipelineStages = append(pipelineStages, stages.Disable(excludeNS, excludeEntries))
 	}
 
-	pipelineStages = append(pipelineStages, stages.Disable(), stages.Link())
+	pipelineStages = append(pipelineStages, stages.Disable(), stages.Link(), stages.Override())
 
 	// Bytecode compilation (before EmbedFS so bytecode FS can be collected)
 	if len(bytecodePatterns) > 0 {

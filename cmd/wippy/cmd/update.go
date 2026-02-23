@@ -5,6 +5,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -12,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
+	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
@@ -138,49 +140,47 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	rootDeps := extractRootDependencies(entries, app.Transcoder)
 	logger.Info("found root dependencies", zap.Int("count", len(rootDeps)))
 
+	resolvedModules := make([]hub.ResolvedModule, 0)
 	if len(rootDeps) == 0 {
-		logger.Info("no dependencies found, nothing to update")
-		return nil
-	}
-
-	// Convert to hub dependency specs
-	hubDeps := make([]hub.DependencySpec, 0, len(rootDeps))
-	for _, dep := range rootDeps {
-		hubDeps = append(hubDeps, hub.DependencySpec{
-			Org:        dep.Org,
-			Name:       dep.Module,
-			Constraint: dep.Constraint,
-		})
-	}
-
-	logger.Info("resolving dependency graph")
-	result, err := hub.Resolve(app.Ctx, hubClient, hubDeps, nil)
-	if err != nil {
-		return NewBuildDependencyGraphError(err)
-	}
-
-	if len(result.Errors) > 0 {
-		logger.Error("dependency resolution errors", zap.Int("count", len(result.Errors)))
-		for _, resErr := range result.Errors {
-			logger.Error("error", zap.String("module", resErr.Org+"/"+resErr.Name), zap.String("reason", resErr.Message))
+		logger.Info("no root dependencies found in source, pruning lock modules")
+	} else {
+		// Convert to hub dependency specs
+		hubDeps := make([]hub.DependencySpec, 0, len(rootDeps))
+		for _, dep := range rootDeps {
+			hubDeps = append(hubDeps, hub.DependencySpec{
+				Org:        dep.Org,
+				Name:       dep.Module,
+				Constraint: dep.Constraint,
+			})
 		}
-		return newResolutionConflictsError("dependency conflicts detected", result.Errors)
-	}
 
-	logger.Info("dependency graph resolved", zap.Int("total_modules", len(result.Modules)))
+		logger.Info("resolving dependency graph")
+		result, err := hub.Resolve(app.Ctx, hubClient, hubDeps, nil)
+		if err != nil {
+			return NewBuildDependencyGraphError(err)
+		}
+
+		if len(result.Errors) > 0 {
+			logger.Error("dependency resolution errors", zap.Int("count", len(result.Errors)))
+			for _, resErr := range result.Errors {
+				logger.Error("error", zap.String("module", resErr.Org+"/"+resErr.Name), zap.String("reason", resErr.Message))
+			}
+			return newResolutionConflictsError("dependency conflicts detected", result.Errors)
+		}
+
+		logger.Info("dependency graph resolved", zap.Int("total_modules", len(result.Modules)))
+		resolvedModules = result.Modules
+	}
 
 	// Convert resolved modules to lock file
-	newLockObj, err := convertResolvedToLock(result.Modules, modulesDir, srcDir)
+	newLockObj, err := convertResolvedToLock(lockFilePath, resolvedModules, modulesDir, srcDir)
 	if err != nil {
 		return NewLoadLockFileError(err)
 	}
 
-	// Preserve replacements from old lock file
+	// Preserve only replacements that still map to present modules.
 	if oldLockObj != nil {
-		replacements := oldLockObj.GetReplacements()
-		for _, repl := range replacements {
-			newLockObj.SetReplacement(repl)
-		}
+		preserveReplacementsForPresentModules(newLockObj, oldLockObj.GetReplacements())
 	}
 
 	// Save lock file
@@ -191,15 +191,21 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	logger.Info("lock file updated")
 
 	// Compare old and new
+	var changes *lock.Changes
 	if oldLockObj != nil {
-		changes := lock.Diff(oldLockObj, newLockObj)
+		changes = lock.Diff(oldLockObj, newLockObj)
 		logChanges(logger, changes)
+		pruneStaleVendorArtifacts(newLockObj, changes, logger)
 	}
 
-	// Run install to download modules
-	logger.Info("running install to download modules")
-	if err := runInstall(cmd, []string{}); err != nil {
-		return NewInstallFailedError(err)
+	if len(resolvedModules) > 0 {
+		// Run install to download modules
+		logger.Info("running install to download modules")
+		if err := runInstall(cmd, []string{}); err != nil {
+			return NewInstallFailedError(err)
+		}
+	} else {
+		logger.Info("no modules to install after update")
 	}
 
 	logger.Info("update completed successfully")
@@ -255,10 +261,10 @@ func extractRootDependencies(entries []regapi.Entry, dtt payload.Transcoder) []d
 	return deps
 }
 
-func convertResolvedToLock(modules []hub.ResolvedModule, modulesDir, srcDir string) (*lock.Lock, error) {
-	lockObj, err := lock.New(defaultLockFile)
+func convertResolvedToLock(lockFilePath string, modules []hub.ResolvedModule, modulesDir, srcDir string) (*lock.Lock, error) {
+	lockObj, err := lock.New(lockFilePath)
 	if err != nil {
-		return nil, fmt.Errorf("lock file %s: %w", defaultLockFile, err)
+		return nil, fmt.Errorf("lock file %s: %w", lockFilePath, err)
 	}
 
 	lockObj.SetDirectories(lock.Directories{
@@ -367,15 +373,13 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	}
 
 	// Build new lock file
-	newLockObj, err := convertResolvedToLock(result.Modules, modulesDir, srcDir)
+	newLockObj, err := convertResolvedToLock(lockFilePath, result.Modules, modulesDir, srcDir)
 	if err != nil {
 		return NewLoadLockFileError(err)
 	}
 
-	// Preserve replacements
-	for _, repl := range lockObj.GetReplacements() {
-		newLockObj.SetReplacement(repl)
-	}
+	// Preserve only replacements that still map to present modules.
+	preserveReplacementsForPresentModules(newLockObj, lockObj.GetReplacements())
 
 	// Detect changes
 	changes := lock.Diff(oldLockObj, newLockObj)
@@ -428,6 +432,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 
 	logger.Info("lock file updated")
 	logChanges(logger, changes)
+	pruneStaleVendorArtifacts(newLockObj, changes, logger)
 
 	// Run install
 	logger.Info("running install to download modules")
@@ -458,6 +463,73 @@ func logChanges(logger *zap.Logger, changes *lock.Changes) {
 		}
 	} else {
 		logger.Info("no changes detected")
+	}
+}
+
+func preserveReplacementsForPresentModules(lockObj *lock.Lock, replacements []lock.Replacement) {
+	if lockObj == nil || len(replacements) == 0 {
+		return
+	}
+
+	modules := lockObj.GetModules()
+	present := make(map[string]struct{}, len(modules))
+	for _, mod := range modules {
+		present[mod.Name] = struct{}{}
+	}
+
+	for _, repl := range replacements {
+		if _, ok := present[repl.From]; ok {
+			lockObj.SetReplacement(repl)
+		}
+	}
+}
+
+func pruneStaleVendorArtifacts(lockObj *lock.Lock, changes *lock.Changes, logger *zap.Logger) {
+	if lockObj == nil || changes == nil {
+		return
+	}
+	if len(changes.Removed) == 0 && len(changes.Updated) == 0 {
+		return
+	}
+
+	lockDir := filepath.Dir(lockObj.Path())
+	vendorDir := filepath.Join(lockDir, lockObj.GetVendorPath())
+
+	for _, removed := range changes.Removed {
+		pruneModuleArtifacts(vendorDir, removed.Name, removed.Version, true, logger)
+	}
+	for _, updated := range changes.Updated {
+		pruneModuleArtifacts(vendorDir, updated.Name, updated.OldVersion, false, logger)
+	}
+}
+
+func pruneModuleArtifacts(vendorDir, moduleName, moduleVersion string, removeCurrentDir bool, logger *zap.Logger) {
+	name, err := graph.ParseName(moduleName)
+	if err != nil {
+		if logger != nil {
+			logger.Debug("skipping stale module cleanup for invalid module name",
+				zap.String("module", moduleName),
+				zap.Error(err))
+		}
+		return
+	}
+
+	paths := []string{
+		filepath.Join(vendorDir, lock.WappPath(name, moduleVersion)),
+		filepath.Join(vendorDir, lock.LegacyModulePath(name, moduleVersion)),
+	}
+	if removeCurrentDir {
+		paths = append(paths, filepath.Join(vendorDir, lock.ModulePath(name)))
+	}
+
+	for _, path := range paths {
+		if err := os.RemoveAll(path); err != nil {
+			if logger != nil {
+				logger.Warn("failed to prune stale module artifact",
+					zap.String("path", path),
+					zap.Error(err))
+			}
+		}
 	}
 }
 
