@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Scope injection through process.with_context spawn
 local assert = require("assert2")
 local security = require("security")

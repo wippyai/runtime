@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- WebSocket Echo Server Process
 -- Listens for WebSocket messages and echoes them back to the client
 local time = require("time")

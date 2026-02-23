@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local logger = require("logger")
 local time = require("time")
 

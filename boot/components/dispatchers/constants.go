@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 package dispatchers
 
 import "github.com/wippyai/runtime/api/boot"

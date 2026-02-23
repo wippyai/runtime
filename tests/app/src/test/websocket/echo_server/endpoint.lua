@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- WebSocket Echo Endpoint
 -- HTTP handler that upgrades to WebSocket via wsrelay middleware
 

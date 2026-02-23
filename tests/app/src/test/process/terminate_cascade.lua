@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Terminate kills process and triggers LINK_DOWN to linked processes
 local assert = require("assert2")
 local time = require("time")

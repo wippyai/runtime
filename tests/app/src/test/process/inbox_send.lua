@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Send message to process via custom topic
 local assert = require("assert2")
 local time = require("time")

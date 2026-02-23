@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Docker container basic execution
 local assert = require("assert_primitives")
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package interceptor provides registries for collecting and distributing
 // Temporal SDK client and worker interceptors.
 package interceptor

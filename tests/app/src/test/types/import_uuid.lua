@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local uuid = require("uuid")
 
 local function test_v4(): boolean

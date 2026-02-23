@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # sql
 
 SQL database operations with query builder and transaction support. Storage, io, nondeterministic.

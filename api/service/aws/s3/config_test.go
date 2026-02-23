@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package s3 provides S3 service configuration.
 package s3
 

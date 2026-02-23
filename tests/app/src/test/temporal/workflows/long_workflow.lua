@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Long-running workflow for cancellation testing
 local time = require("time")
 

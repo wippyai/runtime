@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # html
 
 HTML sanitization with policy-based filtering. Security, deterministic.

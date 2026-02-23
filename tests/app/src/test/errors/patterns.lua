@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: idiomatic error handling patterns
 local assert = require("assert2")
 

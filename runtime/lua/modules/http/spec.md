@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # http
 
 HTTP request and response types for server-side handlers. Network, IO, nondeterministic.

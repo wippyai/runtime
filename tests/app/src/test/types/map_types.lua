@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local function count_keys(map: {[string]: number}): integer
 	local count: integer = 0
 	for _ in pairs(map) do

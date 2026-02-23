@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: inbox receives only messages that don't match any listener
 -- Expected behavior:
 -- 1. Messages to topics with listeners go to those listeners

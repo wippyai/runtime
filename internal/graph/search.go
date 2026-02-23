@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 package graph
 
 // Path represents a sequence of nodes and their total accumulated cost in a graph.

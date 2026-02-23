@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 package cache
 
 // DefaultDir is the default on-disk cache directory relative to the working dir.

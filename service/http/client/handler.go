@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package client provides HTTP client command handlers for the dispatcher system.
 package client
 

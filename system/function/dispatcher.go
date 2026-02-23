@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package function provides function call command handlers for the dispatcher system.
 package function
 

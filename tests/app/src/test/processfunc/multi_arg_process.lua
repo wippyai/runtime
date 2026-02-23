@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Process that accepts multiple arguments
 local function main(a, b, c)
 	return {

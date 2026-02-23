@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package hash provides stable hashing for registry entries.
 package hash
 

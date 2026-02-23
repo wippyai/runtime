@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package security provides token store command handlers for the dispatcher system.
 package security
 

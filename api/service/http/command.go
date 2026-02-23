@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package http provides HTTP command types for the dispatcher system.
 package http
 

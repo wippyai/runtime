@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local function process(val: number | string): string
 	if type(val) == "number" then
 		return "number:" .. tostring(val)

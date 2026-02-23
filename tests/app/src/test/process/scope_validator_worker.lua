@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker that validates scope and actor injection
 local security = require("security")
 

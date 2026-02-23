@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- This function tries to require a module that is NOT declared in its modules list.
 -- This should fail at runtime because 'json' is not in the modules list.
 

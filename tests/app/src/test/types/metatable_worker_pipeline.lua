@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Stress case: worker pipeline where methods pass dynamic payloads (any)
 -- through multiple self:method(...) hops.
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package pid provides process identifier types used across the relay system.
 package pid
 

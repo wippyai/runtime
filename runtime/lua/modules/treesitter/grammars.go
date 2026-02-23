@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package treesitter provides Tree-sitter parsing functionality and language support
 package treesitter
 

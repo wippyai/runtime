@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package worksim provides workload simulation for testing adaptive pool behavior.
 //
 // The simulator allows dynamic control of:

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package resource provides a system for managing and accessing shared resources.
 package resource
 

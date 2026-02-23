@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Helper function that spawns a process via process.spawn_monitored() WITHOUT with_context
 -- This tests whether context is automatically inherited from function to spawned process
 local time = require("time")

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Debug worker: Wait for CANCEL event
 local function main()
 	io.write("DEBUG WORKER: Starting, pid=" .. tostring(process.pid()) .. "\n")

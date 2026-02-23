@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: internal Lua errors via pcall
 local assert = require("assert2")
 

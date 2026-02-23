@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: UUID formatting
 local assert = require("assert2")
 local uuid = require("uuid")

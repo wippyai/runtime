@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Norton Commander-style dual-pane file manager demo.
 -- Showcases tty module: styles, borders, layout, key bindings, input events.
 

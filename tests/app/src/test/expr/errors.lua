@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: expr error handling
 local assert = require("assert2")
 local expr = require("expr")

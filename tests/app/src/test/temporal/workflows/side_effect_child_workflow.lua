@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local workflow = require("workflow")
 
 local function main(input)

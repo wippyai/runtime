@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Process with multiple arguments
 local assert = require("assert2")
 local funcs = require("funcs")

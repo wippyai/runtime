@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # text
 
 Text processing including regular expressions, diff/patch operations, and text splitting. Deterministic.

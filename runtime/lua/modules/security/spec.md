@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # security
 
 Security actors, scopes, and policies for access control. Security, nondeterministic.

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # expr
 
 Expression language evaluation using expr-lang syntax. Deterministic.

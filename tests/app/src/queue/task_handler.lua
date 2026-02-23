@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local logger = require("logger")
 local queue = require("queue")
 local store = require("store")

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local assert = require("assert_primitives")
 local security = require("security")
 local funcs = require("funcs")

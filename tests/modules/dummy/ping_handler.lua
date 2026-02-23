@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local json = require("json")
 local http = require("http")
 

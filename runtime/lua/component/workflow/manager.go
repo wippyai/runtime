@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package workflow provides Lua workflow management.
 // Workflows have restricted module access for deterministic execution.
 package workflow

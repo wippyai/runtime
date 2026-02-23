@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Verify CANCEL is properly received and handled by child
 local assert = require("assert2")
 local time = require("time")

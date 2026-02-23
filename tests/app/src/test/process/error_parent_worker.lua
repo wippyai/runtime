@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Parent that spawns child, waits for it to link, then errors
 local time = require("time")
 

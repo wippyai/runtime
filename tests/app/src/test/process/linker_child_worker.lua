@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Child worker that links TO the parent PID passed via inbox
 -- When parent errors/terminates, this process receives LINK_DOWN
 local function main()

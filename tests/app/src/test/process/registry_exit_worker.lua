@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker that registers a name then exits immediately
 local function main()
 	local inbox_ch = process.inbox()

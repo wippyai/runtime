@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package stream provides stream command handlers for the dispatcher system.
 package stream
 

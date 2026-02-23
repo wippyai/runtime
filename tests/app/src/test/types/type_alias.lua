@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 type Point = {x: number, y: number}
 type Name = string
 type Handler = (string) -> string

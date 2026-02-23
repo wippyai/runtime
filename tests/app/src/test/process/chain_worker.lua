@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Chain worker: receives depth, spawns next in chain if depth > 0
 -- Links to parent (passed via inbox), waits for LINK_DOWN
 local function main()

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # os
 
 Lua os.time, os.date, os.clock, os.difftime functions. Time, nondeterministic.

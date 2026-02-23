@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package peer implements relay-to-Temporal signal bridging, allowing
 // local processes to send messages to Temporal workflows via the relay system.
 package peer

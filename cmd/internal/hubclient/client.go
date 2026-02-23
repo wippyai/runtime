@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package hubclient provides utilities for creating authenticated hub clients.
 package hubclient
 

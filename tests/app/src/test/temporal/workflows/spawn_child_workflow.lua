@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Workflow that spawns a child and waits for EXIT event
 
 local function main(input)

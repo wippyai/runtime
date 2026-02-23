@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker spawned by a function to verify context inheritance
 -- This worker validates it has context values passed to the parent function
 local ctx = require("ctx")

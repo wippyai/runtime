@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package runtime provides runtime execution and command management.
 package runtime
 

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Star topology parent: spawns N children, sends them our PID, they link to us
 -- Then we error - all children should receive LINK_DOWN and die
 local function main()

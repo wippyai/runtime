@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # templates
 
 Template rendering engine using Jet syntax. Deterministic.

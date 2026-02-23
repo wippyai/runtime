@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 type Named = { name: string }
 type Aged = { age: number}
 type Person = Named & Aged

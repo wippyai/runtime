@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: eval_runner imports feature
 local assert = require("assert")
 

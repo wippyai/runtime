@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local http = require("http")
 local fs = require("fs")
 

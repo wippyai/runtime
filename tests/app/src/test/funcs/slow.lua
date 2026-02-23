@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Slow function that sleeps for testing async timing
 local time = require("time")
 

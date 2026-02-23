@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Helper function that returns structured errors for error propagation testing
 
 local function main(kind, message)

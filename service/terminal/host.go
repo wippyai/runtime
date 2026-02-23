@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package terminal provides terminal host using the actor scheduler.
 package terminal
 

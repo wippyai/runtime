@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Async call to process function
 local assert = require("assert2")
 local funcs = require("funcs")

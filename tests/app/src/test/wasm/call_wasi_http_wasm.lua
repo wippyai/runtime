@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local assert = require("assert2")
 local http = require("http_client")
 

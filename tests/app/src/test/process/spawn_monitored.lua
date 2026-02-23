@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Spawn with monitoring and wait for exit
 local assert = require("assert2")
 local time = require("time")

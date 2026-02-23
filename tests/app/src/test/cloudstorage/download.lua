@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: cloudstorage download operations with fs.File
 local assert = require("assert_primitives")
 

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: CORS preflight OPTIONS request handling
 local assert = require("assert2")
 

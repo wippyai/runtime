@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # exec
 
 Command execution and process management. IO, process, nondeterministic.

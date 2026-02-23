@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Verify CANCEL event is properly delivered
 -- Note: This test spawns a worker that will receive CANCEL and verifies via EXIT event
 local assert = require("assert2")

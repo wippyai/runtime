@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package shutdown provides graceful shutdown functionality for wippy CLI commands.
 package shutdown
 

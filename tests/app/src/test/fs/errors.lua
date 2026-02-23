@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Filesystem error handling with V2 structured errors
 local assert = require("assert2")
 

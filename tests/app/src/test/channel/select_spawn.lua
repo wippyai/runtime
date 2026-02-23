@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Select with coroutine.spawn
 local assert = require("assert2")
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 package cluster
 
 import "github.com/wippyai/runtime/api/event"

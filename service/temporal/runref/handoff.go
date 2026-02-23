@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package runref provides a one-shot handoff mechanism for passing workflow
 // run references between the start caller and monitor/link setup.
 package runref

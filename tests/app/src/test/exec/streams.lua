@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Process stdout/stderr streams
 local assert = require("assert_primitives")
 

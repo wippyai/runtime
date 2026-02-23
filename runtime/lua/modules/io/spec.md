@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # io
 
 Terminal IO operations for stdin, stdout, and stderr. IO, nondeterministic.

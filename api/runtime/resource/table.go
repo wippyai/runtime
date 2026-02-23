@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package resource provides process-local resource table management.
 package resource
 

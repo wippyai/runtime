@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Activity that returns an error with specific kind
 local function main(input)
 	local error_kind = input and input.error_kind or "Internal"

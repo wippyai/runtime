@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local function get_name(person: {name: string, age: number}): string
 	return person.name
 end

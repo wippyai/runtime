@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Unmonitor stops receiving EXIT events
 local assert = require("assert2")
 local time = require("time")

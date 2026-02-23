@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package payload provides data encoding and transcoding.
 package payload
 

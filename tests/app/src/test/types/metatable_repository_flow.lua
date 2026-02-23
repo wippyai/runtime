@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Stress case: repository object calling another method with any? options.
 -- Common in real apps where option bags are partially typed.
 

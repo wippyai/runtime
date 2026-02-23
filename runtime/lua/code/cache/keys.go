@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 package cache
 
 // CompileKey returns the storage key for a compile fingerprint.

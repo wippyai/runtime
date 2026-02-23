@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package cluster provides cluster membership and inter-node communication APIs.
 package cluster
 

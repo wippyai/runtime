@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package supervisor provides registry-driven process supervision.
 package supervisor
 

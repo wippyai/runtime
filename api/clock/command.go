@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package clock provides time-related command types for the dispatcher system.
 // Commands are pure data structures yielded by processes and handled by clock handlers.
 package clock

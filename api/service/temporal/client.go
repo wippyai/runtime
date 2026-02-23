@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package temporal defines the API types, configuration structs, context keys,
 // and event constants for the Temporal integration service layer.
 package temporal

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package wasm provides WASM runtime integration types.
 package wasm
 

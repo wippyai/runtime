@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Tree-sitter HTML language support
 local assert = require("assert_primitives")
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package banner provides the wippy ASCII banner display functionality.
 package banner
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package cloudstorage provides interfaces and types for interacting with cloud storage services.
 package cloudstorage
 

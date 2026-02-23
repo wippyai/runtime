@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Channel close behavior
 local assert = require("assert2")
 

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: contract.find_implementations()
 local assert = require("assert2")
 local contract = require("contract")

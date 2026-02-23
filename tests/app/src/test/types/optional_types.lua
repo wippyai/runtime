@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local function maybe(cond: boolean): number?
 	if cond then
 		return 42

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker that links to a failing process WITH trap_links=true
 -- Per spec, this worker should RECEIVE LINK_DOWN event (not fail)
 

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Workflow that calls an activity that errors and captures the error metadata
 local funcs = require("funcs")
 

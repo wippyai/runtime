@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package host provides process host implementation using the actor scheduler.
 package host
 

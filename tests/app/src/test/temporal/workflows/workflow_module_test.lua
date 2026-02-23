@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Tests the workflow module functions
 local workflow = require("workflow")
 local time = require("time")

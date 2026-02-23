@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: HTTP custom headers
 local assert = require("assert2")
 

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: json.validate and json.validate_string functions
 local assert = require("assert_primitives")
 

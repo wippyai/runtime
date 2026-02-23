@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local function apply(f: (number) -> number, x: number): number
 	return f(x)
 end

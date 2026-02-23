@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local assert = require("assert2")
 
 type ID = string @min_len(3)

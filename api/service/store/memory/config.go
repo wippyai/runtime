@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package memory provides in-memory store service configuration.
 package memory
 

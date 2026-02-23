@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Server-Sent Events (SSE)
 local assert = require("assert2")
 

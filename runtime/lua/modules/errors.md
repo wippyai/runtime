@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # Errors Specification
 
 Structured error handling for Lua modules using gopher-lua's `lua.Error` type.

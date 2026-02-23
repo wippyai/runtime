@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MPL-2.0
+
 # Enable JSON v2 for all Go commands
 export GOEXPERIMENT := jsonv2
 

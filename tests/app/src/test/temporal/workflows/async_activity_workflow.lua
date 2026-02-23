@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local funcs = require("funcs")
 local time = require("time")
 

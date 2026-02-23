@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Function that raises error for testing error propagation
 
 local function main(should_error, message)

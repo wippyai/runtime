@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker that validates context values and errors if they don't match
 local ctx = require("ctx")
 

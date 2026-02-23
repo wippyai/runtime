@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package temporal provides boot components that wire up Temporal clients,
 // workers, activity listeners, and workflow listeners into the application.
 package temporal

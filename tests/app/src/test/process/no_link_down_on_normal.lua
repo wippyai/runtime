@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: LINK_DOWN is NOT sent when linked process exits normally
 local assert = require("assert2")
 local time = require("time")

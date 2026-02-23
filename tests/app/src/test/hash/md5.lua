@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: hash.md5 function
 local assert = require("assert2")
 local hash = require("hash")

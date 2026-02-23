@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: crypto.jwt functions
 local assert = require("assert2")
 

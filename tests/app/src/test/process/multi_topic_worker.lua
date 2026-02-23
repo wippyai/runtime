@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker: Listen on multiple topics and receive from both
 local time = require("time")
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 package mocklogger
 
 // Copyright (c) 2017 Uber Technologies, Inc.

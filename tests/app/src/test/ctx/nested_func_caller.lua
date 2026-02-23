@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Helper function that calls another function via funcs.new():call() WITHOUT with_context
 -- This tests whether context is automatically inherited through nested funcs calls
 local funcs = require("funcs")

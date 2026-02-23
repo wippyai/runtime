@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # logger
 
 Structured logging with level-based output and field attachments. IO, nondeterministic.

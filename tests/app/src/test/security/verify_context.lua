@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local security = require("security")
 
 local function main(expected_actor_id, expected_meta)

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local function new_counter(initial: number): {value: number}
 	local counter = {
 		value = initial

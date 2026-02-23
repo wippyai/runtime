@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Context inheritance from spawned process to function call
 -- Verifies that when a process is spawned with context, and it calls a function
 -- via funcs.new():call() (without with_context), the function sees the context

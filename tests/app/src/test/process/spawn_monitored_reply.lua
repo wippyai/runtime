@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: spawn_monitored with reply pattern
 -- Reproduces the gov client/service pattern:
 -- 1. Test spawns a service process

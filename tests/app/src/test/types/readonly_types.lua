@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local function get_first(arr: readonly {number}): number?
 	return arr[1]
 end

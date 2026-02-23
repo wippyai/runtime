@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # crypto
 
 Cryptographic operations including random generation, HMAC, encryption/decryption, JWT handling, and key derivation. Security, nondeterministic.

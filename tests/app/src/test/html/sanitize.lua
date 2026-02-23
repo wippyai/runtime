@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: HTML sanitization policies
 local assert = require("assert_primitives")
 

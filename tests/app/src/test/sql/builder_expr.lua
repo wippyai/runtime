@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: sql builder expression operations
 local assert = require("assert_primitives")
 

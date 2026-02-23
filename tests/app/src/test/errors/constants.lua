@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: error kind constants are available and correct
 local assert = require("assert2")
 

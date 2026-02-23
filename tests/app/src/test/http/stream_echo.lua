@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Local stream echo endpoint
 local assert = require("assert2")
 

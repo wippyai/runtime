@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # json
 
 JSON encoding and decoding with schema validation. Encoding, deterministic.

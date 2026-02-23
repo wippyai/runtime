@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Process that sleeps before returning
 local time = require("time")
 

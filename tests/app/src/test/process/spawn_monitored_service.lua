@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Service process that receives requests and spawns monitored workers
 -- Reproduces the gov service pattern
 

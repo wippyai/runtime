@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 package wasm
 
 import wasmcomponent "github.com/wippyai/runtime/runtime/wasm/component"

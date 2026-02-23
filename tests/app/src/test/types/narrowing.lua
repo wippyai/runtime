@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local function nil_check(x: number?): number
 	if x ~= nil then
 		return x

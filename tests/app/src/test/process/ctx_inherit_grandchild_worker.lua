@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Grandchild worker that validates it inherited security context from parent
 -- This worker was spawned with plain process.spawn_monitored (no with_context)
 -- It should still have actor/scope inherited from the parent's context

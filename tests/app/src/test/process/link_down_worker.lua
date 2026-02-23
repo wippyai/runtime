@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker that tests LINK_DOWN event propagation
 -- Spawns a parent that spawns a linked child, then monitors both
 local function main()

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test SDK library for eval imports testing
 local sdk = {}
 

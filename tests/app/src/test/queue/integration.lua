@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 local assert = require("assert2")
 local queue = require("queue")
 local store = require("store")

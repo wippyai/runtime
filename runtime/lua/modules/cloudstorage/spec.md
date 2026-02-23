@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # cloudstorage
 
 Cloud storage operations for S3, GCS, and other providers. Storage, network, IO.

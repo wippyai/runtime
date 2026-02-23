@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Debug test: Verify cancel delivery path
 local time = require("time")
 

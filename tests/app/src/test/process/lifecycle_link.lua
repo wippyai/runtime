@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Linked processes - verify linked child terminates properly
 local assert = require("assert2")
 local time = require("time")

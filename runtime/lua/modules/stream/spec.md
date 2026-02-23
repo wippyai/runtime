@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # stream
 
 Stream read/write operations. IO, nondeterministic.

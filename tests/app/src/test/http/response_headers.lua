@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: HTTP response headersSent tracking via test endpoint
 local assert = require("assert2")
 

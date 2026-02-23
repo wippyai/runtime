@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # websocket
 
 WebSocket client connections. Network, io, nondeterministic.

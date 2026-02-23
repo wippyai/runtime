@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: Inbox messages arrive in order
 local assert = require("assert2")
 local time = require("time")

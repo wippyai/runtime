@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package fs provides filesystem abstractions and a registry for managing
 // multiple filesystem instances.
 package fs

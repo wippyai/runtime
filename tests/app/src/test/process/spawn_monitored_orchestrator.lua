@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Orchestrator process that spawns a monitored worker
 -- Reproduces the gov service pattern
 

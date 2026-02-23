@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: errors.wrap preserves error properties
 local assert = require("assert2")
 

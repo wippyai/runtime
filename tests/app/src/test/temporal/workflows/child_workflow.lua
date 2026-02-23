@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Simple child workflow that returns a result
 local time = require("time")
 

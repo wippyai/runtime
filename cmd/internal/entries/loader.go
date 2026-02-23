@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 // Package entries handles loading registry entries from lock files and managing module installation.
 package entries
 

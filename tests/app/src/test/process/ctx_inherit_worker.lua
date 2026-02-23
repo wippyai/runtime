@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker that spawns a grandchild and checks if it inherits security context
 local security = require("security")
 local time = require("time")

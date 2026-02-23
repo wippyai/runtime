@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # payload
 
 Data transcoding and format conversion. Encoding, deterministic.

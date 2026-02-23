@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # fs
 
 Filesystem operations with sandboxed access to named filesystem registries. Storage, IO, nondeterministic.

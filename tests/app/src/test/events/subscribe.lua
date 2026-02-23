@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Test: events subscribe returns subscription with channel
 local assert = require("assert2")
 

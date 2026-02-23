@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Workflow that handles signal messages as update-like requests
 
 local function main(input)

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: MPL-2.0
+
 -- Worker that exits with error - should trigger LINK_DOWN
 local function main()
 	error("intentional error for testing")

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 # metrics
 
 Recording counters, gauges, and histograms. IO, nondeterministic.

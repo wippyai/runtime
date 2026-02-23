@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 package aws
 
 import "github.com/wippyai/runtime/api/boot"
