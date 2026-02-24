@@ -20,6 +20,7 @@ var sourceKinds = map[string]sourceKind{
 	"process.lua":  {ext: ".lua"},
 	"workflow.lua": {ext: ".lua"},
 	"template.jet": {ext: ".jet"},
+	// todo: move to dynamic boot declaration
 }
 
 type sourceKind struct {
