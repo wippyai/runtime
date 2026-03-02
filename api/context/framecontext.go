@@ -182,7 +182,7 @@ func ReleaseFrameContext(fc FrameContext) {
 
 func releaseFrame(f *frameContext) {
 	newCount := f.refcount.Add(-1)
-	if newCount > 0 {
+	if newCount != 0 {
 		return
 	}
 

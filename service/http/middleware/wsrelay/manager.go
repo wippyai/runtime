@@ -214,12 +214,14 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 		wsCtx, wsFC := contextapi.OpenFrameContext(m.appCtx)
 		if err := wsFC.Set(httpapi.ServerIDKey(), serverID); err != nil {
 			logger.Error("Failed to set server ID in frame context", zap.Error(err))
+			contextapi.ReleaseFrameContext(wsFC)
 			_ = conn.Close(websocket.StatusInternalError, "Failed to set server ID")
 			return
 		}
 
 		wsConn, err := NewConnection(
 			wsCtx,
+			wsFC,
 			conn,
 			targetPID,
 			config,
@@ -234,6 +236,7 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 		)
 		if err != nil {
 			logger.Error("Error creating WebSocket connection", zap.Error(err))
+			contextapi.ReleaseFrameContext(wsFC)
 			_ = conn.Close(websocket.StatusInternalError, err.Error())
 			return
 		}

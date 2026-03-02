@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
@@ -28,6 +29,7 @@ type Connection struct {
 	connectedAt         time.Time
 	ctx                 context.Context
 	closeReason         atomic.Value
+	frameCtx            contextapi.FrameContext
 	host                relay.AttachableReceiver
 	node                relay.Node
 	topo                topology.Topology
@@ -50,6 +52,7 @@ type Connection struct {
 // NewConnection creates a new WebSocket connection relay
 func NewConnection(
 	appCtx context.Context,
+	fc contextapi.FrameContext,
 	wsConn *websocket.Conn,
 	targetPID pid.PID,
 	config RelayCommand,
@@ -95,6 +98,7 @@ func NewConnection(
 	// Create the connection instance
 	conn := &Connection{
 		ctx:                 ctx,
+		frameCtx:            fc,
 		cancelCtx:           cancel,
 		conn:                wsConn,
 		wsPID:               wsPID,
@@ -626,6 +630,11 @@ func (c *Connection) cleanup() {
 
 	// Close message channel to prevent leaks
 	close(c.msgCh)
+
+	// Release frame context to return it to pool
+	if c.frameCtx != nil {
+		contextapi.ReleaseFrameContext(c.frameCtx)
+	}
 
 	c.logger.Debug("websocket connection closed")
 }
