@@ -6,7 +6,9 @@ package context
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestNewFrameContext(t *testing.T) {
@@ -179,6 +181,100 @@ func TestFrameContext_ConcurrentReadsAfterSeal(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestFrameContext_ConcurrentReadWriteBeforeSeal(t *testing.T) {
+	_, cc := newFrameContext(context.Background())
+	key := &Key{Name: "test.concurrent"}
+
+	const writeWorkers = 4
+	const readWorkers = 4
+	const iterations = 2000
+
+	var wg sync.WaitGroup
+
+	for writer := 0; writer < writeWorkers; writer++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				if err := cc.Set(key, id*iterations+i); err != nil {
+					t.Errorf("unexpected set error: %v", err)
+					return
+				}
+			}
+		}(writer)
+	}
+
+	for reader := 0; reader < readWorkers; reader++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				_, _ = cc.Get(key)
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	if _, ok := cc.Get(key); !ok {
+		t.Fatal("expected key to exist after concurrent writes")
+	}
+}
+
+func TestFrameContext_SealRejectsWritersUnderContention(t *testing.T) {
+	_, cc := newFrameContext(context.Background())
+	key := &Key{Name: "test.seal.concurrent"}
+
+	const writers = 8
+
+	var started sync.WaitGroup
+	var wg sync.WaitGroup
+	var postSealSuccess atomic.Bool
+	var sealed atomic.Bool
+	stop := make(chan struct{})
+
+	started.Add(writers)
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			started.Done()
+
+			n := 0
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+
+				err := cc.Set(key, id*100000+n)
+				if sealed.Load() && err == nil {
+					postSealSuccess.Store(true)
+					return
+				}
+				n++
+			}
+		}(i)
+	}
+
+	started.Wait()
+	cc.Seal()
+	sealed.Store(true)
+
+	time.Sleep(20 * time.Millisecond)
+	close(stop)
+	wg.Wait()
+
+	if postSealSuccess.Load() {
+		t.Fatal("write succeeded after seal")
+	}
+
+	if err := cc.Set(key, "after-seal"); err == nil {
+		t.Fatal("expected set to fail after seal")
+	}
 }
 
 func TestWithFrameContext(t *testing.T) {

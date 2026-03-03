@@ -98,11 +98,11 @@ func (w *Worker) Run(ctx context.Context, start *process.Start) (pid.PID, error)
 
 	firstSignalIdx, firstSignal := firstSignalMessage(start.Messages)
 	if firstSignal != nil {
-		run, err := w.signalWithStartMessage(runtimeState, execCtx, workflowID, workflowName, opts, start, firstSignal)
+		run, err := w.signalWithStartMessage(execCtx, runtimeState, workflowID, workflowName, opts, start, firstSignal)
 		if err != nil {
 			var alreadyStarted *serviceerror.WorkflowExecutionAlreadyStarted
 			if errors.As(err, &alreadyStarted) && shouldUseExistingOnAlreadyStarted(opts) {
-				w.publishRunHandoff(start, runtimeState.ctx, workflowID, alreadyStarted.RunId)
+				w.publishRunHandoff(runtimeState.ctx, start, workflowID, alreadyStarted.RunId)
 				if err := w.signalMessages(execCtx, workflowID, start.Messages, start); err != nil {
 					return pid.PID{}, err
 				}
@@ -111,7 +111,7 @@ func (w *Worker) Run(ctx context.Context, start *process.Start) (pid.PID, error)
 			return pid.PID{}, err
 		}
 		if run != nil {
-			w.publishRunHandoff(start, runtimeState.ctx, workflowID, run.GetRunID())
+			w.publishRunHandoff(runtimeState.ctx, start, workflowID, run.GetRunID())
 		}
 		if err := w.signalMessages(execCtx, workflowID, start.Messages[firstSignalIdx+1:], start); err != nil {
 			return pid.PID{}, err
@@ -123,13 +123,13 @@ func (w *Worker) Run(ctx context.Context, start *process.Start) (pid.PID, error)
 	if err != nil {
 		var alreadyStarted *serviceerror.WorkflowExecutionAlreadyStarted
 		if errors.As(err, &alreadyStarted) && shouldUseExistingOnAlreadyStarted(opts) {
-			w.publishRunHandoff(start, runtimeState.ctx, workflowID, alreadyStarted.RunId)
+			w.publishRunHandoff(runtimeState.ctx, start, workflowID, alreadyStarted.RunId)
 			return workflowPID, nil
 		}
 		return pid.PID{}, err
 	}
 	if run != nil {
-		w.publishRunHandoff(start, runtimeState.ctx, workflowID, run.GetRunID())
+		w.publishRunHandoff(runtimeState.ctx, start, workflowID, run.GetRunID())
 	}
 
 	return workflowPID, nil
@@ -190,8 +190,8 @@ func (w *Worker) signalMessages(ctx context.Context, workflowID string, messages
 }
 
 func (w *Worker) signalWithStartMessage(
-	runtimeState *workerRuntime,
 	ctx context.Context,
+	runtimeState *workerRuntime,
 	workflowID string,
 	workflowName string,
 	opts client.StartWorkflowOptions,
@@ -317,7 +317,7 @@ func shouldPublishRunHandoff(start *process.Start) bool {
 	return false
 }
 
-func (w *Worker) publishRunHandoff(start *process.Start, runtimeCtx context.Context, workflowID, runID string) {
+func (w *Worker) publishRunHandoff(runtimeCtx context.Context, start *process.Start, workflowID, runID string) {
 	if !shouldPublishRunHandoff(start) || workflowID == "" || runID == "" {
 		return
 	}

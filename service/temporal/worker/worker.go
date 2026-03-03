@@ -53,17 +53,17 @@ type Worker struct {
 	worker         worker.Worker
 	dtt            payload.Transcoder
 	clientResource resource.Resource[any]
-	log            *zap.Logger
 	cancel         context.CancelFunc
+	log            *zap.Logger
 	activities     map[string]*activityRegistration
 	workflows      map[string]*workflowRegistration
 	config         *api.WorkerConfig
+	runtimeState   atomic.Pointer[workerRuntime]
 	id             registry.ID
 	clientNodeID   pid.NodeID
 	workflowPrefix string
 	taskQueue      string
 	interceptors   []interceptor.WorkerInterceptor
-	runtimeState   atomic.Pointer[workerRuntime]
 	mu             sync.RWMutex
 	closed         atomic.Bool
 }
