@@ -161,7 +161,6 @@ linters:
     paths:
       - .github
       - .git
-      - 
       - third_party$
       - builtin$
       - examples$
