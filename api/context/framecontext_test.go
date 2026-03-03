@@ -373,6 +373,50 @@ func TestOpenFrameContext_NilFrame(t *testing.T) {
 	}
 }
 
+func TestFrameFromContext_StaleReferenceInvalidated(t *testing.T) {
+	staleCtx, fc := OpenFrameContext(context.Background())
+	key := &Key{Name: "test.key"}
+	_ = fc.Set(key, "value")
+	ReleaseFrameContext(fc)
+
+	if got := FrameFromContext(staleCtx); got != nil {
+		t.Fatal("stale context should not expose released frame")
+	}
+
+	freshCtx, freshFC := OpenFrameContext(staleCtx)
+	defer ReleaseFrameContext(freshFC)
+
+	if got := FrameFromContext(staleCtx); got != nil {
+		t.Fatal("stale context should remain invalid after frame pool reuse")
+	}
+	if got := FrameFromContext(freshCtx); got == nil {
+		t.Fatal("fresh context should expose active frame")
+	}
+}
+
+func TestOpenFrameContextOn_SealsParentForSafeFork(t *testing.T) {
+	parentCtx, parent := OpenFrameContext(context.Background())
+	defer ReleaseFrameContext(parent)
+
+	inheritKey := &Key{Name: "test.inherit", Inherit: true}
+	_ = parent.Set(inheritKey, "user123")
+
+	_, child := OpenFrameContextOn(context.Background(), parentCtx)
+	defer ReleaseFrameContext(child)
+
+	if !parent.IsSealed() {
+		t.Fatal("parent should be sealed after OpenFrameContextOn")
+	}
+	if err := parent.Set(&Key{Name: "test.after_fork"}, "x"); err == nil {
+		t.Fatal("sealed parent should reject post-fork writes")
+	}
+
+	val, ok := child.Get(inheritKey)
+	if !ok || val != "user123" {
+		t.Fatalf("child should inherit sealed parent values, got %v (ok=%v)", val, ok)
+	}
+}
+
 func TestOpenFrameContext_InheritWithCloner(t *testing.T) {
 	parentCtx, parent := newFrameContext(context.Background())
 

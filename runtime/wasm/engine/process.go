@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	envapi "github.com/wippyai/runtime/api/env"
 	fsapi "github.com/wippyai/runtime/api/fs"
@@ -83,6 +84,9 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 	p.pendingTag = 0
 	p.waitingYield = false
 	p.done = false
+	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
+		fc.Seal()
+	}
 	return nil
 }
 

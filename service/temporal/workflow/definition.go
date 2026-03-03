@@ -93,6 +93,7 @@ type Definition struct {
 	env        bindings.WorkflowEnvironment
 	dc         converter.DataConverter
 	proc       process.Process
+	frameCtx   ctxapi.FrameContext
 	ctx        context.Context
 	execCtx    context.Context
 	log        *zap.Logger
@@ -119,6 +120,11 @@ type Definition struct {
 
 // Execute implements WorkflowDefinition.Execute.
 func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.Header, input *commonpb.Payloads) {
+	if d.frameCtx != nil {
+		ctxapi.ReleaseFrameContext(d.frameCtx)
+		d.frameCtx = nil
+	}
+
 	d.env = env
 	d.dc = env.GetDataConverter()
 	d.replayLog = propagator.NewReplayLogger(d.log, env.IsReplaying)
@@ -156,6 +162,12 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 	}
 
 	execCtx, fc := ctxapi.OpenFrameContextOn(d.ctx, d.ctx)
+	keepFrame := false
+	defer func() {
+		if !keepFrame {
+			ctxapi.ReleaseFrameContext(fc)
+		}
+	}()
 	pairs := []ctxapi.Pair{
 		{Key: runtime.FrameIDKey, Value: d.id},
 		{Key: runtime.FramePIDKey, Value: processPID},
@@ -203,8 +215,6 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 		return
 	}
 
-	d.execCtx = execCtx
-
 	env.RegisterCancelHandler(d.handleCancel)
 	env.RegisterSignalHandler(d.handleSignal)
 	env.RegisterQueryHandler(d.handleQuery)
@@ -223,6 +233,10 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 		d.env.Complete(nil, fmt.Errorf("failed to start workflow: %w", err))
 		return
 	}
+
+	d.execCtx = execCtx
+	d.frameCtx = fc
+	keepFrame = true
 }
 
 func (d *Definition) resolveClientID() string {
@@ -325,5 +339,9 @@ func (d *Definition) StackTrace() string {
 func (d *Definition) Close() {
 	if d.proc != nil {
 		d.proc.Close()
+	}
+	if d.frameCtx != nil {
+		ctxapi.ReleaseFrameContext(d.frameCtx)
+		d.frameCtx = nil
 	}
 }

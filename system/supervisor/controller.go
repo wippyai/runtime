@@ -66,8 +66,8 @@ func NewController(
 		ops:           make(chan ctrlOp, 10),
 	}
 
-	// Create FrameContext for this service lifecycle
-	ctx, fc := ctxapi.OpenFrameContext(ctx)
+	// Create isolated FrameContext for this service lifecycle.
+	ctx, fc := ctxapi.OpenFrameContextOn(ctx, ctx)
 
 	if config.Security != nil {
 		ctx = securitysys.WithSecurityConfig(ctx, config.Security)
@@ -78,7 +78,10 @@ func NewController(
 
 	ctrl.ctx, ctrl.cancel = context.WithCancel(ctx)
 
-	go ctrl.supervise()
+	go func() {
+		defer ctxapi.ReleaseFrameContext(fc)
+		ctrl.supervise()
+	}()
 	return ctrl
 }
 

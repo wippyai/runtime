@@ -38,10 +38,6 @@ type FrameContext interface {
 	// IsSealed returns true if this frame is sealed.
 	IsSealed() bool
 
-	// IncRef increments reference count. Returns Closer to decrement when done.
-	// Call before spawning async work, defer the returned Closer in the goroutine.
-	IncRef() Closer
-
 	// Close decrements refcount and releases frame when zero.
 	Close() error
 }
@@ -50,10 +46,18 @@ type FrameContext interface {
 // Do NOT access from multiple goroutines until Seal() is called.
 // After sealing, concurrent reads are safe (values become immutable).
 type frameContext struct {
-	values   map[any]any
-	parent   *frameContext
-	sealed   atomic.Bool
-	refcount atomic.Int32
+	values map[any]any
+	parent *frameContext
+	// generation increments whenever the frame lifecycle changes.
+	// Context values carry the generation to reject stale frame references.
+	generation atomic.Uint64
+	refcount   atomic.Int32
+	sealed     atomic.Bool
+}
+
+type frameContextRef struct {
+	frame      *frameContext
+	generation uint64
 }
 
 var frameContextPool = sync.Pool{
@@ -114,14 +118,6 @@ func (f *frameContext) IsSealed() bool {
 	return f.sealed.Load()
 }
 
-func (f *frameContext) IncRef() Closer {
-	f.refcount.Add(1)
-	return CloserFunc(func() error {
-		releaseFrame(f)
-		return nil
-	})
-}
-
 func (f *frameContext) Close() error {
 	releaseFrame(f)
 	return nil
@@ -129,13 +125,38 @@ func (f *frameContext) Close() error {
 
 // WithFrameContext attaches FrameContext to the provided context.
 func WithFrameContext(ctx context.Context, fc FrameContext) context.Context {
+	if f, ok := fc.(*frameContext); ok {
+		ref := frameContextRef{
+			frame:      f,
+			generation: f.generation.Load(),
+		}
+		return context.WithValue(ctx, frameContextKey, ref)
+	}
 	return context.WithValue(ctx, frameContextKey, fc)
 }
 
 // FrameFromContext extracts FrameContext from context.
 func FrameFromContext(ctx context.Context) FrameContext {
-	if fc, ok := ctx.Value(frameContextKey).(FrameContext); ok {
-		return fc
+	switch v := ctx.Value(frameContextKey).(type) {
+	case frameContextRef:
+		if v.frame == nil {
+			return nil
+		}
+		if v.generation != v.frame.generation.Load() {
+			return nil
+		}
+		if v.frame.refcount.Load() <= 0 {
+			return nil
+		}
+		return v.frame
+	case *frameContext:
+		// Backward compatibility for contexts created before frameContextRef.
+		if v == nil || v.refcount.Load() <= 0 {
+			return nil
+		}
+		return v
+	case FrameContext:
+		return v
 	}
 	return nil
 }
@@ -180,11 +201,28 @@ func ReleaseFrameContext(fc FrameContext) {
 	releaseFrame(f)
 }
 
+// tryIncRef atomically increments refcount only if the frame is still alive (refcount > 0).
+// Returns false if the frame has already been released, preventing use-after-pool races.
+func tryIncRef(f *frameContext) bool {
+	for {
+		current := f.refcount.Load()
+		if current <= 0 {
+			return false
+		}
+		if f.refcount.CompareAndSwap(current, current+1) {
+			return true
+		}
+	}
+}
+
 func releaseFrame(f *frameContext) {
 	newCount := f.refcount.Add(-1)
 	if newCount != 0 {
 		return
 	}
+
+	// Invalidate all context-bound references before clearing/repooling.
+	f.generation.Add(1)
 
 	// refcount == 0 means exclusive access, no lock needed
 	var closers []Closer
@@ -226,11 +264,16 @@ func OpenFrameContext(ctx context.Context) (context.Context, FrameContext) {
 // Uses reference counting to ensure parent frame stays alive while child iterates.
 func OpenFrameContextOn(targetCtx context.Context, parentCtx context.Context) (context.Context, FrameContext) {
 	parentFC, _ := FrameFromContext(parentCtx).(*frameContext)
+	if parentFC != nil && !parentFC.IsSealed() {
+		// Forking implies immutable parent snapshot for safe copy-on-fork.
+		parentFC.Seal()
+	}
 	return forkFrameContext(targetCtx, parentFC)
 }
 
 func newFrameContext(parent context.Context) (context.Context, FrameContext) {
 	fc := frameContextPool.Get().(*frameContext)
+	fc.generation.Add(1)
 	fc.sealed.Store(false)
 	fc.refcount.Store(1)
 	fc.parent = nil
@@ -238,14 +281,18 @@ func newFrameContext(parent context.Context) (context.Context, FrameContext) {
 }
 
 // forkFrameContext creates a new child frame from a parent frame.
-// Increments parent refcount to keep parent alive until child releases.
+// Uses CAS to increment parent refcount only if still alive, preventing
+// a race where FrameFromContext returns a frame that is concurrently released.
 // Parent is always sealed when forking, so no lock needed for copying.
 func forkFrameContext(ctx context.Context, parent *frameContext) (context.Context, *frameContext) {
 	if parent != nil {
-		parent.refcount.Add(1)
+		if !tryIncRef(parent) {
+			parent = nil
+		}
 	}
 
 	fc := frameContextPool.Get().(*frameContext)
+	fc.generation.Add(1)
 	fc.sealed.Store(false)
 	fc.refcount.Store(1)
 	fc.parent = parent

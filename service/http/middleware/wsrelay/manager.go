@@ -211,7 +211,8 @@ func (m *RelayManager) middlewareHandler(h http.Handler, originPatterns []string
 			return
 		}
 
-		wsCtx, wsFC := contextapi.OpenFrameContext(m.appCtx)
+		// Always fork a per-connection frame from app context.
+		wsCtx, wsFC := contextapi.OpenFrameContextOn(m.appCtx, m.appCtx)
 		if err := wsFC.Set(httpapi.ServerIDKey(), serverID); err != nil {
 			logger.Error("Failed to set server ID in frame context", zap.Error(err))
 			contextapi.ReleaseFrameContext(wsFC)

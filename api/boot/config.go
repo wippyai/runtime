@@ -125,8 +125,13 @@ func (c *config) GetDuration(key string, def time.Duration) time.Duration {
 	if !ok {
 		return def
 	}
-	if d, ok := v.(time.Duration); ok {
+	switch d := v.(type) {
+	case time.Duration:
 		return d
+	case string:
+		if parsed, err := time.ParseDuration(d); err == nil {
+			return parsed
+		}
 	}
 	return def
 }

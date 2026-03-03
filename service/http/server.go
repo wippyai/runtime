@@ -225,8 +225,8 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 
 	// Wrap handler with per-request FrameContext creation
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Create unsealed FrameContext for each HTTP request
-		ctx, fc := contextapi.OpenFrameContext(r.Context())
+		// Always fork a dedicated request frame from the inbound context.
+		ctx, fc := contextapi.OpenFrameContextOn(r.Context(), r.Context())
 		defer contextapi.ReleaseFrameContext(fc)
 
 		// Set all HTTP-specific metadata in FrameContext in one place

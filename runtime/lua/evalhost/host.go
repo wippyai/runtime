@@ -142,9 +142,19 @@ func (h *Host) Run(ctx context.Context, cmd RunCmd) (any, error) {
 	}
 	defer proc.Close()
 
-	// Create fresh frame context for the eval process
+	// Create isolated frame context for eval execution.
+	existingFC := ctxapi.FrameFromContext(ctx)
 	evalCtx, fc := ctxapi.OpenFrameContext(ctx)
-	defer ctxapi.ReleaseFrameContext(fc)
+	owned := fc != existingFC
+	if !owned && fc != nil {
+		// If caller passed an unsealed frame, seal and fork so eval owns lifecycle.
+		fc.Seal()
+		evalCtx, fc = ctxapi.OpenFrameContext(evalCtx)
+		owned = true
+	}
+	if owned {
+		defer ctxapi.ReleaseFrameContext(fc)
+	}
 
 	// Apply caller-provided context values
 	if len(cmd.Context) > 0 {
@@ -234,16 +244,29 @@ func (h *Host) Run(ctx context.Context, cmd RunCmd) (any, error) {
 				continue
 			}
 
+			// Freeze parent frame for concurrent yield handlers.
+			if frame := ctxapi.FrameFromContext(evalCtx); frame != nil {
+				frame.Seal()
+			}
+
 			// Create collector with exact count and dispatch
 			collector := newYieldCollector(len(validYields))
 			for _, y := range validYields {
 				handler := disp.Dispatch(y.Cmd)
-				go func(tag uint64, c dispatcher.Command, h dispatcher.Handler) {
-					err := h.Handle(evalCtx, c, tag, collector)
+				yieldCtx := evalCtx
+				var yieldFC ctxapi.FrameContext
+				if ctxapi.FrameFromContext(evalCtx) != nil {
+					yieldCtx, yieldFC = ctxapi.OpenFrameContext(evalCtx)
+				}
+				go func(tag uint64, c dispatcher.Command, h dispatcher.Handler, callCtx context.Context, callFC ctxapi.FrameContext) {
+					if callFC != nil {
+						defer ctxapi.ReleaseFrameContext(callFC)
+					}
+					err := h.Handle(callCtx, c, tag, collector)
 					if err != nil {
 						collector.CompleteYield(tag, nil, err)
 					}
-				}(y.Tag, y.Cmd, handler)
+				}(y.Tag, y.Cmd, handler, yieldCtx, yieldFC)
 			}
 
 			// Wait for all yields to complete
