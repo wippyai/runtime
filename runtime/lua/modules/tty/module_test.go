@@ -3,6 +3,7 @@
 package tty
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -298,7 +299,7 @@ func TestEventHandler_KeyEvent(t *testing.T) {
 	}
 	payloads := []payload.Payload{payload.New(ev)}
 
-	result := eventHandler(nil, l, pid.PID{}, "", payloads)
+	result := eventHandler(context.Background(), l, pid.PID{}, "", payloads)
 	require.NotNil(t, result)
 
 	tbl, ok := result.(*lua.LTable)
@@ -323,7 +324,7 @@ func TestEventHandler_MouseEvent(t *testing.T) {
 	}
 	payloads := []payload.Payload{payload.New(ev)}
 
-	result := eventHandler(nil, l, pid.PID{}, "", payloads)
+	result := eventHandler(context.Background(), l, pid.PID{}, "", payloads)
 	tbl, ok := result.(*lua.LTable)
 	require.True(t, ok)
 	assert.Equal(t, "mouse", tbl.RawGetString("type").String())
@@ -344,7 +345,7 @@ func TestEventHandler_ResizeEvent(t *testing.T) {
 	}
 	payloads := []payload.Payload{payload.New(ev)}
 
-	result := eventHandler(nil, l, pid.PID{}, "", payloads)
+	result := eventHandler(context.Background(), l, pid.PID{}, "", payloads)
 	tbl, ok := result.(*lua.LTable)
 	require.True(t, ok)
 	assert.Equal(t, "resize", tbl.RawGetString("type").String())
@@ -359,7 +360,7 @@ func TestEventHandler_FocusEvent(t *testing.T) {
 	ev := &svcterm.TTYEvent{Type: "focus", Focused: true}
 	payloads := []payload.Payload{payload.New(ev)}
 
-	result := eventHandler(nil, l, pid.PID{}, "", payloads)
+	result := eventHandler(context.Background(), l, pid.PID{}, "", payloads)
 	tbl, ok := result.(*lua.LTable)
 	require.True(t, ok)
 	assert.Equal(t, "focus", tbl.RawGetString("type").String())
@@ -373,7 +374,7 @@ func TestEventHandler_PasteEvent(t *testing.T) {
 	ev := &svcterm.TTYEvent{Type: "paste", Paste: "hello world"}
 	payloads := []payload.Payload{payload.New(ev)}
 
-	result := eventHandler(nil, l, pid.PID{}, "", payloads)
+	result := eventHandler(context.Background(), l, pid.PID{}, "", payloads)
 	tbl, ok := result.(*lua.LTable)
 	require.True(t, ok)
 	assert.Equal(t, "paste", tbl.RawGetString("type").String())
@@ -384,7 +385,7 @@ func TestEventHandler_EmptyPayloads(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
 
-	result := eventHandler(nil, l, pid.PID{}, "", nil)
+	result := eventHandler(context.Background(), l, pid.PID{}, "", nil)
 	assert.Equal(t, lua.LNil, result)
 }
 
@@ -393,7 +394,7 @@ func TestEventHandler_WrongPayloadType(t *testing.T) {
 	defer l.Close()
 
 	payloads := []payload.Payload{payload.New("not a TTYEvent")}
-	result := eventHandler(nil, l, pid.PID{}, "", payloads)
+	result := eventHandler(context.Background(), l, pid.PID{}, "", payloads)
 	assert.Equal(t, lua.LNil, result)
 }
 
@@ -863,7 +864,7 @@ func TestEventHandler_StartEvent(t *testing.T) {
 	ev := &svcterm.TTYEvent{Type: "start", Width: 80, Height: 24}
 	payloads := []payload.Payload{payload.New(ev)}
 
-	result := eventHandler(nil, l, pid.PID{}, "", payloads)
+	result := eventHandler(context.Background(), l, pid.PID{}, "", payloads)
 	tbl, ok := result.(*lua.LTable)
 	require.True(t, ok)
 	assert.Equal(t, "start", tbl.RawGetString("type").String())
@@ -878,7 +879,7 @@ func TestEventHandler_FocusBlurEvent(t *testing.T) {
 	blur := &svcterm.TTYEvent{Type: "focus", Focused: false}
 	payloads := []payload.Payload{payload.New(blur)}
 
-	result := eventHandler(nil, l, pid.PID{}, "", payloads)
+	result := eventHandler(context.Background(), l, pid.PID{}, "", payloads)
 	tbl, ok := result.(*lua.LTable)
 	require.True(t, ok)
 	assert.Equal(t, lua.LFalse, tbl.RawGetString("focused"))
@@ -900,7 +901,7 @@ func TestEventHandler_MouseWithModifiers(t *testing.T) {
 	}
 	payloads := []payload.Payload{payload.New(ev)}
 
-	result := eventHandler(nil, l, pid.PID{}, "", payloads)
+	result := eventHandler(context.Background(), l, pid.PID{}, "", payloads)
 	tbl, ok := result.(*lua.LTable)
 	require.True(t, ok)
 	assert.Equal(t, "motion", tbl.RawGetString("action").String())
@@ -924,7 +925,7 @@ func TestEventHandler_KeyWithAllModifiers(t *testing.T) {
 	}
 	payloads := []payload.Payload{payload.New(ev)}
 
-	result := eventHandler(nil, l, pid.PID{}, "", payloads)
+	result := eventHandler(context.Background(), l, pid.PID{}, "", payloads)
 	tbl, ok := result.(*lua.LTable)
 	require.True(t, ok)
 	assert.Equal(t, lua.LTrue, tbl.RawGetString("alt"))
