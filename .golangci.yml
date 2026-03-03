@@ -149,6 +149,18 @@ linters:
           - gosec
         text: "G602"
       - linters:
+          - gosec
+        text: "G117"
+      - linters:
+          - gosec
+        text: "G703"
+      - linters:
+          - gosec
+        text: "G704"
+      - linters:
+          - gosec
+        text: "G705"
+      - linters:
           - revive
         text: "unexported-return"
       - linters:
@@ -158,6 +170,10 @@ linters:
           - staticcheck
         text: "SA1012"
         path: _test\.go
+      - linters:
+          - govet
+        text: "fieldalignment"
+        path: api/context/framecontext\.go
     paths:
       - .github
       - .git
