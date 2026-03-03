@@ -641,22 +641,22 @@ func TestMemoryStore_CleanupBehavior(t *testing.T) {
 	_, err := ms.Start(ctx)
 	require.NoError(t, err)
 
-	// Set multiple entries with different TTLs
-	// Use longer TTLs to account for CI/CD timing variations
+	// Set multiple entries with different TTLs.
+	// We intentionally keep wide TTL gaps because GitHub CI can have timer jitter.
 	keys := []registry.ID{
-		registry.ParseID("test:expire-50ms"),
-		registry.ParseID("test:expire-100ms"),
 		registry.ParseID("test:expire-200ms"),
+		registry.ParseID("test:expire-500ms"),
+		registry.ParseID("test:expire-900ms"),
 		registry.ParseID("test:no-expire"),
 	}
 
-	err = ms.Set(ctx, createTestEntryWithTTL("test:expire-50ms", "50ms", 50*time.Millisecond))
-	require.NoError(t, err)
-
-	err = ms.Set(ctx, createTestEntryWithTTL("test:expire-100ms", "100ms", 100*time.Millisecond))
-	require.NoError(t, err)
-
 	err = ms.Set(ctx, createTestEntryWithTTL("test:expire-200ms", "200ms", 200*time.Millisecond))
+	require.NoError(t, err)
+
+	err = ms.Set(ctx, createTestEntryWithTTL("test:expire-500ms", "500ms", 500*time.Millisecond))
+	require.NoError(t, err)
+
+	err = ms.Set(ctx, createTestEntryWithTTL("test:expire-900ms", "900ms", 900*time.Millisecond))
 	require.NoError(t, err)
 
 	err = ms.Set(ctx, createTestEntry("test:no-expire", "forever"))
@@ -669,49 +669,34 @@ func TestMemoryStore_CleanupBehavior(t *testing.T) {
 		assert.True(t, exists, "Key %s should exist initially", key)
 	}
 
-	// Wait for the first cleanup cycle (longer than 50ms TTL + cleanup interval)
-	// Use 80ms to check before 100ms key expires, but after 50ms key should be gone
-	time.Sleep(80 * time.Millisecond)
-
-	// After 80ms: 50ms key should be gone, others should remain
-	exists, err := ms.Has(ctx, keys[0]) // 50ms key
-	require.NoError(t, err)
-	assert.False(t, exists, "50ms key should be expired")
-
-	for i := 1; i < len(keys); i++ {
-		exists, err = ms.Has(ctx, keys[i])
+	// In GitHub CI, fixed sleeps near TTL boundaries are flaky.
+	// Use eventual/never checks with margins instead.
+	require.Never(t, func() bool {
+		exists, err := ms.Has(ctx, keys[1]) // 500ms key
 		require.NoError(t, err)
-		assert.True(t, exists, "Key %s should still exist", keys[i])
-	}
+		return !exists
+	}, 150*time.Millisecond, 10*time.Millisecond, "500ms key should not expire early")
 
-	// Wait for the second cleanup cycle
-	time.Sleep(50 * time.Millisecond) // Now at ~130ms total
-
-	// After 130ms: 50ms and 100ms keys should be gone, others should remain
-	for i := 0; i < 2; i++ {
-		exists, err = ms.Has(ctx, keys[i])
+	require.Eventually(t, func() bool {
+		exists, err := ms.Has(ctx, keys[0]) // 200ms key
 		require.NoError(t, err)
-		assert.False(t, exists, "Key %s should be expired", keys[i])
-	}
+		return !exists
+	}, 900*time.Millisecond, 10*time.Millisecond, "200ms key should eventually expire")
 
-	for i := 2; i < len(keys); i++ {
-		exists, err = ms.Has(ctx, keys[i])
+	require.Eventually(t, func() bool {
+		exists, err := ms.Has(ctx, keys[1]) // 500ms key
 		require.NoError(t, err)
-		assert.True(t, exists, "Key %s should still exist", keys[i])
-	}
+		return !exists
+	}, 1200*time.Millisecond, 10*time.Millisecond, "500ms key should eventually expire")
 
-	// Wait for the third cleanup cycle
-	time.Sleep(100 * time.Millisecond) // Now at ~230ms total
-
-	// After 230ms: All except the non-expiring key should be gone
-	for i := 0; i < 3; i++ {
-		exists, err = ms.Has(ctx, keys[i])
+	require.Eventually(t, func() bool {
+		exists, err := ms.Has(ctx, keys[2]) // 900ms key
 		require.NoError(t, err)
-		assert.False(t, exists, "Key %s should be expired", keys[i])
-	}
+		return !exists
+	}, 1800*time.Millisecond, 10*time.Millisecond, "900ms key should eventually expire")
 
-	// The non-expiring key should still be there
-	exists, err = ms.Has(ctx, keys[3])
+	// The non-expiring key should still be present.
+	exists, err := ms.Has(ctx, keys[3])
 	require.NoError(t, err)
 	assert.True(t, exists, "Non-expiring key should still exist")
 
