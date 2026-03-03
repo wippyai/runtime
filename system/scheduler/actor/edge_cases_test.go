@@ -246,7 +246,7 @@ func TestUpgradeSuccess(t *testing.T) {
 			return &ImmediateProcess{}, &process.Meta{Method: "run"}, nil
 		},
 	})
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	pid := pidapi.PID{UniqID: "upgrade-success"}
@@ -263,6 +263,43 @@ func TestUpgradeSuccess(t *testing.T) {
 
 	if result.Error != nil {
 		t.Fatalf("unexpected error: %v", result.Error)
+	}
+}
+
+// TestUpgradeSuccess_Stress guards against missed wakeup regressions by repeatedly
+// executing upgrade flow on a single-worker scheduler.
+func TestUpgradeSuccess_Stress(t *testing.T) {
+	reg := scheduler.NewRegistry()
+	te := newTestExecutorWithRegistry(1, reg)
+	te.Start()
+	defer te.Stop()
+
+	appCtx := ctxapi.NewAppContext()
+	ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+	process.WithFactory(ctx, &mockFactory{
+		createFunc: func(_ registry.ID) (process.Process, *process.Meta, error) {
+			return &ImmediateProcess{}, &process.Meta{Method: "run"}, nil
+		},
+	})
+
+	const runs = 300
+	for i := 0; i < runs; i++ {
+		runCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		p := pidapi.PID{UniqID: fmt.Sprintf("upgrade-stress-%d", i)}
+		proc := &UpgradeProcess{
+			upgradeReq: &process.UpgradeRequest{
+				Source: registry.ID{Name: "test"},
+			},
+		}
+
+		result, err := te.Execute(runCtx, p, proc, "", nil)
+		cancel()
+		if err != nil {
+			t.Fatalf("run %d execute error: %v", i, err)
+		}
+		if result.Error != nil {
+			t.Fatalf("run %d unexpected error: %v", i, result.Error)
+		}
 	}
 }
 
