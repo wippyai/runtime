@@ -36,11 +36,11 @@ type testService struct {
 }
 
 type blockingStartService struct {
-	startedOnce sync.Once
-	stoppedOnce sync.Once
 	startedCh   chan struct{}
 	releaseCh   chan struct{}
 	detailsCh   chan any
+	startedOnce sync.Once
+	stoppedOnce sync.Once
 }
 
 func newBlockingStartService() *blockingStartService {
