@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"sync"
+	"time"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -36,6 +37,8 @@ func anyToLua(_ *lua.LState, v any) lua.LValue {
 		return lua.LNumber(val)
 	case bool:
 		return lua.LBool(val)
+	case time.Time:
+		return lua.LString(val.UTC().Format(time.RFC3339))
 	case error:
 		return lua.LString(val.Error())
 	default:

@@ -49,6 +49,7 @@ type (
 		tx                 *regTx
 		sequencer          *sequencer
 		dependencyResolver supervisor.DependencyResolver
+		transitionMu       sync.Mutex
 		wg                 sync.WaitGroup
 		mu                 sync.RWMutex
 	}
@@ -87,11 +88,30 @@ func WithDependencyResolver(resolver supervisor.DependencyResolver) Option {
 }
 
 func (s *Supervisor) executeOperations(ctx context.Context, operations []operation) error {
+	return s.runTransition(ctx, operations)
+}
+
+func (s *Supervisor) runTransition(ctx context.Context, operations []operation) error {
 	if len(operations) == 0 {
 		return nil
 	}
 
+	s.transitionMu.Lock()
+	defer s.transitionMu.Unlock()
+
 	return s.sequencer.transition(ctx, operations...)
+}
+
+func (s *Supervisor) snapshotControllers() map[string]*Controller {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	controllers := make(map[string]*Controller, len(s.controllers))
+	for id, ctrl := range s.controllers {
+		controllers[id] = ctrl
+	}
+
+	return controllers
 }
 
 // GetState returns the current state of a service identified by its Alias.
@@ -161,10 +181,9 @@ func (s *Supervisor) Stop() error {
 		s.subscriber = nil
 	}
 
-	// Collect all controllers under lock
-	s.mu.RLock()
+	controllers := s.snapshotControllers()
 	operations := make([]operation, 0)
-	for id, ctrl := range s.controllers {
+	for id, ctrl := range controllers {
 		operations = append(operations, operation{
 			kind:         opStop,
 			id:           id,
@@ -172,10 +191,9 @@ func (s *Supervisor) Stop() error {
 			dependencies: ctrl.config.DependsOn,
 		})
 	}
-	s.mu.RUnlock()
 
 	// close all controllers in proper dependency order
-	if err := s.sequencer.transition(s.ctx, operations...); err != nil {
+	if err := s.runTransition(s.ctx, operations); err != nil {
 		s.logger.Error("failed to stop controllers during shutdown", zap.Error(err))
 	}
 
@@ -281,10 +299,11 @@ func (s *Supervisor) run(ctx context.Context) {
 				continue
 			}
 
+			controllers := s.snapshotControllers()
 			l := s.logger.With(zap.String("serviceID", action.serviceID))
-			if _, exists := s.controllers[action.serviceID]; exists {
+			if _, exists := controllers[action.serviceID]; exists {
 				l.Info("service start requested")
-				ops := s.buildStartOperations(action.serviceID)
+				ops := s.buildStartOperations(controllers, action.serviceID)
 				if err := s.executeOperations(ctx, ops); err != nil {
 					s.logger.Error("failed to execute start operations", zap.Error(err))
 				}
@@ -296,10 +315,11 @@ func (s *Supervisor) run(ctx context.Context) {
 				continue
 			}
 
+			controllers := s.snapshotControllers()
 			l := s.logger.With(zap.String("serviceID", action.serviceID))
-			if _, exists := s.controllers[action.serviceID]; exists {
+			if _, exists := controllers[action.serviceID]; exists {
 				l.Info("service stop requested")
-				ops := s.buildStopOperations(action.serviceID)
+				ops := s.buildStopOperations(controllers, action.serviceID)
 				if err := s.executeOperations(ctx, ops); err != nil {
 					s.logger.Error("failed to execute stop operations", zap.Error(err))
 				}
@@ -357,8 +377,11 @@ func (s *Supervisor) createStateHandler(id string) func(supervisor.Status, any) 
 
 // resolveDependencies returns the complete list of dependencies for a service,
 // combining lifecycle dependencies with registry-extracted dependencies.
-func (s *Supervisor) resolveDependencies(serviceID string) ([]string, error) {
-	ctrl, exists := s.controllers[serviceID]
+func (s *Supervisor) resolveDependencies(
+	controllers map[string]*Controller,
+	serviceID string,
+) ([]string, error) {
+	ctrl, exists := controllers[serviceID]
 	if !exists {
 		return nil, NewServiceNotFoundError(serviceID)
 	}
@@ -394,23 +417,23 @@ func (s *Supervisor) resolveDependencies(serviceID string) ([]string, error) {
 // execute processes the transaction by creating new services,
 // stopping removed services, and starting auto-start services
 func (s *Supervisor) execute(ctx context.Context, tx *regTx) error {
-	// Lock during the entire execution
+	// Mutate controller registry under lock, then run potentially long transitions
+	// lock-free so state readers are never blocked behind start/stop timeouts.
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Spawn new services first
 	for id, entry := range tx.register {
 		if _, exists := s.controllers[id]; !exists {
 			s.controllers[id] = NewController(s.ctx, entry.Service, entry.Config, s.createStateHandler(id))
 		}
 	}
+	s.mu.Unlock()
 
+	controllers := s.snapshotControllers()
 	var operations []operation
 
 	// Queue stop operations for services being removed
 	for id := range tx.remove {
-		if ctrl, exists := s.controllers[id]; exists {
-			deps, err := s.resolveDependencies(id)
+		if ctrl, exists := controllers[id]; exists {
+			deps, err := s.resolveDependencies(controllers, id)
 			if err != nil {
 				return NewDependencyResolveError(id, err)
 			}
@@ -432,13 +455,13 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) error {
 		}
 		visited[id] = true
 
-		ctrl, exists := s.controllers[id]
+		ctrl, exists := controllers[id]
 		if !exists {
 			return NewServiceNotFoundError(id)
 		}
 
 		// Resolve all dependencies (lifecycle + registry-extracted)
-		deps, err := s.resolveDependencies(id)
+		deps, err := s.resolveDependencies(controllers, id)
 		if err != nil {
 			return err
 		}
@@ -448,7 +471,7 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) error {
 		for _, depID := range deps {
 			// Skip dependencies that don't exist as controllers
 			// (registry-extracted deps might include non-service references)
-			if _, exists := s.controllers[depID]; !exists {
+			if _, exists := controllers[depID]; !exists {
 				s.logger.Debug("skipping non-existent dependency",
 					zap.String("service_id", id),
 					zap.String("dependency", depID))
@@ -480,19 +503,24 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) error {
 	}
 
 	// Execute transitions in dependency order
-	if err := s.sequencer.transition(ctx, operations...); err != nil {
+	if err := s.runTransition(ctx, operations); err != nil {
 		return NewTransitionError(err)
 	}
 
 	// Done stopped services
+	s.mu.Lock()
 	for id := range tx.remove {
 		delete(s.controllers, id)
 	}
+	s.mu.Unlock()
 
 	return nil
 }
 
-func (s *Supervisor) buildStartOperations(serviceID string) []operation {
+func (s *Supervisor) buildStartOperations(
+	controllers map[string]*Controller,
+	serviceID string,
+) []operation {
 	visited := make(map[string]bool)
 	var operations []operation
 
@@ -503,7 +531,7 @@ func (s *Supervisor) buildStartOperations(serviceID string) []operation {
 		}
 		visited[id] = true
 
-		ctrl, exists := s.controllers[id]
+		ctrl, exists := controllers[id]
 		if !exists {
 			return
 		}
@@ -526,13 +554,16 @@ func (s *Supervisor) buildStartOperations(serviceID string) []operation {
 	return operations
 }
 
-func (s *Supervisor) buildStopOperations(serviceID string) []operation {
+func (s *Supervisor) buildStopOperations(
+	controllers map[string]*Controller,
+	serviceID string,
+) []operation {
 	visited := make(map[string]bool)
 	var operations []operation
 
 	// First, build a reverse dependency map
 	dependedOnBy := make(map[string][]string)
-	for id, ctrl := range s.controllers {
+	for id, ctrl := range controllers {
 		for _, depID := range ctrl.config.DependsOn {
 			dependedOnBy[depID] = append(dependedOnBy[depID], id)
 		}
@@ -551,7 +582,7 @@ func (s *Supervisor) buildStopOperations(serviceID string) []operation {
 		}
 
 		// Add operation after dependents
-		if ctrl, exists := s.controllers[id]; exists {
+		if ctrl, exists := controllers[id]; exists {
 			operations = append(operations, operation{
 				kind:         opStop,
 				id:           id,
