@@ -185,8 +185,10 @@ func releaseProcessor(p *Processor) {
 	p.id = 0
 	p.pid = pid.PID{}
 	p.startedAt = 0
+	// Never leave pooled processors in Ready state; stale queue references must
+	// fail Ready->Running CAS and be ignored.
+	p.state.Store(int32(StateComplete))
 	p.Process = nil
-	p.state.Store(0)
 	p.ctx = nil
 	p.cancel = nil
 	p.scheduler = nil

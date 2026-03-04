@@ -189,10 +189,6 @@ func (w *Worker) steal() *Processor {
 }
 
 func (w *Worker) executeOne(proc *Processor) {
-	if proc.Process == nil {
-		return
-	}
-
 	// Set worker affinity before any yields can complete.
 	// This ensures async completions route back to this worker.
 	proc.lastWorker.Store(int32(w.id))
@@ -200,6 +196,14 @@ func (w *Worker) executeOne(proc *Processor) {
 	// Atomically transition Ready->Running. If CAS fails, process was
 	// terminated or is in unexpected state - skip execution.
 	if !proc.casState(StateReady, StateRunning) {
+		return
+	}
+
+	stepper := proc.Process
+	if stepper == nil {
+		// Released/stale processor entry. Transition out of Running so future
+		// stale queue pops are ignored.
+		_ = proc.casState(StateRunning, StateComplete)
 		return
 	}
 
@@ -220,12 +224,12 @@ func (w *Worker) executeOne(proc *Processor) {
 	proc.output.Reset()
 
 	// Step the process
-	err := proc.Process.Step(events, &proc.output)
+	err := stepper.Step(events, &proc.output)
 	proc.steps.Add(1)
 
 	// Snapshot process stats when collection is enabled
 	if err == nil && w.scheduler.collectStats.Load() {
-		if sp, ok := proc.Process.(process.StatsProvider); ok {
+		if sp, ok := stepper.(process.StatsProvider); ok {
 			if a := sp.Stats(); a != nil {
 				if bag, ok := a.(attrs.Bag); ok {
 					proc.stats.Store(&bag)

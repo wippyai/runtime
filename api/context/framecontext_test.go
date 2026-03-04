@@ -8,7 +8,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 )
 
 func TestNewFrameContext(t *testing.T) {
@@ -228,11 +227,10 @@ func TestFrameContext_SealRejectsWritersUnderContention(t *testing.T) {
 	key := &Key{Name: "test.seal.concurrent"}
 
 	const writers = 8
+	const postSealAttempts = 200
 
 	var started sync.WaitGroup
 	var wg sync.WaitGroup
-	var postSealSuccess atomic.Bool
-	var sealed atomic.Bool
 	stop := make(chan struct{})
 
 	started.Add(writers)
@@ -250,11 +248,7 @@ func TestFrameContext_SealRejectsWritersUnderContention(t *testing.T) {
 				default:
 				}
 
-				err := cc.Set(key, id*100000+n)
-				if sealed.Load() && err == nil {
-					postSealSuccess.Store(true)
-					return
-				}
+				_ = cc.Set(key, id*100000+n)
 				n++
 			}
 		}(i)
@@ -262,11 +256,24 @@ func TestFrameContext_SealRejectsWritersUnderContention(t *testing.T) {
 
 	started.Wait()
 	cc.Seal()
-	sealed.Store(true)
-
-	time.Sleep(20 * time.Millisecond)
 	close(stop)
 	wg.Wait()
+
+	var postSealSuccess atomic.Bool
+	var postSealWG sync.WaitGroup
+	for i := 0; i < writers; i++ {
+		postSealWG.Add(1)
+		go func(id int) {
+			defer postSealWG.Done()
+			for n := 0; n < postSealAttempts; n++ {
+				if err := cc.Set(key, id*100000+n); err == nil {
+					postSealSuccess.Store(true)
+					return
+				}
+			}
+		}(i)
+	}
+	postSealWG.Wait()
 
 	if postSealSuccess.Load() {
 		t.Fatal("write succeeded after seal")
@@ -588,7 +595,7 @@ func TestFrameContext_RefCount_ParentReleasesFirst(t *testing.T) {
 
 	_, child := OpenFrameContext(parentCtx)
 
-	parentFC := parent.(*frameContext)
+	parentFC := parent.(*frameContextRef).frame
 	if parentFC.refcount.Load() != 2 {
 		t.Errorf("parent refcount should be 2 (self + child), got %d", parentFC.refcount.Load())
 	}
@@ -614,7 +621,7 @@ func TestFrameContext_RefCount_ChildReleasesFirst(t *testing.T) {
 	parent.Seal()
 
 	_, child := OpenFrameContext(parentCtx)
-	parentFC := parent.(*frameContext)
+	parentFC := parent.(*frameContextRef).frame
 
 	if parentFC.refcount.Load() != 2 {
 		t.Errorf("parent refcount should be 2, got %d", parentFC.refcount.Load())
@@ -639,7 +646,7 @@ func TestFrameContext_RefCount_MultipleChildren(t *testing.T) {
 	_, child2 := OpenFrameContext(parentCtx)
 	_, child3 := OpenFrameContext(parentCtx)
 
-	parentFC := parent.(*frameContext)
+	parentFC := parent.(*frameContextRef).frame
 	if parentFC.refcount.Load() != 4 {
 		t.Errorf("parent refcount should be 4 (self + 3 children), got %d", parentFC.refcount.Load())
 	}
@@ -727,7 +734,7 @@ func TestFrameContext_RefCount_ConcurrentForks(t *testing.T) {
 		_, children[i] = OpenFrameContext(parentCtx)
 	}
 
-	parentFC := parent.(*frameContext)
+	parentFC := parent.(*frameContextRef).frame
 	expectedRefcount := int32(numChildren + 1)
 	if parentFC.refcount.Load() != expectedRefcount {
 		t.Errorf("parent refcount should be %d, got %d", expectedRefcount, parentFC.refcount.Load())
