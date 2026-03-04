@@ -100,6 +100,9 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 
 	if _, err = h.scheduler.Submit(frameCtx, processID, proc, method, start.Input); err != nil {
 		proc.Close()
+		if fc := ctxapi.FrameFromContext(frameCtx); fc != nil {
+			ctxapi.ReleaseFrameContext(fc)
+		}
 
 		// Handle spawn-or-signal: if name taken, route messages to existing process
 		if errors.Is(err, topology.ErrNameAlreadyRegistered) {

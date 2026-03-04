@@ -265,9 +265,8 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 	// Create and store resource.Store in FrameContext
 	store := resource.NewStore()
 	if err := resource.SetStore(ctx, store); err != nil {
-		if p.state != nil {
-			p.state.Close()
-		}
+		// Process owns LState lifecycle and always releases it in Close().
+		// Do not close here to avoid duplicate pool returns on init failures.
 		return runtimelua.NewStoreResourcesError(err)
 	}
 
@@ -326,11 +325,9 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 			var err error
 			fn, err = p.state.Load(strings.NewReader(p.script), p.scriptName)
 			if err != nil {
-				p.state.Close()
 				return runtimelua.NewLoadScriptError(err)
 			}
 		} else {
-			p.state.Close()
 			return luaapi.ErrNoScriptOrProto
 		}
 	}

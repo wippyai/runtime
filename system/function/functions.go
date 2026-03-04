@@ -202,13 +202,13 @@ func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (*runtimeapi.
 // This is called as the final step in the interceptor chain or directly if no chain exists.
 // PID is generated with Host set to the function ID - each function is its own mini-host.
 func (f *Registry) executor(ctx context.Context, handler function.Func, task runtimeapi.Task) (*runtimeapi.Result, error) {
-	// Open frame context with inheritance from sealed parent (actor, scope, etc.)
-	ctx, fc := ctxapi.OpenFrameContext(ctx)
+	// Always fork an execution-local frame to prevent shared mutable maps across calls.
+	ctx, fc := ctxapi.OpenFrameContextOn(ctx, ctx)
+	defer ctxapi.ReleaseFrameContext(fc)
 
 	// Generate PID with function ID as Host - function is its own host for message routing
 	gen := process.GetPIDGenerator(ctx)
 	if gen == nil {
-		ctxapi.ReleaseFrameContext(fc)
 		return nil, function.ErrPIDGeneratorNotFound
 	}
 	pid := gen.Generate(task.ID.String())
@@ -222,15 +222,11 @@ func (f *Registry) executor(ctx context.Context, handler function.Func, task run
 	pairs = append(pairs, task.Context...)
 
 	if err := fc.SetMultiple(pairs...); err != nil {
-		ctxapi.ReleaseFrameContext(fc)
 		return nil, NewFrameContextError(err)
 	}
 
 	// Execute function handler
 	result, err := handler(ctx, task)
-
-	// Release frame back to pool
-	ctxapi.ReleaseFrameContext(fc)
 
 	return result, err
 }

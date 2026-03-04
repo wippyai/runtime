@@ -78,7 +78,6 @@ func (w *Worker) park() {
 	s := w.scheduler
 	w.parkMu.Lock()
 	for {
-		w.notified.Store(false)
 		if proc := w.findWork(); proc != nil {
 			shouldWake := s.global.Len() > 0
 			w.parkMu.Unlock()
@@ -93,7 +92,9 @@ func (w *Worker) park() {
 			w.parkMu.Unlock()
 			return
 		}
-		if w.notified.Load() {
+
+		// Consume one pending wake token without sleeping.
+		if w.notified.Swap(false) {
 			continue
 		}
 		w.parkCond.Wait()
@@ -111,11 +112,17 @@ func (w *Worker) drain() {
 	}
 }
 
-func (w *Worker) signal() {
-	w.notified.Store(true)
+func (w *Worker) signal() bool {
+	// Coalesce wakeups with a CAS token. This prevents missed wake races where
+	// a worker is transitioning into park() while work is enqueued.
+	if !w.notified.CompareAndSwap(false, true) {
+		return false
+	}
+
 	w.parkMu.Lock()
 	w.parkCond.Signal()
 	w.parkMu.Unlock()
+	return true
 }
 
 func (w *Worker) findWork() *Processor {
