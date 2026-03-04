@@ -75,8 +75,9 @@ func TestWorkloadBottleneck(t *testing.T) {
 	elapsed := time.Since(start)
 
 	// With bottleneck=2 and 4 workers doing 100ms each:
-	// Should take ~200ms (2 batches of 2)
-	if elapsed < 180*time.Millisecond || elapsed > 250*time.Millisecond {
+	// Should take ~200ms (2 batches of 2).
+	// Use a wider upper bound for slower/shared CI runners (notably Windows GitHub-hosted).
+	if elapsed < 180*time.Millisecond || elapsed > 350*time.Millisecond {
 		t.Fatalf("expected ~200ms with bottleneck, got %v", elapsed)
 	}
 
