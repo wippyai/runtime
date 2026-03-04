@@ -142,8 +142,8 @@ func (h *Host) Run(ctx context.Context, cmd RunCmd) (any, error) {
 	}
 	defer proc.Close()
 
-	// Create fresh frame context for the eval process
-	evalCtx, fc := ctxapi.OpenFrameContext(ctx)
+	// Eval always owns an isolated execution frame.
+	evalCtx, fc := ctxapi.ForkFrameContext(ctx)
 	defer ctxapi.ReleaseFrameContext(fc)
 
 	// Apply caller-provided context values
@@ -234,16 +234,21 @@ func (h *Host) Run(ctx context.Context, cmd RunCmd) (any, error) {
 				continue
 			}
 
+			// Freeze parent frame for concurrent yield handlers.
+			fc.Seal()
+
 			// Create collector with exact count and dispatch
 			collector := newYieldCollector(len(validYields))
 			for _, y := range validYields {
 				handler := disp.Dispatch(y.Cmd)
-				go func(tag uint64, c dispatcher.Command, h dispatcher.Handler) {
-					err := h.Handle(evalCtx, c, tag, collector)
+				yieldCtx, yieldFC := ctxapi.ForkFrameContext(evalCtx)
+				go func(tag uint64, c dispatcher.Command, h dispatcher.Handler, callCtx context.Context, callFC ctxapi.FrameContext) {
+					defer ctxapi.ReleaseFrameContext(callFC)
+					err := h.Handle(callCtx, c, tag, collector)
 					if err != nil {
 						collector.CompleteYield(tag, nil, err)
 					}
-				}(y.Tag, y.Cmd, handler)
+				}(y.Tag, y.Cmd, handler, yieldCtx, yieldFC)
 			}
 
 			// Wait for all yields to complete

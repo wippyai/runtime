@@ -53,11 +53,12 @@ type Worker struct {
 	worker         worker.Worker
 	dtt            payload.Transcoder
 	clientResource resource.Resource[any]
-	log            *zap.Logger
 	cancel         context.CancelFunc
+	log            *zap.Logger
 	activities     map[string]*activityRegistration
 	workflows      map[string]*workflowRegistration
 	config         *api.WorkerConfig
+	runtimeState   atomic.Pointer[workerRuntime]
 	id             registry.ID
 	clientNodeID   pid.NodeID
 	workflowPrefix string
@@ -65,6 +66,17 @@ type Worker struct {
 	interceptors   []interceptor.WorkerInterceptor
 	mu             sync.RWMutex
 	closed         atomic.Bool
+}
+
+// workerRuntime is the published runtime snapshot used by hot paths.
+// It is replaced atomically on Start/Stop boundaries.
+type workerRuntime struct {
+	worker         worker.Worker
+	temporalClient client.Client
+	funcRegistry   function.Registry
+	clientResource resource.Resource[any]
+	ctx            context.Context
+	taskQueue      string
 }
 
 // activityRegistration represents a registered activity
@@ -120,13 +132,20 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 	// Create status channel
 	statusCh := make(chan any, 1)
 
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.runtimeState.Load() != nil {
+		statusCh <- supervisor.StatusFailed
+		return statusCh, fmt.Errorf("worker is already started")
+	}
+
 	// Acquire client resource
 	clientRes, err := w.resourceReg.Acquire(ctx, w.config.Client, resource.ModeNormal)
 	if err != nil {
 		statusCh <- supervisor.StatusFailed
 		return statusCh, fmt.Errorf("failed to acquire client: %w", err)
 	}
-	w.clientResource = clientRes
 
 	// Get temporal client resource
 	clientAny, err := clientRes.Get()
@@ -149,7 +168,6 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 		statusCh <- supervisor.StatusFailed
 		return statusCh, fmt.Errorf("temporal client is nil")
 	}
-	w.temporalClient = temporalClient
 
 	// Apply task queue prefix from client
 	taskQueue := temporalRes.GetTaskQueueName(w.config.TaskQueue)
@@ -158,11 +176,10 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 			zap.String("original", w.config.TaskQueue),
 			zap.String("prefixed", taskQueue))
 	}
-	w.taskQueue = taskQueue
 
 	// Get function registry from context
-	w.funcRegistry = function.GetRegistry(ctx)
-	if w.funcRegistry == nil {
+	funcRegistry := function.GetRegistry(ctx)
+	if funcRegistry == nil {
 		clientRes.Release()
 		statusCh <- supervisor.StatusFailed
 		return statusCh, fmt.Errorf("function registry not found in context")
@@ -170,8 +187,8 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 
 	// Store application context with Temporal routing identity.
 	// Client ID identifies the Temporal node; worker ID identifies host-level PID identity.
-	w.ctx = api.WithClientID(ctx, w.config.Client.String())
-	w.ctx = api.WithWorkerID(w.ctx, w.id.String())
+	appCtx := api.WithClientID(ctx, w.config.Client.String())
+	appCtx = api.WithWorkerID(appCtx, w.id.String())
 
 	// Create worker options
 	options := worker.Options{
@@ -238,31 +255,53 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 	options.DisableRegistrationAliasing = w.config.WorkerOptions.DisableRegistrationAliasing
 
 	// Create Temporal SDK worker
-	w.worker = worker.New(temporalClient, taskQueue, options)
+	sdkWorker := worker.New(temporalClient, taskQueue, options)
+	runtimeState := &workerRuntime{
+		worker:         sdkWorker,
+		temporalClient: temporalClient,
+		funcRegistry:   funcRegistry,
+		clientResource: clientRes,
+		ctx:            appCtx,
+		taskQueue:      taskQueue,
+	}
+
+	// Keep legacy fields synchronized for tests that manually wire dependencies.
+	w.clientResource = clientRes
+	w.temporalClient = temporalClient
+	w.taskQueue = taskQueue
+	w.funcRegistry = funcRegistry
+	w.ctx = appCtx
+	w.worker = sdkWorker
 
 	// Register system activities
-	w.registerRelaySendActivity(ctx)
+	w.registerRelaySendActivity(runtimeState)
 
 	// Re-register all existing activities and workflows
-	w.mu.RLock()
 	for _, act := range w.activities {
 		if act.local {
-			w.registerLocalActivity(ctx, act)
+			w.registerLocalActivity(runtimeState, act)
 		} else {
-			w.registerActivity(ctx, act)
+			w.registerActivity(runtimeState, act)
 		}
 	}
 	for _, wf := range w.workflows {
-		w.registerWorkflow(ctx, wf)
+		w.registerWorkflow(runtimeState, wf)
 	}
-	w.mu.RUnlock()
 
 	// Start worker
-	if err := w.worker.Start(); err != nil {
+	if err := runtimeState.worker.Start(); err != nil {
+		w.clientResource = nil
+		w.temporalClient = nil
+		w.taskQueue = ""
+		w.funcRegistry = nil
+		w.ctx = nil
+		w.worker = nil
 		clientRes.Release()
 		statusCh <- supervisor.StatusFailed
 		return statusCh, fmt.Errorf("failed to start worker: %w", err)
 	}
+
+	w.runtimeState.Store(runtimeState)
 
 	w.log.Info("worker started",
 		zap.String("task_queue", w.config.TaskQueue),
@@ -282,15 +321,40 @@ func (w *Worker) Stop(ctx context.Context) error {
 
 	w.log.Info("stopping temporal worker", zap.String("id", w.id.String()))
 
-	if w.cancel != nil {
-		w.cancel()
+	w.mu.Lock()
+	runtimeState := w.runtimeState.Load()
+	w.runtimeState.Store(nil)
+
+	cancel := w.cancel
+	w.cancel = nil
+
+	workerInstance := w.worker
+	if runtimeState != nil && runtimeState.worker != nil {
+		workerInstance = runtimeState.worker
 	}
 
-	if w.worker != nil {
+	clientRes := w.clientResource
+	if runtimeState != nil && runtimeState.clientResource != nil {
+		clientRes = runtimeState.clientResource
+	}
+
+	w.worker = nil
+	w.clientResource = nil
+	w.temporalClient = nil
+	w.funcRegistry = nil
+	w.ctx = nil
+	w.taskQueue = ""
+	w.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+
+	if workerInstance != nil {
 		// Stop worker in goroutine to respect context timeout
 		done := make(chan struct{})
 		go func() {
-			w.worker.Stop()
+			workerInstance.Stop()
 			close(done)
 		}()
 
@@ -302,8 +366,8 @@ func (w *Worker) Stop(ctx context.Context) error {
 		}
 	}
 
-	if w.clientResource != nil {
-		w.clientResource.Release()
+	if clientRes != nil {
+		clientRes.Release()
 	}
 
 	w.log.Info("temporal worker stopped", zap.String("id", w.id.String()))
@@ -311,7 +375,7 @@ func (w *Worker) Stop(ctx context.Context) error {
 }
 
 // RegisterActivity registers an activity with this worker
-func (w *Worker) RegisterActivity(ctx context.Context, name string, funcID registry.ID) error {
+func (w *Worker) RegisterActivity(_ context.Context, name string, funcID registry.ID) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -327,8 +391,8 @@ func (w *Worker) RegisterActivity(ctx context.Context, name string, funcID regis
 	w.activities[name] = reg
 
 	// If worker is already running, register immediately
-	if w.worker != nil {
-		w.registerActivity(ctx, reg)
+	if runtimeState := w.runtimeState.Load(); runtimeState != nil && runtimeState.worker != nil {
+		w.registerActivity(runtimeState, reg)
 	}
 
 	w.log.Debug("activity registered",
@@ -339,7 +403,7 @@ func (w *Worker) RegisterActivity(ctx context.Context, name string, funcID regis
 }
 
 // RegisterLocalActivity registers a local activity with this worker
-func (w *Worker) RegisterLocalActivity(ctx context.Context, name string, funcID registry.ID) error {
+func (w *Worker) RegisterLocalActivity(_ context.Context, name string, funcID registry.ID) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -356,8 +420,8 @@ func (w *Worker) RegisterLocalActivity(ctx context.Context, name string, funcID 
 	w.activities[name] = reg
 
 	// If worker is already running, register immediately
-	if w.worker != nil {
-		w.registerLocalActivity(ctx, reg)
+	if runtimeState := w.runtimeState.Load(); runtimeState != nil && runtimeState.worker != nil {
+		w.registerLocalActivity(runtimeState, reg)
 	}
 
 	w.log.Debug("local activity registered",
@@ -383,7 +447,7 @@ func (w *Worker) UnregisterActivity(name string) error {
 }
 
 // RegisterWorkflow registers a workflow with this worker
-func (w *Worker) RegisterWorkflow(ctx context.Context, name string, handler any) error {
+func (w *Worker) RegisterWorkflow(_ context.Context, name string, handler any) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -399,8 +463,8 @@ func (w *Worker) RegisterWorkflow(ctx context.Context, name string, handler any)
 	w.workflows[name] = reg
 
 	// If worker is already running, register immediately
-	if w.worker != nil {
-		w.registerWorkflow(ctx, reg)
+	if runtimeState := w.runtimeState.Load(); runtimeState != nil && runtimeState.worker != nil {
+		w.registerWorkflow(runtimeState, reg)
 	}
 
 	w.log.Debug("workflow registered",
@@ -425,40 +489,40 @@ func (w *Worker) UnregisterWorkflow(name string) error {
 }
 
 // registerActivity registers an activity with the Temporal SDK worker
-func (w *Worker) registerActivity(ctx context.Context, reg *activityRegistration) {
-	handler := w.createActivityHandler(ctx, reg.function)
-	w.worker.RegisterActivityWithOptions(handler, activity.RegisterOptions{
+func (w *Worker) registerActivity(runtimeState *workerRuntime, reg *activityRegistration) {
+	handler := w.createActivityHandler(runtimeState, reg.function)
+	runtimeState.worker.RegisterActivityWithOptions(handler, activity.RegisterOptions{
 		Name: reg.name,
 	})
 }
 
 // registerLocalActivity registers a local activity with the Temporal SDK worker
-func (w *Worker) registerLocalActivity(ctx context.Context, reg *activityRegistration) {
-	handler := w.createActivityHandler(ctx, reg.function)
-	w.worker.RegisterActivityWithOptions(handler, activity.RegisterOptions{
+func (w *Worker) registerLocalActivity(runtimeState *workerRuntime, reg *activityRegistration) {
+	handler := w.createActivityHandler(runtimeState, reg.function)
+	runtimeState.worker.RegisterActivityWithOptions(handler, activity.RegisterOptions{
 		Name: reg.name,
 	})
 }
 
 // registerWorkflow registers a workflow with the Temporal SDK worker
-func (w *Worker) registerWorkflow(_ context.Context, reg *workflowRegistration) {
+func (w *Worker) registerWorkflow(runtimeState *workerRuntime, reg *workflowRegistration) {
 	// Support DefinitionFactory with WithContext method
 	handler := reg.handler
 	if cwf, ok := handler.(interface{ WithContext(context.Context) any }); ok {
-		handler = cwf.WithContext(w.ctx)
+		handler = cwf.WithContext(runtimeState.ctx)
 	}
 
 	// Register directly with Temporal SDK
-	w.worker.RegisterWorkflowWithOptions(handler, workflow.RegisterOptions{
+	runtimeState.worker.RegisterWorkflowWithOptions(handler, workflow.RegisterOptions{
 		Name: reg.name,
 	})
 }
 
 // registerRelaySendActivity registers the system activity for routing messages to local processes.
-func (w *Worker) registerRelaySendActivity(_ context.Context) {
+func (w *Worker) registerRelaySendActivity(runtimeState *workerRuntime) {
 	handler := func(_ context.Context, pkg *relay.Package) error {
 		// Get router from application context
-		router := relay.GetRouter(w.ctx)
+		router := relay.GetRouter(runtimeState.ctx)
 		if router == nil {
 			return fmt.Errorf("relay router not available")
 		}
@@ -471,13 +535,13 @@ func (w *Worker) registerRelaySendActivity(_ context.Context) {
 		return router.Send(pkg)
 	}
 
-	w.worker.RegisterActivityWithOptions(handler, activity.RegisterOptions{
+	runtimeState.worker.RegisterActivityWithOptions(handler, activity.RegisterOptions{
 		Name: relaySendActivityName,
 	})
 }
 
 // createActivityHandler creates an activity handler that executes a function through the registry
-func (w *Worker) createActivityHandler(_ context.Context, funcID registry.ID) func(context.Context, []payload.Payload) ([]payload.Payload, error) {
+func (w *Worker) createActivityHandler(runtimeState *workerRuntime, funcID registry.ID) func(context.Context, []payload.Payload) ([]payload.Payload, error) {
 	return func(activityCtx context.Context, input []payload.Payload) ([]payload.Payload, error) {
 		info := activity.GetInfo(activityCtx)
 		w.log.Debug("executing activity",
@@ -489,10 +553,10 @@ func (w *Worker) createActivityHandler(_ context.Context, funcID registry.ID) fu
 		)
 
 		// Use application context (has wippy components) but respect activity cancellation
-		execCtx := w.ctx
+		execCtx := runtimeState.ctx
 		if activityCtx.Done() != nil {
 			var cancel context.CancelFunc
-			execCtx, cancel = context.WithCancel(w.ctx)
+			execCtx, cancel = context.WithCancel(runtimeState.ctx)
 			defer cancel()
 
 			go func() {
@@ -508,7 +572,7 @@ func (w *Worker) createActivityHandler(_ context.Context, funcID registry.ID) fu
 			defer release()
 		}
 
-		result, err := w.funcRegistry.Call(execCtx, runtime.Task{
+		result, err := runtimeState.funcRegistry.Call(execCtx, runtime.Task{
 			ID:       funcID,
 			Payloads: input,
 			Context: []ctxapi.Pair{
@@ -547,12 +611,47 @@ func (w *Worker) createActivityHandler(_ context.Context, funcID registry.ID) fu
 	}
 }
 
+// loadRuntime returns the currently running snapshot.
+// It falls back to legacy fields for tests that manually configure a worker.
+func (w *Worker) loadRuntime() *workerRuntime {
+	if runtimeState := w.runtimeState.Load(); runtimeState != nil {
+		return runtimeState
+	}
+
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	if w.temporalClient == nil {
+		return nil
+	}
+
+	ctx := w.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	taskQueue := w.taskQueue
+	if taskQueue == "" && w.config != nil {
+		taskQueue = w.config.TaskQueue
+	}
+
+	return &workerRuntime{
+		worker:         w.worker,
+		temporalClient: w.temporalClient,
+		funcRegistry:   w.funcRegistry,
+		clientResource: w.clientResource,
+		ctx:            ctx,
+		taskQueue:      taskQueue,
+	}
+}
+
 // Send implements relay.Receiver by translating relay packages to Temporal signals.
 func (w *Worker) Send(pkg *relay.Package) error {
 	if w.closed.Load() {
 		return fmt.Errorf("worker is closed")
 	}
-	if w.temporalClient == nil {
+
+	runtimeState := w.loadRuntime()
+	if runtimeState == nil || runtimeState.temporalClient == nil {
 		return fmt.Errorf("temporal client not available")
 	}
 
@@ -579,10 +678,10 @@ func (w *Worker) Send(pkg *relay.Package) error {
 			zap.String("signal", msg.Topic),
 			zap.Int("payloads", len(msg.Payloads)))
 
-		ctx := w.ctx
+		ctx := runtimeState.ctx
 		var frame ctxapi.FrameContext
 		if pkg.Source.Node != "" || pkg.Source.Host != "" || pkg.Source.UniqID != "" {
-			ctx, frame = ctxapi.OpenFrameContextOn(ctx, ctx)
+			ctx, frame = ctxapi.ForkFrameContext(ctx)
 			values, err := ctxapi.GetOrCreateValues(ctx)
 			if err == nil {
 				values.Set(temporalprop.SignalFromValueKey, pkg.Source.String())
@@ -590,7 +689,7 @@ func (w *Worker) Send(pkg *relay.Package) error {
 			ctx = withContextValuesFallback(ctx)
 		}
 
-		err := w.temporalClient.SignalWorkflow(ctx, workflowID, "", msg.Topic, signalArg)
+		err := runtimeState.temporalClient.SignalWorkflow(ctx, workflowID, "", msg.Topic, signalArg)
 		if frame != nil {
 			ctxapi.ReleaseFrameContext(frame)
 		}

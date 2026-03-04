@@ -20,7 +20,7 @@ import (
 // TypeWsConn is the type ID for WebSocket connections in the resource table.
 const TypeWsConn uint32 = 0x20
 
-// registryKey is the FrameContext key for caching the websocket Registry.
+// registryKey caches websocket Registry in FrameContext for request/process lifetime.
 var registryKey = &ctxapi.Key{Name: "websocket.registry", Inherit: false}
 
 // connEntry holds an active WebSocket connection with its message channel.
@@ -190,25 +190,23 @@ func (r *Registry) Close(id uint64, code int, reason string) error {
 // Returns nil if no resource table is available.
 func GetRegistry(ctx context.Context) *Registry {
 	fc := ctxapi.FrameFromContext(ctx)
-	if fc == nil {
-		table := resource.GetTable(ctx)
-		if table == nil {
-			return nil
+	if fc != nil {
+		if cached, ok := fc.Get(registryKey); ok {
+			if reg, ok := cached.(*Registry); ok {
+				return reg
+			}
 		}
-		return NewRegistry(table, nil)
-	}
-
-	if val, ok := fc.Get(registryKey); ok {
-		return val.(*Registry)
 	}
 
 	table := resource.GetTable(ctx)
 	if table == nil {
 		return nil
 	}
+
 	reg := NewRegistry(table, nil)
-	if err := fc.Set(registryKey, reg); err != nil {
-		reg.log.Debug("failed to cache registry in frame context", zap.Error(err))
+	if fc != nil {
+		// Frame may already be sealed; caching is best-effort only.
+		_ = fc.Set(registryKey, reg)
 	}
 	return reg
 }

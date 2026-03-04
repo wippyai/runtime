@@ -63,6 +63,10 @@ func (c *Consumer) Start(ctx context.Context) (<-chan any, error) {
 
 	// Create worker context
 	c.workerCtx, c.workerCancel = context.WithCancel(ctx)
+	if fc := ctxapi.FrameFromContext(c.workerCtx); fc != nil {
+		// Workers share c.workerCtx across goroutines, so freeze it once.
+		fc.Seal()
+	}
 
 	// Attach to driver to receive deliveries
 	cancel, err := c.driver.Attach(ctx, c.queueID, c.deliveries)

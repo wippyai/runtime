@@ -62,7 +62,7 @@ func TestApplyActivityOptions_AllMappedFields(t *testing.T) {
 	assert.True(t, opts.DisableEagerExecution)
 	expectedActivityIntent, err := parseVersioningIntent("test.intent", "compatible")
 	require.NoError(t, err)
-	assert.Equal(t, expectedActivityIntent, opts.VersioningIntent)
+	assert.Equal(t, expectedActivityIntent, int(opts.VersioningIntent))
 	assert.Equal(t, "activity summary", opts.Summary)
 	require.NotNil(t, opts.Priority)
 	assert.Equal(t, int32(7), opts.Priority.PriorityKey)
@@ -137,7 +137,7 @@ func TestApplyChildWorkflowOptions_AllMappedFields(t *testing.T) {
 	assert.Equal(t, enumspb.PARENT_CLOSE_POLICY_ABANDON, params.ParentClosePolicy)
 	expectedWorkflowIntent, err := parseVersioningIntent("test.intent", "default")
 	require.NoError(t, err)
-	assert.Equal(t, expectedWorkflowIntent, params.VersioningIntent)
+	assert.Equal(t, expectedWorkflowIntent, int(params.VersioningIntent))
 }
 
 func TestApplyStartWorkflowOptions_LegacyAliasFallback(t *testing.T) {
@@ -581,66 +581,66 @@ func TestParseParentClosePolicy(t *testing.T) {
 	})
 }
 
-//nolint:staticcheck // coverage for legacy build-id intent compatibility behavior.
 func TestParseVersioningIntent(t *testing.T) {
 	t.Run("unspecified", func(t *testing.T) {
 		v, err := parseVersioningIntent("test", "unspecified")
 		require.NoError(t, err)
-		assert.Equal(t, temporal.VersioningIntentInheritBuildID, v)
+		assert.Equal(t, versioningIntentInheritBuildID, v)
 	})
 
 	t.Run("compatible", func(t *testing.T) {
 		v, err := parseVersioningIntent("test", "compatible")
 		require.NoError(t, err)
-		assert.Equal(t, temporal.VersioningIntentInheritBuildID, v)
+		assert.Equal(t, versioningIntentInheritBuildID, v)
 	})
 
 	t.Run("default", func(t *testing.T) {
 		v, err := parseVersioningIntent("test", "default")
 		require.NoError(t, err)
-		assert.Equal(t, temporal.VersioningIntentUseAssignmentRules, v)
+		assert.Equal(t, versioningIntentUseAssignmentRules, v)
 	})
 
 	t.Run("inherit_build_id", func(t *testing.T) {
 		v, err := parseVersioningIntent("test", "inherit_build_id")
 		require.NoError(t, err)
-		assert.Equal(t, temporal.VersioningIntentInheritBuildID, v)
+		assert.Equal(t, versioningIntentInheritBuildID, v)
 	})
 
 	t.Run("use_assignment_rules", func(t *testing.T) {
 		v, err := parseVersioningIntent("test", "use_assignment_rules")
 		require.NoError(t, err)
-		assert.Equal(t, temporal.VersioningIntentUseAssignmentRules, v)
+		assert.Equal(t, versioningIntentUseAssignmentRules, v)
 	})
 
 	t.Run("inherit alias", func(t *testing.T) {
 		v, err := parseVersioningIntent("test", "inherit")
 		require.NoError(t, err)
-		assert.Equal(t, temporal.VersioningIntentInheritBuildID, v)
+		assert.Equal(t, versioningIntentInheritBuildID, v)
 	})
 
 	t.Run("assignment_rules alias", func(t *testing.T) {
 		v, err := parseVersioningIntent("test", "assignment_rules")
 		require.NoError(t, err)
-		assert.Equal(t, temporal.VersioningIntentUseAssignmentRules, v)
+		assert.Equal(t, versioningIntentUseAssignmentRules, v)
 	})
 
 	t.Run("int value", func(t *testing.T) {
 		v, err := parseVersioningIntent("test", int(0))
 		require.NoError(t, err)
-		assert.Equal(t, temporal.VersioningIntent(0), v)
+		assert.Equal(t, 0, v)
 	})
 
 	t.Run("float64 value", func(t *testing.T) {
 		v, err := parseVersioningIntent("test", float64(1))
 		require.NoError(t, err)
-		assert.Equal(t, temporal.VersioningIntent(1), v)
+		assert.Equal(t, 1, v)
 	})
 
-	t.Run("native type", func(t *testing.T) {
-		v, err := parseVersioningIntent("test", temporal.VersioningIntentUseAssignmentRules)
+	t.Run("named int type", func(t *testing.T) {
+		type namedIntent int
+		v, err := parseVersioningIntent("test", namedIntent(versioningIntentUseAssignmentRules))
 		require.NoError(t, err)
-		assert.Equal(t, temporal.VersioningIntentUseAssignmentRules, v)
+		assert.Equal(t, versioningIntentUseAssignmentRules, v)
 	})
 
 	t.Run("invalid string", func(t *testing.T) {

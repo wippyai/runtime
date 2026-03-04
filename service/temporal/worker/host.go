@@ -26,11 +26,12 @@ func (w *Worker) Run(ctx context.Context, start *process.Start) (pid.PID, error)
 	if w.closed.Load() {
 		return pid.PID{}, fmt.Errorf("worker is closed")
 	}
-	if w.temporalClient == nil {
+	runtimeState := w.loadRuntime()
+	if runtimeState == nil || runtimeState.temporalClient == nil {
 		return pid.PID{}, fmt.Errorf("temporal client not available")
 	}
 
-	taskQueue := w.taskQueue
+	taskQueue := runtimeState.taskQueue
 	if taskQueue == "" {
 		taskQueue = w.config.TaskQueue
 	}
@@ -41,7 +42,7 @@ func (w *Worker) Run(ctx context.Context, start *process.Start) (pid.PID, error)
 	execCtx := ctx
 	var fc ctxapi.FrameContext
 	if len(start.Context) > 0 {
-		execCtx, fc = ctxapi.OpenFrameContextOn(ctx, ctx)
+		execCtx, fc = ctxapi.ForkFrameContext(ctx)
 		if err := fc.SetMultiple(start.Context...); err != nil {
 			ctxapi.ReleaseFrameContext(fc)
 			return pid.PID{}, fmt.Errorf("failed to set workflow context: %w", err)
@@ -97,11 +98,11 @@ func (w *Worker) Run(ctx context.Context, start *process.Start) (pid.PID, error)
 
 	firstSignalIdx, firstSignal := firstSignalMessage(start.Messages)
 	if firstSignal != nil {
-		run, err := w.signalWithStartMessage(execCtx, workflowID, workflowName, opts, start, firstSignal)
+		run, err := w.signalWithStartMessage(execCtx, runtimeState, workflowID, workflowName, opts, start, firstSignal)
 		if err != nil {
 			var alreadyStarted *serviceerror.WorkflowExecutionAlreadyStarted
 			if errors.As(err, &alreadyStarted) && shouldUseExistingOnAlreadyStarted(opts) {
-				w.publishRunHandoff(start, workflowID, alreadyStarted.RunId)
+				w.publishRunHandoff(runtimeState.ctx, start, workflowID, alreadyStarted.RunId)
 				if err := w.signalMessages(execCtx, workflowID, start.Messages, start); err != nil {
 					return pid.PID{}, err
 				}
@@ -110,7 +111,7 @@ func (w *Worker) Run(ctx context.Context, start *process.Start) (pid.PID, error)
 			return pid.PID{}, err
 		}
 		if run != nil {
-			w.publishRunHandoff(start, workflowID, run.GetRunID())
+			w.publishRunHandoff(runtimeState.ctx, start, workflowID, run.GetRunID())
 		}
 		if err := w.signalMessages(execCtx, workflowID, start.Messages[firstSignalIdx+1:], start); err != nil {
 			return pid.PID{}, err
@@ -118,17 +119,17 @@ func (w *Worker) Run(ctx context.Context, start *process.Start) (pid.PID, error)
 		return workflowPID, nil
 	}
 
-	run, err := w.temporalClient.ExecuteWorkflow(execCtx, opts, workflowName, start.Input)
+	run, err := runtimeState.temporalClient.ExecuteWorkflow(execCtx, opts, workflowName, start.Input)
 	if err != nil {
 		var alreadyStarted *serviceerror.WorkflowExecutionAlreadyStarted
 		if errors.As(err, &alreadyStarted) && shouldUseExistingOnAlreadyStarted(opts) {
-			w.publishRunHandoff(start, workflowID, alreadyStarted.RunId)
+			w.publishRunHandoff(runtimeState.ctx, start, workflowID, alreadyStarted.RunId)
 			return workflowPID, nil
 		}
 		return pid.PID{}, err
 	}
 	if run != nil {
-		w.publishRunHandoff(start, workflowID, run.GetRunID())
+		w.publishRunHandoff(runtimeState.ctx, start, workflowID, run.GetRunID())
 	}
 
 	return workflowPID, nil
@@ -154,16 +155,22 @@ func shouldUseExistingOnAlreadyStarted(opts client.StartWorkflowOptions) bool {
 
 // Terminate stops a running Temporal workflow.
 func (w *Worker) Terminate(ctx context.Context, target pid.PID) error {
-	if w.temporalClient == nil {
+	runtimeState := w.loadRuntime()
+	if runtimeState == nil || runtimeState.temporalClient == nil {
 		return fmt.Errorf("temporal client not available")
 	}
 	if target.UniqID == "" {
 		return fmt.Errorf("target workflow ID is empty")
 	}
-	return w.temporalClient.TerminateWorkflow(ctx, target.UniqID, "", "process.terminate")
+	return runtimeState.temporalClient.TerminateWorkflow(ctx, target.UniqID, "", "process.terminate")
 }
 
 func (w *Worker) signalMessages(ctx context.Context, workflowID string, messages []*relay.Message, start *process.Start) error {
+	runtimeState := w.loadRuntime()
+	if runtimeState == nil || runtimeState.temporalClient == nil {
+		return fmt.Errorf("temporal client not available")
+	}
+
 	if len(messages) == 0 {
 		return nil
 	}
@@ -173,7 +180,7 @@ func (w *Worker) signalMessages(ctx context.Context, workflowID string, messages
 			continue
 		}
 		signalCtx, fc := withSignalSender(ctx, sender)
-		err := w.temporalClient.SignalWorkflow(signalCtx, workflowID, "", msg.Topic, signalArg(msg))
+		err := runtimeState.temporalClient.SignalWorkflow(signalCtx, workflowID, "", msg.Topic, signalArg(msg))
 		releaseSignalFrame(fc)
 		if err != nil {
 			return err
@@ -184,6 +191,7 @@ func (w *Worker) signalMessages(ctx context.Context, workflowID string, messages
 
 func (w *Worker) signalWithStartMessage(
 	ctx context.Context,
+	runtimeState *workerRuntime,
 	workflowID string,
 	workflowName string,
 	opts client.StartWorkflowOptions,
@@ -194,7 +202,7 @@ func (w *Worker) signalWithStartMessage(
 	signalCtx, fc := withSignalSender(ctx, sender)
 	defer releaseSignalFrame(fc)
 
-	return w.temporalClient.SignalWithStartWorkflow(
+	return runtimeState.temporalClient.SignalWithStartWorkflow(
 		signalCtx,
 		workflowID,
 		msg.Topic,
@@ -242,7 +250,7 @@ func withSignalSender(ctx context.Context, sender pid.PID) (context.Context, ctx
 	var fc ctxapi.FrameContext
 
 	if sender.Node != "" || sender.Host != "" || sender.UniqID != "" {
-		signalCtx, fc = ctxapi.OpenFrameContextOn(ctx, ctx)
+		signalCtx, fc = ctxapi.ForkFrameContext(ctx)
 		values, err := ctxapi.GetOrCreateValues(signalCtx)
 		if err == nil {
 			values.Set(temporalprop.SignalFromValueKey, sender.String())
@@ -309,15 +317,15 @@ func shouldPublishRunHandoff(start *process.Start) bool {
 	return false
 }
 
-func (w *Worker) publishRunHandoff(start *process.Start, workflowID, runID string) {
+func (w *Worker) publishRunHandoff(runtimeCtx context.Context, start *process.Start, workflowID, runID string) {
 	if !shouldPublishRunHandoff(start) || workflowID == "" || runID == "" {
 		return
 	}
-	if w.ctx == nil || w.config == nil {
+	if runtimeCtx == nil || w.config == nil {
 		return
 	}
 
-	registry := temporalapi.GetWorkflowRunHandoff(w.ctx)
+	registry := temporalapi.GetWorkflowRunHandoff(runtimeCtx)
 	if registry == nil {
 		return
 	}

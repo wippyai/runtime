@@ -4,6 +4,7 @@ package context
 
 import (
 	"context"
+	"runtime"
 	"sync"
 	"sync/atomic"
 )
@@ -38,67 +39,150 @@ type FrameContext interface {
 	// IsSealed returns true if this frame is sealed.
 	IsSealed() bool
 
-	// IncRef increments reference count. Returns Closer to decrement when done.
-	// Call before spawning async work, defer the returned Closer in the goroutine.
-	IncRef() Closer
-
 	// Close decrements refcount and releases frame when zero.
 	Close() error
 }
 
-// frameContext is designed for single-threaded access before sealing.
-// Do NOT access from multiple goroutines until Seal() is called.
-// After sealing, concurrent reads are safe (values become immutable).
+type frameValues map[any]any
+
+// frameContext stores values as immutable snapshots.
+// Reads stay lock-free; writes clone and swap the snapshot.
 type frameContext struct {
-	values   map[any]any
-	parent   *frameContext
-	sealed   atomic.Bool
-	refcount atomic.Int32
+	values atomic.Pointer[frameValues]
+	parent *frameContext
+	// generation increments whenever the frame lifecycle changes.
+	// Context values carry the generation to reject stale frame references.
+	generation atomic.Uint64
+	refcount   atomic.Int32
+	sealed     atomic.Bool
+	writers    atomic.Int32
+}
+
+type frameContextRef struct {
+	frame      *frameContext
+	generation uint64
+	released   atomic.Bool
 }
 
 var frameContextPool = sync.Pool{
 	New: func() any {
-		return &frameContext{values: make(map[any]any, 8)}
+		f := &frameContext{}
+		values := make(frameValues, 8)
+		f.values.Store(&values)
+		return f
 	},
 }
 
+func cloneValues(src frameValues, extra int) frameValues {
+	if extra < 0 {
+		extra = 0
+	}
+	dst := make(frameValues, len(src)+extra)
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func (f *frameContext) valuesSnapshot() frameValues {
+	valuesPtr := f.values.Load()
+	if valuesPtr == nil {
+		return nil
+	}
+	return *valuesPtr
+}
+
+func (f *frameContext) beginWrite() bool {
+	if f.sealed.Load() {
+		return false
+	}
+	f.writers.Add(1)
+	if f.sealed.Load() {
+		f.writers.Add(-1)
+		return false
+	}
+	return true
+}
+
+func (f *frameContext) endWrite() {
+	f.writers.Add(-1)
+}
+
 func (f *frameContext) Get(key any) (any, bool) {
-	val, exists := f.values[key]
+	values := f.valuesSnapshot()
+	val, exists := values[key]
 	return val, exists
 }
 
 func (f *frameContext) Set(key any, value any) error {
-	if f.sealed.Load() {
+	if !f.beginWrite() {
 		return NewFrameSealedError(key)
 	}
-	f.values[key] = value
-	return nil
+	defer f.endWrite()
+
+	for {
+		currentPtr := f.values.Load()
+		var current frameValues
+		if currentPtr != nil {
+			current = *currentPtr
+		}
+
+		next := cloneValues(current, 1)
+		next[key] = value
+		nextPtr := &next
+		if f.values.CompareAndSwap(currentPtr, nextPtr) {
+			return nil
+		}
+
+		if f.sealed.Load() {
+			return NewFrameSealedError(key)
+		}
+	}
 }
 
 func (f *frameContext) SetMultiple(pairs ...Pair) error {
-	if f.sealed.Load() {
+	if !f.beginWrite() {
 		return ErrFrameSealed
 	}
-	for _, p := range pairs {
-		f.values[p.Key] = p.Value
+	defer f.endWrite()
+
+	for {
+		currentPtr := f.values.Load()
+		var current frameValues
+		if currentPtr != nil {
+			current = *currentPtr
+		}
+
+		next := cloneValues(current, len(pairs))
+		for _, p := range pairs {
+			next[p.Key] = p.Value
+		}
+		nextPtr := &next
+		if f.values.CompareAndSwap(currentPtr, nextPtr) {
+			return nil
+		}
+
+		if f.sealed.Load() {
+			return ErrFrameSealed
+		}
 	}
-	return nil
 }
 
 func (f *frameContext) Has(key any) bool {
-	_, exists := f.values[key]
+	values := f.valuesSnapshot()
+	_, exists := values[key]
 	return exists
 }
 
 func (f *frameContext) Iterate(fn func(key any, value any)) {
-	for k, v := range f.values {
+	for k, v := range f.valuesSnapshot() {
 		fn(k, v)
 	}
 }
 
 func (f *frameContext) InheritablePairs() []Pair {
 	var pairs []Pair
-	for k, v := range f.values {
+	for k, v := range f.valuesSnapshot() {
 		if ctxKey, ok := k.(*Key); ok && ctxKey.Inherit {
 			pairs = append(pairs, Pair{Key: k, Value: v})
 		}
@@ -107,35 +191,164 @@ func (f *frameContext) InheritablePairs() []Pair {
 }
 
 func (f *frameContext) Seal() {
-	f.sealed.Store(true)
+	if f.sealed.Swap(true) {
+		return
+	}
+
+	// Wait until in-flight writers that entered before seal complete.
+	for f.writers.Load() != 0 {
+		runtime.Gosched()
+	}
 }
 
 func (f *frameContext) IsSealed() bool {
 	return f.sealed.Load()
 }
 
-func (f *frameContext) IncRef() Closer {
-	f.refcount.Add(1)
-	return CloserFunc(func() error {
-		releaseFrame(f)
+func (f *frameContext) Close() error {
+	if f == nil {
 		return nil
-	})
+	}
+	releaseFrame(f, f.generation.Load())
+	return nil
 }
 
-func (f *frameContext) Close() error {
-	releaseFrame(f)
+func (r *frameContextRef) resolveFrame() *frameContext {
+	if r == nil || r.frame == nil {
+		return nil
+	}
+	if r.generation != r.frame.generation.Load() {
+		return nil
+	}
+	if r.frame.refcount.Load() <= 0 {
+		return nil
+	}
+	return r.frame
+}
+
+func (r *frameContextRef) Get(key any) (any, bool) {
+	frame := r.resolveFrame()
+	if frame == nil {
+		return nil, false
+	}
+	return frame.Get(key)
+}
+
+func (r *frameContextRef) Has(key any) bool {
+	frame := r.resolveFrame()
+	if frame == nil {
+		return false
+	}
+	return frame.Has(key)
+}
+
+func (r *frameContextRef) Set(key any, value any) error {
+	frame := r.resolveFrame()
+	if frame == nil {
+		return NewFrameSealedError(key)
+	}
+	return frame.Set(key, value)
+}
+
+func (r *frameContextRef) SetMultiple(pairs ...Pair) error {
+	frame := r.resolveFrame()
+	if frame == nil {
+		return ErrFrameSealed
+	}
+	return frame.SetMultiple(pairs...)
+}
+
+func (r *frameContextRef) Iterate(fn func(key any, value any)) {
+	frame := r.resolveFrame()
+	if frame == nil {
+		return
+	}
+	frame.Iterate(fn)
+}
+
+func (r *frameContextRef) InheritablePairs() []Pair {
+	frame := r.resolveFrame()
+	if frame == nil {
+		return nil
+	}
+	return frame.InheritablePairs()
+}
+
+func (r *frameContextRef) Seal() {
+	frame := r.resolveFrame()
+	if frame == nil {
+		return
+	}
+	frame.Seal()
+}
+
+func (r *frameContextRef) IsSealed() bool {
+	frame := r.resolveFrame()
+	if frame == nil {
+		return true
+	}
+	return frame.IsSealed()
+}
+
+func (r *frameContextRef) Close() error {
+	if r == nil {
+		return nil
+	}
+	if !r.released.CompareAndSwap(false, true) {
+		return nil
+	}
+	releaseFrame(r.frame, r.generation)
 	return nil
+}
+
+func newFrameRef(frame *frameContext) *frameContextRef {
+	if frame == nil {
+		return nil
+	}
+	return &frameContextRef{
+		frame:      frame,
+		generation: frame.generation.Load(),
+	}
 }
 
 // WithFrameContext attaches FrameContext to the provided context.
 func WithFrameContext(ctx context.Context, fc FrameContext) context.Context {
-	return context.WithValue(ctx, frameContextKey, fc)
+	switch f := fc.(type) {
+	case *frameContextRef:
+		return context.WithValue(ctx, frameContextKey, f)
+	case *frameContext:
+		return context.WithValue(ctx, frameContextKey, newFrameRef(f))
+	default:
+		return context.WithValue(ctx, frameContextKey, fc)
+	}
 }
 
 // FrameFromContext extracts FrameContext from context.
 func FrameFromContext(ctx context.Context) FrameContext {
-	if fc, ok := ctx.Value(frameContextKey).(FrameContext); ok {
-		return fc
+	switch v := ctx.Value(frameContextKey).(type) {
+	case *frameContextRef:
+		if v.resolveFrame() == nil {
+			return nil
+		}
+		return v
+	case frameContextRef:
+		// Legacy by-value storage from older binaries.
+		ref := &frameContextRef{frame: v.frame, generation: v.generation}
+		// No stable ownership token in by-value form; force non-owner semantics.
+		ref.released.Store(true)
+		if ref.resolveFrame() == nil {
+			return nil
+		}
+		return ref
+	case *frameContext:
+		// Backward compatibility for contexts created before frameContextRef.
+		ref := newFrameRef(v)
+		if ref == nil || ref.resolveFrame() == nil {
+			return nil
+		}
+		return ref
+	case FrameContext:
+		return v
 	}
 	return nil
 }
@@ -173,37 +386,78 @@ func PropagatedPairs(ctx context.Context) []Pair {
 // ReleaseFrameContext decrements refcount and triggers chain collapse when zero.
 // Only pools the frame when all references (including children) are released.
 func ReleaseFrameContext(fc FrameContext) {
-	f, ok := fc.(*frameContext)
-	if !ok {
+	if fc == nil {
 		return
 	}
-	releaseFrame(f)
+	_ = fc.Close()
 }
 
-func releaseFrame(f *frameContext) {
-	newCount := f.refcount.Add(-1)
-	if newCount > 0 {
+// tryIncRef atomically increments refcount only if the frame is still alive (refcount > 0).
+// Returns false if the frame has already been released, preventing use-after-pool races.
+func tryIncRef(f *frameContext, expectedGeneration uint64) bool {
+	for {
+		if expectedGeneration != 0 && f.generation.Load() != expectedGeneration {
+			return false
+		}
+		current := f.refcount.Load()
+		if current <= 0 {
+			return false
+		}
+		if expectedGeneration != 0 && f.generation.Load() != expectedGeneration {
+			return false
+		}
+		if f.refcount.CompareAndSwap(current, current+1) {
+			return true
+		}
+	}
+}
+
+func releaseFrame(f *frameContext, expectedGeneration uint64) {
+	if f == nil {
 		return
 	}
+
+	for {
+		if expectedGeneration != 0 && f.generation.Load() != expectedGeneration {
+			return
+		}
+		current := f.refcount.Load()
+		if current <= 0 {
+			return
+		}
+		next := current - 1
+		if !f.refcount.CompareAndSwap(current, next) {
+			continue
+		}
+		if next != 0 {
+			return
+		}
+		break
+	}
+
+	// Invalidate all context-bound references before clearing/repooling.
+	f.generation.Add(1)
 
 	// refcount == 0 means exclusive access, no lock needed
 	var closers []Closer
-	for _, v := range f.values {
+	for _, v := range f.valuesSnapshot() {
 		if closer, ok := v.(Closer); ok {
 			closers = append(closers, closer)
 		}
 	}
-	clear(f.values)
+	values := make(frameValues, 8)
+	f.values.Store(&values)
 	parent := f.parent
 	f.parent = nil
 	f.sealed.Store(false)
+	f.writers.Store(0)
 
 	for _, closer := range closers {
 		_ = closer.Close()
 	}
 
 	if parent != nil {
-		releaseFrame(parent)
+		releaseFrame(parent, 0)
 	}
 
 	frameContextPool.Put(f)
@@ -215,8 +469,8 @@ func releaseFrame(f *frameContext) {
 func OpenFrameContext(ctx context.Context) (context.Context, FrameContext) {
 	fc := FrameFromContext(ctx)
 	if fc == nil || fc.IsSealed() {
-		parentFC, _ := fc.(*frameContext)
-		newCtx, newFC := forkFrameContext(ctx, parentFC)
+		parentRef, _ := fc.(*frameContextRef)
+		newCtx, newFC := forkFrameContext(ctx, parentRef)
 		return newCtx, newFC
 	}
 	return ctx, fc
@@ -225,43 +479,69 @@ func OpenFrameContext(ctx context.Context) (context.Context, FrameContext) {
 // OpenFrameContextOn creates a new frame on targetCtx, inheriting from parentCtx.
 // Uses reference counting to ensure parent frame stays alive while child iterates.
 func OpenFrameContextOn(targetCtx context.Context, parentCtx context.Context) (context.Context, FrameContext) {
-	parentFC, _ := FrameFromContext(parentCtx).(*frameContext)
-	return forkFrameContext(targetCtx, parentFC)
+	parentRef, _ := FrameFromContext(parentCtx).(*frameContextRef)
+	parentFC := parentRef.resolveFrame()
+	if parentFC != nil && !parentFC.IsSealed() {
+		// Forking implies immutable parent snapshot for safe copy-on-fork.
+		parentFC.Seal()
+	}
+	return forkFrameContext(targetCtx, parentRef)
+}
+
+// ForkFrameContext creates a new frame on ctx inheriting from the frame in ctx.
+func ForkFrameContext(ctx context.Context) (context.Context, FrameContext) {
+	return OpenFrameContextOn(ctx, ctx)
 }
 
 func newFrameContext(parent context.Context) (context.Context, FrameContext) {
 	fc := frameContextPool.Get().(*frameContext)
+	fc.generation.Add(1)
 	fc.sealed.Store(false)
 	fc.refcount.Store(1)
+	fc.writers.Store(0)
 	fc.parent = nil
-	return WithFrameContext(parent, fc), fc
+	values := make(frameValues, 8)
+	fc.values.Store(&values)
+	ref := newFrameRef(fc)
+	return WithFrameContext(parent, ref), ref
 }
 
 // forkFrameContext creates a new child frame from a parent frame.
-// Increments parent refcount to keep parent alive until child releases.
+// Uses CAS to increment parent refcount only if still alive, preventing
+// a race where FrameFromContext returns a frame that is concurrently released.
 // Parent is always sealed when forking, so no lock needed for copying.
-func forkFrameContext(ctx context.Context, parent *frameContext) (context.Context, *frameContext) {
+func forkFrameContext(ctx context.Context, parentRef *frameContextRef) (context.Context, *frameContextRef) {
+	parent := parentRef.resolveFrame()
 	if parent != nil {
-		parent.refcount.Add(1)
+		if !tryIncRef(parent, parentRef.generation) {
+			parent = nil
+		}
 	}
 
 	fc := frameContextPool.Get().(*frameContext)
+	fc.generation.Add(1)
 	fc.sealed.Store(false)
 	fc.refcount.Store(1)
+	fc.writers.Store(0)
 	fc.parent = parent
+	values := make(frameValues, 8)
 
 	// Parent is sealed (checked in OpenFrameContext), safe to read without lock
 	if parent != nil {
-		for k, v := range parent.values {
+		parentValues := parent.valuesSnapshot()
+		values = make(frameValues, len(parentValues))
+		for k, v := range parentValues {
 			if ctxKey, ok := k.(*Key); ok && ctxKey.Inherit {
 				if cloner, ok := v.(Cloner); ok {
-					fc.values[k] = cloner.Clone()
+					values[k] = cloner.Clone()
 				} else {
-					fc.values[k] = v
+					values[k] = v
 				}
 			}
 		}
 	}
+	fc.values.Store(&values)
 
-	return WithFrameContext(ctx, fc), fc
+	ref := newFrameRef(fc)
+	return WithFrameContext(ctx, ref), ref
 }

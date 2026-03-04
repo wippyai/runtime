@@ -7,6 +7,7 @@ package options
 import (
 	"fmt"
 	"math"
+	"reflect"
 	"strings"
 	"time"
 
@@ -358,7 +359,7 @@ func ApplyActivityOptions(opts *bindings.ExecuteActivityOptions, options attrs.A
 		if err != nil {
 			return err
 		}
-		opts.VersioningIntent = v
+		setVersioningIntent(&opts.VersioningIntent, v)
 	}
 	if raw, ok := optionGet(options, OptionActivitySummary); ok {
 		v, err := parseString(OptionActivitySummary, raw)
@@ -532,7 +533,7 @@ func ApplyChildWorkflowOptions(params *bindings.ExecuteWorkflowParams, options a
 		if err != nil {
 			return err
 		}
-		params.VersioningIntent = v
+		setVersioningIntent(&params.VersioningIntent, v)
 	}
 
 	return nil
@@ -1042,36 +1043,57 @@ func parseVersioningOverride(key string, value any) (client.VersioningOverride, 
 	}
 }
 
-//nolint:staticcheck // compatibility: maps legacy versioning intent option values.
-func parseVersioningIntent(key string, value any) (temporal.VersioningIntent, error) {
+const (
+	versioningIntentInheritBuildID     = 3
+	versioningIntentUseAssignmentRules = 4
+)
+
+func setVersioningIntent(dst any, value int) {
+	rv := reflect.ValueOf(dst)
+	if rv.Kind() != reflect.Pointer || rv.IsNil() {
+		return
+	}
+	elem := rv.Elem()
+	if !elem.CanSet() {
+		return
+	}
+	switch elem.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		elem.SetInt(int64(value))
+	}
+}
+
+func parseVersioningIntent(key string, value any) (int, error) {
+	rv := reflect.ValueOf(value)
+	switch rv.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return int(rv.Int()), nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return int(rv.Uint()), nil
+	}
+
 	switch v := value.(type) {
-	case temporal.VersioningIntent:
-		return v, nil
-	case int:
-		return temporal.VersioningIntent(v), nil
-	case int32:
-		return temporal.VersioningIntent(v), nil
-	case int64:
-		return temporal.VersioningIntent(v), nil
 	case float64:
-		return temporal.VersioningIntent(int(v)), nil
+		return int(v), nil
+	case float32:
+		return int(v), nil
 	case string:
 		switch normalizeMode(v) {
 		case "unspecified":
-			return temporal.VersioningIntentInheritBuildID, nil
+			return versioningIntentInheritBuildID, nil
 		case "compatible":
-			return temporal.VersioningIntentInheritBuildID, nil
+			return versioningIntentInheritBuildID, nil
 		case "default":
-			return temporal.VersioningIntentUseAssignmentRules, nil
+			return versioningIntentUseAssignmentRules, nil
 		case "inherit_build_id", "inherit":
-			return temporal.VersioningIntentInheritBuildID, nil
+			return versioningIntentInheritBuildID, nil
 		case "use_assignment_rules", "assignment_rules":
-			return temporal.VersioningIntentUseAssignmentRules, nil
+			return versioningIntentUseAssignmentRules, nil
 		default:
-			return temporal.VersioningIntentInheritBuildID, fmt.Errorf("%s has invalid value %q", key, v)
+			return versioningIntentInheritBuildID, fmt.Errorf("%s has invalid value %q", key, v)
 		}
 	default:
-		return temporal.VersioningIntentInheritBuildID, fmt.Errorf("%s must be enum string/int, got %T", key, value)
+		return versioningIntentInheritBuildID, fmt.Errorf("%s must be enum string/int, got %T", key, value)
 	}
 }
 

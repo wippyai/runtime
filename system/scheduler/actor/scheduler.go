@@ -192,10 +192,7 @@ func (s *Scheduler) Stop(ctx context.Context) {
 
 func (s *Scheduler) wakeAny() {
 	for _, w := range s.workers {
-		if w.parkMu.TryLock() {
-			w.notified.Store(true)
-			w.parkCond.Signal()
-			w.parkMu.Unlock()
+		if w.signal() {
 			return
 		}
 	}
@@ -203,7 +200,7 @@ func (s *Scheduler) wakeAny() {
 
 func (s *Scheduler) wakeAll() {
 	for _, w := range s.workers {
-		w.signal()
+		_ = w.signal()
 	}
 }
 

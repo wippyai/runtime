@@ -111,14 +111,14 @@ func formatState(state registry.State) string {
 	var result strings.Builder
 	result.WriteString("\n")
 	for _, entry := range state {
-		result.WriteString(fmt.Sprintf("  {NS: %s, Alias: %s, Kind: %s, Data: %v, DependsOn: %v, Groups: %v}\n",
+		_, _ = fmt.Fprintf(&result, "  {NS: %s, Alias: %s, Kind: %s, Data: %v, DependsOn: %v, Groups: %v}\n",
 			entry.ID.NS,
 			entry.ID.Name,
 			entry.Kind,
 			entry.Data.Data(),
 			entry.Meta[registry.TagDependsOn],
 			entry.Meta[registry.TagGroups],
-		))
+		)
 	}
 	return result.String()
 }
@@ -128,12 +128,12 @@ func formatDelta(cs registry.ChangeSet) string {
 	var result strings.Builder
 	result.WriteString("\n")
 	for _, op := range cs {
-		result.WriteString(fmt.Sprintf("  %s {NS: %s, Alias: %s} (deps: %v)\n",
+		_, _ = fmt.Fprintf(&result, "  %s {NS: %s, Alias: %s} (deps: %v)\n",
 			op.Kind,
 			op.Entry.ID.NS,
 			op.Entry.ID.Name,
 			op.Entry.Meta[registry.TagDependsOn],
-		))
+		)
 	}
 	return result.String()
 }

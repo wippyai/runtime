@@ -162,7 +162,7 @@ func (r *Receiver) signalWorkflow(from, target pid.PID, msg *relay.Message) erro
 	ctx := r.ctx
 	var fc ctxapi.FrameContext
 	if from.Node != "" || from.Host != "" || from.UniqID != "" {
-		ctx, fc = ctxapi.OpenFrameContextOn(ctx, ctx)
+		ctx, fc = ctxapi.ForkFrameContext(ctx)
 		values, err := ctxapi.GetOrCreateValues(ctx)
 		if err == nil {
 			values.Set(temporalprop.SignalFromValueKey, from.String())

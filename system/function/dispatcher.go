@@ -47,14 +47,6 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(function.AsyncCancel, dispatcher.HandlerFunc(d.handleAsyncCancel))
 }
 
-// acquireCloser gets a frame closer if available.
-func acquireCloser(ctx context.Context) ctxapi.Closer {
-	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
-		return fc.IncRef()
-	}
-	return nil
-}
-
 // extractCallError returns the first non-nil error from context, err, or result.
 func extractCallError(ctx context.Context, result *runtime.Result, err error) error {
 	if ctx.Err() != nil {
@@ -78,18 +70,17 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag
 		return nil
 	}
 
-	closer := acquireCloser(ctx)
-	go func() {
-		if closer != nil {
-			defer func() { _ = closer.Close() }()
-		}
-		result, err := registry.Call(ctx, callCmd.Task)
-		if callErr := extractCallError(ctx, result, err); callErr != nil {
+	callCtx, fc := ctxapi.ForkFrameContext(ctx)
+
+	go func(callCtx context.Context, callFC ctxapi.FrameContext) {
+		defer ctxapi.ReleaseFrameContext(callFC)
+		result, err := registry.Call(callCtx, callCmd.Task)
+		if callErr := extractCallError(callCtx, result, err); callErr != nil {
 			receiver.CompleteYield(tag, function.CallResult{Error: callErr}, nil)
 			return
 		}
 		receiver.CompleteYield(tag, function.CallResult{Value: result.Value}, nil)
-	}()
+	}(callCtx, fc)
 
 	return nil
 }
@@ -118,13 +109,12 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 	node := d.node
 	task := startCmd.Task
 	logger := d.logger
-	closer := acquireCloser(ctx)
 
-	go func() {
-		if closer != nil {
-			defer func() { _ = closer.Close() }()
-		}
-		result, err := registry.Call(ctx, task)
+	callCtx, fc := ctxapi.ForkFrameContext(ctx)
+
+	go func(callCtx context.Context, callFC ctxapi.FrameContext) {
+		defer ctxapi.ReleaseFrameContext(callFC)
+		result, err := registry.Call(callCtx, task)
 
 		resultPayload := resultToPayload(result, err)
 		if err := sendAsyncResult(node, framePID, topic, resultPayload); err != nil {
@@ -133,7 +123,7 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 				zap.String("target", framePID.String()),
 				zap.Error(err))
 		}
-	}()
+	}(callCtx, fc)
 
 	receiver.CompleteYield(tag, function.AsyncStartResult{}, nil)
 	return nil

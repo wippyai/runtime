@@ -5,6 +5,7 @@ package contract
 import (
 	"context"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/contract"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
@@ -55,10 +56,13 @@ func (d *Dispatcher) handleOpen(ctx context.Context, cmd dispatcher.Command, tag
 		return nil
 	}
 
-	go func() {
-		instance, err := instantiator.Instantiate(ctx, openCmd.BindingID, openCmd.Scope)
-		if ctx.Err() != nil {
-			receiver.CompleteYield(tag, contract.OpenResult{Error: ctx.Err()}, nil)
+	callCtx, fc := ctxapi.ForkFrameContext(ctx)
+
+	go func(callCtx context.Context, callFC ctxapi.FrameContext) {
+		defer ctxapi.ReleaseFrameContext(callFC)
+		instance, err := instantiator.Instantiate(callCtx, openCmd.BindingID, openCmd.Scope)
+		if callCtx.Err() != nil {
+			receiver.CompleteYield(tag, contract.OpenResult{Error: callCtx.Err()}, nil)
 			return
 		}
 		if err != nil {
@@ -66,7 +70,7 @@ func (d *Dispatcher) handleOpen(ctx context.Context, cmd dispatcher.Command, tag
 			return
 		}
 		receiver.CompleteYield(tag, contract.OpenResult{Instance: instance}, nil)
-	}()
+	}(callCtx, fc)
 
 	return nil
 }
@@ -79,10 +83,13 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag
 		return nil
 	}
 
-	go func() {
-		result, err := callCmd.Instance.Call(ctx, callCmd.Method, callCmd.Args)
-		if ctx.Err() != nil {
-			receiver.CompleteYield(tag, contract.CallResult{Error: ctx.Err()}, nil)
+	callCtx, fc := ctxapi.ForkFrameContext(ctx)
+
+	go func(callCtx context.Context, callFC ctxapi.FrameContext) {
+		defer ctxapi.ReleaseFrameContext(callFC)
+		result, err := callCmd.Instance.Call(callCtx, callCmd.Method, callCmd.Args)
+		if callCtx.Err() != nil {
+			receiver.CompleteYield(tag, contract.CallResult{Error: callCtx.Err()}, nil)
 			return
 		}
 		if err != nil {
@@ -98,7 +105,7 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag
 		} else {
 			receiver.CompleteYield(tag, contract.CallResult{}, nil)
 		}
-	}()
+	}(callCtx, fc)
 
 	return nil
 }
@@ -129,8 +136,11 @@ func (d *Dispatcher) handleAsyncCall(ctx context.Context, cmd dispatcher.Command
 	args := asyncCmd.Args
 	logger := d.logger
 
-	go func() {
-		result, err := instance.Call(ctx, method, args)
+	callCtx, fc := ctxapi.ForkFrameContext(ctx)
+
+	go func(callCtx context.Context, callFC ctxapi.FrameContext) {
+		defer ctxapi.ReleaseFrameContext(callFC)
+		result, err := instance.Call(callCtx, method, args)
 
 		resultPayload := resultToPayload(result, err)
 		if err := sendAsyncResult(node, framePID, topic, resultPayload); err != nil {
@@ -139,7 +149,7 @@ func (d *Dispatcher) handleAsyncCall(ctx context.Context, cmd dispatcher.Command
 				zap.String("target", framePID.String()),
 				zap.Error(err))
 		}
-	}()
+	}(callCtx, fc)
 
 	receiver.CompleteYield(tag, contract.AsyncCallResult{}, nil)
 	return nil

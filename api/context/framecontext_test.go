@@ -6,6 +6,7 @@ package context
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -179,6 +180,108 @@ func TestFrameContext_ConcurrentReadsAfterSeal(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestFrameContext_ConcurrentReadWriteBeforeSeal(t *testing.T) {
+	_, cc := newFrameContext(context.Background())
+	key := &Key{Name: "test.concurrent"}
+
+	const writeWorkers = 4
+	const readWorkers = 4
+	const iterations = 2000
+
+	var wg sync.WaitGroup
+
+	for writer := 0; writer < writeWorkers; writer++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				if err := cc.Set(key, id*iterations+i); err != nil {
+					t.Errorf("unexpected set error: %v", err)
+					return
+				}
+			}
+		}(writer)
+	}
+
+	for reader := 0; reader < readWorkers; reader++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				_, _ = cc.Get(key)
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	if _, ok := cc.Get(key); !ok {
+		t.Fatal("expected key to exist after concurrent writes")
+	}
+}
+
+func TestFrameContext_SealRejectsWritersUnderContention(t *testing.T) {
+	_, cc := newFrameContext(context.Background())
+	key := &Key{Name: "test.seal.concurrent"}
+
+	const writers = 8
+	const postSealAttempts = 200
+
+	var started sync.WaitGroup
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	started.Add(writers)
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			started.Done()
+
+			n := 0
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+
+				_ = cc.Set(key, id*100000+n)
+				n++
+			}
+		}(i)
+	}
+
+	started.Wait()
+	cc.Seal()
+	close(stop)
+	wg.Wait()
+
+	var postSealSuccess atomic.Bool
+	var postSealWG sync.WaitGroup
+	for i := 0; i < writers; i++ {
+		postSealWG.Add(1)
+		go func(id int) {
+			defer postSealWG.Done()
+			for n := 0; n < postSealAttempts; n++ {
+				if err := cc.Set(key, id*100000+n); err == nil {
+					postSealSuccess.Store(true)
+					return
+				}
+			}
+		}(i)
+	}
+	postSealWG.Wait()
+
+	if postSealSuccess.Load() {
+		t.Fatal("write succeeded after seal")
+	}
+
+	if err := cc.Set(key, "after-seal"); err == nil {
+		t.Fatal("expected set to fail after seal")
+	}
 }
 
 func TestWithFrameContext(t *testing.T) {
@@ -373,6 +476,50 @@ func TestOpenFrameContext_NilFrame(t *testing.T) {
 	}
 }
 
+func TestFrameFromContext_StaleReferenceInvalidated(t *testing.T) {
+	staleCtx, fc := OpenFrameContext(context.Background())
+	key := &Key{Name: "test.key"}
+	_ = fc.Set(key, "value")
+	ReleaseFrameContext(fc)
+
+	if got := FrameFromContext(staleCtx); got != nil {
+		t.Fatal("stale context should not expose released frame")
+	}
+
+	freshCtx, freshFC := OpenFrameContext(staleCtx)
+	defer ReleaseFrameContext(freshFC)
+
+	if got := FrameFromContext(staleCtx); got != nil {
+		t.Fatal("stale context should remain invalid after frame pool reuse")
+	}
+	if got := FrameFromContext(freshCtx); got == nil {
+		t.Fatal("fresh context should expose active frame")
+	}
+}
+
+func TestOpenFrameContextOn_SealsParentForSafeFork(t *testing.T) {
+	parentCtx, parent := OpenFrameContext(context.Background())
+	defer ReleaseFrameContext(parent)
+
+	inheritKey := &Key{Name: "test.inherit", Inherit: true}
+	_ = parent.Set(inheritKey, "user123")
+
+	_, child := OpenFrameContextOn(context.Background(), parentCtx)
+	defer ReleaseFrameContext(child)
+
+	if !parent.IsSealed() {
+		t.Fatal("parent should be sealed after OpenFrameContextOn")
+	}
+	if err := parent.Set(&Key{Name: "test.after_fork"}, "x"); err == nil {
+		t.Fatal("sealed parent should reject post-fork writes")
+	}
+
+	val, ok := child.Get(inheritKey)
+	if !ok || val != "user123" {
+		t.Fatalf("child should inherit sealed parent values, got %v (ok=%v)", val, ok)
+	}
+}
+
 func TestOpenFrameContext_InheritWithCloner(t *testing.T) {
 	parentCtx, parent := newFrameContext(context.Background())
 
@@ -448,7 +595,7 @@ func TestFrameContext_RefCount_ParentReleasesFirst(t *testing.T) {
 
 	_, child := OpenFrameContext(parentCtx)
 
-	parentFC := parent.(*frameContext)
+	parentFC := parent.(*frameContextRef).frame
 	if parentFC.refcount.Load() != 2 {
 		t.Errorf("parent refcount should be 2 (self + child), got %d", parentFC.refcount.Load())
 	}
@@ -474,7 +621,7 @@ func TestFrameContext_RefCount_ChildReleasesFirst(t *testing.T) {
 	parent.Seal()
 
 	_, child := OpenFrameContext(parentCtx)
-	parentFC := parent.(*frameContext)
+	parentFC := parent.(*frameContextRef).frame
 
 	if parentFC.refcount.Load() != 2 {
 		t.Errorf("parent refcount should be 2, got %d", parentFC.refcount.Load())
@@ -499,7 +646,7 @@ func TestFrameContext_RefCount_MultipleChildren(t *testing.T) {
 	_, child2 := OpenFrameContext(parentCtx)
 	_, child3 := OpenFrameContext(parentCtx)
 
-	parentFC := parent.(*frameContext)
+	parentFC := parent.(*frameContextRef).frame
 	if parentFC.refcount.Load() != 4 {
 		t.Errorf("parent refcount should be 4 (self + 3 children), got %d", parentFC.refcount.Load())
 	}
@@ -587,7 +734,7 @@ func TestFrameContext_RefCount_ConcurrentForks(t *testing.T) {
 		_, children[i] = OpenFrameContext(parentCtx)
 	}
 
-	parentFC := parent.(*frameContext)
+	parentFC := parent.(*frameContextRef).frame
 	expectedRefcount := int32(numChildren + 1)
 	if parentFC.refcount.Load() != expectedRefcount {
 		t.Errorf("parent refcount should be %d, got %d", expectedRefcount, parentFC.refcount.Load())

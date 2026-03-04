@@ -150,6 +150,10 @@ func (h *Host) Run(ctx context.Context, start *process.Start) (pid.PID, error) {
 	}
 
 	if _, err = h.scheduler.Submit(frameCtx, processID, proc, method, start.Input); err != nil {
+		proc.Close()
+		if fc := ctxapi.FrameFromContext(frameCtx); fc != nil {
+			ctxapi.ReleaseFrameContext(fc)
+		}
 		return pid.PID{}, err
 	}
 

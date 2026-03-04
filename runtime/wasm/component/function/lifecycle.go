@@ -4,6 +4,7 @@ package function
 
 import (
 	"context"
+	"fmt"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/registry"
@@ -72,8 +73,8 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 	if len(task.Context) > 0 {
 		fc := ctxapi.FrameFromContext(ctx)
 		if fc != nil {
-			for _, pair := range task.Context {
-				_ = fc.Set(pair.Key, pair.Value)
+			if err := fc.SetMultiple(task.Context...); err != nil {
+				return nil, fmt.Errorf("set task context: %w", err)
 			}
 		}
 	}
