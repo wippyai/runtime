@@ -31,7 +31,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-msgpack/v2 v2.1.5
 	github.com/hashicorp/memberlist v0.5.4
-	github.com/kaptinlin/jsonschema v0.7.1
+	github.com/kaptinlin/jsonschema v0.7.3
 	github.com/klauspost/compress v1.18.1
 	github.com/lib/pq v1.11.2
 	github.com/mattn/go-sqlite3 v1.14.34
@@ -140,9 +140,9 @@ require (
 	github.com/hashicorp/go-sockaddr v1.0.7 // indirect
 	github.com/hashicorp/golang-lru v0.5.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/kaptinlin/go-i18n v0.2.8 // indirect
-	github.com/kaptinlin/jsonpointer v0.4.15 // indirect
-	github.com/kaptinlin/messageformat-go v0.4.16 // indirect
+	github.com/kaptinlin/go-i18n v0.2.11 // indirect
+	github.com/kaptinlin/jsonpointer v0.4.16 // indirect
+	github.com/kaptinlin/messageformat-go v0.4.18 // indirect
 	github.com/lann/builder v0.0.0-20180802200727-47ae307949d0 // indirect
 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
