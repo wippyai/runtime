@@ -203,7 +203,7 @@ func (f *Registry) Call(ctx context.Context, task runtimeapi.Task) (*runtimeapi.
 // PID is generated with Host set to the function ID - each function is its own mini-host.
 func (f *Registry) executor(ctx context.Context, handler function.Func, task runtimeapi.Task) (*runtimeapi.Result, error) {
 	// Always fork an execution-local frame to prevent shared mutable maps across calls.
-	ctx, fc := ctxapi.OpenFrameContextOn(ctx, ctx)
+	ctx, fc := ctxapi.ForkFrameContext(ctx)
 	defer ctxapi.ReleaseFrameContext(fc)
 
 	// Generate PID with function ID as Host - function is its own host for message routing

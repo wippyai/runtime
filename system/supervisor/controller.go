@@ -67,7 +67,7 @@ func NewController(
 	}
 
 	// Create isolated FrameContext for this service lifecycle.
-	ctx, fc := ctxapi.OpenFrameContextOn(ctx, ctx)
+	ctx, fc := ctxapi.ForkFrameContext(ctx)
 
 	if config.Security != nil {
 		ctx = securitysys.WithSecurityConfig(ctx, config.Security)

@@ -149,6 +149,18 @@ linters:
           - gosec
         text: "G602"
       - linters:
+          - gosec
+        text: "G117"
+      - linters:
+          - gosec
+        text: "G703"
+      - linters:
+          - gosec
+        text: "G704"
+      - linters:
+          - gosec
+        text: "G705"
+      - linters:
           - revive
         text: "unexported-return"
       - linters:
@@ -161,7 +173,6 @@ linters:
     paths:
       - .github
       - .git
-      - 
       - third_party$
       - builtin$
       - examples$

@@ -42,7 +42,7 @@ func (w *Worker) Run(ctx context.Context, start *process.Start) (pid.PID, error)
 	execCtx := ctx
 	var fc ctxapi.FrameContext
 	if len(start.Context) > 0 {
-		execCtx, fc = ctxapi.OpenFrameContextOn(ctx, ctx)
+		execCtx, fc = ctxapi.ForkFrameContext(ctx)
 		if err := fc.SetMultiple(start.Context...); err != nil {
 			ctxapi.ReleaseFrameContext(fc)
 			return pid.PID{}, fmt.Errorf("failed to set workflow context: %w", err)
@@ -250,7 +250,7 @@ func withSignalSender(ctx context.Context, sender pid.PID) (context.Context, ctx
 	var fc ctxapi.FrameContext
 
 	if sender.Node != "" || sender.Host != "" || sender.UniqID != "" {
-		signalCtx, fc = ctxapi.OpenFrameContextOn(ctx, ctx)
+		signalCtx, fc = ctxapi.ForkFrameContext(ctx)
 		values, err := ctxapi.GetOrCreateValues(signalCtx)
 		if err == nil {
 			values.Set(temporalprop.SignalFromValueKey, sender.String())

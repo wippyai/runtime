@@ -359,6 +359,11 @@ func OpenFrameContextOn(targetCtx context.Context, parentCtx context.Context) (c
 	return forkFrameContext(targetCtx, parentFC)
 }
 
+// ForkFrameContext creates a new frame on ctx inheriting from the frame in ctx.
+func ForkFrameContext(ctx context.Context) (context.Context, FrameContext) {
+	return OpenFrameContextOn(ctx, ctx)
+}
+
 func newFrameContext(parent context.Context) (context.Context, FrameContext) {
 	fc := frameContextPool.Get().(*frameContext)
 	fc.generation.Add(1)

@@ -681,7 +681,7 @@ func (w *Worker) Send(pkg *relay.Package) error {
 		ctx := runtimeState.ctx
 		var frame ctxapi.FrameContext
 		if pkg.Source.Node != "" || pkg.Source.Host != "" || pkg.Source.UniqID != "" {
-			ctx, frame = ctxapi.OpenFrameContextOn(ctx, ctx)
+			ctx, frame = ctxapi.ForkFrameContext(ctx)
 			values, err := ctxapi.GetOrCreateValues(ctx)
 			if err == nil {
 				values.Set(temporalprop.SignalFromValueKey, pkg.Source.String())
