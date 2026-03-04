@@ -56,16 +56,10 @@ func (d *Dispatcher) handleOpen(ctx context.Context, cmd dispatcher.Command, tag
 		return nil
 	}
 
-	callCtx := ctx
-	var fc ctxapi.FrameContext
-	if ctxapi.FrameFromContext(ctx) != nil {
-		callCtx, fc = ctxapi.OpenFrameContextOn(ctx, ctx)
-	}
+	callCtx, fc := ctxapi.ForkFrameContext(ctx)
 
 	go func(callCtx context.Context, callFC ctxapi.FrameContext) {
-		if callFC != nil {
-			defer ctxapi.ReleaseFrameContext(callFC)
-		}
+		defer ctxapi.ReleaseFrameContext(callFC)
 		instance, err := instantiator.Instantiate(callCtx, openCmd.BindingID, openCmd.Scope)
 		if callCtx.Err() != nil {
 			receiver.CompleteYield(tag, contract.OpenResult{Error: callCtx.Err()}, nil)
@@ -89,16 +83,10 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag
 		return nil
 	}
 
-	callCtx := ctx
-	var fc ctxapi.FrameContext
-	if ctxapi.FrameFromContext(ctx) != nil {
-		callCtx, fc = ctxapi.OpenFrameContextOn(ctx, ctx)
-	}
+	callCtx, fc := ctxapi.ForkFrameContext(ctx)
 
 	go func(callCtx context.Context, callFC ctxapi.FrameContext) {
-		if callFC != nil {
-			defer ctxapi.ReleaseFrameContext(callFC)
-		}
+		defer ctxapi.ReleaseFrameContext(callFC)
 		result, err := callCmd.Instance.Call(callCtx, callCmd.Method, callCmd.Args)
 		if callCtx.Err() != nil {
 			receiver.CompleteYield(tag, contract.CallResult{Error: callCtx.Err()}, nil)
@@ -148,16 +136,10 @@ func (d *Dispatcher) handleAsyncCall(ctx context.Context, cmd dispatcher.Command
 	args := asyncCmd.Args
 	logger := d.logger
 
-	callCtx := ctx
-	var fc ctxapi.FrameContext
-	if ctxapi.FrameFromContext(ctx) != nil {
-		callCtx, fc = ctxapi.OpenFrameContextOn(ctx, ctx)
-	}
+	callCtx, fc := ctxapi.ForkFrameContext(ctx)
 
 	go func(callCtx context.Context, callFC ctxapi.FrameContext) {
-		if callFC != nil {
-			defer ctxapi.ReleaseFrameContext(callFC)
-		}
+		defer ctxapi.ReleaseFrameContext(callFC)
 		result, err := instance.Call(callCtx, method, args)
 
 		resultPayload := resultToPayload(result, err)

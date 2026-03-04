@@ -179,7 +179,7 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 		params.TaskQueueName = cmd.Start.HostID
 	}
 	if len(cmd.Start.Context) > 0 {
-		spawnCtx, fc := ctxapi.OpenFrameContextOn(d.execCtx, d.execCtx)
+		spawnCtx, fc := ctxapi.ForkFrameContext(d.execCtx)
 		if err := fc.SetMultiple(cmd.Start.Context...); err != nil {
 			ctxapi.ReleaseFrameContext(fc)
 			d.resumeProcess(tag, process.SpawnResult{Error: fmt.Errorf("failed to apply spawn context: %w", err)}, nil)

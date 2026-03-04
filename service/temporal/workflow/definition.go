@@ -161,7 +161,7 @@ func (d *Definition) Execute(env bindings.WorkflowEnvironment, header *commonpb.
 		UniqID: env.WorkflowInfo().WorkflowExecution.ID,
 	}
 
-	execCtx, fc := ctxapi.OpenFrameContextOn(d.ctx, d.ctx)
+	execCtx, fc := ctxapi.ForkFrameContext(d.ctx)
 	keepFrame := false
 	defer func() {
 		if !keepFrame {

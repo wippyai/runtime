@@ -70,16 +70,10 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag
 		return nil
 	}
 
-	callCtx := ctx
-	var fc ctxapi.FrameContext
-	if ctxapi.FrameFromContext(ctx) != nil {
-		callCtx, fc = ctxapi.OpenFrameContextOn(ctx, ctx)
-	}
+	callCtx, fc := ctxapi.ForkFrameContext(ctx)
 
 	go func(callCtx context.Context, callFC ctxapi.FrameContext) {
-		if callFC != nil {
-			defer ctxapi.ReleaseFrameContext(callFC)
-		}
+		defer ctxapi.ReleaseFrameContext(callFC)
 		result, err := registry.Call(callCtx, callCmd.Task)
 		if callErr := extractCallError(callCtx, result, err); callErr != nil {
 			receiver.CompleteYield(tag, function.CallResult{Error: callErr}, nil)
@@ -116,16 +110,10 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 	task := startCmd.Task
 	logger := d.logger
 
-	callCtx := ctx
-	var fc ctxapi.FrameContext
-	if ctxapi.FrameFromContext(ctx) != nil {
-		callCtx, fc = ctxapi.OpenFrameContextOn(ctx, ctx)
-	}
+	callCtx, fc := ctxapi.ForkFrameContext(ctx)
 
 	go func(callCtx context.Context, callFC ctxapi.FrameContext) {
-		if callFC != nil {
-			defer ctxapi.ReleaseFrameContext(callFC)
-		}
+		defer ctxapi.ReleaseFrameContext(callFC)
 		result, err := registry.Call(callCtx, task)
 
 		resultPayload := resultToPayload(result, err)

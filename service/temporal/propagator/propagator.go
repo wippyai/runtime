@@ -282,7 +282,7 @@ func MergeActivityContext(appCtx context.Context, activityCtx context.Context) (
 		return appCtx, func() {}, nil
 	}
 
-	execCtx, fc := ctxapi.OpenFrameContextOn(appCtx, appCtx)
+	execCtx, fc := ctxapi.ForkFrameContext(appCtx)
 	release := func() { ctxapi.ReleaseFrameContext(fc) }
 
 	if len(ctxValues) > 0 {
