@@ -42,7 +42,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	github.com/tmc/langchaingo v0.1.14
-	github.com/tree-sitter-grammars/tree-sitter-lua v0.4.0
+	github.com/tree-sitter-grammars/tree-sitter-lua v0.4.1
 	github.com/tree-sitter/go-tree-sitter v0.25.0
 	github.com/tree-sitter/tree-sitter-c-sharp v0.23.1
 	github.com/tree-sitter/tree-sitter-go v0.25.0
