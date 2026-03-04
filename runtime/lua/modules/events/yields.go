@@ -3,13 +3,11 @@
 package events
 
 import (
-	"context"
 	"sync"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
-	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine"
@@ -151,7 +149,6 @@ func (y *EventSubscribeYield) HandleResult(l *lua.LState, data any, err error) [
 		if err := proc.SubscribeExisting(y.Topic, y.Channel); err != nil {
 			return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "subscribe")}
 		}
-		proc.SetTopicHandler(y.Topic, eventMessageHandler)
 	}
 
 	// Create subscription with channel and unsubscribe function
@@ -186,68 +183,6 @@ func (y *EventSubscribeYield) HandleResult(l *lua.LState, data any, err error) [
 	l.Pop(1) // Remove from stack since we return via slice
 
 	return []lua.LValue{subUD, lua.LNil}
-}
-
-// eventMessageHandler converts event payloads to Lua tables.
-func eventMessageHandler(_ context.Context, _ *lua.LState, _ pid.PID, _ string, payloads []payload.Payload) lua.LValue {
-	if len(payloads) == 0 {
-		return lua.LNil
-	}
-
-	p := payloads[0]
-	data, ok := p.Data().(map[string]any)
-	if !ok {
-		return lua.LNil
-	}
-
-	tbl := lua.CreateTable(0, 4)
-	if v, ok := data["system"].(string); ok {
-		tbl.RawSetString("system", lua.LString(v))
-	}
-	if v, ok := data["kind"].(string); ok {
-		tbl.RawSetString("kind", lua.LString(v))
-	}
-	if v, ok := data["path"].(string); ok {
-		tbl.RawSetString("path", lua.LString(v))
-	}
-	if v, ok := data["data"]; ok {
-		tbl.RawSetString("data", anyToLua(v))
-	}
-
-	return tbl
-}
-
-// anyToLua converts Go values to Lua values.
-func anyToLua(v any) lua.LValue {
-	if v == nil {
-		return lua.LNil
-	}
-	switch val := v.(type) {
-	case string:
-		return lua.LString(val)
-	case bool:
-		return lua.LBool(val)
-	case float64:
-		return lua.LNumber(val)
-	case int:
-		return lua.LNumber(val)
-	case int64:
-		return lua.LNumber(val)
-	case map[string]any:
-		tbl := lua.CreateTable(0, len(val))
-		for k, v := range val {
-			tbl.RawSetString(k, anyToLua(v))
-		}
-		return tbl
-	case []any:
-		tbl := lua.CreateTable(len(val), 0)
-		for i, v := range val {
-			tbl.RawSetInt(i+1, anyToLua(v))
-		}
-		return tbl
-	default:
-		return lua.LNil
-	}
 }
 
 // EventSendYield is yielded to send an event to the bus.

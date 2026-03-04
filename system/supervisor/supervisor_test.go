@@ -35,6 +35,37 @@ type testService struct {
 	stopped       bool
 }
 
+type blockingStartService struct {
+	startedCh   chan struct{}
+	releaseCh   chan struct{}
+	detailsCh   chan any
+	startedOnce sync.Once
+	stoppedOnce sync.Once
+}
+
+func newBlockingStartService() *blockingStartService {
+	return &blockingStartService{
+		startedCh: make(chan struct{}),
+		releaseCh: make(chan struct{}),
+		detailsCh: make(chan any),
+	}
+}
+
+func (s *blockingStartService) Start(ctx context.Context) (<-chan any, error) {
+	s.startedOnce.Do(func() { close(s.startedCh) })
+	select {
+	case <-s.releaseCh:
+		return s.detailsCh, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (s *blockingStartService) Stop(_ context.Context) error {
+	s.stoppedOnce.Do(func() { close(s.detailsCh) })
+	return nil
+}
+
 func newTestService() *testService {
 	return &testService{}
 }
@@ -1326,4 +1357,73 @@ func TestSupervisor_WithoutDependencyResolver(t *testing.T) {
 	// Verify lifecycle dependencies work without resolver
 	h.assertServiceState("service-b", supervisor.StatusRunning)
 	h.assertServiceState("service-a", supervisor.StatusRunning)
+}
+
+func TestSupervisor_GetStateDoesNotBlockDuringCommitTransition(t *testing.T) {
+	h := newTestHarness(t)
+	ctx := context.Background()
+	h.start(ctx)
+	defer h.stop()
+
+	svc := newBlockingStartService()
+
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "slow-service",
+		Data: &supervisor.Entry{
+			Service: svc,
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    true,
+				StartTimeout: 5 * time.Second,
+				StopTimeout:  time.Second,
+				RetryPolicy: supervisor.RetryPolicy{
+					MaxAttempts: 1,
+				},
+			},
+		},
+	})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	select {
+	case <-svc.startedCh:
+	case <-time.After(time.Second):
+		t.Fatal("service start did not begin")
+	}
+
+	getDone := make(chan error, 1)
+	go func() {
+		_, err := h.sup.GetState("slow-service")
+		getDone <- err
+	}()
+
+	blocked := false
+	select {
+	case err := <-getDone:
+		require.NoError(t, err)
+	case <-time.After(150 * time.Millisecond):
+		blocked = true
+	}
+
+	close(svc.releaseCh)
+
+	if blocked {
+		select {
+		case <-getDone:
+		case <-time.After(time.Second):
+		}
+		t.Fatal("GetState blocked while commit transition was in progress")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		state, err := h.sup.GetState("slow-service")
+		if err == nil && state.Status == supervisor.StatusRunning {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatal("service did not reach running state")
 }

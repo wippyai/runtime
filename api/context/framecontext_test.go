@@ -448,12 +448,13 @@ func TestFrameContext_SetMultipleSealed(t *testing.T) {
 
 func TestOpenFrameContext_Unsealed(t *testing.T) {
 	ctx, fc := newFrameContext(context.Background())
+	defer ReleaseFrameContext(fc)
 	key := &Key{Name: "test.key"}
 	_ = fc.Set(key, "value1")
 
 	newCtx, newFC := OpenFrameContext(ctx)
-	if newFC != fc {
-		t.Error("OpenFrameContext should return existing unsealed frame")
+	if newFC == fc {
+		t.Error("OpenFrameContext should return borrowed handle, not owner token")
 	}
 	if newCtx != ctx {
 		t.Error("OpenFrameContext should return same context for unsealed frame")
@@ -461,6 +462,37 @@ func TestOpenFrameContext_Unsealed(t *testing.T) {
 
 	if val, ok := newFC.Get(key); !ok || val != "value1" {
 		t.Errorf("OpenFrameContext returned frame should have existing values")
+	}
+
+	// Borrowed handle must not release shared owner.
+	ReleaseFrameContext(newFC)
+	if val, ok := fc.Get(key); !ok || val != "value1" {
+		t.Errorf("owner frame should stay alive after borrowed release")
+	}
+}
+
+func TestFrameContext_DoubleRelease_CloserRunsOnce(t *testing.T) {
+	_, fc := newFrameContext(context.Background())
+	var closes atomic.Int32
+	key := &Key{Name: "test.closer"}
+	_ = fc.Set(key, CloserFunc(func() error {
+		closes.Add(1)
+		return nil
+	}))
+
+	const releasers = 16
+	var wg sync.WaitGroup
+	wg.Add(releasers)
+	for i := 0; i < releasers; i++ {
+		go func() {
+			defer wg.Done()
+			ReleaseFrameContext(fc)
+		}()
+	}
+	wg.Wait()
+
+	if got := closes.Load(); got != 1 {
+		t.Fatalf("closer should run exactly once, got %d", got)
 	}
 }
 

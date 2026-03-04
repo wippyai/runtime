@@ -11,16 +11,19 @@ import (
 	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/runtime/lua/engine"
+	luapayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	eventsmod "github.com/wippyai/runtime/runtime/lua/modules/events"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
 	"github.com/wippyai/runtime/system/clock"
 	"github.com/wippyai/runtime/system/eventbus"
+	systempayload "github.com/wippyai/runtime/system/payload"
 	sysrelay "github.com/wippyai/runtime/system/relay"
 	"github.com/wippyai/runtime/system/scheduler"
 	"github.com/wippyai/runtime/system/scheduler/pool/inline"
@@ -48,6 +51,12 @@ func TestEventsReceiveIntegration(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 	rootCtx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+
+	// Register payload transcoder for Golang->Lua conversion
+	transcoder := systempayload.NewTranscoder()
+	luapayload.Register(transcoder)
+	payload.WithTranscoder(rootCtx, transcoder)
+
 	ctx, cancel := context.WithTimeout(rootCtx, 5*time.Second)
 	defer cancel()
 

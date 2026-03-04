@@ -237,7 +237,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 		baseHandler.ServeHTTP(w, r.WithContext(ctx))
 	})
 
-	s.server = &http.Server{
+	srv := &http.Server{
 		Addr:         s.config.Addr,
 		Handler:      handler,
 		ReadTimeout:  s.config.Timeouts.ReadTimeout,
@@ -248,13 +248,15 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 			return s.ctx
 		},
 	}
+	s.server = srv
 	s.started.Store(true)
 
 	s.mu.Unlock()
 
 	// Launch server
 	go func() {
-		err := s.server.ListenAndServe()
+		// Use the captured server instance to avoid racing on s.server field.
+		err := srv.ListenAndServe()
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			select {
 			case s.statusChan <- NewServerError(err):

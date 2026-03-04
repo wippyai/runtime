@@ -35,11 +35,13 @@ type FileLoader struct {
 func NewFileLoader(log *zap.Logger) *FileLoader {
 	skipDirs := make(map[string]bool)
 
-	// Skip _temporal directory when SKIP_TEMPORAL_TESTS is set
+	// Skip temporal test directories when SKIP_TEMPORAL_TESTS is set.
+	// Keep both names for compatibility across fixtures.
 	if os.Getenv("SKIP_TEMPORAL_TESTS") != "" {
 		skipDirs["_temporal"] = true
+		skipDirs["temporal"] = true
 		if log != nil {
-			log.Info("SKIP_TEMPORAL_TESTS is set, skipping _temporal directories")
+			log.Info("SKIP_TEMPORAL_TESTS is set, skipping temporal directories")
 		}
 	}
 

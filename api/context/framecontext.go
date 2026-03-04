@@ -311,6 +311,20 @@ func newFrameRef(frame *frameContext) *frameContextRef {
 	}
 }
 
+// newBorrowedFrameRef creates a non-owning reference.
+// Close() is a no-op so borrowed handles cannot accidentally release shared owners.
+func newBorrowedFrameRef(frame *frameContext, generation uint64) *frameContextRef {
+	if frame == nil {
+		return nil
+	}
+	ref := &frameContextRef{
+		frame:      frame,
+		generation: generation,
+	}
+	ref.released.Store(true)
+	return ref
+}
+
 // WithFrameContext attaches FrameContext to the provided context.
 func WithFrameContext(ctx context.Context, fc FrameContext) context.Context {
 	switch f := fc.(type) {
@@ -463,17 +477,24 @@ func releaseFrame(f *frameContext, expectedGeneration uint64) {
 	frameContextPool.Put(f)
 }
 
-// OpenFrameContext returns an existing unsealed frame, or creates a new one if needed.
-// When creating a new frame from a sealed parent, automatically copies all keys marked with Inherit: true.
-// Uses reference counting to ensure parent frame stays alive while child iterates.
+// OpenFrameContext ensures a usable frame for the provided context.
+// If an unsealed frame already exists, it returns a borrowed handle to that frame
+// (Close is a no-op, ownership stays with the context owner).
+// Otherwise, it creates a new owned frame (forking from sealed parent when present).
 func OpenFrameContext(ctx context.Context) (context.Context, FrameContext) {
 	fc := FrameFromContext(ctx)
-	if fc == nil || fc.IsSealed() {
-		parentRef, _ := fc.(*frameContextRef)
-		newCtx, newFC := forkFrameContext(ctx, parentRef)
-		return newCtx, newFC
+	if fc != nil && !fc.IsSealed() {
+		if ref, ok := fc.(*frameContextRef); ok {
+			if frame := ref.resolveFrame(); frame != nil {
+				return ctx, newBorrowedFrameRef(frame, ref.generation)
+			}
+		}
+		return ctx, fc
 	}
-	return ctx, fc
+
+	parentRef, _ := fc.(*frameContextRef)
+	newCtx, newFC := forkFrameContext(ctx, parentRef)
+	return newCtx, newFC
 }
 
 // OpenFrameContextOn creates a new frame on targetCtx, inheriting from parentCtx.
