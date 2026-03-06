@@ -109,12 +109,9 @@ func TestPruneStaleVendorArtifacts_RemovesStaleArtifacts(t *testing.T) {
 	assertPathMissing(t, removedDir)
 	assertPathMissing(t, removedLegacyDir)
 	assertPathMissing(t, removedWapp)
+	assertPathMissing(t, updatedDir)
 	assertPathMissing(t, updatedLegacyDir)
 	assertPathMissing(t, updatedOldWapp)
-
-	if _, err := os.Stat(updatedDir); err != nil {
-		t.Fatalf("expected updated module directory to remain: %v", err)
-	}
 }
 
 func mustWriteFile(t *testing.T, path string) {

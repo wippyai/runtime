@@ -499,7 +499,7 @@ func pruneStaleVendorArtifacts(lockObj *lock.Lock, changes *lock.Changes, logger
 		pruneModuleArtifacts(vendorDir, removed.Name, removed.Version, true, logger)
 	}
 	for _, updated := range changes.Updated {
-		pruneModuleArtifacts(vendorDir, updated.Name, updated.OldVersion, false, logger)
+		pruneModuleArtifacts(vendorDir, updated.Name, updated.OldVersion, true, logger)
 	}
 }
 
