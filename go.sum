@@ -387,8 +387,8 @@ github.com/tiendc/go-deepcopy v1.7.2 h1:Ut2yYR7W9tWjTQitganoIue4UGxZwCcJy3orjrrI
 github.com/tiendc/go-deepcopy v1.7.2/go.mod h1:4bKjNC2r7boYOkD2IOuZpYjmlDdzjbpTRyCx+goBCJQ=
 github.com/tmc/langchaingo v0.1.14 h1:o1qWBPigAIuFvrG6cjTFo0cZPFEZ47ZqpOYMjM15yZc=
 github.com/tmc/langchaingo v0.1.14/go.mod h1:aKKYXYoqhIDEv7WKdpnnCLRaqXic69cX9MnDUk72378=
-github.com/tree-sitter-grammars/tree-sitter-lua v0.4.1 h1:DOxLDVTEmkLuoIHXJ65h5oyHcEK89mn9DOhlnPQRAmQ=
-github.com/tree-sitter-grammars/tree-sitter-lua v0.4.1/go.mod h1:hIOfn+lxpU4SRrtejLVrU2+8SAoRwNC01m3XaR/Cw0A=
+github.com/tree-sitter-grammars/tree-sitter-lua v0.5.0 h1:4YHMdo2TzpbhHe3nfdI4qruBGeFGIwfYGfxZJW/tnjc=
+github.com/tree-sitter-grammars/tree-sitter-lua v0.5.0/go.mod h1:hIOfn+lxpU4SRrtejLVrU2+8SAoRwNC01m3XaR/Cw0A=
 github.com/tree-sitter/go-tree-sitter v0.25.0 h1:sx6kcg8raRFCvc9BnXglke6axya12krCJF5xJ2sftRU=
 github.com/tree-sitter/go-tree-sitter v0.25.0/go.mod h1:r77ig7BikoZhHrrsjAnv8RqGti5rtSyvDHPzgTPsUuU=
 github.com/tree-sitter/tree-sitter-c v0.23.4 h1:nBPH3FV07DzAD7p0GfNvXM+Y7pNIoPenQWBpvM++t4c=
