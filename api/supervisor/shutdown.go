@@ -14,7 +14,8 @@ import (
 var (
 	signalChannelKey = &ctxapi.Key{Name: "supervisor.signal"}
 	// exitCode is stored atomically since it's set at runtime during shutdown
-	exitCode atomic.Int32
+	exitCode    atomic.Int32
+	shutdownSent atomic.Bool
 )
 
 func setExitCode(code int) {
@@ -52,9 +53,13 @@ func getSignalChannel(ctx context.Context) chan<- os.Signal {
 }
 
 // TriggerShutdown sets the exit code and sends a SIGTERM signal to trigger
-// graceful application shutdown.
+// graceful application shutdown. Only the first call sends the signal;
+// subsequent calls update the exit code but do not send duplicate signals.
 func TriggerShutdown(ctx context.Context, code int) {
 	setExitCode(code)
+	if !shutdownSent.CompareAndSwap(false, true) {
+		return
+	}
 	if ch := getSignalChannel(ctx); ch != nil {
 		ch <- syscall.SIGTERM
 	}
