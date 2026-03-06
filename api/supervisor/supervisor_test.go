@@ -236,7 +236,8 @@ func TestShutdownContext(t *testing.T) {
 	})
 
 	t.Run("TriggerShutdown_WithChannel", func(t *testing.T) {
-		setExitCode(0) // reset
+		setExitCode(0)
+		shutdownSent.Store(false)
 		appCtx := ctxapi.NewAppContext()
 		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
 
@@ -252,17 +253,37 @@ func TestShutdownContext(t *testing.T) {
 		default:
 			t.Fatal("expected signal to be sent")
 		}
-		setExitCode(0) // reset
+		setExitCode(0)
+		shutdownSent.Store(false)
 	})
 
 	t.Run("TriggerShutdown_NoChannel", func(t *testing.T) {
-		setExitCode(0) // reset
+		setExitCode(0)
+		shutdownSent.Store(false)
 		appCtx := ctxapi.NewAppContext()
 		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
 
 		TriggerShutdown(ctx, 2)
 
 		assert.Equal(t, 2, GetExitCode())
-		setExitCode(0) // reset
+		setExitCode(0)
+		shutdownSent.Store(false)
+	})
+
+	t.Run("TriggerShutdown_OnlyFirstCallSendsSignal", func(t *testing.T) {
+		setExitCode(0)
+		shutdownSent.Store(false)
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		ch := make(chan os.Signal, 2)
+		SetSignalChannel(ctx, ch)
+
+		TriggerShutdown(ctx, 0)
+		TriggerShutdown(ctx, 0)
+
+		assert.Equal(t, 1, len(ch))
+		setExitCode(0)
+		shutdownSent.Store(false)
 	})
 }
