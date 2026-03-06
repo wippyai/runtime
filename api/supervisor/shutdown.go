@@ -14,7 +14,7 @@ import (
 var (
 	signalChannelKey = &ctxapi.Key{Name: "supervisor.signal"}
 	// exitCode is stored atomically since it's set at runtime during shutdown
-	exitCode    atomic.Int32
+	exitCode     atomic.Int32
 	shutdownSent atomic.Bool
 )
 
