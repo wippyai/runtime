@@ -85,7 +85,7 @@ The architecture enables declarative composition of complex applications that ca
 - Custom Lua module registration
 - Function interceptor chains
 - Event-driven component lifecycle
-- WebAssembly runtime (planned)
+- WebAssembly runtime
 
 ## Installation
 
