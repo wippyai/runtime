@@ -3,6 +3,7 @@
 package http
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -133,16 +134,14 @@ func TestRouteManager_ServeHTTP(t *testing.T) {
 
 	// Create a test server
 	server := httptest.NewServer(wrappedHandler)
-	//nolint:noctx // noctx is not needed because we are not reading the body
-	resp, err := http.Get(server.URL + "/api/users/123")
+	resp, err := testGet(t, server.URL+"/api/users/123")
 	require.NoError(t, err)
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.NoError(t, resp.Body.Close())
 
 	// Test 404 for non-existent route
-	//nolint:noctx // noctx is not needed because we are not reading the body
-	resp, err = http.Get(server.URL + "/api/nonexistent")
+	resp, err = testGet(t, server.URL+"/api/nonexistent")
 	require.NoError(t, err)
 
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
@@ -200,8 +199,7 @@ func TestRouteManager_MultipleRouters(t *testing.T) {
 
 	// Test each router's endpoint
 	for _, r := range routerIDs {
-		//nolint:noctx // noctx is not needed because we are not reading the body
-		resp, err := http.Get(server.URL + r.prefix + "/test")
+		resp, err := testGet(t, server.URL+r.prefix+"/test")
 		require.NoError(t, err)
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -299,4 +297,13 @@ func TestRouteManager_RouteUpdates(t *testing.T) {
 
 	err = rm.Build()
 	assert.NoError(t, err)
+}
+
+func testGet(t *testing.T, url string) (*http.Response, error) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	return http.DefaultClient.Do(req)
 }

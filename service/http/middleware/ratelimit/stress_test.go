@@ -43,7 +43,7 @@ func TestStress_HighConcurrency(t *testing.T) {
 		go func(goroutineID int) {
 			defer wg.Done()
 			for j := 0; j < requestsPerGoroutine; j++ {
-				req := httptest.NewRequest("GET", "http://example.com/test", nil)
+				req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 				req.RemoteAddr = fmt.Sprintf("192.168.1.%d:12345", goroutineID%256)
 				w := httptest.NewRecorder()
 				handler.ServeHTTP(w, req)
@@ -89,7 +89,7 @@ func TestStress_ManyUniqueKeys(t *testing.T) {
 		wg.Add(1)
 		go func(ipNum int) {
 			defer wg.Done()
-			req := httptest.NewRequest("GET", "http://example.com/test", nil)
+			req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 			req.RemoteAddr = fmt.Sprintf("10.%d.%d.%d:12345",
 				(ipNum/65536)%256, (ipNum/256)%256, ipNum%256)
 			w := httptest.NewRecorder()
@@ -153,7 +153,7 @@ func TestSecurity_KeyInjection(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 			}))
 
-			req := httptest.NewRequest("GET", "http://example.com/test", nil)
+			req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 			req.Header.Set(tc.headerKey, tc.value)
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, req)
@@ -176,13 +176,13 @@ func TestSecurity_IPSpoofing(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req1 := httptest.NewRequest("GET", "http://example.com/test", nil)
+	req1 := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 	req1.RemoteAddr = "192.168.1.1:12345"
 	w1 := httptest.NewRecorder()
 	handler.ServeHTTP(w1, req1)
 	assert.Equal(t, http.StatusOK, w1.Code)
 
-	req2 := httptest.NewRequest("GET", "http://example.com/test", nil)
+	req2 := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 	req2.RemoteAddr = "192.168.1.1:12345"
 	w2 := httptest.NewRecorder()
 	handler.ServeHTTP(w2, req2)
@@ -199,7 +199,7 @@ func TestEdge_ZeroValues(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req.RemoteAddr = "192.168.1.1:12345"
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
@@ -216,7 +216,7 @@ func TestEdge_ZeroValues(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req.RemoteAddr = "192.168.1.1:12345"
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
@@ -243,7 +243,7 @@ func TestEdge_MalformedRemoteAddr(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 			}))
 
-			req := httptest.NewRequest("GET", "http://example.com/test", nil)
+			req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 			req.RemoteAddr = addr
 			w := httptest.NewRecorder()
 
@@ -274,7 +274,7 @@ func TestEdge_InvalidStrategy(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 			}))
 
-			req := httptest.NewRequest("GET", "http://example.com/test", nil)
+			req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 			req.RemoteAddr = "192.168.1.1:12345"
 			w := httptest.NewRecorder()
 
@@ -417,7 +417,7 @@ func BenchmarkMiddleware(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
 		for pb.Next() {
-			req := httptest.NewRequest("GET", "http://example.com/test", nil)
+			req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 			req.RemoteAddr = fmt.Sprintf("192.168.%d.%d:12345", (i/256)%256, i%256)
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, req)

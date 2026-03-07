@@ -4,6 +4,7 @@ package compress
 
 import (
 	"compress/gzip"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -23,7 +24,7 @@ func TestCreateCompressMiddleware(t *testing.T) {
 			_, _ = w.Write([]byte(strings.Repeat("test data ", 200)))
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req.Header.Set("Accept-Encoding", "gzip")
 		w := httptest.NewRecorder()
 
@@ -42,7 +43,7 @@ func TestCreateCompressMiddleware(t *testing.T) {
 			_, _ = w.Write([]byte(strings.Repeat("test ", 500)))
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req.Header.Set("Accept-Encoding", "gzip")
 		w := httptest.NewRecorder()
 
@@ -60,7 +61,7 @@ func TestCreateCompressMiddleware(t *testing.T) {
 			_, _ = w.Write([]byte(strings.Repeat("compress me ", 300)))
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req.Header.Set("Accept-Encoding", "gzip")
 		w := httptest.NewRecorder()
 
@@ -78,7 +79,7 @@ func TestCreateCompressMiddleware(t *testing.T) {
 			_, _ = w.Write([]byte("small"))
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req.Header.Set("Accept-Encoding", "gzip")
 		w := httptest.NewRecorder()
 
@@ -97,7 +98,7 @@ func TestCreateCompressMiddleware(t *testing.T) {
 			_, _ = w.Write([]byte("this is longer than 10 bytes"))
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req.Header.Set("Accept-Encoding", "gzip")
 		w := httptest.NewRecorder()
 
@@ -113,7 +114,7 @@ func TestCreateCompressMiddleware(t *testing.T) {
 			_, _ = w.Write([]byte(strings.Repeat("data ", 500)))
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -129,7 +130,7 @@ func TestCreateCompressMiddleware(t *testing.T) {
 			_, _ = w.Write([]byte(testData))
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req.Header.Set("Accept-Encoding", "gzip")
 		w := httptest.NewRecorder()
 
@@ -156,7 +157,7 @@ func TestCreateCompressMiddleware(t *testing.T) {
 			_, _ = w.Write([]byte(strings.Repeat("test ", 500)))
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req.Header.Set("Accept-Encoding", "gzip")
 		w := httptest.NewRecorder()
 
@@ -174,7 +175,7 @@ func TestCreateCompressMiddleware(t *testing.T) {
 			_, _ = w.Write([]byte("short"))
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req.Header.Set("Accept-Encoding", "gzip")
 		w := httptest.NewRecorder()
 
@@ -193,7 +194,7 @@ func TestCreateCompressMiddleware(t *testing.T) {
 			_, _ = w.Write([]byte("short"))
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req.Header.Set("Accept-Encoding", "gzip")
 		w := httptest.NewRecorder()
 

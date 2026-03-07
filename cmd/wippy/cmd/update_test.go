@@ -45,7 +45,7 @@ func TestConvertResolvedToLock_UsesProvidedPath(t *testing.T) {
 	}
 }
 
-func TestPreserveReplacementsForPresentModules_FiltersStale(t *testing.T) {
+func TestPreserveReplacements_KeepsAll(t *testing.T) {
 	tmpDir := t.TempDir()
 	lockPath := filepath.Join(tmpDir, "wippy.lock")
 	lockObj, err := lock.New(lockPath)
@@ -55,17 +55,20 @@ func TestPreserveReplacementsForPresentModules_FiltersStale(t *testing.T) {
 
 	lockObj.SetModule(lock.Module{Name: "acme/http", Version: "1.0.0"})
 
-	preserveReplacementsForPresentModules(lockObj, []lock.Replacement{
+	preserveReplacements(lockObj, []lock.Replacement{
 		{From: "acme/http", To: "../local-http"},
 		{From: "demo/sql", To: "../local-sql"},
 	})
 
 	repls := lockObj.GetReplacements()
-	if len(repls) != 1 {
-		t.Fatalf("replacement count = %d, want 1", len(repls))
+	if len(repls) != 2 {
+		t.Fatalf("replacement count = %d, want 2", len(repls))
 	}
 	if repls[0].From != "acme/http" {
-		t.Fatalf("replacement.from = %q, want acme/http", repls[0].From)
+		t.Fatalf("replacement[0].from = %q, want acme/http", repls[0].From)
+	}
+	if repls[1].From != "demo/sql" {
+		t.Fatalf("replacement[1].from = %q, want demo/sql", repls[1].From)
 	}
 }
 
@@ -109,12 +112,9 @@ func TestPruneStaleVendorArtifacts_RemovesStaleArtifacts(t *testing.T) {
 	assertPathMissing(t, removedDir)
 	assertPathMissing(t, removedLegacyDir)
 	assertPathMissing(t, removedWapp)
+	assertPathMissing(t, updatedDir)
 	assertPathMissing(t, updatedLegacyDir)
 	assertPathMissing(t, updatedOldWapp)
-
-	if _, err := os.Stat(updatedDir); err != nil {
-		t.Fatalf("expected updated module directory to remain: %v", err)
-	}
 }
 
 func mustWriteFile(t *testing.T, path string) {

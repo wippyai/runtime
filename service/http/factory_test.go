@@ -236,7 +236,7 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 
 		// Test handler
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 
 		// Create FrameContext like the HTTP server does
 		ctxWithFrame, _ := ctxapi.OpenFrameContext(ctx)
@@ -272,7 +272,7 @@ func TestEndpointFactory_CreateHandler(t *testing.T) {
 
 		// Test handler
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 
 		// Create FrameContext like the HTTP server does
 		ctxWithFrame, _ := ctxapi.OpenFrameContext(ctx)
@@ -335,7 +335,7 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 		assert.NotNil(t, handler)
 
 		// Test handler
-		req := httptest.NewRequest("GET", "http://example.com/static/style.css", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/static/style.css", nil)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -361,7 +361,7 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 		assert.NotNil(t, handler)
 
 		// Test handler with non-existent route (should serve index.html)
-		req := httptest.NewRequest("GET", "http://example.com/app/nonexistent", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/app/nonexistent", nil)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -461,7 +461,7 @@ func TestSPAHandler(t *testing.T) {
 		handler := NewSPAHandler(mockFS, "index.html")
 
 		// Create test request for existing file
-		req := httptest.NewRequest("GET", "http://example.com/style.css", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/style.css", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -474,7 +474,7 @@ func TestSPAHandler(t *testing.T) {
 		handler := NewSPAHandler(mockFS, "index.html")
 
 		// Create test request for non-existent file
-		req := httptest.NewRequest("GET", "http://example.com/app/route", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/app/route", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -488,7 +488,7 @@ func TestSPAHandler(t *testing.T) {
 		handler := NewSPAHandler(mockFS, "missing.html")
 
 		// Create test request
-		req := httptest.NewRequest("GET", "http://example.com/app/route", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/app/route", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -505,7 +505,7 @@ func TestWrapWithCacheControl(t *testing.T) {
 
 	wrappedHandler := wrapWithCacheControl(mockHandler, "public, max-age=3600")
 
-	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/", nil)
 	w := httptest.NewRecorder()
 
 	wrappedHandler.ServeHTTP(w, req)

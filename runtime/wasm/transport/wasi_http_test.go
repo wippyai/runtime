@@ -17,7 +17,7 @@ func TestWASIHTTPTransportPrepareFromRequestBody(t *testing.T) {
 	ctx, fc := ctxapi.OpenFrameContext(context.Background())
 	defer func() { _ = fc.Close() }()
 
-	req := httptest.NewRequest("POST", "/test/wasm/greet", strings.NewReader("WebAssembly"))
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/test/wasm/greet", strings.NewReader("WebAssembly"))
 	rec := httptest.NewRecorder()
 	rctx := httpapi.NewRequestContext(req, rec)
 	if err := fc.Set(httpapi.RequestKey(), rctx); err != nil {
@@ -62,7 +62,7 @@ func TestWASIHTTPTransportEncodeResultString(t *testing.T) {
 	ctx, fc := ctxapi.OpenFrameContext(context.Background())
 	defer func() { _ = fc.Close() }()
 
-	req := httptest.NewRequest("POST", "/test/wasm/greet", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/test/wasm/greet", nil)
 	rec := httptest.NewRecorder()
 	rctx := httpapi.NewRequestContext(req, rec)
 	if err := fc.Set(httpapi.RequestKey(), rctx); err != nil {
@@ -92,7 +92,7 @@ func TestWASIHTTPTransportEncodeResultJSON(t *testing.T) {
 	ctx, fc := ctxapi.OpenFrameContext(context.Background())
 	defer func() { _ = fc.Close() }()
 
-	req := httptest.NewRequest("GET", "/json", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/json", nil)
 	rec := httptest.NewRecorder()
 	rctx := httpapi.NewRequestContext(req, rec)
 	if err := fc.Set(httpapi.RequestKey(), rctx); err != nil {

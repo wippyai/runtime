@@ -352,8 +352,8 @@ func TestServerService_StartStop(t *testing.T) {
 	var lastErr error
 
 	for i := 0; i < 3; i++ {
-		//nolint:noctx // noctx is not needed because we are not reading the body
-		resp, lastErr = client.Get(fmt.Sprintf("http://%s/api/test", cfg.Addr))
+		req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, fmt.Sprintf("http://%s/api/test", cfg.Addr), nil)
+		resp, lastErr = client.Do(req)
 		if lastErr == nil {
 			break
 		}
@@ -373,8 +373,9 @@ func TestServerService_StartStop(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify server is stopped
-	//nolint:bodyclose,noctx // bodyclose is not needed because we are not reading the body
-	_, err = http.Get(fmt.Sprintf("http://%s/api/test", cfg.Addr))
+	stopReq, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, fmt.Sprintf("http://%s/api/test", cfg.Addr), nil)
+	//nolint:bodyclose // server is expected to be stopped
+	_, err = http.DefaultClient.Do(stopReq)
 	assert.Error(t, err)
 
 	// Cleanup
@@ -736,8 +737,8 @@ func TestContextListener(t *testing.T) {
 	var lastErr error
 
 	for i := 0; i < 3; i++ {
-		//nolint:noctx // noctx is not needed because we are not reading the body
-		resp, lastErr = client.Get(fmt.Sprintf("http://%s/api/test", cfg.Addr))
+		req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, fmt.Sprintf("http://%s/api/test", cfg.Addr), nil)
+		resp, lastErr = client.Do(req)
 		if lastErr == nil {
 			break
 		}

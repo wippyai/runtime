@@ -3,6 +3,7 @@
 package http
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -47,7 +48,7 @@ func TestMiddlewareFactory(t *testing.T) {
 
 		// Test that it works
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 
 		// Create a test handler that the middleware will wrap
 		testHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -93,7 +94,7 @@ func TestMiddlewareFactory(t *testing.T) {
 		assert.NoError(t, err)
 
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 		testHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})

@@ -27,7 +27,7 @@ func TestCreateRateLimitMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req.RemoteAddr = "192.168.1.1:12345"
 
 		// First request should succeed
@@ -47,7 +47,7 @@ func TestCreateRateLimitMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req.RemoteAddr = "192.168.1.1:12345"
 
 		// First 2 requests should succeed (burst)
@@ -76,7 +76,7 @@ func TestCreateRateLimitMiddleware(t *testing.T) {
 		}))
 
 		// IP 1 makes request
-		req1 := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req1 := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req1.RemoteAddr = "192.168.1.1:12345"
 		w1 := httptest.NewRecorder()
 		handler.ServeHTTP(w1, req1)
@@ -88,7 +88,7 @@ func TestCreateRateLimitMiddleware(t *testing.T) {
 		assert.Equal(t, http.StatusTooManyRequests, w1b.Code)
 
 		// IP 2 should have its own limit
-		req2 := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req2 := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req2.RemoteAddr = "192.168.1.2:12345"
 		w2 := httptest.NewRecorder()
 		handler.ServeHTTP(w2, req2)
@@ -108,21 +108,21 @@ func TestCreateRateLimitMiddleware(t *testing.T) {
 		}))
 
 		// First request with API key
-		req1 := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req1 := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req1.Header.Set("X-API-Key", "key123")
 		w1 := httptest.NewRecorder()
 		handler.ServeHTTP(w1, req1)
 		assert.Equal(t, http.StatusOK, w1.Code)
 
 		// Second request with same API key should be limited
-		req2 := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req2 := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req2.Header.Set("X-API-Key", "key123")
 		w2 := httptest.NewRecorder()
 		handler.ServeHTTP(w2, req2)
 		assert.Equal(t, http.StatusTooManyRequests, w2.Code)
 
 		// Different API key should have separate limit
-		req3 := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req3 := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req3.Header.Set("X-API-Key", "key456")
 		w3 := httptest.NewRecorder()
 		handler.ServeHTTP(w3, req3)
@@ -142,19 +142,19 @@ func TestCreateRateLimitMiddleware(t *testing.T) {
 		}))
 
 		// First request for user1
-		req1 := httptest.NewRequest("GET", "http://example.com/test?user_id=user1", nil)
+		req1 := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test?user_id=user1", nil)
 		w1 := httptest.NewRecorder()
 		handler.ServeHTTP(w1, req1)
 		assert.Equal(t, http.StatusOK, w1.Code)
 
 		// Second request for user1 should be limited
-		req2 := httptest.NewRequest("GET", "http://example.com/test?user_id=user1", nil)
+		req2 := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test?user_id=user1", nil)
 		w2 := httptest.NewRecorder()
 		handler.ServeHTTP(w2, req2)
 		assert.Equal(t, http.StatusTooManyRequests, w2.Code)
 
 		// Different user should have separate limit
-		req3 := httptest.NewRequest("GET", "http://example.com/test?user_id=user2", nil)
+		req3 := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test?user_id=user2", nil)
 		w3 := httptest.NewRecorder()
 		handler.ServeHTTP(w3, req3)
 		assert.Equal(t, http.StatusOK, w3.Code)
@@ -167,7 +167,7 @@ func TestCreateRateLimitMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req.RemoteAddr = "192.168.1.1:12345"
 		w := httptest.NewRecorder()
 
@@ -186,7 +186,7 @@ func TestCreateRateLimitMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req.RemoteAddr = "192.168.1.1:12345"
 
 		// Burst of 5 should all succeed
@@ -211,7 +211,7 @@ func TestCreateRateLimitMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -229,7 +229,7 @@ func TestCreateRateLimitMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req.RemoteAddr = "192.168.1.1:12345"
 		w := httptest.NewRecorder()
 
@@ -257,7 +257,7 @@ func TestCreateRateLimitMiddleware(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				req := httptest.NewRequest("GET", "http://example.com/test", nil)
+				req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 				req.RemoteAddr = "192.168.1.1:12345"
 				w := httptest.NewRecorder()
 				handler.ServeHTTP(w, req)
@@ -287,7 +287,7 @@ func TestCreateRateLimitMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req.RemoteAddr = "192.168.1.1:12345"
 
 		// Exhaust limit
@@ -398,7 +398,7 @@ func TestLimiterStoreCleanup(t *testing.T) {
 
 func TestExtractKey(t *testing.T) {
 	t.Run("extract IP", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req.RemoteAddr = "192.168.1.1:12345"
 
 		key := extractKey(req, "ip")
@@ -406,7 +406,7 @@ func TestExtractKey(t *testing.T) {
 	})
 
 	t.Run("extract from header", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req.Header.Set("X-API-Key", "secret123")
 
 		key := extractKey(req, "header:X-API-Key")
@@ -414,14 +414,14 @@ func TestExtractKey(t *testing.T) {
 	})
 
 	t.Run("extract from query", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "http://example.com/test?token=abc123", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test?token=abc123", nil)
 
 		key := extractKey(req, "query:token")
 		assert.Equal(t, "abc123", key)
 	})
 
 	t.Run("invalid strategy defaults to IP", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		req.RemoteAddr = "192.168.1.1:12345"
 
 		key := extractKey(req, "invalid")
@@ -429,14 +429,14 @@ func TestExtractKey(t *testing.T) {
 	})
 
 	t.Run("missing header returns empty", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 
 		key := extractKey(req, "header:X-Missing")
 		assert.Equal(t, "", key)
 	})
 
 	t.Run("header without name returns empty", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 
 		key := extractKey(req, "header")
 		assert.Equal(t, "", key)

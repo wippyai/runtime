@@ -26,7 +26,7 @@ func (m *mockResponseWriter) Write([]byte) (int, error) {
 }
 
 func TestNewRequestContext(t *testing.T) {
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 	w := httptest.NewRecorder()
 
 	t.Run("creates new request context", func(t *testing.T) {
@@ -39,7 +39,7 @@ func TestNewRequestContext(t *testing.T) {
 }
 
 func TestRequestContext_Request(t *testing.T) {
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 	w := httptest.NewRecorder()
 	reqCtx := NewRequestContext(req, w)
 
@@ -49,7 +49,7 @@ func TestRequestContext_Request(t *testing.T) {
 }
 
 func TestRequestContext_ResponseWriter(t *testing.T) {
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 	w := httptest.NewRecorder()
 	reqCtx := NewRequestContext(req, w)
 
@@ -59,7 +59,7 @@ func TestRequestContext_ResponseWriter(t *testing.T) {
 }
 
 func TestRequestContext_MarkHandled(t *testing.T) {
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 	w := httptest.NewRecorder()
 	reqCtx := NewRequestContext(req, w)
 
@@ -71,7 +71,7 @@ func TestRequestContext_MarkHandled(t *testing.T) {
 }
 
 func TestRequestContext_ResponseHandled(t *testing.T) {
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 	w := httptest.NewRecorder()
 	reqCtx := NewRequestContext(req, w)
 
@@ -122,7 +122,7 @@ func TestContextKeys(t *testing.T) {
 }
 
 func TestContextIntegration(t *testing.T) {
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 	w := httptest.NewRecorder()
 	reqCtx := NewRequestContext(req, w)
 	routeInfo := &RouteInfo{
@@ -163,7 +163,7 @@ func TestContextIntegration(t *testing.T) {
 }
 
 func TestRequestContext_WithCustomResponseWriter(t *testing.T) {
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 	w := &mockResponseWriter{}
 	reqCtx := NewRequestContext(req, w)
 
@@ -176,8 +176,8 @@ func TestRequestContext_WithCustomResponseWriter(t *testing.T) {
 }
 
 func TestRequestContext_Pooling(t *testing.T) {
-	req1 := httptest.NewRequest("GET", "/test1", nil)
-	req2 := httptest.NewRequest("POST", "/test2", nil)
+	req1 := httptest.NewRequestWithContext(context.Background(), "GET", "/test1", nil)
+	req2 := httptest.NewRequestWithContext(context.Background(), "POST", "/test2", nil)
 	w1 := httptest.NewRecorder()
 	w2 := httptest.NewRecorder()
 

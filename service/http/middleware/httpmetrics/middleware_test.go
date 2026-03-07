@@ -100,7 +100,7 @@ func TestCreateHTTPMetricsMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -122,7 +122,7 @@ func TestCreateHTTPMetricsMiddleware(t *testing.T) {
 				w.WriteHeader(code)
 			}))
 
-			req := httptest.NewRequest("GET", "/test", nil)
+			req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, req)
 
@@ -141,7 +141,7 @@ func TestCreateHTTPMetricsMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 
@@ -158,7 +158,7 @@ func TestCreateHTTPMetricsMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/api/users/123", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/users/123", nil)
 		ctx, _ := ctxapi.OpenFrameContext(req.Context())
 		_ = httpapi.SetRouteLabel(ctx, "/api/users/{id}")
 		req = req.WithContext(ctx)
@@ -179,7 +179,7 @@ func TestCreateHTTPMetricsMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/unknown", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/unknown", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -197,7 +197,7 @@ func TestCreateHTTPMetricsMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -219,7 +219,7 @@ func TestCreateHTTPMetricsMiddleware(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				req := httptest.NewRequest("GET", "/test", nil)
+				req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 				w := httptest.NewRecorder()
 				handler.ServeHTTP(w, req)
 			}()
@@ -240,7 +240,7 @@ func TestCreateHTTPMetricsMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusCreated)
 		}))
 
-		req := httptest.NewRequest("POST", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/test", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -257,7 +257,7 @@ func TestCreateHTTPMetricsMiddleware(t *testing.T) {
 			_, _ = w.Write([]byte("OK"))
 		}))
 
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -305,7 +305,7 @@ func TestWithContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 	req = req.WithContext(ctx)
 	w := httptest.NewRecorder()
 
