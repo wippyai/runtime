@@ -140,13 +140,26 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	rootDeps := extractRootDependencies(entries, app.Transcoder)
 	logger.Info("found root dependencies", zap.Int("count", len(rootDeps)))
 
+	// Build set of replaced modules to exclude from hub resolution
+	replacedModules := make(map[string]bool)
+	if oldLockObj != nil {
+		for _, repl := range oldLockObj.GetReplacements() {
+			replacedModules[repl.From] = true
+		}
+	}
+
 	resolvedModules := make([]hub.ResolvedModule, 0)
 	if len(rootDeps) == 0 {
 		logger.Info("no root dependencies found in source, pruning lock modules")
 	} else {
-		// Convert to hub dependency specs
+		// Convert to hub dependency specs, skipping replaced modules
 		hubDeps := make([]hub.DependencySpec, 0, len(rootDeps))
 		for _, dep := range rootDeps {
+			depName := dep.Org + "/" + dep.Module
+			if replacedModules[depName] {
+				logger.Info("skipping replaced module from hub resolution", zap.String("module", depName))
+				continue
+			}
 			hubDeps = append(hubDeps, hub.DependencySpec{
 				Org:        dep.Org,
 				Name:       dep.Module,
@@ -178,9 +191,9 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return NewLoadLockFileError(err)
 	}
 
-	// Preserve only replacements that still map to present modules.
+	// Preserve all replacements from old lock file
 	if oldLockObj != nil {
-		preserveReplacementsForPresentModules(newLockObj, oldLockObj.GetReplacements())
+		preserveReplacements(newLockObj, oldLockObj.GetReplacements())
 	}
 
 	// Save lock file
@@ -204,7 +217,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		if err := runInstall(cmd, []string{}); err != nil {
 			return NewInstallFailedError(err)
 		}
-	} else {
+	} else if len(replacedModules) == 0 {
 		logger.Info("no modules to install after update")
 	}
 
@@ -314,10 +327,15 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 		sourceConstraints[key] = dep.Constraint
 	}
 
-	// Build frozen constraints from lock file (all modules except targets)
+	// Build frozen constraints from lock file (all modules except targets and replaced)
 	targetSet := make(map[string]bool)
 	for _, name := range targetModules {
 		targetSet[name] = true
+	}
+
+	replacedModules := make(map[string]bool)
+	for _, repl := range lockObj.GetReplacements() {
+		replacedModules[repl.From] = true
 	}
 
 	modules := lockObj.GetModules()
@@ -329,13 +347,15 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 			continue
 		}
 
-		if !targetSet[mod.Name] {
-			hubDeps = append(hubDeps, hub.DependencySpec{
-				Org:        parts[0],
-				Name:       parts[1],
-				Constraint: "=" + mod.Version,
-			})
+		if targetSet[mod.Name] || replacedModules[mod.Name] {
+			continue
 		}
+
+		hubDeps = append(hubDeps, hub.DependencySpec{
+			Org:        parts[0],
+			Name:       parts[1],
+			Constraint: "=" + mod.Version,
+		})
 	}
 
 	// Add target modules with source constraints
@@ -378,8 +398,8 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 		return NewLoadLockFileError(err)
 	}
 
-	// Preserve only replacements that still map to present modules.
-	preserveReplacementsForPresentModules(newLockObj, lockObj.GetReplacements())
+	// Preserve all replacements from current lock file
+	preserveReplacements(newLockObj, lockObj.GetReplacements())
 
 	// Detect changes
 	changes := lock.Diff(oldLockObj, newLockObj)
@@ -466,21 +486,13 @@ func logChanges(logger *zap.Logger, changes *lock.Changes) {
 	}
 }
 
-func preserveReplacementsForPresentModules(lockObj *lock.Lock, replacements []lock.Replacement) {
+func preserveReplacements(lockObj *lock.Lock, replacements []lock.Replacement) {
 	if lockObj == nil || len(replacements) == 0 {
 		return
 	}
 
-	modules := lockObj.GetModules()
-	present := make(map[string]struct{}, len(modules))
-	for _, mod := range modules {
-		present[mod.Name] = struct{}{}
-	}
-
 	for _, repl := range replacements {
-		if _, ok := present[repl.From]; ok {
-			lockObj.SetReplacement(repl)
-		}
+		lockObj.SetReplacement(repl)
 	}
 }
 
