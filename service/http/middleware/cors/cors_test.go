@@ -3,6 +3,7 @@
 package cors
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -20,7 +21,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://api.example.com/test", nil)
 		req.Header.Set("Origin", "https://example.com")
 		w := httptest.NewRecorder()
 
@@ -38,7 +39,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://api.example.com/test", nil)
 		req.Header.Set("Origin", "https://anything.com")
 		w := httptest.NewRecorder()
 
@@ -56,7 +57,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://api.example.com/test", nil)
 		req.Header.Set("Origin", "https://app.example.com")
 		w := httptest.NewRecorder()
 
@@ -76,7 +77,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 			t.Fatal("should not reach handler for preflight")
 		}))
 
-		req := httptest.NewRequest("OPTIONS", "http://api.example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "OPTIONS", "http://api.example.com/test", nil)
 		req.Header.Set("Origin", "https://example.com")
 		req.Header.Set("Access-Control-Request-Method", "POST")
 		w := httptest.NewRecorder()
@@ -99,7 +100,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://api.example.com/test", nil)
 		req.Header.Set("Origin", "https://example.com")
 		w := httptest.NewRecorder()
 
@@ -117,7 +118,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://api.example.com/test", nil)
 		req.Header.Set("Origin", "https://example.com")
 		w := httptest.NewRecorder()
 
@@ -137,7 +138,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://api.example.com/test", nil)
 		req.Header.Set("Origin", "https://legacy.com")
 		w := httptest.NewRecorder()
 
@@ -157,7 +158,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://api.example.com/test", nil)
 		req.Header.Set("Origin", "https://new.com")
 		w := httptest.NewRecorder()
 
@@ -175,7 +176,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://api.example.com/test", nil)
 		req.Header.Set("Origin", "https://evil.com")
 		w := httptest.NewRecorder()
 
@@ -191,7 +192,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://api.example.com/test", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -208,7 +209,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://api.example.com/test", nil)
 		req.Header.Set("Origin", "https://example.com")
 		w := httptest.NewRecorder()
 
@@ -224,7 +225,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("OPTIONS", "http://api.example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "OPTIONS", "http://api.example.com/test", nil)
 		req.Header.Set("Origin", "https://anything.com")
 		req.Header.Set("Access-Control-Request-Method", "POST")
 		w := httptest.NewRecorder()
@@ -244,7 +245,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://api.example.com/test", nil)
 		req.Header.Set("Origin", "http://localhost:8085")
 		w := httptest.NewRecorder()
 
@@ -262,7 +263,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://api.example.com/test", nil)
 		req.Header.Set("Origin", "http://localhost")
 		w := httptest.NewRecorder()
 
@@ -280,7 +281,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://api.example.com/test", nil)
 		req.Header.Set("Origin", "https://localhost:3000")
 		w := httptest.NewRecorder()
 
@@ -299,14 +300,14 @@ func TestCreateCORSMiddleware(t *testing.T) {
 		}))
 
 		// Test localhost
-		req := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://api.example.com/test", nil)
 		req.Header.Set("Origin", "http://localhost:5173")
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
 		assert.Equal(t, "http://localhost:5173", w.Header().Get("Access-Control-Allow-Origin"))
 
 		// Test wildcard subdomain
-		req2 := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req2 := httptest.NewRequestWithContext(context.Background(), "GET", "http://api.example.com/test", nil)
 		req2.Header.Set("Origin", "https://app.example.com")
 		w2 := httptest.NewRecorder()
 		handler.ServeHTTP(w2, req2)
@@ -322,7 +323,7 @@ func TestCreateCORSMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://api.example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://api.example.com/test", nil)
 		req.Header.Set("Origin", "https://example.com")
 		w := httptest.NewRecorder()
 

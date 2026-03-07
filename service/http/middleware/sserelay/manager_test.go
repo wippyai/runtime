@@ -41,7 +41,7 @@ func TestGetOrigins(t *testing.T) {
 }
 
 func TestOriginAllowed(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "https://example.com/sse", nil) //nolint:noctx // test helper
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.com/sse", nil)
 	req.Header.Set("Origin", "https://example.com")
 	assert.True(t, originAllowed(req, nil), "same-origin should pass default policy")
 
@@ -90,7 +90,7 @@ func TestMiddlewareNoRelayHeader(t *testing.T) {
 	}
 
 	handler := mgr.middlewareHandler(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}), nil)
-	req := withFrame(t, httptest.NewRequest(http.MethodGet, "http://example.com/sse", nil)) //nolint:noctx // test helper
+	req := withFrame(t, newTestRequest(t, "http://example.com/sse"))
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -122,7 +122,7 @@ func TestMiddlewareStartsSession(t *testing.T) {
 		w.Header().Set(RelayHeader, string(data))
 	}), nil)
 
-	req := withFrame(t, httptest.NewRequest(http.MethodGet, "http://example.com/sse", nil)) //nolint:noctx // test helper
+	req := withFrame(t, newTestRequest(t, "http://example.com/sse"))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -138,7 +138,7 @@ func TestMiddlewareRejectsInvalidConfig(t *testing.T) {
 		w.Header().Set(RelayHeader, "{bad-json")
 	}), nil)
 
-	req := withFrame(t, httptest.NewRequest(http.MethodGet, "http://example.com/sse", nil))
+	req := withFrame(t, newTestRequest(t, "http://example.com/sse"))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -154,7 +154,7 @@ func TestMiddlewareRejectsOrigin(t *testing.T) {
 		w.Header().Set(RelayHeader, string(data))
 	}), nil)
 
-	req := withFrame(t, httptest.NewRequest(http.MethodGet, "http://example.com/sse", nil))
+	req := withFrame(t, newTestRequest(t, "http://example.com/sse"))
 	req.Header.Set("Origin", "https://evil.com")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -186,7 +186,7 @@ func TestMiddlewareSkipsWhenBodyAlreadyWritten(t *testing.T) {
 		_, _ = w.Write([]byte("already written"))
 	}), nil)
 
-	req := withFrame(t, httptest.NewRequest(http.MethodGet, "http://example.com/sse", nil))
+	req := withFrame(t, newTestRequest(t, "http://example.com/sse"))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -217,7 +217,7 @@ func TestMiddlewareSkipsWhenNon200HeaderAlreadyWritten(t *testing.T) {
 		w.WriteHeader(http.StatusAccepted)
 	}), nil)
 
-	req := withFrame(t, httptest.NewRequest(http.MethodGet, "http://example.com/sse", nil))
+	req := withFrame(t, newTestRequest(t, "http://example.com/sse"))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -245,7 +245,7 @@ func TestMiddlewareSessionCreateErrorStatus(t *testing.T) {
 		w.Header().Set(RelayHeader, string(data))
 	}), nil)
 
-	req := withFrame(t, httptest.NewRequest(http.MethodGet, "http://example.com/sse", nil))
+	req := withFrame(t, newTestRequest(t, "http://example.com/sse"))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -305,6 +305,10 @@ func TestHTTPStatusFromError(t *testing.T) {
 			assert.Equal(t, tc.want, httpStatusFromError(tc.err))
 		})
 	}
+}
+
+func newTestRequest(_ *testing.T, url string) *http.Request {
+	return httptest.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 }
 
 func withFrame(t *testing.T, req *http.Request) *http.Request {

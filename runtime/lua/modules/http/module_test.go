@@ -141,7 +141,7 @@ func TestRequest_Basic(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("POST", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -163,7 +163,7 @@ func TestRequest_Basic(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("GET", "/api/users/123", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/users/123", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -183,7 +183,7 @@ func TestRequest_Basic(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("GET", "/test?name=john&age=30", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test?name=john&age=30", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -204,7 +204,7 @@ func TestRequest_Basic(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("GET", "/test?a=1&b=2&c=3", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test?a=1&b=2&c=3", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -226,7 +226,7 @@ func TestRequest_Basic(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		req.Header.Set("X-Custom-Header", "custom-value")
 		req.Header.Set("Authorization", "Bearer token123")
 		recorder := httptest.NewRecorder()
@@ -250,7 +250,7 @@ func TestRequest_Basic(t *testing.T) {
 
 		ctx, fc := newTestContext()
 		body := strings.NewReader(`{"test": true}`)
-		req := httptest.NewRequest("POST", "/test", body)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/test", body)
 		req.Header.Set("Content-Type", "application/json")
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
@@ -271,7 +271,7 @@ func TestRequest_Basic(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		req.Host = "example.com"
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
@@ -292,7 +292,7 @@ func TestRequest_Basic(t *testing.T) {
 
 		ctx, fc := newTestContext()
 		body := strings.NewReader("test body")
-		req := httptest.NewRequest("POST", "/test", body)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -311,7 +311,7 @@ func TestRequest_Basic(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		req.Header.Set("Accept", "application/json, text/html")
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
@@ -333,7 +333,7 @@ func TestRequest_Basic(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("POST", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/test", nil)
 		req.Header.Set("Content-Type", "application/json; charset=utf-8")
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
@@ -357,7 +357,7 @@ func TestRequest_Body(t *testing.T) {
 
 		ctx, fc := newTestContext()
 		body := strings.NewReader("Hello, World!")
-		req := httptest.NewRequest("POST", "/test", body)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -379,7 +379,7 @@ func TestRequest_Body(t *testing.T) {
 
 		ctx, fc := newTestContext()
 		body := strings.NewReader(`{"name":"test","value":42}`)
-		req := httptest.NewRequest("POST", "/test", body)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/test", body)
 		req.Header.Set("Content-Type", "application/json")
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
@@ -403,7 +403,7 @@ func TestRequest_Body(t *testing.T) {
 
 		ctx, fc := newTestContext()
 		body := strings.NewReader("not valid json")
-		req := httptest.NewRequest("POST", "/test", body)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -438,7 +438,7 @@ func TestRequest_Stream(t *testing.T) {
 		_ = resource.SetStore(ctx, store)
 
 		body := strings.NewReader("streaming body content")
-		req := httptest.NewRequest("POST", "/test", body)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -460,7 +460,7 @@ func TestRequest_Stream(t *testing.T) {
 
 		ctx, fc := newTestContext()
 		body := strings.NewReader("test")
-		req := httptest.NewRequest("POST", "/test", body)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -495,7 +495,7 @@ func TestRequest_Multipart(t *testing.T) {
 		_, _ = fileWriter.Write([]byte("file content"))
 		_ = writer.Close()
 
-		req := httptest.NewRequest("POST", "/upload", &buf)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/upload", &buf)
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
@@ -524,7 +524,7 @@ func TestRequest_Multipart(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("POST", "/upload", strings.NewReader("test"))
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/upload", strings.NewReader("test"))
 		req.Header.Set("Content-Type", "application/json")
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
@@ -548,7 +548,7 @@ func TestResponse_Basic(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -568,7 +568,7 @@ func TestResponse_Basic(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -588,7 +588,7 @@ func TestResponse_Basic(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -610,7 +610,7 @@ func TestResponse_Basic(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -630,7 +630,7 @@ func TestResponse_Basic(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -656,7 +656,7 @@ func TestResponse_Basic(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -681,7 +681,7 @@ func TestResponse_SSE(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -703,7 +703,7 @@ func TestResponse_SSE(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -725,7 +725,7 @@ func TestResponse_SSE(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -752,7 +752,7 @@ func TestResponse_Chunked(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -777,7 +777,7 @@ func TestResponse_ErrorCases(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -798,7 +798,7 @@ func TestResponse_ErrorCases(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -819,7 +819,7 @@ func TestResponse_ErrorCases(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -840,7 +840,7 @@ func TestResponse_ErrorCases(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -878,7 +878,7 @@ func TestRequest_ToString(t *testing.T) {
 	bind(l)
 
 	ctx, fc := newTestContext()
-	req := httptest.NewRequest("POST", "/api/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/test", nil)
 	recorder := httptest.NewRecorder()
 	reqCtx := httpservice.NewRequestContext(req, recorder)
 	_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -899,7 +899,7 @@ func TestResponse_ToString(t *testing.T) {
 	bind(l)
 
 	ctx, fc := newTestContext()
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 	recorder := httptest.NewRecorder()
 	reqCtx := httpservice.NewRequestContext(req, recorder)
 	_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -919,7 +919,7 @@ func TestRequest_RemoteAddr(t *testing.T) {
 	bind(l)
 
 	ctx, fc := newTestContext()
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 	req.RemoteAddr = "192.168.1.1:12345"
 	recorder := httptest.NewRecorder()
 	reqCtx := httpservice.NewRequestContext(req, recorder)
@@ -940,7 +940,7 @@ func TestRequest_BodyNoBody(t *testing.T) {
 	bind(l)
 
 	ctx, fc := newTestContext()
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 	req.Body = nil
 	recorder := httptest.NewRecorder()
 	reqCtx := httpservice.NewRequestContext(req, recorder)
@@ -962,7 +962,7 @@ func TestRequest_AcceptsWildcard(t *testing.T) {
 	bind(l)
 
 	ctx, fc := newTestContext()
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 	req.Header.Set("Accept", "*/*")
 	recorder := httptest.NewRecorder()
 	reqCtx := httpservice.NewRequestContext(req, recorder)
@@ -983,7 +983,7 @@ func TestRequest_AcceptsEmpty(t *testing.T) {
 	bind(l)
 
 	ctx, fc := newTestContext()
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 	recorder := httptest.NewRecorder()
 	reqCtx := httpservice.NewRequestContext(req, recorder)
 	_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -1012,7 +1012,7 @@ func TestMultipartFile_Stream(t *testing.T) {
 	_, _ = io.WriteString(fileWriter, "file content here")
 	_ = writer.Close()
 
-	req := httptest.NewRequest("POST", "/upload", &buf)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/upload", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	recorder := httptest.NewRecorder()
 	reqCtx := httpservice.NewRequestContext(req, recorder)
@@ -1049,7 +1049,7 @@ func TestMultipartFile_Header(t *testing.T) {
 	_, _ = io.WriteString(fileWriter, "fake image data")
 	_ = writer.Close()
 
-	req := httptest.NewRequest("POST", "/upload", &buf)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/upload", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	recorder := httptest.NewRecorder()
 	reqCtx := httpservice.NewRequestContext(req, recorder)
@@ -1104,7 +1104,7 @@ func TestRequest_MaxBody(t *testing.T) {
 
 		ctx, fc := newTestContext()
 		body := strings.NewReader("Small")
-		req := httptest.NewRequest("POST", "/test", body)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -1179,7 +1179,7 @@ func TestRequest_Timeout(t *testing.T) {
 
 		ctx, fc := newTestContext()
 		body := strings.NewReader("Quick response")
-		req := httptest.NewRequest("POST", "/test", body)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -1203,7 +1203,7 @@ func TestRequest_ConfigOptions(t *testing.T) {
 
 		ctx, fc := newTestContext()
 		body := strings.NewReader("Test body")
-		req := httptest.NewRequest("POST", "/test", body)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -1225,7 +1225,7 @@ func TestRequest_ConfigOptions(t *testing.T) {
 
 		ctx, fc := newTestContext()
 		body := strings.NewReader("Test")
-		req := httptest.NewRequest("POST", "/test", body)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -1262,7 +1262,7 @@ func TestRequestBodySizeLimit(t *testing.T) {
 
 		ctx, fc := newTestContext()
 		largeBody := strings.Repeat("x", 1000)
-		req := httptest.NewRequest("POST", "/test", strings.NewReader(largeBody))
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/test", strings.NewReader(largeBody))
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -1284,7 +1284,7 @@ func TestRequestBodySizeLimit(t *testing.T) {
 
 		ctx, fc := newTestContext()
 		body := strings.NewReader("small body")
-		req := httptest.NewRequest("POST", "/test", body)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/test", body)
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
 		_ = fc.Set(httpservice.RequestKey(), reqCtx)
@@ -1306,7 +1306,7 @@ func TestRequestBodySizeLimit(t *testing.T) {
 
 		ctx, fc := newTestContext()
 		largeJSON := `{"data": "` + strings.Repeat("x", 1000) + `"}`
-		req := httptest.NewRequest("POST", "/test", strings.NewReader(largeJSON))
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/test", strings.NewReader(largeJSON))
 		req.Header.Set("Content-Type", "application/json")
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)
@@ -1328,7 +1328,7 @@ func TestRequestBodySizeLimit(t *testing.T) {
 		bind(l)
 
 		ctx, fc := newTestContext()
-		req := httptest.NewRequest("POST", "/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "/test", nil)
 		req.ContentLength = 200 * 1024 * 1024 // 200MB claimed
 		recorder := httptest.NewRecorder()
 		reqCtx := httpservice.NewRequestContext(req, recorder)

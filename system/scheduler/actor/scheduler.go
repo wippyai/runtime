@@ -379,7 +379,7 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 	}
 
 	// Wrap context with cancel for Terminate support
-	procCtx, cancel := context.WithCancel(ctx) //nolint:gosec // G118: cancel stored in processor and called on terminate
+	procCtx, cancel := context.WithCancel(ctx)
 
 	proc := acquireProcessor()
 	proc.id = s.nextID.Add(1)

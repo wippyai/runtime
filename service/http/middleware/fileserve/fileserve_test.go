@@ -3,6 +3,7 @@
 package fileserve
 
 import (
+	"context"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -188,7 +189,7 @@ func TestCreateFileServeMiddleware(t *testing.T) {
 			w.Header().Set(XSendfileHeader, "test.txt")
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -213,7 +214,7 @@ func TestCreateFileServeMiddleware(t *testing.T) {
 			w.Header().Set(XFilePathHeader, "legacy.txt")
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -239,7 +240,7 @@ func TestCreateFileServeMiddleware(t *testing.T) {
 			w.Header().Set(XFileNameHeader, "MyReport.pdf")
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -261,7 +262,7 @@ func TestCreateFileServeMiddleware(t *testing.T) {
 			_, _ = w.Write([]byte("normal response"))
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -279,7 +280,7 @@ func TestCreateFileServeMiddleware(t *testing.T) {
 			w.Header().Set(XSendfileHeader, "test.txt")
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -299,7 +300,7 @@ func TestCreateFileServeMiddleware(t *testing.T) {
 			w.Header().Set(XSendfileHeader, "test.txt")
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -322,7 +323,7 @@ func TestCreateFileServeMiddleware(t *testing.T) {
 			w.Header().Set(XSendfileHeader, "nonexistent.txt")
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -348,7 +349,7 @@ func TestCreateFileServeMiddleware(t *testing.T) {
 					w.Header().Set(XSendfileHeader, path)
 				}))
 
-				req := httptest.NewRequest("GET", "http://example.com/test", nil)
+				req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 				w := httptest.NewRecorder()
 
 				handler.ServeHTTP(w, req)
@@ -376,7 +377,7 @@ func TestCreateFileServeMiddleware(t *testing.T) {
 			w.Header().Set(XFilePathHeader, "filepath.txt")
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -400,7 +401,7 @@ func TestCreateFileServeMiddleware(t *testing.T) {
 			w.Header().Set(XSendfileHeader, "test.txt")
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -429,7 +430,7 @@ func TestCreateFileServeMiddleware(t *testing.T) {
 			w.Header().Set(XSendfileHeader, "file.txt")
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)

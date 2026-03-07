@@ -73,7 +73,7 @@ func NewSubscriber(
 	}()
 
 	h.wg.Add(1)
-	go func() { //nolint:gosec // G118: cleanup goroutine intentionally uses background context for unsubscribe after parent cancellation
+	go func() {
 		defer h.wg.Done()
 
 		<-h.ctx.Done()

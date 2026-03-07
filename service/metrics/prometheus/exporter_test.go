@@ -3,6 +3,7 @@
 package prometheus
 
 import (
+	"context"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -101,7 +102,7 @@ func TestExporter_Handler(t *testing.T) {
 	handler := e.Handler()
 	require.NotNil(t, handler)
 
-	req := httptest.NewRequest("GET", "/metrics", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/metrics", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -138,7 +139,7 @@ func TestExporter_ConcurrentRecords(t *testing.T) {
 
 	// Verify metrics via handler output instead of accessing internal maps
 	handler := e.Handler()
-	req := httptest.NewRequest("GET", "/metrics", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/metrics", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -246,7 +247,7 @@ func TestExporter_HandlerOutputFormat(t *testing.T) {
 	_ = e.Record("http_requests_total", api.TypeCounter, 10.0, labels)
 
 	handler := e.Handler()
-	req := httptest.NewRequest("GET", "/metrics", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/metrics", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

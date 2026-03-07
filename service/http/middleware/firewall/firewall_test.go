@@ -3,6 +3,7 @@
 package firewall
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -87,7 +88,7 @@ func TestResourceFirewallOptions(t *testing.T) {
 			t.Fatal("should not reach handler")
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -136,7 +137,7 @@ func TestEndpointFirewallOptions(t *testing.T) {
 			t.Fatal("should not reach handler")
 		}))
 
-		req := httptest.NewRequest("POST", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "http://example.com/test", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -151,7 +152,7 @@ func TestEndpointFirewallOptions(t *testing.T) {
 			t.Fatal("should not reach handler")
 		}))
 
-		req := httptest.NewRequest("POST", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "POST", "http://example.com/test", nil)
 		w := httptest.NewRecorder()
 
 		handler.ServeHTTP(w, req)
@@ -217,7 +218,7 @@ func TestResourceFirewallWithActorAndScope(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		ctx, _ := ctxapi.OpenFrameContext(req.Context())
 
 		actor := security.Actor{ID: "user123", Meta: nil}
@@ -242,7 +243,7 @@ func TestResourceFirewallWithActorAndScope(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		ctx, _ := ctxapi.OpenFrameContext(req.Context())
 
 		actor := security.Actor{ID: "user123", Meta: nil}
@@ -267,7 +268,7 @@ func TestResourceFirewallWithActorAndScope(t *testing.T) {
 			t.Fatal("should not reach handler")
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		ctx, _ := ctxapi.OpenFrameContext(req.Context())
 
 		actor := security.Actor{ID: "", Meta: nil}
@@ -290,7 +291,7 @@ func TestResourceFirewallWithActorAndScope(t *testing.T) {
 			t.Fatal("should not reach handler")
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		ctx, _ := ctxapi.OpenFrameContext(req.Context())
 
 		actor := security.Actor{ID: "user123", Meta: nil}
@@ -316,7 +317,7 @@ func TestEndpointFirewallWithActorAndScope(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		ctx, _ := ctxapi.OpenFrameContext(req.Context())
 
 		actor := security.Actor{ID: "user123", Meta: nil}
@@ -344,7 +345,7 @@ func TestEndpointFirewallWithActorAndScope(t *testing.T) {
 			t.Fatal("should not reach handler")
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		ctx, _ := ctxapi.OpenFrameContext(req.Context())
 
 		actor := security.Actor{ID: "user123", Meta: nil}
@@ -367,7 +368,7 @@ func TestEndpointFirewallWithActorAndScope(t *testing.T) {
 			t.Fatal("should not reach handler")
 		}))
 
-		req := httptest.NewRequest("GET", "http://example.com/test", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "http://example.com/test", nil)
 		ctx, _ := ctxapi.OpenFrameContext(req.Context())
 
 		actor := security.Actor{ID: "user123", Meta: nil}

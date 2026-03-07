@@ -161,6 +161,9 @@ linters:
           - gosec
         text: "G705"
       - linters:
+          - gosec
+        text: "G118"
+      - linters:
           - revive
         text: "unexported-return"
       - linters:

@@ -3,6 +3,7 @@
 package realip
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -21,7 +22,7 @@ func TestCreateRealIPMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 		req.RemoteAddr = "127.0.0.1:1234" // loopback is trusted by default
 		req.Header.Set("True-Client-IP", "1.2.3.4")
 		req.Header.Set("X-Real-IP", "5.6.7.8")
@@ -41,7 +42,7 @@ func TestCreateRealIPMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 		req.RemoteAddr = "127.0.0.1:1234" // loopback is trusted by default
 		req.Header.Set("X-Real-IP", "5.6.7.8")
 		req.Header.Set("X-Forwarded-For", "9.10.11.12")
@@ -60,7 +61,7 @@ func TestCreateRealIPMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 		req.RemoteAddr = "127.0.0.1:1234" // loopback is trusted by default
 		req.Header.Set("X-Forwarded-For", "9.10.11.12")
 
@@ -78,7 +79,7 @@ func TestCreateRealIPMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 		req.RemoteAddr = "127.0.0.1:1234" // loopback is trusted by default
 		req.Header.Set("X-Forwarded-For", "9.10.11.12, 13.14.15.16, 17.18.19.20")
 
@@ -96,7 +97,7 @@ func TestCreateRealIPMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 		req.RemoteAddr = "127.0.0.1:1234"
 
 		w := httptest.NewRecorder()
@@ -113,7 +114,7 @@ func TestCreateRealIPMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 		req.RemoteAddr = "127.0.0.1:1234"
 		req.Header.Set("X-Real-IP", "not-an-ip")
 
@@ -131,7 +132,7 @@ func TestCreateRealIPMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 		req.RemoteAddr = "192.168.1.1:1234" // RFC 1918, trusted by default
 		req.Header.Set("X-Real-IP", "1.2.3.4")
 
@@ -149,7 +150,7 @@ func TestCreateRealIPMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 		req.RemoteAddr = "203.0.113.1:1234" // public IP, not trusted
 		req.Header.Set("X-Real-IP", "1.2.3.4")
 
@@ -169,7 +170,7 @@ func TestCreateRealIPMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 		req.RemoteAddr = "192.168.1.1:1234" // would normally be untrusted
 		req.Header.Set("X-Real-IP", "1.2.3.4")
 
@@ -191,7 +192,7 @@ func TestTrustedSubnets(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 		req.RemoteAddr = "10.1.2.3:1234"
 		req.Header.Set("X-Real-IP", "1.2.3.4")
 
@@ -211,7 +212,7 @@ func TestTrustedSubnets(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 		req.RemoteAddr = "192.168.1.1:1234"
 		req.Header.Set("X-Real-IP", "1.2.3.4")
 
@@ -230,7 +231,7 @@ func TestTrustedSubnets(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 		req.RemoteAddr = "203.0.113.1:1234"
 		req.Header.Set("X-Real-IP", "1.2.3.4")
 
@@ -250,7 +251,7 @@ func TestTrustedSubnets(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 		req.RemoteAddr = "[fc00::1]:1234"
 		req.Header.Set("X-Real-IP", "2001:db8::1")
 
@@ -311,36 +312,36 @@ func TestShouldTrust(t *testing.T) {
 
 func TestExtractRealIP(t *testing.T) {
 	t.Run("extract from True-Client-IP", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 		req.Header.Set("True-Client-IP", "1.2.3.4")
 		assert.Equal(t, "1.2.3.4", extractRealIP(req))
 	})
 
 	t.Run("extract from X-Real-IP", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 		req.Header.Set("X-Real-IP", "5.6.7.8")
 		assert.Equal(t, "5.6.7.8", extractRealIP(req))
 	})
 
 	t.Run("extract from X-Forwarded-For", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 		req.Header.Set("X-Forwarded-For", "9.10.11.12")
 		assert.Equal(t, "9.10.11.12", extractRealIP(req))
 	})
 
 	t.Run("extract first from X-Forwarded-For list", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 		req.Header.Set("X-Forwarded-For", "9.10.11.12, 13.14.15.16")
 		assert.Equal(t, "9.10.11.12", extractRealIP(req))
 	})
 
 	t.Run("return empty for no headers", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 		assert.Equal(t, "", extractRealIP(req))
 	})
 
 	t.Run("return empty for invalid IP", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/", nil)
 		req.Header.Set("X-Real-IP", "not-an-ip")
 		assert.Equal(t, "", extractRealIP(req))
 	})

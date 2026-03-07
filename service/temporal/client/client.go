@@ -61,7 +61,7 @@ func (c *Client) Start(ctx context.Context) (<-chan any, error) {
 
 	// Start health check goroutine if enabled
 	if c.config.HealthCheck.Enabled {
-		healthCtx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: detached from request; owned by Client lifecycle
+		healthCtx, cancel := context.WithCancel(context.Background())
 		c.cancel = cancel
 		c.wg.Add(1)
 

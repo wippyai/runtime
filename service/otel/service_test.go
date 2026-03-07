@@ -54,7 +54,7 @@ func TestService_HTTPMiddleware_Disabled(t *testing.T) {
 	})
 
 	wrapped := middleware(handler)
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 	rec := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(rec, req)
@@ -80,7 +80,7 @@ func TestService_HTTPMiddleware_Enabled(t *testing.T) {
 	})
 
 	wrapped := middleware(handler)
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", nil)
 	rec := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(rec, req)
