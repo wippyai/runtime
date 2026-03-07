@@ -60,7 +60,7 @@ func (r *tickerRegistry) start(ctx context.Context, d time.Duration, p pid.PID, 
 	id := r.nextID.Add(1)
 	shard := r.getShard(id)
 
-	tickerCtx, cancel := context.WithCancel(ctx)
+	tickerCtx, cancel := context.WithCancel(ctx) //nolint:gosec // G118: cancel stored in tickerEntry and called on stop
 
 	entry := &tickerEntry{
 		ticker: time.NewTicker(d),

@@ -41,8 +41,7 @@ func TestGetOrigins(t *testing.T) {
 }
 
 func TestOriginAllowed(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "https://example.com/sse", nil)
-
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/sse", nil) //nolint:noctx // test helper
 	req.Header.Set("Origin", "https://example.com")
 	assert.True(t, originAllowed(req, nil), "same-origin should pass default policy")
 
@@ -91,7 +90,7 @@ func TestMiddlewareNoRelayHeader(t *testing.T) {
 	}
 
 	handler := mgr.middlewareHandler(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}), nil)
-	req := withFrame(t, httptest.NewRequest(http.MethodGet, "http://example.com/sse", nil))
+	req := withFrame(t, httptest.NewRequest(http.MethodGet, "http://example.com/sse", nil)) //nolint:noctx // test helper
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -123,7 +122,7 @@ func TestMiddlewareStartsSession(t *testing.T) {
 		w.Header().Set(RelayHeader, string(data))
 	}), nil)
 
-	req := withFrame(t, httptest.NewRequest(http.MethodGet, "http://example.com/sse", nil))
+	req := withFrame(t, httptest.NewRequest(http.MethodGet, "http://example.com/sse", nil)) //nolint:noctx // test helper
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
