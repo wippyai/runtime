@@ -58,15 +58,15 @@ require (
 	github.com/wippyai/wapp v0.1.0
 	github.com/wippyai/wasm-runtime v0.0.0-20260209224309-586ea6933075
 	github.com/xuri/excelize/v2 v2.10.1
-	go.opentelemetry.io/otel v1.41.0
+	go.opentelemetry.io/otel v1.42.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.40.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.38.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.41.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.40.0
-	go.opentelemetry.io/otel/metric v1.41.0
+	go.opentelemetry.io/otel/metric v1.42.0
 	go.opentelemetry.io/otel/sdk v1.41.0
 	go.opentelemetry.io/otel/sdk/metric v1.41.0
-	go.opentelemetry.io/otel/trace v1.41.0
+	go.opentelemetry.io/otel/trace v1.42.0
 	go.temporal.io/api v1.62.1
 	go.temporal.io/sdk v1.38.0
 	go.temporal.io/sdk/contrib/opentelemetry v0.7.0
