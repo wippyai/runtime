@@ -13,6 +13,8 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/boot/build"
+	"github.com/wippyai/runtime/boot/build/stages"
 	"github.com/wippyai/runtime/cmd/internal/shutdown"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
 	"github.com/wippyai/wapp"
@@ -429,6 +431,131 @@ func TestLoadPackEntries_DoesNotOverrideExistingModuleMetadata(t *testing.T) {
 	if got := meta.GetString("module_version", ""); got != "9.9.9" {
 		t.Fatalf("module_version = %q, want 9.9.9", got)
 	}
+}
+
+func TestLoadBootConfig_OverridesAppliedToPipelineEntries(t *testing.T) {
+	t.Run("overrides from wippy.yaml are applied to entries", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		cfgPath := filepath.Join(tmpDir, ".wippy.yaml")
+		cfgContent := `version: "1.0"
+override:
+  "app.env:admin_email:default": "admin@example.com"
+  "app:gateway:addr": ":9090"
+`
+		if err := os.WriteFile(cfgPath, []byte(cfgContent), 0o644); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+
+		prevConfigFile := configFile
+		configFile = cfgPath
+		t.Cleanup(func() {
+			configFile = prevConfigFile
+		})
+
+		cfg, err := loadBootConfig()
+		if err != nil {
+			t.Fatalf("loadBootConfig: %v", err)
+		}
+		if cfg == nil {
+			t.Fatal("expected non-nil config")
+		}
+
+		// Verify override section is loaded
+		sub := cfg.Sub("override")
+		keys := sub.Keys()
+		if len(keys) != 2 {
+			t.Fatalf("expected 2 override keys, got %d", len(keys))
+		}
+
+		// Simulate what performPack does: attach config to context and run pipeline
+		ctx, _, _, embedReg, err := bootstrapPackRuntimeWithDefaults(nil, zap.NewNop(), nil)
+		if err != nil {
+			t.Fatalf("bootstrap: %v", err)
+		}
+		t.Cleanup(func() { _ = embedReg.Close() })
+
+		boot.WithConfig(ctx, cfg)
+
+		testEntries := []regapi.Entry{
+			{
+				ID:   regapi.NewID("app.env", "admin_email"),
+				Kind: "env.variable",
+				Data: payload.New(map[string]any{
+					"default":  "",
+					"variable": "ADMIN_EMAIL",
+				}),
+			},
+			{
+				ID:   regapi.NewID("app", "gateway"),
+				Kind: "http.server",
+				Data: payload.New(map[string]any{
+					"addr": ":8080",
+				}),
+			},
+		}
+
+		pipeline := build.New(stages.Override())
+		if err := pipeline.Execute(ctx, &testEntries); err != nil {
+			t.Fatalf("pipeline.Execute: %v", err)
+		}
+
+		emailData := testEntries[0].Data.Data().(map[string]any)
+		if emailData["default"] != "admin@example.com" {
+			t.Fatalf("expected default=admin@example.com, got %v", emailData["default"])
+		}
+
+		gwData := testEntries[1].Data.Data().(map[string]any)
+		if gwData["addr"] != ":9090" {
+			t.Fatalf("expected addr=:9090, got %v", gwData["addr"])
+		}
+	})
+
+	t.Run("no wippy.yaml does not break pipeline", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		cfgPath := filepath.Join(tmpDir, ".wippy.yaml.nonexistent")
+
+		prevConfigFile := configFile
+		configFile = cfgPath
+		t.Cleanup(func() {
+			configFile = prevConfigFile
+		})
+
+		cfg, err := loadBootConfig()
+		if err != nil {
+			t.Fatalf("loadBootConfig: %v", err)
+		}
+
+		// Config may be non-nil (defaults), but override section should be empty
+		testEntries := []regapi.Entry{
+			{
+				ID:   regapi.NewID("app", "gateway"),
+				Kind: "http.server",
+				Data: payload.New(map[string]any{
+					"addr": ":8080",
+				}),
+			},
+		}
+
+		ctx, _, _, embedReg, err := bootstrapPackRuntimeWithDefaults(nil, zap.NewNop(), nil)
+		if err != nil {
+			t.Fatalf("bootstrap: %v", err)
+		}
+		t.Cleanup(func() { _ = embedReg.Close() })
+
+		if cfg != nil {
+			boot.WithConfig(ctx, cfg)
+		}
+
+		pipeline := build.New(stages.Override())
+		if err := pipeline.Execute(ctx, &testEntries); err != nil {
+			t.Fatalf("pipeline.Execute: %v", err)
+		}
+
+		gwData := testEntries[0].Data.Data().(map[string]any)
+		if gwData["addr"] != ":8080" {
+			t.Fatalf("expected addr unchanged at :8080, got %v", gwData["addr"])
+		}
+	})
 }
 
 func createTestPackFile(t *testing.T, dir, name string, entries []wapp.Entry) string {

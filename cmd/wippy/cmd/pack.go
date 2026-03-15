@@ -430,6 +430,15 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 
 	p.Send(progressMsg{stage: stagePipeline, percent: 0.5, status: "Executing pipeline stages..."})
 
+	// Load .wippy.yaml config so Override stages apply overrides to packed entries
+	bootCfg, err := loadBootConfig()
+	if err != nil {
+		return fmt.Errorf("load boot config: %w", err)
+	}
+	if bootCfg != nil {
+		boot.WithConfig(app.Ctx, bootCfg)
+	}
+
 	// Build pipeline with exclude stage if patterns provided
 	var pipelineStages []boot.Stage
 	pipelineStages = append(pipelineStages, stages.Override())
