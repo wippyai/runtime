@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/runtime"
 	secapi "github.com/wippyai/runtime/api/security"
 )
 
@@ -62,8 +63,9 @@ type OpenResult struct {
 
 // CallCmd calls a method on a contract instance.
 type CallCmd struct {
-	Instance Instance
 	Method   string
+	Instance Instance
+	Options  runtime.Options
 	Args     payload.Payloads
 }
 
@@ -76,6 +78,7 @@ func (c *CallCmd) Release() {
 	c.Instance = nil
 	c.Method = ""
 	c.Args = nil
+	c.Options = nil
 	callCmdPool.Put(c)
 }
 
@@ -87,9 +90,10 @@ type CallResult struct {
 
 // AsyncCallCmd calls a method asynchronously.
 type AsyncCallCmd struct {
-	Instance Instance
 	Method   string
 	Topic    string
+	Instance Instance
+	Options  runtime.Options
 	Args     payload.Payloads
 }
 
@@ -103,6 +107,7 @@ func (c *AsyncCallCmd) Release() {
 	c.Method = ""
 	c.Args = nil
 	c.Topic = ""
+	c.Options = nil
 	asyncCallCmdPool.Put(c)
 }
 

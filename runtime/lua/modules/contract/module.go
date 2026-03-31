@@ -44,6 +44,7 @@ func init() {
 		"with_context":    contractWithContext,
 		"with_actor":      contractWithActor,
 		"with_scope":      contractWithScope,
+		"with_options":    contractWithOptions,
 	})
 
 	// Register instance type with dynamic method access via __index
@@ -89,14 +90,18 @@ type Wrapper struct {
 	registry   contract.Registry
 	scope      secapi.Scope
 	values     contextapi.Values
+	options    attrs.Bag
 	actor      secapi.Actor
 	hasActor   bool
 	hasScope   bool
+	hasOptions bool
 }
 
-// InstanceWrapper holds an opened contract instance.
+// InstanceWrapper holds an opened contract instance with optional call options.
 type InstanceWrapper struct {
-	instance contract.Instance
+	instance   contract.Instance
+	options    attrs.Bag
+	hasOptions bool
 }
 
 // parseBindingID parses a binding ID with optional query parameters.
@@ -219,9 +224,24 @@ func openBinding(l *lua.LState) int {
 		}
 	}
 
+	// Parse optional options table (third argument)
+	var options attrs.Bag
+	var hasOptions bool
+	if l.GetTop() >= 3 && l.Get(3).Type() == lua.LTTable {
+		options = attrs.NewBag()
+		l.CheckTable(3).ForEach(func(k, v lua.LValue) {
+			if key, ok := k.(lua.LString); ok {
+				options.Set(string(key), value.ToGoAny(v))
+			}
+		})
+		hasOptions = true
+	}
+
 	yield := AcquireOpenYield()
 	yield.BindingID = registry.ParseID(baseID)
 	yield.Scope = scope
+	yield.options = options
+	yield.hasOptions = hasOptions
 
 	l.Push(yield)
 	return -1
@@ -448,6 +468,8 @@ func contractOpen(l *lua.LState) int {
 	yield.HasActor = wrapper.hasActor
 	yield.SecurityScope = wrapper.scope
 	yield.HasScope = wrapper.hasScope
+	yield.options = wrapper.options
+	yield.hasOptions = wrapper.hasOptions
 
 	l.Push(yield)
 	return -1
@@ -489,10 +511,12 @@ func contractWithContext(l *lua.LState) int {
 		definition: wrapper.definition,
 		registry:   wrapper.registry,
 		values:     newValues,
+		options:    wrapper.options,
 		actor:      wrapper.actor,
 		hasActor:   wrapper.hasActor,
-		scope:      wrapper.scope,
 		hasScope:   wrapper.hasScope,
+		hasOptions: wrapper.hasOptions,
+		scope:      wrapper.scope,
 	}
 
 	value.PushTypedUserData(l, newWrapper, contractTypeName)
@@ -532,10 +556,12 @@ func contractWithActor(l *lua.LState) int {
 		definition: wrapper.definition,
 		registry:   wrapper.registry,
 		values:     wrapper.values,
+		options:    wrapper.options,
 		actor:      actor,
 		hasActor:   true,
-		scope:      wrapper.scope,
 		hasScope:   wrapper.hasScope,
+		hasOptions: wrapper.hasOptions,
+		scope:      wrapper.scope,
 	}
 
 	value.PushTypedUserData(l, newWrapper, contractTypeName)
@@ -575,10 +601,44 @@ func contractWithScope(l *lua.LState) int {
 		definition: wrapper.definition,
 		registry:   wrapper.registry,
 		values:     wrapper.values,
+		options:    wrapper.options,
 		actor:      wrapper.actor,
 		hasActor:   wrapper.hasActor,
-		scope:      scope,
 		hasScope:   true,
+		hasOptions: wrapper.hasOptions,
+		scope:      scope,
+	}
+
+	value.PushTypedUserData(l, newWrapper, contractTypeName)
+	return 1
+}
+
+func contractWithOptions(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	wrapper, ok := ud.Value.(*Wrapper)
+	if !ok {
+		l.ArgError(1, "Contract expected")
+		return 0
+	}
+
+	optionsTable := l.CheckTable(2)
+	options := attrs.NewBag()
+	optionsTable.ForEach(func(k, v lua.LValue) {
+		if key, ok := k.(lua.LString); ok {
+			options.Set(string(key), value.ToGoAny(v))
+		}
+	})
+
+	newWrapper := &Wrapper{
+		definition: wrapper.definition,
+		registry:   wrapper.registry,
+		values:     wrapper.values,
+		options:    options,
+		actor:      wrapper.actor,
+		hasActor:   wrapper.hasActor,
+		hasScope:   wrapper.hasScope,
+		hasOptions: true,
+		scope:      wrapper.scope,
 	}
 
 	value.PushTypedUserData(l, newWrapper, contractTypeName)
@@ -647,6 +707,9 @@ func callMethodSync(l *lua.LState, wrapper *InstanceWrapper, method string, args
 	yield.Instance = wrapper.instance
 	yield.Method = method
 	yield.Args = args
+	if wrapper.hasOptions {
+		yield.Options = wrapper.options
+	}
 
 	l.Push(yield)
 	return -1
@@ -683,6 +746,9 @@ func callMethodAsync(l *lua.LState, wrapper *InstanceWrapper, method string, arg
 	yield.Args = args
 	yield.Topic = topic
 	yield.Future = f
+	if wrapper.hasOptions {
+		yield.Options = wrapper.options
+	}
 
 	l.Push(yield)
 	return -1

@@ -110,6 +110,6 @@ type (
 		Implements() []Contract
 
 		// Call invokes a method on this instance synchronously.
-		Call(ctx context.Context, method string, input payload.Payloads) (*runtime.Result, error)
+		Call(ctx context.Context, method string, input payload.Payloads, options runtime.Options) (*runtime.Result, error)
 	}
 )

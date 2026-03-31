@@ -70,7 +70,7 @@ func (i *instanceImpl) ID() registry.ID {
 	return i.id
 }
 
-func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Payloads) (*runtime.Result, error) {
+func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Payloads, options runtime.Options) (*runtime.Result, error) {
 	// Find the bound contract and method
 	var funcID registry.ID
 	var boundContract contract.BoundContract
@@ -94,10 +94,11 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 		return nil, err
 	}
 
-	// Create task with payloads.
+	// Create task with payloads and options.
 	task := runtime.Task{
 		ID:       funcID,
 		Payloads: args,
+		Options:  options,
 	}
 
 	// Merge scope values into task.Context for downstream consumers.

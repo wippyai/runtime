@@ -115,7 +115,7 @@ func TestOpenHandler_Error(t *testing.T) {
 func TestCallHandler(t *testing.T) {
 	d := NewDispatcher(nil, nil)
 	mockInstance := &mockInstance{
-		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
+		callFn: func(_ context.Context, _ string, _ payload.Payloads, _ runtime.Options) (*runtime.Result, error) {
 			return &runtime.Result{Value: payload.New("result")}, nil
 		},
 	}
@@ -135,6 +135,44 @@ func TestCallHandler(t *testing.T) {
 	case result := <-done:
 		assert.Nil(t, result.Error)
 		assert.NotNil(t, result.Value)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for result")
+	}
+}
+
+func TestCallHandler_WithOptions(t *testing.T) {
+	d := NewDispatcher(nil, nil)
+
+	var receivedOptions runtime.Options
+	mockInstance := &mockInstance{
+		callFn: func(_ context.Context, _ string, _ payload.Payloads, opts runtime.Options) (*runtime.Result, error) {
+			receivedOptions = opts
+			return &runtime.Result{Value: payload.New("result")}, nil
+		},
+	}
+
+	ctx := setupDispatcherTestContext(nil)
+	cmd := contract.AcquireCallCmd()
+	cmd.Instance = mockInstance
+	cmd.Method = "test_method"
+	cmd.Options = attrs.Bag{
+		"retry": map[string]any{"max_attempts": 3},
+	}
+
+	done := make(chan contract.CallResult, 1)
+	err := d.handleCall(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+		done <- data.(contract.CallResult)
+	}})
+
+	require.NoError(t, err)
+	select {
+	case result := <-done:
+		assert.Nil(t, result.Error)
+		assert.NotNil(t, result.Value)
+		bag, ok := receivedOptions.(attrs.Bag)
+		require.True(t, ok)
+		_, exists := bag["retry"]
+		assert.True(t, exists)
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for result")
 	}
@@ -161,7 +199,7 @@ func TestCallHandler_Error(t *testing.T) {
 	d := NewDispatcher(nil, nil)
 	expectedErr := errors.New("call error")
 	mockInstance := &mockInstance{
-		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
+		callFn: func(_ context.Context, _ string, _ payload.Payloads, _ runtime.Options) (*runtime.Result, error) {
 			return nil, expectedErr
 		},
 	}
@@ -189,7 +227,7 @@ func TestCallHandler_ResultError(t *testing.T) {
 	d := NewDispatcher(nil, nil)
 	expectedErr := errors.New("result error")
 	mockInstance := &mockInstance{
-		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
+		callFn: func(_ context.Context, _ string, _ payload.Payloads, _ runtime.Options) (*runtime.Result, error) {
 			return &runtime.Result{Error: expectedErr}, nil
 		},
 	}
@@ -217,7 +255,7 @@ func TestAsyncCallHandler(t *testing.T) {
 	mockNode := &mockRelayNode{packages: make(chan *relay.Package, 10)}
 	d := NewDispatcher(mockNode, nil)
 	mockInstance := &mockInstance{
-		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
+		callFn: func(_ context.Context, _ string, _ payload.Payloads, _ runtime.Options) (*runtime.Result, error) {
 			return &runtime.Result{Value: payload.New("async result")}, nil
 		},
 	}
@@ -329,7 +367,7 @@ func TestCallHandler_Stress(t *testing.T) {
 
 	d := NewDispatcher(nil, nil)
 	mockInstance := &mockInstance{
-		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
+		callFn: func(_ context.Context, _ string, _ payload.Payloads, _ runtime.Options) (*runtime.Result, error) {
 			return &runtime.Result{Value: payload.New("result")}, nil
 		},
 	}
@@ -367,7 +405,7 @@ func TestCallHandler_Stress(t *testing.T) {
 func BenchmarkCallHandler(b *testing.B) {
 	d := NewDispatcher(nil, nil)
 	mockInstance := &mockInstance{
-		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
+		callFn: func(_ context.Context, _ string, _ payload.Payloads, _ runtime.Options) (*runtime.Result, error) {
 			return &runtime.Result{Value: payload.New("result")}, nil
 		},
 	}
@@ -387,7 +425,7 @@ func BenchmarkCallHandler(b *testing.B) {
 func BenchmarkCallHandler_Parallel(b *testing.B) {
 	d := NewDispatcher(nil, nil)
 	mockInstance := &mockInstance{
-		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
+		callFn: func(_ context.Context, _ string, _ payload.Payloads, _ runtime.Options) (*runtime.Result, error) {
 			return &runtime.Result{Value: payload.New("result")}, nil
 		},
 	}
@@ -420,7 +458,7 @@ func (m *mockInstantiator) Instantiate(ctx context.Context, bindingID registry.I
 }
 
 type mockInstance struct {
-	callFn    func(context.Context, string, payload.Payloads) (*runtime.Result, error)
+	callFn    func(context.Context, string, payload.Payloads, runtime.Options) (*runtime.Result, error)
 	id        registry.ID
 	contracts []contract.Contract
 }
@@ -429,9 +467,9 @@ func (m *mockInstance) ID() registry.ID { return m.id }
 
 func (m *mockInstance) Implements() []contract.Contract { return m.contracts }
 
-func (m *mockInstance) Call(ctx context.Context, method string, input payload.Payloads) (*runtime.Result, error) {
+func (m *mockInstance) Call(ctx context.Context, method string, input payload.Payloads, options runtime.Options) (*runtime.Result, error) {
 	if m.callFn != nil {
-		return m.callFn(ctx, method, input)
+		return m.callFn(ctx, method, input, options)
 	}
 	return nil, contract.ErrInstanceNil
 }
@@ -504,7 +542,7 @@ func TestOpenHandler_ContextCanceled(t *testing.T) {
 func TestCallHandler_ContextCanceled(t *testing.T) {
 	d := NewDispatcher(nil, nil)
 	mockInstance := &mockInstance{
-		callFn: func(ctx context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
+		callFn: func(ctx context.Context, _ string, _ payload.Payloads, _ runtime.Options) (*runtime.Result, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
 		},
@@ -538,7 +576,7 @@ func TestAsyncCallHandler_NoPID(t *testing.T) {
 	d := NewDispatcher(mockNode, nil)
 
 	mockInstance := &mockInstance{
-		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
+		callFn: func(_ context.Context, _ string, _ payload.Payloads, _ runtime.Options) (*runtime.Result, error) {
 			return &runtime.Result{Value: payload.New("result")}, nil
 		},
 	}
@@ -599,7 +637,7 @@ func TestAsyncCallHandler_NoNode(t *testing.T) {
 	d := NewDispatcher(nil, nil)
 
 	mockInstance := &mockInstance{
-		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
+		callFn: func(_ context.Context, _ string, _ payload.Payloads, _ runtime.Options) (*runtime.Result, error) {
 			return &runtime.Result{Value: payload.New("result")}, nil
 		},
 	}
@@ -652,7 +690,7 @@ func TestAsyncCallHandler_CallError(t *testing.T) {
 
 	callErr := errors.New("call failed")
 	mockInstance := &mockInstance{
-		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
+		callFn: func(_ context.Context, _ string, _ payload.Payloads, _ runtime.Options) (*runtime.Result, error) {
 			return nil, callErr
 		},
 	}
@@ -690,7 +728,7 @@ func TestAsyncCallHandler_ResultError(t *testing.T) {
 
 	resultErr := errors.New("result error")
 	mockInstance := &mockInstance{
-		callFn: func(_ context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
+		callFn: func(_ context.Context, _ string, _ payload.Payloads, _ runtime.Options) (*runtime.Result, error) {
 			return &runtime.Result{Error: resultErr}, nil
 		},
 	}

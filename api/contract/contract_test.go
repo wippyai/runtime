@@ -406,6 +406,7 @@ func TestCommandPools(t *testing.T) {
 		assert.Equal(t, Call, cmd.CmdID())
 
 		cmd.Method = "testMethod"
+		cmd.Options = attrs.Bag{"retry": map[string]any{"max_attempts": 3}}
 
 		cmd.Release()
 
@@ -414,6 +415,7 @@ func TestCommandPools(t *testing.T) {
 		assert.Equal(t, "", cmd2.Method)
 		assert.Nil(t, cmd2.Instance)
 		assert.Nil(t, cmd2.Args)
+		assert.Nil(t, cmd2.Options)
 	})
 
 	t.Run("AsyncCallCmd", func(t *testing.T) {
@@ -423,6 +425,7 @@ func TestCommandPools(t *testing.T) {
 
 		cmd.Method = "asyncMethod"
 		cmd.Topic = "result-topic"
+		cmd.Options = attrs.Bag{"retry": map[string]any{"max_attempts": 5}}
 
 		cmd.Release()
 
@@ -432,6 +435,7 @@ func TestCommandPools(t *testing.T) {
 		assert.Equal(t, "", cmd2.Topic)
 		assert.Nil(t, cmd2.Instance)
 		assert.Nil(t, cmd2.Args)
+		assert.Nil(t, cmd2.Options)
 	})
 
 	t.Run("AsyncCancelCmd", func(t *testing.T) {

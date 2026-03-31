@@ -17,6 +17,7 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apicontract "github.com/wippyai/runtime/api/contract"
 	"github.com/wippyai/runtime/api/dispatcher"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
@@ -32,6 +33,8 @@ import (
 	syscontract "github.com/wippyai/runtime/system/contract"
 	"github.com/wippyai/runtime/system/eventbus"
 	sysfunction "github.com/wippyai/runtime/system/function"
+	"github.com/wippyai/runtime/system/function/interceptor"
+	"github.com/wippyai/runtime/system/function/interceptor/retry"
 	sysrelay "github.com/wippyai/runtime/system/relay"
 	"github.com/wippyai/runtime/system/scheduler"
 	"github.com/wippyai/runtime/system/scheduler/actor"
@@ -121,6 +124,36 @@ type integrationTestContext struct {
 }
 
 func setupIntegrationTest(t *testing.T, numWorkers int) *integrationTestContext {
+	// Configure error metadata extractor so Lua errors preserve kind/retryable from apierror
+	lua.SetErrorMetadataExtractor(func(err error) *lua.ErrorMetadata {
+		chain := apierror.BuildChain(err)
+		if chain == nil {
+			return nil
+		}
+		root := chain.Root()
+		if root == nil {
+			return nil
+		}
+		meta := &lua.ErrorMetadata{}
+		if root.Kind != "" {
+			meta.Kind = lua.Kind(root.Kind)
+		}
+		if root.Retryable != nil {
+			b := *root.Retryable
+			meta.Retryable = &b
+		}
+		if len(root.Details) > 0 {
+			meta.Details = make(map[string]any, len(root.Details))
+			for k, v := range root.Details {
+				meta.Details[k] = v
+			}
+		}
+		if meta.Kind == "" && meta.Retryable == nil && meta.Details == nil {
+			return nil
+		}
+		return meta
+	})
+
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 
@@ -130,10 +163,14 @@ func setupIntegrationTest(t *testing.T, numWorkers int) *integrationTestContext 
 	functionRegistry := sysfunction.NewFunctionRegistry(bus, logger)
 	instantiator := syscontract.NewContractInstantiator(contractRegistry, functionRegistry)
 
+	interceptorRegistry := interceptor.NewRegistry(logger)
+	require.NoError(t, interceptorRegistry.Register("retry", retry.New(), 20))
+
 	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
 	ctx = relay.WithNode(ctx, node)
 	ctx = apicontract.WithContracts(ctx, contractRegistry, instantiator)
 	ctx = function.WithRegistry(ctx, functionRegistry)
+	ctx = function.WithInterceptorRegistry(ctx, interceptorRegistry)
 
 	// Set up PID generator for function calls
 	uniqGen := uniqid.NewGenerator()
@@ -697,4 +734,388 @@ func TestIntegration_Concurrent(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestIntegration_WithOptions_ConfigPermutations(t *testing.T) {
+	tc := setupIntegrationTest(t, 4)
+	defer tc.Close(t)
+
+	var capturedOptions runtime.Options
+	funcID := registry.NewID("test", "capture_opts")
+	tc.registerFunction(t, funcID, func(_ context.Context, task runtime.Task) (*runtime.Result, error) {
+		capturedOptions = task.Options
+		if capturedOptions != nil {
+			return &runtime.Result{Value: payload.New("has_options")}, nil
+		}
+		return &runtime.Result{Value: payload.New("no_options")}, nil
+	})
+
+	contractID := registry.NewID("test", "opts_check_contract")
+	tc.registerContract(t, contractID, &apicontract.Definition{
+		Methods: []apicontract.MethodDef{{Name: "check"}},
+	})
+
+	bindingID := registry.NewID("test", "opts_check_binding")
+	tc.registerBinding(t, bindingID, &apicontract.Binding{
+		Contracts: []apicontract.BoundContract{{
+			Contract: contractID,
+			Methods:  map[string]registry.ID{"check": funcID},
+		}},
+	})
+
+	run := func(t *testing.T, script string) (string, runtime.Options) {
+		t.Helper()
+		capturedOptions = nil
+		frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
+		proc := newLuaProcess(t, script)
+		result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
+		require.NoError(t, err, "scheduler error")
+		require.NotNil(t, result, "result is nil")
+		if result.Error != nil {
+			t.Fatalf("result.Error: %v", result.Error)
+		}
+		if result.Value == nil {
+			t.Fatal("result.Value is nil (Lua returned nothing)")
+		}
+		s, ok := result.Value.Data().(lua.LString)
+		require.True(t, ok, "expected LString, got %T: %v", result.Value.Data(), result.Value.Data())
+		return string(s), capturedOptions
+	}
+
+	hasRetry := func(t *testing.T, opts runtime.Options) {
+		t.Helper()
+		require.NotNil(t, opts, "options should not be nil")
+		bag, ok := opts.(runtime.Bag)
+		require.True(t, ok)
+		_, exists := bag["retry"]
+		assert.True(t, exists, "retry key should exist")
+	}
+
+	t.Run("wrapper with_options then open", func(t *testing.T) {
+		val, opts := run(t, `
+			local c, err = contract.get("test:opts_check_contract")
+			if err then error("get: " .. tostring(err)) end
+			local inst, err = c:with_options({retry = {max_attempts = 3}}):open("test:opts_check_binding")
+			if err then error("open: " .. tostring(err)) end
+			local result, err = inst:check()
+			if err then error("check: " .. tostring(err)) end
+			return result
+		`)
+		assert.Equal(t, "has_options", val)
+		hasRetry(t, opts)
+	})
+
+	t.Run("contract.open with empty scope and options", func(t *testing.T) {
+		val, opts := run(t, `
+			local inst, err = contract.open("test:opts_check_binding", {}, {retry = {max_attempts = 3}})
+			if err then error(tostring(err)) end
+			local r, err = inst:check()
+			if err then error("check: " .. tostring(err)) end
+			return r
+		`)
+		assert.Equal(t, "has_options", val)
+		hasRetry(t, opts)
+	})
+
+	t.Run("contract.open with nil scope and options", func(t *testing.T) {
+		val, opts := run(t, `
+			local inst, err = contract.open("test:opts_check_binding", nil, {retry = {max_attempts = 3}})
+			if err then error(tostring(err)) end
+			local r, err = inst:check()
+			if err then error("check: " .. tostring(err)) end
+			return r
+		`)
+		assert.Equal(t, "has_options", val)
+		hasRetry(t, opts)
+	})
+
+	t.Run("contract.open with scope and options", func(t *testing.T) {
+		val, opts := run(t, `
+			local inst, err = contract.open("test:opts_check_binding", {key = "val"}, {retry = {max_attempts = 3}})
+			if err then error(tostring(err)) end
+			local r, err = inst:check()
+			if err then error("check: " .. tostring(err)) end
+			return r
+		`)
+		assert.Equal(t, "has_options", val)
+		hasRetry(t, opts)
+	})
+
+	t.Run("contract.open without options", func(t *testing.T) {
+		val, opts := run(t, `
+			local inst, err = contract.open("test:opts_check_binding")
+			if err then error(tostring(err)) end
+			local r, err = inst:check()
+			if err then error("check: " .. tostring(err)) end
+			return r
+		`)
+		assert.Equal(t, "no_options", val)
+		assert.Nil(t, opts)
+	})
+
+	t.Run("contract.open with scope only", func(t *testing.T) {
+		val, opts := run(t, `
+			local inst, err = contract.open("test:opts_check_binding", {key = "val"})
+			if err then error(tostring(err)) end
+			local r, err = inst:check()
+			if err then error("check: " .. tostring(err)) end
+			return r
+		`)
+		assert.Equal(t, "no_options", val)
+		assert.Nil(t, opts)
+	})
+
+	t.Run("wrapper with_options chains with with_context", func(t *testing.T) {
+		val, opts := run(t, `
+			local c, err = contract.get("test:opts_check_contract")
+			if err then error(tostring(err)) end
+			local inst, err = c:with_context({k = "v"}):with_options({retry = {max_attempts = 3}}):open("test:opts_check_binding")
+			if err then error(tostring(err)) end
+			local r, err = inst:check()
+			if err then error("check: " .. tostring(err)) end
+			return r
+		`)
+		assert.Equal(t, "has_options", val)
+		hasRetry(t, opts)
+	})
+
+	t.Run("wrapper with_options then with_context preserves options", func(t *testing.T) {
+		val, opts := run(t, `
+			local c, err = contract.get("test:opts_check_contract")
+			if err then error(tostring(err)) end
+			local inst, err = c:with_options({retry = {max_attempts = 3}}):with_context({k = "v"}):open("test:opts_check_binding")
+			if err then error(tostring(err)) end
+			local r, err = inst:check()
+			if err then error("check: " .. tostring(err)) end
+			return r
+		`)
+		assert.Equal(t, "has_options", val)
+		hasRetry(t, opts)
+	})
+
+	t.Run("wrapper without options", func(t *testing.T) {
+		val, opts := run(t, `
+			local c, err = contract.get("test:opts_check_contract")
+			if err then error(tostring(err)) end
+			local inst, err = c:open("test:opts_check_binding")
+			if err then error(tostring(err)) end
+			local r, err = inst:check()
+			if err then error("check: " .. tostring(err)) end
+			return r
+		`)
+		assert.Equal(t, "no_options", val)
+		assert.Nil(t, opts)
+	})
+
+	t.Run("wrapper with empty options", func(t *testing.T) {
+		val, opts := run(t, `
+			local c, err = contract.get("test:opts_check_contract")
+			if err then error(tostring(err)) end
+			local inst, err = c:with_options({}):open("test:opts_check_binding")
+			if err then error(tostring(err)) end
+			local r, err = inst:check()
+			if err then error("check: " .. tostring(err)) end
+			return r
+		`)
+		assert.Equal(t, "has_options", val)
+		require.NotNil(t, opts)
+	})
+}
+
+func TestIntegration_WithOptions_RetryOnFailure(t *testing.T) {
+	tc := setupIntegrationTest(t, 4)
+	defer tc.Close(t)
+
+	var callCount atomic.Int64
+	funcID := registry.NewID("test", "flaky_func")
+	tc.registerFunction(t, funcID, func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+		n := callCount.Add(1)
+		if n < 3 {
+			return nil, apierror.New(apierror.Unavailable, "temporary failure").WithRetryable(apierror.True)
+		}
+		return &runtime.Result{Value: payload.New("success_after_retries")}, nil
+	})
+
+	contractID := registry.NewID("test", "retry_contract")
+	tc.registerContract(t, contractID, &apicontract.Definition{
+		Methods: []apicontract.MethodDef{{Name: "call"}},
+	})
+
+	bindingID := registry.NewID("test", "retry_binding")
+	tc.registerBinding(t, bindingID, &apicontract.Binding{
+		Contracts: []apicontract.BoundContract{{
+			Contract: contractID,
+			Methods:  map[string]registry.ID{"call": funcID},
+		}},
+	})
+
+	script := `
+		local c, err = contract.get("test:retry_contract")
+		if err then return nil, tostring(err) end
+
+		local instance, err = c
+			:with_options({retry = {max_attempts = 5, initial_delay = 1}})
+			:open("test:retry_binding")
+		if err then return nil, tostring(err) end
+
+		local result, err = instance:call()
+		if err then return nil, tostring(err) end
+		return result
+	`
+
+	frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
+	proc := newLuaProcess(t, script)
+
+	result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
+	require.NoError(t, err)
+	require.Nil(t, result.Error)
+	require.NotNil(t, result.Value)
+	assert.Equal(t, "success_after_retries", string(result.Value.Data().(lua.LString)))
+	assert.Equal(t, int64(3), callCount.Load())
+}
+
+func TestIntegration_WithOptions_DirectOpen(t *testing.T) {
+	tc := setupIntegrationTest(t, 4)
+	defer tc.Close(t)
+
+	var callCount atomic.Int64
+	funcID := registry.NewID("test", "flaky_direct")
+	tc.registerFunction(t, funcID, func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+		n := callCount.Add(1)
+		if n < 2 {
+			return nil, apierror.New(apierror.Unavailable, "temporary").WithRetryable(apierror.True)
+		}
+		return &runtime.Result{Value: payload.New("ok")}, nil
+	})
+
+	contractID := registry.NewID("test", "direct_retry_contract")
+	tc.registerContract(t, contractID, &apicontract.Definition{
+		Methods: []apicontract.MethodDef{{Name: "run"}},
+	})
+
+	bindingID := registry.NewID("test", "direct_retry_binding")
+	tc.registerBinding(t, bindingID, &apicontract.Binding{
+		Contracts: []apicontract.BoundContract{{
+			Contract: contractID,
+			Methods:  map[string]registry.ID{"run": funcID},
+		}},
+	})
+
+	script := `
+		local instance, err = contract.open("test:direct_retry_binding", {}, {
+			retry = {max_attempts = 3, initial_delay = 1}
+		})
+		if err then return nil, tostring(err) end
+
+		local result, err = instance:run()
+		if err then return nil, tostring(err) end
+		return result
+	`
+
+	frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
+	proc := newLuaProcess(t, script)
+
+	result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
+	require.NoError(t, err)
+	require.Nil(t, result.Error)
+	require.NotNil(t, result.Value)
+	assert.Equal(t, "ok", string(result.Value.Data().(lua.LString)))
+	assert.Equal(t, int64(2), callCount.Load())
+}
+
+func TestIntegration_WithOptions_NonRetryableError(t *testing.T) {
+	tc := setupIntegrationTest(t, 4)
+	defer tc.Close(t)
+
+	var callCount atomic.Int64
+	funcID := registry.NewID("test", "permanent_fail")
+	tc.registerFunction(t, funcID, func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+		callCount.Add(1)
+		return nil, apierror.New(apierror.PermissionDenied, "not allowed").WithRetryable(apierror.False)
+	})
+
+	contractID := registry.NewID("test", "noretry_contract")
+	tc.registerContract(t, contractID, &apicontract.Definition{
+		Methods: []apicontract.MethodDef{{Name: "forbidden"}},
+	})
+
+	bindingID := registry.NewID("test", "noretry_binding")
+	tc.registerBinding(t, bindingID, &apicontract.Binding{
+		Contracts: []apicontract.BoundContract{{
+			Contract: contractID,
+			Methods:  map[string]registry.ID{"forbidden": funcID},
+		}},
+	})
+
+	script := `
+		local c, err = contract.get("test:noretry_contract")
+		if err then return nil, tostring(err) end
+
+		local instance, err = c
+			:with_options({retry = {max_attempts = 5, initial_delay = 1}})
+			:open("test:noretry_binding")
+		if err then return nil, tostring(err) end
+
+		local result, err = instance:forbidden()
+		if err then
+			return err:kind()
+		end
+		return "should_not_reach"
+	`
+
+	frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
+	proc := newLuaProcess(t, script)
+
+	result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
+	require.NoError(t, err)
+	require.Nil(t, result.Error)
+	require.NotNil(t, result.Value)
+	assert.Equal(t, "PermissionDenied", string(result.Value.Data().(lua.LString)))
+	assert.Equal(t, int64(1), callCount.Load())
+}
+
+func TestIntegration_WithOptions_NoRetryWithoutOptions(t *testing.T) {
+	tc := setupIntegrationTest(t, 4)
+	defer tc.Close(t)
+
+	var callCount atomic.Int64
+	funcID := registry.NewID("test", "always_fail")
+	tc.registerFunction(t, funcID, func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+		callCount.Add(1)
+		return nil, apierror.New(apierror.Unavailable, "fail").WithRetryable(apierror.True)
+	})
+
+	contractID := registry.NewID("test", "noopts_contract")
+	tc.registerContract(t, contractID, &apicontract.Definition{
+		Methods: []apicontract.MethodDef{{Name: "fail"}},
+	})
+
+	bindingID := registry.NewID("test", "noopts_binding")
+	tc.registerBinding(t, bindingID, &apicontract.Binding{
+		Contracts: []apicontract.BoundContract{{
+			Contract: contractID,
+			Methods:  map[string]registry.ID{"fail": funcID},
+		}},
+	})
+
+	script := `
+		local instance, err = contract.open("test:noopts_binding")
+		if err then return nil, tostring(err) end
+
+		local result, err = instance:fail()
+		if err then
+			return "failed:" .. err:kind()
+		end
+		return "should_not_reach"
+	`
+
+	frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
+	proc := newLuaProcess(t, script)
+
+	result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
+	require.NoError(t, err)
+	require.Nil(t, result.Error)
+	require.NotNil(t, result.Value)
+	assert.Equal(t, "failed:Unavailable", string(result.Value.Data().(lua.LString)))
+	assert.Equal(t, int64(1), callCount.Load())
 }
