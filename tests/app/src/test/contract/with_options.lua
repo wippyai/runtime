@@ -84,7 +84,7 @@ local function main()
 	assert.not_nil(err6, "empty options means no retry")
 	assert.eq(s:get("flaky_call_count"), 1, "empty options called once")
 
-	-- 7. contract.open direct with options as third arg
+	-- 7. contract.open direct with options as third arg (empty scope)
 	s:set("flaky_call_count", 0)
 
 	local inst5, err = contract.open("app.test.contract:flaky_impl", {}, {
@@ -96,6 +96,19 @@ local function main()
 	assert.is_nil(err7, "direct open retry succeeds")
 	assert.eq(result7, "success_after_3_attempts", "direct open correct result")
 	assert.eq(s:get("flaky_call_count"), 3, "direct open retried 3 times")
+
+	-- 7b. contract.open direct with nil scope and options
+	s:set("flaky_call_count", 0)
+
+	local inst5b, err = contract.open("app.test.contract:flaky_impl", nil, {
+		retry = {max_attempts = 5, initial_delay = 1}
+	})
+	assert.is_nil(err, "direct open nil scope with options no error")
+
+	local result7b, err7b = inst5b:flaky_call()
+	assert.is_nil(err7b, "direct open nil scope retry succeeds")
+	assert.eq(result7b, "success_after_3_attempts", "direct open nil scope correct result")
+	assert.eq(s:get("flaky_call_count"), 3, "direct open nil scope retried 3 times")
 
 	-- 8. Options apply to multiple method calls on same instance
 	s:set("flaky_call_count", 0)
