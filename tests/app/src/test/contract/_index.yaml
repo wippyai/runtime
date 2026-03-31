@@ -221,3 +221,69 @@ entries:
       assert2: app.lib:assert
     modules:
       - contract
+
+  # Flaky contract for retry testing
+  - name: flaky
+    kind: contract.definition
+    meta:
+      comment: Contract with flaky and permanent-fail methods for retry testing
+    methods:
+      - name: flaky_call
+        description: Fails first 2 times, succeeds on 3rd
+      - name: permanent_fail
+        description: Always fails with non-retryable error
+      - name: always_fail
+        description: Always fails with retryable error
+
+  - name: flaky_call_func
+    kind: function.lua
+    meta:
+      comment: Flaky function implementation
+    source: file://flaky_call.lua
+    method: main
+    modules:
+      - store
+
+  - name: permanent_fail_func
+    kind: function.lua
+    meta:
+      comment: Always fails with non-retryable PermissionDenied
+    source: file://permanent_fail.lua
+    method: main
+    modules:
+      - store
+
+  - name: always_fail_func
+    kind: function.lua
+    meta:
+      comment: Always fails with retryable Unavailable
+    source: file://always_fail.lua
+    method: main
+    modules:
+      - store
+
+  - name: flaky_impl
+    kind: contract.binding
+    meta:
+      comment: Flaky contract binding for retry testing
+    contracts:
+      - contract: app.test.contract:flaky
+        default: true
+        methods:
+          flaky_call: app.test.contract:flaky_call_func
+          permanent_fail: app.test.contract:permanent_fail_func
+          always_fail: app.test.contract:always_fail_func
+
+  - name: with_options
+    kind: function.lua
+    meta:
+      type: test
+      suite: contract
+      description: contract with_options and retry behavior
+    source: file://with_options.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - contract
+      - store

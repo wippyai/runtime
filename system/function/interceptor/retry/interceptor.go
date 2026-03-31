@@ -143,6 +143,8 @@ func parsePolicy(opts map[string]any) supervisor.RetryPolicy {
 		switch val := v.(type) {
 		case int:
 			policy.MaxAttempts = val
+		case int64:
+			policy.MaxAttempts = int(val)
 		case float64:
 			policy.MaxAttempts = int(val)
 		}
@@ -179,6 +181,8 @@ func toFloat(v any) float64 {
 		return val
 	case int:
 		return float64(val)
+	case int64:
+		return float64(val)
 	}
 	return 0
 }
@@ -186,6 +190,8 @@ func toFloat(v any) float64 {
 func toDuration(v any) time.Duration {
 	switch val := v.(type) {
 	case int:
+		return time.Duration(val) * time.Millisecond
+	case int64:
 		return time.Duration(val) * time.Millisecond
 	case float64:
 		return time.Duration(val) * time.Millisecond

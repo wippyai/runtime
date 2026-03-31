@@ -3,6 +3,7 @@
 package contract
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,7 +13,19 @@ import (
 	"github.com/wippyai/runtime/api/contract"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/runtime"
 )
+
+type mockInstanceForTest struct {
+	id        registry.ID
+	contracts []contract.Contract
+}
+
+func (m *mockInstanceForTest) ID() registry.ID                 { return m.id }
+func (m *mockInstanceForTest) Implements() []contract.Contract { return m.contracts }
+func (m *mockInstanceForTest) Call(_ context.Context, _ string, _ payload.Payloads, _ runtime.Options) (*runtime.Result, error) {
+	return nil, nil
+}
 
 func TestModule_Info(t *testing.T) {
 	info := Module.Info()
@@ -39,12 +52,16 @@ func TestOpenYield_Pool(t *testing.T) {
 
 	y.BindingID = registry.ParseID("test/binding")
 	y.Scope = attrs.NewBagFrom(map[string]any{"key": "value"})
+	y.options = attrs.Bag{"retry": map[string]any{"max_attempts": 3}}
+	y.hasOptions = true
 
 	ReleaseOpenYield(y)
 
 	y2 := AcquireOpenYield()
 	assert.Equal(t, registry.ID{}, y2.BindingID)
 	assert.Nil(t, y2.Scope)
+	assert.Nil(t, y2.options)
+	assert.False(t, y2.hasOptions)
 	ReleaseOpenYield(y2)
 }
 
@@ -205,6 +222,32 @@ func TestOpenYield_HandleResult(t *testing.T) {
 	require.Len(t, results, 2)
 	assert.Equal(t, lua.LNil, results[0])
 	assert.NotEqual(t, lua.LNil, results[1])
+}
+
+func TestOpenYield_HandleResult_WithOptions(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	y := AcquireOpenYield()
+	defer ReleaseOpenYield(y)
+
+	y.options = attrs.Bag{"retry": map[string]any{"max_attempts": 3}}
+	y.hasOptions = true
+
+	mockInst := &mockInstanceForTest{id: registry.NewID("test", "binding")}
+	results := y.HandleResult(l, contract.OpenResult{Instance: mockInst}, nil)
+	require.Len(t, results, 2)
+	assert.Equal(t, lua.LNil, results[1])
+
+	ud, ok := results[0].(*lua.LUserData)
+	require.True(t, ok)
+	wrapper, ok := ud.Value.(*InstanceWrapper)
+	require.True(t, ok)
+	assert.True(t, wrapper.hasOptions)
+	retryVal, exists := wrapper.options["retry"]
+	require.True(t, exists)
+	retryMap := retryVal.(map[string]any)
+	assert.Equal(t, 3, retryMap["max_attempts"])
 }
 
 func TestCallYield_HandleResult(t *testing.T) {

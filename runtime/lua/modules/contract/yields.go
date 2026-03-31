@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/contract"
 	"github.com/wippyai/runtime/api/dispatcher"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
@@ -16,6 +17,8 @@ import (
 // OpenYield wraps OpenCmd for Lua.
 type OpenYield struct {
 	*contract.OpenCmd
+	options    attrs.Bag
+	hasOptions bool
 }
 
 var openYieldPool = sync.Pool{New: func() any { return &OpenYield{} }}
@@ -31,6 +34,8 @@ func ReleaseOpenYield(y *OpenYield) {
 		y.OpenCmd.Release()
 		y.OpenCmd = nil
 	}
+	y.options = nil
+	y.hasOptions = false
 	openYieldPool.Put(y)
 }
 
@@ -68,7 +73,9 @@ func (y *OpenYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 
 	// Wrap instance in userdata
 	wrapper := &InstanceWrapper{
-		instance: resp.Instance,
+		instance:   resp.Instance,
+		options:    y.options,
+		hasOptions: y.hasOptions,
 	}
 	return []lua.LValue{value.NewTypedUserData(l, wrapper, instanceTypeName), lua.LNil}
 }

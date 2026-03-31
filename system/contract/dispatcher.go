@@ -87,7 +87,7 @@ func (d *Dispatcher) handleCall(ctx context.Context, cmd dispatcher.Command, tag
 
 	go func(callCtx context.Context, callFC ctxapi.FrameContext) {
 		defer ctxapi.ReleaseFrameContext(callFC)
-		result, err := callCmd.Instance.Call(callCtx, callCmd.Method, callCmd.Args)
+		result, err := callCmd.Instance.Call(callCtx, callCmd.Method, callCmd.Args, callCmd.Options)
 		if callCtx.Err() != nil {
 			receiver.CompleteYield(tag, contract.CallResult{Error: callCtx.Err()}, nil)
 			return
@@ -134,13 +134,14 @@ func (d *Dispatcher) handleAsyncCall(ctx context.Context, cmd dispatcher.Command
 	instance := asyncCmd.Instance
 	method := asyncCmd.Method
 	args := asyncCmd.Args
+	options := asyncCmd.Options
 	logger := d.logger
 
 	callCtx, fc := ctxapi.ForkFrameContext(ctx)
 
 	go func(callCtx context.Context, callFC ctxapi.FrameContext) {
 		defer ctxapi.ReleaseFrameContext(callFC)
-		result, err := instance.Call(callCtx, method, args)
+		result, err := instance.Call(callCtx, method, args, options)
 
 		resultPayload := resultToPayload(result, err)
 		if err := sendAsyncResult(node, framePID, topic, resultPayload); err != nil {

@@ -230,7 +230,7 @@ func TestInstanceImpl_ScopeValidation(t *testing.T) {
 			instance, err := instantiator.Instantiate(ctx, bindingID, tt.instanceScope)
 			require.NoError(t, err)
 
-			_, err = instance.Call(ctx, "validateMethod", payload.Payloads{})
+			_, err = instance.Call(ctx, "validateMethod", payload.Payloads{}, nil)
 
 			if tt.expectedError != "" {
 				require.Error(t, err)
@@ -347,15 +347,130 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 	instance, err := instantiator.Instantiate(ctx, bindingID, attrs.Bag{})
 	require.NoError(t, err)
 
-	result, err := instance.Call(ctx, "testMethod", payload.Payloads{payload.New("test_input")})
+	result, err := instance.Call(ctx, "testMethod", payload.Payloads{payload.New("test_input")}, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, "function_result", result.Value.Data().(string))
 
 	// Test method not bound
-	_, err = instance.Call(ctx, "unknownMethod", payload.Payloads{})
+	_, err = instance.Call(ctx, "unknownMethod", payload.Payloads{}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "method 'unknownMethod' not bound")
+}
+
+func TestInstanceImpl_Call_WithOptions(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
+
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
+	ctx = process.WithPIDGenerator(ctx, pidGen)
+
+	instantiator, bus, contractRegistry, functionRegistry := setupInstantiatorTest()
+
+	require.NoError(t, contractRegistry.Start(ctx))
+	require.NoError(t, functionRegistry.Start(ctx))
+	defer func() {
+		err := contractRegistry.Stop()
+		require.NoError(t, err)
+		err = functionRegistry.Stop()
+		require.NoError(t, err)
+	}()
+
+	var wg sync.WaitGroup
+
+	contractSub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(evt event.Event) {
+		if evt.Kind == contract.ContractAccept {
+			wg.Done()
+		}
+	})
+	require.NoError(t, err)
+	defer contractSub.Close()
+
+	functionSub, err := eventbus.NewSubscriber(ctx, bus, function.System, "function.*", func(evt event.Event) {
+		if evt.Kind == function.FunctionAccept {
+			wg.Done()
+		}
+	})
+	require.NoError(t, err)
+	defer functionSub.Close()
+
+	// Register function that captures task options
+	funcID := registry.NewID("test", "options_func")
+	var capturedOptions runtime.Options
+	testFunc := function.Func(func(_ context.Context, task runtime.Task) (*runtime.Result, error) {
+		capturedOptions = task.Options
+		return &runtime.Result{Value: payload.New("ok")}, nil
+	})
+
+	wg.Add(1)
+	bus.Send(ctx, event.Event{
+		System: function.System,
+		Kind:   function.FunctionRegister,
+		Path:   funcID.String(),
+		Data:   &function.FuncEntry{Handler: testFunc},
+	})
+	wg.Wait()
+
+	// Register contract and binding
+	contractID := registry.NewID("test", "options_contract")
+	wg.Add(1)
+	bus.Send(ctx, event.Event{
+		System: contract.System,
+		Kind:   contract.RegisterDefinition,
+		Path:   contractID.String(),
+		Data:   &contract.Definition{Methods: []contract.MethodDef{{Name: "run"}}},
+	})
+	wg.Wait()
+
+	bindingID := registry.NewID("test", "options_binding")
+	wg.Add(1)
+	bus.Send(ctx, event.Event{
+		System: contract.System,
+		Kind:   contract.RegisterBinding,
+		Path:   bindingID.String(),
+		Data: &contract.Binding{
+			Contracts: []contract.BoundContract{{
+				Contract: contractID,
+				Methods:  map[string]registry.ID{"run": funcID},
+			}},
+		},
+	})
+	wg.Wait()
+
+	instance, err := instantiator.Instantiate(ctx, bindingID, attrs.Bag{})
+	require.NoError(t, err)
+
+	t.Run("nil options pass through as nil", func(t *testing.T) {
+		capturedOptions = attrs.Bag{"should": "be overwritten"}
+		result, err := instance.Call(ctx, "run", payload.Payloads{}, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "ok", result.Value.Data().(string))
+		assert.Nil(t, capturedOptions)
+	})
+
+	t.Run("options pass through to function task", func(t *testing.T) {
+		capturedOptions = nil
+		opts := attrs.Bag{
+			"retry": map[string]any{
+				"max_attempts":   3,
+				"initial_delay":  100,
+				"backoff_factor": 2.0,
+			},
+		}
+		result, err := instance.Call(ctx, "run", payload.Payloads{}, opts)
+		require.NoError(t, err)
+		assert.Equal(t, "ok", result.Value.Data().(string))
+
+		bag, ok := capturedOptions.(attrs.Bag)
+		require.True(t, ok)
+		retryVal, exists := bag["retry"]
+		require.True(t, exists)
+		retryMap := retryVal.(map[string]any)
+		assert.Equal(t, 3, retryMap["max_attempts"])
+		assert.Equal(t, 100, retryMap["initial_delay"])
+		assert.Equal(t, 2.0, retryMap["backoff_factor"])
+	})
 }
 
 func TestInstanceImpl_ContextMerging(t *testing.T) {
@@ -469,7 +584,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	instanceNil, err := instantiator.Instantiate(ctx, bindingID, nil)
 	require.NoError(t, err)
 
-	result, err := instanceNil.Call(ctx, "contextMethod", payload.Payloads{})
+	result, err := instanceNil.Call(ctx, "contextMethod", payload.Payloads{}, nil)
 	require.NoError(t, err)
 
 	values := result.Value.Data().(map[string]any)
@@ -490,7 +605,7 @@ func TestInstanceImpl_ContextMerging(t *testing.T) {
 	err = ctxapi.SetValues(callCtx, existing)
 	require.NoError(t, err)
 
-	result, err = instance.Call(callCtx, "contextMethod", payload.Payloads{})
+	result, err = instance.Call(callCtx, "contextMethod", payload.Payloads{}, nil)
 	require.NoError(t, err)
 
 	values = result.Value.Data().(map[string]any)
@@ -605,7 +720,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 		instance, err := instantiator.Instantiate(ctx, bindingID, attrs.Bag{})
 		require.NoError(t, err)
 
-		result, err := instance.Call(ctx, "captureMethod", payload.Payloads{})
+		result, err := instance.Call(ctx, "captureMethod", payload.Payloads{}, nil)
 		require.NoError(t, err)
 
 		captured := result.Value.Data().(map[string]any)
@@ -628,7 +743,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 		instance, err := instantiator.Instantiate(ctx, bindingID, scope)
 		require.NoError(t, err)
 
-		result, err := instance.Call(ctx, "captureMethod", payload.Payloads{})
+		result, err := instance.Call(ctx, "captureMethod", payload.Payloads{}, nil)
 		require.NoError(t, err)
 
 		captured := result.Value.Data().(map[string]any)
@@ -657,7 +772,7 @@ func TestInstanceImpl_ScopeContextBehavior(t *testing.T) {
 		err = ctxapi.SetValues(callCtx, existing)
 		require.NoError(t, err)
 
-		result, err := instance.Call(callCtx, "captureMethod", payload.Payloads{})
+		result, err := instance.Call(callCtx, "captureMethod", payload.Payloads{}, nil)
 		require.NoError(t, err)
 
 		captured := result.Value.Data().(map[string]any)
@@ -776,7 +891,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 		require.NoError(t, err, "Instantiation should succeed")
 
 		// Try to call method - this should NOW SUCCEED validation with the fix
-		result, err := instance.Call(callCtx, "requiresOriginId", payload.Payloads{})
+		result, err := instance.Call(callCtx, "requiresOriginId", payload.Payloads{}, nil)
 		require.NoError(t, err, "Call should succeed - validation finds origin_id in Go context")
 
 		// Function should execute and return result
@@ -793,7 +908,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 		require.NoError(t, err, "Instantiation should succeed")
 
 		// Try to call method - should succeed
-		result, err := instance.Call(callCtx, "requiresOriginId", payload.Payloads{})
+		result, err := instance.Call(callCtx, "requiresOriginId", payload.Payloads{}, nil)
 		require.NoError(t, err, "Call should succeed - validation finds origin_id in scope")
 
 		// Function should execute and return result
@@ -813,7 +928,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 		require.NoError(t, err, "Instantiation should succeed")
 
 		// Try to call method - should succeed
-		result, err := instance.Call(callCtx, "requiresOriginId", payload.Payloads{})
+		result, err := instance.Call(callCtx, "requiresOriginId", payload.Payloads{}, nil)
 		require.NoError(t, err, "Call should succeed - validation finds origin_id in both places")
 
 		// Function should execute and return result
@@ -830,7 +945,7 @@ func TestInstanceImpl_ContextValidationIssue(t *testing.T) {
 		require.NoError(t, err, "Instantiation should succeed")
 
 		// Try to call method - should fail validation
-		_, err = instance.Call(callCtx, "requiresOriginId", payload.Payloads{})
+		_, err = instance.Call(callCtx, "requiresOriginId", payload.Payloads{}, nil)
 		require.Error(t, err, "Call should fail when origin_id is missing from both places")
 		assert.Contains(t, err.Error(), "missing required context keys: [origin_id]")
 	})
