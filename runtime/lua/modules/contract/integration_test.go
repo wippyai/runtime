@@ -736,7 +736,7 @@ func TestIntegration_Concurrent(t *testing.T) {
 	wg.Wait()
 }
 
-func TestIntegration_WithOptions_OptionsReachFunction(t *testing.T) {
+func TestIntegration_WithOptions_ConfigPermutations(t *testing.T) {
 	tc := setupIntegrationTest(t, 4)
 	defer tc.Close(t)
 
@@ -763,34 +763,163 @@ func TestIntegration_WithOptions_OptionsReachFunction(t *testing.T) {
 		}},
 	})
 
-	script := `
-		local c, err = contract.get("test:opts_check_contract")
-		if err then error(tostring(err)) end
+	run := func(t *testing.T, script string) (string, runtime.Options) {
+		t.Helper()
+		capturedOptions = nil
+		frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
+		proc := newLuaProcess(t, script)
+		result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
+		require.NoError(t, err, "scheduler error")
+		require.NotNil(t, result, "result is nil")
+		if result.Error != nil {
+			t.Fatalf("result.Error: %v", result.Error)
+		}
+		if result.Value == nil {
+			t.Fatal("result.Value is nil (Lua returned nothing)")
+		}
+		s, ok := result.Value.Data().(lua.LString)
+		require.True(t, ok, "expected LString, got %T: %v", result.Value.Data(), result.Value.Data())
+		return string(s), capturedOptions
+	}
 
-		local instance, err = c
-			:with_options({retry = {max_attempts = 5, initial_delay = 1}})
-			:open("test:opts_check_binding")
-		if err then error(tostring(err)) end
+	hasRetry := func(t *testing.T, opts runtime.Options) {
+		t.Helper()
+		require.NotNil(t, opts, "options should not be nil")
+		bag, ok := opts.(runtime.Bag)
+		require.True(t, ok)
+		_, exists := bag["retry"]
+		assert.True(t, exists, "retry key should exist")
+	}
 
-		local result, err = instance:check()
-		if err then error(tostring(err)) end
-		return result
-	`
+	t.Run("wrapper with_options then open", func(t *testing.T) {
+		val, opts := run(t, `
+			local c, err = contract.get("test:opts_check_contract")
+			if err then error("get: " .. tostring(err)) end
+			local inst, err = c:with_options({retry = {max_attempts = 3}}):open("test:opts_check_binding")
+			if err then error("open: " .. tostring(err)) end
+			local result, err = inst:check()
+			if err then error("check: " .. tostring(err)) end
+			return result
+		`)
+		assert.Equal(t, "has_options", val)
+		hasRetry(t, opts)
+	})
 
-	frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
-	proc := newLuaProcess(t, script)
+	t.Run("contract.open with empty scope and options", func(t *testing.T) {
+		val, opts := run(t, `
+			local inst, err = contract.open("test:opts_check_binding", {}, {retry = {max_attempts = 3}})
+			if err then error(tostring(err)) end
+			local r, err = inst:check()
+			if err then error("check: " .. tostring(err)) end
+			return r
+		`)
+		assert.Equal(t, "has_options", val)
+		hasRetry(t, opts)
+	})
 
-	result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
-	require.NoError(t, err)
-	require.Nil(t, result.Error, "result.Error: %v", result.Error)
-	require.NotNil(t, result.Value)
-	assert.Equal(t, "has_options", string(result.Value.Data().(lua.LString)))
+	t.Run("contract.open with nil scope and options", func(t *testing.T) {
+		val, opts := run(t, `
+			local inst, err = contract.open("test:opts_check_binding", nil, {retry = {max_attempts = 3}})
+			if err then error(tostring(err)) end
+			local r, err = inst:check()
+			if err then error("check: " .. tostring(err)) end
+			return r
+		`)
+		assert.Equal(t, "has_options", val)
+		hasRetry(t, opts)
+	})
 
-	require.NotNil(t, capturedOptions)
-	bag, ok := capturedOptions.(runtime.Bag)
-	require.True(t, ok, "options should be attrs.Bag, got %T", capturedOptions)
-	_, exists := bag["retry"]
-	assert.True(t, exists, "retry key should exist in options")
+	t.Run("contract.open with scope and options", func(t *testing.T) {
+		val, opts := run(t, `
+			local inst, err = contract.open("test:opts_check_binding", {key = "val"}, {retry = {max_attempts = 3}})
+			if err then error(tostring(err)) end
+			local r, err = inst:check()
+			if err then error("check: " .. tostring(err)) end
+			return r
+		`)
+		assert.Equal(t, "has_options", val)
+		hasRetry(t, opts)
+	})
+
+	t.Run("contract.open without options", func(t *testing.T) {
+		val, opts := run(t, `
+			local inst, err = contract.open("test:opts_check_binding")
+			if err then error(tostring(err)) end
+			local r, err = inst:check()
+			if err then error("check: " .. tostring(err)) end
+			return r
+		`)
+		assert.Equal(t, "no_options", val)
+		assert.Nil(t, opts)
+	})
+
+	t.Run("contract.open with scope only", func(t *testing.T) {
+		val, opts := run(t, `
+			local inst, err = contract.open("test:opts_check_binding", {key = "val"})
+			if err then error(tostring(err)) end
+			local r, err = inst:check()
+			if err then error("check: " .. tostring(err)) end
+			return r
+		`)
+		assert.Equal(t, "no_options", val)
+		assert.Nil(t, opts)
+	})
+
+	t.Run("wrapper with_options chains with with_context", func(t *testing.T) {
+		val, opts := run(t, `
+			local c, err = contract.get("test:opts_check_contract")
+			if err then error(tostring(err)) end
+			local inst, err = c:with_context({k = "v"}):with_options({retry = {max_attempts = 3}}):open("test:opts_check_binding")
+			if err then error(tostring(err)) end
+			local r, err = inst:check()
+			if err then error("check: " .. tostring(err)) end
+			return r
+		`)
+		assert.Equal(t, "has_options", val)
+		hasRetry(t, opts)
+	})
+
+	t.Run("wrapper with_options then with_context preserves options", func(t *testing.T) {
+		val, opts := run(t, `
+			local c, err = contract.get("test:opts_check_contract")
+			if err then error(tostring(err)) end
+			local inst, err = c:with_options({retry = {max_attempts = 3}}):with_context({k = "v"}):open("test:opts_check_binding")
+			if err then error(tostring(err)) end
+			local r, err = inst:check()
+			if err then error("check: " .. tostring(err)) end
+			return r
+		`)
+		assert.Equal(t, "has_options", val)
+		hasRetry(t, opts)
+	})
+
+	t.Run("wrapper without options", func(t *testing.T) {
+		val, opts := run(t, `
+			local c, err = contract.get("test:opts_check_contract")
+			if err then error(tostring(err)) end
+			local inst, err = c:open("test:opts_check_binding")
+			if err then error(tostring(err)) end
+			local r, err = inst:check()
+			if err then error("check: " .. tostring(err)) end
+			return r
+		`)
+		assert.Equal(t, "no_options", val)
+		assert.Nil(t, opts)
+	})
+
+	t.Run("wrapper with empty options", func(t *testing.T) {
+		val, opts := run(t, `
+			local c, err = contract.get("test:opts_check_contract")
+			if err then error(tostring(err)) end
+			local inst, err = c:with_options({}):open("test:opts_check_binding")
+			if err then error(tostring(err)) end
+			local r, err = inst:check()
+			if err then error("check: " .. tostring(err)) end
+			return r
+		`)
+		assert.Equal(t, "has_options", val)
+		require.NotNil(t, opts)
+	})
 }
 
 func TestIntegration_WithOptions_RetryOnFailure(t *testing.T) {
