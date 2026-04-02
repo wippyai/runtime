@@ -6,6 +6,7 @@ import (
 	"context"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/runtime/lua"
@@ -87,6 +88,12 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 		return nil, runtimelua.NewPoolNotFoundError(task.ID.String())
 	}
 
+	// Inject default overlay network from function config into FrameContext
+	cfg := m.getConfig(task.ID)
+	if cfg != nil && cfg.network != "" {
+		task.Context = append(task.Context, netapi.DefaultNetworkPair(cfg.network))
+	}
+
 	if len(task.Context) > 0 {
 		fc := ctxapi.FrameFromContext(ctx)
 		if fc != nil {
@@ -119,9 +126,10 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 	}
 
 	configEntry := &configEntry{
-		method: cfg.Method,
-		pool:   cfg.Pool,
-		source: cfg,
+		method:  cfg.Method,
+		pool:    cfg.Pool,
+		source:  cfg,
+		network: cfg.Network,
 	}
 	opts, _ := cfg.Meta.GetBag("options")
 	configEntry.options = opts
@@ -173,6 +181,7 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 		method:   cfg.Method,
 		pool:     cfg.Pool,
 		bytecode: cfg,
+		network:  cfg.Network,
 	}
 	opts, _ := cfg.Meta.GetBag("options")
 	configEntry.options = opts
@@ -218,9 +227,10 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 	}
 
 	configEntry := &configEntry{
-		method: cfg.Method,
-		pool:   cfg.Pool,
-		source: cfg,
+		method:  cfg.Method,
+		pool:    cfg.Pool,
+		source:  cfg,
+		network: cfg.Network,
 	}
 	opts, _ := cfg.Meta.GetBag("options")
 	configEntry.options = opts
@@ -265,6 +275,7 @@ func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) erro
 		method:   cfg.Method,
 		pool:     cfg.Pool,
 		bytecode: cfg,
+		network:  cfg.Network,
 	}
 	opts, _ := cfg.Meta.GetBag("options")
 	configEntry.options = opts

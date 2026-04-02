@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
+	netapi "github.com/wippyai/runtime/api/net"
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	httpapi "github.com/wippyai/runtime/api/service/http"
 	streamhandler "github.com/wippyai/runtime/system/stream"
@@ -31,6 +33,13 @@ func WithPoolConfig(cfg PoolConfig) Option {
 	}
 }
 
+// WithNetworkRegistry sets the network registry for overlay network resolution.
+func WithNetworkRegistry(reg netapi.NetworkRegistry) Option {
+	return func(d *Dispatcher) {
+		d.networkReg = reg
+	}
+}
+
 // PoolConfig configures the HTTP client pool.
 type PoolConfig struct {
 	Timeout         time.Duration
@@ -41,8 +50,9 @@ type PoolConfig struct {
 
 // Dispatcher handles HTTP client commands.
 type Dispatcher struct {
-	pool    *Pool
-	poolCfg PoolConfig
+	networkReg netapi.NetworkRegistry
+	pool       *Pool
+	poolCfg    PoolConfig
 }
 
 // NewDispatcher creates a new HTTP client dispatcher.
@@ -77,9 +87,10 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 
 func (d *Dispatcher) handleRequest(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	req := cmd.(*httpapi.RequestCmd)
+	networkReg := d.networkReg
 
 	go func() {
-		result := executeRequest(ctx, d.pool, req, true)
+		result := executeRequest(ctx, d.pool, networkReg, req, true)
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, result, nil)
 		}
@@ -90,6 +101,7 @@ func (d *Dispatcher) handleRequest(ctx context.Context, cmd dispatcher.Command, 
 
 func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	batch := cmd.(*httpapi.RequestBatchCmd)
+	networkReg := d.networkReg
 
 	if len(batch.Requests) == 0 {
 		receiver.CompleteYield(tag, httpapi.BatchResponse{Responses: []httpapi.Response{}}, nil)
@@ -104,7 +116,7 @@ func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Comm
 		for i, req := range batch.Requests {
 			go func(idx int, req *httpapi.RequestCmd) {
 				defer wg.Done()
-				responses[idx] = executeRequest(ctx, d.pool, req, false)
+				responses[idx] = executeRequest(ctx, d.pool, networkReg, req, false)
 			}(i, req)
 		}
 
@@ -121,7 +133,7 @@ func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Comm
 const defaultMaxResponseBody int64 = 120 * 1024 * 1024 // 120MB default limit
 
 // executeRequest performs a single HTTP request and returns the response.
-func executeRequest(ctx context.Context, pool *Pool, req *httpapi.RequestCmd, allowStream bool) httpapi.Response {
+func executeRequest(ctx context.Context, pool *Pool, networkReg netapi.NetworkRegistry, req *httpapi.RequestCmd, allowStream bool) httpapi.Response {
 	reqURL := req.URL
 	if len(req.Query) > 0 {
 		u, err := url.Parse(reqURL)
@@ -196,8 +208,21 @@ func executeRequest(ctx context.Context, pool *Pool, req *httpapi.RequestCmd, al
 		httpReq.SetBasicAuth(req.BasicAuthUser, req.BasicAuthPass)
 	}
 
+	// Resolve overlay network: explicit per-request > function default > clearnet
+	overlayID := req.OverlayNetwork
+	if overlayID == "" {
+		overlayID = netapi.GetDefaultNetwork(ctx)
+	}
+
 	var client *gohttp.Client
-	if req.TLS != nil {
+	if overlayID != "" && networkReg != nil {
+		nid := registry.ParseID(overlayID)
+		netSvc, netErr := networkReg.GetNetwork(nid)
+		if netErr != nil {
+			return httpapi.Response{Error: fmt.Sprintf("overlay network %q: %v", overlayID, netErr)}
+		}
+		client = pool.GetClientWithDialer(req.Timeout, overlayID, netSvc.DialContext)
+	} else if req.TLS != nil {
 		var tlsErr error
 		client, tlsErr = pool.GetClientWithTLS(req.Timeout, req.UnixSocket, req.TLS)
 		if tlsErr != nil {

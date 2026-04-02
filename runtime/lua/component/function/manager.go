@@ -28,6 +28,7 @@ type configEntry struct {
 	source   *api.FunctionConfig
 	bytecode *api.BytecodeFunctionConfig
 	method   string
+	network  string
 	pool     api.PoolConfig
 }
 

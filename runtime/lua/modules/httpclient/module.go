@@ -252,6 +252,7 @@ func populateYield(yield *RequestYield, method, url string, opts *requestOptions
 	yield.Stream = opts.stream
 	yield.MaxResponseBody = opts.maxResponseBody
 	yield.TLS = opts.tls
+	yield.OverlayNetwork = opts.overlayNetwork
 
 	// Convert files
 	if len(opts.files) > 0 {
@@ -295,6 +296,7 @@ type requestOptions struct {
 	unixSocket      string
 	basicAuthUser   string
 	basicAuthPass   string
+	overlayNetwork  string
 	body            []byte
 	files           []fileUpload
 	timeout         time.Duration
@@ -432,6 +434,11 @@ func parseOptions(l *lua.LState, idx int) *requestOptions {
 		opts.tls = parseTLSConfig(tlsVal.(*lua.LTable))
 	}
 
+	// Overlay network
+	if overlay := tbl.RawGetString("overlay_network"); overlay.Type() == lua.LTString {
+		opts.overlayNetwork = overlay.String()
+	}
+
 	return opts
 }
 
@@ -561,6 +568,7 @@ func requestBatch(l *lua.LState) int {
 		req.BasicAuthPass = opts.basicAuthPass
 		req.MaxResponseBody = opts.maxResponseBody
 		req.TLS = opts.tls
+		req.OverlayNetwork = opts.overlayNetwork
 
 		if len(opts.files) > 0 {
 			req.Files = make([]httpapi.FileUpload, len(opts.files))
@@ -724,6 +732,11 @@ func parseOptionsFromTable(tbl *lua.LTable) *requestOptions {
 
 	if tlsVal := tbl.RawGetString("tls"); tlsVal.Type() == lua.LTTable {
 		opts.tls = parseTLSConfig(tlsVal.(*lua.LTable))
+	}
+
+	// Overlay network
+	if overlay := tbl.RawGetString("overlay_network"); overlay.Type() == lua.LTString {
+		opts.overlayNetwork = overlay.String()
 	}
 
 	return opts

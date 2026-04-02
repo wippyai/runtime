@@ -8,6 +8,7 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
+	netapi "github.com/wippyai/runtime/api/net"
 	httpclient "github.com/wippyai/runtime/service/http/client"
 )
 
@@ -44,6 +45,11 @@ func HTTP(cfg ...HTTPConfig) boot.Component {
 					MaxIdlePerHost:  config.MaxIdlePerHost,
 					IdleConnTimeout: config.IdleConnTimeout,
 				}))
+			}
+
+			// Inject network registry for overlay network resolution (graceful: nil is fine)
+			if netReg := netapi.GetNetworkRegistry(ctx); netReg != nil {
+				opts = append(opts, httpclient.WithNetworkRegistry(netReg))
 			}
 
 			d = httpclient.NewDispatcher(opts...)

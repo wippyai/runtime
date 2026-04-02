@@ -43,6 +43,7 @@ type RequestCmd struct {
 	BasicAuthPass   string
 	UnixSocket      string
 	BasicAuthUser   string
+	OverlayNetwork  string
 	Body            []byte
 	Files           []FileUpload
 	Timeout         time.Duration
@@ -88,6 +89,7 @@ func (c *RequestCmd) Release() {
 	c.TLS = nil
 	c.Stream = false
 	c.MaxResponseBody = 0
+	c.OverlayNetwork = ""
 	requestCmdPool.Put(c)
 }
 

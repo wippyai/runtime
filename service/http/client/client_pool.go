@@ -21,6 +21,7 @@ import (
 type clientKey struct {
 	unixSocket     string
 	tlsFingerprint string
+	networkID      string
 	timeout        time.Duration
 }
 
@@ -113,6 +114,36 @@ func (p *Pool) GetClient(timeout time.Duration, unixSocket string) *gohttp.Clien
 
 	co.once.Do(func() {
 		co.client = createClient(timeout, unixSocket, defaultMaxIdleConns, defaultMaxIdlePerHost, defaultIdleConnTimeout)
+	})
+
+	return co.client
+}
+
+// GetClientWithDialer returns a pooled client using a custom DialContext function.
+// The networkID is used as part of the cache key so each network gets its own transport pool.
+func (p *Pool) GetClientWithDialer(timeout time.Duration, networkID string, dialFn func(ctx context.Context, network, addr string) (net.Conn, error)) *gohttp.Client {
+	if timeout <= 0 {
+		timeout = defaultTimeout
+	}
+
+	key := clientKey{timeout: timeout, networkID: networkID}
+
+	if v, ok := p.clients.Load(key); ok {
+		co := v.(*clientOnce)
+		co.once.Do(func() {
+			co.client = createClientWithDialer(timeout, dialFn)
+		})
+		return co.client
+	}
+
+	co := &clientOnce{}
+	actual, loaded := p.clients.LoadOrStore(key, co)
+	if loaded {
+		co = actual.(*clientOnce)
+	}
+
+	co.once.Do(func() {
+		co.client = createClientWithDialer(timeout, dialFn)
 	})
 
 	return co.client
@@ -237,6 +268,23 @@ func (p *Pool) Size() int {
 		return true
 	})
 	return count
+}
+
+// createClientWithDialer builds an HTTP client with a custom DialContext function.
+func createClientWithDialer(timeout time.Duration, dialFn func(ctx context.Context, network, addr string) (net.Conn, error)) *gohttp.Client {
+	transport := &gohttp.Transport{
+		MaxIdleConns:          defaultMaxIdleConns,
+		MaxIdleConnsPerHost:   defaultMaxIdlePerHost,
+		IdleConnTimeout:       defaultIdleConnTimeout,
+		TLSHandshakeTimeout:   defaultTLSHandshake,
+		ExpectContinueTimeout: defaultExpectContinue,
+		ForceAttemptHTTP2:     false,
+		DialContext:           dialFn,
+	}
+	return &gohttp.Client{
+		Transport: transport,
+		Timeout:   timeout,
+	}
 }
 
 // createClient builds an HTTP client with optional TLS configuration.
