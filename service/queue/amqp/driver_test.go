@@ -33,8 +33,8 @@ func TestMain(m *testing.M) {
 		os.Exit(m.Run())
 	}
 
-	if _, err := exec.LookPath("docker"); err != nil {
-		fmt.Println("docker not found, skipping AMQP integration tests")
+	if !dockerAvailable() {
+		fmt.Println("docker not available, skipping AMQP integration tests")
 		os.Exit(0)
 	}
 
@@ -66,6 +66,11 @@ func TestMain(m *testing.M) {
 
 	_ = exec.CommandContext(context.Background(), "docker", "rm", "-f", testContainer).Run()
 	os.Exit(code)
+}
+
+func dockerAvailable() bool {
+	cmd := exec.CommandContext(context.Background(), "docker", "info")
+	return cmd.Run() == nil
 }
 
 func waitForAMQP(url string, timeout time.Duration) bool {
