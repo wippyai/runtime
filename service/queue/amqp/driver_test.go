@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,6 +71,15 @@ func TestMain(m *testing.M) {
 }
 
 func dockerAvailable() bool {
+	if runtime.GOOS == "windows" {
+		// Check if Docker is in Linux containers mode (required for our test images).
+		cmd := exec.CommandContext(context.Background(), "docker", "info", "--format", "{{.OSType}}")
+		out, err := cmd.Output()
+		if err != nil || strings.TrimSpace(string(out)) != "linux" {
+			return false
+		}
+		return true
+	}
 	cmd := exec.CommandContext(context.Background(), "docker", "info")
 	return cmd.Run() == nil
 }
