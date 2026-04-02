@@ -44,7 +44,7 @@ func TestMain(m *testing.M) {
 	cmd := exec.CommandContext(context.Background(), "docker", "run", "-d",
 		"--name", testContainer,
 		"-p", testPort+":6379",
-		"redis:7-alpine")
+		"redis:8-alpine")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		fmt.Printf("failed to start redis: %s\n%s\n", err, out)
 		os.Exit(1)
