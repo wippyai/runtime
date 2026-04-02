@@ -51,7 +51,15 @@ func (d *Driver) getChannel() (*amqp091.Channel, error) {
 	d.mu.RLock()
 	conn := d.conn
 	d.mu.RUnlock()
+	return d.channelFromConn(conn)
+}
 
+// getChannelLocked returns a channel using the connection already held under lock.
+func (d *Driver) getChannelLocked() (*amqp091.Channel, error) {
+	return d.channelFromConn(d.conn)
+}
+
+func (d *Driver) channelFromConn(conn *amqp091.Connection) (*amqp091.Channel, error) {
 	if conn == nil || conn.IsClosed() {
 		return nil, queuesvc.ErrDriverNotStarted
 	}
@@ -213,7 +221,7 @@ func (d *Driver) DeclareQueue(_ context.Context, queueID registry.ID, opts attrs
 		}
 	}
 
-	ch, err := d.getChannel()
+	ch, err := d.getChannelLocked()
 	if err != nil {
 		return err
 	}
