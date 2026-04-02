@@ -9,4 +9,7 @@ const (
 	QueuesName       boot.Name = "queue-declarations"
 	ConsumersName    boot.Name = "queue-consumers"
 	MemoryDriverName boot.Name = "queue-memory"
+	AMQPDriverName   boot.Name = "queue-amqp"
+	SQSDriverName    boot.Name = "queue-sqs"
+	RedisDriverName  boot.Name = "queue-redis"
 )

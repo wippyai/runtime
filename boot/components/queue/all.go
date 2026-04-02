@@ -9,6 +9,9 @@ func All() []boot.Component {
 		Manager(),
 		Queues(),
 		Memory(),
+		AMQP(),
+		SQS(),
+		Redis(),
 		Consumers(),
 	}
 }
