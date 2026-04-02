@@ -12,6 +12,7 @@ func All() []boot.Component {
 		AMQP(),
 		SQS(),
 		Redis(),
+		RoadRunner(),
 		Consumers(),
 	}
 }
