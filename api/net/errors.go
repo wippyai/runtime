@@ -10,4 +10,5 @@ var (
 	ErrNetworkNotFound    = errors.New("network: service not found")
 	ErrNetworkUnavailable = errors.New("network: service unavailable")
 	ErrNotSupported       = errors.New("network: operation not supported by this provider")
+	ErrAuthKeyRequired    = errors.New("network: tailscale auth_key or auth_key_env is required")
 )

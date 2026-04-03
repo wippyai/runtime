@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	gohttp "net/http"
 	"net/url"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	httpapi "github.com/wippyai/runtime/api/service/http"
+	"github.com/wippyai/runtime/runtime/security"
 	streamhandler "github.com/wippyai/runtime/system/stream"
 )
 
@@ -132,6 +134,44 @@ func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Comm
 
 const defaultMaxResponseBody int64 = 120 * 1024 * 1024 // 120MB default limit
 
+// checkOverlayPrivateIP validates that the request URL does not target a
+// private/loopback/link-local IP when routed through an overlay network.
+// Overlay dialers resolve DNS internally, so pre-flight resolution is needed.
+func checkOverlayPrivateIP(ctx context.Context, rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return nil
+	}
+	host := u.Hostname()
+	if host == "" {
+		return nil
+	}
+
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+			ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			if !security.IsAllowed(ctx, "http_client.private_ip", host, nil) {
+				return fmt.Errorf("not allowed: private IP %s via overlay network", host)
+			}
+		}
+		return nil
+	}
+
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+	if err != nil {
+		return nil
+	}
+	for _, ip := range ips {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+			ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			if !security.IsAllowed(ctx, "http_client.private_ip", ip.String(), nil) {
+				return fmt.Errorf("not allowed: private IP %s via overlay network", ip.String())
+			}
+		}
+	}
+	return nil
+}
+
 // executeRequest performs a single HTTP request and returns the response.
 func executeRequest(ctx context.Context, pool *Pool, networkReg netapi.NetworkRegistry, req *httpapi.RequestCmd, allowStream bool) httpapi.Response {
 	reqURL := req.URL
@@ -216,6 +256,12 @@ func executeRequest(ctx context.Context, pool *Pool, networkReg netapi.NetworkRe
 
 	var client *gohttp.Client
 	if overlayID != "" && networkReg != nil {
+		// SSRF protection: overlay dialers resolve DNS internally, so check
+		// the target URL against private IP ranges before handing off.
+		if err := checkOverlayPrivateIP(ctx, reqURL); err != nil {
+			return httpapi.Response{Error: err.Error()}
+		}
+
 		nid := registry.ParseID(overlayID)
 		netSvc, netErr := networkReg.GetNetwork(nid)
 		if netErr != nil {

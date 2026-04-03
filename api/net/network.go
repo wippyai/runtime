@@ -26,9 +26,7 @@ type NetworkConfig struct {
 
 // SetMeta sets the metadata for NetworkConfig.
 func (c *NetworkConfig) SetMeta(meta attrs.Bag) {
-	if c.Meta == nil {
-		c.Meta = meta
-	}
+	c.Meta = meta
 }
 
 // Validate checks that the common network config fields are set correctly.
@@ -68,7 +66,14 @@ type TailscaleConfig struct {
 
 // SetMeta sets the metadata for TailscaleConfig.
 func (c *TailscaleConfig) SetMeta(meta attrs.Bag) {
-	if c.Meta == nil {
-		c.Meta = meta
+	c.Meta = meta
+}
+
+// Validate checks that the Tailscale config has the minimum required fields.
+// Either AuthKey or AuthKeyEnv must be provided for non-interactive auth.
+func (c *TailscaleConfig) Validate() error {
+	if c.AuthKey == "" && c.AuthKeyEnv == "" {
+		return ErrAuthKeyRequired
 	}
+	return nil
 }

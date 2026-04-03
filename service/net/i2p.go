@@ -3,9 +3,11 @@
 package net
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"net"
+	"strings"
 
 	netapi "github.com/wippyai/runtime/api/net"
 )
@@ -44,6 +46,32 @@ func (s *I2PService) LookupHost(_ context.Context, _ string) ([]string, error) {
 	return nil, fmt.Errorf("i2p: %w (DNS resolved via SAM at dial time)", netapi.ErrNotSupported)
 }
 
+// samReadLine reads a single newline-terminated response from the SAM bridge.
+func samReadLine(reader *bufio.Reader) (string, error) {
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(line, "\r\n"), nil
+}
+
+// samParseResult extracts the RESULT= value from a SAM response line.
+// Returns the result value (e.g. "OK", "NOVERSION", "I2P_ERROR") and true,
+// or empty string and false if no RESULT= key is found.
+func samParseResult(line string) (string, bool) {
+	const key = "RESULT="
+	idx := strings.Index(line, key)
+	if idx < 0 {
+		return "", false
+	}
+	rest := line[idx+len(key):]
+	// The value runs until the next space or end of line.
+	if spIdx := strings.IndexByte(rest, ' '); spIdx >= 0 {
+		return rest[:spIdx], true
+	}
+	return rest, true
+}
+
 // samDial connects to the SAM bridge and performs a STREAM CONNECT.
 // This is a minimal SAM v3 client implementation.
 func samDial(ctx context.Context, samAddr, sessionName, _ /* network */, address string) (net.Conn, error) {
@@ -53,37 +81,52 @@ func samDial(ctx context.Context, samAddr, sessionName, _ /* network */, address
 		return nil, fmt.Errorf("i2p: failed to connect to SAM bridge at %s: %w", samAddr, err)
 	}
 
-	// SAM v3 handshake
+	reader := bufio.NewReader(samConn)
+
+	// Step 1: SAM v3 handshake
 	if _, err := fmt.Fprintf(samConn, "HELLO VERSION MIN=3.0 MAX=3.3\n"); err != nil {
 		samConn.Close()
 		return nil, fmt.Errorf("i2p: SAM handshake failed: %w", err)
 	}
 
-	buf := make([]byte, 1024)
-	n, err := samConn.Read(buf)
+	resp, err := samReadLine(reader)
 	if err != nil {
 		samConn.Close()
 		return nil, fmt.Errorf("i2p: SAM handshake response failed: %w", err)
 	}
-	resp := string(buf[:n])
-	if len(resp) < 13 || resp[:13] != "HELLO REPLY R" {
+	if result, ok := samParseResult(resp); !ok || result != "OK" {
 		samConn.Close()
-		return nil, fmt.Errorf("i2p: unexpected SAM response: %s", resp)
+		return nil, fmt.Errorf("i2p: unexpected SAM handshake response: %s", resp)
 	}
 
-	// STREAM CONNECT to target
+	// Step 2: Create a transient session
+	if _, err := fmt.Fprintf(samConn, "SESSION CREATE STYLE=STREAM ID=%s DESTINATION=TRANSIENT\n", sessionName); err != nil {
+		samConn.Close()
+		return nil, fmt.Errorf("i2p: SESSION CREATE failed: %w", err)
+	}
+
+	resp, err = samReadLine(reader)
+	if err != nil {
+		samConn.Close()
+		return nil, fmt.Errorf("i2p: SESSION CREATE response failed: %w", err)
+	}
+	if result, ok := samParseResult(resp); !ok || result != "OK" {
+		samConn.Close()
+		return nil, fmt.Errorf("i2p: SESSION CREATE rejected: %s", resp)
+	}
+
+	// Step 3: STREAM CONNECT to target
 	if _, err := fmt.Fprintf(samConn, "STREAM CONNECT ID=%s DESTINATION=%s SILENT=false\n", sessionName, address); err != nil {
 		samConn.Close()
 		return nil, fmt.Errorf("i2p: STREAM CONNECT failed: %w", err)
 	}
 
-	n, err = samConn.Read(buf)
+	resp, err = samReadLine(reader)
 	if err != nil {
 		samConn.Close()
 		return nil, fmt.Errorf("i2p: STREAM CONNECT response failed: %w", err)
 	}
-	resp = string(buf[:n])
-	if len(resp) < 22 || resp[:22] != "STREAM STATUS RESULT=O" {
+	if result, ok := samParseResult(resp); !ok || result != "OK" {
 		samConn.Close()
 		return nil, fmt.Errorf("i2p: STREAM CONNECT rejected: %s", resp)
 	}

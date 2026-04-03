@@ -205,5 +205,8 @@ func (m *Manager) createTailscale(entry registry.Entry) (netapi.Service, error) 
 	if err := m.decodeConfig(entry, &cfg); err != nil {
 		return nil, fmt.Errorf("tailscale config: %w", err)
 	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("tailscale config: %w", err)
+	}
 	return NewTailscaleService(&cfg)
 }
