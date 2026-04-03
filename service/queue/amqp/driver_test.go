@@ -7,19 +7,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
-	"strings"
 	"testing"
 	"time"
 
 	amqp091 "github.com/rabbitmq/amqp091-go"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wippyai/runtime/api/attrs"
-	"github.com/wippyai/runtime/api/payload"
-	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
 	amqpapi "github.com/wippyai/runtime/api/service/queue/amqp"
+	"github.com/wippyai/runtime/service/queue/drivertest"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -36,15 +31,15 @@ func TestMain(m *testing.M) {
 		os.Exit(m.Run())
 	}
 
-	if !dockerAvailable() {
+	if !drivertest.DockerAvailable() {
 		fmt.Println("docker not available, skipping AMQP integration tests")
 		os.Exit(0)
 	}
 
-	// Cleanup any leftover container
+	// Cleanup any leftover container.
 	_ = exec.CommandContext(context.Background(), "docker", "rm", "-f", testContainer).Run()
 
-	// Start RabbitMQ
+	// Start RabbitMQ.
 	cmd := exec.CommandContext(context.Background(), "docker", "run", "-d",
 		"--name", testContainer,
 		"-p", testAMQPPort+":5672",
@@ -58,7 +53,7 @@ func TestMain(m *testing.M) {
 
 	testAMQPURL = fmt.Sprintf("amqp://guest:guest@localhost:%s/", testAMQPPort)
 
-	// Wait for RabbitMQ AMQP protocol to be ready
+	// Wait for RabbitMQ AMQP protocol to be ready.
 	if !waitForAMQP(testAMQPURL, 60*time.Second) {
 		fmt.Println("rabbitmq did not become ready in time")
 		_ = exec.CommandContext(context.Background(), "docker", "rm", "-f", testContainer).Run()
@@ -69,20 +64,6 @@ func TestMain(m *testing.M) {
 
 	_ = exec.CommandContext(context.Background(), "docker", "rm", "-f", testContainer).Run()
 	os.Exit(code)
-}
-
-func dockerAvailable() bool {
-	if runtime.GOOS == "windows" {
-		// Check if Docker is in Linux containers mode (required for our test images).
-		cmd := exec.CommandContext(context.Background(), "docker", "info", "--format", "{{.OSType}}")
-		out, err := cmd.Output()
-		if err != nil || strings.TrimSpace(string(out)) != "linux" {
-			return false
-		}
-		return true
-	}
-	cmd := exec.CommandContext(context.Background(), "docker", "info")
-	return cmd.Run() == nil
 }
 
 func waitForAMQP(url string, timeout time.Duration) bool {
@@ -116,179 +97,10 @@ func setupDriver(t *testing.T) *Driver {
 	return driver
 }
 
-func TestAMQPDriver_DeclareQueue(t *testing.T) {
+// TestAMQPDriver_Conformance runs the shared driver conformance suite.
+func TestAMQPDriver_Conformance(t *testing.T) {
 	driver := setupDriver(t)
-
-	ctx := context.Background()
-	queueID := registry.ParseID("test:amqp-declare")
-
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, "test-declare-"+time.Now().Format("150405"))
-
-	err := driver.DeclareQueue(ctx, queueID, opts)
-	require.NoError(t, err)
-
-	// Declaring again should be idempotent
-	err = driver.DeclareQueue(ctx, queueID, opts)
-	require.NoError(t, err)
-}
-
-func TestAMQPDriver_PublishAndAttach(t *testing.T) {
-	driver := setupDriver(t)
-
-	ctx := context.Background()
-	queueName := "test-pubsub-" + time.Now().Format("150405")
-	queueID := registry.ParseID("test:amqp-pubsub")
-
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, queueName)
-	err := driver.DeclareQueue(ctx, queueID, opts)
-	require.NoError(t, err)
-
-	deliveries := make(chan *queueapi.Delivery, 10)
-	cancel, err := driver.Attach(ctx, queueID, deliveries)
-	require.NoError(t, err)
-	defer cancel()
-
-	msg := queueapi.AcquireMessage(payload.New("hello amqp"))
-	msg.ID = "amqp-msg-1"
-	msg.Headers.Set("custom", "header-value")
-
-	err = driver.Publish(ctx, queueID, msg)
-	require.NoError(t, err)
-
-	select {
-	case delivery := <-deliveries:
-		assert.Equal(t, "amqp-msg-1", delivery.Message.ID)
-		assert.NotNil(t, delivery.Message.Body)
-		err = delivery.Ack(ctx)
-		assert.NoError(t, err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout waiting for message")
-	}
-}
-
-func TestAMQPDriver_MultipleMessages(t *testing.T) {
-	driver := setupDriver(t)
-
-	ctx := context.Background()
-	queueName := "test-multi-" + time.Now().Format("150405")
-	queueID := registry.ParseID("test:amqp-multi")
-
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, queueName)
-	err := driver.DeclareQueue(ctx, queueID, opts)
-	require.NoError(t, err)
-
-	deliveries := make(chan *queueapi.Delivery, 10)
-	cancel, err := driver.Attach(ctx, queueID, deliveries)
-	require.NoError(t, err)
-	defer cancel()
-
-	for i := 0; i < 3; i++ {
-		msg := queueapi.AcquireMessage(payload.New("msg"))
-		msg.ID = string(rune('a' + i))
-		err = driver.Publish(ctx, queueID, msg)
-		require.NoError(t, err)
-	}
-
-	received := 0
-	timeout := time.After(5 * time.Second)
-	for received < 3 {
-		select {
-		case delivery := <-deliveries:
-			assert.NotNil(t, delivery.Message)
-			err = delivery.Ack(ctx)
-			assert.NoError(t, err)
-			received++
-		case <-timeout:
-			t.Fatalf("timeout, only received %d of 3 messages", received)
-		}
-	}
-}
-
-func TestAMQPDriver_Nack(t *testing.T) {
-	driver := setupDriver(t)
-
-	ctx := context.Background()
-	queueName := "test-nack-" + time.Now().Format("150405")
-	queueID := registry.ParseID("test:amqp-nack")
-
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, queueName)
-	err := driver.DeclareQueue(ctx, queueID, opts)
-	require.NoError(t, err)
-
-	deliveries := make(chan *queueapi.Delivery, 10)
-	cancel, err := driver.Attach(ctx, queueID, deliveries)
-	require.NoError(t, err)
-	defer cancel()
-
-	msg := queueapi.AcquireMessage(payload.New("nack-test"))
-	msg.ID = "nack-msg-1"
-	err = driver.Publish(ctx, queueID, msg)
-	require.NoError(t, err)
-
-	select {
-	case delivery := <-deliveries:
-		assert.Equal(t, "nack-msg-1", delivery.Message.ID)
-		err = delivery.Nack(ctx)
-		assert.NoError(t, err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout waiting for first delivery")
-	}
-
-	select {
-	case delivery := <-deliveries:
-		assert.Equal(t, "nack-msg-1", delivery.Message.ID)
-		err = delivery.Ack(ctx)
-		assert.NoError(t, err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout waiting for redelivery")
-	}
-}
-
-func TestAMQPDriver_GetQueueInfo(t *testing.T) {
-	driver := setupDriver(t)
-
-	ctx := context.Background()
-	queueName := "test-info-" + time.Now().Format("150405")
-	queueID := registry.ParseID("test:amqp-info")
-
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, queueName)
-	err := driver.DeclareQueue(ctx, queueID, opts)
-	require.NoError(t, err)
-
-	msg1 := queueapi.AcquireMessage(payload.New("info1"))
-	msg1.ID = "info-1"
-	msg2 := queueapi.AcquireMessage(payload.New("info2"))
-	msg2.ID = "info-2"
-
-	err = driver.Publish(ctx, queueID, msg1, msg2)
-	require.NoError(t, err)
-
-	info, err := driver.GetQueueInfo(ctx, queueID)
-	require.NoError(t, err)
-
-	count := info.GetInt(queueapi.StatsMessageCount, 0)
-	assert.Equal(t, 2, count)
-}
-
-func TestAMQPDriver_PublishNonExistent(t *testing.T) {
-	driver := setupDriver(t)
-
-	ctx := context.Background()
-	msg := queueapi.AcquireMessage(payload.New("test"))
-	err := driver.Publish(ctx, registry.ParseID("test:nonexistent"), msg)
-	assert.ErrorIs(t, err, queueapi.ErrQueueNotFound)
-}
-
-func TestAMQPDriver_AttachNonExistent(t *testing.T) {
-	driver := setupDriver(t)
-
-	ctx := context.Background()
-	deliveries := make(chan *queueapi.Delivery, 10)
-	_, err := driver.Attach(ctx, registry.ParseID("test:nonexistent"), deliveries)
-	assert.ErrorIs(t, err, queueapi.ErrQueueNotFound)
+	drivertest.New(t, driver,
+		drivertest.WithTimeout(5*time.Second),
+	).Run()
 }
