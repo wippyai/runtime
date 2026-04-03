@@ -30,7 +30,7 @@ func HTTP(cfg ...HTTPConfig) boot.Component {
 
 	return boot.New(boot.P{
 		Name:      HTTPDispatcherName,
-		DependsOn: []boot.Name{DispatcherName, networkServiceName},
+		DependsOn: []boot.Name{DispatcherName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			reg := dispatcherapi.GetRegistrar(ctx)
 			if reg == nil {

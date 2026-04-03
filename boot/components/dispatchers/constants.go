@@ -8,9 +8,6 @@ const (
 	// DispatcherName is the Dispatcher parent dependency
 	DispatcherName boot.Name = "dispatcher"
 
-	// networkServiceName mirrors service.NetworkServiceName to avoid import cycles.
-	networkServiceName boot.Name = "network_service"
-
 	// ClockDispatcherName is a System dispatcher
 	ClockDispatcherName    boot.Name = "dispatcher.clock"
 	ContractDispatcherName boot.Name = "dispatcher.contract"
