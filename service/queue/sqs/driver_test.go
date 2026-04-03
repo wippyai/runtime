@@ -22,6 +22,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
+	sqsapi "github.com/wippyai/runtime/api/service/queue/sqs"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -100,14 +101,17 @@ func setupDriver(t *testing.T) *Driver {
 	logger := zaptest.NewLogger(t)
 	ctx := context.Background()
 
-	cfg, err := awsconfig.LoadDefaultConfig(ctx,
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
 		awsconfig.WithRegion("elasticmq"),
 		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("x", "x", "x")),
 	)
 	require.NoError(t, err)
-	cfg.BaseEndpoint = aws.String(testEndpoint)
+	awsCfg.BaseEndpoint = aws.String(testEndpoint)
 
-	driver := NewDriver(registry.ParseID("test:sqs"), cfg, logger)
+	sqsCfg := &sqsapi.Config{}
+	sqsCfg.InitDefaults()
+
+	driver := NewDriver(registry.ParseID("test:sqs"), sqsCfg, awsCfg, logger)
 
 	statusCh, err := driver.Start(ctx)
 	require.NoError(t, err)

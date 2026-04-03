@@ -5,6 +5,7 @@ package sqs
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
+	sqsapi "github.com/wippyai/runtime/api/service/queue/sqs"
 	queuesvc "github.com/wippyai/runtime/service/queue"
 	"go.uber.org/zap"
 )
@@ -29,6 +31,7 @@ type Driver struct {
 	ctx        context.Context
 	logger     *zap.Logger
 	client     *awssqs.Client
+	cfg        *sqsapi.Config
 	queues     map[registry.ID]*declaredQueue
 	cancel     context.CancelFunc
 	statusChan chan any
@@ -38,12 +41,13 @@ type Driver struct {
 }
 
 // NewDriver creates a new SQS driver instance.
-func NewDriver(id registry.ID, awsCfg aws.Config, logger *zap.Logger) *Driver {
+func NewDriver(id registry.ID, cfg *sqsapi.Config, awsCfg aws.Config, logger *zap.Logger) *Driver {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 	return &Driver{
 		id:     id,
+		cfg:    cfg,
 		awsCfg: awsCfg,
 		logger: logger,
 		queues: make(map[registry.ID]*declaredQueue),
@@ -122,6 +126,17 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 
 	consumerCtx, cancel := context.WithCancel(ctx)
 
+	// Build ReceiveMessage input from config
+	receiveInput := &awssqs.ReceiveMessageInput{
+		QueueUrl:              aws.String(q.url),
+		MaxNumberOfMessages:   d.cfg.MaxNumberOfMessages,
+		WaitTimeSeconds:       d.cfg.WaitTimeSeconds,
+		MessageAttributeNames: []string{"All"},
+	}
+	if d.cfg.VisibilityTimeout > 0 {
+		receiveInput.VisibilityTimeout = d.cfg.VisibilityTimeout
+	}
+
 	go func() {
 		for {
 			select {
@@ -132,12 +147,7 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 			default:
 			}
 
-			result, err := client.ReceiveMessage(consumerCtx, &awssqs.ReceiveMessageInput{
-				QueueUrl:              aws.String(q.url),
-				MaxNumberOfMessages:   10,
-				WaitTimeSeconds:       20,
-				MessageAttributeNames: []string{"All"},
-			})
+			result, err := client.ReceiveMessage(consumerCtx, receiveInput)
 			if err != nil {
 				if consumerCtx.Err() != nil {
 					return
@@ -196,6 +206,31 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 	return cancel, nil
 }
 
+// buildQueueAttributes constructs SQS queue attributes from the driver config.
+// Returns nil if no custom attributes are configured.
+func (d *Driver) buildQueueAttributes() map[string]string {
+	hasRetention := d.cfg.MessageRetentionPeriod > 0
+	hasDelay := d.cfg.DefaultDelaySeconds > 0
+	hasVisibility := d.cfg.VisibilityTimeout > 0
+
+	if !hasRetention && !hasDelay && !hasVisibility {
+		return nil
+	}
+
+	attrs := make(map[string]string)
+	if hasRetention {
+		attrs[string(types.QueueAttributeNameMessageRetentionPeriod)] = strconv.FormatInt(int64(d.cfg.MessageRetentionPeriod), 10)
+	}
+	if hasDelay {
+		attrs[string(types.QueueAttributeNameDelaySeconds)] = strconv.FormatInt(int64(d.cfg.DefaultDelaySeconds), 10)
+	}
+	if hasVisibility {
+		attrs[string(types.QueueAttributeNameVisibilityTimeout)] = strconv.FormatInt(int64(d.cfg.VisibilityTimeout), 10)
+	}
+
+	return attrs
+}
+
 func (d *Driver) DeclareQueue(ctx context.Context, queueID registry.ID, opts attrs.Attributes) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -227,9 +262,14 @@ func (d *Driver) DeclareQueue(ctx context.Context, queueID registry.ID, opts att
 	}
 
 	// Queue doesn't exist, create it
-	createResult, err := d.client.CreateQueue(ctx, &awssqs.CreateQueueInput{
+	createInput := &awssqs.CreateQueueInput{
 		QueueName: aws.String(name),
-	})
+	}
+	if queueAttrs := d.buildQueueAttributes(); queueAttrs != nil {
+		createInput.Attributes = queueAttrs
+	}
+
+	createResult, err := d.client.CreateQueue(ctx, createInput)
 	if err != nil {
 		return fmt.Errorf("sqs create queue: %w", err)
 	}
@@ -296,7 +336,17 @@ func (d *Driver) lifecycleCtxDone() <-chan struct{} {
 func (d *Driver) Start(ctx context.Context) (<-chan any, error) {
 	d.mu.Lock()
 	d.ctx, d.cancel = context.WithCancel(ctx)
-	d.client = awssqs.NewFromConfig(d.awsCfg)
+	d.client = awssqs.NewFromConfig(d.awsCfg, func(o *awssqs.Options) {
+		if d.cfg.DisableMessageChecksumValidation {
+			o.DisableMessageChecksumValidation = true
+		}
+		if d.cfg.UseFIPS {
+			o.EndpointOptions.UseFIPSEndpoint = aws.FIPSEndpointStateEnabled
+		}
+		if d.cfg.UseDualStack {
+			o.EndpointOptions.UseDualStackEndpoint = aws.DualStackEndpointStateEnabled
+		}
+	})
 	d.statusChan = make(chan any, 1)
 	d.mu.Unlock()
 

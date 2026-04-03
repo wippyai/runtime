@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
 	sqsapi "github.com/wippyai/runtime/api/service/queue/sqs"
 	"github.com/wippyai/runtime/api/supervisor"
 	entryutil "github.com/wippyai/runtime/internal/entry"
@@ -46,11 +47,99 @@ func NewManager(
 	}
 }
 
+// loadAWSConfig resolves an aws.Config from the driver configuration.
+//
+// Resolution order:
+//  1. AWSConfig set → acquire shared config.aws resource
+//  2. Otherwise → build from inline fields (region, credentials, profile, HTTP, retry)
 func (m *Manager) loadAWSConfig(ctx context.Context, cfg *sqsapi.Config) (aws.Config, error) {
+	// Path 1: shared config.aws resource
+	if cfg.AWSConfig != "" {
+		return m.loadSharedAWSConfig(ctx, cfg)
+	}
+
+	// Path 2: inline configuration
+	return m.loadInlineAWSConfig(ctx, cfg)
+}
+
+// loadSharedAWSConfig acquires an aws.Config from the shared resource registry,
+// then applies SQS-specific overrides (endpoint).
+func (m *Manager) loadSharedAWSConfig(ctx context.Context, cfg *sqsapi.Config) (aws.Config, error) {
+	resourceRegistry := resource.GetRegistry(ctx)
+	rsc, err := resourceRegistry.Acquire(ctx, registry.ParseID(cfg.AWSConfig), resource.ModeNormal)
+	if err != nil {
+		return aws.Config{}, fmt.Errorf("sqs: acquire aws config resource %q: %w", cfg.AWSConfig, err)
+	}
+
+	gotConfig, err := rsc.Get()
+	if err != nil {
+		return aws.Config{}, fmt.Errorf("sqs: get aws config resource: %w", err)
+	}
+
+	awsCfg, ok := gotConfig.(aws.Config)
+	if !ok {
+		return aws.Config{}, fmt.Errorf("sqs: aws config resource is not aws.Config")
+	}
+
+	// Apply SQS-specific overrides on top of the shared config
+	if cfg.Endpoint != "" {
+		awsCfg.BaseEndpoint = aws.String(cfg.Endpoint)
+	}
+
+	// Apply custom HTTP client if configured
+	httpClient, ok, err := cfg.BuildHTTPClient()
+	if err != nil {
+		return aws.Config{}, fmt.Errorf("sqs: build http client: %w", err)
+	}
+	if ok {
+		awsCfg.HTTPClient = httpClient
+	}
+
+	return awsCfg, nil
+}
+
+// loadInlineAWSConfig builds an aws.Config from the driver's inline fields.
+func (m *Manager) loadInlineAWSConfig(ctx context.Context, cfg *sqsapi.Config) (aws.Config, error) {
 	var opts []func(*awsconfig.LoadOptions) error
 
 	if cfg.Region != "" {
 		opts = append(opts, awsconfig.WithRegion(cfg.Region))
+	}
+	if cfg.Profile != "" {
+		opts = append(opts, awsconfig.WithSharedConfigProfile(cfg.Profile))
+	}
+
+	// Static credentials
+	if cfg.AccessKeyID != "" && cfg.SecretAccessKey != "" {
+		opts = append(opts, awsconfig.WithCredentialsProvider(
+			aws.CredentialsProviderFunc(func(_ context.Context) (aws.Credentials, error) {
+				return aws.Credentials{
+					AccessKeyID:     cfg.AccessKeyID,
+					SecretAccessKey: cfg.SecretAccessKey,
+					SessionToken:    cfg.SessionToken,
+				}, nil
+			}),
+		))
+	}
+
+	// Retry
+	if cfg.RetryMaxAttempts > 0 {
+		opts = append(opts, awsconfig.WithRetryMaxAttempts(cfg.RetryMaxAttempts))
+	}
+	switch cfg.RetryMode {
+	case "standard":
+		opts = append(opts, awsconfig.WithRetryMode(aws.RetryModeStandard))
+	case "adaptive":
+		opts = append(opts, awsconfig.WithRetryMode(aws.RetryModeAdaptive))
+	}
+
+	// Custom HTTP client
+	httpClient, ok, err := cfg.BuildHTTPClient()
+	if err != nil {
+		return aws.Config{}, fmt.Errorf("sqs: build http client: %w", err)
+	}
+	if ok {
+		opts = append(opts, awsconfig.WithHTTPClient(httpClient))
 	}
 
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)
@@ -58,6 +147,7 @@ func (m *Manager) loadAWSConfig(ctx context.Context, cfg *sqsapi.Config) (aws.Co
 		return aws.Config{}, fmt.Errorf("aws config: %w", err)
 	}
 
+	// Endpoint (set on the resolved config, not via load options)
 	if cfg.Endpoint != "" {
 		awsCfg.BaseEndpoint = aws.String(cfg.Endpoint)
 	}
@@ -87,7 +177,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return queuesvc.NewConfigError("failed to load aws config", err)
 	}
 
-	driver := NewDriver(entry.ID, awsCfg, m.log)
+	driver := NewDriver(entry.ID, cfg, awsCfg, m.log)
 	m.drivers[entry.ID] = driver
 
 	m.bus.Send(ctx, event.Event{
