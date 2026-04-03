@@ -98,5 +98,6 @@ func TestSQSDriver_Conformance(t *testing.T) {
 		drivertest.WithTimeout(30*time.Second),
 		drivertest.WithPreservesMessageID(false),
 		drivertest.WithGetQueueInfoAccurate(false),
+		drivertest.WithSupportsReattach(false),
 	).Run()
 }

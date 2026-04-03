@@ -45,6 +45,11 @@ type config struct {
 	// (non-approximate) message counts immediately after publish. Drivers like
 	// SQS return eventually-consistent approximate counts.
 	getQueueInfoAccurate bool
+	// supportsReattach indicates whether a new consumer can reliably receive
+	// messages immediately after a previous consumer on the same queue is
+	// cancelled. Drivers with consumer-group semantics (Redis Streams, SQS)
+	// may have inherent startup latency that makes this unreliable.
+	supportsReattach bool
 }
 
 // Option configures a [Harness].
@@ -89,6 +94,15 @@ func WithGetQueueInfoAccurate(v bool) Option {
 	return func(c *config) { c.getQueueInfoAccurate = v }
 }
 
+// WithSupportsReattach indicates whether a new consumer can immediately
+// receive messages after the previous consumer on the same queue is cancelled.
+// Set to false for drivers with consumer-group semantics (Redis Streams, SQS)
+// where consumer startup latency makes this unreliable.
+// Defaults to true.
+func WithSupportsReattach(v bool) Option {
+	return func(c *config) { c.supportsReattach = v }
+}
+
 // New creates a new conformance test [Harness] for the given driver.
 // The driver must already be started and ready to accept operations.
 func New(t *testing.T, driver queueapi.Driver, opts ...Option) *Harness {
@@ -100,6 +114,7 @@ func New(t *testing.T, driver queueapi.Driver, opts ...Option) *Harness {
 		preservesHeaders:     true,
 		nackRedelivers:       true,
 		getQueueInfoAccurate: true,
+		supportsReattach:     true,
 	}
 	for _, o := range opts {
 		o(&cfg)

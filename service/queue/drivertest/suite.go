@@ -48,10 +48,31 @@ func (h *Harness) Run() {
 	// Consumer lifecycle
 	h.t.Run("CancelAttach", h.TestCancelAttach)
 	h.t.Run("PublishBeforeAttach", h.TestPublishBeforeAttach)
+	if h.cfg.supportsReattach {
+		h.t.Run("ReattachAfterCancel", h.TestReattachAfterCancel)
+	}
+	h.t.Run("RapidAttachDetach", h.TestRapidAttachDetach)
+
+	// Delivery edge cases
+	h.t.Run("PublishWithoutExplicitID", h.TestPublishWithoutExplicitID)
+	h.t.Run("DeliveryHasNonNilHeaders", h.TestDeliveryHasNonNilHeaders)
+	h.t.Run("SingleDelivery", h.TestSingleDelivery)
+
+	// Declaration edge cases
+	h.t.Run("DeclareQueueEmptyOptions", h.TestDeclareQueueEmptyOptions)
+	h.t.Run("GetQueueInfoNonExistent", h.TestGetQueueInfoNonExistent)
+
+	// Cross-queue operations
+	h.t.Run("PublishToMultipleQueuesConsume", h.TestPublishToMultipleQueuesConsume)
 
 	// Concurrency and volume
 	h.t.Run("ConcurrentPublish", h.TestConcurrentPublish)
 	h.t.Run("HighVolume", h.TestHighVolume)
+
+	// Idempotency edge cases — run last because double-ack/nack may corrupt
+	// driver-internal state on some transports (e.g. AMQP channel errors).
+	h.t.Run("AckIsIdempotent", h.TestAckIsIdempotent)
+	h.t.Run("NackIsIdempotent", h.TestNackIsIdempotent)
 }
 
 // TestDeclareQueue verifies that a queue can be declared and that
@@ -288,7 +309,7 @@ func (h *Harness) TestCustomHeaders(t *testing.T) {
 // publish → consume round-trip.
 //
 // For in-process drivers (memory) the exact Go value is preserved. For wire
-// drivers (AMQP, Redis, SQS) the body is serialised and deserialised, so the
+// drivers (AMQP, Redis, SQS) the body is serialized and deserialized, so the
 // test only asserts the body and its data pointer are non-nil.
 func (h *Harness) TestMessageBodyPreservation(t *testing.T) {
 	ctx := context.Background()
@@ -501,7 +522,7 @@ func (h *Harness) TestEmptyQueueInfo(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestCancelAttach verifies that calling the cancel function returned by Attach
-// stops message delivery. After cancelling, new messages published to the queue
+// stops message delivery. After canceling, new messages published to the queue
 // should not appear on the delivery channel.
 func (h *Harness) TestCancelAttach(t *testing.T) {
 	ctx := context.Background()
@@ -682,6 +703,358 @@ func (h *Harness) TestHighVolume(t *testing.T) {
 			received++
 		case <-timeout:
 			t.Fatalf("timeout, only received %d of %d messages", received, totalMessages)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Consumer lifecycle (extended)
+// ---------------------------------------------------------------------------
+
+// TestReattachAfterCancel verifies that after canceling a consumer, a new
+// consumer can be attached to the same queue and receives new messages.
+func (h *Harness) TestReattachAfterCancel(t *testing.T) {
+	ctx := context.Background()
+	queueID := h.uniqueID("reattach")
+
+	opts := attrs.NewBag()
+	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-reattach"))
+	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	require.NoError(t, err)
+
+	// First consumer — receive one message, then cancel.
+	del1 := make(chan *queueapi.Delivery, 10)
+	cancel1, err := h.driver.Attach(ctx, queueID, del1)
+	require.NoError(t, err)
+
+	msg1 := queueapi.AcquireMessage(payload.New("first"))
+	msg1.ID = "reattach-1"
+	err = h.driver.Publish(ctx, queueID, msg1)
+	require.NoError(t, err)
+
+	select {
+	case d := <-del1:
+		_ = d.Ack(ctx)
+	case <-time.After(h.cfg.timeout):
+		t.Fatal("timeout on first consumer")
+	}
+
+	cancel1()
+	time.Sleep(200 * time.Millisecond)
+
+	// Second consumer on the same queue — attach BEFORE publishing so the
+	// consumer is ready regardless of the driver's consumer-group semantics
+	// (Redis XREADGROUP, SQS visibility, etc.).
+	del2 := make(chan *queueapi.Delivery, 10)
+	cancel2, err := h.driver.Attach(ctx, queueID, del2)
+	require.NoError(t, err)
+	defer cancel2()
+
+	// Small delay to let the consumer goroutine start reading.
+	time.Sleep(100 * time.Millisecond)
+
+	msg2 := queueapi.AcquireMessage(payload.New("second"))
+	msg2.ID = "reattach-2"
+	err = h.driver.Publish(ctx, queueID, msg2)
+	require.NoError(t, err)
+
+	select {
+	case d := <-del2:
+		assert.NotNil(t, d.Message)
+		_ = d.Ack(ctx)
+	case <-time.After(h.cfg.timeout):
+		t.Fatal("timeout on second consumer after reattach")
+	}
+}
+
+// TestRapidAttachDetach verifies that rapidly attaching and canceling
+// consumers does not cause panics or resource leaks.
+func (h *Harness) TestRapidAttachDetach(t *testing.T) {
+	ctx := context.Background()
+	queueID := h.uniqueID("rapid")
+
+	opts := attrs.NewBag()
+	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-rapid"))
+	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	require.NoError(t, err)
+
+	const iterations = 10
+	for i := 0; i < iterations; i++ {
+		deliveries := make(chan *queueapi.Delivery, 5)
+		cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+		require.NoError(t, err, "attach iteration %d", i)
+		cancel()
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Delivery edge-case tests
+// ---------------------------------------------------------------------------
+
+// TestAckIsIdempotent verifies that calling Ack more than once on the same
+// delivery does not panic. The second call may return an error (driver-dependent)
+// but must never crash.
+func (h *Harness) TestAckIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	queueID := h.uniqueID("ack-idem")
+
+	opts := attrs.NewBag()
+	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-ack-idem"))
+	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	require.NoError(t, err)
+
+	deliveries := make(chan *queueapi.Delivery, 10)
+	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	require.NoError(t, err)
+	defer cancel()
+
+	msg := queueapi.AcquireMessage(payload.New("ack-twice"))
+	msg.ID = "ack-idem-1"
+	err = h.driver.Publish(ctx, queueID, msg)
+	require.NoError(t, err)
+
+	select {
+	case delivery := <-deliveries:
+		err = delivery.Ack(ctx)
+		assert.NoError(t, err, "first ack should succeed")
+		// Second ack — must not panic.
+		_ = delivery.Ack(ctx)
+	case <-time.After(h.cfg.timeout):
+		t.Fatal("timeout waiting for message")
+	}
+}
+
+// TestNackIsIdempotent verifies that calling Nack more than once on the same
+// delivery does not panic.
+func (h *Harness) TestNackIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	queueID := h.uniqueID("nack-idem")
+
+	opts := attrs.NewBag()
+	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-nack-idem"))
+	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	require.NoError(t, err)
+
+	deliveries := make(chan *queueapi.Delivery, 10)
+	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	require.NoError(t, err)
+	defer cancel()
+
+	msg := queueapi.AcquireMessage(payload.New("nack-twice"))
+	msg.ID = "nack-idem-1"
+	err = h.driver.Publish(ctx, queueID, msg)
+	require.NoError(t, err)
+
+	select {
+	case delivery := <-deliveries:
+		err = delivery.Nack(ctx)
+		assert.NoError(t, err, "first nack should succeed")
+		// Second nack — must not panic.
+		_ = delivery.Nack(ctx)
+	case <-time.After(h.cfg.timeout):
+		t.Fatal("timeout waiting for message")
+	}
+}
+
+// TestPublishWithoutExplicitID verifies that a message published without
+// setting an explicit ID still has a non-empty ID when delivered.
+func (h *Harness) TestPublishWithoutExplicitID(t *testing.T) {
+	ctx := context.Background()
+	queueID := h.uniqueID("auto-id")
+
+	opts := attrs.NewBag()
+	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-auto-id"))
+	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	require.NoError(t, err)
+
+	deliveries := make(chan *queueapi.Delivery, 10)
+	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	require.NoError(t, err)
+	defer cancel()
+
+	// Publish with no explicit ID.
+	msg := queueapi.AcquireMessage(payload.New("no-id"))
+	err = h.driver.Publish(ctx, queueID, msg)
+	require.NoError(t, err)
+
+	select {
+	case delivery := <-deliveries:
+		assert.NotEmpty(t, delivery.Message.ID,
+			"driver should assign an ID when none is provided")
+		_ = delivery.Ack(ctx)
+	case <-time.After(h.cfg.timeout):
+		t.Fatal("timeout waiting for message")
+	}
+}
+
+// TestDeliveryHasNonNilHeaders verifies that a delivered message always has
+// non-nil Headers, even if the publisher didn't set any custom headers.
+func (h *Harness) TestDeliveryHasNonNilHeaders(t *testing.T) {
+	ctx := context.Background()
+	queueID := h.uniqueID("nil-hdr")
+
+	opts := attrs.NewBag()
+	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-nil-hdr"))
+	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	require.NoError(t, err)
+
+	deliveries := make(chan *queueapi.Delivery, 10)
+	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	require.NoError(t, err)
+	defer cancel()
+
+	msg := queueapi.AcquireMessage(payload.New("hdr-check"))
+	msg.ID = "hdr-check-1"
+	err = h.driver.Publish(ctx, queueID, msg)
+	require.NoError(t, err)
+
+	select {
+	case delivery := <-deliveries:
+		assert.NotNil(t, delivery.Message.Headers,
+			"delivered message must have non-nil Headers")
+		_ = delivery.Ack(ctx)
+	case <-time.After(h.cfg.timeout):
+		t.Fatal("timeout waiting for message")
+	}
+}
+
+// TestSingleDelivery verifies that each published message is delivered exactly
+// once (no duplicates). Publishes N messages, consumes N, then verifies no
+// extra messages arrive.
+func (h *Harness) TestSingleDelivery(t *testing.T) {
+	ctx := context.Background()
+	queueID := h.uniqueID("single")
+
+	opts := attrs.NewBag()
+	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-single"))
+	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	require.NoError(t, err)
+
+	deliveries := make(chan *queueapi.Delivery, 20)
+	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	require.NoError(t, err)
+	defer cancel()
+
+	const n = 5
+	for i := 0; i < n; i++ {
+		msg := queueapi.AcquireMessage(payload.New("single"))
+		msg.ID = string(rune('0' + i))
+		err = h.driver.Publish(ctx, queueID, msg)
+		require.NoError(t, err)
+	}
+
+	// Consume exactly n messages.
+	received := 0
+	timeout := time.After(h.cfg.timeout)
+	for received < n {
+		select {
+		case d := <-deliveries:
+			_ = d.Ack(ctx)
+			received++
+		case <-timeout:
+			t.Fatalf("timeout, only received %d of %d", received, n)
+		}
+	}
+
+	// Wait briefly — no more messages should arrive.
+	select {
+	case d := <-deliveries:
+		t.Fatalf("received unexpected extra message: %s", d.Message.ID)
+	case <-time.After(500 * time.Millisecond):
+		// Expected — no duplicates.
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Declaration edge-case tests
+// ---------------------------------------------------------------------------
+
+// TestDeclareQueueEmptyOptions verifies that declaring a queue with an empty
+// options bag succeeds (driver uses defaults).
+func (h *Harness) TestDeclareQueueEmptyOptions(t *testing.T) {
+	ctx := context.Background()
+	queueID := h.uniqueID("empty-opts")
+
+	err := h.driver.DeclareQueue(ctx, queueID, attrs.NewBag())
+	require.NoError(t, err)
+
+	// Publish to prove the queue is usable.
+	msg := queueapi.AcquireMessage(payload.New("empty-opts"))
+	msg.ID = "empty-opts-1"
+	err = h.driver.Publish(ctx, queueID, msg)
+	require.NoError(t, err)
+}
+
+// TestGetQueueInfoNonExistent verifies that GetQueueInfo on a queue that has
+// not been declared returns an error.
+func (h *Harness) TestGetQueueInfoNonExistent(t *testing.T) {
+	ctx := context.Background()
+	_, err := h.driver.GetQueueInfo(ctx, registry.ParseID("test:no-such-queue"))
+	assert.Error(t, err, "GetQueueInfo on undeclared queue should return an error")
+}
+
+// ---------------------------------------------------------------------------
+// Cross-queue operation tests
+// ---------------------------------------------------------------------------
+
+// TestPublishToMultipleQueuesConsume declares several queues, publishes
+// messages to each, attaches consumers, and verifies all messages are
+// delivered to the correct queue.
+func (h *Harness) TestPublishToMultipleQueuesConsume(t *testing.T) {
+	ctx := context.Background()
+
+	const numQueues = 3
+	const msgsPerQueue = 3
+
+	type queueSlot struct {
+		deliveries chan *queueapi.Delivery
+		cancel     context.CancelFunc
+		id         registry.ID
+	}
+
+	slots := make([]queueSlot, numQueues)
+	for i := range slots {
+		qID := h.uniqueID("mqc")
+		opts := attrs.NewBag()
+		opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-mqc"))
+		err := h.driver.DeclareQueue(ctx, qID, opts)
+		require.NoError(t, err)
+
+		ch := make(chan *queueapi.Delivery, 10)
+		cancel, err := h.driver.Attach(ctx, qID, ch)
+		require.NoError(t, err)
+
+		slots[i] = queueSlot{id: qID, deliveries: ch, cancel: cancel}
+	}
+	defer func() {
+		for _, s := range slots {
+			s.cancel()
+		}
+	}()
+
+	// Publish msgsPerQueue messages to each queue.
+	for _, s := range slots {
+		for j := 0; j < msgsPerQueue; j++ {
+			msg := queueapi.AcquireMessage(payload.New("mqc"))
+			err := h.driver.Publish(ctx, s.id, msg)
+			require.NoError(t, err)
+		}
+	}
+
+	// Consume from each queue independently.
+	for qi, s := range slots {
+		received := 0
+		timeout := time.After(h.cfg.timeout)
+		for received < msgsPerQueue {
+			select {
+			case d := <-s.deliveries:
+				assert.NotNil(t, d.Message)
+				_ = d.Ack(ctx)
+				received++
+			case <-timeout:
+				t.Fatalf("queue %d: timeout, only received %d of %d",
+					qi, received, msgsPerQueue)
+			}
 		}
 	}
 }

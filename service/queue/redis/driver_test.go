@@ -84,5 +84,6 @@ func TestRedisDriver_Conformance(t *testing.T) {
 	drivertest.New(t, driver,
 		drivertest.WithTimeout(10*time.Second),
 		drivertest.WithNackRedelivers(false),
+		drivertest.WithSupportsReattach(false),
 	).Run()
 }
