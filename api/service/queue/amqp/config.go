@@ -74,6 +74,13 @@ type Config struct { //nolint:govet // fieldalignment: limited by LifecycleConfi
 	// 0 uses the library default (131072 bytes).
 	FrameSize int `json:"frame_size,omitempty"`
 
+	// PrefetchCount is the number of unacknowledged messages the server will
+	// deliver per channel before requiring acknowledgments (QoS).
+	// Maps to Channel.Qos(prefetchCount, 0, false) in AMQP.
+	// 0 means no limit (server default — unlimited prefetch).
+	// Typical production value: 10–50.
+	PrefetchCount int `json:"prefetch_count,omitempty"`
+
 	// ChannelMax is the maximum number of channels per connection.
 	// 0 means no application-side limit (server may impose its own).
 	ChannelMax uint16 `json:"channel_max,omitempty"`
@@ -181,6 +188,7 @@ type configJSON struct { //nolint:govet // fieldalignment: limited by LifecycleC
 	DefaultQueueTTL    string                     `json:"default_queue_ttl,omitempty"`
 	DefaultQueueExpiry string                     `json:"default_queue_expiry,omitempty"`
 	FrameSize          int                        `json:"frame_size,omitempty"`
+	PrefetchCount      int                        `json:"prefetch_count,omitempty"`
 	ChannelMax         uint16                     `json:"channel_max,omitempty"`
 }
 
@@ -196,6 +204,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	c.ConnectionName = raw.ConnectionName
 	c.AuthMechanism = raw.AuthMechanism
 	c.FrameSize = raw.FrameSize
+	c.PrefetchCount = raw.PrefetchCount
 	c.ChannelMax = raw.ChannelMax
 	c.TLS = raw.TLS
 	c.Lifecycle = raw.Lifecycle
@@ -239,6 +248,7 @@ func (c Config) MarshalJSON() ([]byte, error) {
 		ConnectionName: c.ConnectionName,
 		AuthMechanism:  c.AuthMechanism,
 		FrameSize:      c.FrameSize,
+		PrefetchCount:  c.PrefetchCount,
 		ChannelMax:     c.ChannelMax,
 		TLS:            c.TLS,
 		Lifecycle:      c.Lifecycle,

@@ -251,6 +251,14 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 		return nil, err
 	}
 
+	// Set QoS (prefetch) if configured
+	if d.cfg.PrefetchCount > 0 {
+		if err := ch.Qos(d.cfg.PrefetchCount, 0, false); err != nil {
+			ch.Close()
+			return nil, fmt.Errorf("amqp qos: %w", err)
+		}
+	}
+
 	consumerTag := fmt.Sprintf("%s-%s", queueID.String(), uuid.New().String()[:8])
 	amqpDeliveries, err := ch.Consume(
 		q.name,      // queue
