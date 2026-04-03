@@ -15,7 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/registry"
-	sqsapi "github.com/wippyai/runtime/api/service/queue/sqs"
+	sqsapi "github.com/wippyai/runtime/api/service/aws/sqs"
 	"github.com/wippyai/runtime/service/queue/drivertest"
 	"go.uber.org/zap/zaptest"
 )

@@ -17,7 +17,7 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
-	sqsapi "github.com/wippyai/runtime/api/service/queue/sqs"
+	sqsapi "github.com/wippyai/runtime/api/service/aws/sqs"
 	queuesvc "github.com/wippyai/runtime/service/queue"
 	"go.uber.org/zap"
 )
