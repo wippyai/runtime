@@ -24,12 +24,19 @@ const Kind registry.Kind = "queue.driver.redis"
 //   - MasterName set → sentinel/failover client
 //   - Multiple addresses, no MasterName → cluster client
 //   - IsClusterMode set with single address → cluster client (e.g. ElastiCache config endpoint)
-type Config struct {
+type Config struct { //nolint:govet // fieldalignment: limited by LifecycleConfig embedded struct layout
+	// Lifecycle configures the supervisor lifecycle for this driver.
+	Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
+
 	// Addrs is a list of host:port addresses.
 	// For standalone: a single address (e.g. ["localhost:6379"]).
 	// For cluster: seed addresses of cluster nodes.
 	// For sentinel: addresses of sentinel nodes.
 	Addrs []string `json:"addrs,omitempty"`
+
+	// TLS configures TLS/SSL connection settings.
+	// When TLS.Enabled is true, connections will use TLS.
+	TLS *TLSConfig `json:"tls,omitempty"`
 
 	// MasterName is the sentinel master name.
 	// When set, the client operates in sentinel/failover mode.
@@ -37,10 +44,6 @@ type Config struct {
 
 	// ClientName will execute the CLIENT SETNAME command for each connection.
 	ClientName string `json:"client_name,omitempty"`
-
-	// Protocol is the RESP protocol version (2 or 3).
-	// Default: 3.
-	Protocol int `json:"protocol,omitempty"`
 
 	// Username for ACL-based authentication (Redis 6.0+).
 	Username string `json:"username,omitempty"`
@@ -53,14 +56,6 @@ type Config struct {
 
 	// SentinelPassword for authentication with sentinel nodes.
 	SentinelPassword string `json:"sentinel_password,omitempty"`
-
-	// DB is the database number to select after connecting.
-	// Only applicable to standalone and sentinel modes (not cluster).
-	DB int `json:"db,omitempty"`
-
-	// MaxRetries is the maximum number of retries before giving up.
-	// -1 disables retries. Default: 3.
-	MaxRetries int `json:"max_retries,omitempty"`
 
 	// MinRetryBackoff is the minimum backoff between retries.
 	// -1 disables backoff. Default: 8ms.
@@ -82,9 +77,29 @@ type Config struct {
 	// -1 means no timeout. Default: 3s.
 	WriteTimeout time.Duration `json:"write_timeout,omitzero,format:units"`
 
-	// ContextTimeoutEnabled controls whether the client respects
-	// context timeouts and deadlines.
-	ContextTimeoutEnabled bool `json:"context_timeout_enabled,omitempty"`
+	// PoolTimeout is the amount of time client waits for a free connection.
+	// Default: ReadTimeout + 1s.
+	PoolTimeout time.Duration `json:"pool_timeout,omitzero,format:units"`
+
+	// ConnMaxIdleTime is the maximum amount of time a connection may be idle.
+	// Default: 30m.
+	ConnMaxIdleTime time.Duration `json:"conn_max_idle_time,omitzero,format:units"`
+
+	// ConnMaxLifetime is the maximum amount of time a connection may be reused.
+	// 0 means no limit.
+	ConnMaxLifetime time.Duration `json:"conn_max_lifetime,omitzero,format:units"`
+
+	// Protocol is the RESP protocol version (2 or 3).
+	// Default: 3.
+	Protocol int `json:"protocol,omitempty"`
+
+	// DB is the database number to select after connecting.
+	// Only applicable to standalone and sentinel modes (not cluster).
+	DB int `json:"db,omitempty"`
+
+	// MaxRetries is the maximum number of retries before giving up.
+	// -1 disables retries. Default: 3.
+	MaxRetries int `json:"max_retries,omitempty"`
 
 	// PoolSize is the maximum number of socket connections.
 	// For cluster mode, this applies per cluster node.
@@ -102,48 +117,26 @@ type Config struct {
 	// 0 means no limit.
 	MaxActiveConns int `json:"max_active_conns,omitempty"`
 
-	// PoolFIFO uses FIFO mode for the connection pool when true.
-	// Default: LIFO.
-	PoolFIFO bool `json:"pool_fifo,omitempty"`
-
-	// PoolTimeout is the amount of time client waits for a free connection.
-	// Default: ReadTimeout + 1s.
-	PoolTimeout time.Duration `json:"pool_timeout,omitzero,format:units"`
-
-	// ConnMaxIdleTime is the maximum amount of time a connection may be idle.
-	// Default: 30m.
-	ConnMaxIdleTime time.Duration `json:"conn_max_idle_time,omitzero,format:units"`
-
-	// ConnMaxLifetime is the maximum amount of time a connection may be reused.
-	// 0 means no limit.
-	ConnMaxLifetime time.Duration `json:"conn_max_lifetime,omitzero,format:units"`
-
 	// MaxRedirects is the maximum number of retries on MOVED and ASK redirects.
 	// Only applicable to cluster mode. Default: 3.
 	MaxRedirects int `json:"max_redirects,omitempty"`
+
+	// ContextTimeoutEnabled controls whether the client respects
+	// context timeouts and deadlines.
+	ContextTimeoutEnabled bool `json:"context_timeout_enabled,omitempty"`
+
+	// PoolFIFO uses FIFO mode for the connection pool when true.
+	// Default: LIFO.
+	PoolFIFO bool `json:"pool_fifo,omitempty"`
 
 	// IsClusterMode forces cluster mode even with a single address.
 	// Useful for managed Redis services like AWS ElastiCache that
 	// expose a single configuration endpoint for cluster mode.
 	IsClusterMode bool `json:"is_cluster_mode,omitempty"`
-
-	// TLS configures TLS/SSL connection settings.
-	// When TLS.Enabled is true, connections will use TLS.
-	TLS *TLSConfig `json:"tls,omitempty"`
-
-	// Lifecycle configures the supervisor lifecycle for this driver.
-	Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
 }
 
 // TLSConfig defines TLS connection settings for Redis.
 type TLSConfig struct {
-	// Enabled activates TLS for Redis connections.
-	Enabled bool `json:"enabled"`
-
-	// InsecureSkipVerify skips TLS certificate verification.
-	// WARNING: This makes the connection susceptible to man-in-the-middle attacks.
-	InsecureSkipVerify bool `json:"insecure_skip_verify,omitempty"`
-
 	// ServerName overrides the server name used for TLS certificate verification.
 	ServerName string `json:"server_name,omitempty"`
 
@@ -156,6 +149,13 @@ type TLSConfig struct {
 	// CAFile is the path to the CA certificate file (PEM format)
 	// for verifying the server's certificate.
 	CAFile string `json:"ca_file,omitempty"`
+
+	// Enabled activates TLS for Redis connections.
+	Enabled bool `json:"enabled"`
+
+	// InsecureSkipVerify skips TLS certificate verification.
+	// WARNING: This makes the connection susceptible to man-in-the-middle attacks.
+	InsecureSkipVerify bool `json:"insecure_skip_verify,omitempty"`
 }
 
 // BuildTLSConfig converts the TLSConfig into a Go *tls.Config.
@@ -166,7 +166,7 @@ func (t *TLSConfig) BuildTLSConfig() (*tls.Config, error) {
 
 	tlsCfg := &tls.Config{
 		MinVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: t.InsecureSkipVerify,
+		InsecureSkipVerify: t.InsecureSkipVerify, //nolint:gosec // G402: user-configurable for dev/testing
 		ServerName:         t.ServerName,
 	}
 
@@ -218,8 +218,10 @@ func (c *Config) InitDefaults() {
 
 // configJSON is a shadow struct for JSON marshaling/unmarshaling
 // of duration fields and backward compatibility.
-type configJSON struct {
+type configJSON struct { //nolint:govet // fieldalignment: limited by LifecycleConfig embedded struct layout
+	Lifecycle             supervisor.LifecycleConfig `json:"lifecycle"`
 	Addrs                 []string                   `json:"addrs,omitempty"`
+	TLS                   *TLSConfig                 `json:"tls,omitempty"`
 	Addr                  string                     `json:"addr,omitempty"` // backward compat
 	MasterName            string                     `json:"master_name,omitempty"`
 	ClientName            string                     `json:"client_name,omitempty"`
@@ -235,8 +237,6 @@ type configJSON struct {
 	PoolTimeout           string                     `json:"pool_timeout,omitempty"`
 	ConnMaxIdleTime       string                     `json:"conn_max_idle_time,omitempty"`
 	ConnMaxLifetime       string                     `json:"conn_max_lifetime,omitempty"`
-	Lifecycle             supervisor.LifecycleConfig `json:"lifecycle"`
-	TLS                   *TLSConfig                 `json:"tls,omitempty"`
 	Protocol              int                        `json:"protocol,omitempty"`
 	DB                    int                        `json:"db,omitempty"`
 	MaxRetries            int                        `json:"max_retries,omitempty"`

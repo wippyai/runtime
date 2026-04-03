@@ -19,6 +19,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
+	amqpapi "github.com/wippyai/runtime/api/service/queue/amqp"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -100,7 +101,8 @@ func waitForAMQP(url string, timeout time.Duration) bool {
 func setupDriver(t *testing.T) *Driver {
 	t.Helper()
 	logger := zaptest.NewLogger(t)
-	driver := NewDriver(registry.ParseID("test:amqp"), testAMQPURL, logger)
+	cfg := &amqpapi.Config{URL: testAMQPURL}
+	driver := NewDriver(registry.ParseID("test:amqp"), cfg, logger)
 
 	ctx := context.Background()
 	statusCh, err := driver.Start(ctx)

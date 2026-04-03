@@ -5,13 +5,16 @@ package amqp
 import (
 	"context"
 	"fmt"
+	"net"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	amqp091 "github.com/rabbitmq/amqp091-go"
 	"github.com/wippyai/runtime/api/attrs"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
+	amqpapi "github.com/wippyai/runtime/api/service/queue/amqp"
 	queuesvc "github.com/wippyai/runtime/service/queue"
 	"go.uber.org/zap"
 )
@@ -26,7 +29,7 @@ type Driver struct {
 	ctx        context.Context
 	logger     *zap.Logger
 	conn       *amqp091.Connection
-	url        string
+	cfg        *amqpapi.Config
 	queues     map[registry.ID]*declaredQueue
 	cancel     context.CancelFunc
 	statusChan chan any
@@ -35,16 +38,84 @@ type Driver struct {
 }
 
 // NewDriver creates a new AMQP driver instance.
-func NewDriver(id registry.ID, url string, logger *zap.Logger) *Driver {
+func NewDriver(id registry.ID, cfg *amqpapi.Config, logger *zap.Logger) *Driver {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 	return &Driver{
 		id:     id,
-		url:    url,
+		cfg:    cfg,
 		logger: logger,
 		queues: make(map[registry.ID]*declaredQueue),
 	}
+}
+
+// buildAMQPConfig constructs an amqp091.Config from the driver configuration.
+func (d *Driver) buildAMQPConfig() (amqp091.Config, error) {
+	cfg := amqp091.Config{
+		Locale: "en_US",
+	}
+
+	if d.cfg.Vhost != "" {
+		cfg.Vhost = d.cfg.Vhost
+	}
+	if d.cfg.ChannelMax != 0 {
+		cfg.ChannelMax = d.cfg.ChannelMax
+	}
+	if d.cfg.FrameSize != 0 {
+		cfg.FrameSize = d.cfg.FrameSize
+	}
+	if d.cfg.Heartbeat != 0 {
+		cfg.Heartbeat = d.cfg.Heartbeat
+	}
+
+	// Connection timeout via custom dialer
+	if d.cfg.ConnectionTimeout != 0 {
+		timeout := d.cfg.ConnectionTimeout
+		cfg.Dial = func(network, addr string) (net.Conn, error) {
+			dialer := &net.Dialer{Timeout: timeout}
+			conn, err := dialer.Dial(network, addr)
+			if err != nil {
+				return nil, err
+			}
+			if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+				return nil, err
+			}
+			return conn, nil
+		}
+	}
+
+	// Connection name in management UI
+	if d.cfg.ConnectionName != "" {
+		cfg.Properties = amqp091.NewConnectionProperties()
+		cfg.Properties.SetClientConnectionName(d.cfg.ConnectionName)
+	}
+
+	// TLS
+	if d.cfg.TLS != nil && d.cfg.TLS.Enabled {
+		tlsCfg, err := d.cfg.TLS.BuildTLSConfig()
+		if err != nil {
+			return cfg, fmt.Errorf("amqp build tls config: %w", err)
+		}
+		cfg.TLSClientConfig = tlsCfg
+	}
+
+	// SASL authentication mechanism
+	switch d.cfg.AuthMechanism {
+	case "EXTERNAL":
+		cfg.SASL = []amqp091.Authentication{&amqp091.ExternalAuth{}}
+	case "AMQPLAIN":
+		// Parse credentials from URL for AMQPlain
+		uri, err := amqp091.ParseURI(d.cfg.URL)
+		if err != nil {
+			return cfg, fmt.Errorf("amqp parse url for auth: %w", err)
+		}
+		cfg.SASL = []amqp091.Authentication{uri.AMQPlainAuth()}
+	case "PLAIN", "":
+		// Default: let the library extract PlainAuth from URL
+	}
+
+	return cfg, nil
 }
 
 func (d *Driver) getChannel() (*amqp091.Channel, error) {
@@ -78,6 +149,44 @@ func (d *Driver) queueName(queueID registry.ID, opts attrs.Attributes) string {
 		}
 	}
 	return queueID.Name
+}
+
+// messageExpiration returns the AMQP Expiration string for a message.
+// It checks HeaderTTL (seconds) from message headers first, then falls back
+// to the driver's DefaultMessageTTL config. Returns "" for no expiration.
+func (d *Driver) messageExpiration(msg *queueapi.Message) string {
+	// Per-message TTL from headers takes priority
+	if msg.Headers != nil {
+		if ttlSec := msg.Headers.GetInt(queueapi.HeaderTTL, 0); ttlSec > 0 {
+			return fmt.Sprintf("%d", ttlSec*1000) // seconds → milliseconds
+		}
+	}
+	// Fall back to default config TTL
+	if d.cfg.DefaultMessageTTL > 0 {
+		return fmt.Sprintf("%d", d.cfg.DefaultMessageTTL.Milliseconds())
+	}
+	return ""
+}
+
+// buildQueueArgs constructs the amqp091.Table arguments for QueueDeclare
+// based on driver config defaults. Returns nil if no arguments are needed.
+func (d *Driver) buildQueueArgs() amqp091.Table {
+	hasTTL := d.cfg.DefaultQueueTTL > 0
+	hasExpiry := d.cfg.DefaultQueueExpiry > 0
+
+	if !hasTTL && !hasExpiry {
+		return nil
+	}
+
+	args := amqp091.Table{}
+	if hasTTL {
+		args[amqp091.QueueMessageTTLArg] = int32(d.cfg.DefaultQueueTTL.Milliseconds())
+	}
+	if hasExpiry {
+		args[amqp091.QueueTTLArg] = int32(d.cfg.DefaultQueueExpiry.Milliseconds())
+	}
+
+	return args
 }
 
 func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queueapi.Message) error {
@@ -117,6 +226,7 @@ func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queu
 			Headers:     headers,
 			ContentType: "application/json",
 			Body:        body,
+			Expiration:  d.messageExpiration(msg),
 		}
 
 		if err := ch.PublishWithContext(ctx, "", q.name, false, false, publishing); err != nil {
@@ -227,13 +337,15 @@ func (d *Driver) DeclareQueue(_ context.Context, queueID registry.ID, opts attrs
 	}
 	defer ch.Close()
 
+	args := d.buildQueueArgs()
+
 	_, err = ch.QueueDeclare(
 		name,    // name
 		durable, // durable
 		false,   // auto-delete
 		false,   // exclusive
 		false,   // no-wait
-		nil,     // args
+		args,    // args
 	)
 	if err != nil {
 		return fmt.Errorf("amqp declare queue: %w", err)
@@ -295,7 +407,12 @@ func (d *Driver) lifecycleCtxDone() <-chan struct{} {
 }
 
 func (d *Driver) Start(ctx context.Context) (<-chan any, error) {
-	conn, err := amqp091.Dial(d.url)
+	amqpCfg, err := d.buildAMQPConfig()
+	if err != nil {
+		return nil, fmt.Errorf("amqp config: %w", err)
+	}
+
+	conn, err := amqp091.DialConfig(d.cfg.URL, amqpCfg)
 	if err != nil {
 		return nil, fmt.Errorf("amqp dial: %w", err)
 	}
@@ -308,7 +425,7 @@ func (d *Driver) Start(ctx context.Context) (<-chan any, error) {
 
 	d.logger.Info("amqp driver started",
 		zap.String("id", d.id.String()),
-		zap.String("url", sanitizeURL(d.url)))
+		zap.String("url", sanitizeURL(d.cfg.URL)))
 
 	return d.statusChan, nil
 }
