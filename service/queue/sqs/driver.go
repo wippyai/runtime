@@ -4,6 +4,7 @@ package sqs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"sync"
@@ -261,6 +262,13 @@ func (d *Driver) DeclareQueue(ctx context.Context, queueID registry.ID, opts att
 		return nil
 	}
 
+	// Only proceed to create if the queue genuinely doesn't exist.
+	// Other errors (network, auth, throttling) should be surfaced.
+	var queueNotFound *types.QueueDoesNotExist
+	if !errors.As(err, &queueNotFound) {
+		return fmt.Errorf("sqs get queue url: %w", err)
+	}
+
 	// Queue doesn't exist, create it
 	createInput := &awssqs.CreateQueueInput{
 		QueueName: aws.String(name),
@@ -313,8 +321,10 @@ func (d *Driver) GetQueueInfo(ctx context.Context, queueID registry.ID) (attrs.A
 
 	info := attrs.NewBag()
 	if v, ok := result.Attributes[string(types.QueueAttributeNameApproximateNumberOfMessages)]; ok {
-		info.Set(queueapi.StatsMessageCount, v)
-		info.Set(queueapi.StatsReady, v)
+		if n, err := strconv.Atoi(v); err == nil {
+			info.Set(queueapi.StatsMessageCount, n)
+			info.Set(queueapi.StatsReady, n)
+		}
 	}
 
 	return info, nil

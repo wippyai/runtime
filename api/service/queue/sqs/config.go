@@ -296,7 +296,7 @@ func (c *Config) Validate() error {
 	default:
 		return fmt.Errorf("sqs: unsupported retry_mode %q (supported: standard, adaptive)", c.RetryMode)
 	}
-	if c.MaxNumberOfMessages < 0 || c.MaxNumberOfMessages > 10 {
+	if c.MaxNumberOfMessages <= 0 || c.MaxNumberOfMessages > 10 {
 		return fmt.Errorf("sqs: max_number_of_messages must be 1–10, got %d", c.MaxNumberOfMessages)
 	}
 	if c.WaitTimeSeconds < 0 || c.WaitTimeSeconds > 20 {

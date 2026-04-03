@@ -5,9 +5,9 @@ package amqp
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"sync"
-	"time"
 
 	"github.com/google/uuid"
 	amqp091 "github.com/rabbitmq/amqp091-go"
@@ -73,15 +73,7 @@ func (d *Driver) buildAMQPConfig() (amqp091.Config, error) {
 	if d.cfg.ConnectionTimeout != 0 {
 		timeout := d.cfg.ConnectionTimeout
 		cfg.Dial = func(network, addr string) (net.Conn, error) {
-			dialer := &net.Dialer{Timeout: timeout}
-			conn, err := dialer.Dial(network, addr)
-			if err != nil {
-				return nil, err
-			}
-			if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
-				return nil, err
-			}
-			return conn, nil
+			return (&net.Dialer{Timeout: timeout}).Dial(network, addr)
 		}
 	}
 
@@ -180,13 +172,22 @@ func (d *Driver) buildQueueArgs() amqp091.Table {
 
 	args := amqp091.Table{}
 	if hasTTL {
-		args[amqp091.QueueMessageTTLArg] = int32(d.cfg.DefaultQueueTTL.Milliseconds())
+		args[amqp091.QueueMessageTTLArg] = clampMillisToInt32(d.cfg.DefaultQueueTTL.Milliseconds())
 	}
 	if hasExpiry {
-		args[amqp091.QueueTTLArg] = int32(d.cfg.DefaultQueueExpiry.Milliseconds())
+		args[amqp091.QueueTTLArg] = clampMillisToInt32(d.cfg.DefaultQueueExpiry.Milliseconds())
 	}
 
 	return args
+}
+
+// clampMillisToInt32 clamps a millisecond value to the int32 range.
+// AMQP 0-9-1 expects TTL and expiry as signed 32-bit integers.
+func clampMillisToInt32(ms int64) int32 {
+	if ms > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(ms)
 }
 
 func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queueapi.Message) error {
