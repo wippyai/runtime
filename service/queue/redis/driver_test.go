@@ -96,7 +96,7 @@ func waitForPort(addr string, timeout time.Duration) bool {
 func setupDriver(t *testing.T) *Driver {
 	t.Helper()
 	logger := zaptest.NewLogger(t)
-	opts := &goredis.Options{Addr: testAddr}
+	opts := &goredis.UniversalOptions{Addrs: []string{testAddr}}
 	driver := NewDriver(registry.ParseID("test:redis"), opts, logger)
 
 	ctx := context.Background()

@@ -34,8 +34,8 @@ type declaredQueue struct {
 type Driver struct {
 	ctx        context.Context
 	logger     *zap.Logger
-	client     *goredis.Client
-	opts       *goredis.Options
+	client     goredis.UniversalClient
+	opts       *goredis.UniversalOptions
 	queues     map[registry.ID]*declaredQueue
 	cancel     context.CancelFunc
 	statusChan chan any
@@ -44,7 +44,7 @@ type Driver struct {
 }
 
 // NewDriver creates a new Redis Streams driver instance.
-func NewDriver(id registry.ID, opts *goredis.Options, logger *zap.Logger) *Driver {
+func NewDriver(id registry.ID, opts *goredis.UniversalOptions, logger *zap.Logger) *Driver {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -288,7 +288,7 @@ func (d *Driver) lifecycleCtxDone() <-chan struct{} {
 }
 
 func (d *Driver) Start(ctx context.Context) (<-chan any, error) {
-	client := goredis.NewClient(d.opts)
+	client := goredis.NewUniversalClient(d.opts)
 
 	if err := client.Ping(ctx).Err(); err != nil {
 		return nil, fmt.Errorf("redis ping: %w", err)
@@ -302,7 +302,7 @@ func (d *Driver) Start(ctx context.Context) (<-chan any, error) {
 
 	d.logger.Info("redis driver started",
 		zap.String("id", d.id.String()),
-		zap.String("addr", d.opts.Addr))
+		zap.Strings("addrs", d.opts.Addrs))
 
 	return d.statusChan, nil
 }

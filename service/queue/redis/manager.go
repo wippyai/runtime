@@ -4,6 +4,7 @@ package redis
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	goredis "github.com/redis/go-redis/v9"
@@ -61,13 +62,44 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return err
 	}
 
-	opts := &goredis.Options{
-		Addr:     cfg.Addr,
-		Password: cfg.Password,
-		DB:       cfg.DB,
+	uopts := &goredis.UniversalOptions{
+		Addrs:                 cfg.Addrs,
+		MasterName:            cfg.MasterName,
+		ClientName:            cfg.ClientName,
+		Protocol:              cfg.Protocol,
+		Username:              cfg.Username,
+		Password:              cfg.Password,
+		SentinelUsername:      cfg.SentinelUsername,
+		SentinelPassword:      cfg.SentinelPassword,
+		DB:                    cfg.DB,
+		MaxRetries:            cfg.MaxRetries,
+		MinRetryBackoff:       cfg.MinRetryBackoff,
+		MaxRetryBackoff:       cfg.MaxRetryBackoff,
+		DialTimeout:           cfg.DialTimeout,
+		ReadTimeout:           cfg.ReadTimeout,
+		WriteTimeout:          cfg.WriteTimeout,
+		ContextTimeoutEnabled: cfg.ContextTimeoutEnabled,
+		PoolSize:              cfg.PoolSize,
+		MinIdleConns:          cfg.MinIdleConns,
+		MaxIdleConns:          cfg.MaxIdleConns,
+		MaxActiveConns:        cfg.MaxActiveConns,
+		PoolFIFO:              cfg.PoolFIFO,
+		PoolTimeout:           cfg.PoolTimeout,
+		ConnMaxIdleTime:       cfg.ConnMaxIdleTime,
+		ConnMaxLifetime:       cfg.ConnMaxLifetime,
+		MaxRedirects:          cfg.MaxRedirects,
+		IsClusterMode:         cfg.IsClusterMode,
 	}
 
-	driver := NewDriver(entry.ID, opts, m.log)
+	if cfg.TLS != nil && cfg.TLS.Enabled {
+		tlsCfg, err := cfg.TLS.BuildTLSConfig()
+		if err != nil {
+			return fmt.Errorf("redis tls config: %w", err)
+		}
+		uopts.TLSConfig = tlsCfg
+	}
+
+	driver := NewDriver(entry.ID, uopts, m.log)
 	m.drivers[entry.ID] = driver
 
 	m.bus.Send(ctx, event.Event{
