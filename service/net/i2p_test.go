@@ -22,34 +22,35 @@ import (
 
 // samConnRecord records a single SAM session + stream connect attempt.
 type samConnRecord struct {
-	HelloReceived   bool
 	SessionID       string
 	SessionStyle    string
 	StreamDest      string
 	StreamSessionID string
+	HelloReceived   bool
 }
 
 // mockSAMServer is a minimal SAM v3 bridge for testing.
 // It records all handshake attempts and optionally forwards to a backend.
 type mockSAMServer struct {
 	listener net.Listener
-	records  []samConnRecord
-	mu       sync.Mutex
 
 	// backend address to forward to after successful STREAM CONNECT.
 	// If empty, returns OK but closes immediately.
 	backend string
 
-	// Error injection: which step to fail at (0=none, 1=hello, 2=session, 3=stream)
-	failAtStep int
-
 	// Custom error result for the failing step
 	failResult string
+
+	records []samConnRecord
+	mu      sync.Mutex
+
+	// Error injection: which step to fail at (0=none, 1=hello, 2=session, 3=stream)
+	failAtStep int
 }
 
 func newMockSAMServer(t *testing.T) *mockSAMServer {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
 	s := &mockSAMServer{listener: ln, failResult: "I2P_ERROR"}
@@ -87,7 +88,7 @@ func (s *mockSAMServer) serve(t *testing.T) {
 func (s *mockSAMServer) handleConn(t *testing.T, conn net.Conn) {
 	t.Helper()
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(10 * time.Second)) //nolint:errcheck
+	conn.SetDeadline(time.Now().Add(10 * time.Second))
 
 	reader := bufio.NewReader(conn)
 
@@ -133,14 +134,13 @@ func (s *mockSAMServer) handleConn(t *testing.T, conn net.Conn) {
 
 		// Keep the control connection alive until the client closes it.
 		// The SAM session is tied to this connection's lifetime.
-		conn.SetDeadline(time.Time{}) //nolint:errcheck
+		conn.SetDeadline(time.Time{})
 		buf := make([]byte, 1)
 		for {
 			if _, err := conn.Read(buf); err != nil {
 				break
 			}
 		}
-
 	} else if strings.HasPrefix(line, "STREAM CONNECT") {
 		// --- Stream connection: handle STREAM CONNECT ---
 		rec := samConnRecord{HelloReceived: true}
@@ -158,19 +158,19 @@ func (s *mockSAMServer) handleConn(t *testing.T, conn net.Conn) {
 
 		// If backend is configured, bridge to it
 		if s.backend != "" {
-			upstream, err := net.DialTimeout("tcp", s.backend, 3*time.Second)
+			upstream, err := (&net.Dialer{Timeout: 3 * time.Second}).DialContext(context.Background(), "tcp", s.backend)
 			if err != nil {
 				return
 			}
 			defer upstream.Close()
 
-			conn.SetDeadline(time.Time{}) //nolint:errcheck
+			conn.SetDeadline(time.Time{})
 			done := make(chan struct{})
 			go func() {
-				io.Copy(upstream, reader) //nolint:errcheck
+				io.Copy(upstream, reader)
 				close(done)
 			}()
-			io.Copy(conn, upstream) //nolint:errcheck
+			io.Copy(conn, upstream)
 			<-done
 		}
 	}
@@ -224,7 +224,7 @@ func TestNewI2PService_CustomSessionName(t *testing.T) {
 
 func TestI2PService_DialContext(t *testing.T) {
 	// Start a backend to forward data through the mock SAM bridge
-	backend, err := net.Listen("tcp", "127.0.0.1:0")
+	backend, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer backend.Close()
 	go func() {
@@ -233,7 +233,7 @@ func TestI2PService_DialContext(t *testing.T) {
 			if err != nil {
 				return
 			}
-			c.Write([]byte("i2p-backend-response")) //nolint:errcheck
+			c.Write([]byte("i2p-backend-response"))
 			c.Close()
 		}
 	}()
@@ -597,7 +597,7 @@ func TestSamParseResult(t *testing.T) {
 
 func TestI2PService_DialContext_ContextCancelled(t *testing.T) {
 	// Create a SAM server that is slow to respond
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer ln.Close()
 
@@ -677,8 +677,8 @@ func TestI2PService_ConcurrentDial(t *testing.T) {
 func TestI2PConfig_Validation(t *testing.T) {
 	tests := []struct {
 		name    string
-		cfg     netapi.I2PConfig
 		wantErr string
+		cfg     netapi.I2PConfig
 	}{
 		{
 			name:    "empty host",

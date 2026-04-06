@@ -221,7 +221,7 @@ func TestI2PE2E_RawSAMProtocol(t *testing.T) {
 	require.NoError(t, err, "should connect to SAM bridge")
 	defer conn.Close()
 
-	conn.SetDeadline(time.Now().Add(60 * time.Second)) //nolint:errcheck
+	conn.SetDeadline(time.Now().Add(60 * time.Second))
 	reader := bufio.NewReader(conn)
 
 	// Step 1: HELLO VERSION

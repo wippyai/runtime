@@ -81,6 +81,8 @@ func (m *Manager) createAndRegister(entry registry.Entry) error {
 		svc, err = m.createI2P(entry)
 	case netapi.KindTailscale:
 		svc, err = m.createTailscale(entry)
+	case netapi.KindOpenVPN:
+		svc, err = m.createOpenVPN(entry)
 	default:
 		return fmt.Errorf("network manager: unsupported kind %q", entry.Kind)
 	}
@@ -142,4 +144,15 @@ func (m *Manager) createTailscale(entry registry.Entry) (netapi.Service, error) 
 		return nil, fmt.Errorf("tailscale config: %w", err)
 	}
 	return NewTailscaleService(&cfg)
+}
+
+func (m *Manager) createOpenVPN(entry registry.Entry) (netapi.Service, error) {
+	var cfg netapi.OpenVPNConfig
+	if err := m.decodeConfig(entry, &cfg); err != nil {
+		return nil, fmt.Errorf("openvpn config: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("openvpn config: %w", err)
+	}
+	return NewOpenVPNService(&cfg)
 }

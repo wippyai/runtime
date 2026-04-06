@@ -22,19 +22,20 @@ import (
 
 // mockTsnetNode implements the tsnetNode interface for testing.
 type mockTsnetNode struct {
-	mu sync.Mutex
-
 	// Dial tracking
-	dialCalls []dialCall
-	dialFunc  func(ctx context.Context, network, address string) (net.Conn, error)
+	dialFunc func(ctx context.Context, network, address string) (net.Conn, error)
 
 	// Listen tracking
-	listenCalls []listenCall
-	listenFunc  func(network, address string) (net.Listener, error)
+	listenFunc func(network, address string) (net.Listener, error)
 
 	// Close tracking
+	closeFunc func() error
+
+	dialCalls   []dialCall
+	listenCalls []listenCall
+
+	mu          sync.Mutex
 	closeCalled atomic.Int32
-	closeFunc   func() error
 }
 
 type dialCall struct {
@@ -112,7 +113,7 @@ func TestTailscaleService_ImplementsInterface(t *testing.T) {
 
 func TestTailscaleService_DialContext(t *testing.T) {
 	// Start a local backend to simulate a tailnet peer
-	backend, err := net.Listen("tcp", "127.0.0.1:0")
+	backend, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer backend.Close()
 	go func() {
@@ -121,7 +122,7 @@ func TestTailscaleService_DialContext(t *testing.T) {
 			if err != nil {
 				return
 			}
-			c.Write([]byte("hello from tailscale peer")) //nolint:errcheck
+			c.Write([]byte("hello from tailscale peer"))
 			c.Close()
 		}
 	}()
@@ -129,7 +130,7 @@ func TestTailscaleService_DialContext(t *testing.T) {
 	mock := newMockTsnetNode()
 	mock.dialFunc = func(_ context.Context, network, address string) (net.Conn, error) {
 		// Simulate tsnet routing by connecting to the local backend
-		return net.DialTimeout(network, backend.Addr().String(), 3*time.Second)
+		return (&net.Dialer{Timeout: 3 * time.Second}).DialContext(context.Background(), network, backend.Addr().String())
 	}
 
 	svc := newTailscaleServiceWithNode(mock)
@@ -248,7 +249,7 @@ func TestTailscaleService_DialContext_DataTransfer(t *testing.T) {
 				if err != nil {
 					return
 				}
-				c2.Write(buf[:n]) //nolint:errcheck
+				c2.Write(buf[:n])
 			}
 		}()
 		return c1, nil
@@ -276,7 +277,7 @@ func TestTailscaleService_DialContext_DataTransfer(t *testing.T) {
 
 func TestTailscaleService_Listen(t *testing.T) {
 	// Start a real listener to return from the mock
-	realLn, err := net.Listen("tcp", "127.0.0.1:0")
+	realLn, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer realLn.Close()
 
@@ -313,7 +314,7 @@ func TestTailscaleService_Listen_Error(t *testing.T) {
 
 func TestTailscaleService_Listen_AcceptConnections(t *testing.T) {
 	// Verify that a listener returned by TailscaleService.Listen can accept connections
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer ln.Close()
 
@@ -338,7 +339,7 @@ func TestTailscaleService_Listen_AcceptConnections(t *testing.T) {
 	}()
 
 	// Connect to the listener
-	conn, err := net.DialTimeout("tcp", ln.Addr().String(), 3*time.Second)
+	conn, err := (&net.Dialer{Timeout: 3 * time.Second}).DialContext(context.Background(), "tcp", ln.Addr().String())
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -410,7 +411,7 @@ func TestTailscaleService_ConcurrentDial(t *testing.T) {
 	mock.dialFunc = func(_ context.Context, _, _ string) (net.Conn, error) {
 		c1, c2 := net.Pipe()
 		go func() {
-			io.Copy(io.Discard, c2) //nolint:errcheck
+			io.Copy(io.Discard, c2)
 			c2.Close()
 		}()
 		return c1, nil
@@ -453,7 +454,7 @@ func TestTailscaleService_ConcurrentListen(t *testing.T) {
 	mock := newMockTsnetNode()
 	var listenerCount atomic.Int32
 	mock.listenFunc = func(_, _ string) (net.Listener, error) {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 		if err != nil {
 			return nil, err
 		}
@@ -528,8 +529,8 @@ func TestTailscaleService_DialAndClose(t *testing.T) {
 func TestTailscaleConfig_Validation(t *testing.T) {
 	tests := []struct {
 		name    string
-		cfg     netapi.TailscaleConfig
 		wantErr string
+		cfg     netapi.TailscaleConfig
 	}{
 		{
 			name:    "no auth key",
@@ -644,9 +645,7 @@ func TestTailscaleService_NoDNSLeak(t *testing.T) {
 		// If we got here, the address was NOT resolved locally first
 		// (since local DNS would have replaced the hostname with an IP)
 		host, _, _ := net.SplitHostPort(address)
-		if net.ParseIP(host) == nil {
-			// Still a hostname — good, means no local DNS resolution happened
-		} else if host != "100.64.0.1" {
+		if ip := net.ParseIP(host); ip != nil && host != "100.64.0.1" {
 			// If it's an IP that's not a tailscale CGNAT address, DNS leaked
 			dnsLookupAttempted.Store(true)
 		}
@@ -706,7 +705,7 @@ func TestTailscaleService_AllTrafficGoesThrough_TsnetNode(t *testing.T) {
 	}
 	mock.listenFunc = func(_, _ string) (net.Listener, error) {
 		listenCount.Add(1)
-		return net.Listen("tcp", "127.0.0.1:0")
+		return (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	}
 
 	svc := newTailscaleServiceWithNode(mock)

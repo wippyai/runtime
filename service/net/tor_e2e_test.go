@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net"
 	gohttp "net/http"
@@ -20,8 +19,8 @@ import (
 
 // torCheckResponse is the JSON response from check.torproject.org/api/ip.
 type torCheckResponse struct {
-	IsTor bool   `json:"IsTor"`
 	IP    string `json:"IP"`
+	IsTor bool   `json:"IsTor"`
 }
 
 // TestTorE2E_TrafficRoutedThroughTor verifies that HTTP requests made through
@@ -263,8 +262,8 @@ func TestTorE2E_OnionDNSResolution(t *testing.T) {
 func TestTorE2E_ConfigValidation(t *testing.T) {
 	tests := []struct {
 		name    string
-		cfg     netapi.TorConfig
 		wantErr string
+		cfg     netapi.TorConfig
 	}{
 		{
 			name:    "empty host",
@@ -305,8 +304,8 @@ func getExternalIP(t *testing.T, client *gohttp.Client) string {
 
 	// Try multiple IP echo services for reliability
 	services := []struct {
-		url   string
 		parse func([]byte) string
+		url   string
 	}{
 		{
 			url: "https://api.ipify.org?format=json",
@@ -416,7 +415,7 @@ func containsAny(s string, substrs ...string) bool {
 }
 
 func containsStr(s, sub string) bool {
-	return len(s) >= len(sub) && fmt.Sprintf("%s", s) != "" && searchInString(s, sub)
+	return len(s) >= len(sub) && s != "" && searchInString(s, sub)
 }
 
 func searchInString(s, sub string) bool {

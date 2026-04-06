@@ -15,6 +15,7 @@ const (
 	KindTor       registry.Kind = "network.tor"
 	KindI2P       registry.Kind = "network.i2p"
 	KindTailscale registry.Kind = "network.tailscale"
+	KindOpenVPN   registry.Kind = "network.openvpn"
 )
 
 // NetworkConfig holds common configuration for all network entries.
@@ -74,6 +75,33 @@ func (c *TailscaleConfig) SetMeta(meta attrs.Bag) {
 func (c *TailscaleConfig) Validate() error {
 	if c.AuthKey == "" && c.AuthKeyEnv == "" {
 		return ErrAuthKeyRequired
+	}
+	return nil
+}
+
+// OpenVPNConfig holds OpenVPN management interface configuration.
+// OpenVPN creates a TUN interface and routes traffic through the VPN tunnel.
+// This service connects to the OpenVPN management interface to query the
+// VPN's assigned local IP, then binds outbound connections to that IP so
+// the OS routing table directs them through the VPN tunnel.
+type OpenVPNConfig struct {
+	Meta attrs.Bag `json:"meta,omitempty" msgpack:"meta,omitempty"`
+	// ManagementAddress is the TCP address of the OpenVPN management interface
+	// (e.g. "127.0.0.1:7505"). Required.
+	ManagementAddress string `json:"management_address" msgpack:"management_address"`
+	// ManagementPassword is the optional password for the management interface.
+	ManagementPassword string `json:"management_password,omitempty" msgpack:"management_password,omitempty"`
+}
+
+// SetMeta sets the metadata for OpenVPNConfig.
+func (c *OpenVPNConfig) SetMeta(meta attrs.Bag) {
+	c.Meta = meta
+}
+
+// Validate checks that the OpenVPN config has the minimum required fields.
+func (c *OpenVPNConfig) Validate() error {
+	if c.ManagementAddress == "" {
+		return ErrManagementAddressRequired
 	}
 	return nil
 }

@@ -72,14 +72,6 @@ func (s *recordingService) dialCount() int {
 	return len(s.calls)
 }
 
-func (s *recordingService) dialCalls() []dialRecord {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	cp := make([]dialRecord, len(s.calls))
-	copy(cp, s.calls)
-	return cp
-}
-
 // failingService implements netapi.Service but always returns an error on dial.
 type failingService struct {
 	err error
@@ -139,7 +131,7 @@ func TestHandler_OverlayNetworkRouting(t *testing.T) {
 	// Test server that returns a known response
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		w.WriteHeader(gohttp.StatusOK)
-		w.Write([]byte("overlay-routed")) //nolint:errcheck
+		w.Write([]byte("overlay-routed"))
 	}))
 	defer ts.Close()
 
@@ -201,7 +193,7 @@ func TestHandler_OverlayNetworkNotFound(t *testing.T) {
 func TestHandler_ClearnetWhenNoOverlay(t *testing.T) {
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		w.WriteHeader(gohttp.StatusOK)
-		w.Write([]byte("clearnet")) //nolint:errcheck
+		w.Write([]byte("clearnet"))
 	}))
 	defer ts.Close()
 
@@ -239,7 +231,7 @@ func TestHandler_OverlayWithNoRegistry(t *testing.T) {
 	// Dispatcher without network registry — overlay should be silently ignored
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		w.WriteHeader(gohttp.StatusOK)
-		w.Write([]byte("no-registry")) //nolint:errcheck
+		w.Write([]byte("no-registry"))
 	}))
 	defer ts.Close()
 
@@ -347,14 +339,14 @@ func TestHandler_OverlayBatchMixedRouting(t *testing.T) {
 	tsClearnet := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		clearnetHits.Add(1)
 		w.WriteHeader(gohttp.StatusOK)
-		w.Write([]byte("clearnet")) //nolint:errcheck
+		w.Write([]byte("clearnet"))
 	}))
 	defer tsClearnet.Close()
 
 	tsOverlay := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		overlayHits.Add(1)
 		w.WriteHeader(gohttp.StatusOK)
-		w.Write([]byte("overlay")) //nolint:errcheck
+		w.Write([]byte("overlay"))
 	}))
 	defer tsOverlay.Close()
 
@@ -469,7 +461,7 @@ func TestHandler_OverlayDefaultNetworkFromContext(t *testing.T) {
 	// to netapi.GetDefaultNetwork(ctx).
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		w.WriteHeader(gohttp.StatusOK)
-		w.Write([]byte("via-default")) //nolint:errcheck
+		w.Write([]byte("via-default"))
 	}))
 	defer ts.Close()
 
@@ -514,7 +506,7 @@ func TestHandler_OverlayTakesPriorityOverTLS(t *testing.T) {
 	// When both OverlayNetwork and TLS config are set, overlay should win.
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		w.WriteHeader(gohttp.StatusOK)
-		w.Write([]byte("overlay-wins")) //nolint:errcheck
+		w.Write([]byte("overlay-wins"))
 	}))
 	defer ts.Close()
 
@@ -554,7 +546,7 @@ func TestHandler_ExplicitOverlayOverridesDefaultContext(t *testing.T) {
 	// the explicit per-request one should take priority.
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		w.WriteHeader(gohttp.StatusOK)
-		w.Write([]byte("explicit-overlay")) //nolint:errcheck
+		w.Write([]byte("explicit-overlay"))
 	}))
 	defer ts.Close()
 
@@ -606,7 +598,7 @@ func TestHandler_OverlayPostWithBody(t *testing.T) {
 		n, _ := r.Body.Read(buf)
 		receivedBody = string(buf[:n])
 		w.WriteHeader(gohttp.StatusOK)
-		w.Write([]byte("ok")) //nolint:errcheck
+		w.Write([]byte("ok"))
 	}))
 	defer ts.Close()
 
@@ -647,7 +639,7 @@ func TestHandler_OverlayConcurrentRequests(t *testing.T) {
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		requestCount.Add(1)
 		w.WriteHeader(gohttp.StatusOK)
-		w.Write([]byte("ok")) //nolint:errcheck
+		w.Write([]byte("ok"))
 	}))
 	defer ts.Close()
 
@@ -784,7 +776,7 @@ func TestHandler_OverlayHostnamePassesThrough(t *testing.T) {
 	// Backend server
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		w.WriteHeader(gohttp.StatusOK)
-		w.Write([]byte("reached")) //nolint:errcheck
+		w.Write([]byte("reached"))
 	}))
 	defer ts.Close()
 

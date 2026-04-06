@@ -33,12 +33,13 @@ type socks5Conn struct {
 // It records connection attempts and optionally forwards to a backend.
 type mockSOCKS5Server struct {
 	listener net.Listener
-	conns    []socks5Conn
-	mu       sync.Mutex
 
 	// backend is dialed for each successful SOCKS5 CONNECT.
 	// If nil, the server returns success but immediately closes.
 	backend string
+
+	conns []socks5Conn
+	mu    sync.Mutex
 
 	// failConnect makes the server return a SOCKS5 error on CONNECT.
 	failConnect bool
@@ -46,7 +47,7 @@ type mockSOCKS5Server struct {
 
 func newMockSOCKS5Server(t *testing.T) *mockSOCKS5Server {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
 	s := &mockSOCKS5Server{listener: ln}
@@ -90,7 +91,7 @@ func (s *mockSOCKS5Server) serve(t *testing.T) {
 func (s *mockSOCKS5Server) handleConn(t *testing.T, conn net.Conn) {
 	t.Helper()
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(5 * time.Second)) //nolint:errcheck
+	conn.SetDeadline(time.Now().Add(5 * time.Second))
 
 	r := bufio.NewReader(conn)
 
@@ -124,7 +125,7 @@ func (s *mockSOCKS5Server) handleConn(t *testing.T, conn net.Conn) {
 	var user, pass string
 	if hasUserPass {
 		// Select username/password auth
-		conn.Write([]byte{0x05, 0x02}) //nolint:errcheck
+		conn.Write([]byte{0x05, 0x02})
 
 		// --- Phase 2: Username/Password sub-negotiation (RFC 1929) ---
 		subVer, err := r.ReadByte()
@@ -150,11 +151,11 @@ func (s *mockSOCKS5Server) handleConn(t *testing.T, conn net.Conn) {
 		user = string(uBuf)
 		pass = string(pBuf)
 		// Accept all credentials
-		conn.Write([]byte{0x01, 0x00}) //nolint:errcheck
+		conn.Write([]byte{0x01, 0x00})
 	} else if hasNoAuth {
-		conn.Write([]byte{0x05, 0x00}) //nolint:errcheck
+		conn.Write([]byte{0x05, 0x00})
 	} else {
-		conn.Write([]byte{0x05, 0xFF}) //nolint:errcheck
+		conn.Write([]byte{0x05, 0xFF})
 		return
 	}
 
@@ -212,17 +213,17 @@ func (s *mockSOCKS5Server) handleConn(t *testing.T, conn net.Conn) {
 	if s.failConnect {
 		// Reply with general failure (0x01)
 		reply := []byte{0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0}
-		conn.Write(reply) //nolint:errcheck
+		conn.Write(reply)
 		return
 	}
 
 	// Reply with success
 	reply := []byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0}
-	conn.Write(reply) //nolint:errcheck
+	conn.Write(reply)
 
 	// If backend is configured, bridge to it
 	if s.backend != "" {
-		upstream, err := net.DialTimeout("tcp", s.backend, 3*time.Second)
+		upstream, err := (&net.Dialer{Timeout: 3 * time.Second}).DialContext(context.Background(), "tcp", s.backend)
 		if err != nil {
 			return
 		}
@@ -230,10 +231,10 @@ func (s *mockSOCKS5Server) handleConn(t *testing.T, conn net.Conn) {
 
 		done := make(chan struct{})
 		go func() {
-			io.Copy(upstream, r) //nolint:errcheck
+			io.Copy(upstream, r)
 			close(done)
 		}()
-		io.Copy(conn, upstream) //nolint:errcheck
+		io.Copy(conn, upstream)
 		<-done
 	}
 }
@@ -264,7 +265,7 @@ func TestNewTorService_WithStreamIsolation(t *testing.T) {
 
 func TestTorService_DialContext(t *testing.T) {
 	// Start a local HTTP server as the "destination"
-	backend, err := net.Listen("tcp", "127.0.0.1:0")
+	backend, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer backend.Close()
 	go func() {
@@ -273,7 +274,7 @@ func TestTorService_DialContext(t *testing.T) {
 			if err != nil {
 				return
 			}
-			c.Write([]byte("hello from backend")) //nolint:errcheck
+			c.Write([]byte("hello from backend"))
 			c.Close()
 		}
 	}()
@@ -520,8 +521,8 @@ func TestRandomIsolationCredential(t *testing.T) {
 func TestTorConfig_Validation(t *testing.T) {
 	tests := []struct {
 		name    string
-		cfg     netapi.TorConfig
 		wantErr string
+		cfg     netapi.TorConfig
 	}{
 		{
 			name:    "empty host",

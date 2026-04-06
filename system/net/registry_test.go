@@ -37,10 +37,10 @@ func (m *mockService) LookupHost(_ context.Context, _ string) ([]string, error) 
 
 // mockClosableService implements netapi.Service + io.Closer.
 type mockClosableService struct {
-	mockService
-	closed   bool
 	closeErr error
-	closeMu  sync.Mutex
+	mockService
+	closeMu sync.Mutex
+	closed  bool
 }
 
 func (m *mockClosableService) Close() error {
@@ -241,7 +241,7 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 				case 0:
 					reg.Register(id, svc, netapi.KindTor)
 				case 1:
-					reg.GetNetwork(id) //nolint:errcheck
+					reg.GetNetwork(id)
 				case 2:
 					reg.HasNetwork(id)
 				case 3:

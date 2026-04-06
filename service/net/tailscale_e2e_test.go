@@ -222,7 +222,7 @@ func TestTailscaleE2E_TrafficRoutedThroughTailnet(t *testing.T) {
 		clientIP, _, _ := net.SplitHostPort(r.RemoteAddr)
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Transport", "tailscale")
-		json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]string{
 			"client_ip": clientIP,
 			"server_ip": ipA.String(),
 			"transport": "tailscale",
@@ -230,7 +230,7 @@ func TestTailscaleE2E_TrafficRoutedThroughTailnet(t *testing.T) {
 	})
 
 	server := &gohttp.Server{Handler: mux}
-	go server.Serve(ln) //nolint:errcheck
+	go server.Serve(ln)
 	defer server.Close()
 
 	// --- Node B: client (uses our TailscaleService wrapper) ---
@@ -323,7 +323,7 @@ func TestTailscaleE2E_FullHTTPRequest(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Server", "wippy-tailscale-e2e")
-		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{
 			"headers": headers,
 			"method":  r.Method,
 			"path":    r.URL.Path,
@@ -331,7 +331,7 @@ func TestTailscaleE2E_FullHTTPRequest(t *testing.T) {
 	})
 
 	server := &gohttp.Server{Handler: mux}
-	go server.Serve(ln) //nolint:errcheck
+	go server.Serve(ln)
 	defer server.Close()
 
 	// --- Client node ---
@@ -466,7 +466,7 @@ func TestTailscaleE2E_BidirectionalDataTransfer(t *testing.T) {
 
 	for i, msg := range messages {
 		// Set a deadline for each round-trip
-		conn.SetDeadline(time.Now().Add(15 * time.Second)) //nolint:errcheck
+		conn.SetDeadline(time.Now().Add(15 * time.Second))
 
 		// Send
 		_, err := conn.Write([]byte(msg))
@@ -522,7 +522,7 @@ func TestTailscaleE2E_DNSNotLeaked(t *testing.T) {
 	//   - headscale      → *.<base_domain> (configured in headscale config)
 	//
 	// When using headscale with base_domain "headscale.net", tsnet only
-	// intercepts *.headscale.net names via MagicDNS. Unrecognised domains
+	// intercepts *.headscale.net names via MagicDNS. Unrecognized domains
 	// (like *.ts.net) are forwarded to the upstream nameservers configured
 	// in headscale — that forwarding still goes through the tsnet network
 	// stack, not the local system resolver, but the resulting error string
@@ -580,8 +580,8 @@ func TestTailscaleE2E_DNSNotLeaked(t *testing.T) {
 func TestTailscaleE2E_ConfigValidation(t *testing.T) {
 	tests := []struct {
 		name    string
-		cfg     netapi.TailscaleConfig
 		wantErr string
+		cfg     netapi.TailscaleConfig
 	}{
 		{
 			name:    "no auth key",
