@@ -5,13 +5,12 @@ package net
 import (
 	"context"
 	"fmt"
-	"io"
-	"sync"
 
 	"github.com/wippyai/runtime/api/attrs"
 	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	netsystem "github.com/wippyai/runtime/system/net"
 	"go.uber.org/zap"
 )
 
@@ -19,27 +18,21 @@ import (
 var (
 	_ registry.EntryListener       = (*Manager)(nil)
 	_ registry.TransactionListener = (*Manager)(nil)
-	_ netapi.NetworkRegistry       = (*Manager)(nil)
 )
 
-// networkEntry holds a running network service and its metadata.
-type networkEntry struct {
-	service netapi.Service
-	kind    registry.Kind
-}
-
-// Manager manages network overlay service lifecycles.
-// It implements registry.EntryListener to react to network entry changes
-// and netapi.NetworkRegistry to provide service lookup for consumers.
+// Manager creates overlay network driver instances from registry entries
+// and registers them with the system-level network Registry.
 type Manager struct {
+	registry *netsystem.Registry
 	dtt      payload.Transcoder
 	log      *zap.Logger
-	services map[registry.ID]*networkEntry
-	mu       sync.RWMutex
 }
 
 // NewManager creates a new network overlay manager.
-func NewManager(dtt payload.Transcoder, log *zap.Logger) (*Manager, error) {
+func NewManager(reg *netsystem.Registry, dtt payload.Transcoder, log *zap.Logger) (*Manager, error) {
+	if reg == nil {
+		return nil, fmt.Errorf("network manager: registry required")
+	}
 	if dtt == nil {
 		return nil, fmt.Errorf("network manager: transcoder required")
 	}
@@ -47,31 +40,25 @@ func NewManager(dtt payload.Transcoder, log *zap.Logger) (*Manager, error) {
 		log = zap.NewNop()
 	}
 	return &Manager{
+		registry: reg,
 		dtt:      dtt,
 		log:      log,
-		services: make(map[registry.ID]*networkEntry),
 	}, nil
 }
 
 // --- registry.EntryListener ---
 
-func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.createService(ctx, entry)
+func (m *Manager) Add(_ context.Context, entry registry.Entry) error {
+	return m.createAndRegister(entry)
 }
 
-func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.stopService(entry.ID)
-	return m.createService(ctx, entry)
+func (m *Manager) Update(_ context.Context, entry registry.Entry) error {
+	m.registry.Unregister(entry.ID)
+	return m.createAndRegister(entry)
 }
 
 func (m *Manager) Delete(_ context.Context, entry registry.Entry) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.stopService(entry.ID)
+	m.registry.Unregister(entry.ID)
 	return nil
 }
 
@@ -81,38 +68,9 @@ func (m *Manager) Begin(_ context.Context)   {}
 func (m *Manager) Commit(_ context.Context)  {}
 func (m *Manager) Discard(_ context.Context) {}
 
-// --- netapi.NetworkRegistry ---
-
-func (m *Manager) GetNetwork(id registry.ID) (netapi.Service, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	entry, ok := m.services[id]
-	if !ok {
-		return nil, netapi.ErrNetworkNotFound
-	}
-	return entry.service, nil
-}
-
-func (m *Manager) HasNetwork(id registry.ID) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	_, ok := m.services[id]
-	return ok
-}
-
-func (m *Manager) NetworkKind(id registry.ID) registry.Kind {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	entry, ok := m.services[id]
-	if !ok {
-		return ""
-	}
-	return entry.kind
-}
-
 // --- internal ---
 
-func (m *Manager) createService(_ context.Context, entry registry.Entry) error {
+func (m *Manager) createAndRegister(entry registry.Entry) error {
 	var svc netapi.Service
 	var err error
 
@@ -136,33 +94,8 @@ func (m *Manager) createService(_ context.Context, entry registry.Entry) error {
 		return err
 	}
 
-	m.services[entry.ID] = &networkEntry{
-		service: svc,
-		kind:    entry.Kind,
-	}
-
-	m.log.Info("network service created",
-		zap.String("id", entry.ID.String()),
-		zap.String("kind", entry.Kind),
-	)
+	m.registry.Register(entry.ID, svc, entry.Kind)
 	return nil
-}
-
-func (m *Manager) stopService(id registry.ID) {
-	entry, ok := m.services[id]
-	if !ok {
-		return
-	}
-	if closer, ok := entry.service.(io.Closer); ok {
-		if err := closer.Close(); err != nil {
-			m.log.Warn("error closing network service",
-				zap.String("id", id.String()),
-				zap.Error(err),
-			)
-		}
-	}
-	delete(m.services, id)
-	m.log.Debug("network service stopped", zap.String("id", id.String()))
 }
 
 func (m *Manager) decodeConfig(entry registry.Entry, target any) error {

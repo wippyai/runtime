@@ -5,6 +5,7 @@ package service
 import "github.com/wippyai/runtime/api/boot"
 
 const (
+	NetworkServiceName    boot.Name = "network_service"
 	HTTPName              boot.Name = "http"
 	Terminal2Name         boot.Name = "terminal2"
 	ProcessSupervisorName boot.Name = "process_supervisor"
