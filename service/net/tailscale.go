@@ -14,10 +14,18 @@ import (
 
 var _ netapi.Service = (*TailscaleService)(nil)
 
+// tsnetNode abstracts the tsnet.Server methods used by TailscaleService.
+// This enables unit testing with a mock implementation.
+type tsnetNode interface {
+	Dial(ctx context.Context, network, address string) (net.Conn, error)
+	Listen(network, address string) (net.Listener, error)
+	Close() error
+}
+
 // TailscaleService routes connections through a Tailscale tsnet userspace node.
 // It supports both outbound dialing and inbound listening.
 type TailscaleService struct {
-	server *tsnet.Server
+	node tsnetNode
 }
 
 // NewTailscaleService creates and starts a new Tailscale tsnet node.
@@ -51,15 +59,21 @@ func NewTailscaleService(cfg *netapi.TailscaleConfig) (*TailscaleService, error)
 		return nil, fmt.Errorf("tailscale: failed to start tsnet node: %w", err)
 	}
 
-	return &TailscaleService{server: srv}, nil
+	return &TailscaleService{node: srv}, nil
+}
+
+// newTailscaleServiceWithNode creates a TailscaleService with an injected node
+// implementation. This is used for testing with mock tsnet nodes.
+func newTailscaleServiceWithNode(node tsnetNode) *TailscaleService {
+	return &TailscaleService{node: node}
 }
 
 func (s *TailscaleService) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	return s.server.Dial(ctx, network, address)
+	return s.node.Dial(ctx, network, address)
 }
 
 func (s *TailscaleService) Listen(_ context.Context, network, address string) (net.Listener, error) {
-	return s.server.Listen(network, address)
+	return s.node.Listen(network, address)
 }
 
 func (s *TailscaleService) ListenPacket(_ context.Context, _, _ string) (net.PacketConn, error) {
@@ -72,5 +86,5 @@ func (s *TailscaleService) LookupHost(_ context.Context, _ string) ([]string, er
 
 // Close shuts down the Tailscale node.
 func (s *TailscaleService) Close() error {
-	return s.server.Close()
+	return s.node.Close()
 }

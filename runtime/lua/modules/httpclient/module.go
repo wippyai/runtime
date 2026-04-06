@@ -23,7 +23,7 @@ func isPrivateIP(ip net.IP) bool {
 		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
 }
 
-func checkPrivateIP(ctx context.Context, urlStr string) string {
+func checkPrivateIP(ctx context.Context, urlStr string, hasOverlay bool) string {
 	u, err := url.Parse(urlStr)
 	if err != nil {
 		return ""
@@ -40,6 +40,14 @@ func checkPrivateIP(ctx context.Context, urlStr string) string {
 				return "not allowed: private IP " + host
 			}
 		}
+		return ""
+	}
+
+	// When an overlay network is active (Tor, I2P, etc.), skip local DNS
+	// resolution. The overlay resolves DNS at the remote end; performing
+	// a local lookup would leak the target hostname to the system resolver,
+	// defeating the privacy guarantees of the overlay.
+	if hasOverlay {
 		return ""
 	}
 
@@ -157,7 +165,7 @@ func makeMethod(method string) lua.LGoFunc {
 
 		// Skip private IP check for unix sockets — hostname is irrelevant for local IPC
 		if opts.unixSocket == "" {
-			if errMsg := checkPrivateIP(ctx, urlStr); errMsg != "" {
+			if errMsg := checkPrivateIP(ctx, urlStr, opts.overlayNetwork != ""); errMsg != "" {
 				l.Push(lua.LNil)
 				l.Push(lua.NewLuaError(l, errMsg).WithKind(lua.PermissionDenied).WithRetryable(false))
 				return 2
@@ -218,7 +226,7 @@ func request(l *lua.LState) int {
 
 	// Skip private IP check for unix sockets — hostname is irrelevant for local IPC
 	if opts.unixSocket == "" {
-		if errMsg := checkPrivateIP(ctx, urlStr); errMsg != "" {
+		if errMsg := checkPrivateIP(ctx, urlStr, opts.overlayNetwork != ""); errMsg != "" {
 			l.Push(lua.LNil)
 			l.Push(lua.NewLuaError(l, errMsg).WithKind(lua.PermissionDenied).WithRetryable(false))
 			return 2
@@ -542,7 +550,7 @@ func requestBatch(l *lua.LState) int {
 
 		// Skip private IP check for unix sockets — hostname is irrelevant for local IPC
 		if opts.unixSocket == "" {
-			if errMsg := checkPrivateIP(ctx, urlStr); errMsg != "" {
+			if errMsg := checkPrivateIP(ctx, urlStr, opts.overlayNetwork != ""); errMsg != "" {
 				parseErr = errMsg
 				parseErrKind = lua.PermissionDenied
 				return

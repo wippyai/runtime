@@ -38,6 +38,9 @@ test-cluster:
 test-integration:
 	CGO_ENABLED=1 go test ./tests/... -v -race -timeout 120s
 
+test-network:
+	go test -v -race -timeout 300s ./service/net/...
+
 .PHONY: lint
 lint:
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0 run --timeout=10m --build-tags=race ./...

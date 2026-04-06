@@ -135,8 +135,15 @@ func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Comm
 const defaultMaxResponseBody int64 = 120 * 1024 * 1024 // 120MB default limit
 
 // checkOverlayPrivateIP validates that the request URL does not target a
-// private/loopback/link-local IP when routed through an overlay network.
-// Overlay dialers resolve DNS internally, so pre-flight resolution is needed.
+// private/loopback/link-local IP literal when routed through an overlay network.
+//
+// IMPORTANT: This function intentionally does NOT resolve DNS for hostnames.
+// Overlay networks (Tor, I2P) resolve DNS at the exit node / remote end.
+// Performing local DNS resolution here would leak the target hostname to the
+// local DNS resolver, defeating the privacy guarantees of the overlay.
+//
+// Only literal IP addresses (e.g. http://127.0.0.1/) are checked.
+// Hostnames are passed through to the overlay for remote resolution.
 func checkOverlayPrivateIP(ctx context.Context, rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -147,26 +154,16 @@ func checkOverlayPrivateIP(ctx context.Context, rawURL string) error {
 		return nil
 	}
 
-	if ip := net.ParseIP(host); ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-			ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
-			if !security.IsAllowed(ctx, "http_client.private_ip", host, nil) {
-				return fmt.Errorf("not allowed: private IP %s via overlay network", host)
-			}
-		}
-		return nil
+	// Only check literal IP addresses — never resolve DNS for overlay traffic.
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return nil // hostname — let the overlay resolve it remotely
 	}
 
-	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
-	if err != nil {
-		return nil
-	}
-	for _, ip := range ips {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-			ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
-			if !security.IsAllowed(ctx, "http_client.private_ip", ip.String(), nil) {
-				return fmt.Errorf("not allowed: private IP %s via overlay network", ip.String())
-			}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+		if !security.IsAllowed(ctx, "http_client.private_ip", host, nil) {
+			return fmt.Errorf("not allowed: private IP %s via overlay network", host)
 		}
 	}
 	return nil

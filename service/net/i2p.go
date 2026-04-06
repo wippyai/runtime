@@ -8,11 +8,30 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	netapi "github.com/wippyai/runtime/api/net"
 )
 
 var _ netapi.Service = (*I2PService)(nil)
+
+// samSessionCounter generates unique session IDs across concurrent DialContext calls.
+var samSessionCounter uint64
+
+// samStreamConn wraps a SAM stream connection with its associated control connection.
+// The control connection keeps the SAM session alive. Closing the stream also
+// closes the control connection, destroying the session.
+type samStreamConn struct {
+	net.Conn
+	ctrl net.Conn
+}
+
+func (c *samStreamConn) Close() error {
+	err := c.Conn.Close()
+	c.ctrl.Close()
+	return err
+}
 
 // I2PService routes connections through an I2P SAM v3 bridge.
 type I2PService struct {
@@ -72,64 +91,127 @@ func samParseResult(line string) (string, bool) {
 	return rest, true
 }
 
-// samDial connects to the SAM bridge and performs a STREAM CONNECT.
-// This is a minimal SAM v3 client implementation.
-func samDial(ctx context.Context, samAddr, sessionName, _ /* network */, address string) (net.Conn, error) {
+// samDial connects to the SAM bridge using the SAM v3.1+ two-connection protocol:
+//
+//  1. Control connection: HELLO + SESSION CREATE (creates the session)
+//  2. Stream connection: HELLO + STREAM CONNECT (opens a data stream)
+//
+// Each call generates a unique session ID to avoid DUPLICATED_ID errors on
+// concurrent dials. The returned connection wraps both the stream and control
+// connections; closing it destroys the session.
+func samDial(ctx context.Context, samAddr, sessionBase, _ /* network */, address string) (net.Conn, error) {
+	// Unique session ID per dial to avoid DUPLICATED_ID on concurrent calls.
+	id := atomic.AddUint64(&samSessionCounter, 1)
+	sessionID := fmt.Sprintf("%s-%d", sessionBase, id)
+
 	d := net.Dialer{}
-	samConn, err := d.DialContext(ctx, "tcp", samAddr)
+
+	// --- Control connection: HELLO + SESSION CREATE ---
+	ctrlConn, err := d.DialContext(ctx, "tcp", samAddr)
 	if err != nil {
 		return nil, fmt.Errorf("i2p: failed to connect to SAM bridge at %s: %w", samAddr, err)
 	}
 
-	reader := bufio.NewReader(samConn)
+	// Propagate context deadline to the connection for the setup phase.
+	if deadline, ok := ctx.Deadline(); ok {
+		ctrlConn.SetDeadline(deadline) //nolint:errcheck
+	}
 
-	// Step 1: SAM v3 handshake
-	if _, err := fmt.Fprintf(samConn, "HELLO VERSION MIN=3.0 MAX=3.3\n"); err != nil {
-		samConn.Close()
+	ctrlReader := bufio.NewReader(ctrlConn)
+
+	if _, err := fmt.Fprintf(ctrlConn, "HELLO VERSION MIN=3.0 MAX=3.3\n"); err != nil {
+		ctrlConn.Close()
 		return nil, fmt.Errorf("i2p: SAM handshake failed: %w", err)
 	}
 
-	resp, err := samReadLine(reader)
+	resp, err := samReadLine(ctrlReader)
 	if err != nil {
-		samConn.Close()
+		ctrlConn.Close()
 		return nil, fmt.Errorf("i2p: SAM handshake response failed: %w", err)
 	}
 	if result, ok := samParseResult(resp); !ok || result != "OK" {
-		samConn.Close()
+		ctrlConn.Close()
 		return nil, fmt.Errorf("i2p: unexpected SAM handshake response: %s", resp)
 	}
 
-	// Step 2: Create a transient session
-	if _, err := fmt.Fprintf(samConn, "SESSION CREATE STYLE=STREAM ID=%s DESTINATION=TRANSIENT\n", sessionName); err != nil {
-		samConn.Close()
+	if _, err := fmt.Fprintf(ctrlConn, "SESSION CREATE STYLE=STREAM ID=%s DESTINATION=TRANSIENT\n", sessionID); err != nil {
+		ctrlConn.Close()
 		return nil, fmt.Errorf("i2p: SESSION CREATE failed: %w", err)
 	}
 
-	resp, err = samReadLine(reader)
+	resp, err = samReadLine(ctrlReader)
 	if err != nil {
-		samConn.Close()
+		ctrlConn.Close()
 		return nil, fmt.Errorf("i2p: SESSION CREATE response failed: %w", err)
 	}
 	if result, ok := samParseResult(resp); !ok || result != "OK" {
-		samConn.Close()
+		ctrlConn.Close()
 		return nil, fmt.Errorf("i2p: SESSION CREATE rejected: %s", resp)
 	}
 
-	// Step 3: STREAM CONNECT to target
-	if _, err := fmt.Fprintf(samConn, "STREAM CONNECT ID=%s DESTINATION=%s SILENT=false\n", sessionName, address); err != nil {
-		samConn.Close()
+	// Clear deadline — the control connection stays alive for the session lifetime.
+	ctrlConn.SetDeadline(time.Time{}) //nolint:errcheck
+
+	// Strip port from address — SAM DESTINATION is just the hostname/key.
+	// I2P destinations don't use TCP ports; the optional TO_PORT parameter
+	// can convey a virtual port if needed.
+	dest := address
+	if host, port, err := net.SplitHostPort(address); err == nil {
+		dest = host
+		_ = port // I2P doesn't use TCP ports; could pass as TO_PORT if needed
+	}
+
+	// --- Stream connection: HELLO + STREAM CONNECT ---
+	streamConn, err := d.DialContext(ctx, "tcp", samAddr)
+	if err != nil {
+		ctrlConn.Close()
+		return nil, fmt.Errorf("i2p: failed to open stream connection to SAM bridge: %w", err)
+	}
+
+	if deadline, ok := ctx.Deadline(); ok {
+		streamConn.SetDeadline(deadline) //nolint:errcheck
+	}
+
+	streamReader := bufio.NewReader(streamConn)
+
+	if _, err := fmt.Fprintf(streamConn, "HELLO VERSION MIN=3.0 MAX=3.3\n"); err != nil {
+		streamConn.Close()
+		ctrlConn.Close()
+		return nil, fmt.Errorf("i2p: stream SAM handshake failed: %w", err)
+	}
+
+	resp, err = samReadLine(streamReader)
+	if err != nil {
+		streamConn.Close()
+		ctrlConn.Close()
+		return nil, fmt.Errorf("i2p: stream SAM handshake response failed: %w", err)
+	}
+	if result, ok := samParseResult(resp); !ok || result != "OK" {
+		streamConn.Close()
+		ctrlConn.Close()
+		return nil, fmt.Errorf("i2p: stream unexpected SAM handshake response: %s", resp)
+	}
+
+	if _, err := fmt.Fprintf(streamConn, "STREAM CONNECT ID=%s DESTINATION=%s SILENT=false\n", sessionID, dest); err != nil {
+		streamConn.Close()
+		ctrlConn.Close()
 		return nil, fmt.Errorf("i2p: STREAM CONNECT failed: %w", err)
 	}
 
-	resp, err = samReadLine(reader)
+	resp, err = samReadLine(streamReader)
 	if err != nil {
-		samConn.Close()
+		streamConn.Close()
+		ctrlConn.Close()
 		return nil, fmt.Errorf("i2p: STREAM CONNECT response failed: %w", err)
 	}
 	if result, ok := samParseResult(resp); !ok || result != "OK" {
-		samConn.Close()
+		streamConn.Close()
+		ctrlConn.Close()
 		return nil, fmt.Errorf("i2p: STREAM CONNECT rejected: %s", resp)
 	}
 
-	return samConn, nil
+	// Clear deadline — data transfer should not be limited by the setup timeout.
+	streamConn.SetDeadline(time.Time{}) //nolint:errcheck
+
+	return &samStreamConn{Conn: streamConn, ctrl: ctrlConn}, nil
 }
