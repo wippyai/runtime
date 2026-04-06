@@ -32,7 +32,7 @@ type mockOpenVPNMgmt struct {
 	conns    int // number of management connections received
 }
 
-func newMockOpenVPNMgmt(t *testing.T, localIP, state string) *mockOpenVPNMgmt {
+func newMockOpenVPNMgmt(t *testing.T, localIP, state string, opts ...func(*mockOpenVPNMgmt)) *mockOpenVPNMgmt {
 	t.Helper()
 
 	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
@@ -44,8 +44,17 @@ func newMockOpenVPNMgmt(t *testing.T, localIP, state string) *mockOpenVPNMgmt {
 		localIP: localIP,
 		state:   state,
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
 	go m.serve()
 	return m
+}
+
+func withPassword(pw string) func(*mockOpenVPNMgmt) {
+	return func(m *mockOpenVPNMgmt) {
+		m.password = pw
+	}
 }
 
 func (m *mockOpenVPNMgmt) addr() string {
@@ -151,8 +160,7 @@ func TestNewOpenVPNService(t *testing.T) {
 }
 
 func TestNewOpenVPNService_WithPassword(t *testing.T) {
-	mgmt := newMockOpenVPNMgmt(t, "127.0.0.1", "CONNECTED")
-	mgmt.password = "secret123"
+	mgmt := newMockOpenVPNMgmt(t, "127.0.0.1", "CONNECTED", withPassword("secret123"))
 	defer mgmt.close()
 
 	cfg := &netapi.OpenVPNConfig{
@@ -166,8 +174,7 @@ func TestNewOpenVPNService_WithPassword(t *testing.T) {
 }
 
 func TestNewOpenVPNService_WrongPassword(t *testing.T) {
-	mgmt := newMockOpenVPNMgmt(t, "127.0.0.1", "CONNECTED")
-	mgmt.password = "correct"
+	mgmt := newMockOpenVPNMgmt(t, "127.0.0.1", "CONNECTED", withPassword("correct"))
 	defer mgmt.close()
 
 	cfg := &netapi.OpenVPNConfig{
@@ -448,8 +455,7 @@ func TestRealMgmtDialer_Protocol(t *testing.T) {
 }
 
 func TestRealMgmtDialer_Protocol_WithPassword(t *testing.T) {
-	mgmt := newMockOpenVPNMgmt(t, "172.16.0.1", "CONNECTED")
-	mgmt.password = "mgmt-pass"
+	mgmt := newMockOpenVPNMgmt(t, "172.16.0.1", "CONNECTED", withPassword("mgmt-pass"))
 	defer mgmt.close()
 
 	d := &realMgmtDialer{addr: mgmt.addr(), password: "mgmt-pass"}
