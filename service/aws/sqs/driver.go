@@ -140,15 +140,24 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 
 	consumerCtx, cancel := context.WithCancel(ctx)
 
-	// Build ReceiveMessage input from config
+	// Build ReceiveMessage input from per-queue options (with defaults)
+	maxMessages := int32(10)
+	waitTime := int32(20)
+	visTimeout := int32(0)
+	if q.opts != nil {
+		maxMessages = int32(q.opts.GetInt(queueapi.OptionMaxMessages, 10))
+		waitTime = int32(q.opts.GetInt(queueapi.OptionWaitTime, 20))
+		visTimeout = int32(q.opts.GetInt(queueapi.OptionVisibilityTimeout, 0))
+	}
+
 	receiveInput := &awssqs.ReceiveMessageInput{
 		QueueUrl:              aws.String(q.url),
-		MaxNumberOfMessages:   d.cfg.MaxNumberOfMessages,
-		WaitTimeSeconds:       d.cfg.WaitTimeSeconds,
+		MaxNumberOfMessages:   maxMessages,
+		WaitTimeSeconds:       waitTime,
 		MessageAttributeNames: []string{"All"},
 	}
-	if d.cfg.VisibilityTimeout > 0 {
-		receiveInput.VisibilityTimeout = d.cfg.VisibilityTimeout
+	if visTimeout > 0 {
+		receiveInput.VisibilityTimeout = visTimeout
 	}
 
 	go func() {
@@ -220,14 +229,17 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 	return cancel, nil
 }
 
-// buildQueueAttributes constructs SQS queue attributes from the driver config.
-// Returns nil if no custom attributes are configured.
-func (d *Driver) buildQueueAttributes() map[string]string {
+// buildQueueAttributes constructs SQS queue attributes from the driver config
+// and per-queue options. Returns nil if no custom attributes are configured.
+func (d *Driver) buildQueueAttributes(opts attrs.Attributes) map[string]string {
 	hasRetention := d.cfg.MessageRetentionPeriod > 0
 	hasDelay := d.cfg.DefaultDelaySeconds > 0
-	hasVisibility := d.cfg.VisibilityTimeout > 0
+	visTimeout := int32(0)
+	if opts != nil {
+		visTimeout = int32(opts.GetInt(queueapi.OptionVisibilityTimeout, 0))
+	}
 
-	if !hasRetention && !hasDelay && !hasVisibility {
+	if !hasRetention && !hasDelay && visTimeout <= 0 {
 		return nil
 	}
 
@@ -238,8 +250,8 @@ func (d *Driver) buildQueueAttributes() map[string]string {
 	if hasDelay {
 		attrs[string(types.QueueAttributeNameDelaySeconds)] = strconv.FormatInt(int64(d.cfg.DefaultDelaySeconds), 10)
 	}
-	if hasVisibility {
-		attrs[string(types.QueueAttributeNameVisibilityTimeout)] = strconv.FormatInt(int64(d.cfg.VisibilityTimeout), 10)
+	if visTimeout > 0 {
+		attrs[string(types.QueueAttributeNameVisibilityTimeout)] = strconv.FormatInt(int64(visTimeout), 10)
 	}
 
 	return attrs
@@ -286,7 +298,7 @@ func (d *Driver) DeclareQueue(ctx context.Context, queueID registry.ID, opts att
 	createInput := &awssqs.CreateQueueInput{
 		QueueName: aws.String(name),
 	}
-	if queueAttrs := d.buildQueueAttributes(); queueAttrs != nil {
+	if queueAttrs := d.buildQueueAttributes(opts); queueAttrs != nil {
 		createInput.Attributes = queueAttrs
 	}
 

@@ -26,6 +26,11 @@ const (
 	// Codec option (per-queue serialization format)
 	OptionCodec = "codec" // Payload format for message body (e.g. "json/plain", "application/msgpack")
 
+	// SQS receive options (per-queue, read by Attach)
+	OptionMaxMessages       = "max_messages"       // Max messages per receive call (SQS: 1–10, default 10)
+	OptionWaitTime          = "wait_time"          // Long-poll wait time in seconds (SQS: 0–20, default 20)
+	OptionVisibilityTimeout = "visibility_timeout" // Visibility timeout in seconds (SQS: 0–43200)
+
 	// OptionMaxBytes reserved for future use
 	// OptionMessageTTL reserved for future use
 	// OptionDeadLetterQueue reserved for future use
