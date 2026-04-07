@@ -65,9 +65,9 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	// Acquire shared AWS config from resource registry (same pattern as S3)
 	resourceRegistry := resource.GetRegistry(ctx)
-	rsc, err := resourceRegistry.Acquire(ctx, registry.ParseID(cfg.AWSConfig), resource.ModeNormal)
+	rsc, err := resourceRegistry.Acquire(ctx, cfg.AWSConfig, resource.ModeNormal)
 	if err != nil {
-		return queuesvc.NewConfigError("failed to acquire aws config resource", fmt.Errorf("sqs: acquire aws config resource %q: %w", cfg.AWSConfig, err))
+		return queuesvc.NewConfigError("failed to acquire aws config resource", fmt.Errorf("sqs: acquire aws config resource %q: %w", cfg.AWSConfig.String(), err))
 	}
 
 	gotConfig, err := rsc.Get()

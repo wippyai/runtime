@@ -23,7 +23,7 @@ type Config struct {
 	// AWSConfig is a resource ID referencing a config.aws resource
 	// managed by service/aws/config/manager.go.
 	// Resolved at runtime via resource.GetRegistry(ctx).Acquire().
-	AWSConfig string `json:"config"`
+	AWSConfig registry.ID `json:"config"`
 
 	// Endpoint is a custom endpoint URL (e.g. for LocalStack, ElasticMQ).
 	// Sets BaseEndpoint on the AWS config.
@@ -68,7 +68,7 @@ type Config struct {
 
 // Validate validates the configuration.
 func (c *Config) Validate() error {
-	if c.AWSConfig == "" {
+	if c.AWSConfig.Name == "" {
 		return fmt.Errorf("sqs: aws config is required")
 	}
 	if c.MaxNumberOfMessages <= 0 || c.MaxNumberOfMessages > 10 {
