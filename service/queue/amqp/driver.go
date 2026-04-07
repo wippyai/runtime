@@ -192,7 +192,9 @@ func clampMillisToInt32(ms int64) int32 {
 }
 
 func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queueapi.Message) error {
-	d.mu.RLock()
+	if !d.mu.TryRLock() {
+		return apierror.New(apierror.Unavailable, "amqp driver busy (reconnecting)").WithRetryable(apierror.True)
+	}
 	q, exists := d.queues[queueID]
 	d.mu.RUnlock()
 
@@ -240,7 +242,9 @@ func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queu
 }
 
 func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries chan<- *queueapi.Delivery) (context.CancelFunc, error) {
-	d.mu.RLock()
+	if !d.mu.TryRLock() {
+		return nil, apierror.New(apierror.Unavailable, "amqp driver busy (reconnecting)").WithRetryable(apierror.True)
+	}
 	q, exists := d.queues[queueID]
 	d.mu.RUnlock()
 
@@ -376,7 +380,9 @@ func (d *Driver) DeclareQueue(_ context.Context, queueID registry.ID, opts attrs
 }
 
 func (d *Driver) GetQueueInfo(_ context.Context, queueID registry.ID) (attrs.Attributes, error) {
-	d.mu.RLock()
+	if !d.mu.TryRLock() {
+		return nil, apierror.New(apierror.Unavailable, "amqp driver busy (reconnecting)").WithRetryable(apierror.True)
+	}
 	q, exists := d.queues[queueID]
 	d.mu.RUnlock()
 
