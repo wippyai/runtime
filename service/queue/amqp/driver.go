@@ -13,6 +13,7 @@ import (
 	amqp091 "github.com/rabbitmq/amqp091-go"
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
+	"github.com/wippyai/runtime/api/payload"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
 	amqpapi "github.com/wippyai/runtime/api/service/queue/amqp"
@@ -31,6 +32,7 @@ type Driver struct {
 	logger     *zap.Logger
 	conn       *amqp091.Connection
 	cfg        *amqpapi.Config
+	tc         payload.Transcoder
 	queues     map[registry.ID]*declaredQueue
 	cancel     context.CancelFunc
 	statusChan chan any
@@ -39,13 +41,14 @@ type Driver struct {
 }
 
 // NewDriver creates a new AMQP driver instance.
-func NewDriver(id registry.ID, cfg *amqpapi.Config, logger *zap.Logger) *Driver {
+func NewDriver(id registry.ID, cfg *amqpapi.Config, tc payload.Transcoder, logger *zap.Logger) *Driver {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 	return &Driver{
 		id:     id,
 		cfg:    cfg,
+		tc:     tc,
 		logger: logger,
 		queues: make(map[registry.ID]*declaredQueue),
 	}
@@ -220,7 +223,7 @@ func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queu
 			}
 		}
 
-		body, err := marshalBody(msg.Body)
+		body, err := marshalBody(d.tc, queueCodec(q.opts), msg.Body)
 		if err != nil {
 			return apierror.New(apierror.Internal, "amqp marshal body").WithCause(err)
 		}
@@ -314,7 +317,7 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 
 				msg := &queueapi.Message{
 					ID:      amqpMsg.MessageId,
-					Body:    unmarshalBody(amqpMsg.Body),
+					Body:    unmarshalBody(d.tc, queueCodec(q.opts), amqpMsg.Body),
 					Headers: attrs.NewBag(),
 				}
 

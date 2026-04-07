@@ -60,7 +60,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return err
 	}
 
-	driver := NewDriver(entry.ID, cfg, m.log)
+	driver := NewDriver(entry.ID, cfg, m.dtt, m.log)
 	m.drivers[entry.ID] = driver
 
 	m.bus.Send(ctx, event.Event{
