@@ -99,7 +99,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		uopts.TLSConfig = tlsCfg
 	}
 
-	driver := NewDriver(entry.ID, uopts, m.log)
+	driver := NewDriver(entry.ID, uopts, m.dtt, m.log)
 	m.drivers[entry.ID] = driver
 
 	m.bus.Send(ctx, event.Event{

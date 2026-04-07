@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	goredis "github.com/redis/go-redis/v9"
 	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/api/payload"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
 	queuesvc "github.com/wippyai/runtime/service/queue"
@@ -35,6 +36,7 @@ type Driver struct {
 	ctx        context.Context
 	logger     *zap.Logger
 	client     goredis.UniversalClient
+	tc         payload.Transcoder
 	opts       *goredis.UniversalOptions
 	queues     map[registry.ID]*declaredQueue
 	cancel     context.CancelFunc
@@ -44,13 +46,14 @@ type Driver struct {
 }
 
 // NewDriver creates a new Redis Streams driver instance.
-func NewDriver(id registry.ID, opts *goredis.UniversalOptions, logger *zap.Logger) *Driver {
+func NewDriver(id registry.ID, opts *goredis.UniversalOptions, tc payload.Transcoder, logger *zap.Logger) *Driver {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 	return &Driver{
 		id:     id,
 		opts:   opts,
+		tc:     tc,
 		logger: logger,
 		queues: make(map[registry.ID]*declaredQueue),
 	}
@@ -83,7 +86,7 @@ func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queu
 			msg.ID = uuid.New().String()
 		}
 
-		body, err := marshalBody(msg.Body)
+		body, err := marshalBody(d.tc, queueCodec(q.opts), msg.Body)
 		if err != nil {
 			return fmt.Errorf("redis marshal body: %w", err)
 		}
@@ -172,7 +175,7 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 
 			for _, stream := range streams {
 				for _, redisMsg := range stream.Messages {
-					msg := parseRedisMessage(redisMsg)
+					msg := parseRedisMessage(d.tc, queueCodec(q.opts), redisMsg)
 					streamID := redisMsg.ID
 					streamKey := q.stream
 
