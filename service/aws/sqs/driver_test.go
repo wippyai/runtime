@@ -18,6 +18,7 @@ import (
 	sqsapi "github.com/wippyai/runtime/api/service/aws/sqs"
 	"github.com/wippyai/runtime/service/queue/drivertest"
 	systempayload "github.com/wippyai/runtime/system/payload"
+	sysjson "github.com/wippyai/runtime/system/payload/json"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -79,7 +80,9 @@ func setupDriver(t *testing.T) *Driver {
 	sqsCfg := &sqsapi.Config{}
 	sqsCfg.InitDefaults()
 
-	driver := NewDriver(registry.ParseID("test:sqs"), sqsCfg, awsCfg, systempayload.NewTranscoder(), logger)
+	tc := systempayload.NewTranscoder()
+	sysjson.Register(tc)
+	driver := NewDriver(registry.ParseID("test:sqs"), sqsCfg, awsCfg, tc, logger)
 
 	statusCh, err := driver.Start(ctx)
 	require.NoError(t, err)

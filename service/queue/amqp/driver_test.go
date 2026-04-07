@@ -16,6 +16,7 @@ import (
 	amqpapi "github.com/wippyai/runtime/api/service/queue/amqp"
 	"github.com/wippyai/runtime/service/queue/drivertest"
 	systempayload "github.com/wippyai/runtime/system/payload"
+	sysjson "github.com/wippyai/runtime/system/payload/json"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -84,7 +85,9 @@ func setupDriver(t *testing.T) *Driver {
 	t.Helper()
 	logger := zaptest.NewLogger(t)
 	cfg := &amqpapi.Config{URL: testAMQPURL}
-	driver := NewDriver(registry.ParseID("test:amqp"), cfg, systempayload.NewTranscoder(), logger)
+	tc := systempayload.NewTranscoder()
+	sysjson.Register(tc)
+	driver := NewDriver(registry.ParseID("test:amqp"), cfg, tc, logger)
 
 	ctx := context.Background()
 	statusCh, err := driver.Start(ctx)

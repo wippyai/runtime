@@ -15,6 +15,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/service/queue/drivertest"
 	systempayload "github.com/wippyai/runtime/system/payload"
+	sysjson "github.com/wippyai/runtime/system/payload/json"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -65,7 +66,9 @@ func setupDriver(t *testing.T) *Driver {
 	t.Helper()
 	logger := zaptest.NewLogger(t)
 	opts := &goredis.UniversalOptions{Addrs: []string{testAddr}}
-	driver := NewDriver(registry.ParseID("test:redis"), opts, systempayload.NewTranscoder(), logger)
+	tc := systempayload.NewTranscoder()
+	sysjson.Register(tc)
+	driver := NewDriver(registry.ParseID("test:redis"), opts, tc, logger)
 
 	ctx := context.Background()
 	statusCh, err := driver.Start(ctx)
