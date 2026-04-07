@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	amqp091 "github.com/rabbitmq/amqp091-go"
 	"github.com/wippyai/runtime/api/attrs"
+	apierror "github.com/wippyai/runtime/api/error"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
 	amqpapi "github.com/wippyai/runtime/api/service/queue/amqp"
@@ -87,7 +88,7 @@ func (d *Driver) buildAMQPConfig() (amqp091.Config, error) {
 	if d.cfg.TLS != nil && d.cfg.TLS.Enabled {
 		tlsCfg, err := d.cfg.TLS.BuildTLSConfig()
 		if err != nil {
-			return cfg, fmt.Errorf("amqp build tls config: %w", err)
+			return cfg, apierror.New(apierror.Internal, "amqp build tls config").WithCause(err)
 		}
 		cfg.TLSClientConfig = tlsCfg
 	}
@@ -100,7 +101,7 @@ func (d *Driver) buildAMQPConfig() (amqp091.Config, error) {
 		// Parse credentials from URL for AMQPlain
 		uri, err := amqp091.ParseURI(d.cfg.URL)
 		if err != nil {
-			return cfg, fmt.Errorf("amqp parse url for auth: %w", err)
+			return cfg, apierror.New(apierror.Internal, "amqp parse url for auth").WithCause(err)
 		}
 		cfg.SASL = []amqp091.Authentication{uri.AMQPlainAuth()}
 	case "PLAIN", "":
@@ -129,7 +130,7 @@ func (d *Driver) channelFromConn(conn *amqp091.Connection) (*amqp091.Channel, er
 
 	ch, err := conn.Channel()
 	if err != nil {
-		return nil, fmt.Errorf("amqp channel: %w", err)
+		return nil, apierror.New(apierror.Unavailable, "amqp channel").WithCause(err).WithRetryable(apierror.True)
 	}
 	return ch, nil
 }
@@ -219,7 +220,7 @@ func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queu
 
 		body, err := marshalBody(msg.Body)
 		if err != nil {
-			return fmt.Errorf("amqp marshal body: %w", err)
+			return apierror.New(apierror.Internal, "amqp marshal body").WithCause(err)
 		}
 
 		publishing := amqp091.Publishing{
@@ -231,7 +232,7 @@ func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queu
 		}
 
 		if err := ch.PublishWithContext(ctx, "", q.name, false, false, publishing); err != nil {
-			return fmt.Errorf("amqp publish: %w", err)
+			return apierror.New(apierror.Unavailable, "amqp publish").WithCause(err).WithRetryable(apierror.True)
 		}
 	}
 
@@ -256,7 +257,7 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 	if d.cfg.PrefetchCount > 0 {
 		if err := ch.Qos(d.cfg.PrefetchCount, 0, false); err != nil {
 			ch.Close()
-			return nil, fmt.Errorf("amqp qos: %w", err)
+			return nil, apierror.New(apierror.Unavailable, "amqp qos").WithCause(err).WithRetryable(apierror.True)
 		}
 	}
 
@@ -272,7 +273,7 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 	)
 	if err != nil {
 		ch.Close()
-		return nil, fmt.Errorf("amqp consume: %w", err)
+		return nil, apierror.New(apierror.Unavailable, "amqp consume").WithCause(err).WithRetryable(apierror.True)
 	}
 
 	consumerCtx, cancel := context.WithCancel(ctx)
@@ -357,7 +358,7 @@ func (d *Driver) DeclareQueue(_ context.Context, queueID registry.ID, opts attrs
 		args,    // args
 	)
 	if err != nil {
-		return fmt.Errorf("amqp declare queue: %w", err)
+		return apierror.New(apierror.Unavailable, "amqp declare queue").WithCause(err).WithRetryable(apierror.True)
 	}
 
 	d.queues[queueID] = &declaredQueue{
@@ -391,7 +392,7 @@ func (d *Driver) GetQueueInfo(_ context.Context, queueID registry.ID) (attrs.Att
 
 	qi, err := ch.QueueDeclarePassive(q.name, false, false, false, false, nil)
 	if err != nil {
-		return nil, fmt.Errorf("amqp queue inspect: %w", err)
+		return nil, apierror.New(apierror.Unavailable, "amqp queue inspect").WithCause(err).WithRetryable(apierror.True)
 	}
 
 	info := attrs.NewBag()
@@ -418,12 +419,12 @@ func (d *Driver) lifecycleCtxDone() <-chan struct{} {
 func (d *Driver) Start(ctx context.Context) (<-chan any, error) {
 	amqpCfg, err := d.buildAMQPConfig()
 	if err != nil {
-		return nil, fmt.Errorf("amqp config: %w", err)
+		return nil, apierror.New(apierror.Internal, "amqp config").WithCause(err)
 	}
 
 	conn, err := amqp091.DialConfig(d.cfg.URL, amqpCfg)
 	if err != nil {
-		return nil, fmt.Errorf("amqp dial: %w", err)
+		return nil, apierror.New(apierror.Unavailable, "amqp dial").WithCause(err).WithRetryable(apierror.True)
 	}
 
 	d.mu.Lock()
