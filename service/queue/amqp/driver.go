@@ -265,14 +265,31 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 		}
 	}
 
+	// Read consume options from queue declaration opts
+	autoAck := false
+	exclusive := false
+	noLocal := false
+	noWait := false
+	if q.opts != nil {
+		autoAck = q.opts.GetString(queueapi.OptionAutoAck, "") == "true"
+		exclusive = q.opts.GetString(queueapi.OptionExclusive, "") == "true"
+		noLocal = q.opts.GetString(queueapi.OptionNoLocal, "") == "true"
+		noWait = q.opts.GetString(queueapi.OptionNoWait, "") == "true"
+	}
+
 	consumerTag := fmt.Sprintf("%s-%s", queueID.String(), uuid.New().String()[:8])
+	if q.opts != nil {
+		if tag := q.opts.GetString(queueapi.OptionConsumerTag, ""); tag != "" {
+			consumerTag = fmt.Sprintf("%s-%s", tag, uuid.New().String()[:8])
+		}
+	}
 	amqpDeliveries, err := ch.Consume(
 		q.name,      // queue
 		consumerTag, // consumer tag
-		false,       // auto-ack
-		false,       // exclusive
-		false,       // no-local
-		false,       // no-wait
+		autoAck,     // auto-ack
+		exclusive,   // exclusive
+		noLocal,     // no-local
+		noWait,      // no-wait
 		nil,         // args
 	)
 	if err != nil {

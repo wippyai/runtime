@@ -15,12 +15,19 @@ const (
 	OptionQueueName = "queue_name" // Override queue name (default: ID.Name)
 	OptionMaxLength = "max_length" // Maximum queue length
 	OptionDurable   = "durable"    // Queue durability
+
+	// Consume/receive options (per-queue, read by Attach)
+	OptionExclusive   = "exclusive"    // Exclusive consumer (AMQP)
+	OptionAutoAck     = "auto_ack"     // Automatic acknowledgment
+	OptionNoLocal     = "no_local"     // Do not receive own publishes (AMQP)
+	OptionNoWait      = "no_wait"      // Do not wait for server confirmation (AMQP)
+	OptionConsumerTag = "consumer_tag" // Custom consumer tag prefix (AMQP)
+
 	// OptionMaxBytes reserved for future use
 	// OptionMessageTTL reserved for future use
 	// OptionDeadLetterQueue reserved for future use
 	// OptionDeadLetterExchange reserved for future use
 	// OptionMaxRetryCount reserved for future use
-	// OptionExclusive reserved for future use
 	// OptionAutoDelete reserved for future use
 	// OptionOrdering reserved for future use
 	// OptionPartitions reserved for future use
