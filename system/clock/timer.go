@@ -76,9 +76,6 @@ func (r *timerRegistry) startWithCallback(d time.Duration, callback func()) uint
 		// sees the entry already gone (e.g. stop() returns ErrTimerNotFound).
 		if entry.callback != nil {
 			r.deleteEntry(shard, id)
-		}
-
-		if entry.callback != nil {
 			entry.callback()
 		}
 
