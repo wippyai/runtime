@@ -23,6 +23,9 @@ const (
 	OptionNoWait      = "no_wait"      // Do not wait for server confirmation (AMQP)
 	OptionConsumerTag = "consumer_tag" // Custom consumer tag prefix (AMQP)
 
+	// Codec option (per-queue serialization format)
+	OptionCodec = "codec" // Payload format for message body (e.g. "json/plain", "application/msgpack")
+
 	// OptionMaxBytes reserved for future use
 	// OptionMessageTTL reserved for future use
 	// OptionDeadLetterQueue reserved for future use

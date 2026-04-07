@@ -85,7 +85,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		awsCfg.BaseEndpoint = aws.String(cfg.Endpoint)
 	}
 
-	driver := NewDriver(entry.ID, cfg, awsCfg, m.log)
+	driver := NewDriver(entry.ID, cfg, awsCfg, m.dtt, m.log)
 	m.drivers[entry.ID] = driver
 
 	m.bus.Send(ctx, event.Event{

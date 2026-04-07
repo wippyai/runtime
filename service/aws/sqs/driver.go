@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/google/uuid"
 	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/api/payload"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
 	sqsapi "github.com/wippyai/runtime/api/service/aws/sqs"
@@ -33,6 +34,7 @@ type Driver struct {
 	logger     *zap.Logger
 	client     *awssqs.Client
 	cfg        *sqsapi.Config
+	tc         payload.Transcoder
 	queues     map[registry.ID]*declaredQueue
 	cancel     context.CancelFunc
 	statusChan chan any
@@ -42,7 +44,7 @@ type Driver struct {
 }
 
 // NewDriver creates a new SQS driver instance.
-func NewDriver(id registry.ID, cfg *sqsapi.Config, awsCfg aws.Config, logger *zap.Logger) *Driver {
+func NewDriver(id registry.ID, cfg *sqsapi.Config, awsCfg aws.Config, tc payload.Transcoder, logger *zap.Logger) *Driver {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -50,6 +52,7 @@ func NewDriver(id registry.ID, cfg *sqsapi.Config, awsCfg aws.Config, logger *za
 		id:     id,
 		cfg:    cfg,
 		awsCfg: awsCfg,
+		tc:     tc,
 		logger: logger,
 		queues: make(map[registry.ID]*declaredQueue),
 	}
@@ -62,6 +65,16 @@ func (d *Driver) queueName(queueID registry.ID, opts attrs.Attributes) string {
 		}
 	}
 	return queueID.Name
+}
+
+// queueCodec returns the codec format for a queue, defaulting to JSON.
+func queueCodec(opts attrs.Attributes) string {
+	if opts != nil {
+		if codec := opts.GetString(queueapi.OptionCodec, ""); codec != "" {
+			return codec
+		}
+	}
+	return payload.JSON
 }
 
 func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queueapi.Message) error {
@@ -92,7 +105,7 @@ func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queu
 			}
 		}
 
-		body, err := marshalBody(msg.Body)
+		body, err := marshalBody(d.tc, queueCodec(q.opts), msg.Body)
 		if err != nil {
 			return fmt.Errorf("sqs marshal body: %w", err)
 		}
@@ -163,7 +176,7 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 			for _, sqsMsg := range result.Messages {
 				msg := &queueapi.Message{
 					ID:      aws.ToString(sqsMsg.MessageId),
-					Body:    unmarshalBody([]byte(aws.ToString(sqsMsg.Body))),
+					Body:    unmarshalBody(d.tc, queueCodec(q.opts), []byte(aws.ToString(sqsMsg.Body))),
 					Headers: attrs.NewBag(),
 				}
 
