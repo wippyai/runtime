@@ -7,9 +7,13 @@ import (
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	pgapi "github.com/wippyai/runtime/api/pg"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/runtime/resource"
+	"github.com/wippyai/runtime/runtime/lua/engine"
+	"github.com/wippyai/runtime/runtime/lua/engine/value"
 )
 
 // --- JoinYield ---
@@ -351,4 +355,170 @@ func (y *BroadcastLocalYield) HandleResult(l *lua.LState, data any, err error) [
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, result.Error, "pg broadcast_local")}
 	}
 	return []lua.LValue{lua.LTrue, lua.LNil}
+}
+
+// --- EventsYield ---
+// Subscribes a process to pg membership change events via the event bus.
+
+const pgSubscriptionTypeName = "pg.Subscription"
+
+// Subscription wraps a channel and unsubscribe function for pg events.
+type Subscription struct {
+	channelUD   *lua.LUserData
+	channel     *engine.Channel
+	unsubscribe func()
+	closed      bool
+	mu          sync.Mutex
+}
+
+func init() {
+	value.RegisterTypeMethods(nil, pgSubscriptionTypeName,
+		map[string]lua.LGoFunc{"__tostring": pgSubscriptionToString},
+		map[string]lua.LGoFunc{
+			"channel": pgSubscriptionChannel,
+			"close":   pgSubscriptionClose,
+		})
+}
+
+func checkPGSubscription(l *lua.LState) *Subscription {
+	ud := l.CheckUserData(1)
+	if sub, ok := ud.Value.(*Subscription); ok {
+		return sub
+	}
+	l.ArgError(1, "pg.Subscription expected")
+	return nil
+}
+
+func pgSubscriptionToString(l *lua.LState) int {
+	l.Push(lua.LString("pg.Subscription{}"))
+	return 1
+}
+
+func pgSubscriptionChannel(l *lua.LState) int {
+	sub := checkPGSubscription(l)
+	if sub == nil {
+		return 0
+	}
+	l.Push(sub.channelUD)
+	return 1
+}
+
+func pgSubscriptionClose(l *lua.LState) int {
+	sub := checkPGSubscription(l)
+	if sub == nil {
+		return 0
+	}
+
+	sub.mu.Lock()
+	defer sub.mu.Unlock()
+
+	if sub.closed {
+		l.Push(lua.LTrue)
+		return 1
+	}
+
+	sub.closed = true
+	if sub.unsubscribe != nil {
+		sub.unsubscribe()
+		sub.unsubscribe = nil
+	}
+	if sub.channel != nil {
+		sub.channel.Close(nil)
+	}
+
+	l.Push(lua.LTrue)
+	return 1
+}
+
+type EventsYield struct {
+	Channel *engine.Channel
+	PID     pid.PID
+	Topic   string
+}
+
+var eventsYieldPool = sync.Pool{New: func() any { return &EventsYield{} }}
+
+func AcquireEventsYield(ch *engine.Channel, p pid.PID, topic string) *EventsYield {
+	y := eventsYieldPool.Get().(*EventsYield)
+	y.Channel = ch
+	y.PID = p
+	y.Topic = topic
+	return y
+}
+
+func ReleaseEventsYield(y *EventsYield) {
+	y.Channel = nil
+	y.PID = pid.PID{}
+	y.Topic = ""
+	eventsYieldPool.Put(y)
+}
+
+func (y *EventsYield) String() string       { return "<pg_events_yield>" }
+func (y *EventsYield) Type() lua.LValueType { return lua.LTUserData }
+
+func (y *EventsYield) CmdID() dispatcher.CommandID {
+	return event.Subscribe
+}
+
+func (y *EventsYield) ToCommand() dispatcher.Command {
+	return event.SubscribeCmd{
+		System: pgapi.EventSystem,
+		Kind:   "*",
+		Topic:  y.Topic,
+		PID:    y.PID,
+	}
+}
+
+func (y *EventsYield) Release() { ReleaseEventsYield(y) }
+
+// HandleResult sets up the topic subscription and returns a Subscription object.
+func (y *EventsYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "pg events")}
+	}
+
+	// Create channel userdata
+	channelUD := engine.PushChannel(l, y.Channel)
+	l.Pop(1) // Remove from stack since we return via slice
+
+	// Subscribe externally-owned channel to topic if we're in a process context
+	proc := engine.GetProcess(l)
+	if proc != nil {
+		if err := proc.SubscribeExisting(y.Topic, y.Channel); err != nil {
+			return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "pg events")}
+		}
+	}
+
+	// Create subscription with channel and unsubscribe function
+	sub := &Subscription{
+		channelUD: channelUD,
+		channel:   y.Channel,
+	}
+
+	// Store unsubscribe function from dispatcher
+	if eventSub, ok := data.(event.Subscription); ok && eventSub.Unsubscribe != nil {
+		sub.unsubscribe = eventSub.Unsubscribe
+
+		// Register cleanup to unsubscribe from dispatcher when frame is released
+		ctx := l.Context()
+		if ctx != nil {
+			if store := resource.GetStore(ctx); store != nil {
+				store.AddCleanup(func() error {
+					sub.mu.Lock()
+					defer sub.mu.Unlock()
+					if !sub.closed && sub.unsubscribe != nil {
+						sub.unsubscribe()
+						sub.unsubscribe = nil
+					}
+					return nil
+				})
+			}
+		}
+	}
+
+	// Wrap in Subscription userdata
+	subUD := value.PushTypedUserData(l, sub, pgSubscriptionTypeName)
+	l.Pop(1) // Remove from stack since we return via slice
+
+	return []lua.LValue{subUD, lua.LNil}
 }

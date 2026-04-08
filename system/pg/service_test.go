@@ -19,6 +19,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
@@ -1074,4 +1075,224 @@ func TestServiceSendToMembersEmpty(t *testing.T) {
 
 	sends := router.getSends()
 	assert.Empty(t, sends)
+}
+
+// --- Event emission tests ---
+
+// newTestServiceWithBus creates a test service with a real event bus.
+func newTestServiceWithBus(t *testing.T) (*Service, *mockRouter, *mockTopology, event.Bus) {
+	t.Helper()
+	router := newMockRouter()
+	topo := newMockTopology()
+	logger := zap.NewNop()
+	bus := eventbus.NewBus()
+	svc := NewService(logger, router, topo, nil, bus, "local-node")
+	return svc, router, topo, bus
+}
+
+func startTestServiceWithBus(t *testing.T) (*Service, *mockRouter, *mockTopology, event.Bus) {
+	t.Helper()
+	svc, router, topo, bus := newTestServiceWithBus(t)
+	err := svc.Start(context.Background())
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = svc.Stop(context.Background())
+	})
+	time.Sleep(10 * time.Millisecond)
+	return svc, router, topo, bus
+}
+
+func TestServiceEmitsJoinEvent(t *testing.T) {
+	svc, _, _, bus := startTestServiceWithBus(t)
+
+	// Subscribe to pg events on the event bus
+	ch := make(chan event.Event, 8)
+	_, err := bus.SubscribeP(context.Background(), pgapi.EventSystem, pgapi.MemberJoined, ch)
+	require.NoError(t, err)
+
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.Join("workers", p1))
+
+	// Wait for event
+	select {
+	case evt := <-ch:
+		assert.Equal(t, event.System(pgapi.EventSystem), evt.System)
+		assert.Equal(t, event.Kind(pgapi.MemberJoined), evt.Kind)
+		assert.Equal(t, "workers", evt.Path)
+		memberEvt, ok := evt.Data.(pgapi.MembershipEvent)
+		require.True(t, ok, "expected MembershipEvent, got %T", evt.Data)
+		assert.Equal(t, "workers", memberEvt.Group)
+		require.Len(t, memberEvt.PIDs, 1)
+		assert.Equal(t, p1.String(), memberEvt.PIDs[0].String())
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for join event")
+	}
+}
+
+func TestServiceEmitsLeaveEvent(t *testing.T) {
+	svc, _, _, bus := startTestServiceWithBus(t)
+
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.Join("workers", p1))
+
+	// Subscribe to leave events
+	ch := make(chan event.Event, 8)
+	_, err := bus.SubscribeP(context.Background(), pgapi.EventSystem, pgapi.MemberLeft, ch)
+	require.NoError(t, err)
+
+	require.NoError(t, svc.Leave("workers", p1))
+
+	select {
+	case evt := <-ch:
+		assert.Equal(t, event.System(pgapi.EventSystem), evt.System)
+		assert.Equal(t, event.Kind(pgapi.MemberLeft), evt.Kind)
+		assert.Equal(t, "workers", evt.Path)
+		memberEvt, ok := evt.Data.(pgapi.MembershipEvent)
+		require.True(t, ok, "expected MembershipEvent, got %T", evt.Data)
+		assert.Equal(t, "workers", memberEvt.Group)
+		require.Len(t, memberEvt.PIDs, 1)
+		assert.Equal(t, p1.String(), memberEvt.PIDs[0].String())
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for leave event")
+	}
+}
+
+func TestServiceEmitsEventOnProcessExit(t *testing.T) {
+	svc, _, _, bus := startTestServiceWithBus(t)
+
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.Join("workers", p1))
+
+	// Subscribe to leave events
+	ch := make(chan event.Event, 8)
+	_, err := bus.SubscribeP(context.Background(), pgapi.EventSystem, pgapi.MemberLeft, ch)
+	require.NoError(t, err)
+
+	// Simulate process exit via relay
+	exitEvent := &topology.ExitEvent{From: p1}
+	msg := relay.AcquireMessage()
+	msg.Topic = topology.TopicEvents
+	msg.Payloads = payload.Payloads{payload.New(exitEvent)}
+	pkg := relay.NewMessagePackage(p1, pgPID("local-node"), msg)
+	require.NoError(t, svc.Send(pkg))
+
+	select {
+	case evt := <-ch:
+		assert.Equal(t, event.Kind(pgapi.MemberLeft), evt.Kind)
+		memberEvt, ok := evt.Data.(pgapi.MembershipEvent)
+		require.True(t, ok)
+		assert.Equal(t, "workers", memberEvt.Group)
+		require.Len(t, memberEvt.PIDs, 1)
+		assert.Equal(t, p1.String(), memberEvt.PIDs[0].String())
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for exit leave event")
+	}
+}
+
+func TestServiceEmitsNoEventWithNilBus(t *testing.T) {
+	// Service with nil bus should not panic on join/leave
+	svc, _, _ := startTestService(t) // startTestService uses nil bus
+
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.Join("workers", p1))
+	require.NoError(t, svc.Leave("workers", p1))
+	// Should not panic — emitJoinEvent/emitLeaveEvent guard on nil bus
+}
+
+func TestServiceEmitsMultipleJoinEvents(t *testing.T) {
+	svc, _, _, bus := startTestServiceWithBus(t)
+
+	ch := make(chan event.Event, 16)
+	_, err := bus.SubscribeP(context.Background(), pgapi.EventSystem, "**", ch)
+	require.NoError(t, err)
+
+	// Give subscription time to register in the bus event loop
+	time.Sleep(20 * time.Millisecond)
+
+	p1 := mkPID("host1", "1")
+	p2 := mkPID("host1", "2")
+	require.NoError(t, svc.Join("workers", p1))
+	require.NoError(t, svc.Join("workers", p2))
+
+	// Collect events
+	received := 0
+	timeout := time.After(2 * time.Second)
+	for received < 2 {
+		select {
+		case evt := <-ch:
+			assert.Equal(t, event.Kind(pgapi.MemberJoined), evt.Kind)
+			received++
+		case <-timeout:
+			t.Fatalf("expected 2 join events, got %d", received)
+		}
+	}
+}
+
+func TestServiceEmitsEventsForRemoteJoin(t *testing.T) {
+	svc, _, _, bus := startTestServiceWithBus(t)
+
+	ch := make(chan event.Event, 8)
+	_, err := bus.SubscribeP(context.Background(), pgapi.EventSystem, pgapi.MemberJoined, ch)
+	require.NoError(t, err)
+
+	// Simulate remote join via relay package
+	rp1 := mkNodePID("node-b", "host1", "1")
+	pkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicJoin,
+		payload.New(map[string]any{
+			"from":  "node-b",
+			"group": "workers",
+			"pids":  []any{rp1.String()},
+		}),
+	)
+	require.NoError(t, svc.Send(pkg))
+
+	select {
+	case evt := <-ch:
+		assert.Equal(t, event.Kind(pgapi.MemberJoined), evt.Kind)
+		assert.Equal(t, "workers", evt.Path)
+		memberEvt, ok := evt.Data.(pgapi.MembershipEvent)
+		require.True(t, ok)
+		assert.Equal(t, "workers", memberEvt.Group)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for remote join event")
+	}
+}
+
+func TestServiceEmitsEventsForRemoteLeave(t *testing.T) {
+	svc, _, _, bus := startTestServiceWithBus(t)
+
+	// First join remotely
+	rp1 := mkNodePID("node-b", "host1", "1")
+	joinPkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicJoin,
+		payload.New(map[string]any{
+			"from":  "node-b",
+			"group": "workers",
+			"pids":  []any{rp1.String()},
+		}),
+	)
+	require.NoError(t, svc.Send(joinPkg))
+	time.Sleep(50 * time.Millisecond)
+
+	// Subscribe to leave events
+	ch := make(chan event.Event, 8)
+	_, err := bus.SubscribeP(context.Background(), pgapi.EventSystem, pgapi.MemberLeft, ch)
+	require.NoError(t, err)
+
+	// Remote leave
+	leavePkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicLeave,
+		payload.New(map[string]any{
+			"from":   "node-b",
+			"pids":   []any{rp1.String()},
+			"groups": []any{"workers"},
+		}),
+	)
+	require.NoError(t, svc.Send(leavePkg))
+
+	select {
+	case evt := <-ch:
+		assert.Equal(t, event.Kind(pgapi.MemberLeft), evt.Kind)
+		assert.Equal(t, "workers", evt.Path)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for remote leave event")
+	}
 }

@@ -146,7 +146,33 @@ func (s *Service) handleDiscover(fromNodeID pid.NodeID) {
 
 // handleSync processes a sync message from a remote node.
 func (s *Service) handleSync(fromNodeID pid.NodeID, groups map[string][]pid.PID) {
+	// Collect old state for leave events before sync replaces it
+	oldRN, oldExists := s.state.remote[fromNodeID]
+	oldGroups := make(map[string][]pid.PID)
+	if oldExists {
+		for g, pids := range oldRN.groups {
+			cp := make([]pid.PID, len(pids))
+			copy(cp, pids)
+			oldGroups[g] = cp
+		}
+	}
+
 	s.state.syncRemote(fromNodeID, groups)
+
+	// Emit leave events for PIDs that were removed by the sync
+	for group, oldPids := range oldGroups {
+		if _, stillExists := groups[group]; !stillExists {
+			s.emitLeaveEvent(group, oldPids)
+		}
+	}
+
+	// Emit join events for new groups/PIDs from the sync
+	for group, pids := range groups {
+		if len(pids) > 0 {
+			s.emitJoinEvent(group, pids)
+		}
+	}
+
 	s.logger.Debug("synced remote state",
 		logNodeID(fromNodeID),
 		logGroupCount(len(groups)),
@@ -156,11 +182,19 @@ func (s *Service) handleSync(fromNodeID pid.NodeID, groups map[string][]pid.PID)
 // handleRemoteJoin processes a join message from a remote node.
 func (s *Service) handleRemoteJoin(fromNodeID pid.NodeID, group string, pids []pid.PID) {
 	s.state.joinRemote(fromNodeID, group, pids)
+
+	// Emit membership event for remote joins
+	s.emitJoinEvent(group, pids)
 }
 
 // handleRemoteLeave processes a leave message from a remote node.
 func (s *Service) handleRemoteLeave(fromNodeID pid.NodeID, pids []pid.PID, groups []string) {
 	s.state.leaveRemote(fromNodeID, pids, groups)
+
+	// Emit membership events for remote leaves
+	for _, group := range groups {
+		s.emitLeaveEvent(group, pids)
+	}
 }
 
 // monitorProcess starts monitoring a local process via topology.
@@ -188,6 +222,12 @@ func (s *Service) handleProcessExit(p pid.PID) {
 	groups := s.state.leaveAllLocal(p)
 	if len(groups) > 0 {
 		s.broadcastLeave([]pid.PID{p}, groups)
+
+		// Emit membership events for each group the process was in
+		for _, group := range groups {
+			s.emitLeaveEvent(group, []pid.PID{p})
+		}
+
 		s.logger.Debug("process exited, removed from groups",
 			logPID(p),
 			logGroupCount(len(groups)),
@@ -197,6 +237,20 @@ func (s *Service) handleProcessExit(p pid.PID) {
 
 // handleNodeLeft handles a remote node leaving the cluster.
 func (s *Service) handleNodeLeft(nodeID pid.NodeID) {
+	// Collect groups and PIDs before removing, so we can emit events
+	rn, exists := s.state.remote[nodeID]
+	if exists {
+		for group, pids := range rn.groups {
+			if len(pids) > 0 {
+				// Make a copy of the pids slice before state removal
+				pidsCopy := make([]pid.PID, len(pids))
+				copy(pidsCopy, pids)
+				// Defer emission until after state removal
+				defer s.emitLeaveEvent(group, pidsCopy)
+			}
+		}
+	}
+
 	s.state.removeNode(nodeID)
 	s.logger.Debug("node left, removed remote state",
 		logNodeID(nodeID),

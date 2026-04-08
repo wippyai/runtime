@@ -361,6 +361,10 @@ func (s *Service) Join(group pgapi.Group, p pid.PID) error {
 
 		// Broadcast to remote nodes
 		s.broadcastJoin(group, []pid.PID{p})
+
+		// Emit membership event
+		s.emitJoinEvent(group, []pid.PID{p})
+
 		done <- nil
 	})
 
@@ -388,6 +392,10 @@ func (s *Service) Leave(group pgapi.Group, p pid.PID) error {
 
 		// Broadcast to remote nodes
 		s.broadcastLeave([]pid.PID{p}, []string{group})
+
+		// Emit membership event
+		s.emitLeaveEvent(group, []pid.PID{p})
+
 		done <- nil
 	})
 
@@ -500,6 +508,40 @@ func logPID(p pid.PID) zap.Field {
 
 func logGroupCount(count int) zap.Field {
 	return zap.Int("group_count", count)
+}
+
+// --- Event emission ---
+
+// emitJoinEvent publishes a membership join event to the event bus.
+func (s *Service) emitJoinEvent(group string, pids []pid.PID) {
+	if s.bus == nil {
+		return
+	}
+	s.bus.Send(s.ctx, event.Event{
+		System: pgapi.EventSystem,
+		Kind:   pgapi.MemberJoined,
+		Path:   group,
+		Data: pgapi.MembershipEvent{
+			Group: group,
+			PIDs:  pids,
+		},
+	})
+}
+
+// emitLeaveEvent publishes a membership leave event to the event bus.
+func (s *Service) emitLeaveEvent(group string, pids []pid.PID) {
+	if s.bus == nil {
+		return
+	}
+	s.bus.Send(s.ctx, event.Event{
+		System: pgapi.EventSystem,
+		Kind:   pgapi.MemberLeft,
+		Path:   group,
+		Data: pgapi.MembershipEvent{
+			Group: group,
+			PIDs:  pids,
+		},
+	})
 }
 
 // Verify interface compliance.

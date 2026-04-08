@@ -22,13 +22,19 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/internal/uniqid"
 	"github.com/wippyai/runtime/runtime/lua/engine"
+	luapayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	pgmod "github.com/wippyai/runtime/runtime/lua/modules/pg"
+	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
+	"github.com/wippyai/runtime/system/clock"
 	"github.com/wippyai/runtime/system/eventbus"
+	systempayload "github.com/wippyai/runtime/system/payload"
 	syspg "github.com/wippyai/runtime/system/pg"
 	sysrelay "github.com/wippyai/runtime/system/relay"
 	"github.com/wippyai/runtime/system/scheduler"
 	"github.com/wippyai/runtime/system/scheduler/actor"
+	"github.com/wippyai/runtime/system/scheduler/pool/inline"
 	"go.uber.org/zap"
 )
 
@@ -868,6 +874,576 @@ func TestIntegration_JoinLeaveJoinAgain(t *testing.T) {
 	`)
 	require.NoError(t, result.Error)
 	assert.Equal(t, lua.LNumber(1), result.Value.Data())
+}
+
+// --- Events Integration Tests ---
+// These tests use an inline.Pool to verify that pg.events() delivers
+// membership change events end-to-end through the event bus.
+
+func TestIntegration_EventsSubscribeAndReceiveJoin(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	logger := zap.NewNop()
+	bus := eventbus.NewBus()
+	node := sysrelay.NewNode("test-node")
+
+	rootCtx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	transcoder := systempayload.NewTranscoder()
+	luapayload.Register(transcoder)
+	payload.WithTranscoder(rootCtx, transcoder)
+
+	ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+	defer cancel()
+	ctx = relay.WithNode(ctx, node)
+
+	// Create pg service
+	topo := &noopTopology{}
+	service := syspg.NewService(logger, node, topo, nil, bus, "test-node")
+	require.NoError(t, service.Start(ctx))
+	defer func() { _ = service.Stop(context.Background()) }()
+
+	// Create dispatcher registry
+	reg := scheduler.NewRegistry()
+
+	// PG dispatcher
+	pgDisp := syspg.NewDispatcher(service, node, logger)
+	pgDisp.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		reg.Register(id, h)
+	})
+
+	// Clock dispatcher
+	clockSvc := clock.NewDispatcher()
+	defer func() { _ = clockSvc.Stop(ctx) }()
+	clockSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		reg.Register(id, h)
+	})
+
+	// Events dispatcher
+	eventsSvc := eventbus.NewDispatcher(bus, node)
+	require.NoError(t, eventsSvc.Start(ctx))
+	defer func() { _ = eventsSvc.Stop(context.Background()) }()
+	eventsSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		reg.Register(id, h)
+	})
+
+	// PID generator
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "test-node")
+	hostID := "test.pg:events-join"
+
+	// Process factory
+	factory := func() (process.Process, error) {
+		cfg := engine.FactoryConfig{
+			Script: `
+local time = require("time")
+
+local function main()
+    -- Subscribe to pg events
+    local sub, err = pg.events()
+    if err then
+        return nil, "subscribe error: " .. tostring(err)
+    end
+
+    local ch = sub:channel()
+
+    -- Join a group (this should emit a member.joined event)
+    local ok, err = pg.join("test-workers")
+    if err then
+        return nil, "join error: " .. tostring(err)
+    end
+
+    -- Wait for event with timeout
+    local timer = time.after(3000 * time.MILLISECOND)
+    local result = channel.select{
+        ch:case_receive(),
+        timer:case_receive()
+    }
+
+    if result.channel == timer then
+        return nil, "timeout waiting for join event"
+    end
+
+    local evt = result.value
+    if evt == nil then
+        return nil, "no event value"
+    end
+    if evt.system ~= "pg" then
+        return nil, "wrong system: " .. tostring(evt.system)
+    end
+    if evt.kind ~= "member.joined" then
+        return nil, "wrong kind: " .. tostring(evt.kind)
+    end
+    if evt.path ~= "test-workers" then
+        return nil, "wrong path: " .. tostring(evt.path)
+    end
+
+    -- Check event data
+    if evt.data == nil then
+        return nil, "no event data"
+    end
+    if evt.data.Group ~= "test-workers" then
+        return nil, "wrong group in data: " .. tostring(evt.data.Group)
+    end
+
+    -- Close subscription
+    sub:close()
+
+    return "join_event_received"
+end
+
+return { main = main }
+`,
+			ScriptName: "pg_events_join_test",
+			ModuleBinders: append(engine.CoreBinders(),
+				func(l *lua.LState) error {
+					engine.LoadModuleDef(l, pgmod.Module)
+					return nil
+				},
+				func(l *lua.LState) error {
+					mod, _ := timemod.Module.Build()
+					l.SetGlobal("time", mod)
+					return nil
+				},
+			),
+		}
+		f := engine.NewFactory(cfg)
+		return f()
+	}
+
+	// Create inline pool
+	pool, err := inline.New(factory, reg)
+	require.NoError(t, err)
+	defer pool.Stop()
+
+	// Register pool as relay host
+	err = node.RegisterHost(hostID, pool)
+	require.NoError(t, err)
+
+	// Create frame context with PID
+	frameCtx, fc := ctxapi.OpenFrameContext(ctx)
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	p := pidGen.Generate(hostID)
+	t.Logf("Generated PID: Host=%s UniqID=%s", p.Host, p.UniqID)
+	err = runtime.SetFramePID(frameCtx, p)
+	require.NoError(t, err)
+	frameCtx = relay.WithNode(frameCtx, node)
+
+	// Execute
+	result, err := pool.Call(frameCtx, "main", nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	if result.Error != nil {
+		t.Fatalf("Lua execution error: %v", result.Error)
+	}
+
+	val := result.Value.Data()
+	assert.Equal(t, "join_event_received", string(val.(lua.LString)))
+}
+
+func TestIntegration_EventsReceiveLeave(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	logger := zap.NewNop()
+	bus := eventbus.NewBus()
+	node := sysrelay.NewNode("test-node")
+
+	rootCtx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	transcoder := systempayload.NewTranscoder()
+	luapayload.Register(transcoder)
+	payload.WithTranscoder(rootCtx, transcoder)
+
+	ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+	defer cancel()
+	ctx = relay.WithNode(ctx, node)
+
+	topo := &noopTopology{}
+	service := syspg.NewService(logger, node, topo, nil, bus, "test-node")
+	require.NoError(t, service.Start(ctx))
+	defer func() { _ = service.Stop(context.Background()) }()
+
+	reg := scheduler.NewRegistry()
+
+	pgDisp := syspg.NewDispatcher(service, node, logger)
+	pgDisp.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		reg.Register(id, h)
+	})
+
+	clockSvc := clock.NewDispatcher()
+	defer func() { _ = clockSvc.Stop(ctx) }()
+	clockSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		reg.Register(id, h)
+	})
+
+	eventsSvc := eventbus.NewDispatcher(bus, node)
+	require.NoError(t, eventsSvc.Start(ctx))
+	defer func() { _ = eventsSvc.Stop(context.Background()) }()
+	eventsSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		reg.Register(id, h)
+	})
+
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "test-node")
+	hostID := "test.pg:events-leave"
+
+	factory := func() (process.Process, error) {
+		cfg := engine.FactoryConfig{
+			Script: `
+local time = require("time")
+
+local function main()
+    -- Subscribe to pg events
+    local sub, err = pg.events()
+    if err then
+        return nil, "subscribe error: " .. tostring(err)
+    end
+
+    local ch = sub:channel()
+
+    -- Join a group first
+    local ok, err = pg.join("leave-group")
+    if err then
+        return nil, "join error: " .. tostring(err)
+    end
+
+    -- Consume the join event
+    local timer = time.after(3000 * time.MILLISECOND)
+    local result = channel.select{
+        ch:case_receive(),
+        timer:case_receive()
+    }
+    if result.channel == timer then
+        return nil, "timeout waiting for join event"
+    end
+
+    -- Now leave the group
+    ok, err = pg.leave("leave-group")
+    if err then
+        return nil, "leave error: " .. tostring(err)
+    end
+
+    -- Wait for leave event
+    timer = time.after(3000 * time.MILLISECOND)
+    result = channel.select{
+        ch:case_receive(),
+        timer:case_receive()
+    }
+    if result.channel == timer then
+        return nil, "timeout waiting for leave event"
+    end
+
+    local evt = result.value
+    if evt.kind ~= "member.left" then
+        return nil, "wrong kind: " .. tostring(evt.kind)
+    end
+    if evt.data.Group ~= "leave-group" then
+        return nil, "wrong group: " .. tostring(evt.data.Group)
+    end
+
+    sub:close()
+    return "leave_event_received"
+end
+
+return { main = main }
+`,
+			ScriptName: "pg_events_leave_test",
+			ModuleBinders: append(engine.CoreBinders(),
+				func(l *lua.LState) error {
+					engine.LoadModuleDef(l, pgmod.Module)
+					return nil
+				},
+				func(l *lua.LState) error {
+					mod, _ := timemod.Module.Build()
+					l.SetGlobal("time", mod)
+					return nil
+				},
+			),
+		}
+		f := engine.NewFactory(cfg)
+		return f()
+	}
+
+	pool, err := inline.New(factory, reg)
+	require.NoError(t, err)
+	defer pool.Stop()
+
+	err = node.RegisterHost(hostID, pool)
+	require.NoError(t, err)
+
+	frameCtx, fc := ctxapi.OpenFrameContext(ctx)
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	p := pidGen.Generate(hostID)
+	err = runtime.SetFramePID(frameCtx, p)
+	require.NoError(t, err)
+	frameCtx = relay.WithNode(frameCtx, node)
+
+	result, err := pool.Call(frameCtx, "main", nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	if result.Error != nil {
+		t.Fatalf("Lua execution error: %v", result.Error)
+	}
+
+	val := result.Value.Data()
+	assert.Equal(t, "leave_event_received", string(val.(lua.LString)))
+}
+
+func TestIntegration_EventsClose(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	logger := zap.NewNop()
+	bus := eventbus.NewBus()
+	node := sysrelay.NewNode("test-node")
+
+	rootCtx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	transcoder := systempayload.NewTranscoder()
+	luapayload.Register(transcoder)
+	payload.WithTranscoder(rootCtx, transcoder)
+
+	ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+	defer cancel()
+	ctx = relay.WithNode(ctx, node)
+
+	topo := &noopTopology{}
+	service := syspg.NewService(logger, node, topo, nil, bus, "test-node")
+	require.NoError(t, service.Start(ctx))
+	defer func() { _ = service.Stop(context.Background()) }()
+
+	reg := scheduler.NewRegistry()
+
+	pgDisp := syspg.NewDispatcher(service, node, logger)
+	pgDisp.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		reg.Register(id, h)
+	})
+
+	clockSvc := clock.NewDispatcher()
+	defer func() { _ = clockSvc.Stop(ctx) }()
+	clockSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		reg.Register(id, h)
+	})
+
+	eventsSvc := eventbus.NewDispatcher(bus, node)
+	require.NoError(t, eventsSvc.Start(ctx))
+	defer func() { _ = eventsSvc.Stop(context.Background()) }()
+	eventsSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		reg.Register(id, h)
+	})
+
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "test-node")
+	hostID := "test.pg:events-close"
+
+	factory := func() (process.Process, error) {
+		cfg := engine.FactoryConfig{
+			Script: `
+local function main()
+    -- Subscribe to pg events
+    local sub, err = pg.events()
+    if err then
+        return nil, "subscribe error: " .. tostring(err)
+    end
+
+    -- Close immediately
+    sub:close()
+
+    -- Close again (should be idempotent)
+    sub:close()
+
+    return "close_ok"
+end
+
+return { main = main }
+`,
+			ScriptName: "pg_events_close_test",
+			ModuleBinders: append(engine.CoreBinders(),
+				func(l *lua.LState) error {
+					engine.LoadModuleDef(l, pgmod.Module)
+					return nil
+				},
+			),
+		}
+		f := engine.NewFactory(cfg)
+		return f()
+	}
+
+	pool, err := inline.New(factory, reg)
+	require.NoError(t, err)
+	defer pool.Stop()
+
+	err = node.RegisterHost(hostID, pool)
+	require.NoError(t, err)
+
+	frameCtx, fc := ctxapi.OpenFrameContext(ctx)
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	p := pidGen.Generate(hostID)
+	err = runtime.SetFramePID(frameCtx, p)
+	require.NoError(t, err)
+	frameCtx = relay.WithNode(frameCtx, node)
+
+	result, err := pool.Call(frameCtx, "main", nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	if result.Error != nil {
+		t.Fatalf("Lua execution error: %v", result.Error)
+	}
+
+	val := result.Value.Data()
+	assert.Equal(t, "close_ok", string(val.(lua.LString)))
+}
+
+func TestIntegration_EventsMultipleJoins(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	logger := zap.NewNop()
+	bus := eventbus.NewBus()
+	node := sysrelay.NewNode("test-node")
+
+	rootCtx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	transcoder := systempayload.NewTranscoder()
+	luapayload.Register(transcoder)
+	payload.WithTranscoder(rootCtx, transcoder)
+
+	ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+	defer cancel()
+	ctx = relay.WithNode(ctx, node)
+
+	topo := &noopTopology{}
+	service := syspg.NewService(logger, node, topo, nil, bus, "test-node")
+	require.NoError(t, service.Start(ctx))
+	defer func() { _ = service.Stop(context.Background()) }()
+
+	reg := scheduler.NewRegistry()
+
+	pgDisp := syspg.NewDispatcher(service, node, logger)
+	pgDisp.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		reg.Register(id, h)
+	})
+
+	clockSvc := clock.NewDispatcher()
+	defer func() { _ = clockSvc.Stop(ctx) }()
+	clockSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		reg.Register(id, h)
+	})
+
+	eventsSvc := eventbus.NewDispatcher(bus, node)
+	require.NoError(t, eventsSvc.Start(ctx))
+	defer func() { _ = eventsSvc.Stop(context.Background()) }()
+	eventsSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		reg.Register(id, h)
+	})
+
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "test-node")
+	hostID := "test.pg:events-multi"
+
+	factory := func() (process.Process, error) {
+		cfg := engine.FactoryConfig{
+			Script: `
+local time = require("time")
+
+local function main()
+    local sub, err = pg.events()
+    if err then
+        return nil, "subscribe error: " .. tostring(err)
+    end
+
+    local ch = sub:channel()
+
+    -- Join two different groups
+    pg.join("group-alpha")
+    pg.join("group-beta")
+
+    -- Receive two join events
+    local events_received = {}
+    for i = 1, 2 do
+        local timer = time.after(3000 * time.MILLISECOND)
+        local result = channel.select{
+            ch:case_receive(),
+            timer:case_receive()
+        }
+        if result.channel == timer then
+            return nil, "timeout waiting for event " .. i
+        end
+        local evt = result.value
+        if evt.kind ~= "member.joined" then
+            return nil, "wrong kind for event " .. i .. ": " .. tostring(evt.kind)
+        end
+        table.insert(events_received, evt.data.Group)
+    end
+
+    -- Verify we got events for both groups
+    table.sort(events_received)
+    if #events_received ~= 2 then
+        return nil, "expected 2 events, got " .. #events_received
+    end
+    if events_received[1] ~= "group-alpha" then
+        return nil, "expected group-alpha, got " .. events_received[1]
+    end
+    if events_received[2] ~= "group-beta" then
+        return nil, "expected group-beta, got " .. events_received[2]
+    end
+
+    sub:close()
+    return "multi_join_ok"
+end
+
+return { main = main }
+`,
+			ScriptName: "pg_events_multi_test",
+			ModuleBinders: append(engine.CoreBinders(),
+				func(l *lua.LState) error {
+					engine.LoadModuleDef(l, pgmod.Module)
+					return nil
+				},
+				func(l *lua.LState) error {
+					mod, _ := timemod.Module.Build()
+					l.SetGlobal("time", mod)
+					return nil
+				},
+			),
+		}
+		f := engine.NewFactory(cfg)
+		return f()
+	}
+
+	pool, err := inline.New(factory, reg)
+	require.NoError(t, err)
+	defer pool.Stop()
+
+	err = node.RegisterHost(hostID, pool)
+	require.NoError(t, err)
+
+	frameCtx, fc := ctxapi.OpenFrameContext(ctx)
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	p := pidGen.Generate(hostID)
+	err = runtime.SetFramePID(frameCtx, p)
+	require.NoError(t, err)
+	frameCtx = relay.WithNode(frameCtx, node)
+
+	result, err := pool.Call(frameCtx, "main", nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	if result.Error != nil {
+		t.Fatalf("Lua execution error: %v", result.Error)
+	}
+
+	val := result.Value.Data()
+	assert.Equal(t, "multi_join_ok", string(val.(lua.LString)))
 }
 
 func TestIntegration_WhichGroupsAfterLeave(t *testing.T) {

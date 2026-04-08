@@ -5,13 +5,16 @@ package pg
 
 import (
 	"fmt"
+	"sync/atomic"
 
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	pgapi "github.com/wippyai/runtime/api/pg"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/security"
 )
@@ -25,8 +28,10 @@ var Module = &luaapi.ModuleDef{
 	Types:       ModuleTypes,
 }
 
+var pgEventsCounter uint64
+
 func buildModule() (*lua.LTable, []luaapi.YieldType) {
-	mod := lua.CreateTable(0, 7)
+	mod := lua.CreateTable(0, 8)
 	mod.RawSetString("join", lua.LGoFunc(join))
 	mod.RawSetString("leave", lua.LGoFunc(leave))
 	mod.RawSetString("get_members", lua.LGoFunc(getMembers))
@@ -34,6 +39,7 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	mod.RawSetString("which_groups", lua.LGoFunc(whichGroups))
 	mod.RawSetString("broadcast", lua.LGoFunc(broadcast))
 	mod.RawSetString("broadcast_local", lua.LGoFunc(broadcastLocal))
+	mod.RawSetString("events", lua.LGoFunc(events))
 	mod.Immutable = true
 
 	yields := []luaapi.YieldType{
@@ -44,6 +50,7 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 		{Sample: &WhichGroupsYield{}, CmdID: pgapi.WhichGroups},
 		{Sample: &BroadcastYield{}, CmdID: pgapi.Broadcast},
 		{Sample: &BroadcastLocalYield{}, CmdID: pgapi.BroadcastLocal},
+		{Sample: &EventsYield{}, CmdID: event.Subscribe},
 	}
 
 	return mod, yields
@@ -229,6 +236,31 @@ func broadcastLocal(l *lua.LState) int {
 	}
 
 	yield := AcquireBroadcastLocalYield(self, group, topic, payloads)
+	l.Push(yield)
+	return -1
+}
+
+func events(l *lua.LState) int {
+	ctx := l.Context()
+	if ctx == nil {
+		return pushPGError(l, lua.LNil, newPGError(l, lua.Internal, "no context found"))
+	}
+
+	if !security.IsAllowed(ctx, "pg.events", "", nil) {
+		return pushPGError(l, lua.LNil, newPGError(l, lua.PermissionDenied, "not allowed to subscribe to pg events"))
+	}
+
+	p, ok := runtime.GetFramePID(ctx)
+	if !ok {
+		return pushPGError(l, lua.LNil, newPGError(l, lua.Internal, "no process PID"))
+	}
+
+	// Create channel and unique topic for this subscription
+	ch := engine.NewChannel(64)
+	subID := atomic.AddUint64(&pgEventsCounter, 1)
+	topic := fmt.Sprintf("pg.events@%d", subID)
+
+	yield := AcquireEventsYield(ch, p, topic)
 	l.Push(yield)
 	return -1
 }

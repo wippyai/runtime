@@ -19,6 +19,7 @@ func ModuleTypes() *io.Manifest {
 		{Name: "which_groups", Type: typ.Func().Returns(typ.NewArray(typ.String), typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "broadcast", Type: typ.Func().Param("group", typ.String).Param("topic", typ.String).OptParam("payload", typ.Any).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "broadcast_local", Type: typ.Func().Param("group", typ.String).Param("topic", typ.String).OptParam("payload", typ.Any).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "events", Type: typ.Func().Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
 	})
 
 	m.SetExport(moduleType)

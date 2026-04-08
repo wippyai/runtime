@@ -10,10 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/event"
 	pgapi "github.com/wippyai/runtime/api/pg"
 	"github.com/wippyai/runtime/api/pid"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 )
 
 // --- test helpers ---
@@ -77,7 +79,7 @@ func TestModuleBuild(t *testing.T) {
 	tbl, yields := Module.Build()
 	require.NotNil(t, tbl)
 	require.NotNil(t, yields)
-	assert.Len(t, yields, 7)
+	assert.Len(t, yields, 8)
 }
 
 func TestModuleFunctions(t *testing.T) {
@@ -91,7 +93,7 @@ func TestModuleFunctions(t *testing.T) {
 	modTbl := mod.(*lua.LTable)
 	functions := []string{
 		"join", "leave", "get_members", "get_local_members",
-		"which_groups", "broadcast", "broadcast_local",
+		"which_groups", "broadcast", "broadcast_local", "events",
 	}
 	for _, fn := range functions {
 		assert.Equal(t, lua.LTFunction, modTbl.RawGetString(fn).Type(), "function %s not registered", fn)
@@ -155,6 +157,7 @@ func TestYieldStrings(t *testing.T) {
 		{"WhichGroups", &WhichGroupsYield{}, "<pg_which_groups_yield>"},
 		{"Broadcast", &BroadcastYield{}, "<pg_broadcast_yield>"},
 		{"BroadcastLocal", &BroadcastLocalYield{}, "<pg_broadcast_local_yield>"},
+		{"Events", &EventsYield{}, "<pg_events_yield>"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1095,4 +1098,111 @@ func TestBroadcastLocalYield_HandleResult_DispatchError(t *testing.T) {
 	require.Len(t, result, 2)
 	assert.Equal(t, lua.LNil, result[0])
 	assert.NotEqual(t, lua.LNil, result[1])
+}
+
+// --- EventsYield tests ---
+
+func TestEventsYieldCmdID(t *testing.T) {
+	y := &EventsYield{}
+	assert.Equal(t, event.Subscribe, y.CmdID())
+}
+
+func TestEventsYieldString(t *testing.T) {
+	y := &EventsYield{}
+	assert.Equal(t, "<pg_events_yield>", y.String())
+	assert.Equal(t, lua.LTUserData, y.Type())
+}
+
+func TestEventsYieldToCommand(t *testing.T) {
+	ch := engine.NewChannel(64)
+	p := pid.PID{Host: "h1", UniqID: "p1"}
+	y := AcquireEventsYield(ch, p, "pg.events@1")
+
+	cmd := y.ToCommand()
+	subCmd, ok := cmd.(event.SubscribeCmd)
+	require.True(t, ok, "expected event.SubscribeCmd, got %T", cmd)
+	assert.Equal(t, pgapi.EventSystem, subCmd.System)
+	assert.Equal(t, "*", subCmd.Kind)
+	assert.Equal(t, "pg.events@1", subCmd.Topic)
+	assert.Equal(t, p, subCmd.PID)
+
+	y.Release()
+}
+
+func TestEventsYieldPool(t *testing.T) {
+	ch := engine.NewChannel(64)
+	p := pid.PID{Host: "h1", UniqID: "1"}
+	y := AcquireEventsYield(ch, p, "pg.events@42")
+	assert.Equal(t, ch, y.Channel)
+	assert.Equal(t, p, y.PID)
+	assert.Equal(t, "pg.events@42", y.Topic)
+
+	ReleaseEventsYield(y)
+	assert.Nil(t, y.Channel)
+	assert.Equal(t, pid.PID{}, y.PID)
+	assert.Equal(t, "", y.Topic)
+}
+
+func TestEventsYield_HandleResult_Error(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	y := &EventsYield{}
+	result := y.HandleResult(l, nil, errors.New("subscribe failed"))
+	require.Len(t, result, 2)
+	assert.Equal(t, lua.LNil, result[0])
+	assert.NotEqual(t, lua.LNil, result[1])
+}
+
+func TestEventsYieldInYieldStrings(t *testing.T) {
+	y := &EventsYield{}
+	assert.Equal(t, "<pg_events_yield>", y.String())
+	assert.Equal(t, lua.LTUserData, y.Type())
+}
+
+func TestEventsProducesYield(t *testing.T) {
+	parent, _ := newLuaWithPID(t)
+
+	state, values := resumeYield(t, parent, `local r = pg.events(); return r`)
+	assert.Equal(t, lua.ResumeYield, state)
+	require.NotEmpty(t, values)
+
+	y, ok := lastValue(values).(*EventsYield)
+	require.True(t, ok, "expected *EventsYield, got %T", lastValue(values))
+	assert.Equal(t, event.Subscribe, y.CmdID())
+	assert.NotNil(t, y.Channel)
+	assert.Contains(t, y.Topic, "pg.events@")
+}
+
+func TestEventsNoContext(t *testing.T) {
+	l := newLuaNoContext(t)
+
+	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("events"))
+	err := l.PCall(0, 2, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, lua.LNil, l.Get(-2))
+	assert.NotEqual(t, lua.LNil, l.Get(-1))
+}
+
+func TestEventsNoPID(t *testing.T) {
+	l := newLuaNoPID(t)
+
+	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("events"))
+	err := l.PCall(0, 2, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, lua.LNil, l.Get(-2))
+	assert.NotEqual(t, lua.LNil, l.Get(-1))
+}
+
+func TestEventsPermissionDenied(t *testing.T) {
+	l, _ := newLuaStrictMode(t)
+
+	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("events"))
+	err := l.PCall(0, 2, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, lua.LNil, l.Get(-2))
+	assert.NotEqual(t, lua.LNil, l.Get(-1))
 }
