@@ -2,7 +2,10 @@
 
 package system
 
-import "github.com/wippyai/runtime/api/boot"
+import (
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/boot/components/dispatchers"
+)
 
 func All() []boot.Component {
 	return []boot.Component{
@@ -20,5 +23,6 @@ func All() []boot.Component {
 		Contracts(),
 		Functions(),
 		PG(),
+		dispatchers.PGDispatcher(),
 	}
 }

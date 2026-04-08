@@ -20,6 +20,5 @@ func All() []boot.Component {
 		TTY(),
 		SQL(),
 		Events(),
-		PGDispatcher(),
 	}
 }
