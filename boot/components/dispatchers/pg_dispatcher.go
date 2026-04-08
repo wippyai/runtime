@@ -16,7 +16,7 @@ import (
 func PGDispatcher() boot.Component {
 	return boot.New(boot.P{
 		Name:      PGDispatcherName,
-		DependsOn: []boot.Name{DispatcherName},
+		DependsOn: []boot.Name{DispatcherName, "pg"},
 		Load: func(ctx context.Context) (context.Context, error) {
 			reg := dispatcherapi.GetRegistrar(ctx)
 			if reg == nil {
