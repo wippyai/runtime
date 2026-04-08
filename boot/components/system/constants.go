@@ -14,6 +14,7 @@ const (
 	FunctionsName   boot.Name = "functions"
 	ContractsName   boot.Name = "contracts"
 	ClusterName     boot.Name = "cluster"
+	PGName          boot.Name = "pg"
 
 	// ClusterEnabled is a Cluster configuration key
 	ClusterEnabled              boot.Name = "enabled"

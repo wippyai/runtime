@@ -44,4 +44,5 @@ const (
 	WebSocketName = "lua.websocket"
 	YAMLName      = "lua.yaml"
 	LSPName       = "lua.lsp"
+	PGModuleName  = "lua.pg"
 )

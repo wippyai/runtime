@@ -19,5 +19,6 @@ func All() []boot.Component {
 		Interceptor(),
 		Contracts(),
 		Functions(),
+		PG(),
 	}
 }

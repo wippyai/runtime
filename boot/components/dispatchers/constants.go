@@ -25,4 +25,5 @@ const (
 	SQLDispatcherName          boot.Name = "dispatcher.sql"
 	EventsDispatcherName       boot.Name = "dispatcher.events"
 	SocketDispatcherName       boot.Name = "dispatcher.socket"
+	PGDispatcherName           boot.Name = "dispatcher.pg"
 )
