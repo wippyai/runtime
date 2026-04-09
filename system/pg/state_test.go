@@ -514,3 +514,73 @@ func TestState_GetMembersReturnsCopy(t *testing.T) {
 	members1[0] = pid.PID{}
 	assert.NotEqual(t, members1[0].String(), members2[0].String())
 }
+
+func TestState_LeaveRemoteReturnsActuallyRemoved(t *testing.T) {
+	s := newState()
+	rp1 := mkNodePID("node-b", "host1", "1")
+
+	// rp1 joins "workers" but NOT "managers"
+	s.joinRemote("node-b", "workers", []pid.PID{rp1})
+
+	// Leave both groups — only "workers" should appear in the result
+	removed := s.leaveRemote("node-b", []pid.PID{rp1}, []string{"workers", "managers"})
+
+	require.Len(t, removed, 1, "should only contain groups the PID was actually in")
+	require.Contains(t, removed, "workers")
+	assert.Equal(t, rp1.String(), removed["workers"][0].String())
+
+	_, hasManagers := removed["managers"]
+	assert.False(t, hasManagers, "should not contain 'managers' since rp1 was never in it")
+
+	assert.Empty(t, s.getMembers("workers"))
+}
+
+func TestState_LeaveRemoteDoesNotCorruptOtherNodes(t *testing.T) {
+	s := newState()
+	rp1 := mkNodePID("node-b", "host1", "1")
+	rp2 := mkNodePID("node-c", "host1", "2")
+
+	// rp1 (node-b) joins "workers", rp2 (node-c) joins "workers" and "managers"
+	s.joinRemote("node-b", "workers", []pid.PID{rp1})
+	s.joinRemote("node-c", "workers", []pid.PID{rp2})
+	s.joinRemote("node-c", "managers", []pid.PID{rp2})
+
+	// Leave rp1 from both "workers" and "managers" on node-b.
+	// rp1 was never in "managers" on node-b, so it must NOT remove
+	// rp2 from "managers" (which belongs to node-c).
+	removed := s.leaveRemote("node-b", []pid.PID{rp1}, []string{"workers", "managers"})
+
+	require.Len(t, removed, 1)
+	require.Contains(t, removed, "workers")
+
+	// rp2 should still be in both groups
+	assert.Len(t, s.getMembers("workers"), 1, "rp2 should remain in workers")
+	assert.Equal(t, rp2.String(), s.getMembers("workers")[0].String())
+	assert.Len(t, s.getMembers("managers"), 1, "rp2 should remain in managers")
+	assert.Equal(t, rp2.String(), s.getMembers("managers")[0].String())
+}
+
+func TestState_LeaveRemoteReturnsNilForUnknownNode(t *testing.T) {
+	s := newState()
+	removed := s.leaveRemote("nonexistent", []pid.PID{mkPID("host1", "1")}, []string{"workers"})
+	assert.Nil(t, removed)
+}
+
+func TestState_LeaveRemoteMultiJoinReturnsCorrectCount(t *testing.T) {
+	s := newState()
+	rp1 := mkNodePID("node-b", "host1", "1")
+
+	// Join "workers" twice
+	s.joinRemote("node-b", "workers", []pid.PID{rp1})
+	s.joinRemote("node-b", "workers", []pid.PID{rp1})
+
+	// Leave one occurrence
+	removed := s.leaveRemote("node-b", []pid.PID{rp1}, []string{"workers"})
+	require.Len(t, removed["workers"], 1, "should remove exactly one occurrence")
+	assert.Len(t, s.getMembers("workers"), 1, "one occurrence should remain")
+
+	// Leave the second
+	removed = s.leaveRemote("node-b", []pid.PID{rp1}, []string{"workers"})
+	require.Len(t, removed["workers"], 1)
+	assert.Empty(t, s.getMembers("workers"))
+}

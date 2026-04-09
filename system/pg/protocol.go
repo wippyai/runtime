@@ -228,11 +228,11 @@ func (s *Service) handleRemoteJoin(fromNodeID pid.NodeID, group string, pids []p
 
 // handleRemoteLeave processes a leave message from a remote node.
 func (s *Service) handleRemoteLeave(fromNodeID pid.NodeID, pids []pid.PID, groups []string) {
-	s.state.leaveRemote(fromNodeID, pids, groups)
+	removed := s.state.leaveRemote(fromNodeID, pids, groups)
 
-	// Emit membership events for remote leaves
-	for _, group := range groups {
-		s.emitLeaveEvent(group, pids)
+	// Emit membership events only for PIDs that were actually removed from each group.
+	for group, removedPIDs := range removed {
+		s.emitLeaveEvent(group, removedPIDs)
 	}
 }
 

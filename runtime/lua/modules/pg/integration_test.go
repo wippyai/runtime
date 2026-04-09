@@ -2351,3 +2351,263 @@ return { main = main }
 	val := result.Value.Data()
 	assert.Equal(t, "flush_ok", string(val.(lua.LString)))
 }
+
+// TestIntegration_RemoteLeaveNoSpuriousEvents verifies that when a remote process
+// leaves multiple groups, monitors/events subscribers only receive leave events for
+// groups the process was actually a member of — not spurious events for other groups.
+func TestIntegration_RemoteLeaveNoSpuriousEvents(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	logger := zap.NewNop()
+	bus := eventbus.NewBus()
+	node := sysrelay.NewNode("test-node")
+
+	rootCtx := security.SetStrictMode(ctxapi.NewRootContext(), false)
+	transcoder := systempayload.NewTranscoder()
+	luapayload.Register(transcoder)
+	payload.WithTranscoder(rootCtx, transcoder)
+
+	ctx, cancel := context.WithTimeout(rootCtx, 15*time.Second)
+	defer cancel()
+	ctx = relay.WithNode(ctx, node)
+
+	topo := &noopTopology{}
+	service := syspg.NewService(logger, node, topo, nil, bus, "test-node")
+	require.NoError(t, service.Start(ctx))
+	defer func() { _ = service.Stop(context.Background()) }()
+
+	reg := scheduler.NewRegistry()
+	pgDisp := syspg.NewDispatcher(service, node, logger)
+	pgDisp.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		reg.Register(id, h)
+	})
+
+	clockSvc := clock.NewDispatcher()
+	defer func() { _ = clockSvc.Stop(ctx) }()
+	clockSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		reg.Register(id, h)
+	})
+
+	eventsSvc := eventbus.NewDispatcher(bus, node)
+	require.NoError(t, eventsSvc.Start(ctx))
+	defer func() { _ = eventsSvc.Stop(context.Background()) }()
+	eventsSvc.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		reg.Register(id, h)
+	})
+
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "test-node")
+	hostID := "test.pg:remote-leave-no-spurious"
+
+	// Use an atomic to signal when the Lua script is ready for remote events
+	var luaReady atomic.Bool
+
+	factory := func() (process.Process, error) {
+		cfg := engine.FactoryConfig{
+			Script: `
+local time = require("time")
+
+local function main()
+    -- Subscribe to pg events (all groups)
+    local sub, groups, err = pg.events()
+    if err then
+        return nil, "subscribe error: " .. tostring(err)
+    end
+
+    local ch = sub:channel()
+
+    -- Join a local group to signal readiness to the Go test.
+    -- The Go test will inject remote join/leave after detecting this.
+    local ok, err = pg.join("lua-ready-signal")
+    if err then
+        return nil, "join error: " .. tostring(err)
+    end
+
+    -- Consume the local join event for "lua-ready-signal"
+    local timer = time.after(5000 * time.MILLISECOND)
+    local result = channel.select{
+        ch:case_receive(),
+        timer:case_receive()
+    }
+    if result.channel == timer then
+        return nil, "timeout waiting for lua-ready-signal join event"
+    end
+
+    -- Wait for remote join event for "watched-group"
+    timer = time.after(5000 * time.MILLISECOND)
+    result = channel.select{
+        ch:case_receive(),
+        timer:case_receive()
+    }
+    if result.channel == timer then
+        return nil, "timeout waiting for remote join event"
+    end
+
+    local evt = result.value
+    if evt.kind ~= "member.joined" then
+        return nil, "expected member.joined for remote join, got " .. tostring(evt.kind)
+    end
+    if evt.path ~= "watched-group" then
+        return nil, "expected path watched-group, got " .. tostring(evt.path)
+    end
+
+    -- Now wait for the remote leave events.
+    -- We should get exactly ONE leave event for "watched-group",
+    -- and NO spurious event for "unwatched-group" (since the remote PID
+    -- was never in "unwatched-group").
+    timer = time.after(5000 * time.MILLISECOND)
+    result = channel.select{
+        ch:case_receive(),
+        timer:case_receive()
+    }
+    if result.channel == timer then
+        return nil, "timeout waiting for remote leave event"
+    end
+
+    evt = result.value
+    if evt.kind ~= "member.left" then
+        return nil, "expected member.left, got " .. tostring(evt.kind)
+    end
+    if evt.path ~= "watched-group" then
+        return nil, "expected leave for watched-group, got " .. tostring(evt.path)
+    end
+
+    -- Verify no spurious second event arrives
+    timer = time.after(500 * time.MILLISECOND)
+    result = channel.select{
+        ch:case_receive(),
+        timer:case_receive()
+    }
+    if result.channel ~= timer then
+        -- Got a spurious event!
+        local spurious = result.value
+        return nil, "received spurious event: kind=" .. tostring(spurious.kind) .. " path=" .. tostring(spurious.path)
+    end
+
+    -- Clean up
+    pg.leave("lua-ready-signal")
+
+    -- Consume the local leave event
+    timer = time.after(3000 * time.MILLISECOND)
+    result = channel.select{
+        ch:case_receive(),
+        timer:case_receive()
+    }
+
+    sub:close()
+    return "no_spurious_events"
+end
+
+return { main = main }
+`,
+			ScriptName: "pg_remote_leave_no_spurious_test",
+			ModuleBinders: append(engine.CoreBinders(),
+				func(l *lua.LState) error {
+					engine.LoadModuleDef(l, pgmod.Module)
+					return nil
+				},
+				func(l *lua.LState) error {
+					mod, _ := timemod.Module.Build()
+					l.SetGlobal("time", mod)
+					return nil
+				},
+			),
+		}
+		f := engine.NewFactory(cfg)
+		return f()
+	}
+
+	pool, err := inline.New(factory, reg)
+	require.NoError(t, err)
+	defer pool.Stop()
+
+	err = node.RegisterHost(hostID, pool)
+	require.NoError(t, err)
+
+	// Run Lua in a goroutine; inject remote events from the main goroutine.
+	type luaResult struct {
+		result *runtime.Result
+		err    error
+	}
+	luaDone := make(chan luaResult, 1)
+
+	frameCtx, fc := ctxapi.OpenFrameContext(ctx)
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	p := pidGen.Generate(hostID)
+	err = runtime.SetFramePID(frameCtx, p)
+	require.NoError(t, err)
+	frameCtx = relay.WithNode(frameCtx, node)
+
+	go func() {
+		luaReady.Store(true)
+		r, e := pool.Call(frameCtx, "main", nil)
+		luaDone <- luaResult{r, e}
+	}()
+
+	// Wait for the Lua script to be ready (it joins "lua-ready-signal")
+	require.Eventually(t, func() bool {
+		members := service.GetMembers("lua-ready-signal")
+		return len(members) > 0
+	}, 5*time.Second, 20*time.Millisecond, "Lua script did not join lua-ready-signal in time")
+
+	// Construct a remote PID from a fake node
+	remotePID := &pid.PID{
+		Node:   "remote-node",
+		Host:   "remote-host",
+		UniqID: "remote-proc-1",
+	}
+	remotePIDVal := remotePID.Precomputed()
+
+	pgPIDFn := func(nodeID pid.NodeID) pid.PID {
+		return pid.PID{
+			Node:   nodeID,
+			Host:   pid.HostID("pg"),
+			UniqID: "pg",
+		}
+	}
+
+	// Inject remote join for "watched-group" only
+	joinPkg := relay.NewPackage(
+		pgPIDFn("remote-node"),
+		pgPIDFn("test-node"),
+		"pg.join",
+		payload.New(map[string]any{
+			"from":  "remote-node",
+			"group": "watched-group",
+			"pids":  []any{remotePIDVal.String()},
+		}),
+	)
+	require.NoError(t, service.Send(joinPkg))
+	time.Sleep(100 * time.Millisecond)
+
+	// Inject remote leave for BOTH "watched-group" AND "unwatched-group".
+	// The remote PID was never in "unwatched-group", so no event should be emitted for it.
+	leavePkg := relay.NewPackage(
+		pgPIDFn("remote-node"),
+		pgPIDFn("test-node"),
+		"pg.leave",
+		payload.New(map[string]any{
+			"from":   "remote-node",
+			"pids":   []any{remotePIDVal.String()},
+			"groups": []any{"watched-group", "unwatched-group"},
+		}),
+	)
+	require.NoError(t, service.Send(leavePkg))
+
+	// Wait for the Lua script to finish
+	select {
+	case lr := <-luaDone:
+		require.NoError(t, lr.err)
+		require.NotNil(t, lr.result)
+		if lr.result.Error != nil {
+			t.Fatalf("Lua execution error: %v", lr.result.Error)
+		}
+		val := lr.result.Value.Data()
+		assert.Equal(t, "no_spurious_events", string(val.(lua.LString)))
+	case <-time.After(15 * time.Second):
+		t.Fatal("timeout waiting for Lua script to finish")
+	}
+}

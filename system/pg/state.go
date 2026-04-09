@@ -185,21 +185,27 @@ func (s *state) joinRemote(nodeID pid.NodeID, group string, pids []pid.PID) {
 
 // leaveRemote removes remote PIDs from groups.
 // Each PID in the slice removes exactly one occurrence (preserving multi-join semantics).
-func (s *state) leaveRemote(nodeID pid.NodeID, pids []pid.PID, groups []string) {
+// Returns a map of group -> PIDs that were actually removed, so callers can emit
+// accurate events only for PIDs that were truly members of each group.
+func (s *state) leaveRemote(nodeID pid.NodeID, pids []pid.PID, groups []string) map[string][]pid.PID {
 	rn, exists := s.remote[nodeID]
 	if !exists {
-		return
+		return nil
 	}
+
+	removed := make(map[string][]pid.PID)
 
 	for _, group := range groups {
 		for _, p := range pids {
 			key := p.String()
 
 			// Remove one occurrence from remote tracking
+			found := false
 			if remotePids, ok := rn.groups[group]; ok {
 				for i, rp := range remotePids {
 					if rp.String() == key {
 						rn.groups[group] = append(remotePids[:i], remotePids[i+1:]...)
+						found = true
 						break
 					}
 				}
@@ -208,8 +214,12 @@ func (s *state) leaveRemote(nodeID pid.NodeID, pids []pid.PID, groups []string) 
 				}
 			}
 
-			// Remove one occurrence from group state
-			s.removePIDFromGroup(group, p, false)
+			// Only remove from group state if the PID was actually in
+			// this node's remote tracking for this group.
+			if found {
+				s.removePIDFromGroup(group, p, false)
+				removed[group] = append(removed[group], p)
+			}
 		}
 	}
 
@@ -217,6 +227,8 @@ func (s *state) leaveRemote(nodeID pid.NodeID, pids []pid.PID, groups []string) 
 	if len(rn.groups) == 0 {
 		delete(s.remote, nodeID)
 	}
+
+	return removed
 }
 
 // removeNode removes all PIDs from a remote node.

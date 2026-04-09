@@ -1367,6 +1367,127 @@ func TestServiceEmitsEventsForRemoteLeave(t *testing.T) {
 	}
 }
 
+func TestServiceRemoteLeaveNoSpuriousEventsForNonMemberGroups(t *testing.T) {
+	svc, _, _, bus := startTestServiceWithBus(t)
+
+	rp1 := mkNodePID("node-b", "host1", "1")
+
+	// Join rp1 to "workers" only (not "managers")
+	joinPkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicJoin,
+		payload.New(map[string]any{
+			"from":  "node-b",
+			"group": "workers",
+			"pids":  []any{rp1.String()},
+		}),
+	)
+	require.NoError(t, svc.Send(joinPkg))
+	time.Sleep(50 * time.Millisecond)
+
+	// Subscribe to ALL leave events
+	ch := make(chan event.Event, 8)
+	_, err := bus.SubscribeP(context.Background(), pgapi.EventSystem, pgapi.MemberLeft, ch)
+	require.NoError(t, err)
+
+	// Send leave for both "workers" and "managers" — rp1 is only in "workers"
+	leavePkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicLeave,
+		payload.New(map[string]any{
+			"from":   "node-b",
+			"pids":   []any{rp1.String()},
+			"groups": []any{"workers", "managers"},
+		}),
+	)
+	require.NoError(t, svc.Send(leavePkg))
+
+	// Should receive exactly one leave event for "workers"
+	select {
+	case evt := <-ch:
+		assert.Equal(t, event.Kind(pgapi.MemberLeft), evt.Kind)
+		assert.Equal(t, "workers", evt.Path)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for leave event for workers")
+	}
+
+	// Should NOT receive a second event for "managers"
+	select {
+	case evt := <-ch:
+		t.Fatalf("received spurious leave event for group %q — should not have emitted", evt.Path)
+	case <-time.After(200 * time.Millisecond):
+		// Expected: no more events
+	}
+}
+
+func TestServiceRemoteLeaveDoesNotCorruptOtherNodeMembers(t *testing.T) {
+	svc, _, _, bus := startTestServiceWithBus(t)
+
+	rp1 := mkNodePID("node-b", "host1", "1")
+	rp2 := mkNodePID("node-c", "host1", "2")
+
+	// Join rp1 (node-b) to "workers", rp2 (node-c) to "workers" and "managers"
+	for _, jp := range []struct {
+		from  string
+		group string
+		pid   pid.PID
+	}{
+		{"node-b", "workers", rp1},
+		{"node-c", "workers", rp2},
+		{"node-c", "managers", rp2},
+	} {
+		pkg := relay.NewPackage(pgPID(jp.from), pgPID("local-node"), pgapi.TopicJoin,
+			payload.New(map[string]any{
+				"from":  jp.from,
+				"group": jp.group,
+				"pids":  []any{jp.pid.String()},
+			}),
+		)
+		require.NoError(t, svc.Send(pkg))
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	assert.Len(t, svc.GetMembers("workers"), 2)
+	assert.Len(t, svc.GetMembers("managers"), 1)
+
+	// Subscribe to leave events
+	ch := make(chan event.Event, 8)
+	_, err := bus.SubscribeP(context.Background(), pgapi.EventSystem, pgapi.MemberLeft, ch)
+	require.NoError(t, err)
+
+	// Leave rp1 from "workers" and "managers" on node-b.
+	// rp1 was never in "managers", so rp2's membership must not be affected.
+	leavePkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicLeave,
+		payload.New(map[string]any{
+			"from":   "node-b",
+			"pids":   []any{rp1.String()},
+			"groups": []any{"workers", "managers"},
+		}),
+	)
+	require.NoError(t, svc.Send(leavePkg))
+
+	// Should get exactly one leave event for "workers"
+	select {
+	case evt := <-ch:
+		assert.Equal(t, "workers", evt.Path)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for leave event")
+	}
+
+	// No spurious event for "managers"
+	select {
+	case evt := <-ch:
+		t.Fatalf("received spurious leave event for group %q", evt.Path)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	// rp2 should still be in both groups
+	_ = bus
+	workers := svc.GetMembers("workers")
+	require.Len(t, workers, 1)
+	assert.Equal(t, rp2.String(), workers[0].String())
+
+	managers := svc.GetMembers("managers")
+	require.Len(t, managers, 1)
+	assert.Equal(t, rp2.String(), managers[0].String())
+}
+
 // --- JoinGroups tests ---
 
 func TestServiceJoinGroups(t *testing.T) {

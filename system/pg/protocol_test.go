@@ -282,6 +282,68 @@ func TestHandleRemoteLeave(t *testing.T) {
 	assert.Empty(t, members)
 }
 
+func TestHandleRemoteLeaveMultiGroupOnlyEmitsForActualGroups(t *testing.T) {
+	svc, _, _ := startTestService(t)
+
+	rp1 := mkNodePID("node-b", "host1", "1")
+
+	// rp1 joins "workers" but NOT "managers"
+	svc.submit(func() {
+		svc.handleRemoteJoin("node-b", "workers", []pid.PID{rp1})
+		svc.publishSnapshot()
+	})
+	time.Sleep(20 * time.Millisecond)
+
+	assert.Len(t, svc.GetMembers("workers"), 1)
+	assert.Empty(t, svc.GetMembers("managers"))
+
+	// Leave both groups — only "workers" should be affected
+	svc.submit(func() {
+		svc.handleRemoteLeave("node-b", []pid.PID{rp1}, []string{"workers", "managers"})
+		svc.publishSnapshot()
+	})
+	time.Sleep(50 * time.Millisecond)
+
+	assert.Empty(t, svc.GetMembers("workers"))
+	assert.Empty(t, svc.GetMembers("managers"))
+}
+
+func TestHandleRemoteLeaveDoesNotCorruptOtherNodeState(t *testing.T) {
+	svc, _, _ := startTestService(t)
+
+	rp1 := mkNodePID("node-b", "host1", "1")
+	rp2 := mkNodePID("node-c", "host1", "2")
+
+	// rp1 (node-b) in "workers", rp2 (node-c) in "workers" and "managers"
+	svc.submit(func() {
+		svc.handleRemoteJoin("node-b", "workers", []pid.PID{rp1})
+		svc.handleRemoteJoin("node-c", "workers", []pid.PID{rp2})
+		svc.handleRemoteJoin("node-c", "managers", []pid.PID{rp2})
+		svc.publishSnapshot()
+	})
+	time.Sleep(20 * time.Millisecond)
+
+	assert.Len(t, svc.GetMembers("workers"), 2)
+	assert.Len(t, svc.GetMembers("managers"), 1)
+
+	// Leave rp1 from both "workers" and "managers" on node-b.
+	// rp1 was never in "managers" on node-b, so rp2's membership must be preserved.
+	svc.submit(func() {
+		svc.handleRemoteLeave("node-b", []pid.PID{rp1}, []string{"workers", "managers"})
+		svc.publishSnapshot()
+	})
+	time.Sleep(50 * time.Millisecond)
+
+	// rp2 should remain in both groups
+	workers := svc.GetMembers("workers")
+	require.Len(t, workers, 1)
+	assert.Equal(t, rp2.String(), workers[0].String())
+
+	managers := svc.GetMembers("managers")
+	require.Len(t, managers, 1)
+	assert.Equal(t, rp2.String(), managers[0].String())
+}
+
 func TestHandleProcessExit(t *testing.T) {
 	svc, _, _ := startTestService(t)
 
