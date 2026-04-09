@@ -70,8 +70,10 @@ type ProcessGroups interface {
 	// process is not a member of the group.
 	Leave(group Group, p pid.PID) error
 
-	// LeaveGroups removes a process from multiple groups atomically.
-	// Returns ErrNotJoined if the process is not a member of any of the groups.
+	// LeaveGroups removes a process from multiple groups. It uses best-effort
+	// semantics: leaves all groups where the process is a member and skips
+	// groups where it isn't. Returns ErrNotJoined only if the process was
+	// not a member of ANY of the specified groups.
 	LeaveGroups(groups []Group, p pid.PID) error
 
 	// GetMembers returns all processes in the group across all nodes.

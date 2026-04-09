@@ -470,17 +470,25 @@ func (s *Service) Leave(group pgapi.Group, p pid.PID) error {
 	}
 }
 
-// LeaveGroups removes a local process from multiple groups atomically.
+// LeaveGroups removes a local process from multiple groups.
+// Following Erlang PG semantics: leaves all groups where the process is a member,
+// skips groups where it isn't, and returns ErrNotJoined only if the process
+// was not a member of ANY of the specified groups.
 func (s *Service) LeaveGroups(groups []pgapi.Group, p pid.PID) error {
 	done := make(chan error, 1)
 	s.submit(func() {
+		anyLeft := false
 		for _, group := range groups {
-			if !s.state.leaveLocal(group, p) {
-				done <- ErrNotJoined
-				return
+			if s.state.leaveLocal(group, p) {
+				anyLeft = true
+				s.broadcastLeave([]pid.PID{p}, []string{group})
+				s.emitLeaveEvent(group, []pid.PID{p})
 			}
-			s.broadcastLeave([]pid.PID{p}, []string{group})
-			s.emitLeaveEvent(group, []pid.PID{p})
+		}
+
+		if !anyLeft {
+			done <- ErrNotJoined
+			return
 		}
 
 		// If the process has no more groups, stop monitoring

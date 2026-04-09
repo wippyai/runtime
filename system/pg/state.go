@@ -133,7 +133,9 @@ func (s *state) leaveLocal(group string, p pid.PID) bool {
 }
 
 // leaveAllLocal removes a local process from all groups.
-// Returns the list of groups the process was in.
+// Returns the full list of groups the process was in, preserving duplicates
+// for multi-join semantics. When a process joined "A" twice, the returned
+// slice contains "A" twice so that remote nodes can remove all occurrences.
 func (s *state) leaveAllLocal(p pid.PID) []string {
 	key := p.String()
 	lp, exists := s.local[key]
@@ -141,16 +143,9 @@ func (s *state) leaveAllLocal(p pid.PID) []string {
 		return nil
 	}
 
-	// Deduplicate groups for broadcasting
-	groupSet := make(map[string]struct{})
-	for _, g := range lp.groups {
-		groupSet[g] = struct{}{}
-	}
-
-	groups := make([]string, 0, len(groupSet))
-	for g := range groupSet {
-		groups = append(groups, g)
-	}
+	// Copy the full groups list (preserving duplicates for protocol correctness)
+	groups := make([]string, len(lp.groups))
+	copy(groups, lp.groups)
 
 	// Remove from each group (handle multi-join by counting occurrences)
 	groupCounts := make(map[string]int)

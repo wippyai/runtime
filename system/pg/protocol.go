@@ -221,16 +221,22 @@ func (s *Service) demonitorProcess(p pid.PID) {
 func (s *Service) handleProcessExit(p pid.PID) {
 	groups := s.state.leaveAllLocal(p)
 	if len(groups) > 0 {
+		// Broadcast the full list (with duplicates) to remote nodes so they
+		// remove the correct number of occurrences for multi-join semantics.
 		s.broadcastLeave([]pid.PID{p}, groups)
 
-		// Emit membership events for each group the process was in
+		// Emit membership events per unique group (deduplicated)
+		seen := make(map[string]bool, len(groups))
 		for _, group := range groups {
-			s.emitLeaveEvent(group, []pid.PID{p})
+			if !seen[group] {
+				seen[group] = true
+				s.emitLeaveEvent(group, []pid.PID{p})
+			}
 		}
 
 		s.logger.Debug("process exited, removed from groups",
 			logPID(p),
-			logGroupCount(len(groups)),
+			logGroupCount(len(seen)),
 		)
 	}
 }

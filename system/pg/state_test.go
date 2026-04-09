@@ -130,12 +130,42 @@ func TestState_LeaveAllLocal(t *testing.T) {
 	s.joinLocal("workers", p1) // multi-join
 
 	groups := s.leaveAllLocal(p1)
+
+	// leaveAllLocal now preserves duplicates for multi-join semantics
+	// so that remote nodes can remove the correct number of occurrences.
+	// The process joined workers, managers, workers — so we expect 3 entries.
+	assert.Len(t, groups, 3, "should return 3 groups (with duplicates)")
 	sort.Strings(groups)
-	assert.Equal(t, []string{"managers", "workers"}, groups)
+	assert.Equal(t, []string{"managers", "workers", "workers"}, groups)
 
 	assert.Empty(t, s.getMembers("workers"))
 	assert.Empty(t, s.getMembers("managers"))
 	assert.Empty(t, s.whichGroups())
+}
+
+func TestState_LeaveAllLocalMultiJoinSingleGroup(t *testing.T) {
+	s := newState()
+	p1 := mkPID("host1", "1")
+
+	// Join same group 3 times
+	s.joinLocal("workers", p1)
+	s.joinLocal("workers", p1)
+	s.joinLocal("workers", p1)
+
+	groups := s.leaveAllLocal(p1)
+
+	// Should return "workers" 3 times
+	assert.Len(t, groups, 3)
+	for _, g := range groups {
+		assert.Equal(t, "workers", g)
+	}
+
+	assert.Empty(t, s.getMembers("workers"))
+	assert.Empty(t, s.whichGroups())
+
+	// Process should be fully removed from local tracking
+	_, exists := s.local[p1.String()]
+	assert.False(t, exists, "local process should be removed")
 }
 
 func TestState_LeaveAllLocalNotJoined(t *testing.T) {

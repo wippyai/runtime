@@ -1190,6 +1190,56 @@ func TestServiceEmitsEventOnProcessExit(t *testing.T) {
 	}
 }
 
+func TestServiceMultiJoinExitEmitsDedupedEvents(t *testing.T) {
+	svc, _, _, bus := startTestServiceWithBus(t)
+
+	p1 := mkPID("host1", "1")
+	// Join "workers" 3 times and "managers" once
+	require.NoError(t, svc.Join("workers", p1))
+	require.NoError(t, svc.Join("workers", p1))
+	require.NoError(t, svc.Join("workers", p1))
+	require.NoError(t, svc.Join("managers", p1))
+
+	// Subscribe to leave events
+	ch := make(chan event.Event, 16)
+	_, err := bus.SubscribeP(context.Background(), pgapi.EventSystem, pgapi.MemberLeft, ch)
+	require.NoError(t, err)
+	time.Sleep(20 * time.Millisecond)
+
+	// Simulate process exit
+	exitEvent := &topology.ExitEvent{From: p1}
+	msg := relay.AcquireMessage()
+	msg.Topic = topology.TopicEvents
+	msg.Payloads = payload.Payloads{payload.New(exitEvent)}
+	pkg := relay.NewMessagePackage(p1, pgPID("local-node"), msg)
+	require.NoError(t, svc.Send(pkg))
+
+	// Should get exactly 2 leave events (one per unique group, not 4)
+	received := make(map[string]int)
+	timeout := time.After(2 * time.Second)
+	for len(received) < 2 {
+		select {
+		case evt := <-ch:
+			memberEvt, ok := evt.Data.(pgapi.MembershipEvent)
+			require.True(t, ok)
+			received[memberEvt.Group]++
+		case <-timeout:
+			t.Fatalf("expected 2 leave events (workers, managers), got %d: %v", len(received), received)
+		}
+	}
+
+	assert.Equal(t, 1, received["workers"], "should get exactly 1 leave event for workers")
+	assert.Equal(t, 1, received["managers"], "should get exactly 1 leave event for managers")
+
+	// Verify no extra events
+	select {
+	case evt := <-ch:
+		t.Fatalf("unexpected extra leave event: %+v", evt)
+	case <-time.After(200 * time.Millisecond):
+		// good — no extra events
+	}
+}
+
 func TestServiceEmitsNoEventWithNilBus(t *testing.T) {
 	// Service with nil bus should not panic on join/leave
 	svc, _, _ := startTestService(t) // startTestService uses nil bus
@@ -1398,6 +1448,114 @@ func TestServiceLeaveGroupsNotJoined(t *testing.T) {
 	p1 := mkPID("host1", "1")
 	err := svc.LeaveGroups([]string{"workers"}, p1)
 	assert.ErrorIs(t, err, ErrNotJoined)
+}
+
+func TestServiceLeaveGroupsBestEffort(t *testing.T) {
+	svc, _, topo := startTestService(t)
+
+	p1 := mkPID("host1", "1")
+	// Join groups A and C, but NOT B
+	require.NoError(t, svc.Join("groupA", p1))
+	require.NoError(t, svc.Join("groupC", p1))
+
+	// Leave A, B, C — B is not joined, but A and C should still be left
+	err := svc.LeaveGroups([]string{"groupA", "groupB", "groupC"}, p1)
+	require.NoError(t, err, "should succeed because A and C were left")
+
+	assert.Empty(t, svc.GetMembers("groupA"), "groupA should be empty")
+	assert.Empty(t, svc.GetMembers("groupC"), "groupC should be empty")
+
+	// Process has no more groups, should be demonitored
+	assert.False(t, topo.isMonitored(p1))
+}
+
+func TestServiceLeaveGroupsAllNotJoined(t *testing.T) {
+	svc, _, _ := startTestService(t)
+
+	p1 := mkPID("host1", "1")
+	// Process is not joined to any of these groups
+	err := svc.LeaveGroups([]string{"groupX", "groupY"}, p1)
+	assert.ErrorIs(t, err, ErrNotJoined, "should return ErrNotJoined when process was not in ANY group")
+}
+
+func TestServiceLeaveGroupsBestEffortKeepsMonitor(t *testing.T) {
+	svc, _, topo := startTestService(t)
+
+	p1 := mkPID("host1", "1")
+	// Join A, B, C
+	require.NoError(t, svc.JoinGroups([]string{"a", "b", "c"}, p1))
+
+	// Leave only A and a non-existent group
+	err := svc.LeaveGroups([]string{"a", "nonexistent"}, p1)
+	require.NoError(t, err, "should succeed because 'a' was left")
+
+	assert.Empty(t, svc.GetMembers("a"))
+	assert.Len(t, svc.GetMembers("b"), 1, "b should still have the member")
+	assert.Len(t, svc.GetMembers("c"), 1, "c should still have the member")
+
+	// Still in b and c, so should still be monitored
+	assert.True(t, topo.isMonitored(p1))
+}
+
+func TestServiceMultiJoinExitBroadcast(t *testing.T) {
+	svc, router, _ := startTestService(t)
+
+	// Register a remote node so broadcasts have a target
+	rp := mkNodePID("node-b", "host1", "99")
+	joinPkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicJoin,
+		payload.New(map[string]any{
+			"from":  "node-b",
+			"group": "other",
+			"pids":  []any{rp.String()},
+		}),
+	)
+	require.NoError(t, svc.Send(joinPkg))
+	time.Sleep(50 * time.Millisecond)
+
+	p1 := mkPID("host1", "1")
+	// Join "workers" twice
+	require.NoError(t, svc.Join("workers", p1))
+	require.NoError(t, svc.Join("workers", p1))
+	assert.Len(t, svc.GetMembers("workers"), 2)
+
+	router.reset()
+
+	// Simulate process exit
+	exitEvent := &topology.ExitEvent{From: p1}
+	msg := relay.AcquireMessage()
+	msg.Topic = topology.TopicEvents
+	msg.Payloads = payload.Payloads{payload.New(exitEvent)}
+	pkg := relay.NewMessagePackage(p1, pgPID("local-node"), msg)
+	require.NoError(t, svc.Send(pkg))
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Group should be empty after exit
+	assert.Empty(t, svc.GetMembers("workers"))
+
+	// Verify the broadcast leave sent to remote nodes contains "workers" twice
+	sends := router.getSends()
+	leaveFound := false
+	for _, s := range sends {
+		for _, m := range s.Messages {
+			if m.Topic == pgapi.TopicLeave {
+				leaveFound = true
+				data, ok := m.Payloads[0].Data().(map[string]any)
+				require.True(t, ok)
+				rawGroups, _ := data["groups"].([]string)
+				// Count "workers" occurrences
+				count := 0
+				for _, g := range rawGroups {
+					if g == "workers" {
+						count++
+					}
+				}
+				assert.Equal(t, 2, count,
+					"broadcastLeave should send 'workers' twice for multi-join exit")
+			}
+		}
+	}
+	assert.True(t, leaveFound, "should have sent at least one leave broadcast")
 }
 
 func TestServiceLeaveGroupsAfterStop(t *testing.T) {
