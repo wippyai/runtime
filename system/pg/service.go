@@ -591,14 +591,31 @@ func (s *Service) Monitor(group string, p pid.PID, topic string) monitorResult {
 
 		s.monitors[group] = append(s.monitors[group], entry)
 
+		// Monitor the subscriber process so we can clean up if it dies.
+		// monitorProcess is idempotent (ignores ErrAlreadyMonitoring).
+		s.monitorProcess(p)
+
 		// Snapshot current members (while still in event loop — atomic)
 		members := s.state.getMembers(group)
 
-		// Build unsubscribe closure
+		// Build unsubscribe closure — synchronous: blocks until the event
+		// loop processes the removal, so no more events can be emitted after
+		// unsubscribe returns (matches Erlang pg:demonitor/2 semantics).
 		unsubscribe := func() {
+			unsub := make(chan struct{}, 1)
 			s.submit(func() {
 				s.removeMonitor(group, id)
+				// If the process has no more group memberships and no more
+				// monitor subscriptions, stop monitoring it.
+				if !s.hasMonitorSubscriptions(p) && !s.hasGroupMemberships(p) {
+					s.demonitorProcess(p)
+				}
+				unsub <- struct{}{}
 			})
+			select {
+			case <-unsub:
+			case <-s.ctx.Done():
+			}
 		}
 
 		done <- monitorResult{members: members, unsubscribe: unsubscribe}
@@ -626,6 +643,48 @@ func (s *Service) removeMonitor(group string, id uint64) {
 	}
 }
 
+// removeMonitorsByPID removes all monitor subscriptions owned by the given PID.
+// This mirrors Erlang PG's automatic cleanup when a monitoring process dies.
+// Must be called from the event loop.
+func (s *Service) removeMonitorsByPID(p pid.PID) {
+	key := p.String()
+	for group, entries := range s.monitors {
+		var remaining []*monitorEntry
+		for _, e := range entries {
+			if e.pid.String() != key {
+				remaining = append(remaining, e)
+			}
+		}
+		if len(remaining) == 0 {
+			delete(s.monitors, group)
+		} else if len(remaining) != len(entries) {
+			s.monitors[group] = remaining
+		}
+	}
+}
+
+// hasMonitorSubscriptions returns true if the given PID has any active
+// monitor subscriptions (group-specific or wildcard). Must be called from
+// the event loop.
+func (s *Service) hasMonitorSubscriptions(p pid.PID) bool {
+	key := p.String()
+	for _, entries := range s.monitors {
+		for _, e := range entries {
+			if e.pid.String() == key {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hasGroupMemberships returns true if the given PID is a member of any
+// local group. Must be called from the event loop.
+func (s *Service) hasGroupMemberships(p pid.PID) bool {
+	_, exists := s.state.local[p.String()]
+	return exists
+}
+
 // eventsResult holds the result of an Events operation.
 type eventsResult struct {
 	groups      map[string][]pid.PID
@@ -650,13 +709,25 @@ func (s *Service) Events(p pid.PID, topic string) eventsResult {
 		// Wildcard key "" matches all groups
 		s.monitors[""] = append(s.monitors[""], entry)
 
+		// Monitor the subscriber process so we can clean up if it dies.
+		s.monitorProcess(p)
+
 		// Snapshot all current groups
 		groups := s.state.allGroupMembers()
 
 		unsubscribe := func() {
+			unsub := make(chan struct{}, 1)
 			s.submit(func() {
 				s.removeMonitor("", id)
+				if !s.hasMonitorSubscriptions(p) && !s.hasGroupMemberships(p) {
+					s.demonitorProcess(p)
+				}
+				unsub <- struct{}{}
 			})
+			select {
+			case <-unsub:
+			case <-s.ctx.Done():
+			}
 		}
 
 		done <- eventsResult{groups: groups, unsubscribe: unsubscribe}

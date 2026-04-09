@@ -596,10 +596,13 @@ func pgSubscriptionClose(l *lua.LState) int {
 	}
 
 	sub.closed = true
+	// Unsubscribe first (synchronous — blocks until the event loop
+	// processes the removal, guaranteeing no new events will be emitted).
 	if sub.unsubscribe != nil {
 		sub.unsubscribe()
 		sub.unsubscribe = nil
 	}
+	// Then drain any in-flight messages that arrived before removal.
 	if sub.channel != nil {
 		if flush {
 			sub.channel.Drain()

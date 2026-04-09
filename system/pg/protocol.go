@@ -145,8 +145,10 @@ func (s *Service) handleDiscover(fromNodeID pid.NodeID) {
 }
 
 // handleSync processes a sync message from a remote node.
+// Uses differential sync (like Erlang PG) to avoid spurious events:
+// only PIDs actually added or removed emit join/leave notifications.
 func (s *Service) handleSync(fromNodeID pid.NodeID, groups map[string][]pid.PID) {
-	// Collect old state for leave events before sync replaces it
+	// Capture old state before sync replaces it
 	oldRN, oldExists := s.state.remote[fromNodeID]
 	oldGroups := make(map[string][]pid.PID)
 	if oldExists {
@@ -159,17 +161,21 @@ func (s *Service) handleSync(fromNodeID pid.NodeID, groups map[string][]pid.PID)
 
 	s.state.syncRemote(fromNodeID, groups)
 
-	// Emit leave events for PIDs that were removed by the sync
+	// Differential event emission:
+	// 1. For groups in old state: emit leave for removed PIDs
 	for group, oldPids := range oldGroups {
-		if _, stillExists := groups[group]; !stillExists {
-			s.emitLeaveEvent(group, oldPids)
+		newPids := groups[group] // nil if group removed entirely
+		removed := diffPIDs(oldPids, newPids)
+		if len(removed) > 0 {
+			s.emitLeaveEvent(group, removed)
 		}
 	}
-
-	// Emit join events for new groups/PIDs from the sync
-	for group, pids := range groups {
-		if len(pids) > 0 {
-			s.emitJoinEvent(group, pids)
+	// 2. For groups in new state: emit join for added PIDs
+	for group, newPids := range groups {
+		oldPids := oldGroups[group] // nil if group is new
+		added := diffPIDs(newPids, oldPids)
+		if len(added) > 0 {
+			s.emitJoinEvent(group, added)
 		}
 	}
 
@@ -177,6 +183,39 @@ func (s *Service) handleSync(fromNodeID pid.NodeID, groups map[string][]pid.PID)
 		logNodeID(fromNodeID),
 		logGroupCount(len(groups)),
 	)
+}
+
+// diffPIDs returns PIDs present in `a` but not in `b`, respecting
+// multiplicity (like Erlang's lists:subtract / `--` operator).
+// If a PID appears 3 times in `a` and 1 time in `b`, it appears 2 times
+// in the result.
+func diffPIDs(a, b []pid.PID) []pid.PID {
+	if len(a) == 0 {
+		return nil
+	}
+	if len(b) == 0 {
+		result := make([]pid.PID, len(a))
+		copy(result, a)
+		return result
+	}
+
+	// Count occurrences in b
+	bCounts := make(map[string]int, len(b))
+	for _, p := range b {
+		bCounts[p.String()]++
+	}
+
+	// Collect PIDs from a that exceed b's count
+	var result []pid.PID
+	for _, p := range a {
+		key := p.String()
+		if bCounts[key] > 0 {
+			bCounts[key]--
+		} else {
+			result = append(result, p)
+		}
+	}
+	return result
 }
 
 // handleRemoteJoin processes a join message from a remote node.
@@ -225,20 +264,31 @@ func (s *Service) handleProcessExit(p pid.PID) {
 		// remove the correct number of occurrences for multi-join semantics.
 		s.broadcastLeave([]pid.PID{p}, groups)
 
-		// Emit membership events per unique group (deduplicated)
-		seen := make(map[string]bool, len(groups))
-		for _, group := range groups {
-			if !seen[group] {
-				seen[group] = true
-				s.emitLeaveEvent(group, []pid.PID{p})
+		// Emit membership events per unique group.
+		// Erlang PG sends one leave event per group with the PID repeated
+		// for each join occurrence removed. E.g. if P joined "A" 3 times,
+		// monitors receive leave("A", [P, P, P]).
+		groupCounts := make(map[string]int, len(groups))
+		for _, g := range groups {
+			groupCounts[g]++
+		}
+		for group, count := range groupCounts {
+			pids := make([]pid.PID, count)
+			for i := range count {
+				pids[i] = p
 			}
+			s.emitLeaveEvent(group, pids)
 		}
 
 		s.logger.Debug("process exited, removed from groups",
 			logPID(p),
-			logGroupCount(len(seen)),
+			logGroupCount(len(groupCounts)),
 		)
 	}
+
+	// Clean up any monitor subscriptions owned by the exited process.
+	// This mirrors Erlang PG's automatic monitor cleanup on process death.
+	s.removeMonitorsByPID(p)
 }
 
 // handleNodeLeft handles a remote node leaving the cluster.

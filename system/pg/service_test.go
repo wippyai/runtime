@@ -1214,22 +1214,41 @@ func TestServiceMultiJoinExitEmitsDedupedEvents(t *testing.T) {
 	pkg := relay.NewMessagePackage(p1, pgPID("local-node"), msg)
 	require.NoError(t, svc.Send(pkg))
 
-	// Should get exactly 2 leave events (one per unique group, not 4)
-	received := make(map[string]int)
+	// Should get exactly 2 leave events (one per unique group)
+	// Erlang PG semantics: the PID list in the "workers" event should
+	// contain p1 three times (one per join occurrence).
+	type leaveInfo struct {
+		group string
+		pids  []pid.PID
+	}
+	var received []leaveInfo
 	timeout := time.After(2 * time.Second)
 	for len(received) < 2 {
 		select {
 		case evt := <-ch:
 			memberEvt, ok := evt.Data.(pgapi.MembershipEvent)
 			require.True(t, ok)
-			received[memberEvt.Group]++
+			received = append(received, leaveInfo{group: memberEvt.Group, pids: memberEvt.PIDs})
 		case <-timeout:
-			t.Fatalf("expected 2 leave events (workers, managers), got %d: %v", len(received), received)
+			t.Fatalf("expected 2 leave events, got %d", len(received))
 		}
 	}
 
-	assert.Equal(t, 1, received["workers"], "should get exactly 1 leave event for workers")
-	assert.Equal(t, 1, received["managers"], "should get exactly 1 leave event for managers")
+	// Verify one event per unique group
+	groupLeaves := make(map[string][]pid.PID)
+	for _, r := range received {
+		groupLeaves[r.group] = r.pids
+	}
+	assert.Contains(t, groupLeaves, "workers")
+	assert.Contains(t, groupLeaves, "managers")
+	// "workers" had 3 joins: leave event should carry [p1, p1, p1]
+	assert.Len(t, groupLeaves["workers"], 3, "workers leave event should have 3 PIDs (one per join)")
+	for _, p := range groupLeaves["workers"] {
+		assert.Equal(t, p1.String(), p.String())
+	}
+	// "managers" had 1 join: leave event should carry [p1]
+	assert.Len(t, groupLeaves["managers"], 1, "managers leave event should have 1 PID")
+	assert.Equal(t, p1.String(), groupLeaves["managers"][0].String())
 
 	// Verify no extra events
 	select {
@@ -1794,4 +1813,513 @@ func TestServiceRCUSnapshotConsistency(t *testing.T) {
 	assert.Len(t, members, 10)
 	groups := svc.WhichGroups()
 	assert.Len(t, groups, 1)
+}
+
+// --- diffPIDs tests ---
+
+func TestDiffPIDs(t *testing.T) {
+	p1 := mkPID("h", "1")
+	p2 := mkPID("h", "2")
+	p3 := mkPID("h", "3")
+
+	t.Run("empty a", func(t *testing.T) {
+		result := diffPIDs(nil, []pid.PID{p1})
+		assert.Nil(t, result)
+	})
+
+	t.Run("empty b", func(t *testing.T) {
+		result := diffPIDs([]pid.PID{p1, p2}, nil)
+		assert.Len(t, result, 2)
+	})
+
+	t.Run("identical", func(t *testing.T) {
+		result := diffPIDs([]pid.PID{p1, p2}, []pid.PID{p1, p2})
+		assert.Empty(t, result)
+	})
+
+	t.Run("a has extra", func(t *testing.T) {
+		result := diffPIDs([]pid.PID{p1, p2, p3}, []pid.PID{p1})
+		assert.Len(t, result, 2)
+		strs := make([]string, len(result))
+		for i, p := range result {
+			strs[i] = p.String()
+		}
+		assert.Contains(t, strs, p2.String())
+		assert.Contains(t, strs, p3.String())
+	})
+
+	t.Run("b has extra", func(t *testing.T) {
+		result := diffPIDs([]pid.PID{p1}, []pid.PID{p1, p2, p3})
+		assert.Empty(t, result)
+	})
+
+	t.Run("multiplicity", func(t *testing.T) {
+		// a has p1 x3, b has p1 x1 → result should have p1 x2
+		result := diffPIDs([]pid.PID{p1, p1, p1}, []pid.PID{p1})
+		assert.Len(t, result, 2)
+		for _, p := range result {
+			assert.Equal(t, p1.String(), p.String())
+		}
+	})
+
+	t.Run("multiplicity both sides", func(t *testing.T) {
+		// a has p1 x3, p2 x1; b has p1 x2 → result should have p1 x1, p2 x1
+		result := diffPIDs([]pid.PID{p1, p1, p1, p2}, []pid.PID{p1, p1})
+		assert.Len(t, result, 2)
+	})
+}
+
+// --- Differential sync tests ---
+
+func TestServiceSyncDifferentialNoSpuriousEvents(t *testing.T) {
+	svc, router, _ := startTestService(t)
+
+	p1 := mkPID("host1", "1")
+	p2 := mkPID("host1", "2")
+
+	// Set up initial remote state by simulating a sync
+	remoteNode := pid.NodeID("remote-1")
+	initialGroups := map[string][]pid.PID{
+		"workers": {p1, p2},
+	}
+	svc.submit(func() {
+		svc.handleSync(remoteNode, initialGroups)
+		svc.publishSnapshot()
+	})
+	time.Sleep(50 * time.Millisecond)
+
+	// Set up a monitor to capture events
+	monPID := mkPID("host1", "mon")
+	result := svc.Monitor("workers", monPID, "pg.monitor")
+	assert.Len(t, result.members, 2)
+	defer result.unsubscribe()
+
+	router.reset()
+
+	// Sync again with identical state — should produce NO events
+	svc.submit(func() {
+		svc.handleSync(remoteNode, initialGroups)
+		svc.publishSnapshot()
+	})
+	time.Sleep(100 * time.Millisecond)
+
+	// Check that no monitor events were delivered (no spurious join/leave)
+	sends := router.getSends()
+	monitorEvents := 0
+	for _, s := range sends {
+		if s.Target == monPID {
+			monitorEvents++
+		}
+	}
+	assert.Equal(t, 0, monitorEvents, "identical sync should produce no monitor events")
+}
+
+func TestServiceSyncDifferentialAddsNewPIDs(t *testing.T) {
+	svc, router, _ := startTestService(t)
+
+	p1 := mkPID("host1", "1")
+	p2 := mkPID("host1", "2")
+	p3 := mkPID("host1", "3")
+
+	remoteNode := pid.NodeID("remote-1")
+
+	// Initial sync with p1 only
+	svc.submit(func() {
+		svc.handleSync(remoteNode, map[string][]pid.PID{
+			"workers": {p1},
+		})
+		svc.publishSnapshot()
+	})
+	time.Sleep(50 * time.Millisecond)
+
+	// Monitor the group
+	monPID := mkPID("host1", "mon")
+	result := svc.Monitor("workers", monPID, "pg.monitor")
+	assert.Len(t, result.members, 1)
+	defer result.unsubscribe()
+
+	router.reset()
+
+	// Sync with p1, p2, p3 — should emit join for p2 and p3 only
+	svc.submit(func() {
+		svc.handleSync(remoteNode, map[string][]pid.PID{
+			"workers": {p1, p2, p3},
+		})
+		svc.publishSnapshot()
+	})
+	time.Sleep(100 * time.Millisecond)
+
+	sends := router.getSends()
+	var joinPIDs []pid.PID
+	for _, s := range sends {
+		if s.Target == monPID && len(s.Messages) > 0 {
+			for _, msg := range s.Messages {
+				if len(msg.Payloads) > 0 {
+					if data, ok := msg.Payloads[0].Data().(map[string]any); ok {
+						if kind, _ := data["kind"].(string); kind == pgapi.MemberJoined {
+							if evt, ok := data["data"].(pgapi.MembershipEvent); ok {
+								joinPIDs = append(joinPIDs, evt.PIDs...)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	assert.Len(t, joinPIDs, 2, "should emit join for 2 new PIDs")
+	joinStrs := make([]string, len(joinPIDs))
+	for i, p := range joinPIDs {
+		joinStrs[i] = p.String()
+	}
+	assert.Contains(t, joinStrs, p2.String())
+	assert.Contains(t, joinStrs, p3.String())
+}
+
+func TestServiceSyncDifferentialRemovesPIDs(t *testing.T) {
+	svc, router, _ := startTestService(t)
+
+	p1 := mkPID("host1", "1")
+	p2 := mkPID("host1", "2")
+
+	remoteNode := pid.NodeID("remote-1")
+
+	// Initial sync with p1 and p2
+	svc.submit(func() {
+		svc.handleSync(remoteNode, map[string][]pid.PID{
+			"workers": {p1, p2},
+		})
+		svc.publishSnapshot()
+	})
+	time.Sleep(50 * time.Millisecond)
+
+	// Monitor the group
+	monPID := mkPID("host1", "mon")
+	result := svc.Monitor("workers", monPID, "pg.monitor")
+	assert.Len(t, result.members, 2)
+	defer result.unsubscribe()
+
+	router.reset()
+
+	// Sync with p1 only — should emit leave for p2
+	svc.submit(func() {
+		svc.handleSync(remoteNode, map[string][]pid.PID{
+			"workers": {p1},
+		})
+		svc.publishSnapshot()
+	})
+	time.Sleep(100 * time.Millisecond)
+
+	sends := router.getSends()
+	var leavePIDs []pid.PID
+	for _, s := range sends {
+		if s.Target == monPID && len(s.Messages) > 0 {
+			for _, msg := range s.Messages {
+				if len(msg.Payloads) > 0 {
+					if data, ok := msg.Payloads[0].Data().(map[string]any); ok {
+						if kind, _ := data["kind"].(string); kind == pgapi.MemberLeft {
+							if evt, ok := data["data"].(pgapi.MembershipEvent); ok {
+								leavePIDs = append(leavePIDs, evt.PIDs...)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	assert.Len(t, leavePIDs, 1, "should emit leave for 1 removed PID")
+	assert.Equal(t, p2.String(), leavePIDs[0].String())
+}
+
+func TestServiceSyncDifferentialRemovesGroup(t *testing.T) {
+	svc, router, _ := startTestService(t)
+
+	p1 := mkPID("host1", "1")
+
+	remoteNode := pid.NodeID("remote-1")
+
+	// Initial sync with "workers" group
+	svc.submit(func() {
+		svc.handleSync(remoteNode, map[string][]pid.PID{
+			"workers": {p1},
+		})
+		svc.publishSnapshot()
+	})
+	time.Sleep(50 * time.Millisecond)
+
+	// Monitor all events via Events
+	monPID := mkPID("host1", "mon")
+	eventsResult := svc.Events(monPID, "pg.events")
+	assert.Len(t, eventsResult.groups, 1)
+	defer eventsResult.unsubscribe()
+
+	router.reset()
+
+	// Sync with empty groups — should emit leave for "workers"
+	svc.submit(func() {
+		svc.handleSync(remoteNode, map[string][]pid.PID{})
+		svc.publishSnapshot()
+	})
+	time.Sleep(100 * time.Millisecond)
+
+	sends := router.getSends()
+	leaveCount := 0
+	for _, s := range sends {
+		if s.Target == monPID && len(s.Messages) > 0 {
+			for _, msg := range s.Messages {
+				if len(msg.Payloads) > 0 {
+					if data, ok := msg.Payloads[0].Data().(map[string]any); ok {
+						if kind, _ := data["kind"].(string); kind == pgapi.MemberLeft {
+							leaveCount++
+						}
+					}
+				}
+			}
+		}
+	}
+	assert.Equal(t, 1, leaveCount, "should emit exactly 1 leave event for removed group")
+}
+
+// --- Synchronous demonitor tests ---
+
+func TestServiceMonitorUnsubscribeSynchronous(t *testing.T) {
+	svc, router, _ := startTestService(t)
+
+	// Monitor a group
+	monPID := mkPID("host1", "mon")
+	result := svc.Monitor("workers", monPID, "pg.monitor")
+	assert.NotNil(t, result.unsubscribe)
+
+	// Unsubscribe synchronously
+	result.unsubscribe()
+
+	router.reset()
+
+	// Join after unsubscribe — should NOT receive any events
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.Join("workers", p1))
+
+	time.Sleep(100 * time.Millisecond)
+
+	sends := router.getSends()
+	monitorEvents := 0
+	for _, s := range sends {
+		if s.Target == monPID {
+			monitorEvents++
+		}
+	}
+	assert.Equal(t, 0, monitorEvents, "after synchronous unsubscribe, no events should be received")
+}
+
+func TestServiceEventsUnsubscribeSynchronous(t *testing.T) {
+	svc, router, _ := startTestService(t)
+
+	// Subscribe to all events
+	monPID := mkPID("host1", "mon")
+	result := svc.Events(monPID, "pg.events")
+	assert.NotNil(t, result.unsubscribe)
+
+	// Unsubscribe synchronously
+	result.unsubscribe()
+
+	router.reset()
+
+	// Join after unsubscribe — should NOT receive any events
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.Join("workers", p1))
+
+	time.Sleep(100 * time.Millisecond)
+
+	sends := router.getSends()
+	monitorEvents := 0
+	for _, s := range sends {
+		if s.Target == monPID {
+			monitorEvents++
+		}
+	}
+	assert.Equal(t, 0, monitorEvents, "after synchronous events unsubscribe, no events should be received")
+}
+
+// --- Monitor caller death cleanup tests ---
+
+func TestServiceMonitorCallerDeathCleansUp(t *testing.T) {
+	svc, router, _ := startTestService(t)
+
+	// Process A monitors group "workers"
+	processA := mkPID("host1", "procA")
+	result := svc.Monitor("workers", processA, "pg.monitor")
+	assert.NotNil(t, result.unsubscribe)
+
+	// Join a process so there's something to monitor
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.Join("workers", p1))
+	time.Sleep(50 * time.Millisecond)
+
+	router.reset()
+
+	// Simulate processA dying (process exit event)
+	exitEvent := &topology.ExitEvent{From: processA}
+	msg := relay.AcquireMessage()
+	msg.Topic = topology.TopicEvents
+	msg.Payloads = payload.Payloads{payload.New(exitEvent)}
+	pkg := relay.NewMessagePackage(processA, pgPID("local-node"), msg)
+	require.NoError(t, svc.Send(pkg))
+
+	time.Sleep(50 * time.Millisecond)
+
+	router.reset()
+
+	// Join another process — processA should NOT receive the event (cleaned up)
+	p2 := mkPID("host1", "2")
+	require.NoError(t, svc.Join("workers", p2))
+
+	time.Sleep(100 * time.Millisecond)
+
+	sends := router.getSends()
+	for _, s := range sends {
+		if s.Target == processA {
+			t.Fatal("dead process should not receive monitor events after cleanup")
+		}
+	}
+}
+
+func TestServiceEventsCallerDeathCleansUp(t *testing.T) {
+	svc, router, _ := startTestService(t)
+
+	// Process A subscribes to all events
+	processA := mkPID("host1", "procA")
+	result := svc.Events(processA, "pg.events")
+	assert.NotNil(t, result.unsubscribe)
+
+	router.reset()
+
+	// Simulate processA dying
+	exitEvent := &topology.ExitEvent{From: processA}
+	msg := relay.AcquireMessage()
+	msg.Topic = topology.TopicEvents
+	msg.Payloads = payload.Payloads{payload.New(exitEvent)}
+	pkg := relay.NewMessagePackage(processA, pgPID("local-node"), msg)
+	require.NoError(t, svc.Send(pkg))
+
+	time.Sleep(50 * time.Millisecond)
+
+	router.reset()
+
+	// Join a process — processA should NOT receive events (cleaned up)
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.Join("workers", p1))
+
+	time.Sleep(100 * time.Millisecond)
+
+	sends := router.getSends()
+	for _, s := range sends {
+		if s.Target == processA {
+			t.Fatal("dead process should not receive wildcard events after cleanup")
+		}
+	}
+}
+
+func TestServiceMonitorCallerDeathDemonitors(t *testing.T) {
+	svc, _, topo := startTestService(t)
+
+	// Process A monitors group "workers" but is NOT a group member
+	processA := mkPID("host1", "procA")
+	result := svc.Monitor("workers", processA, "pg.monitor")
+	assert.NotNil(t, result.unsubscribe)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// processA should be monitored by topology
+	assert.True(t, topo.isMonitored(processA), "subscriber should be monitored via topology")
+
+	// Unsubscribe — processA has no group memberships and no more subscriptions
+	result.unsubscribe()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// processA should no longer be monitored
+	assert.False(t, topo.isMonitored(processA), "subscriber should be demonitored after unsubscribe")
+}
+
+func TestServiceMonitorUnsubscribeKeepsMonitorForGroupMember(t *testing.T) {
+	svc, _, topo := startTestService(t)
+
+	// Process A joins a group AND monitors it
+	processA := mkPID("host1", "procA")
+	require.NoError(t, svc.Join("workers", processA))
+
+	result := svc.Monitor("workers", processA, "pg.monitor")
+	assert.NotNil(t, result.unsubscribe)
+
+	time.Sleep(50 * time.Millisecond)
+
+	assert.True(t, topo.isMonitored(processA))
+
+	// Unsubscribe from monitor — should STILL be monitored (still a group member)
+	result.unsubscribe()
+
+	time.Sleep(50 * time.Millisecond)
+
+	assert.True(t, topo.isMonitored(processA), "should still be monitored because process is still a group member")
+}
+
+// --- Helper method tests ---
+
+func TestServiceHasMonitorSubscriptions(t *testing.T) {
+	svc, _, _ := startTestService(t)
+
+	processA := mkPID("host1", "procA")
+
+	// No subscriptions initially
+	done := make(chan bool, 1)
+	svc.submit(func() {
+		done <- svc.hasMonitorSubscriptions(processA)
+	})
+	assert.False(t, <-done)
+
+	// Add a monitor subscription
+	result := svc.Monitor("workers", processA, "pg.monitor")
+
+	svc.submit(func() {
+		done <- svc.hasMonitorSubscriptions(processA)
+	})
+	assert.True(t, <-done)
+
+	// Unsubscribe
+	result.unsubscribe()
+
+	svc.submit(func() {
+		done <- svc.hasMonitorSubscriptions(processA)
+	})
+	assert.False(t, <-done)
+}
+
+func TestServiceHasGroupMemberships(t *testing.T) {
+	svc, _, _ := startTestService(t)
+
+	processA := mkPID("host1", "procA")
+
+	// No memberships initially
+	done := make(chan bool, 1)
+	svc.submit(func() {
+		done <- svc.hasGroupMemberships(processA)
+	})
+	assert.False(t, <-done)
+
+	// Join a group
+	require.NoError(t, svc.Join("workers", processA))
+
+	svc.submit(func() {
+		done <- svc.hasGroupMemberships(processA)
+	})
+	assert.True(t, <-done)
+
+	// Leave the group
+	require.NoError(t, svc.Leave("workers", processA))
+
+	svc.submit(func() {
+		done <- svc.hasGroupMemberships(processA)
+	})
+	assert.False(t, <-done)
 }
