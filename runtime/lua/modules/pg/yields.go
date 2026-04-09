@@ -3,11 +3,12 @@
 package pg
 
 import (
+	"errors"
+	"strings"
 	"sync"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	pgapi "github.com/wippyai/runtime/api/pg"
 	"github.com/wippyai/runtime/api/pid"
@@ -15,6 +16,8 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 )
+
+var errUnexpectedResult = errors.New("pg: unexpected monitor result type")
 
 // --- JoinYield ---
 
@@ -63,6 +66,53 @@ func (y *JoinYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 	return []lua.LValue{lua.LTrue, lua.LNil}
 }
 
+// --- JoinGroupsYield ---
+
+type JoinGroupsYield struct {
+	Caller pid.PID
+	Groups []string
+}
+
+var joinGroupsYieldPool = sync.Pool{New: func() any { return &JoinGroupsYield{} }}
+
+func AcquireJoinGroupsYield(groups []string, caller pid.PID) *JoinGroupsYield {
+	y := joinGroupsYieldPool.Get().(*JoinGroupsYield)
+	y.Groups = groups
+	y.Caller = caller
+	return y
+}
+
+func ReleaseJoinGroupsYield(y *JoinGroupsYield) {
+	y.Groups = nil
+	y.Caller = pid.PID{}
+	joinGroupsYieldPool.Put(y)
+}
+
+func (y *JoinGroupsYield) String() string       { return "<pg_join_groups_yield>" }
+func (y *JoinGroupsYield) Type() lua.LValueType { return lua.LTUserData }
+func (y *JoinGroupsYield) CmdID() dispatcher.CommandID {
+	return pgapi.JoinGroups
+}
+
+func (y *JoinGroupsYield) ToCommand() dispatcher.Command {
+	cmd := pgapi.AcquireJoinGroupsCmd()
+	cmd.Groups = y.Groups
+	cmd.Caller = y.Caller
+	return cmd
+}
+
+func (y *JoinGroupsYield) Release() { ReleaseJoinGroupsYield(y) }
+
+func (y *JoinGroupsYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "pg join")}
+	}
+	if result, ok := data.(pgapi.JoinGroupsResult); ok && result.Error != nil {
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, result.Error, "pg join")}
+	}
+	return []lua.LValue{lua.LTrue, lua.LNil}
+}
+
 // --- LeaveYield ---
 
 type LeaveYield struct {
@@ -105,6 +155,53 @@ func (y *LeaveYield) HandleResult(l *lua.LState, data any, err error) []lua.LVal
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "pg leave")}
 	}
 	if result, ok := data.(pgapi.LeaveResult); ok && result.Error != nil {
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, result.Error, "pg leave")}
+	}
+	return []lua.LValue{lua.LTrue, lua.LNil}
+}
+
+// --- LeaveGroupsYield ---
+
+type LeaveGroupsYield struct {
+	Caller pid.PID
+	Groups []string
+}
+
+var leaveGroupsYieldPool = sync.Pool{New: func() any { return &LeaveGroupsYield{} }}
+
+func AcquireLeaveGroupsYield(groups []string, caller pid.PID) *LeaveGroupsYield {
+	y := leaveGroupsYieldPool.Get().(*LeaveGroupsYield)
+	y.Groups = groups
+	y.Caller = caller
+	return y
+}
+
+func ReleaseLeaveGroupsYield(y *LeaveGroupsYield) {
+	y.Groups = nil
+	y.Caller = pid.PID{}
+	leaveGroupsYieldPool.Put(y)
+}
+
+func (y *LeaveGroupsYield) String() string       { return "<pg_leave_groups_yield>" }
+func (y *LeaveGroupsYield) Type() lua.LValueType { return lua.LTUserData }
+func (y *LeaveGroupsYield) CmdID() dispatcher.CommandID {
+	return pgapi.LeaveGroups
+}
+
+func (y *LeaveGroupsYield) ToCommand() dispatcher.Command {
+	cmd := pgapi.AcquireLeaveGroupsCmd()
+	cmd.Groups = y.Groups
+	cmd.Caller = y.Caller
+	return cmd
+}
+
+func (y *LeaveGroupsYield) Release() { ReleaseLeaveGroupsYield(y) }
+
+func (y *LeaveGroupsYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "pg leave")}
+	}
+	if result, ok := data.(pgapi.LeaveGroupsResult); ok && result.Error != nil {
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, result.Error, "pg leave")}
 	}
 	return []lua.LValue{lua.LTrue, lua.LNil}
@@ -208,7 +305,9 @@ func (y *GetLocalMembersYield) HandleResult(l *lua.LState, data any, err error) 
 
 // --- WhichGroupsYield ---
 
-type WhichGroupsYield struct{}
+type WhichGroupsYield struct {
+	Scope string // scope prefix for filtering (empty = unscoped)
+}
 
 var whichGroupsYieldPool = sync.Pool{New: func() any { return &WhichGroupsYield{} }}
 
@@ -217,6 +316,7 @@ func AcquireWhichGroupsYield() *WhichGroupsYield {
 }
 
 func ReleaseWhichGroupsYield(y *WhichGroupsYield) {
+	y.Scope = ""
 	whichGroupsYieldPool.Put(y)
 }
 
@@ -240,8 +340,76 @@ func (y *WhichGroupsYield) HandleResult(l *lua.LState, data any, err error) []lu
 	if !ok {
 		return []lua.LValue{lua.CreateTable(0, 0), lua.LNil}
 	}
-	tbl := lua.CreateTable(len(result.Groups), 0)
-	for i, g := range result.Groups {
+
+	groups := result.Groups
+	if y.Scope != "" {
+		filtered := make([]string, 0, len(groups))
+		for _, g := range groups {
+			if strings.HasPrefix(g, y.Scope) {
+				filtered = append(filtered, strings.TrimPrefix(g, y.Scope))
+			}
+		}
+		groups = filtered
+	}
+
+	tbl := lua.CreateTable(len(groups), 0)
+	for i, g := range groups {
+		tbl.RawSetInt(i+1, lua.LString(g))
+	}
+	return []lua.LValue{tbl, lua.LNil}
+}
+
+// --- WhichLocalGroupsYield ---
+
+type WhichLocalGroupsYield struct {
+	Scope string // scope prefix for filtering (empty = unscoped)
+}
+
+var whichLocalGroupsYieldPool = sync.Pool{New: func() any { return &WhichLocalGroupsYield{} }}
+
+func AcquireWhichLocalGroupsYield() *WhichLocalGroupsYield {
+	return whichLocalGroupsYieldPool.Get().(*WhichLocalGroupsYield)
+}
+
+func ReleaseWhichLocalGroupsYield(y *WhichLocalGroupsYield) {
+	y.Scope = ""
+	whichLocalGroupsYieldPool.Put(y)
+}
+
+func (y *WhichLocalGroupsYield) String() string       { return "<pg_which_local_groups_yield>" }
+func (y *WhichLocalGroupsYield) Type() lua.LValueType { return lua.LTUserData }
+func (y *WhichLocalGroupsYield) CmdID() dispatcher.CommandID {
+	return pgapi.WhichLocalGroups
+}
+
+func (y *WhichLocalGroupsYield) ToCommand() dispatcher.Command {
+	return pgapi.AcquireWhichLocalGroupsCmd()
+}
+
+func (y *WhichLocalGroupsYield) Release() { ReleaseWhichLocalGroupsYield(y) }
+
+func (y *WhichLocalGroupsYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "pg which_local_groups")}
+	}
+	result, ok := data.(pgapi.WhichLocalGroupsResult)
+	if !ok {
+		return []lua.LValue{lua.CreateTable(0, 0), lua.LNil}
+	}
+
+	groups := result.Groups
+	if y.Scope != "" {
+		filtered := make([]string, 0, len(groups))
+		for _, g := range groups {
+			if strings.HasPrefix(g, y.Scope) {
+				filtered = append(filtered, strings.TrimPrefix(g, y.Scope))
+			}
+		}
+		groups = filtered
+	}
+
+	tbl := lua.CreateTable(len(groups), 0)
+	for i, g := range groups {
 		tbl.RawSetInt(i+1, lua.LString(g))
 	}
 	return []lua.LValue{tbl, lua.LNil}
@@ -409,6 +577,16 @@ func pgSubscriptionClose(l *lua.LState) int {
 		return 0
 	}
 
+	// Check for optional options table: sub:close({flush=true})
+	flush := false
+	if l.GetTop() >= 2 {
+		if opts, ok := l.Get(2).(*lua.LTable); ok {
+			if v := opts.RawGetString("flush"); v == lua.LTrue {
+				flush = true
+			}
+		}
+	}
+
 	sub.mu.Lock()
 	defer sub.mu.Unlock()
 
@@ -423,6 +601,9 @@ func pgSubscriptionClose(l *lua.LState) int {
 		sub.unsubscribe = nil
 	}
 	if sub.channel != nil {
+		if flush {
+			sub.channel.Drain()
+		}
 		sub.channel.Close(nil)
 	}
 
@@ -434,6 +615,7 @@ type EventsYield struct {
 	Channel *engine.Channel
 	PID     pid.PID
 	Topic   string
+	Scope   string // scope prefix for snapshot filtering (empty = unscoped)
 }
 
 var eventsYieldPool = sync.Pool{New: func() any { return &EventsYield{} }}
@@ -450,6 +632,7 @@ func ReleaseEventsYield(y *EventsYield) {
 	y.Channel = nil
 	y.PID = pid.PID{}
 	y.Topic = ""
+	y.Scope = ""
 	eventsYieldPool.Put(y)
 }
 
@@ -457,24 +640,27 @@ func (y *EventsYield) String() string       { return "<pg_events_yield>" }
 func (y *EventsYield) Type() lua.LValueType { return lua.LTUserData }
 
 func (y *EventsYield) CmdID() dispatcher.CommandID {
-	return event.Subscribe
+	return pgapi.Events
 }
 
 func (y *EventsYield) ToCommand() dispatcher.Command {
-	return event.SubscribeCmd{
-		System: pgapi.EventSystem,
-		Kind:   "*",
-		Topic:  y.Topic,
-		PID:    y.PID,
-	}
+	cmd := pgapi.AcquireEventsCmd()
+	cmd.PID = y.PID
+	cmd.Topic = y.Topic
+	return cmd
 }
 
 func (y *EventsYield) Release() { ReleaseEventsYield(y) }
 
-// HandleResult sets up the topic subscription and returns a Subscription object.
+// HandleResult sets up the topic subscription and returns (subscription, groups_snapshot).
 func (y *EventsYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "pg events")}
+		return []lua.LValue{lua.LNil, lua.LNil, lua.WrapErrorWithLua(l, err, "pg events")}
+	}
+
+	result, ok := data.(pgapi.EventsResult)
+	if !ok {
+		return []lua.LValue{lua.LNil, lua.LNil, lua.WrapErrorWithLua(l, errUnexpectedResult, "pg events")}
 	}
 
 	// Create channel userdata
@@ -485,7 +671,7 @@ func (y *EventsYield) HandleResult(l *lua.LState, data any, err error) []lua.LVa
 	proc := engine.GetProcess(l)
 	if proc != nil {
 		if err := proc.SubscribeExisting(y.Topic, y.Channel); err != nil {
-			return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "pg events")}
+			return []lua.LValue{lua.LNil, lua.LNil, lua.WrapErrorWithLua(l, err, "pg events")}
 		}
 	}
 
@@ -495,9 +681,8 @@ func (y *EventsYield) HandleResult(l *lua.LState, data any, err error) []lua.LVa
 		channel:   y.Channel,
 	}
 
-	// Store unsubscribe function from dispatcher
-	if eventSub, ok := data.(event.Subscription); ok && eventSub.Unsubscribe != nil {
-		sub.unsubscribe = eventSub.Unsubscribe
+	if result.Unsubscribe != nil {
+		sub.unsubscribe = result.Unsubscribe
 
 		// Register cleanup to unsubscribe from dispatcher when frame is released
 		ctx := l.Context()
@@ -520,5 +705,130 @@ func (y *EventsYield) HandleResult(l *lua.LState, data any, err error) []lua.LVa
 	subUD := value.PushTypedUserData(l, sub, pgSubscriptionTypeName)
 	l.Pop(1) // Remove from stack since we return via slice
 
-	return []lua.LValue{subUD, lua.LNil}
+	// Build groups snapshot table: {group_name = {pid1, pid2, ...}, ...}
+	groupsTbl := lua.CreateTable(0, len(result.Groups))
+	for group, members := range result.Groups {
+		displayName := group
+		if y.Scope != "" {
+			if !strings.HasPrefix(group, y.Scope) {
+				continue // skip groups not in this scope
+			}
+			displayName = strings.TrimPrefix(group, y.Scope)
+		}
+		membersTbl := lua.CreateTable(len(members), 0)
+		for i, p := range members {
+			membersTbl.RawSetInt(i+1, lua.LString(p.String()))
+		}
+		groupsTbl.RawSetString(displayName, membersTbl)
+	}
+
+	return []lua.LValue{subUD, groupsTbl, lua.LNil}
+}
+
+// --- MonitorYield ---
+// Atomically subscribes to a group's membership events and returns current members.
+
+type MonitorYield struct {
+	Channel *engine.Channel
+	Group   string
+	PID     pid.PID
+	Topic   string
+}
+
+var monitorYieldPool = sync.Pool{New: func() any { return &MonitorYield{} }}
+
+func AcquireMonitorYield(ch *engine.Channel, group string, p pid.PID, topic string) *MonitorYield {
+	y := monitorYieldPool.Get().(*MonitorYield)
+	y.Channel = ch
+	y.Group = group
+	y.PID = p
+	y.Topic = topic
+	return y
+}
+
+func ReleaseMonitorYield(y *MonitorYield) {
+	y.Channel = nil
+	y.Group = ""
+	y.PID = pid.PID{}
+	y.Topic = ""
+	monitorYieldPool.Put(y)
+}
+
+func (y *MonitorYield) String() string       { return "<pg_monitor_yield>" }
+func (y *MonitorYield) Type() lua.LValueType { return lua.LTUserData }
+
+func (y *MonitorYield) CmdID() dispatcher.CommandID {
+	return pgapi.Monitor
+}
+
+func (y *MonitorYield) ToCommand() dispatcher.Command {
+	cmd := pgapi.AcquireMonitorCmd()
+	cmd.Group = y.Group
+	cmd.PID = y.PID
+	cmd.Topic = y.Topic
+	return cmd
+}
+
+func (y *MonitorYield) Release() { ReleaseMonitorYield(y) }
+
+// HandleResult sets up the topic subscription and returns (subscription, members_table).
+func (y *MonitorYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, lua.LNil, lua.WrapErrorWithLua(l, err, "pg monitor")}
+	}
+
+	result, ok := data.(pgapi.MonitorResult)
+	if !ok {
+		return []lua.LValue{lua.LNil, lua.LNil, lua.WrapErrorWithLua(l, errUnexpectedResult, "pg monitor")}
+	}
+
+	// Create channel userdata
+	channelUD := engine.PushChannel(l, y.Channel)
+	l.Pop(1)
+
+	// Subscribe externally-owned channel to topic
+	proc := engine.GetProcess(l)
+	if proc != nil {
+		if err := proc.SubscribeExisting(y.Topic, y.Channel); err != nil {
+			return []lua.LValue{lua.LNil, lua.LNil, lua.WrapErrorWithLua(l, err, "pg monitor")}
+		}
+	}
+
+	// Create subscription with channel and unsubscribe function
+	sub := &Subscription{
+		channelUD: channelUD,
+		channel:   y.Channel,
+	}
+
+	if result.Unsubscribe != nil {
+		sub.unsubscribe = result.Unsubscribe
+
+		ctx := l.Context()
+		if ctx != nil {
+			if store := resource.GetStore(ctx); store != nil {
+				store.AddCleanup(func() error {
+					sub.mu.Lock()
+					defer sub.mu.Unlock()
+					if !sub.closed && sub.unsubscribe != nil {
+						sub.unsubscribe()
+						sub.unsubscribe = nil
+					}
+					return nil
+				})
+			}
+		}
+	}
+
+	// Wrap subscription in userdata
+	subUD := value.PushTypedUserData(l, sub, pgSubscriptionTypeName)
+	l.Pop(1)
+
+	// Build members table
+	members := result.Members
+	tbl := lua.CreateTable(len(members), 0)
+	for i, p := range members {
+		tbl.RawSetInt(i+1, lua.LString(p.String()))
+	}
+
+	return []lua.LValue{subUD, tbl, lua.LNil}
 }

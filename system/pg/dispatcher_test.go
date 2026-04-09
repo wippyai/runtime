@@ -55,8 +55,14 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 	assert.NotNil(t, registered[pgapi.GetMembers])
 	assert.NotNil(t, registered[pgapi.GetLocalMembers])
 	assert.NotNil(t, registered[pgapi.WhichGroups])
+	assert.NotNil(t, registered[pgapi.WhichLocalGroups])
 	assert.NotNil(t, registered[pgapi.Broadcast])
 	assert.NotNil(t, registered[pgapi.BroadcastLocal])
+	assert.NotNil(t, registered[pgapi.Monitor])
+	assert.NotNil(t, registered[pgapi.Events])
+	assert.NotNil(t, registered[pgapi.JoinGroups])
+	assert.NotNil(t, registered[pgapi.LeaveGroups])
+	assert.Len(t, registered, 12)
 }
 
 func TestDispatcher_HandleJoin(t *testing.T) {
@@ -418,4 +424,206 @@ func TestDispatcher_BroadcastLocalRouterError(t *testing.T) {
 	result, ok := receiver.data.(pgapi.BroadcastLocalResult)
 	require.True(t, ok)
 	assert.Equal(t, 0, result.Sent, "all local sends should have failed")
+}
+
+// --- WhichLocalGroups dispatcher tests ---
+
+func TestDispatcher_HandleWhichLocalGroups(t *testing.T) {
+	d, svc, _ := newTestDispatcher(t)
+
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.Join("workers", p1))
+	require.NoError(t, svc.Join("managers", p1))
+
+	cmd := &pgapi.WhichLocalGroupsCmd{}
+
+	receiver := &mockResultReceiver{}
+	err := d.handleWhichLocalGroups(context.Background(), cmd, 1, receiver)
+	require.NoError(t, err)
+
+	result, ok := receiver.data.(pgapi.WhichLocalGroupsResult)
+	require.True(t, ok)
+	assert.Len(t, result.Groups, 2)
+}
+
+func TestDispatcher_HandleWhichLocalGroupsEmpty(t *testing.T) {
+	d, _, _ := newTestDispatcher(t)
+
+	cmd := &pgapi.WhichLocalGroupsCmd{}
+
+	receiver := &mockResultReceiver{}
+	err := d.handleWhichLocalGroups(context.Background(), cmd, 1, receiver)
+	require.NoError(t, err)
+
+	result, ok := receiver.data.(pgapi.WhichLocalGroupsResult)
+	require.True(t, ok)
+	assert.Empty(t, result.Groups)
+}
+
+// --- Monitor dispatcher tests ---
+
+func TestDispatcher_HandleMonitor(t *testing.T) {
+	d, svc, _ := newTestDispatcher(t)
+
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.Join("workers", p1))
+
+	monitorPID := mkPID("host1", "monitor")
+	cmd := &pgapi.MonitorCmd{
+		Group: "workers",
+		PID:   monitorPID,
+		Topic: "pg.event",
+	}
+
+	receiver := &mockResultReceiver{}
+	err := d.handleMonitor(context.Background(), cmd, 1, receiver)
+	require.NoError(t, err)
+
+	result, ok := receiver.data.(pgapi.MonitorResult)
+	require.True(t, ok)
+	assert.Len(t, result.Members, 1)
+	assert.NotNil(t, result.Unsubscribe)
+
+	result.Unsubscribe()
+	time.Sleep(50 * time.Millisecond)
+}
+
+func TestDispatcher_HandleMonitorEmpty(t *testing.T) {
+	d, _, _ := newTestDispatcher(t)
+
+	monitorPID := mkPID("host1", "monitor")
+	cmd := &pgapi.MonitorCmd{
+		Group: "nonexistent",
+		PID:   monitorPID,
+		Topic: "pg.event",
+	}
+
+	receiver := &mockResultReceiver{}
+	err := d.handleMonitor(context.Background(), cmd, 1, receiver)
+	require.NoError(t, err)
+
+	result, ok := receiver.data.(pgapi.MonitorResult)
+	require.True(t, ok)
+	assert.Nil(t, result.Members)
+	assert.NotNil(t, result.Unsubscribe)
+
+	result.Unsubscribe()
+}
+
+// --- Events dispatcher tests ---
+
+func TestDispatcher_HandleEvents(t *testing.T) {
+	d, svc, _ := newTestDispatcher(t)
+
+	p1 := mkPID("host1", "1")
+	p2 := mkPID("host1", "2")
+	require.NoError(t, svc.Join("workers", p1))
+	require.NoError(t, svc.Join("managers", p2))
+
+	eventsPID := mkPID("host1", "events")
+	cmd := &pgapi.EventsCmd{
+		PID:   eventsPID,
+		Topic: "pg.event",
+	}
+
+	receiver := &mockResultReceiver{}
+	err := d.handleEvents(context.Background(), cmd, 1, receiver)
+	require.NoError(t, err)
+
+	result, ok := receiver.data.(pgapi.EventsResult)
+	require.True(t, ok)
+	assert.Len(t, result.Groups, 2)
+	assert.Len(t, result.Groups["workers"], 1)
+	assert.Len(t, result.Groups["managers"], 1)
+	assert.NotNil(t, result.Unsubscribe)
+
+	result.Unsubscribe()
+	time.Sleep(50 * time.Millisecond)
+}
+
+func TestDispatcher_HandleEventsEmpty(t *testing.T) {
+	d, _, _ := newTestDispatcher(t)
+
+	eventsPID := mkPID("host1", "events")
+	cmd := &pgapi.EventsCmd{
+		PID:   eventsPID,
+		Topic: "pg.event",
+	}
+
+	receiver := &mockResultReceiver{}
+	err := d.handleEvents(context.Background(), cmd, 1, receiver)
+	require.NoError(t, err)
+
+	result, ok := receiver.data.(pgapi.EventsResult)
+	require.True(t, ok)
+	assert.Empty(t, result.Groups)
+	assert.NotNil(t, result.Unsubscribe)
+
+	result.Unsubscribe()
+}
+
+// --- JoinGroups dispatcher tests ---
+
+func TestDispatcher_HandleJoinGroups(t *testing.T) {
+	d, svc, _ := newTestDispatcher(t)
+
+	p1 := mkPID("host1", "1")
+	cmd := &pgapi.JoinGroupsCmd{
+		Caller: p1,
+		Groups: []string{"workers", "managers"},
+	}
+
+	receiver := &mockResultReceiver{}
+	err := d.handleJoinGroups(context.Background(), cmd, 1, receiver)
+	require.NoError(t, err)
+
+	result, ok := receiver.data.(pgapi.JoinGroupsResult)
+	require.True(t, ok)
+	assert.Nil(t, result.Error)
+
+	assert.Len(t, svc.GetMembers("workers"), 1)
+	assert.Len(t, svc.GetMembers("managers"), 1)
+}
+
+// --- LeaveGroups dispatcher tests ---
+
+func TestDispatcher_HandleLeaveGroups(t *testing.T) {
+	d, svc, _ := newTestDispatcher(t)
+
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.JoinGroups([]string{"workers", "managers"}, p1))
+
+	cmd := &pgapi.LeaveGroupsCmd{
+		Caller: p1,
+		Groups: []string{"workers", "managers"},
+	}
+
+	receiver := &mockResultReceiver{}
+	err := d.handleLeaveGroups(context.Background(), cmd, 1, receiver)
+	require.NoError(t, err)
+
+	result, ok := receiver.data.(pgapi.LeaveGroupsResult)
+	require.True(t, ok)
+	assert.Nil(t, result.Error)
+
+	assert.Empty(t, svc.GetMembers("workers"))
+	assert.Empty(t, svc.GetMembers("managers"))
+}
+
+func TestDispatcher_HandleLeaveGroupsNotJoined(t *testing.T) {
+	d, _, _ := newTestDispatcher(t)
+
+	p1 := mkPID("host1", "1")
+	cmd := &pgapi.LeaveGroupsCmd{
+		Caller: p1,
+		Groups: []string{"workers"},
+	}
+
+	receiver := &mockResultReceiver{}
+	err := d.handleLeaveGroups(context.Background(), cmd, 1, receiver)
+	require.NoError(t, err)
+
+	result, ok := receiver.data.(pgapi.LeaveGroupsResult)
+	require.True(t, ok)
+	assert.ErrorIs(t, result.Error, ErrNotJoined)
 }

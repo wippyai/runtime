@@ -5,6 +5,7 @@ package pg
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
@@ -17,6 +18,13 @@ import (
 	"go.uber.org/zap"
 )
 
+// monitorEntry tracks a single group monitor subscription.
+type monitorEntry struct {
+	pid   pid.PID
+	topic string
+	id    uint64 // unique ID for unsubscribe
+}
+
 // action represents a serialized operation submitted to the event loop.
 type action func()
 
@@ -24,18 +32,21 @@ type action func()
 // All state mutations are serialized through a single goroutine event loop,
 // following the Erlang gen_server pattern.
 type Service struct {
-	state         *state
-	logger        *zap.Logger
 	router        relay.Receiver
 	topo          topology.Topology
 	membership    cluster.Membership
 	bus           event.Bus
 	ctx           context.Context
+	state         *state
+	logger        *zap.Logger
 	cancel        context.CancelFunc
 	nodeJoinedSub *eventbus.Subscriber
 	nodeLeftSub   *eventbus.Subscriber
 	actions       chan action
+	monitors      map[string][]*monitorEntry // group -> monitor subscriptions
+	snap          atomic.Pointer[stateSnapshot]
 	localNodeID   pid.NodeID
+	monitorIDSeq  uint64 // monotonic ID for monitors
 	wg            sync.WaitGroup
 }
 
@@ -60,6 +71,7 @@ func NewService(
 		bus:         bus,
 		localNodeID: localNodeID,
 		actions:     make(chan action, 256),
+		monitors:    make(map[string][]*monitorEntry),
 	}
 }
 
@@ -83,6 +95,9 @@ func (s *Service) Start(ctx context.Context) error {
 			return err
 		}
 	}
+
+	// Publish initial empty snapshot so lock-free readers see valid data
+	s.snap.Store(s.state.buildSnapshot())
 
 	// Start event loop
 	s.wg.Add(1)
@@ -119,11 +134,15 @@ func (s *Service) Stop(_ context.Context) error {
 	s.cancel()
 	s.wg.Wait()
 
+	// Clear snapshot so lock-free readers see nil after stop
+	s.snap.Store(nil)
+
 	s.logger.Info("pg service stopped")
 	return nil
 }
 
 // eventLoop runs the single-threaded event loop that processes all actions.
+// After each action, it publishes an immutable snapshot for lock-free reads.
 func (s *Service) eventLoop() {
 	defer s.wg.Done()
 
@@ -138,6 +157,14 @@ func (s *Service) eventLoop() {
 			fn()
 		}
 	}
+}
+
+// publishSnapshot rebuilds and atomically stores the state snapshot.
+// Must be called inside the event loop (inside an action closure) after
+// any state mutation, BEFORE signaling the caller's done channel, so that
+// lock-free readers see the updated state immediately.
+func (s *Service) publishSnapshot() {
+	s.snap.Store(s.state.buildSnapshot())
 }
 
 // submit sends an action to the event loop for serialized execution.
@@ -190,6 +217,7 @@ func (s *Service) handleDiscoverPackage(msg *relay.Message) {
 
 	s.submit(func() {
 		s.handleDiscover(fromNodeID)
+		s.publishSnapshot()
 	})
 }
 
@@ -229,6 +257,7 @@ func (s *Service) handleSyncPackage(msg *relay.Message) {
 
 	s.submit(func() {
 		s.handleSync(fromNodeID, groups)
+		s.publishSnapshot()
 	})
 }
 
@@ -259,6 +288,7 @@ func (s *Service) handleJoinPackage(msg *relay.Message) {
 
 	s.submit(func() {
 		s.handleRemoteJoin(fromNodeID, group, pids)
+		s.publishSnapshot()
 	})
 }
 
@@ -296,6 +326,7 @@ func (s *Service) handleLeavePackage(msg *relay.Message) {
 
 	s.submit(func() {
 		s.handleRemoteLeave(fromNodeID, pids, groups)
+		s.publishSnapshot()
 	})
 }
 
@@ -306,6 +337,7 @@ func (s *Service) handleExitPackage(msg *relay.Message) {
 			exitedPID := exitEvent.From
 			s.submit(func() {
 				s.handleProcessExit(exitedPID)
+				s.publishSnapshot()
 			})
 		}
 	}
@@ -340,6 +372,7 @@ func (s *Service) handleNodeLeftEvent(e event.Event) {
 
 	s.submit(func() {
 		s.handleNodeLeft(nodeID)
+		s.publishSnapshot()
 	})
 }
 
@@ -365,6 +398,35 @@ func (s *Service) Join(group pgapi.Group, p pid.PID) error {
 		// Emit membership event
 		s.emitJoinEvent(group, []pid.PID{p})
 
+		s.publishSnapshot()
+		done <- nil
+	})
+
+	select {
+	case err := <-done:
+		return err
+	case <-s.ctx.Done():
+		return ErrServiceStopped
+	}
+}
+
+// JoinGroups adds a local process to multiple groups atomically.
+func (s *Service) JoinGroups(groups []pgapi.Group, p pid.PID) error {
+	done := make(chan error, 1)
+	s.submit(func() {
+		_, existed := s.state.local[p.String()]
+
+		for _, group := range groups {
+			s.state.joinLocal(group, p)
+			s.broadcastJoin(group, []pid.PID{p})
+			s.emitJoinEvent(group, []pid.PID{p})
+		}
+
+		if !existed {
+			s.monitorProcess(p)
+		}
+
+		s.publishSnapshot()
 		done <- nil
 	})
 
@@ -396,6 +458,37 @@ func (s *Service) Leave(group pgapi.Group, p pid.PID) error {
 		// Emit membership event
 		s.emitLeaveEvent(group, []pid.PID{p})
 
+		s.publishSnapshot()
+		done <- nil
+	})
+
+	select {
+	case err := <-done:
+		return err
+	case <-s.ctx.Done():
+		return ErrServiceStopped
+	}
+}
+
+// LeaveGroups removes a local process from multiple groups atomically.
+func (s *Service) LeaveGroups(groups []pgapi.Group, p pid.PID) error {
+	done := make(chan error, 1)
+	s.submit(func() {
+		for _, group := range groups {
+			if !s.state.leaveLocal(group, p) {
+				done <- ErrNotJoined
+				return
+			}
+			s.broadcastLeave([]pid.PID{p}, []string{group})
+			s.emitLeaveEvent(group, []pid.PID{p})
+		}
+
+		// If the process has no more groups, stop monitoring
+		if _, exists := s.state.local[p.String()]; !exists {
+			s.demonitorProcess(p)
+		}
+
+		s.publishSnapshot()
 		done <- nil
 	})
 
@@ -408,47 +501,164 @@ func (s *Service) Leave(group pgapi.Group, p pid.PID) error {
 }
 
 // GetMembers returns all members of a group across all nodes.
+// Uses the RCU snapshot for lock-free reads.
 func (s *Service) GetMembers(group pgapi.Group) []pid.PID {
-	done := make(chan []pid.PID, 1)
-	s.submit(func() {
-		done <- s.state.getMembers(group)
-	})
-
-	select {
-	case members := <-done:
-		return members
-	case <-s.ctx.Done():
+	snap := s.snap.Load()
+	if snap == nil {
 		return nil
 	}
+	gs, ok := snap.groups[group]
+	if !ok {
+		return nil
+	}
+	return copyPIDs(gs.all)
 }
 
 // GetLocalMembers returns local members of a group.
+// Uses the RCU snapshot for lock-free reads.
 func (s *Service) GetLocalMembers(group pgapi.Group) []pid.PID {
-	done := make(chan []pid.PID, 1)
-	s.submit(func() {
-		done <- s.state.getLocalMembers(group)
-	})
-
-	select {
-	case members := <-done:
-		return members
-	case <-s.ctx.Done():
+	snap := s.snap.Load()
+	if snap == nil {
 		return nil
 	}
+	gs, ok := snap.groups[group]
+	if !ok {
+		return nil
+	}
+	return copyPIDs(gs.local)
 }
 
 // WhichGroups returns all groups that have at least one member.
+// Uses the RCU snapshot for lock-free reads.
 func (s *Service) WhichGroups() []pgapi.Group {
-	done := make(chan []pgapi.Group, 1)
+	snap := s.snap.Load()
+	if snap == nil {
+		return nil
+	}
+	groups := make([]pgapi.Group, 0, len(snap.groups))
+	for g := range snap.groups {
+		groups = append(groups, g)
+	}
+	return groups
+}
+
+// WhichLocalGroups returns groups that have at least one local member.
+// Uses the RCU snapshot for lock-free reads.
+func (s *Service) WhichLocalGroups() []pgapi.Group {
+	snap := s.snap.Load()
+	if snap == nil {
+		return nil
+	}
+	groups := make([]pgapi.Group, 0, len(snap.groups))
+	for g, gs := range snap.groups {
+		if len(gs.local) > 0 {
+			groups = append(groups, g)
+		}
+	}
+	return groups
+}
+
+// monitorResult holds the result of a Monitor operation.
+type monitorResult struct {
+	unsubscribe func()
+	members     []pid.PID
+}
+
+// Monitor atomically subscribes to a group's membership events and returns
+// the current members. Because both operations happen inside a single event
+// loop action, no join/leave can interleave between the subscription setup
+// and the membership snapshot.
+func (s *Service) Monitor(group string, p pid.PID, topic string) monitorResult {
+	done := make(chan monitorResult, 1)
 	s.submit(func() {
-		done <- s.state.whichGroups()
+		// Assign unique ID
+		s.monitorIDSeq++
+		id := s.monitorIDSeq
+
+		entry := &monitorEntry{
+			pid:   p,
+			topic: topic,
+			id:    id,
+		}
+
+		s.monitors[group] = append(s.monitors[group], entry)
+
+		// Snapshot current members (while still in event loop — atomic)
+		members := s.state.getMembers(group)
+
+		// Build unsubscribe closure
+		unsubscribe := func() {
+			s.submit(func() {
+				s.removeMonitor(group, id)
+			})
+		}
+
+		done <- monitorResult{members: members, unsubscribe: unsubscribe}
 	})
 
 	select {
-	case groups := <-done:
-		return groups
+	case result := <-done:
+		return result
 	case <-s.ctx.Done():
-		return nil
+		return monitorResult{}
+	}
+}
+
+// removeMonitor removes a monitor entry by ID. Must be called from event loop.
+func (s *Service) removeMonitor(group string, id uint64) {
+	entries := s.monitors[group]
+	for i, e := range entries {
+		if e.id == id {
+			s.monitors[group] = append(entries[:i], entries[i+1:]...)
+			break
+		}
+	}
+	if len(s.monitors[group]) == 0 {
+		delete(s.monitors, group)
+	}
+}
+
+// eventsResult holds the result of an Events operation.
+type eventsResult struct {
+	groups      map[string][]pid.PID
+	unsubscribe func()
+}
+
+// Events atomically subscribes to all group membership events and returns
+// a snapshot of all current groups and their members. Uses the wildcard
+// monitor key ("") to receive events for all groups.
+func (s *Service) Events(p pid.PID, topic string) eventsResult {
+	done := make(chan eventsResult, 1)
+	s.submit(func() {
+		s.monitorIDSeq++
+		id := s.monitorIDSeq
+
+		entry := &monitorEntry{
+			pid:   p,
+			topic: topic,
+			id:    id,
+		}
+
+		// Wildcard key "" matches all groups
+		s.monitors[""] = append(s.monitors[""], entry)
+
+		// Snapshot all current groups
+		groups := s.state.allGroupMembers()
+
+		unsubscribe := func() {
+			s.submit(func() {
+				s.removeMonitor("", id)
+			})
+		}
+
+		done <- eventsResult{groups: groups, unsubscribe: unsubscribe}
+	})
+
+	select {
+	case result := <-done:
+		return result
+	case <-s.ctx.Done():
+		return eventsResult{}
 	}
 }
 
@@ -512,36 +722,77 @@ func logGroupCount(count int) zap.Field {
 
 // --- Event emission ---
 
-// emitJoinEvent publishes a membership join event to the event bus.
+// emitJoinEvent publishes a membership join event to the event bus and delivers to monitors.
 func (s *Service) emitJoinEvent(group string, pids []pid.PID) {
-	if s.bus == nil {
-		return
+	if s.bus != nil {
+		s.bus.Send(s.ctx, event.Event{
+			System: pgapi.EventSystem,
+			Kind:   pgapi.MemberJoined,
+			Path:   group,
+			Data: pgapi.MembershipEvent{
+				Group: group,
+				PIDs:  pids,
+			},
+		})
 	}
-	s.bus.Send(s.ctx, event.Event{
-		System: pgapi.EventSystem,
-		Kind:   pgapi.MemberJoined,
-		Path:   group,
-		Data: pgapi.MembershipEvent{
-			Group: group,
-			PIDs:  pids,
-		},
-	})
+
+	// Deliver to group monitors
+	s.deliverMonitorEvent(group, pgapi.MemberJoined, pids)
 }
 
-// emitLeaveEvent publishes a membership leave event to the event bus.
+// emitLeaveEvent publishes a membership leave event to the event bus and delivers to monitors.
 func (s *Service) emitLeaveEvent(group string, pids []pid.PID) {
-	if s.bus == nil {
+	if s.bus != nil {
+		s.bus.Send(s.ctx, event.Event{
+			System: pgapi.EventSystem,
+			Kind:   pgapi.MemberLeft,
+			Path:   group,
+			Data: pgapi.MembershipEvent{
+				Group: group,
+				PIDs:  pids,
+			},
+		})
+	}
+
+	// Deliver to group monitors
+	s.deliverMonitorEvent(group, pgapi.MemberLeft, pids)
+}
+
+// deliverMonitorEvent sends a membership event to all monitors of a specific group
+// and to all wildcard monitors. Must be called from the event loop.
+func (s *Service) deliverMonitorEvent(group string, kind string, pids []pid.PID) {
+	groupEntries := s.monitors[group]
+	wildcardEntries := s.monitors[""]
+	if len(groupEntries) == 0 && len(wildcardEntries) == 0 {
 		return
 	}
-	s.bus.Send(s.ctx, event.Event{
-		System: pgapi.EventSystem,
-		Kind:   pgapi.MemberLeft,
-		Path:   group,
-		Data: pgapi.MembershipEvent{
+
+	// Build event payload matching the eventbus format
+	data := map[string]any{
+		"system": pgapi.EventSystem,
+		"kind":   kind,
+		"path":   group,
+		"data": pgapi.MembershipEvent{
 			Group: group,
 			PIDs:  pids,
 		},
-	})
+	}
+
+	deliver := func(entries []*monitorEntry) {
+		for _, entry := range entries {
+			pkg := relay.NewPackage(pid.PID{}, entry.pid, entry.topic, payload.New(data))
+			if err := s.router.Send(pkg); err != nil {
+				s.logger.Debug("failed to deliver monitor event",
+					zap.String("group", group),
+					logPID(entry.pid),
+					logError(err),
+				)
+			}
+		}
+	}
+
+	deliver(groupEntries)
+	deliver(wildcardEntries)
 }
 
 // Verify interface compliance.

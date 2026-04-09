@@ -28,6 +28,11 @@ func TestCommandIDs(t *testing.T) {
 	assert.Equal(t, dispatcher.CommandID(204), pgapi.WhichGroups)
 	assert.Equal(t, dispatcher.CommandID(205), pgapi.Broadcast)
 	assert.Equal(t, dispatcher.CommandID(206), pgapi.BroadcastLocal)
+	assert.Equal(t, dispatcher.CommandID(207), pgapi.WhichLocalGroups)
+	assert.Equal(t, dispatcher.CommandID(208), pgapi.Monitor)
+	assert.Equal(t, dispatcher.CommandID(209), pgapi.Events)
+	assert.Equal(t, dispatcher.CommandID(210), pgapi.JoinGroups)
+	assert.Equal(t, dispatcher.CommandID(211), pgapi.LeaveGroups)
 }
 
 func TestHostID(t *testing.T) {
@@ -167,6 +172,138 @@ func (m *mockProcessGroups) Broadcast(_ pid.PID, _ string, _ string, _ payload.P
 }
 func (m *mockProcessGroups) BroadcastLocal(_ pid.PID, _ string, _ string, _ payload.Payloads) error {
 	return nil
+}
+func (m *mockProcessGroups) JoinGroups(_ []string, _ pid.PID) error  { return nil }
+func (m *mockProcessGroups) LeaveGroups(_ []string, _ pid.PID) error { return nil }
+func (m *mockProcessGroups) WhichLocalGroups() []string              { return nil }
+
+func TestWhichLocalGroupsCmd(t *testing.T) {
+	t.Run("Acquire and Release", func(t *testing.T) {
+		cmd := pgapi.AcquireWhichLocalGroupsCmd()
+		require.NotNil(t, cmd)
+		assert.Equal(t, pgapi.WhichLocalGroups, cmd.CmdID())
+		cmd.Release()
+	})
+}
+
+func TestMonitorCmd(t *testing.T) {
+	t.Run("Acquire and Release", func(t *testing.T) {
+		cmd := pgapi.AcquireMonitorCmd()
+		require.NotNil(t, cmd)
+
+		p := testPID("test", "5")
+		cmd.Group = "workers"
+		cmd.PID = p
+		cmd.Topic = "pg.event"
+
+		assert.Equal(t, pgapi.Monitor, cmd.CmdID())
+		assert.Equal(t, "workers", cmd.Group)
+		assert.Equal(t, p, cmd.PID)
+		assert.Equal(t, "pg.event", cmd.Topic)
+
+		cmd.Release()
+	})
+
+	t.Run("Pool reuse clears fields", func(t *testing.T) {
+		cmd1 := pgapi.AcquireMonitorCmd()
+		cmd1.Group = "test-group"
+		cmd1.PID = testPID("host", "1")
+		cmd1.Topic = "test-topic"
+		cmd1.Release()
+
+		cmd2 := pgapi.AcquireMonitorCmd()
+		assert.Empty(t, cmd2.Group)
+		assert.Equal(t, pid.PID{}, cmd2.PID)
+		assert.Empty(t, cmd2.Topic)
+		cmd2.Release()
+	})
+}
+
+func TestEventsCmd(t *testing.T) {
+	t.Run("Acquire and Release", func(t *testing.T) {
+		cmd := pgapi.AcquireEventsCmd()
+		require.NotNil(t, cmd)
+
+		p := testPID("test", "6")
+		cmd.PID = p
+		cmd.Topic = "pg.event"
+
+		assert.Equal(t, pgapi.Events, cmd.CmdID())
+		assert.Equal(t, p, cmd.PID)
+		assert.Equal(t, "pg.event", cmd.Topic)
+
+		cmd.Release()
+	})
+
+	t.Run("Pool reuse clears fields", func(t *testing.T) {
+		cmd1 := pgapi.AcquireEventsCmd()
+		cmd1.PID = testPID("host", "1")
+		cmd1.Topic = "test-topic"
+		cmd1.Release()
+
+		cmd2 := pgapi.AcquireEventsCmd()
+		assert.Equal(t, pid.PID{}, cmd2.PID)
+		assert.Empty(t, cmd2.Topic)
+		cmd2.Release()
+	})
+}
+
+func TestJoinGroupsCmd(t *testing.T) {
+	t.Run("Acquire and Release", func(t *testing.T) {
+		cmd := pgapi.AcquireJoinGroupsCmd()
+		require.NotNil(t, cmd)
+
+		p := testPID("test", "7")
+		cmd.Caller = p
+		cmd.Groups = []string{"workers", "managers"}
+
+		assert.Equal(t, pgapi.JoinGroups, cmd.CmdID())
+		assert.Equal(t, p, cmd.Caller)
+		assert.Equal(t, []string{"workers", "managers"}, cmd.Groups)
+
+		cmd.Release()
+	})
+
+	t.Run("Pool reuse clears fields", func(t *testing.T) {
+		cmd1 := pgapi.AcquireJoinGroupsCmd()
+		cmd1.Caller = testPID("host", "1")
+		cmd1.Groups = []string{"a", "b", "c"}
+		cmd1.Release()
+
+		cmd2 := pgapi.AcquireJoinGroupsCmd()
+		assert.Equal(t, pid.PID{}, cmd2.Caller)
+		assert.Empty(t, cmd2.Groups)
+		cmd2.Release()
+	})
+}
+
+func TestLeaveGroupsCmd(t *testing.T) {
+	t.Run("Acquire and Release", func(t *testing.T) {
+		cmd := pgapi.AcquireLeaveGroupsCmd()
+		require.NotNil(t, cmd)
+
+		p := testPID("test", "8")
+		cmd.Caller = p
+		cmd.Groups = []string{"workers", "managers"}
+
+		assert.Equal(t, pgapi.LeaveGroups, cmd.CmdID())
+		assert.Equal(t, p, cmd.Caller)
+		assert.Equal(t, []string{"workers", "managers"}, cmd.Groups)
+
+		cmd.Release()
+	})
+
+	t.Run("Pool reuse clears fields", func(t *testing.T) {
+		cmd1 := pgapi.AcquireLeaveGroupsCmd()
+		cmd1.Caller = testPID("host", "1")
+		cmd1.Groups = []string{"a", "b"}
+		cmd1.Release()
+
+		cmd2 := pgapi.AcquireLeaveGroupsCmd()
+		assert.Equal(t, pid.PID{}, cmd2.Caller)
+		assert.Empty(t, cmd2.Groups)
+		cmd2.Release()
+	})
 }
 
 func TestContextIntegration(t *testing.T) {

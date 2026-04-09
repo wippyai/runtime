@@ -274,6 +274,204 @@ func TestState_AllLocalPids(t *testing.T) {
 	assert.Len(t, result["managers"], 1)
 }
 
+func TestState_WhichLocalGroups(t *testing.T) {
+	s := newState()
+	p1 := mkPID("host1", "1")
+	p2 := mkPID("host1", "2")
+	remote := mkNodePID("node-b", "host1", "3")
+
+	s.joinLocal("workers", p1)
+	s.joinLocal("managers", p2)
+	s.joinRemote("node-b", "remote-only", []pid.PID{remote})
+
+	groups := s.whichLocalGroups()
+	sort.Strings(groups)
+	assert.Equal(t, []string{"managers", "workers"}, groups)
+}
+
+func TestState_WhichLocalGroupsEmpty(t *testing.T) {
+	s := newState()
+	groups := s.whichLocalGroups()
+	assert.Empty(t, groups)
+}
+
+func TestState_WhichLocalGroupsAfterLeave(t *testing.T) {
+	s := newState()
+	p1 := mkPID("host1", "1")
+
+	s.joinLocal("workers", p1)
+	s.leaveLocal("workers", p1)
+
+	groups := s.whichLocalGroups()
+	assert.Empty(t, groups)
+}
+
+func TestState_WhichLocalGroupsExcludesRemoteOnly(t *testing.T) {
+	s := newState()
+	remote := mkNodePID("node-b", "host1", "1")
+
+	s.joinRemote("node-b", "workers", []pid.PID{remote})
+
+	localGroups := s.whichLocalGroups()
+	assert.Empty(t, localGroups)
+
+	// But whichGroups should still return it
+	allGroups := s.whichGroups()
+	assert.Len(t, allGroups, 1)
+	assert.Equal(t, "workers", allGroups[0])
+}
+
+func TestState_AllGroupMembers(t *testing.T) {
+	s := newState()
+	p1 := mkPID("host1", "1")
+	p2 := mkPID("host1", "2")
+	remote := mkNodePID("node-b", "host1", "3")
+
+	s.joinLocal("workers", p1)
+	s.joinLocal("workers", p2)
+	s.joinRemote("node-b", "managers", []pid.PID{remote})
+
+	result := s.allGroupMembers()
+	require.Len(t, result, 2)
+	assert.Len(t, result["workers"], 2)
+	assert.Len(t, result["managers"], 1)
+}
+
+func TestState_AllGroupMembersEmpty(t *testing.T) {
+	s := newState()
+	result := s.allGroupMembers()
+	assert.Empty(t, result)
+}
+
+func TestState_AllGroupMembersReturnsCopy(t *testing.T) {
+	s := newState()
+	p1 := mkPID("host1", "1")
+	s.joinLocal("workers", p1)
+
+	result1 := s.allGroupMembers()
+	result2 := s.allGroupMembers()
+
+	// Modifying one should not affect the other
+	result1["workers"][0] = pid.PID{}
+	assert.NotEqual(t, result1["workers"][0], result2["workers"][0])
+}
+
+func TestState_BuildSnapshot(t *testing.T) {
+	s := newState()
+	p1 := mkPID("host1", "1")
+	p2 := mkPID("host1", "2")
+	remote := mkNodePID("node-b", "host1", "3")
+
+	s.joinLocal("workers", p1)
+	s.joinLocal("workers", p2)
+	s.joinRemote("node-b", "managers", []pid.PID{remote})
+
+	snap := s.buildSnapshot()
+	require.NotNil(t, snap)
+	require.Len(t, snap.groups, 2)
+
+	workers := snap.groups["workers"]
+	require.NotNil(t, workers)
+	assert.Len(t, workers.all, 2)
+	assert.Len(t, workers.local, 2)
+
+	managers := snap.groups["managers"]
+	require.NotNil(t, managers)
+	assert.Len(t, managers.all, 1)
+	assert.Empty(t, managers.local)
+}
+
+func TestState_BuildSnapshotEmpty(t *testing.T) {
+	s := newState()
+	snap := s.buildSnapshot()
+	require.NotNil(t, snap)
+	assert.Empty(t, snap.groups)
+}
+
+func TestState_BuildSnapshotImmutable(t *testing.T) {
+	s := newState()
+	p1 := mkPID("host1", "1")
+	s.joinLocal("workers", p1)
+
+	snap1 := s.buildSnapshot()
+
+	// Mutate state
+	p2 := mkPID("host1", "2")
+	s.joinLocal("workers", p2)
+
+	snap2 := s.buildSnapshot()
+
+	// snap1 should not be affected by subsequent mutations
+	assert.Len(t, snap1.groups["workers"].all, 1)
+	assert.Len(t, snap2.groups["workers"].all, 2)
+}
+
+func TestState_LeaveRemoteMultiJoinConsistency(t *testing.T) {
+	s := newState()
+	rp1 := mkNodePID("node-b", "host1", "1")
+
+	// Process joins same group 3 times (multi-join)
+	s.joinRemote("node-b", "workers", []pid.PID{rp1})
+	s.joinRemote("node-b", "workers", []pid.PID{rp1})
+	s.joinRemote("node-b", "workers", []pid.PID{rp1})
+
+	assert.Len(t, s.getMembers("workers"), 3)
+
+	// Leave one occurrence
+	s.leaveRemote("node-b", []pid.PID{rp1}, []string{"workers"})
+	assert.Len(t, s.getMembers("workers"), 2)
+
+	// Leave another
+	s.leaveRemote("node-b", []pid.PID{rp1}, []string{"workers"})
+	assert.Len(t, s.getMembers("workers"), 1)
+
+	// Leave last
+	s.leaveRemote("node-b", []pid.PID{rp1}, []string{"workers"})
+	assert.Empty(t, s.getMembers("workers"))
+	assert.Empty(t, s.whichGroups())
+}
+
+func TestState_LeaveRemoteMultiJoinMultiplePids(t *testing.T) {
+	s := newState()
+	rp1 := mkNodePID("node-b", "host1", "1")
+	rp2 := mkNodePID("node-b", "host1", "2")
+
+	// Each process joins twice
+	s.joinRemote("node-b", "workers", []pid.PID{rp1, rp2})
+	s.joinRemote("node-b", "workers", []pid.PID{rp1, rp2})
+
+	assert.Len(t, s.getMembers("workers"), 4)
+
+	// Leave one occurrence of each
+	s.leaveRemote("node-b", []pid.PID{rp1, rp2}, []string{"workers"})
+	assert.Len(t, s.getMembers("workers"), 2)
+
+	// Leave remaining
+	s.leaveRemote("node-b", []pid.PID{rp1, rp2}, []string{"workers"})
+	assert.Empty(t, s.getMembers("workers"))
+}
+
+func TestState_CopyPIDs(t *testing.T) {
+	t.Run("nil input", func(t *testing.T) {
+		result := copyPIDs(nil)
+		assert.Nil(t, result)
+	})
+
+	t.Run("empty input", func(t *testing.T) {
+		result := copyPIDs([]pid.PID{})
+		assert.Nil(t, result)
+	})
+
+	t.Run("returns independent copy", func(t *testing.T) {
+		p1 := mkPID("host1", "1")
+		orig := []pid.PID{p1}
+		copied := copyPIDs(orig)
+
+		copied[0] = pid.PID{}
+		assert.NotEqual(t, orig[0], copied[0])
+	})
+}
+
 func TestState_GetMembersReturnsCopy(t *testing.T) {
 	s := newState()
 	p1 := mkPID("host1", "1")

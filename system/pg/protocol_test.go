@@ -231,6 +231,7 @@ func TestHandleSync(t *testing.T) {
 		svc.handleSync("node-b", map[string][]pid.PID{
 			"workers": {rp1, rp2},
 		})
+		svc.publishSnapshot()
 	})
 
 	time.Sleep(50 * time.Millisecond)
@@ -246,6 +247,7 @@ func TestHandleRemoteJoin(t *testing.T) {
 
 	svc.submit(func() {
 		svc.handleRemoteJoin("node-b", "workers", []pid.PID{rp1})
+		svc.publishSnapshot()
 	})
 
 	time.Sleep(50 * time.Millisecond)
@@ -266,11 +268,13 @@ func TestHandleRemoteLeave(t *testing.T) {
 
 	svc.submit(func() {
 		svc.handleRemoteJoin("node-b", "workers", []pid.PID{rp1})
+		svc.publishSnapshot()
 	})
 	time.Sleep(20 * time.Millisecond)
 
 	svc.submit(func() {
 		svc.handleRemoteLeave("node-b", []pid.PID{rp1}, []string{"workers"})
+		svc.publishSnapshot()
 	})
 	time.Sleep(50 * time.Millisecond)
 
@@ -287,6 +291,7 @@ func TestHandleProcessExit(t *testing.T) {
 
 	svc.submit(func() {
 		svc.handleProcessExit(p1)
+		svc.publishSnapshot()
 	})
 
 	time.Sleep(50 * time.Millisecond)
@@ -318,6 +323,7 @@ func TestHandleNodeLeft(t *testing.T) {
 		svc.handleSync("node-b", map[string][]pid.PID{
 			"workers": {rp1, rp2},
 		})
+		svc.publishSnapshot()
 	})
 	time.Sleep(20 * time.Millisecond)
 
@@ -325,6 +331,7 @@ func TestHandleNodeLeft(t *testing.T) {
 
 	svc.submit(func() {
 		svc.handleNodeLeft("node-b")
+		svc.publishSnapshot()
 	})
 
 	time.Sleep(50 * time.Millisecond)
@@ -682,6 +689,7 @@ func TestHandleProcessExitMultipleGroups(t *testing.T) {
 
 	svc.submit(func() {
 		svc.handleProcessExit(p1)
+		svc.publishSnapshot()
 	})
 
 	time.Sleep(50 * time.Millisecond)

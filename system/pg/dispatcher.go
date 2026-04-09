@@ -37,8 +37,13 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(pgapi.GetMembers, dispatcher.HandlerFunc(d.handleGetMembers))
 	register(pgapi.GetLocalMembers, dispatcher.HandlerFunc(d.handleGetLocalMembers))
 	register(pgapi.WhichGroups, dispatcher.HandlerFunc(d.handleWhichGroups))
+	register(pgapi.WhichLocalGroups, dispatcher.HandlerFunc(d.handleWhichLocalGroups))
 	register(pgapi.Broadcast, dispatcher.HandlerFunc(d.handleBroadcast))
 	register(pgapi.BroadcastLocal, dispatcher.HandlerFunc(d.handleBroadcastLocal))
+	register(pgapi.Monitor, dispatcher.HandlerFunc(d.handleMonitor))
+	register(pgapi.Events, dispatcher.HandlerFunc(d.handleEvents))
+	register(pgapi.JoinGroups, dispatcher.HandlerFunc(d.handleJoinGroups))
+	register(pgapi.LeaveGroups, dispatcher.HandlerFunc(d.handleLeaveGroups))
 }
 
 func (d *Dispatcher) handleJoin(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
@@ -81,6 +86,14 @@ func (d *Dispatcher) handleWhichGroups(_ context.Context, cmd dispatcher.Command
 	return nil
 }
 
+func (d *Dispatcher) handleWhichLocalGroups(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	_ = cmd.(*pgapi.WhichLocalGroupsCmd)
+
+	groups := d.service.WhichLocalGroups()
+	receiver.CompleteYield(tag, pgapi.WhichLocalGroupsResult{Groups: groups}, nil)
+	return nil
+}
+
 func (d *Dispatcher) handleBroadcast(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	broadcastCmd := cmd.(*pgapi.BroadcastCmd)
 
@@ -98,5 +111,43 @@ func (d *Dispatcher) handleBroadcastLocal(_ context.Context, cmd dispatcher.Comm
 	members := d.service.GetLocalMembers(broadcastLocalCmd.Group)
 	sent := sendToMembers(d.router, d.logger, broadcastLocalCmd.From, broadcastLocalCmd.Topic, broadcastLocalCmd.Payloads, members)
 	receiver.CompleteYield(tag, pgapi.BroadcastLocalResult{Sent: sent}, nil)
+	return nil
+}
+
+func (d *Dispatcher) handleMonitor(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	monitorCmd := cmd.(*pgapi.MonitorCmd)
+
+	result := d.service.Monitor(monitorCmd.Group, monitorCmd.PID, monitorCmd.Topic)
+	receiver.CompleteYield(tag, pgapi.MonitorResult{
+		Members:     result.members,
+		Unsubscribe: result.unsubscribe,
+	}, nil)
+	return nil
+}
+
+func (d *Dispatcher) handleEvents(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	eventsCmd := cmd.(*pgapi.EventsCmd)
+
+	result := d.service.Events(eventsCmd.PID, eventsCmd.Topic)
+	receiver.CompleteYield(tag, pgapi.EventsResult{
+		Groups:      result.groups,
+		Unsubscribe: result.unsubscribe,
+	}, nil)
+	return nil
+}
+
+func (d *Dispatcher) handleJoinGroups(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	joinCmd := cmd.(*pgapi.JoinGroupsCmd)
+
+	err := d.service.JoinGroups(joinCmd.Groups, joinCmd.Caller)
+	receiver.CompleteYield(tag, pgapi.JoinGroupsResult{Error: err}, nil)
+	return nil
+}
+
+func (d *Dispatcher) handleLeaveGroups(_ context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	leaveCmd := cmd.(*pgapi.LeaveGroupsCmd)
+
+	err := d.service.LeaveGroups(leaveCmd.Groups, leaveCmd.Caller)
+	receiver.CompleteYield(tag, pgapi.LeaveGroupsResult{Error: err}, nil)
 	return nil
 }

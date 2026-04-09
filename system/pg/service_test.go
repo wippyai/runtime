@@ -912,6 +912,7 @@ func TestServiceHandleNodeLeftEvent(t *testing.T) {
 		svc.handleSync("node-b", map[string][]pid.PID{
 			"workers": {rp1},
 		})
+		svc.publishSnapshot()
 	})
 	time.Sleep(50 * time.Millisecond)
 
@@ -1295,4 +1296,344 @@ func TestServiceEmitsEventsForRemoteLeave(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for remote leave event")
 	}
+}
+
+// --- JoinGroups tests ---
+
+func TestServiceJoinGroups(t *testing.T) {
+	svc, _, topo := startTestService(t)
+
+	p1 := mkPID("host1", "1")
+	err := svc.JoinGroups([]string{"workers", "managers"}, p1)
+	require.NoError(t, err)
+
+	assert.Len(t, svc.GetMembers("workers"), 1)
+	assert.Len(t, svc.GetMembers("managers"), 1)
+
+	// Should be monitored
+	assert.True(t, topo.isMonitored(p1))
+}
+
+func TestServiceJoinGroupsEmpty(t *testing.T) {
+	svc, _, _ := startTestService(t)
+
+	p1 := mkPID("host1", "1")
+	err := svc.JoinGroups([]string{}, p1)
+	require.NoError(t, err)
+
+	assert.Empty(t, svc.WhichGroups())
+}
+
+func TestServiceJoinGroupsAfterStop(t *testing.T) {
+	svc, _, _ := newTestService()
+	require.NoError(t, svc.Start(context.Background()))
+	require.NoError(t, svc.Stop(context.Background()))
+
+	p1 := mkPID("host1", "1")
+	err := svc.JoinGroups([]string{"workers"}, p1)
+	assert.ErrorIs(t, err, ErrServiceStopped)
+}
+
+func TestServiceJoinGroupsEmitsEvents(t *testing.T) {
+	svc, _, _, bus := startTestServiceWithBus(t)
+
+	ch := make(chan event.Event, 16)
+	_, err := bus.SubscribeP(context.Background(), pgapi.EventSystem, pgapi.MemberJoined, ch)
+	require.NoError(t, err)
+	time.Sleep(20 * time.Millisecond)
+
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.JoinGroups([]string{"workers", "managers"}, p1))
+
+	received := 0
+	timeout := time.After(2 * time.Second)
+	for received < 2 {
+		select {
+		case <-ch:
+			received++
+		case <-timeout:
+			t.Fatalf("expected 2 join events, got %d", received)
+		}
+	}
+}
+
+// --- LeaveGroups tests ---
+
+func TestServiceLeaveGroups(t *testing.T) {
+	svc, _, topo := startTestService(t)
+
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.JoinGroups([]string{"workers", "managers"}, p1))
+
+	err := svc.LeaveGroups([]string{"workers", "managers"}, p1)
+	require.NoError(t, err)
+
+	assert.Empty(t, svc.GetMembers("workers"))
+	assert.Empty(t, svc.GetMembers("managers"))
+
+	// Should be demonitored
+	assert.False(t, topo.isMonitored(p1))
+}
+
+func TestServiceLeaveGroupsPartial(t *testing.T) {
+	svc, _, topo := startTestService(t)
+
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.JoinGroups([]string{"workers", "managers"}, p1))
+
+	// Leave only workers
+	err := svc.LeaveGroups([]string{"workers"}, p1)
+	require.NoError(t, err)
+
+	assert.Empty(t, svc.GetMembers("workers"))
+	assert.Len(t, svc.GetMembers("managers"), 1)
+
+	// Still monitored because still in managers
+	assert.True(t, topo.isMonitored(p1))
+}
+
+func TestServiceLeaveGroupsNotJoined(t *testing.T) {
+	svc, _, _ := startTestService(t)
+
+	p1 := mkPID("host1", "1")
+	err := svc.LeaveGroups([]string{"workers"}, p1)
+	assert.ErrorIs(t, err, ErrNotJoined)
+}
+
+func TestServiceLeaveGroupsAfterStop(t *testing.T) {
+	svc, _, _ := newTestService()
+	require.NoError(t, svc.Start(context.Background()))
+	require.NoError(t, svc.Stop(context.Background()))
+
+	p1 := mkPID("host1", "1")
+	err := svc.LeaveGroups([]string{"workers"}, p1)
+	assert.ErrorIs(t, err, ErrServiceStopped)
+}
+
+// --- WhichLocalGroups tests ---
+
+func TestServiceWhichLocalGroups(t *testing.T) {
+	svc, _, _ := startTestService(t)
+
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.Join("workers", p1))
+	require.NoError(t, svc.Join("managers", p1))
+
+	groups := svc.WhichLocalGroups()
+	assert.Len(t, groups, 2)
+}
+
+func TestServiceWhichLocalGroupsEmpty(t *testing.T) {
+	svc, _, _ := startTestService(t)
+
+	groups := svc.WhichLocalGroups()
+	assert.Empty(t, groups)
+}
+
+func TestServiceWhichLocalGroupsExcludesRemote(t *testing.T) {
+	svc, _, _ := startTestService(t)
+
+	// Add remote members only
+	rp1 := mkNodePID("node-b", "host1", "1")
+	pkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicJoin,
+		payload.New(map[string]any{
+			"from":  "node-b",
+			"group": "remote-only",
+			"pids":  []any{rp1.String()},
+		}),
+	)
+	require.NoError(t, svc.Send(pkg))
+	time.Sleep(50 * time.Millisecond)
+
+	localGroups := svc.WhichLocalGroups()
+	assert.Empty(t, localGroups)
+
+	allGroups := svc.WhichGroups()
+	assert.Len(t, allGroups, 1)
+}
+
+func TestServiceWhichLocalGroupsAfterStop(t *testing.T) {
+	svc, _, _ := newTestService()
+	require.NoError(t, svc.Start(context.Background()))
+	require.NoError(t, svc.Stop(context.Background()))
+
+	groups := svc.WhichLocalGroups()
+	assert.Nil(t, groups)
+}
+
+// --- Monitor tests ---
+
+func TestServiceMonitor(t *testing.T) {
+	svc, router, _ := startTestService(t)
+
+	// Join some members first
+	p1 := mkPID("host1", "1")
+	p2 := mkPID("host1", "2")
+	require.NoError(t, svc.Join("workers", p1))
+	require.NoError(t, svc.Join("workers", p2))
+
+	// Monitor the group
+	monitorPID := mkPID("host1", "monitor")
+	result := svc.Monitor("workers", monitorPID, "pg.event")
+
+	// Should get current members as snapshot
+	assert.Len(t, result.members, 2)
+	assert.NotNil(t, result.unsubscribe)
+
+	router.reset()
+
+	// Now join a new member — should be delivered to monitor
+	p3 := mkPID("host1", "3")
+	require.NoError(t, svc.Join("workers", p3))
+
+	time.Sleep(50 * time.Millisecond)
+
+	sends := router.getSends()
+	// Monitor should have received a join event via relay
+	found := false
+	for _, s := range sends {
+		if s.Target == monitorPID {
+			found = true
+		}
+	}
+	assert.True(t, found, "monitor should receive join event")
+
+	// Unsubscribe
+	result.unsubscribe()
+	time.Sleep(50 * time.Millisecond)
+}
+
+func TestServiceMonitorEmptyGroup(t *testing.T) {
+	svc, _, _ := startTestService(t)
+
+	monitorPID := mkPID("host1", "monitor")
+	result := svc.Monitor("nonexistent", monitorPID, "pg.event")
+
+	assert.Nil(t, result.members)
+	assert.NotNil(t, result.unsubscribe)
+	result.unsubscribe()
+}
+
+func TestServiceMonitorUnsubscribe(t *testing.T) {
+	svc, router, _ := startTestService(t)
+
+	monitorPID := mkPID("host1", "monitor")
+	result := svc.Monitor("workers", monitorPID, "pg.event")
+
+	// Unsubscribe immediately
+	result.unsubscribe()
+	time.Sleep(50 * time.Millisecond)
+
+	router.reset()
+
+	// New join should not be delivered to monitor
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.Join("workers", p1))
+	time.Sleep(50 * time.Millisecond)
+
+	sends := router.getSends()
+	for _, s := range sends {
+		assert.NotEqual(t, monitorPID, s.Target, "unsubscribed monitor should not receive events")
+	}
+}
+
+// --- Events tests ---
+
+func TestServiceEvents(t *testing.T) {
+	svc, _, _ := startTestService(t)
+
+	// Set up some groups first
+	p1 := mkPID("host1", "1")
+	p2 := mkPID("host1", "2")
+	require.NoError(t, svc.Join("workers", p1))
+	require.NoError(t, svc.Join("managers", p2))
+
+	// Subscribe to events
+	eventsPID := mkPID("host1", "events")
+	result := svc.Events(eventsPID, "pg.event")
+
+	// Should get snapshot of all groups
+	assert.Len(t, result.groups, 2)
+	assert.Len(t, result.groups["workers"], 1)
+	assert.Len(t, result.groups["managers"], 1)
+	assert.NotNil(t, result.unsubscribe)
+
+	result.unsubscribe()
+}
+
+func TestServiceEventsEmpty(t *testing.T) {
+	svc, _, _ := startTestService(t)
+
+	eventsPID := mkPID("host1", "events")
+	result := svc.Events(eventsPID, "pg.event")
+
+	assert.Empty(t, result.groups)
+	assert.NotNil(t, result.unsubscribe)
+	result.unsubscribe()
+}
+
+func TestServiceEventsReceivesAllGroupEvents(t *testing.T) {
+	svc, router, _ := startTestService(t)
+
+	eventsPID := mkPID("host1", "events")
+	result := svc.Events(eventsPID, "pg.event")
+
+	router.reset()
+
+	// Join two different groups
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.Join("workers", p1))
+	require.NoError(t, svc.Join("managers", p1))
+
+	time.Sleep(100 * time.Millisecond)
+
+	sends := router.getSends()
+	eventCount := 0
+	for _, s := range sends {
+		if s.Target == eventsPID {
+			eventCount++
+		}
+	}
+	assert.Equal(t, 2, eventCount, "events subscriber should receive events for all groups")
+
+	result.unsubscribe()
+}
+
+// --- RCU snapshot tests ---
+
+func TestServiceRCUSnapshot(t *testing.T) {
+	svc, _, _ := startTestService(t)
+
+	// Before any joins, snapshot should be empty but not nil
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.Join("workers", p1))
+
+	// GetMembers uses RCU snapshot
+	members := svc.GetMembers("workers")
+	require.Len(t, members, 1)
+	assert.Equal(t, p1.String(), members[0].String())
+
+	// WhichGroups uses RCU snapshot
+	groups := svc.WhichGroups()
+	assert.Len(t, groups, 1)
+
+	// GetLocalMembers uses RCU snapshot
+	local := svc.GetLocalMembers("workers")
+	assert.Len(t, local, 1)
+}
+
+func TestServiceRCUSnapshotConsistency(t *testing.T) {
+	svc, _, _ := startTestService(t)
+
+	// Join multiple processes rapidly
+	for i := 0; i < 10; i++ {
+		p := mkPID("host1", string(rune('0'+i)))
+		require.NoError(t, svc.Join("workers", p))
+	}
+
+	// Read snapshot — should be consistent
+	members := svc.GetMembers("workers")
+	assert.Len(t, members, 10)
+	groups := svc.WhichGroups()
+	assert.Len(t, groups, 1)
 }

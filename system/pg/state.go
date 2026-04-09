@@ -6,6 +6,45 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 )
 
+// groupSnapshot is an immutable snapshot of a single group's membership.
+// Used for lock-free reads via atomic.Pointer.
+type groupSnapshot struct {
+	all   []pid.PID
+	local []pid.PID
+}
+
+// stateSnapshot is an immutable snapshot of all group memberships.
+// Published via atomic.Pointer after each mutation.
+type stateSnapshot struct {
+	groups map[string]*groupSnapshot
+}
+
+// copyPIDs creates a copy of a PID slice.
+func copyPIDs(pids []pid.PID) []pid.PID {
+	if len(pids) == 0 {
+		return nil
+	}
+	result := make([]pid.PID, len(pids))
+	copy(result, pids)
+	return result
+}
+
+// buildSnapshot creates an immutable snapshot from the current mutable state.
+func (s *state) buildSnapshot() *stateSnapshot {
+	snap := &stateSnapshot{
+		groups: make(map[string]*groupSnapshot, len(s.groups)),
+	}
+	for g, gs := range s.groups {
+		if len(gs.all) > 0 {
+			snap.groups[g] = &groupSnapshot{
+				all:   copyPIDs(gs.all),
+				local: copyPIDs(gs.local),
+			}
+		}
+	}
+	return snap
+}
+
 // localProcess tracks a local process and which groups it has joined.
 type localProcess struct {
 	pid    pid.PID
@@ -150,35 +189,31 @@ func (s *state) joinRemote(nodeID pid.NodeID, group string, pids []pid.PID) {
 }
 
 // leaveRemote removes remote PIDs from groups.
+// Each PID in the slice removes exactly one occurrence (preserving multi-join semantics).
 func (s *state) leaveRemote(nodeID pid.NodeID, pids []pid.PID, groups []string) {
 	rn, exists := s.remote[nodeID]
 	if !exists {
 		return
 	}
 
-	pidSet := make(map[string]struct{}, len(pids))
-	for _, p := range pids {
-		pidSet[p.String()] = struct{}{}
-	}
-
 	for _, group := range groups {
-		// Remove from remote tracking
-		if remotePids, ok := rn.groups[group]; ok {
-			filtered := remotePids[:0]
-			for _, rp := range remotePids {
-				if _, removing := pidSet[rp.String()]; !removing {
-					filtered = append(filtered, rp)
+		for _, p := range pids {
+			key := p.String()
+
+			// Remove one occurrence from remote tracking
+			if remotePids, ok := rn.groups[group]; ok {
+				for i, rp := range remotePids {
+					if rp.String() == key {
+						rn.groups[group] = append(remotePids[:i], remotePids[i+1:]...)
+						break
+					}
+				}
+				if len(rn.groups[group]) == 0 {
+					delete(rn.groups, group)
 				}
 			}
-			if len(filtered) == 0 {
-				delete(rn.groups, group)
-			} else {
-				rn.groups[group] = filtered
-			}
-		}
 
-		// Remove from group state
-		for _, p := range pids {
+			// Remove one occurrence from group state
 			s.removePIDFromGroup(group, p, false)
 		}
 	}
@@ -250,12 +285,36 @@ func (s *state) whichGroups() []string {
 	return groups
 }
 
+// whichLocalGroups returns all groups that have at least one local member.
+func (s *state) whichLocalGroups() []string {
+	groups := make([]string, 0, len(s.groups))
+	for g, gs := range s.groups {
+		if len(gs.local) > 0 {
+			groups = append(groups, g)
+		}
+	}
+	return groups
+}
+
 // allLocalPids returns all local PIDs grouped by group name, for sync protocol.
 func (s *state) allLocalPids() map[string][]pid.PID {
 	result := make(map[string][]pid.PID)
 	for _, lp := range s.local {
 		for _, g := range lp.groups {
 			result[g] = append(result[g], lp.pid)
+		}
+	}
+	return result
+}
+
+// allGroupMembers returns a snapshot of all groups and their members.
+func (s *state) allGroupMembers() map[string][]pid.PID {
+	result := make(map[string][]pid.PID, len(s.groups))
+	for g, gs := range s.groups {
+		if len(gs.all) > 0 {
+			members := make([]pid.PID, len(gs.all))
+			copy(members, gs.all)
+			result[g] = members
 		}
 	}
 	return result
