@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"sync"
 
-	goredis "github.com/redis/go-redis/v9"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	queueapi "github.com/wippyai/runtime/api/queue"
@@ -62,34 +61,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return err
 	}
 
-	uopts := &goredis.UniversalOptions{
-		Addrs:                 cfg.Addrs,
-		MasterName:            cfg.MasterName,
-		ClientName:            cfg.ClientName,
-		Protocol:              cfg.Protocol,
-		Username:              cfg.Username,
-		Password:              cfg.Password,
-		SentinelUsername:      cfg.SentinelUsername,
-		SentinelPassword:      cfg.SentinelPassword,
-		DB:                    cfg.DB,
-		MaxRetries:            cfg.MaxRetries,
-		MinRetryBackoff:       cfg.MinRetryBackoff,
-		MaxRetryBackoff:       cfg.MaxRetryBackoff,
-		DialTimeout:           cfg.DialTimeout,
-		ReadTimeout:           cfg.ReadTimeout,
-		WriteTimeout:          cfg.WriteTimeout,
-		ContextTimeoutEnabled: cfg.ContextTimeoutEnabled,
-		PoolSize:              cfg.PoolSize,
-		MinIdleConns:          cfg.MinIdleConns,
-		MaxIdleConns:          cfg.MaxIdleConns,
-		MaxActiveConns:        cfg.MaxActiveConns,
-		PoolFIFO:              cfg.PoolFIFO,
-		PoolTimeout:           cfg.PoolTimeout,
-		ConnMaxIdleTime:       cfg.ConnMaxIdleTime,
-		ConnMaxLifetime:       cfg.ConnMaxLifetime,
-		MaxRedirects:          cfg.MaxRedirects,
-		IsClusterMode:         cfg.IsClusterMode,
-	}
+	uopts := cfg.ToUniversalOptions()
 
 	if cfg.TLS != nil && cfg.TLS.Enabled {
 		tlsCfg, err := cfg.TLS.BuildTLSConfig()

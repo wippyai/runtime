@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	goredis "github.com/redis/go-redis/v9"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
 )
@@ -29,133 +30,56 @@ type Config struct { //nolint:govet // fieldalignment: limited by LifecycleConfi
 	Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
 
 	// Addrs is a list of host:port addresses.
-	// For standalone: a single address (e.g. ["localhost:6379"]).
-	// For cluster: seed addresses of cluster nodes.
-	// For sentinel: addresses of sentinel nodes.
 	Addrs []string `json:"addrs,omitempty"`
-
 	// TLS configures TLS/SSL connection settings.
-	// When TLS.Enabled is true, connections will use TLS.
 	TLS *TLSConfig `json:"tls,omitempty"`
 
-	// MasterName is the sentinel master name.
-	// When set, the client operates in sentinel/failover mode.
+	// MasterName is the sentinel master name (enables sentinel/failover mode).
 	MasterName string `json:"master_name,omitempty"`
-
-	// ClientName will execute the CLIENT SETNAME command for each connection.
+	// ClientName executes CLIENT SETNAME for each connection.
 	ClientName string `json:"client_name,omitempty"`
-
 	// Username for ACL-based authentication (Redis 6.0+).
 	Username string `json:"username,omitempty"`
-
 	// Password for authentication (requirepass or ACL).
 	Password string `json:"password,omitempty"`
-
 	// SentinelUsername for ACL-based authentication with sentinel nodes.
 	SentinelUsername string `json:"sentinel_username,omitempty"`
-
 	// SentinelPassword for authentication with sentinel nodes.
 	SentinelPassword string `json:"sentinel_password,omitempty"`
 
-	// MinRetryBackoff is the minimum backoff between retries.
-	// -1 disables backoff. Default: 8ms.
-	MinRetryBackoff time.Duration `json:"min_retry_backoff,omitzero,format:units"`
+	MinRetryBackoff time.Duration `json:"min_retry_backoff,omitzero,format:units"`  // Default: 8ms, -1 disables
+	MaxRetryBackoff time.Duration `json:"max_retry_backoff,omitzero,format:units"`  // Default: 512ms, -1 disables
+	DialTimeout     time.Duration `json:"dial_timeout,omitzero,format:units"`       // Default: 5s
+	ReadTimeout     time.Duration `json:"read_timeout,omitzero,format:units"`       // Default: 3s, -1 no timeout
+	WriteTimeout    time.Duration `json:"write_timeout,omitzero,format:units"`      // Default: 3s, -1 no timeout
+	PoolTimeout     time.Duration `json:"pool_timeout,omitzero,format:units"`       // Default: ReadTimeout + 1s
+	ConnMaxIdleTime time.Duration `json:"conn_max_idle_time,omitzero,format:units"` // Default: 30m
+	ConnMaxLifetime time.Duration `json:"conn_max_lifetime,omitzero,format:units"`  // 0 = no limit
 
-	// MaxRetryBackoff is the maximum backoff between retries.
-	// -1 disables backoff. Default: 512ms.
-	MaxRetryBackoff time.Duration `json:"max_retry_backoff,omitzero,format:units"`
+	Protocol       int `json:"protocol,omitempty"`    // RESP version (2 or 3), default 3
+	DB             int `json:"db,omitempty"`          // Database number (standalone/sentinel only)
+	MaxRetries     int `json:"max_retries,omitempty"` // -1 disables, default 3
+	PoolSize       int `json:"pool_size,omitempty"`   // Per node, default 10*GOMAXPROCS
+	MinIdleConns   int `json:"min_idle_conns,omitempty"`
+	MaxIdleConns   int `json:"max_idle_conns,omitempty"`
+	MaxActiveConns int `json:"max_active_conns,omitempty"` // 0 = no limit
+	MaxRedirects   int `json:"max_redirects,omitempty"`    // Cluster mode only, default 3
 
-	// DialTimeout is the timeout for establishing new connections.
-	// Default: 5s.
-	DialTimeout time.Duration `json:"dial_timeout,omitzero,format:units"`
-
-	// ReadTimeout is the timeout for socket reads.
-	// -1 means no timeout. Default: 3s.
-	ReadTimeout time.Duration `json:"read_timeout,omitzero,format:units"`
-
-	// WriteTimeout is the timeout for socket writes.
-	// -1 means no timeout. Default: 3s.
-	WriteTimeout time.Duration `json:"write_timeout,omitzero,format:units"`
-
-	// PoolTimeout is the amount of time client waits for a free connection.
-	// Default: ReadTimeout + 1s.
-	PoolTimeout time.Duration `json:"pool_timeout,omitzero,format:units"`
-
-	// ConnMaxIdleTime is the maximum amount of time a connection may be idle.
-	// Default: 30m.
-	ConnMaxIdleTime time.Duration `json:"conn_max_idle_time,omitzero,format:units"`
-
-	// ConnMaxLifetime is the maximum amount of time a connection may be reused.
-	// 0 means no limit.
-	ConnMaxLifetime time.Duration `json:"conn_max_lifetime,omitzero,format:units"`
-
-	// Protocol is the RESP protocol version (2 or 3).
-	// Default: 3.
-	Protocol int `json:"protocol,omitempty"`
-
-	// DB is the database number to select after connecting.
-	// Only applicable to standalone and sentinel modes (not cluster).
-	DB int `json:"db,omitempty"`
-
-	// MaxRetries is the maximum number of retries before giving up.
-	// -1 disables retries. Default: 3.
-	MaxRetries int `json:"max_retries,omitempty"`
-
-	// PoolSize is the maximum number of socket connections.
-	// For cluster mode, this applies per cluster node.
-	// Default: 10 * runtime.GOMAXPROCS(0).
-	PoolSize int `json:"pool_size,omitempty"`
-
-	// MinIdleConns is the minimum number of idle connections.
-	MinIdleConns int `json:"min_idle_conns,omitempty"`
-
-	// MaxIdleConns is the maximum number of idle connections.
-	MaxIdleConns int `json:"max_idle_conns,omitempty"`
-
-	// MaxActiveConns is the maximum number of connections allocated by the pool.
-	// For cluster mode, this applies per cluster node.
-	// 0 means no limit.
-	MaxActiveConns int `json:"max_active_conns,omitempty"`
-
-	// MaxRedirects is the maximum number of retries on MOVED and ASK redirects.
-	// Only applicable to cluster mode. Default: 3.
-	MaxRedirects int `json:"max_redirects,omitempty"`
-
-	// ContextTimeoutEnabled controls whether the client respects
-	// context timeouts and deadlines.
 	ContextTimeoutEnabled bool `json:"context_timeout_enabled,omitempty"`
-
-	// PoolFIFO uses FIFO mode for the connection pool when true.
-	// Default: LIFO.
-	PoolFIFO bool `json:"pool_fifo,omitempty"`
-
-	// IsClusterMode forces cluster mode even with a single address.
-	// Useful for managed Redis services like AWS ElastiCache that
-	// expose a single configuration endpoint for cluster mode.
+	PoolFIFO              bool `json:"pool_fifo,omitempty"`
+	// IsClusterMode forces cluster mode even with a single address
+	// (useful for AWS ElastiCache config endpoints).
 	IsClusterMode bool `json:"is_cluster_mode,omitempty"`
 }
 
 // TLSConfig defines TLS connection settings for Redis.
 type TLSConfig struct {
-	// ServerName overrides the server name used for TLS certificate verification.
-	ServerName string `json:"server_name,omitempty"`
-
-	// CertFile is the path to the client certificate file (PEM format) for mTLS.
-	CertFile string `json:"cert_file,omitempty"`
-
-	// KeyFile is the path to the client private key file (PEM format) for mTLS.
-	KeyFile string `json:"key_file,omitempty"`
-
-	// CAFile is the path to the CA certificate file (PEM format)
-	// for verifying the server's certificate.
-	CAFile string `json:"ca_file,omitempty"`
-
-	// Enabled activates TLS for Redis connections.
-	Enabled bool `json:"enabled"`
-
-	// InsecureSkipVerify skips TLS certificate verification.
-	// WARNING: This makes the connection susceptible to man-in-the-middle attacks.
-	InsecureSkipVerify bool `json:"insecure_skip_verify,omitempty"`
+	ServerName         string `json:"server_name,omitempty"`
+	CertFile           string `json:"cert_file,omitempty"`
+	KeyFile            string `json:"key_file,omitempty"`
+	CAFile             string `json:"ca_file,omitempty"`
+	Enabled            bool   `json:"enabled"`
+	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"`
 }
 
 // BuildTLSConfig converts the TLSConfig into a Go *tls.Config.
@@ -170,7 +94,6 @@ func (t *TLSConfig) BuildTLSConfig() (*tls.Config, error) {
 		ServerName:         t.ServerName,
 	}
 
-	// Load client certificate for mTLS
 	if t.CertFile != "" && t.KeyFile != "" {
 		cert, err := tls.LoadX509KeyPair(t.CertFile, t.KeyFile)
 		if err != nil {
@@ -179,7 +102,6 @@ func (t *TLSConfig) BuildTLSConfig() (*tls.Config, error) {
 		tlsCfg.Certificates = []tls.Certificate{cert}
 	}
 
-	// Load CA certificate
 	if t.CAFile != "" {
 		caCert, err := os.ReadFile(t.CAFile)
 		if err != nil {
@@ -216,123 +138,10 @@ func (c *Config) InitDefaults() {
 	}
 }
 
-// configJSON is a shadow struct for JSON marshaling/unmarshaling
-// of duration fields and backward compatibility.
-type configJSON struct { //nolint:govet // fieldalignment: limited by LifecycleConfig embedded struct layout
-	Lifecycle             supervisor.LifecycleConfig `json:"lifecycle"`
-	Addrs                 []string                   `json:"addrs,omitempty"`
-	TLS                   *TLSConfig                 `json:"tls,omitempty"`
-	Addr                  string                     `json:"addr,omitempty"` // backward compat
-	MasterName            string                     `json:"master_name,omitempty"`
-	ClientName            string                     `json:"client_name,omitempty"`
-	Username              string                     `json:"username,omitempty"`
-	Password              string                     `json:"password,omitempty"`
-	SentinelUsername      string                     `json:"sentinel_username,omitempty"`
-	SentinelPassword      string                     `json:"sentinel_password,omitempty"`
-	MinRetryBackoff       string                     `json:"min_retry_backoff,omitempty"`
-	MaxRetryBackoff       string                     `json:"max_retry_backoff,omitempty"`
-	DialTimeout           string                     `json:"dial_timeout,omitempty"`
-	ReadTimeout           string                     `json:"read_timeout,omitempty"`
-	WriteTimeout          string                     `json:"write_timeout,omitempty"`
-	PoolTimeout           string                     `json:"pool_timeout,omitempty"`
-	ConnMaxIdleTime       string                     `json:"conn_max_idle_time,omitempty"`
-	ConnMaxLifetime       string                     `json:"conn_max_lifetime,omitempty"`
-	Protocol              int                        `json:"protocol,omitempty"`
-	DB                    int                        `json:"db,omitempty"`
-	MaxRetries            int                        `json:"max_retries,omitempty"`
-	PoolSize              int                        `json:"pool_size,omitempty"`
-	MinIdleConns          int                        `json:"min_idle_conns,omitempty"`
-	MaxIdleConns          int                        `json:"max_idle_conns,omitempty"`
-	MaxActiveConns        int                        `json:"max_active_conns,omitempty"`
-	MaxRedirects          int                        `json:"max_redirects,omitempty"`
-	ContextTimeoutEnabled bool                       `json:"context_timeout_enabled,omitempty"`
-	PoolFIFO              bool                       `json:"pool_fifo,omitempty"`
-	IsClusterMode         bool                       `json:"is_cluster_mode,omitempty"`
-}
-
-// UnmarshalJSON implements custom JSON unmarshaling for duration fields
-// and backward compatibility with the old "addr" field.
-func (c *Config) UnmarshalJSON(data []byte) error {
-	var raw configJSON
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-
-	// Backward compatibility: accept "addr" as alias for "addrs"
-	c.Addrs = raw.Addrs
-	if len(c.Addrs) == 0 && raw.Addr != "" {
-		c.Addrs = []string{raw.Addr}
-	}
-
-	c.MasterName = raw.MasterName
-	c.ClientName = raw.ClientName
-	c.Protocol = raw.Protocol
-	c.Username = raw.Username
-	c.Password = raw.Password
-	c.SentinelUsername = raw.SentinelUsername
-	c.SentinelPassword = raw.SentinelPassword
-	c.DB = raw.DB
-	c.MaxRetries = raw.MaxRetries
-	c.ContextTimeoutEnabled = raw.ContextTimeoutEnabled
-	c.PoolSize = raw.PoolSize
-	c.MinIdleConns = raw.MinIdleConns
-	c.MaxIdleConns = raw.MaxIdleConns
-	c.MaxActiveConns = raw.MaxActiveConns
-	c.PoolFIFO = raw.PoolFIFO
-	c.MaxRedirects = raw.MaxRedirects
-	c.IsClusterMode = raw.IsClusterMode
-	c.TLS = raw.TLS
-	c.Lifecycle = raw.Lifecycle
-
-	// Parse duration fields
-	var err error
-	if raw.MinRetryBackoff != "" {
-		if c.MinRetryBackoff, err = time.ParseDuration(raw.MinRetryBackoff); err != nil {
-			return fmt.Errorf("invalid min_retry_backoff: %w", err)
-		}
-	}
-	if raw.MaxRetryBackoff != "" {
-		if c.MaxRetryBackoff, err = time.ParseDuration(raw.MaxRetryBackoff); err != nil {
-			return fmt.Errorf("invalid max_retry_backoff: %w", err)
-		}
-	}
-	if raw.DialTimeout != "" {
-		if c.DialTimeout, err = time.ParseDuration(raw.DialTimeout); err != nil {
-			return fmt.Errorf("invalid dial_timeout: %w", err)
-		}
-	}
-	if raw.ReadTimeout != "" {
-		if c.ReadTimeout, err = time.ParseDuration(raw.ReadTimeout); err != nil {
-			return fmt.Errorf("invalid read_timeout: %w", err)
-		}
-	}
-	if raw.WriteTimeout != "" {
-		if c.WriteTimeout, err = time.ParseDuration(raw.WriteTimeout); err != nil {
-			return fmt.Errorf("invalid write_timeout: %w", err)
-		}
-	}
-	if raw.PoolTimeout != "" {
-		if c.PoolTimeout, err = time.ParseDuration(raw.PoolTimeout); err != nil {
-			return fmt.Errorf("invalid pool_timeout: %w", err)
-		}
-	}
-	if raw.ConnMaxIdleTime != "" {
-		if c.ConnMaxIdleTime, err = time.ParseDuration(raw.ConnMaxIdleTime); err != nil {
-			return fmt.Errorf("invalid conn_max_idle_time: %w", err)
-		}
-	}
-	if raw.ConnMaxLifetime != "" {
-		if c.ConnMaxLifetime, err = time.ParseDuration(raw.ConnMaxLifetime); err != nil {
-			return fmt.Errorf("invalid conn_max_lifetime: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// MarshalJSON implements custom JSON marshaling for duration fields.
-func (c Config) MarshalJSON() ([]byte, error) {
-	raw := configJSON{
+// ToUniversalOptions converts the config to a go-redis UniversalOptions.
+// TLS is handled separately via BuildTLSConfig since it requires file I/O.
+func (c *Config) ToUniversalOptions() *goredis.UniversalOptions {
+	return &goredis.UniversalOptions{
 		Addrs:                 c.Addrs,
 		MasterName:            c.MasterName,
 		ClientName:            c.ClientName,
@@ -343,18 +152,139 @@ func (c Config) MarshalJSON() ([]byte, error) {
 		SentinelPassword:      c.SentinelPassword,
 		DB:                    c.DB,
 		MaxRetries:            c.MaxRetries,
+		MinRetryBackoff:       c.MinRetryBackoff,
+		MaxRetryBackoff:       c.MaxRetryBackoff,
+		DialTimeout:           c.DialTimeout,
+		ReadTimeout:           c.ReadTimeout,
+		WriteTimeout:          c.WriteTimeout,
 		ContextTimeoutEnabled: c.ContextTimeoutEnabled,
 		PoolSize:              c.PoolSize,
 		MinIdleConns:          c.MinIdleConns,
 		MaxIdleConns:          c.MaxIdleConns,
 		MaxActiveConns:        c.MaxActiveConns,
 		PoolFIFO:              c.PoolFIFO,
+		PoolTimeout:           c.PoolTimeout,
+		ConnMaxIdleTime:       c.ConnMaxIdleTime,
+		ConnMaxLifetime:       c.ConnMaxLifetime,
 		MaxRedirects:          c.MaxRedirects,
 		IsClusterMode:         c.IsClusterMode,
-		TLS:                   c.TLS,
-		Lifecycle:             c.Lifecycle,
+	}
+}
+
+// durationField maps a JSON string field to its target duration pointer.
+type durationField struct {
+	src  string
+	dst  *time.Duration
+	name string
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for duration fields
+// and backward compatibility with the old "addr" field.
+func (c *Config) UnmarshalJSON(data []byte) error {
+	// First pass: unmarshal everything except duration fields.
+	var raw struct { //nolint:govet // fieldalignment: anonymous struct for JSON unmarshaling, readability preferred
+		Lifecycle        supervisor.LifecycleConfig `json:"lifecycle"`
+		Addrs            []string                   `json:"addrs,omitempty"`
+		TLS              *TLSConfig                 `json:"tls,omitempty"`
+		Addr             string                     `json:"addr,omitempty"` // backward compat
+		MasterName       string                     `json:"master_name,omitempty"`
+		ClientName       string                     `json:"client_name,omitempty"`
+		Username         string                     `json:"username,omitempty"`
+		Password         string                     `json:"password,omitempty"`
+		SentinelUsername string                     `json:"sentinel_username,omitempty"`
+		SentinelPassword string                     `json:"sentinel_password,omitempty"`
+		// Durations as strings
+		MinRetryBackoff string `json:"min_retry_backoff,omitempty"`
+		MaxRetryBackoff string `json:"max_retry_backoff,omitempty"`
+		DialTimeout     string `json:"dial_timeout,omitempty"`
+		ReadTimeout     string `json:"read_timeout,omitempty"`
+		WriteTimeout    string `json:"write_timeout,omitempty"`
+		PoolTimeout     string `json:"pool_timeout,omitempty"`
+		ConnMaxIdleTime string `json:"conn_max_idle_time,omitempty"`
+		ConnMaxLifetime string `json:"conn_max_lifetime,omitempty"`
+		// Scalars
+		Protocol              int  `json:"protocol,omitempty"`
+		DB                    int  `json:"db,omitempty"`
+		MaxRetries            int  `json:"max_retries,omitempty"`
+		PoolSize              int  `json:"pool_size,omitempty"`
+		MinIdleConns          int  `json:"min_idle_conns,omitempty"`
+		MaxIdleConns          int  `json:"max_idle_conns,omitempty"`
+		MaxActiveConns        int  `json:"max_active_conns,omitempty"`
+		MaxRedirects          int  `json:"max_redirects,omitempty"`
+		ContextTimeoutEnabled bool `json:"context_timeout_enabled,omitempty"`
+		PoolFIFO              bool `json:"pool_fifo,omitempty"`
+		IsClusterMode         bool `json:"is_cluster_mode,omitempty"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
 	}
 
+	// Copy scalars
+	c.Lifecycle = raw.Lifecycle
+	c.Addrs = raw.Addrs
+	c.TLS = raw.TLS
+	c.MasterName = raw.MasterName
+	c.ClientName = raw.ClientName
+	c.Username = raw.Username
+	c.Password = raw.Password
+	c.SentinelUsername = raw.SentinelUsername
+	c.SentinelPassword = raw.SentinelPassword
+	c.Protocol = raw.Protocol
+	c.DB = raw.DB
+	c.MaxRetries = raw.MaxRetries
+	c.PoolSize = raw.PoolSize
+	c.MinIdleConns = raw.MinIdleConns
+	c.MaxIdleConns = raw.MaxIdleConns
+	c.MaxActiveConns = raw.MaxActiveConns
+	c.MaxRedirects = raw.MaxRedirects
+	c.ContextTimeoutEnabled = raw.ContextTimeoutEnabled
+	c.PoolFIFO = raw.PoolFIFO
+	c.IsClusterMode = raw.IsClusterMode
+
+	// Backward compatibility: "addr" → "addrs"
+	if len(c.Addrs) == 0 && raw.Addr != "" {
+		c.Addrs = []string{raw.Addr}
+	}
+
+	// Parse duration fields via table
+	for _, f := range []durationField{
+		{raw.MinRetryBackoff, &c.MinRetryBackoff, "min_retry_backoff"},
+		{raw.MaxRetryBackoff, &c.MaxRetryBackoff, "max_retry_backoff"},
+		{raw.DialTimeout, &c.DialTimeout, "dial_timeout"},
+		{raw.ReadTimeout, &c.ReadTimeout, "read_timeout"},
+		{raw.WriteTimeout, &c.WriteTimeout, "write_timeout"},
+		{raw.PoolTimeout, &c.PoolTimeout, "pool_timeout"},
+		{raw.ConnMaxIdleTime, &c.ConnMaxIdleTime, "conn_max_idle_time"},
+		{raw.ConnMaxLifetime, &c.ConnMaxLifetime, "conn_max_lifetime"},
+	} {
+		if f.src != "" {
+			d, err := time.ParseDuration(f.src)
+			if err != nil {
+				return fmt.Errorf("invalid %s: %w", f.name, err)
+			}
+			*f.dst = d
+		}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements custom JSON marshaling for duration fields.
+func (c Config) MarshalJSON() ([]byte, error) {
+	type configAlias Config // avoid recursion
+	raw := struct {         //nolint:govet // fieldalignment: anonymous struct for JSON marshaling, readability preferred
+		configAlias
+		MinRetryBackoff string `json:"min_retry_backoff,omitempty"`
+		MaxRetryBackoff string `json:"max_retry_backoff,omitempty"`
+		DialTimeout     string `json:"dial_timeout,omitempty"`
+		ReadTimeout     string `json:"read_timeout,omitempty"`
+		WriteTimeout    string `json:"write_timeout,omitempty"`
+		PoolTimeout     string `json:"pool_timeout,omitempty"`
+		ConnMaxIdleTime string `json:"conn_max_idle_time,omitempty"`
+		ConnMaxLifetime string `json:"conn_max_lifetime,omitempty"`
+	}{configAlias: configAlias(c)}
+
+	// Override duration fields with string representations
 	if c.MinRetryBackoff != 0 {
 		raw.MinRetryBackoff = c.MinRetryBackoff.String()
 	}
