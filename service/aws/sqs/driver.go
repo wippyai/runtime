@@ -77,6 +77,9 @@ func queueCodec(opts attrs.Attributes) string {
 	return payload.JSON
 }
 
+// sqsBatchLimit is the maximum number of messages per SQS SendMessageBatch call.
+const sqsBatchLimit = 10
+
 func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queueapi.Message) error {
 	d.mu.RLock()
 	q, exists := d.queues[queueID]
@@ -90,7 +93,11 @@ func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queu
 		return queuesvc.ErrDriverNotStarted
 	}
 
-	for _, msg := range msgs {
+	codec := queueCodec(q.opts)
+
+	// Build batch entries
+	entries := make([]types.SendMessageBatchRequestEntry, 0, len(msgs))
+	for i, msg := range msgs {
 		if msg.ID == "" {
 			msg.ID = uuid.New().String()
 		}
@@ -105,20 +112,52 @@ func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queu
 			}
 		}
 
-		body, err := marshalBody(d.tc, queueCodec(q.opts), msg.Body)
+		body, err := marshalBody(d.tc, codec, msg.Body)
 		if err != nil {
 			return fmt.Errorf("sqs marshal body: %w", err)
 		}
 
-		input := &awssqs.SendMessageInput{
-			QueueUrl:               aws.String(q.url),
-			MessageBody:            aws.String(string(body)),
-			MessageAttributes:      msgAttrs,
-			MessageDeduplicationId: nil,
+		entries = append(entries, types.SendMessageBatchRequestEntry{
+			Id:                aws.String(strconv.Itoa(i)),
+			MessageBody:       aws.String(string(body)),
+			MessageAttributes: msgAttrs,
+		})
+	}
+
+	// Send in chunks of sqsBatchLimit
+	for start := 0; start < len(entries); start += sqsBatchLimit {
+		end := start + sqsBatchLimit
+		if end > len(entries) {
+			end = len(entries)
+		}
+		chunk := entries[start:end]
+
+		// Optimize: use SendMessage for single-message batches
+		if len(chunk) == 1 {
+			input := &awssqs.SendMessageInput{
+				QueueUrl:          aws.String(q.url),
+				MessageBody:       chunk[0].MessageBody,
+				MessageAttributes: chunk[0].MessageAttributes,
+			}
+			if _, err := client.SendMessage(ctx, input); err != nil {
+				return fmt.Errorf("sqs send message: %w", err)
+			}
+			continue
 		}
 
-		if _, err := client.SendMessage(ctx, input); err != nil {
-			return fmt.Errorf("sqs send message: %w", err)
+		result, err := client.SendMessageBatch(ctx, &awssqs.SendMessageBatchInput{
+			QueueUrl: aws.String(q.url),
+			Entries:  chunk,
+		})
+		if err != nil {
+			return fmt.Errorf("sqs send message batch: %w", err)
+		}
+
+		if len(result.Failed) > 0 {
+			// Return the first failure; all entries in the chunk share the same queue.
+			f := result.Failed[0]
+			return fmt.Errorf("sqs batch entry %s failed: [%s] %s",
+				aws.ToString(f.Id), aws.ToString(f.Code), aws.ToString(f.Message))
 		}
 	}
 
