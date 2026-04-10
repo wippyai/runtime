@@ -275,14 +275,14 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 	noWait := false
 	if q.opts != nil {
 		autoAck = q.opts.GetString(queueapi.OptionAutoAck, "") == "true"
-		exclusive = q.opts.GetString(queueapi.OptionExclusive, "") == "true"
-		noLocal = q.opts.GetString(queueapi.OptionNoLocal, "") == "true"
-		noWait = q.opts.GetString(queueapi.OptionNoWait, "") == "true"
+		exclusive = q.opts.GetString(amqpapi.OptionExclusive, "") == "true"
+		noLocal = q.opts.GetString(amqpapi.OptionNoLocal, "") == "true"
+		noWait = q.opts.GetString(amqpapi.OptionNoWait, "") == "true"
 	}
 
 	consumerTag := fmt.Sprintf("%s-%s", queueID.String(), uuid.New().String()[:8])
 	if q.opts != nil {
-		if tag := q.opts.GetString(queueapi.OptionConsumerTag, ""); tag != "" {
+		if tag := q.opts.GetString(amqpapi.OptionConsumerTag, ""); tag != "" {
 			consumerTag = fmt.Sprintf("%s-%s", tag, uuid.New().String()[:8])
 		}
 	}

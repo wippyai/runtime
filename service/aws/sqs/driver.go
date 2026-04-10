@@ -145,9 +145,9 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 	waitTime := int32(20)
 	visTimeout := int32(0)
 	if q.opts != nil {
-		maxMessages = int32(q.opts.GetInt(queueapi.OptionMaxMessages, 10))
-		waitTime = int32(q.opts.GetInt(queueapi.OptionWaitTime, 20))
-		visTimeout = int32(q.opts.GetInt(queueapi.OptionVisibilityTimeout, 0))
+		maxMessages = int32(q.opts.GetInt(sqsapi.OptionMaxMessages, 10))
+		waitTime = int32(q.opts.GetInt(sqsapi.OptionWaitTime, 20))
+		visTimeout = int32(q.opts.GetInt(sqsapi.OptionVisibilityTimeout, 0))
 	}
 
 	receiveInput := &awssqs.ReceiveMessageInput{
@@ -236,7 +236,7 @@ func (d *Driver) buildQueueAttributes(opts attrs.Attributes) map[string]string {
 	hasDelay := d.cfg.DefaultDelaySeconds > 0
 	visTimeout := int32(0)
 	if opts != nil {
-		visTimeout = int32(opts.GetInt(queueapi.OptionVisibilityTimeout, 0))
+		visTimeout = int32(opts.GetInt(sqsapi.OptionVisibilityTimeout, 0))
 	}
 
 	if !hasRetention && !hasDelay && visTimeout <= 0 {

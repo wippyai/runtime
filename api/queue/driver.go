@@ -10,44 +10,26 @@ import (
 	"github.com/wippyai/runtime/api/supervisor"
 )
 
-// OptionQueueName is a queue declaration option key
+// Queue declaration and operation option constants.
+// Only driver-agnostic options live here; driver-specific options
+// belong in their respective api/service packages.
 const (
 	OptionQueueName = "queue_name" // Override queue name (default: ID.Name)
 	OptionMaxLength = "max_length" // Maximum queue length
 	OptionDurable   = "durable"    // Queue durability
 
-	// Consume/receive options (per-queue, read by Attach)
-	OptionExclusive   = "exclusive"    // Exclusive consumer (AMQP)
-	OptionAutoAck     = "auto_ack"     // Automatic acknowledgment
-	OptionNoLocal     = "no_local"     // Do not receive own publishes (AMQP)
-	OptionNoWait      = "no_wait"      // Do not wait for server confirmation (AMQP)
-	OptionConsumerTag = "consumer_tag" // Custom consumer tag prefix (AMQP)
+	// OptionAutoAck enables automatic acknowledgment on consume.
+	OptionAutoAck = "auto_ack"
 
-	// Codec option (per-queue serialization format)
-	OptionCodec = "codec" // Payload format for message body (e.g. "json/plain", "application/msgpack")
-
-	// SQS receive options (per-queue, read by Attach)
-	OptionMaxMessages       = "max_messages"       // Max messages per receive call (SQS: 1–10, default 10)
-	OptionWaitTime          = "wait_time"          // Long-poll wait time in seconds (SQS: 0–20, default 20)
-	OptionVisibilityTimeout = "visibility_timeout" // Visibility timeout in seconds (SQS: 0–43200)
-
-	// OptionMaxBytes reserved for future use
-	// OptionMessageTTL reserved for future use
-	// OptionDeadLetterQueue reserved for future use
-	// OptionDeadLetterExchange reserved for future use
-	// OptionMaxRetryCount reserved for future use
-	// OptionAutoDelete reserved for future use
-	// OptionOrdering reserved for future use
-	// OptionPartitions reserved for future use
-	// OptionReplicationFactor reserved for future use
-	// OptionRetentionPeriod reserved for future use
+	// OptionCodec sets the per-queue serialization format for message bodies
+	// (e.g. "json/plain", "application/msgpack").
+	OptionCodec = "codec"
 
 	// StatsMessageCount is a queue stats key (returned by GetQueueInfo)
 	StatsMessageCount  = "message_count"  // Number of messages in queue
 	StatsConsumerCount = "consumer_count" // Number of active consumers
 	// StatsReady is queue stats key for messages ready for delivery.
 	StatsReady = "ready"
-	// StatsUnacked = "unacked" // reserved for future use
 )
 
 // Delivery represents a message delivery to a consumer
