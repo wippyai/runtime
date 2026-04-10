@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/dispatcher"
 	pgapi "github.com/wippyai/runtime/api/pg"
-	"go.uber.org/zap"
 )
 
 // mockResultReceiver captures CompleteYield calls for assertion.
@@ -29,15 +28,13 @@ func (m *mockResultReceiver) CompleteYield(_ uint64, data any, err error) {
 func newTestDispatcher(t *testing.T) (*Dispatcher, *Service, *mockRouter) {
 	t.Helper()
 	svc, router, _ := startTestService(t)
-	d := NewDispatcher(svc, router, zap.NewNop())
+	d := NewDispatcher()
 	return d, svc, router
 }
 
 func TestNewDispatcher(t *testing.T) {
-	svc, _, _ := newTestService()
-	d := NewDispatcher(svc, nil, nil)
+	d := NewDispatcher()
 	require.NotNil(t, d)
-	require.NotNil(t, d.logger)
 }
 
 func TestDispatcher_RegisterAll(t *testing.T) {
@@ -70,8 +67,9 @@ func TestDispatcher_HandleJoin(t *testing.T) {
 
 	p1 := mkPID("host1", "1")
 	cmd := &pgapi.JoinCmd{
-		Caller: p1,
-		Group:  "workers",
+		Instance: svc,
+		Caller:   p1,
+		Group:    "workers",
 	}
 
 	receiver := &mockResultReceiver{}
@@ -94,8 +92,9 @@ func TestDispatcher_HandleLeave(t *testing.T) {
 	require.NoError(t, svc.Join("workers", p1))
 
 	cmd := &pgapi.LeaveCmd{
-		Caller: p1,
-		Group:  "workers",
+		Instance: svc,
+		Caller:   p1,
+		Group:    "workers",
 	}
 
 	receiver := &mockResultReceiver{}
@@ -111,12 +110,13 @@ func TestDispatcher_HandleLeave(t *testing.T) {
 }
 
 func TestDispatcher_HandleLeaveNotJoined(t *testing.T) {
-	d, _, _ := newTestDispatcher(t)
+	d, svc, _ := newTestDispatcher(t)
 
 	p1 := mkPID("host1", "1")
 	cmd := &pgapi.LeaveCmd{
-		Caller: p1,
-		Group:  "workers",
+		Instance: svc,
+		Caller:   p1,
+		Group:    "workers",
 	}
 
 	receiver := &mockResultReceiver{}
@@ -136,7 +136,7 @@ func TestDispatcher_HandleGetMembers(t *testing.T) {
 	require.NoError(t, svc.Join("workers", p1))
 	require.NoError(t, svc.Join("workers", p2))
 
-	cmd := &pgapi.GetMembersCmd{Group: "workers"}
+	cmd := &pgapi.GetMembersCmd{Instance: svc, Group: "workers"}
 
 	receiver := &mockResultReceiver{}
 	err := d.handleGetMembers(context.Background(), cmd, 1, receiver)
@@ -148,9 +148,9 @@ func TestDispatcher_HandleGetMembers(t *testing.T) {
 }
 
 func TestDispatcher_HandleGetMembersEmpty(t *testing.T) {
-	d, _, _ := newTestDispatcher(t)
+	d, svc, _ := newTestDispatcher(t)
 
-	cmd := &pgapi.GetMembersCmd{Group: "nonexistent"}
+	cmd := &pgapi.GetMembersCmd{Instance: svc, Group: "nonexistent"}
 
 	receiver := &mockResultReceiver{}
 	err := d.handleGetMembers(context.Background(), cmd, 1, receiver)
@@ -167,7 +167,7 @@ func TestDispatcher_HandleGetLocalMembers(t *testing.T) {
 	p1 := mkPID("host1", "1")
 	require.NoError(t, svc.Join("workers", p1))
 
-	cmd := &pgapi.GetLocalMembersCmd{Group: "workers"}
+	cmd := &pgapi.GetLocalMembersCmd{Instance: svc, Group: "workers"}
 
 	receiver := &mockResultReceiver{}
 	err := d.handleGetLocalMembers(context.Background(), cmd, 1, receiver)
@@ -179,9 +179,9 @@ func TestDispatcher_HandleGetLocalMembers(t *testing.T) {
 }
 
 func TestDispatcher_HandleGetLocalMembersEmpty(t *testing.T) {
-	d, _, _ := newTestDispatcher(t)
+	d, svc, _ := newTestDispatcher(t)
 
-	cmd := &pgapi.GetLocalMembersCmd{Group: "nonexistent"}
+	cmd := &pgapi.GetLocalMembersCmd{Instance: svc, Group: "nonexistent"}
 
 	receiver := &mockResultReceiver{}
 	err := d.handleGetLocalMembers(context.Background(), cmd, 1, receiver)
@@ -199,7 +199,7 @@ func TestDispatcher_HandleWhichGroups(t *testing.T) {
 	require.NoError(t, svc.Join("workers", p1))
 	require.NoError(t, svc.Join("managers", p1))
 
-	cmd := &pgapi.WhichGroupsCmd{}
+	cmd := &pgapi.WhichGroupsCmd{Instance: svc}
 
 	receiver := &mockResultReceiver{}
 	err := d.handleWhichGroups(context.Background(), cmd, 1, receiver)
@@ -211,9 +211,9 @@ func TestDispatcher_HandleWhichGroups(t *testing.T) {
 }
 
 func TestDispatcher_HandleWhichGroupsEmpty(t *testing.T) {
-	d, _, _ := newTestDispatcher(t)
+	d, svc, _ := newTestDispatcher(t)
 
-	cmd := &pgapi.WhichGroupsCmd{}
+	cmd := &pgapi.WhichGroupsCmd{Instance: svc}
 
 	receiver := &mockResultReceiver{}
 	err := d.handleWhichGroups(context.Background(), cmd, 1, receiver)
@@ -236,9 +236,10 @@ func TestDispatcher_HandleBroadcast(t *testing.T) {
 
 	from := mkPID("host1", "sender")
 	cmd := &pgapi.BroadcastCmd{
-		From:  from,
-		Group: "workers",
-		Topic: "hello",
+		Instance: svc,
+		From:     from,
+		Group:    "workers",
+		Topic:    "hello",
 	}
 
 	receiver := &mockResultReceiver{}
@@ -256,15 +257,16 @@ func TestDispatcher_HandleBroadcast(t *testing.T) {
 }
 
 func TestDispatcher_HandleBroadcastEmptyGroup(t *testing.T) {
-	d, _, router := newTestDispatcher(t)
+	d, svc, router := newTestDispatcher(t)
 
 	router.reset()
 
 	from := mkPID("host1", "sender")
 	cmd := &pgapi.BroadcastCmd{
-		From:  from,
-		Group: "nonexistent",
-		Topic: "hello",
+		Instance: svc,
+		From:     from,
+		Group:    "nonexistent",
+		Topic:    "hello",
 	}
 
 	receiver := &mockResultReceiver{}
@@ -286,9 +288,10 @@ func TestDispatcher_HandleBroadcastLocal(t *testing.T) {
 
 	from := mkPID("host1", "sender")
 	cmd := &pgapi.BroadcastLocalCmd{
-		From:  from,
-		Group: "workers",
-		Topic: "hello",
+		Instance: svc,
+		From:     from,
+		Group:    "workers",
+		Topic:    "hello",
 	}
 
 	receiver := &mockResultReceiver{}
@@ -305,15 +308,16 @@ func TestDispatcher_HandleBroadcastLocal(t *testing.T) {
 }
 
 func TestDispatcher_HandleBroadcastLocalEmptyGroup(t *testing.T) {
-	d, _, router := newTestDispatcher(t)
+	d, svc, router := newTestDispatcher(t)
 
 	router.reset()
 
 	from := mkPID("host1", "sender")
 	cmd := &pgapi.BroadcastLocalCmd{
-		From:  from,
-		Group: "nonexistent",
-		Topic: "hello",
+		Instance: svc,
+		From:     from,
+		Group:    "nonexistent",
+		Topic:    "hello",
 	}
 
 	receiver := &mockResultReceiver{}
@@ -344,9 +348,10 @@ func TestDispatcher_SendToMembersRouterError(t *testing.T) {
 
 	from := mkPID("host1", "sender")
 	cmd := &pgapi.BroadcastCmd{
-		From:  from,
-		Group: "workers",
-		Topic: "hello",
+		Instance: svc,
+		From:     from,
+		Group:    "workers",
+		Topic:    "hello",
 	}
 
 	receiver := &mockResultReceiver{}
@@ -383,9 +388,10 @@ func TestDispatcher_SendToMembersPartialFailure(t *testing.T) {
 
 	// Broadcast to all 3 — all should succeed with healthy router
 	cmd := &pgapi.BroadcastCmd{
-		From:  from,
-		Group: "workers",
-		Topic: "hello",
+		Instance: svc,
+		From:     from,
+		Group:    "workers",
+		Topic:    "hello",
 	}
 
 	receiver := &mockResultReceiver{}
@@ -412,9 +418,10 @@ func TestDispatcher_BroadcastLocalRouterError(t *testing.T) {
 
 	from := mkPID("host1", "sender")
 	cmd := &pgapi.BroadcastLocalCmd{
-		From:  from,
-		Group: "workers",
-		Topic: "hello",
+		Instance: svc,
+		From:     from,
+		Group:    "workers",
+		Topic:    "hello",
 	}
 
 	receiver := &mockResultReceiver{}
@@ -435,7 +442,7 @@ func TestDispatcher_HandleWhichLocalGroups(t *testing.T) {
 	require.NoError(t, svc.Join("workers", p1))
 	require.NoError(t, svc.Join("managers", p1))
 
-	cmd := &pgapi.WhichLocalGroupsCmd{}
+	cmd := &pgapi.WhichLocalGroupsCmd{Instance: svc}
 
 	receiver := &mockResultReceiver{}
 	err := d.handleWhichLocalGroups(context.Background(), cmd, 1, receiver)
@@ -447,9 +454,9 @@ func TestDispatcher_HandleWhichLocalGroups(t *testing.T) {
 }
 
 func TestDispatcher_HandleWhichLocalGroupsEmpty(t *testing.T) {
-	d, _, _ := newTestDispatcher(t)
+	d, svc, _ := newTestDispatcher(t)
 
-	cmd := &pgapi.WhichLocalGroupsCmd{}
+	cmd := &pgapi.WhichLocalGroupsCmd{Instance: svc}
 
 	receiver := &mockResultReceiver{}
 	err := d.handleWhichLocalGroups(context.Background(), cmd, 1, receiver)
@@ -470,9 +477,10 @@ func TestDispatcher_HandleMonitor(t *testing.T) {
 
 	monitorPID := mkPID("host1", "monitor")
 	cmd := &pgapi.MonitorCmd{
-		Group: "workers",
-		PID:   monitorPID,
-		Topic: "pg.event",
+		Instance: svc,
+		Group:    "workers",
+		PID:      monitorPID,
+		Topic:    "pg.event",
 	}
 
 	receiver := &mockResultReceiver{}
@@ -489,13 +497,14 @@ func TestDispatcher_HandleMonitor(t *testing.T) {
 }
 
 func TestDispatcher_HandleMonitorEmpty(t *testing.T) {
-	d, _, _ := newTestDispatcher(t)
+	d, svc, _ := newTestDispatcher(t)
 
 	monitorPID := mkPID("host1", "monitor")
 	cmd := &pgapi.MonitorCmd{
-		Group: "nonexistent",
-		PID:   monitorPID,
-		Topic: "pg.event",
+		Instance: svc,
+		Group:    "nonexistent",
+		PID:      monitorPID,
+		Topic:    "pg.event",
 	}
 
 	receiver := &mockResultReceiver{}
@@ -522,8 +531,9 @@ func TestDispatcher_HandleEvents(t *testing.T) {
 
 	eventsPID := mkPID("host1", "events")
 	cmd := &pgapi.EventsCmd{
-		PID:   eventsPID,
-		Topic: "pg.event",
+		Instance: svc,
+		PID:      eventsPID,
+		Topic:    "pg.event",
 	}
 
 	receiver := &mockResultReceiver{}
@@ -542,12 +552,13 @@ func TestDispatcher_HandleEvents(t *testing.T) {
 }
 
 func TestDispatcher_HandleEventsEmpty(t *testing.T) {
-	d, _, _ := newTestDispatcher(t)
+	d, svc, _ := newTestDispatcher(t)
 
 	eventsPID := mkPID("host1", "events")
 	cmd := &pgapi.EventsCmd{
-		PID:   eventsPID,
-		Topic: "pg.event",
+		Instance: svc,
+		PID:      eventsPID,
+		Topic:    "pg.event",
 	}
 
 	receiver := &mockResultReceiver{}
@@ -569,8 +580,9 @@ func TestDispatcher_HandleJoinGroups(t *testing.T) {
 
 	p1 := mkPID("host1", "1")
 	cmd := &pgapi.JoinGroupsCmd{
-		Caller: p1,
-		Groups: []string{"workers", "managers"},
+		Instance: svc,
+		Caller:   p1,
+		Groups:   []string{"workers", "managers"},
 	}
 
 	receiver := &mockResultReceiver{}
@@ -594,8 +606,9 @@ func TestDispatcher_HandleLeaveGroups(t *testing.T) {
 	require.NoError(t, svc.JoinGroups([]string{"workers", "managers"}, p1))
 
 	cmd := &pgapi.LeaveGroupsCmd{
-		Caller: p1,
-		Groups: []string{"workers", "managers"},
+		Instance: svc,
+		Caller:   p1,
+		Groups:   []string{"workers", "managers"},
 	}
 
 	receiver := &mockResultReceiver{}
@@ -611,12 +624,13 @@ func TestDispatcher_HandleLeaveGroups(t *testing.T) {
 }
 
 func TestDispatcher_HandleLeaveGroupsNotJoined(t *testing.T) {
-	d, _, _ := newTestDispatcher(t)
+	d, svc, _ := newTestDispatcher(t)
 
 	p1 := mkPID("host1", "1")
 	cmd := &pgapi.LeaveGroupsCmd{
-		Caller: p1,
-		Groups: []string{"workers"},
+		Instance: svc,
+		Caller:   p1,
+		Groups:   []string{"workers"},
 	}
 
 	receiver := &mockResultReceiver{}

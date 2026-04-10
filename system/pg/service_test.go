@@ -101,18 +101,28 @@ func (m *mockTopology) isMonitored(p pid.PID) bool {
 	return m.monitored[p.String()]
 }
 
+// testServicePID is a test helper that builds a service PID for the
+// default "pg" host ID. Service PIDs have an empty UniqID since PG
+// is a host-level receiver and UniqID is not used for routing.
+func testServicePID(nodeID pid.NodeID) pid.PID {
+	return pid.PID{
+		Node: nodeID,
+		Host: "pg",
+	}
+}
+
 func newTestService() (*Service, *mockRouter, *mockTopology) {
 	router := newMockRouter()
 	topo := newMockTopology()
 	logger := zap.NewNop()
-	svc := NewService(logger, router, topo, nil, nil, "local-node")
+	svc := NewService(logger, "pg", nil, router, topo, nil, nil, "local-node")
 	return svc, router, topo
 }
 
 func startTestService(t *testing.T) (*Service, *mockRouter, *mockTopology) {
 	t.Helper()
 	svc, router, topo := newTestService()
-	err := svc.Start(context.Background())
+	_, err := svc.Start(context.Background())
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = svc.Stop(context.Background())
@@ -129,14 +139,14 @@ func TestNewService(t *testing.T) {
 }
 
 func TestNewServiceNilLogger(t *testing.T) {
-	svc := NewService(nil, newMockRouter(), newMockTopology(), nil, nil, "node")
+	svc := NewService(nil, "pg", nil, newMockRouter(), newMockTopology(), nil, nil, "node")
 	require.NotNil(t, svc)
 }
 
 func TestServiceStartStop(t *testing.T) {
 	svc, _, _ := newTestService()
 
-	err := svc.Start(context.Background())
+	_, err := svc.Start(context.Background())
 	require.NoError(t, err)
 
 	err = svc.Stop(context.Background())
@@ -248,8 +258,9 @@ func TestServiceBroadcast(t *testing.T) {
 
 	router.reset() // Clear any join-related sends
 
-	err := svc.Broadcast(sender, "workers", "hello", nil)
+	sent, err := svc.Broadcast(sender, "workers", "hello", nil)
 	require.NoError(t, err)
+	assert.Equal(t, 2, sent)
 
 	// Allow time for async processing
 	time.Sleep(50 * time.Millisecond)
@@ -268,8 +279,9 @@ func TestServiceBroadcastLocal(t *testing.T) {
 
 	router.reset()
 
-	err := svc.BroadcastLocal(sender, "workers", "hello", nil)
+	sent, err := svc.BroadcastLocal(sender, "workers", "hello", nil)
 	require.NoError(t, err)
+	assert.Equal(t, 1, sent)
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -284,8 +296,9 @@ func TestServiceBroadcastEmptyGroup(t *testing.T) {
 
 	router.reset()
 
-	err := svc.Broadcast(sender, "empty", "hello", nil)
+	sent, err := svc.Broadcast(sender, "empty", "hello", nil)
 	require.NoError(t, err)
+	assert.Equal(t, 0, sent)
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -328,8 +341,8 @@ func TestServiceSend_DiscoverPackage(t *testing.T) {
 	router.reset()
 
 	// Build a discover relay package
-	source := pgPID("node-b")
-	target := pgPID("local-node")
+	source := testServicePID("node-b")
+	target := testServicePID("local-node")
 	pkg := relay.NewPackage(source, target, pgapi.TopicDiscover,
 		payload.New(map[string]any{
 			"from": "node-b",
@@ -362,8 +375,8 @@ func TestServiceSend_SyncPackage(t *testing.T) {
 
 	// Build a sync relay package with groups data
 	rp1 := mkNodePID("node-b", "host1", "1")
-	source := pgPID("node-b")
-	target := pgPID("local-node")
+	source := testServicePID("node-b")
+	target := testServicePID("local-node")
 	pkg := relay.NewPackage(source, target, pgapi.TopicSync,
 		payload.New(map[string]any{
 			"from": "node-b",
@@ -386,8 +399,8 @@ func TestServiceSend_JoinPackage(t *testing.T) {
 	svc, _, _ := startTestService(t)
 
 	rp1 := mkNodePID("node-b", "host1", "1")
-	source := pgPID("node-b")
-	target := pgPID("local-node")
+	source := testServicePID("node-b")
+	target := testServicePID("local-node")
 	pkg := relay.NewPackage(source, target, pgapi.TopicJoin,
 		payload.New(map[string]any{
 			"from":  "node-b",
@@ -411,7 +424,7 @@ func TestServiceSend_LeavePackage(t *testing.T) {
 
 	// First join remotely
 	rp1 := mkNodePID("node-b", "host1", "1")
-	joinPkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicJoin,
+	joinPkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicJoin,
 		payload.New(map[string]any{
 			"from":  "node-b",
 			"group": "workers",
@@ -424,7 +437,7 @@ func TestServiceSend_LeavePackage(t *testing.T) {
 	require.Len(t, svc.GetMembers("workers"), 1)
 
 	// Now leave
-	leavePkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicLeave,
+	leavePkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicLeave,
 		payload.New(map[string]any{
 			"from":   "node-b",
 			"pids":   []any{rp1.String()},
@@ -449,7 +462,7 @@ func TestServiceSend_ExitPackage(t *testing.T) {
 	msg := relay.AcquireMessage()
 	msg.Topic = topology.TopicEvents
 	msg.Payloads = payload.Payloads{payload.New(exitEvent)}
-	pkg := relay.NewMessagePackage(p1, pgPID("local-node"), msg)
+	pkg := relay.NewMessagePackage(p1, testServicePID("local-node"), msg)
 
 	require.NoError(t, svc.Send(pkg))
 	time.Sleep(50 * time.Millisecond)
@@ -467,7 +480,7 @@ func TestServiceSend_DiscoverNoPayloads(t *testing.T) {
 	msg := relay.AcquireMessage()
 	msg.Topic = pgapi.TopicDiscover
 	// No payloads
-	pkg := relay.NewMessagePackage(pgPID("node-b"), pgPID("local-node"), msg)
+	pkg := relay.NewMessagePackage(testServicePID("node-b"), testServicePID("local-node"), msg)
 
 	err := svc.Send(pkg)
 	require.NoError(t, err)
@@ -484,7 +497,7 @@ func TestServiceSend_DiscoverWrongPayloadType(t *testing.T) {
 
 	router.reset()
 
-	pkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicDiscover,
+	pkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicDiscover,
 		payload.New("not a map"),
 	)
 
@@ -502,7 +515,7 @@ func TestServiceSend_DiscoverEmptyFromField(t *testing.T) {
 
 	router.reset()
 
-	pkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicDiscover,
+	pkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicDiscover,
 		payload.New(map[string]any{
 			"from": "", // empty from
 		}),
@@ -522,7 +535,7 @@ func TestServiceSend_SyncNoPayloads(t *testing.T) {
 
 	msg := relay.AcquireMessage()
 	msg.Topic = pgapi.TopicSync
-	pkg := relay.NewMessagePackage(pgPID("node-b"), pgPID("local-node"), msg)
+	pkg := relay.NewMessagePackage(testServicePID("node-b"), testServicePID("local-node"), msg)
 
 	err := svc.Send(pkg)
 	require.NoError(t, err)
@@ -534,7 +547,7 @@ func TestServiceSend_SyncNoPayloads(t *testing.T) {
 func TestServiceSend_SyncWrongPayloadType(t *testing.T) {
 	svc, _, _ := startTestService(t)
 
-	pkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicSync,
+	pkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicSync,
 		payload.New(42), // not a map
 	)
 
@@ -548,7 +561,7 @@ func TestServiceSend_SyncWrongPayloadType(t *testing.T) {
 func TestServiceSend_SyncEmptyFrom(t *testing.T) {
 	svc, _, _ := startTestService(t)
 
-	pkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicSync,
+	pkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicSync,
 		payload.New(map[string]any{
 			"from":   "",
 			"groups": map[string]any{},
@@ -567,7 +580,7 @@ func TestServiceSend_JoinNoPayloads(t *testing.T) {
 
 	msg := relay.AcquireMessage()
 	msg.Topic = pgapi.TopicJoin
-	pkg := relay.NewMessagePackage(pgPID("node-b"), pgPID("local-node"), msg)
+	pkg := relay.NewMessagePackage(testServicePID("node-b"), testServicePID("local-node"), msg)
 
 	err := svc.Send(pkg)
 	require.NoError(t, err)
@@ -578,7 +591,7 @@ func TestServiceSend_JoinNoPayloads(t *testing.T) {
 func TestServiceSend_JoinMissingGroup(t *testing.T) {
 	svc, _, _ := startTestService(t)
 
-	pkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicJoin,
+	pkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicJoin,
 		payload.New(map[string]any{
 			"from": "node-b",
 			// missing "group"
@@ -596,7 +609,7 @@ func TestServiceSend_JoinMissingGroup(t *testing.T) {
 func TestServiceSend_JoinMissingFrom(t *testing.T) {
 	svc, _, _ := startTestService(t)
 
-	pkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicJoin,
+	pkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicJoin,
 		payload.New(map[string]any{
 			"group": "workers",
 			"pids":  []any{"{host1|1}"},
@@ -614,7 +627,7 @@ func TestServiceSend_JoinMissingFrom(t *testing.T) {
 func TestServiceSend_JoinInvalidPIDStrings(t *testing.T) {
 	svc, _, _ := startTestService(t)
 
-	pkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicJoin,
+	pkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicJoin,
 		payload.New(map[string]any{
 			"from":  "node-b",
 			"group": "workers",
@@ -636,7 +649,7 @@ func TestServiceSend_LeaveNoPayloads(t *testing.T) {
 
 	msg := relay.AcquireMessage()
 	msg.Topic = pgapi.TopicLeave
-	pkg := relay.NewMessagePackage(pgPID("node-b"), pgPID("local-node"), msg)
+	pkg := relay.NewMessagePackage(testServicePID("node-b"), testServicePID("local-node"), msg)
 
 	err := svc.Send(pkg)
 	require.NoError(t, err)
@@ -647,7 +660,7 @@ func TestServiceSend_LeaveNoPayloads(t *testing.T) {
 func TestServiceSend_LeaveMissingFrom(t *testing.T) {
 	svc, _, _ := startTestService(t)
 
-	pkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicLeave,
+	pkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicLeave,
 		payload.New(map[string]any{
 			// missing "from"
 			"pids":   []any{"{host1|1}"},
@@ -664,7 +677,7 @@ func TestServiceSend_LeaveMissingFrom(t *testing.T) {
 func TestServiceSend_SyncWithInvalidPIDStrings(t *testing.T) {
 	svc, _, _ := startTestService(t)
 
-	pkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicSync,
+	pkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicSync,
 		payload.New(map[string]any{
 			"from": "node-b",
 			"groups": map[string]any{
@@ -691,7 +704,7 @@ func TestServiceSend_SyncWithInvalidPIDStrings(t *testing.T) {
 func TestServiceSend_SyncWithNonSliceGroupValue(t *testing.T) {
 	svc, _, _ := startTestService(t)
 
-	pkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicSync,
+	pkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicSync,
 		payload.New(map[string]any{
 			"from": "node-b",
 			"groups": map[string]any{
@@ -719,7 +732,7 @@ func TestServiceSend_ExitNoExitEvent(t *testing.T) {
 	msg := relay.AcquireMessage()
 	msg.Topic = topology.TopicEvents
 	msg.Payloads = payload.Payloads{payload.New("not an exit event")}
-	pkg := relay.NewMessagePackage(p1, pgPID("local-node"), msg)
+	pkg := relay.NewMessagePackage(p1, testServicePID("local-node"), msg)
 
 	require.NoError(t, svc.Send(pkg))
 	time.Sleep(50 * time.Millisecond)
@@ -731,7 +744,7 @@ func TestServiceSend_ExitNoExitEvent(t *testing.T) {
 func TestServiceSend_UnknownTopic(t *testing.T) {
 	svc, _, _ := startTestService(t)
 
-	pkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), "unknown.topic",
+	pkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), "unknown.topic",
 		payload.New(map[string]any{"data": "test"}),
 	)
 
@@ -747,8 +760,8 @@ func TestServiceSend_MultipleMessages(t *testing.T) {
 	rp2 := mkNodePID("node-b", "host1", "2")
 
 	pkg := relay.AcquirePackage()
-	pkg.Source = pgPID("node-b")
-	pkg.Target = pgPID("local-node")
+	pkg.Source = testServicePID("node-b")
+	pkg.Target = testServicePID("local-node")
 
 	// Add two join messages in one package
 	pkg.AddMessage(pgapi.TopicJoin,
@@ -791,9 +804,9 @@ func TestServiceStartWithMembership(t *testing.T) {
 		},
 	}
 
-	svc := NewService(logger, router, topo, membership, nil, "local-node")
+	svc := NewService(logger, "pg", nil, router, topo, membership, nil, "local-node")
 
-	err := svc.Start(context.Background())
+	_, err := svc.Start(context.Background())
 	require.NoError(t, err)
 	defer func() { _ = svc.Stop(context.Background()) }()
 
@@ -825,9 +838,9 @@ func TestServiceStartWithMembershipNoRemoteNodes(t *testing.T) {
 		},
 	}
 
-	svc := NewService(logger, router, topo, membership, nil, "local-node")
+	svc := NewService(logger, "pg", nil, router, topo, membership, nil, "local-node")
 
-	err := svc.Start(context.Background())
+	_, err := svc.Start(context.Background())
 	require.NoError(t, err)
 	defer func() { _ = svc.Stop(context.Background()) }()
 
@@ -964,7 +977,7 @@ func TestServiceHandleNodeLeftEventWrongDataType(t *testing.T) {
 
 func TestServiceJoinAfterStop(t *testing.T) {
 	svc, _, _ := newTestService()
-	require.NoError(t, svc.Start(context.Background()))
+	require.NoError(t, func() error { _, err := svc.Start(context.Background()); return err }())
 	require.NoError(t, svc.Stop(context.Background()))
 
 	p1 := mkPID("host1", "1")
@@ -974,7 +987,7 @@ func TestServiceJoinAfterStop(t *testing.T) {
 
 func TestServiceLeaveAfterStop(t *testing.T) {
 	svc, _, _ := newTestService()
-	require.NoError(t, svc.Start(context.Background()))
+	require.NoError(t, func() error { _, err := svc.Start(context.Background()); return err }())
 	require.NoError(t, svc.Stop(context.Background()))
 
 	p1 := mkPID("host1", "1")
@@ -984,7 +997,7 @@ func TestServiceLeaveAfterStop(t *testing.T) {
 
 func TestServiceGetMembersAfterStop(t *testing.T) {
 	svc, _, _ := newTestService()
-	require.NoError(t, svc.Start(context.Background()))
+	require.NoError(t, func() error { _, err := svc.Start(context.Background()); return err }())
 	require.NoError(t, svc.Stop(context.Background()))
 
 	members := svc.GetMembers("workers")
@@ -993,7 +1006,7 @@ func TestServiceGetMembersAfterStop(t *testing.T) {
 
 func TestServiceGetLocalMembersAfterStop(t *testing.T) {
 	svc, _, _ := newTestService()
-	require.NoError(t, svc.Start(context.Background()))
+	require.NoError(t, func() error { _, err := svc.Start(context.Background()); return err }())
 	require.NoError(t, svc.Stop(context.Background()))
 
 	members := svc.GetLocalMembers("workers")
@@ -1002,7 +1015,7 @@ func TestServiceGetLocalMembersAfterStop(t *testing.T) {
 
 func TestServiceWhichGroupsAfterStop(t *testing.T) {
 	svc, _, _ := newTestService()
-	require.NoError(t, svc.Start(context.Background()))
+	require.NoError(t, func() error { _, err := svc.Start(context.Background()); return err }())
 	require.NoError(t, svc.Stop(context.Background()))
 
 	groups := svc.WhichGroups()
@@ -1011,21 +1024,21 @@ func TestServiceWhichGroupsAfterStop(t *testing.T) {
 
 func TestServiceBroadcastAfterStop(t *testing.T) {
 	svc, _, _ := newTestService()
-	require.NoError(t, svc.Start(context.Background()))
+	require.NoError(t, func() error { _, err := svc.Start(context.Background()); return err }())
 	require.NoError(t, svc.Stop(context.Background()))
 
 	sender := mkPID("host1", "sender")
-	err := svc.Broadcast(sender, "workers", "hello", nil)
+	_, err := svc.Broadcast(sender, "workers", "hello", nil)
 	assert.ErrorIs(t, err, ErrServiceStopped)
 }
 
 func TestServiceBroadcastLocalAfterStop(t *testing.T) {
 	svc, _, _ := newTestService()
-	require.NoError(t, svc.Start(context.Background()))
+	require.NoError(t, func() error { _, err := svc.Start(context.Background()); return err }())
 	require.NoError(t, svc.Stop(context.Background()))
 
 	sender := mkPID("host1", "sender")
-	err := svc.BroadcastLocal(sender, "workers", "hello", nil)
+	_, err := svc.BroadcastLocal(sender, "workers", "hello", nil)
 	assert.ErrorIs(t, err, ErrServiceStopped)
 }
 
@@ -1051,8 +1064,9 @@ func TestServiceSendToMembersPartialFailure(t *testing.T) {
 	router.reset()
 
 	// Broadcast through the service event loop
-	err := svc.Broadcast(sender, "workers", "hello", nil)
+	sent, err := svc.Broadcast(sender, "workers", "hello", nil)
 	require.NoError(t, err) // Broadcast itself doesn't fail
+	assert.Equal(t, 0, sent, "all sends should have failed")
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -1069,8 +1083,9 @@ func TestServiceSendToMembersEmpty(t *testing.T) {
 	router.reset()
 
 	// Broadcast to nonexistent group — no members
-	err := svc.Broadcast(sender, "nonexistent", "hello", nil)
+	sent, err := svc.Broadcast(sender, "nonexistent", "hello", nil)
 	require.NoError(t, err)
+	assert.Equal(t, 0, sent)
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -1087,14 +1102,14 @@ func newTestServiceWithBus(t *testing.T) (*Service, *mockRouter, *mockTopology, 
 	topo := newMockTopology()
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
-	svc := NewService(logger, router, topo, nil, bus, "local-node")
+	svc := NewService(logger, "pg", nil, router, topo, nil, bus, "local-node")
 	return svc, router, topo, bus
 }
 
 func startTestServiceWithBus(t *testing.T) (*Service, *mockRouter, *mockTopology, event.Bus) {
 	t.Helper()
 	svc, router, topo, bus := newTestServiceWithBus(t)
-	err := svc.Start(context.Background())
+	_, err := svc.Start(context.Background())
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = svc.Stop(context.Background())
@@ -1174,7 +1189,7 @@ func TestServiceEmitsEventOnProcessExit(t *testing.T) {
 	msg := relay.AcquireMessage()
 	msg.Topic = topology.TopicEvents
 	msg.Payloads = payload.Payloads{payload.New(exitEvent)}
-	pkg := relay.NewMessagePackage(p1, pgPID("local-node"), msg)
+	pkg := relay.NewMessagePackage(p1, testServicePID("local-node"), msg)
 	require.NoError(t, svc.Send(pkg))
 
 	select {
@@ -1211,7 +1226,7 @@ func TestServiceMultiJoinExitEmitsDedupedEvents(t *testing.T) {
 	msg := relay.AcquireMessage()
 	msg.Topic = topology.TopicEvents
 	msg.Payloads = payload.Payloads{payload.New(exitEvent)}
-	pkg := relay.NewMessagePackage(p1, pgPID("local-node"), msg)
+	pkg := relay.NewMessagePackage(p1, testServicePID("local-node"), msg)
 	require.NoError(t, svc.Send(pkg))
 
 	// Should get exactly 2 leave events (one per unique group)
@@ -1307,7 +1322,7 @@ func TestServiceEmitsEventsForRemoteJoin(t *testing.T) {
 
 	// Simulate remote join via relay package
 	rp1 := mkNodePID("node-b", "host1", "1")
-	pkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicJoin,
+	pkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicJoin,
 		payload.New(map[string]any{
 			"from":  "node-b",
 			"group": "workers",
@@ -1333,7 +1348,7 @@ func TestServiceEmitsEventsForRemoteLeave(t *testing.T) {
 
 	// First join remotely
 	rp1 := mkNodePID("node-b", "host1", "1")
-	joinPkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicJoin,
+	joinPkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicJoin,
 		payload.New(map[string]any{
 			"from":  "node-b",
 			"group": "workers",
@@ -1349,7 +1364,7 @@ func TestServiceEmitsEventsForRemoteLeave(t *testing.T) {
 	require.NoError(t, err)
 
 	// Remote leave
-	leavePkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicLeave,
+	leavePkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicLeave,
 		payload.New(map[string]any{
 			"from":   "node-b",
 			"pids":   []any{rp1.String()},
@@ -1373,7 +1388,7 @@ func TestServiceRemoteLeaveNoSpuriousEventsForNonMemberGroups(t *testing.T) {
 	rp1 := mkNodePID("node-b", "host1", "1")
 
 	// Join rp1 to "workers" only (not "managers")
-	joinPkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicJoin,
+	joinPkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicJoin,
 		payload.New(map[string]any{
 			"from":  "node-b",
 			"group": "workers",
@@ -1389,7 +1404,7 @@ func TestServiceRemoteLeaveNoSpuriousEventsForNonMemberGroups(t *testing.T) {
 	require.NoError(t, err)
 
 	// Send leave for both "workers" and "managers" — rp1 is only in "workers"
-	leavePkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicLeave,
+	leavePkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicLeave,
 		payload.New(map[string]any{
 			"from":   "node-b",
 			"pids":   []any{rp1.String()},
@@ -1432,7 +1447,7 @@ func TestServiceRemoteLeaveDoesNotCorruptOtherNodeMembers(t *testing.T) {
 		{"node-c", "workers", rp2},
 		{"node-c", "managers", rp2},
 	} {
-		pkg := relay.NewPackage(pgPID(jp.from), pgPID("local-node"), pgapi.TopicJoin,
+		pkg := relay.NewPackage(testServicePID(jp.from), testServicePID("local-node"), pgapi.TopicJoin,
 			payload.New(map[string]any{
 				"from":  jp.from,
 				"group": jp.group,
@@ -1453,7 +1468,7 @@ func TestServiceRemoteLeaveDoesNotCorruptOtherNodeMembers(t *testing.T) {
 
 	// Leave rp1 from "workers" and "managers" on node-b.
 	// rp1 was never in "managers", so rp2's membership must not be affected.
-	leavePkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicLeave,
+	leavePkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicLeave,
 		payload.New(map[string]any{
 			"from":   "node-b",
 			"pids":   []any{rp1.String()},
@@ -1516,7 +1531,7 @@ func TestServiceJoinGroupsEmpty(t *testing.T) {
 
 func TestServiceJoinGroupsAfterStop(t *testing.T) {
 	svc, _, _ := newTestService()
-	require.NoError(t, svc.Start(context.Background()))
+	require.NoError(t, func() error { _, err := svc.Start(context.Background()); return err }())
 	require.NoError(t, svc.Stop(context.Background()))
 
 	p1 := mkPID("host1", "1")
@@ -1642,7 +1657,7 @@ func TestServiceMultiJoinExitBroadcast(t *testing.T) {
 
 	// Register a remote node so broadcasts have a target
 	rp := mkNodePID("node-b", "host1", "99")
-	joinPkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicJoin,
+	joinPkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicJoin,
 		payload.New(map[string]any{
 			"from":  "node-b",
 			"group": "other",
@@ -1665,7 +1680,7 @@ func TestServiceMultiJoinExitBroadcast(t *testing.T) {
 	msg := relay.AcquireMessage()
 	msg.Topic = topology.TopicEvents
 	msg.Payloads = payload.Payloads{payload.New(exitEvent)}
-	pkg := relay.NewMessagePackage(p1, pgPID("local-node"), msg)
+	pkg := relay.NewMessagePackage(p1, testServicePID("local-node"), msg)
 	require.NoError(t, svc.Send(pkg))
 
 	time.Sleep(100 * time.Millisecond)
@@ -1700,7 +1715,7 @@ func TestServiceMultiJoinExitBroadcast(t *testing.T) {
 
 func TestServiceLeaveGroupsAfterStop(t *testing.T) {
 	svc, _, _ := newTestService()
-	require.NoError(t, svc.Start(context.Background()))
+	require.NoError(t, func() error { _, err := svc.Start(context.Background()); return err }())
 	require.NoError(t, svc.Stop(context.Background()))
 
 	p1 := mkPID("host1", "1")
@@ -1733,7 +1748,7 @@ func TestServiceWhichLocalGroupsExcludesRemote(t *testing.T) {
 
 	// Add remote members only
 	rp1 := mkNodePID("node-b", "host1", "1")
-	pkg := relay.NewPackage(pgPID("node-b"), pgPID("local-node"), pgapi.TopicJoin,
+	pkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicJoin,
 		payload.New(map[string]any{
 			"from":  "node-b",
 			"group": "remote-only",
@@ -1752,7 +1767,7 @@ func TestServiceWhichLocalGroupsExcludesRemote(t *testing.T) {
 
 func TestServiceWhichLocalGroupsAfterStop(t *testing.T) {
 	svc, _, _ := newTestService()
-	require.NoError(t, svc.Start(context.Background()))
+	require.NoError(t, func() error { _, err := svc.Start(context.Background()); return err }())
 	require.NoError(t, svc.Stop(context.Background()))
 
 	groups := svc.WhichLocalGroups()
@@ -1775,8 +1790,8 @@ func TestServiceMonitor(t *testing.T) {
 	result := svc.Monitor("workers", monitorPID, "pg.event")
 
 	// Should get current members as snapshot
-	assert.Len(t, result.members, 2)
-	assert.NotNil(t, result.unsubscribe)
+	assert.Len(t, result.Members, 2)
+	assert.NotNil(t, result.Unsubscribe)
 
 	router.reset()
 
@@ -1797,7 +1812,7 @@ func TestServiceMonitor(t *testing.T) {
 	assert.True(t, found, "monitor should receive join event")
 
 	// Unsubscribe
-	result.unsubscribe()
+	result.Unsubscribe()
 	time.Sleep(50 * time.Millisecond)
 }
 
@@ -1807,9 +1822,9 @@ func TestServiceMonitorEmptyGroup(t *testing.T) {
 	monitorPID := mkPID("host1", "monitor")
 	result := svc.Monitor("nonexistent", monitorPID, "pg.event")
 
-	assert.Nil(t, result.members)
-	assert.NotNil(t, result.unsubscribe)
-	result.unsubscribe()
+	assert.Nil(t, result.Members)
+	assert.NotNil(t, result.Unsubscribe)
+	result.Unsubscribe()
 }
 
 func TestServiceMonitorUnsubscribe(t *testing.T) {
@@ -1819,7 +1834,7 @@ func TestServiceMonitorUnsubscribe(t *testing.T) {
 	result := svc.Monitor("workers", monitorPID, "pg.event")
 
 	// Unsubscribe immediately
-	result.unsubscribe()
+	result.Unsubscribe()
 	time.Sleep(50 * time.Millisecond)
 
 	router.reset()
@@ -1851,12 +1866,12 @@ func TestServiceEvents(t *testing.T) {
 	result := svc.Events(eventsPID, "pg.event")
 
 	// Should get snapshot of all groups
-	assert.Len(t, result.groups, 2)
-	assert.Len(t, result.groups["workers"], 1)
-	assert.Len(t, result.groups["managers"], 1)
-	assert.NotNil(t, result.unsubscribe)
+	assert.Len(t, result.Groups, 2)
+	assert.Len(t, result.Groups["workers"], 1)
+	assert.Len(t, result.Groups["managers"], 1)
+	assert.NotNil(t, result.Unsubscribe)
 
-	result.unsubscribe()
+	result.Unsubscribe()
 }
 
 func TestServiceEventsEmpty(t *testing.T) {
@@ -1865,9 +1880,9 @@ func TestServiceEventsEmpty(t *testing.T) {
 	eventsPID := mkPID("host1", "events")
 	result := svc.Events(eventsPID, "pg.event")
 
-	assert.Empty(t, result.groups)
-	assert.NotNil(t, result.unsubscribe)
-	result.unsubscribe()
+	assert.Empty(t, result.Groups)
+	assert.NotNil(t, result.Unsubscribe)
+	result.Unsubscribe()
 }
 
 func TestServiceEventsReceivesAllGroupEvents(t *testing.T) {
@@ -1894,7 +1909,7 @@ func TestServiceEventsReceivesAllGroupEvents(t *testing.T) {
 	}
 	assert.Equal(t, 2, eventCount, "events subscriber should receive events for all groups")
 
-	result.unsubscribe()
+	result.Unsubscribe()
 }
 
 // --- RCU snapshot tests ---
@@ -2012,8 +2027,8 @@ func TestServiceSyncDifferentialNoSpuriousEvents(t *testing.T) {
 	// Set up a monitor to capture events
 	monPID := mkPID("host1", "mon")
 	result := svc.Monitor("workers", monPID, "pg.monitor")
-	assert.Len(t, result.members, 2)
-	defer result.unsubscribe()
+	assert.Len(t, result.Members, 2)
+	defer result.Unsubscribe()
 
 	router.reset()
 
@@ -2056,8 +2071,8 @@ func TestServiceSyncDifferentialAddsNewPIDs(t *testing.T) {
 	// Monitor the group
 	monPID := mkPID("host1", "mon")
 	result := svc.Monitor("workers", monPID, "pg.monitor")
-	assert.Len(t, result.members, 1)
-	defer result.unsubscribe()
+	assert.Len(t, result.Members, 1)
+	defer result.Unsubscribe()
 
 	router.reset()
 
@@ -2117,8 +2132,8 @@ func TestServiceSyncDifferentialRemovesPIDs(t *testing.T) {
 	// Monitor the group
 	monPID := mkPID("host1", "mon")
 	result := svc.Monitor("workers", monPID, "pg.monitor")
-	assert.Len(t, result.members, 2)
-	defer result.unsubscribe()
+	assert.Len(t, result.Members, 2)
+	defer result.Unsubscribe()
 
 	router.reset()
 
@@ -2172,8 +2187,8 @@ func TestServiceSyncDifferentialRemovesGroup(t *testing.T) {
 	// Monitor all events via Events
 	monPID := mkPID("host1", "mon")
 	eventsResult := svc.Events(monPID, "pg.events")
-	assert.Len(t, eventsResult.groups, 1)
-	defer eventsResult.unsubscribe()
+	assert.Len(t, eventsResult.Groups, 1)
+	defer eventsResult.Unsubscribe()
 
 	router.reset()
 
@@ -2210,10 +2225,10 @@ func TestServiceMonitorUnsubscribeSynchronous(t *testing.T) {
 	// Monitor a group
 	monPID := mkPID("host1", "mon")
 	result := svc.Monitor("workers", monPID, "pg.monitor")
-	assert.NotNil(t, result.unsubscribe)
+	assert.NotNil(t, result.Unsubscribe)
 
 	// Unsubscribe synchronously
-	result.unsubscribe()
+	result.Unsubscribe()
 
 	router.reset()
 
@@ -2239,10 +2254,10 @@ func TestServiceEventsUnsubscribeSynchronous(t *testing.T) {
 	// Subscribe to all events
 	monPID := mkPID("host1", "mon")
 	result := svc.Events(monPID, "pg.events")
-	assert.NotNil(t, result.unsubscribe)
+	assert.NotNil(t, result.Unsubscribe)
 
 	// Unsubscribe synchronously
-	result.unsubscribe()
+	result.Unsubscribe()
 
 	router.reset()
 
@@ -2270,7 +2285,7 @@ func TestServiceMonitorCallerDeathCleansUp(t *testing.T) {
 	// Process A monitors group "workers"
 	processA := mkPID("host1", "procA")
 	result := svc.Monitor("workers", processA, "pg.monitor")
-	assert.NotNil(t, result.unsubscribe)
+	assert.NotNil(t, result.Unsubscribe)
 
 	// Join a process so there's something to monitor
 	p1 := mkPID("host1", "1")
@@ -2284,7 +2299,7 @@ func TestServiceMonitorCallerDeathCleansUp(t *testing.T) {
 	msg := relay.AcquireMessage()
 	msg.Topic = topology.TopicEvents
 	msg.Payloads = payload.Payloads{payload.New(exitEvent)}
-	pkg := relay.NewMessagePackage(processA, pgPID("local-node"), msg)
+	pkg := relay.NewMessagePackage(processA, testServicePID("local-node"), msg)
 	require.NoError(t, svc.Send(pkg))
 
 	time.Sleep(50 * time.Millisecond)
@@ -2311,7 +2326,7 @@ func TestServiceEventsCallerDeathCleansUp(t *testing.T) {
 	// Process A subscribes to all events
 	processA := mkPID("host1", "procA")
 	result := svc.Events(processA, "pg.events")
-	assert.NotNil(t, result.unsubscribe)
+	assert.NotNil(t, result.Unsubscribe)
 
 	router.reset()
 
@@ -2320,7 +2335,7 @@ func TestServiceEventsCallerDeathCleansUp(t *testing.T) {
 	msg := relay.AcquireMessage()
 	msg.Topic = topology.TopicEvents
 	msg.Payloads = payload.Payloads{payload.New(exitEvent)}
-	pkg := relay.NewMessagePackage(processA, pgPID("local-node"), msg)
+	pkg := relay.NewMessagePackage(processA, testServicePID("local-node"), msg)
 	require.NoError(t, svc.Send(pkg))
 
 	time.Sleep(50 * time.Millisecond)
@@ -2347,7 +2362,7 @@ func TestServiceMonitorCallerDeathDemonitors(t *testing.T) {
 	// Process A monitors group "workers" but is NOT a group member
 	processA := mkPID("host1", "procA")
 	result := svc.Monitor("workers", processA, "pg.monitor")
-	assert.NotNil(t, result.unsubscribe)
+	assert.NotNil(t, result.Unsubscribe)
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -2355,7 +2370,7 @@ func TestServiceMonitorCallerDeathDemonitors(t *testing.T) {
 	assert.True(t, topo.isMonitored(processA), "subscriber should be monitored via topology")
 
 	// Unsubscribe — processA has no group memberships and no more subscriptions
-	result.unsubscribe()
+	result.Unsubscribe()
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -2371,14 +2386,14 @@ func TestServiceMonitorUnsubscribeKeepsMonitorForGroupMember(t *testing.T) {
 	require.NoError(t, svc.Join("workers", processA))
 
 	result := svc.Monitor("workers", processA, "pg.monitor")
-	assert.NotNil(t, result.unsubscribe)
+	assert.NotNil(t, result.Unsubscribe)
 
 	time.Sleep(50 * time.Millisecond)
 
 	assert.True(t, topo.isMonitored(processA))
 
 	// Unsubscribe from monitor — should STILL be monitored (still a group member)
-	result.unsubscribe()
+	result.Unsubscribe()
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -2408,7 +2423,7 @@ func TestServiceHasMonitorSubscriptions(t *testing.T) {
 	assert.True(t, <-done)
 
 	// Unsubscribe
-	result.unsubscribe()
+	result.Unsubscribe()
 
 	svc.submit(func() {
 		done <- svc.hasMonitorSubscriptions(processA)

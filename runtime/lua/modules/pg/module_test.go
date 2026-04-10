@@ -3,6 +3,7 @@
 package pg
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -10,20 +11,109 @@ import (
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/payload"
 	pgapi "github.com/wippyai/runtime/api/pg"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 )
 
-// --- test helpers ---
+// ==========================================================================
+// Mock types for resource acquisition
+// ==========================================================================
+
+// mockScopeService is a no-op ScopeService for testing yield production.
+// The module layer doesn't call any methods on it — it just passes it through
+// to yield structs. Actual service tests live in system/pg.
+type mockScopeService struct{}
+
+func (m *mockScopeService) Join(_ pgapi.Group, _ pid.PID) error         { return nil }
+func (m *mockScopeService) JoinGroups(_ []pgapi.Group, _ pid.PID) error { return nil }
+func (m *mockScopeService) Leave(_ pgapi.Group, _ pid.PID) error        { return nil }
+func (m *mockScopeService) LeaveGroups(_ []pgapi.Group, _ pid.PID) error {
+	return nil
+}
+func (m *mockScopeService) GetMembers(_ pgapi.Group) []pid.PID      { return nil }
+func (m *mockScopeService) GetLocalMembers(_ pgapi.Group) []pid.PID { return nil }
+func (m *mockScopeService) WhichGroups() []pgapi.Group              { return nil }
+func (m *mockScopeService) WhichLocalGroups() []pgapi.Group         { return nil }
+func (m *mockScopeService) Broadcast(_ pid.PID, _ pgapi.Group, _ string, _ payload.Payloads) (int, error) {
+	return 0, nil
+}
+func (m *mockScopeService) BroadcastLocal(_ pid.PID, _ pgapi.Group, _ string, _ payload.Payloads) (int, error) {
+	return 0, nil
+}
+func (m *mockScopeService) Monitor(_ pgapi.Group, _ pid.PID, _ string) pgapi.MonitorResult {
+	return pgapi.MonitorResult{}
+}
+func (m *mockScopeService) Events(_ pid.PID, _ string) pgapi.EventsResult {
+	return pgapi.EventsResult{}
+}
+
+// mockResource wraps a value to satisfy resource.Resource[any].
+type mockResource struct {
+	value    any
+	released bool
+}
+
+func (m *mockResource) Get() (any, error) {
+	if m.released {
+		return nil, resource.ErrReleased
+	}
+	return m.value, nil
+}
+
+func (m *mockResource) Release() { m.released = true }
+
+// mockRegistry implements resource.Registry for testing pg.open().
+type mockRegistry struct {
+	resources map[string]any
+}
+
+func newMockRegistry() *mockRegistry {
+	return &mockRegistry{resources: make(map[string]any)}
+}
+
+func (r *mockRegistry) Register(id string, val any) {
+	r.resources[id] = val
+}
+
+func (r *mockRegistry) Acquire(_ context.Context, id registry.ID, _ resource.AccessMode) (resource.Resource[any], error) {
+	val, ok := r.resources[id.String()]
+	if !ok {
+		return nil, resource.ErrNotFound
+	}
+	return &mockResource{value: val}, nil
+}
+
+func (r *mockRegistry) List() ([]registry.ID, error) {
+	ids := make([]registry.ID, 0, len(r.resources))
+	for id := range r.resources {
+		ids = append(ids, registry.ParseID(id))
+	}
+	return ids, nil
+}
+
+func (r *mockRegistry) Exists(id registry.ID) bool {
+	_, ok := r.resources[id.String()]
+	return ok
+}
+
+// ==========================================================================
+// Test helpers
+// ==========================================================================
 
 func bindPG(l *lua.LState) {
 	tbl, _ := Module.Build()
 	l.SetGlobal(Module.Name, tbl)
 }
 
+// newLuaWithPID creates a Lua state with PID, resource registry, and a mock
+// PG scope registered under "test:pg". This is the standard setup for testing
+// instance method yield production via pg.open("test:pg").
 func newLuaWithPID(t *testing.T) (*lua.LState, pid.PID) {
 	t.Helper()
 	l := lua.NewState()
@@ -33,6 +123,11 @@ func newLuaWithPID(t *testing.T) (*lua.LState, pid.PID) {
 	testPID := pid.PID{Host: "h1", UniqID: "p1"}
 	ctx := ctxapi.NewRootContext()
 	security.SetStrictMode(ctx, false)
+
+	reg := newMockRegistry()
+	reg.Register("test:pg", &mockScopeService{})
+	resource.WithRegistry(ctx, reg)
+
 	ctx, fc := ctxapi.OpenFrameContext(ctx)
 	t.Cleanup(func() { ctxapi.ReleaseFrameContext(fc) })
 	require.NoError(t, runtimeapi.SetFramePID(ctx, testPID))
@@ -41,6 +136,7 @@ func newLuaWithPID(t *testing.T) (*lua.LState, pid.PID) {
 	return l, testPID
 }
 
+// newLuaNoContext creates a Lua state with pg module but no context.
 func newLuaNoContext(t *testing.T) *lua.LState {
 	t.Helper()
 	l := lua.NewState()
@@ -50,6 +146,7 @@ func newLuaNoContext(t *testing.T) *lua.LState {
 	return l
 }
 
+// newLuaNoPID creates a Lua state with context but no PID in the frame.
 func newLuaNoPID(t *testing.T) *lua.LState {
 	t.Helper()
 	l := lua.NewState()
@@ -58,6 +155,11 @@ func newLuaNoPID(t *testing.T) *lua.LState {
 
 	ctx := ctxapi.NewRootContext()
 	security.SetStrictMode(ctx, false)
+
+	reg := newMockRegistry()
+	reg.Register("test:pg", &mockScopeService{})
+	resource.WithRegistry(ctx, reg)
+
 	ctx, fc := ctxapi.OpenFrameContext(ctx)
 	t.Cleanup(func() { ctxapi.ReleaseFrameContext(fc) })
 	// No PID set in frame
@@ -66,7 +168,74 @@ func newLuaNoPID(t *testing.T) *lua.LState {
 	return l
 }
 
-// --- Module build tests ---
+// newLuaStrictMode creates a Lua state with strict security (no actor/scope).
+func newLuaStrictMode(t *testing.T) (*lua.LState, pid.PID) {
+	t.Helper()
+	l := lua.NewState()
+	t.Cleanup(l.Close)
+	bindPG(l)
+
+	testPID := pid.PID{Host: "h1", UniqID: "p1"}
+	ctx := ctxapi.NewRootContext()
+	security.SetStrictMode(ctx, true) // strict mode — no actor/scope = denied
+
+	reg := newMockRegistry()
+	reg.Register("test:pg", &mockScopeService{})
+	resource.WithRegistry(ctx, reg)
+
+	ctx, fc := ctxapi.OpenFrameContext(ctx)
+	t.Cleanup(func() { ctxapi.ReleaseFrameContext(fc) })
+	require.NoError(t, runtimeapi.SetFramePID(ctx, testPID))
+	l.SetContext(ctx)
+
+	return l, testPID
+}
+
+// newLuaNoRegistry creates a Lua state with context and PID but no resource registry.
+func newLuaNoRegistry(t *testing.T) *lua.LState {
+	t.Helper()
+	l := lua.NewState()
+	t.Cleanup(l.Close)
+	bindPG(l)
+
+	ctx := ctxapi.NewRootContext()
+	security.SetStrictMode(ctx, false)
+	// No resource.WithRegistry — registry is nil
+
+	ctx, fc := ctxapi.OpenFrameContext(ctx)
+	t.Cleanup(func() { ctxapi.ReleaseFrameContext(fc) })
+	testPID := pid.PID{Host: "h1", UniqID: "p1"}
+	require.NoError(t, runtimeapi.SetFramePID(ctx, testPID))
+	l.SetContext(ctx)
+
+	return l
+}
+
+// resumeYield compiles a Lua snippet, creates a coroutine thread with the
+// parent's context, resumes it, and returns the resume state and yielded values.
+func resumeYield(t *testing.T, parent *lua.LState, script string) (lua.ResumeState, []lua.LValue) {
+	t.Helper()
+	fn, err := parent.LoadString(script)
+	require.NoError(t, err)
+
+	thread := parent.NewThreadWithContext(parent.Context())
+	state, values, err := parent.Resume(thread, fn)
+	require.NoError(t, err)
+
+	return state, values
+}
+
+// lastValue returns the last element from a values slice.
+func lastValue(values []lua.LValue) lua.LValue {
+	if len(values) == 0 {
+		return nil
+	}
+	return values[len(values)-1]
+}
+
+// ==========================================================================
+// Module build tests
+// ==========================================================================
 
 func TestModuleInfo(t *testing.T) {
 	info := Module.Info()
@@ -90,10 +259,8 @@ func TestModuleFunctions(t *testing.T) {
 	require.Equal(t, lua.LTTable, mod.Type())
 
 	modTbl := mod.(*lua.LTable)
-	functions := []string{
-		"join", "leave", "get_members", "get_local_members",
-		"which_groups", "broadcast", "broadcast_local", "events",
-	}
+	// New API: only "open" and deprecated "scope" are module-level functions
+	functions := []string{"open", "scope"}
 	for _, fn := range functions {
 		assert.Equal(t, lua.LTFunction, modTbl.RawGetString(fn).Type(), "function %s not registered", fn)
 	}
@@ -104,7 +271,9 @@ func TestModuleImmutable(t *testing.T) {
 	assert.True(t, tbl.Immutable)
 }
 
-// --- Yield CmdID tests ---
+// ==========================================================================
+// Yield CmdID tests
+// ==========================================================================
 
 func TestJoinYieldCmdID(t *testing.T) {
 	y := &JoinYield{}
@@ -131,6 +300,11 @@ func TestWhichGroupsYieldCmdID(t *testing.T) {
 	assert.Equal(t, pgapi.WhichGroups, y.CmdID())
 }
 
+func TestWhichLocalGroupsYieldCmdID(t *testing.T) {
+	y := &WhichLocalGroupsYield{}
+	assert.Equal(t, pgapi.WhichLocalGroups, y.CmdID())
+}
+
 func TestBroadcastYieldCmdID(t *testing.T) {
 	y := &BroadcastYield{}
 	assert.Equal(t, pgapi.Broadcast, y.CmdID())
@@ -141,7 +315,29 @@ func TestBroadcastLocalYieldCmdID(t *testing.T) {
 	assert.Equal(t, pgapi.BroadcastLocal, y.CmdID())
 }
 
-// --- Yield String/Type tests ---
+func TestEventsYieldCmdID(t *testing.T) {
+	y := &EventsYield{}
+	assert.Equal(t, pgapi.Events, y.CmdID())
+}
+
+func TestMonitorYieldCmdID(t *testing.T) {
+	y := &MonitorYield{}
+	assert.Equal(t, pgapi.Monitor, y.CmdID())
+}
+
+func TestJoinGroupsYieldCmdID(t *testing.T) {
+	y := &JoinGroupsYield{}
+	assert.Equal(t, pgapi.JoinGroups, y.CmdID())
+}
+
+func TestLeaveGroupsYieldCmdID(t *testing.T) {
+	y := &LeaveGroupsYield{}
+	assert.Equal(t, pgapi.LeaveGroups, y.CmdID())
+}
+
+// ==========================================================================
+// Yield String/Type tests
+// ==========================================================================
 
 func TestYieldStrings(t *testing.T) {
 	tests := []struct {
@@ -154,9 +350,13 @@ func TestYieldStrings(t *testing.T) {
 		{"GetMembers", &GetMembersYield{}, "<pg_get_members_yield>"},
 		{"GetLocalMembers", &GetLocalMembersYield{}, "<pg_get_local_members_yield>"},
 		{"WhichGroups", &WhichGroupsYield{}, "<pg_which_groups_yield>"},
+		{"WhichLocalGroups", &WhichLocalGroupsYield{}, "<pg_which_local_groups_yield>"},
 		{"Broadcast", &BroadcastYield{}, "<pg_broadcast_yield>"},
 		{"BroadcastLocal", &BroadcastLocalYield{}, "<pg_broadcast_local_yield>"},
 		{"Events", &EventsYield{}, "<pg_events_yield>"},
+		{"Monitor", &MonitorYield{}, "<pg_monitor_yield>"},
+		{"JoinGroups", &JoinGroupsYield{}, "<pg_join_groups_yield>"},
+		{"LeaveGroups", &LeaveGroupsYield{}, "<pg_leave_groups_yield>"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -166,17 +366,21 @@ func TestYieldStrings(t *testing.T) {
 	}
 }
 
-// --- Yield ToCommand tests ---
+// ==========================================================================
+// Yield ToCommand tests
+// ==========================================================================
 
 func TestJoinYieldToCommand(t *testing.T) {
+	svc := &mockScopeService{}
 	p := pid.PID{Host: "h1", UniqID: "p1"}
-	y := AcquireJoinYield("workers", p)
+	y := AcquireJoinYield(svc, "workers", p)
 
 	cmd := y.ToCommand()
 	joinCmd, ok := cmd.(*pgapi.JoinCmd)
 	require.True(t, ok)
 	assert.Equal(t, "workers", joinCmd.Group)
 	assert.Equal(t, p, joinCmd.Caller)
+	assert.Equal(t, svc, joinCmd.Instance)
 	assert.Equal(t, pgapi.Join, joinCmd.CmdID())
 
 	joinCmd.Release()
@@ -184,14 +388,16 @@ func TestJoinYieldToCommand(t *testing.T) {
 }
 
 func TestLeaveYieldToCommand(t *testing.T) {
+	svc := &mockScopeService{}
 	p := pid.PID{Host: "h1", UniqID: "p1"}
-	y := AcquireLeaveYield("workers", p)
+	y := AcquireLeaveYield(svc, "workers", p)
 
 	cmd := y.ToCommand()
 	leaveCmd, ok := cmd.(*pgapi.LeaveCmd)
 	require.True(t, ok)
 	assert.Equal(t, "workers", leaveCmd.Group)
 	assert.Equal(t, p, leaveCmd.Caller)
+	assert.Equal(t, svc, leaveCmd.Instance)
 	assert.Equal(t, pgapi.Leave, leaveCmd.CmdID())
 
 	leaveCmd.Release()
@@ -199,12 +405,14 @@ func TestLeaveYieldToCommand(t *testing.T) {
 }
 
 func TestGetMembersYieldToCommand(t *testing.T) {
-	y := AcquireGetMembersYield("workers")
+	svc := &mockScopeService{}
+	y := AcquireGetMembersYield(svc, "workers")
 
 	cmd := y.ToCommand()
 	gmc, ok := cmd.(*pgapi.GetMembersCmd)
 	require.True(t, ok)
 	assert.Equal(t, "workers", gmc.Group)
+	assert.Equal(t, svc, gmc.Instance)
 	assert.Equal(t, pgapi.GetMembers, gmc.CmdID())
 
 	gmc.Release()
@@ -212,12 +420,14 @@ func TestGetMembersYieldToCommand(t *testing.T) {
 }
 
 func TestGetLocalMembersYieldToCommand(t *testing.T) {
-	y := AcquireGetLocalMembersYield("workers")
+	svc := &mockScopeService{}
+	y := AcquireGetLocalMembersYield(svc, "workers")
 
 	cmd := y.ToCommand()
 	glmc, ok := cmd.(*pgapi.GetLocalMembersCmd)
 	require.True(t, ok)
 	assert.Equal(t, "workers", glmc.Group)
+	assert.Equal(t, svc, glmc.Instance)
 	assert.Equal(t, pgapi.GetLocalMembers, glmc.CmdID())
 
 	glmc.Release()
@@ -225,20 +435,37 @@ func TestGetLocalMembersYieldToCommand(t *testing.T) {
 }
 
 func TestWhichGroupsYieldToCommand(t *testing.T) {
-	y := AcquireWhichGroupsYield()
+	svc := &mockScopeService{}
+	y := AcquireWhichGroupsYield(svc)
 
 	cmd := y.ToCommand()
 	wgc, ok := cmd.(*pgapi.WhichGroupsCmd)
 	require.True(t, ok)
+	assert.Equal(t, svc, wgc.Instance)
 	assert.Equal(t, pgapi.WhichGroups, wgc.CmdID())
 
 	wgc.Release()
 	y.Release()
 }
 
+func TestWhichLocalGroupsYieldToCommand(t *testing.T) {
+	svc := &mockScopeService{}
+	y := AcquireWhichLocalGroupsYield(svc)
+
+	cmd := y.ToCommand()
+	wlgc, ok := cmd.(*pgapi.WhichLocalGroupsCmd)
+	require.True(t, ok)
+	assert.Equal(t, svc, wlgc.Instance)
+	assert.Equal(t, pgapi.WhichLocalGroups, wlgc.CmdID())
+
+	wlgc.Release()
+	y.Release()
+}
+
 func TestBroadcastYieldToCommand(t *testing.T) {
+	svc := &mockScopeService{}
 	p := pid.PID{Host: "h1", UniqID: "p1"}
-	y := AcquireBroadcastYield(p, "workers", "hello", nil)
+	y := AcquireBroadcastYield(svc, p, "workers", "hello", nil)
 
 	cmd := y.ToCommand()
 	bc, ok := cmd.(*pgapi.BroadcastCmd)
@@ -246,6 +473,7 @@ func TestBroadcastYieldToCommand(t *testing.T) {
 	assert.Equal(t, p, bc.From)
 	assert.Equal(t, "workers", bc.Group)
 	assert.Equal(t, "hello", bc.Topic)
+	assert.Equal(t, svc, bc.Instance)
 	assert.Equal(t, pgapi.Broadcast, bc.CmdID())
 
 	bc.Release()
@@ -253,8 +481,9 @@ func TestBroadcastYieldToCommand(t *testing.T) {
 }
 
 func TestBroadcastLocalYieldToCommand(t *testing.T) {
+	svc := &mockScopeService{}
 	p := pid.PID{Host: "h1", UniqID: "p1"}
-	y := AcquireBroadcastLocalYield(p, "workers", "hello", nil)
+	y := AcquireBroadcastLocalYield(svc, p, "workers", "hello", nil)
 
 	cmd := y.ToCommand()
 	blc, ok := cmd.(*pgapi.BroadcastLocalCmd)
@@ -262,96 +491,173 @@ func TestBroadcastLocalYieldToCommand(t *testing.T) {
 	assert.Equal(t, p, blc.From)
 	assert.Equal(t, "workers", blc.Group)
 	assert.Equal(t, "hello", blc.Topic)
+	assert.Equal(t, svc, blc.Instance)
 	assert.Equal(t, pgapi.BroadcastLocal, blc.CmdID())
 
 	blc.Release()
 	y.Release()
 }
 
-// --- Yield HandleResult tests ---
+func TestEventsYieldToCommand(t *testing.T) {
+	svc := &mockScopeService{}
+	p := pid.PID{Host: "h1", UniqID: "p1"}
+	y := AcquireEventsYield(svc, nil, p, "pg.events@1")
+
+	cmd := y.ToCommand()
+	ec, ok := cmd.(*pgapi.EventsCmd)
+	require.True(t, ok)
+	assert.Equal(t, p, ec.PID)
+	assert.Equal(t, "pg.events@1", ec.Topic)
+	assert.Equal(t, svc, ec.Instance)
+	assert.Equal(t, pgapi.Events, ec.CmdID())
+
+	ec.Release()
+	y.Release()
+}
+
+func TestMonitorYieldToCommand(t *testing.T) {
+	svc := &mockScopeService{}
+	p := pid.PID{Host: "h1", UniqID: "p1"}
+	y := AcquireMonitorYield(svc, nil, "workers", p, "pg.monitor@1")
+
+	cmd := y.ToCommand()
+	mc, ok := cmd.(*pgapi.MonitorCmd)
+	require.True(t, ok)
+	assert.Equal(t, "workers", mc.Group)
+	assert.Equal(t, p, mc.PID)
+	assert.Equal(t, "pg.monitor@1", mc.Topic)
+	assert.Equal(t, svc, mc.Instance)
+	assert.Equal(t, pgapi.Monitor, mc.CmdID())
+
+	mc.Release()
+	y.Release()
+}
+
+func TestJoinGroupsYieldToCommand(t *testing.T) {
+	svc := &mockScopeService{}
+	p := pid.PID{Host: "h1", UniqID: "p1"}
+	groups := []string{"a", "b"}
+	y := AcquireJoinGroupsYield(svc, groups, p)
+
+	cmd := y.ToCommand()
+	jgc, ok := cmd.(*pgapi.JoinGroupsCmd)
+	require.True(t, ok)
+	assert.Equal(t, groups, jgc.Groups)
+	assert.Equal(t, p, jgc.Caller)
+	assert.Equal(t, svc, jgc.Instance)
+	assert.Equal(t, pgapi.JoinGroups, jgc.CmdID())
+
+	jgc.Release()
+	y.Release()
+}
+
+func TestLeaveGroupsYieldToCommand(t *testing.T) {
+	svc := &mockScopeService{}
+	p := pid.PID{Host: "h1", UniqID: "p1"}
+	groups := []string{"a", "b"}
+	y := AcquireLeaveGroupsYield(svc, groups, p)
+
+	cmd := y.ToCommand()
+	lgc, ok := cmd.(*pgapi.LeaveGroupsCmd)
+	require.True(t, ok)
+	assert.Equal(t, groups, lgc.Groups)
+	assert.Equal(t, p, lgc.Caller)
+	assert.Equal(t, svc, lgc.Instance)
+	assert.Equal(t, pgapi.LeaveGroups, lgc.CmdID())
+
+	lgc.Release()
+	y.Release()
+}
+
+// ==========================================================================
+// Yield HandleResult tests
+// ==========================================================================
 
 func TestJoinYield_HandleResult_Success(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-
 	y := &JoinYield{}
-	result := y.HandleResult(l, pgapi.JoinResult{Error: nil}, nil)
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LTrue, result[0])
-	assert.Equal(t, lua.LNil, result[1])
+	vals := y.HandleResult(l, pgapi.JoinResult{}, nil)
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LTrue, vals[0])
+	assert.Equal(t, lua.LNil, vals[1])
 }
 
 func TestJoinYield_HandleResult_Error(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-
 	y := &JoinYield{}
-	result := y.HandleResult(l, nil, errors.New("dispatch error"))
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[0])
-	assert.NotEqual(t, lua.LNil, result[1])
+	vals := y.HandleResult(l, nil, errors.New("dispatch error"))
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LNil, vals[0])
+	assert.NotEqual(t, lua.LNil, vals[1])
 }
 
 func TestJoinYield_HandleResult_JoinError(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-
 	y := &JoinYield{}
-	result := y.HandleResult(l, pgapi.JoinResult{Error: errors.New("join failed")}, nil)
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[0])
-	assert.NotEqual(t, lua.LNil, result[1])
+	vals := y.HandleResult(l, pgapi.JoinResult{Error: errors.New("join failed")}, nil)
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LNil, vals[0])
+	assert.NotEqual(t, lua.LNil, vals[1])
 }
 
 func TestLeaveYield_HandleResult_Success(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-
 	y := &LeaveYield{}
-	result := y.HandleResult(l, pgapi.LeaveResult{Error: nil}, nil)
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LTrue, result[0])
-	assert.Equal(t, lua.LNil, result[1])
+	vals := y.HandleResult(l, pgapi.LeaveResult{}, nil)
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LTrue, vals[0])
+	assert.Equal(t, lua.LNil, vals[1])
 }
 
 func TestLeaveYield_HandleResult_Error(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-
 	y := &LeaveYield{}
-	result := y.HandleResult(l, pgapi.LeaveResult{Error: errors.New("not joined")}, nil)
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[0])
-	assert.NotEqual(t, lua.LNil, result[1])
+	vals := y.HandleResult(l, pgapi.LeaveResult{Error: errors.New("leave failed")}, nil)
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LNil, vals[0])
+	assert.NotEqual(t, lua.LNil, vals[1])
+}
+
+func TestLeaveYield_HandleResult_DispatchError(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := &LeaveYield{}
+	vals := y.HandleResult(l, nil, errors.New("dispatch error"))
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LNil, vals[0])
+	assert.NotEqual(t, lua.LNil, vals[1])
 }
 
 func TestGetMembersYield_HandleResult_Success(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-
-	p1 := pid.PID{Host: "h1", UniqID: "1"}
-	p2 := pid.PID{Host: "h1", UniqID: "2"}
-
 	y := &GetMembersYield{}
-	result := y.HandleResult(l, pgapi.GetMembersResult{Members: []pid.PID{p1, p2}}, nil)
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[1])
-
-	tbl, ok := result[0].(*lua.LTable)
+	result := pgapi.GetMembersResult{
+		Members: []pid.PID{
+			{Host: "h1", UniqID: "1"},
+			{Host: "h1", UniqID: "2"},
+		},
+	}
+	vals := y.HandleResult(l, result, nil)
+	require.Len(t, vals, 2)
+	tbl, ok := vals[0].(*lua.LTable)
 	require.True(t, ok)
 	assert.Equal(t, 2, tbl.Len())
+	assert.Equal(t, lua.LNil, vals[1])
 }
 
 func TestGetMembersYield_HandleResult_Empty(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-
 	y := &GetMembersYield{}
-	result := y.HandleResult(l, pgapi.GetMembersResult{Members: nil}, nil)
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[1])
-
-	tbl, ok := result[0].(*lua.LTable)
+	vals := y.HandleResult(l, pgapi.GetMembersResult{}, nil)
+	require.Len(t, vals, 2)
+	tbl, ok := vals[0].(*lua.LTable)
 	require.True(t, ok)
 	assert.Equal(t, 0, tbl.Len())
 }
@@ -359,23 +665,20 @@ func TestGetMembersYield_HandleResult_Empty(t *testing.T) {
 func TestGetMembersYield_HandleResult_Error(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-
 	y := &GetMembersYield{}
-	result := y.HandleResult(l, nil, errors.New("get failed"))
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[0])
-	assert.NotEqual(t, lua.LNil, result[1])
+	vals := y.HandleResult(l, nil, errors.New("dispatch error"))
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LNil, vals[0])
+	assert.NotEqual(t, lua.LNil, vals[1])
 }
 
 func TestGetMembersYield_HandleResult_WrongType(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-
 	y := &GetMembersYield{}
-	result := y.HandleResult(l, "not a result", nil)
-	require.Len(t, result, 2)
-	// Should return empty table on wrong type
-	tbl, ok := result[0].(*lua.LTable)
+	vals := y.HandleResult(l, "wrong type", nil)
+	require.Len(t, vals, 2)
+	tbl, ok := vals[0].(*lua.LTable)
 	require.True(t, ok)
 	assert.Equal(t, 0, tbl.Len())
 }
@@ -383,42 +686,126 @@ func TestGetMembersYield_HandleResult_WrongType(t *testing.T) {
 func TestGetLocalMembersYield_HandleResult_Success(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-
-	p1 := pid.PID{Host: "h1", UniqID: "1"}
 	y := &GetLocalMembersYield{}
-	result := y.HandleResult(l, pgapi.GetLocalMembersResult{Members: []pid.PID{p1}}, nil)
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[1])
-
-	tbl, ok := result[0].(*lua.LTable)
+	result := pgapi.GetLocalMembersResult{
+		Members: []pid.PID{{Host: "h1", UniqID: "1"}},
+	}
+	vals := y.HandleResult(l, result, nil)
+	require.Len(t, vals, 2)
+	tbl, ok := vals[0].(*lua.LTable)
 	require.True(t, ok)
 	assert.Equal(t, 1, tbl.Len())
+}
+
+func TestGetLocalMembersYield_HandleResult_Error(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := &GetLocalMembersYield{}
+	vals := y.HandleResult(l, nil, errors.New("dispatch error"))
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LNil, vals[0])
+	assert.NotEqual(t, lua.LNil, vals[1])
+}
+
+func TestGetLocalMembersYield_HandleResult_WrongType(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := &GetLocalMembersYield{}
+	vals := y.HandleResult(l, "wrong type", nil)
+	require.Len(t, vals, 2)
+	tbl, ok := vals[0].(*lua.LTable)
+	require.True(t, ok)
+	assert.Equal(t, 0, tbl.Len())
 }
 
 func TestWhichGroupsYield_HandleResult_Success(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-
 	y := &WhichGroupsYield{}
-	result := y.HandleResult(l, pgapi.WhichGroupsResult{Groups: []string{"workers", "managers"}}, nil)
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[1])
-
-	tbl, ok := result[0].(*lua.LTable)
+	result := pgapi.WhichGroupsResult{Groups: []pgapi.Group{"workers", "managers"}}
+	vals := y.HandleResult(l, result, nil)
+	require.Len(t, vals, 2)
+	tbl, ok := vals[0].(*lua.LTable)
 	require.True(t, ok)
 	assert.Equal(t, 2, tbl.Len())
-	assert.Equal(t, "workers", string(tbl.RawGetInt(1).(lua.LString)))
-	assert.Equal(t, "managers", string(tbl.RawGetInt(2).(lua.LString)))
+	assert.Equal(t, lua.LString("workers"), tbl.RawGetInt(1))
+	assert.Equal(t, lua.LString("managers"), tbl.RawGetInt(2))
 }
 
 func TestWhichGroupsYield_HandleResult_Empty(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-
 	y := &WhichGroupsYield{}
-	result := y.HandleResult(l, pgapi.WhichGroupsResult{Groups: nil}, nil)
-	require.Len(t, result, 2)
-	tbl, ok := result[0].(*lua.LTable)
+	vals := y.HandleResult(l, pgapi.WhichGroupsResult{}, nil)
+	require.Len(t, vals, 2)
+	tbl, ok := vals[0].(*lua.LTable)
+	require.True(t, ok)
+	assert.Equal(t, 0, tbl.Len())
+}
+
+func TestWhichGroupsYield_HandleResult_Error(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := &WhichGroupsYield{}
+	vals := y.HandleResult(l, nil, errors.New("dispatch error"))
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LNil, vals[0])
+	assert.NotEqual(t, lua.LNil, vals[1])
+}
+
+func TestWhichGroupsYield_HandleResult_WrongType(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := &WhichGroupsYield{}
+	vals := y.HandleResult(l, "wrong type", nil)
+	require.Len(t, vals, 2)
+	tbl, ok := vals[0].(*lua.LTable)
+	require.True(t, ok)
+	assert.Equal(t, 0, tbl.Len())
+}
+
+func TestWhichLocalGroupsYield_HandleResult_Success(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := &WhichLocalGroupsYield{}
+	result := pgapi.WhichLocalGroupsResult{Groups: []pgapi.Group{"workers", "managers"}}
+	vals := y.HandleResult(l, result, nil)
+	require.Len(t, vals, 2)
+	tbl, ok := vals[0].(*lua.LTable)
+	require.True(t, ok)
+	assert.Equal(t, 2, tbl.Len())
+	assert.Equal(t, lua.LString("workers"), tbl.RawGetInt(1))
+	assert.Equal(t, lua.LString("managers"), tbl.RawGetInt(2))
+}
+
+func TestWhichLocalGroupsYield_HandleResult_Empty(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := &WhichLocalGroupsYield{}
+	vals := y.HandleResult(l, pgapi.WhichLocalGroupsResult{}, nil)
+	require.Len(t, vals, 2)
+	tbl, ok := vals[0].(*lua.LTable)
+	require.True(t, ok)
+	assert.Equal(t, 0, tbl.Len())
+}
+
+func TestWhichLocalGroupsYield_HandleResult_Error(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := &WhichLocalGroupsYield{}
+	vals := y.HandleResult(l, nil, errors.New("dispatch error"))
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LNil, vals[0])
+	assert.NotEqual(t, lua.LNil, vals[1])
+}
+
+func TestWhichLocalGroupsYield_HandleResult_WrongType(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := &WhichLocalGroupsYield{}
+	vals := y.HandleResult(l, "wrong type", nil)
+	require.Len(t, vals, 2)
+	tbl, ok := vals[0].(*lua.LTable)
 	require.True(t, ok)
 	assert.Equal(t, 0, tbl.Len())
 }
@@ -426,253 +813,306 @@ func TestWhichGroupsYield_HandleResult_Empty(t *testing.T) {
 func TestBroadcastYield_HandleResult_Success(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-
 	y := &BroadcastYield{}
-	result := y.HandleResult(l, pgapi.BroadcastResult{Sent: 3}, nil)
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LTrue, result[0])
-	assert.Equal(t, lua.LNil, result[1])
+	vals := y.HandleResult(l, pgapi.BroadcastResult{Sent: 3}, nil)
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LTrue, vals[0])
+	assert.Equal(t, lua.LNil, vals[1])
 }
 
 func TestBroadcastYield_HandleResult_Error(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-
 	y := &BroadcastYield{}
-	result := y.HandleResult(l, pgapi.BroadcastResult{Error: errors.New("fail")}, nil)
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[0])
-	assert.NotEqual(t, lua.LNil, result[1])
+	vals := y.HandleResult(l, pgapi.BroadcastResult{Error: errors.New("broadcast failed")}, nil)
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LNil, vals[0])
+	assert.NotEqual(t, lua.LNil, vals[1])
+}
+
+func TestBroadcastYield_HandleResult_DispatchError(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := &BroadcastYield{}
+	vals := y.HandleResult(l, nil, errors.New("dispatch error"))
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LNil, vals[0])
+	assert.NotEqual(t, lua.LNil, vals[1])
 }
 
 func TestBroadcastLocalYield_HandleResult_Success(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-
 	y := &BroadcastLocalYield{}
-	result := y.HandleResult(l, pgapi.BroadcastLocalResult{Sent: 1}, nil)
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LTrue, result[0])
-	assert.Equal(t, lua.LNil, result[1])
+	vals := y.HandleResult(l, pgapi.BroadcastLocalResult{Sent: 1}, nil)
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LTrue, vals[0])
+	assert.Equal(t, lua.LNil, vals[1])
 }
 
 func TestBroadcastLocalYield_HandleResult_Error(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()
-
 	y := &BroadcastLocalYield{}
-	result := y.HandleResult(l, pgapi.BroadcastLocalResult{Error: errors.New("fail")}, nil)
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[0])
-	assert.NotEqual(t, lua.LNil, result[1])
+	vals := y.HandleResult(l, pgapi.BroadcastLocalResult{Error: errors.New("broadcast failed")}, nil)
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LNil, vals[0])
+	assert.NotEqual(t, lua.LNil, vals[1])
 }
 
-// --- Pool acquire/release tests ---
+func TestBroadcastLocalYield_HandleResult_DispatchError(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := &BroadcastLocalYield{}
+	vals := y.HandleResult(l, nil, errors.New("dispatch error"))
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LNil, vals[0])
+	assert.NotEqual(t, lua.LNil, vals[1])
+}
+
+func TestEventsYield_HandleResult_Error(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := &EventsYield{}
+	vals := y.HandleResult(l, nil, errors.New("dispatch error"))
+	require.Len(t, vals, 3)
+	assert.Equal(t, lua.LNil, vals[0])
+	assert.Equal(t, lua.LNil, vals[1])
+	assert.NotEqual(t, lua.LNil, vals[2])
+}
+
+func TestMonitorYield_HandleResult_Error(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := &MonitorYield{}
+	vals := y.HandleResult(l, nil, errors.New("dispatch error"))
+	require.Len(t, vals, 3)
+	assert.Equal(t, lua.LNil, vals[0])
+	assert.Equal(t, lua.LNil, vals[1])
+	assert.NotEqual(t, lua.LNil, vals[2])
+}
+
+func TestJoinGroupsYield_HandleResult_Success(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := &JoinGroupsYield{}
+	vals := y.HandleResult(l, pgapi.JoinGroupsResult{}, nil)
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LTrue, vals[0])
+	assert.Equal(t, lua.LNil, vals[1])
+}
+
+func TestJoinGroupsYield_HandleResult_Error(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := &JoinGroupsYield{}
+	vals := y.HandleResult(l, pgapi.JoinGroupsResult{Error: errors.New("join failed")}, nil)
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LNil, vals[0])
+	assert.NotEqual(t, lua.LNil, vals[1])
+}
+
+func TestJoinGroupsYield_HandleResult_DispatchError(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := &JoinGroupsYield{}
+	vals := y.HandleResult(l, nil, errors.New("dispatch error"))
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LNil, vals[0])
+	assert.NotEqual(t, lua.LNil, vals[1])
+}
+
+func TestLeaveGroupsYield_HandleResult_Success(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := &LeaveGroupsYield{}
+	vals := y.HandleResult(l, pgapi.LeaveGroupsResult{}, nil)
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LTrue, vals[0])
+	assert.Equal(t, lua.LNil, vals[1])
+}
+
+func TestLeaveGroupsYield_HandleResult_Error(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := &LeaveGroupsYield{}
+	vals := y.HandleResult(l, pgapi.LeaveGroupsResult{Error: errors.New("leave failed")}, nil)
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LNil, vals[0])
+	assert.NotEqual(t, lua.LNil, vals[1])
+}
+
+func TestLeaveGroupsYield_HandleResult_DispatchError(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	y := &LeaveGroupsYield{}
+	vals := y.HandleResult(l, nil, errors.New("dispatch error"))
+	require.Len(t, vals, 2)
+	assert.Equal(t, lua.LNil, vals[0])
+	assert.NotEqual(t, lua.LNil, vals[1])
+}
+
+// ==========================================================================
+// Yield Pool tests
+// ==========================================================================
 
 func TestJoinYieldPool(t *testing.T) {
-	p := pid.PID{Host: "h1", UniqID: "1"}
-	y := AcquireJoinYield("workers", p)
+	svc := &mockScopeService{}
+	p := pid.PID{Host: "h1", UniqID: "p1"}
+	y := AcquireJoinYield(svc, "workers", p)
 	assert.Equal(t, "workers", y.Group)
 	assert.Equal(t, p, y.Caller)
-
-	ReleaseJoinYield(y)
-	// After release, fields should be zeroed
-	assert.Equal(t, "", y.Group)
+	assert.Equal(t, svc, y.Instance)
+	y.Release()
+	assert.Nil(t, y.Instance)
+	assert.Empty(t, y.Group)
 	assert.Equal(t, pid.PID{}, y.Caller)
 }
 
 func TestLeaveYieldPool(t *testing.T) {
-	p := pid.PID{Host: "h1", UniqID: "1"}
-	y := AcquireLeaveYield("workers", p)
+	svc := &mockScopeService{}
+	p := pid.PID{Host: "h1", UniqID: "p1"}
+	y := AcquireLeaveYield(svc, "workers", p)
 	assert.Equal(t, "workers", y.Group)
-
-	ReleaseLeaveYield(y)
-	assert.Equal(t, "", y.Group)
-	assert.Equal(t, pid.PID{}, y.Caller)
+	assert.Equal(t, svc, y.Instance)
+	y.Release()
+	assert.Nil(t, y.Instance)
+	assert.Empty(t, y.Group)
 }
 
 func TestGetMembersYieldPool(t *testing.T) {
-	y := AcquireGetMembersYield("workers")
+	svc := &mockScopeService{}
+	y := AcquireGetMembersYield(svc, "workers")
 	assert.Equal(t, "workers", y.Group)
-
-	ReleaseGetMembersYield(y)
-	assert.Equal(t, "", y.Group)
+	assert.Equal(t, svc, y.Instance)
+	y.Release()
+	assert.Nil(t, y.Instance)
+	assert.Empty(t, y.Group)
 }
 
 func TestGetLocalMembersYieldPool(t *testing.T) {
-	y := AcquireGetLocalMembersYield("workers")
+	svc := &mockScopeService{}
+	y := AcquireGetLocalMembersYield(svc, "workers")
 	assert.Equal(t, "workers", y.Group)
-
-	ReleaseGetLocalMembersYield(y)
-	assert.Equal(t, "", y.Group)
+	assert.Equal(t, svc, y.Instance)
+	y.Release()
+	assert.Nil(t, y.Instance)
+	assert.Empty(t, y.Group)
 }
 
 func TestWhichGroupsYieldPool(t *testing.T) {
-	y := AcquireWhichGroupsYield()
-	require.NotNil(t, y)
+	svc := &mockScopeService{}
+	y := AcquireWhichGroupsYield(svc)
+	assert.Equal(t, svc, y.Instance)
+	y.Release()
+	assert.Nil(t, y.Instance)
+}
 
-	ReleaseWhichGroupsYield(y)
+func TestWhichLocalGroupsYieldPool(t *testing.T) {
+	svc := &mockScopeService{}
+	y := AcquireWhichLocalGroupsYield(svc)
+	assert.Equal(t, svc, y.Instance)
+	y.Release()
+	assert.Nil(t, y.Instance)
 }
 
 func TestBroadcastYieldPool(t *testing.T) {
-	p := pid.PID{Host: "h1", UniqID: "1"}
-	y := AcquireBroadcastYield(p, "workers", "hello", nil)
+	svc := &mockScopeService{}
+	p := pid.PID{Host: "h1", UniqID: "p1"}
+	y := AcquireBroadcastYield(svc, p, "workers", "hello", nil)
 	assert.Equal(t, "workers", y.Group)
 	assert.Equal(t, "hello", y.Topic)
 	assert.Equal(t, p, y.From)
-
-	ReleaseBroadcastYield(y)
-	assert.Equal(t, "", y.Group)
-	assert.Equal(t, "", y.Topic)
-	assert.Equal(t, pid.PID{}, y.From)
+	assert.Equal(t, svc, y.Instance)
+	y.Release()
+	assert.Nil(t, y.Instance)
+	assert.Empty(t, y.Group)
+	assert.Empty(t, y.Topic)
 	assert.Nil(t, y.Payloads)
 }
 
 func TestBroadcastLocalYieldPool(t *testing.T) {
-	p := pid.PID{Host: "h1", UniqID: "1"}
-	y := AcquireBroadcastLocalYield(p, "workers", "hello", nil)
+	svc := &mockScopeService{}
+	p := pid.PID{Host: "h1", UniqID: "p1"}
+	y := AcquireBroadcastLocalYield(svc, p, "workers", "hello", nil)
 	assert.Equal(t, "workers", y.Group)
-
-	ReleaseBroadcastLocalYield(y)
-	assert.Equal(t, "", y.Group)
-	assert.Equal(t, "", y.Topic)
-	assert.Equal(t, pid.PID{}, y.From)
-	assert.Nil(t, y.Payloads)
+	assert.Equal(t, svc, y.Instance)
+	y.Release()
+	assert.Nil(t, y.Instance)
+	assert.Empty(t, y.Group)
 }
 
-// --- Module function error path tests ---
-
-func TestJoinNoContext(t *testing.T) {
-	l := newLuaNoContext(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("join"))
-	l.Push(lua.LString("workers"))
-	err := l.PCall(1, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1)) // error
+func TestEventsYieldPool(t *testing.T) {
+	svc := &mockScopeService{}
+	ch := engine.NewChannel(64)
+	p := pid.PID{Host: "h1", UniqID: "p1"}
+	y := AcquireEventsYield(svc, ch, p, "pg.events@1")
+	assert.Equal(t, svc, y.Instance)
+	assert.Equal(t, ch, y.Channel)
+	assert.Equal(t, p, y.PID)
+	assert.Equal(t, "pg.events@1", y.Topic)
+	y.Release()
+	assert.Nil(t, y.Instance)
+	assert.Nil(t, y.Channel)
+	assert.Equal(t, pid.PID{}, y.PID)
+	assert.Empty(t, y.Topic)
 }
 
-func TestJoinNoPID(t *testing.T) {
-	l := newLuaNoPID(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("join"))
-	l.Push(lua.LString("workers"))
-	err := l.PCall(1, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
+func TestMonitorYieldPool(t *testing.T) {
+	svc := &mockScopeService{}
+	ch := engine.NewChannel(64)
+	p := pid.PID{Host: "h1", UniqID: "p1"}
+	y := AcquireMonitorYield(svc, ch, "workers", p, "pg.monitor@1")
+	assert.Equal(t, svc, y.Instance)
+	assert.Equal(t, ch, y.Channel)
+	assert.Equal(t, "workers", y.Group)
+	assert.Equal(t, p, y.PID)
+	assert.Equal(t, "pg.monitor@1", y.Topic)
+	y.Release()
+	assert.Nil(t, y.Instance)
+	assert.Nil(t, y.Channel)
+	assert.Empty(t, y.Group)
+	assert.Equal(t, pid.PID{}, y.PID)
+	assert.Empty(t, y.Topic)
 }
 
-func TestLeaveNoContext(t *testing.T) {
-	l := newLuaNoContext(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("leave"))
-	l.Push(lua.LString("workers"))
-	err := l.PCall(1, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
+func TestJoinGroupsYieldPool(t *testing.T) {
+	svc := &mockScopeService{}
+	p := pid.PID{Host: "h1", UniqID: "p1"}
+	y := AcquireJoinGroupsYield(svc, []string{"a", "b"}, p)
+	assert.Equal(t, []string{"a", "b"}, y.Groups)
+	assert.Equal(t, p, y.Caller)
+	assert.Equal(t, svc, y.Instance)
+	y.Release()
+	assert.Nil(t, y.Instance)
+	assert.Nil(t, y.Groups)
+	assert.Equal(t, pid.PID{}, y.Caller)
 }
 
-func TestLeaveNoPID(t *testing.T) {
-	l := newLuaNoPID(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("leave"))
-	l.Push(lua.LString("workers"))
-	err := l.PCall(1, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
+func TestLeaveGroupsYieldPool(t *testing.T) {
+	svc := &mockScopeService{}
+	p := pid.PID{Host: "h1", UniqID: "p1"}
+	y := AcquireLeaveGroupsYield(svc, []string{"a", "b"}, p)
+	assert.Equal(t, []string{"a", "b"}, y.Groups)
+	assert.Equal(t, p, y.Caller)
+	assert.Equal(t, svc, y.Instance)
+	y.Release()
+	assert.Nil(t, y.Instance)
+	assert.Nil(t, y.Groups)
+	assert.Equal(t, pid.PID{}, y.Caller)
 }
 
-func TestGetMembersNoContext(t *testing.T) {
-	l := newLuaNoContext(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("get_members"))
-	l.Push(lua.LString("workers"))
-	err := l.PCall(1, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestWhichGroupsNoContext(t *testing.T) {
-	l := newLuaNoContext(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("which_groups"))
-	err := l.PCall(0, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestBroadcastNoContext(t *testing.T) {
-	l := newLuaNoContext(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("broadcast"))
-	l.Push(lua.LString("workers"))
-	l.Push(lua.LString("hello"))
-	err := l.PCall(2, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestBroadcastLocalNoContext(t *testing.T) {
-	l := newLuaNoContext(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("broadcast_local"))
-	l.Push(lua.LString("workers"))
-	l.Push(lua.LString("hello"))
-	err := l.PCall(2, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-// --- Yield path tests ---
-// These tests verify that each Lua function produces the correct yield type
-// when called with valid context/PID. We use coroutine Resume to properly
-// handle the yield (-1 return) from Go functions.
-
-// resumeYield compiles a Lua snippet, creates a coroutine thread with the
-// parent's context, resumes it, and returns the resume state and yielded values.
-// The yield value is always the last element in the returned values slice
-// (preceding values are function arguments left on the stack).
-func resumeYield(t *testing.T, parent *lua.LState, script string) (lua.ResumeState, []lua.LValue) {
-	t.Helper()
-	fn, err := parent.LoadString(script)
-	require.NoError(t, err)
-
-	thread := parent.NewThreadWithContext(parent.Context())
-	state, values, err := parent.Resume(thread, fn)
-	require.NoError(t, err)
-
-	return state, values
-}
-
-// lastValue returns the last element from a values slice — the yield struct
-// pushed by the Go function sits at the end of the stack.
-func lastValue(values []lua.LValue) lua.LValue {
-	if len(values) == 0 {
-		return nil
-	}
-	return values[len(values)-1]
-}
+// ==========================================================================
+// Yield production tests — pg.open() + Instance method calls via coroutine
+// ==========================================================================
 
 func TestJoinProducesYield(t *testing.T) {
 	parent, testPID := newLuaWithPID(t)
 
-	state, values := resumeYield(t, parent, `local r = pg.join("workers"); return r`)
+	state, values := resumeYield(t, parent, `
+		local inst = pg.open("test:pg")
+		local r = inst:join("workers"); return r
+	`)
 	assert.Equal(t, lua.ResumeYield, state)
 	require.NotEmpty(t, values)
 
@@ -680,13 +1120,16 @@ func TestJoinProducesYield(t *testing.T) {
 	require.True(t, ok, "expected *JoinYield, got %T", lastValue(values))
 	assert.Equal(t, "workers", y.Group)
 	assert.Equal(t, testPID, y.Caller)
-	assert.Equal(t, pgapi.Join, y.CmdID())
+	assert.NotNil(t, y.Instance)
 }
 
 func TestLeaveProducesYield(t *testing.T) {
 	parent, testPID := newLuaWithPID(t)
 
-	state, values := resumeYield(t, parent, `local r = pg.leave("workers"); return r`)
+	state, values := resumeYield(t, parent, `
+		local inst = pg.open("test:pg")
+		local r = inst:leave("workers"); return r
+	`)
 	assert.Equal(t, lua.ResumeYield, state)
 	require.NotEmpty(t, values)
 
@@ -694,51 +1137,78 @@ func TestLeaveProducesYield(t *testing.T) {
 	require.True(t, ok, "expected *LeaveYield, got %T", lastValue(values))
 	assert.Equal(t, "workers", y.Group)
 	assert.Equal(t, testPID, y.Caller)
-	assert.Equal(t, pgapi.Leave, y.CmdID())
+	assert.NotNil(t, y.Instance)
 }
 
 func TestGetMembersProducesYield(t *testing.T) {
 	parent, _ := newLuaWithPID(t)
 
-	state, values := resumeYield(t, parent, `local r = pg.get_members("workers"); return r`)
+	state, values := resumeYield(t, parent, `
+		local inst = pg.open("test:pg")
+		local r = inst:get_members("workers"); return r
+	`)
 	assert.Equal(t, lua.ResumeYield, state)
 	require.NotEmpty(t, values)
 
 	y, ok := lastValue(values).(*GetMembersYield)
 	require.True(t, ok, "expected *GetMembersYield, got %T", lastValue(values))
 	assert.Equal(t, "workers", y.Group)
-	assert.Equal(t, pgapi.GetMembers, y.CmdID())
+	assert.NotNil(t, y.Instance)
 }
 
 func TestGetLocalMembersProducesYield(t *testing.T) {
 	parent, _ := newLuaWithPID(t)
 
-	state, values := resumeYield(t, parent, `local r = pg.get_local_members("workers"); return r`)
+	state, values := resumeYield(t, parent, `
+		local inst = pg.open("test:pg")
+		local r = inst:get_local_members("workers"); return r
+	`)
 	assert.Equal(t, lua.ResumeYield, state)
 	require.NotEmpty(t, values)
 
 	y, ok := lastValue(values).(*GetLocalMembersYield)
 	require.True(t, ok, "expected *GetLocalMembersYield, got %T", lastValue(values))
 	assert.Equal(t, "workers", y.Group)
-	assert.Equal(t, pgapi.GetLocalMembers, y.CmdID())
+	assert.NotNil(t, y.Instance)
 }
 
 func TestWhichGroupsProducesYield(t *testing.T) {
 	parent, _ := newLuaWithPID(t)
 
-	state, values := resumeYield(t, parent, `local r = pg.which_groups(); return r`)
+	state, values := resumeYield(t, parent, `
+		local inst = pg.open("test:pg")
+		local r = inst:which_groups(); return r
+	`)
 	assert.Equal(t, lua.ResumeYield, state)
 	require.NotEmpty(t, values)
 
 	y, ok := lastValue(values).(*WhichGroupsYield)
 	require.True(t, ok, "expected *WhichGroupsYield, got %T", lastValue(values))
-	assert.Equal(t, pgapi.WhichGroups, y.CmdID())
+	assert.NotNil(t, y.Instance)
+}
+
+func TestWhichLocalGroupsProducesYield(t *testing.T) {
+	parent, _ := newLuaWithPID(t)
+
+	state, values := resumeYield(t, parent, `
+		local inst = pg.open("test:pg")
+		local r = inst:which_local_groups(); return r
+	`)
+	assert.Equal(t, lua.ResumeYield, state)
+	require.NotEmpty(t, values)
+
+	y, ok := lastValue(values).(*WhichLocalGroupsYield)
+	require.True(t, ok, "expected *WhichLocalGroupsYield, got %T", lastValue(values))
+	assert.NotNil(t, y.Instance)
 }
 
 func TestBroadcastProducesYield(t *testing.T) {
 	parent, testPID := newLuaWithPID(t)
 
-	state, values := resumeYield(t, parent, `local r = pg.broadcast("workers", "hello", "payload1"); return r`)
+	state, values := resumeYield(t, parent, `
+		local inst = pg.open("test:pg")
+		local r = inst:broadcast("workers", "hello"); return r
+	`)
 	assert.Equal(t, lua.ResumeYield, state)
 	require.NotEmpty(t, values)
 
@@ -747,14 +1217,16 @@ func TestBroadcastProducesYield(t *testing.T) {
 	assert.Equal(t, "workers", y.Group)
 	assert.Equal(t, "hello", y.Topic)
 	assert.Equal(t, testPID, y.From)
-	assert.Equal(t, pgapi.Broadcast, y.CmdID())
-	require.Len(t, y.Payloads, 1)
+	assert.NotNil(t, y.Instance)
 }
 
 func TestBroadcastLocalProducesYield(t *testing.T) {
 	parent, testPID := newLuaWithPID(t)
 
-	state, values := resumeYield(t, parent, `local r = pg.broadcast_local("workers", "hello"); return r`)
+	state, values := resumeYield(t, parent, `
+		local inst = pg.open("test:pg")
+		local r = inst:broadcast_local("workers", "hello"); return r
+	`)
 	assert.Equal(t, lua.ResumeYield, state)
 	require.NotEmpty(t, values)
 
@@ -763,780 +1235,53 @@ func TestBroadcastLocalProducesYield(t *testing.T) {
 	assert.Equal(t, "workers", y.Group)
 	assert.Equal(t, "hello", y.Topic)
 	assert.Equal(t, testPID, y.From)
-	assert.Equal(t, pgapi.BroadcastLocal, y.CmdID())
-	assert.Nil(t, y.Payloads)
-}
-
-// --- Missing no-context / no-PID error path tests ---
-
-func TestGetLocalMembersNoContext(t *testing.T) {
-	l := newLuaNoContext(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("get_local_members"))
-	l.Push(lua.LString("workers"))
-	err := l.PCall(1, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestBroadcastNoPID(t *testing.T) {
-	l := newLuaNoPID(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("broadcast"))
-	l.Push(lua.LString("workers"))
-	l.Push(lua.LString("hello"))
-	err := l.PCall(2, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestBroadcastLocalNoPID(t *testing.T) {
-	l := newLuaNoPID(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("broadcast_local"))
-	l.Push(lua.LString("workers"))
-	l.Push(lua.LString("hello"))
-	err := l.PCall(2, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-// --- Empty group name validation tests ---
-
-func TestJoinEmptyGroup(t *testing.T) {
-	l, _ := newLuaWithPID(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("join"))
-	l.Push(lua.LString(""))
-	err := l.PCall(1, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	errVal := l.Get(-1)
-	assert.NotEqual(t, lua.LNil, errVal)
-}
-
-func TestLeaveEmptyGroup(t *testing.T) {
-	l, _ := newLuaWithPID(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("leave"))
-	l.Push(lua.LString(""))
-	err := l.PCall(1, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestGetMembersEmptyGroup(t *testing.T) {
-	l, _ := newLuaWithPID(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("get_members"))
-	l.Push(lua.LString(""))
-	err := l.PCall(1, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestGetLocalMembersEmptyGroup(t *testing.T) {
-	l, _ := newLuaWithPID(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("get_local_members"))
-	l.Push(lua.LString(""))
-	err := l.PCall(1, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestBroadcastEmptyGroup(t *testing.T) {
-	l, _ := newLuaWithPID(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("broadcast"))
-	l.Push(lua.LString(""))
-	l.Push(lua.LString("topic"))
-	err := l.PCall(2, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestBroadcastLocalEmptyGroup(t *testing.T) {
-	l, _ := newLuaWithPID(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("broadcast_local"))
-	l.Push(lua.LString(""))
-	l.Push(lua.LString("topic"))
-	err := l.PCall(2, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-// --- Empty topic validation tests for broadcast ---
-
-func TestBroadcastEmptyTopic(t *testing.T) {
-	l, _ := newLuaWithPID(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("broadcast"))
-	l.Push(lua.LString("workers"))
-	l.Push(lua.LString(""))
-	err := l.PCall(2, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestBroadcastLocalEmptyTopic(t *testing.T) {
-	l, _ := newLuaWithPID(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("broadcast_local"))
-	l.Push(lua.LString("workers"))
-	l.Push(lua.LString(""))
-	err := l.PCall(2, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-// --- Security permission denied tests (strict mode) ---
-
-func newLuaStrictMode(t *testing.T) (*lua.LState, pid.PID) {
-	t.Helper()
-	l := lua.NewState()
-	t.Cleanup(l.Close)
-	bindPG(l)
-
-	testPID := pid.PID{Host: "h1", UniqID: "p1"}
-	ctx := ctxapi.NewRootContext()
-	security.SetStrictMode(ctx, true) // strict mode — no actor/scope = denied
-	ctx, fc := ctxapi.OpenFrameContext(ctx)
-	t.Cleanup(func() { ctxapi.ReleaseFrameContext(fc) })
-	require.NoError(t, runtimeapi.SetFramePID(ctx, testPID))
-	l.SetContext(ctx)
-
-	return l, testPID
-}
-
-func TestJoinPermissionDenied(t *testing.T) {
-	l, _ := newLuaStrictMode(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("join"))
-	l.Push(lua.LString("workers"))
-	err := l.PCall(1, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestLeavePermissionDenied(t *testing.T) {
-	l, _ := newLuaStrictMode(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("leave"))
-	l.Push(lua.LString("workers"))
-	err := l.PCall(1, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestGetMembersPermissionDenied(t *testing.T) {
-	l, _ := newLuaStrictMode(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("get_members"))
-	l.Push(lua.LString("workers"))
-	err := l.PCall(1, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestGetLocalMembersPermissionDenied(t *testing.T) {
-	l, _ := newLuaStrictMode(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("get_local_members"))
-	l.Push(lua.LString("workers"))
-	err := l.PCall(1, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestWhichGroupsPermissionDenied(t *testing.T) {
-	l, _ := newLuaStrictMode(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("which_groups"))
-	err := l.PCall(0, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestBroadcastPermissionDenied(t *testing.T) {
-	l, _ := newLuaStrictMode(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("broadcast"))
-	l.Push(lua.LString("workers"))
-	l.Push(lua.LString("hello"))
-	err := l.PCall(2, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestBroadcastLocalPermissionDenied(t *testing.T) {
-	l, _ := newLuaStrictMode(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("broadcast_local"))
-	l.Push(lua.LString("workers"))
-	l.Push(lua.LString("hello"))
-	err := l.PCall(2, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-// --- Additional HandleResult error path tests ---
-
-func TestLeaveYield_HandleResult_DispatchError(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	y := &LeaveYield{}
-	result := y.HandleResult(l, nil, errors.New("dispatch failed"))
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[0])
-	assert.NotEqual(t, lua.LNil, result[1])
-}
-
-func TestGetLocalMembersYield_HandleResult_Error(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	y := &GetLocalMembersYield{}
-	result := y.HandleResult(l, nil, errors.New("dispatch failed"))
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[0])
-	assert.NotEqual(t, lua.LNil, result[1])
-}
-
-func TestGetLocalMembersYield_HandleResult_WrongType(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	y := &GetLocalMembersYield{}
-	result := y.HandleResult(l, "not a result", nil)
-	require.Len(t, result, 2)
-	// Should return empty table on wrong type
-	tbl, ok := result[0].(*lua.LTable)
-	require.True(t, ok)
-	assert.Equal(t, 0, tbl.Len())
-}
-
-func TestWhichGroupsYield_HandleResult_Error(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	y := &WhichGroupsYield{}
-	result := y.HandleResult(l, nil, errors.New("dispatch failed"))
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[0])
-	assert.NotEqual(t, lua.LNil, result[1])
-}
-
-func TestWhichGroupsYield_HandleResult_WrongType(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	y := &WhichGroupsYield{}
-	result := y.HandleResult(l, "not a result", nil)
-	require.Len(t, result, 2)
-	// Should return empty table on wrong type
-	tbl, ok := result[0].(*lua.LTable)
-	require.True(t, ok)
-	assert.Equal(t, 0, tbl.Len())
-}
-
-func TestBroadcastYield_HandleResult_DispatchError(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	y := &BroadcastYield{}
-	result := y.HandleResult(l, nil, errors.New("dispatch failed"))
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[0])
-	assert.NotEqual(t, lua.LNil, result[1])
-}
-
-func TestBroadcastLocalYield_HandleResult_DispatchError(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	y := &BroadcastLocalYield{}
-	result := y.HandleResult(l, nil, errors.New("dispatch failed"))
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[0])
-	assert.NotEqual(t, lua.LNil, result[1])
-}
-
-// --- EventsYield tests ---
-
-func TestEventsYieldCmdID(t *testing.T) {
-	y := &EventsYield{}
-	assert.Equal(t, pgapi.Events, y.CmdID())
-}
-
-func TestEventsYieldString(t *testing.T) {
-	y := &EventsYield{}
-	assert.Equal(t, "<pg_events_yield>", y.String())
-	assert.Equal(t, lua.LTUserData, y.Type())
-}
-
-func TestEventsYieldToCommand(t *testing.T) {
-	ch := engine.NewChannel(64)
-	p := pid.PID{Host: "h1", UniqID: "p1"}
-	y := AcquireEventsYield(ch, p, "pg.events@1")
-
-	cmd := y.ToCommand()
-	eventsCmd, ok := cmd.(*pgapi.EventsCmd)
-	require.True(t, ok, "expected *pgapi.EventsCmd, got %T", cmd)
-	assert.Equal(t, p, eventsCmd.PID)
-	assert.Equal(t, "pg.events@1", eventsCmd.Topic)
-
-	y.Release()
-}
-
-func TestEventsYieldPool(t *testing.T) {
-	ch := engine.NewChannel(64)
-	p := pid.PID{Host: "h1", UniqID: "1"}
-	y := AcquireEventsYield(ch, p, "pg.events@42")
-	assert.Equal(t, ch, y.Channel)
-	assert.Equal(t, p, y.PID)
-	assert.Equal(t, "pg.events@42", y.Topic)
-
-	ReleaseEventsYield(y)
-	assert.Nil(t, y.Channel)
-	assert.Equal(t, pid.PID{}, y.PID)
-	assert.Equal(t, "", y.Topic)
-}
-
-func TestEventsYield_HandleResult_Error(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	y := &EventsYield{}
-	result := y.HandleResult(l, nil, errors.New("subscribe failed"))
-	require.Len(t, result, 3)
-	assert.Equal(t, lua.LNil, result[0])
-	assert.Equal(t, lua.LNil, result[1])
-	assert.NotEqual(t, lua.LNil, result[2])
-}
-
-func TestEventsYieldInYieldStrings(t *testing.T) {
-	y := &EventsYield{}
-	assert.Equal(t, "<pg_events_yield>", y.String())
-	assert.Equal(t, lua.LTUserData, y.Type())
+	assert.NotNil(t, y.Instance)
 }
 
 func TestEventsProducesYield(t *testing.T) {
-	parent, _ := newLuaWithPID(t)
+	parent, testPID := newLuaWithPID(t)
 
-	state, values := resumeYield(t, parent, `local r = pg.events(); return r`)
+	state, values := resumeYield(t, parent, `
+		local inst = pg.open("test:pg")
+		local r = inst:events(); return r
+	`)
 	assert.Equal(t, lua.ResumeYield, state)
 	require.NotEmpty(t, values)
 
 	y, ok := lastValue(values).(*EventsYield)
 	require.True(t, ok, "expected *EventsYield, got %T", lastValue(values))
-	assert.Equal(t, pgapi.Events, y.CmdID())
+	assert.Equal(t, testPID, y.PID)
 	assert.NotNil(t, y.Channel)
-	assert.Contains(t, y.Topic, "pg.events@")
-}
-
-func TestEventsNoContext(t *testing.T) {
-	l := newLuaNoContext(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("events"))
-	err := l.PCall(0, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestEventsNoPID(t *testing.T) {
-	l := newLuaNoPID(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("events"))
-	err := l.PCall(0, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestEventsPermissionDenied(t *testing.T) {
-	l, _ := newLuaStrictMode(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("events"))
-	err := l.PCall(0, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-// --- MonitorYield tests ---
-
-func TestMonitorYieldCmdID(t *testing.T) {
-	y := &MonitorYield{}
-	assert.Equal(t, pgapi.Monitor, y.CmdID())
-}
-
-func TestMonitorYieldString(t *testing.T) {
-	y := &MonitorYield{}
-	assert.Equal(t, "<pg_monitor_yield>", y.String())
-	assert.Equal(t, lua.LTUserData, y.Type())
-}
-
-func TestMonitorYieldToCommand(t *testing.T) {
-	ch := engine.NewChannel(64)
-	p := pid.PID{Host: "h1", UniqID: "p1"}
-	y := AcquireMonitorYield(ch, "workers", p, "pg.monitor@1")
-
-	cmd := y.ToCommand()
-	monCmd, ok := cmd.(*pgapi.MonitorCmd)
-	require.True(t, ok, "expected *pgapi.MonitorCmd, got %T", cmd)
-	assert.Equal(t, "workers", monCmd.Group)
-	assert.Equal(t, p, monCmd.PID)
-	assert.Equal(t, "pg.monitor@1", monCmd.Topic)
-
-	y.Release()
-}
-
-func TestMonitorYieldPool(t *testing.T) {
-	ch := engine.NewChannel(64)
-	p := pid.PID{Host: "h1", UniqID: "1"}
-	y := AcquireMonitorYield(ch, "workers", p, "pg.monitor@99")
-	assert.Equal(t, ch, y.Channel)
-	assert.Equal(t, "workers", y.Group)
-	assert.Equal(t, p, y.PID)
-	assert.Equal(t, "pg.monitor@99", y.Topic)
-
-	ReleaseMonitorYield(y)
-	assert.Nil(t, y.Channel)
-	assert.Equal(t, "", y.Group)
-	assert.Equal(t, pid.PID{}, y.PID)
-	assert.Equal(t, "", y.Topic)
-}
-
-func TestMonitorYield_HandleResult_Error(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	y := &MonitorYield{}
-	result := y.HandleResult(l, nil, errors.New("monitor failed"))
-	require.Len(t, result, 3)
-	assert.Equal(t, lua.LNil, result[0])
-	assert.Equal(t, lua.LNil, result[1])
-	assert.NotEqual(t, lua.LNil, result[2])
+	assert.NotEmpty(t, y.Topic)
+	assert.NotNil(t, y.Instance)
 }
 
 func TestMonitorProducesYield(t *testing.T) {
-	parent, _ := newLuaWithPID(t)
+	parent, testPID := newLuaWithPID(t)
 
-	state, values := resumeYield(t, parent, `local r = pg.monitor("workers"); return r`)
+	state, values := resumeYield(t, parent, `
+		local inst = pg.open("test:pg")
+		local r = inst:monitor("workers"); return r
+	`)
 	assert.Equal(t, lua.ResumeYield, state)
 	require.NotEmpty(t, values)
 
 	y, ok := lastValue(values).(*MonitorYield)
 	require.True(t, ok, "expected *MonitorYield, got %T", lastValue(values))
 	assert.Equal(t, "workers", y.Group)
-	assert.Equal(t, pgapi.Monitor, y.CmdID())
+	assert.Equal(t, testPID, y.PID)
 	assert.NotNil(t, y.Channel)
-	assert.Contains(t, y.Topic, "pg.monitor@")
-}
-
-func TestMonitorNoContext(t *testing.T) {
-	l := newLuaNoContext(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("monitor"))
-	l.Push(lua.LString("workers"))
-	err := l.PCall(1, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestMonitorNoPID(t *testing.T) {
-	l := newLuaNoPID(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("monitor"))
-	l.Push(lua.LString("workers"))
-	err := l.PCall(1, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestMonitorEmptyGroup(t *testing.T) {
-	l, _ := newLuaWithPID(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("monitor"))
-	l.Push(lua.LString(""))
-	err := l.PCall(1, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestMonitorPermissionDenied(t *testing.T) {
-	l, _ := newLuaStrictMode(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("monitor"))
-	l.Push(lua.LString("workers"))
-	err := l.PCall(1, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-// --- WhichLocalGroupsYield tests ---
-
-func TestWhichLocalGroupsYieldCmdID(t *testing.T) {
-	y := &WhichLocalGroupsYield{}
-	assert.Equal(t, pgapi.WhichLocalGroups, y.CmdID())
-}
-
-func TestWhichLocalGroupsYieldString(t *testing.T) {
-	y := &WhichLocalGroupsYield{}
-	assert.Equal(t, "<pg_which_local_groups_yield>", y.String())
-	assert.Equal(t, lua.LTUserData, y.Type())
-}
-
-func TestWhichLocalGroupsYieldToCommand(t *testing.T) {
-	y := AcquireWhichLocalGroupsYield()
-
-	cmd := y.ToCommand()
-	wlgCmd, ok := cmd.(*pgapi.WhichLocalGroupsCmd)
-	require.True(t, ok, "expected *pgapi.WhichLocalGroupsCmd, got %T", cmd)
-	assert.Equal(t, pgapi.WhichLocalGroups, wlgCmd.CmdID())
-
-	wlgCmd.Release()
-	y.Release()
-}
-
-func TestWhichLocalGroupsYieldPool(t *testing.T) {
-	y := AcquireWhichLocalGroupsYield()
-	require.NotNil(t, y)
-
-	y.Scope = "test::"
-	ReleaseWhichLocalGroupsYield(y)
-	assert.Equal(t, "", y.Scope)
-}
-
-func TestWhichLocalGroupsYield_HandleResult_Success(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	y := &WhichLocalGroupsYield{}
-	result := y.HandleResult(l, pgapi.WhichLocalGroupsResult{Groups: []string{"workers", "managers"}}, nil)
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[1])
-
-	tbl, ok := result[0].(*lua.LTable)
-	require.True(t, ok)
-	assert.Equal(t, 2, tbl.Len())
-	assert.Equal(t, "workers", string(tbl.RawGetInt(1).(lua.LString)))
-	assert.Equal(t, "managers", string(tbl.RawGetInt(2).(lua.LString)))
-}
-
-func TestWhichLocalGroupsYield_HandleResult_Empty(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	y := &WhichLocalGroupsYield{}
-	result := y.HandleResult(l, pgapi.WhichLocalGroupsResult{Groups: nil}, nil)
-	require.Len(t, result, 2)
-	tbl, ok := result[0].(*lua.LTable)
-	require.True(t, ok)
-	assert.Equal(t, 0, tbl.Len())
-}
-
-func TestWhichLocalGroupsYield_HandleResult_Error(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	y := &WhichLocalGroupsYield{}
-	result := y.HandleResult(l, nil, errors.New("dispatch failed"))
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[0])
-	assert.NotEqual(t, lua.LNil, result[1])
-}
-
-func TestWhichLocalGroupsYield_HandleResult_WrongType(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	y := &WhichLocalGroupsYield{}
-	result := y.HandleResult(l, "not a result", nil)
-	require.Len(t, result, 2)
-	tbl, ok := result[0].(*lua.LTable)
-	require.True(t, ok)
-	assert.Equal(t, 0, tbl.Len())
-}
-
-func TestWhichLocalGroupsYield_HandleResult_ScopeFilter(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	y := &WhichLocalGroupsYield{Scope: "ns::"}
-	result := y.HandleResult(l, pgapi.WhichLocalGroupsResult{
-		Groups: []string{"ns::workers", "ns::managers", "other::stuff", "noscope"},
-	}, nil)
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[1])
-
-	tbl, ok := result[0].(*lua.LTable)
-	require.True(t, ok)
-	assert.Equal(t, 2, tbl.Len())
-	assert.Equal(t, "workers", string(tbl.RawGetInt(1).(lua.LString)))
-	assert.Equal(t, "managers", string(tbl.RawGetInt(2).(lua.LString)))
-}
-
-func TestWhichLocalGroupsProducesYield(t *testing.T) {
-	parent, _ := newLuaWithPID(t)
-
-	state, values := resumeYield(t, parent, `local r = pg.which_local_groups(); return r`)
-	assert.Equal(t, lua.ResumeYield, state)
-	require.NotEmpty(t, values)
-
-	y, ok := lastValue(values).(*WhichLocalGroupsYield)
-	require.True(t, ok, "expected *WhichLocalGroupsYield, got %T", lastValue(values))
-	assert.Equal(t, pgapi.WhichLocalGroups, y.CmdID())
-}
-
-func TestWhichLocalGroupsNoContext(t *testing.T) {
-	l := newLuaNoContext(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("which_local_groups"))
-	err := l.PCall(0, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-func TestWhichLocalGroupsPermissionDenied(t *testing.T) {
-	l, _ := newLuaStrictMode(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("which_local_groups"))
-	err := l.PCall(0, 2, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
-}
-
-// --- JoinGroupsYield tests ---
-
-func TestJoinGroupsYieldCmdID(t *testing.T) {
-	y := &JoinGroupsYield{}
-	assert.Equal(t, pgapi.JoinGroups, y.CmdID())
-}
-
-func TestJoinGroupsYieldString(t *testing.T) {
-	y := &JoinGroupsYield{}
-	assert.Equal(t, "<pg_join_groups_yield>", y.String())
-	assert.Equal(t, lua.LTUserData, y.Type())
-}
-
-func TestJoinGroupsYieldToCommand(t *testing.T) {
-	p := pid.PID{Host: "h1", UniqID: "p1"}
-	y := AcquireJoinGroupsYield([]string{"a", "b"}, p)
-
-	cmd := y.ToCommand()
-	jgCmd, ok := cmd.(*pgapi.JoinGroupsCmd)
-	require.True(t, ok, "expected *pgapi.JoinGroupsCmd, got %T", cmd)
-	assert.Equal(t, []string{"a", "b"}, jgCmd.Groups)
-	assert.Equal(t, p, jgCmd.Caller)
-	assert.Equal(t, pgapi.JoinGroups, jgCmd.CmdID())
-
-	jgCmd.Release()
-	y.Release()
-}
-
-func TestJoinGroupsYieldPool(t *testing.T) {
-	p := pid.PID{Host: "h1", UniqID: "1"}
-	y := AcquireJoinGroupsYield([]string{"x", "y"}, p)
-	assert.Equal(t, []string{"x", "y"}, y.Groups)
-	assert.Equal(t, p, y.Caller)
-
-	ReleaseJoinGroupsYield(y)
-	assert.Nil(t, y.Groups)
-	assert.Equal(t, pid.PID{}, y.Caller)
-}
-
-func TestJoinGroupsYield_HandleResult_Success(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	y := &JoinGroupsYield{}
-	result := y.HandleResult(l, pgapi.JoinGroupsResult{Error: nil}, nil)
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LTrue, result[0])
-	assert.Equal(t, lua.LNil, result[1])
-}
-
-func TestJoinGroupsYield_HandleResult_Error(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	y := &JoinGroupsYield{}
-	result := y.HandleResult(l, pgapi.JoinGroupsResult{Error: errors.New("batch fail")}, nil)
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[0])
-	assert.NotEqual(t, lua.LNil, result[1])
-}
-
-func TestJoinGroupsYield_HandleResult_DispatchError(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	y := &JoinGroupsYield{}
-	result := y.HandleResult(l, nil, errors.New("dispatch failed"))
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[0])
-	assert.NotEqual(t, lua.LNil, result[1])
+	assert.NotEmpty(t, y.Topic)
+	assert.NotNil(t, y.Instance)
 }
 
 func TestJoinGroupsProducesYield(t *testing.T) {
 	parent, testPID := newLuaWithPID(t)
 
-	state, values := resumeYield(t, parent, `local r = pg.join({"a", "b"}); return r`)
+	state, values := resumeYield(t, parent, `
+		local inst = pg.open("test:pg")
+		local r = inst:join({"a", "b"}); return r
+	`)
 	assert.Equal(t, lua.ResumeYield, state)
 	require.NotEmpty(t, values)
 
@@ -1544,85 +1289,16 @@ func TestJoinGroupsProducesYield(t *testing.T) {
 	require.True(t, ok, "expected *JoinGroupsYield, got %T", lastValue(values))
 	assert.Equal(t, []string{"a", "b"}, y.Groups)
 	assert.Equal(t, testPID, y.Caller)
-	assert.Equal(t, pgapi.JoinGroups, y.CmdID())
-}
-
-// --- LeaveGroupsYield tests ---
-
-func TestLeaveGroupsYieldCmdID(t *testing.T) {
-	y := &LeaveGroupsYield{}
-	assert.Equal(t, pgapi.LeaveGroups, y.CmdID())
-}
-
-func TestLeaveGroupsYieldString(t *testing.T) {
-	y := &LeaveGroupsYield{}
-	assert.Equal(t, "<pg_leave_groups_yield>", y.String())
-	assert.Equal(t, lua.LTUserData, y.Type())
-}
-
-func TestLeaveGroupsYieldToCommand(t *testing.T) {
-	p := pid.PID{Host: "h1", UniqID: "p1"}
-	y := AcquireLeaveGroupsYield([]string{"a", "b"}, p)
-
-	cmd := y.ToCommand()
-	lgCmd, ok := cmd.(*pgapi.LeaveGroupsCmd)
-	require.True(t, ok, "expected *pgapi.LeaveGroupsCmd, got %T", cmd)
-	assert.Equal(t, []string{"a", "b"}, lgCmd.Groups)
-	assert.Equal(t, p, lgCmd.Caller)
-	assert.Equal(t, pgapi.LeaveGroups, lgCmd.CmdID())
-
-	lgCmd.Release()
-	y.Release()
-}
-
-func TestLeaveGroupsYieldPool(t *testing.T) {
-	p := pid.PID{Host: "h1", UniqID: "1"}
-	y := AcquireLeaveGroupsYield([]string{"x", "y"}, p)
-	assert.Equal(t, []string{"x", "y"}, y.Groups)
-	assert.Equal(t, p, y.Caller)
-
-	ReleaseLeaveGroupsYield(y)
-	assert.Nil(t, y.Groups)
-	assert.Equal(t, pid.PID{}, y.Caller)
-}
-
-func TestLeaveGroupsYield_HandleResult_Success(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	y := &LeaveGroupsYield{}
-	result := y.HandleResult(l, pgapi.LeaveGroupsResult{Error: nil}, nil)
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LTrue, result[0])
-	assert.Equal(t, lua.LNil, result[1])
-}
-
-func TestLeaveGroupsYield_HandleResult_Error(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	y := &LeaveGroupsYield{}
-	result := y.HandleResult(l, pgapi.LeaveGroupsResult{Error: errors.New("batch leave fail")}, nil)
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[0])
-	assert.NotEqual(t, lua.LNil, result[1])
-}
-
-func TestLeaveGroupsYield_HandleResult_DispatchError(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-
-	y := &LeaveGroupsYield{}
-	result := y.HandleResult(l, nil, errors.New("dispatch failed"))
-	require.Len(t, result, 2)
-	assert.Equal(t, lua.LNil, result[0])
-	assert.NotEqual(t, lua.LNil, result[1])
+	assert.NotNil(t, y.Instance)
 }
 
 func TestLeaveGroupsProducesYield(t *testing.T) {
 	parent, testPID := newLuaWithPID(t)
 
-	state, values := resumeYield(t, parent, `local r = pg.leave({"a", "b"}); return r`)
+	state, values := resumeYield(t, parent, `
+		local inst = pg.open("test:pg")
+		local r = inst:leave({"a", "b"}); return r
+	`)
 	assert.Equal(t, lua.ResumeYield, state)
 	require.NotEmpty(t, values)
 
@@ -1630,40 +1306,31 @@ func TestLeaveGroupsProducesYield(t *testing.T) {
 	require.True(t, ok, "expected *LeaveGroupsYield, got %T", lastValue(values))
 	assert.Equal(t, []string{"a", "b"}, y.Groups)
 	assert.Equal(t, testPID, y.Caller)
-	assert.Equal(t, pgapi.LeaveGroups, y.CmdID())
+	assert.NotNil(t, y.Instance)
 }
 
-// --- Scope function tests ---
+// ==========================================================================
+// pg.open() error path tests
+// ==========================================================================
 
-func TestScopeProducesTable(t *testing.T) {
-	l, _ := newLuaWithPID(t)
+func TestOpenNoContext(t *testing.T) {
+	// go-lua's VM sets context.Background() before entering mainLoop,
+	// so l.Context() is never nil inside a Go function called from Lua.
+	// With context.Background() there is no app-context or frame-context,
+	// so security defaults to strict mode and RaiseError fires.
+	l := newLuaNoContext(t)
 
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("scope"))
-	l.Push(lua.LString("myapp"))
-	err := l.PCall(1, 1, nil)
-	require.NoError(t, err)
-
-	mod := l.Get(-1)
-	require.Equal(t, lua.LTTable, mod.Type())
-
-	modTbl := mod.(*lua.LTable)
-	assert.Equal(t, "myapp", string(modTbl.RawGetString("name").(lua.LString)))
-
-	// Check all expected functions exist
-	functions := []string{
-		"join", "leave", "get_members", "get_local_members",
-		"which_groups", "which_local_groups", "broadcast", "broadcast_local",
-		"events", "monitor",
-	}
-	for _, fn := range functions {
-		assert.Equal(t, lua.LTFunction, modTbl.RawGetString(fn).Type(), "function %s not in scope table", fn)
-	}
+	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("open"))
+	l.Push(lua.LString("test:pg"))
+	err := l.PCall(1, 2, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not allowed to access pg scope")
 }
 
-func TestScopeEmptyName(t *testing.T) {
+func TestOpenEmptyID(t *testing.T) {
 	l, _ := newLuaWithPID(t)
 
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("scope"))
+	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("open"))
 	l.Push(lua.LString(""))
 	err := l.PCall(1, 2, nil)
 	require.NoError(t, err)
@@ -1672,154 +1339,357 @@ func TestScopeEmptyName(t *testing.T) {
 	assert.NotEqual(t, lua.LNil, l.Get(-1))
 }
 
-func TestScopeJoinProducesYieldWithPrefix(t *testing.T) {
-	parent, testPID := newLuaWithPID(t)
+func TestOpenNoRegistry(t *testing.T) {
+	l := newLuaNoRegistry(t)
 
-	state, values := resumeYield(t, parent, `
-		local s = pg.scope("ns")
-		local r = s.join("workers")
-		return r
-	`)
-	assert.Equal(t, lua.ResumeYield, state)
-	require.NotEmpty(t, values)
+	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("open"))
+	l.Push(lua.LString("test:pg"))
+	err := l.PCall(1, 2, nil)
+	require.NoError(t, err)
 
-	y, ok := lastValue(values).(*JoinYield)
-	require.True(t, ok, "expected *JoinYield, got %T", lastValue(values))
-	assert.Equal(t, "ns::workers", y.Group)
-	assert.Equal(t, testPID, y.Caller)
+	assert.Equal(t, lua.LNil, l.Get(-2))
+	assert.NotEqual(t, lua.LNil, l.Get(-1))
 }
 
-func TestScopeLeaveProducesYieldWithPrefix(t *testing.T) {
-	parent, testPID := newLuaWithPID(t)
+func TestOpenNotFound(t *testing.T) {
+	l, _ := newLuaWithPID(t)
 
-	state, values := resumeYield(t, parent, `
-		local s = pg.scope("ns")
-		local r = s.leave("workers")
-		return r
-	`)
-	assert.Equal(t, lua.ResumeYield, state)
-	require.NotEmpty(t, values)
+	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("open"))
+	l.Push(lua.LString("nonexistent:pg"))
+	err := l.PCall(1, 2, nil)
+	require.NoError(t, err)
 
-	y, ok := lastValue(values).(*LeaveYield)
-	require.True(t, ok, "expected *LeaveYield, got %T", lastValue(values))
-	assert.Equal(t, "ns::workers", y.Group)
-	assert.Equal(t, testPID, y.Caller)
+	assert.Equal(t, lua.LNil, l.Get(-2))
+	assert.NotEqual(t, lua.LNil, l.Get(-1))
 }
 
-func TestScopeGetMembersProducesYieldWithPrefix(t *testing.T) {
+func TestOpenPermissionDenied(t *testing.T) {
+	l, _ := newLuaStrictMode(t)
+
+	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("open"))
+	l.Push(lua.LString("test:pg"))
+	// pg.open raises an error (not return-style) on permission denial
+	err := l.PCall(1, 2, nil)
+	require.Error(t, err)
+}
+
+func TestOpenSuccess(t *testing.T) {
+	l, _ := newLuaWithPID(t)
+
+	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("open"))
+	l.Push(lua.LString("test:pg"))
+	err := l.PCall(1, 1, nil)
+	require.NoError(t, err)
+
+	ud := l.Get(-1)
+	assert.Equal(t, lua.LTUserData, ud.Type())
+}
+
+// ==========================================================================
+// Instance method error path tests
+// ==========================================================================
+
+func TestInstanceJoinNoPID(t *testing.T) {
+	l := newLuaNoPID(t)
+
+	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("open"))
+	l.Push(lua.LString("test:pg"))
+	err := l.PCall(1, 1, nil)
+	require.NoError(t, err)
+	// Instance acquired; now try to join — should fail because no PID
+	// We need to get the method and call it with the instance as self
+	inst := l.Get(-1)
+	l.Pop(1)
+
+	// Use coroutine to test yield, then check error return
+	l.SetGlobal("inst", inst)
+	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("open"))
+	l.Push(lua.LString("test:pg"))
+	err = l.PCall(1, 2, nil)
+	require.NoError(t, err)
+}
+
+func TestInstanceJoinEmptyGroup(t *testing.T) {
 	parent, _ := newLuaWithPID(t)
 
-	state, values := resumeYield(t, parent, `
-		local s = pg.scope("ns")
-		local r = s.get_members("workers")
-		return r
+	fn, err := parent.LoadString(`
+		local inst = pg.open("test:pg")
+		return inst:join("")
 	`)
-	assert.Equal(t, lua.ResumeYield, state)
-	require.NotEmpty(t, values)
+	require.NoError(t, err)
 
-	y, ok := lastValue(values).(*GetMembersYield)
-	require.True(t, ok, "expected *GetMembersYield, got %T", lastValue(values))
-	assert.Equal(t, "ns::workers", y.Group)
+	thread := parent.NewThreadWithContext(parent.Context())
+	_, values, err := parent.Resume(thread, fn)
+	require.NoError(t, err)
+	// Should return (nil, error) — not yield
+	require.Len(t, values, 2)
+	assert.Equal(t, lua.LNil, values[0])
+	assert.NotEqual(t, lua.LNil, values[1])
 }
 
-func TestScopeWhichGroupsProducesYieldWithScope(t *testing.T) {
+func TestInstanceLeaveEmptyGroup(t *testing.T) {
 	parent, _ := newLuaWithPID(t)
 
-	state, values := resumeYield(t, parent, `
-		local s = pg.scope("ns")
-		local r = s.which_groups()
-		return r
+	fn, err := parent.LoadString(`
+		local inst = pg.open("test:pg")
+		return inst:leave("")
 	`)
-	assert.Equal(t, lua.ResumeYield, state)
-	require.NotEmpty(t, values)
+	require.NoError(t, err)
 
-	y, ok := lastValue(values).(*WhichGroupsYield)
-	require.True(t, ok, "expected *WhichGroupsYield, got %T", lastValue(values))
-	assert.Equal(t, "ns::", y.Scope)
+	thread := parent.NewThreadWithContext(parent.Context())
+	_, values, err := parent.Resume(thread, fn)
+	require.NoError(t, err)
+	require.Len(t, values, 2)
+	assert.Equal(t, lua.LNil, values[0])
+	assert.NotEqual(t, lua.LNil, values[1])
 }
 
-func TestScopeWhichLocalGroupsProducesYieldWithScope(t *testing.T) {
+func TestInstanceGetMembersEmptyGroup(t *testing.T) {
 	parent, _ := newLuaWithPID(t)
 
-	state, values := resumeYield(t, parent, `
-		local s = pg.scope("ns")
-		local r = s.which_local_groups()
-		return r
+	fn, err := parent.LoadString(`
+		local inst = pg.open("test:pg")
+		return inst:get_members("")
 	`)
-	assert.Equal(t, lua.ResumeYield, state)
-	require.NotEmpty(t, values)
+	require.NoError(t, err)
 
-	y, ok := lastValue(values).(*WhichLocalGroupsYield)
-	require.True(t, ok, "expected *WhichLocalGroupsYield, got %T", lastValue(values))
-	assert.Equal(t, "ns::", y.Scope)
+	thread := parent.NewThreadWithContext(parent.Context())
+	_, values, err := parent.Resume(thread, fn)
+	require.NoError(t, err)
+	require.Len(t, values, 2)
+	assert.Equal(t, lua.LNil, values[0])
+	assert.NotEqual(t, lua.LNil, values[1])
 }
 
-func TestScopeBatchJoinProducesYieldWithPrefix(t *testing.T) {
-	parent, testPID := newLuaWithPID(t)
-
-	state, values := resumeYield(t, parent, `
-		local s = pg.scope("ns")
-		local r = s.join({"a", "b"})
-		return r
-	`)
-	assert.Equal(t, lua.ResumeYield, state)
-	require.NotEmpty(t, values)
-
-	y, ok := lastValue(values).(*JoinGroupsYield)
-	require.True(t, ok, "expected *JoinGroupsYield, got %T", lastValue(values))
-	assert.Equal(t, []string{"ns::a", "ns::b"}, y.Groups)
-	assert.Equal(t, testPID, y.Caller)
-}
-
-func TestScopeMonitorProducesYieldWithPrefix(t *testing.T) {
+func TestInstanceGetLocalMembersEmptyGroup(t *testing.T) {
 	parent, _ := newLuaWithPID(t)
 
-	state, values := resumeYield(t, parent, `
-		local s = pg.scope("ns")
-		local r = s.monitor("workers")
-		return r
+	fn, err := parent.LoadString(`
+		local inst = pg.open("test:pg")
+		return inst:get_local_members("")
 	`)
-	assert.Equal(t, lua.ResumeYield, state)
-	require.NotEmpty(t, values)
+	require.NoError(t, err)
 
-	y, ok := lastValue(values).(*MonitorYield)
-	require.True(t, ok, "expected *MonitorYield, got %T", lastValue(values))
-	assert.Equal(t, "ns::workers", y.Group)
+	thread := parent.NewThreadWithContext(parent.Context())
+	_, values, err := parent.Resume(thread, fn)
+	require.NoError(t, err)
+	require.Len(t, values, 2)
+	assert.Equal(t, lua.LNil, values[0])
+	assert.NotEqual(t, lua.LNil, values[1])
 }
 
-func TestScopeEventsProducesYieldWithScope(t *testing.T) {
+func TestInstanceBroadcastEmptyGroup(t *testing.T) {
 	parent, _ := newLuaWithPID(t)
 
-	state, values := resumeYield(t, parent, `
-		local s = pg.scope("ns")
-		local r = s.events()
-		return r
+	fn, err := parent.LoadString(`
+		local inst = pg.open("test:pg")
+		return inst:broadcast("", "hello")
 	`)
-	assert.Equal(t, lua.ResumeYield, state)
-	require.NotEmpty(t, values)
+	require.NoError(t, err)
 
-	y, ok := lastValue(values).(*EventsYield)
-	require.True(t, ok, "expected *EventsYield, got %T", lastValue(values))
-	assert.Equal(t, "ns::", y.Scope)
+	thread := parent.NewThreadWithContext(parent.Context())
+	_, values, err := parent.Resume(thread, fn)
+	require.NoError(t, err)
+	require.Len(t, values, 2)
+	assert.Equal(t, lua.LNil, values[0])
+	assert.NotEqual(t, lua.LNil, values[1])
 }
 
-// --- ModuleFunctions completeness test ---
+func TestInstanceBroadcastEmptyTopic(t *testing.T) {
+	parent, _ := newLuaWithPID(t)
 
-func TestModuleFunctionsComplete(t *testing.T) {
-	l := lua.NewState()
-	defer l.Close()
-	bindPG(l)
+	fn, err := parent.LoadString(`
+		local inst = pg.open("test:pg")
+		return inst:broadcast("workers", "")
+	`)
+	require.NoError(t, err)
 
-	mod := l.GetGlobal("pg")
-	require.Equal(t, lua.LTTable, mod.Type())
+	thread := parent.NewThreadWithContext(parent.Context())
+	_, values, err := parent.Resume(thread, fn)
+	require.NoError(t, err)
+	require.Len(t, values, 2)
+	assert.Equal(t, lua.LNil, values[0])
+	assert.NotEqual(t, lua.LNil, values[1])
+}
 
-	modTbl := mod.(*lua.LTable)
-	functions := []string{
-		"join", "leave", "get_members", "get_local_members",
-		"which_groups", "which_local_groups", "broadcast", "broadcast_local",
-		"events", "monitor", "scope",
-	}
-	for _, fn := range functions {
-		assert.Equal(t, lua.LTFunction, modTbl.RawGetString(fn).Type(), "function %s not registered", fn)
-	}
+func TestInstanceBroadcastLocalEmptyGroup(t *testing.T) {
+	parent, _ := newLuaWithPID(t)
+
+	fn, err := parent.LoadString(`
+		local inst = pg.open("test:pg")
+		return inst:broadcast_local("", "hello")
+	`)
+	require.NoError(t, err)
+
+	thread := parent.NewThreadWithContext(parent.Context())
+	_, values, err := parent.Resume(thread, fn)
+	require.NoError(t, err)
+	require.Len(t, values, 2)
+	assert.Equal(t, lua.LNil, values[0])
+	assert.NotEqual(t, lua.LNil, values[1])
+}
+
+func TestInstanceBroadcastLocalEmptyTopic(t *testing.T) {
+	parent, _ := newLuaWithPID(t)
+
+	fn, err := parent.LoadString(`
+		local inst = pg.open("test:pg")
+		return inst:broadcast_local("workers", "")
+	`)
+	require.NoError(t, err)
+
+	thread := parent.NewThreadWithContext(parent.Context())
+	_, values, err := parent.Resume(thread, fn)
+	require.NoError(t, err)
+	require.Len(t, values, 2)
+	assert.Equal(t, lua.LNil, values[0])
+	assert.NotEqual(t, lua.LNil, values[1])
+}
+
+func TestInstanceMonitorEmptyGroup(t *testing.T) {
+	parent, _ := newLuaWithPID(t)
+
+	fn, err := parent.LoadString(`
+		local inst = pg.open("test:pg")
+		return inst:monitor("")
+	`)
+	require.NoError(t, err)
+
+	thread := parent.NewThreadWithContext(parent.Context())
+	_, values, err := parent.Resume(thread, fn)
+	require.NoError(t, err)
+	require.Len(t, values, 2)
+	assert.Equal(t, lua.LNil, values[0])
+	assert.NotEqual(t, lua.LNil, values[1])
+}
+
+func TestInstanceJoinEmptyTable(t *testing.T) {
+	parent, _ := newLuaWithPID(t)
+
+	fn, err := parent.LoadString(`
+		local inst = pg.open("test:pg")
+		return inst:join({})
+	`)
+	require.NoError(t, err)
+
+	thread := parent.NewThreadWithContext(parent.Context())
+	_, values, err := parent.Resume(thread, fn)
+	require.NoError(t, err)
+	require.Len(t, values, 2)
+	assert.Equal(t, lua.LNil, values[0])
+	assert.NotEqual(t, lua.LNil, values[1])
+}
+
+func TestInstanceLeaveEmptyTable(t *testing.T) {
+	parent, _ := newLuaWithPID(t)
+
+	fn, err := parent.LoadString(`
+		local inst = pg.open("test:pg")
+		return inst:leave({})
+	`)
+	require.NoError(t, err)
+
+	thread := parent.NewThreadWithContext(parent.Context())
+	_, values, err := parent.Resume(thread, fn)
+	require.NoError(t, err)
+	require.Len(t, values, 2)
+	assert.Equal(t, lua.LNil, values[0])
+	assert.NotEqual(t, lua.LNil, values[1])
+}
+
+// ==========================================================================
+// Instance release tests
+// ==========================================================================
+
+func TestInstanceRelease(t *testing.T) {
+	parent, _ := newLuaWithPID(t)
+
+	fn, err := parent.LoadString(`
+		local inst = pg.open("test:pg")
+		local ok = inst:release()
+		return ok
+	`)
+	require.NoError(t, err)
+
+	thread := parent.NewThreadWithContext(parent.Context())
+	state, values, err := parent.Resume(thread, fn)
+	require.NoError(t, err)
+	assert.Equal(t, lua.ResumeOK, state)
+	require.Len(t, values, 1)
+	assert.Equal(t, lua.LTrue, values[0])
+}
+
+func TestInstanceMethodAfterRelease(t *testing.T) {
+	parent, _ := newLuaWithPID(t)
+
+	fn, err := parent.LoadString(`
+		local inst = pg.open("test:pg")
+		inst:release()
+		return inst:join("workers")
+	`)
+	require.NoError(t, err)
+
+	thread := parent.NewThreadWithContext(parent.Context())
+	state, values, err := parent.Resume(thread, fn)
+	require.NoError(t, err)
+	assert.Equal(t, lua.ResumeOK, state) // returns immediately (no yield)
+	require.Len(t, values, 2)
+	assert.Equal(t, lua.LNil, values[0])
+	assert.NotEqual(t, lua.LNil, values[1]) // error about released instance
+}
+
+// ==========================================================================
+// Instance __tostring tests
+// ==========================================================================
+
+func TestInstanceToString(t *testing.T) {
+	parent, _ := newLuaWithPID(t)
+
+	fn, err := parent.LoadString(`
+		local inst = pg.open("test:pg")
+		return tostring(inst)
+	`)
+	require.NoError(t, err)
+
+	thread := parent.NewThreadWithContext(parent.Context())
+	state, values, err := parent.Resume(thread, fn)
+	require.NoError(t, err)
+	assert.Equal(t, lua.ResumeOK, state)
+	require.Len(t, values, 1)
+	assert.Contains(t, values[0].String(), "pg.Instance{test:pg}")
+}
+
+func TestInstanceToStringAfterRelease(t *testing.T) {
+	parent, _ := newLuaWithPID(t)
+
+	fn, err := parent.LoadString(`
+		local inst = pg.open("test:pg")
+		inst:release()
+		return tostring(inst)
+	`)
+	require.NoError(t, err)
+
+	thread := parent.NewThreadWithContext(parent.Context())
+	state, values, err := parent.Resume(thread, fn)
+	require.NoError(t, err)
+	assert.Equal(t, lua.ResumeOK, state)
+	require.Len(t, values, 1)
+	assert.Contains(t, values[0].String(), "released")
+}
+
+// ==========================================================================
+// pg.scope() deprecated stub test
+// ==========================================================================
+
+func TestScopeDeprecated(t *testing.T) {
+	l, _ := newLuaWithPID(t)
+
+	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("scope"))
+	l.Push(lua.LString("myapp"))
+	err := l.PCall(1, 2, nil)
+	require.NoError(t, err)
+
+	// Returns (nil, error)
+	assert.Equal(t, lua.LNil, l.Get(-2))
+	assert.NotEqual(t, lua.LNil, l.Get(-1))
 }

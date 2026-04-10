@@ -12,7 +12,10 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	pgapi "github.com/wippyai/runtime/api/pg"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/resource"
+	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
@@ -31,6 +34,10 @@ type action func()
 // Service implements the pg (process groups) service.
 // All state mutations are serialized through a single goroutine event loop,
 // following the Erlang gen_server pattern.
+//
+// Each Service instance represents an independent PG scope (like Erlang's
+// pg:start_link(ScopeName)). Scopes have separate state, event loops,
+// and cluster mesh — providing complete isolation.
 type Service struct {
 	router        relay.Receiver
 	topo          topology.Topology
@@ -45,14 +52,25 @@ type Service struct {
 	actions       chan action
 	monitors      map[string][]*monitorEntry // group -> monitor subscriptions
 	snap          atomic.Pointer[stateSnapshot]
+	hostID        pid.HostID // dynamic host ID derived from registry entry ID
 	localNodeID   pid.NodeID
 	monitorIDSeq  uint64 // monotonic ID for monitors
 	wg            sync.WaitGroup
+
+	// Config limits (0 = unlimited)
+	maxGroups          int
+	maxMembersPerGroup int
 }
 
-// NewService creates a new pg service.
+// NewService creates a new pg service for the given scope.
+//
+// The hostID identifies this scope in the relay system and must be unique
+// per node. It is derived from the registry entry ID by the Manager.
+// The config controls operational parameters like action queue sizing.
 func NewService(
 	logger *zap.Logger,
+	hostID pid.HostID,
+	config *pgapi.Config,
 	router relay.Receiver,
 	topo topology.Topology,
 	membership cluster.Membership,
@@ -62,22 +80,36 @@ func NewService(
 	if logger == nil {
 		logger = zap.NewNop()
 	}
+	if config == nil {
+		config = &pgapi.Config{}
+		config.InitDefaults()
+	}
 	return &Service{
-		state:       newState(),
-		logger:      logger.Named("pg"),
-		router:      router,
-		topo:        topo,
-		membership:  membership,
-		bus:         bus,
-		localNodeID: localNodeID,
-		actions:     make(chan action, 256),
-		monitors:    make(map[string][]*monitorEntry),
+		state:              newState(),
+		logger:             logger.Named("pg").Named(hostID),
+		hostID:             hostID,
+		router:             router,
+		topo:               topo,
+		membership:         membership,
+		bus:                bus,
+		localNodeID:        localNodeID,
+		actions:            make(chan action, config.ActionQueueSize),
+		monitors:           make(map[string][]*monitorEntry),
+		maxGroups:          config.MaxGroups,
+		maxMembersPerGroup: config.MaxMembersPerGroup,
 	}
 }
 
+// HostID returns the relay host ID for this PG scope.
+func (s *Service) HostID() pid.HostID {
+	return s.hostID
+}
+
 // Start begins the pg service event loop and subscribes to cluster events.
-func (s *Service) Start(ctx context.Context) error {
+func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 	s.ctx, s.cancel = context.WithCancel(ctx)
+
+	statusChan := make(chan any, 1)
 
 	// Subscribe to cluster events for node discovery
 	if s.bus != nil {
@@ -85,14 +117,14 @@ func (s *Service) Start(ctx context.Context) error {
 		s.nodeJoinedSub, err = eventbus.NewSubscriber(s.ctx, s.bus, cluster.System, cluster.NodeJoined, s.handleNodeJoinedEvent)
 		if err != nil {
 			s.cancel()
-			return err
+			return nil, err
 		}
 
 		s.nodeLeftSub, err = eventbus.NewSubscriber(s.ctx, s.bus, cluster.System, cluster.NodeLeft, s.handleNodeLeftEvent)
 		if err != nil {
 			s.nodeJoinedSub.Close()
 			s.cancel()
-			return err
+			return nil, err
 		}
 	}
 
@@ -117,7 +149,13 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 
 	s.logger.Info("pg service started", zap.String("node", s.localNodeID))
-	return nil
+
+	select {
+	case statusChan <- "pg service started":
+	default:
+	}
+
+	return statusChan, nil
 }
 
 // Stop shuts down the pg service.
@@ -383,6 +421,26 @@ func (s *Service) handleNodeLeftEvent(e event.Event) {
 func (s *Service) Join(group pgapi.Group, p pid.PID) error {
 	done := make(chan error, 1)
 	s.submit(func() {
+		// Enforce MaxGroups: if the group doesn't exist yet, check limit
+		if s.maxGroups > 0 {
+			if _, exists := s.state.groups[group]; !exists {
+				if len(s.state.groups) >= s.maxGroups {
+					done <- pgapi.ErrMaxGroupsReached
+					return
+				}
+			}
+		}
+
+		// Enforce MaxMembersPerGroup
+		if s.maxMembersPerGroup > 0 {
+			if gs, exists := s.state.groups[group]; exists {
+				if len(gs.all) >= s.maxMembersPerGroup {
+					done <- pgapi.ErrMaxMembersReached
+					return
+				}
+			}
+		}
+
 		// Check if this is the first join for this process
 		_, existed := s.state.local[p.String()]
 		s.state.joinLocal(group, p)
@@ -414,6 +472,30 @@ func (s *Service) Join(group pgapi.Group, p pid.PID) error {
 func (s *Service) JoinGroups(groups []pgapi.Group, p pid.PID) error {
 	done := make(chan error, 1)
 	s.submit(func() {
+		// Pre-check all limits before mutating state (atomic: all-or-nothing)
+		if s.maxGroups > 0 || s.maxMembersPerGroup > 0 {
+			newGroupCount := 0
+			for _, group := range groups {
+				if s.maxGroups > 0 {
+					if _, exists := s.state.groups[group]; !exists {
+						newGroupCount++
+					}
+				}
+				if s.maxMembersPerGroup > 0 {
+					if gs, exists := s.state.groups[group]; exists {
+						if len(gs.all) >= s.maxMembersPerGroup {
+							done <- pgapi.ErrMaxMembersReached
+							return
+						}
+					}
+				}
+			}
+			if s.maxGroups > 0 && len(s.state.groups)+newGroupCount > s.maxGroups {
+				done <- pgapi.ErrMaxGroupsReached
+				return
+			}
+		}
+
 		_, existed := s.state.local[p.String()]
 
 		for _, group := range groups {
@@ -566,18 +648,12 @@ func (s *Service) WhichLocalGroups() []pgapi.Group {
 	return groups
 }
 
-// monitorResult holds the result of a Monitor operation.
-type monitorResult struct {
-	unsubscribe func()
-	members     []pid.PID
-}
-
 // Monitor atomically subscribes to a group's membership events and returns
 // the current members. Because both operations happen inside a single event
 // loop action, no join/leave can interleave between the subscription setup
 // and the membership snapshot.
-func (s *Service) Monitor(group string, p pid.PID, topic string) monitorResult {
-	done := make(chan monitorResult, 1)
+func (s *Service) Monitor(group string, p pid.PID, topic string) pgapi.MonitorResult {
+	done := make(chan pgapi.MonitorResult, 1)
 	s.submit(func() {
 		// Assign unique ID
 		s.monitorIDSeq++
@@ -618,14 +694,14 @@ func (s *Service) Monitor(group string, p pid.PID, topic string) monitorResult {
 			}
 		}
 
-		done <- monitorResult{members: members, unsubscribe: unsubscribe}
+		done <- pgapi.MonitorResult{Members: members, Unsubscribe: unsubscribe}
 	})
 
 	select {
 	case result := <-done:
 		return result
 	case <-s.ctx.Done():
-		return monitorResult{}
+		return pgapi.MonitorResult{}
 	}
 }
 
@@ -685,17 +761,11 @@ func (s *Service) hasGroupMemberships(p pid.PID) bool {
 	return exists
 }
 
-// eventsResult holds the result of an Events operation.
-type eventsResult struct {
-	groups      map[string][]pid.PID
-	unsubscribe func()
-}
-
 // Events atomically subscribes to all group membership events and returns
 // a snapshot of all current groups and their members. Uses the wildcard
 // monitor key ("") to receive events for all groups.
-func (s *Service) Events(p pid.PID, topic string) eventsResult {
-	done := make(chan eventsResult, 1)
+func (s *Service) Events(p pid.PID, topic string) pgapi.EventsResult {
+	done := make(chan pgapi.EventsResult, 1)
 	s.submit(func() {
 		s.monitorIDSeq++
 		id := s.monitorIDSeq
@@ -730,55 +800,55 @@ func (s *Service) Events(p pid.PID, topic string) eventsResult {
 			}
 		}
 
-		done <- eventsResult{groups: groups, unsubscribe: unsubscribe}
+		done <- pgapi.EventsResult{Groups: groups, Unsubscribe: unsubscribe}
 	})
 
 	select {
 	case result := <-done:
 		return result
 	case <-s.ctx.Done():
-		return eventsResult{}
+		return pgapi.EventsResult{}
 	}
 }
 
 // Broadcast sends a message to all members of a group across all nodes.
-func (s *Service) Broadcast(from pid.PID, group pgapi.Group, topic string, payloads payload.Payloads) error {
-	done := make(chan broadcastResult, 1)
+func (s *Service) Broadcast(from pid.PID, group pgapi.Group, topic string, payloads payload.Payloads) (int, error) {
+	// Snapshot members inside the event loop for consistency.
+	membersCh := make(chan []pid.PID, 1)
 	s.submit(func() {
-		members := s.state.getMembers(group)
-		sent := sendToMembers(s.router, s.logger, from, topic, payloads, members)
-		done <- broadcastResult{sent: sent}
+		membersCh <- s.state.getMembers(group)
 	})
 
+	var members []pid.PID
 	select {
-	case result := <-done:
-		_ = result
-		return nil
+	case members = <-membersCh:
 	case <-s.ctx.Done():
-		return ErrServiceStopped
+		return 0, ErrServiceStopped
 	}
+
+	// Send outside the event loop so we don't block the action queue.
+	sent := sendToMembers(s.router, s.logger, from, topic, payloads, members)
+	return sent, nil
 }
 
 // BroadcastLocal sends a message to local members of a group only.
-func (s *Service) BroadcastLocal(from pid.PID, group pgapi.Group, topic string, payloads payload.Payloads) error {
-	done := make(chan broadcastResult, 1)
+func (s *Service) BroadcastLocal(from pid.PID, group pgapi.Group, topic string, payloads payload.Payloads) (int, error) {
+	// Snapshot members inside the event loop for consistency.
+	membersCh := make(chan []pid.PID, 1)
 	s.submit(func() {
-		members := s.state.getLocalMembers(group)
-		sent := sendToMembers(s.router, s.logger, from, topic, payloads, members)
-		done <- broadcastResult{sent: sent}
+		membersCh <- s.state.getLocalMembers(group)
 	})
 
+	var members []pid.PID
 	select {
-	case result := <-done:
-		_ = result
-		return nil
+	case members = <-membersCh:
 	case <-s.ctx.Done():
-		return ErrServiceStopped
+		return 0, ErrServiceStopped
 	}
-}
 
-type broadcastResult struct {
-	sent int
+	// Send outside the event loop so we don't block the action queue.
+	sent := sendToMembers(s.router, s.logger, from, topic, payloads, members)
+	return sent, nil
 }
 
 // --- Logging helpers ---
@@ -874,6 +944,55 @@ func (s *Service) deliverMonitorEvent(group string, kind string, pids []pid.PID)
 	deliver(wildcardEntries)
 }
 
+// --- resource.Provider implementation ---
+
+// Acquire returns a resource handle for this PG scope.
+// The returned resource's Get() yields the ProcessGroups interface.
+func (s *Service) Acquire(_ context.Context, _ registry.ID, mode resource.AccessMode) (resource.Resource[any], error) {
+	if mode != resource.ModeNormal {
+		return nil, resource.ErrReleased
+	}
+	// Check if service is running by testing the snapshot
+	if s.snap.Load() == nil {
+		return nil, ErrServiceStopped
+	}
+	return &pgResource{svc: s}, nil
+}
+
+// pgResource wraps a Service as a resource.Resource[any].
+type pgResource struct {
+	svc    *Service
+	closed bool
+	mu     sync.Mutex
+}
+
+// Get returns the ScopeService interface for this scope.
+func (r *pgResource) Get() (any, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.closed {
+		return nil, resource.ErrReleased
+	}
+
+	return pgapi.ScopeService(r.svc), nil
+}
+
+// Release frees the resource handle.
+func (r *pgResource) Release() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.closed {
+		return
+	}
+
+	r.closed = true
+}
+
 // Verify interface compliance.
 var _ pgapi.ProcessGroups = (*Service)(nil)
+var _ pgapi.ScopeService = (*Service)(nil)
 var _ relay.Receiver = (*Service)(nil)
+var _ resource.Provider = (*Service)(nil)
+var _ supervisor.Service = (*Service)(nil)

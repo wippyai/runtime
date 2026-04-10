@@ -12,21 +12,18 @@ import (
 	"github.com/wippyai/runtime/api/topology"
 )
 
-// pgPID returns the synthetic PID for the pg service on a given node.
-func pgPID(nodeID pid.NodeID) pid.PID {
+// servicePID returns the service address for this PG scope on a given node.
+// Uses empty UniqID — relay routes host-level receivers by Host alone.
+func (s *Service) servicePID(nodeID pid.NodeID) pid.PID {
 	return pid.PID{
-		Node:   nodeID,
-		Host:   pgapi.HostID,
-		UniqID: "pg",
+		Node: nodeID,
+		Host: s.hostID,
 	}
 }
 
 // sendDiscover sends a discover message to a remote pg service.
 func (s *Service) sendDiscover(targetNodeID pid.NodeID) {
-	target := pgPID(targetNodeID)
-	source := pgPID(s.localNodeID)
-
-	pkg := relay.NewPackage(source, target, pgapi.TopicDiscover,
+	pkg := relay.NewServicePackage(s.localNodeID, s.hostID, targetNodeID, s.hostID, pgapi.TopicDiscover,
 		payload.New(map[string]any{
 			"from": s.localNodeID,
 		}),
@@ -41,9 +38,6 @@ func (s *Service) sendDiscover(targetNodeID pid.NodeID) {
 
 // sendSync sends a full state sync to a remote pg service.
 func (s *Service) sendSync(targetNodeID pid.NodeID) {
-	target := pgPID(targetNodeID)
-	source := pgPID(s.localNodeID)
-
 	localPids := s.state.allLocalPids()
 
 	// Convert pid.PID to string representation for serialization
@@ -56,7 +50,7 @@ func (s *Service) sendSync(targetNodeID pid.NodeID) {
 		groups[group] = strs
 	}
 
-	pkg := relay.NewPackage(source, target, pgapi.TopicSync,
+	pkg := relay.NewServicePackage(s.localNodeID, s.hostID, targetNodeID, s.hostID, pgapi.TopicSync,
 		payload.New(map[string]any{
 			"from":   s.localNodeID,
 			"groups": groups,
@@ -72,16 +66,13 @@ func (s *Service) sendSync(targetNodeID pid.NodeID) {
 
 // broadcastJoin sends a join notification to all known remote pg services.
 func (s *Service) broadcastJoin(group string, pids []pid.PID) {
-	source := pgPID(s.localNodeID)
-
 	pidStrs := make([]string, len(pids))
 	for i, p := range pids {
 		pidStrs[i] = p.String()
 	}
 
 	for nodeID := range s.state.remote {
-		target := pgPID(nodeID)
-		pkg := relay.NewPackage(source, target, pgapi.TopicJoin,
+		pkg := relay.NewServicePackage(s.localNodeID, s.hostID, nodeID, s.hostID, pgapi.TopicJoin,
 			payload.New(map[string]any{
 				"from":  s.localNodeID,
 				"group": group,
@@ -103,16 +94,13 @@ func (s *Service) broadcastLeave(pids []pid.PID, groups []string) {
 		return
 	}
 
-	source := pgPID(s.localNodeID)
-
 	pidStrs := make([]string, len(pids))
 	for i, p := range pids {
 		pidStrs[i] = p.String()
 	}
 
 	for nodeID := range s.state.remote {
-		target := pgPID(nodeID)
-		pkg := relay.NewPackage(source, target, pgapi.TopicLeave,
+		pkg := relay.NewServicePackage(s.localNodeID, s.hostID, nodeID, s.hostID, pgapi.TopicLeave,
 			payload.New(map[string]any{
 				"from":   s.localNodeID,
 				"pids":   pidStrs,
@@ -238,7 +226,7 @@ func (s *Service) handleRemoteLeave(fromNodeID pid.NodeID, pids []pid.PID, group
 
 // monitorProcess starts monitoring a local process via topology.
 func (s *Service) monitorProcess(p pid.PID) {
-	self := pgPID(s.localNodeID)
+	self := s.servicePID(s.localNodeID)
 	if err := s.topo.Monitor(self, p); err != nil {
 		// Ignore already monitoring errors (multi-join)
 		if !errors.Is(err, topology.ErrAlreadyMonitoring) {
@@ -252,7 +240,7 @@ func (s *Service) monitorProcess(p pid.PID) {
 
 // demonitorProcess stops monitoring a local process via topology.
 func (s *Service) demonitorProcess(p pid.PID) {
-	self := pgPID(s.localNodeID)
+	self := s.servicePID(s.localNodeID)
 	_ = s.topo.Demonitor(self, p)
 }
 

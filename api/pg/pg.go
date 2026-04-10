@@ -46,9 +46,6 @@ const (
 	LeaveGroups      dispatcher.CommandID = 211 // Batch leave multiple groups
 )
 
-// Relay host ID for the pg service.
-const HostID pid.HostID = "pg"
-
 // Inter-node protocol topics.
 const (
 	TopicDiscover = "pg.discover"
@@ -91,16 +88,36 @@ type ProcessGroups interface {
 	WhichLocalGroups() []Group
 
 	// Broadcast sends a message to all members of a group across all nodes.
-	Broadcast(from pid.PID, group Group, topic string, payloads payload.Payloads) error
+	// Returns the number of members the message was successfully sent to.
+	Broadcast(from pid.PID, group Group, topic string, payloads payload.Payloads) (int, error)
 
 	// BroadcastLocal sends a message to local members of a group only.
-	BroadcastLocal(from pid.PID, group Group, topic string, payloads payload.Payloads) error
+	// Returns the number of members the message was successfully sent to.
+	BroadcastLocal(from pid.PID, group Group, topic string, payloads payload.Payloads) (int, error)
+}
+
+// ScopeService is the full interface for a PG scope instance. It extends
+// ProcessGroups with monitor/events operations that require atomicity
+// guarantees (subscription + snapshot in one event loop tick). Each command
+// struct carries a ScopeService reference so the dispatcher is stateless.
+type ScopeService interface {
+	ProcessGroups
+
+	// Monitor atomically subscribes to a group's membership events and
+	// returns the current members. No join/leave can interleave between
+	// the subscription setup and the membership snapshot.
+	Monitor(group Group, p pid.PID, topic string) MonitorResult
+
+	// Events atomically subscribes to all group membership events and
+	// returns a snapshot of all current groups and their members.
+	Events(p pid.PID, topic string) EventsResult
 }
 
 // JoinCmd joins a process to a group.
 type JoinCmd struct {
-	Caller pid.PID
-	Group  Group
+	Instance ScopeService
+	Caller   pid.PID
+	Group    Group
 }
 
 var joinCmdPool = sync.Pool{New: func() any { return &JoinCmd{} }}
@@ -108,6 +125,7 @@ var joinCmdPool = sync.Pool{New: func() any { return &JoinCmd{} }}
 func AcquireJoinCmd() *JoinCmd                 { return joinCmdPool.Get().(*JoinCmd) }
 func (c *JoinCmd) CmdID() dispatcher.CommandID { return Join }
 func (c *JoinCmd) Release() {
+	c.Instance = nil
 	c.Caller = pid.PID{}
 	c.Group = ""
 	joinCmdPool.Put(c)
@@ -120,8 +138,9 @@ type JoinResult struct {
 
 // LeaveCmd removes a process from a group.
 type LeaveCmd struct {
-	Caller pid.PID
-	Group  Group
+	Instance ScopeService
+	Caller   pid.PID
+	Group    Group
 }
 
 var leaveCmdPool = sync.Pool{New: func() any { return &LeaveCmd{} }}
@@ -129,6 +148,7 @@ var leaveCmdPool = sync.Pool{New: func() any { return &LeaveCmd{} }}
 func AcquireLeaveCmd() *LeaveCmd                { return leaveCmdPool.Get().(*LeaveCmd) }
 func (c *LeaveCmd) CmdID() dispatcher.CommandID { return Leave }
 func (c *LeaveCmd) Release() {
+	c.Instance = nil
 	c.Caller = pid.PID{}
 	c.Group = ""
 	leaveCmdPool.Put(c)
@@ -141,7 +161,8 @@ type LeaveResult struct {
 
 // GetMembersCmd queries all members of a group.
 type GetMembersCmd struct {
-	Group Group
+	Instance ScopeService
+	Group    Group
 }
 
 var getMembersCmdPool = sync.Pool{New: func() any { return &GetMembersCmd{} }}
@@ -149,6 +170,7 @@ var getMembersCmdPool = sync.Pool{New: func() any { return &GetMembersCmd{} }}
 func AcquireGetMembersCmd() *GetMembersCmd           { return getMembersCmdPool.Get().(*GetMembersCmd) }
 func (c *GetMembersCmd) CmdID() dispatcher.CommandID { return GetMembers }
 func (c *GetMembersCmd) Release() {
+	c.Instance = nil
 	c.Group = ""
 	getMembersCmdPool.Put(c)
 }
@@ -160,7 +182,8 @@ type GetMembersResult struct {
 
 // GetLocalMembersCmd queries local members of a group.
 type GetLocalMembersCmd struct {
-	Group Group
+	Instance ScopeService
+	Group    Group
 }
 
 var getLocalMembersCmdPool = sync.Pool{New: func() any { return &GetLocalMembersCmd{} }}
@@ -170,6 +193,7 @@ func AcquireGetLocalMembersCmd() *GetLocalMembersCmd {
 }
 func (c *GetLocalMembersCmd) CmdID() dispatcher.CommandID { return GetLocalMembers }
 func (c *GetLocalMembersCmd) Release() {
+	c.Instance = nil
 	c.Group = ""
 	getLocalMembersCmdPool.Put(c)
 }
@@ -180,13 +204,18 @@ type GetLocalMembersResult struct {
 }
 
 // WhichGroupsCmd queries all known groups.
-type WhichGroupsCmd struct{}
+type WhichGroupsCmd struct {
+	Instance ScopeService
+}
 
 var whichGroupsCmdPool = sync.Pool{New: func() any { return &WhichGroupsCmd{} }}
 
 func AcquireWhichGroupsCmd() *WhichGroupsCmd          { return whichGroupsCmdPool.Get().(*WhichGroupsCmd) }
 func (c *WhichGroupsCmd) CmdID() dispatcher.CommandID { return WhichGroups }
-func (c *WhichGroupsCmd) Release()                    { whichGroupsCmdPool.Put(c) }
+func (c *WhichGroupsCmd) Release() {
+	c.Instance = nil
+	whichGroupsCmdPool.Put(c)
+}
 
 // WhichGroupsResult is the result of a which groups operation.
 type WhichGroupsResult struct {
@@ -194,7 +223,9 @@ type WhichGroupsResult struct {
 }
 
 // WhichLocalGroupsCmd queries groups that have at least one local member.
-type WhichLocalGroupsCmd struct{}
+type WhichLocalGroupsCmd struct {
+	Instance ScopeService
+}
 
 var whichLocalGroupsCmdPool = sync.Pool{New: func() any { return &WhichLocalGroupsCmd{} }}
 
@@ -202,7 +233,10 @@ func AcquireWhichLocalGroupsCmd() *WhichLocalGroupsCmd {
 	return whichLocalGroupsCmdPool.Get().(*WhichLocalGroupsCmd)
 }
 func (c *WhichLocalGroupsCmd) CmdID() dispatcher.CommandID { return WhichLocalGroups }
-func (c *WhichLocalGroupsCmd) Release()                    { whichLocalGroupsCmdPool.Put(c) }
+func (c *WhichLocalGroupsCmd) Release() {
+	c.Instance = nil
+	whichLocalGroupsCmdPool.Put(c)
+}
 
 // WhichLocalGroupsResult is the result of a which local groups operation.
 type WhichLocalGroupsResult struct {
@@ -211,6 +245,7 @@ type WhichLocalGroupsResult struct {
 
 // BroadcastCmd sends a message to all group members.
 type BroadcastCmd struct {
+	Instance ScopeService
 	From     pid.PID
 	Group    Group
 	Topic    string
@@ -222,6 +257,7 @@ var broadcastCmdPool = sync.Pool{New: func() any { return &BroadcastCmd{} }}
 func AcquireBroadcastCmd() *BroadcastCmd            { return broadcastCmdPool.Get().(*BroadcastCmd) }
 func (c *BroadcastCmd) CmdID() dispatcher.CommandID { return Broadcast }
 func (c *BroadcastCmd) Release() {
+	c.Instance = nil
 	c.From = pid.PID{}
 	c.Group = ""
 	c.Topic = ""
@@ -237,6 +273,7 @@ type BroadcastResult struct {
 
 // BroadcastLocalCmd sends a message to local group members only.
 type BroadcastLocalCmd struct {
+	Instance ScopeService
 	From     pid.PID
 	Group    Group
 	Topic    string
@@ -250,6 +287,7 @@ func AcquireBroadcastLocalCmd() *BroadcastLocalCmd {
 }
 func (c *BroadcastLocalCmd) CmdID() dispatcher.CommandID { return BroadcastLocal }
 func (c *BroadcastLocalCmd) Release() {
+	c.Instance = nil
 	c.From = pid.PID{}
 	c.Group = ""
 	c.Topic = ""
@@ -285,9 +323,10 @@ type MembershipEvent struct {
 // returns the current members. This prevents the race where events could
 // be missed between subscribing and querying members separately.
 type MonitorCmd struct {
-	Group Group
-	PID   pid.PID
-	Topic string
+	Instance ScopeService
+	Group    Group
+	PID      pid.PID
+	Topic    string
 }
 
 var monitorCmdPool = sync.Pool{New: func() any { return &MonitorCmd{} }}
@@ -295,6 +334,7 @@ var monitorCmdPool = sync.Pool{New: func() any { return &MonitorCmd{} }}
 func AcquireMonitorCmd() *MonitorCmd              { return monitorCmdPool.Get().(*MonitorCmd) }
 func (c *MonitorCmd) CmdID() dispatcher.CommandID { return Monitor }
 func (c *MonitorCmd) Release() {
+	c.Instance = nil
 	c.Group = ""
 	c.PID = pid.PID{}
 	c.Topic = ""
@@ -310,8 +350,9 @@ type MonitorResult struct {
 // EventsCmd subscribes to all group membership events and atomically
 // returns a snapshot of all current groups and their members.
 type EventsCmd struct {
-	PID   pid.PID
-	Topic string
+	Instance ScopeService
+	PID      pid.PID
+	Topic    string
 }
 
 var eventsCmdPool = sync.Pool{New: func() any { return &EventsCmd{} }}
@@ -319,6 +360,7 @@ var eventsCmdPool = sync.Pool{New: func() any { return &EventsCmd{} }}
 func AcquireEventsCmd() *EventsCmd               { return eventsCmdPool.Get().(*EventsCmd) }
 func (c *EventsCmd) CmdID() dispatcher.CommandID { return Events }
 func (c *EventsCmd) Release() {
+	c.Instance = nil
 	c.PID = pid.PID{}
 	c.Topic = ""
 	eventsCmdPool.Put(c)
@@ -332,8 +374,9 @@ type EventsResult struct {
 
 // JoinGroupsCmd joins a process to multiple groups atomically.
 type JoinGroupsCmd struct {
-	Caller pid.PID
-	Groups []Group
+	Instance ScopeService
+	Caller   pid.PID
+	Groups   []Group
 }
 
 var joinGroupsCmdPool = sync.Pool{New: func() any { return &JoinGroupsCmd{} }}
@@ -341,6 +384,7 @@ var joinGroupsCmdPool = sync.Pool{New: func() any { return &JoinGroupsCmd{} }}
 func AcquireJoinGroupsCmd() *JoinGroupsCmd           { return joinGroupsCmdPool.Get().(*JoinGroupsCmd) }
 func (c *JoinGroupsCmd) CmdID() dispatcher.CommandID { return JoinGroups }
 func (c *JoinGroupsCmd) Release() {
+	c.Instance = nil
 	c.Caller = pid.PID{}
 	c.Groups = c.Groups[:0]
 	joinGroupsCmdPool.Put(c)
@@ -353,8 +397,9 @@ type JoinGroupsResult struct {
 
 // LeaveGroupsCmd removes a process from multiple groups atomically.
 type LeaveGroupsCmd struct {
-	Caller pid.PID
-	Groups []Group
+	Instance ScopeService
+	Caller   pid.PID
+	Groups   []Group
 }
 
 var leaveGroupsCmdPool = sync.Pool{New: func() any { return &LeaveGroupsCmd{} }}
@@ -362,6 +407,7 @@ var leaveGroupsCmdPool = sync.Pool{New: func() any { return &LeaveGroupsCmd{} }}
 func AcquireLeaveGroupsCmd() *LeaveGroupsCmd          { return leaveGroupsCmdPool.Get().(*LeaveGroupsCmd) }
 func (c *LeaveGroupsCmd) CmdID() dispatcher.CommandID { return LeaveGroups }
 func (c *LeaveGroupsCmd) Release() {
+	c.Instance = nil
 	c.Caller = pid.PID{}
 	c.Groups = c.Groups[:0]
 	leaveGroupsCmdPool.Put(c)

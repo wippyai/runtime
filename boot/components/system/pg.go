@@ -10,15 +10,14 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
-	pgapi "github.com/wippyai/runtime/api/pg"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
-	systempg "github.com/wippyai/runtime/system/pg"
+	bootpkg "github.com/wippyai/runtime/boot"
+	pgservice "github.com/wippyai/runtime/service/pg"
 )
 
 func PG() boot.Component {
-	var svc *systempg.Service
-
 	return boot.New(boot.P{
 		Name:      PGName,
 		DependsOn: []boot.Name{TopologyName, ClusterName},
@@ -33,17 +32,18 @@ func PG() boot.Component {
 				return ctx, ErrRelayNotAvailable
 			}
 
-			router := relay.GetRouter(ctx)
-			if router == nil {
-				return ctx, ErrRouterNotAvailable
-			}
-
 			topo := topology.GetTopology(ctx)
 			if topo == nil {
 				return ctx, ErrTopologyNotAvailable
 			}
 
 			bus := event.GetBus(ctx)
+			dtt := payload.GetTranscoder(ctx)
+
+			handlers := bootpkg.GetHandlerRegistry(ctx)
+			if handlers == nil {
+				return ctx, ErrHandlerRegistryNotAvailable
+			}
 
 			var membership clusterapi.Membership
 			ac := ctxapi.AppFromContext(ctx)
@@ -55,28 +55,10 @@ func PG() boot.Component {
 				}
 			}
 
-			svc = systempg.NewService(logger, router, topo, membership, bus, node.ID())
-
-			// Register as relay host so inter-node pg messages are routed to this service
-			if err := node.RegisterHost(pgapi.HostID, svc); err != nil {
-				return ctx, err
-			}
-
-			ctx = pgapi.WithProcessGroups(ctx, svc)
+			manager := pgservice.NewManager(bus, dtt, topo, membership, node.ID(), logger.Named("pg"))
+			handlers.RegisterListener("pg.scope", manager)
 
 			return ctx, nil
-		},
-		Start: func(ctx context.Context) error {
-			if svc == nil {
-				return nil
-			}
-			return svc.Start(ctx)
-		},
-		Stop: func(ctx context.Context) error {
-			if svc == nil {
-				return nil
-			}
-			return svc.Stop(ctx)
 		},
 	})
 }

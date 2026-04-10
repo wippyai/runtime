@@ -3,14 +3,11 @@
 package pg_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
-	"github.com/wippyai/runtime/api/payload"
 	pgapi "github.com/wippyai/runtime/api/pg"
 	"github.com/wippyai/runtime/api/pid"
 )
@@ -33,10 +30,6 @@ func TestCommandIDs(t *testing.T) {
 	assert.Equal(t, dispatcher.CommandID(209), pgapi.Events)
 	assert.Equal(t, dispatcher.CommandID(210), pgapi.JoinGroups)
 	assert.Equal(t, dispatcher.CommandID(211), pgapi.LeaveGroups)
-}
-
-func TestHostID(t *testing.T) {
-	assert.Equal(t, pid.HostID("pg"), pgapi.HostID)
 }
 
 func TestProtocolTopics(t *testing.T) {
@@ -156,26 +149,6 @@ func TestBroadcastLocalCmd(t *testing.T) {
 
 	cmd.Release()
 }
-
-// mockProcessGroups is a minimal implementation for context tests.
-type mockProcessGroups struct {
-	name string
-}
-
-func (m *mockProcessGroups) Join(_ string, _ pid.PID) error     { return nil }
-func (m *mockProcessGroups) Leave(_ string, _ pid.PID) error    { return nil }
-func (m *mockProcessGroups) GetMembers(_ string) []pid.PID      { return nil }
-func (m *mockProcessGroups) GetLocalMembers(_ string) []pid.PID { return nil }
-func (m *mockProcessGroups) WhichGroups() []string              { return nil }
-func (m *mockProcessGroups) Broadcast(_ pid.PID, _ string, _ string, _ payload.Payloads) error {
-	return nil
-}
-func (m *mockProcessGroups) BroadcastLocal(_ pid.PID, _ string, _ string, _ payload.Payloads) error {
-	return nil
-}
-func (m *mockProcessGroups) JoinGroups(_ []string, _ pid.PID) error  { return nil }
-func (m *mockProcessGroups) LeaveGroups(_ []string, _ pid.PID) error { return nil }
-func (m *mockProcessGroups) WhichLocalGroups() []string              { return nil }
 
 func TestWhichLocalGroupsCmd(t *testing.T) {
 	t.Run("Acquire and Release", func(t *testing.T) {
@@ -303,54 +276,5 @@ func TestLeaveGroupsCmd(t *testing.T) {
 		assert.Equal(t, pid.PID{}, cmd2.Caller)
 		assert.Empty(t, cmd2.Groups)
 		cmd2.Release()
-	})
-}
-
-func TestContextIntegration(t *testing.T) {
-	t.Run("GetProcessGroups returns nil without AppContext", func(t *testing.T) {
-		ctx := context.Background()
-		pg := pgapi.GetProcessGroups(ctx)
-		assert.Nil(t, pg)
-	})
-
-	t.Run("WithProcessGroups returns unmodified ctx without AppContext", func(t *testing.T) {
-		ctx := context.Background()
-		mock := &mockProcessGroups{name: "test"}
-		result := pgapi.WithProcessGroups(ctx, mock)
-		// Should return the same context (no AppContext to store in)
-		assert.Equal(t, ctx, result)
-		// GetProcessGroups still returns nil
-		assert.Nil(t, pgapi.GetProcessGroups(result))
-	})
-
-	t.Run("WithProcessGroups and GetProcessGroups round-trip", func(t *testing.T) {
-		ctx := ctxapi.NewRootContext()
-		mock := &mockProcessGroups{name: "round-trip"}
-		ctx = pgapi.WithProcessGroups(ctx, mock)
-
-		got := pgapi.GetProcessGroups(ctx)
-		require.NotNil(t, got)
-		assert.Equal(t, mock, got)
-	})
-
-	t.Run("WithProcessGroups idempotent - second call does not overwrite", func(t *testing.T) {
-		ctx := ctxapi.NewRootContext()
-		first := &mockProcessGroups{name: "first"}
-		second := &mockProcessGroups{name: "second"}
-
-		ctx = pgapi.WithProcessGroups(ctx, first)
-		ctx = pgapi.WithProcessGroups(ctx, second) // should be no-op
-
-		got := pgapi.GetProcessGroups(ctx)
-		require.NotNil(t, got)
-		m, ok := got.(*mockProcessGroups)
-		require.True(t, ok)
-		assert.Equal(t, "first", m.name, "second WithProcessGroups should not overwrite")
-	})
-
-	t.Run("GetProcessGroups returns nil when key not set", func(t *testing.T) {
-		ctx := ctxapi.NewRootContext()
-		got := pgapi.GetProcessGroups(ctx)
-		assert.Nil(t, got)
 	})
 }

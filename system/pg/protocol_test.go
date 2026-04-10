@@ -13,11 +13,12 @@ import (
 	"github.com/wippyai/runtime/api/topology"
 )
 
-func TestPgPID(t *testing.T) {
-	p := pgPID("node-a")
+func TestServicePID(t *testing.T) {
+	svc, _, _ := newTestService()
+	p := svc.servicePID("node-a")
 	assert.Equal(t, pid.NodeID("node-a"), p.Node)
-	assert.Equal(t, "pg", p.Host)
-	assert.Equal(t, "pg", p.UniqID)
+	assert.Equal(t, pid.HostID("pg"), p.Host)
+	assert.Equal(t, "", p.UniqID)
 }
 
 func TestSendDiscover(t *testing.T) {

@@ -4,7 +4,6 @@ package pg
 
 import (
 	"errors"
-	"strings"
 	"sync"
 
 	lua "github.com/wippyai/go-lua"
@@ -22,20 +21,23 @@ var errUnexpectedResult = errors.New("pg: unexpected monitor result type")
 // --- JoinYield ---
 
 type JoinYield struct {
-	Group  string
-	Caller pid.PID
+	Instance pgapi.ScopeService
+	Group    string
+	Caller   pid.PID
 }
 
 var joinYieldPool = sync.Pool{New: func() any { return &JoinYield{} }}
 
-func AcquireJoinYield(group string, caller pid.PID) *JoinYield {
+func AcquireJoinYield(instance pgapi.ScopeService, group string, caller pid.PID) *JoinYield {
 	y := joinYieldPool.Get().(*JoinYield)
+	y.Instance = instance
 	y.Group = group
 	y.Caller = caller
 	return y
 }
 
 func ReleaseJoinYield(y *JoinYield) {
+	y.Instance = nil
 	y.Group = ""
 	y.Caller = pid.PID{}
 	joinYieldPool.Put(y)
@@ -49,6 +51,7 @@ func (y *JoinYield) CmdID() dispatcher.CommandID {
 
 func (y *JoinYield) ToCommand() dispatcher.Command {
 	cmd := pgapi.AcquireJoinCmd()
+	cmd.Instance = y.Instance
 	cmd.Group = y.Group
 	cmd.Caller = y.Caller
 	return cmd
@@ -69,20 +72,23 @@ func (y *JoinYield) HandleResult(l *lua.LState, data any, err error) []lua.LValu
 // --- JoinGroupsYield ---
 
 type JoinGroupsYield struct {
-	Caller pid.PID
-	Groups []string
+	Instance pgapi.ScopeService
+	Caller   pid.PID
+	Groups   []string
 }
 
 var joinGroupsYieldPool = sync.Pool{New: func() any { return &JoinGroupsYield{} }}
 
-func AcquireJoinGroupsYield(groups []string, caller pid.PID) *JoinGroupsYield {
+func AcquireJoinGroupsYield(instance pgapi.ScopeService, groups []string, caller pid.PID) *JoinGroupsYield {
 	y := joinGroupsYieldPool.Get().(*JoinGroupsYield)
+	y.Instance = instance
 	y.Groups = groups
 	y.Caller = caller
 	return y
 }
 
 func ReleaseJoinGroupsYield(y *JoinGroupsYield) {
+	y.Instance = nil
 	y.Groups = nil
 	y.Caller = pid.PID{}
 	joinGroupsYieldPool.Put(y)
@@ -96,6 +102,7 @@ func (y *JoinGroupsYield) CmdID() dispatcher.CommandID {
 
 func (y *JoinGroupsYield) ToCommand() dispatcher.Command {
 	cmd := pgapi.AcquireJoinGroupsCmd()
+	cmd.Instance = y.Instance
 	cmd.Groups = y.Groups
 	cmd.Caller = y.Caller
 	return cmd
@@ -116,20 +123,23 @@ func (y *JoinGroupsYield) HandleResult(l *lua.LState, data any, err error) []lua
 // --- LeaveYield ---
 
 type LeaveYield struct {
-	Group  string
-	Caller pid.PID
+	Instance pgapi.ScopeService
+	Group    string
+	Caller   pid.PID
 }
 
 var leaveYieldPool = sync.Pool{New: func() any { return &LeaveYield{} }}
 
-func AcquireLeaveYield(group string, caller pid.PID) *LeaveYield {
+func AcquireLeaveYield(instance pgapi.ScopeService, group string, caller pid.PID) *LeaveYield {
 	y := leaveYieldPool.Get().(*LeaveYield)
+	y.Instance = instance
 	y.Group = group
 	y.Caller = caller
 	return y
 }
 
 func ReleaseLeaveYield(y *LeaveYield) {
+	y.Instance = nil
 	y.Group = ""
 	y.Caller = pid.PID{}
 	leaveYieldPool.Put(y)
@@ -143,6 +153,7 @@ func (y *LeaveYield) CmdID() dispatcher.CommandID {
 
 func (y *LeaveYield) ToCommand() dispatcher.Command {
 	cmd := pgapi.AcquireLeaveCmd()
+	cmd.Instance = y.Instance
 	cmd.Group = y.Group
 	cmd.Caller = y.Caller
 	return cmd
@@ -163,20 +174,23 @@ func (y *LeaveYield) HandleResult(l *lua.LState, data any, err error) []lua.LVal
 // --- LeaveGroupsYield ---
 
 type LeaveGroupsYield struct {
-	Caller pid.PID
-	Groups []string
+	Instance pgapi.ScopeService
+	Caller   pid.PID
+	Groups   []string
 }
 
 var leaveGroupsYieldPool = sync.Pool{New: func() any { return &LeaveGroupsYield{} }}
 
-func AcquireLeaveGroupsYield(groups []string, caller pid.PID) *LeaveGroupsYield {
+func AcquireLeaveGroupsYield(instance pgapi.ScopeService, groups []string, caller pid.PID) *LeaveGroupsYield {
 	y := leaveGroupsYieldPool.Get().(*LeaveGroupsYield)
+	y.Instance = instance
 	y.Groups = groups
 	y.Caller = caller
 	return y
 }
 
 func ReleaseLeaveGroupsYield(y *LeaveGroupsYield) {
+	y.Instance = nil
 	y.Groups = nil
 	y.Caller = pid.PID{}
 	leaveGroupsYieldPool.Put(y)
@@ -190,6 +204,7 @@ func (y *LeaveGroupsYield) CmdID() dispatcher.CommandID {
 
 func (y *LeaveGroupsYield) ToCommand() dispatcher.Command {
 	cmd := pgapi.AcquireLeaveGroupsCmd()
+	cmd.Instance = y.Instance
 	cmd.Groups = y.Groups
 	cmd.Caller = y.Caller
 	return cmd
@@ -210,18 +225,21 @@ func (y *LeaveGroupsYield) HandleResult(l *lua.LState, data any, err error) []lu
 // --- GetMembersYield ---
 
 type GetMembersYield struct {
-	Group string
+	Instance pgapi.ScopeService
+	Group    string
 }
 
 var getMembersYieldPool = sync.Pool{New: func() any { return &GetMembersYield{} }}
 
-func AcquireGetMembersYield(group string) *GetMembersYield {
+func AcquireGetMembersYield(instance pgapi.ScopeService, group string) *GetMembersYield {
 	y := getMembersYieldPool.Get().(*GetMembersYield)
+	y.Instance = instance
 	y.Group = group
 	return y
 }
 
 func ReleaseGetMembersYield(y *GetMembersYield) {
+	y.Instance = nil
 	y.Group = ""
 	getMembersYieldPool.Put(y)
 }
@@ -234,6 +252,7 @@ func (y *GetMembersYield) CmdID() dispatcher.CommandID {
 
 func (y *GetMembersYield) ToCommand() dispatcher.Command {
 	cmd := pgapi.AcquireGetMembersCmd()
+	cmd.Instance = y.Instance
 	cmd.Group = y.Group
 	return cmd
 }
@@ -258,18 +277,21 @@ func (y *GetMembersYield) HandleResult(l *lua.LState, data any, err error) []lua
 // --- GetLocalMembersYield ---
 
 type GetLocalMembersYield struct {
-	Group string
+	Instance pgapi.ScopeService
+	Group    string
 }
 
 var getLocalMembersYieldPool = sync.Pool{New: func() any { return &GetLocalMembersYield{} }}
 
-func AcquireGetLocalMembersYield(group string) *GetLocalMembersYield {
+func AcquireGetLocalMembersYield(instance pgapi.ScopeService, group string) *GetLocalMembersYield {
 	y := getLocalMembersYieldPool.Get().(*GetLocalMembersYield)
+	y.Instance = instance
 	y.Group = group
 	return y
 }
 
 func ReleaseGetLocalMembersYield(y *GetLocalMembersYield) {
+	y.Instance = nil
 	y.Group = ""
 	getLocalMembersYieldPool.Put(y)
 }
@@ -282,6 +304,7 @@ func (y *GetLocalMembersYield) CmdID() dispatcher.CommandID {
 
 func (y *GetLocalMembersYield) ToCommand() dispatcher.Command {
 	cmd := pgapi.AcquireGetLocalMembersCmd()
+	cmd.Instance = y.Instance
 	cmd.Group = y.Group
 	return cmd
 }
@@ -306,17 +329,19 @@ func (y *GetLocalMembersYield) HandleResult(l *lua.LState, data any, err error) 
 // --- WhichGroupsYield ---
 
 type WhichGroupsYield struct {
-	Scope string // scope prefix for filtering (empty = unscoped)
+	Instance pgapi.ScopeService
 }
 
 var whichGroupsYieldPool = sync.Pool{New: func() any { return &WhichGroupsYield{} }}
 
-func AcquireWhichGroupsYield() *WhichGroupsYield {
-	return whichGroupsYieldPool.Get().(*WhichGroupsYield)
+func AcquireWhichGroupsYield(instance pgapi.ScopeService) *WhichGroupsYield {
+	y := whichGroupsYieldPool.Get().(*WhichGroupsYield)
+	y.Instance = instance
+	return y
 }
 
 func ReleaseWhichGroupsYield(y *WhichGroupsYield) {
-	y.Scope = ""
+	y.Instance = nil
 	whichGroupsYieldPool.Put(y)
 }
 
@@ -327,7 +352,9 @@ func (y *WhichGroupsYield) CmdID() dispatcher.CommandID {
 }
 
 func (y *WhichGroupsYield) ToCommand() dispatcher.Command {
-	return pgapi.AcquireWhichGroupsCmd()
+	cmd := pgapi.AcquireWhichGroupsCmd()
+	cmd.Instance = y.Instance
+	return cmd
 }
 
 func (y *WhichGroupsYield) Release() { ReleaseWhichGroupsYield(y) }
@@ -342,15 +369,6 @@ func (y *WhichGroupsYield) HandleResult(l *lua.LState, data any, err error) []lu
 	}
 
 	groups := result.Groups
-	if y.Scope != "" {
-		filtered := make([]string, 0, len(groups))
-		for _, g := range groups {
-			if strings.HasPrefix(g, y.Scope) {
-				filtered = append(filtered, strings.TrimPrefix(g, y.Scope))
-			}
-		}
-		groups = filtered
-	}
 
 	tbl := lua.CreateTable(len(groups), 0)
 	for i, g := range groups {
@@ -362,17 +380,19 @@ func (y *WhichGroupsYield) HandleResult(l *lua.LState, data any, err error) []lu
 // --- WhichLocalGroupsYield ---
 
 type WhichLocalGroupsYield struct {
-	Scope string // scope prefix for filtering (empty = unscoped)
+	Instance pgapi.ScopeService
 }
 
 var whichLocalGroupsYieldPool = sync.Pool{New: func() any { return &WhichLocalGroupsYield{} }}
 
-func AcquireWhichLocalGroupsYield() *WhichLocalGroupsYield {
-	return whichLocalGroupsYieldPool.Get().(*WhichLocalGroupsYield)
+func AcquireWhichLocalGroupsYield(instance pgapi.ScopeService) *WhichLocalGroupsYield {
+	y := whichLocalGroupsYieldPool.Get().(*WhichLocalGroupsYield)
+	y.Instance = instance
+	return y
 }
 
 func ReleaseWhichLocalGroupsYield(y *WhichLocalGroupsYield) {
-	y.Scope = ""
+	y.Instance = nil
 	whichLocalGroupsYieldPool.Put(y)
 }
 
@@ -383,7 +403,9 @@ func (y *WhichLocalGroupsYield) CmdID() dispatcher.CommandID {
 }
 
 func (y *WhichLocalGroupsYield) ToCommand() dispatcher.Command {
-	return pgapi.AcquireWhichLocalGroupsCmd()
+	cmd := pgapi.AcquireWhichLocalGroupsCmd()
+	cmd.Instance = y.Instance
+	return cmd
 }
 
 func (y *WhichLocalGroupsYield) Release() { ReleaseWhichLocalGroupsYield(y) }
@@ -398,15 +420,6 @@ func (y *WhichLocalGroupsYield) HandleResult(l *lua.LState, data any, err error)
 	}
 
 	groups := result.Groups
-	if y.Scope != "" {
-		filtered := make([]string, 0, len(groups))
-		for _, g := range groups {
-			if strings.HasPrefix(g, y.Scope) {
-				filtered = append(filtered, strings.TrimPrefix(g, y.Scope))
-			}
-		}
-		groups = filtered
-	}
 
 	tbl := lua.CreateTable(len(groups), 0)
 	for i, g := range groups {
@@ -418,6 +431,7 @@ func (y *WhichLocalGroupsYield) HandleResult(l *lua.LState, data any, err error)
 // --- BroadcastYield ---
 
 type BroadcastYield struct {
+	Instance pgapi.ScopeService
 	From     pid.PID
 	Group    string
 	Topic    string
@@ -426,8 +440,9 @@ type BroadcastYield struct {
 
 var broadcastYieldPool = sync.Pool{New: func() any { return &BroadcastYield{} }}
 
-func AcquireBroadcastYield(from pid.PID, group, topic string, payloads payload.Payloads) *BroadcastYield {
+func AcquireBroadcastYield(instance pgapi.ScopeService, from pid.PID, group, topic string, payloads payload.Payloads) *BroadcastYield {
 	y := broadcastYieldPool.Get().(*BroadcastYield)
+	y.Instance = instance
 	y.From = from
 	y.Group = group
 	y.Topic = topic
@@ -436,6 +451,7 @@ func AcquireBroadcastYield(from pid.PID, group, topic string, payloads payload.P
 }
 
 func ReleaseBroadcastYield(y *BroadcastYield) {
+	y.Instance = nil
 	y.From = pid.PID{}
 	y.Group = ""
 	y.Topic = ""
@@ -451,6 +467,7 @@ func (y *BroadcastYield) CmdID() dispatcher.CommandID {
 
 func (y *BroadcastYield) ToCommand() dispatcher.Command {
 	cmd := pgapi.AcquireBroadcastCmd()
+	cmd.Instance = y.Instance
 	cmd.From = y.From
 	cmd.Group = y.Group
 	cmd.Topic = y.Topic
@@ -473,6 +490,7 @@ func (y *BroadcastYield) HandleResult(l *lua.LState, data any, err error) []lua.
 // --- BroadcastLocalYield ---
 
 type BroadcastLocalYield struct {
+	Instance pgapi.ScopeService
 	From     pid.PID
 	Group    string
 	Topic    string
@@ -481,8 +499,9 @@ type BroadcastLocalYield struct {
 
 var broadcastLocalYieldPool = sync.Pool{New: func() any { return &BroadcastLocalYield{} }}
 
-func AcquireBroadcastLocalYield(from pid.PID, group, topic string, payloads payload.Payloads) *BroadcastLocalYield {
+func AcquireBroadcastLocalYield(instance pgapi.ScopeService, from pid.PID, group, topic string, payloads payload.Payloads) *BroadcastLocalYield {
 	y := broadcastLocalYieldPool.Get().(*BroadcastLocalYield)
+	y.Instance = instance
 	y.From = from
 	y.Group = group
 	y.Topic = topic
@@ -491,6 +510,7 @@ func AcquireBroadcastLocalYield(from pid.PID, group, topic string, payloads payl
 }
 
 func ReleaseBroadcastLocalYield(y *BroadcastLocalYield) {
+	y.Instance = nil
 	y.From = pid.PID{}
 	y.Group = ""
 	y.Topic = ""
@@ -506,6 +526,7 @@ func (y *BroadcastLocalYield) CmdID() dispatcher.CommandID {
 
 func (y *BroadcastLocalYield) ToCommand() dispatcher.Command {
 	cmd := pgapi.AcquireBroadcastLocalCmd()
+	cmd.Instance = y.Instance
 	cmd.From = y.From
 	cmd.Group = y.Group
 	cmd.Topic = y.Topic
@@ -615,16 +636,17 @@ func pgSubscriptionClose(l *lua.LState) int {
 }
 
 type EventsYield struct {
-	Channel *engine.Channel
-	PID     pid.PID
-	Topic   string
-	Scope   string // scope prefix for snapshot filtering (empty = unscoped)
+	Instance pgapi.ScopeService
+	Channel  *engine.Channel
+	PID      pid.PID
+	Topic    string
 }
 
 var eventsYieldPool = sync.Pool{New: func() any { return &EventsYield{} }}
 
-func AcquireEventsYield(ch *engine.Channel, p pid.PID, topic string) *EventsYield {
+func AcquireEventsYield(instance pgapi.ScopeService, ch *engine.Channel, p pid.PID, topic string) *EventsYield {
 	y := eventsYieldPool.Get().(*EventsYield)
+	y.Instance = instance
 	y.Channel = ch
 	y.PID = p
 	y.Topic = topic
@@ -632,10 +654,10 @@ func AcquireEventsYield(ch *engine.Channel, p pid.PID, topic string) *EventsYiel
 }
 
 func ReleaseEventsYield(y *EventsYield) {
+	y.Instance = nil
 	y.Channel = nil
 	y.PID = pid.PID{}
 	y.Topic = ""
-	y.Scope = ""
 	eventsYieldPool.Put(y)
 }
 
@@ -648,6 +670,7 @@ func (y *EventsYield) CmdID() dispatcher.CommandID {
 
 func (y *EventsYield) ToCommand() dispatcher.Command {
 	cmd := pgapi.AcquireEventsCmd()
+	cmd.Instance = y.Instance
 	cmd.PID = y.PID
 	cmd.Topic = y.Topic
 	return cmd
@@ -711,18 +734,11 @@ func (y *EventsYield) HandleResult(l *lua.LState, data any, err error) []lua.LVa
 	// Build groups snapshot table: {group_name = {pid1, pid2, ...}, ...}
 	groupsTbl := lua.CreateTable(0, len(result.Groups))
 	for group, members := range result.Groups {
-		displayName := group
-		if y.Scope != "" {
-			if !strings.HasPrefix(group, y.Scope) {
-				continue // skip groups not in this scope
-			}
-			displayName = strings.TrimPrefix(group, y.Scope)
-		}
 		membersTbl := lua.CreateTable(len(members), 0)
 		for i, p := range members {
 			membersTbl.RawSetInt(i+1, lua.LString(p.String()))
 		}
-		groupsTbl.RawSetString(displayName, membersTbl)
+		groupsTbl.RawSetString(group, membersTbl)
 	}
 
 	return []lua.LValue{subUD, groupsTbl, lua.LNil}
@@ -732,16 +748,18 @@ func (y *EventsYield) HandleResult(l *lua.LState, data any, err error) []lua.LVa
 // Atomically subscribes to a group's membership events and returns current members.
 
 type MonitorYield struct {
-	Channel *engine.Channel
-	Group   string
-	PID     pid.PID
-	Topic   string
+	Instance pgapi.ScopeService
+	Channel  *engine.Channel
+	Group    string
+	PID      pid.PID
+	Topic    string
 }
 
 var monitorYieldPool = sync.Pool{New: func() any { return &MonitorYield{} }}
 
-func AcquireMonitorYield(ch *engine.Channel, group string, p pid.PID, topic string) *MonitorYield {
+func AcquireMonitorYield(instance pgapi.ScopeService, ch *engine.Channel, group string, p pid.PID, topic string) *MonitorYield {
 	y := monitorYieldPool.Get().(*MonitorYield)
+	y.Instance = instance
 	y.Channel = ch
 	y.Group = group
 	y.PID = p
@@ -750,6 +768,7 @@ func AcquireMonitorYield(ch *engine.Channel, group string, p pid.PID, topic stri
 }
 
 func ReleaseMonitorYield(y *MonitorYield) {
+	y.Instance = nil
 	y.Channel = nil
 	y.Group = ""
 	y.PID = pid.PID{}
@@ -766,6 +785,7 @@ func (y *MonitorYield) CmdID() dispatcher.CommandID {
 
 func (y *MonitorYield) ToCommand() dispatcher.Command {
 	cmd := pgapi.AcquireMonitorCmd()
+	cmd.Instance = y.Instance
 	cmd.Group = y.Group
 	cmd.PID = y.PID
 	cmd.Topic = y.Topic
