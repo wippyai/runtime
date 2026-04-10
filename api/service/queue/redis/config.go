@@ -18,6 +18,15 @@ import (
 // Kind identifies the Redis Streams queue driver.
 const Kind registry.Kind = "queue.driver.redis"
 
+// Defaults for pending message recovery (XAUTOCLAIM).
+const (
+	// DefaultClaimInterval is how often the XAUTOCLAIM loop runs.
+	DefaultClaimInterval = 30 * time.Second
+	// DefaultClaimMinIdle is the minimum idle time before a pending message
+	// can be auto-claimed from a crashed consumer.
+	DefaultClaimMinIdle = time.Minute
+)
+
 // Config defines the Redis Streams queue driver configuration.
 //
 // The connection mode is determined automatically by the go-redis UniversalClient:
@@ -55,6 +64,13 @@ type Config struct { //nolint:govet // fieldalignment: limited by LifecycleConfi
 	PoolTimeout     time.Duration `json:"pool_timeout,omitzero,format:units"`       // Default: ReadTimeout + 1s
 	ConnMaxIdleTime time.Duration `json:"conn_max_idle_time,omitzero,format:units"` // Default: 30m
 	ConnMaxLifetime time.Duration `json:"conn_max_lifetime,omitzero,format:units"`  // 0 = no limit
+
+	// ClaimInterval is how often the XAUTOCLAIM loop runs to recover pending
+	// messages from crashed consumers. Default: 30s. Set to 0 to disable.
+	ClaimInterval time.Duration `json:"claim_interval,omitzero,format:units"`
+	// ClaimMinIdle is the minimum idle time a pending message must have before
+	// it can be auto-claimed. Default: 1m.
+	ClaimMinIdle time.Duration `json:"claim_min_idle,omitzero,format:units"`
 
 	Protocol       int `json:"protocol,omitempty"`    // RESP version (2 or 3), default 3
 	DB             int `json:"db,omitempty"`          // Database number (standalone/sentinel only)
@@ -136,6 +152,12 @@ func (c *Config) InitDefaults() {
 	if len(c.Addrs) == 0 {
 		c.Addrs = []string{"localhost:6379"}
 	}
+	if c.ClaimInterval == 0 {
+		c.ClaimInterval = DefaultClaimInterval
+	}
+	if c.ClaimMinIdle == 0 {
+		c.ClaimMinIdle = DefaultClaimMinIdle
+	}
 }
 
 // ToUniversalOptions converts the config to a go-redis UniversalOptions.
@@ -202,6 +224,8 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		PoolTimeout     string `json:"pool_timeout,omitempty"`
 		ConnMaxIdleTime string `json:"conn_max_idle_time,omitempty"`
 		ConnMaxLifetime string `json:"conn_max_lifetime,omitempty"`
+		ClaimInterval   string `json:"claim_interval,omitempty"`
+		ClaimMinIdle    string `json:"claim_min_idle,omitempty"`
 		// Scalars
 		Protocol              int  `json:"protocol,omitempty"`
 		DB                    int  `json:"db,omitempty"`
@@ -256,6 +280,8 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		{raw.PoolTimeout, &c.PoolTimeout, "pool_timeout"},
 		{raw.ConnMaxIdleTime, &c.ConnMaxIdleTime, "conn_max_idle_time"},
 		{raw.ConnMaxLifetime, &c.ConnMaxLifetime, "conn_max_lifetime"},
+		{raw.ClaimInterval, &c.ClaimInterval, "claim_interval"},
+		{raw.ClaimMinIdle, &c.ClaimMinIdle, "claim_min_idle"},
 	} {
 		if f.src != "" {
 			d, err := time.ParseDuration(f.src)
@@ -282,6 +308,8 @@ func (c Config) MarshalJSON() ([]byte, error) {
 		PoolTimeout     string `json:"pool_timeout,omitempty"`
 		ConnMaxIdleTime string `json:"conn_max_idle_time,omitempty"`
 		ConnMaxLifetime string `json:"conn_max_lifetime,omitempty"`
+		ClaimInterval   string `json:"claim_interval,omitempty"`
+		ClaimMinIdle    string `json:"claim_min_idle,omitempty"`
 	}{configAlias: configAlias(c)}
 
 	// Override duration fields with string representations
@@ -308,6 +336,12 @@ func (c Config) MarshalJSON() ([]byte, error) {
 	}
 	if c.ConnMaxLifetime != 0 {
 		raw.ConnMaxLifetime = c.ConnMaxLifetime.String()
+	}
+	if c.ClaimInterval != 0 {
+		raw.ClaimInterval = c.ClaimInterval.String()
+	}
+	if c.ClaimMinIdle != 0 {
+		raw.ClaimMinIdle = c.ClaimMinIdle.String()
 	}
 
 	return json.Marshal(raw)

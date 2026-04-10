@@ -15,6 +15,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
+	redisapi "github.com/wippyai/runtime/api/service/queue/redis"
 	queuesvc "github.com/wippyai/runtime/service/queue"
 	"go.uber.org/zap"
 )
@@ -33,16 +34,18 @@ type declaredQueue struct {
 
 // Driver implements the Redis Streams queue driver.
 type Driver struct {
-	ctx        context.Context
-	logger     *zap.Logger
-	client     goredis.UniversalClient
-	tc         payload.Transcoder
-	opts       *goredis.UniversalOptions
-	queues     map[registry.ID]*declaredQueue
-	cancel     context.CancelFunc
-	statusChan chan any
-	id         registry.ID
-	mu         sync.RWMutex
+	ctx           context.Context
+	logger        *zap.Logger
+	client        goredis.UniversalClient
+	tc            payload.Transcoder
+	opts          *goredis.UniversalOptions
+	queues        map[registry.ID]*declaredQueue
+	cancel        context.CancelFunc
+	statusChan    chan any
+	id            registry.ID
+	claimInterval time.Duration // how often to run XAUTOCLAIM; 0 disables
+	claimMinIdle  time.Duration // min idle time for a pending message to be claimable
+	mu            sync.RWMutex
 }
 
 // NewDriver creates a new Redis Streams driver instance.
@@ -51,12 +54,27 @@ func NewDriver(id registry.ID, opts *goredis.UniversalOptions, tc payload.Transc
 		logger = zap.NewNop()
 	}
 	return &Driver{
-		id:     id,
-		opts:   opts,
-		tc:     tc,
-		logger: logger,
-		queues: make(map[registry.ID]*declaredQueue),
+		id:            id,
+		opts:          opts,
+		tc:            tc,
+		logger:        logger,
+		queues:        make(map[registry.ID]*declaredQueue),
+		claimInterval: redisapi.DefaultClaimInterval,
+		claimMinIdle:  redisapi.DefaultClaimMinIdle,
 	}
+}
+
+// NewDriverWithConfig creates a new Redis Streams driver instance with
+// claim recovery settings from the full config.
+func NewDriverWithConfig(id registry.ID, opts *goredis.UniversalOptions, cfg *redisapi.Config, tc payload.Transcoder, logger *zap.Logger) *Driver {
+	d := NewDriver(id, opts, tc, logger)
+	if cfg.ClaimInterval != 0 {
+		d.claimInterval = cfg.ClaimInterval
+	}
+	if cfg.ClaimMinIdle != 0 {
+		d.claimMinIdle = cfg.ClaimMinIdle
+	}
+	return d
 }
 
 func (d *Driver) streamName(queueID registry.ID, opts attrs.Attributes) string {
@@ -142,6 +160,7 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 	consumerName := fmt.Sprintf("%s-%s", queueID.String(), uuid.New().String()[:8])
 	consumerCtx, cancel := context.WithCancel(ctx)
 
+	// Main goroutine: read new messages via XREADGROUP
 	go func() {
 		for {
 			select {
@@ -202,7 +221,97 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 		}
 	}()
 
+	// Claim goroutine: periodically recover pending messages from crashed consumers
+	if d.claimInterval > 0 {
+		go d.claimLoop(consumerCtx, queueID, q, client, consumerName, deliveries)
+	}
+
 	return cancel, nil
+}
+
+// claimLoop runs XAUTOCLAIM periodically to recover pending messages from
+// crashed consumers. It delivers claimed messages through the same channel
+// used by the main XREADGROUP loop.
+func (d *Driver) claimLoop(
+	ctx context.Context,
+	queueID registry.ID,
+	q *declaredQueue,
+	client goredis.UniversalClient,
+	consumerName string,
+	deliveries chan<- *queueapi.Delivery,
+) {
+	ticker := time.NewTicker(d.claimInterval)
+	defer ticker.Stop()
+
+	// cursor tracks XAUTOCLAIM pagination across ticks; "0-0" starts from the
+	// beginning of the PEL each time the cursor is exhausted.
+	cursor := "0-0"
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-d.lifecycleCtxDone():
+			return
+		case <-ticker.C:
+		}
+
+		// XAUTOCLAIM claims messages idle longer than claimMinIdle and
+		// transfers ownership to this consumer.
+		claimed, newCursor, err := client.XAutoClaim(ctx, &goredis.XAutoClaimArgs{
+			Stream:   q.stream,
+			Group:    consumerGroup,
+			Consumer: consumerName,
+			MinIdle:  d.claimMinIdle,
+			Start:    cursor,
+			Count:    100,
+		}).Result()
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			d.logger.Warn("redis xautoclaim error",
+				zap.String("queue", queueID.String()),
+				zap.Error(err))
+			continue
+		}
+
+		// Update cursor for next iteration; "0-0" means the PEL has been
+		// fully scanned and we should start from the beginning next time.
+		cursor = newCursor
+
+		if len(claimed) == 0 {
+			continue
+		}
+
+		d.logger.Debug("claimed pending messages",
+			zap.String("queue", queueID.String()),
+			zap.Int("count", len(claimed)))
+
+		for _, redisMsg := range claimed {
+			msg := parseRedisMessage(d.tc, queueCodec(q.opts), redisMsg)
+			streamID := redisMsg.ID
+			streamKey := q.stream
+
+			delivery := &queueapi.Delivery{
+				Message: msg,
+				Ack: func(_ context.Context) error {
+					return client.XAck(context.Background(), streamKey, consumerGroup, streamID).Err()
+				},
+				Nack: func(_ context.Context) error {
+					return nil
+				},
+			}
+
+			select {
+			case deliveries <- delivery:
+			case <-ctx.Done():
+				return
+			case <-d.lifecycleCtxDone():
+				return
+			}
+		}
+	}
 }
 
 func (d *Driver) DeclareQueue(ctx context.Context, queueID registry.ID, opts attrs.Attributes) error {
