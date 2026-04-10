@@ -4,6 +4,7 @@ package sqs
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,6 +31,12 @@ const (
 var testEndpoint string
 
 func TestMain(m *testing.M) {
+	flag.Parse()
+	if testing.Short() {
+		fmt.Println("skipping SQS integration tests in short mode")
+		os.Exit(0)
+	}
+
 	if os.Getenv("SQS_ENDPOINT") != "" {
 		testEndpoint = os.Getenv("SQS_ENDPOINT")
 		os.Exit(m.Run())

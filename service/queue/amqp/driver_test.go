@@ -4,6 +4,7 @@ package amqp
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -28,6 +29,12 @@ const (
 var testAMQPURL string
 
 func TestMain(m *testing.M) {
+	flag.Parse()
+	if testing.Short() {
+		fmt.Println("skipping AMQP integration tests in short mode")
+		os.Exit(0)
+	}
+
 	if os.Getenv("AMQP_URL") != "" {
 		testAMQPURL = os.Getenv("AMQP_URL")
 		os.Exit(m.Run())

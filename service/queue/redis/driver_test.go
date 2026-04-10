@@ -4,6 +4,7 @@ package redis
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -27,6 +28,12 @@ const (
 var testAddr string
 
 func TestMain(m *testing.M) {
+	flag.Parse()
+	if testing.Short() {
+		fmt.Println("skipping Redis integration tests in short mode")
+		os.Exit(0)
+	}
+
 	if os.Getenv("REDIS_ADDR") != "" {
 		testAddr = os.Getenv("REDIS_ADDR")
 		os.Exit(m.Run())
