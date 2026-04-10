@@ -70,6 +70,15 @@ type Config struct { //nolint:govet // fieldalignment: limited by LifecycleConfi
 	// Passed as queue argument on QueueDeclare. 0 means the queue never expires.
 	DefaultQueueExpiry time.Duration `json:"default_queue_expiry,omitzero,format:units"`
 
+	// ReconnectDelay is the initial delay before the first reconnect attempt.
+	// Subsequent attempts use exponential backoff up to ReconnectMaxDelay.
+	// Default: 1s. Set to 0 to disable automatic reconnection.
+	ReconnectDelay time.Duration `json:"reconnect_delay,omitzero,format:units"`
+
+	// ReconnectMaxDelay is the maximum delay between reconnect attempts.
+	// Default: 30s.
+	ReconnectMaxDelay time.Duration `json:"reconnect_max_delay,omitzero,format:units"`
+
 	// FrameSize is the maximum frame size in bytes negotiated with the server.
 	// 0 uses the library default (131072 bytes).
 	FrameSize int `json:"frame_size,omitempty"`
@@ -171,6 +180,12 @@ func (c *Config) InitDefaults() {
 	if c.URL == "" {
 		c.URL = "amqp://guest:guest@localhost:5672/"
 	}
+	if c.ReconnectDelay == 0 {
+		c.ReconnectDelay = time.Second
+	}
+	if c.ReconnectMaxDelay == 0 {
+		c.ReconnectMaxDelay = 30 * time.Second
+	}
 }
 
 // configJSON is a shadow struct for JSON marshaling/unmarshaling
@@ -187,6 +202,8 @@ type configJSON struct { //nolint:govet // fieldalignment: limited by LifecycleC
 	DefaultMessageTTL  string                     `json:"default_message_ttl,omitempty"`
 	DefaultQueueTTL    string                     `json:"default_queue_ttl,omitempty"`
 	DefaultQueueExpiry string                     `json:"default_queue_expiry,omitempty"`
+	ReconnectDelay     string                     `json:"reconnect_delay,omitempty"`
+	ReconnectMaxDelay  string                     `json:"reconnect_max_delay,omitempty"`
 	FrameSize          int                        `json:"frame_size,omitempty"`
 	PrefetchCount      int                        `json:"prefetch_count,omitempty"`
 	ChannelMax         uint16                     `json:"channel_max,omitempty"`
@@ -236,6 +253,16 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("invalid default_queue_expiry: %w", err)
 		}
 	}
+	if raw.ReconnectDelay != "" {
+		if c.ReconnectDelay, err = time.ParseDuration(raw.ReconnectDelay); err != nil {
+			return fmt.Errorf("invalid reconnect_delay: %w", err)
+		}
+	}
+	if raw.ReconnectMaxDelay != "" {
+		if c.ReconnectMaxDelay, err = time.ParseDuration(raw.ReconnectMaxDelay); err != nil {
+			return fmt.Errorf("invalid reconnect_max_delay: %w", err)
+		}
+	}
 
 	return nil
 }
@@ -268,6 +295,12 @@ func (c Config) MarshalJSON() ([]byte, error) {
 	}
 	if c.DefaultQueueExpiry != 0 {
 		raw.DefaultQueueExpiry = c.DefaultQueueExpiry.String()
+	}
+	if c.ReconnectDelay != 0 {
+		raw.ReconnectDelay = c.ReconnectDelay.String()
+	}
+	if c.ReconnectMaxDelay != 0 {
+		raw.ReconnectMaxDelay = c.ReconnectMaxDelay.String()
 	}
 
 	return json.Marshal(raw)

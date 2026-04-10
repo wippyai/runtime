@@ -8,6 +8,7 @@ import (
 	"math"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	amqp091 "github.com/rabbitmq/amqp091-go"
@@ -481,11 +482,141 @@ func (d *Driver) Start(ctx context.Context) (<-chan any, error) {
 	d.statusChan = make(chan any, 1)
 	d.mu.Unlock()
 
+	// Start connection watcher for automatic reconnection
+	if d.cfg.ReconnectDelay > 0 {
+		go d.watchConnection(amqpCfg)
+	}
+
 	d.logger.Info("amqp driver started",
 		zap.String("id", d.id.String()),
 		zap.String("url", sanitizeURL(d.cfg.URL)))
 
 	return d.statusChan, nil
+}
+
+// watchConnection monitors the AMQP connection via NotifyClose and reconnects
+// with exponential backoff when the connection drops. After reconnecting, it
+// re-declares all previously declared queues and invalidates the publish channel.
+func (d *Driver) watchConnection(amqpCfg amqp091.Config) {
+	for {
+		d.mu.RLock()
+		conn := d.conn
+		ctx := d.ctx
+		d.mu.RUnlock()
+
+		if ctx == nil || ctx.Err() != nil {
+			return
+		}
+		if conn == nil {
+			return
+		}
+
+		// NotifyClose returns a channel that receives an error when the
+		// connection is closed (server-initiated or network failure).
+		closeCh := conn.NotifyClose(make(chan *amqp091.Error, 1))
+
+		select {
+		case <-ctx.Done():
+			return
+		case amqpErr, ok := <-closeCh:
+			if !ok {
+				// Channel closed without error — likely a graceful shutdown.
+				return
+			}
+			d.logger.Warn("amqp connection lost, reconnecting...",
+				zap.String("id", d.id.String()),
+				zap.Error(amqpErr))
+		}
+
+		// Reconnect with exponential backoff
+		delay := d.cfg.ReconnectDelay
+		for {
+			if d.ctx != nil && d.ctx.Err() != nil {
+				return
+			}
+
+			d.logger.Info("amqp reconnect attempt",
+				zap.String("id", d.id.String()),
+				zap.Duration("delay", delay))
+
+			select {
+			case <-time.After(delay):
+			case <-d.ctx.Done():
+				return
+			}
+
+			newConn, err := amqp091.DialConfig(d.cfg.URL, amqpCfg)
+			if err != nil {
+				d.logger.Warn("amqp reconnect failed",
+					zap.String("id", d.id.String()),
+					zap.Error(err))
+				delay *= 2
+				if delay > d.cfg.ReconnectMaxDelay {
+					delay = d.cfg.ReconnectMaxDelay
+				}
+				continue
+			}
+
+			// Reconnected — swap connection under write lock.
+			// The write lock blocks all TryRLock callers in Publish/Attach/GetQueueInfo,
+			// which return "driver busy (reconnecting)" while we're holding it.
+			d.mu.Lock()
+
+			// Invalidate publish channel
+			d.pubMu.Lock()
+			if d.publishCh != nil && !d.publishCh.IsClosed() {
+				d.publishCh.Close()
+			}
+			d.publishCh = nil
+			d.pubMu.Unlock()
+
+			d.conn = newConn
+
+			// Re-declare all queues on the new connection
+			d.redeclareQueuesLocked()
+
+			d.mu.Unlock()
+
+			d.logger.Info("amqp reconnected successfully",
+				zap.String("id", d.id.String()))
+
+			break // exit backoff loop, resume watching
+		}
+	}
+}
+
+// redeclareQueuesLocked re-declares all known queues on the current connection.
+// Caller must hold d.mu write lock.
+func (d *Driver) redeclareQueuesLocked() {
+	ch, err := d.channelFromConn(d.conn)
+	if err != nil {
+		d.logger.Error("amqp redeclare: failed to open channel", zap.Error(err))
+		return
+	}
+	defer ch.Close()
+
+	args := d.buildQueueArgs()
+
+	for queueID, q := range d.queues {
+		durable := true
+		if q.opts != nil {
+			if v := q.opts.GetString(queueapi.OptionDurable, ""); v == "false" {
+				durable = false
+			}
+		}
+
+		_, err := ch.QueueDeclare(q.name, durable, false, false, false, args)
+		if err != nil {
+			d.logger.Error("amqp redeclare queue failed",
+				zap.String("queue", queueID.String()),
+				zap.String("amqp_name", q.name),
+				zap.Error(err))
+		} else {
+			d.logger.Debug("amqp redeclared queue",
+				zap.String("queue", queueID.String()),
+				zap.String("amqp_name", q.name))
+		}
+	}
 }
 
 func (d *Driver) Stop(_ context.Context) error {
