@@ -31,6 +31,7 @@ type Driver struct {
 	ctx        context.Context
 	logger     *zap.Logger
 	conn       *amqp091.Connection
+	publishCh  *amqp091.Channel // persistent channel for Publish, lazily initialized
 	cfg        *amqpapi.Config
 	tc         payload.Transcoder
 	queues     map[registry.ID]*declaredQueue
@@ -38,6 +39,7 @@ type Driver struct {
 	statusChan chan any
 	id         registry.ID
 	mu         sync.RWMutex
+	pubMu      sync.Mutex // serializes publish operations on publishCh
 }
 
 // NewDriver creates a new AMQP driver instance.
@@ -138,6 +140,22 @@ func (d *Driver) channelFromConn(conn *amqp091.Connection) (*amqp091.Channel, er
 	return ch, nil
 }
 
+// getPublishChannel returns the persistent publish channel, creating one if
+// needed or if the previous channel was closed.
+// Caller must hold d.pubMu.
+func (d *Driver) getPublishChannel() (*amqp091.Channel, error) {
+	if d.publishCh != nil && !d.publishCh.IsClosed() {
+		return d.publishCh, nil
+	}
+
+	ch, err := d.getChannel()
+	if err != nil {
+		return nil, err
+	}
+	d.publishCh = ch
+	return ch, nil
+}
+
 func (d *Driver) queueName(queueID registry.ID, opts attrs.Attributes) string {
 	if opts != nil {
 		if name := opts.GetString(queueapi.OptionQueueName, ""); name != "" {
@@ -205,11 +223,13 @@ func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queu
 		return queueapi.ErrQueueNotFound
 	}
 
-	ch, err := d.getChannel()
+	d.pubMu.Lock()
+	defer d.pubMu.Unlock()
+
+	ch, err := d.getPublishChannel()
 	if err != nil {
 		return err
 	}
-	defer ch.Close()
 
 	for _, msg := range msgs {
 		if msg.ID == "" {
@@ -237,6 +257,8 @@ func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queu
 		}
 
 		if err := ch.PublishWithContext(ctx, "", q.name, false, false, publishing); err != nil {
+			// Channel is likely dead; nil it out so next call creates a fresh one.
+			d.publishCh = nil
 			return apierror.New(apierror.Unavailable, "amqp publish").WithCause(err).WithRetryable(apierror.True)
 		}
 	}
@@ -473,6 +495,14 @@ func (d *Driver) Stop(_ context.Context) error {
 	if d.cancel != nil {
 		d.cancel()
 	}
+
+	// Close the persistent publish channel.
+	d.pubMu.Lock()
+	if d.publishCh != nil && !d.publishCh.IsClosed() {
+		d.publishCh.Close()
+	}
+	d.publishCh = nil
+	d.pubMu.Unlock()
 
 	if d.conn != nil && !d.conn.IsClosed() {
 		d.conn.Close()
