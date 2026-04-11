@@ -75,8 +75,10 @@ func NewPackage(source, target pid.PID, topic Topic, payloads ...payload.Payload
 // routes host-level receivers by Target.Host alone.
 func NewServicePackage(sourceNode pid.NodeID, sourceHost pid.HostID, targetNode pid.NodeID, targetHost pid.HostID, topic Topic, payloads ...payload.Payload) *Package {
 	p := AcquirePackage()
-	p.Source = pid.PID{Node: sourceNode, Host: sourceHost}
-	p.Target = pid.PID{Node: targetNode, Host: targetHost}
+	src := pid.PID{Node: sourceNode, Host: sourceHost}
+	tgt := pid.PID{Node: targetNode, Host: targetHost}
+	p.Source = src.Precomputed()
+	p.Target = tgt.Precomputed()
 	msg := AcquireMessage()
 	msg.Topic = topic
 	msg.Payloads = payloads

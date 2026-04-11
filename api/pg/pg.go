@@ -386,7 +386,7 @@ func (c *JoinGroupsCmd) CmdID() dispatcher.CommandID { return JoinGroups }
 func (c *JoinGroupsCmd) Release() {
 	c.Instance = nil
 	c.Caller = pid.PID{}
-	c.Groups = c.Groups[:0]
+	c.Groups = nil
 	joinGroupsCmdPool.Put(c)
 }
 
@@ -409,7 +409,7 @@ func (c *LeaveGroupsCmd) CmdID() dispatcher.CommandID { return LeaveGroups }
 func (c *LeaveGroupsCmd) Release() {
 	c.Instance = nil
 	c.Caller = pid.PID{}
-	c.Groups = c.Groups[:0]
+	c.Groups = nil
 	leaveGroupsCmdPool.Put(c)
 }
 

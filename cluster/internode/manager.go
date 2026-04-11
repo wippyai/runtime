@@ -289,7 +289,7 @@ func (m *manager) AddManagedNode(nodeID cluster.NodeID) {
 	// state is already clean (RemoveManagedNode would have been called on
 	// node leave). Either way, skipping teardown is safe.
 	if m.nodeStates.GetNodeState(nodeID) != nil {
-		m.logger.Info("Node already managed, skipping teardown",
+		m.logger.Debug("Node already managed, skipping teardown",
 			zap.String("node", nodeID))
 		return
 	}
@@ -438,7 +438,7 @@ func (loop *nodeControlLoop) handleCommand(cmd nodeCommand) bool {
 func (loop *nodeControlLoop) handleConnect(data connectData) {
 	loop.addr = data.Addr
 	loop.port = data.Port
-	loop.logger.Info("handleConnect called",
+	loop.logger.Debug("handleConnect called",
 		zap.String("addr", data.Addr),
 		zap.Int("port", data.Port),
 		zap.String("state", loop.state.String()))
@@ -457,7 +457,7 @@ func (loop *nodeControlLoop) handleConnect(data connectData) {
 }
 
 func (loop *nodeControlLoop) handleConnected(data connectedData) {
-	loop.logger.Info("handleConnected called",
+	loop.logger.Debug("handleConnected called",
 		zap.String("state", loop.state.String()),
 		zap.Bool("has_connection", data.Connection != nil))
 	if loop.state == StateConnected {
@@ -491,7 +491,7 @@ func (loop *nodeControlLoop) handleConnected(data connectedData) {
 }
 
 func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
-	loop.logger.Info("handleDisconnected called",
+	loop.logger.Debug("handleDisconnected called",
 		zap.String("state", loop.state.String()),
 		zap.Bool("should_retry", data.ShouldRetry),
 		zap.Error(data.Error),
