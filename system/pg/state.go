@@ -248,6 +248,8 @@ func (s *state) removeNode(nodeID pid.NodeID) {
 }
 
 // syncRemote replaces all known state for a remote node with new data.
+// Always preserves the remote node entry so the node remains "known" even
+// if it currently has no group memberships (prevents discover loops).
 func (s *state) syncRemote(nodeID pid.NodeID, groups map[string][]pid.PID) {
 	// Remove old state for this node
 	s.removeNode(nodeID)
@@ -255,6 +257,15 @@ func (s *state) syncRemote(nodeID pid.NodeID, groups map[string][]pid.PID) {
 	// Add new state
 	for group, pids := range groups {
 		s.joinRemote(nodeID, group, pids)
+	}
+
+	// Ensure the remote node entry exists even with empty groups,
+	// so the node remains "known" and doesn't trigger re-discovery.
+	if _, exists := s.remote[nodeID]; !exists {
+		s.remote[nodeID] = &remoteNode{
+			nodeID: nodeID,
+			groups: make(map[string][]pid.PID),
+		}
 	}
 }
 

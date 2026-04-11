@@ -42,6 +42,12 @@ type MessageCodec struct {
 func NewMessageCodec(transcoder payload.Transcoder) *MessageCodec {
 	mh := &codec.MsgpackHandle{}
 
+	// WriteExt enables the new MsgPack spec: strings are encoded as str type
+	// (not ambiguous raw), and []byte is encoded as bin type. Without this,
+	// string values inside map[string]any are decoded as []uint8 because both
+	// strings and bytes use the old-spec ambiguous "raw" format.
+	mh.WriteExt = true
+
 	mh.MapType = reflect.TypeOf(map[string]any(nil))
 	mh.SliceType = reflect.TypeOf([]any(nil))
 

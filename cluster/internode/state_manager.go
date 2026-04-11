@@ -47,13 +47,21 @@ func NewNodeStateManager(config ManagerConfig, logger *zap.Logger) *NodeStateMan
 
 // CreateNodeState initializes the in-memory state for a new node.
 // This should only be called by the manager when a node joins the cluster.
+// If state already exists (e.g. stale entry from a previous incarnation),
+// it is replaced with fresh state.
 func (nsm *NodeStateManager) CreateNodeState(nodeID cluster.NodeID) {
-	if _, ok := nsm.nodeStates.Load(nodeID); ok {
-		nsm.logger.Debug("State for node already exists, skipping creation", zap.String("node_id", nodeID))
-		return
+	if existing, ok := nsm.nodeStates.Load(nodeID); ok {
+		// Close any stale connection on the old state before replacing
+		oldState := existing.(*NodeState)
+		oldState.stateMu.Lock()
+		if oldState.connection != nil {
+			oldState.connection.Close()
+			oldState.connection = nil
+		}
+		oldState.stateMu.Unlock()
+		nsm.logger.Debug("Replacing stale state for rejoining node", zap.String("node_id", nodeID))
 	}
 
-	nsm.logger.Debug("Creating new managed state for node", zap.String("node_id", nodeID))
 	newState := &NodeState{
 		messageQueue:  list.New(),
 		messageNotify: make(chan struct{}, 1),

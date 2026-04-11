@@ -119,24 +119,31 @@ func Cluster() boot.Component {
 			connManagerCfg.AutoPort = clusterCfg.GetBool(ClusterInternodeAutoPort, true)
 			connManagerCfg.Logger = logger.Named("internode.conn")
 
-			connMgr = internode.NewConnectionManager(connManagerCfg)
-
-			// Pre-start connection manager to allocate port
+			// Pre-start a temporary connection manager to allocate a port.
+			// This discovers the actual port (especially with AutoPort),
+			// which is needed for metadata before the real start.
+			tempConnMgr := internode.NewConnectionManager(connManagerCfg)
 			tempCtx, tempCancel := context.WithCancel(context.Background())
 			dummyCallback := func(_ clusterapi.NodeID, _ []byte) {}
 
-			if err := connMgr.Start(tempCtx, dummyCallback); err != nil {
+			if err := tempConnMgr.Start(tempCtx, dummyCallback); err != nil {
 				tempCancel()
 				return ctx, NewConnectionManagerPreStartError(err)
 			}
 
-			actualPort := connMgr.GetListenPort()
+			actualPort := tempConnMgr.GetListenPort()
 
-			if err := connMgr.Stop(); err != nil {
+			if err := tempConnMgr.Stop(); err != nil {
 				tempCancel()
 				return ctx, NewConnectionManagerStopError(err)
 			}
 			tempCancel()
+
+			// Pin the discovered port so the real connection manager
+			// binds exactly the same port on restart.
+			connManagerCfg.BindPort = actualPort
+			connManagerCfg.AutoPort = false
+			connMgr = internode.NewConnectionManager(connManagerCfg)
 
 			// Create node metadata with internode port
 			nodeMeta := clusterapi.NodeMeta{
@@ -162,7 +169,20 @@ func Cluster() boot.Component {
 
 			// Create package callback for internode service
 			pkgCallback := func(pkg *relayapi.Package) error {
-				return node.Send(pkg)
+				err := node.Send(pkg)
+				if err != nil {
+					topic := ""
+					if len(pkg.Messages) > 0 {
+						topic = pkg.Messages[0].Topic
+					}
+					logger.Warn("internode delivery failed",
+						zap.String("target_host", pkg.Target.Host),
+						zap.String("target_node", pkg.Target.Node),
+						zap.String("topic", topic),
+						zap.Error(err),
+					)
+				}
+				return err
 			}
 
 			// Create internode service
@@ -175,15 +195,19 @@ func Cluster() boot.Component {
 				membershipSvc,
 			)
 
-			// Replace router with cluster-enabled router
+			// Enable internode routing on the existing router.
+			// The router was created during bootstrap with nil internode;
+			// now we set the internode service so cross-node messages are
+			// forwarded correctly.
 			router := relayapi.GetRouter(ctx)
 			if router == nil {
 				return ctx, ErrRouterNotAvailable
 			}
-
-			// Create new router with internode service for cluster
-			clusterRouter := relay.NewRouter(node, internodeSvc)
-			ctx = relayapi.WithRouter(ctx, clusterRouter)
+			if sysRouter, ok := router.(*relay.Router); ok {
+				sysRouter.SetInternode(internodeSvc)
+			} else {
+				return ctx, ErrRouterNotAvailable
+			}
 
 			// Store cluster components in context
 			ctx = WithMembership(ctx, membershipSvc)

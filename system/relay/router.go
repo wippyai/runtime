@@ -12,9 +12,10 @@ import (
 // Router orchestrates message delivery between a local node and external upstreams.
 // It acts as the primary Receiver for the system.
 type Router struct {
-	localNode api.Node
-	internode api.Receiver
-	peers     sync.Map // NodeID -> Receiver
+	localNode   api.Node
+	internode   api.Receiver
+	peers       sync.Map // NodeID -> Receiver
+	internodeMu sync.RWMutex
 }
 
 // NewRouter creates a new router.
@@ -51,6 +52,14 @@ func (r *Router) UnregisterPeer(nodeID pid.NodeID) bool {
 	return existed
 }
 
+// SetInternode sets (or replaces) the internode fallback receiver.
+// This is called by the cluster component after boot to enable cross-node routing.
+func (r *Router) SetInternode(receiver api.Receiver) {
+	r.internodeMu.Lock()
+	r.internode = receiver
+	r.internodeMu.Unlock()
+}
+
 // Send routes the package to the appropriate destination.
 // Routing priority: local node → peer nodes → internode fallback.
 func (r *Router) Send(pkg *api.Package) error {
@@ -71,8 +80,11 @@ func (r *Router) Send(pkg *api.Package) error {
 	}
 
 	// Fallback to internode for unknown nodes.
-	if r.internode != nil {
-		return r.internode.Send(pkg)
+	r.internodeMu.RLock()
+	internode := r.internode
+	r.internodeMu.RUnlock()
+	if internode != nil {
+		return internode.Send(pkg)
 	}
 
 	return NewNodeNotFoundError(pkg.Target.Node)

@@ -155,6 +155,7 @@ type ConnectionManager interface {
 	// AddManagedNode adds a node to be managed by lifecycle events
 	AddManagedNode(nodeID cluster.NodeID)
 	RemoveManagedNode(nodeID cluster.NodeID)
+	IsManaged(nodeID cluster.NodeID) bool
 }
 
 type manager struct {
@@ -277,17 +278,59 @@ func (m *manager) ConnectedNodes() []cluster.NodeID {
 
 func (m *manager) AddManagedNode(nodeID cluster.NodeID) {
 	m.logger.Info("Adding new managed node", zap.String("node", nodeID))
+
+	// If the node already has state, it was either:
+	// (a) auto-managed by handleInboundConnection (possibly with an active
+	//     or in-flight connection), or
+	// (b) a stale entry left behind somehow.
+	//
+	// In case (a) we must not tear down the control loop because it may hold
+	// a healthy connection or have a cmdConnected in flight. In case (b) the
+	// state is already clean (RemoveManagedNode would have been called on
+	// node leave). Either way, skipping teardown is safe.
+	if m.nodeStates.GetNodeState(nodeID) != nil {
+		m.logger.Info("Node already managed, skipping teardown",
+			zap.String("node", nodeID))
+		return
+	}
+
+	// If there's an old control loop for this node (e.g. from a previous
+	// incarnation that left and is now rejoining), tear it down first to
+	// prevent the old loop from interfering with the new state.
+	m.controlLoopsMu.Lock()
+	if oldLoop, exists := m.controlLoops[nodeID]; exists {
+		m.logger.Info("Tearing down stale control loop for rejoining node", zap.String("node", nodeID))
+		oldLoop.cancel()
+		delete(m.controlLoops, nodeID)
+	}
+	m.controlLoopsMu.Unlock()
+
 	m.nodeStates.CreateNodeState(nodeID)
 }
 
 func (m *manager) RemoveManagedNode(nodeID cluster.NodeID) {
 	m.logger.Info("Removing managed node", zap.String("node", nodeID))
-	m.sendCommand(nodeID, nodeCommand{Type: cmdKill})
+
+	// Cancel the control loop directly and remove it from the map.
+	// This is synchronous with respect to the map entry, preventing
+	// races where a new node with the same ID starts before the old
+	// loop has processed cmdKill.
+	m.controlLoopsMu.Lock()
+	if loop, exists := m.controlLoops[nodeID]; exists {
+		loop.cancel()
+		delete(m.controlLoops, nodeID)
+	}
+	m.controlLoopsMu.Unlock()
+
 	m.nodeStates.RemoveNodeState(nodeID)
 }
 
 func (m *manager) GetListenPort() int {
 	return m.actualPort
+}
+
+func (m *manager) IsManaged(nodeID cluster.NodeID) bool {
+	return m.nodeStates.GetNodeState(nodeID) != nil
 }
 
 func (m *manager) sendCommand(nodeID cluster.NodeID, cmd nodeCommand) {
@@ -317,7 +360,7 @@ func (m *manager) sendCommand(nodeID cluster.NodeID, cmd nodeCommand) {
 		m.wg.Add(1)
 		go func() {
 			defer m.wg.Done()
-			defer m.cleanupControlLoop(nodeID)
+			defer m.cleanupControlLoop(nodeID, loop)
 			loop.run()
 		}()
 	}
@@ -329,9 +372,14 @@ func (m *manager) sendCommand(nodeID cluster.NodeID, cmd nodeCommand) {
 	}
 }
 
-func (m *manager) cleanupControlLoop(nodeID cluster.NodeID) {
+func (m *manager) cleanupControlLoop(nodeID cluster.NodeID, self *nodeControlLoop) {
 	m.controlLoopsMu.Lock()
-	delete(m.controlLoops, nodeID)
+	// Only delete the map entry if it still points to THIS loop.
+	// A replacement loop may have been created (e.g. by AddManagedNode
+	// tearing down the old loop and sendCommand creating a new one).
+	if current, exists := m.controlLoops[nodeID]; exists && current == self {
+		delete(m.controlLoops, nodeID)
+	}
 	m.controlLoopsMu.Unlock()
 	m.logger.Debug("Control loop cleaned up", zap.String("node", nodeID))
 }
@@ -390,6 +438,10 @@ func (loop *nodeControlLoop) handleCommand(cmd nodeCommand) bool {
 func (loop *nodeControlLoop) handleConnect(data connectData) {
 	loop.addr = data.Addr
 	loop.port = data.Port
+	loop.logger.Info("handleConnect called",
+		zap.String("addr", data.Addr),
+		zap.Int("port", data.Port),
+		zap.String("state", loop.state.String()))
 	if loop.state == StateConnecting || loop.state == StateConnected || loop.state == StateDead {
 		return
 	}
@@ -405,6 +457,9 @@ func (loop *nodeControlLoop) handleConnect(data connectData) {
 }
 
 func (loop *nodeControlLoop) handleConnected(data connectedData) {
+	loop.logger.Info("handleConnected called",
+		zap.String("state", loop.state.String()),
+		zap.Bool("has_connection", data.Connection != nil))
 	if loop.state == StateConnected {
 		if data.Connection != nil {
 			data.Connection.Close()
@@ -436,6 +491,11 @@ func (loop *nodeControlLoop) handleConnected(data connectedData) {
 }
 
 func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
+	loop.logger.Info("handleDisconnected called",
+		zap.String("state", loop.state.String()),
+		zap.Bool("should_retry", data.ShouldRetry),
+		zap.Error(data.Error),
+		zap.Int("retry_count", loop.retryCount))
 	if loop.state == StateDead {
 		return
 	}
@@ -495,6 +555,7 @@ func (loop *nodeControlLoop) attemptConnection() {
 		return
 	}
 	addr := net.JoinHostPort(loop.addr, fmt.Sprintf("%d", loop.port))
+	loop.logger.Debug("Attempting outbound connection", zap.String("target_addr", addr))
 	var conn net.Conn
 	var err error
 	if loop.manager.tlsConfig != nil {
@@ -544,6 +605,7 @@ func (loop *nodeControlLoop) drainMessages() {
 	if len(messages) == 0 {
 		return
 	}
+	loop.logger.Debug("Draining queued messages", zap.Int("count", len(messages)))
 	for i, data := range messages {
 		if err := loop.connection.Send(data); err != nil {
 			loop.logger.Error("Failed to send message, will be requeued", zap.Error(err))
@@ -598,15 +660,20 @@ func (m *manager) listen(addr string) (net.Listener, error) {
 }
 
 func (m *manager) acceptLoop() {
+	m.logger.Debug("Accept loop started", zap.Int("listen_port", m.actualPort))
 	for {
 		conn, err := m.listener.Accept()
 		if err != nil {
 			if m.ctx.Err() != nil {
+				m.logger.Debug("Accept loop stopping (context cancelled)")
 				return
 			}
 			m.logger.Error("Failed to accept connection", zap.Error(err))
 			continue
 		}
+		m.logger.Debug("Accepted inbound TCP connection",
+			zap.String("remote_addr", conn.RemoteAddr().String()),
+			zap.String("local_addr", conn.LocalAddr().String()))
 		m.wg.Add(1)
 		go func() {
 			defer m.wg.Done()
@@ -616,17 +683,24 @@ func (m *manager) acceptLoop() {
 }
 
 func (m *manager) handleInboundConnection(conn net.Conn) {
+	m.logger.Debug("Handling inbound connection",
+		zap.String("remote_addr", conn.RemoteAddr().String()),
+		zap.String("local_node", m.config.LocalNodeID))
+
 	nodeConn, err := PerformServerHandshake(conn, m.config.NodeConnectionConfig(), m.logger, m.config.LocalNodeID)
 	if err != nil {
 		m.logger.Warn("Inbound handshake failed", zap.Error(err), zap.String("remote_addr", conn.RemoteAddr().String()))
 		return
 	}
 	remoteNodeID := nodeConn.RemoteNodeID()
+	m.logger.Debug("Inbound handshake succeeded", zap.String("remote_node", remoteNodeID))
 
+	// Auto-manage the node if not already managed. This handles the race where
+	// the remote node's outbound connection arrives before the local NodeJoined
+	// event is processed (which would call AddManagedNode).
 	if m.nodeStates.GetNodeState(remoteNodeID) == nil {
-		m.logger.Warn("Received connection from an unmanaged/unknown node", zap.String("node", remoteNodeID))
-		nodeConn.Close()
-		return
+		m.logger.Info("Auto-managing node from inbound connection", zap.String("node", remoteNodeID))
+		m.nodeStates.CreateNodeState(remoteNodeID)
 	}
 
 	_, currentState := m.nodeStates.GetNodeConnection(remoteNodeID)
@@ -642,6 +716,7 @@ func (m *manager) handleInboundConnection(conn net.Conn) {
 		return
 	}
 
+	m.logger.Debug("Accepting inbound connection, sending cmdConnected", zap.String("remote_node", remoteNodeID))
 	m.sendCommand(remoteNodeID, nodeCommand{
 		Type: cmdConnected,
 		Data: connectedData{Connection: nodeConn},

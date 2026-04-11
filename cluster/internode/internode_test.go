@@ -114,6 +114,12 @@ func (m *mockConnectionManager) RemoveManagedNode(nodeID cluster.NodeID) {
 	delete(m.managedNodes, nodeID)
 }
 
+func (m *mockConnectionManager) IsManaged(nodeID cluster.NodeID) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.managedNodes[nodeID]
+}
+
 type mockCodec struct {
 	encodeError error
 	decodeError error

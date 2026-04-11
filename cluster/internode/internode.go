@@ -4,6 +4,7 @@ package internode
 
 import (
 	"context"
+	"net"
 	"strconv"
 
 	"github.com/wippyai/runtime/api/cluster"
@@ -49,6 +50,9 @@ func (s *Service) Start(ctx context.Context) error {
 	s.logger.Info("Starting inter-node service...")
 
 	onMessage := func(nodeID cluster.NodeID, data []byte) {
+		s.logger.Debug("Received raw message from remote node",
+			zap.String("from_node", nodeID),
+			zap.Int("data_len", len(data)))
 		pkg, err := s.codec.Decode(data)
 		if err != nil {
 			s.logger.Error("Failed to decode incoming message",
@@ -56,6 +60,9 @@ func (s *Service) Start(ctx context.Context) error {
 				zap.Error(err))
 			return
 		}
+		s.logger.Debug("Decoded message, delivering",
+			zap.String("from_node", nodeID),
+			zap.String("target_host", pkg.Target.Host))
 		if err := s.deliveryCallback(pkg); err != nil {
 			s.logger.Error("Failed to deliver message from remote node",
 				zap.String("from_node", nodeID),
@@ -102,7 +109,37 @@ func (s *Service) Send(pkg *relay.Package) error {
 	if err != nil {
 		return NewEncodePackageError(targetNode.Node, err)
 	}
+
+	// Ensure the target node is managed before sending. This covers the race
+	// where a higher-level service (e.g. PG) reacts to a NodeJoined event
+	// and sends a message before the internode event handler has had a chance
+	// to call AddManagedNode + EnsureConnection.
+	s.ensureNodeManaged(targetNode.Node)
+
 	return s.connMan.SendToNode(targetNode.Node, data)
+}
+
+// ensureNodeManaged verifies that the target node is registered as a managed
+// node in the connection manager. If not, and the node is a current cluster
+// member, it registers it and initiates a connection.
+func (s *Service) ensureNodeManaged(nodeID cluster.NodeID) {
+	if s.membership == nil {
+		return
+	}
+
+	// Fast path: already managed (may or may not be connected yet).
+	if s.connMan.IsManaged(nodeID) {
+		return
+	}
+
+	// Look up the node in the membership list.
+	for _, nodeInfo := range s.membership.Nodes() {
+		if nodeInfo.ID == nodeID {
+			s.connMan.AddManagedNode(nodeID)
+			s.connectToNode(nodeInfo)
+			return
+		}
+	}
 }
 
 func (s *Service) handleMembershipEvent(e event.Event) {
@@ -142,5 +179,13 @@ func (s *Service) connectToNode(nodeInfo cluster.NodeInfo) {
 			zap.String("node_id", nodeInfo.ID), zap.String("port", portStr), zap.Error(err))
 		return
 	}
-	s.connMan.EnsureConnection(nodeInfo.ID, nodeInfo.Addr, port)
+
+	// nodeInfo.Addr is in "IP:port" format from memberlist (gossip address).
+	// Extract just the IP since we use the internode port from metadata.
+	addr := nodeInfo.Addr
+	if host, _, splitErr := net.SplitHostPort(addr); splitErr == nil {
+		addr = host
+	}
+
+	s.connMan.EnsureConnection(nodeInfo.ID, addr, port)
 }
