@@ -11,6 +11,7 @@ func All() []boot.Component {
 	return []boot.Component{
 		Cluster(),
 		Topology(),
+		Raft(),
 		Lifecycle(),
 		Filesystem(),
 		Environment(),

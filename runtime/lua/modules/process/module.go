@@ -10,6 +10,7 @@ import (
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/payload"
 	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
@@ -88,10 +89,12 @@ func init() {
 	eventsTbl.Immutable = true
 	moduleTable.RawSetString("event", eventsTbl)
 
-	reg := lua.CreateTable(0, 3)
+	reg := lua.CreateTable(0, 5)
 	reg.RawSetString("register", lua.LGoFunc(registryRegister))
 	reg.RawSetString("lookup", lua.LGoFunc(registryLookup))
 	reg.RawSetString("unregister", lua.LGoFunc(registryUnregister))
+	reg.RawSetString("LOCAL", lua.LNumber(float64(topology.Local)))
+	reg.RawSetString("GLOBAL", lua.LNumber(float64(topology.Global)))
 	reg.Immutable = true
 	moduleTable.RawSetString("registry", reg)
 
@@ -660,20 +663,54 @@ func registryRegister(l *lua.LState) int {
 	name := l.CheckString(1)
 	secAttrs := map[string]any{"pid": self.String()}
 
-	if !security.IsAllowed(l.Context(), "process.registry.register", name, secAttrs) {
-		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to register name: %s", name)))
+	// Determine registration mode. The second argument can be:
+	//   - a number (GLOBAL=1, LOCAL=0): registration mode
+	//   - a string: PID to register (legacy usage)
+	//   - absent: defaults to LOCAL with self PID
+	var p pidapi.PID
+	mode := topology.Local
+	p = self
+
+	if l.GetTop() >= 2 {
+		arg2 := l.Get(2)
+		switch v := arg2.(type) {
+		case lua.LNumber:
+			mode = topology.RegistrationMode(int(v))
+		case lua.LString:
+			// Legacy: second arg is a PID string.
+			var err error
+			p, err = pidapi.ParsePID(string(v))
+			if err != nil {
+				return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Invalid))
+			}
+		default:
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "second argument must be a mode (number) or PID (string)"))
+		}
 	}
 
-	var p pidapi.PID
-	if l.GetTop() >= 2 {
-		pidStr := l.CheckString(2)
-		var err error
-		p, err = pidapi.ParsePID(pidStr)
-		if err != nil {
-			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Invalid))
+	if mode == topology.Global {
+		// Global registration via Raft consensus.
+		if !security.IsAllowed(l.Context(), "process.registry.register.global", name, secAttrs) {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to globally register name: %s", name)))
 		}
-	} else {
-		p = self
+
+		globalReg := globalreg.GetRegistry(l.Context())
+		if globalReg == nil {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "global registry not available"))
+		}
+
+		_, err := globalReg.Register(l.Context(), name, p)
+		if err != nil {
+			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
+		}
+
+		l.Push(lua.LTrue)
+		return 1
+	}
+
+	// Local registration (default).
+	if !security.IsAllowed(l.Context(), "process.registry.register", name, secAttrs) {
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to register name: %s", name)))
 	}
 
 	_, err := reg.Register(name, p)
@@ -716,6 +753,34 @@ func registryUnregister(l *lua.LState) int {
 	name := l.CheckString(1)
 	secAttrs := map[string]any{"pid": self.String()}
 
+	// Check for mode argument.
+	mode := topology.Local
+	if l.GetTop() >= 2 {
+		if modeVal, ok := l.Get(2).(lua.LNumber); ok {
+			mode = topology.RegistrationMode(int(modeVal))
+		}
+	}
+
+	if mode == topology.Global {
+		if !security.IsAllowed(l.Context(), "process.registry.unregister.global", name, secAttrs) {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to globally unregister name: %s", name)))
+		}
+
+		globalReg := globalreg.GetRegistry(l.Context())
+		if globalReg == nil {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "global registry not available"))
+		}
+
+		removed, err := globalReg.Unregister(l.Context(), name)
+		if err != nil {
+			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
+		}
+
+		l.Push(lua.LBool(removed))
+		return 1
+	}
+
+	// Local unregistration (default).
 	if !security.IsAllowed(l.Context(), "process.registry.unregister", name, secAttrs) {
 		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to unregister name: %s", name)))
 	}

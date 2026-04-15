@@ -14,7 +14,18 @@ const (
 	FunctionsName   boot.Name = "functions"
 	ContractsName   boot.Name = "contracts"
 	ClusterName     boot.Name = "cluster"
+	RaftName        boot.Name = "raft"
+	GlobalRegName   boot.Name = "globalreg"
 	PGName          boot.Name = "pg"
+
+	// RaftEnabled is a Raft configuration key
+	RaftEnabled       boot.Name = "enabled"
+	RaftDataDir       boot.Name = "data_dir"
+	RaftBindAddr      boot.Name = "bind_addr"
+	RaftBindPort      boot.Name = "bind_port"
+	RaftAutoPort      boot.Name = "auto_port"
+	RaftAdvertiseAddr boot.Name = "advertise_addr"
+	RaftBootstrap     boot.Name = "bootstrap"
 
 	// ClusterEnabled is a Cluster configuration key
 	ClusterEnabled              boot.Name = "enabled"

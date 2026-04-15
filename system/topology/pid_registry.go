@@ -13,10 +13,11 @@ import (
 // PIDRegistry provides Erlang-style name registration for PIDs.
 // It is optimized for concurrent access.
 type PIDRegistry struct {
-	parent   topology.PIDRegistry
-	logger   *zap.Logger
-	nameToID sync.Map
-	idToName sync.Map
+	parent    topology.PIDRegistry
+	globalReg topology.GlobalRegistry
+	logger    *zap.Logger
+	nameToID  sync.Map
+	idToName  sync.Map
 }
 
 // pidNames holds names for a PID with its own mutex for atomic updates.
@@ -42,6 +43,19 @@ func WithLogger(logger *zap.Logger) Option {
 	}
 }
 
+// WithGlobalRegistry sets a global registry for cross-scope conflict checking.
+func WithGlobalRegistry(global topology.GlobalRegistry) Option {
+	return func(r *PIDRegistry) {
+		r.globalReg = global
+	}
+}
+
+// SetGlobalRegistry sets the global registry after construction.
+// This is needed when the global registry is initialized after the PID registry.
+func (r *PIDRegistry) SetGlobalRegistry(global topology.GlobalRegistry) {
+	r.globalReg = global
+}
+
 // NewPIDRegistry creates a new empty PID registry.
 func NewPIDRegistry(opts ...Option) *PIDRegistry {
 	r := &PIDRegistry{
@@ -59,7 +73,19 @@ func NewPIDRegistry(opts ...Option) *PIDRegistry {
 // Returns (p, nil) on success.
 // Returns (existingPID, ErrNameAlreadyRegistered) if name is taken by different PID.
 // Re-registering same name with same PID is allowed and returns (p, nil).
+// If a global registry is configured, local registration is rejected when
+// the name already exists globally (prevents local shadowing of global names).
 func (r *PIDRegistry) Register(name string, p pid.PID) (pid.PID, error) {
+	// Check global registry first to prevent local shadowing of global names.
+	if r.globalReg != nil {
+		if existingPID, found := r.globalReg.Lookup(name); found {
+			if existingPID == p {
+				return p, nil // same PID registered globally — allow
+			}
+			return existingPID, topology.ErrNameAlreadyRegistered
+		}
+	}
+
 	actual, loaded := r.nameToID.LoadOrStore(name, p)
 	if loaded {
 		existingPID, ok := actual.(pid.PID)
@@ -149,6 +175,13 @@ func (r *PIDRegistry) Unregister(name string) bool {
 }
 
 func (r *PIDRegistry) Lookup(name string) (pid.PID, bool) {
+	// Check global registry first — global names take priority.
+	if r.globalReg != nil {
+		if p, found := r.globalReg.Lookup(name); found {
+			return p, true
+		}
+	}
+
 	if pidVal, exists := r.nameToID.Load(name); exists {
 		if p, ok := pidVal.(pid.PID); ok {
 			return p, true

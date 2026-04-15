@@ -10,8 +10,9 @@ import (
 )
 
 var (
-	topologyKey = &ctxapi.Key{Name: "topology.topology"}
-	registryKey = &ctxapi.Key{Name: "topology.registry"}
+	topologyKey  = &ctxapi.Key{Name: "topology.topology"}
+	registryKey  = &ctxapi.Key{Name: "topology.registry"}
+	globalRegKey = &ctxapi.Key{Name: "topology.global_registry"}
 )
 
 // WithRegistry attaches a Target registry to the provided context.
@@ -36,6 +37,33 @@ func GetRegistry(ctx context.Context) PIDRegistry {
 	}
 	if val := ac.Get(registryKey); val != nil {
 		if reg, ok := val.(PIDRegistry); ok {
+			return reg
+		}
+	}
+	return nil
+}
+
+// WithGlobalRegistry attaches a GlobalRegistry to the provided context.
+func WithGlobalRegistry(ctx context.Context, reg GlobalRegistry) context.Context {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return ctx
+	}
+	if ac.Get(globalRegKey) == nil {
+		ac.With(globalRegKey, reg)
+	}
+	return ctx
+}
+
+// GetGlobalRegistry retrieves the GlobalRegistry from the provided context.
+// Returns nil if no global registry is found.
+func GetGlobalRegistry(ctx context.Context) GlobalRegistry {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+	if val := ac.Get(globalRegKey); val != nil {
+		if reg, ok := val.(GlobalRegistry); ok {
 			return reg
 		}
 	}

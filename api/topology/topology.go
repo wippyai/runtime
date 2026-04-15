@@ -26,6 +26,14 @@ const (
 // SystemPID is the sender PID for topology system messages.
 var SystemPID = pid.PID{UniqID: "topology"}
 
+// Registration mode constants.
+const (
+	// Local is the default; the name is visible only on the registering node.
+	Local RegistrationMode = 0
+	// Global registers the name cluster-wide via Raft consensus.
+	Global RegistrationMode = 1
+)
+
 // Event kind constants for process lifecycle events.
 const (
 	// Cancel indicates a cancellation request.
@@ -48,6 +56,9 @@ type (
 	// Kind represents the type of a topology event
 	Kind = string
 
+	// RegistrationMode controls whether a name is registered locally or globally.
+	RegistrationMode int
+
 	// PIDRegistry defines the interface for a Target registry with Erlang-style semantics
 	PIDRegistry interface {
 		// Register associates a name with a PID atomically.
@@ -60,12 +71,20 @@ type (
 		// Returns true if the name was registered and has been removed
 		Unregister(name string) bool
 
-		// Lookup finds the Target registered with a given name
+		// Lookup finds the Target registered with a given name.
+		// Checks the global registry first (if available), then local.
 		// Returns the Target and true if found, empty Target and false if not found
 		Lookup(name string) (pid.PID, bool)
 
 		// Remove completely removes a pid from a registry
 		Remove(p pid.PID)
+	}
+
+	// GlobalRegistry provides cluster-wide name registration via Raft consensus.
+	// Reads are served from the local replica; writes go through Raft.
+	GlobalRegistry interface {
+		// Lookup reads from the local Raft FSM replica.
+		Lookup(name string) (pid.PID, bool)
 	}
 
 	// Monitor defines the interface for process monitoring
