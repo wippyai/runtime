@@ -6,6 +6,7 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
@@ -60,6 +61,23 @@ type Service struct {
 	// Config limits (0 = unlimited)
 	maxGroups          int
 	maxMembersPerGroup int
+
+	// Queue management
+	actionQueueMaxSize int
+	queueWarnThreshold int
+
+	// Circuit breaker for slow node isolation
+	cbManager *circuitBreakerManager
+
+	// Retry queue for failed broadcasts
+	retryQueue *retryQueue
+
+	// Protocol timeouts
+	protocolTimeout  time.Duration
+	broadcastTimeout time.Duration
+
+	// Retry configuration
+	maxRetries int
 }
 
 // NewService creates a new pg service for the given scope.
@@ -84,7 +102,8 @@ func NewService(
 		config = &pgapi.Config{}
 		config.InitDefaults()
 	}
-	return &Service{
+
+	svc := &Service{
 		state:              newState(),
 		logger:             logger.Named("pg").Named(hostID),
 		hostID:             hostID,
@@ -97,7 +116,30 @@ func NewService(
 		monitors:           make(map[string][]*monitorEntry),
 		maxGroups:          config.MaxGroups,
 		maxMembersPerGroup: config.MaxMembersPerGroup,
+		actionQueueMaxSize: config.ActionQueueMaxSize,
+		queueWarnThreshold: int(float64(config.ActionQueueMaxSize) * 0.75),
+		protocolTimeout:    config.ProtocolTimeout,
+		broadcastTimeout:   config.BroadcastTimeout,
+		maxRetries:         config.MaxRetries,
 	}
+
+	// Initialize circuit breaker manager
+	svc.cbManager = newCircuitBreakerManager(
+		config.CircuitBreakerFailures,
+		config.CircuitBreakerResetTime,
+		logger,
+	)
+
+	// Initialize retry queue
+	svc.retryQueue = newRetryQueue(
+		svc,
+		config.MaxRetries,
+		config.RetryBaseDelay,
+		config.RetryMaxDelay,
+		logger,
+	)
+
+	return svc
 }
 
 // HostID returns the relay host ID for this PG scope.
@@ -135,6 +177,9 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 	s.wg.Add(1)
 	go s.eventLoop()
 
+	// Start retry queue
+	s.retryQueue.Start(s.ctx)
+
 	// Discover existing nodes
 	if s.membership != nil {
 		localNode := s.membership.LocalNode()
@@ -148,7 +193,11 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 		}
 	}
 
-	s.logger.Info("pg service started", zap.String("node", s.localNodeID))
+	s.logger.Info("pg service started",
+		zap.String("node", s.localNodeID),
+		zap.Int("queue_size", cap(s.actions)),
+		zap.Int("queue_max", s.actionQueueMaxSize),
+	)
 
 	select {
 	case statusChan <- "pg service started":
@@ -167,6 +216,11 @@ func (s *Service) Stop(_ context.Context) error {
 	}
 	if s.nodeLeftSub != nil {
 		s.nodeLeftSub.Close()
+	}
+
+	// Stop retry queue
+	if s.retryQueue != nil {
+		s.retryQueue.Stop()
 	}
 
 	s.cancel()
@@ -206,10 +260,31 @@ func (s *Service) publishSnapshot() {
 }
 
 // submit sends an action to the event loop for serialized execution.
-func (s *Service) submit(fn action) {
+// Returns true if submitted, false if queue is full (for non-blocking callers).
+func (s *Service) submit(fn action) bool {
+	// Check queue capacity before attempting to send
+	if len(s.actions) >= s.actionQueueMaxSize {
+		s.logger.Warn("action queue full, rejecting operation",
+			zap.Int("queue_len", len(s.actions)),
+			zap.Int("queue_max", s.actionQueueMaxSize),
+		)
+		return false
+	}
+
+	// Warn if queue is approaching capacity
+	if len(s.actions) >= s.queueWarnThreshold {
+		s.logger.Warn("action queue approaching capacity",
+			zap.Int("queue_len", len(s.actions)),
+			zap.Int("queue_max", s.actionQueueMaxSize),
+			zap.Int("threshold", s.queueWarnThreshold),
+		)
+	}
+
 	select {
 	case s.actions <- fn:
+		return true
 	case <-s.ctx.Done():
+		return false
 	}
 }
 
@@ -834,7 +909,7 @@ func (s *Service) Broadcast(from pid.PID, group pgapi.Group, topic string, paylo
 	}
 
 	// Send outside the event loop so we don't block the action queue.
-	sent := sendToMembers(s.router, s.logger, from, topic, payloads, members)
+	sent := s.sendToMembers(from, topic, payloads, members)
 	return sent, nil
 }
 
@@ -854,7 +929,7 @@ func (s *Service) BroadcastLocal(from pid.PID, group pgapi.Group, topic string, 
 	}
 
 	// Send outside the event loop so we don't block the action queue.
-	sent := sendToMembers(s.router, s.logger, from, topic, payloads, members)
+	sent := s.sendToMembers(from, topic, payloads, members)
 	return sent, nil
 }
 
@@ -892,8 +967,8 @@ func (s *Service) emitJoinEvent(group string, pids []pid.PID) {
 		})
 	}
 
-	// Deliver to group monitors
-	s.deliverMonitorEvent(group, pgapi.MemberJoined, pids)
+	// Deliver to group monitors with circuit breaker protection
+	s.deliverMonitorEventWithCircuitBreaker(group, pgapi.MemberJoined, pids)
 }
 
 // emitLeaveEvent publishes a membership leave event to the event bus and delivers to monitors.
@@ -910,45 +985,8 @@ func (s *Service) emitLeaveEvent(group string, pids []pid.PID) {
 		})
 	}
 
-	// Deliver to group monitors
-	s.deliverMonitorEvent(group, pgapi.MemberLeft, pids)
-}
-
-// deliverMonitorEvent sends a membership event to all monitors of a specific group
-// and to all wildcard monitors. Must be called from the event loop.
-func (s *Service) deliverMonitorEvent(group string, kind string, pids []pid.PID) {
-	groupEntries := s.monitors[group]
-	wildcardEntries := s.monitors[""]
-	if len(groupEntries) == 0 && len(wildcardEntries) == 0 {
-		return
-	}
-
-	// Build event payload matching the eventbus format
-	data := map[string]any{
-		"system": pgapi.EventSystem,
-		"kind":   kind,
-		"path":   group,
-		"data": pgapi.MembershipEvent{
-			Group: group,
-			PIDs:  pids,
-		},
-	}
-
-	deliver := func(entries []*monitorEntry) {
-		for _, entry := range entries {
-			pkg := relay.NewPackage(pid.PID{}, entry.pid, entry.topic, payload.New(data))
-			if err := s.router.Send(pkg); err != nil {
-				s.logger.Debug("failed to deliver monitor event",
-					zap.String("group", group),
-					logPID(entry.pid),
-					logError(err),
-				)
-			}
-		}
-	}
-
-	deliver(groupEntries)
-	deliver(wildcardEntries)
+	// Deliver to group monitors with circuit breaker protection
+	s.deliverMonitorEventWithCircuitBreaker(group, pgapi.MemberLeft, pids)
 }
 
 // --- resource.Provider implementation ---

@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
+	"go.uber.org/zap"
 )
 
 // servicePID returns the service address for this PG scope on a given node.
@@ -22,7 +23,17 @@ func (s *Service) servicePID(nodeID pid.NodeID) pid.PID {
 }
 
 // sendDiscover sends a discover message to a remote pg service.
+// Uses circuit breaker to protect against slow nodes.
 func (s *Service) sendDiscover(targetNodeID pid.NodeID) {
+	// Check circuit breaker
+	cb := s.cbManager.GetCircuitBreaker(targetNodeID)
+	if !cb.Allow() {
+		s.logger.Debug("circuit breaker open, skipping discover",
+			logNodeID(targetNodeID),
+		)
+		return
+	}
+
 	pkg := relay.NewServicePackage(s.localNodeID, s.hostID, targetNodeID, s.hostID, pgapi.TopicDiscover,
 		payload.New(map[string]any{
 			"from": s.localNodeID,
@@ -33,11 +44,31 @@ func (s *Service) sendDiscover(targetNodeID pid.NodeID) {
 			logNodeID(targetNodeID),
 			logError(err),
 		)
+		cb.RecordFailure()
+
+		// Add to retry queue if configured
+		if s.retryQueue != nil && s.maxRetries > 0 {
+			// Discover has no group/pids, use empty
+			s.retryQueue.Add(targetNodeID, pgapi.TopicDiscover, "", nil, nil)
+		}
+		return
 	}
+
+	cb.RecordSuccess()
 }
 
 // sendSync sends a full state sync to a remote pg service.
+// Uses circuit breaker to protect against slow nodes.
 func (s *Service) sendSync(targetNodeID pid.NodeID) {
+	// Check circuit breaker
+	cb := s.cbManager.GetCircuitBreaker(targetNodeID)
+	if !cb.Allow() {
+		s.logger.Debug("circuit breaker open, skipping sync",
+			logNodeID(targetNodeID),
+		)
+		return
+	}
+
 	localPids := s.state.allLocalPids()
 
 	// Convert pid.PID to string representation for serialization
@@ -61,10 +92,15 @@ func (s *Service) sendSync(targetNodeID pid.NodeID) {
 			logNodeID(targetNodeID),
 			logError(err),
 		)
+		cb.RecordFailure()
+		return
 	}
+
+	cb.RecordSuccess()
 }
 
 // broadcastJoin sends a join notification to all known remote pg services.
+// Uses circuit breaker for per-node protection and retry queue for recovery.
 func (s *Service) broadcastJoin(group string, pids []pid.PID) {
 	pidStrs := make([]string, len(pids))
 	for i, p := range pids {
@@ -72,6 +108,20 @@ func (s *Service) broadcastJoin(group string, pids []pid.PID) {
 	}
 
 	for nodeID := range s.state.remote {
+		// Check circuit breaker
+		cb := s.cbManager.GetCircuitBreaker(nodeID)
+		if !cb.Allow() {
+			s.logger.Debug("circuit breaker open, skipping join broadcast",
+				logNodeID(nodeID),
+				zap.String("group", group),
+			)
+			// Still try to add to retry queue
+			if s.retryQueue != nil {
+				s.retryQueue.Add(nodeID, pgapi.TopicJoin, group, pids, nil)
+			}
+			continue
+		}
+
 		pkg := relay.NewServicePackage(s.localNodeID, s.hostID, nodeID, s.hostID, pgapi.TopicJoin,
 			payload.New(map[string]any{
 				"from":  s.localNodeID,
@@ -84,11 +134,21 @@ func (s *Service) broadcastJoin(group string, pids []pid.PID) {
 				logNodeID(nodeID),
 				logError(err),
 			)
+			cb.RecordFailure()
+
+			// Add to retry queue for recovery
+			if s.retryQueue != nil {
+				s.retryQueue.Add(nodeID, pgapi.TopicJoin, group, pids, nil)
+			}
+			continue
 		}
+
+		cb.RecordSuccess()
 	}
 }
 
 // broadcastLeave sends a leave notification to all known remote pg services.
+// Uses circuit breaker for per-node protection and retry queue for recovery.
 func (s *Service) broadcastLeave(pids []pid.PID, groups []string) {
 	if len(pids) == 0 || len(groups) == 0 {
 		return
@@ -100,6 +160,21 @@ func (s *Service) broadcastLeave(pids []pid.PID, groups []string) {
 	}
 
 	for nodeID := range s.state.remote {
+		// Check circuit breaker
+		cb := s.cbManager.GetCircuitBreaker(nodeID)
+		if !cb.Allow() {
+			s.logger.Debug("circuit breaker open, skipping leave broadcast",
+				logNodeID(nodeID),
+			)
+			// Still try to add to retry queue
+			if s.retryQueue != nil {
+				for _, group := range groups {
+					s.retryQueue.Add(nodeID, pgapi.TopicLeave, group, pids, nil)
+				}
+			}
+			continue
+		}
+
 		pkg := relay.NewServicePackage(s.localNodeID, s.hostID, nodeID, s.hostID, pgapi.TopicLeave,
 			payload.New(map[string]any{
 				"from":   s.localNodeID,
@@ -112,7 +187,18 @@ func (s *Service) broadcastLeave(pids []pid.PID, groups []string) {
 				logNodeID(nodeID),
 				logError(err),
 			)
+			cb.RecordFailure()
+
+			// Add to retry queue for recovery
+			if s.retryQueue != nil {
+				for _, group := range groups {
+					s.retryQueue.Add(nodeID, pgapi.TopicLeave, group, pids, nil)
+				}
+			}
+			continue
 		}
+
+		cb.RecordSuccess()
 	}
 }
 

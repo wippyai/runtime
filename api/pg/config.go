@@ -3,6 +3,8 @@
 package pg
 
 import (
+	"time"
+
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
 )
@@ -28,6 +30,11 @@ type Config struct {
 	// Default: 256.
 	ActionQueueSize int `json:"action_queue_size"`
 
+	// ActionQueueMaxSize is the maximum allowed queue size. When the queue
+	// exceeds this size, new operations are rejected with ErrQueueFull.
+	// Default: 1024.
+	ActionQueueMaxSize int `json:"action_queue_max_size"`
+
 	// MonitorBuffer is the capacity of the per-monitor delivery channel.
 	// Each monitor subscription gets a buffered channel of this size for
 	// receiving membership events. If the buffer fills, events are dropped
@@ -44,6 +51,37 @@ type Config struct {
 	// multiple times, this counts total join slots, not unique PIDs.
 	// Default: 0 (unlimited).
 	MaxMembersPerGroup int `json:"max_members_per_group"`
+
+	// ProtocolTimeout is the timeout for sync/discover operations with remote nodes.
+	// Operations exceeding this timeout are cancelled. Zero means no timeout.
+	// Default: 5s.
+	ProtocolTimeout time.Duration `json:"protocol_timeout"`
+
+	// BroadcastTimeout is the timeout for sending broadcast messages to members.
+	// Zero means no timeout (use circuit breaker only).
+	// Default: 5s.
+	BroadcastTimeout time.Duration `json:"broadcast_timeout"`
+
+	// CircuitBreakerFailures is the number of consecutive send failures before
+	// opening the circuit breaker for a node. Default: 3.
+	CircuitBreakerFailures int `json:"circuit_breaker_failures"`
+
+	// CircuitBreakerResetTime is the duration after which a circuit breaker
+	// will transition from open to half-open, allowing test requests.
+	// Default: 10s.
+	CircuitBreakerResetTime time.Duration `json:"circuit_breaker_reset_time"`
+
+	// MaxRetries is the maximum number of retry attempts for failed broadcasts.
+	// Zero disables retries. Default: 3.
+	MaxRetries int `json:"max_retries"`
+
+	// RetryBaseDelay is the initial delay between retries (exponential backoff).
+	// Default: 100ms.
+	RetryBaseDelay time.Duration `json:"retry_base_delay"`
+
+	// RetryMaxDelay is the maximum delay between retries.
+	// Default: 1s.
+	RetryMaxDelay time.Duration `json:"retry_max_delay"`
 }
 
 // InitDefaults initializes the configuration with sensible defaults.
@@ -53,8 +91,40 @@ func (c *Config) InitDefaults() {
 		c.ActionQueueSize = 256
 	}
 
+	if c.ActionQueueMaxSize == 0 {
+		c.ActionQueueMaxSize = 1024
+	}
+
 	if c.MonitorBuffer == 0 {
 		c.MonitorBuffer = 64
+	}
+
+	if c.ProtocolTimeout == 0 {
+		c.ProtocolTimeout = 5 * time.Second
+	}
+
+	if c.BroadcastTimeout == 0 {
+		c.BroadcastTimeout = 5 * time.Second
+	}
+
+	if c.CircuitBreakerFailures == 0 {
+		c.CircuitBreakerFailures = 3
+	}
+
+	if c.CircuitBreakerResetTime == 0 {
+		c.CircuitBreakerResetTime = 10 * time.Second
+	}
+
+	if c.MaxRetries == 0 {
+		c.MaxRetries = 3
+	}
+
+	if c.RetryBaseDelay == 0 {
+		c.RetryBaseDelay = 100 * time.Millisecond
+	}
+
+	if c.RetryMaxDelay == 0 {
+		c.RetryMaxDelay = time.Second
 	}
 
 	c.Lifecycle.InitDefaults()
@@ -67,6 +137,10 @@ func (c *Config) Validate() error {
 		return ErrInvalidActionQueueSize
 	}
 
+	if c.ActionQueueMaxSize < c.ActionQueueSize {
+		return ErrInvalidActionQueueMaxSize
+	}
+
 	if c.MonitorBuffer < 0 {
 		return ErrInvalidMonitorBuffer
 	}
@@ -77,6 +151,14 @@ func (c *Config) Validate() error {
 
 	if c.MaxMembersPerGroup < 0 {
 		return ErrInvalidMaxMembersPerGroup
+	}
+
+	if c.CircuitBreakerFailures < 0 {
+		return ErrInvalidCircuitBreakerFailures
+	}
+
+	if c.MaxRetries < 0 {
+		return ErrInvalidMaxRetries
 	}
 
 	return nil

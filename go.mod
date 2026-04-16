@@ -31,6 +31,8 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-msgpack/v2 v2.1.5
 	github.com/hashicorp/memberlist v0.5.4
+	github.com/hashicorp/raft v1.7.3
+	github.com/hashicorp/raft-boltdb/v2 v2.3.1
 	github.com/kaptinlin/jsonschema v0.7.3
 	github.com/klauspost/compress v1.18.1
 	github.com/lib/pq v1.11.2
@@ -141,8 +143,6 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-sockaddr v1.0.7 // indirect
 	github.com/hashicorp/golang-lru v0.5.0 // indirect
-	github.com/hashicorp/raft v1.7.3 // indirect
-	github.com/hashicorp/raft-boltdb/v2 v2.3.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/kaptinlin/go-i18n v0.2.11 // indirect
 	github.com/kaptinlin/jsonpointer v0.4.16 // indirect
