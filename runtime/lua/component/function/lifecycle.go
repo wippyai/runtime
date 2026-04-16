@@ -125,14 +125,14 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 		return runtimelua.NewAddNodeError("function", err)
 	}
 
+	opts, _ := cfg.Meta.GetBag("options")
 	configEntry := &configEntry{
 		method:  cfg.Method,
 		pool:    cfg.Pool,
 		source:  cfg,
-		network: cfg.Network,
+		network: cfg.Meta.GetString("network", ""),
+		options: opts,
 	}
-	opts, _ := cfg.Meta.GetBag("options")
-	configEntry.options = opts
 
 	if err := m.createPool(entry.ID, configEntry); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
@@ -177,14 +177,14 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 		return runtimelua.NewAddNodeError("function", err)
 	}
 
+	opts, _ := cfg.Meta.GetBag("options")
 	configEntry := &configEntry{
 		method:   cfg.Method,
 		pool:     cfg.Pool,
 		bytecode: cfg,
-		network:  cfg.Network,
+		network:  cfg.Meta.GetString("network", ""),
+		options:  opts,
 	}
-	opts, _ := cfg.Meta.GetBag("options")
-	configEntry.options = opts
 
 	if err := m.createPool(entry.ID, configEntry); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
@@ -226,14 +226,14 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 		return runtimelua.NewUpdateNodeError("function", err)
 	}
 
+	opts, _ := cfg.Meta.GetBag("options")
 	configEntry := &configEntry{
 		method:  cfg.Method,
 		pool:    cfg.Pool,
 		source:  cfg,
-		network: cfg.Network,
+		network: cfg.Meta.GetString("network", ""),
+		options: opts,
 	}
-	opts, _ := cfg.Meta.GetBag("options")
-	configEntry.options = opts
 
 	if err := m.replacePool(entry.ID, configEntry); err != nil {
 		return runtimelua.NewReplacePoolError(err)
@@ -271,14 +271,14 @@ func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) erro
 		return runtimelua.NewUpdateNodeError("function", err)
 	}
 
+	opts, _ := cfg.Meta.GetBag("options")
 	configEntry := &configEntry{
 		method:   cfg.Method,
 		pool:     cfg.Pool,
 		bytecode: cfg,
-		network:  cfg.Network,
+		network:  cfg.Meta.GetString("network", ""),
+		options:  opts,
 	}
-	opts, _ := cfg.Meta.GetBag("options")
-	configEntry.options = opts
 
 	if err := m.replacePool(entry.ID, configEntry); err != nil {
 		return runtimelua.NewReplacePoolError(err)

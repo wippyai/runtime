@@ -62,7 +62,6 @@ type (
 		Meta    attrs.Bag              `json:"meta,omitempty"`
 		Source  string                 `json:"source"`
 		Method  string                 `json:"method"`
-		Network string                 `json:"network,omitempty"`
 		Modules []string               `json:"modules,omitempty"`
 		Pool    PoolConfig             `json:"pool,omitempty"`
 	}
@@ -81,7 +80,6 @@ type (
 		Meta    attrs.Bag              `json:"meta"`              // Metadata for the terminal
 		Source  string                 `json:"source"`            // Lua source code
 		Method  string                 `json:"method"`            // Alias of the Lua method to execute
-		Network string                 `json:"network,omitempty"` // Default overlay network ID
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
 		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
 	}
@@ -114,7 +112,6 @@ type (
 		Path    string                 `json:"path"`
 		Hash    string                 `json:"hash"`
 		Method  string                 `json:"method"`
-		Network string                 `json:"network,omitempty"`
 		Modules []string               `json:"modules,omitempty"`
 		Pool    PoolConfig             `json:"pool,omitempty"`
 	}
@@ -137,7 +134,6 @@ type (
 		Path    string                 `json:"path"`
 		Hash    string                 `json:"hash"`
 		Method  string                 `json:"method"`
-		Network string                 `json:"network,omitempty"`
 		Modules []string               `json:"modules,omitempty"`
 	}
 
