@@ -1562,6 +1562,48 @@ func TestServiceJoinGroupsEmitsEvents(t *testing.T) {
 	}
 }
 
+func TestServiceJoinGroupsDuplicateNewGroupDoesNotTripMaxGroups(t *testing.T) {
+	cfg := &pgapi.Config{MaxGroups: 1}
+	cfg.InitDefaults()
+
+	router := newMockRouter()
+	topo := newMockTopology()
+	svc := NewService(zap.NewNop(), "pg", cfg, router, topo, nil, nil, "local-node")
+	_, err := svc.Start(context.Background())
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = svc.Stop(context.Background())
+	})
+
+	p1 := mkPID("host1", "1")
+	err = svc.JoinGroups([]string{"workers", "workers"}, p1)
+	require.NoError(t, err)
+
+	assert.Len(t, svc.WhichGroups(), 1)
+	assert.Len(t, svc.GetMembers("workers"), 2)
+}
+
+func TestServiceJoinGroupsDuplicateRespectsMaxMembersPerGroup(t *testing.T) {
+	cfg := &pgapi.Config{MaxMembersPerGroup: 2}
+	cfg.InitDefaults()
+
+	router := newMockRouter()
+	topo := newMockTopology()
+	svc := NewService(zap.NewNop(), "pg", cfg, router, topo, nil, nil, "local-node")
+	_, err := svc.Start(context.Background())
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = svc.Stop(context.Background())
+	})
+
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.Join("workers", p1))
+
+	err = svc.JoinGroups([]string{"workers", "workers"}, p1)
+	assert.ErrorIs(t, err, pgapi.ErrMaxMembersReached)
+	assert.Len(t, svc.GetMembers("workers"), 1)
+}
+
 // --- LeaveGroups tests ---
 
 func TestServiceLeaveGroups(t *testing.T) {

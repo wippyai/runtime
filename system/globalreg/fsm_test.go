@@ -175,10 +175,20 @@ func TestFSM_Snapshot_Restore(t *testing.T) {
 	found, ok := fsm2.State().Lookup("svc1")
 	assert.True(t, ok)
 	assert.Equal(t, p1, found)
+	foundWithFence, token, ok := fsm2.State().LookupWithFence("svc1")
+	assert.True(t, ok)
+	assert.Equal(t, p1, foundWithFence)
+	assert.Equal(t, uint64(1), token)
+	assert.True(t, fsm2.State().ValidateFence("svc1", token))
 
 	found, ok = fsm2.State().Lookup("svc2")
 	assert.True(t, ok)
 	assert.Equal(t, p2, found)
+	foundWithFence, token, ok = fsm2.State().LookupWithFence("svc2")
+	assert.True(t, ok)
+	assert.Equal(t, p2, foundWithFence)
+	assert.Equal(t, uint64(1), token)
+	assert.True(t, fsm2.State().ValidateFence("svc2", token))
 }
 
 func TestFSM_ShardDistribution(t *testing.T) {

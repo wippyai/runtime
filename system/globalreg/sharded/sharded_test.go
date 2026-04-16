@@ -73,6 +73,24 @@ func TestSharded_Register_Conflict(t *testing.T) {
 	assert.Equal(t, p1, existing)
 }
 
+func TestSharded_Register_IdempotentDoesNotIncreaseNameCount(t *testing.T) {
+	sc := setupShardedRegistry(t, 4)
+	ctx := context.Background()
+
+	p := pid.PID{Host: "test", UniqID: "proc1", Node: "node1"}
+
+	_, err := sc.Register(ctx, "stable-count", p)
+	require.NoError(t, err)
+	_, err = sc.Register(ctx, "stable-count", p)
+	require.NoError(t, err)
+
+	total := 0
+	for _, shard := range sc.GetShardInfo() {
+		total += shard.NameCount
+	}
+	assert.Equal(t, 1, total)
+}
+
 // TestSharded_RegisterMulti_SingleShard tests multi-name registration in one shard.
 func TestSharded_RegisterMulti_SingleShard(t *testing.T) {
 	sc := setupShardedRegistry(t, 4)

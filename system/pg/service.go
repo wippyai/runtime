@@ -474,23 +474,30 @@ func (s *Service) JoinGroups(groups []pgapi.Group, p pid.PID) error {
 	s.submit(func() {
 		// Pre-check all limits before mutating state (atomic: all-or-nothing)
 		if s.maxGroups > 0 || s.maxMembersPerGroup > 0 {
-			newGroupCount := 0
+			newGroups := make(map[pgapi.Group]struct{}, len(groups))
+			projectedMembers := make(map[pgapi.Group]int, len(groups))
 			for _, group := range groups {
+				if _, tracked := projectedMembers[group]; !tracked {
+					projectedMembers[group] = 0
+					if gs, exists := s.state.groups[group]; exists {
+						projectedMembers[group] = len(gs.all)
+					}
+				}
+
 				if s.maxGroups > 0 {
 					if _, exists := s.state.groups[group]; !exists {
-						newGroupCount++
+						newGroups[group] = struct{}{}
 					}
 				}
 				if s.maxMembersPerGroup > 0 {
-					if gs, exists := s.state.groups[group]; exists {
-						if len(gs.all) >= s.maxMembersPerGroup {
-							done <- pgapi.ErrMaxMembersReached
-							return
-						}
+					projectedMembers[group]++
+					if projectedMembers[group] > s.maxMembersPerGroup {
+						done <- pgapi.ErrMaxMembersReached
+						return
 					}
 				}
 			}
-			if s.maxGroups > 0 && len(s.state.groups)+newGroupCount > s.maxGroups {
+			if s.maxGroups > 0 && len(s.state.groups)+len(newGroups) > s.maxGroups {
 				done <- pgapi.ErrMaxGroupsReached
 				return
 			}

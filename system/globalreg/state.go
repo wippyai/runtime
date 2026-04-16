@@ -273,9 +273,10 @@ func (s *shardedState) addToNodeIndex(nodeID pid.NodeID, pidKey string) {
 
 // snapshotEntry is the serialisable form of a single name registration.
 type snapshotEntry struct {
-	Name   string     `codec:"n"`
-	PID    pid.PID    `codec:"p"`
-	NodeID pid.NodeID `codec:"d"`
+	Name      string     `codec:"n"`
+	PID       pid.PID    `codec:"p"`
+	NodeID    pid.NodeID `codec:"d"`
+	AppliedAt uint64     `codec:"a"`
 }
 
 // snapshot returns all entries across all shards. Read-locks each shard
@@ -287,9 +288,10 @@ func (s *shardedState) snapshot() []snapshotEntry {
 		sh.mu.RLock()
 		for name, e := range sh.names {
 			entries = append(entries, snapshotEntry{
-				Name:   name,
-				PID:    e.PID,
-				NodeID: e.NodeID,
+				Name:      name,
+				PID:       e.PID,
+				NodeID:    e.NodeID,
+				AppliedAt: e.AppliedAt,
 			})
 		}
 		sh.mu.RUnlock()
@@ -313,7 +315,7 @@ func (s *shardedState) restore(entries []snapshotEntry) {
 	for _, e := range entries {
 		sh := &s.shards[shardFor(e.Name)]
 		sh.mu.Lock()
-		sh.names[e.Name] = &nameEntry{PID: e.PID, NodeID: e.NodeID}
+		sh.names[e.Name] = &nameEntry{PID: e.PID, NodeID: e.NodeID, AppliedAt: e.AppliedAt}
 		pidKey := e.PID.String()
 		sh.pidNames[pidKey] = append(sh.pidNames[pidKey], e.Name)
 		sh.mu.Unlock()

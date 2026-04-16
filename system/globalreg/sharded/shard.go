@@ -37,6 +37,11 @@ func NewShard(id globalregapi.ShardID, fsm *syspg.FSM, logger *zap.Logger) *Shar
 // Apply applies a command to this shard's FSM.
 // Writes are serialized through the FSM's Apply method.
 func (s *Shard) Apply(cmd *syspg.Command) (any, error) {
+	nameExisted := false
+	if cmd.Type == syspg.CmdRegister {
+		_, nameExisted = s.Lookup(cmd.Name)
+	}
+
 	// Encode command and wrap in Raft log for FSM
 	data, err := syspg.EncodeCommand(cmd)
 	if err != nil {
@@ -49,7 +54,7 @@ func (s *Shard) Apply(cmd *syspg.Command) (any, error) {
 	// Update atomic counter on successful register
 	switch cmd.Type {
 	case syspg.CmdRegister:
-		if regResult, ok := result.(*syspg.RegisterResult); ok && regResult.Err == nil {
+		if regResult, ok := result.(*syspg.RegisterResult); ok && regResult.Err == nil && !nameExisted {
 			s.nameCount.Add(1)
 		}
 	case syspg.CmdUnregister:
