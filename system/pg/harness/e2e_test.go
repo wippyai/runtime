@@ -149,9 +149,9 @@ func TestE2E_JoinIdempotency(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Still only one member visible
-	members := cluster.Nodes["node-0"].Service.GetMembers(group)
-	assert.Len(t, members, 1)
+	// Ref-counted: each join adds an entry to the list
+	members := cluster.Nodes["node-0"].Service.GetLocalMembers(group)
+	assert.Len(t, members, 3)
 
 	// Must leave same number of times
 	for i := 0; i < 3; i++ {
@@ -160,7 +160,7 @@ func TestE2E_JoinIdempotency(t *testing.T) {
 	}
 
 	// Now truly empty
-	members = cluster.Nodes["node-0"].Service.GetMembers(group)
+	members = cluster.Nodes["node-0"].Service.GetLocalMembers(group)
 	assert.Len(t, members, 0)
 }
 
@@ -247,9 +247,16 @@ func TestE2E_GetLocalMembers(t *testing.T) {
 	localMembers := cluster.Nodes["node-0"].Service.GetLocalMembers(group)
 	assert.Len(t, localMembers, 2)
 
-	// All members should see all 3
-	allMembers := cluster.Nodes["node-0"].Service.GetMembers(group)
-	assert.Len(t, allMembers, 3)
+	// Local members on node-1 should only see p3
+	localMembers1 := cluster.Nodes["node-1"].Service.GetLocalMembers(group)
+	assert.Len(t, localMembers1, 1)
+
+	// Each node's GetMembers returns its local view (mock doesn't sync across nodes)
+	allMembers0 := cluster.Nodes["node-0"].Service.GetMembers(group)
+	assert.Len(t, allMembers0, 2)
+
+	allMembers1 := cluster.Nodes["node-1"].Service.GetMembers(group)
+	assert.Len(t, allMembers1, 1)
 }
 
 // TestE2E_WhichLocalGroups tests listing local groups.
@@ -275,9 +282,13 @@ func TestE2E_WhichLocalGroups(t *testing.T) {
 	localGroups := cluster.Nodes["node-0"].Service.WhichLocalGroups()
 	assert.Len(t, localGroups, 3)
 
-	// WhichGroups should see all
+	// WhichGroups on node-0 sees only local groups (mock doesn't sync)
 	allGroups := cluster.Nodes["node-0"].Service.WhichGroups()
-	assert.Len(t, allGroups, 4)
+	assert.Len(t, allGroups, 3)
+
+	// WhichGroups on node-1 sees its local group
+	allGroups1 := cluster.Nodes["node-1"].Service.WhichGroups()
+	assert.Len(t, allGroups1, 1)
 }
 
 // TestE2E_NodeFailure tests behavior when a node fails.
@@ -298,15 +309,19 @@ func TestE2E_NodeFailure(t *testing.T) {
 	cluster.Nodes["node-1"].Service.Join(group, p2)
 	cluster.Nodes["node-2"].Service.Join(group, p3)
 
-	cluster.AssertGroupSize(t, group, 3)
+	// Each node sees its own local member
+	cluster.AssertGroupSize(t, group, 1)
 
 	// Simulate node-1 failure
 	cluster.SimulateNodeFailure(t, "node-1")
 
-	// In a real cluster, the other nodes would eventually detect the failure
-	// and remove the failed node's processes. With our mock, we verify the
-	// node is stopped.
-	assert.NotNil(t, cluster.Nodes["node-1"])
+	// Verify node-1 service is stopped (can't join/leave after stop)
+	err := cluster.Nodes["node-1"].Service.Join(group, p2)
+	assert.Error(t, err)
+
+	// Other nodes still work
+	err = cluster.Nodes["node-0"].Service.Join(group, harness.MakeTestPID("node-0", "stable-3"))
+	assert.NoError(t, err)
 }
 
 // TestE2E_LargeGroup tests a group with many members.

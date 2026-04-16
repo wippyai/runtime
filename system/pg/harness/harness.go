@@ -26,12 +26,12 @@ import (
 
 // TestNode represents a single node in the test cluster.
 type TestNode struct {
-	ID       string
 	Service  *pg.Service
 	Topology *mockTopology
-	Router   *mockRouter
+	Router   relay.Receiver
 	Bus      event.Bus
 	Logger   *zap.Logger
+	ID       string
 }
 
 // TestCluster represents a multi-node PG test cluster.
@@ -41,6 +41,13 @@ type TestCluster struct {
 	mu     sync.RWMutex
 	context.Context
 	cancel context.CancelFunc
+}
+
+// SyncedCluster is a TestCluster with cross-node sync via a shared event bus
+// and a forwarding router that delivers protocol messages to all peer nodes.
+type SyncedCluster struct {
+	*TestCluster
+	sharedBus event.Bus
 }
 
 // NewTestCluster creates a new test cluster with the specified number of nodes.
@@ -67,6 +74,64 @@ func NewTestCluster(t testing.TB, nodeCount int) *TestCluster {
 	}
 
 	return cluster
+}
+
+// NewSyncedCluster creates a cluster where nodes are wired together via a
+// shared event bus and a forwarding router. Cross-node joins/leaves are
+// delivered to all peers, simulating real cluster gossip/sync.
+func NewSyncedCluster(t testing.TB, nodeCount int) *SyncedCluster {
+	logger := zap.NewNop()
+	if testing.Verbose() {
+		var err error
+		logger, err = zap.NewDevelopment()
+		require.NoError(t, err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	sharedBus := eventbus.NewBus()
+
+	base := &TestCluster{
+		Nodes:   make(map[string]*TestNode),
+		Logger:  logger,
+		Context: ctx,
+		cancel:  cancel,
+	}
+
+	sc := &SyncedCluster{TestCluster: base, sharedBus: sharedBus}
+
+	for i := 0; i < nodeCount; i++ {
+		nodeID := fmt.Sprintf("node-%d", i)
+		node := sc.createSyncedNode(nodeID)
+		sc.Nodes[nodeID] = node
+	}
+
+	return sc
+}
+
+// createSyncedNode creates a node wired to the shared bus and forwarding router.
+func (sc *SyncedCluster) createSyncedNode(nodeID string) *TestNode {
+	topo := newMockTopology()
+	router := newForwardingRouter(nodeID, sc)
+
+	svc := pg.NewService(
+		sc.Logger,
+		"pg",
+		nil,
+		router,
+		topo,
+		nil,
+		sc.sharedBus,
+		nodeID,
+	)
+
+	return &TestNode{
+		ID:       nodeID,
+		Service:  svc,
+		Topology: topo,
+		Router:   router,
+		Bus:      sc.sharedBus,
+		Logger:   sc.Logger,
+	}
 }
 
 // createNode creates a single test node.
@@ -228,6 +293,50 @@ func (tc *TestCluster) RecoverNode(t testing.TB, nodeID string) {
 	require.NoError(t, err)
 }
 
+// SyncAllNodes triggers a full membership sync across all nodes.
+// Each node sends a discover message to all peers, which triggers
+// the PG protocol to exchange membership state.
+func (sc *SyncedCluster) SyncAllNodes(_ testing.TB) {
+	// Each node broadcasts a discover to all peers.
+	for _, node := range sc.Nodes {
+		_ = node.Service.Send(&relay.Package{
+			Messages: []*relay.Message{
+				{
+					Topic: pgapi.TopicDiscover,
+					Payloads: payload.Payloads{
+						payload.New(map[string]any{"from": node.ID}),
+					},
+				},
+			},
+		})
+	}
+
+	// Allow event loop processing.
+	time.Sleep(50 * time.Millisecond)
+}
+
+// WaitForSynced waits until all nodes agree on group membership.
+func (sc *SyncedCluster) WaitForSynced(t testing.TB, group pgapi.Group, timeout time.Duration) {
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-deadline:
+			// Dump state for debugging.
+			for nid, n := range sc.Nodes {
+				t.Logf("node %s: members=%v", nid, n.Service.GetMembers(group))
+			}
+			t.Fatalf("timeout waiting for group %s to sync across all nodes", group)
+		case <-ticker.C:
+			if sc.isGroupSynced(group) {
+				return
+			}
+		}
+	}
+}
+
 // pidSlicesEqual checks if two PID slices are equal (order-independent).
 func pidSlicesEqual(a, b []pid.PID) bool {
 	if len(a) != len(b) {
@@ -266,6 +375,86 @@ func (m *mockRouter) Send(pkg *relay.Package) error {
 	return nil
 }
 
+// ForwardingRouter is a relay router that forwards protocol messages to all
+// peer nodes in a SyncedCluster, simulating real cluster gossip/sync.
+type ForwardingRouter struct {
+	cluster     *SyncedCluster
+	sends       []*relay.Package
+	mu          sync.Mutex
+	localNodeID string
+	sendErr     error
+}
+
+func newForwardingRouter(localNodeID string, cluster *SyncedCluster) *ForwardingRouter {
+	return &ForwardingRouter{localNodeID: localNodeID, cluster: cluster}
+}
+
+func (r *ForwardingRouter) Send(pkg *relay.Package) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.sendErr != nil {
+		return r.sendErr
+	}
+	r.sends = append(r.sends, pkg)
+
+	if pkg == nil || len(pkg.Messages) == 0 {
+		return nil
+	}
+
+	// Route to target node if specified, otherwise broadcast to all peers.
+	targetNode := pkg.Target.Node
+
+	if targetNode != "" && targetNode != r.localNodeID {
+		// Direct delivery to specific target node.
+		if targetNode, ok := r.cluster.Nodes[targetNode]; ok {
+			clone := &relay.Package{
+				Messages: make([]*relay.Message, len(pkg.Messages)),
+			}
+			for i, msg := range pkg.Messages {
+				clone.Messages[i] = &relay.Message{
+					Topic:    msg.Topic,
+					Payloads: msg.Payloads,
+				}
+			}
+			_ = targetNode.Service.Send(clone)
+		}
+	} else if targetNode == "" || targetNode == r.localNodeID {
+		// Broadcast to all peer nodes (no specific target or self-targeted).
+		for nodeID, node := range r.cluster.Nodes {
+			if nodeID == r.localNodeID {
+				continue
+			}
+			clone := &relay.Package{
+				Messages: make([]*relay.Message, len(pkg.Messages)),
+			}
+			for i, msg := range pkg.Messages {
+				clone.Messages[i] = &relay.Message{
+					Topic:    msg.Topic,
+					Payloads: msg.Payloads,
+				}
+			}
+			_ = node.Service.Send(clone)
+		}
+	}
+	return nil
+}
+
+// Sends returns all packages sent through this router.
+func (r *ForwardingRouter) Sends() []*relay.Package {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	result := make([]*relay.Package, len(r.sends))
+	copy(result, r.sends)
+	return result
+}
+
+// SetSendError configures the router to return an error on Send.
+func (r *ForwardingRouter) SetSendError(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sendErr = err
+}
+
 // mockTopology is a mock topology for testing.
 type mockTopology struct {
 	monitored  map[string]bool
@@ -277,6 +466,13 @@ func newMockTopology() *mockTopology {
 	return &mockTopology{
 		monitored: make(map[string]bool),
 	}
+}
+
+// SetMonitorError sets the error to return from Monitor().
+func (m *mockTopology) SetMonitorError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.monitorErr = err
 }
 
 func (m *mockTopology) Register(pid.PID) error            { return nil }
@@ -341,8 +537,8 @@ func WaitForCondition(t testing.TB, condition func() bool, timeout time.Duration
 
 // EventCollector collects events.
 type EventCollector struct {
-	mu     sync.Mutex
 	events []event.Event
+	mu     sync.Mutex
 }
 
 // NewEventCollector creates a new event collector.
