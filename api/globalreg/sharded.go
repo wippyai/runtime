@@ -48,10 +48,10 @@ type ShardedRegistry interface {
 
 // ShardInfo provides metadata about a shard.
 type ShardInfo struct {
-	ID        ShardID
 	Leader    string
 	Members   int
 	NameCount int
+	ID        ShardID
 	IsHealthy bool
 }
 
@@ -67,10 +67,10 @@ const (
 
 // Transaction represents a cross-shard operation.
 type Transaction struct {
-	ID        string
-	Status    TransactionStatus
-	Shards    []ShardID
 	StartTime time.Time
+	ID        string
+	Shards    []ShardID
+	Status    TransactionStatus
 }
 
 var (

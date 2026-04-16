@@ -43,21 +43,11 @@ type (
 
 	// Package combines source, target and messages for delivery.
 	Package struct {
-		Source   pid.PID
-		Target   pid.PID
-		Messages []*Message
-
-		// FenceToken is the Raft log index at which the target's global name
-		// was registered. Set by the sender when routing to a globally-registered
-		// name. The receiver validates this token against its local state to
-		// detect stale references. Zero means no fencing (local or non-global target).
-		FenceToken uint64
-
-		// GlobalName is the global registry name that was used to resolve the
-		// target PID. Set together with FenceToken so the receiver can call
-		// ValidateFence(GlobalName, FenceToken) before delivery. Empty when
-		// the target was addressed by raw PID or local name.
+		Source     pid.PID
+		Target     pid.PID
 		GlobalName string
+		Messages   []*Message
+		FenceToken uint64
 	}
 
 	// PeerInfo contains metadata about a peer node.

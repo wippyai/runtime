@@ -40,44 +40,32 @@ type action func()
 // pg:start_link(ScopeName)). Scopes have separate state, event loops,
 // and cluster mesh — providing complete isolation.
 type Service struct {
-	router        relay.Receiver
-	topo          topology.Topology
-	membership    cluster.Membership
-	bus           event.Bus
-	ctx           context.Context
-	state         *state
-	logger        *zap.Logger
-	cancel        context.CancelFunc
-	nodeJoinedSub *eventbus.Subscriber
-	nodeLeftSub   *eventbus.Subscriber
-	actions       chan action
-	monitors      map[string][]*monitorEntry // group -> monitor subscriptions
-	snap          atomic.Pointer[stateSnapshot]
-	hostID        pid.HostID // dynamic host ID derived from registry entry ID
-	localNodeID   pid.NodeID
-	monitorIDSeq  uint64 // monotonic ID for monitors
-	wg            sync.WaitGroup
-
-	// Config limits (0 = unlimited)
+	router             relay.Receiver
+	topo               topology.Topology
+	membership         cluster.Membership
+	bus                event.Bus
+	ctx                context.Context
+	snap               atomic.Pointer[stateSnapshot]
+	cbManager          *circuitBreakerManager
+	cancel             context.CancelFunc
+	nodeJoinedSub      *eventbus.Subscriber
+	nodeLeftSub        *eventbus.Subscriber
+	actions            chan action
+	monitors           map[string][]*monitorEntry
+	state              *state
+	retryQueue         *retryQueue
+	logger             *zap.Logger
+	localNodeID        pid.NodeID
+	hostID             pid.HostID
+	wg                 sync.WaitGroup
+	monitorIDSeq       uint64
 	maxGroups          int
 	maxMembersPerGroup int
-
-	// Queue management
 	actionQueueMaxSize int
 	queueWarnThreshold int
-
-	// Circuit breaker for slow node isolation
-	cbManager *circuitBreakerManager
-
-	// Retry queue for failed broadcasts
-	retryQueue *retryQueue
-
-	// Protocol timeouts
-	protocolTimeout  time.Duration
-	broadcastTimeout time.Duration
-
-	// Retry configuration
-	maxRetries int
+	protocolTimeout    time.Duration
+	broadcastTimeout   time.Duration
+	maxRetries         int
 }
 
 // NewService creates a new pg service for the given scope.

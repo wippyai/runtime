@@ -39,9 +39,9 @@ type SendCmd struct {
 	From       pid.PID
 	To         pid.PID
 	Topic      string
+	GlobalName string
 	Payloads   payload.Payloads
-	FenceToken uint64 // Raft log index for global name fencing; 0 = unfenced.
-	GlobalName string // Global registry name used to resolve To; empty = not global.
+	FenceToken uint64
 }
 
 var sendCmdPool = sync.Pool{New: func() any { return &SendCmd{} }}

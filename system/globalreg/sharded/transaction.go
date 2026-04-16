@@ -49,11 +49,11 @@ const (
 // ShardTransaction represents a shard's participation in a transaction.
 // Uses atomic operations for lock-free state transitions.
 type ShardTransaction struct {
-	ShardID      globalregapi.ShardID
-	Names        []string
-	phase        atomic.Int32 // Atomic phase storage
-	prepared     atomic.Bool  // Atomic prepared flag
 	PrepareError error
+	Names        []string
+	ShardID      globalregapi.ShardID
+	phase        atomic.Int32
+	prepared     atomic.Bool
 }
 
 // SetPhase atomically sets the transaction phase.
@@ -79,12 +79,12 @@ func (st *ShardTransaction) IsPrepared() bool {
 // Transaction represents a distributed transaction across multiple shards.
 // Uses atomic operations for thread-safe state management.
 type Transaction struct {
+	StartTime time.Time
+	Shards    map[globalregapi.ShardID]*ShardTransaction
+	PID       pid.PID
 	ID        string
 	Type      TransactionType
-	PID       pid.PID
-	Shards    map[globalregapi.ShardID]*ShardTransaction
-	phase     atomic.Int32 // Atomic phase
-	StartTime time.Time
+	phase     atomic.Int32
 }
 
 // SetPhase atomically sets the transaction phase.
@@ -100,11 +100,11 @@ func (t *Transaction) GetPhase() TransactionPhase {
 // TransactionManager coordinates 2PC distributed transactions with lock-free optimizations.
 type TransactionManager struct {
 	coordinator    *ShardCoordinator
+	logger         *zap.Logger
+	activeTxns     sync.Map
 	timeout        time.Duration
 	prepareTimeout time.Duration
-	logger         *zap.Logger
-	activeTxns     sync.Map      // Lock-free map[string]*Transaction
-	txnCounter     atomic.Uint64 // Atomic counter for metrics
+	txnCounter     atomic.Uint64
 }
 
 // NewTransactionManager creates a new transaction manager.

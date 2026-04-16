@@ -39,14 +39,14 @@ func (s CircuitState) String() string {
 // It tracks consecutive failures and opens the circuit after a threshold,
 // preventing cascading failures to slow/unavailable nodes.
 type circuitBreaker struct {
-	state        CircuitState
-	failures     int
 	lastFailure  time.Time
 	openTime     time.Time
-	maxFailures  int
-	resetTimeout time.Duration
 	logger       *zap.Logger
 	nodeID       string
+	state        CircuitState
+	failures     int
+	maxFailures  int
+	resetTimeout time.Duration
 	mu           sync.RWMutex
 }
 
@@ -153,9 +153,9 @@ func (cb *circuitBreaker) State() CircuitState {
 // circuitBreakerManager manages circuit breakers for multiple target nodes.
 type circuitBreakerManager struct {
 	breakers     map[string]*circuitBreaker
+	logger       *zap.Logger
 	maxFailures  int
 	resetTimeout time.Duration
-	logger       *zap.Logger
 	mu           sync.RWMutex
 }
 

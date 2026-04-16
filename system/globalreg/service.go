@@ -481,7 +481,7 @@ func (s *Service) HandleProcessExit(p pid.PID) {
 
 // waitForReady waits for the Raft log to catch up using a barrier,
 // then marks the service as ready to serve consistent lookups.
-func (s *Service) waitForReady(ctx context.Context) {
+func (s *Service) waitForReady(_ context.Context) {
 	if err := s.raftSvc.Barrier(30 * time.Second); err != nil {
 		s.logger.Warn("raft barrier timed out during startup, serving lookups anyway",
 			zap.Error(err))

@@ -29,9 +29,9 @@ type encodedMessage struct {
 type encodedPackage struct {
 	Source     pid.PID
 	Target     pid.PID
+	GlobalName string `codec:"gn,omitempty"`
 	Messages   []*encodedMessage
 	FenceToken uint64 `codec:"ft,omitempty"`
-	GlobalName string `codec:"gn,omitempty"`
 }
 
 type MessageCodec struct {

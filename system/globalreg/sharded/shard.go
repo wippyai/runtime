@@ -16,10 +16,10 @@ import (
 // Shard represents a single shard in the sharded registry.
 // Optimized for lock-free reads - writes are serialized through Apply.
 type Shard struct {
-	id        globalregapi.ShardID
 	fsm       *syspg.FSM
-	nameCount atomic.Int64 // Lock-free counter
 	logger    *zap.Logger
+	nameCount atomic.Int64
+	id        globalregapi.ShardID
 }
 
 // NewShard creates a new shard with the given ID and FSM.

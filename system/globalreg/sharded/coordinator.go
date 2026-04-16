@@ -27,11 +27,11 @@ const (
 // ShardCoordinator manages multiple shards with lock-free optimizations.
 // Uses sync.Map for shard storage and atomic operations for counters.
 type ShardCoordinator struct {
-	shards     sync.Map // Lock-free map[globalregapi.ShardID]*Shard
-	shardCount uint32   // Immutable after creation
-	hashSeed   uint32   // Immutable after creation
 	txnMgr     *TransactionManager
 	logger     *zap.Logger
+	shards     sync.Map
+	shardCount uint32
+	hashSeed   uint32
 }
 
 // Config holds sharded registry configuration.
@@ -86,7 +86,7 @@ func NewShardCoordinator(logger *zap.Logger, config *Config) (*ShardCoordinator,
 }
 
 // Register associates a name with a PID in the appropriate shard.
-func (sc *ShardCoordinator) Register(ctx context.Context, name string, p pid.PID) (pid.PID, error) {
+func (sc *ShardCoordinator) Register(_ context.Context, name string, p pid.PID) (pid.PID, error) {
 	shardID := sc.getShardID(name)
 	shard, ok := sc.getShard(shardID)
 	if !ok {
@@ -142,7 +142,7 @@ func (sc *ShardCoordinator) RegisterMulti(ctx context.Context, names []string, p
 }
 
 // registerSingleShard registers multiple names within one shard.
-func (sc *ShardCoordinator) registerSingleShard(ctx context.Context, names []string, p pid.PID) error {
+func (sc *ShardCoordinator) registerSingleShard(_ context.Context, names []string, p pid.PID) error {
 	shardID := sc.getShardID(names[0])
 	shard, ok := sc.getShard(shardID)
 	if !ok {
@@ -177,7 +177,7 @@ func (sc *ShardCoordinator) registerSingleShard(ctx context.Context, names []str
 }
 
 // Unregister removes a name from its shard.
-func (sc *ShardCoordinator) Unregister(ctx context.Context, name string) (bool, error) {
+func (sc *ShardCoordinator) Unregister(_ context.Context, name string) (bool, error) {
 	shardID := sc.getShardID(name)
 	shard, ok := sc.getShard(shardID)
 	if !ok {
@@ -223,7 +223,7 @@ func (sc *ShardCoordinator) UnregisterMulti(ctx context.Context, names []string)
 }
 
 // unregisterSingleShard unregisters multiple names within one shard.
-func (sc *ShardCoordinator) unregisterSingleShard(ctx context.Context, names []string) error {
+func (sc *ShardCoordinator) unregisterSingleShard(_ context.Context, names []string) error {
 	shardID := sc.getShardID(names[0])
 	shard, ok := sc.getShard(shardID)
 	if !ok {
@@ -278,7 +278,7 @@ func (sc *ShardCoordinator) LookupByPID(p pid.PID) []string {
 }
 
 // Remove removes all names for a PID across all shards.
-func (sc *ShardCoordinator) Remove(ctx context.Context, p pid.PID) error {
+func (sc *ShardCoordinator) Remove(_ context.Context, p pid.PID) error {
 	var errs []error
 	var mu sync.Mutex
 

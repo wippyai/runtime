@@ -25,6 +25,29 @@ type Config struct {
 	// Lifecycle configures supervisor lifecycle management.
 	Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
 
+	// ProtocolTimeout is the timeout for sync/discover operations with remote nodes.
+	// Operations exceeding this timeout are cancelled. Zero means no timeout.
+	// Default: 5s.
+	ProtocolTimeout time.Duration `json:"protocol_timeout"`
+
+	// BroadcastTimeout is the timeout for sending broadcast messages to members.
+	// Zero means no timeout (use circuit breaker only).
+	// Default: 5s.
+	BroadcastTimeout time.Duration `json:"broadcast_timeout"`
+
+	// CircuitBreakerResetTime is the duration after which a circuit breaker
+	// will transition from open to half-open, allowing test requests.
+	// Default: 10s.
+	CircuitBreakerResetTime time.Duration `json:"circuit_breaker_reset_time"`
+
+	// RetryBaseDelay is the initial delay between retries (exponential backoff).
+	// Default: 100ms.
+	RetryBaseDelay time.Duration `json:"retry_base_delay"`
+
+	// RetryMaxDelay is the maximum delay between retries.
+	// Default: 1s.
+	RetryMaxDelay time.Duration `json:"retry_max_delay"`
+
 	// ActionQueueSize is the capacity of the internal event loop action channel.
 	// Higher values allow more operations to be buffered before blocking.
 	// Default: 256.
@@ -52,36 +75,13 @@ type Config struct {
 	// Default: 0 (unlimited).
 	MaxMembersPerGroup int `json:"max_members_per_group"`
 
-	// ProtocolTimeout is the timeout for sync/discover operations with remote nodes.
-	// Operations exceeding this timeout are cancelled. Zero means no timeout.
-	// Default: 5s.
-	ProtocolTimeout time.Duration `json:"protocol_timeout"`
-
-	// BroadcastTimeout is the timeout for sending broadcast messages to members.
-	// Zero means no timeout (use circuit breaker only).
-	// Default: 5s.
-	BroadcastTimeout time.Duration `json:"broadcast_timeout"`
-
 	// CircuitBreakerFailures is the number of consecutive send failures before
 	// opening the circuit breaker for a node. Default: 3.
 	CircuitBreakerFailures int `json:"circuit_breaker_failures"`
 
-	// CircuitBreakerResetTime is the duration after which a circuit breaker
-	// will transition from open to half-open, allowing test requests.
-	// Default: 10s.
-	CircuitBreakerResetTime time.Duration `json:"circuit_breaker_reset_time"`
-
 	// MaxRetries is the maximum number of retry attempts for failed broadcasts.
 	// Zero disables retries. Default: 3.
 	MaxRetries int `json:"max_retries"`
-
-	// RetryBaseDelay is the initial delay between retries (exponential backoff).
-	// Default: 100ms.
-	RetryBaseDelay time.Duration `json:"retry_base_delay"`
-
-	// RetryMaxDelay is the maximum delay between retries.
-	// Default: 1s.
-	RetryMaxDelay time.Duration `json:"retry_max_delay"`
 }
 
 // InitDefaults initializes the configuration with sensible defaults.

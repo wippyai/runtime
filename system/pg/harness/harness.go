@@ -36,11 +36,11 @@ type TestNode struct {
 
 // TestCluster represents a multi-node PG test cluster.
 type TestCluster struct {
+	context.Context
 	Nodes  map[string]*TestNode
 	Logger *zap.Logger
-	mu     sync.RWMutex
-	context.Context
 	cancel context.CancelFunc
+	mu     sync.RWMutex
 }
 
 // SyncedCluster is a TestCluster with cross-node sync via a shared event bus
@@ -378,11 +378,11 @@ func (m *mockRouter) Send(pkg *relay.Package) error {
 // ForwardingRouter is a relay router that forwards protocol messages to all
 // peer nodes in a SyncedCluster, simulating real cluster gossip/sync.
 type ForwardingRouter struct {
+	sendErr     error
 	cluster     *SyncedCluster
+	localNodeID string
 	sends       []*relay.Package
 	mu          sync.Mutex
-	localNodeID string
-	sendErr     error
 }
 
 func newForwardingRouter(localNodeID string, cluster *SyncedCluster) *ForwardingRouter {

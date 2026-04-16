@@ -16,29 +16,29 @@ import (
 
 // retryEntry represents a single retry attempt for a broadcast message.
 type retryEntry struct {
-	id         uint64
+	nextTry    time.Time
 	targetNode pid.NodeID
 	group      string
-	pids       []pid.PID
 	topic      string
+	pids       []pid.PID
 	payloads   payload.Payloads
+	id         uint64
 	attempts   int
-	nextTry    time.Time
 }
 
 // retryQueue manages failed broadcasts with exponential backoff retry.
 type retryQueue struct {
+	service    *Service
+	logger     *zap.Logger
+	ticker     *time.Ticker
+	stopCh     chan struct{}
 	entries    []*retryEntry
+	wg         sync.WaitGroup
 	sequenceID uint64
 	maxRetries int
 	baseDelay  time.Duration
 	maxDelay   time.Duration
-	service    *Service
-	logger     *zap.Logger
 	mu         sync.Mutex
-	ticker     *time.Ticker
-	stopCh     chan struct{}
-	wg         sync.WaitGroup
 	stopped    bool
 }
 
