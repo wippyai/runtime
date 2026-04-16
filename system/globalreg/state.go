@@ -72,6 +72,35 @@ func (s *shardedState) Lookup(name string) (pid.PID, bool) {
 	return e.PID, true
 }
 
+// LookupWithFence returns the PID and fencing token (Raft log index) for a name.
+// The fencing token should be attached to messages so receivers can reject
+// stale references after a name has been re-registered.
+func (s *shardedState) LookupWithFence(name string) (pid.PID, uint64, bool) {
+	sh := &s.shards[shardFor(name)]
+	sh.mu.RLock()
+	e, ok := sh.names[name]
+	sh.mu.RUnlock()
+	if !ok {
+		return pid.PID{}, 0, false
+	}
+	return e.PID, e.AppliedAt, true
+}
+
+// ValidateFence checks whether a fencing token is still valid for a name.
+// Returns true if the token matches or exceeds the current registration's
+// AppliedAt index (i.e., the caller's view is not stale).
+func (s *shardedState) ValidateFence(name string, token uint64) bool {
+	sh := &s.shards[shardFor(name)]
+	sh.mu.RLock()
+	e, ok := sh.names[name]
+	sh.mu.RUnlock()
+	if !ok {
+		// Name no longer exists — the caller's reference is stale.
+		return false
+	}
+	return token >= e.AppliedAt
+}
+
 // LookupByPID returns all names registered to a PID.
 // Since pid → names is stored per-shard in pidNames, we must scan
 // all shards (the PID may have names hashing to different shards).

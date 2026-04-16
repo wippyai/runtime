@@ -5,6 +5,7 @@ package relay
 import (
 	"sync"
 
+	"github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/pid"
 	api "github.com/wippyai/runtime/api/relay"
 )
@@ -14,8 +15,10 @@ import (
 type Router struct {
 	localNode   api.Node
 	internode   api.Receiver
+	globalReg   globalreg.Registry
 	peers       sync.Map // NodeID -> Receiver
 	internodeMu sync.RWMutex
+	globalRegMu sync.RWMutex
 }
 
 // NewRouter creates a new router.
@@ -60,11 +63,33 @@ func (r *Router) SetInternode(receiver api.Receiver) {
 	r.internodeMu.Unlock()
 }
 
+// SetGlobalRegistry sets the global registry used for fence token validation.
+// Called by the Raft component after boot.
+func (r *Router) SetGlobalRegistry(reg globalreg.Registry) {
+	r.globalRegMu.Lock()
+	r.globalReg = reg
+	r.globalRegMu.Unlock()
+}
+
 // Send routes the package to the appropriate destination.
 // Routing priority: local node → peer nodes → internode fallback.
+// If the package carries a fence token, the receiver's FSM validates it
+// before routing — rejecting stale references to re-registered names.
 func (r *Router) Send(pkg *api.Package) error {
 	if pkg == nil {
 		return NewNilPackageError()
+	}
+
+	// Validate fence token if present.
+	if pkg.FenceToken > 0 && pkg.GlobalName != "" {
+		r.globalRegMu.RLock()
+		gr := r.globalReg
+		r.globalRegMu.RUnlock()
+		if gr != nil {
+			if err := gr.ValidateFence(pkg.GlobalName, pkg.FenceToken); err != nil {
+				return err
+			}
+		}
 	}
 
 	// Route to local node if target node is empty or matches the local node's ID.

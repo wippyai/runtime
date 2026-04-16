@@ -27,9 +27,11 @@ type encodedMessage struct {
 }
 
 type encodedPackage struct {
-	Source   pid.PID
-	Target   pid.PID
-	Messages []*encodedMessage
+	Source     pid.PID
+	Target     pid.PID
+	Messages   []*encodedMessage
+	FenceToken uint64 `codec:"ft,omitempty"`
+	GlobalName string `codec:"gn,omitempty"`
 }
 
 type MessageCodec struct {
@@ -75,6 +77,8 @@ func NewMessageCodec(transcoder payload.Transcoder) *MessageCodec {
 func (c *MessageCodec) resetEncodedPackage(p *encodedPackage) {
 	p.Source = pid.PID{}
 	p.Target = pid.PID{}
+	p.FenceToken = 0
+	p.GlobalName = ""
 
 	for i := range p.Messages {
 		p.Messages[i] = nil
@@ -91,6 +95,8 @@ func (c *MessageCodec) Encode(pkg *relay.Package) ([]byte, error) {
 
 	encPkg.Source = pkg.Source
 	encPkg.Target = pkg.Target
+	encPkg.FenceToken = pkg.FenceToken
+	encPkg.GlobalName = pkg.GlobalName
 
 	if cap(encPkg.Messages) < len(pkg.Messages) {
 		encPkg.Messages = make([]*encodedMessage, len(pkg.Messages))
@@ -147,6 +153,8 @@ func (c *MessageCodec) Decode(data []byte) (*relay.Package, error) {
 	finalPkg := relay.AcquirePackage()
 	finalPkg.Source = encPkg.Source
 	finalPkg.Target = encPkg.Target
+	finalPkg.FenceToken = encPkg.FenceToken
+	finalPkg.GlobalName = encPkg.GlobalName
 
 	// Reuse existing Messages slice capacity if possible
 	if cap(finalPkg.Messages) < len(encPkg.Messages) {

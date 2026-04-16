@@ -17,4 +17,13 @@ var (
 	// ErrNotAvailable is returned when the global registry is not available
 	// (e.g., no Raft leader, or registry not initialized).
 	ErrNotAvailable = apierror.New(apierror.Unavailable, "global registry not available").WithRetryable(apierror.True)
+
+	// ErrStaleFence is returned when a fencing token is older than the current
+	// registration. This means the name was re-registered after the caller
+	// looked it up — the caller should re-lookup and retry.
+	ErrStaleFence = apierror.New(apierror.Conflict, "stale fencing token: name has been re-registered").WithRetryable(apierror.True)
+
+	// ErrNotReady is returned when the node has not yet caught up with the
+	// Raft log and cannot serve consistent lookups.
+	ErrNotReady = apierror.New(apierror.Unavailable, "global registry not ready: node is catching up").WithRetryable(apierror.True)
 )

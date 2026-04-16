@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/go-msgpack/v2/codec"
 	hraft "github.com/hashicorp/raft"
 
+	"github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/pid"
 )
 
@@ -19,12 +20,20 @@ import (
 // All Apply calls are serialized by Raft, so no additional locking is
 // needed for write operations beyond what the shardedState already provides.
 type FSM struct {
-	state *shardedState
+	state   *shardedState
+	resolve globalreg.ResolveFunc
 }
 
 // NewFSM creates a new FSM with an empty sharded state.
-func NewFSM() *FSM {
-	return &FSM{state: newShardedState()}
+// An optional ResolveFunc can be provided for conflict resolution when a name
+// is already registered to a different PID (e.g., after partition heal).
+// If nil, DefaultResolve (first-write-wins) is used.
+func NewFSM(resolve ...globalreg.ResolveFunc) *FSM {
+	f := &FSM{state: newShardedState(), resolve: globalreg.DefaultResolve}
+	if len(resolve) > 0 && resolve[0] != nil {
+		f.resolve = resolve[0]
+	}
+	return f
 }
 
 // State returns the underlying sharded state for direct read access.
@@ -62,7 +71,18 @@ func (f *FSM) applyRegister(cmd *Command, index uint64) any {
 	}
 	existing, ok := f.state.register(cmd.Name, cmd.PID, nodeID, index)
 	if !ok {
-		// Name taken by a different PID.
+		// Name taken by a different PID. Invoke conflict resolution.
+		winner := f.resolve(cmd.Name, existing, cmd.PID)
+		if winner == cmd.PID {
+			// Resolve chose the incoming PID — force re-register.
+			f.state.unregister(cmd.Name)
+			f.state.register(cmd.Name, cmd.PID, nodeID, index)
+			return &RegisterResult{
+				PID:         cmd.PID,
+				ResolvedPID: existing, // the loser
+			}
+		}
+		// Resolve kept the existing owner.
 		return &RegisterResult{
 			ExistingPID: existing,
 			Err:         fmt.Errorf("global name %q already registered to %s", cmd.Name, existing.String()),
@@ -91,6 +111,7 @@ type RegisterResult struct {
 	Err         error   // Non-nil if registration failed.
 	PID         pid.PID // The PID that owns the name.
 	ExistingPID pid.PID // Set only when registration fails (name taken).
+	ResolvedPID pid.PID // Set when conflict resolution replaced the previous owner.
 }
 
 // UnregisterResult is returned by Apply for CmdUnregister.

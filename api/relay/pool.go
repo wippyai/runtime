@@ -54,6 +54,8 @@ func ReleasePackage(p *Package) {
 	}
 	p.Source = pid.PID{}
 	p.Target = pid.PID{}
+	p.FenceToken = 0
+	p.GlobalName = ""
 	p.Messages = p.Messages[:0]
 	packagePool.Put(p)
 }

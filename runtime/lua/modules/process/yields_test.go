@@ -249,3 +249,17 @@ func TestYieldCmdID(t *testing.T) {
 		})
 	}
 }
+
+func TestSendYield_Release_ResetsFenceFields(t *testing.T) {
+	y := AcquireSendYield()
+	y.From = pid.PID{Host: "test", UniqID: "from"}
+	y.FenceToken = 99
+	y.GlobalName = "my-svc"
+	y.Release()
+
+	y2 := AcquireSendYield()
+	assert.Equal(t, uint64(0), y2.FenceToken, "FenceToken should be reset after release")
+	assert.Equal(t, "", y2.GlobalName, "GlobalName should be reset after release")
+	assert.Equal(t, pid.PID{}, y2.From, "From should be reset after release")
+	y2.Release()
+}

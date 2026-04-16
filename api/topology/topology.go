@@ -6,6 +6,7 @@ package topology
 import (
 	"time"
 
+	"github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
@@ -82,9 +83,18 @@ type (
 
 	// GlobalRegistry provides cluster-wide name registration via Raft consensus.
 	// Reads are served from the local replica; writes go through Raft.
+	// Fencing tokens protect against stale references.
 	GlobalRegistry interface {
 		// Lookup reads from the local Raft FSM replica.
 		Lookup(name string) (pid.PID, bool)
+
+		// LookupWithFence reads from the local replica and returns the fencing
+		// token (Raft log index). Callers should attach the token to messages
+		// so receivers can reject stale references after re-registration.
+		LookupWithFence(name string) globalreg.LookupResult
+
+		// ValidateFence checks whether a fencing token is still valid for a name.
+		ValidateFence(name string, token uint64) error
 	}
 
 	// Monitor defines the interface for process monitoring

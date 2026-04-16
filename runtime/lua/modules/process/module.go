@@ -5,6 +5,7 @@ package process
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	lua "github.com/wippyai/go-lua"
@@ -17,6 +18,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/api/topology"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
@@ -29,6 +31,46 @@ var (
 	moduleTable *lua.LTable
 	yieldTypes  []luaapi.YieldType
 )
+
+// fenceEntry stores a cached fence token for a PID that was resolved via global registry.
+type fenceEntry struct {
+	globalName string
+	fenceToken uint64
+}
+
+// fenceCaches stores per-LState fence caches. Entries are cleaned up via
+// resource.Store when the process ends (see getFenceCache).
+var fenceCaches sync.Map // *lua.LState -> map[string]fenceEntry
+
+// getFenceCache returns the fence cache for the given LState, creating it if needed.
+// When a new cache is created, registers a cleanup callback via resource.Store
+// to ensure the entry is removed when the process ends, preventing memory leaks.
+func getFenceCache(l *lua.LState) map[string]fenceEntry {
+	if v, ok := fenceCaches.Load(l); ok {
+		return v.(map[string]fenceEntry)
+	}
+	m := make(map[string]fenceEntry)
+	fenceCaches.Store(l, m)
+
+	// Register cleanup via resource.Store (runs when process ends)
+	ctx := l.Context()
+	if ctx != nil {
+		if store := resource.GetStore(ctx); store != nil {
+			store.AddCleanup(func() error {
+				CleanupFenceCache(l)
+				return nil
+			})
+		}
+	}
+
+	return m
+}
+
+// CleanupFenceCache removes the fence cache for a completed LState.
+// Should be called when the process terminates.
+func CleanupFenceCache(l *lua.LState) {
+	fenceCaches.Delete(l)
+}
 
 func newProcessError(l *lua.LState, kind lua.Kind, message string) *lua.Error {
 	return lua.NewLuaError(l, message).
@@ -89,9 +131,11 @@ func init() {
 	eventsTbl.Immutable = true
 	moduleTable.RawSetString("event", eventsTbl)
 
-	reg := lua.CreateTable(0, 5)
+	reg := lua.CreateTable(0, 7)
 	reg.RawSetString("register", lua.LGoFunc(registryRegister))
 	reg.RawSetString("lookup", lua.LGoFunc(registryLookup))
+	reg.RawSetString("lookup_with_fence", lua.LGoFunc(registryLookupWithFence))
+	reg.RawSetString("validate_fence", lua.LGoFunc(registryValidateFence))
 	reg.RawSetString("unregister", lua.LGoFunc(registryUnregister))
 	reg.RawSetString("LOCAL", lua.LNumber(float64(topology.Local)))
 	reg.RawSetString("GLOBAL", lua.LNumber(float64(topology.Global)))
@@ -155,34 +199,67 @@ func getRegistry(l *lua.LState) (topology.PIDRegistry, bool) {
 	return reg, true
 }
 
-func resolvePID(l *lua.LState, pidOrName string, permission string, senderPID pidapi.PID) (pidapi.PID, error) {
+// fenceInfo holds fence token data resolved during PID lookup.
+type fenceInfo struct {
+	globalName string
+	fenceToken uint64
+}
+
+func resolvePID(l *lua.LState, pidOrName string, permission string, senderPID pidapi.PID) (pidapi.PID, *fenceInfo, error) {
 	secAttrs := map[string]any{"pid": senderPID.String()}
 
 	p, err := pidapi.ParsePID(pidOrName)
 	if err == nil {
 		if !security.IsAllowed(l.Context(), permission, p.String(), secAttrs) {
-			return pidapi.PID{}, runtimelua.NewNotAllowedError(
+			return pidapi.PID{}, nil, runtimelua.NewNotAllowedError(
 				strings.TrimPrefix(permission, "process."), pidOrName)
 		}
-		return p, nil
+		// Check fence cache for this raw PID.
+		cache := getFenceCache(l)
+		if entry, ok := cache[p.String()]; ok {
+			return p, &fenceInfo{fenceToken: entry.fenceToken, globalName: entry.globalName}, nil
+		}
+		return p, nil, nil
 	}
 
 	reg, ok := getRegistry(l)
 	if !ok {
-		return pidapi.PID{}, runtimelua.ErrCouldNotAccessRegistry
+		return pidapi.PID{}, nil, runtimelua.ErrCouldNotAccessRegistry
 	}
 
+	// Try global registry first for fence-aware lookup.
+	var fi *fenceInfo
+	globalReg := globalreg.GetRegistry(l.Context())
+	if globalReg != nil {
+		result := globalReg.LookupWithFence(pidOrName)
+		if result.Found {
+			p = result.PID
+			fi = &fenceInfo{fenceToken: result.FenceToken, globalName: pidOrName}
+			// Populate fence cache so future sends using the raw PID string
+			// will automatically carry the fence token.
+			cache := getFenceCache(l)
+			cache[p.String()] = fenceEntry{globalName: pidOrName, fenceToken: result.FenceToken}
+
+			if !security.IsAllowed(l.Context(), permission, p.String(), secAttrs) {
+				return pidapi.PID{}, nil, runtimelua.NewNotAllowedError(
+					strings.TrimPrefix(permission, "process."), pidOrName)
+			}
+			return p, fi, nil
+		}
+	}
+
+	// Fall back to PID registry (local + global transparent lookup).
 	p, found := reg.Lookup(pidOrName)
 	if !found {
-		return pidapi.PID{}, runtimelua.NewCouldNotResolveError(pidOrName)
+		return pidapi.PID{}, nil, runtimelua.NewCouldNotResolveError(pidOrName)
 	}
 
 	if !security.IsAllowed(l.Context(), permission, p.String(), secAttrs) {
-		return pidapi.PID{}, runtimelua.NewNotAllowedError(
+		return pidapi.PID{}, nil, runtimelua.NewNotAllowedError(
 			strings.TrimPrefix(permission, "process."), pidOrName)
 	}
 
-	return p, nil
+	return p, nil, nil
 }
 
 func createPayloadsFromArgs(l *lua.LState) payload.Payloads {
@@ -244,7 +321,7 @@ func send(l *lua.LState) int {
 		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "cannot send to @ topics"))
 	}
 
-	target, err := resolvePID(l, pidOrName, "process.send", self)
+	target, fi, err := resolvePID(l, pidOrName, "process.send", self)
 	if err != nil {
 		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
@@ -254,6 +331,10 @@ func send(l *lua.LState) int {
 	yield.To = target
 	yield.Topic = topic
 	yield.Payloads = createPayloadsFromArgs(l)
+	if fi != nil {
+		yield.FenceToken = fi.fenceToken
+		yield.GlobalName = fi.globalName
+	}
 
 	l.Push(yield)
 	return -1
@@ -435,7 +516,7 @@ func terminate(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	target, err := resolvePID(l, pidOrName, "process.terminate", self)
+	target, _, err := resolvePID(l, pidOrName, "process.terminate", self)
 	if err != nil {
 		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
@@ -459,7 +540,7 @@ func cancel(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	target, err := resolvePID(l, pidOrName, "process.cancel", self)
+	target, _, err := resolvePID(l, pidOrName, "process.cancel", self)
 	if err != nil {
 		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
@@ -561,7 +642,7 @@ func monitor(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	target, err := resolvePID(l, pidOrName, "process.monitor", self)
+	target, _, err := resolvePID(l, pidOrName, "process.monitor", self)
 	if err != nil {
 		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
@@ -586,7 +667,7 @@ func unmonitor(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	target, err := resolvePID(l, pidOrName, "process.unmonitor", self)
+	target, _, err := resolvePID(l, pidOrName, "process.unmonitor", self)
 	if err != nil {
 		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
@@ -611,7 +692,7 @@ func link(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	target, err := resolvePID(l, pidOrName, "process.link", self)
+	target, _, err := resolvePID(l, pidOrName, "process.link", self)
 	if err != nil {
 		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
@@ -636,7 +717,7 @@ func unlink(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	target, err := resolvePID(l, pidOrName, "process.unlink", self)
+	target, _, err := resolvePID(l, pidOrName, "process.unlink", self)
 	if err != nil {
 		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
@@ -736,6 +817,44 @@ func registryLookup(l *lua.LState) int {
 	}
 
 	l.Push(lua.LString(p.String()))
+	return 1
+}
+
+func registryLookupWithFence(l *lua.LState) int {
+	name := l.CheckString(1)
+
+	globalReg := globalreg.GetRegistry(l.Context())
+	if globalReg == nil {
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "global registry not available"))
+	}
+
+	result := globalReg.LookupWithFence(name)
+	if !result.Found {
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.NotFound, "name not registered"))
+	}
+
+	tbl := l.CreateTable(0, 2)
+	tbl.RawSetString("pid", lua.LString(result.PID.String()))
+	tbl.RawSetString("fence_token", lua.LNumber(float64(result.FenceToken)))
+
+	l.Push(tbl)
+	return 1
+}
+
+func registryValidateFence(l *lua.LState) int {
+	name := l.CheckString(1)
+	token := uint64(l.CheckNumber(2))
+
+	globalReg := globalreg.GetRegistry(l.Context())
+	if globalReg == nil {
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "global registry not available"))
+	}
+
+	if err := globalReg.ValidateFence(name, token); err != nil {
+		return pushProcessError(l, lua.LBool(false), wrapProcessError(l, err, "", lua.Conflict))
+	}
+
+	l.Push(lua.LTrue)
 	return 1
 }
 

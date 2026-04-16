@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/pid"
 	relayapi "github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/system/relay"
@@ -118,15 +119,169 @@ func TestRouter_Send(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, errToSend, err)
 	})
+}
 
-	t.Run("Propagate error from internode", func(t *testing.T) {
-		errToSend := errors.New("internode send failed")
-		errInternode := &mockReceiver{sendErr: errToSend}
-		router := relay.NewRouter(localNode, errInternode)
+// mockFenceValidator implements globalreg.Registry for router fence validation tests.
+// Only ValidateFence is used by the router; other methods panic if called.
+type mockFenceValidator struct {
+	validateErr   error
+	validateCalls int32
+}
 
-		err := router.Send(pkgToRemote)
+func (m *mockFenceValidator) Register(_ context.Context, _ string, p pid.PID) (pid.PID, error) {
+	panic("unexpected call")
+}
+func (m *mockFenceValidator) Unregister(_ context.Context, _ string) (bool, error) {
+	panic("unexpected call")
+}
+func (m *mockFenceValidator) Lookup(_ string) (pid.PID, bool) { panic("unexpected call") }
+func (m *mockFenceValidator) LookupWithFence(_ string) globalreg.LookupResult {
+	panic("unexpected call")
+}
+func (m *mockFenceValidator) LookupByPID(_ pid.PID) []string { panic("unexpected call") }
+func (m *mockFenceValidator) Remove(_ context.Context, _ pid.PID) error {
+	panic("unexpected call")
+}
+func (m *mockFenceValidator) RemoveNode(_ context.Context, _ pid.NodeID) error {
+	panic("unexpected call")
+}
+func (m *mockFenceValidator) ValidateFence(_ string, _ uint64) error {
+	atomic.AddInt32(&m.validateCalls, 1)
+	return m.validateErr
+}
+
+var _ globalreg.Registry = (*mockFenceValidator)(nil)
+
+func TestRouter_FenceValidation(t *testing.T) {
+	t.Run("Passes with valid token", func(t *testing.T) {
+		localNode := &mockNode{id: "local"}
+		router := relay.NewRouter(localNode, nil)
+		validator := &mockFenceValidator{validateErr: nil}
+		router.SetGlobalRegistry(validator)
+
+		pkg := &relayapi.Package{
+			Target:     pid.PID{Node: "local", Host: "h1"},
+			FenceToken: 42,
+			GlobalName: "my-service",
+		}
+		err := router.Send(pkg)
+		require.NoError(t, err)
+		assert.Equal(t, int32(1), atomic.LoadInt32(&validator.validateCalls))
+		assert.Equal(t, int32(1), atomic.LoadInt32(&localNode.sendCalled))
+	})
+
+	t.Run("Rejects stale fence", func(t *testing.T) {
+		localNode := &mockNode{id: "local"}
+		router := relay.NewRouter(localNode, nil)
+		validator := &mockFenceValidator{validateErr: globalreg.ErrStaleFence}
+		router.SetGlobalRegistry(validator)
+
+		pkg := &relayapi.Package{
+			Target:     pid.PID{Node: "local", Host: "h1"},
+			FenceToken: 10,
+			GlobalName: "my-service",
+		}
+		err := router.Send(pkg)
 		require.Error(t, err)
-		assert.Equal(t, errToSend, err)
+		assert.ErrorIs(t, err, globalreg.ErrStaleFence)
+		assert.Equal(t, int32(1), atomic.LoadInt32(&validator.validateCalls))
+		assert.Equal(t, int32(0), atomic.LoadInt32(&localNode.sendCalled), "should NOT route when fence is stale")
+	})
+
+	t.Run("Skipped when no token", func(t *testing.T) {
+		localNode := &mockNode{id: "local"}
+		router := relay.NewRouter(localNode, nil)
+		validator := &mockFenceValidator{}
+		router.SetGlobalRegistry(validator)
+
+		pkg := &relayapi.Package{
+			Target:     pid.PID{Node: "local", Host: "h1"},
+			FenceToken: 0,
+			GlobalName: "my-service",
+		}
+		err := router.Send(pkg)
+		require.NoError(t, err)
+		assert.Equal(t, int32(0), atomic.LoadInt32(&validator.validateCalls), "should NOT validate when token is 0")
+		assert.Equal(t, int32(1), atomic.LoadInt32(&localNode.sendCalled))
+	})
+
+	t.Run("Skipped when no global name", func(t *testing.T) {
+		localNode := &mockNode{id: "local"}
+		router := relay.NewRouter(localNode, nil)
+		validator := &mockFenceValidator{}
+		router.SetGlobalRegistry(validator)
+
+		pkg := &relayapi.Package{
+			Target:     pid.PID{Node: "local", Host: "h1"},
+			FenceToken: 42,
+			GlobalName: "",
+		}
+		err := router.Send(pkg)
+		require.NoError(t, err)
+		assert.Equal(t, int32(0), atomic.LoadInt32(&validator.validateCalls), "should NOT validate when global name is empty")
+		assert.Equal(t, int32(1), atomic.LoadInt32(&localNode.sendCalled))
+	})
+
+	t.Run("Skipped when no global registry set", func(t *testing.T) {
+		localNode := &mockNode{id: "local"}
+		router := relay.NewRouter(localNode, nil)
+		// Do NOT call SetGlobalRegistry
+
+		pkg := &relayapi.Package{
+			Target:     pid.PID{Node: "local", Host: "h1"},
+			FenceToken: 42,
+			GlobalName: "my-service",
+		}
+		err := router.Send(pkg)
+		require.NoError(t, err)
+		assert.Equal(t, int32(1), atomic.LoadInt32(&localNode.sendCalled), "should route normally when no registry is set")
+	})
+
+	t.Run("Applies to remote routing", func(t *testing.T) {
+		localNode := &mockNode{id: "local"}
+		internode := &mockReceiver{}
+		router := relay.NewRouter(localNode, internode)
+		validator := &mockFenceValidator{validateErr: globalreg.ErrStaleFence}
+		router.SetGlobalRegistry(validator)
+
+		pkg := &relayapi.Package{
+			Target:     pid.PID{Node: "remote", Host: "h1"},
+			FenceToken: 10,
+			GlobalName: "my-service",
+		}
+		err := router.Send(pkg)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, globalreg.ErrStaleFence)
+		assert.Equal(t, int32(0), atomic.LoadInt32(&internode.sendCalled), "should NOT route remotely when fence is stale")
+	})
+
+	t.Run("SetGlobalRegistry replaces registry", func(t *testing.T) {
+		localNode := &mockNode{id: "local"}
+		router := relay.NewRouter(localNode, nil)
+
+		// First registry: allows everything
+		v1 := &mockFenceValidator{validateErr: nil}
+		router.SetGlobalRegistry(v1)
+
+		pkg := &relayapi.Package{
+			Target:     pid.PID{Node: "local", Host: "h1"},
+			FenceToken: 1,
+			GlobalName: "svc",
+		}
+		err := router.Send(pkg)
+		require.NoError(t, err)
+		assert.Equal(t, int32(1), atomic.LoadInt32(&v1.validateCalls))
+
+		// Second registry: rejects everything
+		v2 := &mockFenceValidator{validateErr: globalreg.ErrStaleFence}
+		router.SetGlobalRegistry(v2)
+
+		localNode.sendCalled = 0
+		err = router.Send(pkg)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, globalreg.ErrStaleFence)
+		assert.Equal(t, int32(1), atomic.LoadInt32(&v2.validateCalls))
+		assert.Equal(t, int32(0), atomic.LoadInt32(&localNode.sendCalled))
 	})
 }
 

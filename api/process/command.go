@@ -36,10 +36,12 @@ const (
 
 // SendCmd sends a message to a process.
 type SendCmd struct {
-	From     pid.PID
-	To       pid.PID
-	Topic    string
-	Payloads payload.Payloads
+	From       pid.PID
+	To         pid.PID
+	Topic      string
+	Payloads   payload.Payloads
+	FenceToken uint64 // Raft log index for global name fencing; 0 = unfenced.
+	GlobalName string // Global registry name used to resolve To; empty = not global.
 }
 
 var sendCmdPool = sync.Pool{New: func() any { return &SendCmd{} }}
@@ -52,6 +54,8 @@ func (c *SendCmd) Release() {
 	c.To = pid.PID{}
 	c.Topic = ""
 	c.Payloads = nil
+	c.FenceToken = 0
+	c.GlobalName = ""
 	sendCmdPool.Put(c)
 }
 

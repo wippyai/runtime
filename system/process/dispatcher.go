@@ -55,6 +55,8 @@ func (d *Dispatcher) handleSend(_ context.Context, cmd dispatcher.Command, tag u
 	msg.Topic = sendCmd.Topic
 	msg.Payloads = sendCmd.Payloads
 	pkg := relay.NewMessagePackage(sendCmd.From, sendCmd.To, msg)
+	pkg.FenceToken = sendCmd.FenceToken
+	pkg.GlobalName = sendCmd.GlobalName
 
 	err := d.router.Send(pkg)
 	if err != nil {

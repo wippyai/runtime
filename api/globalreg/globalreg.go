@@ -21,9 +21,33 @@ const (
 	Global RegistrationMode = 1
 )
 
+// LookupResult holds the result of a global name lookup, including the
+// fencing token (Raft log index) that was current when the name was registered.
+// The FenceToken must be attached to messages sent to the PID so that the
+// receiver can detect stale references after a name has been re-registered.
+type LookupResult struct {
+	PID        pid.PID
+	FenceToken uint64
+	Found      bool
+}
+
+// ResolveFunc is called when a name conflict is detected (e.g., after a
+// partition heals and two nodes registered the same name independently).
+// It receives the name, the existing owner, and the incoming claimant.
+// It must return the PID that should keep the name. The loser receives
+// a NameConflict notification via topology.
+type ResolveFunc func(name string, existing, incoming pid.PID) pid.PID
+
+// DefaultResolve keeps the existing registration (first-write-wins).
+func DefaultResolve(_ string, existing, _ pid.PID) pid.PID {
+	return existing
+}
+
 type (
 	// Registry provides cluster-wide name registration with strong consistency.
 	// All write operations go through Raft; reads are served from the local replica.
+	// Fencing tokens protect against stale references between Raft majority-commit
+	// and full replication to all followers.
 	Registry interface {
 		// Register associates a name with a PID globally. The operation is
 		// linearizable: it is guaranteed that at most one PID owns the name
@@ -40,8 +64,17 @@ type (
 		// May return slightly stale data (eventual consistency for reads).
 		Lookup(name string) (pid.PID, bool)
 
+		// LookupWithFence reads the name from the local Raft replica and
+		// returns the fencing token (Raft log index). Callers should attach
+		// this token to messages so receivers can reject stale references.
+		LookupWithFence(name string) LookupResult
+
 		// LookupByPID returns all global names registered to a PID.
 		LookupByPID(p pid.PID) []string
+
+		// ValidateFence checks whether a fencing token is still valid for a name.
+		// Returns ErrStaleFence if the name has been re-registered at a higher index.
+		ValidateFence(name string, token uint64) error
 
 		// Remove removes all global names for a PID. Goes through Raft.
 		Remove(ctx context.Context, p pid.PID) error

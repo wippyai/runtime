@@ -48,6 +48,7 @@ type Service struct {
 	localNode     pid.NodeID
 	mu            sync.Mutex
 	started       bool
+	ready         bool // true after initial Raft barrier completes
 }
 
 // forwardResponse wraps the result of a forwarded command.
@@ -96,6 +97,10 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 		return nil, fmt.Errorf("subscribe to cluster events: %w", err)
 	}
 	go s.handleClusterEvents(ctx, ch, subID)
+
+	// Wait for the Raft log to catch up before serving lookups.
+	// This ensures this node won't return stale data after a restart or rejoin.
+	go s.waitForReady(ctx)
 
 	statusCh := make(chan any, 1)
 	go func() {
@@ -222,6 +227,34 @@ func (s *Service) Unregister(_ context.Context, name string) (bool, error) {
 // Lookup reads from the local FSM replica. Lock-free, O(1).
 func (s *Service) Lookup(name string) (pid.PID, bool) {
 	return s.fsm.State().Lookup(name)
+}
+
+// LookupWithFence reads from the local FSM replica and returns the fencing
+// token (Raft log index). Returns ErrNotReady if the node hasn't caught up yet.
+func (s *Service) LookupWithFence(name string) globalreg.LookupResult {
+	s.mu.Lock()
+	ready := s.ready
+	s.mu.Unlock()
+
+	if !ready {
+		return globalreg.LookupResult{}
+	}
+
+	p, token, found := s.fsm.State().LookupWithFence(name)
+	return globalreg.LookupResult{
+		PID:        p,
+		FenceToken: token,
+		Found:      found,
+	}
+}
+
+// ValidateFence checks whether a fencing token is still valid for a name.
+// Returns ErrStaleFence if the name has been re-registered at a higher index.
+func (s *Service) ValidateFence(name string, token uint64) error {
+	if !s.fsm.State().ValidateFence(name, token) {
+		return globalreg.ErrStaleFence
+	}
+	return nil
 }
 
 // LookupByPID returns all global names for a PID.
@@ -444,6 +477,29 @@ func (s *Service) HandleProcessExit(p pid.PID) {
 	if err := s.Remove(context.Background(), p); err != nil {
 		s.logger.Error("failed to auto-remove process names", zap.String("pid", pidKey), zap.Error(err))
 	}
+}
+
+// waitForReady waits for the Raft log to catch up using a barrier,
+// then marks the service as ready to serve consistent lookups.
+func (s *Service) waitForReady(ctx context.Context) {
+	if err := s.raftSvc.Barrier(30 * time.Second); err != nil {
+		s.logger.Warn("raft barrier timed out during startup, serving lookups anyway",
+			zap.Error(err))
+	}
+
+	s.mu.Lock()
+	s.ready = true
+	s.mu.Unlock()
+
+	s.logger.Info("global registry ready (raft log caught up)")
+}
+
+// IsReady returns whether the service has caught up with the Raft log
+// and can serve consistent lookups.
+func (s *Service) IsReady() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ready
 }
 
 // Ensure Service implements the interfaces.

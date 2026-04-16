@@ -10,19 +10,16 @@ import (
 	hraft "github.com/hashicorp/raft"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	lua "github.com/wippyai/go-lua"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	globalregapi "github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/pid"
-	"github.com/wippyai/runtime/api/runtime"
-	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/system/globalreg"
 )
 
 // mockGlobalRegistry implements globalreg.Registry interface using FSM for testing.
 type mockGlobalRegistry struct {
-	fsm *globalreg.FSM
-	mu  sync.RWMutex
+	fsm      *globalreg.FSM
+	mu       sync.RWMutex
+	logIndex uint64 // monotonically increasing Raft log index
 }
 
 func newMockGlobalRegistry() *mockGlobalRegistry {
@@ -36,7 +33,8 @@ func (m *mockGlobalRegistry) applyCommand(cmd *globalreg.Command) any {
 	if err != nil {
 		return err
 	}
-	return m.fsm.Apply(&hraft.Log{Data: data, Index: 1})
+	m.logIndex++
+	return m.fsm.Apply(&hraft.Log{Data: data, Index: m.logIndex})
 }
 
 func (m *mockGlobalRegistry) Register(ctx context.Context, name string, p pid.PID) (pid.PID, error) {
@@ -47,7 +45,7 @@ func (m *mockGlobalRegistry) Register(ctx context.Context, name string, p pid.PI
 		Type:   globalreg.CmdRegister,
 		Name:   name,
 		PID:    p,
-		NodeID: string(p.Node),
+		NodeID: p.Node,
 	}
 	resp := m.applyCommand(cmd)
 	result, ok := resp.(*globalreg.RegisterResult)
@@ -79,6 +77,22 @@ func (m *mockGlobalRegistry) Lookup(name string) (pid.PID, bool) {
 	return m.fsm.State().Lookup(name)
 }
 
+func (m *mockGlobalRegistry) LookupWithFence(name string) globalregapi.LookupResult {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	p, token, found := m.fsm.State().LookupWithFence(name)
+	return globalregapi.LookupResult{PID: p, FenceToken: token, Found: found}
+}
+
+func (m *mockGlobalRegistry) ValidateFence(name string, token uint64) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if !m.fsm.State().ValidateFence(name, token) {
+		return globalregapi.ErrStaleFence
+	}
+	return nil
+}
+
 func (m *mockGlobalRegistry) LookupByPID(p pid.PID) []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -104,43 +118,6 @@ func (m *mockGlobalRegistry) RemoveNode(ctx context.Context, nodeID pid.NodeID) 
 }
 
 var _ globalregapi.Registry = (*mockGlobalRegistry)(nil)
-
-// bindProcessModule binds the process module to the Lua state.
-func bindProcessModule(l *lua.LState) {
-	// This is a placeholder - the actual binding would call the module's Bind function
-	// For now, we'll rely on the package's bindProcess function being accessible
-	// In a real scenario, we'd import and call the internal bind function
-}
-
-// setupLuaWithGlobalRegistry creates a Lua state with global registry support.
-func setupLuaWithGlobalRegistry(t *testing.T) (*lua.LState, *mockGlobalRegistry, context.Context) {
-	l := lua.NewState()
-
-	// Create mock global registry
-	globalReg := newMockGlobalRegistry()
-
-	// Setup context with PID
-	testPID := pid.PID{Host: "test", UniqID: "local-proc", Node: "node1"}
-	ctx := ctxapi.NewRootContext()
-	security.SetStrictMode(ctx, false)
-
-	// Store global registry in context
-	ac := ctxapi.AppFromContext(ctx)
-	if ac != nil {
-		ac.With("global_registry", globalReg)
-	}
-
-	ctx, fc := ctxapi.OpenFrameContext(ctx)
-	t.Cleanup(func() {
-		l.Close()
-		ctxapi.ReleaseFrameContext(fc)
-	})
-	require.NoError(t, runtime.SetFramePID(ctx, testPID))
-
-	l.SetContext(ctx)
-
-	return l, globalReg, ctx
-}
 
 // TestGlobalRegistry_Registration tests that the mock registry works correctly.
 func TestGlobalRegistry_Registration(t *testing.T) {

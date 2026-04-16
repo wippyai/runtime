@@ -18,6 +18,7 @@ import (
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/system/globalreg"
 	sysraft "github.com/wippyai/runtime/system/raft"
+	sysrelay "github.com/wippyai/runtime/system/relay"
 	"go.uber.org/zap"
 )
 
@@ -82,7 +83,7 @@ func Raft() boot.Component {
 			fsm := globalreg.NewFSM()
 
 			// Create the Raft node.
-			raftNode = sysraft.NewNode(node.ID(), fsm, rc, bus, logger.Named("node"))
+			raftNode = sysraft.NewNode(node.ID(), wrapFSM(fsm), rc, bus, logger.Named("node"))
 
 			// Create the global registry service wrapping Raft + FSM.
 			router := relay.GetRouter(ctx)
@@ -95,6 +96,12 @@ func Raft() boot.Component {
 				node.ID(),
 				logger.Named("globalreg"),
 			)
+
+			// Wire the global registry into the Router for receiver-side
+			// fence token validation on every message send.
+			if concreteRouter, ok := router.(*sysrelay.Router); ok {
+				concreteRouter.SetGlobalRegistry(globalRegSvc)
+			}
 
 			// Register the global registry as a relay host synchronously
 			// so exit events from topology can route to it.

@@ -5,6 +5,7 @@ package topology
 import (
 	"sync"
 
+	"github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
@@ -193,6 +194,19 @@ func (r *PIDRegistry) Lookup(name string) (pid.PID, bool) {
 	}
 
 	return pid.PID{}, false
+}
+
+// LookupWithFence looks up a global name and returns the fencing token.
+// Returns a zero LookupResult if the name is not found globally (local names
+// don't have fencing tokens).
+func (r *PIDRegistry) LookupWithFence(name string) globalreg.LookupResult {
+	if r.globalReg != nil {
+		result := r.globalReg.LookupWithFence(name)
+		if result.Found {
+			return result
+		}
+	}
+	return globalreg.LookupResult{}
 }
 
 func (r *PIDRegistry) Remove(p pid.PID) {
