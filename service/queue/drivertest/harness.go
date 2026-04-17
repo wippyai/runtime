@@ -38,8 +38,7 @@ type config struct {
 	// through a publish/consume round-trip.
 	preservesHeaders bool
 	// nackRedelivers indicates whether calling Nack on a delivery causes the
-	// message to be automatically redelivered. Drivers like Redis Streams do not
-	// redeliver on nack without an explicit XCLAIM/XAUTOCLAIM step.
+	// message to be automatically redelivered.
 	nackRedelivers bool
 	// getQueueInfoAccurate indicates whether GetQueueInfo returns accurate
 	// (non-approximate) message counts immediately after publish. Drivers like
@@ -47,8 +46,8 @@ type config struct {
 	getQueueInfoAccurate bool
 	// supportsReattach indicates whether a new consumer can reliably receive
 	// messages immediately after a previous consumer on the same queue is
-	// cancelled. Drivers with consumer-group semantics (Redis Streams, SQS)
-	// may have inherent startup latency that makes this unreliable.
+	// cancelled. Drivers with consumer-group semantics (SQS) may have
+	// inherent startup latency that makes this unreliable.
 	supportsReattach bool
 }
 
@@ -78,9 +77,7 @@ func WithPreservesHeaders(v bool) Option {
 }
 
 // WithNackRedelivers indicates whether calling Nack causes the driver to
-// automatically redeliver the message. Set to false for drivers like Redis
-// Streams where nacked messages stay in the pending entries list and require
-// explicit reclaim (XCLAIM/XAUTOCLAIM).
+// automatically redeliver the message.
 // Defaults to true.
 func WithNackRedelivers(v bool) Option {
 	return func(c *config) { c.nackRedelivers = v }
@@ -96,8 +93,8 @@ func WithGetQueueInfoAccurate(v bool) Option {
 
 // WithSupportsReattach indicates whether a new consumer can immediately
 // receive messages after the previous consumer on the same queue is cancelled.
-// Set to false for drivers with consumer-group semantics (Redis Streams, SQS)
-// where consumer startup latency makes this unreliable.
+// Set to false for drivers with consumer-group semantics (SQS) where
+// consumer startup latency makes this unreliable.
 // Defaults to true.
 func WithSupportsReattach(v bool) Option {
 	return func(c *config) { c.supportsReattach = v }
