@@ -167,6 +167,14 @@ func makeMethod(method string) lua.LGoFunc {
 			}
 		}
 
+		if opts.overlayNetwork != "" {
+			if !security.IsAllowed(ctx, "network.select", opts.overlayNetwork, nil) {
+				l.Push(lua.LNil)
+				l.Push(lua.NewLuaError(l, "not allowed: network "+opts.overlayNetwork).WithKind(lua.PermissionDenied).WithRetryable(false))
+				return 2
+			}
+		}
+
 		if !security.IsAllowed(ctx, "http_client.request", urlStr, nil) {
 			l.Push(lua.LNil)
 			l.Push(lua.NewLuaError(l, "not allowed: "+urlStr).WithKind(lua.PermissionDenied).WithRetryable(false))
@@ -224,6 +232,14 @@ func request(l *lua.LState) int {
 		if !security.IsAllowed(ctx, "http_client.insecure_tls", urlStr, nil) {
 			l.Push(lua.LNil)
 			l.Push(lua.NewLuaError(l, "not allowed: insecure TLS for "+urlStr).WithKind(lua.PermissionDenied).WithRetryable(false))
+			return 2
+		}
+	}
+
+	if opts.overlayNetwork != "" {
+		if !security.IsAllowed(ctx, "network.select", opts.overlayNetwork, nil) {
+			l.Push(lua.LNil)
+			l.Push(lua.NewLuaError(l, "not allowed: network "+opts.overlayNetwork).WithKind(lua.PermissionDenied).WithRetryable(false))
 			return 2
 		}
 	}
@@ -545,6 +561,13 @@ func requestBatch(l *lua.LState) int {
 			if opts.tls != nil && opts.tls.InsecureSkipVerify {
 				if !security.IsAllowed(ctx, "http_client.insecure_tls", urlStr, nil) {
 					parseErr = "not allowed: insecure TLS for " + urlStr
+					parseErrKind = lua.PermissionDenied
+					return
+				}
+			}
+			if opts.overlayNetwork != "" {
+				if !security.IsAllowed(ctx, "network.select", opts.overlayNetwork, nil) {
+					parseErr = "not allowed: network " + opts.overlayNetwork
 					parseErrKind = lua.PermissionDenied
 					return
 				}

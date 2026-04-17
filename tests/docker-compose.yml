@@ -167,6 +167,24 @@ services:
       retries: 12
       start_period: 30s
 
+  # Lightweight SOCKS5 proxy for fast overlay-network tests
+  socks5-proxy:
+    image: serjs/go-socks5-proxy:latest
+    container_name: socks5-proxy
+    environment:
+      REQUIRE_AUTH: "false"
+      PROXY_PORT: "1080"
+    ports:
+      - "1080:1080"       # SOCKS5 proxy
+    networks:
+      - overlay-network
+    healthcheck:
+      test: [ "CMD-SHELL", "nc -z localhost 1080 || exit 1" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+
   # I2P Router with SAM bridge for network overlay tests
   i2p:
     image: geti2p/i2p:latest
