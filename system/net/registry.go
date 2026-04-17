@@ -51,6 +51,38 @@ func (r *Registry) Register(id registry.ID, svc netapi.Service, kind registry.Ki
 	)
 }
 
+// Replace swaps the service registered under id with svc in a single
+// critical section, closing the previous service (if any). Concurrent
+// readers see either the old or the new service — never a missing one.
+// Used by the Manager on entry Update so hot-reload doesn't create a
+// visibility gap for in-flight overlay lookups.
+func (r *Registry) Replace(id registry.ID, svc netapi.Service, kind registry.Kind) {
+	r.mu.Lock()
+	old, had := r.services[id]
+	r.services[id] = &entry{service: svc, kind: kind}
+	r.mu.Unlock()
+
+	if had {
+		if closer, ok := old.service.(io.Closer); ok {
+			if err := closer.Close(); err != nil {
+				r.log.Warn("error closing previous network service on replace",
+					zap.String("id", id.String()),
+					zap.Error(err),
+				)
+			}
+		}
+		r.log.Info("network service replaced",
+			zap.String("id", id.String()),
+			zap.String("kind", kind),
+		)
+		return
+	}
+	r.log.Info("network service registered",
+		zap.String("id", id.String()),
+		zap.String("kind", kind),
+	)
+}
+
 // Unregister removes a network service from the registry, closing it if possible.
 func (r *Registry) Unregister(id registry.ID) {
 	r.mu.Lock()

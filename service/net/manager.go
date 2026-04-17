@@ -95,9 +95,28 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	return m.createAndRegister(ctx, entry)
 }
 
+// Update creates the replacement service first and only swaps it into the
+// registry if creation succeeds. On failure the previous service is left
+// running — hot-reload never tears the old one down just because the new
+// config was bad.
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	m.registry.Unregister(entry.ID)
-	return m.createAndRegister(ctx, entry)
+	driver, ok := m.drivers[entry.Kind]
+	if !ok {
+		return NewUnsupportedKindError(entry.Kind)
+	}
+
+	svc, err := driver.Create(ctx, entry, m.deps)
+	if err != nil {
+		m.log.Error("failed to create replacement network service",
+			zap.String("id", entry.ID.String()),
+			zap.String("kind", entry.Kind),
+			zap.Error(err),
+		)
+		return err
+	}
+
+	m.registry.Replace(entry.ID, svc, entry.Kind)
+	return nil
 }
 
 func (m *Manager) Delete(_ context.Context, entry registry.Entry) error {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	lua "github.com/wippyai/go-lua"
+	netapi "github.com/wippyai/runtime/api/net"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	httpapi "github.com/wippyai/runtime/api/service/http"
 	"github.com/wippyai/runtime/runtime/security"
@@ -21,6 +22,15 @@ func isPrivateIP(ip net.IP) bool {
 	}
 	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
 		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+}
+
+// hasOverlay reports whether the request will be routed through an overlay
+// network — either because the user set overlay_network explicitly, or
+// because a frame-level / app-wide default is present on the context. When
+// true, the private-IP check must skip local DNS resolution to avoid
+// leaking the target hostname to the system resolver.
+func hasOverlay(ctx context.Context, opts *requestOptions) bool {
+	return opts.overlayNetwork != "" || netapi.GetDefaultNetwork(ctx) != ""
 }
 
 func checkPrivateIP(ctx context.Context, urlStr string, hasOverlay bool) string {
@@ -165,7 +175,7 @@ func makeMethod(method string) lua.LGoFunc {
 
 		// Skip private IP check for unix sockets — hostname is irrelevant for local IPC
 		if opts.unixSocket == "" {
-			if errMsg := checkPrivateIP(ctx, urlStr, opts.overlayNetwork != ""); errMsg != "" {
+			if errMsg := checkPrivateIP(ctx, urlStr, hasOverlay(ctx, opts)); errMsg != "" {
 				l.Push(lua.LNil)
 				l.Push(lua.NewLuaError(l, errMsg).WithKind(lua.PermissionDenied).WithRetryable(false))
 				return 2
@@ -226,7 +236,7 @@ func request(l *lua.LState) int {
 
 	// Skip private IP check for unix sockets — hostname is irrelevant for local IPC
 	if opts.unixSocket == "" {
-		if errMsg := checkPrivateIP(ctx, urlStr, opts.overlayNetwork != ""); errMsg != "" {
+		if errMsg := checkPrivateIP(ctx, urlStr, hasOverlay(ctx, opts)); errMsg != "" {
 			l.Push(lua.LNil)
 			l.Push(lua.NewLuaError(l, errMsg).WithKind(lua.PermissionDenied).WithRetryable(false))
 			return 2
@@ -550,7 +560,7 @@ func requestBatch(l *lua.LState) int {
 
 		// Skip private IP check for unix sockets — hostname is irrelevant for local IPC
 		if opts.unixSocket == "" {
-			if errMsg := checkPrivateIP(ctx, urlStr, opts.overlayNetwork != ""); errMsg != "" {
+			if errMsg := checkPrivateIP(ctx, urlStr, hasOverlay(ctx, opts)); errMsg != "" {
 				parseErr = errMsg
 				parseErrKind = lua.PermissionDenied
 				return

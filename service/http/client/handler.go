@@ -48,6 +48,10 @@ type PoolConfig struct {
 	MaxIdleConns    int
 	MaxIdlePerHost  int
 	IdleConnTimeout time.Duration
+	// MaxClients caps the number of distinct pooled client entries. When
+	// the cap is exceeded the least-recently-used entry is evicted and its
+	// idle connections are closed. Zero means unbounded.
+	MaxClients int
 }
 
 // Dispatcher handles HTTP client commands.
@@ -63,7 +67,7 @@ func NewDispatcher(opts ...Option) *Dispatcher {
 	for _, opt := range opts {
 		opt(d)
 	}
-	if d.poolCfg.Timeout > 0 || d.poolCfg.MaxIdleConns > 0 {
+	if d.poolCfg.Timeout > 0 || d.poolCfg.MaxIdleConns > 0 || d.poolCfg.MaxClients > 0 {
 		d.pool = NewClientPoolWithConfig(d.poolCfg)
 	} else {
 		d.pool = NewClientPool()
@@ -252,7 +256,14 @@ func executeRequest(ctx context.Context, pool *Pool, networkReg netapi.NetworkRe
 	}
 
 	var client *gohttp.Client
-	if overlayID != "" && networkReg != nil {
+	if overlayID != "" {
+		// Refuse to silently fall back to clearnet when an overlay is asked
+		// for but the registry is missing — that would leak DNS and the
+		// target IP to the local network.
+		if networkReg == nil {
+			return httpapi.Response{Error: fmt.Sprintf("overlay network %q requested but network registry is not configured", overlayID)}
+		}
+
 		// SSRF protection: overlay dialers resolve DNS internally, so check
 		// the target URL against private IP ranges before handing off.
 		if err := checkOverlayPrivateIP(ctx, reqURL); err != nil {
@@ -264,7 +275,7 @@ func executeRequest(ctx context.Context, pool *Pool, networkReg netapi.NetworkRe
 		if netErr != nil {
 			return httpapi.Response{Error: fmt.Sprintf("overlay network %q: %v", overlayID, netErr)}
 		}
-		client = pool.GetClientWithDialer(req.Timeout, overlayID, netSvc.DialContext)
+		client = pool.GetClientWithDialer(req.Timeout, overlayID, netSvc)
 	} else if req.TLS != nil {
 		var tlsErr error
 		client, tlsErr = pool.GetClientWithTLS(req.Timeout, req.UnixSocket, req.TLS)

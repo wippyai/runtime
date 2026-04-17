@@ -228,7 +228,9 @@ func TestHandler_ClearnetWhenNoOverlay(t *testing.T) {
 }
 
 func TestHandler_OverlayWithNoRegistry(t *testing.T) {
-	// Dispatcher without network registry — overlay should be silently ignored
+	// Dispatcher without network registry — an explicit overlay request must
+	// fail rather than silently fall back to clearnet, which would leak DNS
+	// and the target IP to the local network.
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		w.WriteHeader(gohttp.StatusOK)
 		w.Write([]byte("no-registry"))
@@ -249,9 +251,9 @@ func TestHandler_OverlayWithNoRegistry(t *testing.T) {
 
 	select {
 	case resp := <-done:
-		// Without registry, the overlay network is silently skipped and clearnet is used
-		require.Empty(t, resp.Error)
-		assert.Equal(t, 200, resp.StatusCode)
+		require.NotEmpty(t, resp.Error, "overlay without registry must error, not fall back to clearnet")
+		assert.Contains(t, resp.Error, "network registry is not configured")
+		assert.Equal(t, 0, resp.StatusCode)
 	case <-time.After(5 * time.Second):
 		t.Fatal("timeout")
 	}

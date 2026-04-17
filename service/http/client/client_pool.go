@@ -3,6 +3,7 @@
 package client
 
 import (
+	"container/list"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -11,33 +12,55 @@ import (
 	"fmt"
 	"net"
 	gohttp "net/http"
+	"reflect"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	netapi "github.com/wippyai/runtime/api/net"
 	httpapi "github.com/wippyai/runtime/api/service/http"
 )
 
-// clientKey identifies a unique client configuration.
+// clientKey identifies a unique client configuration. networkIdentity is a
+// stable handle on the underlying overlay Service (its pointer address) so
+// a driver hot-swap produces a new cache entry instead of returning an old
+// client whose Transport still holds the closed service's DialContext.
 type clientKey struct {
-	unixSocket     string
-	tlsFingerprint string
-	networkID      string
-	timeout        time.Duration
+	unixSocket      string
+	tlsFingerprint  string
+	networkID       string
+	networkIdentity uintptr
+	timeout         time.Duration
 }
 
-// clientOnce ensures single initialization of a client.
+// clientOnce ensures single initialization of a client. client is stored via
+// an atomic pointer so concurrent evictors can safely inspect it without
+// participating in once.Do — an evictor that hits the race between insert
+// and init simply observes a nil pointer and skips cleanup (the stale
+// transport's idle conns will still be GC'd via IdleConnTimeout).
 type clientOnce struct {
-	client *gohttp.Client
+	client atomic.Pointer[gohttp.Client]
 	err    error
 	once   sync.Once
 }
 
-// Pool provides pooled HTTP clients with proper connection reuse.
-// Thread-safe, lock-free for hot path using sync.Map.
-// SSRF protection happens at runtime level via security policies.
+// lruEntry pairs a clientOnce with its cache key so eviction can remove it
+// from the index map without an extra lookup.
+type lruEntry struct {
+	co  *clientOnce
+	key clientKey
+}
+
+// Pool provides pooled HTTP clients with proper connection reuse. Entries are
+// held in an LRU list so a bounded cap can be enforced without leaking
+// transports over a long-running process. SSRF protection happens at runtime
+// level via security policies.
 type Pool struct {
 	defaultClient *gohttp.Client
-	clients       sync.Map
+	clients       map[clientKey]*list.Element
+	lru           *list.List
+	mu            sync.Mutex
+	maxClients    int
 }
 
 // Default transport settings
@@ -56,6 +79,8 @@ const (
 func NewClientPool() *Pool {
 	return &Pool{
 		defaultClient: createClient(defaultTimeout, "", defaultMaxIdleConns, defaultMaxIdlePerHost, defaultIdleConnTimeout),
+		clients:       make(map[clientKey]*list.Element),
+		lru:           list.New(),
 	}
 }
 
@@ -79,13 +104,86 @@ func NewClientPoolWithConfig(cfg PoolConfig) *Pool {
 	}
 	return &Pool{
 		defaultClient: createClient(timeout, "", maxIdle, maxPerHost, idleTimeout),
+		clients:       make(map[clientKey]*list.Element),
+		lru:           list.New(),
+		maxClients:    cfg.MaxClients,
+	}
+}
+
+// getOrCreate looks up or inserts the clientOnce for key. On a hit the entry
+// is moved to the front of the LRU. On a miss a new clientOnce is inserted
+// at the front and any over-cap entries are evicted from the back (closing
+// their idle connections). The returned clientOnce is not yet initialized —
+// callers run build under co.once.Do outside the pool lock. If
+// overlayNetworkID is non-empty, any stale entries for the same networkID
+// but a different identity are evicted first, all under one lock so a
+// concurrent caller with an even older identity can't evict the just-
+// inserted entry.
+func (p *Pool) getOrCreate(key clientKey, overlayNetworkID string) *clientOnce {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if overlayNetworkID != "" {
+		p.evictStaleOverlayLocked(overlayNetworkID, key.networkIdentity)
+	}
+
+	if el, ok := p.clients[key]; ok {
+		p.lru.MoveToFront(el)
+		return el.Value.(*lruEntry).co
+	}
+
+	co := &clientOnce{}
+	el := p.lru.PushFront(&lruEntry{key: key, co: co})
+	p.clients[key] = el
+
+	if p.maxClients > 0 {
+		for p.lru.Len() > p.maxClients {
+			back := p.lru.Back()
+			if back == nil {
+				break
+			}
+			// Avoid evicting the entry we just inserted — if the cap is
+			// tighter than 1 that's a misconfiguration; fall out of the
+			// loop rather than recreating the client on every call.
+			if back == el {
+				break
+			}
+			p.evictLocked(back)
+		}
+	}
+
+	return co
+}
+
+// evictLocked removes el from both the LRU list and the index map and closes
+// any idle connections the evicted client may be holding. The caller must
+// hold p.mu.
+func (p *Pool) evictLocked(el *list.Element) {
+	entry := el.Value.(*lruEntry)
+	p.lru.Remove(el)
+	delete(p.clients, entry.key)
+	closeIdle(entry.co)
+}
+
+// closeIdle closes idle connections on co's client transport if co has been
+// initialized. Safe to call on a never-initialized clientOnce and from any
+// goroutine — the atomic Load synchronizes with the Store inside once.Do.
+func closeIdle(co *clientOnce) {
+	if co == nil {
+		return
+	}
+	c := co.client.Load()
+	if c == nil {
+		return
+	}
+	if tr, ok := c.Transport.(*gohttp.Transport); ok {
+		tr.CloseIdleConnections()
 	}
 }
 
 // GetClient returns a pooled client for the given configuration.
 // Uses default client when possible to maximize connection reuse.
 func (p *Pool) GetClient(timeout time.Duration, unixSocket string) *gohttp.Client {
-	// Use default for standard cases (most common path)
 	if unixSocket == "" && (timeout <= 0 || timeout == defaultTimeout) {
 		return p.defaultClient
 	}
@@ -95,58 +193,66 @@ func (p *Pool) GetClient(timeout time.Duration, unixSocket string) *gohttp.Clien
 	}
 
 	key := clientKey{timeout: timeout, unixSocket: unixSocket}
-
-	// Fast path: client exists
-	if v, ok := p.clients.Load(key); ok {
-		co := v.(*clientOnce)
-		co.once.Do(func() {
-			co.client = createClient(timeout, unixSocket, defaultMaxIdleConns, defaultMaxIdlePerHost, defaultIdleConnTimeout)
-		})
-		return co.client
-	}
-
-	// Slow path: create new entry
-	co := &clientOnce{}
-	actual, loaded := p.clients.LoadOrStore(key, co)
-	if loaded {
-		co = actual.(*clientOnce)
-	}
-
+	co := p.getOrCreate(key, "")
 	co.once.Do(func() {
-		co.client = createClient(timeout, unixSocket, defaultMaxIdleConns, defaultMaxIdlePerHost, defaultIdleConnTimeout)
+		co.client.Store(createClient(timeout, unixSocket, defaultMaxIdleConns, defaultMaxIdlePerHost, defaultIdleConnTimeout))
 	})
-
-	return co.client
+	return co.client.Load()
 }
 
-// GetClientWithDialer returns a pooled client using a custom DialContext function.
-// The networkID is used as part of the cache key so each network gets its own transport pool.
-func (p *Pool) GetClientWithDialer(timeout time.Duration, networkID string, dialFn func(ctx context.Context, network, addr string) (net.Conn, error)) *gohttp.Client {
+// GetClientWithDialer returns a pooled client that dials through svc's
+// DialContext. The cache key includes the address of svc so a hot-swap of
+// the overlay network (Manager.Update) produces a new pool entry instead of
+// reusing a client whose Transport still references the closed service.
+// Stale entries for the same networkID (previous identity) are evicted on
+// the miss path, which keeps the cache bounded to one live client per
+// networkID after any number of hot-swaps.
+func (p *Pool) GetClientWithDialer(timeout time.Duration, networkID string, svc netapi.Service) *gohttp.Client {
 	if timeout <= 0 {
 		timeout = defaultTimeout
 	}
 
-	key := clientKey{timeout: timeout, networkID: networkID}
-
-	if v, ok := p.clients.Load(key); ok {
-		co := v.(*clientOnce)
-		co.once.Do(func() {
-			co.client = createClientWithDialer(timeout, dialFn)
-		})
-		return co.client
+	key := clientKey{
+		timeout:         timeout,
+		networkID:       networkID,
+		networkIdentity: serviceIdentity(svc),
 	}
 
-	co := &clientOnce{}
-	actual, loaded := p.clients.LoadOrStore(key, co)
-	if loaded {
-		co = actual.(*clientOnce)
-	}
-
+	co := p.getOrCreate(key, networkID)
 	co.once.Do(func() {
-		co.client = createClientWithDialer(timeout, dialFn)
+		co.client.Store(createClientWithDialer(timeout, svc.DialContext))
 	})
+	return co.client.Load()
+}
 
-	return co.client
+// evictStaleOverlayLocked removes pool entries that share networkID but
+// carry a different identity — proof that the overlay service was replaced
+// and the cached client's Transport still points at the closed instance.
+// The caller must hold p.mu.
+func (p *Pool) evictStaleOverlayLocked(networkID string, liveIdentity uintptr) {
+	for el := p.lru.Front(); el != nil; {
+		next := el.Next()
+		entry := el.Value.(*lruEntry)
+		if entry.key.networkID == networkID && entry.key.networkIdentity != liveIdentity {
+			p.evictLocked(el)
+		}
+		el = next
+	}
+}
+
+// serviceIdentity returns a stable handle on the concrete value behind a
+// netapi.Service interface — the address of the underlying struct. Two
+// different Service instances always get different identities, even if
+// they happen to be registered under the same overlay ID.
+func serviceIdentity(svc netapi.Service) uintptr {
+	if svc == nil {
+		return 0
+	}
+	v := reflect.ValueOf(svc)
+	if v.Kind() == reflect.Pointer {
+		return v.Pointer()
+	}
+	return 0
 }
 
 // GetClientWithTLS returns a pooled client configured with custom TLS settings.
@@ -164,40 +270,19 @@ func (p *Pool) GetClientWithTLS(timeout time.Duration, unixSocket string, cfg *h
 	fp := tlsFingerprint(cfg)
 	key := clientKey{timeout: timeout, unixSocket: unixSocket, tlsFingerprint: fp}
 
-	// Fast path: entry exists (once.Do handles init race)
-	if v, ok := p.clients.Load(key); ok {
-		co := v.(*clientOnce)
-		co.once.Do(func() {
-			tlsCfg, err := buildTLSConfig(cfg)
-			if err != nil {
-				co.err = err
-				return
-			}
-			co.client = createClientFromTLS(timeout, unixSocket, tlsCfg)
-		})
-		if co.err != nil {
-			return nil, co.err
-		}
-		return co.client, nil
-	}
-
-	// Slow path: validate PEM upfront, then cache
-	tlsCfg, err := buildTLSConfig(cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	co := &clientOnce{}
-	actual, loaded := p.clients.LoadOrStore(key, co)
-	if loaded {
-		co = actual.(*clientOnce)
-	}
-
+	co := p.getOrCreate(key, "")
 	co.once.Do(func() {
-		co.client = createClientFromTLS(timeout, unixSocket, tlsCfg)
+		tlsCfg, err := buildTLSConfig(cfg)
+		if err != nil {
+			co.err = err
+			return
+		}
+		co.client.Store(createClientFromTLS(timeout, unixSocket, tlsCfg))
 	})
-
-	return co.client, nil
+	if co.err != nil {
+		return nil, co.err
+	}
+	return co.client.Load(), nil
 }
 
 // buildTLSConfig constructs a *tls.Config from the per-request TLS configuration.
@@ -262,12 +347,9 @@ func createClientFromTLS(timeout time.Duration, unixSocket string, tlsCfg *tls.C
 
 // Size returns the number of pooled clients (for monitoring/testing).
 func (p *Pool) Size() int {
-	count := 0
-	p.clients.Range(func(_, _ any) bool {
-		count++
-		return true
-	})
-	return count
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.lru.Len()
 }
 
 // createClientWithDialer builds an HTTP client with a custom DialContext function.
