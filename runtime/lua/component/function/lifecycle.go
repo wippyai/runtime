@@ -88,13 +88,9 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 		return nil, runtimelua.NewPoolNotFoundError(task.ID.String())
 	}
 
-	// Resolve overlay network selection: options bag wins, then app default.
-	if networkID := netapi.ResolveOverlayID(ctx, task.Options); networkID != "" {
-		reg := netapi.GetNetworkRegistry(ctx)
-		if reg == nil || !reg.HasNetwork(registry.ParseID(networkID)) {
-			return nil, netapi.ErrNetworkNotFound
-		}
-		task.Context = append(task.Context, netapi.DefaultNetworkPair(networkID))
+	var err error
+	if task.Context, err = netapi.ApplyOverlayPair(ctx, task.Options, task.Context); err != nil {
+		return nil, err
 	}
 
 	if len(task.Context) > 0 {

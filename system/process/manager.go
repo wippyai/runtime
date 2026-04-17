@@ -9,7 +9,6 @@ import (
 	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/pid"
 	api "github.com/wippyai/runtime/api/process"
-	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
@@ -49,14 +48,9 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 		return pid.PID{}, NewInvalidHostError(start.HostID)
 	}
 
-	// Resolve overlay network selection: per-call/per-entry options bag
-	// wins; otherwise fall back to the app-level default from boot.
-	if networkID := netapi.ResolveOverlayID(ctx, start.Options); networkID != "" {
-		reg := netapi.GetNetworkRegistry(ctx)
-		if reg == nil || !reg.HasNetwork(registry.ParseID(networkID)) {
-			return pid.PID{}, netapi.ErrNetworkNotFound
-		}
-		start.Context = append(start.Context, netapi.DefaultNetworkPair(networkID))
+	var err error
+	if start.Context, err = netapi.ApplyOverlayPair(ctx, start.Options, start.Context); err != nil {
+		return pid.PID{}, err
 	}
 
 	m.logger.Debug("starting process",

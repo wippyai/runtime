@@ -7,6 +7,7 @@ import (
 
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/registry"
 )
 
 // defaultNetworkKey carries the selected overlay network ID on the
@@ -87,9 +88,8 @@ func AppDefaultNetwork(ctx context.Context) string {
 // ResolveOverlayID picks the overlay network ID to apply to a newly-spawned
 // task or process. Precedence: per-call/per-entry options bag ("network"
 // key) first, then the app-wide boot default, then empty ("clearnet").
-// Dispatchers call this and, when the result is non-empty, verify the ID
-// against the network registry before injecting DefaultNetworkPair into
-// the new frame.
+// Prefer ApplyOverlayPair for spawn sites — ResolveOverlayID is exported for
+// callers that need the raw ID.
 func ResolveOverlayID(ctx context.Context, options attrs.Attributes) string {
 	if options != nil {
 		if id := options.GetString(OptionKeyNetwork, ""); id != "" {
@@ -97,4 +97,22 @@ func ResolveOverlayID(ctx context.Context, options attrs.Attributes) string {
 		}
 	}
 	return AppDefaultNetwork(ctx)
+}
+
+// ApplyOverlayPair is the single entry point spawn sites use to decorate a
+// new task/process context with its overlay network selection. It resolves
+// the ID (per-call options, then app default), verifies the network is
+// registered, and appends DefaultNetworkPair to pairs. When no overlay is
+// selected the input is returned unchanged. Returns ErrNetworkNotFound when
+// a selector names an unregistered network.
+func ApplyOverlayPair(ctx context.Context, options attrs.Attributes, pairs []ctxapi.Pair) ([]ctxapi.Pair, error) {
+	networkID := ResolveOverlayID(ctx, options)
+	if networkID == "" {
+		return pairs, nil
+	}
+	reg := GetNetworkRegistry(ctx)
+	if reg == nil || !reg.HasNetwork(registry.ParseID(networkID)) {
+		return nil, ErrNetworkNotFound
+	}
+	return append(pairs, DefaultNetworkPair(networkID)), nil
 }
