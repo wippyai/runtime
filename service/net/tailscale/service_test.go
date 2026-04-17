@@ -28,11 +28,15 @@ type mockTsnetNode struct {
 	// Listen tracking
 	listenFunc func(network, address string) (net.Listener, error)
 
+	// ListenTLS tracking (Tailscale-issued LetsEncrypt auto-TLS)
+	listenTLSFunc func(network, address string) (net.Listener, error)
+
 	// Close tracking
 	closeFunc func() error
 
-	dialCalls   []dialCall
-	listenCalls []listenCall
+	dialCalls      []dialCall
+	listenCalls    []listenCall
+	listenTLSCalls []listenCall
 
 	mu          sync.Mutex
 	closeCalled atomic.Int32
@@ -74,6 +78,18 @@ func (m *mockTsnetNode) Listen(network, address string) (net.Listener, error) {
 		return fn(network, address)
 	}
 	return nil, fmt.Errorf("mock: no listen handler configured")
+}
+
+func (m *mockTsnetNode) ListenTLS(network, address string) (net.Listener, error) {
+	m.mu.Lock()
+	m.listenTLSCalls = append(m.listenTLSCalls, listenCall{Network: network, Address: address})
+	fn := m.listenTLSFunc
+	m.mu.Unlock()
+
+	if fn != nil {
+		return fn(network, address)
+	}
+	return nil, fmt.Errorf("mock: no listenTLS handler configured")
 }
 
 func (m *mockTsnetNode) Close() error {

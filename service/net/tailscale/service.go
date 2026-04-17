@@ -22,6 +22,7 @@ var _ netapi.Service = (*Service)(nil)
 type tsnetNode interface {
 	Dial(ctx context.Context, network, address string) (net.Conn, error)
 	Listen(network, address string) (net.Listener, error)
+	ListenTLS(network, address string) (net.Listener, error)
 	Close() error
 }
 
@@ -75,6 +76,14 @@ func (s *Service) DialContext(ctx context.Context, network, address string) (net
 func (s *Service) Listen(_ context.Context, network, address string) (net.Listener, error) {
 	return s.node.Listen(network, address)
 }
+
+// ListenTLS announces on the tailnet with tsnet-managed TLS, using a cert
+// issued for the tsnet node's MagicDNS name.
+func (s *Service) ListenTLS(_ context.Context, network, address string) (net.Listener, error) {
+	return s.node.ListenTLS(network, address)
+}
+
+var _ netapi.TLSListener = (*Service)(nil)
 
 func (s *Service) ListenPacket(_ context.Context, _, _ string) (net.PacketConn, error) {
 	return nil, netservice.NewUnsupportedOperationError("tailscale", "use Listen for TCP")
