@@ -22,6 +22,9 @@ var (
 	ErrMountPathCannotBeEmpty          = apierror.New(apierror.Invalid, "mount path cannot be empty").WithRetryable(apierror.False)
 	ErrServerAddressChangeWhileRunning = apierror.New(apierror.Conflict, "cannot change server address while running").WithRetryable(apierror.False)
 	ErrServerHostNotInitialized        = apierror.New(apierror.Internal, "server host not initialized").WithRetryable(apierror.False)
+	ErrNetworkRegistryNotAvailable     = apierror.New(apierror.Internal, "network registry not available in context").WithRetryable(apierror.False)
+	ErrClearnetAutoTLSUnsupported      = apierror.New(apierror.Invalid, "tls.mode=auto requires an overlay network driver").WithRetryable(apierror.False)
+	ErrTLSEnvRegistryUnavailable       = apierror.New(apierror.Internal, "env registry not available in context").WithRetryable(apierror.False)
 )
 
 func NewUnsupportedEntryKindError(kind string) apierror.Error {
@@ -196,6 +199,50 @@ func NewStartupCanceledError(err error) apierror.Error {
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
 		WithCause(err)
+}
+
+func NewNetworkResolveError(id string, err error) apierror.Error {
+	return apierror.New(apierror.NotFound, "overlay network not found: "+id).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"network": id, "cause": err.Error()})).
+		WithCause(err)
+}
+
+func NewNetworkBindDeniedError(id string) apierror.Error {
+	return apierror.New(apierror.PermissionDenied, "not allowed: bind on network "+id).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"network": id}))
+}
+
+func NewNetworkListenError(id string, err error) apierror.Error {
+	return apierror.New(apierror.Internal, "overlay listen failed: "+id).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"network": id, "cause": err.Error()})).
+		WithCause(err)
+}
+
+func NewNetworkAutoTLSUnsupportedError(id string) apierror.Error {
+	return apierror.New(apierror.Invalid, "network driver does not support auto TLS: "+id).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"network": id}))
+}
+
+func NewTLSLoadError(err error) apierror.Error {
+	return apierror.New(apierror.Invalid, "failed to load TLS cert/key").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
+}
+
+func NewTLSEnvResolveError(name string, err error) apierror.Error {
+	return apierror.New(apierror.Invalid, "failed to resolve TLS env variable: "+name).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"variable": name, "cause": err.Error()})).
+		WithCause(err)
+}
+
+func NewTLSCAParseError() apierror.Error {
+	return apierror.New(apierror.Invalid, "client_ca PEM contains no valid certificates").WithRetryable(apierror.False)
 }
 
 func NewRouteConflictsError(conflicts []string) apierror.Error {

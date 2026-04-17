@@ -10,6 +10,7 @@ import (
 	"time"
 
 	lua "github.com/wippyai/go-lua"
+	netapi "github.com/wippyai/runtime/api/net"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	httpapi "github.com/wippyai/runtime/api/service/http"
 	"github.com/wippyai/runtime/runtime/security"
@@ -23,7 +24,16 @@ func isPrivateIP(ip net.IP) bool {
 		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
 }
 
-func checkPrivateIP(ctx context.Context, urlStr string) string {
+// hasOverlay reports whether the request will be routed through an overlay
+// network — either because the user set overlay_network explicitly, or
+// because a frame-level / app-wide default is present on the context. When
+// true, the private-IP check must skip local DNS resolution to avoid
+// leaking the target hostname to the system resolver.
+func hasOverlay(ctx context.Context, opts *requestOptions) bool {
+	return opts.overlayNetwork != "" || netapi.GetDefaultNetwork(ctx) != ""
+}
+
+func checkPrivateIP(ctx context.Context, urlStr string, hasOverlay bool) string {
 	u, err := url.Parse(urlStr)
 	if err != nil {
 		return ""
@@ -40,6 +50,14 @@ func checkPrivateIP(ctx context.Context, urlStr string) string {
 				return "not allowed: private IP " + host
 			}
 		}
+		return ""
+	}
+
+	// When an overlay network is active (Tor, I2P, etc.), skip local DNS
+	// resolution. The overlay resolves DNS at the remote end; performing
+	// a local lookup would leak the target hostname to the system resolver,
+	// defeating the privacy guarantees of the overlay.
+	if hasOverlay {
 		return ""
 	}
 
@@ -149,6 +167,14 @@ func makeMethod(method string) lua.LGoFunc {
 			}
 		}
 
+		if opts.overlayNetwork != "" {
+			if !security.IsAllowed(ctx, "network.select", opts.overlayNetwork, nil) {
+				l.Push(lua.LNil)
+				l.Push(lua.NewLuaError(l, "not allowed: network "+opts.overlayNetwork).WithKind(lua.PermissionDenied).WithRetryable(false))
+				return 2
+			}
+		}
+
 		if !security.IsAllowed(ctx, "http_client.request", urlStr, nil) {
 			l.Push(lua.LNil)
 			l.Push(lua.NewLuaError(l, "not allowed: "+urlStr).WithKind(lua.PermissionDenied).WithRetryable(false))
@@ -157,7 +183,7 @@ func makeMethod(method string) lua.LGoFunc {
 
 		// Skip private IP check for unix sockets — hostname is irrelevant for local IPC
 		if opts.unixSocket == "" {
-			if errMsg := checkPrivateIP(ctx, urlStr); errMsg != "" {
+			if errMsg := checkPrivateIP(ctx, urlStr, hasOverlay(ctx, opts)); errMsg != "" {
 				l.Push(lua.LNil)
 				l.Push(lua.NewLuaError(l, errMsg).WithKind(lua.PermissionDenied).WithRetryable(false))
 				return 2
@@ -210,6 +236,14 @@ func request(l *lua.LState) int {
 		}
 	}
 
+	if opts.overlayNetwork != "" {
+		if !security.IsAllowed(ctx, "network.select", opts.overlayNetwork, nil) {
+			l.Push(lua.LNil)
+			l.Push(lua.NewLuaError(l, "not allowed: network "+opts.overlayNetwork).WithKind(lua.PermissionDenied).WithRetryable(false))
+			return 2
+		}
+	}
+
 	if !security.IsAllowed(ctx, "http_client.request", urlStr, nil) {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "not allowed: "+urlStr).WithKind(lua.PermissionDenied).WithRetryable(false))
@@ -218,7 +252,7 @@ func request(l *lua.LState) int {
 
 	// Skip private IP check for unix sockets — hostname is irrelevant for local IPC
 	if opts.unixSocket == "" {
-		if errMsg := checkPrivateIP(ctx, urlStr); errMsg != "" {
+		if errMsg := checkPrivateIP(ctx, urlStr, hasOverlay(ctx, opts)); errMsg != "" {
 			l.Push(lua.LNil)
 			l.Push(lua.NewLuaError(l, errMsg).WithKind(lua.PermissionDenied).WithRetryable(false))
 			return 2
@@ -252,6 +286,7 @@ func populateYield(yield *RequestYield, method, url string, opts *requestOptions
 	yield.Stream = opts.stream
 	yield.MaxResponseBody = opts.maxResponseBody
 	yield.TLS = opts.tls
+	yield.OverlayNetwork = opts.overlayNetwork
 
 	// Convert files
 	if len(opts.files) > 0 {
@@ -295,6 +330,7 @@ type requestOptions struct {
 	unixSocket      string
 	basicAuthUser   string
 	basicAuthPass   string
+	overlayNetwork  string
 	body            []byte
 	files           []fileUpload
 	timeout         time.Duration
@@ -432,6 +468,11 @@ func parseOptions(l *lua.LState, idx int) *requestOptions {
 		opts.tls = parseTLSConfig(tlsVal.(*lua.LTable))
 	}
 
+	// Overlay network
+	if overlay := tbl.RawGetString("overlay_network"); overlay.Type() == lua.LTString {
+		opts.overlayNetwork = overlay.String()
+	}
+
 	return opts
 }
 
@@ -524,6 +565,13 @@ func requestBatch(l *lua.LState) int {
 					return
 				}
 			}
+			if opts.overlayNetwork != "" {
+				if !security.IsAllowed(ctx, "network.select", opts.overlayNetwork, nil) {
+					parseErr = "not allowed: network " + opts.overlayNetwork
+					parseErrKind = lua.PermissionDenied
+					return
+				}
+			}
 			// Streaming not supported in batch
 			if opts.stream {
 				parseErr = "streaming not supported in batch requests"
@@ -535,7 +583,7 @@ func requestBatch(l *lua.LState) int {
 
 		// Skip private IP check for unix sockets — hostname is irrelevant for local IPC
 		if opts.unixSocket == "" {
-			if errMsg := checkPrivateIP(ctx, urlStr); errMsg != "" {
+			if errMsg := checkPrivateIP(ctx, urlStr, hasOverlay(ctx, opts)); errMsg != "" {
 				parseErr = errMsg
 				parseErrKind = lua.PermissionDenied
 				return
@@ -561,6 +609,7 @@ func requestBatch(l *lua.LState) int {
 		req.BasicAuthPass = opts.basicAuthPass
 		req.MaxResponseBody = opts.maxResponseBody
 		req.TLS = opts.tls
+		req.OverlayNetwork = opts.overlayNetwork
 
 		if len(opts.files) > 0 {
 			req.Files = make([]httpapi.FileUpload, len(opts.files))
@@ -724,6 +773,11 @@ func parseOptionsFromTable(tbl *lua.LTable) *requestOptions {
 
 	if tlsVal := tbl.RawGetString("tls"); tlsVal.Type() == lua.LTTable {
 		opts.tls = parseTLSConfig(tlsVal.(*lua.LTable))
+	}
+
+	// Overlay network
+	if overlay := tbl.RawGetString("overlay_network"); overlay.Type() == lua.LTString {
+		opts.overlayNetwork = overlay.String()
 	}
 
 	return opts

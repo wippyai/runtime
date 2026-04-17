@@ -4,14 +4,11 @@ package net
 
 import (
 	"context"
-	"errors"
 	"net"
 
+	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/runtime/security"
 )
-
-// ErrAccessDenied is returned when a network operation is blocked by security policy.
-var ErrAccessDenied = errors.New("network access denied")
 
 func isPrivateIP(ip net.IP) bool {
 	if ip == nil {
@@ -30,7 +27,7 @@ func checkPrivateIP(ctx context.Context, address string) error {
 	if ip := net.ParseIP(host); ip != nil {
 		if isPrivateIP(ip) {
 			if !security.IsAllowed(ctx, "socket.private_ip", host, nil) {
-				return ErrAccessDenied
+				return netapi.ErrAccessDenied
 			}
 		}
 		return nil
@@ -44,7 +41,7 @@ func checkPrivateIP(ctx context.Context, address string) error {
 	for _, ip := range ips {
 		if isPrivateIP(ip) {
 			if !security.IsAllowed(ctx, "socket.private_ip", ip.String(), nil) {
-				return ErrAccessDenied
+				return netapi.ErrAccessDenied
 			}
 		}
 	}
@@ -62,7 +59,7 @@ func NewSecureService() *SecureService {
 
 func (s *SecureService) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	if !security.IsAllowed(ctx, "socket.connect", address, nil) {
-		return nil, ErrAccessDenied
+		return nil, netapi.ErrAccessDenied
 	}
 	if err := checkPrivateIP(ctx, address); err != nil {
 		return nil, err
@@ -73,7 +70,7 @@ func (s *SecureService) DialContext(ctx context.Context, network, address string
 
 func (s *SecureService) Listen(ctx context.Context, network, address string) (net.Listener, error) {
 	if !security.IsAllowed(ctx, "socket.listen", address, nil) {
-		return nil, ErrAccessDenied
+		return nil, netapi.ErrAccessDenied
 	}
 	lc := net.ListenConfig{}
 	return lc.Listen(ctx, network, address)
@@ -81,7 +78,7 @@ func (s *SecureService) Listen(ctx context.Context, network, address string) (ne
 
 func (s *SecureService) ListenPacket(ctx context.Context, network, address string) (net.PacketConn, error) {
 	if !security.IsAllowed(ctx, "socket.listen", address, nil) {
-		return nil, ErrAccessDenied
+		return nil, netapi.ErrAccessDenied
 	}
 	lc := net.ListenConfig{}
 	return lc.ListenPacket(ctx, network, address)
@@ -89,7 +86,7 @@ func (s *SecureService) ListenPacket(ctx context.Context, network, address strin
 
 func (s *SecureService) LookupHost(ctx context.Context, host string) ([]string, error) {
 	if !security.IsAllowed(ctx, "socket.resolve", host, nil) {
-		return nil, ErrAccessDenied
+		return nil, netapi.ErrAccessDenied
 	}
 	r := net.Resolver{}
 	return r.LookupHost(ctx, host)
