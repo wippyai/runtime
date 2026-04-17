@@ -3,13 +3,13 @@
 package client
 
 import (
-	"container/list"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"net"
 	gohttp "net/http"
 	"reflect"
@@ -19,6 +19,7 @@ import (
 
 	netapi "github.com/wippyai/runtime/api/net"
 	httpapi "github.com/wippyai/runtime/api/service/http"
+	lru "github.com/wippyai/runtime/internal/cache"
 )
 
 // clientKey identifies a unique client configuration. networkIdentity is a
@@ -44,23 +45,15 @@ type clientOnce struct {
 	once   sync.Once
 }
 
-// lruEntry pairs a clientOnce with its cache key so eviction can remove it
-// from the index map without an extra lookup.
-type lruEntry struct {
-	co  *clientOnce
-	key clientKey
-}
-
 // Pool provides pooled HTTP clients with proper connection reuse. Entries are
-// held in an LRU list so a bounded cap can be enforced without leaking
-// transports over a long-running process. SSRF protection happens at runtime
-// level via security policies.
+// held in a bounded LRU (backed by internal/cache) so long-running processes
+// don't accumulate transports across many distinct TLS / unix-socket / overlay
+// keys. SSRF protection happens at runtime level via security policies.
 type Pool struct {
 	defaultClient *gohttp.Client
-	clients       map[clientKey]*list.Element
-	lru           *list.List
+	cache         *lru.Cache[clientKey, *clientOnce]
+	overlayKeys   map[string]clientKey
 	mu            sync.Mutex
-	maxClients    int
 }
 
 // Default transport settings
@@ -77,11 +70,7 @@ const (
 
 // NewClientPool creates a new HTTP client pool with default settings.
 func NewClientPool() *Pool {
-	return &Pool{
-		defaultClient: createClient(defaultTimeout, "", defaultMaxIdleConns, defaultMaxIdlePerHost, defaultIdleConnTimeout),
-		clients:       make(map[clientKey]*list.Element),
-		lru:           list.New(),
-	}
+	return newPool(defaultTimeout, defaultMaxIdleConns, defaultMaxIdlePerHost, defaultIdleConnTimeout, 0)
 }
 
 // NewClientPoolWithConfig creates a pool with custom configuration.
@@ -102,21 +91,44 @@ func NewClientPoolWithConfig(cfg PoolConfig) *Pool {
 	if idleTimeout <= 0 {
 		idleTimeout = defaultIdleConnTimeout
 	}
-	return &Pool{
+	return newPool(timeout, maxIdle, maxPerHost, idleTimeout, cfg.MaxClients)
+}
+
+// newPool constructs a Pool wired to internal/cache with an OnEvict callback
+// that closes idle transports and prunes the overlay index. maxClients == 0
+// leaves the pool effectively unbounded.
+func newPool(timeout time.Duration, maxIdle, maxPerHost int, idleTimeout time.Duration, maxClients int) *Pool {
+	p := &Pool{
 		defaultClient: createClient(timeout, "", maxIdle, maxPerHost, idleTimeout),
-		clients:       make(map[clientKey]*list.Element),
-		lru:           list.New(),
-		maxClients:    cfg.MaxClients,
+		overlayKeys:   make(map[string]clientKey),
 	}
+
+	capacity := maxClients
+	if capacity <= 0 {
+		capacity = math.MaxInt32
+	}
+
+	p.cache = lru.New[clientKey, *clientOnce](
+		lru.WithCapacity(capacity),
+		lru.WithOnEvict(func(k clientKey, co *clientOnce) {
+			closeIdle(co)
+			if k.networkID != "" {
+				if cur, ok := p.overlayKeys[k.networkID]; ok && cur == k {
+					delete(p.overlayKeys, k.networkID)
+				}
+			}
+		}),
+	)
+	return p
 }
 
 // getOrCreate looks up or inserts the clientOnce for key. On a hit the entry
-// is moved to the front of the LRU. On a miss a new clientOnce is inserted
-// at the front and any over-cap entries are evicted from the back (closing
-// their idle connections). The returned clientOnce is not yet initialized —
-// callers run build under co.once.Do outside the pool lock. If
-// overlayNetworkID is non-empty, any stale entries for the same networkID
-// but a different identity are evicted first, all under one lock so a
+// is promoted to MRU via cache.Get. On a miss a new clientOnce is inserted;
+// the underlying cache enforces capacity and fires the OnEvict callback for
+// any entry it displaces (closing idle connections). The returned clientOnce
+// is not yet initialized — callers run build under co.once.Do outside the
+// pool lock. If overlayNetworkID is non-empty, any stale entry for that
+// network (previous identity) is deleted first, all under one lock so a
 // concurrent caller with an even older identity can't evict the just-
 // inserted entry.
 func (p *Pool) getOrCreate(key clientKey, overlayNetworkID string) *clientOnce {
@@ -124,45 +136,21 @@ func (p *Pool) getOrCreate(key clientKey, overlayNetworkID string) *clientOnce {
 	defer p.mu.Unlock()
 
 	if overlayNetworkID != "" {
-		p.evictStaleOverlayLocked(overlayNetworkID, key.networkIdentity)
-	}
-
-	if el, ok := p.clients[key]; ok {
-		p.lru.MoveToFront(el)
-		return el.Value.(*lruEntry).co
-	}
-
-	co := &clientOnce{}
-	el := p.lru.PushFront(&lruEntry{key: key, co: co})
-	p.clients[key] = el
-
-	if p.maxClients > 0 {
-		for p.lru.Len() > p.maxClients {
-			back := p.lru.Back()
-			if back == nil {
-				break
-			}
-			// Avoid evicting the entry we just inserted — if the cap is
-			// tighter than 1 that's a misconfiguration; fall out of the
-			// loop rather than recreating the client on every call.
-			if back == el {
-				break
-			}
-			p.evictLocked(back)
+		if prev, ok := p.overlayKeys[overlayNetworkID]; ok && prev != key {
+			p.cache.Delete(prev)
 		}
 	}
 
-	return co
-}
+	if co, ok := p.cache.Get(key); ok {
+		return co
+	}
 
-// evictLocked removes el from both the LRU list and the index map and closes
-// any idle connections the evicted client may be holding. The caller must
-// hold p.mu.
-func (p *Pool) evictLocked(el *list.Element) {
-	entry := el.Value.(*lruEntry)
-	p.lru.Remove(el)
-	delete(p.clients, entry.key)
-	closeIdle(entry.co)
+	co := &clientOnce{}
+	_ = p.cache.Set(key, co)
+	if overlayNetworkID != "" {
+		p.overlayKeys[overlayNetworkID] = key
+	}
+	return co
 }
 
 // closeIdle closes idle connections on co's client transport if co has been
@@ -223,21 +211,6 @@ func (p *Pool) GetClientWithDialer(timeout time.Duration, networkID string, svc 
 		co.client.Store(createClientWithDialer(timeout, svc.DialContext))
 	})
 	return co.client.Load()
-}
-
-// evictStaleOverlayLocked removes pool entries that share networkID but
-// carry a different identity — proof that the overlay service was replaced
-// and the cached client's Transport still points at the closed instance.
-// The caller must hold p.mu.
-func (p *Pool) evictStaleOverlayLocked(networkID string, liveIdentity uintptr) {
-	for el := p.lru.Front(); el != nil; {
-		next := el.Next()
-		entry := el.Value.(*lruEntry)
-		if entry.key.networkID == networkID && entry.key.networkIdentity != liveIdentity {
-			p.evictLocked(el)
-		}
-		el = next
-	}
 }
 
 // serviceIdentity returns a stable handle on the concrete value behind a
@@ -347,9 +320,7 @@ func createClientFromTLS(timeout time.Duration, unixSocket string, tlsCfg *tls.C
 
 // Size returns the number of pooled clients (for monitoring/testing).
 func (p *Pool) Size() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.lru.Len()
+	return p.cache.Len()
 }
 
 // createClientWithDialer builds an HTTP client with a custom DialContext function.
