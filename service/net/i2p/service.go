@@ -28,9 +28,18 @@ var sessionCounter uint64
 // streamConn couples a SAM stream connection to its control connection.
 // The control connection must stay open for the session lifetime; closing
 // the stream also closes the control connection to destroy the session.
+//
+// Reads go through reader so that any application bytes buffered during the
+// newline-terminated SAM handshake (when TCP coalesces the STATUS reply with
+// the first payload segment) are still delivered to callers.
 type streamConn struct {
 	net.Conn
-	ctrl net.Conn
+	reader *bufio.Reader
+	ctrl   net.Conn
+}
+
+func (c *streamConn) Read(p []byte) (int, error) {
+	return c.reader.Read(p)
 }
 
 func (c *streamConn) Close() error {
@@ -213,5 +222,5 @@ func samDial(ctx context.Context, samAddr, sessionBase, _, address string) (net.
 
 	streamConnRaw.SetDeadline(time.Time{}) //nolint:errcheck
 
-	return &streamConn{Conn: streamConnRaw, ctrl: ctrlConn}, nil
+	return &streamConn{Conn: streamConnRaw, reader: streamReader, ctrl: ctrlConn}, nil
 }

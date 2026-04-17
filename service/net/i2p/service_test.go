@@ -42,7 +42,14 @@ type mockSAMServer struct {
 	failResult string
 
 	records []samConnRecord
-	mu      sync.Mutex
+
+	// If set, writes STREAM STATUS reply and this payload in a single Write
+	// so the client's bufio.Reader buffers both together. Exercises the
+	// CI-flaky path where TCP coalesces the handshake reply with the first
+	// application bytes.
+	streamCoalescedPayload []byte
+
+	mu sync.Mutex
 
 	// Error injection: which step to fail at (0=none, 1=hello, 2=session, 3=stream)
 	failAtStep int
@@ -152,6 +159,11 @@ func (s *mockSAMServer) handleConn(t *testing.T, conn net.Conn) {
 
 		if s.failAtStep == 3 {
 			fmt.Fprintf(conn, "STREAM STATUS RESULT=%s MESSAGE=\"connect rejected\"\n", s.failResult)
+			return
+		}
+		if len(s.streamCoalescedPayload) > 0 {
+			buf := append([]byte("STREAM STATUS RESULT=OK\n"), s.streamCoalescedPayload...)
+			conn.Write(buf)
 			return
 		}
 		fmt.Fprintf(conn, "STREAM STATUS RESULT=OK\n")
@@ -294,6 +306,44 @@ func TestI2PService_DialContext(t *testing.T) {
 	assert.Equal(t, "target.i2p", stream.StreamDest, "port should be stripped from DESTINATION")
 	assert.Equal(t, ctrl.SessionID, stream.StreamSessionID,
 		"stream should reference the control session")
+}
+
+// TestI2PService_DialContext_PayloadCoalescedWithStatus verifies that payload
+// bytes buffered by the handshake bufio.Reader (when TCP coalesces STREAM
+// STATUS with the first application segment) are still delivered to the
+// caller via the returned net.Conn. Without buffered-reader forwarding the
+// client's Read hangs forever — the exact failure seen on CI ubuntu-latest.
+func TestI2PService_DialContext_PayloadCoalescedWithStatus(t *testing.T) {
+	payload := []byte("post-handshake-bytes")
+
+	sam := newMockSAMServer(t)
+	sam.streamCoalescedPayload = payload
+	defer sam.close()
+
+	host, portStr, err := net.SplitHostPort(sam.addr())
+	require.NoError(t, err)
+	var port int
+	fmt.Sscanf(portStr, "%d", &port)
+
+	cfg := &netapi.I2PConfig{
+		NetworkConfig: netapi.NetworkConfig{Host: host, Port: port},
+		SessionName:   "test-coalesced",
+	}
+	svc, err := NewService(cfg)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, err := svc.DialContext(ctx, "tcp", "target.i2p:80")
+	require.NoError(t, err)
+	defer conn.Close()
+
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
+	buf := make([]byte, len(payload))
+	n, err := io.ReadFull(conn, buf)
+	require.NoError(t, err)
+	assert.Equal(t, payload, buf[:n])
 }
 
 func TestI2PService_DialContext_B32Address(t *testing.T) {
