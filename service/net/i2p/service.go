@@ -70,10 +70,6 @@ func (s *Service) DialContext(ctx context.Context, network, address string) (net
 	return samDial(ctx, s.addr, s.sessionName, network, address)
 }
 
-func (s *Service) Listen(_ context.Context, _, _ string) (net.Listener, error) {
-	return nil, netservice.NewUnsupportedOperationError("i2p", "listener not yet implemented")
-}
-
 func (s *Service) ListenPacket(_ context.Context, _, _ string) (net.PacketConn, error) {
 	return nil, netservice.NewUnsupportedOperationError("i2p", "UDP not yet implemented")
 }

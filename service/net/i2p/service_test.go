@@ -488,17 +488,20 @@ func TestI2PService_DialContext_StreamConnectRejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "STREAM CONNECT rejected")
 }
 
-func TestI2PService_Listen_NotSupported(t *testing.T) {
+func TestI2PService_Listen_SAMDown(t *testing.T) {
 	cfg := &netapi.I2PConfig{
-		NetworkConfig: netapi.NetworkConfig{Host: "127.0.0.1", Port: 7656},
+		NetworkConfig: netapi.NetworkConfig{Host: "127.0.0.1", Port: 19999},
 	}
 	svc, err := NewService(cfg)
 	require.NoError(t, err)
 
-	ln, err := svc.Listen(context.Background(), "tcp", "0.0.0.0:8080")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	ln, err := svc.Listen(ctx, "tcp", "0.0.0.0:0")
 	assert.Nil(t, ln)
 	require.Error(t, err)
-	require.ErrorIs(t, err, netapi.ErrNotSupported)
+	assert.Contains(t, err.Error(), "SAM bridge")
 }
 
 func TestI2PService_ListenPacket_NotSupported(t *testing.T) {
