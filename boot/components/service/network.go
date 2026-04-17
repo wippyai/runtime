@@ -45,15 +45,21 @@ func Network() boot.Component {
 			}
 
 			stateDir := DefaultNetworkStateDir
+			defaultNetwork := ""
 			if cfg := boot.GetConfig(ctx); cfg != nil {
 				if netCfg := cfg.Sub(NetworkServiceName); netCfg != nil {
 					stateDir = netCfg.GetString(NetworkStateDir, stateDir)
+					defaultNetwork = netCfg.GetString(NetworkDefault, "")
 				}
 				if stateDir != "" && !filepath.IsAbs(stateDir) {
 					if baseDir := cfg.GetString("boot.config_dir", ""); baseDir != "" {
 						stateDir = filepath.Join(baseDir, stateDir)
 					}
 				}
+			}
+
+			if defaultNetwork != "" {
+				ctx = netapi.WithAppDefaultNetwork(ctx, defaultNetwork)
 			}
 
 			manager, err := netservice.NewManager(reg, dtt, envRegistry, logger.Named("network"),

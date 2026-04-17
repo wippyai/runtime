@@ -19,6 +19,15 @@ func openFrame(parent context.Context, t *testing.T) (context.Context, ctxapi.Fr
 	return ctx, fc
 }
 
+// setFrameDefault writes the default network onto a frame using the same
+// pair-injection path the dispatchers use in production.
+func setFrameDefault(t *testing.T, fc ctxapi.FrameContext, id string) {
+	t.Helper()
+	require.NoError(t, fc.SetMultiple(DefaultNetworkPair(id)))
+}
+
+// --- GetDefaultNetwork ---
+
 func TestGetDefaultNetwork_NoFrame(t *testing.T) {
 	assert.Equal(t, "", GetDefaultNetwork(context.Background()))
 }
@@ -28,24 +37,18 @@ func TestGetDefaultNetwork_UnsetInFrame(t *testing.T) {
 	assert.Equal(t, "", GetDefaultNetwork(ctx))
 }
 
-func TestSetDefaultNetwork_SetAndGet(t *testing.T) {
-	ctx, _ := openFrame(context.Background(), t)
+// --- DefaultNetworkPair injection ---
 
-	require.NoError(t, SetDefaultNetwork(ctx, "app.net:socks5"))
+func TestDefaultNetworkPair_SetAndGet(t *testing.T) {
+	ctx, fc := openFrame(context.Background(), t)
+	setFrameDefault(t, fc, "app.net:socks5")
+
 	assert.Equal(t, "app.net:socks5", GetDefaultNetwork(ctx))
 }
 
-func TestSetDefaultNetwork_NoFrame_IsNoop(t *testing.T) {
-	assert.NoError(t, SetDefaultNetwork(context.Background(), "app.net:socks5"))
-}
-
-// TestDefaultNetwork_InheritsToForkedFrame verifies the Inherit:true contract.
-// A child frame forked after the parent is sealed must see the parent's
-// default network without any explicit copy.
 func TestDefaultNetwork_InheritsToForkedFrame(t *testing.T) {
 	parentCtx, parent := openFrame(context.Background(), t)
-	require.NoError(t, SetDefaultNetwork(parentCtx, "app.net:socks5"))
-
+	setFrameDefault(t, parent, "app.net:socks5")
 	parent.Seal()
 
 	childCtx, child := ctxapi.OpenFrameContext(parentCtx)
@@ -56,54 +59,27 @@ func TestDefaultNetwork_InheritsToForkedFrame(t *testing.T) {
 		"Inherit:true key must auto-propagate to forked child frame")
 }
 
-// TestDefaultNetwork_ChildOverrideDoesNotAffectParent verifies that writes on
-// a forked child frame do not leak back into the sealed parent.
 func TestDefaultNetwork_ChildOverrideDoesNotAffectParent(t *testing.T) {
 	parentCtx, parent := openFrame(context.Background(), t)
-	require.NoError(t, SetDefaultNetwork(parentCtx, "app.net:socks5"))
+	setFrameDefault(t, parent, "app.net:socks5")
 	parent.Seal()
 
-	childCtx, _ := ctxapi.OpenFrameContext(parentCtx)
-	require.NoError(t, SetDefaultNetwork(childCtx, "app.net:tailscale"))
+	childCtx, child := ctxapi.OpenFrameContext(parentCtx)
+	setFrameDefault(t, child, "app.net:tailscale")
 
 	assert.Equal(t, "app.net:tailscale", GetDefaultNetwork(childCtx))
 	assert.Equal(t, "app.net:socks5", GetDefaultNetwork(parentCtx),
 		"parent frame must retain its original value after child override")
 }
 
-// TestDefaultNetwork_CrossesForkViaPair verifies that the pair produced by
-// DefaultNetworkPair carries the Inherit flag and is applied correctly when
-// injected via SetMultiple (as lifecycle.go does when spawning children).
-func TestDefaultNetwork_CrossesForkViaPair(t *testing.T) {
-	parentCtx, parent := openFrame(context.Background(), t)
-
-	pair := DefaultNetworkPair("app.net:socks5")
-	require.NoError(t, parent.SetMultiple(pair))
-
-	assert.Equal(t, "app.net:socks5", GetDefaultNetwork(parentCtx))
-
-	parent.Seal()
-	childCtx, _ := ctxapi.OpenFrameContext(parentCtx)
-
-	assert.Equal(t, "app.net:socks5", GetDefaultNetwork(childCtx),
-		"pair-based injection must also inherit to child frame")
-}
-
-// TestDefaultNetworkKey_InheritFlag is the structural contract check: the key
-// MUST be marked Inherit:true for the frame-fork copy loop to propagate it.
-// If this test ever fails, child processes/functions will lose their parent's
-// network selection.
 func TestDefaultNetworkKey_InheritFlag(t *testing.T) {
 	require.True(t, defaultNetworkKey.Inherit,
 		"defaultNetworkKey must be Inherit:true — otherwise child frames lose the network selection")
 }
 
-// TestDefaultNetwork_DeepFork verifies that inheritance works through multiple
-// fork generations (parent -> child -> grandchild), matching how a function
-// that spawns a process (which itself spawns a nested process) should behave.
 func TestDefaultNetwork_DeepFork(t *testing.T) {
 	parentCtx, parent := openFrame(context.Background(), t)
-	require.NoError(t, SetDefaultNetwork(parentCtx, "app.net:socks5"))
+	setFrameDefault(t, parent, "app.net:socks5")
 	parent.Seal()
 
 	childCtx, child := ctxapi.OpenFrameContext(parentCtx)
@@ -113,4 +89,43 @@ func TestDefaultNetwork_DeepFork(t *testing.T) {
 	grandCtx, _ := ctxapi.OpenFrameContext(childCtx)
 	assert.Equal(t, "app.net:socks5", GetDefaultNetwork(grandCtx),
 		"network should survive grandchild fork")
+}
+
+// --- App-level default on AppContext ---
+
+func TestAppDefaultNetwork_NoAppContext(t *testing.T) {
+	assert.Equal(t, "", AppDefaultNetwork(context.Background()))
+}
+
+func TestAppDefaultNetwork_UnsetAppContext(t *testing.T) {
+	ac := ctxapi.NewAppContext()
+	ctx := ctxapi.WithAppContext(context.Background(), ac)
+	assert.Equal(t, "", AppDefaultNetwork(ctx))
+}
+
+func TestWithAppDefaultNetwork_SetAndGet(t *testing.T) {
+	ac := ctxapi.NewAppContext()
+	ctx := ctxapi.WithAppContext(context.Background(), ac)
+
+	ctx = WithAppDefaultNetwork(ctx, "app.net:socks5")
+	assert.Equal(t, "app.net:socks5", AppDefaultNetwork(ctx))
+}
+
+func TestWithAppDefaultNetwork_NoAppContext_Noop(t *testing.T) {
+	ctx := WithAppDefaultNetwork(context.Background(), "app.net:socks5")
+	assert.Equal(t, "", AppDefaultNetwork(ctx))
+}
+
+func TestWithAppDefaultNetwork_AppDefaultDoesNotReachFrame(t *testing.T) {
+	// Setting the app-level default must not populate the frame-level key.
+	// Dispatchers are responsible for copying the app default into the
+	// frame via DefaultNetworkPair on task spawn.
+	ac := ctxapi.NewAppContext()
+	ctx := ctxapi.WithAppContext(context.Background(), ac)
+	ctx = WithAppDefaultNetwork(ctx, "app.net:socks5")
+
+	ctx, _ = openFrame(ctx, t)
+	assert.Equal(t, "", GetDefaultNetwork(ctx),
+		"app-level default must not leak into FrameContext directly")
+	assert.Equal(t, "app.net:socks5", AppDefaultNetwork(ctx))
 }

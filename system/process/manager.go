@@ -49,15 +49,14 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 		return pid.PID{}, NewInvalidHostError(start.HostID)
 	}
 
-	// Resolve overlay network selection from start options.
-	if start.Options != nil {
-		if networkID := start.Options.GetString(netapi.OptionKeyNetwork, ""); networkID != "" {
-			reg := netapi.GetNetworkRegistry(ctx)
-			if reg == nil || !reg.HasNetwork(registry.ParseID(networkID)) {
-				return pid.PID{}, netapi.ErrNetworkNotFound
-			}
-			start.Context = append(start.Context, netapi.DefaultNetworkPair(networkID))
+	// Resolve overlay network selection: per-call/per-entry options bag
+	// wins; otherwise fall back to the app-level default from boot.
+	if networkID := netapi.ResolveOverlayID(ctx, start.Options); networkID != "" {
+		reg := netapi.GetNetworkRegistry(ctx)
+		if reg == nil || !reg.HasNetwork(registry.ParseID(networkID)) {
+			return pid.PID{}, netapi.ErrNetworkNotFound
 		}
+		start.Context = append(start.Context, netapi.DefaultNetworkPair(networkID))
 	}
 
 	m.logger.Debug("starting process",

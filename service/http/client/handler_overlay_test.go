@@ -475,13 +475,12 @@ func TestHandler_OverlayDefaultNetworkFromContext(t *testing.T) {
 	ctx := overlayTestCtx()
 	ctx, fc := ctxapi.OpenFrameContext(ctx)
 	defer ctxapi.ReleaseFrameContext(fc)
-	err := netapi.SetDefaultNetwork(ctx, "network:ctx-default-overlay")
-	require.NoError(t, err)
+	require.NoError(t, fc.SetMultiple(netapi.DefaultNetworkPair("network:ctx-default-overlay")))
 
 	done := make(chan httpapi.Response, 1)
 
 	// No OverlayNetwork on the request — should use context default
-	err = d.handleRequest(ctx, &httpapi.RequestCmd{
+	err := d.handleRequest(ctx, &httpapi.RequestCmd{
 		Method: "GET",
 		URL:    ts.URL,
 		// OverlayNetwork intentionally left empty
@@ -562,13 +561,12 @@ func TestHandler_ExplicitOverlayOverridesDefaultContext(t *testing.T) {
 	ctx := overlayTestCtx()
 	ctx, fc := ctxapi.OpenFrameContext(ctx)
 	defer ctxapi.ReleaseFrameContext(fc)
-	err := netapi.SetDefaultNetwork(ctx, "network:ctx-overlay")
-	require.NoError(t, err)
+	require.NoError(t, fc.SetMultiple(netapi.DefaultNetworkPair("network:ctx-overlay")))
 
 	done := make(chan httpapi.Response, 1)
 
 	// Explicitly specify a different overlay
-	err = d.handleRequest(ctx, &httpapi.RequestCmd{
+	err := d.handleRequest(ctx, &httpapi.RequestCmd{
 		Method:         "GET",
 		URL:            ts.URL,
 		OverlayNetwork: "network:explicit-overlay",

@@ -20,8 +20,10 @@ const (
 // Network service config keys, read from the network_service subsection of
 // .wippy.yaml. StateDir is the base directory for driver-local state (tsnet
 // keys, future I2P session files, etc.); relative paths resolve against
-// boot.config_dir.
+// boot.config_dir. DefaultNetwork is the app-wide overlay fallback applied
+// to any task/process that does not pin its own network via options.
 const (
 	NetworkStateDir        = "state_dir"
+	NetworkDefault         = "default_network"
 	DefaultNetworkStateDir = ".wippy/net"
 )
