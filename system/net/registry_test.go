@@ -64,15 +64,15 @@ func TestRegistry_NilLogger(t *testing.T) {
 	reg := NewRegistry(nil)
 	require.NotNil(t, reg)
 	// Should not panic with nil logger
-	reg.Register(registry.ParseID("network:test"), &mockService{}, netapi.KindTor)
+	reg.Register(registry.ParseID("network:test"), &mockService{}, netapi.KindSOCKS5)
 }
 
 func TestRegistry_RegisterAndGet(t *testing.T) {
 	reg := NewRegistry(zap.NewNop())
 	svc := &mockService{}
-	id := registry.ParseID("network:my-tor")
+	id := registry.ParseID("network:my-socks5")
 
-	reg.Register(id, svc, netapi.KindTor)
+	reg.Register(id, svc, netapi.KindSOCKS5)
 
 	got, err := reg.GetNetwork(id)
 	require.NoError(t, err)
@@ -114,7 +114,7 @@ func TestRegistry_Unregister(t *testing.T) {
 	svc := &mockService{}
 	id := registry.ParseID("network:removeme")
 
-	reg.Register(id, svc, netapi.KindTor)
+	reg.Register(id, svc, netapi.KindSOCKS5)
 	require.True(t, reg.HasNetwork(id))
 
 	reg.Unregister(id)
@@ -153,7 +153,7 @@ func TestRegistry_Unregister_NonClosable(t *testing.T) {
 	svc := &mockService{} // does NOT implement io.Closer
 	id := registry.ParseID("network:no-close")
 
-	reg.Register(id, svc, netapi.KindTor)
+	reg.Register(id, svc, netapi.KindSOCKS5)
 	// Should not panic when service doesn't implement Closer
 	reg.Unregister(id)
 	assert.False(t, reg.HasNetwork(id))
@@ -172,7 +172,7 @@ func TestRegistry_UpdateReplacesService(t *testing.T) {
 	svc1 := &mockClosableService{}
 	svc2 := &mockService{}
 
-	reg.Register(id, svc1, netapi.KindTor)
+	reg.Register(id, svc1, netapi.KindSOCKS5)
 
 	got1, err := reg.GetNetwork(id)
 	require.NoError(t, err)
@@ -191,21 +191,21 @@ func TestRegistry_UpdateReplacesService(t *testing.T) {
 func TestRegistry_MultipleNetworks(t *testing.T) {
 	reg := NewRegistry(zap.NewNop())
 
-	torID := registry.ParseID("network:tor1")
+	socksID := registry.ParseID("network:socks1")
 	i2pID := registry.ParseID("network:i2p1")
 	tsID := registry.ParseID("network:ts1")
 
-	torSvc := &mockService{}
+	socksSvc := &mockService{}
 	i2pSvc := &mockService{}
 	tsSvc := &mockService{}
 
-	reg.Register(torID, torSvc, netapi.KindTor)
+	reg.Register(socksID, socksSvc, netapi.KindSOCKS5)
 	reg.Register(i2pID, i2pSvc, netapi.KindI2P)
 	reg.Register(tsID, tsSvc, netapi.KindTailscale)
 
-	got, err := reg.GetNetwork(torID)
+	got, err := reg.GetNetwork(socksID)
 	require.NoError(t, err)
-	assert.Equal(t, torSvc, got)
+	assert.Equal(t, socksSvc, got)
 
 	got, err = reg.GetNetwork(i2pID)
 	require.NoError(t, err)
@@ -215,7 +215,7 @@ func TestRegistry_MultipleNetworks(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, tsSvc, got)
 
-	assert.Equal(t, netapi.KindTor, reg.NetworkKind(torID))
+	assert.Equal(t, netapi.KindSOCKS5, reg.NetworkKind(socksID))
 	assert.Equal(t, netapi.KindI2P, reg.NetworkKind(i2pID))
 	assert.Equal(t, netapi.KindTailscale, reg.NetworkKind(tsID))
 }
@@ -239,7 +239,7 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 				// Mix of operations
 				switch j % 4 {
 				case 0:
-					reg.Register(id, svc, netapi.KindTor)
+					reg.Register(id, svc, netapi.KindSOCKS5)
 				case 1:
 					reg.GetNetwork(id)
 				case 2:

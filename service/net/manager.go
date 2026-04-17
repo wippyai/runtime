@@ -4,10 +4,9 @@ package net
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
-	"github.com/wippyai/runtime/api/attrs"
-	netapi "github.com/wippyai/runtime/api/net"
+	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	netsystem "github.com/wippyai/runtime/system/net"
@@ -20,41 +19,85 @@ var (
 	_ registry.TransactionListener = (*Manager)(nil)
 )
 
-// Manager creates overlay network driver instances from registry entries
-// and registers them with the system-level network Registry.
+// Manager routes overlay network registry entries to the Driver that handles
+// their kind. Drivers are injected at construction time via WithDriver so the
+// Manager stays decoupled from any particular network implementation.
 type Manager struct {
 	registry *netsystem.Registry
-	dtt      payload.Transcoder
+	drivers  map[registry.Kind]Driver
 	log      *zap.Logger
+	deps     Deps
 }
 
-// NewManager creates a new network overlay manager.
-func NewManager(reg *netsystem.Registry, dtt payload.Transcoder, log *zap.Logger) (*Manager, error) {
+// Option configures a Manager at construction time.
+type Option func(*Manager)
+
+// WithStateDir sets the base directory for driver-local state (tsnet node
+// keys, I2P session files, etc.). Empty string leaves drivers with their
+// upstream defaults.
+func WithStateDir(dir string) Option {
+	return func(m *Manager) { m.deps.StateDir = dir }
+}
+
+// WithDriver registers one or more drivers on the Manager. Later registrations
+// for an already-registered kind replace the earlier one.
+func WithDriver(drivers ...Driver) Option {
+	return func(m *Manager) {
+		for _, d := range drivers {
+			if d == nil {
+				continue
+			}
+			m.drivers[d.Kind()] = d
+		}
+	}
+}
+
+// NewManager creates a new network overlay manager. The env registry is used
+// by drivers to resolve indirect credentials (e.g. Tailscale's AuthKeyEnv);
+// pass nil when no driver in use requires it. Drivers must be registered via
+// WithDriver — a Manager with no drivers rejects every entry with
+// ErrUnsupportedKind.
+func NewManager(
+	reg *netsystem.Registry,
+	dtt payload.Transcoder,
+	env envapi.Registry,
+	log *zap.Logger,
+	opts ...Option,
+) (*Manager, error) {
 	if reg == nil {
-		return nil, fmt.Errorf("network manager: registry required")
+		return nil, errors.New("network manager: registry required")
 	}
 	if dtt == nil {
-		return nil, fmt.Errorf("network manager: transcoder required")
+		return nil, errors.New("network manager: transcoder required")
 	}
 	if log == nil {
 		log = zap.NewNop()
 	}
-	return &Manager{
+	m := &Manager{
 		registry: reg,
-		dtt:      dtt,
-		log:      log,
-	}, nil
+		deps: Deps{
+			Transcoder: dtt,
+			Env:        env,
+			Logger:     log,
+		},
+		drivers: map[registry.Kind]Driver{},
+		log:     log,
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m, nil
 }
 
 // --- registry.EntryListener ---
 
-func (m *Manager) Add(_ context.Context, entry registry.Entry) error {
-	return m.createAndRegister(entry)
+func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
+	return m.createAndRegister(ctx, entry)
 }
 
-func (m *Manager) Update(_ context.Context, entry registry.Entry) error {
+func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	m.registry.Unregister(entry.ID)
-	return m.createAndRegister(entry)
+	return m.createAndRegister(ctx, entry)
 }
 
 func (m *Manager) Delete(_ context.Context, entry registry.Entry) error {
@@ -70,23 +113,13 @@ func (m *Manager) Discard(_ context.Context) {}
 
 // --- internal ---
 
-func (m *Manager) createAndRegister(entry registry.Entry) error {
-	var svc netapi.Service
-	var err error
-
-	switch entry.Kind {
-	case netapi.KindTor:
-		svc, err = m.createTor(entry)
-	case netapi.KindI2P:
-		svc, err = m.createI2P(entry)
-	case netapi.KindTailscale:
-		svc, err = m.createTailscale(entry)
-	case netapi.KindOpenVPN:
-		svc, err = m.createOpenVPN(entry)
-	default:
-		return fmt.Errorf("network manager: unsupported kind %q", entry.Kind)
+func (m *Manager) createAndRegister(ctx context.Context, entry registry.Entry) error {
+	driver, ok := m.drivers[entry.Kind]
+	if !ok {
+		return NewUnsupportedKindError(entry.Kind)
 	}
 
+	svc, err := driver.Create(ctx, entry, m.deps)
 	if err != nil {
 		m.log.Error("failed to create network service",
 			zap.String("id", entry.ID.String()),
@@ -98,61 +131,4 @@ func (m *Manager) createAndRegister(entry registry.Entry) error {
 
 	m.registry.Register(entry.ID, svc, entry.Kind)
 	return nil
-}
-
-func (m *Manager) decodeConfig(entry registry.Entry, target any) error {
-	if entry.Data == nil {
-		return fmt.Errorf("network manager: entry %s has no data", entry.ID.String())
-	}
-	if err := m.dtt.Unmarshal(entry.Data, target); err != nil {
-		return err
-	}
-	if metaHolder, ok := target.(interface{ SetMeta(attrs.Bag) }); ok {
-		metaHolder.SetMeta(entry.Meta)
-	}
-	return nil
-}
-
-func (m *Manager) createTor(entry registry.Entry) (netapi.Service, error) {
-	var cfg netapi.TorConfig
-	if err := m.decodeConfig(entry, &cfg); err != nil {
-		return nil, fmt.Errorf("tor config: %w", err)
-	}
-	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("tor config: %w", err)
-	}
-	return NewTorService(&cfg)
-}
-
-func (m *Manager) createI2P(entry registry.Entry) (netapi.Service, error) {
-	var cfg netapi.I2PConfig
-	if err := m.decodeConfig(entry, &cfg); err != nil {
-		return nil, fmt.Errorf("i2p config: %w", err)
-	}
-	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("i2p config: %w", err)
-	}
-	return NewI2PService(&cfg)
-}
-
-func (m *Manager) createTailscale(entry registry.Entry) (netapi.Service, error) {
-	var cfg netapi.TailscaleConfig
-	if err := m.decodeConfig(entry, &cfg); err != nil {
-		return nil, fmt.Errorf("tailscale config: %w", err)
-	}
-	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("tailscale config: %w", err)
-	}
-	return NewTailscaleService(&cfg)
-}
-
-func (m *Manager) createOpenVPN(entry registry.Entry) (netapi.Service, error) {
-	var cfg netapi.OpenVPNConfig
-	if err := m.decodeConfig(entry, &cfg); err != nil {
-		return nil, fmt.Errorf("openvpn config: %w", err)
-	}
-	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("openvpn config: %w", err)
-	}
-	return NewOpenVPNService(&cfg)
 }

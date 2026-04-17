@@ -138,7 +138,7 @@ func TestHandler_OverlayNetworkRouting(t *testing.T) {
 	// Create a recording overlay service
 	overlaySvc := &recordingService{}
 	reg := newMockNetworkRegistry()
-	reg.register("network:test-tor", overlaySvc, netapi.KindTor)
+	reg.register("network:test-overlay", overlaySvc, netapi.KindSOCKS5)
 
 	d := NewDispatcher(WithNetworkRegistry(reg))
 	done := make(chan httpapi.Response, 1)
@@ -146,7 +146,7 @@ func TestHandler_OverlayNetworkRouting(t *testing.T) {
 	err := d.handleRequest(overlayTestCtx(), &httpapi.RequestCmd{
 		Method:         "GET",
 		URL:            ts.URL,
-		OverlayNetwork: "network:test-tor",
+		OverlayNetwork: "network:test-overlay",
 	}, 0, &testReceiver{fn: func(data any) {
 		done <- data.(httpapi.Response)
 	}})
@@ -200,7 +200,7 @@ func TestHandler_ClearnetWhenNoOverlay(t *testing.T) {
 	// Create overlay but DON'T specify it in the request
 	overlaySvc := &recordingService{}
 	reg := newMockNetworkRegistry()
-	reg.register("network:unused-tor", overlaySvc, netapi.KindTor)
+	reg.register("network:unused-overlay", overlaySvc, netapi.KindSOCKS5)
 
 	d := NewDispatcher(WithNetworkRegistry(reg))
 	done := make(chan httpapi.Response, 1)
@@ -241,7 +241,7 @@ func TestHandler_OverlayWithNoRegistry(t *testing.T) {
 	err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
 		Method:         "GET",
 		URL:            ts.URL,
-		OverlayNetwork: "network:some-tor",
+		OverlayNetwork: "network:some-overlay",
 	}, 0, &testReceiver{fn: func(data any) {
 		done <- data.(httpapi.Response)
 	}})
@@ -260,7 +260,7 @@ func TestHandler_OverlayWithNoRegistry(t *testing.T) {
 func TestHandler_OverlaySSRFProtection_PrivateIP(t *testing.T) {
 	reg := newMockNetworkRegistry()
 	overlaySvc := &recordingService{}
-	reg.register("network:test-tor", overlaySvc, netapi.KindTor)
+	reg.register("network:test-overlay", overlaySvc, netapi.KindSOCKS5)
 
 	d := NewDispatcher(WithNetworkRegistry(reg))
 
@@ -281,7 +281,7 @@ func TestHandler_OverlaySSRFProtection_PrivateIP(t *testing.T) {
 			err := d.handleRequest(context.Background(), &httpapi.RequestCmd{
 				Method:         "GET",
 				URL:            privateURL,
-				OverlayNetwork: "network:test-tor",
+				OverlayNetwork: "network:test-overlay",
 			}, 0, &testReceiver{fn: func(data any) {
 				done <- data.(httpapi.Response)
 			}})
@@ -304,7 +304,7 @@ func TestHandler_OverlaySSRFProtection_PrivateIP(t *testing.T) {
 func TestHandler_OverlayDialError(t *testing.T) {
 	// Overlay that always fails to connect
 	reg := newMockNetworkRegistry()
-	reg.register("network:broken-tor", &failingService{err: fmt.Errorf("tor circuit failed")}, netapi.KindTor)
+	reg.register("network:broken-overlay", &failingService{err: fmt.Errorf("overlay dial failed")}, netapi.KindSOCKS5)
 
 	ts := httptest.NewServer(gohttp.HandlerFunc(func(w gohttp.ResponseWriter, _ *gohttp.Request) {
 		w.WriteHeader(gohttp.StatusOK)
@@ -317,7 +317,7 @@ func TestHandler_OverlayDialError(t *testing.T) {
 	err := d.handleRequest(overlayTestCtx(), &httpapi.RequestCmd{
 		Method:         "GET",
 		URL:            ts.URL,
-		OverlayNetwork: "network:broken-tor",
+		OverlayNetwork: "network:broken-overlay",
 	}, 0, &testReceiver{fn: func(data any) {
 		done <- data.(httpapi.Response)
 	}})
@@ -326,7 +326,7 @@ func TestHandler_OverlayDialError(t *testing.T) {
 	select {
 	case resp := <-done:
 		require.NotEmpty(t, resp.Error, "should report overlay dial failure")
-		assert.Contains(t, resp.Error, "tor circuit failed")
+		assert.Contains(t, resp.Error, "overlay dial failed")
 	case <-time.After(5 * time.Second):
 		t.Fatal("timeout")
 	}
@@ -352,17 +352,17 @@ func TestHandler_OverlayBatchMixedRouting(t *testing.T) {
 
 	overlaySvc := &recordingService{}
 	reg := newMockNetworkRegistry()
-	reg.register("network:test-tor", overlaySvc, netapi.KindTor)
+	reg.register("network:test-overlay", overlaySvc, netapi.KindSOCKS5)
 
 	d := NewDispatcher(WithNetworkRegistry(reg))
 	done := make(chan httpapi.BatchResponse, 1)
 
 	err := d.handleRequestBatch(overlayTestCtx(), &httpapi.RequestBatchCmd{
 		Requests: []*httpapi.RequestCmd{
-			{Method: "GET", URL: tsClearnet.URL},                                    // clearnet
-			{Method: "GET", URL: tsOverlay.URL, OverlayNetwork: "network:test-tor"}, // overlay
-			{Method: "GET", URL: tsClearnet.URL},                                    // clearnet
-			{Method: "GET", URL: tsOverlay.URL, OverlayNetwork: "network:test-tor"}, // overlay
+			{Method: "GET", URL: tsClearnet.URL},                                        // clearnet
+			{Method: "GET", URL: tsOverlay.URL, OverlayNetwork: "network:test-overlay"}, // overlay
+			{Method: "GET", URL: tsClearnet.URL},                                        // clearnet
+			{Method: "GET", URL: tsOverlay.URL, OverlayNetwork: "network:test-overlay"}, // overlay
 		},
 	}, 0, &testReceiver{fn: func(data any) {
 		done <- data.(httpapi.BatchResponse)
@@ -405,8 +405,8 @@ func TestHandler_OverlayClientPooling(t *testing.T) {
 	svc1 := &recordingService{}
 	svc2 := &recordingService{}
 	reg := newMockNetworkRegistry()
-	reg.register("network:tor-1", svc1, netapi.KindTor)
-	reg.register("network:tor-2", svc2, netapi.KindTor)
+	reg.register("network:overlay-1", svc1, netapi.KindSOCKS5)
+	reg.register("network:overlay-2", svc2, netapi.KindSOCKS5)
 
 	d := NewDispatcher(WithNetworkRegistry(reg))
 
@@ -416,7 +416,7 @@ func TestHandler_OverlayClientPooling(t *testing.T) {
 		err := d.handleRequest(overlayTestCtx(), &httpapi.RequestCmd{
 			Method:         "GET",
 			URL:            ts.URL,
-			OverlayNetwork: "network:tor-1",
+			OverlayNetwork: "network:overlay-1",
 		}, 0, &testReceiver{fn: func(data any) {
 			done <- data.(httpapi.Response)
 		}})
@@ -435,7 +435,7 @@ func TestHandler_OverlayClientPooling(t *testing.T) {
 	err := d.handleRequest(overlayTestCtx(), &httpapi.RequestCmd{
 		Method:         "GET",
 		URL:            ts.URL,
-		OverlayNetwork: "network:tor-2",
+		OverlayNetwork: "network:overlay-2",
 	}, 0, &testReceiver{fn: func(data any) {
 		done <- data.(httpapi.Response)
 	}})
@@ -449,8 +449,8 @@ func TestHandler_OverlayClientPooling(t *testing.T) {
 	}
 
 	// Both overlay services should have been used
-	assert.Greater(t, svc1.dialCount(), 0, "tor-1 should have been called")
-	assert.Greater(t, svc2.dialCount(), 0, "tor-2 should have been called")
+	assert.Greater(t, svc1.dialCount(), 0, "overlay-1 should have been called")
+	assert.Greater(t, svc2.dialCount(), 0, "overlay-2 should have been called")
 
 	// Pool should have 2 overlay clients
 	assert.Equal(t, 2, d.pool.Size(), "pool should contain 2 overlay clients")
@@ -467,7 +467,7 @@ func TestHandler_OverlayDefaultNetworkFromContext(t *testing.T) {
 
 	overlaySvc := &recordingService{}
 	reg := newMockNetworkRegistry()
-	reg.register("network:ctx-default-tor", overlaySvc, netapi.KindTor)
+	reg.register("network:ctx-default-overlay", overlaySvc, netapi.KindSOCKS5)
 
 	d := NewDispatcher(WithNetworkRegistry(reg))
 
@@ -475,7 +475,7 @@ func TestHandler_OverlayDefaultNetworkFromContext(t *testing.T) {
 	ctx := overlayTestCtx()
 	ctx, fc := ctxapi.OpenFrameContext(ctx)
 	defer ctxapi.ReleaseFrameContext(fc)
-	err := netapi.SetDefaultNetwork(ctx, "network:ctx-default-tor")
+	err := netapi.SetDefaultNetwork(ctx, "network:ctx-default-overlay")
 	require.NoError(t, err)
 
 	done := make(chan httpapi.Response, 1)
@@ -512,7 +512,7 @@ func TestHandler_OverlayTakesPriorityOverTLS(t *testing.T) {
 
 	overlaySvc := &recordingService{}
 	reg := newMockNetworkRegistry()
-	reg.register("network:prio-tor", overlaySvc, netapi.KindTor)
+	reg.register("network:prio-overlay", overlaySvc, netapi.KindSOCKS5)
 
 	d := NewDispatcher(WithNetworkRegistry(reg))
 	done := make(chan httpapi.Response, 1)
@@ -520,7 +520,7 @@ func TestHandler_OverlayTakesPriorityOverTLS(t *testing.T) {
 	err := d.handleRequest(overlayTestCtx(), &httpapi.RequestCmd{
 		Method:         "GET",
 		URL:            ts.URL,
-		OverlayNetwork: "network:prio-tor",
+		OverlayNetwork: "network:prio-overlay",
 		TLS: &httpapi.TLSConfig{
 			InsecureSkipVerify: true,
 		},
@@ -553,8 +553,8 @@ func TestHandler_ExplicitOverlayOverridesDefaultContext(t *testing.T) {
 	ctxOverlay := &recordingService{}
 	explicitOverlay := &recordingService{}
 	reg := newMockNetworkRegistry()
-	reg.register("network:ctx-overlay", ctxOverlay, netapi.KindTor)
-	reg.register("network:explicit-overlay", explicitOverlay, netapi.KindTor)
+	reg.register("network:ctx-overlay", ctxOverlay, netapi.KindSOCKS5)
+	reg.register("network:explicit-overlay", explicitOverlay, netapi.KindSOCKS5)
 
 	d := NewDispatcher(WithNetworkRegistry(reg))
 
@@ -604,7 +604,7 @@ func TestHandler_OverlayPostWithBody(t *testing.T) {
 
 	overlaySvc := &recordingService{}
 	reg := newMockNetworkRegistry()
-	reg.register("network:test-tor", overlaySvc, netapi.KindTor)
+	reg.register("network:test-overlay", overlaySvc, netapi.KindSOCKS5)
 
 	d := NewDispatcher(WithNetworkRegistry(reg))
 	done := make(chan httpapi.Response, 1)
@@ -615,7 +615,7 @@ func TestHandler_OverlayPostWithBody(t *testing.T) {
 		URL:            ts.URL,
 		Body:           []byte(bodyData),
 		Headers:        map[string][]string{"Content-Type": {"application/json"}},
-		OverlayNetwork: "network:test-tor",
+		OverlayNetwork: "network:test-overlay",
 	}, 0, &testReceiver{fn: func(data any) {
 		done <- data.(httpapi.Response)
 	}})
@@ -645,7 +645,7 @@ func TestHandler_OverlayConcurrentRequests(t *testing.T) {
 
 	overlaySvc := &recordingService{}
 	reg := newMockNetworkRegistry()
-	reg.register("network:tor-concurrent", overlaySvc, netapi.KindTor)
+	reg.register("network:concurrent-overlay", overlaySvc, netapi.KindSOCKS5)
 
 	d := NewDispatcher(WithNetworkRegistry(reg))
 
@@ -664,7 +664,7 @@ func TestHandler_OverlayConcurrentRequests(t *testing.T) {
 			err := d.handleRequest(ctx, &httpapi.RequestCmd{
 				Method:         "GET",
 				URL:            ts.URL,
-				OverlayNetwork: "network:tor-concurrent",
+				OverlayNetwork: "network:concurrent-overlay",
 			}, 0, &testReceiver{fn: func(data any) {
 				done <- data.(httpapi.Response)
 			}})
@@ -788,7 +788,7 @@ func TestHandler_OverlayHostnamePassesThrough(t *testing.T) {
 
 	overlaySvc := &recordingService{}
 	reg := newMockNetworkRegistry()
-	reg.register("network:test-tor", overlaySvc, netapi.KindTor)
+	reg.register("network:test-overlay", overlaySvc, netapi.KindSOCKS5)
 
 	d := NewDispatcher(WithNetworkRegistry(reg))
 	done := make(chan httpapi.Response, 1)
@@ -800,7 +800,7 @@ func TestHandler_OverlayHostnamePassesThrough(t *testing.T) {
 	err := d.handleRequest(overlayTestCtx(), &httpapi.RequestCmd{
 		Method:         "GET",
 		URL:            localhostURL,
-		OverlayNetwork: "network:test-tor",
+		OverlayNetwork: "network:test-overlay",
 	}, 0, &testReceiver{fn: func(data any) {
 		done <- data.(httpapi.Response)
 	}})

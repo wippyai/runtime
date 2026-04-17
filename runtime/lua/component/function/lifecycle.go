@@ -88,10 +88,15 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 		return nil, runtimelua.NewPoolNotFoundError(task.ID.String())
 	}
 
-	// Inject default overlay network from function config into FrameContext
-	cfg := m.getConfig(task.ID)
-	if cfg != nil && cfg.network != "" {
-		task.Context = append(task.Context, netapi.DefaultNetworkPair(cfg.network))
+	// Resolve overlay network selection from merged options bag.
+	if opts, ok := task.Options.(runtime.Bag); ok {
+		if networkID := opts.GetString(netapi.OptionKeyNetwork, ""); networkID != "" {
+			reg := netapi.GetNetworkRegistry(ctx)
+			if reg == nil || !reg.HasNetwork(registry.ParseID(networkID)) {
+				return nil, netapi.ErrNetworkNotFound
+			}
+			task.Context = append(task.Context, netapi.DefaultNetworkPair(networkID))
+		}
 	}
 
 	if len(task.Context) > 0 {
@@ -130,7 +135,6 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 		method:  cfg.Method,
 		pool:    cfg.Pool,
 		source:  cfg,
-		network: cfg.Meta.GetString("network", ""),
 		options: opts,
 	}
 
@@ -182,7 +186,6 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 		method:   cfg.Method,
 		pool:     cfg.Pool,
 		bytecode: cfg,
-		network:  cfg.Meta.GetString("network", ""),
 		options:  opts,
 	}
 
@@ -231,7 +234,6 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 		method:  cfg.Method,
 		pool:    cfg.Pool,
 		source:  cfg,
-		network: cfg.Meta.GetString("network", ""),
 		options: opts,
 	}
 
@@ -276,7 +278,6 @@ func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) erro
 		method:   cfg.Method,
 		pool:     cfg.Pool,
 		bytecode: cfg,
-		network:  cfg.Meta.GetString("network", ""),
 		options:  opts,
 	}
 

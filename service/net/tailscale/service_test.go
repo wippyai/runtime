@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
-package net
+package tailscale
 
 import (
 	"context"
@@ -103,11 +103,11 @@ func (m *mockTsnetNode) getListenCalls() []listenCall {
 	return cp
 }
 
-// --- TailscaleService Unit Tests ---
+// --- Service Unit Tests ---
 
 func TestTailscaleService_ImplementsInterface(t *testing.T) {
 	mock := newMockTsnetNode()
-	svc := newTailscaleServiceWithNode(mock)
+	svc := newServiceWithNode(mock)
 	var _ netapi.Service = svc
 }
 
@@ -133,7 +133,7 @@ func TestTailscaleService_DialContext(t *testing.T) {
 		return (&net.Dialer{Timeout: 3 * time.Second}).DialContext(context.Background(), network, backend.Addr().String())
 	}
 
-	svc := newTailscaleServiceWithNode(mock)
+	svc := newServiceWithNode(mock)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -164,7 +164,7 @@ func TestTailscaleService_DialContext_VariousAddresses(t *testing.T) {
 		return c1, nil
 	}
 
-	svc := newTailscaleServiceWithNode(mock)
+	svc := newServiceWithNode(mock)
 	ctx := context.Background()
 
 	addresses := []struct {
@@ -200,7 +200,7 @@ func TestTailscaleService_DialContext_NodeDown(t *testing.T) {
 		return nil, fmt.Errorf("tailscale: node is offline")
 	}
 
-	svc := newTailscaleServiceWithNode(mock)
+	svc := newServiceWithNode(mock)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -224,7 +224,7 @@ func TestTailscaleService_DialContext_ContextCancelled(t *testing.T) {
 		}
 	}
 
-	svc := newTailscaleServiceWithNode(mock)
+	svc := newServiceWithNode(mock)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
@@ -255,7 +255,7 @@ func TestTailscaleService_DialContext_DataTransfer(t *testing.T) {
 		return c1, nil
 	}
 
-	svc := newTailscaleServiceWithNode(mock)
+	svc := newServiceWithNode(mock)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -286,7 +286,7 @@ func TestTailscaleService_Listen(t *testing.T) {
 		return realLn, nil
 	}
 
-	svc := newTailscaleServiceWithNode(mock)
+	svc := newServiceWithNode(mock)
 
 	ln, err := svc.Listen(context.Background(), "tcp", "0.0.0.0:8080")
 	require.NoError(t, err)
@@ -304,7 +304,7 @@ func TestTailscaleService_Listen_Error(t *testing.T) {
 		return nil, fmt.Errorf("tailscale: port already in use")
 	}
 
-	svc := newTailscaleServiceWithNode(mock)
+	svc := newServiceWithNode(mock)
 
 	ln, err := svc.Listen(context.Background(), "tcp", "0.0.0.0:80")
 	assert.Nil(t, ln)
@@ -313,7 +313,7 @@ func TestTailscaleService_Listen_Error(t *testing.T) {
 }
 
 func TestTailscaleService_Listen_AcceptConnections(t *testing.T) {
-	// Verify that a listener returned by TailscaleService.Listen can accept connections
+	// Verify that a listener returned by Service.Listen can accept connections
 	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer ln.Close()
@@ -323,7 +323,7 @@ func TestTailscaleService_Listen_AcceptConnections(t *testing.T) {
 		return ln, nil
 	}
 
-	svc := newTailscaleServiceWithNode(mock)
+	svc := newServiceWithNode(mock)
 
 	listener, err := svc.Listen(context.Background(), "tcp", "0.0.0.0:9090")
 	require.NoError(t, err)
@@ -354,7 +354,7 @@ func TestTailscaleService_Listen_AcceptConnections(t *testing.T) {
 
 func TestTailscaleService_ListenPacket_NotSupported(t *testing.T) {
 	mock := newMockTsnetNode()
-	svc := newTailscaleServiceWithNode(mock)
+	svc := newServiceWithNode(mock)
 
 	pc, err := svc.ListenPacket(context.Background(), "udp", "0.0.0.0:8080")
 	assert.Nil(t, pc)
@@ -364,7 +364,7 @@ func TestTailscaleService_ListenPacket_NotSupported(t *testing.T) {
 
 func TestTailscaleService_LookupHost_NotSupported(t *testing.T) {
 	mock := newMockTsnetNode()
-	svc := newTailscaleServiceWithNode(mock)
+	svc := newServiceWithNode(mock)
 
 	hosts, err := svc.LookupHost(context.Background(), "peer.tailnet")
 	assert.Nil(t, hosts)
@@ -374,7 +374,7 @@ func TestTailscaleService_LookupHost_NotSupported(t *testing.T) {
 
 func TestTailscaleService_Close(t *testing.T) {
 	mock := newMockTsnetNode()
-	svc := newTailscaleServiceWithNode(mock)
+	svc := newServiceWithNode(mock)
 
 	err := svc.Close()
 	assert.NoError(t, err)
@@ -387,7 +387,7 @@ func TestTailscaleService_Close_Error(t *testing.T) {
 		return fmt.Errorf("tailscale: shutdown timeout")
 	}
 
-	svc := newTailscaleServiceWithNode(mock)
+	svc := newServiceWithNode(mock)
 
 	err := svc.Close()
 	require.Error(t, err)
@@ -396,7 +396,7 @@ func TestTailscaleService_Close_Error(t *testing.T) {
 
 func TestTailscaleService_Close_Idempotent(t *testing.T) {
 	mock := newMockTsnetNode()
-	svc := newTailscaleServiceWithNode(mock)
+	svc := newServiceWithNode(mock)
 
 	// Close multiple times should not panic
 	for i := 0; i < 3; i++ {
@@ -417,7 +417,7 @@ func TestTailscaleService_ConcurrentDial(t *testing.T) {
 		return c1, nil
 	}
 
-	svc := newTailscaleServiceWithNode(mock)
+	svc := newServiceWithNode(mock)
 
 	const numGoroutines = 20
 	var wg sync.WaitGroup
@@ -462,7 +462,7 @@ func TestTailscaleService_ConcurrentListen(t *testing.T) {
 		return ln, nil
 	}
 
-	svc := newTailscaleServiceWithNode(mock)
+	svc := newServiceWithNode(mock)
 
 	const numGoroutines = 10
 	var wg sync.WaitGroup
@@ -501,7 +501,7 @@ func TestTailscaleService_DialAndClose(t *testing.T) {
 		return nil, ctx.Err()
 	}
 
-	svc := newTailscaleServiceWithNode(mock)
+	svc := newServiceWithNode(mock)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -606,7 +606,7 @@ func TestTailscaleService_AddressPassthrough(t *testing.T) {
 		return c1, nil
 	}
 
-	svc := newTailscaleServiceWithNode(mock)
+	svc := newServiceWithNode(mock)
 	ctx := context.Background()
 
 	addresses := []string{
@@ -652,7 +652,7 @@ func TestTailscaleService_NoDNSLeak(t *testing.T) {
 		return nil, fmt.Errorf("mock: connection refused")
 	}
 
-	svc := newTailscaleServiceWithNode(mock)
+	svc := newServiceWithNode(mock)
 	ctx := context.Background()
 
 	// These hostnames should NOT be resolved locally
@@ -685,8 +685,8 @@ func TestTailscaleService_NoDNSLeak(t *testing.T) {
 
 func TestTailscaleService_AllTrafficGoesThrough_TsnetNode(t *testing.T) {
 	// This is the Tailscale equivalent of "does all traffic go through the overlay?"
-	// For Tailscale, the answer is yes by construction: TailscaleService.DialContext
-	// delegates directly to tsnetNode.Dial, and TailscaleService.Listen delegates
+	// For Tailscale, the answer is yes by construction: Service.DialContext
+	// delegates directly to tsnetNode.Dial, and Service.Listen delegates
 	// to tsnetNode.Listen. There is no code path that bypasses the node.
 	//
 	// We verify by:
@@ -708,7 +708,7 @@ func TestTailscaleService_AllTrafficGoesThrough_TsnetNode(t *testing.T) {
 		return (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	}
 
-	svc := newTailscaleServiceWithNode(mock)
+	svc := newServiceWithNode(mock)
 	ctx := context.Background()
 
 	// Make several dials

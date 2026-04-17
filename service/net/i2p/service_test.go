@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
-package net
+package i2p
 
 import (
 	"bufio"
@@ -197,11 +197,11 @@ func samExtractField(line, key string) string {
 
 // --- I2P Service Tests ---
 
-func TestNewI2PService(t *testing.T) {
+func TestNewService(t *testing.T) {
 	cfg := &netapi.I2PConfig{
 		NetworkConfig: netapi.NetworkConfig{Host: "127.0.0.1", Port: 7656},
 	}
-	svc, err := NewI2PService(cfg)
+	svc, err := NewService(cfg)
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 
@@ -212,12 +212,12 @@ func TestNewI2PService(t *testing.T) {
 	assert.Equal(t, "wippy", svc.sessionName)
 }
 
-func TestNewI2PService_CustomSessionName(t *testing.T) {
+func TestNewService_CustomSessionName(t *testing.T) {
 	cfg := &netapi.I2PConfig{
 		NetworkConfig: netapi.NetworkConfig{Host: "127.0.0.1", Port: 7656},
 		SessionName:   "my-session",
 	}
-	svc, err := NewI2PService(cfg)
+	svc, err := NewService(cfg)
 	require.NoError(t, err)
 	assert.Equal(t, "my-session", svc.sessionName)
 }
@@ -251,7 +251,7 @@ func TestI2PService_DialContext(t *testing.T) {
 		NetworkConfig: netapi.NetworkConfig{Host: host, Port: port},
 		SessionName:   "test-dial",
 	}
-	svc, err := NewI2PService(cfg)
+	svc, err := NewService(cfg)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -308,7 +308,7 @@ func TestI2PService_DialContext_B32Address(t *testing.T) {
 	cfg := &netapi.I2PConfig{
 		NetworkConfig: netapi.NetworkConfig{Host: host, Port: port},
 	}
-	svc, err := NewI2PService(cfg)
+	svc, err := NewService(cfg)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -344,7 +344,7 @@ func TestI2PService_DialContext_SAMDown(t *testing.T) {
 	cfg := &netapi.I2PConfig{
 		NetworkConfig: netapi.NetworkConfig{Host: "127.0.0.1", Port: 19999},
 	}
-	svc, err := NewI2PService(cfg)
+	svc, err := NewService(cfg)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -370,7 +370,7 @@ func TestI2PService_DialContext_HelloFailed(t *testing.T) {
 	cfg := &netapi.I2PConfig{
 		NetworkConfig: netapi.NetworkConfig{Host: host, Port: port},
 	}
-	svc, err := NewI2PService(cfg)
+	svc, err := NewService(cfg)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -400,7 +400,7 @@ func TestI2PService_DialContext_SessionRejected(t *testing.T) {
 	cfg := &netapi.I2PConfig{
 		NetworkConfig: netapi.NetworkConfig{Host: host, Port: port},
 	}
-	svc, err := NewI2PService(cfg)
+	svc, err := NewService(cfg)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -426,7 +426,7 @@ func TestI2PService_DialContext_StreamConnectRejected(t *testing.T) {
 	cfg := &netapi.I2PConfig{
 		NetworkConfig: netapi.NetworkConfig{Host: host, Port: port},
 	}
-	svc, err := NewI2PService(cfg)
+	svc, err := NewService(cfg)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -442,7 +442,7 @@ func TestI2PService_Listen_NotSupported(t *testing.T) {
 	cfg := &netapi.I2PConfig{
 		NetworkConfig: netapi.NetworkConfig{Host: "127.0.0.1", Port: 7656},
 	}
-	svc, err := NewI2PService(cfg)
+	svc, err := NewService(cfg)
 	require.NoError(t, err)
 
 	ln, err := svc.Listen(context.Background(), "tcp", "0.0.0.0:8080")
@@ -455,7 +455,7 @@ func TestI2PService_ListenPacket_NotSupported(t *testing.T) {
 	cfg := &netapi.I2PConfig{
 		NetworkConfig: netapi.NetworkConfig{Host: "127.0.0.1", Port: 7656},
 	}
-	svc, err := NewI2PService(cfg)
+	svc, err := NewService(cfg)
 	require.NoError(t, err)
 
 	pc, err := svc.ListenPacket(context.Background(), "udp", "0.0.0.0:8080")
@@ -468,7 +468,7 @@ func TestI2PService_LookupHost_NotSupported(t *testing.T) {
 	cfg := &netapi.I2PConfig{
 		NetworkConfig: netapi.NetworkConfig{Host: "127.0.0.1", Port: 7656},
 	}
-	svc, err := NewI2PService(cfg)
+	svc, err := NewService(cfg)
 	require.NoError(t, err)
 
 	hosts, err := svc.LookupHost(context.Background(), "example.i2p")
@@ -491,7 +491,7 @@ func TestI2PService_DialContext_MultipleConnections(t *testing.T) {
 		NetworkConfig: netapi.NetworkConfig{Host: host, Port: port},
 		SessionName:   "multi-conn",
 	}
-	svc, err := NewI2PService(cfg)
+	svc, err := NewService(cfg)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -621,7 +621,7 @@ func TestI2PService_DialContext_ContextCancelled(t *testing.T) {
 	cfg := &netapi.I2PConfig{
 		NetworkConfig: netapi.NetworkConfig{Host: host, Port: port},
 	}
-	svc, err := NewI2PService(cfg)
+	svc, err := NewService(cfg)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -646,7 +646,7 @@ func TestI2PService_ConcurrentDial(t *testing.T) {
 		NetworkConfig: netapi.NetworkConfig{Host: host, Port: port},
 		SessionName:   "concurrent",
 	}
-	svc, err := NewI2PService(cfg)
+	svc, err := NewService(cfg)
 	require.NoError(t, err)
 
 	const numGoroutines = 15

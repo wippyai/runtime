@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
-package net
+package tailscale
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	netapi "github.com/wippyai/runtime/api/net"
+	"github.com/wippyai/runtime/service/net/nettest"
 	"tailscale.com/tsnet"
 )
 
@@ -175,7 +176,7 @@ func TestTailscaleE2E_TailnetIPDiffersFromRealIP(t *testing.T) {
 
 	// Get the machine's real IP
 	directClient := &gohttp.Client{Timeout: 15 * time.Second}
-	realIP := getExternalIP(t, directClient)
+	realIP := nettest.GetExternalIP(t, directClient)
 	if realIP == "" {
 		t.Skip("could not determine real IP — skipping comparison")
 	}
@@ -233,7 +234,7 @@ func TestTailscaleE2E_TrafficRoutedThroughTailnet(t *testing.T) {
 	go server.Serve(ln)
 	defer server.Close()
 
-	// --- Node B: client (uses our TailscaleService wrapper) ---
+	// --- Node B: client (uses our Service wrapper) ---
 	authKey, controlURL := tailscaleEnv()
 	cfg := &netapi.TailscaleConfig{
 		AuthKey:    authKey,
@@ -242,11 +243,11 @@ func TestTailscaleE2E_TrafficRoutedThroughTailnet(t *testing.T) {
 		Ephemeral:  true,
 		StateDir:   t.TempDir(),
 	}
-	svcB, err := NewTailscaleService(cfg)
+	svcB, err := NewService(cfg)
 	require.NoError(t, err, "client node should start")
 	defer svcB.Close()
 
-	// Create HTTP client that routes through our TailscaleService
+	// Create HTTP client that routes through our Service
 	client := &gohttp.Client{
 		Transport: &gohttp.Transport{
 			DialContext: svcB.DialContext,
@@ -336,7 +337,7 @@ func TestTailscaleE2E_FullHTTPRequest(t *testing.T) {
 
 	// --- Client node ---
 	authKey, controlURL := tailscaleEnv()
-	svc, err := NewTailscaleService(&netapi.TailscaleConfig{
+	svc, err := NewService(&netapi.TailscaleConfig{
 		AuthKey:    authKey,
 		ControlURL: controlURL,
 		Hostname:   fmt.Sprintf("wippy-e2e-httpc-%d", ts),
@@ -439,7 +440,7 @@ func TestTailscaleE2E_BidirectionalDataTransfer(t *testing.T) {
 
 	// --- Client node ---
 	authKey, controlURL := tailscaleEnv()
-	svc, err := NewTailscaleService(&netapi.TailscaleConfig{
+	svc, err := NewService(&netapi.TailscaleConfig{
 		AuthKey:    authKey,
 		ControlURL: controlURL,
 		Hostname:   fmt.Sprintf("wippy-e2e-echoc-%d", ts),
@@ -507,7 +508,7 @@ func TestTailscaleE2E_DNSNotLeaked(t *testing.T) {
 		StateDir:   stateDir,
 	}
 
-	svc, err := NewTailscaleService(cfg)
+	svc, err := NewService(cfg)
 	require.NoError(t, err)
 	defer svc.Close()
 

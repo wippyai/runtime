@@ -16,3 +16,12 @@ const (
 	ContractName          boot.Name = "contract"
 	InterceptorRetryName  boot.Name = "interceptor-retry"
 )
+
+// Network service config keys, read from the network_service subsection of
+// .wippy.yaml. StateDir is the base directory for driver-local state (tsnet
+// keys, future I2P session files, etc.); relative paths resolve against
+// boot.config_dir.
+const (
+	NetworkStateDir        = "state_dir"
+	DefaultNetworkStateDir = ".wippy/net"
+)

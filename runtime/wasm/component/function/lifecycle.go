@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/runtime/wasm"
@@ -68,6 +69,17 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 
 	if !exists {
 		return nil, runtimewasm.NewPoolNotFoundError(task.ID.String())
+	}
+
+	// Resolve overlay network selection from merged options bag.
+	if opts, ok := task.Options.(runtime.Bag); ok {
+		if networkID := opts.GetString(netapi.OptionKeyNetwork, ""); networkID != "" {
+			reg := netapi.GetNetworkRegistry(ctx)
+			if reg == nil || !reg.HasNetwork(registry.ParseID(networkID)) {
+				return nil, netapi.ErrNetworkNotFound
+			}
+			task.Context = append(task.Context, netapi.DefaultNetworkPair(networkID))
+		}
 	}
 
 	if len(task.Context) > 0 {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
-package net
+package i2p
 
 import (
 	"bufio"
@@ -16,9 +16,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	netapi "github.com/wippyai/runtime/api/net"
+	"github.com/wippyai/runtime/service/net/nettest"
 )
 
-// TestI2PE2E_SAMHandshake verifies that the I2PService can complete the full
+// TestI2PE2E_SAMHandshake verifies that the Service can complete the full
 // SAM v3 handshake (HELLO + SESSION CREATE) with a real I2P router.
 //
 // This is the first E2E validation: proving that we speak correct SAM v3
@@ -33,7 +34,7 @@ func TestI2PE2E_SAMHandshake(t *testing.T) {
 		NetworkConfig: netapi.NetworkConfig{Host: host, Port: port},
 		SessionName:   fmt.Sprintf("wippy-e2e-handshake-%d", time.Now().UnixNano()),
 	}
-	svc, err := NewI2PService(cfg)
+	svc, err := NewService(cfg)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -94,7 +95,7 @@ func TestI2PE2E_TrafficRoutedThroughI2P(t *testing.T) {
 		NetworkConfig: netapi.NetworkConfig{Host: host, Port: port},
 		SessionName:   fmt.Sprintf("wippy-e2e-http-%d", time.Now().UnixNano()),
 	}
-	svc, err := NewI2PService(cfg)
+	svc, err := NewService(cfg)
 	require.NoError(t, err)
 
 	client := &gohttp.Client{
@@ -172,7 +173,7 @@ func TestI2PE2E_DNSNotLeaked(t *testing.T) {
 		NetworkConfig: netapi.NetworkConfig{Host: host, Port: port},
 		SessionName:   fmt.Sprintf("wippy-e2e-dns-%d", time.Now().UnixNano()),
 	}
-	svc, err := NewI2PService(cfg)
+	svc, err := NewService(cfg)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -211,7 +212,7 @@ func TestI2PE2E_RawSAMProtocol(t *testing.T) {
 	skipIfNoI2P(t)
 
 	host, port := i2pAddr()
-	addr := net.JoinHostPort(host, portToString(port))
+	addr := net.JoinHostPort(host, nettest.PortToString(port))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
