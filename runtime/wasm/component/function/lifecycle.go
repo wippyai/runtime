@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/runtime/wasm"
@@ -68,6 +69,11 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 
 	if !exists {
 		return nil, runtimewasm.NewPoolNotFoundError(task.ID.String())
+	}
+
+	var err error
+	if task.Context, err = netapi.ApplyOverlayPair(ctx, task.Options, task.Context); err != nil {
+		return nil, err
 	}
 
 	if len(task.Context) > 0 {

@@ -39,7 +39,7 @@ func TestSecureService_DialContext_Denied(t *testing.T) {
 
 	conn, err := svc.DialContext(strictCtx(), "tcp", "example.com:80")
 	assert.Nil(t, conn)
-	require.ErrorIs(t, err, ErrAccessDenied)
+	require.ErrorIs(t, err, netapi.ErrAccessDenied)
 }
 
 func TestSecureService_Listen_Denied(t *testing.T) {
@@ -47,7 +47,7 @@ func TestSecureService_Listen_Denied(t *testing.T) {
 
 	ln, err := svc.Listen(strictCtx(), "tcp", "127.0.0.1:0")
 	assert.Nil(t, ln)
-	require.ErrorIs(t, err, ErrAccessDenied)
+	require.ErrorIs(t, err, netapi.ErrAccessDenied)
 }
 
 func TestSecureService_LookupHost_Denied(t *testing.T) {
@@ -55,7 +55,7 @@ func TestSecureService_LookupHost_Denied(t *testing.T) {
 
 	addrs, err := svc.LookupHost(strictCtx(), "example.com")
 	assert.Nil(t, addrs)
-	require.ErrorIs(t, err, ErrAccessDenied)
+	require.ErrorIs(t, err, netapi.ErrAccessDenied)
 }
 
 func TestSecureService_Listen_Allowed(t *testing.T) {
@@ -94,7 +94,7 @@ func TestSecureService_ListenPacket_Denied(t *testing.T) {
 
 	conn, err := svc.ListenPacket(strictCtx(), "udp", "127.0.0.1:0")
 	assert.Nil(t, conn)
-	require.ErrorIs(t, err, ErrAccessDenied)
+	require.ErrorIs(t, err, netapi.ErrAccessDenied)
 }
 
 func TestSecureService_ListenPacket_Allowed(t *testing.T) {

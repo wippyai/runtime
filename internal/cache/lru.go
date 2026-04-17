@@ -17,6 +17,7 @@ type Cache[K comparable, V any] struct {
 	items       map[K]*list.Element
 	evictList   *list.List
 	stopCleanup chan struct{}
+	onEvict     func(K, V)
 	capacity    int
 	ttl         time.Duration
 	mu          sync.RWMutex
@@ -29,33 +30,50 @@ type entry[K comparable, V any] struct {
 	expiration time.Time
 }
 
-// Option defines functional options for Cache
+// Option defines functional options for Cache.
 type Option func(*config)
 
 type config struct {
+	// onEvict is stored type-erased because Option is non-generic — the
+	// typed callback is unwrapped in New once K and V are known and a
+	// mismatched type fails loudly there rather than being silently dropped.
+	onEvict    any
 	capacity   int
 	ttl        time.Duration
 	gcInterval time.Duration
 }
 
-// WithCapacity sets cache capacity
+// WithCapacity sets cache capacity.
 func WithCapacity(capacity int) Option {
 	return func(c *config) {
 		c.capacity = capacity
 	}
 }
 
-// WithTTL sets time-to-live for cache entries
+// WithTTL sets time-to-live for cache entries.
 func WithTTL(ttl time.Duration) Option {
 	return func(c *config) {
 		c.ttl = ttl
 	}
 }
 
-// WithGCInterval sets the interval for background garbage collection of expired entries
+// WithGCInterval sets the interval for background garbage collection of
+// expired entries.
 func WithGCInterval(interval time.Duration) Option {
 	return func(c *config) {
 		c.gcInterval = interval
+	}
+}
+
+// WithOnEvict registers a callback fired whenever an entry leaves the cache:
+// cap-based eviction, explicit Delete, TTL expiry during Get, or GC
+// cleanup. The callback runs synchronously under the cache's write lock, so
+// it must be fast and must not call back into the cache. K and V are
+// inferred from fn's signature and must match the cache's type parameters;
+// a mismatch panics at New time.
+func WithOnEvict[K comparable, V any](fn func(K, V)) Option {
+	return func(c *config) {
+		c.onEvict = fn
 	}
 }
 
@@ -81,6 +99,14 @@ func New[K comparable, V any](opts ...Option) *Cache[K, V] {
 		items:       make(map[K]*list.Element),
 		evictList:   list.New(),
 		stopCleanup: make(chan struct{}),
+	}
+
+	if cfg.onEvict != nil {
+		fn, ok := cfg.onEvict.(func(K, V))
+		if !ok {
+			panic("lru: WithOnEvict callback type does not match Cache[K, V]")
+		}
+		cache.onEvict = fn
 	}
 
 	// Serve cleanup goroutine if TTL is enabled
@@ -223,6 +249,9 @@ func (c *Cache[K, V]) removeElement(element *list.Element) {
 	e := element.Value.(*entry[K, V])
 	delete(c.items, e.key)
 	c.evictList.Remove(element)
+	if c.onEvict != nil {
+		c.onEvict(e.key, e.value)
+	}
 }
 
 func (c *Cache[K, V]) evictOldest() {

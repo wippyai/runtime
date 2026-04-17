@@ -53,6 +53,15 @@ func NewFileLoader(log *zap.Logger) *FileLoader {
 		}
 	}
 
+	// Skip network overlay tests when SKIP_NETWORK_TESTS is set. These
+	// require a running docker-compose stack (socks5-proxy container).
+	if os.Getenv("SKIP_NETWORK_TESTS") != "" {
+		skipDirs["network"] = true
+		if log != nil {
+			log.Info("SKIP_NETWORK_TESTS is set, skipping network directories")
+		}
+	}
+
 	// Support SKIP_TEST_DIRS for arbitrary directory skipping (comma-separated)
 	if dirs := os.Getenv("SKIP_TEST_DIRS"); dirs != "" {
 		for _, dir := range strings.Split(dirs, ",") {
