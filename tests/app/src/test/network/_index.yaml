@@ -255,6 +255,32 @@ entries:
     imports:
       assert2: app.lib:assert
 
+  # http.service entry that binds through a SOCKS5 overlay. SOCKS5 does not
+  # actually support Listen so auto_start is off — this entry exists so the
+  # YAML/config pipeline parses `network:` at the top level and stores it as
+  # data.network, which the http_server_overlay_config test verifies.
+  - name: overlay_http_service
+    kind: http.service
+    meta:
+      comment: HTTP service declaring a backing overlay network
+    addr: 127.0.0.1:0
+    network: app.test.network:fast_socks5
+
+  # Registry-level check: the overlay_http_service entry parses `network:` as
+  # data.network and preserves the ID through the transcoder roundtrip.
+  - name: http_server_overlay_config
+    kind: function.lua
+    meta:
+      type: test
+      suite: network
+      description: http.service network field is stored as data.network
+    source: file://http_server_overlay_config.lua
+    method: main
+    modules:
+      - registry
+    imports:
+      assert2: app.lib:assert
+
   # Inherited overlay must not be gated by the descendant's own deny scope
   - name: inherited_bypasses_deny
     kind: function.lua
