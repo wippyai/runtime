@@ -11,7 +11,7 @@ local time = require("time")
 local function main()
 	local events_ch = process.events()
 
-	local child_pid, err = process.spawn_monitored(
+	local _, err = process.spawn_monitored(
 		"app.test.network:cross_edge_worker",
 		"app:processes"
 	)

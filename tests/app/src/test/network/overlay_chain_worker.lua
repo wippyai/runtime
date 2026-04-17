@@ -10,7 +10,7 @@ local time = require("time")
 local function main()
 	local events_ch = process.events()
 
-	local grand_pid, err = process.spawn_monitored(
+	local _, err = process.spawn_monitored(
 		"app.test.network:overlay_worker",
 		"app:processes"
 	)
