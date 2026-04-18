@@ -780,6 +780,10 @@ func (a *amqpAttachment) wait(d *Driver, delay time.Duration) bool {
 }
 
 func (d *Driver) DeclareQueue(_ context.Context, queueID registry.ID, cfg *queueapi.Config) error {
+	if err := queuesvc.ValidateCodec(d.tc, queueCodec(cfg)); err != nil {
+		return err
+	}
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
 

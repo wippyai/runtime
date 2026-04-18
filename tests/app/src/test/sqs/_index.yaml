@@ -45,7 +45,7 @@ entries:
     meta:
       comment: SQS tasks queue
     driver: app.test.sqs:sqs_driver
-    codec: json
+    codec: json/plain
 
   # Shared message handler (records outcomes into the in-memory store
   # so tests can assert on handler-side observations).

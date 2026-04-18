@@ -4,28 +4,8 @@ package queue
 
 import (
 	"github.com/wippyai/runtime/api/attrs"
-	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 )
-
-// CanonicalCodec resolves a user-facing codec alias (e.g. "json", "msgpack",
-// "yaml") to the registered payload.Format constant. Unknown aliases are
-// returned unchanged so callers can still pass driver-specific formats.
-func CanonicalCodec(codec string) string {
-	switch codec {
-	case "", "json":
-		return payload.JSON
-	case "msgpack":
-		return payload.MsgPack
-	case "yaml":
-		return payload.YAML
-	case "bytes":
-		return payload.Bytes
-	case "string":
-		return payload.String
-	}
-	return codec
-}
 
 // Config is the queue.queue registry-entry shape and the typed input to
 // Driver.DeclareQueue. Universal fields sit at the top; broker-specific
@@ -40,8 +20,9 @@ type Config struct {
 	// queue entry's registry ID name is used.
 	QueueName string `json:"queue_name,omitempty"`
 
-	// Codec selects the per-queue serialization format for message bodies
-	// (e.g. "json", "msgpack"). Passed to the payload transcoder.
+	// Codec selects the per-queue serialization format for message bodies.
+	// Must match a payload.Format registered on the transcoder (e.g.
+	// payload.JSON, payload.MsgPack). Empty defaults to payload.JSON.
 	Codec string `json:"codec,omitempty"`
 
 	// DeadLetter configures dead-letter routing at the manager layer.

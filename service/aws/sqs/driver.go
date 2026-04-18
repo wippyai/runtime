@@ -102,11 +102,9 @@ func queueName(queueID registry.ID, cfg *queueapi.Config) string {
 }
 
 // queueCodec returns the wire codec format for a queue, defaulting to JSON.
-// Resolves user-facing aliases ("json", "msgpack") to registered payload
-// format strings so the transcoder can find a conversion path.
 func queueCodec(cfg *queueapi.Config) string {
-	if cfg != nil {
-		return queueapi.CanonicalCodec(cfg.Codec)
+	if cfg != nil && cfg.Codec != "" {
+		return cfg.Codec
 	}
 	return payload.JSON
 }
@@ -610,6 +608,10 @@ func (d *Driver) buildQueueAttributes(name string, cfg *queueapi.Config) map[str
 }
 
 func (d *Driver) DeclareQueue(ctx context.Context, queueID registry.ID, cfg *queueapi.Config) error {
+	if err := queuesvc.ValidateCodec(d.tc, queueCodec(cfg)); err != nil {
+		return err
+	}
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
 

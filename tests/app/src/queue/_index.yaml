@@ -18,7 +18,7 @@ entries:
     meta:
       comment: Task processing queue
     driver: app.queue:memory_driver
-    codec: json
+    codec: json/plain
     driver_options:
       memory:
         max_length: 500
