@@ -21,6 +21,14 @@ var messageType = typ.NewInterface("queue.Message", []typ.Method{
 		Name: "headers",
 		Type: typ.Func().Param("_", typ.Self).Returns(typ.NewMap(typ.String, typ.Any), typ.NewOptional(typ.LuaError)).Build(),
 	},
+	{
+		Name: "ack",
+		Type: typ.Func().Param("_", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build(),
+	},
+	{
+		Name: "nack",
+		Type: typ.Func().Param("_", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build(),
+	},
 })
 
 // ModuleTypes returns the type manifest for the queue module.
@@ -37,6 +45,10 @@ func ModuleTypes() *io.Manifest {
 		{
 			Name: "message",
 			Type: typ.Func().Returns(messageType, typ.NewOptional(typ.LuaError)).Build(),
+		},
+		{
+			Name: "info",
+			Type: typ.Func().Param("id", typ.String).Returns(typ.NewMap(typ.String, typ.Any), typ.NewOptional(typ.LuaError)).Build(),
 		},
 	})
 

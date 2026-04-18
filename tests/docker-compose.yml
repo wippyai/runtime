@@ -152,6 +152,23 @@ services:
       timeout: 5s
       retries: 5
 
+  # ElasticMQ (SQS-compatible message queue) for SQS queue driver tests.
+  # Lightweight alternative to LocalStack when only SQS is needed.
+  elasticmq:
+    image: softwaremill/elasticmq-native:1.6.11
+    container_name: elasticmq
+    ports:
+      - "9324:9324"    # REST API
+      - "9325:9325"    # Management UI
+    networks:
+      - app-network
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -q --spider http://localhost:9325/ || exit 1" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+
   # Tor SOCKS5 Proxy for network overlay tests
   tor-proxy:
     image: dperson/torproxy:latest

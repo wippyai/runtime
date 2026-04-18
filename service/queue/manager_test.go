@@ -103,7 +103,7 @@ func TestManager_QueueDeclare(t *testing.T) {
 		ID:       queueID,
 		DriverID: driverID,
 		Name:     "my-queue",
-		Options:  attrs.NewBag(),
+		Config:   &queueapi.Config{},
 	}
 
 	bus.Send(ctx, event.Event{
@@ -137,7 +137,7 @@ func TestManager_QueueDeclare_DriverNotFound(t *testing.T) {
 		ID:       queueID,
 		DriverID: driverID,
 		Name:     "my-queue",
-		Options:  attrs.NewBag(),
+		Config:   &queueapi.Config{},
 	}
 
 	bus.Send(ctx, event.Event{
@@ -169,7 +169,7 @@ func TestManager_Publish(t *testing.T) {
 		ID:       queueID,
 		DriverID: driverID,
 		Name:     "my-queue",
-		Options:  attrs.NewBag(),
+		Config:   &queueapi.Config{},
 	}
 	mgr.queues.Store(queueID, queueEntry)
 
@@ -205,7 +205,7 @@ func TestManager_Publish_DriverNotFound(t *testing.T) {
 		ID:       queueID,
 		DriverID: driverID,
 		Name:     "my-queue",
-		Options:  attrs.NewBag(),
+		Config:   &queueapi.Config{},
 	}
 	mgr.queues.Store(queueID, queueEntry)
 
@@ -250,7 +250,7 @@ func TestManager_QueueDelete(t *testing.T) {
 		ID:       queueID,
 		DriverID: registry.NewID("test", "driver"),
 		Name:     "my-queue",
-		Options:  attrs.NewBag(),
+		Config:   &queueapi.Config{},
 	}
 	mgr.queues.Store(queueID, queueEntry)
 
@@ -284,7 +284,7 @@ func TestManager_PublishWithInterceptor(t *testing.T) {
 		ID:       queueID,
 		DriverID: driverID,
 		Name:     "my-queue",
-		Options:  attrs.NewBag(),
+		Config:   &queueapi.Config{},
 	}
 	mgr.queues.Store(queueID, queueEntry)
 
@@ -326,12 +326,12 @@ func (m *mockDriver) Publish(_ context.Context, _ registry.ID, _ ...*queueapi.Me
 	return nil
 }
 
-func (m *mockDriver) Attach(_ context.Context, _ registry.ID, _ chan<- *queueapi.Delivery) (context.CancelFunc, error) {
+func (m *mockDriver) Attach(_ context.Context, _ registry.ID, _ *queueapi.ConsumerOptions, _ chan<- *queueapi.Delivery) (context.CancelFunc, error) {
 	m.attachCalled = true
 	return func() {}, nil
 }
 
-func (m *mockDriver) DeclareQueue(_ context.Context, _ registry.ID, _ attrs.Attributes) error {
+func (m *mockDriver) DeclareQueue(_ context.Context, _ registry.ID, _ *queueapi.Config) error {
 	m.declareQueueCalled = true
 	return nil
 }

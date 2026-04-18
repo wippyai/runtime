@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	queueapi "github.com/wippyai/runtime/api/queue"
@@ -17,9 +18,33 @@ import (
 
 // mockManager implements queueapi.Manager for testing
 type mockManager struct {
+	driver    queueapi.Driver
 	queues    map[string]bool
 	published []*publishedMsg
 	mu        sync.Mutex
+}
+
+// mockInfoDriver implements queueapi.Driver for tests that exercise
+// queue.info — only GetQueueInfo returns non-trivial data; the other
+// methods are no-op stubs.
+type mockInfoDriver struct {
+	info attrs.Bag
+}
+
+func (d *mockInfoDriver) Publish(context.Context, registry.ID, ...*queueapi.Message) error {
+	return nil
+}
+
+func (d *mockInfoDriver) Attach(context.Context, registry.ID, *queueapi.ConsumerOptions, chan<- *queueapi.Delivery) (context.CancelFunc, error) {
+	return func() {}, nil
+}
+
+func (d *mockInfoDriver) DeclareQueue(context.Context, registry.ID, *queueapi.Config) error {
+	return nil
+}
+
+func (d *mockInfoDriver) GetQueueInfo(context.Context, registry.ID) (attrs.Attributes, error) {
+	return d.info, nil
 }
 
 type publishedMsg struct {
@@ -48,6 +73,9 @@ func (m *mockManager) Publish(_ context.Context, queue registry.ID, msgs ...*que
 }
 
 func (m *mockManager) GetDriver(registry.ID) (queueapi.Driver, bool) {
+	if m.driver != nil {
+		return m.driver, true
+	}
 	return nil, false
 }
 
@@ -101,6 +129,10 @@ func setupStateWithManager(mgr *mockManager) *lua.LState {
 }
 
 func setupStateWithDelivery(msg *queueapi.Message) *lua.LState {
+	return setupStateWithDeliveryCounters(msg, nil, nil)
+}
+
+func setupStateWithDeliveryCounters(msg *queueapi.Message, ackCount, nackCount *int) *lua.LState {
 	l := lua.NewState()
 	lua.OpenErrors(l)
 	tbl, _ := Module.Build()
@@ -115,8 +147,18 @@ func setupStateWithDelivery(msg *queueapi.Message) *lua.LState {
 
 	delivery := &queueapi.Delivery{
 		Message: msg,
-		Ack:     func(context.Context) error { return nil },
-		Nack:    func(context.Context) error { return nil },
+		Ack: func(context.Context) error {
+			if ackCount != nil {
+				*ackCount++
+			}
+			return nil
+		},
+		Nack: func(context.Context) error {
+			if nackCount != nil {
+				*nackCount++
+			}
+			return nil
+		},
 	}
 	_ = queueapi.WithDelivery(ctx, delivery)
 
@@ -534,6 +576,123 @@ func TestMessageMethodsExist(t *testing.T) {
 		if type(msg.id) ~= "function" then error("msg:id should be a method") end
 		if type(msg.header) ~= "function" then error("msg:header should be a method") end
 		if type(msg.headers) ~= "function" then error("msg:headers should be a method") end
+		if type(msg.ack) ~= "function" then error("msg:ack should be a method") end
+		if type(msg.nack) ~= "function" then error("msg:nack should be a method") end
+	`)
+	if err != nil {
+		t.Errorf("test failed: %v", err)
+	}
+}
+
+func TestMessageAck(t *testing.T) {
+	msg := queueapi.NewMessageWithID("ack-test", payload.NewPayload("data", payload.String))
+
+	var acks, nacks int
+	l := setupStateWithDeliveryCounters(msg, &acks, &nacks)
+	defer l.Close()
+
+	err := l.DoString(`
+		local msg = queue.message()
+		local ok, err = msg:ack()
+		if err then error("unexpected error: " .. tostring(err)) end
+		if ok ~= true then error("expected true") end
+	`)
+	if err != nil {
+		t.Errorf("test failed: %v", err)
+	}
+	if acks != 1 {
+		t.Errorf("expected 1 ack call, got %d", acks)
+	}
+	if nacks != 0 {
+		t.Errorf("expected 0 nack calls, got %d", nacks)
+	}
+}
+
+func TestMessageNack(t *testing.T) {
+	msg := queueapi.NewMessageWithID("nack-test", payload.NewPayload("data", payload.String))
+
+	var acks, nacks int
+	l := setupStateWithDeliveryCounters(msg, &acks, &nacks)
+	defer l.Close()
+
+	err := l.DoString(`
+		local msg = queue.message()
+		local ok, err = msg:nack()
+		if err then error("unexpected error: " .. tostring(err)) end
+		if ok ~= true then error("expected true") end
+	`)
+	if err != nil {
+		t.Errorf("test failed: %v", err)
+	}
+	if nacks != 1 {
+		t.Errorf("expected 1 nack call, got %d", nacks)
+	}
+	if acks != 0 {
+		t.Errorf("expected 0 ack calls, got %d", acks)
+	}
+}
+
+func TestInfoNoContext(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	lua.OpenErrors(l)
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local info, err = queue.info("test:q")
+		if info ~= nil then error("expected nil info") end
+		if not err then error("expected error") end
+		if err:kind() ~= errors.INVALID then error("expected INVALID") end
+	`)
+	if err != nil {
+		t.Errorf("test failed: %v", err)
+	}
+}
+
+// TestInfoReturnsAllStatsKeys asserts queue.info exposes every key from the
+// driver's info bag, not a hardcoded subset. Drivers can attach broker-specific
+// stats (e.g. "unacked_count", "x-delivery-rate") and callers must see them.
+func TestInfoReturnsAllStatsKeys(t *testing.T) {
+	info := attrs.NewBag()
+	info.Set(queueapi.StatsMessageCount, 10)
+	info.Set(queueapi.StatsConsumerCount, 2)
+	info.Set(queueapi.StatsReady, true)
+	info.Set("unacked_count", 7)
+	info.Set("x-delivery-rate", 3.14)
+
+	mgr := newMockManager()
+	mgr.driver = &mockInfoDriver{info: info}
+	mgr.addQueue("test:myqueue")
+
+	l := setupStateWithManager(mgr)
+	defer l.Close()
+
+	err := l.DoString(`
+		local info, err = queue.info("test:myqueue")
+		if err then error("unexpected error: " .. tostring(err)) end
+		if not info then error("expected info table") end
+		if info.message_count ~= 10 then error("message_count mismatch") end
+		if info.consumer_count ~= 2 then error("consumer_count mismatch") end
+		if info.ready ~= true then error("ready mismatch") end
+		if info.unacked_count ~= 7 then error("unacked_count missing or wrong: " .. tostring(info.unacked_count)) end
+		if info["x-delivery-rate"] ~= 3.14 then error("x-delivery-rate missing") end
+	`)
+	if err != nil {
+		t.Errorf("test failed: %v", err)
+	}
+}
+
+func TestInfoQueueNotFound(t *testing.T) {
+	mgr := newMockManager()
+	l := setupStateWithManager(mgr)
+	defer l.Close()
+
+	err := l.DoString(`
+		local info, err = queue.info("test:missing")
+		if info ~= nil then error("expected nil info") end
+		if not err then error("expected error") end
+		if err:kind() ~= errors.INTERNAL then error("expected INTERNAL") end
 	`)
 	if err != nil {
 		t.Errorf("test failed: %v", err)

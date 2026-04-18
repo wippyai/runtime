@@ -71,18 +71,17 @@ func (r *timerRegistry) startWithCallback(d time.Duration, callback func()) uint
 			return
 		}
 
+		// Entries without callbacks are removed by wait/stop to preserve explicit lifecycle.
+		// Delete before callback so that any observer reacting to the callback
+		// sees the entry already gone (e.g. stop() returns ErrTimerNotFound).
 		if entry.callback != nil {
+			r.deleteEntry(shard, id)
 			entry.callback()
 		}
 
 		select {
 		case entry.firedC <- time.Now():
 		default:
-		}
-
-		// Entries without callbacks are removed by wait/stop to preserve explicit lifecycle.
-		if entry.callback != nil {
-			r.deleteEntry(shard, id)
 		}
 	})
 

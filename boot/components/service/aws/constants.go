@@ -5,6 +5,7 @@ package aws
 import "github.com/wippyai/runtime/api/boot"
 
 const (
-	ConfigName boot.Name = "aws_config"
-	S3Name     boot.Name = "s3"
+	ConfigName boot.Name = "aws.config"
+	S3Name     boot.Name = "aws.s3"
+	SQSName    boot.Name = "queue.sqs"
 )
