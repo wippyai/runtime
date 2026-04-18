@@ -55,7 +55,7 @@ func TestAMQPDriver_Watcher_ShutdownDuringReconnectBackoff(t *testing.T) {
 
 			// Force the watcher into its reconnect backoff by having
 			// the broker drop the connection abnormally.
-			_ = exec.Command("docker", "exec", testContainer,
+			_ = exec.CommandContext(ctx, "docker", "exec", testContainer,
 				"rabbitmqctl", "close_all_connections", "watcher-race").Run()
 
 			// Short sleep so the watcher enters the backoff and starts

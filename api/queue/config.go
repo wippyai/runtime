@@ -13,24 +13,11 @@ import (
 // "sqs", "kafka"). A driver reads only its own sub-bag; keys for other
 // drivers are dormant.
 type Config struct {
-	// Driver is the registry ID of the driver instance backing this queue.
-	Driver registry.ID `json:"driver"`
-
-	// QueueName overrides the broker-side queue/topic name. When empty the
-	// queue entry's registry ID name is used.
-	QueueName string `json:"queue_name,omitempty"`
-
-	// Codec selects the per-queue serialization format for message bodies.
-	// Must match a payload.Format registered on the transcoder (e.g.
-	// payload.JSON, payload.MsgPack). Empty defaults to payload.JSON.
-	Codec string `json:"codec,omitempty"`
-
-	// DeadLetter configures dead-letter routing at the manager layer.
-	DeadLetter *DeadLetter `json:"dead_letter,omitempty"`
-
-	// DriverOptions carries driver-specific queue options under a per-driver
-	// sub-bag. Example: {"amqp": {"durable": true, "message_ttl": "15m"}}.
-	DriverOptions attrs.Bag `json:"driver_options,omitempty"`
+	DeadLetter    *DeadLetter `json:"dead_letter,omitempty"`
+	DriverOptions attrs.Bag   `json:"driver_options,omitempty"`
+	Driver        registry.ID `json:"driver"`
+	QueueName     string      `json:"queue_name,omitempty"`
+	Codec         string      `json:"codec,omitempty"`
 }
 
 // DeadLetter configures dead-letter handling for a queue.
@@ -71,12 +58,12 @@ func (c *Config) DriverBag(driver string) attrs.Bag {
 // typed input to Driver.Attach. Universal fields at the top; broker-
 // specific keys under DriverOptions.
 type ConsumerOptions struct {
+	DriverOptions attrs.Bag   `json:"driver_options,omitempty"`
 	Queue         registry.ID `json:"queue"`
 	Func          registry.ID `json:"func"`
 	Concurrency   int         `json:"concurrency"`
 	Prefetch      int         `json:"prefetch"`
 	AutoAck       bool        `json:"auto_ack,omitempty"`
-	DriverOptions attrs.Bag   `json:"driver_options,omitempty"`
 }
 
 // DriverBag returns the sub-bag of DriverOptions for the named driver.

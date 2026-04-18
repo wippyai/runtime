@@ -5,8 +5,8 @@ package queue
 import (
 	"testing"
 
-	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/payload"
+	queueapi "github.com/wippyai/runtime/api/queue"
 )
 
 // The consumer releases the pooled *Message back to sync.Pool as soon

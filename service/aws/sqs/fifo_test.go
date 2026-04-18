@@ -23,14 +23,14 @@ func mustSQSCfg() *sqsapi.Config {
 // "*.fifo" queue must therefore add the attribute automatically.
 func TestIsFIFOName(t *testing.T) {
 	cases := map[string]bool{
-		"orders.fifo":      true,
-		"test.queue.fifo":  true,
-		"orders":           false,
-		"fifo":             false, // must end with .fifo, not equal
-		"":                 false,
-		"with-dash.fifo":   true,
-		"dots.in.it.fifo":  true,
-		"orders.fifo.bak":  false,
+		"orders.fifo":     true,
+		"test.queue.fifo": true,
+		"orders":          false,
+		"fifo":            false, // must end with .fifo, not equal
+		"":                false,
+		"with-dash.fifo":  true,
+		"dots.in.it.fifo": true,
+		"orders.fifo.bak": false,
 	}
 	for name, want := range cases {
 		t.Run(name, func(t *testing.T) {

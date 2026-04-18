@@ -86,7 +86,7 @@ func TestAMQPDriver_Redeclare_IndependentChannelsPerQueue(t *testing.T) {
 	// reconnect and GetQueueInfo would succeed even if redeclare was
 	// skipped, masking the shared-channel bug.
 	for _, id := range cleanIDs {
-		out, derr := exec.Command("docker", "exec", testContainer,
+		out, derr := exec.CommandContext(ctx, "docker", "exec", testContainer,
 			"rabbitmqctl", "delete_queue", id.Name).CombinedOutput()
 		if derr != nil {
 			t.Skipf("could not delete queue %s: %v\n%s", id.Name, derr, out)
@@ -101,7 +101,7 @@ func TestAMQPDriver_Redeclare_IndependentChannelsPerQueue(t *testing.T) {
 
 	// Force a broker-initiated close so the reconnect path (which calls
 	// redeclareQueuesLocked) runs.
-	out, err := exec.Command("docker", "exec", testContainer,
+	out, err := exec.CommandContext(ctx, "docker", "exec", testContainer,
 		"rabbitmqctl", "close_all_connections", "test-redeclare-channels").CombinedOutput()
 	if err != nil {
 		t.Skipf("could not force-close AMQP connections: %v\n%s", err, out)

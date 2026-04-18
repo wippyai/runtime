@@ -3,6 +3,7 @@
 package queue_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -40,8 +41,8 @@ func TestValidateCodec_UnknownCodecRejected(t *testing.T) {
 	err := queuesvc.ValidateCodec(tc, "not-a-real-format")
 	require.Error(t, err)
 
-	rich, ok := err.(apierror.Error)
-	require.True(t, ok, "error must be structured apierror")
+	var rich apierror.Error
+	require.True(t, errors.As(err, &rich), "error must be structured apierror")
 	require.Equal(t, apierror.Invalid, rich.Kind())
 }
 

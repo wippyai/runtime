@@ -21,10 +21,10 @@ import (
 // see the new codec / delivery / driver-options.
 func TestDeclareQueue_RedeclarationUpdatesConfig(t *testing.T) {
 	driver := &Driver{
-		id:      registry.NewID("test", "sqs"),
-		logger:  zap.NewNop(),
-		cfg:     &sqsapi.Config{},
-		queues:  map[registry.ID]*declaredQueue{},
+		id:     registry.NewID("test", "sqs"),
+		logger: zap.NewNop(),
+		cfg:    &sqsapi.Config{},
+		queues: map[registry.ID]*declaredQueue{},
 	}
 
 	queueID := registry.NewID("app", "orders")

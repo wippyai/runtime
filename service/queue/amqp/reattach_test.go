@@ -66,7 +66,7 @@ func TestAMQPDriver_Attach_ReattachesAfterReconnect(t *testing.T) {
 	}
 
 	// Snapshot the current connection before we force-kill it — we
-	// recognise the reconnect completed when d.conn swaps to a new
+	// recognize the reconnect completed when d.conn swaps to a new
 	// pointer.
 	driver.mu.Lock()
 	originalConn := driver.conn
@@ -76,7 +76,7 @@ func TestAMQPDriver_Attach_ReattachesAfterReconnect(t *testing.T) {
 	// client-side Close() would be treated as a graceful shutdown by
 	// the watcher and no reconnect would be triggered; this matches a
 	// real broker-initiated drop (network failure, server restart).
-	out, err := exec.Command("docker", "exec", testContainer,
+	out, err := exec.CommandContext(ctx, "docker", "exec", testContainer,
 		"rabbitmqctl", "close_all_connections", "test-reattach").CombinedOutput()
 	if err != nil {
 		t.Skipf("could not force-close AMQP connections via rabbitmqctl: %v\n%s", err, out)

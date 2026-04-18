@@ -227,10 +227,8 @@ func messageHeaders(l *lua.LState) int {
 
 	headers := msg.delivery.Message.Headers
 	tbl := lua.CreateTable(0, len(headers))
-	if headers != nil {
-		for key, val := range headers {
-			tbl.RawSetString(key, toLuaValue(val))
-		}
+	for key, val := range headers {
+		tbl.RawSetString(key, toLuaValue(val))
 	}
 	l.Push(tbl)
 	l.Push(lua.LNil)

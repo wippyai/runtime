@@ -18,7 +18,7 @@ import (
 // the settle should be abandoned — typically a Lua handler whose
 // deadline already fired, or a consumer worker that is shutting down.
 // The amqp091 Ack/Nack calls are not ctx-aware, so the closure must
-// honour cancellation itself: if ctx is already done, no broker frame
+// honor cancellation itself: if ctx is already done, no broker frame
 // is emitted and the caller sees the context error back.
 func TestAMQPDriver_DeliveryAck_HonorsCancelledCtx(t *testing.T) {
 	driver := setupDriver(t)

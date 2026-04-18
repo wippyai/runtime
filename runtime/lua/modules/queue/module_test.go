@@ -18,9 +18,9 @@ import (
 
 // mockManager implements queueapi.Manager for testing
 type mockManager struct {
+	driver    queueapi.Driver
 	queues    map[string]bool
 	published []*publishedMsg
-	driver    queueapi.Driver
 	mu        sync.Mutex
 }
 

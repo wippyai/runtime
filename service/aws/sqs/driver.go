@@ -429,8 +429,8 @@ func decodeAttr(v types.MessageAttributeValue) any {
 
 	s := aws.ToString(v.StringValue)
 
-	switch {
-	case dt == "Number":
+	switch dt {
+	case "Number":
 		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
 			return n
 		}
@@ -438,7 +438,7 @@ func decodeAttr(v types.MessageAttributeValue) any {
 			return f
 		}
 		return s
-	case dt == "String.bool":
+	case "String.bool":
 		return s == "true"
 	default:
 		return s

@@ -48,10 +48,6 @@ const (
 	publishMandatory   = "amqp.mandatory"
 )
 
-// headerPrefix is stripped from message-header keys when they are routed into
-// amqp091.Publishing.Headers. Non-prefixed keys pass through verbatim.
-const headerPrefix = "amqp."
-
 type declaredQueue struct {
 	cfg  *queueapi.Config
 	name string
@@ -63,13 +59,13 @@ type declaredQueue struct {
 // active attachment has its own goroutine that reopens a channel and
 // re-subscribes against the fresh connection.
 type amqpAttachment struct {
-	queueID     registry.ID
+	consumerCtx context.Context
 	opts        *queueapi.ConsumerOptions
 	deliveries  chan<- *queueapi.Delivery
+	cancel      context.CancelFunc
+	queueID     registry.ID
 	codec       string
 	name        string
-	consumerCtx context.Context
-	cancel      context.CancelFunc
 }
 
 // Driver implements the AMQP (RabbitMQ) queue driver.
@@ -736,7 +732,7 @@ func (d *Driver) consumeLoop(ch *amqp091.Channel, amqpDeliveries <-chan amqp091.
 			)
 			applyDeliveryHeaders(msg.Headers, amqpMsg)
 
-			// Honour the caller's ctx on settle: a cancelled ctx (Lua
+			// Honor the caller's ctx on settle: a cancelled ctx (Lua
 			// handler deadline hit, consumer worker shutdown) must not
 			// drive a blocking broker-side Ack/Nack that could hang
 			// behind channel-level backpressure.

@@ -29,32 +29,14 @@ type Harness struct {
 }
 
 type config struct {
-	// timeout is the maximum time to wait for a message delivery.
-	timeout time.Duration
-	// preservesMessageID indicates whether the driver keeps the original message ID
-	// through a publish/consume round-trip. Drivers like SQS assign their own IDs.
-	preservesMessageID bool
-	// preservesHeaders indicates whether the driver preserves custom headers
-	// through a publish/consume round-trip.
-	preservesHeaders bool
-	// nackRedelivers indicates whether calling Nack on a delivery causes the
-	// message to be automatically redelivered.
-	nackRedelivers bool
-	// getQueueInfoAccurate indicates whether GetQueueInfo returns accurate
-	// (non-approximate) message counts immediately after publish. Drivers like
-	// SQS return eventually-consistent approximate counts.
+	declareLeakOpts      map[string]any
+	declareLeakDriver    string
+	timeout              time.Duration
+	preservesMessageID   bool
+	preservesHeaders     bool
+	nackRedelivers       bool
 	getQueueInfoAccurate bool
-	// supportsReattach indicates whether a new consumer can reliably receive
-	// messages immediately after a previous consumer on the same queue is
-	// cancelled. Drivers with consumer-group semantics (SQS) may have
-	// inherent startup latency that makes this unreliable.
-	supportsReattach bool
-	// declareLeakDriver is the driver kind name under DriverOptions whose
-	// declare-only keys must never leak into published message headers.
-	declareLeakDriver string
-	// declareLeakOpts lists keys/values put into DriverOptions[driver] at
-	// DeclareQueue time; the leak test asserts none are present on consume.
-	declareLeakOpts map[string]any
+	supportsReattach     bool
 }
 
 // Option configures a [Harness].
