@@ -939,9 +939,9 @@ func TestFileUpload(t *testing.T) {
 
 func TestServerTLSConfig_Validate(t *testing.T) {
 	tests := []struct {
-		name    string
-		tls     ServerTLSConfig
 		wantErr error
+		tls     ServerTLSConfig
+		name    string
 	}{
 		{
 			name: "off with no inputs is valid",

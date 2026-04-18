@@ -439,7 +439,7 @@ func (s *ServerService) clearnetListen(ctx context.Context) (net.Listener, error
 	if s.config.TLS.Mode == config.TLSModeAuto {
 		return nil, ErrClearnetAutoTLSUnsupported
 	}
-	ln, err := net.Listen("tcp", s.config.Addr)
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", s.config.Addr)
 	if err != nil {
 		return nil, err
 	}

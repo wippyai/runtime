@@ -59,12 +59,12 @@ const (
 type (
 	ServerConfig struct {
 		Meta      attrs.Bag                  `json:"meta"`
-		Addr      string                     `json:"addr"`
+		TLS       ServerTLSConfig            `json:"tls"`
 		Network   registry.ID                `json:"network"`
+		Addr      string                     `json:"addr"`
 		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
 		Timeouts  TimeoutConfig              `json:"timeouts"`
 		Host      HostConfig                 `json:"host"`
-		TLS       ServerTLSConfig            `json:"tls"`
 	}
 
 	// ServerTLSConfig configures TLS termination for an HTTP service.

@@ -52,18 +52,18 @@ func (s *overlayService) DialContext(ctx context.Context, network, address strin
 	return d.DialContext(ctx, network, address)
 }
 
-func (s *overlayService) Listen(_ context.Context, network, address string) (net.Listener, error) {
+func (s *overlayService) Listen(ctx context.Context, network, address string) (net.Listener, error) {
 	s.mu.Lock()
 	s.listenHit++
 	s.mu.Unlock()
 	if s.listenErr != nil {
 		return nil, s.listenErr
 	}
-	return net.Listen(network, address)
+	return (&net.ListenConfig{}).Listen(ctx, network, address)
 }
 
-func (s *overlayService) ListenPacket(_ context.Context, network, address string) (net.PacketConn, error) {
-	return net.ListenPacket(network, address)
+func (s *overlayService) ListenPacket(ctx context.Context, network, address string) (net.PacketConn, error) {
+	return (&net.ListenConfig{}).ListenPacket(ctx, network, address)
 }
 
 func (s *overlayService) LookupHost(ctx context.Context, host string) ([]string, error) {
@@ -89,8 +89,8 @@ type overlayTLSService struct {
 	overlayService
 }
 
-func (s *overlayTLSService) ListenTLS(_ context.Context, network, address string) (net.Listener, error) {
-	return net.Listen(network, address)
+func (s *overlayTLSService) ListenTLS(ctx context.Context, network, address string) (net.Listener, error) {
+	return (&net.ListenConfig{}).Listen(ctx, network, address)
 }
 
 // mockNetRegistry implements netapi.NetworkRegistry.
@@ -698,7 +698,7 @@ func TestMapClientAuthType(t *testing.T) {
 // responds "ok". Returns the address and a cleanup func.
 func serveTLSOnce(t *testing.T, tlsCfg *tls.Config) (addr string, done func()) {
 	t.Helper()
-	raw, err := net.Listen("tcp", "127.0.0.1:0")
+	raw, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	ln := tls.NewListener(raw, tlsCfg)
 	addr = ln.Addr().String()
@@ -711,7 +711,7 @@ func serveTLSOnce(t *testing.T, tlsCfg *tls.Config) (addr string, done func()) {
 			return
 		}
 		if tc, ok := conn.(*tls.Conn); ok {
-			_ = tc.Handshake()
+			_ = tc.HandshakeContext(context.Background())
 		}
 		_, _ = conn.Write([]byte("ok"))
 		_ = conn.Close()
@@ -729,7 +729,7 @@ func serveTLSOnce(t *testing.T, tlsCfg *tls.Config) (addr string, done func()) {
 // server only validates the client cert after the initial flight).
 func requireTLSHandshakeFails(t *testing.T, addr string, clientCfg *tls.Config, msg string) {
 	t.Helper()
-	conn, err := tls.Dial("tcp", addr, clientCfg)
+	conn, err := (&tls.Dialer{Config: clientCfg}).DialContext(context.Background(), "tcp", addr)
 	if err != nil {
 		assert.Contains(t, err.Error(), "certificate")
 		return
@@ -789,11 +789,11 @@ func TestLoadServerTLSConfig_MTLS_RequireAndVerify_Accepts(t *testing.T) {
 	rootPool := x509.NewCertPool()
 	rootPool.AppendCertsFromPEM(m.caCertPEM)
 
-	conn, err := tls.Dial("tcp", addr, &tls.Config{
+	conn, err := (&tls.Dialer{Config: &tls.Config{
 		RootCAs:      rootPool,
 		Certificates: []tls.Certificate{clientKP},
 		ServerName:   "127.0.0.1",
-	})
+	}}).DialContext(context.Background(), "tcp", addr)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 
@@ -849,7 +849,7 @@ func TestLoadServerTLSConfig_MTLS_VerifyIfGiven_AcceptsNoCert(t *testing.T) {
 	rootPool := x509.NewCertPool()
 	rootPool.AppendCertsFromPEM(m.caCertPEM)
 
-	conn, err := tls.Dial("tcp", addr, &tls.Config{RootCAs: rootPool, ServerName: "127.0.0.1"})
+	conn, err := (&tls.Dialer{Config: &tls.Config{RootCAs: rootPool, ServerName: "127.0.0.1"}}).DialContext(context.Background(), "tcp", addr)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 
@@ -919,7 +919,7 @@ func TestBuildListener_Clearnet_ManualTLS_Handshake(t *testing.T) {
 	rootPool := x509.NewCertPool()
 	rootPool.AppendCertsFromPEM(certPEM)
 
-	conn, err := tls.Dial("tcp", ln.Addr().String(), &tls.Config{RootCAs: rootPool, ServerName: "127.0.0.1"})
+	conn, err := (&tls.Dialer{Config: &tls.Config{RootCAs: rootPool, ServerName: "127.0.0.1"}}).DialContext(context.Background(), "tcp", ln.Addr().String())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 
@@ -989,7 +989,7 @@ func TestBuildListener_Overlay_ManualTLS_MTLS(t *testing.T) {
 			return
 		}
 		if tc, ok := conn.(*tls.Conn); ok {
-			_ = tc.Handshake()
+			_ = tc.HandshakeContext(context.Background())
 		}
 		_ = conn.Close()
 	}()
@@ -1059,6 +1059,6 @@ connected:
 	raw, err := dialer.Dial("tcp", cfg.Addr)
 	require.NoError(t, err)
 	tconn := tls.Client(raw, &tls.Config{RootCAs: rootPool, ServerName: "127.0.0.1"})
-	require.NoError(t, tconn.Handshake())
+	require.NoError(t, tconn.HandshakeContext(context.Background()))
 	_ = tconn.Close()
 }

@@ -24,18 +24,11 @@ import (
 // samListener: SESSION CREATE, NAMING LOOKUP NAME=ME, STREAM ACCEPT, and
 // STREAM CONNECT that brokers a connect to an outstanding ACCEPT.
 type listenerSAM struct {
-	listener net.Listener
-	ourDest  string
-
-	mu sync.Mutex
-	// pending STREAM ACCEPTs waiting for a peer: a channel on which the
-	// simulator writes a new connected socket for each arriving STREAM
-	// CONNECT, so the accept side can bridge bytes.
-	accepts []chan net.Conn
-
-	// onAccept lets tests intercept STREAM ACCEPT before the OK reply; used
-	// for the Close-while-accepting test.
+	listener     net.Listener
 	onAcceptHold chan struct{}
+	ourDest      string
+	accepts      []chan net.Conn
+	mu           sync.Mutex
 }
 
 func newListenerSAM(t *testing.T) *listenerSAM {
@@ -192,7 +185,7 @@ func (s *listenerSAM) handleConnect(c net.Conn, _ string) {
 // connection so the test can write/read application bytes.
 func (s *listenerSAM) clientDial(t *testing.T) net.Conn {
 	t.Helper()
-	c, err := net.Dial("tcp", s.addr())
+	c, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", s.addr())
 	require.NoError(t, err)
 	fmt.Fprintf(c, "HELLO VERSION MIN=3.0 MAX=3.3\n")
 	r := bufio.NewReader(c)

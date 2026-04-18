@@ -24,16 +24,14 @@ var listenerCounter uint64
 // closing the listener closes the control connection and destroys the
 // session, which in turn causes any in-flight STREAM ACCEPTs to error out.
 type samListener struct {
+	ctrlConn  net.Conn
+	closeCh   chan struct{}
+	pending   map[net.Conn]struct{}
 	samAddr   string
 	sessionID string
-	ctrlConn  net.Conn
 	ourDest   string
-
 	closeOnce sync.Once
-	closeCh   chan struct{}
-
-	mu      sync.Mutex
-	pending map[net.Conn]struct{}
+	mu        sync.Mutex
 }
 
 // samAddr is the net.Addr reported by listeners and accepted connections
@@ -241,9 +239,9 @@ type samAcceptConn struct {
 	remote samAddr
 }
 
-func (c *samAcceptConn) Read(p []byte) (int, error)         { return c.reader.Read(p) }
-func (c *samAcceptConn) LocalAddr() net.Addr                { return c.local }
-func (c *samAcceptConn) RemoteAddr() net.Addr               { return c.remote }
+func (c *samAcceptConn) Read(p []byte) (int, error) { return c.reader.Read(p) }
+func (c *samAcceptConn) LocalAddr() net.Addr        { return c.local }
+func (c *samAcceptConn) RemoteAddr() net.Addr       { return c.remote }
 
 // samHandshake performs HELLO VERSION on a freshly opened SAM socket.
 func samHandshake(conn net.Conn, reader *bufio.Reader) error {
