@@ -115,11 +115,10 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return queuesvc.NewUnsupportedKindError(entry.Kind)
 	}
 
-	m.mu.RLock()
-	driver, exists := m.drivers[entry.ID]
-	m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	if !exists {
+	if _, exists := m.drivers[entry.ID]; !exists {
 		return queuesvc.NewDriverNotFoundError(entry.ID)
 	}
 
@@ -128,14 +127,56 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return err
 	}
 
+	resourceRegistry := resource.GetRegistry(ctx)
+	rsc, err := resourceRegistry.Acquire(ctx, cfg.AWSConfig, resource.ModeNormal)
+	if err != nil {
+		return queuesvc.NewConfigError("failed to acquire aws config resource", fmt.Errorf("sqs: acquire aws config resource %q: %w", cfg.AWSConfig.String(), err))
+	}
+
+	gotConfig, err := rsc.Get()
+	if err != nil {
+		return queuesvc.NewConfigError("failed to get aws config resource", fmt.Errorf("sqs: get aws config resource: %w", err))
+	}
+
+	awsCfg, ok := gotConfig.(aws.Config)
+	if !ok {
+		return queuesvc.NewConfigError("invalid aws config", fmt.Errorf("sqs: aws config resource is not aws.Config"))
+	}
+
+	if cfg.Endpoint != "" {
+		awsCfg.BaseEndpoint = aws.String(cfg.Endpoint)
+	}
+
+	// Tear the old driver down before swapping in the replacement: a plain
+	// ServiceUpdate would leave the old driver running with stale config.
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.ServiceUpdate,
+		Kind:   supervisor.ServiceRemove,
+		Path:   entry.ID.String(),
+	})
+	m.bus.Send(ctx, event.Event{
+		System: queueapi.System,
+		Kind:   queueapi.DriverDelete,
+		Path:   entry.ID.String(),
+	})
+
+	driver := NewDriver(entry.ID, cfg, awsCfg, m.dtt, m.log)
+	m.drivers[entry.ID] = driver
+
+	m.bus.Send(ctx, event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
 		Path:   entry.ID.String(),
 		Data: &supervisor.Entry{
 			Service: driver,
 			Config:  cfg.Lifecycle,
 		},
+	})
+	m.bus.Send(ctx, event.Event{
+		System: queueapi.System,
+		Kind:   queueapi.DriverRegister,
+		Path:   entry.ID.String(),
+		Data:   driver,
 	})
 
 	m.log.Info("updated sqs driver", zap.String("id", entry.ID.String()))

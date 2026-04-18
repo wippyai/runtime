@@ -3,6 +3,7 @@
 package amqp
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -74,23 +75,46 @@ func TestConfig_Validate(t *testing.T) {
 			name: "tls cert without key",
 			config: Config{
 				URL: "amqp://localhost:5672/",
-				TLS: &TLSConfig{CertFile: "/cert.pem"},
+				TLS: &TLSConfig{Enabled: true, Cert: "pem"},
 			},
-			wantErr: "cert_file requires key_file",
+			wantErr: "cert and key must be provided together",
 		},
 		{
 			name: "tls key without cert",
 			config: Config{
 				URL: "amqp://localhost:5672/",
-				TLS: &TLSConfig{KeyFile: "/key.pem"},
+				TLS: &TLSConfig{Enabled: true, Key: "pem"},
 			},
-			wantErr: "key_file requires cert_file",
+			wantErr: "cert and key must be provided together",
 		},
 		{
-			name: "tls both cert and key",
+			name: "tls both cert and key inline",
 			config: Config{
 				URL: "amqp://localhost:5672/",
-				TLS: &TLSConfig{CertFile: "/cert.pem", KeyFile: "/key.pem"},
+				TLS: &TLSConfig{Enabled: true, Cert: "pem", Key: "pem"},
+			},
+		},
+		{
+			name: "tls inline and env for cert",
+			config: Config{
+				URL: "amqp://localhost:5672/",
+				TLS: &TLSConfig{Enabled: true, Cert: "pem", CertEnv: "CERT"},
+			},
+			wantErr: "cert and cert_env are mutually exclusive",
+		},
+		{
+			name: "tls cert_env without key_env",
+			config: Config{
+				URL: "amqp://localhost:5672/",
+				TLS: &TLSConfig{Enabled: true, CertEnv: "CERT"},
+			},
+			wantErr: "cert and key must be provided together",
+		},
+		{
+			name: "tls cert_env and key_env",
+			config: Config{
+				URL: "amqp://localhost:5672/",
+				TLS: &TLSConfig{Enabled: true, CertEnv: "CERT", KeyEnv: "KEY"},
 			},
 		},
 	}
@@ -317,14 +341,14 @@ func TestConfig_MarshalJSON_ZeroDurations(t *testing.T) {
 
 func TestTLSConfig_BuildTLSConfig_Nil(t *testing.T) {
 	var tlsCfg *TLSConfig
-	result, err := tlsCfg.BuildTLSConfig()
+	result, err := tlsCfg.BuildTLSConfig(context.Background())
 	require.NoError(t, err)
 	assert.Nil(t, result)
 }
 
 func TestTLSConfig_BuildTLSConfig_Disabled(t *testing.T) {
 	tlsCfg := &TLSConfig{Enabled: false}
-	result, err := tlsCfg.BuildTLSConfig()
+	result, err := tlsCfg.BuildTLSConfig(context.Background())
 	require.NoError(t, err)
 	assert.Nil(t, result)
 }
@@ -335,30 +359,40 @@ func TestTLSConfig_BuildTLSConfig_Enabled(t *testing.T) {
 		ServerName:         "rabbit.example.com",
 		InsecureSkipVerify: true,
 	}
-	result, err := tlsCfg.BuildTLSConfig()
+	result, err := tlsCfg.BuildTLSConfig(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, "rabbit.example.com", result.ServerName)
 	assert.True(t, result.InsecureSkipVerify)
 }
 
-func TestTLSConfig_BuildTLSConfig_MissingCertFile(t *testing.T) {
+func TestTLSConfig_BuildTLSConfig_InvalidCertPEM(t *testing.T) {
 	tlsCfg := &TLSConfig{
-		Enabled:  true,
-		CertFile: "/nonexistent/cert.pem",
-		KeyFile:  "/nonexistent/key.pem",
+		Enabled: true,
+		Cert:    "not-a-pem",
+		Key:     "not-a-pem",
 	}
-	_, err := tlsCfg.BuildTLSConfig()
+	_, err := tlsCfg.BuildTLSConfig(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "load client cert")
 }
 
-func TestTLSConfig_BuildTLSConfig_MissingCAFile(t *testing.T) {
+func TestTLSConfig_BuildTLSConfig_InvalidCAPEM(t *testing.T) {
 	tlsCfg := &TLSConfig{
 		Enabled: true,
-		CAFile:  "/nonexistent/ca.pem",
+		CA:      "not-a-pem",
 	}
-	_, err := tlsCfg.BuildTLSConfig()
+	_, err := tlsCfg.BuildTLSConfig(context.Background())
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "read ca file")
+	assert.Contains(t, err.Error(), "parse ca certificate")
+}
+
+func TestTLSConfig_BuildTLSConfig_EnvRegistryUnavailable(t *testing.T) {
+	tlsCfg := &TLSConfig{
+		Enabled: true,
+		CAEnv:   "AMQP_TLS_CA",
+	}
+	_, err := tlsCfg.BuildTLSConfig(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "env registry is unavailable")
 }

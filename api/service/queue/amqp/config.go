@@ -3,13 +3,14 @@
 package amqp
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
-	"os"
 	"time"
 
+	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
 )
@@ -22,104 +23,68 @@ const Kind registry.Kind = "queue.driver.amqp"
 // Connection options map to amqp091.Config fields used with DialConfig.
 // TTL fields configure default message/queue expiration behavior.
 type Config struct { //nolint:govet // fieldalignment: limited by LifecycleConfig embedded struct layout
-	// Lifecycle configures the supervisor lifecycle for this driver.
 	Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
 
-	// TLS configures TLS/SSL connection settings.
-	// When TLS.Enabled is true, connections will use TLS (amqps://).
 	TLS *TLSConfig `json:"tls,omitempty"`
 
-	// URL is the AMQP connection URL.
-	// Format: amqp://user:pass@host:port/vhost
 	URL string `json:"url"`
 
-	// Vhost overrides the virtual host from the URL.
-	// If empty, the vhost from the URL is used.
 	Vhost string `json:"vhost,omitempty"`
 
-	// ConnectionName identifies this connection in the RabbitMQ management UI.
-	// Sets the "connection_name" property on the AMQP connection.
 	ConnectionName string `json:"connection_name,omitempty"`
 
 	// AuthMechanism selects the SASL authentication mechanism.
-	// Supported values: "PLAIN" (default), "EXTERNAL" (for mTLS), "AMQPLAIN".
-	// When empty, defaults to PLAIN (credentials from URL).
+	// Supported: "PLAIN" (default), "EXTERNAL" (for mTLS), "AMQPLAIN".
 	AuthMechanism string `json:"auth_mechanism,omitempty"`
 
-	// Heartbeat is the interval for AMQP heartbeat frames.
-	// Heartbeats detect dead TCP connections. Default: server negotiated (~60s).
 	Heartbeat time.Duration `json:"heartbeat,omitzero,format:units"`
 
-	// ConnectionTimeout is the timeout for establishing the TCP connection.
-	// Default: 30s (amqp091 library default).
 	ConnectionTimeout time.Duration `json:"connection_timeout,omitzero,format:units"`
 
-	// DefaultMessageTTL is the default per-message TTL applied on publish.
-	// Sets the Expiration field on amqp091.Publishing.
-	// Only applied when the message does not have a HeaderTTL header.
-	// 0 means no default message TTL.
 	DefaultMessageTTL time.Duration `json:"default_message_ttl,omitzero,format:units"`
 
-	// DefaultQueueTTL is the default queue-level message TTL argument (x-message-ttl).
-	// All messages delivered to the queue expire after this duration.
-	// Passed as queue argument on QueueDeclare. 0 means no queue message TTL.
 	DefaultQueueTTL time.Duration `json:"default_queue_ttl,omitzero,format:units"`
 
-	// DefaultQueueExpiry is the unused queue expiry (x-expires).
-	// A queue is automatically deleted after being unused for this duration.
-	// Passed as queue argument on QueueDeclare. 0 means the queue never expires.
 	DefaultQueueExpiry time.Duration `json:"default_queue_expiry,omitzero,format:units"`
 
-	// ReconnectDelay is the initial delay before the first reconnect attempt.
-	// Subsequent attempts use exponential backoff up to ReconnectMaxDelay.
-	// Default: 1s. Set to 0 to disable automatic reconnection.
 	ReconnectDelay time.Duration `json:"reconnect_delay,omitzero,format:units"`
 
-	// ReconnectMaxDelay is the maximum delay between reconnect attempts.
-	// Default: 30s.
 	ReconnectMaxDelay time.Duration `json:"reconnect_max_delay,omitzero,format:units"`
 
-	// FrameSize is the maximum frame size in bytes negotiated with the server.
-	// 0 uses the library default (131072 bytes).
 	FrameSize int `json:"frame_size,omitempty"`
 
-	// PrefetchCount is the number of unacknowledged messages the server will
-	// deliver per channel before requiring acknowledgments (QoS).
-	// Maps to Channel.Qos(prefetchCount, 0, false) in AMQP.
-	// 0 means no limit (server default — unlimited prefetch).
-	// Typical production value: 10–50.
 	PrefetchCount int `json:"prefetch_count,omitempty"`
 
-	// ChannelMax is the maximum number of channels per connection.
-	// 0 means no application-side limit (server may impose its own).
 	ChannelMax uint16 `json:"channel_max,omitempty"`
 }
 
 // TLSConfig defines TLS connection settings for AMQP.
+//
+// Cert/Key/CA carry inline PEM content (the config-decode file:// interpolator
+// can populate them from disk at decode time). CertEnv/KeyEnv/CAEnv name env
+// variables resolved from the Wippy env.Registry at driver start.
+// Inline and env sources are mutually exclusive per field.
 type TLSConfig struct {
-	// ServerName overrides the server name used for TLS certificate verification.
 	ServerName string `json:"server_name,omitempty"`
 
-	// CertFile is the path to the client certificate file (PEM format) for mTLS.
-	CertFile string `json:"cert_file,omitempty"`
+	Cert    string `json:"cert,omitempty"`
+	CertEnv string `json:"cert_env,omitempty"`
 
-	// KeyFile is the path to the client private key file (PEM format) for mTLS.
-	KeyFile string `json:"key_file,omitempty"`
+	Key    string `json:"key,omitempty"`
+	KeyEnv string `json:"key_env,omitempty"`
 
-	// CAFile is the path to the CA certificate file (PEM format)
-	// for verifying the server's certificate.
-	CAFile string `json:"ca_file,omitempty"`
+	CA    string `json:"ca,omitempty"`
+	CAEnv string `json:"ca_env,omitempty"`
 
-	// Enabled activates TLS for AMQP connections.
 	Enabled bool `json:"enabled"`
 
-	// InsecureSkipVerify skips TLS certificate verification.
-	// WARNING: This makes the connection susceptible to man-in-the-middle attacks.
 	InsecureSkipVerify bool `json:"insecure_skip_verify,omitempty"`
 }
 
-// BuildTLSConfig converts the TLSConfig into a Go *tls.Config.
-func (t *TLSConfig) BuildTLSConfig() (*tls.Config, error) {
+// BuildTLSConfig converts the TLSConfig into a Go *tls.Config. CertEnv/KeyEnv/
+// CAEnv are resolved via envapi.GetRegistry(ctx); inline Cert/Key/CA are used
+// directly. Returns (nil, nil) when TLS is not enabled.
+func (t *TLSConfig) BuildTLSConfig(ctx context.Context) (*tls.Config, error) {
 	if t == nil || !t.Enabled {
 		return nil, nil
 	}
@@ -130,29 +95,57 @@ func (t *TLSConfig) BuildTLSConfig() (*tls.Config, error) {
 		ServerName:         t.ServerName,
 	}
 
-	// Load client certificate for mTLS
-	if t.CertFile != "" && t.KeyFile != "" {
-		cert, err := tls.LoadX509KeyPair(t.CertFile, t.KeyFile)
+	certPEM, err := resolveEnvOrInline(ctx, "cert", t.Cert, t.CertEnv)
+	if err != nil {
+		return nil, err
+	}
+	keyPEM, err := resolveEnvOrInline(ctx, "key", t.Key, t.KeyEnv)
+	if err != nil {
+		return nil, err
+	}
+	if len(certPEM) > 0 && len(keyPEM) > 0 {
+		cert, err := tls.X509KeyPair(certPEM, keyPEM)
 		if err != nil {
 			return nil, fmt.Errorf("amqp tls: load client cert: %w", err)
 		}
 		tlsCfg.Certificates = []tls.Certificate{cert}
 	}
 
-	// Load CA certificate
-	if t.CAFile != "" {
-		caCert, err := os.ReadFile(t.CAFile)
-		if err != nil {
-			return nil, fmt.Errorf("amqp tls: read ca file: %w", err)
-		}
-		caCertPool := x509.NewCertPool()
-		if !caCertPool.AppendCertsFromPEM(caCert) {
+	caPEM, err := resolveEnvOrInline(ctx, "ca", t.CA, t.CAEnv)
+	if err != nil {
+		return nil, err
+	}
+	if len(caPEM) > 0 {
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caPEM) {
 			return nil, fmt.Errorf("amqp tls: failed to parse ca certificate")
 		}
-		tlsCfg.RootCAs = caCertPool
+		tlsCfg.RootCAs = pool
 	}
 
 	return tlsCfg, nil
+}
+
+// resolveEnvOrInline returns the PEM bytes for one TLS material (cert, key, ca).
+// Inline value wins if present; otherwise an env-var name is resolved via
+// envapi.Registry. An empty result is legal — the caller decides what is
+// required.
+func resolveEnvOrInline(ctx context.Context, field, inline, envName string) ([]byte, error) {
+	if inline != "" {
+		return []byte(inline), nil
+	}
+	if envName == "" {
+		return nil, nil
+	}
+	reg := envapi.GetRegistry(ctx)
+	if reg == nil {
+		return nil, fmt.Errorf("amqp tls: %s_env %q requested but env registry is unavailable", field, envName)
+	}
+	val, err := reg.Get(ctx, envName)
+	if err != nil {
+		return nil, fmt.Errorf("amqp tls: resolve %s_env %q: %w", field, envName, err)
+	}
+	return []byte(val), nil
 }
 
 // Validate validates the configuration.
@@ -160,17 +153,36 @@ func (c *Config) Validate() error {
 	if c.URL == "" {
 		return fmt.Errorf("amqp: url is required")
 	}
-	if c.TLS != nil && c.TLS.CertFile != "" && c.TLS.KeyFile == "" {
-		return fmt.Errorf("amqp: tls cert_file requires key_file")
-	}
-	if c.TLS != nil && c.TLS.KeyFile != "" && c.TLS.CertFile == "" {
-		return fmt.Errorf("amqp: tls key_file requires cert_file")
+	if err := c.TLS.Validate(); err != nil {
+		return err
 	}
 	switch c.AuthMechanism {
 	case "", "PLAIN", "EXTERNAL", "AMQPLAIN":
-		// valid
 	default:
 		return fmt.Errorf("amqp: unsupported auth_mechanism %q (supported: PLAIN, EXTERNAL, AMQPLAIN)", c.AuthMechanism)
+	}
+	return nil
+}
+
+// Validate enforces internal consistency of the TLS block:
+// inline/env sources are mutually exclusive per field, and cert+key form a pair.
+func (t *TLSConfig) Validate() error {
+	if t == nil || !t.Enabled {
+		return nil
+	}
+	if t.Cert != "" && t.CertEnv != "" {
+		return fmt.Errorf("amqp tls: cert and cert_env are mutually exclusive")
+	}
+	if t.Key != "" && t.KeyEnv != "" {
+		return fmt.Errorf("amqp tls: key and key_env are mutually exclusive")
+	}
+	if t.CA != "" && t.CAEnv != "" {
+		return fmt.Errorf("amqp tls: ca and ca_env are mutually exclusive")
+	}
+	hasCert := t.Cert != "" || t.CertEnv != ""
+	hasKey := t.Key != "" || t.KeyEnv != ""
+	if hasCert != hasKey {
+		return fmt.Errorf("amqp tls: cert and key must be provided together")
 	}
 	return nil
 }
@@ -188,8 +200,7 @@ func (c *Config) InitDefaults() {
 	}
 }
 
-// configJSON is a shadow struct for JSON marshaling/unmarshaling
-// of duration fields.
+// configJSON is a shadow struct for JSON marshaling/unmarshaling of duration fields.
 type configJSON struct { //nolint:govet // fieldalignment: limited by LifecycleConfig embedded struct layout
 	Lifecycle          supervisor.LifecycleConfig `json:"lifecycle"`
 	TLS                *TLSConfig                 `json:"tls,omitempty"`
@@ -226,7 +237,6 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	c.TLS = raw.TLS
 	c.Lifecycle = raw.Lifecycle
 
-	// Parse duration fields
 	var err error
 	if raw.Heartbeat != "" {
 		if c.Heartbeat, err = time.ParseDuration(raw.Heartbeat); err != nil {

@@ -35,6 +35,10 @@ func (h *Harness) Run() {
 	if h.cfg.preservesHeaders {
 		h.t.Run("CustomHeaders", h.TestCustomHeaders)
 		h.t.Run("MultipleHeaders", h.TestMultipleHeaders)
+		h.t.Run("NeutralHeadersRoundTrip", h.TestNeutralHeadersRoundTrip)
+	}
+	if h.cfg.declareLeakDriver != "" && len(h.cfg.declareLeakOpts) > 0 {
+		h.t.Run("DeclareOptionsDoNotLeakToPublish", h.TestDeclareOptionsDoNotLeakToPublish)
 	}
 
 	// Queue management
@@ -81,14 +85,13 @@ func (h *Harness) TestDeclareQueue(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("declare")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-declare"))
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-declare")}
 
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	// Declaring again should be idempotent.
-	err = h.driver.DeclareQueue(ctx, queueID, opts)
+	err = h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 }
 
@@ -97,13 +100,12 @@ func (h *Harness) TestPublishAndAttach(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("pubsub")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-pubsub"))
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-pubsub")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	deliveries := make(chan *queueapi.Delivery, 10)
-	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	cancel, err := h.driver.Attach(ctx, queueID, nil, deliveries)
 	require.NoError(t, err)
 	defer cancel()
 
@@ -134,13 +136,12 @@ func (h *Harness) TestMultipleMessages(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("multi")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-multi"))
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-multi")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	deliveries := make(chan *queueapi.Delivery, 10)
-	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	cancel, err := h.driver.Attach(ctx, queueID, nil, deliveries)
 	require.NoError(t, err)
 	defer cancel()
 
@@ -174,9 +175,8 @@ func (h *Harness) TestNack(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("nack")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-nack"))
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-nack")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	msg := queueapi.AcquireMessage(payload.New("nack-test"))
@@ -185,7 +185,7 @@ func (h *Harness) TestNack(t *testing.T) {
 	require.NoError(t, err)
 
 	deliveries := make(chan *queueapi.Delivery, 10)
-	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	cancel, err := h.driver.Attach(ctx, queueID, nil, deliveries)
 	require.NoError(t, err)
 	defer cancel()
 
@@ -228,9 +228,8 @@ func (h *Harness) TestGetQueueInfo(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("info")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-info"))
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-info")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	msg1 := queueapi.AcquireMessage(payload.New("info1"))
@@ -241,10 +240,19 @@ func (h *Harness) TestGetQueueInfo(t *testing.T) {
 	err = h.driver.Publish(ctx, queueID, msg1, msg2)
 	require.NoError(t, err)
 
-	info, err := h.driver.GetQueueInfo(ctx, queueID)
-	require.NoError(t, err)
-
-	count := info.GetInt(queueapi.StatsMessageCount, 0)
+	// AMQP QueueInspect counts lag publish without publisher confirms, so
+	// poll for the expected count within the harness timeout.
+	var count int
+	deadline := time.Now().Add(h.cfg.timeout)
+	for time.Now().Before(deadline) {
+		info, err := h.driver.GetQueueInfo(ctx, queueID)
+		require.NoError(t, err)
+		count = info.GetInt(queueapi.StatsMessageCount, 0)
+		if count == 2 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	assert.Equal(t, 2, count)
 }
 
@@ -262,8 +270,102 @@ func (h *Harness) TestPublishNonExistent(t *testing.T) {
 func (h *Harness) TestAttachNonExistent(t *testing.T) {
 	ctx := context.Background()
 	deliveries := make(chan *queueapi.Delivery, 10)
-	_, err := h.driver.Attach(ctx, registry.ParseID("test:nonexistent"), deliveries)
+	_, err := h.driver.Attach(ctx, registry.ParseID("test:nonexistent"), nil, deliveries)
 	assert.ErrorIs(t, err, queueapi.ErrQueueNotFound)
+}
+
+// TestNeutralHeadersRoundTrip verifies that the neutral header keys the
+// drivers route into typed broker fields (correlation_id, reply_to,
+// content_type, encoding, message_type) reappear on the consumer side
+// under the same neutral keys — i.e. the mapping is bi-directional.
+func (h *Harness) TestNeutralHeadersRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	queueID := h.uniqueID("neutral-rt")
+
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-neutral-rt")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
+	require.NoError(t, err)
+
+	deliveries := make(chan *queueapi.Delivery, 10)
+	cancel, err := h.driver.Attach(ctx, queueID, nil, deliveries)
+	require.NoError(t, err)
+	defer cancel()
+
+	msg := queueapi.AcquireMessage(payload.New("neutral-rt"))
+	msg.ID = "neutral-rt-1"
+	msg.Headers.Set(queueapi.HeaderCorrelationID, "corr-42")
+	msg.Headers.Set(queueapi.HeaderReplyTo, "replies")
+	msg.Headers.Set(queueapi.HeaderContentType, "application/json")
+	msg.Headers.Set(queueapi.HeaderEncoding, "identity")
+	msg.Headers.Set(queueapi.HeaderMessageType, "order.created")
+
+	err = h.driver.Publish(ctx, queueID, msg)
+	require.NoError(t, err)
+
+	select {
+	case delivery := <-deliveries:
+		got := delivery.Message.Headers
+		assert.Equal(t, "corr-42", got.GetString(queueapi.HeaderCorrelationID, ""),
+			"correlation_id should round-trip")
+		assert.Equal(t, "replies", got.GetString(queueapi.HeaderReplyTo, ""),
+			"reply_to should round-trip")
+		assert.Equal(t, "application/json", got.GetString(queueapi.HeaderContentType, ""),
+			"content_type should round-trip")
+		assert.Equal(t, "identity", got.GetString(queueapi.HeaderEncoding, ""),
+			"encoding should round-trip")
+		assert.Equal(t, "order.created", got.GetString(queueapi.HeaderMessageType, ""),
+			"message_type should round-trip")
+		err = delivery.Ack(ctx)
+		assert.NoError(t, err)
+	case <-time.After(h.cfg.timeout):
+		t.Fatal("timeout waiting for message")
+	}
+}
+
+// TestDeclareOptionsDoNotLeakToPublish declares a queue with driver-specific
+// declare-time options (durable, max_length, message_ttl for AMQP; similar for
+// SQS) and asserts that none of those option keys surface as headers on a
+// consumed message. Declare-time state belongs in the driver's own declaration
+// call, not in every published message's header set.
+func (h *Harness) TestDeclareOptionsDoNotLeakToPublish(t *testing.T) {
+	ctx := context.Background()
+	queueID := h.uniqueID("declare-leak")
+
+	drvBag := attrs.NewBag()
+	for k, v := range h.cfg.declareLeakOpts {
+		drvBag.Set(k, v)
+	}
+	rootBag := attrs.NewBag()
+	rootBag.Set(h.cfg.declareLeakDriver, drvBag)
+
+	cfg := &queueapi.Config{
+		QueueName:     h.uniqueQueueName("test-declare-leak"),
+		DriverOptions: rootBag,
+	}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
+	require.NoError(t, err)
+
+	deliveries := make(chan *queueapi.Delivery, 1)
+	cancel, err := h.driver.Attach(ctx, queueID, nil, deliveries)
+	require.NoError(t, err)
+	defer cancel()
+
+	msg := queueapi.AcquireMessage(payload.New("leak-probe"))
+	msg.ID = "leak-probe-1"
+	err = h.driver.Publish(ctx, queueID, msg)
+	require.NoError(t, err)
+
+	select {
+	case delivery := <-deliveries:
+		for k := range h.cfg.declareLeakOpts {
+			_, present := delivery.Message.Headers.Get(k)
+			assert.Falsef(t, present, "declare-only key %q must not appear in consumed message headers", k)
+		}
+		err = delivery.Ack(ctx)
+		assert.NoError(t, err)
+	case <-time.After(h.cfg.timeout):
+		t.Fatal("timeout waiting for message")
+	}
 }
 
 // TestCustomHeaders verifies that custom message headers survive a
@@ -272,9 +374,8 @@ func (h *Harness) TestCustomHeaders(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("headers")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-headers"))
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-headers")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	msg := queueapi.AcquireMessage(payload.New("header-test"))
@@ -285,7 +386,7 @@ func (h *Harness) TestCustomHeaders(t *testing.T) {
 	require.NoError(t, err)
 
 	deliveries := make(chan *queueapi.Delivery, 10)
-	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	cancel, err := h.driver.Attach(ctx, queueID, nil, deliveries)
 	require.NoError(t, err)
 	defer cancel()
 
@@ -315,13 +416,12 @@ func (h *Harness) TestMessageBodyPreservation(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("body")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-body"))
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-body")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	deliveries := make(chan *queueapi.Delivery, 10)
-	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	cancel, err := h.driver.Attach(ctx, queueID, nil, deliveries)
 	require.NoError(t, err)
 	defer cancel()
 
@@ -355,13 +455,12 @@ func (h *Harness) TestBatchPublish(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("batch")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-batch"))
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-batch")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	deliveries := make(chan *queueapi.Delivery, 10)
-	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	cancel, err := h.driver.Attach(ctx, queueID, nil, deliveries)
 	require.NoError(t, err)
 	defer cancel()
 
@@ -396,9 +495,8 @@ func (h *Harness) TestMultipleHeaders(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("multiheader")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-multiheader"))
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-multiheader")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	msg := queueapi.AcquireMessage(payload.New("multi-header"))
@@ -411,7 +509,7 @@ func (h *Harness) TestMultipleHeaders(t *testing.T) {
 	require.NoError(t, err)
 
 	deliveries := make(chan *queueapi.Delivery, 10)
-	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	cancel, err := h.driver.Attach(ctx, queueID, nil, deliveries)
 	require.NoError(t, err)
 	defer cancel()
 
@@ -446,9 +544,8 @@ func (h *Harness) TestDeclareMultipleQueues(t *testing.T) {
 	queueIDs := make([]registry.ID, numQueues)
 	for i := range queueIDs {
 		queueIDs[i] = h.uniqueID("mqd")
-		opts := attrs.NewBag()
-		opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-mqd"))
-		err := h.driver.DeclareQueue(ctx, queueIDs[i], opts)
+		cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-mqd")}
+		err := h.driver.DeclareQueue(ctx, queueIDs[i], cfg)
 		require.NoError(t, err, "declare queue %d", i)
 	}
 
@@ -469,18 +566,16 @@ func (h *Harness) TestQueueIsolation(t *testing.T) {
 	queueA := h.uniqueID("iso-a")
 	queueB := h.uniqueID("iso-b")
 
-	optsA := attrs.NewBag()
-	optsA.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-iso-a"))
-	err := h.driver.DeclareQueue(ctx, queueA, optsA)
+	cfgA := &queueapi.Config{QueueName: h.uniqueQueueName("test-iso-a")}
+	err := h.driver.DeclareQueue(ctx, queueA, cfgA)
 	require.NoError(t, err)
 
-	optsB := attrs.NewBag()
-	optsB.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-iso-b"))
-	err = h.driver.DeclareQueue(ctx, queueB, optsB)
+	cfgB := &queueapi.Config{QueueName: h.uniqueQueueName("test-iso-b")}
+	err = h.driver.DeclareQueue(ctx, queueB, cfgB)
 	require.NoError(t, err)
 
 	deliveriesB := make(chan *queueapi.Delivery, 10)
-	cancelB, err := h.driver.Attach(ctx, queueB, deliveriesB)
+	cancelB, err := h.driver.Attach(ctx, queueB, nil, deliveriesB)
 	require.NoError(t, err)
 	defer cancelB()
 
@@ -505,9 +600,8 @@ func (h *Harness) TestEmptyQueueInfo(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("empty-info")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-empty-info"))
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-empty-info")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	info, err := h.driver.GetQueueInfo(ctx, queueID)
@@ -528,13 +622,12 @@ func (h *Harness) TestCancelAttach(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("cancel")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-cancel"))
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-cancel")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	deliveries := make(chan *queueapi.Delivery, 10)
-	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	cancel, err := h.driver.Attach(ctx, queueID, nil, deliveries)
 	require.NoError(t, err)
 
 	// Receive one message to confirm the consumer works.
@@ -578,9 +671,8 @@ func (h *Harness) TestPublishBeforeAttach(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("pre-attach")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-pre-attach"))
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-pre-attach")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	// Publish BEFORE any consumer is attached.
@@ -594,7 +686,7 @@ func (h *Harness) TestPublishBeforeAttach(t *testing.T) {
 
 	// Now attach a consumer.
 	deliveries := make(chan *queueapi.Delivery, 10)
-	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	cancel, err := h.driver.Attach(ctx, queueID, nil, deliveries)
 	require.NoError(t, err)
 	defer cancel()
 
@@ -623,13 +715,12 @@ func (h *Harness) TestConcurrentPublish(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("concurrent")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-concurrent"))
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-concurrent")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	deliveries := make(chan *queueapi.Delivery, 100)
-	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	cancel, err := h.driver.Attach(ctx, queueID, nil, deliveries)
 	require.NoError(t, err)
 	defer cancel()
 
@@ -676,13 +767,12 @@ func (h *Harness) TestHighVolume(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("volume")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-volume"))
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-volume")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	deliveries := make(chan *queueapi.Delivery, 100)
-	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	cancel, err := h.driver.Attach(ctx, queueID, nil, deliveries)
 	require.NoError(t, err)
 	defer cancel()
 
@@ -717,14 +807,13 @@ func (h *Harness) TestReattachAfterCancel(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("reattach")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-reattach"))
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-reattach")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	// First consumer — receive one message, then cancel.
 	del1 := make(chan *queueapi.Delivery, 10)
-	cancel1, err := h.driver.Attach(ctx, queueID, del1)
+	cancel1, err := h.driver.Attach(ctx, queueID, nil, del1)
 	require.NoError(t, err)
 
 	msg1 := queueapi.AcquireMessage(payload.New("first"))
@@ -746,7 +835,7 @@ func (h *Harness) TestReattachAfterCancel(t *testing.T) {
 	// consumer is ready regardless of the driver's consumer-group semantics
 	// (Redis XREADGROUP, SQS visibility, etc.).
 	del2 := make(chan *queueapi.Delivery, 10)
-	cancel2, err := h.driver.Attach(ctx, queueID, del2)
+	cancel2, err := h.driver.Attach(ctx, queueID, nil, del2)
 	require.NoError(t, err)
 	defer cancel2()
 
@@ -773,15 +862,14 @@ func (h *Harness) TestRapidAttachDetach(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("rapid")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-rapid"))
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-rapid")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	const iterations = 10
 	for i := 0; i < iterations; i++ {
 		deliveries := make(chan *queueapi.Delivery, 5)
-		cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+		cancel, err := h.driver.Attach(ctx, queueID, nil, deliveries)
 		require.NoError(t, err, "attach iteration %d", i)
 		cancel()
 	}
@@ -798,13 +886,12 @@ func (h *Harness) TestAckIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("ack-idem")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-ack-idem"))
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-ack-idem")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	deliveries := make(chan *queueapi.Delivery, 10)
-	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	cancel, err := h.driver.Attach(ctx, queueID, nil, deliveries)
 	require.NoError(t, err)
 	defer cancel()
 
@@ -830,13 +917,12 @@ func (h *Harness) TestNackIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("nack-idem")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-nack-idem"))
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-nack-idem")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	deliveries := make(chan *queueapi.Delivery, 10)
-	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	cancel, err := h.driver.Attach(ctx, queueID, nil, deliveries)
 	require.NoError(t, err)
 	defer cancel()
 
@@ -862,13 +948,12 @@ func (h *Harness) TestPublishWithoutExplicitID(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("auto-id")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-auto-id"))
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-auto-id")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	deliveries := make(chan *queueapi.Delivery, 10)
-	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	cancel, err := h.driver.Attach(ctx, queueID, nil, deliveries)
 	require.NoError(t, err)
 	defer cancel()
 
@@ -893,13 +978,12 @@ func (h *Harness) TestDeliveryHasNonNilHeaders(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("nil-hdr")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-nil-hdr"))
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-nil-hdr")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	deliveries := make(chan *queueapi.Delivery, 10)
-	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	cancel, err := h.driver.Attach(ctx, queueID, nil, deliveries)
 	require.NoError(t, err)
 	defer cancel()
 
@@ -925,13 +1009,12 @@ func (h *Harness) TestSingleDelivery(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("single")
 
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-single"))
-	err := h.driver.DeclareQueue(ctx, queueID, opts)
+	cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-single")}
+	err := h.driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	deliveries := make(chan *queueapi.Delivery, 20)
-	cancel, err := h.driver.Attach(ctx, queueID, deliveries)
+	cancel, err := h.driver.Attach(ctx, queueID, nil, deliveries)
 	require.NoError(t, err)
 	defer cancel()
 
@@ -975,7 +1058,7 @@ func (h *Harness) TestDeclareQueueEmptyOptions(t *testing.T) {
 	ctx := context.Background()
 	queueID := h.uniqueID("empty-opts")
 
-	err := h.driver.DeclareQueue(ctx, queueID, attrs.NewBag())
+	err := h.driver.DeclareQueue(ctx, queueID, &queueapi.Config{})
 	require.NoError(t, err)
 
 	// Publish to prove the queue is usable.
@@ -1015,13 +1098,12 @@ func (h *Harness) TestPublishToMultipleQueuesConsume(t *testing.T) {
 	slots := make([]queueSlot, numQueues)
 	for i := range slots {
 		qID := h.uniqueID("mqc")
-		opts := attrs.NewBag()
-		opts.Set(queueapi.OptionQueueName, h.uniqueQueueName("test-mqc"))
-		err := h.driver.DeclareQueue(ctx, qID, opts)
+		cfg := &queueapi.Config{QueueName: h.uniqueQueueName("test-mqc")}
+		err := h.driver.DeclareQueue(ctx, qID, cfg)
 		require.NoError(t, err)
 
 		ch := make(chan *queueapi.Delivery, 10)
-		cancel, err := h.driver.Attach(ctx, qID, ch)
+		cancel, err := h.driver.Attach(ctx, qID, nil, ch)
 		require.NoError(t, err)
 
 		slots[i] = queueSlot{id: qID, deliveries: ch, cancel: cancel}

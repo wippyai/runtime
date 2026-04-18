@@ -15,6 +15,6 @@ const (
 
 	httpName         boot.Name = "http"
 	interceptorName  boot.Name = "interceptor"
-	queueManagerName boot.Name = "queues"
+	queueManagerName boot.Name = "queue"
 	metricsName      boot.Name = "metrics"
 )

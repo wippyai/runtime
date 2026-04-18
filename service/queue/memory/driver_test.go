@@ -31,10 +31,12 @@ func TestMemoryDriver_DeclareQueueInternal(t *testing.T) {
 
 	ctx := context.Background()
 	queueID := registry.ParseID("test:queue1")
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionMaxLength, 50)
+	memBag := attrs.NewBag()
+	memBag.Set("max_length", 50)
+	cfg := &queueapi.Config{DriverOptions: attrs.NewBag()}
+	cfg.DriverOptions.Set("memory", memBag)
 
-	err := driver.DeclareQueue(ctx, queueID, opts)
+	err := driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	driver.mu.RLock()
@@ -53,7 +55,7 @@ func TestMemoryDriver_Stop(t *testing.T) {
 	ctx := context.Background()
 	queueID := registry.ParseID("test:queue1")
 
-	err := driver.DeclareQueue(ctx, queueID, attrs.NewBag())
+	err := driver.DeclareQueue(ctx, queueID, &queueapi.Config{})
 	require.NoError(t, err)
 
 	_, err = driver.Start(ctx)
@@ -76,7 +78,7 @@ func TestMemoryDriver_PublishBeforeStart(t *testing.T) {
 	ctx := context.Background()
 	queueID := registry.ParseID("test:queue1")
 
-	err := driver.DeclareQueue(ctx, queueID, attrs.NewBag())
+	err := driver.DeclareQueue(ctx, queueID, &queueapi.Config{})
 	require.NoError(t, err)
 
 	msg := queueapi.AcquireMessage(payload.New("test"))
@@ -93,7 +95,7 @@ func TestMemoryDriver_PublishAfterStop(t *testing.T) {
 	ctx := context.Background()
 	queueID := registry.ParseID("test:queue1")
 
-	err := driver.DeclareQueue(ctx, queueID, attrs.NewBag())
+	err := driver.DeclareQueue(ctx, queueID, &queueapi.Config{})
 	require.NoError(t, err)
 
 	_, err = driver.Start(ctx)

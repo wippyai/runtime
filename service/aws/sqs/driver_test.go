@@ -43,8 +43,10 @@ func TestMain(m *testing.M) {
 	}
 
 	if !drivertest.DockerAvailable() {
-		fmt.Println("docker not available, skipping SQS integration tests")
-		os.Exit(0)
+		// Pure-unit tests don't need docker; conformance tests gated on
+		// testEndpoint skip themselves when it remains empty.
+		fmt.Println("docker not available; running unit tests only")
+		os.Exit(m.Run())
 	}
 
 	_ = exec.CommandContext(context.Background(), "docker", "rm", "-f", testContainer).Run()
@@ -74,6 +76,9 @@ func TestMain(m *testing.M) {
 
 func setupDriver(t *testing.T) *Driver {
 	t.Helper()
+	if testEndpoint == "" {
+		t.Skip("SQS endpoint not available (docker or SQS_ENDPOINT required)")
+	}
 	logger := zaptest.NewLogger(t)
 	ctx := context.Background()
 

@@ -41,8 +41,8 @@ func TestMain(m *testing.M) {
 	}
 
 	if !drivertest.DockerAvailable() {
-		fmt.Println("docker not available, skipping AMQP integration tests")
-		os.Exit(0)
+		fmt.Println("docker not available; running unit tests only")
+		os.Exit(m.Run())
 	}
 
 	// Cleanup any leftover container.
@@ -90,6 +90,9 @@ func waitForAMQP(url string, timeout time.Duration) bool {
 
 func setupDriver(t *testing.T) *Driver {
 	t.Helper()
+	if testAMQPURL == "" {
+		t.Skip("AMQP URL not available (docker or AMQP_URL required)")
+	}
 	logger := zaptest.NewLogger(t)
 	cfg := &amqpapi.Config{URL: testAMQPURL}
 	tc := systempayload.NewTranscoder()
@@ -113,5 +116,12 @@ func TestAMQPDriver_Conformance(t *testing.T) {
 	driver := setupDriver(t)
 	drivertest.New(t, driver,
 		drivertest.WithTimeout(5*time.Second),
+		drivertest.WithDeclareLeakProbe("amqp", map[string]any{
+			"durable":      true,
+			"auto_delete":  false,
+			"max_length":   100,
+			"message_ttl":  "15000",
+			"queue_expiry": "600000",
+		}),
 	).Run()
 }

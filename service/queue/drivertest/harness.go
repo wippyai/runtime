@@ -49,6 +49,12 @@ type config struct {
 	// cancelled. Drivers with consumer-group semantics (SQS) may have
 	// inherent startup latency that makes this unreliable.
 	supportsReattach bool
+	// declareLeakDriver is the driver kind name under DriverOptions whose
+	// declare-only keys must never leak into published message headers.
+	declareLeakDriver string
+	// declareLeakOpts lists keys/values put into DriverOptions[driver] at
+	// DeclareQueue time; the leak test asserts none are present on consume.
+	declareLeakOpts map[string]any
 }
 
 // Option configures a [Harness].
@@ -98,6 +104,19 @@ func WithGetQueueInfoAccurate(v bool) Option {
 // Defaults to true.
 func WithSupportsReattach(v bool) Option {
 	return func(c *config) { c.supportsReattach = v }
+}
+
+// WithDeclareLeakProbe enables the declare-only-keys-must-not-leak test. The
+// driver parameter is the sub-bag key name used in queue DriverOptions (e.g.
+// "amqp", "sqs"). opts are keys placed into that sub-bag at DeclareQueue time;
+// the test asserts none of these keys appear on a consumed message's Headers.
+// Omit the option to skip the test (e.g. in-memory drivers that don't persist
+// declare options separately from headers).
+func WithDeclareLeakProbe(driver string, opts map[string]any) Option {
+	return func(c *config) {
+		c.declareLeakDriver = driver
+		c.declareLeakOpts = opts
+	}
 }
 
 // New creates a new conformance test [Harness] for the given driver.

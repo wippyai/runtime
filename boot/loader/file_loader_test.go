@@ -28,6 +28,21 @@ func TestFileLoader_SkipTemporalDirs(t *testing.T) {
 	assert.Equal(t, "test/other/case.yaml", results[0].Source())
 }
 
+func TestFileLoader_SkipSQSDirs(t *testing.T) {
+	t.Setenv("SKIP_SQS_TESTS", "1")
+
+	loader := NewFileLoader(zap.NewNop())
+	fsys := fstest.MapFS{
+		"test/sqs/case.yaml":   &fstest.MapFile{Data: []byte("k: v")},
+		"test/other/case.yaml": &fstest.MapFile{Data: []byte("k: v")},
+	}
+
+	results, err := loader.LoadFS(fsys)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "test/other/case.yaml", results[0].Source())
+}
+
 func TestFileLoader(t *testing.T) {
 	// Setup test dependencies
 	logger := zap.NewNop()

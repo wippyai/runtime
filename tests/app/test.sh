@@ -22,6 +22,20 @@ if [ -z "$SKIP_NETWORK_TESTS" ]; then
 fi
 export SKIP_NETWORK_TESTS
 
+# SQS tests require a running ElasticMQ (or LocalStack) container reachable
+# at 127.0.0.1:9324. Auto-detect and skip the suite if nothing is listening.
+: "${SKIP_SQS_TESTS:=}"
+if [ -z "$SKIP_SQS_TESTS" ]; then
+	if ! (exec 3<>/dev/tcp/127.0.0.1/9324) 2>/dev/null; then
+		SKIP_SQS_TESTS=1
+		echo "elasticmq not reachable on 127.0.0.1:9324, skipping sqs tests (run docker-compose up elasticmq to enable)"
+	else
+		exec 3<&-
+		exec 3>&-
+	fi
+fi
+export SKIP_SQS_TESTS
+
 GOCACHE=/tmp/wippy-gocache GOTMPDIR=/tmp/wippy-gotmp OTEL_SDK_DISABLED=true SKIP_TEMPORAL_TESTS=1 SKIP_CLOUDSTORAGE_TESTS=1 GOEXPERIMENT=jsonv2 \
 	go run ../../cmd/wippy run -c -s test | tee "$test_log"
 

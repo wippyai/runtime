@@ -90,11 +90,10 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return queuesvc.NewUnsupportedKindError(entry.Kind)
 	}
 
-	m.mu.RLock()
-	driver, exists := m.drivers[entry.ID]
-	m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	if !exists {
+	if _, exists := m.drivers[entry.ID]; !exists {
 		return queuesvc.NewDriverNotFoundError(entry.ID)
 	}
 
@@ -103,14 +102,39 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return err
 	}
 
+	// Tear the old driver down before swapping in the replacement: the
+	// supervisor uses ServiceRemove to stop the service, and queue
+	// consumers observe DriverDelete so they stop dispatching to the dying
+	// instance. A plain ServiceUpdate would leave the old driver running
+	// with stale config.
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,
-		Kind:   supervisor.ServiceUpdate,
+		Kind:   supervisor.ServiceRemove,
+		Path:   entry.ID.String(),
+	})
+	m.bus.Send(ctx, event.Event{
+		System: queueapi.System,
+		Kind:   queueapi.DriverDelete,
+		Path:   entry.ID.String(),
+	})
+
+	driver := NewDriver(entry.ID, cfg, m.dtt, m.log)
+	m.drivers[entry.ID] = driver
+
+	m.bus.Send(ctx, event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
 		Path:   entry.ID.String(),
 		Data: &supervisor.Entry{
 			Service: driver,
 			Config:  cfg.Lifecycle,
 		},
+	})
+	m.bus.Send(ctx, event.Event{
+		System: queueapi.System,
+		Kind:   queueapi.DriverRegister,
+		Path:   entry.ID.String(),
+		Data:   driver,
 	})
 
 	m.log.Info("updated amqp driver", zap.String("id", entry.ID.String()))
