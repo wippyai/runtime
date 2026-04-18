@@ -16,6 +16,7 @@ local function main()
 	assert.is_nil(err, "clearnet GET failed: " .. tostring(err))
 	assert.not_nil(resp, "clearnet response returned")
 	assert.eq(resp.status_code, 200, "clearnet status is 200")
+	assert.not_nil(resp.body, "response body present")
 
 	local data = json.decode(resp.body)
 	assert.not_nil(data, "decoded JSON body")

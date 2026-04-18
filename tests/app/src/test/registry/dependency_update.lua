@@ -24,7 +24,9 @@ local function module_versions()
 	local first = nil
 	local second = nil
 	for i = 1, #items do
-		local v = items[i].version
+		local item = items[i]
+		if item == nil then break end
+		local v = item.version
 		if v ~= nil and v ~= "" then
 			if first == nil then
 				first = v

@@ -13,6 +13,7 @@ local function main()
 	})
 	assert.is_nil(err, "GET with query should not error")
 	assert.eq(resp.status_code, 200, "status code 200")
+	assert.not_nil(resp.body, "response body present")
 
 	local data = json.decode(resp.body)
 	assert.eq(data.specific, "test_value", "query param value")
