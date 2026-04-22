@@ -13,4 +13,7 @@ var (
 
 	// ErrServiceStopped is returned when the pg service is not running.
 	ErrServiceStopped = apierror.New(apierror.Unavailable, "pg: service stopped").WithRetryable(apierror.False)
+
+	// ErrBackpressure is returned when the event loop queue is full.
+	ErrBackpressure = apierror.New(apierror.Unavailable, "pg: event loop backpressure, try again later").WithRetryable(apierror.True)
 )

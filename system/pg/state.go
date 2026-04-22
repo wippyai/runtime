@@ -338,6 +338,12 @@ func (s *state) allGroupMembers() map[string][]pid.PID {
 	return result
 }
 
+// pidEqual compares two PIDs by their identity fields (Node, Host, UniqID),
+// ignoring the cached string representation.
+func pidEqual(a, b pid.PID) bool {
+	return a.Node == b.Node && a.Host == b.Host && a.UniqID == b.UniqID
+}
+
 // removePIDFromGroup removes one occurrence of a PID from a group's member lists.
 func (s *state) removePIDFromGroup(group string, p pid.PID, isLocal bool) {
 	gs, exists := s.groups[group]
@@ -345,11 +351,9 @@ func (s *state) removePIDFromGroup(group string, p pid.PID, isLocal bool) {
 		return
 	}
 
-	key := p.String()
-
 	// Remove from all list (first occurrence)
 	for i, mp := range gs.all {
-		if mp.String() == key {
+		if pidEqual(mp, p) {
 			gs.all = append(gs.all[:i], gs.all[i+1:]...)
 			break
 		}
@@ -358,7 +362,7 @@ func (s *state) removePIDFromGroup(group string, p pid.PID, isLocal bool) {
 	// Remove from local list if applicable
 	if isLocal {
 		for i, mp := range gs.local {
-			if mp.String() == key {
+			if pidEqual(mp, p) {
 				gs.local = append(gs.local[:i], gs.local[i+1:]...)
 				break
 			}

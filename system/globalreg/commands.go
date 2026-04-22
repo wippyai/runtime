@@ -29,13 +29,16 @@ type Command struct {
 	Type   CommandType `codec:"t" json:"type"`
 }
 
-// handle is the msgpack codec handle, shared for all encode/decode operations.
-var handle = &codec.MsgpackHandle{}
+// newMsgpackHandle creates a new MsgpackHandle per operation to avoid
+// concurrent use of shared encoder/decoder state.
+func newMsgpackHandle() *codec.MsgpackHandle {
+	return &codec.MsgpackHandle{}
+}
 
 // EncodeCommand serializes a Command to msgpack bytes.
 func EncodeCommand(cmd *Command) ([]byte, error) {
 	var buf []byte
-	enc := codec.NewEncoderBytes(&buf, handle)
+	enc := codec.NewEncoderBytes(&buf, newMsgpackHandle())
 	if err := enc.Encode(cmd); err != nil {
 		return nil, err
 	}
@@ -45,7 +48,7 @@ func EncodeCommand(cmd *Command) ([]byte, error) {
 // DecodeCommand deserialises msgpack bytes into a Command.
 func DecodeCommand(data []byte) (*Command, error) {
 	var cmd Command
-	dec := codec.NewDecoderBytes(data, handle)
+	dec := codec.NewDecoderBytes(data, newMsgpackHandle())
 	if err := dec.Decode(&cmd); err != nil {
 		return nil, err
 	}

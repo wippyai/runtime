@@ -141,7 +141,8 @@ func (sc *ShardCoordinator) RegisterMulti(ctx context.Context, names []string, p
 	return sc.txnMgr.ExecuteTransaction(ctx, names, p, TxnTypeRegister)
 }
 
-// registerSingleShard registers multiple names within one shard.
+// registerSingleShard registers multiple names within one shard atomically.
+// On partial failure, previously registered names are rolled back.
 func (sc *ShardCoordinator) registerSingleShard(_ context.Context, names []string, p pid.PID) error {
 	shardID := sc.getShardID(names[0])
 	shard, ok := sc.getShard(shardID)
@@ -149,7 +150,9 @@ func (sc *ShardCoordinator) registerSingleShard(_ context.Context, names []strin
 		return globalregapi.ErrShardNotFound
 	}
 
-	// Register each name
+	var registered []string
+
+	// Register each name, tracking successes for rollback
 	for _, name := range names {
 		cmd := &syspg.Command{
 			Type:   syspg.CmdRegister,
@@ -160,20 +163,38 @@ func (sc *ShardCoordinator) registerSingleShard(_ context.Context, names []strin
 
 		result, err := shard.Apply(cmd)
 		if err != nil {
+			sc.rollbackRegistered(shard, registered)
 			return err
 		}
 
 		regResult, ok := result.(*syspg.RegisterResult)
 		if !ok {
+			sc.rollbackRegistered(shard, registered)
 			return fmt.Errorf("unexpected result type: %T", result)
 		}
 
 		if regResult.Err != nil {
+			sc.rollbackRegistered(shard, registered)
 			return regResult.Err
 		}
+
+		registered = append(registered, name)
 	}
 
 	return nil
+}
+
+// rollbackRegistered unregisters previously registered names as a compensating action.
+func (sc *ShardCoordinator) rollbackRegistered(shard *Shard, names []string) {
+	for i := len(names) - 1; i >= 0; i-- {
+		cmd := &syspg.Command{Type: syspg.CmdUnregister, Name: names[i]}
+		if _, err := shard.Apply(cmd); err != nil {
+			sc.logger.Error("rollback failed during compensating unregister",
+				zap.String("name", names[i]),
+				zap.Error(err),
+			)
+		}
+	}
 }
 
 // Unregister removes a name from its shard.

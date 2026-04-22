@@ -6,6 +6,7 @@ import (
 	"container/list"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/wippyai/runtime/api/cluster"
 	"go.uber.org/zap"
@@ -18,6 +19,7 @@ var (
 )
 
 type NodeState struct {
+	createdAt     time.Time // for observability: when this state was first created
 	messageQueue  *list.List
 	messageNotify chan struct{}
 	connection    *NodeConnection
@@ -48,24 +50,43 @@ func NewNodeStateManager(config ManagerConfig, logger *zap.Logger) *NodeStateMan
 // CreateNodeState initializes the in-memory state for a new node.
 // This should only be called by the manager when a node joins the cluster.
 // If state already exists (e.g. stale entry from a previous incarnation),
-// it is replaced with fresh state.
+// the existing struct is reused: connection is closed and replaced, queue and
+// state are reset, but the messageNotify channel is kept so any existing
+// control loop continues to receive notifications without holding a stale
+// channel reference.
+//
+// Auto-managed nodes (created from inbound connections before the formal
+// NodeJoined event) are cleaned up when their connection closes; no separate
+// reaper goroutine is needed.
 func (nsm *NodeStateManager) CreateNodeState(nodeID cluster.NodeID) {
 	if existing, ok := nsm.nodeStates.Load(nodeID); ok {
-		// Close any stale connection on the old state before replacing
 		oldState := existing.(*NodeState)
+
+		// Reset connection
 		oldState.stateMu.Lock()
 		if oldState.connection != nil {
 			oldState.connection.Close()
 			oldState.connection = nil
 		}
+		oldState.state = StateNone
+		oldState.address = nodeAddress{}
 		oldState.stateMu.Unlock()
-		nsm.logger.Debug("Replacing stale state for rejoining node", zap.String("node_id", nodeID))
+
+		// Drain the queue
+		oldState.queueMu.Lock()
+		oldState.messageQueue.Init()
+		oldState.queueMu.Unlock()
+
+		// Do NOT replace messageNotify — existing control loops hold a reference.
+		nsm.logger.Debug("Reset existing state for rejoining node", zap.String("node_id", nodeID))
+		return
 	}
 
 	newState := &NodeState{
 		messageQueue:  list.New(),
 		messageNotify: make(chan struct{}, 1),
 		state:         StateNone,
+		createdAt:     time.Now(),
 	}
 	nsm.nodeStates.Store(nodeID, newState)
 }

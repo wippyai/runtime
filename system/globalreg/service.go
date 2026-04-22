@@ -4,9 +4,11 @@ package globalreg
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/wippyai/runtime/api/cluster"
@@ -49,13 +51,16 @@ type Service struct {
 	mu            sync.Mutex
 	started       bool
 	ready         bool // true after initial Raft barrier completes
+	degraded      bool // true if Raft barrier timed out (serving potentially stale data)
 }
 
 // forwardResponse wraps the result of a forwarded command.
 type forwardResponse struct {
-	Err  string
-	Data []byte
+	ErrMsg string
 }
+
+// correlationIDCounter generates unique correlation IDs for forwarded requests.
+var correlationIDCounter atomic.Uint64
 
 // NewService creates a new global registry service.
 func NewService(
@@ -97,6 +102,9 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 		return nil, fmt.Errorf("subscribe to cluster events: %w", err)
 	}
 	go s.handleClusterEvents(ctx, ch, subID)
+
+	// Monitor leadership changes to re-establish PID monitors.
+	go s.monitorLeadership()
 
 	// Wait for the Raft log to catch up before serving lookups.
 	// This ensures this node won't return stale data after a restart or rejoin.
@@ -312,8 +320,8 @@ func (s *Service) applyCommand(cmd *Command) (any, error) {
 }
 
 // forwardToLeader sends the command to the current Raft leader's global
-// registry service via the relay system.
-// Retries leader discovery to handle followers that haven't yet learned the leader.
+// registry service via the relay system and waits for the response.
+// Uses a correlation ID to match the response to the request.
 func (s *Service) forwardToLeader(cmd *Command) (any, error) {
 	// Retry leader discovery - follower may need time to learn leader after joining cluster
 	var leaderID string
@@ -339,12 +347,31 @@ func (s *Service) forwardToLeader(cmd *Command) (any, error) {
 		return nil, fmt.Errorf("encode forward command: %w", err)
 	}
 
+	// Create correlation ID and response channel
+	corrID := correlationIDCounter.Add(1)
+	respCh := make(chan *forwardResponse, 1)
+
+	s.mu.Lock()
+	s.pending[corrID] = respCh
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		delete(s.pending, corrID)
+		s.mu.Unlock()
+	}()
+
+	// Prepend 8-byte correlation ID to the command data
+	envelope := make([]byte, 8+len(data))
+	binary.BigEndian.PutUint64(envelope[:8], corrID)
+	copy(envelope[8:], data)
+
 	// Send via relay to the leader's globalreg host.
 	pkg := relay.NewServicePackage(
 		s.localNode, HostID,
 		leaderID, HostID,
 		topicForwardRequest,
-		payload.New(data),
+		payload.New(envelope),
 	)
 
 	if err := s.router.Send(pkg); err != nil {
@@ -352,45 +379,18 @@ func (s *Service) forwardToLeader(cmd *Command) (any, error) {
 		return nil, fmt.Errorf("forward to leader: %w", err)
 	}
 
-	// For now, we apply locally after forwarding since the Raft log
-	// will replicate the result back to us. In a production system,
-	// we'd use a request-response correlation pattern. For the initial
-	// implementation, we retry local apply with a backoff.
-	return s.retryLocalApply(cmd)
-}
-
-// retryLocalApply retries the apply locally, waiting for the leader to
-// process the forwarded command and for the log entry to replicate to us.
-func (s *Service) retryLocalApply(cmd *Command) (any, error) {
-	data, err := EncodeCommand(cmd)
-	if err != nil {
-		return nil, err
+	// Wait for response with timeout
+	select {
+	case resp := <-respCh:
+		if resp.ErrMsg != "" {
+			return nil, errors.New(resp.ErrMsg)
+		}
+		return nil, nil
+	case <-time.After(defaultApplyTimeout):
+		return nil, globalreg.ErrNotAvailable
+	case <-s.stopCh:
+		return nil, globalreg.ErrNotAvailable
 	}
-
-	// Retry up to 10 times with exponential backoff.
-	backoff := 50 * time.Millisecond
-	for i := 0; i < 10; i++ {
-		time.Sleep(backoff)
-
-		resp, err := s.raftSvc.Apply(data, defaultApplyTimeout)
-		if err == nil {
-			if resp.Response != nil {
-				if fsmErr, ok := resp.Response.(error); ok {
-					return nil, fsmErr
-				}
-			}
-			return resp.Response, nil
-		}
-		if !errors.Is(err, raftapi.ErrNotLeader) {
-			return nil, err
-		}
-		backoff *= 2
-		if backoff > 2*time.Second {
-			backoff = 2 * time.Second
-		}
-	}
-
-	return nil, globalreg.ErrNotAvailable
 }
 
 // Send implements relay.Receiver. It handles forwarded commands from other
@@ -402,6 +402,8 @@ func (s *Service) Send(pkg *relay.Package) error {
 		switch msg.Topic {
 		case topicForwardRequest:
 			s.handleForwardRequest(pkg.Source, msg)
+		case topicForwardResponse:
+			s.handleForwardResponse(msg)
 		case topology.TopicEvents:
 			s.handleExitEvent(msg)
 		}
@@ -423,29 +425,88 @@ func (s *Service) handleExitEvent(msg *relay.Message) {
 }
 
 // handleForwardRequest processes a forwarded command from a follower node.
+// Applies the command via Raft and sends a response back with the correlation ID.
 func (s *Service) handleForwardRequest(source pid.PID, msg *relay.Message) {
 	if len(msg.Payloads) == 0 {
 		return
 	}
 
-	data, ok := msg.Payloads[0].Data().([]byte)
-	if !ok {
-		s.logger.Error("invalid forward request payload type")
+	envelope, ok := msg.Payloads[0].Data().([]byte)
+	if !ok || len(envelope) < 8 {
+		s.logger.Error("invalid forward request payload")
 		return
 	}
+
+	// Extract correlation ID and command data
+	corrID := binary.BigEndian.Uint64(envelope[:8])
+	data := envelope[8:]
 
 	// Apply the command locally (we should be the leader).
+	var errMsg string
 	resp, err := s.raftSvc.Apply(data, defaultApplyTimeout)
 	if err != nil {
-		s.logger.Error("failed to apply forwarded command", zap.Error(err), zap.String("from", source.Node))
+		errMsg = err.Error()
+	} else if resp.Response != nil {
+		if fsmErr, ok := resp.Response.(error); ok {
+			errMsg = fsmErr.Error()
+		}
+	}
+
+	// Send response back to the requesting node
+	respEnvelope := make([]byte, 8)
+	binary.BigEndian.PutUint64(respEnvelope[:8], corrID)
+	if errMsg != "" {
+		respEnvelope = append(respEnvelope, []byte(errMsg)...)
+	}
+
+	respPkg := relay.NewServicePackage(
+		s.localNode, HostID,
+		source.Node, HostID,
+		topicForwardResponse,
+		payload.New(respEnvelope),
+	)
+
+	if err := s.router.Send(respPkg); err != nil {
+		relay.ReleasePackage(respPkg)
+		s.logger.Error("failed to send forward response",
+			zap.Error(err), zap.String("to", source.Node))
+	}
+}
+
+// handleForwardResponse processes a response from the leader for a forwarded command.
+func (s *Service) handleForwardResponse(msg *relay.Message) {
+	if len(msg.Payloads) == 0 {
 		return
 	}
 
-	// Check for FSM-level error in the response.
-	if resp.Response != nil {
-		if fsmErr, ok := resp.Response.(error); ok {
-			s.logger.Debug("forwarded command failed at FSM", zap.Error(fsmErr), zap.String("from", source.Node))
-		}
+	envelope, ok := msg.Payloads[0].Data().([]byte)
+	if !ok || len(envelope) < 8 {
+		s.logger.Error("invalid forward response payload")
+		return
+	}
+
+	corrID := binary.BigEndian.Uint64(envelope[:8])
+	errMsg := string(envelope[8:])
+
+	s.mu.Lock()
+	ch, ok := s.pending[corrID]
+	s.mu.Unlock()
+
+	if !ok {
+		s.logger.Debug("received forward response for unknown correlation ID",
+			zap.Uint64("corr_id", corrID))
+		return
+	}
+
+	resp := &forwardResponse{}
+	if errMsg != "" {
+		resp.ErrMsg = errMsg
+	}
+
+	select {
+	case ch <- resp:
+	default:
+		// Channel full or already consumed — discard
 	}
 }
 
@@ -479,12 +540,52 @@ func (s *Service) HandleProcessExit(p pid.PID) {
 	}
 }
 
+// monitorLeadership watches for leadership changes and re-establishes
+// PID monitors when this node becomes the leader. This ensures that after
+// a leader failover, the new leader monitors all registered local PIDs
+// for auto-cleanup on process exit.
+func (s *Service) monitorLeadership() {
+	leaderCh := s.raftSvc.LeaderCh()
+	for {
+		select {
+		case isLeader, ok := <-leaderCh:
+			if !ok {
+				return
+			}
+			if isLeader {
+				s.reestablishMonitors()
+			}
+		case <-s.stopCh:
+			return
+		}
+	}
+}
+
+// reestablishMonitors scans all registered names and sets up topology
+// monitors for PIDs that are local to this node.
+func (s *Service) reestablishMonitors() {
+	entries := s.fsm.State().snapshot()
+	for _, e := range entries {
+		if e.NodeID == s.localNode {
+			s.monitorPID(e.PID)
+		}
+	}
+}
+
 // waitForReady waits for the Raft log to catch up using a barrier,
-// then marks the service as ready to serve consistent lookups.
+// then marks the service as ready to serve lookups.
+// If the barrier times out, the service is marked as degraded (serving
+// potentially stale data) but still ready, preferring availability over
+// blocking indefinitely.
 func (s *Service) waitForReady(_ context.Context) {
 	if err := s.raftSvc.Barrier(30 * time.Second); err != nil {
-		s.logger.Warn("raft barrier timed out during startup, serving lookups anyway",
+		s.logger.Warn("raft barrier timed out during startup, serving lookups in degraded mode",
 			zap.Error(err))
+		s.mu.Lock()
+		s.degraded = true
+		s.ready = true
+		s.mu.Unlock()
+		return
 	}
 
 	s.mu.Lock()
@@ -495,11 +596,19 @@ func (s *Service) waitForReady(_ context.Context) {
 }
 
 // IsReady returns whether the service has caught up with the Raft log
-// and can serve consistent lookups.
+// and can serve lookups.
 func (s *Service) IsReady() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.ready
+}
+
+// IsDegraded returns whether the service started without fully catching up
+// with the Raft log. Lookups may return stale data.
+func (s *Service) IsDegraded() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.degraded
 }
 
 // Ensure Service implements the interfaces.

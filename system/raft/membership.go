@@ -77,6 +77,13 @@ func (h *MembershipHandler) loop(ctx context.Context, ch <-chan event.Event, sub
 
 func (h *MembershipHandler) handleNodeJoined(e event.Event) {
 	// Only the leader manages Raft membership.
+	//
+	// The IsLeader() check is an optimization to avoid unnecessary configuration
+	// lookups on non-leaders. Between this check and the AddVoter() call below,
+	// leadership can transfer to another node. This is an accepted race:
+	//   - If leadership is lost, AddVoter() returns ErrNotLeader which is already logged.
+	//   - AddVoter is idempotent, so duplicate calls from old/new leaders are harmless.
+	//   - The new leader will receive the same NodeJoined event and handle it.
 	if !h.svc.IsLeader() {
 		return
 	}

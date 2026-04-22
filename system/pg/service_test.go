@@ -1739,11 +1739,11 @@ func TestServiceMultiJoinExitBroadcast(t *testing.T) {
 				leaveFound = true
 				data, ok := m.Payloads[0].Data().(map[string]any)
 				require.True(t, ok)
-				rawGroups, _ := data["groups"].([]string)
+				rawGroups, _ := data["groups"].([]any)
 				// Count "workers" occurrences
 				count := 0
 				for _, g := range rawGroups {
-					if g == "workers" {
+					if gs, ok := g.(string); ok && gs == "workers" {
 						count++
 					}
 				}

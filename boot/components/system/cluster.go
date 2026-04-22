@@ -169,15 +169,18 @@ func Cluster() boot.Component {
 
 			// Create package callback for internode service
 			pkgCallback := func(pkg *relayapi.Package) error {
+				// Copy fields before Send — Send may release the package.
+				targetHost := pkg.Target.Host
+				targetNode := pkg.Target.Node
+				topic := ""
+				if len(pkg.Messages) > 0 {
+					topic = pkg.Messages[0].Topic
+				}
 				err := node.Send(pkg)
 				if err != nil {
-					topic := ""
-					if len(pkg.Messages) > 0 {
-						topic = pkg.Messages[0].Topic
-					}
 					logger.Warn("internode delivery failed",
-						zap.String("target_host", pkg.Target.Host),
-						zap.String("target_node", pkg.Target.Node),
+						zap.String("target_host", targetHost),
+						zap.String("target_node", targetNode),
 						zap.String("topic", topic),
 						zap.Error(err),
 					)

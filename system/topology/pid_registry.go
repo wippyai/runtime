@@ -4,6 +4,7 @@ package topology
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/pid"
@@ -15,7 +16,7 @@ import (
 // It is optimized for concurrent access.
 type PIDRegistry struct {
 	parent    topology.PIDRegistry
-	globalReg topology.GlobalRegistry
+	globalReg atomic.Value // stores topology.GlobalRegistry
 	logger    *zap.Logger
 	nameToID  sync.Map
 	idToName  sync.Map
@@ -47,14 +48,24 @@ func WithLogger(logger *zap.Logger) Option {
 // WithGlobalRegistry sets a global registry for cross-scope conflict checking.
 func WithGlobalRegistry(global topology.GlobalRegistry) Option {
 	return func(r *PIDRegistry) {
-		r.globalReg = global
+		r.globalReg.Store(global)
 	}
 }
 
 // SetGlobalRegistry sets the global registry after construction.
 // This is needed when the global registry is initialized after the PID registry.
+// Safe for concurrent use.
 func (r *PIDRegistry) SetGlobalRegistry(global topology.GlobalRegistry) {
-	r.globalReg = global
+	r.globalReg.Store(global)
+}
+
+// loadGlobalReg returns the current global registry, or nil if none is set.
+func (r *PIDRegistry) loadGlobalReg() topology.GlobalRegistry {
+	v := r.globalReg.Load()
+	if v == nil {
+		return nil
+	}
+	return v.(topology.GlobalRegistry)
 }
 
 // NewPIDRegistry creates a new empty PID registry.
@@ -78,8 +89,8 @@ func NewPIDRegistry(opts ...Option) *PIDRegistry {
 // the name already exists globally (prevents local shadowing of global names).
 func (r *PIDRegistry) Register(name string, p pid.PID) (pid.PID, error) {
 	// Check global registry first to prevent local shadowing of global names.
-	if r.globalReg != nil {
-		if existingPID, found := r.globalReg.Lookup(name); found {
+	if gr := r.loadGlobalReg(); gr != nil {
+		if existingPID, found := gr.Lookup(name); found {
 			if existingPID == p {
 				return p, nil // same PID registered globally — allow
 			}
@@ -177,8 +188,8 @@ func (r *PIDRegistry) Unregister(name string) bool {
 
 func (r *PIDRegistry) Lookup(name string) (pid.PID, bool) {
 	// Check global registry first — global names take priority.
-	if r.globalReg != nil {
-		if p, found := r.globalReg.Lookup(name); found {
+	if gr := r.loadGlobalReg(); gr != nil {
+		if p, found := gr.Lookup(name); found {
 			return p, true
 		}
 	}
@@ -200,8 +211,8 @@ func (r *PIDRegistry) Lookup(name string) (pid.PID, bool) {
 // Returns a zero LookupResult if the name is not found globally (local names
 // don't have fencing tokens).
 func (r *PIDRegistry) LookupWithFence(name string) globalreg.LookupResult {
-	if r.globalReg != nil {
-		result := r.globalReg.LookupWithFence(name)
+	if gr := r.loadGlobalReg(); gr != nil {
+		result := gr.LookupWithFence(name)
 		if result.Found {
 			return result
 		}

@@ -717,9 +717,13 @@ func (y *EventsYield) HandleResult(l *lua.LState, data any, err error) []lua.LVa
 				store.AddCleanup(func() error {
 					sub.mu.Lock()
 					defer sub.mu.Unlock()
-					if !sub.closed && sub.unsubscribe != nil {
-						sub.unsubscribe()
-						sub.unsubscribe = nil
+					if !sub.closed {
+						sub.closed = true
+						if sub.unsubscribe != nil {
+							sub.unsubscribe()
+							sub.unsubscribe = nil
+						}
+						sub.channel.Close(nil)
 					}
 					return nil
 				})
@@ -832,9 +836,13 @@ func (y *MonitorYield) HandleResult(l *lua.LState, data any, err error) []lua.LV
 				store.AddCleanup(func() error {
 					sub.mu.Lock()
 					defer sub.mu.Unlock()
-					if !sub.closed && sub.unsubscribe != nil {
-						sub.unsubscribe()
-						sub.unsubscribe = nil
+					if !sub.closed {
+						sub.closed = true
+						if sub.unsubscribe != nil {
+							sub.unsubscribe()
+							sub.unsubscribe = nil
+						}
+						sub.channel.Close(nil)
 					}
 					return nil
 				})

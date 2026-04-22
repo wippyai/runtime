@@ -139,7 +139,7 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 	defer rc.Close()
 
 	var entries []snapshotEntry
-	dec := codec.NewDecoder(rc, handle)
+	dec := codec.NewDecoder(rc, newMsgpackHandle())
 	if err := dec.Decode(&entries); err != nil {
 		return fmt.Errorf("decode snapshot: %w", err)
 	}
@@ -155,7 +155,7 @@ type fsmSnapshot struct {
 
 // Persist writes the snapshot data to the sink.
 func (s *fsmSnapshot) Persist(sink hraft.SnapshotSink) error {
-	enc := codec.NewEncoder(sink, handle)
+	enc := codec.NewEncoder(sink, newMsgpackHandle())
 	if err := enc.Encode(s.entries); err != nil {
 		_ = sink.Cancel()
 		return fmt.Errorf("encode snapshot: %w", err)

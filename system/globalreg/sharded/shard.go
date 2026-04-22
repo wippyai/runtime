@@ -4,6 +4,7 @@ package sharded
 
 import (
 	"fmt"
+	"sync"
 	"sync/atomic"
 
 	hraft "github.com/hashicorp/raft"
@@ -16,10 +17,13 @@ import (
 // Shard represents a single shard in the sharded registry.
 // Optimized for lock-free reads - writes are serialized through Apply.
 type Shard struct {
-	fsm       *syspg.FSM
-	logger    *zap.Logger
-	nameCount atomic.Int64
-	id        globalregapi.ShardID
+	fsm            *syspg.FSM
+	logger         *zap.Logger
+	reservations   map[string]string // name -> txnID, for 2PC isolation
+	reservationsMu sync.Mutex
+	nameCount      atomic.Int64
+	logIndex       atomic.Uint64
+	id             globalregapi.ShardID
 }
 
 // NewShard creates a new shard with the given ID and FSM.
@@ -28,9 +32,10 @@ func NewShard(id globalregapi.ShardID, fsm *syspg.FSM, logger *zap.Logger) *Shar
 		logger = zap.NewNop()
 	}
 	return &Shard{
-		id:     id,
-		fsm:    fsm,
-		logger: logger.Named(fmt.Sprintf("shard-%d", id)),
+		id:           id,
+		fsm:          fsm,
+		logger:       logger.Named(fmt.Sprintf("shard-%d", id)),
+		reservations: make(map[string]string),
 	}
 }
 
@@ -48,7 +53,7 @@ func (s *Shard) Apply(cmd *syspg.Command) (any, error) {
 		return nil, err
 	}
 
-	log := &hraft.Log{Data: data, Index: 1}
+	log := &hraft.Log{Data: data, Index: s.logIndex.Add(1)}
 	result := s.fsm.Apply(log)
 
 	// Update atomic counter on successful register
@@ -93,4 +98,48 @@ func (s *Shard) IsHealthy() bool {
 // ID returns the shard's ID.
 func (s *Shard) ID() globalregapi.ShardID {
 	return s.id
+}
+
+// Reserve reserves a name for a transaction during the 2PC prepare phase.
+// Returns an error if the name is already reserved by another transaction.
+func (s *Shard) Reserve(name, txnID string) error {
+	s.reservationsMu.Lock()
+	defer s.reservationsMu.Unlock()
+
+	if holder, ok := s.reservations[name]; ok && holder != txnID {
+		return fmt.Errorf("name %s already reserved by transaction %s", name, holder)
+	}
+	s.reservations[name] = txnID
+	return nil
+}
+
+// ReleaseReservation releases a single name reservation for a transaction.
+func (s *Shard) ReleaseReservation(name, txnID string) {
+	s.reservationsMu.Lock()
+	defer s.reservationsMu.Unlock()
+
+	if holder, ok := s.reservations[name]; ok && holder == txnID {
+		delete(s.reservations, name)
+	}
+}
+
+// ReleaseAllReservations releases all reservations held by a transaction.
+func (s *Shard) ReleaseAllReservations(txnID string) {
+	s.reservationsMu.Lock()
+	defer s.reservationsMu.Unlock()
+
+	for name, holder := range s.reservations {
+		if holder == txnID {
+			delete(s.reservations, name)
+		}
+	}
+}
+
+// IsReserved checks if a name is reserved by any transaction other than the given one.
+func (s *Shard) IsReserved(name, excludeTxnID string) bool {
+	s.reservationsMu.Lock()
+	defer s.reservationsMu.Unlock()
+
+	holder, ok := s.reservations[name]
+	return ok && holder != excludeTxnID
 }

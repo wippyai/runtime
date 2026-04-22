@@ -49,7 +49,7 @@ func (s *Service) sendDiscover(targetNodeID pid.NodeID) {
 		// Add to retry queue if configured
 		if s.retryQueue != nil && s.maxRetries > 0 {
 			// Discover has no group/pids, use empty
-			s.retryQueue.Add(targetNodeID, pgapi.TopicDiscover, "", nil, nil)
+			s.retryQueue.Add(targetNodeID, pgapi.TopicDiscover, nil, nil, nil)
 		}
 		return
 	}
@@ -71,10 +71,13 @@ func (s *Service) sendSync(targetNodeID pid.NodeID) {
 
 	localPids := s.state.allLocalPids()
 
-	// Convert pid.PID to string representation for serialization
-	groups := make(map[string][]string, len(localPids))
+	// Convert pid.PID to interface types that match JSON deserialization
+	// format (map[string]any with []any values). This ensures handlers
+	// work identically whether payloads pass through codec serialization
+	// or are forwarded directly in tests.
+	groups := make(map[string]any, len(localPids))
 	for group, pids := range localPids {
-		strs := make([]string, len(pids))
+		strs := make([]any, len(pids))
 		for i, p := range pids {
 			strs[i] = p.String()
 		}
@@ -102,12 +105,16 @@ func (s *Service) sendSync(targetNodeID pid.NodeID) {
 // broadcastJoin sends a join notification to all known remote pg services.
 // Uses circuit breaker for per-node protection and retry queue for recovery.
 func (s *Service) broadcastJoin(group string, pids []pid.PID) {
-	pidStrs := make([]string, len(pids))
+	pidStrs := make([]any, len(pids))
 	for i, p := range pids {
 		pidStrs[i] = p.String()
 	}
 
 	for nodeID := range s.state.remote {
+		if nodeID == s.localNodeID {
+			continue // skip self
+		}
+
 		// Check circuit breaker
 		cb := s.cbManager.GetCircuitBreaker(nodeID)
 		if !cb.Allow() {
@@ -117,7 +124,7 @@ func (s *Service) broadcastJoin(group string, pids []pid.PID) {
 			)
 			// Still try to add to retry queue
 			if s.retryQueue != nil {
-				s.retryQueue.Add(nodeID, pgapi.TopicJoin, group, pids, nil)
+				s.retryQueue.Add(nodeID, pgapi.TopicJoin, []string{group}, pids, nil)
 			}
 			continue
 		}
@@ -138,7 +145,7 @@ func (s *Service) broadcastJoin(group string, pids []pid.PID) {
 
 			// Add to retry queue for recovery
 			if s.retryQueue != nil {
-				s.retryQueue.Add(nodeID, pgapi.TopicJoin, group, pids, nil)
+				s.retryQueue.Add(nodeID, pgapi.TopicJoin, []string{group}, pids, nil)
 			}
 			continue
 		}
@@ -154,12 +161,21 @@ func (s *Service) broadcastLeave(pids []pid.PID, groups []string) {
 		return
 	}
 
-	pidStrs := make([]string, len(pids))
+	pidStrs := make([]any, len(pids))
 	for i, p := range pids {
 		pidStrs[i] = p.String()
 	}
 
+	groupStrs := make([]any, len(groups))
+	for i, g := range groups {
+		groupStrs[i] = g
+	}
+
 	for nodeID := range s.state.remote {
+		if nodeID == s.localNodeID {
+			continue // skip self
+		}
+
 		// Check circuit breaker
 		cb := s.cbManager.GetCircuitBreaker(nodeID)
 		if !cb.Allow() {
@@ -168,9 +184,7 @@ func (s *Service) broadcastLeave(pids []pid.PID, groups []string) {
 			)
 			// Still try to add to retry queue
 			if s.retryQueue != nil {
-				for _, group := range groups {
-					s.retryQueue.Add(nodeID, pgapi.TopicLeave, group, pids, nil)
-				}
+				s.retryQueue.Add(nodeID, pgapi.TopicLeave, groups, pids, nil)
 			}
 			continue
 		}
@@ -179,7 +193,7 @@ func (s *Service) broadcastLeave(pids []pid.PID, groups []string) {
 			payload.New(map[string]any{
 				"from":   s.localNodeID,
 				"pids":   pidStrs,
-				"groups": groups,
+				"groups": groupStrs,
 			}),
 		)
 		if err := s.router.Send(pkg); err != nil {
@@ -191,9 +205,7 @@ func (s *Service) broadcastLeave(pids []pid.PID, groups []string) {
 
 			// Add to retry queue for recovery
 			if s.retryQueue != nil {
-				for _, group := range groups {
-					s.retryQueue.Add(nodeID, pgapi.TopicLeave, group, pids, nil)
-				}
+				s.retryQueue.Add(nodeID, pgapi.TopicLeave, groups, pids, nil)
 			}
 			continue
 		}
@@ -204,6 +216,11 @@ func (s *Service) broadcastLeave(pids []pid.PID, groups []string) {
 
 // handleDiscover processes a discover message from a remote node.
 func (s *Service) handleDiscover(fromNodeID pid.NodeID) {
+	// Ignore self-discovery
+	if fromNodeID == s.localNodeID {
+		return
+	}
+
 	// Send our local state to the remote node
 	s.sendSync(fromNodeID)
 
@@ -367,21 +384,34 @@ func (s *Service) handleProcessExit(p pid.PID) {
 
 // handleNodeLeft handles a remote node leaving the cluster.
 func (s *Service) handleNodeLeft(nodeID pid.NodeID) {
-	// Collect groups and PIDs before removing, so we can emit events
+	// Collect groups and PIDs before removing, so we can emit events after state removal
+	type leaveEvent struct {
+		group string
+		pids  []pid.PID
+	}
+	var events []leaveEvent
+
 	rn, exists := s.state.remote[nodeID]
 	if exists {
 		for group, pids := range rn.groups {
 			if len(pids) > 0 {
-				// Make a copy of the pids slice before state removal
 				pidsCopy := make([]pid.PID, len(pids))
 				copy(pidsCopy, pids)
-				// Defer emission until after state removal
-				defer s.emitLeaveEvent(group, pidsCopy)
+				events = append(events, leaveEvent{group: group, pids: pidsCopy})
 			}
 		}
 	}
 
 	s.state.removeNode(nodeID)
+
+	// Clean up circuit breaker for departed node
+	s.cbManager.RemoveCircuitBreaker(nodeID)
+
+	// Emit leave events after state removal
+	for _, e := range events {
+		s.emitLeaveEvent(e.group, e.pids)
+	}
+
 	s.logger.Debug("node left, removed remote state",
 		logNodeID(nodeID),
 	)

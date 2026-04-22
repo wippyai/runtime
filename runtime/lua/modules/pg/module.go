@@ -512,8 +512,7 @@ func pgOpen(l *lua.LState) int {
 	}
 
 	if !security.IsAllowed(ctx, "pg.open", id, nil) {
-		l.RaiseError("not allowed to access pg scope: %s", id)
-		return 0
+		return pushPGError(l, lua.LNil, newPGError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to access pg scope: %s", id)))
 	}
 
 	reg := resource.GetRegistry(ctx)

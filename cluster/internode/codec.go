@@ -48,6 +48,10 @@ func NewMessageCodec(transcoder payload.Transcoder) *MessageCodec {
 	// (not ambiguous raw), and []byte is encoded as bin type. Without this,
 	// string values inside map[string]any are decoded as []uint8 because both
 	// strings and bytes use the old-spec ambiguous "raw" format.
+	//
+	// BREAKING WIRE FORMAT: This is incompatible with the old spec encoding.
+	// All cluster nodes must be upgraded simultaneously; rolling upgrades across
+	// nodes running old and new codecs will fail to decode each other's messages.
 	mh.WriteExt = true
 
 	mh.MapType = reflect.TypeOf(map[string]any(nil))

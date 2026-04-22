@@ -1317,14 +1317,16 @@ func TestOpenNoContext(t *testing.T) {
 	// go-lua's VM sets context.Background() before entering mainLoop,
 	// so l.Context() is never nil inside a Go function called from Lua.
 	// With context.Background() there is no app-context or frame-context,
-	// so security defaults to strict mode and RaiseError fires.
+	// so security defaults to strict mode and returns (nil, error).
 	l := newLuaNoContext(t)
 
 	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("open"))
 	l.Push(lua.LString("test:pg"))
 	err := l.PCall(1, 2, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not allowed to access pg scope")
+	require.NoError(t, err)
+
+	assert.Equal(t, lua.LNil, l.Get(-2))
+	assert.NotEqual(t, lua.LNil, l.Get(-1))
 }
 
 func TestOpenEmptyID(t *testing.T) {
@@ -1368,9 +1370,12 @@ func TestOpenPermissionDenied(t *testing.T) {
 
 	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("open"))
 	l.Push(lua.LString("test:pg"))
-	// pg.open raises an error (not return-style) on permission denial
+	// pg.open returns (nil, error) on permission denial (consistent with other error paths)
 	err := l.PCall(1, 2, nil)
-	require.Error(t, err)
+	require.NoError(t, err)
+
+	assert.Equal(t, lua.LNil, l.Get(-2))
+	assert.NotEqual(t, lua.LNil, l.Get(-1))
 }
 
 func TestOpenSuccess(t *testing.T) {

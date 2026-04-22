@@ -18,7 +18,7 @@ import (
 type retryEntry struct {
 	nextTry    time.Time
 	targetNode pid.NodeID
-	group      string
+	groups     []string
 	topic      string
 	pids       []pid.PID
 	payloads   payload.Payloads
@@ -30,7 +30,8 @@ type retryEntry struct {
 type retryQueue struct {
 	service    *Service
 	logger     *zap.Logger
-	ticker     *time.Ticker
+	timer      *time.Timer
+	notifyCh   chan struct{}
 	stopCh     chan struct{}
 	entries    []*retryEntry
 	wg         sync.WaitGroup
@@ -74,22 +75,58 @@ func (rq *retryQueue) Start(ctx context.Context) {
 		rq.stopped = false
 	}
 
-	rq.ticker = time.NewTicker(50 * time.Millisecond)
+	rq.notifyCh = make(chan struct{}, 1)
+	rq.timer = nil
 	stopCh := make(chan struct{})
 	rq.stopCh = stopCh
 	rq.wg.Add(1)
 
 	go func() {
 		defer rq.wg.Done()
+
 		for {
+			// Read timer channel under lock to avoid race with Stop()
+			rq.mu.Lock()
+			var timerCh <-chan time.Time
+			if rq.timer != nil {
+				timerCh = rq.timer.C
+			}
+			rq.mu.Unlock()
+
 			select {
 			case <-ctx.Done():
 				return
 			case <-stopCh:
 				return
-			case <-rq.ticker.C:
+			case <-rq.notifyCh:
+				rq.processRetries()
+			case <-timerCh:
 				rq.processRetries()
 			}
+
+			// After processing, schedule next timer based on remaining entries
+			rq.mu.Lock()
+			if len(rq.entries) > 0 {
+				earliest := rq.entries[0].nextTry
+				for _, e := range rq.entries[1:] {
+					if e.nextTry.Before(earliest) {
+						earliest = e.nextTry
+					}
+				}
+				delay := time.Until(earliest)
+				if delay <= 0 {
+					delay = time.Millisecond
+				}
+				if rq.timer != nil {
+					rq.timer.Reset(delay)
+				} else {
+					rq.timer = time.NewTimer(delay)
+				}
+			} else if rq.timer != nil {
+				rq.timer.Stop()
+				rq.timer = nil
+			}
+			rq.mu.Unlock()
 		}
 	}()
 }
@@ -102,28 +139,36 @@ func (rq *retryQueue) Stop() {
 		return
 	}
 	rq.stopped = true
+	if rq.timer != nil {
+		rq.timer.Stop()
+		rq.timer = nil
+	}
 	if rq.stopCh != nil {
 		close(rq.stopCh)
 	}
 	rq.mu.Unlock()
 
-	if rq.ticker != nil {
-		rq.ticker.Stop()
-	}
-
 	rq.wg.Wait()
 }
 
 // Add adds a message to the retry queue.
-func (rq *retryQueue) Add(targetNode pid.NodeID, topic string, group string, pids []pid.PID, payloads payload.Payloads) {
+func (rq *retryQueue) Add(targetNode pid.NodeID, topic string, groups []string, pids []pid.PID, payloads payload.Payloads) {
 	rq.mu.Lock()
 	defer rq.mu.Unlock()
+
+	if rq.stopped {
+		rq.logger.Debug("retry queue stopped, dropping entry",
+			zap.String("node", targetNode),
+			zap.String("topic", topic),
+		)
+		return
+	}
 
 	rq.sequenceID++
 	entry := &retryEntry{
 		id:         rq.sequenceID,
 		targetNode: targetNode,
-		group:      group,
+		groups:     groups,
 		pids:       pids,
 		topic:      topic,
 		payloads:   payloads,
@@ -135,9 +180,15 @@ func (rq *retryQueue) Add(targetNode pid.NodeID, topic string, group string, pid
 
 	rq.logger.Debug("added to retry queue",
 		zap.String("node", targetNode),
-		zap.String("group", group),
+		zap.Strings("groups", groups),
 		zap.Uint64("id", entry.id),
 	)
+
+	// Wake the processing loop non-blocking
+	select {
+	case rq.notifyCh <- struct{}{}:
+	default:
+	}
 }
 
 // processRetries attempts to send messages that are due for retry.
@@ -180,9 +231,17 @@ func (rq *retryQueue) attemptRetry(entry *retryEntry) {
 	var err error
 	switch entry.topic {
 	case pgapi.TopicJoin:
-		err = rq.service.sendJoinWithRetry(entry.targetNode, entry.group, entry.pids)
+		group := ""
+		if len(entry.groups) > 0 {
+			group = entry.groups[0]
+		}
+		err = rq.service.sendJoinWithRetry(entry.targetNode, group, entry.pids)
 	case pgapi.TopicLeave:
-		err = rq.service.sendLeaveWithRetry(entry.targetNode, entry.pids, []string{entry.group})
+		err = rq.service.sendLeaveWithRetry(entry.targetNode, entry.pids, entry.groups)
+	case pgapi.TopicDiscover:
+		rq.service.sendDiscover(entry.targetNode)
+		// sendDiscover handles its own circuit breaker and logging
+		return
 	default:
 		// Unknown topic, drop
 		rq.logger.Warn("unknown retry topic, dropping",
@@ -216,7 +275,7 @@ func (rq *retryQueue) requeue(entry *retryEntry) {
 		// Max retries exceeded, drop the message
 		rq.logger.Warn("max retries exceeded, dropping message",
 			zap.String("node", entry.targetNode),
-			zap.String("group", entry.group),
+			zap.Strings("groups", entry.groups),
 			zap.Uint64("id", entry.id),
 			zap.Int("attempts", entry.attempts),
 		)
@@ -245,7 +304,7 @@ func (rq *retryQueue) requeue(entry *retryEntry) {
 
 // sendJoinWithRetry is a helper to send a join message.
 func (s *Service) sendJoinWithRetry(targetNode pid.NodeID, group string, pids []pid.PID) error {
-	pidStrs := make([]string, len(pids))
+	pidStrs := make([]any, len(pids))
 	for i, p := range pids {
 		pidStrs[i] = p.String()
 	}
@@ -263,16 +322,21 @@ func (s *Service) sendJoinWithRetry(targetNode pid.NodeID, group string, pids []
 
 // sendLeaveWithRetry is a helper to send a leave message.
 func (s *Service) sendLeaveWithRetry(targetNode pid.NodeID, pids []pid.PID, groups []string) error {
-	pidStrs := make([]string, len(pids))
+	pidStrs := make([]any, len(pids))
 	for i, p := range pids {
 		pidStrs[i] = p.String()
+	}
+
+	groupStrs := make([]any, len(groups))
+	for i, g := range groups {
+		groupStrs[i] = g
 	}
 
 	pkg := relay.NewServicePackage(s.localNodeID, s.hostID, targetNode, s.hostID, pgapi.TopicLeave,
 		payload.New(map[string]any{
 			"from":   s.localNodeID,
 			"pids":   pidStrs,
-			"groups": groups,
+			"groups": groupStrs,
 		}),
 	)
 

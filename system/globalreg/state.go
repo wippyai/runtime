@@ -205,8 +205,11 @@ func (s *shardedState) removePID(p pid.PID) int {
 }
 
 // removeNode removes all names for all PIDs on a node.
+// Holds the pidSet lock while deleting from nodeIndex to prevent a concurrent
+// register from creating a new pidSet for the same node between the delete
+// and the shard cleanup (TOCTOU fix).
 func (s *shardedState) removeNode(nodeID pid.NodeID) int {
-	val, ok := s.nodeIndex.LoadAndDelete(nodeID)
+	val, ok := s.nodeIndex.Load(nodeID)
 	if !ok {
 		return 0
 	}
@@ -215,11 +218,15 @@ func (s *shardedState) removeNode(nodeID pid.NodeID) int {
 		return 0
 	}
 
+	// Hold pidSet lock while extracting keys and deleting from nodeIndex.
+	// This prevents concurrent addToNodeIndex from creating a new pidSet
+	// in the gap between Load and Delete.
 	ps.mu.Lock()
 	pidKeys := make([]string, 0, len(ps.pids))
 	for k := range ps.pids {
 		pidKeys = append(pidKeys, k)
 	}
+	s.nodeIndex.Delete(nodeID)
 	ps.mu.Unlock()
 
 	removed := 0
@@ -279,13 +286,19 @@ type snapshotEntry struct {
 	AppliedAt uint64     `codec:"a"`
 }
 
-// snapshot returns all entries across all shards. Read-locks each shard
-// briefly in index order.
+// snapshot returns all entries across all shards as a point-in-time consistent view.
+// Acquires all shard read-locks before reading, releases all after, to prevent
+// concurrent mutations from producing an inconsistent snapshot.
 func (s *shardedState) snapshot() []snapshotEntry {
+	// Phase 1: acquire all read-locks in index order
+	for i := range s.shards {
+		s.shards[i].mu.RLock()
+	}
+
+	// Phase 2: read all shards while holding all locks
 	var entries []snapshotEntry
 	for i := range s.shards {
 		sh := &s.shards[i]
-		sh.mu.RLock()
 		for name, e := range sh.names {
 			entries = append(entries, snapshotEntry{
 				Name:      name,
@@ -294,31 +307,42 @@ func (s *shardedState) snapshot() []snapshotEntry {
 				AppliedAt: e.AppliedAt,
 			})
 		}
-		sh.mu.RUnlock()
 	}
+
+	// Phase 3: release all read-locks
+	for i := range s.shards {
+		s.shards[i].mu.RUnlock()
+	}
+
 	return entries
 }
 
-// restore replaces all state from a snapshot. Write-locks all shards.
+// restore replaces all state from a snapshot. Write-locks all shards
+// simultaneously to prevent concurrent reads from seeing partial state.
 func (s *shardedState) restore(entries []snapshotEntry) {
-	// Clear everything first.
+	// Acquire all write-locks before clearing
 	for i := range s.shards {
-		sh := &s.shards[i]
-		sh.mu.Lock()
-		sh.names = make(map[string]*nameEntry)
-		sh.pidNames = make(map[string][]string)
-		sh.mu.Unlock()
+		s.shards[i].mu.Lock()
+	}
+
+	// Clear everything under full lock
+	for i := range s.shards {
+		s.shards[i].names = make(map[string]*nameEntry)
+		s.shards[i].pidNames = make(map[string][]string)
 	}
 	s.nodeIndex = sync.Map{}
 
-	// Re-populate.
+	// Re-populate while still holding all locks
 	for _, e := range entries {
 		sh := &s.shards[shardFor(e.Name)]
-		sh.mu.Lock()
 		sh.names[e.Name] = &nameEntry{PID: e.PID, NodeID: e.NodeID, AppliedAt: e.AppliedAt}
 		pidKey := e.PID.String()
 		sh.pidNames[pidKey] = append(sh.pidNames[pidKey], e.Name)
-		sh.mu.Unlock()
 		s.addToNodeIndex(e.NodeID, pidKey)
+	}
+
+	// Release all write-locks
+	for i := range s.shards {
+		s.shards[i].mu.Unlock()
 	}
 }

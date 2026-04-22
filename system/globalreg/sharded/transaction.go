@@ -235,15 +235,26 @@ func (tm *TransactionManager) prepareShard(_ context.Context, txn *Transaction, 
 
 	shardTxn.SetPhase(TxnPhasePreparing)
 
-	// Check preconditions based on transaction type
+	// Check preconditions and acquire reservations based on transaction type
 	switch txn.Type {
 	case TxnTypeRegister:
-		// For registration: names should NOT exist
-		for _, name := range shardTxn.Names {
+		// For registration: names should NOT exist and not be reserved by others
+		for i, name := range shardTxn.Names {
 			_, exists := shard.Lookup(name)
 			if exists {
-				// Name already taken - can't prepare
+				// Release reservations acquired so far in this prepare
+				for j := 0; j < i; j++ {
+					shard.ReleaseReservation(shardTxn.Names[j], txn.ID)
+				}
 				return fmt.Errorf("name %s already registered", name)
+			}
+			// Reserve name to prevent concurrent transactions from preparing it
+			if err := shard.Reserve(name, txn.ID); err != nil {
+				// Release reservations acquired so far
+				for j := 0; j < i; j++ {
+					shard.ReleaseReservation(shardTxn.Names[j], txn.ID)
+				}
+				return err
 			}
 		}
 
@@ -252,7 +263,6 @@ func (tm *TransactionManager) prepareShard(_ context.Context, txn *Transaction, 
 		for _, name := range shardTxn.Names {
 			_, exists := shard.Lookup(name)
 			if !exists {
-				// Name doesn't exist - can't unregister
 				return fmt.Errorf("name %s not found", name)
 			}
 		}
@@ -311,7 +321,7 @@ func (tm *TransactionManager) commitShard(_ context.Context, txn *Transaction, s
 	// Execute the actual operation based on transaction type
 	switch txn.Type {
 	case TxnTypeRegister:
-		// Register all names
+		// Register all names and release reservations
 		for _, name := range shardTxn.Names {
 			cmd := &syspg.Command{
 				Type:   syspg.CmdRegister,
@@ -320,8 +330,11 @@ func (tm *TransactionManager) commitShard(_ context.Context, txn *Transaction, s
 				NodeID: txn.PID.Node,
 			}
 			if _, err := shard.Apply(cmd); err != nil {
+				// Release remaining reservations on failure
+				shard.ReleaseAllReservations(txn.ID)
 				return err
 			}
+			shard.ReleaseReservation(name, txn.ID)
 		}
 
 	case TxnTypeUnregister:
@@ -346,9 +359,13 @@ func (tm *TransactionManager) abortPhase(_ context.Context, txn *Transaction) {
 	txn.SetPhase(TxnPhaseAborting)
 	tm.logger.Debug("abort phase started", zap.String("txn_id", txn.ID))
 
-	// Notify all prepared shards to abort (atomic flag updates)
+	// Release reservations and reset prepared flags for all shards
 	for _, shardTxn := range txn.Shards {
 		if shardTxn.IsPrepared() {
+			// Release all reservations held by this transaction on this shard
+			if shard, ok := tm.coordinator.getShard(shardTxn.ShardID); ok {
+				shard.ReleaseAllReservations(txn.ID)
+			}
 			shardTxn.SetPrepared(false)
 			shardTxn.SetPhase(TxnPhaseAborted)
 		}
