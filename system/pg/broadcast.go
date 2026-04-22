@@ -23,10 +23,10 @@ func (s *Service) sendToMembers(from pid.PID, topic string, payloads payload.Pay
 	var ctx context.Context
 	var cancel context.CancelFunc
 	if s.broadcastTimeout > 0 {
-		ctx, cancel = context.WithTimeout(s.ctx, s.broadcastTimeout)
+		ctx, cancel = context.WithTimeout(s.currentCtx(), s.broadcastTimeout)
 		defer cancel()
 	} else {
-		ctx = s.ctx
+		ctx = s.currentCtx()
 	}
 
 	for _, target := range members {

@@ -32,6 +32,25 @@ type monitorEntry struct {
 // action represents a serialized operation submitted to the event loop.
 type action func()
 
+// serviceCtx bundles the Start()-scoped context and its cancel so they can
+// be swapped atomically across Stop/Start cycles without racing concurrent
+// submitters reading s.currentCtx().
+type serviceCtx struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+}
+
+// closedServiceCtx is the sentinel returned before Start or after Stop. Its
+// context is already cancelled so `<-s.currentCtx().Done()` is non-blocking,
+// and submit() rejects new work with ErrServiceStopped — matching the
+// "service not running" contract without requiring a nil check at every
+// call site.
+var closedServiceCtx = func() *serviceCtx {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return &serviceCtx{ctx: ctx, cancel: cancel}
+}()
+
 // Service implements the pg (process groups) service.
 // All state mutations are serialized through a single goroutine event loop,
 // following the Erlang gen_server pattern.
@@ -44,14 +63,14 @@ type Service struct {
 	topo               topology.Topology
 	membership         cluster.Membership
 	bus                event.Bus
-	ctx                context.Context
+	ctxHolder          atomic.Pointer[serviceCtx]
 	snap               atomic.Pointer[stateSnapshot]
 	cbManager          *circuitBreakerManager
-	cancel             context.CancelFunc
 	nodeJoinedSub      *eventbus.Subscriber
 	nodeLeftSub        *eventbus.Subscriber
 	actions            chan action
 	monitors           map[string][]*monitorEntry
+	monitorPIDCounts   map[string]int // pid.String() -> count of monitor subscriptions
 	state              *state
 	retryQueue         *retryQueue
 	logger             *zap.Logger
@@ -66,6 +85,14 @@ type Service struct {
 	protocolTimeout    time.Duration
 	broadcastTimeout   time.Duration
 	maxRetries         int
+}
+
+// currentCtx returns the ctx for the active Start() cycle. Before Start or
+// after Stop, returns an already-cancelled sentinel so waiters and select
+// statements reading `<-s.currentCtx().Done()` behave correctly without a
+// nil check. Cheap: single atomic load.
+func (s *Service) currentCtx() context.Context {
+	return s.ctxHolder.Load().ctx
 }
 
 // NewService creates a new pg service for the given scope.
@@ -102,6 +129,7 @@ func NewService(
 		localNodeID:        localNodeID,
 		actions:            make(chan action, config.ActionQueueSize),
 		monitors:           make(map[string][]*monitorEntry),
+		monitorPIDCounts:   make(map[string]int),
 		maxGroups:          config.MaxGroups,
 		maxMembersPerGroup: config.MaxMembersPerGroup,
 		actionQueueMaxSize: config.ActionQueueMaxSize,
@@ -110,6 +138,10 @@ func NewService(
 		broadcastTimeout:   config.BroadcastTimeout,
 		maxRetries:         config.MaxRetries,
 	}
+	// Before Start (or after Stop) reads of s.currentCtx() return an
+	// already-cancelled sentinel so submit() rejects work cleanly and no
+	// call site needs a nil check.
+	svc.ctxHolder.Store(closedServiceCtx)
 
 	// Initialize circuit breaker manager
 	svc.cbManager = newCircuitBreakerManager(
@@ -136,24 +168,30 @@ func (s *Service) HostID() pid.HostID {
 }
 
 // Start begins the pg service event loop and subscribes to cluster events.
+// The Start-scoped context is published atomically via ctxHolder so concurrent
+// submitters racing against Start/Stop observe a consistent ctx without lock.
 func (s *Service) Start(ctx context.Context) (<-chan any, error) {
-	s.ctx, s.cancel = context.WithCancel(ctx)
+	runCtx, cancel := context.WithCancel(ctx)
+	sctx := &serviceCtx{ctx: runCtx, cancel: cancel}
+	s.ctxHolder.Store(sctx)
 
 	statusChan := make(chan any, 1)
 
 	// Subscribe to cluster events for node discovery
 	if s.bus != nil {
 		var err error
-		s.nodeJoinedSub, err = eventbus.NewSubscriber(s.ctx, s.bus, cluster.System, cluster.NodeJoined, s.handleNodeJoinedEvent)
+		s.nodeJoinedSub, err = eventbus.NewSubscriber(runCtx, s.bus, cluster.System, cluster.NodeJoined, s.handleNodeJoinedEvent)
 		if err != nil {
-			s.cancel()
+			cancel()
+			s.ctxHolder.Store(closedServiceCtx)
 			return nil, err
 		}
 
-		s.nodeLeftSub, err = eventbus.NewSubscriber(s.ctx, s.bus, cluster.System, cluster.NodeLeft, s.handleNodeLeftEvent)
+		s.nodeLeftSub, err = eventbus.NewSubscriber(runCtx, s.bus, cluster.System, cluster.NodeLeft, s.handleNodeLeftEvent)
 		if err != nil {
 			s.nodeJoinedSub.Close()
-			s.cancel()
+			cancel()
+			s.ctxHolder.Store(closedServiceCtx)
 			return nil, err
 		}
 	}
@@ -166,7 +204,7 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 	go s.eventLoop()
 
 	// Start retry queue
-	s.retryQueue.Start(s.ctx)
+	s.retryQueue.Start(runCtx)
 
 	// Discover existing nodes
 	if s.membership != nil {
@@ -195,7 +233,10 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 	return statusChan, nil
 }
 
-// Stop shuts down the pg service.
+// Stop shuts down the pg service. Safe to call concurrently with Start or
+// with submitters: the atomic swap to closedServiceCtx ensures the old
+// ctx is cancelled exactly once and subsequent submit() calls observe a
+// cancelled context without racing the field write.
 func (s *Service) Stop(_ context.Context) error {
 	s.logger.Info("pg service stopping")
 
@@ -211,7 +252,13 @@ func (s *Service) Stop(_ context.Context) error {
 		s.retryQueue.Stop()
 	}
 
-	s.cancel()
+	// Swap the live ctx holder out atomically; then cancel the old one so
+	// any in-flight select using the previous ctx unblocks. New submitters
+	// will now observe the closed sentinel and reject via submitError().
+	old := s.ctxHolder.Swap(closedServiceCtx)
+	if old != nil && old != closedServiceCtx {
+		old.cancel()
+	}
 	s.wg.Wait()
 
 	// Clear snapshot so lock-free readers see nil after stop
@@ -228,7 +275,7 @@ func (s *Service) eventLoop() {
 
 	for {
 		select {
-		case <-s.ctx.Done():
+		case <-s.currentCtx().Done():
 			return
 		case fn, ok := <-s.actions:
 			if !ok {
@@ -271,8 +318,19 @@ func (s *Service) submit(fn action) bool {
 	select {
 	case s.actions <- fn:
 		return true
-	case <-s.ctx.Done():
+	case <-s.currentCtx().Done():
 		return false
+	}
+}
+
+// submitError returns the appropriate error when submit() returns false:
+// ErrServiceStopped if the context is done, ErrBackpressure if the queue is full.
+func (s *Service) submitError() error {
+	select {
+	case <-s.currentCtx().Done():
+		return ErrServiceStopped
+	default:
+		return ErrBackpressure
 	}
 }
 
@@ -316,10 +374,12 @@ func (s *Service) handleDiscoverPackage(msg *relay.Message) {
 		return
 	}
 
-	s.submit(func() {
+	if !s.submit(func() {
 		s.handleDiscover(fromNodeID)
 		s.publishSnapshot()
-	})
+	}) {
+		s.logger.Warn("dropped discover message due to backpressure", zap.String("from", fromNodeID))
+	}
 }
 
 // handleSyncPackage processes an incoming sync message.
@@ -356,10 +416,12 @@ func (s *Service) handleSyncPackage(msg *relay.Message) {
 		}
 	}
 
-	s.submit(func() {
+	if !s.submit(func() {
 		s.handleSync(fromNodeID, groups)
 		s.publishSnapshot()
-	})
+	}) {
+		s.logger.Warn("dropped sync message due to backpressure", zap.String("from", fromNodeID))
+	}
 }
 
 // handleJoinPackage processes an incoming join message.
@@ -387,10 +449,12 @@ func (s *Service) handleJoinPackage(msg *relay.Message) {
 		}
 	}
 
-	s.submit(func() {
+	if !s.submit(func() {
 		s.handleRemoteJoin(fromNodeID, group, pids)
 		s.publishSnapshot()
-	})
+	}) {
+		s.logger.Warn("dropped join message due to backpressure", zap.String("from", fromNodeID))
+	}
 }
 
 // handleLeavePackage processes an incoming leave message.
@@ -425,10 +489,12 @@ func (s *Service) handleLeavePackage(msg *relay.Message) {
 		}
 	}
 
-	s.submit(func() {
+	if !s.submit(func() {
 		s.handleRemoteLeave(fromNodeID, pids, groups)
 		s.publishSnapshot()
-	})
+	}) {
+		s.logger.Warn("dropped leave message due to backpressure", zap.String("from", fromNodeID))
+	}
 }
 
 // handleExitPackage processes an incoming process exit event.
@@ -436,10 +502,12 @@ func (s *Service) handleExitPackage(msg *relay.Message) {
 	for _, p := range msg.Payloads {
 		if exitEvent, ok := p.Data().(*topology.ExitEvent); ok {
 			exitedPID := exitEvent.From
-			s.submit(func() {
+			if !s.submit(func() {
 				s.handleProcessExit(exitedPID)
 				s.publishSnapshot()
-			})
+			}) {
+				s.logger.Warn("dropped exit event due to backpressure", zap.String("pid", exitedPID.String()))
+			}
 		}
 	}
 }
@@ -455,9 +523,11 @@ func (s *Service) handleNodeJoinedEvent(e event.Event) {
 		return
 	}
 
-	s.submit(func() {
+	if !s.submit(func() {
 		s.sendDiscover(nodeID)
-	})
+	}) {
+		s.logger.Warn("dropped discover for joined node due to backpressure", zap.String("node", nodeID))
+	}
 }
 
 // handleNodeLeftEvent is called by the event bus subscriber when a node leaves.
@@ -471,10 +541,12 @@ func (s *Service) handleNodeLeftEvent(e event.Event) {
 		return
 	}
 
-	s.submit(func() {
+	if !s.submit(func() {
 		s.handleNodeLeft(nodeID)
 		s.publishSnapshot()
-	})
+	}) {
+		s.logger.Warn("dropped node-left event due to backpressure", zap.String("node", nodeID))
+	}
 }
 
 // --- ProcessGroups interface implementation ---
@@ -483,7 +555,7 @@ func (s *Service) handleNodeLeftEvent(e event.Event) {
 // Join adds a local process to a group.
 func (s *Service) Join(group pgapi.Group, p pid.PID) error {
 	done := make(chan error, 1)
-	s.submit(func() {
+	if !s.submit(func() {
 		// Enforce MaxGroups: if the group doesn't exist yet, check limit
 		if s.maxGroups > 0 {
 			if _, exists := s.state.groups[group]; !exists {
@@ -521,12 +593,14 @@ func (s *Service) Join(group pgapi.Group, p pid.PID) error {
 
 		s.publishSnapshot()
 		done <- nil
-	})
+	}) {
+		return s.submitError()
+	}
 
 	select {
 	case err := <-done:
 		return err
-	case <-s.ctx.Done():
+	case <-s.currentCtx().Done():
 		return ErrServiceStopped
 	}
 }
@@ -534,7 +608,7 @@ func (s *Service) Join(group pgapi.Group, p pid.PID) error {
 // JoinGroups adds a local process to multiple groups atomically.
 func (s *Service) JoinGroups(groups []pgapi.Group, p pid.PID) error {
 	done := make(chan error, 1)
-	s.submit(func() {
+	if !s.submit(func() {
 		// Pre-check all limits before mutating state (atomic: all-or-nothing)
 		if s.maxGroups > 0 || s.maxMembersPerGroup > 0 {
 			newGroups := make(map[pgapi.Group]struct{}, len(groups))
@@ -580,12 +654,14 @@ func (s *Service) JoinGroups(groups []pgapi.Group, p pid.PID) error {
 
 		s.publishSnapshot()
 		done <- nil
-	})
+	}) {
+		return s.submitError()
+	}
 
 	select {
 	case err := <-done:
 		return err
-	case <-s.ctx.Done():
+	case <-s.currentCtx().Done():
 		return ErrServiceStopped
 	}
 }
@@ -593,7 +669,7 @@ func (s *Service) JoinGroups(groups []pgapi.Group, p pid.PID) error {
 // Leave removes a local process from a group.
 func (s *Service) Leave(group pgapi.Group, p pid.PID) error {
 	done := make(chan error, 1)
-	s.submit(func() {
+	if !s.submit(func() {
 		if !s.state.leaveLocal(group, p) {
 			done <- ErrNotJoined
 			return
@@ -612,12 +688,14 @@ func (s *Service) Leave(group pgapi.Group, p pid.PID) error {
 
 		s.publishSnapshot()
 		done <- nil
-	})
+	}) {
+		return s.submitError()
+	}
 
 	select {
 	case err := <-done:
 		return err
-	case <-s.ctx.Done():
+	case <-s.currentCtx().Done():
 		return ErrServiceStopped
 	}
 }
@@ -628,7 +706,7 @@ func (s *Service) Leave(group pgapi.Group, p pid.PID) error {
 // was not a member of ANY of the specified groups.
 func (s *Service) LeaveGroups(groups []pgapi.Group, p pid.PID) error {
 	done := make(chan error, 1)
-	s.submit(func() {
+	if !s.submit(func() {
 		anyLeft := false
 		for _, group := range groups {
 			if s.state.leaveLocal(group, p) {
@@ -650,12 +728,14 @@ func (s *Service) LeaveGroups(groups []pgapi.Group, p pid.PID) error {
 
 		s.publishSnapshot()
 		done <- nil
-	})
+	}) {
+		return s.submitError()
+	}
 
 	select {
 	case err := <-done:
 		return err
-	case <-s.ctx.Done():
+	case <-s.currentCtx().Done():
 		return ErrServiceStopped
 	}
 }
@@ -724,7 +804,7 @@ func (s *Service) WhichLocalGroups() []pgapi.Group {
 // and the membership snapshot.
 func (s *Service) Monitor(group string, p pid.PID, topic string) pgapi.MonitorResult {
 	done := make(chan pgapi.MonitorResult, 1)
-	s.submit(func() {
+	if !s.submit(func() {
 		// Assign unique ID
 		s.monitorIDSeq++
 		id := s.monitorIDSeq
@@ -736,6 +816,7 @@ func (s *Service) Monitor(group string, p pid.PID, topic string) pgapi.MonitorRe
 		}
 
 		s.monitors[group] = append(s.monitors[group], entry)
+		s.monitorPIDCounts[p.String()]++
 
 		// Monitor the subscriber process so we can clean up if it dies.
 		// monitorProcess is idempotent (ignores ErrAlreadyMonitoring).
@@ -750,7 +831,7 @@ func (s *Service) Monitor(group string, p pid.PID, topic string) pgapi.MonitorRe
 		unsubscribe := func() {
 			unsub := make(chan struct{}, 1)
 			s.submit(func() {
-				s.removeMonitor(group, id)
+				s.removeMonitor(group, id, p)
 				// If the process has no more group memberships and no more
 				// monitor subscriptions, stop monitoring it.
 				if !s.hasMonitorSubscriptions(p) && !s.hasGroupMemberships(p) {
@@ -760,27 +841,37 @@ func (s *Service) Monitor(group string, p pid.PID, topic string) pgapi.MonitorRe
 			})
 			select {
 			case <-unsub:
-			case <-s.ctx.Done():
+			case <-s.currentCtx().Done():
 			}
 		}
 
 		done <- pgapi.MonitorResult{Members: members, Unsubscribe: unsubscribe}
-	})
+	}) {
+		return pgapi.MonitorResult{}
+	}
 
 	select {
 	case result := <-done:
 		return result
-	case <-s.ctx.Done():
+	case <-s.currentCtx().Done():
 		return pgapi.MonitorResult{}
 	}
 }
 
-// removeMonitor removes a monitor entry by ID. Must be called from event loop.
-func (s *Service) removeMonitor(group string, id uint64) {
+// removeMonitor removes a monitor entry by ID and decrements the PID count.
+// Must be called from event loop.
+func (s *Service) removeMonitor(group string, id uint64, p pid.PID) {
 	entries := s.monitors[group]
 	for i, e := range entries {
 		if e.id == id {
 			s.monitors[group] = append(entries[:i], entries[i+1:]...)
+			key := p.String()
+			if s.monitorPIDCounts[key] > 0 {
+				s.monitorPIDCounts[key]--
+				if s.monitorPIDCounts[key] == 0 {
+					delete(s.monitorPIDCounts, key)
+				}
+			}
 			break
 		}
 	}
@@ -807,21 +898,14 @@ func (s *Service) removeMonitorsByPID(p pid.PID) {
 			s.monitors[group] = remaining
 		}
 	}
+	delete(s.monitorPIDCounts, key)
 }
 
 // hasMonitorSubscriptions returns true if the given PID has any active
-// monitor subscriptions (group-specific or wildcard). Must be called from
-// the event loop.
+// monitor subscriptions (group-specific or wildcard). O(1) via reverse index.
+// Must be called from the event loop.
 func (s *Service) hasMonitorSubscriptions(p pid.PID) bool {
-	key := p.String()
-	for _, entries := range s.monitors {
-		for _, e := range entries {
-			if e.pid.String() == key {
-				return true
-			}
-		}
-	}
-	return false
+	return s.monitorPIDCounts[p.String()] > 0
 }
 
 // hasGroupMemberships returns true if the given PID is a member of any
@@ -836,7 +920,7 @@ func (s *Service) hasGroupMemberships(p pid.PID) bool {
 // monitor key ("") to receive events for all groups.
 func (s *Service) Events(p pid.PID, topic string) pgapi.EventsResult {
 	done := make(chan pgapi.EventsResult, 1)
-	s.submit(func() {
+	if !s.submit(func() {
 		s.monitorIDSeq++
 		id := s.monitorIDSeq
 
@@ -848,6 +932,7 @@ func (s *Service) Events(p pid.PID, topic string) pgapi.EventsResult {
 
 		// Wildcard key "" matches all groups
 		s.monitors[""] = append(s.monitors[""], entry)
+		s.monitorPIDCounts[p.String()]++
 
 		// Monitor the subscriber process so we can clean up if it dies.
 		s.monitorProcess(p)
@@ -858,7 +943,7 @@ func (s *Service) Events(p pid.PID, topic string) pgapi.EventsResult {
 		unsubscribe := func() {
 			unsub := make(chan struct{}, 1)
 			s.submit(func() {
-				s.removeMonitor("", id)
+				s.removeMonitor("", id, p)
 				if !s.hasMonitorSubscriptions(p) && !s.hasGroupMemberships(p) {
 					s.demonitorProcess(p)
 				}
@@ -866,17 +951,19 @@ func (s *Service) Events(p pid.PID, topic string) pgapi.EventsResult {
 			})
 			select {
 			case <-unsub:
-			case <-s.ctx.Done():
+			case <-s.currentCtx().Done():
 			}
 		}
 
 		done <- pgapi.EventsResult{Groups: groups, Unsubscribe: unsubscribe}
-	})
+	}) {
+		return pgapi.EventsResult{}
+	}
 
 	select {
 	case result := <-done:
 		return result
-	case <-s.ctx.Done():
+	case <-s.currentCtx().Done():
 		return pgapi.EventsResult{}
 	}
 }
@@ -885,14 +972,16 @@ func (s *Service) Events(p pid.PID, topic string) pgapi.EventsResult {
 func (s *Service) Broadcast(from pid.PID, group pgapi.Group, topic string, payloads payload.Payloads) (int, error) {
 	// Snapshot members inside the event loop for consistency.
 	membersCh := make(chan []pid.PID, 1)
-	s.submit(func() {
+	if !s.submit(func() {
 		membersCh <- s.state.getMembers(group)
-	})
+	}) {
+		return 0, s.submitError()
+	}
 
 	var members []pid.PID
 	select {
 	case members = <-membersCh:
-	case <-s.ctx.Done():
+	case <-s.currentCtx().Done():
 		return 0, ErrServiceStopped
 	}
 
@@ -905,14 +994,16 @@ func (s *Service) Broadcast(from pid.PID, group pgapi.Group, topic string, paylo
 func (s *Service) BroadcastLocal(from pid.PID, group pgapi.Group, topic string, payloads payload.Payloads) (int, error) {
 	// Snapshot members inside the event loop for consistency.
 	membersCh := make(chan []pid.PID, 1)
-	s.submit(func() {
+	if !s.submit(func() {
 		membersCh <- s.state.getLocalMembers(group)
-	})
+	}) {
+		return 0, s.submitError()
+	}
 
 	var members []pid.PID
 	select {
 	case members = <-membersCh:
-	case <-s.ctx.Done():
+	case <-s.currentCtx().Done():
 		return 0, ErrServiceStopped
 	}
 
@@ -944,7 +1035,7 @@ func logGroupCount(count int) zap.Field {
 // emitJoinEvent publishes a membership join event to the event bus and delivers to monitors.
 func (s *Service) emitJoinEvent(group string, pids []pid.PID) {
 	if s.bus != nil {
-		s.bus.Send(s.ctx, event.Event{
+		s.bus.Send(s.currentCtx(), event.Event{
 			System: pgapi.EventSystem,
 			Kind:   pgapi.MemberJoined,
 			Path:   group,
@@ -962,7 +1053,7 @@ func (s *Service) emitJoinEvent(group string, pids []pid.PID) {
 // emitLeaveEvent publishes a membership leave event to the event bus and delivers to monitors.
 func (s *Service) emitLeaveEvent(group string, pids []pid.PID) {
 	if s.bus != nil {
-		s.bus.Send(s.ctx, event.Event{
+		s.bus.Send(s.currentCtx(), event.Event{
 			System: pgapi.EventSystem,
 			Kind:   pgapi.MemberLeft,
 			Path:   group,
