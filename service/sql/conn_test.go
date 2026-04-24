@@ -364,7 +364,7 @@ func TestBuildOptionsString(t *testing.T) {
 
 func TestGetDriver(t *testing.T) {
 	assert.Equal(t, "postgres", getDriver(apiconfig.Postgres))
-	assert.Equal(t, apiconfig.MySQL, getDriver(apiconfig.MySQL))
+	assert.Equal(t, "mysql", getDriver(apiconfig.MySQL))
 	assert.Equal(t, "unknown", getDriver("unknown"))
 }
 
