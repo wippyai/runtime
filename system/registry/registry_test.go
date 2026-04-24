@@ -1479,8 +1479,8 @@ func TestCollectBackwardChangesets(t *testing.T) {
 type depRecordingRunner struct {
 	// deps maps child_id -> parent_id (child imports parent).
 	deps      map[string]string
-	callOrder []string // recorded IDs in the order Transition received ops
 	err       error
+	callOrder []string // recorded IDs in the order Transition received ops
 }
 
 func (r *depRecordingRunner) Transition(_ context.Context, state registry.State, changes registry.ChangeSet) (registry.State, error) {

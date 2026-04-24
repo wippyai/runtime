@@ -154,6 +154,11 @@ type (
 		SquashChangesets([]ChangeSet) ChangeSet
 		// ReverseChangeset creates a changeset that undoes the given changeset operations
 		ReverseChangeset(ChangeSet) (ChangeSet, error)
+		// SortChangeSet orders a ChangeSet for safe application: deletes first in
+		// reverse-dependency order (dependants before dependees), then creates and
+		// updates in forward-dependency order. fromState is the state the deletes
+		// apply against, used to resolve current dependency edges.
+		SortChangeSet(fromState State, cs ChangeSet) (ChangeSet, error)
 	}
 
 	// OperationHandler defines methods for validating and applying registry operations

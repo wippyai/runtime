@@ -139,6 +139,15 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		historyOps = changes
 	}
 
+	// Topologically sort the changeset before dispatching to the runner so
+	// deletes hit the dep graph in reverse-dependency order (dependants
+	// first). Planner.SortOps only runs when expansion produced ops; the
+	// no-expansion path would otherwise reach the runner unsorted and fail
+	// against any dependency-aware runner (memory_graph.RemoveNode).
+	if sorted, sortErr := r.builder.SortChangeSet(snapshot, allOps); sortErr == nil {
+		allOps = sorted
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -286,6 +295,14 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		}
 	} else {
 		allOps = changeset
+	}
+
+	// Topologically sort before dispatching to the runner. Same invariant as
+	// Apply: reverse-dep order for deletes, forward-dep for creates/updates.
+	// Rollback paths hit this branch since backward changesets rarely go
+	// through expansion.
+	if sorted, sortErr := r.builder.SortChangeSet(snapshot, allOps); sortErr == nil {
+		allOps = sorted
 	}
 
 	r.mu.Lock()
