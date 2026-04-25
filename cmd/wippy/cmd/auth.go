@@ -82,9 +82,24 @@ var authLogoutCmd = &cobra.Command{
 }
 
 var authStatusCmd = &cobra.Command{
-	Use:   "status",
-	Short: "Show authentication status",
-	RunE:  runAuthStatus,
+	Use:     "status",
+	Aliases: []string{"whoami"},
+	Short:   "Show authentication status",
+	RunE:    runAuthStatus,
+}
+
+var authTokenCmd = &cobra.Command{
+	Use:   "token",
+	Short: "Print the stored token (for use in scripts and Docker secrets)",
+	Long: `Print the stored access token for the configured registry.
+
+Resolution order matches every other auth-aware command:
+WIPPY_TOKEN env > project-local credentials > global credentials.
+
+Examples:
+  wippy auth token                    # Print token to stdout
+  wippy auth token --registry https://hub.example.com`,
+	RunE: runAuthToken,
 }
 
 func init() {
@@ -92,6 +107,7 @@ func init() {
 	authCmd.AddCommand(authLoginCmd)
 	authCmd.AddCommand(authLogoutCmd)
 	authCmd.AddCommand(authStatusCmd)
+	authCmd.AddCommand(authTokenCmd)
 
 	authLoginCmd.Flags().String("token", "", "API token")
 	authLoginCmd.Flags().String("registry", "", "registry URL")
@@ -101,6 +117,8 @@ func init() {
 	authLogoutCmd.Flags().Bool("local", false, "remove from project config")
 
 	authStatusCmd.Flags().Bool("json", false, "output as JSON")
+
+	authTokenCmd.Flags().String("registry", "", "registry URL")
 }
 
 func runAuthLogin(cmd *cobra.Command, _ []string) error {
@@ -249,6 +267,26 @@ func runAuthStatus(cmd *cobra.Command, _ []string) error {
 	}
 
 	return printStatusTable(registry, cred, nil, isConsole)
+}
+
+func runAuthToken(cmd *cobra.Command, _ []string) error {
+	registry, _ := cmd.Flags().GetString("registry")
+
+	projectDir, _ := os.Getwd()
+	cfg := bootauth.NewConfig(projectDir)
+	store := bootauth.NewStore(cfg)
+
+	if registry == "" {
+		registry = store.DefaultRegistry()
+	}
+
+	cred, err := store.Get(registry)
+	if err != nil || cred == nil || cred.Token == "" {
+		return bootauth.NewTokenReadError(fmt.Errorf("no token stored for %s", registry))
+	}
+
+	fmt.Println(cred.Token)
+	return nil
 }
 
 func readTokenInteractive(registry string) (string, error) {

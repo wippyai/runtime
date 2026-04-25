@@ -187,7 +187,7 @@ func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]s
 		{Org: org, Name: module, Constraint: constraint},
 	}, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve dependencies from %s: %w", registryURL, err)
+		return nil, fmt.Errorf("failed to resolve dependencies from %s: %w", registryURL, hub.DecorateAuthError(err, token != ""))
 	}
 
 	if len(resolved.Errors) > 0 {
@@ -212,10 +212,14 @@ func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]s
 		moduleName := fmt.Sprintf("%s/%s", m.Org, m.Name)
 		packPath := filepath.Join(cacheDir, m.Org, fmt.Sprintf("%s-%s.wapp", m.Name, m.Version))
 
+		tag := ""
+		if m.Protected {
+			tag = " (private)"
+		}
 		if _, err := os.Stat(packPath); err == nil {
-			fmt.Printf("%s %s@%s (cached)\n", dimStyle.Render(""), moduleName, m.Version)
+			fmt.Printf("%s %s@%s%s (cached)\n", dimStyle.Render(""), moduleName, m.Version, tag)
 		} else {
-			fmt.Printf("%s Downloading %s@%s...\n", dimStyle.Render(""), moduleName, m.Version)
+			fmt.Printf("%s Downloading %s@%s%s...\n", dimStyle.Render(""), moduleName, m.Version, tag)
 			if m.URL == "" {
 				return nil, fmt.Errorf("no download URL for %s@%s from %s", moduleName, m.Version, registryURL)
 			}

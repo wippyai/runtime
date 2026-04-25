@@ -106,10 +106,14 @@ func runAdd(cmd *cobra.Command, args []string) error {
 
 	info, err := client.GetDownloadURL(ctx, params)
 	if err != nil {
-		return NewAddResolveError(moduleRef, registryURL, err)
+		return NewAddResolveError(moduleRef, registryURL, hub.DecorateAuthError(err, token != ""))
 	}
 
-	fmt.Printf("%s %s\n", labelStyle.Render("Resolved:"), infoStyle.Render(info.Version))
+	resolved := info.Version
+	if info.Protected {
+		resolved += " (private)"
+	}
+	fmt.Printf("%s %s\n", labelStyle.Render("Resolved:"), infoStyle.Render(resolved))
 
 	moduleName := fmt.Sprintf("%s/%s", ref.Org, ref.Module)
 	mod := lock.Module{

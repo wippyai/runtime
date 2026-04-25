@@ -52,6 +52,9 @@ type DependencyHandler struct {
 	vendorDir       string
 	resolveTimeout  time.Duration
 	downloadTimeout time.Duration
+	// hasToken records whether the underlying hub client was built with
+	// credentials, so that auth-related errors get a more actionable hint.
+	hasToken bool
 }
 
 // HubClient defines the hub operations required for dependency handling.
@@ -88,12 +91,14 @@ func NewDependencyHandler(opts DependencyHandlerOptions) (*DependencyHandler, er
 	}
 
 	client := opts.Hub
+	hasToken := false
 	if client == nil {
-		hubClient, err := newHubClientFromAuth()
+		hubClient, gotToken, err := newHubClientFromAuth()
 		if err != nil {
 			return nil, err
 		}
 		client = hubClient
+		hasToken = gotToken
 	}
 
 	lockPath := opts.LockPath
@@ -121,6 +126,7 @@ func NewDependencyHandler(opts DependencyHandlerOptions) (*DependencyHandler, er
 		vendorDir:       vendorDir,
 		resolveTimeout:  opts.ResolveTimeout,
 		downloadTimeout: opts.DownloadTimeout,
+		hasToken:        hasToken,
 	}, nil
 }
 
@@ -304,7 +310,7 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 
 	result, err := Resolve(resolveCtx, h.hub, roots, nil)
 	if err != nil {
-		return nil, NewDependencyResolutionError(err)
+		return nil, NewDependencyResolutionError(DecorateAuthError(err, h.hasToken))
 	}
 	if len(result.Errors) > 0 {
 		return nil, NewDependencyResolutionErrors(result.Errors)
@@ -380,7 +386,7 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 			Version: mod.Version,
 		})
 		if err != nil {
-			return "", NewDependencyDownloadError(modKey(mod), err)
+			return "", NewDependencyDownloadError(modKey(mod), DecorateAuthError(err, h.hasToken))
 		}
 		url = info.URL
 		if expectedDigest == "" {
@@ -730,7 +736,11 @@ func formatResolutionErrors(errs []ResolutionError) string {
 	return msg
 }
 
-func newHubClientFromAuth() (*Client, error) {
+// newHubClientFromAuth builds a hub client using the user's stored credentials.
+// The second return reports whether a token was actually loaded — callers use
+// it to render more specific errors when an anonymous request hits a private
+// module (the server returns NotFound to hide existence).
+func newHubClientFromAuth() (*Client, bool, error) {
 	projectDir, _ := os.Getwd()
 	authCfg := auth.NewConfig(projectDir)
 	store := auth.NewStore(authCfg)
@@ -748,9 +758,9 @@ func newHubClientFromAuth() (*Client, error) {
 		Token:   token,
 	})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return client, nil
+	return client, token != "", nil
 }
 
 var (

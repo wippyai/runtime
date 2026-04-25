@@ -126,3 +126,38 @@ func TestSearchSubstring(t *testing.T) {
 	assert.False(t, searchSubstring("abc", "xyz"))
 	assert.True(t, searchSubstring("abc", ""))
 }
+
+func TestDecorateAuthError_Nil(t *testing.T) {
+	assert.Nil(t, DecorateAuthError(nil, false))
+	assert.Nil(t, DecorateAuthError(nil, true))
+}
+
+func TestDecorateAuthError_NotFoundAnonymous(t *testing.T) {
+	out := DecorateAuthError(ErrModuleNotFound, false)
+	assert.True(t, errors.Is(out, ErrModuleNotFound))
+	assert.Contains(t, out.Error(), "wippy auth login")
+}
+
+func TestDecorateAuthError_NotFoundAuthenticated(t *testing.T) {
+	// With a token, NotFound is more likely a typo than a permission issue.
+	out := DecorateAuthError(ErrModuleNotFound, true)
+	assert.Equal(t, ErrModuleNotFound, out)
+}
+
+func TestDecorateAuthError_NotAuthenticated(t *testing.T) {
+	out := DecorateAuthError(ErrNotAuthenticated, true)
+	assert.True(t, errors.Is(out, ErrNotAuthenticated))
+	assert.Contains(t, out.Error(), "wippy auth login")
+}
+
+func TestDecorateAuthError_OrgAccessDenied(t *testing.T) {
+	out := DecorateAuthError(ErrOrgAccessDenied, true)
+	assert.True(t, errors.Is(out, ErrOrgAccessDenied))
+	assert.Contains(t, out.Error(), "does not have access")
+}
+
+func TestDecorateAuthError_Passthrough(t *testing.T) {
+	other := errors.New("network unreachable")
+	assert.Equal(t, other, DecorateAuthError(other, true))
+	assert.Equal(t, other, DecorateAuthError(other, false))
+}

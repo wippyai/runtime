@@ -191,11 +191,15 @@ func runInstall(cmd *cobra.Command, args []string) error {
 			Version: module.Version,
 		})
 		if err != nil {
-			return NewDownloadModuleError(moduleRef, err)
+			return NewDownloadModuleError(moduleRef, hub.DecorateAuthError(err, token != ""))
 		}
 
 		if downloadInfo.URL == "" {
 			return NewNoContentDownloadedError(moduleRef)
+		}
+
+		if downloadInfo.Protected {
+			logger.Info("module is private", zap.String("module", module.Name))
 		}
 
 		// Download .wapp file

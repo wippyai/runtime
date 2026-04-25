@@ -4,6 +4,7 @@ package hub
 
 import (
 	"errors"
+	"fmt"
 
 	"connectrpc.com/connect"
 )
@@ -18,6 +19,30 @@ var (
 	ErrUploadExpired     = errors.New("upload URL expired")
 	ErrPublishInProgress = errors.New("publish already in progress")
 )
+
+// DecorateAuthError adds an actionable hint when an error is likely caused
+// by missing or invalid credentials. The hub deliberately returns NotFound
+// for private modules the caller can't see, so an unauthenticated NotFound
+// is almost always a permission issue rather than a typo.
+//
+// hasToken should be true when the caller had a credential available — this
+// distinguishes "you forgot to log in" from "your account doesn't have
+// access".
+func DecorateAuthError(err error, hasToken bool) error {
+	if err == nil {
+		return nil
+	}
+	switch {
+	case errors.Is(err, ErrModuleNotFound) && !hasToken:
+		return fmt.Errorf("%w (if this module is private, run 'wippy auth login')", err)
+	case errors.Is(err, ErrNotAuthenticated):
+		return fmt.Errorf("%w (token missing or invalid; run 'wippy auth login')", err)
+	case errors.Is(err, ErrOrgAccessDenied):
+		return fmt.Errorf("%w (your account does not have access to this organization)", err)
+	default:
+		return err
+	}
+}
 
 func MapConnectError(err error) error {
 	if err == nil {
