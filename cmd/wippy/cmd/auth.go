@@ -60,9 +60,11 @@ Examples:
 var authLoginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Authenticate with the registry",
-	Long: `Authenticate with the wippy registry using an API token.
+	Long: `Authenticate with the wippy registry using an API token or SSH key.
 
-Tokens can be created at https://modules.wippy.ai/settings/tokens
+API tokens can be created at https://modules.wippy.ai/settings/tokens.
+SSH keys can be registered under Account > SSH Keys; the same key used for
+'git push' works for 'wippy publish'.
 
 By default, credentials are stored globally in ~/.config/wippy/credentials.yaml.
 Use --local to store credentials in the current project's .wippy/ directory.
@@ -70,6 +72,8 @@ Use --local to store credentials in the current project's .wippy/ directory.
 Examples:
   wippy auth login                           # Interactive token prompt
   wippy auth login --token wpy_xxx           # Use token from flag
+  wippy auth login --ssh                     # SSH key (default key in ~/.ssh)
+  wippy auth login --ssh --key ~/.ssh/wippy  # Specific SSH key
   wippy auth login --registry https://...    # Use custom registry
   wippy auth login --local                   # Store in project config`,
 	RunE: runAuthLogin,
@@ -112,6 +116,8 @@ func init() {
 	authLoginCmd.Flags().String("token", "", "API token")
 	authLoginCmd.Flags().String("registry", "", "registry URL")
 	authLoginCmd.Flags().Bool("local", false, "store in project config")
+	authLoginCmd.Flags().Bool("ssh", false, "authenticate using a registered SSH key")
+	authLoginCmd.Flags().String("key", "", "path to SSH private key (default: ~/.ssh/id_ed25519, id_ecdsa, id_rsa)")
 
 	authLogoutCmd.Flags().String("registry", "", "registry URL")
 	authLogoutCmd.Flags().Bool("local", false, "remove from project config")
@@ -123,6 +129,13 @@ func init() {
 
 func runAuthLogin(cmd *cobra.Command, _ []string) error {
 	isConsole := console
+
+	useSSH, _ := cmd.Flags().GetBool("ssh")
+	keyPath, _ := cmd.Flags().GetString("key")
+	if keyPath != "" && !useSSH {
+		// Specifying --key implies --ssh; saves the user a flag.
+		useSSH = true
+	}
 
 	token, _ := cmd.Flags().GetString("token")
 	registry, _ := cmd.Flags().GetString("registry")
@@ -138,6 +151,10 @@ func runAuthLogin(cmd *cobra.Command, _ []string) error {
 
 	if registry == "" {
 		registry = store.DefaultRegistry()
+	}
+
+	if useSSH {
+		return runAuthLoginSSH(cmd, store, registry, keyPath, local, isConsole)
 	}
 
 	if token == "" {
@@ -187,6 +204,76 @@ func runAuthLogin(cmd *cobra.Command, _ []string) error {
 
 	printLoginSuccess(registry, cred.Orgs, local, isConsole)
 	return nil
+}
+
+// runAuthLoginSSH performs the SSH challenge-response handshake against the
+// registry and persists the resulting short-lived JWT alongside the path of
+// the key that produced it, so future commands can refresh transparently.
+func runAuthLoginSSH(cmd *cobra.Command, store *bootauth.Store, registry, keyPath string, local, isConsole bool) error {
+	if keyPath == "" {
+		keyPath = bootauth.SSHKeyFromEnv()
+	}
+	if keyPath == "" {
+		keyPath = bootauth.FindDefaultSSHKey()
+	}
+	if keyPath == "" {
+		return fmt.Errorf("no ssh key found; pass --key or set %s", bootauth.EnvSSHKey)
+	}
+
+	signer, err := bootauth.LoadSSHSigner(keyPath, sshPassphrasePrompter)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+	defer cancel()
+
+	result, err := bootauth.ExchangeSSHForToken(ctx, registry, signer)
+	if err != nil {
+		return err
+	}
+
+	cred := &auth.Credential{
+		Token:     result.Token,
+		Registry:  registry,
+		Scope:     auth.ScopeRead,
+		ExpiresAt: result.ExpiresAt,
+	}
+	if err := store.SetWithSSHKey(cred, signer.KeyPath(), !local); err != nil {
+		return bootauth.NewStoreError(registry, err)
+	}
+
+	printSSHLoginSuccess(registry, signer.Fingerprint(), result.ExpiresAt, local, isConsole)
+	return nil
+}
+
+func sshPassphrasePrompter(keyPath string) ([]byte, error) {
+	fmt.Printf("Passphrase for %s: ", keyPath)
+	bytesPass, err := term.ReadPassword(stdinFd())
+	fmt.Println()
+	if err != nil {
+		return nil, err
+	}
+	return bytesPass, nil
+}
+
+func printSSHLoginSuccess(registry, fingerprint string, expiresAt time.Time, local, isConsole bool) {
+	authPrintf(isConsole, "Logged in via SSH key", authSuccessStyle)
+	if isConsole {
+		fmt.Printf("  Registry:    %s\n", authInfoStyle.Render(registry))
+		fmt.Printf("  Fingerprint: %s\n", authDimStyle.Render(fingerprint))
+		if !expiresAt.IsZero() {
+			fmt.Printf("  Token TTL:   %s (auto-refreshed using the same key)\n", authDimStyle.Render(time.Until(expiresAt).Round(time.Minute).String()))
+		}
+		storage := "global config"
+		if local {
+			storage = "project config"
+		}
+		fmt.Printf("  Stored in:   %s\n", authInfoStyle.Render(storage))
+		return
+	}
+	fmt.Printf("Registry: %s\n", registry)
+	fmt.Printf("Fingerprint: %s\n", fingerprint)
 }
 
 func runAuthLogout(cmd *cobra.Command, _ []string) error {
