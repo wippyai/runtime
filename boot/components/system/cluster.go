@@ -13,11 +13,13 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
+	metricsapi "github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	relayapi "github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/cluster/internode"
 	"github.com/wippyai/runtime/cluster/membership"
 	"github.com/wippyai/runtime/system/relay"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
 
@@ -170,7 +172,12 @@ func Cluster() boot.Component {
 				Meta:         nodeMeta,
 			}
 
-			membershipSvc = membership.NewService(memberCfg, bus, logger.Named("membership"), nil, nil, nil)
+			membershipSvc = membership.NewService(
+				memberCfg, bus, logger.Named("membership"),
+				metricsapi.GetCollector(ctx),
+				otel.GetMeterProvider(),
+				otel.GetTracerProvider(),
+			)
 
 			// Create package callback for internode service
 			pkgCallback := func(pkg *relayapi.Package) error {

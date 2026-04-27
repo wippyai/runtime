@@ -10,6 +10,7 @@ import (
 
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
+	metricsapi "github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	pgapi "github.com/wippyai/runtime/api/pg"
 	"github.com/wippyai/runtime/api/pid"
@@ -21,6 +22,7 @@ import (
 	entryutil "github.com/wippyai/runtime/internal/entry"
 	systempg "github.com/wippyai/runtime/system/pg"
 
+	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
 
@@ -94,8 +96,14 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	// at boot time and passed into the service.
 	router := relay.GetRouter(ctx)
 
-	// Create the PG service instance
-	svc := systempg.NewService(m.log, hostID, cfg, router, m.topo, m.membership, m.bus, m.localNode, nil, nil, nil)
+	// Create the PG service instance, wired to the metrics collector and
+	// global OTel providers so pg_* series flow when ops happen.
+	svc := systempg.NewService(
+		m.log, hostID, cfg, router, m.topo, m.membership, m.bus, m.localNode,
+		metricsapi.GetCollector(ctx),
+		otel.GetMeterProvider(),
+		otel.GetTracerProvider(),
+	)
 	m.scopes[entry.ID] = svc
 
 	// Register as relay host so inter-node messages route to this scope

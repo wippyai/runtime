@@ -14,12 +14,14 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	globalregapi "github.com/wippyai/runtime/api/globalreg"
 	logapi "github.com/wippyai/runtime/api/logs"
+	metricsapi "github.com/wippyai/runtime/api/metrics"
 	raftapi "github.com/wippyai/runtime/api/raft"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/system/globalreg"
 	sysraft "github.com/wippyai/runtime/system/raft"
 	sysrelay "github.com/wippyai/runtime/system/relay"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
 
@@ -92,8 +94,14 @@ func Raft() boot.Component {
 			// Create the global registry FSM (the state machine Raft replicates).
 			fsm := globalreg.NewFSM()
 
-			// Create the Raft node.
-			raftNode = sysraft.NewNode(node.ID(), wrapFSM(fsm), rc, bus, logger.Named("node"), nil, nil, nil)
+			// Create the Raft node, wired to the metrics collector and global
+			// OTel providers so raft_*, gossip_*, pg_* series flow when those
+			// subsystems do work.
+			coll := metricsapi.GetCollector(ctx)
+			mp := otel.GetMeterProvider()
+			tp := otel.GetTracerProvider()
+
+			raftNode = sysraft.NewNode(node.ID(), wrapFSM(fsm), rc, bus, logger.Named("node"), coll, mp, tp)
 
 			// Create the global registry service wrapping Raft + FSM.
 			router := relay.GetRouter(ctx)
@@ -105,7 +113,7 @@ func Raft() boot.Component {
 				router,
 				node.ID(),
 				logger.Named("globalreg"),
-				nil, nil, nil,
+				coll, mp, tp,
 			)
 
 			// Wire the global registry into the Router for receiver-side
