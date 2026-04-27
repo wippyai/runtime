@@ -10,6 +10,7 @@ import (
 
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	pgapi "github.com/wippyai/runtime/api/pg"
 	"github.com/wippyai/runtime/api/pid"
@@ -19,6 +20,8 @@ import (
 	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/system/eventbus"
+	otelmetric "go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -73,6 +76,7 @@ type Service struct {
 	monitorPIDCounts   map[string]int // pid.String() -> count of monitor subscriptions
 	state              *state
 	retryQueue         *retryQueue
+	tel                *telemetry
 	logger             *zap.Logger
 	localNodeID        pid.NodeID
 	hostID             pid.HostID
@@ -109,6 +113,9 @@ func NewService(
 	membership cluster.Membership,
 	bus event.Bus,
 	localNodeID pid.NodeID,
+	coll metrics.Collector,
+	mp otelmetric.MeterProvider,
+	tp trace.TracerProvider,
 ) *Service {
 	if logger == nil {
 		logger = zap.NewNop()
@@ -158,6 +165,8 @@ func NewService(
 		config.RetryMaxDelay,
 		logger,
 	)
+
+	svc.tel = newTelemetry(coll, mp, tp)
 
 	return svc
 }
@@ -554,6 +563,7 @@ func (s *Service) handleNodeLeftEvent(e event.Event) {
 
 // Join adds a local process to a group.
 func (s *Service) Join(group pgapi.Group, p pid.PID) error {
+	start := time.Now()
 	done := make(chan error, 1)
 	if !s.submit(func() {
 		// Enforce MaxGroups: if the group doesn't exist yet, check limit
@@ -594,13 +604,17 @@ func (s *Service) Join(group pgapi.Group, p pid.PID) error {
 		s.publishSnapshot()
 		done <- nil
 	}) {
-		return s.submitError()
+		err := s.submitError()
+		s.tel.recordJoin(group, err, time.Since(start))
+		return err
 	}
 
 	select {
 	case err := <-done:
+		s.tel.recordJoin(group, err, time.Since(start))
 		return err
 	case <-s.currentCtx().Done():
+		s.tel.recordJoin(group, ErrServiceStopped, time.Since(start))
 		return ErrServiceStopped
 	}
 }
@@ -668,6 +682,7 @@ func (s *Service) JoinGroups(groups []pgapi.Group, p pid.PID) error {
 
 // Leave removes a local process from a group.
 func (s *Service) Leave(group pgapi.Group, p pid.PID) error {
+	start := time.Now()
 	done := make(chan error, 1)
 	if !s.submit(func() {
 		if !s.state.leaveLocal(group, p) {
@@ -689,13 +704,17 @@ func (s *Service) Leave(group pgapi.Group, p pid.PID) error {
 		s.publishSnapshot()
 		done <- nil
 	}) {
-		return s.submitError()
+		err := s.submitError()
+		s.tel.recordLeave(group, err, time.Since(start))
+		return err
 	}
 
 	select {
 	case err := <-done:
+		s.tel.recordLeave(group, err, time.Since(start))
 		return err
 	case <-s.currentCtx().Done():
+		s.tel.recordLeave(group, ErrServiceStopped, time.Since(start))
 		return ErrServiceStopped
 	}
 }
@@ -970,23 +989,28 @@ func (s *Service) Events(p pid.PID, topic string) pgapi.EventsResult {
 
 // Broadcast sends a message to all members of a group across all nodes.
 func (s *Service) Broadcast(from pid.PID, group pgapi.Group, topic string, payloads payload.Payloads) (int, error) {
+	start := time.Now()
 	// Snapshot members inside the event loop for consistency.
 	membersCh := make(chan []pid.PID, 1)
 	if !s.submit(func() {
 		membersCh <- s.state.getMembers(group)
 	}) {
-		return 0, s.submitError()
+		err := s.submitError()
+		s.tel.recordBroadcast(group, 0, err, time.Since(start))
+		return 0, err
 	}
 
 	var members []pid.PID
 	select {
 	case members = <-membersCh:
 	case <-s.currentCtx().Done():
+		s.tel.recordBroadcast(group, 0, ErrServiceStopped, time.Since(start))
 		return 0, ErrServiceStopped
 	}
 
 	// Send outside the event loop so we don't block the action queue.
 	sent := s.sendToMembers(from, topic, payloads, members)
+	s.tel.recordBroadcast(group, sent, nil, time.Since(start))
 	return sent, nil
 }
 

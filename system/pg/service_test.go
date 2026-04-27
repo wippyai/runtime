@@ -115,7 +115,7 @@ func newTestService() (*Service, *mockRouter, *mockTopology) {
 	router := newMockRouter()
 	topo := newMockTopology()
 	logger := zap.NewNop()
-	svc := NewService(logger, "pg", nil, router, topo, nil, nil, "local-node")
+	svc := NewService(logger, "pg", nil, router, topo, nil, nil, "local-node", nil, nil, nil)
 	return svc, router, topo
 }
 
@@ -139,7 +139,7 @@ func TestNewService(t *testing.T) {
 }
 
 func TestNewServiceNilLogger(t *testing.T) {
-	svc := NewService(nil, "pg", nil, newMockRouter(), newMockTopology(), nil, nil, "node")
+	svc := NewService(nil, "pg", nil, newMockRouter(), newMockTopology(), nil, nil, "node", nil, nil, nil)
 	require.NotNil(t, svc)
 }
 
@@ -804,7 +804,7 @@ func TestServiceStartWithMembership(t *testing.T) {
 		},
 	}
 
-	svc := NewService(logger, "pg", nil, router, topo, membership, nil, "local-node")
+	svc := NewService(logger, "pg", nil, router, topo, membership, nil, "local-node", nil, nil, nil)
 
 	_, err := svc.Start(context.Background())
 	require.NoError(t, err)
@@ -838,7 +838,7 @@ func TestServiceStartWithMembershipNoRemoteNodes(t *testing.T) {
 		},
 	}
 
-	svc := NewService(logger, "pg", nil, router, topo, membership, nil, "local-node")
+	svc := NewService(logger, "pg", nil, router, topo, membership, nil, "local-node", nil, nil, nil)
 
 	_, err := svc.Start(context.Background())
 	require.NoError(t, err)
@@ -1102,7 +1102,7 @@ func newTestServiceWithBus(t *testing.T) (*Service, *mockRouter, *mockTopology, 
 	topo := newMockTopology()
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
-	svc := NewService(logger, "pg", nil, router, topo, nil, bus, "local-node")
+	svc := NewService(logger, "pg", nil, router, topo, nil, bus, "local-node", nil, nil, nil)
 	return svc, router, topo, bus
 }
 
@@ -1568,7 +1568,7 @@ func TestServiceJoinGroupsDuplicateNewGroupDoesNotTripMaxGroups(t *testing.T) {
 
 	router := newMockRouter()
 	topo := newMockTopology()
-	svc := NewService(zap.NewNop(), "pg", cfg, router, topo, nil, nil, "local-node")
+	svc := NewService(zap.NewNop(), "pg", cfg, router, topo, nil, nil, "local-node", nil, nil, nil)
 	_, err := svc.Start(context.Background())
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -1589,7 +1589,7 @@ func TestServiceJoinGroupsDuplicateRespectsMaxMembersPerGroup(t *testing.T) {
 
 	router := newMockRouter()
 	topo := newMockTopology()
-	svc := NewService(zap.NewNop(), "pg", cfg, router, topo, nil, nil, "local-node")
+	svc := NewService(zap.NewNop(), "pg", cfg, router, topo, nil, nil, "local-node", nil, nil, nil)
 	_, err := svc.Start(context.Background())
 	require.NoError(t, err)
 	t.Cleanup(func() {

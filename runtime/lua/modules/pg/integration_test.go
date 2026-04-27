@@ -168,7 +168,7 @@ func setupPGTest(t *testing.T) *pgTestContext {
 
 	// Create pg service with noop topology
 	topo := &noopTopology{}
-	service := syspg.NewService(logger, "pg", nil, node, topo, nil, bus, "test-node")
+	service := syspg.NewService(logger, "pg", nil, node, topo, nil, bus, "test-node", nil, nil, nil)
 
 	ctx := security.SetStrictMode(ctxapi.NewRootContext(), false)
 	ctx = relay.WithNode(ctx, node)
@@ -309,7 +309,7 @@ func setupInlinePoolTest(t *testing.T, hostID string, script string, needTime bo
 
 	// Create pg service
 	topo := &noopTopology{}
-	service := syspg.NewService(logger, "pg", nil, node, topo, nil, bus, "test-node")
+	service := syspg.NewService(logger, "pg", nil, node, topo, nil, bus, "test-node", nil, nil, nil)
 
 	// Wire resource registry so pg.open() works in inline pool processes
 	reg := newPGTestRegistry(service, testPGResourceID)
@@ -1793,7 +1793,7 @@ func TestIntegration_RemoteLeaveNoSpuriousEvents(t *testing.T) {
 	ctx = relay.WithNode(ctx, node)
 
 	topo := &noopTopology{}
-	service := syspg.NewService(logger, "pg", nil, node, topo, nil, bus, "test-node")
+	service := syspg.NewService(logger, "pg", nil, node, topo, nil, bus, "test-node", nil, nil, nil)
 
 	// Wire resource registry
 	reg := newPGTestRegistry(service, testPGResourceID)

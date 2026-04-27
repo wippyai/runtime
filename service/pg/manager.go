@@ -95,7 +95,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	router := relay.GetRouter(ctx)
 
 	// Create the PG service instance
-	svc := systempg.NewService(m.log, hostID, cfg, router, m.topo, m.membership, m.bus, m.localNode)
+	svc := systempg.NewService(m.log, hostID, cfg, router, m.topo, m.membership, m.bus, m.localNode, nil, nil, nil)
 	m.scopes[entry.ID] = svc
 
 	// Register as relay host so inter-node messages route to this scope
