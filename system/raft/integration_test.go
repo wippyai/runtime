@@ -85,7 +85,7 @@ func startNode(t *testing.T, id string, bootstrap bool) *Node {
 	bus := eventbus.NewBus()
 	t.Cleanup(bus.Stop)
 
-	n := NewNode(id, noopFSM{}, cfg, bus, zaptest.NewLogger(t).Named(id))
+	n := NewNode(id, noopFSM{}, cfg, bus, zaptest.NewLogger(t).Named(id), nil, nil, nil)
 	statusCh, err := n.Start(context.Background())
 	require.NoError(t, err)
 	go func() {

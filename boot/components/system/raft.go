@@ -93,7 +93,7 @@ func Raft() boot.Component {
 			fsm := globalreg.NewFSM()
 
 			// Create the Raft node.
-			raftNode = sysraft.NewNode(node.ID(), wrapFSM(fsm), rc, bus, logger.Named("node"))
+			raftNode = sysraft.NewNode(node.ID(), wrapFSM(fsm), rc, bus, logger.Named("node"), nil, nil, nil)
 
 			// Create the global registry service wrapping Raft + FSM.
 			router := relay.GetRouter(ctx)

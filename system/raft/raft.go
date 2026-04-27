@@ -8,15 +8,20 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	hraft "github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb/v2"
+	otelmetric "go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/metrics"
 	raftapi "github.com/wippyai/runtime/api/raft"
 )
 
@@ -28,10 +33,11 @@ type Node struct {
 	logStore    hraft.LogStore
 	stableStore hraft.StableStore
 	snapStore   hraft.SnapshotStore
-	logger      *zap.Logger
 	transport   *hraft.NetworkTransport
+	logger      *zap.Logger
 	raft        *hraft.Raft
 	stopCh      chan struct{}
+	tel         *telemetry
 	localID     string
 	config      raftapi.Config
 	actualPort  int
@@ -41,7 +47,8 @@ type Node struct {
 
 // NewNode creates a new Raft node. The FSM must be provided by the caller
 // (e.g., the global registry state machine).
-func NewNode(localID string, fsm hraft.FSM, cfg raftapi.Config, bus event.Bus, logger *zap.Logger) *Node {
+func NewNode(localID string, fsm hraft.FSM, cfg raftapi.Config, bus event.Bus, logger *zap.Logger,
+	coll metrics.Collector, mp otelmetric.MeterProvider, tp trace.TracerProvider) *Node {
 	cfg.InitDefaults()
 	return &Node{
 		fsm:     fsm,
@@ -50,6 +57,7 @@ func NewNode(localID string, fsm hraft.FSM, cfg raftapi.Config, bus event.Bus, l
 		bus:     bus,
 		logger:  logger,
 		stopCh:  make(chan struct{}),
+		tel:     newTelemetry(coll, mp, tp),
 	}
 }
 
@@ -214,11 +222,24 @@ func (n *Node) Stop(_ context.Context) error {
 }
 
 // monitorLeadership watches the Raft leadership channel and publishes
-// events to the event bus.
+// events to the event bus. It also samples raft state/term on a 1s ticker
+// so telemetry stays fresh even when LeaderCh is quiet.
 func (n *Node) monitorLeadership(statusCh chan<- any) {
 	defer close(statusCh)
 
 	leaderCh := n.raft.LeaderCh()
+
+	sampleTicker := time.NewTicker(time.Second)
+	defer sampleTicker.Stop()
+
+	// Track election timing: set whenever we leave the leader state, used to
+	// compute election duration when we (re)enter leader.
+	var electionStart time.Time
+	wasLeader := false
+
+	// Initial sample so dashboards see state immediately.
+	n.sampleStateAndTerm()
+
 	for {
 		select {
 		case isLeader, ok := <-leaderCh:
@@ -226,6 +247,11 @@ func (n *Node) monitorLeadership(statusCh chan<- any) {
 				return
 			}
 			if isLeader {
+				if !wasLeader && !electionStart.IsZero() {
+					n.tel.recordElection(time.Since(electionStart))
+				}
+				n.tel.recordLeaderChange()
+				wasLeader = true
 				n.logger.Info("this node is now the raft leader", zap.String("id", n.localID))
 				n.bus.Send(context.Background(), event.Event{
 					System: cluster.System,
@@ -233,6 +259,8 @@ func (n *Node) monitorLeadership(statusCh chan<- any) {
 					Path:   n.localID,
 				})
 			} else {
+				wasLeader = false
+				electionStart = time.Now()
 				n.logger.Info("this node lost raft leadership", zap.String("id", n.localID))
 				n.bus.Send(context.Background(), event.Event{
 					System: cluster.System,
@@ -240,8 +268,28 @@ func (n *Node) monitorLeadership(statusCh chan<- any) {
 					Path:   n.localID,
 				})
 			}
+			n.sampleStateAndTerm()
+		case <-sampleTicker.C:
+			n.sampleStateAndTerm()
 		case <-n.stopCh:
 			return
+		}
+	}
+}
+
+// sampleStateAndTerm reads current raft state/term and emits gauge samples.
+// Safe to call concurrently with raft operations; hraft.Stats() is goroutine-safe.
+func (n *Node) sampleStateAndTerm() {
+	if n.raft == nil {
+		return
+	}
+
+	n.tel.recordState(n.localID, strings.ToLower(n.raft.State().String()))
+
+	stats := n.raft.Stats()
+	if termStr, ok := stats["term"]; ok {
+		if term, err := strconv.ParseUint(termStr, 10, 64); err == nil {
+			n.tel.recordTerm(term)
 		}
 	}
 }
