@@ -72,3 +72,46 @@ func (t *telemetry) recordElection(dur time.Duration) {
 
 	t.coll.HistogramObserve("raft_election_duration_seconds", dur.Seconds(), nil)
 }
+
+func (t *telemetry) recordCommitIndex(idx uint64) {
+	if t == nil || t.coll == nil {
+		return
+	}
+
+	t.coll.GaugeSet("raft_commit_index", float64(idx), nil)
+}
+
+func (t *telemetry) recordLastLogIndex(node string, idx uint64) {
+	if t == nil || t.coll == nil {
+		return
+	}
+
+	t.coll.GaugeSet("raft_last_log_index", float64(idx), metrics.Labels{"node": node})
+}
+
+func (t *telemetry) recordLogLag(node string, lag int64) {
+	if t == nil || t.coll == nil {
+		return
+	}
+
+	t.coll.GaugeSet("raft_log_lag", float64(lag), metrics.Labels{"node": node})
+}
+
+func (t *telemetry) recordAppendEntries(peer string, err error, dur time.Duration) {
+	if t == nil || t.coll == nil {
+		return
+	}
+
+	res := raftResultLabel(err)
+	t.coll.CounterInc("raft_append_entries_total", metrics.Labels{"peer": peer, "result": res})
+	t.coll.HistogramObserve("raft_append_entries_duration_seconds", dur.Seconds(),
+		metrics.Labels{"peer": peer, "result": res})
+}
+
+func raftResultLabel(err error) string {
+	if err != nil {
+		return "err"
+	}
+
+	return "ok"
+}

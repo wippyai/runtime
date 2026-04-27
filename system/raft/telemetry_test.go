@@ -59,4 +59,45 @@ func TestRaftTelemetry_NilSafe(t *testing.T) {
 	tt.recordTerm(1)
 	tt.recordLeaderChange()
 	tt.recordElection(time.Millisecond)
+	tt.recordCommitIndex(1)
+	tt.recordLastLogIndex("node-a", 1)
+	tt.recordLogLag("node-a", 0)
+	tt.recordAppendEntries("peer", nil, time.Millisecond)
 }
+
+func TestRaftTelemetry_CommitLog(t *testing.T) {
+	tt, rec := newTestTel(t)
+	tt.recordCommitIndex(100)
+	tt.recordLastLogIndex("node-a", 95)
+	tt.recordLogLag("node-a", 5)
+	if v := rec.GaugeValue("raft_commit_index", nil); v != 100 {
+		t.Fatalf("raft_commit_index: want 100, got %v", v)
+	}
+	if v := rec.GaugeValue("raft_last_log_index", metrics.Labels{"node": "node-a"}); v != 95 {
+		t.Fatalf("raft_last_log_index: want 95, got %v", v)
+	}
+	if v := rec.GaugeValue("raft_log_lag", metrics.Labels{"node": "node-a"}); v != 5 {
+		t.Fatalf("raft_log_lag: want 5, got %v", v)
+	}
+}
+
+func TestRaftTelemetry_AppendEntries(t *testing.T) {
+	tt, rec := newTestTel(t)
+	tt.recordAppendEntries("node-b", nil, 10*time.Millisecond)
+	tt.recordAppendEntries("node-b", errSomething, 0)
+	if v := rec.CounterValue("raft_append_entries_total", metrics.Labels{"peer": "node-b", "result": "ok"}); v != 1 {
+		t.Fatalf("AE ok counter: want 1, got %v", v)
+	}
+	if v := rec.CounterValue("raft_append_entries_total", metrics.Labels{"peer": "node-b", "result": "err"}); v != 1 {
+		t.Fatalf("AE err counter: want 1, got %v", v)
+	}
+	if c := rec.HistogramCount("raft_append_entries_duration_seconds", metrics.Labels{"peer": "node-b", "result": "ok"}); c != 1 {
+		t.Fatalf("AE duration count: want 1, got %v", c)
+	}
+}
+
+var errSomething = errStub("boom")
+
+type errStub string
+
+func (e errStub) Error() string { return string(e) }

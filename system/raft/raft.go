@@ -33,7 +33,7 @@ type Node struct {
 	logStore    hraft.LogStore
 	stableStore hraft.StableStore
 	snapStore   hraft.SnapshotStore
-	transport   *hraft.NetworkTransport
+	transport   hraft.Transport
 	logger      *zap.Logger
 	raft        *hraft.Raft
 	stopCh      chan struct{}
@@ -130,13 +130,13 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create raft transport: %w", err)
 	}
-	n.transport = transport
+	n.transport = &instrumentedTransport{Transport: transport, tel: n.tel}
 
 	// Create Raft instance.
 	rc := toHashicorpConfig(n.localID, n.config)
 	r, err := hraft.NewRaft(rc, n.fsm, n.logStore, n.stableStore, n.snapStore, n.transport)
 	if err != nil {
-		n.transport.Close()
+		transport.Close()
 		return nil, fmt.Errorf("create raft instance: %w", err)
 	}
 	n.raft = r
@@ -206,7 +206,11 @@ func (n *Node) Stop(_ context.Context) error {
 	}
 
 	if n.transport != nil {
-		n.transport.Close()
+		if closer, ok := n.transport.(hraft.WithClose); ok {
+			if err := closer.Close(); err != nil {
+				n.logger.Warn("raft transport close failed", zap.Error(err))
+			}
+		}
 	}
 
 	// Close bolt stores if applicable.
@@ -277,8 +281,9 @@ func (n *Node) monitorLeadership(statusCh chan<- any) {
 	}
 }
 
-// sampleStateAndTerm reads current raft state/term and emits gauge samples.
-// Safe to call concurrently with raft operations; hraft.Stats() is goroutine-safe.
+// sampleStateAndTerm reads current raft state/term/log indices and emits gauge
+// samples. Safe to call concurrently with raft operations; hraft.Stats() is
+// goroutine-safe.
 func (n *Node) sampleStateAndTerm() {
 	if n.raft == nil {
 		return
@@ -287,9 +292,21 @@ func (n *Node) sampleStateAndTerm() {
 	n.tel.recordState(n.localID, strings.ToLower(n.raft.State().String()))
 
 	stats := n.raft.Stats()
-	if termStr, ok := stats["term"]; ok {
-		if term, err := strconv.ParseUint(termStr, 10, 64); err == nil {
-			n.tel.recordTerm(term)
+	if v, err := strconv.ParseUint(stats["term"], 10, 64); err == nil {
+		n.tel.recordTerm(v)
+	}
+
+	var commit uint64
+	commitOK := false
+	if v, err := strconv.ParseUint(stats["commit_index"], 10, 64); err == nil {
+		n.tel.recordCommitIndex(v)
+		commit = v
+		commitOK = true
+	}
+	if v, err := strconv.ParseUint(stats["last_log_index"], 10, 64); err == nil {
+		n.tel.recordLastLogIndex(n.localID, v)
+		if commitOK {
+			n.tel.recordLogLag(n.localID, int64(commit)-int64(v))
 		}
 	}
 }
@@ -484,3 +501,29 @@ func (n *Node) translateError(err error) error {
 
 // Ensure Node implements raft.Service.
 var _ raftapi.Service = (*Node)(nil)
+
+// instrumentedTransport wraps an hraft.Transport so AppendEntries calls are
+// timed and counted via telemetry. All other methods fall through to the
+// embedded transport.
+type instrumentedTransport struct {
+	hraft.Transport
+	tel *telemetry
+}
+
+func (it *instrumentedTransport) AppendEntries(id hraft.ServerID, target hraft.ServerAddress,
+	args *hraft.AppendEntriesRequest, resp *hraft.AppendEntriesResponse) error {
+	start := time.Now()
+	err := it.Transport.AppendEntries(id, target, args, resp)
+	it.tel.recordAppendEntries(string(id), err, time.Since(start))
+	return err
+}
+
+// Close forwards to the underlying transport when it supports closing,
+// allowing the wrapper to satisfy hraft.WithClose transparently.
+func (it *instrumentedTransport) Close() error {
+	if closer, ok := it.Transport.(hraft.WithClose); ok {
+		return closer.Close()
+	}
+
+	return nil
+}
