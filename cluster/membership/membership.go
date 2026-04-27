@@ -17,6 +17,7 @@ import (
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/metrics"
+	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -24,15 +25,17 @@ import (
 
 // Service implements cluster membership using memberlist
 type Service struct {
-	ctx        context.Context
-	bus        event.Bus
-	transport  memberlist.Transport
-	logger     *zap.Logger
-	memberlist *memberlist.Memberlist
-	nodes      map[string]cluster.NodeInfo
-	tel        *telemetry
-	config     Config
-	mu         sync.RWMutex
+	lastChangeAt time.Time
+	ctx          context.Context
+	bus          event.Bus
+	transport    memberlist.Transport
+	logger       *zap.Logger
+	memberlist   *memberlist.Memberlist
+	nodes        map[string]cluster.NodeInfo
+	nodeStates   map[string]memberlist.NodeStateType
+	tel          *telemetry
+	config       Config
+	mu           sync.RWMutex
 }
 
 // Config holds membership service configuration
@@ -56,12 +59,13 @@ type Config struct {
 // corresponding emission path.
 func NewService(config Config, bus event.Bus, logger *zap.Logger, coll metrics.Collector, mp otelmetric.MeterProvider, tp trace.TracerProvider) *Service {
 	return &Service{
-		logger:    logger,
-		bus:       bus,
-		config:    config,
-		transport: config.Transport,
-		nodes:     make(map[string]cluster.NodeInfo),
-		tel:       newTelemetry(coll, mp, tp),
+		logger:     logger,
+		bus:        bus,
+		config:     config,
+		transport:  config.Transport,
+		nodes:      make(map[string]cluster.NodeInfo),
+		nodeStates: make(map[string]memberlist.NodeStateType),
+		tel:        newTelemetry(coll, mp, tp),
 	}
 }
 
@@ -86,8 +90,9 @@ func New(opts ...Option) *Service {
 			VeryVerbose:  o.veryVerbose,
 			Meta:         o.meta,
 		},
-		transport: o.transport,
-		nodes:     make(map[string]cluster.NodeInfo),
+		transport:  o.transport,
+		nodes:      make(map[string]cluster.NodeInfo),
+		nodeStates: make(map[string]memberlist.NodeStateType),
 	}
 	svc.tel = newTelemetry(o.coll, o.mp, o.tp)
 
@@ -182,7 +187,31 @@ func (s *Service) Start(ctx context.Context) error {
 
 	s.refreshMemberStateGauges()
 
+	go s.emitHealthLoop(s.ctx)
+
 	return nil
+}
+
+// emitHealthLoop periodically samples memberlist's GetHealthScore (0 = healthy,
+// larger = degraded) and emits it as a probe-duration histogram. The score is
+// dimensionless but maps cleanly onto a "ms-equivalent" axis for dashboards.
+func (s *Service) emitHealthLoop(ctx context.Context) {
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if s.memberlist == nil {
+				continue
+			}
+
+			score := s.memberlist.GetHealthScore()
+			s.tel.recordProbe(nil, time.Duration(score)*time.Millisecond)
+		}
+	}
 }
 
 // Stop gracefully shuts down the membership service
@@ -382,9 +411,7 @@ func (ed *eventDelegate) NotifyJoin(node *memberlist.Node) {
 		Meta: ed.parseNodeMeta(node.Meta),
 	}
 
-	ed.service.mu.Lock()
-	ed.service.nodes[node.Name] = nodeInfo
-	ed.service.mu.Unlock()
+	convergedFrom := ed.service.recordChange(node.Name, nodeInfo, node.State)
 
 	ed.service.logger.Info("node joined",
 		zap.String("node_id", node.Name),
@@ -393,6 +420,7 @@ func (ed *eventDelegate) NotifyJoin(node *memberlist.Node) {
 
 	ed.service.publishEvent(cluster.NodeJoined, nodeInfo)
 	ed.service.refreshMemberStateGauges()
+	ed.service.emitConvergence(convergedFrom)
 }
 
 func (ed *eventDelegate) NotifyLeave(node *memberlist.Node) {
@@ -407,9 +435,13 @@ func (ed *eventDelegate) NotifyLeave(node *memberlist.Node) {
 		Meta: ed.parseNodeMeta(node.Meta),
 	}
 
-	ed.service.mu.Lock()
-	delete(ed.service.nodes, node.Name)
-	ed.service.mu.Unlock()
+	convergedFrom, prevState := ed.service.removeNode(node.Name)
+
+	// Memberlist transitions a suspect into dead/left via NotifyLeave; surface
+	// that as a "dead" suspicion resolution.
+	if prevState == memberlist.StateSuspect {
+		ed.service.tel.recordSuspicionOutcome("dead")
+	}
 
 	ed.service.logger.Info("node left",
 		zap.String("node_id", node.Name),
@@ -417,6 +449,7 @@ func (ed *eventDelegate) NotifyLeave(node *memberlist.Node) {
 
 	ed.service.publishEvent(cluster.NodeLeft, nodeInfo)
 	ed.service.refreshMemberStateGauges()
+	ed.service.emitConvergence(convergedFrom)
 }
 
 func (ed *eventDelegate) NotifyUpdate(node *memberlist.Node) {
@@ -431,9 +464,9 @@ func (ed *eventDelegate) NotifyUpdate(node *memberlist.Node) {
 		Meta: ed.parseNodeMeta(node.Meta),
 	}
 
-	ed.service.mu.Lock()
-	ed.service.nodes[node.Name] = nodeInfo
-	ed.service.mu.Unlock()
+	// recordChange handles suspicion->alive resolution metrics; suspicion->dead
+	// is recorded from NotifyLeave (memberlist routes that transition there).
+	convergedFrom := ed.service.recordChange(node.Name, nodeInfo, node.State)
 
 	ed.service.logger.Info("node updated",
 		zap.String("node_id", node.Name),
@@ -442,6 +475,51 @@ func (ed *eventDelegate) NotifyUpdate(node *memberlist.Node) {
 
 	ed.service.publishEvent(cluster.NodeUpdated, nodeInfo)
 	ed.service.refreshMemberStateGauges()
+	ed.service.emitConvergence(convergedFrom)
+}
+
+// recordChange updates the cached node info and state for `name`, emitting a
+// suspicion-resolution metric when transitioning suspect->alive. It returns
+// the previous lastChangeAt timestamp so the caller can record convergence.
+func (s *Service) recordChange(name string, info cluster.NodeInfo, newState memberlist.NodeStateType) time.Time {
+	s.mu.Lock()
+	prevState, hadPrev := s.nodeStates[name]
+	s.nodes[name] = info
+	s.nodeStates[name] = newState
+	prevChange := s.lastChangeAt
+	s.lastChangeAt = time.Now()
+	s.mu.Unlock()
+
+	if hadPrev && prevState == memberlist.StateSuspect && newState == memberlist.StateAlive {
+		s.tel.recordSuspicionOutcome("alive")
+	}
+
+	return prevChange
+}
+
+// removeNode drops cached state for `name` and returns the previous
+// lastChangeAt timestamp plus the node's prior state (so callers can attribute
+// suspicion->dead transitions).
+func (s *Service) removeNode(name string) (time.Time, memberlist.NodeStateType) {
+	s.mu.Lock()
+	prevState := s.nodeStates[name]
+	delete(s.nodes, name)
+	delete(s.nodeStates, name)
+	prevChange := s.lastChangeAt
+	s.lastChangeAt = time.Now()
+	s.mu.Unlock()
+
+	return prevChange, prevState
+}
+
+// emitConvergence records the inter-event delta as a convergence sample. The
+// first event after Start has a zero `from` timestamp and is skipped.
+func (s *Service) emitConvergence(from time.Time) {
+	if from.IsZero() {
+		return
+	}
+
+	s.tel.recordConvergence(time.Since(from))
 }
 
 func (ed *eventDelegate) parseNodeMeta(meta []byte) cluster.NodeMeta {
@@ -489,6 +567,11 @@ func (d *delegate) NodeMeta(limit int) []byte {
 }
 
 func (d *delegate) NotifyMsg(data []byte) {
+	_, span := d.service.tel.startSpan(d.service.ctx, "gossip.broadcast",
+		trace.WithAttributes(attribute.Int("bytes", len(data))),
+	)
+	defer span.End()
+
 	// Handle incoming gossip messages - could be used for custom protocols
 	if d.service.config.VeryVerbose {
 		d.service.logger.Debug("received gossip message", zap.Int("size", len(data)))
@@ -509,7 +592,16 @@ func (d *delegate) LocalState(_ bool) []byte {
 }
 
 func (d *delegate) MergeRemoteState(buf []byte, join bool) {
-	// TODO: Can be used later for gossip state sync
+	_, span := d.service.tel.startSpan(d.service.ctx, "gossip.sync",
+		trace.WithAttributes(
+			attribute.Int("bytes", len(buf)),
+			attribute.Bool("join", join),
+		),
+	)
+	defer span.End()
+
+	// Reserved for future gossip state sync; merge logic will land alongside
+	// the corresponding LocalState producer.
 	if len(buf) > 0 && d.service.config.VeryVerbose {
 		d.service.logger.Debug("merging remote state",
 			zap.Int("size", len(buf)),
