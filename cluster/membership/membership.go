@@ -16,6 +16,9 @@ import (
 	"github.com/hashicorp/memberlist"
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/metrics"
+	otelmetric "go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -27,6 +30,7 @@ type Service struct {
 	logger     *zap.Logger
 	memberlist *memberlist.Memberlist
 	nodes      map[string]cluster.NodeInfo
+	tel        *telemetry
 	config     Config
 	mu         sync.RWMutex
 }
@@ -45,14 +49,19 @@ type Config struct {
 	VeryVerbose  bool
 }
 
-// NewService creates a new membership service
-func NewService(config Config, bus event.Bus, logger *zap.Logger) *Service {
+// NewService creates a new membership service.
+//
+// coll, mp, and tp wire the metrics collector and OTel providers used for
+// gossip/membership instrumentation. Any of them may be nil; nil disables the
+// corresponding emission path.
+func NewService(config Config, bus event.Bus, logger *zap.Logger, coll metrics.Collector, mp otelmetric.MeterProvider, tp trace.TracerProvider) *Service {
 	return &Service{
 		logger:    logger,
 		bus:       bus,
 		config:    config,
 		transport: config.Transport,
 		nodes:     make(map[string]cluster.NodeInfo),
+		tel:       newTelemetry(coll, mp, tp),
 	}
 }
 
@@ -63,7 +72,7 @@ func New(opts ...Option) *Service {
 		opt(o)
 	}
 
-	return &Service{
+	svc := &Service{
 		logger: o.logger,
 		bus:    o.bus,
 		config: Config{
@@ -80,6 +89,9 @@ func New(opts ...Option) *Service {
 		transport: o.transport,
 		nodes:     make(map[string]cluster.NodeInfo),
 	}
+	svc.tel = newTelemetry(o.coll, o.mp, o.tp)
+
+	return svc
 }
 
 // Start initializes and starts the membership service
@@ -150,6 +162,7 @@ func (s *Service) Start(ctx context.Context) error {
 			s.logger.Error("failed to join cluster",
 				zap.Error(err),
 				zap.Strings("join_addresses", s.config.JoinAddrs))
+			s.tel.recordJoin(err)
 			return NewJoinClusterError(err)
 		}
 
@@ -159,11 +172,15 @@ func (s *Service) Start(ctx context.Context) error {
 		s.logger.Info("starting as cluster bootstrap node")
 	}
 
+	s.tel.recordJoin(nil)
+
 	// Log initial cluster state
 	members := ml.Members()
 	s.logger.Info("membership active",
 		zap.String("local_node", s.config.NodeName),
 		zap.Int("total_members", len(members)))
+
+	s.refreshMemberStateGauges()
 
 	return nil
 }
@@ -171,6 +188,8 @@ func (s *Service) Start(ctx context.Context) error {
 // Stop gracefully shuts down the membership service
 func (s *Service) Stop() error {
 	s.logger.Info("shutting down cluster membership service")
+
+	s.tel.recordLeave()
 
 	if s.memberlist != nil {
 		// Leave cluster gracefully
@@ -295,6 +314,47 @@ func (s *Service) loadSecretKey() ([]byte, error) {
 	return base64.StdEncoding.DecodeString(keyStr)
 }
 
+// refreshMemberStateGauges recomputes the gossip_members gauge across the
+// current memberlist view. Memberlist's Members() filters out dead/left, so
+// alive/suspect counts will reflect the live view; dead and left default to
+// zero unless future memberlist changes surface them here.
+//
+// The refresh runs asynchronously: memberlist invokes the event delegate
+// hooks while holding its internal node lock, and Members() re-acquires the
+// same lock — calling it inline would deadlock.
+func (s *Service) refreshMemberStateGauges() {
+	if s.memberlist == nil {
+		return
+	}
+
+	go s.computeMemberStateGauges()
+}
+
+func (s *Service) computeMemberStateGauges() {
+	if s.memberlist == nil {
+		return
+	}
+
+	alive, suspect, dead, left := 0, 0, 0, 0
+	for _, m := range s.memberlist.Members() {
+		switch m.State {
+		case memberlist.StateAlive:
+			alive++
+		case memberlist.StateSuspect:
+			suspect++
+		case memberlist.StateDead:
+			dead++
+		case memberlist.StateLeft:
+			left++
+		}
+	}
+
+	s.tel.recordMembers("alive", alive)
+	s.tel.recordMembers("suspect", suspect)
+	s.tel.recordMembers("dead", dead)
+	s.tel.recordMembers("left", left)
+}
+
 // publishEvent publishes a cluster event to the event bus
 func (s *Service) publishEvent(kind event.Kind, node cluster.NodeInfo) {
 	s.bus.Send(s.ctx, event.Event{
@@ -332,6 +392,7 @@ func (ed *eventDelegate) NotifyJoin(node *memberlist.Node) {
 		zap.Any("metadata", nodeInfo.Meta))
 
 	ed.service.publishEvent(cluster.NodeJoined, nodeInfo)
+	ed.service.refreshMemberStateGauges()
 }
 
 func (ed *eventDelegate) NotifyLeave(node *memberlist.Node) {
@@ -355,6 +416,7 @@ func (ed *eventDelegate) NotifyLeave(node *memberlist.Node) {
 		zap.String("address", nodeInfo.Addr))
 
 	ed.service.publishEvent(cluster.NodeLeft, nodeInfo)
+	ed.service.refreshMemberStateGauges()
 }
 
 func (ed *eventDelegate) NotifyUpdate(node *memberlist.Node) {
@@ -379,6 +441,7 @@ func (ed *eventDelegate) NotifyUpdate(node *memberlist.Node) {
 		zap.Any("metadata", nodeInfo.Meta))
 
 	ed.service.publishEvent(cluster.NodeUpdated, nodeInfo)
+	ed.service.refreshMemberStateGauges()
 }
 
 func (ed *eventDelegate) parseNodeMeta(meta []byte) cluster.NodeMeta {
@@ -430,11 +493,13 @@ func (d *delegate) NotifyMsg(data []byte) {
 	if d.service.config.VeryVerbose {
 		d.service.logger.Debug("received gossip message", zap.Int("size", len(data)))
 	}
+
+	d.service.tel.recordMessage("user", "rx", len(data))
 }
 
 func (d *delegate) GetBroadcasts(_, _ int) [][]byte {
 	// Return messages to broadcast - could be used for custom state sync
-	// For now, no custom broadcasts
+	// For now, no custom broadcasts.
 	return nil
 }
 

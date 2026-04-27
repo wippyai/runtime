@@ -38,7 +38,7 @@ func setupService(_ *testing.T) (*Service, *eventbus.Bus, context.Context, conte
 		},
 	}
 
-	service := NewService(config, bus, logger)
+	service := NewService(config, bus, logger, nil, nil, nil)
 
 	return service, bus, ctx, cancel
 }
@@ -65,7 +65,7 @@ func TestService_NewService(t *testing.T) {
 		},
 	}
 
-	service := NewService(config, bus, logger)
+	service := NewService(config, bus, logger, nil, nil, nil)
 
 	assert.NotNil(t, service)
 	assert.NotNil(t, service.logger)
@@ -102,7 +102,7 @@ func TestService_Start_WithSecretKey(t *testing.T) {
 		SecretString: secretKey,
 	}
 
-	service := NewService(config, bus, logger)
+	service := NewService(config, bus, logger, nil, nil, nil)
 	err := service.Start(ctx)
 	require.NoError(t, err)
 	defer func() { _ = service.Stop() }()
@@ -123,7 +123,7 @@ func TestService_Start_WithAdvertiseIP(t *testing.T) {
 		AdvertiseIP: "192.168.1.100",
 	}
 
-	service := NewService(config, bus, logger)
+	service := NewService(config, bus, logger, nil, nil, nil)
 	err := service.Start(ctx)
 	require.NoError(t, err)
 	defer func() { _ = service.Stop() }()
@@ -163,7 +163,7 @@ func TestService_Start_VeryVerbose(t *testing.T) {
 		VeryVerbose: true,
 	}
 
-	service := NewService(config, bus, logger)
+	service := NewService(config, bus, logger, nil, nil, nil)
 	err := service.Start(ctx)
 	require.NoError(t, err)
 	defer func() { _ = service.Stop() }()
@@ -564,7 +564,7 @@ func TestDelegate_NodeMeta_EmptyMeta(t *testing.T) {
 		Meta:     cluster.NodeMeta{},
 	}
 
-	service := NewService(config, bus, logger)
+	service := NewService(config, bus, logger, nil, nil, nil)
 	d := &delegate{service: service}
 
 	meta := d.NodeMeta(512)
@@ -588,7 +588,7 @@ func TestDelegate_NodeMeta_ExceedsLimit(t *testing.T) {
 		Meta:     largeMeta,
 	}
 
-	service := NewService(config, bus, logger)
+	service := NewService(config, bus, logger, nil, nil, nil)
 	d := &delegate{service: service}
 
 	meta := d.NodeMeta(10)
@@ -647,7 +647,7 @@ func TestDelegate_NotifyMsg_VeryVerbose(_ *testing.T) {
 		VeryVerbose: true,
 	}
 
-	service := NewService(config, bus, logger)
+	service := NewService(config, bus, logger, nil, nil, nil)
 	d := &delegate{service: service}
 
 	d.NotifyMsg([]byte("test message"))
@@ -664,7 +664,7 @@ func TestDelegate_MergeRemoteState_VeryVerbose(_ *testing.T) {
 		VeryVerbose: true,
 	}
 
-	service := NewService(config, bus, logger)
+	service := NewService(config, bus, logger, nil, nil, nil)
 	d := &delegate{service: service}
 
 	d.MergeRemoteState([]byte(`{"key":"value"}`), true)
@@ -685,7 +685,7 @@ func TestService_LoadSecretKey_FromString(t *testing.T) {
 		SecretString: secretKey,
 	}
 
-	service := NewService(config, bus, logger)
+	service := NewService(config, bus, logger, nil, nil, nil)
 
 	key, err := service.loadSecretKey()
 	require.NoError(t, err)
@@ -710,7 +710,7 @@ func TestService_LoadSecretKey_FromFile(t *testing.T) {
 		SecretFile: secretFile,
 	}
 
-	service := NewService(config, bus, logger)
+	service := NewService(config, bus, logger, nil, nil, nil)
 
 	key, err := service.loadSecretKey()
 	require.NoError(t, err)
@@ -735,7 +735,7 @@ func TestService_LoadSecretKey_FromFileWithWhitespace(t *testing.T) {
 		SecretFile: secretFile,
 	}
 
-	service := NewService(config, bus, logger)
+	service := NewService(config, bus, logger, nil, nil, nil)
 
 	key, err := service.loadSecretKey()
 	require.NoError(t, err)
@@ -753,7 +753,7 @@ func TestService_LoadSecretKey_InvalidBase64(t *testing.T) {
 		SecretString: "not-valid-base64!!!",
 	}
 
-	service := NewService(config, bus, logger)
+	service := NewService(config, bus, logger, nil, nil, nil)
 
 	_, err := service.loadSecretKey()
 	assert.Error(t, err)
@@ -770,7 +770,7 @@ func TestService_LoadSecretKey_FileNotFound(t *testing.T) {
 		SecretFile: "/nonexistent/secret.key",
 	}
 
-	service := NewService(config, bus, logger)
+	service := NewService(config, bus, logger, nil, nil, nil)
 
 	_, err := service.loadSecretKey()
 	assert.Error(t, err)
@@ -786,7 +786,7 @@ func TestService_LoadSecretKey_NoSecretProvided(t *testing.T) {
 		BindPort: 7946,
 	}
 
-	service := NewService(config, bus, logger)
+	service := NewService(config, bus, logger, nil, nil, nil)
 
 	_, err := service.loadSecretKey()
 	require.Error(t, err)
@@ -814,7 +814,7 @@ func TestService_LoadSecretKey_PrefersFile(t *testing.T) {
 		SecretString: stringKey,
 	}
 
-	service := NewService(config, bus, logger)
+	service := NewService(config, bus, logger, nil, nil, nil)
 
 	key, err := service.loadSecretKey()
 	require.NoError(t, err)

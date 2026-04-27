@@ -6,6 +6,9 @@ import (
 	"github.com/hashicorp/memberlist"
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/metrics"
+	otelmetric "go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -17,6 +20,9 @@ type options struct {
 	bus          event.Bus
 	meta         cluster.NodeMeta
 	logger       *zap.Logger
+	coll         metrics.Collector
+	mp           otelmetric.MeterProvider
+	tp           trace.TracerProvider
 	nodeName     string
 	bindAddr     string
 	secretFile   string
@@ -60,4 +66,15 @@ func WithLogger(l *zap.Logger) Option {
 // WithEventBus sets the event bus for publishing cluster events.
 func WithEventBus(bus event.Bus) Option {
 	return func(o *options) { o.bus = bus }
+}
+
+// WithTelemetry wires the metrics collector and OTel providers used for
+// gossip/membership instrumentation. Any of the arguments may be nil; nil
+// disables the corresponding emission path.
+func WithTelemetry(coll metrics.Collector, mp otelmetric.MeterProvider, tp trace.TracerProvider) Option {
+	return func(o *options) {
+		o.coll = coll
+		o.mp = mp
+		o.tp = tp
+	}
 }

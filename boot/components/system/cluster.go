@@ -170,7 +170,7 @@ func Cluster() boot.Component {
 				Meta:         nodeMeta,
 			}
 
-			membershipSvc = membership.NewService(memberCfg, bus, logger.Named("membership"))
+			membershipSvc = membership.NewService(memberCfg, bus, logger.Named("membership"), nil, nil, nil)
 
 			// Create package callback for internode service
 			pkgCallback := func(pkg *relayapi.Package) error {
