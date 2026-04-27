@@ -150,6 +150,22 @@ entries:
       - funcs
       - time
 
+  - name: delete_recreate_same_id
+    kind: function.lua
+    meta:
+      type: test
+      suite: registry
+      order: 80
+      description: delete and recreate same function id invalidates compiled code
+    source: file://delete_recreate_same_id.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+      - funcs
+      - time
+
   - name: dependency_resolution_error
     kind: function.lua
     meta:

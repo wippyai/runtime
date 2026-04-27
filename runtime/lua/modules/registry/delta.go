@@ -79,6 +79,9 @@ func buildDelta(l *lua.LState, log *zap.Logger) int {
 		if a.ID.NS != b.ID.NS || a.ID.Name != b.ID.Name || a.Kind != b.Kind {
 			return false
 		}
+		if !mapsEqual(map[string]any(a.Meta), map[string]any(b.Meta)) {
+			return false
+		}
 
 		aMap := make(map[string]any)
 		bMap := make(map[string]any)

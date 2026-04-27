@@ -37,6 +37,7 @@ type Pool struct {
 	active       sync.Map
 	workers      []*worker
 	wg           sync.WaitGroup
+	gate         *pool.AdmissionGate
 	minWorkers   int
 	completedOps atomic.Int64
 	queueSize    int
@@ -127,6 +128,7 @@ func New(factory process.FactoryFunc, d dispatcher.Dispatcher, opts ...Option) (
 		minWorkers: 1,
 		ctrl:       ctrl,
 		done:       make(chan struct{}),
+		gate:       pool.NewAdmissionGate(),
 	}
 
 	for _, opt := range opts {
@@ -184,6 +186,9 @@ func (a *Pool) Stop() {
 	if a.closed.Swap(true) {
 		return
 	}
+
+	a.gate.Stop()
+
 	close(a.done)
 
 	a.mu.Lock()
@@ -225,9 +230,10 @@ func (a *Pool) Send(pkg *relay.Package) error {
 
 // Call executes a function call using an available worker.
 func (a *Pool) Call(ctx context.Context, method string, input payload.Payloads) (*runtime.Result, error) {
-	if a.closed.Load() {
+	if !a.gate.Begin() {
 		return nil, pool.ErrPoolClosed
 	}
+	defer a.gate.End()
 
 	req := a.reqPool.Get().(*pool.Request)
 	req.Ctx = ctx
@@ -255,6 +261,10 @@ func (a *Pool) Call(ctx context.Context, method string, input payload.Payloads) 
 
 func (a *Pool) spawnWorker() error {
 	a.mu.Lock()
+	if a.closed.Load() {
+		a.mu.Unlock()
+		return nil
+	}
 	if len(a.workers) >= a.maxWorkers {
 		a.mu.Unlock()
 		return nil
@@ -336,6 +346,10 @@ func (a *Pool) controlLoop() {
 }
 
 func (a *Pool) control(now time.Time) {
+	if a.closed.Load() {
+		return
+	}
+
 	workers := a.workerCount.Load()
 	busy := a.busyWorkers.Load()
 	if busy > workers {

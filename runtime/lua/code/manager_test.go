@@ -4,6 +4,8 @@ package code
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -387,6 +389,54 @@ func TestManager_UpdateNode(t *testing.T) {
 	}
 }
 
+func TestManager_UpdateNodeFailureLeavesGraphUnchanged(t *testing.T) {
+	logger := zap.NewNop()
+	bus := &testEventBus{}
+	cm, err := NewCodeManager(logger, bus, Config{
+		ProtoCacheSize: 8,
+		MainCacheSize:  8,
+	})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	mainID := registry.NewID("app.atomic", "main")
+	oldDepID := registry.NewID("app.atomic", "old_dep")
+	missingDepID := registry.NewID("app.atomic", "missing_dep")
+
+	require.NoError(t, cm.AddNode(ctx, Node{
+		ID:     oldDepID,
+		Kind:   api.Library,
+		Source: `return "old_dep"`,
+	}, nil))
+	require.NoError(t, cm.AddNode(ctx, Node{
+		ID:     mainID,
+		Kind:   api.Function,
+		Source: `return "old"`,
+		Method: "handler",
+	}, []Import{{ID: oldDepID, Alias: "dep"}}))
+
+	err = cm.UpdateNode(ctx, Node{
+		ID:     mainID,
+		Kind:   api.Function,
+		Source: `return "new"`,
+		Method: "handler",
+	}, []Import{{ID: missingDepID, Alias: "dep"}})
+	require.Error(t, err)
+
+	got, err := cm.GetNode(mainID)
+	require.NoError(t, err)
+	require.Equal(t, `return "old"`, got.Source)
+
+	deps, err := cm.GetDirectDependencies(mainID)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	require.Equal(t, oldDepID, deps[0].ID)
+
+	compiled, err := cm.Compile(mainID, nil)
+	require.NoError(t, err)
+	require.Equal(t, "old", executeCompiledString(t, compiled.Main))
+}
+
 func TestManager_DeleteNode(t *testing.T) {
 	logger := zap.NewNop()
 	bus := &testEventBus{}
@@ -484,6 +534,246 @@ func TestManager_Compile(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestManager_DeleteThenAddSameIDInvalidatesCompileCaches(t *testing.T) {
+	logger := zap.NewNop()
+	bus := &testEventBus{}
+	cm, err := NewCodeManager(logger, bus, Config{
+		ProtoCacheSize: 8,
+		MainCacheSize:  8,
+	})
+	require.NoError(t, err)
+
+	id := registry.NewID("app.replay", "same_id")
+	ctx := context.Background()
+
+	err = cm.AddNode(ctx, Node{
+		ID:     id,
+		Kind:   api.Function,
+		Source: `return "bad"`,
+		Method: "handler",
+	}, nil)
+	require.NoError(t, err)
+
+	first, err := cm.Compile(id, nil)
+	require.NoError(t, err)
+	require.Equal(t, "bad", executeCompiledString(t, first.Main))
+
+	err = cm.DeleteNode(ctx, id)
+	require.NoError(t, err)
+
+	err = cm.AddNode(ctx, Node{
+		ID:     id,
+		Kind:   api.Function,
+		Source: `return "good"`,
+		Method: "handler",
+	}, nil)
+	require.NoError(t, err)
+
+	second, err := cm.Compile(id, nil)
+	require.NoError(t, err)
+	require.Equal(t, "good", executeCompiledString(t, second.Main))
+	require.NotSame(t, first, second)
+	require.NotSame(t, first.Main, second.Main)
+}
+
+func TestManager_SameIDRecreateUsesNewRevisionEvenWithoutManualInvalidation(t *testing.T) {
+	logger := zap.NewNop()
+	bus := &testEventBus{}
+	cm, err := NewCodeManager(logger, bus, Config{
+		ProtoCacheSize: 8,
+		MainCacheSize:  8,
+	})
+	require.NoError(t, err)
+
+	id := registry.NewID("app.replay", "revision_tag")
+	ctx := context.Background()
+
+	require.NoError(t, cm.AddNode(ctx, Node{
+		ID:     id,
+		Kind:   api.Function,
+		Source: `return "old"`,
+		Method: "handler",
+	}, nil))
+
+	first, err := cm.Compile(id, nil)
+	require.NoError(t, err)
+	require.Equal(t, "old", executeCompiledString(t, first.Main))
+
+	require.NoError(t, cm.memGraph.RemoveNode(id))
+	require.NoError(t, cm.memGraph.AddNode(&Node{
+		ID:      id,
+		Kind:    api.Function,
+		Source:  `return "new"`,
+		Method:  "handler",
+		Version: cm.nextVersion(HashNode(&Node{ID: id, Kind: api.Function, Source: `return "new"`, Method: "handler"})),
+	}))
+
+	second, err := cm.Compile(id, nil)
+	require.NoError(t, err)
+	require.Equal(t, "new", executeCompiledString(t, second.Main))
+	require.NotSame(t, first.Main, second.Main)
+}
+
+func TestManager_UpdateInvalidatesDependentMainCacheByFingerprint(t *testing.T) {
+	logger := zap.NewNop()
+	bus := &testEventBus{}
+	cm, err := NewCodeManager(logger, bus, Config{
+		ProtoCacheSize: 8,
+		MainCacheSize:  8,
+	})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	depID := registry.NewID("app.replay", "dep")
+	mainID := registry.NewID("app.replay", "main")
+
+	require.NoError(t, cm.AddNode(ctx, Node{
+		ID:     depID,
+		Kind:   api.Library,
+		Source: `return "old"`,
+		Method: "main",
+	}, nil))
+	require.NoError(t, cm.AddNode(ctx, Node{
+		ID:     mainID,
+		Kind:   api.Function,
+		Source: `return dep`,
+		Method: "handler",
+	}, []Import{{ID: depID, Alias: "dep"}}))
+
+	first, err := cm.Compile(mainID, nil)
+	require.NoError(t, err)
+	require.Equal(t, "old", executeCompiledString(t, first.Dependencies[0].Proto))
+
+	require.NoError(t, cm.UpdateNode(ctx, Node{
+		ID:     depID,
+		Kind:   api.Library,
+		Source: `return "new"`,
+		Method: "main",
+	}, nil))
+
+	second, err := cm.Compile(mainID, nil)
+	require.NoError(t, err)
+	require.Equal(t, "new", executeCompiledString(t, second.Dependencies[0].Proto))
+	require.NotSame(t, first, second)
+	require.NotSame(t, first.Dependencies[0].Proto, second.Dependencies[0].Proto)
+}
+
+func TestBuildOptionsFingerprintSeparatesMainCache(t *testing.T) {
+	logger := zap.NewNop()
+	bus := &testEventBus{}
+	cm, err := NewCodeManager(logger, bus, Config{
+		ProtoCacheSize: 8,
+		MainCacheSize:  8,
+	})
+	require.NoError(t, err)
+
+	id := registry.NewID("app.replay", "options")
+	allowed := registry.NewID("app.replay", "allowed")
+	ctx := context.Background()
+
+	require.NoError(t, cm.AddNode(ctx, Node{
+		ID:     id,
+		Kind:   api.Function,
+		Source: `return "ok"`,
+		Method: "handler",
+	}, nil))
+
+	first, err := cm.Compile(id, NewBuildOptions())
+	require.NoError(t, err)
+
+	second, err := cm.Compile(id, NewBuildOptions().WithMode(AllowListed).WithAllowed(id, allowed))
+	require.NoError(t, err)
+
+	require.NotSame(t, first, second)
+	require.Equal(t, "ok", executeCompiledString(t, second.Main))
+}
+
+func TestManager_ConcurrentCompileAndUpdate(t *testing.T) {
+	logger := zap.NewNop()
+	bus := &testEventBus{}
+	cm, err := NewCodeManager(logger, bus, Config{
+		ProtoCacheSize: 16,
+		MainCacheSize:  16,
+	})
+	require.NoError(t, err)
+
+	id := registry.NewID("app.race", "compile_update")
+	ctx := context.Background()
+
+	require.NoError(t, cm.AddNode(ctx, Node{
+		ID:     id,
+		Kind:   api.Function,
+		Source: `return "v0"`,
+		Method: "handler",
+	}, nil))
+
+	start := make(chan struct{})
+	done := make(chan struct{})
+	errCh := make(chan error, 128)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for {
+				select {
+				case <-done:
+					return
+				default:
+				}
+
+				compiled, err := cm.Compile(id, nil)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				if compiled == nil || compiled.Main == nil {
+					errCh <- assert.AnError
+					return
+				}
+			}
+		}()
+	}
+
+	close(start)
+	for i := 1; i <= 100; i++ {
+		source := fmt.Sprintf(`return "v%d"`, i%10)
+		if err := cm.UpdateNode(ctx, Node{
+			ID:     id,
+			Kind:   api.Function,
+			Source: source,
+			Method: "handler",
+		}, nil); err != nil {
+			errCh <- err
+			break
+		}
+	}
+	close(done)
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		require.NoError(t, err)
+	}
+}
+
+func executeCompiledString(t *testing.T, proto *glua.FunctionProto) string {
+	t.Helper()
+
+	l := glua.NewState()
+	defer l.Close()
+
+	fn := l.LoadProto(proto)
+	l.Push(fn)
+	require.NoError(t, l.PCall(0, 1, nil))
+
+	got := l.Get(-1)
+	l.Pop(1)
+	return got.String()
 }
 
 func TestManager_Compile_TypeCallsFromManifest(t *testing.T) {
@@ -703,4 +993,50 @@ func TestManager_AddNodeWithProto_CompileUsesProto(t *testing.T) {
 	// Verify it's our injected proto
 	assert.Equal(t, uint8(1), compiled.Main.NumParameters)
 	assert.Equal(t, uint8(3), compiled.Main.NumUsedRegisters)
+}
+
+func TestManager_AddNodeWithProtoSameIDRecreateUsesNewRevision(t *testing.T) {
+	logger := zap.NewNop()
+	bus := &testEventBus{}
+	cm, err := NewCodeManager(logger, bus, Config{
+		ProtoCacheSize: 8,
+		MainCacheSize:  8,
+	})
+	require.NoError(t, err)
+
+	id := registry.NewID("app.replay", "bytecode_same_id")
+	firstProto := &glua.FunctionProto{
+		NumParameters:    1,
+		IsVarArg:         0,
+		NumUpvalues:      0,
+		NumUsedRegisters: 3,
+	}
+	secondProto := &glua.FunctionProto{
+		NumParameters:    2,
+		IsVarArg:         0,
+		NumUpvalues:      0,
+		NumUsedRegisters: 4,
+	}
+
+	require.NoError(t, cm.AddNodeWithProto(context.Background(), Node{
+		ID:     id,
+		Kind:   api.FunctionBytecode,
+		Method: "execute",
+	}, nil, firstProto))
+
+	first, err := cm.Compile(id, nil)
+	require.NoError(t, err)
+	require.Equal(t, uint8(1), first.Main.NumParameters)
+
+	require.NoError(t, cm.DeleteNode(context.Background(), id))
+	require.NoError(t, cm.AddNodeWithProto(context.Background(), Node{
+		ID:     id,
+		Kind:   api.FunctionBytecode,
+		Method: "execute",
+	}, nil, secondProto))
+
+	second, err := cm.Compile(id, nil)
+	require.NoError(t, err)
+	require.Equal(t, uint8(2), second.Main.NumParameters)
+	require.NotSame(t, first.Main, second.Main)
 }
