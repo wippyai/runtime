@@ -126,6 +126,12 @@ func (s *Store) Set(cred *auth.Credential, global bool) error {
 			Credentials: make(map[string]*StoredCredential),
 		}
 	}
+	if file.Credentials == nil {
+		// loadFile may return a non-nil file with a nil map when the on-disk
+		// YAML omits the `credentials` key (e.g. a hand-edited file or a
+		// partially migrated v0 file). Lazy-init so Set() doesn't panic.
+		file.Credentials = make(map[string]*StoredCredential)
+	}
 
 	file.Credentials[cred.Registry] = FromCredential(cred)
 
