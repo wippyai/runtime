@@ -42,6 +42,7 @@ type circuitBreaker struct {
 	lastFailure  time.Time
 	openTime     time.Time
 	logger       *zap.Logger
+	tel          *telemetry
 	nodeID       string
 	state        CircuitState
 	failures     int
@@ -51,7 +52,7 @@ type circuitBreaker struct {
 }
 
 // newCircuitBreaker creates a new circuit breaker with the given configuration.
-func newCircuitBreaker(nodeID string, maxFailures int, resetTimeout time.Duration, logger *zap.Logger) *circuitBreaker {
+func newCircuitBreaker(nodeID string, maxFailures int, resetTimeout time.Duration, logger *zap.Logger, tel *telemetry) *circuitBreaker {
 	if maxFailures <= 0 {
 		maxFailures = 3
 	}
@@ -63,6 +64,7 @@ func newCircuitBreaker(nodeID string, maxFailures int, resetTimeout time.Duratio
 		maxFailures:  maxFailures,
 		resetTimeout: resetTimeout,
 		logger:       logger,
+		tel:          tel,
 		nodeID:       nodeID,
 	}
 }
@@ -85,6 +87,7 @@ func (cb *circuitBreaker) Allow() bool {
 			cb.logger.Debug("circuit breaker transitioned to half-open",
 				zap.String("node", cb.nodeID),
 			)
+			cb.tel.recordCircuitBreakerState(cb.nodeID, "half-open")
 			return true
 		}
 		return false
@@ -106,6 +109,7 @@ func (cb *circuitBreaker) RecordSuccess() {
 		cb.logger.Info("circuit breaker closed after successful test",
 			zap.String("node", cb.nodeID),
 		)
+		cb.tel.recordCircuitBreakerState(cb.nodeID, "closed")
 	} else if cb.state == CircuitClosed && cb.failures > 0 {
 		// Reset failure count on success in closed state
 		cb.failures = 0
@@ -128,6 +132,8 @@ func (cb *circuitBreaker) RecordFailure() {
 			zap.String("node", cb.nodeID),
 			zap.Int("failures", cb.failures),
 		)
+		cb.tel.recordCircuitBreakerState(cb.nodeID, "open")
+		cb.tel.recordCircuitBreakerTrip(cb.nodeID)
 		return
 	}
 
@@ -140,6 +146,8 @@ func (cb *circuitBreaker) RecordFailure() {
 			zap.Int("failures", cb.failures),
 			zap.Duration("reset_after", cb.resetTimeout),
 		)
+		cb.tel.recordCircuitBreakerState(cb.nodeID, "open")
+		cb.tel.recordCircuitBreakerTrip(cb.nodeID)
 	}
 }
 
@@ -154,18 +162,20 @@ func (cb *circuitBreaker) State() CircuitState {
 type circuitBreakerManager struct {
 	breakers     map[string]*circuitBreaker
 	logger       *zap.Logger
+	tel          *telemetry
 	maxFailures  int
 	resetTimeout time.Duration
 	mu           sync.RWMutex
 }
 
 // newCircuitBreakerManager creates a new circuit breaker manager.
-func newCircuitBreakerManager(maxFailures int, resetTimeout time.Duration, logger *zap.Logger) *circuitBreakerManager {
+func newCircuitBreakerManager(maxFailures int, resetTimeout time.Duration, logger *zap.Logger, tel *telemetry) *circuitBreakerManager {
 	return &circuitBreakerManager{
 		breakers:     make(map[string]*circuitBreaker),
 		maxFailures:  maxFailures,
 		resetTimeout: resetTimeout,
 		logger:       logger,
+		tel:          tel,
 	}
 }
 
@@ -187,7 +197,7 @@ func (m *circuitBreakerManager) GetCircuitBreaker(nodeID string) *circuitBreaker
 		return cb
 	}
 
-	cb = newCircuitBreaker(nodeID, m.maxFailures, m.resetTimeout, m.logger)
+	cb = newCircuitBreaker(nodeID, m.maxFailures, m.resetTimeout, m.logger, m.tel)
 	m.breakers[nodeID] = cb
 	return cb
 }

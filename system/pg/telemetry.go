@@ -3,6 +3,7 @@
 package pg
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/wippyai/runtime/api/metrics"
@@ -55,4 +56,63 @@ func (t *telemetry) recordBroadcast(pg string, recipients int, err error, dur ti
 	t.coll.CounterInc("pg_broadcast_total", metrics.Labels{"pg": pg, "result": resultLabel(err)})
 	t.coll.HistogramObserve("pg_broadcast_recipients", float64(recipients), metrics.Labels{"pg": pg})
 	t.coll.HistogramObserve("pg_op_duration_seconds", dur.Seconds(), metrics.Labels{"pg": pg, "op": "broadcast"})
+}
+
+func cbStateValue(state string) float64 {
+	switch state {
+	case "open":
+		return 2
+	case "half-open":
+		return 1
+	default: // "closed"
+		return 0
+	}
+}
+
+func (t *telemetry) recordQueueDepth(pg string, depth int) {
+	if t == nil || t.coll == nil {
+		return
+	}
+
+	t.coll.GaugeSet("pg_queue_depth", float64(depth), metrics.Labels{"pg": pg})
+}
+
+func (t *telemetry) recordQueueDropped(pg, reason string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+
+	t.coll.CounterInc("pg_queue_dropped_total", metrics.Labels{"pg": pg, "reason": reason})
+}
+
+func (t *telemetry) recordCircuitBreakerState(pg, state string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+
+	t.coll.GaugeSet("pg_circuit_breaker_state", cbStateValue(state), metrics.Labels{"pg": pg})
+}
+
+func (t *telemetry) recordCircuitBreakerTrip(pg string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+
+	t.coll.CounterInc("pg_circuit_breaker_trips_total", metrics.Labels{"pg": pg})
+}
+
+func (t *telemetry) recordRetry(pg, op string, attempt int) {
+	if t == nil || t.coll == nil {
+		return
+	}
+
+	t.coll.CounterInc("pg_retry_total", metrics.Labels{"pg": pg, "op": op, "attempt": strconv.Itoa(attempt)})
+}
+
+func (t *telemetry) recordRetryGiveup(pg, op string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+
+	t.coll.CounterInc("pg_retry_giveup_total", metrics.Labels{"pg": pg, "op": op})
 }

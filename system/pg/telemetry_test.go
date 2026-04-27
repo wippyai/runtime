@@ -64,6 +64,52 @@ func TestTelemetry_NilCollector_NoPanic(t *testing.T) {
 	tt.recordJoin("g1", nil, time.Millisecond)
 	tt.recordLeave("g1", nil, time.Millisecond)
 	tt.recordBroadcast("g1", 1, nil, time.Millisecond)
+	tt.recordQueueDepth("g1", 0)
+	tt.recordQueueDropped("g1", "full")
+	tt.recordCircuitBreakerState("g1", "open")
+	tt.recordCircuitBreakerTrip("g1")
+	tt.recordRetry("g1", "broadcast", 1)
+	tt.recordRetryGiveup("g1", "broadcast")
+}
+
+func TestTelemetry_RecordQueue(t *testing.T) {
+	tt, rec := newTestTelemetry(t)
+	tt.recordQueueDepth("g1", 7)
+	if v := rec.GaugeValue("pg_queue_depth", metrics.Labels{"pg": "g1"}); v != 7 {
+		t.Fatalf("pg_queue_depth: want 7, got %v", v)
+	}
+	tt.recordQueueDropped("g1", "full")
+	if v := rec.CounterValue("pg_queue_dropped_total", metrics.Labels{"pg": "g1", "reason": "full"}); v != 1 {
+		t.Fatalf("pg_queue_dropped_total: want 1, got %v", v)
+	}
+}
+
+func TestTelemetry_RecordCircuitBreaker(t *testing.T) {
+	tt, rec := newTestTelemetry(t)
+	tt.recordCircuitBreakerState("g1", "open")
+	if v := rec.GaugeValue("pg_circuit_breaker_state", metrics.Labels{"pg": "g1"}); v != 2 {
+		t.Fatalf("cb_state(open): want 2, got %v", v)
+	}
+	tt.recordCircuitBreakerState("g1", "half-open")
+	if v := rec.GaugeValue("pg_circuit_breaker_state", metrics.Labels{"pg": "g1"}); v != 1 {
+		t.Fatalf("cb_state(half-open): want 1, got %v", v)
+	}
+	tt.recordCircuitBreakerTrip("g1")
+	if v := rec.CounterValue("pg_circuit_breaker_trips_total", metrics.Labels{"pg": "g1"}); v != 1 {
+		t.Fatalf("cb_trips: want 1, got %v", v)
+	}
+}
+
+func TestTelemetry_RecordRetry(t *testing.T) {
+	tt, rec := newTestTelemetry(t)
+	tt.recordRetry("g1", "broadcast", 2)
+	if v := rec.CounterValue("pg_retry_total", metrics.Labels{"pg": "g1", "op": "broadcast", "attempt": "2"}); v != 1 {
+		t.Fatalf("pg_retry_total: want 1, got %v", v)
+	}
+	tt.recordRetryGiveup("g1", "broadcast")
+	if v := rec.CounterValue("pg_retry_giveup_total", metrics.Labels{"pg": "g1", "op": "broadcast"}); v != 1 {
+		t.Fatalf("pg_retry_giveup_total: want 1, got %v", v)
+	}
 }
 
 var errSomething = errStub("boom")

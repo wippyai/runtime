@@ -150,11 +150,14 @@ func NewService(
 	// call site needs a nil check.
 	svc.ctxHolder.Store(closedServiceCtx)
 
+	svc.tel = newTelemetry(coll, mp, tp)
+
 	// Initialize circuit breaker manager
 	svc.cbManager = newCircuitBreakerManager(
 		config.CircuitBreakerFailures,
 		config.CircuitBreakerResetTime,
 		logger,
+		svc.tel,
 	)
 
 	// Initialize retry queue
@@ -164,9 +167,8 @@ func NewService(
 		config.RetryBaseDelay,
 		config.RetryMaxDelay,
 		logger,
+		svc.tel,
 	)
-
-	svc.tel = newTelemetry(coll, mp, tp)
 
 	return svc
 }
@@ -306,19 +308,23 @@ func (s *Service) publishSnapshot() {
 // submit sends an action to the event loop for serialized execution.
 // Returns true if submitted, false if queue is full (for non-blocking callers).
 func (s *Service) submit(fn action) bool {
+	depth := len(s.actions)
+	s.tel.recordQueueDepth(s.hostID, depth)
+
 	// Check queue capacity before attempting to send
-	if len(s.actions) >= s.actionQueueMaxSize {
+	if depth >= s.actionQueueMaxSize {
 		s.logger.Warn("action queue full, rejecting operation",
-			zap.Int("queue_len", len(s.actions)),
+			zap.Int("queue_len", depth),
 			zap.Int("queue_max", s.actionQueueMaxSize),
 		)
+		s.tel.recordQueueDropped(s.hostID, "full")
 		return false
 	}
 
 	// Warn if queue is approaching capacity
-	if len(s.actions) >= s.queueWarnThreshold {
+	if depth >= s.queueWarnThreshold {
 		s.logger.Warn("action queue approaching capacity",
-			zap.Int("queue_len", len(s.actions)),
+			zap.Int("queue_len", depth),
 			zap.Int("queue_max", s.actionQueueMaxSize),
 			zap.Int("threshold", s.queueWarnThreshold),
 		)
@@ -328,6 +334,7 @@ func (s *Service) submit(fn action) bool {
 	case s.actions <- fn:
 		return true
 	case <-s.currentCtx().Done():
+		s.tel.recordQueueDropped(s.hostID, "cancelled")
 		return false
 	}
 }

@@ -30,6 +30,7 @@ type retryEntry struct {
 type retryQueue struct {
 	service    *Service
 	logger     *zap.Logger
+	tel        *telemetry
 	timer      *time.Timer
 	notifyCh   chan struct{}
 	stopCh     chan struct{}
@@ -44,7 +45,7 @@ type retryQueue struct {
 }
 
 // newRetryQueue creates a new retry queue.
-func newRetryQueue(service *Service, maxRetries int, baseDelay, maxDelay time.Duration, logger *zap.Logger) *retryQueue {
+func newRetryQueue(service *Service, maxRetries int, baseDelay, maxDelay time.Duration, logger *zap.Logger, tel *telemetry) *retryQueue {
 	if maxRetries <= 0 {
 		maxRetries = 3
 	}
@@ -62,6 +63,7 @@ func newRetryQueue(service *Service, maxRetries int, baseDelay, maxDelay time.Du
 		maxDelay:   maxDelay,
 		service:    service,
 		logger:     logger,
+		tel:        tel,
 	}
 }
 
@@ -271,6 +273,9 @@ func (rq *retryQueue) attemptRetry(entry *retryEntry) {
 func (rq *retryQueue) requeue(entry *retryEntry) {
 	entry.attempts++
 
+	pgLabel := rq.service.hostID
+	op := entry.topic
+
 	if entry.attempts >= rq.maxRetries {
 		// Max retries exceeded, drop the message
 		rq.logger.Warn("max retries exceeded, dropping message",
@@ -279,8 +284,11 @@ func (rq *retryQueue) requeue(entry *retryEntry) {
 			zap.Uint64("id", entry.id),
 			zap.Int("attempts", entry.attempts),
 		)
+		rq.tel.recordRetryGiveup(pgLabel, op)
 		return
 	}
+
+	rq.tel.recordRetry(pgLabel, op, entry.attempts)
 
 	// Calculate exponential backoff
 	delay := rq.baseDelay * time.Duration(1<<entry.attempts)
