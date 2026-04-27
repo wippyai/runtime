@@ -4,8 +4,10 @@ package raft
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"net"
+	"sync"
+	"time"
 
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
@@ -14,45 +16,144 @@ import (
 	"go.uber.org/zap"
 )
 
-// MembershipHandler listens for cluster membership changes and updates
-// the Raft voter set accordingly. Only the current leader performs
-// AddVoter/RemoveServer.
-type MembershipHandler struct {
-	svc    raftapi.Service
-	bus    event.Bus
-	logger *zap.Logger
-	stopCh chan struct{}
+// HandlerConfig tunes the membership reconciler.
+//
+// Zero values are filled in by NewMembershipHandler with the defaults below.
+// MaxVoters is rounded down to the nearest odd number; values <1 fall back
+// to 5.
+type HandlerConfig struct {
+	// MaxVoters caps the voter set regardless of cluster size. Must be odd.
+	// Default: 5.
+	MaxVoters int
+
+	// ReconcileDebounce is the wait window after a gossip event before a
+	// reconcile pass runs. Multiple events within the window coalesce.
+	// Default: 2s.
+	ReconcileDebounce time.Duration
+
+	// ReconcileTimeout bounds a single reconcile pass. Each individual Raft
+	// op gets a fraction of this. Default: 2s.
+	ReconcileTimeout time.Duration
 }
 
-// NewMembershipHandler creates a handler that bridges cluster membership
-// events to Raft voter management.
-func NewMembershipHandler(svc raftapi.Service, bus event.Bus, logger *zap.Logger) *MembershipHandler {
+const (
+	defaultMaxVoters         = 5
+	defaultReconcileDebounce = 2 * time.Second
+	defaultReconcileTimeout  = 2 * time.Second
+
+	// busBuffer is the subscriber channel size. Sized generously so a
+	// momentarily-busy reconcile loop does not back-pressure the global
+	// event dispatcher (see system/eventbus/bus.go: blocking Send).
+	busBuffer = 128
+)
+
+// applyDefaults fills in zero fields and clamps MaxVoters to a valid odd value.
+// Returns the effective config used.
+func (c HandlerConfig) applyDefaults(logger *zap.Logger) HandlerConfig {
+	if c.MaxVoters <= 0 {
+		c.MaxVoters = defaultMaxVoters
+	}
+	if c.MaxVoters%2 == 0 {
+		// Even values cannot form a stable quorum — round down with a warning.
+		logger.Warn("MaxVoters must be odd; rounding down",
+			zap.Int("requested", c.MaxVoters),
+			zap.Int("effective", c.MaxVoters-1),
+		)
+		c.MaxVoters--
+		if c.MaxVoters < 1 {
+			c.MaxVoters = 1
+		}
+	}
+	if c.ReconcileDebounce <= 0 {
+		c.ReconcileDebounce = defaultReconcileDebounce
+	}
+	if c.ReconcileTimeout <= 0 {
+		c.ReconcileTimeout = defaultReconcileTimeout
+	}
+	return c
+}
+
+// MembershipHandler reconciles the Raft voter set against cluster membership.
+//
+// Flow:
+//   - Subscribe to NodeJoined/NodeLeft/NodeUpdated/LeaderElected on the bus.
+//   - On any gossip event: schedule a debounced reconcile.
+//   - On LeaderElected (this node won): reconcile immediately.
+//   - Reconcile reads the current Raft config + membership snapshot, picks
+//     voters via the rules in selection.go, and emits a minimal sequence of
+//     promote → demote → remove ops.
+//
+// Only the leader executes ops; non-leaders silently noop. The IsLeader
+// check is best-effort — if leadership transfers mid-reconcile, ops will
+// return ErrNotLeader and the new leader will pick up the same gossip view.
+type MembershipHandler struct {
+	svc        raftapi.Service
+	membership cluster.Membership
+	bus        event.Bus
+	logger     *zap.Logger
+
+	// Reconcile coordination.
+	reconcileCh chan struct{}
+	stopCh      chan struct{}
+	wg          sync.WaitGroup
+	stopOnce    sync.Once
+	cfg         HandlerConfig
+}
+
+// NewMembershipHandler builds a handler. `membership` is required: the
+// reconciler reads node metadata (raft_port, raft_eligible, ...) from it
+// directly rather than re-deriving from event payloads, so a single
+// reconcile pass observes a coherent snapshot.
+func NewMembershipHandler(
+	svc raftapi.Service,
+	membership cluster.Membership,
+	bus event.Bus,
+	cfg HandlerConfig,
+	logger *zap.Logger,
+) *MembershipHandler {
 	return &MembershipHandler{
-		svc:    svc,
-		bus:    bus,
-		logger: logger,
-		stopCh: make(chan struct{}),
+		svc:         svc,
+		membership:  membership,
+		bus:         bus,
+		logger:      logger,
+		cfg:         cfg.applyDefaults(logger),
+		reconcileCh: make(chan struct{}, 1),
+		stopCh:      make(chan struct{}),
 	}
 }
 
-// Start begins listening for cluster node events.
+// Start subscribes to the cluster event stream and launches the reconcile
+// loop. Returns once subscription is established.
 func (h *MembershipHandler) Start(ctx context.Context) error {
-	ch := make(chan event.Event, 32)
+	if h.membership == nil {
+		return errors.New("MembershipHandler requires a cluster.Membership instance")
+	}
+
+	ch := make(chan event.Event, busBuffer)
 	subID, err := h.bus.Subscribe(ctx, cluster.System, ch)
 	if err != nil {
 		return fmt.Errorf("subscribe to cluster events: %w", err)
 	}
 
-	go h.loop(ctx, ch, subID)
+	h.wg.Add(2)
+	go h.subscriberLoop(ctx, ch, subID)
+	go h.reconcileLoop(ctx)
 	return nil
 }
 
-// Stop terminates the membership handler.
+// Stop terminates the handler. Idempotent.
 func (h *MembershipHandler) Stop() {
-	close(h.stopCh)
+	h.stopOnce.Do(func() {
+		close(h.stopCh)
+	})
+	h.wg.Wait()
 }
 
-func (h *MembershipHandler) loop(ctx context.Context, ch <-chan event.Event, subID event.SubscriberID) {
+// subscriberLoop drains the event channel and signals the reconcile loop.
+// Decoupling drain from work ensures we never block the global dispatcher,
+// even if a reconcile pass takes longer than expected.
+func (h *MembershipHandler) subscriberLoop(ctx context.Context, ch <-chan event.Event, subID event.SubscriberID) {
+	defer h.wg.Done()
 	defer h.bus.Unsubscribe(ctx, subID)
 
 	for {
@@ -62,10 +163,12 @@ func (h *MembershipHandler) loop(ctx context.Context, ch <-chan event.Event, sub
 				return
 			}
 			switch e.Kind {
-			case cluster.NodeJoined:
-				h.handleNodeJoined(e)
-			case cluster.NodeLeft:
-				h.handleNodeLeft(e)
+			case cluster.NodeJoined, cluster.NodeLeft, cluster.NodeUpdated:
+				h.scheduleReconcile()
+			case cluster.LeaderElected:
+				// Just-won-the-election: reconcile immediately so the new
+				// leader applies the cap without waiting for the debounce.
+				h.scheduleReconcile()
 			}
 		case <-h.stopCh:
 			return
@@ -75,64 +178,203 @@ func (h *MembershipHandler) loop(ctx context.Context, ch <-chan event.Event, sub
 	}
 }
 
-func (h *MembershipHandler) handleNodeJoined(e event.Event) {
-	// Only the leader manages Raft membership.
-	//
-	// The IsLeader() check is an optimization to avoid unnecessary configuration
-	// lookups on non-leaders. Between this check and the AddVoter() call below,
-	// leadership can transfer to another node. This is an accepted race:
-	//   - If leadership is lost, AddVoter() returns ErrNotLeader which is already logged.
-	//   - AddVoter is idempotent, so duplicate calls from old/new leaders are harmless.
-	//   - The new leader will receive the same NodeJoined event and handle it.
-	if !h.svc.IsLeader() {
-		return
-	}
-
-	nodeEvt, ok := e.Data.(cluster.NodeEvent)
-	if !ok {
-		return
-	}
-	nodeInfo := nodeEvt.Node
-
-	raftPort, ok := nodeInfo.Meta["raft_port"]
-	if !ok || raftPort == "" {
-		h.logger.Debug("node joined without raft_port, skipping", zap.String("node", nodeInfo.ID))
-		return
-	}
-
-	raftAddr := net.JoinHostPort(nodeInfo.Addr, raftPort)
-
-	// Check if already a voter.
-	servers, err := h.svc.GetConfiguration()
-	if err != nil {
-		h.logger.Error("get raft configuration", zap.Error(err))
-		return
-	}
-	for _, srv := range servers {
-		if srv.ID == nodeInfo.ID {
-			h.logger.Debug("node already in raft cluster", zap.String("node", nodeInfo.ID))
-			return
-		}
-	}
-
-	h.logger.Info("adding raft voter", zap.String("node", nodeInfo.ID), zap.String("addr", raftAddr))
-	if err := h.svc.AddVoter(nodeInfo.ID, raftAddr, defaultTimeout()); err != nil {
-		h.logger.Error("failed to add raft voter", zap.String("node", nodeInfo.ID), zap.Error(err))
+// scheduleReconcile is a non-blocking signal: if a reconcile is already
+// pending, additional signals coalesce into one.
+func (h *MembershipHandler) scheduleReconcile() {
+	select {
+	case h.reconcileCh <- struct{}{}:
+	default:
+		// Already scheduled — coalesce.
 	}
 }
 
-func (h *MembershipHandler) handleNodeLeft(e event.Event) {
+// reconcileLoop debounces signals and runs reconcile passes one at a time.
+func (h *MembershipHandler) reconcileLoop(ctx context.Context) {
+	defer h.wg.Done()
+
+	var debounceTimer *time.Timer
+	for {
+		select {
+		case <-h.stopCh:
+			if debounceTimer != nil {
+				debounceTimer.Stop()
+			}
+			return
+		case <-ctx.Done():
+			if debounceTimer != nil {
+				debounceTimer.Stop()
+			}
+			return
+		case <-h.reconcileCh:
+			// Reset/start debounce window.
+			if debounceTimer == nil {
+				debounceTimer = time.NewTimer(h.cfg.ReconcileDebounce)
+			} else {
+				if !debounceTimer.Stop() {
+					// Drain if it already fired but we hadn't read it.
+					select {
+					case <-debounceTimer.C:
+					default:
+					}
+				}
+				debounceTimer.Reset(h.cfg.ReconcileDebounce)
+			}
+
+		case <-timerC(debounceTimer):
+			debounceTimer = nil
+			h.runReconcileOnce(ctx)
+		}
+	}
+}
+
+// timerC returns a nil channel when t is nil, so select skips that arm.
+func timerC(t *time.Timer) <-chan time.Time {
+	if t == nil {
+		return nil
+	}
+	return t.C
+}
+
+// runReconcileOnce computes the diff and applies ops. Bounded by
+// ReconcileTimeout. Soft errors (ErrNotLeader, ErrLeadershipLost) abort
+// the pass without escalating.
+func (h *MembershipHandler) runReconcileOnce(ctx context.Context) {
 	if !h.svc.IsLeader() {
 		return
 	}
 
-	nodeEvt, ok := e.Data.(cluster.NodeEvent)
-	if !ok {
+	passCtx, cancel := context.WithTimeout(ctx, h.cfg.ReconcileTimeout)
+	defer cancel()
+
+	nodes := h.membership.Nodes()
+	candidates := candidatesFromMembership(nodes)
+
+	current, err := h.svc.GetConfiguration()
+	if err != nil {
+		h.logger.Warn("reconcile: GetConfiguration failed", zap.Error(err))
 		return
 	}
 
-	h.logger.Info("removing raft server", zap.String("node", nodeEvt.Node.ID))
-	if err := h.svc.RemoveServer(nodeEvt.Node.ID, defaultTimeout()); err != nil {
-		h.logger.Error("failed to remove raft server", zap.String("node", nodeEvt.Node.ID), zap.Error(err))
+	currentVoters := make(map[cluster.NodeID]struct{}, len(current))
+	for _, s := range current {
+		if s.IsVoter {
+			currentVoters[s.ID] = struct{}{}
+		}
+	}
+
+	target := desiredVoterCount(len(candidates), h.cfg.MaxVoters)
+	picked := pickVoters(candidates, currentVoters, target)
+
+	addrLookup := make(map[cluster.NodeID]string, len(candidates))
+	for _, c := range candidates {
+		addrLookup[c.ID] = c.Addr
+	}
+
+	ops := reconcileDiff(picked, candidates, current, addrLookup)
+	if len(ops) == 0 {
+		return
+	}
+
+	h.logger.Info("raft membership reconcile",
+		zap.Int("eligible", len(candidates)),
+		zap.Int("target_voters", target),
+		zap.Int("ops", len(ops)),
+	)
+
+	// Per-op timeout: split the pass budget so a stuck op cannot eat the
+	// whole window. Floor at 250ms because Raft round-trips need that much.
+	perOp := h.cfg.ReconcileTimeout / time.Duration(len(ops))
+	if perOp < 250*time.Millisecond {
+		perOp = 250 * time.Millisecond
+	}
+
+	for _, op := range ops {
+		if passCtx.Err() != nil {
+			h.logger.Warn("reconcile: pass context expired before completion",
+				zap.Int("remaining_ops", len(ops)))
+			return
+		}
+		if err := h.applyOp(op, perOp); err != nil {
+			if isSoftRaftError(err) {
+				h.logger.Info("reconcile: soft error, aborting pass",
+					zap.String("op", opName(op.Kind)),
+					zap.String("node", op.ID),
+					zap.Error(err))
+				return
+			}
+			h.logger.Error("reconcile: op failed",
+				zap.String("op", opName(op.Kind)),
+				zap.String("node", op.ID),
+				zap.Error(err))
+			// Continue: independent ops should not block each other.
+		}
+	}
+}
+
+// applyOp dispatches a single membership change. Self-removal of the local
+// leader transfers leadership first so the cluster does not lose its leader
+// during the reconfiguration.
+func (h *MembershipHandler) applyOp(op membershipOp, timeout time.Duration) error {
+	switch op.Kind {
+	case opAddVoter, opPromote:
+		return h.svc.AddVoter(op.ID, op.Addr, timeout)
+	case opAddNonvoter:
+		return h.svc.AddNonvoter(op.ID, op.Addr, timeout)
+	case opDemote:
+		// Demoting the local leader is unsupported by hashicorp/raft —
+		// transfer leadership first.
+		if h.isLocalLeader(op.ID) {
+			if err := h.svc.LeadershipTransfer("", timeout); err != nil {
+				return fmt.Errorf("leadership transfer before self-demote: %w", err)
+			}
+			// We're no longer the leader: the new leader will demote us.
+			return raftapi.ErrLeadershipLost
+		}
+		return h.svc.DemoteVoter(op.ID, timeout)
+	case opRemove:
+		if h.isLocalLeader(op.ID) {
+			if err := h.svc.LeadershipTransfer("", timeout); err != nil {
+				return fmt.Errorf("leadership transfer before self-remove: %w", err)
+			}
+			return raftapi.ErrLeadershipLost
+		}
+		return h.svc.RemoveServer(op.ID, timeout)
+	default:
+		return fmt.Errorf("unknown op kind: %d", op.Kind)
+	}
+}
+
+// isLocalLeader returns true if `id` is the local node and the local node
+// is the current leader. Cheap: one Leader() call.
+func (h *MembershipHandler) isLocalLeader(id cluster.NodeID) bool {
+	if !h.svc.IsLeader() {
+		return false
+	}
+	return h.membership.LocalNode().ID == id
+}
+
+// isSoftRaftError returns true for errors that mean "try again later" rather
+// than "this is broken". A soft error aborts the current pass; the next
+// gossip event (or the new leader's first reconcile) picks up the work.
+func isSoftRaftError(err error) bool {
+	return errors.Is(err, raftapi.ErrNotLeader) ||
+		errors.Is(err, raftapi.ErrLeadershipLost) ||
+		errors.Is(err, raftapi.ErrTimeout)
+}
+
+func opName(k opKind) string {
+	switch k {
+	case opAddVoter:
+		return "add-voter"
+	case opAddNonvoter:
+		return "add-nonvoter"
+	case opPromote:
+		return "promote"
+	case opDemote:
+		return "demote"
+	case opRemove:
+		return "remove"
+	default:
+		return "unknown"
 	}
 }

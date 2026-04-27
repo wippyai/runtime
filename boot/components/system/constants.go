@@ -19,13 +19,16 @@ const (
 	PGName          boot.Name = "pg"
 
 	// RaftEnabled is a Raft configuration key
-	RaftEnabled       boot.Name = "enabled"
-	RaftDataDir       boot.Name = "data_dir"
-	RaftBindAddr      boot.Name = "bind_addr"
-	RaftBindPort      boot.Name = "bind_port"
-	RaftAutoPort      boot.Name = "auto_port"
-	RaftAdvertiseAddr boot.Name = "advertise_addr"
-	RaftBootstrap     boot.Name = "bootstrap"
+	RaftEnabled           boot.Name = "enabled"
+	RaftDataDir           boot.Name = "data_dir"
+	RaftBindAddr          boot.Name = "bind_addr"
+	RaftBindPort          boot.Name = "bind_port"
+	RaftAutoPort          boot.Name = "auto_port"
+	RaftAdvertiseAddr     boot.Name = "advertise_addr"
+	RaftBootstrap         boot.Name = "bootstrap"
+	RaftMaxVoters         boot.Name = "max_voters"
+	RaftReconcileDebounce boot.Name = "reconcile_debounce"
+	RaftReconcileTimeout  boot.Name = "reconcile_timeout"
 
 	// ClusterEnabled is a Cluster configuration key
 	ClusterEnabled              boot.Name = "enabled"
@@ -39,4 +42,7 @@ const (
 	ClusterMembershipSecret     boot.Name = "membership.secret_key"
 	ClusterMembershipSecretFile boot.Name = "membership.secret_file"
 	ClusterMembershipAdvertise  boot.Name = "membership.advertise_addr"
+	ClusterRaftEligible         boot.Name = "raft.eligible"
+	ClusterRaftPriority         boot.Name = "raft.priority"
+	ClusterFailureDomain        boot.Name = "failure_domain"
 )

@@ -81,11 +81,28 @@ type (
 
 		// AddVoter adds a node as a voting member of the cluster.
 		// Only the leader may call this; returns ErrNotLeader otherwise.
+		// If the node already exists as a non-voter, it is promoted to voter.
 		AddVoter(id ServerID, addr ServerAddress, timeout time.Duration) error
+
+		// AddNonvoter adds a node as a non-voting (learner) member.
+		// Non-voters receive log replication but do not count toward quorum
+		// and do not participate in elections.
+		// Only the leader may call this; returns ErrNotLeader otherwise.
+		AddNonvoter(id ServerID, addr ServerAddress, timeout time.Duration) error
+
+		// DemoteVoter demotes an existing voter to a non-voter.
+		// Only the leader may call this; returns ErrNotLeader otherwise.
+		DemoteVoter(id ServerID, timeout time.Duration) error
 
 		// RemoveServer removes a node from the cluster.
 		// Only the leader may call this; returns ErrNotLeader otherwise.
 		RemoveServer(id ServerID, timeout time.Duration) error
+
+		// LeadershipTransfer attempts to transfer leadership to another voter.
+		// When id is empty, Raft picks a target. Used before self-removal so
+		// the cluster doesn't lose its leader during reconfiguration.
+		// Only the leader may call this; returns ErrNotLeader otherwise.
+		LeadershipTransfer(id ServerID, timeout time.Duration) error
 
 		// GetConfiguration returns the current cluster membership.
 		GetConfiguration() ([]Server, error)

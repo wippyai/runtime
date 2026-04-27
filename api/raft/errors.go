@@ -25,4 +25,8 @@ var (
 
 	// ErrNotRunning is returned when the Raft node is not running.
 	ErrNotRunning = apierror.New(apierror.Unavailable, "raft node not running").WithRetryable(apierror.True)
+
+	// ErrServerNotFound is returned when the requested server ID does not
+	// exist in the current Raft configuration.
+	ErrServerNotFound = apierror.New(apierror.NotFound, "raft server not found").WithRetryable(apierror.False)
 )

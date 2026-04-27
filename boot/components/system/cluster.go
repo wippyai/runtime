@@ -145,11 +145,16 @@ func Cluster() boot.Component {
 			connManagerCfg.AutoPort = false
 			connMgr = internode.NewConnectionManager(connManagerCfg)
 
-			// Create node metadata with internode port
+			// Create node metadata with internode port and raft-eligibility hints.
+			// raft_eligible / raft_priority / failure_domain are advertised so the
+			// Raft membership reconciler can pick voters without a separate channel.
 			nodeMeta := clusterapi.NodeMeta{
 				"version":        "1.0.0",
 				"role":           "wippy",
 				"internode_port": strconv.Itoa(actualPort),
+				"raft_eligible":  strconv.FormatBool(clusterCfg.GetBool(ClusterRaftEligible, true)),
+				"raft_priority":  strconv.Itoa(clusterCfg.GetInt(ClusterRaftPriority, 100)),
+				"failure_domain": clusterCfg.GetString(ClusterFailureDomain, ""),
 			}
 
 			// Create membership service config

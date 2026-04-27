@@ -328,6 +328,25 @@ func (n *Node) AddVoter(id raftapi.ServerID, addr raftapi.ServerAddress, timeout
 	return n.translateError(f.Error())
 }
 
+// AddNonvoter adds a non-voting (learner) member to the cluster.
+// Non-voters receive log replication but do not affect quorum.
+func (n *Node) AddNonvoter(id raftapi.ServerID, addr raftapi.ServerAddress, timeout time.Duration) error {
+	if n.raft == nil {
+		return raftapi.ErrNotRunning
+	}
+	f := n.raft.AddNonvoter(hraft.ServerID(id), hraft.ServerAddress(addr), 0, timeout)
+	return n.translateError(f.Error())
+}
+
+// DemoteVoter demotes an existing voter to a non-voter.
+func (n *Node) DemoteVoter(id raftapi.ServerID, timeout time.Duration) error {
+	if n.raft == nil {
+		return raftapi.ErrNotRunning
+	}
+	f := n.raft.DemoteVoter(hraft.ServerID(id), 0, timeout)
+	return n.translateError(f.Error())
+}
+
 // RemoveServer removes a member from the cluster.
 func (n *Node) RemoveServer(id raftapi.ServerID, timeout time.Duration) error {
 	if n.raft == nil {
@@ -335,6 +354,46 @@ func (n *Node) RemoveServer(id raftapi.ServerID, timeout time.Duration) error {
 	}
 	f := n.raft.RemoveServer(hraft.ServerID(id), 0, timeout)
 	return n.translateError(f.Error())
+}
+
+// LeadershipTransfer transfers leadership to another voter.
+// When id is empty, Raft picks a target automatically.
+func (n *Node) LeadershipTransfer(id raftapi.ServerID, timeout time.Duration) error {
+	if n.raft == nil {
+		return raftapi.ErrNotRunning
+	}
+	var f hraft.Future
+	if id == "" {
+		f = n.raft.LeadershipTransfer()
+	} else {
+		// LeadershipTransferToServer requires both ID and address. We don't
+		// always know the address from the caller, so look it up in the
+		// current configuration.
+		cfgFuture := n.raft.GetConfiguration()
+		if err := cfgFuture.Error(); err != nil {
+			return n.translateError(err)
+		}
+		var addr hraft.ServerAddress
+		for _, s := range cfgFuture.Configuration().Servers {
+			if string(s.ID) == id {
+				addr = s.Address
+				break
+			}
+		}
+		if addr == "" {
+			return raftapi.ErrServerNotFound
+		}
+		f = n.raft.LeadershipTransferToServer(hraft.ServerID(id), addr)
+	}
+	// hashicorp/raft's transfer future has no per-call timeout — wrap it.
+	done := make(chan error, 1)
+	go func() { done <- f.Error() }()
+	select {
+	case err := <-done:
+		return n.translateError(err)
+	case <-time.After(timeout):
+		return raftapi.ErrTimeout
+	}
 }
 
 // GetConfiguration returns the current Raft cluster membership.

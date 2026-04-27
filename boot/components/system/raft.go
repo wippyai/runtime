@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/boot"
+	clusterapi "github.com/wippyai/runtime/api/cluster"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	globalregapi "github.com/wippyai/runtime/api/globalreg"
@@ -37,6 +38,7 @@ func Raft() boot.Component {
 	var memberHandler *sysraft.MembershipHandler
 	var globalRegSvc *globalreg.Service
 	var logger *zap.Logger
+	var handlerCfg sysraft.HandlerConfig
 
 	return boot.New(boot.P{
 		Name:      RaftName,
@@ -77,6 +79,14 @@ func Raft() boot.Component {
 				AutoPort:      raftCfg.GetBool(RaftAutoPort, true),
 				AdvertiseAddr: raftCfg.GetString(RaftAdvertiseAddr, ""),
 				Bootstrap:     raftCfg.GetBool(RaftBootstrap, false),
+			}
+
+			// Capture handler config for the Start phase. Reading it here
+			// keeps all config parsing in Load.
+			handlerCfg = sysraft.HandlerConfig{
+				MaxVoters:         raftCfg.GetInt(RaftMaxVoters, 5),
+				ReconcileDebounce: raftCfg.GetDuration(RaftReconcileDebounce, 2*time.Second),
+				ReconcileTimeout:  raftCfg.GetDuration(RaftReconcileTimeout, 2*time.Second),
 			}
 
 			// Create the global registry FSM (the state machine Raft replicates).
@@ -187,10 +197,26 @@ func Raft() boot.Component {
 
 			// Start membership handler to sync Raft voters with cluster membership.
 			bus := event.GetBus(ctx)
-			if bus != nil {
-				memberHandler = sysraft.NewMembershipHandler(raftNode, bus, logger.Named("membership"))
-				if err := memberHandler.Start(ctx); err != nil {
-					return fmt.Errorf("start raft membership handler: %w", err)
+			if bus != nil && ac != nil {
+				// Resolve the membership service. Without it the reconciler
+				// cannot read raft_port hints, so we skip wiring rather than
+				// half-start a broken handler.
+				var membership clusterapi.Membership
+				if val := ac.Get(membershipServiceKey); val != nil {
+					if m, ok := val.(clusterapi.Membership); ok {
+						membership = m
+					}
+				}
+
+				if membership == nil {
+					logger.Warn("raft membership handler skipped: cluster.Membership not available in context")
+				} else {
+					memberHandler = sysraft.NewMembershipHandler(
+						raftNode, membership, bus, handlerCfg, logger.Named("membership"),
+					)
+					if err := memberHandler.Start(ctx); err != nil {
+						return fmt.Errorf("start raft membership handler: %w", err)
+					}
 				}
 			}
 

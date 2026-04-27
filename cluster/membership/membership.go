@@ -205,22 +205,71 @@ func (s *Service) Nodes() []cluster.NodeInfo {
 
 // LocalNode returns information about the local node.
 func (s *Service) LocalNode() cluster.NodeInfo {
+	s.mu.RLock()
+	meta := cloneMeta(s.config.Meta)
+	s.mu.RUnlock()
+
 	if s.memberlist == nil {
 		// Return info from config if memberlist isn't up yet
 		return cluster.NodeInfo{
 			ID:   s.config.NodeName,
 			Addr: s.config.BindAddr,
-			Meta: s.config.Meta,
+			Meta: meta,
 		}
 	}
 
 	local := s.memberlist.LocalNode()
-	addr := local.Address()
 	return cluster.NodeInfo{
 		ID:   local.Name,
-		Addr: addr,
-		Meta: s.config.Meta, // The delegate provides the meta, but we have it here directly.
+		Addr: local.Address(),
+		Meta: meta,
 	}
+}
+
+// UpdateMeta merges the supplied keys into the local node's gossip metadata
+// and triggers an asynchronous re-broadcast so peers observe the change.
+//
+// Existing keys not present in updates are preserved; supplied keys overwrite
+// existing values. Empty-string values are kept (callers that want to clear a
+// key should pass it explicitly).
+func (s *Service) UpdateMeta(updates map[string]string) {
+	if len(updates) == 0 {
+		return
+	}
+
+	s.mu.Lock()
+	if s.config.Meta == nil {
+		s.config.Meta = make(cluster.NodeMeta, len(updates))
+	}
+	for k, v := range updates {
+		s.config.Meta[k] = v
+	}
+	ml := s.memberlist
+	s.mu.Unlock()
+
+	if ml == nil {
+		// memberlist not yet started — meta will be advertised on first NodeMeta() call
+		return
+	}
+
+	// UpdateNode triggers a delegate.NodeMeta() call and broadcasts the new
+	// meta to peers. The timeout is for waiting on local broadcast queueing,
+	// not for remote ack — keep it short.
+	if err := ml.UpdateNode(time.Second); err != nil {
+		s.logger.Warn("memberlist UpdateNode failed", zap.Error(err))
+	}
+}
+
+// cloneMeta returns a defensive copy so callers cannot mutate internal state.
+func cloneMeta(m cluster.NodeMeta) cluster.NodeMeta {
+	if m == nil {
+		return nil
+	}
+	out := make(cluster.NodeMeta, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }
 
 // loadSecretKey loads encryption key from file or string
@@ -352,11 +401,15 @@ type delegate struct {
 }
 
 func (d *delegate) NodeMeta(limit int) []byte {
-	if len(d.service.config.Meta) == 0 {
+	d.service.mu.RLock()
+	meta := cloneMeta(d.service.config.Meta)
+	d.service.mu.RUnlock()
+
+	if len(meta) == 0 {
 		return []byte{}
 	}
 
-	data, err := json.Marshal(d.service.config.Meta)
+	data, err := json.Marshal(meta)
 	if err != nil {
 		d.service.logger.Error("failed to marshal node metadata", zap.Error(err))
 		return []byte{}
