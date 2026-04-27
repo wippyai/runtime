@@ -15,6 +15,7 @@ import (
 
 	hraft "github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb/v2"
+	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -41,6 +42,7 @@ type Node struct {
 	localID     string
 	config      raftapi.Config
 	actualPort  int
+	voterCap    int
 	mu          sync.Mutex
 	started     bool
 }
@@ -67,6 +69,46 @@ func (n *Node) ActualPort() int {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return n.actualPort
+}
+
+// SetVoterCap records the configured voter ceiling so the voter-ladder
+// telemetry can publish it alongside the live counts. Safe to call before
+// Start; the membership handler invokes this with HandlerConfig.MaxVoters.
+func (n *Node) SetVoterCap(maxVoters int) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.voterCap = maxVoters
+}
+
+// sampleVoterLadder reads the current Raft configuration and emits the
+// voter / non-voter / voter-cap gauges. Best-effort: a failure to read
+// configuration is logged once at debug and otherwise silently dropped so
+// telemetry never blocks a control-plane op.
+func (n *Node) sampleVoterLadder() {
+	if n.raft == nil {
+		return
+	}
+
+	f := n.raft.GetConfiguration()
+	if err := f.Error(); err != nil {
+		n.logger.Debug("voter ladder: GetConfiguration failed", zap.Error(err))
+		return
+	}
+
+	voters, nonVoters := 0, 0
+	for _, s := range f.Configuration().Servers {
+		if s.Suffrage == hraft.Voter {
+			voters++
+		} else {
+			nonVoters++
+		}
+	}
+
+	n.mu.Lock()
+	voterCap := n.voterCap
+	n.mu.Unlock()
+
+	n.tel.recordVoterLadder(voters, nonVoters, voterCap)
 }
 
 // Start initializes storage, transport, and the Raft instance.
@@ -132,9 +174,12 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 	}
 	n.transport = &instrumentedTransport{Transport: transport, tel: n.tel}
 
-	// Create Raft instance.
+	// Create Raft instance. The FSM is wrapped so Snapshot/Persist calls
+	// emit OTel metrics and spans without leaking knowledge of telemetry
+	// into FSM implementations.
 	rc := toHashicorpConfig(n.localID, n.config)
-	r, err := hraft.NewRaft(rc, n.fsm, n.logStore, n.stableStore, n.snapStore, n.transport)
+	wrappedFSM := &instrumentedFSM{FSM: n.fsm, tel: n.tel}
+	r, err := hraft.NewRaft(rc, wrappedFSM, n.logStore, n.stableStore, n.snapStore, n.transport)
 	if err != nil {
 		transport.Close()
 		return nil, fmt.Errorf("create raft instance: %w", err)
@@ -390,7 +435,12 @@ func (n *Node) AddVoter(id raftapi.ServerID, addr raftapi.ServerAddress, timeout
 		return raftapi.ErrNotRunning
 	}
 	f := n.raft.AddVoter(hraft.ServerID(id), hraft.ServerAddress(addr), 0, timeout)
-	return n.translateError(f.Error())
+	if err := n.translateError(f.Error()); err != nil {
+		return err
+	}
+
+	n.sampleVoterLadder()
+	return nil
 }
 
 // AddNonvoter adds a non-voting (learner) member to the cluster.
@@ -400,7 +450,12 @@ func (n *Node) AddNonvoter(id raftapi.ServerID, addr raftapi.ServerAddress, time
 		return raftapi.ErrNotRunning
 	}
 	f := n.raft.AddNonvoter(hraft.ServerID(id), hraft.ServerAddress(addr), 0, timeout)
-	return n.translateError(f.Error())
+	if err := n.translateError(f.Error()); err != nil {
+		return err
+	}
+
+	n.sampleVoterLadder()
+	return nil
 }
 
 // DemoteVoter demotes an existing voter to a non-voter.
@@ -409,7 +464,12 @@ func (n *Node) DemoteVoter(id raftapi.ServerID, timeout time.Duration) error {
 		return raftapi.ErrNotRunning
 	}
 	f := n.raft.DemoteVoter(hraft.ServerID(id), 0, timeout)
-	return n.translateError(f.Error())
+	if err := n.translateError(f.Error()); err != nil {
+		return err
+	}
+
+	n.sampleVoterLadder()
+	return nil
 }
 
 // RemoveServer removes a member from the cluster.
@@ -418,7 +478,12 @@ func (n *Node) RemoveServer(id raftapi.ServerID, timeout time.Duration) error {
 		return raftapi.ErrNotRunning
 	}
 	f := n.raft.RemoveServer(hraft.ServerID(id), 0, timeout)
-	return n.translateError(f.Error())
+	if err := n.translateError(f.Error()); err != nil {
+		return err
+	}
+
+	n.sampleVoterLadder()
+	return nil
 }
 
 // LeadershipTransfer transfers leadership to another voter.
@@ -512,8 +577,17 @@ type instrumentedTransport struct {
 
 func (it *instrumentedTransport) AppendEntries(id hraft.ServerID, target hraft.ServerAddress,
 	args *hraft.AppendEntriesRequest, resp *hraft.AppendEntriesResponse) error {
+	_, span := it.tel.startSpan(context.Background(), "raft.append_entries",
+		trace.WithAttributes(
+			attribute.String("peer", string(id)),
+			attribute.Int("entries", len(args.Entries)),
+		),
+	)
+	defer span.End()
+
 	start := time.Now()
 	err := it.Transport.AppendEntries(id, target, args, resp)
+	it.tel.setSpanError(span, err)
 	it.tel.recordAppendEntries(string(id), err, time.Since(start))
 	return err
 }
@@ -526,4 +600,56 @@ func (it *instrumentedTransport) Close() error {
 	}
 
 	return nil
+}
+
+// instrumentedFSM wraps a user-supplied hraft.FSM so Snapshot calls emit
+// OTel telemetry. Apply/Restore are forwarded unchanged via the embedded
+// FSM; only the snapshot path needs metric/span coverage in this task.
+type instrumentedFSM struct {
+	hraft.FSM
+	tel *telemetry
+}
+
+func (i *instrumentedFSM) Snapshot() (hraft.FSMSnapshot, error) {
+	start := time.Now()
+	snap, err := i.FSM.Snapshot()
+	if err != nil {
+		i.tel.recordSnapshot(err, time.Since(start), 0)
+		return nil, err
+	}
+
+	return &instrumentedFSMSnapshot{FSMSnapshot: snap, tel: i.tel, start: start}, nil
+}
+
+// instrumentedFSMSnapshot wraps the user FSM's snapshot so Persist is
+// timed, sized, and traced. Release is delegated unchanged.
+type instrumentedFSMSnapshot struct {
+	hraft.FSMSnapshot
+	tel   *telemetry
+	start time.Time
+}
+
+func (s *instrumentedFSMSnapshot) Persist(sink hraft.SnapshotSink) error {
+	_, span := s.tel.startSpan(context.Background(), "raft.snapshot")
+	defer span.End()
+
+	cw := &countingSink{SnapshotSink: sink}
+	err := s.FSMSnapshot.Persist(cw)
+	span.SetAttributes(attribute.Int64("raft.snapshot.bytes", cw.bytes))
+	s.tel.setSpanError(span, err)
+	s.tel.recordSnapshot(err, time.Since(s.start), cw.bytes)
+	return err
+}
+
+// countingSink wraps an hraft.SnapshotSink so we can record the number of
+// bytes the FSM wrote during Persist. Forwards Cancel/Close/ID via embedding.
+type countingSink struct {
+	hraft.SnapshotSink
+	bytes int64
+}
+
+func (c *countingSink) Write(p []byte) (int, error) {
+	n, err := c.SnapshotSink.Write(p)
+	c.bytes += int64(n)
+	return n, err
 }

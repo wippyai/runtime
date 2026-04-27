@@ -63,6 +63,8 @@ func TestRaftTelemetry_NilSafe(t *testing.T) {
 	tt.recordLastLogIndex("node-a", 1)
 	tt.recordLogLag("node-a", 0)
 	tt.recordAppendEntries("peer", nil, time.Millisecond)
+	tt.recordVoterLadder(1, 0, 5)
+	tt.recordSnapshot(nil, time.Millisecond, 0)
 }
 
 func TestRaftTelemetry_CommitLog(t *testing.T) {
@@ -93,6 +95,34 @@ func TestRaftTelemetry_AppendEntries(t *testing.T) {
 	}
 	if c := rec.HistogramCount("raft_append_entries_duration_seconds", metrics.Labels{"peer": "node-b", "result": "ok"}); c != 1 {
 		t.Fatalf("AE duration count: want 1, got %v", c)
+	}
+}
+
+func TestRaftTelemetry_VoterLadder(t *testing.T) {
+	tt, rec := newTestTel(t)
+	tt.recordVoterLadder(3, 2, 5)
+	if v := rec.GaugeValue("raft_voters", nil); v != 3 {
+		t.Fatalf("raft_voters: want 3, got %v", v)
+	}
+	if v := rec.GaugeValue("raft_non_voters", nil); v != 2 {
+		t.Fatalf("raft_non_voters: want 2, got %v", v)
+	}
+	if v := rec.GaugeValue("raft_voter_cap", nil); v != 5 {
+		t.Fatalf("raft_voter_cap: want 5, got %v", v)
+	}
+}
+
+func TestRaftTelemetry_Snapshot(t *testing.T) {
+	tt, rec := newTestTel(t)
+	tt.recordSnapshot(nil, 100*time.Millisecond, 4096)
+	if v := rec.CounterValue("raft_snapshot_total", metrics.Labels{"result": "ok"}); v != 1 {
+		t.Fatalf("raft_snapshot_total: want 1, got %v", v)
+	}
+	if c := rec.HistogramCount("raft_snapshot_duration_seconds", nil); c != 1 {
+		t.Fatalf("raft_snapshot_duration_seconds: want 1, got %v", c)
+	}
+	if c := rec.HistogramCount("raft_snapshot_size_bytes", nil); c != 1 {
+		t.Fatalf("raft_snapshot_size_bytes: want 1, got %v", c)
 	}
 }
 

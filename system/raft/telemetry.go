@@ -3,10 +3,12 @@
 package raft
 
 import (
+	"context"
 	"time"
 
 	"github.com/wippyai/runtime/api/metrics"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -114,4 +116,41 @@ func raftResultLabel(err error) string {
 	}
 
 	return "ok"
+}
+
+func (t *telemetry) recordVoterLadder(voters, nonVoters, voterCap int) {
+	if t == nil || t.coll == nil {
+		return
+	}
+
+	t.coll.GaugeSet("raft_voters", float64(voters), nil)
+	t.coll.GaugeSet("raft_non_voters", float64(nonVoters), nil)
+	t.coll.GaugeSet("raft_voter_cap", float64(voterCap), nil)
+}
+
+func (t *telemetry) recordSnapshot(err error, dur time.Duration, sizeBytes int64) {
+	if t == nil || t.coll == nil {
+		return
+	}
+
+	t.coll.CounterInc("raft_snapshot_total", metrics.Labels{"result": raftResultLabel(err)})
+	t.coll.HistogramObserve("raft_snapshot_duration_seconds", dur.Seconds(), nil)
+	t.coll.HistogramObserve("raft_snapshot_size_bytes", float64(sizeBytes), nil)
+}
+
+func (t *telemetry) startSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
+	if t == nil || t.tracer == nil {
+		return ctx, trace.SpanFromContext(ctx)
+	}
+
+	return t.tracer.Start(ctx, name, opts...)
+}
+
+func (t *telemetry) setSpanError(span trace.Span, err error) {
+	if err == nil || span == nil {
+		return
+	}
+
+	span.RecordError(err)
+	span.SetStatus(codes.Error, err.Error())
 }

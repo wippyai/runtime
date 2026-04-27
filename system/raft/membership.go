@@ -129,6 +129,14 @@ func (h *MembershipHandler) Start(ctx context.Context) error {
 		return errors.New("MembershipHandler requires a cluster.Membership instance")
 	}
 
+	// Inform the underlying Raft node of the configured voter cap so its
+	// voter-ladder telemetry can publish the ceiling alongside live counts.
+	// Implemented as a type assertion to keep raftapi.Service a minimal
+	// interface; non-Node implementations simply skip the hook.
+	if vc, ok := h.svc.(interface{ SetVoterCap(int) }); ok {
+		vc.SetVoterCap(h.cfg.MaxVoters)
+	}
+
 	ch := make(chan event.Event, busBuffer)
 	subID, err := h.bus.Subscribe(ctx, cluster.System, ch)
 	if err != nil {
