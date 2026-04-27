@@ -16,6 +16,7 @@ import (
 	metricsapi "github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	relayapi "github.com/wippyai/runtime/api/relay"
+	metricsboot "github.com/wippyai/runtime/boot/components/metrics"
 	"github.com/wippyai/runtime/cluster/internode"
 	"github.com/wippyai/runtime/cluster/membership"
 	"github.com/wippyai/runtime/system/relay"
@@ -60,7 +61,8 @@ func Cluster() boot.Component {
 	var logger *zap.Logger
 
 	return boot.New(boot.P{
-		Name: ClusterName,
+		Name:      ClusterName,
+		DependsOn: []boot.Name{metricsboot.Name},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger = logapi.GetLogger(ctx).Named("cluster")
 			cfg := boot.GetConfig(ctx)

@@ -3,6 +3,7 @@
 package raft
 
 import (
+	"net"
 	"sort"
 	"strconv"
 
@@ -67,9 +68,14 @@ func candidateFromNode(n cluster.NodeInfo) (candidate, bool) {
 		}
 	}
 
+	host := n.Addr
+	if h, _, err := net.SplitHostPort(n.Addr); err == nil {
+		host = h
+	}
+
 	return candidate{
 		ID:            n.ID,
-		Addr:          joinHostPort(n.Addr, port),
+		Addr:          joinHostPort(host, port),
 		FailureDomain: n.Meta["failure_domain"],
 		Priority:      priority,
 	}, true
