@@ -23,15 +23,15 @@ type Pool struct {
 	lastUsed    time.Time
 	dispatcher  dispatcher.Dispatcher
 	hooks       pool.ExecutionHooks
+	gate        *pool.AdmissionGate
 	reaperDone  chan struct{}
-	factory     process.FactoryFunc
 	reaper      *time.Ticker
 	done        chan struct{}
+	factory     process.FactoryFunc
 	activeExec  sync.Map
 	idle        []process.Process
 	waiters     []chan struct{}
 	idleTimeout time.Duration
-	gate        *pool.AdmissionGate
 	active      int
 	maxWorkers  int
 	startOnce   sync.Once

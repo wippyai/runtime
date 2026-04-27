@@ -7,13 +7,16 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	glua "github.com/wippyai/go-lua"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
@@ -102,7 +105,7 @@ func TestManager_Transaction(t *testing.T) {
 	require.NoError(t, err)
 
 	// Begin transaction
-	cm.Begin(context.Background())
+	require.NoError(t, cm.Begin(context.Background()))
 	assert.Empty(t, bus.events)
 
 	// Add a node during transaction
@@ -116,14 +119,14 @@ func TestManager_Transaction(t *testing.T) {
 	require.NoError(t, err)
 
 	// Commit transaction
-	cm.Commit(context.Background())
+	require.NoError(t, cm.Commit(context.Background()))
 	assert.Len(t, bus.events, 1)
 	assert.Equal(t, api.System, bus.events[0].System)
 	assert.Equal(t, api.InvalidateNodes, bus.events[0].Kind)
 	assert.Len(t, bus.events[0].Data.([]registry.ID), 1)
 
 	// Discard transaction
-	cm.Discard(context.Background())
+	require.NoError(t, cm.Discard(context.Background()))
 	assert.Empty(t, cm.txAffected)
 }
 
@@ -219,6 +222,122 @@ func TestManager_TransactionUpdateInvalidatesDependents(t *testing.T) {
 	require.Len(t, bus.events, 1)
 	ids := bus.events[0].Data.([]registry.ID)
 	assert.ElementsMatch(t, []registry.ID{libID, funcID}, ids)
+}
+
+func TestManager_CommitWaitsForLuaInvalidationAcknowledgement(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	bus := eventbus.NewBus()
+	awaitSvc := eventbus.NewAwaitService(bus)
+	require.NoError(t, awaitSvc.Start(ctx))
+	defer func() { require.NoError(t, awaitSvc.Stop()) }()
+	ctx = event.WithAwaitService(ctx, awaitSvc)
+
+	cm, err := NewCodeManager(zap.NewNop(), bus, Config{InvalidationWaitTimeout: time.Second})
+	require.NoError(t, err)
+
+	libID := registry.NewID("test", "lib")
+	fnID := registry.NewID("test", "fn")
+	require.NoError(t, cm.AddNode(ctx, Node{
+		ID:     libID,
+		Kind:   api.Library,
+		Source: "return { value = 'v1' }",
+	}, nil))
+	require.NoError(t, cm.AddNode(ctx, Node{
+		ID:     fnID,
+		Kind:   api.Function,
+		Source: "function handler() return lib.value end",
+		Method: "handler",
+	}, []Import{{ID: libID, Alias: "lib"}}))
+
+	reqSeen := make(chan api.InvalidateNodesRequest, 1)
+	releaseAck := make(chan struct{})
+	sub, err := eventbus.NewSubscriber(ctx, bus, api.System, api.InvalidateNodes, func(evt event.Event) {
+		req, ok := evt.Data.(api.InvalidateNodesRequest)
+		if !ok {
+			return
+		}
+		reqSeen <- req
+		<-releaseAck
+		for _, node := range req.Nodes {
+			if node.ID.Equal(fnID) {
+				bus.Send(ctx, event.Event{
+					System: api.System,
+					Kind:   api.InvalidateNodesAccept,
+					Path:   req.AckPrefix + "/" + node.ID.String(),
+				})
+			}
+		}
+	})
+	require.NoError(t, err)
+	defer sub.Close()
+
+	require.NoError(t, cm.Begin(ctx))
+	require.NoError(t, cm.UpdateNode(ctx, Node{
+		ID:     libID,
+		Source: "return { value = 'v2' }",
+	}, nil))
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cm.Commit(ctx)
+	}()
+
+	select {
+	case req := <-reqSeen:
+		require.NotEmpty(t, req.AckPrefix)
+		assert.ElementsMatch(t, []api.InvalidateNode{
+			{ID: libID, Kind: api.Library},
+			{ID: fnID, Kind: api.Function},
+		}, req.Nodes)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for lua invalidation request")
+	}
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+		t.Fatal("commit completed before callable invalidation acknowledgement")
+	default:
+	}
+
+	close(releaseAck)
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for commit after acknowledgement")
+	}
+}
+
+func TestManager_CommitReturnsErrorWhenLuaInvalidationIsNotAcknowledged(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	bus := eventbus.NewBus()
+	awaitSvc := eventbus.NewAwaitService(bus)
+	require.NoError(t, awaitSvc.Start(ctx))
+	defer func() { require.NoError(t, awaitSvc.Stop()) }()
+	ctx = event.WithAwaitService(ctx, awaitSvc)
+
+	cm, err := NewCodeManager(zap.NewNop(), bus, Config{InvalidationWaitTimeout: 10 * time.Millisecond})
+	require.NoError(t, err)
+
+	fnID := registry.NewID("test", "unacked_fn")
+	require.NoError(t, cm.AddNode(ctx, Node{
+		ID:     fnID,
+		Kind:   api.Function,
+		Source: "function handler() return 'ok' end",
+		Method: "handler",
+	}, nil))
+
+	require.NoError(t, cm.Begin(ctx))
+	require.NoError(t, cm.UpdateNode(ctx, Node{
+		ID:     fnID,
+		Source: "function handler() return 'updated' end",
+		Method: "handler",
+	}, nil))
+
+	err = cm.Commit(ctx)
+	require.Error(t, err)
 }
 
 func TestManager_AddNode(t *testing.T) {

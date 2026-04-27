@@ -25,10 +25,11 @@ const (
 // Pool is an adaptive worker pool that scales based on throughput optimization.
 // Uses probe-based scaling: add worker, measure improvement, keep or remove.
 type Pool struct {
-	executors    sync.Pool
 	reqPool      sync.Pool
+	executors    sync.Pool
 	dispatcher   dispatcher.Dispatcher
 	hooks        pool.ExecutionHooks
+	gate         *pool.AdmissionGate
 	ctrl         *controller
 	log          *zap.Logger
 	factory      process.FactoryFunc
@@ -37,7 +38,6 @@ type Pool struct {
 	active       sync.Map
 	workers      []*worker
 	wg           sync.WaitGroup
-	gate         *pool.AdmissionGate
 	minWorkers   int
 	completedOps atomic.Int64
 	queueSize    int

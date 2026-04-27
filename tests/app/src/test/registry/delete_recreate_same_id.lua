@@ -3,19 +3,6 @@
 local assert = require("assert2")
 local funcs = require("funcs")
 local registry = require("registry")
-local time = require("time")
-
-local function call_until_ready(id)
-	local result, err
-	for _ = 1, 20 do
-		result, err = funcs.call(id)
-		if err == nil then
-			return result, nil
-		end
-		time.sleep("50ms")
-	end
-	return result, err
-end
 
 local function entry_for(id, value)
 	return {
@@ -46,7 +33,7 @@ local function main()
 	assert.is_nil(create_err, "create first function version")
 	assert.not_nil(created_version, "created version returned")
 
-	local first, first_err = call_until_ready(func_id)
+	local first, first_err = funcs.call(func_id)
 	assert.is_nil(first_err, "first call no error")
 	assert.eq(first.value, "bad", "first body is active")
 
@@ -62,7 +49,7 @@ local function main()
 	assert.is_nil(recreate_err, "recreate same id")
 	assert.not_nil(recreated_version, "recreated version returned")
 
-	local second, second_err = call_until_ready(func_id)
+	local second, second_err = funcs.call(func_id)
 	assert.is_nil(second_err, "second call no error")
 	assert.eq(second.value, "good", "recreated same-id function uses new source")
 

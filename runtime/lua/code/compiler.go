@@ -3,11 +3,12 @@
 package code
 
 import (
+	"sync"
+
 	glua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime/lua"
 	lru "github.com/wippyai/runtime/internal/cache"
-	"sync"
 )
 
 // CompiledProto represents a compiled Lua prototype with its name

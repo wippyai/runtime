@@ -4,9 +4,11 @@ package code
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime/pprof"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,6 +28,10 @@ import (
 )
 
 var typecheckProfileActive atomic.Bool
+
+// DefaultInvalidationWaitTimeout matches the registry/event request-reply
+// budget by default. Boot wiring can override it from config.
+const DefaultInvalidationWaitTimeout = event.DefaultAwaitTimeout
 
 func withTypecheckCPUProfile(log *zap.Logger, id string, fn func() (*io.Manifest, []diag.Diagnostic)) (*io.Manifest, []diag.Diagnostic) {
 	stop := startTypecheckCPUProfile(log, id)
@@ -89,28 +95,31 @@ func (cm *Manager) nextVersion(hash string) Version {
 type (
 	// Manager centralizes code and dependency management
 	Manager struct {
-		bus         event.Bus
-		cacheStore  cache.Store
-		log         *zap.Logger
-		memGraph    *MemoryGraph
-		compiler    *Compiler
-		typeChecker *TypeChecker
-		txAffected  map[registry.ID]bool
-		typeCfgHash string
-		builtinHash string
-		cacheCfg    cache.Config
-		revision    atomic.Uint64
-		mutMu       sync.Mutex
-		txMu        sync.Mutex
+		bus                     event.Bus
+		cacheStore              cache.Store
+		log                     *zap.Logger
+		memGraph                *MemoryGraph
+		compiler                *Compiler
+		typeChecker             *TypeChecker
+		txAffected              map[registry.ID]registry.Kind
+		typeCfgHash             string
+		builtinHash             string
+		cacheCfg                cache.Config
+		revision                atomic.Uint64
+		invalidationSeq         atomic.Uint64
+		invalidationWaitTimeout time.Duration
+		mutMu                   sync.Mutex
+		txMu                    sync.Mutex
 	}
 
 	// Config defines initialization parameters
 	Config struct {
-		Cache          cache.Config
-		Modules        []*api.ModuleDef
-		ProtoCacheSize int
-		MainCacheSize  int
-		TypeCheck      TypeCheckConfig
+		Cache                   cache.Config
+		Modules                 []*api.ModuleDef
+		ProtoCacheSize          int
+		MainCacheSize           int
+		TypeCheck               TypeCheckConfig
+		InvalidationWaitTimeout time.Duration
 	}
 )
 
@@ -123,18 +132,22 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 	if cfg.MainCacheSize <= 0 {
 		cfg.MainCacheSize = 1000
 	}
+	if cfg.InvalidationWaitTimeout <= 0 {
+		cfg.InvalidationWaitTimeout = DefaultInvalidationWaitTimeout
+	}
 
 	typeChecker := NewTypeChecker(cfg.TypeCheck, cfg.Modules)
 	cacheCfg := cfg.Cache.Normalize()
 
 	cm := &Manager{
-		log:         log,
-		bus:         bus,
-		memGraph:    NewMemoryGraph(),
-		typeChecker: typeChecker,
-		txAffected:  make(map[registry.ID]bool),
-		cacheCfg:    cacheCfg,
-		typeCfgHash: TypecheckConfigHash(cfg.TypeCheck),
+		log:                     log,
+		bus:                     bus,
+		memGraph:                NewMemoryGraph(),
+		typeChecker:             typeChecker,
+		txAffected:              make(map[registry.ID]registry.Kind),
+		cacheCfg:                cacheCfg,
+		typeCfgHash:             TypecheckConfigHash(cfg.TypeCheck),
+		invalidationWaitTimeout: cfg.InvalidationWaitTimeout,
 	}
 	if cacheCfg.Enabled {
 		cm.cacheStore = cache.NewDiskStore(cacheCfg.Dir)
@@ -280,54 +293,138 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 }
 
 // Begin implements TransactionListener
-func (cm *Manager) Begin(_ context.Context) {
+func (cm *Manager) Begin(_ context.Context) error {
 	cm.txMu.Lock()
 	defer cm.txMu.Unlock()
-	cm.txAffected = make(map[registry.ID]bool)
+	cm.txAffected = make(map[registry.ID]registry.Kind)
+	return nil
 }
 
 // Commit implements TransactionListener
-func (cm *Manager) Commit(ctx context.Context) {
+func (cm *Manager) Commit(ctx context.Context) error {
 	cm.txMu.Lock()
 	affected := cm.txAffected
-	cm.txAffected = make(map[registry.ID]bool)
+	cm.txAffected = make(map[registry.ID]registry.Kind)
 	cm.txMu.Unlock()
 
-	// to slice of []registry.Process
+	// to slice of []registry.ID
 	affectedSlice := make([]registry.ID, 0, len(affected))
-	for id := range affected {
+	affectedNodes := make([]api.InvalidateNode, 0, len(affected))
+	for id, kind := range affected {
 		affectedSlice = append(affectedSlice, id)
+		affectedNodes = append(affectedNodes, api.InvalidateNode{ID: id, Kind: kind})
+	}
+	sort.Slice(affectedNodes, func(i, j int) bool {
+		return affectedNodes[i].ID.String() < affectedNodes[j].ID.String()
+	})
+	sort.Slice(affectedSlice, func(i, j int) bool {
+		return affectedSlice[i].String() < affectedSlice[j].String()
+	})
+
+	return cm.invalidateNodes(ctx, affectedNodes, affectedSlice)
+}
+
+func (cm *Manager) invalidateNodes(ctx context.Context, nodes []api.InvalidateNode, ids []registry.ID) error {
+	if len(ids) == 0 {
+		return nil
 	}
 
-	// Emit reset signal with affected nodes
+	awaitSvc := event.GetAwaitService(ctx)
+	if awaitSvc == nil {
+		// Preserve the old fire-and-forget shape for isolated tests and minimal embedders.
+		cm.bus.Send(ctx, event.Event{
+			System: api.System,
+			Kind:   api.InvalidateNodes,
+			Data:   ids,
+		})
+		return nil
+	}
+
+	ackPrefix := fmt.Sprintf("lua.invalidate/%d", cm.invalidationSeq.Add(1))
+	waiters := make([]event.AwaitWaiter, 0, len(nodes))
+	for _, node := range nodes {
+		if !shouldAwaitInvalidation(node.Kind) {
+			continue
+		}
+		path := ackPrefix + "/" + node.ID.String()
+		waiter, err := awaitSvc.Prepare(ctx, api.System, api.InvalidateNodesResult, path, cm.invalidationWaitTimeout)
+		if err != nil {
+			cm.log.Error("failed to prepare lua invalidation waiter",
+				zap.Stringer("node", &node.ID),
+				zap.String("kind", node.Kind),
+				zap.Error(err))
+			for _, prepared := range waiters {
+				prepared.Close()
+			}
+			return err
+		}
+		waiters = append(waiters, waiter)
+	}
+
+	// Emit reset signal with affected nodes, then wait for runtime handlers to
+	// finish replacing pools/factories for callable nodes.
 	cm.bus.Send(ctx, event.Event{
 		System: api.System,
 		Kind:   api.InvalidateNodes,
-		Data:   affectedSlice,
+		Data: api.InvalidateNodesRequest{
+			Nodes:     nodes,
+			AckPrefix: ackPrefix,
+		},
 	})
+	var errs []error
+	for _, waiter := range waiters {
+		result := waiter.Wait()
+		if result.Error != nil {
+			cm.log.Error("lua invalidation acknowledgement failed", zap.Error(result.Error))
+			errs = append(errs, result.Error)
+		}
+	}
+	return errors.Join(errs...)
 }
 
-// Discard implements TransactionListener
-func (cm *Manager) Discard(_ context.Context) {
-	cm.txMu.Lock()
-	defer cm.txMu.Unlock()
-	cm.txAffected = make(map[registry.ID]bool)
-}
-
-func (cm *Manager) markTransactionAffected(ids ...registry.ID) {
-	cm.txMu.Lock()
-	defer cm.txMu.Unlock()
-
-	for _, id := range ids {
-		cm.txAffected[id] = true
+func shouldAwaitInvalidation(kind registry.Kind) bool {
+	switch kind {
+	case api.Function, api.FunctionBytecode, api.Process, api.ProcessBytecode, api.Workflow, api.WorkflowBytecode:
+		return true
+	default:
+		return false
 	}
 }
 
-func (cm *Manager) affectedIDs(id registry.ID, dependents []*Node) []registry.ID {
-	ids := make([]registry.ID, 0, len(dependents)+1)
-	ids = append(ids, id)
+// Discard implements TransactionListener
+func (cm *Manager) Discard(_ context.Context) error {
+	cm.txMu.Lock()
+	defer cm.txMu.Unlock()
+	cm.txAffected = make(map[registry.ID]registry.Kind)
+	return nil
+}
+
+func (cm *Manager) markTransactionAffected(nodes ...*Node) {
+	cm.txMu.Lock()
+	defer cm.txMu.Unlock()
+
+	for _, node := range nodes {
+		if node != nil {
+			cm.txAffected[node.ID] = node.Kind
+		}
+	}
+}
+
+func (cm *Manager) affectedNodes(node *Node, dependents []*Node) []*Node {
+	nodes := make([]*Node, 0, len(dependents)+1)
+	nodes = append(nodes, node)
 	for _, dep := range dependents {
-		ids = append(ids, dep.ID)
+		nodes = append(nodes, dep)
+	}
+	return nodes
+}
+
+func nodeIDs(nodes []*Node) []registry.ID {
+	ids := make([]registry.ID, 0, len(nodes))
+	for _, node := range nodes {
+		if node != nil {
+			ids = append(ids, node.ID)
+		}
 	}
 	return ids
 }
@@ -380,7 +477,7 @@ func (cm *Manager) AddNode(_ context.Context, node Node, deps []Import) error {
 	// A delete followed by a create with the same registry ID must never reuse
 	// a previously compiled main/proto from the in-memory compiler caches.
 	cm.compiler.Invalidate([]registry.ID{node.ID})
-	cm.markTransactionAffected(node.ID)
+	cm.markTransactionAffected(nodePtr)
 
 	return nil
 }
@@ -430,8 +527,8 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 		return NewAddNewDependencyError(err)
 	}
 
-	affectedIDs := cm.affectedIDs(node.ID, dependents)
-	cm.markTransactionAffected(affectedIDs...)
+	affectedNodes := cm.affectedNodes(nodePtr, dependents)
+	cm.markTransactionAffected(affectedNodes...)
 
 	// Calculate all dependents for cache invalidation
 	if depErr != nil {
@@ -441,7 +538,7 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 	}
 
 	// Invalidate cache
-	cm.compiler.Invalidate(affectedIDs)
+	cm.compiler.Invalidate(nodeIDs(affectedNodes))
 
 	if oldCompileFPs != nil || oldTypecheckFPs != nil {
 		cm.deleteCacheFingerprints(oldCompileFPs, oldTypecheckFPs)
@@ -473,7 +570,8 @@ func (cm *Manager) DeleteNode(_ context.Context, id registry.ID) error {
 	cm.mutMu.Lock()
 	defer cm.mutMu.Unlock()
 
-	if _, err := cm.memGraph.GetNode(id); err != nil {
+	existing, err := cm.memGraph.GetNode(id)
+	if err != nil {
 		return NewNodeNotFoundError(id)
 	}
 
@@ -496,14 +594,10 @@ func (cm *Manager) DeleteNode(_ context.Context, id registry.ID) error {
 			zap.Error(depErr))
 	}
 
-	cm.markTransactionAffected(cm.affectedIDs(id, dependents)...)
+	affectedNodes := cm.affectedNodes(existing, dependents)
+	cm.markTransactionAffected(affectedNodes...)
 
-	invalidateIDs := make([]registry.ID, 0, len(dependents)+1)
-	invalidateIDs = append(invalidateIDs, id)
-	for _, dep := range dependents {
-		invalidateIDs = append(invalidateIDs, dep.ID)
-	}
-	cm.compiler.Invalidate(invalidateIDs)
+	cm.compiler.Invalidate(nodeIDs(affectedNodes))
 
 	if oldCompileFPs != nil || oldTypecheckFPs != nil {
 		cm.deleteCacheFingerprints(oldCompileFPs, oldTypecheckFPs)
@@ -641,7 +735,7 @@ func (cm *Manager) AddNodeWithProto(_ context.Context, node Node, deps []Import,
 		cm.compiler.SetProto(node.ID, tag, proto)
 	}
 
-	cm.markTransactionAffected(node.ID)
+	cm.markTransactionAffected(nodePtr)
 
 	return nil
 }
@@ -675,9 +769,9 @@ func (cm *Manager) UpdateNodeWithProto(_ context.Context, node Node, deps []Impo
 			zap.Error(err))
 	}
 
-	affectedIDs := cm.affectedIDs(node.ID, dependents)
-	cm.markTransactionAffected(affectedIDs...)
-	cm.compiler.Invalidate(affectedIDs)
+	affectedNodes := cm.affectedNodes(nodePtr, dependents)
+	cm.markTransactionAffected(affectedNodes...)
+	cm.compiler.Invalidate(nodeIDs(affectedNodes))
 
 	// Inject updated proto into compiler cache
 	if proto != nil {

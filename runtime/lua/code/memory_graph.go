@@ -28,13 +28,13 @@ type (
 
 	// Node represents a code unit in the dependency graph.
 	Node struct {
-		Version  Version
 		Module   *runtime.ModuleDef
 		Manifest *io.Manifest
 		ID       registry.ID
 		Kind     registry.Kind
 		Source   string
 		Method   string
+		Version  Version
 	}
 
 	Preload struct {

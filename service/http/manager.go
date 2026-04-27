@@ -4,6 +4,7 @@ package http
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sync"
 
@@ -188,23 +189,25 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 
 // Begin starts a transaction for applying changes
 // This clears any pending rebuilds
-func (m *Manager) Begin(_ context.Context) {
+func (m *Manager) Begin(_ context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.pending = make(map[registry.ID]bool)
+	return nil
 }
 
 // Commit applies all pending changes to the servers
 // Rebuilds any servers that have been modified
-func (m *Manager) Commit(ctx context.Context) {
+func (m *Manager) Commit(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if len(m.pending) == 0 {
-		return
+		return nil
 	}
 
 	failed := make(map[registry.ID]bool)
+	var errs []error
 	for serverID := range m.pending {
 		if server, exists := m.servers[serverID]; exists {
 			if err := server.Rebuild(ctx); err != nil {
@@ -212,18 +215,21 @@ func (m *Manager) Commit(ctx context.Context) {
 					zap.String("server", serverID.String()),
 					zap.Error(err))
 				failed[serverID] = true
+				errs = append(errs, err)
 			}
 		}
 	}
 
 	m.pending = failed
+	return errors.Join(errs...)
 }
 
 // Discard cancels any pending changes without applying them
-func (m *Manager) Discard(_ context.Context) {
+func (m *Manager) Discard(_ context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.pending = make(map[registry.ID]bool)
+	return nil
 }
 
 //

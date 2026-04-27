@@ -5,6 +5,8 @@ package events
 import (
 	"context"
 	"errors"
+	"strconv"
+	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
@@ -16,11 +18,17 @@ import (
 // without triggering a reject event
 var ErrSkipOperation = errors.New("skip operation")
 
+var transactionParticipantSeq atomic.Uint64
+
 // NewRegistryHandler adapts a registry listener with pattern matching to event router
 func NewRegistryHandler(kinds registry.Kind, listener registry.EntryListener) eventbus.EventHandler {
 	w := wildcard.NewWildcard(kinds)
+	txParticipantID := ""
+	if _, ok := listener.(registry.TransactionListener); ok {
+		txParticipantID = nextTransactionParticipantID()
+	}
 
-	return eventbus.NewBaseHandler(
+	inner := eventbus.NewBaseHandler(
 		eventbus.Pattern{System: registry.System, Kind: registry.AllEvents},
 		func(ctx context.Context, evt event.Event) error {
 			bus := event.GetBus(ctx)
@@ -30,17 +38,17 @@ func NewRegistryHandler(kinds registry.Kind, listener registry.EntryListener) ev
 				switch evt.Kind {
 				case registry.TxBegin:
 					if tx, ok := listener.(registry.TransactionListener); ok {
-						tx.Begin(ctx)
+						transactionReply(ctx, bus, evt.Path, txParticipantID, tx.Begin(ctx))
 					}
 					return nil
 				case registry.TxCommit:
 					if tx, ok := listener.(registry.TransactionListener); ok {
-						tx.Commit(ctx)
+						transactionReply(ctx, bus, evt.Path, txParticipantID, tx.Commit(ctx))
 					}
 					return nil
 				case registry.TxDiscard:
 					if tx, ok := listener.(registry.TransactionListener); ok {
-						tx.Discard(ctx)
+						transactionReply(ctx, bus, evt.Path, txParticipantID, tx.Discard(ctx))
 					}
 					return nil
 				}
@@ -84,6 +92,7 @@ func NewRegistryHandler(kinds registry.Kind, listener registry.EntryListener) ev
 			return nil
 		},
 	)
+	return &transactionAwareHandler{inner: inner, transactionParticipantID: txParticipantID}
 }
 
 func accept(ctx context.Context, bus event.Bus, id registry.ID) {
@@ -103,24 +112,70 @@ func reject(ctx context.Context, bus event.Bus, id registry.ID, err error) {
 	})
 }
 
+func transactionReply(ctx context.Context, bus event.Bus, path event.Path, participantID string, err error) {
+	if bus == nil || participantID == "" {
+		return
+	}
+	kind := registry.TxAccept
+	var data any
+	if err != nil {
+		kind = registry.TxReject
+		data = err
+	}
+	bus.Send(ctx, event.Event{
+		System: registry.System,
+		Kind:   kind,
+		Path:   participantReplyPath(path, participantID),
+		Data:   data,
+	})
+}
+
 // NewTransactionHandler creates an event handler that only processes transaction events
 func NewTransactionHandler(listener registry.TransactionListener) eventbus.EventHandler {
-	return eventbus.NewBaseHandler(
+	txParticipantID := nextTransactionParticipantID()
+	inner := eventbus.NewBaseHandler(
 		eventbus.Pattern{System: registry.System, Kind: registry.AllEvents},
 		func(ctx context.Context, evt event.Event) error {
+			bus := event.GetBus(ctx)
 			switch evt.Kind {
 			case registry.TxBegin:
-				listener.Begin(ctx)
+				transactionReply(ctx, bus, evt.Path, txParticipantID, listener.Begin(ctx))
 				return nil
 			case registry.TxCommit:
-				listener.Commit(ctx)
+				transactionReply(ctx, bus, evt.Path, txParticipantID, listener.Commit(ctx))
 				return nil
 			case registry.TxDiscard:
-				listener.Discard(ctx)
+				transactionReply(ctx, bus, evt.Path, txParticipantID, listener.Discard(ctx))
 				return nil
 			default:
 				return nil
 			}
 		},
 	)
+	return &transactionAwareHandler{inner: inner, transactionParticipantID: txParticipantID}
+}
+
+type transactionAwareHandler struct {
+	inner                    eventbus.EventHandler
+	transactionParticipantID string
+}
+
+func (h *transactionAwareHandler) Pattern() eventbus.Pattern {
+	return h.inner.Pattern()
+}
+
+func (h *transactionAwareHandler) Handle(ctx context.Context, evt event.Event) error {
+	return h.inner.Handle(ctx, evt)
+}
+
+func (h *transactionAwareHandler) RegistryTransactionParticipantID() string {
+	return h.transactionParticipantID
+}
+
+func nextTransactionParticipantID() string {
+	return "registry.tx." + strconv.FormatUint(transactionParticipantSeq.Add(1), 10)
+}
+
+func participantReplyPath(path event.Path, participantID string) event.Path {
+	return path + "/" + participantID
 }

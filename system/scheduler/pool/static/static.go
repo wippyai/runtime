@@ -41,10 +41,10 @@ type Pool struct {
 	tasks      chan *pool.Request
 	factory    process.FactoryFunc
 	done       chan struct{}
+	gate       *pool.AdmissionGate
 	active     sync.Map
 	workers    []*worker
 	wg         sync.WaitGroup
-	gate       *pool.AdmissionGate
 	closed     atomic.Bool
 }
 

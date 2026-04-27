@@ -13,9 +13,9 @@ const admissionClosedBit uint64 = 1 << 63
 // Stop. Begin is one uncontended CAS on the hot path; Stop closes admission and
 // waits until all already-admitted calls have ended.
 type AdmissionGate struct {
+	drained chan struct{}
 	state   atomic.Uint64
 	once    sync.Once
-	drained chan struct{}
 }
 
 // NewAdmissionGate creates an open admission gate.

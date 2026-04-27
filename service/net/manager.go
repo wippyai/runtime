@@ -126,9 +126,9 @@ func (m *Manager) Delete(_ context.Context, entry registry.Entry) error {
 
 // --- registry.TransactionListener ---
 
-func (m *Manager) Begin(_ context.Context)   {}
-func (m *Manager) Commit(_ context.Context)  {}
-func (m *Manager) Discard(_ context.Context) {}
+func (m *Manager) Begin(_ context.Context) error   { return nil }
+func (m *Manager) Commit(_ context.Context) error  { return nil }
+func (m *Manager) Discard(_ context.Context) error { return nil }
 
 // --- internal ---
 

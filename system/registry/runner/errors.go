@@ -3,10 +3,12 @@
 package runner
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
+	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 )
 
@@ -63,6 +65,44 @@ func NewEventHandlerTimeoutError(timeout time.Duration, entryID registry.ID, kin
 	return apierror.New(apierror.Timeout, "event handler timeout after "+timeout.String()+" for entry "+entryID.String()+" (kind: "+kind+"): no listener responded - check if listener is registered for this kind").
 		WithRetryable(apierror.True).
 		WithDetails(attrs.NewBagFrom(map[string]any{"timeout": timeout.String(), "entry_id": entryID.String(), "kind": kind}))
+}
+
+// NewTransactionTimeoutError creates an error when transaction listeners do not acknowledge a lifecycle event.
+func NewTransactionTimeoutError(kind event.Kind, timeout time.Duration, expected, accepted int) apierror.Error {
+	return apierror.New(apierror.Timeout, "transaction handler timeout after "+timeout.String()+" for "+kind+": accepted "+strconv.Itoa(accepted)+" of "+strconv.Itoa(expected)).
+		WithRetryable(apierror.True).
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"timeout":  timeout.String(),
+			"kind":     kind,
+			"expected": expected,
+			"accepted": accepted,
+		}))
+}
+
+// NewDuplicateTransactionParticipantError creates an error for ambiguous transaction reply identities.
+func NewDuplicateTransactionParticipantError(id string) apierror.Error {
+	return apierror.New(apierror.Invalid, "duplicate transaction participant id: "+id).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"participant_id": id}))
+}
+
+// NewAwaitServiceMissingError creates an error when a runner is used without the await service.
+func NewAwaitServiceMissingError() apierror.Error {
+	return apierror.New(apierror.Internal, "event await service is required for registry event coordination").
+		WithRetryable(apierror.False)
+}
+
+// NewTransactionRejectedError creates an error when a transaction listener rejects a lifecycle event.
+func NewTransactionRejectedError(kind event.Kind, err error) apierror.Error {
+	if err == nil {
+		return apierror.New(apierror.Invalid, "transaction rejected for "+kind).
+			WithRetryable(apierror.False).
+			WithDetails(attrs.NewBagFrom(map[string]any{"kind": kind}))
+	}
+	return apierror.New(apierror.Invalid, "transaction rejected for "+kind).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"kind": kind})).
+		WithCause(err)
 }
 
 // NewListenEventsError creates an error when subscribing to events fails

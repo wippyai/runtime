@@ -6,6 +6,7 @@ package function
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
@@ -34,9 +35,18 @@ type configEntry struct {
 	limits    api.LimitsConfig
 }
 
+// poolEntry is one callable generation. Relay host registration is non-replacing,
+// so every generation gets a unique host and retired generations stay alive until
+// active calls release them.
 type poolEntry struct {
-	pool   funcpool.Pool
-	method string
+	drained  chan struct{}
+	pool     funcpool.Pool
+	method   string
+	hostID   string
+	mu       sync.Mutex
+	active   int
+	stopOnce sync.Once
+	retired  bool
 }
 
 // Manager handles WASM function loading, pooling and execution.
@@ -55,6 +65,7 @@ type Manager struct {
 	componentRT  *wasmrt.Runtime
 	hostRegistry *wasmcomponent.HostRegistry
 	mu           sync.RWMutex
+	hostSeq      atomic.Uint64
 	started      bool
 }
 
@@ -78,6 +89,13 @@ func NewManager(
 
 // Start initializes runtime dependencies.
 func (m *Manager) Start(ctx context.Context) error {
+	m.mu.RLock()
+	if m.started {
+		m.mu.RUnlock()
+		return nil
+	}
+	m.mu.RUnlock()
+
 	m.ctx = ctx
 	m.topo = topology.GetTopology(ctx)
 	m.pidReg = topology.GetRegistry(ctx)
@@ -95,11 +113,31 @@ func (m *Manager) Start(ctx context.Context) error {
 	}
 
 	m.mu.Lock()
+	if m.started {
+		m.mu.Unlock()
+		_ = componentRT.Close(ctx)
+		_ = coreRT.Close(ctx)
+		return nil
+	}
 	m.coreRT = coreRT
 	m.componentRT = componentRT
 	m.started = true
+	entries := make([]*poolEntry, 0, len(m.pools))
+	for _, entry := range m.pools {
+		entries = append(entries, entry)
+	}
 	m.mu.Unlock()
 	m.hostRegistry.ResetLoaded()
+
+	for _, entry := range entries {
+		entry.pool.Start()
+		if m.node != nil && entry.hostID != "" {
+			if err := m.node.RegisterHost(entry.hostID, entry.pool); err != nil {
+				entry.pool.Stop()
+				return err
+			}
+		}
+	}
 
 	m.log.Info("wasm function manager started")
 	return nil
@@ -113,7 +151,7 @@ func (m *Manager) Stop() {
 	for id, entry := range m.pools {
 		entry.pool.Stop()
 		if m.node != nil {
-			m.node.UnregisterHost(id.String())
+			m.node.UnregisterHost(entry.hostID)
 		}
 		m.log.Debug("pool stopped", zap.String("id", id.String()))
 	}
