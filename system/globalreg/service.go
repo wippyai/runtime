@@ -14,12 +14,15 @@ import (
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/globalreg"
+	"github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	raftapi "github.com/wippyai/runtime/api/raft"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
 
+	otelmetric "go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -45,6 +48,7 @@ type Service struct {
 	stopCh        chan struct{}
 	logger        *zap.Logger
 	fsm           *FSM
+	tel           *telemetry
 	pending       map[uint64]chan *forwardResponse
 	monitoredPIDs sync.Map
 	localNode     pid.NodeID
@@ -63,6 +67,10 @@ type forwardResponse struct {
 var correlationIDCounter atomic.Uint64
 
 // NewService creates a new global registry service.
+//
+// The trailing coll/mp/tp parameters wire OTel-style metrics for the
+// pg_fence_*/pg_globalreg_* series consumed by the runtime dashboards. Pass
+// nil for any of them to disable telemetry; the recorders are nil-safe.
 func NewService(
 	raftSvc raftapi.Service,
 	fsm *FSM,
@@ -71,10 +79,19 @@ func NewService(
 	router relay.Receiver,
 	localNode pid.NodeID,
 	logger *zap.Logger,
+	coll metrics.Collector,
+	mp otelmetric.MeterProvider,
+	tp trace.TracerProvider,
 ) *Service {
+	tel := newTelemetry(coll, mp, tp)
+	if fsm != nil {
+		fsm.SetTelemetry(tel)
+	}
+
 	return &Service{
 		raftSvc:   raftSvc,
 		fsm:       fsm,
+		tel:       tel,
 		bus:       bus,
 		topo:      topo,
 		router:    router,
@@ -609,6 +626,26 @@ func (s *Service) IsDegraded() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.degraded
+}
+
+// RecordFenceRejection emits the pg_fence_rejection_total counter. It is
+// intended to be wired as a callback from the relay Router so the rejection
+// site (which validates the fence token before delivery) does not have to
+// depend on the metrics package directly.
+func (s *Service) RecordFenceRejection(name, reason string) {
+	if s == nil || s.tel == nil {
+		return
+	}
+
+	// Use the global name as the "pg" label; for pg-process-group messages
+	// the global name is the group identifier, which is exactly what the
+	// dashboard wants to slice by.
+	pg := name
+	if pg == "" {
+		pg = HostID
+	}
+
+	s.tel.recordFenceRejection(pg, reason)
 }
 
 // Ensure Service implements the interfaces.

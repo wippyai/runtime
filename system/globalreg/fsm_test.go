@@ -10,7 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/internal/telemetrytest"
 )
 
 func makePID(node, host, uniq string) pid.PID {
@@ -260,6 +262,65 @@ func TestCommand_EncodeDecode(t *testing.T) {
 	assert.Equal(t, original.Type, decoded.Type)
 	assert.Equal(t, original.Name, decoded.Name)
 	assert.Equal(t, original.NodeID, decoded.NodeID)
+}
+
+func TestFSM_Telemetry_EmitsFenceTokenAndSize(t *testing.T) {
+	rec := telemetrytest.NewRecorder()
+	fsm := NewFSM()
+	fsm.SetTelemetry(newTelemetry(rec, nil, nil))
+
+	// Initial size sample fires on SetTelemetry.
+	if v := rec.GaugeValue("pg_globalreg_size", nil); v != 0 {
+		t.Fatalf("initial pg_globalreg_size: want 0, got %v", v)
+	}
+
+	p := makePID("node1", "host1", "pid1")
+	data, err := EncodeCommand(&Command{Type: CmdRegister, Name: "svc", PID: p, NodeID: "node1"})
+	require.NoError(t, err)
+	fsm.Apply(&hraft.Log{Data: data, Index: 42})
+
+	if v := rec.GaugeValue("pg_globalreg_size", nil); v != 1 {
+		t.Fatalf("pg_globalreg_size after register: want 1, got %v", v)
+	}
+	if v := rec.GaugeValue("pg_fence_token", metrics.Labels{"pg": HostID, "node": "node1"}); v != 42 {
+		t.Fatalf("pg_fence_token: want 42, got %v", v)
+	}
+}
+
+func TestFSM_Telemetry_EmitsDedupe(t *testing.T) {
+	rec := telemetrytest.NewRecorder()
+	fsm := NewFSM()
+	fsm.SetTelemetry(newTelemetry(rec, nil, nil))
+
+	p := makePID("node1", "host1", "pid1")
+	cmd, err := EncodeCommand(&Command{Type: CmdRegister, Name: "svc", PID: p, NodeID: "node1"})
+	require.NoError(t, err)
+	fsm.Apply(&hraft.Log{Data: cmd, Index: 1})
+	// Idempotent re-registration should be counted as dedupe.
+	fsm.Apply(&hraft.Log{Data: cmd, Index: 2})
+
+	if v := rec.CounterValue("pg_globalreg_dedupe_total", nil); v != 1 {
+		t.Fatalf("pg_globalreg_dedupe_total: want 1, got %v", v)
+	}
+}
+
+func TestFSM_Telemetry_SizeShrinksOnUnregister(t *testing.T) {
+	rec := telemetrytest.NewRecorder()
+	fsm := NewFSM()
+	fsm.SetTelemetry(newTelemetry(rec, nil, nil))
+
+	p := makePID("node1", "host1", "pid1")
+	regData, err := EncodeCommand(&Command{Type: CmdRegister, Name: "svc", PID: p, NodeID: "node1"})
+	require.NoError(t, err)
+	fsm.Apply(&hraft.Log{Data: regData, Index: 1})
+
+	unregData, err := EncodeCommand(&Command{Type: CmdUnregister, Name: "svc"})
+	require.NoError(t, err)
+	fsm.Apply(&hraft.Log{Data: unregData, Index: 2})
+
+	if v := rec.GaugeValue("pg_globalreg_size", nil); v != 0 {
+		t.Fatalf("pg_globalreg_size after unregister: want 0, got %v", v)
+	}
 }
 
 // --- Test helpers ---

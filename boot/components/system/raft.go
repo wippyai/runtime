@@ -105,12 +105,16 @@ func Raft() boot.Component {
 				router,
 				node.ID(),
 				logger.Named("globalreg"),
+				nil, nil, nil,
 			)
 
 			// Wire the global registry into the Router for receiver-side
-			// fence token validation on every message send.
+			// fence token validation on every message send. The fence
+			// rejection callback funnels into the globalreg telemetry so
+			// the relay package can stay metrics-agnostic.
 			if concreteRouter, ok := router.(*sysrelay.Router); ok {
 				concreteRouter.SetGlobalRegistry(globalRegSvc)
+				concreteRouter.SetOnFenceReject(globalRegSvc.RecordFenceRejection)
 			}
 
 			// Register the global registry as a relay host synchronously

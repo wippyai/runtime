@@ -74,11 +74,6 @@ func TestTelemetry_NilCollector_NoPanic(t *testing.T) {
 	tt.recordCircuitBreakerTrip("g1")
 	tt.recordRetry("g1", "broadcast", 1)
 	tt.recordRetryGiveup("g1", "broadcast")
-	tt.recordDispatcherInflight("g1", 0)
-	tt.recordFenceToken("g1", "node-a", 1)
-	tt.recordFenceRejection("g1", "stale_token")
-	tt.recordGlobalregSize(0)
-	tt.recordGlobalregDedupe()
 }
 
 func TestTelemetry_RecordQueue(t *testing.T) {
@@ -118,38 +113,6 @@ func TestTelemetry_RecordRetry(t *testing.T) {
 	tt.recordRetryGiveup("g1", "broadcast")
 	if v := rec.CounterValue("pg_retry_giveup_total", metrics.Labels{"pg": "g1", "op": "broadcast"}); v != 1 {
 		t.Fatalf("pg_retry_giveup_total: want 1, got %v", v)
-	}
-}
-
-func TestTelemetry_RecordDispatcher(t *testing.T) {
-	tt, rec := newTestTelemetry(t)
-	tt.recordDispatcherInflight("g1", 4)
-	if v := rec.GaugeValue("pg_dispatcher_inflight", metrics.Labels{"pg": "g1"}); v != 4 {
-		t.Fatalf("pg_dispatcher_inflight: want 4, got %v", v)
-	}
-}
-
-func TestTelemetry_RecordFence(t *testing.T) {
-	tt, rec := newTestTelemetry(t)
-	tt.recordFenceToken("g1", "node-a", 7)
-	if v := rec.GaugeValue("pg_fence_token", metrics.Labels{"pg": "g1", "node": "node-a"}); v != 7 {
-		t.Fatalf("pg_fence_token: want 7, got %v", v)
-	}
-	tt.recordFenceRejection("g1", "stale_token")
-	if v := rec.CounterValue("pg_fence_rejection_total", metrics.Labels{"pg": "g1", "reason": "stale_token"}); v != 1 {
-		t.Fatalf("pg_fence_rejection_total: want 1, got %v", v)
-	}
-}
-
-func TestTelemetry_RecordGlobalreg(t *testing.T) {
-	tt, rec := newTestTelemetry(t)
-	tt.recordGlobalregSize(42)
-	if v := rec.GaugeValue("pg_globalreg_size", nil); v != 42 {
-		t.Fatalf("pg_globalreg_size: want 42, got %v", v)
-	}
-	tt.recordGlobalregDedupe()
-	if v := rec.CounterValue("pg_globalreg_dedupe_total", nil); v != 1 {
-		t.Fatalf("pg_globalreg_dedupe_total: want 1, got %v", v)
 	}
 }
 

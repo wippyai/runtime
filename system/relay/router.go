@@ -10,15 +10,24 @@ import (
 	api "github.com/wippyai/runtime/api/relay"
 )
 
+// FenceRejectFunc is invoked when a package is rejected because its fence
+// token does not match the current registration of the referenced global
+// name. The runtime wires this to the globalreg Service so it can emit the
+// pg_fence_rejection_total metric without the relay package depending on
+// metrics directly.
+type FenceRejectFunc func(globalName, reason string)
+
 // Router orchestrates message delivery between a local node and external upstreams.
 // It acts as the primary Receiver for the system.
 type Router struct {
-	localNode   api.Node
-	internode   api.Receiver
-	globalReg   globalreg.Registry
-	peers       sync.Map // NodeID -> Receiver
-	internodeMu sync.RWMutex
-	globalRegMu sync.RWMutex
+	localNode     api.Node
+	internode     api.Receiver
+	globalReg     globalreg.Registry
+	onFenceReject FenceRejectFunc
+	peers         sync.Map // NodeID -> Receiver
+	internodeMu   sync.RWMutex
+	globalRegMu   sync.RWMutex
+	fenceRejectMu sync.RWMutex
 }
 
 // NewRouter creates a new router.
@@ -71,6 +80,14 @@ func (r *Router) SetGlobalRegistry(reg globalreg.Registry) {
 	r.globalRegMu.Unlock()
 }
 
+// SetOnFenceReject installs a callback invoked whenever a package is dropped
+// due to a fence-token mismatch. Pass nil to clear.
+func (r *Router) SetOnFenceReject(fn FenceRejectFunc) {
+	r.fenceRejectMu.Lock()
+	r.onFenceReject = fn
+	r.fenceRejectMu.Unlock()
+}
+
 // Send routes the package to the appropriate destination.
 // Routing priority: local node → peer nodes → internode fallback.
 // If the package carries a fence token, the receiver's FSM validates it
@@ -87,6 +104,13 @@ func (r *Router) Send(pkg *api.Package) error {
 		r.globalRegMu.RUnlock()
 		if gr != nil {
 			if err := gr.ValidateFence(pkg.GlobalName, pkg.FenceToken); err != nil {
+				r.fenceRejectMu.RLock()
+				cb := r.onFenceReject
+				r.fenceRejectMu.RUnlock()
+				if cb != nil {
+					cb(pkg.GlobalName, "stale_token")
+				}
+
 				return err
 			}
 		}

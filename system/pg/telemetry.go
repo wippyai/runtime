@@ -128,46 +128,6 @@ func (t *telemetry) recordRetryGiveup(pg, op string) {
 	t.coll.CounterInc("pg_retry_giveup_total", metrics.Labels{"pg": pg, "op": op})
 }
 
-func (t *telemetry) recordDispatcherInflight(pg string, n int) {
-	if t == nil || t.coll == nil {
-		return
-	}
-
-	t.coll.GaugeSet("pg_dispatcher_inflight", float64(n), metrics.Labels{"pg": pg})
-}
-
-func (t *telemetry) recordFenceToken(pg, node string, token uint64) {
-	if t == nil || t.coll == nil {
-		return
-	}
-
-	t.coll.GaugeSet("pg_fence_token", float64(token), metrics.Labels{"pg": pg, "node": node})
-}
-
-func (t *telemetry) recordFenceRejection(pg, reason string) {
-	if t == nil || t.coll == nil {
-		return
-	}
-
-	t.coll.CounterInc("pg_fence_rejection_total", metrics.Labels{"pg": pg, "reason": reason})
-}
-
-func (t *telemetry) recordGlobalregSize(n int) {
-	if t == nil || t.coll == nil {
-		return
-	}
-
-	t.coll.GaugeSet("pg_globalreg_size", float64(n), nil)
-}
-
-func (t *telemetry) recordGlobalregDedupe() {
-	if t == nil || t.coll == nil {
-		return
-	}
-
-	t.coll.CounterInc("pg_globalreg_dedupe_total", nil)
-}
-
 func (t *telemetry) startSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
 	if t == nil || t.tracer == nil {
 		return ctx, trace.SpanFromContext(ctx)

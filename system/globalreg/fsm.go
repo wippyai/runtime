@@ -22,6 +22,8 @@ import (
 type FSM struct {
 	state   *shardedState
 	resolve globalreg.ResolveFunc
+	tel     *telemetry
+	pgLabel string // value for the "pg" telemetry label on fence_token gauges.
 }
 
 // NewFSM creates a new FSM with an empty sharded state.
@@ -29,11 +31,26 @@ type FSM struct {
 // is already registered to a different PID (e.g., after partition heal).
 // If nil, DefaultResolve (first-write-wins) is used.
 func NewFSM(resolve ...globalreg.ResolveFunc) *FSM {
-	f := &FSM{state: newShardedState(), resolve: globalreg.DefaultResolve}
+	f := &FSM{
+		state:   newShardedState(),
+		resolve: globalreg.DefaultResolve,
+		pgLabel: HostID,
+	}
 	if len(resolve) > 0 && resolve[0] != nil {
 		f.resolve = resolve[0]
 	}
+
 	return f
+}
+
+// SetTelemetry installs the metrics recorder used to emit pg_fence_*/
+// pg_globalreg_* series. Safe to call once during boot; the FSM is otherwise
+// silent (nil-safe recorders).
+func (f *FSM) SetTelemetry(tel *telemetry) {
+	f.tel = tel
+	// Emit an initial size sample so the gauge is non-empty before the
+	// first mutation.
+	f.tel.recordGlobalregSize(f.state.Len())
 }
 
 // State returns the underlying sharded state for direct read access.
@@ -69,14 +86,24 @@ func (f *FSM) applyRegister(cmd *Command, index uint64) any {
 	if nodeID == "" {
 		nodeID = cmd.PID.Node
 	}
-	existing, ok := f.state.register(cmd.Name, cmd.PID, nodeID, index)
-	if !ok {
+	existing, outcome := f.state.register(cmd.Name, cmd.PID, nodeID, index)
+	switch outcome {
+	case registerInserted:
+		f.tel.recordFenceToken(f.pgLabel, nodeID, index)
+		f.tel.recordGlobalregSize(f.state.Len())
+		return &RegisterResult{PID: existing}
+	case registerDedupe:
+		f.tel.recordGlobalregDedupe()
+		return &RegisterResult{PID: existing}
+	case registerConflict:
 		// Name taken by a different PID. Invoke conflict resolution.
 		winner := f.resolve(cmd.Name, existing, cmd.PID)
 		if winner == cmd.PID {
 			// Resolve chose the incoming PID — force re-register.
 			f.state.unregister(cmd.Name)
 			f.state.register(cmd.Name, cmd.PID, nodeID, index)
+			f.tel.recordFenceToken(f.pgLabel, nodeID, index)
+			f.tel.recordGlobalregSize(f.state.Len())
 			return &RegisterResult{
 				PID:         cmd.PID,
 				ResolvedPID: existing, // the loser
@@ -87,22 +114,38 @@ func (f *FSM) applyRegister(cmd *Command, index uint64) any {
 			ExistingPID: existing,
 			Err:         fmt.Errorf("global name %q already registered to %s", cmd.Name, existing.String()),
 		}
+	default:
+		return &RegisterResult{
+			ExistingPID: existing,
+			Err:         fmt.Errorf("globalreg: unknown register outcome %d", outcome),
+		}
 	}
-	return &RegisterResult{PID: existing}
 }
 
 func (f *FSM) applyUnregister(cmd *Command) any {
 	removed := f.state.unregister(cmd.Name)
+	if removed {
+		f.tel.recordGlobalregSize(f.state.Len())
+	}
+
 	return &UnregisterResult{Removed: removed}
 }
 
 func (f *FSM) applyRemovePID(cmd *Command) any {
 	count := f.state.removePID(cmd.PID)
+	if count > 0 {
+		f.tel.recordGlobalregSize(f.state.Len())
+	}
+
 	return &RemoveResult{Count: count}
 }
 
 func (f *FSM) applyRemoveNode(cmd *Command) any {
 	count := f.state.removeNode(cmd.NodeID)
+	if count > 0 {
+		f.tel.recordGlobalregSize(f.state.Len())
+	}
+
 	return &RemoveResult{Count: count}
 }
 
@@ -145,6 +188,7 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 	}
 
 	f.state.restore(entries)
+	f.tel.recordGlobalregSize(f.state.Len())
 	return nil
 }
 

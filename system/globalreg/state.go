@@ -101,6 +101,21 @@ func (s *shardedState) ValidateFence(name string, token uint64) bool {
 	return token >= e.AppliedAt
 }
 
+// Len returns the total number of registered names across all shards.
+// Acquires read-locks on every shard briefly so the result is a consistent
+// point-in-time count. Intended for telemetry — do not call in tight loops.
+func (s *shardedState) Len() int {
+	total := 0
+	for i := range s.shards {
+		sh := &s.shards[i]
+		sh.mu.RLock()
+		total += len(sh.names)
+		sh.mu.RUnlock()
+	}
+
+	return total
+}
+
 // LookupByPID returns all names registered to a PID.
 // Since pid → names is stored per-shard in pidNames, we must scan
 // all shards (the PID may have names hashing to different shards).
@@ -120,11 +135,25 @@ func (s *shardedState) LookupByPID(p pid.PID) []string {
 
 // --- Write operations (called from FSM.Apply, single-threaded) ---
 
+// registerOutcome captures the disposition of a register attempt. It lets
+// callers (FSM/Service) emit fine-grained telemetry — fresh registration vs
+// idempotent dedupe vs name-collision — without re-deriving the case.
+type registerOutcome uint8
+
+const (
+	// registerInserted means a brand-new name → PID mapping was committed.
+	registerInserted registerOutcome = iota
+	// registerDedupe means the name was already mapped to the same PID; no-op.
+	registerDedupe
+	// registerConflict means the name is already taken by a different PID.
+	registerConflict
+)
+
 // register attempts to insert or verify a name → PID mapping.
-// Returns the existing PID and false if the name is taken by another PID.
-// Returns the supplied PID and true if the name was successfully registered
-// (or was already registered by the same PID — idempotent).
-func (s *shardedState) register(name string, p pid.PID, nodeID pid.NodeID, index uint64) (pid.PID, bool) {
+// On success it returns the supplied PID and either registerInserted (fresh)
+// or registerDedupe (already mapped to the same PID — idempotent no-op).
+// On collision it returns the existing owner PID and registerConflict.
+func (s *shardedState) register(name string, p pid.PID, nodeID pid.NodeID, index uint64) (pid.PID, registerOutcome) {
 	sh := &s.shards[shardFor(name)]
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
@@ -132,9 +161,10 @@ func (s *shardedState) register(name string, p pid.PID, nodeID pid.NodeID, index
 	if existing, ok := sh.names[name]; ok {
 		if existing.PID == p {
 			// Idempotent re-registration.
-			return p, true
+			return p, registerDedupe
 		}
-		return existing.PID, false
+
+		return existing.PID, registerConflict
 	}
 
 	sh.names[name] = &nameEntry{PID: p, NodeID: nodeID, AppliedAt: index}
@@ -145,7 +175,7 @@ func (s *shardedState) register(name string, p pid.PID, nodeID pid.NodeID, index
 	// Update node index.
 	s.addToNodeIndex(nodeID, pidKey)
 
-	return p, true
+	return p, registerInserted
 }
 
 // unregister removes a single name. Returns true if the name existed.

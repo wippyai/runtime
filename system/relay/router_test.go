@@ -188,6 +188,53 @@ func TestRouter_FenceValidation(t *testing.T) {
 		assert.Equal(t, int32(0), atomic.LoadInt32(&localNode.sendCalled), "should NOT route when fence is stale")
 	})
 
+	t.Run("OnFenceReject callback fires on rejection", func(t *testing.T) {
+		localNode := &mockNode{id: "local"}
+		router := relay.NewRouter(localNode, nil)
+		validator := &mockFenceValidator{validateErr: globalreg.ErrStaleFence}
+		router.SetGlobalRegistry(validator)
+
+		var callbackCalls int32
+		var capturedName, capturedReason string
+		router.SetOnFenceReject(func(name, reason string) {
+			atomic.AddInt32(&callbackCalls, 1)
+			capturedName = name
+			capturedReason = reason
+		})
+
+		pkg := &relayapi.Package{
+			Target:     pid.PID{Node: "local", Host: "h1"},
+			FenceToken: 10,
+			GlobalName: "my-service",
+		}
+		err := router.Send(pkg)
+		require.Error(t, err)
+		assert.Equal(t, int32(1), atomic.LoadInt32(&callbackCalls))
+		assert.Equal(t, "my-service", capturedName)
+		assert.Equal(t, "stale_token", capturedReason)
+	})
+
+	t.Run("OnFenceReject not invoked when validation passes", func(t *testing.T) {
+		localNode := &mockNode{id: "local"}
+		router := relay.NewRouter(localNode, nil)
+		validator := &mockFenceValidator{validateErr: nil}
+		router.SetGlobalRegistry(validator)
+
+		var callbackCalls int32
+		router.SetOnFenceReject(func(_, _ string) {
+			atomic.AddInt32(&callbackCalls, 1)
+		})
+
+		pkg := &relayapi.Package{
+			Target:     pid.PID{Node: "local", Host: "h1"},
+			FenceToken: 7,
+			GlobalName: "my-service",
+		}
+		err := router.Send(pkg)
+		require.NoError(t, err)
+		assert.Equal(t, int32(0), atomic.LoadInt32(&callbackCalls))
+	})
+
 	t.Run("Skipped when no token", func(t *testing.T) {
 		localNode := &mockNode{id: "local"}
 		router := relay.NewRouter(localNode, nil)
