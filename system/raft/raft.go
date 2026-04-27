@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -600,6 +601,71 @@ func (it *instrumentedTransport) Close() error {
 	}
 
 	return nil
+}
+
+// AppendEntriesPipeline wraps the inner pipeline so streaming AE replications
+// also emit raft_append_entries_* metrics. Without this wrap, steady-state
+// raft traffic (which uses the pipeline path) is invisible.
+func (it *instrumentedTransport) AppendEntriesPipeline(id hraft.ServerID,
+	target hraft.ServerAddress) (hraft.AppendPipeline, error) {
+	inner, err := it.Transport.AppendEntriesPipeline(id, target)
+	if err != nil {
+		return nil, err
+	}
+	return &instrumentedPipeline{AppendPipeline: inner, tel: it.tel, peer: string(id)}, nil
+}
+
+// RequestVote wraps RequestVote so leader-election RPCs are visible too.
+func (it *instrumentedTransport) RequestVote(id hraft.ServerID, target hraft.ServerAddress,
+	args *hraft.RequestVoteRequest, resp *hraft.RequestVoteResponse) error {
+	start := time.Now()
+	err := it.Transport.RequestVote(id, target, args, resp)
+	it.tel.recordRequestVote(string(id), err, time.Since(start))
+	return err
+}
+
+// InstallSnapshot wraps the snapshot transport so we record outgoing snapshot
+// pushes alongside FSM-side snapshot persistence.
+func (it *instrumentedTransport) InstallSnapshot(id hraft.ServerID, target hraft.ServerAddress,
+	args *hraft.InstallSnapshotRequest, resp *hraft.InstallSnapshotResponse, data io.Reader) error {
+	start := time.Now()
+	err := it.Transport.InstallSnapshot(id, target, args, resp, data)
+	it.tel.recordInstallSnapshot(string(id), err, time.Since(start))
+	return err
+}
+
+// instrumentedPipeline counts each pipelined AppendEntries call. Latency is
+// recorded when the response future resolves so the histogram reflects the
+// actual round-trip, not just the enqueue cost.
+type instrumentedPipeline struct {
+	hraft.AppendPipeline
+	tel  *telemetry
+	peer string
+}
+
+func (p *instrumentedPipeline) AppendEntries(args *hraft.AppendEntriesRequest,
+	resp *hraft.AppendEntriesResponse) (hraft.AppendFuture, error) {
+	start := time.Now()
+	fut, err := p.AppendPipeline.AppendEntries(args, resp)
+	if err != nil {
+		p.tel.recordAppendEntries(p.peer, err, time.Since(start))
+		return nil, err
+	}
+	return &instrumentedFuture{AppendFuture: fut, tel: p.tel, peer: p.peer, start: start}, nil
+}
+
+// instrumentedFuture observes the response of a pipelined AppendEntries.
+type instrumentedFuture struct {
+	hraft.AppendFuture
+	start time.Time
+	tel   *telemetry
+	peer  string
+}
+
+func (f *instrumentedFuture) Error() error {
+	err := f.AppendFuture.Error()
+	f.tel.recordAppendEntries(f.peer, err, time.Since(f.start))
+	return err
 }
 
 // instrumentedFSM wraps a user-supplied hraft.FSM so Snapshot calls emit
