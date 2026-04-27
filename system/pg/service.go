@@ -20,6 +20,7 @@ import (
 	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/system/eventbus"
+	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -570,6 +571,15 @@ func (s *Service) handleNodeLeftEvent(e event.Event) {
 
 // Join adds a local process to a group.
 func (s *Service) Join(group pgapi.Group, p pid.PID) error {
+	ctx, span := s.tel.startSpan(s.currentCtx(), "pg.join",
+		trace.WithAttributes(
+			attribute.String("pg.name", group),
+			attribute.String("node.id", s.localNodeID),
+		),
+	)
+	defer span.End()
+	_ = ctx
+
 	start := time.Now()
 	done := make(chan error, 1)
 	if !s.submit(func() {
@@ -612,15 +622,18 @@ func (s *Service) Join(group pgapi.Group, p pid.PID) error {
 		done <- nil
 	}) {
 		err := s.submitError()
+		s.tel.setSpanError(span, err)
 		s.tel.recordJoin(group, err, time.Since(start))
 		return err
 	}
 
 	select {
 	case err := <-done:
+		s.tel.setSpanError(span, err)
 		s.tel.recordJoin(group, err, time.Since(start))
 		return err
 	case <-s.currentCtx().Done():
+		s.tel.setSpanError(span, ErrServiceStopped)
 		s.tel.recordJoin(group, ErrServiceStopped, time.Since(start))
 		return ErrServiceStopped
 	}
@@ -689,6 +702,15 @@ func (s *Service) JoinGroups(groups []pgapi.Group, p pid.PID) error {
 
 // Leave removes a local process from a group.
 func (s *Service) Leave(group pgapi.Group, p pid.PID) error {
+	ctx, span := s.tel.startSpan(s.currentCtx(), "pg.leave",
+		trace.WithAttributes(
+			attribute.String("pg.name", group),
+			attribute.String("node.id", s.localNodeID),
+		),
+	)
+	defer span.End()
+	_ = ctx
+
 	start := time.Now()
 	done := make(chan error, 1)
 	if !s.submit(func() {
@@ -712,15 +734,18 @@ func (s *Service) Leave(group pgapi.Group, p pid.PID) error {
 		done <- nil
 	}) {
 		err := s.submitError()
+		s.tel.setSpanError(span, err)
 		s.tel.recordLeave(group, err, time.Since(start))
 		return err
 	}
 
 	select {
 	case err := <-done:
+		s.tel.setSpanError(span, err)
 		s.tel.recordLeave(group, err, time.Since(start))
 		return err
 	case <-s.currentCtx().Done():
+		s.tel.setSpanError(span, ErrServiceStopped)
 		s.tel.recordLeave(group, ErrServiceStopped, time.Since(start))
 		return ErrServiceStopped
 	}
@@ -996,6 +1021,15 @@ func (s *Service) Events(p pid.PID, topic string) pgapi.EventsResult {
 
 // Broadcast sends a message to all members of a group across all nodes.
 func (s *Service) Broadcast(from pid.PID, group pgapi.Group, topic string, payloads payload.Payloads) (int, error) {
+	ctx, span := s.tel.startSpan(s.currentCtx(), "pg.broadcast",
+		trace.WithAttributes(
+			attribute.String("pg.name", group),
+			attribute.String("node.id", s.localNodeID),
+		),
+	)
+	defer span.End()
+	_ = ctx
+
 	start := time.Now()
 	// Snapshot members inside the event loop for consistency.
 	membersCh := make(chan []pid.PID, 1)
@@ -1003,6 +1037,7 @@ func (s *Service) Broadcast(from pid.PID, group pgapi.Group, topic string, paylo
 		membersCh <- s.state.getMembers(group)
 	}) {
 		err := s.submitError()
+		s.tel.setSpanError(span, err)
 		s.tel.recordBroadcast(group, 0, err, time.Since(start))
 		return 0, err
 	}
@@ -1011,12 +1046,14 @@ func (s *Service) Broadcast(from pid.PID, group pgapi.Group, topic string, paylo
 	select {
 	case members = <-membersCh:
 	case <-s.currentCtx().Done():
+		s.tel.setSpanError(span, ErrServiceStopped)
 		s.tel.recordBroadcast(group, 0, ErrServiceStopped, time.Since(start))
 		return 0, ErrServiceStopped
 	}
 
 	// Send outside the event loop so we don't block the action queue.
 	sent := s.sendToMembers(from, topic, payloads, members)
+	span.SetAttributes(attribute.Int("pg.recipients", sent))
 	s.tel.recordBroadcast(group, sent, nil, time.Since(start))
 	return sent, nil
 }

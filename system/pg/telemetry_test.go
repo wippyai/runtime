@@ -3,11 +3,15 @@
 package pg
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/internal/telemetrytest"
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 func newTestTelemetry(t *testing.T) (*telemetry, *telemetrytest.Recorder) {
@@ -154,3 +158,38 @@ var errSomething = errStub("boom")
 type errStub string
 
 func (e errStub) Error() string { return string(e) }
+
+func newTestTelemetryWithSpans(t *testing.T) (*telemetry, *telemetrytest.Recorder, *tracetest.SpanRecorder) {
+	t.Helper()
+	rec := telemetrytest.NewRecorder()
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	return newTelemetry(rec, nil, tp), rec, sr
+}
+
+func TestTelemetry_JoinSpan_Success(t *testing.T) {
+	tt, _, sr := newTestTelemetryWithSpans(t)
+	_, span := tt.startSpan(context.Background(), "pg.join")
+	span.End()
+	spans := sr.Ended()
+	if len(spans) != 1 {
+		t.Fatalf("want 1 span, got %d", len(spans))
+	}
+	if spans[0].Name() != "pg.join" {
+		t.Fatalf("name: want pg.join, got %s", spans[0].Name())
+	}
+}
+
+func TestTelemetry_SetSpanError(t *testing.T) {
+	tt, _, sr := newTestTelemetryWithSpans(t)
+	_, span := tt.startSpan(context.Background(), "pg.broadcast")
+	tt.setSpanError(span, errSomething)
+	span.End()
+	spans := sr.Ended()
+	if len(spans) != 1 {
+		t.Fatal("want 1 span")
+	}
+	if spans[0].Status().Code != codes.Error {
+		t.Fatalf("want Error code, got %v", spans[0].Status().Code)
+	}
+}
