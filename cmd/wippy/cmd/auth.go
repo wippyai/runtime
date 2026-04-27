@@ -156,7 +156,8 @@ func runAuthLogin(cmd *cobra.Command, _ []string) error {
 		// Scope intentionally left empty: the registry's /api/v1/account/orgs
 		// validate endpoint does not echo the token's scope, and hard-coding
 		// "read" here misled `wippy auth status` into reporting read-only for
-		// publish/admin tokens. Status now omits the field when unknown.
+		// publish/admin tokens. Human-readable status output omits the field
+		// when unknown.
 	}
 
 	if len(result.Orgs) > 0 {
