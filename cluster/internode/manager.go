@@ -518,7 +518,7 @@ func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
 		loop.connection.Close()
 		loop.connection = nil
 		if len(pending) > 0 {
-			loop.manager.nodeStates.RequeueMessages(loop.nodeID, pending)
+			loop.manager.nodeStates.RequeueMessagesClass(loop.nodeID, pending, ClassPGBroadcast)
 		}
 	}
 	loop.manager.nodeStates.SetNodeConnection(loop.nodeID, nil, StateNone)
@@ -551,7 +551,7 @@ func (loop *nodeControlLoop) cleanup() {
 		loop.connection.Close()
 		loop.connection = nil
 		if len(pending) > 0 {
-			loop.manager.nodeStates.RequeueMessages(loop.nodeID, pending)
+			loop.manager.nodeStates.RequeueMessagesClass(loop.nodeID, pending, ClassPGBroadcast)
 		}
 	}
 	loop.manager.nodeStates.SetNodeConnection(loop.nodeID, nil, StateNone)
@@ -623,7 +623,7 @@ func (loop *nodeControlLoop) drainMessages() {
 	for i, data := range messages {
 		if err := loop.connection.Send(data); err != nil {
 			loop.logger.Error("Failed to send message, will be requeued", zap.Error(err))
-			loop.manager.nodeStates.RequeueMessages(loop.nodeID, messages[i:])
+			loop.manager.nodeStates.RequeueMessagesClass(loop.nodeID, messages[i:], ClassPGBroadcast)
 			break
 		}
 	}

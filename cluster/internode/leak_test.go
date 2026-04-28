@@ -87,3 +87,29 @@ func TestDrainPriority_ControlBeforeBroadcast(t *testing.T) {
 		t.Fatalf("expected bcast second, got %q", string(got[1]))
 	}
 }
+
+func TestRequeueRespectsCap(t *testing.T) {
+	cfg := DefaultManagerConfig()
+	cfg.Logger = zap.NewNop()
+	cfg.PGBroadcastQueueCap = 4
+	nsm := NewNodeStateManager(cfg, newTelemetry(nil), zap.NewNop())
+	const node cluster.NodeID = "peer"
+	nsm.CreateNodeState(node)
+
+	// Fill the queue.
+	for i := 0; i < 4; i++ {
+		_ = nsm.QueueMessageClass(node, []byte{byte(i)}, ClassPGBroadcast)
+	}
+	// Try to requeue 100 stale messages from a stuck connection — must not
+	// grow past the cap (current bug duplicates them).
+	stale := make([][]byte, 100)
+	for i := range stale {
+		stale[i] = []byte{byte(200 + i)}
+	}
+	nsm.RequeueMessagesClass(node, stale, ClassPGBroadcast)
+
+	got := nsm.DrainMessages(node, 1000)
+	if len(got) > 4 {
+		t.Fatalf("queue exceeded cap after requeue: got %d, want <=4", len(got))
+	}
+}

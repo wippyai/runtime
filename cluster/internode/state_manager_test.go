@@ -237,7 +237,7 @@ func TestNodeStateManager_RequeueMessages(t *testing.T) {
 
 	// Requeue messages (should be inserted at front)
 	toRequeue := [][]byte{{2}, {3}}
-	nsm.RequeueMessages(nodeID, toRequeue)
+	nsm.RequeueMessagesClass(nodeID, toRequeue, ClassRaftControl)
 
 	// Drain should return requeued messages first, then original
 	messages := nsm.DrainMessages(nodeID, 10)
@@ -254,7 +254,7 @@ func TestNodeStateManager_RequeueMessages_Empty(_ *testing.T) {
 	nsm.CreateNodeState(nodeID)
 
 	// Should be no-op
-	nsm.RequeueMessages(nodeID, [][]byte{})
+	nsm.RequeueMessagesClass(nodeID, [][]byte{}, ClassRaftControl)
 }
 
 func TestNodeStateManager_RequeueMessages_UnmanagedNode(_ *testing.T) {
@@ -262,7 +262,7 @@ func TestNodeStateManager_RequeueMessages_UnmanagedNode(_ *testing.T) {
 	nodeID := "unmanaged"
 
 	// Should not panic, messages dropped
-	nsm.RequeueMessages(nodeID, [][]byte{{1}, {2}})
+	nsm.RequeueMessagesClass(nodeID, [][]byte{{1}, {2}}, ClassRaftControl)
 }
 
 func TestNodeStateManager_SetGetNodeConnection(t *testing.T) {

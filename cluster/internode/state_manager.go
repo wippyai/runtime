@@ -360,42 +360,70 @@ func (nsm *NodeStateManager) GetMessageNotifier(nodeID cluster.NodeID) <-chan st
 	return state.messageNotify
 }
 
-func (nsm *NodeStateManager) RequeueMessages(nodeID cluster.NodeID, messages [][]byte) {
+// RequeueMessagesClass returns previously-extracted messages to the head
+// of the per-class queue. Respects the class cap: any messages that
+// would exceed the cap are dropped with a metric. Drop-oldest classes
+// (RaftControl) silently discard from the tail to make room; drop-newest
+// classes (Gossip, PGBroadcast) discard the tail of the requeue input.
+func (nsm *NodeStateManager) RequeueMessagesClass(nodeID cluster.NodeID, messages [][]byte, class Class) {
 	if len(messages) == 0 {
 		return
 	}
-
 	state := nsm.GetNodeState(nodeID)
 	if state == nil {
 		nsm.logger.Warn("Dropping messages to requeue for unmanaged node",
 			zap.String("node_id", nodeID),
-			zap.Int("message_count", len(messages)))
+			zap.Int("message_count", len(messages)),
+			zap.String("class", class.String()))
+		return
+	}
+	if int(class) >= numClasses {
 		return
 	}
 
 	state.queueMu.Lock()
-	q := state.queues[ClassRaftControl]
+	q := state.queues[class]
 	dropped := 0
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i] == nil {
-			continue
+	switch class {
+	case ClassRaftControl:
+		// Drop-oldest semantics: if requeue would overflow, the queue
+		// silently makes room by discarding old entries. pushFront cannot
+		// drop, so drain from tail first.
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i] == nil {
+				continue
+			}
+			if !q.pushFront(messages[i]) {
+				// Full — drop one from tail to make room.
+				if d, _ := q.pop(); d != nil {
+					dropped++
+				}
+				_ = q.pushFront(messages[i])
+			}
 		}
-		if !q.pushFront(messages[i]) {
-			dropped++
+	case ClassGossip, ClassPGBroadcast:
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i] == nil {
+				continue
+			}
+			if !q.pushFront(messages[i]) {
+				dropped++
+			}
 		}
 	}
 	depth := q.len()
 	state.queueMu.Unlock()
 
 	for i := 0; i < dropped; i++ {
-		nsm.tel.recordDrop(ClassRaftControl, "requeue_full")
+		nsm.tel.recordDrop(class, "requeue_overflow")
 	}
-	nsm.tel.recordQueueDepth(ClassRaftControl, nodeID, depth)
+	nsm.tel.recordQueueDepth(class, nodeID, depth)
+
 	if dropped > 0 {
 		nsm.logger.Warn("Dropped messages during requeue (queue full)",
 			zap.String("node_id", nodeID),
-			zap.Int("dropped", dropped),
-		)
+			zap.String("class", class.String()),
+			zap.Int("dropped", dropped))
 	}
 
 	select {
