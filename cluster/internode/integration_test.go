@@ -45,8 +45,8 @@ func TestIntegration_TwoNodeCommunication(t *testing.T) {
 	config2.InitialRetryDelay = 10 * time.Millisecond
 	config2.MaxRetryDelay = 100 * time.Millisecond
 
-	cm1 := NewConnectionManager(config1)
-	cm2 := NewConnectionManager(config2)
+	cm1 := NewConnectionManager(config1, nil)
+	cm2 := NewConnectionManager(config2, nil)
 
 	// Start both managers
 	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {
@@ -133,7 +133,7 @@ func TestIntegration_ConnectionRetryOnFailure(t *testing.T) {
 	config1.MaxRetryDelay = 200 * time.Millisecond
 	config1.MaxRetryAttempts = 20
 
-	cm1 := NewConnectionManager(config1)
+	cm1 := NewConnectionManager(config1, nil)
 
 	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {})
 	require.NoError(t, err)
@@ -154,7 +154,7 @@ func TestIntegration_ConnectionRetryOnFailure(t *testing.T) {
 	config2.AutoPort = false
 	config2.Logger = logger
 
-	cm2 := NewConnectionManager(config2)
+	cm2 := NewConnectionManager(config2, nil)
 
 	err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 		node2Received.Add(1)
@@ -210,8 +210,8 @@ func TestIntegration_GracefulDisconnect(t *testing.T) {
 	config2.AutoPort = true
 	config2.Logger = logger
 
-	cm1 := NewConnectionManager(config1)
-	cm2 := NewConnectionManager(config2)
+	cm1 := NewConnectionManager(config1, nil)
+	cm2 := NewConnectionManager(config2, nil)
 
 	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {})
 	require.NoError(t, err)
@@ -281,7 +281,7 @@ func TestIntegration_ThreeNodeCluster(t *testing.T) {
 		configs[i].MaxRetryDelay = 100 * time.Millisecond
 
 		idx := i
-		managers[i] = NewConnectionManager(configs[i])
+		managers[i] = NewConnectionManager(configs[i], nil)
 		err := managers[i].Start(ctx, func(_ cluster.NodeID, _ []byte) {
 			received[idx].Add(1)
 		})
@@ -381,8 +381,8 @@ func TestIntegration_LargeMessages(t *testing.T) {
 	config2.Logger = logger
 	config2.MaxMessageSize = 10 * 1024 * 1024
 
-	cm1 := NewConnectionManager(config1)
-	cm2 := NewConnectionManager(config2)
+	cm1 := NewConnectionManager(config1, nil)
+	cm2 := NewConnectionManager(config2, nil)
 
 	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {})
 	require.NoError(t, err)
@@ -468,8 +468,8 @@ func TestIntegration_HighThroughput(t *testing.T) {
 	config2.Logger = logger
 	config2.DrainBatchSize = 256
 
-	cm1 := NewConnectionManager(config1)
-	cm2 := NewConnectionManager(config2)
+	cm1 := NewConnectionManager(config1, nil)
+	cm2 := NewConnectionManager(config2, nil)
 
 	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {})
 	require.NoError(t, err)
@@ -551,8 +551,8 @@ func TestIntegration_ShortNetworkDisruption(t *testing.T) {
 	config2.Logger = logger
 	config2.DrainBatchSize = 128
 
-	cm1 := NewConnectionManager(config1)
-	cm2 := NewConnectionManager(config2)
+	cm1 := NewConnectionManager(config1, nil)
+	cm2 := NewConnectionManager(config2, nil)
 
 	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {})
 	require.NoError(t, err)
@@ -610,7 +610,7 @@ func TestIntegration_ShortNetworkDisruption(t *testing.T) {
 	}
 
 	// Restart node-2 with same port
-	cm2 = NewConnectionManager(config2)
+	cm2 = NewConnectionManager(config2, nil)
 	err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 		received.Add(1)
 	})
@@ -680,7 +680,7 @@ func TestIntegration_MultipleReconnections(t *testing.T) {
 	config2.Logger = logger
 	config2.DrainBatchSize = 128
 
-	cm1 := NewConnectionManager(config1)
+	cm1 := NewConnectionManager(config1, nil)
 	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {})
 	require.NoError(t, err)
 	defer func() { _ = cm1.Stop() }()
@@ -692,7 +692,7 @@ func TestIntegration_MultipleReconnections(t *testing.T) {
 		t.Logf("Reconnection cycle %d/%d", cycle+1, cycles)
 
 		// Start node-2
-		cm2 := NewConnectionManager(config2)
+		cm2 := NewConnectionManager(config2, nil)
 		err = cm2.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 			received.Add(1)
 		})
@@ -765,8 +765,8 @@ func TestIntegration_BidirectionalCommunication(t *testing.T) {
 	config2.Logger = logger
 	config2.DrainBatchSize = 128
 
-	cm1 := NewConnectionManager(config1)
-	cm2 := NewConnectionManager(config2)
+	cm1 := NewConnectionManager(config1, nil)
+	cm2 := NewConnectionManager(config2, nil)
 
 	err := cm1.Start(ctx, func(_ cluster.NodeID, _ []byte) {
 		node1Received.Add(1)

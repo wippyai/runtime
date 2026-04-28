@@ -3,7 +3,6 @@
 package internode
 
 import (
-	"container/list"
 	"errors"
 	"sync"
 	"time"
@@ -16,11 +15,16 @@ var (
 	// ErrNodeNotManaged is returned when an operation is attempted on a node
 	// that has not been explicitly registered as a cluster member.
 	ErrNodeNotManaged = errors.New("node is not a managed member of the cluster")
+
+	// ErrQueueFull is returned by QueueMessageClass when a drop-newest class
+	// queue is at capacity. The caller is expected to log/count and proceed
+	// (Erlang `pg` semantics: fire-and-forget but observable).
+	ErrQueueFull = errors.New("internode: send queue is full")
 )
 
 type NodeState struct {
 	createdAt     time.Time // for observability: when this state was first created
-	messageQueue  *list.List
+	queues        [numClasses]*classQueue
 	messageNotify chan struct{}
 	connection    *NodeConnection
 	address       nodeAddress
@@ -28,6 +32,84 @@ type NodeState struct {
 	stateMu       sync.RWMutex
 	queueMu       sync.Mutex
 }
+
+// classQueue is a bounded ring buffer of pending messages for one Class.
+// All access is guarded by NodeState.queueMu (held for cross-class
+// operations). Operates as drop-oldest or drop-newest depending on the
+// caller; capacity is fixed at construction.
+type classQueue struct {
+	buf  [][]byte
+	head int // index of the oldest element (next to drain)
+	size int // number of valid entries
+}
+
+func newClassQueue(cap int) *classQueue {
+	if cap <= 0 {
+		cap = 1
+	}
+	return &classQueue{buf: make([][]byte, cap)}
+}
+
+// pushOldest appends, dropping the oldest entry if full. Always succeeds.
+// Returns true if a drop occurred.
+func (q *classQueue) pushOldest(data []byte) (dropped bool) {
+	if q.size == len(q.buf) {
+		// drop oldest by advancing head; tail then writes over it
+		q.head = (q.head + 1) % len(q.buf)
+		q.size--
+		dropped = true
+	}
+	tail := (q.head + q.size) % len(q.buf)
+	q.buf[tail] = data
+	q.size++
+	return dropped
+}
+
+// pushNewest appends if there is room. Returns false if full (no insert).
+func (q *classQueue) pushNewest(data []byte) (accepted bool) {
+	if q.size == len(q.buf) {
+		return false
+	}
+	tail := (q.head + q.size) % len(q.buf)
+	q.buf[tail] = data
+	q.size++
+	return true
+}
+
+// pushFront inserts at the front for requeue (callers must respect cap).
+// Returns false if full.
+func (q *classQueue) pushFront(data []byte) (accepted bool) {
+	if q.size == len(q.buf) {
+		return false
+	}
+	q.head = (q.head - 1 + len(q.buf)) % len(q.buf)
+	q.buf[q.head] = data
+	q.size++
+	return true
+}
+
+// pop removes and returns the oldest entry; ok=false when empty.
+func (q *classQueue) pop() (data []byte, ok bool) {
+	if q.size == 0 {
+		return nil, false
+	}
+	data = q.buf[q.head]
+	q.buf[q.head] = nil // release reference
+	q.head = (q.head + 1) % len(q.buf)
+	q.size--
+	return data, true
+}
+
+// reset drops all entries. Allocations remain.
+func (q *classQueue) reset() {
+	for i := range q.buf {
+		q.buf[i] = nil
+	}
+	q.head = 0
+	q.size = 0
+}
+
+func (q *classQueue) len() int { return q.size }
 
 type nodeAddress struct {
 	addr string
@@ -37,12 +119,14 @@ type nodeAddress struct {
 type NodeStateManager struct {
 	nodeStates sync.Map // cluster.NodeID -> *NodeState
 	logger     *zap.Logger
+	tel        *telemetry
 	config     ManagerConfig
 }
 
-func NewNodeStateManager(config ManagerConfig, logger *zap.Logger) *NodeStateManager {
+func NewNodeStateManager(config ManagerConfig, tel *telemetry, logger *zap.Logger) *NodeStateManager {
 	return &NodeStateManager{
 		logger: logger.Named("state"),
+		tel:    tel,
 		config: config,
 	}
 }
@@ -72,9 +156,11 @@ func (nsm *NodeStateManager) CreateNodeState(nodeID cluster.NodeID) {
 		oldState.address = nodeAddress{}
 		oldState.stateMu.Unlock()
 
-		// Drain the queue
+		// Reset all queues
 		oldState.queueMu.Lock()
-		oldState.messageQueue.Init()
+		for i := range oldState.queues {
+			oldState.queues[i].reset()
+		}
 		oldState.queueMu.Unlock()
 
 		// Do NOT replace messageNotify — existing control loops hold a reference.
@@ -82,8 +168,17 @@ func (nsm *NodeStateManager) CreateNodeState(nodeID cluster.NodeID) {
 		return
 	}
 
+	caps := [numClasses]int{
+		ClassRaftControl: nsm.config.RaftControlQueueCap,
+		ClassGossip:      nsm.config.GossipQueueCap,
+		ClassPGBroadcast: nsm.config.PGBroadcastQueueCap,
+	}
+	queues := [numClasses]*classQueue{}
+	for i := range queues {
+		queues[i] = newClassQueue(caps[i])
+	}
 	newState := &NodeState{
-		messageQueue:  list.New(),
+		queues:        queues,
 		messageNotify: make(chan struct{}, 1),
 		state:         StateNone,
 		createdAt:     time.Now(),
@@ -99,21 +194,51 @@ func (nsm *NodeStateManager) GetNodeState(nodeID cluster.NodeID) *NodeState {
 	return state.(*NodeState)
 }
 
-// QueueMessage adds a message to a managed node's queue.
-// It returns ErrNodeNotManaged if the node state does not exist.
-func (nsm *NodeStateManager) QueueMessage(nodeID cluster.NodeID, data []byte) error {
+// QueueMessageClass enqueues data for nodeID under the given class.
+// Drop policy is class-specific: ClassRaftControl drops the oldest
+// entry on overflow (etcd-style); ClassGossip and ClassPGBroadcast drop
+// the new entry and return ErrQueueFull (memberlist / Erlang `pg` style).
+// In all drop cases, internode_dropped_total{class,reason="queue_full"}
+// is incremented.
+//
+// Returns ErrNodeNotManaged if no state exists for nodeID.
+// Returns ErrQueueFull only for drop-newest classes when full.
+func (nsm *NodeStateManager) QueueMessageClass(nodeID cluster.NodeID, data []byte, class Class) error {
 	state := nsm.GetNodeState(nodeID)
 	if state == nil {
 		return ErrNodeNotManaged
 	}
-
 	if data == nil {
-		return nil // Do not queue nil data
+		return nil
+	}
+	if int(class) >= numClasses {
+		return ErrQueueFull // unknown class
 	}
 
 	state.queueMu.Lock()
-	state.messageQueue.PushBack(data)
+	q := state.queues[class]
+	var dropped bool
+	var rejected bool
+	switch class {
+	case ClassRaftControl:
+		dropped = q.pushOldest(data)
+	case ClassGossip, ClassPGBroadcast:
+		if !q.pushNewest(data) {
+			rejected = true
+		}
+	}
+	depth := q.len()
 	state.queueMu.Unlock()
+
+	if dropped {
+		nsm.tel.recordDrop(class, "queue_full")
+	}
+	nsm.tel.recordQueueDepth(class, nodeID, depth)
+
+	if rejected {
+		nsm.tel.recordDrop(class, "queue_full")
+		return ErrQueueFull
+	}
 
 	select {
 	case state.messageNotify <- struct{}{}:
@@ -188,40 +313,27 @@ func (nsm *NodeStateManager) GetNodeAddress(nodeID cluster.NodeID) (string, int,
 
 func (nsm *NodeStateManager) DrainMessages(nodeID cluster.NodeID, maxCount int) [][]byte {
 	state := nsm.GetNodeState(nodeID)
-	if state == nil {
-		return nil
-	}
-
-	if maxCount <= 0 {
+	if state == nil || maxCount <= 0 {
 		return nil
 	}
 
 	state.queueMu.Lock()
 	defer state.queueMu.Unlock()
 
-	queueLen := state.messageQueue.Len()
-	if queueLen == 0 {
-		return nil
-	}
-
-	drainCount := maxCount
-	if queueLen < drainCount {
-		drainCount = queueLen
-	}
-	messages := make([][]byte, 0, drainCount)
-
-	for i := 0; i < drainCount; i++ {
-		elem := state.messageQueue.Front()
-		if elem == nil {
+	out := make([][]byte, 0, maxCount)
+	for _, class := range []Class{ClassRaftControl, ClassGossip, ClassPGBroadcast} {
+		q := state.queues[class]
+		for q.len() > 0 && len(out) < maxCount {
+			d, _ := q.pop()
+			if d != nil {
+				out = append(out, d)
+			}
+		}
+		if len(out) >= maxCount {
 			break
 		}
-		if data, ok := elem.Value.([]byte); ok && data != nil {
-			messages = append(messages, data)
-		}
-		state.messageQueue.Remove(elem)
 	}
-
-	return messages
+	return out
 }
 
 func (nsm *NodeStateManager) GetMessageNotifier(nodeID cluster.NodeID) <-chan struct{} {
@@ -249,9 +361,10 @@ func (nsm *NodeStateManager) RequeueMessages(nodeID cluster.NodeID, messages [][
 	}
 
 	state.queueMu.Lock()
+	q := state.queues[ClassRaftControl]
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i] != nil {
-			state.messageQueue.PushFront(messages[i])
+			q.pushFront(messages[i])
 		}
 	}
 	state.queueMu.Unlock()
@@ -281,14 +394,17 @@ func (nsm *NodeStateManager) RemoveNodeState(nodeID cluster.NodeID) {
 	nodeState.stateMu.Unlock()
 
 	nodeState.queueMu.Lock()
-	queueLen := nodeState.messageQueue.Len()
-	nodeState.messageQueue.Init()
+	discarded := 0
+	for _, q := range nodeState.queues {
+		discarded += q.len()
+		q.reset()
+	}
 	nodeState.queueMu.Unlock()
 
-	if queueLen > 0 {
+	if discarded > 0 {
 		nsm.logger.Warn("Discarded pending messages for removed node",
 			zap.String("node", nodeID),
-			zap.Int("discarded_messages", queueLen))
+			zap.Int("discarded_messages", discarded))
 	}
 }
 

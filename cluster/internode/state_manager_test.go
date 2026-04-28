@@ -15,9 +15,10 @@ import (
 )
 
 func setupStateManager() *NodeStateManager {
-	config := ManagerConfig{}
+	config := DefaultManagerConfig()
+	config.Logger = zap.NewNop()
 	logger := zap.NewNop()
-	return NewNodeStateManager(config, logger)
+	return NewNodeStateManager(config, newTelemetry(nil), logger)
 }
 
 func createMockConnection(nodeID cluster.NodeID) *NodeConnection {
@@ -39,7 +40,9 @@ func TestNodeStateManager_CreateNodeState(t *testing.T) {
 	// Verify state exists
 	state := nsm.GetNodeState(nodeID)
 	require.NotNil(t, state)
-	assert.NotNil(t, state.messageQueue)
+	for i, q := range state.queues {
+		assert.NotNil(t, q, "queue[%d] must not be nil", i)
+	}
 	assert.NotNil(t, state.messageNotify)
 	assert.Equal(t, StateNone, state.state)
 }
@@ -113,7 +116,7 @@ func TestNodeStateManager_QueueMessage(t *testing.T) {
 
 	// Queue message
 	data := []byte("test message")
-	err := nsm.QueueMessage(nodeID, data)
+	err := nsm.QueueMessageClass(nodeID, data, ClassRaftControl)
 	require.NoError(t, err)
 
 	// Verify notification sent
@@ -137,7 +140,7 @@ func TestNodeStateManager_QueueMessage_Nil(t *testing.T) {
 	nsm.CreateNodeState(nodeID)
 
 	// Queue nil should be no-op
-	err := nsm.QueueMessage(nodeID, nil)
+	err := nsm.QueueMessageClass(nodeID, nil, ClassRaftControl)
 	require.NoError(t, err)
 
 	messages := nsm.DrainMessages(nodeID, 10)
@@ -149,7 +152,7 @@ func TestNodeStateManager_QueueMessage_UnmanagedNode(t *testing.T) {
 	nodeID := "unmanaged"
 
 	// Should return error
-	err := nsm.QueueMessage(nodeID, []byte("test"))
+	err := nsm.QueueMessageClass(nodeID, []byte("test"), ClassRaftControl)
 	assert.Equal(t, ErrNodeNotManaged, err)
 }
 
@@ -162,7 +165,7 @@ func TestNodeStateManager_QueueMessage_Multiple(t *testing.T) {
 	// Queue multiple messages
 	for i := 0; i < 5; i++ {
 		data := []byte{byte(i)}
-		err := nsm.QueueMessage(nodeID, data)
+		err := nsm.QueueMessageClass(nodeID, data, ClassRaftControl)
 		require.NoError(t, err)
 	}
 
@@ -182,7 +185,7 @@ func TestNodeStateManager_DrainMessages_MaxCount(t *testing.T) {
 
 	// Queue 10 messages
 	for i := 0; i < 10; i++ {
-		_ = nsm.QueueMessage(nodeID, []byte{byte(i)})
+		_ = nsm.QueueMessageClass(nodeID, []byte{byte(i)}, ClassRaftControl)
 	}
 
 	// Drain only 3
@@ -217,7 +220,7 @@ func TestNodeStateManager_DrainMessages_ZeroMaxCount(t *testing.T) {
 	nodeID := "test-node-1"
 
 	nsm.CreateNodeState(nodeID)
-	_ = nsm.QueueMessage(nodeID, []byte("test"))
+	_ = nsm.QueueMessageClass(nodeID, []byte("test"), ClassRaftControl)
 
 	messages := nsm.DrainMessages(nodeID, 0)
 	assert.Nil(t, messages)
@@ -230,7 +233,7 @@ func TestNodeStateManager_RequeueMessages(t *testing.T) {
 	nsm.CreateNodeState(nodeID)
 
 	// Queue initial message
-	_ = nsm.QueueMessage(nodeID, []byte{1})
+	_ = nsm.QueueMessageClass(nodeID, []byte{1}, ClassRaftControl)
 
 	// Requeue messages (should be inserted at front)
 	toRequeue := [][]byte{{2}, {3}}
@@ -375,7 +378,7 @@ func TestNodeStateManager_GetMessageNotifier(t *testing.T) {
 	assert.NotNil(t, notifier)
 
 	// Queue message should trigger notifier
-	_ = nsm.QueueMessage(nodeID, []byte("test"))
+	_ = nsm.QueueMessageClass(nodeID, []byte("test"), ClassRaftControl)
 
 	select {
 	case <-notifier:
@@ -442,7 +445,7 @@ func TestNodeStateManager_Concurrent_QueueDrain(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < messagesPerGoroutine; j++ {
 				data := []byte{byte(id), byte(j)}
-				_ = nsm.QueueMessage(nodeID, data)
+				_ = nsm.QueueMessageClass(nodeID, data, ClassRaftControl)
 			}
 		}(i)
 	}
@@ -519,7 +522,7 @@ func TestNodeStateManager_Concurrent_CreateRemove(_ *testing.T) {
 			defer wg.Done()
 			nodeID := "test-node-" + strconv.Itoa(id)
 			nsm.CreateNodeState(nodeID)
-			_ = nsm.QueueMessage(nodeID, []byte{byte(id)})
+			_ = nsm.QueueMessageClass(nodeID, []byte{byte(id)}, ClassRaftControl)
 		}(i)
 	}
 

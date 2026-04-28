@@ -71,7 +71,7 @@ func TestNewConnectionManager(t *testing.T) {
 		CommandQueueSize:  64,
 	}
 
-	manager := NewConnectionManager(config)
+	manager := NewConnectionManager(config, nil)
 
 	assert.NotNil(t, manager)
 }
@@ -83,7 +83,7 @@ func TestManager_GetListenPort(t *testing.T) {
 	config.BindPort = 9500
 	config.Logger = zap.NewNop()
 
-	manager := NewConnectionManager(config).(*manager)
+	manager := NewConnectionManager(config, nil).(*manager)
 
 	manager.actualPort = 9500
 
@@ -96,7 +96,7 @@ func TestManager_AddManagedNode(_ *testing.T) {
 	config.LocalNodeID = "local-node"
 	config.Logger = zap.NewNop()
 
-	manager := NewConnectionManager(config).(*manager)
+	manager := NewConnectionManager(config, nil).(*manager)
 
 	nodeID := "remote-node"
 	manager.AddManagedNode(nodeID)
@@ -107,7 +107,7 @@ func TestManager_RemoveManagedNode(_ *testing.T) {
 	config.LocalNodeID = "local-node"
 	config.Logger = zap.NewNop()
 
-	manager := NewConnectionManager(config).(*manager)
+	manager := NewConnectionManager(config, nil).(*manager)
 
 	nodeID := "remote-node"
 	manager.RemoveManagedNode(nodeID)
@@ -118,7 +118,7 @@ func TestManager_ConnectedNodes(t *testing.T) {
 	config.LocalNodeID = "local-node"
 	config.Logger = zap.NewNop()
 
-	manager := NewConnectionManager(config).(*manager)
+	manager := NewConnectionManager(config, nil).(*manager)
 
 	nodes := manager.ConnectedNodes()
 	assert.Len(t, nodes, 0)

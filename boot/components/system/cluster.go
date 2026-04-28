@@ -126,7 +126,7 @@ func Cluster() boot.Component {
 			// Pre-start a temporary connection manager to allocate a port.
 			// This discovers the actual port (especially with AutoPort),
 			// which is needed for metadata before the real start.
-			tempConnMgr := internode.NewConnectionManager(connManagerCfg)
+			tempConnMgr := internode.NewConnectionManager(connManagerCfg, metricsapi.GetCollector(ctx))
 			tempCtx, tempCancel := context.WithCancel(context.Background())
 			dummyCallback := func(_ clusterapi.NodeID, _ []byte) {}
 
@@ -147,7 +147,7 @@ func Cluster() boot.Component {
 			// binds exactly the same port on restart.
 			connManagerCfg.BindPort = actualPort
 			connManagerCfg.AutoPort = false
-			connMgr = internode.NewConnectionManager(connManagerCfg)
+			connMgr = internode.NewConnectionManager(connManagerCfg, metricsapi.GetCollector(ctx))
 
 			// Create node metadata with internode port and raft-eligibility hints.
 			// raft_eligible / raft_priority / failure_domain are advertised so the

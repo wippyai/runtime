@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/cluster"
+	"github.com/wippyai/runtime/api/metrics"
 	"go.uber.org/zap"
 )
 
@@ -69,26 +70,37 @@ type ManagerConfig struct {
 	CommandQueueSize  int
 	HandshakeTimeout  time.Duration
 	OutboundQueueSize int
-	InitialRetryDelay time.Duration
-	MaxRetryDelay     time.Duration
-	DrainBatchSize    int
-	MaxMessageSize    uint32
-	AutoPort          bool
+	// Per-class send queue caps. Capacities chosen from canonical references:
+	// etcd default for control (4096); 2x memberlist default for gossip
+	// (1024); sized for fan-out for app broadcasts (2048). Hitting a cap
+	// drops with a metric (internode_dropped_total{class,reason="queue_full"})
+	// rather than blocking or growing.
+	RaftControlQueueCap int
+	GossipQueueCap      int
+	PGBroadcastQueueCap int
+	InitialRetryDelay   time.Duration
+	MaxRetryDelay       time.Duration
+	DrainBatchSize      int
+	MaxMessageSize      uint32
+	AutoPort            bool
 }
 
 func DefaultManagerConfig() ManagerConfig {
 	return ManagerConfig{
-		HandshakeTimeout:  5 * time.Second,
-		OutboundQueueSize: 256,
-		MaxMessageSize:    512 * 1024 * 1024,
-		TLS:               ManagerTLSConfig{Enabled: false},
-		InitialRetryDelay: 10 * time.Millisecond,
-		MaxRetryDelay:     5 * time.Second,
-		AutoPort:          true,
-		BindPort:          DefaultPortRangeStart,
-		DrainBatchSize:    32,
-		CommandQueueSize:  256,
-		MaxRetryAttempts:  10,
+		HandshakeTimeout:    5 * time.Second,
+		OutboundQueueSize:   256,
+		MaxMessageSize:      512 * 1024 * 1024,
+		TLS:                 ManagerTLSConfig{Enabled: false},
+		InitialRetryDelay:   10 * time.Millisecond,
+		MaxRetryDelay:       5 * time.Second,
+		AutoPort:            true,
+		BindPort:            DefaultPortRangeStart,
+		DrainBatchSize:      32,
+		CommandQueueSize:    256,
+		MaxRetryAttempts:    10,
+		RaftControlQueueCap: 4096,
+		GossipQueueCap:      1024,
+		PGBroadcastQueueCap: 2048,
 	}
 }
 
@@ -173,12 +185,13 @@ type manager struct {
 	controlLoopsMu sync.Mutex
 }
 
-func NewConnectionManager(config ManagerConfig) ConnectionManager {
+func NewConnectionManager(config ManagerConfig, coll metrics.Collector) ConnectionManager {
 	logger := config.Logger.Named("conn")
+	tel := newTelemetry(coll)
 	return &manager{
 		config:       config,
 		logger:       logger,
-		nodeStates:   NewNodeStateManager(config, logger),
+		nodeStates:   NewNodeStateManager(config, tel, logger),
 		controlLoops: make(map[cluster.NodeID]*nodeControlLoop),
 	}
 }
@@ -233,12 +246,12 @@ func (m *manager) Stop() error {
 }
 
 func (m *manager) SendToNode(nodeID cluster.NodeID, data []byte) error {
-	err := m.nodeStates.QueueMessage(nodeID, data)
+	// ClassRaftControl is a transitional default; Task 2 will plumb the
+	// real class through from internode.Service.Send.
+	err := m.nodeStates.QueueMessageClass(nodeID, data, ClassRaftControl)
 	if err != nil {
 		if errors.Is(err, ErrNodeNotManaged) {
 			m.logger.Warn("Dropping message for non-existent or unmanaged node", zap.String("target_node", nodeID))
-			// Return nil to not propagate "node not found" errors for fire-and-forget sends.
-			// The caller can check the cluster membership itself if a response is required.
 			return nil
 		}
 		return err
