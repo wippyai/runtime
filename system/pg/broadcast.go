@@ -4,11 +4,13 @@ package pg
 
 import (
 	"context"
+	"errors"
 
 	"github.com/wippyai/runtime/api/payload"
 	pgapi "github.com/wippyai/runtime/api/pg"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/cluster/internode"
 	"go.uber.org/zap"
 )
 
@@ -60,6 +62,16 @@ func (s *Service) sendToMembers(from pid.PID, topic string, payloads payload.Pay
 		pkg := relay.NewMessagePackage(from, target, msg)
 
 		if err := s.router.Send(pkg); err != nil {
+			if errors.Is(err, internode.ErrQueueFull) {
+				// Erlang OTP `pg` semantics: fire-and-forget but observable.
+				// Caller already has a sent-count; we count drops separately.
+				// Don't penalize the circuit breaker — the queue being full means
+				// the peer is slow, not that this call itself failed.
+				s.tel.recordBroadcastDropped(s.hostID, "queue_full")
+				s.logger.Debug("broadcast dropped: peer send queue full",
+					zap.String("target", target.String()))
+				continue
+			}
 			s.logger.Debug("broadcast send failed",
 				zap.String("target", target.String()),
 				zap.Error(err),

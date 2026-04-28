@@ -42,6 +42,8 @@ func newTelemetry(coll metrics.Collector, mp otelmetric.MeterProvider, tp trace.
 		coll.GaugeSet("pg_dispatcher_inflight", 0, metrics.Labels{"pg": "_init"})
 		coll.CounterAdd("pg_queue_dropped_total", 0, metrics.Labels{"pg": "_init", "reason": "noop"})
 		coll.CounterAdd("pg_fence_rejection_total", 0, metrics.Labels{"pg": "_init", "reason": "noop"})
+		coll.CounterAdd("pg_broadcast_dropped_total", 0,
+			metrics.Labels{"pg": "_init", "reason": "noop"})
 	}
 	return t
 }
@@ -169,6 +171,15 @@ func (t *telemetry) recordRetryQueueSize(pg string, size int) {
 	}
 
 	t.coll.GaugeSet("pg_retry_queue_size", float64(size), metrics.Labels{"pg": pg})
+}
+
+func (t *telemetry) recordBroadcastDropped(pg, reason string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+
+	t.coll.CounterInc("pg_broadcast_dropped_total",
+		metrics.Labels{"pg": pg, "reason": reason})
 }
 
 func (t *telemetry) startSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
