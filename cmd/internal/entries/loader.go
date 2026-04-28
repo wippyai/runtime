@@ -18,6 +18,7 @@ import (
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
+	depconfig "github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
@@ -338,6 +339,13 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 			return nil, err
 		}
 
+		if shouldApplyModuleConfigFilters(mp) {
+			loaded, err = applyModuleConfigFilters(ctx, mp, loaded, logger)
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		if mp.Module != "" {
 			for i := range loaded {
 				loaded[i] = markModuleMeta(loaded[i], mp.Module, mp.Version)
@@ -352,6 +360,53 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 	}
 
 	return entries, nil
+}
+
+func shouldApplyModuleConfigFilters(mp lock.ModuleLoadPath) bool {
+	// Replacement paths are commonly used by module-local test workspaces to load
+	// unpublished test entries from the module under development. Versioned module
+	// paths represent installed dependencies and should behave like published packs.
+	return mp.Module != "" && mp.Version != "" && filepath.Ext(mp.Path) != ".wapp"
+}
+
+func applyModuleConfigFilters(
+	ctx context.Context,
+	mp lock.ModuleLoadPath,
+	entries []regapi.Entry,
+	logger *zap.Logger,
+) ([]regapi.Entry, error) {
+	cfg, err := depconfig.Load(mp.Path)
+	if err != nil {
+		if logger != nil {
+			logger.Debug("module config not loaded for source dependency",
+				zap.String("module", mp.Module),
+				zap.String("path", mp.Path),
+				zap.Error(err))
+		}
+		return entries, nil
+	}
+	if len(cfg.Exclude) == 0 && len(cfg.ExcludeMeta) == 0 {
+		return entries, nil
+	}
+
+	filtered := append([]regapi.Entry(nil), entries...)
+	stage := stages.DisableWithOptions(stages.DisableOptions{
+		Entries:     cfg.Exclude,
+		MetaFilters: cfg.ExcludeMeta,
+	})
+	if err := stage.Execute(ctx, &filtered); err != nil {
+		return nil, err
+	}
+
+	if logger != nil && len(filtered) != len(entries) {
+		logger.Debug("applied module config filters",
+			zap.String("module", mp.Module),
+			zap.String("version", mp.Version),
+			zap.String("path", mp.Path),
+			zap.Int("before", len(entries)),
+			zap.Int("after", len(filtered)))
+	}
+	return filtered, nil
 }
 
 // NormalizeEntries applies the canonical entry normalization pipeline.
