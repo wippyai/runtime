@@ -581,17 +581,13 @@ type instrumentedTransport struct {
 
 func (it *instrumentedTransport) AppendEntries(id hraft.ServerID, target hraft.ServerAddress,
 	args *hraft.AppendEntriesRequest, resp *hraft.AppendEntriesResponse) error {
-	_, span := it.tel.startSpan(context.Background(), "raft.append_entries",
-		trace.WithAttributes(
-			attribute.String("peer", string(id)),
-			attribute.Int("entries", len(args.Entries)),
-		),
-	)
-	defer span.End()
-
+	// Per-AE span removed: under election storms (term=10000+) this path
+	// generated hundreds of spans/sec, swamping the bounded batcher and
+	// allocating an attribute slice per call. Coverage is preserved via
+	// the counter+histogram below; per-trace sampling at lower-rate
+	// upstream paths still yields traces when needed.
 	start := time.Now()
 	err := it.Transport.AppendEntries(id, target, args, resp)
-	it.tel.setSpanError(span, err)
 	it.tel.recordAppendEntries(string(id), err, time.Since(start))
 	return err
 }
