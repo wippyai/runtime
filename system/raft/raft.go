@@ -519,12 +519,32 @@ func (n *Node) LeadershipTransfer(id raftapi.ServerID, timeout time.Duration) er
 		}
 		f = n.raft.LeadershipTransferToServer(hraft.ServerID(id), addr)
 	}
-	// hashicorp/raft's transfer future has no per-call timeout — wrap it.
+	return n.translateError(awaitFutureWithTimeout(f, timeout))
+}
+
+// awaitFutureWithTimeout waits up to timeout for f.Error() to return.
+//
+// Goroutine lifecycle note: hraft.Future has no cancellation API, so the
+// helper goroutine is pinned inside f.Error() until the future resolves.
+// The channel is buffered(1), so the goroutine can always send and exit
+// once the future does resolve — it is never blocked on the send itself.
+// Under a network partition the future stays pending until either the
+// partition heals or the Raft instance shuts down (at which point hraft
+// closes all pending futures with ErrRaftShutdown).
+//
+// Cost: one goroutine + one buffered channel per timed-out transfer.
+// Transfers are rare cluster-management operations, so this is bounded
+// and acceptable.
+func awaitFutureWithTimeout(f hraft.Future, timeout time.Duration) error {
 	done := make(chan error, 1)
-	go func() { done <- f.Error() }()
+	go func() {
+		// done is buffered(1): even if the caller already timed out, this
+		// send always succeeds immediately and the goroutine exits.
+		done <- f.Error()
+	}()
 	select {
 	case err := <-done:
-		return n.translateError(err)
+		return err
 	case <-time.After(timeout):
 		return raftapi.ErrTimeout
 	}

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
-	"time"
 
 	hraft "github.com/hashicorp/raft"
 
@@ -81,9 +80,4 @@ func autoDetectPort(cfg raftapi.Config) (int, error) {
 		return findAvailablePort(cfg.BindAddr, cfg.BindPort)
 	}
 	return cfg.BindPort, nil
-}
-
-// defaultTimeout returns a reasonable timeout for raft operations.
-func defaultTimeout() time.Duration {
-	return 10 * time.Second
 }
