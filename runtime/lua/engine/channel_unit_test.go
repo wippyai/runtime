@@ -667,6 +667,40 @@ func TestChannel_CanReceive(t *testing.T) {
 	}
 }
 
+func TestChannel_CanReceiveClosed(t *testing.T) {
+	ch := NewChannel(0)
+	closer := newUnitTestLState()
+
+	if ch.CanReceive() {
+		t.Error("new empty channel should not allow receive")
+	}
+
+	ch.Close(closer)
+
+	if !ch.CanReceive() {
+		t.Error("closed channel should allow receive")
+	}
+}
+
+func TestChannel_CanReceiveClosedBufferedDrain(t *testing.T) {
+	ch := NewChannel(1)
+	sender := newUnitTestLState()
+	receiver := newUnitTestLState()
+
+	ch.Send(sender, lua.LString("buffered"), nil)
+	ch.Close(sender)
+
+	if !ch.CanReceive() {
+		t.Error("closed buffered channel should allow receive before draining buffered value")
+	}
+
+	ch.Receive(receiver, nil)
+
+	if !ch.CanReceive() {
+		t.Error("closed drained channel should still allow receive for ok=false")
+	}
+}
+
 func TestChannel_SlotsCount(t *testing.T) {
 	ch := NewChannel(3)
 	sender := newUnitTestLState()

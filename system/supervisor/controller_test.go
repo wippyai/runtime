@@ -1503,3 +1503,65 @@ func TestController_RetryDelay(t *testing.T) {
 		t.Errorf("Expected delay of at least 200ms between start attempts, got %v", delay)
 	}
 }
+
+func TestController_StopCancelsPendingStartRetry(t *testing.T) {
+	var attempts atomic.Int32
+	attemptCh := make(chan int32, 10)
+
+	mock := &mockService{
+		startFunc: func(_ context.Context) (<-chan any, error) {
+			attempt := attempts.Add(1)
+			attemptCh <- attempt
+			return nil, errors.New("startup error")
+		},
+		stopFunc: func(_ context.Context) error {
+			return nil
+		},
+	}
+
+	ctr := NewController(
+		context.Background(),
+		mock,
+		supervisor.LifecycleConfig{
+			StartTimeout:    200 * time.Millisecond,
+			StopTimeout:     200 * time.Millisecond,
+			StableThreshold: time.Hour,
+			RetryPolicy: supervisor.RetryPolicy{
+				MaxAttempts:  0,
+				InitialDelay: 75 * time.Millisecond,
+				MaxDelay:     75 * time.Millisecond,
+			},
+		},
+		func(_ supervisor.Status, _ any) {},
+	)
+
+	startErr := make(chan error, 1)
+	go func() {
+		startErr <- ctr.Start()
+	}()
+
+	select {
+	case <-attemptCh:
+	case <-time.After(time.Second):
+		t.Fatal("controller never attempted to start")
+	}
+
+	if err := ctr.Stop(); err != nil {
+		t.Fatalf("Stop failed: %v", err)
+	}
+
+	select {
+	case err := <-startErr:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected Start to unblock with context.Canceled, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Start did not unblock after Stop")
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	if got := attempts.Load(); got != 1 {
+		t.Fatalf("expected no retry after Stop, got %d start attempts", got)
+	}
+}

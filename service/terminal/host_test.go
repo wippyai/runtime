@@ -4,12 +4,15 @@ package terminal
 
 import (
 	"context"
+	"errors"
+	"math"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
@@ -409,6 +412,90 @@ func TestHost_OnCompleteTwice_NoPanic(t *testing.T) {
 	assert.NotPanics(t, func() {
 		h.OnComplete(ctx, pid.PID{}, nil)
 	})
+}
+
+func TestCompletionExitCode(t *testing.T) {
+	tests := []struct {
+		result     *runtime.Result
+		name       string
+		wantOutput string
+		wantCode   int
+	}{
+		{
+			name:     "nil result",
+			result:   nil,
+			wantCode: 0,
+		},
+		{
+			name:     "error result",
+			result:   &runtime.Result{Error: errors.New("boom")},
+			wantCode: 1,
+		},
+		{
+			name:       "string output",
+			result:     &runtime.Result{Value: payload.NewString("hello")},
+			wantCode:   0,
+			wantOutput: "hello",
+		},
+		{
+			name:     "int exit code",
+			result:   &runtime.Result{Value: payload.New(7)},
+			wantCode: 7,
+		},
+		{
+			name:     "uint exit code",
+			result:   &runtime.Result{Value: payload.New(uint8(3))},
+			wantCode: 3,
+		},
+		{
+			name:     "float exit code",
+			result:   &runtime.Result{Value: payload.New(4.9)},
+			wantCode: 4,
+		},
+		{
+			name:     "lua number exit code",
+			result:   &runtime.Result{Value: payload.NewPayload(lua.LNumber(5), payload.Lua)},
+			wantCode: 5,
+		},
+		{
+			name:     "overflowing uint exit code",
+			result:   &runtime.Result{Value: payload.New(uint64(math.MaxUint64))},
+			wantCode: 1,
+		},
+		{
+			name:     "nan exit code",
+			result:   &runtime.Result{Value: payload.New(math.NaN())},
+			wantCode: 1,
+		},
+		{
+			name:     "infinite exit code",
+			result:   &runtime.Result{Value: payload.New(math.Inf(1))},
+			wantCode: 1,
+		},
+		{
+			name:     "true exit code",
+			result:   &runtime.Result{Value: payload.New(true)},
+			wantCode: 0,
+		},
+		{
+			name:     "false exit code",
+			result:   &runtime.Result{Value: payload.New(false)},
+			wantCode: 1,
+		},
+		{
+			name:     "lua false exit code",
+			result:   &runtime.Result{Value: payload.NewPayload(lua.LBool(false), payload.Lua)},
+			wantCode: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotCode, gotOutput := completionExitCode(tt.result)
+			assert.Equal(t, tt.wantCode, gotCode)
+			assert.Equal(t, tt.wantOutput, gotOutput)
+		})
+	}
 }
 
 var (

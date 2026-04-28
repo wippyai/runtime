@@ -505,6 +505,67 @@ func TestSupervisor_ServiceFailureAndRetry(t *testing.T) {
 	require.True(t, atomic.LoadInt32(&startAttempts) <= 2, "Should not exceed max retry attempts")
 }
 
+func TestSupervisor_StopCancelsFailedAutoStartRetryTransition(t *testing.T) {
+	h := newTestHarness(t)
+	ctx := context.Background()
+	h.start(ctx)
+
+	var attempts atomic.Int32
+	attemptCh := make(chan struct{}, 10)
+	svc := &mockService{
+		startFunc: func(_ context.Context) (<-chan any, error) {
+			attempts.Add(1)
+			attemptCh <- struct{}{}
+			return nil, errors.New("bind failed")
+		},
+		stopFunc: func(_ context.Context) error {
+			return nil
+		},
+	}
+
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "retrying-service",
+		Data: &supervisor.Entry{
+			Service: svc,
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    true,
+				StartTimeout: 200 * time.Millisecond,
+				StopTimeout:  200 * time.Millisecond,
+				RetryPolicy: supervisor.RetryPolicy{
+					MaxAttempts:  0,
+					InitialDelay: 75 * time.Millisecond,
+					MaxDelay:     75 * time.Millisecond,
+				},
+			},
+		},
+	})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	select {
+	case <-attemptCh:
+	case <-time.After(time.Second):
+		t.Fatal("service never attempted to start")
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- h.sup.Stop()
+	}()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("supervisor stop remained blocked behind retrying start transition")
+	}
+
+	time.Sleep(200 * time.Millisecond)
+	require.Equal(t, int32(1), attempts.Load(), "service retried after supervisor stop")
+}
+
 func TestSupervisor_TransactionDiscard(t *testing.T) {
 	h := newTestHarness(t)
 	ctx := context.Background()

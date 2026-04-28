@@ -199,6 +199,10 @@ func (c *Controller) supervise() {
 				continue
 
 			case ctrlStart:
+				if c.state.getDesiredStatus() != supervisor.StatusRunning {
+					err = context.Canceled
+					break
+				}
 				if c.state.getCurrentStatus() == supervisor.StatusRunning {
 					break
 				}
@@ -346,10 +350,18 @@ func (c *Controller) tryRetry(attempt int32) {
 	if int(attempt) >= c.config.RetryPolicy.MaxAttempts && c.config.RetryPolicy.MaxAttempts != 0 {
 		return
 	}
+	if c.state.getDesiredStatus() != supervisor.StatusRunning {
+		return
+	}
 	bf := backoff.NewCalculator(c.config.RetryPolicy)
 	delay := bf.NextInterval()
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
 	select {
-	case <-time.After(delay):
+	case <-timer.C:
+		if c.state.getDesiredStatus() != supervisor.StatusRunning {
+			return
+		}
 		select {
 		case c.ops <- ctrlOp{kind: ctrlStart, attempt: attempt}:
 		case <-c.ctx.Done():
