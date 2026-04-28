@@ -228,6 +228,20 @@ func importResolver(t *testing.T) *Resolver {
 	return resolver
 }
 
+func envResolver(t *testing.T) *Resolver {
+	t.Helper()
+	resolver := NewResolver()
+	for _, pattern := range []registry.DependencyPattern{
+		{Path: "data.storage", Description: "env variable storage backend"},
+		{Path: "data.storages", Description: "env router backing storages", AllowWildcard: true},
+	} {
+		if err := resolver.RegisterPattern(pattern); err != nil {
+			t.Fatalf("register env resolver pattern %s: %v", pattern.Path, err)
+		}
+	}
+	return resolver
+}
+
 func importEntry(ns, name, kind, source string, imports map[string]string) registry.Entry {
 	data := map[string]any{"source": source}
 	if len(imports) > 0 {
@@ -243,6 +257,27 @@ func importEntry(ns, name, kind, source string, imports map[string]string) regis
 		Data: payload.New(data),
 		Meta: map[string]any{},
 	}
+}
+
+func envEntry(ns, name, kind string, data map[string]any) registry.Entry {
+	return registry.Entry{
+		ID:   registry.NewID(ns, name),
+		Kind: kind,
+		Data: payload.New(data),
+		Meta: map[string]any{},
+	}
+}
+
+func envStorageGraph(ns string) (memory, osStorage, router, variable registry.Entry) {
+	memory = envEntry(ns, "memory", "env.storage.memory", nil)
+	osStorage = envEntry(ns, "os", "env.storage.os", nil)
+	router = envEntry(ns, "router", "env.storage.router", map[string]any{
+		"storages": []any{memory.ID.String(), osStorage.ID.String()},
+	})
+	variable = envEntry(ns, "ROUTER_TEST_VAR", "env.variable", map[string]any{
+		"storage": router.ID.String(),
+	})
+	return memory, osStorage, router, variable
 }
 
 func applyWithIncomingDependencyCheck(builder *StateBuilder, fromState registry.State, sorted registry.ChangeSet) error {
@@ -561,6 +596,83 @@ func TestSortChangeSet_Dependencies(t *testing.T) {
 				mustBeforeNames: []string{"service"},
 			},
 		})
+	})
+}
+
+func TestSortChangeSet_EnvStorageDependencies(t *testing.T) {
+	resolver := envResolver(t)
+	builder := NewStateBuilder(zap.NewNop(), resolver)
+
+	t.Run("create installs backing storages before router and variables", func(t *testing.T) {
+		memory, osStorage, router, variable := envStorageGraph("app.test.env")
+
+		changeSet := registry.ChangeSet{
+			{Kind: registry.EntryCreate, Entry: variable},
+			{Kind: registry.EntryCreate, Entry: router},
+			{Kind: registry.EntryCreate, Entry: osStorage},
+			{Kind: registry.EntryCreate, Entry: memory},
+		}
+
+		sorted, err := builder.SortChangeSet(nil, changeSet)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		assertOperationBefore(t, sorted, registry.EntryCreate, memory.ID, registry.EntryCreate, router.ID)
+		assertOperationBefore(t, sorted, registry.EntryCreate, osStorage.ID, registry.EntryCreate, router.ID)
+		assertOperationBefore(t, sorted, registry.EntryCreate, router.ID, registry.EntryCreate, variable.ID)
+		assertAppliesWithoutIncomingDependencyDelete(t, builder, nil, sorted)
+	})
+
+	t.Run("delete uninstalls variables before router and backing storages", func(t *testing.T) {
+		memory, osStorage, router, variable := envStorageGraph("app.test.env")
+		fromState := registry.State{variable, router, osStorage, memory}
+		changeSet := registry.ChangeSet{
+			{Kind: registry.EntryDelete, Entry: memory},
+			{Kind: registry.EntryDelete, Entry: osStorage},
+			{Kind: registry.EntryDelete, Entry: router},
+			{Kind: registry.EntryDelete, Entry: variable},
+		}
+
+		sorted, err := builder.SortChangeSet(fromState, changeSet)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		assertOperationBefore(t, sorted, registry.EntryDelete, variable.ID, registry.EntryDelete, router.ID)
+		assertOperationBefore(t, sorted, registry.EntryDelete, router.ID, registry.EntryDelete, memory.ID)
+		assertOperationBefore(t, sorted, registry.EntryDelete, router.ID, registry.EntryDelete, osStorage.ID)
+		assertAppliesWithoutIncomingDependencyDelete(t, builder, fromState, sorted)
+	})
+
+	t.Run("rewire updates variable before deleting old router graph", func(t *testing.T) {
+		oldMemory, oldOS, oldRouter, oldVariable := envStorageGraph("app.test.env.old")
+		newMemory, newOS, newRouter, newVariable := envStorageGraph("app.test.env.new")
+		newVariable.ID = oldVariable.ID
+
+		fromState := registry.State{oldMemory, oldOS, oldRouter, oldVariable}
+		changeSet := registry.ChangeSet{
+			{Kind: registry.EntryDelete, Entry: oldMemory},
+			{Kind: registry.EntryDelete, Entry: oldOS},
+			{Kind: registry.EntryDelete, Entry: oldRouter},
+			{Kind: registry.EntryUpdate, Entry: newVariable},
+			{Kind: registry.EntryCreate, Entry: newRouter},
+			{Kind: registry.EntryCreate, Entry: newOS},
+			{Kind: registry.EntryCreate, Entry: newMemory},
+		}
+
+		sorted, err := builder.SortChangeSet(fromState, changeSet)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		assertOperationBefore(t, sorted, registry.EntryCreate, newMemory.ID, registry.EntryCreate, newRouter.ID)
+		assertOperationBefore(t, sorted, registry.EntryCreate, newOS.ID, registry.EntryCreate, newRouter.ID)
+		assertOperationBefore(t, sorted, registry.EntryCreate, newRouter.ID, registry.EntryUpdate, oldVariable.ID)
+		assertOperationBefore(t, sorted, registry.EntryUpdate, oldVariable.ID, registry.EntryDelete, oldRouter.ID)
+		assertOperationBefore(t, sorted, registry.EntryDelete, oldRouter.ID, registry.EntryDelete, oldMemory.ID)
+		assertOperationBefore(t, sorted, registry.EntryDelete, oldRouter.ID, registry.EntryDelete, oldOS.ID)
+		assertAppliesWithoutIncomingDependencyDelete(t, builder, fromState, sorted)
 	})
 }
 
