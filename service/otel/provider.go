@@ -53,10 +53,25 @@ func InitializeProvider(ctx context.Context, cfg otelapi.Config, logger *zap.Log
 
 	sampler := createSampler(cfg)
 
+	// Bounded BatchSpanProcessor: fixed memory ceiling on the in-process
+	// queue, drop-on-overflow when the collector is unreachable. Matches
+	// canonical OTel guidance for memory-bound deployments.
 	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
+		sdktrace.WithBatcher(exporter,
+			sdktrace.WithMaxQueueSize(512),
+			sdktrace.WithMaxExportBatchSize(128),
+			sdktrace.WithBatchTimeout(2*time.Second),
+		),
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sampler),
+		sdktrace.WithRawSpanLimits(sdktrace.SpanLimits{
+			AttributeValueLengthLimit:   256,
+			AttributeCountLimit:         16,
+			EventCountLimit:             16,
+			LinkCountLimit:              16,
+			AttributePerEventCountLimit: 16,
+			AttributePerLinkCountLimit:  16,
+		}),
 	)
 
 	otel.SetTracerProvider(tp)
