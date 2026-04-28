@@ -4,7 +4,6 @@ package pg
 
 import (
 	"context"
-	"strconv"
 	"time"
 
 	"github.com/wippyai/runtime/api/metrics"
@@ -36,7 +35,7 @@ func newTelemetry(coll metrics.Collector, mp otelmetric.MeterProvider, tp trace.
 	if coll != nil {
 		coll.CounterAdd("pg_circuit_breaker_trips_total", 0, metrics.Labels{"pg": "_init"})
 		coll.GaugeSet("pg_circuit_breaker_state", 0, metrics.Labels{"pg": "_init"})
-		coll.CounterAdd("pg_retry_total", 0, metrics.Labels{"pg": "_init", "op": "noop", "attempt": "0"})
+		coll.CounterAdd("pg_retry_total", 0, metrics.Labels{"pg": "_init", "op": "noop", "attempt": "1"})
 		coll.CounterAdd("pg_retry_giveup_total", 0, metrics.Labels{"pg": "_init", "op": "noop"})
 		coll.CounterAdd("pg_retry_dropped_total", 0, metrics.Labels{"pg": "_init", "op": "noop"})
 		coll.GaugeSet("pg_retry_queue_size", 0, metrics.Labels{"pg": "_init"})
@@ -126,12 +125,26 @@ func (t *telemetry) recordCircuitBreakerTrip(pg string) {
 	t.coll.CounterInc("pg_circuit_breaker_trips_total", metrics.Labels{"pg": pg})
 }
 
+// attemptBucket maps an integer attempt count to a bounded label so the
+// `pg_retry_total` series cardinality is finite under prolonged churn.
+// Buckets: "1" (first attempt), "2-3" (early retries), "4+" (struggling).
+func attemptBucket(attempt int) string {
+	switch {
+	case attempt <= 1:
+		return "1"
+	case attempt <= 3:
+		return "2-3"
+	default:
+		return "4+"
+	}
+}
+
 func (t *telemetry) recordRetry(pg, op string, attempt int) {
 	if t == nil || t.coll == nil {
 		return
 	}
 
-	t.coll.CounterInc("pg_retry_total", metrics.Labels{"pg": pg, "op": op, "attempt": strconv.Itoa(attempt)})
+	t.coll.CounterInc("pg_retry_total", metrics.Labels{"pg": pg, "op": op, "attempt": attemptBucket(attempt)})
 }
 
 func (t *telemetry) recordRetryGiveup(pg, op string) {

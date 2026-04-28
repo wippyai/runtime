@@ -107,7 +107,7 @@ func TestTelemetry_RecordCircuitBreaker(t *testing.T) {
 func TestTelemetry_RecordRetry(t *testing.T) {
 	tt, rec := newTestTelemetry(t)
 	tt.recordRetry("g1", "broadcast", 2)
-	if v := rec.CounterValue("pg_retry_total", metrics.Labels{"pg": "g1", "op": "broadcast", "attempt": "2"}); v != 1 {
+	if v := rec.CounterValue("pg_retry_total", metrics.Labels{"pg": "g1", "op": "broadcast", "attempt": "2-3"}); v != 1 {
 		t.Fatalf("pg_retry_total: want 1, got %v", v)
 	}
 	tt.recordRetryGiveup("g1", "broadcast")
@@ -154,5 +154,21 @@ func TestTelemetry_SetSpanError(t *testing.T) {
 	}
 	if spans[0].Status().Code != codes.Error {
 		t.Fatalf("want Error code, got %v", spans[0].Status().Code)
+	}
+}
+
+func TestAttemptBucket(t *testing.T) {
+	cases := []struct {
+		want string
+		in   int
+	}{
+		{"1", 0}, {"1", 1},
+		{"2-3", 2}, {"2-3", 3},
+		{"4+", 4}, {"4+", 99},
+	}
+	for _, c := range cases {
+		if got := attemptBucket(c.in); got != c.want {
+			t.Errorf("attemptBucket(%d) = %q, want %q", c.in, got, c.want)
+		}
 	}
 }
