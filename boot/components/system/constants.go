@@ -16,6 +16,9 @@ const (
 	ClusterName     boot.Name = "cluster"
 	RaftName        boot.Name = "raft"
 	GlobalRegName   boot.Name = "globalreg"
+	EventualRegName boot.Name = "eventualreg"
+	KVRaftName      boot.Name = "kvraft"
+	KVEventualName  boot.Name = "kveventual"
 	PGName          boot.Name = "pg"
 
 	// RaftEnabled is a Raft configuration key

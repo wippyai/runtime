@@ -142,6 +142,16 @@ func (t *peerStateTracker) isDead(target hraft.ServerAddress) bool {
 	return false
 }
 
+// DeadStreak returns how many times this peer has tripped the failure
+// threshold consecutively. Used by the MembershipHandler to decide whether
+// to proactively evict a voter that gossip ALSO sees as suspect/dead, rather
+// than waiting for the gossip expiration.
+func (t *peerStateTracker) DeadStreak(target hraft.ServerAddress) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.deadStreak[target]
+}
+
 // recordResult updates the per-peer counters after a transport call.
 // On success: full reset. On failure: bump consecutive counter, and
 // once the threshold is hit, mark the peer dead with exponential

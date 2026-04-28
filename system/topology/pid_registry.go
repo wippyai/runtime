@@ -15,11 +15,12 @@ import (
 // PIDRegistry provides Erlang-style name registration for PIDs.
 // It is optimized for concurrent access.
 type PIDRegistry struct {
-	parent    topology.PIDRegistry
-	globalReg atomic.Value // stores topology.GlobalRegistry
-	logger    *zap.Logger
-	nameToID  sync.Map
-	idToName  sync.Map
+	parent      topology.PIDRegistry
+	globalReg   atomic.Value // stores topology.GlobalRegistry
+	eventualReg atomic.Value // stores topology.EventualRegistry
+	logger      *zap.Logger
+	nameToID    sync.Map
+	idToName    sync.Map
 }
 
 // pidNames holds names for a PID with its own mutex for atomic updates.
@@ -52,11 +53,26 @@ func WithGlobalRegistry(global topology.GlobalRegistry) Option {
 	}
 }
 
+// WithEventualRegistry sets an eventual (gossip-based) registry for
+// cross-scope conflict checking. A name registered as Eventual blocks
+// the same name from being registered as Local on this node.
+func WithEventualRegistry(eventual topology.EventualRegistry) Option {
+	return func(r *PIDRegistry) {
+		r.eventualReg.Store(eventual)
+	}
+}
+
 // SetGlobalRegistry sets the global registry after construction.
 // This is needed when the global registry is initialized after the PID registry.
 // Safe for concurrent use.
 func (r *PIDRegistry) SetGlobalRegistry(global topology.GlobalRegistry) {
 	r.globalReg.Store(global)
+}
+
+// SetEventualRegistry sets the eventual registry after construction.
+// Safe for concurrent use.
+func (r *PIDRegistry) SetEventualRegistry(eventual topology.EventualRegistry) {
+	r.eventualReg.Store(eventual)
 }
 
 // loadGlobalReg returns the current global registry, or nil if none is set.
@@ -66,6 +82,15 @@ func (r *PIDRegistry) loadGlobalReg() topology.GlobalRegistry {
 		return nil
 	}
 	return v.(topology.GlobalRegistry)
+}
+
+// loadEventualReg returns the current eventual registry, or nil if none is set.
+func (r *PIDRegistry) loadEventualReg() topology.EventualRegistry {
+	v := r.eventualReg.Load()
+	if v == nil {
+		return nil
+	}
+	return v.(topology.EventualRegistry)
 }
 
 // NewPIDRegistry creates a new empty PID registry.
@@ -93,6 +118,16 @@ func (r *PIDRegistry) Register(name string, p pid.PID) (pid.PID, error) {
 		if existingPID, found := gr.Lookup(name); found {
 			if existingPID == p {
 				return p, nil // same PID registered globally — allow
+			}
+			return existingPID, topology.ErrNameAlreadyRegistered
+		}
+	}
+
+	// Check eventual registry second to prevent local shadowing of eventual names.
+	if er := r.loadEventualReg(); er != nil {
+		if existingPID, found := er.Lookup(name); found {
+			if existingPID == p {
+				return p, nil // same PID registered eventually — allow
 			}
 			return existingPID, topology.ErrNameAlreadyRegistered
 		}
@@ -187,9 +222,16 @@ func (r *PIDRegistry) Unregister(name string) bool {
 }
 
 func (r *PIDRegistry) Lookup(name string) (pid.PID, bool) {
-	// Check global registry first — global names take priority.
+	// Check global registry first — global names take priority (strongest consistency).
 	if gr := r.loadGlobalReg(); gr != nil {
 		if p, found := gr.Lookup(name); found {
+			return p, true
+		}
+	}
+
+	// Check eventual registry second — gossip-replicated names.
+	if er := r.loadEventualReg(); er != nil {
+		if p, found := er.Lookup(name); found {
 			return p, true
 		}
 	}

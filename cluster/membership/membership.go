@@ -24,19 +24,62 @@ import (
 	"go.uber.org/zap"
 )
 
+// UserDelegate is the contract that subsystems satisfy to ride memberlist's
+// UDP user-broadcast (deltas) and TCP push/pull (state sync) channels. The
+// membership Service multiplexes multiple UserDelegates over a single
+// memberlist Delegate using length-prefixed frames `kind:1|len:4|payload`,
+// so eventualreg, eventbus state sync, etc. can coexist.
+type UserDelegate interface {
+	// Kind is a stable 1-byte identifier for this delegate's frames.
+	// 0 is reserved.
+	Kind() byte
+	// GetBroadcasts pulls outgoing deltas. Returns up to `limit` frames each
+	// of size ≤ overhead. Called by memberlist on its gossip tick.
+	GetBroadcasts(overhead, limit int) [][]byte
+	// NotifyMsg handles one incoming delta frame (UDP user-broadcast).
+	NotifyMsg(payload []byte)
+	// LocalState returns the bulk-transfer payload for outgoing TCP push/pull.
+	// `join` is true on the initial sync after Join().
+	LocalState(join bool) []byte
+	// MergeRemoteState applies a peer's bulk-transfer payload received over
+	// TCP push/pull.
+	MergeRemoteState(buf []byte, join bool)
+}
+
 // Service implements cluster membership using memberlist
 type Service struct {
-	lastChangeAt time.Time
-	ctx          context.Context
-	bus          event.Bus
-	transport    memberlist.Transport
-	logger       *zap.Logger
-	memberlist   *memberlist.Memberlist
-	nodes        map[string]cluster.NodeInfo
-	nodeStates   map[string]memberlist.NodeStateType
-	tel          *telemetry
-	config       Config
-	mu           sync.RWMutex
+	ctx            context.Context
+	bus            event.Bus
+	transport      memberlist.Transport
+	logger         *zap.Logger
+	memberlist     *memberlist.Memberlist
+	nodes          map[string]cluster.NodeInfo
+	nodeStates     map[string]memberlist.NodeStateType
+	tel            *telemetry
+	userDelegates  map[byte]UserDelegate
+	lastChangeAt   time.Time
+	config         Config
+	userDelegateMu sync.RWMutex
+	mu             sync.RWMutex
+}
+
+// RegisterUserDelegate wires a UserDelegate so its frames are multiplexed
+// on the gossip channel. Must be called before Start. Returns an error if
+// the kind is 0 or already registered.
+func (s *Service) RegisterUserDelegate(d UserDelegate) error {
+	if d.Kind() == 0 {
+		return errors.New("membership: UserDelegate kind 0 is reserved")
+	}
+	s.userDelegateMu.Lock()
+	defer s.userDelegateMu.Unlock()
+	if s.userDelegates == nil {
+		s.userDelegates = make(map[byte]UserDelegate, 4)
+	}
+	if _, exists := s.userDelegates[d.Kind()]; exists {
+		return fmt.Errorf("membership: UserDelegate kind %d already registered", d.Kind())
+	}
+	s.userDelegates[d.Kind()] = d
+	return nil
 }
 
 // Config holds membership service configuration
@@ -607,23 +650,81 @@ func (d *delegate) NotifyMsg(data []byte) {
 	)
 	defer span.End()
 
-	// Handle incoming gossip messages - could be used for custom protocols
 	if d.service.config.VeryVerbose {
 		d.service.logger.Debug("received gossip message", zap.Int("size", len(data)))
 	}
 
 	d.service.tel.recordMessage("user", "rx", len(data))
+
+	// Multiplex: kind:1 | len:4 | payload
+	if len(data) < 5 {
+		return
+	}
+	kind := data[0]
+	plen := uint32(data[1]) | uint32(data[2])<<8 | uint32(data[3])<<16 | uint32(data[4])<<24
+	if int(plen)+5 != len(data) {
+		return
+	}
+	if ud := d.service.lookupUserDelegate(kind); ud != nil {
+		ud.NotifyMsg(data[5:])
+	}
 }
 
-func (d *delegate) GetBroadcasts(_, _ int) [][]byte {
-	// Return messages to broadcast - could be used for custom state sync
-	// For now, no custom broadcasts.
-	return nil
+func (d *delegate) GetBroadcasts(overhead, limit int) [][]byte {
+	d.service.userDelegateMu.RLock()
+	dels := make([]UserDelegate, 0, len(d.service.userDelegates))
+	for _, ud := range d.service.userDelegates {
+		dels = append(dels, ud)
+	}
+	d.service.userDelegateMu.RUnlock()
+
+	var out [][]byte
+	for _, ud := range dels {
+		// Reserve 5 bytes of mux header per frame.
+		muxOverhead := overhead + 5
+		muxLimit := limit
+		if limit > 5 {
+			muxLimit = limit - 5
+		}
+		frames := ud.GetBroadcasts(muxOverhead, muxLimit)
+		for _, f := range frames {
+			wrapped := make([]byte, 0, len(f)+5)
+			wrapped = append(wrapped, ud.Kind())
+			n := uint32(len(f))
+			wrapped = append(wrapped, byte(n), byte(n>>8), byte(n>>16), byte(n>>24))
+			wrapped = append(wrapped, f...)
+			out = append(out, wrapped)
+		}
+	}
+	return out
 }
 
-func (d *delegate) LocalState(_ bool) []byte {
-	// TODO: Can be used later for gossip state sync
-	return []byte("{}")
+func (d *delegate) LocalState(join bool) []byte {
+	d.service.userDelegateMu.RLock()
+	dels := make([]UserDelegate, 0, len(d.service.userDelegates))
+	for _, ud := range d.service.userDelegates {
+		dels = append(dels, ud)
+	}
+	d.service.userDelegateMu.RUnlock()
+
+	if len(dels) == 0 {
+		// Backwards-compat shape: prior code returned `{}`. An empty multiplex
+		// stream parses as zero frames so receivers tolerate either.
+		return []byte("{}")
+	}
+
+	out := make([]byte, 0, 64)
+	for _, ud := range dels {
+		payload := ud.LocalState(join)
+		if len(payload) == 0 {
+			continue
+		}
+		n := uint32(len(payload))
+		out = append(out, ud.Kind())
+		out = append(out, byte(n), byte(n>>8), byte(n>>16), byte(n>>24))
+		out = append(out, payload...)
+	}
+	return out
 }
 
 func (d *delegate) MergeRemoteState(buf []byte, join bool) {
@@ -635,11 +736,34 @@ func (d *delegate) MergeRemoteState(buf []byte, join bool) {
 	)
 	defer span.End()
 
-	// Reserved for future gossip state sync; merge logic will land alongside
-	// the corresponding LocalState producer.
 	if len(buf) > 0 && d.service.config.VeryVerbose {
 		d.service.logger.Debug("merging remote state",
 			zap.Int("size", len(buf)),
 			zap.Bool("join", join))
 	}
+
+	// Tolerate the legacy "{}" payload.
+	if len(buf) == 2 && buf[0] == '{' && buf[1] == '}' {
+		return
+	}
+
+	for len(buf) >= 5 {
+		kind := buf[0]
+		plen := uint32(buf[1]) | uint32(buf[2])<<8 | uint32(buf[3])<<16 | uint32(buf[4])<<24
+		if int(plen)+5 > len(buf) {
+			return
+		}
+		payload := buf[5 : 5+plen]
+		if ud := d.service.lookupUserDelegate(kind); ud != nil {
+			ud.MergeRemoteState(payload, join)
+		}
+		buf = buf[5+plen:]
+	}
+}
+
+// lookupUserDelegate returns the registered delegate for `kind`, or nil.
+func (s *Service) lookupUserDelegate(kind byte) UserDelegate {
+	s.userDelegateMu.RLock()
+	defer s.userDelegateMu.RUnlock()
+	return s.userDelegates[kind]
 }

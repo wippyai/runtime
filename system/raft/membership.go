@@ -91,13 +91,18 @@ type MembershipHandler struct {
 	membership cluster.Membership
 	bus        event.Bus
 	logger     *zap.Logger
+	tel        *telemetry
 
 	// Reconcile coordination.
 	reconcileCh chan struct{}
 	stopCh      chan struct{}
-	wg          sync.WaitGroup
-	stopOnce    sync.Once
-	cfg         HandlerConfig
+	// churnTimes records timestamps of recent voter ops so a sustained burst
+	// (>3 in 60s) can be flagged via the raft_voter_churn_burst counter.
+	churnTimes []time.Time
+	churnMu    sync.Mutex
+	wg         sync.WaitGroup
+	stopOnce   sync.Once
+	cfg        HandlerConfig
 }
 
 // NewMembershipHandler builds a handler. `membership` is required: the
@@ -111,7 +116,7 @@ func NewMembershipHandler(
 	cfg HandlerConfig,
 	logger *zap.Logger,
 ) *MembershipHandler {
-	return &MembershipHandler{
+	h := &MembershipHandler{
 		svc:         svc,
 		membership:  membership,
 		bus:         bus,
@@ -120,6 +125,12 @@ func NewMembershipHandler(
 		reconcileCh: make(chan struct{}, 1),
 		stopCh:      make(chan struct{}),
 	}
+	// If the underlying service exposes a telemetry handle, capture it so
+	// we can emit voter-op metrics. Non-Node implementations skip silently.
+	if tp, ok := svc.(interface{ Telemetry() *telemetry }); ok {
+		h.tel = tp.Telemetry()
+	}
+	return h
 }
 
 // Start subscribes to the cluster event stream and launches the reconcile
@@ -161,6 +172,29 @@ func (h *MembershipHandler) Stop() {
 		close(h.stopCh)
 	})
 	h.wg.Wait()
+}
+
+// SetMaxVoters updates the voter ceiling at runtime and triggers a reconcile
+// so the new cap takes effect without a restart. The new value is clamped
+// to a valid odd value (same rule as applyDefaults). Returns the value
+// actually applied — useful for callers that want to log discrepancies.
+func (h *MembershipHandler) SetMaxVoters(n int) int {
+	if n <= 0 {
+		n = defaultMaxVoters
+	}
+	if n%2 == 0 {
+		n--
+	}
+	if n < 1 {
+		n = 1
+	}
+	h.cfg.MaxVoters = n
+	if vc, ok := h.svc.(interface{ SetVoterCap(int) }); ok {
+		vc.SetVoterCap(n)
+	}
+	h.logger.Info("max_voters updated at runtime", zap.Int("max_voters", n))
+	h.scheduleReconcile()
+	return n
 }
 
 // subscriberLoop drains the event channel and signals the reconcile loop.
@@ -292,6 +326,52 @@ func (h *MembershipHandler) runReconcileOnce(ctx context.Context) {
 	}
 
 	ops := reconcileDiff(picked, candidates, current, addrLookup)
+
+	// Proactive eviction: any current voter whose peerStateTracker streak
+	// exceeds the threshold AND who isn't in the candidate set (gossip has
+	// already declared them gone) gets an opRemove appended. Without this
+	// branch we'd wait for gossip to fully expire the suspect — slow under
+	// chaos. Gossip is still the authority: a voter that gossip lists as
+	// alive does NOT get evicted no matter how many heartbeats fail.
+	candidateSet := make(map[cluster.NodeID]struct{}, len(candidates))
+	for _, c := range candidates {
+		candidateSet[c.ID] = struct{}{}
+	}
+	if streaker, ok := h.svc.(interface {
+		PeerDeadStreak(raftapi.ServerAddress) int
+	}); ok {
+		for _, srv := range current {
+			if !srv.IsVoter {
+				continue
+			}
+			if _, gossipKnows := candidateSet[srv.ID]; gossipKnows {
+				continue // gossip says alive — defer to it
+			}
+			if streaker.PeerDeadStreak(srv.Address) <= 0 {
+				continue
+			}
+			// Avoid duplicate ops if reconcileDiff already added a remove.
+			already := false
+			for _, op := range ops {
+				if op.Kind == opRemove && op.ID == srv.ID {
+					already = true
+					break
+				}
+			}
+			if already {
+				continue
+			}
+			ops = append(ops, membershipOp{Kind: opRemove, ID: srv.ID, Addr: srv.Address})
+			if h.tel != nil {
+				h.tel.recordProactiveVoterEviction(srv.ID)
+			}
+			h.logger.Warn("reconcile: proactive voter eviction",
+				zap.String("node", srv.ID),
+				zap.String("addr", srv.Address),
+			)
+		}
+	}
+
 	if len(ops) == 0 {
 		return
 	}
@@ -334,34 +414,79 @@ func (h *MembershipHandler) runReconcileOnce(ctx context.Context) {
 
 // applyOp dispatches a single membership change. Self-removal of the local
 // leader transfers leadership first so the cluster does not lose its leader
-// during the reconfiguration.
+// during the reconfiguration. Each op increments raft_voter_operations_total
+// so the soak surfaces unexpected churn.
 func (h *MembershipHandler) applyOp(op membershipOp, timeout time.Duration) error {
+	var err error
 	switch op.Kind {
 	case opAddVoter, opPromote:
-		return h.svc.AddVoter(op.ID, op.Addr, timeout)
+		err = h.svc.AddVoter(op.ID, op.Addr, timeout)
 	case opAddNonvoter:
-		return h.svc.AddNonvoter(op.ID, op.Addr, timeout)
+		err = h.svc.AddNonvoter(op.ID, op.Addr, timeout)
 	case opDemote:
 		// Demoting the local leader is unsupported by hashicorp/raft —
 		// transfer leadership first.
 		if h.isLocalLeader(op.ID) {
-			if err := h.svc.LeadershipTransfer("", timeout); err != nil {
-				return fmt.Errorf("leadership transfer before self-demote: %w", err)
+			if terr := h.svc.LeadershipTransfer("", timeout); terr != nil {
+				err = fmt.Errorf("leadership transfer before self-demote: %w", terr)
+			} else {
+				err = raftapi.ErrLeadershipLost
 			}
-			// We're no longer the leader: the new leader will demote us.
-			return raftapi.ErrLeadershipLost
+		} else {
+			err = h.svc.DemoteVoter(op.ID, timeout)
 		}
-		return h.svc.DemoteVoter(op.ID, timeout)
 	case opRemove:
 		if h.isLocalLeader(op.ID) {
-			if err := h.svc.LeadershipTransfer("", timeout); err != nil {
-				return fmt.Errorf("leadership transfer before self-remove: %w", err)
+			if terr := h.svc.LeadershipTransfer("", timeout); terr != nil {
+				err = fmt.Errorf("leadership transfer before self-remove: %w", terr)
+			} else {
+				err = raftapi.ErrLeadershipLost
 			}
-			return raftapi.ErrLeadershipLost
+		} else {
+			err = h.svc.RemoveServer(op.ID, timeout)
 		}
-		return h.svc.RemoveServer(op.ID, timeout)
 	default:
 		return fmt.Errorf("unknown op kind: %d", op.Kind)
+	}
+
+	result := "ok"
+	if err != nil {
+		result = "err"
+	}
+	if h.tel != nil {
+		h.tel.recordVoterOperation(opName(op.Kind), result)
+	}
+	if result == "ok" {
+		h.recordChurnTick()
+	}
+	return err
+}
+
+// recordChurnTick keeps a sliding 60s window of voter-op timestamps and
+// emits raft_voter_churn_burst_total when more than 3 ops land in that
+// window — a sustained-churn signal worth flagging in dashboards.
+func (h *MembershipHandler) recordChurnTick() {
+	if h.tel == nil {
+		return
+	}
+	now := time.Now()
+	cutoff := now.Add(-60 * time.Second)
+
+	h.churnMu.Lock()
+	// Drop expired entries.
+	kept := 0
+	for _, t := range h.churnTimes {
+		if t.After(cutoff) {
+			h.churnTimes[kept] = t
+			kept++
+		}
+	}
+	h.churnTimes = append(h.churnTimes[:kept], now)
+	burst := len(h.churnTimes) > 3
+	h.churnMu.Unlock()
+
+	if burst {
+		h.tel.recordVoterChurnBurst()
 	}
 }
 

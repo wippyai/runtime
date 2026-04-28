@@ -65,3 +65,25 @@ func (t *telemetry) recordGlobalregDedupe() {
 
 	t.coll.CounterInc("pg_globalreg_dedupe_total", nil)
 }
+
+// recordReregistration is emitted when a global registration replaces a
+// prior owner of the same name. Sustained rate post-partition-heal is a
+// flood signal — the soak gate fails the run if the rate stays high.
+func (t *telemetry) recordReregistration(scope string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("runtime_name_reregistrations_total", metrics.Labels{"scope": scope})
+}
+
+// recordRemoveNodeChunk emits per-chunk progress so dashboards can confirm
+// the chunking actually fires under chaos and surface stuck cleanups.
+func (t *telemetry) recordRemoveNodeChunk(node string, count int) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("globalreg_remove_node_chunks_total", metrics.Labels{"node": node})
+	if count > 0 {
+		t.coll.CounterAdd("globalreg_remove_node_names_total", float64(count), metrics.Labels{"node": node})
+	}
+}

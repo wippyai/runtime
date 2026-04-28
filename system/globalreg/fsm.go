@@ -20,10 +20,11 @@ import (
 // All Apply calls are serialized by Raft, so no additional locking is
 // needed for write operations beyond what the shardedState already provides.
 type FSM struct {
-	state   *shardedState
-	resolve globalreg.ResolveFunc
-	tel     *telemetry
-	pgLabel string // value for the "pg" telemetry label on fence_token gauges.
+	state     *shardedState
+	resolve   globalreg.ResolveFunc
+	tel       *telemetry
+	onRestore func() // optional callback fired after Restore() completes
+	pgLabel   string // value for the "pg" telemetry label on fence_token gauges.
 }
 
 // NewFSM creates a new FSM with an empty sharded state.
@@ -52,6 +53,11 @@ func (f *FSM) SetTelemetry(tel *telemetry) {
 	// first mutation.
 	f.tel.recordGlobalregSize(f.state.Len())
 }
+
+// SetOnRestore installs a callback invoked after Raft installs a snapshot.
+// The Service uses this to reset the reestablishMonitors watermark, since
+// AppliedAt indices in the new snapshot are not comparable to the prior FSM.
+func (f *FSM) SetOnRestore(fn func()) { f.onRestore = fn }
 
 // State returns the underlying sharded state for direct read access.
 func (f *FSM) State() *shardedState {
@@ -141,12 +147,12 @@ func (f *FSM) applyRemovePID(cmd *Command) any {
 }
 
 func (f *FSM) applyRemoveNode(cmd *Command) any {
-	count := f.state.removeNode(cmd.NodeID)
+	count, hasMore := f.state.removeNode(cmd.NodeID, cmd.Limit)
 	if count > 0 {
 		f.tel.recordGlobalregSize(f.state.Len())
 	}
 
-	return &RemoveResult{Count: count}
+	return &RemoveResult{Count: count, HasMore: hasMore}
 }
 
 // RegisterResult is returned by Apply for CmdRegister.
@@ -163,8 +169,11 @@ type UnregisterResult struct {
 }
 
 // RemoveResult is returned by Apply for CmdRemovePID and CmdRemoveNode.
+// HasMore is set by chunked CmdRemoveNode (Limit > 0) when entries remain;
+// the Service loops until HasMore=false.
 type RemoveResult struct {
-	Count int // Number of names removed.
+	Count   int  // Number of names removed.
+	HasMore bool // true if a chunked CmdRemoveNode left entries unprocessed.
 }
 
 // --- Snapshot / Restore ---
@@ -189,6 +198,9 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 
 	f.state.restore(entries)
 	f.tel.recordGlobalregSize(f.state.Len())
+	if f.onRestore != nil {
+		f.onRestore()
+	}
 	return nil
 }
 

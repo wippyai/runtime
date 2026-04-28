@@ -120,6 +120,12 @@ func desiredVoterCount(eligible, maxVoters int) int {
 	if target < 1 {
 		target = 1
 	}
+	// Defensive clamp: never return an even count > 1, even if
+	// applyDefaults was bypassed and maxVoters is even. Even quorums
+	// can split-vote — Raft requires strict majority.
+	if target > 1 && target%2 == 0 {
+		target--
+	}
 	return target
 }
 
@@ -184,13 +190,24 @@ func pickVoters(ranked []candidate, current map[cluster.NodeID]struct{}, target 
 // applyStickiness mutates `picked` in place to bias toward keeping current
 // voters that rank near the cut. Called only when current voter set is
 // non-empty.
+//
+// Domain-aware victim selection: when swapping a sticky voter in, prefer a
+// victim in the SAME failure domain as the sticky voter so the swap doesn't
+// inadvertently concentrate voters in fewer domains. Only falls back to a
+// lower-ranked cross-domain victim when no same-domain victim exists.
 func applyStickiness(ranked []candidate, current, picked map[cluster.NodeID]struct{}, target int) {
 	cutoff := target + 1
 	if cutoff > len(ranked) {
 		cutoff = len(ranked)
 	}
 
-	// Build rank→ID lookup for the top `cutoff` candidates.
+	// Build rank→domain lookup so the swap step can compare domains.
+	domainOf := make(map[cluster.NodeID]string, len(ranked))
+	for _, c := range ranked {
+		domainOf[c.ID] = c.FailureDomain
+	}
+
+	// Build set of current voters that rank within the cutoff (sticky-eligible).
 	stickyEligible := make(map[cluster.NodeID]struct{}, cutoff)
 	for i := 0; i < cutoff; i++ {
 		if _, isCurrent := current[ranked[i].ID]; isCurrent {
@@ -198,33 +215,48 @@ func applyStickiness(ranked []candidate, current, picked map[cluster.NodeID]stru
 		}
 	}
 
-	// For each sticky-eligible current voter not already picked, find the
-	// lowest-ranked picked node that is NOT a current voter and swap.
+	// For each sticky-eligible current voter not already picked, find a victim:
+	// preferring same-domain non-current picks (lowest-ranked first), falling
+	// back to any non-current pick.
 	for stickyID := range stickyEligible {
 		if _, in := picked[stickyID]; in {
 			continue
 		}
-		// Find lowest-rank non-sticky pick.
-		var victimID cluster.NodeID
-		victimRank := -1
-		for i := len(ranked) - 1; i >= 0; i-- {
-			id := ranked[i].ID
-			if _, in := picked[id]; !in {
-				continue
-			}
-			if _, isCurrent := current[id]; isCurrent {
-				continue
-			}
-			victimID = id
-			victimRank = i
-			break
+		stickyDomain := domainOf[stickyID]
+
+		victimID, ok := findStickinessVictim(ranked, picked, current, domainOf, stickyDomain, true)
+		if !ok {
+			victimID, ok = findStickinessVictim(ranked, picked, current, domainOf, stickyDomain, false)
 		}
-		if victimRank < 0 {
+		if !ok {
 			continue
 		}
 		delete(picked, victimID)
 		picked[stickyID] = struct{}{}
 	}
+}
+
+// findStickinessVictim walks `ranked` from lowest to highest rank looking for
+// a picked node that is NOT a current voter. When `sameDomainOnly` is true,
+// only candidates whose failure_domain matches `wantedDomain` qualify. Returns
+// (id, true) on hit, (zero, false) on miss.
+func findStickinessVictim(ranked []candidate, picked, current map[cluster.NodeID]struct{}, domainOf map[cluster.NodeID]string, wantedDomain string, sameDomainOnly bool) (cluster.NodeID, bool) {
+	for i := len(ranked) - 1; i >= 0; i-- {
+		id := ranked[i].ID
+		if _, in := picked[id]; !in {
+			continue
+		}
+		if _, isCurrent := current[id]; isCurrent {
+			continue
+		}
+		if sameDomainOnly {
+			if wantedDomain == "" || domainOf[id] != wantedDomain {
+				continue
+			}
+		}
+		return id, true
+	}
+	return "", false
 }
 
 // reconcileDiff computes the set of Raft membership changes needed to move

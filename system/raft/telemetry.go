@@ -199,6 +199,37 @@ func (t *telemetry) recordVoterLadder(voters, nonVoters, voterCap int) {
 	t.coll.GaugeSet("raft_voter_cap", float64(voterCap), nil)
 }
 
+// recordVoterOperation tracks each AddVoter/AddNonvoter/Promote/Demote/Remove
+// applied by the membership reconciler. Used to detect voter churn — sustained
+// non-zero rate is a thrash signal that needs human attention.
+func (t *telemetry) recordVoterOperation(op, result string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("raft_voter_operations_total", metrics.Labels{"op": op, "result": result})
+}
+
+// recordVoterChurnBurst is incremented when more than 3 voter operations
+// occur within a 60s window. Triggered from membership.go bookkeeping;
+// stays at zero in steady state.
+func (t *telemetry) recordVoterChurnBurst() {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("raft_voter_churn_burst_total", nil)
+}
+
+// recordProactiveVoterEviction is incremented when the leader removes a
+// voter via opRemove triggered by 5+ consecutive heartbeat failures + a
+// gossip suspect/dead reading. This shortens the dead-voter detection
+// window without trusting heartbeats alone.
+func (t *telemetry) recordProactiveVoterEviction(node string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("raft_proactive_voter_eviction_total", metrics.Labels{"node": node})
+}
+
 func (t *telemetry) recordSnapshot(err error, dur time.Duration, sizeBytes int64) {
 	if t == nil || t.coll == nil {
 		return

@@ -41,21 +41,22 @@ const (
 // It wraps a Raft-backed FSM and provides leader forwarding for writes
 // and topology-based auto-cleanup.
 type Service struct {
-	router        relay.Receiver
-	raftSvc       raftapi.Service
-	bus           event.Bus
-	topo          topology.Topology
-	stopCh        chan struct{}
-	logger        *zap.Logger
-	fsm           *FSM
-	tel           *telemetry
-	pending       map[uint64]chan *forwardResponse
-	monitoredPIDs sync.Map
-	localNode     pid.NodeID
-	mu            sync.Mutex
-	started       bool
-	ready         bool // true after initial Raft barrier completes
-	degraded      bool // true if Raft barrier timed out (serving potentially stale data)
+	router           relay.Receiver
+	raftSvc          raftapi.Service
+	bus              event.Bus
+	topo             topology.Topology
+	stopCh           chan struct{}
+	logger           *zap.Logger
+	fsm              *FSM
+	tel              *telemetry
+	pending          map[uint64]chan *forwardResponse
+	monitoredPIDs    sync.Map
+	localNode        pid.NodeID
+	monitorWatermark atomic.Uint64 // highest AppliedAt scanned by reestablishMonitors
+	mu               sync.Mutex
+	started          bool
+	ready            bool // true after initial Raft barrier completes
+	degraded         bool // true if Raft barrier timed out (serving potentially stale data)
 }
 
 // forwardResponse wraps the result of a forwarded command.
@@ -88,7 +89,7 @@ func NewService(
 		fsm.SetTelemetry(tel)
 	}
 
-	return &Service{
+	s := &Service{
 		raftSvc:   raftSvc,
 		fsm:       fsm,
 		tel:       tel,
@@ -100,6 +101,10 @@ func NewService(
 		stopCh:    make(chan struct{}),
 		pending:   make(map[uint64]chan *forwardResponse),
 	}
+	if fsm != nil {
+		fsm.SetOnRestore(s.resetMonitorWatermark)
+	}
+	return s
 }
 
 // Start begins the service: subscribes to cluster events for auto-cleanup.
@@ -223,6 +228,13 @@ func (s *Service) Register(_ context.Context, name string, p pid.PID) (pid.PID, 
 		return result.ExistingPID, globalreg.ErrNameAlreadyRegistered
 	}
 
+	// A non-zero ResolvedPID means the conflict resolver replaced the prior
+	// owner — that's a re-registration. Surfaces as runtime_name_reregistrations_total
+	// so the chaos soak gate fails if a partition heal triggers a flood.
+	if result.ResolvedPID != (pid.PID{}) {
+		s.tel.recordReregistration("global")
+	}
+
 	// Monitor the PID for auto-cleanup on process exit.
 	s.monitorPID(p)
 
@@ -297,14 +309,39 @@ func (s *Service) Remove(_ context.Context, p pid.PID) error {
 	return err
 }
 
-// RemoveNode removes all global names for a node via Raft.
+// removeNodeChunkSize bounds the work per Raft Apply when bulk-removing
+// a departed node's names. 256 names ≈ <5 ms per Apply; chunking lets other
+// writes interleave during a large cleanup so the Raft pipeline doesn't
+// stall under chaos-driven node churn.
+const removeNodeChunkSize = 256
+
+// RemoveNode removes all global names for a node via Raft. The work is
+// chunked into bounded Applies so the FSM apply lock is released between
+// batches, keeping foreground writes responsive while a node's state
+// drains.
 func (s *Service) RemoveNode(_ context.Context, nodeID pid.NodeID) error {
-	cmd := &Command{
-		Type:   CmdRemoveNode,
-		NodeID: nodeID,
+	for {
+		cmd := &Command{
+			Type:   CmdRemoveNode,
+			NodeID: nodeID,
+			Limit:  removeNodeChunkSize,
+		}
+		resp, err := s.applyCommand(cmd)
+		if err != nil {
+			return err
+		}
+		result, ok := resp.(*RemoveResult)
+		if !ok {
+			// Unexpected response shape — fall back to no further chunks.
+			return nil
+		}
+		if s.tel != nil {
+			s.tel.recordRemoveNodeChunk(nodeID, result.Count)
+		}
+		if !result.HasMore {
+			return nil
+		}
 	}
-	_, err := s.applyCommand(cmd)
-	return err
 }
 
 // --- Internal ---
@@ -578,15 +615,39 @@ func (s *Service) monitorLeadership() {
 	}
 }
 
-// reestablishMonitors scans all registered names and sets up topology
-// monitors for PIDs that are local to this node.
+// reestablishMonitors scans entries newer than the last reestablish watermark
+// and sets up topology monitors for PIDs local to this node. Bounding the
+// scan by AppliedAt avoids a full FSM walk on every leader transition once
+// a node has been around long enough to have monitored everything below the
+// watermark. monitorPID() is itself idempotent via monitoredPIDs, so the
+// watermark is purely a cost-cap: a leader failover with no new entries
+// allocates nothing.
 func (s *Service) reestablishMonitors() {
-	entries := s.fsm.State().snapshot()
+	threshold := s.monitorWatermark.Load()
+	entries, highest := s.fsm.State().snapshotAbove(threshold)
 	for _, e := range entries {
 		if e.NodeID == s.localNode {
 			s.monitorPID(e.PID)
 		}
 	}
+	if highest > threshold {
+		// CAS so concurrent calls (none today, but defensive) only advance.
+		for {
+			cur := s.monitorWatermark.Load()
+			if highest <= cur {
+				break
+			}
+			if s.monitorWatermark.CompareAndSwap(cur, highest) {
+				break
+			}
+		}
+	}
+}
+
+// resetMonitorWatermark is invoked when the FSM is wholesale-replaced (e.g.
+// snapshot install). Future reestablishMonitors calls must rescan from zero.
+func (s *Service) resetMonitorWatermark() {
+	s.monitorWatermark.Store(0)
 }
 
 // waitForReady waits for the Raft log to catch up using a barrier,

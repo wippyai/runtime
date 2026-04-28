@@ -33,6 +33,10 @@ const (
 	Local RegistrationMode = 0
 	// Global registers the name cluster-wide via Raft consensus.
 	Global RegistrationMode = 1
+	// Eventual registers the name cluster-wide via gossip/CRDT.
+	// No distributed lock; converges after partition heal.
+	// Sized for ~100k user-session-class names per cluster.
+	Eventual RegistrationMode = 2
 )
 
 // Event kind constants for process lifecycle events.
@@ -95,6 +99,14 @@ type (
 
 		// ValidateFence checks whether a fencing token is still valid for a name.
 		ValidateFence(name string, token uint64) error
+	}
+
+	// EventualRegistry provides cluster-wide name registration via gossip/CRDT.
+	// Eventually consistent — converges after partition heal. No fencing tokens
+	// (no total order). Sized for ~100k user-session-class names.
+	EventualRegistry interface {
+		// Lookup reads from the local CRDT replica.
+		Lookup(name string) (pid.PID, bool)
 	}
 
 	// Monitor defines the interface for process monitoring

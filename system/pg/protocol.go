@@ -4,6 +4,7 @@ package pg
 
 import (
 	"errors"
+	"math/rand/v2"
 
 	"github.com/wippyai/runtime/api/payload"
 	pgapi "github.com/wippyai/runtime/api/pg"
@@ -12,6 +13,34 @@ import (
 	"github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
 )
+
+// pickInitialDiscoverTargets returns up to `cap` randomly-chosen entries
+// from `peers`. Used at service startup to bound the initial discover
+// fan-out — peers we skip will discover us via gossip-delivered
+// NodeJoined events instead.
+func pickInitialDiscoverTargets(peers []pid.NodeID, cap int) []pid.NodeID {
+	if len(peers) <= cap {
+		out := make([]pid.NodeID, len(peers))
+		copy(out, peers)
+		return out
+	}
+	// Fisher-Yates partial shuffle: pick `cap` distinct random indices.
+	idx := make([]int, len(peers))
+	for i := range idx {
+		idx[i] = i
+	}
+	for i := 0; i < cap; i++ {
+		// G404: math/rand/v2 is fine here — we're picking random peers
+		// for fan-out load distribution, not anything security-sensitive.
+		j := i + rand.IntN(len(idx)-i) //nolint:gosec
+		idx[i], idx[j] = idx[j], idx[i]
+	}
+	out := make([]pid.NodeID, cap)
+	for i := 0; i < cap; i++ {
+		out[i] = peers[idx[i]]
+	}
+	return out
+}
 
 // servicePID returns the service address for this PG scope on a given node.
 // Uses empty UniqID — relay routes host-level receivers by Host alone.

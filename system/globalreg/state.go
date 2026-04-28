@@ -234,33 +234,41 @@ func (s *shardedState) removePID(p pid.PID) int {
 	return removed
 }
 
-// removeNode removes all names for all PIDs on a node.
-// Holds the pidSet lock while deleting from nodeIndex to prevent a concurrent
-// register from creating a new pidSet for the same node between the delete
-// and the shard cleanup (TOCTOU fix).
-func (s *shardedState) removeNode(nodeID pid.NodeID) int {
+// removeNode removes up to `limit` names for PIDs on a node. If limit ≤ 0, all
+// matching names are removed in a single call (legacy behavior). Returns the
+// number removed and whether more remain — callers can chunk to keep each
+// FSM Apply bounded so other writes interleave.
+func (s *shardedState) removeNode(nodeID pid.NodeID, limit int) (int, bool) {
 	val, ok := s.nodeIndex.Load(nodeID)
 	if !ok {
-		return 0
+		return 0, false
 	}
 	ps, ok := val.(*pidSet)
 	if !ok {
-		return 0
+		return 0, false
 	}
 
-	// Hold pidSet lock while extracting keys and deleting from nodeIndex.
-	// This prevents concurrent addToNodeIndex from creating a new pidSet
-	// in the gap between Load and Delete.
+	// Snapshot pidKeys without releasing pidSet lock, so a concurrent
+	// addToNodeIndex can't create a parallel pidSet between Load and our
+	// later Delete (TOCTOU fix preserved).
 	ps.mu.Lock()
 	pidKeys := make([]string, 0, len(ps.pids))
 	for k := range ps.pids {
 		pidKeys = append(pidKeys, k)
 	}
-	s.nodeIndex.Delete(nodeID)
 	ps.mu.Unlock()
 
+	cap := limit
+	if cap <= 0 {
+		cap = -1 // sentinel for "unlimited"
+	}
+
 	removed := 0
+	hitLimit := false
 	for i := range s.shards {
+		if hitLimit {
+			break
+		}
 		sh := &s.shards[i]
 		sh.mu.Lock()
 		for _, pidKey := range pidKeys {
@@ -268,16 +276,40 @@ func (s *shardedState) removeNode(nodeID pid.NodeID) int {
 			if !ok {
 				continue
 			}
-			for _, name := range names {
-				delete(sh.names, name)
+			j := 0
+			for ; j < len(names); j++ {
+				if cap >= 0 && removed >= cap {
+					break
+				}
+				delete(sh.names, names[j])
 				removed++
 			}
-			delete(sh.pidNames, pidKey)
+			if j == len(names) {
+				delete(sh.pidNames, pidKey)
+			} else {
+				// Some names left for this pidKey on this shard — preserve them.
+				sh.pidNames[pidKey] = names[j:]
+				hitLimit = true
+				break
+			}
 		}
 		sh.mu.Unlock()
 	}
 
-	return removed
+	if !hitLimit {
+		// Final cleanup: drop the nodeIndex entry now that no entries remain.
+		ps.mu.Lock()
+		for _, k := range pidKeys {
+			delete(ps.pids, k)
+		}
+		empty := len(ps.pids) == 0
+		ps.mu.Unlock()
+		if empty {
+			s.nodeIndex.Delete(nodeID)
+		}
+	}
+
+	return removed, hitLimit
 }
 
 // --- Helpers ---
@@ -314,6 +346,43 @@ type snapshotEntry struct {
 	PID       pid.PID    `codec:"p"`
 	NodeID    pid.NodeID `codec:"d"`
 	AppliedAt uint64     `codec:"a"`
+}
+
+// snapshotAbove returns entries with AppliedAt strictly greater than threshold.
+// Used by reestablishMonitors to walk only entries that have been added since
+// the last reestablish pass — bounds the leader-failover monitor-rebuild cost
+// when most state was already monitored. Returns the highest AppliedAt seen
+// (0 if no entries).
+func (s *shardedState) snapshotAbove(threshold uint64) ([]snapshotEntry, uint64) {
+	for i := range s.shards {
+		s.shards[i].mu.RLock()
+	}
+
+	var entries []snapshotEntry
+	var highest uint64
+	for i := range s.shards {
+		sh := &s.shards[i]
+		for name, e := range sh.names {
+			if e.AppliedAt <= threshold {
+				continue
+			}
+			entries = append(entries, snapshotEntry{
+				Name:      name,
+				PID:       e.PID,
+				NodeID:    e.NodeID,
+				AppliedAt: e.AppliedAt,
+			})
+			if e.AppliedAt > highest {
+				highest = e.AppliedAt
+			}
+		}
+	}
+
+	for i := range s.shards {
+		s.shards[i].mu.RUnlock()
+	}
+
+	return entries, highest
 }
 
 // snapshot returns all entries across all shards as a point-in-time consistent view.

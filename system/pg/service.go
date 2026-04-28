@@ -53,6 +53,12 @@ type serviceCtx struct {
 // this within ~30s of isolation.
 const livenessActivityCeiling = 30 * time.Second
 
+// initialDiscoverFanOut caps the number of peers a starting node directly
+// discovers. Without this cap, simultaneous restarts of N pods produce N²
+// discover messages on a tight startup window. Peers we skip will discover
+// us when their memberlist gossip surfaces our NodeJoined.
+const initialDiscoverFanOut = 4
+
 // closedServiceCtx is the sentinel returned before Start or after Stop. Its
 // context is already cancelled so `<-s.currentCtx().Done()` is non-blocking,
 // and submit() rejects new work with ErrServiceStopped — matching the
@@ -239,16 +245,24 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 	// Start retry queue
 	s.retryQueue.Start(runCtx)
 
-	// Discover existing nodes
+	// Discover existing nodes. Cap startup fan-out so simultaneous restarts
+	// of N pods don't produce N² discover messages — peers we skip will
+	// eventually discover us when their memberlist NodeJoined event for our
+	// node fires and triggers their own handleNodeJoinedEvent → sendDiscover.
 	if s.membership != nil {
 		localNode := s.membership.LocalNode()
+		peers := make([]pid.NodeID, 0)
 		for _, node := range s.membership.Nodes() {
 			if node.ID != localNode.ID {
-				nodeID := node.ID
-				s.submit(func() {
-					s.sendDiscover(nodeID)
-				})
+				peers = append(peers, node.ID)
 			}
+		}
+		targets := pickInitialDiscoverTargets(peers, initialDiscoverFanOut)
+		s.tel.recordDiscoverTargets("initial", len(targets), len(peers))
+		for _, nodeID := range targets {
+			s.submit(func() {
+				s.sendDiscover(nodeID)
+			})
 		}
 	}
 

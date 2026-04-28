@@ -26,6 +26,7 @@ type Command struct {
 	PID    pid.PID     `codec:"p,omitempty" json:"pid,omitempty"`
 	Name   string      `codec:"n,omitempty" json:"name,omitempty"`
 	NodeID pid.NodeID  `codec:"d,omitempty" json:"node_id,omitempty"`
+	Limit  int         `codec:"l,omitempty" json:"limit,omitempty"`
 	Type   CommandType `codec:"t" json:"type"`
 }
 

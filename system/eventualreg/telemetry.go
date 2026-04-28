@@ -1,0 +1,120 @@
+// SPDX-License-Identifier: MPL-2.0
+
+package eventualreg
+
+import (
+	"github.com/wippyai/runtime/api/metrics"
+)
+
+// telemetry owns metric emission for the eventualreg subsystem.
+// All recorders are nil-safe.
+type telemetry struct {
+	coll metrics.Collector
+	node string
+}
+
+func newTelemetry(coll metrics.Collector, node string) *telemetry {
+	t := &telemetry{coll: coll, node: node}
+	if coll != nil {
+		// Bootstrap rare event series so dashboards have visible counters
+		// before chaos surfaces a real event.
+		base := metrics.Labels{"node": node}
+		coll.CounterAdd("eventualreg_register_total", 0, copyAdd(base, "result", "ok"))
+		coll.CounterAdd("eventualreg_unregister_total", 0, copyAdd(base, "result", "ok"))
+		coll.CounterAdd("eventualreg_merge_conflicts_total", 0, copyAdd(base, "resolution", "wall_clock"))
+		coll.CounterAdd("eventualreg_tombstones_gc_total", 0, copyAdd(base, "reason", "safe_counter"))
+		coll.CounterAdd("eventualreg_tombstones_late_arrival_total", 0, base)
+		coll.CounterAdd("eventualreg_antientropy_round_total", 0, copyAdd(base, "result", "ok"))
+		coll.GaugeSet("eventualreg_entries", 0, copyAdd(base, "state", "live"))
+		coll.GaugeSet("eventualreg_entries", 0, copyAdd(base, "state", "tombstone"))
+		coll.GaugeSet("eventualreg_broadcast_queue_depth", 0, base)
+	}
+	return t
+}
+
+func (t *telemetry) recordRegister(result string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("eventualreg_register_total", metrics.Labels{"node": t.node, "result": result})
+}
+
+func (t *telemetry) recordUnregister(result string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("eventualreg_unregister_total", metrics.Labels{"node": t.node, "result": result})
+}
+
+func (t *telemetry) recordMergeConflict(resolution string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("eventualreg_merge_conflicts_total", metrics.Labels{"node": t.node, "resolution": resolution})
+}
+
+func (t *telemetry) recordTombstoneGC(reason string, n int) {
+	if t == nil || t.coll == nil || n == 0 {
+		return
+	}
+	t.coll.CounterAdd("eventualreg_tombstones_gc_total", float64(n), metrics.Labels{"node": t.node, "reason": reason})
+}
+
+func (t *telemetry) recordTombstoneLate() {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("eventualreg_tombstones_late_arrival_total", metrics.Labels{"node": t.node})
+}
+
+func (t *telemetry) recordAntiEntropy(result string, durationMs float64, shardsSynced int) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	labels := metrics.Labels{"node": t.node, "result": result}
+	t.coll.CounterInc("eventualreg_antientropy_round_total", labels)
+	t.coll.HistogramObserve("eventualreg_antientropy_duration_ms", durationMs, metrics.Labels{"node": t.node, "result": result})
+	if shardsSynced > 0 {
+		t.coll.HistogramObserve("eventualreg_antientropy_shards_synced", float64(shardsSynced), metrics.Labels{"node": t.node})
+	}
+}
+
+func (t *telemetry) recordDeltaBytes(direction, kind string, n int) {
+	if t == nil || t.coll == nil || n == 0 {
+		return
+	}
+	t.coll.CounterAdd("eventualreg_delta_bytes_total", float64(n),
+		metrics.Labels{"node": t.node, "dir": direction, "kind": kind})
+}
+
+func (t *telemetry) setEntries(live, tombstone int64) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.GaugeSet("eventualreg_entries", float64(live), metrics.Labels{"node": t.node, "state": "live"})
+	t.coll.GaugeSet("eventualreg_entries", float64(tombstone), metrics.Labels{"node": t.node, "state": "tombstone"})
+}
+
+func (t *telemetry) setQueueDepth(d int) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.GaugeSet("eventualreg_broadcast_queue_depth", float64(d), metrics.Labels{"node": t.node})
+}
+
+func (t *telemetry) recordReregistration() {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("runtime_name_reregistrations_total", metrics.Labels{"node": t.node, "scope": "eventual"})
+}
+
+// copyAdd returns a copy of base with key=val added.
+func copyAdd(base metrics.Labels, key, val string) metrics.Labels {
+	out := make(metrics.Labels, len(base)+1)
+	for k, v := range base {
+		out[k] = v
+	}
+	out[key] = val
+	return out
+}

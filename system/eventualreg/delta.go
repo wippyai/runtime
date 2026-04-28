@@ -1,0 +1,284 @@
+// SPDX-License-Identifier: MPL-2.0
+
+package eventualreg
+
+import (
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"sync"
+
+	"github.com/wippyai/runtime/api/pid"
+)
+
+// Op identifies the kind of delta on the wire.
+type Op uint8
+
+const (
+	// OpRegister inserts/updates a name → PID binding.
+	OpRegister Op = 0
+	// OpUnregister marks a name as a tombstone.
+	OpUnregister Op = 1
+)
+
+// MaxFrameBytes is a soft cap for one user-broadcast frame. Memberlist
+// truncates anything over ~1400 B over UDP — we pack deltas up to this
+// limit and start a new frame.
+const MaxFrameBytes = 1400
+
+// ErrFrameOverflow indicates a delta would exceed MaxFrameBytes by itself.
+// Callers should send the offending entry over TCP instead (digest exchange).
+var ErrFrameOverflow = errors.New("eventualreg: delta exceeds frame size")
+
+// EncodeDelta writes one entry into the buffer using a compact format:
+//
+//	op:1 | name_len:2 | name | node_str_len:1 | node_str |
+//	counter:8 | wall:8 | pid_node_len:1 | pid_node | pid_host_len:1 |
+//	pid_host | pid_uniq_len:2 | pid_uniq
+//
+// node_str is the full string nodeID of the origin (so receivers can intern
+// without a separate node directory). PID fields are the three pid.PID
+// substrings, length-prefixed so receivers can rebuild without msgpack.
+func EncodeDelta(buf []byte, e *Entry, originNodeStr string) ([]byte, error) {
+	if len(e.Name) > 0xFFFF {
+		return buf, fmt.Errorf("eventualreg: name too long: %d bytes", len(e.Name))
+	}
+	if len(originNodeStr) > 0xFF {
+		return buf, fmt.Errorf("eventualreg: origin node too long: %d bytes", len(originNodeStr))
+	}
+	if len(e.PID.Node) > 0xFF || len(e.PID.Host) > 0xFF || len(e.PID.UniqID) > 0xFFFF {
+		return buf, fmt.Errorf("eventualreg: pid fields too long")
+	}
+
+	op := OpRegister
+	if e.Deleted {
+		op = OpUnregister
+	}
+
+	buf = append(buf, byte(op))
+	buf = appendUint16(buf, uint16(len(e.Name)))
+	buf = append(buf, e.Name...)
+	buf = append(buf, byte(len(originNodeStr)))
+	buf = append(buf, originNodeStr...)
+	buf = appendUint64(buf, e.Counter)
+	buf = appendUint64(buf, uint64(e.Wall))
+	buf = append(buf, byte(len(e.PID.Node)))
+	buf = append(buf, e.PID.Node...)
+	buf = append(buf, byte(len(e.PID.Host)))
+	buf = append(buf, e.PID.Host...)
+	buf = appendUint16(buf, uint16(len(e.PID.UniqID)))
+	buf = append(buf, e.PID.UniqID...)
+	return buf, nil
+}
+
+// DecodeDelta reads one entry from `data`, returning the entry, the origin
+// nodeID string, and the number of bytes consumed.
+func DecodeDelta(data []byte) (e Entry, originNode string, n int, err error) {
+	r := reader{b: data}
+
+	op := r.byte()
+	nameLen := r.u16()
+	name := r.str(int(nameLen))
+	originLen := r.byte()
+	origin := r.str(int(originLen))
+	counter := r.u64()
+	wall := int64(r.u64())
+	pidNodeLen := r.byte()
+	pidNode := r.str(int(pidNodeLen))
+	pidHostLen := r.byte()
+	pidHost := r.str(int(pidHostLen))
+	pidUniqLen := r.u16()
+	pidUniq := r.str(int(pidUniqLen))
+
+	if r.err != nil {
+		return Entry{}, "", 0, r.err
+	}
+
+	e = Entry{
+		Name:    name,
+		Counter: counter,
+		Wall:    wall,
+		Deleted: Op(op) == OpUnregister,
+	}
+	if !e.Deleted {
+		e.PID = pid.PID{Node: pidNode, Host: pidHost, UniqID: pidUniq}
+	}
+	return e, origin, r.pos, nil
+}
+
+// BroadcastQueue is a goroutine-safe queue of pending deltas. It batches
+// outbound entries into frames of ≤ MaxFrameBytes for memberlist
+// `GetBroadcasts`. Capacity is bounded so a slow gossip path can't grow
+// unbounded under chaos.
+type BroadcastQueue struct {
+	originNodeStr string
+	pending       []*Entry
+	mu            sync.Mutex
+	cap           int
+	dropped       uint64
+}
+
+// NewBroadcastQueue constructs a queue. `cap` is the max number of pending
+// entries before new ones are dropped (telemetry surfaces the count).
+func NewBroadcastQueue(originNodeStr string, capacity int) *BroadcastQueue {
+	if capacity <= 0 {
+		capacity = 4096
+	}
+	return &BroadcastQueue{
+		originNodeStr: originNodeStr,
+		cap:           capacity,
+	}
+}
+
+// Push enqueues a delta. Returns false if the queue is full and the entry
+// was dropped (callers can increment a metric).
+func (q *BroadcastQueue) Push(e *Entry) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.pending) >= q.cap {
+		q.dropped++
+		return false
+	}
+	q.pending = append(q.pending, e)
+	return true
+}
+
+// Drain pulls up to `overhead`-budgeted bytes worth of deltas, returning the
+// frames as separate byte slices (one slice per frame, each ≤ MaxFrameBytes).
+// `headerOverhead` is the per-frame budget reserved by memberlist.
+func (q *BroadcastQueue) Drain(headerOverhead int) [][]byte {
+	q.mu.Lock()
+	if len(q.pending) == 0 {
+		q.mu.Unlock()
+		return nil
+	}
+	pending := q.pending
+	q.pending = nil
+	q.mu.Unlock()
+
+	limit := MaxFrameBytes - headerOverhead
+	if limit < 64 {
+		limit = 64
+	}
+	var frames [][]byte
+	frame := make([]byte, 0, limit)
+	for _, e := range pending {
+		// Try to encode into a scratch buffer first; if it would overflow
+		// the current frame, flush and start a new one.
+		var scratch []byte
+		var err error
+		scratch, err = EncodeDelta(scratch, e, q.originNodeStr)
+		if err != nil {
+			continue
+		}
+		if len(scratch) > limit {
+			// Single delta larger than frame budget — drop it; bulk transfer
+			// path will pick this up on next anti-entropy round.
+			continue
+		}
+		if len(frame)+len(scratch) > limit {
+			frames = append(frames, frame)
+			frame = make([]byte, 0, limit)
+		}
+		frame = append(frame, scratch...)
+	}
+	if len(frame) > 0 {
+		frames = append(frames, frame)
+	}
+	return frames
+}
+
+// Dropped returns the lifetime count of dropped entries (queue full).
+func (q *BroadcastQueue) Dropped() uint64 {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.dropped
+}
+
+// Depth returns the current number of pending entries.
+func (q *BroadcastQueue) Depth() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.pending)
+}
+
+// DecodeFrame splits a frame into one or more (entry, originNode) pairs.
+// Stops at end-of-buffer or first decode error; returns whatever it managed
+// to parse plus the trailing error (if any).
+func DecodeFrame(data []byte) ([]Entry, []string, error) {
+	var entries []Entry
+	var origins []string
+	for len(data) > 0 {
+		e, origin, n, err := DecodeDelta(data)
+		if err != nil {
+			return entries, origins, err
+		}
+		entries = append(entries, e)
+		origins = append(origins, origin)
+		data = data[n:]
+	}
+	return entries, origins, nil
+}
+
+// --- internal helpers ---
+
+func appendUint16(b []byte, v uint16) []byte {
+	return binary.LittleEndian.AppendUint16(b, v)
+}
+
+func appendUint64(b []byte, v uint64) []byte {
+	return binary.LittleEndian.AppendUint64(b, v)
+}
+
+type reader struct {
+	err error
+	b   []byte
+	pos int
+}
+
+func (r *reader) need(n int) bool {
+	if r.err != nil {
+		return false
+	}
+	if r.pos+n > len(r.b) {
+		r.err = errors.New("eventualreg: truncated delta")
+		return false
+	}
+	return true
+}
+
+func (r *reader) byte() byte {
+	if !r.need(1) {
+		return 0
+	}
+	v := r.b[r.pos]
+	r.pos++
+	return v
+}
+
+func (r *reader) u16() uint16 {
+	if !r.need(2) {
+		return 0
+	}
+	v := binary.LittleEndian.Uint16(r.b[r.pos:])
+	r.pos += 2
+	return v
+}
+
+func (r *reader) u64() uint64 {
+	if !r.need(8) {
+		return 0
+	}
+	v := binary.LittleEndian.Uint64(r.b[r.pos:])
+	r.pos += 8
+	return v
+}
+
+func (r *reader) str(n int) string {
+	if !r.need(n) {
+		return ""
+	}
+	s := string(r.b[r.pos : r.pos+n])
+	r.pos += n
+	return s
+}

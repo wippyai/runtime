@@ -72,6 +72,24 @@ func (n *Node) ActualPort() int {
 	return n.actualPort
 }
 
+// Telemetry exposes the internal telemetry handle so the MembershipHandler
+// can emit voter-op metrics without an extra constructor argument.
+// Stable enough for in-package use; not part of raftapi.Service.
+func (n *Node) Telemetry() *telemetry { return n.tel }
+
+// PeerDeadStreak returns the current per-peer "consecutive dead-window
+// trips" count from the peerStateTracker. Returns 0 if no tracker is wired
+// or the peer is unknown. Used by the MembershipHandler to drive proactive
+// voter eviction when transport heartbeats AND gossip both say a peer is
+// down. In-package only.
+func (n *Node) PeerDeadStreak(addr raftapi.ServerAddress) int {
+	tracker, ok := n.transport.(*peerStateTracker)
+	if !ok {
+		return 0
+	}
+	return tracker.DeadStreak(hraft.ServerAddress(addr))
+}
+
 // SetVoterCap records the configured voter ceiling so the voter-ladder
 // telemetry can publish it alongside the live counts. Safe to call before
 // Start; the membership handler invokes this with HandlerConfig.MaxVoters.

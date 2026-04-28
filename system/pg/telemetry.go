@@ -63,6 +63,18 @@ func (t *telemetry) recordMonitorsEvicted(reason string, n int) {
 		metrics.Labels{"reason": reason})
 }
 
+// recordDiscoverTargets emits the size of each discover fan-out so the soak
+// can verify the initial cap holds and gossip-driven discovery keeps the
+// cluster converged without N² messaging on simultaneous restart.
+func (t *telemetry) recordDiscoverTargets(phase string, picked, total int) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	labels := metrics.Labels{"phase": phase}
+	t.coll.HistogramObserve("pg_discover_targets", float64(picked), labels)
+	t.coll.HistogramObserve("pg_discover_pool_size", float64(total), labels)
+}
+
 // recordCircuitBreakerEvicted is incremented when the breakers map
 // reaches its cap and an arbitrary entry is dropped. Should normally
 // stay at zero — non-zero indicates that NodeLeft cleanup is missing
