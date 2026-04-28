@@ -1059,6 +1059,91 @@ func TestSelectReceiveClosedBufferedDrainsThenOkFalse(t *testing.T) {
 	t.Fatal("select on closed buffered channel did not complete")
 }
 
+func TestSelectReceiveClosedBeatsDefault(t *testing.T) {
+	script := `
+		local ch = channel.new(0)
+		ch:close()
+
+		local first = channel.select{
+			ch:case_receive(),
+			default = true
+		}
+		local second = channel.select{
+			ch:case_receive(),
+			default = true
+		}
+
+		return first.default ~= true
+			and first.channel == ch
+			and first.ok == false
+			and first.value == nil
+			and second.default ~= true
+			and second.channel == ch
+			and second.ok == false
+			and second.value == nil
+	`
+
+	proc := startChannelProcess(t, script)
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 10; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			requireTruePayload(t, output.Result())
+			return
+		}
+	}
+
+	t.Fatal("closed receive did not beat select default")
+}
+
+func TestSelectReceiveClosedBufferedDrainBeatsDefault(t *testing.T) {
+	script := `
+		local ch = channel.new(1)
+		ch:send("buffered")
+		ch:close()
+
+		local first = channel.select{
+			ch:case_receive(),
+			default = true
+		}
+		local second = channel.select{
+			ch:case_receive(),
+			default = true
+		}
+
+		return first.default ~= true
+			and first.channel == ch
+			and first.ok == true
+			and first.value == "buffered"
+			and second.default ~= true
+			and second.channel == ch
+			and second.ok == false
+			and second.value == nil
+	`
+
+	proc := startChannelProcess(t, script)
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 10; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			requireTruePayload(t, output.Result())
+			return
+		}
+	}
+
+	t.Fatal("closed buffered receive did not beat select default after drain")
+}
+
 func TestSelectClosedStopChannelLetsWorkerExitAfterMainClosesIt(t *testing.T) {
 	script := `
 		local stop = channel.new(0)

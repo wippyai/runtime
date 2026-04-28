@@ -186,11 +186,18 @@ func (s *Supervisor) Stop() error {
 
 	operations := make([]operation, 0)
 	for id, ctrl := range controllers {
+		deps, err := s.resolveDependencies(controllers, id)
+		if err != nil {
+			s.logger.Warn("failed to resolve service dependencies during shutdown; using lifecycle dependencies",
+				zap.String("serviceID", id),
+				zap.Error(err))
+			deps = ctrl.config.DependsOn
+		}
 		operations = append(operations, operation{
 			kind:         opStop,
 			id:           id,
 			controller:   ctrl,
-			dependencies: ctrl.config.DependsOn,
+			dependencies: deps,
 		})
 	}
 

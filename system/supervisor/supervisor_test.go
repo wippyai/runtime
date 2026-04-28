@@ -1256,6 +1256,73 @@ func TestSupervisor_DependencyStopOrder(t *testing.T) {
 	h.assertServiceState("service-c", supervisor.StatusStopped)
 }
 
+func TestSupervisor_StopUsesResolvedDependencies(t *testing.T) {
+	core, _ := observer.New(zapcore.DebugLevel)
+	bus := eventbus.NewBus()
+	logger := zap.New(core)
+	resolver := func(id registry.ID) ([]registry.ID, error) {
+		if id.String() == "test:service-a" {
+			return []registry.ID{registry.NewID("test", "service-b")}, nil
+		}
+		return nil, nil
+	}
+	sup := NewSupervisor(bus, logger, WithDependencyResolver(resolver))
+
+	err := sup.Start(context.Background())
+	require.NoError(t, err)
+
+	var (
+		order   []string
+		orderMu sync.Mutex
+	)
+	register := func(id string) {
+		details := make(chan any)
+		sup.handleEvent(event.Event{
+			System: supervisor.System,
+			Kind:   supervisor.ServiceRegister,
+			Path:   id,
+			Data: &supervisor.Entry{
+				Service: &mockService{
+					startFunc: func(context.Context) (<-chan any, error) {
+						return details, nil
+					},
+					stopFunc: func(context.Context) error {
+						orderMu.Lock()
+						order = append(order, id)
+						orderMu.Unlock()
+						close(details)
+						return nil
+					},
+				},
+				Config: supervisor.LifecycleConfig{
+					AutoStart:    true,
+					StartTimeout: time.Second,
+					StopTimeout:  time.Second,
+				},
+			},
+		})
+	}
+
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	register("test:service-b")
+	register("test:service-a")
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	require.Eventually(t, func() bool {
+		stateA, errA := sup.GetState("test:service-a")
+		stateB, errB := sup.GetState("test:service-b")
+		return errA == nil && errB == nil &&
+			stateA.Status == supervisor.StatusRunning &&
+			stateB.Status == supervisor.StatusRunning
+	}, time.Second, 10*time.Millisecond)
+
+	require.NoError(t, sup.Stop())
+	orderMu.Lock()
+	gotOrder := append([]string(nil), order...)
+	orderMu.Unlock()
+	require.Equal(t, []string{"test:service-a", "test:service-b"}, gotOrder)
+}
+
 func TestSupervisor_MissingDependencies(t *testing.T) {
 	h := newTestHarness(t)
 	ctx := context.Background()
