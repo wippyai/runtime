@@ -38,6 +38,8 @@ func newTelemetry(coll metrics.Collector, mp otelmetric.MeterProvider, tp trace.
 		coll.GaugeSet("pg_circuit_breaker_state", 0, metrics.Labels{"pg": "_init"})
 		coll.CounterAdd("pg_retry_total", 0, metrics.Labels{"pg": "_init", "op": "noop", "attempt": "0"})
 		coll.CounterAdd("pg_retry_giveup_total", 0, metrics.Labels{"pg": "_init", "op": "noop"})
+		coll.CounterAdd("pg_retry_dropped_total", 0, metrics.Labels{"pg": "_init", "op": "noop"})
+		coll.GaugeSet("pg_retry_queue_size", 0, metrics.Labels{"pg": "_init"})
 		coll.GaugeSet("pg_dispatcher_inflight", 0, metrics.Labels{"pg": "_init"})
 		coll.CounterAdd("pg_queue_dropped_total", 0, metrics.Labels{"pg": "_init", "reason": "noop"})
 		coll.CounterAdd("pg_fence_rejection_total", 0, metrics.Labels{"pg": "_init", "reason": "noop"})
@@ -138,6 +140,22 @@ func (t *telemetry) recordRetryGiveup(pg, op string) {
 	}
 
 	t.coll.CounterInc("pg_retry_giveup_total", metrics.Labels{"pg": pg, "op": op})
+}
+
+func (t *telemetry) recordRetryDropped(pg, op string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+
+	t.coll.CounterInc("pg_retry_dropped_total", metrics.Labels{"pg": pg, "op": op})
+}
+
+func (t *telemetry) recordRetryQueueSize(pg string, size int) {
+	if t == nil || t.coll == nil {
+		return
+	}
+
+	t.coll.GaugeSet("pg_retry_queue_size", float64(size), metrics.Labels{"pg": pg})
 }
 
 func (t *telemetry) startSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {

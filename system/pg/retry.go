@@ -3,6 +3,7 @@
 package pg
 
 import (
+	"container/heap"
 	"context"
 	"sync"
 	"time"
@@ -26,7 +27,31 @@ type retryEntry struct {
 	attempts   int
 }
 
-// retryQueue manages failed broadcasts with exponential backoff retry.
+// retryHeap implements heap.Interface ordered by nextTry ascending.
+// It is a thin alias over the retryQueue.entries slice; all heap ops go
+// through this type to keep retryQueue's API focused.
+type retryHeap []*retryEntry
+
+func (h retryHeap) Len() int           { return len(h) }
+func (h retryHeap) Less(i, j int) bool { return h[i].nextTry.Before(h[j].nextTry) }
+func (h retryHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+
+func (h *retryHeap) Push(x any) { *h = append(*h, x.(*retryEntry)) }
+
+func (h *retryHeap) Pop() any {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	old[n-1] = nil
+	*h = old[:n-1]
+	return x
+}
+
+// retryQueue manages failed broadcasts with exponential backoff. Backed
+// by a min-heap on nextTry: O(log N) insert/extract instead of the
+// linear scan the previous slice version did. Bounded by `cap` to keep
+// memory finite under partition; on overflow the oldest (i.e. closest
+// to firing) entry is dropped with a metric.
 type retryQueue struct {
 	service    *Service
 	logger     *zap.Logger
@@ -38,11 +63,14 @@ type retryQueue struct {
 	wg         sync.WaitGroup
 	sequenceID uint64
 	maxRetries int
+	cap        int
 	baseDelay  time.Duration
 	maxDelay   time.Duration
 	mu         sync.Mutex
 	stopped    bool
 }
+
+const defaultRetryQueueCap = 2048
 
 // newRetryQueue creates a new retry queue.
 func newRetryQueue(service *Service, maxRetries int, baseDelay, maxDelay time.Duration, logger *zap.Logger, tel *telemetry) *retryQueue {
@@ -57,8 +85,9 @@ func newRetryQueue(service *Service, maxRetries int, baseDelay, maxDelay time.Du
 	}
 
 	return &retryQueue{
-		entries:    make([]*retryEntry, 0),
+		entries:    make([]*retryEntry, 0, 64),
 		maxRetries: maxRetries,
+		cap:        defaultRetryQueueCap,
 		baseDelay:  baseDelay,
 		maxDelay:   maxDelay,
 		service:    service,
@@ -67,20 +96,26 @@ func newRetryQueue(service *Service, maxRetries int, baseDelay, maxDelay time.Du
 	}
 }
 
+// pgLabel returns the service host ID if the service is non-nil, otherwise "".
+// Used so retry-queue methods stay nil-safe under unit tests.
+func (rq *retryQueue) pgLabel() string {
+	if rq.service == nil {
+		return ""
+	}
+	return rq.service.hostID
+}
+
 // Start begins the retry processing loop.
 func (rq *retryQueue) Start(ctx context.Context) {
 	rq.mu.Lock()
-	defer rq.mu.Unlock()
-
 	if rq.stopped {
-		// Reset stopped flag if restarting
 		rq.stopped = false
 	}
-
 	rq.notifyCh = make(chan struct{}, 1)
 	rq.timer = nil
 	stopCh := make(chan struct{})
 	rq.stopCh = stopCh
+	rq.mu.Unlock()
 	rq.wg.Add(1)
 
 	go func() {
@@ -106,16 +141,10 @@ func (rq *retryQueue) Start(ctx context.Context) {
 				rq.processRetries()
 			}
 
-			// After processing, schedule next timer based on remaining entries
+			// After processing, schedule next timer based on heap root.
 			rq.mu.Lock()
 			if len(rq.entries) > 0 {
-				earliest := rq.entries[0].nextTry
-				for _, e := range rq.entries[1:] {
-					if e.nextTry.Before(earliest) {
-						earliest = e.nextTry
-					}
-				}
-				delay := time.Until(earliest)
+				delay := time.Until(rq.entries[0].nextTry)
 				if delay <= 0 {
 					delay = time.Millisecond
 				}
@@ -166,6 +195,19 @@ func (rq *retryQueue) Add(targetNode pid.NodeID, topic string, groups []string, 
 		return
 	}
 
+	if len(rq.entries) >= rq.cap {
+		// Drop the soonest-to-fire entry (heap root) to make room.
+		// Equivalent to drop-oldest under the priority model: we keep the
+		// scheduling tail (entries that have a real backoff window) over
+		// near-due ones that are already failing repeatedly.
+		dropped := heap.Pop((*retryHeap)(&rq.entries)).(*retryEntry)
+		rq.tel.recordRetryDropped(rq.pgLabel(), dropped.topic)
+		rq.logger.Debug("retry queue at cap, dropped oldest",
+			zap.String("dropped_node", dropped.targetNode),
+			zap.Int("cap", rq.cap),
+		)
+	}
+
 	rq.sequenceID++
 	entry := &retryEntry{
 		id:         rq.sequenceID,
@@ -177,8 +219,8 @@ func (rq *retryQueue) Add(targetNode pid.NodeID, topic string, groups []string, 
 		attempts:   0,
 		nextTry:    time.Now().Add(rq.baseDelay),
 	}
-
-	rq.entries = append(rq.entries, entry)
+	heap.Push((*retryHeap)(&rq.entries), entry)
+	rq.tel.recordRetryQueueSize(rq.pgLabel(), len(rq.entries))
 
 	rq.logger.Debug("added to retry queue",
 		zap.String("node", targetNode),
@@ -195,25 +237,16 @@ func (rq *retryQueue) Add(targetNode pid.NodeID, topic string, groups []string, 
 
 // processRetries attempts to send messages that are due for retry.
 func (rq *retryQueue) processRetries() {
-	rq.mu.Lock()
 	now := time.Now()
-
-	// Find entries ready for retry
 	var ready []*retryEntry
-	var remaining []*retryEntry
 
-	for _, entry := range rq.entries {
-		if now.After(entry.nextTry) || now.Equal(entry.nextTry) {
-			ready = append(ready, entry)
-		} else {
-			remaining = append(remaining, entry)
-		}
+	rq.mu.Lock()
+	for len(rq.entries) > 0 && !rq.entries[0].nextTry.After(now) {
+		ready = append(ready, heap.Pop((*retryHeap)(&rq.entries)).(*retryEntry))
 	}
-
-	rq.entries = remaining
+	rq.tel.recordRetryQueueSize(rq.pgLabel(), len(rq.entries))
 	rq.mu.Unlock()
 
-	// Process ready entries outside the lock
 	for _, entry := range ready {
 		rq.attemptRetry(entry)
 	}
@@ -272,12 +305,10 @@ func (rq *retryQueue) attemptRetry(entry *retryEntry) {
 // requeue re-queues an entry for another retry attempt with exponential backoff.
 func (rq *retryQueue) requeue(entry *retryEntry) {
 	entry.attempts++
-
-	pgLabel := rq.service.hostID
+	pgLabel := rq.pgLabel()
 	op := entry.topic
 
 	if entry.attempts >= rq.maxRetries {
-		// Max retries exceeded, drop the message
 		rq.logger.Warn("max retries exceeded, dropping message",
 			zap.String("node", entry.targetNode),
 			zap.Strings("groups", entry.groups),
@@ -290,24 +321,20 @@ func (rq *retryQueue) requeue(entry *retryEntry) {
 
 	rq.tel.recordRetry(pgLabel, op, entry.attempts)
 
-	// Calculate exponential backoff
 	delay := rq.baseDelay * time.Duration(1<<entry.attempts)
 	if delay > rq.maxDelay {
 		delay = rq.maxDelay
 	}
-
 	entry.nextTry = time.Now().Add(delay)
 
 	rq.mu.Lock()
-	rq.entries = append(rq.entries, entry)
+	if len(rq.entries) >= rq.cap {
+		dropped := heap.Pop((*retryHeap)(&rq.entries)).(*retryEntry)
+		rq.tel.recordRetryDropped(pgLabel, dropped.topic)
+	}
+	heap.Push((*retryHeap)(&rq.entries), entry)
+	rq.tel.recordRetryQueueSize(pgLabel, len(rq.entries))
 	rq.mu.Unlock()
-
-	rq.logger.Debug("re-queued for retry",
-		zap.String("node", entry.targetNode),
-		zap.Uint64("id", entry.id),
-		zap.Int("attempt", entry.attempts),
-		zap.Duration("delay", delay),
-	)
 }
 
 // sendJoinWithRetry is a helper to send a join message.
