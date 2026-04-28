@@ -36,3 +36,19 @@ func (c Class) String() string {
 		return "unknown"
 	}
 }
+
+// ClassForTopic maps a relay package topic to its QoS class. Membership
+// and discovery topics are control-plane (drop-oldest); everything else
+// is treated as application broadcast (drop-newest with caller error).
+//
+// Importing `runtime/api/pg` would create a cycle (internode → pg → internode),
+// so the topic strings are duplicated here as constants. They MUST stay in
+// sync with `runtime/api/pg/pg.go`.
+func ClassForTopic(topic string) Class {
+	switch topic {
+	case "pg.join", "pg.leave", "pg.discover", "pg.sync":
+		return ClassRaftControl
+	default:
+		return ClassPGBroadcast
+	}
+}

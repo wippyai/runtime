@@ -158,7 +158,7 @@ type nodeControlLoop struct {
 type ConnectionManager interface {
 	Start(ctx context.Context, onMessage func(nodeID cluster.NodeID, data []byte)) error
 	Stop() error
-	SendToNode(nodeID cluster.NodeID, data []byte) error
+	SendToNode(nodeID cluster.NodeID, data []byte, class Class) error
 	EnsureConnection(nodeID cluster.NodeID, addr string, port int)
 	DisconnectFromNode(nodeID cluster.NodeID)
 	ConnectedNodes() []cluster.NodeID
@@ -245,15 +245,16 @@ func (m *manager) Stop() error {
 	return nil
 }
 
-func (m *manager) SendToNode(nodeID cluster.NodeID, data []byte) error {
-	// ClassRaftControl is a transitional default; Task 2 will plumb the
-	// real class through from internode.Service.Send.
-	err := m.nodeStates.QueueMessageClass(nodeID, data, ClassRaftControl)
+func (m *manager) SendToNode(nodeID cluster.NodeID, data []byte, class Class) error {
+	err := m.nodeStates.QueueMessageClass(nodeID, data, class)
 	if err != nil {
 		if errors.Is(err, ErrNodeNotManaged) {
-			m.logger.Warn("Dropping message for non-existent or unmanaged node", zap.String("target_node", nodeID))
+			m.logger.Warn("Dropping message for non-existent or unmanaged node",
+				zap.String("target_node", nodeID),
+				zap.String("class", class.String()))
 			return nil
 		}
+		// ErrQueueFull surfaces to the caller (broadcast path will count it).
 		return err
 	}
 	return nil

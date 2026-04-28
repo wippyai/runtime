@@ -105,6 +105,10 @@ func (s *Service) Stop() error {
 func (s *Service) Send(pkg *relay.Package) error {
 	data, err := s.codec.Encode(pkg)
 	targetNode := pkg.Target
+	var topic string
+	if len(pkg.Messages) > 0 {
+		topic = pkg.Messages[0].Topic
+	}
 	relay.ReleasePackage(pkg)
 	if err != nil {
 		return NewEncodePackageError(targetNode.Node, err)
@@ -116,7 +120,7 @@ func (s *Service) Send(pkg *relay.Package) error {
 	// to call AddManagedNode + EnsureConnection.
 	s.ensureNodeManaged(targetNode.Node)
 
-	return s.connMan.SendToNode(targetNode.Node, data)
+	return s.connMan.SendToNode(targetNode.Node, data, ClassForTopic(topic))
 }
 
 // ensureNodeManaged verifies that the target node is registered as a managed

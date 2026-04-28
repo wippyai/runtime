@@ -65,7 +65,7 @@ func (m *mockConnectionManager) Stop() error {
 	return nil
 }
 
-func (m *mockConnectionManager) SendToNode(_ cluster.NodeID, _ []byte) error {
+func (m *mockConnectionManager) SendToNode(_ cluster.NodeID, _ []byte, _ Class) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.sendError != nil {
@@ -558,4 +558,23 @@ func TestService_OnMessage_DeliveryError(t *testing.T) {
 	defer func() { _ = service.Stop() }()
 
 	connMan.onMessage("remote-node", []byte("data"))
+}
+
+func TestClassForTopic(t *testing.T) {
+	cases := []struct {
+		topic string
+		want  Class
+	}{
+		{"pg.join", ClassRaftControl},
+		{"pg.leave", ClassRaftControl},
+		{"pg.discover", ClassRaftControl},
+		{"pg.sync", ClassRaftControl},
+		{"app.broadcast.ping", ClassPGBroadcast},
+		{"", ClassPGBroadcast}, // unknown defaults to broadcast
+	}
+	for _, c := range cases {
+		if got := ClassForTopic(c.topic); got != c.want {
+			t.Errorf("ClassForTopic(%q) = %v, want %v", c.topic, got, c.want)
+		}
+	}
 }

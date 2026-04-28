@@ -90,13 +90,13 @@ func TestIntegration_TwoNodeCommunication(t *testing.T) {
 
 	// Send messages from node-1 to node-2
 	for i := 0; i < 10; i++ {
-		err := cm1.SendToNode("node-2", []byte("hello from node-1"))
+		err := cm1.SendToNode("node-2", []byte("hello from node-1"), ClassRaftControl)
 		require.NoError(t, err)
 	}
 
 	// Send messages from node-2 to node-1
 	for i := 0; i < 10; i++ {
-		err := cm2.SendToNode("node-1", []byte("hello from node-2"))
+		err := cm2.SendToNode("node-1", []byte("hello from node-2"), ClassRaftControl)
 		require.NoError(t, err)
 	}
 
@@ -177,7 +177,7 @@ func TestIntegration_ConnectionRetryOnFailure(t *testing.T) {
 	}
 
 	// Send message
-	_ = cm1.SendToNode("node-2", []byte("delayed hello"))
+	_ = cm1.SendToNode("node-2", []byte("delayed hello"), ClassRaftControl)
 
 	deadline = time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -337,7 +337,7 @@ func TestIntegration_ThreeNodeCluster(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		for j := 0; j < 3; j++ {
 			if i != j {
-				_ = managers[i].SendToNode(nodeIDs[j], []byte("hello"))
+				_ = managers[i].SendToNode(nodeIDs[j], []byte("hello"), ClassRaftControl)
 			}
 		}
 	}
@@ -418,7 +418,7 @@ func TestIntegration_LargeMessages(t *testing.T) {
 		for i := range msg {
 			msg[i] = byte(i % 256)
 		}
-		err := cm1.SendToNode("node-2", msg)
+		err := cm1.SendToNode("node-2", msg, ClassRaftControl)
 		require.NoError(t, err)
 	}
 
@@ -502,7 +502,7 @@ func TestIntegration_HighThroughput(t *testing.T) {
 	// Send messages with small delays to allow drain cycles
 	start := time.Now()
 	for i := 0; i < messageCount; i++ {
-		_ = cm1.SendToNode("receiver", []byte("high throughput test message"))
+		_ = cm1.SendToNode("receiver", []byte("high throughput test message"), ClassRaftControl)
 		if i%10 == 0 {
 			time.Sleep(time.Millisecond)
 		}
@@ -583,7 +583,7 @@ func TestIntegration_ShortNetworkDisruption(t *testing.T) {
 
 	// Send initial messages
 	for i := 0; i < 10; i++ {
-		_ = cm1.SendToNode("node-2", []byte("before disruption"))
+		_ = cm1.SendToNode("node-2", []byte("before disruption"), ClassRaftControl)
 		time.Sleep(time.Millisecond)
 	}
 
@@ -606,7 +606,7 @@ func TestIntegration_ShortNetworkDisruption(t *testing.T) {
 
 	// Send messages during disruption (they should be queued)
 	for i := 0; i < 5; i++ {
-		_ = cm1.SendToNode("node-2", []byte("during disruption"))
+		_ = cm1.SendToNode("node-2", []byte("during disruption"), ClassRaftControl)
 	}
 
 	// Restart node-2 with same port
@@ -635,7 +635,7 @@ func TestIntegration_ShortNetworkDisruption(t *testing.T) {
 
 	// Send messages after recovery
 	for i := 0; i < 10; i++ {
-		_ = cm1.SendToNode("node-2", []byte("after recovery"))
+		_ = cm1.SendToNode("node-2", []byte("after recovery"), ClassRaftControl)
 		time.Sleep(time.Millisecond)
 	}
 
@@ -714,7 +714,7 @@ func TestIntegration_MultipleReconnections(t *testing.T) {
 
 		// Send messages
 		for i := 0; i < 5; i++ {
-			_ = cm1.SendToNode("node-2", []byte("cycle message"))
+			_ = cm1.SendToNode("node-2", []byte("cycle message"), ClassRaftControl)
 			time.Sleep(time.Millisecond)
 		}
 
@@ -806,7 +806,7 @@ func TestIntegration_BidirectionalCommunication(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < messageCount; i++ {
-			_ = cm1.SendToNode("node-2", []byte("from node-1"))
+			_ = cm1.SendToNode("node-2", []byte("from node-1"), ClassRaftControl)
 			if i%5 == 0 {
 				time.Sleep(time.Millisecond)
 			}
@@ -816,7 +816,7 @@ func TestIntegration_BidirectionalCommunication(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < messageCount; i++ {
-			_ = cm2.SendToNode("node-1", []byte("from node-2"))
+			_ = cm2.SendToNode("node-1", []byte("from node-2"), ClassRaftControl)
 			if i%5 == 0 {
 				time.Sleep(time.Millisecond)
 			}
