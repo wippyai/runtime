@@ -23,7 +23,15 @@ type telemetry struct {
 // are accepted to match the per-package constructor pattern but are not
 // currently used — the globalreg subsystem only emits metrics.
 func newTelemetry(coll metrics.Collector, _ otelmetric.MeterProvider, _ trace.TracerProvider) *telemetry {
-	return &telemetry{coll: coll}
+	t := &telemetry{coll: coll}
+	if coll != nil {
+		// Bootstrap rare event-driven series so dashboards have visible
+		// gauges/counters even before an actual fence token has been
+		// committed or a registration deduped.
+		coll.GaugeSet("pg_fence_token", 0, metrics.Labels{"pg": "_init", "node": "_init"})
+		coll.CounterAdd("pg_globalreg_dedupe_total", 0, nil)
+	}
+	return t
 }
 
 func (t *telemetry) recordFenceToken(pg, node string, token uint64) {

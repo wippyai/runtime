@@ -146,6 +146,12 @@ func (h *MembershipHandler) Start(ctx context.Context) error {
 	h.wg.Add(2)
 	go h.subscriberLoop(ctx, ch, subID)
 	go h.reconcileLoop(ctx)
+
+	// Kick an immediate reconcile so peers already in gossip when we
+	// subscribe (i.e. that emitted NodeJoined events before subscription)
+	// are picked up. Without this the leader can sit forever as a single
+	// voter while followers wait for an AppendEntries that never comes.
+	h.scheduleReconcile()
 	return nil
 }
 
@@ -255,6 +261,13 @@ func (h *MembershipHandler) runReconcileOnce(ctx context.Context) {
 	defer cancel()
 
 	nodes := h.membership.Nodes()
+	// Include the local node in the candidate set so the reconciler keeps
+	// the local raft instance as a voter. Membership.Nodes() omits the local
+	// node by design, but reconcileDiff treats absence as "remove from voter
+	// set" and the local node would get evicted on every pass.
+	if local := h.membership.LocalNode(); local.ID != "" {
+		nodes = append(nodes, local)
+	}
 	candidates := candidatesFromMembership(nodes)
 
 	current, err := h.svc.GetConfiguration()

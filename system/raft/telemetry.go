@@ -26,10 +26,21 @@ func newTelemetry(coll metrics.Collector, mp otelmetric.MeterProvider, tp trace.
 		tp = otel.GetTracerProvider()
 	}
 	_ = mp // metrics export is plumbed via metrics.Collector
-	return &telemetry{
+	t := &telemetry{
 		coll:   coll,
 		tracer: tp.Tracer("wippy-runtime"),
 	}
+	if coll != nil {
+		// Bootstrap rare event-driven counters with a zero increment so
+		// dashboards have visible series even before the first event. Avoid
+		// HistogramObserve here — that would add a real observation, which
+		// breaks unit tests that count observations.
+		coll.CounterAdd("raft_leader_changes_total", 0, nil)
+		coll.CounterAdd("raft_snapshot_total", 0, metrics.Labels{"result": "ok"})
+		coll.CounterAdd("raft_request_vote_total", 0, metrics.Labels{"peer": "_init", "result": "ok"})
+		coll.CounterAdd("raft_install_snapshot_total", 0, metrics.Labels{"peer": "_init", "result": "ok"})
+	}
+	return t
 }
 
 func raftStateValue(state string) float64 {

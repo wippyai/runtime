@@ -4,6 +4,7 @@ package otel
 
 import (
 	"context"
+	"time"
 
 	otelapi "github.com/wippyai/runtime/api/service/otel"
 	"go.opentelemetry.io/otel"
@@ -213,8 +214,14 @@ func InitializeMeterProvider(ctx context.Context, cfg otelapi.Config, logger *za
 		return nil, newCreateResourceError(err)
 	}
 
+	// 10s push interval keeps Prometheus rate queries with 1m windows reliable
+	// (default 60s interval would only produce 1 sample per window, breaking
+	// rate()). The trade-off vs. the 60s default is more outbound bytes; for
+	// the chaos cluster the visibility win is worth it.
 	mp := sdkmetric.NewMeterProvider(
-		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)),
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter,
+			sdkmetric.WithInterval(10*time.Second),
+		)),
 		sdkmetric.WithResource(res),
 	)
 

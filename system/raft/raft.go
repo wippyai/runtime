@@ -289,6 +289,7 @@ func (n *Node) monitorLeadership(statusCh chan<- any) {
 
 	// Initial sample so dashboards see state immediately.
 	n.sampleStateAndTerm()
+	n.sampleVoterLadder()
 
 	for {
 		select {
@@ -319,8 +320,10 @@ func (n *Node) monitorLeadership(statusCh chan<- any) {
 				})
 			}
 			n.sampleStateAndTerm()
+			n.sampleVoterLadder()
 		case <-sampleTicker.C:
 			n.sampleStateAndTerm()
+			n.sampleVoterLadder()
 		case <-n.stopCh:
 			return
 		}

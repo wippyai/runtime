@@ -270,17 +270,22 @@ func TestRunReconcileOnce_NoOpAtSteadyState(t *testing.T) {
 }
 
 func TestRunReconcileOnce_LocalLeaderSelfRemovalTransfersFirst(t *testing.T) {
-	// Local node "a" is leader and is no longer eligible (e.g. lost gossip).
-	// Reconcile must transfer leadership before attempting self-remove.
+	// Local node "a" is leader and has explicitly opted out of raft
+	// (raft_eligible=false). Reconcile must transfer leadership before
+	// attempting self-remove. Note: simply being absent from
+	// Membership.Nodes() is no longer sufficient — the reconciler always
+	// includes the local node as a candidate so a healthy leader is never
+	// evicted by accident.
 	fr := newFakeRaft(true, []raftapi.Server{
 		{ID: "a", Address: "10.0.0.1:7960", IsVoter: true},
 		{ID: "b", Address: "10.0.0.2:7960", IsVoter: true},
 		{ID: "c", Address: "10.0.0.3:7960", IsVoter: true},
 	})
 	fr.transferTookLeader = true
+	localOptedOut := mkNode("a", "10.0.0.1", "7960")
+	localOptedOut.Meta["raft_eligible"] = "false"
 	fm := &fakeMembership{
-		local: mkNode("a", "10.0.0.1", "7960"),
-		// "a" missing from gossip — will be removed.
+		local: localOptedOut,
 		nodes: []cluster.NodeInfo{
 			mkNode("b", "10.0.0.2", "7960"),
 			mkNode("c", "10.0.0.3", "7960"),

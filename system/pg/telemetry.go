@@ -27,10 +27,22 @@ func newTelemetry(coll metrics.Collector, mp otelmetric.MeterProvider, tp trace.
 		tp = otel.GetTracerProvider()
 	}
 	_ = mp // metrics export is plumbed via metrics.Collector
-	return &telemetry{
+	t := &telemetry{
 		coll:   coll,
 		tracer: tp.Tracer("wippy-runtime"),
 	}
+	// Bootstrap rare event-driven counters with zero so dashboards have
+	// visible series even before the corresponding event ever fires.
+	if coll != nil {
+		coll.CounterAdd("pg_circuit_breaker_trips_total", 0, metrics.Labels{"pg": "_init"})
+		coll.GaugeSet("pg_circuit_breaker_state", 0, metrics.Labels{"pg": "_init"})
+		coll.CounterAdd("pg_retry_total", 0, metrics.Labels{"pg": "_init", "op": "noop", "attempt": "0"})
+		coll.CounterAdd("pg_retry_giveup_total", 0, metrics.Labels{"pg": "_init", "op": "noop"})
+		coll.GaugeSet("pg_dispatcher_inflight", 0, metrics.Labels{"pg": "_init"})
+		coll.CounterAdd("pg_queue_dropped_total", 0, metrics.Labels{"pg": "_init", "reason": "noop"})
+		coll.CounterAdd("pg_fence_rejection_total", 0, metrics.Labels{"pg": "_init", "reason": "noop"})
+	}
+	return t
 }
 
 func resultLabel(err error) string {

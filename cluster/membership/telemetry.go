@@ -27,7 +27,14 @@ func newTelemetry(coll metrics.Collector, mp otelmetric.MeterProvider, tp trace.
 	}
 	_ = mp // metrics export is plumbed via metrics.Collector
 
-	return &telemetry{coll: coll, tracer: tp.Tracer("wippy-runtime")}
+	t := &telemetry{coll: coll, tracer: tp.Tracer("wippy-runtime")}
+	if coll != nil {
+		coll.CounterAdd("gossip_leave_total", 0, nil)
+		coll.CounterAdd("gossip_probe_failures_total", 0, metrics.Labels{"target": "_init"})
+		coll.CounterAdd("gossip_suspicion_resolutions_total", 0, metrics.Labels{"outcome": "alive"})
+		coll.CounterAdd("gossip_suspicion_resolutions_total", 0, metrics.Labels{"outcome": "dead"})
+	}
+	return t
 }
 
 func gossipResult(err error) string {
