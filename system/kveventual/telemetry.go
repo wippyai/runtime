@@ -12,10 +12,21 @@ type telemetry struct {
 func newTelemetry(coll metrics.Collector, node string) *telemetry {
 	t := &telemetry{coll: coll, node: node}
 	if coll != nil {
-		base := metrics.Labels{"node": node}
-		coll.CounterAdd("kveventual_space_open_total", 0, base)
+		// Bootstrap with the FULL label set the recorder will later use,
+		// so the prometheus exporter doesn't see a label-set mismatch
+		// between the bootstrap series and the first real CounterInc/Add.
+		coll.CounterAdd("kveventual_space_open_total", 0,
+			metrics.Labels{"node": node, "space": "_init"})
 		coll.CounterAdd("kveventual_op_total", 0,
 			metrics.Labels{"node": node, "space": "_init", "op": "put", "result": "ok"})
+		coll.CounterAdd("kveventual_bytes_total", 0,
+			metrics.Labels{"node": node, "space": "_init", "dir": "tx", "kind": "delta"})
+		coll.CounterAdd("kveventual_tombstones_gc_total", 0,
+			metrics.Labels{"node": node, "space": "_init", "reason": "safe_counter"})
+		coll.GaugeSet("kveventual_entries", 0,
+			metrics.Labels{"node": node, "space": "_init", "state": "live"})
+		coll.GaugeSet("kveventual_entries", 0,
+			metrics.Labels{"node": node, "space": "_init", "state": "tombstone"})
 	}
 	return t
 }

@@ -69,11 +69,15 @@ func (t *telemetry) recordGlobalregDedupe() {
 // recordReregistration is emitted when a global registration replaces a
 // prior owner of the same name. Sustained rate post-partition-heal is a
 // flood signal — the soak gate fails the run if the rate stays high.
-func (t *telemetry) recordReregistration(scope string) {
+// The {node, scope} label set must match what eventualreg's telemetry
+// emits for the same metric name; otherwise prometheus client_golang
+// rejects the second registration with a label-set-mismatch panic.
+func (t *telemetry) recordReregistration(node, scope string) {
 	if t == nil || t.coll == nil {
 		return
 	}
-	t.coll.CounterInc("runtime_name_reregistrations_total", metrics.Labels{"scope": scope})
+	t.coll.CounterInc("runtime_name_reregistrations_total",
+		metrics.Labels{"node": node, "scope": scope})
 }
 
 // recordRemoveNodeChunk emits per-chunk progress so dashboards can confirm

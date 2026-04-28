@@ -196,6 +196,10 @@ func (s *Stack) Start(ctx context.Context) error {
 	}
 
 	if err := s.Membership.Start(ctx); err != nil {
+		// memberlist.Create binds the gossip port BEFORE attempting Join,
+		// so a Join failure leaks the port even though Start returned an
+		// error. Tear membership down so a caller-side retry can re-bind.
+		_ = s.Membership.Stop()
 		return fmt.Errorf("cluster: start membership: %w", err)
 	}
 	if err := s.Internode.Start(ctx); err != nil {

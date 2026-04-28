@@ -232,7 +232,7 @@ func (s *Service) Register(_ context.Context, name string, p pid.PID) (pid.PID, 
 	// owner — that's a re-registration. Surfaces as runtime_name_reregistrations_total
 	// so the chaos soak gate fails if a partition heal triggers a flood.
 	if result.ResolvedPID != (pid.PID{}) {
-		s.tel.recordReregistration("global")
+		s.tel.recordReregistration(s.localNode, "global")
 	}
 
 	// Monitor the PID for auto-cleanup on process exit.

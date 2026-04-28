@@ -25,6 +25,7 @@ type space struct {
 	logger    *zap.Logger
 	collector metrics.Collector
 	name      string
+	node      string // local node ID, included as a metric label
 	wallFloor time.Duration
 	closed    atomic.Bool
 }
@@ -35,6 +36,7 @@ func newSpace(name, localNode string, logger *zap.Logger, coll metrics.Collector
 	}
 	return &space{
 		name:      name,
+		node:      localNode,
 		state:     crdt.NewState(localNode),
 		queue:     crdt.NewBroadcastQueue(localNode, 4096),
 		hub:       newWatchHub(name, coll),
@@ -174,6 +176,7 @@ func (s *space) applyFrame(data []byte) {
 			// nothing
 		}
 	}
+	s.setEntriesGauge()
 }
 
 // reapTombstones runs a single GC pass.
@@ -182,9 +185,9 @@ func (s *space) reapTombstones(safeByNode []uint64, now time.Time) {
 	if gcSafe > 0 || gcFloor > 0 {
 		if s.collector != nil {
 			s.collector.CounterAdd("kveventual_tombstones_gc_total", float64(gcSafe),
-				metrics.Labels{"space": s.name, "reason": "safe_counter"})
+				metrics.Labels{"node": s.node, "space": s.name, "reason": "safe_counter"})
 			s.collector.CounterAdd("kveventual_tombstones_gc_total", float64(gcFloor),
-				metrics.Labels{"space": s.name, "reason": "wall_floor"})
+				metrics.Labels{"node": s.node, "space": s.name, "reason": "wall_floor"})
 		}
 	}
 }
@@ -254,10 +257,25 @@ func (s *space) recordOp(op, result string) {
 		return
 	}
 	s.collector.CounterInc("kveventual_op_total", metrics.Labels{
+		"node":   s.node,
 		"space":  s.name,
 		"op":     op,
 		"result": result,
 	})
+	// Refresh the size gauge on every mutation. Cheap (atomic loads on
+	// state.live/tombstone counters) and gives dashboards live state.
+	s.setEntriesGauge()
+}
+
+// setEntriesGauge publishes live + tombstone counts as a gauge.
+func (s *space) setEntriesGauge() {
+	if s.collector == nil {
+		return
+	}
+	s.collector.GaugeSet("kveventual_entries", float64(s.state.LiveCount()),
+		metrics.Labels{"node": s.node, "space": s.name, "state": "live"})
+	s.collector.GaugeSet("kveventual_entries", float64(s.state.TombstoneCount()),
+		metrics.Labels{"node": s.node, "space": s.name, "state": "tombstone"})
 }
 
 func (s *space) recordBytes(direction, kind string, n int) {
@@ -265,6 +283,7 @@ func (s *space) recordBytes(direction, kind string, n int) {
 		return
 	}
 	s.collector.CounterAdd("kveventual_bytes_total", float64(n), metrics.Labels{
+		"node":  s.node,
 		"space": s.name,
 		"dir":   direction,
 		"kind":  kind,
