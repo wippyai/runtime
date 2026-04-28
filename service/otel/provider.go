@@ -214,13 +214,12 @@ func InitializeMeterProvider(ctx context.Context, cfg otelapi.Config, logger *za
 		return nil, newCreateResourceError(err)
 	}
 
-	// 10s push interval keeps Prometheus rate queries with 1m windows reliable
-	// (default 60s interval would only produce 1 sample per window, breaking
-	// rate()). The trade-off vs. the 60s default is more outbound bytes; for
-	// the chaos cluster the visibility win is worth it.
+	// 30s push interval balances dashboard freshness (rate over 1m sees
+	// 2 samples) with CPU/network overhead. The default of 60s is too
+	// coarse for 1m rate queries; 30s is the sweet spot for low-CPU runs.
 	mp := sdkmetric.NewMeterProvider(
 		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter,
-			sdkmetric.WithInterval(10*time.Second),
+			sdkmetric.WithInterval(30*time.Second),
 		)),
 		sdkmetric.WithResource(res),
 	)
