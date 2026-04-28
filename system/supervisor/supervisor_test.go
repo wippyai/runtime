@@ -566,6 +566,86 @@ func TestSupervisor_StopCancelsFailedAutoStartRetryTransition(t *testing.T) {
 	require.Equal(t, int32(1), attempts.Load(), "service retried after supervisor stop")
 }
 
+func TestSupervisor_StopCancelsAutoStartWhileStartInProgress(t *testing.T) {
+	h := newTestHarness(t)
+	ctx := context.Background()
+	h.start(ctx)
+
+	startEntered := make(chan struct{})
+	startCanceled := make(chan struct{})
+	releaseStart := make(chan struct{})
+	var startOnce sync.Once
+	var cancelOnce sync.Once
+
+	svc := &mockService{
+		startFunc: func(ctx context.Context) (<-chan any, error) {
+			startOnce.Do(func() { close(startEntered) })
+			select {
+			case <-ctx.Done():
+				cancelOnce.Do(func() { close(startCanceled) })
+				return nil, ctx.Err()
+			case <-releaseStart:
+				return nil, errors.New("startup still in progress")
+			}
+		},
+		stopFunc: func(_ context.Context) error {
+			return nil
+		},
+	}
+
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "starting-service",
+		Data: &supervisor.Entry{
+			Service: svc,
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    true,
+				StartTimeout: 10 * time.Second,
+				StopTimeout:  200 * time.Millisecond,
+				RetryPolicy: supervisor.RetryPolicy{
+					MaxAttempts: 1,
+				},
+			},
+		},
+	})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	select {
+	case <-startEntered:
+	case <-time.After(time.Second):
+		t.Fatal("service never entered Start")
+	}
+
+	require.Eventually(t, func() bool {
+		state, err := h.sup.GetState("starting-service")
+		return err == nil && state.Status == supervisor.StatusStarting
+	}, time.Second, 10*time.Millisecond)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- h.sup.Stop()
+	}()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		select {
+		case <-startCanceled:
+		default:
+			t.Log("in-progress Start context was not canceled")
+		}
+		close(releaseStart)
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+		}
+		t.Fatal("supervisor stop did not cancel in-progress autostart")
+	}
+}
+
 func TestSupervisor_TransactionDiscard(t *testing.T) {
 	h := newTestHarness(t)
 	ctx := context.Background()
@@ -903,41 +983,48 @@ func TestSupervisor_ServiceTimeout(t *testing.T) {
 	ctx := context.Background()
 	h.start(ctx)
 
-	// Register a service that takes longer than timeout
-	svc := h.service("timeout-service")
-	svc.startDelay = 6 * time.Second // Longer than 5s timeout
-
-	h.registerServices(map[string]bool{
-		"timeout-service": true,
-	})
-
-	// Wait for timeout with context timeout to prevent test hanging
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-	defer cancel()
-
-	// Poll for service state with context timeout
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			t.Fatal("Timeout waiting for service to fail")
-		case <-ticker.C:
-			state, err := h.sup.GetState("timeout-service")
-			if err == nil && state.Status == supervisor.StatusFailed {
-				// Service failed as expected
-				goto verifyState
-			}
-		}
+	startEntered := make(chan struct{})
+	var startOnce sync.Once
+	svc := &mockService{
+		startFunc: func(ctx context.Context) (<-chan any, error) {
+			startOnce.Do(func() { close(startEntered) })
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+		stopFunc: func(context.Context) error {
+			return nil
+		},
 	}
 
-verifyState:
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "timeout-service",
+		Data: &supervisor.Entry{
+			Service: svc,
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    true,
+				StartTimeout: 100 * time.Millisecond,
+				StopTimeout:  100 * time.Millisecond,
+				RetryPolicy: supervisor.RetryPolicy{
+					MaxAttempts: 1,
+				},
+			},
+		},
+	})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
 
-	// Verify service state
-	state, err := h.sup.GetState("timeout-service")
-	require.NoError(t, err)
-	require.Equal(t, supervisor.StatusFailed, state.Status, "Service should be in Failed state due to timeout")
+	select {
+	case <-startEntered:
+	case <-time.After(time.Second):
+		t.Fatal("service never entered Start")
+	}
+
+	require.Eventually(t, func() bool {
+		state, err := h.sup.GetState("timeout-service")
+		return err == nil && state.Status == supervisor.StatusFailed
+	}, time.Second, 10*time.Millisecond, "Service should fail when StartTimeout cancels startup")
 
 	h.stop()
 }

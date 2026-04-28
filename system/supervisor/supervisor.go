@@ -182,6 +182,7 @@ func (s *Supervisor) Stop() error {
 	}
 
 	controllers := s.snapshotControllers()
+	s.cancelActiveStarts(controllers)
 	s.stopFailedStartRetries(controllers)
 
 	operations := make([]operation, 0)
@@ -211,6 +212,12 @@ func (s *Supervisor) Stop() error {
 
 	s.logger.Info("supervisor stopped")
 	return nil
+}
+
+func (s *Supervisor) cancelActiveStarts(controllers map[string]*Controller) {
+	for _, ctrl := range controllers {
+		ctrl.cancelStart()
+	}
 }
 
 func (s *Supervisor) stopFailedStartRetries(controllers map[string]*Controller) {

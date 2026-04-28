@@ -1565,3 +1565,82 @@ func TestController_StopCancelsPendingStartRetry(t *testing.T) {
 		t.Fatalf("expected no retry after Stop, got %d start attempts", got)
 	}
 }
+
+func TestController_CancelStartUnblocksInProgressStart(t *testing.T) {
+	startEntered := make(chan struct{})
+	startCanceled := make(chan struct{})
+	var startOnce sync.Once
+	var cancelOnce sync.Once
+	var stopCalled atomic.Bool
+
+	mock := &mockService{
+		startFunc: func(ctx context.Context) (<-chan any, error) {
+			startOnce.Do(func() { close(startEntered) })
+			select {
+			case <-ctx.Done():
+				cancelOnce.Do(func() { close(startCanceled) })
+				return nil, ctx.Err()
+			case <-time.After(10 * time.Second):
+				return nil, errors.New("start was not canceled")
+			}
+		},
+		stopFunc: func(_ context.Context) error {
+			stopCalled.Store(true)
+			return nil
+		},
+	}
+
+	ctr := NewController(
+		context.Background(),
+		mock,
+		supervisor.LifecycleConfig{
+			StartTimeout: 10 * time.Second,
+			StopTimeout:  200 * time.Millisecond,
+			RetryPolicy: supervisor.RetryPolicy{
+				MaxAttempts: 1,
+			},
+		},
+		func(_ supervisor.Status, _ any) {},
+	)
+	defer ctr.cancel()
+
+	startErr := make(chan error, 1)
+	go func() {
+		startErr <- ctr.Start()
+	}()
+
+	select {
+	case <-startEntered:
+	case <-time.After(time.Second):
+		t.Fatal("controller never entered Start")
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for ctr.State().Status != supervisor.StatusStarting {
+		if time.Now().After(deadline) {
+			t.Fatalf("expected controller status Starting, got %s", ctr.State().Status)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	ctr.cancelStart()
+
+	select {
+	case <-startCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("in-progress Start context was not canceled")
+	}
+
+	select {
+	case err := <-startErr:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected Start to return context.Canceled, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Start did not unblock after cancelStart")
+	}
+
+	if stopCalled.Load() {
+		t.Fatal("cancelStart should not call service Stop directly")
+	}
+}

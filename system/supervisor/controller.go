@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -46,7 +47,9 @@ type Controller struct {
 	onStateChange func(supervisor.Status, any)
 	cancel        context.CancelFunc
 	ops           chan ctrlOp
+	startCancel   context.CancelFunc
 	config        supervisor.LifecycleConfig
+	startMu       sync.Mutex
 }
 
 // NewController creates a new service lifecycle controller with the specified configuration.
@@ -95,6 +98,27 @@ func (c *Controller) Start() error {
 func (c *Controller) Stop() error {
 	c.state.setDesiredStatus(supervisor.StatusStopped)
 	return c.runCommand(ctrlOp{kind: ctrlStop})
+}
+
+func (c *Controller) cancelStart() {
+	c.startMu.Lock()
+	cancel := c.startCancel
+	c.startMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (c *Controller) setStartCancel(cancel context.CancelFunc) {
+	c.startMu.Lock()
+	c.startCancel = cancel
+	c.startMu.Unlock()
+}
+
+func (c *Controller) clearStartCancel() {
+	c.startMu.Lock()
+	c.startCancel = nil
+	c.startMu.Unlock()
 }
 
 func (c *Controller) runCommand(op ctrlOp) error {
@@ -207,7 +231,9 @@ func (c *Controller) supervise() {
 					break
 				}
 				ctx, cancel = context.WithCancel(c.ctx)
+				c.setStartCancel(cancel)
 				detailsCh, sErr := c.tryStart(ctx, cancel)
+				c.clearStartCancel()
 				if sErr != nil {
 					if startCh == nil && op.result != nil {
 						startCh = op.result
@@ -289,13 +315,10 @@ func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<
 
 	go func() {
 		ch, err := c.service.Start(ctx)
-		select {
-		case resultCh <- struct {
+		resultCh <- struct {
 			ch  <-chan any
 			err error
-		}{ch, err}:
-		case <-ctx.Done():
-		}
+		}{ch, err}
 	}()
 
 	select {
@@ -314,6 +337,8 @@ func (c *Controller) tryStart(ctx context.Context, cancel context.CancelFunc) (<
 		cancel()
 		c.updateState(supervisor.StatusFailed, "start timeout")
 		return nil, ErrStartTimeout
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	case <-c.ctx.Done():
 		c.updateState(supervisor.StatusExited, "controller exited")
 		return nil, supervisor.ErrExit
