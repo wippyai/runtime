@@ -20,6 +20,10 @@ var (
 	// queue is at capacity. The caller is expected to log/count and proceed
 	// (Erlang `pg` semantics: fire-and-forget but observable).
 	ErrQueueFull = errors.New("internode: send queue is full")
+
+	// ErrUnknownClass is returned by QueueMessageClass when the class value
+	// is out of range. This is a programmer error, not a runtime condition.
+	ErrUnknownClass = errors.New("internode: unknown queue class (programmer error)")
 )
 
 type NodeState struct {
@@ -212,7 +216,7 @@ func (nsm *NodeStateManager) QueueMessageClass(nodeID cluster.NodeID, data []byt
 		return nil
 	}
 	if int(class) >= numClasses {
-		return ErrQueueFull // unknown class
+		return ErrUnknownClass
 	}
 
 	state.queueMu.Lock()
@@ -318,8 +322,6 @@ func (nsm *NodeStateManager) DrainMessages(nodeID cluster.NodeID, maxCount int) 
 	}
 
 	state.queueMu.Lock()
-	defer state.queueMu.Unlock()
-
 	out := make([][]byte, 0, maxCount)
 	for _, class := range []Class{ClassRaftControl, ClassGossip, ClassPGBroadcast} {
 		q := state.queues[class]
@@ -332,6 +334,17 @@ func (nsm *NodeStateManager) DrainMessages(nodeID cluster.NodeID, maxCount int) 
 		if len(out) >= maxCount {
 			break
 		}
+	}
+	// Snapshot post-drain depths so gauges reflect reality even when no
+	// further enqueues happen for a while.
+	var depths [numClasses]int
+	for i, q := range state.queues {
+		depths[i] = q.len()
+	}
+	state.queueMu.Unlock()
+
+	for _, class := range []Class{ClassRaftControl, ClassGossip, ClassPGBroadcast} {
+		nsm.tel.recordQueueDepth(class, nodeID, depths[class])
 	}
 	return out
 }
@@ -362,12 +375,28 @@ func (nsm *NodeStateManager) RequeueMessages(nodeID cluster.NodeID, messages [][
 
 	state.queueMu.Lock()
 	q := state.queues[ClassRaftControl]
+	dropped := 0
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i] != nil {
-			q.pushFront(messages[i])
+		if messages[i] == nil {
+			continue
+		}
+		if !q.pushFront(messages[i]) {
+			dropped++
 		}
 	}
+	depth := q.len()
 	state.queueMu.Unlock()
+
+	for i := 0; i < dropped; i++ {
+		nsm.tel.recordDrop(ClassRaftControl, "requeue_full")
+	}
+	nsm.tel.recordQueueDepth(ClassRaftControl, nodeID, depth)
+	if dropped > 0 {
+		nsm.logger.Warn("Dropped messages during requeue (queue full)",
+			zap.String("node_id", nodeID),
+			zap.Int("dropped", dropped),
+		)
+	}
 
 	select {
 	case state.messageNotify <- struct{}{}:

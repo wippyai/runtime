@@ -44,6 +44,9 @@ func TestDefaultManagerConfig(t *testing.T) {
 	assert.Equal(t, 32, config.DrainBatchSize)
 	assert.Equal(t, 256, config.CommandQueueSize)
 	assert.Equal(t, 10, config.MaxRetryAttempts)
+	assert.Equal(t, 4096, config.RaftControlQueueCap)
+	assert.Equal(t, 1024, config.GossipQueueCap)
+	assert.Equal(t, 2048, config.PGBroadcastQueueCap)
 }
 
 func TestManagerConfig_NodeConnectionConfig(t *testing.T) {
