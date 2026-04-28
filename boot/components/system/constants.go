@@ -29,6 +29,13 @@ const (
 	RaftMaxVoters         boot.Name = "max_voters"
 	RaftReconcileDebounce boot.Name = "reconcile_debounce"
 	RaftReconcileTimeout  boot.Name = "reconcile_timeout"
+	RaftSnapshotThreshold boot.Name = "snapshot_threshold"
+	RaftSnapshotInterval  boot.Name = "snapshot_interval"
+	RaftSnapshotRetain    boot.Name = "snapshot_retain"
+	RaftTrailingLogs      boot.Name = "trailing_logs"
+	RaftHeartbeatTimeout  boot.Name = "heartbeat_timeout"
+	RaftElectionTimeout   boot.Name = "election_timeout"
+	RaftCommitTimeout     boot.Name = "commit_timeout"
 
 	// ClusterEnabled is a Cluster configuration key
 	ClusterEnabled              boot.Name = "enabled"

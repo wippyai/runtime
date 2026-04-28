@@ -39,6 +39,9 @@ func newTelemetry(coll metrics.Collector, mp otelmetric.MeterProvider, tp trace.
 		coll.CounterAdd("raft_snapshot_total", 0, metrics.Labels{"result": "ok"})
 		coll.CounterAdd("raft_request_vote_total", 0, metrics.Labels{"peer": "_init", "result": "ok"})
 		coll.CounterAdd("raft_install_snapshot_total", 0, metrics.Labels{"peer": "_init", "result": "ok"})
+		coll.CounterAdd("raft_peer_dead_total", 0, metrics.Labels{"peer": "_init"})
+		coll.CounterAdd("raft_peer_dead_skip_total", 0, metrics.Labels{"peer": "_init"})
+		coll.CounterAdd("raft_peer_recovered_total", 0, metrics.Labels{"peer": "_init"})
 	}
 	return t
 }
@@ -76,6 +79,41 @@ func (t *telemetry) recordLeaderChange() {
 	}
 
 	t.coll.CounterInc("raft_leader_changes_total", nil)
+}
+
+// recordPeerDead is emitted when peerStateTracker marks a peer dead
+// after `failureLimit` consecutive transport errors. The backoff is
+// recorded so dashboards can show how aggressive the chronic-offender
+// throttle has become.
+func (t *telemetry) recordPeerDead(peer string, backoff time.Duration) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("raft_peer_dead_total", metrics.Labels{"peer": peer})
+	t.coll.GaugeSet("raft_peer_dead_backoff_seconds",
+		backoff.Seconds(), metrics.Labels{"peer": peer})
+}
+
+// recordPeerDeadSkip is incremented every time a transport call is
+// short-circuited because the peer is in the dead window. Steady-state
+// rate of this counter under partition is the visibility into how
+// effective the short-circuit is at silencing the broken-pipe storm.
+func (t *telemetry) recordPeerDeadSkip(peer string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("raft_peer_dead_skip_total", metrics.Labels{"peer": peer})
+}
+
+// recordPeerRecovered is emitted when a peer that was previously in
+// the dead window (or had a non-zero consecutive-error counter)
+// produces a successful transport call.
+func (t *telemetry) recordPeerRecovered(peer string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("raft_peer_recovered_total", metrics.Labels{"peer": peer})
+	t.coll.GaugeSet("raft_peer_dead_backoff_seconds", 0, metrics.Labels{"peer": peer})
 }
 
 func (t *telemetry) recordElection(dur time.Duration) {

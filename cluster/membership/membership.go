@@ -235,6 +235,16 @@ func (s *Service) emitHealthLoop(ctx context.Context) {
 // so dashboards can plot probe-failure rate.
 var errProbeUnhealthy = errors.New("memberlist health score > 0")
 
+// HealthScore returns the underlying memberlist health score:
+// 0 means healthy, larger values indicate failed probes / suspect peers.
+// Returns -1 if memberlist is not yet running.
+func (s *Service) HealthScore() int {
+	if s.memberlist == nil {
+		return -1
+	}
+	return s.memberlist.GetHealthScore()
+}
+
 // Stop gracefully shuts down the membership service
 func (s *Service) Stop() error {
 	s.logger.Info("shutting down cluster membership service")

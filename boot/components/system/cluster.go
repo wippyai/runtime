@@ -4,6 +4,7 @@ package system
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -19,10 +20,18 @@ import (
 	metricsboot "github.com/wippyai/runtime/boot/components/metrics"
 	"github.com/wippyai/runtime/cluster/internode"
 	"github.com/wippyai/runtime/cluster/membership"
+	"github.com/wippyai/runtime/system/health"
 	"github.com/wippyai/runtime/system/relay"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
+
+// clusterHealthScoreCeiling is the maximum memberlist health score
+// (where 0 = healthy) at which the activity-based liveness check still
+// reports healthy. Memberlist scores 1 or 2 commonly during chaos
+// before stabilizing; scores beyond this indicate sustained probe
+// failure consistent with partition isolation.
+const clusterHealthScoreCeiling = 4
 
 // Context keys for cluster components
 var (
@@ -192,7 +201,12 @@ func Cluster() boot.Component {
 				}
 				err := node.Send(pkg)
 				if err != nil {
-					logger.Warn("internode delivery failed",
+					// Hot path under partition: targets in-flight when peer
+					// torn down. The Service-side onMessage already counts
+					// this as internode_dropped_total{reason="delivery_failed"};
+					// keep this at DEBUG to retain the rich context but stay
+					// quiet during chaos.
+					logger.Debug("internode delivery failed",
 						zap.String("target_host", targetHost),
 						zap.String("target_node", targetNode),
 						zap.String("topic", topic),
@@ -252,6 +266,25 @@ func Cluster() boot.Component {
 				if err := internodeSvc.Start(ctx); err != nil {
 					return NewInternodeStartError(err)
 				}
+			}
+
+			// Liveness check: memberlist HealthScore reports zero when
+			// gossip probes are clean. Anything non-zero means probes
+			// are failing — typically because we're partitioned. We
+			// tolerate transient suspects (score 1 or 2) but report
+			// unhealthy past the ceiling.
+			if membershipSvc != nil {
+				health.Register("cluster.gossip", func() error {
+					score := membershipSvc.HealthScore()
+					switch {
+					case score < 0:
+						return fmt.Errorf("memberlist not running")
+					case score > clusterHealthScoreCeiling:
+						return fmt.Errorf("memberlist health score %d exceeds ceiling %d",
+							score, clusterHealthScoreCeiling)
+					}
+					return nil
+				})
 			}
 
 			return nil

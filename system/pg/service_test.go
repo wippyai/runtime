@@ -138,6 +138,56 @@ func TestNewService(t *testing.T) {
 	assert.Equal(t, pid.NodeID("local-node"), svc.localNodeID)
 }
 
+// TestRemoveMonitorsByNode verifies the eviction path that runs when a
+// remote node leaves the cluster. Without it the monitors map would
+// leak entries for every PID hosted on the departed node, eventually
+// causing OOM under partition / pod-kill chaos. Regression guard for
+// the unbounded growth audited in REGRESSIONS.md row #3.
+func TestRemoveMonitorsByNode(t *testing.T) {
+	svc, _, _ := newTestService()
+
+	// Monitors live on the service struct directly; calling the eviction
+	// helper requires no Start/event-loop setup.
+	pidA := mkNodePID("alpha", "h", "1")
+	pidA2 := mkNodePID("alpha", "h", "2")
+	pidB := mkNodePID("beta", "h", "1")
+
+	add := func(group string, p pid.PID) {
+		svc.monitors[group] = append(svc.monitors[group], &monitorEntry{
+			pid:   p,
+			topic: "test",
+			id:    1,
+		})
+		svc.monitorPIDCounts[p.String()]++
+	}
+	add("g1", pidA)
+	add("g1", pidA2)
+	add("g1", pidB)
+	add("g2", pidA)
+
+	evicted := svc.removeMonitorsByNode("alpha")
+	require.Equal(t, 3, evicted)
+
+	// Group g1 must keep only pidB; g2 must be deleted entirely.
+	require.Len(t, svc.monitors["g1"], 1)
+	require.Equal(t, pidB.String(), svc.monitors["g1"][0].pid.String())
+	_, exists := svc.monitors["g2"]
+	require.False(t, exists, "group with no remaining monitors must be deleted")
+
+	// PID counts for evicted PIDs must be zero (deleted from the map).
+	_, hasA := svc.monitorPIDCounts[pidA.String()]
+	_, hasA2 := svc.monitorPIDCounts[pidA2.String()]
+	require.False(t, hasA)
+	require.False(t, hasA2)
+	require.Equal(t, 1, svc.monitorPIDCounts[pidB.String()])
+}
+
+func TestRemoveMonitorsByNode_Empty(t *testing.T) {
+	svc, _, _ := newTestService()
+	require.Equal(t, 0, svc.removeMonitorsByNode("ghost"))
+	require.Equal(t, 0, svc.removeMonitorsByNode(""))
+}
+
 func TestNewServiceNilLogger(t *testing.T) {
 	svc := NewService(nil, "pg", nil, newMockRouter(), newMockTopology(), nil, nil, "node", nil, nil, nil)
 	require.NotNil(t, svc)

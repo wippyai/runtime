@@ -44,8 +44,36 @@ func newTelemetry(coll metrics.Collector, mp otelmetric.MeterProvider, tp trace.
 		coll.CounterAdd("pg_fence_rejection_total", 0, metrics.Labels{"pg": "_init", "reason": "noop"})
 		coll.CounterAdd("pg_broadcast_dropped_total", 0,
 			metrics.Labels{"pg": "_init", "reason": "noop"})
+		coll.CounterAdd("pg_monitors_evicted_total", 0, metrics.Labels{"reason": "node_left"})
+		coll.CounterAdd("pg_monitors_evicted_total", 0, metrics.Labels{"reason": "ttl"})
+		coll.CounterAdd("pg_circuit_breaker_evicted_total", 0, metrics.Labels{"reason": "cap"})
 	}
 	return t
+}
+
+// recordMonitorsEvicted is incremented when monitor entries are removed
+// in bulk via a node-leave or TTL sweep, rather than via an explicit
+// Demonitor / process exit. Without this counter the leak that the
+// eviction path fixes would be invisible in dashboards.
+func (t *telemetry) recordMonitorsEvicted(reason string, n int) {
+	if t == nil || t.coll == nil || n <= 0 {
+		return
+	}
+	t.coll.CounterAdd("pg_monitors_evicted_total", float64(n),
+		metrics.Labels{"reason": reason})
+}
+
+// recordCircuitBreakerEvicted is incremented when the breakers map
+// reaches its cap and an arbitrary entry is dropped. Should normally
+// stay at zero — non-zero indicates that NodeLeft cleanup is missing
+// nodes (e.g., long-lived split-brain) and the defense-in-depth cap
+// is doing real work.
+func (t *telemetry) recordCircuitBreakerEvicted(reason string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("pg_circuit_breaker_evicted_total",
+		metrics.Labels{"reason": reason})
 }
 
 func resultLabel(err error) string {

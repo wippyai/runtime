@@ -407,6 +407,14 @@ func (s *Service) handleNodeLeft(nodeID pid.NodeID) {
 	// Clean up circuit breaker for departed node
 	s.cbManager.RemoveCircuitBreaker(nodeID)
 
+	// Evict monitor subscriptions owned by PIDs on the departed node.
+	// Without this, the s.monitors map leaks indefinitely whenever a node
+	// goes away without each of its PIDs cleanly demonitoring — the common
+	// case under partition / pod kill chaos.
+	if evicted := s.removeMonitorsByNode(nodeID); evicted > 0 {
+		s.tel.recordMonitorsEvicted("node_left", evicted)
+	}
+
 	// Emit leave events after state removal
 	for _, e := range events {
 		s.emitLeaveEvent(e.group, e.pids)

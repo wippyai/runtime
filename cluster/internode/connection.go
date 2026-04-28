@@ -117,6 +117,12 @@ type Connection interface {
 type NodeConnectionConfig struct {
 	HandshakeTimeout time.Duration
 	MaxMessageSize   uint32
+	// MaxQueueSize caps the per-connection outbound queue (activeQueue).
+	// When the cap is reached, Send drops the new message and returns
+	// ErrQueueFull so the caller can record the drop. Zero means unbounded
+	// — that's a foot-gun under network-delay chaos and should only be used
+	// in tests.
+	MaxQueueSize int
 }
 
 // DefaultNodeConnectionConfig returns a default set of configuration parameters
@@ -125,6 +131,7 @@ func DefaultNodeConnectionConfig() NodeConnectionConfig {
 	return NodeConnectionConfig{
 		HandshakeTimeout: 5 * time.Second,
 		MaxMessageSize:   512 * 1024 * 1024,
+		MaxQueueSize:     4096,
 	}
 }
 
@@ -206,12 +213,20 @@ func (c *NodeConnection) Run(handler func(msg []byte)) *ConnectionError {
 
 // Send enqueues a message for delivery. It is non-blocking and safe for concurrent use.
 // Returns ErrConnectionClosed if the connection has been closed.
+// Returns ErrQueueFull when MaxQueueSize is configured and the activeQueue
+// is at capacity — the caller is expected to record the drop and proceed.
+// Without this cap, network-delay chaos would let activeQueue grow unbounded
+// (each frame up to MaxMessageSize) and OOMKill the runtime.
 func (c *NodeConnection) Send(data []byte) error {
 	if c.closed.Load() {
 		return ErrConnectionClosed
 	}
 
 	c.queueMu.Lock()
+	if c.config.MaxQueueSize > 0 && c.activeQueue.Len() >= c.config.MaxQueueSize {
+		c.queueMu.Unlock()
+		return ErrQueueFull
+	}
 	c.activeQueue.PushBack(data)
 	c.queueMu.Unlock()
 

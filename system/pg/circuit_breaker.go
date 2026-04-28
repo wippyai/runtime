@@ -158,12 +158,21 @@ func (cb *circuitBreaker) State() CircuitState {
 	return cb.state
 }
 
+// defaultBreakerMapCap is the maximum number of per-node breakers the
+// manager retains. Hit only as a defense-in-depth backstop: in normal
+// operation the NodeLeft event triggers RemoveCircuitBreaker on every
+// departure, so the table stays at cluster size. The cap protects
+// against arbitrary nodeIDs accumulating if NodeLeft is missed under
+// chaos partition.
+const defaultBreakerMapCap = 1024
+
 // circuitBreakerManager manages circuit breakers for multiple target nodes.
 type circuitBreakerManager struct {
 	breakers     map[string]*circuitBreaker
 	logger       *zap.Logger
 	tel          *telemetry
 	maxFailures  int
+	maxBreakers  int
 	resetTimeout time.Duration
 	mu           sync.RWMutex
 }
@@ -173,6 +182,7 @@ func newCircuitBreakerManager(maxFailures int, resetTimeout time.Duration, logge
 	return &circuitBreakerManager{
 		breakers:     make(map[string]*circuitBreaker),
 		maxFailures:  maxFailures,
+		maxBreakers:  defaultBreakerMapCap,
 		resetTimeout: resetTimeout,
 		logger:       logger,
 		tel:          tel,
@@ -195,6 +205,19 @@ func (m *circuitBreakerManager) GetCircuitBreaker(nodeID string) *circuitBreaker
 	// Double-check after acquiring write lock
 	if cb, exists = m.breakers[nodeID]; exists {
 		return cb
+	}
+
+	// Defense-in-depth: if the table is at cap (NodeLeft cleanup missed
+	// under chaos / split-brain), drop an arbitrary entry to keep the map
+	// bounded. Drops are counted so dashboards can surface the symptom.
+	if len(m.breakers) >= m.maxBreakers {
+		var victim string
+		for k := range m.breakers {
+			victim = k
+			break
+		}
+		delete(m.breakers, victim)
+		m.tel.recordCircuitBreakerEvicted("cap")
 	}
 
 	cb = newCircuitBreaker(nodeID, m.maxFailures, m.resetTimeout, m.logger, m.tel)

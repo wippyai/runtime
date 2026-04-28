@@ -169,11 +169,26 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 	// Create transport.
 	bindAddr := resolveTransportAddr(n.config)
 	advertiseAddr := resolveAdvertiseAddr(n.config, port)
-	transport, err := hraft.NewTCPTransport(bindAddr, advertiseAddr, n.config.MaxPool, 10*time.Second, os.Stderr)
+	// Pipe hashicorp/raft's transport-internal logger through zap with
+	// per-line rate limiting. Default behavior writes broken-pipe storms
+	// straight to os.Stderr, which under network-partition chaos produces
+	// thousands of unsampled lines per second per pod.
+	netLogOut := newRaftStderrAdapter(n.logger.Named("raft-net"))
+	transport, err := hraft.NewTCPTransport(bindAddr, advertiseAddr, n.config.MaxPool, 10*time.Second, netLogOut)
 	if err != nil {
 		return nil, fmt.Errorf("create raft transport: %w", err)
 	}
-	n.transport = &instrumentedTransport{Transport: transport, tel: n.tel}
+	// Stack: peerStateTracker over instrumentedTransport over the raw TCP
+	// transport. The tracker short-circuits writes to peers that have
+	// produced N consecutive errors, breaking the broken-pipe storm we
+	// see under chaos partition without changing raft semantics (the
+	// raft engine sees errPeerDead and falls back to its own retry
+	// policy, which talks to US — a cheap immediate return — rather
+	// than re-attempting a real TCP write to a dead socket).
+	n.transport = newPeerStateTracker(
+		&instrumentedTransport{Transport: transport, tel: n.tel},
+		n.tel,
+	)
 
 	// Create Raft instance. The FSM is wrapped so Snapshot/Persist calls
 	// emit OTel metrics and spans without leaking knowledge of telemetry
@@ -287,6 +302,25 @@ func (n *Node) monitorLeadership(statusCh chan<- any) {
 	var electionStart time.Time
 	wasLeader := false
 
+	// hashicorp/raft's LeaderCh is non-buffered with non-blocking writes —
+	// the initial `true` notification fired during BootstrapCluster (which
+	// runs before this goroutine is reading) is dropped on the floor.
+	// Without the seed below, recordLeaderChange() would fire only on
+	// future transitions, leaving raft_leader_changes_total stuck at 0
+	// for nodes that became leader during startup. Mirrors the seed in
+	// sampleStateAndTerm: read state directly and emit the initial event.
+	if n.raft.State() == hraft.Leader {
+		n.tel.recordLeaderChange()
+		wasLeader = true
+		n.logger.Info("this node is now the raft leader (initial state)",
+			zap.String("id", n.localID))
+		n.bus.Send(context.Background(), event.Event{
+			System: cluster.System,
+			Kind:   cluster.LeaderElected,
+			Path:   n.localID,
+		})
+	}
+
 	// Initial sample so dashboards see state immediately.
 	n.sampleStateAndTerm()
 	n.sampleVoterLadder()
@@ -322,6 +356,41 @@ func (n *Node) monitorLeadership(statusCh chan<- any) {
 			n.sampleStateAndTerm()
 			n.sampleVoterLadder()
 		case <-sampleTicker.C:
+			// Defense-in-depth reconciliation. hashicorp/raft's LeaderCh is
+			// non-buffered with non-blocking writes — transitions that fire
+			// while the goroutine is between selects are dropped silently.
+			// Compare actual state vs wasLeader on every tick and fire
+			// the missing transition if they diverge. Without this, the
+			// first leader-elected after BootstrapCluster is frequently
+			// lost (we observed `raft_leader_changes_total` stuck at 0
+			// during 30-min chaos despite 20+ leadership transitions in
+			// the logs).
+			currentlyLeader := n.raft.State() == hraft.Leader
+			switch {
+			case currentlyLeader && !wasLeader:
+				if !electionStart.IsZero() {
+					n.tel.recordElection(time.Since(electionStart))
+				}
+				n.tel.recordLeaderChange()
+				wasLeader = true
+				n.logger.Info("this node is now the raft leader (reconciled)",
+					zap.String("id", n.localID))
+				n.bus.Send(context.Background(), event.Event{
+					System: cluster.System,
+					Kind:   cluster.LeaderElected,
+					Path:   n.localID,
+				})
+			case !currentlyLeader && wasLeader:
+				wasLeader = false
+				electionStart = time.Now()
+				n.logger.Info("this node lost raft leadership (reconciled)",
+					zap.String("id", n.localID))
+				n.bus.Send(context.Background(), event.Event{
+					System: cluster.System,
+					Kind:   cluster.LeaderLost,
+					Path:   n.localID,
+				})
+			}
 			n.sampleStateAndTerm()
 			n.sampleVoterLadder()
 		case <-n.stopCh:
@@ -422,6 +491,17 @@ func (n *Node) State() raftapi.State {
 	default:
 		return raftapi.Shutdown
 	}
+}
+
+// LastContact reports the time of last contact with the current Raft
+// leader. Used by the runtime liveness probe to detect a follower that
+// has lost contact with the leader (partition isolation). Leaders
+// always return zero time.Time, which the caller must special-case.
+func (n *Node) LastContact() time.Time {
+	if n.raft == nil {
+		return time.Time{}
+	}
+	return n.raft.LastContact()
 }
 
 // Barrier issues a barrier to flush pending log entries.

@@ -1,0 +1,186 @@
+// SPDX-License-Identifier: MPL-2.0
+
+package raft
+
+import (
+	"errors"
+	"sync"
+	"time"
+
+	hraft "github.com/hashicorp/raft"
+)
+
+// errPeerDead is returned by peerStateTracker calls that short-circuit
+// because the target peer is in the dead-backoff window. Callers
+// (the raft engine) treat it like any transport error and retry per
+// their own policy — but they retry against US, where we cheaply
+// return errPeerDead again until the backoff expires. Net effect: no
+// TCP write to a known-dead socket while the backoff is in effect.
+var errPeerDead = errors.New("raft-net: peer dead, backoff in effect")
+
+// peerStateTracker wraps an hraft.Transport so consecutive write
+// failures per peer are tracked and the transport short-circuits
+// further writes to a known-dead peer until an exponential backoff
+// expires.
+//
+// Without this, hashicorp/raft's TCPTransport blindly retries writes
+// on dead sockets — under chaos network-partition we observed thousands
+// of `write tcp ...: write: broken pipe` lines per second per peer.
+// Rate-limiting the *log* (raftStderrAdapter) made the logs quiet but
+// did not stop the underlying retry-on-dead-socket behavior.
+//
+// The tracker is conservative:
+//   - First success against a peer clears the failure counter and
+//     ends the backoff window immediately.
+//   - Failures only count as "consecutive" until `failureLimit`; once
+//     the peer is marked dead, the backoff doubles per consecutive
+//     dead-window expiry up to `backoffMax`.
+//   - The backoff is per-peer; one dead peer never blocks calls to
+//     others.
+type peerStateTracker struct {
+	hraft.Transport
+	tel *telemetry
+
+	consecutiveErr map[hraft.ServerAddress]int
+	deadUntil      map[hraft.ServerAddress]time.Time
+	deadStreak     map[hraft.ServerAddress]int
+
+	backoffInitial time.Duration
+	backoffMax     time.Duration
+
+	mu           sync.Mutex
+	failureLimit int
+}
+
+const (
+	defaultFailureLimit   = 5
+	defaultBackoffInitial = 100 * time.Millisecond
+	defaultBackoffMax     = 5 * time.Second
+)
+
+func newPeerStateTracker(inner hraft.Transport, tel *telemetry) *peerStateTracker {
+	return &peerStateTracker{
+		Transport:      inner,
+		tel:            tel,
+		consecutiveErr: make(map[hraft.ServerAddress]int),
+		deadUntil:      make(map[hraft.ServerAddress]time.Time),
+		deadStreak:     make(map[hraft.ServerAddress]int),
+		failureLimit:   defaultFailureLimit,
+		backoffInitial: defaultBackoffInitial,
+		backoffMax:     defaultBackoffMax,
+	}
+}
+
+// Close is forwarded so the wrapper still satisfies hraft.WithClose
+// when the inner transport supports it.
+func (t *peerStateTracker) Close() error {
+	if closer, ok := t.Transport.(hraft.WithClose); ok {
+		return closer.Close()
+	}
+	return nil
+}
+
+// AppendEntries is the hottest path under partition. Short-circuit
+// when the peer is in the dead-backoff window.
+func (t *peerStateTracker) AppendEntries(id hraft.ServerID, target hraft.ServerAddress,
+	args *hraft.AppendEntriesRequest, resp *hraft.AppendEntriesResponse) error {
+	if t.isDead(target) {
+		t.tel.recordPeerDeadSkip(string(id))
+		return errPeerDead
+	}
+	err := t.Transport.AppendEntries(id, target, args, resp)
+	t.recordResult(target, string(id), err)
+	return err
+}
+
+func (t *peerStateTracker) RequestVote(id hraft.ServerID, target hraft.ServerAddress,
+	args *hraft.RequestVoteRequest, resp *hraft.RequestVoteResponse) error {
+	if t.isDead(target) {
+		t.tel.recordPeerDeadSkip(string(id))
+		return errPeerDead
+	}
+	err := t.Transport.RequestVote(id, target, args, resp)
+	t.recordResult(target, string(id), err)
+	return err
+}
+
+// AppendEntriesPipeline wraps the underlying pipeline so failures on
+// pipelined writes also count toward the consecutive-error tally.
+func (t *peerStateTracker) AppendEntriesPipeline(id hraft.ServerID,
+	target hraft.ServerAddress) (hraft.AppendPipeline, error) {
+	if t.isDead(target) {
+		t.tel.recordPeerDeadSkip(string(id))
+		return nil, errPeerDead
+	}
+	inner, err := t.Transport.AppendEntriesPipeline(id, target)
+	if err != nil {
+		t.recordResult(target, string(id), err)
+		return nil, err
+	}
+	// On open success, reset the counter — the pipeline is up.
+	t.recordResult(target, string(id), nil)
+	return inner, nil
+}
+
+// isDead returns true if the peer is currently in the dead window.
+// Side-effect free except for clearing the entry once the window
+// expires (which is also done with the mu held).
+func (t *peerStateTracker) isDead(target hraft.ServerAddress) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	until, ok := t.deadUntil[target]
+	if !ok {
+		return false
+	}
+	if time.Now().Before(until) {
+		return true
+	}
+	// Window expired — let one probe through. The probe outcome will
+	// either fully reset the streak (success) or extend the streak
+	// (further failure).
+	delete(t.deadUntil, target)
+	return false
+}
+
+// recordResult updates the per-peer counters after a transport call.
+// On success: full reset. On failure: bump consecutive counter, and
+// once the threshold is hit, mark the peer dead with exponential
+// backoff scaled by the dead-streak length.
+func (t *peerStateTracker) recordResult(target hraft.ServerAddress, id string, err error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if err == nil {
+		if t.consecutiveErr[target] > 0 || t.deadStreak[target] > 0 {
+			t.tel.recordPeerRecovered(id)
+		}
+		delete(t.consecutiveErr, target)
+		delete(t.deadStreak, target)
+		delete(t.deadUntil, target)
+		return
+	}
+
+	// Don't double-count our own short-circuit.
+	if errors.Is(err, errPeerDead) {
+		return
+	}
+
+	t.consecutiveErr[target]++
+	if t.consecutiveErr[target] < t.failureLimit {
+		return
+	}
+
+	// Threshold tripped: schedule the dead window. Streak grows so
+	// chronic offenders back off longer (capped at backoffMax).
+	t.deadStreak[target]++
+	backoff := t.backoffInitial << uint(t.deadStreak[target]-1)
+	if backoff > t.backoffMax || backoff <= 0 {
+		backoff = t.backoffMax
+	}
+	t.deadUntil[target] = time.Now().Add(backoff)
+	t.tel.recordPeerDead(id, backoff)
+
+	// Reset the counter so the next failure-after-recovery starts
+	// fresh rather than instantly re-tripping.
+	t.consecutiveErr[target] = 0
+}

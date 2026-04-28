@@ -6,6 +6,7 @@ import (
 	"context"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
@@ -13,6 +14,13 @@ import (
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
+
+// orphanSweepInterval is how often the internode service reconciles its
+// managed-node set against the authoritative membership snapshot. It's a
+// defensive backstop against missed `cluster.NodeLeft` events under
+// gossip storm or chaos partition; at steady state every tick reports
+// zero evictions.
+const orphanSweepInterval = 60 * time.Second
 
 type PackageCallback func(*relay.Package) error
 
@@ -58,13 +66,18 @@ func (s *Service) Start(ctx context.Context) error {
 			s.logger.Error("Failed to decode incoming message",
 				zap.String("from_node", nodeID),
 				zap.Error(err))
+			s.connMan.RecordDropReason("decode_failed")
 			return
 		}
 		s.logger.Debug("Decoded message, delivering",
 			zap.String("from_node", nodeID),
 			zap.String("target_host", pkg.Target.Host))
 		if err := s.deliveryCallback(pkg); err != nil {
-			s.logger.Error("Failed to deliver message from remote node",
+			// Hot path under partition: the local PG host may have torn down
+			// while a peer is still sending to it. Counted as a drop with
+			// no per-message log to avoid the chaos-time spam we observed.
+			s.connMan.RecordDropReason("delivery_failed")
+			s.logger.Debug("delivery failed",
 				zap.String("from_node", nodeID),
 				zap.Error(err))
 		}
@@ -90,8 +103,40 @@ func (s *Service) Start(ctx context.Context) error {
 		}
 	}
 
+	go s.orphanSweepLoop(ctx)
+
 	s.logger.Info("Inter-node service started successfully")
 	return nil
+}
+
+// orphanSweepLoop periodically reconciles the connection manager's set
+// of managed nodes against the authoritative membership snapshot.
+//
+// Steady state: every tick reports zero evictions. Non-zero means a
+// `cluster.NodeLeft` event was missed (gossip storm, missed delivery,
+// chaos partition) and entries would have leaked otherwise — the sweep
+// is the only thing keeping `internode.NodeStateManager.nodeStates`
+// bounded under prolonged churn.
+func (s *Service) orphanSweepLoop(ctx context.Context) {
+	t := time.NewTicker(orphanSweepInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			members := s.membership.Nodes()
+			known := make(map[cluster.NodeID]struct{}, len(members)+1)
+			known[s.membership.LocalNode().ID] = struct{}{}
+			for _, n := range members {
+				known[n.ID] = struct{}{}
+			}
+			if evicted := s.connMan.EvictOrphanNodes(known); evicted > 0 {
+				s.logger.Warn("orphan-sweep evicted unmanaged nodes",
+					zap.Int("count", evicted))
+			}
+		}
+	}
 }
 
 func (s *Service) Stop() error {

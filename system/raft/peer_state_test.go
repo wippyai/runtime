@@ -1,0 +1,168 @@
+// SPDX-License-Identifier: MPL-2.0
+
+package raft
+
+import (
+	"errors"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	hraft "github.com/hashicorp/raft"
+	"github.com/stretchr/testify/require"
+)
+
+// alwaysErrTransport returns a fixed error from every Transport method.
+// Counts calls so tests can assert how many got through to the inner.
+type alwaysErrTransport struct {
+	hraft.Transport
+	closeCh chan struct{}
+	err     error
+	calls   int64
+}
+
+func newAlwaysErrTransport(err error) *alwaysErrTransport {
+	return &alwaysErrTransport{err: err, closeCh: make(chan struct{})}
+}
+
+func (a *alwaysErrTransport) Calls() int { return int(atomic.LoadInt64(&a.calls)) }
+
+func (a *alwaysErrTransport) AppendEntries(_ hraft.ServerID, _ hraft.ServerAddress,
+	_ *hraft.AppendEntriesRequest, _ *hraft.AppendEntriesResponse) error {
+	atomic.AddInt64(&a.calls, 1)
+	return a.err
+}
+
+func (a *alwaysErrTransport) RequestVote(_ hraft.ServerID, _ hraft.ServerAddress,
+	_ *hraft.RequestVoteRequest, _ *hraft.RequestVoteResponse) error {
+	atomic.AddInt64(&a.calls, 1)
+	return a.err
+}
+
+func (a *alwaysErrTransport) AppendEntriesPipeline(_ hraft.ServerID,
+	_ hraft.ServerAddress) (hraft.AppendPipeline, error) {
+	atomic.AddInt64(&a.calls, 1)
+	return nil, a.err
+}
+
+func (a *alwaysErrTransport) Close() error { return nil }
+
+// flipTransport returns errs for the first N calls, then nil.
+type flipTransport struct {
+	hraft.Transport
+	failuresLeft int64
+	calls        int64
+}
+
+func newFlipTransport(failures int) *flipTransport {
+	return &flipTransport{failuresLeft: int64(failures)}
+}
+
+func (f *flipTransport) AppendEntries(_ hraft.ServerID, _ hraft.ServerAddress,
+	_ *hraft.AppendEntriesRequest, _ *hraft.AppendEntriesResponse) error {
+	atomic.AddInt64(&f.calls, 1)
+	if atomic.AddInt64(&f.failuresLeft, -1) >= 0 {
+		return errors.New("flip: transient")
+	}
+	return nil
+}
+
+func TestPeerStateTracker_ShortsCircuitsAfterFailureLimit(t *testing.T) {
+	inner := newAlwaysErrTransport(errors.New("write tcp ...: write: broken pipe"))
+	pt := newPeerStateTracker(inner, &telemetry{})
+	pt.failureLimit = 3
+	pt.backoffInitial = 1 * time.Second
+	pt.backoffMax = 1 * time.Second
+
+	target := hraft.ServerAddress("10.0.0.1:7960")
+	id := hraft.ServerID("peer-1")
+	args := &hraft.AppendEntriesRequest{}
+	resp := &hraft.AppendEntriesResponse{}
+
+	// First 3 calls: errors propagate, all reach inner.
+	for i := 0; i < 3; i++ {
+		err := pt.AppendEntries(id, target, args, resp)
+		require.Error(t, err)
+	}
+	require.Equal(t, 3, inner.Calls(), "first 3 calls must reach the inner transport")
+
+	// 4th and 5th calls: short-circuited with errPeerDead, inner UNTOUCHED.
+	for i := 0; i < 2; i++ {
+		err := pt.AppendEntries(id, target, args, resp)
+		require.ErrorIs(t, err, errPeerDead)
+	}
+	require.Equal(t, 3, inner.Calls(), "calls in dead window must NOT reach the inner transport")
+}
+
+func TestPeerStateTracker_RecoversAfterSuccess(t *testing.T) {
+	inner := newFlipTransport(2) // first 2 fail, then succeed
+	pt := newPeerStateTracker(inner, &telemetry{})
+	pt.failureLimit = 5
+
+	target := hraft.ServerAddress("10.0.0.2:7960")
+	id := hraft.ServerID("peer-2")
+	args := &hraft.AppendEntriesRequest{}
+	resp := &hraft.AppendEntriesResponse{}
+
+	// 2 errors, then 1 success.
+	require.Error(t, pt.AppendEntries(id, target, args, resp))
+	require.Error(t, pt.AppendEntries(id, target, args, resp))
+	require.NoError(t, pt.AppendEntries(id, target, args, resp))
+
+	// Counter must have reset to zero — confirm by sending another call
+	// from a fresh failures-left budget on a different fixture.
+	pt.mu.Lock()
+	consecutive := pt.consecutiveErr[target]
+	deadStreak := pt.deadStreak[target]
+	pt.mu.Unlock()
+	require.Equal(t, 0, consecutive)
+	require.Equal(t, 0, deadStreak)
+}
+
+func TestPeerStateTracker_BackoffExpiresLetsProbeThrough(t *testing.T) {
+	inner := newAlwaysErrTransport(errors.New("write tcp ...: connection reset"))
+	pt := newPeerStateTracker(inner, &telemetry{})
+	pt.failureLimit = 1
+	pt.backoffInitial = 50 * time.Millisecond
+	pt.backoffMax = 50 * time.Millisecond
+
+	target := hraft.ServerAddress("10.0.0.3:7960")
+	id := hraft.ServerID("peer-3")
+	args := &hraft.AppendEntriesRequest{}
+	resp := &hraft.AppendEntriesResponse{}
+
+	// One failure marks the peer dead.
+	require.Error(t, pt.AppendEntries(id, target, args, resp))
+	// Immediate retry: short-circuited.
+	require.ErrorIs(t, pt.AppendEntries(id, target, args, resp), errPeerDead)
+	require.Equal(t, 1, inner.Calls())
+
+	// Wait past the backoff window.
+	time.Sleep(60 * time.Millisecond)
+	// Probe goes through (and fails again — but the inner sees it).
+	require.Error(t, pt.AppendEntries(id, target, args, resp))
+	require.Equal(t, 2, inner.Calls(), "after backoff expiry, one probe must reach the inner")
+}
+
+func TestPeerStateTracker_PerPeerIsolation(t *testing.T) {
+	// One peer dead must not block traffic to a healthy peer.
+	dead := newAlwaysErrTransport(errors.New("dead"))
+	pt := newPeerStateTracker(dead, &telemetry{})
+	pt.failureLimit = 1
+	pt.backoffInitial = time.Hour // never expire
+
+	deadTarget := hraft.ServerAddress("10.0.0.4:7960")
+	healthyTarget := hraft.ServerAddress("10.0.0.5:7960")
+	args := &hraft.AppendEntriesRequest{}
+	resp := &hraft.AppendEntriesResponse{}
+
+	// Mark deadTarget dead.
+	require.Error(t, pt.AppendEntries("dead-peer", deadTarget, args, resp))
+	require.ErrorIs(t, pt.AppendEntries("dead-peer", deadTarget, args, resp), errPeerDead)
+
+	// Healthy target still reaches the inner. Inner returns errors (it's
+	// alwaysErr in this test fixture), but the call is *attempted*.
+	pt.AppendEntries("healthy-peer", healthyTarget, args, resp)
+	require.Equal(t, 2, dead.Calls(),
+		"healthy peer call must reach the inner; only dead peer is short-circuited")
+}

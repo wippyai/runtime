@@ -78,29 +78,36 @@ type ManagerConfig struct {
 	RaftControlQueueCap int
 	GossipQueueCap      int
 	PGBroadcastQueueCap int
-	InitialRetryDelay   time.Duration
-	MaxRetryDelay       time.Duration
-	DrainBatchSize      int
-	MaxMessageSize      uint32
-	AutoPort            bool
+	// OutboundConnQueueCap caps the per-connection outbound queue inside
+	// NodeConnection (drain target of the per-class queues above). Without
+	// this cap, network-delay chaos lets the connection-level queue grow
+	// unbounded even though the upstream class queues are bounded.
+	// Drops here count as internode_dropped_total{reason="conn_queue_full"}.
+	OutboundConnQueueCap int
+	InitialRetryDelay    time.Duration
+	MaxRetryDelay        time.Duration
+	DrainBatchSize       int
+	MaxMessageSize       uint32
+	AutoPort             bool
 }
 
 func DefaultManagerConfig() ManagerConfig {
 	return ManagerConfig{
-		HandshakeTimeout:    5 * time.Second,
-		OutboundQueueSize:   256,
-		MaxMessageSize:      512 * 1024 * 1024,
-		TLS:                 ManagerTLSConfig{Enabled: false},
-		InitialRetryDelay:   10 * time.Millisecond,
-		MaxRetryDelay:       5 * time.Second,
-		AutoPort:            true,
-		BindPort:            DefaultPortRangeStart,
-		DrainBatchSize:      32,
-		CommandQueueSize:    256,
-		MaxRetryAttempts:    10,
-		RaftControlQueueCap: 4096,
-		GossipQueueCap:      1024,
-		PGBroadcastQueueCap: 2048,
+		HandshakeTimeout:     5 * time.Second,
+		OutboundQueueSize:    256,
+		MaxMessageSize:       512 * 1024 * 1024,
+		TLS:                  ManagerTLSConfig{Enabled: false},
+		InitialRetryDelay:    10 * time.Millisecond,
+		MaxRetryDelay:        5 * time.Second,
+		AutoPort:             true,
+		BindPort:             DefaultPortRangeStart,
+		DrainBatchSize:       32,
+		CommandQueueSize:     256,
+		MaxRetryAttempts:     10,
+		RaftControlQueueCap:  4096,
+		GossipQueueCap:       1024,
+		PGBroadcastQueueCap:  2048,
+		OutboundConnQueueCap: 4096,
 	}
 }
 
@@ -108,6 +115,7 @@ func (mc ManagerConfig) NodeConnectionConfig() NodeConnectionConfig {
 	return NodeConnectionConfig{
 		HandshakeTimeout: mc.HandshakeTimeout,
 		MaxMessageSize:   mc.MaxMessageSize,
+		MaxQueueSize:     mc.OutboundConnQueueCap,
 	}
 }
 
@@ -168,6 +176,21 @@ type ConnectionManager interface {
 	AddManagedNode(nodeID cluster.NodeID)
 	RemoveManagedNode(nodeID cluster.NodeID)
 	IsManaged(nodeID cluster.NodeID) bool
+
+	// EvictOrphanNodes removes managed nodes that are not present in the
+	// supplied authoritative set. Returns the count of evicted nodes.
+	// Defensive sweep against the case where a `cluster.NodeLeft` event
+	// is missed under partition / gossip storm — without this, the
+	// per-node state in the connection manager and its underlying
+	// state_manager grows monotonically as the cluster churns.
+	EvictOrphanNodes(known map[cluster.NodeID]struct{}) int
+
+	// RecordDropReason increments internode_dropped_total{reason=...} for
+	// drop events that originate outside the per-class queue path
+	// (RX-side delivery failure, TX-side encode failure, etc.). Lets
+	// callers count drops without taking a dependency on the unexported
+	// telemetry type.
+	RecordDropReason(reason string)
 }
 
 type manager struct {
@@ -249,9 +272,11 @@ func (m *manager) SendToNode(nodeID cluster.NodeID, data []byte, class Class) er
 	err := m.nodeStates.QueueMessageClass(nodeID, data, class)
 	if err != nil {
 		if errors.Is(err, ErrNodeNotManaged) {
-			m.logger.Warn("Dropping message for non-existent or unmanaged node",
-				zap.String("target_node", nodeID),
-				zap.String("class", class.String()))
+			// Hot path under partition: gossip can mark a peer dead before
+			// the PG layer stops targeting it. Counted as a drop with no
+			// log to avoid the kind of flood we saw during chaos (thousands
+			// per second per pod). The metric is the source of truth.
+			m.nodeStates.tel.recordDrop(class, "node_not_managed")
 			return nil
 		}
 		// ErrQueueFull surfaces to the caller (broadcast path will count it).
@@ -345,6 +370,59 @@ func (m *manager) GetListenPort() int {
 
 func (m *manager) IsManaged(nodeID cluster.NodeID) bool {
 	return m.nodeStates.GetNodeState(nodeID) != nil
+}
+
+// RecordDropReason exposes the unexported telemetry counter for callers that
+// drop messages outside the per-class queue path (RX delivery failures, TX
+// pre-send encode failures, etc.). The label "class" is set to "unknown"
+// because those drop sites don't carry class context.
+func (m *manager) RecordDropReason(reason string) {
+	m.nodeStates.tel.recordDropReason(reason)
+}
+
+// EvictOrphanNodes walks the controlLoops + nodeStates and removes any
+// node not in `known`. Returns the count of removals. Caller passes a
+// snapshot of the membership view as the authoritative truth.
+func (m *manager) EvictOrphanNodes(known map[cluster.NodeID]struct{}) int {
+	if known == nil {
+		return 0
+	}
+	// Find orphans under the controlLoops lock so we get a consistent
+	// snapshot of which nodes the manager believes are alive.
+	var orphans []cluster.NodeID
+	m.controlLoopsMu.Lock()
+	for nodeID := range m.controlLoops {
+		if _, ok := known[nodeID]; !ok && nodeID != m.config.LocalNodeID {
+			orphans = append(orphans, nodeID)
+		}
+	}
+	m.controlLoopsMu.Unlock()
+
+	// Also catch nodes that have nodeState but no controlLoop (auto-managed
+	// from inbound connection that never produced traffic).
+	m.nodeStates.nodeStates.Range(func(key, _ any) bool {
+		nodeID := key.(cluster.NodeID)
+		if nodeID == m.config.LocalNodeID {
+			return true
+		}
+		if _, ok := known[nodeID]; ok {
+			return true
+		}
+		// Avoid double-add if already in the orphans slice from controlLoops.
+		for _, existing := range orphans {
+			if existing == nodeID {
+				return true
+			}
+		}
+		orphans = append(orphans, nodeID)
+		return true
+	})
+
+	for _, nodeID := range orphans {
+		m.RemoveManagedNode(nodeID)
+		m.nodeStates.tel.recordEviction("orphan")
+	}
+	return len(orphans)
 }
 
 func (m *manager) sendCommand(nodeID cluster.NodeID, cmd nodeCommand) {
@@ -621,11 +699,28 @@ func (loop *nodeControlLoop) drainMessages() {
 	}
 	loop.logger.Debug("Draining queued messages", zap.Int("count", len(messages)))
 	for i, data := range messages {
-		if err := loop.connection.Send(data); err != nil {
-			loop.logger.Error("Failed to send message, will be requeued", zap.Error(err))
-			loop.manager.nodeStates.RequeueMessagesClass(loop.nodeID, messages[i:], ClassPGBroadcast)
-			break
+		err := loop.connection.Send(data)
+		if err == nil {
+			continue
 		}
+		// ErrQueueFull means the per-connection outbound queue is at cap.
+		// Requeueing back into the per-class queue would just re-trigger
+		// messageNotify and busy-loop. Drop the rest of the batch with a
+		// metric — the writeLoop has writeFlushInterval (10ms) to drain
+		// what's already enqueued, and the next notification will bring
+		// new work.
+		if errors.Is(err, ErrQueueFull) {
+			dropped := len(messages) - i
+			for j := 0; j < dropped; j++ {
+				loop.manager.nodeStates.tel.recordDrop(ClassPGBroadcast, "conn_queue_full")
+			}
+			return
+		}
+		// Other errors (ErrConnectionClosed) — connection is going away;
+		// requeue so a subsequent connection can drain. Already-dropped
+		// messages from this batch are unrecoverable.
+		loop.manager.nodeStates.RequeueMessagesClass(loop.nodeID, messages[i:], ClassPGBroadcast)
+		return
 	}
 }
 

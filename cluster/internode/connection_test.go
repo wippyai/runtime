@@ -237,6 +237,46 @@ func TestNodeConnection_ErrorOnSendToClosed(t *testing.T) {
 	require.ErrorIs(t, err, ErrConnectionClosed)
 }
 
+func TestNodeConnection_SendQueueCap(t *testing.T) {
+	// Verify the activeQueue cap added in P2.6 actually rejects sends past
+	// the configured MaxQueueSize. Regression test for the unbounded
+	// container/list growth that drove the chaos-time OOMKills.
+	cfg := NodeConnectionConfig{
+		HandshakeTimeout: time.Second,
+		MaxMessageSize:   1024,
+		MaxQueueSize:     8,
+	}
+	conn, _ := net.Pipe()
+	defer func() { _ = conn.Close() }()
+	nc := newNodeConnection(conn, "peer", cfg, zap.NewNop())
+
+	// Don't call Run() — without a writeLoop draining, every successful
+	// Send leaves the message in activeQueue and fills it.
+	for i := 0; i < cfg.MaxQueueSize; i++ {
+		require.NoError(t, nc.Send([]byte("x")), "send #%d", i)
+	}
+	err := nc.Send([]byte("overflow"))
+	require.ErrorIs(t, err, ErrQueueFull)
+}
+
+func TestNodeConnection_SendQueueCapZeroMeansUnbounded(t *testing.T) {
+	// MaxQueueSize=0 keeps the legacy unbounded behavior for tests that
+	// don't care about backpressure. Without this carve-out the change
+	// from P2.6 would silently break unrelated tests.
+	cfg := NodeConnectionConfig{
+		HandshakeTimeout: time.Second,
+		MaxMessageSize:   1024,
+		MaxQueueSize:     0,
+	}
+	conn, _ := net.Pipe()
+	defer func() { _ = conn.Close() }()
+	nc := newNodeConnection(conn, "peer", cfg, zap.NewNop())
+
+	for i := 0; i < 100; i++ {
+		require.NoError(t, nc.Send([]byte("x")))
+	}
+}
+
 func TestConnectionError_ShouldRetry(t *testing.T) {
 	tests := []struct {
 		name        string

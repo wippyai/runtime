@@ -134,6 +134,19 @@ func CreateLogger(cfg Config) (*zap.Logger, error) {
 	default:
 		zapCfg.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
 		zapCfg.DisableStacktrace = true
+		// Defense-in-depth log sampling for the steady-state path. Console
+		// and Verbose modes intentionally skip this so debugging stays
+		// honest. Under chaos partition we observed ~thousands of identical
+		// WARN/ERROR lines per second; sampling caps that at ~100/s for
+		// the first second of any unique message, then 1-in-100 thereafter.
+		// The per-site fixes (metric counters) remain primary; this is
+		// purely a fail-safe so a future hot WARN cannot OOM the runtime.
+		if !cfg.Console {
+			zapCfg.Sampling = &zap.SamplingConfig{
+				Initial:    100,
+				Thereafter: 100,
+			}
+		}
 	}
 
 	logger, err := zapCfg.Build()

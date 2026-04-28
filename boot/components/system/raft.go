@@ -19,11 +19,18 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/system/globalreg"
+	"github.com/wippyai/runtime/system/health"
 	sysraft "github.com/wippyai/runtime/system/raft"
 	sysrelay "github.com/wippyai/runtime/system/relay"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
+
+// raftLivenessLastContactCeiling is the maximum time since last leader
+// contact at which the activity-based liveness check still reports
+// healthy for a follower. Calibrated to be a few times the heartbeat
+// timeout so we don't flap during a normal election.
+const raftLivenessLastContactCeiling = 30 * time.Second
 
 // Context keys for raft and global registry components.
 var (
@@ -74,13 +81,28 @@ func Raft() boot.Component {
 			}
 
 			// Build raft config from the configuration.
+			//
+			// snapshot_threshold / snapshot_interval / snapshot_retain /
+			// trailing_logs / heartbeat_timeout / election_timeout /
+			// commit_timeout were previously not threaded from the boot
+			// config. That meant operators setting `raft.trailing_logs: 100`
+			// in the runtime configmap had no effect — hashicorp/raft would
+			// keep the default 10240 entries in memory, a real source of
+			// memory pressure under partition.
 			rc := raftapi.Config{
-				DataDir:       raftCfg.GetString(RaftDataDir, ""),
-				BindAddr:      raftCfg.GetString(RaftBindAddr, "0.0.0.0"),
-				BindPort:      raftCfg.GetInt(RaftBindPort, 7960),
-				AutoPort:      raftCfg.GetBool(RaftAutoPort, true),
-				AdvertiseAddr: raftCfg.GetString(RaftAdvertiseAddr, ""),
-				Bootstrap:     raftCfg.GetBool(RaftBootstrap, false),
+				DataDir:           raftCfg.GetString(RaftDataDir, ""),
+				BindAddr:          raftCfg.GetString(RaftBindAddr, "0.0.0.0"),
+				BindPort:          raftCfg.GetInt(RaftBindPort, 7960),
+				AutoPort:          raftCfg.GetBool(RaftAutoPort, true),
+				AdvertiseAddr:     raftCfg.GetString(RaftAdvertiseAddr, ""),
+				Bootstrap:         raftCfg.GetBool(RaftBootstrap, false),
+				SnapshotThreshold: uint64(raftCfg.GetInt(RaftSnapshotThreshold, 0)),
+				SnapshotInterval:  raftCfg.GetDuration(RaftSnapshotInterval, 0),
+				SnapshotRetain:    raftCfg.GetInt(RaftSnapshotRetain, 0),
+				TrailingLogs:      uint64(raftCfg.GetInt(RaftTrailingLogs, 0)),
+				HeartbeatTimeout:  raftCfg.GetDuration(RaftHeartbeatTimeout, 0),
+				ElectionTimeout:   raftCfg.GetDuration(RaftElectionTimeout, 0),
+				CommitTimeout:     raftCfg.GetDuration(RaftCommitTimeout, 0),
 			}
 
 			// Capture handler config for the Start phase. Reading it here
@@ -182,6 +204,31 @@ func Raft() boot.Component {
 				for range statusCh { //nolint:revive // intentionally empty: draining channel
 				}
 			}()
+
+			// Liveness check: a follower that has not heard from the leader
+			// in `raftLivenessLastContactCeiling` is on the wrong side of a
+			// partition. Leaders return time.Time{} from LastContact, which
+			// we accept as healthy (the leader IS the contact).
+			health.Register("raft.last_contact", func() error {
+				switch raftNode.State() {
+				case raftapi.Leader:
+					return nil
+				case raftapi.Shutdown:
+					return fmt.Errorf("raft shut down")
+				}
+				last := raftNode.LastContact()
+				if last.IsZero() {
+					// Follower with never-contacted leader (just started or
+					// permanently isolated). Tolerated for the kubelet
+					// initialDelay window; after that the ceiling kicks in.
+					return nil
+				}
+				if since := time.Since(last); since > raftLivenessLastContactCeiling {
+					return fmt.Errorf("no leader contact in %s (ceiling %s)",
+						since.Round(time.Second), raftLivenessLastContactCeiling)
+				}
+				return nil
+			})
 
 			// Add raft_port to membership node metadata so other nodes
 			// know how to reach our Raft transport.

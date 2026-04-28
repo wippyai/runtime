@@ -4,6 +4,7 @@ package pg
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/system/eventbus"
+	"github.com/wippyai/runtime/system/health"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
@@ -43,6 +45,13 @@ type serviceCtx struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 }
+
+// livenessActivityCeiling is the maximum time since the last PG broadcast
+// (TX or RX) at which the activity-based liveness check still reports
+// healthy. Larger than the chaos_workload.lua broadcast cadence (1/500ms)
+// times a chaos slack factor — a fully partitioned-out pod will exceed
+// this within ~30s of isolation.
+const livenessActivityCeiling = 30 * time.Second
 
 // closedServiceCtx is the sentinel returned before Start or after Stop. Its
 // context is already cancelled so `<-s.currentCtx().Done()` is non-blocking,
@@ -79,6 +88,7 @@ type Service struct {
 	retryQueue         *retryQueue
 	tel                *telemetry
 	logger             *zap.Logger
+	activity           *activityTracker
 	localNodeID        pid.NodeID
 	hostID             pid.HostID
 	wg                 sync.WaitGroup
@@ -90,6 +100,16 @@ type Service struct {
 	protocolTimeout    time.Duration
 	broadcastTimeout   time.Duration
 	maxRetries         int
+}
+
+// LastBroadcastSince returns how long ago the last PG broadcast was
+// sent or received by this service. Used by the runtime /livez handler
+// to distinguish a partitioned-but-alive pod from one making progress.
+func (s *Service) LastBroadcastSince() time.Duration {
+	if s == nil || s.activity == nil {
+		return 0
+	}
+	return s.activity.Since()
 }
 
 // currentCtx returns the ctx for the active Start() cycle. Before Start or
@@ -138,6 +158,7 @@ func NewService(
 		actions:            make(chan action, config.ActionQueueSize),
 		monitors:           make(map[string][]*monitorEntry),
 		monitorPIDCounts:   make(map[string]int),
+		activity:           newActivityTracker(),
 		maxGroups:          config.MaxGroups,
 		maxMembersPerGroup: config.MaxMembersPerGroup,
 		actionQueueMaxSize: config.ActionQueueMaxSize,
@@ -237,6 +258,18 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 		zap.Int("queue_max", s.actionQueueMaxSize),
 	)
 
+	// Register an activity-based liveness check. Reports unhealthy when
+	// the service has gone more than livenessActivityCeiling without
+	// emitting OR receiving a broadcast — the symptom of being stuck
+	// on the minority side of a partition. Threshold > maxBroadcastInterval
+	// in chaos_workload.lua + a chaos-recoverable margin.
+	health.Register("pg.broadcast_recent."+s.hostID, func() error {
+		if since := s.activity.Since(); since > livenessActivityCeiling {
+			return fmt.Errorf("no broadcast in %s (ceiling %s)", since.Round(time.Second), livenessActivityCeiling)
+		}
+		return nil
+	})
+
 	select {
 	case statusChan <- "pg service started":
 	default:
@@ -251,6 +284,10 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 // cancelled context without racing the field write.
 func (s *Service) Stop(_ context.Context) error {
 	s.logger.Info("pg service stopping")
+
+	// Detach the liveness check so a stopped service does not report
+	// 503 forever to /livez. Re-registered on the next Start().
+	health.Register("pg.broadcast_recent."+s.hostID, nil)
 
 	if s.nodeJoinedSub != nil {
 		s.nodeJoinedSub.Close()
@@ -357,6 +394,11 @@ func (s *Service) Send(pkg *relay.Package) error {
 	if pkg == nil || len(pkg.Messages) == 0 {
 		return nil
 	}
+
+	// Any inbound PG protocol package counts as activity for the
+	// liveness signal — receiving join/leave/sync from a peer is
+	// progress, even if no local broadcast was emitted.
+	s.activity.Touch()
 
 	for _, msg := range pkg.Messages {
 		switch msg.Topic {
@@ -952,6 +994,46 @@ func (s *Service) removeMonitorsByPID(p pid.PID) {
 	delete(s.monitorPIDCounts, key)
 }
 
+// removeMonitorsByNode removes all monitor subscriptions owned by PIDs
+// hosted on the departed node. Without this, monitor entries leak forever
+// for any node that left without each of its PIDs explicitly demonitoring
+// (the common case under partition / pod kill chaos). The PID-level
+// cleanup in removeMonitorsByPID does not cover this because it requires
+// knowing every owning PID; the node-level cleanup is the only one that
+// can be triggered on the cluster.NodeLeft event alone.
+//
+// Returns the number of entries evicted, for telemetry.
+// Must be called from the event loop.
+func (s *Service) removeMonitorsByNode(nodeID pid.NodeID) int {
+	if nodeID == "" {
+		return 0
+	}
+	evicted := 0
+	for group, entries := range s.monitors {
+		var remaining []*monitorEntry
+		for _, e := range entries {
+			if e.pid.Node != nodeID {
+				remaining = append(remaining, e)
+				continue
+			}
+			evicted++
+			key := e.pid.String()
+			if s.monitorPIDCounts[key] > 0 {
+				s.monitorPIDCounts[key]--
+				if s.monitorPIDCounts[key] == 0 {
+					delete(s.monitorPIDCounts, key)
+				}
+			}
+		}
+		if len(remaining) == 0 {
+			delete(s.monitors, group)
+		} else if len(remaining) != len(entries) {
+			s.monitors[group] = remaining
+		}
+	}
+	return evicted
+}
+
 // hasMonitorSubscriptions returns true if the given PID has any active
 // monitor subscriptions (group-specific or wildcard). O(1) via reverse index.
 // Must be called from the event loop.
@@ -1055,6 +1137,7 @@ func (s *Service) Broadcast(from pid.PID, group pgapi.Group, topic string, paylo
 	sent := s.sendToMembers(from, topic, payloads, members)
 	span.SetAttributes(attribute.Int("pg.recipients", sent))
 	s.tel.recordBroadcast(group, sent, nil, time.Since(start))
+	s.activity.Touch()
 	return sent, nil
 }
 

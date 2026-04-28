@@ -120,6 +120,10 @@ func (m *mockConnectionManager) IsManaged(nodeID cluster.NodeID) bool {
 	return m.managedNodes[nodeID]
 }
 
+func (m *mockConnectionManager) RecordDropReason(_ string) {}
+
+func (m *mockConnectionManager) EvictOrphanNodes(_ map[cluster.NodeID]struct{}) int { return 0 }
+
 type mockCodec struct {
 	encodeError error
 	decodeError error

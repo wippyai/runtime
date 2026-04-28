@@ -5,7 +5,11 @@ package prometheus
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/http/pprof"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -13,6 +17,7 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	metricsapi "github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/service/metrics/prometheus"
+	"github.com/wippyai/runtime/system/health"
 	"go.uber.org/zap"
 )
 
@@ -97,6 +102,21 @@ func Prometheus() boot.Component {
 
 			mux := http.NewServeMux()
 			mux.Handle("/metrics", exporter.Handler())
+			mux.HandleFunc("/livez", livezHandler(logger))
+
+			// pprof handlers are gated by WIPPY_DEBUG_PPROF=1 so they are
+			// off by default in production. When enabled, they share the
+			// metrics listener so a single port-forward exposes both
+			// /metrics and /debug/pprof/*. Useful for capturing heap/allocs
+			// during chaos without bumping the memory limit to mask growth.
+			if os.Getenv("WIPPY_DEBUG_PPROF") == "1" {
+				mux.HandleFunc("/debug/pprof/", pprof.Index)
+				mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+				mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+				mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+				mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+				logger.Info("pprof handlers enabled at /debug/pprof/*")
+			}
 
 			server = &http.Server{
 				Addr:              addr,
@@ -133,5 +153,43 @@ func Prometheus() boot.Component {
 func All() []boot.Component {
 	return []boot.Component{
 		Prometheus(),
+	}
+}
+
+// livezHandler returns 200 only when every registered liveness check
+// reports healthy. The body lists each check + status so kubectl
+// describe / kubelet event logs make the failing check visible.
+//
+// This is the activity-based liveness probe that replaces the prior
+// TCP-only check. Without it a pod can stay Ready while stuck on the
+// minority side of a network partition — observed in the original
+// chaos run as one pod idle at 49 MiB while peers held 474 MiB.
+func livezHandler(logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		results := health.Run()
+		var failed []string
+		var body strings.Builder
+		for _, res := range results {
+			status := "ok"
+			if res.Err != nil {
+				status = "fail: " + res.Err.Error()
+				failed = append(failed, res.Name)
+			}
+			fmt.Fprintf(&body, "%s\t%s\n", res.Name, status)
+		}
+		if len(results) == 0 {
+			body.WriteString("(no liveness checks registered)\n")
+		}
+
+		w.Header().Set("Content-Type", "text/plain")
+		if len(failed) > 0 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			if logger != nil {
+				logger.Warn("/livez 503", zap.Strings("failed", failed))
+			}
+		} else {
+			w.WriteHeader(http.StatusOK)
+		}
+		_, _ = w.Write([]byte(body.String()))
 	}
 }
