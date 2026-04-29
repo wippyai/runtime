@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/internal/wildcard"
 )
 
@@ -23,6 +24,14 @@ const (
 
 const defaultQueueCap = 64
 const subscriberChanBuffer = 16
+
+// DefaultMaxSubscribers caps the total active subscriber map size.
+// Observed peak under chaos before the cap was ~600; 4096 leaves 6×
+// headroom and is far below the 50k+ that would matter for OOM. A
+// caller hitting this cap is almost certainly leaking subscriptions
+// (forgetting Unsubscribe / Close), and the cap is meant to surface
+// that bug fast rather than silently blow the heap.
+const DefaultMaxSubscribers = 4096
 
 type action struct {
 	ctx         context.Context
@@ -56,10 +65,12 @@ type sub struct {
 type Bus struct {
 	subscribers       map[event.SubscriberID]sub
 	actionReady       chan struct{}
+	collector         atomic.Pointer[metrics.Collector]
 	actionQueue       []action
 	spareQueue        []action
 	wg                sync.WaitGroup
 	subscriberCounter uint64
+	maxSubscribers    int
 	actionMu          sync.Mutex
 	closed            atomic.Bool
 }
@@ -67,16 +78,55 @@ type Bus struct {
 // NewBus creates a new event bus instance.
 func NewBus() *Bus {
 	b := &Bus{
-		subscribers: make(map[event.SubscriberID]sub),
-		actionQueue: make([]action, 0, defaultQueueCap),
-		spareQueue:  make([]action, 0, defaultQueueCap),
-		actionReady: make(chan struct{}, 1), // Buffered so signal never blocks
+		subscribers:    make(map[event.SubscriberID]sub),
+		actionQueue:    make([]action, 0, defaultQueueCap),
+		spareQueue:     make([]action, 0, defaultQueueCap),
+		actionReady:    make(chan struct{}, 1), // Buffered so signal never blocks
+		maxSubscribers: DefaultMaxSubscribers,
 	}
 
 	b.wg.Add(1)
 	go b.dispatcher()
 
 	return b
+}
+
+// SetCollector binds a metrics collector for telemetry. Called by the
+// metrics boot component after the collector becomes available; until
+// then telemetry is a no-op. Safe to call concurrently with bus
+// operations; reads are atomic loads in the dispatcher hot path.
+//
+// Bootstraps the active-count gauge and rejection counter at zero so
+// the F5 expected-series gate sees them on a fresh boot, even if no
+// subscribe has happened yet. The dispatcher will overwrite the gauge
+// on the next subscribe/unsubscribe.
+func (b *Bus) SetCollector(c metrics.Collector) {
+	if c == nil {
+		b.collector.Store(nil)
+		return
+	}
+	b.collector.Store(&c)
+	c.GaugeSet("eventbus_subscribers_active", 0, nil)
+	c.CounterAdd("eventbus_subscribers_rejected_total", 0, metrics.Labels{"reason": "cap"})
+}
+
+// recordSubscribers writes the current active count as a gauge.
+func (b *Bus) recordSubscribers() {
+	cp := b.collector.Load()
+	if cp == nil {
+		return
+	}
+	(*cp).GaugeSet("eventbus_subscribers_active", float64(len(b.subscribers)), nil)
+}
+
+// recordRejection bumps the rejection counter when a subscribe is
+// dropped because the cap was exceeded. Soak gates on this >0/s.
+func (b *Bus) recordRejection(reason string) {
+	cp := b.collector.Load()
+	if cp == nil {
+		return
+	}
+	(*cp).CounterInc("eventbus_subscribers_rejected_total", metrics.Labels{"reason": reason})
 }
 
 // Subscribe creates a new subscription for events from the specified system.
@@ -272,11 +322,23 @@ func (b *Bus) processActions() bool {
 
 		switch a.kind {
 		case actSubscribe:
+			if b.maxSubscribers > 0 && len(b.subscribers) >= b.maxSubscribers {
+				// Cap reached. The metric+counter let the soak gate
+				// catch a runaway leak; the typed error gives the
+				// caller something to retry/back off on.
+				b.recordRejection("cap")
+				a.subscribe.doneCh <- ErrSubscribersCapReached
+				continue
+			}
 			b.subscribers[a.subscribe.sub.subID] = a.subscribe.sub
+			b.recordSubscribers()
 			a.subscribe.doneCh <- nil
 
 		case actUnsubscribe:
-			delete(b.subscribers, a.unsubscribe.subID)
+			if _, ok := b.subscribers[a.unsubscribe.subID]; ok {
+				delete(b.subscribers, a.unsubscribe.subID)
+				b.recordSubscribers()
+			}
 			a.unsubscribe.doneCh <- struct{}{}
 
 		case actSend:
@@ -310,6 +372,9 @@ func (b *Bus) processActions() bool {
 			// Clean up expired subscribers
 			for _, id := range expiredSubs {
 				delete(b.subscribers, id)
+			}
+			if len(expiredSubs) > 0 {
+				b.recordSubscribers()
 			}
 
 		case actStop:

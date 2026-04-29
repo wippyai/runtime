@@ -116,7 +116,22 @@ type Service struct {
 	protocolTimeout    time.Duration
 	broadcastTimeout   time.Duration
 	maxRetries         int
+
+	// queueStress is the current pressure level of the action queue,
+	// updated atomically inside submit(). 0=normal, 1=approaching cap,
+	// 2=full. The hot-path Warn at submit() used to fire on every
+	// dropped operation under backpressure (thousands per second under
+	// chaos). We now log only on transitions between levels — the
+	// pg_queue_dropped_total counter captures the rate as a metric.
+	queueStress atomic.Int32
 }
+
+// queueStress level constants.
+const (
+	queueStressNormal      int32 = 0
+	queueStressApproaching int32 = 1
+	queueStressFull        int32 = 2
+)
 
 // LastBroadcastSince returns how long ago the last PG broadcast was
 // sent or received by this service. Used by the runtime /livez handler
@@ -369,27 +384,28 @@ func (s *Service) publishSnapshot() {
 
 // submit sends an action to the event loop for serialized execution.
 // Returns true if submitted, false if queue is full (for non-blocking callers).
+//
+// Logging discipline: pg_queue_depth (gauge) and pg_queue_dropped_total
+// (counter, labeled with reason="full"|"cancelled") capture the
+// per-operation rate as metrics. We only emit a log line when the
+// queue's stress level *transitions* (e.g. normal→approaching→full or
+// recovery), so the noise floor stays bounded under sustained chaos.
 func (s *Service) submit(fn action) bool {
 	depth := len(s.actions)
 	s.tel.recordQueueDepth(s.hostID, depth)
 
-	// Check queue capacity before attempting to send
-	if depth >= s.actionQueueMaxSize {
-		s.logger.Warn("action queue full, rejecting operation",
-			zap.Int("queue_len", depth),
-			zap.Int("queue_max", s.actionQueueMaxSize),
-		)
+	stress := queueStressNormal
+	switch {
+	case depth >= s.actionQueueMaxSize:
+		stress = queueStressFull
+	case depth >= s.queueWarnThreshold:
+		stress = queueStressApproaching
+	}
+	s.logQueueStressTransition(stress, depth)
+
+	if stress == queueStressFull {
 		s.tel.recordQueueDropped(s.hostID, "full")
 		return false
-	}
-
-	// Warn if queue is approaching capacity
-	if depth >= s.queueWarnThreshold {
-		s.logger.Warn("action queue approaching capacity",
-			zap.Int("queue_len", depth),
-			zap.Int("queue_max", s.actionQueueMaxSize),
-			zap.Int("threshold", s.queueWarnThreshold),
-		)
 	}
 
 	select {
@@ -398,6 +414,39 @@ func (s *Service) submit(fn action) bool {
 	case <-s.currentCtx().Done():
 		s.tel.recordQueueDropped(s.hostID, "cancelled")
 		return false
+	}
+}
+
+// logQueueStressTransition emits a single log line each time the queue
+// crosses a stress threshold. CompareAndSwap ensures concurrent
+// submitters racing through the same transition only emit once.
+func (s *Service) logQueueStressTransition(next int32, depth int) {
+	prev := s.queueStress.Load()
+	if prev == next {
+		return
+	}
+	if !s.queueStress.CompareAndSwap(prev, next) {
+		return
+	}
+	switch next {
+	case queueStressFull:
+		s.logger.Info("action queue full",
+			zap.Int("queue_len", depth),
+			zap.Int("queue_max", s.actionQueueMaxSize),
+		)
+	case queueStressApproaching:
+		s.logger.Info("action queue approaching capacity",
+			zap.Int("queue_len", depth),
+			zap.Int("queue_max", s.actionQueueMaxSize),
+			zap.Int("threshold", s.queueWarnThreshold),
+		)
+	case queueStressNormal:
+		if prev != queueStressNormal {
+			s.logger.Info("action queue back to normal",
+				zap.Int("queue_len", depth),
+				zap.Int("queue_max", s.actionQueueMaxSize),
+			)
+		}
 	}
 }
 
@@ -457,12 +506,12 @@ func (s *Service) handleDiscoverPackage(msg *relay.Message) {
 		return
 	}
 
-	if !s.submit(func() {
+	// pg_queue_dropped_total{reason="full"} is recorded inside submit()
+	// when the queue rejects the operation; no per-message log needed.
+	s.submit(func() {
 		s.handleDiscover(fromNodeID)
 		s.publishSnapshot()
-	}) {
-		s.logger.Warn("dropped discover message due to backpressure", zap.String("from", fromNodeID))
-	}
+	})
 }
 
 // handleSyncPackage processes an incoming sync message.
@@ -499,12 +548,10 @@ func (s *Service) handleSyncPackage(msg *relay.Message) {
 		}
 	}
 
-	if !s.submit(func() {
+	s.submit(func() {
 		s.handleSync(fromNodeID, groups)
 		s.publishSnapshot()
-	}) {
-		s.logger.Warn("dropped sync message due to backpressure", zap.String("from", fromNodeID))
-	}
+	})
 }
 
 // handleJoinPackage processes an incoming join message.
@@ -532,12 +579,10 @@ func (s *Service) handleJoinPackage(msg *relay.Message) {
 		}
 	}
 
-	if !s.submit(func() {
+	s.submit(func() {
 		s.handleRemoteJoin(fromNodeID, group, pids)
 		s.publishSnapshot()
-	}) {
-		s.logger.Warn("dropped join message due to backpressure", zap.String("from", fromNodeID))
-	}
+	})
 }
 
 // handleLeavePackage processes an incoming leave message.
@@ -572,12 +617,10 @@ func (s *Service) handleLeavePackage(msg *relay.Message) {
 		}
 	}
 
-	if !s.submit(func() {
+	s.submit(func() {
 		s.handleRemoteLeave(fromNodeID, pids, groups)
 		s.publishSnapshot()
-	}) {
-		s.logger.Warn("dropped leave message due to backpressure", zap.String("from", fromNodeID))
-	}
+	})
 }
 
 // handleExitPackage processes an incoming process exit event.
@@ -585,12 +628,10 @@ func (s *Service) handleExitPackage(msg *relay.Message) {
 	for _, p := range msg.Payloads {
 		if exitEvent, ok := p.Data().(*topology.ExitEvent); ok {
 			exitedPID := exitEvent.From
-			if !s.submit(func() {
+			s.submit(func() {
 				s.handleProcessExit(exitedPID)
 				s.publishSnapshot()
-			}) {
-				s.logger.Warn("dropped exit event due to backpressure", zap.String("pid", exitedPID.String()))
-			}
+			})
 		}
 	}
 }
@@ -606,11 +647,9 @@ func (s *Service) handleNodeJoinedEvent(e event.Event) {
 		return
 	}
 
-	if !s.submit(func() {
+	s.submit(func() {
 		s.sendDiscover(nodeID)
-	}) {
-		s.logger.Warn("dropped discover for joined node due to backpressure", zap.String("node", nodeID))
-	}
+	})
 }
 
 // handleNodeLeftEvent is called by the event bus subscriber when a node leaves.
@@ -624,12 +663,10 @@ func (s *Service) handleNodeLeftEvent(e event.Event) {
 		return
 	}
 
-	if !s.submit(func() {
+	s.submit(func() {
 		s.handleNodeLeft(nodeID)
 		s.publishSnapshot()
-	}) {
-		s.logger.Warn("dropped node-left event due to backpressure", zap.String("node", nodeID))
-	}
+	})
 }
 
 // --- ProcessGroups interface implementation ---
