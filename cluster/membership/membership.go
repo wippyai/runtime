@@ -229,8 +229,54 @@ func (s *Service) Start(ctx context.Context) error {
 	s.refreshMemberStateGauges()
 
 	go s.emitHealthLoop(s.ctx)
+	if len(s.config.JoinAddrs) > 0 {
+		go s.rejoinLoop(s.ctx)
+	}
 
 	return nil
+}
+
+// rejoinLoop watches for full peer loss and re-attempts Join when the local
+// node is the only remaining member. Memberlist has no built-in auto-rejoin —
+// once a node has joined and then lost all peers (e.g., they all cycled
+// through chaos pod-failure simultaneously), it sits alone forever even
+// after peers come back, because the peers' fresh memberlist state has no
+// record of this node and cannot reach back via gossip.
+//
+// We probe every 30s. The reaction time is intentionally slow: under normal
+// chaos, peers cycle individually and gossip catches the join/leave; the
+// rejoin is only relevant for the rare "all peers gone at once" case.
+func (s *Service) rejoinLoop(ctx context.Context) {
+	t := time.NewTicker(30 * time.Second)
+	defer t.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		if s.memberlist == nil {
+			continue
+		}
+		members := s.memberlist.Members()
+		if len(members) > 1 {
+			continue
+		}
+		s.logger.Warn("memberlist isolated (only self), re-attempting Join",
+			zap.Strings("join_addresses", s.config.JoinAddrs))
+		n, err := s.memberlist.Join(s.config.JoinAddrs)
+		if err != nil {
+			s.logger.Warn("rejoin attempt failed",
+				zap.Error(err),
+				zap.Strings("join_addresses", s.config.JoinAddrs))
+			s.tel.recordJoin(err)
+			continue
+		}
+		s.logger.Info("rejoined cluster", zap.Int("discovered_nodes", n))
+		s.tel.recordJoin(nil)
+		s.refreshMemberStateGauges()
+	}
 }
 
 // emitHealthLoop periodically samples memberlist's GetHealthScore (0 = healthy,
