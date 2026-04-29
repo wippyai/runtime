@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"sync"
@@ -172,14 +171,11 @@ func (s *Service) Start(ctx context.Context) error {
 			zap.String("advertise", fmt.Sprintf("%s:%d", s.config.AdvertiseIP, s.config.BindPort)))
 	}
 
-	// Only enable memberlist debug logs in very verbose mode
-	if s.config.VeryVerbose {
-		// Keep default logging (goes to stderr)
-		s.logger.Debug("memberlist debug logging enabled")
-	} else {
-		// Completely disable memberlist logging
-		mlConfig.LogOutput = io.Discard
-	}
+	// Pipe memberlist logs into our zap logger. In non-verbose mode we only
+	// surface [ERR] and [WARN] lines; [DEBUG]/[INFO] are dropped. We never
+	// silence ERR — silently discarding "Failed to decode user message"
+	// (or similar) is what masked Bug 7 for so long.
+	mlConfig.LogOutput = newMemberlistLogWriter(s.logger.Named("memberlist"), s.config.VeryVerbose)
 
 	// Load secret key if provided
 	if s.config.SecretFile != "" || s.config.SecretString != "" {
