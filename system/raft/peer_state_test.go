@@ -39,6 +39,12 @@ func (a *alwaysErrTransport) RequestVote(_ hraft.ServerID, _ hraft.ServerAddress
 	return a.err
 }
 
+func (a *alwaysErrTransport) RequestPreVote(_ hraft.ServerID, _ hraft.ServerAddress,
+	_ *hraft.RequestPreVoteRequest, _ *hraft.RequestPreVoteResponse) error {
+	atomic.AddInt64(&a.calls, 1)
+	return a.err
+}
+
 func (a *alwaysErrTransport) AppendEntriesPipeline(_ hraft.ServerID,
 	_ hraft.ServerAddress) (hraft.AppendPipeline, error) {
 	atomic.AddInt64(&a.calls, 1)
@@ -165,4 +171,24 @@ func TestPeerStateTracker_PerPeerIsolation(t *testing.T) {
 	pt.AppendEntries("healthy-peer", healthyTarget, args, resp)
 	require.Equal(t, 2, dead.Calls(),
 		"healthy peer call must reach the inner; only dead peer is short-circuited")
+}
+
+// TestPeerStateTracker_SatisfiesWithPreVote pins the contract that the
+// tracker exposes the pre-vote RPC. Without this, hashicorp/raft logs
+// "pre-vote is disabled because it is not supported by the Transport"
+// and partitioned nodes accumulate term increments — which forces
+// leader step-down on partition heal (Bug 12).
+func TestPeerStateTracker_SatisfiesWithPreVote(t *testing.T) {
+	inner := newAlwaysErrTransport(errors.New("transient"))
+	pt := newPeerStateTracker(inner, &telemetry{})
+	if _, ok := any(pt).(hraft.WithPreVote); !ok {
+		t.Fatalf("peerStateTracker must satisfy hraft.WithPreVote so raft can use pre-vote elections")
+	}
+
+	args := &hraft.RequestPreVoteRequest{Term: 1}
+	resp := &hraft.RequestPreVoteResponse{}
+	err := pt.RequestPreVote("peer-1", "10.0.0.1:7960", args, resp)
+	require.Error(t, err, "RequestPreVote must surface inner errors")
+	require.Equal(t, 1, inner.Calls(),
+		"RequestPreVote must forward to the inner transport")
 }

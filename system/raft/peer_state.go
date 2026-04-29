@@ -104,6 +104,37 @@ func (t *peerStateTracker) RequestVote(id hraft.ServerID, target hraft.ServerAdd
 	return err
 }
 
+// RequestPreVote satisfies hraft.WithPreVote so the raft engine can send
+// pre-vote RPCs through this transport. Without this method, hashicorp/raft
+// logs "pre-vote is disabled because it is not supported by the Transport"
+// at startup and falls back to immediate term-bumping elections — a
+// partitioned node accumulates term increments during isolation and forces
+// a leader step-down when it rejoins, even though the cluster was healthy.
+//
+// Implementation mirrors RequestVote: short-circuit if the peer is in the
+// dead-backoff window, otherwise forward to the inner transport and feed
+// the result into the per-peer failure tracker.
+//
+// The inner is hraft.NetworkTransport (TCPTransport in v1.7.3+) which
+// implements RequestPreVote natively. If a future caller wraps a transport
+// that doesn't, the type assertion below panics with a clear message
+// rather than silently semantically downgrading to a regular RequestVote
+// (which would cause the very term inflation pre-vote is meant to prevent).
+func (t *peerStateTracker) RequestPreVote(id hraft.ServerID, target hraft.ServerAddress,
+	args *hraft.RequestPreVoteRequest, resp *hraft.RequestPreVoteResponse) error {
+	if t.isDead(target) {
+		t.tel.recordPeerDeadSkip(string(id))
+		return errPeerDead
+	}
+	withPV, ok := t.Transport.(hraft.WithPreVote)
+	if !ok {
+		return errors.New("raft-net: inner transport does not implement WithPreVote; remove peerStateTracker.RequestPreVote or wrap a pre-vote-capable transport")
+	}
+	err := withPV.RequestPreVote(id, target, args, resp)
+	t.recordResult(target, string(id), err)
+	return err
+}
+
 // AppendEntriesPipeline wraps the underlying pipeline so failures on
 // pipelined writes also count toward the consecutive-error tally.
 func (t *peerStateTracker) AppendEntriesPipeline(id hraft.ServerID,
