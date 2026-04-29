@@ -363,47 +363,76 @@ func (s *State) CVSnapshot() []uint64 {
 // uses the canonical string nodeID (not the local compact ID) so two
 // replicas with identical entries produce identical hashes — the basis of
 // digest-based anti-entropy.
+//
+// Snapshotting and hashing happen in a single lock window. An earlier
+// implementation released the shard lock after grabbing keys, sorted, and
+// re-locked for lookups — that races with concurrent Unregister/Overwrite,
+// because a delete between the two locks leaves sh.entries[key] == nil and
+// the next field access panics with a nil-pointer dereference. Triggered
+// reliably by the chaos workload's mixed put/delete stream once anti-entropy
+// (MergeRemoteState) starts pulling shards.
 func (s *State) ShardHash(i int) uint64 {
 	if i < 0 || i >= ShardCount {
 		return 0
 	}
 	sh := &s.shards[i]
+
+	type snap struct {
+		key     string
+		value   []byte
+		counter uint64
+		wall    int64
+		node    uint32
+		deleted bool
+	}
+
 	sh.mu.RLock()
-	keys := make([]string, 0, len(sh.entries))
-	for k := range sh.entries {
-		keys = append(keys, k)
+	snaps := make([]snap, 0, len(sh.entries))
+	for k, e := range sh.entries {
+		if e == nil {
+			continue
+		}
+		snaps = append(snaps, snap{
+			key:     k,
+			node:    e.Node,
+			counter: e.Counter,
+			wall:    e.Wall,
+			deleted: e.Deleted,
+			value:   e.Value,
+		})
 	}
 	sh.mu.RUnlock()
-	sort.Strings(keys)
+
+	sort.Slice(snaps, func(a, b int) bool { return snaps[a].key < snaps[b].key })
 
 	h := xxhash.New()
 	var meta [17]byte
-	sh.mu.RLock()
-	for _, key := range keys {
-		e := sh.entries[key]
-		_, _ = h.WriteString(key)
+	for _, sn := range snaps {
+		_, _ = h.WriteString(sn.key)
 		_, _ = h.Write([]byte{0})
 		s.cvMu.RLock()
 		var origin string
-		if int(e.Node) < len(s.stringIDs) {
-			origin = s.stringIDs[e.Node]
+		if int(sn.node) < len(s.stringIDs) {
+			origin = s.stringIDs[sn.node]
 		}
 		s.cvMu.RUnlock()
 		_, _ = h.WriteString(origin)
 		_, _ = h.Write([]byte{0})
-		putUint64(meta[0:8], e.Counter)
-		putUint64(meta[8:16], uint64(e.Wall))
-		if e.Deleted {
+		putUint64(meta[0:8], sn.counter)
+		putUint64(meta[8:16], uint64(sn.wall))
+		if sn.deleted {
 			meta[16] = 1
 		} else {
 			meta[16] = 0
 		}
 		_, _ = h.Write(meta[:])
 		// Include value bytes so two replicas with same dot but
-		// pre-merge divergent values still detect mismatch.
-		_, _ = h.Write(e.Value)
+		// pre-merge divergent values still detect mismatch. The value
+		// slice in the snap aliases the entry's slice; entry values are
+		// only ever replaced via Overwrite (never mutated in place), so
+		// reading the alias after the lock is safe.
+		_, _ = h.Write(sn.value)
 	}
-	sh.mu.RUnlock()
 	return h.Sum64()
 }
 
