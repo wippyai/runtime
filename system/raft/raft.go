@@ -768,6 +768,39 @@ func (it *instrumentedTransport) RequestVote(id hraft.ServerID, target hraft.Ser
 	return err
 }
 
+// RequestPreVote forwards pre-vote RPCs to the inner transport when it
+// supports them, so the wrapper does not silently downgrade pre-vote.
+//
+// Why this is explicit: instrumentedTransport embeds the hraft.Transport
+// INTERFACE, whose method set does not include RequestPreVote (the
+// hashicorp/raft team factored RequestPreVote into the WithPreVote
+// interface "as it wasn't in the original interface specification").
+// Without this method, the wrapper does NOT satisfy hraft.WithPreVote
+// — even though the concrete inner (*hraft.NetworkTransport) does.
+// The peerStateTracker layer above asserts the inner satisfies
+// WithPreVote on every pre-vote RPC; without this method that
+// assertion fails and every election emits an error, causing an
+// election storm. Observed in cluster as 22 restarts on the leader
+// pod after Bug 21 unmasked the symptom.
+func (it *instrumentedTransport) RequestPreVote(id hraft.ServerID, target hraft.ServerAddress,
+	args *hraft.RequestPreVoteRequest, resp *hraft.RequestPreVoteResponse) error {
+	start := time.Now()
+	withPV, ok := it.Transport.(hraft.WithPreVote)
+	if !ok {
+		// The TCP transport hashicorp/raft hands us implements
+		// WithPreVote, so this branch should not be reachable in
+		// production. Surface as an error rather than panic so a
+		// misconfiguration is visible in metrics rather than crashing
+		// the pod.
+		err := fmt.Errorf("raft-net: inner transport %T does not implement hraft.WithPreVote", it.Transport)
+		it.tel.recordRequestPreVote(string(id), err, time.Since(start))
+		return err
+	}
+	err := withPV.RequestPreVote(id, target, args, resp)
+	it.tel.recordRequestPreVote(string(id), err, time.Since(start))
+	return err
+}
+
 // InstallSnapshot wraps the snapshot transport so we record outgoing snapshot
 // pushes alongside FSM-side snapshot persistence.
 func (it *instrumentedTransport) InstallSnapshot(id hraft.ServerID, target hraft.ServerAddress,

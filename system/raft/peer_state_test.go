@@ -192,3 +192,26 @@ func TestPeerStateTracker_SatisfiesWithPreVote(t *testing.T) {
 	require.Equal(t, 1, inner.Calls(),
 		"RequestPreVote must forward to the inner transport")
 }
+
+// TestInstrumentedTransport_PreservesWithPreVote pins Bug 23: the
+// instrumentedTransport wrapper must implement RequestPreVote
+// explicitly, because it embeds the hraft.Transport interface (which
+// does NOT include RequestPreVote) — the embedded interface does not
+// promote methods of its concrete value, so without an explicit
+// method here the wrapper fails the WithPreVote assertion at
+// peerStateTracker.RequestPreVote and every pre-vote RPC errors,
+// causing an election storm under chaos.
+func TestInstrumentedTransport_PreservesWithPreVote(t *testing.T) {
+	inner := newAlwaysErrTransport(errors.New("transient"))
+	wrapped := &instrumentedTransport{Transport: inner, tel: &telemetry{}}
+	if _, ok := any(wrapped).(hraft.WithPreVote); !ok {
+		t.Fatalf("instrumentedTransport must satisfy hraft.WithPreVote — required for the peerStateTracker chain")
+	}
+
+	args := &hraft.RequestPreVoteRequest{Term: 1}
+	resp := &hraft.RequestPreVoteResponse{}
+	err := wrapped.RequestPreVote("peer-1", "10.0.0.1:7960", args, resp)
+	require.Error(t, err, "RequestPreVote must surface inner errors")
+	require.Equal(t, 1, inner.Calls(),
+		"RequestPreVote must forward to the inner transport")
+}

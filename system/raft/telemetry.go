@@ -170,6 +170,17 @@ func (t *telemetry) recordRequestVote(peer string, err error, dur time.Duration)
 		metrics.Labels{"peer": peer, "result": res})
 }
 
+func (t *telemetry) recordRequestPreVote(peer string, err error, dur time.Duration) {
+	if t == nil || t.coll == nil {
+		return
+	}
+
+	res := raftResultLabel(err)
+	t.coll.CounterInc("raft_request_pre_vote_total", metrics.Labels{"peer": peer, "result": res})
+	t.coll.HistogramObserve("raft_request_pre_vote_duration_seconds", dur.Seconds(),
+		metrics.Labels{"peer": peer, "result": res})
+}
+
 func (t *telemetry) recordInstallSnapshot(peer string, err error, dur time.Duration) {
 	if t == nil || t.coll == nil {
 		return
