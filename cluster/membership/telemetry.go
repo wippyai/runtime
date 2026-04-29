@@ -33,6 +33,12 @@ func newTelemetry(coll metrics.Collector, mp otelmetric.MeterProvider, tp trace.
 		coll.CounterAdd("gossip_probe_failures_total", 0, metrics.Labels{"target": "_init"})
 		coll.CounterAdd("gossip_suspicion_resolutions_total", 0, metrics.Labels{"outcome": "alive"})
 		coll.CounterAdd("gossip_suspicion_resolutions_total", 0, metrics.Labels{"outcome": "dead"})
+		// Bootstrap user-broadcast counters so dashboards/gates can detect
+		// silence (zero series) vs. genuinely-zero rate (visible series at 0).
+		// Without this, a stuck NotifyMsg path looks identical to "no metric
+		// configured."
+		coll.CounterAdd("gossip_message_total", 0, metrics.Labels{"kind": "user", "direction": "rx"})
+		coll.CounterAdd("gossip_message_total", 0, metrics.Labels{"kind": "user", "direction": "tx"})
 	}
 	return t
 }

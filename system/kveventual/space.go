@@ -141,9 +141,11 @@ func (s *space) Close() error {
 // --- gossip integration ---
 
 // drainBroadcasts is called by the Service.Delegate.GetBroadcasts to pull
-// pending deltas wrapped with the space name as a prefix.
-func (s *space) drainBroadcasts(headerOverhead int) [][]byte {
-	frames := s.queue.Drain(headerOverhead)
+// pending deltas wrapped with the space name as a prefix. `byteBudget`
+// caps total cost (frame + headerOverhead) emitted this cycle; the rest
+// stays in the queue for the next call.
+func (s *space) drainBroadcasts(headerOverhead, byteBudget int) [][]byte {
+	frames := s.queue.Drain(headerOverhead, byteBudget)
 	for _, f := range frames {
 		s.recordBytes("tx", "delta", len(f))
 	}

@@ -164,25 +164,39 @@ func (s *Service) Kind() byte { return DelegateKind }
 // is wrapped with the space name as prefix:
 //
 //	space_name_len:2 | space_name | crdt frame bytes
+//
+// `limit` is the total bytes (each emitted frame's len + overhead) the caller
+// can transmit this round. Spaces are drained in (random) Range order until
+// the budget is consumed; spaces not visited keep their entries pending.
 func (s *Service) GetBroadcasts(overhead, limit int) [][]byte {
 	if s.stopped.Load() {
 		return nil
 	}
-	// Per-frame budget: outer mux header (5 bytes) + space wrapper.
-	// We size each frame to fit the limit minus the wrapper + name length.
 	var out [][]byte
+	totalCost := 0
 	s.spaces.Range(func(_, v any) bool {
 		sp := v.(*space)
 		nameOverhead := 2 + len(sp.name) // space_name_len:2 | space_name
-		frames := sp.drainBroadcasts(overhead + nameOverhead)
+
+		// Cost of one emitted wrapped frame f = (nameOverhead + len(f)) + overhead.
+		// The space's queue accounts for header = overhead+nameOverhead, so
+		// asking with that header and the remaining budget yields frames whose
+		// total cost matches the caller's view exactly.
+		remaining := limit - totalCost
+		if remaining <= overhead+nameOverhead {
+			return true
+		}
+		frames := sp.drainBroadcasts(overhead+nameOverhead, remaining)
 		for _, f := range frames {
 			wrapped := make([]byte, 0, nameOverhead+len(f))
 			wrapped = binary.LittleEndian.AppendUint16(wrapped, uint16(len(sp.name)))
 			wrapped = append(wrapped, sp.name...)
 			wrapped = append(wrapped, f...)
-			if len(wrapped) > limit-overhead {
+			cost := len(wrapped) + overhead
+			if totalCost+cost > limit {
 				continue
 			}
+			totalCost += cost
 			out = append(out, wrapped)
 		}
 		return true

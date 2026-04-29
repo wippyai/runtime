@@ -30,9 +30,11 @@ func NewDelegate(svc *Service, logger *zap.Logger) *Delegate {
 // Kind returns the multiplex byte for eventualreg frames.
 func (d *Delegate) Kind() byte { return DelegateKind }
 
-// GetBroadcasts pulls outgoing delta frames.
-func (d *Delegate) GetBroadcasts(overhead, _ int) [][]byte {
-	return d.svc.DrainBroadcasts(overhead)
+// GetBroadcasts pulls outgoing delta frames. `limit` caps total bytes
+// (frame body + overhead) we can emit this gossip cycle; remainder stays
+// queued for next cycle.
+func (d *Delegate) GetBroadcasts(overhead, limit int) [][]byte {
+	return d.svc.DrainBroadcasts(overhead, limit)
 }
 
 // NotifyMsg handles one incoming UDP delta frame.

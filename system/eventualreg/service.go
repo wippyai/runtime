@@ -207,9 +207,11 @@ func (s *Service) Lookup(name string) (pid.PID, bool) {
 // --- Transport hooks (called by delegate.go) ---
 
 // DrainBroadcasts returns batched delta frames ready to send via UDP user
-// broadcast. `headerOverhead` is the per-frame budget reserved by memberlist.
-func (s *Service) DrainBroadcasts(headerOverhead int) [][]byte {
-	frames := s.queue.Drain(headerOverhead)
+// broadcast. `headerOverhead` is the per-frame budget reserved by memberlist;
+// `byteBudget` is the total cost (len(frame)+headerOverhead summed) the caller
+// can transmit this round.
+func (s *Service) DrainBroadcasts(headerOverhead, byteBudget int) [][]byte {
+	frames := s.queue.Drain(headerOverhead, byteBudget)
 	for _, f := range frames {
 		s.tel.recordDeltaBytes("tx", "delta", len(f))
 	}

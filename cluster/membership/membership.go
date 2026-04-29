@@ -678,22 +678,43 @@ func (d *delegate) GetBroadcasts(overhead, limit int) [][]byte {
 	}
 	d.service.userDelegateMu.RUnlock()
 
+	if d.service.tel != nil && d.service.tel.coll != nil {
+		d.service.tel.coll.CounterInc("gossip_user_getbroadcasts_calls_total", nil)
+	}
+
 	var out [][]byte
+	totalBytes := 0
+	totalCost := 0
+	// Each wrapped frame costs (len(payload)+5) + overhead in memberlist's
+	// per-cycle budget. Encode that overhead into the inner delegate's
+	// `overhead` parameter so its budget accounting matches ours; pass the
+	// full `limit` through (NOT limit-5: the 5 is part of muxOverhead).
+	// Inner delegates contract: emit frames whose total cost fits the
+	// remaining budget; un-drained entries stay queued for next cycle.
 	for _, ud := range dels {
-		// Reserve 5 bytes of mux header per frame.
 		muxOverhead := overhead + 5
-		muxLimit := limit
-		if limit > 5 {
-			muxLimit = limit - 5
+		remaining := limit - totalCost
+		if remaining <= muxOverhead {
+			break
 		}
-		frames := ud.GetBroadcasts(muxOverhead, muxLimit)
+		frames := ud.GetBroadcasts(muxOverhead, remaining)
 		for _, f := range frames {
 			wrapped := make([]byte, 0, len(f)+5)
 			wrapped = append(wrapped, ud.Kind())
 			n := uint32(len(f))
 			wrapped = append(wrapped, byte(n), byte(n>>8), byte(n>>16), byte(n>>24))
 			wrapped = append(wrapped, f...)
+			cost := len(wrapped) + overhead
+			totalCost += cost
+			totalBytes += len(wrapped)
 			out = append(out, wrapped)
+		}
+	}
+	if d.service.tel != nil && d.service.tel.coll != nil && len(out) > 0 {
+		d.service.tel.coll.CounterAdd("gossip_user_getbroadcasts_frames_total", float64(len(out)), nil)
+		d.service.tel.coll.CounterAdd("gossip_user_getbroadcasts_bytes_total", float64(totalBytes), nil)
+		if totalCost > limit {
+			d.service.tel.coll.CounterInc("gossip_user_getbroadcasts_overshoot_total", nil)
 		}
 	}
 	return out

@@ -150,42 +150,88 @@ func (q *BroadcastQueue) Push(e Entry) bool {
 }
 
 // Drain pulls pending deltas, packs them into frames of MaxFrameBytes-headerOverhead.
-func (q *BroadcastQueue) Drain(headerOverhead int) [][]byte {
+// `byteBudget` is the total bytes (each frame's len + headerOverhead) the caller
+// can transmit this round; entries that don't fit stay in the queue for the next
+// drain. byteBudget <= 0 falls back to a single MaxFrameBytes-sized frame.
+func (q *BroadcastQueue) Drain(headerOverhead, byteBudget int) [][]byte {
 	q.mu.Lock()
+	defer q.mu.Unlock()
 	if len(q.pending) == 0 {
-		q.mu.Unlock()
 		return nil
 	}
-	pending := q.pending
-	q.pending = nil
-	q.mu.Unlock()
 
-	limit := MaxFrameBytes - headerOverhead
-	if limit < 64 {
-		limit = 64
+	perFrameLimit := MaxFrameBytes - headerOverhead
+	if perFrameLimit < 64 {
+		perFrameLimit = 64
 	}
+	if byteBudget <= 0 {
+		byteBudget = MaxFrameBytes
+	}
+
 	var frames [][]byte
-	frame := make([]byte, 0, limit)
-	for i := range pending {
+	frame := make([]byte, 0, perFrameLimit)
+	bytesEmitted := 0
+	var commitIdx []int
+	var pendingIdx []int
+	var skipIdx []int
+
+	flushFrame := func() bool {
+		if len(frame) == 0 {
+			return true
+		}
+		cost := len(frame) + headerOverhead
+		if bytesEmitted+cost > byteBudget {
+			return false
+		}
+		frames = append(frames, frame)
+		bytesEmitted += cost
+		commitIdx = append(commitIdx, pendingIdx...)
+		pendingIdx = pendingIdx[:0]
+		frame = make([]byte, 0, perFrameLimit)
+		return true
+	}
+
+	for i := range q.pending {
 		var scratch []byte
-		buf, err := EncodeDelta(scratch, &pending[i], q.originNodeStr)
+		buf, err := EncodeDelta(scratch, &q.pending[i], q.originNodeStr)
 		if err != nil {
+			skipIdx = append(skipIdx, i)
 			continue
 		}
-		if len(buf) > limit {
+		if len(buf) > perFrameLimit {
 			// Single delta larger than frame budget — drop it; bulk
 			// transfer (digest) will pick it up next anti-entropy round.
+			skipIdx = append(skipIdx, i)
 			continue
 		}
-		if len(frame)+len(buf) > limit {
-			frames = append(frames, frame)
-			frame = make([]byte, 0, limit)
+		if len(frame)+len(buf) > perFrameLimit {
+			if !flushFrame() {
+				break
+			}
 		}
 		frame = append(frame, buf...)
+		pendingIdx = append(pendingIdx, i)
 	}
-	if len(frame) > 0 {
-		frames = append(frames, frame)
+	flushFrame()
+
+	if len(commitIdx) == 0 && len(skipIdx) == 0 {
+		return frames
 	}
+	remove := make(map[int]struct{}, len(commitIdx)+len(skipIdx))
+	for _, i := range commitIdx {
+		remove[i] = struct{}{}
+	}
+	for _, i := range skipIdx {
+		remove[i] = struct{}{}
+	}
+	keep := q.pending[:0]
+	for i, e := range q.pending {
+		if _, drop := remove[i]; drop {
+			continue
+		}
+		keep = append(keep, e)
+	}
+	q.pending = keep
 	return frames
 }
 
