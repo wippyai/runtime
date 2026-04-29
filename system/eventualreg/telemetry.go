@@ -81,7 +81,12 @@ func (t *telemetry) recordAntiEntropy(result string, durationMs float64, shardsS
 	}
 	labels := metrics.Labels{"node": t.node, "result": result}
 	t.coll.CounterInc("eventualreg_antientropy_round_total", labels)
-	t.coll.HistogramObserve("eventualreg_antientropy_duration_ms", durationMs, metrics.Labels{"node": t.node, "result": result})
+	// Prometheus convention is _seconds; observing ms into the default
+	// _seconds buckets (0.005..10) puts every real observation (~10-200ms)
+	// in +Inf, making the histogram useless. Convert here and rename so
+	// the bucket boundaries are commensurate with the observed values.
+	t.coll.HistogramObserve("eventualreg_antientropy_duration_seconds", durationMs/1000.0,
+		metrics.Labels{"node": t.node, "result": result})
 	if shardsSynced > 0 {
 		t.coll.HistogramObserve("eventualreg_antientropy_shards_synced", float64(shardsSynced), metrics.Labels{"node": t.node})
 	}
