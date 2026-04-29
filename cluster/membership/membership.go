@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -674,6 +675,13 @@ func (d *delegate) GetBroadcasts(overhead, limit int) [][]byte {
 	}
 	d.service.userDelegateMu.RUnlock()
 
+	// Sort by Kind for deterministic iteration. Without this, Go's
+	// randomized map iteration combined with one delegate consuming the
+	// entire budget produces unfair starvation patterns that depend on
+	// hash bucket layout (kveventual got 0 bytes/s while eventualreg
+	// hogged the cycle).
+	sort.Slice(dels, func(i, j int) bool { return dels[i].Kind() < dels[j].Kind() })
+
 	if d.service.tel != nil && d.service.tel.coll != nil {
 		d.service.tel.coll.CounterInc("gossip_user_getbroadcasts_calls_total", nil)
 	}
@@ -681,31 +689,48 @@ func (d *delegate) GetBroadcasts(overhead, limit int) [][]byte {
 	var out [][]byte
 	totalBytes := 0
 	totalCost := 0
-	// Each wrapped frame costs (len(payload)+5) + overhead in memberlist's
-	// per-cycle budget. Encode that overhead into the inner delegate's
-	// `overhead` parameter so its budget accounting matches ours; pass the
-	// full `limit` through (NOT limit-5: the 5 is part of muxOverhead).
-	// Inner delegates contract: emit frames whose total cost fits the
-	// remaining budget; un-drained entries stay queued for next cycle.
-	for _, ud := range dels {
-		muxOverhead := overhead + 5
-		remaining := limit - totalCost
-		if remaining <= muxOverhead {
-			break
-		}
-		frames := ud.GetBroadcasts(muxOverhead, remaining)
+	muxOverhead := overhead + 5
+
+	wrap := func(ud UserDelegate, frames [][]byte) {
 		for _, f := range frames {
 			wrapped := make([]byte, 0, len(f)+5)
 			wrapped = append(wrapped, ud.Kind())
 			n := uint32(len(f))
 			wrapped = append(wrapped, byte(n), byte(n>>8), byte(n>>16), byte(n>>24))
 			wrapped = append(wrapped, f...)
-			cost := len(wrapped) + overhead
-			totalCost += cost
+			totalCost += len(wrapped) + overhead
 			totalBytes += len(wrapped)
 			out = append(out, wrapped)
 		}
 	}
+
+	// Pass 1: fair share. Each delegate gets limit/N — guarantees that no
+	// single delegate (e.g. eventualreg with a perpetually-full 4096-entry
+	// queue) can starve the others. Inner delegates re-queue undrained
+	// entries, so unused budget is not data loss.
+	if n := len(dels); n > 0 {
+		share := limit / n
+		if share > muxOverhead {
+			for _, ud := range dels {
+				frames := ud.GetBroadcasts(muxOverhead, share)
+				wrap(ud, frames)
+			}
+		}
+	}
+
+	// Pass 2: hand the remaining budget (unused share from idle delegates)
+	// to whoever still has pending entries. Same iteration order; the inner
+	// budget contract bounds emission to what fits the remainder. This
+	// recovers throughput when one delegate is silent.
+	for _, ud := range dels {
+		remaining := limit - totalCost
+		if remaining <= muxOverhead {
+			break
+		}
+		frames := ud.GetBroadcasts(muxOverhead, remaining)
+		wrap(ud, frames)
+	}
+
 	if d.service.tel != nil && d.service.tel.coll != nil && len(out) > 0 {
 		d.service.tel.coll.CounterAdd("gossip_user_getbroadcasts_frames_total", float64(len(out)), nil)
 		d.service.tel.coll.CounterAdd("gossip_user_getbroadcasts_bytes_total", float64(totalBytes), nil)
