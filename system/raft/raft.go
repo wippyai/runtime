@@ -522,6 +522,33 @@ func (n *Node) LastContact() time.Time {
 	return n.raft.LastContact()
 }
 
+// IsVoter reports whether the local node currently appears as a voter
+// in the cluster configuration. Returns false when the configuration
+// can't be read (e.g. before Start, or under transport failures); the
+// caller is expected to treat that as "not a voter" for purposes that
+// depend on quorum participation.
+//
+// Used by the runtime liveness probe to apply a stricter staleness
+// ceiling to voters (whose heartbeat lag matters for quorum) than to
+// non-voters (replication-only learners that lag is naturally larger
+// for at scale, since the leader fans heartbeats out to every follower
+// each tick — at 60+ followers this fan-out alone bounds the rate).
+func (n *Node) IsVoter() bool {
+	if n.raft == nil {
+		return false
+	}
+	f := n.raft.GetConfiguration()
+	if err := f.Error(); err != nil {
+		return false
+	}
+	for _, s := range f.Configuration().Servers {
+		if string(s.ID) == n.localID {
+			return s.Suffrage == hraft.Voter
+		}
+	}
+	return false
+}
+
 // Barrier issues a barrier to flush pending log entries.
 func (n *Node) Barrier(timeout time.Duration) error {
 	if n.raft == nil {

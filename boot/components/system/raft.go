@@ -28,9 +28,24 @@ import (
 
 // raftLivenessLastContactCeiling is the maximum time since last leader
 // contact at which the activity-based liveness check still reports
-// healthy for a follower. Calibrated to be a few times the heartbeat
-// timeout so we don't flap during a normal election.
+// healthy for a VOTER follower. Calibrated to be a few times the
+// heartbeat timeout so we don't flap during a normal election.
 const raftLivenessLastContactCeiling = 30 * time.Second
+
+// raftLivenessNonVoterCeiling is the equivalent ceiling for non-voter
+// (learner) followers. At scale the leader fans heartbeats out to
+// every server each tick — at 60+ replicas this fan-out alone bounds
+// the per-follower heartbeat rate, and a non-voter's last_contact
+// naturally lags well past the 30s voter ceiling under chaos.
+//
+// A non-voter that loses contact does not affect quorum. The cost of
+// being wrong here is bounded: the worst case is a partitioned learner
+// stays up serving stale snapshots — which is exactly the role of a
+// non-voter — versus the previous behavior where kubelet would cycle
+// every non-voter under chaos load and cascade the cluster. Detection
+// of permanent isolation falls to the gossip-side health check
+// (cluster.gossip), which has its own staleness window.
+const raftLivenessNonVoterCeiling = 5 * time.Minute
 
 // Context keys for raft and global registry components.
 var (
@@ -206,9 +221,15 @@ func Raft() boot.Component {
 			}()
 
 			// Liveness check: a follower that has not heard from the leader
-			// in `raftLivenessLastContactCeiling` is on the wrong side of a
-			// partition. Leaders return time.Time{} from LastContact, which
-			// we accept as healthy (the leader IS the contact).
+			// in the per-role ceiling is on the wrong side of a partition.
+			// Leaders return time.Time{} from LastContact, which we accept
+			// as healthy (the leader IS the contact).
+			//
+			// Voter and non-voter followers use different ceilings: voters
+			// gate quorum and must be timely (30s); non-voters are
+			// replication-only and at 60+ replica scale the leader's
+			// heartbeat fan-out alone makes a tighter window unachievable.
+			// See the constants for the rationale.
 			health.Register("raft.last_contact", func() error {
 				switch raftNode.State() {
 				case raftapi.Leader:
@@ -223,9 +244,15 @@ func Raft() boot.Component {
 					// initialDelay window; after that the ceiling kicks in.
 					return nil
 				}
-				if since := time.Since(last); since > raftLivenessLastContactCeiling {
-					return fmt.Errorf("no leader contact in %s (ceiling %s)",
-						since.Round(time.Second), raftLivenessLastContactCeiling)
+				ceiling := raftLivenessLastContactCeiling
+				role := "voter"
+				if !raftNode.IsVoter() {
+					ceiling = raftLivenessNonVoterCeiling
+					role = "non-voter"
+				}
+				if since := time.Since(last); since > ceiling {
+					return fmt.Errorf("no leader contact in %s (%s ceiling %s)",
+						since.Round(time.Second), role, ceiling)
 				}
 				return nil
 			})
