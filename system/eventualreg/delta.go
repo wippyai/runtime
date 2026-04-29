@@ -143,10 +143,16 @@ func (q *BroadcastQueue) Push(e *Entry) bool {
 	return true
 }
 
-// Drain pulls deltas, packs them into frames of ≤ MaxFrameBytes - headerOverhead,
-// and returns frames whose total cost (len(frame) + headerOverhead) fits within
-// `byteBudget`. Entries that don't fit stay in the queue for the next drain.
+// Drain pulls deltas, packs them into frames sized to the smaller of
+// `MaxFrameBytes - headerOverhead` and the remaining `byteBudget` (minus the
+// per-frame header). Entries that don't fit stay queued for the next drain.
 // byteBudget <= 0 falls back to a single MaxFrameBytes-sized frame.
+//
+// See system/crdt/delta.go for the full reasoning behind activeFrameCap. In
+// short: when the outer multiplex hands a per-delegate share well below
+// MaxFrameBytes, flushing only at perFrameLimit means we'd accumulate ~1385
+// bytes and then fail the budget check on flush — emitting nothing while
+// the queue silently grows.
 func (q *BroadcastQueue) Drain(headerOverhead, byteBudget int) [][]byte {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -169,6 +175,17 @@ func (q *BroadcastQueue) Drain(headerOverhead, byteBudget int) [][]byte {
 	var pendingIdx []int
 	var skipIdx []int
 
+	activeFrameCap := func() int {
+		remaining := byteBudget - bytesEmitted - headerOverhead
+		if remaining <= 0 {
+			return 0
+		}
+		if remaining > perFrameLimit {
+			return perFrameLimit
+		}
+		return remaining
+	}
+
 	flushFrame := func() bool {
 		if len(frame) == 0 {
 			return true
@@ -186,6 +203,11 @@ func (q *BroadcastQueue) Drain(headerOverhead, byteBudget int) [][]byte {
 	}
 
 	for i, e := range q.pending {
+		cap := activeFrameCap()
+		if cap <= 0 {
+			break
+		}
+
 		var scratch []byte
 		buf, err := EncodeDelta(scratch, e, q.originNodeStr)
 		if err != nil {
@@ -196,8 +218,12 @@ func (q *BroadcastQueue) Drain(headerOverhead, byteBudget int) [][]byte {
 			skipIdx = append(skipIdx, i)
 			continue
 		}
-		if len(frame)+len(buf) > perFrameLimit {
+		if len(frame)+len(buf) > cap {
 			if !flushFrame() {
+				break
+			}
+			cap = activeFrameCap()
+			if cap <= 0 || len(buf) > cap {
 				break
 			}
 		}

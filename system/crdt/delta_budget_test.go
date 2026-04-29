@@ -74,6 +74,42 @@ func TestBroadcastQueue_DrainHonorsBudget(t *testing.T) {
 	}
 }
 
+// TestBroadcastQueue_DrainSmallBudget covers the Bug 8 regression: when
+// byteBudget is well below MaxFrameBytes (e.g. the outer multiplex is
+// splitting limit/N across delegates), Drain MUST still emit at least one
+// short frame, not accumulate up to MaxFrameBytes worth of entries and then
+// fail the budget check at flush time. Before this fix, Drain returned 0
+// frames in this scenario and the queue grew without bound.
+func TestBroadcastQueue_DrainSmallBudget(t *testing.T) {
+	st := NewState("node-a")
+	q := NewBroadcastQueue("node-a", 4096)
+
+	const N = 50
+	for i := 0; i < N; i++ {
+		key := fmt.Sprintf("k-%04d", i)
+		val := []byte(fmt.Sprintf("payload-%04d-fixed-fixed-fixed", i))
+		q.Push(st.Overwrite(key, val, int64(i)))
+	}
+
+	// 699 ≈ what the outer fairness pass hands each delegate when limit is
+	// 1398 and there are 2 delegates. Header overhead matches kveventual's
+	// per-frame mux+name overhead (8+7).
+	frames := q.Drain(15, 699)
+	if len(frames) == 0 {
+		t.Fatalf("Drain returned 0 frames at byteBudget=699 — small-budget livelock")
+	}
+	totalCost := 0
+	for _, f := range frames {
+		totalCost += len(f) + 15
+	}
+	if totalCost > 699 {
+		t.Fatalf("Drain overshot small budget: totalCost=%d budget=699", totalCost)
+	}
+	if q.Depth() == N {
+		t.Fatalf("Drain made no forward progress: depth still %d", q.Depth())
+	}
+}
+
 // TestBroadcastQueue_DrainEmptyBudget ensures an absurdly tight budget
 // (smaller than headerOverhead) returns nothing and keeps everything queued.
 func TestBroadcastQueue_DrainEmptyBudget(t *testing.T) {

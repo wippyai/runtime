@@ -149,10 +149,18 @@ func (q *BroadcastQueue) Push(e Entry) bool {
 	return true
 }
 
-// Drain pulls pending deltas, packs them into frames of MaxFrameBytes-headerOverhead.
-// `byteBudget` is the total bytes (each frame's len + headerOverhead) the caller
-// can transmit this round; entries that don't fit stay in the queue for the next
-// drain. byteBudget <= 0 falls back to a single MaxFrameBytes-sized frame.
+// Drain pulls pending deltas, packs them into frames sized to the smaller of
+// `MaxFrameBytes - headerOverhead` and the remaining `byteBudget` (minus the
+// per-frame header). Entries that don't fit stay queued for the next drain.
+// byteBudget <= 0 falls back to a single MaxFrameBytes-sized frame.
+//
+// The "smaller of" matters: when the multiplex hands a per-delegate share that
+// is well below MaxFrameBytes (e.g. 699 bytes when budget is split fairly
+// across two delegates), the previous flush threshold of perFrameLimit alone
+// meant we'd accumulate ~1385 bytes worth of entries and only THEN try to
+// flush — which would always fail the budget check and the entire batch
+// would be discarded as "doesn't fit." Result: that delegate never made
+// progress.
 func (q *BroadcastQueue) Drain(headerOverhead, byteBudget int) [][]byte {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -175,6 +183,19 @@ func (q *BroadcastQueue) Drain(headerOverhead, byteBudget int) [][]byte {
 	var pendingIdx []int
 	var skipIdx []int
 
+	// activeFrameCap is the largest payload the next frame may hold so that
+	// flushing it stays within byteBudget. It shrinks as bytesEmitted grows.
+	activeFrameCap := func() int {
+		remaining := byteBudget - bytesEmitted - headerOverhead
+		if remaining <= 0 {
+			return 0
+		}
+		if remaining > perFrameLimit {
+			return perFrameLimit
+		}
+		return remaining
+	}
+
 	flushFrame := func() bool {
 		if len(frame) == 0 {
 			return true
@@ -192,6 +213,11 @@ func (q *BroadcastQueue) Drain(headerOverhead, byteBudget int) [][]byte {
 	}
 
 	for i := range q.pending {
+		cap := activeFrameCap()
+		if cap <= 0 {
+			break
+		}
+
 		var scratch []byte
 		buf, err := EncodeDelta(scratch, &q.pending[i], q.originNodeStr)
 		if err != nil {
@@ -204,8 +230,13 @@ func (q *BroadcastQueue) Drain(headerOverhead, byteBudget int) [][]byte {
 			skipIdx = append(skipIdx, i)
 			continue
 		}
-		if len(frame)+len(buf) > perFrameLimit {
+		if len(frame)+len(buf) > cap {
 			if !flushFrame() {
+				break
+			}
+			cap = activeFrameCap()
+			if cap <= 0 || len(buf) > cap {
+				// Entry doesn't fit in remaining budget; leave it queued.
 				break
 			}
 		}
