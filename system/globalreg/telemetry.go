@@ -22,7 +22,11 @@ type telemetry struct {
 // newTelemetry constructs a telemetry recorder. The tracer/meter providers
 // are accepted to match the per-package constructor pattern but are not
 // currently used — the globalreg subsystem only emits metrics.
-func newTelemetry(coll metrics.Collector, _ otelmetric.MeterProvider, _ trace.TracerProvider) *telemetry {
+//
+// `localNode` is the node label used to bootstrap the cross-subsystem
+// reregistration counter so the validate-chaos-impact.sh hard gate sees
+// the series at zero instead of "MISSING".
+func newTelemetry(coll metrics.Collector, _ otelmetric.MeterProvider, _ trace.TracerProvider, localNode string) *telemetry {
 	t := &telemetry{coll: coll}
 	if coll != nil {
 		// Bootstrap rare event-driven series so dashboards have visible
@@ -30,6 +34,8 @@ func newTelemetry(coll metrics.Collector, _ otelmetric.MeterProvider, _ trace.Tr
 		// committed or a registration deduped.
 		coll.GaugeSet("pg_fence_token", 0, metrics.Labels{"pg": "_init", "node": "_init"})
 		coll.CounterAdd("pg_globalreg_dedupe_total", 0, nil)
+		coll.CounterAdd("runtime_name_reregistrations_total", 0,
+			metrics.Labels{"node": localNode, "scope": "global"})
 	}
 	return t
 }

@@ -84,7 +84,7 @@ func NewService(
 	mp otelmetric.MeterProvider,
 	tp trace.TracerProvider,
 ) *Service {
-	tel := newTelemetry(coll, mp, tp)
+	tel := newTelemetry(coll, mp, tp, localNode)
 	if fsm != nil {
 		fsm.SetTelemetry(tel)
 	}

@@ -28,6 +28,13 @@ func newTelemetry(coll metrics.Collector, node string) *telemetry {
 		coll.GaugeSet("eventualreg_entries", 0, copyAdd(base, "state", "live"))
 		coll.GaugeSet("eventualreg_entries", 0, copyAdd(base, "state", "tombstone"))
 		coll.GaugeSet("eventualreg_broadcast_queue_depth", 0, base)
+		// Bootstrap the cross-subsystem reregistration counter so the
+		// validate-chaos-impact.sh hard gate sees the series at zero
+		// instead of "MISSING (no series — feature not deployed yet)".
+		// Without this, the gate is silently dormant whenever no
+		// reregistration has fired yet, defeating the safety net.
+		coll.CounterAdd("runtime_name_reregistrations_total", 0,
+			metrics.Labels{"node": node, "scope": "eventual"})
 	}
 	return t
 }

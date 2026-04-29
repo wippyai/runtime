@@ -27,6 +27,12 @@ func newTelemetry(coll metrics.Collector, node string) *telemetry {
 			metrics.Labels{"node": node, "space": "_init", "state": "live"})
 		coll.GaugeSet("kveventual_entries", 0,
 			metrics.Labels{"node": node, "space": "_init", "state": "tombstone"})
+		// Bootstrap the watch-overflow counter so the validate-chaos-impact.sh
+		// hard gate sees the series at zero instead of "MISSING (kv subsystem
+		// disabled)" — the gate is otherwise silently dormant whenever no
+		// watcher has overflowed yet.
+		coll.CounterAdd("kv_watch_dropped_total", 0,
+			metrics.Labels{"space": "_init", "mode": "eventual"})
 	}
 	return t
 }

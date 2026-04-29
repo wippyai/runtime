@@ -267,7 +267,7 @@ func TestCommand_EncodeDecode(t *testing.T) {
 func TestFSM_Telemetry_EmitsFenceTokenAndSize(t *testing.T) {
 	rec := telemetrytest.NewRecorder()
 	fsm := NewFSM()
-	fsm.SetTelemetry(newTelemetry(rec, nil, nil))
+	fsm.SetTelemetry(newTelemetry(rec, nil, nil, "_test"))
 
 	// Initial size sample fires on SetTelemetry.
 	if v := rec.GaugeValue("pg_globalreg_size", nil); v != 0 {
@@ -290,7 +290,7 @@ func TestFSM_Telemetry_EmitsFenceTokenAndSize(t *testing.T) {
 func TestFSM_Telemetry_EmitsDedupe(t *testing.T) {
 	rec := telemetrytest.NewRecorder()
 	fsm := NewFSM()
-	fsm.SetTelemetry(newTelemetry(rec, nil, nil))
+	fsm.SetTelemetry(newTelemetry(rec, nil, nil, "_test"))
 
 	p := makePID("node1", "host1", "pid1")
 	cmd, err := EncodeCommand(&Command{Type: CmdRegister, Name: "svc", PID: p, NodeID: "node1"})
@@ -307,7 +307,7 @@ func TestFSM_Telemetry_EmitsDedupe(t *testing.T) {
 func TestFSM_Telemetry_SizeShrinksOnUnregister(t *testing.T) {
 	rec := telemetrytest.NewRecorder()
 	fsm := NewFSM()
-	fsm.SetTelemetry(newTelemetry(rec, nil, nil))
+	fsm.SetTelemetry(newTelemetry(rec, nil, nil, "_test"))
 
 	p := makePID("node1", "host1", "pid1")
 	regData, err := EncodeCommand(&Command{Type: CmdRegister, Name: "svc", PID: p, NodeID: "node1"})

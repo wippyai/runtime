@@ -12,7 +12,7 @@ import (
 func newTestTelemetry(t *testing.T) (*telemetry, *telemetrytest.Recorder) {
 	t.Helper()
 	rec := telemetrytest.NewRecorder()
-	tt := newTelemetry(rec, nil, nil)
+	tt := newTelemetry(rec, nil, nil, "_test")
 	if tt == nil {
 		t.Fatalf("newTelemetry returned nil")
 	}
@@ -21,7 +21,7 @@ func newTestTelemetry(t *testing.T) (*telemetry, *telemetrytest.Recorder) {
 }
 
 func TestTelemetry_NilCollector_NoPanic(t *testing.T) {
-	tt := newTelemetry(nil, nil, nil)
+	tt := newTelemetry(nil, nil, nil, "_test")
 	tt.recordFenceToken("g1", "node-a", 1)
 	tt.recordFenceRejection("g1", "stale_token")
 	tt.recordGlobalregSize(0)
