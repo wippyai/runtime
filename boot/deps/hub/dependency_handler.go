@@ -139,6 +139,9 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 	if entry.Kind != regapi.NamespaceDependency {
 		return regapi.DirectiveResult{}, nil
 	}
+	if !isRootDependency(entry) {
+		return regapi.DirectiveResult{}, nil
+	}
 
 	transcoder := payload.GetTranscoder(ctx)
 	if transcoder == nil {
@@ -160,7 +163,7 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 	var resolved []ResolvedModule
 	if len(desiredRoots) > 0 {
 		var err error
-		resolved, err = h.resolveModules(ctx, desiredRoots)
+		resolved, err = h.resolveModules(ctx, desiredRoots, snapshotModuleVersions(snapshot))
 		if err != nil {
 			return regapi.DirectiveResult{}, err
 		}
@@ -217,14 +220,19 @@ func (h *DependencyHandler) collectDesiredDependencies(
 	transcoder payload.Transcoder,
 ) ([]desiredDependency, error) {
 	deps := make(map[regapi.ID]desiredDependency)
+	lockedVersions := snapshotModuleVersions(snapshot)
+	operationID := op.Entry.ID
 
 	for _, entry := range snapshot {
-		if entry.Kind != regapi.NamespaceDependency {
+		if !isRootDependency(entry) {
 			continue
 		}
 		def, err := decodeDependency(ctx, transcoder, entry)
 		if err != nil {
 			return nil, err
+		}
+		if entry.ID != operationID {
+			def = pinExistingDependencyVersion(def, lockedVersions)
 		}
 		deps[entry.ID] = desiredDependency{
 			entry:      entry,
@@ -239,6 +247,9 @@ func (h *DependencyHandler) collectDesiredDependencies(
 		entry, ok := resolveOperationEntry(op, snapshot)
 		if !ok {
 			return nil, NewDependencyEntryMissingError(op.Entry.ID.String())
+		}
+		if !isRootDependency(entry) {
+			break
 		}
 		def, err := decodeDependency(ctx, transcoder, entry)
 		if err != nil {
@@ -258,6 +269,45 @@ func (h *DependencyHandler) collectDesiredDependencies(
 		result = append(result, dep)
 	}
 	return result, nil
+}
+
+func snapshotModuleVersions(snapshot regapi.State) map[string]string {
+	versions := make(map[string]string)
+	ambiguous := make(map[string]struct{})
+	for _, entry := range snapshot {
+		module := entryModule(entry)
+		if module == "" || entry.Meta == nil {
+			continue
+		}
+		raw, ok := entry.Meta[metaModuleVersionKey]
+		if !ok {
+			continue
+		}
+		version, ok := raw.(string)
+		if !ok || version == "" {
+			continue
+		}
+		if _, bad := ambiguous[module]; bad {
+			continue
+		}
+		if existing, seen := versions[module]; seen && existing != version {
+			delete(versions, module)
+			ambiguous[module] = struct{}{}
+			continue
+		}
+		versions[module] = version
+	}
+	return versions
+}
+
+func pinExistingDependencyVersion(def DependencyDefinition, moduleVersions map[string]string) DependencyDefinition {
+	if def.Component == "" {
+		return def
+	}
+	if version := moduleVersions[def.Component]; version != "" {
+		def.Version = version
+	}
+	return def
 }
 
 func mergeLinkDependencies(explicitDeps, moduleEntries []regapi.Entry) []regapi.Entry {
@@ -285,7 +335,7 @@ func mergeLinkDependencies(explicitDeps, moduleEntries []regapi.Entry) []regapi.
 	return merged
 }
 
-func (h *DependencyHandler) resolveModules(ctx context.Context, deps []DependencyDefinition) ([]ResolvedModule, error) {
+func (h *DependencyHandler) resolveModules(ctx context.Context, deps []DependencyDefinition, lockedVersions map[string]string) ([]ResolvedModule, error) {
 	roots := make([]DependencySpec, 0, len(deps))
 	for _, dep := range deps {
 		name, err := graph.ParseName(dep.Component)
@@ -302,7 +352,9 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 	resolveCtx, cancel := withOptionalTimeout(ctx, h.resolveTimeout)
 	defer cancel()
 
-	result, err := Resolve(resolveCtx, h.hub, roots, nil)
+	result, err := Resolve(resolveCtx, h.hub, roots, &ResolveOptions{
+		LockedVersions: lockedVersions,
+	})
 	if err != nil {
 		return nil, NewDependencyResolutionError(err)
 	}
@@ -408,7 +460,7 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 	return wappPath, nil
 }
 
-func verifyDownloadedArtifact(path, expectedDigest string, expectedSize uint64) error {
+func VerifyDownloadedArtifact(path, expectedDigest string, expectedSize uint64) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return err
@@ -436,6 +488,10 @@ func verifyDownloadedArtifact(path, expectedDigest string, expectedSize uint64) 
 		return fmt.Errorf("digest mismatch: expected %s, got sha256:%s", expectedDigest, gotDigest)
 	}
 	return nil
+}
+
+func verifyDownloadedArtifact(path, expectedDigest string, expectedSize uint64) error {
+	return VerifyDownloadedArtifact(path, expectedDigest, expectedSize)
 }
 
 func parseExpectedDigest(raw string) (algorithm string, value string, err error) {
@@ -647,6 +703,10 @@ func entryModule(entry regapi.Entry) string {
 		}
 	}
 	return ""
+}
+
+func isRootDependency(entry regapi.Entry) bool {
+	return entry.Kind == regapi.NamespaceDependency && entryModule(entry) == ""
 }
 
 func markModuleMeta(entry regapi.Entry, moduleName, moduleVersion string) regapi.Entry {
