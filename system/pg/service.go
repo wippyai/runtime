@@ -48,10 +48,20 @@ type serviceCtx struct {
 
 // livenessActivityCeiling is the maximum time since the last PG broadcast
 // (TX or RX) at which the activity-based liveness check still reports
-// healthy. Larger than the chaos_workload.lua broadcast cadence (1/500ms)
-// times a chaos slack factor — a fully partitioned-out pod will exceed
-// this within ~30s of isolation.
-const livenessActivityCeiling = 30 * time.Second
+// healthy.
+//
+// Sized for a sustained-chaos environment where network-partition runs
+// continuously and a given pod can be cut off from a randomly-rotating
+// 50% subset of peers for tens of seconds at a time. The previous 30s
+// ceiling assumed a "transient partition + recovery" model, but under
+// continuous random-partition chaos that ceiling tripped /livez 503
+// regularly, kubelet then cycled the pod, and the cluster cascaded.
+// The lower-level isolation checks (cluster.gossip, raft.last_contact
+// per role) already detect a truly disconnected node; this check
+// remains as a safety net that catches the case where the pg
+// subsystem itself stalls (event loop wedged, all peers gone, retry
+// queue saturated) — not a momentary chaos-induced partition.
+const livenessActivityCeiling = 5 * time.Minute
 
 // initialDiscoverFanOut caps the number of peers a starting node directly
 // discovers. Without this cap, simultaneous restarts of N pods produce N²
