@@ -33,6 +33,11 @@ func newTelemetry(coll metrics.Collector, node string) *telemetry {
 		// watcher has overflowed yet.
 		coll.CounterAdd("kv_watch_dropped_total", 0,
 			metrics.Labels{"space": "_init", "mode": "eventual"})
+		// Bootstrap the broadcast-queue overflow counter with the full
+		// label set per-space so saturation is visible at the producer
+		// (not just inferable from receiver-side gaps).
+		coll.GaugeSet("kveventual_queue_dropped_total", 0,
+			metrics.Labels{"node": node, "space": "_init"})
 	}
 	return t
 }

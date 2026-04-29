@@ -28,6 +28,7 @@ func newTelemetry(coll metrics.Collector, node string) *telemetry {
 		coll.GaugeSet("eventualreg_entries", 0, copyAdd(base, "state", "live"))
 		coll.GaugeSet("eventualreg_entries", 0, copyAdd(base, "state", "tombstone"))
 		coll.GaugeSet("eventualreg_broadcast_queue_depth", 0, base)
+		coll.GaugeSet("eventualreg_queue_dropped_total", 0, base)
 		// Bootstrap the cross-subsystem reregistration counter so the
 		// validate-chaos-impact.sh hard gate sees the series at zero
 		// instead of "MISSING (no series — feature not deployed yet)".
@@ -107,6 +108,17 @@ func (t *telemetry) setQueueDepth(d int) {
 		return
 	}
 	t.coll.GaugeSet("eventualreg_broadcast_queue_depth", float64(d), metrics.Labels{"node": t.node})
+}
+
+// setQueueDropped publishes the cumulative count of entries Push() rejected
+// because the bounded queue was full. Without this, queue saturation is
+// silent — operator sees depth=cap but doesn't know if data is being lost.
+// The gauge holds the cumulative count; rate() turns it into a drop rate.
+func (t *telemetry) setQueueDropped(d uint64) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.GaugeSet("eventualreg_queue_dropped_total", float64(d), metrics.Labels{"node": t.node})
 }
 
 func (t *telemetry) recordReregistration() {

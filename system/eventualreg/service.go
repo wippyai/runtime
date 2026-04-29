@@ -216,6 +216,7 @@ func (s *Service) DrainBroadcasts(headerOverhead, byteBudget int) [][]byte {
 		s.tel.recordDeltaBytes("tx", "delta", len(f))
 	}
 	s.tel.setQueueDepth(s.queue.Depth())
+	s.tel.setQueueDropped(s.queue.Dropped())
 	return frames
 }
 

@@ -149,6 +149,11 @@ func (s *space) drainBroadcasts(headerOverhead, byteBudget int) [][]byte {
 	for _, f := range frames {
 		s.recordBytes("tx", "delta", len(f))
 	}
+	if s.collector != nil {
+		s.collector.GaugeSet("kveventual_queue_dropped_total",
+			float64(s.queue.Dropped()),
+			metrics.Labels{"node": s.node, "space": s.name})
+	}
 	return frames
 }
 
