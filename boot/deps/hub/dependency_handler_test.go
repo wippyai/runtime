@@ -793,6 +793,113 @@ func TestDependencyHandler_CollectDesiredDependencies_DoesNotPinUpdatedDependenc
 	assert.Equal(t, ">=v0.6.0", deps[0].definition.Version)
 }
 
+func TestDependencyHandler_CollectControlledModules_FollowsInstalledDependencyLinks(t *testing.T) {
+	ctx := newTestContext()
+	transcoder := payload.GetTranscoder(ctx)
+	require.NotNil(t, transcoder)
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub:       &fakeHub{},
+		Logger:    zap.NewNop(),
+		VendorDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	rootDep := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "root"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/app","version":"1.0.0"}`, payload.JSON),
+	}
+	appDep := regapi.Entry{
+		ID:   regapi.NewID("acme.app", "lib_dep"),
+		Kind: regapi.NamespaceDependency,
+		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/app"}),
+		Data: payload.NewPayload(`{"component":"acme/lib","version":"1.0.0"}`, payload.JSON),
+	}
+	libDep := regapi.Entry{
+		ID:   regapi.NewID("acme.lib", "core_dep"),
+		Kind: regapi.NamespaceDependency,
+		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/lib"}),
+		Data: payload.NewPayload(`{"component":"acme/core","version":"1.0.0"}`, payload.JSON),
+	}
+	lockLoadedDep := regapi.Entry{
+		ID:   regapi.NewID("keeper.internal", "helper_dep"),
+		Kind: regapi.NamespaceDependency,
+		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "keeper/keeper"}),
+		Data: payload.NewPayload(`{"component":"keeper/helper","version":"1.0.0"}`, payload.JSON),
+	}
+
+	controlled, err := handler.collectControlledModules(ctx, regapi.State{rootDep, appDep, libDep, lockLoadedDep}, transcoder)
+	require.NoError(t, err)
+	assert.Contains(t, controlled, "acme/app")
+	assert.Contains(t, controlled, "acme/lib")
+	assert.Contains(t, controlled, "acme/core")
+	assert.NotContains(t, controlled, "keeper/keeper")
+	assert.NotContains(t, controlled, "keeper/helper")
+}
+
+func TestDependencyHandler_Expand_PreservesLockLoadedModuleEntries(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, "vendor")
+
+	writeWapp(t, filepath.Join(vendorDir, "acme", "http-v1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("acme.http", "svc"),
+			Kind: "service",
+			Data: map[string]any{"ok": true},
+		},
+	})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				return &ModuleManifest{
+					Org:     org,
+					Name:    module,
+					Version: version,
+				}, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	lockLoadedID := regapi.NewID("keeper.hub.tools", "dependencies")
+	snapshot := regapi.State{
+		{
+			ID:   lockLoadedID,
+			Kind: "function.lua",
+			Meta: attrs.NewBagFrom(map[string]any{
+				metaModuleKey:        "keeper/keeper",
+				metaModuleVersionKey: "0.5.2",
+			}),
+			Data: payload.New("return {}"),
+		},
+	}
+
+	depEntry := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "http"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/http","version":"v1.0.0"}`, payload.JSON),
+	}
+
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, snapshot)
+	require.NoError(t, err)
+	assert.True(t, result.Applied)
+
+	createdModuleEntry := false
+	for _, scoped := range result.Additional {
+		op := scoped.Operation
+		require.NotEqual(t, lockLoadedID, op.Entry.ID, "lock-loaded Keeper entry must not be touched")
+		if op.Kind == regapi.EntryCreate && op.Entry.ID == regapi.NewID("acme.http", "svc") {
+			createdModuleEntry = true
+		}
+	}
+	assert.True(t, createdModuleEntry, "new dependency module entry should still be created")
+}
+
 func newTestContext() context.Context {
 	ctx := ctxapi.NewRootContext()
 	transcoder := syspayload.NewTranscoder()
