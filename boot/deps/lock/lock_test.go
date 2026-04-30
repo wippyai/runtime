@@ -475,6 +475,36 @@ func TestLock_GetLoadPaths(t *testing.T) {
 		}
 	})
 
+	t.Run("keeps absolute src modules and replacement paths absolute", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		lockPath := filepath.Join(tmpDir, "test.lock")
+		absSrc := filepath.Join(tmpDir, "abs-src")
+		absModules := filepath.Join(tmpDir, "abs-modules")
+		absReplacement := filepath.Join(tmpDir, "abs-replacement")
+
+		lock, _ := New(lockPath)
+		lock.SetDirectories(Directories{Modules: absModules, Src: absSrc})
+		lock.SetModule(Module{Name: "acme/http", Version: "v1.0.0"})
+		lock.SetModule(Module{Name: "demo/sql", Version: "v2.0.0"})
+		lock.SetReplacement(Replacement{From: "demo/sql", To: absReplacement})
+
+		paths := lock.GetLoadPaths()
+
+		expectedHTTP := filepath.Join(absModules, "vendor", "acme", "http")
+		if len(paths) != 3 {
+			t.Fatalf("expected 3 paths, got %d: %v", len(paths), paths)
+		}
+		if paths[0] != absSrc {
+			t.Fatalf("src path = %q, want %q", paths[0], absSrc)
+		}
+		if paths[1] != absReplacement {
+			t.Fatalf("replacement path = %q, want %q", paths[1], absReplacement)
+		}
+		if paths[2] != expectedHTTP {
+			t.Fatalf("module path = %q, want %q", paths[2], expectedHTTP)
+		}
+	})
+
 	t.Run("handles empty src directory", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		lockPath := filepath.Join(tmpDir, "test.lock")

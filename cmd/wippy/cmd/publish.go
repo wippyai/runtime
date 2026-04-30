@@ -442,6 +442,10 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		return nil, NewClosePackFileError(fmt.Errorf("pack file %s: %w", outputPath, err))
 	}
 
+	if err := verifyPackedResources(outputPath, resources); err != nil {
+		return nil, NewPackIntegrityError(fmt.Errorf("pack file %s: %w", outputPath, err))
+	}
+
 	stat, err := os.Stat(outputPath)
 	if err != nil {
 		return nil, NewStatOutputFileError(fmt.Errorf("pack file %s: %w", outputPath, err))
