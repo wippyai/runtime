@@ -413,10 +413,7 @@ func (cm *Manager) markTransactionAffected(nodes ...*Node) {
 func (cm *Manager) affectedNodes(node *Node, dependents []*Node) []*Node {
 	nodes := make([]*Node, 0, len(dependents)+1)
 	nodes = append(nodes, node)
-	for _, dep := range dependents {
-		nodes = append(nodes, dep)
-	}
-	return nodes
+	return append(nodes, dependents...)
 }
 
 func nodeIDs(nodes []*Node) []registry.ID {
