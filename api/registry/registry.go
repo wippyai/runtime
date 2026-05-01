@@ -150,12 +150,15 @@ type (
 		BuildState(History, Version) (State, error)
 		// BuildDelta calculates the minimal ChangeSet required to transition between states
 		BuildDelta(State, State) (ChangeSet, error)
-		// SortChangeSet orders a ChangeSet so live dependency listeners can apply it safely
-		SortChangeSet(State, ChangeSet) (ChangeSet, error)
 		// SquashChangesets aggregates multiple changesets into a single changeset
 		SquashChangesets([]ChangeSet) ChangeSet
 		// ReverseChangeset creates a changeset that undoes the given changeset operations
 		ReverseChangeset(ChangeSet) (ChangeSet, error)
+		// SortChangeSet orders a ChangeSet for safe application: deletes first in
+		// reverse-dependency order (dependants before dependees), then creates and
+		// updates in forward-dependency order. fromState is the state the deletes
+		// apply against, used to resolve current dependency edges.
+		SortChangeSet(fromState State, cs ChangeSet) (ChangeSet, error)
 	}
 
 	// OperationHandler defines methods for validating and applying registry operations

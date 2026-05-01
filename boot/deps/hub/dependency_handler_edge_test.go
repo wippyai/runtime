@@ -272,7 +272,7 @@ func TestUnwrapPayloadData_MapWithExtraKeys(t *testing.T) {
 // --- buildOperations ---
 
 func TestBuildOperations_EmptyBoth(t *testing.T) {
-	ops, err := buildOperations(nil, nil, regapi.NewID("app", "dep"), nil)
+	ops, err := buildOperations(nil, nil, regapi.NewID("app", "dep"), nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, ops)
 }
@@ -283,7 +283,7 @@ func TestBuildOperations_NewEntries(t *testing.T) {
 		{ID: regapi.NewID("app", "svc"), Kind: "service", Data: payload.New("data")},
 	}
 
-	ops, err := buildOperations(nil, desired, regapi.NewID("app", "dep"), nil)
+	ops, err := buildOperations(nil, desired, regapi.NewID("app", "dep"), nil, nil)
 	require.NoError(t, err)
 	require.Len(t, ops, 1) // dep is excluded (originalID)
 	assert.Equal(t, regapi.EntryCreate, ops[0].Kind)
@@ -303,7 +303,7 @@ func TestBuildOperations_DeletedEntries(t *testing.T) {
 		{ID: regapi.NewID("app", "dep"), Kind: "ns.dependency"},
 	}
 
-	ops, err := buildOperations(current, desired, regapi.NewID("app", "dep"), nil)
+	ops, err := buildOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
 	require.NoError(t, err)
 	require.Len(t, ops, 1)
 	assert.Equal(t, regapi.EntryDelete, ops[0].Kind)
@@ -329,7 +329,7 @@ func TestBuildOperations_DeletesOnlyControlledModules(t *testing.T) {
 	}
 	controlled := map[string]struct{}{"acme/http": {}}
 
-	ops, err := buildOperations(current, desired, regapi.NewID("app", "dep"), controlled)
+	ops, err := buildOperations(current, desired, regapi.NewID("app", "dep"), controlled, nil)
 	require.NoError(t, err)
 	require.Len(t, ops, 1)
 	assert.Equal(t, regapi.EntryDelete, ops[0].Kind)
@@ -354,7 +354,7 @@ func TestBuildOperations_UpdatedEntries(t *testing.T) {
 		},
 	}
 
-	ops, err := buildOperations(current, desired, regapi.NewID("app", "dep"), nil)
+	ops, err := buildOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
 	require.NoError(t, err)
 	require.Len(t, ops, 1)
 	assert.Equal(t, regapi.EntryUpdate, ops[0].Kind)
@@ -369,7 +369,7 @@ func TestBuildOperations_UnchangedEntries(t *testing.T) {
 	current := regapi.State{entry}
 	desired := []regapi.Entry{entry}
 
-	ops, err := buildOperations(current, desired, regapi.NewID("app", "dep"), nil)
+	ops, err := buildOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, ops)
 }
@@ -387,7 +387,7 @@ func TestBuildOperations_ConflictError(t *testing.T) {
 		},
 	}
 
-	_, err := buildOperations(current, desired, regapi.NewID("app", "dep"), nil)
+	_, err := buildOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "conflict")
 }
@@ -401,7 +401,7 @@ func TestBuildOperations_SkipsNonModuleDeletes(t *testing.T) {
 		{ID: regapi.NewID("app", "dep"), Kind: "ns.dependency"},
 	}
 
-	ops, err := buildOperations(current, desired, regapi.NewID("app", "dep"), nil)
+	ops, err := buildOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
 	require.NoError(t, err)
 	// local-svc has no module meta, so it won't be deleted
 	assert.Empty(t, ops)

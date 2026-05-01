@@ -4,6 +4,7 @@ package stages
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
@@ -83,6 +84,25 @@ func NewNoTargetsError(requirementID string) apierror.Error {
 
 func NewRequirementTargetError(requirement, targetEntry, path string, cause error) apierror.Error {
 	return apierror.New(apierror.Internal, fmt.Sprintf("requirement %s, target entry=%s path=%s failed", requirement, targetEntry, path)).WithCause(cause)
+}
+
+func NewUnresolvedRequirementsError(errs []error) apierror.Error {
+	details := make([]string, 0, len(errs))
+	for _, err := range errs {
+		if err != nil {
+			details = append(details, err.Error())
+		}
+	}
+	msg := "unresolved requirements"
+	if len(details) > 0 {
+		msg = fmt.Sprintf("%s: %s", msg, strings.Join(details, "; "))
+	}
+	return apierror.New(apierror.Invalid, msg).
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"count":  len(details),
+			"errors": details,
+		})).
+		WithRetryable(apierror.False)
 }
 
 func NewParameterConflictError(conflicts string) apierror.Error {

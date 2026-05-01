@@ -1568,3 +1568,156 @@ func TestCollectBackwardChangesets(t *testing.T) {
 		assert.NotNil(t, cs)
 	})
 }
+
+// depRecordingRunner is a Transition runner that refuses to delete an
+// entry from the incoming state while any other not-being-deleted entry in
+// the same ChangeSet still holds a dependency on it. It mirrors the
+// runtime's memory-graph rule (`RemoveNode` rejects nodes with incoming
+// dependencies) and makes a rollback that reaches it in the wrong order
+// fail observably.
+type depRecordingRunner struct {
+	// deps maps child_id -> parent_id (child imports parent).
+	deps      map[string]string
+	err       error
+	callOrder []string // recorded IDs in the order Transition received ops
+}
+
+func (r *depRecordingRunner) Transition(_ context.Context, state registry.State, changes registry.ChangeSet) (registry.State, error) {
+	r.callOrder = r.callOrder[:0]
+
+	present := make(map[string]bool, len(state))
+	for _, e := range state {
+		present[e.ID.String()] = true
+	}
+
+	// Track which ids are being deleted in *this* changeset so we can let a
+	// later delete cover a dependant that's also about to be removed.
+	deleting := make(map[string]bool, len(changes))
+	for _, op := range changes {
+		if op.Kind == registry.EntryDelete {
+			deleting[op.Entry.ID.String()] = true
+		}
+	}
+
+	out := make(registry.State, 0, len(state))
+	out = append(out, state...)
+
+	for _, op := range changes {
+		id := op.Entry.ID.String()
+		r.callOrder = append(r.callOrder, id)
+
+		switch op.Kind {
+		case registry.EntryCreate:
+			out = append(out, op.Entry)
+			present[id] = true
+		case registry.EntryUpdate:
+			for i, e := range out {
+				if e.ID.String() == id {
+					out[i] = op.Entry
+					break
+				}
+			}
+		case registry.EntryDelete:
+			// Reject if any dependant is still present AND not also being
+			// deleted ahead of this op.
+			for child, parent := range r.deps {
+				if parent != id {
+					continue
+				}
+				if !present[child] {
+					continue
+				}
+				return state, fmt.Errorf(
+					"cannot remove node %s: incoming dependency from %s", id, child)
+			}
+			newOut := out[:0]
+			for _, e := range out {
+				if e.ID.String() != id {
+					newOut = append(newOut, e)
+				}
+			}
+			out = newOut
+			present[id] = false
+			delete(deleting, id)
+		}
+	}
+
+	if r.err != nil {
+		return state, r.err
+	}
+	return out, nil
+}
+
+// depResolver is a DependencyResolver driven by a static child->parent map.
+// It returns the parent id as a dep when called on the child entry — lets
+// the topology sorter see the dep without needing real pattern extraction.
+type depResolver struct {
+	deps map[string]string // child_id -> parent_id
+}
+
+func (r *depResolver) Extract(e registry.Entry) []string {
+	if parent, ok := r.deps[e.ID.String()]; ok {
+		return []string{parent}
+	}
+	return nil
+}
+func (*depResolver) RegisterPattern(registry.DependencyPattern) error { return nil }
+
+// TestApplyVersion_Rollback_RespectsDependencyOrder documents the exact bug
+// hit by app-keeper's integrate-rollback path. Scenario:
+//   - v0: empty state.
+//   - v1: create `lib`, then create `test` that imports `lib`.
+//   - Rollback v1 -> v0 via ApplyVersion(v0).
+//
+// The backward changeset is {delete lib, delete test}. Without a
+// topological sort the runner is handed `delete lib` first, which a real
+// dependency-aware runner (depRecordingRunner here, memory_graph.RemoveNode
+// in the lua runtime) rejects because `test` still references it.
+//
+// Expected: ApplyVersion must topo-sort deletes (leaf-to-root) before the
+// runner, independent of whether regex-expansion directives ran. Today
+// Reg.Apply / Reg.ApplyVersion only sort when `plan.Expanded == true`, so
+// a plain-changeset rollback hits the runner unsorted and fails.
+func TestApplyVersion_Rollback_RespectsDependencyOrder(t *testing.T) {
+	v0 := version.New(registry.RootVersion)
+	v1 := version.FromParent(v0, 1)
+
+	libID := registry.NewID("app.probe", "lib")
+	testID := registry.NewID("app.probe", "test")
+
+	// v0 -> v1 contains the creations in dep-safe (parent-first) order.
+	v1Changes := registry.ChangeSet{
+		{Kind: registry.EntryCreate, Entry: registry.Entry{ID: libID, Kind: "library", Data: payload.New("lib")}},
+		{Kind: registry.EntryCreate, Entry: registry.Entry{ID: testID, Kind: "test", Data: payload.New("test")}},
+	}
+
+	hist := historymem.New()
+	_ = hist.Save(v0, registry.ChangeSet{}, true)
+	_ = hist.Save(v1, v1Changes, false)
+
+	deps := map[string]string{testID.String(): libID.String()}
+	runner := &depRecordingRunner{deps: deps}
+
+	resolver := &depResolver{deps: deps}
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), resolver)
+
+	reg := NewRegistry(hist, runner, stateBuilder, resolver, zap.NewNop())
+	reg.currentVersion = v1
+	reg.state = registry.State{
+		{ID: libID, Kind: "library", Data: payload.New("lib")},
+		{ID: testID, Kind: "test", Data: payload.New("test")},
+	}
+
+	err := reg.ApplyVersion(context.Background(), v0)
+	require.NoError(t, err,
+		"ApplyVersion must topologically sort deletes so `test` (dependant) is removed before `lib` (dependee)")
+
+	// Extra guard: the first delete handed to the runner must be the
+	// dependant, not the library.
+	require.GreaterOrEqual(t, len(runner.callOrder), 2,
+		"runner should have received two delete operations")
+	firstDeleted := runner.callOrder[0]
+	require.Equal(t, testID.String(), firstDeleted,
+		"runner must receive delete(%s) before delete(%s); got order=%v",
+		testID, libID, runner.callOrder)
+}
