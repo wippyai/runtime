@@ -33,7 +33,9 @@ type FileLoader struct {
 
 // NewFileLoader creates a new FileLoader.
 func NewFileLoader(log *zap.Logger) *FileLoader {
-	skipDirs := make(map[string]bool)
+	skipDirs := map[string]bool{
+		"node_modules": true,
+	}
 
 	// Skip temporal test directories when SKIP_TEMPORAL_TESTS is set.
 	// Keep both names for compatibility across fixtures.

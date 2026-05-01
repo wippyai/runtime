@@ -44,8 +44,11 @@ type Parameter struct {
 type LinkOption func(*linkStage)
 
 type linkStage struct {
+	strictModules     map[string]struct{}
 	dependencyEntries []registry.Entry
 	explicitDeps      bool
+	strict            bool
+	strictModuleScope bool
 }
 
 // Link creates a new linking stage that resolves requirements to their values
@@ -66,6 +69,32 @@ func WithDependencies(entries []registry.Entry) LinkOption {
 	return func(s *linkStage) {
 		s.dependencyEntries = entries
 		s.explicitDeps = true
+	}
+}
+
+// WithStrictRequirements makes unresolved requirements fail the link stage.
+// The default remains warning-only for source builds, where optional or
+// environment-specific requirements may be intentionally unresolved.
+func WithStrictRequirements() LinkOption {
+	return func(s *linkStage) {
+		s.strict = true
+	}
+}
+
+// WithStrictRequirementModules makes unresolved requirements fail only when
+// they belong to one of the provided module identities. This keeps dependency
+// installs strict for the modules being expanded without turning unrelated
+// application requirements into install blockers.
+func WithStrictRequirementModules(modules []string) LinkOption {
+	return func(s *linkStage) {
+		s.strict = true
+		s.strictModuleScope = true
+		s.strictModules = make(map[string]struct{}, len(modules))
+		for _, module := range modules {
+			if strings.TrimSpace(module) != "" {
+				s.strictModules[module] = struct{}{}
+			}
+		}
 	}
 }
 
@@ -107,12 +136,16 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 
 	// Process each requirement, log warnings instead of failing
 	warningCount := 0
+	var unresolved []error
 	for _, req := range requirements {
 		if err := s.processRequirement(req, dependencies, entries, mutator); err != nil {
 			log.Warn("unresolved requirement",
 				zap.String("requirement", req.entry.ID.String()),
 				zap.Error(err))
 			warningCount++
+			if s.shouldFailUnresolvedRequirement(req) {
+				unresolved = append(unresolved, err)
+			}
 		}
 	}
 
@@ -122,7 +155,23 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 			zap.Int("total_requirements", len(requirements)))
 	}
 
+	if s.strict && len(unresolved) > 0 {
+		return NewUnresolvedRequirementsError(unresolved)
+	}
+
 	return nil
+}
+
+func (s *linkStage) shouldFailUnresolvedRequirement(req decodedRequirement) bool {
+	if !s.strict {
+		return false
+	}
+	if s.strictModuleScope {
+		module := requirementModuleFromEntry(req.entry)
+		_, ok := s.strictModules[module]
+		return ok
+	}
+	return true
 }
 
 func (s *linkStage) collectDependencies(ctx context.Context, transcoder payload.Transcoder, entries *[]registry.Entry) (map[string]decodedDependency, error) {
@@ -353,7 +402,20 @@ func (s *linkStage) findTargetEntries(
 //   - requirement name within the same module identity via requirement meta.module
 func matchesRequirement(paramName, moduleNS, component, reqNS, reqName, reqID, reqModule string) bool {
 	if strings.Contains(paramName, ":") {
-		return paramName == reqID
+		paramNS, paramReqName, ok := strings.Cut(paramName, ":")
+		if !ok || paramReqName != reqName {
+			return false
+		}
+		if paramName == reqID {
+			return true
+		}
+		if paramNS != moduleNS {
+			return false
+		}
+		if reqNS == moduleNS {
+			return true
+		}
+		return component != "" && reqModule != "" && component == reqModule
 	}
 
 	if paramName != reqName {
