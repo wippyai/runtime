@@ -256,7 +256,8 @@ func TestVersionsInspectExtractsRequirementsFromArtifact(t *testing.T) {
 		if err then error(err) end
 		if res.version ~= "v0.1.2" then error("version mismatch") end
 		if res.entry_count ~= 2 then error("entry_count mismatch") end
-		if res.cache_path ~= ".wippy/vendor/wippy/dummy-v0.1.2.wapp" then error("cache path mismatch: " .. tostring(res.cache_path)) end
+		local cache_path = string.gsub(res.cache_path, "\\", "/")
+		if cache_path ~= ".wippy/vendor/wippy/dummy-v0.1.2.wapp" then error("cache path mismatch: " .. tostring(res.cache_path)) end
 		if res.requirements[1].name ~= "router" then error("requirement name mismatch") end
 		if res.requirements[1].description ~= "Router to register endpoints on" then error("description mismatch") end
 		if res.requirements[1].default ~= "app:router" then error("default mismatch") end
