@@ -274,6 +274,65 @@ func TestApplyVersion_BackwardWithSquashing(t *testing.T) {
 	}
 }
 
+func TestApplyVersion_BackwardDeletesDependentsBeforeDependencies(t *testing.T) {
+	ctx := context.Background()
+	logger := zap.NewNop()
+
+	hist := historymem.New()
+	runner := NewTestRunner()
+	builder := topology.NewStateBuilder(logger, nil)
+	reg := NewRegistry(hist, runner, builder, nil, logger)
+
+	baseline := registry.State{
+		{
+			ID:   registry.NewID("base", "config"),
+			Kind: "config",
+			Data: payload.NewString("base-config"),
+		},
+	}
+	v0 := version.FromParent(nil, 0)
+	err := reg.LoadState(ctx, baseline, v0)
+	require.NoError(t, err)
+
+	repoID := registry.NewID("app", "repo")
+	handlerID := registry.NewID("app", "handler")
+	repo := registry.Entry{
+		ID:   repoID,
+		Kind: "library.lua",
+		Meta: map[string]any{},
+	}
+	handler := registry.Entry{
+		ID:   handlerID,
+		Kind: "function.lua",
+		Meta: map[string]any{
+			registry.TagDependsOn: []string{repoID.String()},
+		},
+	}
+
+	_, err = reg.Apply(ctx, registry.ChangeSet{
+		{Kind: registry.EntryCreate, Entry: repo},
+		{Kind: registry.EntryCreate, Entry: handler},
+	})
+	require.NoError(t, err)
+
+	runner.transitions = []registry.ChangeSet{}
+	err = reg.ApplyVersion(ctx, v0)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, runner.TransitionCount())
+	lastTransition := runner.LastTransition()
+	require.Len(t, lastTransition, 2)
+	assert.Equal(t, registry.EntryDelete, lastTransition[0].Kind)
+	assert.Equal(t, handlerID, lastTransition[0].Entry.ID)
+	assert.Equal(t, registry.EntryDelete, lastTransition[1].Kind)
+	assert.Equal(t, repoID, lastTransition[1].Entry.ID)
+
+	_, err = reg.GetEntry(repoID)
+	require.Error(t, err)
+	_, err = reg.GetEntry(handlerID)
+	require.Error(t, err)
+}
+
 func TestApplyVersion_CrossBranchWithSquashing(t *testing.T) {
 	ctx := context.Background()
 	logger := zap.NewNop()

@@ -6,15 +6,32 @@ package lua
 import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/registry"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/go-lua/types/io"
 )
 
 const (
-	System          event.System = "lua"
-	InvalidateNodes event.Kind   = "lua.reset_code"
+	System                event.System = "lua"
+	InvalidateNodes       event.Kind   = "lua.reset_code"
+	InvalidateNodesAccept event.Kind   = "lua.reset_code.accept"
+	InvalidateNodesReject event.Kind   = "lua.reset_code.reject"
+	InvalidateNodesResult event.Kind   = "lua.reset_code.(accept|reject)"
 )
+
+// InvalidateNode identifies a Lua code node that may need runtime invalidation.
+type InvalidateNode struct {
+	ID   registry.ID
+	Kind registry.Kind
+}
+
+// InvalidateNodesRequest carries an optional acknowledgement prefix. When set,
+// component handlers acknowledge every matching node at AckPrefix + "/" + node ID.
+type InvalidateNodesRequest struct {
+	AckPrefix string
+	Nodes     []InvalidateNode
+}
 
 // Module class constants
 const (

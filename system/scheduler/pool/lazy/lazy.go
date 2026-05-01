@@ -23,10 +23,11 @@ type Pool struct {
 	lastUsed    time.Time
 	dispatcher  dispatcher.Dispatcher
 	hooks       pool.ExecutionHooks
+	gate        *pool.AdmissionGate
 	reaperDone  chan struct{}
-	factory     process.FactoryFunc
 	reaper      *time.Ticker
 	done        chan struct{}
+	factory     process.FactoryFunc
 	activeExec  sync.Map
 	idle        []process.Process
 	waiters     []chan struct{}
@@ -67,6 +68,7 @@ func New(factory process.FactoryFunc, d dispatcher.Dispatcher, cfg Config, hooks
 		idle:        make([]process.Process, 0, cfg.MaxWorkers),
 		done:        make(chan struct{}),
 		reaperDone:  make(chan struct{}),
+		gate:        pool.NewAdmissionGate(),
 	}
 	l.executors.New = func() any {
 		return pool.NewExecutor(d).WithExecutionHooks(hooksCfg)
@@ -89,27 +91,34 @@ func (l *Pool) Stop() {
 	if l.closed.Swap(true) {
 		return
 	}
-	close(l.done)
 
 	l.mu.Lock()
 	reaper := l.reaper
-	for _, proc := range l.idle {
-		proc.Close()
-	}
-	l.idle = nil
 	l.mu.Unlock()
 
 	if reaper != nil {
 		reaper.Stop()
 		close(l.reaperDone)
 	}
+
+	l.gate.Stop()
+
+	close(l.done)
+
+	l.mu.Lock()
+	for _, proc := range l.idle {
+		proc.Close()
+	}
+	l.idle = nil
+	l.mu.Unlock()
 }
 
 // Call executes using an idle or newly created process.
 func (l *Pool) Call(ctx context.Context, method string, input payload.Payloads) (*runtime.Result, error) {
-	if l.closed.Load() {
+	if !l.gate.Begin() {
 		return nil, pool.ErrPoolClosed
 	}
+	defer l.gate.End()
 
 	proc, err := l.acquire(ctx)
 	if err != nil {
@@ -224,16 +233,9 @@ func (l *Pool) release(proc process.Process) {
 	l.active--
 	l.lastUsed = time.Now()
 
-	if l.closed.Load() {
-		l.mu.Unlock()
-		proc.Close()
-		return
-	}
-
-	l.idle = append(l.idle, proc)
-
 	// Wake one waiter if any
 	if len(l.waiters) > 0 {
+		l.idle = append(l.idle, proc)
 		waiter := l.waiters[0]
 		l.waiters = l.waiters[1:]
 		l.mu.Unlock()
@@ -244,6 +246,13 @@ func (l *Pool) release(proc process.Process) {
 		return
 	}
 
+	if l.closed.Load() {
+		l.mu.Unlock()
+		proc.Close()
+		return
+	}
+
+	l.idle = append(l.idle, proc)
 	l.mu.Unlock()
 }
 

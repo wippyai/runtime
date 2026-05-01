@@ -839,6 +839,135 @@ func TestEnsureModulesInstalledSkipsReplacedModules(t *testing.T) {
 	}
 }
 
+func TestLoadEntriesFromModuleLoadPaths_AppliesSourceModuleExcludesToVersionedDependencies(t *testing.T) {
+	ctx := setupTestContext(t)
+	logger := zap.NewNop()
+	tmpDir := t.TempDir()
+
+	moduleDir := filepath.Join(tmpDir, "views")
+	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
+		t.Fatalf("mkdir module dir: %v", err)
+	}
+	moduleConfig := `organization: wippy
+module: views
+exclude:
+  - "app:**"
+exclude_meta:
+  type:
+    - test
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, "wippy.yaml"), []byte(moduleConfig), 0o644); err != nil {
+		t.Fatalf("write module config: %v", err)
+	}
+	appYAML := `version: "1.0"
+namespace: app
+entries:
+  - name: gateway
+    kind: http.service
+    addr: :19086
+    lifecycle:
+      auto_start: true
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, "app.yaml"), []byte(appYAML), 0o644); err != nil {
+		t.Fatalf("write module app.yaml: %v", err)
+	}
+	moduleYAML := `version: "1.0"
+namespace: wippy.views
+entries:
+  - name: render
+    kind: function.lua
+    meta:
+      type: test
+    source: |
+      return {}
+  - name: public_api
+    kind: http.endpoint
+    meta:
+      router: api.public
+    path: /views
+    method: GET
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, "views.yaml"), []byte(moduleYAML), 0o644); err != nil {
+		t.Fatalf("write module views.yaml: %v", err)
+	}
+
+	entries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+		{Path: moduleDir, Module: "wippy/views", Version: "0.4.15"},
+	}, logger)
+	if err != nil {
+		t.Fatalf("LoadEntriesFromModuleLoadPaths failed: %v", err)
+	}
+
+	found := map[string]regapi.Entry{}
+	for _, entry := range entries {
+		found[entry.ID.String()] = entry
+	}
+	if _, ok := found["app:gateway"]; ok {
+		t.Fatalf("versioned module leaked excluded app entry")
+	}
+	if _, ok := found["wippy.views:render"]; ok {
+		t.Fatalf("versioned module leaked excluded meta.type=test entry")
+	}
+	publicAPI, ok := found["wippy.views:public_api"]
+	if !ok {
+		t.Fatalf("non-excluded module entry missing")
+	}
+	if got := publicAPI.Meta.GetString("module", ""); got != "wippy/views" {
+		t.Fatalf("module meta = %q, want wippy/views", got)
+	}
+}
+
+func TestLoadEntriesFromModuleLoadPaths_DoesNotApplySourceModuleExcludesToReplacements(t *testing.T) {
+	ctx := setupTestContext(t)
+	logger := zap.NewNop()
+	tmpDir := t.TempDir()
+
+	moduleDir := filepath.Join(tmpDir, "dataflow-src")
+	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
+		t.Fatalf("mkdir module dir: %v", err)
+	}
+	moduleConfig := `organization: wippy
+module: dataflow
+exclude_meta:
+  type:
+    - test
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, "wippy.yaml"), []byte(moduleConfig), 0o644); err != nil {
+		t.Fatalf("write module config: %v", err)
+	}
+	moduleYAML := `version: "1.0"
+namespace: userspace.dataflow
+entries:
+  - name: local_test
+    kind: function.lua
+    meta:
+      type: test
+    source: |
+      return {}
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, "_index.yaml"), []byte(moduleYAML), 0o644); err != nil {
+		t.Fatalf("write module _index.yaml: %v", err)
+	}
+
+	entries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+		{Path: moduleDir, Module: "wippy/dataflow"},
+	}, logger)
+	if err != nil {
+		t.Fatalf("LoadEntriesFromModuleLoadPaths failed: %v", err)
+	}
+
+	for _, entry := range entries {
+		if entry.ID.String() != "userspace.dataflow:local_test" {
+			continue
+		}
+		if got := entry.Meta.GetString("module", ""); got != "wippy/dataflow" {
+			t.Fatalf("module meta = %q, want wippy/dataflow", got)
+		}
+		return
+	}
+	t.Fatalf("replacement test entry was filtered")
+}
+
 func TestNormalizeEntries_PreLinkOverrideAffectsRequirementDefaults(t *testing.T) {
 	ctx := setupTestContext(t)
 	cfg := boot.NewConfig(boot.WithSection("override", map[string]any{

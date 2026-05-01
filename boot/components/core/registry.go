@@ -7,7 +7,6 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"go.uber.org/zap"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	regapi "github.com/wippyai/runtime/api/registry"
+	bootpkg "github.com/wippyai/runtime/boot"
 	hubdeps "github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/system/registry"
 	regexp "github.com/wippyai/runtime/system/registry/expansion"
@@ -94,7 +94,7 @@ func Registry() boot.Component {
 			stateBuilder := regtop.NewStateBuilder(logger, resolver)
 
 			internalKinds := defaultDispatchInternalKinds()
-			eventWaitTimeout := 30 * time.Second
+			eventWaitTimeout := event.DefaultAwaitTimeout
 			if cfg != nil {
 				registryCfg := cfg.Sub(RegistryName)
 				if kinds, ok := readKindSlice(registryCfg, RegistryDispatchInternalKinds); ok {
@@ -120,6 +120,13 @@ func Registry() boot.Component {
 				runner.NewBusRunner(bus, logger.Named("runner"), stateBuilder,
 					runner.WithDispatchPolicy(runner.NewKindDispatchPolicy(internalKinds)),
 					runner.WithEventWaitTimeout(eventWaitTimeout),
+					runner.WithTransactionParticipants(func() []string {
+						handlerRegistry := bootpkg.GetHandlerRegistry(ctx)
+						if handlerRegistry == nil {
+							return nil
+						}
+						return handlerRegistry.TransactionParticipants()
+					}),
 				),
 				stateBuilder,
 				resolver,

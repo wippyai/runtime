@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	queueapi "github.com/wippyai/runtime/api/queue"
@@ -39,6 +40,15 @@ func startDeclareAckStub(t *testing.T, bus event.Bus) {
 	t.Cleanup(sub.Close)
 }
 
+func newDeclarationTestContext(t *testing.T, bus event.Bus) context.Context {
+	t.Helper()
+	ctx := ctxapi.NewRootContext()
+	awaitSvc := eventbus.NewAwaitService(bus)
+	require.NoError(t, awaitSvc.Start(ctx))
+	t.Cleanup(func() { _ = awaitSvc.Stop() })
+	return event.WithAwaitService(ctx, awaitSvc)
+}
+
 func newTestConfig(driverName string) *queuecfg.Config {
 	bag := attrs.NewBag()
 	amqpBag := attrs.NewBag()
@@ -51,8 +61,8 @@ func newTestConfig(driverName string) *queuecfg.Config {
 }
 
 func TestDeclarationHandler_Add(t *testing.T) {
-	ctx := context.Background()
 	bus := eventbus.NewBus()
+	ctx := newDeclarationTestContext(t, bus)
 	startDeclareAckStub(t, bus)
 	queueMgr := &mockQueueManagerForDecl{}
 	dtt := &mockDTTForDecl{}
@@ -112,8 +122,8 @@ func TestDeclarationHandler_Delete(t *testing.T) {
 }
 
 func TestDeclarationHandler_Update(t *testing.T) {
-	ctx := context.Background()
 	bus := eventbus.NewBus()
+	ctx := newDeclarationTestContext(t, bus)
 	startDeclareAckStub(t, bus)
 	queueMgr := &mockQueueManagerForDecl{}
 	dtt := &mockDTTForDecl{}

@@ -11,7 +11,6 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	queuecfg "github.com/wippyai/runtime/api/service/queue/queue"
 	entryutil "github.com/wippyai/runtime/internal/entry"
-	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
@@ -92,8 +91,11 @@ func (h *DeclarationHandler) addOrUpdateQueue(ctx context.Context, entry registr
 	// emits once it finishes driving DeclareQueue on the backend. Without the
 	// wait, the entry runner proceeds to the consumer before the queue is
 	// registered in the manager and fails with "queue not found".
-	waiter, err := eventbus.NewAwaiter(h.bus, queueapi.System, "queue.(accept|reject)").
-		Prepare(ctx, entry.ID.String())
+	awaitSvc := event.GetAwaitService(ctx)
+	if awaitSvc == nil {
+		return NewConfigError("queue declare response coordination unavailable", nil)
+	}
+	waiter, err := awaitSvc.Prepare(ctx, queueapi.System, "queue.(accept|reject)", entry.ID.String(), 0)
 	if err != nil {
 		return NewConfigError("failed to subscribe to queue declare response", err)
 	}

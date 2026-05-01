@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/system/scheduler/pool"
 )
 
 type mockProcess struct {
@@ -42,6 +43,38 @@ func (p *mockProcess) Close() {}
 type mockDispatcher struct{}
 
 func (d *mockDispatcher) Dispatch(dispatcher.Command) dispatcher.Handler { return nil }
+
+type blockingOnceProcess struct {
+	started   chan struct{}
+	unblock   chan struct{}
+	startOnce sync.Once
+}
+
+func newBlockingOnceProcess() *blockingOnceProcess {
+	return &blockingOnceProcess{
+		started: make(chan struct{}),
+		unblock: make(chan struct{}),
+	}
+}
+
+func (p *blockingOnceProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
+	return nil
+}
+
+func (p *blockingOnceProcess) Step(_ []process.Event, out *process.StepOutput) error {
+	first := false
+	p.startOnce.Do(func() {
+		first = true
+		close(p.started)
+	})
+	if first {
+		<-p.unblock
+	}
+	out.Done(nil)
+	return nil
+}
+
+func (p *blockingOnceProcess) Close() {}
 
 func newMockFactory(latency time.Duration) process.FactoryFunc {
 	return func() (process.Process, error) {
@@ -132,4 +165,82 @@ func TestStaticQueueFull(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestStaticStopDrainsAcceptedCallsBeforeStoppingWorkers(t *testing.T) {
+	proc := newBlockingOnceProcess()
+	p, err := New(func() (process.Process, error) {
+		return proc, nil
+	}, &mockDispatcher{}, Config{Workers: 1, QueueSize: 1})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	p.Start()
+
+	errs := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			_, err := p.Call(context.Background(), "test", nil)
+			errs <- err
+		}()
+	}
+
+	select {
+	case <-proc.started:
+	case <-time.After(time.Second):
+		t.Fatal("active call did not start")
+	}
+
+	waitFor(t, time.Second, func() bool {
+		return len(p.tasks) == 1
+	})
+
+	stopDone := make(chan struct{})
+	go func() {
+		p.Stop()
+		close(stopDone)
+	}()
+
+	select {
+	case <-stopDone:
+		t.Fatal("Stop returned before accepted calls completed")
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	close(proc.unblock)
+
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-errs:
+			if err != nil {
+				t.Fatalf("accepted call error: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("accepted call did not finish")
+		}
+	}
+
+	select {
+	case <-stopDone:
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not return")
+	}
+
+	_, err = p.Call(context.Background(), "test", nil)
+	if !errors.Is(err, pool.ErrPoolClosed) {
+		t.Fatalf("post-stop call error = %v, want %v", err, pool.ErrPoolClosed)
+	}
+}
+
+func waitFor(t *testing.T, timeout time.Duration, ok func() bool) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if ok() {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("condition not met before timeout")
 }

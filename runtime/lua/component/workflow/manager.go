@@ -6,8 +6,8 @@ package workflow
 
 import (
 	"context"
+	"errors"
 	"sync"
-	"time"
 
 	"github.com/wippyai/runtime/api/event"
 	fsapi "github.com/wippyai/runtime/api/fs"
@@ -98,7 +98,8 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 }
 
 // Invalidate handles code invalidation for hot reload.
-func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
+func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) error {
+	var errs []error
 	for _, id := range ids {
 		cfgAny, exists := m.configs.Load(id)
 		if !exists {
@@ -112,14 +113,17 @@ func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
 		if cfg.bytecode != nil {
 			if _, err := component.LoadAndVerifyBytecode(m.fsReg, cfg.bytecode.FS, cfg.bytecode.Path, cfg.bytecode.Hash); err != nil {
 				m.log.Error("failed to reload bytecode workflow", zap.Error(err))
+				errs = append(errs, err)
 				continue
 			}
 		}
 
 		if err := m.registerFactory(ctx, id, cfg.method); err != nil {
 			m.log.Error("failed to invalidate workflow", zap.Error(err))
+			errs = append(errs, err)
 		}
 	}
+	return errors.Join(errs...)
 }
 
 // addSource adds a source-based workflow.
@@ -285,7 +289,7 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 		return runtimelua.NewRegisterFactoryError(nil)
 	}
 
-	waiter, err := awaitSvc.Prepare(ctx, process.System, "factory.(accept|reject)", path, 30*time.Second)
+	waiter, err := awaitSvc.Prepare(ctx, process.System, "factory.(accept|reject)", path, event.DefaultAwaitTimeout)
 	if err != nil {
 		return runtimelua.NewRegisterFactoryError(err)
 	}

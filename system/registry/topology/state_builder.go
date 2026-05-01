@@ -298,13 +298,10 @@ func (b *StateBuilder) SquashChangesets(changesets []registry.ChangeSet) registr
 		}
 	}
 
-	// Convert map to slice and collect entries for sorting
+	// Convert map to slice.
 	result := make(registry.ChangeSet, 0, len(operations))
-	entries := make([]registry.Entry, 0, len(operations))
-
 	for _, op := range operations {
 		result = append(result, op)
-		entries = append(entries, op.Entry)
 	}
 
 	// If no operations, return empty
@@ -312,8 +309,14 @@ func (b *StateBuilder) SquashChangesets(changesets []registry.ChangeSet) registr
 		return result
 	}
 
-	// Sort by dependencies
-	sortedEntries, err := SortEntriesByDependency(entries, b.resolver)
+	// Sort with operation semantics. Delete operations must run in reverse
+	// dependency order (dependents before dependencies), while creates and
+	// updates run dependency-first.
+	fromState := make(registry.State, 0, len(result))
+	for _, op := range result {
+		fromState = append(fromState, op.Entry)
+	}
+	sorted, err := b.SortChangeSet(fromState, result)
 	if err != nil {
 		// Log error but still return the operations unsorted
 		// This ensures operations are applied even if dependency sorting fails
@@ -321,20 +324,6 @@ func (b *StateBuilder) SquashChangesets(changesets []registry.ChangeSet) registr
 			zap.Int("operation_count", len(operations)),
 			zap.Error(err))
 		return result
-	}
-
-	// Build map for O(1) lookup
-	opByID := make(map[registry.ID]registry.Operation, len(operations))
-	for _, op := range result {
-		opByID[op.Entry.ID] = op
-	}
-
-	// Rebuild changeset in dependency order using map lookup
-	sorted := make(registry.ChangeSet, 0, len(operations))
-	for _, entry := range sortedEntries {
-		if op, ok := opByID[entry.ID]; ok {
-			sorted = append(sorted, op)
-		}
 	}
 
 	return sorted

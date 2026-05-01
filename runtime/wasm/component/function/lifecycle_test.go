@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/function"
@@ -19,6 +20,7 @@ import (
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/api/topology"
+	systemrelay "github.com/wippyai/runtime/system/relay"
 	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 	"go.uber.org/zap"
@@ -67,13 +69,20 @@ func (a *lifecycleTestAwaitService) Start(context.Context) error { return nil }
 func (a *lifecycleTestAwaitService) Stop() error                 { return nil }
 
 type lifecycleTestPool struct {
+	method  string
+	pid     pid.PID
+	starts  int
+	calls   int
 	stopped bool
 }
 
-func (p *lifecycleTestPool) Call(context.Context, string, payload.Payloads) (*runtimeapi.Result, error) {
+func (p *lifecycleTestPool) Call(ctx context.Context, method string, _ payload.Payloads) (*runtimeapi.Result, error) {
+	p.calls++
+	p.method = method
+	p.pid, _ = runtimeapi.GetFramePID(ctx)
 	return &runtimeapi.Result{Value: payload.New("ok")}, nil
 }
-func (p *lifecycleTestPool) Start() {}
+func (p *lifecycleTestPool) Start() { p.starts++ }
 func (p *lifecycleTestPool) Stop()  { p.stopped = true }
 func (p *lifecycleTestPool) Send(*relay.Package) error {
 	return nil
@@ -143,7 +152,7 @@ func TestDeleteRemovesPoolAndConfig(t *testing.T) {
 	id := registry.NewID("app.test", "wasm")
 
 	p := &lifecycleTestPool{}
-	m.pools[id] = &poolEntry{pool: p, method: "run"}
+	m.pools[id] = newPoolEntry(p, "run", "app.test:wasm#wasm.test")
 	m.configs[id] = &configEntry{kind: wasmapi.FunctionWASM}
 
 	err := m.Delete(context.Background(), registry.Entry{
@@ -165,6 +174,132 @@ func TestDeleteRemovesPoolAndConfig(t *testing.T) {
 	if len(bus.events) != 1 || bus.events[0].Kind != function.FunctionDelete {
 		t.Fatalf("unexpected bus events: %#v", bus.events)
 	}
+}
+
+func TestStartRegistersPreexistingPoolHost(t *testing.T) {
+	m := NewManager(zap.NewNop(), &lifecycleTestBus{}, nil, nil)
+	node := systemrelay.NewNode("test-node")
+	id := registry.NewID("app.test", "preexisting_wasm")
+	hostID := "app.test:preexisting_wasm#wasm.test"
+	p := &lifecycleTestPool{}
+	m.pools[id] = newPoolEntry(p, "run", hostID)
+
+	ctx := relay.WithNode(ctxapi.NewRootContext(), node)
+	if err := m.Start(ctx); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if p.starts != 1 {
+		t.Fatalf("pool starts = %d, want 1", p.starts)
+	}
+
+	registered, ok := node.GetHost(hostID)
+	if !ok {
+		t.Fatal("preexisting pool host was not registered on manager start")
+	}
+	if registered != p {
+		t.Fatalf("registered host = %#v, want %#v", registered, p)
+	}
+
+	m.Stop()
+	if _, ok := node.GetHost(hostID); ok {
+		t.Fatal("manager stop did not unregister generation host")
+	}
+}
+
+func TestExecuteUsesPoolGenerationHost(t *testing.T) {
+	m := NewManager(zap.NewNop(), &lifecycleTestBus{}, nil, nil)
+	id := registry.NewID("app.test", "wasm")
+	hostID := "app.test:wasm#wasm.1"
+	p := &lifecycleTestPool{}
+	m.pools[id] = newPoolEntry(p, "run", hostID)
+
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	defer func() { _ = fc.Close() }()
+	if err := runtimeapi.SetFramePID(ctx, (&pid.PID{Host: id.String(), UniqID: "call-1"}).Precomputed()); err != nil {
+		t.Fatalf("SetFramePID() error = %v", err)
+	}
+
+	result, err := m.Execute(ctx, runtimeapi.Task{ID: id})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if result == nil {
+		t.Fatal("Execute() returned nil result")
+	}
+	if p.calls != 1 || p.method != "run" {
+		t.Fatalf("pool call = (%d, %q), want (1, run)", p.calls, p.method)
+	}
+	if p.pid.Host != hostID || p.pid.UniqID != "call-1" {
+		t.Fatalf("pool pid = %#v, want host %q uniq call-1", p.pid, hostID)
+	}
+
+	framePID, ok := runtimeapi.GetFramePID(ctx)
+	if !ok || framePID.Host != hostID || framePID.UniqID != "call-1" {
+		t.Fatalf("frame pid = %#v, %v; want host %q uniq call-1", framePID, ok, hostID)
+	}
+}
+
+func TestPoolEntryRetireWaitsForActiveExecution(t *testing.T) {
+	entry := newPoolEntry(&lifecycleTestPool{}, "run", "app.test:wasm#wasm.1")
+	if !entry.acquire() {
+		t.Fatal("acquire() = false, want true")
+	}
+
+	stopped := make(chan struct{})
+	entry.retire(func() {
+		close(stopped)
+	})
+
+	select {
+	case <-stopped:
+		t.Fatal("retired pool stopped before active execution released")
+	default:
+	}
+	if entry.acquire() {
+		t.Fatal("retired entry accepted a new call")
+	}
+	entry.release()
+
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("retired pool did not stop after active execution released")
+	}
+}
+
+func TestRetiredPoolHostDrainsBeforeUnregister(t *testing.T) {
+	m := NewManager(zap.NewNop(), &lifecycleTestBus{}, nil, nil)
+	node := systemrelay.NewNode("test-node")
+	m.node = node
+	hostID := "app.test:wasm#wasm.retired"
+	p := &lifecycleTestPool{}
+	entry := newPoolEntry(p, "run", hostID)
+	if err := node.RegisterHost(hostID, p); err != nil {
+		t.Fatalf("RegisterHost() error = %v", err)
+	}
+	if !entry.acquire() {
+		t.Fatal("acquire() = false, want true")
+	}
+
+	m.retirePoolEntry(entry)
+
+	registered, ok := node.GetHost(hostID)
+	if !ok {
+		t.Fatal("active retired generation was unregistered too early")
+	}
+	if registered != p {
+		t.Fatalf("registered host = %#v, want %#v", registered, p)
+	}
+	if p.stopped {
+		t.Fatal("active retired generation stopped before release")
+	}
+
+	entry.release()
+
+	require.Eventually(t, func() bool {
+		_, exists := node.GetHost(hostID)
+		return !exists && p.stopped
+	}, time.Second, 10*time.Millisecond)
 }
 
 func TestLoadModuleInvalidKind(t *testing.T) {

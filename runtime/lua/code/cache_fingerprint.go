@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/wippyai/go-lua/types/io"
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/lua/code/cache"
 )
 
@@ -84,4 +85,104 @@ func CompileFingerprint(entryID, kind, sourceHash, method string, deps []cache.D
 func TypecheckFingerprint(entryID, kind, sourceHash, method, typecheckHash, builtinHash string, deps []cache.DepFingerprint) string {
 	self := cache.HashStrings("typecheck", cacheCompilerVersion, entryID, kind, method, sourceHash, typecheckHash, builtinHash)
 	return cache.Fingerprint(self, deps)
+}
+
+// RuntimeFingerprint computes the in-memory compiled-code cache tag. It
+// intentionally includes the mutable registry revision so delete/recreate and
+// bytecode replacement cannot collide with older compiled artifacts for the
+// same registry ID.
+func RuntimeFingerprint(entryID, kind, contentHash, method string, revision uint64, deps []cache.DepFingerprint) string {
+	self := cache.HashStrings(
+		"runtime",
+		cacheCompilerVersion,
+		entryID,
+		kind,
+		method,
+		contentHash,
+		strconv.FormatUint(revision, 10),
+	)
+	return cache.Fingerprint(self, deps)
+}
+
+func BuildOptionsFingerprint(options *BuildOptions) string {
+	if options == nil {
+		options = NewBuildOptions()
+	}
+
+	parts := []string{
+		"build-options",
+		strconv.Itoa(int(options.Mode)),
+	}
+	parts = appendSortedIDs(parts, "allowed", options.Allowed)
+	parts = appendSortedIDs(parts, "denied", options.Denied)
+	parts = appendSortedIDs(parts, "required", options.Required)
+	parts = appendSortedStrings(parts, "allowed-class", options.AllowedClasses)
+	parts = appendSortedStrings(parts, "denied-class", options.DeniedClasses)
+
+	parts = append(parts, "preloaded", strconv.Itoa(len(options.Preloaded)))
+	for _, pre := range options.Preloaded {
+		parts = append(parts, pre.Name, pre.ModuleID.String())
+	}
+
+	return cache.HashStrings(parts...)
+}
+
+func appendSortedIDs(parts []string, label string, ids []registry.ID) []string {
+	values := make([]string, 0, len(ids))
+	for _, id := range ids {
+		values = append(values, id.String())
+	}
+	sort.Strings(values)
+	parts = append(parts, label, strconv.Itoa(len(values)))
+	return append(parts, values...)
+}
+
+func appendSortedStrings(parts []string, label string, values []string) []string {
+	copied := append([]string(nil), values...)
+	sort.Strings(copied)
+	parts = append(parts, label, strconv.Itoa(len(copied)))
+	return append(parts, copied...)
+}
+
+func runtimeFingerprintMemo(memGraph *MemoryGraph, id registry.ID, memo map[registry.ID]string) (string, error) {
+	if v, ok := memo[id]; ok {
+		return v, nil
+	}
+	node, err := memGraph.GetNode(id)
+	if err != nil {
+		return "", err
+	}
+	deps, _ := memGraph.GetDependenciesWithAliases(id)
+	depFPs := make([]cache.DepFingerprint, 0, len(deps))
+	for _, dep := range deps {
+		fp, err := runtimeFingerprintMemo(memGraph, dep.ID, memo)
+		if err != nil {
+			return "", err
+		}
+		depFPs = append(depFPs, cache.DepFingerprint{
+			Alias:       dep.Name,
+			ID:          dep.ID.String(),
+			Fingerprint: fp,
+		})
+	}
+	fp := RuntimeFingerprint(
+		node.ID.String(),
+		node.Kind,
+		nodeContentHash(node),
+		node.Method,
+		node.Version.Revision,
+		depFPs,
+	)
+	memo[id] = fp
+	return fp, nil
+}
+
+func nodeContentHash(node *Node) string {
+	if node == nil {
+		return ""
+	}
+	if node.Version.Hash != "" {
+		return node.Version.Hash
+	}
+	return HashNode(node)
 }

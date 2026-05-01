@@ -41,6 +41,7 @@ type Pool struct {
 	tasks      chan *pool.Request
 	factory    process.FactoryFunc
 	done       chan struct{}
+	gate       *pool.AdmissionGate
 	active     sync.Map
 	workers    []*worker
 	wg         sync.WaitGroup
@@ -68,6 +69,7 @@ func New(factory process.FactoryFunc, d dispatcher.Dispatcher, cfg Config, hooks
 		factory:    factory,
 		hooks:      hooksCfg,
 		done:       make(chan struct{}),
+		gate:       pool.NewAdmissionGate(),
 	}
 
 	s.reqPool.New = func() any {
@@ -106,6 +108,9 @@ func (s *Pool) Stop() {
 	if s.closed.Swap(true) {
 		return
 	}
+
+	s.gate.Stop()
+
 	close(s.done)
 	s.wg.Wait()
 	for _, w := range s.workers {
@@ -124,9 +129,10 @@ func (s *Pool) Send(pkg *relay.Package) error {
 
 // Call executes a function call using an available worker.
 func (s *Pool) Call(ctx context.Context, method string, input payload.Payloads) (*runtime.Result, error) {
-	if s.closed.Load() {
+	if !s.gate.Begin() {
 		return nil, pool.ErrPoolClosed
 	}
+	defer s.gate.End()
 
 	req := s.reqPool.Get().(*pool.Request)
 	req.Ctx = ctx

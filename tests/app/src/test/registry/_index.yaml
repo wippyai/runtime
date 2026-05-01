@@ -150,6 +150,54 @@ entries:
       - funcs
       - time
 
+  - name: delete_recreate_same_id
+    kind: function.lua
+    meta:
+      type: test
+      suite: registry
+      order: 80
+      description: delete and recreate same function id invalidates compiled code
+    source: file://delete_recreate_same_id.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+      - funcs
+
+  - name: restore_dependency_delete_order
+    kind: function.lua
+    meta:
+      type: test
+      suite: registry
+      order: 85
+      description: apply_version deletes Lua dependents before imported libraries
+    source: file://restore_dependency_delete_order.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - registry
+      - funcs
+      - time
+
+  - name: generation_drain
+    kind: function.lua
+    meta:
+      type: test
+      suite: registry
+      order: 86
+      description: active callable generations remain routable while replacement drains
+    source: file://generation_drain.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+    modules:
+      - events
+      - funcs
+      - registry
+      - time
+
   - name: dependency_resolution_error
     kind: function.lua
     meta:

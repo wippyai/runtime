@@ -66,9 +66,10 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	}
 }
 
-func (m *Manager) Invalidate(_ context.Context, _ []registry.ID) {
+func (m *Manager) Invalidate(_ context.Context, _ []registry.ID) error {
 	// Libraries are stored in the code manager's node graph and are automatically
 	// recompiled when needed. No additional invalidation handling required.
+	return nil
 }
 
 // addSource adds a source-based library.
