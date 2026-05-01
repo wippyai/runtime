@@ -610,6 +610,10 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 		return NewClosePackFileError(fmt.Errorf("pack file %s: %w", outputFile, err))
 	}
 
+	if err := verifyPackedResources(outputFile, resources); err != nil {
+		return NewPackIntegrityError(fmt.Errorf("pack file %s: %w", outputFile, err))
+	}
+
 	fileInfo, err := os.Stat(outputFile)
 	if err != nil {
 		return NewStatOutputFileError(fmt.Errorf("pack file %s: %w", outputFile, err))

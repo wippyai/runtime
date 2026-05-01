@@ -5,7 +5,9 @@ package terminal
 
 import (
 	"context"
+	"math"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -89,10 +91,8 @@ func (h *Host) OnComplete(ctx context.Context, _ pid.PID, result *runtime.Result
 	}
 	h.closeDone()
 
-	// Determine exit code from result
-	exitCode := 0
+	exitCode, output := completionExitCode(result)
 	if result != nil && result.Error != nil {
-		exitCode = 1
 		// Print error to stderr, deduplicate if message is repeated
 		errStr := result.Error.Error()
 		if idx := strings.Index(errStr, ": "); idx > 0 {
@@ -103,14 +103,76 @@ func (h *Host) OnComplete(ctx context.Context, _ pid.PID, result *runtime.Result
 			}
 		}
 		_, _ = os.Stderr.WriteString(errStr + "\n")
-	} else if result != nil && result.Value != nil {
-		if data := result.Value.Data(); data != nil {
-			if s, ok := data.(string); ok && s != "" {
-				_, _ = os.Stdout.WriteString(s + "\n")
-			}
-		}
+	} else if output != "" {
+		_, _ = os.Stdout.WriteString(output + "\n")
 	}
 	supervisorapi.TriggerShutdown(ctx, exitCode)
+}
+
+func completionExitCode(result *runtime.Result) (int, string) {
+	if result == nil {
+		return 0, ""
+	}
+	if result.Error != nil {
+		return 1, ""
+	}
+	if result.Value == nil {
+		return 0, ""
+	}
+
+	data := result.Value.Data()
+	if s, ok := data.(string); ok {
+		return 0, s
+	}
+	if code, ok := numericExitCode(data); ok {
+		return code, ""
+	}
+	if code, ok := boolExitCode(data); ok {
+		return code, ""
+	}
+	return 0, ""
+}
+
+func numericExitCode(data any) (int, bool) {
+	if data == nil {
+		return 0, false
+	}
+
+	v := reflect.ValueOf(data)
+	switch v.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return int(v.Int()), true
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		u := v.Uint()
+		maxInt := uint64(^uint(0) >> 1)
+		if u > maxInt {
+			return 1, true
+		}
+		return int(u), true
+	case reflect.Float32, reflect.Float64:
+		f := v.Float()
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return 1, true
+		}
+		return int(f), true
+	default:
+		return 0, false
+	}
+}
+
+func boolExitCode(data any) (int, bool) {
+	if data == nil {
+		return 0, false
+	}
+
+	v := reflect.ValueOf(data)
+	if v.Kind() != reflect.Bool {
+		return 0, false
+	}
+	if v.Bool() {
+		return 0, true
+	}
+	return 1, true
 }
 
 // Done returns a channel that is closed when the terminal process completes.

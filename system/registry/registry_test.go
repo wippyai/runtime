@@ -61,6 +61,69 @@ func NewMockRunner() *MockRunner {
 	}
 }
 
+func newApplyingMockRunner(builder *topology.StateBuilder) *MockRunner {
+	runner := NewMockRunner()
+	runner.RunFunc = func(state registry.State, changes registry.ChangeSet) (registry.State, error) {
+		stateMap := topology.NewStateMap(state)
+		for _, op := range changes {
+			next, err := builder.ApplyOperation(stateMap, op)
+			if err != nil {
+				return state, err
+			}
+			stateMap = next
+		}
+		return topology.StateMapToSlice(stateMap), nil
+	}
+	return runner
+}
+
+func registryImportResolver(t *testing.T) *topology.Resolver {
+	t.Helper()
+	resolver := topology.NewResolver()
+	err := resolver.RegisterPattern(registry.DependencyPattern{
+		Path:          "data.imports.*",
+		Description:   "function/library imports",
+		AllowWildcard: true,
+	})
+	require.NoError(t, err)
+	return resolver
+}
+
+func registryImportEntry(ns, name, source string, imports map[string]string) registry.Entry {
+	data := map[string]any{"source": source}
+	if len(imports) > 0 {
+		importData := make(map[string]any, len(imports))
+		for alias, id := range imports {
+			importData[alias] = id
+		}
+		data["imports"] = importData
+	}
+	return registry.Entry{
+		ID:   registry.NewID(ns, name),
+		Kind: "function.lua",
+		Data: payload.New(data),
+	}
+}
+
+func assertRunnerOpBefore(t *testing.T, changes registry.ChangeSet, beforeKind string, beforeID registry.ID, afterKind string, afterID registry.ID) {
+	t.Helper()
+	find := func(kind string, id registry.ID) int {
+		for i, op := range changes {
+			if op.Kind == kind && op.Entry.ID.Equal(id) {
+				return i
+			}
+		}
+		t.Fatalf("operation %s %s not found in changeset: %#v", kind, id.String(), changes)
+		return -1
+	}
+	before := find(beforeKind, beforeID)
+	after := find(afterKind, afterID)
+	if before >= after {
+		t.Fatalf("expected %s %s before %s %s in changeset: %#v",
+			beforeKind, beforeID.String(), afterKind, afterID.String(), changes)
+	}
+}
+
 func TestNewRegistry(t *testing.T) {
 	hist := historymem.New()
 	runner := NewMockRunner()
@@ -210,6 +273,42 @@ func TestInMemoryRegistry_Apply(t *testing.T) {
 	if !reflect.DeepEqual(runner.callStack, expectedRunnerStack) {
 		t.Errorf("Expected runner call stack: %v, got: %v", expectedRunnerStack, runner.callStack)
 	}
+}
+
+func TestInMemoryRegistry_Apply_SortsChangeSetBeforeRunner(t *testing.T) {
+	v0 := version.New(registry.RootVersion)
+	hist := historymem.New()
+	require.NoError(t, hist.Save(v0, registry.ChangeSet{}, true))
+	resolver := registryImportResolver(t)
+	stateBuilder := topology.NewStateBuilder(zap.NewNop(), resolver)
+	runner := newApplyingMockRunner(stateBuilder)
+	reg := NewRegistry(hist, runner, stateBuilder, resolver, zap.NewNop())
+
+	oldHelper := registryImportEntry("old.lib", "helper", "old helper", nil)
+	oldConsumer := registryImportEntry("app", "consumer", "old consumer", map[string]string{
+		"helper": oldHelper.ID.String(),
+	})
+
+	_, err := reg.Apply(context.Background(), registry.ChangeSet{
+		{Kind: registry.EntryCreate, Entry: oldConsumer},
+		{Kind: registry.EntryCreate, Entry: oldHelper},
+	})
+	require.NoError(t, err)
+	assertRunnerOpBefore(t, runner.lastChangeSet, registry.EntryCreate, oldHelper.ID, registry.EntryCreate, oldConsumer.ID)
+
+	newHelper := registryImportEntry("new.lib", "helper", "new helper", nil)
+	newConsumer := registryImportEntry("app", "consumer", "new consumer", map[string]string{
+		"helper": newHelper.ID.String(),
+	})
+
+	_, err = reg.Apply(context.Background(), registry.ChangeSet{
+		{Kind: registry.EntryDelete, Entry: oldHelper},
+		{Kind: registry.EntryUpdate, Entry: newConsumer},
+		{Kind: registry.EntryCreate, Entry: newHelper},
+	})
+	require.NoError(t, err)
+	assertRunnerOpBefore(t, runner.lastChangeSet, registry.EntryCreate, newHelper.ID, registry.EntryUpdate, newConsumer.ID)
+	assertRunnerOpBefore(t, runner.lastChangeSet, registry.EntryUpdate, newConsumer.ID, registry.EntryDelete, oldHelper.ID)
 }
 
 func TestInMemoryRegistry_Apply_RunnerError(t *testing.T) {

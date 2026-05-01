@@ -35,25 +35,36 @@ type DownloadInfo struct {
 }
 
 type DownloadParams struct {
-	Org     string
-	Module  string
-	Version string
-	Label   string
+	Org       string
+	Module    string
+	ModuleID  string
+	Version   string
+	VersionID string
+	Label     string
 }
 
 func (c *Client) GetDownloadURL(ctx context.Context, params *DownloadParams) (*DownloadInfo, error) {
 	req := &downloadv1.GetDownloadURLRequest{
-		Module: &modulev1.ModuleRef{
-			Value: &modulev1.ModuleRef_Name{
-				Name: &modulev1.ModuleName{
-					Org:  params.Org,
-					Name: params.Module,
-				},
+		Module: &modulev1.ModuleRef{},
+	}
+	if params.ModuleID != "" {
+		req.Module.Value = &modulev1.ModuleRef_Id{Id: params.ModuleID}
+	} else {
+		req.Module.Value = &modulev1.ModuleRef_Name{
+			Name: &modulev1.ModuleName{
+				Org:  params.Org,
+				Name: params.Module,
 			},
-		},
+		}
 	}
 
-	if params.Version != "" {
+	if params.VersionID != "" {
+		req.Version = &versionv1.VersionRef{
+			Value: &versionv1.VersionRef_Id{
+				Id: params.VersionID,
+			},
+		}
+	} else if params.Version != "" {
 		req.Version = &versionv1.VersionRef{
 			Value: &versionv1.VersionRef_Version{
 				Version: params.Version,

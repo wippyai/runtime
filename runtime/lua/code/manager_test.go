@@ -13,6 +13,8 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/lua"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 // testEventBus implements event.Bus for testing
@@ -86,7 +88,7 @@ func TestNewCodeManager(t *testing.T) {
 			assert.NotNil(t, cm)
 			assert.NotNil(t, cm.memGraph)
 			assert.NotNil(t, cm.compiler)
-			assert.NotNil(t, cm.txNodes)
+			assert.NotNil(t, cm.txAffected)
 		})
 	}
 }
@@ -120,7 +122,101 @@ func TestManager_Transaction(t *testing.T) {
 
 	// Discard transaction
 	cm.Discard(context.Background())
-	assert.Empty(t, cm.txNodes)
+	assert.Empty(t, cm.txAffected)
+}
+
+func TestManager_TransactionDeleteInvalidatesDeletedNodeWithoutErrorLog(t *testing.T) {
+	core, logs := observer.New(zapcore.ErrorLevel)
+	logger := zap.New(core)
+	bus := &testEventBus{}
+	cm, err := NewCodeManager(logger, bus, Config{})
+	require.NoError(t, err)
+
+	id := registry.NewID("", "deleteTx")
+	err = cm.AddNode(context.Background(), Node{
+		ID:     id,
+		Kind:   api.Function,
+		Source: "function test() return 'hello' end",
+		Method: "test",
+	}, nil)
+	require.NoError(t, err)
+	cm.Commit(context.Background())
+	bus.events = nil
+
+	cm.Begin(context.Background())
+	err = cm.DeleteNode(context.Background(), id)
+	require.NoError(t, err)
+	cm.Commit(context.Background())
+
+	require.Empty(t, logs.All())
+	require.Len(t, bus.events, 1)
+	ids := bus.events[0].Data.([]registry.ID)
+	require.Equal(t, []registry.ID{id}, ids)
+}
+
+func TestManager_TransactionAddThenDeleteInvalidatesWithoutErrorLog(t *testing.T) {
+	core, logs := observer.New(zapcore.ErrorLevel)
+	logger := zap.New(core)
+	bus := &testEventBus{}
+	cm, err := NewCodeManager(logger, bus, Config{})
+	require.NoError(t, err)
+
+	id := registry.NewID("", "addDeleteTx")
+	cm.Begin(context.Background())
+	err = cm.AddNode(context.Background(), Node{
+		ID:     id,
+		Kind:   api.Function,
+		Source: "function test() return 'hello' end",
+		Method: "test",
+	}, nil)
+	require.NoError(t, err)
+	err = cm.DeleteNode(context.Background(), id)
+	require.NoError(t, err)
+	cm.Commit(context.Background())
+
+	require.Empty(t, logs.All())
+	require.Len(t, bus.events, 1)
+	ids := bus.events[0].Data.([]registry.ID)
+	require.Equal(t, []registry.ID{id}, ids)
+}
+
+func TestManager_TransactionUpdateInvalidatesDependents(t *testing.T) {
+	logger := zap.NewNop()
+	bus := &testEventBus{}
+	cm, err := NewCodeManager(logger, bus, Config{})
+	require.NoError(t, err)
+
+	libID := registry.NewID("app", "lib")
+	funcID := registry.NewID("app", "fn")
+
+	err = cm.AddNode(context.Background(), Node{
+		ID:     libID,
+		Kind:   api.Library,
+		Source: "local M = {}; return M",
+	}, nil)
+	require.NoError(t, err)
+	err = cm.AddNode(context.Background(), Node{
+		ID:     funcID,
+		Kind:   api.Function,
+		Source: "function handler() return true end",
+		Method: "handler",
+	}, []Import{{ID: libID, Alias: "lib"}})
+	require.NoError(t, err)
+	cm.Commit(context.Background())
+	bus.events = nil
+
+	cm.Begin(context.Background())
+	err = cm.UpdateNode(context.Background(), Node{
+		ID:     libID,
+		Kind:   api.Library,
+		Source: "local M = { value = 1 }; return M",
+	}, nil)
+	require.NoError(t, err)
+	cm.Commit(context.Background())
+
+	require.Len(t, bus.events, 1)
+	ids := bus.events[0].Data.([]registry.ID)
+	assert.ElementsMatch(t, []registry.ID{libID, funcID}, ids)
 }
 
 func TestManager_AddNode(t *testing.T) {

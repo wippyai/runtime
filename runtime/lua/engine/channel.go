@@ -142,7 +142,7 @@ func (c *Channel) CanSend() bool {
 }
 
 func (c *Channel) CanReceive() bool {
-	return c.buffer.Len() > 0 || c.sendq.Len() > 0
+	return c.buffer.Len() > 0 || c.sendq.Len() > 0 || c.closed
 }
 
 func (c *Channel) Send(task *lua.LState, value lua.LValue, selectOp *SelectOp) *ChannelResult {

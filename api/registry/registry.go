@@ -150,6 +150,8 @@ type (
 		BuildState(History, Version) (State, error)
 		// BuildDelta calculates the minimal ChangeSet required to transition between states
 		BuildDelta(State, State) (ChangeSet, error)
+		// SortChangeSet orders a ChangeSet so live dependency listeners can apply it safely
+		SortChangeSet(State, ChangeSet) (ChangeSet, error)
 		// SquashChangesets aggregates multiple changesets into a single changeset
 		SquashChangesets([]ChangeSet) ChangeSet
 		// ReverseChangeset creates a changeset that undoes the given changeset operations
