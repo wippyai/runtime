@@ -2,6 +2,7 @@
 
 # Enable JSON v2 for all Go commands
 export GOEXPERIMENT := jsonv2
+export GOFLAGS := -buildvcs=false
 
 test-clean:
 	go clean -testcache

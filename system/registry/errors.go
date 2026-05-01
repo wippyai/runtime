@@ -59,6 +59,14 @@ func NewExpandChangesError(err error) apierror.Error {
 		WithCause(err)
 }
 
+// NewSortChangesError creates an error when changeset ordering fails.
+func NewSortChangesError(err error) apierror.Error {
+	return apierror.New(apierror.Internal, "failed to sort changeset").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
+		WithCause(err)
+}
+
 // NewPrepareEffectsError creates an error when preparing effects fails.
 func NewPrepareEffectsError(err error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to prepare effects").

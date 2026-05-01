@@ -38,6 +38,7 @@ func ModuleTypes() *io.Manifest {
 	versionsIface := typ.NewInterface("hub.versions", []typ.Method{
 		{Name: "list", Type: typ.Func().Param("module", typ.Any).OptParam("opts", typ.Any).Returns(listResponse, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "get", Type: typ.Func().Param("module", typ.Any).Param("version", typ.Any).OptParam("opts", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "inspect", Type: typ.Func().Param("module", typ.Any).Param("version", typ.Any).OptParam("opts", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
 	})
 
 	dependenciesIface := typ.NewInterface("hub.dependencies", []typ.Method{

@@ -3,9 +3,12 @@
 package cmd
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/wippyai/runtime/boot/deps/lock"
+	"go.uber.org/zap"
 )
 
 func TestShouldBypassInstallCache(t *testing.T) {
@@ -46,6 +49,63 @@ func TestShouldBypassInstallCache(t *testing.T) {
 		}
 		if !shouldBypassInstallCache(c) {
 			t.Fatal("expected cache bypass to be true for --repair")
+		}
+	})
+}
+
+func TestSelectInstallModulesSkipsReplacements(t *testing.T) {
+	tmpDir := t.TempDir()
+	lockObj, err := lock.New(filepath.Join(tmpDir, lock.DefaultFilename))
+	if err != nil {
+		t.Fatalf("create lock: %v", err)
+	}
+
+	lockObj.SetModule(lock.Module{Name: "acme/ui", Version: "v1.0.0"})
+	lockObj.SetModule(lock.Module{Name: "wippy/dataflow", Version: "v0.4.10"})
+	lockObj.SetReplacement(lock.Replacement{From: "acme/ui", To: "../local-ui"})
+
+	t.Run("default install selects only remote modules", func(t *testing.T) {
+		selection := selectInstallModules(lockObj, nil, zap.NewNop())
+
+		if selection.matched != 2 {
+			t.Fatalf("matched = %d, want 2", selection.matched)
+		}
+		if selection.skippedReplaced != 1 {
+			t.Fatalf("skippedReplaced = %d, want 1", selection.skippedReplaced)
+		}
+		if len(selection.modules) != 1 {
+			t.Fatalf("selected modules = %d, want 1", len(selection.modules))
+		}
+		if selection.modules[0].Name != "wippy/dataflow" {
+			t.Fatalf("selected module = %q, want wippy/dataflow", selection.modules[0].Name)
+		}
+	})
+
+	t.Run("explicit replaced module is matched but not installed", func(t *testing.T) {
+		selection := selectInstallModules(lockObj, []string{"acme/ui"}, zap.NewNop())
+
+		if selection.matched != 1 {
+			t.Fatalf("matched = %d, want 1", selection.matched)
+		}
+		if selection.skippedReplaced != 1 {
+			t.Fatalf("skippedReplaced = %d, want 1", selection.skippedReplaced)
+		}
+		if len(selection.modules) != 0 {
+			t.Fatalf("selected modules = %d, want 0", len(selection.modules))
+		}
+	})
+
+	t.Run("explicit remote module is selected", func(t *testing.T) {
+		selection := selectInstallModules(lockObj, []string{"wippy/dataflow"}, zap.NewNop())
+
+		if selection.matched != 1 {
+			t.Fatalf("matched = %d, want 1", selection.matched)
+		}
+		if selection.skippedReplaced != 0 {
+			t.Fatalf("skippedReplaced = %d, want 0", selection.skippedReplaced)
+		}
+		if len(selection.modules) != 1 || selection.modules[0].Name != "wippy/dataflow" {
+			t.Fatalf("selected modules = %+v, want only wippy/dataflow", selection.modules)
 		}
 	})
 }

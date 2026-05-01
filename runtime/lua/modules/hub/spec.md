@@ -57,6 +57,11 @@ Options:
 ### `hub.versions.get(module, version, opts?)`
 Fetch a specific version by `version` or `{ id, version, label }`.
 
+### `hub.versions.inspect(module, version, opts?)`
+Download and inspect a version artifact by `version` or `{ id, version, label }`.
+Artifacts are cached under `.wippy/vendor` and verified before reuse.
+Returns artifact-derived metadata including `{ version, digest, size_bytes, entry_count, entry_kinds, requirements, cache_path }`.
+
 ### `hub.dependencies.get(module, version?, opts?)`
 Get dependencies for a module version.
 

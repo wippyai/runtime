@@ -182,13 +182,23 @@ func (s *Supervisor) Stop() error {
 	}
 
 	controllers := s.snapshotControllers()
+	s.cancelActiveStarts(controllers)
+	s.stopFailedStartRetries(controllers)
+
 	operations := make([]operation, 0)
 	for id, ctrl := range controllers {
+		deps, err := s.resolveDependencies(controllers, id)
+		if err != nil {
+			s.logger.Warn("failed to resolve service dependencies during shutdown; using lifecycle dependencies",
+				zap.String("serviceID", id),
+				zap.Error(err))
+			deps = ctrl.config.DependsOn
+		}
 		operations = append(operations, operation{
 			kind:         opStop,
 			id:           id,
 			controller:   ctrl,
-			dependencies: ctrl.config.DependsOn,
+			dependencies: deps,
 		})
 	}
 
@@ -202,6 +212,33 @@ func (s *Supervisor) Stop() error {
 
 	s.logger.Info("supervisor stopped")
 	return nil
+}
+
+func (s *Supervisor) cancelActiveStarts(controllers map[string]*Controller) {
+	for _, ctrl := range controllers {
+		ctrl.cancelStart()
+	}
+}
+
+func (s *Supervisor) stopFailedStartRetries(controllers map[string]*Controller) {
+	var wg sync.WaitGroup
+	for id, ctrl := range controllers {
+		state := ctrl.State()
+		if state.Desired != supervisor.StatusRunning || state.Status != supervisor.StatusFailed {
+			continue
+		}
+
+		wg.Add(1)
+		go func(id string, ctrl *Controller) {
+			defer wg.Done()
+			if err := ctrl.Stop(); err != nil {
+				s.logger.Warn("failed to stop retrying service before shutdown",
+					zap.String("serviceID", id),
+					zap.Error(err))
+			}
+		}(id, ctrl)
+	}
+	wg.Wait()
 }
 
 func (s *Supervisor) handleEvent(e event.Event) {
