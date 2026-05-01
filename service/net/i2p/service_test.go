@@ -110,8 +110,11 @@ func (s *mockSAMServer) handleConn(t *testing.T, conn net.Conn) {
 	}
 
 	if s.failAtStep == 1 {
-		fmt.Fprintf(conn, "HELLO REPLY RESULT=%s MESSAGE=\"test failure\"\n", s.failResult)
+		// Record before writing the response. The client can observe the
+		// rejection and return before this goroutine continues on a fast CI
+		// runner, so recording after the write makes the assertion flaky.
 		s.recordConn(samConnRecord{HelloReceived: true})
+		fmt.Fprintf(conn, "HELLO REPLY RESULT=%s MESSAGE=\"test failure\"\n", s.failResult)
 		return
 	}
 	fmt.Fprintf(conn, "HELLO REPLY RESULT=OK VERSION=3.3\n")
