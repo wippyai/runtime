@@ -30,6 +30,8 @@ type Client struct {
 	Manifest manifestv1connect.ManifestServiceClient
 
 	httpClient *http.Client
+	baseURL    string
+	token      string
 }
 
 type Options struct {
@@ -84,6 +86,8 @@ func NewClient(opts Options) (*Client, error) {
 		Download:   downloadv1connect.NewDownloadServiceClient(httpClient, baseURL, connectOpts...),
 		Manifest:   manifestv1connect.NewManifestServiceClient(httpClient, baseURL, connectOpts...),
 		httpClient: httpClient,
+		baseURL:    baseURL,
+		token:      opts.Token,
 	}, nil
 }
 
