@@ -2,7 +2,6 @@
 
 # Enable JSON v2 for all Go commands
 export GOEXPERIMENT := jsonv2
-export GOFLAGS := -buildvcs=false
 
 test-clean:
 	go clean -testcache
@@ -38,9 +37,6 @@ test-cluster:
 
 test-integration:
 	CGO_ENABLED=1 go test ./tests/... -v -race -timeout 120s
-
-test-network:
-	go test -v -race -timeout 300s ./service/net/...
 
 .PHONY: lint
 lint:

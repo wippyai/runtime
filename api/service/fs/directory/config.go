@@ -18,17 +18,9 @@ type Config struct {
 	Directory  string `json:"directory"`
 	Mode       string `json:"mode"`
 	Type       string `json:"type"`
-	Base       string `json:"base"`
 	parsedMode fs.FileMode
 	AutoInit   bool `json:"auto_init"`
 }
-
-const (
-	// BaseProject resolves relative paths against the process working directory.
-	BaseProject = "project"
-	// BaseModule resolves relative paths against the owning module load root.
-	BaseModule = "module"
-)
 
 func (c *Config) GetMode() fs.FileMode {
 	if c.parsedMode == 0 {
@@ -42,10 +34,6 @@ func (c *Config) GetMode() fs.FileMode {
 func (c *Config) Validate() error {
 	if c.Directory == "" {
 		return ErrEmptyDirectoryPath
-	}
-
-	if c.Base != "" && c.Base != BaseProject && c.Base != BaseModule {
-		return NewInvalidBaseError(c.Base)
 	}
 
 	if c.Mode != "" {

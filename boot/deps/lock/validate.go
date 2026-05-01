@@ -54,7 +54,10 @@ func ValidateReplacements(lockPath string, replacements []Replacement) error {
 			return NewReplacementFromInvalidError(r.From, err)
 		}
 
-		replacementPath := ResolveLockPath(lockDir, r.To)
+		replacementPath := r.To
+		if !filepath.IsAbs(replacementPath) {
+			replacementPath = filepath.Join(lockDir, r.To)
+		}
 
 		if _, err := os.Stat(replacementPath); err != nil {
 			if os.IsNotExist(err) {

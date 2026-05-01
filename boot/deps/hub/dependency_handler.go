@@ -179,6 +179,11 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		return regapi.DirectiveResult{}, err
 	}
 	linkDeps := mergeLinkDependencies(desiredDepEntries, moduleEntries)
+	strictModules := resolvedModuleNames(resolved)
+	mutableModules, err := h.operationModules(ctx, op, snapshot, transcoder)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
 
 	combined := make([]regapi.Entry, 0, len(snapshot)+len(moduleEntries))
 	for _, e := range snapshot {
@@ -192,14 +197,14 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 	pipeline := build.New(
 		stages.Override(),
 		stages.Disable(),
-		stages.Link(stages.WithDependencies(linkDeps)),
+		stages.Link(stages.WithDependencies(linkDeps), stages.WithStrictRequirementModules(strictModules)),
 		stages.Override(),
 	)
 	if err := pipeline.Execute(ctx, &combined); err != nil {
 		return regapi.DirectiveResult{}, NewDependencyPipelineError(err)
 	}
 
-	additional, err := buildOperations(snapshot, combined, op.Entry.ID, controlledModules)
+	additional, err := buildOperations(snapshot, combined, op.Entry.ID, controlledModules, mutableModules)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -443,6 +448,17 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 	return result.Modules, nil
 }
 
+func resolvedModuleNames(modules []ResolvedModule) []string {
+	names := make([]string, 0, len(modules))
+	for _, mod := range modules {
+		if mod.Org == "" || mod.Name == "" {
+			continue
+		}
+		names = append(names, mod.Org+"/"+mod.Name)
+	}
+	return names
+}
+
 func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []ResolvedModule, transcoder payload.Transcoder) ([]regapi.Entry, error) {
 	entries := make([]regapi.Entry, 0)
 
@@ -477,6 +493,18 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 	name, err := graph.ParseName(mod.Org + "/" + mod.Name)
 	if err != nil {
 		return "", NewDependencyEntryInvalidError("", "invalid component", mod.Org+"/"+mod.Name)
+	}
+	moduleName := name.String()
+
+	if replacementPath, ok := h.replacementPath(moduleName); ok {
+		stat, err := os.Stat(replacementPath)
+		if err != nil {
+			return "", NewDependencyLoadError(replacementPath, err)
+		}
+		if !stat.IsDir() {
+			return "", NewDependencyLoadError(replacementPath, fmt.Errorf("replacement path is not a directory"))
+		}
+		return replacementPath, nil
 	}
 
 	expectedDigest := mod.Digest
@@ -537,6 +565,46 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 	}
 
 	return wappPath, nil
+}
+
+func (h *DependencyHandler) replacementPath(moduleName string) (string, bool) {
+	if h.lockPath == "" {
+		return "", false
+	}
+	lockObj, err := lock.New(h.lockPath)
+	if err != nil {
+		return "", false
+	}
+	replacement, ok := lockObj.GetReplacement(moduleName)
+	if !ok || strings.TrimSpace(replacement.To) == "" {
+		return "", false
+	}
+	path := replacement.To
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(filepath.Dir(lockObj.Path()), path)
+	}
+	return path, true
+}
+
+func (h *DependencyHandler) operationModules(
+	ctx context.Context,
+	op regapi.Operation,
+	snapshot regapi.State,
+	transcoder payload.Transcoder,
+) (map[string]struct{}, error) {
+	modules := make(map[string]struct{})
+	entry, ok := resolveOperationEntry(op, snapshot)
+	if !ok || !isRootDependency(entry) {
+		return modules, nil
+	}
+	def, err := decodeDependency(ctx, transcoder, entry)
+	if err != nil {
+		return nil, err
+	}
+	if def.Component != "" {
+		modules[def.Component] = struct{}{}
+	}
+	return modules, nil
 }
 
 func VerifyDownloadedArtifact(path, expectedDigest string, expectedSize uint64) error {
@@ -724,6 +792,7 @@ func buildOperations(
 	desired []regapi.Entry,
 	originalID regapi.ID,
 	controlledModules map[string]struct{},
+	mutableModules map[string]struct{},
 ) ([]regapi.Operation, error) {
 	currentByID := make(map[regapi.ID]regapi.Entry, len(current))
 	for _, entry := range current {
@@ -746,6 +815,9 @@ func buildOperations(
 				return nil, NewDependencyEntryConflictError(id.String(), entryModule(existing), entryModule(entry))
 			}
 			if !entriesEqual(existing, entry) {
+				if sameImmutableModuleVersion(existing, entry, mutableModules) {
+					continue
+				}
 				ops = append(ops, regapi.Operation{Kind: regapi.EntryUpdate, Entry: entry})
 			}
 		} else {
@@ -773,6 +845,25 @@ func buildOperations(
 	return ops, nil
 }
 
+func sameImmutableModuleVersion(existing, desired regapi.Entry, mutableModules map[string]struct{}) bool {
+	if mutableModules == nil {
+		return false
+	}
+	module := entryModule(desired)
+	if module == "" || module != entryModule(existing) {
+		return false
+	}
+	if _, mutable := mutableModules[module]; mutable {
+		return false
+	}
+	existingVersion := moduleVersion(existing)
+	desiredVersion := moduleVersion(desired)
+	if existingVersion != "" && desiredVersion != "" && existingVersion != desiredVersion {
+		return false
+	}
+	return true
+}
+
 func entryConflict(existing, desired regapi.Entry) bool {
 	desiredModule := entryModule(desired)
 	if desiredModule == "" {
@@ -787,6 +878,18 @@ func entryModule(entry regapi.Entry) string {
 		return ""
 	}
 	if v, ok := entry.Meta[metaModuleKey]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+func moduleVersion(entry regapi.Entry) string {
+	if entry.Meta == nil {
+		return ""
+	}
+	if v, ok := entry.Meta[metaModuleVersionKey]; ok {
 		if s, ok := v.(string); ok {
 			return s
 		}

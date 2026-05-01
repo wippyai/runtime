@@ -18,7 +18,6 @@ local function main()
 		return false, "login failed with status " .. login_res.status_code .. ": " .. (login_res.body or "")
 	end
 
-	assert.not_nil(login_res.body, "login response body present")
 	local login_body = json.decode(login_res.body)
 	assert.not_nil(login_body, "login response should be valid JSON")
 	assert.not_nil(login_body.token, "login response should contain token")
@@ -36,7 +35,6 @@ local function main()
 		return false, "expected 200, got " .. protected_res.status_code .. ": " .. (protected_res.body or "")
 	end
 
-	assert.not_nil(protected_res.body, "protected response body present")
 	local protected_body = json.decode(protected_res.body)
 	if not protected_body then
 		return false, "invalid JSON response, status=" .. protected_res.status_code .. ", body=[" .. (protected_res.body or "nil") .. "]"

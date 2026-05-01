@@ -14,7 +14,6 @@ local function main()
 	})
 	assert.is_nil(err, "POST should not error")
 	assert.eq(resp.status_code, 200, "status code 200")
-	assert.not_nil(resp.body, "body present")
 
 	local data = json.decode(resp.body)
 	assert.eq(data.has_body, true, "has_body should be true")
@@ -30,7 +29,6 @@ local function main()
 		body = large_body
 	})
 	assert.is_nil(err2, "large POST should not error")
-	assert.not_nil(resp2.body, "body present")
 
 	local data2 = json.decode(resp2.body)
 	assert.eq(data2.total_size, 2048, "large body size correct")
@@ -42,7 +40,6 @@ local function main()
 		body = ""
 	})
 	assert.is_nil(err3, "empty POST should not error")
-	assert.not_nil(resp3.body, "body present")
 
 	local data3 = json.decode(resp3.body)
 	-- Empty body still has has_body=false typically

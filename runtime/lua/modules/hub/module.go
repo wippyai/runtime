@@ -29,6 +29,7 @@ type Options struct {
 	BaseURL        string
 	Token          string
 	Timeout        time.Duration
+	VendorDir      string
 }
 
 // DefaultOptions returns the default module options.
@@ -392,17 +393,19 @@ func (h *hubModule) versionsInspect(l *lua.LState) int {
 	if err != nil {
 		return pushError(l, err)
 	}
+
 	params, paramsErr := downloadParamsFromRefs(moduleRef, versionRef)
 	if paramsErr != nil {
-		return pushError(l, invalidArgument(l, paramsErr.Error()))
+		return pushError(l, lua.WrapErrorWithLua(l, paramsErr, "hub artifact inspect").WithKind(lua.Invalid).WithRetryable(false))
 	}
 
 	ctx, cancel := withTimeout(ctx, base.timeout)
 	defer cancel()
 
-	inspection, callErr := inspectVersionArtifact(ctx, client, params, "")
-	if callErr != nil {
-		return pushError(l, hubCallError(l, callErr))
+	vendorDir := firstNonEmpty(base.vendorDir, h.opts.VendorDir)
+	inspection, inspectErr := inspectVersionArtifact(ctx, client, params, vendorDir)
+	if inspectErr != nil {
+		return pushError(l, hubCallError(l, inspectErr))
 	}
 
 	l.Push(artifactInspectionToTable(l, inspection))
@@ -564,9 +567,10 @@ func (h *hubModule) filesList(l *lua.LState) int {
 // Helpers
 
 type baseOptions struct {
-	registry string
-	token    string
-	timeout  time.Duration
+	registry  string
+	token     string
+	timeout   time.Duration
+	vendorDir string
 }
 
 type listModulesOptions struct {
@@ -619,7 +623,7 @@ func (h *hubModule) moduleClient(l *lua.LState, base baseOptions) (modulev1conne
 		return h.opts.ModuleClient, nil
 	}
 
-	client, err := h.newHubClient(l, base)
+	client, err := h.hubClient(l, base)
 	if err != nil {
 		return nil, err
 	}
@@ -631,10 +635,14 @@ func (h *hubModule) artifactClient(l *lua.LState, base baseOptions) (ArtifactCli
 		return h.opts.ArtifactClient, nil
 	}
 
-	return h.newHubClient(l, base)
+	client, err := h.hubClient(l, base)
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
 }
 
-func (h *hubModule) newHubClient(l *lua.LState, base baseOptions) (*boothub.Client, *lua.Error) {
+func (h *hubModule) hubClient(l *lua.LState, base baseOptions) (*boothub.Client, *lua.Error) {
 	var store *bootauth.Store
 	registry := firstNonEmpty(base.registry, h.opts.BaseURL)
 	if registry == "" {
@@ -927,6 +935,12 @@ func parseOptionsTable(l *lua.LState, idx int) (baseOptions, *lua.LTable, *lua.E
 		return base, nil, err
 	} else if ok {
 		base.timeout = timeout
+	}
+
+	if vendorDir, ok, err := tableString(l, tbl, "vendor_dir"); err != nil {
+		return base, nil, err
+	} else if ok {
+		base.vendorDir = vendorDir
 	}
 
 	return base, tbl, nil
@@ -1368,18 +1382,18 @@ func versionToTable(l *lua.LState, v *versionv1.Version) *lua.LTable {
 }
 
 func artifactInspectionToTable(l *lua.LState, inspection *artifactInspection) *lua.LTable {
-	result := lua.CreateTable(0, 7)
+	result := lua.CreateTable(0, 8)
 	if inspection == nil {
 		return result
 	}
 	result.RawSetString("version", lua.LString(inspection.Version))
 	result.RawSetString("digest", lua.LString(inspection.Digest))
+	result.RawSetString("path", lua.LString(inspection.Path))
 	result.RawSetString("size_bytes", lua.LNumber(inspection.SizeBytes))
-	result.RawSetString("protected", lua.LBool(inspection.Protected))
 	result.RawSetString("entry_count", lua.LNumber(inspection.EntryCount))
 	result.RawSetString("entry_kinds", stringSliceToTable(l, inspection.EntryKinds))
 	result.RawSetString("requirements", requirementsToTable(l, inspection.Requirements))
-	result.RawSetString("cache_path", lua.LString(inspection.Path))
+	result.RawSetString("protected", lua.LBool(inspection.Protected))
 	return result
 }
 

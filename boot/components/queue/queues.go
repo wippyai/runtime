@@ -32,14 +32,11 @@ func Queues() boot.Component {
 			queueManager := queueapi.GetManager(ctx)
 			reg := regapi.GetRegistry(ctx)
 
-			queuePatterns := []regapi.DependencyPattern{
-				{Path: "data.driver", Description: "Reference to queue driver"},
-				{Path: "data.dead_letter.queue", Description: "Reference to dead-letter queue"},
-			}
-			for _, pattern := range queuePatterns {
-				if err := reg.RegisterDependencyPattern(pattern); err != nil {
-					logger.Warn("failed to register queue dependency pattern", zap.String("path", pattern.Path), zap.Error(err))
-				}
+			if err := reg.RegisterDependencyPattern(regapi.DependencyPattern{
+				Path:        "data.driver",
+				Description: "Reference to queue driver",
+			}); err != nil {
+				logger.Warn("failed to register driver dependency pattern", zap.Error(err))
 			}
 
 			handler := queuesvc.NewDeclarationHandler(

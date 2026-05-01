@@ -23,11 +23,9 @@ func BenchmarkDriver_Publish(b *testing.B) {
 	ctx := context.Background()
 	queueID := registry.ParseID("bench:queue")
 
-	memBag := attrs.NewBag()
-	memBag.Set("max_length", b.N+1000)
-	cfg := &queueapi.Config{DriverOptions: attrs.NewBag()}
-	cfg.DriverOptions.Set("memory", memBag)
-	require.NoError(b, driver.DeclareQueue(ctx, queueID, cfg))
+	opts := attrs.NewBag()
+	opts.Set(queueapi.OptionMaxLength, b.N+1000)
+	require.NoError(b, driver.DeclareQueue(ctx, queueID, opts))
 
 	msg := queueapi.AcquireMessage(payload.New("benchmark message"))
 
@@ -43,15 +41,13 @@ func BenchmarkDriver_PublishParallel(b *testing.B) {
 	ctx := context.Background()
 	queueID := registry.ParseID("bench:queue")
 
-	memBag := attrs.NewBag()
-	memBag.Set("max_length", b.N+100000)
-	cfg := &queueapi.Config{DriverOptions: attrs.NewBag()}
-	cfg.DriverOptions.Set("memory", memBag)
-	require.NoError(b, driver.DeclareQueue(ctx, queueID, cfg))
+	opts := attrs.NewBag()
+	opts.Set(queueapi.OptionMaxLength, b.N+100000)
+	require.NoError(b, driver.DeclareQueue(ctx, queueID, opts))
 
 	// Start consumer to drain the queue
 	deliveries := make(chan *queueapi.Delivery, 10000)
-	cancel, err := driver.Attach(ctx, queueID, nil, deliveries)
+	cancel, err := driver.Attach(ctx, queueID, deliveries)
 	require.NoError(b, err)
 	defer cancel()
 
@@ -76,14 +72,12 @@ func BenchmarkDriver_PublishAndConsume(b *testing.B) {
 	ctx := context.Background()
 	queueID := registry.ParseID("bench:queue")
 
-	memBag := attrs.NewBag()
-	memBag.Set("max_length", 10000)
-	cfg := &queueapi.Config{DriverOptions: attrs.NewBag()}
-	cfg.DriverOptions.Set("memory", memBag)
-	require.NoError(b, driver.DeclareQueue(ctx, queueID, cfg))
+	opts := attrs.NewBag()
+	opts.Set(queueapi.OptionMaxLength, 10000)
+	require.NoError(b, driver.DeclareQueue(ctx, queueID, opts))
 
 	deliveries := make(chan *queueapi.Delivery, 1000)
-	cancel, err := driver.Attach(ctx, queueID, nil, deliveries)
+	cancel, err := driver.Attach(ctx, queueID, deliveries)
 	require.NoError(b, err)
 	defer cancel()
 
@@ -112,12 +106,12 @@ func BenchmarkDriver_AttachDetach(b *testing.B) {
 	ctx := context.Background()
 	queueID := registry.ParseID("bench:queue")
 
-	require.NoError(b, driver.DeclareQueue(ctx, queueID, &queueapi.Config{}))
+	require.NoError(b, driver.DeclareQueue(ctx, queueID, attrs.NewBag()))
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		deliveries := make(chan *queueapi.Delivery, 10)
-		cancel, _ := driver.Attach(ctx, queueID, nil, deliveries)
+		cancel, _ := driver.Attach(ctx, queueID, deliveries)
 		cancel()
 	}
 }
@@ -133,11 +127,9 @@ func TestDriver_StressConcurrentPublish(t *testing.T) {
 	ctx := context.Background()
 	queueID := registry.ParseID("stress:queue")
 
-	memBag := attrs.NewBag()
-	memBag.Set("max_length", 100000)
-	cfg := &queueapi.Config{DriverOptions: attrs.NewBag()}
-	cfg.DriverOptions.Set("memory", memBag)
-	require.NoError(t, driver.DeclareQueue(ctx, queueID, cfg))
+	opts := attrs.NewBag()
+	opts.Set(queueapi.OptionMaxLength, 100000)
+	require.NoError(t, driver.DeclareQueue(ctx, queueID, opts))
 
 	const numGoroutines = 100
 	const messagesPerGoroutine = 1000
@@ -184,11 +176,9 @@ func TestDriver_StressConcurrentConsumers(t *testing.T) {
 	ctx := context.Background()
 	queueID := registry.ParseID("stress:queue")
 
-	memBag := attrs.NewBag()
-	memBag.Set("max_length", 10000)
-	cfg := &queueapi.Config{DriverOptions: attrs.NewBag()}
-	cfg.DriverOptions.Set("memory", memBag)
-	require.NoError(t, driver.DeclareQueue(ctx, queueID, cfg))
+	opts := attrs.NewBag()
+	opts.Set(queueapi.OptionMaxLength, 10000)
+	require.NoError(t, driver.DeclareQueue(ctx, queueID, opts))
 
 	const totalMessages = 10000
 	const numConsumers = 10
@@ -206,7 +196,7 @@ func TestDriver_StressConcurrentConsumers(t *testing.T) {
 
 	for c := 0; c < numConsumers; c++ {
 		deliveries := make(chan *queueapi.Delivery, 100)
-		cancel, err := driver.Attach(consumerCtx, queueID, nil, deliveries)
+		cancel, err := driver.Attach(consumerCtx, queueID, deliveries)
 		require.NoError(t, err)
 
 		go func(deliveries chan *queueapi.Delivery, cancel context.CancelFunc) {
@@ -255,11 +245,9 @@ func TestDriver_StressPublishDuringStop(t *testing.T) {
 	ctx := context.Background()
 	queueID := registry.ParseID("stress:queue")
 
-	memBag := attrs.NewBag()
-	memBag.Set("max_length", 10000)
-	cfg := &queueapi.Config{DriverOptions: attrs.NewBag()}
-	cfg.DriverOptions.Set("memory", memBag)
-	require.NoError(t, driver.DeclareQueue(ctx, queueID, cfg))
+	opts := attrs.NewBag()
+	opts.Set(queueapi.OptionMaxLength, 10000)
+	require.NoError(t, driver.DeclareQueue(ctx, queueID, opts))
 
 	_, err := driver.Start(ctx)
 	require.NoError(t, err)
@@ -299,18 +287,16 @@ func TestDriver_StressNackRequeue(t *testing.T) {
 	ctx := context.Background()
 	queueID := registry.ParseID("stress:queue")
 
-	memBag := attrs.NewBag()
-	memBag.Set("max_length", 100)
-	cfg := &queueapi.Config{DriverOptions: attrs.NewBag()}
-	cfg.DriverOptions.Set("memory", memBag)
-	require.NoError(t, driver.DeclareQueue(ctx, queueID, cfg))
+	opts := attrs.NewBag()
+	opts.Set(queueapi.OptionMaxLength, 100)
+	require.NoError(t, driver.DeclareQueue(ctx, queueID, opts))
 
 	msg := queueapi.AcquireMessage(payload.New("requeue test"))
 	msg.ID = "requeue-msg"
 	require.NoError(t, driver.Publish(ctx, queueID, msg))
 
 	deliveries := make(chan *queueapi.Delivery, 10)
-	cancel, err := driver.Attach(ctx, queueID, nil, deliveries)
+	cancel, err := driver.Attach(ctx, queueID, deliveries)
 	require.NoError(t, err)
 	defer cancel()
 

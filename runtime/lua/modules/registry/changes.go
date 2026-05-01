@@ -3,6 +3,8 @@
 package registry
 
 import (
+	"github.com/wippyai/runtime/system/registry/topology"
+
 	lua "github.com/wippyai/go-lua"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
@@ -166,7 +168,19 @@ func changesApply(l *lua.LState) int {
 		return 2
 	}
 
-	version, applyErr := changes.snapshot.reg.Apply(l.Context(), changes.ops)
+	resolver := regapi.GetResolver(l.Context())
+	stateBuilder := topology.NewStateBuilder(changes.log, resolver)
+	sortedOps, sortErr := stateBuilder.SortChangeSet(changes.snapshot.entries, changes.ops)
+	if sortErr != nil {
+		err := lua.WrapErrorWithLua(l, sortErr, "sort operations").
+			WithKind(lua.Internal).
+			WithRetryable(false)
+		l.Push(lua.LNil)
+		l.Push(err)
+		return 2
+	}
+
+	version, applyErr := changes.snapshot.reg.Apply(l.Context(), sortedOps)
 	if applyErr != nil {
 		err := lua.WrapErrorWithLua(l, applyErr, "apply changes").
 			WithKind(lua.Internal).

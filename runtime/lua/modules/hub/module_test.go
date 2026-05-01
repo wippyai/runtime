@@ -5,8 +5,12 @@ package hub
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -117,22 +121,29 @@ func (f *fakeModuleClient) GetReadme(ctx context.Context, req *connect.Request[m
 var _ modulev1connect.ModuleServiceClient = (*fakeModuleClient)(nil)
 
 type fakeArtifactClient struct {
-	getDownloadFn func(context.Context, *boothub.DownloadParams) (*boothub.DownloadInfo, error)
-	downloadFn    func(context.Context, string, string) error
+	sourcePath string
+	info       *boothub.DownloadInfo
 }
 
-func (f *fakeArtifactClient) GetDownloadURL(ctx context.Context, params *boothub.DownloadParams) (*boothub.DownloadInfo, error) {
-	if f.getDownloadFn != nil {
-		return f.getDownloadFn(ctx, params)
-	}
-	return &boothub.DownloadInfo{URL: "memory://artifact"}, nil
+func (f *fakeArtifactClient) GetDownloadURL(_ context.Context, _ *boothub.DownloadParams) (*boothub.DownloadInfo, error) {
+	return f.info, nil
 }
 
-func (f *fakeArtifactClient) DownloadToFile(ctx context.Context, url, destPath string) error {
-	if f.downloadFn != nil {
-		return f.downloadFn(ctx, url, destPath)
+func (f *fakeArtifactClient) DownloadToFile(_ context.Context, _ string, destPath string) error {
+	src, err := os.Open(f.sourcePath)
+	if err != nil {
+		return err
 	}
-	return errors.New("download not implemented")
+	defer src.Close()
+
+	dst, err := os.Create(destPath)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+
+	_, err = io.Copy(dst, src)
+	return err
 }
 
 func setupContext() context.Context {
@@ -206,43 +217,9 @@ func TestVersionsGetRequiresVersion(t *testing.T) {
 	}
 }
 
-func TestVersionsInspectExtractsRequirementsFromArtifact(t *testing.T) {
-	t.Chdir(t.TempDir())
-	artifact := buildWappBytesForHubModuleTest(t, []wapp.Entry{
-		{
-			ID:   wapp.NewID("wippy.dummy", "router"),
-			Kind: "ns.requirement",
-			Meta: wapp.Metadata{"description": "Router to register endpoints on"},
-			Data: map[string]any{
-				"default": "app:router",
-				"targets": []any{
-					map[string]any{"entry": "wippy.dummy:ping", "path": "meta.router"},
-				},
-			},
-		},
-		{
-			ID:   wapp.NewID("wippy.dummy", "ping"),
-			Kind: "function.lua",
-		},
-	})
-
-	var requested *boothub.DownloadParams
-	var downloads int
-	fake := &fakeArtifactClient{
-		getDownloadFn: func(_ context.Context, params *boothub.DownloadParams) (*boothub.DownloadInfo, error) {
-			requested = params
-			return &boothub.DownloadInfo{
-				URL:     "memory://dummy",
-				Version: "v0.1.2",
-			}, nil
-		},
-		downloadFn: func(_ context.Context, url, destPath string) error {
-			downloads++
-			require.Equal(t, "memory://dummy", url)
-			return os.WriteFile(destPath, artifact, 0600)
-		},
-	}
-
+func TestVersionsInspectReadsRequirementsFromArtifact(t *testing.T) {
+	sourcePath, info := createHubInspectArtifact(t)
+	fake := &fakeArtifactClient{sourcePath: sourcePath, info: info}
 	mod := NewModule(Options{ArtifactClient: fake})
 	l := lua.NewState()
 	defer l.Close()
@@ -251,30 +228,24 @@ func TestVersionsInspectExtractsRequirementsFromArtifact(t *testing.T) {
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
 
-	if err := l.DoString(`
-		local res, err = hub.versions.inspect("wippy/dummy", "v0.1.2")
+	vendorDir := filepath.Join(t.TempDir(), "vendor")
+	script := fmt.Sprintf(`
+		local res, err = hub.versions.inspect("butschster/telegram", "0.3.0", { vendor_dir = %q })
 		if err then error(err) end
-		if res.version ~= "v0.1.2" then error("version mismatch") end
-		if res.entry_count ~= 2 then error("entry_count mismatch") end
-		local cache_path = string.gsub(res.cache_path, "\\", "/")
-		if cache_path ~= ".wippy/vendor/wippy/dummy-v0.1.2.wapp" then error("cache path mismatch: " .. tostring(res.cache_path)) end
-		if res.requirements[1].name ~= "router" then error("requirement name mismatch") end
-		if res.requirements[1].description ~= "Router to register endpoints on" then error("description mismatch") end
-		if res.requirements[1].default ~= "app:router" then error("default mismatch") end
-		if res.requirements[1].targets[1].entry ~= "wippy.dummy:ping" then error("target entry mismatch") end
-		if res.requirements[1].targets[1].path ~= "meta.router" then error("target path mismatch") end
-		local cached, cached_err = hub.versions.inspect("wippy/dummy", "v0.1.2")
-		if cached_err then error(cached_err) end
-		if cached.requirements[1].name ~= "router" then error("cached requirement mismatch") end
-	`); err != nil {
+		if res.version ~= "0.3.0" then error("version mismatch") end
+		if res.entry_count ~= 2 then error("entry count mismatch") end
+		if res.entry_kinds[1] ~= "env.variable" then error("entry kind 1 mismatch: " .. tostring(res.entry_kinds[1])) end
+		if res.entry_kinds[2] ~= "ns.requirement" then error("entry kind 2 mismatch: " .. tostring(res.entry_kinds[2])) end
+		if res.requirements[1].name ~= "env_storage" then error("requirement name mismatch") end
+		if res.requirements[1].description ~= "Environment variable storage" then error("requirement description mismatch") end
+		if res.requirements[1].targets[1].entry ~= "telegram:webhook_url" then error("requirement target entry mismatch") end
+		if res.requirements[1].targets[1].path ~= "storage" then error("requirement target path mismatch") end
+		if res.protected ~= true then error("protected mismatch") end
+	`, vendorDir)
+
+	if err := l.DoString(script); err != nil {
 		t.Fatalf("lua error: %v", err)
 	}
-
-	require.Equal(t, 1, downloads)
-	require.NotNil(t, requested)
-	require.Equal(t, "wippy", requested.Org)
-	require.Equal(t, "dummy", requested.Module)
-	require.Equal(t, "v0.1.2", requested.Version)
 }
 
 func TestDependenciesGetOptionalVersion(t *testing.T) {
@@ -301,6 +272,52 @@ func TestDependenciesGetOptionalVersion(t *testing.T) {
 	}
 }
 
+func createHubInspectArtifact(t *testing.T) (string, *boothub.DownloadInfo) {
+	t.Helper()
+
+	entries := []wapp.Entry{
+		{
+			ID:   wapp.NewID("telegram", "webhook_url"),
+			Kind: "env.variable",
+			Data: map[string]any{
+				"storage": "",
+			},
+		},
+		{
+			ID:   wapp.NewID("telegram", "env_storage"),
+			Kind: "ns.requirement",
+			Meta: wapp.Metadata{
+				"description": "Environment variable storage",
+			},
+			Data: map[string]any{
+				"targets": []any{
+					map[string]any{
+						"entry": "telegram:webhook_url",
+						"path":  "storage",
+					},
+				},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	writer := wapp.NewWriter()
+	require.NoError(t, writer.PackEntries(wapp.Metadata{"name": "telegram"}, entries, &buf))
+
+	path := filepath.Join(t.TempDir(), "telegram.wapp")
+	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0644))
+
+	sum := sha256.Sum256(buf.Bytes())
+	info := &boothub.DownloadInfo{
+		URL:       "test://telegram",
+		Version:   "0.3.0",
+		Digest:    fmt.Sprintf("sha256:%x", sum),
+		Size:      uint64(buf.Len()),
+		Protected: true,
+	}
+	return path, info
+}
+
 func TestHubModule_ModuleClientShortCircuitDoesNotInitializeStore(t *testing.T) {
 	h := newHubModule(Options{
 		ModuleClient: &fakeModuleClient{},
@@ -313,14 +330,6 @@ func TestHubModule_ModuleClientShortCircuitDoesNotInitializeStore(t *testing.T) 
 	_, err := h.moduleClient(l, baseOptions{})
 	require.Nil(t, err)
 	assert.Nil(t, h.store)
-}
-
-func buildWappBytesForHubModuleTest(t *testing.T, entries []wapp.Entry) []byte {
-	t.Helper()
-	var buf bytes.Buffer
-	writer := wapp.NewWriter()
-	require.NoError(t, writer.PackEntries(wapp.Metadata{}, entries, &buf))
-	return buf.Bytes()
 }
 
 func TestHubModule_UsesProvidedAuthStoreLazily(t *testing.T) {

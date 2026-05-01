@@ -5,13 +5,11 @@ package httpclient
 import (
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/go-lua/types/typ"
+	"github.com/wippyai/runtime/runtime/lua/modules/stream"
 )
 
-// StreamReader type for streaming response body
-var streamReaderType = typ.NewInterface("http_client.StreamReader", []typ.Method{
-	{Name: "read", Type: typ.Func().Param("self", typ.Self).Param("size", typ.Number).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
-	{Name: "close", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
-})
+// StreamReader reuses the canonical stream module contract for streaming response bodies.
+var streamReaderType = stream.StreamType
 
 // Response type for HTTP responses
 var responseType = typ.NewRecord().

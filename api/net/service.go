@@ -17,11 +17,7 @@ type Listener interface {
 	Listen(ctx context.Context, network, address string) (net.Listener, error)
 }
 
-// TLSListener is implemented by overlay drivers that can terminate TLS
-// using a driver-managed certificate (e.g. tsnet's Tailscale-issued
-// LetsEncrypt cert). Drivers that cannot should not implement this;
-// consumers must type-assert and fall back to plain Listen wrapped with
-// the caller's own tls.Config when auto-TLS is unavailable.
+// TLSListener abstracts binding to TLS-enabled network listeners.
 type TLSListener interface {
 	ListenTLS(ctx context.Context, network, address string) (net.Listener, error)
 }

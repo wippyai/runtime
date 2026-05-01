@@ -14,7 +14,6 @@ local function main()
 	})
 	assert.is_nil(err, "POST should not error")
 	assert.eq(resp.status_code, 200, "POST status 200")
-	assert.not_nil(resp.body, "response body present")
 
 	local result = json.decode(resp.body)
 	assert.is_nil(result.parse_error, "no parse error")

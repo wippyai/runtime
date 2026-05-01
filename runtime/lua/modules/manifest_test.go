@@ -99,6 +99,17 @@ func TestModuleTypes_ReturnsWithError(t *testing.T) {
 	}
 }
 
+func TestHTTPClientStreamReader_ReadSizeIsOptional(t *testing.T) {
+	iface := interfaceFromManifest(t, httpclient.ModuleTypes(), "StreamReader")
+	fn := lookupMethod(t, iface, "read")
+	if len(fn.Params) != 2 {
+		t.Fatalf("expected read(self, size?), got %d params", len(fn.Params))
+	}
+	if !fn.Params[1].Optional {
+		t.Fatalf("expected read size param to be optional, got %v", fn.Params[1])
+	}
+}
+
 func TestCryptoSubmodules_ReturnsWithError(t *testing.T) {
 	checks := []recordFieldCheck{
 		{name: "crypto.random.bytes", manifest: crypto.ModuleTypes(), field: "random", method: "bytes"},

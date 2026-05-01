@@ -6,18 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/event"
 	fsapi "github.com/wippyai/runtime/api/fs"
-	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	dirapi "github.com/wippyai/runtime/api/service/fs/directory"
@@ -27,9 +24,8 @@ import (
 
 // MockFactory is a mock implementation of FactoryAPI for testing.
 type MockFactory struct {
-	mockFS  fsapi.FS
-	err     error
-	Configs []CreateFSConfig
+	mockFS fsapi.FS
+	err    error
 }
 
 func NewMockFactory(mockFS fsapi.FS, err error) *MockFactory {
@@ -39,8 +35,7 @@ func NewMockFactory(mockFS fsapi.FS, err error) *MockFactory {
 	}
 }
 
-func (f *MockFactory) CreateFS(cfg CreateFSConfig) (fsapi.FS, error) {
-	f.Configs = append(f.Configs, cfg)
+func (f *MockFactory) CreateFS(CreateFSConfig) (fsapi.FS, error) {
 	return f.mockFS, f.err
 }
 
@@ -125,21 +120,13 @@ func (m *MockTranscoder) Marshal(_ any) ([]byte, error) {
 	return m.mockData, nil
 }
 
-func (m *MockTranscoder) Unmarshal(p payload.Payload, v any) error {
+func (m *MockTranscoder) Unmarshal(_ payload.Payload, v any) error {
 	if m.unmarshalError != nil {
 		return m.unmarshalError
 	}
 
 	// For simplicity, mock implementation that sets predefined values
 	if cfg, ok := v.(*dirapi.Config); ok {
-		switch data := p.Data().(type) {
-		case *dirapi.Config:
-			*cfg = *data
-			return nil
-		case dirapi.Config:
-			*cfg = data
-			return nil
-		}
 		cfg.Directory = "/tmp/test"
 		cfg.Mode = "0755"
 	}
@@ -491,92 +478,6 @@ func TestManager_RegisterFS(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for fs registration event")
 	}
-}
-
-func TestResolveDirectoryPath(t *testing.T) {
-	moduleRoot := t.TempDir()
-	ctx := ctxapi.NewRootContext()
-	ctx = moduleapi.WithSourceRoots(ctx, moduleapi.SourceRoots{
-		"acme/ui": moduleRoot,
-	})
-
-	entry := registry.Entry{
-		ID: registry.NewID("acme.ui", "static_fs"),
-		Meta: attrs.NewBagFrom(map[string]any{
-			"module": "acme/ui",
-		}),
-	}
-
-	tests := []struct {
-		name string
-		cfg  *dirapi.Config
-		want string
-	}{
-		{
-			name: "project default remains working-directory relative",
-			cfg:  &dirapi.Config{Directory: "./frontend"},
-			want: "./frontend",
-		},
-		{
-			name: "project base remains working-directory relative",
-			cfg:  &dirapi.Config{Directory: "./frontend", Base: dirapi.BaseProject},
-			want: "./frontend",
-		},
-		{
-			name: "module base resolves against module source root",
-			cfg:  &dirapi.Config{Directory: "./static/app", Base: dirapi.BaseModule},
-			want: filepath.Join(moduleRoot, "static/app"),
-		},
-		{
-			name: "absolute module path is preserved",
-			cfg:  &dirapi.Config{Directory: "/srv/static", Base: dirapi.BaseModule},
-			want: "/srv/static",
-		},
-		{
-			name: "module base without module metadata falls back to raw path",
-			cfg:  &dirapi.Config{Directory: "./static/app", Base: dirapi.BaseModule},
-			want: "./static/app",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			testEntry := entry
-			if tt.name == "module base without module metadata falls back to raw path" {
-				testEntry.Meta = nil
-			}
-			assert.Equal(t, tt.want, resolveDirectoryPath(ctx, testEntry, tt.cfg))
-		})
-	}
-}
-
-func TestManager_AddUsesModuleBaseForDirectoryPath(t *testing.T) {
-	moduleRoot := t.TempDir()
-	ctx := ctxapi.NewRootContext()
-	ctx = moduleapi.WithSourceRoots(ctx, moduleapi.SourceRoots{
-		"acme/ui": moduleRoot,
-	})
-
-	factory := NewMockFactory(&MockFS{}, nil)
-	manager := NewDirectoryManager(eventbus.NewBus(), &MockTranscoder{}, factory, zap.NewNop())
-
-	entry := registry.Entry{
-		ID:   registry.NewID("acme.ui", "static_fs"),
-		Kind: dirapi.Kind,
-		Meta: attrs.NewBagFrom(map[string]any{
-			"module": "acme/ui",
-		}),
-		Data: NewMockPayload(&dirapi.Config{
-			Directory: "./static/app",
-			Base:      dirapi.BaseModule,
-			Mode:      "0755",
-		}),
-	}
-
-	err := manager.Add(ctx, entry)
-	require.NoError(t, err)
-	require.Len(t, factory.Configs, 1)
-	assert.Equal(t, filepath.Join(moduleRoot, "static/app"), factory.Configs[0].DirPath)
 }
 
 // Add test for factory error handling

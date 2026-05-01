@@ -27,16 +27,13 @@ func Composite() boot.Component {
 			bus := event.GetBus(ctx)
 			handlers := bootpkg.GetHandlerRegistry(ctx)
 			reg := regapi.GetRegistry(ctx)
+
 			if reg != nil {
-				err := reg.RegisterDependencyPattern(regapi.DependencyPattern{
-					Path:          "data.storages",
-					Description:   "Environment router backing storages",
-					AllowWildcard: true,
-				})
-				if err != nil {
-					logger.Warn("failed to register env router dependency pattern",
-						zap.String("path", "data.storages"),
-						zap.Error(err))
+				if err := reg.RegisterDependencyPattern(regapi.DependencyPattern{
+					Path:        "data.storages",
+					Description: "References to environment storages",
+				}); err != nil {
+					logger.Warn("failed to register env router dependency pattern", zap.Error(err))
 				}
 			}
 

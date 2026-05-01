@@ -11,7 +11,6 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	queuecfg "github.com/wippyai/runtime/api/service/queue/queue"
 	entryutil "github.com/wippyai/runtime/internal/entry"
-	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
@@ -77,25 +76,11 @@ func (h *DeclarationHandler) addOrUpdateQueue(ctx context.Context, entry registr
 		return NewDriverNotFoundError(cfg.Driver)
 	}
 
-	name := entry.ID.Name
-	if cfg.QueueName != "" {
-		name = cfg.QueueName
-	}
 	queue := &queueapi.Queue{
 		ID:       entry.ID,
 		DriverID: cfg.Driver,
-		Name:     name,
-		Config:   cfg,
-	}
-
-	// Subscribe before Send so we can't lose the accept/reject the manager
-	// emits once it finishes driving DeclareQueue on the backend. Without the
-	// wait, the entry runner proceeds to the consumer before the queue is
-	// registered in the manager and fails with "queue not found".
-	waiter, err := eventbus.NewAwaiter(h.bus, queueapi.System, "queue.(accept|reject)").
-		Prepare(ctx, entry.ID.String())
-	if err != nil {
-		return NewConfigError("failed to subscribe to queue declare response", err)
+		Name:     entry.ID.Name,
+		Options:  cfg.Options,
 	}
 
 	h.bus.Send(ctx, event.Event{
@@ -104,14 +89,6 @@ func (h *DeclarationHandler) addOrUpdateQueue(ctx context.Context, entry registr
 		Path:   entry.ID.String(),
 		Data:   queue,
 	})
-
-	result := waiter.Wait()
-	if result.Error != nil {
-		h.logger.Error("queue declare rejected",
-			zap.String("id", entry.ID.String()),
-			zap.Error(result.Error))
-		return NewConfigError("queue declare rejected", result.Error)
-	}
 
 	h.logger.Info("queue "+action,
 		zap.String("id", entry.ID.String()),

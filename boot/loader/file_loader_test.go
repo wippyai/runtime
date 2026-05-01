@@ -28,19 +28,18 @@ func TestFileLoader_SkipTemporalDirs(t *testing.T) {
 	assert.Equal(t, "test/other/case.yaml", results[0].Source())
 }
 
-func TestFileLoader_SkipSQSDirs(t *testing.T) {
-	t.Setenv("SKIP_SQS_TESTS", "1")
-
+func TestFileLoader_SkipsNodeModules(t *testing.T) {
 	loader := NewFileLoader(zap.NewNop())
 	fsys := fstest.MapFS{
-		"test/sqs/case.yaml":   &fstest.MapFile{Data: []byte("k: v")},
-		"test/other/case.yaml": &fstest.MapFile{Data: []byte("k: v")},
+		"_index.yaml":                  &fstest.MapFile{Data: []byte("version: \"1.0\"\nnamespace: app\nentries: []\n")},
+		"node_modules/pkg/config.json": &fstest.MapFile{Data: []byte(`{"name":"not-a-wippy-entry"}`)},
+		"src/node_modules/pkg/x.yaml":  &fstest.MapFile{Data: []byte("not: loaded\n")},
 	}
 
 	results, err := loader.LoadFS(fsys)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.Equal(t, "test/other/case.yaml", results[0].Source())
+	assert.Equal(t, "_index.yaml", results[0].Source())
 }
 
 func TestFileLoader(t *testing.T) {

@@ -26,13 +26,11 @@ Downloads and installs all modules specified in the lock file.
 If the lock file is missing, runs 'wippy init' followed by 'wippy update'.
 
 Modules are installed to the vendor directory specified in the lock file.
-Local replacements are validated by the lock file and skipped by install because
-the runtime loads those modules directly from their replacement paths.
 
 When module names are provided as arguments, only those modules are processed.
 Use with --refresh to re-download modules when cache might be stale:
   wippy install --refresh
-  wippy install --refresh acme/ui wippy/relay`,
+  wippy install --refresh keeper/keeper wippy/relay`,
 	RunE: runInstall,
 }
 
@@ -78,29 +76,35 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 
-	selection := selectInstallModules(lockObj, args, logger)
-	modules := selection.modules
-	if len(args) > 0 && selection.matched == 0 {
-		logger.Warn("no matching modules found in lock file", zap.Strings("requested", args))
-		return nil
-	}
+	modules := lockObj.GetModules()
 	if len(modules) == 0 {
-		if selection.skippedReplaced > 0 {
-			logger.Info("all selected modules are local replacements; nothing to install",
-				zap.Int("skipped_replaced", selection.skippedReplaced))
-		} else {
-			logger.Info("no remote modules to install")
-		}
+		logger.Info("no modules to install")
 		return nil
 	}
+
+	// Filter modules if specific modules are requested
 	if len(args) > 0 {
-		logger.Info("installing specific remote modules",
-			zap.Int("count", len(modules)),
-			zap.Int("skipped_replaced", selection.skippedReplaced))
+		targetModules := make(map[string]bool)
+		for _, arg := range args {
+			targetModules[arg] = true
+		}
+
+		filtered := make([]lock.Module, 0)
+		for _, mod := range modules {
+			if targetModules[mod.Name] {
+				filtered = append(filtered, mod)
+			}
+		}
+
+		if len(filtered) == 0 {
+			logger.Warn("no matching modules found in lock file", zap.Strings("requested", args))
+			return nil
+		}
+
+		modules = filtered
+		logger.Info("installing specific modules", zap.Int("count", len(modules)))
 	} else {
-		logger.Info("remote modules to install",
-			zap.Int("count", len(modules)),
-			zap.Int("skipped_replaced", selection.skippedReplaced))
+		logger.Info("modules to install", zap.Int("count", len(modules)))
 	}
 
 	// Get auth credentials
@@ -129,7 +133,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	lockDir := filepath.Dir(lockObj.Path())
 	vendorPath := lockObj.GetVendorPath()
-	vendorDir := lock.ResolveLockPath(lockDir, vendorPath)
+	vendorDir := filepath.Join(lockDir, vendorPath)
 	shouldUnpack := lockObj.ShouldUnpackModules()
 
 	refresh := shouldBypassInstallCache(cmd)
@@ -234,7 +238,6 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	logFields := []zap.Field{
 		zap.Int("installed", installed),
 		zap.Int("cached", cached),
-		zap.Int("skipped_replaced", selection.skippedReplaced),
 		zap.Int("total", len(modules)),
 	}
 	logger.Info(logMsg, logFields...)
@@ -243,49 +246,6 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
-}
-
-type installSelection struct {
-	modules         []lock.Module
-	matched         int
-	skippedReplaced int
-}
-
-func selectInstallModules(lockObj *lock.Lock, requested []string, logger *zap.Logger) installSelection {
-	if logger == nil {
-		logger = zap.NewNop()
-	}
-	if lockObj == nil {
-		return installSelection{}
-	}
-
-	var requestedSet map[string]bool
-	if len(requested) > 0 {
-		requestedSet = make(map[string]bool, len(requested))
-		for _, name := range requested {
-			requestedSet[name] = true
-		}
-	}
-
-	selection := installSelection{}
-	for _, module := range lockObj.GetModules() {
-		if requestedSet != nil && !requestedSet[module.Name] {
-			continue
-		}
-		selection.matched++
-
-		if repl, ok := lockObj.GetReplacement(module.Name); ok {
-			logger.Info("module is replaced by local source; skipping install",
-				zap.String("module", module.Name),
-				zap.String("replacement", repl.To))
-			selection.skippedReplaced++
-			continue
-		}
-
-		selection.modules = append(selection.modules, module)
-	}
-
-	return selection
 }
 
 func shouldBypassInstallCache(cmd *cobra.Command) bool {

@@ -366,7 +366,7 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 	fromState := NewStateMap(from)
 	toState := NewStateMap(to)
 
-	operations := make(registry.ChangeSet, 0, len(from)+len(to))
+	var operations []registry.Operation
 
 	// Find deletes (entries in 'from' but not in 'to')
 	for _, fromEntry := range from {
@@ -396,5 +396,67 @@ func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, 
 		}
 	}
 
-	return b.SortChangeSet(from, operations)
+	// Separate deletes from creates/updates
+	var deleteOps, otherOps []registry.Operation
+	for _, op := range operations {
+		if op.Kind == registry.EntryDelete {
+			deleteOps = append(deleteOps, op)
+		} else {
+			otherOps = append(otherOps, op)
+		}
+	}
+
+	result := make(registry.ChangeSet, 0, len(operations))
+
+	// Sort deletes: use entries from 'from' state to get proper dependency order
+	if len(deleteOps) > 0 {
+		deleteEntries := make([]registry.Entry, 0, len(deleteOps))
+		for _, op := range deleteOps {
+			deleteEntries = append(deleteEntries, op.Entry)
+		}
+
+		sortedDeletes, err := SortEntriesByDependency(deleteEntries, b.resolver)
+		if err != nil {
+			return nil, err
+		}
+
+		// Reverse order: dependents must be deleted before their dependencies
+		deleteByID := make(map[registry.ID]registry.Operation, len(deleteOps))
+		for _, op := range deleteOps {
+			deleteByID[op.Entry.ID] = op
+		}
+
+		for i := len(sortedDeletes) - 1; i >= 0; i-- {
+			entry := sortedDeletes[i]
+			if op, ok := deleteByID[entry.ID]; ok {
+				result = append(result, op)
+			}
+		}
+	}
+
+	// Sort creates/updates: use entries as-is for proper dependency order
+	if len(otherOps) > 0 {
+		otherEntries := make([]registry.Entry, 0, len(otherOps))
+		for _, op := range otherOps {
+			otherEntries = append(otherEntries, op.Entry)
+		}
+
+		sortedOthers, err := SortEntriesByDependency(otherEntries, b.resolver)
+		if err != nil {
+			return nil, err
+		}
+
+		otherByID := make(map[registry.ID]registry.Operation, len(otherOps))
+		for _, op := range otherOps {
+			otherByID[op.Entry.ID] = op
+		}
+
+		for _, entry := range sortedOthers {
+			if op, ok := otherByID[entry.ID]; ok {
+				result = append(result, op)
+			}
+		}
+	}
+
+	return result, nil
 }

@@ -10,30 +10,25 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 )
 
-// Neutral message headers — application metadata carried verbatim by
-// every driver. Broker-specific concepts (priority, ttl, delay, partition
-// key, dedup, etc.) live under driver-prefixed keys (e.g. "amqp.priority",
-// "sqs.delay_seconds", "kafka.key") because their semantics don't
-// cross-map cleanly.
+// HeaderTimestamp is a standard message header key
 const (
-	HeaderTimestamp     = "timestamp"
-	HeaderCorrelationID = "correlation_id"
-	HeaderReplyTo       = "reply_to"
-	HeaderContentType   = "content_type"
-	HeaderMessageType   = "message_type"
-	HeaderEncoding      = "encoding"
-	HeaderSchema        = "schema"
-	HeaderSource        = "source"
+	HeaderTimestamp     = "timestamp"      // Message creation timestamp
+	HeaderPriority      = "priority"       // Message priority (0-9, higher = more important)
+	HeaderTTL           = "ttl"            // Time to live in seconds
+	HeaderCorrelationID = "correlation_id" // For request-response correlation
+	HeaderReplyTo       = "reply_to"       // Queue name for responses
+	HeaderContentType   = "content_type"   // MIME type of body
+	HeaderEncoding      = "encoding"       // Body/content encoding
+	HeaderMessageType   = "message_type"   // Application-specific message type
 
-	// W3C Trace Context.
-	HeaderTraceparent = "traceparent"
-	HeaderTracestate  = "tracestate"
+	// HeaderTraceparent is a W3C Trace Context header
+	HeaderTraceparent = "traceparent" // W3C trace context
+	HeaderTracestate  = "tracestate"  // W3C trace state
 
-	// Dead-letter bookkeeping written by the manager layer.
-	HeaderAttempts         = "attempts"
-	HeaderOriginalQueue    = "x_original_queue"
-	HeaderDeadLetterReason = "x_dead_letter_reason"
-	HeaderDeadLetterTime   = "x_dead_letter_time"
+	// HeaderOriginalQueue is a dead letter queue header
+	HeaderOriginalQueue    = "x_original_queue"     // Original queue name
+	HeaderDeadLetterReason = "x_dead_letter_reason" // Why message was dead-lettered
+	HeaderDeadLetterTime   = "x_dead_letter_time"   // When message was dead-lettered
 )
 
 // Message represents a queue message

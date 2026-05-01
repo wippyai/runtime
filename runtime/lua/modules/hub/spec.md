@@ -58,9 +58,15 @@ Options:
 Fetch a specific version by `version` or `{ id, version, label }`.
 
 ### `hub.versions.inspect(module, version, opts?)`
-Download and inspect a version artifact by `version` or `{ id, version, label }`.
-Artifacts are cached under `.wippy/vendor` and verified before reuse.
-Returns artifact-derived metadata including `{ version, digest, size_bytes, entry_count, entry_kinds, requirements, cache_path }`.
+Download or reuse the cached version artifact and inspect its registry entries.
+This is useful when catalog metadata says a package contains requirements but
+does not include their target details.
+
+Options:
+- `vendor_dir`: artifact cache directory, defaults to `.wippy/vendor`
+- `registry`, `token`, `timeout`
+
+Returns `{ version, digest, path, size_bytes, entry_count, entry_kinds, requirements, protected }`.
 
 ### `hub.dependencies.get(module, version?, opts?)`
 Get dependencies for a module version.

@@ -87,7 +87,8 @@ type (
 		memGraph    *MemoryGraph
 		compiler    *Compiler
 		typeChecker *TypeChecker
-		txAffected  map[registry.ID]bool
+		txNodes     map[registry.ID]bool
+		txDeleted   map[registry.ID]bool
 		typeCfgHash string
 		builtinHash string
 		cacheCfg    cache.Config
@@ -122,7 +123,8 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 		bus:         bus,
 		memGraph:    NewMemoryGraph(),
 		typeChecker: typeChecker,
-		txAffected:  make(map[registry.ID]bool),
+		txNodes:     make(map[registry.ID]bool),
+		txDeleted:   make(map[registry.ID]bool),
 		cacheCfg:    cacheCfg,
 		typeCfgHash: TypecheckConfigHash(cfg.TypeCheck),
 	}
@@ -271,14 +273,49 @@ func NewCodeManager(log *zap.Logger, bus event.Bus, cfg Config) (*Manager, error
 func (cm *Manager) Begin(_ context.Context) {
 	cm.txMu.Lock()
 	defer cm.txMu.Unlock()
-	cm.txAffected = make(map[registry.ID]bool)
+	cm.txNodes = make(map[registry.ID]bool)
+	cm.txDeleted = make(map[registry.ID]bool)
 }
 
 // Commit implements TransactionListener
 func (cm *Manager) Commit(ctx context.Context) {
 	cm.txMu.Lock()
-	affected := cm.txAffected
-	cm.txAffected = make(map[registry.ID]bool)
+	// Get all affected nodes
+	affected := make(map[registry.ID]bool)
+	for id := range cm.txNodes {
+		// Get node and its dependencies
+		_, err := cm.memGraph.GetNode(id)
+		if err != nil {
+			if cm.txDeleted[id] {
+				// Deleted nodes are intentionally no longer present at commit time.
+				// They still need to be invalidated so call pools and compiled mains
+				// cannot continue serving stale code.
+				affected[id] = true
+			} else {
+				cm.log.Error("failed to get node", zap.Error(err))
+			}
+			continue
+		}
+
+		// Mark node as affected
+		affected[id] = true
+
+		// Get all dependents
+		deps, err := cm.memGraph.GetAllDependents(id)
+		if err != nil {
+			cm.log.Error("failed to get dependents", zap.Error(err))
+			continue
+		}
+
+		// Mark all dependents as affected
+		for _, dep := range deps {
+			affected[dep.ID] = true
+		}
+	}
+
+	// Clear transaction nodes
+	cm.txNodes = make(map[registry.ID]bool)
+	cm.txDeleted = make(map[registry.ID]bool)
 	cm.txMu.Unlock()
 
 	// to slice of []registry.Process
@@ -299,25 +336,8 @@ func (cm *Manager) Commit(ctx context.Context) {
 func (cm *Manager) Discard(_ context.Context) {
 	cm.txMu.Lock()
 	defer cm.txMu.Unlock()
-	cm.txAffected = make(map[registry.ID]bool)
-}
-
-func (cm *Manager) markTransactionAffected(ids ...registry.ID) {
-	cm.txMu.Lock()
-	defer cm.txMu.Unlock()
-
-	for _, id := range ids {
-		cm.txAffected[id] = true
-	}
-}
-
-func (cm *Manager) affectedIDs(id registry.ID, dependents []*Node) []registry.ID {
-	ids := make([]registry.ID, 0, len(dependents)+1)
-	ids = append(ids, id)
-	for _, dep := range dependents {
-		ids = append(ids, dep.ID)
-	}
-	return ids
+	cm.txNodes = make(map[registry.ID]bool)
+	cm.txDeleted = make(map[registry.ID]bool)
 }
 
 // Compile compiles a main entry point and its dependencies
@@ -365,7 +385,10 @@ func (cm *Manager) AddNode(_ context.Context, node Node, deps []Import) error {
 		}
 	}
 
-	cm.markTransactionAffected(node.ID)
+	// Mark node for transaction
+	cm.txMu.Lock()
+	cm.txNodes[node.ID] = true
+	cm.txMu.Unlock()
 
 	return nil
 }
@@ -425,8 +448,10 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 		}
 	}
 
-	affectedIDs := cm.affectedIDs(node.ID, dependents)
-	cm.markTransactionAffected(affectedIDs...)
+	// Mark node for transaction
+	cm.txMu.Lock()
+	cm.txNodes[node.ID] = true
+	cm.txMu.Unlock()
 
 	// Calculate all dependents for cache invalidation
 	if depErr != nil {
@@ -435,8 +460,15 @@ func (cm *Manager) UpdateNode(_ context.Context, node Node, deps []Import) error
 			zap.Error(depErr))
 	}
 
+	invalidateIDs := make([]registry.ID, 0, len(dependents)+1)
+	invalidateIDs = append(invalidateIDs, node.ID)
+
+	for _, dep := range dependents {
+		invalidateIDs = append(invalidateIDs, dep.ID)
+	}
+
 	// Invalidate cache
-	cm.compiler.Invalidate(affectedIDs)
+	cm.compiler.Invalidate(invalidateIDs)
 
 	if oldCompileFPs != nil || oldTypecheckFPs != nil {
 		cm.deleteCacheFingerprints(oldCompileFPs, oldTypecheckFPs)
@@ -466,21 +498,33 @@ func (cm *Manager) DeleteNode(_ context.Context, id registry.ID) error {
 	var oldCompileFPs map[registry.ID]string
 	var oldTypecheckFPs map[registry.ID]string
 	if cm.cacheAllowsWrite() {
-		oldCompileFPs = cm.compileFingerprints([]registry.ID{id})
-		oldTypecheckFPs = cm.typecheckFingerprints([]registry.ID{id})
+		invalidateIDs := make([]registry.ID, 0, len(dependents)+1)
+		invalidateIDs = append(invalidateIDs, id)
+		for _, dep := range dependents {
+			invalidateIDs = append(invalidateIDs, dep.ID)
+		}
+		oldCompileFPs = cm.compileFingerprints(invalidateIDs)
+		oldTypecheckFPs = cm.typecheckFingerprints(invalidateIDs)
 	}
 
 	if err := cm.memGraph.RemoveNode(id); err != nil {
 		return NewRemoveNodeError(err)
 	}
 
+	// Mark node for transaction
+	cm.txMu.Lock()
+	cm.txNodes[id] = true
+	cm.txDeleted[id] = true
+	for _, dep := range dependents {
+		cm.txNodes[dep.ID] = true
+	}
+	cm.txMu.Unlock()
+
 	if depErr != nil {
-		cm.log.Warn("failed to get dependents for transaction invalidation",
+		cm.log.Warn("failed to get dependents for delete invalidation",
 			zap.Stringer("node", &id),
 			zap.Error(depErr))
 	}
-
-	cm.markTransactionAffected(cm.affectedIDs(id, dependents)...)
 
 	if oldCompileFPs != nil || oldTypecheckFPs != nil {
 		cm.deleteCacheFingerprints(oldCompileFPs, oldTypecheckFPs)
@@ -596,7 +640,9 @@ func (cm *Manager) AddNodeWithProto(_ context.Context, node Node, deps []Import,
 		cm.compiler.SetProto(node.ID, proto)
 	}
 
-	cm.markTransactionAffected(node.ID)
+	cm.txMu.Lock()
+	cm.txNodes[node.ID] = true
+	cm.txMu.Unlock()
 
 	return nil
 }
@@ -632,6 +678,10 @@ func (cm *Manager) UpdateNodeWithProto(_ context.Context, node Node, deps []Impo
 		}
 	}
 
+	cm.txMu.Lock()
+	cm.txNodes[node.ID] = true
+	cm.txMu.Unlock()
+
 	dependents, err := cm.memGraph.GetAllDependents(node.ID)
 	if err != nil {
 		cm.log.Warn("failed to get dependents for cache invalidation",
@@ -639,9 +689,12 @@ func (cm *Manager) UpdateNodeWithProto(_ context.Context, node Node, deps []Impo
 			zap.Error(err))
 	}
 
-	affectedIDs := cm.affectedIDs(node.ID, dependents)
-	cm.markTransactionAffected(affectedIDs...)
-	cm.compiler.Invalidate(affectedIDs)
+	invalidateIDs := make([]registry.ID, 0, len(dependents)+1)
+	invalidateIDs = append(invalidateIDs, node.ID)
+	for _, dep := range dependents {
+		invalidateIDs = append(invalidateIDs, dep.ID)
+	}
+	cm.compiler.Invalidate(invalidateIDs)
 
 	// Inject updated proto into compiler cache
 	if proto != nil {

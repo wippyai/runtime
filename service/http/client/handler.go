@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
-	"net"
 	gohttp "net/http"
 	"net/url"
 	"strings"
@@ -17,11 +16,8 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	netapi "github.com/wippyai/runtime/api/net"
-	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime/resource"
 	httpapi "github.com/wippyai/runtime/api/service/http"
-	"github.com/wippyai/runtime/runtime/security"
 	streamhandler "github.com/wippyai/runtime/system/stream"
 )
 
@@ -35,30 +31,18 @@ func WithPoolConfig(cfg PoolConfig) Option {
 	}
 }
 
-// WithNetworkRegistry sets the network registry for overlay network resolution.
-func WithNetworkRegistry(reg netapi.NetworkRegistry) Option {
-	return func(d *Dispatcher) {
-		d.networkReg = reg
-	}
-}
-
 // PoolConfig configures the HTTP client pool.
 type PoolConfig struct {
 	Timeout         time.Duration
 	MaxIdleConns    int
 	MaxIdlePerHost  int
 	IdleConnTimeout time.Duration
-	// MaxClients caps the number of distinct pooled client entries. When
-	// the cap is exceeded the least-recently-used entry is evicted and its
-	// idle connections are closed. Zero means unbounded.
-	MaxClients int
 }
 
 // Dispatcher handles HTTP client commands.
 type Dispatcher struct {
-	networkReg netapi.NetworkRegistry
-	pool       *Pool
-	poolCfg    PoolConfig
+	pool    *Pool
+	poolCfg PoolConfig
 }
 
 // NewDispatcher creates a new HTTP client dispatcher.
@@ -67,7 +51,7 @@ func NewDispatcher(opts ...Option) *Dispatcher {
 	for _, opt := range opts {
 		opt(d)
 	}
-	if d.poolCfg.Timeout > 0 || d.poolCfg.MaxIdleConns > 0 || d.poolCfg.MaxClients > 0 {
+	if d.poolCfg.Timeout > 0 || d.poolCfg.MaxIdleConns > 0 {
 		d.pool = NewClientPoolWithConfig(d.poolCfg)
 	} else {
 		d.pool = NewClientPool()
@@ -93,10 +77,9 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 
 func (d *Dispatcher) handleRequest(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	req := cmd.(*httpapi.RequestCmd)
-	networkReg := d.networkReg
 
 	go func() {
-		result := executeRequest(ctx, d.pool, networkReg, req, true)
+		result := executeRequest(ctx, d.pool, req, true)
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, result, nil)
 		}
@@ -107,7 +90,6 @@ func (d *Dispatcher) handleRequest(ctx context.Context, cmd dispatcher.Command, 
 
 func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	batch := cmd.(*httpapi.RequestBatchCmd)
-	networkReg := d.networkReg
 
 	if len(batch.Requests) == 0 {
 		receiver.CompleteYield(tag, httpapi.BatchResponse{Responses: []httpapi.Response{}}, nil)
@@ -122,7 +104,7 @@ func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Comm
 		for i, req := range batch.Requests {
 			go func(idx int, req *httpapi.RequestCmd) {
 				defer wg.Done()
-				responses[idx] = executeRequest(ctx, d.pool, networkReg, req, false)
+				responses[idx] = executeRequest(ctx, d.pool, req, false)
 			}(i, req)
 		}
 
@@ -138,43 +120,8 @@ func (d *Dispatcher) handleRequestBatch(ctx context.Context, cmd dispatcher.Comm
 
 const defaultMaxResponseBody int64 = 120 * 1024 * 1024 // 120MB default limit
 
-// checkOverlayPrivateIP validates that the request URL does not target a
-// private/loopback/link-local IP literal when routed through an overlay network.
-//
-// IMPORTANT: This function intentionally does NOT resolve DNS for hostnames.
-// Overlay networks (Tor, I2P) resolve DNS at the exit node / remote end.
-// Performing local DNS resolution here would leak the target hostname to the
-// local DNS resolver, defeating the privacy guarantees of the overlay.
-//
-// Only literal IP addresses (e.g. http://127.0.0.1/) are checked.
-// Hostnames are passed through to the overlay for remote resolution.
-func checkOverlayPrivateIP(ctx context.Context, rawURL string) error {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return nil
-	}
-	host := u.Hostname()
-	if host == "" {
-		return nil
-	}
-
-	// Only check literal IP addresses — never resolve DNS for overlay traffic.
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return nil // hostname — let the overlay resolve it remotely
-	}
-
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
-		if !security.IsAllowed(ctx, "http_client.private_ip", host, nil) {
-			return fmt.Errorf("not allowed: private IP %s via overlay network", host)
-		}
-	}
-	return nil
-}
-
 // executeRequest performs a single HTTP request and returns the response.
-func executeRequest(ctx context.Context, pool *Pool, networkReg netapi.NetworkRegistry, req *httpapi.RequestCmd, allowStream bool) httpapi.Response {
+func executeRequest(ctx context.Context, pool *Pool, req *httpapi.RequestCmd, allowStream bool) httpapi.Response {
 	reqURL := req.URL
 	if len(req.Query) > 0 {
 		u, err := url.Parse(reqURL)
@@ -249,34 +196,8 @@ func executeRequest(ctx context.Context, pool *Pool, networkReg netapi.NetworkRe
 		httpReq.SetBasicAuth(req.BasicAuthUser, req.BasicAuthPass)
 	}
 
-	// Resolve overlay network: explicit per-request > function default > clearnet
-	overlayID := req.OverlayNetwork
-	if overlayID == "" {
-		overlayID = netapi.GetDefaultNetwork(ctx)
-	}
-
 	var client *gohttp.Client
-	if overlayID != "" {
-		// Refuse to silently fall back to clearnet when an overlay is asked
-		// for but the registry is missing — that would leak DNS and the
-		// target IP to the local network.
-		if networkReg == nil {
-			return httpapi.Response{Error: fmt.Sprintf("overlay network %q requested but network registry is not configured", overlayID)}
-		}
-
-		// SSRF protection: overlay dialers resolve DNS internally, so check
-		// the target URL against private IP ranges before handing off.
-		if err := checkOverlayPrivateIP(ctx, reqURL); err != nil {
-			return httpapi.Response{Error: err.Error()}
-		}
-
-		nid := registry.ParseID(overlayID)
-		netSvc, netErr := networkReg.GetNetwork(nid)
-		if netErr != nil {
-			return httpapi.Response{Error: fmt.Sprintf("overlay network %q: %v", overlayID, netErr)}
-		}
-		client = pool.GetClientWithDialer(req.Timeout, overlayID, netSvc)
-	} else if req.TLS != nil {
+	if req.TLS != nil {
 		var tlsErr error
 		client, tlsErr = pool.GetClientWithTLS(req.Timeout, req.UnixSocket, req.TLS)
 		if tlsErr != nil {

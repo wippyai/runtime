@@ -12,7 +12,6 @@ import (
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
-	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootpkg "github.com/wippyai/runtime/boot"
@@ -56,7 +55,6 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 	}
 
 	modulePaths := lockObj.GetModuleLoadPaths()
-	registerModuleSourceRoots(ctx, modulePaths)
 	flatPaths := make([]string, len(modulePaths))
 	for i, mp := range modulePaths {
 		flatPaths[i] = mp.Path
@@ -105,7 +103,7 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 	}
 
 	lockDir := filepath.Dir(lockObj.Path())
-	vendorPath := lock.ResolveLockPath(lockDir, lockObj.GetVendorPath())
+	vendorPath := filepath.Join(lockDir, lockObj.GetVendorPath())
 	shouldUnpack := lockObj.ShouldUnpackModules()
 	logger.Debug("checking modules installation",
 		zap.String("vendor_path", vendorPath),
@@ -114,13 +112,6 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 	// Check which modules need installation
 	var missingModules []lock.Module
 	for _, mod := range modules {
-		if repl, ok := lockObj.GetReplacement(mod.Name); ok {
-			logger.Debug("module is replaced by local source; skipping auto-install",
-				zap.String("module", mod.Name),
-				zap.String("replacement", repl.To))
-			continue
-		}
-
 		name, err := graph.ParseName(mod.Name)
 		if err != nil {
 			logger.Warn("failed to parse module name", zap.String("module", mod.Name), zap.Error(err))
@@ -286,35 +277,7 @@ func LoadEntriesFromModuleLoadPaths(
 	modulePaths []lock.ModuleLoadPath,
 	logger *zap.Logger,
 ) ([]regapi.Entry, error) {
-	registerModuleSourceRoots(ctx, modulePaths)
 	return loadEntriesWithModuleMeta(ctx, modulePaths, logger)
-}
-
-func registerModuleSourceRoots(ctx context.Context, modulePaths []lock.ModuleLoadPath) {
-	roots := moduleapi.SourceRoots{}
-	for _, mp := range modulePaths {
-		if mp.Module == "" || filepath.Ext(mp.Path) == ".wapp" {
-			continue
-		}
-
-		rootPath := mp.SourceRoot
-		if rootPath == "" {
-			rootPath = mp.Path
-		}
-
-		stat, err := os.Stat(rootPath)
-		if err != nil || !stat.IsDir() {
-			continue
-		}
-
-		root, err := filepath.Abs(rootPath)
-		if err != nil {
-			continue
-		}
-		roots[mp.Module] = root
-	}
-
-	moduleapi.WithSourceRoots(ctx, roots)
 }
 
 // loadEntriesWithModuleMeta loads entries from annotated paths and tags module entries

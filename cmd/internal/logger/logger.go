@@ -48,14 +48,14 @@ var (
 
 type Config struct {
 	AppStartTime time.Time
+	Verbose      bool
+	VeryVerbose  bool
+	Console      bool
+	Silent       bool
 	// Encoding selects the zap encoder. "" | "console" (default, humanized)
 	// or "json" for machine-parseable structured logs. The --console CLI
 	// flag and encoding from .wippy.yaml logger.encoding both feed into this.
-	Encoding    string
-	Verbose     bool
-	VeryVerbose bool
-	Console     bool
-	Silent      bool
+	Encoding string
 }
 
 func consoleTimeEncoder(startTime time.Time) zapcore.TimeEncoder {

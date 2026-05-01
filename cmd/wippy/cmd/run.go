@@ -16,7 +16,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wippyai/runtime/api/boot"
 	logapi "github.com/wippyai/runtime/api/logs"
-	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
@@ -152,7 +151,6 @@ func runApp(cmd *cobra.Command, args []string) error {
 		logger.Error("failed to initialize bootstrap context", zap.Error(err))
 		return NewInitializeBootstrapContextError(err)
 	}
-	ctx = moduleapi.WithSourceRootRegistry(ctx)
 
 	registryClient := client.NewRegistryClientFromConfig(boot.GetConfig(ctx))
 	ctx = appinit.WithRegistryClient(ctx, registryClient)

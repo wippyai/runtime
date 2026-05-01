@@ -14,7 +14,6 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 	contextapi "github.com/wippyai/runtime/api/context"
 	logapi "github.com/wippyai/runtime/api/logs"
-	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootpkg "github.com/wippyai/runtime/boot"
@@ -24,7 +23,6 @@ import (
 	yamlpayload "github.com/wippyai/runtime/system/payload/yaml"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
-	"gopkg.in/yaml.v3"
 )
 
 func TestPackReaderGetEntries(t *testing.T) {
@@ -169,24 +167,6 @@ func createTestWappFile(t *testing.T, dir string, name string, entries []wapp.En
 	return path
 }
 
-func createTestWappFileWithResources(t *testing.T, path, name string, entries []wapp.Entry, resources []wapp.ResourceSpec) {
-	t.Helper()
-
-	file, err := os.Create(path)
-	if err != nil {
-		t.Fatalf("Create failed: %v", err)
-	}
-
-	writer := wapp.NewWriter()
-	err = writer.PackWithResources(wapp.Metadata{"name": name}, entries, resources, file)
-	if closeErr := file.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		t.Fatalf("PackWithResources failed: %v", err)
-	}
-}
-
 func setupTestContext(t *testing.T) context.Context {
 	t.Helper()
 
@@ -251,83 +231,6 @@ func TestLoadEntriesFromPathsSingleWapp(t *testing.T) {
 	if !found["test.ns:entry2"] {
 		t.Error("Entry test.ns:entry2 not found")
 	}
-}
-
-func TestExtractWappToDirRestoresEmbeddedFilesystem(t *testing.T) {
-	projectRoot := t.TempDir()
-	vendorDir := filepath.Join(projectRoot, ".wippy", "vendor", "acme")
-	if err := os.MkdirAll(vendorDir, 0o755); err != nil {
-		t.Fatalf("mkdir vendor dir: %v", err)
-	}
-
-	resourceRoot := filepath.Join(t.TempDir(), "resource")
-	if err := os.MkdirAll(resourceRoot, 0o755); err != nil {
-		t.Fatalf("mkdir resource dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(resourceRoot, "app.js"), []byte("export const ok = true;\n"), 0o644); err != nil {
-		t.Fatalf("write app.js: %v", err)
-	}
-
-	wappPath := filepath.Join(vendorDir, "ui-v1.0.0.wapp")
-	createTestWappFileWithResources(t, wappPath, "acme/ui", []wapp.Entry{{
-		ID:   wapp.NewID("acme.ui", "static_fs"),
-		Kind: "fs.embed",
-		Meta: wapp.Metadata{"module": "acme/ui"},
-		Data: map[string]any{},
-	}}, []wapp.ResourceSpec{{
-		ID: wapp.NewID("acme.ui", "static_fs"),
-		FS: os.DirFS(resourceRoot),
-	}})
-
-	targetDir := filepath.Join(vendorDir, "ui")
-	if err := ExtractWappToDir(wappPath, targetDir, projectRoot); err != nil {
-		t.Fatalf("ExtractWappToDir failed: %v", err)
-	}
-
-	if _, err := os.Stat(wappPath); err == nil {
-		t.Fatalf("packed file should be removed after extraction: %s", wappPath)
-	} else if !os.IsNotExist(err) {
-		t.Fatalf("stat packed file: %v", err)
-	}
-
-	extractedJS := filepath.Join(targetDir, "static_fs", "app.js")
-	data, err := os.ReadFile(extractedJS)
-	if err != nil {
-		t.Fatalf("read extracted app.js: %v", err)
-	}
-	if string(data) != "export const ok = true;\n" {
-		t.Fatalf("extracted app.js = %q", string(data))
-	}
-
-	var index struct {
-		Entries []struct {
-			Name      string `yaml:"name"`
-			Kind      string `yaml:"kind"`
-			Directory string `yaml:"directory"`
-		} `yaml:"entries"`
-	}
-	indexData, err := os.ReadFile(filepath.Join(targetDir, "_index.yaml"))
-	if err != nil {
-		t.Fatalf("read extracted index: %v", err)
-	}
-	if err := yaml.Unmarshal(indexData, &index); err != nil {
-		t.Fatalf("parse extracted index: %v", err)
-	}
-
-	wantDir := filepath.Join(".wippy", "vendor", "acme", "ui", "static_fs")
-	for _, entry := range index.Entries {
-		if entry.Name != "static_fs" {
-			continue
-		}
-		if entry.Kind != "fs.directory" {
-			t.Fatalf("extracted kind = %q, want fs.directory", entry.Kind)
-		}
-		if entry.Directory != wantDir {
-			t.Fatalf("extracted directory = %q, want %q", entry.Directory, wantDir)
-		}
-		return
-	}
-	t.Fatalf("static_fs entry not found in extracted index")
 }
 
 func TestLoadEntriesFromPathsMultipleWapps(t *testing.T) {
@@ -737,105 +640,6 @@ entries:
 	}
 	if routerResolved != "app:api.public" {
 		t.Fatalf("module-aware load router = %q, want app:api.public", routerResolved)
-	}
-}
-
-func TestRegisterModuleSourceRoots_DirectoryModulesOnly(t *testing.T) {
-	ctx := setupTestContext(t)
-	tmpDir := t.TempDir()
-
-	appDir := filepath.Join(tmpDir, "src")
-	replacementDir := filepath.Join(tmpDir, "replacement")
-	unpackedDir := filepath.Join(tmpDir, "vendor", "acme", "ui")
-	missingDir := filepath.Join(tmpDir, "missing")
-	packedPath := filepath.Join(tmpDir, "vendor", "acme", "packed-v1.0.0.wapp")
-
-	for _, dir := range []string{appDir, replacementDir, unpackedDir, filepath.Dir(packedPath)} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatalf("mkdir %s: %v", dir, err)
-		}
-	}
-	if err := os.WriteFile(packedPath, []byte("not loaded by this helper"), 0o644); err != nil {
-		t.Fatalf("write packed path: %v", err)
-	}
-
-	registerModuleSourceRoots(ctx, []lock.ModuleLoadPath{
-		{Path: appDir},
-		{Path: replacementDir, Module: "acme/local"},
-		{Path: unpackedDir, Module: "acme/ui", Version: "1.2.3"},
-		{Path: packedPath, Module: "acme/packed", Version: "1.0.0"},
-		{Path: missingDir, Module: "acme/missing", Version: "1.0.0"},
-	})
-
-	replacementRoot, ok := moduleapi.SourceRoot(ctx, "acme/local")
-	if !ok {
-		t.Fatal("replacement module source root not registered")
-	}
-	if replacementRoot != replacementDir {
-		t.Fatalf("replacement root = %q, want %q", replacementRoot, replacementDir)
-	}
-
-	unpackedRoot, ok := moduleapi.SourceRoot(ctx, "acme/ui")
-	if !ok {
-		t.Fatal("unpacked module source root not registered")
-	}
-	if unpackedRoot != unpackedDir {
-		t.Fatalf("unpacked root = %q, want %q", unpackedRoot, unpackedDir)
-	}
-
-	if _, ok := moduleapi.SourceRoot(ctx, "acme/packed"); ok {
-		t.Fatal("packed .wapp module should not register a source root")
-	}
-	if _, ok := moduleapi.SourceRoot(ctx, "acme/missing"); ok {
-		t.Fatal("missing module directory should not register a source root")
-	}
-}
-
-func TestEnsureModulesInstalledSkipsReplacedModules(t *testing.T) {
-	tests := []struct {
-		name   string
-		unpack bool
-	}{
-		{name: "packed mode", unpack: false},
-		{name: "unpacked mode", unpack: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tmpDir := t.TempDir()
-			lockPath := filepath.Join(tmpDir, lock.DefaultFilename)
-			lockObj, err := lock.New(lockPath)
-			if err != nil {
-				t.Fatalf("create lock: %v", err)
-			}
-
-			replacementDir := filepath.Join(tmpDir, "local", "ui")
-			if err := os.MkdirAll(replacementDir, 0o755); err != nil {
-				t.Fatalf("mkdir replacement: %v", err)
-			}
-
-			lockObj.SetOptions(lock.Options{UnpackModules: tt.unpack})
-			lockObj.SetModule(lock.Module{Name: "acme/ui", Version: "v1.0.0"})
-			lockObj.SetReplacement(lock.Replacement{From: "acme/ui", To: "local/ui"})
-
-			if err := ensureModulesInstalledFromLock(context.Background(), lockObj, zap.NewNop()); err != nil {
-				t.Fatalf("ensureModulesInstalledFromLock failed: %v", err)
-			}
-
-			vendorModuleDir := filepath.Join(tmpDir, ".wippy", "vendor", "acme", "ui")
-			if _, err := os.Stat(vendorModuleDir); err == nil {
-				t.Fatalf("replaced module should not be installed to vendor directory: %s", vendorModuleDir)
-			} else if !os.IsNotExist(err) {
-				t.Fatalf("stat vendor module directory: %v", err)
-			}
-
-			vendorWapp := filepath.Join(tmpDir, ".wippy", "vendor", "acme", "ui-v1.0.0.wapp")
-			if _, err := os.Stat(vendorWapp); err == nil {
-				t.Fatalf("replaced module should not be installed to vendor pack: %s", vendorWapp)
-			} else if !os.IsNotExist(err) {
-				t.Fatalf("stat vendor module pack: %v", err)
-			}
-		})
 	}
 }
 

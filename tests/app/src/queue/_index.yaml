@@ -18,10 +18,6 @@ entries:
     meta:
       comment: Task processing queue
     driver: app.queue:memory_driver
-    codec: json/plain
-    driver_options:
-      memory:
-        max_length: 500
 
   # Consumer function that processes queue messages
   - name: task_handler
@@ -34,7 +30,6 @@ entries:
       - queue
       - store
       - logger
-      - time
 
   # Consumer that connects queue to handler
   - name: task_consumer

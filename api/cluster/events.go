@@ -36,11 +36,4 @@ type (
 	NodeEvent struct {
 		Node NodeInfo
 	}
-
-	// Change describes a single KV mutation.
-	Change struct {
-		Key string
-		Val []byte
-		Rev uint64
-	}
 )

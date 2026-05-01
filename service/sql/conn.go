@@ -185,9 +185,9 @@ func buildDSN(kind registry.Kind, cfg *config.DBConfig) (string, error) {
 func getDriver(kind registry.Kind) string {
 	switch kind {
 	case config.Postgres:
+
 		return "postgres"
-	case config.MySQL:
-		return "mysql"
+
 	default:
 		return kind
 	}

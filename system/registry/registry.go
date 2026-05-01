@@ -124,9 +124,8 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 			return nil, NewExpandChangesError(err)
 		}
 
-		plan.Ops, err = planner.SortOps(snapshot, plan.Ops)
-		if err != nil {
-			return nil, NewSortChangesError(err)
+		if plan.Expanded {
+			plan.Ops = planner.SortOps(snapshot, plan.Ops)
 		}
 
 		allOps, historyOps = plan.SplitScopes()
@@ -136,12 +135,8 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 			return nil, NewPrepareEffectsError(err)
 		}
 	} else {
-		sorted, err := r.builder.SortChangeSet(snapshot, changes)
-		if err != nil {
-			return nil, NewSortChangesError(err)
-		}
-		allOps = sorted
-		historyOps = sorted
+		allOps = changes
+		historyOps = changes
 	}
 
 	r.mu.Lock()
@@ -279,9 +274,8 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			return NewExpandChangesError(err)
 		}
 
-		plan.Ops, err = planner.SortOps(snapshot, plan.Ops)
-		if err != nil {
-			return NewSortChangesError(err)
+		if plan.Expanded {
+			plan.Ops = planner.SortOps(snapshot, plan.Ops)
 		}
 
 		allOps, _ = plan.SplitScopes()
@@ -291,11 +285,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			return NewPrepareEffectsError(err)
 		}
 	} else {
-		sorted, err := r.builder.SortChangeSet(snapshot, changeset)
-		if err != nil {
-			return NewSortChangesError(err)
-		}
-		allOps = sorted
+		allOps = changeset
 	}
 
 	r.mu.Lock()

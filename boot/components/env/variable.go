@@ -26,15 +26,13 @@ func Variable() boot.Component {
 			bus := event.GetBus(ctx)
 			handlers := bootpkg.GetHandlerRegistry(ctx)
 			reg := regapi.GetRegistry(ctx)
+
 			if reg != nil {
-				err := reg.RegisterDependencyPattern(regapi.DependencyPattern{
+				if err := reg.RegisterDependencyPattern(regapi.DependencyPattern{
 					Path:        "data.storage",
-					Description: "Environment variable storage backend",
-				})
-				if err != nil {
-					logger.Warn("failed to register env variable dependency pattern",
-						zap.String("path", "data.storage"),
-						zap.Error(err))
+					Description: "Reference to environment storage",
+				}); err != nil {
+					logger.Warn("failed to register env variable dependency pattern", zap.Error(err))
 				}
 			}
 

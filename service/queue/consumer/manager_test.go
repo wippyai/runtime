@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
@@ -27,12 +28,10 @@ func TestManager_Add(t *testing.T) {
 	manager := NewManager(bus, queueMgr, funcReg, dtt, zap.NewNop())
 
 	config := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("test", "queue"),
-			Func:        registry.NewID("test", "func"),
-			Concurrency: 5,
-			Prefetch:    10,
-		},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
+		Concurrency: 5,
+		Prefetch:    10,
 		Lifecycle: supervisor.LifecycleConfig{
 			AutoStart: true,
 		},
@@ -65,12 +64,10 @@ func TestManager_Add_QueueNotFound(t *testing.T) {
 	manager := NewManager(bus, queueMgr, funcReg, dtt, zap.NewNop())
 
 	config := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("test", "queue"),
-			Func:        registry.NewID("test", "func"),
-			Concurrency: 5,
-			Prefetch:    10,
-		},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
+		Concurrency: 5,
+		Prefetch:    10,
 	}
 
 	entry := registry.Entry{
@@ -96,12 +93,10 @@ func TestManager_Add_DriverNotFound(t *testing.T) {
 	manager := NewManager(bus, queueMgr, funcReg, dtt, zap.NewNop())
 
 	config := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("test", "queue"),
-			Func:        registry.NewID("test", "func"),
-			Concurrency: 5,
-			Prefetch:    10,
-		},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
+		Concurrency: 5,
+		Prefetch:    10,
 	}
 
 	entry := registry.Entry{
@@ -127,12 +122,10 @@ func TestManager_Update(t *testing.T) {
 	consumerID := registry.NewID("test", "consumer")
 
 	oldConfig := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("test", "queue"),
-			Func:        registry.NewID("test", "func"),
-			Concurrency: 5,
-			Prefetch:    10,
-		},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
+		Concurrency: 5,
+		Prefetch:    10,
 		Lifecycle: supervisor.LifecycleConfig{
 			AutoStart: true,
 		},
@@ -148,12 +141,10 @@ func TestManager_Update(t *testing.T) {
 	require.NoError(t, err)
 
 	newConfig := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("test", "queue"),
-			Func:        registry.NewID("test", "func"),
-			Concurrency: 10,
-			Prefetch:    20,
-		},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
+		Concurrency: 10,
+		Prefetch:    20,
 		Lifecycle: supervisor.LifecycleConfig{
 			AutoStart: false,
 		},
@@ -227,7 +218,7 @@ func (m *mockQueueManager) GetQueue(id registry.ID) (*queueapi.Queue, bool) {
 		ID:       id,
 		DriverID: registry.NewID("test", "driver"),
 		Name:     "test-queue",
-		Config:   &queueapi.Config{},
+		Options:  attrs.NewBag(),
 	}, true
 }
 

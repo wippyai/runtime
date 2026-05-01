@@ -6,7 +6,6 @@ import (
 	"context"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
-	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/runtime/lua"
@@ -88,11 +87,6 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 		return nil, runtimelua.NewPoolNotFoundError(task.ID.String())
 	}
 
-	var err error
-	if task.Context, err = netapi.ApplyOverlayPair(ctx, task.Options, task.Context); err != nil {
-		return nil, err
-	}
-
 	if len(task.Context) > 0 {
 		fc := ctxapi.FrameFromContext(ctx)
 		if fc != nil {
@@ -124,13 +118,13 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 		return runtimelua.NewAddNodeError("function", err)
 	}
 
-	opts, _ := cfg.Meta.GetBag("options")
 	configEntry := &configEntry{
-		method:  cfg.Method,
-		pool:    cfg.Pool,
-		source:  cfg,
-		options: opts,
+		method: cfg.Method,
+		pool:   cfg.Pool,
+		source: cfg,
 	}
+	opts, _ := cfg.Meta.GetBag("options")
+	configEntry.options = opts
 
 	if err := m.createPool(entry.ID, configEntry); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
@@ -175,13 +169,13 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 		return runtimelua.NewAddNodeError("function", err)
 	}
 
-	opts, _ := cfg.Meta.GetBag("options")
 	configEntry := &configEntry{
 		method:   cfg.Method,
 		pool:     cfg.Pool,
 		bytecode: cfg,
-		options:  opts,
 	}
+	opts, _ := cfg.Meta.GetBag("options")
+	configEntry.options = opts
 
 	if err := m.createPool(entry.ID, configEntry); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
@@ -223,13 +217,13 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 		return runtimelua.NewUpdateNodeError("function", err)
 	}
 
-	opts, _ := cfg.Meta.GetBag("options")
 	configEntry := &configEntry{
-		method:  cfg.Method,
-		pool:    cfg.Pool,
-		source:  cfg,
-		options: opts,
+		method: cfg.Method,
+		pool:   cfg.Pool,
+		source: cfg,
 	}
+	opts, _ := cfg.Meta.GetBag("options")
+	configEntry.options = opts
 
 	if err := m.replacePool(entry.ID, configEntry); err != nil {
 		return runtimelua.NewReplacePoolError(err)
@@ -267,13 +261,13 @@ func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) erro
 		return runtimelua.NewUpdateNodeError("function", err)
 	}
 
-	opts, _ := cfg.Meta.GetBag("options")
 	configEntry := &configEntry{
 		method:   cfg.Method,
 		pool:     cfg.Pool,
 		bytecode: cfg,
-		options:  opts,
 	}
+	opts, _ := cfg.Meta.GetBag("options")
+	configEntry.options = opts
 
 	if err := m.replacePool(entry.ID, configEntry); err != nil {
 		return runtimelua.NewReplacePoolError(err)

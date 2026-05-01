@@ -32,7 +32,6 @@ func TestEmbedFSCollectsModuleRelativeDirectory(t *testing.T) {
 		Kind: dirapi.Kind,
 		Meta: attrs.NewBagFrom(map[string]any{"module": "acme/ui"}),
 		Data: payload.New(map[string]any{
-			"base":      dirapi.BaseModule,
 			"directory": "./static/app",
 		}),
 	}

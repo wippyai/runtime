@@ -3,8 +3,8 @@
 package cmd
 
 import (
-	"github.com/wippyai/runtime/cmd/internal/bootconfig"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
+	"github.com/wippyai/runtime/cmd/internal/bootconfig"
 	"go.uber.org/zap"
 )
 

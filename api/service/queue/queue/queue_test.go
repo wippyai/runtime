@@ -7,7 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/wippyai/runtime/api/attrs"
-	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
 )
 
@@ -27,7 +26,7 @@ func TestConfig_Validate(t *testing.T) {
 	t.Run("missing driver", func(t *testing.T) {
 		cfg := &Config{}
 		err := cfg.Validate()
-		assert.Equal(t, queueapi.ErrDriverIDRequired, err)
+		assert.Equal(t, ErrDriverIDRequired, err)
 	})
 }
 
@@ -35,14 +34,18 @@ func TestConfig_InitDefaults(t *testing.T) {
 	t.Run("nil options", func(t *testing.T) {
 		cfg := &Config{}
 		cfg.InitDefaults()
-		assert.NotNil(t, cfg.DriverOptions)
+		assert.NotNil(t, cfg.Options)
 	})
 
 	t.Run("existing options", func(t *testing.T) {
-		existing := attrs.NewBag()
-		existing.Set("key", "value")
-		cfg := &Config{DriverOptions: existing}
+		existingBag := attrs.NewBag()
+		existingBag.Set("key", "value")
+		cfg := &Config{Options: existingBag}
 		cfg.InitDefaults()
-		assert.Equal(t, "value", cfg.DriverOptions.GetString("key", ""))
+		assert.Equal(t, "value", cfg.Options.GetString("key", ""))
 	})
+}
+
+func TestErrDriverIDRequired(t *testing.T) {
+	assert.Equal(t, "driver ID is required", ErrDriverIDRequired.Error())
 }

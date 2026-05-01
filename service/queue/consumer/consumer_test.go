@@ -28,12 +28,10 @@ func TestConsumer_StartStop(t *testing.T) {
 	funcReg := &mockFuncRegistry{}
 
 	config := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("test", "queue"),
-			Func:        registry.NewID("test", "func"),
-			Concurrency: 2,
-			Prefetch:    10,
-		},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
+		Concurrency: 2,
+		Prefetch:    10,
 	}
 
 	consumer := NewConsumer(
@@ -63,12 +61,10 @@ func TestConsumer_ProcessMessage(t *testing.T) {
 	funcReg := &mockFuncRegistry{}
 
 	config := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("test", "queue"),
-			Func:        registry.NewID("test", "func"),
-			Concurrency: 1,
-			Prefetch:    10,
-		},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
+		Concurrency: 1,
+		Prefetch:    10,
 	}
 
 	consumer := NewConsumer(
@@ -126,12 +122,10 @@ func TestConsumer_ProcessMessage_Error(t *testing.T) {
 	}
 
 	config := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("test", "queue"),
-			Func:        registry.NewID("test", "func"),
-			Concurrency: 1,
-			Prefetch:    10,
-		},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
+		Concurrency: 1,
+		Prefetch:    10,
 	}
 
 	consumer := NewConsumer(
@@ -196,12 +190,10 @@ func TestConsumer_StopTimeout(t *testing.T) {
 	}
 
 	config := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("test", "queue"),
-			Func:        registry.NewID("test", "func"),
-			Concurrency: 1,
-			Prefetch:    10,
-		},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
+		Concurrency: 1,
+		Prefetch:    10,
 	}
 
 	consumer := NewConsumer(
@@ -256,12 +248,10 @@ func TestConsumer_StopWithNoMessages(t *testing.T) {
 	funcReg := &mockFuncRegistry{}
 
 	config := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("test", "queue"),
-			Func:        registry.NewID("test", "func"),
-			Concurrency: 3,
-			Prefetch:    10,
-		},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
+		Concurrency: 3,
+		Prefetch:    10,
 	}
 
 	consumer := NewConsumer(
@@ -296,12 +286,10 @@ func TestConsumer_MultipleStopCalls(t *testing.T) {
 	funcReg := &mockFuncRegistry{}
 
 	config := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("test", "queue"),
-			Func:        registry.NewID("test", "func"),
-			Concurrency: 2,
-			Prefetch:    10,
-		},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
+		Concurrency: 2,
+		Prefetch:    10,
 	}
 
 	consumer := NewConsumer(
@@ -338,12 +326,10 @@ func TestConsumer_ConcurrentMessageProcessing(t *testing.T) {
 	}
 
 	config := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("test", "queue"),
-			Func:        registry.NewID("test", "func"),
-			Concurrency: 3,
-			Prefetch:    10,
-		},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
+		Concurrency: 3,
+		Prefetch:    10,
 	}
 
 	consumer := NewConsumer(
@@ -397,12 +383,10 @@ func TestConsumer_StopDuringProcessing(t *testing.T) {
 	}
 
 	config := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("test", "queue"),
-			Func:        registry.NewID("test", "func"),
-			Concurrency: 1,
-			Prefetch:    10,
-		},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
+		Concurrency: 1,
+		Prefetch:    10,
 	}
 
 	consumer := NewConsumer(
@@ -450,12 +434,10 @@ func TestConsumer_ContextCancellationStopsWorkers(t *testing.T) {
 	funcReg := &mockFuncRegistry{}
 
 	config := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("test", "queue"),
-			Func:        registry.NewID("test", "func"),
-			Concurrency: 3,
-			Prefetch:    10,
-		},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
+		Concurrency: 3,
+		Prefetch:    10,
 	}
 
 	consumer := NewConsumer(
@@ -490,12 +472,10 @@ func TestConsumer_AckNackAfterShutdown(t *testing.T) {
 	}
 
 	config := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("test", "queue"),
-			Func:        registry.NewID("test", "func"),
-			Concurrency: 1,
-			Prefetch:    10,
-		},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
+		Concurrency: 1,
+		Prefetch:    10,
 	}
 
 	consumer := NewConsumer(
@@ -558,12 +538,10 @@ func TestConsumer_SlowWorkers(t *testing.T) {
 	}
 
 	config := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("test", "queue"),
-			Func:        registry.NewID("test", "func"),
-			Concurrency: 2,
-			Prefetch:    10,
-		},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
+		Concurrency: 2,
+		Prefetch:    10,
 	}
 
 	consumer := NewConsumer(
@@ -622,12 +600,10 @@ func TestConsumer_DeadWorkerTimeout(t *testing.T) {
 	}
 
 	config := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("test", "queue"),
-			Func:        registry.NewID("test", "func"),
-			Concurrency: 1,
-			Prefetch:    10,
-		},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
+		Concurrency: 1,
+		Prefetch:    10,
 	}
 
 	consumer := NewConsumer(
@@ -685,12 +661,10 @@ func TestConsumer_MultipleWorkersOneBlocked(t *testing.T) {
 	}
 
 	config := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("test", "queue"),
-			Func:        registry.NewID("test", "func"),
-			Concurrency: 3,
-			Prefetch:    10,
-		},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
+		Concurrency: 3,
+		Prefetch:    10,
 	}
 
 	consumer := NewConsumer(
@@ -751,12 +725,10 @@ func TestConsumer_StopWithAllWorkersBlocked(t *testing.T) {
 	}
 
 	config := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("test", "queue"),
-			Func:        registry.NewID("test", "func"),
-			Concurrency: 3,
-			Prefetch:    10,
-		},
+		Queue:       registry.NewID("test", "queue"),
+		Func:        registry.NewID("test", "func"),
+		Concurrency: 3,
+		Prefetch:    10,
 	}
 
 	consumer := NewConsumer(
@@ -801,7 +773,7 @@ type mockDriver struct {
 	cancelCalled atomic.Bool
 }
 
-func (m *mockDriver) Attach(ctx context.Context, _ registry.ID, _ *queueapi.ConsumerOptions, deliveries chan<- *queueapi.Delivery) (context.CancelFunc, error) {
+func (m *mockDriver) Attach(ctx context.Context, _ registry.ID, deliveries chan<- *queueapi.Delivery) (context.CancelFunc, error) {
 	m.attachCalled.Store(true)
 	m.deliveries = make(chan *queueapi.Delivery, 10)
 	m.cancelCtx, m.cancel = context.WithCancel(ctx)
@@ -839,7 +811,7 @@ func (m *mockDriver) Publish(_ context.Context, _ registry.ID, _ ...*queueapi.Me
 	return nil
 }
 
-func (m *mockDriver) DeclareQueue(_ context.Context, _ registry.ID, _ *queueapi.Config) error {
+func (m *mockDriver) DeclareQueue(_ context.Context, _ registry.ID, _ attrs.Attributes) error {
 	return nil
 }
 
@@ -889,12 +861,10 @@ func TestConsumer_StressHighThroughput(t *testing.T) {
 	}
 
 	config := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("stress", "queue"),
-			Func:        registry.NewID("stress", "func"),
-			Concurrency: 10,
-			Prefetch:    100,
-		},
+		Queue:       registry.NewID("stress", "queue"),
+		Func:        registry.NewID("stress", "func"),
+		Concurrency: 10,
+		Prefetch:    100,
 	}
 
 	consumer := NewConsumer(
@@ -952,12 +922,10 @@ func TestConsumer_StressRapidStartStop(t *testing.T) {
 		funcReg := &mockFuncRegistry{}
 
 		config := &consumerapi.Config{
-			ConsumerOptions: queueapi.ConsumerOptions{
-				Queue:       registry.NewID("stress", "queue"),
-				Func:        registry.NewID("stress", "func"),
-				Concurrency: 5,
-				Prefetch:    10,
-			},
+			Queue:       registry.NewID("stress", "queue"),
+			Func:        registry.NewID("stress", "func"),
+			Concurrency: 5,
+			Prefetch:    10,
 		}
 
 		consumer := NewConsumer(
@@ -997,12 +965,10 @@ func TestConsumer_StressStartStopWithMessages(t *testing.T) {
 		}
 
 		config := &consumerapi.Config{
-			ConsumerOptions: queueapi.ConsumerOptions{
-				Queue:       registry.NewID("stress", "queue"),
-				Func:        registry.NewID("stress", "func"),
-				Concurrency: 3,
-				Prefetch:    10,
-			},
+			Queue:       registry.NewID("stress", "queue"),
+			Func:        registry.NewID("stress", "func"),
+			Concurrency: 3,
+			Prefetch:    10,
 		}
 
 		consumer := NewConsumer(
@@ -1064,12 +1030,10 @@ func TestConsumer_StressConcurrentConsumers(t *testing.T) {
 			}
 
 			config := &consumerapi.Config{
-				ConsumerOptions: queueapi.ConsumerOptions{
-					Queue:       registry.ID{NS: "stress", Name: fmt.Sprintf("queue-%d", consumerID)},
-					Func:        registry.NewID("stress", "func"),
-					Concurrency: 3,
-					Prefetch:    20,
-				},
+				Queue:       registry.ID{NS: "stress", Name: fmt.Sprintf("queue-%d", consumerID)},
+				Func:        registry.NewID("stress", "func"),
+				Concurrency: 3,
+				Prefetch:    20,
 			}
 
 			consumer := NewConsumer(
@@ -1131,12 +1095,10 @@ func TestConsumer_StressNackRequeue(t *testing.T) {
 	}
 
 	config := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("stress", "queue"),
-			Func:        registry.NewID("stress", "func"),
-			Concurrency: 1,
-			Prefetch:    10,
-		},
+		Queue:       registry.NewID("stress", "queue"),
+		Func:        registry.NewID("stress", "func"),
+		Concurrency: 1,
+		Prefetch:    10,
 	}
 
 	consumer := NewConsumer(
@@ -1193,12 +1155,10 @@ func TestConsumer_StressResourceCleanup(t *testing.T) {
 		funcReg := &mockFuncRegistry{}
 
 		config := &consumerapi.Config{
-			ConsumerOptions: queueapi.ConsumerOptions{
-				Queue:       registry.NewID("stress", "queue"),
-				Func:        registry.NewID("stress", "func"),
-				Concurrency: 5,
-				Prefetch:    50,
-			},
+			Queue:       registry.NewID("stress", "queue"),
+			Func:        registry.NewID("stress", "func"),
+			Concurrency: 5,
+			Prefetch:    50,
 		}
 
 		consumer := NewConsumer(
@@ -1244,12 +1204,10 @@ func TestConsumer_StressMixedAckNack(t *testing.T) {
 	}
 
 	config := &consumerapi.Config{
-		ConsumerOptions: queueapi.ConsumerOptions{
-			Queue:       registry.NewID("stress", "queue"),
-			Func:        registry.NewID("stress", "func"),
-			Concurrency: 5,
-			Prefetch:    20,
-		},
+		Queue:       registry.NewID("stress", "queue"),
+		Func:        registry.NewID("stress", "func"),
+		Concurrency: 5,
+		Prefetch:    20,
 	}
 
 	consumer := NewConsumer(

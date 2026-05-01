@@ -206,14 +206,45 @@ func (l *Lock) GetVendorPath() string {
 	return filepath.Join(modulesDir, "vendor")
 }
 
-// GetLoadPaths returns all paths that need to be loaded by the boot pipeline.
-// It is the path-only view of GetModuleLoadPaths; keep module path selection in
-// one place so replacements, packed modules and unpacked modules cannot drift.
+// GetLoadPaths returns all directories that need to be loaded by the boot pipeline.
+// Returns paths in order: app source directory, replacement directories, module vendor directories.
+// Paths are relative to the lock file location and do not include @hash suffix.
+// Example: [".", "../replacement", ".wippy/vendor/acme/http"]
 func (l *Lock) GetLoadPaths() []string {
-	modulePaths := l.GetModuleLoadPaths()
-	paths := make([]string, 0, len(modulePaths))
-	for _, mp := range modulePaths {
-		paths = append(paths, mp.Path)
+	lockDir := filepath.Dir(l.path)
+	paths := make([]string, 0, 1+len(l.data.Replacements)+len(l.data.Modules))
+
+	// Add app source directory
+	if l.data.Directories.Src != "" {
+		srcPath := filepath.Join(lockDir, l.data.Directories.Src)
+		paths = append(paths, srcPath)
+	}
+
+	// Add replacement paths (local overrides)
+	for _, repl := range l.data.Replacements {
+		if repl.To != "" {
+			replPath := filepath.Join(lockDir, repl.To)
+			paths = append(paths, replPath)
+		}
+	}
+
+	// Add module paths (from vendor directory)
+	vendorDir := l.GetVendorPath()
+	fullVendorDir := filepath.Join(lockDir, vendorDir)
+
+	for _, mod := range l.data.Modules {
+		// Skip modules that have replacements
+		if _, hasReplacement := l.GetReplacement(mod.Name); hasReplacement {
+			continue
+		}
+
+		name, err := graph.ParseName(mod.Name)
+		if err != nil {
+			continue
+		}
+
+		resolved := ResolveModuleDir(fullVendorDir, name, mod.Version)
+		paths = append(paths, resolved.Path)
 	}
 
 	return paths
@@ -273,10 +304,9 @@ func WappPath(name graph.Name, version string) string {
 
 // ModuleLoadPath pairs a filesystem path with its owning module metadata.
 type ModuleLoadPath struct {
-	Path       string
-	Module     string // module name in org/module format, empty for app source
-	Version    string // module version, empty for app source
-	SourceRoot string // module root for module-relative resources; defaults to Path
+	Path    string
+	Module  string // module name in org/module format, empty for app source
+	Version string // module version, empty for app source
 }
 
 // GetModuleLoadPaths returns load paths annotated with module ownership.
@@ -288,24 +318,21 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 
 	if l.data.Directories.Src != "" {
 		paths = append(paths, ModuleLoadPath{
-			Path: ResolveLockPath(lockDir, l.data.Directories.Src),
+			Path: filepath.Join(lockDir, l.data.Directories.Src),
 		})
 	}
 
 	for _, repl := range l.data.Replacements {
 		if repl.To != "" {
-			root := ResolveLockPath(lockDir, repl.To)
-			path := moduleEntryLoadPath(root)
 			paths = append(paths, ModuleLoadPath{
-				Path:       path,
-				Module:     repl.From,
-				SourceRoot: root,
+				Path:   filepath.Join(lockDir, repl.To),
+				Module: repl.From,
 			})
 		}
 	}
 
 	vendorDir := l.GetVendorPath()
-	fullVendorDir := ResolveLockPath(lockDir, vendorDir)
+	fullVendorDir := filepath.Join(lockDir, vendorDir)
 
 	for _, mod := range l.data.Modules {
 		if _, hasReplacement := l.GetReplacement(mod.Name); hasReplacement {
@@ -319,32 +346,13 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 
 		resolved := ResolveModuleDir(fullVendorDir, name, mod.Version)
 		paths = append(paths, ModuleLoadPath{
-			Path:       resolved.Path,
-			Module:     mod.Name,
-			Version:    mod.Version,
-			SourceRoot: resolved.Path,
+			Path:    resolved.Path,
+			Module:  mod.Name,
+			Version: mod.Version,
 		})
 	}
 
 	return paths
-}
-
-func moduleEntryLoadPath(root string) string {
-	src := filepath.Join(root, "src")
-	info, err := os.Stat(src)
-	if err == nil && info.IsDir() {
-		return src
-	}
-	return root
-}
-
-// ResolveLockPath resolves a lock-file path setting against lockDir.
-// Absolute values are already complete and must not be joined to lockDir.
-func ResolveLockPath(lockDir, value string) string {
-	if filepath.IsAbs(value) {
-		return filepath.Clean(value)
-	}
-	return filepath.Join(lockDir, value)
 }
 
 // ResolvedPath describes which path was found and its format.

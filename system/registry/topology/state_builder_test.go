@@ -1488,13 +1488,16 @@ func TestBuildDelta_CircularDependencies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			delta, err := builder.BuildDelta(tt.from, tt.to)
-			if err != nil && !strings.Contains(err.Error(), "cycle detected") {
-				t.Errorf("unexpected error type: %v", err)
+			_, err := builder.BuildDelta(tt.from, tt.to)
+
+			// We now expect errors for all these cyclic dependency cases
+			if err == nil {
+				t.Error("expected an error for cyclic dependency, but got none")
+			} else if !strings.Contains(err.Error(), "cycle detected") {
+				t.Errorf("expected 'cycle detected' error, got: %v", err)
 			}
-			if err == nil && len(delta) != len(tt.to) {
-				t.Errorf("expected %d operations despite circular dependency, got %d", len(tt.to), len(delta))
-			}
+
+			// No need to validate the change set structure since we expect errors
 		})
 	}
 }

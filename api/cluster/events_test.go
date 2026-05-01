@@ -101,45 +101,45 @@ func TestNodeEvent_MarshalUnmarshal(t *testing.T) {
 	}
 }
 
-func TestChange_MarshalUnmarshal(t *testing.T) {
+func TestEntry_MarshalUnmarshal(t *testing.T) {
 	tests := []struct {
 		name    string
-		change  Change
+		entry   Entry
 		wantErr bool
 	}{
 		{
 			name: "put operation",
-			change: Change{
-				Key: "registry.service.foo",
-				Rev: 42,
-				Val: []byte("service data"),
+			entry: Entry{
+				Key:     "registry.service.foo",
+				Version: 42,
+				Value:   []byte("service data"),
 			},
 			wantErr: false,
 		},
 		{
 			name: "delete operation",
-			change: Change{
-				Key: "registry.service.bar",
-				Rev: 0,
-				Val: nil,
+			entry: Entry{
+				Key:     "registry.service.bar",
+				Version: 0,
+				Value:   nil,
 			},
 			wantErr: false,
 		},
 		{
 			name: "empty value",
-			change: Change{
-				Key: "test.key",
-				Rev: 1,
-				Val: []byte{},
+			entry: Entry{
+				Key:     "test.key",
+				Version: 1,
+				Value:   []byte{},
 			},
 			wantErr: false,
 		},
 		{
 			name: "binary value",
-			change: Change{
-				Key: "binary.data",
-				Rev: 100,
-				Val: []byte{0x00, 0xFF, 0xAB, 0xCD},
+			entry: Entry{
+				Key:     "binary.data",
+				Version: 100,
+				Value:   []byte{0x00, 0xFF, 0xAB, 0xCD},
 			},
 			wantErr: false,
 		},
@@ -147,17 +147,17 @@ func TestChange_MarshalUnmarshal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			data, err := json.Marshal(&tt.change)
+			data, err := json.Marshal(&tt.entry)
 			if tt.wantErr {
 				assert.Error(t, err)
 				return
 			}
 			require.NoError(t, err)
 
-			var decoded Change
+			var decoded Entry
 			err = json.Unmarshal(data, &decoded)
 			require.NoError(t, err)
-			assert.Equal(t, tt.change, decoded)
+			assert.Equal(t, tt.entry, decoded)
 		})
 	}
 }
