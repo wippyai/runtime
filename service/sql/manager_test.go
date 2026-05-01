@@ -19,6 +19,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/resource"
 	apiconfig "github.com/wippyai/runtime/api/service/sql"
 	"github.com/wippyai/runtime/api/supervisor"
 	entryutil "github.com/wippyai/runtime/internal/entry"
@@ -287,6 +288,19 @@ func TestNewManagerWithFactory(t *testing.T) {
 		assert.Contains(t, err.Error(), "pool factory is required")
 	})
 }
+
+func expectEvent(t *testing.T, events <-chan event.Event, system event.System, kind event.Kind) {
+	t.Helper()
+
+	select {
+	case evt := <-events:
+		require.Equal(t, system, evt.System)
+		require.Equal(t, kind, evt.Kind)
+	case <-time.After(time.Second):
+		t.Fatalf("timeout waiting for %s/%s event", system, kind)
+	}
+}
+
 func TestManager_Add(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
 
@@ -311,7 +325,7 @@ func TestManager_Add(t *testing.T) {
 	resourceSub, err := eventbus.NewSubscriber(
 		ctx,
 		bus,
-		"resource", // This is now correct (singular)
+		resource.System,
 		"*",
 		func(evt event.Event) {
 			resourceEvents <- evt
@@ -366,23 +380,8 @@ func TestManager_Add(t *testing.T) {
 					}
 				}
 
-				// Check for supervisor registration event
-				select {
-				case evt := <-supervisorEvents:
-					assert.Equal(t, supervisor.System, evt.System)
-					assert.Equal(t, supervisor.ServiceRegister, evt.Kind)
-				case <-time.After(time.Second):
-					t.Fatal("timeout waiting for supervisor event")
-				}
-
-				// Check for resource registration event - UPDATE HERE
-				select {
-				case evt := <-resourceEvents:
-					assert.Equal(t, "resource", evt.System)
-					assert.Equal(t, "resource.register", evt.Kind) // Update to match actual implementation
-				case <-time.After(time.Second):
-					t.Fatal("timeout waiting for resource event")
-				}
+				expectEvent(t, supervisorEvents, supervisor.System, supervisor.ServiceRegister)
+				expectEvent(t, resourceEvents, resource.System, resource.Register)
 			} else {
 				assert.Error(t, err)
 			}
@@ -531,7 +530,7 @@ func TestManager_Delete(t *testing.T) {
 	resourceSub, err := eventbus.NewSubscriber(
 		ctx,
 		bus,
-		"resource",
+		resource.System,
 		"*",
 		func(evt event.Event) {
 			resourceEvents <- evt
@@ -547,20 +546,8 @@ func TestManager_Delete(t *testing.T) {
 		Kind: apiconfig.Postgres,
 		Data: payload.New(map[string]string{"test": "data"}),
 	}))
-
-	// Drain events channels
-	for len(supervisorEvents) > 0 {
-		select {
-		case <-supervisorEvents:
-		default:
-		}
-	}
-	for len(resourceEvents) > 0 {
-		select {
-		case <-resourceEvents:
-		default:
-		}
-	}
+	expectEvent(t, supervisorEvents, supervisor.System, supervisor.ServiceRegister)
+	expectEvent(t, resourceEvents, resource.System, resource.Register)
 
 	tests := []struct {
 		name          string
@@ -592,23 +579,8 @@ func TestManager_Delete(t *testing.T) {
 				assert.NoError(t, err)
 				assert.NotContains(t, manager.services, entry.ID)
 
-				// Check for supervisor removal event - UPDATED TO MATCH ACTUAL VALUES
-				select {
-				case evt := <-supervisorEvents:
-					assert.Equal(t, supervisor.System, evt.System)
-					assert.Equal(t, "service.register", evt.Kind)
-				case <-time.After(time.Second):
-					t.Fatal("timeout waiting for supervisor event")
-				}
-
-				// Check for resource deletion event - UPDATED TO MATCH ACTUAL VALUES
-				select {
-				case evt := <-resourceEvents:
-					assert.Equal(t, "resource", evt.System)
-					assert.Equal(t, "resource.register", evt.Kind) // Match actual value
-				case <-time.After(time.Second):
-					t.Fatal("timeout waiting for resource event")
-				}
+				expectEvent(t, supervisorEvents, supervisor.System, supervisor.ServiceRemove)
+				expectEvent(t, resourceEvents, resource.System, resource.Delete)
 			} else {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), "not found")
