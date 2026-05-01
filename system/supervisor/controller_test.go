@@ -243,6 +243,33 @@ func TestController_StartupError(t *testing.T) {
 	}
 }
 
+func TestController_StartMayCompleteInBackgroundWhileRetrying(t *testing.T) {
+	ctrl := &Controller{
+		config: supervisor.LifecycleConfig{
+			RetryPolicy: supervisor.RetryPolicy{MaxAttempts: 3},
+		},
+		state: newInternalState(),
+	}
+	ctrl.state.setDesiredStatus(supervisor.StatusRunning)
+	ctrl.state.updateState(supervisor.StatusFailed, errors.New("temporary failure"))
+	ctrl.state.incRetryCount()
+
+	if !ctrl.startMayCompleteInBackground() {
+		t.Fatal("finite retrying service should be eligible for optional background completion")
+	}
+
+	ctrl.state.incRetryCount()
+	ctrl.state.incRetryCount()
+	if ctrl.startMayCompleteInBackground() {
+		t.Fatal("exhausted finite retry policy should not be treated as retrying in background")
+	}
+
+	ctrl.config.RetryPolicy.MaxAttempts = 0
+	if !ctrl.startMayCompleteInBackground() {
+		t.Fatal("infinite retry policy should be eligible for optional background completion")
+	}
+}
+
 func TestController_ServiceRecoveryAfterFailure(t *testing.T) {
 	var currentChan chan any
 	var chanMutex sync.Mutex

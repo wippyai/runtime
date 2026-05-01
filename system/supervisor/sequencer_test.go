@@ -6,7 +6,10 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -45,6 +48,74 @@ func (s *executableService) Stop() error {
 	s.eventChan <- operationEvent{id: s.id, isStart: false}
 	return s.testService.Stop(context.Background())
 }
+
+type blockingControllable struct {
+	releaseCh <-chan struct{}
+	eventCh   chan<- operationEvent
+	id        string
+	once      sync.Once
+}
+
+func (c *blockingControllable) Start() error {
+	c.once.Do(func() {
+		c.eventCh <- operationEvent{id: c.id, isStart: true}
+	})
+	<-c.releaseCh
+	return nil
+}
+
+func (c *blockingControllable) Stop() error { return nil }
+
+func (c *blockingControllable) startMayCompleteInBackground() bool { return true }
+
+type delayedBackgroundControllable struct {
+	releaseCh    <-chan struct{}
+	stateChanged chan struct{}
+	eventCh      chan<- operationEvent
+	id           string
+	delay        time.Duration
+	background   atomic.Bool
+	once         sync.Once
+}
+
+func (c *delayedBackgroundControllable) Start() error {
+	c.once.Do(func() {
+		c.eventCh <- operationEvent{id: c.id, isStart: true}
+		go func() {
+			time.Sleep(c.delay)
+			c.background.Store(true)
+			select {
+			case c.stateChanged <- struct{}{}:
+			default:
+			}
+		}()
+	})
+	<-c.releaseCh
+	return nil
+}
+
+func (c *delayedBackgroundControllable) Stop() error { return nil }
+
+func (c *delayedBackgroundControllable) startMayCompleteInBackground() bool {
+	return c.background.Load()
+}
+
+func (c *delayedBackgroundControllable) startStateChanged() <-chan struct{} {
+	return c.stateChanged
+}
+
+type startFailingControllable struct {
+	err     error
+	eventCh chan<- operationEvent
+	id      string
+}
+
+func (c *startFailingControllable) Start() error {
+	c.eventCh <- operationEvent{id: c.id, isStart: true}
+	return c.err
+}
+
+func (c *startFailingControllable) Stop() error { return nil }
 
 // Collect events for exact number of expected events
 func collectEvents(t *testing.T, events chan operationEvent, count int, expectStart bool) []string {
@@ -241,6 +312,295 @@ func TestSequencer_ParallelExecution(t *testing.T) {
 	event := <-events
 	require.True(t, event.isStart, "expected start event")
 	require.Equal(t, "service-c", event.id, "service-c must start last")
+}
+
+func TestSequencer_StartIgnoresDependenciesOutsideCurrentBatch(t *testing.T) {
+	logger := zap.NewNop()
+	sp := newSequencer(logger)
+
+	events := make(chan operationEvent, 10)
+
+	// This mirrors a registry commit where the current batch starts a consumer
+	// and a queue, while both also depend on a service that was already started
+	// by a previous commit. The external dependency must not become a synthetic
+	// node in the transition graph; otherwise the topo-sort sees a node it can
+	// never start and may report a false cycle/stall.
+	ops := []operation{
+		{
+			kind:         opStart,
+			id:           "worker",
+			controller:   newTestController("worker", events),
+			dependencies: []string{"queue", "external-host"},
+		},
+		{
+			kind:         opStart,
+			id:           "queue",
+			controller:   newTestController("queue", events),
+			dependencies: []string{"external-host"},
+		},
+	}
+
+	err := sp.transition(context.Background(), ops...)
+	require.NoError(t, err)
+
+	first := <-events
+	second := <-events
+	require.Equal(t, "queue", first.id)
+	require.Equal(t, "worker", second.id)
+}
+
+func TestSequencer_StartDoesNotBarrierIndependentBranches(t *testing.T) {
+	logger := zap.NewNop()
+	sp := newSequencer(logger)
+
+	events := make(chan operationEvent, 10)
+	releaseBlocked := make(chan struct{})
+	defer close(releaseBlocked)
+
+	// Mirrors an optional integration that is still retrying while an
+	// independent required branch has all of its own prerequisites.
+	ops := []operation{
+		{
+			kind:       opStart,
+			id:         "optional-integration",
+			controller: &blockingControllable{id: "optional-integration", eventCh: events, releaseCh: releaseBlocked},
+			optional:   true,
+		},
+		{
+			kind:       opStart,
+			id:         "required-host",
+			controller: newTestController("required-host", events),
+		},
+		{
+			kind:         opStart,
+			id:           "required-worker",
+			controller:   newTestController("required-worker", events),
+			dependencies: []string{"required-host"},
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- sp.transition(context.Background(), ops...)
+	}()
+
+	started := map[string]bool{}
+	require.Eventually(t, func() bool {
+		for {
+			select {
+			case event := <-events:
+				started[event.id] = true
+			default:
+				return started["required-worker"]
+			}
+		}
+	}, 250*time.Millisecond, 10*time.Millisecond, "independent required branch should not wait for unrelated retrying resource")
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	default:
+	}
+}
+
+func TestSequencer_StartRechecksBackgroundEligibilityOnStateChange(t *testing.T) {
+	logger := zap.NewNop()
+	sp := newSequencer(logger)
+
+	events := make(chan operationEvent, 10)
+	releaseBlocked := make(chan struct{})
+	defer close(releaseBlocked)
+
+	ops := []operation{
+		{
+			kind:     opStart,
+			id:       "optional-integration",
+			optional: true,
+			controller: &delayedBackgroundControllable{
+				id:           "optional-integration",
+				eventCh:      events,
+				releaseCh:    releaseBlocked,
+				stateChanged: make(chan struct{}, 1),
+				delay:        50 * time.Millisecond,
+			},
+		},
+		{
+			kind:       opStart,
+			id:         "required-worker",
+			controller: newTestController("required-worker", events),
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- sp.transition(context.Background(), ops...)
+	}()
+
+	require.Eventually(t, func() bool {
+		for {
+			select {
+			case event := <-events:
+				if event.id == "required-worker" {
+					return true
+				}
+			default:
+				return false
+			}
+		}
+	}, 250*time.Millisecond, 10*time.Millisecond)
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("start sequence did not wake after background eligibility changed")
+	}
+}
+
+func TestSequencer_StartFailureBlocksOnlyDependents(t *testing.T) {
+	logger := zap.NewNop()
+	sp := newSequencer(logger)
+
+	events := make(chan operationEvent, 10)
+	ops := []operation{
+		{
+			kind:       opStart,
+			id:         "bad-dependency",
+			controller: &startFailingControllable{id: "bad-dependency", eventCh: events, err: errors.New("dependency unavailable")},
+		},
+		{
+			kind:         opStart,
+			id:           "blocked-dependent",
+			controller:   newTestController("blocked-dependent", events),
+			dependencies: []string{"bad-dependency"},
+		},
+		{
+			kind:       opStart,
+			id:         "independent-host",
+			controller: newTestController("independent-host", events),
+		},
+		{
+			kind:         opStart,
+			id:           "independent-worker",
+			controller:   newTestController("independent-worker", events),
+			dependencies: []string{"independent-host"},
+		},
+	}
+
+	err := sp.transition(context.Background(), ops...)
+	require.Error(t, err)
+
+	started := map[string]bool{}
+	for {
+		select {
+		case event := <-events:
+			started[event.id] = true
+		default:
+			require.True(t, started["independent-worker"], "independent branch should start despite dependency failure")
+			require.False(t, started["blocked-dependent"], "dependent branch must remain blocked by dependency failure")
+			return
+		}
+	}
+}
+
+func TestSequencer_OptionalStartFailureDoesNotFailIndependentRequiredBranch(t *testing.T) {
+	logger := zap.NewNop()
+	sp := newSequencer(logger)
+
+	events := make(chan operationEvent, 10)
+	ops := []operation{
+		{
+			kind:       opStart,
+			id:         "optional-integration",
+			controller: &startFailingControllable{id: "optional-integration", eventCh: events, err: errors.New("integration unavailable")},
+			optional:   true,
+		},
+		{
+			kind:       opStart,
+			id:         "required-worker",
+			controller: newTestController("required-worker", events),
+		},
+	}
+
+	err := sp.transition(context.Background(), ops...)
+	require.NoError(t, err)
+
+	started := map[string]bool{}
+	for {
+		select {
+		case event := <-events:
+			started[event.id] = true
+		default:
+			require.True(t, started["optional-integration"])
+			require.True(t, started["required-worker"])
+			return
+		}
+	}
+}
+
+func TestSequencer_RequiredBlockerFailsTransitionWithoutBlockingIndependentBranch(t *testing.T) {
+	logger := zap.NewNop()
+	sp := newSequencer(logger)
+
+	events := make(chan operationEvent, 10)
+	ops := []operation{
+		{
+			kind:       opStart,
+			id:         "blocked-required",
+			controller: newTestController("blocked-required", events),
+			blockers:   []string{"missing-required-service"},
+		},
+		{
+			kind:       opStart,
+			id:         "independent-required",
+			controller: newTestController("independent-required", events),
+		},
+	}
+
+	err := sp.transition(context.Background(), ops...)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "service startup blocked by missing dependencies")
+
+	event := <-events
+	require.Equal(t, "independent-required", event.id)
+	require.True(t, event.isStart)
+}
+
+func TestSequencer_OptionalBlockerDoesNotFailTransition(t *testing.T) {
+	logger := zap.NewNop()
+	sp := newSequencer(logger)
+
+	events := make(chan operationEvent, 10)
+	ops := []operation{
+		{
+			kind:       opStart,
+			id:         "blocked-optional",
+			controller: newTestController("blocked-optional", events),
+			blockers:   []string{"missing-optional-service"},
+			optional:   true,
+		},
+		{
+			kind:       opStart,
+			id:         "independent-required",
+			controller: newTestController("independent-required", events),
+		},
+	}
+
+	err := sp.transition(context.Background(), ops...)
+	require.NoError(t, err)
+
+	select {
+	case event := <-events:
+		require.Equal(t, "independent-required", event.id)
+	case <-time.After(time.Second):
+		t.Fatal("independent required operation did not start")
+	}
+
+	select {
+	case event := <-events:
+		t.Fatalf("blocked optional operation should not start, got %s", event.id)
+	default:
+	}
 }
 
 func TestSequencer_MixedOperations(t *testing.T) {

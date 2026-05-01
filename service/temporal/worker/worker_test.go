@@ -966,16 +966,27 @@ func TestEnsureClientDependency(t *testing.T) {
 	}
 
 	ensureClientDependency(cfg)
-	require.Equal(t, []string{"test:client"}, cfg.Lifecycle.DependsOn)
+	require.Equal(t, []string{"test:client"}, cfg.Lifecycle.Requires)
 
 	// Idempotent when called repeatedly.
 	ensureClientDependency(cfg)
-	require.Equal(t, []string{"test:client"}, cfg.Lifecycle.DependsOn)
+	require.Equal(t, []string{"test:client"}, cfg.Lifecycle.Requires)
 
 	// Appends when there are existing dependencies.
-	cfg.Lifecycle.DependsOn = []string{"service:a"}
+	cfg.Lifecycle.Requires = []string{"service:a"}
 	ensureClientDependency(cfg)
-	require.Equal(t, []string{"service:a", "test:client"}, cfg.Lifecycle.DependsOn)
+	require.Equal(t, []string{"service:a", "test:client"}, cfg.Lifecycle.Requires)
+
+	// Migrates legacy dependencies into the canonical field.
+	cfg.Lifecycle.Requires = nil
+	cfg.Lifecycle.DependsOn = []string{"legacy:a"}
+	ensureClientDependency(cfg)
+	require.Equal(t, []string{"legacy:a", "test:client"}, cfg.Lifecycle.Requires)
+
+	cfg.Lifecycle.Requires = []string{}
+	cfg.Lifecycle.DependsOn = []string{"legacy:a"}
+	ensureClientDependency(cfg)
+	require.Equal(t, []string{"legacy:a", "test:client"}, cfg.Lifecycle.Requires)
 }
 
 func TestManager_DeleteWorker_EmitsRemoveEvents(t *testing.T) {

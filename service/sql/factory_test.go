@@ -58,6 +58,23 @@ func TestDefaultPoolFactory_BuildDSN(t *testing.T) {
 			isError:  false,
 		},
 		{
+			name: "PostgreSQL DSN with connect timeout",
+			kind: config.Postgres,
+			cfg: &config.DBConfig{
+				Host:     "localhost",
+				Port:     5432,
+				Database: "testdb",
+				Username: "user",
+				Password: "pass",
+				Options: map[string]string{
+					"connect_timeout": "2",
+					"sslmode":         "disable",
+				},
+			},
+			expected: "host=localhost port=5432 user=user password=pass dbname=testdb connect_timeout=2 sslmode=disable",
+			isError:  false,
+		},
+		{
 			name: "MySQL DSN",
 			kind: config.MySQL,
 			cfg: &config.DBConfig{
@@ -71,6 +88,24 @@ func TestDefaultPoolFactory_BuildDSN(t *testing.T) {
 				},
 			},
 			expected: "user:pass@tcp(localhost:3306)/testdb?charset=utf8mb4",
+			isError:  false,
+		},
+		{
+			name: "MySQL DSN with query options",
+			kind: config.MySQL,
+			cfg: &config.DBConfig{
+				Host:     "localhost",
+				Port:     3306,
+				Database: "testdb",
+				Username: "user",
+				Password: "pass",
+				Options: map[string]string{
+					"charset":   "utf8mb4",
+					"parseTime": "true",
+					"timeout":   "2s",
+				},
+			},
+			expected: "user:pass@tcp(localhost:3306)/testdb?charset=utf8mb4&parseTime=true&timeout=2s",
 			isError:  false,
 		},
 		{
