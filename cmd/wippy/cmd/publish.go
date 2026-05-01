@@ -183,6 +183,10 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 		if displayName == "" {
 			displayName = cfg.ModuleName
 		}
+		keywords := cfg.Keywords
+		if keywords == nil {
+			keywords = []string{}
+		}
 		registerCtx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 		regResult, regErr := client.RegisterModule(registerCtx, &hub.RegisterModuleParams{
 			Org:           cfg.Organization,
@@ -192,7 +196,7 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 			ModuleType:    moduleType,
 			Visibility:    moduleVisibility,
 			License:       cfg.License,
-			Keywords:      cfg.Keywords,
+			Keywords:      keywords,
 			RepositoryURL: cfg.Repository,
 			HomepageURL:   cfg.Homepage,
 		})

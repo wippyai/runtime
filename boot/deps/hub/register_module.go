@@ -28,7 +28,7 @@ type RegisterModuleParams struct {
 	License       string   `json:"license,omitempty"`
 	RepositoryURL string   `json:"repository_url,omitempty"`
 	HomepageURL   string   `json:"homepage_url,omitempty"`
-	Keywords      []string `json:"keywords,omitempty"`
+	Keywords      []string `json:"keywords"`
 }
 
 // RegisteredModule is the subset of the hub's REST response we surface to

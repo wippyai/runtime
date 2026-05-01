@@ -35,8 +35,12 @@ func NewClient(baseURL string) (*Client, error) {
 		return nil, fmt.Errorf("invalid registry URL: %w", err)
 	}
 
-	// Require HTTPS for non-localhost
-	isLocal := u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1"
+	// Require HTTPS for non-local hosts. host.docker.internal /
+	// host.containers.internal only ever resolve to the host machine, so
+	// plaintext across them is no riskier than localhost.
+	host := u.Hostname()
+	isLocal := host == "localhost" || host == "127.0.0.1" ||
+		host == "host.docker.internal" || host == "host.containers.internal"
 	if u.Scheme != "https" && !isLocal {
 		return nil, fmt.Errorf("registry must use HTTPS")
 	}
