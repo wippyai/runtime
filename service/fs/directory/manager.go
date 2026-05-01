@@ -4,6 +4,7 @@ package directory
 
 import (
 	"context"
+	"path"
 	"path/filepath"
 	"sync"
 
@@ -179,7 +180,7 @@ func resolveDirectoryPath(ctx context.Context, entry registry.Entry, cfg *dirapi
 	if cfg == nil {
 		return ""
 	}
-	if cfg.Directory == "" || cfg.Base != dirapi.BaseModule || filepath.IsAbs(cfg.Directory) {
+	if cfg.Directory == "" || cfg.Base != dirapi.BaseModule || isAbsoluteConfiguredPath(cfg.Directory) {
 		return cfg.Directory
 	}
 
@@ -197,6 +198,10 @@ func resolveDirectoryPath(ctx context.Context, entry registry.Entry, cfg *dirapi
 	}
 
 	return filepath.Join(root, cfg.Directory)
+}
+
+func isAbsoluteConfiguredPath(dir string) bool {
+	return filepath.IsAbs(dir) || path.IsAbs(filepath.ToSlash(dir))
 }
 
 // removeFS removes the filesystem from the fs system
