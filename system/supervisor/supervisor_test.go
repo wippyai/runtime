@@ -239,7 +239,7 @@ func (h *testSupervisorHarness) registerServiceWithDeps(serviceID string, autoSt
 			Service: h.service(serviceID),
 			Config: supervisor.LifecycleConfig{
 				AutoStart:    autoStart,
-				DependsOn:    dependencies,
+				Requires:     dependencies,
 				StartTimeout: 5 * time.Second,
 				StopTimeout:  5 * time.Second,
 				RetryPolicy: supervisor.RetryPolicy{
@@ -1224,7 +1224,7 @@ func TestSupervisor_DependencyFailure(t *testing.T) {
 		Data: &supervisor.Entry{
 			Service: svcB,
 			Config: supervisor.LifecycleConfig{
-				DependsOn:    []string{"service-c"},
+				Requires:     []string{"service-c"},
 				StartTimeout: 5 * time.Second,
 				StopTimeout:  5 * time.Second,
 				RetryPolicy: supervisor.RetryPolicy{
@@ -1410,6 +1410,380 @@ func TestSupervisor_StopUsesResolvedDependencies(t *testing.T) {
 	require.Equal(t, []string{"test:service-a", "test:service-b"}, gotOrder)
 }
 
+func TestSupervisor_ShutdownStopsIndependentBranchesDespiteStopFailure(t *testing.T) {
+	core, _ := observer.New(zapcore.DebugLevel)
+	bus := eventbus.NewBus()
+	logger := zap.New(core)
+	sup := NewSupervisor(bus, logger)
+	require.NoError(t, sup.Start(context.Background()))
+
+	var (
+		mu      sync.Mutex
+		stopped []string
+	)
+	register := func(id string, stopErr error) {
+		details := make(chan any)
+		var closeOnce sync.Once
+		sup.handleEvent(event.Event{
+			System: supervisor.System,
+			Kind:   supervisor.ServiceRegister,
+			Path:   id,
+			Data: &supervisor.Entry{
+				Service: &mockService{
+					startFunc: func(context.Context) (<-chan any, error) {
+						return details, nil
+					},
+					stopFunc: func(context.Context) error {
+						mu.Lock()
+						stopped = append(stopped, id)
+						mu.Unlock()
+						closeOnce.Do(func() { close(details) })
+						return stopErr
+					},
+				},
+				Config: supervisor.LifecycleConfig{
+					AutoStart:    true,
+					StartTimeout: time.Second,
+					StopTimeout:  time.Second,
+				},
+			},
+		})
+	}
+
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	register("bad:service", errors.New("stop failed"))
+	register("good:service", nil)
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	require.Eventually(t, func() bool {
+		bad, badErr := sup.GetState("bad:service")
+		good, goodErr := sup.GetState("good:service")
+		return badErr == nil && goodErr == nil &&
+			bad.Status == supervisor.StatusRunning &&
+			good.Status == supervisor.StatusRunning
+	}, time.Second, 10*time.Millisecond)
+
+	require.NoError(t, sup.Stop())
+
+	mu.Lock()
+	gotStopped := append([]string(nil), stopped...)
+	mu.Unlock()
+	require.ElementsMatch(t, []string{"bad:service", "good:service"}, gotStopped)
+}
+
+func TestSupervisor_AutoStartRetryingServiceDoesNotBlockIndependentBranch(t *testing.T) {
+	core, _ := observer.New(zapcore.DebugLevel)
+	bus := eventbus.NewBus()
+	logger := zap.New(core)
+	sup := NewSupervisor(bus, logger)
+	require.NoError(t, sup.Start(context.Background()))
+	defer func() {
+		require.NoError(t, sup.Stop())
+	}()
+
+	retryAttempts := make(chan struct{}, 10)
+	retrying := &mockService{
+		startFunc: func(context.Context) (<-chan any, error) {
+			select {
+			case retryAttempts <- struct{}{}:
+			default:
+			}
+			return nil, errors.New("optional dependency unavailable")
+		},
+		stopFunc: func(context.Context) error { return nil },
+	}
+
+	hostDetails := make(chan any)
+	host := &mockService{
+		startFunc: func(context.Context) (<-chan any, error) {
+			return hostDetails, nil
+		},
+		stopFunc: func(context.Context) error { return nil },
+	}
+
+	requiredStarted := make(chan struct{})
+	requiredDetails := make(chan any)
+	var requiredOnce sync.Once
+	requiredWorker := &mockService{
+		startFunc: func(context.Context) (<-chan any, error) {
+			requiredOnce.Do(func() { close(requiredStarted) })
+			return requiredDetails, nil
+		},
+		stopFunc: func(context.Context) error { return nil },
+	}
+
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "optional-integration",
+		Data: &supervisor.Entry{
+			Service: retrying,
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    true,
+				Startup:      supervisor.StartupOptional,
+				StartTimeout: 200 * time.Millisecond,
+				StopTimeout:  200 * time.Millisecond,
+				RetryPolicy: supervisor.RetryPolicy{
+					MaxAttempts:  0,
+					InitialDelay: 50 * time.Millisecond,
+					MaxDelay:     50 * time.Millisecond,
+				},
+			},
+		},
+	})
+	sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "required-host",
+		Data: &supervisor.Entry{
+			Service: host,
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    true,
+				StartTimeout: 200 * time.Millisecond,
+				StopTimeout:  200 * time.Millisecond,
+			},
+		},
+	})
+	sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "required-worker",
+		Data: &supervisor.Entry{
+			Service: requiredWorker,
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    true,
+				Requires:     []string{"required-host"},
+				StartTimeout: 200 * time.Millisecond,
+				StopTimeout:  200 * time.Millisecond,
+			},
+		},
+	})
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	select {
+	case <-retryAttempts:
+	case <-time.After(time.Second):
+		t.Fatal("retrying service never attempted to start")
+	}
+
+	select {
+	case <-requiredStarted:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("independent required branch was blocked by unrelated retrying service")
+	}
+}
+
+func TestSupervisor_DependentStartsAfterDependencyRetryRecovery(t *testing.T) {
+	core, _ := observer.New(zapcore.DebugLevel)
+	bus := eventbus.NewBus()
+	logger := zap.New(core)
+	sup := NewSupervisor(bus, logger)
+	require.NoError(t, sup.Start(context.Background()))
+	defer func() {
+		require.NoError(t, sup.Stop())
+	}()
+
+	var attempts atomic.Int32
+	dependencyDetails := make(chan any)
+	dependency := &mockService{
+		startFunc: func(context.Context) (<-chan any, error) {
+			if attempts.Add(1) == 1 {
+				return nil, errors.New("dependency temporarily unavailable")
+			}
+			return dependencyDetails, nil
+		},
+		stopFunc: func(context.Context) error { return nil },
+	}
+
+	dependentStarted := make(chan struct{})
+	dependentDetails := make(chan any)
+	var dependentOnce sync.Once
+	dependent := &mockService{
+		startFunc: func(context.Context) (<-chan any, error) {
+			dependentOnce.Do(func() { close(dependentStarted) })
+			return dependentDetails, nil
+		},
+		stopFunc: func(context.Context) error { return nil },
+	}
+
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "required-dependency",
+		Data: &supervisor.Entry{
+			Service: dependency,
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    true,
+				StartTimeout: 200 * time.Millisecond,
+				StopTimeout:  200 * time.Millisecond,
+				RetryPolicy: supervisor.RetryPolicy{
+					MaxAttempts:  3,
+					InitialDelay: 20 * time.Millisecond,
+					MaxDelay:     20 * time.Millisecond,
+				},
+			},
+		},
+	})
+	sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "required-dependent",
+		Data: &supervisor.Entry{
+			Service: dependent,
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    true,
+				Requires:     []string{"required-dependency"},
+				StartTimeout: 200 * time.Millisecond,
+				StopTimeout:  200 * time.Millisecond,
+			},
+		},
+	})
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	select {
+	case <-dependentStarted:
+	case <-time.After(time.Second):
+		t.Fatal("dependent service did not start after dependency recovered")
+	}
+	require.GreaterOrEqual(t, attempts.Load(), int32(2), "dependency should have retried before dependent start")
+}
+
+func TestSupervisor_ManualStartUsesResolvedDependencies(t *testing.T) {
+	core, _ := observer.New(zapcore.DebugLevel)
+	bus := eventbus.NewBus()
+	logger := zap.New(core)
+	resolver := func(id registry.ID) ([]registry.ID, error) {
+		if id.String() == "test:service-a" {
+			return []registry.ID{registry.NewID("test", "service-b")}, nil
+		}
+		return nil, nil
+	}
+	sup := NewSupervisor(bus, logger, WithDependencyResolver(resolver))
+	require.NoError(t, sup.Start(context.Background()))
+	defer func() {
+		require.NoError(t, sup.Stop())
+	}()
+
+	register := func(id string) {
+		sup.handleEvent(event.Event{
+			System: supervisor.System,
+			Kind:   supervisor.ServiceRegister,
+			Path:   id,
+			Data: &supervisor.Entry{
+				Service: newTestService(),
+				Config: supervisor.LifecycleConfig{
+					AutoStart:    false,
+					StartTimeout: time.Second,
+					StopTimeout:  time.Second,
+				},
+			},
+		})
+	}
+
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	register("test:service-b")
+	register("test:service-a")
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceStart,
+		Path:   "test:service-a",
+	})
+
+	require.Eventually(t, func() bool {
+		stateA, errA := sup.GetState("test:service-a")
+		stateB, errB := sup.GetState("test:service-b")
+		return errA == nil && errB == nil &&
+			stateA.Status == supervisor.StatusRunning &&
+			stateB.Status == supervisor.StatusRunning
+	}, time.Second, 10*time.Millisecond, "manual start should honor registry-extracted dependencies")
+}
+
+func TestSupervisor_ManualStopUsesResolvedDependencies(t *testing.T) {
+	core, _ := observer.New(zapcore.DebugLevel)
+	bus := eventbus.NewBus()
+	logger := zap.New(core)
+	resolver := func(id registry.ID) ([]registry.ID, error) {
+		if id.String() == "test:service-a" {
+			return []registry.ID{registry.NewID("test", "service-b")}, nil
+		}
+		return nil, nil
+	}
+	sup := NewSupervisor(bus, logger, WithDependencyResolver(resolver))
+	require.NoError(t, sup.Start(context.Background()))
+	defer func() {
+		require.NoError(t, sup.Stop())
+	}()
+
+	var (
+		orderMu sync.Mutex
+		order   []string
+	)
+	register := func(id string) {
+		details := make(chan any)
+		var closeOnce sync.Once
+		sup.handleEvent(event.Event{
+			System: supervisor.System,
+			Kind:   supervisor.ServiceRegister,
+			Path:   id,
+			Data: &supervisor.Entry{
+				Service: &mockService{
+					startFunc: func(context.Context) (<-chan any, error) {
+						return details, nil
+					},
+					stopFunc: func(context.Context) error {
+						orderMu.Lock()
+						order = append(order, id)
+						orderMu.Unlock()
+						closeOnce.Do(func() { close(details) })
+						return nil
+					},
+				},
+				Config: supervisor.LifecycleConfig{
+					AutoStart:    true,
+					StartTimeout: time.Second,
+					StopTimeout:  time.Second,
+				},
+			},
+		})
+	}
+
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	register("test:service-b")
+	register("test:service-a")
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	require.Eventually(t, func() bool {
+		stateA, errA := sup.GetState("test:service-a")
+		stateB, errB := sup.GetState("test:service-b")
+		return errA == nil && errB == nil &&
+			stateA.Status == supervisor.StatusRunning &&
+			stateB.Status == supervisor.StatusRunning
+	}, time.Second, 10*time.Millisecond)
+
+	sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceStop,
+		Path:   "test:service-b",
+	})
+
+	require.Eventually(t, func() bool {
+		stateA, errA := sup.GetState("test:service-a")
+		stateB, errB := sup.GetState("test:service-b")
+		return errA == nil && errB == nil &&
+			stateA.Status == supervisor.StatusStopped &&
+			stateB.Status == supervisor.StatusStopped
+	}, time.Second, 10*time.Millisecond, "manual stop should stop registry-resolved dependents before the dependency")
+
+	orderMu.Lock()
+	gotOrder := append([]string(nil), order...)
+	orderMu.Unlock()
+	require.Equal(t, []string{"test:service-a", "test:service-b"}, gotOrder)
+}
+
 func TestSupervisor_MissingDependencies(t *testing.T) {
 	h := newTestHarness(t)
 	ctx := context.Background()
@@ -1433,6 +1807,420 @@ func TestSupervisor_MissingDependencies(t *testing.T) {
 	state, err := h.sup.GetState("service-a")
 	require.NoError(t, err)
 	require.NotEqual(t, supervisor.StatusRunning, state.Status)
+}
+
+func TestSupervisor_AutoStartMissingLifecycleDependencyDoesNotStart(t *testing.T) {
+	h := newTestHarness(t)
+	ctx := context.Background()
+	h.start(ctx)
+	defer h.stop()
+
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	h.registerServiceWithDeps("service-a", true, []string{"missing-service"})
+	h.sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	time.Sleep(100 * time.Millisecond)
+
+	state, err := h.sup.GetState("service-a")
+	require.NoError(t, err)
+	require.NotEqual(t, supervisor.StatusRunning, state.Status)
+}
+
+func TestSupervisor_OptionalMissingLifecycleDependencyDoesNotBlockRequiredBranch(t *testing.T) {
+	core, _ := observer.New(zapcore.DebugLevel)
+	bus := eventbus.NewBus()
+	logger := zap.New(core)
+	sup := NewSupervisor(bus, logger)
+	require.NoError(t, sup.Start(context.Background()))
+	defer func() {
+		require.NoError(t, sup.Stop())
+	}()
+
+	requiredStarted := make(chan struct{})
+	var requiredOnce sync.Once
+	required := &mockService{
+		startFunc: func(context.Context) (<-chan any, error) {
+			requiredOnce.Do(func() { close(requiredStarted) })
+			return make(chan any), nil
+		},
+		stopFunc: func(context.Context) error { return nil },
+	}
+
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "optional-integration",
+		Data: &supervisor.Entry{
+			Service: newTestService(),
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    true,
+				Startup:      supervisor.StartupOptional,
+				Requires:     []string{"external-required-service"},
+				StartTimeout: 200 * time.Millisecond,
+				StopTimeout:  200 * time.Millisecond,
+			},
+		},
+	})
+	sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "required-worker",
+		Data: &supervisor.Entry{
+			Service: required,
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    true,
+				StartTimeout: 200 * time.Millisecond,
+				StopTimeout:  200 * time.Millisecond,
+			},
+		},
+	})
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	select {
+	case <-requiredStarted:
+	case <-time.After(time.Second):
+		t.Fatal("required branch was blocked by unrelated optional missing dependency")
+	}
+
+	optionalState, err := sup.GetState("optional-integration")
+	require.NoError(t, err)
+	require.NotEqual(t, supervisor.StatusRunning, optionalState.Status)
+}
+
+func TestSupervisor_AutoStartIgnoresMissingRegistryExtractedNonServiceDependency(t *testing.T) {
+	core, _ := observer.New(zapcore.DebugLevel)
+	bus := eventbus.NewBus()
+	logger := zap.New(core)
+	resolver := func(id registry.ID) ([]registry.ID, error) {
+		if id.String() == "test:service-a" {
+			return []registry.ID{registry.NewID("test", "non-service-entry")}, nil
+		}
+		return nil, nil
+	}
+	sup := NewSupervisor(bus, logger, WithDependencyResolver(resolver))
+	require.NoError(t, sup.Start(context.Background()))
+	defer func() {
+		require.NoError(t, sup.Stop())
+	}()
+
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "test:service-a",
+		Data: &supervisor.Entry{
+			Service: newTestService(),
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    true,
+				StartTimeout: time.Second,
+				StopTimeout:  time.Second,
+			},
+		},
+	})
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	require.Eventually(t, func() bool {
+		state, err := sup.GetState("test:service-a")
+		return err == nil && state.Status == supervisor.StatusRunning
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestSupervisor_AutoStartTraversesRegistryDependencyChainToService(t *testing.T) {
+	core, _ := observer.New(zapcore.DebugLevel)
+	bus := eventbus.NewBus()
+	logger := zap.New(core)
+	resolver := func(id registry.ID) ([]registry.ID, error) {
+		switch id.String() {
+		case "app:consumer":
+			return []registry.ID{registry.NewID("app", "queue")}, nil
+		case "app:queue":
+			return []registry.ID{registry.NewID("app", "queue_driver")}, nil
+		default:
+			return nil, nil
+		}
+	}
+	sup := NewSupervisor(bus, logger, WithDependencyResolver(resolver))
+	require.NoError(t, sup.Start(context.Background()))
+	defer func() {
+		require.NoError(t, sup.Stop())
+	}()
+
+	driverStarted := make(chan struct{})
+	consumerStarted := make(chan struct{})
+	var driverOnce, consumerOnce sync.Once
+	driver := &mockService{
+		startFunc: func(context.Context) (<-chan any, error) {
+			driverOnce.Do(func() { close(driverStarted) })
+			return make(chan any), nil
+		},
+		stopFunc: func(context.Context) error { return nil },
+	}
+	consumer := &mockService{
+		startFunc: func(context.Context) (<-chan any, error) {
+			consumerOnce.Do(func() { close(consumerStarted) })
+			return make(chan any), nil
+		},
+		stopFunc: func(context.Context) error { return nil },
+	}
+
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "app:queue_driver",
+		Data: &supervisor.Entry{
+			Service: driver,
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    false,
+				StartTimeout: time.Second,
+				StopTimeout:  time.Second,
+			},
+		},
+	})
+	sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "app:consumer",
+		Data: &supervisor.Entry{
+			Service: consumer,
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    true,
+				StartTimeout: time.Second,
+				StopTimeout:  time.Second,
+			},
+		},
+	})
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	select {
+	case <-driverStarted:
+	case <-time.After(time.Second):
+		t.Fatal("transitive service dependency did not start")
+	}
+
+	select {
+	case <-consumerStarted:
+	case <-time.After(time.Second):
+		t.Fatal("dependent service did not start after transitive dependency")
+	}
+}
+
+func TestSupervisor_LifecycleRequiresTraversesRegistryDependencyChainToService(t *testing.T) {
+	core, _ := observer.New(zapcore.DebugLevel)
+	bus := eventbus.NewBus()
+	logger := zap.New(core)
+	resolver := func(id registry.ID) ([]registry.ID, error) {
+		switch id.String() {
+		case "app:queue":
+			return []registry.ID{registry.NewID("app", "queue_driver")}, nil
+		default:
+			return nil, nil
+		}
+	}
+	sup := NewSupervisor(bus, logger, WithDependencyResolver(resolver))
+	require.NoError(t, sup.Start(context.Background()))
+	defer func() {
+		require.NoError(t, sup.Stop())
+	}()
+
+	driverStarted := make(chan struct{})
+	consumerStarted := make(chan struct{})
+	var driverOnce, consumerOnce sync.Once
+	driver := &mockService{
+		startFunc: func(context.Context) (<-chan any, error) {
+			driverOnce.Do(func() { close(driverStarted) })
+			return make(chan any), nil
+		},
+		stopFunc: func(context.Context) error { return nil },
+	}
+	consumer := &mockService{
+		startFunc: func(context.Context) (<-chan any, error) {
+			consumerOnce.Do(func() { close(consumerStarted) })
+			return make(chan any), nil
+		},
+		stopFunc: func(context.Context) error { return nil },
+	}
+
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "app:queue_driver",
+		Data: &supervisor.Entry{
+			Service: driver,
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    false,
+				StartTimeout: time.Second,
+				StopTimeout:  time.Second,
+			},
+		},
+	})
+	sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "app:consumer",
+		Data: &supervisor.Entry{
+			Service: consumer,
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    true,
+				Requires:     []string{"queue"},
+				StartTimeout: time.Second,
+				StopTimeout:  time.Second,
+			},
+		},
+	})
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	select {
+	case <-driverStarted:
+	case <-time.After(time.Second):
+		t.Fatal("lifecycle registry dependency did not resolve to service")
+	}
+
+	select {
+	case <-consumerStarted:
+	case <-time.After(time.Second):
+		t.Fatal("dependent service did not start after lifecycle transitive dependency")
+	}
+}
+
+func TestSupervisor_RequiredLifecycleRegistryChainWithoutServiceStillBlocks(t *testing.T) {
+	core, _ := observer.New(zapcore.DebugLevel)
+	bus := eventbus.NewBus()
+	logger := zap.New(core)
+	resolver := func(id registry.ID) ([]registry.ID, error) {
+		switch id.String() {
+		case "app:queue":
+			return []registry.ID{registry.NewID("app", "missing_driver")}, nil
+		default:
+			return nil, nil
+		}
+	}
+	sup := NewSupervisor(bus, logger, WithDependencyResolver(resolver))
+	require.NoError(t, sup.Start(context.Background()))
+	defer func() {
+		require.NoError(t, sup.Stop())
+	}()
+
+	consumer := &mockService{
+		startFunc: func(context.Context) (<-chan any, error) {
+			return make(chan any), nil
+		},
+		stopFunc: func(context.Context) error { return nil },
+	}
+
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "app:consumer",
+		Data: &supervisor.Entry{
+			Service: consumer,
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    true,
+				Requires:     []string{"queue"},
+				StartTimeout: time.Second,
+				StopTimeout:  time.Second,
+			},
+		},
+	})
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	time.Sleep(100 * time.Millisecond)
+	state, err := sup.GetState("app:consumer")
+	require.NoError(t, err)
+	require.NotEqual(t, supervisor.StatusRunning, state.Status)
+}
+
+func TestSupervisor_RequiredBranchUpgradesOptionalDependency(t *testing.T) {
+	core, _ := observer.New(zapcore.DebugLevel)
+	bus := eventbus.NewBus()
+	logger := zap.New(core)
+	sup := NewSupervisor(bus, logger)
+	require.NoError(t, sup.Start(context.Background()))
+	defer func() {
+		require.NoError(t, sup.Stop())
+	}()
+
+	releaseOptional := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseOptional) }) }
+	defer release()
+	optionalStarted := make(chan struct{})
+	var optionalOnce sync.Once
+	optionalDependency := &mockService{
+		startFunc: func(context.Context) (<-chan any, error) {
+			optionalOnce.Do(func() { close(optionalStarted) })
+			<-releaseOptional
+			return make(chan any), nil
+		},
+		stopFunc: func(context.Context) error { return nil },
+	}
+
+	requiredStarted := make(chan struct{})
+	var requiredOnce sync.Once
+	requiredDependent := &mockService{
+		startFunc: func(context.Context) (<-chan any, error) {
+			requiredOnce.Do(func() { close(requiredStarted) })
+			return make(chan any), nil
+		},
+		stopFunc: func(context.Context) error { return nil },
+	}
+
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxBegin})
+	sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "shared-dependency",
+		Data: &supervisor.Entry{
+			Service: optionalDependency,
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    true,
+				Startup:      supervisor.StartupOptional,
+				StartTimeout: time.Second,
+				StopTimeout:  time.Second,
+				RetryPolicy: supervisor.RetryPolicy{
+					MaxAttempts: 0,
+				},
+			},
+		},
+	})
+	sup.handleEvent(event.Event{
+		System: supervisor.System,
+		Kind:   supervisor.ServiceRegister,
+		Path:   "required-dependent",
+		Data: &supervisor.Entry{
+			Service: requiredDependent,
+			Config: supervisor.LifecycleConfig{
+				AutoStart:    true,
+				Requires:     []string{"shared-dependency"},
+				StartTimeout: time.Second,
+				StopTimeout:  time.Second,
+			},
+		},
+	})
+	sup.handleEvent(event.Event{System: registry.System, Kind: registry.TxCommit})
+
+	select {
+	case <-optionalStarted:
+	case <-time.After(time.Second):
+		t.Fatal("shared dependency was not started")
+	}
+
+	select {
+	case <-requiredStarted:
+		t.Fatal("required dependent started before its dependency completed")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	release()
+
+	select {
+	case <-requiredStarted:
+	case <-time.After(time.Second):
+		t.Fatal("required dependent did not start after shared dependency became ready")
+	}
 }
 
 func TestSupervisor_AddDependencyToExistingService(t *testing.T) {

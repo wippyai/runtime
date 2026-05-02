@@ -11,15 +11,22 @@ import (
 )
 
 type (
+	StartupMode string
+
 	// LifecycleConfig defines the configuration for a service managed by the supervisor.
 	LifecycleConfig struct {
-		Security        *security.Config `json:"security,omitempty" yaml:"security,omitempty"`
-		DependsOn       []string         `json:"depends_on" yaml:"depends_on" default:"[]"`
-		RetryPolicy     RetryPolicy      `json:"restart" yaml:"restart"`
-		StartTimeout    time.Duration    `json:"start_timeout,omitzero,format:units" yaml:"start_timeout" default:"10s"`
-		StopTimeout     time.Duration    `json:"stop_timeout,omitzero,format:units" yaml:"stop_timeout" default:"10s"`
-		StableThreshold time.Duration    `json:"stable_threshold,omitzero,format:units" yaml:"stable_threshold" default:"5s"`
-		AutoStart       bool             `json:"auto_start" yaml:"auto_start" default:"false"`
+		// Startup controls whether an auto-start root is strict or may degrade independently.
+		Startup  StartupMode      `json:"startup,omitempty" yaml:"startup" default:"required"`
+		Security *security.Config `json:"security,omitempty" yaml:"security,omitempty"`
+		// Requires lists other supervisor services that must be running before this one starts.
+		Requires []string `json:"requires" yaml:"requires" default:"[]"`
+		// DependsOn is the legacy spelling kept for older modules. New manifests should use Requires.
+		DependsOn       []string      `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
+		RetryPolicy     RetryPolicy   `json:"restart" yaml:"restart"`
+		StartTimeout    time.Duration `json:"start_timeout,omitzero,format:units" yaml:"start_timeout" default:"10s"`
+		StopTimeout     time.Duration `json:"stop_timeout,omitzero,format:units" yaml:"stop_timeout" default:"10s"`
+		StableThreshold time.Duration `json:"stable_threshold,omitzero,format:units" yaml:"stable_threshold" default:"5s"`
+		AutoStart       bool          `json:"auto_start" yaml:"auto_start" default:"false"`
 	}
 
 	// RetryPolicy defines the parameters for retrying a service after a failure.
@@ -37,9 +44,57 @@ type (
 	}
 )
 
+const (
+	StartupRequired StartupMode = "required"
+	StartupOptional StartupMode = "optional"
+)
+
+func (cfg LifecycleConfig) RequiredServices() []string {
+	if len(cfg.Requires) == 0 {
+		return append([]string(nil), cfg.DependsOn...)
+	}
+
+	seen := make(map[string]struct{}, len(cfg.Requires)+len(cfg.DependsOn))
+	result := make([]string, 0, len(cfg.Requires)+len(cfg.DependsOn))
+	for _, dep := range cfg.Requires {
+		if _, exists := seen[dep]; exists {
+			continue
+		}
+		seen[dep] = struct{}{}
+		result = append(result, dep)
+	}
+	for _, dep := range cfg.DependsOn {
+		if _, exists := seen[dep]; exists {
+			continue
+		}
+		seen[dep] = struct{}{}
+		result = append(result, dep)
+	}
+
+	return result
+}
+
+func (cfg LifecycleConfig) StartupMode() StartupMode {
+	if cfg.Startup == "" {
+		return StartupRequired
+	}
+	if cfg.Startup == StartupOptional {
+		return StartupOptional
+	}
+	return StartupRequired
+}
+
+func (cfg LifecycleConfig) StartupRequired() bool {
+	return cfg.StartupMode() == StartupRequired
+}
+
 // InitDefaults initializes the LifecycleConfig with default values if they are not set.
 // This includes setting default timeouts, retry policies, and backoff parameters.
 func (cfg *LifecycleConfig) InitDefaults() {
+	if cfg.Startup == "" {
+		cfg.Startup = StartupRequired
+	}
+
 	if cfg.StartTimeout == 0 {
 		cfg.StartTimeout = 10 * time.Second
 	}
@@ -75,7 +130,9 @@ type lifecycleConfigJSON struct {
 	StartTimeout    string           `json:"start_timeout,omitempty"`
 	StopTimeout     string           `json:"stop_timeout,omitempty"`
 	StableThreshold string           `json:"stable_threshold,omitempty"`
-	DependsOn       []string         `json:"depends_on"`
+	Startup         StartupMode      `json:"startup,omitempty"`
+	Requires        []string         `json:"requires"`
+	DependsOn       []string         `json:"depends_on,omitempty"`
 	RetryPolicy     RetryPolicy      `json:"restart"`
 	AutoStart       bool             `json:"auto_start"`
 }
@@ -89,7 +146,9 @@ func (cfg *LifecycleConfig) UnmarshalJSON(data []byte) error {
 
 	cfg.AutoStart = raw.AutoStart
 	cfg.RetryPolicy = raw.RetryPolicy
+	cfg.Requires = raw.Requires
 	cfg.DependsOn = raw.DependsOn
+	cfg.Startup = raw.Startup
 	cfg.Security = raw.Security
 
 	if raw.StartTimeout != "" {
@@ -119,10 +178,16 @@ func (cfg *LifecycleConfig) UnmarshalJSON(data []byte) error {
 
 // MarshalJSON implements json.Marshaler to output durations as strings
 func (cfg LifecycleConfig) MarshalJSON() ([]byte, error) {
+	startup := cfg.Startup
+	if startup != "" {
+		startup = cfg.StartupMode()
+	}
+
 	raw := lifecycleConfigJSON{
 		AutoStart:   cfg.AutoStart,
 		RetryPolicy: cfg.RetryPolicy,
-		DependsOn:   cfg.DependsOn,
+		Startup:     startup,
+		Requires:    cfg.RequiredServices(),
 		Security:    cfg.Security,
 	}
 	if cfg.StartTimeout != 0 {

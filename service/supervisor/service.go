@@ -122,6 +122,16 @@ func (svc *Service) Stop(ctx context.Context) error {
 		return nil
 	}
 
+	// The child may have already exited and reported its final status before
+	// shutdown reaches this service. In that state there is nothing left to
+	// cancel; sending a cancel package can produce a misleading "process not
+	// found" error even though the service is already stopped.
+	select {
+	case <-svc.statusCh:
+		return nil
+	default:
+	}
+
 	node := relay.GetNode(ctx)
 	if node == nil {
 		return ErrNoRelayNode

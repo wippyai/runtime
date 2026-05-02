@@ -33,7 +33,7 @@ func TestLifecycleConfig_MarshalJSON(t *testing.T) {
 					Jitter:        0.1,
 					MaxAttempts:   5,
 				},
-				DependsOn: []string{"service1", "service2"},
+				Requires: []string{"service1", "service2"},
 			},
 			expected: `{
 				"auto_start": true,
@@ -47,7 +47,7 @@ func TestLifecycleConfig_MarshalJSON(t *testing.T) {
 					"jitter": 0.1,
 					"max_attempts": 5
 				},
-				"depends_on": ["service1", "service2"]
+				"requires": ["service1", "service2"]
 			}`,
 			wantErr: false,
 		},
@@ -63,7 +63,7 @@ func TestLifecycleConfig_MarshalJSON(t *testing.T) {
 					"jitter": 0,
 					"max_attempts": 0
 				},
-				"depends_on": null
+				"requires": null
 			}`,
 			wantErr: false,
 		},
@@ -90,7 +90,7 @@ func TestLifecycleConfig_MarshalJSON(t *testing.T) {
 					"jitter": 0,
 					"max_attempts": 0
 				},
-				"depends_on": null
+				"requires": null
 			}`,
 			wantErr: false,
 		},
@@ -155,6 +155,20 @@ func TestLifecycleConfig_UnmarshalJSON(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "valid config with canonical requires and optional startup",
+			json: `{
+				"auto_start": true,
+				"startup": "optional",
+				"requires": ["service1", "service2"]
+			}`,
+			expected: LifecycleConfig{
+				AutoStart: true,
+				Startup:   StartupOptional,
+				Requires:  []string{"service1", "service2"},
+			},
+			wantErr: false,
+		},
+		{
 			name: "invalid start timeout",
 			json: `{
 				"start_timeout": "invalid",
@@ -201,6 +215,42 @@ func TestLifecycleConfig_UnmarshalJSON(t *testing.T) {
 			assert.Equal(t, tt.expected, config)
 		})
 	}
+}
+
+func TestLifecycleConfig_RequiredServicesAndStartupPolicy(t *testing.T) {
+	t.Run("requires is canonical and legacy depends_on is appended once", func(t *testing.T) {
+		cfg := LifecycleConfig{
+			Requires:  []string{"service-a", "service-b"},
+			DependsOn: []string{"service-b", "service-c"},
+		}
+
+		assert.Equal(t, []string{"service-a", "service-b", "service-c"}, cfg.RequiredServices())
+	})
+
+	t.Run("legacy depends_on works when requires is not set", func(t *testing.T) {
+		cfg := LifecycleConfig{DependsOn: []string{"service-a"}}
+
+		assert.Equal(t, []string{"service-a"}, cfg.RequiredServices())
+	})
+
+	t.Run("startup defaults to strict required", func(t *testing.T) {
+		assert.Equal(t, StartupRequired, LifecycleConfig{}.StartupMode())
+		assert.True(t, LifecycleConfig{}.StartupRequired())
+	})
+
+	t.Run("unknown startup value stays strict", func(t *testing.T) {
+		cfg := LifecycleConfig{Startup: StartupMode("degraded")}
+
+		assert.Equal(t, StartupRequired, cfg.StartupMode())
+		assert.True(t, cfg.StartupRequired())
+	})
+
+	t.Run("optional startup is explicit", func(t *testing.T) {
+		cfg := LifecycleConfig{Startup: StartupOptional}
+
+		assert.Equal(t, StartupOptional, cfg.StartupMode())
+		assert.False(t, cfg.StartupRequired())
+	})
 }
 
 func TestRetryPolicy_MarshalJSON(t *testing.T) {

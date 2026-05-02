@@ -45,6 +45,7 @@ type Controller struct {
 	ctx           context.Context
 	state         *internalState
 	onStateChange func(supervisor.Status, any)
+	stateChanged  chan struct{}
 	cancel        context.CancelFunc
 	ops           chan ctrlOp
 	startCancel   context.CancelFunc
@@ -65,6 +66,7 @@ func NewController(
 		config:        config,
 		state:         newInternalState(),
 		onStateChange: onStateChange,
+		stateChanged:  make(chan struct{}, 1),
 		root:          ctx,
 		ops:           make(chan ctrlOp, 10),
 	}
@@ -119,6 +121,17 @@ func (c *Controller) clearStartCancel() {
 	c.startMu.Lock()
 	c.startCancel = nil
 	c.startMu.Unlock()
+}
+
+func (c *Controller) startMayCompleteInBackground() bool {
+	state := c.State()
+	return state.Desired == supervisor.StatusRunning &&
+		state.Status == supervisor.StatusFailed &&
+		(c.config.RetryPolicy.MaxAttempts == 0 || int(state.RetryCount) < c.config.RetryPolicy.MaxAttempts)
+}
+
+func (c *Controller) startStateChanged() <-chan struct{} {
+	return c.stateChanged
 }
 
 func (c *Controller) runCommand(op ctrlOp) error {
@@ -405,5 +418,9 @@ func (c *Controller) updateState(status supervisor.Status, details any) {
 	c.state.updateState(status, details)
 	if c.onStateChange != nil {
 		c.onStateChange(status, details)
+	}
+	select {
+	case c.stateChanged <- struct{}{}:
+	default:
 	}
 }
