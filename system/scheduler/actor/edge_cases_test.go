@@ -232,6 +232,30 @@ func (p *ImmediateProcess) Step(_ []process.Event, out *process.StepOutput) erro
 func (p *ImmediateProcess) Send(*relay.Package) error { return nil }
 func (p *ImmediateProcess) Close()                    {}
 
+type FrameWritingProcess struct{}
+
+var (
+	upgradeInheritedKey = &ctxapi.Key{Name: "upgrade.inherited", Inherit: true}
+	upgradeNewKey       = &ctxapi.Key{Name: "upgrade.new"}
+)
+
+func (p *FrameWritingProcess) Init(ctx context.Context, _ string, _ payload.Payloads) error {
+	fc := ctxapi.FrameFromContext(ctx)
+	if fc == nil {
+		return errors.New("frame context missing")
+	}
+	if _, ok := fc.Get(upgradeInheritedKey); !ok {
+		return errors.New("inherited frame value missing")
+	}
+	return fc.Set(upgradeNewKey, "ready")
+}
+func (p *FrameWritingProcess) Step(_ []process.Event, out *process.StepOutput) error {
+	out.Done(nil)
+	return nil
+}
+func (p *FrameWritingProcess) Send(*relay.Package) error { return nil }
+func (p *FrameWritingProcess) Close()                    {}
+
 // TestUpgradeSuccess tests successful upgrade
 func TestUpgradeSuccess(t *testing.T) {
 	reg := scheduler.NewRegistry()
@@ -261,6 +285,45 @@ func TestUpgradeSuccess(t *testing.T) {
 		t.Fatalf("execute error: %v", err)
 	}
 
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %v", result.Error)
+	}
+}
+
+func TestUpgradeSuccess_ForksSealedFrameForReplacementProcess(t *testing.T) {
+	reg := scheduler.NewRegistry()
+	te := newTestExecutorWithRegistry(1, reg)
+	te.Start()
+	defer te.Stop()
+
+	root := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
+	ctx, fc := ctxapi.OpenFrameContext(root)
+	defer ctxapi.ReleaseFrameContext(fc)
+	if err := fc.Set(upgradeInheritedKey, "keep"); err != nil {
+		t.Fatalf("set inherited frame value: %v", err)
+	}
+	fc.Seal()
+
+	process.WithFactory(ctx, &mockFactory{
+		createFunc: func(_ registry.ID) (process.Process, *process.Meta, error) {
+			return &FrameWritingProcess{}, &process.Meta{Method: "run"}, nil
+		},
+	})
+
+	runCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	pid := pidapi.PID{UniqID: "upgrade-sealed-frame"}
+	proc := &UpgradeProcess{
+		upgradeReq: &process.UpgradeRequest{
+			Source: registry.ID{Name: "test"},
+		},
+	}
+
+	result, err := te.Execute(runCtx, pid, proc, "", nil)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
 	if result.Error != nil {
 		t.Fatalf("unexpected error: %v", result.Error)
 	}
