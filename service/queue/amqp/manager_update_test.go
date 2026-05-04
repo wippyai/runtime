@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	queueapi "github.com/wippyai/runtime/api/queue"
@@ -40,15 +41,31 @@ func (t *urlTranscoder) Unmarshal(_ payload.Payload, v any) error {
 // driver's service, register a replacement driver, then emit DriverRegister
 // so consumers pick up the new instance.
 func TestManagerUpdate_RebuildsDriverAndEmitsLifecycleEvents(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctxapi.NewRootContext())
 	defer cancel()
 
 	bus := eventbus.NewBus()
+	awaitSvc := eventbus.NewAwaitService(bus)
+	require.NoError(t, awaitSvc.Start(ctx))
+	defer func() { _ = awaitSvc.Stop() }()
+	ctx = event.WithAwaitService(ctx, awaitSvc)
+
+	ackSub, err := eventbus.NewSubscriber(ctx, bus, queueapi.System,
+		"queue.driver.(register|delete)", func(e event.Event) {
+			bus.Send(ctx, event.Event{
+				System: queueapi.System,
+				Kind:   "queue.accept",
+				Path:   e.Path,
+			})
+		})
+	require.NoError(t, err)
+	defer ackSub.Close()
+
 	tc := &urlTranscoder{url: "amqp://localhost:5672"}
 	mgr := NewManager(bus, tc, zap.NewNop())
 
 	supEvents := make(chan event.Event, 16)
-	_, err := bus.Subscribe(ctx, supervisor.System, supEvents)
+	_, err = bus.Subscribe(ctx, supervisor.System, supEvents)
 	require.NoError(t, err)
 
 	drvEvents := make(chan event.Event, 16)
@@ -84,7 +101,7 @@ func TestManagerUpdate_RebuildsDriverAndEmitsLifecycleEvents(t *testing.T) {
 	assert.Contains(t, supKinds, supervisor.ServiceRegister,
 		"the replacement driver must be registered with the supervisor")
 
-	drvKinds := collectEventKinds(drvEvents, 2)
+	drvKinds := collectEventKinds(drvEvents, 4)
 	assert.Contains(t, drvKinds, queueapi.DriverDelete,
 		"queue listeners must observe the old driver's deletion")
 	assert.Contains(t, drvKinds, queueapi.DriverRegister,

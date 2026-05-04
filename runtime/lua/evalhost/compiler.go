@@ -7,10 +7,12 @@ import (
 	"strings"
 
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/go-lua/compiler/ast"
 	"github.com/wippyai/go-lua/compiler/parse"
 	typeio "github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/go-lua/types/typ"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	luacode "github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 )
 
@@ -119,7 +121,7 @@ func (c *Compiler) Compile(cmd CompileCmd) (*Program, error) {
 		return nil, NewParseError(err)
 	}
 
-	compileOpts, err := compileOptionsForModules(modules, available)
+	compileOpts, err := compileOptionsForSourceAndModules(chunk, modules, available)
 	if err != nil {
 		return nil, NewCompileScriptError(err)
 	}
@@ -136,10 +138,7 @@ func (c *Compiler) Compile(cmd CompileCmd) (*Program, error) {
 	}, nil
 }
 
-func compileOptionsForModules(modules []string, available map[string]*luaapi.ModuleDef) (lua.CompileOptions, error) {
-	if len(modules) == 0 {
-		return lua.CompileOptions{}, nil
-	}
+func compileOptionsForSourceAndModules(chunk []ast.Stmt, modules []string, available map[string]*luaapi.ModuleDef) (lua.CompileOptions, error) {
 	manifest := typeio.NewManifest("eval")
 	conflicts := make(map[string]struct{})
 	for _, name := range modules {
@@ -169,6 +168,32 @@ func compileOptionsForModules(modules []string, available map[string]*luaapi.Mod
 			manifest.Types[typeName] = t
 		}
 	}
+
+	typeCfg := luacode.DefaultTypeCheckConfig()
+	typeCfg.Enabled = true
+	typeCfg.Strict = false
+	checker := luacode.NewTypeChecker(typeCfg, modulesForNames(modules, available))
+	sourceManifest, _ := checker.CheckParsed(chunk, "eval", nil)
+	if sourceManifest != nil {
+		for typeName, t := range sourceManifest.Types {
+			if typeName == "" || t == nil {
+				continue
+			}
+			if _, blocked := conflicts[typeName]; blocked {
+				continue
+			}
+			if existing, ok := manifest.Types[typeName]; ok {
+				if typ.TypeEquals(existing, t) {
+					continue
+				}
+				delete(manifest.Types, typeName)
+				conflicts[typeName] = struct{}{}
+				continue
+			}
+			manifest.Types[typeName] = t
+		}
+	}
+
 	if len(manifest.Types) == 0 {
 		return lua.CompileOptions{}, nil
 	}
@@ -181,6 +206,19 @@ func compileOptionsForModules(modules []string, available map[string]*luaapi.Mod
 		typeNames[name] = struct{}{}
 	}
 	return lua.CompileOptions{TypeInfo: data, TypeNames: typeNames}, nil
+}
+
+func modulesForNames(names []string, available map[string]*luaapi.ModuleDef) []*luaapi.ModuleDef {
+	if len(names) == 0 {
+		return nil
+	}
+	out := make([]*luaapi.ModuleDef, 0, len(names))
+	for _, name := range names {
+		if mod := available[name]; mod != nil {
+			out = append(out, mod)
+		}
+	}
+	return out
 }
 
 // validateModuleClasses checks if a module's classes pass filtering.

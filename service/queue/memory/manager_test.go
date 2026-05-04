@@ -3,12 +3,16 @@
 package memory
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
+	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
 	memoryapi "github.com/wippyai/runtime/api/service/queue/memory"
 	"github.com/wippyai/runtime/api/supervisor"
@@ -32,10 +36,34 @@ func (m *mockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload
 	return p, nil
 }
 
-func TestManager_Add(t *testing.T) {
+func newManagerTestContext(t *testing.T, bus event.Bus) context.Context {
+	t.Helper()
+
 	ctx := ctxapi.NewRootContext()
 	ctx = payload.WithTranscoder(ctx, &mockTranscoder{})
+
+	awaitSvc := eventbus.NewAwaitService(bus)
+	require.NoError(t, awaitSvc.Start(ctx))
+	t.Cleanup(func() { _ = awaitSvc.Stop() })
+	ctx = event.WithAwaitService(ctx, awaitSvc)
+
+	sub, err := eventbus.NewSubscriber(ctx, bus, queueapi.System,
+		"queue.driver.(register|delete)", func(e event.Event) {
+			bus.Send(ctx, event.Event{
+				System: queueapi.System,
+				Kind:   "queue.accept",
+				Path:   e.Path,
+			})
+		})
+	require.NoError(t, err)
+	t.Cleanup(sub.Close)
+
+	return ctx
+}
+
+func TestManager_Add(t *testing.T) {
 	bus := eventbus.NewBus()
+	ctx := newManagerTestContext(t, bus)
 
 	manager := NewManager(bus, &mockTranscoder{}, zap.NewNop())
 
@@ -60,10 +88,60 @@ func TestManager_Add(t *testing.T) {
 	assert.Equal(t, entry.ID, driver.id)
 }
 
-func TestManager_Add_DuplicateDriver(t *testing.T) {
+func TestManager_Add_WaitsForDriverRegisterAck(t *testing.T) {
+	bus := eventbus.NewBus()
 	ctx := ctxapi.NewRootContext()
 	ctx = payload.WithTranscoder(ctx, &mockTranscoder{})
+
+	awaitSvc := eventbus.NewAwaitService(bus)
+	require.NoError(t, awaitSvc.Start(ctx))
+	t.Cleanup(func() { _ = awaitSvc.Stop() })
+	ctx = event.WithAwaitService(ctx, awaitSvc)
+
+	seenRegister := make(chan struct{})
+	releaseAccept := make(chan struct{})
+	sub, err := eventbus.NewSubscriber(ctx, bus, queueapi.System,
+		"queue.driver.register", func(e event.Event) {
+			close(seenRegister)
+			<-releaseAccept
+			bus.Send(ctx, event.Event{
+				System: queueapi.System,
+				Kind:   "queue.accept",
+				Path:   e.Path,
+			})
+		})
+	require.NoError(t, err)
+	t.Cleanup(sub.Close)
+
+	manager := NewManager(bus, &mockTranscoder{}, zap.NewNop())
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "driver"),
+		Kind: memoryapi.Kind,
+		Data: payload.New(&memoryapi.Config{}),
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- manager.Add(ctx, entry) }()
+
+	select {
+	case <-seenRegister:
+	case <-time.After(time.Second):
+		t.Fatal("driver register event was not emitted")
+	}
+
+	select {
+	case err := <-done:
+		t.Fatalf("Add returned before queue manager ack: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(releaseAccept)
+	require.NoError(t, <-done)
+}
+
+func TestManager_Add_DuplicateDriver(t *testing.T) {
 	bus := eventbus.NewBus()
+	ctx := newManagerTestContext(t, bus)
 
 	manager := NewManager(bus, &mockTranscoder{}, zap.NewNop())
 
@@ -88,9 +166,8 @@ func TestManager_Add_DuplicateDriver(t *testing.T) {
 }
 
 func TestManager_Add_InvalidKind(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	ctx = payload.WithTranscoder(ctx, &mockTranscoder{})
 	bus := eventbus.NewBus()
+	ctx := newManagerTestContext(t, bus)
 
 	manager := NewManager(bus, &mockTranscoder{}, zap.NewNop())
 
@@ -106,9 +183,8 @@ func TestManager_Add_InvalidKind(t *testing.T) {
 }
 
 func TestManager_Update(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	ctx = payload.WithTranscoder(ctx, &mockTranscoder{})
 	bus := eventbus.NewBus()
+	ctx := newManagerTestContext(t, bus)
 
 	manager := NewManager(bus, &mockTranscoder{}, zap.NewNop())
 
@@ -148,9 +224,8 @@ func TestManager_Update(t *testing.T) {
 }
 
 func TestManager_Update_DriverNotFound(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	ctx = payload.WithTranscoder(ctx, &mockTranscoder{})
 	bus := eventbus.NewBus()
+	ctx := newManagerTestContext(t, bus)
 
 	manager := NewManager(bus, &mockTranscoder{}, zap.NewNop())
 
@@ -172,9 +247,8 @@ func TestManager_Update_DriverNotFound(t *testing.T) {
 }
 
 func TestManager_Update_InvalidKind(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	ctx = payload.WithTranscoder(ctx, &mockTranscoder{})
 	bus := eventbus.NewBus()
+	ctx := newManagerTestContext(t, bus)
 
 	manager := NewManager(bus, &mockTranscoder{}, zap.NewNop())
 
@@ -190,9 +264,8 @@ func TestManager_Update_InvalidKind(t *testing.T) {
 }
 
 func TestManager_Delete(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	ctx = payload.WithTranscoder(ctx, &mockTranscoder{})
 	bus := eventbus.NewBus()
+	ctx := newManagerTestContext(t, bus)
 
 	manager := NewManager(bus, &mockTranscoder{}, zap.NewNop())
 
@@ -219,9 +292,8 @@ func TestManager_Delete(t *testing.T) {
 }
 
 func TestManager_Delete_DriverNotFound(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	ctx = payload.WithTranscoder(ctx, &mockTranscoder{})
 	bus := eventbus.NewBus()
+	ctx := newManagerTestContext(t, bus)
 
 	manager := NewManager(bus, &mockTranscoder{}, zap.NewNop())
 
@@ -237,9 +309,8 @@ func TestManager_Delete_DriverNotFound(t *testing.T) {
 }
 
 func TestManager_Delete_InvalidKind(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	ctx = payload.WithTranscoder(ctx, &mockTranscoder{})
 	bus := eventbus.NewBus()
+	ctx := newManagerTestContext(t, bus)
 
 	manager := NewManager(bus, &mockTranscoder{}, zap.NewNop())
 

@@ -73,6 +73,43 @@ func TestCompiler_Compile_ModuleTypesAreIncluded(t *testing.T) {
 	assert.True(t, ok, "expected Point in type info")
 }
 
+func TestCompiler_Compile_SourceDeclaredTypesAreIncluded(t *testing.T) {
+	compiler := NewCompiler(safeModulesProvider())
+
+	program, err := compiler.Compile(CompileCmd{
+		Source: `
+			type Point = {x: number, y: number}
+
+			local p, perr = Point:is({x = 1, y = 2})
+			if perr then error(tostring(perr)) end
+
+			local bad, berr = Point:is({x = 1, y = "bad"})
+			if bad ~= nil or berr == nil then error("expected invalid point error") end
+
+			return { sum = p.x + p.y }
+		`,
+		Modules: []string{"json"},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, program)
+	require.NotNil(t, program.Proto())
+	require.NotEmpty(t, program.Proto().TypeInfo)
+
+	decoded, err := typeio.DecodeManifest(program.Proto().TypeInfo)
+	require.NoError(t, err)
+	_, ok := decoded.Types["Point"]
+	require.True(t, ok, "expected source-declared Point in type info")
+
+	l := lua.NewState()
+	defer l.Close()
+	fn := l.LoadProto(program.Proto())
+	l.Push(fn)
+	require.NoError(t, l.PCall(0, 1, nil))
+	result := l.CheckTable(-1)
+	assert.Equal(t, lua.LInteger(3), result.RawGetString("sum"))
+}
+
 func TestCompiler_Compile_SyntaxError(t *testing.T) {
 	compiler := NewCompiler(safeModulesProvider())
 

@@ -73,12 +73,20 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		},
 	})
 
-	m.bus.Send(ctx, event.Event{
+	if err := queuesvc.SendAndAwaitManagerAck(ctx, m.bus, event.Event{
 		System: queueapi.System,
 		Kind:   queueapi.DriverRegister,
 		Path:   entry.ID.String(),
 		Data:   driver,
-	})
+	}, "queue driver register"); err != nil {
+		delete(m.drivers, entry.ID)
+		m.bus.Send(ctx, event.Event{
+			System: supervisor.System,
+			Kind:   supervisor.ServiceRemove,
+			Path:   entry.ID.String(),
+		})
+		return err
+	}
 
 	m.log.Info("added amqp driver", zap.String("id", entry.ID.String()))
 
@@ -112,11 +120,13 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		Kind:   supervisor.ServiceRemove,
 		Path:   entry.ID.String(),
 	})
-	m.bus.Send(ctx, event.Event{
+	if err := queuesvc.SendAndAwaitManagerAck(ctx, m.bus, event.Event{
 		System: queueapi.System,
 		Kind:   queueapi.DriverDelete,
 		Path:   entry.ID.String(),
-	})
+	}, "queue driver delete"); err != nil {
+		return err
+	}
 
 	driver := NewDriver(entry.ID, cfg, m.dtt, m.log)
 	m.drivers[entry.ID] = driver
@@ -130,12 +140,20 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 			Config:  cfg.Lifecycle,
 		},
 	})
-	m.bus.Send(ctx, event.Event{
+	if err := queuesvc.SendAndAwaitManagerAck(ctx, m.bus, event.Event{
 		System: queueapi.System,
 		Kind:   queueapi.DriverRegister,
 		Path:   entry.ID.String(),
 		Data:   driver,
-	})
+	}, "queue driver register"); err != nil {
+		delete(m.drivers, entry.ID)
+		m.bus.Send(ctx, event.Event{
+			System: supervisor.System,
+			Kind:   supervisor.ServiceRemove,
+			Path:   entry.ID.String(),
+		})
+		return err
+	}
 
 	m.log.Info("updated amqp driver", zap.String("id", entry.ID.String()))
 
@@ -162,11 +180,13 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		Path:   entry.ID.String(),
 	})
 
-	m.bus.Send(ctx, event.Event{
+	if err := queuesvc.SendAndAwaitManagerAck(ctx, m.bus, event.Event{
 		System: queueapi.System,
 		Kind:   queueapi.DriverDelete,
 		Path:   entry.ID.String(),
-	})
+	}, "queue driver delete"); err != nil {
+		return err
+	}
 
 	m.log.Info("deleted amqp driver", zap.String("id", entry.ID.String()))
 

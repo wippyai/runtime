@@ -87,32 +87,16 @@ func (h *DeclarationHandler) addOrUpdateQueue(ctx context.Context, entry registr
 		Config:   cfg,
 	}
 
-	// Subscribe before Send so we can't lose the accept/reject the manager
-	// emits once it finishes driving DeclareQueue on the backend. Without the
-	// wait, the entry runner proceeds to the consumer before the queue is
-	// registered in the manager and fails with "queue not found".
-	awaitSvc := event.GetAwaitService(ctx)
-	if awaitSvc == nil {
-		return NewConfigError("queue declare response coordination unavailable", nil)
-	}
-	waiter, err := awaitSvc.Prepare(ctx, queueapi.System, "queue.(accept|reject)", entry.ID.String(), 0)
-	if err != nil {
-		return NewConfigError("failed to subscribe to queue declare response", err)
-	}
-
-	h.bus.Send(ctx, event.Event{
+	if err := SendAndAwaitManagerAck(ctx, h.bus, event.Event{
 		System: queueapi.System,
 		Kind:   queueapi.Declare,
 		Path:   entry.ID.String(),
 		Data:   queue,
-	})
-
-	result := waiter.Wait()
-	if result.Error != nil {
+	}, "queue declare"); err != nil {
 		h.logger.Error("queue declare rejected",
 			zap.String("id", entry.ID.String()),
-			zap.Error(result.Error))
-		return NewConfigError("queue declare rejected", result.Error)
+			zap.Error(err))
+		return err
 	}
 
 	h.logger.Info("queue "+action,
