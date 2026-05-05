@@ -484,4 +484,5 @@ storage:release()
 - Object metadata, ETag, and conditional ops — [#264](https://github.com/wippyai/runtime/pull/264):
   `head_object`, richer `list_objects` fields (`last_modified`, `storage_class`,
   `owner`, `version_id`), `upload_object` options (content headers, user metadata,
-  `if_match`/`if_none_match`), and `download_object` `if_match`/`if_none_match`.
+  `if_match`/`if_none_match`), `download_object` `if_match`/`if_none_match`,
+  and 404 from `head_object` / `download_object` mapped to `errors.NOT_FOUND`.

@@ -152,3 +152,17 @@ entries:
       - fs
     imports:
       assert_primitives: app.lib:assert
+
+  # list_objects with include_versions on a versioned bucket
+  - name: versions
+    kind: function.lua
+    meta:
+      type: test
+      suite: cloudstorage
+      description: cloudstorage list_objects with include_versions against a versioned bucket
+    source: file://versions.lua
+    method: main
+    modules:
+      - cloudstorage
+    imports:
+      assert_primitives: app.lib:assert
