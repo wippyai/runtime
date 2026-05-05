@@ -51,12 +51,39 @@ local function main()
 	local verified = vol:readfile("/cloudstorage_upload_verify.txt")
 	assert.eq(verified, file_content, "uploaded file content should match")
 
+	-- Zero-byte upload: the empty string should be a valid object.
+	local zok, zerr = storage:upload_object("test/empty.txt", "")
+	assert.is_nil(zerr, "zero-byte upload should not error")
+	assert.eq(zok, true, "zero-byte upload should return true")
+	local zhead, _ = storage:head_object("test/empty.txt")
+	assert.not_nil(zhead, "head_object on zero-byte upload should succeed")
+	assert.eq(zhead.size, 0, "zero-byte object should report size 0")
+
+	-- Overwrite: re-uploading the same key replaces the body and the etag changes.
+	local ovk = "test/overwrite.txt"
+	storage:upload_object(ovk, "first")
+	local h1 = storage:head_object(ovk)
+	storage:upload_object(ovk, "second-and-longer")
+	local h2 = storage:head_object(ovk)
+	assert.eq(h1.size, 5, "first upload size should be 5")
+	assert.eq(h2.size, 17, "second upload size should reflect the new body")
+	assert.eq(h1.etag ~= h2.etag, true, "overwrite should produce a new etag")
+
+	-- And a download after overwrite returns the latest body.
+	local ofile, _ = vol:open("/cloudstorage_overwrite.txt", "w")
+	local _, oderr = storage:download_object(ovk, ofile)
+	ofile:close()
+	assert.is_nil(oderr, "download after overwrite should not error")
+	local got = vol:readfile("/cloudstorage_overwrite.txt")
+	assert.eq(got, "second-and-longer", "download should return the latest body")
+	vol:remove("/cloudstorage_overwrite.txt")
+
 	-- Cleanup local files
 	vol:remove(tmp_path)
 	vol:remove("/cloudstorage_upload_verify.txt")
 
 	-- Cleanup remote files
-	storage:delete_objects({"test/from-file.txt"})
+	storage:delete_objects({"test/from-file.txt", "test/empty.txt", ovk})
 	storage:release()
 
 	return true

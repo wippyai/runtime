@@ -252,6 +252,7 @@ services:
       mc alias set myminio http://minio:9000 minioadmin minioadmin;
       mc mb --ignore-existing myminio/test-bucket;
       mc anonymous set public myminio/test-bucket;
+      mc version enable myminio/test-bucket;
       exit 0;
       "
 

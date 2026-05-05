@@ -29,12 +29,15 @@ func newTestReceiver(fn func(tag uint64, data any, err error)) dispatcher.Result
 
 type mockStorage struct {
 	listErr         error
+	headErr         error
 	downloadErr     error
 	uploadErr       error
 	deleteErr       error
 	presignGetErr   error
 	presignPutErr   error
 	listResult      *csapi.ListObjectsResult
+	headResult      *csapi.HeadObjectResult
+	uploadOpts      *csapi.UploadOptions
 	presignGetURL   string
 	presignPutURL   string
 	downloadContent []byte
@@ -42,6 +45,10 @@ type mockStorage struct {
 
 func (m *mockStorage) ListObjects(_ context.Context, _ *csapi.ListObjectsOptions) (*csapi.ListObjectsResult, error) {
 	return m.listResult, m.listErr
+}
+
+func (m *mockStorage) HeadObject(_ context.Context, _ string) (*csapi.HeadObjectResult, error) {
+	return m.headResult, m.headErr
 }
 
 func (m *mockStorage) DownloadObject(_ context.Context, _ string, w io.Writer, _ *csapi.DownloadOptions) error {
@@ -52,7 +59,8 @@ func (m *mockStorage) DownloadObject(_ context.Context, _ string, w io.Writer, _
 	return err
 }
 
-func (m *mockStorage) UploadObject(_ context.Context, _ string, _ io.Reader) error {
+func (m *mockStorage) UploadObject(_ context.Context, _ string, _ io.Reader, opts *csapi.UploadOptions) error {
+	m.uploadOpts = opts
 	return m.uploadErr
 }
 
@@ -90,13 +98,14 @@ func TestDispatcher_RegisterAll(t *testing.T) {
 
 	d.RegisterAll(register)
 
-	assert.Len(t, registered, 6)
+	assert.Len(t, registered, 7)
 	assert.Contains(t, registered, csapi.ListObjects)
 	assert.Contains(t, registered, csapi.DownloadObject)
 	assert.Contains(t, registered, csapi.UploadObject)
 	assert.Contains(t, registered, csapi.DeleteObjects)
 	assert.Contains(t, registered, csapi.PresignedGetURL)
 	assert.Contains(t, registered, csapi.PresignedPutURL)
+	assert.Contains(t, registered, csapi.HeadObject)
 }
 
 func TestDispatcher_ListObjects(t *testing.T) {
@@ -106,10 +115,21 @@ func TestDispatcher_ListObjects(t *testing.T) {
 		handlers[id] = h
 	})
 
+	now := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
 	storage := &mockStorage{
 		listResult: &csapi.ListObjectsResult{
 			Objects: []csapi.ObjectMetadata{
-				{Key: "file1.txt", Size: 100},
+				{
+					Key:          "file1.txt",
+					Size:         100,
+					ETag:         "etag1",
+					StorageClass: "STANDARD",
+					LastModified: now,
+					Owner: &csapi.Owner{
+						ID:          "owner-id",
+						DisplayName: "Owner Name",
+					},
+				},
 				{Key: "file2.txt", Size: 200},
 			},
 			IsTruncated: false,
@@ -131,7 +151,56 @@ func TestDispatcher_ListObjects(t *testing.T) {
 	case resp := <-done:
 		assert.NoError(t, resp.Error)
 		assert.Len(t, resp.Result.Objects, 2)
-		assert.Equal(t, "file1.txt", resp.Result.Objects[0].Key)
+		first := resp.Result.Objects[0]
+		assert.Equal(t, "file1.txt", first.Key)
+		assert.Equal(t, "STANDARD", first.StorageClass)
+		assert.Equal(t, now, first.LastModified)
+		require.NotNil(t, first.Owner)
+		assert.Equal(t, "owner-id", first.Owner.ID)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout")
+	}
+}
+
+func TestDispatcher_HeadObject(t *testing.T) {
+	d := NewDispatcher()
+	handlers := make(map[dispatcher.CommandID]dispatcher.Handler)
+	d.RegisterAll(func(id dispatcher.CommandID, h dispatcher.Handler) {
+		handlers[id] = h
+	})
+
+	now := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
+	storage := &mockStorage{
+		headResult: &csapi.HeadObjectResult{
+			Size:         42,
+			ETag:         "head-etag",
+			ContentType:  "text/plain",
+			CacheControl: "max-age=60",
+			StorageClass: "STANDARD",
+			LastModified: now,
+			UserMetadata: map[string]string{"env": "staging"},
+		},
+	}
+
+	cmd := &csapi.HeadObjectCmd{
+		Storage: storage,
+		Key:     "test.txt",
+	}
+
+	done := make(chan csapi.HeadObjectResponse, 1)
+	err := handlers[csapi.HeadObject].Handle(context.Background(), cmd, 1, newTestReceiver(func(_ uint64, data any, _ error) {
+		done <- data.(csapi.HeadObjectResponse)
+	}))
+	require.NoError(t, err)
+
+	select {
+	case resp := <-done:
+		assert.NoError(t, resp.Error)
+		require.NotNil(t, resp.Result)
+		assert.Equal(t, int64(42), resp.Result.Size)
+		assert.Equal(t, "head-etag", resp.Result.ETag)
+		assert.Equal(t, "staging", resp.Result.UserMetadata["env"])
+		assert.Equal(t, now, resp.Result.LastModified)
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout")
 	}
@@ -183,6 +252,10 @@ func TestDispatcher_UploadObject(t *testing.T) {
 		Storage: storage,
 		Key:     "test.txt",
 		Reader:  bytes.NewReader([]byte("test content")),
+		Options: &csapi.UploadOptions{
+			ContentType: "text/plain",
+			Metadata:    map[string]string{"env": "staging"},
+		},
 	}
 
 	done := make(chan csapi.UploadObjectResponse, 1)
@@ -194,6 +267,9 @@ func TestDispatcher_UploadObject(t *testing.T) {
 	select {
 	case resp := <-done:
 		assert.NoError(t, resp.Error)
+		require.NotNil(t, storage.uploadOpts, "options should reach the storage backend")
+		assert.Equal(t, "text/plain", storage.uploadOpts.ContentType)
+		assert.Equal(t, "staging", storage.uploadOpts.Metadata["env"])
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout")
 	}

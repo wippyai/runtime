@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	lua "github.com/wippyai/go-lua"
 	csapi "github.com/wippyai/runtime/api/cloudstorage"
@@ -18,8 +19,8 @@ func TestModuleLoads(t *testing.T) {
 		t.Fatal("expected module table to be non-nil")
 	}
 
-	if len(yields) != 6 {
-		t.Errorf("expected 6 yield types, got %d", len(yields))
+	if len(yields) != 7 {
+		t.Errorf("expected 7 yield types, got %d", len(yields))
 	}
 }
 
@@ -50,6 +51,7 @@ func TestYieldTypes(t *testing.T) {
 		int(csapi.DeleteObjects):   false,
 		int(csapi.PresignedGetURL): false,
 		int(csapi.PresignedPutURL): false,
+		int(csapi.HeadObject):      false,
 	}
 
 	for _, y := range yields {
@@ -215,6 +217,7 @@ func TestYieldTypes_LuaType(t *testing.T) {
 }
 
 func TestListObjectsYieldHandleResult(t *testing.T) {
+	now := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
 		data    any
 		err     error
@@ -226,7 +229,16 @@ func TestListObjectsYieldHandleResult(t *testing.T) {
 			data: csapi.ListObjectsResponse{
 				Result: &csapi.ListObjectsResult{
 					Objects: []csapi.ObjectMetadata{
-						{Key: "test.txt", Size: 100, ContentType: "text/plain", ETag: "etag1"},
+						{
+							Key:          "test.txt",
+							Size:         100,
+							ContentType:  "text/plain",
+							ETag:         "etag1",
+							StorageClass: "STANDARD",
+							LastModified: now,
+							Owner:        &csapi.Owner{ID: "owner-id", DisplayName: "Owner Name"},
+							VersionID:    "v1",
+						},
 					},
 					IsTruncated:           false,
 					NextContinuationToken: "",
@@ -613,5 +625,211 @@ func TestModuleInfo(t *testing.T) {
 	}
 	if len(Module.Class) == 0 {
 		t.Error("module should have at least one class")
+	}
+}
+
+func TestHeadObjectYieldPool(t *testing.T) {
+	y1 := AcquireHeadObjectYield()
+	if y1 == nil || y1.HeadObjectCmd == nil {
+		t.Fatal("expected non-nil yield with command")
+	}
+	ReleaseHeadObjectYield(y1)
+
+	y2 := AcquireHeadObjectYield()
+	if y2 == nil {
+		t.Fatal("expected non-nil yield after release")
+	}
+	ReleaseHeadObjectYield(y2)
+}
+
+func TestHeadObjectYieldHandleResult_Success(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	y := AcquireHeadObjectYield()
+	defer ReleaseHeadObjectYield(y)
+
+	now := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
+	data := csapi.HeadObjectResponse{
+		Result: &csapi.HeadObjectResult{
+			Size:               42,
+			ETag:               "head-etag",
+			ContentType:        "text/plain",
+			CacheControl:       "max-age=60",
+			ContentDisposition: "inline",
+			ContentEncoding:    "identity",
+			StorageClass:       "STANDARD",
+			VersionID:          "v1",
+			LastModified:       now,
+			UserMetadata:       map[string]string{"env": "staging"},
+			Headers:            map[string]string{"x-amz-tagging-count": "1"},
+		},
+	}
+
+	result := y.HandleResult(l, data, nil)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 return values, got %d", len(result))
+	}
+	if result[1] != lua.LNil {
+		t.Fatalf("expected nil error, got %v", result[1])
+	}
+	tbl, ok := result[0].(*lua.LTable)
+	if !ok {
+		t.Fatalf("expected table result, got %T", result[0])
+	}
+
+	if got := tbl.RawGetString("etag").String(); got != "head-etag" {
+		t.Errorf("etag mismatch: got %q", got)
+	}
+	if got := lua.LVAsNumber(tbl.RawGetString("size")); got != 42 {
+		t.Errorf("size mismatch: got %v", got)
+	}
+	if got := tbl.RawGetString("storage_class").String(); got != "STANDARD" {
+		t.Errorf("storage_class mismatch: got %q", got)
+	}
+	if got := lua.LVAsNumber(tbl.RawGetString("last_modified")); int64(got) != now.Unix() {
+		t.Errorf("last_modified mismatch: got %v", got)
+	}
+	meta, ok := tbl.RawGetString("metadata").(*lua.LTable)
+	if !ok {
+		t.Fatalf("expected metadata table")
+	}
+	if got := meta.RawGetString("env").String(); got != "staging" {
+		t.Errorf("metadata.env mismatch: got %q", got)
+	}
+	headers, ok := tbl.RawGetString("headers").(*lua.LTable)
+	if !ok {
+		t.Fatalf("expected headers table")
+	}
+	if got := headers.RawGetString("x-amz-tagging-count").String(); got != "1" {
+		t.Errorf("headers[x-amz-tagging-count] mismatch: got %q", got)
+	}
+}
+
+func TestHeadObjectYieldHandleResult_Error(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	y := AcquireHeadObjectYield()
+	defer ReleaseHeadObjectYield(y)
+
+	result := y.HandleResult(l, csapi.HeadObjectResponse{Error: errors.New("boom")}, nil)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 return values, got %d", len(result))
+	}
+	if result[1] == lua.LNil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestPreconditionFailedMapping(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	y := AcquireUploadObjectYield()
+	defer ReleaseUploadObjectYield(y)
+
+	result := y.HandleResult(l, csapi.UploadObjectResponse{Error: csapi.ErrPreconditionFailed}, nil)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 return values")
+	}
+	luaErr, ok := result[1].(*lua.Error)
+	if !ok {
+		t.Fatalf("expected *lua.Error, got %T", result[1])
+	}
+	if luaErr.Kind() != lua.Conflict {
+		t.Errorf("expected Conflict kind, got %s", luaErr.Kind())
+	}
+	if !strings.Contains(luaErr.Message, "precondition_failed") {
+		t.Errorf("expected message to contain 'precondition_failed', got %q", luaErr.Message)
+	}
+}
+
+func TestNotFoundMapping(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	t.Run("head_object", func(t *testing.T) {
+		y := AcquireHeadObjectYield()
+		defer ReleaseHeadObjectYield(y)
+
+		result := y.HandleResult(l, csapi.HeadObjectResponse{Error: csapi.ErrNotFound}, nil)
+		if len(result) != 2 {
+			t.Fatalf("expected 2 return values")
+		}
+		luaErr, ok := result[1].(*lua.Error)
+		if !ok {
+			t.Fatalf("expected *lua.Error, got %T", result[1])
+		}
+		if luaErr.Kind() != lua.NotFound {
+			t.Errorf("expected NotFound kind, got %s", luaErr.Kind())
+		}
+		if !strings.Contains(luaErr.Message, "not_found") {
+			t.Errorf("expected message to contain 'not_found', got %q", luaErr.Message)
+		}
+	})
+
+	t.Run("download_object", func(t *testing.T) {
+		y := AcquireDownloadObjectYield()
+		defer ReleaseDownloadObjectYield(y)
+
+		result := y.HandleResult(l, csapi.DownloadObjectResponse{Error: csapi.ErrNotFound}, nil)
+		if len(result) != 2 {
+			t.Fatalf("expected 2 return values")
+		}
+		luaErr, ok := result[1].(*lua.Error)
+		if !ok {
+			t.Fatalf("expected *lua.Error, got %T", result[1])
+		}
+		if luaErr.Kind() != lua.NotFound {
+			t.Errorf("expected NotFound kind, got %s", luaErr.Kind())
+		}
+	})
+}
+
+func TestListObjectsYieldHandleResult_Fields(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	y := AcquireListObjectsYield()
+	defer ReleaseListObjectsYield(y)
+
+	now := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
+	data := csapi.ListObjectsResponse{
+		Result: &csapi.ListObjectsResult{
+			Objects: []csapi.ObjectMetadata{
+				{
+					Key:          "f.txt",
+					Size:         11,
+					ETag:         "e",
+					StorageClass: "STANDARD",
+					LastModified: now,
+					VersionID:    "v1",
+					Owner:        &csapi.Owner{ID: "oid", DisplayName: "ON"},
+				},
+			},
+		},
+	}
+
+	res := y.HandleResult(l, data, nil)
+	tbl := res[0].(*lua.LTable)
+	objs := tbl.RawGetString("objects").(*lua.LTable)
+	first := objs.RawGetInt(1).(*lua.LTable)
+
+	if first.RawGetString("storage_class").String() != "STANDARD" {
+		t.Error("storage_class missing")
+	}
+	if int64(lua.LVAsNumber(first.RawGetString("last_modified"))) != now.Unix() {
+		t.Error("last_modified missing")
+	}
+	if first.RawGetString("version_id").String() != "v1" {
+		t.Error("version_id missing")
+	}
+	owner, ok := first.RawGetString("owner").(*lua.LTable)
+	if !ok {
+		t.Fatal("owner missing")
+	}
+	if owner.RawGetString("id").String() != "oid" {
+		t.Error("owner.id missing")
 	}
 }
