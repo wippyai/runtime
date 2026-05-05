@@ -41,7 +41,6 @@ local function main()
 	assert.eq(head.metadata.owner, "tests", "user metadata owner should round-trip")
 
 	-- Conditional download: if_none_match with the current etag should yield precondition_failed.
-	local sink = { write = function(self, data) self.buf = (self.buf or "") .. data end }
 	local fs = require("fs")
 	local vol, _ = fs.get("app:temp")
 	local file, _ = vol:open("/cloudstorage_head_dl.txt", "w")
@@ -68,11 +67,16 @@ local function main()
 	assert.not_nil(uerr, "upload with if_none_match=* should fail when object exists")
 	assert.eq(uerr:kind(), "Conflict", "precondition error should map to Conflict kind")
 
+	-- head_object on a missing key should error (currently surfaces a generic error;
+	-- mapping to errors.NOT_FOUND is tracked separately).
+	local missing, mherr = storage:head_object("head-test/does-not-exist.txt")
+	assert.is_nil(missing, "head_object on missing key should not return a result")
+	assert.not_nil(mherr, "head_object on missing key should return an error")
+
 	-- Cleanup
 	storage:delete_objects({ key })
 	storage:release()
 
-	_ = sink
 	return true
 end
 

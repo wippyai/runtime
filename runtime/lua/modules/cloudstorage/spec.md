@@ -144,15 +144,15 @@ provider has set it on upload).
 | Field | Type | Notes |
 |-------|------|-------|
 | size | integer | Object size in bytes |
-| etag | string | Entity tag |
+| etag | string | Entity tag, returned without surrounding quotes — pass it back as-is to `if_match` / `if_none_match` |
 | content_type | string | MIME type |
 | cache_control | string | Cache-Control header |
 | content_disposition | string | Content-Disposition header |
 | content_encoding | string | Content-Encoding header |
 | storage_class | string | Storage class |
 | version_id | string | Version ID (omitted when empty) |
-| last_modified | integer | Last-modified timestamp in Unix seconds (omitted if zero) |
-| metadata | table<string,string> | User-defined metadata. AWS lowercases keys. |
+| last_modified | integer | Last-modified timestamp in Unix seconds (sub-second precision is dropped; omitted if zero) |
+| metadata | table<string,string> | User-defined metadata. AWS lowercases keys. Always present — empty table when there is no user metadata. |
 
 **Errors (structured):**
 
