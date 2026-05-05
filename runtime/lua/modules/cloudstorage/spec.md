@@ -274,8 +274,10 @@ storage:upload_object("data/photo.jpg", bytes, {
     metadata = { uploaded_by = "tests", env = "staging" },
 })
 
--- Optimistic concurrency: only upload if no object exists yet
+-- Optimistic concurrency: only upload if no object exists yet.
+-- The two forms are equivalent; only_if_absent is the Lua-friendly alias.
 local _, err = storage:upload_object("data/once.txt", "first", { if_none_match = "*" })
+local _, err = storage:upload_object("data/once.txt", "first", { only_if_absent = true })
 if err and err:kind() == errors.CONFLICT then
     -- another writer beat us to it
 end
