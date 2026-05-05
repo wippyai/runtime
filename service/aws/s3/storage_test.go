@@ -7,15 +7,19 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/http"
 	neturl "net/url"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 	smithyendpoints "github.com/aws/smithy-go/endpoints"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/cloudstorage"
@@ -114,6 +118,38 @@ func TestStorage_ListObjects(t *testing.T) {
 		assert.Equal(t, "token123", result.NextContinuationToken)
 	})
 
+	t.Run("surfaces last_modified, storage_class, owner", func(t *testing.T) {
+		now := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
+		mock := &mockListObjectsClient{
+			output: &s3.ListObjectsV2Output{
+				Contents: []types.Object{
+					{
+						Key:          aws.String("file1.txt"),
+						Size:         aws.Int64(100),
+						ETag:         aws.String("etag1"),
+						LastModified: aws.Time(now),
+						StorageClass: types.ObjectStorageClassStandard,
+						Owner: &types.Owner{
+							ID:          aws.String("owner-id"),
+							DisplayName: aws.String("Owner Name"),
+						},
+					},
+				},
+			},
+		}
+		opts := &cloudstorage.ListObjectsOptions{IncludeOwner: true}
+
+		result, err := listObjectsWithMock(context.Background(), mock, "test-bucket", opts)
+		require.NoError(t, err)
+		require.Len(t, result.Objects, 1)
+		obj := result.Objects[0]
+		assert.Equal(t, now, obj.LastModified)
+		assert.Equal(t, "STANDARD", obj.StorageClass)
+		require.NotNil(t, obj.Owner)
+		assert.Equal(t, "owner-id", obj.Owner.ID)
+		assert.Equal(t, "Owner Name", obj.Owner.DisplayName)
+	})
+
 	t.Run("error", func(t *testing.T) {
 		mock := &mockListObjectsClient{
 			err: errors.New("list failed"),
@@ -141,6 +177,9 @@ func listObjectsWithMock(ctx context.Context, client *mockListObjectsClient, buc
 		if opts.ContinuationToken != "" {
 			input.ContinuationToken = aws.String(opts.ContinuationToken)
 		}
+		if opts.IncludeOwner {
+			input.FetchOwner = aws.Bool(true)
+		}
 	}
 
 	output, err := client.ListObjectsV2(ctx, input)
@@ -155,11 +194,22 @@ func listObjectsWithMock(ctx context.Context, client *mockListObjectsClient, buc
 	}
 
 	for _, item := range output.Contents {
-		result.Objects = append(result.Objects, cloudstorage.ObjectMetadata{
-			Key:  aws.ToString(item.Key),
-			Size: aws.ToInt64(item.Size),
-			ETag: aws.ToString(item.ETag),
-		})
+		obj := cloudstorage.ObjectMetadata{
+			Key:          aws.ToString(item.Key),
+			Size:         aws.ToInt64(item.Size),
+			ETag:         aws.ToString(item.ETag),
+			StorageClass: string(item.StorageClass),
+		}
+		if item.LastModified != nil {
+			obj.LastModified = *item.LastModified
+		}
+		if item.Owner != nil {
+			obj.Owner = &cloudstorage.Owner{
+				ID:          aws.ToString(item.Owner.ID),
+				DisplayName: aws.ToString(item.Owner.DisplayName),
+			}
+		}
+		result.Objects = append(result.Objects, obj)
 	}
 
 	return result, nil
@@ -519,7 +569,22 @@ func TestStorage_RealClientMethods(t *testing.T) {
 
 	t.Run("UploadObject", func(t *testing.T) {
 		content := bytes.NewReader([]byte("test"))
-		err := storage.UploadObject(context.Background(), "test-key", content)
+		err := storage.UploadObject(context.Background(), "test-key", content, nil)
+		assert.Error(t, err)
+	})
+
+	t.Run("UploadObject with options", func(t *testing.T) {
+		content := bytes.NewReader([]byte("test"))
+		opts := &cloudstorage.UploadOptions{
+			ContentType: "text/plain",
+			Metadata:    map[string]string{"foo": "bar"},
+		}
+		err := storage.UploadObject(context.Background(), "test-key", content, opts)
+		assert.Error(t, err)
+	})
+
+	t.Run("HeadObject", func(t *testing.T) {
+		_, err := storage.HeadObject(context.Background(), "test-key")
 		assert.Error(t, err)
 	})
 
@@ -569,4 +634,53 @@ type mockEndpointResolver struct{}
 func (m *mockEndpointResolver) ResolveEndpoint(_ context.Context, _ s3.EndpointParameters) (smithyendpoints.Endpoint, error) {
 	u, _ := neturl.Parse("https://s3.localhost.localstack.cloud:4566")
 	return smithyendpoints.Endpoint{URI: *u}, nil
+}
+
+func TestMapPreconditionError(t *testing.T) {
+	t.Run("nil passes through", func(t *testing.T) {
+		assert.NoError(t, mapPreconditionError(nil))
+	})
+
+	t.Run("412 maps to ErrPreconditionFailed", func(t *testing.T) {
+		respErr := &awshttp.ResponseError{
+			ResponseError: &smithyhttp.ResponseError{
+				Response: &smithyhttp.Response{Response: &http.Response{StatusCode: http.StatusPreconditionFailed}},
+				Err:      &smithy.GenericAPIError{Code: "PreconditionFailed", Message: "etag mismatch"},
+			},
+			RequestID: "req-1",
+		}
+		err := mapPreconditionError(respErr)
+		assert.True(t, errors.Is(err, cloudstorage.ErrPreconditionFailed))
+	})
+
+	t.Run("304 maps to ErrPreconditionFailed", func(t *testing.T) {
+		respErr := &awshttp.ResponseError{
+			ResponseError: &smithyhttp.ResponseError{
+				Response: &smithyhttp.Response{Response: &http.Response{StatusCode: http.StatusNotModified}},
+				Err:      &smithy.GenericAPIError{Code: "NotModified"},
+			},
+			RequestID: "req-2",
+		}
+		err := mapPreconditionError(respErr)
+		assert.True(t, errors.Is(err, cloudstorage.ErrPreconditionFailed))
+	})
+
+	t.Run("other status passes through unchanged", func(t *testing.T) {
+		respErr := &awshttp.ResponseError{
+			ResponseError: &smithyhttp.ResponseError{
+				Response: &smithyhttp.Response{Response: &http.Response{StatusCode: http.StatusInternalServerError}},
+				Err:      &smithy.GenericAPIError{Code: "InternalError"},
+			},
+			RequestID: "req-3",
+		}
+		err := mapPreconditionError(respErr)
+		assert.False(t, errors.Is(err, cloudstorage.ErrPreconditionFailed))
+		assert.Same(t, respErr, err)
+	})
+
+	t.Run("non-aws error passes through unchanged", func(t *testing.T) {
+		base := errors.New("plain error")
+		err := mapPreconditionError(base)
+		assert.Same(t, base, err)
+	})
 }

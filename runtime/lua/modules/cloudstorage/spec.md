@@ -48,8 +48,9 @@ Returned by `cloudstorage.get()`. Provides methods for cloud storage operations.
 | Method | Signature | Returns | Notes |
 |--------|-----------|---------|-------|
 | list_objects | (options?: table) | table, error | Lists objects with optional filtering |
+| head_object | (key: string) | table, error | Fetches full metadata for a single object |
 | download_object | (key: string, writer: io.Writer, options?: table) | boolean, error | Downloads object to writer |
-| upload_object | (key: string, content: string \| io.Reader) | boolean, error | Uploads object from string or reader |
+| upload_object | (key: string, content: string \| io.Reader, options?: table) | boolean, error | Uploads object from string or reader |
 | delete_objects | (keys: string[]) | boolean, error | Deletes multiple objects |
 | presigned_get_url | (key: string, options?: table) | string, error | Generates presigned download URL |
 | presigned_put_url | (key: string, options?: table) | string, error | Generates presigned upload URL |
@@ -70,6 +71,8 @@ Lists objects in storage with optional filtering.
 | prefix | string | "" | Filter objects starting with prefix |
 | max_keys | integer | 0 | Maximum objects to return (0 = unlimited) |
 | continuation_token | string | "" | Token for pagination |
+| include_owner | boolean | false | When true, populate `owner` on each result (S3: FetchOwner=true) |
+| include_versions | boolean | false | When true, list every version (S3: ListObjectVersions); pagination uses key markers |
 
 **Returns:**
 - Success: `table` - result table with fields below
@@ -89,8 +92,12 @@ Lists objects in storage with optional filtering.
 |-------|------|-------|
 | key | string | Object key/path |
 | size | integer | Object size in bytes |
-| content_type | string | MIME type |
+| content_type | string | MIME type (empty for ListObjectsV2 — use `head_object` to retrieve) |
 | etag | string | Entity tag |
+| storage_class | string | Storage class (e.g. STANDARD, STANDARD_IA, GLACIER) |
+| last_modified | integer | Last-modified timestamp in Unix seconds (omitted if zero) |
+| version_id | string | Object version ID (only present when `include_versions = true`) |
+| owner | table | `{ id = string, display_name = string }` — only present when `include_owner = true` |
 
 **Errors (structured):**
 
@@ -117,6 +124,51 @@ if result.is_truncated then
 end
 ```
 
+#### storage:head_object(key: string) → table, error
+
+Fetches full metadata for a single object, including user-defined metadata (`x-amz-meta-*`).
+Useful when you need richer information than `list_objects` provides — list responses do not
+include user metadata, and `content_type` is only populated by `head_object` (or after the
+provider has set it on upload).
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| key | string | yes | - | Object key |
+
+**Returns:**
+- Success: `table` — see fields below
+- Error: `nil, error` — structured error
+
+**Result table:**
+
+| Field | Type | Notes |
+|-------|------|-------|
+| size | integer | Object size in bytes |
+| etag | string | Entity tag |
+| content_type | string | MIME type |
+| cache_control | string | Cache-Control header |
+| content_disposition | string | Content-Disposition header |
+| content_encoding | string | Content-Encoding header |
+| storage_class | string | Storage class |
+| version_id | string | Version ID (omitted when empty) |
+| last_modified | integer | Last-modified timestamp in Unix seconds (omitted if zero) |
+| metadata | table<string,string> | User-defined metadata. AWS lowercases keys. |
+
+**Errors (structured):**
+
+| Condition | Kind |
+|-----------|------|
+| key empty | errors.INVALID |
+| storage released | errors.INVALID |
+| object not found | errors.NOT_FOUND |
+| operation failed | errors.INTERNAL |
+
+```lua
+local head, err = storage:head_object("uploads/photo.jpg")
+if err then error(err) end
+print(head.content_type, head.size, head.metadata.uploaded_by)
+```
+
 #### storage:download_object(key: string, writer: io.Writer, options?: table) → boolean, error
 
 Downloads an object to an io.Writer (typically fs.File).
@@ -132,6 +184,8 @@ Downloads an object to an io.Writer (typically fs.File).
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
 | range | string | "" | Byte range (e.g., "bytes=0-1023" for first 1KB) |
+| if_match | string | "" | Only download if the object's current ETag matches |
+| if_none_match | string | "" | Only download if the object's current ETag does NOT match |
 
 **Returns:**
 - Success: `true`
@@ -145,6 +199,7 @@ Downloads an object to an io.Writer (typically fs.File).
 | storage released | errors.INVALID |
 | writer not io.Writer | errors.INVALID |
 | object not found | errors.NOT_FOUND |
+| if_match / if_none_match precondition fails | errors.CONFLICT (message `precondition_failed`) |
 | operation failed | errors.INTERNAL |
 
 **Yields:** until download completes
@@ -162,14 +217,29 @@ file:close()
 if err then error(err) end
 ```
 
-#### storage:upload_object(key: string, content: string | io.Reader) → boolean, error
+#### storage:upload_object(key: string, content: string | io.Reader, options?: table) → boolean, error
 
-Uploads an object from string or io.Reader.
+Uploads an object from string or io.Reader. The optional fourth argument carries
+metadata and HTTP headers that are sent to the provider, plus optional ETag-based
+preconditions.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
 | key | string | yes | - | Object key/path |
 | content | string \| io.Reader | yes | - | Content as string or reader (e.g., fs.File) |
+| options | table | no | nil | Metadata, headers, and preconditions |
+
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| content_type | string | "" | Content-Type header |
+| cache_control | string | "" | Cache-Control header |
+| content_disposition | string | "" | Content-Disposition header |
+| content_encoding | string | "" | Content-Encoding header |
+| metadata | table<string,string> | nil | User metadata; AWS lowercases keys |
+| if_match | string | "" | Only upload if the existing object's ETag matches |
+| if_none_match | string | "" | Only upload if no object exists ("*") or its ETag does not match |
 
 **Returns:**
 - Success: `true`
@@ -182,6 +252,7 @@ Uploads an object from string or io.Reader.
 | key empty | errors.INVALID |
 | content nil | errors.INVALID |
 | storage released | errors.INVALID |
+| if_match / if_none_match precondition fails | errors.CONFLICT (message `precondition_failed`) |
 | operation failed | errors.INTERNAL |
 
 **Yields:** until upload completes
@@ -195,12 +266,18 @@ Uploads an object from string or io.Reader.
 -- Upload string
 storage:upload_object("data/hello.txt", "Hello, World!")
 
--- Upload from file
-local fs = require("fs")
-local vol, _ = fs.get("app:temp")
-local file, _ = vol:open("/local.txt", "r")
-storage:upload_object("data/uploaded.txt", file)
-file:close()
+-- Upload with metadata and Content-Type
+storage:upload_object("data/photo.jpg", bytes, {
+    content_type = "image/jpeg",
+    cache_control = "max-age=86400",
+    metadata = { uploaded_by = "tests", env = "staging" },
+})
+
+-- Optimistic concurrency: only upload if no object exists yet
+local _, err = storage:upload_object("data/once.txt", "first", { if_none_match = "*" })
+if err and err:kind() == errors.CONFLICT then
+    -- another writer beat us to it
+end
 ```
 
 #### storage:delete_objects(keys: string[]) → boolean, error
@@ -361,7 +438,7 @@ if err then
 end
 ```
 
-**Possible kinds:** `errors.INVALID`, `errors.NOT_FOUND`, `errors.INTERNAL`
+**Possible kinds:** `errors.INVALID`, `errors.NOT_FOUND`, `errors.CONFLICT`, `errors.INTERNAL`
 
 ## Example
 

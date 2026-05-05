@@ -14,6 +14,7 @@ func init() {
 	dispatcher.MustRegisterCommands("cloudstorage",
 		ListObjects, DownloadObject, UploadObject,
 		DeleteObjects, PresignedGetURL, PresignedPutURL,
+		HeadObject,
 	)
 }
 
@@ -25,6 +26,7 @@ const (
 	DeleteObjects   dispatcher.CommandID = 163
 	PresignedGetURL dispatcher.CommandID = 164
 	PresignedPutURL dispatcher.CommandID = 165
+	HeadObject      dispatcher.CommandID = 166
 )
 
 // ListObjectsCmd lists objects in cloud storage.
@@ -82,6 +84,7 @@ type DownloadObjectResponse struct {
 type UploadObjectCmd struct {
 	Storage Storage
 	Reader  io.Reader
+	Options *UploadOptions
 	Key     string
 }
 
@@ -94,6 +97,7 @@ func (c *UploadObjectCmd) Release() {
 	c.Storage = nil
 	c.Key = ""
 	c.Reader = nil
+	c.Options = nil
 	uploadObjectCmdPool.Put(c)
 }
 
@@ -182,4 +186,27 @@ func (c *PresignedPutURLCmd) Release() {
 type PresignedPutURLResponse struct {
 	Error error
 	URL   string
+}
+
+// HeadObjectCmd fetches full metadata for a single object.
+type HeadObjectCmd struct {
+	Storage Storage
+	Key     string
+}
+
+var headObjectCmdPool = sync.Pool{New: func() any { return &HeadObjectCmd{} }}
+
+// AcquireHeadObjectCmd returns a pooled HeadObjectCmd.
+func AcquireHeadObjectCmd() *HeadObjectCmd           { return headObjectCmdPool.Get().(*HeadObjectCmd) }
+func (c *HeadObjectCmd) CmdID() dispatcher.CommandID { return HeadObject }
+func (c *HeadObjectCmd) Release() {
+	c.Storage = nil
+	c.Key = ""
+	headObjectCmdPool.Put(c)
+}
+
+// HeadObjectResponse contains head_object results.
+type HeadObjectResponse struct {
+	Result *HeadObjectResult
+	Error  error
 }

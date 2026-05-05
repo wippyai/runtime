@@ -24,12 +24,18 @@ local function main()
 
 	-- Should find at least our test files
 	local found_count = 0
+	local sample
 	for _, obj in ipairs(result.objects) do
 		if obj.key:match("^list%-test/") then
 			found_count = found_count + 1
+			sample = sample or obj
 		end
 	end
 	assert.eq(found_count >= 3, true, "should find at least 3 files with prefix")
+	assert.not_nil(sample, "should have captured a sample object")
+	assert.eq(type(sample.last_modified), "number", "last_modified should be a unix timestamp")
+	assert.eq(sample.last_modified > 0, true, "last_modified should be > 0")
+	assert.eq(type(sample.storage_class), "string", "storage_class should be a string")
 
 	-- List with max_keys
 	local result2, err2 = storage:list_objects({ prefix = "list-test/", max_keys = 2 })

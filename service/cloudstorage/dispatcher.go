@@ -30,6 +30,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(csapi.DeleteObjects, dispatcher.HandlerFunc(d.handleDeleteObjects))
 	register(csapi.PresignedGetURL, dispatcher.HandlerFunc(d.handlePresignedGetURL))
 	register(csapi.PresignedPutURL, dispatcher.HandlerFunc(d.handlePresignedPutURL))
+	register(csapi.HeadObject, dispatcher.HandlerFunc(d.handleHeadObject))
 }
 
 func (d *Dispatcher) handleListObjects(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
@@ -57,9 +58,20 @@ func (d *Dispatcher) handleDownloadObject(ctx context.Context, cmd dispatcher.Co
 func (d *Dispatcher) handleUploadObject(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(*csapi.UploadObjectCmd)
 	go func() {
-		err := c.Storage.UploadObject(ctx, c.Key, c.Reader)
+		err := c.Storage.UploadObject(ctx, c.Key, c.Reader, c.Options)
 		if ctx.Err() == nil {
 			receiver.CompleteYield(tag, csapi.UploadObjectResponse{Error: err}, nil)
+		}
+	}()
+	return nil
+}
+
+func (d *Dispatcher) handleHeadObject(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
+	c := cmd.(*csapi.HeadObjectCmd)
+	go func() {
+		result, err := c.Storage.HeadObject(ctx, c.Key)
+		if ctx.Err() == nil {
+			receiver.CompleteYield(tag, csapi.HeadObjectResponse{Result: result, Error: err}, nil)
 		}
 	}()
 	return nil

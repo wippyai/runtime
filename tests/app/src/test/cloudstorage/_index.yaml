@@ -137,3 +137,18 @@ entries:
       - fs
     imports:
       assert_primitives: app.lib:assert
+
+  # head_object + metadata round-trip + conditional ops
+  - name: head
+    kind: function.lua
+    meta:
+      type: test
+      suite: cloudstorage
+      description: cloudstorage head_object, metadata round-trip, and conditional ops
+    source: file://head.lua
+    method: main
+    modules:
+      - cloudstorage
+      - fs
+    imports:
+      assert_primitives: app.lib:assert
