@@ -51,13 +51,31 @@ func TestStorage_DeleteObjects_EmptyKeys(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// mockListObjectsClient is a mock S3 client for ListObjectsV2
+// mockListObjectsClient is a mock S3 client for ListObjectsV2.
+// It records the most recent input so tests can assert option pass-through.
 type mockListObjectsClient struct {
 	output *s3.ListObjectsV2Output
 	err    error
+	lastIn *s3.ListObjectsV2Input
 }
 
-func (m *mockListObjectsClient) ListObjectsV2(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+func (m *mockListObjectsClient) ListObjectsV2(_ context.Context, in *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+	m.lastIn = in
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.output, nil
+}
+
+// mockListObjectVersionsClient is a mock S3 client for ListObjectVersions.
+type mockListObjectVersionsClient struct {
+	output *s3.ListObjectVersionsOutput
+	err    error
+	lastIn *s3.ListObjectVersionsInput
+}
+
+func (m *mockListObjectVersionsClient) ListObjectVersions(_ context.Context, in *s3.ListObjectVersionsInput, _ ...func(*s3.Options)) (*s3.ListObjectVersionsOutput, error) {
+	m.lastIn = in
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -150,15 +168,145 @@ func TestStorage_ListObjects(t *testing.T) {
 		assert.Equal(t, "Owner Name", obj.Owner.DisplayName)
 	})
 
-	t.Run("error", func(t *testing.T) {
-		mock := &mockListObjectsClient{
-			err: errors.New("list failed"),
-		}
+	t.Run("IncludeOwner=true sets FetchOwner on the input", func(t *testing.T) {
+		mock := &mockListObjectsClient{output: &s3.ListObjectsV2Output{}}
+		_, err := listObjectsWithMock(context.Background(), mock, "test-bucket",
+			&cloudstorage.ListObjectsOptions{IncludeOwner: true})
+		require.NoError(t, err)
+		require.NotNil(t, mock.lastIn)
+		require.NotNil(t, mock.lastIn.FetchOwner)
+		assert.True(t, *mock.lastIn.FetchOwner, "FetchOwner should be true when IncludeOwner is set")
+	})
 
+	t.Run("IncludeOwner=false does not set FetchOwner", func(t *testing.T) {
+		mock := &mockListObjectsClient{output: &s3.ListObjectsV2Output{}}
+		_, err := listObjectsWithMock(context.Background(), mock, "test-bucket",
+			&cloudstorage.ListObjectsOptions{IncludeOwner: false})
+		require.NoError(t, err)
+		require.NotNil(t, mock.lastIn)
+		assert.Nil(t, mock.lastIn.FetchOwner, "FetchOwner should not be set when IncludeOwner is false")
+	})
+
+	t.Run("error from API surfaces", func(t *testing.T) {
+		mock := &mockListObjectsClient{err: errors.New("list failed")}
 		result, err := listObjectsWithMock(context.Background(), mock, "test-bucket", nil)
 		assert.Error(t, err)
 		assert.Nil(t, result)
 	})
+}
+
+func TestStorage_ListObjectVersions(t *testing.T) {
+	t.Run("maps Versions to ObjectMetadata with VersionID", func(t *testing.T) {
+		now := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
+		mock := &mockListObjectVersionsClient{
+			output: &s3.ListObjectVersionsOutput{
+				Versions: []types.ObjectVersion{
+					{
+						Key:          aws.String("k.txt"),
+						Size:         aws.Int64(11),
+						ETag:         aws.String("etag-v1"),
+						VersionId:    aws.String("v1"),
+						LastModified: aws.Time(now),
+						StorageClass: types.ObjectVersionStorageClassStandard,
+					},
+					{
+						Key:          aws.String("k.txt"),
+						Size:         aws.Int64(22),
+						ETag:         aws.String("etag-v2"),
+						VersionId:    aws.String("v2"),
+						LastModified: aws.Time(now.Add(time.Minute)),
+						StorageClass: types.ObjectVersionStorageClassStandard,
+					},
+				},
+				IsTruncated:   aws.Bool(false),
+				NextKeyMarker: nil,
+			},
+		}
+
+		result, err := listObjectVersionsWithMock(context.Background(), mock, "test-bucket",
+			&cloudstorage.ListObjectsOptions{Prefix: "k", IncludeVersions: true})
+		require.NoError(t, err)
+		require.Len(t, result.Objects, 2)
+
+		assert.Equal(t, "v1", result.Objects[0].VersionID)
+		assert.Equal(t, "v2", result.Objects[1].VersionID)
+		assert.Equal(t, "STANDARD", result.Objects[0].StorageClass)
+		assert.Equal(t, int64(11), result.Objects[0].Size)
+		assert.Equal(t, int64(22), result.Objects[1].Size)
+		assert.Equal(t, now, result.Objects[0].LastModified)
+
+		require.NotNil(t, mock.lastIn)
+		require.NotNil(t, mock.lastIn.Prefix)
+		assert.Equal(t, "k", *mock.lastIn.Prefix)
+	})
+
+	t.Run("KeyMarker is used as continuation_token", func(t *testing.T) {
+		mock := &mockListObjectVersionsClient{
+			output: &s3.ListObjectVersionsOutput{IsTruncated: aws.Bool(false)},
+		}
+		_, err := listObjectVersionsWithMock(context.Background(), mock, "test-bucket",
+			&cloudstorage.ListObjectsOptions{ContinuationToken: "marker-from-prev-page", IncludeVersions: true})
+		require.NoError(t, err)
+		require.NotNil(t, mock.lastIn)
+		require.NotNil(t, mock.lastIn.KeyMarker)
+		assert.Equal(t, "marker-from-prev-page", *mock.lastIn.KeyMarker)
+	})
+
+	t.Run("error from API surfaces", func(t *testing.T) {
+		mock := &mockListObjectVersionsClient{err: errors.New("list versions failed")}
+		_, err := listObjectVersionsWithMock(context.Background(), mock, "test-bucket",
+			&cloudstorage.ListObjectsOptions{IncludeVersions: true})
+		assert.Error(t, err)
+	})
+}
+
+// listObjectVersionsWithMock mirrors Storage.listObjectVersions for testing.
+func listObjectVersionsWithMock(ctx context.Context, client *mockListObjectVersionsClient, bucket string, opts *cloudstorage.ListObjectsOptions) (*cloudstorage.ListObjectsResult, error) {
+	input := &s3.ListObjectVersionsInput{Bucket: aws.String(bucket)}
+	if opts != nil {
+		if opts.Prefix != "" {
+			input.Prefix = aws.String(opts.Prefix)
+		}
+		if opts.MaxKeys > 0 {
+			input.MaxKeys = aws.Int32(int32(opts.MaxKeys))
+		}
+		if opts.ContinuationToken != "" {
+			input.KeyMarker = aws.String(opts.ContinuationToken)
+		}
+	}
+
+	output, err := client.ListObjectVersions(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &cloudstorage.ListObjectsResult{
+		IsTruncated:           aws.ToBool(output.IsTruncated),
+		NextContinuationToken: aws.ToString(output.NextKeyMarker),
+		Objects:               make([]cloudstorage.ObjectMetadata, 0, len(output.Versions)),
+	}
+
+	for _, v := range output.Versions {
+		obj := cloudstorage.ObjectMetadata{
+			Key:          aws.ToString(v.Key),
+			Size:         aws.ToInt64(v.Size),
+			ETag:         aws.ToString(v.ETag),
+			StorageClass: string(v.StorageClass),
+			VersionID:    aws.ToString(v.VersionId),
+		}
+		if v.LastModified != nil {
+			obj.LastModified = *v.LastModified
+		}
+		if v.Owner != nil {
+			obj.Owner = &cloudstorage.Owner{
+				ID:          aws.ToString(v.Owner.ID),
+				DisplayName: aws.ToString(v.Owner.DisplayName),
+			}
+		}
+		result.Objects = append(result.Objects, obj)
+	}
+
+	return result, nil
 }
 
 // listObjectsWithMock is a helper that mimics ListObjects logic with a mock
