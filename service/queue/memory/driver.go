@@ -134,7 +134,7 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, _ *queueapi.Co
 						return nil
 					},
 					Nack: func(ctx context.Context) error {
-						return q.requeue(ctx, msg)
+						return q.requeue(ctx, queueapi.CloneMessage(msg))
 					},
 				}
 
