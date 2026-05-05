@@ -737,6 +737,48 @@ func TestPreconditionFailedMapping(t *testing.T) {
 	}
 }
 
+func TestNotFoundMapping(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	t.Run("head_object", func(t *testing.T) {
+		y := AcquireHeadObjectYield()
+		defer ReleaseHeadObjectYield(y)
+
+		result := y.HandleResult(l, csapi.HeadObjectResponse{Error: csapi.ErrNotFound}, nil)
+		if len(result) != 2 {
+			t.Fatalf("expected 2 return values")
+		}
+		luaErr, ok := result[1].(*lua.Error)
+		if !ok {
+			t.Fatalf("expected *lua.Error, got %T", result[1])
+		}
+		if luaErr.Kind() != lua.NotFound {
+			t.Errorf("expected NotFound kind, got %s", luaErr.Kind())
+		}
+		if !strings.Contains(luaErr.Message, "not_found") {
+			t.Errorf("expected message to contain 'not_found', got %q", luaErr.Message)
+		}
+	})
+
+	t.Run("download_object", func(t *testing.T) {
+		y := AcquireDownloadObjectYield()
+		defer ReleaseDownloadObjectYield(y)
+
+		result := y.HandleResult(l, csapi.DownloadObjectResponse{Error: csapi.ErrNotFound}, nil)
+		if len(result) != 2 {
+			t.Fatalf("expected 2 return values")
+		}
+		luaErr, ok := result[1].(*lua.Error)
+		if !ok {
+			t.Fatalf("expected *lua.Error, got %T", result[1])
+		}
+		if luaErr.Kind() != lua.NotFound {
+			t.Errorf("expected NotFound kind, got %s", luaErr.Kind())
+		}
+	})
+}
+
 func TestListObjectsYieldHandleResult_Fields(t *testing.T) {
 	l := lua.NewState()
 	defer l.Close()

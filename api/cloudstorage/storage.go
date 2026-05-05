@@ -14,6 +14,10 @@ import (
 // is not satisfied (HTTP 412 from the underlying provider).
 var ErrPreconditionFailed = errors.New("cloudstorage: precondition failed")
 
+// ErrNotFound is returned when the requested object does not exist
+// (HTTP 404 / SDK NoSuchKey / NotFound from the underlying provider).
+var ErrNotFound = errors.New("cloudstorage: not found")
+
 type (
 	// Owner identifies the owner of an object (when surfaced by the provider).
 	Owner struct {

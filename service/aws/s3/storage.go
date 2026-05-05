@@ -164,6 +164,9 @@ func (s *Storage) HeadObject(ctx context.Context, key string) (*cloudstorage.Hea
 		Key:    aws.String(key),
 	})
 	if err != nil {
+		if mapped := mapKnownError(err); errors.Is(mapped, cloudstorage.ErrNotFound) {
+			return nil, mapped
+		}
 		s.log.Error("head object failed",
 			zap.String("key", key),
 			zap.Error(err))
@@ -214,7 +217,8 @@ func (s *Storage) DownloadObject(ctx context.Context, key string, w io.Writer, o
 
 	output, err := s.client.GetObject(ctx, input)
 	if err != nil {
-		if mapped := mapPreconditionError(err); errors.Is(mapped, cloudstorage.ErrPreconditionFailed) {
+		mapped := mapKnownError(err)
+		if errors.Is(mapped, cloudstorage.ErrPreconditionFailed) || errors.Is(mapped, cloudstorage.ErrNotFound) {
 			return mapped
 		}
 		s.log.Error("download object failed",
@@ -271,7 +275,7 @@ func (s *Storage) UploadObject(ctx context.Context, key string, content io.Reade
 
 	_, err := s.client.PutObject(ctx, input)
 	if err != nil {
-		if mapped := mapPreconditionError(err); errors.Is(mapped, cloudstorage.ErrPreconditionFailed) {
+		if mapped := mapKnownError(err); errors.Is(mapped, cloudstorage.ErrPreconditionFailed) {
 			return mapped
 		}
 		s.log.Error("upload object failed",
@@ -377,14 +381,28 @@ func (s *Storage) PresignedPutURL(ctx context.Context, key string, opts *cloudst
 	return result.URL, nil
 }
 
-// mapPreconditionError converts S3 412 / 304 responses to cloudstorage.ErrPreconditionFailed.
-func mapPreconditionError(err error) error {
+// mapKnownError translates S3 SDK errors into the typed sentinels exposed by
+// the cloudstorage package: 404 / NoSuchKey / NotFound → ErrNotFound,
+// 412 / 304 → ErrPreconditionFailed. Other errors pass through unchanged.
+func mapKnownError(err error) error {
 	if err == nil {
 		return nil
 	}
+
+	var noSuchKey *types.NoSuchKey
+	if errors.As(err, &noSuchKey) {
+		return cloudstorage.ErrNotFound
+	}
+	var notFound *types.NotFound
+	if errors.As(err, &notFound) {
+		return cloudstorage.ErrNotFound
+	}
+
 	var respErr *awshttp.ResponseError
 	if errors.As(err, &respErr) {
 		switch respErr.HTTPStatusCode() {
+		case http.StatusNotFound:
+			return cloudstorage.ErrNotFound
 		case http.StatusPreconditionFailed, http.StatusNotModified:
 			return cloudstorage.ErrPreconditionFailed
 		}

@@ -636,9 +636,9 @@ func (m *mockEndpointResolver) ResolveEndpoint(_ context.Context, _ s3.EndpointP
 	return smithyendpoints.Endpoint{URI: *u}, nil
 }
 
-func TestMapPreconditionError(t *testing.T) {
+func TestMapKnownError(t *testing.T) {
 	t.Run("nil passes through", func(t *testing.T) {
-		assert.NoError(t, mapPreconditionError(nil))
+		assert.NoError(t, mapKnownError(nil))
 	})
 
 	t.Run("412 maps to ErrPreconditionFailed", func(t *testing.T) {
@@ -649,7 +649,7 @@ func TestMapPreconditionError(t *testing.T) {
 			},
 			RequestID: "req-1",
 		}
-		err := mapPreconditionError(respErr)
+		err := mapKnownError(respErr)
 		assert.True(t, errors.Is(err, cloudstorage.ErrPreconditionFailed))
 	})
 
@@ -661,8 +661,30 @@ func TestMapPreconditionError(t *testing.T) {
 			},
 			RequestID: "req-2",
 		}
-		err := mapPreconditionError(respErr)
+		err := mapKnownError(respErr)
 		assert.True(t, errors.Is(err, cloudstorage.ErrPreconditionFailed))
+	})
+
+	t.Run("404 maps to ErrNotFound", func(t *testing.T) {
+		respErr := &awshttp.ResponseError{
+			ResponseError: &smithyhttp.ResponseError{
+				Response: &smithyhttp.Response{Response: &http.Response{StatusCode: http.StatusNotFound}},
+				Err:      &smithy.GenericAPIError{Code: "NotFound"},
+			},
+			RequestID: "req-3",
+		}
+		err := mapKnownError(respErr)
+		assert.True(t, errors.Is(err, cloudstorage.ErrNotFound))
+	})
+
+	t.Run("typed NoSuchKey maps to ErrNotFound", func(t *testing.T) {
+		err := mapKnownError(&types.NoSuchKey{Message: aws.String("missing")})
+		assert.True(t, errors.Is(err, cloudstorage.ErrNotFound))
+	})
+
+	t.Run("typed NotFound maps to ErrNotFound", func(t *testing.T) {
+		err := mapKnownError(&types.NotFound{Message: aws.String("missing")})
+		assert.True(t, errors.Is(err, cloudstorage.ErrNotFound))
 	})
 
 	t.Run("other status passes through unchanged", func(t *testing.T) {
@@ -671,16 +693,17 @@ func TestMapPreconditionError(t *testing.T) {
 				Response: &smithyhttp.Response{Response: &http.Response{StatusCode: http.StatusInternalServerError}},
 				Err:      &smithy.GenericAPIError{Code: "InternalError"},
 			},
-			RequestID: "req-3",
+			RequestID: "req-4",
 		}
-		err := mapPreconditionError(respErr)
+		err := mapKnownError(respErr)
 		assert.False(t, errors.Is(err, cloudstorage.ErrPreconditionFailed))
+		assert.False(t, errors.Is(err, cloudstorage.ErrNotFound))
 		assert.Same(t, respErr, err)
 	})
 
 	t.Run("non-aws error passes through unchanged", func(t *testing.T) {
 		base := errors.New("plain error")
-		err := mapPreconditionError(base)
+		err := mapKnownError(base)
 		assert.Same(t, base, err)
 	})
 }

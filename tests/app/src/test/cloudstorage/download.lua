@@ -49,6 +49,7 @@ local function main()
 	vol:remove("/cloudstorage_nonexistent.txt")
 	assert.is_nil(content2, "should not have content for non-existent file")
 	assert.not_nil(err3, "should have error for non-existent file")
+	assert.eq(err3:kind(), "NotFound", "missing key error should map to NotFound kind")
 
 	-- Cleanup
 	storage:delete_objects({"download-test/hello.txt"})

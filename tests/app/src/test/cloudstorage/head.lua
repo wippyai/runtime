@@ -67,11 +67,11 @@ local function main()
 	assert.not_nil(uerr, "upload with if_none_match=* should fail when object exists")
 	assert.eq(uerr:kind(), "Conflict", "precondition error should map to Conflict kind")
 
-	-- head_object on a missing key should error (currently surfaces a generic error;
-	-- mapping to errors.NOT_FOUND is tracked separately).
+	-- head_object on a missing key should error with NotFound kind.
 	local missing, mherr = storage:head_object("head-test/does-not-exist.txt")
 	assert.is_nil(missing, "head_object on missing key should not return a result")
 	assert.not_nil(mherr, "head_object on missing key should return an error")
+	assert.eq(mherr:kind(), "NotFound", "missing key error should map to NotFound kind")
 
 	-- Cleanup
 	storage:delete_objects({ key })

@@ -22,6 +22,11 @@ func wrapStorageError(l *lua.LState, err error, op string) lua.LValue {
 			WithKind(lua.Conflict).
 			WithRetryable(false)
 	}
+	if errors.Is(err, csapi.ErrNotFound) {
+		return lua.NewLuaError(l, "not_found").
+			WithKind(lua.NotFound).
+			WithRetryable(false)
+	}
 	return lua.WrapErrorWithLua(l, err, op)
 }
 
