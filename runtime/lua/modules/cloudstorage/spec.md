@@ -72,7 +72,7 @@ Lists objects in storage with optional filtering.
 | max_keys | integer | 0 | Maximum objects to return (0 = unlimited) |
 | continuation_token | string | "" | Token for pagination |
 | include_owner | boolean | false | When true, populate `owner` on each result (S3: FetchOwner=true) |
-| include_versions | boolean | false | When true, list every version (S3: ListObjectVersions); pagination uses key markers |
+| include_versions | boolean | false | When true, list every version (S3: ListObjectVersions). `next_continuation_token` then carries S3's `NextKeyMarker` instead of an opaque V2 token, so do not switch `include_versions` mid-pagination. Versioning must be enabled on the bucket; otherwise the response only contains the current "null" version per key. |
 
 **Returns:**
 - Success: `table` - result table with fields below
@@ -144,7 +144,7 @@ provider has set it on upload).
 | Field | Type | Notes |
 |-------|------|-------|
 | size | integer | Object size in bytes |
-| etag | string | Entity tag, returned without surrounding quotes — pass it back as-is to `if_match` / `if_none_match` |
+| etag | string | Entity tag (RFC 7232 form, including the surrounding `"` quotes) — pass it back as-is to `if_match` / `if_none_match` |
 | content_type | string | MIME type |
 | cache_control | string | Cache-Control header |
 | content_disposition | string | Content-Disposition header |
