@@ -240,6 +240,7 @@ preconditions.
 | metadata | table<string,string> | nil | User metadata; AWS lowercases keys |
 | if_match | string | "" | Only upload if the existing object's ETag matches |
 | if_none_match | string | "" | Only upload if no object exists ("*") or its ETag does not match |
+| only_if_absent | boolean | false | Friendly alias for `if_none_match = "*"`. When `true`, overrides any explicit `if_none_match`. |
 
 **Returns:**
 - Success: `true`

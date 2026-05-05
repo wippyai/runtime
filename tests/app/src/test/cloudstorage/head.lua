@@ -67,6 +67,13 @@ local function main()
 	assert.not_nil(uerr, "upload with if_none_match=* should fail when object exists")
 	assert.eq(uerr:kind(), "Conflict", "precondition error should map to Conflict kind")
 
+	-- Same precondition expressed via the only_if_absent alias.
+	local _, uerr2 = storage:upload_object(key, "should not overwrite", {
+		only_if_absent = true,
+	})
+	assert.not_nil(uerr2, "upload with only_if_absent=true should fail when object exists")
+	assert.eq(uerr2:kind(), "Conflict", "only_if_absent should also map to Conflict kind")
+
 	-- head_object on a missing key should error with NotFound kind.
 	local missing, mherr = storage:head_object("head-test/does-not-exist.txt")
 	assert.is_nil(missing, "head_object on missing key should not return a result")

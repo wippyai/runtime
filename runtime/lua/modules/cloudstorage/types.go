@@ -59,6 +59,7 @@ var uploadOptionsType = typ.NewRecord().
 	OptField("metadata", typ.Any).
 	OptField("if_match", typ.String).
 	OptField("if_none_match", typ.String).
+	OptField("only_if_absent", typ.Boolean).
 	Build()
 
 // PresignedURLOptions type

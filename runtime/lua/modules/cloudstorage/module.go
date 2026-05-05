@@ -347,6 +347,11 @@ func storageUploadObject(l *lua.LState) int {
 		if v := optsTable.RawGetString("if_none_match"); v != lua.LNil {
 			uo.IfNoneMatch = v.String()
 		}
+		// only_if_absent is a Lua-friendly alias for if_none_match = "*".
+		// When true it wins over an explicit if_none_match string.
+		if v := optsTable.RawGetString("only_if_absent"); v != lua.LNil && lua.LVAsBool(v) {
+			uo.IfNoneMatch = "*"
+		}
 		if v := optsTable.RawGetString("metadata"); v != lua.LNil {
 			if mt, ok := v.(*lua.LTable); ok {
 				uo.Metadata = make(map[string]string, mt.Len())
