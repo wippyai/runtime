@@ -521,11 +521,38 @@ The most important caveats:
 
 ## Changelog
 
-- Object metadata, ETag, and conditional ops — [#264](https://github.com/wippyai/runtime/pull/264):
-  `head_object`, richer `list_objects` fields (`last_modified`, `storage_class`,
-  `owner`, `version_id`), `upload_object` options (content headers, user metadata,
-  `if_match`/`if_none_match`), `download_object` `if_match`/`if_none_match`,
-  404 from `head_object` / `download_object` mapped to `errors.NOT_FOUND`,
-  and a `headers` escape-hatch on both `upload_object` (request) and
-  `head_object` (response) for provider-specific HTTP headers not modeled
-  as typed fields.
+### [#264](https://github.com/wippyai/runtime/pull/264) — object metadata, ETag, conditional ops, headers escape-hatch
+
+All additions are purely additive; pre-existing call signatures keep working unchanged.
+
+**New method**
+- `storage:head_object(key)` → `result, error` — full per-object metadata, the only way to read user metadata (`x-amz-meta-*`).
+
+**`storage:list_objects(options)` new options**
+- `include_owner: boolean` — populates `owner` on each result (S3: `FetchOwner=true`).
+- `include_versions: boolean` — switches to `ListObjectVersions`, fills `version_id`.
+
+**`storage:list_objects` result — new fields per object**
+- `last_modified` (Unix seconds)
+- `storage_class` (string, provider-specific)
+- `version_id` (only with `include_versions`)
+- `owner` (table `{ id, display_name }`, only with `include_owner`)
+
+**`storage:upload_object(key, content, options)` — new optional 4th arg**
+- `content_type`, `cache_control`, `content_disposition`, `content_encoding`
+- `metadata: table<string,string>` — user metadata (`x-amz-meta-*`)
+- `if_match: string`, `if_none_match: string` — conditional upload
+- `only_if_absent: boolean` — Lua-friendly alias for `if_none_match = "*"`
+- `headers: table<string,string>` — raw HTTP request headers escape-hatch
+
+**`storage:download_object(key, writer, options)` — new option fields**
+- `if_match: string`, `if_none_match: string`
+
+**`storage:head_object` result fields**
+- `size`, `etag`, `content_type`, `cache_control`, `content_disposition`, `content_encoding`, `storage_class`, `version_id`, `last_modified`
+- `metadata: table<string,string>` (always present)
+- `headers: table<string,string>` (always present; lowercased keys)
+
+**New error kinds surfaced**
+- `errors.NOT_FOUND` — `head_object` / `download_object` on a missing key.
+- `errors.CONFLICT` (message `"precondition_failed"`) — when `if_match` / `if_none_match` / `only_if_absent` fails.
