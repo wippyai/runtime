@@ -7,12 +7,15 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go/middleware"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/wippyai/runtime/api/cloudstorage"
 	"go.uber.org/zap"
 )
@@ -159,9 +162,15 @@ func (s *Storage) listObjectVersions(ctx context.Context, opts *cloudstorage.Lis
 
 // HeadObject fetches full metadata for a single object.
 func (s *Storage) HeadObject(ctx context.Context, key string) (*cloudstorage.HeadObjectResult, error) {
+	var rawHeaders http.Header
+	captureMW := &captureResponseHeadersMiddleware{out: &rawHeaders}
 	output, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
+	}, func(o *s3.Options) {
+		o.APIOptions = append(o.APIOptions, func(stack *middleware.Stack) error {
+			return stack.Deserialize.Add(captureMW, middleware.After)
+		})
 	})
 	if err != nil {
 		if mapped := mapKnownError(err); errors.Is(mapped, cloudstorage.ErrNotFound) {
@@ -182,6 +191,7 @@ func (s *Storage) HeadObject(ctx context.Context, key string) (*cloudstorage.Hea
 		ContentEncoding:    aws.ToString(output.ContentEncoding),
 		StorageClass:       string(output.StorageClass),
 		VersionID:          aws.ToString(output.VersionId),
+		Headers:            flattenHeaders(rawHeaders),
 	}
 	if output.LastModified != nil {
 		res.LastModified = *output.LastModified
@@ -273,7 +283,17 @@ func (s *Storage) UploadObject(ctx context.Context, key string, content io.Reade
 		}
 	}
 
-	_, err := s.client.PutObject(ctx, input)
+	var apiOptions []func(*s3.Options)
+	if opts != nil && len(opts.Headers) > 0 {
+		mw := &addRequestHeadersMiddleware{headers: opts.Headers}
+		apiOptions = append(apiOptions, func(o *s3.Options) {
+			o.APIOptions = append(o.APIOptions, func(stack *middleware.Stack) error {
+				return stack.Build.Add(mw, middleware.After)
+			})
+		})
+	}
+
+	_, err := s.client.PutObject(ctx, input, apiOptions...)
 	if err != nil {
 		if mapped := mapKnownError(err); errors.Is(mapped, cloudstorage.ErrPreconditionFailed) {
 			return mapped
@@ -379,6 +399,62 @@ func (s *Storage) PresignedPutURL(ctx context.Context, key string, opts *cloudst
 	}
 
 	return result.URL, nil
+}
+
+// addRequestHeadersMiddleware injects the given HTTP headers into the outgoing
+// request before signing, so they participate in the SigV4 canonical request.
+// Used by UploadObject to pass through caller-supplied headers (e.g.
+// x-amz-tagging, x-amz-server-side-encryption).
+type addRequestHeadersMiddleware struct {
+	headers map[string]string
+}
+
+func (m *addRequestHeadersMiddleware) ID() string { return "wippyAddRequestHeaders" }
+
+func (m *addRequestHeadersMiddleware) HandleBuild(
+	ctx context.Context, in middleware.BuildInput, next middleware.BuildHandler,
+) (middleware.BuildOutput, middleware.Metadata, error) {
+	if req, ok := in.Request.(*smithyhttp.Request); ok {
+		for k, v := range m.headers {
+			req.Header.Set(k, v)
+		}
+	}
+	return next.HandleBuild(ctx, in)
+}
+
+// captureResponseHeadersMiddleware snapshots the raw HTTP response headers
+// from a successful operation. Used by HeadObject to expose headers that are
+// not modeled as typed fields.
+type captureResponseHeadersMiddleware struct {
+	out *http.Header
+}
+
+func (m *captureResponseHeadersMiddleware) ID() string { return "wippyCaptureResponseHeaders" }
+
+func (m *captureResponseHeadersMiddleware) HandleDeserialize(
+	ctx context.Context, in middleware.DeserializeInput, next middleware.DeserializeHandler,
+) (middleware.DeserializeOutput, middleware.Metadata, error) {
+	out, metadata, err := next.HandleDeserialize(ctx, in)
+	if err != nil {
+		return out, metadata, err
+	}
+	if resp, ok := out.RawResponse.(*smithyhttp.Response); ok && resp != nil {
+		*m.out = resp.Header.Clone()
+	}
+	return out, metadata, err
+}
+
+// flattenHeaders converts http.Header to map[string]string with lowercased
+// keys. Multi-valued headers are joined with ", " per RFC 7230 §3.2.2.
+func flattenHeaders(h http.Header) map[string]string {
+	if len(h) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(h))
+	for k, vs := range h {
+		out[strings.ToLower(k)] = strings.Join(vs, ", ")
+	}
+	return out
 }
 
 // mapKnownError translates S3 SDK errors into the typed sentinels exposed by

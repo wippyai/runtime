@@ -41,8 +41,14 @@ type (
 	// HeadObjectResult contains the full metadata for a single object,
 	// including provider-specific user metadata.
 	HeadObjectResult struct {
-		LastModified       time.Time
-		UserMetadata       map[string]string
+		LastModified time.Time
+		UserMetadata map[string]string
+		// Headers carries the raw response headers from the provider, with
+		// lowercased keys. Multi-valued headers are joined with ", " per
+		// RFC 7230 §3.2.2. Useful for accessing provider-specific fields
+		// not modeled as typed fields above (e.g. x-amz-tagging-count,
+		// x-amz-replication-status, x-amz-server-side-encryption).
+		Headers            map[string]string
 		ContentType        string
 		ETag               string
 		CacheControl       string
@@ -98,7 +104,13 @@ type (
 
 	// UploadOptions contains options for uploading objects.
 	UploadOptions struct {
-		Metadata           map[string]string
+		Metadata map[string]string
+		// Headers passes through arbitrary HTTP request headers to the
+		// provider. Useful for provider-specific options that are not
+		// modeled as typed fields above (e.g. x-amz-tagging,
+		// x-amz-server-side-encryption, x-amz-website-redirect-location).
+		// Headers are sent verbatim and participate in request signing.
+		Headers            map[string]string
 		ContentType        string
 		CacheControl       string
 		ContentDisposition string

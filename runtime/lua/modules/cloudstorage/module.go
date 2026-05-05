@@ -362,6 +362,16 @@ func storageUploadObject(l *lua.LState) int {
 				})
 			}
 		}
+		if v := optsTable.RawGetString("headers"); v != lua.LNil {
+			if ht, ok := v.(*lua.LTable); ok {
+				uo.Headers = make(map[string]string, ht.Len())
+				ht.ForEach(func(k, hv lua.LValue) {
+					if ks, kok := k.(lua.LString); kok {
+						uo.Headers[string(ks)] = hv.String()
+					}
+				})
+			}
+		}
 		yield.Options = uo
 	}
 

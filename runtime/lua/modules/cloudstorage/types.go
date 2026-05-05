@@ -41,6 +41,7 @@ var headObjectResultType = typ.NewRecord().
 	OptField("version_id", typ.String).
 	OptField("last_modified", typ.Number).
 	Field("metadata", typ.Any).
+	Field("headers", typ.Any).
 	Build()
 
 // DownloadOptions type
@@ -57,6 +58,7 @@ var uploadOptionsType = typ.NewRecord().
 	OptField("content_disposition", typ.String).
 	OptField("content_encoding", typ.String).
 	OptField("metadata", typ.Any).
+	OptField("headers", typ.Any).
 	OptField("if_match", typ.String).
 	OptField("if_none_match", typ.String).
 	OptField("only_if_absent", typ.Boolean).

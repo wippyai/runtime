@@ -707,3 +707,32 @@ func TestMapKnownError(t *testing.T) {
 		assert.Same(t, base, err)
 	})
 }
+
+func TestFlattenHeaders(t *testing.T) {
+	t.Run("nil input returns nil", func(t *testing.T) {
+		assert.Nil(t, flattenHeaders(nil))
+	})
+
+	t.Run("empty input returns nil", func(t *testing.T) {
+		assert.Nil(t, flattenHeaders(http.Header{}))
+	})
+
+	t.Run("lowercases keys", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("Content-Type", "text/plain")
+		h.Set("X-Amz-Storage-Class", "STANDARD")
+		out := flattenHeaders(h)
+		assert.Equal(t, "text/plain", out["content-type"])
+		assert.Equal(t, "STANDARD", out["x-amz-storage-class"])
+		_, hasCanonical := out["Content-Type"]
+		assert.False(t, hasCanonical, "canonical-cased keys should not appear")
+	})
+
+	t.Run("joins multi-valued headers with comma-space", func(t *testing.T) {
+		h := http.Header{
+			"X-Repeated": {"a", "b", "c"},
+		}
+		out := flattenHeaders(h)
+		assert.Equal(t, "a, b, c", out["x-repeated"])
+	})
+}

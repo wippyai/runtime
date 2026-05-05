@@ -410,5 +410,10 @@ func headObjectResultToLua(l *lua.LState, result *csapi.HeadObjectResult) lua.LV
 		metaTbl.RawSetString(k, lua.LString(v))
 	}
 	t.RawSetString("metadata", metaTbl)
+	headersTbl := l.CreateTable(0, len(result.Headers))
+	for k, v := range result.Headers {
+		headersTbl.RawSetString(k, lua.LString(v))
+	}
+	t.RawSetString("headers", headersTbl)
 	return t
 }

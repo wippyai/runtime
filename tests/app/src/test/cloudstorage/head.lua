@@ -80,6 +80,31 @@ local function main()
 	assert.not_nil(mherr, "head_object on missing key should return an error")
 	assert.eq(mherr:kind(), "NotFound", "missing key error should map to NotFound kind")
 
+	-- Headers escape-hatch: upload sending a raw x-amz-meta-* header,
+	-- then verify it round-trips via head.metadata (the SDK channels
+	-- x-amz-meta-* into the Metadata map). Also verify head.headers
+	-- exposes the response headers we care about.
+	local hkey = "head-test/with-headers.txt"
+	local _, herr2 = storage:upload_object(hkey, "raw header upload", {
+		headers = {
+			["x-amz-meta-via-headers"] = "yes",
+		},
+	})
+	assert.is_nil(herr2, "upload with raw headers should not error")
+
+	local h2, herr3 = storage:head_object(hkey)
+	assert.is_nil(herr3, "head_object should not error")
+	assert.not_nil(h2, "head_object should return a result")
+	assert.eq(h2.metadata["via-headers"], "yes",
+		"x-amz-meta-* sent via raw headers should round-trip into metadata")
+	assert.not_nil(h2.headers, "head.headers escape-hatch should be a table")
+	assert.eq(type(h2.headers["content-length"]), "string",
+		"response headers should include content-length (lowercased keys)")
+	assert.eq(type(h2.headers["etag"]), "string",
+		"response headers should include etag (lowercased keys)")
+
+	storage:delete_objects({ hkey })
+
 	-- Cleanup
 	storage:delete_objects({ key })
 	storage:release()

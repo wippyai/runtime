@@ -153,6 +153,7 @@ provider has set it on upload).
 | version_id | string | Version ID (omitted when empty) |
 | last_modified | integer | Last-modified timestamp in Unix seconds (sub-second precision is dropped; omitted if zero) |
 | metadata | table<string,string> | User-defined metadata. AWS lowercases keys. Always present — empty table when there is no user metadata. |
+| headers | table<string,string> | Raw HTTP response headers (lowercased keys; multi-valued joined with `, `). Escape hatch for provider-specific fields not modeled above (e.g. `x-amz-tagging-count`, `x-amz-replication-status`, `x-amz-server-side-encryption`). Always present — empty when the provider sends no headers. |
 
 **Errors (structured):**
 
@@ -241,6 +242,7 @@ preconditions.
 | if_match | string | "" | Only upload if the existing object's ETag matches |
 | if_none_match | string | "" | Only upload if no object exists ("*") or its ETag does not match |
 | only_if_absent | boolean | false | Friendly alias for `if_none_match = "*"`. When `true`, overrides any explicit `if_none_match`. |
+| headers | table<string,string> | nil | Raw HTTP request headers passed verbatim to the provider. Escape hatch for provider-specific options (e.g. `x-amz-tagging`, `x-amz-server-side-encryption`, `x-amz-website-redirect-location`). Headers participate in request signing. |
 
 **Returns:**
 - Success: `true`
@@ -482,10 +484,48 @@ storage:delete_objects({"backups/data.txt"})
 storage:release()
 ```
 
+## Portability notes
+
+The S3 protocol is implemented by many backends (AWS, MinIO, Cloudflare R2,
+Backblaze B2, DigitalOcean Spaces, Wasabi, Scaleway, OVH, IBM, Oracle,
+Alibaba OSS, Tencent COS, Ceph RGW, etc.) with subtle behavior differences.
+The most important caveats:
+
+- **`etag` is not a content checksum.** AWS multipart uploads return
+  `<md5>-<partCount>`. SSE-KMS / SSE-C objects return opaque values.
+  Backblaze B2 returns SHA-1 shaped like an MD5 string. Use `etag` only for
+  round-tripping into `if_match` / `if_none_match` against the same backend.
+- **Conditional ops are not universally honored.** AWS, MinIO and R2 respect
+  `if_match` / `if_none_match` correctly; some older or self-hosted
+  S3-compatible implementations silently ignore them, so `only_if_absent`
+  may degrade into "always overwrite." Validate against your backend if
+  optimistic concurrency is critical.
+- **`version_id`.** Cloudflare R2 (as of writing) and several other
+  S3-compatible backends do not implement versioning at all;
+  `include_versions = true` returns an empty result or an error there.
+  The literal string `"null"` is a valid version_id for objects created
+  before versioning was enabled. Don't parse version_id values.
+- **`storage_class` values are provider-specific.** Most single-tier
+  backends (R2, B2, DO Spaces, Wasabi, MinIO) report `STANDARD` always.
+  AWS, Scaleway, IBM, Alibaba and Tencent expose richer tiers with
+  different vocabularies. Ceph operators can configure arbitrary
+  placement-target names. Code that branches on `storage_class` is
+  implicitly coupled to a specific deployment.
+- **`metadata`.** Limits vary (AWS ~2 KB total, R2 8 KB, MinIO ~32 KB).
+  Stick to ASCII values and stay under 2 KB to be portable. Keys come back
+  lowercased on every reasonable provider.
+- **`headers` escape-hatch.** Use this when you need a provider-specific
+  feature (tagging, SSE, replication) that is not modeled as a typed
+  field. The trade-off is that you are now coupled to that backend's
+  header conventions.
+
 ## Changelog
 
 - Object metadata, ETag, and conditional ops — [#264](https://github.com/wippyai/runtime/pull/264):
   `head_object`, richer `list_objects` fields (`last_modified`, `storage_class`,
   `owner`, `version_id`), `upload_object` options (content headers, user metadata,
   `if_match`/`if_none_match`), `download_object` `if_match`/`if_none_match`,
-  and 404 from `head_object` / `download_object` mapped to `errors.NOT_FOUND`.
+  404 from `head_object` / `download_object` mapped to `errors.NOT_FOUND`,
+  and a `headers` escape-hatch on both `upload_object` (request) and
+  `head_object` (response) for provider-specific HTTP headers not modeled
+  as typed fields.

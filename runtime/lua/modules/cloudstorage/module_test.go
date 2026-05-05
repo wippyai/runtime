@@ -662,6 +662,7 @@ func TestHeadObjectYieldHandleResult_Success(t *testing.T) {
 			VersionID:          "v1",
 			LastModified:       now,
 			UserMetadata:       map[string]string{"env": "staging"},
+			Headers:            map[string]string{"x-amz-tagging-count": "1"},
 		},
 	}
 
@@ -695,6 +696,13 @@ func TestHeadObjectYieldHandleResult_Success(t *testing.T) {
 	}
 	if got := meta.RawGetString("env").String(); got != "staging" {
 		t.Errorf("metadata.env mismatch: got %q", got)
+	}
+	headers, ok := tbl.RawGetString("headers").(*lua.LTable)
+	if !ok {
+		t.Fatalf("expected headers table")
+	}
+	if got := headers.RawGetString("x-amz-tagging-count").String(); got != "1" {
+		t.Errorf("headers[x-amz-tagging-count] mismatch: got %q", got)
 	}
 }
 
