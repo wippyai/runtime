@@ -60,6 +60,10 @@ func init() {
 	publishCmd.Flags().String("config", ".", "path to directory containing wippy.yaml")
 	publishCmd.Flags().String("registry", "", "registry URL (default: from credentials)")
 	publishCmd.Flags().StringSlice("embed", nil, "embed fs.directory entries by id or name (default: none)")
+	publishCmd.Flags().Bool("create", false, "create the module on the registry if it does not yet exist")
+	publishCmd.Flags().String("module-visibility", "private", "visibility for newly created modules (--create only): public or private")
+	publishCmd.Flags().String("module-type", "application", "module type for newly created modules (--create only): library, application, agent or plugin")
+	publishCmd.Flags().String("module-display-name", "", "display name for newly created modules (--create only)")
 }
 
 func runPublish(cmd *cobra.Command, _ []string) error {
@@ -74,6 +78,10 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 	registryURL, _ := cmd.Flags().GetString("registry")
 	embedFlag, _ := cmd.Flags().GetStringSlice("embed")
 	embedChanged := cmd.Flags().Changed("embed")
+	createIfMissing, _ := cmd.Flags().GetBool("create")
+	moduleVisibility, _ := cmd.Flags().GetString("module-visibility")
+	moduleType, _ := cmd.Flags().GetString("module-type")
+	moduleDisplayName, _ := cmd.Flags().GetString("module-display-name")
 
 	cfg, err := config.Load(configDir)
 	if err != nil {
@@ -168,6 +176,40 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 	})
 	if err != nil {
 		return NewPublishClientError(registryURL, err)
+	}
+
+	if createIfMissing {
+		displayName := moduleDisplayName
+		if displayName == "" {
+			displayName = cfg.ModuleName
+		}
+		keywords := cfg.Keywords
+		if keywords == nil {
+			keywords = []string{}
+		}
+		registerCtx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+		regResult, regErr := client.RegisterModule(registerCtx, &hub.RegisterModuleParams{
+			Org:           cfg.Organization,
+			Name:          cfg.ModuleName,
+			DisplayName:   displayName,
+			Description:   cfg.Description,
+			ModuleType:    moduleType,
+			Visibility:    moduleVisibility,
+			License:       cfg.License,
+			Keywords:      keywords,
+			RepositoryURL: cfg.Repository,
+			HomepageURL:   cfg.Homepage,
+		})
+		cancel()
+		switch {
+		case regErr == nil:
+			printStatus(fmt.Sprintf("Registered module %s/%s (visibility=%s, type=%s)",
+				regResult.OrgName, regResult.Name, regResult.Visibility, regResult.ModuleType))
+		case errors.Is(regErr, hub.ErrModuleAlreadyExists):
+			printStatus(fmt.Sprintf("Module %s/%s already exists, skipping create", cfg.Organization, cfg.ModuleName))
+		default:
+			return fmt.Errorf("register module on %s: %w", registryURL, regErr)
+		}
 	}
 
 	params := &hub.PublishParams{
