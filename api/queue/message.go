@@ -100,3 +100,20 @@ func NewMessageWithID(id string, body payload.Payload) *Message {
 	msg.ID = id
 	return msg
 }
+
+// CloneMessage returns a non-pooled copy of msg that is safe to keep after
+// the original message is released back to the pool.
+func CloneMessage(msg *Message) *Message {
+	if msg == nil {
+		return nil
+	}
+	headers := attrs.NewBag()
+	for k, v := range msg.Headers {
+		headers.Set(k, v)
+	}
+	return &Message{
+		ID:      msg.ID,
+		Body:    msg.Body,
+		Headers: headers,
+	}
+}

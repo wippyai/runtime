@@ -189,6 +189,64 @@ func TestMessageWithCustomHeaders(t *testing.T) {
 	assert.True(t, ok)
 }
 
+func TestCloneMessage(t *testing.T) {
+	t.Run("Nil", func(t *testing.T) {
+		assert.Nil(t, queue.CloneMessage(nil))
+	})
+
+	t.Run("CopiesIDBodyAndHeaders", func(t *testing.T) {
+		body := payload.New("clone-body")
+		msg := queue.NewMessageWithID("msg-1", body)
+		msg.Headers.Set("job_id", "job-1")
+		msg.Headers.Set("attempt", 2)
+
+		clone := queue.CloneMessage(msg)
+
+		assert.NotSame(t, msg, clone)
+		assert.Equal(t, "msg-1", clone.ID)
+		assert.Equal(t, body, clone.Body)
+		assert.Equal(t, "job-1", clone.Headers.GetString("job_id", ""))
+		assert.Equal(t, 2, clone.Headers.GetInt("attempt", 0))
+	})
+
+	t.Run("HeaderBagIsIndependent", func(t *testing.T) {
+		msg := queue.NewMessageWithID("msg-1", payload.New("clone-body"))
+		msg.Headers.Set("job_id", "job-1")
+
+		clone := queue.CloneMessage(msg)
+		msg.Headers.Set("job_id", "mutated")
+		msg.Headers.Set("new_header", "new")
+		clone.Headers.Set("clone_only", "yes")
+
+		assert.Equal(t, "job-1", clone.Headers.GetString("job_id", ""))
+		assert.Equal(t, "", clone.Headers.GetString("new_header", ""))
+		assert.Equal(t, "", msg.Headers.GetString("clone_only", ""))
+	})
+
+	t.Run("SurvivesOriginalRelease", func(t *testing.T) {
+		msg := queue.AcquireMessageWithID("pooled-1", payload.New("pooled-body"))
+		msg.Headers.Set("job_id", "job-1")
+
+		clone := queue.CloneMessage(msg)
+		queue.ReleaseMessage(msg)
+
+		assert.Equal(t, "pooled-1", clone.ID)
+		assert.NotNil(t, clone.Body)
+		assert.Equal(t, "pooled-body", clone.Body.Data())
+		assert.Equal(t, "job-1", clone.Headers.GetString("job_id", ""))
+	})
+
+	t.Run("NilHeadersBecomeEmptyBag", func(t *testing.T) {
+		msg := &queue.Message{ID: "manual", Body: payload.New("body")}
+
+		clone := queue.CloneMessage(msg)
+
+		assert.NotNil(t, clone.Headers)
+		assert.Equal(t, "manual", clone.ID)
+		assert.Equal(t, "body", clone.Body.Data())
+	})
+}
+
 func BenchmarkNewMessage(b *testing.B) {
 	body := payload.New("benchmark message")
 	b.ResetTimer()
