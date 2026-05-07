@@ -363,10 +363,16 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 }
 
 func shouldApplyModuleConfigFilters(mp lock.ModuleLoadPath) bool {
-	// Replacement paths are commonly used by module-local test workspaces to load
-	// unpublished test entries from the module under development. Versioned module
-	// paths represent installed dependencies and should behave like published packs.
-	return mp.Module != "" && mp.Version != "" && filepath.Ext(mp.Path) != ".wapp"
+	// Apply the module's wippy.yaml exclude/exclude_meta rules whenever we're
+	// loading a module from a directory tree — both versioned vendored sources
+	// and replacement paths (wippy.lock `replacements:`). Without this, a host
+	// app that points `replacements:` at a module's source picks up that
+	// module's own test fixtures (e.g. test/_index.yaml under namespace `app`),
+	// which then collide with the host's real entries via "use last definition"
+	// dedup. .wapp files are skipped: they were filtered at publish time, and
+	// re-running the filter would require parsing a manifest the archive does
+	// not expose.
+	return mp.Module != "" && filepath.Ext(mp.Path) != ".wapp"
 }
 
 func applyModuleConfigFilters(
