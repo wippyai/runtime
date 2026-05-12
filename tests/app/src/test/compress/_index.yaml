@@ -94,3 +94,16 @@ entries:
       - compress
     imports:
       assert2: app.lib:assert
+
+  - name: zstd_dict
+    kind: function.lua
+    meta:
+      type: test
+      suite: compress
+      description: zstd dictionary training and dict-based encode/decode
+    source: file://zstd_dict.lua
+    method: main
+    modules:
+      - compress
+    imports:
+      assert2: app.lib:assert
