@@ -513,9 +513,9 @@ func TestResolveDirectoryPath(t *testing.T) {
 		want string
 	}{
 		{
-			name: "project default remains working-directory relative",
+			name: "module-owned entry with no base resolves against module source root",
 			cfg:  &dirapi.Config{Directory: "./frontend"},
-			want: "./frontend",
+			want: filepath.Join(moduleRoot, "frontend"),
 		},
 		{
 			name: "project base remains working-directory relative",
@@ -537,15 +537,37 @@ func TestResolveDirectoryPath(t *testing.T) {
 			cfg:  &dirapi.Config{Directory: "./static/app", Base: dirapi.BaseModule},
 			want: "./static/app",
 		},
+		{
+			name: "app-owned entry (no module meta) with no base stays working-directory relative",
+			cfg:  &dirapi.Config{Directory: "./frontend"},
+			want: "./frontend",
+		},
+		{
+			name: "module-owned entry with explicit project base stays working-directory relative",
+			cfg:  &dirapi.Config{Directory: "./frontend", Base: dirapi.BaseProject},
+			want: "./frontend",
+		},
+		{
+			name: "module-owned entry with no base falls back to raw path when source root missing",
+			cfg:  &dirapi.Config{Directory: "./frontend"},
+			want: "./frontend",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testEntry := entry
-			if tt.name == "module base without module metadata falls back to raw path" {
+			testCtx := ctx
+
+			switch tt.name {
+			case "module base without module metadata falls back to raw path",
+				"app-owned entry (no module meta) with no base stays working-directory relative":
 				testEntry.Meta = nil
+			case "module-owned entry with no base falls back to raw path when source root missing":
+				testCtx = ctxapi.NewRootContext()
 			}
-			assert.Equal(t, tt.want, resolveDirectoryPath(ctx, testEntry, tt.cfg))
+
+			assert.Equal(t, tt.want, resolveDirectoryPath(testCtx, testEntry, tt.cfg))
 		})
 	}
 }
@@ -577,6 +599,38 @@ func TestManager_AddUsesModuleBaseForDirectoryPath(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, factory.Configs, 1)
 	assert.Equal(t, filepath.Join(moduleRoot, "static/app"), factory.Configs[0].DirPath)
+}
+
+// Regression: when a module is loaded via wippy.lock `replacements:` the entry's
+// fs.directory has a relative path (./public) and no explicit `base: module`.
+// The runtime must still join with the module source root, matching the path
+// that vendor-unpacked modules see.
+func TestManager_AddResolvesModuleRelativePathWhenBaseOmitted(t *testing.T) {
+	moduleRoot := t.TempDir()
+	ctx := ctxapi.NewRootContext()
+	ctx = moduleapi.WithSourceRoots(ctx, moduleapi.SourceRoots{
+		"wippy/facade": moduleRoot,
+	})
+
+	factory := NewMockFactory(&MockFS{}, nil)
+	manager := NewDirectoryManager(eventbus.NewBus(), &MockTranscoder{}, factory, zap.NewNop())
+
+	entry := registry.Entry{
+		ID:   registry.NewID("wippy.facade", "public_files"),
+		Kind: dirapi.Kind,
+		Meta: attrs.NewBagFrom(map[string]any{
+			"module": "wippy/facade",
+		}),
+		Data: NewMockPayload(&dirapi.Config{
+			Directory: "./public",
+			Mode:      "0755",
+		}),
+	}
+
+	err := manager.Add(ctx, entry)
+	require.NoError(t, err)
+	require.Len(t, factory.Configs, 1)
+	assert.Equal(t, filepath.Join(moduleRoot, "public"), factory.Configs[0].DirPath)
 }
 
 // Add test for factory error handling

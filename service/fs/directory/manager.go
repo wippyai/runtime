@@ -180,7 +180,10 @@ func resolveDirectoryPath(ctx context.Context, entry registry.Entry, cfg *dirapi
 	if cfg == nil {
 		return ""
 	}
-	if cfg.Directory == "" || cfg.Base != dirapi.BaseModule || isAbsoluteConfiguredPath(cfg.Directory) {
+	if cfg.Directory == "" || isAbsoluteConfiguredPath(cfg.Directory) {
+		return cfg.Directory
+	}
+	if cfg.Base == dirapi.BaseProject {
 		return cfg.Directory
 	}
 

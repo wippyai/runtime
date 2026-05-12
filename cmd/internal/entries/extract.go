@@ -110,7 +110,7 @@ type extractedResource struct {
 // restoreEmbeddedResources converts fs.embed entries back to fs.directory by extracting
 // their matching resource filesystems to named subdirectories. Returns the modified entries
 // and any unclaimed resources.
-func restoreEmbeddedResources(entries []wapp.Entry, resources []extractedResource, targetDir, projectRoot string) ([]wapp.Entry, []extractedResource, error) {
+func restoreEmbeddedResources(entries []wapp.Entry, resources []extractedResource, targetDir, _ string) ([]wapp.Entry, []extractedResource, error) {
 	if len(resources) == 0 {
 		return entries, resources, nil
 	}
@@ -146,18 +146,16 @@ func restoreEmbeddedResources(entries []wapp.Entry, resources []extractedResourc
 			return nil, nil, fmt.Errorf("extract embedded resource %s: %w", entryKey, err)
 		}
 
-		// Compute directory path relative to project root
-		relDir, err := filepath.Rel(projectRoot, resDir)
-		if err != nil {
-			relDir = resDir
-		}
-
-		// Convert fs.embed back to fs.directory
+		// Convert fs.embed back to fs.directory.
+		// Path is module-relative; the runtime joins it with the module SourceRoot.
 		result[i] = wapp.Entry{
 			ID:   entry.ID,
 			Kind: "fs.directory",
 			Meta: entry.Meta,
-			Data: map[string]any{"directory": relDir},
+			Data: map[string]any{
+				"directory": entry.ID.Name,
+				"base":      "module",
+			},
 		}
 
 		claimed[resIdx] = true
