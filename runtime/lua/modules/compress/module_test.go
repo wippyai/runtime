@@ -981,14 +981,14 @@ func TestZstdEncodeInvalidDictOption(t *testing.T) {
 }
 
 // TestZstdDictProofOfWork is the end-to-end demonstration:
-//   1. Train a dict in Lua state #1 from 200 structurally-similar JSON-ish events.
-//   2. Encode the same payload with the dict (Lua state #1) and without it (Lua
-//      state #1) and report concrete byte counts to t.Log.
-//   3. Move the trained dict bytes verbatim into a fresh Lua state #2 and decode
-//      there — proves the dict bytes are portable across process/state boundaries.
-//   4. Decode the dict-encoded frame directly with the underlying klauspost
-//      decoder using the same dict bytes — proves the output is a real, portable
-//      zstd dictionary, not something only our wrapper can read.
+//  1. Train a dict in Lua state #1 from 200 structurally-similar JSON-ish events.
+//  2. Encode the same payload with the dict (Lua state #1) and without it (Lua
+//     state #1) and report concrete byte counts to t.Log.
+//  3. Move the trained dict bytes verbatim into a fresh Lua state #2 and decode
+//     there — proves the dict bytes are portable across process/state boundaries.
+//  4. Decode the dict-encoded frame directly with the underlying klauspost
+//     decoder using the same dict bytes — proves the output is a real, portable
+//     zstd dictionary, not something only our wrapper can read.
 func TestZstdDictProofOfWork(t *testing.T) {
 	const sampleCount = 200
 
