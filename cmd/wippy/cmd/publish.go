@@ -212,46 +212,22 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	params := &hub.PublishParams{
-		Org:          cfg.Organization,
-		Module:       cfg.ModuleName,
-		Digest:       packResult.Digest,
-		Size:         packResult.Size,
-		ReleaseNotes: releaseNotes,
-		Protected:    protected,
-	}
-
-	if label != "" {
-		params.Label = label
-	} else {
-		params.Version = cfg.Version
-	}
-
-	printStatus("Initiating publish...")
-
-	ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Minute)
 	defer cancel()
 
-	result, err := client.InitiatePublish(ctx, params)
+	// Prefer the hub-mediated upload path (one robust HTTP hop, hub-side
+	// retry into S3, never the brittle client→S3 path that's bitten
+	// Windows users with winsock resets). Fall back to the legacy
+	// InitiatePublish/PUT/ConfirmPublish triplet only if the new endpoint
+	// is missing — i.e., publishing against an older hub.
+	publishID, err := publishViaHubOrLegacy(ctx, client, registryURL, cfg, outputFile, label, releaseNotes, protected)
 	if err != nil {
-		return NewPublishInitiateError(registryURL, err)
-	}
-
-	printStatus("Uploading package...")
-
-	if err := client.Upload(ctx, result.UploadURL, outputFile); err != nil {
-		return NewPublishUploadError(registryURL, err)
-	}
-
-	printStatus("Confirming upload...")
-
-	if err := client.ConfirmPublish(ctx, result.PublishID); err != nil {
-		return NewPublishConfirmError(registryURL, err)
+		return err
 	}
 
 	printStatus("Processing...")
 
-	status, err := client.WaitForCompletion(ctx, result.PublishID, func(s *hub.StatusResult) {
+	status, err := client.WaitForCompletion(ctx, publishID, func(s *hub.StatusResult) {
 		printStatus(fmt.Sprintf("Status: %s", s.StatusString()))
 	})
 	if err != nil {
@@ -271,6 +247,94 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 	fmt.Println()
 
 	return nil
+}
+
+// publishViaHubOrLegacy runs the publish flow once. It prefers the new
+// hub-mediated upload endpoint (single HTTPS hop to the hub, hub retries
+// into S3) and falls back to the legacy presigned-URL triplet only if the
+// hub responds 404 to the new path. Returns the publish workflow id to
+// poll on.
+func publishViaHubOrLegacy(
+	ctx context.Context,
+	client *hub.Client,
+	registryURL string,
+	cfg *config.ModuleConfig,
+	outputFile, label, releaseNotes string,
+	protected bool,
+) (string, error) {
+	printStatus("Uploading via hub...")
+
+	in := hub.UploadInput{
+		Org:          cfg.Organization,
+		Module:       cfg.ModuleName,
+		Version:      cfg.Version,
+		Label:        label,
+		ReleaseNotes: releaseNotes,
+		FilePath:     outputFile,
+		Protected:    protected,
+	}
+	if label != "" {
+		// When publishing a label, the version is resolved server-side.
+		in.Version = ""
+	}
+
+	out, err := client.PublishViaHub(ctx, in)
+	if err == nil {
+		return out.PublishID, nil
+	}
+	// Only fall back when the *server* tells us the hub-mediated endpoint
+	// doesn't exist. Any other failure (auth, validation, network) is the
+	// real failure and shouldn't be papered over by the legacy path.
+	if !hub.IsHubEndpointMissing(err) {
+		return "", NewPublishUploadError(registryURL, err)
+	}
+
+	printStatus("Hub-mediated upload not available, using legacy flow...")
+
+	// Legacy fallback: InitiatePublish → PUT to presigned URL → ConfirmPublish.
+	params := &hub.PublishParams{
+		Org:          cfg.Organization,
+		Module:       cfg.ModuleName,
+		Digest:       "", // hub fills in from the upload body it sees
+		ReleaseNotes: releaseNotes,
+		Protected:    protected,
+	}
+	if label != "" {
+		params.Label = label
+	} else {
+		params.Version = cfg.Version
+	}
+	// The legacy InitiatePublish needs Digest + Size so the hub can size
+	// the presigned URL; the caller computed them while packing.
+	params.Digest, params.Size, err = digestAndSizeFromFile(outputFile)
+	if err != nil {
+		return "", NewPublishUploadError(registryURL, err)
+	}
+	result, err := client.InitiatePublish(ctx, params)
+	if err != nil {
+		return "", NewPublishInitiateError(registryURL, err)
+	}
+	if err := client.Upload(ctx, result.UploadURL, outputFile); err != nil {
+		return "", NewPublishUploadError(registryURL, err)
+	}
+	if err := client.ConfirmPublish(ctx, result.PublishID); err != nil {
+		return "", NewPublishConfirmError(registryURL, err)
+	}
+	return result.PublishID, nil
+}
+
+func digestAndSizeFromFile(path string) (string, int64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", 0, fmt.Errorf("open %s: %w", filepath.Base(path), err)
+	}
+	defer f.Close()
+	h := sha256.New()
+	n, err := io.Copy(h, f)
+	if err != nil {
+		return "", 0, fmt.Errorf("hash %s: %w", filepath.Base(path), err)
+	}
+	return hex.EncodeToString(h.Sum(nil)), n, nil
 }
 
 // promptVersion fetches the latest published version from the hub and presents
