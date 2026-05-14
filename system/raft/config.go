@@ -25,6 +25,9 @@ func toHashicorpConfig(localID string, cfg raftapi.Config) *hraft.Config {
 	if cfg.TrailingLogs > 0 {
 		rc.TrailingLogs = cfg.TrailingLogs
 	}
+	if cfg.MaxAppendEntries > 0 {
+		rc.MaxAppendEntries = cfg.MaxAppendEntries
+	}
 	// Suppress raft internal logging by using a discard logger.
 	// Leadership changes are published via our event bus instead.
 	rc.LogLevel = "WARN"

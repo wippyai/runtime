@@ -115,6 +115,7 @@ func Raft() boot.Component {
 				SnapshotInterval:  raftCfg.GetDuration(RaftSnapshotInterval, 0),
 				SnapshotRetain:    raftCfg.GetInt(RaftSnapshotRetain, 0),
 				TrailingLogs:      uint64(raftCfg.GetInt(RaftTrailingLogs, 0)),
+				MaxAppendEntries:  raftCfg.GetInt(RaftMaxAppendEntries, 0),
 				HeartbeatTimeout:  raftCfg.GetDuration(RaftHeartbeatTimeout, 0),
 				ElectionTimeout:   raftCfg.GetDuration(RaftElectionTimeout, 0),
 				CommitTimeout:     raftCfg.GetDuration(RaftCommitTimeout, 0),

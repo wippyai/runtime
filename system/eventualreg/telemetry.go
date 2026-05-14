@@ -133,6 +133,30 @@ func (t *telemetry) recordReregistration() {
 	t.coll.CounterInc("runtime_name_reregistrations_total", metrics.Labels{"node": t.node, "scope": "eventual"})
 }
 
+// recordShardRequest counts targeted shard-pull requests by outcome.
+// "sent" — request emitted toward a peer; "suppressed" — request elided
+// by the per-peer cooldown; "send_error" — MessageSender returned an
+// error. Backs the empirical answer to "did the shard-pull path
+// recover dropped deltas during chaos?"
+func (t *telemetry) recordShardRequest(outcome string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("eventualreg_shard_request_total",
+		metrics.Labels{"node": t.node, "outcome": outcome})
+}
+
+// recordShardResponse counts shard-response frames by direction.
+// "tx" — emitted in response to an incoming request; "rx" — received
+// and merged into local state.
+func (t *telemetry) recordShardResponse(direction string, shards int) {
+	if t == nil || t.coll == nil || shards == 0 {
+		return
+	}
+	t.coll.CounterAdd("eventualreg_shard_response_total", float64(shards),
+		metrics.Labels{"node": t.node, "dir": direction})
+}
+
 // copyAdd returns a copy of base with key=val added.
 func copyAdd(base metrics.Labels, key, val string) metrics.Labels {
 	out := make(metrics.Labels, len(base)+1)

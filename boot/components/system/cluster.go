@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/wippyai/runtime/api/boot"
 	clusterapi "github.com/wippyai/runtime/api/cluster"
@@ -32,6 +33,14 @@ import (
 // before stabilizing; scores beyond this indicate sustained probe
 // failure consistent with partition isolation.
 const clusterHealthScoreCeiling = 4
+
+// clusterGossipBootGrace is the window after Start during which the
+// gossip health check returns healthy unconditionally — gives a
+// freshly-launched pod time to join the cluster before kubelet's
+// liveness probe (3 failures × periodSeconds=5) can decide to SIGTERM
+// it. Without this, every chaos-killed pod is observed to exit 0
+// during rejoin and StatefulSet loops it into CrashLoopBackOff.
+const clusterGossipBootGrace = 60 * time.Second
 
 // Context keys for cluster components
 var (
@@ -273,8 +282,22 @@ func Cluster() boot.Component {
 			// are failing — typically because we're partitioned. We
 			// tolerate transient suspects (score 1 or 2) but report
 			// unhealthy past the ceiling.
+			//
+			// Boot grace window: non-bootstrap pods have a legitimate
+			// startup interval before they finish joining the cluster,
+			// during which HealthScore() reads above the ceiling — not
+			// because the pod is partitioned, but because gossip
+			// hasn't converged yet. Without a grace window, kubelet
+			// sends SIGTERM after 3× failureThreshold (~15s), the
+			// runtime shuts down cleanly (exit 0), and the StatefulSet
+			// retries — produces the CrashLoopBackOff pattern observed
+			// every chaos cycle.
+			startedAt := time.Now()
 			if membershipSvc != nil {
 				health.Register("cluster.gossip", func() error {
+					if time.Since(startedAt) < clusterGossipBootGrace {
+						return nil
+					}
 					score := membershipSvc.HealthScore()
 					switch {
 					case score < 0:

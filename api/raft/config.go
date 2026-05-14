@@ -22,8 +22,16 @@ type Config struct {
 	BindPort       int    `json:"bind_port"`
 	SnapshotRetain int    `json:"snapshot_retain"`
 	MaxPool        int    `json:"max_pool"`
-	Bootstrap      bool   `json:"bootstrap"`
-	AutoPort       bool   `json:"auto_port"`
+	// MaxAppendEntries caps how many log entries the leader packs into a
+	// single AppendEntries RPC. The hashicorp/raft default is 64 which,
+	// when a follower restarts with an empty log and needs to catch up
+	// hundreds of entries, lets the leader queue large batches in
+	// memory simultaneously. Setting this to 16 throttles the catch-up
+	// throughput so under chaos a returning pod doesn't OOM the leader
+	// while it ships history. Zero means use the library default.
+	MaxAppendEntries int  `json:"max_append_entries"`
+	Bootstrap        bool `json:"bootstrap"`
+	AutoPort         bool `json:"auto_port"`
 }
 
 // InitDefaults fills zero-valued fields with sensible defaults.
@@ -54,6 +62,12 @@ func (c *Config) InitDefaults() {
 	}
 	if c.MaxPool == 0 {
 		c.MaxPool = 3
+	}
+	if c.MaxAppendEntries == 0 {
+		// Default below hashicorp's 64 to cap leader memory during
+		// chaos catch-up. Followers that need 500+ entries get them
+		// in 16-entry chunks instead of 8 huge batches.
+		c.MaxAppendEntries = 16
 	}
 	// TrailingLogs left at zero -> hashicorp/raft default (10240). Operators
 	// can tune via the boot config; we don't impose a different default

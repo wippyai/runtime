@@ -103,7 +103,7 @@ func GoToLua(v any) (lua.LValue, error) {
 	rv := reflect.ValueOf(v)
 	//exhaustive:ignore
 	switch rv.Kind() {
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if rv.IsNil() {
 			return lua.LNil, nil
 		}
@@ -163,7 +163,7 @@ func GoToLua(v any) (lua.LValue, error) {
 				} else {
 					lval, err = GoToLua(fieldValue.Interface())
 				}
-			case reflect.Ptr, reflect.Slice, reflect.Interface:
+			case reflect.Pointer, reflect.Slice, reflect.Interface:
 				if fieldValue.IsNil() {
 					lval = lua.LNil // Explicit nil for other nil fields
 					err = nil

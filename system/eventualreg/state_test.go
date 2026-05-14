@@ -234,6 +234,81 @@ func TestState_DeltaRoundTrip(t *testing.T) {
 	}
 }
 
+// recordingSender captures every Send() call so a test can assert what
+// the shard-pull path emitted and replay it into the peer.
+type recordingSender struct {
+	peer *Service
+	sent []struct {
+		To      string
+		Payload []byte
+	}
+}
+
+func (r *recordingSender) Send(target string, payload []byte) error {
+	r.sent = append(r.sent, struct {
+		To      string
+		Payload []byte
+	}{To: target, Payload: append([]byte(nil), payload...)})
+	if r.peer != nil {
+		r.peer.OnFrame(payload)
+	}
+	return nil
+}
+
+// TestService_ShardPullRecoversDroppedDelta exercises the WS-D path:
+// A has alice + bob, B has only alice (a delta was dropped). B's
+// MergeRemoteState detects the digest mismatch and emits a shard-pull
+// request to A; A's OnFrame builds a response with the missing shards;
+// B's OnFrame merges, ending with both names.
+func TestService_ShardPullRecoversDroppedDelta(t *testing.T) {
+	cfgA := Config{LocalNodeID: "node-A"}
+	cfgB := Config{LocalNodeID: "node-B"}
+	a := NewService(cfgA)
+	b := NewService(cfgB)
+	t.Cleanup(func() { _ = a.Stop(); _ = b.Stop() })
+
+	// Cross-wire senders so each service can ship to the other.
+	senderToA := &recordingSender{peer: a}
+	senderToB := &recordingSender{peer: b}
+	a.cfg.Sender = senderToB
+	b.cfg.Sender = senderToA
+
+	// A registers alice + bob; B is empty — the "dropped delta"
+	// equivalent for both entries.
+	pAlice := makePID("node-A", "h", "alice-pid")
+	pBob := makePID("node-A", "h", "bob-pid")
+	if _, err := a.Register("alice", pAlice); err != nil {
+		t.Fatalf("register alice on A: %v", err)
+	}
+	if _, err := a.Register("bob", pBob); err != nil {
+		t.Fatalf("register bob on A: %v", err)
+	}
+
+	// Sanity: digests differ since B is empty.
+	mismatched := b.LocalDigest().Diff(a.LocalDigest())
+	if len(mismatched) == 0 {
+		t.Fatalf("expected digest mismatch with empty B")
+	}
+
+	// Simulate B's MergeRemoteState path emitting the shard request.
+	if !b.RequestShards("node-A", mismatched) {
+		t.Fatalf("RequestShards should have emitted")
+	}
+
+	// After the synchronous round trip, B must now hold both names.
+	if got, ok := b.Lookup("alice"); !ok || got != pAlice {
+		t.Fatalf("alice not recovered on B: ok=%v got=%v", ok, got)
+	}
+	if got, ok := b.Lookup("bob"); !ok || got != pBob {
+		t.Fatalf("bob not recovered on B: ok=%v got=%v", ok, got)
+	}
+
+	// Cooldown: a second immediate request must be suppressed.
+	if b.RequestShards("node-A", mismatched) {
+		t.Errorf("cooldown should have suppressed second request")
+	}
+}
+
 func TestState_Convergence_TwoReplicas(t *testing.T) {
 	a := NewState("node-A")
 	b := NewState("node-B")

@@ -53,6 +53,7 @@ func EventualReg() boot.Component {
 				CrossScope:       newCrossScopeChecker(ctx),
 				MetricsCollector: metricsapi.GetCollector(ctx),
 				Logger:           logger,
+				Sender:           &eventualRegSender{m: memSvc},
 			}
 			svc = eventualreg.NewService(cfg)
 
@@ -74,6 +75,11 @@ func EventualReg() boot.Component {
 
 			ctx = topology.WithEventualRegistry(ctx, svc)
 
+			// Publish the service into app context so the admin HTTP
+			// server can expose its digest / CV for the gossip-
+			// convergence invariant in the chaos harness.
+			ac.With(eventualRegSvcKey, svc)
+
 			logger.Info("eventualreg loaded", zap.String("node", cfg.LocalNodeID))
 			return ctx, nil
 		},
@@ -90,6 +96,21 @@ func EventualReg() boot.Component {
 			return svc.Stop()
 		},
 	})
+}
+
+// eventualRegSender adapts membership.Service to eventualreg.MessageSender.
+// Routes targeted shard-pull frames to a specific peer via the
+// reliable TCP user-message channel, using the eventualreg delegate's
+// Kind byte to land in the peer's eventualreg.OnFrame dispatcher.
+type eventualRegSender struct {
+	m *membership.Service
+}
+
+func (s *eventualRegSender) Send(target string, payload []byte) error {
+	if s == nil || s.m == nil {
+		return fmt.Errorf("eventualreg: sender not wired")
+	}
+	return s.m.SendUserMessage(target, eventualreg.DelegateKind, payload)
 }
 
 // membershipPeerInventory adapts membership.Service to eventualreg.PeerInventory.

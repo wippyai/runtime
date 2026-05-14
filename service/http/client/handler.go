@@ -190,7 +190,11 @@ func executeRequest(ctx context.Context, pool *Pool, req *httpapi.RequestCmd, al
 		}
 	}
 	for name, value := range req.Cookies {
-		httpReq.AddCookie(&gohttp.Cookie{Name: name, Value: value})
+		// Outgoing client request: AddCookie serializes only Name + Value
+		// into the Cookie: header per RFC 6265. Secure/HttpOnly/SameSite
+		// are server-set attributes ignored on this side, so G124 is a
+		// false positive here.
+		httpReq.AddCookie(&gohttp.Cookie{Name: name, Value: value}) //nolint:gosec // G124 — client-side cookie
 	}
 	if req.BasicAuthUser != "" {
 		httpReq.SetBasicAuth(req.BasicAuthUser, req.BasicAuthPass)

@@ -36,7 +36,7 @@ func (r *replacer) replaceRecursive(val reflect.Value, ctx any) (any, error) {
 	}
 
 	switch val.Kind() {
-	case reflect.Ptr, reflect.Interface:
+	case reflect.Pointer, reflect.Interface:
 		if val.IsNil() {
 			return val.Interface(), nil
 		}
@@ -44,7 +44,7 @@ func (r *replacer) replaceRecursive(val reflect.Value, ctx any) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if val.Kind() == reflect.Ptr {
+		if val.Kind() == reflect.Pointer {
 			ptr := reflect.New(val.Type().Elem())
 			ptr.Elem().Set(reflect.ValueOf(elem))
 			return ptr.Interface(), nil

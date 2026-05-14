@@ -28,5 +28,6 @@ func All() []boot.Component {
 		Functions(),
 		PG(),
 		dispatchers.PGDispatcher(),
+		Admin(),
 	}
 }

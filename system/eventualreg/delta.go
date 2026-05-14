@@ -21,6 +21,104 @@ const (
 	OpUnregister Op = 1
 )
 
+// FrameType is the first byte of every eventualreg frame (inside the
+// membership multiplex envelope). Distinguishes the UDP delta stream
+// from the targeted shard-pull request/response messages.
+type FrameType uint8
+
+const (
+	// FrameTypeDelta carries one or more EncodeDelta entries — the
+	// existing UDP gossip stream.
+	FrameTypeDelta FrameType = 0
+	// FrameTypeShardRequest is sent by a peer that detected a digest
+	// mismatch and wants the full state of one or more shards.
+	FrameTypeShardRequest FrameType = 1
+	// FrameTypeShardResponse carries one or more EncodeShardPayload
+	// bodies in reply to a FrameTypeShardRequest.
+	FrameTypeShardResponse FrameType = 2
+)
+
+// EncodeShardRequestFrame builds a complete FrameTypeShardRequest payload
+// (including the type byte + sender node header). senderNode is included
+// so the receiver knows where to send the response without depending on
+// memberlist's sender-identification, which the UserDelegate interface
+// does not expose.
+//
+// Wire format:
+//
+//	type:1 = FrameTypeShardRequest
+//	sender_len:1 | sender
+//	shard_request_body  (see EncodeShardRequest)
+func EncodeShardRequestFrame(senderNode string, shardIDs []uint16) ([]byte, error) {
+	if len(senderNode) > 0xFF {
+		return nil, fmt.Errorf("eventualreg: sender node too long: %d", len(senderNode))
+	}
+	body := EncodeShardRequest(shardIDs)
+	out := make([]byte, 0, 2+len(senderNode)+len(body))
+	out = append(out, byte(FrameTypeShardRequest))
+	out = append(out, byte(len(senderNode)))
+	out = append(out, senderNode...)
+	out = append(out, body...)
+	return out, nil
+}
+
+// DecodeShardRequestFrame parses a FrameTypeShardRequest body (the bytes
+// AFTER the type byte). Returns the sender's node string and the
+// requested shard IDs.
+func DecodeShardRequestFrame(data []byte) (senderNode string, shardIDs []uint16, err error) {
+	if len(data) < 1 {
+		return "", nil, errors.New("eventualreg: shard request frame truncated")
+	}
+	senderLen := int(data[0])
+	if len(data) < 1+senderLen {
+		return "", nil, errors.New("eventualreg: shard request sender truncated")
+	}
+	sender := string(data[1 : 1+senderLen])
+	ids, err := DecodeShardRequest(data[1+senderLen:])
+	if err != nil {
+		return "", nil, err
+	}
+	return sender, ids, nil
+}
+
+// EncodeShardResponseFrame wraps one or more shard payloads (from
+// EncodeShardPayload) into a FrameTypeShardResponse frame. The bodies
+// are concatenated; each carries its own shard_id + n_entries header so
+// the decoder can split.
+func EncodeShardResponseFrame(senderNode string, payloads [][]byte) ([]byte, error) {
+	if len(senderNode) > 0xFF {
+		return nil, fmt.Errorf("eventualreg: sender node too long: %d", len(senderNode))
+	}
+	total := 2 + len(senderNode)
+	for _, p := range payloads {
+		total += len(p)
+	}
+	out := make([]byte, 0, total)
+	out = append(out, byte(FrameTypeShardResponse))
+	out = append(out, byte(len(senderNode)))
+	out = append(out, senderNode...)
+	for _, p := range payloads {
+		out = append(out, p...)
+	}
+	return out, nil
+}
+
+// DecodeShardResponseFrame parses the body of a FrameTypeShardResponse
+// (bytes AFTER the type byte). Returns the sender node and the
+// concatenated shard-payload bytes — caller iterates DecodeShardPayload
+// on the remainder.
+func DecodeShardResponseFrame(data []byte) (senderNode string, payload []byte, err error) {
+	if len(data) < 1 {
+		return "", nil, errors.New("eventualreg: shard response frame truncated")
+	}
+	senderLen := int(data[0])
+	if len(data) < 1+senderLen {
+		return "", nil, errors.New("eventualreg: shard response sender truncated")
+	}
+	sender := string(data[1 : 1+senderLen])
+	return sender, data[1+senderLen:], nil
+}
+
 // MaxFrameBytes is a soft cap for one user-broadcast frame. Memberlist
 // truncates anything over ~1400 B over UDP — we pack deltas up to this
 // limit and start a new frame.
@@ -169,7 +267,8 @@ func (q *BroadcastQueue) Drain(headerOverhead, byteBudget int) [][]byte {
 	}
 
 	var frames [][]byte
-	frame := make([]byte, 0, perFrameLimit)
+	frame := make([]byte, 1, perFrameLimit)
+	frame[0] = byte(FrameTypeDelta) // every delta frame is type-tagged
 	bytesEmitted := 0
 	var commitIdx []int
 	var pendingIdx []int
@@ -187,7 +286,9 @@ func (q *BroadcastQueue) Drain(headerOverhead, byteBudget int) [][]byte {
 	}
 
 	flushFrame := func() bool {
-		if len(frame) == 0 {
+		// frame always carries the leading type byte; treat as empty
+		// when no entries have been appended past it.
+		if len(frame) <= 1 {
 			return true
 		}
 		cost := len(frame) + headerOverhead
@@ -198,7 +299,8 @@ func (q *BroadcastQueue) Drain(headerOverhead, byteBudget int) [][]byte {
 		bytesEmitted += cost
 		commitIdx = append(commitIdx, pendingIdx...)
 		pendingIdx = pendingIdx[:0]
-		frame = make([]byte, 0, perFrameLimit)
+		frame = make([]byte, 1, perFrameLimit)
+		frame[0] = byte(FrameTypeDelta)
 		return true
 	}
 

@@ -5,6 +5,8 @@ package raft
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -511,6 +513,38 @@ func (n *Node) State() raftapi.State {
 	}
 }
 
+// CommitIndex returns the highest committed log index. Used by callers
+// that need to filter "log committed" from "log present" — e.g.
+// LogHead's cross-pod comparison, which depends on Raft's Log Matching
+// Property and therefore must skip the (legitimately divergent)
+// uncommitted suffix. Sourced from hraft.Stats()["commit_index"], which
+// is the same map sampleStateAndTerm reads at 1Hz.
+func (n *Node) CommitIndex() uint64 {
+	if n.raft == nil {
+		return 0
+	}
+	v, err := strconv.ParseUint(n.raft.Stats()["commit_index"], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
+// Term returns the node's current Raft term. Used by chaos invariants
+// that need to distinguish a stale leader (pre-step-down, older term)
+// from a real split-brain (two leaders at the same term). Sourced from
+// hraft.Stats()["term"].
+func (n *Node) Term() uint64 {
+	if n.raft == nil {
+		return 0
+	}
+	v, err := strconv.ParseUint(n.raft.Stats()["term"], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
 // LastContact reports the time of last contact with the current Raft
 // leader. Used by the runtime liveness probe to detect a follower that
 // has lost contact with the leader (partition isolation). Leaders
@@ -673,6 +707,97 @@ func awaitFutureWithTimeout(f hraft.Future, timeout time.Duration) error {
 	case <-time.After(timeout):
 		return raftapi.ErrTimeout
 	}
+}
+
+// LogHeadEntry is the cross-pod-comparable view of one raft log entry —
+// (index, term) identifies the entry by the Raft log-matching property,
+// Hash is sha256(data) so peers can detect divergence without shipping
+// payloads. Type lets harnesses skip non-FSM entries (config changes).
+type LogHeadEntry struct {
+	Type  string `json:"type"`
+	Hash  string `json:"hash"`
+	Index uint64 `json:"index"`
+	Term  uint64 `json:"term"`
+}
+
+// LogHead returns the last n committed entries from the local log store,
+// newest last. Used by the chaos harness to verify the Raft log-matching
+// invariant (if two pods share (index, term) at the same row, every
+// preceding row must match too).
+//
+// The upper bound is the commit index, NOT the log's LastIndex —
+// Raft's Log Matching Property only applies to committed entries.
+// The uncommitted suffix on a follower may legitimately differ from
+// the leader's after a partition heal, until the new leader's
+// AppendEntries overwrites it. Including uncommitted entries here
+// produces false-positive divergence reports in cross-pod comparison.
+//
+// Read order matters under chaos: we read commit_index FIRST and use
+// it as the upper bound. Because CommitIndex monotonically grows
+// within an incarnation, an early read gives us a snapshot that
+// survives any concurrent log growth. The alternative (read
+// LastIndex first, then commit) is also safe per Raft, but reading
+// commit first matches the documented invariant of "return at most
+// `commit` entries" without depending on the log store's state.
+//
+// Returns an empty slice if Raft hasn't started, the log store is
+// empty, or nothing is committed yet. Caller bounds n; this method
+// does not paginate.
+func (n *Node) LogHead(want int) ([]LogHeadEntry, error) {
+	if n.raft == nil || n.logStore == nil {
+		return nil, raftapi.ErrNotRunning
+	}
+	if want <= 0 {
+		return nil, nil
+	}
+	commit := n.CommitIndex()
+	if commit == 0 {
+		return nil, nil
+	}
+	last, err := n.logStore.LastIndex()
+	if err != nil {
+		return nil, fmt.Errorf("logstore last index: %w", err)
+	}
+	if last == 0 {
+		return nil, nil
+	}
+	// Defensive: clamp to the smaller of the two. Even if commit has
+	// raced ahead of the log store's view (it shouldn't, but Stats is
+	// a separate map read), the resulting bound is still <= some
+	// real durable commit point.
+	if commit < last {
+		last = commit
+	}
+	first, err := n.logStore.FirstIndex()
+	if err != nil {
+		return nil, fmt.Errorf("logstore first index: %w", err)
+	}
+	startWant := uint64(0)
+	if uint64(want) >= last {
+		startWant = first
+	} else {
+		startWant = last - uint64(want) + 1
+		if startWant < first {
+			startWant = first
+		}
+	}
+	out := make([]LogHeadEntry, 0, last-startWant+1)
+	for i := startWant; i <= last; i++ {
+		var le hraft.Log
+		if err := n.logStore.GetLog(i, &le); err != nil {
+			// Holes in the log are possible after a snapshot;
+			// skip the missing index rather than fail the whole read.
+			continue
+		}
+		sum := sha256.Sum256(le.Data)
+		out = append(out, LogHeadEntry{
+			Index: le.Index,
+			Term:  le.Term,
+			Type:  le.Type.String(),
+			Hash:  hex.EncodeToString(sum[:8]),
+		})
+	}
+	return out, nil
 }
 
 // GetConfiguration returns the current Raft cluster membership.

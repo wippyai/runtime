@@ -20,6 +20,11 @@ const (
 	KVRaftName      boot.Name = "kvraft"
 	KVEventualName  boot.Name = "kveventual"
 	PGName          boot.Name = "pg"
+	AdminName       boot.Name = "admin"
+
+	// AdminBindAddr is the listen address for the admin HTTP server (e.g.
+	// "0.0.0.0:9091"). Empty disables the server.
+	AdminBindAddr boot.Name = "bind_addr"
 
 	// RaftEnabled is a Raft configuration key
 	RaftEnabled           boot.Name = "enabled"
@@ -36,6 +41,7 @@ const (
 	RaftSnapshotInterval  boot.Name = "snapshot_interval"
 	RaftSnapshotRetain    boot.Name = "snapshot_retain"
 	RaftTrailingLogs      boot.Name = "trailing_logs"
+	RaftMaxAppendEntries  boot.Name = "max_append_entries"
 	RaftHeartbeatTimeout  boot.Name = "heartbeat_timeout"
 	RaftElectionTimeout   boot.Name = "election_timeout"
 	RaftCommitTimeout     boot.Name = "commit_timeout"

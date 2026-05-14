@@ -82,6 +82,37 @@ func (s *Service) RegisterUserDelegate(d UserDelegate) error {
 	return nil
 }
 
+// SendUserMessage delivers `payload` to `targetNodeID` over memberlist's
+// reliable TCP user-message channel, wrapped with the same
+// `kind:1|len:4|payload` multiplex header that the broadcast path
+// uses — so the receiver's NotifyMsg dispatches it to whatever
+// UserDelegate registered `kind`. Used for targeted request/response
+// patterns (e.g. eventualreg's shard-pull anti-entropy) where
+// broadcasting would create N² traffic. Returns an error if the
+// target is not currently a known member.
+func (s *Service) SendUserMessage(targetNodeID string, kind byte, payload []byte) error {
+	if kind == 0 {
+		return errors.New("membership: SendUserMessage kind 0 is reserved")
+	}
+	if s.memberlist == nil {
+		return errors.New("membership: not started")
+	}
+	if uint64(len(payload)) > uint64(^uint32(0)) {
+		return fmt.Errorf("membership: payload too large: %d", len(payload))
+	}
+	wrapped := make([]byte, 0, len(payload)+5)
+	wrapped = append(wrapped, kind)
+	n := uint32(len(payload))
+	wrapped = append(wrapped, byte(n), byte(n>>8), byte(n>>16), byte(n>>24))
+	wrapped = append(wrapped, payload...)
+	for _, m := range s.memberlist.Members() {
+		if m.Name == targetNodeID {
+			return s.memberlist.SendReliable(m, wrapped)
+		}
+	}
+	return fmt.Errorf("membership: target node %q not in member list", targetNodeID)
+}
+
 // Config holds membership service configuration
 type Config struct {
 	Transport    memberlist.Transport
@@ -198,22 +229,27 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 	s.memberlist = ml
 
-	// Join cluster if addresses provided
+	// Join cluster if addresses provided.
+	//
+	// Retry with exponential backoff up to s.ctx cancellation. A
+	// single-shot Join used to fail boot when DNS was transiently
+	// unavailable — observed under DNSChaos: every seed address
+	// returned "connection refused on 10.43.x.x:53" within the chaos
+	// window, the boot exited with an unrecoverable error, and the
+	// pod went into CrashLoopBackOff right when peers came back.
+	//
+	// memberlist.Join is idempotent (a re-join just discovers more
+	// members), so retrying is safe. We cap the per-attempt log
+	// volume by only logging the first 3 failures verbosely, then
+	// switching to one log per 30s.
 	if len(s.config.JoinAddrs) > 0 {
 		s.logger.Info("joining existing cluster",
 			zap.Strings("join_addresses", s.config.JoinAddrs))
 
-		n, err := ml.Join(s.config.JoinAddrs)
-		if err != nil {
-			s.logger.Error("failed to join cluster",
-				zap.Error(err),
-				zap.Strings("join_addresses", s.config.JoinAddrs))
+		if err := s.joinWithRetry(s.ctx, ml); err != nil {
 			s.tel.recordJoin(err)
 			return NewJoinClusterError(err)
 		}
-
-		s.logger.Info("successfully joined cluster",
-			zap.Int("discovered_nodes", n))
 	} else {
 		s.logger.Info("starting as cluster bootstrap node")
 	}
@@ -234,6 +270,67 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// joinWithRetry retries memberlist.Join with exponential backoff until any
+// seed address succeeds or ctx is cancelled. The exit-on-ctx clause means
+// boot can still bail out cleanly on shutdown signal; under chaos the
+// caller passes the long-lived service ctx so retries continue until DNS
+// recovers.
+//
+// Backoff schedule: 500ms, 1s, 2s, 4s, 8s — capped at 8s after the 5th
+// attempt. Logs verbosely for the first 3 failures, then one line per
+// minute so a sustained outage doesn't flood the log.
+func (s *Service) joinWithRetry(ctx context.Context, ml *memberlist.Memberlist) error {
+	const maxBackoff = 8 * time.Second
+	const verboseAttempts = 3
+	const summaryEvery = time.Minute
+
+	backoff := 500 * time.Millisecond
+	attempt := 0
+	lastSummaryAt := time.Now()
+
+	for {
+		attempt++
+		n, err := ml.Join(s.config.JoinAddrs)
+		if err == nil {
+			s.logger.Info("successfully joined cluster",
+				zap.Int("discovered_nodes", n),
+				zap.Int("attempt", attempt))
+			return nil
+		}
+
+		switch {
+		case attempt <= verboseAttempts:
+			s.logger.Warn("join attempt failed; will retry",
+				zap.Int("attempt", attempt),
+				zap.Duration("next_backoff", backoff),
+				zap.Strings("join_addresses", s.config.JoinAddrs),
+				zap.Error(err))
+		case time.Since(lastSummaryAt) >= summaryEvery:
+			s.logger.Warn("join still failing",
+				zap.Int("attempts_so_far", attempt),
+				zap.Error(err))
+			lastSummaryAt = time.Now()
+		}
+		s.tel.recordJoin(err)
+
+		select {
+		case <-ctx.Done():
+			s.logger.Error("join cancelled by ctx",
+				zap.Int("attempts", attempt),
+				zap.Error(err))
+			return err
+		case <-time.After(backoff):
+		}
+
+		if backoff < maxBackoff {
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		}
+	}
 }
 
 // rejoinLoop watches for full peer loss and re-attempts Join when the local

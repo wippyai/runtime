@@ -131,14 +131,21 @@ func (d *Delegate) MergeRemoteState(buf []byte, _ bool) {
 		}
 	}
 
-	// Compare digests; on mismatch, request differing shards via separate
-	// gossip ticks (anti-entropy will converge over multiple rounds).
+	// Compare digests; on mismatch, ask the peer for the divergent
+	// shards over reliable TCP. The push-only LocalState body carries
+	// only the digest+CV, so when the broadcast queue overflows under
+	// chaos there is otherwise no recovery channel — RequestShards
+	// closes that gap. Rate-limited inside the service.
 	local := d.svc.LocalDigest()
 	mismatched := local.Diff(digest)
 
 	d.svc.OnPeerDigest(peerNode, peerCV)
 	if len(mismatched) > 0 {
-		d.logger.Debug("eventualreg: digest mismatch", zap.Int("shards", len(mismatched)))
+		d.logger.Debug("eventualreg: digest mismatch",
+			zap.String("peer", peerNode), zap.Int("shards", len(mismatched)))
+		if peerNode != "" {
+			d.svc.RequestShards(peerNode, mismatched)
+		}
 	}
 
 	d.svc.tel.recordAntiEntropy("ok", float64(time.Since(start).Milliseconds()), len(mismatched))

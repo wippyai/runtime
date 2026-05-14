@@ -41,6 +41,19 @@ type CrossScopeChecker interface {
 	LookupOther(name string) (pid.PID, bool)
 }
 
+// MessageSender ships a targeted reliable frame to a specific peer.
+// Used by the shard-pull anti-entropy path: when MergeRemoteState
+// detects a digest mismatch, the service emits a FrameTypeShardRequest
+// to the divergent peer; the peer's NotifyMsg path handles the
+// response. Decoupled from membership so the package stays
+// testable without spinning a memberlist.
+type MessageSender interface {
+	// Send delivers `payload` to `targetNode` reliably (TCP). The
+	// payload already carries the eventualreg type byte; the sender
+	// only wraps with the membership multiplex header.
+	Send(targetNode string, payload []byte) error
+}
+
 // Config configures a Service.
 type Config struct {
 	// Peers supplies the current alive peer set.
@@ -51,6 +64,10 @@ type Config struct {
 	MetricsCollector metrics.Collector
 	// Logger may be nil.
 	Logger *zap.Logger
+	// Sender ships targeted reliable frames for the shard-pull path.
+	// When nil, mismatch detection still works but the recovery
+	// channel is offline (convergence falls back to GC).
+	Sender MessageSender
 	// LocalNodeID is the string nodeID of this replica.
 	LocalNodeID string
 	// AntiEntropyPeriod is the cadence at which we expect Delegate.LocalState
@@ -61,21 +78,30 @@ type Config struct {
 	GCPeriod time.Duration
 	// WallFloor caps tombstone age. Default 15 min.
 	WallFloor time.Duration
+	// ShardRequestCooldown suppresses repeated shard requests to the
+	// same peer within this window — keeps a sustained mismatch from
+	// generating a request per push/pull tick. Default 5 s.
+	ShardRequestCooldown time.Duration
 	// BroadcastCap is the per-node cap on pending deltas before drop. Default 4096.
 	BroadcastCap int
 }
 
 // Service is the gossip-based name registry.
 type Service struct {
-	state    *State
-	queue    *BroadcastQueue
-	tracker  *TombstoneTracker
-	gc       *GCRunner
-	tel      *telemetry
-	logger   *zap.Logger
-	cfg      Config
-	stopOnce sync.Once
-	stopped  atomic.Bool
+	state   *State
+	queue   *BroadcastQueue
+	tracker *TombstoneTracker
+	gc      *GCRunner
+	tel     *telemetry
+	logger  *zap.Logger
+	// lastShardRequest tracks per-peer cooldown for shard-pull requests.
+	// Key: peer node string. Value: unix-nanos of the last request emitted.
+	// Reads/writes are guarded by lastShardRequestMu.
+	lastShardRequest   map[string]int64
+	cfg                Config
+	stopOnce           sync.Once
+	lastShardRequestMu sync.Mutex
+	stopped            atomic.Bool
 }
 
 // NewService constructs a Service. Must call Start before use.
@@ -95,6 +121,9 @@ func NewService(cfg Config) *Service {
 	if cfg.BroadcastCap <= 0 {
 		cfg.BroadcastCap = 4096
 	}
+	if cfg.ShardRequestCooldown <= 0 {
+		cfg.ShardRequestCooldown = 5 * time.Second
+	}
 
 	state := NewState(cfg.LocalNodeID)
 	queue := NewBroadcastQueue(cfg.LocalNodeID, cfg.BroadcastCap)
@@ -102,12 +131,13 @@ func NewService(cfg Config) *Service {
 	tel := newTelemetry(cfg.MetricsCollector, cfg.LocalNodeID)
 
 	s := &Service{
-		cfg:     cfg,
-		state:   state,
-		queue:   queue,
-		tracker: tracker,
-		tel:     tel,
-		logger:  cfg.Logger.Named("eventualreg"),
+		cfg:              cfg,
+		state:            state,
+		queue:            queue,
+		tracker:          tracker,
+		tel:              tel,
+		logger:           cfg.Logger.Named("eventualreg"),
+		lastShardRequest: map[string]int64{},
 	}
 
 	gcCfg := GCConfig{
@@ -220,22 +250,160 @@ func (s *Service) DrainBroadcasts(headerOverhead, byteBudget int) [][]byte {
 	return frames
 }
 
-// OnFrame is called by the delegate when a UDP user-broadcast frame arrives.
-// It applies all entries in the frame and updates the version vector.
+// OnFrame is called by the delegate when an eventualreg frame arrives
+// (UDP user-broadcast for delta frames, reliable TCP user-message for
+// shard request/response). The first byte selects the parser:
+//
+//	FrameTypeDelta         → existing CRDT merge path
+//	FrameTypeShardRequest  → encode + reply with the requested shards
+//	FrameTypeShardResponse → merge each shard payload into local state
+//
+// Unknown frame types are dropped with a warn log.
 func (s *Service) OnFrame(data []byte) {
 	if s.stopped.Load() {
 		return
 	}
-	s.tel.recordDeltaBytes("rx", "delta", len(data))
-	entries, origins, err := DecodeFrame(data)
+	if len(data) == 0 {
+		return
+	}
+	ft := FrameType(data[0])
+	body := data[1:]
+	switch ft {
+	case FrameTypeDelta:
+		s.handleDeltaFrame(body)
+	case FrameTypeShardRequest:
+		s.handleShardRequestFrame(body)
+	case FrameTypeShardResponse:
+		s.handleShardResponseFrame(body)
+	default:
+		s.logger.Warn("eventualreg: unknown frame type", zap.Uint8("type", uint8(ft)))
+	}
+}
+
+func (s *Service) handleDeltaFrame(body []byte) {
+	s.tel.recordDeltaBytes("rx", "delta", len(body))
+	entries, origins, err := DecodeFrame(body)
 	if err != nil {
-		s.logger.Warn("eventualreg: malformed frame", zap.Error(err))
+		s.logger.Warn("eventualreg: malformed delta frame", zap.Error(err))
 		// Apply whatever we managed to decode.
 	}
 	for i := range entries {
 		s.applyIncoming(&entries[i], origins[i])
 	}
 	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
+}
+
+func (s *Service) handleShardRequestFrame(body []byte) {
+	sender, ids, err := DecodeShardRequestFrame(body)
+	if err != nil {
+		s.logger.Warn("eventualreg: malformed shard request", zap.Error(err))
+		return
+	}
+	if s.cfg.Sender == nil {
+		// No reply path; the requester will eventually retry on the next
+		// mismatch detection. Telemetry stays silent — this is a
+		// receive-side observation, not a request we emitted.
+		return
+	}
+	payloads := make([][]byte, 0, len(ids))
+	for _, id := range ids {
+		p, err := s.LocalShardPayload(id)
+		if err != nil {
+			s.logger.Warn("eventualreg: encode shard", zap.Uint16("shard", id), zap.Error(err))
+			continue
+		}
+		payloads = append(payloads, p)
+	}
+	if len(payloads) == 0 {
+		return
+	}
+	frame, err := EncodeShardResponseFrame(s.cfg.LocalNodeID, payloads)
+	if err != nil {
+		s.logger.Warn("eventualreg: encode response frame", zap.Error(err))
+		return
+	}
+	if err := s.cfg.Sender.Send(sender, frame); err != nil {
+		s.logger.Debug("eventualreg: send shard response failed",
+			zap.String("to", sender), zap.Error(err))
+		return
+	}
+	s.tel.recordShardResponse("tx", len(payloads))
+}
+
+func (s *Service) handleShardResponseFrame(body []byte) {
+	sender, rest, err := DecodeShardResponseFrame(body)
+	if err != nil {
+		s.logger.Warn("eventualreg: malformed shard response", zap.Error(err))
+		return
+	}
+	now := time.Now()
+	count := 0
+	for len(rest) > 0 {
+		payload, consumed, err := DecodeShardPayload(rest)
+		if err != nil {
+			s.logger.Warn("eventualreg: decode shard payload",
+				zap.String("from", sender), zap.Error(err))
+			break
+		}
+		for i := range payload.Entries {
+			s.applyIncoming(&payload.Entries[i], payload.Origins[i])
+		}
+		count++
+		rest = rest[consumed:]
+	}
+	if count > 0 {
+		s.tel.recordShardResponse("rx", count)
+		s.tel.recordAntiEntropy("ok", float64(time.Since(now).Milliseconds()), count)
+		s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
+		// Treat a bulk shard recovery as a cross-subsystem
+		// re-registration burst, same shape as MergeShardPayload.
+		s.tel.recordReregistration()
+	}
+}
+
+// RequestShards emits a FrameTypeShardRequest to `peer` listing the
+// shard indices the local node currently disagrees with. The cooldown
+// suppresses repeated requests to the same peer inside
+// `cfg.ShardRequestCooldown`. Returns true when the request was
+// emitted (also true when the sender returned an error — telemetry
+// captures the failure). Returns false when:
+//
+//   - a request to this peer fired recently (cooldown not elapsed)
+//   - no sender is configured
+//   - shardIDs is empty
+//
+// Designed so the delegate's MergeRemoteState can call it
+// unconditionally on a digest mismatch without re-implementing rate
+// limiting.
+func (s *Service) RequestShards(peer string, shardIDs []uint16) bool {
+	if s.stopped.Load() || s.cfg.Sender == nil || peer == "" || len(shardIDs) == 0 {
+		return false
+	}
+	nowNs := time.Now().UnixNano()
+	s.lastShardRequestMu.Lock()
+	last := s.lastShardRequest[peer]
+	cooldown := s.cfg.ShardRequestCooldown.Nanoseconds()
+	if last != 0 && nowNs-last < cooldown {
+		s.lastShardRequestMu.Unlock()
+		s.tel.recordShardRequest("suppressed")
+		return false
+	}
+	s.lastShardRequest[peer] = nowNs
+	s.lastShardRequestMu.Unlock()
+
+	frame, err := EncodeShardRequestFrame(s.cfg.LocalNodeID, shardIDs)
+	if err != nil {
+		s.logger.Warn("eventualreg: encode shard request", zap.Error(err))
+		return false
+	}
+	if err := s.cfg.Sender.Send(peer, frame); err != nil {
+		s.tel.recordShardRequest("send_error")
+		s.logger.Debug("eventualreg: send shard request failed",
+			zap.String("to", peer), zap.Error(err))
+		return true
+	}
+	s.tel.recordShardRequest("sent")
+	return true
 }
 
 // LocalDigest builds the digest for outgoing push/pull.

@@ -80,6 +80,7 @@ func KVRaft() boot.Component {
 				SnapshotInterval:  kvCfg.GetDuration(RaftSnapshotInterval, 0),
 				SnapshotRetain:    kvCfg.GetInt(RaftSnapshotRetain, 0),
 				TrailingLogs:      uint64(kvCfg.GetInt(RaftTrailingLogs, 0)),
+				MaxAppendEntries:  kvCfg.GetInt(RaftMaxAppendEntries, 0),
 				HeartbeatTimeout:  kvCfg.GetDuration(RaftHeartbeatTimeout, 0),
 				ElectionTimeout:   kvCfg.GetDuration(RaftElectionTimeout, 0),
 				CommitTimeout:     kvCfg.GetDuration(RaftCommitTimeout, 0),
@@ -116,6 +117,7 @@ func KVRaft() boot.Component {
 			ac := ctxapi.AppFromContext(ctx)
 			if ac != nil {
 				ac.With(kvRaftSvcKey, svc)
+				ac.With(kvRaftNodeKey, raftNode)
 			}
 
 			logger.Info("kvraft initialized",
@@ -170,6 +172,11 @@ func KVRaft() boot.Component {
 
 // kvRaftSvcKey holds the kvraft.Service in the app context.
 var kvRaftSvcKey = &ctxapi.Key{Name: "kvraft.service"}
+
+// kvRaftNodeKey holds the *sysraft.Node powering the kvraft replication
+// group, so the admin HTTP server can publish its raft status alongside
+// globalreg's.
+var kvRaftNodeKey = &ctxapi.Key{Name: "kvraft.node"}
 
 // wrapHraftFSM is a no-op trampoline matching `wrapFSM` over in raft.go —
 // kept here so kvraft doesn't depend on a globalreg-specific helper. The
