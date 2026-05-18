@@ -178,38 +178,12 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 		return NewPublishClientError(registryURL, err)
 	}
 
+	registeredThisRun := false
 	if createIfMissing {
-		displayName := moduleDisplayName
-		if displayName == "" {
-			displayName = cfg.ModuleName
+		if err := ensureModuleRegistered(cmd.Context(), client, registryURL, cfg, moduleDisplayName, moduleType, moduleVisibility); err != nil {
+			return err
 		}
-		keywords := cfg.Keywords
-		if keywords == nil {
-			keywords = []string{}
-		}
-		registerCtx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
-		regResult, regErr := client.RegisterModule(registerCtx, &hub.RegisterModuleParams{
-			Org:           cfg.Organization,
-			Name:          cfg.ModuleName,
-			DisplayName:   displayName,
-			Description:   cfg.Description,
-			ModuleType:    moduleType,
-			Visibility:    moduleVisibility,
-			License:       cfg.License,
-			Keywords:      keywords,
-			RepositoryURL: cfg.Repository,
-			HomepageURL:   cfg.Homepage,
-		})
-		cancel()
-		switch {
-		case regErr == nil:
-			printStatus(fmt.Sprintf("Registered module %s/%s (visibility=%s, type=%s)",
-				regResult.OrgName, regResult.Name, regResult.Visibility, regResult.ModuleType))
-		case errors.Is(regErr, hub.ErrModuleAlreadyExists):
-			printStatus(fmt.Sprintf("Module %s/%s already exists, skipping create", cfg.Organization, cfg.ModuleName))
-		default:
-			return fmt.Errorf("register module on %s: %w", registryURL, regErr)
-		}
+		registeredThisRun = true
 	}
 
 	ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Minute)
@@ -221,6 +195,17 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 	// InitiatePublish/PUT/ConfirmPublish triplet only if the new endpoint
 	// is missing — i.e., publishing against an older hub.
 	publishID, err := publishViaHubOrLegacy(ctx, client, registryURL, cfg, outputFile, label, releaseNotes, protected)
+	if err != nil && !registeredThisRun && hub.IsModuleNotFound(err) {
+		// First publish of a module that was never registered: create it
+		// (private by default) and retry, so `wippy publish` just works.
+		// A user without create permission gets the real 403 here — that
+		// is the honest failure, not something to paper over.
+		printStatus(fmt.Sprintf("Module %s/%s not registered yet — creating it", cfg.Organization, cfg.ModuleName))
+		if regErr := ensureModuleRegistered(cmd.Context(), client, registryURL, cfg, moduleDisplayName, moduleType, moduleVisibility); regErr != nil {
+			return regErr
+		}
+		publishID, err = publishViaHubOrLegacy(ctx, client, registryURL, cfg, outputFile, label, releaseNotes, protected)
+	}
 	if err != nil {
 		return err
 	}
@@ -231,6 +216,7 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 		printStatus(fmt.Sprintf("Status: %s", s.StatusString()))
 	})
 	if err != nil {
+		printPublishFailure(publishID, status)
 		return NewPublishProcessingError(registryURL, err)
 	}
 
@@ -283,7 +269,8 @@ func publishViaHubOrLegacy(
 		return out.PublishID, nil
 	}
 	// Only fall back when the *server* tells us the hub-mediated endpoint
-	// doesn't exist. Any other failure (auth, validation, network) is the
+	// doesn't exist. Any other failure (auth, validation, network, or a
+	// module-not-found that runPublish auto-registers + retries) is the
 	// real failure and shouldn't be papered over by the legacy path.
 	if !hub.IsHubEndpointMissing(err) {
 		return "", NewPublishUploadError(registryURL, err)
@@ -608,6 +595,47 @@ func printSuccess(msg string) {
 	fmt.Printf("  %s\n", successStyle.Render(msg))
 }
 
+// printPublishFailure surfaces the correlation id, server error code and
+// an actionable hint so a failed publish is self-explanatory instead of
+// an opaque message. The command still returns a non-zero error — this
+// only enriches the output, it never masks the failure.
+func printPublishFailure(publishID string, status *hub.StatusResult) {
+	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+
+	fmt.Println()
+	if publishID != "" {
+		fmt.Printf("  %s %s\n", dimStyle.Render("publish id:"), publishID)
+	}
+	if status == nil {
+		return
+	}
+	code := status.ErrorCode
+	if code != "" {
+		fmt.Printf("  %s %s — %s\n", errStyle.Render("error:"), code, status.ErrorMessage)
+	} else if status.ErrorMessage != "" {
+		fmt.Printf("  %s %s\n", errStyle.Render("error:"), status.ErrorMessage)
+	}
+	if h := hintFor(code); h != "" {
+		fmt.Printf("  %s %s\n", dimStyle.Render("hint:"), h)
+	}
+}
+
+func hintFor(code string) string {
+	switch code {
+	case "version_exists":
+		return "bump the version (wippy publish --version <next>) — published versions are immutable"
+	case "version_missing":
+		return "transient infrastructure issue — retry; if it persists report the publish id to ops"
+	case "scan_unavailable":
+		return "antivirus temporarily unavailable — retry shortly, your upload is preserved"
+	case "malware_detected":
+		return "the package was flagged by antivirus and held for security review"
+	default:
+		return ""
+	}
+}
+
 func formatFileSize(size int64) string {
 	const unit = 1024
 	if size < unit {
@@ -635,6 +663,45 @@ func NewPublishClientError(registryURL string, cause error) error {
 
 func NewPublishInitiateError(registryURL string, cause error) error {
 	return fmt.Errorf("failed to initiate publish on %s: %w", registryURL, cause)
+}
+
+// ensureModuleRegistered registers org/module on the hub (private by
+// default). Idempotent: an existing module is a no-op. A real failure
+// (notably 403 — no create permission in the org) is returned verbatim
+// so the user sees the honest cause, never a masked one.
+func ensureModuleRegistered(ctx context.Context, client *hub.Client, registryURL string, cfg *config.ModuleConfig, displayName, moduleType, moduleVisibility string) error {
+	if displayName == "" {
+		displayName = cfg.ModuleName
+	}
+	keywords := cfg.Keywords
+	if keywords == nil {
+		keywords = []string{}
+	}
+	regCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	regResult, regErr := client.RegisterModule(regCtx, &hub.RegisterModuleParams{
+		Org:           cfg.Organization,
+		Name:          cfg.ModuleName,
+		DisplayName:   displayName,
+		Description:   cfg.Description,
+		ModuleType:    moduleType,
+		Visibility:    moduleVisibility,
+		License:       cfg.License,
+		Keywords:      keywords,
+		RepositoryURL: cfg.Repository,
+		HomepageURL:   cfg.Homepage,
+	})
+	switch {
+	case regErr == nil:
+		printStatus(fmt.Sprintf("Registered module %s/%s (visibility=%s, type=%s)",
+			regResult.OrgName, regResult.Name, regResult.Visibility, regResult.ModuleType))
+		return nil
+	case errors.Is(regErr, hub.ErrModuleAlreadyExists):
+		printStatus(fmt.Sprintf("Module %s/%s already exists", cfg.Organization, cfg.ModuleName))
+		return nil
+	default:
+		return fmt.Errorf("register module on %s: %w", registryURL, regErr)
+	}
 }
 
 func NewPublishUploadError(registryURL string, cause error) error {

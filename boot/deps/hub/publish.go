@@ -44,6 +44,7 @@ type PublishResult struct {
 type StatusResult struct {
 	VersionID    string
 	ErrorMessage string
+	ErrorCode    string
 	Status       PublishStatus
 }
 
@@ -144,6 +145,7 @@ func (c *Client) GetPublishStatus(ctx context.Context, publishID string) (*Statu
 
 	if resp.Msg.Details != nil {
 		result.ErrorMessage = resp.Msg.Details.ErrorMessage
+		result.ErrorCode = resp.Msg.Details.ErrorCode
 		if resp.Msg.Details.Version != nil {
 			result.VersionID = resp.Msg.Details.Version.Id
 		}

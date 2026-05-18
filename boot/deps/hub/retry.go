@@ -4,6 +4,7 @@ package hub
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"math/rand/v2"
@@ -139,14 +140,50 @@ func httpStatusText(code int) string {
 	return "hub responded with HTTP status"
 }
 
-// IsHubEndpointMissing reports whether err is a 404 from a hub-mediated
-// endpoint. Used by the CLI to decide whether to fall back to the legacy
-// presigned-URL flow when targeting an older hub deployment.
+// IsHubEndpointMissing reports whether err means the hub-mediated route
+// itself is absent (an older hub), so the CLI may fall back to the legacy
+// presigned-URL flow. A 404 that carries the hub's structured error
+// envelope ({"error":{"code":...}}) is a real resource error (e.g. the
+// module does not exist) — NOT a missing route — and must not trigger the
+// misleading legacy fallback. Only a bare/non-JSON 404 (the net/http
+// "404 page not found" an older hub returns for an unknown path) counts.
 func IsHubEndpointMissing(err error) bool {
 	var statusErr *hubStatusError
-	if errors.As(err, &statusErr) {
-		return statusErr.statusCode == http.StatusNotFound ||
-			statusErr.statusCode == http.StatusMethodNotAllowed
+	if !errors.As(err, &statusErr) {
+		return false
 	}
-	return false
+	switch statusErr.statusCode {
+	case http.StatusMethodNotAllowed:
+		return true
+	case http.StatusNotFound:
+		return hubErrorCode(statusErr.body) == ""
+	default:
+		return false
+	}
+}
+
+// IsModuleNotFound reports whether err is the hub's 404 for a target that
+// does not exist (module/org). The CLI uses this to tell the user to
+// create the module (wippy publish --create) instead of surfacing an
+// opaque "resource not found".
+func IsModuleNotFound(err error) bool {
+	var statusErr *hubStatusError
+	if !errors.As(err, &statusErr) {
+		return false
+	}
+	return statusErr.statusCode == http.StatusNotFound && hubErrorCode(statusErr.body) == "not_found"
+}
+
+// hubErrorCode returns the hub error-envelope code ({"error":{"code"}}),
+// or "" when the body is not a structured hub error.
+func hubErrorCode(body string) string {
+	var e struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if json.Unmarshal([]byte(body), &e) != nil {
+		return ""
+	}
+	return e.Error.Code
 }
