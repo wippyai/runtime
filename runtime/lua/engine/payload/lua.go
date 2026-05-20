@@ -140,7 +140,7 @@ func normalizeForLua(tc *payload.TranscodeContext, v any) (any, error) {
 	}
 
 	switch rv.Kind() {
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if rv.IsNil() {
 			return nil, nil
 		}
@@ -207,7 +207,7 @@ func normalizeForLua(tc *payload.TranscodeContext, v any) (any, error) {
 					out[field.name] = map[string]any{}
 					continue
 				}
-			case reflect.Ptr, reflect.Slice, reflect.Interface:
+			case reflect.Pointer, reflect.Slice, reflect.Interface:
 				if fieldValue.IsNil() {
 					out[field.name] = nil
 					continue

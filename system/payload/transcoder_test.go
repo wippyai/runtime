@@ -56,7 +56,7 @@ func (m *MockUnmarshaler) Unmarshal(p payload.Payload, v any) error {
 		return m.Func(p, v)
 	}
 	rv := reflect.ValueOf(v)
-	if rv.Kind() != reflect.Ptr || rv.IsNil() {
+	if rv.Kind() != reflect.Pointer || rv.IsNil() {
 		return fmt.Errorf("invalid unmarshal target")
 	}
 	rv.Elem().Set(reflect.ValueOf(p.Data()))
@@ -125,7 +125,7 @@ func TestTranscoder_RegisterUnmarshalerAndUnmarshal(t *testing.T) {
 		Format: formatB,
 		Func: func(p payload.Payload, v any) error {
 			rv := reflect.ValueOf(v)
-			if rv.Kind() != reflect.Ptr || rv.IsNil() {
+			if rv.Kind() != reflect.Pointer || rv.IsNil() {
 				return fmt.Errorf("invalid unmarshal target")
 			}
 			rv.Elem().Set(reflect.ValueOf(fmt.Sprintf("%s_unmarshaled", p.Data())))
