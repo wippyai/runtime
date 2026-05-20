@@ -3,10 +3,43 @@
 package globalreg
 
 import (
+	"time"
+
 	"github.com/wippyai/runtime/api/metrics"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
+
+const (
+	forwardResultOK          = "ok"
+	forwardResultError       = "error"
+	forwardResultDecodeError = "decode_error"
+	forwardResultTimeout     = "timeout"
+	forwardResultNoLeader    = "no_leader"
+	forwardResultSendFailed  = "send_failed"
+)
+
+// forwardResultLabels enumerates every value that may be passed to
+// recordForwardedApply's `result` argument. The list is used to seed all
+// label combinations at zero so dashboards never see "MISSING" before the
+// first real event.
+var forwardResultLabels = []string{
+	forwardResultOK,
+	forwardResultError,
+	forwardResultDecodeError,
+	forwardResultTimeout,
+	forwardResultNoLeader,
+	forwardResultSendFailed,
+}
+
+// forwardCommandLabels enumerates every command label that may be passed to
+// recordForwardedApply. Same bootstrap rationale as forwardResultLabels.
+var forwardCommandLabels = []string{
+	"register",
+	"unregister",
+	"remove_pid",
+	"remove_node",
+}
 
 // telemetry owns metric emission for the globalreg subsystem. It emits with
 // the same pg_* prefix used elsewhere in the runtime — those metric names
@@ -36,8 +69,29 @@ func newTelemetry(coll metrics.Collector, _ otelmetric.MeterProvider, _ trace.Tr
 		coll.CounterAdd("pg_globalreg_dedupe_total", 0, nil)
 		coll.CounterAdd("runtime_name_reregistrations_total", 0,
 			metrics.Labels{"node": localNode, "scope": "global"})
+		// Bootstrap forwarded-apply counter labels so dashboards do not see
+		// MISSING before the first follower forwards a write. The companion
+		// histogram is intentionally not bootstrapped: HistogramObserve adds a
+		// real observation which would break unit tests that count samples.
+		for _, cmd := range forwardCommandLabels {
+			for _, res := range forwardResultLabels {
+				coll.CounterAdd("globalreg_forwarded_apply_total", 0,
+					metrics.Labels{"cmd": cmd, "result": res})
+			}
+		}
 	}
 	return t
+}
+
+func (t *telemetry) recordForwardedApply(cmd CommandType, result string, dur time.Duration) {
+	if t == nil || t.coll == nil {
+		return
+	}
+
+	labels := metrics.Labels{"cmd": commandLabel(cmd), "result": result}
+	t.coll.CounterInc("globalreg_forwarded_apply_total", labels)
+	t.coll.HistogramObserve("globalreg_forwarded_apply_latency_seconds",
+		dur.Seconds(), metrics.Labels{"cmd": commandLabel(cmd)})
 }
 
 func (t *telemetry) recordFenceToken(pg, node string, token uint64) {

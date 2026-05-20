@@ -59,9 +59,13 @@ type Service struct {
 	degraded         bool // true if Raft barrier timed out (serving potentially stale data)
 }
 
-// forwardResponse wraps the result of a forwarded command.
+// forwardResponse wraps the result of a forwarded command. It carries the
+// typed FSM response (Result) for v1 envelopes; older v0 envelopes set only
+// ErrMsg and leave Result nil.
 type forwardResponse struct {
+	Result any
 	ErrMsg string
+	V1     bool
 }
 
 // correlationIDCounter generates unique correlation IDs for forwarded requests.
@@ -375,9 +379,11 @@ func (s *Service) applyCommand(cmd *Command) (any, error) {
 
 // forwardToLeader sends the command to the current Raft leader's global
 // registry service via the relay system and waits for the response.
-// Uses a correlation ID to match the response to the request.
+// Uses a correlation ID to match the response to the request. On success it
+// returns the typed FSM result decoded on the follower side.
 func (s *Service) forwardToLeader(cmd *Command) (any, error) {
-	// Retry leader discovery - follower may need time to learn leader after joining cluster
+	start := time.Now()
+	// Retry leader discovery - follower may need time to learn leader after joining cluster.
 	var leaderID string
 	backoff := 100 * time.Millisecond
 	for i := 0; i < 30; i++ {
@@ -393,15 +399,16 @@ func (s *Service) forwardToLeader(cmd *Command) (any, error) {
 		}
 	}
 	if leaderID == "" {
+		s.tel.recordForwardedApply(cmd.Type, forwardResultNoLeader, time.Since(start))
 		return nil, globalreg.ErrNotAvailable
 	}
 
 	data, err := EncodeCommand(cmd)
 	if err != nil {
+		s.tel.recordForwardedApply(cmd.Type, forwardResultError, time.Since(start))
 		return nil, fmt.Errorf("encode forward command: %w", err)
 	}
 
-	// Create correlation ID and response channel
 	corrID := correlationIDCounter.Add(1)
 	respCh := make(chan *forwardResponse, 1)
 
@@ -415,12 +422,11 @@ func (s *Service) forwardToLeader(cmd *Command) (any, error) {
 		s.mu.Unlock()
 	}()
 
-	// Prepend 8-byte correlation ID to the command data
+	// Prepend 8-byte correlation ID to the command data.
 	envelope := make([]byte, 8+len(data))
 	binary.BigEndian.PutUint64(envelope[:8], corrID)
 	copy(envelope[8:], data)
 
-	// Send via relay to the leader's globalreg host.
 	pkg := relay.NewServicePackage(
 		s.localNode, HostID,
 		leaderID, HostID,
@@ -430,19 +436,23 @@ func (s *Service) forwardToLeader(cmd *Command) (any, error) {
 
 	if err := s.router.Send(pkg); err != nil {
 		relay.ReleasePackage(pkg)
+		s.tel.recordForwardedApply(cmd.Type, forwardResultSendFailed, time.Since(start))
 		return nil, fmt.Errorf("forward to leader: %w", err)
 	}
 
-	// Wait for response with timeout
 	select {
 	case resp := <-respCh:
 		if resp.ErrMsg != "" {
+			s.tel.recordForwardedApply(cmd.Type, forwardResultError, time.Since(start))
 			return nil, errors.New(resp.ErrMsg)
 		}
-		return nil, nil
+		s.tel.recordForwardedApply(cmd.Type, forwardResultOK, time.Since(start))
+		return resp.Result, nil
 	case <-time.After(defaultApplyTimeout):
+		s.tel.recordForwardedApply(cmd.Type, forwardResultTimeout, time.Since(start))
 		return nil, globalreg.ErrNotAvailable
 	case <-s.stopCh:
+		s.tel.recordForwardedApply(cmd.Type, forwardResultTimeout, time.Since(start))
 		return nil, globalreg.ErrNotAvailable
 	}
 }
@@ -479,7 +489,8 @@ func (s *Service) handleExitEvent(msg *relay.Message) {
 }
 
 // handleForwardRequest processes a forwarded command from a follower node.
-// Applies the command via Raft and sends a response back with the correlation ID.
+// Applies the command via Raft and sends a v1 typed response back with the
+// correlation ID. The follower decodes the typed FSM result.
 func (s *Service) handleForwardRequest(source pid.PID, msg *relay.Message) {
 	if len(msg.Payloads) == 0 {
 		return
@@ -491,31 +502,61 @@ func (s *Service) handleForwardRequest(source pid.PID, msg *relay.Message) {
 		return
 	}
 
-	// Extract correlation ID and command data
 	corrID := binary.BigEndian.Uint64(envelope[:8])
 	data := envelope[8:]
 
-	// Apply the command locally (we should be the leader).
-	var errMsg string
-	resp, err := s.raftSvc.Apply(data, defaultApplyTimeout)
-	if err != nil {
-		errMsg = err.Error()
-	} else if resp.Response != nil {
-		if fsmErr, ok := resp.Response.(error); ok {
-			errMsg = fsmErr.Error()
-		}
+	// Decode the command so we can tag the typed response with its kind. The
+	// leader-side apply path itself does not need the decoded command — Raft
+	// decodes it again inside FSM.Apply — but the response envelope must
+	// carry the command kind so the follower knows how to decode the typed
+	// result blob.
+	cmd, decodeErr := DecodeCommand(data)
+	if decodeErr != nil {
+		s.logger.Error("invalid forward request command", zap.Error(decodeErr))
+		s.replyForward(source.Node, corrID, 0, decodeErr.Error(), nil)
+		return
 	}
 
-	// Send response back to the requesting node
-	respEnvelope := make([]byte, 8)
-	binary.BigEndian.PutUint64(respEnvelope[:8], corrID)
-	if errMsg != "" {
-		respEnvelope = append(respEnvelope, []byte(errMsg)...)
+	var (
+		errMsg     string
+		resultBlob []byte
+	)
+	resp, err := s.raftSvc.Apply(data, defaultApplyTimeout)
+	switch {
+	case err != nil:
+		errMsg = err.Error()
+	case resp == nil || resp.Response == nil:
+		// No-op: nothing to encode.
+	default:
+		if fsmErr, ok := resp.Response.(error); ok {
+			errMsg = fsmErr.Error()
+			break
+		}
+		encoded, encErr := encodeFSMResult(cmd.Type, resp.Response)
+		if encErr != nil {
+			s.logger.Error("encode forward response result",
+				zap.Error(encErr), zap.String("cmd", commandLabel(cmd.Type)))
+			errMsg = encErr.Error()
+			break
+		}
+		resultBlob = encoded
+	}
+
+	s.replyForward(source.Node, corrID, cmd.Type, errMsg, resultBlob)
+}
+
+// replyForward sends the v1 typed envelope back to the requesting follower.
+func (s *Service) replyForward(sourceNode pid.NodeID, corrID uint64, cmd CommandType, errMsg string, result []byte) {
+	respEnvelope, err := encodeForwardResponse(corrID, cmd, errMsg, result)
+	if err != nil {
+		s.logger.Error("encode forward response envelope",
+			zap.Error(err), zap.String("to", sourceNode))
+		return
 	}
 
 	respPkg := relay.NewServicePackage(
 		s.localNode, HostID,
-		source.Node, HostID,
+		sourceNode, HostID,
 		topicForwardResponse,
 		payload.New(respEnvelope),
 	)
@@ -523,11 +564,13 @@ func (s *Service) handleForwardRequest(source pid.PID, msg *relay.Message) {
 	if err := s.router.Send(respPkg); err != nil {
 		relay.ReleasePackage(respPkg)
 		s.logger.Error("failed to send forward response",
-			zap.Error(err), zap.String("to", source.Node))
+			zap.Error(err), zap.String("to", sourceNode))
 	}
 }
 
-// handleForwardResponse processes a response from the leader for a forwarded command.
+// handleForwardResponse processes a response from the leader for a forwarded
+// command. It accepts both legacy v0 (error-string-only) and new v1 (typed
+// result) envelopes so a mid-upgrade cluster never wedges a follower.
 func (s *Service) handleForwardResponse(msg *relay.Message) {
 	if len(msg.Payloads) == 0 {
 		return
@@ -539,28 +582,39 @@ func (s *Service) handleForwardResponse(msg *relay.Message) {
 		return
 	}
 
-	corrID := binary.BigEndian.Uint64(envelope[:8])
-	errMsg := string(envelope[8:])
+	decoded, err := decodeForwardResponse(envelope)
+	if err != nil {
+		s.logger.Error("failed to decode forward response envelope",
+			zap.Error(err), zap.Uint64("corr_id", decoded.CorrID))
+		s.deliverForward(decoded.CorrID, &forwardResponse{
+			ErrMsg: fmt.Sprintf("decode forward response: %v", err),
+		})
+		return
+	}
 
+	resp := &forwardResponse{
+		ErrMsg: decoded.ErrMsg,
+		Result: decoded.Result,
+		V1:     decoded.V1,
+	}
+	s.deliverForward(decoded.CorrID, resp)
+}
+
+// deliverForward delivers a parsed response to the waiting forwardToLeader
+// goroutine, if any. Lost responses (no pending entry) are logged at debug
+// level — the only callers are the timeout / stop branches in forwardToLeader.
+func (s *Service) deliverForward(corrID uint64, resp *forwardResponse) {
 	s.mu.Lock()
 	ch, ok := s.pending[corrID]
 	s.mu.Unlock()
-
 	if !ok {
 		s.logger.Debug("received forward response for unknown correlation ID",
 			zap.Uint64("corr_id", corrID))
 		return
 	}
-
-	resp := &forwardResponse{}
-	if errMsg != "" {
-		resp.ErrMsg = errMsg
-	}
-
 	select {
 	case ch <- resp:
 	default:
-		// Channel full or already consumed — discard
 	}
 }
 
