@@ -3,6 +3,8 @@
 package supervisor
 
 import (
+	"sort"
+
 	"github.com/wippyai/runtime/api/supervisor"
 	"go.uber.org/zap"
 )
@@ -38,15 +40,28 @@ func (th *regTx) commit(removeFn func(string) error, registerFn func(string, *su
 		return nil
 	}
 
-	// Apply all tx changes
+	// Iterate the transaction sets in sorted ID order so commit callbacks fire
+	// in a stable sequence across runs. Go map iteration is hash-seed randomized
+	// and the supervisor relies on this order downstream when scheduling
+	// services.
+	removeIDs := make([]string, 0, len(th.remove))
 	for id := range th.remove {
+		removeIDs = append(removeIDs, id)
+	}
+	sort.Strings(removeIDs)
+	for _, id := range removeIDs {
 		if err := removeFn(id); err != nil {
 			return NewCommitRemoveError(id, err)
 		}
 	}
 
-	for id, entry := range th.register {
-		if err := registerFn(id, entry); err != nil {
+	registerIDs := make([]string, 0, len(th.register))
+	for id := range th.register {
+		registerIDs = append(registerIDs, id)
+	}
+	sort.Strings(registerIDs)
+	for _, id := range registerIDs {
+		if err := registerFn(id, th.register[id]); err != nil {
 			return NewCommitRegisterError(id, err)
 		}
 	}

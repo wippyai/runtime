@@ -3,6 +3,7 @@
 package topology
 
 import (
+	"sort"
 	"strings"
 	"sync"
 
@@ -95,23 +96,28 @@ func (r *Resolver) fetchDeps(entry registry.Entry) []string {
 		return nil
 	}
 
-	// Collect all dependencies using a set for deduplication
-	depSet := make(map[string]struct{}, len(r.patterns)*2)
-
+	// Collect deduplicated dependencies in a slice so the output is independent
+	// of Go map iteration order. Callers feed this slice into the dependency
+	// graph; a randomized order is not a correctness issue for the graph
+	// itself, but it leaks into any downstream consumer that uses the slice
+	// directly (e.g. tie-breaking when adding nodes), so we sort before
+	// returning to keep the contract stable across runs.
+	seen := make(map[string]struct{}, len(r.patterns)*2)
+	result := make([]string, 0, len(r.patterns)*2)
 	for _, pathCfg := range r.patterns {
 		deps := resolverExtractFromPath(combined, pathCfg)
 		for _, dep := range deps {
-			if dep != "" {
-				depSet[dep] = struct{}{}
+			if dep == "" {
+				continue
 			}
+			if _, ok := seen[dep]; ok {
+				continue
+			}
+			seen[dep] = struct{}{}
+			result = append(result, dep)
 		}
 	}
-
-	// Convert to slice
-	result := make([]string, 0, len(depSet))
-	for dep := range depSet {
-		result = append(result, dep)
-	}
+	sort.Strings(result)
 
 	return result
 }

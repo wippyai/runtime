@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -549,12 +550,22 @@ func (s *Supervisor) resolveServiceDependencyRefs(
 }
 
 // execute processes the transaction by creating new services,
-// stopping removed services, and starting auto-start services
+// stopping removed services, and starting auto-start services.
+//
+// All iterations of tx.register, tx.remove, and s.controllers traverse a
+// pre-sorted slice of IDs. The supervisor feeds the sequencer in this order,
+// so a single hash-seed seam used to leak into the boot ordering and surface
+// as intermittent "filesystem not found"/"driver not found" rejections on
+// services whose listener depends on resources that should have started first.
 func (s *Supervisor) execute(ctx context.Context, tx *regTx) error {
+	registerIDs := sortedRegisterIDs(tx.register)
+	removeIDs := sortedRemoveIDs(tx.remove)
+
 	// Mutate controller registry under lock, then run potentially long transitions
 	// lock-free so state readers are never blocked behind start/stop timeouts.
 	s.mu.Lock()
-	for id, entry := range tx.register {
+	for _, id := range registerIDs {
+		entry := tx.register[id]
 		if _, exists := s.controllers[id]; !exists {
 			s.controllers[id] = NewController(s.ctx, entry.Service, entry.Config, s.createStateHandler(id))
 		}
@@ -565,7 +576,7 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) error {
 	var operations []operation
 
 	// Queue stop operations for services being removed
-	for id := range tx.remove {
+	for _, id := range removeIDs {
 		if ctrl, exists := controllers[id]; exists {
 			deps, err := s.resolveDependencies(controllers, id)
 			if err != nil {
@@ -580,8 +591,9 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) error {
 		}
 	}
 
-	roots := make([]startRoot, 0, len(tx.register))
-	for id, entry := range tx.register {
+	roots := make([]startRoot, 0, len(registerIDs))
+	for _, id := range registerIDs {
+		entry := tx.register[id]
 		if entry.Config.AutoStart {
 			roots = append(roots, startRoot{
 				id:       id,
@@ -602,7 +614,7 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) error {
 
 	// Done stopped services
 	s.mu.Lock()
-	for id := range tx.remove {
+	for _, id := range removeIDs {
 		delete(s.controllers, id)
 	}
 	s.mu.Unlock()
@@ -727,9 +739,10 @@ func (s *Supervisor) buildStopOperations(
 	visited := make(map[string]bool)
 	var operations []operation
 
+	controllerIDs := sortedControllerIDs(controllers)
 	dependedOnBy := make(map[string][]string)
 	resolvedDeps := make(map[string][]string, len(controllers))
-	for id := range controllers {
+	for _, id := range controllerIDs {
 		deps, err := s.resolveDependencies(controllers, id)
 		if err != nil {
 			return nil, err
@@ -780,6 +793,38 @@ func appendUniqueString(values []string, next string) []string {
 		}
 	}
 	return append(values, next)
+}
+
+// sortedRegisterIDs returns the keys of m sorted lexicographically. Used so
+// the supervisor processes registrations in a stable order independent of the
+// Go map iteration hash seed.
+func sortedRegisterIDs(m map[string]*supervisor.Entry) []string {
+	ids := make([]string, 0, len(m))
+	for id := range m {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// sortedRemoveIDs returns the keys of m sorted lexicographically.
+func sortedRemoveIDs(m map[string]struct{}) []string {
+	ids := make([]string, 0, len(m))
+	for id := range m {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// sortedControllerIDs returns the keys of m sorted lexicographically.
+func sortedControllerIDs(m map[string]*Controller) []string {
+	ids := make([]string, 0, len(m))
+	for id := range m {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 func normalizeDependencyRef(sourceID registry.ID, ref string) string {

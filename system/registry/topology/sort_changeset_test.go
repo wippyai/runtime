@@ -1383,7 +1383,14 @@ func TestSortChangeSet_EdgeCases(t *testing.T) {
 		}
 	})
 
-	t.Run("Unconstrained Operations Preserve Input Order", func(t *testing.T) {
+	t.Run("Unconstrained Operations Sort Lexicographically", func(t *testing.T) {
+		// SortChangeSet normalizes its input by (entry.ID.NS, entry.ID.Name, kind)
+		// before computing topological constraints. For operations with no
+		// dependency edges between them, this normalization is what the caller
+		// observes: the output is sorted lexicographically by ID, with kind as
+		// the final tie-breaker. This is the contract that lets upstream code
+		// pass a Go-map-iterated slice (random hash-seed order) without the
+		// randomness leaking into the registry state.
 		fromState := registry.State{
 			testEntry{ns: "app", name: "old-a", kind: "service", data: "old-a"}.toEntry(),
 			testEntry{ns: "app", name: "old-b", kind: "service", data: "old-b"}.toEntry(),
@@ -1399,10 +1406,23 @@ func TestSortChangeSet_EdgeCases(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		for i := range changeSet {
-			if sorted[i].Kind != changeSet[i].Kind || !sorted[i].Entry.ID.Equal(changeSet[i].Entry.ID) {
-				t.Fatalf("operation %d moved despite having no ordering constraints\ninput:\n%s\nsorted:\n%s",
-					i, formatDelta(changeSet), formatDelta(sorted))
+
+		expected := []struct {
+			kind string
+			name string
+		}{
+			{registry.EntryCreate, "new-a"},
+			{registry.EntryCreate, "new-c"},
+			{registry.EntryDelete, "old-a"},
+			{registry.EntryUpdate, "old-b"},
+		}
+		if len(sorted) != len(expected) {
+			t.Fatalf("expected %d operations, got %d\nsorted:\n%s", len(expected), len(sorted), formatDelta(sorted))
+		}
+		for i, want := range expected {
+			if sorted[i].Kind != want.kind || sorted[i].Entry.ID.Name != want.name {
+				t.Fatalf("operation %d wrong: got kind=%s name=%s, want kind=%s name=%s\nsorted:\n%s",
+					i, sorted[i].Kind, sorted[i].Entry.ID.Name, want.kind, want.name, formatDelta(sorted))
 			}
 		}
 		assertAppliesWithoutIncomingDependencyDelete(t, builder, fromState, sorted)

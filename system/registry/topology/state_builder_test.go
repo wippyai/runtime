@@ -868,10 +868,14 @@ func TestBuildDelta_SimpleOperations(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
+		// Three operations on three different IDs (no inter-dependencies).
+		// SortChangeSet normalizes input by (NS, Name, Kind) for determinism,
+		// so the output is alphabetic by name: service.api, service.cache,
+		// service.db.
 		expectedDelta := registry.ChangeSet{
-			{Kind: registry.EntryDelete, Entry: entry2},
 			{Kind: registry.EntryUpdate, Entry: entry1Updated},
 			{Kind: registry.EntryCreate, Entry: entry3},
+			{Kind: registry.EntryDelete, Entry: entry2},
 		}
 		verifyDelta(t, delta, expectedDelta)
 	})

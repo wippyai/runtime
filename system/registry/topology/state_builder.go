@@ -4,6 +4,7 @@ package topology
 
 import (
 	"reflect"
+	"sort"
 
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
@@ -298,11 +299,26 @@ func (b *StateBuilder) SquashChangesets(changesets []registry.ChangeSet) registr
 		}
 	}
 
-	// Convert map to slice.
+	// Convert map to slice in a deterministic order. Pre-fix this loop iterated
+	// the operations map directly, so the resulting slice's element order
+	// depended on the Go map hash seed. SortChangeSet below uses element
+	// indexes to break ties between operations that have no dependency
+	// relationship, so a randomized input produced a randomized output even
+	// after topological sorting.
 	result := make(registry.ChangeSet, 0, len(operations))
 	for _, op := range operations {
 		result = append(result, op)
 	}
+	sort.SliceStable(result, func(i, j int) bool {
+		a, b := result[i].Entry.ID, result[j].Entry.ID
+		if a.NS != b.NS {
+			return a.NS < b.NS
+		}
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		return result[i].Kind < result[j].Kind
+	})
 
 	// If no operations, return empty
 	if len(result) == 0 {

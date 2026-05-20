@@ -316,7 +316,11 @@ func TestPlanner_SortOps_UsesCanonicalRewireOrder(t *testing.T) {
 	assert.Equal(t, registry.ScopeHistory, result[2].Scope)
 }
 
-func TestPlanner_SortOps_UnconstrainedPreservesInputOrder(t *testing.T) {
+func TestPlanner_SortOps_UnconstrainedSortsLexicographically(t *testing.T) {
+	// Operations with no dependency edges between them are ordered by
+	// (NS, Name, Kind) so the planner is input-order-invariant. Upstream
+	// callers iterating Go maps no longer leak hash-seed randomness into
+	// the registry transition stream.
 	e1 := newEntry("a", "zzz", "svc")
 	e2 := newEntry("a", "aaa", "svc")
 
@@ -329,8 +333,8 @@ func TestPlanner_SortOps_UnconstrainedPreservesInputOrder(t *testing.T) {
 	result, err := p.SortOps(nil, ops)
 	require.NoError(t, err)
 	require.Len(t, result, 2)
-	assert.Equal(t, e1.ID, result[0].Operation.Entry.ID)
-	assert.Equal(t, e2.ID, result[1].Operation.Entry.ID)
+	assert.Equal(t, e2.ID, result[0].Operation.Entry.ID)
+	assert.Equal(t, e1.ID, result[1].Operation.Entry.ID)
 }
 
 // --- PrepareEffects ---
