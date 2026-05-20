@@ -362,20 +362,44 @@ Creates a Spawner with custom spawn options for child processes.
 
 Subtable for process name registration.
 
-### process.registry.register(name: string, pid?: string) -> boolean, error
+### Scopes
 
-Registers a name for a process.
+`process.registry` exposes four explicit scopes, in increasing strictness:
 
-| Param | Type | Required | Default | Notes |
-|-------|------|----------|---------|-------|
-| name | string | yes | - | Name to register |
-| pid | string | no | self | PID to register (defaults to current process) |
+| Constant                       | Wire | Backing store              | Semantics                                                                                                   |
+|--------------------------------|------|----------------------------|-------------------------------------------------------------------------------------------------------------|
+| `process.registry.LOCAL`       | 0    | per-node PID registry      | Visible only on the registering node. Default.                                                              |
+| `process.registry.EVENTUAL`    | 2    | gossip / CRDT (eventualreg) | Cluster-wide, eventually consistent. No fence; converges after partition heal. Sized for ~1M presence names. |
+| `process.registry.CONSISTENT`  | 1    | Raft (globalreg)            | Cluster-wide linearizable owner with fence token. Late ok. Scales to ~1M user-facing names.                 |
+| `process.registry.ROOT`        | 3    | Raft + all-live-node ack    | Cluster-wide linearizable owner; activation requires every live node in the membership snapshot to ack the committed epoch within a deadline. No late compensation: a missing ack expires the registration. Reserved for the small set of root/control-plane names (<10k).        |
 
-**Returns:** `true` on success, or `nil, error` on failure
+`process.registry.GLOBAL` is retained as a legacy alias for `CONSISTENT`
+and will be removed in a future release. Existing scripts continue to
+work unchanged.
+
+### process.registry.register(name: string, scope_or_pid?: number | string) -> boolean, error
+
+Registers a name at the requested scope.
+
+| Param         | Type           | Required | Default | Notes                                                                                                                                       |
+|---------------|----------------|----------|---------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| name          | string         | yes      | -       | Name to register.                                                                                                                            |
+| scope_or_pid  | number | string | no       | LOCAL   | Either a scope constant (`process.registry.LOCAL/EVENTUAL/CONSISTENT/ROOT`) or a legacy PID string. When omitted, registers self at LOCAL. |
+
+**Returns:** `true` on success, or `nil, error` on failure.
+
+`ROOT` registration blocks the calling process until every live node in
+the membership snapshot has acked the committed epoch, or until the
+deadline elapses (default 10 s). On timeout, the runtime releases the
+reservation and the call returns an error whose `MissingAcks` list names
+the offending nodes — query via `process.registry.debug` or check the
+admin endpoint `/admin/globalreg/pending` for live status.
 
 **Errors (strings):**
-- `"not allowed to register name: <name>"` - permission denied
+- `"not allowed to register name (<scope>): <name>"` - permission denied
 - `"name already registered"` - name taken by another process
+- `"root name reservation pending for different PID"` - concurrent ROOT registration
+- `"root registration timed out before all live nodes acked"` - ROOT timeout
 
 ### process.registry.lookup(name: string) -> string, error
 

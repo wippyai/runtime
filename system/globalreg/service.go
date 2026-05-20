@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,30 +34,66 @@ const (
 	// Topics for inter-node leader forwarding.
 	topicForwardRequest  relay.Topic = "globalreg.forward.request"
 	topicForwardResponse relay.Topic = "globalreg.forward.response"
+	// topicRegisterAck delivers a Root-scope ack from a follower to the
+	// current leader. Body is a msgpack-encoded ackEnvelope.
+	topicRegisterAck relay.Topic = "globalreg.root.ack"
 
 	defaultApplyTimeout = 10 * time.Second
+
+	// rootRebroadcastDivisor controls how often the leader re-broadcasts
+	// pending entries. Set to 4 so a 10s deadline triggers ~2 rebroadcasts.
+	rootRebroadcastDivisor = 4
 )
 
 // Service implements the globalreg.Registry interface.
 // It wraps a Raft-backed FSM and provides leader forwarding for writes
 // and topology-based auto-cleanup.
 type Service struct {
+	monitoredPIDs    sync.Map
 	router           relay.Receiver
 	raftSvc          raftapi.Service
 	bus              event.Bus
 	topo             topology.Topology
+	membership       cluster.Membership
 	stopCh           chan struct{}
 	logger           *zap.Logger
 	fsm              *FSM
 	tel              *telemetry
 	pending          map[uint64]chan *forwardResponse
-	monitoredPIDs    sync.Map
+	rootWatchers     map[string]map[uint64]chan rootOutcome
+	rootTimers       map[string]*rootTimer
+	rebroadcastStop  chan struct{}
 	localNode        pid.NodeID
-	monitorWatermark atomic.Uint64 // highest AppliedAt scanned by reestablishMonitors
 	mu               sync.Mutex
+	rootMu           sync.Mutex
+	monitorWatermark atomic.Uint64
 	started          bool
-	ready            bool // true after initial Raft barrier completes
-	degraded         bool // true if Raft barrier timed out (serving potentially stale data)
+	ready            bool
+	degraded         bool
+}
+
+// rootOutcome is the value the Register caller blocks on while waiting for
+// the FSM to commit Active or Expired.
+type rootOutcome struct {
+	MissingAcks []pid.NodeID
+	Epoch       uint64
+	State       globalreg.RegisterState
+}
+
+// rootTimer is the leader-side deadline goroutine for a pending Root entry.
+type rootTimer struct {
+	deadline time.Time
+	stop     chan struct{}
+	name     string
+	epoch    uint64
+}
+
+// ackEnvelope is the wire form of a Root-scope ack delivered to the leader
+// over the relay (topicRegisterAck).
+type ackEnvelope struct {
+	Name      string     `codec:"n"`
+	AckerNode pid.NodeID `codec:"a"`
+	Epoch     uint64     `codec:"e"`
 }
 
 // forwardResponse wraps the result of a forwarded command. It carries the
@@ -76,12 +113,15 @@ var correlationIDCounter atomic.Uint64
 // The trailing coll/mp/tp parameters wire OTel-style metrics for the
 // pg_fence_*/pg_globalreg_* series consumed by the runtime dashboards. Pass
 // nil for any of them to disable telemetry; the recorders are nil-safe.
+// membership may be nil for unit tests that don't exercise Root scope —
+// any Root-scope register will then fail loudly.
 func NewService(
 	raftSvc raftapi.Service,
 	fsm *FSM,
 	bus event.Bus,
 	topo topology.Topology,
 	router relay.Receiver,
+	membership cluster.Membership,
 	localNode pid.NodeID,
 	logger *zap.Logger,
 	coll metrics.Collector,
@@ -94,21 +134,40 @@ func NewService(
 	}
 
 	s := &Service{
-		raftSvc:   raftSvc,
-		fsm:       fsm,
-		tel:       tel,
-		bus:       bus,
-		topo:      topo,
-		router:    router,
-		localNode: localNode,
-		logger:    logger,
-		stopCh:    make(chan struct{}),
-		pending:   make(map[uint64]chan *forwardResponse),
+		raftSvc:      raftSvc,
+		fsm:          fsm,
+		tel:          tel,
+		bus:          bus,
+		topo:         topo,
+		router:       router,
+		membership:   membership,
+		localNode:    localNode,
+		logger:       logger,
+		stopCh:       make(chan struct{}),
+		pending:      make(map[uint64]chan *forwardResponse),
+		rootWatchers: make(map[string]map[uint64]chan rootOutcome),
+		rootTimers:   make(map[string]*rootTimer),
 	}
 	if fsm != nil {
 		fsm.SetOnRestore(s.resetMonitorWatermark)
+		fsm.SetOnPending(s.handlePendingEvent)
+		fsm.SetOnActive(s.handleActiveEvent)
+		fsm.SetOnExpired(s.handleExpiredEvent)
 	}
 	return s
+}
+
+// SetMembership wires the cluster membership service after construction.
+// Boot wiring may construct the Service before the membership component
+// finishes loading; this setter lets Start() install it just before the
+// service is exposed.
+func (s *Service) SetMembership(m cluster.Membership) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.membership = m
+	s.mu.Unlock()
 }
 
 // Start begins the service: subscribes to cluster events for auto-cleanup.
@@ -119,9 +178,9 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 		return nil, fmt.Errorf("global registry service already started")
 	}
 	s.started = true
+	s.rebroadcastStop = make(chan struct{})
 	s.mu.Unlock()
 
-	// Subscribe to node-left events for auto-cleanup.
 	ch := make(chan event.Event, 32)
 	subID, err := s.bus.SubscribeP(ctx, cluster.System, cluster.NodeLeft, ch)
 	if err != nil {
@@ -129,12 +188,11 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 	}
 	go s.handleClusterEvents(ctx, ch, subID)
 
-	// Monitor leadership changes to re-establish PID monitors.
 	go s.monitorLeadership()
 
-	// Wait for the Raft log to catch up before serving lookups.
-	// This ensures this node won't return stale data after a restart or rejoin.
 	go s.waitForReady(ctx)
+
+	go s.rebroadcastLoop()
 
 	statusCh := make(chan any, 1)
 	go func() {
@@ -144,6 +202,26 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 
 	s.logger.Info("global registry service started", zap.String("node", s.localNode))
 	return statusCh, nil
+}
+
+// rebroadcastLoop periodically nudges pending entries on the leader. The
+// cadence is keyed to RootDeadline / rootRebroadcastDivisor so a 10s
+// deadline produces ~2 nudges before expiry.
+func (s *Service) rebroadcastLoop() {
+	interval := globalreg.RootDeadline / rootRebroadcastDivisor
+	if interval < 500*time.Millisecond {
+		interval = 500 * time.Millisecond
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case <-t.C:
+			s.rebroadcastPending()
+		}
+	}
 }
 
 // Stop terminates the service.
@@ -204,8 +282,33 @@ func (s *Service) handleNodeLeft(ctx context.Context, e event.Event) {
 
 // --- globalreg.Registry implementation ---
 
-// Register associates a name with a PID globally via Raft.
-func (s *Service) Register(_ context.Context, name string, p pid.PID) (pid.PID, error) {
+// Register registers a name at Consistent scope. Kept for back-compat
+// callers that have not been migrated to RegisterScope.
+func (s *Service) Register(ctx context.Context, name string, p pid.PID) (pid.PID, error) {
+	out, err := s.RegisterScope(ctx, name, p, globalreg.Consistent)
+	if err != nil {
+		return out.ExistingPID, err
+	}
+	return out.PID, nil
+}
+
+// RegisterScope is the scope-aware register entrypoint.
+func (s *Service) RegisterScope(ctx context.Context, name string, p pid.PID, mode globalreg.RegistrationMode) (globalreg.RegisterOutcome, error) {
+	switch mode {
+	case globalreg.Consistent:
+		return s.registerConsistent(name, p)
+	case globalreg.Root:
+		return s.registerRoot(ctx, name, p)
+	case globalreg.Local:
+		return globalreg.RegisterOutcome{}, fmt.Errorf("globalreg: Local scope not handled by globalreg.Service")
+	case globalreg.Eventual:
+		return globalreg.RegisterOutcome{}, fmt.Errorf("globalreg: Eventual scope not handled by globalreg.Service")
+	default:
+		return globalreg.RegisterOutcome{}, fmt.Errorf("globalreg: unknown scope %d", mode)
+	}
+}
+
+func (s *Service) registerConsistent(name string, p pid.PID) (globalreg.RegisterOutcome, error) {
 	nodeID := p.Node
 	if nodeID == "" {
 		nodeID = s.localNode
@@ -220,49 +323,451 @@ func (s *Service) Register(_ context.Context, name string, p pid.PID) (pid.PID, 
 
 	resp, err := s.applyCommand(cmd)
 	if err != nil {
-		return pid.PID{}, err
+		return globalreg.RegisterOutcome{}, err
 	}
 
 	result, ok := resp.(*RegisterResult)
 	if !ok {
-		return pid.PID{}, fmt.Errorf("unexpected register response type: %T", resp)
+		return globalreg.RegisterOutcome{}, fmt.Errorf("unexpected register response type: %T", resp)
 	}
 
 	if result.Err != nil {
-		return result.ExistingPID, globalreg.ErrNameAlreadyRegistered
+		return globalreg.RegisterOutcome{
+			ExistingPID: result.ExistingPID,
+		}, globalreg.ErrNameAlreadyRegistered
 	}
 
-	// A non-zero ResolvedPID means the conflict resolver replaced the prior
-	// owner — that's a re-registration. Surfaces as runtime_name_reregistrations_total
-	// so the chaos soak gate fails if a partition heal triggers a flood.
 	if result.ResolvedPID != (pid.PID{}) {
 		s.tel.recordReregistration(s.localNode, "global")
 	}
 
-	// Monitor the PID for auto-cleanup on process exit.
 	s.monitorPID(p)
 
-	return result.PID, nil
+	return globalreg.RegisterOutcome{
+		PID:   result.PID,
+		Epoch: result.FenceToken,
+		State: globalreg.RegisterStateActive,
+	}, nil
 }
 
-// Unregister removes a global name via Raft.
-func (s *Service) Unregister(_ context.Context, name string) (bool, error) {
+func (s *Service) registerRoot(ctx context.Context, name string, p pid.PID) (globalreg.RegisterOutcome, error) {
+	if s.membership == nil {
+		return globalreg.RegisterOutcome{}, fmt.Errorf("globalreg: Root scope requires cluster membership")
+	}
+
+	nodeID := p.Node
+	if nodeID == "" {
+		nodeID = s.localNode
+	}
+
+	required := s.snapshotRequiredNodes()
+	if len(required) == 0 {
+		return globalreg.RegisterOutcome{}, fmt.Errorf("globalreg: Root register found no live nodes")
+	}
+
+	deadline := time.Now().Add(globalreg.RootDeadline)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) && time.Until(ctxDeadline) >= 50*time.Millisecond {
+		deadline = ctxDeadline
+	}
+
+	watchCh := make(chan rootOutcome, 1)
+	s.installRootWatcher(name, 0, watchCh)
+	defer s.releaseRootWatcher(name, 0, watchCh)
+
 	cmd := &Command{
-		Type: CmdUnregister,
-		Name: name,
+		Type:             CmdRegisterPending,
+		Name:             name,
+		PID:              p,
+		NodeID:           nodeID,
+		RequiredNodes:    required,
+		DeadlineUnixNano: deadline.UnixNano(),
 	}
 
 	resp, err := s.applyCommand(cmd)
 	if err != nil {
-		return false, err
+		return globalreg.RegisterOutcome{}, err
 	}
 
-	result, ok := resp.(*UnregisterResult)
+	result, ok := resp.(*RegisterResult)
 	if !ok {
-		return false, fmt.Errorf("unexpected unregister response type: %T", resp)
+		return globalreg.RegisterOutcome{}, fmt.Errorf("unexpected pending response type: %T", resp)
+	}
+	if result.Err != nil {
+		return globalreg.RegisterOutcome{
+			ExistingPID: result.ExistingPID,
+		}, result.Err
 	}
 
-	return result.Removed, nil
+	epoch := result.FenceToken
+	s.rebindRootWatcher(name, 0, epoch)
+
+	s.monitorPID(p)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return globalreg.RegisterOutcome{Epoch: epoch}, ctx.Err()
+		case <-s.stopCh:
+			return globalreg.RegisterOutcome{Epoch: epoch}, globalreg.ErrNotAvailable
+		case outcome := <-watchCh:
+			switch outcome.State {
+			case globalreg.RegisterStateActive:
+				return globalreg.RegisterOutcome{
+					PID:   p,
+					Epoch: outcome.Epoch,
+					State: globalreg.RegisterStateActive,
+				}, nil
+			case globalreg.RegisterStateExpired:
+				missing := make([]string, len(outcome.MissingAcks))
+				copy(missing, outcome.MissingAcks)
+				return globalreg.RegisterOutcome{
+						Epoch: outcome.Epoch,
+						State: globalreg.RegisterStateExpired,
+					}, &globalreg.RootRegistrationTimeoutError{
+						Name:        name,
+						Epoch:       outcome.Epoch,
+						MissingAcks: missing,
+					}
+			}
+		}
+	}
+}
+
+// Unregister removes a Consistent-scope registration. Back-compat shim.
+func (s *Service) Unregister(ctx context.Context, name string) (bool, error) {
+	return s.UnregisterScope(ctx, name, globalreg.Consistent)
+}
+
+// UnregisterScope removes a name from the given scope.
+func (s *Service) UnregisterScope(_ context.Context, name string, mode globalreg.RegistrationMode) (bool, error) {
+	switch mode {
+	case globalreg.Consistent:
+		cmd := &Command{Type: CmdUnregister, Name: name}
+		resp, err := s.applyCommand(cmd)
+		if err != nil {
+			return false, err
+		}
+		r, ok := resp.(*UnregisterResult)
+		if !ok {
+			return false, fmt.Errorf("unexpected unregister response type: %T", resp)
+		}
+		return r.Removed, nil
+	case globalreg.Root:
+		cmd := &Command{Type: CmdRegisterUnreserve, Name: name}
+		resp, err := s.applyCommand(cmd)
+		if err != nil {
+			return false, err
+		}
+		r, ok := resp.(*UnregisterResult)
+		if !ok {
+			return false, fmt.Errorf("unexpected unreserve response type: %T", resp)
+		}
+		return r.Removed, nil
+	default:
+		return false, fmt.Errorf("globalreg: UnregisterScope unsupported scope %d", mode)
+	}
+}
+
+// snapshotRequiredNodes captures the live membership set used by the leader
+// when opening a Root reservation. Includes the local node. Sorted for
+// deterministic encoding.
+func (s *Service) snapshotRequiredNodes() []pid.NodeID {
+	if s.membership == nil {
+		return nil
+	}
+	nodes := s.membership.Nodes()
+	out := make([]pid.NodeID, 0, len(nodes)+1)
+	seen := make(map[pid.NodeID]struct{}, len(nodes)+1)
+	for _, n := range nodes {
+		if n.ID == "" {
+			continue
+		}
+		nid := n.ID
+		if _, dup := seen[nid]; dup {
+			continue
+		}
+		seen[nid] = struct{}{}
+		out = append(out, nid)
+	}
+	if _, dup := seen[s.localNode]; !dup && s.localNode != "" {
+		out = append(out, s.localNode)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+// installRootWatcher registers a channel that will receive the rootOutcome
+// for (name, epoch). epoch=0 is used briefly while the caller waits for the
+// FSM to assign an epoch via the pending response.
+func (s *Service) installRootWatcher(name string, epoch uint64, ch chan rootOutcome) {
+	s.rootMu.Lock()
+	defer s.rootMu.Unlock()
+	m, ok := s.rootWatchers[name]
+	if !ok {
+		m = make(map[uint64]chan rootOutcome, 1)
+		s.rootWatchers[name] = m
+	}
+	m[epoch] = ch
+}
+
+// rebindRootWatcher moves a watcher channel from one epoch key to another.
+// Used after the caller learns the epoch assigned to its pending entry.
+func (s *Service) rebindRootWatcher(name string, fromEpoch, toEpoch uint64) {
+	s.rootMu.Lock()
+	defer s.rootMu.Unlock()
+	m, ok := s.rootWatchers[name]
+	if !ok {
+		return
+	}
+	ch, ok := m[fromEpoch]
+	if !ok {
+		return
+	}
+	delete(m, fromEpoch)
+	m[toEpoch] = ch
+}
+
+func (s *Service) releaseRootWatcher(name string, epoch uint64, ch chan rootOutcome) {
+	s.rootMu.Lock()
+	defer s.rootMu.Unlock()
+	m, ok := s.rootWatchers[name]
+	if !ok {
+		return
+	}
+	if cur, ok := m[epoch]; ok && cur == ch {
+		delete(m, epoch)
+	}
+	for e, cur := range m {
+		if cur == ch {
+			delete(m, e)
+		}
+	}
+	if len(m) == 0 {
+		delete(s.rootWatchers, name)
+	}
+}
+
+// deliverRootOutcome wakes any watcher registered for (name, epoch).
+func (s *Service) deliverRootOutcome(name string, epoch uint64, outcome rootOutcome) {
+	s.rootMu.Lock()
+	m, ok := s.rootWatchers[name]
+	if !ok {
+		s.rootMu.Unlock()
+		return
+	}
+	chans := make([]chan rootOutcome, 0, 2)
+	if ch, ok := m[epoch]; ok {
+		chans = append(chans, ch)
+	}
+	if ch, ok := m[0]; ok && epoch != 0 {
+		chans = append(chans, ch)
+	}
+	s.rootMu.Unlock()
+	for _, ch := range chans {
+		select {
+		case ch <- outcome:
+		default:
+		}
+	}
+}
+
+// handlePendingEvent runs on every replica from FSM.Apply.
+// Followers send an ack to the leader via the relay. The leader bypasses
+// the relay and applies the ack directly (asynchronously, since Apply is
+// single-threaded and re-entering would deadlock).
+func (s *Service) handlePendingEvent(ev PendingEvent) {
+	inSet := false
+	for _, n := range ev.RequiredNodes {
+		if n == s.localNode {
+			inSet = true
+			break
+		}
+	}
+	if !inSet {
+		if s.raftSvc != nil && s.raftSvc.IsLeader() {
+			s.startRootTimer(ev.Name, ev.Epoch, time.Unix(0, ev.DeadlineUnixNano))
+		}
+		return
+	}
+	if s.raftSvc != nil && s.raftSvc.IsLeader() {
+		s.startRootTimer(ev.Name, ev.Epoch, time.Unix(0, ev.DeadlineUnixNano))
+		go s.applySelfAck(ev.Name, ev.Epoch)
+		return
+	}
+	if err := s.sendAck(ev.Name, ev.Epoch); err != nil {
+		s.logger.Debug("globalreg: send root ack failed",
+			zap.String("name", ev.Name), zap.Uint64("epoch", ev.Epoch), zap.Error(err))
+	}
+}
+
+// applySelfAck records the leader's own ack via Raft. Runs in a fresh
+// goroutine so it does not re-enter FSM.Apply.
+func (s *Service) applySelfAck(name string, epoch uint64) {
+	cmd := &Command{
+		Type:      CmdRegisterAck,
+		Name:      name,
+		Epoch:     epoch,
+		AckerNode: s.localNode,
+	}
+	if _, err := s.applyCommand(cmd); err != nil {
+		s.logger.Debug("globalreg: self-ack failed",
+			zap.String("name", name), zap.Uint64("epoch", epoch), zap.Error(err))
+	}
+}
+
+// handleActiveEvent wakes any local Register caller waiting on this entry.
+// The outcome carries the activation Raft index (ev.ActivationIdx) as the
+// fence token — that matches what Lookup(WithFence) will return after
+// the names map is updated.
+func (s *Service) handleActiveEvent(ev ActiveEvent) {
+	s.stopRootTimer(ev.Name, ev.Epoch)
+	s.deliverRootOutcome(ev.Name, ev.Epoch, rootOutcome{
+		State: globalreg.RegisterStateActive,
+		Epoch: ev.ActivationIdx,
+	})
+}
+
+// handleExpiredEvent wakes any local Register caller waiting on this entry.
+func (s *Service) handleExpiredEvent(ev ExpiredEvent) {
+	s.stopRootTimer(ev.Name, ev.Epoch)
+	s.deliverRootOutcome(ev.Name, ev.Epoch, rootOutcome{
+		State:       globalreg.RegisterStateExpired,
+		Epoch:       ev.Epoch,
+		MissingAcks: ev.MissingAcks,
+	})
+}
+
+// sendAck delivers a Root-scope ack to the current leader over the relay.
+func (s *Service) sendAck(name string, epoch uint64) error {
+	leaderID, _, err := s.raftSvc.Leader()
+	if err != nil || leaderID == "" {
+		return fmt.Errorf("no leader to ack")
+	}
+	body, err := marshalMsgpack(ackEnvelope{Name: name, Epoch: epoch, AckerNode: s.localNode})
+	if err != nil {
+		return err
+	}
+	pkg := relay.NewServicePackage(
+		s.localNode, HostID,
+		leaderID, HostID,
+		topicRegisterAck,
+		payload.New(body),
+	)
+	if err := s.router.Send(pkg); err != nil {
+		relay.ReleasePackage(pkg)
+		return err
+	}
+	return nil
+}
+
+// startRootTimer is called by the leader to arm a deadline timer for a
+// pending entry. Stopping the timer is safe to call from a different
+// goroutine; the timer goroutine exits cleanly on stop.
+func (s *Service) startRootTimer(name string, epoch uint64, deadline time.Time) {
+	key := rootTimerKey(name, epoch)
+	stop := make(chan struct{})
+	s.rootMu.Lock()
+	if existing, ok := s.rootTimers[key]; ok {
+		close(existing.stop)
+	}
+	t := &rootTimer{name: name, epoch: epoch, stop: stop, deadline: deadline}
+	s.rootTimers[key] = t
+	s.rootMu.Unlock()
+
+	go func() {
+		wait := time.Until(deadline)
+		if wait < 0 {
+			wait = 0
+		}
+		select {
+		case <-time.After(wait):
+			if !s.raftSvc.IsLeader() {
+				return
+			}
+			s.fireRootExpire(name, epoch, "missing_ack")
+		case <-stop:
+			return
+		case <-s.stopCh:
+			return
+		}
+	}()
+}
+
+func (s *Service) stopRootTimer(name string, epoch uint64) {
+	key := rootTimerKey(name, epoch)
+	s.rootMu.Lock()
+	if t, ok := s.rootTimers[key]; ok {
+		close(t.stop)
+		delete(s.rootTimers, key)
+	}
+	s.rootMu.Unlock()
+}
+
+func (s *Service) fireRootExpire(name string, epoch uint64, reason string) {
+	cmd := &Command{Type: CmdRegisterExpired, Name: name, Epoch: epoch, Reason: reason}
+	if _, err := s.applyCommand(cmd); err != nil {
+		s.logger.Warn("globalreg: fire root expire failed",
+			zap.String("name", name), zap.Uint64("epoch", epoch),
+			zap.String("reason", reason), zap.Error(err))
+	}
+}
+
+func rootTimerKey(name string, epoch uint64) string {
+	return fmt.Sprintf("%s|%d", name, epoch)
+}
+
+// rebroadcastPending re-applies CmdRegisterPending for entries that have
+// not yet collected every ack, letting followers retry their ack send if
+// the original relay delivery was dropped. Only runs on the leader.
+func (s *Service) rebroadcastPending() {
+	if !s.raftSvc.IsLeader() {
+		return
+	}
+	views := s.fsm.State().listPending()
+	now := time.Now()
+	for _, v := range views {
+		if len(v.MissingAcks) == 0 {
+			continue
+		}
+		if now.UnixNano() >= v.DeadlineUnixNano {
+			continue
+		}
+		for _, missing := range v.MissingAcks {
+			if missing == s.localNode {
+				s.handlePendingEvent(PendingEvent{
+					Name:             v.Name,
+					PID:              v.PID,
+					Epoch:            v.Epoch,
+					RequiredNodes:    v.RequiredNodes,
+					DeadlineUnixNano: v.DeadlineUnixNano,
+				})
+				continue
+			}
+			if err := s.sendPendingNudge(missing, v); err != nil {
+				s.logger.Debug("globalreg: pending nudge failed",
+					zap.String("name", v.Name), zap.Uint64("epoch", v.Epoch),
+					zap.String("target", missing), zap.Error(err))
+			}
+		}
+	}
+}
+
+// sendPendingNudge re-instructs a follower that has not acked yet to look
+// at its own FSM state and re-emit. Implemented by re-applying through
+// CmdRegisterPending — the pendingDedupe path makes this idempotent.
+func (s *Service) sendPendingNudge(targetNode pid.NodeID, v PendingView) error {
+	cmd := &Command{
+		Type:             CmdRegisterPending,
+		Name:             v.Name,
+		PID:              v.PID,
+		NodeID:           v.PID.Node,
+		Epoch:            v.Epoch,
+		RequiredNodes:    v.RequiredNodes,
+		DeadlineUnixNano: v.DeadlineUnixNano,
+	}
+	_, err := s.applyCommand(cmd)
+	_ = targetNode
+	return err
 }
 
 // Lookup reads the registry from the local Raft FSM replica with optional
@@ -493,12 +998,45 @@ func (s *Service) Send(pkg *relay.Package) error {
 			s.handleForwardRequest(pkg.Source, msg)
 		case topicForwardResponse:
 			s.handleForwardResponse(msg)
+		case topicRegisterAck:
+			s.handleRegisterAck(msg)
 		case topology.TopicEvents:
 			s.handleExitEvent(msg)
 		}
 	}
 
 	return nil
+}
+
+// handleRegisterAck routes an ack arriving over the relay through Raft.
+// Only the leader does anything useful — followers receiving an ack
+// (shouldn't happen in practice but is harmless) drop it.
+func (s *Service) handleRegisterAck(msg *relay.Message) {
+	if len(msg.Payloads) == 0 {
+		return
+	}
+	body, ok := msg.Payloads[0].Data().([]byte)
+	if !ok || len(body) == 0 {
+		return
+	}
+	if !s.raftSvc.IsLeader() {
+		return
+	}
+	var env ackEnvelope
+	if err := unmarshalMsgpack(body, &env); err != nil {
+		s.logger.Warn("globalreg: malformed root ack", zap.Error(err))
+		return
+	}
+	cmd := &Command{
+		Type:      CmdRegisterAck,
+		Name:      env.Name,
+		Epoch:     env.Epoch,
+		AckerNode: env.AckerNode,
+	}
+	if _, err := s.applyCommand(cmd); err != nil {
+		s.logger.Debug("globalreg: apply root ack failed",
+			zap.String("name", env.Name), zap.Uint64("epoch", env.Epoch), zap.Error(err))
+	}
 }
 
 // handleExitEvent processes topology exit events for monitored PIDs.
@@ -646,9 +1184,12 @@ func (s *Service) deliverForward(corrID uint64, resp *forwardResponse) {
 // monitorPID starts topology monitoring for a globally registered PID.
 // When the process exits, its names are auto-removed.
 func (s *Service) monitorPID(p pid.PID) {
+	if s.topo == nil {
+		return
+	}
 	pidKey := p.String()
 	if _, loaded := s.monitoredPIDs.LoadOrStore(pidKey, struct{}{}); loaded {
-		return // already monitoring
+		return
 	}
 
 	self := pid.PID{Node: s.localNode, Host: HostID}
@@ -710,7 +1251,6 @@ func (s *Service) reestablishMonitors() {
 		}
 	}
 	if highest > threshold {
-		// CAS so concurrent calls (none today, but defensive) only advance.
 		for {
 			cur := s.monitorWatermark.Load()
 			if highest <= cur {
@@ -720,6 +1260,19 @@ func (s *Service) reestablishMonitors() {
 				break
 			}
 		}
+	}
+
+	s.resumeRootTimers()
+}
+
+// resumeRootTimers walks pending Root entries and arms a deadline timer
+// for each one this node now owns as leader. Called on leader transition.
+func (s *Service) resumeRootTimers() {
+	if s.fsm == nil {
+		return
+	}
+	for _, v := range s.fsm.State().listPending() {
+		s.startRootTimer(v.Name, v.Epoch, time.Unix(0, v.DeadlineUnixNano))
 	}
 }
 
@@ -766,6 +1319,23 @@ func (s *Service) IsDegraded() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.degraded
+}
+
+// PendingSnapshot returns the current Root-scope pending reservations.
+// Read-only; intended for the admin endpoint.
+func (s *Service) PendingSnapshot() []PendingView {
+	if s == nil || s.fsm == nil {
+		return nil
+	}
+	return s.fsm.State().listPending()
+}
+
+// ExpiredHistory returns the most recent expired reservations (capped).
+func (s *Service) ExpiredHistory() []ExpiredRecord {
+	if s == nil || s.fsm == nil {
+		return nil
+	}
+	return s.fsm.State().expiredSnapshot()
 }
 
 // RecordFenceRejection emits the pg_fence_rejection_total counter. It is

@@ -15,6 +15,7 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/system/admin"
 	"github.com/wippyai/runtime/system/eventualreg"
+	"github.com/wippyai/runtime/system/globalreg"
 	sysraft "github.com/wippyai/runtime/system/raft"
 	"go.uber.org/zap"
 )
@@ -65,6 +66,7 @@ func Admin() boot.Component {
 			globalRaft, _ := ac.Get(raftNodeKey).(*sysraft.Node)
 			kvRaft, _ := ac.Get(kvRaftNodeKey).(*sysraft.Node)
 			eventualReg, _ := ac.Get(eventualRegSvcKey).(*eventualreg.Service)
+			globalReg, _ := ac.Get(globalRegSvcKey).(*globalreg.Service)
 			membership, _ := ac.Get(membershipServiceKey).(clusterapi.Membership)
 
 			if globalRaft == nil || eventualReg == nil || membership == nil {
@@ -76,6 +78,7 @@ func Admin() boot.Component {
 				GlobalRaft:  globalRaft,
 				KVRaft:      kvRaft,
 				EventualReg: eventualReg,
+				GlobalReg:   globalReg,
 				Membership:  membership,
 				Logger:      logger,
 			})

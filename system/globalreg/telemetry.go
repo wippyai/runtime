@@ -151,3 +151,48 @@ func (t *telemetry) recordRemoveNodeChunk(node string, count int) {
 		t.coll.CounterAdd("globalreg_remove_node_names_total", float64(count), metrics.Labels{"node": node})
 	}
 }
+
+func (t *telemetry) recordRootPending(result string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("globalreg_root_pending_total", metrics.Labels{"result": result})
+}
+
+func (t *telemetry) recordRootActive(bucket string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("globalreg_root_active_total", metrics.Labels{"ack_count_bucket": bucket})
+}
+
+func (t *telemetry) recordRootExpired(reason string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	if reason == "" {
+		reason = "unspecified"
+	}
+	t.coll.CounterInc("globalreg_root_expired_total", metrics.Labels{"reason": reason})
+}
+
+func (t *telemetry) recordRootAck(kind string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("globalreg_root_ack_total", metrics.Labels{"kind": kind})
+}
+
+func (t *telemetry) recordRootRelease(reason string) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("globalreg_root_release_total", metrics.Labels{"reason": reason})
+}
+
+func (t *telemetry) setRootPendingInFlight(n int) {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.GaugeSet("globalreg_root_pending_in_flight", float64(n), nil)
+}

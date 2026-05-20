@@ -28,16 +28,38 @@ const (
 // SystemPID is the sender PID for topology system messages.
 var SystemPID = pid.PID{UniqID: "topology"}
 
-// Registration mode constants.
+// Registration mode constants. The four scopes form a strict ordering on
+// the consistency / cost axis:
+//
+//	Local      — visible only on the registering node.
+//	Eventual   — cluster-wide gossip/CRDT; no distributed lock; converges
+//	             after partition heal. Sized for ~1M presence/session names.
+//	Consistent — Raft singleton with fence (formerly Global). Linearizable
+//	             ownership; replicas observe activation lazily. Scales to
+//	             ~1M user-facing names.
+//	Root       — Raft singleton plus all-live-node ack on the committed
+//	             epoch. No late compensation; only used for the small set
+//	             of control-plane names (<10k). See PR241-T4.
+//
+// Global is kept as a back-compat alias for Consistent. Existing callers
+// using topology.Global continue to compile and observe identical semantics
+// until the alias is removed in a later release.
 const (
 	// Local is the default; the name is visible only on the registering node.
 	Local RegistrationMode = 0
-	// Global registers the name cluster-wide via Raft consensus.
+	// Global is the legacy name for Consistent. Retained as an alias for
+	// one release cycle so existing scripts and Go callers keep working.
 	Global RegistrationMode = 1
 	// Eventual registers the name cluster-wide via gossip/CRDT.
 	// No distributed lock; converges after partition heal.
-	// Sized for ~100k user-session-class names per cluster.
 	Eventual RegistrationMode = 2
+	// Consistent registers the name cluster-wide via Raft consensus with
+	// a fence token; same wire value as the legacy Global to preserve
+	// backward compatibility.
+	Consistent RegistrationMode = Global
+	// Root is the strictest scope: Raft singleton plus all-live-node ack
+	// on the committed epoch within a deadline. See PR241-T4.
+	Root RegistrationMode = 3
 )
 
 // Event kind constants for process lifecycle events.

@@ -30,10 +30,49 @@ type nameEntry struct {
 // All write methods assume the caller holds the appropriate shard write-lock
 // (or is being called from FSM.Apply which is single-threaded).
 type shardedState struct {
-	// nodeIndex maps nodeID → set of pidKeys that belong to that node.
-	// Used for efficient CmdRemoveNode.
-	nodeIndex sync.Map // nodeID → *pidSet
+	pending   map[string]*pendingEntry
+	nodeIndex sync.Map
+	expired   []ExpiredRecord
 	shards    [shardCount]shard
+	pendingMu sync.RWMutex
+	expiredMu sync.Mutex
+}
+
+// expiredRingCap caps the in-memory history of expired ROOT reservations.
+const expiredRingCap = 64
+
+// pendingEntry captures a Root-scope reservation in flight.
+type pendingEntry struct {
+	AckSet           map[pid.NodeID]struct{}
+	PID              pid.PID
+	Name             string
+	NodeID           pid.NodeID
+	RequiredNodes    []pid.NodeID
+	Epoch            uint64
+	DeadlineUnixNano int64
+	CreatedAt        int64
+}
+
+// ExpiredRecord is the public view of a released Root reservation.
+type ExpiredRecord struct {
+	PID         pid.PID      `json:"pid"`
+	Name        string       `json:"name"`
+	Reason      string       `json:"reason"`
+	MissingAcks []pid.NodeID `json:"missing_acks,omitempty"`
+	Epoch       uint64       `json:"epoch"`
+	ExpiredAt   int64        `json:"expired_at_unix_nano"`
+}
+
+// PendingView is the public read-only view of a Root reservation.
+type PendingView struct {
+	PID              pid.PID      `json:"pid"`
+	Name             string       `json:"name"`
+	RequiredNodes    []pid.NodeID `json:"required_nodes"`
+	AckSet           []pid.NodeID `json:"ack_set"`
+	MissingAcks      []pid.NodeID `json:"missing_acks"`
+	Epoch            uint64       `json:"epoch"`
+	DeadlineUnixNano int64        `json:"deadline_unix_nano"`
+	CreatedAt        int64        `json:"created_at_unix_nano"`
 }
 
 // pidSet is a thread-safe set of PID string keys used in the node index.
@@ -43,7 +82,9 @@ type pidSet struct {
 }
 
 func newShardedState() *shardedState {
-	s := &shardedState{}
+	s := &shardedState{
+		pending: make(map[string]*pendingEntry),
+	}
 	for i := range s.shards {
 		s.shards[i].names = make(map[string]*nameEntry)
 		s.shards[i].pidNames = make(map[string][]string)
@@ -154,13 +195,22 @@ const (
 // or registerDedupe (already mapped to the same PID — idempotent no-op).
 // On collision it returns the existing owner PID and registerConflict.
 func (s *shardedState) register(name string, p pid.PID, nodeID pid.NodeID, index uint64) (pid.PID, registerOutcome) {
+	s.pendingMu.RLock()
+	if e, ok := s.pending[name]; ok {
+		s.pendingMu.RUnlock()
+		if e.PID == p {
+			return p, registerDedupe
+		}
+		return e.PID, registerConflict
+	}
+	s.pendingMu.RUnlock()
+
 	sh := &s.shards[shardFor(name)]
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
 
 	if existing, ok := sh.names[name]; ok {
 		if existing.PID == p {
-			// Idempotent re-registration.
 			return p, registerDedupe
 		}
 
@@ -172,10 +222,226 @@ func (s *shardedState) register(name string, p pid.PID, nodeID pid.NodeID, index
 	pidKey := p.String()
 	sh.pidNames[pidKey] = append(sh.pidNames[pidKey], name)
 
-	// Update node index.
 	s.addToNodeIndex(nodeID, pidKey)
 
 	return p, registerInserted
+}
+
+// pendingOutcome captures the disposition of a registerPending attempt.
+type pendingOutcome uint8
+
+const (
+	pendingInserted pendingOutcome = iota
+	pendingDedupe
+	pendingConflictActive
+	pendingConflictPending
+)
+
+// registerPending opens a Root-scope reservation. The reservation is rejected
+// if the name is already active (registerConflictActive) or already pending
+// for a different PID (pendingConflictPending). Re-submitting the same name+PID
+// while pending is idempotent (pendingDedupe).
+//
+// The strict snapshot policy applies: requiredNodes is captured by the leader
+// at the moment of the pending commit and embedded in the log entry so every
+// replica sees the same set during replay. We deliberately do not refresh it
+// when a node leaves — the spec requires the reservation to fail in that case
+// rather than redefine its own quorum on the fly. See PR241-T4 §C.
+func (s *shardedState) registerPending(name string, p pid.PID, nodeID pid.NodeID, epoch uint64, required []pid.NodeID, deadline int64, createdAt int64) (pid.PID, pendingOutcome) {
+	sh := &s.shards[shardFor(name)]
+	sh.mu.RLock()
+	existing, hasActive := sh.names[name]
+	sh.mu.RUnlock()
+	if hasActive {
+		if existing.PID == p {
+			return p, pendingDedupe
+		}
+		return existing.PID, pendingConflictActive
+	}
+
+	s.pendingMu.Lock()
+	defer s.pendingMu.Unlock()
+	if e, ok := s.pending[name]; ok {
+		if e.PID == p && e.Epoch == epoch {
+			return p, pendingDedupe
+		}
+		return e.PID, pendingConflictPending
+	}
+	reqCopy := make([]pid.NodeID, len(required))
+	copy(reqCopy, required)
+	s.pending[name] = &pendingEntry{
+		Name:             name,
+		PID:              p,
+		NodeID:           nodeID,
+		Epoch:            epoch,
+		RequiredNodes:    reqCopy,
+		AckSet:           make(map[pid.NodeID]struct{}, len(required)),
+		DeadlineUnixNano: deadline,
+		CreatedAt:        createdAt,
+	}
+	return p, pendingInserted
+}
+
+// recordAck records a node's ack for a pending reservation. Returns the
+// pending entry (post-update), and whether the ack set now covers
+// RequiredNodes.
+func (s *shardedState) recordAck(name string, epoch uint64, acker pid.NodeID) (*pendingEntry, bool, bool) {
+	s.pendingMu.Lock()
+	defer s.pendingMu.Unlock()
+	e, ok := s.pending[name]
+	if !ok || e.Epoch != epoch {
+		return nil, false, false
+	}
+	if _, dup := e.AckSet[acker]; dup {
+		return e, false, ackComplete(e)
+	}
+	e.AckSet[acker] = struct{}{}
+	return e, true, ackComplete(e)
+}
+
+func ackComplete(e *pendingEntry) bool {
+	for _, n := range e.RequiredNodes {
+		if _, ok := e.AckSet[n]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// promotePending moves a pending entry into the active names map. Callers
+// must have already verified that recordAck returned complete=true.
+// activationIndex is the Raft log index of the CmdRegisterAck that completed
+// the set — it becomes the fence token of the active entry.
+func (s *shardedState) promotePending(name string, epoch uint64, activationIndex uint64) (*pendingEntry, bool) {
+	s.pendingMu.Lock()
+	e, ok := s.pending[name]
+	if !ok || e.Epoch != epoch {
+		s.pendingMu.Unlock()
+		return nil, false
+	}
+	delete(s.pending, name)
+	s.pendingMu.Unlock()
+
+	sh := &s.shards[shardFor(name)]
+	sh.mu.Lock()
+	sh.names[name] = &nameEntry{PID: e.PID, NodeID: e.NodeID, AppliedAt: activationIndex}
+	pidKey := e.PID.String()
+	sh.pidNames[pidKey] = append(sh.pidNames[pidKey], name)
+	sh.mu.Unlock()
+	s.addToNodeIndex(e.NodeID, pidKey)
+	return e, true
+}
+
+// expirePending releases a pending reservation and records it in the
+// expired ring buffer.
+func (s *shardedState) expirePending(name string, epoch uint64, reason string, expiredAt int64) (*pendingEntry, []pid.NodeID, bool) {
+	s.pendingMu.Lock()
+	e, ok := s.pending[name]
+	if !ok || e.Epoch != epoch {
+		s.pendingMu.Unlock()
+		return nil, nil, false
+	}
+	delete(s.pending, name)
+	s.pendingMu.Unlock()
+
+	missing := make([]pid.NodeID, 0, len(e.RequiredNodes))
+	for _, n := range e.RequiredNodes {
+		if _, acked := e.AckSet[n]; !acked {
+			missing = append(missing, n)
+		}
+	}
+
+	s.expiredMu.Lock()
+	rec := ExpiredRecord{
+		Name:        name,
+		PID:         e.PID,
+		Epoch:       epoch,
+		Reason:      reason,
+		MissingAcks: missing,
+		ExpiredAt:   expiredAt,
+	}
+	if len(s.expired) < expiredRingCap {
+		s.expired = append(s.expired, rec)
+	} else {
+		copy(s.expired, s.expired[1:])
+		s.expired[len(s.expired)-1] = rec
+	}
+	s.expiredMu.Unlock()
+
+	return e, missing, true
+}
+
+// unreservePending drops a pending entry without recording it as expired.
+// Used by explicit UnregisterScope(Root) before activation completes.
+func (s *shardedState) unreservePending(name string, p pid.PID) (*pendingEntry, bool) {
+	s.pendingMu.Lock()
+	defer s.pendingMu.Unlock()
+	e, ok := s.pending[name]
+	if !ok {
+		return nil, false
+	}
+	if p != (pid.PID{}) && e.PID != p {
+		return e, false
+	}
+	delete(s.pending, name)
+	return e, true
+}
+
+// pendingByName returns a snapshot of a single pending entry, or nil if
+// none. The returned PendingView is a copy.
+func (s *shardedState) pendingByName(name string) *PendingView {
+	s.pendingMu.RLock()
+	defer s.pendingMu.RUnlock()
+	e, ok := s.pending[name]
+	if !ok {
+		return nil
+	}
+	return e.view()
+}
+
+// listPending returns a snapshot of every current pending entry.
+func (s *shardedState) listPending() []PendingView {
+	s.pendingMu.RLock()
+	defer s.pendingMu.RUnlock()
+	out := make([]PendingView, 0, len(s.pending))
+	for _, e := range s.pending {
+		out = append(out, *e.view())
+	}
+	return out
+}
+
+// expiredSnapshot returns a copy of the expired ring buffer.
+func (s *shardedState) expiredSnapshot() []ExpiredRecord {
+	s.expiredMu.Lock()
+	defer s.expiredMu.Unlock()
+	out := make([]ExpiredRecord, len(s.expired))
+	copy(out, s.expired)
+	return out
+}
+
+func (e *pendingEntry) view() *PendingView {
+	acked := make([]pid.NodeID, 0, len(e.AckSet))
+	for n := range e.AckSet {
+		acked = append(acked, n)
+	}
+	missing := make([]pid.NodeID, 0, len(e.RequiredNodes))
+	for _, n := range e.RequiredNodes {
+		if _, ok := e.AckSet[n]; !ok {
+			missing = append(missing, n)
+		}
+	}
+	req := make([]pid.NodeID, len(e.RequiredNodes))
+	copy(req, e.RequiredNodes)
+	return &PendingView{
+		Name:             e.Name,
+		PID:              e.PID,
+		Epoch:            e.Epoch,
+		RequiredNodes:    req,
+		AckSet:           acked,
+		MissingAcks:      missing,
+		DeadlineUnixNano: e.DeadlineUnixNano,
+		CreatedAt:        e.CreatedAt,
+	}
 }
 
 // unregister removes a single name. Returns true if the name existed.
@@ -194,6 +460,21 @@ func (s *shardedState) unregister(name string) bool {
 	pidKey := entry.PID.String()
 	s.removePIDName(sh, pidKey, name)
 	return true
+}
+
+// lookupPendingByPID returns the names this PID currently holds a pending
+// Root reservation for. Used by removePID to also drop reservations the
+// owning process opened.
+func (s *shardedState) lookupPendingByPID(p pid.PID) []string {
+	s.pendingMu.RLock()
+	defer s.pendingMu.RUnlock()
+	out := make([]string, 0, 4)
+	for name, e := range s.pending {
+		if e.PID == p {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // removePID removes all names for a given PID across all shards.
@@ -348,6 +629,28 @@ type snapshotEntry struct {
 	AppliedAt uint64     `codec:"a"`
 }
 
+// pendingSnapshotEntry is the serialisable form of a Root pending reservation.
+// Carried alongside `entries` in the FSM snapshot so a recovering node
+// resumes mid-flight reservations after a Raft replay.
+type pendingSnapshotEntry struct {
+	PID              pid.PID      `codec:"p"`
+	Name             string       `codec:"n"`
+	NodeID           pid.NodeID   `codec:"d"`
+	RequiredNodes    []pid.NodeID `codec:"r"`
+	AckSet           []pid.NodeID `codec:"as"`
+	Epoch            uint64       `codec:"e"`
+	DeadlineUnixNano int64        `codec:"dl"`
+	CreatedAt        int64        `codec:"c"`
+}
+
+// fsmSnapshotPayload is the top-level encoded snapshot. A legacy snapshot
+// containing only []snapshotEntry decodes into the same struct because
+// msgpack ignores missing fields.
+type fsmSnapshotPayload struct {
+	Entries []snapshotEntry        `codec:"e"`
+	Pending []pendingSnapshotEntry `codec:"p,omitempty"`
+}
+
 // snapshotAbove returns entries with AppliedAt strictly greater than threshold.
 // Used by reestablishMonitors to walk only entries that have been added since
 // the last reestablish pass — bounds the leader-failover monitor-rebuild cost
@@ -418,20 +721,17 @@ func (s *shardedState) snapshot() []snapshotEntry {
 
 // restore replaces all state from a snapshot. Write-locks all shards
 // simultaneously to prevent concurrent reads from seeing partial state.
-func (s *shardedState) restore(entries []snapshotEntry) {
-	// Acquire all write-locks before clearing
+func (s *shardedState) restore(entries []snapshotEntry, pending []pendingSnapshotEntry) {
 	for i := range s.shards {
 		s.shards[i].mu.Lock()
 	}
 
-	// Clear everything under full lock
 	for i := range s.shards {
 		s.shards[i].names = make(map[string]*nameEntry)
 		s.shards[i].pidNames = make(map[string][]string)
 	}
 	s.nodeIndex = sync.Map{}
 
-	// Re-populate while still holding all locks
 	for _, e := range entries {
 		sh := &s.shards[shardFor(e.Name)]
 		sh.names[e.Name] = &nameEntry{PID: e.PID, NodeID: e.NodeID, AppliedAt: e.AppliedAt}
@@ -440,8 +740,55 @@ func (s *shardedState) restore(entries []snapshotEntry) {
 		s.addToNodeIndex(e.NodeID, pidKey)
 	}
 
-	// Release all write-locks
 	for i := range s.shards {
 		s.shards[i].mu.Unlock()
 	}
+
+	s.pendingMu.Lock()
+	s.pending = make(map[string]*pendingEntry, len(pending))
+	for _, p := range pending {
+		ackSet := make(map[pid.NodeID]struct{}, len(p.AckSet))
+		for _, n := range p.AckSet {
+			ackSet[n] = struct{}{}
+		}
+		req := make([]pid.NodeID, len(p.RequiredNodes))
+		copy(req, p.RequiredNodes)
+		s.pending[p.Name] = &pendingEntry{
+			Name:             p.Name,
+			PID:              p.PID,
+			NodeID:           p.NodeID,
+			Epoch:            p.Epoch,
+			RequiredNodes:    req,
+			AckSet:           ackSet,
+			DeadlineUnixNano: p.DeadlineUnixNano,
+			CreatedAt:        p.CreatedAt,
+		}
+	}
+	s.pendingMu.Unlock()
+}
+
+// pendingSnapshot returns a copy of every pending entry as a serialisable slice.
+func (s *shardedState) pendingSnapshot() []pendingSnapshotEntry {
+	s.pendingMu.RLock()
+	defer s.pendingMu.RUnlock()
+	out := make([]pendingSnapshotEntry, 0, len(s.pending))
+	for _, e := range s.pending {
+		acks := make([]pid.NodeID, 0, len(e.AckSet))
+		for n := range e.AckSet {
+			acks = append(acks, n)
+		}
+		req := make([]pid.NodeID, len(e.RequiredNodes))
+		copy(req, e.RequiredNodes)
+		out = append(out, pendingSnapshotEntry{
+			Name:             e.Name,
+			PID:              e.PID,
+			NodeID:           e.NodeID,
+			Epoch:            e.Epoch,
+			RequiredNodes:    req,
+			AckSet:           acks,
+			DeadlineUnixNano: e.DeadlineUnixNano,
+			CreatedAt:        e.CreatedAt,
+		})
+	}
+	return out
 }

@@ -134,7 +134,13 @@ type mockFenceValidator struct {
 func (m *mockFenceValidator) Register(_ context.Context, _ string, p pid.PID) (pid.PID, error) {
 	panic("unexpected call")
 }
+func (m *mockFenceValidator) RegisterScope(_ context.Context, _ string, _ pid.PID, _ globalreg.RegistrationMode) (globalreg.RegisterOutcome, error) {
+	panic("unexpected call")
+}
 func (m *mockFenceValidator) Unregister(_ context.Context, _ string) (bool, error) {
+	panic("unexpected call")
+}
+func (m *mockFenceValidator) UnregisterScope(_ context.Context, _ string, _ globalreg.RegistrationMode) (bool, error) {
 	panic("unexpected call")
 }
 

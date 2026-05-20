@@ -9,6 +9,7 @@ import (
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
 
+	"github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/pid"
 )
 
@@ -33,6 +34,14 @@ func commandLabel(t CommandType) string {
 		return "remove_pid"
 	case CmdRemoveNode:
 		return "remove_node"
+	case CmdRegisterPending:
+		return "register_pending"
+	case CmdRegisterAck:
+		return "register_ack"
+	case CmdRegisterExpired:
+		return "register_expired"
+	case CmdRegisterUnreserve:
+		return "register_unreserve"
 	default:
 		return "unknown"
 	}
@@ -56,6 +65,8 @@ type wireRegisterResult struct {
 	PID         pid.PID `codec:"p,omitempty"`
 	ExistingPID pid.PID `codec:"x,omitempty"`
 	ResolvedPID pid.PID `codec:"r,omitempty"`
+	FenceToken  uint64  `codec:"f,omitempty"`
+	State       uint8   `codec:"s,omitempty"`
 }
 
 type wireUnregisterResult struct {
@@ -65,6 +76,17 @@ type wireUnregisterResult struct {
 type wireRemoveResult struct {
 	Count   int  `codec:"c"`
 	HasMore bool `codec:"m,omitempty"`
+}
+
+type wireAckResult struct {
+	Recognized bool `codec:"r"`
+	Complete   bool `codec:"c,omitempty"`
+	Activated  bool `codec:"a,omitempty"`
+}
+
+type wireExpireResult struct {
+	MissingAcks []pid.NodeID `codec:"m,omitempty"`
+	Removed     bool         `codec:"d"`
 }
 
 // encodeFSMResult serializes an FSM apply response so it can be sent back to a
@@ -83,6 +105,8 @@ func encodeFSMResult(cmd CommandType, result any) ([]byte, error) {
 			PID:         v.PID,
 			ExistingPID: v.ExistingPID,
 			ResolvedPID: v.ResolvedPID,
+			FenceToken:  v.FenceToken,
+			State:       uint8(v.State),
 		}
 		if v.Err != nil {
 			wr.Err = v.Err.Error()
@@ -92,6 +116,10 @@ func encodeFSMResult(cmd CommandType, result any) ([]byte, error) {
 		return marshalMsgpack(wireUnregisterResult{Removed: v.Removed})
 	case *RemoveResult:
 		return marshalMsgpack(wireRemoveResult{Count: v.Count, HasMore: v.HasMore})
+	case *AckResult:
+		return marshalMsgpack(wireAckResult{Recognized: v.Recognized, Complete: v.Complete, Activated: v.Activated})
+	case *ExpireResult:
+		return marshalMsgpack(wireExpireResult{Removed: v.Removed, MissingAcks: v.MissingAcks})
 	case error:
 		return nil, fmt.Errorf("encodeFSMResult: result is an error (cmd=%s); the caller must route errors via the envelope's Err field, not Result bytes", commandLabel(cmd))
 	default:
@@ -106,7 +134,7 @@ func decodeFSMResult(cmd CommandType, data []byte) (any, error) {
 		return nil, nil
 	}
 	switch cmd {
-	case CmdRegister:
+	case CmdRegister, CmdRegisterPending:
 		var wr wireRegisterResult
 		if err := unmarshalMsgpack(data, &wr); err != nil {
 			return nil, fmt.Errorf("decode register result: %w", err)
@@ -115,12 +143,14 @@ func decodeFSMResult(cmd CommandType, data []byte) (any, error) {
 			PID:         wr.PID,
 			ExistingPID: wr.ExistingPID,
 			ResolvedPID: wr.ResolvedPID,
+			FenceToken:  wr.FenceToken,
+			State:       globalreg.RegisterState(wr.State),
 		}
 		if wr.Err != "" {
 			out.Err = errors.New(wr.Err)
 		}
 		return out, nil
-	case CmdUnregister:
+	case CmdUnregister, CmdRegisterUnreserve:
 		var wr wireUnregisterResult
 		if err := unmarshalMsgpack(data, &wr); err != nil {
 			return nil, fmt.Errorf("decode unregister result: %w", err)
@@ -132,6 +162,18 @@ func decodeFSMResult(cmd CommandType, data []byte) (any, error) {
 			return nil, fmt.Errorf("decode remove result: %w", err)
 		}
 		return &RemoveResult{Count: wr.Count, HasMore: wr.HasMore}, nil
+	case CmdRegisterAck:
+		var wr wireAckResult
+		if err := unmarshalMsgpack(data, &wr); err != nil {
+			return nil, fmt.Errorf("decode ack result: %w", err)
+		}
+		return &AckResult{Recognized: wr.Recognized, Complete: wr.Complete, Activated: wr.Activated}, nil
+	case CmdRegisterExpired:
+		var wr wireExpireResult
+		if err := unmarshalMsgpack(data, &wr); err != nil {
+			return nil, fmt.Errorf("decode expire result: %w", err)
+		}
+		return &ExpireResult{Removed: wr.Removed, MissingAcks: wr.MissingAcks}, nil
 	default:
 		return nil, fmt.Errorf("decode result: unknown command kind %d", cmd)
 	}

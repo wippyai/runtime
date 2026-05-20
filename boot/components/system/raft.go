@@ -149,6 +149,7 @@ func Raft() boot.Component {
 			globalRegSvc = globalreg.NewService(
 				raftNode, fsm, bus, topo,
 				router,
+				nil,
 				node.ID(),
 				logger.Named("globalreg"),
 				coll, mp, tp,
@@ -282,19 +283,22 @@ func Raft() boot.Component {
 				logger.Warn("raft leader election timed out (continuing anyway)")
 			}
 
-			// Start membership handler to sync Raft voters with cluster membership.
-			bus := event.GetBus(ctx)
-			if bus != nil && ac != nil {
-				// Resolve the membership service. Without it the reconciler
-				// cannot read raft_port hints, so we skip wiring rather than
-				// half-start a broken handler.
-				var membership clusterapi.Membership
+			// Resolve cluster membership once for both the raft membership
+			// handler and the globalreg Root-scope path. Without membership
+			// the reconciler cannot read raft_port hints and Root scope
+			// cannot snapshot the live-node set, so we log per-feature.
+			var membership clusterapi.Membership
+			if ac != nil {
 				if val := ac.Get(membershipServiceKey); val != nil {
 					if m, ok := val.(clusterapi.Membership); ok {
 						membership = m
 					}
 				}
+			}
 
+			// Start membership handler to sync Raft voters with cluster membership.
+			bus := event.GetBus(ctx)
+			if bus != nil && ac != nil {
 				if membership == nil {
 					logger.Warn("raft membership handler skipped: cluster.Membership not available in context")
 				} else {
@@ -309,6 +313,11 @@ func Raft() boot.Component {
 
 			// Start the global registry service.
 			if globalRegSvc != nil {
+				if membership != nil {
+					globalRegSvc.SetMembership(membership)
+				} else {
+					logger.Warn("globalreg Root scope disabled: cluster.Membership not available")
+				}
 				if _, err := globalRegSvc.Start(ctx); err != nil {
 					return fmt.Errorf("start global registry: %w", err)
 				}

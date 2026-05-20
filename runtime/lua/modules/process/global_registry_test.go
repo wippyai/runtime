@@ -58,6 +58,15 @@ func (m *mockGlobalRegistry) Register(ctx context.Context, name string, p pid.PI
 	return result.PID, nil
 }
 
+func (m *mockGlobalRegistry) RegisterScope(ctx context.Context, name string, p pid.PID, _ globalregapi.RegistrationMode) (globalregapi.RegisterOutcome, error) {
+	pidOut, err := m.Register(ctx, name, p)
+	return globalregapi.RegisterOutcome{PID: pidOut, State: globalregapi.RegisterStateActive}, err
+}
+
+func (m *mockGlobalRegistry) UnregisterScope(ctx context.Context, name string, _ globalregapi.RegistrationMode) (bool, error) {
+	return m.Unregister(ctx, name)
+}
+
 func (m *mockGlobalRegistry) Unregister(ctx context.Context, name string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

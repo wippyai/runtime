@@ -3,6 +3,7 @@
 package process
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -145,7 +146,7 @@ func init() {
 	debugReg.RawSetString("validate_fence", lua.LGoFunc(registryDebugValidateFence))
 	debugReg.Immutable = true
 
-	reg := lua.CreateTable(0, 8)
+	reg := lua.CreateTable(0, 12)
 	reg.RawSetString("register", lua.LGoFunc(registryRegister))
 	reg.RawSetString("lookup", lua.LGoFunc(registryLookup))
 	reg.RawSetString("lookup_with_fence", lua.LGoFunc(registryLookupWithFence))
@@ -153,6 +154,9 @@ func init() {
 	reg.RawSetString("unregister", lua.LGoFunc(registryUnregister))
 	reg.RawSetString("LOCAL", lua.LNumber(float64(topology.Local)))
 	reg.RawSetString("GLOBAL", lua.LNumber(float64(topology.Global)))
+	reg.RawSetString("CONSISTENT", lua.LNumber(float64(topology.Consistent)))
+	reg.RawSetString("EVENTUAL", lua.LNumber(float64(topology.Eventual)))
+	reg.RawSetString("ROOT", lua.LNumber(float64(topology.Root)))
 	reg.RawSetString("debug", debugReg)
 	reg.Immutable = true
 	moduleTable.RawSetString("registry", reg)
@@ -735,10 +739,14 @@ func registryRegister(l *lua.LState) int {
 		}
 	}
 
-	if mode == topology.Global {
-		// Global registration via Raft consensus.
-		if !security.IsAllowed(l.Context(), "process.registry.register.global", name, secAttrs) {
-			return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to globally register name: %s", name)))
+	switch mode {
+	case topology.Global, topology.Root:
+		permission := "process.registry.register.global"
+		if mode == topology.Root {
+			permission = "process.registry.register.root"
+		}
+		if !security.IsAllowed(l.Context(), permission, name, secAttrs) {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to register name (%s): %s", scopeLabel(mode), name)))
 		}
 
 		globalReg := globalreg.GetRegistry(l.Context())
@@ -746,16 +754,31 @@ func registryRegister(l *lua.LState) int {
 			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "global registry not available"))
 		}
 
-		_, err := globalReg.Register(l.Context(), name, p)
+		_, err := globalReg.RegisterScope(l.Context(), name, p, globalreg.RegistrationMode(mode))
 		if err != nil {
 			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 		}
 
 		l.Push(lua.LTrue)
 		return 1
+	case topology.Eventual:
+		if !security.IsAllowed(l.Context(), "process.registry.register.eventual", name, secAttrs) {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to register name (eventual): %s", name)))
+		}
+
+		eventualReg := getEventualRegistrar(l.Context())
+		if eventualReg == nil {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "eventual registry not available"))
+		}
+
+		if _, err := eventualReg.Register(name, p); err != nil {
+			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.AlreadyExists))
+		}
+
+		l.Push(lua.LTrue)
+		return 1
 	}
 
-	// Local registration (default).
 	if !security.IsAllowed(l.Context(), "process.registry.register", name, secAttrs) {
 		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to register name: %s", name)))
 	}
@@ -767,6 +790,44 @@ func registryRegister(l *lua.LState) int {
 
 	l.Push(lua.LTrue)
 	return 1
+}
+
+// scopeLabel returns the short string label used in error messages.
+func scopeLabel(m topology.RegistrationMode) string {
+	switch m {
+	case topology.Local:
+		return "local"
+	case topology.Eventual:
+		return "eventual"
+	case topology.Consistent:
+		return "consistent"
+	case topology.Root:
+		return "root"
+	default:
+		return "unknown"
+	}
+}
+
+// eventualRegistrar is the minimal API the Lua surface needs from the
+// EVENTUAL registry. The shape decouples the module from the concrete
+// eventualreg.Service type so tests can substitute fakes.
+type eventualRegistrar interface {
+	Register(name string, p pidapi.PID) (pidapi.PID, error)
+	Unregister(name string) bool
+}
+
+// getEventualRegistrar walks the topology context for an EventualRegistry
+// and type-asserts the Register/Unregister surface the Lua glue needs.
+// Returns nil when no eventual registry is bound.
+func getEventualRegistrar(ctx context.Context) eventualRegistrar {
+	er := topology.GetEventualRegistry(ctx)
+	if er == nil {
+		return nil
+	}
+	if reg, ok := er.(eventualRegistrar); ok {
+		return reg
+	}
+	return nil
 }
 
 func registryLookup(l *lua.LState) int {
@@ -856,9 +917,14 @@ func registryUnregister(l *lua.LState) int {
 		}
 	}
 
-	if mode == topology.Global {
-		if !security.IsAllowed(l.Context(), "process.registry.unregister.global", name, secAttrs) {
-			return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to globally unregister name: %s", name)))
+	switch mode {
+	case topology.Global, topology.Root:
+		permission := "process.registry.unregister.global"
+		if mode == topology.Root {
+			permission = "process.registry.unregister.root"
+		}
+		if !security.IsAllowed(l.Context(), permission, name, secAttrs) {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to unregister name (%s): %s", scopeLabel(mode), name)))
 		}
 
 		globalReg := globalreg.GetRegistry(l.Context())
@@ -866,16 +932,27 @@ func registryUnregister(l *lua.LState) int {
 			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "global registry not available"))
 		}
 
-		removed, err := globalReg.Unregister(l.Context(), name)
+		removed, err := globalReg.UnregisterScope(l.Context(), name, globalreg.RegistrationMode(mode))
 		if err != nil {
 			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 		}
 
 		l.Push(lua.LBool(removed))
 		return 1
+	case topology.Eventual:
+		if !security.IsAllowed(l.Context(), "process.registry.unregister.eventual", name, secAttrs) {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to unregister name (eventual): %s", name)))
+		}
+
+		eventualReg := getEventualRegistrar(l.Context())
+		if eventualReg == nil {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "eventual registry not available"))
+		}
+
+		l.Push(lua.LBool(eventualReg.Unregister(name)))
+		return 1
 	}
 
-	// Local unregistration (default).
 	if !security.IsAllowed(l.Context(), "process.registry.unregister", name, secAttrs) {
 		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to unregister name: %s", name)))
 	}

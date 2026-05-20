@@ -38,6 +38,15 @@ func (r *fakeGlobalReg) Register(_ context.Context, name string, p pidapi.PID) (
 	return p, nil
 }
 
+func (r *fakeGlobalReg) RegisterScope(ctx context.Context, name string, p pidapi.PID, _ globalreg.RegistrationMode) (globalreg.RegisterOutcome, error) {
+	out, err := r.Register(ctx, name, p)
+	return globalreg.RegisterOutcome{PID: out, State: globalreg.RegisterStateActive}, err
+}
+
+func (r *fakeGlobalReg) UnregisterScope(ctx context.Context, name string, _ globalreg.RegistrationMode) (bool, error) {
+	return r.Unregister(ctx, name)
+}
+
 func (r *fakeGlobalReg) Unregister(_ context.Context, name string) (bool, error) {
 	if _, ok := r.entries[name]; !ok {
 		return false, nil

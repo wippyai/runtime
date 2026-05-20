@@ -20,6 +20,7 @@ import (
 
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/system/eventualreg"
+	"github.com/wippyai/runtime/system/globalreg"
 	sysraft "github.com/wippyai/runtime/system/raft"
 	"go.uber.org/zap"
 )
@@ -29,6 +30,7 @@ import (
 // missing rather than returning 503 per-request.
 type Deps struct {
 	EventualReg *eventualreg.Service
+	GlobalReg   *globalreg.Service
 	GlobalRaft  *sysraft.Node
 	KVRaft      *sysraft.Node
 	Membership  cluster.Membership
@@ -82,6 +84,19 @@ func NewMux(deps Deps) *http.ServeMux {
 		writeJSON(w, http.StatusOK, eventualregDigestResp{
 			CV:          deps.EventualReg.CVSnapshot(),
 			ShardHashes: shards,
+		})
+	})
+
+	mux.HandleFunc("GET /admin/globalreg/pending", func(w http.ResponseWriter, _ *http.Request) {
+		if deps.GlobalReg == nil {
+			writeError(w, http.StatusServiceUnavailable, "globalreg not available")
+			return
+		}
+		pending := deps.GlobalReg.PendingSnapshot()
+		expired := deps.GlobalReg.ExpiredHistory()
+		writeJSON(w, http.StatusOK, globalregPendingResp{
+			Pending: pending,
+			Expired: expired,
 		})
 	})
 
@@ -198,6 +213,11 @@ type raftConfigResp struct {
 type eventualregDigestResp struct {
 	CV          []uint64 `json:"cv"`
 	ShardHashes []uint64 `json:"shard_hashes"`
+}
+
+type globalregPendingResp struct {
+	Pending []globalreg.PendingView   `json:"pending"`
+	Expired []globalreg.ExpiredRecord `json:"expired"`
 }
 
 type membershipMemberResp struct {

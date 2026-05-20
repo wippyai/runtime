@@ -6,20 +6,66 @@ package globalreg
 
 import (
 	"context"
+	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/pid"
 )
 
 // RegistrationMode controls whether a name is registered locally or globally.
+// Wire values match topology.RegistrationMode so the Lua surface and the Go
+// surface share one constant family.
 type RegistrationMode int
 
 const (
 	// Local is the default; the name is visible only on the registering node.
 	Local RegistrationMode = 0
-	// Global registers the name cluster-wide via Raft consensus.
+	// Global is the legacy name for Consistent — retained as an alias for one
+	// release cycle.
 	Global RegistrationMode = 1
+	// Eventual registers the name cluster-wide via gossip/CRDT (eventualreg).
+	Eventual RegistrationMode = 2
+	// Consistent registers the name cluster-wide via Raft with a fence token.
+	Consistent RegistrationMode = Global
+	// Root registers the name cluster-wide via Raft plus an all-live-node
+	// ack on the committed epoch within a deadline. Strictest scope.
+	Root RegistrationMode = 3
 )
+
+// RegisterState describes the lifecycle stage of a ROOT-scope reservation.
+type RegisterState uint8
+
+const (
+	// RegisterStateUnknown is the zero value; never returned by a successful call.
+	RegisterStateUnknown RegisterState = 0
+	// RegisterStateActive means the registration is authoritative — every
+	// live node in the snapshot acked the committed epoch.
+	RegisterStateActive RegisterState = 1
+	// RegisterStateExpired means the deadline elapsed before the ack set
+	// was complete and the reservation was released.
+	RegisterStateExpired RegisterState = 2
+)
+
+// RegisterOutcome is the public outcome of Register, regardless of scope.
+type RegisterOutcome struct {
+	// PID is the owner that won the registration. For Consistent this is
+	// the supplied PID on success or the existing owner on conflict.
+	PID pid.PID
+	// ExistingPID is set on conflict (name already taken by a different PID).
+	ExistingPID pid.PID
+	// Epoch is the Raft log index that established authoritativeness
+	// (Active for Root; first-write index for Consistent).
+	Epoch uint64
+	// State is meaningful for Root; for Consistent it is always
+	// RegisterStateActive on success.
+	State RegisterState
+}
+
+// RootDeadline is the default ack deadline used when a caller does not
+// supply one via context. Picked to give a 3-node loopback cluster plenty
+// of margin while still surfacing real partitions quickly on chaos rigs.
+// Exposed as a var so deterministic unit tests can shrink it.
+var RootDeadline = 10 * time.Second
 
 // LookupOptions controls the behavior of Registry.Lookup. Build via the
 // functional options (WithFence, ByPID, IncludeStale). The zero value yields
@@ -92,16 +138,33 @@ type (
 	// Fencing tokens protect against stale references between Raft majority-commit
 	// and full replication to all followers.
 	Registry interface {
-		// Register associates a name with a PID globally. The operation is
-		// linearizable: it is guaranteed that at most one PID owns the name
-		// at any point in time across the entire cluster.
-		// Returns (p, nil) on success.
-		// Returns (existingPID, ErrNameAlreadyRegistered) if taken by another PID.
-		// Re-registering the same name+PID is idempotent.
+		// Register associates a name with a PID at scope Consistent (the
+		// historical Global semantics): Raft-committed singleton with a
+		// fence token. Retained for back-compat; new callers should use
+		// RegisterScope.
 		Register(ctx context.Context, name string, p pid.PID) (pid.PID, error)
 
-		// Unregister removes a global name registration. Goes through Raft.
+		// RegisterScope is the scope-aware Register. Behavior depends on mode:
+		//
+		//   Consistent — Raft singleton with fence (formerly Global).
+		//   Root       — Raft singleton plus all-live-node ack on the
+		//                committed epoch. Blocks until the FSM commits
+		//                Active or Expired (or ctx is canceled).
+		//   Eventual   — gossip/CRDT (routed by callers to eventualreg).
+		//   Local      — caller error at this layer (use PIDRegistry).
+		//
+		// On Root timeout, the returned error wraps ErrRootRegistrationTimeout
+		// via *RootRegistrationTimeoutError so callers can read MissingAcks
+		// via errors.As.
+		RegisterScope(ctx context.Context, name string, p pid.PID, mode RegistrationMode) (RegisterOutcome, error)
+
+		// Unregister removes the Consistent-scope registration for a name.
 		Unregister(ctx context.Context, name string) (bool, error)
+
+		// UnregisterScope removes the registration for the given scope.
+		// Root-scope unregister clears either a pending reservation or an
+		// active registration, whichever exists.
+		UnregisterScope(ctx context.Context, name string, mode RegistrationMode) (bool, error)
 
 		// Lookup reads the registry from the local Raft FSM replica. The
 		// fields populated in the returned LookupResult are determined by
