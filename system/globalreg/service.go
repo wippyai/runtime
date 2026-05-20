@@ -786,6 +786,16 @@ func (s *Service) RecordFenceRejection(name, reason string) {
 	}
 
 	s.tel.recordFenceRejection(pg, reason)
+
+	// Emit a single info-level log line per rejection so chaos rigs and
+	// ops dashboards (which today have no scrape endpoint inside the
+	// runtime binary) can correlate stale-fence drops with the global
+	// name and reason without having to mount Prometheus.
+	if s.logger != nil {
+		s.logger.Info("globalreg fence rejection",
+			zap.String("pg", pg),
+			zap.String("reason", reason))
+	}
 }
 
 // Ensure Service implements the interfaces.

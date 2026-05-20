@@ -122,7 +122,10 @@ func TestRouter_Send(t *testing.T) {
 }
 
 // mockFenceValidator implements globalreg.Registry for router fence validation tests.
-// Only ValidateFence is used by the router; other methods panic if called.
+// The router consults the registry via the globalreg.ValidateFence helper, which
+// internally calls Lookup(WithFence). Lookup is therefore the only access path
+// the router takes — all other methods are unreachable from the router and
+// panic if invoked, so accidental new call sites trip the test loudly.
 type mockFenceValidator struct {
 	validateErr   error
 	validateCalls int32
@@ -134,9 +137,24 @@ func (m *mockFenceValidator) Register(_ context.Context, _ string, p pid.PID) (p
 func (m *mockFenceValidator) Unregister(_ context.Context, _ string) (bool, error) {
 	panic("unexpected call")
 }
-func (m *mockFenceValidator) Lookup(_ context.Context, _ string, _ ...globalreg.LookupOption) (globalreg.LookupResult, error) {
-	panic("unexpected call")
+
+// Lookup synthesizes a fence-bearing result whose FenceToken either matches
+// the caller's expected outcome (zero ⇒ any incoming token is fresh) or
+// jumps to a sentinel that beats anything (⇒ stale). The validateErr field
+// remains the single knob the test toggles to flip between fresh and stale.
+func (m *mockFenceValidator) Lookup(_ context.Context, _ string, opts ...globalreg.LookupOption) (globalreg.LookupResult, error) {
+	atomic.AddInt32(&m.validateCalls, 1)
+	var o globalreg.LookupOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	res := globalreg.LookupResult{Found: true}
+	if o.WithFence && m.validateErr != nil {
+		res.FenceToken = ^uint64(0) >> 1
+	}
+	return res, nil
 }
+
 func (m *mockFenceValidator) LookupWithFence(_ string) globalreg.LookupResult {
 	panic("unexpected call")
 }
@@ -148,8 +166,7 @@ func (m *mockFenceValidator) RemoveNode(_ context.Context, _ pid.NodeID) error {
 	panic("unexpected call")
 }
 func (m *mockFenceValidator) ValidateFence(_ string, _ uint64) error {
-	atomic.AddInt32(&m.validateCalls, 1)
-	return m.validateErr
+	panic("unexpected call")
 }
 
 var _ globalreg.Registry = (*mockFenceValidator)(nil)
