@@ -4,6 +4,8 @@ package globalreg
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -45,6 +47,99 @@ func TestScopeTable_Consistent(t *testing.T) {
 	removed, err := svc.UnregisterScope(context.Background(), "svc", globalreg.Consistent)
 	require.NoError(t, err)
 	assert.True(t, removed)
+}
+
+// TestConsistentScope_ConcurrentCrossNode reproduces the reviewer's
+// requested scenario from PR #241 issue 4494041044 test item 1:
+// "concurrent global registration of the same name from multiple
+// nodes". Two services representing node-A and node-B share one Raft
+// log (the directApplyRaft serializes Apply through a single atomic
+// counter, mirroring real Raft's single-leader commit pipeline) and
+// concurrently call RegisterScope on the same name with their own
+// PIDs. The invariant: exactly one becomes Active, exactly one gets
+// ErrNameAlreadyRegistered carrying the winner's PID as ExistingPID,
+// and both sides see the same authoritative PID via Lookup.
+func TestConsistentScope_ConcurrentCrossNode(t *testing.T) {
+	fsm := NewFSM()
+	raft := newDirectApplyRaft(fsm, true)
+
+	newSvc := func(nodeID string) *Service {
+		s := NewService(raft, fsm, &nopBus{}, nil, &nopRouter{}, nil, nodeID, noopLogger(), nil, nil, nil)
+		s.mu.Lock()
+		s.ready = true
+		s.mu.Unlock()
+		return s
+	}
+	svcA := newSvc("node-A")
+	svcB := newSvc("node-B")
+
+	pA := makePID("node-A", "host", "1")
+	pB := makePID("node-B", "host", "1")
+
+	const name = "svc.consistent.cross"
+
+	type result struct {
+		err error
+		who string
+		out globalreg.RegisterOutcome
+	}
+	results := make(chan result, 2)
+
+	var start sync.WaitGroup
+	start.Add(1)
+
+	go func() {
+		start.Wait()
+		out, err := svcA.RegisterScope(context.Background(), name, pA, globalreg.Consistent)
+		results <- result{who: "A", out: out, err: err}
+	}()
+
+	go func() {
+		start.Wait()
+		out, err := svcB.RegisterScope(context.Background(), name, pB, globalreg.Consistent)
+		results <- result{who: "B", out: out, err: err}
+	}()
+
+	start.Done()
+
+	r1 := <-results
+	r2 := <-results
+
+	wins := 0
+	conflicts := 0
+	var winner result
+	var loser result
+	for _, r := range []result{r1, r2} {
+		switch {
+		case r.err == nil && r.out.State == globalreg.RegisterStateActive:
+			wins++
+			winner = r
+		case errors.Is(r.err, globalreg.ErrNameAlreadyRegistered):
+			conflicts++
+			loser = r
+		default:
+			t.Fatalf("unexpected outcome from %s: out=%+v err=%v", r.who, r.out, r.err)
+		}
+	}
+
+	require.Equal(t, 1, wins, "exactly one register call must succeed")
+	require.Equal(t, 1, conflicts, "exactly one register call must hit ErrNameAlreadyRegistered")
+
+	expectedWinnerPID := pA
+	if winner.who == "B" {
+		expectedWinnerPID = pB
+	}
+	assert.Equal(t, expectedWinnerPID, winner.out.PID, "winner's outcome carries its own PID")
+	assert.NotZero(t, winner.out.Epoch, "winner has a fence token")
+	assert.Equal(t, expectedWinnerPID, loser.out.ExistingPID, "loser's outcome carries the winner's PID")
+
+	for _, svc := range []*Service{svcA, svcB} {
+		res, err := svc.Lookup(context.Background(), name, globalreg.WithFence())
+		require.NoError(t, err)
+		require.True(t, res.Found, "both services must see the registration")
+		assert.Equal(t, expectedWinnerPID, res.PID, "lookup PID must equal the winner across both services")
+		assert.Equal(t, winner.out.Epoch, res.FenceToken, "lookup fence must equal the winner's epoch")
+	}
 }
 
 // TestScopeTable_BackCompatRegister verifies that the legacy Register

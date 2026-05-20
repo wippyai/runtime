@@ -269,6 +269,45 @@ func TestRunReconcileOnce_NoOpAtSteadyState(t *testing.T) {
 	assert.Empty(t, fr.recordedOps(), "steady-state cluster must produce no ops")
 }
 
+// TestRunReconcileOnce_NodeLeftRemovesServer reproduces the reviewer's
+// requested scenario from PR #241 issue 4494041044 test item 8:
+// "mesh-backed Raft transport under node leave/rejoin". The chaos
+// rig run_raft_over_mesh.sh covers the integration-level cycle; this
+// unit-level companion asserts the membership handler's reconcile
+// path observes a vanished peer (no longer in the membership
+// snapshot) and emits exactly one RemoveServer op against the raft
+// configuration. Because RemoveServer is the only mutation the
+// handler issues here, this also pins the contract that internode
+// teardown of the departed peer is not initiated by the membership
+// handler — it is the connection manager's own NodeLeft observer
+// that owns that step (see cluster/internode/manager.go).
+func TestRunReconcileOnce_NodeLeftRemovesServer(t *testing.T) {
+	fr := newFakeRaft(true, []raftapi.Server{
+		{ID: "a", Address: "a", IsVoter: true},
+		{ID: "b", Address: "b", IsVoter: true},
+		{ID: "c", Address: "c", IsVoter: true},
+	})
+	fm := &fakeMembership{
+		local: mkNode("a", "10.0.0.1", "7960"),
+		nodes: []cluster.NodeInfo{
+			mkNode("a", "10.0.0.1", "7960"),
+			mkNode("b", "10.0.0.2", "7960"),
+		},
+	}
+	h := newTestHandler(t, fr, fm)
+	h.runReconcileOnce(context.Background())
+
+	ops := fr.recordedOps()
+	var removes []recordedOp
+	for _, op := range ops {
+		if op.Kind == "RemoveServer" {
+			removes = append(removes, op)
+		}
+	}
+	require.Len(t, removes, 1, "exactly one RemoveServer op expected; got ops=%+v", ops)
+	assert.Equal(t, "c", removes[0].ID, "the departed peer must be the one removed")
+}
+
 func TestRunReconcileOnce_LocalLeaderSelfRemovalTransfersFirst(t *testing.T) {
 	// Local node "a" is leader and has explicitly opted out of raft
 	// (raft_eligible=false). Reconcile must transfer leadership before
