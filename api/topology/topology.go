@@ -4,6 +4,7 @@
 package topology
 
 import (
+	"context"
 	"time"
 
 	"github.com/wippyai/runtime/api/globalreg"
@@ -89,24 +90,24 @@ type (
 	// Reads are served from the local replica; writes go through Raft.
 	// Fencing tokens protect against stale references.
 	GlobalRegistry interface {
-		// Lookup reads from the local Raft FSM replica.
-		Lookup(name string) (pid.PID, bool)
+		// Lookup reads from the local Raft FSM replica. See
+		// globalreg.Registry.Lookup for option semantics.
+		Lookup(ctx context.Context, name string, opts ...globalreg.LookupOption) (globalreg.LookupResult, error)
 
-		// LookupWithFence reads from the local replica and returns the fencing
-		// token (Raft log index). Callers should attach the token to messages
-		// so receivers can reject stale references after re-registration.
+		// Deprecated: use Lookup(ctx, name, globalreg.WithFence()).
 		LookupWithFence(name string) globalreg.LookupResult
 
-		// ValidateFence checks whether a fencing token is still valid for a name.
+		// Deprecated: use globalreg.ValidateFence(ctx, reg, name, token).
 		ValidateFence(name string, token uint64) error
 	}
 
 	// EventualRegistry provides cluster-wide name registration via gossip/CRDT.
 	// Eventually consistent — converges after partition heal. No fencing tokens
-	// (no total order). Sized for ~100k user-session-class names.
+	// (no total order). Sized for ~100k user-session-class names. The Lookup
+	// surface reuses globalreg's option types for API parity; WithFence() is
+	// accepted and yields FenceToken=0 (eventual registry has no total order).
 	EventualRegistry interface {
-		// Lookup reads from the local CRDT replica.
-		Lookup(name string) (pid.PID, bool)
+		Lookup(ctx context.Context, name string, opts ...globalreg.LookupOption) (globalreg.LookupResult, error)
 	}
 
 	// Monitor defines the interface for process monitoring

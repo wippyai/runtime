@@ -231,7 +231,7 @@ func resolvePID(l *lua.LState, pidOrName string, permission string, senderPID pi
 	var fi *fenceInfo
 	globalReg := globalreg.GetRegistry(l.Context())
 	if globalReg != nil {
-		result := globalReg.LookupWithFence(pidOrName)
+		result, _ := globalReg.Lookup(l.Context(), pidOrName, globalreg.WithFence())
 		if result.Found {
 			p = result.PID
 			fi = &fenceInfo{fenceToken: result.FenceToken, globalName: pidOrName}
@@ -828,7 +828,7 @@ func registryLookupWithFence(l *lua.LState) int {
 		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "global registry not available"))
 	}
 
-	result := globalReg.LookupWithFence(name)
+	result, _ := globalReg.Lookup(l.Context(), name, globalreg.WithFence())
 	if !result.Found {
 		return pushProcessError(l, lua.LNil, newProcessError(l, lua.NotFound, "name not registered"))
 	}
@@ -850,7 +850,7 @@ func registryValidateFence(l *lua.LState) int {
 		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "global registry not available"))
 	}
 
-	if err := globalReg.ValidateFence(name, token); err != nil {
+	if err := globalreg.ValidateFence(l.Context(), globalReg, name, token); err != nil {
 		return pushProcessError(l, lua.LBool(false), wrapProcessError(l, err, "", lua.Conflict))
 	}
 

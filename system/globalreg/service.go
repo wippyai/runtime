@@ -265,32 +265,56 @@ func (s *Service) Unregister(_ context.Context, name string) (bool, error) {
 	return result.Removed, nil
 }
 
-// Lookup reads from the local FSM replica. Lock-free, O(1).
-func (s *Service) Lookup(name string) (pid.PID, bool) {
-	return s.fsm.State().Lookup(name)
+// Lookup reads the registry from the local Raft FSM replica with optional
+// behavior controlled by LookupOptions. See api/globalreg.Registry.Lookup
+// for the option semantics. Lookup is lock-free and O(1) for the no-options
+// and WithFence paths; ByPID is O(shards) because it scans the reverse index.
+func (s *Service) Lookup(_ context.Context, name string, opts ...globalreg.LookupOption) (globalreg.LookupResult, error) {
+	var o globalreg.LookupOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	state := s.fsm.State()
+
+	if o.ByPID != nil {
+		names := state.LookupByPID(*o.ByPID)
+		return globalreg.LookupResult{
+			PID:         *o.ByPID,
+			NamesForPID: names,
+			Found:       len(names) > 0,
+		}, nil
+	}
+
+	if o.WithFence {
+		s.mu.Lock()
+		ready := s.ready
+		s.mu.Unlock()
+		if !ready {
+			return globalreg.LookupResult{}, nil
+		}
+
+		p, token, found := state.LookupWithFence(name)
+		return globalreg.LookupResult{
+			PID:        p,
+			FenceToken: token,
+			Found:      found,
+		}, nil
+	}
+
+	p, found := state.Lookup(name)
+	return globalreg.LookupResult{PID: p, Found: found}, nil
 }
 
-// LookupWithFence reads from the local FSM replica and returns the fencing
-// token (Raft log index). Returns ErrNotReady if the node hasn't caught up yet.
+// Deprecated: use Lookup(ctx, name, globalreg.WithFence()).
 func (s *Service) LookupWithFence(name string) globalreg.LookupResult {
-	s.mu.Lock()
-	ready := s.ready
-	s.mu.Unlock()
-
-	if !ready {
-		return globalreg.LookupResult{}
-	}
-
-	p, token, found := s.fsm.State().LookupWithFence(name)
-	return globalreg.LookupResult{
-		PID:        p,
-		FenceToken: token,
-		Found:      found,
-	}
+	r, _ := s.Lookup(context.Background(), name, globalreg.WithFence())
+	return r
 }
 
-// ValidateFence checks whether a fencing token is still valid for a name.
-// Returns ErrStaleFence if the name has been re-registered at a higher index.
+// Deprecated: use globalreg.ValidateFence(ctx, reg, name, token). Kept here
+// as a direct FSM-state check so the relay fence-validation hot path does
+// not pay the option-parsing overhead.
 func (s *Service) ValidateFence(name string, token uint64) error {
 	if !s.fsm.State().ValidateFence(name, token) {
 		return globalreg.ErrStaleFence
@@ -298,9 +322,10 @@ func (s *Service) ValidateFence(name string, token uint64) error {
 	return nil
 }
 
-// LookupByPID returns all global names for a PID.
+// Deprecated: use Lookup(ctx, "", globalreg.ByPID(p)).
 func (s *Service) LookupByPID(p pid.PID) []string {
-	return s.fsm.State().LookupByPID(p)
+	r, _ := s.Lookup(context.Background(), "", globalreg.ByPID(p))
+	return r.NamesForPID
 }
 
 // Remove removes all global names for a PID via Raft.

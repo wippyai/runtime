@@ -134,7 +134,9 @@ func (m *mockFenceValidator) Register(_ context.Context, _ string, p pid.PID) (p
 func (m *mockFenceValidator) Unregister(_ context.Context, _ string) (bool, error) {
 	panic("unexpected call")
 }
-func (m *mockFenceValidator) Lookup(_ string) (pid.PID, bool) { panic("unexpected call") }
+func (m *mockFenceValidator) Lookup(_ context.Context, _ string, _ ...globalreg.LookupOption) (globalreg.LookupResult, error) {
+	panic("unexpected call")
+}
 func (m *mockFenceValidator) LookupWithFence(_ string) globalreg.LookupResult {
 	panic("unexpected call")
 }

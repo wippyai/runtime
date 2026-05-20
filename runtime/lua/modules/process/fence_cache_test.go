@@ -110,20 +110,28 @@ func (r *fakeGlobalReg) Unregister(_ context.Context, name string) (bool, error)
 	return true, nil
 }
 
-func (r *fakeGlobalReg) Lookup(name string) (pidapi.PID, bool) {
+func (r *fakeGlobalReg) Lookup(_ context.Context, name string, opts ...globalregapi.LookupOption) (globalregapi.LookupResult, error) {
+	var o globalregapi.LookupOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	if o.ByPID != nil {
+		return globalregapi.LookupResult{PID: *o.ByPID}, nil
+	}
 	e, ok := r.entries[name]
 	if !ok {
-		return pidapi.PID{}, false
+		return globalregapi.LookupResult{}, nil
 	}
-	return e.p, true
+	res := globalregapi.LookupResult{PID: e.p, Found: true}
+	if o.WithFence {
+		res.FenceToken = e.token
+	}
+	return res, nil
 }
 
 func (r *fakeGlobalReg) LookupWithFence(name string) globalregapi.LookupResult {
-	e, ok := r.entries[name]
-	if !ok {
-		return globalregapi.LookupResult{}
-	}
-	return globalregapi.LookupResult{PID: e.p, FenceToken: e.token, Found: true}
+	res, _ := r.Lookup(context.Background(), name, globalregapi.WithFence())
+	return res
 }
 
 func (r *fakeGlobalReg) LookupByPID(_ pidapi.PID) []string { return nil }

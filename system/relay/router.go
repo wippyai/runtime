@@ -3,6 +3,7 @@
 package relay
 
 import (
+	"context"
 	"sync"
 
 	"github.com/wippyai/runtime/api/globalreg"
@@ -103,7 +104,7 @@ func (r *Router) Send(pkg *api.Package) error {
 		gr := r.globalReg
 		r.globalRegMu.RUnlock()
 		if gr != nil {
-			if err := gr.ValidateFence(pkg.GlobalName, pkg.FenceToken); err != nil {
+			if err := globalreg.ValidateFence(context.Background(), gr, pkg.GlobalName, pkg.FenceToken); err != nil {
 				r.fenceRejectMu.RLock()
 				cb := r.onFenceReject
 				r.fenceRejectMu.RUnlock()

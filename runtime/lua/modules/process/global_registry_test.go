@@ -71,17 +71,35 @@ func (m *mockGlobalRegistry) Unregister(ctx context.Context, name string) (bool,
 	return result.Removed, nil
 }
 
-func (m *mockGlobalRegistry) Lookup(name string) (pid.PID, bool) {
+func (m *mockGlobalRegistry) Lookup(_ context.Context, name string, opts ...globalregapi.LookupOption) (globalregapi.LookupResult, error) {
+	var o globalregapi.LookupOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.fsm.State().Lookup(name)
+
+	state := m.fsm.State()
+	if o.ByPID != nil {
+		names := state.LookupByPID(*o.ByPID)
+		return globalregapi.LookupResult{
+			PID:         *o.ByPID,
+			NamesForPID: names,
+			Found:       len(names) > 0,
+		}, nil
+	}
+	if o.WithFence {
+		p, token, found := state.LookupWithFence(name)
+		return globalregapi.LookupResult{PID: p, FenceToken: token, Found: found}, nil
+	}
+	p, found := state.Lookup(name)
+	return globalregapi.LookupResult{PID: p, Found: found}, nil
 }
 
 func (m *mockGlobalRegistry) LookupWithFence(name string) globalregapi.LookupResult {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	p, token, found := m.fsm.State().LookupWithFence(name)
-	return globalregapi.LookupResult{PID: p, FenceToken: token, Found: found}
+	r, _ := m.Lookup(context.Background(), name, globalregapi.WithFence())
+	return r
 }
 
 func (m *mockGlobalRegistry) ValidateFence(name string, token uint64) error {
@@ -94,9 +112,8 @@ func (m *mockGlobalRegistry) ValidateFence(name string, token uint64) error {
 }
 
 func (m *mockGlobalRegistry) LookupByPID(p pid.PID) []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.fsm.State().LookupByPID(p)
+	r, _ := m.Lookup(context.Background(), "", globalregapi.ByPID(p))
+	return r.NamesForPID
 }
 
 func (m *mockGlobalRegistry) Remove(ctx context.Context, p pid.PID) error {
@@ -119,6 +136,14 @@ func (m *mockGlobalRegistry) RemoveNode(ctx context.Context, nodeID pid.NodeID) 
 
 var _ globalregapi.Registry = (*mockGlobalRegistry)(nil)
 
+func simpleLookup(reg globalregapi.Registry, name string) (pid.PID, bool) {
+	res, err := reg.Lookup(context.Background(), name)
+	if err != nil {
+		return pid.PID{}, false
+	}
+	return res.PID, res.Found
+}
+
 // TestGlobalRegistry_Registration tests that the mock registry works correctly.
 func TestGlobalRegistry_Registration(t *testing.T) {
 	reg := newMockGlobalRegistry()
@@ -132,7 +157,7 @@ func TestGlobalRegistry_Registration(t *testing.T) {
 	assert.Equal(t, p, result)
 
 	// Lookup
-	found, ok := reg.Lookup("my-service")
+	found, ok := simpleLookup(reg, "my-service")
 	assert.True(t, ok)
 	assert.Equal(t, p, found)
 }
@@ -206,7 +231,7 @@ func TestGlobalRegistry_MultipleNames(t *testing.T) {
 
 	// Verify all exist
 	for _, name := range names {
-		_, ok := reg.Lookup(name)
+		_, ok := simpleLookup(reg, name)
 		assert.True(t, ok, "name %s should exist", name)
 	}
 }
@@ -223,7 +248,7 @@ func TestGlobalRegistry_Unregister(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify exists
-	_, ok := reg.Lookup("temp")
+	_, ok := simpleLookup(reg, "temp")
 	assert.True(t, ok)
 
 	// Unregister
@@ -232,7 +257,7 @@ func TestGlobalRegistry_Unregister(t *testing.T) {
 	assert.True(t, removed)
 
 	// Verify gone
-	_, ok = reg.Lookup("temp")
+	_, ok = simpleLookup(reg, "temp")
 	assert.False(t, ok)
 }
 
@@ -255,13 +280,13 @@ func TestGlobalRegistry_RemoveNode(t *testing.T) {
 	require.NoError(t, err)
 
 	// svc1 and svc2 should be gone
-	_, ok := reg.Lookup("svc1")
+	_, ok := simpleLookup(reg, "svc1")
 	assert.False(t, ok)
-	_, ok = reg.Lookup("svc2")
+	_, ok = simpleLookup(reg, "svc2")
 	assert.False(t, ok)
 
 	// svc3 should remain
-	_, ok = reg.Lookup("svc3")
+	_, ok = simpleLookup(reg, "svc3")
 	assert.True(t, ok)
 }
 
@@ -277,7 +302,7 @@ func TestGlobalRegistry_Linearizability(t *testing.T) {
 	require.NoError(t, err)
 
 	// Immediately lookup - should find (linearizability)
-	found, ok := reg.Lookup("linear")
+	found, ok := simpleLookup(reg, "linear")
 	assert.True(t, ok)
 	assert.Equal(t, p, found)
 }
@@ -324,7 +349,7 @@ func TestGlobalRegistry_Stress(t *testing.T) {
 	// Final state should be empty (all unregistered)
 	for i := 0; i < numOperations; i++ {
 		name := "stress-" + string(rune('a'+i%26))
-		_, ok := reg.Lookup(name)
+		_, ok := simpleLookup(reg, name)
 		assert.False(t, ok, "name %s should not exist", name)
 	}
 }

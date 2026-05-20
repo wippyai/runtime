@@ -3,6 +3,7 @@
 package eventualreg
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -296,11 +297,11 @@ func TestService_ShardPullRecoversDroppedDelta(t *testing.T) {
 	}
 
 	// After the synchronous round trip, B must now hold both names.
-	if got, ok := b.Lookup("alice"); !ok || got != pAlice {
-		t.Fatalf("alice not recovered on B: ok=%v got=%v", ok, got)
+	if res, err := b.Lookup(context.Background(), "alice"); err != nil || !res.Found || res.PID != pAlice {
+		t.Fatalf("alice not recovered on B: err=%v found=%v got=%v", err, res.Found, res.PID)
 	}
-	if got, ok := b.Lookup("bob"); !ok || got != pBob {
-		t.Fatalf("bob not recovered on B: ok=%v got=%v", ok, got)
+	if res, err := b.Lookup(context.Background(), "bob"); err != nil || !res.Found || res.PID != pBob {
+		t.Fatalf("bob not recovered on B: err=%v found=%v got=%v", err, res.Found, res.PID)
 	}
 
 	// Cooldown: a second immediate request must be suppressed.

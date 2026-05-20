@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/topology"
@@ -229,9 +230,25 @@ func (s *Service) Unregister(name string) bool {
 	return true
 }
 
-// Lookup returns the live PID for a name, or (zero, false) if absent or tombstoned.
-func (s *Service) Lookup(name string) (pid.PID, bool) {
-	return s.state.Lookup(name)
+// Lookup returns the live PID for a name (Found=true), or a zero LookupResult
+// if absent or tombstoned. EventualRegistry has no fencing tokens or
+// reverse-by-PID index, so WithFence() yields FenceToken=0 and ByPID(p)
+// is unsupported — it returns Found=false with an empty NamesForPID slice.
+func (s *Service) Lookup(_ context.Context, name string, opts ...globalreg.LookupOption) (globalreg.LookupResult, error) {
+	var o globalreg.LookupOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	if o.ByPID != nil {
+		return globalreg.LookupResult{PID: *o.ByPID}, nil
+	}
+
+	p, found := s.state.Lookup(name)
+	return globalreg.LookupResult{
+		PID:   p,
+		Found: found,
+	}, nil
 }
 
 // --- Transport hooks (called by delegate.go) ---

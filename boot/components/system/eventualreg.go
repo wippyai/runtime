@@ -152,8 +152,8 @@ func (c *crossScopeChecker) LookupOther(name string) (pid.PID, bool) {
 		return pid.PID{}, false
 	}
 	if gr := topology.GetGlobalRegistry(c.ctx); gr != nil {
-		if p, ok := gr.Lookup(name); ok {
-			return p, true
+		if res, err := gr.Lookup(c.ctx, name); err == nil && res.Found {
+			return res.PID, true
 		}
 	}
 	if lr := topology.GetRegistry(c.ctx); lr != nil {

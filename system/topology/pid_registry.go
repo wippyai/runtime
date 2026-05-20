@@ -3,6 +3,7 @@
 package topology
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 
@@ -115,21 +116,21 @@ func NewPIDRegistry(opts ...Option) *PIDRegistry {
 func (r *PIDRegistry) Register(name string, p pid.PID) (pid.PID, error) {
 	// Check global registry first to prevent local shadowing of global names.
 	if gr := r.loadGlobalReg(); gr != nil {
-		if existingPID, found := gr.Lookup(name); found {
-			if existingPID == p {
+		if res, err := gr.Lookup(context.Background(), name); err == nil && res.Found {
+			if res.PID == p {
 				return p, nil // same PID registered globally — allow
 			}
-			return existingPID, topology.ErrNameAlreadyRegistered
+			return res.PID, topology.ErrNameAlreadyRegistered
 		}
 	}
 
 	// Check eventual registry second to prevent local shadowing of eventual names.
 	if er := r.loadEventualReg(); er != nil {
-		if existingPID, found := er.Lookup(name); found {
-			if existingPID == p {
+		if res, err := er.Lookup(context.Background(), name); err == nil && res.Found {
+			if res.PID == p {
 				return p, nil // same PID registered eventually — allow
 			}
-			return existingPID, topology.ErrNameAlreadyRegistered
+			return res.PID, topology.ErrNameAlreadyRegistered
 		}
 	}
 
@@ -224,15 +225,15 @@ func (r *PIDRegistry) Unregister(name string) bool {
 func (r *PIDRegistry) Lookup(name string) (pid.PID, bool) {
 	// Check global registry first — global names take priority (strongest consistency).
 	if gr := r.loadGlobalReg(); gr != nil {
-		if p, found := gr.Lookup(name); found {
-			return p, true
+		if res, err := gr.Lookup(context.Background(), name); err == nil && res.Found {
+			return res.PID, true
 		}
 	}
 
 	// Check eventual registry second — gossip-replicated names.
 	if er := r.loadEventualReg(); er != nil {
-		if p, found := er.Lookup(name); found {
-			return p, true
+		if res, err := er.Lookup(context.Background(), name); err == nil && res.Found {
+			return res.PID, true
 		}
 	}
 
@@ -254,8 +255,8 @@ func (r *PIDRegistry) Lookup(name string) (pid.PID, bool) {
 // don't have fencing tokens).
 func (r *PIDRegistry) LookupWithFence(name string) globalreg.LookupResult {
 	if gr := r.loadGlobalReg(); gr != nil {
-		result := gr.LookupWithFence(name)
-		if result.Found {
+		result, err := gr.Lookup(context.Background(), name, globalreg.WithFence())
+		if err == nil && result.Found {
 			return result
 		}
 	}
