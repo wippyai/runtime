@@ -147,7 +147,7 @@ func dbQuery(l *lua.LState) int {
 	if db == nil {
 		return 0
 	}
-	query := l.CheckString(2)
+	query := normalizePlaceholders(db.dbType, l.CheckString(2))
 	params, err := checkParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -168,7 +168,7 @@ func dbExecute(l *lua.LState) int {
 	if db == nil {
 		return 0
 	}
-	query := l.CheckString(2)
+	query := normalizePlaceholders(db.dbType, l.CheckString(2))
 	params, err := checkParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -190,7 +190,7 @@ func dbPrepare(l *lua.LState) int {
 		return 0
 	}
 	ctx := l.Context()
-	query := l.CheckString(2)
+	query := normalizePlaceholders(db.dbType, l.CheckString(2))
 
 	yield := AcquirePrepareYield()
 	yield.DB = db.db

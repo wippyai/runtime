@@ -111,7 +111,7 @@ func txQuery(l *lua.LState) int {
 	}
 	tx.mu.Unlock()
 
-	query := l.CheckString(2)
+	query := normalizePlaceholders(tx.GetDBType(), l.CheckString(2))
 	params, err := checkParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -141,7 +141,7 @@ func txExecute(l *lua.LState) int {
 	}
 	tx.mu.Unlock()
 
-	query := l.CheckString(2)
+	query := normalizePlaceholders(tx.GetDBType(), l.CheckString(2))
 	params, err := checkParams(l, 3)
 	if err != nil {
 		l.Push(lua.LNil)
@@ -173,7 +173,7 @@ func txPrepare(l *lua.LState) int {
 	}
 	tx.mu.Unlock()
 
-	query := l.CheckString(2)
+	query := normalizePlaceholders(tx.GetDBType(), l.CheckString(2))
 
 	yield := AcquireTxPrepareYield()
 	yield.Tx = tx.tx
