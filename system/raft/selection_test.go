@@ -32,7 +32,8 @@ func TestDesiredVoterCount(t *testing.T) {
 	}{
 		{"zero eligible", 0, 5, 0},
 		{"single eligible", 1, 5, 1},
-		{"two eligible rounds down to one", 2, 5, 1},
+		{"two eligible kept as two (transient post-failure window)", 2, 5, 2},
+		{"two eligible clamped to maxVoters=1", 2, 1, 1},
 		{"three eligible", 3, 5, 3},
 		{"four rounds to three", 4, 5, 3},
 		{"five at cap", 5, 5, 5},
@@ -45,37 +46,39 @@ func TestDesiredVoterCount(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got := desiredVoterCount(tc.eligible, tc.maxVoters)
 			assert.Equal(t, tc.want, got)
-			// Result must be odd (or zero).
-			if got != 0 {
-				assert.Equal(t, 1, got%2, "voter count must be odd")
+			// Result must be odd for N>=3, or 0/1/2 for the smaller cases.
+			if got > 2 {
+				assert.Equal(t, 1, got%2, "voter count must be odd for N>=3")
 			}
 		})
 	}
 }
 
 func TestCandidatesFromMembership_FiltersAndSorts(t *testing.T) {
+	// Mesh transport: the raft_port gossip metadata is ignored — the
+	// only filter is raft_eligible. raft_port is still injected by the
+	// cluster boot for diagnostics during the one-cycle deprecation
+	// window but selection no longer reads it.
 	nodes := []cluster.NodeInfo{
 		// Out of order on purpose.
 		node("n3", "10.0.0.3", "7960", map[string]string{"raft_priority": "100"}),
 		// Ineligible: explicit false.
 		node("n4", "10.0.0.4", "7960", map[string]string{"raft_eligible": "false"}),
-		// Ineligible: missing raft_port.
+		// Eligible even without raft_port (mesh ignores it).
 		node("n5", "10.0.0.5", "", nil),
-		// Ineligible: invalid port.
-		node("n6", "10.0.0.6", "abc", nil),
-		// Ineligible: out-of-range port.
-		node("n7", "10.0.0.7", "70000", nil),
 		node("n1", "10.0.0.1", "7960", map[string]string{"raft_priority": "10"}),
 		node("n2", "10.0.0.2", "7960", map[string]string{"raft_priority": "10"}),
 	}
 
 	got := candidatesFromMembership(nodes)
-	require.Len(t, got, 3)
-	// Sorted: priority 10 first (n1, n2 alphabetically), then n3.
+	require.Len(t, got, 4)
+	// Sorted: priority 10 first (n1, n2 alphabetically), then 100 (n3, n5).
 	assert.Equal(t, "n1", got[0].ID)
 	assert.Equal(t, "n2", got[1].ID)
 	assert.Equal(t, "n3", got[2].ID)
-	assert.Equal(t, "10.0.0.1:7960", got[0].Addr)
+	assert.Equal(t, "n5", got[3].ID)
+	// Under the mesh transport, candidate.Addr is the NodeID itself.
+	assert.Equal(t, "n1", got[0].Addr)
 }
 
 func TestCandidatesFromMembership_DefaultPriorityAndEligible(t *testing.T) {
@@ -272,15 +275,4 @@ func TestReconcileDiff_PromoteOrderedBeforeRemove(t *testing.T) {
 	assert.Equal(t, "new", ops[0].ID)
 	assert.Equal(t, opRemove, ops[1].Kind)
 	assert.Equal(t, "old", ops[1].ID)
-}
-
-func TestIsValidPort(t *testing.T) {
-	assert.True(t, isValidPort("1"))
-	assert.True(t, isValidPort("7960"))
-	assert.True(t, isValidPort("65535"))
-	assert.False(t, isValidPort(""))
-	assert.False(t, isValidPort("0"))
-	assert.False(t, isValidPort("65536"))
-	assert.False(t, isValidPort("-1"))
-	assert.False(t, isValidPort("abc"))
 }

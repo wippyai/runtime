@@ -156,10 +156,10 @@ func (f *fakeRaft) recordedOps() []recordedOp {
 }
 
 // fakeMembership satisfies cluster.Membership.
-type fakeMembership struct { //nolint:govet // test helper; alignment irrelevant
-	mu    sync.Mutex
-	nodes []cluster.NodeInfo
+type fakeMembership struct {
 	local cluster.NodeInfo
+	nodes []cluster.NodeInfo
+	mu    sync.Mutex
 }
 
 func (m *fakeMembership) Nodes() []cluster.NodeInfo {
@@ -206,7 +206,7 @@ func TestRunReconcileOnce_NonLeaderNoOps(t *testing.T) {
 
 func TestRunReconcileOnce_BootstrapAdds(t *testing.T) {
 	fr := newFakeRaft(true, []raftapi.Server{
-		{ID: "a", Address: "10.0.0.1:7960", IsVoter: true}, // bootstrapped self
+		{ID: "a", Address: "a", IsVoter: true}, // bootstrapped self
 	})
 	fm := &fakeMembership{
 		local: mkNode("a", "10.0.0.1", "7960"),
@@ -232,7 +232,7 @@ func TestRunReconcileOnce_VoterCapDemotesSurplus(t *testing.T) {
 	nodes := []cluster.NodeInfo{}
 	for _, id := range []string{"a", "b", "c", "d", "e", "f", "g"} {
 		servers = append(servers, raftapi.Server{
-			ID: id, Address: "10.0.0." + id + ":7960", IsVoter: true,
+			ID: id, Address: id, IsVoter: true,
 		})
 		nodes = append(nodes, mkNode(id, "10.0.0."+id, "7960"))
 	}
@@ -253,9 +253,9 @@ func TestRunReconcileOnce_VoterCapDemotesSurplus(t *testing.T) {
 
 func TestRunReconcileOnce_NoOpAtSteadyState(t *testing.T) {
 	servers := []raftapi.Server{
-		{ID: "a", Address: "10.0.0.1:7960", IsVoter: true},
-		{ID: "b", Address: "10.0.0.2:7960", IsVoter: true},
-		{ID: "c", Address: "10.0.0.3:7960", IsVoter: true},
+		{ID: "a", Address: "a", IsVoter: true},
+		{ID: "b", Address: "b", IsVoter: true},
+		{ID: "c", Address: "c", IsVoter: true},
 	}
 	nodes := []cluster.NodeInfo{
 		mkNode("a", "10.0.0.1", "7960"),
@@ -277,9 +277,9 @@ func TestRunReconcileOnce_LocalLeaderSelfRemovalTransfersFirst(t *testing.T) {
 	// includes the local node as a candidate so a healthy leader is never
 	// evicted by accident.
 	fr := newFakeRaft(true, []raftapi.Server{
-		{ID: "a", Address: "10.0.0.1:7960", IsVoter: true},
-		{ID: "b", Address: "10.0.0.2:7960", IsVoter: true},
-		{ID: "c", Address: "10.0.0.3:7960", IsVoter: true},
+		{ID: "a", Address: "a", IsVoter: true},
+		{ID: "b", Address: "b", IsVoter: true},
+		{ID: "c", Address: "c", IsVoter: true},
 	})
 	fr.transferTookLeader = true
 	localOptedOut := mkNode("a", "10.0.0.1", "7960")
@@ -306,7 +306,7 @@ func TestRunReconcileOnce_LocalLeaderSelfRemovalTransfersFirst(t *testing.T) {
 
 func TestRunReconcileOnce_SoftErrorAbortsPass(t *testing.T) {
 	fr := newFakeRaft(true, []raftapi.Server{
-		{ID: "a", Address: "10.0.0.1:7960", IsVoter: true},
+		{ID: "a", Address: "a", IsVoter: true},
 	})
 	fr.addVoterErr = raftapi.ErrLeadershipLost
 	fm := &fakeMembership{
@@ -331,7 +331,7 @@ func TestSubscriberLoop_DebouncesAndCoalesces(t *testing.T) {
 	defer bus.Stop()
 
 	fr := newFakeRaft(true, []raftapi.Server{
-		{ID: "a", Address: "10.0.0.1:7960", IsVoter: true},
+		{ID: "a", Address: "a", IsVoter: true},
 	})
 	fm := &fakeMembership{
 		local: mkNode("a", "10.0.0.1", "7960"),

@@ -18,6 +18,7 @@ import (
 	raftapi "github.com/wippyai/runtime/api/raft"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/cluster/internode"
 	"github.com/wippyai/runtime/system/globalreg"
 	"github.com/wippyai/runtime/system/health"
 	sysraft "github.com/wippyai/runtime/system/raft"
@@ -141,6 +142,17 @@ func Raft() boot.Component {
 
 			raftNode = sysraft.NewNode(node.ID(), wrapFSM(fsm), rc, bus, logger.Named("node"), coll, mp, tp)
 
+			// Wire the internode connection manager so the mesh-backed
+			// transport can register its ClassRaftMesh receiver during
+			// Start. Without it, Start fails fast with a clear error.
+			if ac := ctxapi.AppFromContext(ctx); ac != nil {
+				if v := ac.Get(connMgrKey); v != nil {
+					if cm, ok := v.(internode.ConnectionManager); ok {
+						raftNode.SetConnectionManager(cm)
+					}
+				}
+			}
+
 			// Create the global registry service wrapping Raft + FSM.
 			router := relay.GetRouter(ctx)
 			if router == nil {
@@ -198,9 +210,9 @@ func Raft() boot.Component {
 			ctx = globalregapi.WithRegistry(ctx, globalRegSvc)
 
 			logger.Info("raft initialized",
-				zap.String("bind_addr", rc.BindAddr),
-				zap.Int("bind_port", rc.BindPort),
-				zap.Bool("auto_port", rc.AutoPort),
+				zap.String("bind_addr", rc.BindAddr), //nolint:staticcheck // diagnostic: surfaces value during deprecation cycle
+				zap.Int("bind_port", rc.BindPort),    //nolint:staticcheck // diagnostic: surfaces value during deprecation cycle
+				zap.Bool("auto_port", rc.AutoPort),   //nolint:staticcheck // diagnostic: surfaces value during deprecation cycle
 				zap.Bool("bootstrap", rc.Bootstrap),
 			)
 

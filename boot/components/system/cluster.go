@@ -46,6 +46,7 @@ const clusterGossipBootGrace = 60 * time.Second
 var (
 	internodeServiceKey  = &ctxapi.Key{Name: "cluster.internode"}
 	membershipServiceKey = &ctxapi.Key{Name: "cluster.membership"}
+	connMgrKey           = &ctxapi.Key{Name: "cluster.internode.conn"}
 )
 
 // WithInternodeService attaches InternodeService to context
@@ -252,6 +253,14 @@ func Cluster() boot.Component {
 			// Store cluster components in context
 			ctx = WithMembership(ctx, membershipSvc)
 			ctx = WithInternodeService(ctx, internodeSvc)
+
+			// Expose the connection manager so the mesh-backed Raft
+			// transport (system/raft) and the kvraft transport can ride
+			// on the same internode connection as gossip, relay, and PG
+			// broadcast traffic. No separate Raft listener is bound.
+			if ac := ctxapi.AppFromContext(ctx); ac != nil {
+				ac.With(connMgrKey, connMgr)
+			}
 
 			logger.Info("cluster initialized",
 				zap.String("node_name", nodeName),

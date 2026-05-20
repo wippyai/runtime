@@ -3,7 +3,6 @@
 package raft
 
 import (
-	"net"
 	"sort"
 	"strconv"
 
@@ -15,7 +14,7 @@ import (
 // voting. Pure data; carries pre-parsed gossip hints.
 type candidate struct {
 	ID            cluster.NodeID
-	Addr          string // host:raft_port
+	Addr          string // hraft.ServerAddress — the NodeID itself under the mesh transport
 	FailureDomain string
 	Priority      int
 }
@@ -41,7 +40,12 @@ func candidatesFromMembership(nodes []cluster.NodeInfo) []candidate {
 }
 
 // candidateFromNode extracts a candidate from a single NodeInfo.
-// Returns (zero, false) if the node is ineligible or lacks a valid raft_port.
+// Returns (zero, false) if the node is ineligible.
+//
+// Under the mesh transport, hraft.ServerAddress is the NodeID itself —
+// there is no host:raft_port to resolve. The raft_port gossip
+// metadata is still emitted for one cycle for diagnostics, but
+// candidate selection no longer reads it.
 func candidateFromNode(n cluster.NodeInfo) (candidate, bool) {
 	if n.Meta == nil {
 		return candidate{}, false
@@ -56,11 +60,6 @@ func candidateFromNode(n cluster.NodeInfo) (candidate, bool) {
 		}
 	}
 
-	port := n.Meta["raft_port"]
-	if !isValidPort(port) {
-		return candidate{}, false
-	}
-
 	priority := 100 // default — must match boot/components/system/cluster.go
 	if v, ok := n.Meta["raft_priority"]; ok && v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
@@ -68,14 +67,9 @@ func candidateFromNode(n cluster.NodeInfo) (candidate, bool) {
 		}
 	}
 
-	host := n.Addr
-	if h, _, err := net.SplitHostPort(n.Addr); err == nil {
-		host = h
-	}
-
 	return candidate{
 		ID:            n.ID,
-		Addr:          joinHostPort(host, port),
+		Addr:          n.ID,
 		FailureDomain: n.Meta["failure_domain"],
 		Priority:      priority,
 	}, true
@@ -94,21 +88,38 @@ func rankCandidates(cs []candidate) {
 }
 
 // desiredVoterCount returns the target voter count given the eligible pool
-// size and the configured cap. The result is always odd (1, 3, 5, 7, 9...).
+// size and the configured cap. Always odd for N>=3 (1, 3, 5, 7, 9...).
 //
 // Rules:
 //   - 0 eligible → 0 voters
 //   - 1 eligible → 1 voter
-//   - 2 eligible → 1 voter (an even count cannot form a stable quorum)
+//   - 2 eligible → 2 voters (transient post-failure window; see note)
 //   - N>=3       → min(largest_odd<=N, maxVoters)
 //
 // maxVoters must be odd and >= 1; callers validate.
+//
+// 2-eligible note: the historical rule rounded down to 1 voter on the
+// grounds that an even quorum can split-vote. In practice 2-eligible
+// arises overwhelmingly as a TRANSIENT window after a 3-voter cluster
+// loses one node, and demoting the survivor causes a leadership
+// transfer + churn cascade that breaks failover (run_chaos.sh fail
+// mode). Keeping both as voters is no less available than 1-voter mode
+// (both halt on one further failure) and strictly less churny — the
+// reconciler restores 3-voter steady state as soon as a new node
+// joins. Initial 2-node clusters should still be configured with
+// MaxVoters=1 by the operator if they want 1-voter mode.
 func desiredVoterCount(eligible, maxVoters int) int {
 	if eligible <= 0 {
 		return 0
 	}
 	if eligible == 1 {
 		return 1
+	}
+	if eligible == 2 {
+		if maxVoters < 2 {
+			return maxVoters
+		}
+		return 2
 	}
 	target := eligible
 	if target%2 == 0 {
@@ -120,10 +131,9 @@ func desiredVoterCount(eligible, maxVoters int) int {
 	if target < 1 {
 		target = 1
 	}
-	// Defensive clamp: never return an even count > 1, even if
-	// applyDefaults was bypassed and maxVoters is even. Even quorums
-	// can split-vote — Raft requires strict majority.
-	if target > 1 && target%2 == 0 {
+	// Defensive clamp: never return an even count > 2 even if
+	// applyDefaults was bypassed and maxVoters is even.
+	if target > 2 && target%2 == 0 {
 		target--
 	}
 	return target
@@ -359,40 +369,4 @@ func reconcileDiff(
 	out = append(out, demotes...)
 	out = append(out, removes...)
 	return out
-}
-
-// isValidPort returns true if s parses as an integer in [1, 65535].
-func isValidPort(s string) bool {
-	if s == "" {
-		return false
-	}
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		return false
-	}
-	return n >= 1 && n <= 65535
-}
-
-// joinHostPort wraps net.JoinHostPort but takes a string port — convenient
-// for callers that already have the gossip value as a string.
-func joinHostPort(host, port string) string {
-	// Avoid importing net here; selection.go stays pure stdlib-light.
-	// net.JoinHostPort handles IPv6 brackets; we do the same minimal logic.
-	if host == "" {
-		return ":" + port
-	}
-	// IPv6 literal heuristic: contains ':' and is not already bracketed.
-	if containsColon(host) && host[0] != '[' {
-		return "[" + host + "]:" + port
-	}
-	return host + ":" + port
-}
-
-func containsColon(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] == ':' {
-			return true
-		}
-	}
-	return false
 }

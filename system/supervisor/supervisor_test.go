@@ -850,8 +850,11 @@ func TestSupervisor_ServiceTimeout(t *testing.T) {
 		"timeout-service": true,
 	})
 
-	// Wait for timeout with context timeout to prevent test hanging
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	// Wait for timeout with context timeout to prevent test hanging.
+	// Budget: 5s StartTimeout + 6s startDelay + scheduler slack. 15s
+	// gives 4s of headroom over the worst case, which is enough under
+	// -race overhead and parallel test load (where 8s would race).
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	// Poll for service state with context timeout

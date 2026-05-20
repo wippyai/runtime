@@ -27,6 +27,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/metrics"
 	raftapi "github.com/wippyai/runtime/api/raft"
+	"github.com/wippyai/runtime/cluster/internode"
 )
 
 // Node wraps a hashicorp/raft instance and integrates it with the wippy
@@ -38,6 +39,8 @@ type Node struct {
 	stableStore hraft.StableStore
 	snapStore   hraft.SnapshotStore
 	transport   hraft.Transport
+	streamLayer *meshStreamLayer
+	connMgr     internode.ConnectionManager
 	logger      *zap.Logger
 	raft        *hraft.Raft
 	stopCh      chan struct{}
@@ -67,11 +70,27 @@ func NewNode(localID string, fsm hraft.FSM, cfg raftapi.Config, bus event.Bus, l
 }
 
 // ActualPort returns the port the Raft transport is actually listening on.
-// Only valid after Start().
+// Only valid after Start(). With the mesh transport there is no dedicated
+// Raft listener anymore; this returns 0 and is retained only for callers
+// that still surface a `raft_port` value in diagnostics or gossip
+// metadata. Removal scheduled with the deprecated config fields.
 func (n *Node) ActualPort() int {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return n.actualPort
+}
+
+// SetConnectionManager wires the wippy internode connection manager
+// that the mesh-backed Raft transport rides on top of. Must be called
+// before Start; calling Start without a connection manager set returns
+// an error. Idempotent before Start; ignored after.
+func (n *Node) SetConnectionManager(connMgr internode.ConnectionManager) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.started {
+		return
+	}
+	n.connMgr = connMgr
 }
 
 // Telemetry exposes the internal telemetry handle so the MembershipHandler
@@ -143,13 +162,24 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 		return nil, fmt.Errorf("raft node already started")
 	}
 
-	// Resolve port.
-	port, err := autoDetectPort(n.config)
-	if err != nil {
-		return nil, fmt.Errorf("raft port detection: %w", err)
+	useMesh := n.connMgr != nil
+	if useMesh {
+		// Mesh transport: no dedicated Raft listener. actualPort is
+		// preserved for callers that still surface a raft_port value
+		// (kept while api/raft/config.go's BindAddr/BindPort are
+		// still parseable for back-compat — see T5.3).
+		n.actualPort = 0
+	} else {
+		// Legacy TCP transport path. Used by Raft instances that have
+		// not been wired to the internode connection manager (e.g.
+		// the optional kvraft instance under one-cycle rollout).
+		port, err := autoDetectPort(n.config)
+		if err != nil {
+			return nil, fmt.Errorf("raft port detection: %w", err)
+		}
+		n.actualPort = port
+		n.config.BindPort = port //nolint:staticcheck // legacy TCP fallback path; mesh transport ignores this field.
 	}
-	n.actualPort = port
-	n.config.BindPort = port
 
 	// Ensure data directory exists.
 	if n.config.DataDir != "" {
@@ -186,27 +216,41 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 		n.snapStore = hraft.NewInmemSnapshotStore()
 	}
 
-	// Create transport.
-	bindAddr := resolveTransportAddr(n.config)
-	advertiseAddr := resolveAdvertiseAddr(n.config, port)
 	// Pipe hashicorp/raft's transport-internal logger through zap with
 	// per-line rate limiting. Default behavior writes broken-pipe storms
 	// straight to os.Stderr, which under network-partition chaos produces
 	// thousands of unsampled lines per second per pod.
 	netLogOut := newRaftStderrAdapter(n.logger.Named("raft-net"))
-	transport, err := hraft.NewTCPTransport(bindAddr, advertiseAddr, n.config.MaxPool, 10*time.Second, netLogOut)
-	if err != nil {
-		return nil, fmt.Errorf("create raft transport: %w", err)
+
+	var inner hraft.Transport
+	if useMesh {
+		// Mesh-backed transport: yamux session per peer over the
+		// existing internode connection (ClassRaftMesh frames). No
+		// dedicated Raft listener is bound.
+		n.streamLayer = newMeshStreamLayer(n.localID, n.connMgr, n.logger.Named("raft-mesh"))
+		if err := n.streamLayer.register(); err != nil {
+			return nil, fmt.Errorf("register raft mesh receiver: %w", err)
+		}
+		inner = hraft.NewNetworkTransport(n.streamLayer, n.config.MaxPool, 10*time.Second, netLogOut)
+	} else {
+		// Legacy TCP transport. Retained for Raft instances that
+		// haven't been wired through the internode mesh yet.
+		bindAddr := resolveTransportAddr(n.config)
+		advertiseAddr := resolveAdvertiseAddr(n.config, n.actualPort)
+		tcpTransport, err := hraft.NewTCPTransport(bindAddr, advertiseAddr, n.config.MaxPool, 10*time.Second, netLogOut)
+		if err != nil {
+			return nil, fmt.Errorf("create raft transport: %w", err)
+		}
+		inner = tcpTransport
 	}
-	// Stack: peerStateTracker over instrumentedTransport over the raw TCP
-	// transport. The tracker short-circuits writes to peers that have
-	// produced N consecutive errors, breaking the broken-pipe storm we
-	// see under chaos partition without changing raft semantics (the
-	// raft engine sees errPeerDead and falls back to its own retry
-	// policy, which talks to US — a cheap immediate return — rather
-	// than re-attempting a real TCP write to a dead socket).
+
+	// Stack: peerStateTracker over instrumentedTransport over the
+	// chosen inner transport. The tracker short-circuits writes to
+	// peers that have produced N consecutive errors, breaking the
+	// broken-pipe storm we see under chaos partition without changing
+	// raft semantics.
 	n.transport = newPeerStateTracker(
-		&instrumentedTransport{Transport: transport, tel: n.tel},
+		&instrumentedTransport{Transport: inner, tel: n.tel},
 		n.tel,
 	)
 
@@ -217,7 +261,9 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 	wrappedFSM := &instrumentedFSM{FSM: n.fsm, tel: n.tel}
 	r, err := hraft.NewRaft(rc, wrappedFSM, n.logStore, n.stableStore, n.snapStore, n.transport)
 	if err != nil {
-		transport.Close()
+		if closer, ok := inner.(hraft.WithClose); ok {
+			_ = closer.Close()
+		}
 		return nil, fmt.Errorf("create raft instance: %w", err)
 	}
 	n.raft = r
@@ -254,8 +300,7 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 
 	n.logger.Info("raft node started",
 		zap.String("id", n.localID),
-		zap.String("bind", bindAddr),
-		zap.Int("port", port),
+		zap.String("transport", "mesh"),
 		zap.Bool("bootstrap", n.config.Bootstrap))
 
 	return statusCh, nil

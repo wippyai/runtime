@@ -121,8 +121,8 @@ func KVRaft() boot.Component {
 			}
 
 			logger.Info("kvraft initialized",
-				zap.String("bind_addr", rc.BindAddr),
-				zap.Int("bind_port", rc.BindPort),
+				zap.String("bind_addr", rc.BindAddr), //nolint:staticcheck // diagnostic: surfaces value during deprecation cycle
+				zap.Int("bind_port", rc.BindPort),    //nolint:staticcheck // diagnostic: surfaces value during deprecation cycle
 				zap.Bool("bootstrap", rc.Bootstrap))
 			return ctx, nil
 		},

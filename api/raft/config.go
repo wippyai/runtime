@@ -6,8 +6,12 @@ import "time"
 
 // Config holds configuration for a Raft node.
 type Config struct {
-	DataDir           string        `json:"data_dir"`
-	AdvertiseAddr     string        `json:"advertise_addr"`
+	DataDir string `json:"data_dir"`
+	// Deprecated: mesh transport ignores this field. Kept for one
+	// deprecation cycle so legacy boot configs still parse; the mesh
+	// transport addresses peers by NodeID over the internode layer.
+	AdvertiseAddr string `json:"advertise_addr"`
+	// Deprecated: mesh transport ignores this field. See AdvertiseAddr.
 	BindAddr          string        `json:"bind_addr"`
 	CommitTimeout     time.Duration `json:"commit_timeout"`
 	SnapshotInterval  time.Duration `json:"snapshot_interval"`
@@ -18,10 +22,11 @@ type Config struct {
 	// hashicorp/raft default is 10240 which keeps a lot of memory under
 	// partition; lower this for memory-constrained nodes. Zero means use
 	// the hashicorp/raft library default.
-	TrailingLogs   uint64 `json:"trailing_logs"`
-	BindPort       int    `json:"bind_port"`
-	SnapshotRetain int    `json:"snapshot_retain"`
-	MaxPool        int    `json:"max_pool"`
+	TrailingLogs uint64 `json:"trailing_logs"`
+	// Deprecated: mesh transport ignores this field. See AdvertiseAddr.
+	BindPort       int `json:"bind_port"`
+	SnapshotRetain int `json:"snapshot_retain"`
+	MaxPool        int `json:"max_pool"`
 	// MaxAppendEntries caps how many log entries the leader packs into a
 	// single AppendEntries RPC. The hashicorp/raft default is 64 which,
 	// when a follower restarts with an empty log and needs to catch up
@@ -31,7 +36,8 @@ type Config struct {
 	// while it ships history. Zero means use the library default.
 	MaxAppendEntries int  `json:"max_append_entries"`
 	Bootstrap        bool `json:"bootstrap"`
-	AutoPort         bool `json:"auto_port"`
+	// Deprecated: mesh transport ignores this field. See AdvertiseAddr.
+	AutoPort bool `json:"auto_port"`
 }
 
 // InitDefaults fills zero-valued fields with sensible defaults.
