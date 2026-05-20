@@ -176,6 +176,7 @@ func (nsm *NodeStateManager) CreateNodeState(nodeID cluster.NodeID) {
 		ClassRaftControl: nsm.config.RaftControlQueueCap,
 		ClassGossip:      nsm.config.GossipQueueCap,
 		ClassPGBroadcast: nsm.config.PGBroadcastQueueCap,
+		ClassRaftMesh:    nsm.config.RaftMeshQueueCap,
 	}
 	queues := [numClasses]*classQueue{}
 	for i := range queues {
@@ -224,7 +225,7 @@ func (nsm *NodeStateManager) QueueMessageClass(nodeID cluster.NodeID, data []byt
 	var dropped bool
 	var rejected bool
 	switch class {
-	case ClassRaftControl:
+	case ClassRaftControl, ClassRaftMesh:
 		dropped = q.pushOldest(data)
 	case ClassGossip, ClassPGBroadcast:
 		if !q.pushNewest(data) {
@@ -315,20 +316,32 @@ func (nsm *NodeStateManager) GetNodeAddress(nodeID cluster.NodeID) (string, int,
 	return addr.addr, addr.port, addr.addr != "" && addr.port != 0
 }
 
-func (nsm *NodeStateManager) DrainMessages(nodeID cluster.NodeID, maxCount int) [][]byte {
+// drainClasses defines the QoS draining order. ClassRaftControl drains
+// first (smallest latency budget); ClassRaftMesh second so multiplexed
+// hraft frames stay responsive; gossip and PG broadcast last. The order
+// matters under per-batch caps: a saturated control plane should not
+// starve raft mesh traffic forever.
+var drainClasses = [numClasses]Class{
+	ClassRaftControl,
+	ClassRaftMesh,
+	ClassGossip,
+	ClassPGBroadcast,
+}
+
+func (nsm *NodeStateManager) DrainMessages(nodeID cluster.NodeID, maxCount int) []Outbound {
 	state := nsm.GetNodeState(nodeID)
 	if state == nil || maxCount <= 0 {
 		return nil
 	}
 
 	state.queueMu.Lock()
-	out := make([][]byte, 0, maxCount)
-	for _, class := range []Class{ClassRaftControl, ClassGossip, ClassPGBroadcast} {
+	out := make([]Outbound, 0, maxCount)
+	for _, class := range drainClasses {
 		q := state.queues[class]
 		for q.len() > 0 && len(out) < maxCount {
 			d, _ := q.pop()
 			if d != nil {
-				out = append(out, d)
+				out = append(out, Outbound{Data: d, Class: class})
 			}
 		}
 		if len(out) >= maxCount {
@@ -343,7 +356,7 @@ func (nsm *NodeStateManager) DrainMessages(nodeID cluster.NodeID, maxCount int) 
 	}
 	state.queueMu.Unlock()
 
-	for _, class := range []Class{ClassRaftControl, ClassGossip, ClassPGBroadcast} {
+	for _, class := range drainClasses {
 		nsm.tel.recordQueueDepth(class, nodeID, depths[class])
 	}
 	return out
@@ -358,6 +371,33 @@ func (nsm *NodeStateManager) GetMessageNotifier(nodeID cluster.NodeID) <-chan st
 		return nil
 	}
 	return state.messageNotify
+}
+
+// RequeueMessages returns previously-extracted Outbound entries to the
+// head of the per-class queue that originally produced them. Each entry's
+// class is honored individually so a mixed-class drain can be requeued
+// without losing QoS context. Internally splits the input by class and
+// delegates to RequeueMessagesClass for the per-class cap arithmetic.
+func (nsm *NodeStateManager) RequeueMessages(nodeID cluster.NodeID, messages []Outbound) {
+	if len(messages) == 0 {
+		return
+	}
+	var perClass [numClasses][][]byte
+	for _, m := range messages {
+		if m.Data == nil {
+			continue
+		}
+		if int(m.Class) >= numClasses {
+			continue
+		}
+		perClass[m.Class] = append(perClass[m.Class], m.Data)
+	}
+	for c := 0; c < numClasses; c++ {
+		if len(perClass[c]) == 0 {
+			continue
+		}
+		nsm.RequeueMessagesClass(nodeID, perClass[c], Class(c))
+	}
 }
 
 // RequeueMessagesClass returns previously-extracted messages to the head
@@ -385,7 +425,7 @@ func (nsm *NodeStateManager) RequeueMessagesClass(nodeID cluster.NodeID, message
 	q := state.queues[class]
 	dropped := 0
 	switch class {
-	case ClassRaftControl:
+	case ClassRaftControl, ClassRaftMesh:
 		// Drop-oldest semantics: if requeue would overflow, the queue
 		// silently makes room by discarding old entries. pushFront cannot
 		// drop, so drain from tail first.

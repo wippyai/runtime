@@ -130,7 +130,8 @@ func TestNodeStateManager_QueueMessage(t *testing.T) {
 	// Drain and verify
 	messages := nsm.DrainMessages(nodeID, 10)
 	require.Len(t, messages, 1)
-	assert.Equal(t, data, messages[0])
+	assert.Equal(t, data, messages[0].Data)
+	assert.Equal(t, ClassRaftControl, messages[0].Class)
 }
 
 func TestNodeStateManager_QueueMessage_Nil(t *testing.T) {
@@ -173,7 +174,8 @@ func TestNodeStateManager_QueueMessage_Multiple(t *testing.T) {
 	messages := nsm.DrainMessages(nodeID, 10)
 	require.Len(t, messages, 5)
 	for i := 0; i < 5; i++ {
-		assert.Equal(t, []byte{byte(i)}, messages[i])
+		assert.Equal(t, []byte{byte(i)}, messages[i].Data)
+		assert.Equal(t, ClassRaftControl, messages[i].Class)
 	}
 }
 
@@ -242,9 +244,9 @@ func TestNodeStateManager_RequeueMessages(t *testing.T) {
 	// Drain should return requeued messages first, then original
 	messages := nsm.DrainMessages(nodeID, 10)
 	require.Len(t, messages, 3)
-	assert.Equal(t, []byte{2}, messages[0]) // First requeued
-	assert.Equal(t, []byte{3}, messages[1]) // Second requeued
-	assert.Equal(t, []byte{1}, messages[2]) // Original message last
+	assert.Equal(t, []byte{2}, messages[0].Data) // First requeued
+	assert.Equal(t, []byte{3}, messages[1].Data) // Second requeued
+	assert.Equal(t, []byte{1}, messages[2].Data) // Original message last
 }
 
 func TestNodeStateManager_RequeueMessages_Empty(_ *testing.T) {

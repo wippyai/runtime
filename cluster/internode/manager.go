@@ -78,6 +78,11 @@ type ManagerConfig struct {
 	RaftControlQueueCap int
 	GossipQueueCap      int
 	PGBroadcastQueueCap int
+	// RaftMeshQueueCap caps the per-peer queue for multiplexed Raft
+	// transport frames (ClassRaftMesh). Sized like RaftControl: under
+	// healthy steady state Raft frames drain fast; under partition we
+	// must drop-oldest to avoid OOM and let pre-vote recover.
+	RaftMeshQueueCap int
 	// OutboundConnQueueCap caps the per-connection outbound queue inside
 	// NodeConnection (drain target of the per-class queues above). Without
 	// this cap, network-delay chaos lets the connection-level queue grow
@@ -107,6 +112,7 @@ func DefaultManagerConfig() ManagerConfig {
 		RaftControlQueueCap:  4096,
 		GossipQueueCap:       1024,
 		PGBroadcastQueueCap:  2048,
+		RaftMeshQueueCap:     4096,
 		OutboundConnQueueCap: 4096,
 	}
 }
@@ -191,21 +197,32 @@ type ConnectionManager interface {
 	// callers count drops without taking a dependency on the unexported
 	// telemetry type.
 	RecordDropReason(reason string)
+
+	// RegisterClassReceiver wires an inbound dispatcher for a single
+	// sub-protocol class. When a frame with this class arrives, the
+	// per-class receiver is invoked instead of the default onMessage
+	// callback registered via Start. Returns false if a receiver is
+	// already registered for the class. The mesh-backed Raft transport
+	// uses this to claim ClassRaftMesh; the default class set continues
+	// to flow through Start's onMessage.
+	RegisterClassReceiver(class Class, recv func(nodeID cluster.NodeID, data []byte)) bool
 }
 
 type manager struct {
-	ctx            context.Context
-	listener       net.Listener
-	cancel         context.CancelFunc
-	logger         *zap.Logger
-	onMessage      func(cluster.NodeID, []byte)
-	tlsConfig      *tls.Config
-	nodeStates     *NodeStateManager
-	controlLoops   map[cluster.NodeID]*nodeControlLoop
-	config         ManagerConfig
-	wg             sync.WaitGroup
-	actualPort     int
-	controlLoopsMu sync.Mutex
+	ctx              context.Context
+	listener         net.Listener
+	cancel           context.CancelFunc
+	logger           *zap.Logger
+	onMessage        func(cluster.NodeID, []byte)
+	tlsConfig        *tls.Config
+	nodeStates       *NodeStateManager
+	controlLoops     map[cluster.NodeID]*nodeControlLoop
+	classReceivers   [numClasses]func(cluster.NodeID, []byte)
+	config           ManagerConfig
+	wg               sync.WaitGroup
+	actualPort       int
+	controlLoopsMu   sync.Mutex
+	classReceiversMu sync.RWMutex
 }
 
 func NewConnectionManager(config ManagerConfig, coll metrics.Collector) ConnectionManager {
@@ -378,6 +395,33 @@ func (m *manager) IsManaged(nodeID cluster.NodeID) bool {
 // because those drop sites don't carry class context.
 func (m *manager) RecordDropReason(reason string) {
 	m.nodeStates.tel.recordDropReason(reason)
+}
+
+// RegisterClassReceiver claims a sub-protocol Class so inbound frames with
+// that class bypass the default onMessage callback and go straight to recv.
+// Idempotent: registering nil clears the receiver. Returns false if a
+// non-nil receiver is already registered for that class.
+func (m *manager) RegisterClassReceiver(class Class, recv func(cluster.NodeID, []byte)) bool {
+	if int(class) >= numClasses {
+		return false
+	}
+	m.classReceiversMu.Lock()
+	defer m.classReceiversMu.Unlock()
+	if recv != nil && m.classReceivers[class] != nil {
+		return false
+	}
+	m.classReceivers[class] = recv
+	return true
+}
+
+func (m *manager) lookupClassReceiver(class Class) func(cluster.NodeID, []byte) {
+	if int(class) >= numClasses {
+		return nil
+	}
+	m.classReceiversMu.RLock()
+	recv := m.classReceivers[class]
+	m.classReceiversMu.RUnlock()
+	return recv
 }
 
 // EvictOrphanNodes walks the controlLoops + nodeStates and removes any
@@ -596,7 +640,7 @@ func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
 		loop.connection.Close()
 		loop.connection = nil
 		if len(pending) > 0 {
-			loop.manager.nodeStates.RequeueMessagesClass(loop.nodeID, pending, ClassPGBroadcast)
+			loop.manager.nodeStates.RequeueMessages(loop.nodeID, pending)
 		}
 	}
 	loop.manager.nodeStates.SetNodeConnection(loop.nodeID, nil, StateNone)
@@ -629,7 +673,7 @@ func (loop *nodeControlLoop) cleanup() {
 		loop.connection.Close()
 		loop.connection = nil
 		if len(pending) > 0 {
-			loop.manager.nodeStates.RequeueMessagesClass(loop.nodeID, pending, ClassPGBroadcast)
+			loop.manager.nodeStates.RequeueMessages(loop.nodeID, pending)
 		}
 	}
 	loop.manager.nodeStates.SetNodeConnection(loop.nodeID, nil, StateNone)
@@ -676,7 +720,11 @@ func (loop *nodeControlLoop) monitorConnection() {
 	if loop.connection == nil {
 		return
 	}
-	err := loop.connection.Run(func(msg []byte) {
+	err := loop.connection.Run(func(class Class, msg []byte) {
+		if recv := loop.manager.lookupClassReceiver(class); recv != nil {
+			recv(loop.nodeID, msg)
+			return
+		}
 		loop.manager.onMessage(loop.nodeID, msg)
 	})
 	shouldRetry := false
@@ -698,8 +746,8 @@ func (loop *nodeControlLoop) drainMessages() {
 		return
 	}
 	loop.logger.Debug("Draining queued messages", zap.Int("count", len(messages)))
-	for i, data := range messages {
-		err := loop.connection.Send(data)
+	for i, msg := range messages {
+		err := loop.connection.Send(msg.Data, msg.Class)
 		if err == nil {
 			continue
 		}
@@ -710,16 +758,15 @@ func (loop *nodeControlLoop) drainMessages() {
 		// what's already enqueued, and the next notification will bring
 		// new work.
 		if errors.Is(err, ErrQueueFull) {
-			dropped := len(messages) - i
-			for j := 0; j < dropped; j++ {
-				loop.manager.nodeStates.tel.recordDrop(ClassPGBroadcast, "conn_queue_full")
+			for _, m := range messages[i:] {
+				loop.manager.nodeStates.tel.recordDrop(m.Class, "conn_queue_full")
 			}
 			return
 		}
 		// Other errors (ErrConnectionClosed) — connection is going away;
 		// requeue so a subsequent connection can drain. Already-dropped
 		// messages from this batch are unrecoverable.
-		loop.manager.nodeStates.RequeueMessagesClass(loop.nodeID, messages[i:], ClassPGBroadcast)
+		loop.manager.nodeStates.RequeueMessages(loop.nodeID, messages[i:])
 		return
 	}
 }

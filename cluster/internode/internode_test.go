@@ -124,6 +124,10 @@ func (m *mockConnectionManager) RecordDropReason(_ string) {}
 
 func (m *mockConnectionManager) EvictOrphanNodes(_ map[cluster.NodeID]struct{}) int { return 0 }
 
+func (m *mockConnectionManager) RegisterClassReceiver(_ Class, _ func(cluster.NodeID, []byte)) bool {
+	return true
+}
+
 type mockCodec struct {
 	encodeError error
 	decodeError error

@@ -89,8 +89,11 @@ func (ce *ConnectionError) ShouldRetry() bool {
 }
 
 const (
-	protocolVersion = 0x01
-	frameHeaderSize = 5 // 1 byte for version, 4 bytes for length
+	// protocolVersion v2 added the per-frame Class byte so the wire is
+	// self-describing for sub-protocol dispatch. v1 (header [version, len])
+	// is no longer accepted; all nodes in a cluster upgrade together.
+	protocolVersion = 0x02
+	frameHeaderSize = 6 // 1 byte version, 1 byte class, 4 bytes length
 	// writeBatchSize reserved for future use
 	writeFlushInterval     = 10 * time.Millisecond
 	defaultWriteBufferSize = 64 * 1024
@@ -104,12 +107,21 @@ var bufferPool = sync.Pool{
 	},
 }
 
+// Outbound is one queued message waiting to be sent on the wire. The Class
+// is preserved end-to-end so the receiver can dispatch by sub-protocol
+// without inspecting the payload, and so requeue-on-disconnect honors the
+// original QoS class.
+type Outbound struct {
+	Data  []byte
+	Class Class
+}
+
 // Connection defines the public interface for a connection to another node.
 type Connection interface {
-	Run(handler func(msg []byte)) *ConnectionError
-	Send(data []byte) error
+	Run(handler func(class Class, msg []byte)) *ConnectionError
+	Send(data []byte, class Class) error
 	Close()
-	ExtractPendingMessages() [][]byte
+	ExtractPendingMessages() []Outbound
 	RemoteNodeID() cluster.NodeID
 }
 
@@ -165,8 +177,10 @@ func newNodeConnection(conn net.Conn, remoteNode cluster.NodeID, config NodeConn
 }
 
 // Run starts the connection's read/write loops and blocks until termination.
-// It returns a ConnectionError indicating the reason for termination.
-func (c *NodeConnection) Run(handler func(msg []byte)) *ConnectionError {
+// It returns a ConnectionError indicating the reason for termination. The
+// handler receives every decoded inbound frame tagged with its sub-protocol
+// Class so callers can dispatch by class without re-parsing payload.
+func (c *NodeConnection) Run(handler func(class Class, msg []byte)) *ConnectionError {
 	c.lifecycleMu.Lock()
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
@@ -217,7 +231,7 @@ func (c *NodeConnection) Run(handler func(msg []byte)) *ConnectionError {
 // is at capacity — the caller is expected to record the drop and proceed.
 // Without this cap, network-delay chaos would let activeQueue grow unbounded
 // (each frame up to MaxMessageSize) and OOMKill the runtime.
-func (c *NodeConnection) Send(data []byte) error {
+func (c *NodeConnection) Send(data []byte, class Class) error {
 	if c.closed.Load() {
 		return ErrConnectionClosed
 	}
@@ -227,7 +241,7 @@ func (c *NodeConnection) Send(data []byte) error {
 		c.queueMu.Unlock()
 		return ErrQueueFull
 	}
-	c.activeQueue.PushBack(data)
+	c.activeQueue.PushBack(Outbound{Data: data, Class: class})
 	c.queueMu.Unlock()
 
 	select {
@@ -256,15 +270,17 @@ func (c *NodeConnection) RemoteNodeID() cluster.NodeID {
 }
 
 // ExtractPendingMessages returns all messages that were queued but not yet sent.
-// This is useful for message recovery during connection failures.
-func (c *NodeConnection) ExtractPendingMessages() [][]byte {
+// This is useful for message recovery during connection failures. The original
+// Class is preserved on every returned entry so the caller can requeue by
+// class on the new connection.
+func (c *NodeConnection) ExtractPendingMessages() []Outbound {
 	c.queueMu.Lock()
 	defer c.queueMu.Unlock()
 
 	c.processingQueue.PushBackList(c.activeQueue)
-	pending := make([][]byte, 0, c.processingQueue.Len())
+	pending := make([]Outbound, 0, c.processingQueue.Len())
 	for e := c.processingQueue.Front(); e != nil; e = e.Next() {
-		pending = append(pending, e.Value.([]byte))
+		pending = append(pending, e.Value.(Outbound))
 	}
 	return pending
 }
@@ -305,14 +321,15 @@ func (c *NodeConnection) writeLoop(ctx context.Context) *ConnectionError {
 
 func (c *NodeConnection) flushBatch(writer *bufio.Writer, batch *list.List) error {
 	for e := batch.Front(); e != nil; e = e.Next() {
-		if err := writeFrame(writer, e.Value.([]byte)); err != nil {
+		msg := e.Value.(Outbound)
+		if err := writeFrame(writer, msg.Class, msg.Data); err != nil {
 			return err
 		}
 	}
 	return writer.Flush()
 }
 
-func (c *NodeConnection) readLoop(ctx context.Context, handler func(msg []byte)) *ConnectionError {
+func (c *NodeConnection) readLoop(ctx context.Context, handler func(class Class, msg []byte)) *ConnectionError {
 	reader := bufio.NewReader(c.conn)
 	for {
 		// Check for context cancellation before blocking on read.
@@ -322,7 +339,7 @@ func (c *NodeConnection) readLoop(ctx context.Context, handler func(msg []byte))
 		default:
 		}
 
-		msg, err := readFrame(reader, c.config.MaxMessageSize)
+		class, msg, err := readFrame(reader, c.config.MaxMessageSize)
 
 		if err != nil {
 			if errors.Is(err, io.EOF) || strings.Contains(err.Error(), "use of closed network connection") {
@@ -347,7 +364,7 @@ func (c *NodeConnection) readLoop(ctx context.Context, handler func(msg []byte))
 		}
 
 		// Call handler without logging - this is hot path
-		handler(msg)
+		handler(class, msg)
 	}
 }
 
@@ -357,10 +374,12 @@ type protocolError string
 // Error implements the error interface for protocolError.
 func (e protocolError) Error() string { return "protocol error: " + string(e) }
 
-// writeFrame writes a framed message to the writer with protocol version and length prefix.
-func writeFrame(w io.Writer, data []byte) error {
+// writeFrame writes a framed message to the writer with protocol version,
+// sub-protocol class, and length prefix.
+func writeFrame(w io.Writer, class Class, data []byte) error {
 	var header [frameHeaderSize]byte
 	header[0] = protocolVersion
+	header[1] = byte(class)
 
 	// Check for potential integer overflow before casting to uint32
 	dataLen := len(data)
@@ -368,7 +387,7 @@ func writeFrame(w io.Writer, data []byte) error {
 		return NewMessageTooLargeError(dataLen)
 	}
 
-	binary.LittleEndian.PutUint32(header[1:], uint32(dataLen))
+	binary.LittleEndian.PutUint32(header[2:], uint32(dataLen))
 	if _, err := w.Write(header[:]); err != nil {
 		return err
 	}
@@ -380,22 +399,27 @@ func writeFrame(w io.Writer, data []byte) error {
 	return nil
 }
 
-// readFrame reads a framed message from the reader, validating protocol version and message size.
-func readFrame(r io.Reader, maxMessageSize uint32) ([]byte, error) {
+// readFrame reads a framed message from the reader, validating protocol
+// version, sub-protocol class, and message size.
+func readFrame(r io.Reader, maxMessageSize uint32) (Class, []byte, error) {
 	var header [frameHeaderSize]byte
 	if _, err := io.ReadFull(r, header[:]); err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	if header[0] != protocolVersion {
-		return nil, protocolError(fmt.Sprintf("unexpected protocol version %d", header[0]))
+		return 0, nil, protocolError(fmt.Sprintf("unexpected protocol version %d", header[0]))
 	}
-	size := binary.LittleEndian.Uint32(header[1:])
+	class := Class(header[1])
+	if int(class) >= numClasses {
+		return 0, nil, protocolError(fmt.Sprintf("unknown sub-protocol class %d", header[1]))
+	}
+	size := binary.LittleEndian.Uint32(header[2:])
 	if size > maxMessageSize {
-		return nil, NewMessageSizeExceedsMaxError(int(size), int(maxMessageSize))
+		return 0, nil, NewMessageSizeExceedsMaxError(int(size), int(maxMessageSize))
 	}
 
 	if size == 0 {
-		return []byte{}, nil
+		return class, []byte{}, nil
 	}
 
 	var msg []byte
@@ -416,7 +440,7 @@ func readFrame(r io.Reader, maxMessageSize uint32) ([]byte, error) {
 
 	if _, err := io.ReadFull(r, msg); err != nil {
 		bufferPool.Put(bp)
-		return nil, err
+		return 0, nil, err
 	}
 
 	// If it's from the pool, we must copy it.
@@ -424,9 +448,9 @@ func readFrame(r io.Reader, maxMessageSize uint32) ([]byte, error) {
 		data := make([]byte, size)
 		copy(data, msg)
 		bufferPool.Put(bp)
-		return data, nil
+		return class, data, nil
 	}
 
 	// It was a large message allocated on its own.
-	return msg, nil
+	return class, msg, nil
 }

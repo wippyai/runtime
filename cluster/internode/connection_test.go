@@ -120,11 +120,11 @@ func TestNodeConnection_SendReceive(t *testing.T) {
 	nodeA, nodeB := newTestConnectionPair(t, "node-A", "node-B")
 	msgChan := make(chan []byte, 1)
 
-	go func() { _ = nodeA.Run(func(_ []byte) {}) }()
-	go func() { _ = nodeB.Run(func(msg []byte) { msgChan <- msg }) }()
+	go func() { _ = nodeA.Run(func(_ Class, _ []byte) {}) }()
+	go func() { _ = nodeB.Run(func(_ Class, msg []byte) { msgChan <- msg }) }()
 
 	testMsg := []byte("hello, world!")
-	require.NoError(t, nodeA.Send(testMsg))
+	require.NoError(t, nodeA.Send(testMsg, ClassPGBroadcast))
 
 	select {
 	case receivedMsg := <-msgChan:
@@ -138,7 +138,7 @@ func TestNodeConnection_Shutdown(t *testing.T) {
 	nodeA, nodeB := newTestConnectionPair(t, "node-A", "node-B")
 	runLoopExited := make(chan *ConnectionError, 1)
 
-	go func() { runLoopExited <- nodeB.Run(func(_ []byte) {}) }()
+	go func() { runLoopExited <- nodeB.Run(func(_ Class, _ []byte) {}) }()
 
 	time.Sleep(50 * time.Millisecond)
 	nodeA.Close()
@@ -156,7 +156,7 @@ func TestNodeConnection_SelfClose(t *testing.T) {
 	nodeA, _ := newTestConnectionPair(t, "node-A", "node-B")
 	runLoopExited := make(chan *ConnectionError, 1)
 
-	go func() { runLoopExited <- nodeA.Run(func(_ []byte) {}) }()
+	go func() { runLoopExited <- nodeA.Run(func(_ Class, _ []byte) {}) }()
 
 	time.Sleep(50 * time.Millisecond)
 	nodeA.Close()
@@ -174,10 +174,10 @@ func TestNodeConnection_ZeroLengthMessage(t *testing.T) {
 	nodeA, nodeB := newTestConnectionPair(t, "node-A", "node-B")
 	msgChan := make(chan []byte, 1)
 
-	go func() { _ = nodeA.Run(func(_ []byte) {}) }()
-	go func() { _ = nodeB.Run(func(data []byte) { msgChan <- data }) }()
+	go func() { _ = nodeA.Run(func(_ Class, _ []byte) {}) }()
+	go func() { _ = nodeB.Run(func(_ Class, data []byte) { msgChan <- data }) }()
 
-	require.NoError(t, nodeA.Send([]byte{}))
+	require.NoError(t, nodeA.Send([]byte{}, ClassPGBroadcast))
 
 	select {
 	case msg := <-msgChan:
@@ -196,9 +196,9 @@ func TestNodeConnection_ConcurrentSend(t *testing.T) {
 	var receivedCount int64
 	doneChan := make(chan struct{})
 
-	go func() { _ = nodeA.Run(func(_ []byte) {}) }()
+	go func() { _ = nodeA.Run(func(_ Class, _ []byte) {}) }()
 	go func() {
-		_ = nodeB.Run(func(_ []byte) {
+		_ = nodeB.Run(func(_ Class, _ []byte) {
 			if atomic.AddInt64(&receivedCount, 1) == numMessages {
 				close(doneChan)
 			}
@@ -212,7 +212,7 @@ func TestNodeConnection_ConcurrentSend(t *testing.T) {
 			defer sendWg.Done()
 			for j := 0; j < numMessages/numSenders; j++ {
 				msg := []byte(fmt.Sprintf("sender-%d-msg-%d", senderID, j))
-				if err := nodeA.Send(msg); errors.Is(err, ErrConnectionClosed) {
+				if err := nodeA.Send(msg, ClassPGBroadcast); errors.Is(err, ErrConnectionClosed) {
 					return
 				}
 			}
@@ -232,7 +232,7 @@ func TestNodeConnection_ErrorOnSendToClosed(t *testing.T) {
 	nodeA.Close()
 	time.Sleep(10 * time.Millisecond)
 
-	err := nodeA.Send([]byte("this should fail"))
+	err := nodeA.Send([]byte("this should fail"), ClassPGBroadcast)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrConnectionClosed)
 }
@@ -253,9 +253,9 @@ func TestNodeConnection_SendQueueCap(t *testing.T) {
 	// Don't call Run() — without a writeLoop draining, every successful
 	// Send leaves the message in activeQueue and fills it.
 	for i := 0; i < cfg.MaxQueueSize; i++ {
-		require.NoError(t, nc.Send([]byte("x")), "send #%d", i)
+		require.NoError(t, nc.Send([]byte("x"), ClassPGBroadcast), "send #%d", i)
 	}
-	err := nc.Send([]byte("overflow"))
+	err := nc.Send([]byte("overflow"), ClassPGBroadcast)
 	require.ErrorIs(t, err, ErrQueueFull)
 }
 
@@ -273,7 +273,7 @@ func TestNodeConnection_SendQueueCapZeroMeansUnbounded(t *testing.T) {
 	nc := newNodeConnection(conn, "peer", cfg, zap.NewNop())
 
 	for i := 0; i < 100; i++ {
-		require.NoError(t, nc.Send([]byte("x")))
+		require.NoError(t, nc.Send([]byte("x"), ClassPGBroadcast))
 	}
 }
 
@@ -309,18 +309,18 @@ func TestNodeConnection_FailureAndMessageExtraction(t *testing.T) {
 
 	runErrA := make(chan *ConnectionError, 1)
 
-	go func() { _ = nodeB.Run(func(_ []byte) {}) }()
-	go func() { runErrA <- nodeA.Run(func(_ []byte) {}) }()
+	go func() { _ = nodeB.Run(func(_ Class, _ []byte) {}) }()
+	go func() { runErrA <- nodeA.Run(func(_ Class, _ []byte) {}) }()
 
 	msg1 := []byte("unsent-1")
-	require.NoError(t, nodeA.Send(msg1))
+	require.NoError(t, nodeA.Send(msg1, ClassPGBroadcast))
 
 	time.Sleep(50 * time.Millisecond)
 	injectedErr := errors.New("injected physical write error")
 	mockA.setWriteError(injectedErr)
 
 	msg2 := []byte("unsent-2")
-	require.NoError(t, nodeA.Send(msg2))
+	require.NoError(t, nodeA.Send(msg2, ClassPGBroadcast))
 
 	select {
 	case err := <-runErrA:
@@ -333,9 +333,12 @@ func TestNodeConnection_FailureAndMessageExtraction(t *testing.T) {
 	pending := nodeA.ExtractPendingMessages()
 	require.GreaterOrEqual(t, len(pending), 1, "at least one message should be recovered")
 	if len(pending) == 2 {
-		require.Equal(t, msg1, pending[0])
-		require.Equal(t, msg2, pending[1])
+		require.Equal(t, msg1, pending[0].Data)
+		require.Equal(t, ClassPGBroadcast, pending[0].Class)
+		require.Equal(t, msg2, pending[1].Data)
+		require.Equal(t, ClassPGBroadcast, pending[1].Class)
 	} else {
-		require.Equal(t, msg2, pending[0], "if only one message is pending, it must be the one sent after the write error")
+		require.Equal(t, msg2, pending[0].Data, "if only one message is pending, it must be the one sent after the write error")
+		require.Equal(t, ClassPGBroadcast, pending[0].Class)
 	}
 }

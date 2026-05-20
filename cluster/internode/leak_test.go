@@ -29,8 +29,11 @@ func TestQueueIsBounded_RaftControl_DropsOldest(t *testing.T) {
 	}
 	// Newest 8 entries are 92..99
 	for idx, want := byte(92), 0; want < 8; idx, want = idx+1, want+1 {
-		if got[want][0] != idx {
-			t.Fatalf("want byte %d at idx %d, got %d", idx, want, got[want][0])
+		if got[want].Data[0] != idx {
+			t.Fatalf("want byte %d at idx %d, got %d", idx, want, got[want].Data[0])
+		}
+		if got[want].Class != ClassRaftControl {
+			t.Fatalf("want ClassRaftControl, got %s", got[want].Class)
 		}
 	}
 }
@@ -60,8 +63,11 @@ func TestQueueIsBounded_PGBroadcast_RejectsNewest(t *testing.T) {
 	}
 	// Oldest 4 entries are 0..3 (drop-newest preserves arrival order)
 	for i, b := range got {
-		if b[0] != byte(i) {
-			t.Fatalf("want byte %d at idx %d, got %d", i, i, b[0])
+		if b.Data[0] != byte(i) {
+			t.Fatalf("want byte %d at idx %d, got %d", i, i, b.Data[0])
+		}
+		if b.Class != ClassPGBroadcast {
+			t.Fatalf("want ClassPGBroadcast, got %s", b.Class)
 		}
 	}
 }
@@ -80,11 +86,11 @@ func TestDrainPriority_ControlBeforeBroadcast(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("expected 2 drained, got %d", len(got))
 	}
-	if string(got[0]) != "ctrl" {
-		t.Fatalf("expected ctrl first, got %q", string(got[0]))
+	if string(got[0].Data) != "ctrl" || got[0].Class != ClassRaftControl {
+		t.Fatalf("expected ctrl/raft first, got %q/%s", string(got[0].Data), got[0].Class)
 	}
-	if string(got[1]) != "bcast" {
-		t.Fatalf("expected bcast second, got %q", string(got[1]))
+	if string(got[1].Data) != "bcast" || got[1].Class != ClassPGBroadcast {
+		t.Fatalf("expected bcast/pg second, got %q/%s", string(got[1].Data), got[1].Class)
 	}
 }
 
