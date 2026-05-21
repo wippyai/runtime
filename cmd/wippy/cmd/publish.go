@@ -207,6 +207,10 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 		publishID, err = publishViaHubOrLegacy(ctx, client, registryURL, cfg, outputFile, label, releaseNotes, protected)
 	}
 	if err != nil {
+		if errors.Is(err, hub.ErrQuotaExceeded) {
+			return NewPublishQuotaExceededError(hub.QuotaReason(err))
+		}
+
 		return err
 	}
 
@@ -706,6 +710,14 @@ func ensureModuleRegistered(ctx context.Context, client *hub.Client, registryURL
 
 func NewPublishUploadError(registryURL string, cause error) error {
 	return fmt.Errorf("failed to upload package to %s: %w", registryURL, cause)
+}
+
+func NewPublishQuotaExceededError(reason string) error {
+	if reason == "" {
+		reason = "the organization is over its plan quota; upgrade the plan or reduce usage and try again"
+	}
+
+	return fmt.Errorf("cannot publish: %s", reason)
 }
 
 func NewPublishConfirmError(registryURL string, cause error) error {

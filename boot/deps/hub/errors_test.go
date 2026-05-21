@@ -4,6 +4,7 @@ package hub
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -80,6 +81,44 @@ func TestMapConnectError_UnknownCode(t *testing.T) {
 	// returns original connect error
 	var connectErr *connect.Error
 	assert.True(t, errors.As(result, &connectErr))
+}
+
+func TestMapConnectError_ResourceExhausted(t *testing.T) {
+	reason := "Private-module quota exhausted (2 of 0). Ask an admin to enable more private modules for this org."
+	err := connect.NewError(connect.CodeResourceExhausted, errors.New(reason))
+	got := MapConnectError(err)
+	assert.ErrorIs(t, got, ErrQuotaExceeded)
+	var qe *QuotaExceededError
+	assert.True(t, errors.As(got, &qe))
+	assert.Equal(t, reason, qe.Reason)
+	assert.Equal(t, "quota exceeded: "+reason, got.Error())
+}
+
+func TestQuotaReason_DirectAndWrapped(t *testing.T) {
+	reason := "you have 2 private modules out of 0 allowed"
+	mapped := MapConnectError(connect.NewError(connect.CodeResourceExhausted, errors.New(reason)))
+
+	assert.Equal(t, reason, QuotaReason(mapped))
+
+	wrappedOnce := fmt.Errorf("publish step failed: %w", mapped)
+	assert.Equal(t, reason, QuotaReason(wrappedOnce))
+	assert.ErrorIs(t, wrappedOnce, ErrQuotaExceeded)
+
+	wrappedTwice := fmt.Errorf("outer: %w", wrappedOnce)
+	assert.Equal(t, reason, QuotaReason(wrappedTwice))
+	assert.ErrorIs(t, wrappedTwice, ErrQuotaExceeded)
+}
+
+func TestQuotaReason_NotQuotaError(t *testing.T) {
+	assert.Empty(t, QuotaReason(nil))
+	assert.Empty(t, QuotaReason(errors.New("not a quota error")))
+}
+
+func TestQuotaExceededError_EmptyReason(t *testing.T) {
+	qe := &QuotaExceededError{}
+	assert.Equal(t, "quota exceeded", qe.Error())
+	assert.ErrorIs(t, qe, ErrQuotaExceeded)
+	assert.Empty(t, QuotaReason(qe))
 }
 
 func TestContainsMessage(t *testing.T) {
