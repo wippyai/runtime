@@ -18,7 +18,8 @@ import (
 // class byte the receiver would only see opaque payloads and could not
 // dispatch to per-class handlers.
 func TestMux_ClassRoundTripPerClass(t *testing.T) {
-	a, b := newTestConnectionPair(t, "node-A", "node-B")
+	p := newTestConnectionPair(t)
+	a, b, srcA := p.a, p.b, p.srcA
 
 	type seen struct {
 		data  []byte
@@ -38,7 +39,7 @@ func TestMux_ClassRoundTripPerClass(t *testing.T) {
 	classes := []Class{ClassRaftControl, ClassGossip, ClassPGBroadcast, ClassRaftMesh}
 	for _, c := range classes {
 		payload := []byte("payload-" + c.String())
-		require.NoError(t, a.Send(payload, c))
+		srcA.push(payload, c)
 	}
 
 	seenByClass := map[Class][]byte{}
@@ -65,7 +66,8 @@ func TestMux_ClassRoundTripPerClass(t *testing.T) {
 // class confirms arrival rather than per-message equality on a noisy
 // channel.
 func TestMux_ConcurrentSendersDoNotInterleave(t *testing.T) {
-	a, b := newTestConnectionPair(t, "node-A", "node-B")
+	p := newTestConnectionPair(t)
+	a, b, srcA := p.a, p.b, p.srcA
 
 	const perClass = 500
 	classes := []Class{ClassRaftControl, ClassGossip, ClassPGBroadcast, ClassRaftMesh}
@@ -106,11 +108,11 @@ func TestMux_ConcurrentSendersDoNotInterleave(t *testing.T) {
 		go func(class Class) {
 			defer sendWg.Done()
 			for i := uint32(0); i < perClass; i++ {
-				// Allocate fresh per send — Send queues the slice without
+				// Allocate fresh per send — the queue stores the slice without
 				// copying, so reusing one buffer would race with the
 				// writeLoop's bufio flush of an earlier frame.
 				payload := []byte{byte(class), byte(i), byte(i >> 8), 0, 0}
-				require.NoError(t, a.Send(payload, class))
+				srcA.push(payload, class)
 			}
 		}(c)
 	}

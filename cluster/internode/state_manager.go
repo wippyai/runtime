@@ -32,6 +32,7 @@ type NodeState struct {
 	messageNotify chan struct{}
 	connection    *NodeConnection
 	address       nodeAddress
+	lastDepth     [numClasses]int // last queue depth emitted to telemetry; guarded by queueMu
 	state         ConnectionState
 	stateMu       sync.RWMutex
 	queueMu       sync.Mutex
@@ -165,6 +166,7 @@ func (nsm *NodeStateManager) CreateNodeState(nodeID cluster.NodeID) {
 		for i := range oldState.queues {
 			oldState.queues[i].reset()
 		}
+		oldState.lastDepth = [numClasses]int{}
 		oldState.queueMu.Unlock()
 
 		// Do NOT replace messageNotify — existing control loops hold a reference.
@@ -233,12 +235,18 @@ func (nsm *NodeStateManager) QueueMessageClass(nodeID cluster.NodeID, data []byt
 		}
 	}
 	depth := q.len()
+	depthChanged := depth != state.lastDepth[class]
+	state.lastDepth[class] = depth
 	state.queueMu.Unlock()
 
 	if dropped {
 		nsm.tel.recordDrop(class, "queue_full")
 	}
-	nsm.tel.recordQueueDepth(class, nodeID, depth)
+	// internode_queue_depth is a gauge — emit only on change so the idle
+	// hot path does not write a metric event per queue op.
+	if depthChanged {
+		nsm.tel.recordQueueDepth(class, nodeID, depth)
+	}
 
 	if rejected {
 		nsm.tel.recordDrop(class, "queue_full")
@@ -348,16 +356,22 @@ func (nsm *NodeStateManager) DrainMessages(nodeID cluster.NodeID, maxCount int) 
 			break
 		}
 	}
-	// Snapshot post-drain depths so gauges reflect reality even when no
-	// further enqueues happen for a while.
+	// Snapshot post-drain depths. internode_queue_depth is a gauge — emit
+	// only the classes whose depth changed so an idle drain does not write
+	// numClasses no-op metric events.
 	var depths [numClasses]int
+	var depthChanged [numClasses]bool
 	for i, q := range state.queues {
 		depths[i] = q.len()
+		depthChanged[i] = depths[i] != state.lastDepth[i]
+		state.lastDepth[i] = depths[i]
 	}
 	state.queueMu.Unlock()
 
 	for _, class := range drainClasses {
-		nsm.tel.recordQueueDepth(class, nodeID, depths[class])
+		if depthChanged[class] {
+			nsm.tel.recordQueueDepth(class, nodeID, depths[class])
+		}
 	}
 	return out
 }
@@ -452,12 +466,16 @@ func (nsm *NodeStateManager) RequeueMessagesClass(nodeID cluster.NodeID, message
 		}
 	}
 	depth := q.len()
+	depthChanged := depth != state.lastDepth[class]
+	state.lastDepth[class] = depth
 	state.queueMu.Unlock()
 
 	for i := 0; i < dropped; i++ {
 		nsm.tel.recordDrop(class, "requeue_overflow")
 	}
-	nsm.tel.recordQueueDepth(class, nodeID, depth)
+	if depthChanged {
+		nsm.tel.recordQueueDepth(class, nodeID, depth)
+	}
 
 	if dropped > 0 {
 		nsm.logger.Warn("Dropped messages during requeue (queue full)",

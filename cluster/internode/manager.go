@@ -524,15 +524,6 @@ func (loop *nodeControlLoop) run() {
 	loop.logger.Debug("Control loop started")
 	defer loop.logger.Debug("Control loop stopped")
 
-	// The NodeState is guaranteed to exist by the new design, so GetMessageNotifier will return a valid channel.
-	messageNotifier := loop.manager.nodeStates.GetMessageNotifier(loop.nodeID)
-	if messageNotifier == nil {
-		// This path indicates a severe logic error in the new design.
-		loop.logger.Error("Failed to get message notifier for a managed node; loop will be ineffective.",
-			zap.String("node", loop.nodeID))
-		messageNotifier = make(<-chan struct{}) // Prevent nil-channel-select panic.
-	}
-
 	for {
 		select {
 		case <-loop.ctx.Done():
@@ -543,11 +534,6 @@ func (loop *nodeControlLoop) run() {
 			if loop.handleCommand(cmd) {
 				loop.cleanup()
 				return
-			}
-
-		case <-messageNotifier:
-			if loop.state == StateConnected && loop.connection != nil {
-				loop.drainMessages()
 			}
 		}
 	}
@@ -617,13 +603,34 @@ func (loop *nodeControlLoop) handleConnected(data connectedData) {
 	loop.manager.nodeStates.SetNodeConnection(loop.nodeID, loop.connection, loop.state)
 	loop.logger.Info("Connection established successfully", zap.Bool("is_outbound", loop.isOutbound))
 
+	// Wire the connection's writeLoop to drain this node's per-class queues
+	// directly. It self-drains anything buffered while the node was
+	// disconnected, so no explicit drain call is needed here.
+	loop.bindConnectionDrain()
+
 	loop.manager.wg.Add(1)
 	go func() {
 		defer loop.manager.wg.Done()
 		loop.monitorConnection()
 	}()
+}
 
-	loop.drainMessages()
+// bindConnectionDrain wires loop.connection's writeLoop to this node's
+// per-class outbound queues. Must be called before the connection's Run.
+func (loop *nodeControlLoop) bindConnectionDrain() {
+	nodeID := loop.nodeID
+	nsm := loop.manager.nodeStates
+	notify := nsm.GetMessageNotifier(nodeID)
+	if notify == nil {
+		loop.logger.Error("no message notifier for managed node", zap.String("node", nodeID))
+		notify = make(chan struct{})
+	}
+	loop.connection.bindDrain(
+		notify,
+		func(n int) []Outbound { return nsm.DrainMessages(nodeID, n) },
+		func(b []Outbound) { nsm.RequeueMessages(nodeID, b) },
+		loop.manager.config.DrainBatchSize,
+	)
 }
 
 func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
@@ -635,13 +642,13 @@ func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
 	if loop.state == StateDead {
 		return
 	}
+	// Un-drained messages remain in the per-class queues — a subsequent
+	// connection's writeLoop delivers them. Only the writeLoop's own
+	// in-flight batch needs requeue, and it handles that itself on a
+	// write failure before returning.
 	if loop.connection != nil {
-		pending := loop.connection.ExtractPendingMessages()
 		loop.connection.Close()
 		loop.connection = nil
-		if len(pending) > 0 {
-			loop.manager.nodeStates.RequeueMessages(loop.nodeID, pending)
-		}
 	}
 	loop.manager.nodeStates.SetNodeConnection(loop.nodeID, nil, StateNone)
 
@@ -669,12 +676,8 @@ func (loop *nodeControlLoop) handleKill() {
 
 func (loop *nodeControlLoop) cleanup() {
 	if loop.connection != nil {
-		pending := loop.connection.ExtractPendingMessages()
 		loop.connection.Close()
 		loop.connection = nil
-		if len(pending) > 0 {
-			loop.manager.nodeStates.RequeueMessages(loop.nodeID, pending)
-		}
 	}
 	loop.manager.nodeStates.SetNodeConnection(loop.nodeID, nil, StateNone)
 }
@@ -735,40 +738,6 @@ func (loop *nodeControlLoop) monitorConnection() {
 		}
 	}
 	loop.sendDisconnected(err, shouldRetry)
-}
-
-func (loop *nodeControlLoop) drainMessages() {
-	if loop.connection == nil {
-		return
-	}
-	messages := loop.manager.nodeStates.DrainMessages(loop.nodeID, loop.manager.config.DrainBatchSize)
-	if len(messages) == 0 {
-		return
-	}
-	loop.logger.Debug("Draining queued messages", zap.Int("count", len(messages)))
-	for i, msg := range messages {
-		err := loop.connection.Send(msg.Data, msg.Class)
-		if err == nil {
-			continue
-		}
-		// ErrQueueFull means the per-connection outbound queue is at cap.
-		// Requeueing back into the per-class queue would just re-trigger
-		// messageNotify and busy-loop. Drop the rest of the batch with a
-		// metric — the writeLoop has writeFlushInterval (10ms) to drain
-		// what's already enqueued, and the next notification will bring
-		// new work.
-		if errors.Is(err, ErrQueueFull) {
-			for _, m := range messages[i:] {
-				loop.manager.nodeStates.tel.recordDrop(m.Class, "conn_queue_full")
-			}
-			return
-		}
-		// Other errors (ErrConnectionClosed) — connection is going away;
-		// requeue so a subsequent connection can drain. Already-dropped
-		// messages from this batch are unrecoverable.
-		loop.manager.nodeStates.RequeueMessages(loop.nodeID, messages[i:])
-		return
-	}
 }
 
 func (loop *nodeControlLoop) sendDisconnected(err error, shouldRetry bool) {

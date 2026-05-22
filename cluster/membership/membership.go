@@ -183,6 +183,10 @@ func (s *Service) Start(ctx context.Context) error {
 
 	// Create memberlist config
 	mlConfig := memberlist.DefaultLocalConfig()
+	// DefaultLocalConfig gossips every 100ms — tuned for loopback. On a real
+	// multi-node cluster that is 10 mostly-empty gossip fan-outs/sec/node;
+	// 500ms still propagates deltas promptly and cuts idle wakeups 5x.
+	mlConfig.GossipInterval = 500 * time.Millisecond
 	mlConfig.Name = s.config.NodeName
 	mlConfig.BindAddr = s.config.BindAddr
 	mlConfig.BindPort = s.config.BindPort

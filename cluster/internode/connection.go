@@ -4,7 +4,6 @@ package internode
 
 import (
 	"bufio"
-	"container/list"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -92,10 +91,8 @@ const (
 	// protocolVersion v2 added the per-frame Class byte so the wire is
 	// self-describing for sub-protocol dispatch. v1 (header [version, len])
 	// is no longer accepted; all nodes in a cluster upgrade together.
-	protocolVersion = 0x02
-	frameHeaderSize = 6 // 1 byte version, 1 byte class, 4 bytes length
-	// writeBatchSize reserved for future use
-	writeFlushInterval     = 10 * time.Millisecond
+	protocolVersion        = 0x02
+	frameHeaderSize        = 6 // 1 byte version, 1 byte class, 4 bytes length
 	defaultWriteBufferSize = 64 * 1024
 	readPoolBufferSize     = 32 * 1024
 )
@@ -119,9 +116,7 @@ type Outbound struct {
 // Connection defines the public interface for a connection to another node.
 type Connection interface {
 	Run(handler func(class Class, msg []byte)) *ConnectionError
-	Send(data []byte, class Class) error
 	Close()
-	ExtractPendingMessages() []Outbound
 	RemoteNodeID() cluster.NodeID
 }
 
@@ -147,33 +142,45 @@ func DefaultNodeConnectionConfig() NodeConnectionConfig {
 	}
 }
 
-// NodeConnection represents a single, framed, and optimized TCP connection to another node.
-// It provides message queuing, batching, and lifecycle management for internode communication.
+// NodeConnection represents a single, framed TCP connection to another node.
+// Its writeLoop drains the peer's per-class outbound queues directly (wired
+// via bindDrain) so there is a single queue and a single goroutine wakeup
+// per frame on the send path.
 type NodeConnection struct {
-	conn            net.Conn
-	logger          *zap.Logger
-	cancel          context.CancelFunc
-	activeQueue     *list.List
-	processingQueue *list.List
-	sendNotify      chan struct{}
-	remoteNode      cluster.NodeID
-	config          NodeConnectionConfig
-	lifecycleMu     sync.Mutex
-	queueMu         sync.Mutex
-	closed          atomic.Bool
+	conn          net.Conn
+	logger        *zap.Logger
+	cancel        context.CancelFunc
+	messageNotify <-chan struct{}
+	drainFn       func(int) []Outbound
+	requeueFn     func([]Outbound)
+	remoteNode    cluster.NodeID
+	config        NodeConnectionConfig
+	drainBatch    int
+	lifecycleMu   sync.Mutex
+	closed        atomic.Bool
 }
 
-// newNodeConnection creates a new, un-started NodeConnection.
+// newNodeConnection creates a new, un-started NodeConnection. bindDrain must
+// be called before Run to wire the outbound queue source.
 func newNodeConnection(conn net.Conn, remoteNode cluster.NodeID, config NodeConnectionConfig, logger *zap.Logger) *NodeConnection {
 	return &NodeConnection{
-		conn:            conn,
-		logger:          logger.With(zap.String("remote_node", remoteNode)),
-		config:          config,
-		remoteNode:      remoteNode,
-		activeQueue:     list.New(),
-		processingQueue: list.New(),
-		sendNotify:      make(chan struct{}, 1),
+		conn:       conn,
+		logger:     logger.With(zap.String("remote_node", remoteNode)),
+		config:     config,
+		remoteNode: remoteNode,
 	}
+}
+
+// bindDrain wires the per-class outbound queues that writeLoop drains. It
+// MUST be called before Run. notify is the peer's message notifier (signaled
+// when a message is queued); drain pulls up to batch messages in QoS order;
+// requeue returns an un-flushed batch to the per-class queues after a write
+// failure so a subsequent connection can deliver them.
+func (c *NodeConnection) bindDrain(notify <-chan struct{}, drain func(int) []Outbound, requeue func([]Outbound), batch int) {
+	c.messageNotify = notify
+	c.drainFn = drain
+	c.requeueFn = requeue
+	c.drainBatch = batch
 }
 
 // Run starts the connection's read/write loops and blocks until termination.
@@ -225,33 +232,6 @@ func (c *NodeConnection) Run(handler func(class Class, msg []byte)) *ConnectionE
 	return firstErr
 }
 
-// Send enqueues a message for delivery. It is non-blocking and safe for concurrent use.
-// Returns ErrConnectionClosed if the connection has been closed.
-// Returns ErrQueueFull when MaxQueueSize is configured and the activeQueue
-// is at capacity — the caller is expected to record the drop and proceed.
-// Without this cap, network-delay chaos would let activeQueue grow unbounded
-// (each frame up to MaxMessageSize) and OOMKill the runtime.
-func (c *NodeConnection) Send(data []byte, class Class) error {
-	if c.closed.Load() {
-		return ErrConnectionClosed
-	}
-
-	c.queueMu.Lock()
-	if c.config.MaxQueueSize > 0 && c.activeQueue.Len() >= c.config.MaxQueueSize {
-		c.queueMu.Unlock()
-		return ErrQueueFull
-	}
-	c.activeQueue.PushBack(Outbound{Data: data, Class: class})
-	c.queueMu.Unlock()
-
-	select {
-	case c.sendNotify <- struct{}{}:
-	default:
-	}
-
-	return nil
-}
-
 // Close terminates the connection gracefully and cancels all ongoing operations.
 func (c *NodeConnection) Close() {
 	if c.closed.CompareAndSwap(false, true) {
@@ -269,59 +249,50 @@ func (c *NodeConnection) RemoteNodeID() cluster.NodeID {
 	return c.remoteNode
 }
 
-// ExtractPendingMessages returns all messages that were queued but not yet sent.
-// This is useful for message recovery during connection failures. The original
-// Class is preserved on every returned entry so the caller can requeue by
-// class on the new connection.
-func (c *NodeConnection) ExtractPendingMessages() []Outbound {
-	c.queueMu.Lock()
-	defer c.queueMu.Unlock()
-
-	c.processingQueue.PushBackList(c.activeQueue)
-	pending := make([]Outbound, 0, c.processingQueue.Len())
-	for e := c.processingQueue.Front(); e != nil; e = e.Next() {
-		pending = append(pending, e.Value.(Outbound))
-	}
-	return pending
-}
-
+// writeLoop drains this peer's per-class outbound queues (wired by bindDrain)
+// and flushes frames to the socket. It first drains everything currently
+// queued — including messages buffered while the connection was down — then
+// blocks on messageNotify for the next batch. On a write failure the
+// un-flushed batch is requeued so a subsequent connection can deliver it.
 func (c *NodeConnection) writeLoop(ctx context.Context) *ConnectionError {
+	if c.drainFn == nil || c.messageNotify == nil {
+		// bindDrain was not called — a programmer error. Park on ctx so the
+		// connection still tears down cleanly rather than panicking.
+		c.logger.Error("writeLoop started without a bound drain source")
+		<-ctx.Done()
+		return &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
+	}
+
 	writer := bufio.NewWriterSize(c.conn, defaultWriteBufferSize)
-	ticker := time.NewTicker(writeFlushInterval)
-	defer ticker.Stop()
 
 	for {
+		for ctx.Err() == nil {
+			batch := c.drainFn(c.drainBatch)
+			if len(batch) == 0 {
+				break
+			}
+			if err := c.flushBatch(writer, batch); err != nil {
+				c.requeueFn(batch)
+				return &ConnectionError{Reason: ExitNetworkError, Err: err}
+			}
+			if len(batch) < c.drainBatch {
+				break
+			}
+		}
+
 		select {
-		case <-c.sendNotify:
-		case <-ticker.C:
+		case <-c.messageNotify:
 		case <-ctx.Done():
 			return &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
 		}
-
-		c.queueMu.Lock()
-		if c.activeQueue.Len() == 0 {
-			c.queueMu.Unlock()
-			continue
-		}
-
-		c.processingQueue = c.activeQueue
-		c.activeQueue = list.New()
-		c.queueMu.Unlock()
-
-		if err := c.flushBatch(writer, c.processingQueue); err != nil {
-			return &ConnectionError{Reason: ExitNetworkError, Err: err}
-		}
-
-		// Clear processingQueue under lock to avoid race with ExtractPendingMessages
-		c.queueMu.Lock()
-		c.processingQueue.Init()
-		c.queueMu.Unlock()
 	}
 }
 
-func (c *NodeConnection) flushBatch(writer *bufio.Writer, batch *list.List) error {
-	for e := batch.Front(); e != nil; e = e.Next() {
-		msg := e.Value.(Outbound)
+// flushBatch writes every frame in batch to the buffered writer and flushes.
+// On any error it returns immediately; the caller requeues the whole batch
+// (no frame in a failed batch is guaranteed delivered).
+func (c *NodeConnection) flushBatch(writer *bufio.Writer, batch []Outbound) error {
+	for _, msg := range batch {
 		if err := writeFrame(writer, msg.Class, msg.Data); err != nil {
 			return err
 		}

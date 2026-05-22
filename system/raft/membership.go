@@ -26,6 +26,13 @@ type HandlerConfig struct {
 	// Default: 5.
 	MaxVoters int
 
+	// MaxStandbys caps how many non-voters are kept in the Raft configuration
+	// as hot spares for voter promotion. Nodes beyond MaxVoters+MaxStandbys
+	// are not Raft members at all, so the leader never fans AppendEntries out
+	// to them — this is what keeps idle leader CPU O(1) in cluster size
+	// instead of O(N). Default: 4.
+	MaxStandbys int
+
 	// ReconcileDebounce is the wait window after a gossip event before a
 	// reconcile pass runs. Multiple events within the window coalesce.
 	// Default: 2s.
@@ -38,6 +45,7 @@ type HandlerConfig struct {
 
 const (
 	defaultMaxVoters         = 5
+	defaultMaxStandbys       = 4
 	defaultReconcileDebounce = 2 * time.Second
 	defaultReconcileTimeout  = 2 * time.Second
 
@@ -63,6 +71,9 @@ func (c HandlerConfig) applyDefaults(logger *zap.Logger) HandlerConfig {
 		if c.MaxVoters < 1 {
 			c.MaxVoters = 1
 		}
+	}
+	if c.MaxStandbys <= 0 {
+		c.MaxStandbys = defaultMaxStandbys
 	}
 	if c.ReconcileDebounce <= 0 {
 		c.ReconcileDebounce = defaultReconcileDebounce
@@ -320,12 +331,19 @@ func (h *MembershipHandler) runReconcileOnce(ctx context.Context) {
 	target := desiredVoterCount(len(candidates), h.cfg.MaxVoters)
 	picked := pickVoters(candidates, currentVoters, target)
 
+	// Bound the Raft configuration to voters + a small standby pool. Nodes
+	// beyond MaxVoters+MaxStandbys are left out of Raft entirely, so the
+	// leader never replicates AppendEntries to them — idle leader cost stays
+	// O(1) in cluster size. Non-members reach Raft-backed state by
+	// forwarding to a voter.
+	members := raftMembers(candidates, picked, h.cfg.MaxStandbys)
+
 	addrLookup := make(map[cluster.NodeID]string, len(candidates))
 	for _, c := range candidates {
 		addrLookup[c.ID] = c.Addr
 	}
 
-	ops := reconcileDiff(picked, candidates, current, addrLookup)
+	ops := reconcileDiff(picked, members, current, addrLookup)
 
 	// Proactive eviction: any current voter whose peerStateTracker streak
 	// exceeds the threshold AND who isn't in the candidate set (gossip has

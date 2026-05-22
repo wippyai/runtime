@@ -269,6 +269,28 @@ func findStickinessVictim(ranked []candidate, picked, current map[cluster.NodeID
 	return "", false
 }
 
+// raftMembers returns the bounded set of nodes that belong in the Raft
+// configuration: every picked voter plus up to maxStandbys highest-ranked
+// non-voter candidates, kept as hot spares for fast voter promotion. Nodes
+// outside this set are not Raft members at all, so the leader never fans
+// AppendEntries out to them — this is what keeps idle leader CPU O(1) in
+// cluster size rather than O(N). `ranked` must already be rank-ordered.
+func raftMembers(ranked []candidate, voters map[cluster.NodeID]struct{}, maxStandbys int) []candidate {
+	out := make([]candidate, 0, len(voters)+maxStandbys)
+	standbys := 0
+	for _, c := range ranked {
+		if _, isVoter := voters[c.ID]; isVoter {
+			out = append(out, c)
+			continue
+		}
+		if standbys < maxStandbys {
+			out = append(out, c)
+			standbys++
+		}
+	}
+	return out
+}
+
 // reconcileDiff computes the set of Raft membership changes needed to move
 // from `current` (live Raft config) toward `desired` (selected voters +
 // remaining eligible nodes as nonvoters). Pure: mutates nothing.
@@ -295,14 +317,14 @@ const (
 
 // reconcileDiff plans Raft config changes.
 //
-//   - desiredVoters: nodes that must be voters
-//   - allEligible:   superset (voters ∪ nonvoters); anything live but absent
-//     here gets removed
-//   - current:       current Raft config (from GetConfiguration)
-//   - addrLookup:    nodeID → host:raft_port (for fresh adds)
+//   - desiredVoters:  nodes that must be voters
+//   - desiredMembers: the bounded Raft membership (voters ∪ standby
+//     nonvoters, from raftMembers); anything live but absent here gets removed
+//   - current:        current Raft config (from GetConfiguration)
+//   - addrLookup:     nodeID → host:raft_port (for fresh adds)
 func reconcileDiff(
 	desiredVoters map[cluster.NodeID]struct{},
-	allEligible []candidate,
+	desiredMembers []candidate,
 	current []raftapi.Server,
 	addrLookup map[cluster.NodeID]string,
 ) []membershipOp {
@@ -311,9 +333,9 @@ func reconcileDiff(
 	for _, s := range current {
 		currentByID[s.ID] = s
 	}
-	eligibleSet := make(map[cluster.NodeID]struct{}, len(allEligible))
-	for _, c := range allEligible {
-		eligibleSet[c.ID] = struct{}{}
+	memberSet := make(map[cluster.NodeID]struct{}, len(desiredMembers))
+	for _, c := range desiredMembers {
+		memberSet[c.ID] = struct{}{}
 	}
 
 	var adds, demotes, removes []membershipOp
@@ -335,8 +357,8 @@ func reconcileDiff(
 		}
 	}
 
-	// Pass 2: nonvoters for eligible-but-not-voter nodes.
-	for _, c := range allEligible {
+	// Pass 2: nonvoters for member-but-not-voter nodes (the standby pool).
+	for _, c := range desiredMembers {
 		if _, isVoter := desiredVoters[c.ID]; isVoter {
 			continue
 		}
@@ -351,9 +373,11 @@ func reconcileDiff(
 		}
 	}
 
-	// Pass 3: remove anything live but no longer eligible.
+	// Pass 3: remove anything live but no longer a desired member — covers
+	// both nodes gossip dropped and nodes pushed out of the bounded
+	// membership by the standby cap.
 	for _, s := range current {
-		if _, ok := eligibleSet[s.ID]; ok {
+		if _, ok := memberSet[s.ID]; ok {
 			continue
 		}
 		removes = append(removes, membershipOp{ID: s.ID, Kind: opRemove})

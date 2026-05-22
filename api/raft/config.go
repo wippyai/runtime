@@ -58,13 +58,21 @@ func (c *Config) InitDefaults() {
 		c.SnapshotThreshold = 8192
 	}
 	if c.HeartbeatTimeout == 0 {
-		c.HeartbeatTimeout = 1 * time.Second
+		// Idle clusters fan a heartbeat AppendEntries out to every follower
+		// on this cadence; at 3s the leader's idle RPC volume is a third of
+		// the old 1s default. Trade-off: leader-failure detection takes ~3s.
+		c.HeartbeatTimeout = 3 * time.Second
 	}
 	if c.ElectionTimeout == 0 {
-		c.ElectionTimeout = 1 * time.Second
+		// Must be >= HeartbeatTimeout (hashicorp/raft requirement).
+		c.ElectionTimeout = 3 * time.Second
 	}
 	if c.CommitTimeout == 0 {
-		c.CommitTimeout = 50 * time.Millisecond
+		// The leader sends an empty AppendEntries every CommitTimeout to
+		// propagate the commit index even with no new log entries. 500ms
+		// (vs the old 50ms) cuts that idle fan-out 10x; real entries still
+		// replicate immediately via the trigger path.
+		c.CommitTimeout = 500 * time.Millisecond
 	}
 	if c.MaxPool == 0 {
 		c.MaxPool = 3
