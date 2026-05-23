@@ -3,6 +3,7 @@
 package workflow
 
 import (
+	"sync/atomic"
 	"time"
 
 	clockapi "github.com/wippyai/runtime/api/clock"
@@ -23,6 +24,19 @@ type timerEntry struct {
 	ID       uint64
 	Duration time.Duration
 	Canceled bool
+
+	// build is set when the command targets the engine ephemeral router
+	// (cmd.Build != nil at start). The fire callback uses it to wrap
+	// the tick value in an EphemeralFrame so the routed process can
+	// decode the payload identically to a clock-dispatched fire.
+	build  clockapi.FireBuilder
+	genRef *atomic.Uint64
+
+	// epoch + chID are non-zero when the timer was started by an
+	// engine ephemeral router yield. They let StopByChID find the
+	// entry without holding the internal id.
+	epoch uint64
+	chID  uint64
 }
 
 // tickerEntry tracks an active ticker.
@@ -32,6 +46,27 @@ type tickerEntry struct {
 	ID       uint64
 	Duration time.Duration
 	Stopped  bool
+	build    clockapi.FireBuilder
+	genRef   *atomic.Uint64
+	epoch    uint64
+	chID     uint64
+}
+
+// buildFirePayload constructs the on-wire payload for a timer/ticker fire.
+// When the start command set a FireBuilder, it is used (router path);
+// otherwise we fall back to the legacy int64-nanos payload.
+func buildFirePayload(b clockapi.FireBuilder, genRef *atomic.Uint64, at time.Time) payload.Payload {
+	if b == nil {
+		return payload.NewPayload(at.UnixNano(), payload.Golang)
+	}
+	var gen uint64
+	if genRef != nil {
+		gen = genRef.Load()
+	}
+	if p := b(at, gen); p != nil {
+		return p
+	}
+	return payload.NewPayload(at.UnixNano(), payload.Golang)
 }
 
 // TimerManager manages timers and tickers in workflow context.
@@ -82,6 +117,10 @@ func (m *TimerManager) StartTimer(cmd clockapi.TimerStartCmd, resume func(data a
 		PID:      cmd.PID,
 		Topic:    cmd.Topic,
 		Duration: cmd.Duration,
+		build:    cmd.Build,
+		genRef:   cmd.GenRef,
+		epoch:    cmd.Epoch,
+		chID:     cmd.ChID,
 	}
 	m.timers[timerID] = timer
 
@@ -97,10 +136,9 @@ func (m *TimerManager) StartTimer(cmd clockapi.TimerStartCmd, resume func(data a
 			return
 		}
 
-		fireTime := m.env.Now().UnixNano()
 		*m.signalQueue = append(*m.signalQueue, incomingSignal{
 			Name:     t.Topic,
-			Payloads: payload.Payloads{payload.NewPayload(fireTime, payload.Golang)},
+			Payloads: payload.Payloads{buildFirePayload(t.build, t.genRef, m.env.Now())},
 		})
 	})
 
@@ -144,6 +182,8 @@ func (m *TimerManager) ResetTimer(timerID uint64, duration time.Duration, resume
 		PID:      timer.PID,
 		Topic:    timer.Topic,
 		Duration: duration,
+		build:    timer.build,
+		genRef:   timer.genRef,
 	}
 	m.timers[timerID] = newTimer
 
@@ -159,10 +199,9 @@ func (m *TimerManager) ResetTimer(timerID uint64, duration time.Duration, resume
 			return
 		}
 
-		fireTime := m.env.Now().UnixNano()
 		*m.signalQueue = append(*m.signalQueue, incomingSignal{
 			Name:     t.Topic,
-			Payloads: payload.Payloads{payload.NewPayload(fireTime, payload.Golang)},
+			Payloads: payload.Payloads{buildFirePayload(t.build, t.genRef, m.env.Now())},
 		})
 	})
 
@@ -184,6 +223,10 @@ func (m *TimerManager) StartTicker(cmd clockapi.TickerStartCmd, resume func(data
 		PID:      cmd.PID,
 		Topic:    cmd.Topic,
 		Duration: cmd.Duration,
+		build:    cmd.Build,
+		genRef:   cmd.GenRef,
+		epoch:    cmd.Epoch,
+		chID:     cmd.ChID,
 	}
 	m.tickers[tickerID] = ticker
 
@@ -213,6 +256,34 @@ func (m *TimerManager) StopTicker(tickerID uint64, resume func(data any, err err
 	resume(nil, nil)
 }
 
+// StopTimerByChID cancels a timer identified by its router (epoch, chID)
+// rather than the internal id. Used by the engine ephemeral router
+// migration of time.timer:stop().
+func (m *TimerManager) StopTimerByChID(epoch, chID uint64, resume func(data any, err error)) {
+	for id, t := range m.timers {
+		if t.epoch == epoch && t.chID == chID {
+			t.Canceled = true
+			delete(m.timers, id)
+			resume(true, nil)
+			return
+		}
+	}
+	resume(false, nil)
+}
+
+// StopTickerByChID cancels a ticker identified by its router (epoch, chID).
+func (m *TimerManager) StopTickerByChID(epoch, chID uint64, resume func(data any, err error)) {
+	for id, t := range m.tickers {
+		if t.epoch == epoch && t.chID == chID {
+			t.Stopped = true
+			delete(m.tickers, id)
+			resume(true, nil)
+			return
+		}
+	}
+	resume(false, nil)
+}
+
 // scheduleNextTick schedules the next tick for a ticker.
 func (m *TimerManager) scheduleNextTick(tickerID uint64) {
 	ticker, ok := m.tickers[tickerID]
@@ -231,10 +302,9 @@ func (m *TimerManager) scheduleNextTick(tickerID uint64) {
 			return
 		}
 
-		tickTime := m.env.Now().UnixNano()
 		*m.signalQueue = append(*m.signalQueue, incomingSignal{
 			Name:     t.Topic,
-			Payloads: payload.Payloads{payload.NewPayload(tickTime, payload.Golang)},
+			Payloads: payload.Payloads{buildFirePayload(t.build, t.genRef, m.env.Now())},
 		})
 
 		m.scheduleNextTick(tickerID)

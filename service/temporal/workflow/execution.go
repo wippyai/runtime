@@ -226,6 +226,10 @@ func (d *Definition) executeCommand(cmd dispatcher.Command, tag uint64) error {
 		return d.executeTickerStart(c, tag)
 	case clockapi.TickerStopCmd:
 		return d.executeTickerStop(c, tag)
+	case clockapi.TimerStopByChIDCmd:
+		return d.executeTimerStopByChID(c, tag)
+	case clockapi.TickerStopByChIDCmd:
+		return d.executeTickerStopByChID(c, tag)
 	case *function.CallCmd:
 		return d.executeFunctionCall(c, tag)
 	case *function.AsyncStartCmd:
