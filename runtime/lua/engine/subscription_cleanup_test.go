@@ -272,6 +272,13 @@ func TestDeliverMessage_HandsOffToParkedReceiver(t *testing.T) {
 // External delivery that arrives before any receiver parks must be retained
 // in messageQueue and delivered once the consumer calls receive. No drop on
 // zero-buffer topics.
+//
+// This is the strict regression for the Step-loop retry: both messages
+// arrive in a single Step batch. The control msg wakes the Lua task, which
+// then receives on a zero-buffer channel whose message is already queued.
+// Without the final flush in Step's break path, the queued message would
+// sit until the next external event resumed the process, and the assert
+// below (one Step completes the process) would fail.
 func TestDeliverMessage_QueuesUntilReceiverParks(t *testing.T) {
 	script := `
 		local ch = channel.new(0)
@@ -289,9 +296,29 @@ func TestDeliverMessage_QueuesUntilReceiverParks(t *testing.T) {
 	defer proc.Close()
 
 	cleanupRunUntilIdle(t, proc)
-	cleanupSendMessage(t, proc, "events", payload.Payloads{payload.NewPayload(lua.LString("late"), payload.Lua)})
-	cleanupSendMessage(t, proc, "control", payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)})
-	cleanupRunUntilDone(t, proc)
+
+	var output process.StepOutput
+	events := []process.Event{
+		{
+			Type: process.EventMessage,
+			Data: &relay.Package{Messages: []*relay.Message{
+				{Topic: "events", Payloads: payload.Payloads{payload.NewPayload(lua.LString("late"), payload.Lua)}},
+			}},
+		},
+		{
+			Type: process.EventMessage,
+			Data: &relay.Package{Messages: []*relay.Message{
+				{Topic: "control", Payloads: payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)}},
+			}},
+		},
+	}
+	output.Reset()
+	if err := proc.Step(events, &output); err != nil {
+		t.Fatalf("step failed: %v", err)
+	}
+	if output.Status() != process.StepDone {
+		t.Fatalf("expected StepDone after single batched delivery, got %v (messageQueue stuck?)", output.Status())
+	}
 }
 
 // External delivery into a full subscription channel must not push phantom
