@@ -168,6 +168,56 @@ func (c *Channel) Send(task *lua.LState, value lua.LValue, selectOp *SelectOp) *
 	return c.blockSender(task, value, sel)
 }
 
+// TrySend attempts a nonblocking send. It hands off to a waiting receiver if
+// one is queued, otherwise pushes to the buffer if there is room, otherwise
+// reports sent=false WITHOUT pushing a phantom blocked-sender into sendq.
+//
+// Returns (ChannelResult, sent). The result may be nil when no task updates
+// are needed (e.g., a successful buffered push or an overflowed send).
+// Callers must release any non-nil result via ReleaseResult.
+//
+// Used by external producers (deliverMessage's subscription delivery path,
+// the ephemeral channel router) that must never block on a Lua channel
+// because there is no real producer task that could be woken.
+func (c *Channel) TrySend(value lua.LValue) (*ChannelResult, bool) {
+	if c.closed {
+		return errorResult(nil, errors.New("send on closed channel")), false
+	}
+
+	// Case 1: receiver waiting - direct handoff. External producers do not
+	// have a sender task to wake, so we craft a minimal result that wakes
+	// the receiver and accounts for the channel's block/release bookkeeping
+	// via flushSelect (matches handoff's Release output).
+	if e := c.recvq.Front(); e != nil {
+		op := c.recvq.Remove(e).(*chanOp)
+		defer releaseChanOp(op)
+
+		r := acquireResult()
+		r.Yields = true
+		uRecv := acquireTaskUpdate()
+		uRecv.State = op.task
+		if op.selectOp != nil {
+			uRecv.setSelectResult(op.task, c.value, value, true)
+		} else {
+			uRecv.setResult2(value, lua.LTrue)
+		}
+		r.Updates = append(r.Updates, uRecv)
+		r.Release = append(r.Release, c)
+		r.Release = append(r.Release, c.flushSelect(op.selectOp)...)
+		return r, true
+	}
+
+	// Case 2: buffer has space.
+	if c.buffer.Len() < c.capacity {
+		c.buffer.PushBack(value)
+		return nil, true
+	}
+
+	// Case 3: full and no waiter. Drop on the producer side rather than
+	// creating a fake blocked-sender entry.
+	return nil, false
+}
+
 func (c *Channel) Receive(task *lua.LState, selectOp *SelectOp) *ChannelResult {
 	sel := toInternalSelect(selectOp)
 
