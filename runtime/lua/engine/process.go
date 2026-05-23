@@ -99,15 +99,15 @@ type Process struct {
 	// goroutine while RegisterEphemeral is executing on the step
 	// thread. Allocated lazily on the step thread; Abort tolerates a
 	// nil load.
-	router         atomic.Pointer[ephemeralRouter]
-	script         string
-	scriptName     string
-	outTasks       []*Task
-	externalTasks  []*Task
-	yieldBuf       []*Task
-	messageQueue   []queuedMessage
-	threads        []*Task
-	yieldSeq       uint64
+	router        atomic.Pointer[ephemeralRouter]
+	script        string
+	scriptName    string
+	outTasks      []*Task
+	externalTasks []*Task
+	yieldBuf      []*Task
+	messageQueue  []queuedMessage
+	threads       []*Task
+	yieldSeq      uint64
 	// epoch is the monotonic incarnation counter for the ephemeral router.
 	// Incremented on every Init / clearExecution / Close drain and on
 	// Abort. Producers stamp every EphemeralFrame with the epoch they were

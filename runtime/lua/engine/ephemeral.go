@@ -86,8 +86,8 @@ type epEntry struct {
 	channel        *Channel
 	convert        EphemeralValueConverter
 	producerStop   atomic.Pointer[stopFunc]
-	stopOnce       sync.Once
 	gen            atomic.Uint64
+	stopOnce       sync.Once
 	overflowPolicy OverflowPolicy
 }
 
@@ -225,7 +225,6 @@ func (r *ephemeralRouter) snapshotStopFuncs() []func() {
 	}
 	out := make([]func(), 0, len(r.entries))
 	for _, e := range r.entries {
-		e := e
 		out = append(out, e.callStop)
 	}
 	return out

@@ -113,7 +113,7 @@ func TestEphemeral_NoSubscriptionEntry(t *testing.T) {
 	// Register a bunch of ephemerals.
 	for i := 0; i < 100; i++ {
 		ch := NewChannel(1)
-		_, _, _ = proc.RegisterEphemeral(ch, nil, nil, OverflowDrop)
+		proc.RegisterEphemeral(ch, nil, nil, OverflowDrop)
 	}
 
 	// Subscription maps must contain ONLY the user-level "hold" topic.
@@ -371,7 +371,7 @@ func TestEphemeral_DrainCallsProducerStopOnce(t *testing.T) {
 	var stopCount int32
 	stop := func() { atomic.AddInt32(&stopCount, 1) }
 	ch := NewChannel(1)
-	_, _, _ = proc.RegisterEphemeral(ch, nil, stop, OverflowDrop)
+	proc.RegisterEphemeral(ch, nil, stop, OverflowDrop)
 
 	// Drain once via the internal helper.
 	proc.drainEphemeralChannels()
@@ -382,7 +382,7 @@ func TestEphemeral_DrainCallsProducerStopOnce(t *testing.T) {
 	// Re-register then drain via Close.
 	stopCount = 0
 	ch2 := NewChannel(1)
-	_, _, _ = proc.RegisterEphemeral(ch2, nil, stop, OverflowDrop)
+	proc.RegisterEphemeral(ch2, nil, stop, OverflowDrop)
 
 	proc.drainEphemeralChannels()
 	proc.drainEphemeralChannels() // second drain must be a no-op

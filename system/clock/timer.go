@@ -17,8 +17,6 @@ type timerEntry struct {
 	timer    *time.Timer
 	callback func()
 	firedC   chan time.Time
-	stopped  atomic.Bool
-	mu       sync.Mutex
 	// routerKey is non-nil when this timer was started by a router-
 	// driven TimerStartCmd (ChID != 0). The dispatcher reads it in
 	// stop handlers to clean its (pid, epoch, chID) reverse map. The
@@ -30,6 +28,8 @@ type timerEntry struct {
 	// so the user-supplied payload-build closure stays decoupled from
 	// reverse-map bookkeeping.
 	onFireCleanup func()
+	mu            sync.Mutex
+	stopped       atomic.Bool
 }
 
 type timerShard struct {

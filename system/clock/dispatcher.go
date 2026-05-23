@@ -158,7 +158,9 @@ func (d *Dispatcher) handleTickerStart(ctx context.Context, cmd dispatcher.Comma
 	receiver.CompleteYield(tag, clockapi.TickerStartResult{
 		ID: id,
 		Stop: func() {
-			d.stopTickerByID(id)
+			// Best-effort; ticker may have already self-cleaned via
+			// the engine drain path.
+			_ = d.stopTickerByID(id)
 		},
 	}, nil)
 	return nil
@@ -234,7 +236,9 @@ func (d *Dispatcher) handleTimerStart(ctx context.Context, cmd dispatcher.Comman
 	receiver.CompleteYield(tag, clockapi.TimerStartResult{
 		ID: id,
 		Stop: func() {
-			d.stopTimerByID(id)
+			// Best-effort; timer may have already fired or been drained
+			// via the engine drain path.
+			_, _ = d.stopTimerByID(id)
 		},
 	}, nil)
 	return nil

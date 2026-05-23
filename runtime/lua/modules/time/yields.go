@@ -28,12 +28,6 @@ const (
 	locationTypeName = "time.Location"
 )
 
-// tickerCounter generates unique topic names for tickers.
-var tickerCounter uint64
-
-// timerCounter generates unique topic names for timers.
-var timerCounter uint64
-
 // Error helpers for structured errors
 
 func invalidError(l *lua.LState, msg string) int {

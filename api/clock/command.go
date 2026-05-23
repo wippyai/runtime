@@ -83,13 +83,13 @@ type (
 	// non-router callers (workflow timers), where the dispatcher falls
 	// back to its legacy int64-nanos payload.
 	TickerStartCmd struct {
-		PID      pid.PID
+		GenRef   *atomic.Uint64
+		Build    FireBuilder
 		Topic    string
+		PID      pid.PID
 		Duration time.Duration
 		ChID     uint64
 		Epoch    uint64
-		GenRef   *atomic.Uint64
-		Build    FireBuilder
 	}
 
 	// TickerStopCmd stops and cleans up a ticker.
@@ -104,13 +104,13 @@ type (
 	// See TickerStartCmd for the ChID / Epoch / GenRef / Build fields used
 	// by the engine ephemeral channel router.
 	TimerStartCmd struct {
-		PID      pid.PID
+		GenRef   *atomic.Uint64
+		Build    FireBuilder
 		Topic    string
+		PID      pid.PID
 		Duration time.Duration
 		ChID     uint64
 		Epoch    uint64
-		GenRef   *atomic.Uint64
-		Build    FireBuilder
 	}
 
 	// TimerWaitCmd waits for a timer to fire.
