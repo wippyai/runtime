@@ -676,6 +676,39 @@ func (p *Process) updateChannelRefs(channels map[*Channel]int, blocks, releases 
 	}
 }
 
+// applyExternalChannelResult applies a ChannelResult produced by an external
+// send or close (i.e. one issued from deliverMessage or the unsubscribe
+// handler, not from a Lua-side channel op).
+//
+// It updates channel block/release refcounts on p.channels, wakes blocked
+// tasks via p.queue, and releases the pooled result exactly once.
+//
+// Must be called on the step goroutine. Safe with a nil result.
+func (p *Process) applyExternalChannelResult(result *ChannelResult) {
+	if result == nil {
+		return
+	}
+	if p.channels != nil {
+		p.updateChannelRefs(p.channels, result.Block, result.Release)
+	}
+	for _, upd := range result.GetUpdates() {
+		if upd == nil || upd.State == nil {
+			continue
+		}
+		t, err := p.GetTask(upd.State)
+		if err != nil {
+			continue
+		}
+		if upd.Error != nil {
+			t.ResumeWith(lua.LNil, lua.WrapError(upd.Error, "external channel op"))
+		} else {
+			t.ResumeWith(upd.GetResult()...)
+		}
+		p.queue.Push(t)
+	}
+	ReleaseResult(result)
+}
+
 // processSubscribeYields handles subscribe/unsubscribe yields.
 // Returns tasks not handled, whether any subscriptions were processed, and error.
 // Message queue is managed by Step() before calling this.
@@ -734,11 +767,18 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, bool, error) {
 
 		// Handle unsubscribe request
 		if req, ok := lastYield.(*UnsubscribeRequest); ok {
-			err := subs.remove(req.Channel)
+			topic, err := subs.removeAndReturnTopic(req.Channel)
 			if err != nil {
 				task.ResumeWith(lua.LFalse, lua.WrapError(err, "unsubscribe"))
 			} else {
-				req.Channel.Close(nil)
+				// Remove the topic handler so per-call subscriptions
+				// (e.g. process.listen with options.message=true) do not
+				// leak entries in p.handlers across listen/unlisten
+				// cycles.
+				p.RemoveTopicHandler(topic)
+				// Apply the close result so blocked receivers wake with
+				// (nil, false) rather than hanging forever.
+				p.applyExternalChannelResult(req.Channel.Close(nil))
 				task.ResumeWith(lua.LTrue)
 			}
 			p.queue.Push(task)
@@ -804,7 +844,8 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 	if len(qm.Payloads) == 1 && payload.IsTerminal(qm.Payloads[0]) {
 		p.RemoveTopicHandler(topic)
 		_ = subs.remove(sub.channel)
-		sub.channel.Close(nil)
+		// Apply Close result so blocked receivers wake instead of hanging.
+		p.applyExternalChannelResult(sub.channel.Close(nil))
 		return true
 	}
 
@@ -824,7 +865,7 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 			if hasTerminal {
 				p.RemoveTopicHandler(topic)
 				_ = subs.remove(sub.channel)
-				sub.channel.Close(nil)
+				p.applyExternalChannelResult(sub.channel.Close(nil))
 			}
 			return true
 		}
@@ -832,29 +873,27 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 		value = PayloadsToLua(p.ctx, p.state, payloads)
 	}
 
-	result := sub.channel.Send(nil, value, nil)
-	if result != nil {
-		// Wake any blocked receivers
-		if result.Yields {
-			for _, upd := range result.GetUpdates() {
-				if upd.State == nil {
-					continue
-				}
-				t, err := p.GetTask(upd.State)
-				if err == nil {
-					t.ResumeWith(upd.GetResult()...)
-					p.queue.Push(t)
-				}
-			}
+	// External delivery must never block the producer: a full buffer with no
+	// waiting receiver previously called blockSender(nil, ...) and pushed a
+	// chanOp{task: nil} onto sendq, leaking memory under producer pressure.
+	// Drop the message instead — same semantics as a slow subscriber missing
+	// a tick.
+	if !sub.channel.CanSend() {
+		if hasTerminal {
+			p.RemoveTopicHandler(topic)
+			_ = subs.remove(sub.channel)
+			p.applyExternalChannelResult(sub.channel.Close(nil))
 		}
-		ReleaseResult(result)
+		return true
 	}
+
+	p.applyExternalChannelResult(sub.channel.Send(nil, value, nil))
 
 	// Close channel after sending if terminal was present
 	if hasTerminal {
 		p.RemoveTopicHandler(topic)
 		_ = subs.remove(sub.channel)
-		sub.channel.Close(nil)
+		p.applyExternalChannelResult(sub.channel.Close(nil))
 	}
 
 	return true

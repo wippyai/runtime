@@ -65,16 +65,24 @@ func (m *subscribeContext) addExisting(topic string, ch *Channel) (*subscription
 }
 
 func (m *subscribeContext) remove(ch *Channel) error {
+	_, err := m.removeAndReturnTopic(ch)
+	return err
+}
+
+// removeAndReturnTopic removes a channel's subscription and returns the topic
+// that was registered for it. Callers use the returned topic to clean up the
+// matching handler entry via Process.RemoveTopicHandler.
+func (m *subscribeContext) removeAndReturnTopic(ch *Channel) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	topic, exists := m.byChannel[ch]
 	if !exists {
-		return luaapi.ErrChannelNotFound
+		return "", luaapi.ErrChannelNotFound
 	}
 	delete(m.byTopic, topic)
 	delete(m.byChannel, ch)
-	return nil
+	return topic, nil
 }
 
 func (m *subscribeContext) get(topic string) (*subscription, bool) {
