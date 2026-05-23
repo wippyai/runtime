@@ -223,10 +223,80 @@ func TestDeliverMessage_TerminalCloseWakesBlockedReceiver(t *testing.T) {
 	cleanupRunUntilDone(t, proc)
 }
 
-// External delivery into a full subscription channel previously called
-// Channel.Send(nil, ...) which pushed a chanOp{task: nil} into sendq, leaking
-// memory under producer pressure. With the CanSend guard the channel's
-// sendq must remain empty.
+// Rendezvous (zero-buffer) delivery on the @pid/events system topic must
+// reach a parked receiver. Mirrors the events_cancel app test:
+// process.events() subscribes to "@pid/events" with BufSize=0; an external
+// publisher writes an ExitEvent payload; the Lua receiver must wake up.
+func TestDeliverMessage_AtPidEventsTopicRendezvous(t *testing.T) {
+	script := `
+		local ch = channel.new(0)
+		subscribe("@pid/events", ch)
+		local v = ch:receive()
+		if v == nil then
+			return nil, "got nil from @pid/events receive"
+		end
+		return "ok"
+	`
+	proc := startCleanupProcess(t, script)
+	defer proc.Close()
+
+	cleanupRunUntilIdle(t, proc)
+
+	cleanupSendMessage(t, proc, "@pid/events", payload.Payloads{payload.NewPayload(lua.LString("exit"), payload.Lua)})
+	cleanupRunUntilDone(t, proc)
+}
+
+// Rendezvous (zero-buffer) handoff: receiver parks first, external delivery
+// hands the value off and resumes the consumer. Regression coverage for the
+// events_cancel hang in the app test runner where process.events() uses a
+// zero-buffer channel.
+func TestDeliverMessage_HandsOffToParkedReceiver(t *testing.T) {
+	script := `
+		local ch = channel.new(0)
+		subscribe("events", ch)
+		local v = ch:receive()
+		if v ~= "hello" then
+			return nil, "expected hello, got "..tostring(v)
+		end
+		return "ok"
+	`
+	proc := startCleanupProcess(t, script)
+	defer proc.Close()
+
+	cleanupRunUntilIdle(t, proc)
+
+	cleanupSendMessage(t, proc, "events", payload.Payloads{payload.NewPayload(lua.LString("hello"), payload.Lua)})
+	cleanupRunUntilDone(t, proc)
+}
+
+// External delivery that arrives before any receiver parks must be retained
+// in messageQueue and delivered once the consumer calls receive. No drop on
+// zero-buffer topics.
+func TestDeliverMessage_QueuesUntilReceiverParks(t *testing.T) {
+	script := `
+		local ch = channel.new(0)
+		subscribe("events", ch)
+		local control = channel.new(1)
+		subscribe("control", control)
+		control:receive()
+		local v = ch:receive()
+		if v ~= "late" then
+			return nil, "expected late, got "..tostring(v)
+		end
+		return "ok"
+	`
+	proc := startCleanupProcess(t, script)
+	defer proc.Close()
+
+	cleanupRunUntilIdle(t, proc)
+	cleanupSendMessage(t, proc, "events", payload.Payloads{payload.NewPayload(lua.LString("late"), payload.Lua)})
+	cleanupSendMessage(t, proc, "control", payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)})
+	cleanupRunUntilDone(t, proc)
+}
+
+// External delivery into a full subscription channel must not push phantom
+// blocked-sender entries into sendq, and must not silently drop the message.
+// The message stays in messageQueue until a receiver drains the buffer.
 func TestDeliverMessage_FullChannelDoesNotPhantomSend(t *testing.T) {
 	script := `
 		local ch = channel.new(1)

@@ -633,8 +633,20 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		p.externalTasks = externalTasks
 
 		// Continue looping if subscriptions were handled (may have added tasks)
-		// or if queue has tasks to process
+		// or if queue has tasks to process.
+		//
+		// Final flush before break: processChannelYields may have parked
+		// receivers whose matching messages were left in messageQueue by an
+		// earlier flush. Without this retry those messages would sit until
+		// the next external event resumed the process — breaking
+		// rendezvous delivery on system topics like @pid/events.
 		if !hadSubscriptions && p.queue.IsEmpty() {
+			if p.subs != nil && len(p.messageQueue) > 0 {
+				p.flushMessageQueue(p.subs)
+				if !p.queue.IsEmpty() {
+					continue
+				}
+			}
 			break
 		}
 	}
@@ -1035,21 +1047,22 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 		value = PayloadsToLua(p.ctx, p.state, payloads)
 	}
 
-	// External delivery must never block the producer: a full buffer with no
-	// waiting receiver previously called blockSender(nil, ...) and pushed a
-	// chanOp{task: nil} onto sendq, leaking memory under producer pressure.
-	// Drop the message instead — same semantics as a slow subscriber missing
-	// a tick.
-	if !sub.channel.CanSend() {
-		if hasTerminal {
+	// External delivery is non-blocking: no producer task exists to park.
+	// TrySend hands off to a waiting receiver or buffers if there is room.
+	// When neither succeeds, the message stays in messageQueue and is
+	// retried on the next step — preserving mailbox order and rendezvous
+	// semantics on zero-buffer topics (@pid/events, @pid/inbox).
+	result, sent := sub.channel.TrySend(value)
+	if !sent {
+		if sub.channel.IsClosed() {
 			p.RemoveTopicHandler(topic)
 			_ = subs.remove(sub.channel)
-			p.applyExternalChannelResult(sub.channel.Close(nil))
+			p.applyExternalChannelResult(result)
+			return true
 		}
-		return true
+		return false
 	}
-
-	p.applyExternalChannelResult(sub.channel.Send(nil, value, nil))
+	p.applyExternalChannelResult(result)
 
 	// Close channel after sending if terminal was present
 	if hasTerminal {
