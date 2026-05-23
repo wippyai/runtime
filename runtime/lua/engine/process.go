@@ -159,6 +159,26 @@ func (p *Process) SubscribeExisting(topic string, ch *Channel) error {
 	return err
 }
 
+// UnsubscribeChannel detaches a channel from the topic subscription
+// map, removes the matching topic handler, and closes the channel.
+// Mirrors the unlisten yield path but is callable directly from Go
+// modules whose Lua API exposes a :close() method (events, websocket,
+// etc.). Returns true if a subscription was found and removed.
+//
+// Must be called on the step goroutine.
+func (p *Process) UnsubscribeChannel(ch *Channel) bool {
+	if p.subs == nil {
+		return false
+	}
+	topic, err := p.subs.removeAndReturnTopic(ch)
+	if err != nil {
+		return false
+	}
+	p.RemoveTopicHandler(topic)
+	p.applyExternalChannelResult(ch.Close(nil))
+	return true
+}
+
 // SetTopicHandler registers a handler for a topic.
 func (p *Process) SetTopicHandler(topic string, handler TopicHandler) {
 	if p.handlers == nil {
