@@ -305,8 +305,8 @@ func (y *SleepYield) ToCommand() dispatcher.Command { return clockapi.SleepCmd{D
 // carries them across to the clock dispatcher.
 type TimerStartYield struct {
 	Channel  *engine.Channel
-	PID      pid.PID
 	GenRef   *atomic.Uint64
+	PID      pid.PID
 	Duration stdtime.Duration
 	ChID     uint64
 	Epoch    uint64
@@ -579,8 +579,8 @@ func (y *TimerResetYield) HandleResult(_ *lua.LState, data any, err error) []lua
 // the engine ephemeral channel router.
 type TickerStartYield struct {
 	Channel  *engine.Channel
-	PID      pid.PID
 	GenRef   *atomic.Uint64
+	PID      pid.PID
 	Duration stdtime.Duration
 	ChID     uint64
 	Epoch    uint64

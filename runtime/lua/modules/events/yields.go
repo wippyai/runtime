@@ -21,10 +21,10 @@ type Subscription struct {
 	channel       *engine.Channel
 	unsubscribe   func()
 	cancelCleanup func() // cancel handle from resource.Store.AddCleanup; must run on close.
-	topic         string
 	proc          *engine.Process
-	closed        bool
+	topic         string
 	mu            sync.Mutex
+	closed        bool
 }
 
 func init() {

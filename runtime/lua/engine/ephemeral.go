@@ -113,9 +113,9 @@ func (e *epEntry) callStop() {
 // mutex so Abort (called from the scheduler goroutine during cancellation)
 // can safely bump the epoch and snapshot producerStop closures.
 type ephemeralRouter struct {
-	mu      sync.Mutex
-	nextID  uint64
 	entries map[uint64]*epEntry
+	nextID  uint64
+	mu      sync.Mutex
 }
 
 func newEphemeralRouter() *ephemeralRouter {

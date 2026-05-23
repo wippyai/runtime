@@ -35,11 +35,11 @@ import (
 // tests can assert dispatcher behavior without spinning up the whole
 // process scheduler.
 type mockReceiver struct {
-	mu     sync.Mutex
-	tag    uint64
 	data   any
 	err    error
 	called chan struct{}
+	tag    uint64
+	mu     sync.Mutex
 }
 
 func newMockReceiver() *mockReceiver {
@@ -76,8 +76,8 @@ func (m *mockReceiver) snapshot() (any, error) {
 // capturingNode is a relay.Node that records every Send so tests can
 // assert on the emitted packages.
 type capturingNode struct {
-	mu       sync.Mutex
 	packages []*relay.Package
+	mu       sync.Mutex
 }
 
 func newCapturingNode() *capturingNode { return &capturingNode{} }

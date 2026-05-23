@@ -51,17 +51,15 @@ func makeChIDKey(p pid.PID, epoch, chID uint64) chIDKey {
 // pendingStops; the late start consumes the tombstone and refuses to
 // schedule, completing its yield with ErrStoppedBeforeStart.
 type Dispatcher struct {
-	timers  *timerRegistry
-	tickers *tickerRegistry
-
-	mu             sync.Mutex
+	timers         *timerRegistry
+	tickers        *tickerRegistry
 	timerReverse   map[chIDKey]uint64
 	tickerReverse  map[chIDKey]uint64
 	pendingTStops  map[chIDKey]time.Time
 	pendingTkStops map[chIDKey]time.Time
-
-	sweepCancel context.CancelFunc
-	sweepDone   chan struct{}
+	sweepCancel    context.CancelFunc
+	sweepDone      chan struct{}
+	mu             sync.Mutex
 }
 
 func shouldIgnoreDuration(d time.Duration) bool {

@@ -19,37 +19,35 @@ import (
 
 // timerEntry tracks an active timer.
 type timerEntry struct {
-	PID      pid.PID
-	Topic    string
-	ID       uint64
-	Duration time.Duration
-	Canceled bool
-
 	// build is set when the command targets the engine ephemeral router
 	// (cmd.Build != nil at start). The fire callback uses it to wrap
 	// the tick value in an EphemeralFrame so the routed process can
 	// decode the payload identically to a clock-dispatched fire.
 	build  clockapi.FireBuilder
 	genRef *atomic.Uint64
-
+	Topic  string
+	PID    pid.PID
 	// epoch + chID are non-zero when the timer was started by an
 	// engine ephemeral router yield. They let StopByChID find the
 	// entry without holding the internal id.
-	epoch uint64
-	chID  uint64
+	epoch    uint64
+	chID     uint64
+	ID       uint64
+	Duration time.Duration
+	Canceled bool
 }
 
 // tickerEntry tracks an active ticker.
 type tickerEntry struct {
-	PID      pid.PID
+	build    clockapi.FireBuilder
+	genRef   *atomic.Uint64
 	Topic    string
+	PID      pid.PID
+	epoch    uint64
+	chID     uint64
 	ID       uint64
 	Duration time.Duration
 	Stopped  bool
-	build    clockapi.FireBuilder
-	genRef   *atomic.Uint64
-	epoch    uint64
-	chID     uint64
 }
 
 // buildFirePayload constructs the on-wire payload for a timer/ticker fire.
