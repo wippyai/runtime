@@ -246,6 +246,19 @@ func (p *Process) BumpEphemeralGen(chID uint64) (uint64, bool) {
 	return p.router.bumpGen(chID)
 }
 
+// SetEphemeralProducerStop attaches the producerStop closure to an
+// already-registered entry. Required for callers that produce the
+// closure from data only available after RegisterEphemeral returns
+// (e.g. a timer module that needs the freshly-assigned chID + epoch in
+// the dispatch closure). Returns false if no entry exists. Must be
+// called on the step goroutine.
+func (p *Process) SetEphemeralProducerStop(chID uint64, fn func()) bool {
+	if p.router == nil {
+		return false
+	}
+	return p.router.setProducerStop(chID, fn)
+}
+
 // StopEphemeral removes an entry, invokes its producerStop, and returns
 // its channel. Used by Lua-side timer:stop / ticker:stop / ws:close
 // handlers that run on the step thread. Returns (nil, false) if the

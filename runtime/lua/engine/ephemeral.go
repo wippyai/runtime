@@ -146,6 +146,23 @@ func (r *ephemeralRouter) bumpGen(chID uint64) (uint64, bool) {
 	return e.gen.Add(1), true
 }
 
+// setProducerStop attaches the producerStop closure to an existing
+// entry. Used by callers that need the chID + epoch in scope to build
+// the stop closure but cannot supply it at register time. Returns false
+// when no entry exists.
+//
+// Called only on the step thread; race-free.
+func (r *ephemeralRouter) setProducerStop(chID uint64, fn func()) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e, ok := r.entries[chID]
+	if !ok {
+		return false
+	}
+	e.producerStop = fn
+	return true
+}
+
 // lookup returns the entry by chID. Used by Route on the step thread.
 func (r *ephemeralRouter) lookup(chID uint64) (*epEntry, bool) {
 	r.mu.Lock()
