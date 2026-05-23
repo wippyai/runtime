@@ -77,20 +77,30 @@ func NewEphemeralFramePayload(f *EphemeralFrame) payload.Payload {
 // gen is atomic so producer goroutines (clock fire callback, ws read loop)
 // can read it at fire time without acquiring the router lock. Writes
 // happen only on the step goroutine via BumpEphemeralGen.
+//
+// producerStop is an atomic.Pointer so SetEphemeralProducerStop (step
+// thread) and Abort.snapshotStopFuncs (scheduler goroutine) can race
+// safely. sync.Once guarantees the producer stop closure runs exactly
+// once even when multiple drain/abort paths fire.
 type epEntry struct {
 	channel        *Channel
 	convert        EphemeralValueConverter
-	producerStop   func()
+	producerStop   atomic.Pointer[stopFunc]
 	stopOnce       sync.Once
 	gen            atomic.Uint64
 	overflowPolicy OverflowPolicy
 }
 
+// stopFunc wraps the producer stop closure so atomic.Pointer can hold
+// it (atomic.Pointer's type parameter must be a struct type).
+type stopFunc struct{ fn func() }
+
 func (e *epEntry) callStop() {
-	if e.producerStop == nil {
+	ptr := e.producerStop.Load()
+	if ptr == nil || ptr.fn == nil {
 		return
 	}
-	e.stopOnce.Do(e.producerStop)
+	e.stopOnce.Do(ptr.fn)
 }
 
 // ephemeralRouter owns the per-process map of active ephemeral channels.
@@ -126,8 +136,10 @@ func (r *ephemeralRouter) register(ch *Channel, convert EphemeralValueConverter,
 	e := &epEntry{
 		channel:        ch,
 		convert:        convert,
-		producerStop:   producerStop,
 		overflowPolicy: policy,
+	}
+	if producerStop != nil {
+		e.producerStop.Store(&stopFunc{fn: producerStop})
 	}
 	r.entries[id] = e
 	return id, &e.gen
@@ -154,12 +166,12 @@ func (r *ephemeralRouter) bumpGen(chID uint64) (uint64, bool) {
 // Called only on the step thread; race-free.
 func (r *ephemeralRouter) setProducerStop(chID uint64, fn func()) bool {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	e, ok := r.entries[chID]
+	r.mu.Unlock()
 	if !ok {
 		return false
 	}
-	e.producerStop = fn
+	e.producerStop.Store(&stopFunc{fn: fn})
 	return true
 }
 

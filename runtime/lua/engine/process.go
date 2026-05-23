@@ -299,16 +299,13 @@ func (p *Process) EphemeralEpoch() uint64 {
 // Must be called on the step goroutine.
 func (p *Process) drainEphemeralChannels() {
 	p.epoch.Add(1)
-	r := p.router.Load()
-	if r == nil {
+	router := p.router.Load()
+	if router == nil {
 		return
 	}
-	entries := r.snapshotEntriesForDrain()
-	for _, e := range entries {
+	for _, e := range router.snapshotEntriesForDrain() {
 		e.callStop()
-		if r := e.channel.Close(nil); r != nil {
-			p.applyExternalChannelResult(r)
-		}
+		p.applyExternalChannelResult(e.channel.Close(nil))
 	}
 }
 

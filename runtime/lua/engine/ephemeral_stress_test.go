@@ -312,6 +312,70 @@ func TestEphemeralStress_MultiCoroutineTimerSelect(t *testing.T) {
 	ephemeralRunUntilDone(t, proc)
 }
 
+// TestEphemeralStress_ProducerStopRaceWithAbort exercises the
+// production lifecycle path: Lua HandleResult calls
+// SetEphemeralProducerStop after RegisterEphemeral, on the step
+// goroutine; meanwhile Abort from the scheduler goroutine snapshots
+// stop closures. The race detector should not flag the producerStop
+// field access.
+func TestEphemeralStress_ProducerStopRaceWithAbort(t *testing.T) {
+	if testing.Short() {
+		t.Skip("stress test skipped under -short")
+	}
+
+	proto, err := lua.CompileString(`
+		local hold = channel.new(1)
+		subscribe("hold", hold)
+		hold:receive()
+		return "ok"
+	`, "ps_race.lua")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	proc := mustNewProcess(t, WithProto(proto))
+	defer proc.Close()
+	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	if err := proc.Init(ctx, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	LoadModuleDef(proc.State(), ChannelModule)
+	loadPubSubGlobals(proc.State())
+	ephemeralRunUntilIdle(t, proc)
+
+	const iters = 5_000
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < iters; i++ {
+			proc.Abort()
+		}
+		close(done)
+	}()
+
+	for i := 0; i < iters; i++ {
+		ch := NewChannel(1)
+		chID, _, _ := proc.RegisterEphemeral(ch, nil, nil, OverflowDrop)
+		// Production pattern: HandleResult attaches the dispatcher Stop
+		// func after the start command returns.
+		proc.SetEphemeralProducerStop(chID, func() {})
+		// Tear down to keep the router small.
+		proc.StopEphemeral(chID)
+	}
+	<-done
+
+	// Release the script.
+	var output process.StepOutput
+	if err := proc.Step([]process.Event{{
+		Type: process.EventMessage,
+		Data: &relay.Package{Messages: []*relay.Message{{
+			Topic: "hold", Payloads: payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)},
+		}}},
+	}}, &output); err != nil {
+		t.Fatal(err)
+	}
+	ephemeralRunUntilDone(t, proc)
+}
+
 // TestEphemeralStress_ConcurrentEpochBumps drives many concurrent
 // Abort()s + register/close cycles to confirm the atomic epoch + lock
 // discipline holds under race detection.
