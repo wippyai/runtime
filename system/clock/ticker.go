@@ -21,7 +21,13 @@ type tickerEntry struct {
 	cancel context.CancelFunc
 	pid    pid.PID
 	topic  string
-	closed atomic.Bool
+	// fire, when non-nil, replaces the default legacy sendTick payload
+	// with caller-supplied payload construction. Used by the engine
+	// ephemeral channel router so each fire carries an EphemeralFrame
+	// tagged with (epoch, chID, gen).
+	fire     func(at time.Time)
+	closed   atomic.Bool
+	routerKey *chIDKey // non-nil when registered via TickerStartCmd with ChID != 0
 }
 
 type tickerShard struct {
@@ -57,17 +63,27 @@ func (r *tickerRegistry) deleteEntry(shard *tickerShard, id uint64) (*tickerEntr
 }
 
 func (r *tickerRegistry) start(ctx context.Context, d time.Duration, p pid.PID, topic string, node relay.Node) uint64 {
+	return r.startWithFire(ctx, d, p, topic, nil, nil, node)
+}
+
+// startWithFire installs a ticker entry whose payload construction is
+// controlled by the supplied fire closure. If fire is nil the default
+// legacy sendTick (int64 nanos) is used. routerKey, when non-nil, is
+// removed from the dispatcher's reverseMap when the ticker stops.
+func (r *tickerRegistry) startWithFire(ctx context.Context, d time.Duration, p pid.PID, topic string, fire func(at time.Time), routerKey *chIDKey, node relay.Node) uint64 {
 	id := r.nextID.Add(1)
 	shard := r.getShard(id)
 
 	tickerCtx, cancel := context.WithCancel(ctx)
 
 	entry := &tickerEntry{
-		ticker: time.NewTicker(d),
-		pid:    p,
-		topic:  topic,
-		ctx:    tickerCtx,
-		cancel: cancel,
+		ticker:    time.NewTicker(d),
+		pid:       p,
+		topic:     topic,
+		fire:      fire,
+		routerKey: routerKey,
+		ctx:       tickerCtx,
+		cancel:    cancel,
 	}
 
 	shard.mu.Lock()
@@ -98,9 +114,25 @@ func (r *tickerRegistry) forwardTicks(entry *tickerEntry, node relay.Node) {
 			default:
 			}
 
-			sendTick(node, entry.pid, entry.topic, t)
+			if entry.fire != nil {
+				entry.fire(t)
+			} else {
+				sendTick(node, entry.pid, entry.topic, t)
+			}
 		}
 	}
+}
+
+// routerKey returns the (pid, epoch, chID) key for an active ticker, or
+// nil if it wasn't registered via the ephemeral router.
+func (r *tickerRegistry) routerKey(id uint64) *chIDKey {
+	shard := r.getShard(id)
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
+	if entry, ok := shard.tickers[id]; ok {
+		return entry.routerKey
+	}
+	return nil
 }
 
 func (r *tickerRegistry) stop(id uint64) error {

@@ -228,12 +228,12 @@ func (p *Process) HasSubscriptions() bool {
 // convert may be nil to use the default PayloadsToLua conversion.
 // producerStop runs at most once (sync.Once) when the channel is closed
 // or the process drains.
-func (p *Process) RegisterEphemeral(ch *Channel, convert EphemeralValueConverter, producerStop func(), policy OverflowPolicy) (chID uint64, epoch uint64) {
+func (p *Process) RegisterEphemeral(ch *Channel, convert EphemeralValueConverter, producerStop func(), policy OverflowPolicy) (chID uint64, epoch uint64, genRef *atomic.Uint64) {
 	if p.router == nil {
 		p.router = newEphemeralRouter()
 	}
-	chID = p.router.register(ch, convert, producerStop, policy)
-	return chID, p.epoch.Load()
+	chID, genRef = p.router.register(ch, convert, producerStop, policy)
+	return chID, p.epoch.Load(), genRef
 }
 
 // BumpEphemeralGen advances the generation of a registered entry. Used by
@@ -1049,7 +1049,7 @@ func (p *Process) routeEphemeralFrame(qm queuedMessage) {
 	if !exists {
 		return
 	}
-	if frame.Gen != entry.gen {
+	if frame.Gen != entry.gen.Load() {
 		return
 	}
 

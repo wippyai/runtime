@@ -5,9 +5,11 @@
 package clock
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 )
 
@@ -25,6 +27,14 @@ const (
 	TimerWait  dispatcher.CommandID = 19 // Wait for timer to fire, returns time
 	TimerStop  dispatcher.CommandID = 20 // Stop and cleanup timer
 	TimerReset dispatcher.CommandID = 21 // Reset timer with new duration
+
+	// Stop-by-chID variants used by the engine ephemeral channel router to
+	// cancel timers/tickers without holding the dispatcher-internal ID.
+	// The dispatcher maintains a reverse map (pid, epoch, chID) → internalID.
+	// A stop arriving before the corresponding start is tombstoned and
+	// consumed by the late start so no orphan timer can leak.
+	TimerStopByChID  dispatcher.CommandID = 22
+	TickerStopByChID dispatcher.CommandID = 23
 )
 
 func init() {
@@ -32,8 +42,22 @@ func init() {
 		Sleep,
 		TickerStart, TickerStop,
 		TimerStart, TimerWait, TimerStop, TimerReset,
+		TimerStopByChID, TickerStopByChID,
 	)
 }
+
+// FireBuilder produces the payload to deliver when a timer or ticker
+// fires. Used by the engine ephemeral channel router so the clock
+// dispatcher does not need to know the EphemeralFrame envelope format.
+//
+// genRef (when supplied) is the live atomic generation counter for the
+// ephemeral router entry; the builder reads it via .Load() at fire time
+// so stale frames carry an outdated gen and are dropped on the process
+// side after a timer reset.
+//
+// When nil, the dispatcher falls back to its legacy int64-nanos payload
+// for backward compatibility with non-router callers (workflow timers).
+type FireBuilder func(at time.Time, gen uint64) payload.Payload
 
 type (
 	// SleepCmd requests the scheduler to pause execution for a duration.
@@ -48,10 +72,24 @@ type (
 	// TickerStartCmd creates a new ticker that sends ticks to a topic.
 	// The dispatcher sends tick times to the process via relay topic.
 	// Returns ticker ID (uint64) via emit. Ticker runs until stopped.
+	//
+	// ChID + Epoch identify the ephemeral router entry that owns this
+	// ticker; the dispatcher uses them as a reverse-map key so the entry
+	// can be cancelled via TickerStopByChID. GenRef is the live atomic
+	// gen counter the engine router uses to detect stale fires after a
+	// reset; the fire callback reads it via .Load() and stamps every
+	// frame with the current value. Build is the FireBuilder that turns
+	// (at, gen) into the on-wire payload. All four are zero/nil for
+	// non-router callers (workflow timers), where the dispatcher falls
+	// back to its legacy int64-nanos payload.
 	TickerStartCmd struct {
 		PID      pid.PID
 		Topic    string
 		Duration time.Duration
+		ChID     uint64
+		Epoch    uint64
+		GenRef   *atomic.Uint64
+		Build    FireBuilder
 	}
 
 	// TickerStopCmd stops and cleans up a ticker.
@@ -62,10 +100,17 @@ type (
 	// TimerStartCmd creates a new one-shot timer with given duration.
 	// Uses topic-based delivery like ticker - sends fire time to topic when complete.
 	// Returns timer ID (uint64) via emit.
+	//
+	// See TickerStartCmd for the ChID / Epoch / GenRef / Build fields used
+	// by the engine ephemeral channel router.
 	TimerStartCmd struct {
 		PID      pid.PID
 		Topic    string
 		Duration time.Duration
+		ChID     uint64
+		Epoch    uint64
+		GenRef   *atomic.Uint64
+		Build    FireBuilder
 	}
 
 	// TimerWaitCmd waits for a timer to fire.
@@ -86,6 +131,26 @@ type (
 	TimerResetCmd struct {
 		TimerID  uint64
 		Duration time.Duration
+	}
+
+	// TimerStopByChIDCmd cancels a router-tagged timer by the (Epoch, ChID)
+	// pair the start command was issued with. Used by the engine to drain
+	// timers when a process exits before the matching TimerStartCmd has
+	// returned its internal ID. If the dispatcher has not yet processed
+	// the start, this command leaves a tombstone that the late start
+	// consumes (it completes its yield with ErrStoppedBeforeStart and
+	// does NOT schedule the Go timer).
+	TimerStopByChIDCmd struct {
+		TargetPID pid.PID
+		Epoch     uint64
+		ChID      uint64
+	}
+
+	// TickerStopByChIDCmd is the ticker analog of TimerStopByChIDCmd.
+	TickerStopByChIDCmd struct {
+		TargetPID pid.PID
+		Epoch     uint64
+		ChID      uint64
 	}
 )
 
@@ -109,6 +174,12 @@ func (c TimerStopCmd) CmdID() dispatcher.CommandID { return TimerStop }
 
 // CmdID implements dispatcher.Command.
 func (c TimerResetCmd) CmdID() dispatcher.CommandID { return TimerReset }
+
+// CmdID implements dispatcher.Command.
+func (c TimerStopByChIDCmd) CmdID() dispatcher.CommandID { return TimerStopByChID }
+
+// CmdID implements dispatcher.Command.
+func (c TickerStopByChIDCmd) CmdID() dispatcher.CommandID { return TickerStopByChID }
 
 // TickerStartResult is returned by TickerStart command with cleanup callback.
 type TickerStartResult struct {

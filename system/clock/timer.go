@@ -19,6 +19,17 @@ type timerEntry struct {
 	firedC   chan time.Time
 	stopped  atomic.Bool
 	mu       sync.Mutex
+	// routerKey is non-nil when this timer was started by a router-
+	// driven TimerStartCmd (ChID != 0). The dispatcher reads it in
+	// stop handlers to clean its (pid, epoch, chID) reverse map. The
+	// fire path also clears it from the dispatcher reverse map after
+	// the callback runs.
+	routerKey *chIDKey
+	// onFireCleanup, when non-nil, runs after the callback and clears
+	// the dispatcher's reverse map entry. Kept separate from callback
+	// so the user-supplied payload-build closure stays decoupled from
+	// reverse-map bookkeeping.
+	onFireCleanup func()
 }
 
 type timerShard struct {
@@ -58,12 +69,23 @@ func (r *timerRegistry) deleteEntry(shard *timerShard, id uint64) {
 }
 
 func (r *timerRegistry) startWithCallback(d time.Duration, callback func()) uint64 {
+	return r.startWithCallbackAndKey(d, callback, nil, nil)
+}
+
+// startWithCallbackAndKey is the router-aware variant: the entry also
+// stores a (pid, epoch, chID) reverse-map key plus an onFireCleanup
+// closure invoked after the user callback runs. The dispatcher uses
+// these to clean its (pid, epoch, chID) → id reverse map when the
+// timer fires or is stopped.
+func (r *timerRegistry) startWithCallbackAndKey(d time.Duration, callback func(), routerKey *chIDKey, onFireCleanup func()) uint64 {
 	id := r.nextID.Add(1)
 	shard := r.getShard(id)
 
 	entry := &timerEntry{
-		callback: callback,
-		firedC:   make(chan time.Time, 1),
+		callback:      callback,
+		firedC:        make(chan time.Time, 1),
+		routerKey:     routerKey,
+		onFireCleanup: onFireCleanup,
 	}
 
 	entry.timer = time.AfterFunc(d, func() {
@@ -77,6 +99,9 @@ func (r *timerRegistry) startWithCallback(d time.Duration, callback func()) uint
 		if entry.callback != nil {
 			r.deleteEntry(shard, id)
 			entry.callback()
+			if entry.onFireCleanup != nil {
+				entry.onFireCleanup()
+			}
 		}
 
 		select {
@@ -90,6 +115,18 @@ func (r *timerRegistry) startWithCallback(d time.Duration, callback func()) uint
 	shard.mu.Unlock()
 
 	return id
+}
+
+// routerKey returns the (pid, epoch, chID) key for an active timer, or
+// nil if it wasn't registered via the ephemeral router.
+func (r *timerRegistry) routerKey(id uint64) *chIDKey {
+	shard := r.getShard(id)
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
+	if entry, ok := shard.timers[id]; ok {
+		return entry.routerKey
+	}
+	return nil
 }
 
 func (r *timerRegistry) wait(ctx context.Context, id uint64) (time.Time, error) {

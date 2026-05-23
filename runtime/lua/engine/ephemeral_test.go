@@ -113,7 +113,7 @@ func TestEphemeral_NoSubscriptionEntry(t *testing.T) {
 	// Register a bunch of ephemerals.
 	for i := 0; i < 100; i++ {
 		ch := NewChannel(1)
-		_, _ = proc.RegisterEphemeral(ch, nil, nil, OverflowDrop)
+		_, _, _ = proc.RegisterEphemeral(ch, nil, nil, OverflowDrop)
 	}
 
 	// Subscription maps must contain ONLY the user-level "hold" topic.
@@ -169,7 +169,7 @@ func TestEphemeral_DeliverValueFrame(t *testing.T) {
 	ephemeralRunUntilIdle(t, proc)
 
 	ch := NewChannel(2)
-	chID, epoch := proc.RegisterEphemeral(ch, nil, nil, OverflowDrop)
+	chID, epoch, _ := proc.RegisterEphemeral(ch, nil, nil, OverflowDrop)
 
 	sendEphemeralFrame(t, proc, &EphemeralFrame{
 		Epoch:    epoch,
@@ -225,7 +225,7 @@ func TestEphemeral_StaleEpochDropped(t *testing.T) {
 	ephemeralRunUntilIdle(t, proc)
 
 	ch := NewChannel(2)
-	chID, currentEpoch := proc.RegisterEphemeral(ch, nil, nil, OverflowDrop)
+	chID, currentEpoch, _ := proc.RegisterEphemeral(ch, nil, nil, OverflowDrop)
 
 	sendEphemeralFrame(t, proc, &EphemeralFrame{
 		Epoch:    currentEpoch + 7, // stale (or future)
@@ -266,7 +266,7 @@ func TestEphemeral_StaleGenDropped(t *testing.T) {
 	ephemeralRunUntilIdle(t, proc)
 
 	ch := NewChannel(2)
-	chID, epoch := proc.RegisterEphemeral(ch, nil, nil, OverflowDrop)
+	chID, epoch, _ := proc.RegisterEphemeral(ch, nil, nil, OverflowDrop)
 
 	newGen, ok := proc.BumpEphemeralGen(chID)
 	if !ok || newGen != 1 {
@@ -325,7 +325,7 @@ func TestEphemeral_UnknownChIDDropped(t *testing.T) {
 
 	// Initialize the router with one real entry so router != nil.
 	ch := NewChannel(2)
-	_, epoch := proc.RegisterEphemeral(ch, nil, nil, OverflowDrop)
+	_, epoch, _ := proc.RegisterEphemeral(ch, nil, nil, OverflowDrop)
 
 	sendEphemeralFrame(t, proc, &EphemeralFrame{
 		Epoch:    epoch,
@@ -371,7 +371,7 @@ func TestEphemeral_DrainCallsProducerStopOnce(t *testing.T) {
 	var stopCount int32
 	stop := func() { atomic.AddInt32(&stopCount, 1) }
 	ch := NewChannel(1)
-	proc.RegisterEphemeral(ch, nil, stop, OverflowDrop)
+	_, _, _ = proc.RegisterEphemeral(ch, nil, stop, OverflowDrop)
 
 	// Drain once via the internal helper.
 	proc.drainEphemeralChannels()
@@ -382,7 +382,7 @@ func TestEphemeral_DrainCallsProducerStopOnce(t *testing.T) {
 	// Re-register then drain via Close.
 	stopCount = 0
 	ch2 := NewChannel(1)
-	proc.RegisterEphemeral(ch2, nil, stop, OverflowDrop)
+	_, _, _ = proc.RegisterEphemeral(ch2, nil, stop, OverflowDrop)
 
 	proc.drainEphemeralChannels()
 	proc.drainEphemeralChannels() // second drain must be a no-op
@@ -420,7 +420,7 @@ func TestEphemeral_AbortStopsProducersWithoutChannelOps(t *testing.T) {
 	var stopCount int32
 	stop := func() { atomic.AddInt32(&stopCount, 1) }
 	ch := NewChannel(2)
-	chID, epoch := proc.RegisterEphemeral(ch, nil, stop, OverflowDrop)
+	chID, epoch, _ := proc.RegisterEphemeral(ch, nil, stop, OverflowDrop)
 
 	proc.Abort()
 
@@ -487,7 +487,7 @@ func TestEphemeral_OverflowDrop_DoesNotGrowChannel(t *testing.T) {
 
 	ch := NewChannel(1)
 	ch.buffer.PushBack(lua.LString("seed"))
-	chID, epoch := proc.RegisterEphemeral(ch, nil, nil, OverflowDrop)
+	chID, epoch, _ := proc.RegisterEphemeral(ch, nil, nil, OverflowDrop)
 
 	for i := 0; i < 100; i++ {
 		sendEphemeralFrame(t, proc, &EphemeralFrame{
@@ -534,7 +534,7 @@ func TestEphemeral_OverflowCoalesce_ReplacesOldest(t *testing.T) {
 
 	ch := NewChannel(1)
 	ch.buffer.PushBack(lua.LString("seed"))
-	chID, epoch := proc.RegisterEphemeral(ch, nil, nil, OverflowCoalesce)
+	chID, epoch, _ := proc.RegisterEphemeral(ch, nil, nil, OverflowCoalesce)
 
 	sendEphemeralFrame(t, proc, &EphemeralFrame{
 		Epoch: epoch, ChID: chID, Gen: 0, HasValue: true,
@@ -578,7 +578,7 @@ func TestEphemeral_OverflowClose_StopsProducerAndClosesChannel(t *testing.T) {
 	var stopCount int32
 	ch := NewChannel(1)
 	ch.buffer.PushBack(lua.LString("seed"))
-	chID, epoch := proc.RegisterEphemeral(ch, nil, func() { atomic.AddInt32(&stopCount, 1) }, OverflowClose)
+	chID, epoch, _ := proc.RegisterEphemeral(ch, nil, func() { atomic.AddInt32(&stopCount, 1) }, OverflowClose)
 
 	sendEphemeralFrame(t, proc, &EphemeralFrame{
 		Epoch: epoch, ChID: chID, Gen: 0, HasValue: true,
@@ -629,7 +629,7 @@ func TestEphemeral_InitDrainsPriorRouter(t *testing.T) {
 	// Register a fake ephemeral against this incarnation.
 	var stopCount int32
 	ch := NewChannel(1)
-	_, oldEpoch := proc.RegisterEphemeral(ch, nil, func() { atomic.AddInt32(&stopCount, 1) }, OverflowDrop)
+	_, oldEpoch, _ := proc.RegisterEphemeral(ch, nil, func() { atomic.AddInt32(&stopCount, 1) }, OverflowDrop)
 
 	// Pool reuse: a second Init must invalidate the prior entry.
 	ctx2, _ := ctxapi.OpenFrameContext(context.Background())
@@ -662,7 +662,7 @@ func TestEphemeral_ConvertNilSuppressesDelivery(t *testing.T) {
 	ephemeralRunUntilIdle(t, proc)
 
 	ch := NewChannel(2)
-	chID, epoch := proc.RegisterEphemeral(ch, func(_ context.Context, _ *lua.LState, _ pid.PID, _ []payload.Payload) lua.LValue {
+	chID, epoch, _ := proc.RegisterEphemeral(ch, func(_ context.Context, _ *lua.LState, _ pid.PID, _ []payload.Payload) lua.LValue {
 		return nil
 	}, nil, OverflowDrop)
 
@@ -704,7 +704,7 @@ func TestEphemeral_ScalesUnderLongRunning(t *testing.T) {
 	const N = 5000
 	for i := 0; i < N; i++ {
 		ch := NewChannel(1)
-		chID, epoch := proc.RegisterEphemeral(ch, nil, nil, OverflowDrop)
+		chID, epoch, _ := proc.RegisterEphemeral(ch, nil, nil, OverflowDrop)
 		sendEphemeralFrame(t, proc, &EphemeralFrame{
 			Epoch: epoch, ChID: chID, Gen: 0, HasValue: true, Close: true,
 			Payloads: payload.Payloads{payload.NewPayload(lua.LString("tick"), payload.Lua)},

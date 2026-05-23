@@ -5,6 +5,7 @@ package engine
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
@@ -72,12 +73,16 @@ func NewEphemeralFramePayload(f *EphemeralFrame) payload.Payload {
 }
 
 // epEntry is one live ephemeral channel registered with the router.
+//
+// gen is atomic so producer goroutines (clock fire callback, ws read loop)
+// can read it at fire time without acquiring the router lock. Writes
+// happen only on the step goroutine via BumpEphemeralGen.
 type epEntry struct {
 	channel        *Channel
 	convert        EphemeralValueConverter
 	producerStop   func()
 	stopOnce       sync.Once
-	gen            uint64
+	gen            atomic.Uint64
 	overflowPolicy OverflowPolicy
 }
 
@@ -109,21 +114,23 @@ func newEphemeralRouter() *ephemeralRouter {
 	}
 }
 
-// register installs an entry and returns its chID. Caller is responsible
-// for telling the producer (clock dispatcher, ws read loop, ...) the
-// matching (epoch, chID, initialGen=0).
-func (r *ephemeralRouter) register(ch *Channel, convert EphemeralValueConverter, producerStop func(), policy OverflowPolicy) uint64 {
+// register installs an entry and returns its chID and a pointer to the
+// entry's atomic gen counter. Producers capture genRef and read it via
+// .Load() at fire time so they observe BumpEphemeralGen updates without
+// needing to acquire the router lock.
+func (r *ephemeralRouter) register(ch *Channel, convert EphemeralValueConverter, producerStop func(), policy OverflowPolicy) (chID uint64, genRef *atomic.Uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.nextID++
 	id := r.nextID
-	r.entries[id] = &epEntry{
+	e := &epEntry{
 		channel:        ch,
 		convert:        convert,
 		producerStop:   producerStop,
 		overflowPolicy: policy,
 	}
-	return id
+	r.entries[id] = e
+	return id, &e.gen
 }
 
 // bumpGen advances the entry's generation and returns the new value.
@@ -136,8 +143,7 @@ func (r *ephemeralRouter) bumpGen(chID uint64) (uint64, bool) {
 	if !ok {
 		return 0, false
 	}
-	e.gen++
-	return e.gen, true
+	return e.gen.Add(1), true
 }
 
 // lookup returns the entry by chID. Used by Route on the step thread.
