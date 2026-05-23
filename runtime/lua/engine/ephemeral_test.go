@@ -134,10 +134,10 @@ func TestEphemeral_NoSubscriptionEntry(t *testing.T) {
 		t.Error("TopicEphemeral must NEVER appear in subs.byTopic")
 	}
 
-	if proc.router == nil || proc.router.size() != 100 {
+	if r := proc.router.Load(); r == nil || r.size() != 100 {
 		size := 0
-		if proc.router != nil {
-			size = proc.router.size()
+		if r != nil {
+			size = r.size()
 		}
 		t.Errorf("router should have 100 entries, got %d", size)
 	}
@@ -191,8 +191,8 @@ func TestEphemeral_DeliverValueFrame(t *testing.T) {
 	sendEphemeralFrame(t, proc, &EphemeralFrame{
 		Epoch: epoch, ChID: chID, Gen: 0, Close: true,
 	})
-	if proc.router.size() != 0 {
-		t.Fatalf("entry not removed after close frame: size=%d", proc.router.size())
+	if proc.router.Load().size() != 0 {
+		t.Fatalf("entry not removed after close frame: size=%d", proc.router.Load().size())
 	}
 	if !ch.IsClosed() {
 		t.Error("channel should be closed after close frame")
@@ -338,8 +338,8 @@ func TestEphemeral_UnknownChIDDropped(t *testing.T) {
 	if ch.buffer.Len() != 0 {
 		t.Fatal("unknown-chID frame must not touch any channel")
 	}
-	if proc.router.size() != 1 {
-		t.Fatalf("router size should still be 1, got %d", proc.router.size())
+	if proc.router.Load().size() != 1 {
+		t.Fatalf("router size should still be 1, got %d", proc.router.Load().size())
 	}
 
 	// Release the script.
@@ -433,8 +433,8 @@ func TestEphemeral_AbortStopsProducersWithoutChannelOps(t *testing.T) {
 	}
 	// Entry survives until the owner thread drains. Producers see frames
 	// dropped via epoch mismatch.
-	if proc.router.size() != 1 {
-		t.Fatalf("Abort should not clear router entries, got size=%d", proc.router.size())
+	if proc.router.Load().size() != 1 {
+		t.Fatalf("Abort should not clear router entries, got size=%d", proc.router.Load().size())
 	}
 
 	// A frame with the old epoch is dropped silently.
@@ -591,8 +591,8 @@ func TestEphemeral_OverflowClose_StopsProducerAndClosesChannel(t *testing.T) {
 	if !ch.IsClosed() {
 		t.Error("OverflowClose should close the channel")
 	}
-	if proc.router.size() != 0 {
-		t.Errorf("OverflowClose should remove the entry, router size=%d", proc.router.size())
+	if proc.router.Load().size() != 0 {
+		t.Errorf("OverflowClose should remove the entry, router size=%d", proc.router.Load().size())
 	}
 
 	// Release the script.
@@ -643,8 +643,8 @@ func TestEphemeral_InitDrainsPriorRouter(t *testing.T) {
 	if got := proc.epoch.Load(); got <= oldEpoch {
 		t.Errorf("epoch must be strictly greater after Init, was %d now %d", oldEpoch, got)
 	}
-	if proc.router != nil && proc.router.size() != 0 {
-		t.Errorf("router entries must be cleared after Init drain, got %d", proc.router.size())
+	if proc.router.Load() != nil && proc.router.Load().size() != 0 {
+		t.Errorf("router entries must be cleared after Init drain, got %d", proc.router.Load().size())
 	}
 }
 
@@ -714,7 +714,7 @@ func TestEphemeral_ScalesUnderLongRunning(t *testing.T) {
 		}
 	}
 
-	if got := proc.router.size(); got != 0 {
+	if got := proc.router.Load().size(); got != 0 {
 		t.Fatalf("router map must be empty after %d register/close cycles, got %d", N, got)
 	}
 

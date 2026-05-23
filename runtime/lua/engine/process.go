@@ -94,7 +94,12 @@ type Process struct {
 	channels       map[*Channel]int
 	channelQueue   *TaskQueue
 	exported       map[string]*lua.LFunction
-	router         *ephemeralRouter
+	// router is the per-process ephemeral channel router. It is loaded
+	// atomically because Abort can be invoked from the scheduler
+	// goroutine while RegisterEphemeral is executing on the step
+	// thread. Allocated lazily on the step thread; Abort tolerates a
+	// nil load.
+	router         atomic.Pointer[ephemeralRouter]
 	script         string
 	scriptName     string
 	outTasks       []*Task
@@ -210,7 +215,7 @@ func (p *Process) HasSubscriptions() bool {
 			return true
 		}
 	}
-	if p.router != nil && p.router.size() > 0 {
+	if r := p.router.Load(); r != nil && r.size() > 0 {
 		return true
 	}
 	return false
@@ -229,10 +234,12 @@ func (p *Process) HasSubscriptions() bool {
 // producerStop runs at most once (sync.Once) when the channel is closed
 // or the process drains.
 func (p *Process) RegisterEphemeral(ch *Channel, convert EphemeralValueConverter, producerStop func(), policy OverflowPolicy) (chID uint64, epoch uint64, genRef *atomic.Uint64) {
-	if p.router == nil {
-		p.router = newEphemeralRouter()
+	r := p.router.Load()
+	if r == nil {
+		r = newEphemeralRouter()
+		p.router.Store(r)
 	}
-	chID, genRef = p.router.register(ch, convert, producerStop, policy)
+	chID, genRef = r.register(ch, convert, producerStop, policy)
 	return chID, p.epoch.Load(), genRef
 }
 
@@ -240,10 +247,11 @@ func (p *Process) RegisterEphemeral(ch *Channel, convert EphemeralValueConverter
 // time.timer:reset to invalidate stale fires from the previous arm.
 // Returns the new gen; (0, false) when no entry exists.
 func (p *Process) BumpEphemeralGen(chID uint64) (uint64, bool) {
-	if p.router == nil {
+	r := p.router.Load()
+	if r == nil {
 		return 0, false
 	}
-	return p.router.bumpGen(chID)
+	return r.bumpGen(chID)
 }
 
 // SetEphemeralProducerStop attaches the producerStop closure to an
@@ -253,10 +261,11 @@ func (p *Process) BumpEphemeralGen(chID uint64) (uint64, bool) {
 // the dispatch closure). Returns false if no entry exists. Must be
 // called on the step goroutine.
 func (p *Process) SetEphemeralProducerStop(chID uint64, fn func()) bool {
-	if p.router == nil {
+	r := p.router.Load()
+	if r == nil {
 		return false
 	}
-	return p.router.setProducerStop(chID, fn)
+	return r.setProducerStop(chID, fn)
 }
 
 // StopEphemeral removes an entry, invokes its producerStop, and returns
@@ -264,10 +273,11 @@ func (p *Process) SetEphemeralProducerStop(chID uint64, fn func()) bool {
 // handlers that run on the step thread. Returns (nil, false) if the
 // entry is unknown (already drained, never registered).
 func (p *Process) StopEphemeral(chID uint64) (*Channel, bool) {
-	if p.router == nil {
+	r := p.router.Load()
+	if r == nil {
 		return nil, false
 	}
-	e, ok := p.router.remove(chID)
+	e, ok := r.remove(chID)
 	if !ok {
 		return nil, false
 	}
@@ -289,10 +299,11 @@ func (p *Process) EphemeralEpoch() uint64 {
 // Must be called on the step goroutine.
 func (p *Process) drainEphemeralChannels() {
 	p.epoch.Add(1)
-	if p.router == nil {
+	r := p.router.Load()
+	if r == nil {
 		return
 	}
-	entries := p.router.snapshotEntriesForDrain()
+	entries := r.snapshotEntriesForDrain()
 	for _, e := range entries {
 		e.callStop()
 		if r := e.channel.Close(nil); r != nil {
@@ -311,10 +322,11 @@ func (p *Process) Abort() {
 	// stamped with the pre-Abort epoch arriving after this point is
 	// dropped by routeEphemeralFrame.
 	p.epoch.Add(1)
-	if p.router == nil {
+	r := p.router.Load()
+	if r == nil {
 		return
 	}
-	stops := p.router.snapshotStopFuncs()
+	stops := r.snapshotStopFuncs()
 	for _, stop := range stops {
 		stop()
 	}
@@ -1041,7 +1053,8 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 // (unknown chID, mismatched epoch or gen) are dropped silently. Must run
 // on the step goroutine.
 func (p *Process) routeEphemeralFrame(qm queuedMessage) {
-	if p.router == nil || len(qm.Payloads) == 0 {
+	r := p.router.Load()
+	if r == nil || len(qm.Payloads) == 0 {
 		return
 	}
 	rawFrame := qm.Payloads[0]
@@ -1058,7 +1071,7 @@ func (p *Process) routeEphemeralFrame(qm queuedMessage) {
 		return
 	}
 
-	entry, exists := p.router.lookup(frame.ChID)
+	entry, exists := r.lookup(frame.ChID)
 	if !exists {
 		return
 	}
@@ -1084,13 +1097,13 @@ func (p *Process) routeEphemeralFrame(qm queuedMessage) {
 				if result != nil {
 					p.applyExternalChannelResult(result)
 				}
-				p.applyEphemeralOverflow(frame.ChID, entry, value)
+				p.applyEphemeralOverflow(r, frame.ChID, entry, value)
 			}
 		}
 	}
 
 	if frame.Close {
-		if removed, ok := p.router.remove(frame.ChID); ok {
+		if removed, ok := r.remove(frame.ChID); ok {
 			removed.callStop()
 			p.applyExternalChannelResult(removed.channel.Close(nil))
 		}
@@ -1099,7 +1112,7 @@ func (p *Process) routeEphemeralFrame(qm queuedMessage) {
 
 // applyEphemeralOverflow runs the per-entry OverflowPolicy when TrySend
 // reports a full buffer with no waiting receiver.
-func (p *Process) applyEphemeralOverflow(chID uint64, entry *epEntry, value lua.LValue) {
+func (p *Process) applyEphemeralOverflow(r *ephemeralRouter, chID uint64, entry *epEntry, value lua.LValue) {
 	switch entry.overflowPolicy {
 	case OverflowDrop:
 		// Silent drop — caller may add metrics later.
@@ -1113,7 +1126,7 @@ func (p *Process) applyEphemeralOverflow(chID uint64, entry *epEntry, value lua.
 			p.applyExternalChannelResult(result)
 		}
 	case OverflowClose:
-		if removed, ok := p.router.remove(chID); ok {
+		if removed, ok := r.remove(chID); ok {
 			removed.callStop()
 			p.applyExternalChannelResult(removed.channel.Close(nil))
 		}
@@ -1391,7 +1404,7 @@ func (p *Process) Close() {
 	p.channels = nil
 	p.subs = nil
 	p.handlers = nil
-	p.router = nil
+	p.router.Store(nil)
 	p.messageQueue = nil
 	p.trapLinks = false
 	p.linkDownError = nil
