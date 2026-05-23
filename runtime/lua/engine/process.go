@@ -268,28 +268,24 @@ func (p *Process) SetEphemeralProducerStop(chID uint64, fn func()) bool {
 	return r.setProducerStop(chID, fn)
 }
 
-// StopEphemeral removes an entry, invokes its producerStop, and returns
-// its channel. Used by Lua-side timer:stop / ticker:stop / ws:close
-// handlers that run on the step thread. Returns (nil, false) if the
-// entry is unknown (already drained, never registered).
-func (p *Process) StopEphemeral(chID uint64) (*Channel, bool) {
+// StopEphemeral removes an entry from the router and invokes its
+// producer stop closure. Used by Lua-side :stop() handlers on the step
+// thread. Returns true when an entry was found and removed.
+//
+// Note: this does NOT close the channel — the channel object lives as
+// long as Lua references it. Close happens through Close() or by the
+// process drain on lifecycle hooks.
+func (p *Process) StopEphemeral(chID uint64) bool {
 	r := p.router.Load()
 	if r == nil {
-		return nil, false
+		return false
 	}
 	e, ok := r.remove(chID)
 	if !ok {
-		return nil, false
+		return false
 	}
 	e.callStop()
-	return e.channel, true
-}
-
-// EphemeralEpoch returns the process's current router epoch — the value
-// producers must include in every frame they send for this process
-// incarnation.
-func (p *Process) EphemeralEpoch() uint64 {
-	return p.epoch.Load()
+	return true
 }
 
 // drainEphemeralChannels bumps the epoch (invalidating all in-flight
