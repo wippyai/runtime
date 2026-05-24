@@ -225,6 +225,25 @@ func (rm *RouteManager) Mount(path string, handler http.Handler) error {
 	return nil
 }
 
+// ReplaceMount replaces an existing root mount in place.
+func (rm *RouteManager) ReplaceMount(path string, handler http.Handler) error {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	if path == "" {
+		return ErrMountPathCannotBeEmpty
+	}
+	if !strings.HasPrefix(path, "/") {
+		return NewInvalidMountPathError(path)
+	}
+	if _, exists := rm.mounts[path]; !exists {
+		return NewMountPathNotFoundError(path)
+	}
+
+	rm.mounts[path] = handler
+	return nil
+}
+
 // Unmount removes a handler from the specified root path
 func (rm *RouteManager) Unmount(path string) error {
 	rm.mu.Lock()
