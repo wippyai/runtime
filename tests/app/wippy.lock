@@ -3,3 +3,6 @@
 directories:
     modules: .wippy
     src: ./src
+replacements:
+    - from: wippy/fsdir-fixture
+      to: ./modules/fsdir-fixture
