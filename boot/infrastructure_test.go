@@ -100,6 +100,35 @@ func TestNewBootstrapContext(t *testing.T) {
 		require.NotNil(t, node)
 	})
 
+	t.Run("uses WIPPY_NODE_ID when relay node name is not configured", func(t *testing.T) {
+		t.Setenv("WIPPY_NODE_ID", "node-from-env")
+		logger := zap.NewExample()
+
+		ctx, err := NewBootstrapContext(logger, nil)
+		require.NoError(t, err)
+
+		node := relayapi.GetNode(ctx)
+		require.NotNil(t, node)
+		assert.Equal(t, "node-from-env", string(node.ID()))
+	})
+
+	t.Run("config relay node name overrides WIPPY_NODE_ID", func(t *testing.T) {
+		t.Setenv("WIPPY_NODE_ID", "node-from-env")
+		logger := zap.NewExample()
+		cfg := boot.NewConfig(
+			boot.WithSection("relay", map[string]any{
+				"node_name": "custom-node",
+			}),
+		)
+
+		ctx, err := NewBootstrapContext(logger, cfg)
+		require.NoError(t, err)
+
+		node := relayapi.GetNode(ctx)
+		require.NotNil(t, node)
+		assert.Equal(t, "custom-node", string(node.ID()))
+	})
+
 	t.Run("configures custom supervisor host settings", func(t *testing.T) {
 		logger := zap.NewExample()
 		cfg := boot.NewConfig(
@@ -225,5 +254,51 @@ func TestBootstrapContextIntegration(t *testing.T) {
 		// Stop services
 		err = StopRuntimeServices(ctx)
 		assert.NoError(t, err)
+	})
+}
+
+func TestDefaultNodeName(t *testing.T) {
+	t.Run("WIPPY_NODE_ID wins and is trimmed", func(t *testing.T) {
+		t.Setenv("WIPPY_NODE_ID", "  node-a  ")
+		t.Setenv("WIPPY_RELAY_NODE_NAME", "node-b")
+		assert.Equal(t, "node-a", defaultNodeName())
+	})
+
+	t.Run("WIPPY_RELAY_NODE_NAME used when WIPPY_NODE_ID is empty", func(t *testing.T) {
+		t.Setenv("WIPPY_NODE_ID", "")
+		t.Setenv("WIPPY_RELAY_NODE_NAME", "node-b")
+		assert.Equal(t, "node-b", defaultNodeName())
+	})
+
+	t.Run("whitespace-only env vars are ignored", func(t *testing.T) {
+		t.Setenv("WIPPY_NODE_ID", "   ")
+		t.Setenv("WIPPY_RELAY_NODE_NAME", "\t")
+		// Falls through to the host-derived id, which must still be usable.
+		assert.NotEmpty(t, defaultNodeName())
+	})
+
+	t.Run("derived id is stable across restarts", func(t *testing.T) {
+		// Same host + same working dir must reproduce the id, so a node keeps
+		// its identity across restarts.
+		t.Setenv("WIPPY_NODE_ID", "")
+		t.Setenv("WIPPY_RELAY_NODE_NAME", "")
+		t.Chdir(t.TempDir())
+		first := defaultNodeName()
+		require.Len(t, first, 36, "derived id is a UUID")
+		assert.Equal(t, first, defaultNodeName(), "same host + working dir reproduces the id")
+	})
+
+	t.Run("co-located instances get distinct ids", func(t *testing.T) {
+		// Two instances on the same host run from different working dirs and
+		// must not collide (the same-host bug a bare host derivation has).
+		t.Setenv("WIPPY_NODE_ID", "")
+		t.Setenv("WIPPY_RELAY_NODE_NAME", "")
+
+		t.Chdir(t.TempDir())
+		a := defaultNodeName()
+		t.Chdir(t.TempDir())
+		b := defaultNodeName()
+
+		assert.NotEqual(t, a, b, "different working dirs on the same host -> distinct ids")
 	})
 }
