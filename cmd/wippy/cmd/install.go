@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,23 @@ import (
 	"github.com/wippyai/runtime/cmd/internal/entries"
 	"go.uber.org/zap"
 )
+
+// downloadWappViaHubOrLegacy attempts the hub-mediated download first
+// (single HTTPS hop to the hub, hub retries into S3); if the hub doesn't
+// advertise the endpoint yet (404 / 405) and a presigned S3 URL is
+// available, falls back to the legacy direct-to-S3 flow.
+func downloadWappViaHubOrLegacy(ctx context.Context, hubClient *hub.Client, info *hub.DownloadInfo, wappPath string) error {
+	if info.Digest != "" {
+		err := hubClient.DownloadViaHub(ctx, info.Digest, wappPath)
+		if err == nil {
+			return nil
+		}
+		if !hub.IsHubEndpointMissing(err) || info.URL == "" {
+			return err
+		}
+	}
+	return hubClient.DownloadToFile(ctx, info.URL, wappPath)
+}
 
 var installCmd = &cobra.Command{
 	Use:   "install [module...]",
@@ -190,13 +208,18 @@ func runInstall(cmd *cobra.Command, args []string) error {
 			return NewDownloadModuleError(moduleRef, err)
 		}
 
-		if downloadInfo.URL == "" {
+		if downloadInfo.URL == "" && downloadInfo.Digest == "" {
 			return NewNoContentDownloadedError(moduleRef)
 		}
 
-		// Download .wapp file
+		// Download .wapp file. Prefer the hub-mediated download path
+		// (one HTTPS hop to the hub, hub-side retry into S3) — same
+		// motivation as publish: a direct-to-S3 GET from a client on a
+		// flaky network fails without retry. Fall back to the legacy
+		// presigned-URL flow only if the new endpoint is missing on
+		// this hub deployment.
 		wappPath := filepath.Join(vendorDir, lock.WappPath(modName, module.Version))
-		if err := hubClient.DownloadToFile(app.Ctx, downloadInfo.URL, wappPath); err != nil {
+		if err := downloadWappViaHubOrLegacy(app.Ctx, hubClient, downloadInfo, wappPath); err != nil {
 			return NewDownloadModuleError(moduleRef, err)
 		}
 

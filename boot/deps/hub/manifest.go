@@ -75,7 +75,11 @@ type ManifestDep struct {
 	Protected bool
 }
 
-// GetManifest retrieves the manifest for a single module version.
+// GetManifest retrieves the manifest for a single module version. The
+// resolution walk visits each transitive dependency once, so a transient
+// network/5xx on any one of them aborts the whole install. Wrap the RPC
+// in the shared retry helper so a hub flake doesn't make the user retype
+// "wippy install" against a corp-flaky network.
 func (c *Client) GetManifest(ctx context.Context, org, module, constraint string) (*ModuleManifest, error) {
 	req := &manifestv1.GetManifestRequest{
 		Module: &modulev1.ModuleRef{
@@ -92,9 +96,17 @@ func (c *Client) GetManifest(ctx context.Context, org, module, constraint string
 		req.Version = buildVersionRef(constraint)
 	}
 
-	resp, err := c.Manifest.GetManifest(ctx, connect.NewRequest(req))
+	var resp *connect.Response[manifestv1.GetManifestResponse]
+	err := retryDo(ctx, DefaultRetryConfig(), func(_ int) error {
+		r, err := c.Manifest.GetManifest(ctx, connect.NewRequest(req))
+		if err != nil {
+			return MapConnectError(err)
+		}
+		resp = r
+		return nil
+	})
 	if err != nil {
-		return nil, MapConnectError(err)
+		return nil, err
 	}
 
 	m := resp.Msg.Manifest

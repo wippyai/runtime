@@ -17,7 +17,33 @@ var (
 	ErrDigestMismatch    = errors.New("digest mismatch")
 	ErrUploadExpired     = errors.New("upload URL expired")
 	ErrPublishInProgress = errors.New("publish already in progress")
+	ErrQuotaExceeded     = errors.New("quota exceeded")
 )
+
+type QuotaExceededError struct {
+	Reason string
+}
+
+func (e *QuotaExceededError) Error() string {
+	if e.Reason == "" {
+		return ErrQuotaExceeded.Error()
+	}
+
+	return ErrQuotaExceeded.Error() + ": " + e.Reason
+}
+
+func (e *QuotaExceededError) Is(target error) bool {
+	return target == ErrQuotaExceeded
+}
+
+func QuotaReason(err error) string {
+	var qe *QuotaExceededError
+	if errors.As(err, &qe) {
+		return qe.Reason
+	}
+
+	return ""
+}
 
 func MapConnectError(err error) error {
 	if err == nil {
@@ -38,6 +64,8 @@ func MapConnectError(err error) error {
 		return ErrModuleNotFound
 	case connect.CodeAlreadyExists:
 		return ErrVersionExists
+	case connect.CodeResourceExhausted:
+		return &QuotaExceededError{Reason: connectErr.Message()}
 	case connect.CodeInvalidArgument:
 		if containsMessage(connectErr, "version") {
 			return ErrInvalidVersion
