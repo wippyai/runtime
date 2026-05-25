@@ -280,7 +280,7 @@ func TestExtractWappToDirRestoresEmbeddedFilesystem(t *testing.T) {
 	}})
 
 	targetDir := filepath.Join(vendorDir, "ui")
-	if err := ExtractWappToDir(wappPath, targetDir, projectRoot); err != nil {
+	if err := ExtractWappToDir(wappPath, targetDir); err != nil {
 		t.Fatalf("ExtractWappToDir failed: %v", err)
 	}
 

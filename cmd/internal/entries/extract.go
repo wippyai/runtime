@@ -17,9 +17,7 @@ import (
 
 // ExtractWappToDir extracts a .wapp file into a source directory with _index.yaml files
 // and source files. After extraction, the .wapp file is removed.
-// projectRoot is the directory containing wippy.lock, used to compute relative paths
-// for fs.directory entries reconstructed from embedded resources.
-func ExtractWappToDir(wappPath, targetDir, projectRoot string) error {
+func ExtractWappToDir(wappPath, targetDir string) error {
 	// Open and keep file open throughout extraction so resource FS handles remain valid
 	file, err := os.Open(wappPath)
 	if err != nil {
@@ -55,7 +53,11 @@ func ExtractWappToDir(wappPath, targetDir, projectRoot string) error {
 	}
 
 	// Reconstruct fs.embed entries as fs.directory with extracted resource files
-	entries, resources, err = restoreEmbeddedResources(entries, resources, targetDir, projectRoot)
+	entries, resources, err = restoreEmbeddedResources(restoreInput{
+		Entries:   entries,
+		Resources: resources,
+		TargetDir: targetDir,
+	})
 	if err != nil {
 		return err
 	}
@@ -107,24 +109,29 @@ type extractedResource struct {
 	id   string
 }
 
+type restoreInput struct {
+	TargetDir string
+	Entries   []wapp.Entry
+	Resources []extractedResource
+}
+
 // restoreEmbeddedResources converts fs.embed entries back to fs.directory by extracting
 // their matching resource filesystems to named subdirectories. Returns the modified entries
 // and any unclaimed resources.
-func restoreEmbeddedResources(entries []wapp.Entry, resources []extractedResource, targetDir, _ string) ([]wapp.Entry, []extractedResource, error) {
-	if len(resources) == 0 {
-		return entries, resources, nil
+func restoreEmbeddedResources(in restoreInput) ([]wapp.Entry, []extractedResource, error) {
+	if len(in.Resources) == 0 {
+		return in.Entries, in.Resources, nil
 	}
 
-	// Build resource lookup by namespace:name
-	resMap := make(map[string]int, len(resources))
-	for i, res := range resources {
+	resMap := make(map[string]int, len(in.Resources))
+	for i, res := range in.Resources {
 		resMap[res.id] = i
 	}
 
 	claimed := make(map[int]bool)
-	result := make([]wapp.Entry, len(entries))
+	result := make([]wapp.Entry, len(in.Entries))
 
-	for i, entry := range entries {
+	for i, entry := range in.Entries {
 		if entry.Kind != "fs.embed" {
 			result[i] = entry
 			continue
@@ -137,16 +144,14 @@ func restoreEmbeddedResources(entries []wapp.Entry, resources []extractedResourc
 			continue
 		}
 
-		// Extract resource files to a subdirectory named after the entry
-		resDir := filepath.Join(targetDir, entry.ID.Name)
+		resDir := filepath.Join(in.TargetDir, entry.ID.Name)
 		if err := os.MkdirAll(resDir, 0755); err != nil {
 			return nil, nil, fmt.Errorf("create resource directory %s: %w", entry.ID.Name, err)
 		}
-		if err := extractResourceFS(resDir, resources[resIdx].fs); err != nil {
+		if err := extractResourceFS(resDir, in.Resources[resIdx].fs); err != nil {
 			return nil, nil, fmt.Errorf("extract embedded resource %s: %w", entryKey, err)
 		}
 
-		// Convert fs.embed back to fs.directory.
 		// Path is module-relative; the runtime joins it with the module SourceRoot.
 		result[i] = wapp.Entry{
 			ID:   entry.ID,
@@ -161,9 +166,8 @@ func restoreEmbeddedResources(entries []wapp.Entry, resources []extractedResourc
 		claimed[resIdx] = true
 	}
 
-	// Collect unclaimed resources
 	var remaining []extractedResource
-	for i, res := range resources {
+	for i, res := range in.Resources {
 		if !claimed[i] {
 			remaining = append(remaining, res)
 		}

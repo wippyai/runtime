@@ -134,7 +134,7 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 				// Migrate legacy .wapp to extracted directory when unpack is enabled
 				dirPath := filepath.Join(vendorPath, lock.ModulePath(name))
 				logger.Info("unpacking .wapp to directory", zap.String("module", mod.Name))
-				if err := ExtractWappToDir(resolved.Path, dirPath, lockDir); err != nil {
+				if err := ExtractWappToDir(resolved.Path, dirPath); err != nil {
 					return NewExtractModuleError(mod.Name, err)
 				}
 			}
@@ -206,7 +206,7 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 			if err := os.RemoveAll(dirPath); err != nil {
 				return NewExtractModuleError(moduleRef, err)
 			}
-			if err := ExtractWappToDir(fullWappPath, dirPath, lockDir); err != nil {
+			if err := ExtractWappToDir(fullWappPath, dirPath); err != nil {
 				return NewExtractModuleError(moduleRef, err)
 			}
 		}
