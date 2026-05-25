@@ -975,7 +975,7 @@ func TestServiceHandleNodeLeftEvent(t *testing.T) {
 		svc.handleSync("node-b", map[string][]pid.PID{
 			"workers": {rp1},
 		})
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 	time.Sleep(50 * time.Millisecond)
 
@@ -2112,7 +2112,7 @@ func TestServiceSyncDifferentialNoSpuriousEvents(t *testing.T) {
 	}
 	svc.submit(func() {
 		svc.handleSync(remoteNode, initialGroups)
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 	time.Sleep(50 * time.Millisecond)
 
@@ -2127,7 +2127,7 @@ func TestServiceSyncDifferentialNoSpuriousEvents(t *testing.T) {
 	// Sync again with identical state — should produce NO events
 	svc.submit(func() {
 		svc.handleSync(remoteNode, initialGroups)
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 	time.Sleep(100 * time.Millisecond)
 
@@ -2156,7 +2156,7 @@ func TestServiceSyncDifferentialAddsNewPIDs(t *testing.T) {
 		svc.handleSync(remoteNode, map[string][]pid.PID{
 			"workers": {p1},
 		})
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 	time.Sleep(50 * time.Millisecond)
 
@@ -2173,7 +2173,7 @@ func TestServiceSyncDifferentialAddsNewPIDs(t *testing.T) {
 		svc.handleSync(remoteNode, map[string][]pid.PID{
 			"workers": {p1, p2, p3},
 		})
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 	time.Sleep(100 * time.Millisecond)
 
@@ -2217,7 +2217,7 @@ func TestServiceSyncDifferentialRemovesPIDs(t *testing.T) {
 		svc.handleSync(remoteNode, map[string][]pid.PID{
 			"workers": {p1, p2},
 		})
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 	time.Sleep(50 * time.Millisecond)
 
@@ -2234,7 +2234,7 @@ func TestServiceSyncDifferentialRemovesPIDs(t *testing.T) {
 		svc.handleSync(remoteNode, map[string][]pid.PID{
 			"workers": {p1},
 		})
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 	time.Sleep(100 * time.Millisecond)
 
@@ -2272,7 +2272,7 @@ func TestServiceSyncDifferentialRemovesGroup(t *testing.T) {
 		svc.handleSync(remoteNode, map[string][]pid.PID{
 			"workers": {p1},
 		})
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 	time.Sleep(50 * time.Millisecond)
 
@@ -2287,7 +2287,7 @@ func TestServiceSyncDifferentialRemovesGroup(t *testing.T) {
 	// Sync with empty groups — should emit leave for "workers"
 	svc.submit(func() {
 		svc.handleSync(remoteNode, map[string][]pid.PID{})
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 	time.Sleep(100 * time.Millisecond)
 

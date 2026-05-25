@@ -13,12 +13,6 @@ type groupSnapshot struct {
 	local []pid.PID
 }
 
-// stateSnapshot is an immutable snapshot of all group memberships.
-// Published via atomic.Pointer after each mutation.
-type stateSnapshot struct {
-	groups map[string]*groupSnapshot
-}
-
 // copyPIDs creates a copy of a PID slice.
 func copyPIDs(pids []pid.PID) []pid.PID {
 	if len(pids) == 0 {
@@ -29,20 +23,17 @@ func copyPIDs(pids []pid.PID) []pid.PID {
 	return result
 }
 
-// buildSnapshot creates an immutable snapshot from the current mutable state.
-func (s *state) buildSnapshot() *stateSnapshot {
-	snap := &stateSnapshot{
-		groups: make(map[string]*groupSnapshot, len(s.groups)),
+// snapshotGroup builds an immutable snapshot for a single group, or returns
+// nil if the group has no members (signaling deletion).
+func (s *state) snapshotGroup(group string) *groupSnapshot {
+	gs, ok := s.groups[group]
+	if !ok || len(gs.all) == 0 {
+		return nil
 	}
-	for g, gs := range s.groups {
-		if len(gs.all) > 0 {
-			snap.groups[g] = &groupSnapshot{
-				all:   copyPIDs(gs.all),
-				local: copyPIDs(gs.local),
-			}
-		}
+	return &groupSnapshot{
+		all:   copyPIDs(gs.all),
+		local: copyPIDs(gs.local),
 	}
-	return snap
 }
 
 // localProcess tracks a local process and which groups it has joined.
@@ -68,6 +59,7 @@ type state struct {
 	local  map[string]*localProcess // pid.String() -> process info
 	remote map[string]*remoteNode   // nodeID -> remote node state
 	groups map[string]*groupState   // group name -> group state
+	dirty  map[string]bool          // groups touched in the current event-loop closure
 }
 
 func newState() *state {
@@ -75,6 +67,7 @@ func newState() *state {
 		local:  make(map[string]*localProcess),
 		remote: make(map[string]*remoteNode),
 		groups: make(map[string]*groupState),
+		dirty:  make(map[string]bool),
 	}
 }
 
@@ -98,6 +91,7 @@ func (s *state) joinLocal(group string, p pid.PID) {
 	}
 	gs.all = append(gs.all, p)
 	gs.local = append(gs.local, p)
+	s.dirty[group] = true
 }
 
 // leaveLocal removes a local process from a group.
@@ -181,6 +175,7 @@ func (s *state) joinRemote(nodeID pid.NodeID, group string, pids []pid.PID) {
 		s.groups[group] = gs
 	}
 	gs.all = append(gs.all, pids...)
+	s.dirty[group] = true
 }
 
 // leaveRemote removes remote PIDs from groups.
@@ -368,6 +363,8 @@ func (s *state) removePIDFromGroup(group string, p pid.PID, isLocal bool) {
 			}
 		}
 	}
+
+	s.dirty[group] = true
 
 	// Clean up empty group
 	if len(gs.all) == 0 {

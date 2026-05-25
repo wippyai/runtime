@@ -386,7 +386,7 @@ func TestState_AllGroupMembersReturnsCopy(t *testing.T) {
 	assert.NotEqual(t, result1["workers"][0], result2["workers"][0])
 }
 
-func TestState_BuildSnapshot(t *testing.T) {
+func TestState_SnapshotGroup(t *testing.T) {
 	s := newState()
 	p1 := mkPID("host1", "1")
 	p2 := mkPID("host1", "2")
@@ -396,44 +396,57 @@ func TestState_BuildSnapshot(t *testing.T) {
 	s.joinLocal("workers", p2)
 	s.joinRemote("node-b", "managers", []pid.PID{remote})
 
-	snap := s.buildSnapshot()
-	require.NotNil(t, snap)
-	require.Len(t, snap.groups, 2)
-
-	workers := snap.groups["workers"]
+	workers := s.snapshotGroup("workers")
 	require.NotNil(t, workers)
 	assert.Len(t, workers.all, 2)
 	assert.Len(t, workers.local, 2)
 
-	managers := snap.groups["managers"]
+	managers := s.snapshotGroup("managers")
 	require.NotNil(t, managers)
 	assert.Len(t, managers.all, 1)
 	assert.Empty(t, managers.local)
 }
 
-func TestState_BuildSnapshotEmpty(t *testing.T) {
+func TestState_SnapshotGroupAbsent(t *testing.T) {
 	s := newState()
-	snap := s.buildSnapshot()
-	require.NotNil(t, snap)
-	assert.Empty(t, snap.groups)
+	assert.Nil(t, s.snapshotGroup("nonexistent"))
 }
 
-func TestState_BuildSnapshotImmutable(t *testing.T) {
+func TestState_SnapshotGroupImmutable(t *testing.T) {
 	s := newState()
 	p1 := mkPID("host1", "1")
 	s.joinLocal("workers", p1)
 
-	snap1 := s.buildSnapshot()
+	snap1 := s.snapshotGroup("workers")
+	require.NotNil(t, snap1)
 
-	// Mutate state
 	p2 := mkPID("host1", "2")
 	s.joinLocal("workers", p2)
 
-	snap2 := s.buildSnapshot()
+	snap2 := s.snapshotGroup("workers")
+	require.NotNil(t, snap2)
 
-	// snap1 should not be affected by subsequent mutations
-	assert.Len(t, snap1.groups["workers"].all, 1)
-	assert.Len(t, snap2.groups["workers"].all, 2)
+	assert.Len(t, snap1.all, 1)
+	assert.Len(t, snap2.all, 2)
+}
+
+func TestState_DirtyTracking(t *testing.T) {
+	s := newState()
+	p1 := mkPID("host1", "1")
+
+	assert.Empty(t, s.dirty)
+
+	s.joinLocal("workers", p1)
+	assert.True(t, s.dirty["workers"])
+
+	clear(s.dirty)
+	s.leaveLocal("workers", p1)
+	assert.True(t, s.dirty["workers"])
+
+	clear(s.dirty)
+	rp := mkNodePID("node-b", "host1", "1")
+	s.joinRemote("node-b", "managers", []pid.PID{rp})
+	assert.True(t, s.dirty["managers"])
 }
 
 func TestState_LeaveRemoteMultiJoinConsistency(t *testing.T) {

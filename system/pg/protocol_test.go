@@ -232,7 +232,7 @@ func TestHandleSync(t *testing.T) {
 		svc.handleSync("node-b", map[string][]pid.PID{
 			"workers": {rp1, rp2},
 		})
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 
 	time.Sleep(50 * time.Millisecond)
@@ -248,7 +248,7 @@ func TestHandleRemoteJoin(t *testing.T) {
 
 	svc.submit(func() {
 		svc.handleRemoteJoin("node-b", "workers", []pid.PID{rp1})
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 
 	time.Sleep(50 * time.Millisecond)
@@ -269,13 +269,13 @@ func TestHandleRemoteLeave(t *testing.T) {
 
 	svc.submit(func() {
 		svc.handleRemoteJoin("node-b", "workers", []pid.PID{rp1})
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 	time.Sleep(20 * time.Millisecond)
 
 	svc.submit(func() {
 		svc.handleRemoteLeave("node-b", []pid.PID{rp1}, []string{"workers"})
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 	time.Sleep(50 * time.Millisecond)
 
@@ -291,7 +291,7 @@ func TestHandleRemoteLeaveMultiGroupOnlyEmitsForActualGroups(t *testing.T) {
 	// rp1 joins "workers" but NOT "managers"
 	svc.submit(func() {
 		svc.handleRemoteJoin("node-b", "workers", []pid.PID{rp1})
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 	time.Sleep(20 * time.Millisecond)
 
@@ -301,7 +301,7 @@ func TestHandleRemoteLeaveMultiGroupOnlyEmitsForActualGroups(t *testing.T) {
 	// Leave both groups — only "workers" should be affected
 	svc.submit(func() {
 		svc.handleRemoteLeave("node-b", []pid.PID{rp1}, []string{"workers", "managers"})
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 	time.Sleep(50 * time.Millisecond)
 
@@ -320,7 +320,7 @@ func TestHandleRemoteLeaveDoesNotCorruptOtherNodeState(t *testing.T) {
 		svc.handleRemoteJoin("node-b", "workers", []pid.PID{rp1})
 		svc.handleRemoteJoin("node-c", "workers", []pid.PID{rp2})
 		svc.handleRemoteJoin("node-c", "managers", []pid.PID{rp2})
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 	time.Sleep(20 * time.Millisecond)
 
@@ -331,7 +331,7 @@ func TestHandleRemoteLeaveDoesNotCorruptOtherNodeState(t *testing.T) {
 	// rp1 was never in "managers" on node-b, so rp2's membership must be preserved.
 	svc.submit(func() {
 		svc.handleRemoteLeave("node-b", []pid.PID{rp1}, []string{"workers", "managers"})
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 	time.Sleep(50 * time.Millisecond)
 
@@ -354,7 +354,7 @@ func TestHandleProcessExit(t *testing.T) {
 
 	svc.submit(func() {
 		svc.handleProcessExit(p1)
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 
 	time.Sleep(50 * time.Millisecond)
@@ -386,7 +386,7 @@ func TestHandleNodeLeft(t *testing.T) {
 		svc.handleSync("node-b", map[string][]pid.PID{
 			"workers": {rp1, rp2},
 		})
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 	time.Sleep(20 * time.Millisecond)
 
@@ -394,7 +394,7 @@ func TestHandleNodeLeft(t *testing.T) {
 
 	svc.submit(func() {
 		svc.handleNodeLeft("node-b")
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 
 	time.Sleep(50 * time.Millisecond)
@@ -752,7 +752,7 @@ func TestHandleProcessExitMultipleGroups(t *testing.T) {
 
 	svc.submit(func() {
 		svc.handleProcessExit(p1)
-		svc.publishSnapshot()
+		svc.publishDirty()
 	})
 
 	time.Sleep(50 * time.Millisecond)

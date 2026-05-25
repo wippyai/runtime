@@ -93,7 +93,7 @@ type Service struct {
 	membership         cluster.Membership
 	bus                event.Bus
 	ctxHolder          atomic.Pointer[serviceCtx]
-	snap               atomic.Pointer[stateSnapshot]
+	groupSnaps         sync.Map // group name -> *groupSnapshot, lock-free per-group RCU
 	cbManager          *circuitBreakerManager
 	nodeJoinedSub      *eventbus.Subscriber
 	nodeLeftSub        *eventbus.Subscriber
@@ -260,8 +260,9 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 		}
 	}
 
-	// Publish initial empty snapshot so lock-free readers see valid data
-	s.snap.Store(s.state.buildSnapshot())
+	// Per-group snapshots are published lazily as groups gain members.
+	// Lock-free readers see an empty result for unknown groups until
+	// the first publishDirty for that group fires.
 
 	// Start event loop
 	s.wg.Add(1)
@@ -349,8 +350,12 @@ func (s *Service) Stop(_ context.Context) error {
 	}
 	s.wg.Wait()
 
-	// Clear snapshot so lock-free readers see nil after stop
-	s.snap.Store(nil)
+	// Drop per-group snapshots so post-Stop readers return empty results
+	// even before the Service is garbage-collected.
+	s.groupSnaps.Range(func(k, _ any) bool {
+		s.groupSnaps.Delete(k)
+		return true
+	})
 
 	s.logger.Info("pg service stopped")
 	return nil
@@ -374,12 +379,24 @@ func (s *Service) eventLoop() {
 	}
 }
 
-// publishSnapshot rebuilds and atomically stores the state snapshot.
-// Must be called inside the event loop (inside an action closure) after
-// any state mutation, BEFORE signaling the caller's done channel, so that
-// lock-free readers see the updated state immediately.
-func (s *Service) publishSnapshot() {
-	s.snap.Store(s.state.buildSnapshot())
+// publishDirty publishes a fresh per-group snapshot for every group the
+// current event-loop closure touched, then clears the dirty set. Cost is
+// O(sum of members across dirty groups) — independent of the total
+// number of groups in the scope. Must be called inside the event loop
+// (inside an action closure) after state mutation, BEFORE signaling the
+// caller's done channel, so lock-free readers see the updated state.
+func (s *Service) publishDirty() {
+	if len(s.state.dirty) == 0 {
+		return
+	}
+	for group := range s.state.dirty {
+		if snap := s.state.snapshotGroup(group); snap != nil {
+			s.groupSnaps.Store(group, snap)
+		} else {
+			s.groupSnaps.Delete(group)
+		}
+		delete(s.state.dirty, group)
+	}
 }
 
 // submit sends an action to the event loop for serialized execution.
@@ -510,7 +527,7 @@ func (s *Service) handleDiscoverPackage(msg *relay.Message) {
 	// when the queue rejects the operation; no per-message log needed.
 	s.submit(func() {
 		s.handleDiscover(fromNodeID)
-		s.publishSnapshot()
+		s.publishDirty()
 	})
 }
 
@@ -550,7 +567,7 @@ func (s *Service) handleSyncPackage(msg *relay.Message) {
 
 	s.submit(func() {
 		s.handleSync(fromNodeID, groups)
-		s.publishSnapshot()
+		s.publishDirty()
 	})
 }
 
@@ -581,7 +598,7 @@ func (s *Service) handleJoinPackage(msg *relay.Message) {
 
 	s.submit(func() {
 		s.handleRemoteJoin(fromNodeID, group, pids)
-		s.publishSnapshot()
+		s.publishDirty()
 	})
 }
 
@@ -619,7 +636,7 @@ func (s *Service) handleLeavePackage(msg *relay.Message) {
 
 	s.submit(func() {
 		s.handleRemoteLeave(fromNodeID, pids, groups)
-		s.publishSnapshot()
+		s.publishDirty()
 	})
 }
 
@@ -630,7 +647,7 @@ func (s *Service) handleExitPackage(msg *relay.Message) {
 			exitedPID := exitEvent.From
 			s.submit(func() {
 				s.handleProcessExit(exitedPID)
-				s.publishSnapshot()
+				s.publishDirty()
 			})
 		}
 	}
@@ -665,7 +682,7 @@ func (s *Service) handleNodeLeftEvent(e event.Event) {
 
 	s.submit(func() {
 		s.handleNodeLeft(nodeID)
-		s.publishSnapshot()
+		s.publishDirty()
 	})
 }
 
@@ -721,7 +738,7 @@ func (s *Service) Join(group pgapi.Group, p pid.PID) error {
 		// Emit membership event
 		s.emitJoinEvent(group, []pid.PID{p})
 
-		s.publishSnapshot()
+		s.publishDirty()
 		done <- nil
 	}) {
 		err := s.submitError()
@@ -789,7 +806,7 @@ func (s *Service) JoinGroups(groups []pgapi.Group, p pid.PID) error {
 			s.monitorProcess(p)
 		}
 
-		s.publishSnapshot()
+		s.publishDirty()
 		done <- nil
 	}) {
 		return s.submitError()
@@ -833,7 +850,7 @@ func (s *Service) Leave(group pgapi.Group, p pid.PID) error {
 		// Emit membership event
 		s.emitLeaveEvent(group, []pid.PID{p})
 
-		s.publishSnapshot()
+		s.publishDirty()
 		done <- nil
 	}) {
 		err := s.submitError()
@@ -880,7 +897,7 @@ func (s *Service) LeaveGroups(groups []pgapi.Group, p pid.PID) error {
 			s.demonitorProcess(p)
 		}
 
-		s.publishSnapshot()
+		s.publishDirty()
 		done <- nil
 	}) {
 		return s.submitError()
@@ -894,61 +911,58 @@ func (s *Service) LeaveGroups(groups []pgapi.Group, p pid.PID) error {
 	}
 }
 
-// GetMembers returns all members of a group across all nodes.
-// Uses the RCU snapshot for lock-free reads.
-func (s *Service) GetMembers(group pgapi.Group) []pid.PID {
-	snap := s.snap.Load()
-	if snap == nil {
+// loadGroupSnap returns the immutable snapshot for a single group, or nil
+// if the group is absent. O(1) amortized.
+func (s *Service) loadGroupSnap(group pgapi.Group) *groupSnapshot {
+	v, ok := s.groupSnaps.Load(group)
+	if !ok {
 		return nil
 	}
-	gs, ok := snap.groups[group]
-	if !ok {
+	return v.(*groupSnapshot)
+}
+
+// GetMembers returns all members of a group across all nodes.
+// Lock-free O(M_g) where M_g is the number of members in this group.
+func (s *Service) GetMembers(group pgapi.Group) []pid.PID {
+	gs := s.loadGroupSnap(group)
+	if gs == nil {
 		return nil
 	}
 	return copyPIDs(gs.all)
 }
 
 // GetLocalMembers returns local members of a group.
-// Uses the RCU snapshot for lock-free reads.
+// Lock-free O(M_g_local) where M_g_local is the number of local members.
 func (s *Service) GetLocalMembers(group pgapi.Group) []pid.PID {
-	snap := s.snap.Load()
-	if snap == nil {
-		return nil
-	}
-	gs, ok := snap.groups[group]
-	if !ok {
+	gs := s.loadGroupSnap(group)
+	if gs == nil {
 		return nil
 	}
 	return copyPIDs(gs.local)
 }
 
 // WhichGroups returns all groups that have at least one member.
-// Uses the RCU snapshot for lock-free reads.
+// O(N) iteration over the per-group snapshot map; intended for
+// discovery/debugging, not hot paths.
 func (s *Service) WhichGroups() []pgapi.Group {
-	snap := s.snap.Load()
-	if snap == nil {
-		return nil
-	}
-	groups := make([]pgapi.Group, 0, len(snap.groups))
-	for g := range snap.groups {
-		groups = append(groups, g)
-	}
+	var groups []pgapi.Group
+	s.groupSnaps.Range(func(k, _ any) bool {
+		groups = append(groups, k.(pgapi.Group))
+		return true
+	})
 	return groups
 }
 
 // WhichLocalGroups returns groups that have at least one local member.
-// Uses the RCU snapshot for lock-free reads.
+// O(N) iteration; cold path.
 func (s *Service) WhichLocalGroups() []pgapi.Group {
-	snap := s.snap.Load()
-	if snap == nil {
-		return nil
-	}
-	groups := make([]pgapi.Group, 0, len(snap.groups))
-	for g, gs := range snap.groups {
-		if len(gs.local) > 0 {
-			groups = append(groups, g)
+	var groups []pgapi.Group
+	s.groupSnaps.Range(func(k, v any) bool {
+		if gs := v.(*groupSnapshot); len(gs.local) > 0 {
+			groups = append(groups, k.(pgapi.Group))
 		}
-	}
+		return true
+	})
 	return groups
 }
 
@@ -1288,8 +1302,9 @@ func (s *Service) Acquire(_ context.Context, _ registry.ID, mode resource.Access
 	if mode != resource.ModeNormal {
 		return nil, resource.ErrReleased
 	}
-	// Check if service is running by testing the snapshot
-	if s.snap.Load() == nil {
+	// Check if service is running via the running context sentinel; the
+	// closed sentinel is installed by Stop and before Start.
+	if s.currentCtx().Err() != nil {
 		return nil, ErrServiceStopped
 	}
 	return &pgResource{svc: s}, nil
