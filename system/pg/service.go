@@ -38,6 +38,32 @@ type monitorEntry struct {
 // action represents a serialized operation submitted to the event loop.
 type action func()
 
+// doneChanPool reuses buffered (cap 1) error channels across Join/Leave/
+// JoinGroups/LeaveGroups calls. Each caller acquires a channel, hands it
+// to the event-loop closure, and releases it only on the success or
+// submit-failure path. On the ctx-cancelled path the channel may still be
+// written to later by the (now orphaned) closure, so it is NOT returned
+// to the pool — the GC reclaims it when the closure also stops
+// referencing it. That makes ctx cancellation a bounded leak, which is
+// acceptable since Stop is rare.
+var doneChanPool = sync.Pool{
+	New: func() any { return make(chan error, 1) },
+}
+
+func acquireDoneChan() chan error {
+	ch := doneChanPool.Get().(chan error)
+	// Drain any stale data so a misuse elsewhere can't poison the pool.
+	select {
+	case <-ch:
+	default:
+	}
+	return ch
+}
+
+func releaseDoneChan(ch chan error) {
+	doneChanPool.Put(ch)
+}
+
 // serviceCtx bundles the Start()-scoped context and its cancel so they can
 // be swapped atomically across Stop/Start cycles without racing concurrent
 // submitters reading s.currentCtx().
@@ -745,17 +771,19 @@ func (s *Service) handleNodeLeftEvent(e event.Event) {
 
 // Join adds a local process to a group.
 func (s *Service) Join(group pgapi.Group, p pid.PID) error {
-	ctx, span := s.tel.startSpan(s.currentCtx(), "pg.join",
-		trace.WithAttributes(
-			attribute.String("pg.name", group),
-			attribute.String("node.id", s.localNodeID),
-		),
-	)
-	defer span.End()
-	_ = ctx
+	span := noopSpan
+	if s.tel.tracing {
+		_, span = s.tel.tracer.Start(s.currentCtx(), "pg.join",
+			trace.WithAttributes(
+				attribute.String("pg.name", group),
+				attribute.String("node.id", s.localNodeID),
+			),
+		)
+		defer span.End()
+	}
 
 	start := time.Now()
-	done := make(chan error, 1)
+	done := acquireDoneChan()
 	if !s.submit(func() {
 		// Enforce MaxGroups: if the group doesn't exist yet, check limit
 		if s.maxGroups > 0 {
@@ -795,6 +823,7 @@ func (s *Service) Join(group pgapi.Group, p pid.PID) error {
 		s.publishDirty()
 		done <- nil
 	}) {
+		releaseDoneChan(done)
 		err := s.submitError()
 		s.tel.setSpanError(span, err)
 		s.tel.recordJoin(group, err, time.Since(start))
@@ -803,6 +832,7 @@ func (s *Service) Join(group pgapi.Group, p pid.PID) error {
 
 	select {
 	case err := <-done:
+		releaseDoneChan(done)
 		s.tel.setSpanError(span, err)
 		s.tel.recordJoin(group, err, time.Since(start))
 		return err
@@ -815,7 +845,7 @@ func (s *Service) Join(group pgapi.Group, p pid.PID) error {
 
 // JoinGroups adds a local process to multiple groups atomically.
 func (s *Service) JoinGroups(groups []pgapi.Group, p pid.PID) error {
-	done := make(chan error, 1)
+	done := acquireDoneChan()
 	if !s.submit(func() {
 		// Pre-check all limits before mutating state (atomic: all-or-nothing)
 		if s.maxGroups > 0 || s.maxMembersPerGroup > 0 {
@@ -865,11 +895,13 @@ func (s *Service) JoinGroups(groups []pgapi.Group, p pid.PID) error {
 		s.publishDirty()
 		done <- nil
 	}) {
+		releaseDoneChan(done)
 		return s.submitError()
 	}
 
 	select {
 	case err := <-done:
+		releaseDoneChan(done)
 		return err
 	case <-s.currentCtx().Done():
 		return ErrServiceStopped
@@ -878,17 +910,19 @@ func (s *Service) JoinGroups(groups []pgapi.Group, p pid.PID) error {
 
 // Leave removes a local process from a group.
 func (s *Service) Leave(group pgapi.Group, p pid.PID) error {
-	ctx, span := s.tel.startSpan(s.currentCtx(), "pg.leave",
-		trace.WithAttributes(
-			attribute.String("pg.name", group),
-			attribute.String("node.id", s.localNodeID),
-		),
-	)
-	defer span.End()
-	_ = ctx
+	span := noopSpan
+	if s.tel.tracing {
+		_, span = s.tel.tracer.Start(s.currentCtx(), "pg.leave",
+			trace.WithAttributes(
+				attribute.String("pg.name", group),
+				attribute.String("node.id", s.localNodeID),
+			),
+		)
+		defer span.End()
+	}
 
 	start := time.Now()
-	done := make(chan error, 1)
+	done := acquireDoneChan()
 	if !s.submit(func() {
 		if !s.state.leaveLocal(group, p) {
 			done <- ErrNotJoined
@@ -909,6 +943,7 @@ func (s *Service) Leave(group pgapi.Group, p pid.PID) error {
 		s.publishDirty()
 		done <- nil
 	}) {
+		releaseDoneChan(done)
 		err := s.submitError()
 		s.tel.setSpanError(span, err)
 		s.tel.recordLeave(group, err, time.Since(start))
@@ -917,6 +952,7 @@ func (s *Service) Leave(group pgapi.Group, p pid.PID) error {
 
 	select {
 	case err := <-done:
+		releaseDoneChan(done)
 		s.tel.setSpanError(span, err)
 		s.tel.recordLeave(group, err, time.Since(start))
 		return err
@@ -932,7 +968,7 @@ func (s *Service) Leave(group pgapi.Group, p pid.PID) error {
 // skips groups where it isn't, and returns ErrNotJoined only if the process
 // was not a member of ANY of the specified groups.
 func (s *Service) LeaveGroups(groups []pgapi.Group, p pid.PID) error {
-	done := make(chan error, 1)
+	done := acquireDoneChan()
 	if !s.submit(func() {
 		anyLeft := false
 		leaves := make(map[string][]pid.PID, len(groups))
@@ -960,11 +996,13 @@ func (s *Service) LeaveGroups(groups []pgapi.Group, p pid.PID) error {
 		s.publishDirty()
 		done <- nil
 	}) {
+		releaseDoneChan(done)
 		return s.submitError()
 	}
 
 	select {
 	case err := <-done:
+		releaseDoneChan(done)
 		return err
 	case <-s.currentCtx().Done():
 		return ErrServiceStopped
@@ -1238,14 +1276,16 @@ func (s *Service) Events(p pid.PID, topic string) pgapi.EventsResult {
 
 // Broadcast sends a message to all members of a group across all nodes.
 func (s *Service) Broadcast(from pid.PID, group pgapi.Group, topic string, payloads payload.Payloads) (int, error) {
-	ctx, span := s.tel.startSpan(s.currentCtx(), "pg.broadcast",
-		trace.WithAttributes(
-			attribute.String("pg.name", group),
-			attribute.String("node.id", s.localNodeID),
-		),
-	)
-	defer span.End()
-	_ = ctx
+	span := noopSpan
+	if s.tel.tracing {
+		_, span = s.tel.tracer.Start(s.currentCtx(), "pg.broadcast",
+			trace.WithAttributes(
+				attribute.String("pg.name", group),
+				attribute.String("node.id", s.localNodeID),
+			),
+		)
+		defer span.End()
+	}
 
 	start := time.Now()
 	// Snapshot members inside the event loop for consistency.

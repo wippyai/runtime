@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/metrics"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
@@ -15,20 +14,30 @@ import (
 
 // telemetry owns metric and span emission for the pg subsystem. All recorders
 // are nil-safe so callers can ignore the absence of a configured collector or
-// tracer (e.g., in unit tests that don't wire OTel).
+// tracer (e.g., in unit tests that don't wire OTel). When tracing is disabled
+// (no TracerProvider wired), startSpan returns a shared no-op span and
+// allocates nothing on the hot path.
 type telemetry struct {
-	coll   metrics.Collector
-	tracer trace.Tracer
+	coll    metrics.Collector
+	tracer  trace.Tracer
+	tracing bool
 }
 
+// noopSpan is the shared instance returned when tracing is disabled, so the
+// hot path never allocates a Span just to satisfy the (ctx, Span) signature.
+var noopSpan = trace.SpanFromContext(context.Background())
+
 func newTelemetry(coll metrics.Collector, mp otelmetric.MeterProvider, tp trace.TracerProvider) *telemetry {
-	if tp == nil {
-		tp = otel.GetTracerProvider()
-	}
 	_ = mp // metrics export is plumbed via metrics.Collector
-	t := &telemetry{
-		coll:   coll,
-		tracer: tp.Tracer("wippy-runtime"),
+	t := &telemetry{coll: coll}
+	// Tracing is opt-in: callers wire it by passing a non-nil TracerProvider.
+	// When nil, the hot path returns the shared noopSpan and skips every
+	// allocation associated with span creation. Tests and benchmarks rely on
+	// this fast path; production deployments that want tracing pass their
+	// configured TracerProvider explicitly.
+	if tp != nil {
+		t.tracer = tp.Tracer("wippy-runtime")
+		t.tracing = true
 	}
 	// Bootstrap rare event-driven counters with zero so dashboards have
 	// visible series even before the corresponding event ever fires.
@@ -223,15 +232,15 @@ func (t *telemetry) recordBroadcastDropped(pg, reason string) {
 }
 
 func (t *telemetry) startSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
-	if t == nil || t.tracer == nil {
-		return ctx, trace.SpanFromContext(ctx)
+	if t == nil || !t.tracing {
+		return ctx, noopSpan
 	}
 
 	return t.tracer.Start(ctx, name, opts...)
 }
 
 func (t *telemetry) setSpanError(span trace.Span, err error) {
-	if err == nil || span == nil {
+	if err == nil || span == nil || t == nil || !t.tracing {
 		return
 	}
 
