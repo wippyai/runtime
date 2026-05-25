@@ -99,6 +99,12 @@ func (d *Dispatcher) Stop(_ context.Context) error {
 	if d.tickers != nil {
 		d.tickers.close()
 	}
+	d.mu.Lock()
+	clear(d.timerReverse)
+	clear(d.tickerReverse)
+	clear(d.pendingTStops)
+	clear(d.pendingTkStops)
+	d.mu.Unlock()
 	return nil
 }
 
@@ -198,6 +204,22 @@ func (d *Dispatcher) handleTickerStopByChID(_ context.Context, cmd dispatcher.Co
 func (d *Dispatcher) handleTimerStart(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	c := cmd.(clockapi.TimerStartCmd)
 	if shouldIgnoreDuration(c.Duration) {
+		if c.Build == nil {
+			return nil
+		}
+		node := relay.GetNode(ctx)
+		if node == nil {
+			return nil
+		}
+		fire := d.timerFireFn(c, node)
+		var gen uint64
+		if c.GenRef != nil {
+			gen = c.GenRef.Load()
+		}
+		fire(gen)
+		receiver.CompleteYield(tag, clockapi.TimerStartResult{
+			Stop: func() {},
+		}, nil)
 		return nil
 	}
 
@@ -224,7 +246,7 @@ func (d *Dispatcher) handleTimerStart(ctx context.Context, cmd dispatcher.Comman
 		}
 	}
 
-	id := d.timers.startWithCallbackAndKey(c.Duration, fire, routerKey, onFireCleanup)
+	id := d.timers.startWithCallbackAndKey(c.Duration, fire, routerKey, onFireCleanup, c.GenRef)
 	if routerKey != nil {
 		d.mu.Lock()
 		d.timerReverse[*routerKey] = id
@@ -361,35 +383,31 @@ func (d *Dispatcher) tryConsumeTickerTombstone(c clockapi.TickerStartCmd) (*chID
 }
 
 // timerFireFn returns the callback the timer registry invokes when the
-// timer expires. When the start command came from the engine ephemeral
-// router (Build != nil), the closure asks the supplied FireBuilder for
-// the payload — stamping the current generation read from the live
-// GenRef. Otherwise the legacy int64-nanos payload is sent for
-// backward compatibility with non-router callers.
-func (d *Dispatcher) timerFireFn(c clockapi.TimerStartCmd, node relay.Node) func() {
+// timer expires. When Build is set, the registry supplies the arm
+// generation captured at start/reset and the returned payload is followed
+// by a terminal payload. Otherwise the legacy int64-nanos payload is sent
+// with the same terminal marker.
+func (d *Dispatcher) timerFireFn(c clockapi.TimerStartCmd, node relay.Node) timerCallback {
 	if c.Build != nil {
 		build := c.Build
-		genRef := c.GenRef
 		target := c.PID
 		topic := c.Topic
-		return func() {
+		return func(gen uint64) {
 			now := time.Now()
-			var gen uint64
-			if genRef != nil {
-				gen = genRef.Load()
-			}
 			p := build(now, gen)
 			if p == nil {
+				pkg := relay.NewPackage(pid.PID{}, target, topic, payload.NewTerminal())
+				_ = node.Send(pkg)
 				return
 			}
-			pkg := relay.NewPackage(pid.PID{}, target, topic, p)
+			pkg := relay.NewPackage(pid.PID{}, target, topic, p, payload.NewTerminal())
 			_ = node.Send(pkg)
 		}
 	}
 	target := c.PID
 	topic := c.Topic
-	return func() {
-		sendTick(node, target, topic, time.Now())
+	return func(uint64) {
+		sendTimerFire(node, target, topic, time.Now())
 	}
 }
 
@@ -448,6 +466,12 @@ func (d *Dispatcher) runPendingStopsSweeper(ctx context.Context) {
 func sendTick(node relay.Node, target pid.PID, topic string, at time.Time) {
 	p := payload.NewPayload(at.UnixNano(), payload.Golang)
 	pkg := relay.NewPackage(pid.PID{}, target, topic, p)
+	_ = node.Send(pkg)
+}
+
+func sendTimerFire(node relay.Node, target pid.PID, topic string, at time.Time) {
+	p := payload.NewPayload(at.UnixNano(), payload.Golang)
+	pkg := relay.NewPackage(pid.PID{}, target, topic, p, payload.NewTerminal())
 	_ = node.Send(pkg)
 }
 

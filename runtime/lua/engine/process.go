@@ -159,6 +159,44 @@ func (p *Process) SubscribeExisting(topic string, ch *Channel) error {
 	return err
 }
 
+// SetSubscriptionCleanup attaches a producer cleanup closure to a channel's
+// subscription. The closure is called at most once by closeChannel/drain.
+func (p *Process) SetSubscriptionCleanup(ch *Channel, fn func()) bool {
+	if p.subs == nil || ch == nil {
+		return false
+	}
+	p.subs.mu.Lock()
+	defer p.subs.mu.Unlock()
+	topic, ok := p.subs.byChannel[ch]
+	if !ok {
+		return false
+	}
+	sub := p.subs.byTopic[topic]
+	if sub == nil {
+		return false
+	}
+	sub.cleanup = fn
+	return true
+}
+
+// BumpSubscriptionGen advances the generation for a channel subscription.
+func (p *Process) BumpSubscriptionGen(ch *Channel) (uint64, bool) {
+	if p.subs == nil || ch == nil {
+		return 0, false
+	}
+	p.subs.mu.RLock()
+	topic, ok := p.subs.byChannel[ch]
+	var sub *subscription
+	if ok {
+		sub = p.subs.byTopic[topic]
+	}
+	p.subs.mu.RUnlock()
+	if sub == nil {
+		return 0, false
+	}
+	return sub.gen.Add(1), true
+}
+
 // UnsubscribeChannel detaches a channel from the topic subscription
 // map, removes the matching topic handler, and closes the channel.
 // Mirrors the unlisten yield path but is callable directly from Go
@@ -167,16 +205,45 @@ func (p *Process) SubscribeExisting(topic string, ch *Channel) error {
 //
 // Must be called on the step goroutine.
 func (p *Process) UnsubscribeChannel(ch *Channel) bool {
-	if p.subs == nil {
+	return p.closeChannel(ch)
+}
+
+// closeChannel performs the idempotent subscription cleanup cascade for a
+// channel on the step goroutine.
+func (p *Process) closeChannel(ch *Channel) bool {
+	if ch == nil || p.subs == nil {
 		return false
 	}
-	topic, err := p.subs.removeAndReturnTopic(ch)
+	topic, sub, err := p.subs.removeAndReturnSubscription(ch)
 	if err != nil {
 		return false
 	}
 	p.RemoveTopicHandler(topic)
-	p.applyExternalChannelResult(ch.Close(nil))
+	if sub != nil {
+		sub.gen.Add(1)
+		sub.callCleanup()
+	}
+	if !ch.IsClosed() {
+		p.applyExternalChannelResult(ch.Close(nil))
+	}
 	return true
+}
+
+func (p *Process) drainSubscriptionChannels() {
+	if p.subs == nil {
+		return
+	}
+	for _, sub := range p.subs.snapshotAndClear() {
+		if sub == nil {
+			continue
+		}
+		p.RemoveTopicHandler(sub.topic)
+		sub.gen.Add(1)
+		sub.callCleanup()
+		if sub.channel != nil && !sub.channel.IsClosed() {
+			p.applyExternalChannelResult(sub.channel.Close(nil))
+		}
+	}
 }
 
 // SetTopicHandler registers a handler for a topic.
@@ -401,6 +468,7 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 	// bumps the epoch so any in-flight producer frames from the prior
 	// incarnation are dropped on arrival.
 	p.drainEphemeralChannels()
+	p.drainSubscriptionChannels()
 
 	// Clear state from previous execution (for pooled processes)
 	p.threads = p.threads[:0]
@@ -932,18 +1000,9 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, bool, error) {
 
 		// Handle unsubscribe request
 		if req, ok := lastYield.(*UnsubscribeRequest); ok {
-			topic, err := subs.removeAndReturnTopic(req.Channel)
-			if err != nil {
-				task.ResumeWith(lua.LFalse, lua.WrapError(err, "unsubscribe"))
+			if !p.closeChannel(req.Channel) {
+				task.ResumeWith(lua.LFalse, lua.WrapError(luaapi.ErrChannelNotFound, "unsubscribe"))
 			} else {
-				// Remove the topic handler so per-call subscriptions
-				// (e.g. process.listen with options.message=true) do not
-				// leak entries in p.handlers across listen/unlisten
-				// cycles.
-				p.RemoveTopicHandler(topic)
-				// Apply the close result so blocked receivers wake with
-				// (nil, false) rather than hanging forever.
-				p.applyExternalChannelResult(req.Channel.Close(nil))
 				task.ResumeWith(lua.LTrue)
 			}
 			p.queue.Push(task)
@@ -980,6 +1039,7 @@ func (p *Process) flushMessageQueue(subs *subscribeContext) {
 func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool {
 	topic := qm.Topic
 	handlerTopic := topic
+	frame, hasFrame := subscriptionFrameFromPayloads(qm.Payloads)
 
 	// Ephemeral channel router: hard-edged. Frames for TopicEphemeral never
 	// enter subs.byTopic / handlers — routing is keyed on the EphemeralFrame
@@ -1002,6 +1062,9 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 	// Find subscription for topic (supports glob patterns like "update.*")
 	sub, exists := subs.match(topic)
 	if !exists {
+		if hasFrame {
+			return true
+		}
 		// Fallback to inbox for non-@ topics
 		if !strings.HasPrefix(topic, "@") {
 			sub, exists = subs.get(topology.TopicInbox)
@@ -1014,20 +1077,26 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 		}
 	}
 
+	payloads := qm.Payloads
+	outerTerminal := false
+	if hasFrame {
+		if frame == nil || frame.Epoch != p.epoch.Load() || frame.SubID != sub.id || frame.Gen != sub.gen.Load() {
+			return true
+		}
+		payloads = frame.Payloads
+		outerTerminal = len(qm.Payloads) > 1 && payload.IsTerminal(qm.Payloads[len(qm.Payloads)-1])
+	}
+
 	// Check for terminal payload - unsubscribe and close channel
-	if len(qm.Payloads) == 1 && payload.IsTerminal(qm.Payloads[0]) {
-		p.RemoveTopicHandler(topic)
-		_ = subs.remove(sub.channel)
-		// Apply Close result so blocked receivers wake instead of hanging.
-		p.applyExternalChannelResult(sub.channel.Close(nil))
+	if (len(payloads) == 1 && payload.IsTerminal(payloads[0])) || (len(payloads) == 0 && outerTerminal) {
+		p.closeChannel(sub.channel)
 		return true
 	}
 
 	// Check for terminal at end of multi-payload message (result + terminal pattern)
-	hasTerminal := len(qm.Payloads) > 1 && payload.IsTerminal(qm.Payloads[len(qm.Payloads)-1])
-	payloads := qm.Payloads
-	if hasTerminal {
-		payloads = qm.Payloads[:len(qm.Payloads)-1]
+	hasTerminal := outerTerminal || (len(payloads) > 1 && payload.IsTerminal(payloads[len(payloads)-1]))
+	if len(payloads) > 0 && payload.IsTerminal(payloads[len(payloads)-1]) {
+		payloads = payloads[:len(payloads)-1]
 	}
 
 	// Check for topic handler
@@ -1037,9 +1106,7 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 		if value == nil {
 			// Handler processed but doesn't want to send to channel
 			if hasTerminal {
-				p.RemoveTopicHandler(topic)
-				_ = subs.remove(sub.channel)
-				p.applyExternalChannelResult(sub.channel.Close(nil))
+				p.closeChannel(sub.channel)
 			}
 			return true
 		}
@@ -1055,8 +1122,7 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 	result, sent := sub.channel.TrySend(value)
 	if !sent {
 		if sub.channel.IsClosed() {
-			p.RemoveTopicHandler(topic)
-			_ = subs.remove(sub.channel)
+			p.closeChannel(sub.channel)
 			p.applyExternalChannelResult(result)
 			return true
 		}
@@ -1066,9 +1132,7 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 
 	// Close channel after sending if terminal was present
 	if hasTerminal {
-		p.RemoveTopicHandler(topic)
-		_ = subs.remove(sub.channel)
-		p.applyExternalChannelResult(sub.channel.Close(nil))
+		p.closeChannel(sub.channel)
 	}
 
 	return true
@@ -1390,6 +1454,7 @@ func (p *Process) Close() {
 	// Stop external producers and close their channels before tearing the
 	// Lua state down. Cancels in-flight clock timers, ws read loops, etc.
 	p.drainEphemeralChannels()
+	p.drainSubscriptionChannels()
 
 	// Close all threads
 	for _, task := range p.threads {
@@ -1514,6 +1579,7 @@ func (p *Process) clearExecution() {
 	// channel refcount / subscription maps. Bumps the epoch so any
 	// in-flight producer frame is dropped on arrival.
 	p.drainEphemeralChannels()
+	p.drainSubscriptionChannels()
 
 	// Close all spawned threads but keep them referenced for GC
 	for _, task := range p.threads {

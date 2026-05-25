@@ -13,9 +13,11 @@ import (
 
 const timerShardCount = 64
 
+type timerCallback func(gen uint64)
+
 type timerEntry struct {
 	timer    *time.Timer
-	callback func()
+	callback timerCallback
 	firedC   chan time.Time
 	// routerKey is non-nil when this timer was started by a router-
 	// driven TimerStartCmd (ChID != 0). The dispatcher reads it in
@@ -30,6 +32,8 @@ type timerEntry struct {
 	onFireCleanup func()
 	mu            sync.Mutex
 	stopped       atomic.Bool
+	genRef        *atomic.Uint64
+	gen           uint64
 }
 
 type timerShard struct {
@@ -69,7 +73,13 @@ func (r *timerRegistry) deleteEntry(shard *timerShard, id uint64) {
 }
 
 func (r *timerRegistry) startWithCallback(d time.Duration, callback func()) uint64 {
-	return r.startWithCallbackAndKey(d, callback, nil, nil)
+	var cb timerCallback
+	if callback != nil {
+		cb = func(uint64) {
+			callback()
+		}
+	}
+	return r.startWithCallbackAndKey(d, cb, nil, nil, nil)
 }
 
 // startWithCallbackAndKey is the router-aware variant: the entry also
@@ -77,37 +87,25 @@ func (r *timerRegistry) startWithCallback(d time.Duration, callback func()) uint
 // closure invoked after the user callback runs. The dispatcher uses
 // these to clean its (pid, epoch, chID) → id reverse map when the
 // timer fires or is stopped.
-func (r *timerRegistry) startWithCallbackAndKey(d time.Duration, callback func(), routerKey *chIDKey, onFireCleanup func()) uint64 {
+func (r *timerRegistry) startWithCallbackAndKey(d time.Duration, callback timerCallback, routerKey *chIDKey, onFireCleanup func(), genRef *atomic.Uint64) uint64 {
 	id := r.nextID.Add(1)
 	shard := r.getShard(id)
 
+	var gen uint64
+	if genRef != nil {
+		gen = genRef.Load()
+	}
 	entry := &timerEntry{
 		callback:      callback,
 		firedC:        make(chan time.Time, 1),
 		routerKey:     routerKey,
 		onFireCleanup: onFireCleanup,
+		genRef:        genRef,
+		gen:           gen,
 	}
 
 	entry.timer = time.AfterFunc(d, func() {
-		if entry.stopped.Load() {
-			return
-		}
-
-		// Entries without callbacks are removed by wait/stop to preserve explicit lifecycle.
-		// Delete before callback so that any observer reacting to the callback
-		// sees the entry already gone (e.g. stop() returns ErrTimerNotFound).
-		if entry.callback != nil {
-			r.deleteEntry(shard, id)
-			entry.callback()
-			if entry.onFireCleanup != nil {
-				entry.onFireCleanup()
-			}
-		}
-
-		select {
-		case entry.firedC <- time.Now():
-		default:
-		}
+		r.fire(shard, id, entry)
 	})
 
 	shard.mu.Lock()
@@ -117,6 +115,46 @@ func (r *timerRegistry) startWithCallbackAndKey(d time.Duration, callback func()
 	return id
 }
 
+func (r *timerRegistry) fire(shard *timerShard, id uint64, entry *timerEntry) {
+	entry.mu.Lock()
+	if entry.stopped.Load() {
+		entry.mu.Unlock()
+		return
+	}
+	callback := entry.callback
+	cleanup := entry.onFireCleanup
+	gen := entry.gen
+	if callback != nil {
+		entry.callback = nil
+		entry.onFireCleanup = nil
+		entry.genRef = nil
+		entry.timer = nil
+	}
+	entry.mu.Unlock()
+
+	if callback != nil {
+		r.deleteEntry(shard, id)
+		entry.mu.Lock()
+		entry.routerKey = nil
+		entry.mu.Unlock()
+		defer func() {
+			_ = recover()
+			if cleanup != nil {
+				func() {
+					defer func() { _ = recover() }()
+					cleanup()
+				}()
+			}
+		}()
+		callback(gen)
+	}
+
+	select {
+	case entry.firedC <- time.Now():
+	default:
+	}
+}
+
 // routerKey returns the (pid, epoch, chID) key for an active timer, or
 // nil if it wasn't registered via the ephemeral router.
 func (r *timerRegistry) routerKey(id uint64) *chIDKey {
@@ -124,7 +162,13 @@ func (r *timerRegistry) routerKey(id uint64) *chIDKey {
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
 	if entry, ok := shard.timers[id]; ok {
-		return entry.routerKey
+		entry.mu.Lock()
+		defer entry.mu.Unlock()
+		if entry.routerKey == nil {
+			return nil
+		}
+		key := *entry.routerKey
+		return &key
 	}
 	return nil
 }
@@ -159,7 +203,18 @@ func (r *timerRegistry) stop(id uint64) (bool, error) {
 	}
 
 	entry.stopped.Store(true)
-	stopped := entry.timer.Stop()
+	entry.mu.Lock()
+	timer := entry.timer
+	entry.callback = nil
+	entry.onFireCleanup = nil
+	entry.routerKey = nil
+	entry.genRef = nil
+	entry.timer = nil
+	entry.mu.Unlock()
+	stopped := false
+	if timer != nil {
+		stopped = timer.Stop()
+	}
 	return stopped, nil
 }
 
@@ -176,7 +231,13 @@ func (r *timerRegistry) reset(id uint64, d time.Duration) (bool, error) {
 	if entry.stopped.Load() {
 		return false, clockapi.ErrTimerNotFound
 	}
+	if entry.timer == nil {
+		return false, clockapi.ErrTimerNotFound
+	}
 
+	if entry.genRef != nil {
+		entry.gen = entry.genRef.Add(1)
+	}
 	wasActive := entry.timer.Reset(d)
 	return wasActive, nil
 }
@@ -198,7 +259,17 @@ func (r *timerRegistry) close() {
 		shard.mu.Lock()
 		for id, entry := range shard.timers {
 			entry.stopped.Store(true)
-			entry.timer.Stop()
+			entry.mu.Lock()
+			timer := entry.timer
+			entry.callback = nil
+			entry.onFireCleanup = nil
+			entry.routerKey = nil
+			entry.genRef = nil
+			entry.timer = nil
+			entry.mu.Unlock()
+			if timer != nil {
+				timer.Stop()
+			}
 			delete(shard.timers, id)
 		}
 		shard.mu.Unlock()

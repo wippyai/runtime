@@ -51,9 +51,8 @@ func init() {
 // dispatcher does not need to know the EphemeralFrame envelope format.
 //
 // genRef (when supplied) is the live atomic generation counter for the
-// ephemeral router entry; the builder reads it via .Load() at fire time
-// so stale frames carry an outdated gen and are dropped on the process
-// side after a timer reset.
+// routed entry. Timer reset increments it and the dispatcher stamps each
+// timer arm with the generation captured for that arm.
 //
 // When nil, the dispatcher falls back to its legacy int64-nanos payload
 // for backward compatibility with non-router callers (workflow timers).
@@ -77,8 +76,8 @@ type (
 	// ticker; the dispatcher uses them as a reverse-map key so the entry
 	// can be cancelled via TickerStopByChID. GenRef is the live atomic
 	// gen counter the engine router uses to detect stale fires after a
-	// reset; the fire callback reads it via .Load() and stamps every
-	// frame with the current value. Build is the FireBuilder that turns
+	// reset; timer reset bumps it and timer fires use the arm generation.
+	// Build is the FireBuilder that turns
 	// (at, gen) into the on-wire payload. All four are zero/nil for
 	// non-router callers (workflow timers), where the dispatcher falls
 	// back to its legacy int64-nanos payload.
