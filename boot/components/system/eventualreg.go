@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/wippyai/runtime/api/boot"
+	clusterapi "github.com/wippyai/runtime/api/cluster"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	logapi "github.com/wippyai/runtime/api/logs"
 	metricsapi "github.com/wippyai/runtime/api/metrics"
@@ -32,19 +33,14 @@ func EventualReg() boot.Component {
 				return ctx, ErrLoggerNotAvailable
 			}
 
-			ac := ctxapi.AppFromContext(ctx)
-			if ac == nil {
-				return ctx, fmt.Errorf("eventualreg: app context unavailable")
-			}
-
-			val := ac.Get(membershipServiceKey)
-			if val == nil {
+			m := clusterapi.GetMembership(ctx)
+			if m == nil {
 				logger.Debug("eventualreg: cluster disabled, skipping")
 				return ctx, nil
 			}
-			memSvc, ok := val.(*membership.Service)
+			memSvc, ok := m.(*membership.Service)
 			if !ok {
-				return ctx, fmt.Errorf("eventualreg: membership service has unexpected type %T", val)
+				return ctx, fmt.Errorf("eventualreg: membership service has unexpected type %T", m)
 			}
 
 			cfg := eventualreg.Config{
@@ -78,7 +74,9 @@ func EventualReg() boot.Component {
 			// Publish the service into app context so the admin HTTP
 			// server can expose its digest / CV for the gossip-
 			// convergence invariant in the chaos harness.
-			ac.With(eventualRegSvcKey, svc)
+			if ac := ctxapi.AppFromContext(ctx); ac != nil {
+				ac.With(eventualRegSvcKey, svc)
+			}
 
 			logger.Info("eventualreg loaded", zap.String("node", cfg.LocalNodeID))
 			return ctx, nil

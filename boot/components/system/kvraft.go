@@ -133,15 +133,7 @@ func KVRaft() boot.Component {
 			if _, err := raftNode.Start(ctx); err != nil {
 				return fmt.Errorf("kvraft: start raft node: %w", err)
 			}
-			ac := ctxapi.AppFromContext(ctx)
-			var memSvc clusterapi.Membership
-			if ac != nil {
-				if val := ac.Get(membershipServiceKey); val != nil {
-					if m, ok := val.(clusterapi.Membership); ok {
-						memSvc = m
-					}
-				}
-			}
+			memSvc := clusterapi.GetMembership(ctx)
 			if memSvc != nil {
 				memberHandler = sysraft.NewMembershipHandler(raftNode, memSvc, event.GetBus(ctx), handlerCfg, logger)
 				if err := memberHandler.Start(ctx); err != nil {

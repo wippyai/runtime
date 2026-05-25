@@ -274,15 +274,12 @@ func Raft() boot.Component {
 			// Add raft_port to membership node metadata so other nodes
 			// know how to reach our Raft transport.
 			actualPort := raftNode.ActualPort()
-			ac := ctxapi.AppFromContext(ctx)
-			if ac != nil {
-				if val := ac.Get(membershipServiceKey); val != nil {
-					if m, ok := val.(interface{ UpdateMeta(map[string]string) }); ok {
-						m.UpdateMeta(map[string]string{
-							"raft_port": strconv.Itoa(actualPort),
-						})
-					}
-				}
+			if m, ok := clusterapi.GetMembership(ctx).(interface {
+				UpdateMeta(map[string]string)
+			}); ok {
+				m.UpdateMeta(map[string]string{
+					"raft_port": strconv.Itoa(actualPort),
+				})
 			}
 
 			// Wait for leader election before proceeding. For a single-node
@@ -299,18 +296,11 @@ func Raft() boot.Component {
 			// handler and the globalreg Root-scope path. Without membership
 			// the reconciler cannot read raft_port hints and Root scope
 			// cannot snapshot the live-node set, so we log per-feature.
-			var membership clusterapi.Membership
-			if ac != nil {
-				if val := ac.Get(membershipServiceKey); val != nil {
-					if m, ok := val.(clusterapi.Membership); ok {
-						membership = m
-					}
-				}
-			}
+			membership := clusterapi.GetMembership(ctx)
 
 			// Start membership handler to sync Raft voters with cluster membership.
 			bus := event.GetBus(ctx)
-			if bus != nil && ac != nil {
+			if bus != nil {
 				if membership == nil {
 					logger.Warn("raft membership handler skipped: cluster.Membership not available in context")
 				} else {

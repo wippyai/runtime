@@ -67,7 +67,7 @@ func Admin() boot.Component {
 			kvRaft, _ := ac.Get(kvRaftNodeKey).(*sysraft.Node)
 			eventualReg, _ := ac.Get(eventualRegSvcKey).(*eventualreg.Service)
 			globalReg, _ := ac.Get(globalRegSvcKey).(*globalreg.Service)
-			membership, _ := ac.Get(membershipServiceKey).(clusterapi.Membership)
+			membership := clusterapi.GetMembership(ctx)
 
 			if globalRaft == nil || eventualReg == nil || membership == nil {
 				return ctx, fmt.Errorf("admin: missing required service (raft=%v eventualreg=%v membership=%v)",

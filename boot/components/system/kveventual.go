@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/wippyai/runtime/api/boot"
+	clusterapi "github.com/wippyai/runtime/api/cluster"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/kv"
 	logapi "github.com/wippyai/runtime/api/logs"
@@ -29,19 +30,14 @@ func KVEventual() boot.Component {
 				return ctx, ErrLoggerNotAvailable
 			}
 
-			ac := ctxapi.AppFromContext(ctx)
-			if ac == nil {
-				return ctx, fmt.Errorf("kveventual: app context unavailable")
-			}
-
-			val := ac.Get(membershipServiceKey)
-			if val == nil {
+			m := clusterapi.GetMembership(ctx)
+			if m == nil {
 				logger.Debug("kveventual: cluster disabled, skipping")
 				return ctx, nil
 			}
-			memSvc, ok := val.(*membership.Service)
+			memSvc, ok := m.(*membership.Service)
 			if !ok {
-				return ctx, fmt.Errorf("kveventual: membership service has unexpected type %T", val)
+				return ctx, fmt.Errorf("kveventual: membership service has unexpected type %T", m)
 			}
 
 			cfg := kveventual.Config{

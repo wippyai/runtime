@@ -44,9 +44,8 @@ const clusterGossipBootGrace = 60 * time.Second
 
 // Context keys for cluster components
 var (
-	internodeServiceKey  = &ctxapi.Key{Name: "cluster.internode"}
-	membershipServiceKey = &ctxapi.Key{Name: "cluster.membership"}
-	connMgrKey           = &ctxapi.Key{Name: "cluster.internode.conn"}
+	internodeServiceKey = &ctxapi.Key{Name: "cluster.internode"}
+	connMgrKey          = &ctxapi.Key{Name: "cluster.internode.conn"}
 )
 
 // WithInternodeService attaches InternodeService to context
@@ -57,18 +56,6 @@ func WithInternodeService(ctx context.Context, svc *internode.Service) context.C
 	}
 	if ac.Get(internodeServiceKey) == nil {
 		ac.With(internodeServiceKey, svc)
-	}
-	return ctx
-}
-
-// WithMembership attaches Membership service to context todo move to api
-func WithMembership(ctx context.Context, m clusterapi.Membership) context.Context {
-	ac := ctxapi.AppFromContext(ctx)
-	if ac == nil {
-		return ctx
-	}
-	if ac.Get(membershipServiceKey) == nil {
-		ac.With(membershipServiceKey, m)
 	}
 	return ctx
 }
@@ -251,7 +238,7 @@ func Cluster() boot.Component {
 			}
 
 			// Store cluster components in context
-			ctx = WithMembership(ctx, membershipSvc)
+			ctx = clusterapi.WithMembership(ctx, membershipSvc)
 			ctx = WithInternodeService(ctx, internodeSvc)
 
 			// Expose the connection manager so the mesh-backed Raft

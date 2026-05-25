@@ -7,7 +7,6 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	clusterapi "github.com/wippyai/runtime/api/cluster"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
@@ -45,15 +44,7 @@ func PG() boot.Component {
 				return ctx, ErrHandlerRegistryNotAvailable
 			}
 
-			var membership clusterapi.Membership
-			ac := ctxapi.AppFromContext(ctx)
-			if ac != nil {
-				if val := ac.Get(membershipServiceKey); val != nil {
-					if m, ok := val.(clusterapi.Membership); ok {
-						membership = m
-					}
-				}
-			}
+			membership := clusterapi.GetMembership(ctx)
 
 			manager := pgservice.NewManager(bus, dtt, topo, membership, node.ID(), logger.Named("pg"))
 			handlers.RegisterListener("pg.scope", manager)

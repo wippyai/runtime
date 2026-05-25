@@ -22,12 +22,14 @@ var (
 )
 
 func initModuleTable() {
-	mod := lua.CreateTable(0, 8)
+	mod := lua.CreateTable(0, 10)
 
 	mod.RawSetString("memory", createMemoryTable())
 	mod.RawSetString("gc", createGCTable())
 	mod.RawSetString("runtime", createRuntimeTable())
 	mod.RawSetString("process", createProcessTable())
+	mod.RawSetString("node", createNodeTable())
+	mod.RawSetString("nodes", createNodesTable())
 	mod.RawSetString("supervisor", createSupervisorTable())
 	mod.RawSetString("hosts", createHostsTable())
 	mod.RawSetString("exit", lua.LGoFunc(exit))
@@ -40,7 +42,7 @@ func initModuleTable() {
 // Module is the system module definition.
 var Module = &luaapi.ModuleDef{
 	Name:        "system",
-	Description: "System memory, GC, runtime, and process info",
+	Description: "System memory, GC, runtime, process, and node info",
 	Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		initOnce.Do(initModuleTable)
@@ -83,6 +85,20 @@ func createProcessTable() *lua.LTable {
 	t.RawSetString("pid", lua.LGoFunc(pid))
 	t.RawSetString("hostname", lua.LGoFunc(hostname))
 	t.RawSetString("cwd", lua.LGoFunc(cwd))
+	t.Immutable = true
+	return t
+}
+
+func createNodeTable() *lua.LTable {
+	t := lua.CreateTable(0, 1)
+	t.RawSetString("id", lua.LGoFunc(nodeID))
+	t.Immutable = true
+	return t
+}
+
+func createNodesTable() *lua.LTable {
+	t := lua.CreateTable(0, 1)
+	t.RawSetString("list", lua.LGoFunc(nodesList))
 	t.Immutable = true
 	return t
 }
