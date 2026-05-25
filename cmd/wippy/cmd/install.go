@@ -159,7 +159,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 				if shouldUnpack {
 					// Unpack .wapp to directory when unpack is enabled
 					logger.Info("unpacking .wapp to directory", zap.String("module", module.Name))
-					if err := entries.ExtractWappToDir(resolved.Path, dirPath, lockDir); err != nil {
+					if err := entries.ExtractWappToDir(resolved.Path, dirPath); err != nil {
 						return NewExtractModuleError(module.Name, err)
 					}
 				}
@@ -205,7 +205,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 			if err := os.RemoveAll(dirPath); err != nil {
 				return NewStoreModuleError(moduleRef, err)
 			}
-			if err := entries.ExtractWappToDir(wappPath, dirPath, lockDir); err != nil {
+			if err := entries.ExtractWappToDir(wappPath, dirPath); err != nil {
 				return NewExtractModuleError(moduleRef, err)
 			}
 		}
