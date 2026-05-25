@@ -1117,12 +1117,9 @@ func (p *Process) routeEphemeralFrame(qm queuedMessage) {
 			value = PayloadsToLua(p.ctx, p.state, frame.Payloads)
 		}
 		if value != nil {
-			if result, sent := entry.channel.TrySend(value); sent {
-				p.applyExternalChannelResult(result)
-			} else {
-				if result != nil {
-					p.applyExternalChannelResult(result)
-				}
+			result, sent := entry.channel.TrySend(value)
+			p.applyExternalChannelResult(result)
+			if !sent {
 				p.applyEphemeralOverflow(r, frame.ChID, entry, value)
 			}
 		}
@@ -1141,16 +1138,13 @@ func (p *Process) routeEphemeralFrame(qm queuedMessage) {
 func (p *Process) applyEphemeralOverflow(r *ephemeralRouter, chID uint64, entry *epEntry, value lua.LValue) {
 	switch entry.overflowPolicy {
 	case OverflowDrop:
-		// Silent drop — caller may add metrics later.
+		// OverflowDrop discards the value when the buffer is full.
 	case OverflowCoalesce:
 		if entry.channel.buffer.Len() > 0 {
 			entry.channel.buffer.Remove(entry.channel.buffer.Front())
 		}
-		if result, sent := entry.channel.TrySend(value); sent {
-			p.applyExternalChannelResult(result)
-		} else if result != nil {
-			p.applyExternalChannelResult(result)
-		}
+		result, _ := entry.channel.TrySend(value)
+		p.applyExternalChannelResult(result)
 	case OverflowClose:
 		if removed, ok := r.remove(chID); ok {
 			removed.callStop()

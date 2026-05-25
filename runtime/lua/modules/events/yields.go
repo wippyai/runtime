@@ -88,8 +88,6 @@ func subscriptionClose(l *lua.LState) int {
 	// Detach the channel from the process subscription map and close it.
 	// engine.deliverMessage uses subs.byChannel / subs.byTopic; without
 	// this both maps grow with every events.subscribe call.
-	// HandleResult populates both proc and channel; we never reach this
-	// path with one set and the other nil.
 	if sub.proc != nil && sub.channel != nil {
 		sub.proc.UnsubscribeChannel(sub.channel)
 	}
