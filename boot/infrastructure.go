@@ -124,6 +124,14 @@ func createRelayInfrastructure(ctx context.Context, bus event.Bus, cfg boot.Conf
 	return ctx, nodeManager, peerManager
 }
 
+// defaultNodeName derives a relay node identity that is stable across restarts
+// yet unique per co-located instance, without persisting any state. An explicit
+// WIPPY_NODE_ID / WIPPY_RELAY_NODE_NAME always wins. Otherwise the id is a UUIDv5
+// of the host identity (machine-id, then hostname) combined with the instance's
+// working directory: restarts of the same instance reproduce the same id, while
+// other instances on the same host run from different directories and never
+// collide — unlike a bare machine-id/hostname derivation that yields one shared
+// id per host.
 func defaultNodeName() string {
 	for _, key := range []string{"WIPPY_NODE_ID", "WIPPY_RELAY_NODE_NAME"} {
 		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
@@ -131,17 +139,36 @@ func defaultNodeName() string {
 		}
 	}
 
+	host, dir := hostIdentity(), workingDirectory()
+	if host == "" && dir == "" {
+		return uuid.New().String()
+	}
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("wippy-node:"+host+"\x00"+dir)).String()
+}
+
+// hostIdentity returns a stable per-host seed: the machine-id when available,
+// otherwise the hostname, or "" when neither can be read.
+func hostIdentity() string {
 	if raw, err := os.ReadFile("/etc/machine-id"); err == nil {
 		if id := strings.TrimSpace(string(raw)); id != "" {
-			return uuid.NewSHA1(uuid.NameSpaceOID, []byte("wippy-node:"+id)).String()
+			return id
 		}
 	}
-
-	if host, err := os.Hostname(); err == nil && strings.TrimSpace(host) != "" {
-		return uuid.NewSHA1(uuid.NameSpaceDNS, []byte("wippy-node:"+strings.TrimSpace(host))).String()
+	if host, err := os.Hostname(); err == nil {
+		if h := strings.TrimSpace(host); h != "" {
+			return h
+		}
 	}
+	return ""
+}
 
-	return uuid.New().String()
+// workingDirectory returns the absolute working directory used to distinguish
+// co-located instances, or "" when it cannot be determined.
+func workingDirectory() string {
+	if wd, err := os.Getwd(); err == nil {
+		return wd
+	}
+	return ""
 }
 
 // createHosts sets up control and function hosts

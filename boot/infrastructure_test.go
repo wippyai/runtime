@@ -277,15 +277,28 @@ func TestDefaultNodeName(t *testing.T) {
 		assert.NotEmpty(t, defaultNodeName())
 	})
 
-	t.Run("host-derived node name is deterministic and non-empty", func(t *testing.T) {
-		// No env override: the machine-id / hostname derivation must be
-		// stable across calls so a node keeps the same identity across
-		// restarts (the whole point of replacing the shared "local").
+	t.Run("derived id is stable across restarts", func(t *testing.T) {
+		// Same host + same working dir must reproduce the id, so a node keeps
+		// its identity across restarts.
 		t.Setenv("WIPPY_NODE_ID", "")
 		t.Setenv("WIPPY_RELAY_NODE_NAME", "")
+		t.Chdir(t.TempDir())
 		first := defaultNodeName()
-		require.NotEmpty(t, first)
-		assert.Len(t, first, 36, "derived id is a UUID")
-		assert.Equal(t, first, defaultNodeName(), "derivation is stable across calls")
+		require.Len(t, first, 36, "derived id is a UUID")
+		assert.Equal(t, first, defaultNodeName(), "same host + working dir reproduces the id")
+	})
+
+	t.Run("co-located instances get distinct ids", func(t *testing.T) {
+		// Two instances on the same host run from different working dirs and
+		// must not collide (the same-host bug a bare host derivation has).
+		t.Setenv("WIPPY_NODE_ID", "")
+		t.Setenv("WIPPY_RELAY_NODE_NAME", "")
+
+		t.Chdir(t.TempDir())
+		a := defaultNodeName()
+		t.Chdir(t.TempDir())
+		b := defaultNodeName()
+
+		assert.NotEqual(t, a, b, "different working dirs on the same host -> distinct ids")
 	})
 }
