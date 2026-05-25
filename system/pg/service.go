@@ -571,7 +571,46 @@ func (s *Service) handleSyncPackage(msg *relay.Message) {
 	})
 }
 
-// handleJoinPackage processes an incoming join message.
+// decodeGroupPidsMap parses a `map[string][]string` payload field (the
+// receiver-side decoded shape after relay serialization) into the
+// internal map[string][]pid.PID form, skipping unparseable entries.
+func decodeGroupPidsMap(raw any) map[string][]pid.PID {
+	rawMap, ok := raw.(map[string]any)
+	if !ok || len(rawMap) == 0 {
+		return nil
+	}
+	result := make(map[string][]pid.PID, len(rawMap))
+	for g, rawPids := range rawMap {
+		pids := decodePidList(rawPids)
+		if len(pids) > 0 {
+			result[g] = pids
+		}
+	}
+	return result
+}
+
+// decodePidList parses a `[]any` of pid strings into []pid.PID.
+func decodePidList(raw any) []pid.PID {
+	rawSlice, ok := raw.([]any)
+	if !ok || len(rawSlice) == 0 {
+		return nil
+	}
+	pids := make([]pid.PID, 0, len(rawSlice))
+	for _, ps := range rawSlice {
+		s, ok := ps.(string)
+		if !ok {
+			continue
+		}
+		if p, err := pid.ParsePID(s); err == nil {
+			pids = append(pids, p)
+		}
+	}
+	return pids
+}
+
+// handleJoinPackage processes an incoming join message. The payload carries
+// a `joins` map of {group -> pid strings}; one packet may cover multiple
+// groups (batched broadcast).
 func (s *Service) handleJoinPackage(msg *relay.Message) {
 	if len(msg.Payloads) == 0 {
 		return
@@ -581,28 +620,37 @@ func (s *Service) handleJoinPackage(msg *relay.Message) {
 		return
 	}
 	fromNodeID, _ := data["from"].(string)
-	group, _ := data["group"].(string)
-	if fromNodeID == "" || group == "" {
+	if fromNodeID == "" {
 		return
 	}
-	rawPids, _ := data["pids"].([]any)
 
-	pids := make([]pid.PID, 0, len(rawPids))
-	for _, ps := range rawPids {
-		if s, ok := ps.(string); ok {
-			if p, err := pid.ParsePID(s); err == nil {
-				pids = append(pids, p)
+	joins := decodeGroupPidsMap(data["joins"])
+	if len(joins) == 0 {
+		// Fallback to the pre-batch single-group format
+		// ({"group": "...", "pids": [...]}) so older senders still work
+		// through a rolling upgrade.
+		if group, _ := data["group"].(string); group != "" {
+			if pids := decodePidList(data["pids"]); len(pids) > 0 {
+				joins = map[string][]pid.PID{group: pids}
 			}
 		}
 	}
+	if len(joins) == 0 {
+		return
+	}
 
 	s.submit(func() {
-		s.handleRemoteJoin(fromNodeID, group, pids)
+		for group, pids := range joins {
+			s.handleRemoteJoin(fromNodeID, group, pids)
+		}
 		s.publishDirty()
 	})
 }
 
-// handleLeavePackage processes an incoming leave message.
+// handleLeavePackage processes an incoming leave message. The payload
+// carries a `leaves` map of {group -> pid strings}; PIDs repeated in a
+// group's value list cause the matching number of multi-join slots to be
+// removed.
 func (s *Service) handleLeavePackage(msg *relay.Message) {
 	if len(msg.Payloads) == 0 {
 		return
@@ -615,27 +663,33 @@ func (s *Service) handleLeavePackage(msg *relay.Message) {
 	if fromNodeID == "" {
 		return
 	}
-	rawPids, _ := data["pids"].([]any)
-	rawGroups, _ := data["groups"].([]any)
 
-	pids := make([]pid.PID, 0, len(rawPids))
-	for _, ps := range rawPids {
-		if s, ok := ps.(string); ok {
-			if p, err := pid.ParsePID(s); err == nil {
-				pids = append(pids, p)
+	leaves := decodeGroupPidsMap(data["leaves"])
+	if len(leaves) == 0 {
+		// Fallback to the pre-batch flat ({pids, groups}) shape where the
+		// receiver must remove each pid from each group once. Translate
+		// it into the batched map by repeating each pid per group entry.
+		pids := decodePidList(data["pids"])
+		rawGroups, _ := data["groups"].([]any)
+		if len(pids) > 0 && len(rawGroups) > 0 {
+			leaves = make(map[string][]pid.PID, len(rawGroups))
+			for _, raw := range rawGroups {
+				g, ok := raw.(string)
+				if !ok || g == "" {
+					continue
+				}
+				leaves[g] = append(leaves[g], pids...)
 			}
 		}
 	}
-
-	groups := make([]string, 0, len(rawGroups))
-	for _, gs := range rawGroups {
-		if s, ok := gs.(string); ok {
-			groups = append(groups, s)
-		}
+	if len(leaves) == 0 {
+		return
 	}
 
 	s.submit(func() {
-		s.handleRemoteLeave(fromNodeID, pids, groups)
+		for group, pids := range leaves {
+			s.handleRemoteLeave(fromNodeID, pids, []string{group})
+		}
 		s.publishDirty()
 	})
 }
@@ -733,7 +787,7 @@ func (s *Service) Join(group pgapi.Group, p pid.PID) error {
 		}
 
 		// Broadcast to remote nodes
-		s.broadcastJoin(group, []pid.PID{p})
+		s.broadcastJoin(map[string][]pid.PID{group: {p}})
 
 		// Emit membership event
 		s.emitJoinEvent(group, []pid.PID{p})
@@ -796,11 +850,13 @@ func (s *Service) JoinGroups(groups []pgapi.Group, p pid.PID) error {
 
 		_, existed := s.state.local[p.String()]
 
+		joins := make(map[string][]pid.PID, len(groups))
 		for _, group := range groups {
 			s.state.joinLocal(group, p)
-			s.broadcastJoin(group, []pid.PID{p})
+			joins[group] = append(joins[group], p)
 			s.emitJoinEvent(group, []pid.PID{p})
 		}
+		s.broadcastJoin(joins)
 
 		if !existed {
 			s.monitorProcess(p)
@@ -845,7 +901,7 @@ func (s *Service) Leave(group pgapi.Group, p pid.PID) error {
 		}
 
 		// Broadcast to remote nodes
-		s.broadcastLeave([]pid.PID{p}, []string{group})
+		s.broadcastLeave(map[string][]pid.PID{group: {p}})
 
 		// Emit membership event
 		s.emitLeaveEvent(group, []pid.PID{p})
@@ -879,12 +935,16 @@ func (s *Service) LeaveGroups(groups []pgapi.Group, p pid.PID) error {
 	done := make(chan error, 1)
 	if !s.submit(func() {
 		anyLeft := false
+		leaves := make(map[string][]pid.PID, len(groups))
 		for _, group := range groups {
 			if s.state.leaveLocal(group, p) {
 				anyLeft = true
-				s.broadcastLeave([]pid.PID{p}, []string{group})
+				leaves[group] = append(leaves[group], p)
 				s.emitLeaveEvent(group, []pid.PID{p})
 			}
+		}
+		if anyLeft {
+			s.broadcastLeave(leaves)
 		}
 
 		if !anyLeft {

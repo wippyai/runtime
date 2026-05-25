@@ -141,7 +141,7 @@ func TestBroadcastLeaveEmptyPids(t *testing.T) {
 	router.reset()
 
 	svc.submit(func() {
-		svc.broadcastLeave(nil, []string{"workers"})
+		svc.broadcastLeave(map[string][]pid.PID{"workers": nil})
 	})
 
 	time.Sleep(50 * time.Millisecond)
@@ -590,7 +590,7 @@ func TestBroadcastJoinRouterError(t *testing.T) {
 
 	p1 := mkPID("host1", "1")
 	svc.submit(func() {
-		svc.broadcastJoin("workers", []pid.PID{p1})
+		svc.broadcastJoin(map[string][]pid.PID{"workers": {p1}})
 	})
 
 	time.Sleep(50 * time.Millisecond)
@@ -620,7 +620,7 @@ func TestBroadcastLeaveRouterError(t *testing.T) {
 
 	p1 := mkPID("host1", "1")
 	svc.submit(func() {
-		svc.broadcastLeave([]pid.PID{p1}, []string{"workers"})
+		svc.broadcastLeave(map[string][]pid.PID{"workers": {p1}})
 	})
 
 	time.Sleep(50 * time.Millisecond)
@@ -651,7 +651,7 @@ func TestBroadcastJoinMultipleRemoteNodes(t *testing.T) {
 
 	p1 := mkPID("host1", "1")
 	svc.submit(func() {
-		svc.broadcastJoin("workers", []pid.PID{p1})
+		svc.broadcastJoin(map[string][]pid.PID{"workers": {p1}})
 	})
 
 	time.Sleep(50 * time.Millisecond)
@@ -688,7 +688,7 @@ func TestBroadcastLeaveMultipleRemoteNodes(t *testing.T) {
 
 	p1 := mkPID("host1", "1")
 	svc.submit(func() {
-		svc.broadcastLeave([]pid.PID{p1}, []string{"workers"})
+		svc.broadcastLeave(map[string][]pid.PID{"workers": {p1}})
 	})
 
 	time.Sleep(50 * time.Millisecond)
@@ -718,9 +718,8 @@ func TestBroadcastLeaveEmptyGroups(t *testing.T) {
 
 	router.reset()
 
-	p1 := mkPID("host1", "1")
 	svc.submit(func() {
-		svc.broadcastLeave([]pid.PID{p1}, nil) // empty groups
+		svc.broadcastLeave(map[string][]pid.PID{}) // empty groups map
 	})
 
 	time.Sleep(50 * time.Millisecond)

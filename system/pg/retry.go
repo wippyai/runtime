@@ -337,9 +337,11 @@ func (rq *retryQueue) requeue(entry *retryEntry) {
 	rq.mu.Unlock()
 }
 
-// sendJoinWithRetry is a helper to send a join message.
+// sendJoinWithRetry is a helper to send a join message in the batch wire
+// format (joins: {group -> pid strings}). The retry queue stores entries
+// per (group, pids) tuple, so a replay always carries a single-group map.
 func (s *Service) sendJoinWithRetry(targetNode pid.NodeID, group string, pids []pid.PID) error {
-	pidStrs := make([]any, len(pids))
+	pidStrs := make([]string, len(pids))
 	for i, p := range pids {
 		pidStrs[i] = p.String()
 	}
@@ -347,31 +349,29 @@ func (s *Service) sendJoinWithRetry(targetNode pid.NodeID, group string, pids []
 	pkg := relay.NewServicePackage(s.localNodeID, s.hostID, targetNode, s.hostID, pgapi.TopicJoin,
 		payload.New(map[string]any{
 			"from":  s.localNodeID,
-			"group": group,
-			"pids":  pidStrs,
+			"joins": map[string][]string{group: pidStrs},
 		}),
 	)
 
 	return s.router.Send(pkg)
 }
 
-// sendLeaveWithRetry is a helper to send a leave message.
+// sendLeaveWithRetry is the leave counterpart of sendJoinWithRetry. The
+// retry queue's groups slice may contain duplicates (multi-join). The
+// wire format folds them into a single per-group value list with the PID
+// repeated, preserving the multiplicity needed on the receiver side.
 func (s *Service) sendLeaveWithRetry(targetNode pid.NodeID, pids []pid.PID, groups []string) error {
-	pidStrs := make([]any, len(pids))
-	for i, p := range pids {
-		pidStrs[i] = p.String()
-	}
-
-	groupStrs := make([]any, len(groups))
-	for i, g := range groups {
-		groupStrs[i] = g
+	wire := make(map[string][]string, len(groups))
+	for _, g := range groups {
+		for _, p := range pids {
+			wire[g] = append(wire[g], p.String())
+		}
 	}
 
 	pkg := relay.NewServicePackage(s.localNodeID, s.hostID, targetNode, s.hostID, pgapi.TopicLeave,
 		payload.New(map[string]any{
 			"from":   s.localNodeID,
-			"pids":   pidStrs,
-			"groups": groupStrs,
+			"leaves": wire,
 		}),
 	)
 

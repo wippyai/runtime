@@ -131,38 +131,62 @@ func (s *Service) sendSync(targetNodeID pid.NodeID) {
 	cb.RecordSuccess()
 }
 
-// broadcastJoin sends a join notification to all known remote pg services.
-// Uses circuit breaker for per-node protection and retry queue for recovery.
-func (s *Service) broadcastJoin(group string, pids []pid.PID) {
-	pidStrs := make([]any, len(pids))
-	for i, p := range pids {
-		pidStrs[i] = p.String()
+// encodeJoinsPayload converts a (group -> pids) map into the wire format
+// once, so it can be shared across every remote node in a fan-out.
+func encodeJoinsPayload(joins map[string][]pid.PID) map[string][]string {
+	wire := make(map[string][]string, len(joins))
+	for g, pids := range joins {
+		strs := make([]string, len(pids))
+		for i, p := range pids {
+			strs[i] = p.String()
+		}
+		wire[g] = strs
 	}
+	return wire
+}
+
+// retryJoinsPerGroup spills a batch broadcast back into the retry queue using
+// the per-group entry shape the queue expects.
+func (s *Service) retryJoinsPerGroup(nodeID pid.NodeID, topic string, joins map[string][]pid.PID) {
+	if s.retryQueue == nil {
+		return
+	}
+	for g, pids := range joins {
+		s.retryQueue.Add(nodeID, topic, []string{g}, pids, nil)
+	}
+}
+
+// broadcastJoin sends a batch join notification to all known remote pg
+// services. One packet per remote carries every (group, pids) entry in the
+// caller's map; single-group Join uses a 1-entry map so the fast path stays
+// trivial. Uses circuit breaker for per-node protection and retry queue for
+// recovery.
+func (s *Service) broadcastJoin(joins map[string][]pid.PID) {
+	if len(joins) == 0 || len(s.state.remote) == 0 {
+		return
+	}
+
+	wire := encodeJoinsPayload(joins)
 
 	for nodeID := range s.state.remote {
 		if nodeID == s.localNodeID {
-			continue // skip self
+			continue
 		}
 
-		// Check circuit breaker
 		cb := s.cbManager.GetCircuitBreaker(nodeID)
 		if !cb.Allow() {
 			s.logger.Debug("circuit breaker open, skipping join broadcast",
 				logNodeID(nodeID),
-				zap.String("group", group),
+				zap.Int("groups", len(joins)),
 			)
-			// Still try to add to retry queue
-			if s.retryQueue != nil {
-				s.retryQueue.Add(nodeID, pgapi.TopicJoin, []string{group}, pids, nil)
-			}
+			s.retryJoinsPerGroup(nodeID, pgapi.TopicJoin, joins)
 			continue
 		}
 
 		pkg := relay.NewServicePackage(s.localNodeID, s.hostID, nodeID, s.hostID, pgapi.TopicJoin,
 			payload.New(map[string]any{
 				"from":  s.localNodeID,
-				"group": group,
-				"pids":  pidStrs,
+				"joins": wire,
 			}),
 		)
 		if err := s.router.Send(pkg); err != nil {
@@ -171,11 +195,7 @@ func (s *Service) broadcastJoin(group string, pids []pid.PID) {
 				logError(err),
 			)
 			cb.RecordFailure()
-
-			// Add to retry queue for recovery
-			if s.retryQueue != nil {
-				s.retryQueue.Add(nodeID, pgapi.TopicJoin, []string{group}, pids, nil)
-			}
+			s.retryJoinsPerGroup(nodeID, pgapi.TopicJoin, joins)
 			continue
 		}
 
@@ -183,46 +203,47 @@ func (s *Service) broadcastJoin(group string, pids []pid.PID) {
 	}
 }
 
-// broadcastLeave sends a leave notification to all known remote pg services.
-// Uses circuit breaker for per-node protection and retry queue for recovery.
-func (s *Service) broadcastLeave(pids []pid.PID, groups []string) {
-	if len(pids) == 0 || len(groups) == 0 {
+// broadcastLeave is the leave counterpart of broadcastJoin: one packet per
+// remote carries every (group, pids) entry. Multi-join semantics are
+// preserved by repeating the PID in the value list. Groups whose value
+// list is empty are dropped; if every group is empty the whole call is
+// a no-op (matches the pre-batch guard).
+func (s *Service) broadcastLeave(leaves map[string][]pid.PID) {
+	if len(s.state.remote) == 0 {
 		return
 	}
-
-	pidStrs := make([]any, len(pids))
-	for i, p := range pids {
-		pidStrs[i] = p.String()
+	filtered := make(map[string][]pid.PID, len(leaves))
+	for g, pids := range leaves {
+		if len(pids) > 0 {
+			filtered[g] = pids
+		}
 	}
-
-	groupStrs := make([]any, len(groups))
-	for i, g := range groups {
-		groupStrs[i] = g
+	if len(filtered) == 0 {
+		return
 	}
+	leaves = filtered
+
+	wire := encodeJoinsPayload(leaves)
 
 	for nodeID := range s.state.remote {
 		if nodeID == s.localNodeID {
-			continue // skip self
+			continue
 		}
 
-		// Check circuit breaker
 		cb := s.cbManager.GetCircuitBreaker(nodeID)
 		if !cb.Allow() {
 			s.logger.Debug("circuit breaker open, skipping leave broadcast",
 				logNodeID(nodeID),
+				zap.Int("groups", len(leaves)),
 			)
-			// Still try to add to retry queue
-			if s.retryQueue != nil {
-				s.retryQueue.Add(nodeID, pgapi.TopicLeave, groups, pids, nil)
-			}
+			s.retryJoinsPerGroup(nodeID, pgapi.TopicLeave, leaves)
 			continue
 		}
 
 		pkg := relay.NewServicePackage(s.localNodeID, s.hostID, nodeID, s.hostID, pgapi.TopicLeave,
 			payload.New(map[string]any{
 				"from":   s.localNodeID,
-				"pids":   pidStrs,
-				"groups": groupStrs,
+				"leaves": wire,
 			}),
 		)
 		if err := s.router.Send(pkg); err != nil {
@@ -231,11 +252,7 @@ func (s *Service) broadcastLeave(pids []pid.PID, groups []string) {
 				logError(err),
 			)
 			cb.RecordFailure()
-
-			// Add to retry queue for recovery
-			if s.retryQueue != nil {
-				s.retryQueue.Add(nodeID, pgapi.TopicLeave, groups, pids, nil)
-			}
+			s.retryJoinsPerGroup(nodeID, pgapi.TopicLeave, leaves)
 			continue
 		}
 
@@ -382,7 +399,13 @@ func (s *Service) handleProcessExit(p pid.PID) {
 	if len(groups) > 0 {
 		// Broadcast the full list (with duplicates) to remote nodes so they
 		// remove the correct number of occurrences for multi-join semantics.
-		s.broadcastLeave([]pid.PID{p}, groups)
+		// The PID is repeated in each group's value list once per join, so
+		// the receiver's leaveRemote removes the matching number of slots.
+		leaves := make(map[string][]pid.PID, len(groups))
+		for _, g := range groups {
+			leaves[g] = append(leaves[g], p)
+		}
+		s.broadcastLeave(leaves)
 
 		// Emit membership events per unique group.
 		// Erlang PG sends one leave event per group with the PID repeated

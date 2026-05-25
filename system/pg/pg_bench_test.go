@@ -10,6 +10,7 @@ import (
 	"time"
 
 	pgapi "github.com/wippyai/runtime/api/pg"
+	"github.com/wippyai/runtime/api/pid"
 	"go.uber.org/zap"
 )
 
@@ -142,5 +143,77 @@ func BenchmarkPGJoinGroups_Batch(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+// seedRemotes populates s.state.remote with R synthetic peer nodes so that
+// broadcast paths actually fan out during the benchmark. The mockRouter
+// discards messages, so this measures only the send-side prep cost (encode,
+// circuit breaker check, package build) per remote.
+func seedRemotes(b *testing.B, svc *Service, r int) {
+	b.Helper()
+	done := make(chan struct{})
+	svc.submit(func() {
+		for i := 0; i < r; i++ {
+			nodeID := "peer-" + strconv.Itoa(i)
+			svc.state.remote[nodeID] = &remoteNode{
+				nodeID: nodeID,
+				groups: make(map[string][]pid.PID),
+			}
+		}
+		close(done)
+	})
+	<-done
+}
+
+// BenchmarkPGBroadcast_SingleJoin measures the per-op cost of a single Join
+// when R remote peers are registered. The win from Phase A/B versus the old
+// per-group, per-remote allocation pattern shows up most clearly here.
+func BenchmarkPGBroadcast_SingleJoin(b *testing.B) {
+	for _, R := range []int{1, 4, 16, 64} {
+		b.Run("R="+strconv.Itoa(R), func(b *testing.B) {
+			svc := startBenchService(b)
+			seedRemotes(b, svc, R)
+			p := mkPID("h", "1")
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if err := svc.Join("g", p); err != nil {
+					b.Fatalf("Join: %v", err)
+				}
+				if err := svc.Leave("g", p); err != nil {
+					b.Fatalf("Leave: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkPGBroadcast_Batch measures JoinGroups+LeaveGroups when k groups
+// each must reach R remote peers. With batch broadcast the cost grows in
+// O(k + R) (one packet per remote regardless of k), not O(k*R).
+func BenchmarkPGBroadcast_Batch(b *testing.B) {
+	for _, R := range []int{4, 16} {
+		for _, k := range []int{10, 100, 1000} {
+			b.Run("R="+strconv.Itoa(R)+"/k="+strconv.Itoa(k), func(b *testing.B) {
+				svc := startBenchService(b)
+				seedRemotes(b, svc, R)
+				groups := make([]string, k)
+				for i := 0; i < k; i++ {
+					groups[i] = "g-" + strconv.Itoa(i)
+				}
+				p := mkPID("h", "1")
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					if err := svc.JoinGroups(groups, p); err != nil {
+						b.Fatalf("JoinGroups: %v", err)
+					}
+					if err := svc.LeaveGroups(groups, p); err != nil {
+						b.Fatalf("LeaveGroups: %v", err)
+					}
+				}
+			})
+		}
 	}
 }

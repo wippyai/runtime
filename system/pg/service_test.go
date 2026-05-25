@@ -1780,7 +1780,8 @@ func TestServiceMultiJoinExitBroadcast(t *testing.T) {
 	// Group should be empty after exit
 	assert.Empty(t, svc.GetMembers("workers"))
 
-	// Verify the broadcast leave sent to remote nodes contains "workers" twice
+	// Verify the broadcast leave sent to remote nodes lists the PID twice
+	// under the "workers" group entry (one slot per multi-join occurrence).
 	sends := router.getSends()
 	leaveFound := false
 	for _, s := range sends {
@@ -1789,16 +1790,11 @@ func TestServiceMultiJoinExitBroadcast(t *testing.T) {
 				leaveFound = true
 				data, ok := m.Payloads[0].Data().(map[string]any)
 				require.True(t, ok)
-				rawGroups, _ := data["groups"].([]any)
-				// Count "workers" occurrences
-				count := 0
-				for _, g := range rawGroups {
-					if gs, ok := g.(string); ok && gs == "workers" {
-						count++
-					}
-				}
-				assert.Equal(t, 2, count,
-					"broadcastLeave should send 'workers' twice for multi-join exit")
+				leavesMap, ok := data["leaves"].(map[string][]string)
+				require.True(t, ok, "leaves payload field missing or wrong type")
+				workersPids := leavesMap["workers"]
+				assert.Len(t, workersPids, 2,
+					"broadcastLeave should list 'workers' PID twice for multi-join exit")
 			}
 		}
 	}
