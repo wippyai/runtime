@@ -256,3 +256,36 @@ func TestBootstrapContextIntegration(t *testing.T) {
 		assert.NoError(t, err)
 	})
 }
+
+func TestDefaultNodeName(t *testing.T) {
+	t.Run("WIPPY_NODE_ID wins and is trimmed", func(t *testing.T) {
+		t.Setenv("WIPPY_NODE_ID", "  node-a  ")
+		t.Setenv("WIPPY_RELAY_NODE_NAME", "node-b")
+		assert.Equal(t, "node-a", defaultNodeName())
+	})
+
+	t.Run("WIPPY_RELAY_NODE_NAME used when WIPPY_NODE_ID is empty", func(t *testing.T) {
+		t.Setenv("WIPPY_NODE_ID", "")
+		t.Setenv("WIPPY_RELAY_NODE_NAME", "node-b")
+		assert.Equal(t, "node-b", defaultNodeName())
+	})
+
+	t.Run("whitespace-only env vars are ignored", func(t *testing.T) {
+		t.Setenv("WIPPY_NODE_ID", "   ")
+		t.Setenv("WIPPY_RELAY_NODE_NAME", "\t")
+		// Falls through to the host-derived id, which must still be usable.
+		assert.NotEmpty(t, defaultNodeName())
+	})
+
+	t.Run("host-derived node name is deterministic and non-empty", func(t *testing.T) {
+		// No env override: the machine-id / hostname derivation must be
+		// stable across calls so a node keeps the same identity across
+		// restarts (the whole point of replacing the shared "local").
+		t.Setenv("WIPPY_NODE_ID", "")
+		t.Setenv("WIPPY_RELAY_NODE_NAME", "")
+		first := defaultNodeName()
+		require.NotEmpty(t, first)
+		assert.Len(t, first, 36, "derived id is a UUID")
+		assert.Equal(t, first, defaultNodeName(), "derivation is stable across calls")
+	})
+}
