@@ -4,6 +4,7 @@ package runner
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/wippyai/runtime/api/attrs"
@@ -110,4 +111,23 @@ func NewListenEventsError(err error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to subscribe to events").
 		WithRetryable(apierror.True).
 		WithCause(err)
+}
+
+// NewUnresolvedDependenciesError is returned by Transition when the
+// deferred-and-retry apply loop cannot make further progress: every remaining
+// operation rejects with a NotFound error and no provider entry showed up in
+// the same changeset to satisfy it. The wrapped cause is the first rejection
+// from the final pass; ids of all unresolved entries are recorded in details.
+func NewUnresolvedDependenciesError(unresolved []registry.ID, cause error) apierror.Error {
+	ids := make([]string, len(unresolved))
+	for i, id := range unresolved {
+		ids[i] = id.String()
+	}
+	e := apierror.New(apierror.NotFound, "unresolved dependencies after retry: "+strings.Join(ids, ",")).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"unresolved": ids}))
+	if cause != nil {
+		e = e.WithCause(cause)
+	}
+	return e
 }

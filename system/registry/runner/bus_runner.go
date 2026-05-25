@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 	"go.uber.org/zap"
@@ -82,10 +83,24 @@ func NewBusRunner(bus event.Bus, log *zap.Logger, builder runnerBuilder, opts ..
 	return br
 }
 
-// Transition applies a series of operations to transform the registry from an initial state
-// to a new state. If any operation fails, it rolls back all previously applied operations
-// to maintain consistency. The process is coordinated through the event bus with Accept/Reject
-// events determining the success of each operation.
+// Transition applies a series of operations to transform the registry from an
+// initial state to a new state. The changeset is dispatched in the order
+// provided by the upstream topological sort. Operations that reject with a
+// NotFound-class error (indicating their listener could not find a sibling
+// entry the listener depends on) are deferred and retried after the rest of
+// the pass completes; the loop iterates until every operation has either been
+// accepted, failed non-deferrably, or made zero progress in a full pass.
+//
+// This self-healing apply path makes boot ordering correct regardless of
+// whether every cross-entry dependency is declared via a topology resolver
+// pattern: declared deps short-circuit the loop to a single pass; undeclared
+// deps converge in O(dependency depth) passes. The deterministic sort fixes
+// in PR #270 are preserved upstream, so the order operations are tried in is
+// stable across runs.
+//
+// If any operation fails non-deferrably, or no pass makes progress while
+// rejections remain, every accepted operation is rolled back to the initial
+// state and the transaction is discarded.
 func (br *BusRunner) Transition(
 	ctx context.Context,
 	initialState registry.State,
@@ -103,25 +118,89 @@ func (br *BusRunner) Transition(
 		return stateMapToSlice(currentState), err
 	}
 
-	for _, op := range cs {
-		newState, err := br.applyOperation(ctx, currentState, op)
-		if err != nil {
+	remaining := append(registry.ChangeSet(nil), cs...)
+	pass := 0
+
+	for len(remaining) > 0 {
+		pass++
+		var (
+			deferred       registry.ChangeSet
+			lastDeferErr   error
+			fatalErr       error
+			fatalState     registry.StateMap
+			progressed     bool
+			retriedCount   int
+			deferredFirstP = pass == 1
+		)
+
+		for _, op := range remaining {
+			newState, opErr := br.applyOperation(ctx, currentState, op)
+			if opErr == nil {
+				currentState = newState
+				progressed = true
+				if !deferredFirstP {
+					retriedCount++
+					br.log.Info("operation accepted on retry",
+						zap.String("entry_id", op.Entry.ID.String()),
+						zap.String("op_kind", op.Kind),
+						zap.Int("pass", pass))
+				}
+				continue
+			}
 			if ctx.Err() != nil {
-				return nil, err
+				return nil, opErr
 			}
-
-			br.log.Error("operation failed, initiating rollback", zap.Any("operation", op), zap.Error(err))
-			newState = br.rollback(ctx, originalState, newState)
-
-			// Only send Discard if there was an error, and rollback already happened
-			if discardErr := br.dispatchTransaction(ctx, txParticipants, registry.TxDiscard, txPath, err); discardErr != nil {
-				br.log.Error("failed to discard transaction", zap.Error(discardErr))
+			if isDeferrable(opErr) {
+				lastDeferErr = opErr
+				deferred = append(deferred, op)
+				br.log.Info("operation deferred for retry",
+					zap.String("entry_id", op.Entry.ID.String()),
+					zap.String("op_kind", op.Kind),
+					zap.Int("pass", pass),
+					zap.Error(opErr))
+				continue
 			}
-
-			return stateMapToSlice(newState), err // Already has context from applyOperation
+			fatalErr = opErr
+			fatalState = newState
+			break
 		}
 
-		currentState = newState
+		if fatalErr != nil {
+			br.log.Error("operation failed, initiating rollback", zap.Error(fatalErr))
+			rolled := br.rollback(ctx, originalState, fatalState)
+			if discardErr := br.dispatchTransaction(ctx, txParticipants, registry.TxDiscard, txPath, fatalErr); discardErr != nil {
+				br.log.Error("failed to discard transaction", zap.Error(discardErr))
+			}
+			return stateMapToSlice(rolled), fatalErr
+		}
+
+		if len(deferred) == 0 {
+			if retriedCount > 0 {
+				br.log.Info("apply converged after deferral",
+					zap.Int("passes", pass),
+					zap.Int("retried_ops", retriedCount))
+			}
+			break
+		}
+
+		if !progressed {
+			unresolved := make([]registry.ID, 0, len(deferred))
+			for _, op := range deferred {
+				unresolved = append(unresolved, op.Entry.ID)
+			}
+			finalErr := NewUnresolvedDependenciesError(unresolved, lastDeferErr)
+			br.log.Warn("operations rejected after retries",
+				zap.Int("passes", pass),
+				zap.Strings("unresolved", idStrings(unresolved)),
+				zap.Error(finalErr))
+			rolled := br.rollback(ctx, originalState, currentState)
+			if discardErr := br.dispatchTransaction(ctx, txParticipants, registry.TxDiscard, txPath, finalErr); discardErr != nil {
+				br.log.Error("failed to discard transaction", zap.Error(discardErr))
+			}
+			return stateMapToSlice(rolled), finalErr
+		}
+
+		remaining = deferred
 	}
 
 	if err := br.dispatchTransaction(ctx, txParticipants, registry.TxCommit, txPath, nil); err != nil {
@@ -134,6 +213,35 @@ func (br *BusRunner) Transition(
 	}
 
 	return stateMapToSlice(currentState), nil
+}
+
+// isDeferrable reports whether a failed operation can be retried after the
+// rest of the changeset has been dispatched. Listener errors are wrapped by
+// NewOperationRejectedError as apierror.Invalid with the original error
+// chained as Cause, so the unwrap walk inspects every layer and returns true
+// if any of them carries apierror.NotFound.
+func isDeferrable(err error) bool {
+	cur := err
+	for cur != nil {
+		var apiErr apierror.Error
+		if errors.As(cur, &apiErr) {
+			if apiErr.Kind() == apierror.NotFound {
+				return true
+			}
+			cur = errors.Unwrap(apiErr)
+			continue
+		}
+		cur = errors.Unwrap(cur)
+	}
+	return false
+}
+
+func idStrings(ids []registry.ID) []string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = id.String()
+	}
+	return out
 }
 
 func (br *BusRunner) nextTransactionPath() event.Path {

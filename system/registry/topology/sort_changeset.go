@@ -21,6 +21,15 @@ func (b *StateBuilder) SortChangeSet(fromState registry.State, changeSet registr
 		return changeSet, nil
 	}
 
+	// Defense in depth: operate on a copy normalized to a stable lexicographic
+	// order before computing constraint indexes. stableTopologicalOrder breaks
+	// ties between independent operations by their index in changeSet, so a
+	// caller passing the same logical set in different orders would otherwise
+	// produce different output. Normalizing here makes SortChangeSet
+	// input-order-invariant regardless of how upstream code populates its
+	// slices.
+	changeSet = sortChangeSetInputForStableOrder(changeSet)
+
 	constraints := make(map[int]map[int]struct{})
 	addConstraint := func(before, after int) {
 		if before == after {
@@ -217,6 +226,26 @@ func appendSortedInt(values []int, value int) []int {
 	copy(values[pos+1:], values[pos:])
 	values[pos] = value
 	return values
+}
+
+// sortChangeSetInputForStableOrder returns a copy of changeSet sorted by
+// (entry.ID.NS, entry.ID.Name, kind). The output of SortChangeSet uses element
+// indexes to break topological-sort ties, so without this normalization the
+// caller's slice order leaks into the sorted result.
+func sortChangeSetInputForStableOrder(changeSet registry.ChangeSet) registry.ChangeSet {
+	normalized := make(registry.ChangeSet, len(changeSet))
+	copy(normalized, changeSet)
+	sort.SliceStable(normalized, func(i, j int) bool {
+		a, b := normalized[i].Entry.ID, normalized[j].Entry.ID
+		if a.NS != b.NS {
+			return a.NS < b.NS
+		}
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		return normalized[i].Kind < normalized[j].Kind
+	})
+	return normalized
 }
 
 // fallbackSortChangeSet keeps SortChangeSet's historical no-error behavior for

@@ -101,7 +101,7 @@ func toFloat64(v any) float64 {
 		return float64(rv.Uint())
 	case reflect.Float32, reflect.Float64:
 		return rv.Float()
-	case reflect.Invalid, reflect.Bool, reflect.String, reflect.Chan, reflect.Func, reflect.Ptr,
+	case reflect.Invalid, reflect.Bool, reflect.String, reflect.Chan, reflect.Func, reflect.Pointer,
 		reflect.Interface, reflect.Array, reflect.Map, reflect.Slice, reflect.Struct,
 		reflect.UnsafePointer, reflect.Uintptr, reflect.Complex64, reflect.Complex128:
 		return 0
