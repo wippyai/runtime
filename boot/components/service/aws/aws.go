@@ -31,6 +31,7 @@ func AWS() boot.Component {
 
 			if reg := regapi.GetRegistry(ctx); reg != nil {
 				awsPatterns := []regapi.DependencyPattern{
+					{Path: "data.region_env", Description: "Env variable holding the AWS region"},
 					{Path: "data.access_key_id_env", Description: "Env variable holding the AWS access key ID"},
 					{Path: "data.secret_access_key_env", Description: "Env variable holding the AWS secret access key"},
 				}
