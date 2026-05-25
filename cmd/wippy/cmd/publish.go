@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/Masterminds/semver/v3"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -666,6 +667,13 @@ func NewPublishClientError(registryURL string, cause error) error {
 }
 
 func NewPublishInitiateError(registryURL string, cause error) error {
+	// Surface a hub quota refusal up-front instead of burying it behind
+	// "failed to initiate publish ... resource_exhausted ...". The hub
+	// already returns the actionable reason ("Private-module quota
+	// exhausted (5 of 5). Ask an admin ..."); just relabel the prefix.
+	if connect.CodeOf(cause) == connect.CodeResourceExhausted {
+		return fmt.Errorf("quota exceeded on %s: %w", registryURL, cause)
+	}
 	return fmt.Errorf("failed to initiate publish on %s: %w", registryURL, cause)
 }
 

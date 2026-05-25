@@ -280,7 +280,7 @@ func TestExtractWappToDirRestoresEmbeddedFilesystem(t *testing.T) {
 	}})
 
 	targetDir := filepath.Join(vendorDir, "ui")
-	if err := ExtractWappToDir(wappPath, targetDir, projectRoot); err != nil {
+	if err := ExtractWappToDir(wappPath, targetDir); err != nil {
 		t.Fatalf("ExtractWappToDir failed: %v", err)
 	}
 
@@ -304,6 +304,7 @@ func TestExtractWappToDirRestoresEmbeddedFilesystem(t *testing.T) {
 			Name      string `yaml:"name"`
 			Kind      string `yaml:"kind"`
 			Directory string `yaml:"directory"`
+			Base      string `yaml:"base"`
 		} `yaml:"entries"`
 	}
 	indexData, err := os.ReadFile(filepath.Join(targetDir, "_index.yaml"))
@@ -314,7 +315,6 @@ func TestExtractWappToDirRestoresEmbeddedFilesystem(t *testing.T) {
 		t.Fatalf("parse extracted index: %v", err)
 	}
 
-	wantDir := filepath.Join(".wippy", "vendor", "acme", "ui", "static_fs")
 	for _, entry := range index.Entries {
 		if entry.Name != "static_fs" {
 			continue
@@ -322,8 +322,11 @@ func TestExtractWappToDirRestoresEmbeddedFilesystem(t *testing.T) {
 		if entry.Kind != "fs.directory" {
 			t.Fatalf("extracted kind = %q, want fs.directory", entry.Kind)
 		}
-		if entry.Directory != wantDir {
-			t.Fatalf("extracted directory = %q, want %q", entry.Directory, wantDir)
+		if entry.Directory != "static_fs" {
+			t.Fatalf("extracted directory = %q, want %q", entry.Directory, "static_fs")
+		}
+		if entry.Base != "module" {
+			t.Fatalf("extracted base = %q, want %q", entry.Base, "module")
 		}
 		return
 	}

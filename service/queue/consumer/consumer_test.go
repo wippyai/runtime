@@ -928,10 +928,10 @@ func TestConsumer_StressHighThroughput(t *testing.T) {
 	}
 
 	assert.Eventually(t, func() bool {
-		return processedCount.Load() == messageCount
-	}, 30*time.Second, 10*time.Millisecond, "all messages should be processed")
+		return ackCount.Load() == messageCount
+	}, 30*time.Second, 10*time.Millisecond, "all messages should be acked")
 
-	assert.Equal(t, int64(messageCount), ackCount.Load(), "all messages should be acked")
+	assert.Equal(t, int64(messageCount), processedCount.Load(), "all messages should be processed")
 
 	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

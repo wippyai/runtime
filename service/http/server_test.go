@@ -237,13 +237,41 @@ func TestServerService_RouterOperations(t *testing.T) {
 
 		// Verify the mount path is stored
 		assert.Equal(t, "/static", server.mountPaths[mountID])
+		assert.NotNil(t, server.mountHandlers[mountID])
+
+		// Re-mounting the same entry at the same path is an update, not a conflict.
+		err = server.Mount(mountID, "/static", http.FileServer(http.Dir(tempDir)))
+		require.NoError(t, err)
+
+		// Moving the same entry to a new path releases the old mount.
+		err = server.Mount(mountID, "/assets", http.FileServer(http.Dir(tempDir)))
+		require.NoError(t, err)
+		assert.Equal(t, "/assets", server.mountPaths[mountID])
+
+		// Different entries still cannot claim the same path.
+		otherID := registry.NewID("test", "static2")
+		err = server.Mount(otherID, "/assets", http.FileServer(http.Dir(tempDir)))
+		require.Error(t, err)
+		assert.Equal(t, "/assets", server.mountPaths[mountID])
+
+		// Failed move to an occupied path rolls back the original entry mount.
+		err = server.Mount(otherID, "/occupied", http.FileServer(http.Dir(tempDir)))
+		require.NoError(t, err)
+		err = server.Mount(mountID, "/occupied", http.FileServer(http.Dir(tempDir)))
+		require.Error(t, err)
+		assert.Equal(t, "/assets", server.mountPaths[mountID])
+		assert.Equal(t, "/occupied", server.mountPaths[otherID])
 
 		// Now unmount
 		err = server.Remove(mountID)
 		require.NoError(t, err)
+		err = server.Remove(otherID)
+		require.NoError(t, err)
 
 		// Verify the mapping is removed
 		_, exists := server.mountPaths[mountID]
+		assert.False(t, exists)
+		_, exists = server.mountHandlers[mountID]
 		assert.False(t, exists)
 
 		// Try unmounting non-existent handler
