@@ -81,3 +81,16 @@ entries:
       - fs
     imports:
       assert2: app.lib:assert
+
+  - name: module_directory
+    kind: function.lua
+    meta:
+      type: test
+      suite: fs
+      description: Module-owned fs.directory resolves relative path against module source root
+    source: file://module_directory.lua
+    method: main
+    modules:
+      - fs
+    imports:
+      assert2: app.lib:assert

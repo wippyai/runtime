@@ -49,6 +49,7 @@ type ServerService struct {
 	statusChan    chan any
 	server        *http.Server
 	mountPaths    map[registry.ID]string
+	mountHandlers map[registry.ID]http.Handler
 	routeMgr      *RouteManager
 	config        *config.ServerConfig
 	id            registry.ID
@@ -70,6 +71,7 @@ func NewServerService(id registry.ID, cfg *config.ServerConfig, middleware Middl
 		routeMgr:      routeManager,
 		statusChan:    make(chan any, StatusBuffer),
 		mountPaths:    make(map[registry.ID]string),
+		mountHandlers: make(map[registry.ID]http.Handler),
 		middlewareFac: middleware,
 	}, nil
 }
@@ -150,12 +152,38 @@ func (s *ServerService) Mount(id registry.ID, path string, handler http.Handler)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if oldPath, exists := s.mountPaths[id]; exists {
+		if oldPath == path {
+			if err := s.routeMgr.ReplaceMount(path, handler); err != nil {
+				return err
+			}
+			s.mountHandlers[id] = handler
+			return nil
+		}
+
+		oldHandler := s.mountHandlers[id]
+		if err := s.routeMgr.Unmount(oldPath); err != nil {
+			return err
+		}
+		if err := s.routeMgr.Mount(path, handler); err != nil {
+			if oldHandler != nil {
+				_ = s.routeMgr.Mount(oldPath, oldHandler)
+			}
+			return err
+		}
+
+		s.mountPaths[id] = path
+		s.mountHandlers[id] = handler
+		return nil
+	}
+
 	if err := s.routeMgr.Mount(path, handler); err != nil {
 		return err
 	}
 
 	// Store path mapping for later unmount
 	s.mountPaths[id] = path
+	s.mountHandlers[id] = handler
 	return nil
 }
 
@@ -175,6 +203,7 @@ func (s *ServerService) Remove(id registry.ID) error {
 
 	// Clean up the mapping
 	delete(s.mountPaths, id)
+	delete(s.mountHandlers, id)
 	return nil
 }
 

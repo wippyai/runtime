@@ -73,6 +73,24 @@ func TestRouteManager_BasicOperations(t *testing.T) {
 		err = rm.Mount("/static", http.FileServer(http.Dir(".")))
 		assert.Error(t, err)
 
+		// Replace existing mount in place
+		replacement := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte("replacement"))
+		})
+		err = rm.ReplaceMount("/static", replacement)
+		require.NoError(t, err)
+		rec := httptest.NewRecorder()
+		rm.mounts["/static"].ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/app.js", nil))
+		assert.Equal(t, "replacement", rec.Body.String())
+
+		// Replace validates paths and only updates existing mounts
+		err = rm.ReplaceMount("", replacement)
+		assert.Error(t, err)
+		err = rm.ReplaceMount("static", replacement)
+		assert.Error(t, err)
+		err = rm.ReplaceMount("/missing", replacement)
+		assert.Error(t, err)
+
 		// Unmount
 		err = rm.Unmount("/static")
 		require.NoError(t, err)
