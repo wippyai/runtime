@@ -280,7 +280,7 @@ func TestExtractWappToDirRestoresEmbeddedFilesystem(t *testing.T) {
 	}})
 
 	targetDir := filepath.Join(vendorDir, "ui")
-	if err := ExtractWappToDir(wappPath, targetDir, projectRoot); err != nil {
+	if err := ExtractWappToDir(wappPath, targetDir); err != nil {
 		t.Fatalf("ExtractWappToDir failed: %v", err)
 	}
 
@@ -304,6 +304,7 @@ func TestExtractWappToDirRestoresEmbeddedFilesystem(t *testing.T) {
 			Name      string `yaml:"name"`
 			Kind      string `yaml:"kind"`
 			Directory string `yaml:"directory"`
+			Base      string `yaml:"base"`
 		} `yaml:"entries"`
 	}
 	indexData, err := os.ReadFile(filepath.Join(targetDir, "_index.yaml"))
@@ -314,7 +315,6 @@ func TestExtractWappToDirRestoresEmbeddedFilesystem(t *testing.T) {
 		t.Fatalf("parse extracted index: %v", err)
 	}
 
-	wantDir := filepath.Join(".wippy", "vendor", "acme", "ui", "static_fs")
 	for _, entry := range index.Entries {
 		if entry.Name != "static_fs" {
 			continue
@@ -322,8 +322,11 @@ func TestExtractWappToDirRestoresEmbeddedFilesystem(t *testing.T) {
 		if entry.Kind != "fs.directory" {
 			t.Fatalf("extracted kind = %q, want fs.directory", entry.Kind)
 		}
-		if entry.Directory != wantDir {
-			t.Fatalf("extracted directory = %q, want %q", entry.Directory, wantDir)
+		if entry.Directory != "static_fs" {
+			t.Fatalf("extracted directory = %q, want %q", entry.Directory, "static_fs")
+		}
+		if entry.Base != "module" {
+			t.Fatalf("extracted base = %q, want %q", entry.Base, "module")
 		}
 		return
 	}
@@ -917,7 +920,7 @@ entries:
 	}
 }
 
-func TestLoadEntriesFromModuleLoadPaths_DoesNotApplySourceModuleExcludesToReplacements(t *testing.T) {
+func TestLoadEntriesFromModuleLoadPaths_AppliesSourceModuleExcludesToReplacements(t *testing.T) {
 	ctx := setupTestContext(t)
 	logger := zap.NewNop()
 	tmpDir := t.TempDir()
@@ -944,6 +947,10 @@ entries:
       type: test
     source: |
       return {}
+  - name: real_handler
+    kind: function.lua
+    source: |
+      return {}
 `
 	if err := os.WriteFile(filepath.Join(moduleDir, "_index.yaml"), []byte(moduleYAML), 0o644); err != nil {
 		t.Fatalf("write module _index.yaml: %v", err)
@@ -956,16 +963,103 @@ entries:
 		t.Fatalf("LoadEntriesFromModuleLoadPaths failed: %v", err)
 	}
 
+	found := map[string]regapi.Entry{}
 	for _, entry := range entries {
-		if entry.ID.String() != "userspace.dataflow:local_test" {
+		found[entry.ID.String()] = entry
+	}
+	if _, ok := found["userspace.dataflow:local_test"]; ok {
+		t.Fatalf("replacement leaked excluded meta.type=test entry")
+	}
+	real, ok := found["userspace.dataflow:real_handler"]
+	if !ok {
+		t.Fatalf("non-excluded module entry missing")
+	}
+	if got := real.Meta.GetString("module", ""); got != "wippy/dataflow" {
+		t.Fatalf("module meta = %q, want wippy/dataflow", got)
+	}
+}
+
+// Mirrors the reported bug: a replacement points at a module's source tree
+// that ships a test/_index.yaml defining entries under a namespace the host
+// also uses. Without manifest filtering, the test fixture and the host's real
+// entry collide; with filtering, only the host entry survives.
+func TestLoadEntriesFromModuleLoadPaths_ReplacementHostCollisionFiltered(t *testing.T) {
+	ctx := setupTestContext(t)
+	logger := zap.NewNop()
+	tmpDir := t.TempDir()
+
+	moduleDir := filepath.Join(tmpDir, "facade-src")
+	if err := os.MkdirAll(filepath.Join(moduleDir, "test"), 0o755); err != nil {
+		t.Fatalf("mkdir module + test dir: %v", err)
+	}
+	moduleConfig := `organization: wippy
+module: facade
+exclude:
+  - "app:**"
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, "wippy.yaml"), []byte(moduleConfig), 0o644); err != nil {
+		t.Fatalf("write module config: %v", err)
+	}
+	moduleYAML := `version: "1.0"
+namespace: wippy.facade
+entries:
+  - name: real_handler
+    kind: function.lua
+    source: |
+      return {}
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, "_index.yaml"), []byte(moduleYAML), 0o644); err != nil {
+		t.Fatalf("write module _index.yaml: %v", err)
+	}
+	testFixtureYAML := `version: "1.0"
+namespace: app
+entries:
+  - name: gateway
+    kind: http.service
+    addr: :19085
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, "test", "_index.yaml"), []byte(testFixtureYAML), 0o644); err != nil {
+		t.Fatalf("write module test fixture: %v", err)
+	}
+
+	appDir := filepath.Join(tmpDir, "app")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatalf("mkdir app dir: %v", err)
+	}
+	hostYAML := `version: "1.0"
+namespace: app
+entries:
+  - name: gateway
+    kind: http.service
+    addr: :8086
+`
+	if err := os.WriteFile(filepath.Join(appDir, "_index.yaml"), []byte(hostYAML), 0o644); err != nil {
+		t.Fatalf("write host app _index.yaml: %v", err)
+	}
+
+	entries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+		{Path: appDir},
+		{Path: moduleDir, Module: "wippy/facade"},
+	}, logger)
+	if err != nil {
+		t.Fatalf("LoadEntriesFromModuleLoadPaths failed: %v", err)
+	}
+
+	gatewayCount := 0
+	var gateway regapi.Entry
+	for _, entry := range entries {
+		if entry.ID.String() != "app:gateway" {
 			continue
 		}
-		if got := entry.Meta.GetString("module", ""); got != "wippy/dataflow" {
-			t.Fatalf("module meta = %q, want wippy/dataflow", got)
-		}
-		return
+		gatewayCount++
+		gateway = entry
 	}
-	t.Fatalf("replacement test entry was filtered")
+	if gatewayCount != 1 {
+		t.Fatalf("app:gateway count = %d, want 1 (collision not filtered)", gatewayCount)
+	}
+	if got := gateway.Meta.GetString("module", ""); got != "" {
+		t.Fatalf("app:gateway tagged with module=%q, want host (untagged) entry to win", got)
+	}
 }
 
 func TestNormalizeEntries_PreLinkOverrideAffectsRequirementDefaults(t *testing.T) {

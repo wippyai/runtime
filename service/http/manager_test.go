@@ -534,8 +534,48 @@ func TestManager_StaticOperations(t *testing.T) {
 	// Verify pending server rebuild
 	assert.True(t, manager.pending[serverID])
 
+	// Updating the same static entry must replace the entry-owned mount in place.
+	err = manager.Update(ctx, staticEntry)
+	require.NoError(t, err)
+
+	// Updating the same static entry can move the mount path.
+	movedStaticCfg := *staticCfg
+	movedStaticCfg.Path = "/assets"
+	staticEntry.Data = payload.New(&movedStaticCfg)
+	err = manager.Update(ctx, staticEntry)
+	require.NoError(t, err)
+
+	server := manager.servers[serverID].(*ServerService)
+	assert.Equal(t, "/assets", server.mountPaths[staticID])
+
+	// A different static entry cannot claim the same mount path.
+	otherStaticEntry := apiregistry.Entry{
+		ID:   apiregistry.NewID("test", "static2"),
+		Kind: config.Static,
+		Data: payload.New(&movedStaticCfg),
+	}
+	err = manager.Add(ctx, otherStaticEntry)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mount path already exists")
+
+	// Failed path move leaves the previous static mount intact.
+	otherStaticCfg := *staticCfg
+	otherStaticCfg.Path = "/occupied"
+	otherStaticEntry.Data = payload.New(&otherStaticCfg)
+	err = manager.Add(ctx, otherStaticEntry)
+	require.NoError(t, err)
+	conflictingStaticCfg := movedStaticCfg
+	conflictingStaticCfg.Path = "/occupied"
+	staticEntry.Data = payload.New(&conflictingStaticCfg)
+	err = manager.Update(ctx, staticEntry)
+	require.Error(t, err)
+	assert.Equal(t, "/assets", server.mountPaths[staticID])
+	assert.Equal(t, "/occupied", server.mountPaths[otherStaticEntry.ID])
+
 	// Delete static handler
 	err = manager.Delete(ctx, staticEntry)
+	require.NoError(t, err)
+	err = manager.Delete(ctx, otherStaticEntry)
 	require.NoError(t, err)
 }
 

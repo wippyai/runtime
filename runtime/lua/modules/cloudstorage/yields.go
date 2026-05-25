@@ -4,6 +4,7 @@ package cloudstorage
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"sync"
 	"time"
@@ -12,6 +13,22 @@ import (
 	csapi "github.com/wippyai/runtime/api/cloudstorage"
 	"github.com/wippyai/runtime/api/dispatcher"
 )
+
+// wrapStorageError translates known cloudstorage errors into structured Lua errors.
+// Unknown errors fall back to lua.WrapErrorWithLua.
+func wrapStorageError(l *lua.LState, err error, op string) lua.LValue {
+	if errors.Is(err, csapi.ErrPreconditionFailed) {
+		return lua.NewLuaError(l, "precondition_failed").
+			WithKind(lua.Conflict).
+			WithRetryable(false)
+	}
+	if errors.Is(err, csapi.ErrNotFound) {
+		return lua.NewLuaError(l, "not_found").
+			WithKind(lua.NotFound).
+			WithRetryable(false)
+	}
+	return lua.WrapErrorWithLua(l, err, op)
+}
 
 // ListObjectsYield wraps ListObjectsCmd for Lua.
 type ListObjectsYield struct {
@@ -42,14 +59,14 @@ func (y *ListObjectsYield) Release()                      { ReleaseListObjectsYi
 
 func (y *ListObjectsYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "list_objects")}
+		return []lua.LValue{lua.LNil, wrapStorageError(l, err, "list_objects")}
 	}
 	resp, ok := data.(csapi.ListObjectsResponse)
 	if !ok {
 		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
 	}
 	if resp.Error != nil {
-		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "list_objects")}
+		return []lua.LValue{lua.LNil, wrapStorageError(l, resp.Error, "list_objects")}
 	}
 	return []lua.LValue{listObjectsResultToLua(l, resp.Result), lua.LNil}
 }
@@ -59,11 +76,24 @@ func listObjectsResultToLua(l *lua.LState, result *csapi.ListObjectsResult) lua.
 
 	objects := l.CreateTable(len(result.Objects), 0)
 	for i, obj := range result.Objects {
-		objTbl := l.CreateTable(0, 4)
+		objTbl := l.CreateTable(0, 8)
 		objTbl.RawSetString("key", lua.LString(obj.Key))
 		objTbl.RawSetString("size", lua.LNumber(obj.Size))
 		objTbl.RawSetString("content_type", lua.LString(obj.ContentType))
 		objTbl.RawSetString("etag", lua.LString(obj.ETag))
+		objTbl.RawSetString("storage_class", lua.LString(obj.StorageClass))
+		if !obj.LastModified.IsZero() {
+			objTbl.RawSetString("last_modified", lua.LNumber(obj.LastModified.Unix()))
+		}
+		if obj.VersionID != "" {
+			objTbl.RawSetString("version_id", lua.LString(obj.VersionID))
+		}
+		if obj.Owner != nil {
+			ownerTbl := l.CreateTable(0, 2)
+			ownerTbl.RawSetString("id", lua.LString(obj.Owner.ID))
+			ownerTbl.RawSetString("display_name", lua.LString(obj.Owner.DisplayName))
+			objTbl.RawSetString("owner", ownerTbl)
+		}
 		objects.RawSetInt(i+1, objTbl)
 	}
 	t.RawSetString("objects", objects)
@@ -107,14 +137,14 @@ func (y *DownloadObjectYield) Release() { ReleaseDownloadObjectYield(y) }
 
 func (y *DownloadObjectYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "download_object")}
+		return []lua.LValue{lua.LNil, wrapStorageError(l, err, "download_object")}
 	}
 	resp, ok := data.(csapi.DownloadObjectResponse)
 	if !ok {
 		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
 	}
 	if resp.Error != nil {
-		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "download_object")}
+		return []lua.LValue{lua.LNil, wrapStorageError(l, resp.Error, "download_object")}
 	}
 	return []lua.LValue{lua.LTrue}
 }
@@ -160,14 +190,14 @@ func (y *UploadObjectYield) Release() { ReleaseUploadObjectYield(y) }
 
 func (y *UploadObjectYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
-		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, err, "upload_object")}
+		return []lua.LValue{lua.LNil, wrapStorageError(l, err, "upload_object")}
 	}
 	resp, ok := data.(csapi.UploadObjectResponse)
 	if !ok {
 		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
 	}
 	if resp.Error != nil {
-		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "upload_object")}
+		return []lua.LValue{lua.LNil, wrapStorageError(l, resp.Error, "upload_object")}
 	}
 	return []lua.LValue{lua.LTrue, lua.LNil}
 }
@@ -317,4 +347,73 @@ func (y *PresignedPutURLYield) HandleResult(l *lua.LState, data any, err error) 
 		return []lua.LValue{lua.LNil, lua.WrapErrorWithLua(l, resp.Error, "presigned_put_url")}
 	}
 	return []lua.LValue{lua.LString(resp.URL), lua.LNil}
+}
+
+// HeadObjectYield wraps HeadObjectCmd for Lua.
+type HeadObjectYield struct {
+	*csapi.HeadObjectCmd
+}
+
+var headObjectYieldPool = sync.Pool{New: func() any { return &HeadObjectYield{} }}
+
+func AcquireHeadObjectYield() *HeadObjectYield {
+	y := headObjectYieldPool.Get().(*HeadObjectYield)
+	y.HeadObjectCmd = csapi.AcquireHeadObjectCmd()
+	return y
+}
+
+func ReleaseHeadObjectYield(y *HeadObjectYield) {
+	if y.HeadObjectCmd != nil {
+		y.HeadObjectCmd.Release()
+		y.HeadObjectCmd = nil
+	}
+	headObjectYieldPool.Put(y)
+}
+
+func (y *HeadObjectYield) String() string                { return "<cloudstorage_head_object_yield>" }
+func (y *HeadObjectYield) Type() lua.LValueType          { return lua.LTUserData }
+func (y *HeadObjectYield) CmdID() dispatcher.CommandID   { return csapi.HeadObject }
+func (y *HeadObjectYield) ToCommand() dispatcher.Command { return y.HeadObjectCmd }
+func (y *HeadObjectYield) Release()                      { ReleaseHeadObjectYield(y) }
+
+func (y *HeadObjectYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, wrapStorageError(l, err, "head_object")}
+	}
+	resp, ok := data.(csapi.HeadObjectResponse)
+	if !ok {
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "invalid response type").WithKind(lua.Internal)}
+	}
+	if resp.Error != nil {
+		return []lua.LValue{lua.LNil, wrapStorageError(l, resp.Error, "head_object")}
+	}
+	return []lua.LValue{headObjectResultToLua(l, resp.Result), lua.LNil}
+}
+
+func headObjectResultToLua(l *lua.LState, result *csapi.HeadObjectResult) lua.LValue {
+	t := l.CreateTable(0, 10)
+	t.RawSetString("size", lua.LNumber(result.Size))
+	t.RawSetString("etag", lua.LString(result.ETag))
+	t.RawSetString("content_type", lua.LString(result.ContentType))
+	t.RawSetString("cache_control", lua.LString(result.CacheControl))
+	t.RawSetString("content_disposition", lua.LString(result.ContentDisposition))
+	t.RawSetString("content_encoding", lua.LString(result.ContentEncoding))
+	t.RawSetString("storage_class", lua.LString(result.StorageClass))
+	if result.VersionID != "" {
+		t.RawSetString("version_id", lua.LString(result.VersionID))
+	}
+	if !result.LastModified.IsZero() {
+		t.RawSetString("last_modified", lua.LNumber(result.LastModified.Unix()))
+	}
+	metaTbl := l.CreateTable(0, len(result.UserMetadata))
+	for k, v := range result.UserMetadata {
+		metaTbl.RawSetString(k, lua.LString(v))
+	}
+	t.RawSetString("metadata", metaTbl)
+	headersTbl := l.CreateTable(0, len(result.Headers))
+	for k, v := range result.Headers {
+		headersTbl.RawSetString(k, lua.LString(v))
+	}
+	t.RawSetString("headers", headersTbl)
+	return t
 }

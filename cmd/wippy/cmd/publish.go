@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/Masterminds/semver/v3"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -60,6 +61,10 @@ func init() {
 	publishCmd.Flags().String("config", ".", "path to directory containing wippy.yaml")
 	publishCmd.Flags().String("registry", "", "registry URL (default: from credentials)")
 	publishCmd.Flags().StringSlice("embed", nil, "embed fs.directory entries by id or name (default: none)")
+	publishCmd.Flags().Bool("create", false, "create the module on the registry if it does not yet exist")
+	publishCmd.Flags().String("module-visibility", "private", "visibility for newly created modules (--create only): public or private")
+	publishCmd.Flags().String("module-type", "application", "module type for newly created modules (--create only): library, application, agent or plugin")
+	publishCmd.Flags().String("module-display-name", "", "display name for newly created modules (--create only)")
 }
 
 func runPublish(cmd *cobra.Command, _ []string) error {
@@ -74,6 +79,10 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 	registryURL, _ := cmd.Flags().GetString("registry")
 	embedFlag, _ := cmd.Flags().GetStringSlice("embed")
 	embedChanged := cmd.Flags().Changed("embed")
+	createIfMissing, _ := cmd.Flags().GetBool("create")
+	moduleVisibility, _ := cmd.Flags().GetString("module-visibility")
+	moduleType, _ := cmd.Flags().GetString("module-type")
+	moduleDisplayName, _ := cmd.Flags().GetString("module-display-name")
 
 	cfg, err := config.Load(configDir)
 	if err != nil {
@@ -168,6 +177,40 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 	})
 	if err != nil {
 		return NewPublishClientError(registryURL, err)
+	}
+
+	if createIfMissing {
+		displayName := moduleDisplayName
+		if displayName == "" {
+			displayName = cfg.ModuleName
+		}
+		keywords := cfg.Keywords
+		if keywords == nil {
+			keywords = []string{}
+		}
+		registerCtx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+		regResult, regErr := client.RegisterModule(registerCtx, &hub.RegisterModuleParams{
+			Org:           cfg.Organization,
+			Name:          cfg.ModuleName,
+			DisplayName:   displayName,
+			Description:   cfg.Description,
+			ModuleType:    moduleType,
+			Visibility:    moduleVisibility,
+			License:       cfg.License,
+			Keywords:      keywords,
+			RepositoryURL: cfg.Repository,
+			HomepageURL:   cfg.Homepage,
+		})
+		cancel()
+		switch {
+		case regErr == nil:
+			printStatus(fmt.Sprintf("Registered module %s/%s (visibility=%s, type=%s)",
+				regResult.OrgName, regResult.Name, regResult.Visibility, regResult.ModuleType))
+		case errors.Is(regErr, hub.ErrModuleAlreadyExists):
+			printStatus(fmt.Sprintf("Module %s/%s already exists, skipping create", cfg.Organization, cfg.ModuleName))
+		default:
+			return fmt.Errorf("register module on %s: %w", registryURL, regErr)
+		}
 	}
 
 	params := &hub.PublishParams{
@@ -528,6 +571,13 @@ func NewPublishClientError(registryURL string, cause error) error {
 }
 
 func NewPublishInitiateError(registryURL string, cause error) error {
+	// Surface a hub quota refusal up-front instead of burying it behind
+	// "failed to initiate publish ... resource_exhausted ...". The hub
+	// already returns the actionable reason ("Private-module quota
+	// exhausted (5 of 5). Ask an admin ..."); just relabel the prefix.
+	if connect.CodeOf(cause) == connect.CodeResourceExhausted {
+		return fmt.Errorf("quota exceeded on %s: %w", registryURL, cause)
+	}
 	return fmt.Errorf("failed to initiate publish on %s: %w", registryURL, cause)
 }
 

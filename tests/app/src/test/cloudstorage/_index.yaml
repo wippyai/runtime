@@ -137,3 +137,46 @@ entries:
       - fs
     imports:
       assert_primitives: app.lib:assert
+
+  # head_object + metadata round-trip + conditional ops
+  - name: head
+    kind: function.lua
+    meta:
+      type: test
+      suite: cloudstorage
+      description: cloudstorage head_object, metadata round-trip, and conditional ops
+    source: file://head.lua
+    method: main
+    modules:
+      - cloudstorage
+      - fs
+    imports:
+      assert_primitives: app.lib:assert
+
+  # list_objects with include_versions on a versioned bucket
+  - name: versions
+    kind: function.lua
+    meta:
+      type: test
+      suite: cloudstorage
+      description: cloudstorage list_objects with include_versions against a versioned bucket
+    source: file://versions.lua
+    method: main
+    modules:
+      - cloudstorage
+    imports:
+      assert_primitives: app.lib:assert
+
+  # list_objects pagination via continuation_token
+  - name: pagination
+    kind: function.lua
+    meta:
+      type: test
+      suite: cloudstorage
+      description: cloudstorage list_objects pagination across multiple pages
+    source: file://pagination.lua
+    method: main
+    modules:
+      - cloudstorage
+    imports:
+      assert_primitives: app.lib:assert

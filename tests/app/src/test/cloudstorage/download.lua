@@ -49,6 +49,45 @@ local function main()
 	vol:remove("/cloudstorage_nonexistent.txt")
 	assert.is_nil(content2, "should not have content for non-existent file")
 	assert.not_nil(err3, "should have error for non-existent file")
+	assert.eq(err3:kind(), "NotFound", "missing key error should map to NotFound kind")
+
+	-- Range download: fetch only a slice of the object.
+	local big_body = "ABCDEFGHIJKLMNOPQRSTUVWXYZ" -- 26 bytes
+	storage:upload_object("download-test/range.txt", big_body)
+
+	local rfile, rferr = vol:open("/cloudstorage_range.txt", "w")
+	assert.is_nil(rferr, "should open range temp file")
+	local rok, rerr = storage:download_object("download-test/range.txt", rfile, { range = "bytes=0-4" })
+	rfile:close()
+	assert.is_nil(rerr, "range download should not error")
+	assert.eq(rok, true, "range download should return true")
+	local got_range = vol:readfile("/cloudstorage_range.txt")
+	assert.eq(got_range, "ABCDE", "range download should return the requested slice")
+	vol:remove("/cloudstorage_range.txt")
+
+	-- Suffix range: last 5 bytes.
+	local sfile, _ = vol:open("/cloudstorage_suffix.txt", "w")
+	local _, serr = storage:download_object("download-test/range.txt", sfile, { range = "bytes=-5" })
+	sfile:close()
+	assert.is_nil(serr, "suffix range download should not error")
+	local got_suffix = vol:readfile("/cloudstorage_suffix.txt")
+	assert.eq(got_suffix, "VWXYZ", "suffix range should return the last 5 bytes")
+	vol:remove("/cloudstorage_suffix.txt")
+
+	-- Range combined with conditional: matching if_match + range = success.
+	local h = storage:head_object("download-test/range.txt")
+	local cfile, _ = vol:open("/cloudstorage_cond_range.txt", "w")
+	local _, cerr = storage:download_object("download-test/range.txt", cfile, {
+		range = "bytes=10-14",
+		if_match = h.etag,
+	})
+	cfile:close()
+	assert.is_nil(cerr, "range + matching if_match should succeed")
+	local got_cond = vol:readfile("/cloudstorage_cond_range.txt")
+	assert.eq(got_cond, "KLMNO", "conditional range should return the requested slice")
+	vol:remove("/cloudstorage_cond_range.txt")
+
+	storage:delete_objects({"download-test/range.txt"})
 
 	-- Cleanup
 	storage:delete_objects({"download-test/hello.txt"})

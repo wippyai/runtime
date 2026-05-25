@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MPL-2.0
+
+version: "1.0"
+namespace: app.test.sigv4
+
+entries:
+  - name: signer
+    kind: function.lua
+    meta:
+      type: test
+      suite: sigv4
+      description: Native SigV4 signer matches AWS published test vectors
+    source: file://signer.lua
+    method: main
+    modules:
+      - hash
+    imports:
+      assert2: app.lib:assert
+      sigv4: app.lib:sigv4

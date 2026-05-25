@@ -36,6 +36,7 @@ var Module = &luaapi.ModuleDef{
 			{Sample: &DeleteObjectsYield{}, CmdID: csapi.DeleteObjects},
 			{Sample: &PresignedGetURLYield{}, CmdID: csapi.PresignedGetURL},
 			{Sample: &PresignedPutURLYield{}, CmdID: csapi.PresignedPutURL},
+			{Sample: &HeadObjectYield{}, CmdID: csapi.HeadObject},
 		}
 	},
 	Types: ModuleTypes,
@@ -51,6 +52,7 @@ type storageWrapper struct {
 
 var storageMethods = map[string]lua.LGoFunc{
 	"list_objects":      storageListObjects,
+	"head_object":       storageHeadObject,
 	"download_object":   storageDownloadObject,
 	"upload_object":     storageUploadObject,
 	"delete_objects":    storageDeleteObjects,
@@ -200,7 +202,40 @@ func storageListObjects(l *lua.LState) int {
 		if token := optsTable.RawGetString("continuation_token"); token != lua.LNil {
 			yield.Options.ContinuationToken = token.String()
 		}
+		if v := optsTable.RawGetString("include_owner"); v != lua.LNil {
+			yield.Options.IncludeOwner = lua.LVAsBool(v)
+		}
+		if v := optsTable.RawGetString("include_versions"); v != lua.LNil {
+			yield.Options.IncludeVersions = lua.LVAsBool(v)
+		}
 	}
+
+	l.Push(yield)
+	return -1
+}
+
+func storageHeadObject(l *lua.LState) int {
+	wrapper := checkStorage(l, 1)
+	if wrapper == nil {
+		return 0
+	}
+
+	if wrapper.released {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "storage has been released").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+
+	key := l.CheckString(2)
+	if key == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "key is required").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+
+	yield := AcquireHeadObjectYield()
+	yield.Storage = wrapper.storage
+	yield.Key = key
 
 	l.Push(yield)
 	return -1
@@ -247,6 +282,12 @@ func storageDownloadObject(l *lua.LState) int {
 		if rang := optsTable.RawGetString("range"); rang != lua.LNil {
 			yield.Options.Range = rang.String()
 		}
+		if v := optsTable.RawGetString("if_match"); v != lua.LNil {
+			yield.Options.IfMatch = v.String()
+		}
+		if v := optsTable.RawGetString("if_none_match"); v != lua.LNil {
+			yield.Options.IfNoneMatch = v.String()
+		}
 	}
 
 	l.Push(yield)
@@ -283,6 +324,56 @@ func storageUploadObject(l *lua.LState) int {
 	yield.Storage = wrapper.storage
 	yield.Key = key
 	yield.Content = content
+
+	if l.Get(4) != lua.LNil {
+		optsTable := l.CheckTable(4)
+		uo := &csapi.UploadOptions{}
+
+		if v := optsTable.RawGetString("content_type"); v != lua.LNil {
+			uo.ContentType = v.String()
+		}
+		if v := optsTable.RawGetString("cache_control"); v != lua.LNil {
+			uo.CacheControl = v.String()
+		}
+		if v := optsTable.RawGetString("content_disposition"); v != lua.LNil {
+			uo.ContentDisposition = v.String()
+		}
+		if v := optsTable.RawGetString("content_encoding"); v != lua.LNil {
+			uo.ContentEncoding = v.String()
+		}
+		if v := optsTable.RawGetString("if_match"); v != lua.LNil {
+			uo.IfMatch = v.String()
+		}
+		if v := optsTable.RawGetString("if_none_match"); v != lua.LNil {
+			uo.IfNoneMatch = v.String()
+		}
+		// only_if_absent is a Lua-friendly alias for if_none_match = "*".
+		// When true it wins over an explicit if_none_match string.
+		if v := optsTable.RawGetString("only_if_absent"); v != lua.LNil && lua.LVAsBool(v) {
+			uo.IfNoneMatch = "*"
+		}
+		if v := optsTable.RawGetString("metadata"); v != lua.LNil {
+			if mt, ok := v.(*lua.LTable); ok {
+				uo.Metadata = make(map[string]string, mt.Len())
+				mt.ForEach(func(k, mv lua.LValue) {
+					if ks, kok := k.(lua.LString); kok {
+						uo.Metadata[string(ks)] = mv.String()
+					}
+				})
+			}
+		}
+		if v := optsTable.RawGetString("headers"); v != lua.LNil {
+			if ht, ok := v.(*lua.LTable); ok {
+				uo.Headers = make(map[string]string, ht.Len())
+				ht.ForEach(func(k, hv lua.LValue) {
+					if ks, kok := k.(lua.LString); kok {
+						uo.Headers[string(ks)] = hv.String()
+					}
+				})
+			}
+		}
+		yield.Options = uo
+	}
 
 	l.Push(yield)
 	return -1
