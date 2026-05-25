@@ -4,7 +4,10 @@ package boot
 
 import (
 	"context"
+	"os"
+	"strings"
 
+	"github.com/google/uuid"
 	"github.com/wippyai/runtime/api/boot"
 	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
@@ -103,7 +106,7 @@ func createEventInfrastructure(ctx context.Context, logger *zap.Logger, bus even
 func createRelayInfrastructure(ctx context.Context, bus event.Bus, cfg boot.Config) (context.Context, *relay.NodeManager, *relay.PeerManager) {
 	logger := logapi.GetLogger(ctx)
 
-	nodeName := "local"
+	nodeName := defaultNodeName()
 	if cfg != nil {
 		if name := cfg.Sub("relay").GetString("node_name", ""); name != "" {
 			nodeName = name
@@ -119,6 +122,26 @@ func createRelayInfrastructure(ctx context.Context, bus event.Bus, cfg boot.Conf
 	ctx = relayapi.WithRouter(ctx, router)
 
 	return ctx, nodeManager, peerManager
+}
+
+func defaultNodeName() string {
+	for _, key := range []string{"WIPPY_NODE_ID", "WIPPY_RELAY_NODE_NAME"} {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			return v
+		}
+	}
+
+	if raw, err := os.ReadFile("/etc/machine-id"); err == nil {
+		if id := strings.TrimSpace(string(raw)); id != "" {
+			return uuid.NewSHA1(uuid.NameSpaceOID, []byte("wippy-node:"+id)).String()
+		}
+	}
+
+	if host, err := os.Hostname(); err == nil && strings.TrimSpace(host) != "" {
+		return uuid.NewSHA1(uuid.NameSpaceDNS, []byte("wippy-node:"+strings.TrimSpace(host))).String()
+	}
+
+	return uuid.New().String()
 }
 
 // createHosts sets up control and function hosts

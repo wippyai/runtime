@@ -100,6 +100,35 @@ func TestNewBootstrapContext(t *testing.T) {
 		require.NotNil(t, node)
 	})
 
+	t.Run("uses WIPPY_NODE_ID when relay node name is not configured", func(t *testing.T) {
+		t.Setenv("WIPPY_NODE_ID", "node-from-env")
+		logger := zap.NewExample()
+
+		ctx, err := NewBootstrapContext(logger, nil)
+		require.NoError(t, err)
+
+		node := relayapi.GetNode(ctx)
+		require.NotNil(t, node)
+		assert.Equal(t, "node-from-env", string(node.ID()))
+	})
+
+	t.Run("config relay node name overrides WIPPY_NODE_ID", func(t *testing.T) {
+		t.Setenv("WIPPY_NODE_ID", "node-from-env")
+		logger := zap.NewExample()
+		cfg := boot.NewConfig(
+			boot.WithSection("relay", map[string]any{
+				"node_name": "custom-node",
+			}),
+		)
+
+		ctx, err := NewBootstrapContext(logger, cfg)
+		require.NoError(t, err)
+
+		node := relayapi.GetNode(ctx)
+		require.NotNil(t, node)
+		assert.Equal(t, "custom-node", string(node.ID()))
+	})
+
 	t.Run("configures custom supervisor host settings", func(t *testing.T) {
 		logger := zap.NewExample()
 		cfg := boot.NewConfig(
