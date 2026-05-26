@@ -49,7 +49,7 @@ func (m *subscribeContext) add(topic string, bufSize int) (*subscription, error)
 // addExisting registers an externally-owned channel for a topic.
 // Used by modules that manage their own channel lifecycle (websocket, timer, etc.).
 // Returns error if topic already has a different channel subscribed.
-func (m *subscribeContext) addExisting(topic string, ch *Channel) (*subscription, error) {
+func (m *subscribeContext) addExisting(topic string, ch *Channel, overflowClose bool) (*subscription, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -61,6 +61,7 @@ func (m *subscribeContext) addExisting(topic string, ch *Channel) (*subscription
 	}
 
 	sub := m.newSubscriptionLocked(topic, ch)
+	sub.overflowClose = overflowClose
 	m.byTopic[topic] = sub
 	m.byChannel[ch] = topic
 	return sub, nil
@@ -153,6 +154,14 @@ type subscription struct {
 	id          uint64
 	gen         atomic.Uint64
 	cleanupOnce sync.Once
+	// overflowClose marks a producer-fed ordered stream (websocket) where a
+	// full bounded buffer with no waiting receiver must reclaim the
+	// subscription rather than retaining the message in messageQueue. Silent
+	// unbounded buffering on an ordered stream is not acceptable, so
+	// deliverMessage closes the channel and fires the producer-stop cleanup
+	// on overflow. System rendezvous topics (@pid/inbox, @pid/events) leave
+	// this false and keep their retry-in-queue semantics.
+	overflowClose bool
 }
 
 func (s *subscription) callCleanup() {

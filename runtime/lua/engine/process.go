@@ -143,13 +143,26 @@ func (p *Process) Subscribe(topic string, bufSize int) (*Channel, error) {
 }
 
 // SubscribeExisting registers an externally-owned channel for a topic.
-// Used by modules that manage their own channel lifecycle (websocket, timer, etc.).
+// Used by modules that manage their own channel lifecycle (events, timer, etc.).
 // Returns error if topic already has a different channel subscribed.
 func (p *Process) SubscribeExisting(topic string, ch *Channel) error {
 	if p.subs == nil {
 		return runtimelua.ErrProcessContextNotAvailable
 	}
-	_, err := p.subs.addExisting(topic, ch)
+	_, err := p.subs.addExisting(topic, ch, false)
+	return err
+}
+
+// SubscribeExistingStream registers an externally-owned channel for an ordered
+// producer-fed stream (websocket). On a full bounded buffer with no waiting
+// receiver, deliverMessage reclaims the subscription (closeChannel fires the
+// producer-stop cleanup) rather than retaining the frame in messageQueue.
+// Returns error if topic already has a different channel subscribed.
+func (p *Process) SubscribeExistingStream(topic string, ch *Channel) error {
+	if p.subs == nil {
+		return runtimelua.ErrProcessContextNotAvailable
+	}
+	_, err := p.subs.addExisting(topic, ch, true)
 	return err
 }
 
@@ -944,7 +957,7 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, bool, error) {
 			var sub *subscription
 			var err error
 			if req.ExistingChannel != nil {
-				sub, err = subs.addExisting(req.Topic, req.ExistingChannel)
+				sub, err = subs.addExisting(req.Topic, req.ExistingChannel, false)
 			} else {
 				sub, err = subs.add(req.Topic, req.BufSize)
 			}
@@ -1098,6 +1111,14 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 			if hasTerminal {
 				p.closeChannel(sub.channel)
 			}
+			return true
+		}
+		if sub.overflowClose {
+			// Ordered producer-fed stream (websocket) overflowed its bounded
+			// buffer with no waiting receiver. Reclaim the subscription:
+			// closeChannel fires the producer-stop cleanup so the read loop
+			// halts instead of buffering an unbounded backlog.
+			p.closeChannel(sub.channel)
 			return true
 		}
 		return false

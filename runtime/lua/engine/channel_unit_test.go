@@ -835,7 +835,7 @@ func TestSubscribeContext_AddExisting(t *testing.T) {
 	}
 
 	ch := NewChannel(10)
-	sub, err := ctx.addExisting("topic1", ch)
+	sub, err := ctx.addExisting("topic1", ch, false)
 	if err != nil {
 		t.Fatalf("addExisting failed: %v", err)
 	}
@@ -844,7 +844,7 @@ func TestSubscribeContext_AddExisting(t *testing.T) {
 		t.Error("subscription should reference the provided channel")
 	}
 
-	sub2, err := ctx.addExisting("topic1", ch)
+	sub2, err := ctx.addExisting("topic1", ch, false)
 	if err != nil {
 		t.Fatalf("second addExisting failed: %v", err)
 	}
@@ -853,7 +853,7 @@ func TestSubscribeContext_AddExisting(t *testing.T) {
 	}
 
 	ch2 := NewChannel(10)
-	_, err = ctx.addExisting("topic1", ch2)
+	_, err = ctx.addExisting("topic1", ch2, false)
 	if err == nil {
 		t.Error("addExisting with different channel should fail")
 	}

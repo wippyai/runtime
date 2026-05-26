@@ -4,6 +4,7 @@ package websocket
 
 import (
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	lua "github.com/wippyai/go-lua"
@@ -14,6 +15,13 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/security"
 )
+
+// subscriptionCounter generates globally-unique relay topics. The connection
+// ID is a recyclable resource handle, so a per-connID topic (ws@<id>) would
+// collide with a prior closed connection that reused the same handle: a stale
+// terminal from the previous read loop could reclaim the new subscription.
+// A monotonic counter keeps each subscription's topic distinct.
+var subscriptionCounter uint64
 
 // parseDuration parses a Lua value into time.Duration.
 // Supports numbers (as milliseconds) and strings (Go duration format).
@@ -320,8 +328,8 @@ func connChannel(l *lua.LState) int {
 		return 0
 	}
 
-	// Generate unique topic for this connection
-	topic := fmt.Sprintf("ws@%d", conn.ID)
+	// Generate a globally-unique topic, decoupled from the recyclable conn ID.
+	topic := fmt.Sprintf("ws@%d", atomic.AddUint64(&subscriptionCounter, 1))
 
 	yield := AcquireWsSubscribeYield(conn.ID, conn.Channel, pid, topic, conn)
 	l.Push(yield)
@@ -355,7 +363,7 @@ func connClose(l *lua.LState) int {
 		reason = l.CheckString(3)
 	}
 
-	yield := AcquireWsCloseYield(conn.ID, code, reason)
+	yield := AcquireWsCloseYield(conn.ID, code, reason, conn)
 	l.Push(yield)
 	return -1
 }

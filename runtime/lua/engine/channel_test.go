@@ -2298,7 +2298,7 @@ func TestSubscribeContext(t *testing.T) {
 	ch1 := NewChannel(1)
 	ch2 := NewChannel(1)
 
-	sub, err := ctx.addExisting("topic1", ch1)
+	sub, err := ctx.addExisting("topic1", ch1, false)
 	if err != nil {
 		t.Fatalf("addExisting failed: %v", err)
 	}
@@ -2309,7 +2309,7 @@ func TestSubscribeContext(t *testing.T) {
 		t.Error("sub.channel should be ch1")
 	}
 
-	sub2, err := ctx.addExisting("topic1", ch1)
+	sub2, err := ctx.addExisting("topic1", ch1, false)
 	if err != nil {
 		t.Fatalf("addExisting same channel to same topic should succeed: %v", err)
 	}
@@ -2317,7 +2317,7 @@ func TestSubscribeContext(t *testing.T) {
 		t.Error("should return existing subscription")
 	}
 
-	_, err = ctx.addExisting("topic1", ch2)
+	_, err = ctx.addExisting("topic1", ch2, false)
 	if err == nil {
 		t.Error("addExisting different channel to same topic should fail")
 	}
@@ -2475,7 +2475,7 @@ func TestSubscribeContextAddRemoveSequence(t *testing.T) {
 
 	ch := NewChannel(1)
 
-	_, err := ctx.addExisting("topic", ch)
+	_, err := ctx.addExisting("topic", ch, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2485,13 +2485,13 @@ func TestSubscribeContextAddRemoveSequence(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = ctx.addExisting("topic", ch)
+	_, err = ctx.addExisting("topic", ch, false)
 	if err != nil {
 		t.Fatalf("resubscribe should work: %v", err)
 	}
 
 	ch2 := NewChannel(1)
-	_, err = ctx.addExisting("topic", ch2)
+	_, err = ctx.addExisting("topic", ch2, false)
 	if err == nil {
 		t.Error("adding different channel to occupied topic should fail")
 	}
@@ -2504,7 +2504,7 @@ func TestSubscribeContextTopicChannelMapping(t *testing.T) {
 	}
 
 	ch := NewChannel(1)
-	_, _ = ctx.addExisting("my-topic", ch)
+	_, _ = ctx.addExisting("my-topic", ch, false)
 
 	if topic, ok := ctx.byChannel[ch]; !ok || topic != "my-topic" {
 		t.Errorf("byChannel mapping incorrect: got %q", topic)

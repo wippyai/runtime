@@ -188,7 +188,7 @@ func (y *WsSubscribeYield) Release() { ReleaseWsSubscribeYield(y) }
 // HandleResult implements HandledYield to set up topic subscription.
 // This registers the channel for the topic and sets up a handler
 // to convert incoming payloads to Lua message tables.
-func (y *WsSubscribeYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
+func (y *WsSubscribeYield) HandleResult(l *lua.LState, data any, err error) []lua.LValue {
 	if err != nil {
 		return []lua.LValue{lua.LNil, lua.NewLuaError(l, err.Error()).WithKind(lua.Internal).WithRetryable(true)}
 	}
@@ -198,13 +198,23 @@ func (y *WsSubscribeYield) HandleResult(l *lua.LState, _ any, err error) []lua.L
 		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "no process context").WithKind(lua.Internal).WithRetryable(false)}
 	}
 
-	// Subscribe the externally-owned channel to the topic
-	if err := proc.SubscribeExisting(y.Topic, y.Channel); err != nil {
+	// Register the externally-owned channel as an ordered producer-fed stream.
+	// On overflow the engine reclaims the subscription and fires the
+	// producer-stop cleanup rather than buffering an unbounded backlog.
+	if err := proc.SubscribeExistingStream(y.Topic, y.Channel); err != nil {
 		return []lua.LValue{lua.LNil, lua.NewLuaError(l, err.Error()).WithKind(lua.Internal).WithRetryable(true)}
 	}
 
 	// Set topic handler to convert websocket payloads to Lua tables
 	proc.SetTopicHandler(y.Topic, wsMessageHandler)
+
+	// Wire the dispatcher read-loop cancel as the subscription cleanup so
+	// closeChannel / drain / Abort halt the producer goroutine when the
+	// subscription is reclaimed (remote close terminal, conn:close(), or
+	// process drain).
+	if sub, ok := data.(wsapi.Subscription); ok && sub.Stop != nil {
+		proc.SetSubscriptionCleanup(y.Channel, sub.Stop)
+	}
 
 	// Mark connection as subscribed
 	if y.Conn != nil {
@@ -246,6 +256,7 @@ func wsMessageHandler(_ context.Context, l *lua.LState, _ pid.PID, _ string, pay
 
 // WsCloseYield is yielded to close a connection.
 type WsCloseYield struct {
+	Conn   *WsConn
 	Reason string
 	ConnID uint64
 	Code   int
@@ -255,11 +266,12 @@ var wsCloseYieldPool = sync.Pool{
 	New: func() any { return &WsCloseYield{} },
 }
 
-func AcquireWsCloseYield(connID uint64, code int, reason string) *WsCloseYield {
+func AcquireWsCloseYield(connID uint64, code int, reason string, conn *WsConn) *WsCloseYield {
 	y := wsCloseYieldPool.Get().(*WsCloseYield)
 	y.ConnID = connID
 	y.Code = code
 	y.Reason = reason
+	y.Conn = conn
 	return y
 }
 
@@ -267,6 +279,7 @@ func ReleaseWsCloseYield(y *WsCloseYield) {
 	y.ConnID = 0
 	y.Code = 0
 	y.Reason = ""
+	y.Conn = nil
 	wsCloseYieldPool.Put(y)
 }
 
@@ -279,6 +292,24 @@ func (y *WsCloseYield) CmdID() dispatcher.CommandID {
 
 func (y *WsCloseYield) ToCommand() dispatcher.Command {
 	return wsapi.CloseCmd{ConnID: y.ConnID, Code: y.Code, Reason: y.Reason}
+}
+
+// HandleResult reclaims the connection's subscription on the step thread when
+// the channel was subscribed. closeChannel removes the topic handler, closes
+// the channel, and fires the producer-stop cleanup (the dispatcher read-loop
+// cancel) so conn:close() leaves no live subscription or read-loop goroutine.
+// close() returns no values per the module contract.
+func (y *WsCloseYield) HandleResult(l *lua.LState, _ any, err error) []lua.LValue {
+	if err != nil {
+		return []lua.LValue{lua.LNil, lua.NewLuaError(l, err.Error()).WithKind(lua.Internal).WithRetryable(false)}
+	}
+	if y.Conn != nil && y.Conn.subscribed && y.Conn.Channel != nil {
+		if proc := engine.GetProcess(l); proc != nil {
+			proc.UnsubscribeChannel(y.Conn.Channel)
+		}
+		y.Conn.subscribed = false
+	}
+	return nil
 }
 
 func (y *WsCloseYield) Release() { ReleaseWsCloseYield(y) }

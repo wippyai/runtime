@@ -33,6 +33,14 @@ type connEntry struct {
 	readTimeout time.Duration
 	closeOnce   sync.Once
 	closed      atomic.Bool
+	// reclaimedByProcess marks a process-initiated teardown (conn:close or a
+	// subscription reclaim via close/drain/overflow). The relay read loop reads
+	// it to suppress the terminal frame: the process already removed the
+	// subscription on its step thread, so a terminal to the now-unmatched topic
+	// must not be relayed. A connection-originated close (remote / EOF / read
+	// error) leaves it false so the terminal is delivered and reclaims the
+	// subscription.
+	reclaimedByProcess atomic.Bool
 }
 
 // Drop implements resource.Dropper for automatic cleanup.
@@ -169,6 +177,24 @@ func (r *Registry) GetMessageChan(id uint64) (<-chan wsapi.Message, error) {
 	return entry.msgCh, nil
 }
 
+// dropForStop signals a connection to tear down when its subscription is
+// reclaimed (close / drain / overflow). It only cancels entry.ctx, which is
+// nonblocking and safe to call from the process step thread: the registry read
+// loop observes the cancellation, then closes the socket and the message
+// channel off the step thread, and the dispatcher relay goroutine exits on the
+// closed channel. The handle slot is freed when the resource store is released
+// at process teardown. Idempotent: a missing handle and the entry's cancel are
+// both no-ops on repeat.
+func (r *Registry) dropForStop(id uint64) {
+	entry, ok := r.conns.Get(resource.Handle(id))
+	if !ok {
+		return
+	}
+	entry.reclaimedByProcess.Store(true)
+	entry.closed.Store(true)
+	entry.cancel()
+}
+
 // Close closes a connection with a custom close code.
 func (r *Registry) Close(id uint64, code int, reason string) error {
 	entry, ok := r.conns.Get(resource.Handle(id))
@@ -181,6 +207,9 @@ func (r *Registry) Close(id uint64, code int, reason string) error {
 		statusCode = websocket.StatusCode(code)
 	}
 
+	// Process-initiated close: the Lua conn:close() path reclaims the
+	// subscription on its step thread, so suppress the relay terminal.
+	entry.reclaimedByProcess.Store(true)
 	entry.close(statusCode, reason)
 	r.conns.Remove(resource.Handle(id))
 	return nil
