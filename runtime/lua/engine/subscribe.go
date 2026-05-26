@@ -129,6 +129,22 @@ func (m *subscribeContext) snapshotAndClear() []*subscription {
 	return out
 }
 
+// snapshotSubscriptions returns the live subscriptions without clearing the
+// maps. Channel and handler removal stay with the owning step goroutine; this
+// is used by Abort to invoke producer-stop cleanups from a non-step goroutine.
+func (m *subscribeContext) snapshotSubscriptions() []*subscription {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.byTopic) == 0 {
+		return nil
+	}
+	out := make([]*subscription, 0, len(m.byTopic))
+	for _, sub := range m.byTopic {
+		out = append(out, sub)
+	}
+	return out
+}
+
 // subscription links a topic to a channel.
 type subscription struct {
 	cleanup     func()

@@ -19,10 +19,9 @@ type tickerEntry struct {
 	ctx    context.Context
 	ticker *time.Ticker
 	cancel context.CancelFunc
-	// fire, when non-nil, replaces the default legacy sendTick payload
-	// with caller-supplied payload construction. Used by the engine
-	// ephemeral channel router so each fire carries an EphemeralFrame
-	// tagged with (epoch, chID, gen).
+	// fire, when non-nil, replaces the default sendTick payload with
+	// caller-supplied payload construction. Used by routed callers so each
+	// fire carries a subscription frame tagged with (epoch, chID, gen).
 	fire      func(at time.Time)
 	routerKey *chIDKey // non-nil when registered via TickerStartCmd with ChID != 0
 	topic     string

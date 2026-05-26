@@ -94,25 +94,19 @@ type Process struct {
 	channels       map[*Channel]int
 	channelQueue   *TaskQueue
 	exported       map[string]*lua.LFunction
-	// router is the per-process ephemeral channel router. It is loaded
-	// atomically because Abort can be invoked from the scheduler
-	// goroutine while RegisterEphemeral is executing on the step
-	// thread. Allocated lazily on the step thread; Abort tolerates a
-	// nil load.
-	router        atomic.Pointer[ephemeralRouter]
-	script        string
-	scriptName    string
-	outTasks      []*Task
-	externalTasks []*Task
-	yieldBuf      []*Task
-	messageQueue  []queuedMessage
-	threads       []*Task
-	yieldSeq      uint64
-	// epoch is the monotonic incarnation counter for the ephemeral router.
-	// Incremented on every Init / clearExecution / Close drain and on
-	// Abort. Producers stamp every EphemeralFrame with the epoch they were
-	// registered under; routeEphemeralFrame compares atomically so frames
-	// from prior incarnations are dropped without locking.
+	script         string
+	scriptName     string
+	outTasks       []*Task
+	externalTasks  []*Task
+	yieldBuf       []*Task
+	messageQueue   []queuedMessage
+	threads        []*Task
+	yieldSeq       uint64
+	// epoch is the monotonic incarnation counter. Incremented on every
+	// Init / clearExecution / Close drain and on Abort. Producers stamp
+	// every SubscriptionFrame with the epoch they were registered under;
+	// deliverMessage compares atomically so frames from prior incarnations
+	// are dropped without locking.
 	epoch     atomic.Uint64
 	trapLinks bool
 }
@@ -252,6 +246,10 @@ func (p *Process) closeChannel(ch *Channel) bool {
 }
 
 func (p *Process) drainSubscriptionChannels() {
+	// Bump the incarnation counter so any in-flight producer frame stamped
+	// with the prior epoch is dropped by deliverMessage on arrival. Guards
+	// recycled processes (process pooling) against stale signals.
+	p.epoch.Add(1)
 	if p.subs == nil {
 		return
 	}
@@ -321,9 +319,9 @@ func (p *Process) Epoch() uint64 {
 
 // HasSubscriptions returns true if there are active subscriptions.
 //
-// Live ephemeral channel router entries count as subscriptions so the
-// deadlock detector keeps the process idle (rather than killing it) while
-// waiting on a timer / websocket / etc.
+// Subscriptions anchored to external producers (timers, websocket, http
+// stream) keep the deadlock detector idle (rather than killing the process)
+// while it waits on a timer / websocket / etc.
 func (p *Process) HasSubscriptions() bool {
 	if p.subs != nil {
 		p.subs.mu.RLock()
@@ -332,9 +330,6 @@ func (p *Process) HasSubscriptions() bool {
 		if hasSubs {
 			return true
 		}
-	}
-	if r := p.router.Load(); r != nil && r.size() > 0 {
-		return true
 	}
 	return false
 }
@@ -366,115 +361,28 @@ func (p *Process) Stats() attrs.Attributes {
 	bag.Set("subscriptions", p.LiveSubscriptionCount())
 	bag.Set("threads", len(p.threads))
 	bag.Set("channels", len(p.channels))
-	if r := p.router.Load(); r != nil {
-		bag.Set("ephemeral_channels", r.size())
-	} else {
-		bag.Set("ephemeral_channels", 0)
-	}
 	return bag
-}
-
-// RegisterEphemeral registers an externally-driven channel with the
-// per-process ephemeral router. Returns (chID, epoch). The producer must
-// tag every frame with (epoch, chID, gen=0) and send it to TopicEphemeral
-// via the relay. Must be called on the step goroutine.
-//
-// Initial generation is 0; the producer is expected to tag its first arm
-// with gen=0. BumpEphemeralGen advances the generation when a timer is
-// reset; frames from prior arms are dropped silently.
-//
-// convert may be nil to use the default PayloadsToLua conversion.
-// producerStop runs at most once (sync.Once) when the channel is closed
-// or the process drains.
-func (p *Process) RegisterEphemeral(ch *Channel, convert EphemeralValueConverter, producerStop func(), policy OverflowPolicy) (chID uint64, epoch uint64, genRef *atomic.Uint64) {
-	r := p.router.Load()
-	if r == nil {
-		r = newEphemeralRouter()
-		p.router.Store(r)
-	}
-	chID, genRef = r.register(ch, convert, producerStop, policy)
-	return chID, p.epoch.Load(), genRef
-}
-
-// BumpEphemeralGen advances the generation of a registered entry. Used by
-// time.timer:reset to invalidate stale fires from the previous arm.
-// Returns the new gen; (0, false) when no entry exists.
-func (p *Process) BumpEphemeralGen(chID uint64) (uint64, bool) {
-	r := p.router.Load()
-	if r == nil {
-		return 0, false
-	}
-	return r.bumpGen(chID)
-}
-
-// SetEphemeralProducerStop attaches the producerStop closure to an
-// already-registered entry. Required for callers that produce the
-// closure from data only available after RegisterEphemeral returns
-// (e.g. a timer module that needs the freshly-assigned chID + epoch in
-// the dispatch closure). Returns false if no entry exists. Must be
-// called on the step goroutine.
-func (p *Process) SetEphemeralProducerStop(chID uint64, fn func()) bool {
-	r := p.router.Load()
-	if r == nil {
-		return false
-	}
-	return r.setProducerStop(chID, fn)
-}
-
-// StopEphemeral removes an entry from the router and invokes its
-// producer stop closure. Used by Lua-side :stop() handlers on the step
-// thread. Returns true when an entry was found and removed.
-//
-// Note: this does NOT close the channel — the channel object lives as
-// long as Lua references it. Close happens through Close() or by the
-// process drain on lifecycle hooks.
-func (p *Process) StopEphemeral(chID uint64) bool {
-	r := p.router.Load()
-	if r == nil {
-		return false
-	}
-	e, ok := r.remove(chID)
-	if !ok {
-		return false
-	}
-	e.callStop()
-	return true
-}
-
-// drainEphemeralChannels bumps the epoch (invalidating all in-flight
-// frames), then iterates every registered entry to invoke producerStop
-// and close the channel. Idempotent.
-//
-// Must be called on the step goroutine.
-func (p *Process) drainEphemeralChannels() {
-	p.epoch.Add(1)
-	router := p.router.Load()
-	if router == nil {
-		return
-	}
-	for _, e := range router.snapshotEntriesForDrain() {
-		e.callStop()
-		p.applyExternalChannelResult(e.channel.Close(nil))
-	}
 }
 
 // Abort cancels all external producers without touching Lua channel state.
 // Safe to call from a non-step goroutine — e.g. the scheduler when a
-// process context is cancelled. The actual channel/task cleanup is
-// performed by drainEphemeralChannels on the next Init / clearExecution /
+// process context is cancelled. The actual channel/handler cleanup is
+// performed by drainSubscriptionChannels on the next Init / clearExecution /
 // Close, on the owning step goroutine.
 func (p *Process) Abort() {
-	// Invalidate every in-flight frame from this incarnation. Any frame
-	// stamped with the pre-Abort epoch arriving after this point is
-	// dropped by routeEphemeralFrame.
+	// Invalidate every in-flight frame from this incarnation. Any
+	// SubscriptionFrame stamped with the pre-Abort epoch arriving after
+	// this point is dropped by deliverMessage's epoch check.
 	p.epoch.Add(1)
-	r := p.router.Load()
-	if r == nil {
+	if p.subs == nil {
 		return
 	}
-	stops := r.snapshotStopFuncs()
-	for _, stop := range stops {
-		stop()
+	// Invoke producer-stop cleanups so external producers (timers, ws read
+	// loops, async futures) stop. cleanupOnce makes this idempotent with the
+	// owning thread's drainSubscriptionChannels, which still owns map and
+	// channel teardown.
+	for _, sub := range p.subs.snapshotSubscriptions() {
+		sub.callCleanup()
 	}
 }
 
@@ -529,11 +437,10 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 		return runtimelua.ErrStateNotInitialized
 	}
 
-	// Drain any ephemeral router state left over from a previous execution
-	// (process pooling) before clearing other maps. drainEphemeralChannels
+	// Drain any subscription state left over from a previous execution
+	// (process pooling) before clearing other maps. drainSubscriptionChannels
 	// bumps the epoch so any in-flight producer frames from the prior
 	// incarnation are dropped on arrival.
-	p.drainEphemeralChannels()
 	p.drainSubscriptionChannels()
 
 	// Clear state from previous execution (for pooled processes)
@@ -1107,15 +1014,6 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 	handlerTopic := topic
 	frame, hasFrame := subscriptionFrameFromPayloads(qm.Payloads)
 
-	// Ephemeral channel router: hard-edged. Frames for TopicEphemeral never
-	// enter subs.byTopic / handlers — routing is keyed on the EphemeralFrame
-	// inside the payload. Malformed frames / unknown chID / stale
-	// epoch/gen consume + drop so they never sit in messageQueue.
-	if topic == TopicEphemeral {
-		p.routeEphemeralFrame(qm)
-		return true
-	}
-
 	// Check for LINK_DOWN events when trap_links is false
 	// Per spec: without trap_links, process should fail when linked process fails
 	if topic == topology.TopicEvents && !p.trapLinks {
@@ -1212,85 +1110,6 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 	}
 
 	return true
-}
-
-// routeEphemeralFrame dispatches a frame on the TopicEphemeral reserved
-// topic to the registered epEntry identified by ChID. Stale frames
-// (unknown chID, mismatched epoch or gen) are dropped silently. Must run
-// on the step goroutine.
-func (p *Process) routeEphemeralFrame(qm queuedMessage) {
-	r := p.router.Load()
-	if r == nil || len(qm.Payloads) == 0 {
-		return
-	}
-	rawFrame := qm.Payloads[0]
-	if rawFrame == nil {
-		return
-	}
-	frame, ok := rawFrame.Data().(*EphemeralFrame)
-	if !ok {
-		return
-	}
-
-	// Reject anything from a prior process incarnation.
-	if frame.Epoch != p.epoch.Load() {
-		return
-	}
-
-	entry, exists := r.lookup(frame.ChID)
-	if !exists {
-		return
-	}
-	if frame.Gen != entry.gen.Load() {
-		return
-	}
-
-	if frame.HasValue {
-		var value lua.LValue
-		source := frame.Source
-		if qm.Source.UniqID != "" {
-			source = qm.Source
-		}
-		if entry.convert != nil {
-			value = entry.convert(p.ctx, p.state, source, frame.Payloads)
-		} else {
-			value = PayloadsToLua(p.ctx, p.state, frame.Payloads)
-		}
-		if value != nil {
-			result, sent := entry.channel.TrySend(value)
-			p.applyExternalChannelResult(result)
-			if !sent {
-				p.applyEphemeralOverflow(r, frame.ChID, entry, value)
-			}
-		}
-	}
-
-	if frame.Close {
-		if removed, ok := r.remove(frame.ChID); ok {
-			removed.callStop()
-			p.applyExternalChannelResult(removed.channel.Close(nil))
-		}
-	}
-}
-
-// applyEphemeralOverflow runs the per-entry OverflowPolicy when TrySend
-// reports a full buffer with no waiting receiver.
-func (p *Process) applyEphemeralOverflow(r *ephemeralRouter, chID uint64, entry *epEntry, value lua.LValue) {
-	switch entry.overflowPolicy {
-	case OverflowDrop:
-		// OverflowDrop discards the value when the buffer is full.
-	case OverflowCoalesce:
-		if entry.channel.buffer.Len() > 0 {
-			entry.channel.buffer.Remove(entry.channel.buffer.Front())
-		}
-		result, _ := entry.channel.TrySend(value)
-		p.applyExternalChannelResult(result)
-	case OverflowClose:
-		if removed, ok := r.remove(chID); ok {
-			removed.callStop()
-			p.applyExternalChannelResult(removed.channel.Close(nil))
-		}
-	}
 }
 
 // isLinkDownEvent checks if the payload contains a LINK_DOWN event.
@@ -1529,7 +1348,6 @@ func (p *Process) yieldToCommand(task *Task) dispatcher.Command {
 func (p *Process) Close() {
 	// Stop external producers and close their channels before tearing the
 	// Lua state down. Cancels in-flight clock timers, ws read loops, etc.
-	p.drainEphemeralChannels()
 	p.drainSubscriptionChannels()
 
 	// Close all threads
@@ -1565,7 +1383,6 @@ func (p *Process) Close() {
 	p.channels = nil
 	p.subs = nil
 	p.handlers = nil
-	p.router.Store(nil)
 	p.messageQueue = nil
 	p.trapLinks = false
 	p.linkDownError = nil
@@ -1654,7 +1471,6 @@ func (p *Process) clearExecution() {
 	// Stop external producers and close their channels before clearing
 	// channel refcount / subscription maps. Bumps the epoch so any
 	// in-flight producer frame is dropped on arrival.
-	p.drainEphemeralChannels()
 	p.drainSubscriptionChannels()
 
 	// Close all spawned threads but keep them referenced for GC

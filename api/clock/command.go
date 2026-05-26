@@ -47,15 +47,15 @@ func init() {
 }
 
 // FireBuilder produces the payload to deliver when a timer or ticker
-// fires. Used by the engine ephemeral channel router so the clock
-// dispatcher does not need to know the EphemeralFrame envelope format.
+// fires. Used by routed callers so the clock dispatcher does not need to
+// know the subscription frame envelope format.
 //
 // genRef (when supplied) is the live atomic generation counter for the
-// routed entry. Timer reset increments it and the dispatcher stamps each
-// timer arm with the generation captured for that arm.
+// routed subscription. Timer reset increments it and the dispatcher stamps
+// each timer arm with the generation captured for that arm.
 //
-// When nil, the dispatcher falls back to its legacy int64-nanos payload
-// for backward compatibility with non-router callers (workflow timers).
+// When nil, the dispatcher falls back to an int64-nanos payload for
+// non-routed callers (workflow timers).
 type FireBuilder func(at time.Time, gen uint64) payload.Payload
 
 type (

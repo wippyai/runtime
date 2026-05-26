@@ -19,9 +19,9 @@ import (
 
 // timerEntry tracks an active timer.
 type timerEntry struct {
-	// build is set when the command targets the engine ephemeral router
+	// build is set when the command targets a routed subscription
 	// (cmd.Build != nil at start). The fire callback uses it to wrap
-	// the tick value in an EphemeralFrame so the routed process can
+	// the tick value in a subscription frame so the routed process can
 	// decode the payload identically to a clock-dispatched fire.
 	build  clockapi.FireBuilder
 	genRef *atomic.Uint64
