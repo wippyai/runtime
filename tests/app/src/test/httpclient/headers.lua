@@ -15,7 +15,7 @@ local function main()
 	assert.eq(resp.status_code, 200, "status code 200")
 	assert.not_nil(resp.body, "response body present")
 
-	local data = json.decode(resp.body)
+	local data = json.decode(tostring(resp.body))
 	assert.eq(data.header_value, "custom-value", "custom header received")
 
 	-- Test response headers (custom_headers endpoint sets X-Custom-Header)

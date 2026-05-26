@@ -16,7 +16,7 @@ local function main()
 	assert.eq(resp.status_code, 200, "POST status 200")
 	assert.not_nil(resp.body, "response body present")
 
-	local result = json.decode(resp.body)
+	local result = json.decode(tostring(resp.body))
 	assert.is_nil(result.parse_error, "no parse error")
 	assert.not_nil(result.body_json, "JSON body parsed by server")
 	assert.eq(result.body_json.name, "test", "name field correct")

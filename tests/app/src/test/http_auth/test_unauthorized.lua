@@ -14,7 +14,7 @@ local function main()
 	assert.eq(res.status_code, 401, "should return 401 Unauthorized")
 	assert.not_nil(res.body, "response body present")
 
-	local body = json.decode(res.body)
+	local body = json.decode(tostring(res.body))
 	assert.not_nil(body, "response should be valid JSON")
 	assert.not_nil(body.error, "response should contain error")
 
