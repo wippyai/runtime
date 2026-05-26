@@ -159,6 +159,28 @@ func (p *Process) SubscribeExisting(topic string, ch *Channel) error {
 	return err
 }
 
+// SubscribeRouted creates a subscription for a producer-driven topic and
+// returns the owned channel, its subscription id, and a pointer to the
+// subscription's atomic generation counter.
+//
+// External producers (clock timers/tickers) stamp every SubscriptionFrame
+// with the process epoch, the returned subID, and the generation read from
+// genRef at fire time. deliverMessage drops frames whose epoch/subID/gen no
+// longer match the live subscription, so stale arms from a reset or a
+// recycled process incarnation never reach the channel.
+//
+// Must be called on the step goroutine.
+func (p *Process) SubscribeRouted(topic string, bufSize int) (ch *Channel, subID uint64, genRef *atomic.Uint64, err error) {
+	if p.subs == nil {
+		return nil, 0, nil, runtimelua.ErrProcessContextNotAvailable
+	}
+	sub, err := p.subs.add(topic, bufSize)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	return sub.channel, sub.id, &sub.gen, nil
+}
+
 // SetSubscriptionCleanup attaches a producer cleanup closure to a channel's
 // subscription. The closure is called at most once by closeChannel/drain.
 func (p *Process) SetSubscriptionCleanup(ch *Channel, fn func()) bool {
@@ -286,6 +308,15 @@ func (p *Process) ChannelQueue() *TaskQueue {
 		p.channelQueue = NewTaskQueue()
 	}
 	return p.channelQueue
+}
+
+// Epoch returns the process incarnation counter. Routed producers stamp
+// every SubscriptionFrame with the epoch captured at subscribe time;
+// deliverMessage drops frames whose epoch no longer matches, so signals
+// from a prior incarnation (process pooling, Abort) never reach a recycled
+// subscription.
+func (p *Process) Epoch() uint64 {
+	return p.epoch.Load()
 }
 
 // HasSubscriptions returns true if there are active subscriptions.
@@ -1124,6 +1155,16 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 		if sub.channel.IsClosed() {
 			p.closeChannel(sub.channel)
 			p.applyExternalChannelResult(result)
+			return true
+		}
+		if hasFrame {
+			// Routed producer frame on a full bounded buffer with no
+			// waiting receiver: drop the value rather than retaining the
+			// message in the queue. A terminal frame still reclaims the
+			// subscription so one-shot producers retire even when unread.
+			if hasTerminal {
+				p.closeChannel(sub.channel)
+			}
 			return true
 		}
 		return false

@@ -104,9 +104,14 @@ func (r *timerRegistry) startWithCallbackAndKey(d time.Duration, callback timerC
 		gen:           gen,
 	}
 
+	// Assign entry.timer under entry.mu: time.AfterFunc arms immediately and
+	// fire reads/clears entry.timer under the same lock, so the callback may
+	// run before this returns.
+	entry.mu.Lock()
 	entry.timer = time.AfterFunc(d, func() {
 		r.fire(shard, id, entry)
 	})
+	entry.mu.Unlock()
 
 	shard.mu.Lock()
 	shard.timers[id] = entry

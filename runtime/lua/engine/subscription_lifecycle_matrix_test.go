@@ -55,6 +55,42 @@ func subscriptionFrameMessage(topic string, epoch, subID, gen uint64, payloads p
 	}
 }
 
+// oneShotFireMessage mirrors the clock dispatcher's one-shot timer fire:
+// a single-value SubscriptionFrame payload followed by an outer terminal
+// payload (value plus terminal). time.after / time.timer deliver exactly
+// this shape.
+func oneShotFireMessage(topic string, epoch, subID, gen uint64, value lua.LValue) queuedMessage {
+	return queuedMessage{
+		Topic: topic,
+		Payloads: payload.Payloads{
+			NewSubscriptionFramePayload(&SubscriptionFrame{
+				Epoch:    epoch,
+				SubID:    subID,
+				Gen:      gen,
+				Payloads: payload.Payloads{payload.NewPayload(value, payload.Lua)},
+			}),
+			payload.NewTerminal(),
+		},
+	}
+}
+
+// tickFireMessage mirrors the clock dispatcher's ticker fire: a single
+// non-terminal SubscriptionFrame payload. time.ticker delivers this shape
+// once per tick.
+func tickFireMessage(topic string, epoch, subID, gen uint64, value lua.LValue) queuedMessage {
+	return queuedMessage{
+		Topic: topic,
+		Payloads: payload.Payloads{
+			NewSubscriptionFramePayload(&SubscriptionFrame{
+				Epoch:    epoch,
+				SubID:    subID,
+				Gen:      gen,
+				Payloads: payload.Payloads{payload.NewPayload(value, payload.Lua)},
+			}),
+		},
+	}
+}
+
 func assertSubscriptionMatrixSizes(t *testing.T, proc *Process, topics, channels, handlers int) {
 	t.Helper()
 	proc.subs.mu.RLock()
@@ -278,6 +314,115 @@ func TestSubscriptionLifecycleProofMatrix(t *testing.T) {
 			t.Fatal("unrelated handler was removed")
 		}
 		assertSubscriptionMatrixSizes(t, proc, 0, 0, 1)
+	})
+
+	// case3 discard-before-fire (bounded, ->0 after fire): a one-shot timer
+	// fire delivered in the dispatcher's value-plus-terminal shape reclaims
+	// the subscription even when Lua never reads the cap-1 channel.
+	t.Run("case3 discard-before-fire", func(t *testing.T) {
+		proc := newSubscriptionMatrixProcess(t)
+		defer proc.Close()
+
+		ch, sub := addMatrixSubscription(t, proc, "after@1")
+		proc.SetTopicHandler("after@1", stringHandler)
+		epoch := proc.epoch.Load()
+		if !proc.deliverMessage(proc.subs, oneShotFireMessage("after@1", epoch, sub.id, sub.gen.Load(), lua.LString("fire"))) {
+			t.Fatal("one-shot fire should be delivered")
+		}
+		if !ch.IsClosed() {
+			t.Fatal("one-shot channel should close after an unread fire")
+		}
+		assertSubscriptionMatrixSizes(t, proc, 0, 0, 0)
+	})
+
+	// case13 ticker-never-stopped (->0 on process drain): a live ticker
+	// subscription with a fire still buffered is released by the process
+	// drain, running its cleanup closure exactly once.
+	t.Run("case13 ticker-never-stopped", func(t *testing.T) {
+		proc := newSubscriptionMatrixProcess(t)
+
+		ch, sub := addMatrixSubscription(t, proc, "ticker@1")
+		proc.SetTopicHandler("ticker@1", stringHandler)
+		var stops atomic.Int32
+		if !proc.SetSubscriptionCleanup(ch, func() { stops.Add(1) }) {
+			t.Fatal("SetSubscriptionCleanup failed")
+		}
+		epoch := proc.epoch.Load()
+		if !proc.deliverMessage(proc.subs, tickFireMessage("ticker@1", epoch, sub.id, sub.gen.Load(), lua.LString("tick"))) {
+			t.Fatal("tick should be delivered")
+		}
+		assertSubscriptionMatrixSizes(t, proc, 1, 1, 1)
+
+		proc.drainSubscriptionChannels()
+		if got := stops.Load(); got != 1 {
+			t.Fatalf("ticker cleanup called %d times, want 1", got)
+		}
+		assertSubscriptionMatrixSizes(t, proc, 0, 0, 0)
+		proc.Close()
+	})
+
+	// case16 ticker-dropped-without-stop (bounded, ->0 on drain): ticks
+	// that arrive on a full bounded buffer with no waiting receiver are
+	// dropped, never retained in the message queue, and the drain still
+	// reclaims the subscription.
+	t.Run("case16 ticker-dropped-without-stop", func(t *testing.T) {
+		proc := newSubscriptionMatrixProcess(t)
+
+		ch := NewChannel(2)
+		if err := proc.SubscribeExisting("ticker@2", ch); err != nil {
+			t.Fatalf("SubscribeExisting: %v", err)
+		}
+		proc.subs.mu.RLock()
+		sub := proc.subs.byTopic["ticker@2"]
+		proc.subs.mu.RUnlock()
+		proc.SetTopicHandler("ticker@2", stringHandler)
+		epoch := proc.epoch.Load()
+
+		// Fire more ticks than the buffer holds; overflow is dropped.
+		for i := 0; i < 10; i++ {
+			if !proc.deliverMessage(proc.subs, tickFireMessage("ticker@2", epoch, sub.id, sub.gen.Load(), lua.LString("tick"))) {
+				t.Fatalf("tick %d should be consumed", i)
+			}
+		}
+		if len(proc.messageQueue) != 0 {
+			t.Fatalf("dropped ticks leaked into messageQueue, len=%d", len(proc.messageQueue))
+		}
+		if got := ch.Size(); got != 2 {
+			t.Fatalf("bounded buffer = %d, want capacity 2", got)
+		}
+		assertSubscriptionMatrixSizes(t, proc, 1, 1, 1)
+
+		proc.drainSubscriptionChannels()
+		assertSubscriptionMatrixSizes(t, proc, 0, 0, 0)
+		proc.Close()
+	})
+
+	// case30 one-shot loses a select (fires terminal, maps gone): a
+	// time.after channel that loses a select is never read; its later
+	// one-shot fire still reclaims the subscription through the terminal
+	// frame.
+	t.Run("case30 one-shot terminal reclaims unread", func(t *testing.T) {
+		proc := newSubscriptionMatrixProcess(t)
+		defer proc.Close()
+
+		ready, _ := addMatrixSubscription(t, proc, "ready")
+		loser, loserSub := addMatrixSubscription(t, proc, "after@30")
+		proc.SetTopicHandler("after@30", stringHandler)
+		assertSubscriptionMatrixSizes(t, proc, 2, 2, 1)
+
+		// The select winner stays subscribed; the losing deadline fires
+		// later and retires itself.
+		epoch := proc.epoch.Load()
+		if !proc.deliverMessage(proc.subs, oneShotFireMessage("after@30", epoch, loserSub.id, loserSub.gen.Load(), lua.LString("late"))) {
+			t.Fatal("losing one-shot fire should be delivered")
+		}
+		if !loser.IsClosed() {
+			t.Fatal("losing one-shot channel should close on fire")
+		}
+		if ready.IsClosed() {
+			t.Fatal("select winner must remain subscribed")
+		}
+		assertSubscriptionMatrixSizes(t, proc, 1, 1, 0)
 	})
 }
 
