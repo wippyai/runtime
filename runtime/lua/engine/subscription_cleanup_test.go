@@ -4,6 +4,7 @@ package engine
 
 import (
 	"context"
+	"strconv"
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
@@ -358,5 +359,61 @@ func TestDeliverMessage_FullChannelDoesNotPhantomSend(t *testing.T) {
 	}
 
 	cleanupSendMessage(t, proc, "control", payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)})
+	cleanupRunUntilDone(t, proc)
+}
+
+// The funcs/contract async future pattern: a per-call subscription on a unique
+// @future:<uuid> topic with a topic handler, completed by a (result, terminal)
+// frame the dispatcher sends back over the relay. Delivery of that terminal
+// frame must reclaim both the subscription and its topic handler so an actor
+// calling many functions does not accumulate one-shot subscriptions. The live
+// count, surfaced through LiveSubscriptionCount / Stats, must drop back after
+// each one-shot completes.
+func TestDeliverMessage_FutureTerminalReclaimsSubscriptionAndHandler(t *testing.T) {
+	script := `
+		local hold = channel.new(1)
+		subscribe("hold", hold)
+		hold:receive()
+		return "ok"
+	`
+	proc := startCleanupProcess(t, script)
+	defer proc.Close()
+
+	cleanupRunUntilIdle(t, proc)
+
+	baseline := proc.LiveSubscriptionCount()
+
+	const futures = 200
+	for i := 0; i < futures; i++ {
+		topic := "@future:" + strconv.Itoa(i)
+		if _, err := proc.Subscribe(topic, 1); err != nil {
+			t.Fatalf("subscribe %s: %v", topic, err)
+		}
+		proc.SetTopicHandler(topic, passthroughHandler)
+
+		if got := proc.LiveSubscriptionCount(); got != baseline+1 {
+			t.Fatalf("expected one in-flight future subscription, got %d (baseline %d)", got, baseline)
+		}
+		if stats := proc.Stats(); stats.GetInt("subscriptions", -1) != baseline+1 {
+			t.Fatalf("Stats subscriptions=%d, want %d", stats.GetInt("subscriptions", -1), baseline+1)
+		}
+
+		// Dispatcher delivers (result, terminal); the terminal reclaims the
+		// one-shot subscription and its handler.
+		cleanupSendMessage(t, proc, topic, payload.Payloads{
+			payload.NewPayload(lua.LString("result"), payload.Lua),
+			payload.NewTerminal(),
+		})
+		cleanupRunUntilIdle(t, proc)
+
+		if got := proc.LiveSubscriptionCount(); got != baseline {
+			t.Fatalf("subscription not reclaimed after terminal: live=%d, want %d (call %d)", got, baseline, i)
+		}
+		if _, ok := proc.GetTopicHandler(topic); ok {
+			t.Fatalf("topic handler %s leaked after terminal (call %d)", topic, i)
+		}
+	}
+
+	cleanupSendMessage(t, proc, "hold", payload.Payloads{payload.NewPayload(lua.LString("go"), payload.Lua)})
 	cleanupRunUntilDone(t, proc)
 }

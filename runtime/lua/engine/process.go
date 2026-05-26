@@ -339,6 +339,41 @@ func (p *Process) HasSubscriptions() bool {
 	return false
 }
 
+// LiveSubscriptionCount returns the number of topic subscriptions currently
+// registered on the process. A one-shot subscription (funcs/contract async
+// future, time.after) is reclaimed on terminal delivery, so a long-lived
+// actor that calls many functions sequentially keeps this near the count of
+// concurrently-pending calls rather than growing without bound.
+func (p *Process) LiveSubscriptionCount() int {
+	if p.subs == nil {
+		return 0
+	}
+	p.subs.mu.RLock()
+	n := len(p.subs.byTopic)
+	p.subs.mu.RUnlock()
+	return n
+}
+
+var _ process.StatsProvider = (*Process)(nil)
+
+// Stats implements process.StatsProvider. The scheduler collects these after
+// each Step when stats are enabled, exposing per-process liveness counters for
+// inspection. Subscriptions count one-shot async futures still awaiting a
+// result; a value that climbs without bound for an actor in a call loop is the
+// subscription-leak signature.
+func (p *Process) Stats() attrs.Attributes {
+	bag := attrs.NewBag()
+	bag.Set("subscriptions", p.LiveSubscriptionCount())
+	bag.Set("threads", len(p.threads))
+	bag.Set("channels", len(p.channels))
+	if r := p.router.Load(); r != nil {
+		bag.Set("ephemeral_channels", r.size())
+	} else {
+		bag.Set("ephemeral_channels", 0)
+	}
+	return bag
+}
+
 // RegisterEphemeral registers an externally-driven channel with the
 // per-process ephemeral router. Returns (chID, epoch). The producer must
 // tag every frame with (epoch, chID, gen=0) and send it to TopicEphemeral
@@ -1637,12 +1672,11 @@ func (p *Process) clearExecution() {
 	p.result = nil
 	p.execErr = nil
 
-	// Clear channel/subscription state
+	// Clear channel state. Subscription maps were already emptied under the
+	// subs mutex by drainSubscriptionChannels above; clearing them here again
+	// would be an unlocked write to a mutex-guarded map that races a
+	// concurrent Stats() / HasSubscriptions reader.
 	clear(p.channels)
-	if p.subs != nil {
-		clear(p.subs.byTopic)
-		clear(p.subs.byChannel)
-	}
 	clear(p.handlers)
 	if p.channelQueue != nil {
 		p.channelQueue.Drain()
