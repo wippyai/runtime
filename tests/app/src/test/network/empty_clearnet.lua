@@ -18,7 +18,7 @@ local function main()
 	assert.eq(resp.status_code, 200, "clearnet status is 200")
 	assert.not_nil(resp.body, "response body present")
 
-	local data = json.decode(resp.body)
+	local data = json.decode(tostring(resp.body))
 	assert.not_nil(data, "decoded JSON body")
 	assert.eq(data.message, "hello world", "hello endpoint answered directly")
 

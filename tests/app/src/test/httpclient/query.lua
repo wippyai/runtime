@@ -15,7 +15,7 @@ local function main()
 	assert.eq(resp.status_code, 200, "status code 200")
 	assert.not_nil(resp.body, "response body present")
 
-	local data = json.decode(resp.body)
+	local data = json.decode(tostring(resp.body))
 	assert.eq(data.specific, "test_value", "query param value")
 	assert.eq(data.all_params.foo, "bar", "query param foo")
 	assert.eq(data.all_params.num, "123", "query param num")

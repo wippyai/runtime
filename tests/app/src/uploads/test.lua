@@ -24,7 +24,7 @@ local function main()
 	assert.ok(resp.body, "response body should not be nil: status=" .. tostring(resp.status_code))
 	assert.eq(resp.status_code, 200, "status code should be 200, body: " .. tostring(resp.body))
 
-	local data = json.decode(resp.body)
+	local data = json.decode(tostring(resp.body))
 	assert.ok(data, "json decode should succeed, body: " .. tostring(resp.body))
 	assert.is_nil(data.error, "no error in response: " .. tostring(data.error))
 	assert.eq(data.filename, filename, "filename matches")

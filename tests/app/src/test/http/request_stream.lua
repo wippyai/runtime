@@ -16,7 +16,7 @@ local function main()
 	assert.eq(resp.status_code, 200, "status code 200")
 	assert.not_nil(resp.body, "body present")
 
-	local data = json.decode(resp.body)
+	local data = json.decode(tostring(resp.body))
 	assert.eq(data.has_body, true, "has_body should be true")
 	assert.eq(data.total_size, #body, "total_size matches body length")
 	assert.eq(data.content, body, "content matches original body")
@@ -32,7 +32,7 @@ local function main()
 	assert.is_nil(err2, "large POST should not error")
 	assert.not_nil(resp2.body, "body present")
 
-	local data2 = json.decode(resp2.body)
+	local data2 = json.decode(tostring(resp2.body))
 	assert.eq(data2.total_size, 2048, "large body size correct")
 	assert.ok(data2.chunk_count >= 1, "read in chunks")
 	assert.eq(data2.content, large_body, "large content matches")
@@ -44,7 +44,7 @@ local function main()
 	assert.is_nil(err3, "empty POST should not error")
 	assert.not_nil(resp3.body, "body present")
 
-	local data3 = json.decode(resp3.body)
+	local data3 = json.decode(tostring(resp3.body))
 	-- Empty body still has has_body=false typically
 	assert.eq(data3.total_size or 0, 0, "empty body size is 0")
 
