@@ -198,10 +198,10 @@ func (y *WsSubscribeYield) HandleResult(l *lua.LState, data any, err error) []lu
 		return []lua.LValue{lua.LNil, lua.NewLuaError(l, "no process context").WithKind(lua.Internal).WithRetryable(false)}
 	}
 
-	// Register the externally-owned channel as an ordered producer-fed stream.
-	// On overflow the engine reclaims the subscription and fires the
-	// producer-stop cleanup rather than buffering an unbounded backlog.
-	if err := proc.SubscribeExistingStream(y.Topic, y.Channel); err != nil {
+	// Register the externally-owned channel. A slow consumer over a full
+	// bounded buffer retains messages in order in the mailbox and is never
+	// disconnected; the backlog buffers in memory and drains as it reads.
+	if err := proc.SubscribeExisting(y.Topic, y.Channel); err != nil {
 		return []lua.LValue{lua.LNil, lua.NewLuaError(l, err.Error()).WithKind(lua.Internal).WithRetryable(true)}
 	}
 

@@ -127,11 +127,11 @@ func TestSubscriptionLifecycleProofMatrix(t *testing.T) {
 
 		ch, sub := addMatrixSubscription(t, proc, "timer")
 		epoch := proc.epoch.Load()
-		if !proc.deliverMessage(proc.subs, subscriptionFrameMessage("timer", epoch, sub.id, sub.gen.Load(), payload.Payloads{
+		if proc.deliverMessage(proc.subs, subscriptionFrameMessage("timer", epoch, sub.id, sub.gen.Load(), payload.Payloads{
 			payload.NewPayload(lua.LString("done"), payload.Lua),
 			payload.NewTerminal(),
 		})) {
-			t.Fatal("terminal frame should be delivered")
+			t.Fatal("terminal frame should be consumed, not retained")
 		}
 		if !ch.IsClosed() {
 			t.Fatal("timer channel should be closed after terminal fire")
@@ -153,23 +153,23 @@ func TestSubscriptionLifecycleProofMatrix(t *testing.T) {
 			t.Fatalf("BumpSubscriptionGen = (%d, %v), old=%d", newGen, ok, oldGen)
 		}
 
-		delivered := proc.deliverMessage(proc.subs, subscriptionFrameMessage("timer", epoch, sub.id, oldGen, payload.Payloads{
+		kept := proc.deliverMessage(proc.subs, subscriptionFrameMessage("timer", epoch, sub.id, oldGen, payload.Payloads{
 			payload.NewPayload(lua.LString("old"), payload.Lua),
 		}))
-		if !delivered {
-			t.Fatal("stale frame should be consumed")
+		if kept {
+			t.Fatal("stale frame should be consumed, not retained")
 		}
 		if ch.Size() != 0 {
 			t.Fatalf("stale frame was delivered to channel, size=%d", ch.Size())
 		}
 		assertSubscriptionMatrixSizes(t, proc, 1, 1, 0)
 
-		delivered = proc.deliverMessage(proc.subs, subscriptionFrameMessage("timer", epoch, sub.id, newGen, payload.Payloads{
+		kept = proc.deliverMessage(proc.subs, subscriptionFrameMessage("timer", epoch, sub.id, newGen, payload.Payloads{
 			payload.NewPayload(lua.LString("new"), payload.Lua),
 			payload.NewTerminal(),
 		}))
-		if !delivered {
-			t.Fatal("current terminal frame should be delivered")
+		if kept {
+			t.Fatal("current terminal frame should be consumed, not retained")
 		}
 		assertSubscriptionMatrixSizes(t, proc, 0, 0, 0)
 	})
@@ -192,12 +192,12 @@ func TestSubscriptionLifecycleProofMatrix(t *testing.T) {
 			t.Fatalf("test requires recycled sub id, got old=%d new=%d", oldSub.id, newSub.id)
 		}
 
-		delivered := proc.deliverMessage(proc.subs, subscriptionFrameMessage("timer", oldEpoch, oldSub.id, oldSub.gen.Load(), payload.Payloads{
+		kept := proc.deliverMessage(proc.subs, subscriptionFrameMessage("timer", oldEpoch, oldSub.id, oldSub.gen.Load(), payload.Payloads{
 			payload.NewPayload(lua.LString("stale"), payload.Lua),
 			payload.NewTerminal(),
 		}))
-		if !delivered {
-			t.Fatal("old-epoch frame should be consumed")
+		if kept {
+			t.Fatal("old-epoch frame should be consumed, not retained")
 		}
 		if newCh.IsClosed() {
 			t.Fatal("old-epoch frame closed the recycled subscription")
@@ -215,11 +215,11 @@ func TestSubscriptionLifecycleProofMatrix(t *testing.T) {
 		epoch := proc.epoch.Load()
 		proc.closeChannel(ch)
 
-		delivered := proc.deliverMessage(proc.subs, subscriptionFrameMessage("timer", epoch, sub.id, sub.gen.Load(), payload.Payloads{
+		kept := proc.deliverMessage(proc.subs, subscriptionFrameMessage("timer", epoch, sub.id, sub.gen.Load(), payload.Payloads{
 			payload.NewPayload(lua.LString("late"), payload.Lua),
 		}))
-		if !delivered {
-			t.Fatal("post-teardown frame should be consumed")
+		if kept {
+			t.Fatal("post-teardown frame should be consumed, not retained")
 		}
 		assertSubscriptionMatrixSizes(t, proc, 0, 0, 0)
 	})
@@ -261,11 +261,11 @@ func TestSubscriptionLifecycleProofMatrix(t *testing.T) {
 			payload.NewTerminal(),
 		})
 
-		if !proc.deliverMessage(proc.subs, msg) {
-			t.Fatal("first terminal frame should deliver")
+		if proc.deliverMessage(proc.subs, msg) {
+			t.Fatal("first terminal frame should be consumed, not retained")
 		}
-		if !proc.deliverMessage(proc.subs, msg) {
-			t.Fatal("second terminal frame should be consumed")
+		if proc.deliverMessage(proc.subs, msg) {
+			t.Fatal("second terminal frame should be consumed, not retained")
 		}
 		assertSubscriptionMatrixSizes(t, proc, 0, 0, 0)
 		if len(proc.messageQueue) != 0 {
@@ -290,8 +290,8 @@ func TestSubscriptionLifecycleProofMatrix(t *testing.T) {
 			t.Fatalf("test requires id/gen collision, old=(%d,%d) new=(%d,%d)", oldSub.id, oldGen, newSub.id, newSub.gen.Load())
 		}
 
-		if !proc.deliverMessage(proc.subs, subscriptionFrameMessage("timer", oldEpoch, oldSub.id, oldGen, payload.Payloads{payload.NewTerminal()})) {
-			t.Fatal("epoch-collision frame should be consumed")
+		if proc.deliverMessage(proc.subs, subscriptionFrameMessage("timer", oldEpoch, oldSub.id, oldGen, payload.Payloads{payload.NewTerminal()})) {
+			t.Fatal("epoch-collision frame should be consumed, not retained")
 		}
 		assertSubscriptionMatrixSizes(t, proc, 1, 1, 0)
 	})
@@ -326,8 +326,8 @@ func TestSubscriptionLifecycleProofMatrix(t *testing.T) {
 		ch, sub := addMatrixSubscription(t, proc, "after@1")
 		proc.SetTopicHandler("after@1", stringHandler)
 		epoch := proc.epoch.Load()
-		if !proc.deliverMessage(proc.subs, oneShotFireMessage("after@1", epoch, sub.id, sub.gen.Load(), lua.LString("fire"))) {
-			t.Fatal("one-shot fire should be delivered")
+		if proc.deliverMessage(proc.subs, oneShotFireMessage("after@1", epoch, sub.id, sub.gen.Load(), lua.LString("fire"))) {
+			t.Fatal("one-shot fire should be consumed, not retained")
 		}
 		if !ch.IsClosed() {
 			t.Fatal("one-shot channel should close after an unread fire")
@@ -348,8 +348,8 @@ func TestSubscriptionLifecycleProofMatrix(t *testing.T) {
 			t.Fatal("SetSubscriptionCleanup failed")
 		}
 		epoch := proc.epoch.Load()
-		if !proc.deliverMessage(proc.subs, tickFireMessage("ticker@1", epoch, sub.id, sub.gen.Load(), lua.LString("tick"))) {
-			t.Fatal("tick should be delivered")
+		if proc.deliverMessage(proc.subs, tickFireMessage("ticker@1", epoch, sub.id, sub.gen.Load(), lua.LString("tick"))) {
+			t.Fatal("tick should be consumed, not retained")
 		}
 		assertSubscriptionMatrixSizes(t, proc, 1, 1, 1)
 
@@ -378,10 +378,10 @@ func TestSubscriptionLifecycleProofMatrix(t *testing.T) {
 		proc.SetTopicHandler("ticker@2", stringHandler)
 		epoch := proc.epoch.Load()
 
-		// Fire more ticks than the buffer holds; overflow is dropped.
+		// Fire more ticks than the buffer holds; routed-frame overflow is dropped.
 		for i := 0; i < 10; i++ {
-			if !proc.deliverMessage(proc.subs, tickFireMessage("ticker@2", epoch, sub.id, sub.gen.Load(), lua.LString("tick"))) {
-				t.Fatalf("tick %d should be consumed", i)
+			if proc.deliverMessage(proc.subs, tickFireMessage("ticker@2", epoch, sub.id, sub.gen.Load(), lua.LString("tick"))) {
+				t.Fatalf("tick %d should be consumed, not retained", i)
 			}
 		}
 		if len(proc.messageQueue) != 0 {
@@ -413,8 +413,8 @@ func TestSubscriptionLifecycleProofMatrix(t *testing.T) {
 		// The select winner stays subscribed; the losing deadline fires
 		// later and retires itself.
 		epoch := proc.epoch.Load()
-		if !proc.deliverMessage(proc.subs, oneShotFireMessage("after@30", epoch, loserSub.id, loserSub.gen.Load(), lua.LString("late"))) {
-			t.Fatal("losing one-shot fire should be delivered")
+		if proc.deliverMessage(proc.subs, oneShotFireMessage("after@30", epoch, loserSub.id, loserSub.gen.Load(), lua.LString("late"))) {
+			t.Fatal("losing one-shot fire should be consumed, not retained")
 		}
 		if !loser.IsClosed() {
 			t.Fatal("losing one-shot channel should close on fire")

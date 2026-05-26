@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -469,24 +470,24 @@ func TestLeak_WsRemoteDisconnectReclaims(t *testing.T) {
 	assert.LessOrEqualf(t, settled, baseline+1, "read-loop goroutine leaked after remote disconnect: baseline=%d settled=%d", baseline, settled)
 }
 
-// WS slow-consumer overflow drives the exact producer frame shape the
-// dispatcher read loop emits (non-frame relay packages on a ws@<n> topic for an
-// SubscribeExistingStream subscription) directly through Process.Step with no
-// waiting receiver. Forcing the bounded buffer to overflow deterministically
-// from a single-threaded Lua actor is racy — a parked receiver prevents
-// overflow by definition — so this proves the OverflowClose engine semantics at
-// the step level: the channel closes on overflow AND the producer-stop cleanup
-// (the wired read-loop cancel) fires, reclaiming the subscription.
-//
-// Real end-to-end delivery and read-loop cancel are proven by the connect/use/
-// close, remote-disconnect, drain, and hundreds tests above.
-func TestLeak_WsSlowConsumerOverflowStopsReadLoop(t *testing.T) {
-	const topic = "ws@overflow"
+// WS slow-consumer lossless delivery drives the exact producer frame shape the
+// dispatcher read loop emits (non-frame relay packages on a ws@<n> topic for a
+// SubscribeExisting subscription) directly through Process.Step. A backlog that
+// exceeds the bounded buffer, followed by a terminal, is delivered to a slow
+// consumer in order with zero loss: the consumer reads one value per step as
+// flush frees buffer slots, then observes the channel closed (EOF). The
+// terminal does not overtake the retained backlog, and the producer-stop
+// cleanup fires only once the terminal closes the channel, reclaiming the
+// subscription. The consumer is never disconnected mid-stream.
+func TestLeak_WsSlowConsumerLosslessInOrder(t *testing.T) {
+	const topic = "ws@order"
 	const bufCap = 4
+	const total = 20
 	wsCh := engine.NewChannel(bufCap)
 
-	// stopCalled records that the producer-stop cleanup fired on overflow — the
-	// same closure path the dispatcher wires through SetSubscriptionCleanup.
+	// stopCalled records that the producer-stop cleanup fired — the same closure
+	// path the dispatcher wires through SetSubscriptionCleanup. It must fire only
+	// when the terminal closes the channel, after the whole backlog drained.
 	var stopCalled atomic.Bool
 
 	binder := func(l *lua.LState) error {
@@ -494,12 +495,19 @@ func TestLeak_WsSlowConsumerOverflowStopsReadLoop(t *testing.T) {
 		mod.RawSetString("stream", lua.LGoFunc(func(s *lua.LState) int {
 			p := engine.GetProcess(s)
 			require.NotNil(t, p)
-			require.NoError(t, p.SubscribeExistingStream(topic, wsCh))
+			require.NoError(t, p.SubscribeExisting(topic, wsCh))
 			p.SetTopicHandler(topic, func(_ context.Context, _ *lua.LState, _ pid.PID, _ string, payloads []payload.Payload) lua.LValue {
 				if len(payloads) == 0 {
 					return lua.LNil
 				}
-				return lua.LString(fmt.Sprintf("%v", payloads[0].Data()))
+				switch v := payloads[0].Data().(type) {
+				case []byte:
+					return lua.LString(v)
+				case string:
+					return lua.LString(v)
+				default:
+					return lua.LString(fmt.Sprintf("%v", v))
+				}
 			})
 			require.True(t, p.SetSubscriptionCleanup(wsCh, func() { stopCalled.Store(true) }))
 			engine.PushChannel(s, wsCh)
@@ -512,14 +520,15 @@ func TestLeak_WsSlowConsumerOverflowStopsReadLoop(t *testing.T) {
 	proc, err := engine.NewProcess(
 		engine.WithScript(`
 			local ws = require("websocket_overflow")
-			-- Subscribe to obtain the producer-fed stream channel, then park on a
-			-- separate never-ready channel so the actor is NOT a waiting receiver
-			-- on the ws channel while frames flood in.
 			local ch = ws.stream()
-			local idle = channel.new(0)
-			idle:receive()
-			return "done"
-		`, "overflow.lua"),
+			local got = {}
+			while true do
+				local v, ok = ch:receive()
+				if not ok then break end
+				got[#got + 1] = v
+			end
+			return table.concat(got, ",")
+		`, "order.lua"),
 		engine.WithModuleBinder(func(l *lua.LState) error {
 			engine.LoadModuleDef(l, engine.ChannelModule)
 			return nil
@@ -536,23 +545,43 @@ func TestLeak_WsSlowConsumerOverflowStopsReadLoop(t *testing.T) {
 	require.NoError(t, apiruntime.SetFramePID(frameCtx, procPID))
 	require.NoError(t, proc.Init(frameCtx, "", nil))
 
-	// First step: run the script up to the idle:receive() park. This registers
-	// the SubscribeExistingStream subscription and the cleanup.
+	// First step: run to the receive loop's first park on the empty ws channel.
 	var out process.StepOutput
 	require.NoError(t, proc.Step(nil, &out))
 	require.Equal(t, 1, proc.LiveSubscriptionCount(), "stream subscription must be live after subscribe")
 
-	// Flood the producer frame shape past the bounded buffer with no waiting
-	// receiver. Each is the dispatcher's non-frame string payload package.
-	for i := 0; i < bufCap*4; i++ {
-		pkg := relay.NewPackage(pid.Zero(), procPID, topic, payload.NewPayload([]byte("x"), payload.String))
+	// Flood total non-frame string packages past the bounded buffer, then a
+	// terminal, all while the consumer drains slowly. total-bufCap messages are
+	// retained in the mailbox, with the terminal queued behind them.
+	for i := 0; i < total; i++ {
+		pkg := relay.NewPackage(pid.Zero(), procPID, topic, payload.NewPayload([]byte(fmt.Sprintf("m%d", i)), payload.String))
 		out.Reset()
 		require.NoError(t, proc.Step([]process.Event{{Type: process.EventMessage, Data: pkg}}, &out))
+		require.False(t, wsCh.IsClosed(), "consumer must not be disconnected mid-stream at message %d", i)
 	}
+	// Terminal closes the channel after the backlog drains.
+	termPkg := relay.NewPackage(pid.Zero(), procPID, topic, payload.NewTerminal())
+	out.Reset()
+	require.NoError(t, proc.Step([]process.Event{{Type: process.EventMessage, Data: termPkg}}, &out))
 
-	assert.True(t, wsCh.IsClosed(), "bounded buffer overflow must close the ordered stream channel")
-	assert.True(t, stopCalled.Load(), "overflow must fire the producer-stop cleanup (read-loop cancel)")
-	assert.Equal(t, 0, proc.LiveSubscriptionCount(), "overflow must reclaim the subscription")
+	// Drain steps until the consumer reads the whole backlog and sees EOF.
+	const maxSteps = 500
+	for i := 0; i < maxSteps && out.Status() != process.StepDone; i++ {
+		out.Reset()
+		require.NoError(t, proc.Step(nil, &out))
+	}
+	require.Equal(t, process.StepDone, out.Status(), "process must complete after lossless drain")
+
+	wantParts := make([]string, total)
+	for i := 0; i < total; i++ {
+		wantParts[i] = fmt.Sprintf("m%d", i)
+	}
+	want := strings.Join(wantParts, ",")
+	require.NotNil(t, out.Result())
+	assert.Equal(t, want, resultString(out.Result().Data()), "slow consumer must receive every message in order with no loss")
+
+	assert.True(t, stopCalled.Load(), "terminal close must fire the producer-stop cleanup (read-loop cancel)")
+	assert.Equal(t, 0, proc.LiveSubscriptionCount(), "terminal close must reclaim the subscription")
 }
 
 // WS process-exit drain: the actor opens a connection on a silent server and

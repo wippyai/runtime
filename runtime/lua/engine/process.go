@@ -101,7 +101,13 @@ type Process struct {
 	yieldBuf       []*Task
 	messageQueue   []queuedMessage
 	threads        []*Task
-	yieldSeq       uint64
+	// stalledChans tracks channels that retained an undeliverable message in
+	// the current flush pass, keyed on the resolved *Channel. Once a channel
+	// stalls, every later mailbox message for it (including a terminal) is also
+	// retained so a terminal cannot overtake earlier retained data on the same
+	// channel. Lazily created on first stall, cleared at the start of each flush.
+	stalledChans map[*Channel]struct{}
+	yieldSeq     uint64
 	// epoch is the monotonic incarnation counter. Incremented on every
 	// Init / clearExecution / Close drain and on Abort. Producers stamp
 	// every SubscriptionFrame with the epoch they were registered under;
@@ -143,26 +149,16 @@ func (p *Process) Subscribe(topic string, bufSize int) (*Channel, error) {
 }
 
 // SubscribeExisting registers an externally-owned channel for a topic.
-// Used by modules that manage their own channel lifecycle (events, timer, etc.).
+// Used by modules that manage their own channel lifecycle (events, timer,
+// websocket, etc.). A full bounded buffer with no waiting receiver retains the
+// message in messageQueue and redelivers it in order on a later flush, so a
+// slow consumer receives every message losslessly.
 // Returns error if topic already has a different channel subscribed.
 func (p *Process) SubscribeExisting(topic string, ch *Channel) error {
 	if p.subs == nil {
 		return runtimelua.ErrProcessContextNotAvailable
 	}
-	_, err := p.subs.addExisting(topic, ch, false)
-	return err
-}
-
-// SubscribeExistingStream registers an externally-owned channel for an ordered
-// producer-fed stream (websocket). On a full bounded buffer with no waiting
-// receiver, deliverMessage reclaims the subscription (closeChannel fires the
-// producer-stop cleanup) rather than retaining the frame in messageQueue.
-// Returns error if topic already has a different channel subscribed.
-func (p *Process) SubscribeExistingStream(topic string, ch *Channel) error {
-	if p.subs == nil {
-		return runtimelua.ErrProcessContextNotAvailable
-	}
-	_, err := p.subs.addExisting(topic, ch, true)
+	_, err := p.subs.addExisting(topic, ch)
 	return err
 }
 
@@ -981,7 +977,7 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, bool, error) {
 			var sub *subscription
 			var err error
 			if req.ExistingChannel != nil {
-				sub, err = subs.addExisting(req.Topic, req.ExistingChannel, false)
+				sub, err = subs.addExisting(req.Topic, req.ExistingChannel)
 			} else {
 				sub, err = subs.add(req.Topic, req.BufSize)
 			}
@@ -1026,27 +1022,60 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, bool, error) {
 }
 
 // flushMessageQueue delivers queued messages to subscribed channels.
-// Messages that can't be delivered stay in the queue (preserve order).
+// Messages that can't be delivered stay in the queue, preserving order.
+//
+// Invariant: for any channel, a terminal must not overtake data retained on
+// that same channel. A message retained for a full bounded buffer records the
+// channel in stalledChans; a later channel-closing message (terminal) for it is
+// then held until the backlog drains. Pure data is not held, so an
+// undeliverable message does not block unrelated later sends to the channel.
 func (p *Process) flushMessageQueue(subs *subscribeContext) {
 	if len(p.messageQueue) == 0 {
 		return
 	}
 
-	// Process queue, keeping undelivered messages
+	// stalledChans tracks per-pass stalled channels. clear(nil) is a no-op;
+	// the map is created lazily on the first stall to avoid an allocation on
+	// the common no-stall flush.
+	clear(p.stalledChans)
+
+	// Process queue, retaining undelivered messages in order.
 	remaining := p.messageQueue[:0]
 	for _, qm := range p.messageQueue {
 		if p.deliverMessage(subs, qm) {
-			continue // delivered, don't keep
+			remaining = append(remaining, qm) // retain in queue
 		}
-		remaining = append(remaining, qm) // not delivered, keep in queue
 	}
 	p.messageQueue = remaining
 }
 
+// markStalled records that a channel retained a message in the current flush
+// pass, lazily creating the set.
+func (p *Process) markStalled(ch *Channel) {
+	if p.stalledChans == nil {
+		p.stalledChans = make(map[*Channel]struct{})
+	}
+	p.stalledChans[ch] = struct{}{}
+}
+
+func (p *Process) isStalled(ch *Channel) bool {
+	if p.stalledChans == nil {
+		return false
+	}
+	_, ok := p.stalledChans[ch]
+	return ok
+}
+
 // deliverMessage attempts to deliver a queued message to its subscription.
-// Returns true if delivered (or terminal handled), false if no subscription exists.
-// Returns error if process should terminate (e.g., LINK_DOWN with trap_links=false).
-func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool {
+// Returns keep=true to retain the message in the queue (no subscription yet, a
+// full bounded buffer with no waiting receiver, or a channel-closing message
+// held behind that channel's retained backlog); keep=false to drop it
+// (delivered, terminal handled, stale frame, or routed one-shot overflow).
+//
+// Invariant: for any channel, a terminal must not overtake data retained on
+// that same channel this pass. Only channel-closing messages are held by the
+// stall; pure data retries normally and a full buffer preserves its order.
+func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep bool) {
 	topic := qm.Topic
 	handlerTopic := topic
 	frame, hasFrame := subscriptionFrameFromPayloads(qm.Payloads)
@@ -1056,7 +1085,7 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 	if topic == topology.TopicEvents && !p.trapLinks {
 		if isLinkDownEvent(qm.Payloads) {
 			p.linkDownError = errors.New("linked process failed")
-			return true // consume the message
+			return false // consume the message
 		}
 	}
 
@@ -1064,7 +1093,7 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 	sub, exists := subs.match(topic)
 	if !exists {
 		if hasFrame {
-			return true
+			return false
 		}
 		// Fallback to inbox for non-@ topics
 		if !strings.HasPrefix(topic, "@") {
@@ -1074,28 +1103,40 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 			}
 		}
 		if !exists {
-			return false // no subscription, keep in queue
+			return true // no subscription, keep in queue
 		}
 	}
 
 	payloads := qm.Payloads
 	outerTerminal := false
 	if hasFrame {
+		// Stale frame (prior epoch/subID/gen): drop regardless of stall. A
+		// stale frame is not live data, so dropping it does not reorder data.
 		if frame == nil || frame.Epoch != p.epoch.Load() || frame.SubID != sub.id || frame.Gen != sub.gen.Load() {
-			return true
+			return false
 		}
 		payloads = frame.Payloads
 		outerTerminal = len(qm.Payloads) > 1 && payload.IsTerminal(qm.Payloads[len(qm.Payloads)-1])
 	}
 
-	// Check for terminal payload - unsubscribe and close channel
-	if (len(payloads) == 1 && payload.IsTerminal(payloads[0])) || (len(payloads) == 0 && outerTerminal) {
-		p.closeChannel(sub.channel)
+	terminalOnly := (len(payloads) == 1 && payload.IsTerminal(payloads[0])) || (len(payloads) == 0 && outerTerminal)
+	hasTerminal := outerTerminal || (len(payloads) > 1 && payload.IsTerminal(payloads[len(payloads)-1]))
+
+	// A channel-closing message must not overtake data retained on the same
+	// channel earlier this pass: hold it until the backlog drains. Pure data is
+	// not gated — it retries normally and a full bounded buffer preserves order
+	// on its own, so undeliverable data does not block unrelated later messages
+	// (e.g. inbox-fallback rendezvous delivery).
+	if (terminalOnly || hasTerminal) && p.isStalled(sub.channel) {
 		return true
 	}
 
-	// Check for terminal at end of multi-payload message (result + terminal pattern)
-	hasTerminal := outerTerminal || (len(payloads) > 1 && payload.IsTerminal(payloads[len(payloads)-1]))
+	// Terminal-only payload: unsubscribe and close the channel.
+	if terminalOnly {
+		p.closeChannel(sub.channel)
+		return false
+	}
+
 	if len(payloads) > 0 && payload.IsTerminal(payloads[len(payloads)-1]) {
 		payloads = payloads[:len(payloads)-1]
 	}
@@ -1109,7 +1150,7 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 			if hasTerminal {
 				p.closeChannel(sub.channel)
 			}
-			return true
+			return false
 		}
 	} else {
 		value = PayloadsToLua(p.ctx, p.state, payloads)
@@ -1119,13 +1160,14 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 	// TrySend hands off to a waiting receiver or buffers if there is room.
 	// When neither succeeds, the message stays in messageQueue and is
 	// retried on the next step — preserving mailbox order and rendezvous
-	// semantics on zero-buffer topics (@pid/events, @pid/inbox).
+	// semantics on zero-buffer topics (@pid/events, @pid/inbox) and lossless
+	// in-order delivery to a slow consumer on a full bounded buffer.
 	result, sent := sub.channel.TrySend(value)
 	if !sent {
 		if sub.channel.IsClosed() {
 			p.closeChannel(sub.channel)
 			p.applyExternalChannelResult(result)
-			return true
+			return false
 		}
 		if hasFrame {
 			// Routed producer frame on a full bounded buffer with no
@@ -1135,17 +1177,13 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 			if hasTerminal {
 				p.closeChannel(sub.channel)
 			}
-			return true
+			return false
 		}
-		if sub.overflowClose {
-			// Ordered producer-fed stream (websocket) overflowed its bounded
-			// buffer with no waiting receiver. Reclaim the subscription:
-			// closeChannel fires the producer-stop cleanup so the read loop
-			// halts instead of buffering an unbounded backlog.
-			p.closeChannel(sub.channel)
-			return true
-		}
-		return false
+		// Full bounded buffer, no waiting receiver, not a routed frame: retain
+		// in the queue and mark the channel stalled so later messages for it
+		// (including a terminal) stay behind this backlog.
+		p.markStalled(sub.channel)
+		return true
 	}
 	p.applyExternalChannelResult(result)
 
@@ -1154,7 +1192,7 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 		p.closeChannel(sub.channel)
 	}
 
-	return true
+	return false
 }
 
 // isLinkDownEvent checks if the payload contains a LINK_DOWN event.
@@ -1429,6 +1467,7 @@ func (p *Process) Close() {
 	p.subs = nil
 	p.handlers = nil
 	p.messageQueue = nil
+	p.stalledChans = nil
 	p.trapLinks = false
 	p.linkDownError = nil
 
