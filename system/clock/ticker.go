@@ -66,18 +66,29 @@ func (r *tickerRegistry) start(ctx context.Context, d time.Duration, p pid.PID, 
 	return r.startWithFire(ctx, d, p, topic, nil, nil, node)
 }
 
-// startWithFire installs a ticker entry whose payload construction is
-// controlled by the supplied fire closure. If fire is nil the default
-// legacy sendTick (int64 nanos) is used. routerKey, when non-nil, is
-// removed from the dispatcher's reverseMap when the ticker stops.
+// startWithFire reserves and arms in one step. Callers that must install
+// reverse-map state before the ticker can fire use reserve and arm
+// separately.
 func (r *tickerRegistry) startWithFire(ctx context.Context, d time.Duration, p pid.PID, topic string, fire func(at time.Time), routerKey *chIDKey, node relay.Node) uint64 {
+	id := r.reserve(ctx, p, topic, fire, routerKey)
+	r.arm(id, d, node)
+	return id
+}
+
+// reserve allocates an id and stores the ticker entry without starting
+// the time.Ticker or its forwarding goroutine. The entry is registered
+// (and discoverable by stop and drain) but cannot fire until arm runs.
+// routerKey, when non-nil, is removed from the dispatcher's reverseMap
+// when the ticker stops. The payload construction is controlled by the
+// supplied fire closure; if fire is nil the default legacy sendTick
+// (int64 nanos) is used.
+func (r *tickerRegistry) reserve(ctx context.Context, p pid.PID, topic string, fire func(at time.Time), routerKey *chIDKey) uint64 {
 	id := r.nextID.Add(1)
 	shard := r.getShard(id)
 
 	tickerCtx, cancel := context.WithCancel(ctx)
 
 	entry := &tickerEntry{
-		ticker:    time.NewTicker(d),
 		pid:       p,
 		topic:     topic,
 		fire:      fire,
@@ -90,9 +101,32 @@ func (r *tickerRegistry) startWithFire(ctx context.Context, d time.Duration, p p
 	shard.tickers[id] = entry
 	shard.mu.Unlock()
 
-	go r.forwardTicks(entry, node)
-
 	return id
+}
+
+// arm starts the time.Ticker and its forwarding goroutine for a reserved
+// id. It is a no-op if the entry was stopped before arming. Arming is the
+// last step so the reverse-map entry the dispatcher installs between
+// reserve and arm is guaranteed present before the ticker can fire.
+func (r *tickerRegistry) arm(id uint64, d time.Duration, node relay.Node) {
+	shard := r.getShard(id)
+	shard.mu.Lock()
+	entry, ok := shard.tickers[id]
+	armed := false
+	if ok && !entry.closed.Load() {
+		entry.ticker = time.NewTicker(d)
+		armed = true
+	}
+	shard.mu.Unlock()
+
+	if !armed {
+		return
+	}
+
+	// forwardTicks owns the time.Ticker lifecycle from here: its deferred
+	// Stop releases the ticker even if stop/close cancelled the entry
+	// between the unlock above and this launch.
+	go r.forwardTicks(entry, node)
 }
 
 func (r *tickerRegistry) forwardTicks(entry *tickerEntry, node relay.Node) {

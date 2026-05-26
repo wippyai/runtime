@@ -3,12 +3,10 @@
 package time_test
 
 import (
-	"context"
 	"testing"
 	stdtime "time"
 
 	lua "github.com/wippyai/go-lua"
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 )
 
@@ -58,9 +56,13 @@ func TestLeak_TimeAfter_LoopCompletes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	if _, err := sched.Execute(ctx, testPID(), proc, "", nil); err != nil {
+	ctx, _ := openTimeFrameCtx(t)
+	result, err := sched.Execute(ctx, testPID(), proc, "", nil)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if result == nil || result.Error != nil {
+		t.Fatalf("script did not complete 500 real time.after cycles: %v", resultErr(result))
 	}
 
 	// Dispatcher must be clean once the script returns. Any leftover
@@ -110,9 +112,13 @@ func TestLeak_TimeTicker_StopUnsubscribes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	if _, err := sched.Execute(ctx, testPID(), proc, "", nil); err != nil {
+	ctx, _ := openTimeFrameCtx(t)
+	result, err := sched.Execute(ctx, testPID(), proc, "", nil)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if result == nil || result.Error != nil {
+		t.Fatalf("script did not complete 100 real ticker cycles: %v", resultErr(result))
 	}
 
 	// The dispatcher's ticker registry should be empty after every
@@ -160,9 +166,13 @@ func TestLeak_TimeTimer_StopAndFireBothClean(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
-	if _, err := sched.Execute(ctx, testPID(), proc, "", nil); err != nil {
+	ctx, _ := openTimeFrameCtx(t)
+	result, err := sched.Execute(ctx, testPID(), proc, "", nil)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if result == nil || result.Error != nil {
+		t.Fatalf("script did not complete 100 real timer cycles: %v", resultErr(result))
 	}
 
 	// After 100 timers (50 fired + 50 stopped) the dispatcher must be

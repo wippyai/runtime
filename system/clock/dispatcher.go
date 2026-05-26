@@ -152,12 +152,15 @@ func (d *Dispatcher) handleTickerStart(ctx context.Context, cmd dispatcher.Comma
 	}
 
 	fire := d.tickerFireFn(c, node)
-	id := d.tickers.startWithFire(ctx, c.Duration, c.PID, c.Topic, fire, routerKey, node)
+	// Reserve before installing the reverse-map entry, then arm last so
+	// the ticker cannot fire before its reverse-map key exists.
+	id := d.tickers.reserve(ctx, c.PID, c.Topic, fire, routerKey)
 	if routerKey != nil {
 		d.mu.Lock()
 		d.tickerReverse[*routerKey] = id
 		d.mu.Unlock()
 	}
+	d.tickers.arm(id, c.Duration, node)
 
 	receiver.CompleteYield(tag, clockapi.TickerStartResult{
 		ID: id,
@@ -246,12 +249,16 @@ func (d *Dispatcher) handleTimerStart(ctx context.Context, cmd dispatcher.Comman
 		}
 	}
 
-	id := d.timers.startWithCallbackAndKey(c.Duration, fire, routerKey, onFireCleanup, c.GenRef)
+	// Reserve before installing the reverse-map entry, then arm last:
+	// the timer cannot fire (and its onFireCleanup cannot run) until the
+	// reverse-map key exists, so a sub-µs fire can never orphan it.
+	id := d.timers.reserve(fire, routerKey, onFireCleanup, c.GenRef)
 	if routerKey != nil {
 		d.mu.Lock()
 		d.timerReverse[*routerKey] = id
 		d.mu.Unlock()
 	}
+	d.timers.arm(id, c.Duration)
 
 	receiver.CompleteYield(tag, clockapi.TimerStartResult{
 		ID: id,

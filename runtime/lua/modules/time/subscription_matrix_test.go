@@ -3,7 +3,6 @@
 package time_test
 
 import (
-	"context"
 	"testing"
 	stdtime "time"
 
@@ -66,10 +65,14 @@ func TestTimeSubscriptionLifecycleProofMatrix(t *testing.T) {
 			guard:receive()
 			return "ok"
 		`
-		ctx, _ := ctxapi.OpenFrameContext(context.Background())
+		ctx, _ := openTimeFrameCtx(t)
 		proc := newMatrixProcess(t, script)
-		if _, err := sched.Execute(ctx, testPID(), proc, "", nil); err != nil {
+		result, err := sched.Execute(ctx, testPID(), proc, "", nil)
+		if err != nil {
 			t.Fatal(err)
+		}
+		if result == nil || result.Error != nil {
+			t.Fatalf("discard-before-fire script failed: %v", resultErr(result))
 		}
 		if got := sched.clock.TimerCount(); got != 0 {
 			t.Errorf("dispatcher leaked %d timers after discard-before-fire", got)
@@ -97,10 +100,14 @@ func TestTimeSubscriptionLifecycleProofMatrix(t *testing.T) {
 			-- Exit without :stop(); drain must release the ticker.
 			return "ok"
 		`
-		ctx, fc := ctxapi.OpenFrameContext(context.Background())
+		ctx, fc := openTimeFrameCtx(t)
 		proc := newMatrixProcess(t, script)
-		if _, err := sched.Execute(ctx, testPID(), proc, "", nil); err != nil {
+		result, err := sched.Execute(ctx, testPID(), proc, "", nil)
+		if err != nil {
 			t.Fatal(err)
+		}
+		if result == nil || result.Error != nil {
+			t.Fatalf("ticker-never-stopped script failed: %v", resultErr(result))
 		}
 		ctxapi.ReleaseFrameContext(fc)
 		waitTickerCount(t, sched, 0)
@@ -126,10 +133,14 @@ func TestTimeSubscriptionLifecycleProofMatrix(t *testing.T) {
 			tk:response():receive()
 			return "ok"
 		`
-		ctx, fc := ctxapi.OpenFrameContext(context.Background())
+		ctx, fc := openTimeFrameCtx(t)
 		proc := newMatrixProcess(t, script)
-		if _, err := sched.Execute(ctx, testPID(), proc, "", nil); err != nil {
+		result, err := sched.Execute(ctx, testPID(), proc, "", nil)
+		if err != nil {
 			t.Fatal(err)
+		}
+		if result == nil || result.Error != nil {
+			t.Fatalf("ticker-dropped-without-stop script failed: %v", resultErr(result))
 		}
 		ctxapi.ReleaseFrameContext(fc)
 		waitTickerCount(t, sched, 0)
@@ -159,14 +170,14 @@ func TestTimeSubscriptionLifecycleProofMatrix(t *testing.T) {
 			time.after(50 * stdNs):receive()
 			return "ok"
 		`
-		ctx, _ := ctxapi.OpenFrameContext(context.Background())
+		ctx, _ := openTimeFrameCtx(t)
 		proc := newMatrixProcess(t, script)
 		result, err := sched.Execute(ctx, testPID(), proc, "", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if result == nil {
-			t.Fatal("nil result")
+		if result == nil || result.Error != nil {
+			t.Fatalf("losing-select script failed: %v", resultErr(result))
 		}
 		if got := sched.clock.TimerCount(); got != 0 {
 			t.Errorf("dispatcher leaked %d timers after losing select", got)
