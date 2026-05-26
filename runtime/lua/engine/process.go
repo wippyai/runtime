@@ -362,6 +362,30 @@ func (p *Process) LiveSubscriptionCount() int {
 	return n
 }
 
+// LiveChannelSubscriptionCount returns the size of the channel-to-topic index.
+// It is maintained in lockstep with byTopic; a value that diverges from
+// LiveSubscriptionCount after unsubscribe is a half-removed-subscription leak.
+func (p *Process) LiveChannelSubscriptionCount() int {
+	if p.subs == nil {
+		return 0
+	}
+	p.subs.mu.RLock()
+	n := len(p.subs.byChannel)
+	p.subs.mu.RUnlock()
+	return n
+}
+
+// TopicHandlerCount returns the number of registered topic handlers. Handlers
+// are installed by Go-side subscriptions (message-mode listen, events,
+// websocket, async futures) and must be removed on unsubscribe / drain; a value
+// that climbs across listen/unlisten cycles is an orphan-handler leak.
+//
+// The handlers map is owned by the step goroutine. Read it only when no step is
+// in flight (e.g. after the scheduler worker pool is stopped).
+func (p *Process) TopicHandlerCount() int {
+	return len(p.handlers)
+}
+
 var _ process.StatsProvider = (*Process)(nil)
 
 // Stats implements process.StatsProvider. The scheduler collects these after
