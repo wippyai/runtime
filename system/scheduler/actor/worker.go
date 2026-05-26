@@ -213,6 +213,11 @@ func (w *Worker) executeOne(proc *Processor) {
 		if !proc.casState(StateRunning, StateComplete) {
 			return
 		}
+		// Signal ephemeral producers to stop before tearing down the queue,
+		// so a terminated process doesn't leak its channel-anchored producers.
+		if a, ok := stepper.(interface{ Abort() }); ok {
+			a.Abort()
+		}
 		proc.queue.Close()
 		w.scheduler.complete(proc, nil, sysprocess.ErrTerminated)
 		return

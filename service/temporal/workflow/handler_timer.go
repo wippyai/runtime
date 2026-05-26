@@ -53,3 +53,19 @@ func (d *Definition) executeTickerStop(cmd clockapi.TickerStopCmd, tag uint64) e
 	})
 	return nil
 }
+
+// executeTimerStopByChID cancels a router-tagged timer by (epoch, chID).
+func (d *Definition) executeTimerStopByChID(cmd clockapi.TimerStopByChIDCmd, tag uint64) error {
+	d.timers.StopTimerByChID(cmd.Epoch, cmd.ChID, func(data any, err error) {
+		d.resumeProcess(tag, data, err)
+	})
+	return nil
+}
+
+// executeTickerStopByChID cancels a router-tagged ticker by (epoch, chID).
+func (d *Definition) executeTickerStopByChID(cmd clockapi.TickerStopByChIDCmd, tag uint64) error {
+	d.timers.StopTickerByChID(cmd.Epoch, cmd.ChID, func(data any, err error) {
+		d.resumeProcess(tag, data, err)
+	})
+	return nil
+}

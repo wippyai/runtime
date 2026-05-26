@@ -142,6 +142,25 @@ func (e *Executor) WithExecutionHooks(hooks ExecutionHooks) *Executor {
 }
 
 // Run executes a process to completion, handling all yields.
+// aborter is implemented by processes (e.g. engine.Process) that can drain
+// their ephemeral channel producers when execution is cancelled before the
+// normal Close/clearExecution teardown runs.
+type aborter interface{ Abort() }
+
+// cancelResult drains the process's ephemeral producers (if it supports it)
+// and builds the cancellation result, firing the OnComplete hook. Used on
+// every ctx.Done() early-exit so a cancelled process doesn't leak ephemerals.
+func (e *Executor) cancelResult(ctx context.Context, proc process.Process) *runtime.Result {
+	if a, ok := proc.(aborter); ok {
+		a.Abort()
+	}
+	result := &runtime.Result{Error: ctx.Err()}
+	if e.hooks.OnComplete != nil {
+		e.hooks.OnComplete(ctx, result)
+	}
+	return result
+}
+
 func (e *Executor) Run(ctx context.Context, proc process.Process, method string, input payload.Payloads) *runtime.Result {
 	if e.hooks.OnStart != nil {
 		e.hooks.OnStart(ctx, proc)
@@ -234,11 +253,7 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 			case <-e.queue.Signal():
 				continue
 			case <-ctx.Done():
-				result := &runtime.Result{Error: ctx.Err()}
-				if e.hooks.OnComplete != nil {
-					e.hooks.OnComplete(ctx, result)
-				}
-				return result
+				return e.cancelResult(ctx, proc)
 			}
 
 		case process.StepYield:
@@ -252,11 +267,7 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 			case <-e.queue.Signal():
 				continue
 			case <-ctx.Done():
-				result := &runtime.Result{Error: ctx.Err()}
-				if e.hooks.OnComplete != nil {
-					e.hooks.OnComplete(ctx, result)
-				}
-				return result
+				return e.cancelResult(ctx, proc)
 			}
 
 		case process.StepIdle:
@@ -270,11 +281,7 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 			case <-e.queue.Signal():
 				continue
 			case <-ctx.Done():
-				result := &runtime.Result{Error: ctx.Err()}
-				if e.hooks.OnComplete != nil {
-					e.hooks.OnComplete(ctx, result)
-				}
-				return result
+				return e.cancelResult(ctx, proc)
 			}
 
 		case process.StepDone:

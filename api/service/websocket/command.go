@@ -137,7 +137,11 @@ func (c SubscribeCmd) CmdID() dispatcher.CommandID {
 }
 
 // Subscription represents an active subscription to WebSocket messages.
+// Stop cancels the per-connection relay read loop the dispatcher spawned for
+// this subscription. The process wires it through SetSubscriptionCleanup so
+// closeChannel / drain / Abort halt the producer goroutine.
 type Subscription struct {
+	Stop   func()
 	Topic  string
 	ConnID uint64
 }

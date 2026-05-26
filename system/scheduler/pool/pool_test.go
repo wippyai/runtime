@@ -60,8 +60,17 @@ func (h *mockHandler) Handle(ctx context.Context, cmd dispatcher.Command, tag ui
 }
 
 type mockProcess struct {
-	initFunc func(ctx context.Context, method string, input payload.Payloads) error
-	stepFunc func(events []process.Event, out *process.StepOutput) error
+	initFunc  func(ctx context.Context, method string, input payload.Payloads) error
+	stepFunc  func(events []process.Event, out *process.StepOutput) error
+	abortFunc func()
+}
+
+// Abort satisfies the executor's optional aborter interface so the
+// cancellation path can drain ephemeral producers.
+func (p *mockProcess) Abort() {
+	if p.abortFunc != nil {
+		p.abortFunc()
+	}
 }
 
 func (p *mockProcess) Init(ctx context.Context, method string, input payload.Payloads) error {
@@ -572,6 +581,43 @@ func TestExecutor_Run_StepYield_ContextCancelled(t *testing.T) {
 
 	require.NotNil(t, result)
 	assert.ErrorIs(t, result.Error, context.Canceled)
+}
+
+func TestExecutor_Run_AbortsEphemeralsOnCancel(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping context cancellation test in short mode")
+	}
+
+	d := newMockDispatcher()
+	e := NewExecutor(d)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var aborted atomic.Bool
+	proc := &mockProcess{
+		stepFunc: func(_ []process.Event, out *process.StepOutput) error {
+			// Park on a pending yield so Run blocks in the ctx.Done() select.
+			out.Yield(&mockCommand{id: 1}, 1)
+			return nil
+		},
+		abortFunc: func() { aborted.Store(true) },
+	}
+	d.Register(1, &mockHandler{
+		handleFunc: func(_ context.Context, _ dispatcher.Command, _ uint64, _ dispatcher.ResultReceiver) error {
+			return nil // leave pending so the executor waits for cancellation
+		},
+	})
+
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+	}()
+
+	result := e.Run(ctx, proc, "main", nil)
+
+	require.NotNil(t, result)
+	assert.ErrorIs(t, result.Error, context.Canceled)
+	assert.True(t, aborted.Load(), "executor must Abort the process on context cancellation so ephemeral producers drain")
 }
 
 // --- StepIdle Tests ---
