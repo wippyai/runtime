@@ -5,12 +5,15 @@ package raft
 import "time"
 
 // Config holds configuration for a Raft node.
+//
+// Raft runs with a diskless control plane (in-memory stores): cluster state
+// is ephemeral, restarts rejoin from peer state, persistence-vs-quorum
+// failure modes are removed by construction. There is no data_dir.
 type Config struct {
-	DataDir string `json:"data_dir"`
-	// Deprecated: mesh transport ignores this field. Kept for one
-	// deprecation cycle so legacy boot configs still parse; the mesh
-	// transport addresses peers by NodeID over the internode layer.
-	AdvertiseAddr string `json:"advertise_addr"`
+	// Deprecated: mesh transport ignores this field. Kept only so legacy
+	// TCP test fallbacks still compile; production runs over the mesh
+	// transport which addresses peers by NodeID over the internode layer.
+	AdvertiseAddr string `json:"advertise_addr,omitempty"`
 	// Deprecated: mesh transport ignores this field. See AdvertiseAddr.
 	BindAddr          string        `json:"bind_addr"`
 	CommitTimeout     time.Duration `json:"commit_timeout"`

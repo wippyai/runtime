@@ -77,8 +77,11 @@ func Raft() boot.Component {
 				return ctx, nil
 			}
 
-			raftCfg := cfg.Sub(RaftName)
-			if !raftCfg.GetBool(RaftEnabled, false) {
+			// Raft config lives under cluster.raft.* — enabling cluster
+			// auto-enables raft (default true). Set cluster.raft.enabled=false
+			// to opt out (e.g. workers that should never be raft members).
+			raftCfg := cfg.Sub(ClusterName)
+			if !raftCfg.GetBool(ClusterRaftEnabled, true) {
 				return ctx, nil
 			}
 
@@ -97,39 +100,28 @@ func Raft() boot.Component {
 				return ctx, nil
 			}
 
-			// Build raft config from the configuration.
-			//
-			// snapshot_threshold / snapshot_interval / snapshot_retain /
-			// trailing_logs / heartbeat_timeout / election_timeout /
-			// commit_timeout were previously not threaded from the boot
-			// config. That meant operators setting `raft.trailing_logs: 100`
-			// in the runtime configmap had no effect — hashicorp/raft would
-			// keep the default 10240 entries in memory, a real source of
-			// memory pressure under partition.
+			// Raft runs diskless (no data_dir): cluster state is ephemeral,
+			// restarts rejoin from peer state. Mesh transport addresses peers
+			// by NodeID over the internode layer, so no bind_addr/port.
 			rc := raftapi.Config{
-				DataDir:           raftCfg.GetString(RaftDataDir, ""),
-				BindAddr:          raftCfg.GetString(RaftBindAddr, "0.0.0.0"),
-				BindPort:          raftCfg.GetInt(RaftBindPort, 7960),
-				AutoPort:          raftCfg.GetBool(RaftAutoPort, true),
-				AdvertiseAddr:     raftCfg.GetString(RaftAdvertiseAddr, ""),
-				Bootstrap:         raftCfg.GetBool(RaftBootstrap, false),
-				SnapshotThreshold: uint64(raftCfg.GetInt(RaftSnapshotThreshold, 0)),
-				SnapshotInterval:  raftCfg.GetDuration(RaftSnapshotInterval, 0),
-				SnapshotRetain:    raftCfg.GetInt(RaftSnapshotRetain, 0),
-				TrailingLogs:      uint64(raftCfg.GetInt(RaftTrailingLogs, 0)),
-				MaxAppendEntries:  raftCfg.GetInt(RaftMaxAppendEntries, 0),
-				HeartbeatTimeout:  raftCfg.GetDuration(RaftHeartbeatTimeout, 0),
-				ElectionTimeout:   raftCfg.GetDuration(RaftElectionTimeout, 0),
-				CommitTimeout:     raftCfg.GetDuration(RaftCommitTimeout, 0),
+				Bootstrap:         raftCfg.GetBool(ClusterRaftBootstrap, false),
+				SnapshotThreshold: uint64(raftCfg.GetInt(ClusterRaftSnapshotThreshold, 0)),
+				SnapshotInterval:  raftCfg.GetDuration(ClusterRaftSnapshotInterval, 0),
+				SnapshotRetain:    raftCfg.GetInt(ClusterRaftSnapshotRetain, 0),
+				TrailingLogs:      uint64(raftCfg.GetInt(ClusterRaftTrailingLogs, 0)),
+				MaxAppendEntries:  raftCfg.GetInt(ClusterRaftMaxAppendEntries, 0),
+				HeartbeatTimeout:  raftCfg.GetDuration(ClusterRaftHeartbeatTimeout, 0),
+				ElectionTimeout:   raftCfg.GetDuration(ClusterRaftElectionTimeout, 0),
+				CommitTimeout:     raftCfg.GetDuration(ClusterRaftCommitTimeout, 0),
 			}
 
 			// Capture handler config for the Start phase. Reading it here
 			// keeps all config parsing in Load.
 			handlerCfg = sysraft.HandlerConfig{
-				MaxVoters:         raftCfg.GetInt(RaftMaxVoters, 5),
-				MaxStandbys:       raftCfg.GetInt(RaftMaxStandbys, 4),
-				ReconcileDebounce: raftCfg.GetDuration(RaftReconcileDebounce, 2*time.Second),
-				ReconcileTimeout:  raftCfg.GetDuration(RaftReconcileTimeout, 2*time.Second),
+				MaxVoters:         raftCfg.GetInt(ClusterRaftMaxVoters, 5),
+				MaxStandbys:       raftCfg.GetInt(ClusterRaftMaxStandbys, 4),
+				ReconcileDebounce: raftCfg.GetDuration(ClusterRaftReconcileDebounce, 2*time.Second),
+				ReconcileTimeout:  raftCfg.GetDuration(ClusterRaftReconcileTimeout, 2*time.Second),
 			}
 
 			// Create the global registry FSM (the state machine Raft replicates).
@@ -172,8 +164,8 @@ func Raft() boot.Component {
 			// Tune the leader-reachability monitor that gates name-readiness.
 			// Zero values keep the service defaults.
 			globalRegSvc.SetLeaderProbeConfig(
-				raftCfg.GetDuration(RaftLeaderProbeInterval, 0),
-				raftCfg.GetInt(RaftLeaderProbeGrace, 0),
+				raftCfg.GetDuration(ClusterRaftLeaderProbeInterval, 0),
+				raftCfg.GetInt(ClusterRaftLeaderProbeGrace, 0),
 			)
 
 			// Register the global registry as a relay host synchronously

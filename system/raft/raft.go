@@ -10,14 +10,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	hraft "github.com/hashicorp/raft"
-	raftboltdb "github.com/hashicorp/raft-boltdb/v2"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
@@ -183,40 +181,13 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 		n.config.BindPort = port //nolint:staticcheck // legacy TCP fallback path; mesh transport ignores this field.
 	}
 
-	// Ensure data directory exists.
-	if n.config.DataDir != "" {
-		if err := os.MkdirAll(n.config.DataDir, 0o755); err != nil {
-			return nil, fmt.Errorf("create raft data dir: %w", err)
-		}
-	}
-
-	// Create stores.
-	if n.config.DataDir != "" {
-		logPath, stablePath, snapDir := resolveDataDir(n.config.DataDir)
-
-		logStore, err := raftboltdb.NewBoltStore(logPath)
-		if err != nil {
-			return nil, fmt.Errorf("create raft log store: %w", err)
-		}
-		n.logStore = logStore
-
-		stableStore, err := raftboltdb.NewBoltStore(stablePath)
-		if err != nil {
-			return nil, fmt.Errorf("create raft stable store: %w", err)
-		}
-		n.stableStore = stableStore
-
-		snapStore, err := hraft.NewFileSnapshotStore(snapDir, n.config.SnapshotRetain, os.Stderr)
-		if err != nil {
-			return nil, fmt.Errorf("create raft snapshot store: %w", err)
-		}
-		n.snapStore = snapStore
-	} else {
-		// In-memory stores for ephemeral/test usage.
-		n.logStore = hraft.NewInmemStore()
-		n.stableStore = hraft.NewInmemStore()
-		n.snapStore = hraft.NewInmemSnapshotStore()
-	}
+	// Diskless control plane: the cluster state is ephemeral; on restart a
+	// node rejoins quorum and replays from peers. Bounding raft to in-memory
+	// stores matches the design (Erlang-global / Akka-ddata style) and
+	// removes the persistence-vs-quorum failure modes that disk introduces.
+	n.logStore = hraft.NewInmemStore()
+	n.stableStore = hraft.NewInmemStore()
+	n.snapStore = hraft.NewInmemSnapshotStore()
 
 	// Pipe hashicorp/raft's transport-internal logger through zap with
 	// per-line rate limiting. Default behavior writes broken-pipe storms
@@ -339,14 +310,6 @@ func (n *Node) Stop(_ context.Context) error {
 				n.logger.Warn("raft transport close failed", zap.Error(err))
 			}
 		}
-	}
-
-	// Close bolt stores if applicable.
-	if bs, ok := n.logStore.(*raftboltdb.BoltStore); ok {
-		bs.Close()
-	}
-	if bs, ok := n.stableStore.(*raftboltdb.BoltStore); ok {
-		bs.Close()
 	}
 
 	n.logger.Info("raft node stopped", zap.String("id", n.localID))

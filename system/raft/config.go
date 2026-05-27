@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"path/filepath"
 
 	hraft "github.com/hashicorp/raft"
 
@@ -32,14 +31,6 @@ func toHashicorpConfig(localID string, cfg raftapi.Config) *hraft.Config {
 	// Leadership changes are published via our event bus instead.
 	rc.LogLevel = "WARN"
 	return rc
-}
-
-// resolveDataDir returns the absolute paths for log, stable, and snapshot storage.
-func resolveDataDir(dataDir string) (logPath, stablePath, snapDir string) {
-	logPath = filepath.Join(dataDir, "raft-log.db")
-	stablePath = filepath.Join(dataDir, "raft-stable.db")
-	snapDir = dataDir
-	return
 }
 
 // resolveTransportAddr builds the TCP bind address from config. Used by
