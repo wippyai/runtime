@@ -19,8 +19,8 @@ import (
 // recordingReceiver captures every relay package the service emits so a test
 // can assert name_revoked delivery to the correct local PID.
 type recordingReceiver struct {
-	mu   sync.Mutex
 	pkgs []*relay.Package
+	mu   sync.Mutex
 }
 
 func (r *recordingReceiver) Send(p *relay.Package) error {

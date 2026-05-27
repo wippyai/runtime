@@ -37,13 +37,10 @@ const (
 // relays the response back to the original requester.
 type joinRequestEnvelope struct {
 	NodeID    pid.NodeID `codec:"nd"`
+	Origin    pid.NodeID `codec:"o,omitempty"`
 	CorrID    uint64     `codec:"c"`
 	NodeEpoch uint64     `codec:"ne"`
 	Hop       uint8      `codec:"h,omitempty"`
-	// Origin is the original requester for a re-forwarded join. Zero on the
-	// initial send; a member that re-forwards stamps its own localNode so the
-	// leader replies back to this hop, which then relays the snapshot onward.
-	Origin pid.NodeID `codec:"o,omitempty"`
 }
 
 // joinEntryEnvelope is one PENDING or ACTIVE Strong name in a join snapshot.

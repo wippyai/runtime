@@ -28,9 +28,9 @@ import (
 // semantics.
 type noopFSM struct{}
 
-func (noopFSM) Apply(_ *hraft.Log) any                    { return nil }
-func (noopFSM) Snapshot() (hraft.FSMSnapshot, error)      { return noopSnap{}, nil }
-func (noopFSM) Restore(rc io.ReadCloser) error            { return rc.Close() }
+func (noopFSM) Apply(_ *hraft.Log) any               { return nil }
+func (noopFSM) Snapshot() (hraft.FSMSnapshot, error) { return noopSnap{}, nil }
+func (noopFSM) Restore(rc io.ReadCloser) error       { return rc.Close() }
 
 type noopSnap struct{}
 

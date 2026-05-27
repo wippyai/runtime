@@ -652,16 +652,8 @@ type strongTerminal struct {
 	Epoch         uint64
 }
 
-// removePID removes all names for a given PID across all shards.
-// This locks shards in index order to prevent deadlocks. Returns the count
-// removed and any promoted Strong names removed (those carrying RequiredNodes)
-// so the caller can release their exclusions on the holders.
-func (s *shardedState) removePID(p pid.PID) (int, []strongTerminal) {
-	_, count, strongs := s.removePIDWithNames(p)
-	return count, strongs
-}
-
-// removePIDWithNames mirrors removePID but also returns the full list of names
+// removePIDWithNames removes all names for a given PID across all shards. Locks
+// shards in index order to prevent deadlocks. Returns the full list of names
 // removed (active CONSISTENT or STRONG). Dissem uses the list to emit one
 // tombstone broadcast per name.
 func (s *shardedState) removePIDWithNames(p pid.PID) ([]string, int, []strongTerminal) {
@@ -723,16 +715,7 @@ func (s *shardedState) removePIDWithNames(p pid.PID) ([]string, int, []strongTer
 // matching names are removed in a single call (legacy behavior). Returns the
 // number removed, whether more remain — callers can chunk to keep each FSM
 // Apply bounded so other writes interleave — and any promoted Strong names
-// removed (those carrying RequiredNodes) so the caller can release their
-// exclusions on the surviving holders.
-//
-// Deprecated: use removeNodeWithNames; this wrapper drops the per-name list.
-func (s *shardedState) removeNode(nodeID pid.NodeID, limit int) (int, bool, []strongTerminal) {
-	_, count, hasMore, strongs := s.removeNodeWithNames(nodeID, limit)
-	return count, hasMore, strongs
-}
-
-// removedNameEntry records one (name, pid) tuple a removeNode pass dropped, so
+// removedNameEntry records one (name, pid) tuple a removeNodeWithNames pass dropped, so
 // the dissem broadcaster can emit a per-name tombstone with the correct pid.
 type removedNameEntry struct {
 	Name string

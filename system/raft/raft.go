@@ -92,7 +92,7 @@ func (n *Node) OnNodeLeft(node cluster.NodeID) {
 	n.mu.Lock()
 	sl := n.streamLayer
 	n.mu.Unlock()
-	if sl == nil || node == "" || node == cluster.NodeID(n.localID) {
+	if sl == nil || node == "" || node == n.localID {
 		return
 	}
 	sl.removePeer(node)

@@ -258,7 +258,7 @@ func (c *localNameRevoker) RevokeLocal(name string, keep pid.PID) bool {
 }
 
 // RevokeEventual removes an EVENTUAL binding of name held to a pid different from
-// keep, tombstoning and signalling via the eventual service. Returns true if
+// keep, tombstoning and signaling via the eventual service. Returns true if
 // revoked.
 func (c *localNameRevoker) RevokeEventual(name string, keep pid.PID) bool {
 	if c == nil {

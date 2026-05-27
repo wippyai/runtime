@@ -133,7 +133,7 @@ func raftStats(l *lua.LState) int {
 // unavailable. Used to match against raft configuration entries.
 func localNodeID(l *lua.LState) string {
 	if n := relay.GetNode(l.Context()); n != nil {
-		return string(n.ID())
+		return n.ID()
 	}
 	return ""
 }

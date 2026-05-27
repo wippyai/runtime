@@ -237,7 +237,7 @@ func WithPriority(p uint32) RegisterOption {
 // Returns the registered PID and nil on success. Returns the existing PID and
 // ErrNameAlreadyRegistered when the name is held locally by a different PID, or
 // when a different-origin entry out-ranks this fresh claim (the caller lost the
-// concurrent conflict — a name_revoked is also signalled to `p`). Cross-scope
+// concurrent conflict — a name_revoked is also signaled to `p`). Cross-scope
 // conflicts (CONSISTENT/LOCAL) are rejected.
 func (s *Service) Register(name string, p pid.PID, opts ...RegisterOption) (pid.PID, error) {
 	if s.stopped.Load() {
@@ -316,7 +316,7 @@ func (s *Service) emitRevoke(lost *LostBinding) {
 }
 
 // RevokeForStrong tombstones a locally-held EVENTUAL binding of name whose pid
-// differs from keep, signalling the losing process. The join-epoch barrier calls
+// differs from keep, signaling the losing process. The join-epoch barrier calls
 // it after learning name belongs to a Strong reservation owned by keep. Returns
 // true when a binding was revoked. A name not held locally, or held to keep, is
 // a no-op. The tombstone broadcasts so the cluster converges away from the

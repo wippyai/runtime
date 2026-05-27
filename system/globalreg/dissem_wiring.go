@@ -319,7 +319,7 @@ func (s *Service) sendDigest(d *Dissem, target pid.NodeID) {
 	snap := d.DigestSnapshot()
 	entries := make([]digestEntry, 0, len(snap.Entries))
 	for _, e := range snap.Entries {
-		entries = append(entries, digestEntry{Name: e.Name, RaftIndex: e.RaftIndex})
+		entries = append(entries, digestEntry(e))
 	}
 	corrID := correlationIDCounter.Add(1)
 	body, err := marshalMsgpack(digestEnvelope{
@@ -504,4 +504,3 @@ func (s *Service) seedDissemFromSnapshot(snap *joinResponseEnvelope) {
 		d.SeedFromSnapshot(e.Name, e.Owner, e.Epoch)
 	}
 }
-

@@ -98,15 +98,15 @@ func TestRaftRole(t *testing.T) {
 	cases := []struct {
 		name     string
 		localID  string
-		isLeader bool
-		servers  []raftapi.Server
 		want     string
+		servers  []raftapi.Server
+		isLeader bool
 	}{
-		{"leader", "node-1", true, []raftapi.Server{{ID: "node-1", IsVoter: true}}, "leader"},
-		{"voter", "node-1", false, []raftapi.Server{{ID: "node-1", IsVoter: true}}, "voter"},
-		{"standby", "node-1", false, []raftapi.Server{{ID: "node-1", IsVoter: false}}, "standby"},
-		{"non-member", "node-1", false, []raftapi.Server{{ID: "node-2", IsVoter: true}}, "non-member"},
-		{"non-member empty", "node-1", false, nil, "non-member"},
+		{name: "leader", localID: "node-1", isLeader: true, servers: []raftapi.Server{{ID: "node-1", IsVoter: true}}, want: "leader"},
+		{name: "voter", localID: "node-1", isLeader: false, servers: []raftapi.Server{{ID: "node-1", IsVoter: true}}, want: "voter"},
+		{name: "standby", localID: "node-1", isLeader: false, servers: []raftapi.Server{{ID: "node-1", IsVoter: false}}, want: "standby"},
+		{name: "non-member", localID: "node-1", isLeader: false, servers: []raftapi.Server{{ID: "node-2", IsVoter: true}}, want: "non-member"},
+		{name: "non-member empty", localID: "node-1", isLeader: false, servers: nil, want: "non-member"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

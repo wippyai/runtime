@@ -174,4 +174,3 @@ func nodeRole(l *lua.LState) int {
 	l.Push(lua.LNil)
 	return 2
 }
-

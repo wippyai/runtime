@@ -114,31 +114,31 @@ var closedServiceCtx = func() *serviceCtx {
 // pg:start_link(ScopeName)). Scopes have separate state, event loops,
 // and cluster mesh — providing complete isolation.
 type Service struct {
-	router             relay.Receiver
-	topo               topology.Topology
-	membership         cluster.Membership
-	bus                event.Bus
-	ctxHolder          atomic.Pointer[serviceCtx]
-	groupSnaps         sync.Map // group name -> *groupSnapshot, lock-free per-group RCU
-	cbManager          *circuitBreakerManager
-	nodeJoinedSub      *eventbus.Subscriber
-	nodeLeftSub        *eventbus.Subscriber
-	actions            chan action
-	monitors           map[string][]*monitorEntry
-	monitorPIDCounts   map[string]int // pid.String() -> count of monitor subscriptions
-	state              *state
-	retryQueue         *retryQueue
-	tel                *telemetry
-	logger             *zap.Logger
-	activity           *activityTracker
-	localNodeID        pid.NodeID
-	hostID             pid.HostID
-	wg                 sync.WaitGroup
-	monitorIDSeq       uint64
-	maxGroups          int
-	maxMembersPerGroup int
-	actionQueueMaxSize int
-	queueWarnThreshold int
+	router              relay.Receiver
+	topo                topology.Topology
+	membership          cluster.Membership
+	bus                 event.Bus
+	ctxHolder           atomic.Pointer[serviceCtx]
+	groupSnaps          sync.Map // group name -> *groupSnapshot, lock-free per-group RCU
+	cbManager           *circuitBreakerManager
+	nodeJoinedSub       *eventbus.Subscriber
+	nodeLeftSub         *eventbus.Subscriber
+	actions             chan action
+	monitors            map[string][]*monitorEntry
+	monitorPIDCounts    map[string]int // pid.String() -> count of monitor subscriptions
+	state               *state
+	retryQueue          *retryQueue
+	tel                 *telemetry
+	logger              *zap.Logger
+	activity            *activityTracker
+	localNodeID         pid.NodeID
+	hostID              pid.HostID
+	wg                  sync.WaitGroup
+	monitorIDSeq        uint64
+	maxGroups           int
+	maxMembersPerGroup  int
+	actionQueueMaxSize  int
+	queueWarnThreshold  int
 	protocolTimeout     time.Duration
 	broadcastTimeout    time.Duration
 	antiEntropyInterval time.Duration
@@ -211,22 +211,22 @@ func NewService(
 	}
 
 	svc := &Service{
-		state:              newState(),
-		logger:             logger.Named("pg").Named(hostID),
-		hostID:             hostID,
-		router:             router,
-		topo:               topo,
-		membership:         membership,
-		bus:                bus,
-		localNodeID:        localNodeID,
-		actions:            make(chan action, config.ActionQueueMaxSize),
-		monitors:           make(map[string][]*monitorEntry),
-		monitorPIDCounts:   make(map[string]int),
-		activity:           newActivityTracker(),
-		maxGroups:          config.MaxGroups,
-		maxMembersPerGroup: config.MaxMembersPerGroup,
-		actionQueueMaxSize: config.ActionQueueMaxSize,
-		queueWarnThreshold: config.ActionQueueSize,
+		state:               newState(),
+		logger:              logger.Named("pg").Named(hostID),
+		hostID:              hostID,
+		router:              router,
+		topo:                topo,
+		membership:          membership,
+		bus:                 bus,
+		localNodeID:         localNodeID,
+		actions:             make(chan action, config.ActionQueueMaxSize),
+		monitors:            make(map[string][]*monitorEntry),
+		monitorPIDCounts:    make(map[string]int),
+		activity:            newActivityTracker(),
+		maxGroups:           config.MaxGroups,
+		maxMembersPerGroup:  config.MaxMembersPerGroup,
+		actionQueueMaxSize:  config.ActionQueueMaxSize,
+		queueWarnThreshold:  config.ActionQueueSize,
 		protocolTimeout:     config.ProtocolTimeout,
 		broadcastTimeout:    config.BroadcastTimeout,
 		antiEntropyInterval: config.AntiEntropyInterval,

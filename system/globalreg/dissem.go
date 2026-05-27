@@ -68,16 +68,16 @@ type bindingEntry struct {
 //   - NotifyMsg       (incoming gossip from any other node's leader-broadcast).
 //   - SeedFromSnapshot (the join-epoch snapshot path).
 //   - LocalApply      (member's own FSM.Apply seeding the cache so members can
-//                      use the cache as a fast path alongside their FSM).
+//     use the cache as a fast path alongside their FSM).
 type Dissem struct {
 	logger    *zap.Logger
 	cache     map[string]bindingEntry
-	queue     []bindingDelta
 	stopCh    chan struct{}
 	localNode pid.NodeID
+	queue     []bindingDelta
+	qDropped  uint64
 	mu        sync.RWMutex
 	qMu       sync.Mutex
-	qDropped  uint64
 }
 
 // bindingDelta is the wire form of one cache mutation. Encoded compactly so

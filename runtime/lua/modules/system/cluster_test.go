@@ -18,11 +18,11 @@ import (
 
 // fakeRaftService is a minimal raftapi.Service stub for system.* tests.
 type fakeRaftService struct {
+	leaderErr   error
+	stats       map[string]string
 	leaderID    raftapi.ServerID
 	leaderAddr  raftapi.ServerAddress
-	leaderErr   error
 	servers     []raftapi.Server
-	stats       map[string]string
 	commitIndex uint64
 	isLeader    bool
 }

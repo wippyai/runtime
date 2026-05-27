@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	pgapi "github.com/wippyai/runtime/api/pg"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
-	"github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/internal/telemetrytest"
@@ -1456,9 +1456,9 @@ func TestServiceRemoteLeaveNoSpuriousEventsForNonMemberGroups(t *testing.T) {
 	require.NoError(t, svc.Send(leavePkg))
 
 	// Should receive exactly one leave event for "workers" and none for "managers"
-	events := waitForMonitorEvents(t, router, monPID, 1)
+	_ = waitForMonitorEvents(t, router, monPID, 1)
 	time.Sleep(200 * time.Millisecond)
-	events = collectMonitorEvents(t, router, monPID)
+	events := collectMonitorEvents(t, router, monPID)
 	require.Len(t, events, 1, "expected exactly one leave event for workers, no spurious managers event")
 	assert.Equal(t, pgapi.MemberLeft, events[0].kind)
 	assert.Equal(t, "workers", events[0].group)
@@ -1512,9 +1512,9 @@ func TestServiceRemoteLeaveDoesNotCorruptOtherNodeMembers(t *testing.T) {
 	require.NoError(t, svc.Send(leavePkg))
 
 	// Should get exactly one leave event for "workers", none for "managers"
-	events := waitForMonitorEvents(t, router, monPID, 1)
+	_ = waitForMonitorEvents(t, router, monPID, 1)
 	time.Sleep(200 * time.Millisecond)
-	events = collectMonitorEvents(t, router, monPID)
+	events := collectMonitorEvents(t, router, monPID)
 	require.Len(t, events, 1, "expected exactly one leave event for workers")
 	assert.Equal(t, "workers", events[0].group)
 

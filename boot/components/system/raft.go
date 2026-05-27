@@ -398,4 +398,3 @@ func Raft() boot.Component {
 		},
 	})
 }
-

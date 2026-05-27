@@ -70,8 +70,8 @@ func TestDeriveMembers_Deterministic(t *testing.T) {
 // ErrNoLeader (a non-member never observes AppendEntries → never learns the
 // leader). The deriver supplies the forwarding candidates instead.
 type noLeaderRaft struct {
-	idx      atomic.Uint64
 	leaderCh chan bool
+	idx      atomic.Uint64
 }
 
 func newNoLeaderRaft() *noLeaderRaft { return &noLeaderRaft{leaderCh: make(chan bool, 1)} }
@@ -202,9 +202,9 @@ func (r *crossClusterRouter) Send(pkg *relay.Package) error {
 // Leader() reports the leader's ID. This is the second hop in the non-member
 // forward chain.
 type memberFollowerRaft struct {
+	leaderCh chan bool
 	leaderID raftapi.ServerID
 	idx      atomic.Uint64
-	leaderCh chan bool
 }
 
 func newMemberFollowerRaft(leaderID raftapi.ServerID) *memberFollowerRaft {
@@ -215,7 +215,7 @@ func (r *memberFollowerRaft) Apply(_ []byte, _ time.Duration) (*raftapi.ApplyRes
 	return nil, raftapi.ErrNotLeader
 }
 func (r *memberFollowerRaft) Leader() (raftapi.ServerID, raftapi.ServerAddress, error) {
-	return r.leaderID, raftapi.ServerAddress(string(r.leaderID) + ":0"), nil
+	return r.leaderID, r.leaderID + ":0", nil
 }
 func (r *memberFollowerRaft) IsLeader() bool                { return false }
 func (r *memberFollowerRaft) LeaderCh() <-chan bool         { return r.leaderCh }

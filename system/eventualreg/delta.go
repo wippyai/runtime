@@ -224,7 +224,7 @@ type BroadcastQueue struct {
 	pending  []*Entry
 	mu       sync.Mutex
 	cap      int
-	dropped       uint64
+	dropped  uint64
 }
 
 // NewBroadcastQueue constructs a queue. `cap` is the max number of pending

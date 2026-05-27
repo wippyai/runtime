@@ -3,8 +3,6 @@
 package globalreg
 
 import (
-	"errors"
-
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/pid"
@@ -82,7 +80,7 @@ func (s *Service) resolveForwardTarget() ([]pid.NodeID, error) {
 
 	if s.raftSvc != nil {
 		if id, _, err := s.raftSvc.Leader(); err == nil {
-			add(pid.NodeID(id))
+			add(id)
 		}
 	}
 
@@ -92,7 +90,7 @@ func (s *Service) resolveForwardTarget() ([]pid.NodeID, error) {
 	s.mu.Unlock()
 	if d != nil && mem != nil {
 		for _, id := range d(mem.Nodes()) {
-			add(pid.NodeID(id))
+			add(id)
 		}
 	}
 
@@ -120,47 +118,8 @@ func (s *Service) reForwardTarget(hop uint8) (pid.NodeID, bool) {
 		return "", false
 	}
 	id, _, err := s.raftSvc.Leader()
-	if err != nil || id == "" || pid.NodeID(id) == s.localNode {
+	if err != nil || id == "" || id == s.localNode {
 		return "", false
 	}
-	return pid.NodeID(id), true
+	return id, true
 }
-
-// errAllTargetsFailed is the aggregate error returned by trySendToTargets
-// when every candidate target failed. Each individual cause is wrapped so
-// the caller can inspect the chain.
-type errAllTargetsFailed struct {
-	causes []error
-}
-
-func (e *errAllTargetsFailed) Error() string {
-	if len(e.causes) == 0 {
-		return "forward: all targets failed"
-	}
-	return "forward: all targets failed: " + e.causes[len(e.causes)-1].Error()
-}
-
-func (e *errAllTargetsFailed) Unwrap() error {
-	if len(e.causes) == 0 {
-		return nil
-	}
-	return e.causes[len(e.causes)-1]
-}
-
-// joinErrors returns a single error capturing all attempt failures. Helps
-// callers retain context across the candidate list.
-func joinErrors(causes []error) error {
-	switch len(causes) {
-	case 0:
-		return nil
-	case 1:
-		return causes[0]
-	default:
-		return &errAllTargetsFailed{causes: causes}
-	}
-}
-
-// errNoTargetsAccepted is returned when the candidate list was non-empty but
-// every send attempt failed. Distinguished from globalreg.ErrNotAvailable
-// (no targets at all) so the caller can choose between retry and surface.
-var errNoTargetsAccepted = errors.New("forward: candidates exhausted")

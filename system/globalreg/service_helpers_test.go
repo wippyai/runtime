@@ -47,7 +47,7 @@ func (r *directApplyRaft) Leader() (raftapi.ServerID, raftapi.ServerAddress, err
 		return "local", "local:0", nil
 	}
 	if r.knownLeader != "" {
-		return r.knownLeader, raftapi.ServerAddress(string(r.knownLeader) + ":0"), nil
+		return r.knownLeader, r.knownLeader + ":0", nil
 	}
 	return "", "", nil
 }

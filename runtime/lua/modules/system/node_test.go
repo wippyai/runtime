@@ -183,4 +183,3 @@ func TestNodeRole_PermissionDenied(t *testing.T) {
 	`)
 	require.NoError(t, err)
 }
-

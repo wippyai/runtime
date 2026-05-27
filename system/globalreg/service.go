@@ -78,61 +78,44 @@ const (
 // It wraps a Raft-backed FSM and provides leader forwarding for writes
 // and topology-based auto-cleanup.
 type Service struct {
-	monitoredPIDs    sync.Map
+	localPresence    atomic.Value
 	router           relay.Receiver
 	raftSvc          raftapi.Service
 	bus              event.Bus
 	topo             topology.Topology
 	membership       cluster.Membership
-	stopCh           chan struct{}
-	logger           *zap.Logger
-	fsm              *FSM
-	tel              *telemetry
+	dissem           atomic.Value
+	localRevoker     atomic.Value
+	pingPending      map[uint64]chan struct{}
+	joinPending      map[uint64]chan *joinResponseEnvelope
 	memberDeriver    MemberDeriver
 	pending          map[uint64]chan *forwardResponse
-	// forwardProxies records corrIDs for which this node is acting as an
-	// intermediate hop: the original requester is a non-member; this node is
-	// a raft member that re-forwarded to the leader. When the leader's reply
-	// arrives on this node, handleForwardResponse looks up the proxy and
-	// relays the response bytes back to the original requester instead of
-	// delivering them locally. Indexed by corrID, value is the origin node.
 	forwardProxies   map[uint64]pid.NodeID
 	strongWatchers   map[string]map[uint64]chan strongOutcome
 	strongTimers     map[string]*strongTimer
-	localPresence    atomic.Value // stores LocalPresence
-	localRevoker     atomic.Value // stores LocalNameRevoker
-	joinPending      map[uint64]chan *joinResponseEnvelope
-	pingPending      map[uint64]chan struct{}
+	fsm              *FSM
+	logger           *zap.Logger
+	stopCh           chan struct{}
+	lookupPending    map[uint64]chan *lookupResponseEnvelope
 	ackerEpochs      map[pid.NodeID]uint64
 	strongExclusions map[string]strongExclusion
 	rebroadcastStop  chan struct{}
+	tel              *telemetry
+	monitoredPIDs    sync.Map
 	localNode        pid.NodeID
-	// probeInterval / probeGrace tune the leader-reachability monitor. Zero
-	// values fall back to defaultLeaderProbeInterval / defaultLeaderProbeGrace.
 	probeInterval    time.Duration
 	probeGrace       int
-	// dissem holds the active-binding gossip plane (cache + UserDelegate).
-	// atomic.Value so SetDissem can install it after construction.
-	dissem        atomic.Value // dissemHolder
-	lookupPending map[uint64]chan *lookupResponseEnvelope
-	lookupMu      sync.Mutex
-	mu            sync.Mutex
-	strongMu      sync.Mutex
-	reserveMu     sync.Mutex
-	joinMu        sync.Mutex
 	monitorWatermark atomic.Uint64
-	// nodeEpoch is bumped on Start and on each rejoin trigger. The barrier and
-	// epoch-scoped acks read it so a stale (pre-rejoin) ack or barrier completion
-	// never installs state for an instance a newer epoch has superseded.
-	nodeEpoch atomic.Uint64
-	// nameReady gates participating LOCAL/EVENTUAL registrations: false from
-	// Start until the join-epoch barrier installs the leader's Strong snapshot
-	// and revokes conflicting local names. It does not gate raft/relay transport,
-	// STRONG forwarding, or the JoinNameEpoch RPC.
-	nameReady atomic.Bool
-	started   bool
-	ready     bool
-	degraded  bool
+	nodeEpoch        atomic.Uint64
+	lookupMu         sync.Mutex
+	mu               sync.Mutex
+	strongMu         sync.Mutex
+	reserveMu        sync.Mutex
+	joinMu           sync.Mutex
+	nameReady        atomic.Bool
+	started          bool
+	ready            bool
+	degraded         bool
 }
 
 // strongOutcome is the value the Register caller blocks on while waiting for
@@ -167,10 +150,10 @@ type LocalPresence interface {
 // a no-op, so a node with no local registries still completes the barrier).
 type LocalNameRevoker interface {
 	// RevokeLocal removes a LOCAL-scope binding of name to a pid different from
-	// keep, signalling the losing process. Returns true if a binding was revoked.
+	// keep, signaling the losing process. Returns true if a binding was revoked.
 	RevokeLocal(name string, keep pid.PID) bool
 	// RevokeEventual removes an EVENTUAL-scope binding of name to a pid different
-	// from keep, signalling the losing process. Returns true if a binding was
+	// from keep, signaling the losing process. Returns true if a binding was
 	// revoked.
 	RevokeEventual(name string, keep pid.PID) bool
 }

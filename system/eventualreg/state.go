@@ -279,7 +279,7 @@ type RegisterResult struct {
 	Winner *Entry
 	// Lost is set when this fresh registration did not become the winner
 	// because a different-origin entry out-ranks it (the local process must be
-	// signalled). Nil otherwise.
+	// signaled). Nil otherwise.
 	Lost *LostBinding
 	// Won is true when the local registration is now the visible winner.
 	Won bool
@@ -422,9 +422,6 @@ func (s *State) Apply(in *Entry) (MergeOutcome, *Entry, *LostBinding) {
 		}
 	}
 	if outcome == MergeNoop {
-		if in.Deleted {
-			// nothing changed; caller may record a late tombstone
-		}
 		return MergeNoop, prevWinner, nil
 	}
 
@@ -598,9 +595,9 @@ func (s *State) ShardHash(i int) uint64 {
 	defer sh.mu.RUnlock()
 
 	type dotRef struct {
+		e      *Entry
 		name   string
 		origin string
-		e      *Entry
 	}
 	refs := make([]dotRef, 0, len(sh.entries))
 	for name, rec := range sh.entries {
