@@ -4,8 +4,10 @@ package raft
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -93,30 +95,42 @@ type nodeStub struct {
 	leader          raftapi.ServerID
 	bootstrapped    [][]string
 	bootstrapErr    error
+	bootstrapHook   func() error // per-call override; runs before bootstrapErr
 	bootstrapCalled chan struct{}
 }
 
 func newNodeStub() *nodeStub {
 	return &nodeStub{
 		state:           raftapi.Follower,
-		bootstrapCalled: make(chan struct{}, 1),
+		bootstrapCalled: make(chan struct{}, 4),
 	}
 }
 
 func (n *nodeStub) Bootstrap(voterIDs []string) error {
 	n.mu.Lock()
-	defer n.mu.Unlock()
-	if n.bootstrapErr != nil {
-		return n.bootstrapErr
+	hook := n.bootstrapHook
+	errStatic := n.bootstrapErr
+	n.mu.Unlock()
+
+	var err error
+	switch {
+	case hook != nil:
+		err = hook()
+	case errStatic != nil:
+		err = errStatic
 	}
+
+	n.mu.Lock()
 	out := make([]string, len(voterIDs))
 	copy(out, voterIDs)
 	n.bootstrapped = append(n.bootstrapped, out)
+	n.mu.Unlock()
+
 	select {
 	case n.bootstrapCalled <- struct{}{}:
 	default:
 	}
-	return nil
+	return err
 }
 
 func (n *nodeStub) State() raftapi.State {
@@ -398,6 +412,87 @@ func TestBootstrapWatcher_ZeroExpect(t *testing.T) {
 		return mem.status() == raftStatusIn
 	}, time.Second, 10*time.Millisecond)
 	w.Stop()
+}
+
+// TestBootstrapWatcher_StopAfterFailedStart verifies that Stop() does not
+// deadlock when Start() fails. The watcher's doneCh must be closed on
+// every Start error path, otherwise Stop()'s wait blocks forever.
+func TestBootstrapWatcher_StopAfterFailedStart(t *testing.T) {
+	mem := newMemberStub("node-solo")
+	node := newNodeStub()
+	node.bootstrapErr = errors.New("simulated bootstrap failure")
+	bus := newTestBus(t)
+
+	w := NewBootstrapWatcher("node-solo",
+		BootstrapWatcherConfig{Expect: 1},
+		node, mem, bus, zap.NewNop())
+
+	err := w.Start(context.Background())
+	require.Error(t, err, "Expect=1 path returns the bootstrap error")
+
+	// Stop must return promptly even though Start failed. Run it under
+	// a short deadline to detect a deadlock as a fatal timeout.
+	done := make(chan struct{})
+	go func() {
+		w.Stop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Stop() deadlocked after failed Start()")
+	}
+}
+
+// TestBootstrapWatcher_RetryAfterBootstrapError verifies that a bootstrap
+// failure resets the stability window so the watcher retries on the next
+// gossip event instead of tight-looping or staying stuck.
+func TestBootstrapWatcher_RetryAfterBootstrapError(t *testing.T) {
+	mem := newMemberStub("node-c")
+	mem.setPeers([]cluster.NodeInfo{
+		peerWithExpect("node-a", 3, ""),
+		peerWithExpect("node-b", 3, ""),
+	})
+	node := newNodeStub()
+	// First Bootstrap call fails, subsequent calls succeed.
+	var attempts atomic.Int32
+	node.bootstrapHook = func() error {
+		if attempts.Add(1) == 1 {
+			return errors.New("simulated bootstrap failure")
+		}
+		return nil
+	}
+	bus := newTestBus(t)
+
+	w := NewBootstrapWatcher("node-c",
+		BootstrapWatcherConfig{
+			Expect: 3,
+			Grace:  20 * time.Millisecond,
+			Poll:   10 * time.Millisecond,
+		},
+		node, mem, bus, zap.NewNop())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	require.NoError(t, w.Start(ctx))
+
+	// Watcher should call Bootstrap twice: once that fails, then a retry
+	// after the stability window is re-established. bootstrapCalled is
+	// signaled on every call.
+	for i := 0; i < 2; i++ {
+		select {
+		case <-node.bootstrapCalled:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("bootstrap call %d not observed", i+1)
+		}
+	}
+
+	calls := node.bootstrapCalls()
+	require.GreaterOrEqual(t, len(calls), 2,
+		"watcher must retry bootstrap after a failure")
+	w.Stop()
+	assert.Equal(t, raftStatusIn, mem.status(),
+		"watcher transitions to 'in' after the successful retry")
 }
 
 // TestBootstrapWatcher_GraceWindowRequired verifies the watcher does not

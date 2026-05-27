@@ -7,6 +7,7 @@ package raft
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -19,9 +20,104 @@ import (
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
 	raftapi "github.com/wippyai/runtime/api/raft"
+	"github.com/wippyai/runtime/cluster/internode"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap/zaptest"
 )
+
+// meshFabric ties N in-process internode.ConnectionManagers together
+// so SendToNode on any one dispatches synchronously into the target's
+// registered class receiver. There is no real TCP; frames arrive
+// in-order, in-memory. Used by the integration tests to exercise raft
+// over the mesh transport without spinning up real network endpoints.
+type meshFabric struct {
+	mu    sync.Mutex
+	conns map[cluster.NodeID]*meshConn
+}
+
+func newMeshFabric() *meshFabric {
+	return &meshFabric{conns: map[cluster.NodeID]*meshConn{}}
+}
+
+func (f *meshFabric) connect(id cluster.NodeID) *meshConn {
+	c := &meshConn{
+		fabric:    f,
+		self:      id,
+		receivers: map[internode.Class]func(cluster.NodeID, []byte){},
+		overflow:  map[internode.Class]func(cluster.NodeID){},
+	}
+	f.mu.Lock()
+	f.conns[id] = c
+	f.mu.Unlock()
+	return c
+}
+
+// meshConn implements internode.ConnectionManager for a single endpoint
+// in a meshFabric. Outbound frames are looked up by target NodeID in the
+// fabric and handed to the target's registered receiver.
+type meshConn struct {
+	fabric    *meshFabric
+	self      cluster.NodeID
+	mu        sync.Mutex
+	receivers map[internode.Class]func(cluster.NodeID, []byte)
+	overflow  map[internode.Class]func(cluster.NodeID)
+}
+
+func (c *meshConn) Start(_ context.Context, _ func(cluster.NodeID, []byte)) error {
+	return nil
+}
+func (c *meshConn) Stop() error { return nil }
+
+func (c *meshConn) SendToNode(target cluster.NodeID, data []byte, class internode.Class) error {
+	c.fabric.mu.Lock()
+	peer := c.fabric.conns[target]
+	c.fabric.mu.Unlock()
+	if peer == nil {
+		return fmt.Errorf("mesh fabric: unknown peer %q", target)
+	}
+	peer.mu.Lock()
+	r := peer.receivers[class]
+	peer.mu.Unlock()
+	if r == nil {
+		return errors.New("mesh fabric: no receiver registered for class")
+	}
+	cp := make([]byte, len(data))
+	copy(cp, data)
+	r(c.self, cp)
+	return nil
+}
+
+func (c *meshConn) EnsureConnection(_ cluster.NodeID, _ string, _ int) {}
+func (c *meshConn) DisconnectFromNode(_ cluster.NodeID)                {}
+func (c *meshConn) ConnectedNodes() []cluster.NodeID                   { return nil }
+func (c *meshConn) GetListenPort() int                                 { return 0 }
+func (c *meshConn) AddManagedNode(_ cluster.NodeID)                    {}
+func (c *meshConn) RemoveManagedNode(_ cluster.NodeID)                 {}
+func (c *meshConn) IsManaged(_ cluster.NodeID) bool                    { return true }
+func (c *meshConn) EvictOrphanNodes(_ map[cluster.NodeID]struct{}) int { return 0 }
+func (c *meshConn) RecordDropReason(_ string)                          {}
+
+func (c *meshConn) RegisterClassReceiver(class internode.Class, recv func(cluster.NodeID, []byte)) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if recv != nil && c.receivers[class] != nil {
+		return false
+	}
+	c.receivers[class] = recv
+	return true
+}
+
+func (c *meshConn) RegisterClassOverflowHandler(class internode.Class, handler func(cluster.NodeID)) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if handler != nil && c.overflow[class] != nil {
+		return false
+	}
+	c.overflow[class] = handler
+	return true
+}
+
+var _ internode.ConnectionManager = (*meshConn)(nil)
 
 // noopFSM is a state machine that ignores all input. Sufficient for
 // membership-focused integration tests where we don't exercise log replication
@@ -68,15 +164,16 @@ func (m *staticMembership) replace(local cluster.NodeInfo, all []cluster.NodeInf
 	m.mu.Unlock()
 }
 
-// startNode brings up a single in-memory Raft node for testing. bootstrap
-// should be true exactly on one node per cluster (the seed).
-func startNode(t *testing.T, id string, bootstrap bool) *Node {
+// startNode brings up a single in-memory Raft node attached to fabric for
+// testing. bootstrap should be true exactly on one node per cluster (the
+// seed) — that node calls Bootstrap([self]) after Start, which the
+// membership reconciler then grows into the full cluster via AddVoter.
+// This sidesteps the gossip-driven BootstrapWatcher (which would need a
+// real membership implementation); these integration tests drive raft
+// directly via the reconciler.
+func startNode(t *testing.T, fabric *meshFabric, id string, bootstrap bool) *Node {
 	t.Helper()
 	cfg := raftapi.Config{
-		BindAddr:  "127.0.0.1",
-		BindPort:  0, // ephemeral
-		AutoPort:  true,
-		Bootstrap: bootstrap,
 		// Defaults are fine for in-process loopback; HeartbeatTimeout/ElectionTimeout
 		// must remain >= LeaderLeaseTimeout (500ms from hashicorp DefaultConfig).
 		HeartbeatTimeout: 600 * time.Millisecond,
@@ -87,12 +184,16 @@ func startNode(t *testing.T, id string, bootstrap bool) *Node {
 	t.Cleanup(bus.Stop)
 
 	n := NewNode(id, noopFSM{}, cfg, bus, zaptest.NewLogger(t).Named(id), nil, nil, nil)
+	n.SetConnectionManager(fabric.connect(id))
 	statusCh, err := n.Start(context.Background())
 	require.NoError(t, err)
 	go func() {
 		for range statusCh {
 		}
 	}()
+	if bootstrap {
+		require.NoError(t, n.Bootstrap([]string{id}))
+	}
 	t.Cleanup(func() { _ = n.Stop(context.Background()) })
 	return n
 }
@@ -110,11 +211,13 @@ func waitForLeader(t *testing.T, n *Node, timeout time.Duration) {
 	t.Fatalf("node did not become leader within %s", timeout)
 }
 
-// asMember builds a NodeInfo for the membership snapshot from a live node.
+// asMember builds a NodeInfo for the membership snapshot from a live
+// node. Under the mesh transport the raft ServerAddress equals the
+// NodeID, so we set Addr to the same value (matches selection.go).
 func asMember(n *Node) cluster.NodeInfo {
 	return cluster.NodeInfo{
 		ID:   n.localID,
-		Addr: "127.0.0.1",
+		Addr: n.localID,
 		Meta: cluster.NodeMeta{
 			"raft_eligible": "true",
 		},
@@ -132,10 +235,11 @@ func TestIntegration_VoterCapAcrossSevenNodes(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
+	fabric := newMeshFabric()
 	const total = 7
 	nodes := make([]*Node, total)
 	for i := 0; i < total; i++ {
-		nodes[i] = startNode(t, fmt.Sprintf("node-%d", i), i == 0)
+		nodes[i] = startNode(t, fabric, fmt.Sprintf("node-%d", i), i == 0)
 	}
 	waitForLeader(t, nodes[0], 5*time.Second)
 
@@ -186,14 +290,15 @@ func TestIntegration_GrowFromOneToFive(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	leader := startNode(t, "node-0", true)
+	fabric := newMeshFabric()
+	leader := startNode(t, fabric, "node-0", true)
 	waitForLeader(t, leader, 5*time.Second)
 
 	more := []*Node{
-		startNode(t, "node-1", false),
-		startNode(t, "node-2", false),
-		startNode(t, "node-3", false),
-		startNode(t, "node-4", false),
+		startNode(t, fabric, "node-1", false),
+		startNode(t, fabric, "node-2", false),
+		startNode(t, fabric, "node-3", false),
+		startNode(t, fabric, "node-4", false),
 	}
 
 	mem := &staticMembership{local: asMember(leader), all: []cluster.NodeInfo{asMember(leader)}}
@@ -240,13 +345,14 @@ func TestIntegration_DemoteOnShrink(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	leader := startNode(t, "node-0", true)
+	fabric := newMeshFabric()
+	leader := startNode(t, fabric, "node-0", true)
 	waitForLeader(t, leader, 5*time.Second)
 	others := []*Node{
-		startNode(t, "node-1", false),
-		startNode(t, "node-2", false),
-		startNode(t, "node-3", false),
-		startNode(t, "node-4", false),
+		startNode(t, fabric, "node-1", false),
+		startNode(t, fabric, "node-2", false),
+		startNode(t, fabric, "node-3", false),
+		startNode(t, fabric, "node-4", false),
 	}
 	all := []cluster.NodeInfo{asMember(leader)}
 	for _, n := range others {

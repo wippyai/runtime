@@ -4,7 +4,6 @@ package raft
 
 import (
 	"context"
-	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -34,13 +33,14 @@ const (
 	bootstrapExpectMeta = "bootstrap_expect"
 )
 
-// bootstrapWatcherDefaults: tuned for production but safe in tests via
-// the explicit knobs on BootstrapWatcherConfig.
 const (
-	bootstrapDefaultGrace       = 5 * time.Second
-	bootstrapDefaultPoll        = 1 * time.Second
-	bootstrapDefaultBusBufSize  = 64
-	bootstrapDefaultStateBudget = 30 * time.Second
+	// Default cadence/window for the watcher loop. Tests override via
+	// BootstrapWatcherConfig.
+	bootstrapDefaultGrace = 5 * time.Second
+	bootstrapDefaultPoll  = 1 * time.Second
+	// Event-bus subscription buffer for membership events. Sized for
+	// burst rather than throughput; events coalesce in evalQuorum.
+	bootstrapBusBufSize = 64
 )
 
 // bootstrapMembership is the shape the watcher needs from the membership
@@ -148,13 +148,13 @@ func (w *BootstrapWatcher) Start(ctx context.Context) error {
 		bootstrapExpectMeta: strconv.Itoa(w.cfg.Expect),
 	})
 
-	// Expect == 0: never self-bootstrap. Just transition to "in" once raft
+	// Expect == 0: never self-bootstrap. Transition to "in" once raft
 	// acquires a leader (via the reconciler's AddVoter from the existing
 	// cluster). Expect == 1: bootstrap immediately with self.
 	if w.cfg.Expect == 1 {
 		w.logger.Info("bootstrap watcher: single-node bootstrap")
 		if err := w.node.Bootstrap([]string{w.localID}); err != nil {
-			w.logger.Error("single-node bootstrap failed", zap.Error(err))
+			close(w.doneCh)
 			return err
 		}
 		w.transitionToIn()
@@ -162,9 +162,10 @@ func (w *BootstrapWatcher) Start(ctx context.Context) error {
 		return nil
 	}
 
-	ch := make(chan event.Event, bootstrapDefaultBusBufSize)
+	ch := make(chan event.Event, bootstrapBusBufSize)
 	subID, err := w.bus.Subscribe(ctx, cluster.System, ch)
 	if err != nil {
+		close(w.doneCh)
 		return err
 	}
 
@@ -209,12 +210,10 @@ func (w *BootstrapWatcher) run(ctx context.Context, ch <-chan event.Event, subID
 			}
 			switch e.Kind {
 			case cluster.NodeJoined, cluster.NodeLeft, cluster.NodeUpdated:
-				// fall through to evaluate
 			default:
 				continue
 			}
 		case <-ticker.C:
-			// periodic re-eval (safety net)
 		}
 
 		// If raft has acquired a leader, transition and exit. This handles
@@ -261,74 +260,62 @@ func (w *BootstrapWatcher) run(ctx context.Context, ch <-chan event.Event, subID
 	}
 }
 
-// evalQuorum inspects the current gossip view and returns (sortedVoterIDs,
-// stable). stable is true iff:
-//   - exactly Expect alive raft-eligible peers (incl. self) advertise
-//     the same BootstrapExpect and raft_status=pre, AND
-//   - no peer in the view advertises raft_status=in (which would mean
-//     the cluster has already formed and we should defer to AddVoter).
+// evalQuorum inspects the current gossip view and returns the
+// deterministically-ranked voter IDs and whether the set is bootstrappable.
+// Bootstrappable means: no peer reports raft_status=in (the cluster
+// hasn't formed elsewhere), and exactly Expect raft-eligible peers (incl.
+// self) advertise raft_status=pre with a matching BootstrapExpect.
 //
-// When stable is false the caller resets the stability window.
+// Ranking shares candidateFromNode + rankCandidates with the membership
+// reconciler so the initial-bootstrap voter set agrees with the post-form
+// reconciler's preference (priority asc, then ID asc, with raft_eligible
+// + failure_domain honored). Without this, the watcher and reconciler can
+// pick different voter sets from the same gossip view.
 func (w *BootstrapWatcher) evalQuorum() ([]string, bool) {
 	nodes := w.member.Nodes()
 	local := w.member.LocalNode()
 
-	// If any node in our view says it's already in the cluster, defer.
-	if local.Meta[raftStatusMeta] == raftStatusIn {
-		return nil, false
-	}
+	pool := make([]cluster.NodeInfo, 0, len(nodes)+1)
+	pool = append(pool, local)
 	for _, n := range nodes {
+		if n.ID == local.ID {
+			continue // dedupe self if Nodes() includes the local node
+		}
+		pool = append(pool, n)
+	}
+
+	// If any node in our view says it's already in the cluster, defer.
+	for _, n := range pool {
 		if n.Meta[raftStatusMeta] == raftStatusIn {
 			return nil, false
 		}
 	}
 
-	candidates := make([]string, 0, w.cfg.Expect)
-	// Self always participates (we just set our own meta to pre).
-	if matchesQuorumPredicate(local, w.cfg.Expect, w.localID) {
-		candidates = append(candidates, local.ID)
-	}
-	for _, n := range nodes {
-		if n.ID == local.ID {
-			continue // dedupe self if Nodes() ever includes us
+	out := make([]candidate, 0, w.cfg.Expect)
+	for _, n := range pool {
+		c, ok := candidateFromNode(n)
+		if !ok {
+			continue
 		}
-		if matchesQuorumPredicate(n, w.cfg.Expect, w.localID) {
-			candidates = append(candidates, n.ID)
+		if n.Meta[raftStatusMeta] != raftStatusPre {
+			continue
 		}
+		exp, err := strconv.Atoi(n.Meta[bootstrapExpectMeta])
+		if err != nil || exp != w.cfg.Expect {
+			continue
+		}
+		out = append(out, c)
 	}
-
-	if len(candidates) != w.cfg.Expect {
+	if len(out) != w.cfg.Expect {
 		return nil, false
 	}
-	sort.Strings(candidates)
-	return candidates, true
-}
+	rankCandidates(out)
 
-// matchesQuorumPredicate returns true if n is a raft-eligible alive peer
-// advertising the same Expect as ours and raft_status=pre.
-//
-// localID is passed so the local node can self-qualify without needing
-// its own raft_eligible default-true to be explicit in meta.
-func matchesQuorumPredicate(n cluster.NodeInfo, expect int, localID string) bool {
-	if n.Meta == nil {
-		// No meta at all means this is a not-yet-converged peer; skip.
-		// (Self has meta because Start advertises it before this is called.)
-		return n.ID == localID
+	ids := make([]string, len(out))
+	for i, c := range out {
+		ids[i] = c.ID
 	}
-	// raft_eligible defaults to true when unset.
-	if v, ok := n.Meta["raft_eligible"]; ok && v != "" {
-		if elig, err := strconv.ParseBool(v); err == nil && !elig {
-			return false
-		}
-	}
-	if n.Meta[raftStatusMeta] != raftStatusPre {
-		return false
-	}
-	exp, err := strconv.Atoi(n.Meta[bootstrapExpectMeta])
-	if err != nil || exp != expect {
-		return false
-	}
-	return true
+	return ids, true
 }
 
 // raftEstablished returns true if the local raft has acquired a leader,

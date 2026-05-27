@@ -614,12 +614,23 @@ func (n *Node) Bootstrap(voterIDs []string) error {
 	if hasState {
 		return nil
 	}
+	// Under the mesh transport every peer's raft address equals its
+	// NodeID (transport.LocalAddr() returns ServerAddress(localID)). Under
+	// the legacy TCP fallback the local node uses its actual bind address.
+	// Resolve self via transport so both paths work; non-self entries use
+	// the supplied ID as their address (mesh path is the only one that
+	// ever supplies multi-peer lists).
+	localAddr := n.transport.LocalAddr()
 	hsrv := make([]hraft.Server, 0, len(voterIDs))
 	for _, id := range voterIDs {
+		addr := hraft.ServerAddress(id)
+		if id == n.localID {
+			addr = localAddr
+		}
 		hsrv = append(hsrv, hraft.Server{
 			Suffrage: hraft.Voter,
 			ID:       hraft.ServerID(id),
-			Address:  hraft.ServerAddress(id), // mesh transport: address == NodeID
+			Address:  addr,
 		})
 	}
 	f := n.raft.BootstrapCluster(hraft.Configuration{Servers: hsrv})
