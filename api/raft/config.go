@@ -9,7 +9,30 @@ import "time"
 // Raft runs with a diskless control plane (in-memory stores): cluster state
 // is ephemeral, restarts rejoin from peer state, persistence-vs-quorum
 // failure modes are removed by construction. There is no data_dir.
+//
+// Cluster formation follows the Consul/Nomad gossip-driven pattern. Every
+// initial node ships the same single knob, BootstrapExpect, and joins the
+// gossip mesh. A small watcher on each node observes the converged gossip
+// view; when exactly BootstrapExpect raft-eligible peers (advertising the
+// same BootstrapExpect and raft_status="pre") are stably visible, all of
+// them deterministically derive the same sorted server list from gossip
+// and call BootstrapCluster with it. No InitialCluster list is configured:
+// the membership is discovered, not declared. Nodes that come up later
+// see existing peers as raft_status="in" and skip bootstrap; the leader's
+// reconciler adds them via AddVoter.
 type Config struct {
+	// BootstrapExpect is the expected size of the initial quorum. The
+	// gossip-driven bootstrap watcher uses this to decide when to form
+	// the cluster:
+	//   0  -> never self-bootstrap; this node joins an existing cluster
+	//         (waits for the leader's reconciler to AddVoter it).
+	//   1  -> single-node mode; bootstrap immediately with [self].
+	//   N  -> wait for exactly N raft-eligible alive members advertising
+	//         the same BootstrapExpect and raft_status="pre", then all
+	//         N call BootstrapCluster with the deterministically-sorted
+	//         server list. After a full-cluster cold-start they all
+	//         converge on the same configuration at log index 1.
+	BootstrapExpect int `json:"bootstrap_expect,omitempty"`
 	// Deprecated: mesh transport ignores this field. Kept only so legacy
 	// TCP test fallbacks still compile; production runs over the mesh
 	// transport which addresses peers by NodeID over the internode layer.
@@ -37,8 +60,7 @@ type Config struct {
 	// memory simultaneously. Setting this to 16 throttles the catch-up
 	// throughput so under chaos a returning pod doesn't OOM the leader
 	// while it ships history. Zero means use the library default.
-	MaxAppendEntries int  `json:"max_append_entries"`
-	Bootstrap        bool `json:"bootstrap"`
+	MaxAppendEntries int `json:"max_append_entries"`
 	// Deprecated: mesh transport ignores this field. See AdvertiseAddr.
 	AutoPort bool `json:"auto_port"`
 }

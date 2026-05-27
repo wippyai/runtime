@@ -178,6 +178,8 @@ func (m *fakeMembership) LocalNode() cluster.NodeInfo {
 	return m.local
 }
 
+func (m *fakeMembership) UpdateMeta(map[string]string) {}
+
 func mkNode(id, addr string) cluster.NodeInfo {
 	return cluster.NodeInfo{
 		ID:   id,

@@ -67,6 +67,11 @@ func NewNode(localID string, fsm hraft.FSM, cfg raftapi.Config, bus event.Bus, l
 	}
 }
 
+// LocalID returns the NodeID this raft instance was constructed with.
+// Used by the bootstrap watcher and other coordinator goroutines that
+// need to reason about the local node without consulting the transport.
+func (n *Node) LocalID() string { return n.localID }
+
 // SetConnectionManager wires the wippy internode connection manager
 // that the mesh-backed Raft transport rides on top of. Must be called
 // before Start; calling Start without a connection manager set returns
@@ -241,29 +246,12 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 	}
 	n.raft = r
 
-	// Bootstrap if configured and no existing state.
-	if n.config.Bootstrap {
-		hasState, err := hraft.HasExistingState(n.logStore, n.stableStore, n.snapStore)
-		if err != nil {
-			return nil, fmt.Errorf("check existing raft state: %w", err)
-		}
-		if !hasState {
-			cfg := hraft.Configuration{
-				Servers: []hraft.Server{
-					{
-						ID:      hraft.ServerID(n.localID),
-						Address: n.transport.LocalAddr(),
-					},
-				},
-			}
-			f := r.BootstrapCluster(cfg)
-			if err := f.Error(); err != nil {
-				n.logger.Warn("raft bootstrap failed (may already be bootstrapped)", zap.Error(err))
-			} else {
-				n.logger.Info("raft cluster bootstrapped", zap.String("id", n.localID))
-			}
-		}
-	}
+	// Cluster formation is deferred to the gossip-driven bootstrap watcher
+	// (see bootstrap.go). The watcher observes the converged gossip view
+	// and calls Bootstrap once exactly BootstrapExpect raft-eligible peers
+	// are visible. Start does not block on bootstrap; nodes joining an
+	// already-formed cluster never bootstrap and are added by the leader's
+	// reconciler via AddVoter.
 
 	n.started = true
 
@@ -274,7 +262,7 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 	n.logger.Info("raft node started",
 		zap.String("id", n.localID),
 		zap.String("transport", "mesh"),
-		zap.Bool("bootstrap", n.config.Bootstrap))
+		zap.Int("bootstrap_expect", n.config.BootstrapExpect))
 
 	return statusCh, nil
 }
@@ -600,6 +588,48 @@ func (n *Node) Barrier(timeout time.Duration) error {
 	}
 	f := n.raft.Barrier(timeout)
 	return n.translateError(f.Error())
+}
+
+// Bootstrap forms a fresh raft cluster from the given NodeIDs as voters.
+// Under the mesh transport, the raft ServerAddress equals the NodeID.
+// Called by the gossip-driven bootstrap watcher once exactly
+// BootstrapExpect raft-eligible peers are stably visible — each peer
+// derives the same sorted list and calls Bootstrap with it, so every
+// node stamps an identical Configuration at log index 1.
+//
+// Idempotent: returns nil if raft has already been bootstrapped (e.g. the
+// leader's reconciler added us via AddVoter before our watcher fired) or
+// if a peer's bootstrap propagated to us first. The "already bootstrapped"
+// path is the dominant one for nodes joining an existing cluster.
+func (n *Node) Bootstrap(voterIDs []string) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if !n.started || n.raft == nil {
+		return raftapi.ErrNotRunning
+	}
+	hasState, err := hraft.HasExistingState(n.logStore, n.stableStore, n.snapStore)
+	if err != nil {
+		return fmt.Errorf("check existing raft state: %w", err)
+	}
+	if hasState {
+		return nil
+	}
+	hsrv := make([]hraft.Server, 0, len(voterIDs))
+	for _, id := range voterIDs {
+		hsrv = append(hsrv, hraft.Server{
+			Suffrage: hraft.Voter,
+			ID:       hraft.ServerID(id),
+			Address:  hraft.ServerAddress(id), // mesh transport: address == NodeID
+		})
+	}
+	f := n.raft.BootstrapCluster(hraft.Configuration{Servers: hsrv})
+	if err := f.Error(); err != nil {
+		return fmt.Errorf("raft bootstrap: %w", err)
+	}
+	n.logger.Info("raft cluster bootstrapped",
+		zap.String("id", n.localID),
+		zap.Int("initial_size", len(hsrv)))
+	return nil
 }
 
 // AddVoter adds a voting member to the cluster.

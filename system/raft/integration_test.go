@@ -59,6 +59,8 @@ func (m *staticMembership) LocalNode() cluster.NodeInfo {
 	return m.local
 }
 
+func (m *staticMembership) UpdateMeta(map[string]string) {}
+
 func (m *staticMembership) replace(local cluster.NodeInfo, all []cluster.NodeInfo) {
 	m.mu.Lock()
 	m.local = local

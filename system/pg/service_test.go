@@ -383,6 +383,7 @@ type mockMembership struct {
 
 func (m *mockMembership) Nodes() []cluster.NodeInfo   { return m.nodes }
 func (m *mockMembership) LocalNode() cluster.NodeInfo { return m.localNode }
+func (m *mockMembership) UpdateMeta(map[string]string) {}
 
 // --- Send() relay package parsing tests ---
 

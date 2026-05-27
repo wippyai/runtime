@@ -5,7 +5,6 @@ package system
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -64,8 +63,10 @@ func Raft() boot.Component {
 	var memberHandler *sysraft.MembershipHandler
 	var globalRegSvc *globalreg.Service
 	var nodeLeftSub *eventbus.Subscriber
+	var bootstrapWatcher *sysraft.BootstrapWatcher
 	var logger *zap.Logger
 	var handlerCfg sysraft.HandlerConfig
+	var bootstrapExpect int
 
 	return boot.New(boot.P{
 		Name:      RaftName,
@@ -105,19 +106,18 @@ func Raft() boot.Component {
 			// restarts rejoin from peer state. Mesh transport addresses peers
 			// by NodeID over the internode layer, so no bind_addr/port.
 			//
-			// Bootstrap is inferred from cluster.membership.join_addrs: empty
-			// means this node has nothing to join, so it is the seed and
-			// bootstraps a fresh Raft configuration. Non-empty join_addrs
-			// means an existing cluster — this node is a follower that the
-			// leader's reconciler adds. The operator already coordinates
-			// "exactly one node has empty join_addrs" for membership; we
-			// reuse that coordination instead of adding a duplicate key.
-			// join_addrs is read as a comma-separated string by the cluster
-			// component (see cluster.go); we replicate that read here so the
-			// bootstrap inference matches what membership actually parsed.
-			joinStr := strings.TrimSpace(cfg.Sub(ClusterName).GetString(ClusterMembershipJoin, ""))
+			// Cluster formation follows the Consul/Nomad gossip-driven pattern:
+			// each node ships the single knob BootstrapExpect (the expected
+			// initial-quorum size) and joins gossip. A small watcher observes
+			// the converged gossip view; when exactly BootstrapExpect
+			// raft-eligible peers are stably visible all of them
+			// deterministically derive the same sorted server list and call
+			// BootstrapCluster with it. Nodes joining a running cluster see
+			// existing peers with raft_status=in and skip bootstrap; the
+			// leader's reconciler adds them via AddVoter.
+			bootstrapExpect = raftCfg.GetInt(ClusterRaftBootstrapExpect, 1)
 			rc := raftapi.Config{
-				Bootstrap:         joinStr == "",
+				BootstrapExpect:   bootstrapExpect,
 				SnapshotThreshold: uint64(raftCfg.GetInt(ClusterRaftSnapshotThreshold, 0)),
 				SnapshotInterval:  raftCfg.GetDuration(ClusterRaftSnapshotInterval, 0),
 				SnapshotRetain:    raftCfg.GetInt(ClusterRaftSnapshotRetain, 0),
@@ -241,10 +241,7 @@ func Raft() boot.Component {
 			}
 
 			logger.Info("raft initialized",
-				zap.String("bind_addr", rc.BindAddr), //nolint:staticcheck // diagnostic: surfaces value during deprecation cycle
-				zap.Int("bind_port", rc.BindPort),    //nolint:staticcheck // diagnostic: surfaces value during deprecation cycle
-				zap.Bool("auto_port", rc.AutoPort),   //nolint:staticcheck // diagnostic: surfaces value during deprecation cycle
-				zap.Bool("bootstrap", rc.Bootstrap),
+				zap.Int("bootstrap_expect", rc.BootstrapExpect),
 			)
 
 			return ctx, nil
@@ -302,8 +299,39 @@ func Raft() boot.Component {
 				return nil
 			})
 
+			// Resolve cluster membership once for both the raft membership
+			// handler and the globalreg Strong-scope path. Without membership
+			// the reconciler cannot read node metadata for candidate selection
+			// and Strong scope cannot snapshot the live-node set, so we log
+			// per-feature.
+			membership := clusterapi.GetMembership(ctx)
+			bus := event.GetBus(ctx)
+
+			// Start the gossip-driven bootstrap watcher BEFORE waiting on
+			// leader election so the watcher can actually form the cluster
+			// during that wait. The watcher is a no-op when BootstrapExpect
+			// is 0 (joining an existing cluster); for Expect==1 it
+			// bootstraps with self synchronously inside Start.
+			if membership != nil && bus != nil {
+				bootstrapWatcher = sysraft.NewBootstrapWatcher(
+					raftNode.LocalID(),
+					sysraft.BootstrapWatcherConfig{Expect: bootstrapExpect},
+					raftNode,
+					membership,
+					bus,
+					logger.Named("bootstrap"),
+				)
+				if err := bootstrapWatcher.Start(ctx); err != nil {
+					return fmt.Errorf("start raft bootstrap watcher: %w", err)
+				}
+			} else if bootstrapExpect != 0 {
+				logger.Warn("bootstrap watcher skipped (no membership or bus); raft cannot form a cluster",
+					zap.Int("bootstrap_expect", bootstrapExpect))
+			}
+
 			// Wait for leader election before proceeding. For a single-node
-			// bootstrap this is near-instant; for multi-node it may take a few seconds.
+			// bootstrap this is near-instant; for multi-node it may take
+			// longer while the watcher waits for peers in gossip.
 			leaderCh := raftNode.LeaderCh()
 			select {
 			case <-leaderCh:
@@ -312,15 +340,7 @@ func Raft() boot.Component {
 				logger.Warn("raft leader election timed out (continuing anyway)")
 			}
 
-			// Resolve cluster membership once for both the raft membership
-			// handler and the globalreg Strong-scope path. Without membership
-			// the reconciler cannot read node metadata for candidate selection
-			// and Strong scope cannot snapshot the live-node set, so we log
-			// per-feature.
-			membership := clusterapi.GetMembership(ctx)
-
 			// Start membership handler to sync Raft voters with cluster membership.
-			bus := event.GetBus(ctx)
 			if bus != nil {
 				if membership == nil {
 					logger.Warn("raft membership handler skipped: cluster.Membership not available in context")
@@ -383,6 +403,10 @@ func Raft() boot.Component {
 				nodeLeftSub.Close()
 			}
 
+			if bootstrapWatcher != nil {
+				bootstrapWatcher.Stop()
+			}
+
 			if globalRegSvc != nil {
 				logger.Info("stopping global registry service")
 				_ = globalRegSvc.Stop(context.Background())
@@ -403,3 +427,4 @@ func Raft() boot.Component {
 		},
 	})
 }
+

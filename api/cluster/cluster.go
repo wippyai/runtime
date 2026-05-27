@@ -19,7 +19,8 @@ type (
 		Addr string
 	}
 
-	// Membership provides synchronous inspection of the node set.
+	// Membership provides synchronous inspection of the node set and a
+	// hook to advertise the local node's gossip metadata to peers.
 	Membership interface {
 		// Nodes returns a slice of NodeInfo describing every node the local process
 		// currently knows about.
@@ -27,6 +28,14 @@ type (
 
 		// LocalNode returns information about the local node.
 		LocalNode() NodeInfo
+
+		// UpdateMeta merges the supplied keys into the local node's gossip
+		// metadata and triggers a re-broadcast. Existing keys not present
+		// in updates are preserved. Used by subsystems that need to
+		// advertise dynamic state (e.g. raft_status during cluster
+		// formation, role transitions). Empty-string values are kept;
+		// callers that want to clear a key should pass it explicitly.
+		UpdateMeta(updates map[string]string)
 	}
 
 	// MessageCodec handles encoding and decoding of relay packages for

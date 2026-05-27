@@ -38,6 +38,16 @@ const (
 	ClusterRaftEnabled             boot.Name = "raft.enabled"
 	ClusterRaftEligible            boot.Name = "raft.eligible"
 	ClusterRaftPriority            boot.Name = "raft.priority"
+	// BootstrapExpect: the expected size of the initial quorum (Consul/Nomad
+	// pattern). All initial nodes ship the same number and join gossip; once
+	// that many raft-eligible peers are stably visible they all derive the
+	// same sorted server list and call BootstrapCluster with it. Nodes
+	// joining a running cluster see existing peers as raft_status=in and
+	// skip bootstrap entirely — the leader's reconciler adds them.
+	//   0 -> never self-bootstrap (joining an existing cluster)
+	//   1 -> single-node mode; bootstrap immediately with self
+	//   N -> wait for N alive eligible peers, then form
+	ClusterRaftBootstrapExpect boot.Name = "raft.bootstrap_expect"
 	ClusterRaftMaxVoters           boot.Name = "raft.max_voters"
 	ClusterRaftMaxStandbys         boot.Name = "raft.max_standbys"
 	ClusterRaftReconcileDebounce   boot.Name = "raft.reconcile_debounce"
