@@ -158,11 +158,21 @@ func Cluster() boot.Component {
 			// Create node metadata with internode port and raft-eligibility hints.
 			// raft_eligible / raft_priority / failure_domain are advertised so the
 			// Raft membership reconciler can pick voters without a separate channel.
+			//
+			// raft_eligible is forced to false whenever cluster.raft.enabled is
+			// false: a pod that won't even start a raft Node cannot accept
+			// AddVoter, so the leader's reconciler must never pick it. Without
+			// this, a deliberate gossip-only client pod still advertises
+			// raft_eligible=true (the default), the reconciler tries to add it
+			// as a voter, AddVoter targets a pod with no raft, and the leader
+			// thrashes on the failing operation.
+			raftEnabled := clusterCfg.GetBool(ClusterRaftEnabled, true)
+			raftEligible := raftEnabled && clusterCfg.GetBool(ClusterRaftEligible, true)
 			nodeMeta := clusterapi.NodeMeta{
 				"version":        "1.0.0",
 				"role":           "wippy",
 				"internode_port": strconv.Itoa(actualPort),
-				"raft_eligible":  strconv.FormatBool(clusterCfg.GetBool(ClusterRaftEligible, true)),
+				"raft_eligible":  strconv.FormatBool(raftEligible),
 				"raft_priority":  strconv.Itoa(clusterCfg.GetInt(ClusterRaftPriority, 100)),
 				"failure_domain": clusterCfg.GetString(ClusterFailureDomain, ""),
 			}
