@@ -4,6 +4,7 @@ package relay
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/pid"
 	api "github.com/wippyai/runtime/api/relay"
@@ -12,20 +13,20 @@ import (
 // Router orchestrates message delivery between a local node and external upstreams.
 // It acts as the primary Receiver for the system.
 type Router struct {
-	localNode   api.Node
-	internode   api.Receiver
-	peers       sync.Map // NodeID -> Receiver
-	internodeMu sync.RWMutex
+	localNode api.Node
+	internode atomic.Pointer[api.Receiver]
+	peers     sync.Map // NodeID -> Receiver
 }
 
 // NewRouter creates a new router.
 // localNode is the node for handling messages targeted to the local node ID.
 // internode is the fallback receiver for all messages targeted to other nodes. Can be nil.
 func NewRouter(localNode api.Node, internode api.Receiver) *Router {
-	return &Router{
-		localNode: localNode,
-		internode: internode,
+	r := &Router{localNode: localNode}
+	if internode != nil {
+		r.internode.Store(&internode)
 	}
+	return r
 }
 
 // RegisterPeer registers a peer node receiver with the router.
@@ -55,9 +56,11 @@ func (r *Router) UnregisterPeer(nodeID pid.NodeID) bool {
 // SetInternode sets (or replaces) the internode fallback receiver.
 // This is called by the cluster component after boot to enable cross-node routing.
 func (r *Router) SetInternode(receiver api.Receiver) {
-	r.internodeMu.Lock()
-	r.internode = receiver
-	r.internodeMu.Unlock()
+	if receiver == nil {
+		r.internode.Store(nil)
+		return
+	}
+	r.internode.Store(&receiver)
 }
 
 // Send routes the package to the appropriate destination.
@@ -79,12 +82,11 @@ func (r *Router) Send(pkg *api.Package) error {
 		}
 	}
 
-	// Fallback to internode for unknown nodes.
-	r.internodeMu.RLock()
-	internode := r.internode
-	r.internodeMu.RUnlock()
-	if internode != nil {
-		return internode.Send(pkg)
+	// Fallback to internode for unknown nodes. Lock-free hot-path read:
+	// atomic.Pointer.Load is a single MOV vs the old RWMutex RLock+RUnlock
+	// CAS pair, on every message send.
+	if p := r.internode.Load(); p != nil {
+		return (*p).Send(pkg)
 	}
 
 	return NewNodeNotFoundError(pkg.Target.Node)
