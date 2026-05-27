@@ -108,6 +108,7 @@ type GCRunner struct {
 	done        chan struct{}
 	onSafe      func(int)
 	onWallFloor func(int)
+	onReclaim   func(int)
 	period      time.Duration
 	floor       time.Duration
 	stopOnce    sync.Once
@@ -121,6 +122,7 @@ type GCConfig struct {
 	Now         func() time.Time           // override for tests
 	OnSafe      func(int)                  // counter callback for safe-GC drops
 	OnWallFloor func(int)                  // counter callback for wall-floor drops
+	OnReclaim   func(int)                  // counter callback for reclaimed compact ids
 	Period      time.Duration              // ticker cadence (default 20 s)
 	WallFloor   time.Duration              // age at which tombstones drop (default 15 min)
 }
@@ -146,6 +148,7 @@ func NewGCRunner(cfg GCConfig) *GCRunner {
 		done:        make(chan struct{}),
 		onSafe:      cfg.OnSafe,
 		onWallFloor: cfg.OnWallFloor,
+		onReclaim:   cfg.OnReclaim,
 	}
 }
 
@@ -185,5 +188,11 @@ func (g *GCRunner) runOnce() {
 	}
 	if g.onWallFloor != nil && gcFloor > 0 {
 		g.onWallFloor(gcFloor)
+	}
+	// Reclaim interned compact ids whose dots were all reaped above and whose
+	// origin is no longer a live member. Runs after ReapTombstones so a just-
+	// dropped tombstone's refcount has already fallen to zero this pass.
+	if reclaimed := g.state.ReclaimUnreferencedNodes(alive); reclaimed > 0 && g.onReclaim != nil {
+		g.onReclaim(reclaimed)
 	}
 }

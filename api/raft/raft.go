@@ -79,6 +79,12 @@ type (
 		// Useful for read-after-write consistency.
 		Barrier(timeout time.Duration) error
 
+		// CommitIndex returns the highest committed Raft log index. The
+		// join-epoch barrier reads it to stamp the strong_index a snapshot of
+		// PENDING∪ACTIVE Strong names was taken at, so a concurrently-admitted
+		// name is either fully in or fully out of the snapshot.
+		CommitIndex() uint64
+
 		// AddVoter adds a node as a voting member of the cluster.
 		// Only the leader may call this; returns ErrNotLeader otherwise.
 		// If the node already exists as a non-voter, it is promoted to voter.
@@ -106,6 +112,11 @@ type (
 
 		// GetConfiguration returns the current cluster membership.
 		GetConfiguration() ([]Server, error)
+
+		// Stats returns a snapshot of the underlying Raft node's runtime
+		// statistics as string key/value pairs (term, commit_index,
+		// last_log_index, applied_index, fsm_pending, etc.). Read-only.
+		Stats() map[string]string
 	}
 
 	// Server describes a node in the Raft cluster.

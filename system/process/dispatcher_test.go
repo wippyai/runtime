@@ -11,7 +11,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -936,65 +935,3 @@ func TestDispatcher_HandleUnlink_NoTopology(t *testing.T) {
 var _ process.Manager = (*mockProcessManager)(nil)
 var _ relay.Receiver = (*mockRouter)(nil)
 var _ topology.Topology = (*mockTopology)(nil)
-
-func TestDispatcher_HandleSend_ThreadsFenceToken(t *testing.T) {
-	manager := &mockProcessManager{}
-	router := &mockRouter{}
-	topo := &mockTopology{}
-
-	var captured *relay.Package
-	router.On("Send", mock.Anything).Run(func(args mock.Arguments) {
-		captured = args.Get(0).(*relay.Package)
-	}).Return(nil)
-
-	d := NewDispatcher(manager, router, topo, nil)
-
-	cmd := &process.SendCmd{
-		From:       pid.PID{Host: "test", UniqID: "sender"},
-		To:         pid.PID{Host: "test", UniqID: "receiver"},
-		Topic:      "hello",
-		FenceToken: 42,
-		GlobalName: "my-service",
-	}
-
-	receiver := &mockResultReceiver{}
-	err := d.handleSend(context.Background(), cmd, 1, receiver)
-	assert.NoError(t, err)
-
-	require.NotNil(t, captured, "router.Send should have been called")
-	assert.Equal(t, uint64(42), captured.FenceToken)
-	assert.Equal(t, "my-service", captured.GlobalName)
-
-	router.AssertExpectations(t)
-}
-
-func TestDispatcher_HandleSend_ZeroFenceToken(t *testing.T) {
-	manager := &mockProcessManager{}
-	router := &mockRouter{}
-	topo := &mockTopology{}
-
-	var captured *relay.Package
-	router.On("Send", mock.Anything).Run(func(args mock.Arguments) {
-		captured = args.Get(0).(*relay.Package)
-	}).Return(nil)
-
-	d := NewDispatcher(manager, router, topo, nil)
-
-	cmd := &process.SendCmd{
-		From:       pid.PID{Host: "test", UniqID: "sender"},
-		To:         pid.PID{Host: "test", UniqID: "receiver"},
-		Topic:      "hello",
-		FenceToken: 0,
-		GlobalName: "",
-	}
-
-	receiver := &mockResultReceiver{}
-	err := d.handleSend(context.Background(), cmd, 1, receiver)
-	assert.NoError(t, err)
-
-	require.NotNil(t, captured, "router.Send should have been called")
-	assert.Equal(t, uint64(0), captured.FenceToken)
-	assert.Equal(t, "", captured.GlobalName)
-
-	router.AssertExpectations(t)
-}

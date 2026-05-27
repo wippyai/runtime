@@ -20,10 +20,11 @@ import (
 // invoking FSM.Apply synchronously. Useful for service-level tests that
 // don't exercise Raft replication itself but need a real Apply pipeline.
 type directApplyRaft struct {
-	fsm      *FSM
-	leaderCh chan bool
-	idx      atomic.Uint64
-	leader   atomic.Bool
+	fsm         *FSM
+	leaderCh    chan bool
+	knownLeader raftapi.ServerID
+	idx         atomic.Uint64
+	leader      atomic.Bool
 }
 
 func newDirectApplyRaft(fsm *FSM, leader bool) *directApplyRaft {
@@ -45,6 +46,9 @@ func (r *directApplyRaft) Leader() (raftapi.ServerID, raftapi.ServerAddress, err
 	if r.leader.Load() {
 		return "local", "local:0", nil
 	}
+	if r.knownLeader != "" {
+		return r.knownLeader, raftapi.ServerAddress(string(r.knownLeader) + ":0"), nil
+	}
 	return "", "", nil
 }
 
@@ -54,6 +58,7 @@ func (r *directApplyRaft) State() raftapi.State  { return raftapi.Leader }
 func (r *directApplyRaft) Barrier(_ time.Duration) error {
 	return nil
 }
+func (r *directApplyRaft) CommitIndex() uint64 { return r.idx.Load() }
 func (r *directApplyRaft) AddVoter(_ raftapi.ServerID, _ raftapi.ServerAddress, _ time.Duration) error {
 	return nil
 }
@@ -72,6 +77,7 @@ func (r *directApplyRaft) LeadershipTransfer(_ raftapi.ServerID, _ time.Duration
 func (r *directApplyRaft) GetConfiguration() ([]raftapi.Server, error) {
 	return nil, nil
 }
+func (r *directApplyRaft) Stats() map[string]string { return nil }
 
 // nopBus is a no-op event.Bus that ignores subscriptions.
 type nopBus struct{}

@@ -12,11 +12,8 @@ import (
 )
 
 // node is a tiny test helper to build cluster.NodeInfo with sane meta defaults.
-func node(id, addr, raftPort string, meta map[string]string) cluster.NodeInfo {
+func node(id, addr string, meta map[string]string) cluster.NodeInfo {
 	m := cluster.NodeMeta{}
-	if raftPort != "" {
-		m["raft_port"] = raftPort
-	}
 	for k, v := range meta {
 		m[k] = v
 	}
@@ -55,19 +52,15 @@ func TestDesiredVoterCount(t *testing.T) {
 }
 
 func TestCandidatesFromMembership_FiltersAndSorts(t *testing.T) {
-	// Mesh transport: the raft_port gossip metadata is ignored — the
-	// only filter is raft_eligible. raft_port is still injected by the
-	// cluster boot for diagnostics during the one-cycle deprecation
-	// window but selection no longer reads it.
+	// Verifies raft_eligible filtering and deterministic priority/ID ordering.
 	nodes := []cluster.NodeInfo{
 		// Out of order on purpose.
-		node("n3", "10.0.0.3", "7960", map[string]string{"raft_priority": "100"}),
+		node("n3", "10.0.0.3", map[string]string{"raft_priority": "100"}),
 		// Ineligible: explicit false.
-		node("n4", "10.0.0.4", "7960", map[string]string{"raft_eligible": "false"}),
-		// Eligible even without raft_port (mesh ignores it).
-		node("n5", "10.0.0.5", "", nil),
-		node("n1", "10.0.0.1", "7960", map[string]string{"raft_priority": "10"}),
-		node("n2", "10.0.0.2", "7960", map[string]string{"raft_priority": "10"}),
+		node("n4", "10.0.0.4", map[string]string{"raft_eligible": "false"}),
+		node("n5", "10.0.0.5", nil),
+		node("n1", "10.0.0.1", map[string]string{"raft_priority": "10"}),
+		node("n2", "10.0.0.2", map[string]string{"raft_priority": "10"}),
 	}
 
 	got := candidatesFromMembership(nodes)
@@ -83,11 +76,50 @@ func TestCandidatesFromMembership_FiltersAndSorts(t *testing.T) {
 
 func TestCandidatesFromMembership_DefaultPriorityAndEligible(t *testing.T) {
 	nodes := []cluster.NodeInfo{
-		node("a", "10.0.0.1", "7960", nil), // no priority, no eligible flag → defaults
+		node("a", "10.0.0.1", nil), // no priority, no eligible flag → defaults
 	}
 	got := candidatesFromMembership(nodes)
 	require.Len(t, got, 1)
 	assert.Equal(t, 100, got[0].Priority)
+}
+
+// TestDeriveMembers_DeterministicAcrossCallers proves the seam non-members
+// rely on: same gossip snapshot + same caps → same ordered member set on every
+// caller. Two invocations with the same input must yield byte-equal output, and
+// changing input order (gossip arrival is order-insensitive) must not change
+// the result.
+func TestDeriveMembers_DeterministicAcrossCallers(t *testing.T) {
+	a := node("a", "10.0.0.1", map[string]string{"raft_priority": "100"})
+	b := node("b", "10.0.0.2", map[string]string{"raft_priority": "100"})
+	c := node("c", "10.0.0.3", map[string]string{"raft_priority": "10"})
+	d := node("d", "10.0.0.4", map[string]string{"raft_priority": "100"})
+	e := node("e", "10.0.0.5", map[string]string{"raft_eligible": "false"})
+
+	first := DeriveMembers([]cluster.NodeInfo{a, b, c, d, e}, 3, 2)
+	second := DeriveMembers([]cluster.NodeInfo{e, d, c, b, a}, 3, 2) // reordered
+	assert.Equal(t, first, second,
+		"non-leader node + leader node + reordered input all produce the same member set")
+
+	// 3 voters + up to 2 standbys = 4 eligible candidates retained, ranked.
+	// Priority 10 first (c), then priority 100 by ID (a, b, d).
+	assert.Equal(t, []cluster.NodeID{"c", "a", "b", "d"}, first)
+}
+
+// TestDeriveMembers_BoundsToCaps proves the standby cap holds: extra eligible
+// nodes beyond MaxVoters+MaxStandbys are excluded from the derived set so a
+// non-member doesn't fan out to a node that won't be in the raft config.
+func TestDeriveMembers_BoundsToCaps(t *testing.T) {
+	nodes := []cluster.NodeInfo{
+		node("a", "10.0.0.1", nil),
+		node("b", "10.0.0.2", nil),
+		node("c", "10.0.0.3", nil),
+		node("d", "10.0.0.4", nil),
+		node("e", "10.0.0.5", nil),
+		node("f", "10.0.0.6", nil),
+		node("g", "10.0.0.7", nil),
+	}
+	out := DeriveMembers(nodes, 3, 1) // 3 voters + 1 standby = 4 members max
+	assert.Len(t, out, 4, "derived set capped to MaxVoters+MaxStandbys")
 }
 
 func TestPickVoters_FailureDomainSpread(t *testing.T) {

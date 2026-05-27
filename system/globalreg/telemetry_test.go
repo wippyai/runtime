@@ -23,7 +23,6 @@ func newTestTelemetry(t *testing.T) (*telemetry, *telemetrytest.Recorder) {
 func TestTelemetry_NilCollector_NoPanic(t *testing.T) {
 	tt := newTelemetry(nil, nil, nil, "_test")
 	tt.recordFenceToken("g1", "node-a", 1)
-	tt.recordFenceRejection("g1", "stale_token")
 	tt.recordGlobalregSize(0)
 	tt.recordGlobalregDedupe()
 }
@@ -33,11 +32,6 @@ func TestTelemetry_RecordFence(t *testing.T) {
 	tt.recordFenceToken("g1", "node-a", 7)
 	if v := rec.GaugeValue("pg_fence_token", metrics.Labels{"pg": "g1", "node": "node-a"}); v != 7 {
 		t.Fatalf("pg_fence_token: want 7, got %v", v)
-	}
-
-	tt.recordFenceRejection("g1", "stale_token")
-	if v := rec.CounterValue("pg_fence_rejection_total", metrics.Labels{"pg": "g1", "reason": "stale_token"}); v != 1 {
-		t.Fatalf("pg_fence_rejection_total: want 1, got %v", v)
 	}
 }
 

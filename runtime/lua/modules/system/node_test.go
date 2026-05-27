@@ -11,6 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/cluster"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	pidapi "github.com/wippyai/runtime/api/pid"
+	raftapi "github.com/wippyai/runtime/api/raft"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/security"
 )
@@ -75,48 +76,6 @@ func TestNodeID_WithoutRelayNode(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestNodesList_LocalNodeOnly(t *testing.T) {
-	l, ctx := newNodeTestState(t)
-	ctx = relay.WithNode(ctx, &stubRelayNode{id: "solo"})
-	l.SetContext(ctx)
-
-	err := l.DoString(`
-		local nodes, err = system.nodes.list()
-		assert(err == nil, "unexpected error: " .. tostring(err))
-		assert(#nodes == 1, "expected 1 node, got " .. #nodes)
-		assert(nodes[1].id == "solo", "expected solo, got " .. tostring(nodes[1].id))
-		assert(nodes[1].is_local == true, "expected is_local true")
-	`)
-	require.NoError(t, err)
-}
-
-func TestNodesList_WithMembership(t *testing.T) {
-	l, ctx := newNodeTestState(t)
-	ctx = relay.WithNode(ctx, &stubRelayNode{id: "node-1"})
-	ctx = cluster.WithMembership(ctx, &stubMembership{
-		local: cluster.NodeInfo{ID: "node-1", Addr: "10.0.0.1:7946", Meta: cluster.NodeMeta{"role": "leader"}},
-		peers: []cluster.NodeInfo{
-			{ID: "node-2", Addr: "10.0.0.2:7946", Meta: cluster.NodeMeta{"role": "follower"}},
-			{ID: "node-3", Addr: "10.0.0.3:7946"},
-		},
-	})
-	l.SetContext(ctx)
-
-	err := l.DoString(`
-		local nodes, err = system.nodes.list()
-		assert(err == nil, "unexpected error: " .. tostring(err))
-		assert(#nodes == 3, "expected 3 nodes, got " .. #nodes)
-		assert(nodes[1].is_local == true, "first node must be local")
-		assert(nodes[1].id == "node-1", "first id mismatch: " .. tostring(nodes[1].id))
-		assert(nodes[1].addr == "10.0.0.1:7946", "addr mismatch")
-		assert(nodes[1].meta.role == "leader", "meta role mismatch")
-		assert(nodes[2].is_local == false, "node-2 must not be local")
-		assert(nodes[2].id == "node-2", "second id mismatch")
-		assert(nodes[3].id == "node-3", "third id mismatch")
-	`)
-	require.NoError(t, err)
-}
-
 func TestNodeID_PermissionDenied(t *testing.T) {
 	l := lua.NewState()
 	t.Cleanup(func() { l.Close() })
@@ -136,7 +95,58 @@ func TestNodeID_PermissionDenied(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestNodesList_PermissionDenied(t *testing.T) {
+func TestNodeAddr_WithMembership(t *testing.T) {
+	l, ctx := newNodeTestState(t)
+	ctx = cluster.WithMembership(ctx, &stubMembership{
+		local: cluster.NodeInfo{ID: "node-1", Addr: "10.0.0.1:7946"},
+	})
+	l.SetContext(ctx)
+
+	err := l.DoString(`
+		local addr, err = system.node.addr()
+		assert(err == nil, "unexpected error: " .. tostring(err))
+		assert(addr == "10.0.0.1:7946", "addr mismatch: " .. tostring(addr))
+	`)
+	require.NoError(t, err)
+}
+
+func TestNodeAddr_WithoutMembership(t *testing.T) {
+	l, _ := newNodeTestState(t)
+
+	err := l.DoString(`
+		local addr, err = system.node.addr()
+		assert(addr == nil, "expected nil when membership absent")
+		assert(err ~= nil, "expected error when membership absent")
+	`)
+	require.NoError(t, err)
+}
+
+func TestNodeRole_NoRaft(t *testing.T) {
+	l, _ := newNodeTestState(t)
+
+	err := l.DoString(`
+		local role, err = system.node.role()
+		assert(err == nil, "unexpected error: " .. tostring(err))
+		assert(role == "non-member", "expected non-member, got " .. tostring(role))
+	`)
+	require.NoError(t, err)
+}
+
+func TestNodeRole_Leader(t *testing.T) {
+	l, ctx := newNodeTestState(t)
+	ctx = relay.WithNode(ctx, &stubRelayNode{id: "node-1"})
+	ctx = raftapi.WithService(ctx, &fakeRaftService{isLeader: true, servers: []raftapi.Server{{ID: "node-1", IsVoter: true}}})
+	l.SetContext(ctx)
+
+	err := l.DoString(`
+		local role, err = system.node.role()
+		assert(err == nil, "unexpected error: " .. tostring(err))
+		assert(role == "leader", "expected leader, got " .. tostring(role))
+	`)
+	require.NoError(t, err)
+}
+
+func TestNodeAddr_PermissionDenied(t *testing.T) {
 	l := lua.NewState()
 	t.Cleanup(func() { l.Close() })
 
@@ -148,9 +158,29 @@ func TestNodesList_PermissionDenied(t *testing.T) {
 	l.SetGlobal("system", tbl)
 
 	err := l.DoString(`
-		local nodes, err = system.nodes.list()
-		assert(nodes == nil, "expected nil under strict security")
+		local addr, err = system.node.addr()
+		assert(addr == nil, "expected nil under strict security")
 		assert(err ~= nil, "expected permission-denied error")
 	`)
 	require.NoError(t, err)
 }
+
+func TestNodeRole_PermissionDenied(t *testing.T) {
+	l := lua.NewState()
+	t.Cleanup(func() { l.Close() })
+
+	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
+	ctx = security.SetStrictMode(ctx, true)
+	l.SetContext(ctx)
+
+	tbl, _ := Module.Build()
+	l.SetGlobal("system", tbl)
+
+	err := l.DoString(`
+		local role, err = system.node.role()
+		assert(role == nil, "expected nil under strict security")
+		assert(err ~= nil, "expected permission-denied error")
+	`)
+	require.NoError(t, err)
+}
+

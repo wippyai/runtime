@@ -17,9 +17,10 @@ import (
 	pgapi "github.com/wippyai/runtime/api/pg"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/topology"
-	"github.com/wippyai/runtime/system/eventbus"
+	"github.com/wippyai/runtime/internal/telemetrytest"
 	"go.uber.org/zap"
 )
 
@@ -1145,94 +1146,118 @@ func TestServiceSendToMembersEmpty(t *testing.T) {
 
 // --- Event emission tests ---
 
-// newTestServiceWithBus creates a test service with a real event bus.
-func newTestServiceWithBus(t *testing.T) (*Service, *mockRouter, *mockTopology, event.Bus) {
-	t.Helper()
-	router := newMockRouter()
-	topo := newMockTopology()
-	logger := zap.NewNop()
-	bus := eventbus.NewBus()
-	svc := NewService(logger, "pg", nil, router, topo, nil, bus, "local-node", nil, nil, nil)
-	return svc, router, topo, bus
+// monitorEvent is a parsed membership event captured from a monitor's relay topic.
+type monitorEvent struct {
+	group string
+	kind  string
+	pids  []pid.PID
 }
 
-func startTestServiceWithBus(t *testing.T) (*Service, *mockRouter, *mockTopology, event.Bus) {
+// collectMonitorEvents extracts membership events delivered to the given monitor
+// PID from the recorded router sends. Events arrive via the relay (router.Send)
+// as a map matching the eventbus format, carrying a pgapi.MembershipEvent payload.
+func collectMonitorEvents(t *testing.T, router *mockRouter, target pid.PID) []monitorEvent {
 	t.Helper()
-	svc, router, topo, bus := newTestServiceWithBus(t)
-	_, err := svc.Start(context.Background())
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_ = svc.Stop(context.Background())
-	})
-	time.Sleep(10 * time.Millisecond)
-	return svc, router, topo, bus
+	var events []monitorEvent
+	for _, s := range router.getSends() {
+		if s.Target != target {
+			continue
+		}
+		for _, msg := range s.Messages {
+			if len(msg.Payloads) == 0 {
+				continue
+			}
+			data, ok := msg.Payloads[0].Data().(map[string]any)
+			if !ok {
+				continue
+			}
+			kind, _ := data["kind"].(string)
+			memberEvt, ok := data["data"].(pgapi.MembershipEvent)
+			if !ok {
+				continue
+			}
+			events = append(events, monitorEvent{
+				group: memberEvt.Group,
+				kind:  kind,
+				pids:  memberEvt.PIDs,
+			})
+		}
+	}
+	return events
+}
+
+// waitForMonitorEvents polls the recorded router sends until at least min events
+// for the target are observed or the timeout elapses, then returns what was seen.
+func waitForMonitorEvents(t *testing.T, router *mockRouter, target pid.PID, min int) []monitorEvent {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		events := collectMonitorEvents(t, router, target)
+		if len(events) >= min {
+			return events
+		}
+		select {
+		case <-deadline:
+			return events
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
 }
 
 func TestServiceEmitsJoinEvent(t *testing.T) {
-	svc, _, _, bus := startTestServiceWithBus(t)
+	svc, router, _ := startTestService(t)
 
-	// Subscribe to pg events on the event bus
-	ch := make(chan event.Event, 8)
-	_, err := bus.SubscribeP(context.Background(), pgapi.EventSystem, pgapi.MemberJoined, ch)
-	require.NoError(t, err)
+	// Observe membership events through the relay monitor path.
+	monPID := mkPID("host1", "mon")
+	result := svc.Events(monPID, "pg.events")
+	defer result.Unsubscribe()
+
+	router.reset()
 
 	p1 := mkPID("host1", "1")
 	require.NoError(t, svc.Join("workers", p1))
 
-	// Wait for event
-	select {
-	case evt := <-ch:
-		assert.Equal(t, event.System(pgapi.EventSystem), evt.System)
-		assert.Equal(t, event.Kind(pgapi.MemberJoined), evt.Kind)
-		assert.Equal(t, "workers", evt.Path)
-		memberEvt, ok := evt.Data.(pgapi.MembershipEvent)
-		require.True(t, ok, "expected MembershipEvent, got %T", evt.Data)
-		assert.Equal(t, "workers", memberEvt.Group)
-		require.Len(t, memberEvt.PIDs, 1)
-		assert.Equal(t, p1.String(), memberEvt.PIDs[0].String())
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for join event")
-	}
+	events := waitForMonitorEvents(t, router, monPID, 1)
+	require.Len(t, events, 1)
+	assert.Equal(t, pgapi.MemberJoined, events[0].kind)
+	assert.Equal(t, "workers", events[0].group)
+	require.Len(t, events[0].pids, 1)
+	assert.Equal(t, p1.String(), events[0].pids[0].String())
 }
 
 func TestServiceEmitsLeaveEvent(t *testing.T) {
-	svc, _, _, bus := startTestServiceWithBus(t)
+	svc, router, _ := startTestService(t)
 
 	p1 := mkPID("host1", "1")
 	require.NoError(t, svc.Join("workers", p1))
 
-	// Subscribe to leave events
-	ch := make(chan event.Event, 8)
-	_, err := bus.SubscribeP(context.Background(), pgapi.EventSystem, pgapi.MemberLeft, ch)
-	require.NoError(t, err)
+	monPID := mkPID("host1", "mon")
+	result := svc.Events(monPID, "pg.events")
+	defer result.Unsubscribe()
+
+	router.reset()
 
 	require.NoError(t, svc.Leave("workers", p1))
 
-	select {
-	case evt := <-ch:
-		assert.Equal(t, event.System(pgapi.EventSystem), evt.System)
-		assert.Equal(t, event.Kind(pgapi.MemberLeft), evt.Kind)
-		assert.Equal(t, "workers", evt.Path)
-		memberEvt, ok := evt.Data.(pgapi.MembershipEvent)
-		require.True(t, ok, "expected MembershipEvent, got %T", evt.Data)
-		assert.Equal(t, "workers", memberEvt.Group)
-		require.Len(t, memberEvt.PIDs, 1)
-		assert.Equal(t, p1.String(), memberEvt.PIDs[0].String())
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for leave event")
-	}
+	events := waitForMonitorEvents(t, router, monPID, 1)
+	require.Len(t, events, 1)
+	assert.Equal(t, pgapi.MemberLeft, events[0].kind)
+	assert.Equal(t, "workers", events[0].group)
+	require.Len(t, events[0].pids, 1)
+	assert.Equal(t, p1.String(), events[0].pids[0].String())
 }
 
 func TestServiceEmitsEventOnProcessExit(t *testing.T) {
-	svc, _, _, bus := startTestServiceWithBus(t)
+	svc, router, _ := startTestService(t)
 
 	p1 := mkPID("host1", "1")
 	require.NoError(t, svc.Join("workers", p1))
 
-	// Subscribe to leave events
-	ch := make(chan event.Event, 8)
-	_, err := bus.SubscribeP(context.Background(), pgapi.EventSystem, pgapi.MemberLeft, ch)
-	require.NoError(t, err)
+	monPID := mkPID("host1", "mon")
+	result := svc.Events(monPID, "pg.events")
+	defer result.Unsubscribe()
+
+	router.reset()
 
 	// Simulate process exit via relay
 	exitEvent := &topology.ExitEvent{From: p1}
@@ -1242,21 +1267,16 @@ func TestServiceEmitsEventOnProcessExit(t *testing.T) {
 	pkg := relay.NewMessagePackage(p1, testServicePID("local-node"), msg)
 	require.NoError(t, svc.Send(pkg))
 
-	select {
-	case evt := <-ch:
-		assert.Equal(t, event.Kind(pgapi.MemberLeft), evt.Kind)
-		memberEvt, ok := evt.Data.(pgapi.MembershipEvent)
-		require.True(t, ok)
-		assert.Equal(t, "workers", memberEvt.Group)
-		require.Len(t, memberEvt.PIDs, 1)
-		assert.Equal(t, p1.String(), memberEvt.PIDs[0].String())
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for exit leave event")
-	}
+	events := waitForMonitorEvents(t, router, monPID, 1)
+	require.Len(t, events, 1)
+	assert.Equal(t, pgapi.MemberLeft, events[0].kind)
+	assert.Equal(t, "workers", events[0].group)
+	require.Len(t, events[0].pids, 1)
+	assert.Equal(t, p1.String(), events[0].pids[0].String())
 }
 
 func TestServiceMultiJoinExitEmitsDedupedEvents(t *testing.T) {
-	svc, _, _, bus := startTestServiceWithBus(t)
+	svc, router, _ := startTestService(t)
 
 	p1 := mkPID("host1", "1")
 	// Join "workers" 3 times and "managers" once
@@ -1265,11 +1285,11 @@ func TestServiceMultiJoinExitEmitsDedupedEvents(t *testing.T) {
 	require.NoError(t, svc.Join("workers", p1))
 	require.NoError(t, svc.Join("managers", p1))
 
-	// Subscribe to leave events
-	ch := make(chan event.Event, 16)
-	_, err := bus.SubscribeP(context.Background(), pgapi.EventSystem, pgapi.MemberLeft, ch)
-	require.NoError(t, err)
-	time.Sleep(20 * time.Millisecond)
+	monPID := mkPID("host1", "mon")
+	result := svc.Events(monPID, "pg.events")
+	defer result.Unsubscribe()
+
+	router.reset()
 
 	// Simulate process exit
 	exitEvent := &topology.ExitEvent{From: p1}
@@ -1282,26 +1302,12 @@ func TestServiceMultiJoinExitEmitsDedupedEvents(t *testing.T) {
 	// Should get exactly 2 leave events (one per unique group)
 	// Erlang PG semantics: the PID list in the "workers" event should
 	// contain p1 three times (one per join occurrence).
-	type leaveInfo struct {
-		group string
-		pids  []pid.PID
-	}
-	var received []leaveInfo
-	timeout := time.After(2 * time.Second)
-	for len(received) < 2 {
-		select {
-		case evt := <-ch:
-			memberEvt, ok := evt.Data.(pgapi.MembershipEvent)
-			require.True(t, ok)
-			received = append(received, leaveInfo{group: memberEvt.Group, pids: memberEvt.PIDs})
-		case <-timeout:
-			t.Fatalf("expected 2 leave events, got %d", len(received))
-		}
-	}
+	received := waitForMonitorEvents(t, router, monPID, 2)
+	require.Len(t, received, 2, "expected 2 leave events")
 
-	// Verify one event per unique group
 	groupLeaves := make(map[string][]pid.PID)
 	for _, r := range received {
+		assert.Equal(t, pgapi.MemberLeft, r.kind)
 		groupLeaves[r.group] = r.pids
 	}
 	assert.Contains(t, groupLeaves, "workers")
@@ -1315,13 +1321,9 @@ func TestServiceMultiJoinExitEmitsDedupedEvents(t *testing.T) {
 	assert.Len(t, groupLeaves["managers"], 1, "managers leave event should have 1 PID")
 	assert.Equal(t, p1.String(), groupLeaves["managers"][0].String())
 
-	// Verify no extra events
-	select {
-	case evt := <-ch:
-		t.Fatalf("unexpected extra leave event: %+v", evt)
-	case <-time.After(200 * time.Millisecond):
-		// good — no extra events
-	}
+	// Verify no extra events beyond the expected 2
+	time.Sleep(200 * time.Millisecond)
+	assert.Len(t, collectMonitorEvents(t, router, monPID), 2, "no extra leave events expected")
 }
 
 func TestServiceEmitsNoEventWithNilBus(t *testing.T) {
@@ -1331,44 +1333,38 @@ func TestServiceEmitsNoEventWithNilBus(t *testing.T) {
 	p1 := mkPID("host1", "1")
 	require.NoError(t, svc.Join("workers", p1))
 	require.NoError(t, svc.Leave("workers", p1))
-	// Should not panic — emitJoinEvent/emitLeaveEvent guard on nil bus
+	// Should not panic — emit*Event delivers only via relay, no bus dependency
 }
 
 func TestServiceEmitsMultipleJoinEvents(t *testing.T) {
-	svc, _, _, bus := startTestServiceWithBus(t)
+	svc, router, _ := startTestService(t)
 
-	ch := make(chan event.Event, 16)
-	_, err := bus.SubscribeP(context.Background(), pgapi.EventSystem, "**", ch)
-	require.NoError(t, err)
+	monPID := mkPID("host1", "mon")
+	result := svc.Events(monPID, "pg.events")
+	defer result.Unsubscribe()
 
-	// Give subscription time to register in the bus event loop
-	time.Sleep(20 * time.Millisecond)
+	router.reset()
 
 	p1 := mkPID("host1", "1")
 	p2 := mkPID("host1", "2")
 	require.NoError(t, svc.Join("workers", p1))
 	require.NoError(t, svc.Join("workers", p2))
 
-	// Collect events
-	received := 0
-	timeout := time.After(2 * time.Second)
-	for received < 2 {
-		select {
-		case evt := <-ch:
-			assert.Equal(t, event.Kind(pgapi.MemberJoined), evt.Kind)
-			received++
-		case <-timeout:
-			t.Fatalf("expected 2 join events, got %d", received)
-		}
+	events := waitForMonitorEvents(t, router, monPID, 2)
+	require.Len(t, events, 2, "expected 2 join events")
+	for _, e := range events {
+		assert.Equal(t, pgapi.MemberJoined, e.kind)
 	}
 }
 
 func TestServiceEmitsEventsForRemoteJoin(t *testing.T) {
-	svc, _, _, bus := startTestServiceWithBus(t)
+	svc, router, _ := startTestService(t)
 
-	ch := make(chan event.Event, 8)
-	_, err := bus.SubscribeP(context.Background(), pgapi.EventSystem, pgapi.MemberJoined, ch)
-	require.NoError(t, err)
+	monPID := mkPID("host1", "mon")
+	result := svc.Events(monPID, "pg.events")
+	defer result.Unsubscribe()
+
+	router.reset()
 
 	// Simulate remote join via relay package
 	rp1 := mkNodePID("node-b", "host1", "1")
@@ -1381,20 +1377,16 @@ func TestServiceEmitsEventsForRemoteJoin(t *testing.T) {
 	)
 	require.NoError(t, svc.Send(pkg))
 
-	select {
-	case evt := <-ch:
-		assert.Equal(t, event.Kind(pgapi.MemberJoined), evt.Kind)
-		assert.Equal(t, "workers", evt.Path)
-		memberEvt, ok := evt.Data.(pgapi.MembershipEvent)
-		require.True(t, ok)
-		assert.Equal(t, "workers", memberEvt.Group)
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for remote join event")
-	}
+	events := waitForMonitorEvents(t, router, monPID, 1)
+	require.Len(t, events, 1)
+	assert.Equal(t, pgapi.MemberJoined, events[0].kind)
+	assert.Equal(t, "workers", events[0].group)
+	require.Len(t, events[0].pids, 1)
+	assert.Equal(t, rp1.String(), events[0].pids[0].String())
 }
 
 func TestServiceEmitsEventsForRemoteLeave(t *testing.T) {
-	svc, _, _, bus := startTestServiceWithBus(t)
+	svc, router, _ := startTestService(t)
 
 	// First join remotely
 	rp1 := mkNodePID("node-b", "host1", "1")
@@ -1408,10 +1400,11 @@ func TestServiceEmitsEventsForRemoteLeave(t *testing.T) {
 	require.NoError(t, svc.Send(joinPkg))
 	time.Sleep(50 * time.Millisecond)
 
-	// Subscribe to leave events
-	ch := make(chan event.Event, 8)
-	_, err := bus.SubscribeP(context.Background(), pgapi.EventSystem, pgapi.MemberLeft, ch)
-	require.NoError(t, err)
+	monPID := mkPID("host1", "mon")
+	result := svc.Events(monPID, "pg.events")
+	defer result.Unsubscribe()
+
+	router.reset()
 
 	// Remote leave
 	leavePkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicLeave,
@@ -1423,17 +1416,14 @@ func TestServiceEmitsEventsForRemoteLeave(t *testing.T) {
 	)
 	require.NoError(t, svc.Send(leavePkg))
 
-	select {
-	case evt := <-ch:
-		assert.Equal(t, event.Kind(pgapi.MemberLeft), evt.Kind)
-		assert.Equal(t, "workers", evt.Path)
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for remote leave event")
-	}
+	events := waitForMonitorEvents(t, router, monPID, 1)
+	require.Len(t, events, 1)
+	assert.Equal(t, pgapi.MemberLeft, events[0].kind)
+	assert.Equal(t, "workers", events[0].group)
 }
 
 func TestServiceRemoteLeaveNoSpuriousEventsForNonMemberGroups(t *testing.T) {
-	svc, _, _, bus := startTestServiceWithBus(t)
+	svc, router, _ := startTestService(t)
 
 	rp1 := mkNodePID("node-b", "host1", "1")
 
@@ -1448,10 +1438,12 @@ func TestServiceRemoteLeaveNoSpuriousEventsForNonMemberGroups(t *testing.T) {
 	require.NoError(t, svc.Send(joinPkg))
 	time.Sleep(50 * time.Millisecond)
 
-	// Subscribe to ALL leave events
-	ch := make(chan event.Event, 8)
-	_, err := bus.SubscribeP(context.Background(), pgapi.EventSystem, pgapi.MemberLeft, ch)
-	require.NoError(t, err)
+	// Observe ALL leave events via the relay monitor path
+	monPID := mkPID("host1", "mon")
+	result := svc.Events(monPID, "pg.events")
+	defer result.Unsubscribe()
+
+	router.reset()
 
 	// Send leave for both "workers" and "managers" — rp1 is only in "workers"
 	leavePkg := relay.NewPackage(testServicePID("node-b"), testServicePID("local-node"), pgapi.TopicLeave,
@@ -1463,26 +1455,17 @@ func TestServiceRemoteLeaveNoSpuriousEventsForNonMemberGroups(t *testing.T) {
 	)
 	require.NoError(t, svc.Send(leavePkg))
 
-	// Should receive exactly one leave event for "workers"
-	select {
-	case evt := <-ch:
-		assert.Equal(t, event.Kind(pgapi.MemberLeft), evt.Kind)
-		assert.Equal(t, "workers", evt.Path)
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for leave event for workers")
-	}
-
-	// Should NOT receive a second event for "managers"
-	select {
-	case evt := <-ch:
-		t.Fatalf("received spurious leave event for group %q — should not have emitted", evt.Path)
-	case <-time.After(200 * time.Millisecond):
-		// Expected: no more events
-	}
+	// Should receive exactly one leave event for "workers" and none for "managers"
+	events := waitForMonitorEvents(t, router, monPID, 1)
+	time.Sleep(200 * time.Millisecond)
+	events = collectMonitorEvents(t, router, monPID)
+	require.Len(t, events, 1, "expected exactly one leave event for workers, no spurious managers event")
+	assert.Equal(t, pgapi.MemberLeft, events[0].kind)
+	assert.Equal(t, "workers", events[0].group)
 }
 
 func TestServiceRemoteLeaveDoesNotCorruptOtherNodeMembers(t *testing.T) {
-	svc, _, _, bus := startTestServiceWithBus(t)
+	svc, router, _ := startTestService(t)
 
 	rp1 := mkNodePID("node-b", "host1", "1")
 	rp2 := mkNodePID("node-c", "host1", "2")
@@ -1511,10 +1494,11 @@ func TestServiceRemoteLeaveDoesNotCorruptOtherNodeMembers(t *testing.T) {
 	assert.Len(t, svc.GetMembers("workers"), 2)
 	assert.Len(t, svc.GetMembers("managers"), 1)
 
-	// Subscribe to leave events
-	ch := make(chan event.Event, 8)
-	_, err := bus.SubscribeP(context.Background(), pgapi.EventSystem, pgapi.MemberLeft, ch)
-	require.NoError(t, err)
+	monPID := mkPID("host1", "mon")
+	result := svc.Events(monPID, "pg.events")
+	defer result.Unsubscribe()
+
+	router.reset()
 
 	// Leave rp1 from "workers" and "managers" on node-b.
 	// rp1 was never in "managers", so rp2's membership must not be affected.
@@ -1527,23 +1511,14 @@ func TestServiceRemoteLeaveDoesNotCorruptOtherNodeMembers(t *testing.T) {
 	)
 	require.NoError(t, svc.Send(leavePkg))
 
-	// Should get exactly one leave event for "workers"
-	select {
-	case evt := <-ch:
-		assert.Equal(t, "workers", evt.Path)
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for leave event")
-	}
-
-	// No spurious event for "managers"
-	select {
-	case evt := <-ch:
-		t.Fatalf("received spurious leave event for group %q", evt.Path)
-	case <-time.After(200 * time.Millisecond):
-	}
+	// Should get exactly one leave event for "workers", none for "managers"
+	events := waitForMonitorEvents(t, router, monPID, 1)
+	time.Sleep(200 * time.Millisecond)
+	events = collectMonitorEvents(t, router, monPID)
+	require.Len(t, events, 1, "expected exactly one leave event for workers")
+	assert.Equal(t, "workers", events[0].group)
 
 	// rp2 should still be in both groups
-	_ = bus
 	workers := svc.GetMembers("workers")
 	require.Len(t, workers, 1)
 	assert.Equal(t, rp2.String(), workers[0].String())
@@ -1590,25 +1565,21 @@ func TestServiceJoinGroupsAfterStop(t *testing.T) {
 }
 
 func TestServiceJoinGroupsEmitsEvents(t *testing.T) {
-	svc, _, _, bus := startTestServiceWithBus(t)
+	svc, router, _ := startTestService(t)
 
-	ch := make(chan event.Event, 16)
-	_, err := bus.SubscribeP(context.Background(), pgapi.EventSystem, pgapi.MemberJoined, ch)
-	require.NoError(t, err)
-	time.Sleep(20 * time.Millisecond)
+	monPID := mkPID("host1", "mon")
+	result := svc.Events(monPID, "pg.events")
+	defer result.Unsubscribe()
+
+	router.reset()
 
 	p1 := mkPID("host1", "1")
 	require.NoError(t, svc.JoinGroups([]string{"workers", "managers"}, p1))
 
-	received := 0
-	timeout := time.After(2 * time.Second)
-	for received < 2 {
-		select {
-		case <-ch:
-			received++
-		case <-timeout:
-			t.Fatalf("expected 2 join events, got %d", received)
-		}
+	events := waitForMonitorEvents(t, router, monPID, 2)
+	require.Len(t, events, 2, "expected 2 join events")
+	for _, e := range events {
+		assert.Equal(t, pgapi.MemberJoined, e.kind)
 	}
 }
 
@@ -2546,4 +2517,71 @@ func TestServiceHasGroupMemberships(t *testing.T) {
 		done <- svc.hasGroupMemberships(processA)
 	})
 	assert.False(t, <-done)
+}
+
+// TestSubmitDropsAtCapacityWithoutBlocking proves submit() honors the
+// bounded-drop contract: once the action channel saturates at its hard
+// cap, submit() returns false promptly and records
+// pg_queue_dropped_total{reason="full"} instead of blocking the caller.
+// The event loop is stalled on a gate so nothing drains the channel.
+func TestSubmitDropsAtCapacityWithoutBlocking(t *testing.T) {
+	router := newMockRouter()
+	topo := newMockTopology()
+	rec := telemetrytest.NewRecorder()
+
+	cfg := &pgapi.Config{ActionQueueSize: 4, ActionQueueMaxSize: 8}
+	cfg.InitDefaults()
+	require.NoError(t, cfg.Validate())
+
+	svc := NewService(zap.NewNop(), "pg", cfg, router, topo, nil, nil, "local-node", rec, nil, nil)
+	_, err := svc.Start(context.Background())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = svc.Stop(context.Background()) })
+
+	// Stall the event loop: the first submitted action blocks on gate,
+	// so the loop consumes nothing else and the channel fills up.
+	gate := make(chan struct{})
+	released := false
+	defer func() {
+		if !released {
+			close(gate)
+		}
+	}()
+	require.True(t, svc.submit(func() { <-gate }))
+
+	// Wait until the loop has picked up the gate action; the channel is
+	// then empty again and we can deterministically fill it to capacity.
+	require.Eventually(t, func() bool {
+		return len(svc.actions) == 0
+	}, time.Second, time.Millisecond)
+
+	cap := cap(svc.actions)
+	require.Greater(t, cap, 0)
+
+	// Fill the channel to its hard cap.
+	for i := 0; i < cap; i++ {
+		require.True(t, svc.submit(func() {}), "submit %d should buffer", i)
+	}
+
+	// The channel is now full and the loop is stalled. One more submit
+	// must drop without blocking. A sentinel goroutine detects a block.
+	result := make(chan bool, 1)
+	go func() {
+		result <- svc.submit(func() {})
+	}()
+
+	select {
+	case ok := <-result:
+		require.False(t, ok, "submit at capacity must return false (drop)")
+	case <-time.After(2 * time.Second):
+		t.Fatal("submit() blocked at capacity instead of dropping")
+	}
+
+	// The drop branch must be reachable and counted.
+	require.Equal(t, float64(1),
+		rec.CounterValue("pg_queue_dropped_total", metrics.Labels{"pg": "pg", "reason": "full"}),
+		"drop at capacity must record pg_queue_dropped_total{reason=full}")
+
+	close(gate)
+	released = true
 }

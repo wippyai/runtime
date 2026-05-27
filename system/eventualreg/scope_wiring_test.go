@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/system/eventualreg"
@@ -47,6 +46,6 @@ func TestEventualScope_TopologyAdapter(t *testing.T) {
 	defer svc.Stop()
 
 	var _ topology.EventualRegistry = svc
-	_, err := svc.Lookup(context.Background(), "any", globalreg.WithFence())
+	_, err := svc.Lookup(context.Background(), "any")
 	require.NoError(t, err)
 }

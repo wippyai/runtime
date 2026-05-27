@@ -8,10 +8,11 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	clusterapi "github.com/wippyai/runtime/api/cluster"
-	ctxapi "github.com/wippyai/runtime/api/context"
+	eventapi "github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	metricsapi "github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/pid"
+	relayapi "github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/cluster/membership"
 	"github.com/wippyai/runtime/system/eventualreg"
@@ -49,7 +50,11 @@ func EventualReg() boot.Component {
 				CrossScope:       newCrossScopeChecker(ctx),
 				MetricsCollector: metricsapi.GetCollector(ctx),
 				Logger:           logger,
+				Bus:              eventapi.GetBus(ctx),
 				Sender:           &eventualRegSender{m: memSvc},
+				// Relay router delivers name_revoked notifications to local
+				// processes that lose a name to a different origin's winner.
+				Revoker: relayapi.GetRouter(ctx),
 			}
 			svc = eventualreg.NewService(cfg)
 
@@ -70,13 +75,6 @@ func EventualReg() boot.Component {
 			}
 
 			ctx = topology.WithEventualRegistry(ctx, svc)
-
-			// Publish the service into app context so the admin HTTP
-			// server can expose its digest / CV for the gossip-
-			// convergence invariant in the chaos harness.
-			if ac := ctxapi.AppFromContext(ctx); ac != nil {
-				ac.With(eventualRegSvcKey, svc)
-			}
 
 			logger.Info("eventualreg loaded", zap.String("node", cfg.LocalNodeID))
 			return ctx, nil
@@ -133,8 +131,8 @@ func (p *membershipPeerInventory) AlivePeers() []string {
 }
 
 // crossScopeChecker satisfies eventualreg.CrossScopeChecker by consulting the
-// GLOBAL and LOCAL registries on every Register call. We resolve registries
-// lazily because raft (which provides GLOBAL) lands in context AFTER this
+// CONSISTENT and LOCAL registries on every Register call. We resolve registries
+// lazily because raft (which provides CONSISTENT) lands in context AFTER this
 // component loads — Lookup-time resolution catches the wired-up version.
 type crossScopeChecker struct {
 	ctx context.Context
@@ -153,6 +151,11 @@ func (c *crossScopeChecker) LookupOther(name string) (pid.PID, bool) {
 		if res, err := gr.Lookup(c.ctx, name); err == nil && res.Found {
 			return res.PID, true
 		}
+		// A held Strong reservation blocks an EVENTUAL bind to a different pid
+		// for the duration of the promotion window.
+		if reserved, ok := gr.IsStrongReserved(name); ok {
+			return reserved, true
+		}
 	}
 	if lr := topology.GetRegistry(c.ctx); lr != nil {
 		if p, ok := lr.Lookup(name); ok {
@@ -160,4 +163,116 @@ func (c *crossScopeChecker) LookupOther(name string) (pid.PID, bool) {
 		}
 	}
 	return pid.PID{}, false
+}
+
+// NameReady reports the join-epoch barrier status from the global registry.
+// When no global registry is wired (cluster/raft disabled) the node has no
+// Strong namespace to learn, so it is always ready.
+func (c *crossScopeChecker) NameReady() bool {
+	if c == nil {
+		return true
+	}
+	if gr := topology.GetGlobalRegistry(c.ctx); gr != nil {
+		return gr.NameReady()
+	}
+	return true
+}
+
+// localPresenceChecker satisfies globalreg.LocalPresence. It reads LOCAL and
+// EVENTUAL non-presence for the Strong-scope conditional ack WITHOUT going
+// through the composed lookups (which re-enter globalreg and would
+// self-reference a held reservation). LOCAL uses PIDRegistry.LookupLocal — the
+// registry's own table only; EVENTUAL uses the eventual registry's own state.
+// Registries are resolved lazily because they land in context as their
+// components load.
+type localPresenceChecker struct {
+	ctx context.Context
+}
+
+func (c *localPresenceChecker) LookupLocal(name string) (pid.PID, bool) {
+	if c == nil {
+		return pid.PID{}, false
+	}
+	lr := topology.GetRegistry(c.ctx)
+	if lr == nil {
+		return pid.PID{}, false
+	}
+	local, ok := lr.(interface {
+		LookupLocal(string) (pid.PID, bool)
+	})
+	if !ok {
+		return pid.PID{}, false
+	}
+	return local.LookupLocal(name)
+}
+
+func (c *localPresenceChecker) LookupEventual(name string) (pid.PID, bool) {
+	if c == nil {
+		return pid.PID{}, false
+	}
+	er := topology.GetEventualRegistry(c.ctx)
+	if er == nil {
+		return pid.PID{}, false
+	}
+	if res, err := er.Lookup(c.ctx, name); err == nil && res.Found {
+		return res.PID, true
+	}
+	return pid.PID{}, false
+}
+
+// localNameRevoker satisfies globalreg.LocalNameRevoker. The join-epoch barrier
+// uses it to drop a LOCAL or EVENTUAL binding this node holds for a name a Strong
+// reservation owns cluster-wide, before flipping name_ready. Registries are
+// resolved lazily because they land in context as their components load.
+type localNameRevoker struct {
+	ctx context.Context
+}
+
+// RevokeLocal removes a LOCAL binding of name held to a pid different from keep
+// and signals the losing process via the relay router. Returns true if revoked.
+func (c *localNameRevoker) RevokeLocal(name string, keep pid.PID) bool {
+	if c == nil {
+		return false
+	}
+	lr := topology.GetRegistry(c.ctx)
+	if lr == nil {
+		return false
+	}
+	local, ok := lr.(interface {
+		LookupLocal(string) (pid.PID, bool)
+	})
+	if !ok {
+		return false
+	}
+	held, found := local.LookupLocal(name)
+	if !found || held == keep {
+		return false
+	}
+	if !lr.Unregister(name) {
+		return false
+	}
+	if router := relayapi.GetRouter(c.ctx); router != nil {
+		_ = router.Send(topology.NameRevokedPackage(held, name))
+	}
+	return true
+}
+
+// RevokeEventual removes an EVENTUAL binding of name held to a pid different from
+// keep, tombstoning and signalling via the eventual service. Returns true if
+// revoked.
+func (c *localNameRevoker) RevokeEventual(name string, keep pid.PID) bool {
+	if c == nil {
+		return false
+	}
+	er := topology.GetEventualRegistry(c.ctx)
+	if er == nil {
+		return false
+	}
+	rev, ok := er.(interface {
+		RevokeForStrong(string, pid.PID) bool
+	})
+	if !ok {
+		return false
+	}
+	return rev.RevokeForStrong(name, keep)
 }

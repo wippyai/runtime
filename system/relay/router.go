@@ -3,32 +3,19 @@
 package relay
 
 import (
-	"context"
 	"sync"
 
-	"github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/pid"
 	api "github.com/wippyai/runtime/api/relay"
 )
 
-// FenceRejectFunc is invoked when a package is rejected because its fence
-// token does not match the current registration of the referenced global
-// name. The runtime wires this to the globalreg Service so it can emit the
-// pg_fence_rejection_total metric without the relay package depending on
-// metrics directly.
-type FenceRejectFunc func(globalName, reason string)
-
 // Router orchestrates message delivery between a local node and external upstreams.
 // It acts as the primary Receiver for the system.
 type Router struct {
-	localNode     api.Node
-	internode     api.Receiver
-	globalReg     globalreg.Registry
-	onFenceReject FenceRejectFunc
-	peers         sync.Map // NodeID -> Receiver
-	internodeMu   sync.RWMutex
-	globalRegMu   sync.RWMutex
-	fenceRejectMu sync.RWMutex
+	localNode   api.Node
+	internode   api.Receiver
+	peers       sync.Map // NodeID -> Receiver
+	internodeMu sync.RWMutex
 }
 
 // NewRouter creates a new router.
@@ -73,48 +60,11 @@ func (r *Router) SetInternode(receiver api.Receiver) {
 	r.internodeMu.Unlock()
 }
 
-// SetGlobalRegistry sets the global registry used for fence token validation.
-// Called by the Raft component after boot.
-func (r *Router) SetGlobalRegistry(reg globalreg.Registry) {
-	r.globalRegMu.Lock()
-	r.globalReg = reg
-	r.globalRegMu.Unlock()
-}
-
-// SetOnFenceReject installs a callback invoked whenever a package is dropped
-// due to a fence-token mismatch. Pass nil to clear.
-func (r *Router) SetOnFenceReject(fn FenceRejectFunc) {
-	r.fenceRejectMu.Lock()
-	r.onFenceReject = fn
-	r.fenceRejectMu.Unlock()
-}
-
 // Send routes the package to the appropriate destination.
 // Routing priority: local node → peer nodes → internode fallback.
-// If the package carries a fence token, the receiver's FSM validates it
-// before routing — rejecting stale references to re-registered names.
 func (r *Router) Send(pkg *api.Package) error {
 	if pkg == nil {
 		return NewNilPackageError()
-	}
-
-	// Validate fence token if present.
-	if pkg.FenceToken > 0 && pkg.GlobalName != "" {
-		r.globalRegMu.RLock()
-		gr := r.globalReg
-		r.globalRegMu.RUnlock()
-		if gr != nil {
-			if err := globalreg.ValidateFence(context.Background(), gr, pkg.GlobalName, pkg.FenceToken); err != nil {
-				r.fenceRejectMu.RLock()
-				cb := r.onFenceReject
-				r.fenceRejectMu.RUnlock()
-				if cb != nil {
-					cb(pkg.GlobalName, "stale_token")
-				}
-
-				return err
-			}
-		}
 	}
 
 	// Route to local node if target node is empty or matches the local node's ID.

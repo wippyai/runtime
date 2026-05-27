@@ -42,6 +42,10 @@ func commandLabel(t CommandType) string {
 		return "register_expired"
 	case CmdRegisterUnreserve:
 		return "register_unreserve"
+	case CmdDropRequired:
+		return "drop_required"
+	case CmdRegisterReject:
+		return "register_reject"
 	default:
 		return "unknown"
 	}
@@ -89,6 +93,11 @@ type wireExpireResult struct {
 	Removed     bool         `codec:"d"`
 }
 
+type wireRejectResult struct {
+	RejectedBy pid.NodeID `codec:"b,omitempty"`
+	Rejected   bool       `codec:"r"`
+}
+
 // encodeFSMResult serializes an FSM apply response so it can be sent back to a
 // forwarding follower. It returns the encoded bytes and the matching command
 // kind tag for the envelope header.
@@ -120,6 +129,8 @@ func encodeFSMResult(cmd CommandType, result any) ([]byte, error) {
 		return marshalMsgpack(wireAckResult{Recognized: v.Recognized, Complete: v.Complete, Activated: v.Activated})
 	case *ExpireResult:
 		return marshalMsgpack(wireExpireResult{Removed: v.Removed, MissingAcks: v.MissingAcks})
+	case *RejectResult:
+		return marshalMsgpack(wireRejectResult{Rejected: v.Rejected, RejectedBy: v.RejectedBy})
 	case error:
 		return nil, fmt.Errorf("encodeFSMResult: result is an error (cmd=%s); the caller must route errors via the envelope's Err field, not Result bytes", commandLabel(cmd))
 	default:
@@ -174,6 +185,12 @@ func decodeFSMResult(cmd CommandType, data []byte) (any, error) {
 			return nil, fmt.Errorf("decode expire result: %w", err)
 		}
 		return &ExpireResult{Removed: wr.Removed, MissingAcks: wr.MissingAcks}, nil
+	case CmdRegisterReject:
+		var wr wireRejectResult
+		if err := unmarshalMsgpack(data, &wr); err != nil {
+			return nil, fmt.Errorf("decode reject result: %w", err)
+		}
+		return &RejectResult{Rejected: wr.Rejected, RejectedBy: wr.RejectedBy}, nil
 	default:
 		return nil, fmt.Errorf("decode result: unknown command kind %d", cmd)
 	}

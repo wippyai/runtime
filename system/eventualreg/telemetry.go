@@ -21,8 +21,10 @@ func newTelemetry(coll metrics.Collector, node string) *telemetry {
 		base := metrics.Labels{"node": node}
 		coll.CounterAdd("eventualreg_register_total", 0, copyAdd(base, "result", "ok"))
 		coll.CounterAdd("eventualreg_unregister_total", 0, copyAdd(base, "result", "ok"))
-		coll.CounterAdd("eventualreg_merge_conflicts_total", 0, copyAdd(base, "resolution", "wall_clock"))
+		coll.CounterAdd("eventualreg_merge_conflicts_total", 0, copyAdd(base, "resolution", "concurrent"))
+		coll.CounterAdd("eventualreg_name_revoked_total", 0, base)
 		coll.CounterAdd("eventualreg_tombstones_gc_total", 0, copyAdd(base, "reason", "safe_counter"))
+		coll.CounterAdd("eventualreg_node_ids_reclaimed_total", 0, base)
 		coll.CounterAdd("eventualreg_tombstones_late_arrival_total", 0, base)
 		coll.CounterAdd("eventualreg_antientropy_round_total", 0, copyAdd(base, "result", "ok"))
 		coll.GaugeSet("eventualreg_entries", 0, copyAdd(base, "state", "live"))
@@ -61,11 +63,25 @@ func (t *telemetry) recordMergeConflict(resolution string) {
 	t.coll.CounterInc("eventualreg_merge_conflicts_total", metrics.Labels{"node": t.node, "resolution": resolution})
 }
 
+func (t *telemetry) recordRevoke() {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("eventualreg_name_revoked_total", metrics.Labels{"node": t.node})
+}
+
 func (t *telemetry) recordTombstoneGC(reason string, n int) {
 	if t == nil || t.coll == nil || n == 0 {
 		return
 	}
 	t.coll.CounterAdd("eventualreg_tombstones_gc_total", float64(n), metrics.Labels{"node": t.node, "reason": reason})
+}
+
+func (t *telemetry) recordNodeReclaim(n int) {
+	if t == nil || t.coll == nil || n == 0 {
+		return
+	}
+	t.coll.CounterAdd("eventualreg_node_ids_reclaimed_total", float64(n), metrics.Labels{"node": t.node})
 }
 
 func (t *telemetry) recordTombstoneLate() {

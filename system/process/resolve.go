@@ -16,25 +16,18 @@ import (
 var ErrCouldNotResolve = errors.New("could not resolve destination")
 
 // ResolvedDestination holds the outcome of resolving a send-target string.
-// GlobalName and FenceToken are populated only when the destination resolved
-// through the strongly consistent global registry; raw PIDs, eventual
-// names and local names leave both fields zero.
 type ResolvedDestination struct {
-	PID        pidapi.PID
-	GlobalName string
-	FenceToken uint64
+	PID pidapi.PID
 }
 
 // ResolveDestination converts a raw PID string or a registered name into
-// the addressable PID and (for strongly consistent global names) the fence
-// token that must accompany outgoing packages so the receiver can reject
-// stale references after re-registration.
+// the addressable PID.
 //
 // Resolution order is:
 //  1. raw PID parse
-//  2. globalreg (fence-bearing)
-//  3. eventualreg (no fence)
-//  4. local PIDRegistry (no fence)
+//  2. globalreg
+//  3. eventualreg
+//  4. local PIDRegistry
 //
 // Registries are read from ctx via globalreg.GetRegistry,
 // topology.GetEventualRegistry and topology.GetRegistry. A nil registry at
@@ -46,13 +39,9 @@ func ResolveDestination(ctx context.Context, dest string) (ResolvedDestination, 
 	}
 
 	if gr := globalreg.GetRegistry(ctx); gr != nil {
-		result, err := gr.Lookup(ctx, dest, globalreg.WithFence())
+		result, err := gr.Lookup(ctx, dest)
 		if err == nil && result.Found {
-			return ResolvedDestination{
-				PID:        result.PID,
-				GlobalName: dest,
-				FenceToken: result.FenceToken,
-			}, nil
+			return ResolvedDestination{PID: result.PID}, nil
 		}
 	}
 

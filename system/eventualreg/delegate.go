@@ -53,23 +53,23 @@ func (d *Delegate) LocalState(_ bool) []byte {
 	digest := d.svc.LocalDigest().Encode()
 
 	cv := d.svc.CVSnapshot()
-	stringIDs := d.collectStringIDs(len(cv))
+	pairs := d.collectCVPairs(cv)
 
-	out := make([]byte, 0, len(digest)+2+len(cv)*16)
+	out := make([]byte, 0, len(digest)+2+len(pairs)*16)
 	out = append(out, digest...)
 
-	// CV count: write the actual interned-node count, not len(cv) (the
-	// internal slice may be over-allocated).
-	count := uint16(len(stringIDs))
-	out = binary.LittleEndian.AppendUint16(out, count)
-	for i := uint16(0); i < count; i++ {
-		name := stringIDs[i]
+	// CV count: the number of (name, counter) pairs emitted. Reclaimed slots
+	// (empty string id) are skipped — the wire carries origin strings, so a
+	// peer re-interns by name and the local compact index is never sent.
+	out = binary.LittleEndian.AppendUint16(out, uint16(len(pairs)))
+	for _, p := range pairs {
+		name := p.name
 		if len(name) > 0xFF {
 			name = name[:0xFF]
 		}
 		out = append(out, byte(len(name)))
 		out = append(out, name...)
-		out = binary.LittleEndian.AppendUint64(out, cv[i])
+		out = binary.LittleEndian.AppendUint64(out, p.counter)
 	}
 
 	// No appended shard payload by default — receivers request shards
@@ -151,14 +151,26 @@ func (d *Delegate) MergeRemoteState(buf []byte, _ bool) {
 	d.svc.tel.recordAntiEntropy("ok", float64(time.Since(start).Milliseconds()), len(mismatched))
 }
 
-// collectStringIDs returns up to `n` interned node strings in compact-ID
-// order. Holds the State cv mutex briefly.
-func (d *Delegate) collectStringIDs(n int) []string {
-	out := make([]string, 0, n)
+// cvPair is one (origin string, counter) the LocalState body carries.
+type cvPair struct {
+	name    string
+	counter uint64
+}
+
+// collectCVPairs returns the interned (origin string, cv counter) pairs to put
+// on the wire, skipping reclaimed slots (empty string id). Holds the State cv
+// mutex briefly. cv is indexed by compact id; the pair carries the string so
+// the peer re-interns by name without depending on our local index.
+func (d *Delegate) collectCVPairs(cv []uint64) []cvPair {
 	d.svc.state.cvMu.RLock()
-	for i := 0; i < n && i < len(d.svc.state.stringIDs); i++ {
-		out = append(out, d.svc.state.stringIDs[i])
+	defer d.svc.state.cvMu.RUnlock()
+	out := make([]cvPair, 0, len(cv))
+	for i := 0; i < len(cv) && i < len(d.svc.state.stringIDs); i++ {
+		name := d.svc.state.stringIDs[i]
+		if name == "" {
+			continue
+		}
+		out = append(out, cvPair{name: name, counter: cv[i]})
 	}
-	d.svc.state.cvMu.RUnlock()
 	return out
 }

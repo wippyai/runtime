@@ -20,8 +20,8 @@ type candidate struct {
 }
 
 // candidatesFromMembership turns a snapshot of cluster.Membership into the
-// ordered candidate list used by reconcile. Nodes without a usable raft_port
-// or with raft_eligible=false are filtered out.
+// ordered candidate list used by reconcile. Nodes with raft_eligible=false
+// are filtered out.
 //
 // The returned slice is sorted deterministically: priority ascending, then ID
 // ascending. Same input always yields same output, regardless of node arrival
@@ -43,9 +43,7 @@ func candidatesFromMembership(nodes []cluster.NodeInfo) []candidate {
 // Returns (zero, false) if the node is ineligible.
 //
 // Under the mesh transport, hraft.ServerAddress is the NodeID itself —
-// there is no host:raft_port to resolve. The raft_port gossip
-// metadata is still emitted for one cycle for diagnostics, but
-// candidate selection no longer reads it.
+// there is no host:port to resolve.
 func candidateFromNode(n cluster.NodeInfo) (candidate, bool) {
 	if n.Meta == nil {
 		return candidate{}, false
@@ -291,6 +289,42 @@ func raftMembers(ranked []candidate, voters map[cluster.NodeID]struct{}, maxStan
 	return out
 }
 
+// DeriveMembers computes the bounded raft membership (voters + standbys) a node
+// should see for a given gossip snapshot and configured caps. Pure: same inputs
+// always yield the same ordered output on every node, regardless of caller.
+//
+// The result is the set of node IDs in rank order (priority asc, then ID asc).
+// Used by non-members to compute the candidate set they can forward writes to:
+// raftMembers reads MaxVoters+MaxStandbys from cluster-uniform config, and the
+// selection pipeline filters/ranks/picks deterministically — so a non-member
+// arrives at the same membership decision the leader applies through reconcile.
+//
+// Caveat: the *actual* live Raft configuration can lag the derived set
+// momentarily during voter ops, and stickiness in pickVoters can keep a
+// current voter in place that ranking alone would evict. The forwarder uses
+// the derived set as an ordered candidate list and falls back through it on
+// send/timeout failure, so a transient mismatch resolves by retry.
+func DeriveMembers(nodes []cluster.NodeInfo, maxVoters, maxStandbys int) []cluster.NodeID {
+	if maxVoters <= 0 {
+		maxVoters = defaultMaxVoters
+	}
+	if maxStandbys < 0 {
+		maxStandbys = 0
+	}
+	ranked := candidatesFromMembership(nodes)
+	target := desiredVoterCount(len(ranked), maxVoters)
+	// Non-members have no view of the current voter set, so stickiness is
+	// neutral here — passing nil yields the rank-order pick every node agrees
+	// on for the same gossip snapshot.
+	picked := pickVoters(ranked, nil, target)
+	members := raftMembers(ranked, picked, maxStandbys)
+	out := make([]cluster.NodeID, 0, len(members))
+	for _, c := range members {
+		out = append(out, c.ID)
+	}
+	return out
+}
+
 // reconcileDiff computes the set of Raft membership changes needed to move
 // from `current` (live Raft config) toward `desired` (selected voters +
 // remaining eligible nodes as nonvoters). Pure: mutates nothing.
@@ -321,7 +355,7 @@ const (
 //   - desiredMembers: the bounded Raft membership (voters ∪ standby
 //     nonvoters, from raftMembers); anything live but absent here gets removed
 //   - current:        current Raft config (from GetConfiguration)
-//   - addrLookup:     nodeID → host:raft_port (for fresh adds)
+//   - addrLookup:     nodeID → ServerAddress (the NodeID under the mesh transport)
 func reconcileDiff(
 	desiredVoters map[cluster.NodeID]struct{},
 	desiredMembers []candidate,

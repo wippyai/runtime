@@ -35,6 +35,13 @@ type Config struct {
 	// Default: 5s.
 	BroadcastTimeout time.Duration `json:"broadcast_timeout"`
 
+	// AntiEntropyInterval is the cadence of the periodic reconcile that
+	// re-syncs local group state with cluster membership peers, so any
+	// join/leave broadcast a peer missed eventually converges. One peer is
+	// synced per tick (round-robin) to avoid fan-out storms. Zero disables
+	// anti-entropy. Default: 30s.
+	AntiEntropyInterval time.Duration `json:"anti_entropy_interval"`
+
 	// CircuitBreakerResetTime is the duration after which a circuit breaker
 	// will transition from open to half-open, allowing test requests.
 	// Default: 10s.
@@ -48,13 +55,14 @@ type Config struct {
 	// Default: 1s.
 	RetryMaxDelay time.Duration `json:"retry_max_delay"`
 
-	// ActionQueueSize is the capacity of the internal event loop action channel.
-	// Higher values allow more operations to be buffered before blocking.
-	// Default: 256.
+	// ActionQueueSize is the depth at which the event loop queue is
+	// considered "approaching capacity" and emits a warning. Must be <=
+	// ActionQueueMaxSize. Default: 256.
 	ActionQueueSize int `json:"action_queue_size"`
 
-	// ActionQueueMaxSize is the maximum allowed queue size. When the queue
-	// exceeds this size, new operations are rejected with ErrQueueFull.
+	// ActionQueueMaxSize is the hard capacity of the internal event loop
+	// action channel. When the channel is full, new operations are dropped
+	// non-blocking (counted as pg_queue_dropped_total{reason="full"}).
 	// Default: 1024.
 	ActionQueueMaxSize int `json:"action_queue_max_size"`
 
@@ -105,6 +113,10 @@ func (c *Config) InitDefaults() {
 
 	if c.BroadcastTimeout == 0 {
 		c.BroadcastTimeout = 5 * time.Second
+	}
+
+	if c.AntiEntropyInterval == 0 {
+		c.AntiEntropyInterval = 30 * time.Second
 	}
 
 	if c.CircuitBreakerFailures == 0 {
@@ -159,6 +171,10 @@ func (c *Config) Validate() error {
 
 	if c.MaxRetries < 0 {
 		return ErrInvalidMaxRetries
+	}
+
+	if c.AntiEntropyInterval < 0 {
+		return ErrInvalidAntiEntropyInterval
 	}
 
 	return nil

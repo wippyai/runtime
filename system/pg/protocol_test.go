@@ -3,14 +3,19 @@
 package pg
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/cluster"
+	pgapi "github.com/wippyai/runtime/api/pg"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
+	"go.uber.org/zap"
 )
 
 func TestServicePID(t *testing.T) {
@@ -771,4 +776,196 @@ func TestHandleProcessExitMultipleGroups(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "expected leave broadcast on multi-group exit")
+}
+
+// --- broadcast over membership alive-set (task #28) ---
+
+// startTestServiceWithMembership builds and starts a service whose cluster
+// membership reports localNode plus the given remote node IDs. AntiEntropy is
+// disabled by default (interval 0) unless overridden via cfg so broadcast
+// targeting can be asserted in isolation.
+func startTestServiceWithMembership(t *testing.T, cfg *pgapi.Config, remoteNodes ...pid.NodeID) (*Service, *mockRouter) {
+	t.Helper()
+	router := newMockRouter()
+	topo := newMockTopology()
+	nodes := []cluster.NodeInfo{{ID: "local-node"}}
+	for _, n := range remoteNodes {
+		nodes = append(nodes, cluster.NodeInfo{ID: n})
+	}
+	mem := &mockMembership{
+		localNode: cluster.NodeInfo{ID: "local-node"},
+		nodes:     nodes,
+	}
+	svc := NewService(zap.NewNop(), "pg", cfg, router, topo, mem, nil, "local-node", nil, nil, nil)
+	_, err := svc.Start(context.Background())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = svc.Stop(context.Background()) })
+	time.Sleep(10 * time.Millisecond)
+	return svc, router
+}
+
+// targetNodesForTopic returns the set of destination node IDs across all sends
+// carrying a message with the given topic.
+func targetNodesForTopic(sends []*relay.Package, topic string) map[pid.NodeID]bool {
+	out := make(map[pid.NodeID]bool)
+	for _, pkg := range sends {
+		for _, msg := range pkg.Messages {
+			if msg.Topic == topic {
+				out[pkg.Target.Node] = true
+			}
+		}
+	}
+	return out
+}
+
+// noAntiEntropy returns a config with anti-entropy disabled, so a test can
+// assert broadcast fan-out without periodic sync sends interleaving.
+func noAntiEntropy() *pgapi.Config {
+	c := &pgapi.Config{}
+	c.InitDefaults()
+	c.AntiEntropyInterval = 0
+	return c
+}
+
+// A join must reach a live cluster member that PG has NOT yet discovered into
+// s.state.remote. Before the fix broadcastJoin iterated s.state.remote alone,
+// so node-b (membership-known, undiscovered) never received the delta.
+func TestBroadcastJoinReachesUndiscoveredMember(t *testing.T) {
+	svc, router := startTestServiceWithMembership(t, noAntiEntropy(), "node-b")
+
+	// node-b is a live member but was never discovered: remote is empty.
+	emptyCh := make(chan bool, 1)
+	svc.submit(func() { emptyCh <- len(svc.state.remote) == 0 })
+	require.True(t, <-emptyCh, "precondition: node-b not yet discovered")
+
+	router.reset()
+
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.Join("workers", p1))
+	time.Sleep(50 * time.Millisecond)
+
+	targets := targetNodesForTopic(router.getSends(), pgapi.TopicJoin)
+	assert.True(t, targets["node-b"], "join must reach the membership-known but undiscovered node-b")
+}
+
+// A leave must likewise reach an undiscovered live member.
+func TestBroadcastLeaveReachesUndiscoveredMember(t *testing.T) {
+	svc, router := startTestServiceWithMembership(t, noAntiEntropy(), "node-b")
+
+	p1 := mkPID("host1", "1")
+	require.NoError(t, svc.Join("workers", p1))
+
+	router.reset()
+
+	require.NoError(t, svc.Leave("workers", p1))
+	time.Sleep(50 * time.Millisecond)
+
+	targets := targetNodesForTopic(router.getSends(), pgapi.TopicLeave)
+	assert.True(t, targets["node-b"], "leave must reach the membership-known but undiscovered node-b")
+}
+
+// broadcastTargets unions membership and discovered remote, excludes self,
+// and dedupes a node present in both sets.
+func TestBroadcastTargetsUnionExcludesSelfAndDedupes(t *testing.T) {
+	svc, _ := startTestServiceWithMembership(t, noAntiEntropy(), "node-b", "node-c")
+
+	// node-c is in both membership and remote; node-d is discovered-only.
+	svc.submit(func() {
+		svc.state.remote["node-c"] = &remoteNode{nodeID: "node-c", groups: map[string][]pid.PID{}}
+		svc.state.remote["node-d"] = &remoteNode{nodeID: "node-d", groups: map[string][]pid.PID{}}
+	})
+
+	resCh := make(chan []pid.NodeID, 1)
+	svc.submit(func() { resCh <- svc.broadcastTargets() })
+	targets := <-resCh
+
+	set := make(map[pid.NodeID]int)
+	for _, n := range targets {
+		set[n]++
+	}
+	assert.Equal(t, 0, set["local-node"], "self excluded")
+	assert.Equal(t, 1, set["node-b"], "membership-only peer present")
+	assert.Equal(t, 1, set["node-c"], "peer in both sets present exactly once")
+	assert.Equal(t, 1, set["node-d"], "discovered-only peer present")
+	assert.Len(t, targets, 3)
+}
+
+// --- anti-entropy convergence (task #28) ---
+
+// reconcileOnce pushes a full sync to a membership peer each call, rotating
+// round-robin so every live peer is eventually re-synced.
+func TestReconcileOnceRotatesAcrossMembershipPeers(t *testing.T) {
+	svc, router := startTestServiceWithMembership(t, noAntiEntropy(), "node-b", "node-c")
+
+	router.reset()
+
+	// Two ticks should sync both peers exactly once.
+	done := make(chan struct{}, 1)
+	svc.submit(func() {
+		svc.reconcileOnce()
+		svc.reconcileOnce()
+		done <- struct{}{}
+	})
+	<-done
+	time.Sleep(30 * time.Millisecond)
+
+	targets := targetNodesForTopic(router.getSends(), pgapi.TopicSync)
+	assert.True(t, targets["node-b"], "anti-entropy synced node-b")
+	assert.True(t, targets["node-c"], "anti-entropy synced node-c")
+}
+
+// Two divergent views (node-b missed a join broadcast) converge after the
+// node that holds the join runs an anti-entropy reconcile tick that syncs
+// the missing group to node-b via the existing differential handleSync.
+func TestAntiEntropyConvergesDivergentViews(t *testing.T) {
+	// node-a holds a local join in "workers" and knows node-b as a member.
+	nodeA, routerA := startTestServiceWithMembership(t, noAntiEntropy(), "node-b")
+
+	// node-b's service: no membership wiring needed; it only receives syncs.
+	routerB := newMockRouter()
+	topoB := newMockTopology()
+	nodeB := NewService(zap.NewNop(), "pg", noAntiEntropy(), routerB, topoB, nil, nil, "node-b", nil, nil, nil)
+	_, err := nodeB.Start(context.Background())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = nodeB.Stop(context.Background()) })
+	time.Sleep(10 * time.Millisecond)
+
+	// node-a joins "workers"; simulate node-b MISSING the join broadcast by
+	// not delivering it. node-b's view is empty — divergence.
+	pA := mkNodePID("local-node", "host1", "1")
+	require.NoError(t, nodeA.Join("workers", pA))
+	require.Empty(t, nodeB.GetMembers("workers"), "node-b diverged: missed the join")
+
+	routerA.reset()
+
+	// node-a runs an anti-entropy reconcile: pushes a full sync to node-b.
+	done := make(chan struct{}, 1)
+	nodeA.submit(func() {
+		nodeA.reconcileOnce()
+		done <- struct{}{}
+	})
+	<-done
+	time.Sleep(30 * time.Millisecond)
+
+	// Relay the sync packet(s) from node-a into node-b.
+	syncReceived := false
+	for _, pkg := range routerA.getSends() {
+		if pkg.Target.Node != "node-b" {
+			continue
+		}
+		for _, msg := range pkg.Messages {
+			if msg.Topic != pgapi.TopicSync {
+				continue
+			}
+			syncReceived = true
+			require.NoError(t, nodeB.Send(relay.NewPackage(pkg.Source, pkg.Target, msg.Topic, msg.Payloads...)))
+		}
+	}
+	require.True(t, syncReceived, "node-a's reconcile must produce a sync to node-b")
+	time.Sleep(50 * time.Millisecond)
+
+	// Views converge: node-b now sees the worker that node-a holds.
+	members := nodeB.GetMembers("workers")
+	require.Len(t, members, 1, "node-b converged via anti-entropy sync")
+	assert.Equal(t, pA.String(), members[0].String())
 }

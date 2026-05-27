@@ -36,12 +36,10 @@ const (
 
 // SendCmd sends a message to a process.
 type SendCmd struct {
-	From       pid.PID
-	To         pid.PID
-	Topic      string
-	GlobalName string
-	Payloads   payload.Payloads
-	FenceToken uint64
+	From     pid.PID
+	To       pid.PID
+	Topic    string
+	Payloads payload.Payloads
 }
 
 var sendCmdPool = sync.Pool{New: func() any { return &SendCmd{} }}
@@ -54,8 +52,6 @@ func (c *SendCmd) Release() {
 	c.To = pid.PID{}
 	c.Topic = ""
 	c.Payloads = nil
-	c.FenceToken = 0
-	c.GlobalName = ""
 	sendCmdPool.Put(c)
 }
 

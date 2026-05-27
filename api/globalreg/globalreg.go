@@ -20,19 +20,17 @@ type RegistrationMode int
 const (
 	// Local is the default; the name is visible only on the registering node.
 	Local RegistrationMode = 0
-	// Global is the legacy name for Consistent — retained as an alias for one
-	// release cycle.
-	Global RegistrationMode = 1
 	// Eventual registers the name cluster-wide via gossip/CRDT (eventualreg).
-	Eventual RegistrationMode = 2
-	// Consistent registers the name cluster-wide via Raft with a fence token.
-	Consistent RegistrationMode = Global
-	// Root registers the name cluster-wide via Raft plus an all-live-node
+	Eventual RegistrationMode = 1
+	// Consistent registers the name cluster-wide via Raft as a linearizable
+	// singleton.
+	Consistent RegistrationMode = 2
+	// Strong registers the name cluster-wide via Raft plus an all-live-node
 	// ack on the committed epoch within a deadline. Strictest scope.
-	Root RegistrationMode = 3
+	Strong RegistrationMode = 3
 )
 
-// RegisterState describes the lifecycle stage of a ROOT-scope reservation.
+// RegisterState describes the lifecycle stage of a Strong-scope reservation.
 type RegisterState uint8
 
 const (
@@ -54,32 +52,29 @@ type RegisterOutcome struct {
 	// ExistingPID is set on conflict (name already taken by a different PID).
 	ExistingPID pid.PID
 	// Epoch is the Raft log index that established authoritativeness
-	// (Active for Root; first-write index for Consistent).
+	// (Active for Strong; first-write index for Consistent).
 	Epoch uint64
-	// State is meaningful for Root; for Consistent it is always
+	// State is meaningful for Strong; for Consistent it is always
 	// RegisterStateActive on success.
 	State RegisterState
 }
 
-// RootDeadline is the default ack deadline used when a caller does not
+// StrongDeadline is the default ack deadline used when a caller does not
 // supply one via context. Picked to give a 3-node loopback cluster plenty
 // of margin while still surfacing real partitions quickly on chaos rigs.
 // Exposed as a var so deterministic unit tests can shrink it.
-var RootDeadline = 10 * time.Second
+var StrongDeadline = 10 * time.Second
 
 // LookupOptions controls the behavior of Registry.Lookup. Build via the
-// functional options (WithFence, ByPID, IncludeStale). The zero value yields
-// the cheapest read: only Found and PID are populated.
+// functional options (ByPID, IncludeStale). The zero value yields the
+// cheapest read: only Found and PID are populated.
 type LookupOptions struct {
 	// ByPID, when non-nil, reverses the lookup: the registry returns all
 	// names currently registered to this PID. The name argument to Lookup
 	// is ignored when ByPID is set.
 	ByPID *pid.PID
-	// WithFence requests that the FenceToken field of the result be
-	// populated with the Raft log index at which the name was registered.
-	WithFence bool
 	// IncludeStale is a forward-looking flag reserved for future scope
-	// support (e.g. surfacing pending ROOT-scope registrations). Today
+	// support (e.g. surfacing pending Strong-scope registrations). Today
 	// the registry returns only committed-active entries regardless of
 	// this flag; readers that explicitly request stale entries get the
 	// same result.
@@ -88,12 +83,6 @@ type LookupOptions struct {
 
 // LookupOption mutates a LookupOptions struct.
 type LookupOption func(*LookupOptions)
-
-// WithFence requests the FenceToken (Raft log index at registration time)
-// be returned alongside the PID.
-func WithFence() LookupOption {
-	return func(o *LookupOptions) { o.WithFence = true }
-}
 
 // ByPID reverses the lookup: returns all names registered to the given PID.
 // The name argument is ignored.
@@ -111,12 +100,10 @@ func IncludeStale() LookupOption {
 //
 //   - Found      — always present.
 //   - PID        — populated when Found is true.
-//   - FenceToken — populated only when WithFence() was passed.
 //   - NamesForPID — populated only when ByPID(p) was passed.
 type LookupResult struct {
 	PID         pid.PID
 	NamesForPID []string
-	FenceToken  uint64
 	Found       bool
 }
 
@@ -135,34 +122,31 @@ func DefaultResolve(_ string, existing, _ pid.PID) pid.PID {
 type (
 	// Registry provides cluster-wide name registration with strong consistency.
 	// All write operations go through Raft; reads are served from the local replica.
-	// Fencing tokens protect against stale references between Raft majority-commit
-	// and full replication to all followers.
 	Registry interface {
-		// Register associates a name with a PID at scope Consistent (the
-		// historical Global semantics): Raft-committed singleton with a
-		// fence token. Retained for back-compat; new callers should use
-		// RegisterScope.
+		// Register associates a name with a PID at scope Consistent:
+		// Raft-committed singleton. Retained as a convenience; new callers
+		// should use RegisterScope.
 		Register(ctx context.Context, name string, p pid.PID) (pid.PID, error)
 
 		// RegisterScope is the scope-aware Register. Behavior depends on mode:
 		//
-		//   Consistent — Raft singleton with fence (formerly Global).
-		//   Root       — Raft singleton plus all-live-node ack on the
+		//   Consistent — Raft linearizable singleton.
+		//   Strong     — Raft singleton plus all-live-node ack on the
 		//                committed epoch. Blocks until the FSM commits
 		//                Active or Expired (or ctx is canceled).
 		//   Eventual   — gossip/CRDT (routed by callers to eventualreg).
 		//   Local      — caller error at this layer (use PIDRegistry).
 		//
-		// On Root timeout, the returned error wraps ErrRootRegistrationTimeout
-		// via *RootRegistrationTimeoutError so callers can read MissingAcks
-		// via errors.As.
+		// On Strong timeout, the returned error wraps
+		// ErrStrongRegistrationTimeout via *StrongRegistrationTimeoutError so
+		// callers can read MissingAcks via errors.As.
 		RegisterScope(ctx context.Context, name string, p pid.PID, mode RegistrationMode) (RegisterOutcome, error)
 
 		// Unregister removes the Consistent-scope registration for a name.
 		Unregister(ctx context.Context, name string) (bool, error)
 
 		// UnregisterScope removes the registration for the given scope.
-		// Root-scope unregister clears either a pending reservation or an
+		// Strong-scope unregister clears either a pending reservation or an
 		// active registration, whichever exists.
 		UnregisterScope(ctx context.Context, name string, mode RegistrationMode) (bool, error)
 
@@ -171,7 +155,6 @@ type (
 		// the options:
 		//
 		//   no options       — Found + PID only (cheapest read).
-		//   WithFence()      — also populates FenceToken.
 		//   ByPID(p)         — ignores name; populates NamesForPID.
 		//
 		// Lookup never blocks on Raft; it may return slightly stale data
@@ -179,19 +162,8 @@ type (
 		// readiness/transport failures.
 		Lookup(ctx context.Context, name string, opts ...LookupOption) (LookupResult, error)
 
-		// Deprecated: use Lookup(ctx, name, WithFence()) instead. This
-		// method is retained for one transition cycle so existing callers
-		// keep compiling; the relay fence-validation hot path also calls
-		// ValidateFence directly.
-		LookupWithFence(name string) LookupResult
-
 		// Deprecated: use Lookup(ctx, "", ByPID(p)) instead.
 		LookupByPID(p pid.PID) []string
-
-		// Deprecated: use globalreg.ValidateFence(ctx, reg, name, token).
-		// Kept for the relay fence-validation hot path; will be removed
-		// once T3 reworks the Lua surface.
-		ValidateFence(name string, token uint64) error
 
 		// Remove removes all global names for a PID. Goes through Raft.
 		Remove(ctx context.Context, p pid.PID) error
@@ -201,21 +173,6 @@ type (
 		RemoveNode(ctx context.Context, nodeID pid.NodeID) error
 	}
 )
-
-// ValidateFence is a one-line helper that asserts the supplied fencing
-// token is still valid for name. It looks the name up via the unified
-// Lookup with WithFence() and returns ErrStaleFence when the name no
-// longer resolves or the token has been superseded.
-func ValidateFence(ctx context.Context, reg Registry, name string, token uint64) error {
-	r, err := reg.Lookup(ctx, name, WithFence())
-	if err != nil {
-		return err
-	}
-	if !r.Found || token < r.FenceToken {
-		return ErrStaleFence
-	}
-	return nil
-}
 
 var globalRegKey = &ctxapi.Key{Name: "globalreg.registry"}
 

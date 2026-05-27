@@ -294,6 +294,267 @@ Returns system hostname.
 
 **Permissions:** Requires `system.read` on `hostname`.
 
+## system.node
+
+Local node identity, address, and Raft role of THIS node. Read-only and
+local-only — use `system.cluster.*` to enumerate or query other nodes.
+
+### id() → string, error
+
+Returns the local node identifier.
+
+**Returns:** `string, error` - local NodeID or nil + structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| permission denied | errors.INVALID | no |
+| relay node unavailable | errors.INTERNAL | no |
+
+**Permissions:** Requires `system.read` on `node`.
+
+### addr() → string, error
+
+Returns the local node network address as advertised through cluster membership.
+
+**Returns:** `string, error` - local address or nil + structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| permission denied | errors.INVALID | no |
+| address unavailable | errors.INTERNAL | no |
+
+**Permissions:** Requires `system.read` on `node`.
+
+### role() → string, error
+
+Returns the local Raft role: `"leader"`, `"voter"`, `"standby"` (non-voting learner), or `"non-member"`. When the Raft service is not wired into the context, returns `"non-member"`.
+
+**Returns:** `string, error` - role or nil + structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| permission denied | errors.INVALID | no |
+
+**Permissions:** Requires `system.read` on `node`.
+
+## system.cluster
+
+Cluster-scoped read-only introspection. Owns cluster enumeration.
+
+### members() → table[], error
+
+Full cluster membership snapshot. Local node sorts first; remaining nodes by ID.
+
+**Node info table fields:**
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | string | NodeID |
+| is_local | boolean | True if this entry is the local node |
+| addr | string | Optional advertised address |
+| meta | table | Optional string-keyed metadata |
+
+**Returns:** `table[], error` - array of node info tables or nil + structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| permission denied | errors.INVALID | no |
+| no cluster information available | errors.INTERNAL | no |
+
+**Permissions:** Requires `system.read` on `cluster`.
+
+### leader() → string, error
+
+Current Raft leader NodeID. Returns the empty string when the leader is unknown or the Raft service is not wired.
+
+**Returns:** `string, error` - leader NodeID (possibly empty) or nil + structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| permission denied | errors.INVALID | no |
+
+**Permissions:** Requires `system.read` on `cluster`.
+
+### size() → integer, error
+
+Number of alive members visible to the local node.
+
+**Returns:** `integer, error` - count or nil + structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| permission denied | errors.INVALID | no |
+
+**Permissions:** Requires `system.read` on `cluster`.
+
+## system.raft
+
+Local Raft state introspection. All values are read from the local committed Raft state; no gossip, no mutation.
+
+### is_leader() → boolean, error
+
+True iff this node is currently the Raft leader.
+
+**Returns:** `boolean, error` - leader flag or nil + structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| permission denied | errors.INVALID | no |
+| raft not available | errors.INTERNAL | no |
+
+**Permissions:** Requires `system.read` on `raft`.
+
+### is_member() → boolean, error
+
+True iff the local NodeID appears as voter or non-voter in the committed Raft configuration.
+
+**Returns:** `boolean, error` - membership flag or nil + structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| permission denied | errors.INVALID | no |
+| raft not available | errors.INTERNAL | no |
+
+**Permissions:** Requires `system.read` on `raft`.
+
+### role() → string, error
+
+Local Raft role: `"leader"`, `"voter"`, `"standby"`, or `"non-member"`.
+
+**Returns:** `string, error` - role or nil + structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| permission denied | errors.INVALID | no |
+| raft not available | errors.INTERNAL | no |
+
+**Permissions:** Requires `system.read` on `raft`.
+
+### term() → integer, error
+
+Current Raft term parsed from the local stats snapshot. Returns 0 when the stat is missing or unparsable.
+
+**Returns:** `integer, error` - term or nil + structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| permission denied | errors.INVALID | no |
+| raft not available | errors.INTERNAL | no |
+
+**Permissions:** Requires `system.read` on `raft`.
+
+### commit_index() → integer, error
+
+Highest committed Raft log index on the local node.
+
+**Returns:** `integer, error` - commit index or nil + structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| permission denied | errors.INVALID | no |
+| raft not available | errors.INTERNAL | no |
+
+**Permissions:** Requires `system.read` on `raft`.
+
+### stats() → table, error
+
+Full Raft stats snapshot as a table of string keys to string values (term, commit_index, last_log_index, state, etc.). Stricter permission than the other `system.raft` calls since the map is more revealing.
+
+**Returns:** `table, error` - stats map or nil + structured error
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| permission denied | errors.INVALID | no |
+| raft not available | errors.INTERNAL | no |
+
+**Permissions:** Requires `system.read` on `raft_stats`.
+
+## system.lock
+
+Distributed locks. A lock is a globally-unique name with a holder PID,
+built on top of the STRONG global registry — no separate FSM, no
+parallel gossip. The same all-live-node ack barrier that gates STRONG
+registrations gates lock acquisition.
+
+**Semantics:**
+- Acquisition is **fail-fast**: no blocking waits in v1. Callers retry
+  with their own backoff if a name is held.
+- A lock is held by the registering process's PID. There is no
+  "force release" — auto-release on holder process exit comes from the
+  same FSM path that reaps any STRONG name on PID removal.
+- Only the holder can release. A non-holder release returns `false`
+  without touching the underlying registration.
+
+### acquire(name: string) → boolean, error
+
+Acquires the lock by registering `name` as a STRONG global name owned by
+the calling process. Fail-fast: returns immediately on conflict.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| name | string | yes | - | Lock name (cluster-wide unique) |
+
+**Returns:** `boolean, error` - `true` on success; `false` + conflict
+error when already held; `nil` + structured error on other failure.
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| permission denied | errors.PERMISSION_DENIED | no |
+| caller PID unavailable | errors.INTERNAL | no |
+| global registry unavailable | errors.INTERNAL | no |
+| already held / pending / rejected by peer | errors.ALREADY_EXISTS | no |
+
+**Permissions:** Requires `system.lock` on the lock name (so policy can
+restrict which names a caller may lock).
+
+### release(name: string) → boolean, error
+
+Releases the lock if the caller is the current holder.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| name | string | yes | - | Lock name |
+
+**Returns:** `boolean, error` - `true` if the caller held the lock and
+it was released; `false` if the lock is not held or is held by another
+PID; `nil` + structured error on internal failure.
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| permission denied | errors.PERMISSION_DENIED | no |
+| caller PID unavailable | errors.INTERNAL | no |
+| global registry unavailable | errors.INTERNAL | no |
+
+**Permissions:** Requires `system.lock` on the lock name.
+
 ## system.supervisor
 
 Service supervisor state queries.

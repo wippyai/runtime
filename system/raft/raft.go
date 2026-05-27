@@ -69,17 +69,6 @@ func NewNode(localID string, fsm hraft.FSM, cfg raftapi.Config, bus event.Bus, l
 	}
 }
 
-// ActualPort returns the port the Raft transport is actually listening on.
-// Only valid after Start(). With the mesh transport there is no dedicated
-// Raft listener anymore; this returns 0 and is retained only for callers
-// that still surface a `raft_port` value in diagnostics or gossip
-// metadata. Removal scheduled with the deprecated config fields.
-func (n *Node) ActualPort() int {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	return n.actualPort
-}
-
 // SetConnectionManager wires the wippy internode connection manager
 // that the mesh-backed Raft transport rides on top of. Must be called
 // before Start; calling Start without a connection manager set returns
@@ -91,6 +80,22 @@ func (n *Node) SetConnectionManager(connMgr internode.ConnectionManager) {
 		return
 	}
 	n.connMgr = connMgr
+}
+
+// OnNodeLeft tears down the mesh transport session for a departed node.
+// Wired by boot to cluster.NodeLeft so a node's per-peer yamux session,
+// its backing classConn, and the session acceptLoop goroutine are
+// released on departure instead of leaking, and so a rejoin builds a
+// fresh session rather than reusing the stale one. No-op when the legacy
+// TCP transport is in use (no mesh stream layer) or before Start.
+func (n *Node) OnNodeLeft(node cluster.NodeID) {
+	n.mu.Lock()
+	sl := n.streamLayer
+	n.mu.Unlock()
+	if sl == nil || node == "" || node == cluster.NodeID(n.localID) {
+		return
+	}
+	sl.removePeer(node)
 }
 
 // Telemetry exposes the internal telemetry handle so the MembershipHandler
@@ -164,15 +169,12 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 
 	useMesh := n.connMgr != nil
 	if useMesh {
-		// Mesh transport: no dedicated Raft listener. actualPort is
-		// preserved for callers that still surface a raft_port value
-		// (kept while api/raft/config.go's BindAddr/BindPort are
-		// still parseable for back-compat — see T5.3).
+		// Mesh transport has no dedicated Raft listener; actualPort=0 here
+		// and is used only by resolveAdvertiseAddr on the legacy TCP fallback below.
 		n.actualPort = 0
 	} else {
 		// Legacy TCP transport path. Used by Raft instances that have
-		// not been wired to the internode connection manager (e.g.
-		// the optional kvraft instance under one-cycle rollout).
+		// not been wired to the internode connection manager.
 		port, err := autoDetectPort(n.config)
 		if err != nil {
 			return nil, fmt.Errorf("raft port detection: %w", err)
@@ -843,6 +845,85 @@ func (n *Node) LogHead(want int) ([]LogHeadEntry, error) {
 		})
 	}
 	return out, nil
+}
+
+// IsMember reports whether the local node appears in its own committed
+// Raft configuration as a voter or non-voter. Reads the local committed
+// config only; does not gossip or publish. Returns false when raft is
+// not running or the configuration is unreadable.
+func (n *Node) IsMember() bool {
+	n.mu.Lock()
+	r := n.raft
+	n.mu.Unlock()
+	if r == nil {
+		return false
+	}
+	f := r.GetConfiguration()
+	if err := f.Error(); err != nil {
+		return false
+	}
+	for _, s := range f.Configuration().Servers {
+		if string(s.ID) == n.localID {
+			return true
+		}
+	}
+	return false
+}
+
+// Role returns a single-word description of the local node's relationship
+// to the Raft cluster, composed from IsLeader plus the local suffrage in
+// the committed config: "leader" | "voter" | "standby" | "non-member".
+// "standby" denotes a non-voting (learner) member. Pure local read.
+func (n *Node) Role() string {
+	n.mu.Lock()
+	r := n.raft
+	n.mu.Unlock()
+	if r == nil {
+		return "non-member"
+	}
+	leader := r.State() == hraft.Leader
+	f := r.GetConfiguration()
+	if err := f.Error(); err != nil {
+		if leader {
+			return "leader"
+		}
+		return "non-member"
+	}
+	var suffrage hraft.ServerSuffrage = -1
+	found := false
+	for _, s := range f.Configuration().Servers {
+		if string(s.ID) == n.localID {
+			suffrage = s.Suffrage
+			found = true
+			break
+		}
+	}
+	if leader {
+		return "leader"
+	}
+	if !found {
+		return "non-member"
+	}
+	switch suffrage {
+	case hraft.Voter:
+		return "voter"
+	case hraft.Nonvoter:
+		return "standby"
+	default:
+		return "non-member"
+	}
+}
+
+// Stats returns the underlying Raft node's runtime statistics snapshot.
+// Returns nil when raft is not running.
+func (n *Node) Stats() map[string]string {
+	n.mu.Lock()
+	r := n.raft
+	n.mu.Unlock()
+	if r == nil {
+		return nil
+	}
+	return r.Stats()
 }
 
 // GetConfiguration returns the current Raft cluster membership.

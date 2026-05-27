@@ -3,10 +3,13 @@
 package internode
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/cluster"
 	"go.uber.org/zap"
 )
 
@@ -125,4 +128,90 @@ func TestManager_ConnectedNodes(t *testing.T) {
 
 	nodes := manager.ConnectedNodes()
 	assert.Len(t, nodes, 0)
+}
+
+// TestManager_RaftMeshOverflow_InvokesResetHandler proves the end-to-end
+// reset wiring: when a ClassRaftMesh queue overflows, SendToNode invokes
+// the registered overflow handler for that peer (the seam the raft mesh
+// layer uses to tear down + rebuild the yamux session) and returns nil to
+// the producer so a reset never surfaces as a blocking write error.
+func TestManager_RaftMeshOverflow_InvokesResetHandler(t *testing.T) {
+	config := DefaultManagerConfig()
+	config.LocalNodeID = "local-node"
+	config.Logger = zap.NewNop()
+	config.RaftMeshQueueCap = 2
+	manager := NewConnectionManager(config, nil).(*manager)
+
+	nodeID := "remote-node"
+	manager.AddManagedNode(nodeID)
+
+	var reset atomic.Int32
+	resetPeer := make(chan cluster.NodeID, 1)
+	require.True(t, manager.RegisterClassOverflowHandler(ClassRaftMesh, func(peer cluster.NodeID) {
+		reset.Add(1)
+		select {
+		case resetPeer <- peer:
+		default:
+		}
+	}))
+
+	// Fill to capacity, then overflow.
+	require.NoError(t, manager.SendToNode(nodeID, []byte{0}, ClassRaftMesh))
+	require.NoError(t, manager.SendToNode(nodeID, []byte{1}, ClassRaftMesh))
+	// The overflowing send must not surface an error to the producer; the
+	// reset is dispatched asynchronously.
+	require.NoError(t, manager.SendToNode(nodeID, []byte{2}, ClassRaftMesh))
+
+	select {
+	case peer := <-resetPeer:
+		assert.Equal(t, nodeID, peer)
+	case <-time.After(time.Second):
+		t.Fatal("overflow handler was not invoked on ClassRaftMesh overflow")
+	}
+	assert.Equal(t, int32(1), reset.Load())
+}
+
+// TestManager_RegisterClassOverflowHandler_SingleRegistration asserts the
+// handler slot is single-claim (mirrors RegisterClassReceiver) and that
+// passing nil clears it.
+func TestManager_RegisterClassOverflowHandler_SingleRegistration(t *testing.T) {
+	config := DefaultManagerConfig()
+	config.LocalNodeID = "local-node"
+	config.Logger = zap.NewNop()
+	manager := NewConnectionManager(config, nil).(*manager)
+
+	require.True(t, manager.RegisterClassOverflowHandler(ClassRaftMesh, func(cluster.NodeID) {}))
+	require.False(t, manager.RegisterClassOverflowHandler(ClassRaftMesh, func(cluster.NodeID) {}),
+		"a second non-nil registration must be rejected")
+	require.True(t, manager.RegisterClassOverflowHandler(ClassRaftMesh, nil),
+		"nil clears the handler")
+	require.True(t, manager.RegisterClassOverflowHandler(ClassRaftMesh, func(cluster.NodeID) {}),
+		"re-register after clear succeeds")
+}
+
+// TestManager_NonMeshOverflow_NoResetHandler guards that the reset path is
+// ClassRaftMesh-only: a drop-newest class hitting its cap returns
+// ErrQueueFull and never fires the overflow handler.
+func TestManager_NonMeshOverflow_NoResetHandler(t *testing.T) {
+	config := DefaultManagerConfig()
+	config.LocalNodeID = "local-node"
+	config.Logger = zap.NewNop()
+	config.GossipQueueCap = 1
+	manager := NewConnectionManager(config, nil).(*manager)
+
+	nodeID := "remote-node"
+	manager.AddManagedNode(nodeID)
+
+	var reset atomic.Int32
+	require.True(t, manager.RegisterClassOverflowHandler(ClassRaftMesh, func(cluster.NodeID) {
+		reset.Add(1)
+	}))
+
+	require.NoError(t, manager.SendToNode(nodeID, []byte{0}, ClassGossip))
+	// Gossip overflow: SendToNode propagates ErrQueueFull, no reset.
+	require.ErrorIs(t, manager.SendToNode(nodeID, []byte{1}, ClassGossip), ErrQueueFull)
+
+	// Give any (erroneous) async handler a chance to fire.
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, int32(0), reset.Load())
 }

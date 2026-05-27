@@ -24,6 +24,15 @@ var (
 	// ErrUnknownClass is returned by QueueMessageClass when the class value
 	// is out of range. This is a programmer error, not a runtime condition.
 	ErrUnknownClass = errors.New("internode: unknown queue class (programmer error)")
+
+	// ErrRaftMeshOverflow is returned by QueueMessageClass when a
+	// ClassRaftMesh queue is at capacity. ClassRaftMesh carries a
+	// yamux-multiplexed byte-stream, so dropping a frame from the middle
+	// desyncs the demuxer and wedges the session silently. Instead of
+	// drop-oldest, the queue is cleared and the caller resets the peer's
+	// mesh session (close + rebuild) so the stream resyncs from a
+	// consistent point. The pending bytes are discarded with a metric.
+	ErrRaftMeshOverflow = errors.New("internode: raft mesh queue overflow (session reset required)")
 )
 
 type NodeState struct {
@@ -202,14 +211,22 @@ func (nsm *NodeStateManager) GetNodeState(nodeID cluster.NodeID) *NodeState {
 }
 
 // QueueMessageClass enqueues data for nodeID under the given class.
-// Drop policy is class-specific: ClassRaftControl drops the oldest
-// entry on overflow (etcd-style); ClassGossip and ClassPGBroadcast drop
-// the new entry and return ErrQueueFull (memberlist / Erlang `pg` style).
+// Drop policy is class-specific:
+//   - ClassRaftControl drops the oldest entry on overflow (etcd-style:
+//     idempotent control RPCs, newer state wins).
+//   - ClassGossip and ClassPGBroadcast drop the new entry and return
+//     ErrQueueFull (memberlist / Erlang `pg` style).
+//   - ClassRaftMesh carries a yamux byte-stream: a mid-stream drop
+//     corrupts the demuxer, so on overflow the queue is cleared, the
+//     pending bytes are discarded with a metric, and ErrRaftMeshOverflow
+//     is returned so the caller resets the peer's mesh session.
+//
 // In all drop cases, internode_dropped_total{class,reason="queue_full"}
 // is incremented.
 //
 // Returns ErrNodeNotManaged if no state exists for nodeID.
-// Returns ErrQueueFull only for drop-newest classes when full.
+// Returns ErrQueueFull for drop-newest classes when full.
+// Returns ErrRaftMeshOverflow for ClassRaftMesh when full.
 func (nsm *NodeStateManager) QueueMessageClass(nodeID cluster.NodeID, data []byte, class Class) error {
 	state := nsm.GetNodeState(nodeID)
 	if state == nil {
@@ -226,9 +243,23 @@ func (nsm *NodeStateManager) QueueMessageClass(nodeID cluster.NodeID, data []byt
 	q := state.queues[class]
 	var dropped bool
 	var rejected bool
+	var meshOverflow bool
+	var meshDiscarded int
 	switch class {
-	case ClassRaftControl, ClassRaftMesh:
+	case ClassRaftControl:
 		dropped = q.pushOldest(data)
+	case ClassRaftMesh:
+		// Byte-stream class: never drop a frame from the middle. On
+		// overflow, discard the whole pending stream and signal a reset
+		// so yamux+raft re-establish a fresh session and resync. The new
+		// frame is dropped too — it belongs to the now-doomed stream.
+		if q.len() == len(q.buf) {
+			meshOverflow = true
+			meshDiscarded = q.len()
+			q.reset()
+		} else {
+			q.pushNewest(data)
+		}
 	case ClassGossip, ClassPGBroadcast:
 		if !q.pushNewest(data) {
 			rejected = true
@@ -246,6 +277,15 @@ func (nsm *NodeStateManager) QueueMessageClass(nodeID cluster.NodeID, data []byt
 	// hot path does not write a metric event per queue op.
 	if depthChanged {
 		nsm.tel.recordQueueDepth(class, nodeID, depth)
+	}
+
+	if meshOverflow {
+		// Count each discarded frame plus the rejected new one so the
+		// reset is observable as drops, not silent.
+		for i := 0; i < meshDiscarded+1; i++ {
+			nsm.tel.recordDrop(class, "queue_full")
+		}
+		return ErrRaftMeshOverflow
 	}
 
 	if rejected {
@@ -419,6 +459,10 @@ func (nsm *NodeStateManager) RequeueMessages(nodeID cluster.NodeID, messages []O
 // would exceed the cap are dropped with a metric. Drop-oldest classes
 // (RaftControl) silently discard from the tail to make room; drop-newest
 // classes (Gossip, PGBroadcast) discard the tail of the requeue input.
+// ClassRaftMesh is a byte-stream: a mid-stream drop is not safe, so on
+// overflow the whole queue is cleared and the reset path handles the
+// torn-down session (the connection that produced this requeue is itself
+// being closed).
 func (nsm *NodeStateManager) RequeueMessagesClass(nodeID cluster.NodeID, messages [][]byte, class Class) {
 	if len(messages) == 0 {
 		return
@@ -439,7 +483,7 @@ func (nsm *NodeStateManager) RequeueMessagesClass(nodeID cluster.NodeID, message
 	q := state.queues[class]
 	dropped := 0
 	switch class {
-	case ClassRaftControl, ClassRaftMesh:
+	case ClassRaftControl:
 		// Drop-oldest semantics: if requeue would overflow, the queue
 		// silently makes room by discarding old entries. pushFront cannot
 		// drop, so drain from tail first.
@@ -453,6 +497,20 @@ func (nsm *NodeStateManager) RequeueMessagesClass(nodeID cluster.NodeID, message
 					dropped++
 				}
 				_ = q.pushFront(messages[i])
+			}
+		}
+	case ClassRaftMesh:
+		// Byte-stream: requeue at the front while it fits. If it
+		// overflows, drop the entire queue rather than corrupt the
+		// stream mid-sequence; the session reset will rebuild it.
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i] == nil {
+				continue
+			}
+			if !q.pushFront(messages[i]) {
+				dropped += q.len()
+				q.reset()
+				dropped++ // the message that could not be requeued
 			}
 		}
 	case ClassGossip, ClassPGBroadcast:

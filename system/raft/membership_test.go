@@ -136,6 +136,8 @@ func (f *fakeRaft) Leader() (raftapi.ServerID, raftapi.ServerAddress, error) { r
 func (f *fakeRaft) LeaderCh() <-chan bool                                    { return nil }
 func (f *fakeRaft) State() raftapi.State                                     { return raftapi.Follower }
 func (f *fakeRaft) Barrier(_ time.Duration) error                            { return nil }
+func (f *fakeRaft) CommitIndex() uint64                                      { return 0 }
+func (f *fakeRaft) Stats() map[string]string                                 { return nil }
 
 func (f *fakeRaft) upsertLocked(s raftapi.Server) {
 	for i, existing := range f.servers {
@@ -176,11 +178,11 @@ func (m *fakeMembership) LocalNode() cluster.NodeInfo {
 	return m.local
 }
 
-func mkNode(id, addr, raftPort string) cluster.NodeInfo {
+func mkNode(id, addr string) cluster.NodeInfo {
 	return cluster.NodeInfo{
 		ID:   id,
 		Addr: addr,
-		Meta: cluster.NodeMeta{"raft_port": raftPort},
+		Meta: cluster.NodeMeta{},
 	}
 }
 
@@ -198,7 +200,7 @@ func newTestHandler(t *testing.T, fr *fakeRaft, fm *fakeMembership) *MembershipH
 
 func TestRunReconcileOnce_NonLeaderNoOps(t *testing.T) {
 	fr := newFakeRaft(false, nil)
-	fm := &fakeMembership{nodes: []cluster.NodeInfo{mkNode("a", "10.0.0.1", "7960")}}
+	fm := &fakeMembership{nodes: []cluster.NodeInfo{mkNode("a", "10.0.0.1")}}
 	h := newTestHandler(t, fr, fm)
 	h.runReconcileOnce(context.Background())
 	assert.Empty(t, fr.recordedOps(), "non-leader must not mutate raft config")
@@ -209,11 +211,11 @@ func TestRunReconcileOnce_BootstrapAdds(t *testing.T) {
 		{ID: "a", Address: "a", IsVoter: true}, // bootstrapped self
 	})
 	fm := &fakeMembership{
-		local: mkNode("a", "10.0.0.1", "7960"),
+		local: mkNode("a", "10.0.0.1"),
 		nodes: []cluster.NodeInfo{
-			mkNode("a", "10.0.0.1", "7960"),
-			mkNode("b", "10.0.0.2", "7960"),
-			mkNode("c", "10.0.0.3", "7960"),
+			mkNode("a", "10.0.0.1"),
+			mkNode("b", "10.0.0.2"),
+			mkNode("c", "10.0.0.3"),
 		},
 	}
 	h := newTestHandler(t, fr, fm)
@@ -234,7 +236,7 @@ func TestRunReconcileOnce_VoterCapDemotesSurplus(t *testing.T) {
 		servers = append(servers, raftapi.Server{
 			ID: id, Address: id, IsVoter: true,
 		})
-		nodes = append(nodes, mkNode(id, "10.0.0."+id, "7960"))
+		nodes = append(nodes, mkNode(id, "10.0.0."+id))
 	}
 	fr := newFakeRaft(true, servers)
 	fm := &fakeMembership{local: nodes[0], nodes: nodes}
@@ -258,9 +260,9 @@ func TestRunReconcileOnce_NoOpAtSteadyState(t *testing.T) {
 		{ID: "c", Address: "c", IsVoter: true},
 	}
 	nodes := []cluster.NodeInfo{
-		mkNode("a", "10.0.0.1", "7960"),
-		mkNode("b", "10.0.0.2", "7960"),
-		mkNode("c", "10.0.0.3", "7960"),
+		mkNode("a", "10.0.0.1"),
+		mkNode("b", "10.0.0.2"),
+		mkNode("c", "10.0.0.3"),
 	}
 	fr := newFakeRaft(true, servers)
 	fm := &fakeMembership{local: nodes[0], nodes: nodes}
@@ -288,10 +290,10 @@ func TestRunReconcileOnce_NodeLeftRemovesServer(t *testing.T) {
 		{ID: "c", Address: "c", IsVoter: true},
 	})
 	fm := &fakeMembership{
-		local: mkNode("a", "10.0.0.1", "7960"),
+		local: mkNode("a", "10.0.0.1"),
 		nodes: []cluster.NodeInfo{
-			mkNode("a", "10.0.0.1", "7960"),
-			mkNode("b", "10.0.0.2", "7960"),
+			mkNode("a", "10.0.0.1"),
+			mkNode("b", "10.0.0.2"),
 		},
 	}
 	h := newTestHandler(t, fr, fm)
@@ -321,13 +323,13 @@ func TestRunReconcileOnce_LocalLeaderSelfRemovalTransfersFirst(t *testing.T) {
 		{ID: "c", Address: "c", IsVoter: true},
 	})
 	fr.transferTookLeader = true
-	localOptedOut := mkNode("a", "10.0.0.1", "7960")
+	localOptedOut := mkNode("a", "10.0.0.1")
 	localOptedOut.Meta["raft_eligible"] = "false"
 	fm := &fakeMembership{
 		local: localOptedOut,
 		nodes: []cluster.NodeInfo{
-			mkNode("b", "10.0.0.2", "7960"),
-			mkNode("c", "10.0.0.3", "7960"),
+			mkNode("b", "10.0.0.2"),
+			mkNode("c", "10.0.0.3"),
 		},
 	}
 	h := newTestHandler(t, fr, fm)
@@ -349,11 +351,11 @@ func TestRunReconcileOnce_SoftErrorAbortsPass(t *testing.T) {
 	})
 	fr.addVoterErr = raftapi.ErrLeadershipLost
 	fm := &fakeMembership{
-		local: mkNode("a", "10.0.0.1", "7960"),
+		local: mkNode("a", "10.0.0.1"),
 		nodes: []cluster.NodeInfo{
-			mkNode("a", "10.0.0.1", "7960"),
-			mkNode("b", "10.0.0.2", "7960"),
-			mkNode("c", "10.0.0.3", "7960"),
+			mkNode("a", "10.0.0.1"),
+			mkNode("b", "10.0.0.2"),
+			mkNode("c", "10.0.0.3"),
 		},
 	}
 	h := newTestHandler(t, fr, fm)
@@ -373,8 +375,8 @@ func TestSubscriberLoop_DebouncesAndCoalesces(t *testing.T) {
 		{ID: "a", Address: "a", IsVoter: true},
 	})
 	fm := &fakeMembership{
-		local: mkNode("a", "10.0.0.1", "7960"),
-		nodes: []cluster.NodeInfo{mkNode("a", "10.0.0.1", "7960")},
+		local: mkNode("a", "10.0.0.1"),
+		nodes: []cluster.NodeInfo{mkNode("a", "10.0.0.1")},
 	}
 	h := NewMembershipHandler(fr, fm, bus, HandlerConfig{
 		MaxVoters:         5,
@@ -392,7 +394,7 @@ func TestSubscriberLoop_DebouncesAndCoalesces(t *testing.T) {
 		bus.Send(ctx, event.Event{
 			System: cluster.System,
 			Kind:   cluster.NodeJoined,
-			Data:   cluster.NodeEvent{Node: mkNode("b", "10.0.0.2", "7960")},
+			Data:   cluster.NodeEvent{Node: mkNode("b", "10.0.0.2")},
 		})
 	}
 
@@ -404,8 +406,8 @@ func TestSubscriberLoop_DebouncesAndCoalesces(t *testing.T) {
 	// (rather than nonvoter under the even-count clamp).
 	fm.mu.Lock()
 	fm.nodes = append(fm.nodes,
-		mkNode("b", "10.0.0.2", "7960"),
-		mkNode("c", "10.0.0.3", "7960"),
+		mkNode("b", "10.0.0.2"),
+		mkNode("c", "10.0.0.3"),
 	)
 	fm.mu.Unlock()
 
@@ -413,7 +415,7 @@ func TestSubscriberLoop_DebouncesAndCoalesces(t *testing.T) {
 	bus.Send(ctx, event.Event{
 		System: cluster.System,
 		Kind:   cluster.NodeJoined,
-		Data:   cluster.NodeEvent{Node: mkNode("b", "10.0.0.2", "7960")},
+		Data:   cluster.NodeEvent{Node: mkNode("b", "10.0.0.2")},
 	})
 	time.Sleep(150 * time.Millisecond)
 

@@ -12,10 +12,14 @@ package internode
 //     design; the next round will correct it).
 //   - ClassPGBroadcast: drop-newest with caller error (Erlang OTP `pg` —
 //     fire-and-forget, but observable).
-//   - ClassRaftMesh: drop-oldest. Carries multiplexed Raft transport
-//     frames so hashicorp/raft rides on the same internode connection as
-//     the rest of the runtime. Wire-byte 0x03 is reserved here so older
-//     decoders that did not know about it surface a structured
+//   - ClassRaftMesh: reset-on-overflow. Carries the Raft transport's
+//     yamux-multiplexed BYTE-STREAM so hashicorp/raft rides on the same
+//     internode connection as the rest of the runtime. A mid-stream frame
+//     drop desyncs the yamux demuxer and silently wedges the session, so
+//     instead of drop-oldest the queue clears and signals the transport
+//     to tear down + rebuild the peer's session (see ErrRaftMeshOverflow
+//     and RegisterClassOverflowHandler). Wire-byte 0x03 is reserved here
+//     so older decoders that did not know about it surface a structured
 //     protocolError instead of silently mis-routing the frame.
 type Class uint8
 

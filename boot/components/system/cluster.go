@@ -242,9 +242,9 @@ func Cluster() boot.Component {
 			ctx = WithInternodeService(ctx, internodeSvc)
 
 			// Expose the connection manager so the mesh-backed Raft
-			// transport (system/raft) and the kvraft transport can ride
-			// on the same internode connection as gossip, relay, and PG
-			// broadcast traffic. No separate Raft listener is bound.
+			// transport (system/raft) can ride on the same internode
+			// connection as gossip, relay, and PG broadcast traffic.
+			// No separate Raft listener is bound.
 			if ac := ctxapi.AppFromContext(ctx); ac != nil {
 				ac.With(connMgrKey, connMgr)
 			}

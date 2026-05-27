@@ -131,12 +131,14 @@ var ErrFrameOverflow = errors.New("eventualreg: delta exceeds frame size")
 // EncodeDelta writes one entry into the buffer using a compact format:
 //
 //	op:1 | name_len:2 | name | node_str_len:1 | node_str |
-//	counter:8 | wall:8 | pid_node_len:1 | pid_node | pid_host_len:1 |
-//	pid_host | pid_uniq_len:2 | pid_uniq
+//	counter:8 | wall:8 | priority:4 | pid_node_len:1 | pid_node |
+//	pid_host_len:1 | pid_host | pid_uniq_len:2 | pid_uniq
 //
 // node_str is the full string nodeID of the origin (so receivers can intern
-// without a separate node directory). PID fields are the three pid.PID
-// substrings, length-prefixed so receivers can rebuild without msgpack.
+// without a separate node directory). priority is the cross-origin conflict
+// precedence — it MUST travel so every replica resolves conflicts identically.
+// PID fields are the three pid.PID substrings, length-prefixed so receivers can
+// rebuild without msgpack.
 func EncodeDelta(buf []byte, e *Entry, originNodeStr string) ([]byte, error) {
 	if len(e.Name) > 0xFFFF {
 		return buf, fmt.Errorf("eventualreg: name too long: %d bytes", len(e.Name))
@@ -160,6 +162,7 @@ func EncodeDelta(buf []byte, e *Entry, originNodeStr string) ([]byte, error) {
 	buf = append(buf, originNodeStr...)
 	buf = appendUint64(buf, e.Counter)
 	buf = appendUint64(buf, uint64(e.Wall))
+	buf = appendUint32(buf, e.Priority)
 	buf = append(buf, byte(len(e.PID.Node)))
 	buf = append(buf, e.PID.Node...)
 	buf = append(buf, byte(len(e.PID.Host)))
@@ -181,6 +184,7 @@ func DecodeDelta(data []byte) (e Entry, originNode string, n int, err error) {
 	origin := r.str(int(originLen))
 	counter := r.u64()
 	wall := int64(r.u64())
+	priority := r.u32()
 	pidNodeLen := r.byte()
 	pidNode := r.str(int(pidNodeLen))
 	pidHostLen := r.byte()
@@ -193,10 +197,11 @@ func DecodeDelta(data []byte) (e Entry, originNode string, n int, err error) {
 	}
 
 	e = Entry{
-		Name:    name,
-		Counter: counter,
-		Wall:    wall,
-		Deleted: Op(op) == OpUnregister,
+		Name:     name,
+		Counter:  counter,
+		Wall:     wall,
+		Priority: priority,
+		Deleted:  Op(op) == OpUnregister,
 	}
 	if !e.Deleted {
 		e.PID = pid.PID{Node: pidNode, Host: pidHost, UniqID: pidUniq}
@@ -210,22 +215,43 @@ func DecodeDelta(data []byte) (e Entry, originNode string, n int, err error) {
 // unbounded under chaos.
 type BroadcastQueue struct {
 	originNodeStr string
-	pending       []*Entry
-	mu            sync.Mutex
-	cap           int
+	// originOf resolves an entry's true origin string from its compact Node ID.
+	// Foreign-origin entries (e.g. a reaped departed node's tombstone) MUST
+	// gossip with their own origin so peers fold them onto the same dot via
+	// delete-wins, not onto a fresh local-origin dot. Falls back to
+	// originNodeStr when nil or when the lookup yields "".
+	originOf func(node uint32) string
+	pending  []*Entry
+	mu       sync.Mutex
+	cap      int
 	dropped       uint64
 }
 
 // NewBroadcastQueue constructs a queue. `cap` is the max number of pending
 // entries before new ones are dropped (telemetry surfaces the count).
-func NewBroadcastQueue(originNodeStr string, capacity int) *BroadcastQueue {
+// `originOf` resolves an entry's origin string from its compact Node ID so
+// foreign-origin entries gossip under their true origin; nil falls back to
+// originNodeStr for every entry.
+func NewBroadcastQueue(originNodeStr string, capacity int, originOf func(node uint32) string) *BroadcastQueue {
 	if capacity <= 0 {
 		capacity = 4096
 	}
 	return &BroadcastQueue{
 		originNodeStr: originNodeStr,
+		originOf:      originOf,
 		cap:           capacity,
 	}
+}
+
+// originFor returns the wire origin string for an entry: its true origin via
+// originOf when resolvable, else the queue's local origin.
+func (q *BroadcastQueue) originFor(e *Entry) string {
+	if q.originOf != nil {
+		if s := q.originOf(e.Node); s != "" {
+			return s
+		}
+	}
+	return q.originNodeStr
 }
 
 // Push enqueues a delta. Returns false if the queue is full and the entry
@@ -311,7 +337,7 @@ func (q *BroadcastQueue) Drain(headerOverhead, byteBudget int) [][]byte {
 		}
 
 		var scratch []byte
-		buf, err := EncodeDelta(scratch, e, q.originNodeStr)
+		buf, err := EncodeDelta(scratch, e, q.originFor(e))
 		if err != nil {
 			skipIdx = append(skipIdx, i)
 			continue
@@ -393,6 +419,10 @@ func appendUint16(b []byte, v uint16) []byte {
 	return binary.LittleEndian.AppendUint16(b, v)
 }
 
+func appendUint32(b []byte, v uint32) []byte {
+	return binary.LittleEndian.AppendUint32(b, v)
+}
+
 func appendUint64(b []byte, v uint64) []byte {
 	return binary.LittleEndian.AppendUint64(b, v)
 }
@@ -429,6 +459,15 @@ func (r *reader) u16() uint16 {
 	}
 	v := binary.LittleEndian.Uint16(r.b[r.pos:])
 	r.pos += 2
+	return v
+}
+
+func (r *reader) u32() uint32 {
+	if !r.need(4) {
+		return 0
+	}
+	v := binary.LittleEndian.Uint32(r.b[r.pos:])
+	r.pos += 4
 	return v
 }
 

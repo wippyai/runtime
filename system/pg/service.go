@@ -139,9 +139,16 @@ type Service struct {
 	maxMembersPerGroup int
 	actionQueueMaxSize int
 	queueWarnThreshold int
-	protocolTimeout    time.Duration
-	broadcastTimeout   time.Duration
-	maxRetries         int
+	protocolTimeout     time.Duration
+	broadcastTimeout    time.Duration
+	antiEntropyInterval time.Duration
+	maxRetries          int
+
+	// antiEntropyCursor round-robins anti-entropy syncs across membership
+	// peers, one per tick. Touched only from the event loop / reconcile
+	// goroutine. Plain int because membership peer ordering is non-stable
+	// anyway; modulo over the live set keeps it bounded.
+	antiEntropyCursor int
 
 	// queueStress is the current pressure level of the action queue,
 	// updated atomically inside submit(). 0=normal, 1=approaching cap,
@@ -212,17 +219,18 @@ func NewService(
 		membership:         membership,
 		bus:                bus,
 		localNodeID:        localNodeID,
-		actions:            make(chan action, config.ActionQueueSize),
+		actions:            make(chan action, config.ActionQueueMaxSize),
 		monitors:           make(map[string][]*monitorEntry),
 		monitorPIDCounts:   make(map[string]int),
 		activity:           newActivityTracker(),
 		maxGroups:          config.MaxGroups,
 		maxMembersPerGroup: config.MaxMembersPerGroup,
 		actionQueueMaxSize: config.ActionQueueMaxSize,
-		queueWarnThreshold: int(float64(config.ActionQueueMaxSize) * 0.75),
-		protocolTimeout:    config.ProtocolTimeout,
-		broadcastTimeout:   config.BroadcastTimeout,
-		maxRetries:         config.MaxRetries,
+		queueWarnThreshold: config.ActionQueueSize,
+		protocolTimeout:     config.ProtocolTimeout,
+		broadcastTimeout:    config.BroadcastTimeout,
+		antiEntropyInterval: config.AntiEntropyInterval,
+		maxRetries:          config.MaxRetries,
 	}
 	// Before Start (or after Stop) reads of s.currentCtx() return an
 	// already-cancelled sentinel so submit() rejects work cleanly and no
@@ -293,6 +301,14 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 	// Start event loop
 	s.wg.Add(1)
 	go s.eventLoop()
+
+	// Start periodic anti-entropy reconcile so any join/leave broadcast a
+	// membership peer missed eventually converges. Disabled when interval
+	// <= 0 or membership is unconfigured (single-node / direct-protocol tests).
+	if s.antiEntropyInterval > 0 && s.membership != nil {
+		s.wg.Add(1)
+		go s.antiEntropyLoop(runCtx)
+	}
 
 	// Start retry queue
 	s.retryQueue.Start(runCtx)
@@ -446,16 +462,15 @@ func (s *Service) submit(fn action) bool {
 	}
 	s.logQueueStressTransition(stress, depth)
 
-	if stress == queueStressFull {
-		s.tel.recordQueueDropped(s.hostID, "full")
-		return false
-	}
-
+	// Non-blocking send: the channel is sized to the hard cap, so a full
+	// channel means genuine saturation. Drop rather than block the caller
+	// (including cluster-event handlers that feed this loop). Lossy under
+	// extreme backpressure, observable via pg_queue_dropped_total{full}.
 	select {
 	case s.actions <- fn:
 		return true
-	case <-s.currentCtx().Done():
-		s.tel.recordQueueDropped(s.hostID, "cancelled")
+	default:
+		s.tel.recordQueueDropped(s.hostID, "full")
 		return false
 	}
 }
@@ -1358,39 +1373,13 @@ func logGroupCount(count int) zap.Field {
 
 // --- Event emission ---
 
-// emitJoinEvent publishes a membership join event to the event bus and delivers to monitors.
+// emitJoinEvent delivers a membership join event to group monitors via the relay.
 func (s *Service) emitJoinEvent(group string, pids []pid.PID) {
-	if s.bus != nil {
-		s.bus.Send(s.currentCtx(), event.Event{
-			System: pgapi.EventSystem,
-			Kind:   pgapi.MemberJoined,
-			Path:   group,
-			Data: pgapi.MembershipEvent{
-				Group: group,
-				PIDs:  pids,
-			},
-		})
-	}
-
-	// Deliver to group monitors with circuit breaker protection
 	s.deliverMonitorEventWithCircuitBreaker(group, pgapi.MemberJoined, pids)
 }
 
-// emitLeaveEvent publishes a membership leave event to the event bus and delivers to monitors.
+// emitLeaveEvent delivers a membership leave event to group monitors via the relay.
 func (s *Service) emitLeaveEvent(group string, pids []pid.PID) {
-	if s.bus != nil {
-		s.bus.Send(s.currentCtx(), event.Event{
-			System: pgapi.EventSystem,
-			Kind:   pgapi.MemberLeft,
-			Path:   group,
-			Data: pgapi.MembershipEvent{
-				Group: group,
-				PIDs:  pids,
-			},
-		})
-	}
-
-	// Deliver to group monitors with circuit breaker protection
 	s.deliverMonitorEventWithCircuitBreaker(group, pgapi.MemberLeft, pids)
 }
 

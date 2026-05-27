@@ -92,7 +92,7 @@ func TestBroadcastQueue_DrainSmallBudget(t *testing.T) {
 	}
 
 	// 699 ≈ what the outer fairness pass hands each delegate when limit is
-	// 1398 and there are 2 delegates. Header overhead matches kveventual's
+	// 1398 and there are 2 delegates. Header overhead matches a delegate's
 	// per-frame mux+name overhead (8+7).
 	frames := q.Drain(15, 699)
 	if len(frames) == 0 {

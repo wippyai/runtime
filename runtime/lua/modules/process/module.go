@@ -5,9 +5,7 @@ package process
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
-	"sync"
 	"time"
 
 	lua "github.com/wippyai/go-lua"
@@ -33,54 +31,6 @@ var (
 	moduleTable *lua.LTable
 	yieldTypes  []luaapi.YieldType
 )
-
-// deprecatedFenceWarned records per-LState whether a one-shot warning has
-// been emitted for the deprecated process.registry.lookup_with_fence and
-// process.registry.validate_fence entry points. T3 moved those to
-// process.registry.debug.*; the top-level forwarders are kept callable for
-// the transition window.
-var deprecatedFenceWarned sync.Map // *lua.LState -> *deprecatedFlags
-
-type deprecatedFlags struct {
-	lookupWithFence bool
-	validateFence   bool
-	mu              sync.Mutex
-}
-
-func warnDeprecatedFenceOnce(l *lua.LState, name string) {
-	v, _ := deprecatedFenceWarned.LoadOrStore(l, &deprecatedFlags{})
-	flags, ok := v.(*deprecatedFlags)
-	if !ok {
-		return
-	}
-	flags.mu.Lock()
-	already := false
-	switch name {
-	case "lookup_with_fence":
-		already = flags.lookupWithFence
-		flags.lookupWithFence = true
-	case "validate_fence":
-		already = flags.validateFence
-		flags.validateFence = true
-	}
-	flags.mu.Unlock()
-	if already {
-		return
-	}
-	fmt.Fprintf(os.Stderr,
-		"[deprecated] process.registry.%s is now a debug-only entry point; "+
-			"use process.send(name, ...) for normal sends (fence is attached "+
-			"and validated internally) or call process.registry.debug.%s for "+
-			"diagnostics.\n",
-		name, name)
-}
-
-// CleanupDeprecatedFenceWarn releases the per-LState warning bookkeeping.
-// Called from process teardown paths so the map does not grow without
-// bound across many short-lived Lua processes.
-func CleanupDeprecatedFenceWarn(l *lua.LState) {
-	deprecatedFenceWarned.Delete(l)
-}
 
 func newProcessError(l *lua.LState, kind lua.Kind, message string) *lua.Error {
 	return lua.NewLuaError(l, message).
@@ -141,23 +91,14 @@ func init() {
 	eventsTbl.Immutable = true
 	moduleTable.RawSetString("event", eventsTbl)
 
-	debugReg := lua.CreateTable(0, 2)
-	debugReg.RawSetString("lookup_with_fence", lua.LGoFunc(registryDebugLookupWithFence))
-	debugReg.RawSetString("validate_fence", lua.LGoFunc(registryDebugValidateFence))
-	debugReg.Immutable = true
-
-	reg := lua.CreateTable(0, 12)
+	reg := lua.CreateTable(0, 9)
 	reg.RawSetString("register", lua.LGoFunc(registryRegister))
 	reg.RawSetString("lookup", lua.LGoFunc(registryLookup))
-	reg.RawSetString("lookup_with_fence", lua.LGoFunc(registryLookupWithFence))
-	reg.RawSetString("validate_fence", lua.LGoFunc(registryValidateFence))
 	reg.RawSetString("unregister", lua.LGoFunc(registryUnregister))
 	reg.RawSetString("LOCAL", lua.LNumber(float64(topology.Local)))
-	reg.RawSetString("GLOBAL", lua.LNumber(float64(topology.Global)))
-	reg.RawSetString("CONSISTENT", lua.LNumber(float64(topology.Consistent)))
 	reg.RawSetString("EVENTUAL", lua.LNumber(float64(topology.Eventual)))
-	reg.RawSetString("ROOT", lua.LNumber(float64(topology.Root)))
-	reg.RawSetString("debug", debugReg)
+	reg.RawSetString("CONSISTENT", lua.LNumber(float64(topology.Consistent)))
+	reg.RawSetString("STRONG", lua.LNumber(float64(topology.Strong)))
 	reg.Immutable = true
 	moduleTable.RawSetString("registry", reg)
 
@@ -303,8 +244,6 @@ func send(l *lua.LState) int {
 	yield.To = resolved.PID
 	yield.Topic = topic
 	yield.Payloads = createPayloadsFromArgs(l)
-	yield.FenceToken = resolved.FenceToken
-	yield.GlobalName = resolved.GlobalName
 
 	l.Push(yield)
 	return -1
@@ -715,7 +654,7 @@ func registryRegister(l *lua.LState) int {
 	secAttrs := map[string]any{"pid": self.String()}
 
 	// Determine registration mode. The second argument can be:
-	//   - a number (GLOBAL=1, LOCAL=0): registration mode
+	//   - a number (LOCAL=0, EVENTUAL=1, CONSISTENT=2, STRONG=3): registration mode
 	//   - a string: PID to register (legacy usage)
 	//   - absent: defaults to LOCAL with self PID
 	var p pidapi.PID
@@ -740,10 +679,10 @@ func registryRegister(l *lua.LState) int {
 	}
 
 	switch mode {
-	case topology.Global, topology.Root:
-		permission := "process.registry.register.global"
-		if mode == topology.Root {
-			permission = "process.registry.register.root"
+	case topology.Consistent, topology.Strong:
+		permission := "process.registry.register.consistent"
+		if mode == topology.Strong {
+			permission = "process.registry.register.strong"
 		}
 		if !security.IsAllowed(l.Context(), permission, name, secAttrs) {
 			return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to register name (%s): %s", scopeLabel(mode), name)))
@@ -801,8 +740,8 @@ func scopeLabel(m topology.RegistrationMode) string {
 		return "eventual"
 	case topology.Consistent:
 		return "consistent"
-	case topology.Root:
-		return "root"
+	case topology.Strong:
+		return "strong"
 	default:
 		return "unknown"
 	}
@@ -847,54 +786,6 @@ func registryLookup(l *lua.LState) int {
 	return 1
 }
 
-func registryLookupWithFence(l *lua.LState) int {
-	warnDeprecatedFenceOnce(l, "lookup_with_fence")
-	return registryDebugLookupWithFence(l)
-}
-
-func registryValidateFence(l *lua.LState) int {
-	warnDeprecatedFenceOnce(l, "validate_fence")
-	return registryDebugValidateFence(l)
-}
-
-func registryDebugLookupWithFence(l *lua.LState) int {
-	name := l.CheckString(1)
-
-	globalReg := globalreg.GetRegistry(l.Context())
-	if globalReg == nil {
-		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "global registry not available"))
-	}
-
-	result, _ := globalReg.Lookup(l.Context(), name, globalreg.WithFence())
-	if !result.Found {
-		return pushProcessError(l, lua.LNil, newProcessError(l, lua.NotFound, "name not registered"))
-	}
-
-	tbl := l.CreateTable(0, 2)
-	tbl.RawSetString("pid", lua.LString(result.PID.String()))
-	tbl.RawSetString("fence_token", lua.LNumber(float64(result.FenceToken)))
-
-	l.Push(tbl)
-	return 1
-}
-
-func registryDebugValidateFence(l *lua.LState) int {
-	name := l.CheckString(1)
-	token := uint64(l.CheckNumber(2))
-
-	globalReg := globalreg.GetRegistry(l.Context())
-	if globalReg == nil {
-		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "global registry not available"))
-	}
-
-	if err := globalreg.ValidateFence(l.Context(), globalReg, name, token); err != nil {
-		return pushProcessError(l, lua.LBool(false), wrapProcessError(l, err, "", lua.Conflict))
-	}
-
-	l.Push(lua.LTrue)
-	return 1
-}
-
 func registryUnregister(l *lua.LState) int {
 	reg, ok := getRegistry(l)
 	if !ok {
@@ -918,10 +809,10 @@ func registryUnregister(l *lua.LState) int {
 	}
 
 	switch mode {
-	case topology.Global, topology.Root:
-		permission := "process.registry.unregister.global"
-		if mode == topology.Root {
-			permission = "process.registry.unregister.root"
+	case topology.Consistent, topology.Strong:
+		permission := "process.registry.unregister.consistent"
+		if mode == topology.Strong {
+			permission = "process.registry.unregister.strong"
 		}
 		if !security.IsAllowed(l.Context(), permission, name, secAttrs) {
 			return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to unregister name (%s): %s", scopeLabel(mode), name)))
@@ -930,6 +821,20 @@ func registryUnregister(l *lua.LState) int {
 		globalReg := globalreg.GetRegistry(l.Context())
 		if globalReg == nil {
 			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "global registry not available"))
+		}
+
+		// Authority lives here: the primitive does not enforce holder identity,
+		// so a caller with the unregister permission cannot drop another PID's
+		// name. Treat owner mismatch (or unheld name) as a not-removed result
+		// rather than an error, matching the existing false-on-no-removal
+		// convention.
+		res, err := globalReg.Lookup(l.Context(), name)
+		if err != nil {
+			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
+		}
+		if !res.Found || res.PID != self {
+			l.Push(lua.LBool(false))
+			return 1
 		}
 
 		removed, err := globalReg.UnregisterScope(l.Context(), name, globalreg.RegistrationMode(mode))

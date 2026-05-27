@@ -2,10 +2,7 @@
 
 // Package crdt implements an Optimized OR-Set Without Tombstones (ORSWOT)
 // keyed by string with opaque []byte values. It is the generic gossip-CRDT
-// substrate used by:
-//
-//   - `system/eventualreg` — name → PID registrations
-//   - `system/kveventual`  — KV space with arbitrary bytes
+// substrate used by `system/eventualreg` (name → PID registrations).
 //
 // The data structure is deliberately generic: merge resolution touches
 // only the per-replica dot (origin + counter) and wall-clock tiebreak, not

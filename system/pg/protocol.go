@@ -3,8 +3,10 @@
 package pg
 
 import (
+	"context"
 	"errors"
 	"math/rand/v2"
+	"time"
 
 	"github.com/wippyai/runtime/api/payload"
 	pgapi "github.com/wippyai/runtime/api/pg"
@@ -49,6 +51,53 @@ func (s *Service) servicePID(nodeID pid.NodeID) pid.PID {
 		Node: nodeID,
 		Host: s.hostID,
 	}
+}
+
+// membershipAlivePeers returns the cluster alive-set minus self, as reported
+// by the membership service. Empty when membership is unconfigured (tests
+// that drive the protocol directly fall back to discovered remote peers).
+func (s *Service) membershipAlivePeers() []pid.NodeID {
+	if s.membership == nil {
+		return nil
+	}
+	nodes := s.membership.Nodes()
+	out := make([]pid.NodeID, 0, len(nodes))
+	for _, n := range nodes {
+		if n.ID == s.localNodeID {
+			continue
+		}
+		out = append(out, n.ID)
+	}
+	return out
+}
+
+// broadcastTargets returns the set of remote nodes a join/leave broadcast must
+// reach: the union of the cluster membership alive-set and the peers already
+// discovered into s.state.remote, with self excluded. Iterating membership —
+// not just discovered remote — guarantees a freshly-joined or not-yet-discovered
+// live member still receives the delta; discovered remote is folded in so a
+// peer that membership has not yet surfaced (or that joined via the PG discover
+// protocol alone in tests) is not dropped. Must be called from the event loop.
+func (s *Service) broadcastTargets() []pid.NodeID {
+	seen := make(map[pid.NodeID]struct{}, len(s.state.remote)+1)
+	targets := make([]pid.NodeID, 0, len(s.state.remote)+1)
+	add := func(nodeID pid.NodeID) {
+		if nodeID == s.localNodeID {
+			return
+		}
+		if _, ok := seen[nodeID]; ok {
+			return
+		}
+		seen[nodeID] = struct{}{}
+		targets = append(targets, nodeID)
+	}
+	for _, nodeID := range s.membershipAlivePeers() {
+		add(nodeID)
+	}
+	for nodeID := range s.state.remote {
+		add(nodeID)
+	}
+	return targets
 }
 
 // sendDiscover sends a discover message to a remote pg service.
@@ -162,17 +211,17 @@ func (s *Service) retryJoinsPerGroup(nodeID pid.NodeID, topic string, joins map[
 // trivial. Uses circuit breaker for per-node protection and retry queue for
 // recovery.
 func (s *Service) broadcastJoin(joins map[string][]pid.PID) {
-	if len(joins) == 0 || len(s.state.remote) == 0 {
+	if len(joins) == 0 {
+		return
+	}
+	targets := s.broadcastTargets()
+	if len(targets) == 0 {
 		return
 	}
 
 	wire := encodeJoinsPayload(joins)
 
-	for nodeID := range s.state.remote {
-		if nodeID == s.localNodeID {
-			continue
-		}
-
+	for _, nodeID := range targets {
 		cb := s.cbManager.GetCircuitBreaker(nodeID)
 		if !cb.Allow() {
 			s.logger.Debug("circuit breaker open, skipping join broadcast",
@@ -209,9 +258,6 @@ func (s *Service) broadcastJoin(joins map[string][]pid.PID) {
 // list is empty are dropped; if every group is empty the whole call is
 // a no-op (matches the pre-batch guard).
 func (s *Service) broadcastLeave(leaves map[string][]pid.PID) {
-	if len(s.state.remote) == 0 {
-		return
-	}
 	filtered := make(map[string][]pid.PID, len(leaves))
 	for g, pids := range leaves {
 		if len(pids) > 0 {
@@ -223,13 +269,14 @@ func (s *Service) broadcastLeave(leaves map[string][]pid.PID) {
 	}
 	leaves = filtered
 
+	targets := s.broadcastTargets()
+	if len(targets) == 0 {
+		return
+	}
+
 	wire := encodeJoinsPayload(leaves)
 
-	for nodeID := range s.state.remote {
-		if nodeID == s.localNodeID {
-			continue
-		}
-
+	for _, nodeID := range targets {
 		cb := s.cbManager.GetCircuitBreaker(nodeID)
 		if !cb.Allow() {
 			s.logger.Debug("circuit breaker open, skipping leave broadcast",
@@ -258,6 +305,59 @@ func (s *Service) broadcastLeave(leaves map[string][]pid.PID) {
 
 		cb.RecordSuccess()
 	}
+}
+
+// antiEntropyLoop drives periodic reconcile. Each tick submits a single
+// reconcileOnce action onto the event loop, which picks one membership peer
+// round-robin and pushes a full state sync to it. Over membershipPeers ticks
+// every live peer is re-synced; the receiver's differential handleSync then
+// heals any membership delta a prior broadcast missed. Respects ctx
+// cancellation and bounds load to one sync per tick.
+func (s *Service) antiEntropyLoop(ctx context.Context) {
+	defer s.wg.Done()
+
+	t := time.NewTicker(s.antiEntropyInterval)
+	defer t.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			// Drop the tick if the event loop is saturated rather than
+			// blocking the reconcile goroutine; the next tick retries.
+			s.submit(func() { s.reconcileOnce() })
+		}
+	}
+}
+
+// reconcileOnce pushes a full local-state sync to the next membership peer in
+// round-robin order. Must run inside the event loop. A single peer per call
+// keeps fan-out bounded; sendSync goes through the circuit breaker so a slow
+// peer is skipped without stalling the rotation.
+func (s *Service) reconcileOnce() {
+	peers := s.membershipAlivePeers()
+	if len(peers) == 0 {
+		return
+	}
+	if s.antiEntropyCursor >= len(peers) {
+		s.antiEntropyCursor = 0
+	}
+	target := peers[s.antiEntropyCursor]
+	s.antiEntropyCursor++
+
+	// Ensure the chosen peer is tracked so its inbound sync response
+	// (and future broadcasts) have a remote entry to merge into, and so a
+	// peer membership surfaced but PG never discovered still gets synced.
+	if _, exists := s.state.remote[target]; !exists {
+		s.state.remote[target] = &remoteNode{
+			nodeID: target,
+			groups: make(map[string][]pid.PID),
+		}
+	}
+
+	s.tel.recordDiscoverTargets("anti_entropy", 1, len(peers))
+	s.sendSync(target)
 }
 
 // handleDiscover processes a discover message from a remote node.

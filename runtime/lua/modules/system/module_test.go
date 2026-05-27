@@ -36,7 +36,9 @@ func TestLoad(t *testing.T) {
 	checkTable(t, l, "system", "runtime")
 	checkTable(t, l, "system", "process")
 	checkTable(t, l, "system", "node")
-	checkTable(t, l, "system", "nodes")
+	checkTable(t, l, "system", "cluster")
+	checkTable(t, l, "system", "raft")
+	checkTable(t, l, "system", "lock")
 	checkTable(t, l, "system", "supervisor")
 
 	// Check functions exist

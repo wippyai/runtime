@@ -117,8 +117,8 @@ type MembershipHandler struct {
 }
 
 // NewMembershipHandler builds a handler. `membership` is required: the
-// reconciler reads node metadata (raft_port, raft_eligible, ...) from it
-// directly rather than re-deriving from event payloads, so a single
+// reconciler reads node metadata (raft_eligible, raft_priority, failure_domain)
+// from it directly rather than re-deriving from event payloads, so a single
 // reconcile pass observes a coherent snapshot.
 func NewMembershipHandler(
 	svc raftapi.Service,

@@ -7,7 +7,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
@@ -115,12 +114,34 @@ func NewPIDRegistry(opts ...Option) *PIDRegistry {
 // the name already exists globally (prevents local shadowing of global names).
 func (r *PIDRegistry) Register(name string, p pid.PID) (pid.PID, error) {
 	// Check global registry first to prevent local shadowing of global names.
+	// A held Strong reservation (a pending the node acked, awaiting promotion)
+	// also blocks a conflicting local bind so the name cannot be granted to a
+	// different pid during the promotion window.
 	if gr := r.loadGlobalReg(); gr != nil {
 		if res, err := gr.Lookup(context.Background(), name); err == nil && res.Found {
 			if res.PID == p {
 				return p, nil // same PID registered globally — allow
 			}
 			return res.PID, topology.ErrNameAlreadyRegistered
+		}
+		if reserved, ok := gr.IsStrongReserved(name); ok {
+			if reserved == p {
+				return p, nil // same PID reserved — allow
+			}
+			return reserved, topology.ErrNameAlreadyRegistered
+		}
+		// Join-epoch gate: refuse a fresh LOCAL bind while the barrier is in
+		// progress. The node has not yet learned the cluster's Strong names and a
+		// new bind could shadow one. A re-register of a name this node already
+		// holds is allowed below (no shadowing risk) so the gate sits after the
+		// existing-binding fast paths.
+		if !gr.NameReady() {
+			if existing, ok := r.nameToID.Load(name); ok {
+				if ep, ok2 := existing.(pid.PID); ok2 && ep == p {
+					return p, nil
+				}
+			}
+			return p, topology.ErrNameServiceNotReady
 		}
 	}
 
@@ -250,17 +271,17 @@ func (r *PIDRegistry) Lookup(name string) (pid.PID, bool) {
 	return pid.PID{}, false
 }
 
-// LookupWithFence looks up a global name and returns the fencing token.
-// Returns a zero LookupResult if the name is not found globally (local names
-// don't have fencing tokens).
-func (r *PIDRegistry) LookupWithFence(name string) globalreg.LookupResult {
-	if gr := r.loadGlobalReg(); gr != nil {
-		result, err := gr.Lookup(context.Background(), name, globalreg.WithFence())
-		if err == nil && result.Found {
-			return result
+// LookupLocal reads only this registry's own name table, bypassing the global
+// and eventual cross-scope registries. It exists so globalreg's conditional ack
+// can attest LOCAL-scope non-presence without re-entering globalreg (which
+// would self-reference a held Strong reservation). Does not consult the parent.
+func (r *PIDRegistry) LookupLocal(name string) (pid.PID, bool) {
+	if pidVal, exists := r.nameToID.Load(name); exists {
+		if p, ok := pidVal.(pid.PID); ok {
+			return p, true
 		}
 	}
-	return globalreg.LookupResult{}
+	return pid.PID{}, false
 }
 
 func (r *PIDRegistry) Remove(p pid.PID) {

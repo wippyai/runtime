@@ -825,7 +825,7 @@ func (d *delegate) GetBroadcasts(overhead, limit int) [][]byte {
 	// Sort by Kind for deterministic iteration. Without this, Go's
 	// randomized map iteration combined with one delegate consuming the
 	// entire budget produces unfair starvation patterns that depend on
-	// hash bucket layout (kveventual got 0 bytes/s while eventualreg
+	// hash bucket layout (one delegate could get 0 bytes/s while another
 	// hogged the cycle).
 	sort.Slice(dels, func(i, j int) bool { return dels[i].Kind() < dels[j].Kind() })
 

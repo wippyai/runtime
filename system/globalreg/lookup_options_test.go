@@ -47,24 +47,7 @@ func TestService_Lookup_Equivalence_Plain(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, res.Found)
 	assert.Equal(t, legacyPID, res.PID)
-	assert.EqualValues(t, 0, res.FenceToken, "no WithFence → token must stay zero")
 	assert.Nil(t, res.NamesForPID)
-}
-
-func TestService_Lookup_Equivalence_WithFence(t *testing.T) {
-	s := newServiceWithState(t)
-	p := pid.PID{Node: "node-a", Host: "h", UniqID: "p1"}
-	registerInFSM(t, s.fsm, "svc.beta", p, 42)
-
-	legacyPID, legacyToken, legacyOK := s.fsm.State().LookupWithFence("svc.beta")
-	require.True(t, legacyOK)
-	assert.EqualValues(t, 42, legacyToken)
-
-	res, err := s.Lookup(context.Background(), "svc.beta", globalreg.WithFence())
-	require.NoError(t, err)
-	assert.True(t, res.Found)
-	assert.Equal(t, legacyPID, res.PID)
-	assert.Equal(t, legacyToken, res.FenceToken)
 }
 
 func TestService_Lookup_Equivalence_ByPID(t *testing.T) {
@@ -105,26 +88,11 @@ func TestService_Lookup_ByPID_EmptyPID(t *testing.T) {
 	assert.Empty(t, res.NamesForPID)
 }
 
-func TestService_Lookup_WithFenceNotReady(t *testing.T) {
-	s := &Service{fsm: NewFSM()}
-	res, err := s.Lookup(context.Background(), "svc.x", globalreg.WithFence())
-	require.NoError(t, err)
-	assert.False(t, res.Found)
-	assert.EqualValues(t, 0, res.FenceToken)
-}
-
 func TestService_LegacyShims_AgreeWithUnified(t *testing.T) {
 	s := newServiceWithState(t)
 	p := pid.PID{Node: "node-a", Host: "h", UniqID: "owner"}
 	registerInFSM(t, s.fsm, "svc.shim", p, 99)
 	registerInFSM(t, s.fsm, "svc.also.shim", p, 100)
-
-	resOld := s.LookupWithFence("svc.shim")
-	resNew, err := s.Lookup(context.Background(), "svc.shim", globalreg.WithFence())
-	require.NoError(t, err)
-	assert.Equal(t, resOld.PID, resNew.PID)
-	assert.Equal(t, resOld.FenceToken, resNew.FenceToken)
-	assert.Equal(t, resOld.Found, resNew.Found)
 
 	namesOld := s.LookupByPID(p)
 	namesNew, err := s.Lookup(context.Background(), "", globalreg.ByPID(p))
@@ -133,23 +101,6 @@ func TestService_LegacyShims_AgreeWithUnified(t *testing.T) {
 	sortedNew := append([]string(nil), namesNew.NamesForPID...)
 	sort.Strings(sortedNew)
 	assert.Equal(t, namesOld, sortedNew)
-}
-
-func TestGlobalregValidateFence_Helper(t *testing.T) {
-	s := newServiceWithState(t)
-	p := pid.PID{Node: "node-a", Host: "h", UniqID: "owner"}
-	registerInFSM(t, s.fsm, "svc.fence", p, 7)
-
-	require.NoError(t, globalreg.ValidateFence(context.Background(), s, "svc.fence", 7))
-	require.NoError(t, globalreg.ValidateFence(context.Background(), s, "svc.fence", 99),
-		"token >= AppliedAt is valid")
-
-	err := globalreg.ValidateFence(context.Background(), s, "svc.fence", 3)
-	require.ErrorIs(t, err, globalreg.ErrStaleFence)
-
-	err = globalreg.ValidateFence(context.Background(), s, "svc.missing", 1)
-	require.ErrorIs(t, err, globalreg.ErrStaleFence,
-		"missing name surfaces as stale-fence so callers cannot send to ghosts")
 }
 
 func TestService_Lookup_PropertyParity(t *testing.T) {
@@ -176,13 +127,6 @@ func TestService_Lookup_PropertyParity(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, legacyOK, res.Found, "op=%s", op.name)
 		assert.Equal(t, legacyP, res.PID, "op=%s", op.name)
-
-		legacyFP, legacyTok, legacyFOK := s.fsm.State().LookupWithFence(op.name)
-		resF, err := s.Lookup(context.Background(), op.name, globalreg.WithFence())
-		require.NoError(t, err)
-		assert.Equal(t, legacyFOK, resF.Found, "op=%s with fence", op.name)
-		assert.Equal(t, legacyFP, resF.PID, "op=%s with fence", op.name)
-		assert.Equal(t, legacyTok, resF.FenceToken, "op=%s with fence", op.name)
 	}
 
 	for _, op := range ops {

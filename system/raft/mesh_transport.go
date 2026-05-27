@@ -63,18 +63,26 @@ func newClassConn(local, remote cluster.NodeID, connMgr internode.ConnectionMana
 
 // injectInbound delivers one inbound ClassRaftMesh frame to this conn.
 // Called by meshStreamLayer.onInbound for every frame received for the
-// associated peer. Drops on full channel record a metric and return.
-func (c *classConn) injectInbound(data []byte) {
+// associated peer. Returns false when the frame could not be delivered
+// because the inbound buffer is full: this carries a yamux byte-stream,
+// so a dropped inbound frame desyncs the demuxer exactly like a dropped
+// outbound one — the caller must reset the session rather than tolerate a
+// mid-stream gap. A drop records a metric. A closed conn returns true
+// (the stream is already gone; no reset needed).
+func (c *classConn) injectInbound(data []byte) (delivered bool) {
 	if c.closed.Load() {
-		return
+		return true
 	}
 	select {
 	case c.incoming <- data:
+		return true
 	case <-c.closeCh:
+		return true
 	default:
 		if c.connMgr != nil {
 			c.connMgr.RecordDropReason("raft_mesh_inbound_full")
 		}
+		return false
 	}
 }
 
@@ -200,14 +208,33 @@ func newMeshStreamLayer(self cluster.NodeID, connMgr internode.ConnectionManager
 	}
 }
 
-// register installs the ClassRaftMesh receiver on the connection
-// manager. Returns an error if some other subsystem already claimed
-// the class (would mean a misconfiguration).
+// register installs the ClassRaftMesh receiver and overflow handler on
+// the connection manager. The receiver pipes inbound mesh frames into the
+// per-peer classConns; the overflow handler resets a peer's session when
+// its send queue overflows, because ClassRaftMesh carries a yamux
+// byte-stream that cannot survive a mid-stream frame drop. Returns an
+// error if some other subsystem already claimed the class (would mean a
+// misconfiguration).
 func (l *meshStreamLayer) register() error {
 	if !l.connMgr.RegisterClassReceiver(internode.ClassRaftMesh, l.onInbound) {
 		return errors.New("raft mesh: ClassRaftMesh receiver already registered")
 	}
+	if !l.connMgr.RegisterClassOverflowHandler(internode.ClassRaftMesh, l.onOverflow) {
+		_ = l.connMgr.RegisterClassReceiver(internode.ClassRaftMesh, nil)
+		return errors.New("raft mesh: ClassRaftMesh overflow handler already registered")
+	}
 	return nil
+}
+
+// onOverflow resets the peer's mesh session after a send-queue overflow.
+// Tearing down via removePeer closes the stale yamux session + classConn;
+// the next Dial/onInbound rebuilds a fresh session and the stream resyncs
+// from a consistent point. This is the byte-stream-safe alternative to
+// dropping a frame from the middle of the stream.
+func (l *meshStreamLayer) onOverflow(peer cluster.NodeID) {
+	l.logger.Warn("raft mesh: send queue overflow, resetting peer session",
+		zap.String("peer", peer))
+	l.removePeer(peer)
 }
 
 func (l *meshStreamLayer) onInbound(nodeID cluster.NodeID, data []byte) {
@@ -215,7 +242,14 @@ func (l *meshStreamLayer) onInbound(nodeID cluster.NodeID, data []byte) {
 	if sess == nil {
 		return
 	}
-	sess.conn.injectInbound(data)
+	if !sess.conn.injectInbound(data) {
+		// Inbound byte-stream overflow: dropping this frame would desync
+		// the yamux demuxer permanently. Reset the session so it rebuilds
+		// and resyncs, same contract as the outbound overflow path.
+		l.logger.Warn("raft mesh: inbound buffer overflow, resetting peer session",
+			zap.String("peer", nodeID))
+		l.removePeer(nodeID)
+	}
 }
 
 // getOrCreateSession returns the yamux session for `peer`, creating it
@@ -357,6 +391,31 @@ func (l *meshStreamLayer) Dial(addr hraft.ServerAddress, timeout time.Duration) 
 	case <-l.closeCh:
 		return nil, net.ErrClosed
 	}
+}
+
+// removePeer tears down the session for a departed peer: it deletes the
+// map entry and closes the yamux session + backing classConn so the
+// session's acceptLoop goroutine exits. Idempotent — a no-op if the peer
+// has no session. Wired to cluster.NodeLeft so a departed node's session
+// (and its goroutine/conn) does not leak, and so a subsequent
+// getOrCreateSession after rejoin builds a fresh session against the
+// node's new incarnation rather than reusing the stale one.
+func (l *meshStreamLayer) removePeer(peer cluster.NodeID) {
+	l.mu.Lock()
+	if l.sessions == nil {
+		l.mu.Unlock()
+		return
+	}
+	sess, ok := l.sessions[peer]
+	if !ok {
+		l.mu.Unlock()
+		return
+	}
+	delete(l.sessions, peer)
+	l.mu.Unlock()
+
+	_ = sess.session.Close()
+	_ = sess.conn.Close()
 }
 
 func (l *meshStreamLayer) Addr() net.Addr { return meshAddr{id: l.self} }

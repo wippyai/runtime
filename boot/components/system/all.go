@@ -13,8 +13,6 @@ func All() []boot.Component {
 		Topology(),
 		Raft(),
 		EventualReg(),
-		KVRaft(),
-		KVEventual(),
 		Lifecycle(),
 		Filesystem(),
 		Environment(),
@@ -28,6 +26,5 @@ func All() []boot.Component {
 		Functions(),
 		PG(),
 		dispatchers.PGDispatcher(),
-		Admin(),
 	}
 }

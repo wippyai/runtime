@@ -15,7 +15,7 @@ import (
 )
 
 // newTestService constructs a Service backed by a direct-apply Raft and
-// flagged as ready so Lookup(WithFence) returns the FSM-resident entry.
+// flagged as ready so Lookup returns the FSM-resident entry.
 func newTestService(fsm *FSM, leader bool) *Service {
 	svc := NewService(newDirectApplyRaft(fsm, leader), fsm, &nopBus{}, nil, &nopRouter{}, nil, "node-1", noopLogger(), nil, nil, nil)
 	svc.mu.Lock()
@@ -38,11 +38,14 @@ func TestScopeTable_Consistent(t *testing.T) {
 	assert.Equal(t, globalreg.RegisterStateActive, out.State)
 	assert.NotZero(t, out.Epoch)
 
-	res, err := svc.Lookup(context.Background(), "svc", globalreg.WithFence())
+	res, err := svc.Lookup(context.Background(), "svc")
 	require.NoError(t, err)
 	assert.True(t, res.Found)
 	assert.Equal(t, p, res.PID)
-	assert.Equal(t, out.Epoch, res.FenceToken)
+	gotPID, gotIdx, found := fsm.State().LookupWithIndex("svc")
+	require.True(t, found)
+	assert.Equal(t, p, gotPID)
+	assert.Equal(t, out.Epoch, gotIdx)
 
 	removed, err := svc.UnregisterScope(context.Background(), "svc", globalreg.Consistent)
 	require.NoError(t, err)
@@ -130,15 +133,17 @@ func TestConsistentScope_ConcurrentCrossNode(t *testing.T) {
 		expectedWinnerPID = pB
 	}
 	assert.Equal(t, expectedWinnerPID, winner.out.PID, "winner's outcome carries its own PID")
-	assert.NotZero(t, winner.out.Epoch, "winner has a fence token")
+	assert.NotZero(t, winner.out.Epoch, "winner has a registration epoch")
 	assert.Equal(t, expectedWinnerPID, loser.out.ExistingPID, "loser's outcome carries the winner's PID")
 
 	for _, svc := range []*Service{svcA, svcB} {
-		res, err := svc.Lookup(context.Background(), name, globalreg.WithFence())
+		res, err := svc.Lookup(context.Background(), name)
 		require.NoError(t, err)
 		require.True(t, res.Found, "both services must see the registration")
 		assert.Equal(t, expectedWinnerPID, res.PID, "lookup PID must equal the winner across both services")
-		assert.Equal(t, winner.out.Epoch, res.FenceToken, "lookup fence must equal the winner's epoch")
+		_, gotIdx, found := svc.fsm.State().LookupWithIndex(name)
+		require.True(t, found)
+		assert.Equal(t, winner.out.Epoch, gotIdx, "registration epoch must equal the winner's epoch")
 	}
 }
 

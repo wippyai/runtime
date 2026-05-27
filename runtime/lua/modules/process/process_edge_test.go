@@ -3,20 +3,25 @@
 package process
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 
+	hraft "github.com/hashicorp/raft"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	globalregapi "github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/system/globalreg"
 )
 
 // --- test helpers ---
@@ -720,6 +725,240 @@ func TestRegistryUnregister_NotFound(t *testing.T) {
 		if ok then error("unregister nonexistent should return false") end
 	`)
 	assert.NoError(t, err)
+}
+
+// --- Scoped registry unregister owner-check ---
+
+// fakeScopedRegistry drives a real globalreg.FSM through the public
+// globalreg.Registry interface so we can exercise the STRONG/CONSISTENT
+// unregister authority check without standing up a real Raft cluster.
+type fakeScopedRegistry struct {
+	fsm      *globalreg.FSM
+	mu       sync.Mutex
+	logIndex uint64
+}
+
+func newFakeScopedRegistry() *fakeScopedRegistry {
+	return &fakeScopedRegistry{fsm: globalreg.NewFSM()}
+}
+
+func (f *fakeScopedRegistry) apply(cmd *globalreg.Command) any {
+	data, err := globalreg.EncodeCommand(cmd)
+	if err != nil {
+		return err
+	}
+	f.logIndex++
+	return f.fsm.Apply(&hraft.Log{Data: data, Index: f.logIndex})
+}
+
+func (f *fakeScopedRegistry) Register(ctx context.Context, name string, p pid.PID) (pid.PID, error) {
+	out, err := f.RegisterScope(ctx, name, p, globalregapi.Consistent)
+	if err != nil {
+		return out.ExistingPID, err
+	}
+	return out.PID, nil
+}
+
+func (f *fakeScopedRegistry) RegisterScope(_ context.Context, name string, p pid.PID, _ globalregapi.RegistrationMode) (globalregapi.RegisterOutcome, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cmd := &globalreg.Command{Type: globalreg.CmdRegister, Name: name, PID: p, NodeID: p.Node}
+	resp := f.apply(cmd)
+	r, ok := resp.(*globalreg.RegisterResult)
+	if !ok {
+		return globalregapi.RegisterOutcome{}, resp.(error)
+	}
+	if r.Err != nil {
+		return globalregapi.RegisterOutcome{ExistingPID: r.ExistingPID}, globalregapi.ErrNameAlreadyRegistered
+	}
+	return globalregapi.RegisterOutcome{PID: r.PID, Epoch: r.FenceToken, State: globalregapi.RegisterStateActive}, nil
+}
+
+func (f *fakeScopedRegistry) Unregister(ctx context.Context, name string) (bool, error) {
+	return f.UnregisterScope(ctx, name, globalregapi.Consistent)
+}
+
+func (f *fakeScopedRegistry) UnregisterScope(_ context.Context, name string, _ globalregapi.RegistrationMode) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cmd := &globalreg.Command{Type: globalreg.CmdUnregister, Name: name}
+	resp := f.apply(cmd)
+	r, ok := resp.(*globalreg.UnregisterResult)
+	if !ok {
+		return false, resp.(error)
+	}
+	return r.Removed, nil
+}
+
+func (f *fakeScopedRegistry) Lookup(_ context.Context, name string, opts ...globalregapi.LookupOption) (globalregapi.LookupResult, error) {
+	var o globalregapi.LookupOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	state := f.fsm.State()
+	if o.ByPID != nil {
+		names := state.LookupByPID(*o.ByPID)
+		return globalregapi.LookupResult{PID: *o.ByPID, NamesForPID: names, Found: len(names) > 0}, nil
+	}
+	p, found := state.Lookup(name)
+	return globalregapi.LookupResult{PID: p, Found: found}, nil
+}
+
+func (f *fakeScopedRegistry) LookupByPID(p pid.PID) []string {
+	r, _ := f.Lookup(context.Background(), "", globalregapi.ByPID(p))
+	return r.NamesForPID
+}
+
+func (f *fakeScopedRegistry) Remove(_ context.Context, p pid.PID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cmd := &globalreg.Command{Type: globalreg.CmdRemovePID, PID: p}
+	f.apply(cmd)
+	return nil
+}
+
+func (f *fakeScopedRegistry) RemoveNode(_ context.Context, n pid.NodeID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cmd := &globalreg.Command{Type: globalreg.CmdRemoveNode, NodeID: n}
+	f.apply(cmd)
+	return nil
+}
+
+var _ globalregapi.Registry = (*fakeScopedRegistry)(nil)
+
+// newLuaWithScopedRegistry binds the process module on a Lua state wired
+// with a runtime PID, a local PIDRegistry, and a global registry backing
+// STRONG/CONSISTENT.
+func newLuaWithScopedRegistry(t *testing.T, p pid.PID, scoped globalregapi.Registry, strict bool) *lua.LState {
+	t.Helper()
+	l := lua.NewState()
+	t.Cleanup(l.Close)
+	bindProcess(l)
+
+	ctx := ctxapi.NewRootContext()
+	security.SetStrictMode(ctx, strict)
+	topology.WithRegistry(ctx, &fakePIDRegistry{})
+	ctx = globalregapi.WithRegistry(ctx, scoped)
+	ctx, fc := ctxapi.OpenFrameContext(ctx)
+	t.Cleanup(func() { ctxapi.ReleaseFrameContext(fc) })
+	require.NoError(t, runtimeapi.SetFramePID(ctx, p))
+	l.SetContext(ctx)
+	return l
+}
+
+// TestRegistryUnregister_Strong_ByHolder verifies the holder can drop its
+// own STRONG name and the entry is removed from the registry.
+func TestRegistryUnregister_Strong_ByHolder(t *testing.T) {
+	reg := newFakeScopedRegistry()
+	holder := pid.PID{Host: "h1", UniqID: "holder", Node: "node-1"}
+
+	_, err := reg.RegisterScope(context.Background(), "mine-strong", holder, globalregapi.Strong)
+	require.NoError(t, err)
+
+	l := newLuaWithScopedRegistry(t, holder, reg, false)
+
+	err = l.DoString(`
+		local ok, err = process.registry.unregister("mine-strong", process.registry.STRONG)
+		if not ok then error("expected true, got " .. tostring(ok) .. " err=" .. tostring(err)) end
+	`)
+	require.NoError(t, err)
+
+	res, _ := reg.Lookup(context.Background(), "mine-strong")
+	require.False(t, res.Found, "name must be gone after holder unregisters")
+}
+
+// TestRegistryUnregister_Strong_NotHolder verifies a non-holder with the
+// permission cannot drop another PID's STRONG name; the registry entry
+// stays held by the original owner.
+func TestRegistryUnregister_Strong_NotHolder(t *testing.T) {
+	reg := newFakeScopedRegistry()
+	holder := pid.PID{Host: "h1", UniqID: "holder", Node: "node-1"}
+	other := pid.PID{Host: "h1", UniqID: "other", Node: "node-1"}
+
+	_, err := reg.RegisterScope(context.Background(), "owned", holder, globalregapi.Strong)
+	require.NoError(t, err)
+
+	l := newLuaWithScopedRegistry(t, other, reg, false)
+
+	err = l.DoString(`
+		local ok = process.registry.unregister("owned", process.registry.STRONG)
+		if ok then error("non-holder must not be able to drop another PID's STRONG name") end
+	`)
+	require.NoError(t, err)
+
+	res, _ := reg.Lookup(context.Background(), "owned")
+	require.True(t, res.Found, "name must remain held by original holder")
+	require.Equal(t, holder, res.PID)
+}
+
+// TestRegistryUnregister_Consistent_ByHolder verifies the holder can drop
+// its own CONSISTENT name.
+func TestRegistryUnregister_Consistent_ByHolder(t *testing.T) {
+	reg := newFakeScopedRegistry()
+	holder := pid.PID{Host: "h1", UniqID: "holder", Node: "node-1"}
+
+	_, err := reg.RegisterScope(context.Background(), "mine-cons", holder, globalregapi.Consistent)
+	require.NoError(t, err)
+
+	l := newLuaWithScopedRegistry(t, holder, reg, false)
+
+	err = l.DoString(`
+		local ok, err = process.registry.unregister("mine-cons", process.registry.CONSISTENT)
+		if not ok then error("expected true, got " .. tostring(ok) .. " err=" .. tostring(err)) end
+	`)
+	require.NoError(t, err)
+
+	res, _ := reg.Lookup(context.Background(), "mine-cons")
+	require.False(t, res.Found, "name must be gone after holder unregisters")
+}
+
+// TestRegistryUnregister_Consistent_NotHolder verifies the same authority
+// check fires for CONSISTENT scope.
+func TestRegistryUnregister_Consistent_NotHolder(t *testing.T) {
+	reg := newFakeScopedRegistry()
+	holder := pid.PID{Host: "h1", UniqID: "holder", Node: "node-1"}
+	other := pid.PID{Host: "h1", UniqID: "other", Node: "node-1"}
+
+	_, err := reg.RegisterScope(context.Background(), "owned-cons", holder, globalregapi.Consistent)
+	require.NoError(t, err)
+
+	l := newLuaWithScopedRegistry(t, other, reg, false)
+
+	err = l.DoString(`
+		local ok = process.registry.unregister("owned-cons", process.registry.CONSISTENT)
+		if ok then error("non-holder must not be able to drop another PID's CONSISTENT name") end
+	`)
+	require.NoError(t, err)
+
+	res, _ := reg.Lookup(context.Background(), "owned-cons")
+	require.True(t, res.Found, "name must remain held by original holder")
+	require.Equal(t, holder, res.PID)
+}
+
+// TestRegistryUnregister_Strong_PermissionDenied verifies the capability
+// gate still fires before the owner check: strict security rejects with
+// a permission-denied error even for the actual holder.
+func TestRegistryUnregister_Strong_PermissionDenied(t *testing.T) {
+	reg := newFakeScopedRegistry()
+	holder := pid.PID{Host: "h1", UniqID: "holder", Node: "node-1"}
+
+	_, err := reg.RegisterScope(context.Background(), "gated", holder, globalregapi.Strong)
+	require.NoError(t, err)
+
+	l := newLuaWithScopedRegistry(t, holder, reg, true)
+
+	err = l.DoString(`
+		local ok, err = process.registry.unregister("gated", process.registry.STRONG)
+		if ok ~= nil then error("expected nil under strict security, got " .. tostring(ok)) end
+		if err == nil then error("expected permission-denied error") end
+	`)
+	require.NoError(t, err)
+
+	res, _ := reg.Lookup(context.Background(), "gated")
+	require.True(t, res.Found, "name must remain on permission denial")
 }
 
 // --- Spawner fields ---

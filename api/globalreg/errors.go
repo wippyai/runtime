@@ -18,43 +18,72 @@ var (
 	// (e.g., no Raft leader, or registry not initialized).
 	ErrNotAvailable = apierror.New(apierror.Unavailable, "global registry not available").WithRetryable(apierror.True)
 
-	// ErrStaleFence is returned when a fencing token is older than the current
-	// registration. This means the name was re-registered after the caller
-	// looked it up — the caller should re-lookup and retry.
-	ErrStaleFence = apierror.New(apierror.Conflict, "stale fencing token: name has been re-registered").WithRetryable(apierror.True)
-
 	// ErrNotReady is returned when the node has not yet caught up with the
 	// Raft log and cannot serve consistent lookups.
 	ErrNotReady = apierror.New(apierror.Unavailable, "global registry not ready: node is catching up").WithRetryable(apierror.True)
 
-	// ErrPendingConflict is returned when a ROOT-scope register attempt
+	// ErrNameServiceNotReady is returned to a participating LOCAL or EVENTUAL
+	// register while the node's join-epoch barrier has not completed. Until the
+	// barrier installs the leader's PENDING∪ACTIVE Strong snapshot and revokes
+	// any conflicting local names, the node cannot safely grant a name that a
+	// Strong reservation may own cluster-wide, so the register is refused
+	// (retryable — the barrier completes shortly after join/rejoin).
+	ErrNameServiceNotReady = apierror.New(apierror.Unavailable, "name service not ready: join-epoch barrier in progress").WithRetryable(apierror.True)
+
+	// ErrPendingConflict is returned when a Strong-scope register attempt
 	// targets a name that is already in the pending state for a different
 	// PID. The reservation must complete (active or expired) before the
 	// next pending attempt is accepted.
-	ErrPendingConflict = apierror.New(apierror.AlreadyExists, "root name reservation pending for different PID").WithRetryable(apierror.False)
+	ErrPendingConflict = apierror.New(apierror.AlreadyExists, "strong name reservation pending for different PID").WithRetryable(apierror.False)
 
-	// ErrRootRegistrationTimeout is returned when a ROOT-scope register
+	// ErrStrongRegistrationTimeout is returned when a Strong-scope register
 	// failed to collect an ack from every live node in the membership
 	// snapshot before its deadline. The error carries the list of missing
-	// node IDs via RootRegistrationTimeoutError so callers can pinpoint
+	// node IDs via StrongRegistrationTimeoutError so callers can pinpoint
 	// the offender.
-	ErrRootRegistrationTimeout = apierror.New(apierror.Timeout, "root registration timed out before all live nodes acked").WithRetryable(apierror.True)
+	ErrStrongRegistrationTimeout = apierror.New(apierror.Timeout, "strong registration timed out before all live nodes acked").WithRetryable(apierror.True)
+
+	// ErrStrongRegistrationRejected is returned when a required node rejected
+	// a Strong-scope register (e.g. a cross-scope conflict). Distinct from a
+	// timeout: the registration failed terminally and is not retryable.
+	ErrStrongRegistrationRejected = apierror.New(apierror.AlreadyExists, "strong registration rejected by a required node").WithRetryable(apierror.False)
 )
 
-// RootRegistrationTimeoutError wraps ErrRootRegistrationTimeout with the
+// StrongRegistrationTimeoutError wraps ErrStrongRegistrationTimeout with the
 // set of nodes that failed to ack in time. Use errors.As(err, &target) on
-// the error returned by Register(ctx, name, pid, Root) to read it.
-type RootRegistrationTimeoutError struct {
+// the error returned by Register(ctx, name, pid, Strong) to read it.
+type StrongRegistrationTimeoutError struct {
 	Name        string
 	MissingAcks []string
 	Epoch       uint64
 }
 
 // Error makes the timeout satisfy the error interface.
-func (e *RootRegistrationTimeoutError) Error() string {
-	return ErrRootRegistrationTimeout.Error() + " (name=" + e.Name + ")"
+func (e *StrongRegistrationTimeoutError) Error() string {
+	return ErrStrongRegistrationTimeout.Error() + " (name=" + e.Name + ")"
 }
 
-// Unwrap exposes the sentinel so errors.Is(err, ErrRootRegistrationTimeout)
-// works on a returned RootRegistrationTimeoutError.
-func (e *RootRegistrationTimeoutError) Unwrap() error { return ErrRootRegistrationTimeout }
+// Unwrap exposes the sentinel so errors.Is(err, ErrStrongRegistrationTimeout)
+// works on a returned StrongRegistrationTimeoutError.
+func (e *StrongRegistrationTimeoutError) Unwrap() error { return ErrStrongRegistrationTimeout }
+
+// StrongConflictError wraps ErrStrongRegistrationRejected with the node that
+// rejected the reservation and the reject reason. Returned by
+// Register(ctx, name, pid, Strong) when a required node NACKs the open. Use
+// errors.As(err, &target) to read it; it is distinct from
+// StrongRegistrationTimeoutError so callers can tell a conflict from a timeout.
+type StrongConflictError struct {
+	Name       string
+	Reason     string
+	RejectedBy string
+	Epoch      uint64
+}
+
+// Error makes the conflict satisfy the error interface.
+func (e *StrongConflictError) Error() string {
+	return ErrStrongRegistrationRejected.Error() + " (name=" + e.Name + " by=" + e.RejectedBy + ")"
+}
+
+// Unwrap exposes the sentinel so errors.Is(err, ErrStrongRegistrationRejected)
+// works on a returned StrongConflictError.
+func (e *StrongConflictError) Unwrap() error { return ErrStrongRegistrationRejected }

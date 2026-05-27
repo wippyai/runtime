@@ -102,14 +102,6 @@ func (t *telemetry) recordFenceToken(pg, node string, token uint64) {
 	t.coll.GaugeSet("pg_fence_token", float64(token), metrics.Labels{"pg": pg, "node": node})
 }
 
-func (t *telemetry) recordFenceRejection(pg, reason string) {
-	if t == nil || t.coll == nil {
-		return
-	}
-
-	t.coll.CounterInc("pg_fence_rejection_total", metrics.Labels{"pg": pg, "reason": reason})
-}
-
 func (t *telemetry) recordGlobalregSize(n int) {
 	if t == nil || t.coll == nil {
 		return
@@ -152,21 +144,24 @@ func (t *telemetry) recordRemoveNodeChunk(node string, count int) {
 	}
 }
 
-func (t *telemetry) recordRootPending(result string) {
+// The Strong-scope counters retain "root" in their emitted metric names as
+// the stable wire identifier consumed by existing dashboards; the Go method
+// names use Strong to match the scope.
+func (t *telemetry) recordStrongPending(result string) {
 	if t == nil || t.coll == nil {
 		return
 	}
 	t.coll.CounterInc("globalreg_root_pending_total", metrics.Labels{"result": result})
 }
 
-func (t *telemetry) recordRootActive(bucket string) {
+func (t *telemetry) recordStrongActive(bucket string) {
 	if t == nil || t.coll == nil {
 		return
 	}
 	t.coll.CounterInc("globalreg_root_active_total", metrics.Labels{"ack_count_bucket": bucket})
 }
 
-func (t *telemetry) recordRootExpired(reason string) {
+func (t *telemetry) recordStrongExpired(reason string) {
 	if t == nil || t.coll == nil {
 		return
 	}
@@ -176,23 +171,32 @@ func (t *telemetry) recordRootExpired(reason string) {
 	t.coll.CounterInc("globalreg_root_expired_total", metrics.Labels{"reason": reason})
 }
 
-func (t *telemetry) recordRootAck(kind string) {
+func (t *telemetry) recordStrongAck(kind string) {
 	if t == nil || t.coll == nil {
 		return
 	}
 	t.coll.CounterInc("globalreg_root_ack_total", metrics.Labels{"kind": kind})
 }
 
-func (t *telemetry) recordRootRelease(reason string) {
+func (t *telemetry) recordStrongRelease(reason string) {
 	if t == nil || t.coll == nil {
 		return
 	}
 	t.coll.CounterInc("globalreg_root_release_total", metrics.Labels{"reason": reason})
 }
 
-func (t *telemetry) setRootPendingInFlight(n int) {
+func (t *telemetry) setStrongPendingInFlight(n int) {
 	if t == nil || t.coll == nil {
 		return
 	}
 	t.coll.GaugeSet("globalreg_root_pending_in_flight", float64(n), nil)
+}
+
+// recordStrongDropRequired counts departed-node prunes of in-flight pending
+// RequiredNodes sets (issued by the leader on NodeLeft).
+func (t *telemetry) recordStrongDropRequired() {
+	if t == nil || t.coll == nil {
+		return
+	}
+	t.coll.CounterInc("globalreg_root_drop_required_total", nil)
 }

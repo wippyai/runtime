@@ -17,14 +17,7 @@ const (
 	RaftName        boot.Name = "raft"
 	GlobalRegName   boot.Name = "globalreg"
 	EventualRegName boot.Name = "eventualreg"
-	KVRaftName      boot.Name = "kvraft"
-	KVEventualName  boot.Name = "kveventual"
 	PGName          boot.Name = "pg"
-	AdminName       boot.Name = "admin"
-
-	// AdminBindAddr is the listen address for the admin HTTP server (e.g.
-	// "0.0.0.0:9091"). Empty disables the server.
-	AdminBindAddr boot.Name = "bind_addr"
 
 	// RaftEnabled is a Raft configuration key
 	RaftEnabled           boot.Name = "enabled"
@@ -35,6 +28,7 @@ const (
 	RaftAdvertiseAddr     boot.Name = "advertise_addr"
 	RaftBootstrap         boot.Name = "bootstrap"
 	RaftMaxVoters         boot.Name = "max_voters"
+	RaftMaxStandbys       boot.Name = "max_standbys"
 	RaftReconcileDebounce boot.Name = "reconcile_debounce"
 	RaftReconcileTimeout  boot.Name = "reconcile_timeout"
 	RaftSnapshotThreshold boot.Name = "snapshot_threshold"
@@ -45,6 +39,10 @@ const (
 	RaftHeartbeatTimeout  boot.Name = "heartbeat_timeout"
 	RaftElectionTimeout   boot.Name = "election_timeout"
 	RaftCommitTimeout     boot.Name = "commit_timeout"
+	// RaftLeaderProbeInterval / RaftLeaderProbeGrace tune the globalreg
+	// leader-reachability monitor that gates name-readiness.
+	RaftLeaderProbeInterval boot.Name = "leader_probe_interval"
+	RaftLeaderProbeGrace    boot.Name = "leader_probe_grace"
 
 	// ClusterEnabled is a Cluster configuration key
 	ClusterEnabled              boot.Name = "enabled"

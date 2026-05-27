@@ -25,25 +25,7 @@ func TestService_Lookup_NoOptions(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, res.Found)
 	assert.Equal(t, p, res.PID)
-	assert.EqualValues(t, 0, res.FenceToken)
 	assert.Nil(t, res.NamesForPID)
-}
-
-func TestService_Lookup_WithFence_AlwaysZero(t *testing.T) {
-	svc := NewService(Config{LocalNodeID: "node-a"})
-	t.Cleanup(func() { _ = svc.Stop() })
-
-	p := makePID("node-a", "h", "p1")
-	_, err := svc.Register("svc.eventual", p)
-	require.NoError(t, err)
-
-	res, err := svc.Lookup(context.Background(), "svc.eventual", globalreg.WithFence())
-	require.NoError(t, err,
-		"WithFence on eventual must be valid, not an error")
-	assert.True(t, res.Found)
-	assert.Equal(t, p, res.PID)
-	assert.EqualValues(t, 0, res.FenceToken,
-		"eventual registry has no fence, token stays zero")
 }
 
 func TestService_Lookup_NotFound(t *testing.T) {

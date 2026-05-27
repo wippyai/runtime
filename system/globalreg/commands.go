@@ -20,7 +20,7 @@ const (
 	// CmdRemoveNode removes all names for all PIDs on a node (node failure).
 	CmdRemoveNode CommandType = 4
 
-	// CmdRegisterPending opens a Root-scope reservation. The name is
+	// CmdRegisterPending opens a Strong-scope reservation. The name is
 	// reserved (no other pid may overwrite) but not authoritative until
 	// every node in RequiredNodes acks the committed epoch.
 	CmdRegisterPending CommandType = 5
@@ -32,9 +32,19 @@ const (
 	// CmdRegisterExpired releases a pending reservation whose deadline
 	// elapsed before every required node acked.
 	CmdRegisterExpired CommandType = 7
-	// CmdRegisterUnreserve removes a pending or active Root entry on
+	// CmdRegisterUnreserve removes a pending or active Strong entry on
 	// explicit caller request (Service.UnregisterScope).
 	CmdRegisterUnreserve CommandType = 8
+
+	// CmdDropRequired removes a departed node from an in-flight pending
+	// reservation's RequiredNodes set. If the remaining ack set then covers
+	// the reduced required set the FSM promotes the entry to active in the
+	// same Apply. The leader issues one per affected pending on NodeLeft.
+	CmdDropRequired CommandType = 9
+	// CmdRegisterReject terminally fails a pending reservation when a
+	// required node rejects it (cross-scope conflict). NACK dominates: a
+	// valid reject fails the registration even if other acks are arriving.
+	CmdRegisterReject CommandType = 10
 )
 
 // Command is the unit of mutation applied to the FSM via Raft.

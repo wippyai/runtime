@@ -19,11 +19,18 @@ type shard struct {
 	mu       sync.RWMutex
 }
 
-// nameEntry records the owner of a global name.
+// nameEntry records the owner of a global name. RequiredNodes/Epoch are
+// populated only for a promoted Strong name: RequiredNodes is the exclusion
+// holder set (so a terminal removal of the active name can deliver an exclusion
+// release) and Epoch is the reservation epoch the exclusion was latched at (so
+// the release is indexed to the held instance). Both are empty/zero for
+// Consistent-scope entries.
 type nameEntry struct {
-	PID       pid.PID
-	NodeID    pid.NodeID
-	AppliedAt uint64 // Raft log index that created/updated this entry
+	PID           pid.PID
+	NodeID        pid.NodeID
+	RequiredNodes []pid.NodeID
+	AppliedAt     uint64
+	Epoch         uint64
 }
 
 // shardedState is the in-memory state machine, split into shardCount shards.
@@ -38,10 +45,10 @@ type shardedState struct {
 	expiredMu sync.Mutex
 }
 
-// expiredRingCap caps the in-memory history of expired ROOT reservations.
+// expiredRingCap caps the in-memory history of expired Strong reservations.
 const expiredRingCap = 64
 
-// pendingEntry captures a Root-scope reservation in flight.
+// pendingEntry captures a Strong-scope reservation in flight.
 type pendingEntry struct {
 	AckSet           map[pid.NodeID]struct{}
 	PID              pid.PID
@@ -53,17 +60,18 @@ type pendingEntry struct {
 	CreatedAt        int64
 }
 
-// ExpiredRecord is the public view of a released Root reservation.
+// ExpiredRecord is the public view of a released Strong reservation.
 type ExpiredRecord struct {
 	PID         pid.PID      `json:"pid"`
 	Name        string       `json:"name"`
 	Reason      string       `json:"reason"`
+	RejectedBy  pid.NodeID   `json:"rejected_by,omitempty"`
 	MissingAcks []pid.NodeID `json:"missing_acks,omitempty"`
 	Epoch       uint64       `json:"epoch"`
 	ExpiredAt   int64        `json:"expired_at_unix_nano"`
 }
 
-// PendingView is the public read-only view of a Root reservation.
+// PendingView is the public read-only view of a Strong reservation.
 type PendingView struct {
 	PID              pid.PID      `json:"pid"`
 	Name             string       `json:"name"`
@@ -113,10 +121,10 @@ func (s *shardedState) Lookup(name string) (pid.PID, bool) {
 	return e.PID, true
 }
 
-// LookupWithFence returns the PID and fencing token (Raft log index) for a name.
-// The fencing token should be attached to messages so receivers can reject
-// stale references after a name has been re-registered.
-func (s *shardedState) LookupWithFence(name string) (pid.PID, uint64, bool) {
+// LookupWithIndex returns the PID and registration index (Raft log index at
+// which the name was committed) for a name. The index orders registrations
+// and feeds the Strong-scope activation epoch.
+func (s *shardedState) LookupWithIndex(name string) (pid.PID, uint64, bool) {
 	sh := &s.shards[shardFor(name)]
 	sh.mu.RLock()
 	e, ok := sh.names[name]
@@ -125,21 +133,6 @@ func (s *shardedState) LookupWithFence(name string) (pid.PID, uint64, bool) {
 		return pid.PID{}, 0, false
 	}
 	return e.PID, e.AppliedAt, true
-}
-
-// ValidateFence checks whether a fencing token is still valid for a name.
-// Returns true if the token matches or exceeds the current registration's
-// AppliedAt index (i.e., the caller's view is not stale).
-func (s *shardedState) ValidateFence(name string, token uint64) bool {
-	sh := &s.shards[shardFor(name)]
-	sh.mu.RLock()
-	e, ok := sh.names[name]
-	sh.mu.RUnlock()
-	if !ok {
-		// Name no longer exists — the caller's reference is stale.
-		return false
-	}
-	return token >= e.AppliedAt
 }
 
 // Len returns the total number of registered names across all shards.
@@ -237,16 +230,15 @@ const (
 	pendingConflictPending
 )
 
-// registerPending opens a Root-scope reservation. The reservation is rejected
+// registerPending opens a Strong-scope reservation. The reservation is rejected
 // if the name is already active (registerConflictActive) or already pending
 // for a different PID (pendingConflictPending). Re-submitting the same name+PID
 // while pending is idempotent (pendingDedupe).
 //
-// The strict snapshot policy applies: requiredNodes is captured by the leader
-// at the moment of the pending commit and embedded in the log entry so every
-// replica sees the same set during replay. We deliberately do not refresh it
-// when a node leaves — the spec requires the reservation to fail in that case
-// rather than redefine its own quorum on the fly. See PR241-T4 §C.
+// requiredNodes is stamped by the leader at the pending commit and embedded in
+// the log entry so every replica sees the same set during replay. A node-leave
+// prunes the departed node from this set deterministically via CmdDropRequired
+// (state.dropRequired), never by re-reading membership inside Apply.
 func (s *shardedState) registerPending(name string, p pid.PID, nodeID pid.NodeID, epoch uint64, required []pid.NodeID, deadline int64, createdAt int64) (pid.PID, pendingOutcome) {
 	sh := &s.shards[shardFor(name)]
 	sh.mu.RLock()
@@ -308,6 +300,75 @@ func ackComplete(e *pendingEntry) bool {
 	return true
 }
 
+// dropRequired removes a departed node from an in-flight pending entry's
+// RequiredNodes set. Returns the entry (post-update), whether a node was
+// actually removed, and whether the ack set now covers the reduced required
+// set (so the caller can promote in the same Apply). Idempotent: a drop for a
+// node no longer required, an unknown name, or a mismatched epoch returns
+// dropped=false.
+func (s *shardedState) dropRequired(name string, epoch uint64, node pid.NodeID) (*pendingEntry, bool, bool) {
+	s.pendingMu.Lock()
+	defer s.pendingMu.Unlock()
+	e, ok := s.pending[name]
+	if !ok || e.Epoch != epoch {
+		return nil, false, false
+	}
+	idx := -1
+	for i, n := range e.RequiredNodes {
+		if n == node {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return e, false, ackComplete(e)
+	}
+	e.RequiredNodes = append(e.RequiredNodes[:idx], e.RequiredNodes[idx+1:]...)
+	return e, true, ackComplete(e)
+}
+
+// rejectPending terminally fails a pending reservation rejected by a required
+// node. The entry is removed and recorded in the expired ring with the
+// rejecter and reason. Returns the entry and true on success; false if the
+// name is unknown or the epoch mismatches (stale reject).
+func (s *shardedState) rejectPending(name string, epoch uint64, rejecter pid.NodeID, reason string, expiredAt int64) (*pendingEntry, bool) {
+	s.pendingMu.Lock()
+	e, ok := s.pending[name]
+	if !ok || e.Epoch != epoch {
+		s.pendingMu.Unlock()
+		return nil, false
+	}
+	delete(s.pending, name)
+	s.pendingMu.Unlock()
+
+	missing := make([]pid.NodeID, 0, len(e.RequiredNodes))
+	for _, n := range e.RequiredNodes {
+		if _, acked := e.AckSet[n]; !acked {
+			missing = append(missing, n)
+		}
+	}
+
+	s.expiredMu.Lock()
+	rec := ExpiredRecord{
+		Name:        name,
+		PID:         e.PID,
+		Epoch:       epoch,
+		Reason:      reason,
+		RejectedBy:  rejecter,
+		MissingAcks: missing,
+		ExpiredAt:   expiredAt,
+	}
+	if len(s.expired) < expiredRingCap {
+		s.expired = append(s.expired, rec)
+	} else {
+		copy(s.expired, s.expired[1:])
+		s.expired[len(s.expired)-1] = rec
+	}
+	s.expiredMu.Unlock()
+
+	return e, true
+}
+
 // promotePending moves a pending entry into the active names map. Callers
 // must have already verified that recordAck returned complete=true.
 // activationIndex is the Raft log index of the CmdRegisterAck that completed
@@ -322,9 +383,17 @@ func (s *shardedState) promotePending(name string, epoch uint64, activationIndex
 	delete(s.pending, name)
 	s.pendingMu.Unlock()
 
+	req := make([]pid.NodeID, len(e.RequiredNodes))
+	copy(req, e.RequiredNodes)
 	sh := &s.shards[shardFor(name)]
 	sh.mu.Lock()
-	sh.names[name] = &nameEntry{PID: e.PID, NodeID: e.NodeID, AppliedAt: activationIndex}
+	sh.names[name] = &nameEntry{
+		PID:           e.PID,
+		NodeID:        e.NodeID,
+		AppliedAt:     activationIndex,
+		RequiredNodes: req,
+		Epoch:         e.Epoch,
+	}
 	pidKey := e.PID.String()
 	sh.pidNames[pidKey] = append(sh.pidNames[pidKey], name)
 	sh.mu.Unlock()
@@ -372,7 +441,7 @@ func (s *shardedState) expirePending(name string, epoch uint64, reason string, e
 }
 
 // unreservePending drops a pending entry without recording it as expired.
-// Used by explicit UnregisterScope(Root) before activation completes.
+// Used by explicit UnregisterScope(Strong) before activation completes.
 func (s *shardedState) unreservePending(name string, p pid.PID) (*pendingEntry, bool) {
 	s.pendingMu.Lock()
 	defer s.pendingMu.Unlock()
@@ -397,6 +466,94 @@ func (s *shardedState) pendingByName(name string) *PendingView {
 		return nil
 	}
 	return e.view()
+}
+
+// strongActiveView is a read-only view of a promoted Strong name. A promoted
+// Strong entry is distinguished from a plain Consistent register by carrying a
+// non-empty RequiredNodes set and a non-zero Epoch (set at promotePending);
+// Consistent entries leave both empty/zero. The join-epoch snapshot enumerates
+// these so a joining node installs an Active exclusion for each.
+type strongActiveView struct {
+	PID   pid.PID
+	Name  string
+	Epoch uint64
+}
+
+// activeBinding is a read-only view of an ACTIVE binding (any scope), keyed by
+// the Raft index at which the binding was committed. The join-snapshot
+// enumerates these so a joining node seeds the dissem cache for CONSISTENT
+// names alongside the existing STRONG seeding.
+type activeBinding struct {
+	PID       pid.PID
+	Name      string
+	RaftIndex uint64
+}
+
+// listActiveConsistent returns every active CONSISTENT name across all shards.
+// CONSISTENT and STRONG entries are distinguished by RequiredNodes: STRONG
+// carries the exclusion-holder set, CONSISTENT leaves it empty.
+func (s *shardedState) listActiveConsistent() []activeBinding {
+	for i := range s.shards {
+		s.shards[i].mu.RLock()
+	}
+	var out []activeBinding
+	for i := range s.shards {
+		sh := &s.shards[i]
+		for name, e := range sh.names {
+			if len(e.RequiredNodes) > 0 {
+				continue
+			}
+			out = append(out, activeBinding{Name: name, PID: e.PID, RaftIndex: e.AppliedAt})
+		}
+	}
+	for i := range s.shards {
+		s.shards[i].mu.RUnlock()
+	}
+	return out
+}
+
+// allActiveNames returns every active name across all shards (CONSISTENT and
+// STRONG). Used by anti-entropy digest construction on members where the FSM
+// is authoritative.
+func (s *shardedState) allActiveNames() []string {
+	for i := range s.shards {
+		s.shards[i].mu.RLock()
+	}
+	var out []string
+	for i := range s.shards {
+		sh := &s.shards[i]
+		for name := range sh.names {
+			out = append(out, name)
+		}
+	}
+	for i := range s.shards {
+		s.shards[i].mu.RUnlock()
+	}
+	return out
+}
+
+// listActiveStrong returns every promoted Strong name across all shards. It
+// holds all shard read-locks for a point-in-time consistent view, matching
+// snapshot(). The discriminator is len(RequiredNodes) > 0 — only a promoted
+// Strong entry carries the exclusion-holder set.
+func (s *shardedState) listActiveStrong() []strongActiveView {
+	for i := range s.shards {
+		s.shards[i].mu.RLock()
+	}
+	var out []strongActiveView
+	for i := range s.shards {
+		sh := &s.shards[i]
+		for name, e := range sh.names {
+			if len(e.RequiredNodes) == 0 {
+				continue
+			}
+			out = append(out, strongActiveView{Name: name, PID: e.PID, Epoch: e.Epoch})
+		}
+	}
+	for i := range s.shards {
+		s.shards[i].mu.RUnlock()
+	}
+	return out
 }
 
 // listPending returns a snapshot of every current pending entry.
@@ -446,24 +603,33 @@ func (e *pendingEntry) view() *PendingView {
 
 // unregister removes a single name. Returns true if the name existed.
 func (s *shardedState) unregister(name string) bool {
+	_, ok := s.unregisterEntry(name)
+	return ok
+}
+
+// unregisterEntry removes a single name and returns a copy of the removed entry.
+// The copy lets callers deliver an exclusion release to a promoted Strong name's
+// holders (RequiredNodes/Epoch) on terminal removal.
+func (s *shardedState) unregisterEntry(name string) (nameEntry, bool) {
 	sh := &s.shards[shardFor(name)]
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
 
 	entry, ok := sh.names[name]
 	if !ok {
-		return false
+		return nameEntry{}, false
 	}
+	removed := *entry
 
 	delete(sh.names, name)
 
 	pidKey := entry.PID.String()
 	s.removePIDName(sh, pidKey, name)
-	return true
+	return removed, true
 }
 
 // lookupPendingByPID returns the names this PID currently holds a pending
-// Root reservation for. Used by removePID to also drop reservations the
+// Strong reservation for. Used by removePID to also drop reservations the
 // owning process opened.
 func (s *shardedState) lookupPendingByPID(p pid.PID) []string {
 	s.pendingMu.RLock()
@@ -477,11 +643,34 @@ func (s *shardedState) lookupPendingByPID(p pid.PID) []string {
 	return out
 }
 
+// strongTerminal identifies a promoted Strong name removed by a terminal so the
+// caller can deliver an exclusion release to its holders.
+type strongTerminal struct {
+	Name          string
+	PID           pid.PID
+	RequiredNodes []pid.NodeID
+	Epoch         uint64
+}
+
 // removePID removes all names for a given PID across all shards.
-// This locks shards in index order to prevent deadlocks.
-func (s *shardedState) removePID(p pid.PID) int {
+// This locks shards in index order to prevent deadlocks. Returns the count
+// removed and any promoted Strong names removed (those carrying RequiredNodes)
+// so the caller can release their exclusions on the holders.
+func (s *shardedState) removePID(p pid.PID) (int, []strongTerminal) {
+	_, count, strongs := s.removePIDWithNames(p)
+	return count, strongs
+}
+
+// removePIDWithNames mirrors removePID but also returns the full list of names
+// removed (active CONSISTENT or STRONG). Dissem uses the list to emit one
+// tombstone broadcast per name.
+func (s *shardedState) removePIDWithNames(p pid.PID) ([]string, int, []strongTerminal) {
 	pidKey := p.String()
 	removed := 0
+	var (
+		strongs    []strongTerminal
+		removedAll []string
+	)
 
 	// Collect names to remove from each shard.
 	for i := range s.shards {
@@ -490,6 +679,21 @@ func (s *shardedState) removePID(p pid.PID) int {
 		names, ok := sh.pidNames[pidKey]
 		if ok {
 			for _, name := range names {
+				e, present := sh.names[name]
+				if !present {
+					continue
+				}
+				if len(e.RequiredNodes) > 0 {
+					req := make([]pid.NodeID, len(e.RequiredNodes))
+					copy(req, e.RequiredNodes)
+					strongs = append(strongs, strongTerminal{
+						Name:          name,
+						PID:           e.PID,
+						RequiredNodes: req,
+						Epoch:         e.Epoch,
+					})
+				}
+				removedAll = append(removedAll, name)
 				delete(sh.names, name)
 				removed++
 			}
@@ -512,21 +716,40 @@ func (s *shardedState) removePID(p pid.PID) int {
 		return true
 	})
 
-	return removed
+	return removedAll, removed, strongs
 }
 
 // removeNode removes up to `limit` names for PIDs on a node. If limit ≤ 0, all
 // matching names are removed in a single call (legacy behavior). Returns the
-// number removed and whether more remain — callers can chunk to keep each
-// FSM Apply bounded so other writes interleave.
-func (s *shardedState) removeNode(nodeID pid.NodeID, limit int) (int, bool) {
+// number removed, whether more remain — callers can chunk to keep each FSM
+// Apply bounded so other writes interleave — and any promoted Strong names
+// removed (those carrying RequiredNodes) so the caller can release their
+// exclusions on the surviving holders.
+//
+// Deprecated: use removeNodeWithNames; this wrapper drops the per-name list.
+func (s *shardedState) removeNode(nodeID pid.NodeID, limit int) (int, bool, []strongTerminal) {
+	_, count, hasMore, strongs := s.removeNodeWithNames(nodeID, limit)
+	return count, hasMore, strongs
+}
+
+// removedNameEntry records one (name, pid) tuple a removeNode pass dropped, so
+// the dissem broadcaster can emit a per-name tombstone with the correct pid.
+type removedNameEntry struct {
+	Name string
+	PID  pid.PID
+}
+
+// removeNodeWithNames mirrors removeNode but also returns the per-name list of
+// removed (name, pid) tuples. Dissem uses the list to emit one tombstone per
+// removed name.
+func (s *shardedState) removeNodeWithNames(nodeID pid.NodeID, limit int) ([]removedNameEntry, int, bool, []strongTerminal) {
 	val, ok := s.nodeIndex.Load(nodeID)
 	if !ok {
-		return 0, false
+		return nil, 0, false, nil
 	}
 	ps, ok := val.(*pidSet)
 	if !ok {
-		return 0, false
+		return nil, 0, false, nil
 	}
 
 	// Snapshot pidKeys without releasing pidSet lock, so a concurrent
@@ -546,6 +769,10 @@ func (s *shardedState) removeNode(nodeID pid.NodeID, limit int) (int, bool) {
 
 	removed := 0
 	hitLimit := false
+	var (
+		strongs    []strongTerminal
+		removedAll []removedNameEntry
+	)
 	for i := range s.shards {
 		if hitLimit {
 			break
@@ -562,6 +789,21 @@ func (s *shardedState) removeNode(nodeID pid.NodeID, limit int) (int, bool) {
 				if cap >= 0 && removed >= cap {
 					break
 				}
+				e, present := sh.names[names[j]]
+				if !present {
+					continue
+				}
+				if len(e.RequiredNodes) > 0 {
+					req := make([]pid.NodeID, len(e.RequiredNodes))
+					copy(req, e.RequiredNodes)
+					strongs = append(strongs, strongTerminal{
+						Name:          names[j],
+						PID:           e.PID,
+						RequiredNodes: req,
+						Epoch:         e.Epoch,
+					})
+				}
+				removedAll = append(removedAll, removedNameEntry{Name: names[j], PID: e.PID})
 				delete(sh.names, names[j])
 				removed++
 			}
@@ -590,7 +832,7 @@ func (s *shardedState) removeNode(nodeID pid.NodeID, limit int) (int, bool) {
 		}
 	}
 
-	return removed, hitLimit
+	return removedAll, removed, hitLimit, strongs
 }
 
 // --- Helpers ---
@@ -622,14 +864,18 @@ func (s *shardedState) addToNodeIndex(nodeID pid.NodeID, pidKey string) {
 // --- Snapshot support ---
 
 // snapshotEntry is the serialisable form of a single name registration.
+// RequiredNodes/Epoch are present only for a promoted Strong name so a terminal
+// removal after a snapshot restore can still deliver an exclusion release.
 type snapshotEntry struct {
-	Name      string     `codec:"n"`
-	PID       pid.PID    `codec:"p"`
-	NodeID    pid.NodeID `codec:"d"`
-	AppliedAt uint64     `codec:"a"`
+	PID           pid.PID      `codec:"p"`
+	Name          string       `codec:"n"`
+	NodeID        pid.NodeID   `codec:"d"`
+	RequiredNodes []pid.NodeID `codec:"r,omitempty"`
+	Epoch         uint64       `codec:"ep,omitempty"`
+	AppliedAt     uint64       `codec:"a"`
 }
 
-// pendingSnapshotEntry is the serialisable form of a Root pending reservation.
+// pendingSnapshotEntry is the serialisable form of a Strong pending reservation.
 // Carried alongside `entries` in the FSM snapshot so a recovering node
 // resumes mid-flight reservations after a Raft replay.
 type pendingSnapshotEntry struct {
@@ -702,11 +948,18 @@ func (s *shardedState) snapshot() []snapshotEntry {
 	for i := range s.shards {
 		sh := &s.shards[i]
 		for name, e := range sh.names {
+			var req []pid.NodeID
+			if len(e.RequiredNodes) > 0 {
+				req = make([]pid.NodeID, len(e.RequiredNodes))
+				copy(req, e.RequiredNodes)
+			}
 			entries = append(entries, snapshotEntry{
-				Name:      name,
-				PID:       e.PID,
-				NodeID:    e.NodeID,
-				AppliedAt: e.AppliedAt,
+				Name:          name,
+				PID:           e.PID,
+				NodeID:        e.NodeID,
+				AppliedAt:     e.AppliedAt,
+				RequiredNodes: req,
+				Epoch:         e.Epoch,
 			})
 		}
 	}
@@ -734,7 +987,18 @@ func (s *shardedState) restore(entries []snapshotEntry, pending []pendingSnapsho
 
 	for _, e := range entries {
 		sh := &s.shards[shardFor(e.Name)]
-		sh.names[e.Name] = &nameEntry{PID: e.PID, NodeID: e.NodeID, AppliedAt: e.AppliedAt}
+		var req []pid.NodeID
+		if len(e.RequiredNodes) > 0 {
+			req = make([]pid.NodeID, len(e.RequiredNodes))
+			copy(req, e.RequiredNodes)
+		}
+		sh.names[e.Name] = &nameEntry{
+			PID:           e.PID,
+			NodeID:        e.NodeID,
+			AppliedAt:     e.AppliedAt,
+			RequiredNodes: req,
+			Epoch:         e.Epoch,
+		}
 		pidKey := e.PID.String()
 		sh.pidNames[pidKey] = append(sh.pidNames[pidKey], e.Name)
 		s.addToNodeIndex(e.NodeID, pidKey)

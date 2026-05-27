@@ -78,10 +78,11 @@ type ManagerConfig struct {
 	RaftControlQueueCap int
 	GossipQueueCap      int
 	PGBroadcastQueueCap int
-	// RaftMeshQueueCap caps the per-peer queue for multiplexed Raft
-	// transport frames (ClassRaftMesh). Sized like RaftControl: under
-	// healthy steady state Raft frames drain fast; under partition we
-	// must drop-oldest to avoid OOM and let pre-vote recover.
+	// RaftMeshQueueCap caps the per-peer queue for the multiplexed Raft
+	// transport byte-stream (ClassRaftMesh). Sized like RaftControl: under
+	// healthy steady state Raft frames drain fast. On overflow the queue
+	// is cleared and the peer's mesh session is reset (drop-oldest is
+	// unsafe for a byte-stream) so yamux+raft resync and pre-vote recovers.
 	RaftMeshQueueCap int
 	// OutboundConnQueueCap caps the per-connection outbound queue inside
 	// NodeConnection (drain target of the per-class queues above). Without
@@ -206,6 +207,17 @@ type ConnectionManager interface {
 	// uses this to claim ClassRaftMesh; the default class set continues
 	// to flow through Start's onMessage.
 	RegisterClassReceiver(class Class, recv func(nodeID cluster.NodeID, data []byte)) bool
+
+	// RegisterClassOverflowHandler wires a callback invoked when the
+	// per-peer send queue for `class` overflows and the class's drop
+	// policy is "reset the underlying transport" rather than drop a
+	// frame. Only ClassRaftMesh uses this: its queue carries a
+	// yamux byte-stream, so on overflow the handler tears down the
+	// peer's mesh session (close + rebuild) instead of dropping a
+	// frame from the middle of the stream. The handler is invoked off
+	// the producer's goroutine and MUST NOT block. Returns false if a
+	// handler is already registered for the class.
+	RegisterClassOverflowHandler(class Class, handler func(nodeID cluster.NodeID)) bool
 }
 
 type manager struct {
@@ -218,11 +230,13 @@ type manager struct {
 	nodeStates       *NodeStateManager
 	controlLoops     map[cluster.NodeID]*nodeControlLoop
 	classReceivers   [numClasses]func(cluster.NodeID, []byte)
+	classOverflow    [numClasses]func(cluster.NodeID)
 	config           ManagerConfig
 	wg               sync.WaitGroup
 	actualPort       int
 	controlLoopsMu   sync.Mutex
 	classReceiversMu sync.RWMutex
+	classOverflowMu  sync.RWMutex
 }
 
 func NewConnectionManager(config ManagerConfig, coll metrics.Collector) ConnectionManager {
@@ -294,6 +308,17 @@ func (m *manager) SendToNode(nodeID cluster.NodeID, data []byte, class Class) er
 			// log to avoid the kind of flood we saw during chaos (thousands
 			// per second per pod). The metric is the source of truth.
 			m.nodeStates.tel.recordDrop(class, "node_not_managed")
+			return nil
+		}
+		if errors.Is(err, ErrRaftMeshOverflow) {
+			// Byte-stream overflow: the queue already discarded the pending
+			// stream and recorded drops. Reset the peer's mesh session so
+			// yamux+raft re-establish cleanly. Run off this goroutine so a
+			// reset never blocks the producer (the handler closes a session;
+			// the rebuild happens lazily on the next frame).
+			if h := m.lookupClassOverflow(class); h != nil {
+				go h(nodeID)
+			}
 			return nil
 		}
 		// ErrQueueFull surfaces to the caller (broadcast path will count it).
@@ -422,6 +447,32 @@ func (m *manager) lookupClassReceiver(class Class) func(cluster.NodeID, []byte) 
 	recv := m.classReceivers[class]
 	m.classReceiversMu.RUnlock()
 	return recv
+}
+
+// RegisterClassOverflowHandler claims the overflow-reset hook for a Class.
+// Registering nil clears the handler. Returns false if a non-nil handler is
+// already registered for that class.
+func (m *manager) RegisterClassOverflowHandler(class Class, handler func(cluster.NodeID)) bool {
+	if int(class) >= numClasses {
+		return false
+	}
+	m.classOverflowMu.Lock()
+	defer m.classOverflowMu.Unlock()
+	if handler != nil && m.classOverflow[class] != nil {
+		return false
+	}
+	m.classOverflow[class] = handler
+	return true
+}
+
+func (m *manager) lookupClassOverflow(class Class) func(cluster.NodeID) {
+	if int(class) >= numClasses {
+		return nil
+	}
+	m.classOverflowMu.RLock()
+	h := m.classOverflow[class]
+	m.classOverflowMu.RUnlock()
+	return h
 }
 
 // EvictOrphanNodes walks the controlLoops + nodeStates and removes any

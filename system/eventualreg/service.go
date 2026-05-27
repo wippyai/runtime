@@ -9,10 +9,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/wippyai/runtime/api/cluster"
+	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
@@ -23,6 +27,10 @@ var (
 	// different PID held locally (the cluster-wide check is best-effort
 	// because EVENTUAL is — by design — eventually consistent).
 	ErrNameAlreadyRegistered = errors.New("eventualreg: name already registered")
+	// ErrNameServiceNotReady is returned by a fresh EVENTUAL register while the
+	// node's join-epoch barrier is still in progress. Retryable: the barrier
+	// completes shortly after join/rejoin.
+	ErrNameServiceNotReady = errors.New("eventualreg: name service not ready: join-epoch barrier in progress")
 )
 
 // PeerInventory abstracts the source of "alive peer" node strings. The
@@ -33,13 +41,17 @@ type PeerInventory interface {
 	AlivePeers() []string
 }
 
-// CrossScopeChecker abstracts the GLOBAL/LOCAL registries so EVENTUAL
+// CrossScopeChecker abstracts the CONSISTENT/LOCAL registries so EVENTUAL
 // registrations can refuse to shadow them. Returning a non-empty PID with
 // `found=true` means the name is held in another scope.
 type CrossScopeChecker interface {
 	// LookupOther returns (PID, true) if the name is held in any non-Eventual
-	// scope (Global via Raft, or Local via PIDRegistry).
+	// scope (Consistent via Raft, or Local via PIDRegistry).
 	LookupOther(name string) (pid.PID, bool)
+	// NameReady reports whether the node's join-epoch barrier has completed. A
+	// fresh EVENTUAL register is refused (ErrNameServiceNotReady) until it is true
+	// so the node cannot shadow a cluster-wide Strong name it has not yet learned.
+	NameReady() bool
 }
 
 // MessageSender ships a targeted reliable frame to a specific peer.
@@ -59,16 +71,26 @@ type MessageSender interface {
 type Config struct {
 	// Peers supplies the current alive peer set.
 	Peers PeerInventory
-	// CrossScope optionally cross-checks GLOBAL/LOCAL on Register.
+	// CrossScope optionally cross-checks CONSISTENT/LOCAL on Register.
 	CrossScope CrossScopeChecker
 	// MetricsCollector may be nil.
 	MetricsCollector metrics.Collector
 	// Logger may be nil.
 	Logger *zap.Logger
+	// Bus delivers cluster.NodeLeft events so the service can reap a
+	// departed node's live bindings. When nil, node-leave reaping is
+	// disabled (tombstones still age out via wall-floor GC).
+	Bus event.Bus
 	// Sender ships targeted reliable frames for the shard-pull path.
 	// When nil, mismatch detection still works but the recovery
 	// channel is offline (convergence falls back to GC).
 	Sender MessageSender
+	// Revoker delivers name_revoked notifications to local processes that
+	// lost a name to a different origin. It is the relay router: a package
+	// targeted at the local PID on TopicEvents lands in that process's
+	// mailbox. When nil, loss detection still mutates state correctly but no
+	// signal is delivered.
+	Revoker relay.Receiver
 	// LocalNodeID is the string nodeID of this replica.
 	LocalNodeID string
 	// AntiEntropyPeriod is the cadence at which we expect Delegate.LocalState
@@ -98,9 +120,11 @@ type Service struct {
 	// lastShardRequest tracks per-peer cooldown for shard-pull requests.
 	// Key: peer node string. Value: unix-nanos of the last request emitted.
 	// Reads/writes are guarded by lastShardRequestMu.
-	lastShardRequest   map[string]int64
-	cfg                Config
-	stopOnce           sync.Once
+	lastShardRequest map[string]int64
+	nodeLeftSub      *eventbus.Subscriber
+	cfg              Config
+	stopOnce         sync.Once
+	// lastShardRequestMu guards lastShardRequest.
 	lastShardRequestMu sync.Mutex
 	stopped            atomic.Bool
 }
@@ -127,7 +151,7 @@ func NewService(cfg Config) *Service {
 	}
 
 	state := NewState(cfg.LocalNodeID)
-	queue := NewBroadcastQueue(cfg.LocalNodeID, cfg.BroadcastCap)
+	queue := NewBroadcastQueue(cfg.LocalNodeID, cfg.BroadcastCap, state.NodeString)
 	tracker := NewTombstoneTracker()
 	tel := newTelemetry(cfg.MetricsCollector, cfg.LocalNodeID)
 
@@ -153,15 +177,26 @@ func NewService(cfg Config) *Service {
 		OnWallFloor: func(n int) {
 			tel.recordTombstoneGC("wall_floor", n)
 		},
+		OnReclaim: func(n int) {
+			tel.recordNodeReclaim(n)
+		},
 	}
 	s.gc = NewGCRunner(gcCfg)
 
 	return s
 }
 
-// Start begins background tasks (GC reaper).
-func (s *Service) Start(_ context.Context) error {
+// Start begins background tasks (GC reaper) and subscribes to cluster
+// NodeLeft so a departed node's live bindings get reaped.
+func (s *Service) Start(ctx context.Context) error {
 	s.gc.Start()
+	if s.cfg.Bus != nil {
+		sub, err := eventbus.NewSubscriber(ctx, s.cfg.Bus, cluster.System, cluster.NodeLeft, s.onNodeLeftEvent)
+		if err != nil {
+			return err
+		}
+		s.nodeLeftSub = sub
+	}
 	s.logger.Info("eventualreg started",
 		zap.String("node", s.cfg.LocalNodeID),
 		zap.Duration("anti_entropy_period", s.cfg.AntiEntropyPeriod),
@@ -173,6 +208,9 @@ func (s *Service) Start(_ context.Context) error {
 func (s *Service) Stop() error {
 	s.stopOnce.Do(func() {
 		s.stopped.Store(true)
+		if s.nodeLeftSub != nil {
+			s.nodeLeftSub.Close()
+		}
 		s.gc.Stop()
 	})
 	s.logger.Info("eventualreg stopped")
@@ -181,16 +219,37 @@ func (s *Service) Stop() error {
 
 // --- Public API ---
 
+// RegisterOption configures a Register call.
+type RegisterOption func(*registerOptions)
+
+type registerOptions struct {
+	priority uint32
+}
+
+// WithPriority sets the cross-origin conflict precedence for the registration.
+// Higher priority wins concurrent cross-origin conflicts regardless of arrival
+// order. Default 0.
+func WithPriority(p uint32) RegisterOption {
+	return func(o *registerOptions) { o.priority = p }
+}
+
 // Register associates `name` with `p` in the eventual cluster registry.
-// Returns the registered PID and nil on success. Returns the existing PID
-// and ErrNameAlreadyRegistered if the name is locally held by a different
-// PID. Cross-scope conflicts (GLOBAL/LOCAL) are also rejected.
-func (s *Service) Register(name string, p pid.PID) (pid.PID, error) {
+// Returns the registered PID and nil on success. Returns the existing PID and
+// ErrNameAlreadyRegistered when the name is held locally by a different PID, or
+// when a different-origin entry out-ranks this fresh claim (the caller lost the
+// concurrent conflict — a name_revoked is also signalled to `p`). Cross-scope
+// conflicts (CONSISTENT/LOCAL) are rejected.
+func (s *Service) Register(name string, p pid.PID, opts ...RegisterOption) (pid.PID, error) {
 	if s.stopped.Load() {
 		return pid.PID{}, ErrServiceStopped
 	}
 
-	// Cross-scope check first — refuse to shadow GLOBAL or LOCAL.
+	var o registerOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	// Cross-scope check first — refuse to shadow CONSISTENT or LOCAL.
 	if s.cfg.CrossScope != nil {
 		if existing, found := s.cfg.CrossScope.LookupOther(name); found {
 			if existing == p {
@@ -199,18 +258,86 @@ func (s *Service) Register(name string, p pid.PID) (pid.PID, error) {
 			s.tel.recordRegister("conflict_other_scope")
 			return existing, ErrNameAlreadyRegistered
 		}
+		// Join-epoch gate: refuse a fresh claim while the barrier is in progress,
+		// unless this node already holds the name to the same pid (re-register is
+		// safe — no shadowing risk).
+		if !s.cfg.CrossScope.NameReady() {
+			if cur, ok := s.state.Lookup(name); ok && cur == p {
+				return p, nil
+			}
+			s.tel.recordRegister("not_ready")
+			return p, ErrNameServiceNotReady
+		}
 	}
 
-	e, ok := s.state.Register(name, p, time.Now().UnixMilli())
-	if !ok {
-		s.tel.recordRegister("conflict_local")
-		return e.PID, ErrNameAlreadyRegistered
+	res := s.state.Register(name, p, time.Now().UnixMilli(), o.priority)
+	if !res.Won {
+		if res.Lost != nil {
+			// Cross-origin loss: the local dot was minted and installed, so
+			// broadcast it for cluster convergence, then signal the loser.
+			s.queue.Push(res.Entry)
+			s.emitRevoke(res.Lost)
+			s.tel.recordRegister("conflict_cross_origin")
+			s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
+			s.tel.setQueueDepth(s.queue.Depth())
+		} else {
+			// Same-node, different PID: hard local rejection, no dot minted.
+			s.tel.recordRegister("conflict_local")
+		}
+		return res.Winner.PID, ErrNameAlreadyRegistered
 	}
-	s.queue.Push(e)
+	s.queue.Push(res.Entry)
 	s.tel.recordRegister("ok")
 	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
 	s.tel.setQueueDepth(s.queue.Depth())
 	return p, nil
+}
+
+// emitRevoke delivers a name_revoked notification to the local process named by
+// the lost binding. It fires once per transition naturally: State.Apply reports
+// a LostBinding only when a merge changes the winner away from a local live dot,
+// and re-applying the same remote winner is a MergeNoop with no LostBinding, so
+// anti-entropy replays never re-signal. The Register immediate-loss path is also
+// single-shot. The signal carries the exact {Name, PID} so a consumer can ignore
+// a stale revoke whose PID no longer matches its current registration.
+func (s *Service) emitRevoke(lost *LostBinding) {
+	if lost == nil {
+		return
+	}
+	s.tel.recordRevoke()
+	if s.cfg.Revoker == nil {
+		return
+	}
+	pkg := topology.NameRevokedPackage(lost.PID, lost.Name)
+	if err := s.cfg.Revoker.Send(pkg); err != nil {
+		s.logger.Debug("eventualreg: deliver name_revoked failed",
+			zap.String("name", lost.Name), zap.String("pid", lost.PID.String()), zap.Error(err))
+	}
+}
+
+// RevokeForStrong tombstones a locally-held EVENTUAL binding of name whose pid
+// differs from keep, signalling the losing process. The join-epoch barrier calls
+// it after learning name belongs to a Strong reservation owned by keep. Returns
+// true when a binding was revoked. A name not held locally, or held to keep, is
+// a no-op. The tombstone broadcasts so the cluster converges away from the
+// loser.
+func (s *Service) RevokeForStrong(name string, keep pid.PID) bool {
+	if s.stopped.Load() {
+		return false
+	}
+	cur, ok := s.state.Lookup(name)
+	if !ok || cur == keep {
+		return false
+	}
+	e := s.state.Unregister(name, time.Now().UnixMilli())
+	if e == nil {
+		return false
+	}
+	s.queue.Push(e)
+	s.emitRevoke(&LostBinding{Name: name, PID: cur})
+	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
+	s.tel.setQueueDepth(s.queue.Depth())
+	return true
 }
 
 // Unregister tombstones a name. Returns true if the name was held by us.
@@ -231,9 +358,9 @@ func (s *Service) Unregister(name string) bool {
 }
 
 // Lookup returns the live PID for a name (Found=true), or a zero LookupResult
-// if absent or tombstoned. EventualRegistry has no fencing tokens or
-// reverse-by-PID index, so WithFence() yields FenceToken=0 and ByPID(p)
-// is unsupported — it returns Found=false with an empty NamesForPID slice.
+// if absent or tombstoned. EventualRegistry has no reverse-by-PID index, so
+// ByPID(p) is unsupported — it returns Found=false with an empty NamesForPID
+// slice.
 func (s *Service) Lookup(_ context.Context, name string, opts ...globalreg.LookupOption) (globalreg.LookupResult, error) {
 	var o globalreg.LookupOptions
 	for _, opt := range opts {
@@ -478,28 +605,60 @@ func (s *Service) OnPeerLeft(peer string) {
 	s.tracker.ForgetPeer(peer)
 }
 
+// onNodeLeftEvent handles cluster.NodeLeft: it reaps every live binding whose
+// resolved PID lives on the departed node and drops the peer from the
+// tombstone tracker. Every surviving node runs this deterministically on the
+// same NodeLeft, so the reap converges via gossip.
+func (s *Service) onNodeLeftEvent(e event.Event) {
+	if s.stopped.Load() {
+		return
+	}
+	ne, ok := e.Data.(cluster.NodeEvent)
+	if !ok {
+		return
+	}
+	node := ne.Node.ID
+	if node == "" || node == s.cfg.LocalNodeID {
+		return
+	}
+	s.handleNodeLeft(node)
+}
+
+// handleNodeLeft tombstones every live binding whose resolved PID lives on the
+// departed node, forgets the peer in the GC tracker, and drops its shard-pull
+// cooldown. The departed node is the origin of its own names, so the reap must
+// tombstone the foreign-origin dot in place (State.ReapNode) — Unregister only
+// touches the local origin's dot and would be a no-op for a departed peer's
+// bindings.
+func (s *Service) handleNodeLeft(node string) {
+	tombstones := s.state.ReapNode(node)
+	for _, e := range tombstones {
+		s.queue.Push(e)
+	}
+	if len(tombstones) > 0 {
+		s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
+		s.tel.setQueueDepth(s.queue.Depth())
+	}
+
+	s.lastShardRequestMu.Lock()
+	delete(s.lastShardRequest, node)
+	s.lastShardRequestMu.Unlock()
+
+	s.OnPeerLeft(node)
+	if len(tombstones) > 0 {
+		s.logger.Info("eventualreg: reaped departed node bindings",
+			zap.String("node", node), zap.Int("count", len(tombstones)))
+	}
+}
+
 // State returns the underlying State for tests and tooling. Not for hot paths.
 func (s *Service) State() *State { return s.state }
 
+// Tracker returns the tombstone tracker for tests and tooling.
+func (s *Service) Tracker() *TombstoneTracker { return s.tracker }
+
 // CVSnapshot is a convenience for callers that need to attach our CV to push/pull.
 func (s *Service) CVSnapshot() []uint64 { return s.state.CVSnapshot() }
-
-// CompactNodeIDs returns the string nodeIDs in compact-ID order, so callers
-// can serialize the CV alongside it.
-func (s *Service) CompactNodeIDs() []string {
-	out := make([]string, 0, ShardCount)
-	for i := uint32(0); ; i++ {
-		name := s.state.NodeString(i)
-		if name == "" && i > 0 {
-			break
-		}
-		if i == 0 && name == "" {
-			break
-		}
-		out = append(out, name)
-	}
-	return out
-}
 
 // --- topology.EventualRegistry adapter ---
 
@@ -513,12 +672,18 @@ func (s *Service) applyIncoming(e *Entry, originStr string) {
 	internedOrigin := s.state.internNode(originStr)
 	e.Node = internedOrigin
 
-	outcome, _ := s.state.Apply(e)
+	outcome, _, lost := s.state.Apply(e)
 	switch outcome {
 	case MergeApplied:
 		// nothing extra
-	case MergeWallTiebreak:
-		s.tel.recordMergeConflict("wall_clock")
+	case MergeConflictResolved:
+		s.tel.recordMergeConflict("concurrent")
+		// A local-origin live binding lost to a different origin: signal the
+		// home process. Deduped per lost dot, so anti-entropy re-applying the
+		// same winner does not re-fire.
+		if lost != nil {
+			s.emitRevoke(lost)
+		}
 	case MergeDeleteWins:
 		s.tel.recordMergeConflict("delete_wins")
 	case MergeNoop:

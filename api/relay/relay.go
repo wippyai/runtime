@@ -43,11 +43,9 @@ type (
 
 	// Package combines source, target and messages for delivery.
 	Package struct {
-		Source     pid.PID
-		Target     pid.PID
-		GlobalName string
-		Messages   []*Message
-		FenceToken uint64
+		Source   pid.PID
+		Target   pid.PID
+		Messages []*Message
 	}
 
 	// PeerInfo contains metadata about a peer node.

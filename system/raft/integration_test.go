@@ -9,7 +9,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -115,7 +114,6 @@ func asMember(n *Node) cluster.NodeInfo {
 		ID:   n.localID,
 		Addr: "127.0.0.1",
 		Meta: cluster.NodeMeta{
-			"raft_port":     strconv.Itoa(n.ActualPort()),
 			"raft_eligible": "true",
 		},
 	}

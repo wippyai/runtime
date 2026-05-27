@@ -5,7 +5,6 @@ package system
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -19,10 +18,11 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/cluster/internode"
+	"github.com/wippyai/runtime/cluster/membership"
+	"github.com/wippyai/runtime/system/eventbus"
 	"github.com/wippyai/runtime/system/globalreg"
 	"github.com/wippyai/runtime/system/health"
 	sysraft "github.com/wippyai/runtime/system/raft"
-	sysrelay "github.com/wippyai/runtime/system/relay"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
@@ -62,6 +62,7 @@ func Raft() boot.Component {
 	var raftNode *sysraft.Node
 	var memberHandler *sysraft.MembershipHandler
 	var globalRegSvc *globalreg.Service
+	var nodeLeftSub *eventbus.Subscriber
 	var logger *zap.Logger
 	var handlerCfg sysraft.HandlerConfig
 
@@ -126,6 +127,7 @@ func Raft() boot.Component {
 			// keeps all config parsing in Load.
 			handlerCfg = sysraft.HandlerConfig{
 				MaxVoters:         raftCfg.GetInt(RaftMaxVoters, 5),
+				MaxStandbys:       raftCfg.GetInt(RaftMaxStandbys, 4),
 				ReconcileDebounce: raftCfg.GetDuration(RaftReconcileDebounce, 2*time.Second),
 				ReconcileTimeout:  raftCfg.GetDuration(RaftReconcileTimeout, 2*time.Second),
 			}
@@ -167,14 +169,12 @@ func Raft() boot.Component {
 				coll, mp, tp,
 			)
 
-			// Wire the global registry into the Router for receiver-side
-			// fence token validation on every message send. The fence
-			// rejection callback funnels into the globalreg telemetry so
-			// the relay package can stay metrics-agnostic.
-			if concreteRouter, ok := router.(*sysrelay.Router); ok {
-				concreteRouter.SetGlobalRegistry(globalRegSvc)
-				concreteRouter.SetOnFenceReject(globalRegSvc.RecordFenceRejection)
-			}
+			// Tune the leader-reachability monitor that gates name-readiness.
+			// Zero values keep the service defaults.
+			globalRegSvc.SetLeaderProbeConfig(
+				raftCfg.GetDuration(RaftLeaderProbeInterval, 0),
+				raftCfg.GetInt(RaftLeaderProbeGrace, 0),
+			)
 
 			// Register the global registry as a relay host synchronously
 			// so exit events from topology can route to it.
@@ -208,6 +208,32 @@ func Raft() boot.Component {
 			// - globalreg.Registry for direct Lua module access
 			ctx = topology.WithGlobalRegistry(ctx, globalRegSvc)
 			ctx = globalregapi.WithRegistry(ctx, globalRegSvc)
+
+			// Wire the LOCAL/EVENTUAL presence reader used by the Strong-scope
+			// conditional ack. Resolution is lazy because the eventual registry
+			// lands in context after a separate component loads; a call-time
+			// lookup catches whichever registries are wired by then.
+			globalRegSvc.SetLocalPresence(&localPresenceChecker{ctx: ctx})
+
+			// Wire the LOCAL/EVENTUAL revoker the join-epoch barrier uses to drop
+			// conflicting names before flipping ready. Lazy resolution mirrors the
+			// presence checker.
+			globalRegSvc.SetLocalNameRevoker(&localNameRevoker{ctx: ctx})
+
+			// Wire the active-binding dissemination plane. The Dissem is a
+			// UserDelegate on the membership multiplex (kind 0xC1) that gossips
+			// leader-broadcast active-binding deltas to every node, including
+			// non-members whose local FSM is empty. The Service Lookup consults
+			// the cache on FSM-miss so non-members resolve names locally.
+			if mem := clusterapi.GetMembership(ctx); mem != nil {
+				if memSvc, ok := mem.(*membership.Service); ok {
+					dissem := globalreg.NewDissem(node.ID(), logger.Named("dissem"))
+					if err := memSvc.RegisterUserDelegate(dissem); err != nil {
+						return ctx, fmt.Errorf("raft: register globalreg dissem delegate: %w", err)
+					}
+					globalRegSvc.SetDissem(dissem)
+				}
+			}
 
 			logger.Info("raft initialized",
 				zap.String("bind_addr", rc.BindAddr), //nolint:staticcheck // diagnostic: surfaces value during deprecation cycle
@@ -271,17 +297,6 @@ func Raft() boot.Component {
 				return nil
 			})
 
-			// Add raft_port to membership node metadata so other nodes
-			// know how to reach our Raft transport.
-			actualPort := raftNode.ActualPort()
-			if m, ok := clusterapi.GetMembership(ctx).(interface {
-				UpdateMeta(map[string]string)
-			}); ok {
-				m.UpdateMeta(map[string]string{
-					"raft_port": strconv.Itoa(actualPort),
-				})
-			}
-
 			// Wait for leader election before proceeding. For a single-node
 			// bootstrap this is near-instant; for multi-node it may take a few seconds.
 			leaderCh := raftNode.LeaderCh()
@@ -293,9 +308,10 @@ func Raft() boot.Component {
 			}
 
 			// Resolve cluster membership once for both the raft membership
-			// handler and the globalreg Root-scope path. Without membership
-			// the reconciler cannot read raft_port hints and Root scope
-			// cannot snapshot the live-node set, so we log per-feature.
+			// handler and the globalreg Strong-scope path. Without membership
+			// the reconciler cannot read node metadata for candidate selection
+			// and Strong scope cannot snapshot the live-node set, so we log
+			// per-feature.
 			membership := clusterapi.GetMembership(ctx)
 
 			// Start membership handler to sync Raft voters with cluster membership.
@@ -313,22 +329,55 @@ func Raft() boot.Component {
 				}
 			}
 
+			// Tear down a departed node's mesh transport session on
+			// NodeLeft so its per-peer yamux session, classConn, and
+			// acceptLoop goroutine are released instead of leaking, and so
+			// a rejoin builds a fresh session against the new incarnation.
+			if bus != nil {
+				sub, err := eventbus.NewSubscriber(ctx, bus, clusterapi.System, clusterapi.NodeLeft,
+					func(e event.Event) {
+						ne, ok := e.Data.(clusterapi.NodeEvent)
+						if !ok {
+							return
+						}
+						raftNode.OnNodeLeft(ne.Node.ID)
+					})
+				if err != nil {
+					return fmt.Errorf("subscribe raft node-left: %w", err)
+				}
+				nodeLeftSub = sub
+			}
+
 			// Start the global registry service.
 			if globalRegSvc != nil {
 				if membership != nil {
 					globalRegSvc.SetMembership(membership)
 				} else {
-					logger.Warn("globalreg Root scope disabled: cluster.Membership not available")
+					logger.Warn("globalreg Strong scope disabled: cluster.Membership not available")
 				}
+				// Wire the deterministic raft-member derivation seam. The
+				// closure captures the cluster-uniform MaxVoters/MaxStandbys
+				// so every node arrives at the same member set for the same
+				// gossip snapshot — the shared write plane non-members fall
+				// back to when no leader is directly known.
+				maxVoters := handlerCfg.MaxVoters
+				maxStandbys := handlerCfg.MaxStandbys
+				globalRegSvc.SetMemberDeriver(func(nodes []clusterapi.NodeInfo) []clusterapi.NodeID {
+					return sysraft.DeriveMembers(nodes, maxVoters, maxStandbys)
+				})
 				if _, err := globalRegSvc.Start(ctx); err != nil {
 					return fmt.Errorf("start global registry: %w", err)
 				}
 			}
 
-			logger.Info("raft node started", zap.Int("port", actualPort))
+			logger.Info("raft node started")
 			return nil
 		},
 		Stop: func(_ context.Context) error {
+			if nodeLeftSub != nil {
+				nodeLeftSub.Close()
+			}
+
 			if globalRegSvc != nil {
 				logger.Info("stopping global registry service")
 				_ = globalRegSvc.Stop(context.Background())
@@ -349,3 +398,4 @@ func Raft() boot.Component {
 		},
 	})
 }
+

@@ -3,10 +3,12 @@
 package system
 
 import (
+	"context"
 	"sort"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/cluster"
+	raftapi "github.com/wippyai/runtime/api/raft"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/runtime/security"
 )
@@ -18,34 +20,13 @@ type nodeInfo struct {
 	isLocal bool
 }
 
-func nodeID(l *lua.LState) int {
-	if !security.IsAllowed(l.Context(), "system.read", "node", nil) {
-		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on node").WithKind(lua.Invalid).WithRetryable(false))
-		return 2
-	}
-
-	node := relay.GetNode(l.Context())
-	if node == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "relay node not available").WithKind(lua.Internal).WithRetryable(false))
-		return 2
-	}
-
-	l.Push(lua.LString(node.ID()))
-	l.Push(lua.LNil)
-	return 2
-}
-
-func nodesList(l *lua.LState) int {
-	if !security.IsAllowed(l.Context(), "system.read", "nodes", nil) {
-		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "permission denied: system.read on nodes").WithKind(lua.Invalid).WithRetryable(false))
-		return 2
-	}
-
-	localNode := relay.GetNode(l.Context())
-	membership := cluster.GetMembership(l.Context())
+// collectNodes assembles a deduplicated, sorted snapshot of the cluster
+// view derived from the relay node and cluster.Membership in ctx. The
+// local node sorts first; remaining nodes by id. Returns nil when no
+// information is reachable. Shared by system.cluster.members.
+func collectNodes(ctx context.Context) []nodeInfo {
+	localNode := relay.GetNode(ctx)
+	membership := cluster.GetMembership(ctx)
 
 	nodes := make([]nodeInfo, 0, 1)
 	seen := make(map[string]int)
@@ -98,9 +79,7 @@ func nodesList(l *lua.LState) int {
 	}
 
 	if len(nodes) == 0 {
-		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "cluster node information not available").WithKind(lua.Internal).WithRetryable(false))
-		return 2
+		return nil
 	}
 
 	sort.SliceStable(nodes, func(i, j int) bool {
@@ -109,7 +88,11 @@ func nodesList(l *lua.LState) int {
 		}
 		return nodes[i].id < nodes[j].id
 	})
+	return nodes
+}
 
+// pushNodes encodes a []nodeInfo as a Lua table of node info records.
+func pushNodes(l *lua.LState, nodes []nodeInfo) *lua.LTable {
 	result := l.CreateTable(len(nodes), 0)
 	for i, node := range nodes {
 		t := l.CreateTable(0, 4)
@@ -127,8 +110,68 @@ func nodesList(l *lua.LState) int {
 		}
 		result.RawSetInt(i+1, t)
 	}
+	return result
+}
 
-	l.Push(result)
+// localAddr returns the addr of the local node, derived from
+// cluster.Membership when available. Returns "" when unknown.
+func localAddr(ctx context.Context) string {
+	if m := cluster.GetMembership(ctx); m != nil {
+		return m.LocalNode().Addr
+	}
+	return ""
+}
+
+func nodeID(l *lua.LState) int {
+	if !security.IsAllowed(l.Context(), "system.read", "node", nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on node").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+
+	node := relay.GetNode(l.Context())
+	if node == nil {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "relay node not available").WithKind(lua.Internal).WithRetryable(false))
+		return 2
+	}
+
+	l.Push(lua.LString(node.ID()))
 	l.Push(lua.LNil)
 	return 2
 }
+
+func nodeAddr(l *lua.LState) int {
+	if !security.IsAllowed(l.Context(), "system.read", "node", nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on node").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+
+	addr := localAddr(l.Context())
+	if addr == "" {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "local node address not available").WithKind(lua.Internal).WithRetryable(false))
+		return 2
+	}
+
+	l.Push(lua.LString(addr))
+	l.Push(lua.LNil)
+	return 2
+}
+
+func nodeRole(l *lua.LState) int {
+	if !security.IsAllowed(l.Context(), "system.read", "node", nil) {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "permission denied: system.read on node").WithKind(lua.Invalid).WithRetryable(false))
+		return 2
+	}
+
+	svc := raftapi.GetService(l.Context())
+	role := localRoleFromService(svc, localNodeID(l))
+
+	l.Push(lua.LString(role))
+	l.Push(lua.LNil)
+	return 2
+}
+

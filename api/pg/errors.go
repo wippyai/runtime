@@ -26,6 +26,9 @@ var (
 	// ErrInvalidMaxRetries is returned when max_retries is negative.
 	ErrInvalidMaxRetries = apierror.New(apierror.Invalid, "pg: max retries must be non-negative").WithRetryable(apierror.False)
 
+	// ErrInvalidAntiEntropyInterval is returned when anti_entropy_interval is negative.
+	ErrInvalidAntiEntropyInterval = apierror.New(apierror.Invalid, "pg: anti entropy interval must be non-negative").WithRetryable(apierror.False)
+
 	// ErrMaxGroupsReached is returned when joining would exceed the max_groups limit.
 	ErrMaxGroupsReached = apierror.New(apierror.RateLimited, "pg: maximum number of groups reached").WithRetryable(apierror.True)
 

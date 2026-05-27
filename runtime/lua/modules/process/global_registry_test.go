@@ -98,26 +98,8 @@ func (m *mockGlobalRegistry) Lookup(_ context.Context, name string, opts ...glob
 			Found:       len(names) > 0,
 		}, nil
 	}
-	if o.WithFence {
-		p, token, found := state.LookupWithFence(name)
-		return globalregapi.LookupResult{PID: p, FenceToken: token, Found: found}, nil
-	}
 	p, found := state.Lookup(name)
 	return globalregapi.LookupResult{PID: p, Found: found}, nil
-}
-
-func (m *mockGlobalRegistry) LookupWithFence(name string) globalregapi.LookupResult {
-	r, _ := m.Lookup(context.Background(), name, globalregapi.WithFence())
-	return r
-}
-
-func (m *mockGlobalRegistry) ValidateFence(name string, token uint64) error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if !m.fsm.State().ValidateFence(name, token) {
-		return globalregapi.ErrStaleFence
-	}
-	return nil
 }
 
 func (m *mockGlobalRegistry) LookupByPID(p pid.PID) []string {

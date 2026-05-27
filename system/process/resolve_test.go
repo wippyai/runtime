@@ -16,25 +16,17 @@ import (
 )
 
 // fakeGlobalReg is an in-memory globalreg.Registry used to drive the
-// fence-bearing branch of ResolveDestination. Each successful Register
-// monotonically increments the fence token.
+// global-name branch of ResolveDestination.
 type fakeGlobalReg struct {
-	entries   map[string]fakeEntry
-	nextToken uint64
-}
-
-type fakeEntry struct {
-	p     pidapi.PID
-	token uint64
+	entries map[string]pidapi.PID
 }
 
 func newFakeGlobalReg() *fakeGlobalReg {
-	return &fakeGlobalReg{entries: make(map[string]fakeEntry)}
+	return &fakeGlobalReg{entries: make(map[string]pidapi.PID)}
 }
 
 func (r *fakeGlobalReg) Register(_ context.Context, name string, p pidapi.PID) (pidapi.PID, error) {
-	r.nextToken++
-	r.entries[name] = fakeEntry{p: p, token: r.nextToken}
+	r.entries[name] = p
 	return p, nil
 }
 
@@ -63,31 +55,14 @@ func (r *fakeGlobalReg) Lookup(_ context.Context, name string, opts ...globalreg
 	if o.ByPID != nil {
 		return globalreg.LookupResult{PID: *o.ByPID}, nil
 	}
-	e, ok := r.entries[name]
+	p, ok := r.entries[name]
 	if !ok {
 		return globalreg.LookupResult{}, nil
 	}
-	res := globalreg.LookupResult{PID: e.p, Found: true}
-	if o.WithFence {
-		res.FenceToken = e.token
-	}
-	return res, nil
-}
-
-func (r *fakeGlobalReg) LookupWithFence(name string) globalreg.LookupResult {
-	res, _ := r.Lookup(context.Background(), name, globalreg.WithFence())
-	return res
+	return globalreg.LookupResult{PID: p, Found: true}, nil
 }
 
 func (r *fakeGlobalReg) LookupByPID(_ pidapi.PID) []string { return nil }
-
-func (r *fakeGlobalReg) ValidateFence(name string, token uint64) error {
-	e, ok := r.entries[name]
-	if !ok || token < e.token {
-		return globalreg.ErrStaleFence
-	}
-	return nil
-}
 
 func (r *fakeGlobalReg) Remove(_ context.Context, _ pidapi.PID) error        { return nil }
 func (r *fakeGlobalReg) RemoveNode(_ context.Context, _ pidapi.NodeID) error { return nil }
@@ -158,11 +133,9 @@ func TestResolveDestination_RawPID(t *testing.T) {
 	resolved, err := ResolveDestination(ctx, want.String())
 	require.NoError(t, err)
 	assert.Equal(t, want.String(), resolved.PID.String())
-	assert.Empty(t, resolved.GlobalName)
-	assert.Zero(t, resolved.FenceToken)
 }
 
-func TestResolveDestination_GlobalNameCarriesFence(t *testing.T) {
+func TestResolveDestination_GlobalName(t *testing.T) {
 	gr := newFakeGlobalReg()
 	target := pidapi.PID{Host: "h", UniqID: "global1"}
 	_, _ = gr.Register(context.Background(), "svc.global", target)
@@ -171,11 +144,9 @@ func TestResolveDestination_GlobalNameCarriesFence(t *testing.T) {
 	resolved, err := ResolveDestination(ctx, "svc.global")
 	require.NoError(t, err)
 	assert.Equal(t, target, resolved.PID)
-	assert.Equal(t, "svc.global", resolved.GlobalName)
-	assert.Equal(t, uint64(1), resolved.FenceToken)
 }
 
-func TestResolveDestination_EventualNameNoFence(t *testing.T) {
+func TestResolveDestination_EventualName(t *testing.T) {
 	er := newFakeEventualReg()
 	target := pidapi.PID{Host: "h", UniqID: "eventual1"}
 	er.put("svc.eventual", target)
@@ -184,11 +155,9 @@ func TestResolveDestination_EventualNameNoFence(t *testing.T) {
 	resolved, err := ResolveDestination(ctx, "svc.eventual")
 	require.NoError(t, err)
 	assert.Equal(t, target, resolved.PID)
-	assert.Empty(t, resolved.GlobalName, "eventual lookups must not surface fence/global metadata")
-	assert.Zero(t, resolved.FenceToken)
 }
 
-func TestResolveDestination_LocalNameNoFence(t *testing.T) {
+func TestResolveDestination_LocalName(t *testing.T) {
 	lr := newFakeLocalReg()
 	target := pidapi.PID{Host: "h", UniqID: "local1"}
 	_, _ = lr.Register("svc.local", target)
@@ -197,8 +166,6 @@ func TestResolveDestination_LocalNameNoFence(t *testing.T) {
 	resolved, err := ResolveDestination(ctx, "svc.local")
 	require.NoError(t, err)
 	assert.Equal(t, target, resolved.PID)
-	assert.Empty(t, resolved.GlobalName)
-	assert.Zero(t, resolved.FenceToken)
 }
 
 func TestResolveDestination_NotFound(t *testing.T) {
@@ -226,29 +193,4 @@ func TestResolveDestination_GlobalShadowsEventualAndLocal(t *testing.T) {
 	resolved, err := ResolveDestination(ctx, "svc")
 	require.NoError(t, err)
 	assert.Equal(t, globalPID, resolved.PID, "global registration must win")
-	assert.Equal(t, "svc", resolved.GlobalName)
-	assert.Equal(t, uint64(1), resolved.FenceToken)
-}
-
-func TestResolveDestination_FenceMonotonicAcrossReRegister(t *testing.T) {
-	gr := newFakeGlobalReg()
-	ctx := buildCtx(gr, nil, nil)
-
-	pidA := pidapi.PID{Host: "h", UniqID: "a"}
-	_, _ = gr.Register(context.Background(), "svc.race", pidA)
-
-	first, err := ResolveDestination(ctx, "svc.race")
-	require.NoError(t, err)
-	assert.Equal(t, pidA, first.PID)
-	assert.Equal(t, uint64(1), first.FenceToken)
-
-	pidB := pidapi.PID{Host: "h", UniqID: "b"}
-	_, _ = gr.Unregister(context.Background(), "svc.race")
-	_, _ = gr.Register(context.Background(), "svc.race", pidB)
-
-	second, err := ResolveDestination(ctx, "svc.race")
-	require.NoError(t, err)
-	assert.Equal(t, pidB, second.PID, "re-registration must surface the new PID")
-	assert.Greater(t, second.FenceToken, first.FenceToken,
-		"fence token must monotonically advance across re-registration")
 }

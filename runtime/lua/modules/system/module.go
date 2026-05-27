@@ -22,14 +22,16 @@ var (
 )
 
 func initModuleTable() {
-	mod := lua.CreateTable(0, 10)
+	mod := lua.CreateTable(0, 12)
 
 	mod.RawSetString("memory", createMemoryTable())
 	mod.RawSetString("gc", createGCTable())
 	mod.RawSetString("runtime", createRuntimeTable())
 	mod.RawSetString("process", createProcessTable())
 	mod.RawSetString("node", createNodeTable())
-	mod.RawSetString("nodes", createNodesTable())
+	mod.RawSetString("cluster", createClusterTable())
+	mod.RawSetString("raft", createRaftTable())
+	mod.RawSetString("lock", createLockTable())
 	mod.RawSetString("supervisor", createSupervisorTable())
 	mod.RawSetString("hosts", createHostsTable())
 	mod.RawSetString("exit", lua.LGoFunc(exit))
@@ -90,15 +92,31 @@ func createProcessTable() *lua.LTable {
 }
 
 func createNodeTable() *lua.LTable {
-	t := lua.CreateTable(0, 1)
+	t := lua.CreateTable(0, 3)
 	t.RawSetString("id", lua.LGoFunc(nodeID))
+	t.RawSetString("addr", lua.LGoFunc(nodeAddr))
+	t.RawSetString("role", lua.LGoFunc(nodeRole))
 	t.Immutable = true
 	return t
 }
 
-func createNodesTable() *lua.LTable {
-	t := lua.CreateTable(0, 1)
-	t.RawSetString("list", lua.LGoFunc(nodesList))
+func createClusterTable() *lua.LTable {
+	t := lua.CreateTable(0, 3)
+	t.RawSetString("members", lua.LGoFunc(clusterMembers))
+	t.RawSetString("leader", lua.LGoFunc(clusterLeader))
+	t.RawSetString("size", lua.LGoFunc(clusterSize))
+	t.Immutable = true
+	return t
+}
+
+func createRaftTable() *lua.LTable {
+	t := lua.CreateTable(0, 6)
+	t.RawSetString("is_leader", lua.LGoFunc(raftIsLeader))
+	t.RawSetString("is_member", lua.LGoFunc(raftIsMember))
+	t.RawSetString("role", lua.LGoFunc(raftRole))
+	t.RawSetString("term", lua.LGoFunc(raftTerm))
+	t.RawSetString("commit_index", lua.LGoFunc(raftCommitIndex))
+	t.RawSetString("stats", lua.LGoFunc(raftStats))
 	t.Immutable = true
 	return t
 }

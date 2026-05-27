@@ -17,7 +17,7 @@ import (
 )
 
 // PendingEvent is delivered to FSM.onPending after applyRegisterPending
-// commits a Root reservation. Each replica receives the event independently
+// commits a Strong reservation. Each replica receives the event independently
 // during Apply so the Service can decide whether the local node is in the
 // required set and emit an ack to the leader.
 type PendingEvent struct {
@@ -39,17 +39,27 @@ type ActiveEvent struct {
 	ActivationIdx  uint64
 }
 
-// ExpiredEvent is delivered when a pending reservation is released without
-// reaching active state — either because the deadline elapsed or because
-// the leader / caller dropped the reservation explicitly.
+// ExpiredEvent is delivered when a Strong reservation reaches a terminal state
+// without remaining active — either because the deadline elapsed, the leader /
+// caller dropped the reservation explicitly, a required node rejected it, or an
+// already-active name was unregistered. RejectedBy is set only on a reject
+// (NACK) terminal outcome. RequiredNodes carries the exclusion-holder set so the
+// leader can deliver a targeted release to the nodes that latched the exclusion.
 type ExpiredEvent struct {
-	ExpiredAt   time.Time
-	PID         pid.PID
-	Name        string
-	Reason      string
-	MissingAcks []pid.NodeID
-	Epoch       uint64
+	ExpiredAt     time.Time
+	PID           pid.PID
+	Name          string
+	Reason        string
+	RejectedBy    pid.NodeID
+	MissingAcks   []pid.NodeID
+	RequiredNodes []pid.NodeID
+	Epoch         uint64
 }
+
+// strongRejectConflict is the ExpiredEvent/ExpiredRecord reason carried when a
+// required node rejects a Strong reservation (cross-scope conflict). Distinct
+// from the timeout reason so callers can surface a conflict error.
+const strongRejectConflict = "conflict"
 
 // FSM implements the hashicorp/raft.FSM interface.
 // It is the replicated state machine for the global name registry.
@@ -63,6 +73,7 @@ type FSM struct {
 	onPending func(PendingEvent)
 	onActive  func(ActiveEvent)
 	onExpired func(ExpiredEvent)
+	onBinding func(BindingEvent)
 	pgLabel   string
 }
 
@@ -109,6 +120,20 @@ func (f *FSM) SetOnActive(fn func(ActiveEvent)) { f.onActive = fn }
 // replica inside FSM.Apply for CmdRegisterExpired.
 func (f *FSM) SetOnExpired(fn func(ExpiredEvent)) { f.onExpired = fn }
 
+// SetOnBinding wires the Service's active-binding hook. Invoked on every
+// replica inside FSM.Apply whenever an ACTIVE binding mutates:
+//
+//   - CONSISTENT register inserted / conflict-resolved → Deleted=false
+//   - STRONG promote-to-active (recordAck completion / DropRequired completion)
+//     → Deleted=false
+//   - CONSISTENT unregister of an active name → Deleted=true
+//   - STRONG unreserve of an active name → Deleted=true
+//   - applyRemovePID / applyRemoveNode terminal of any active name → Deleted=true
+//
+// PENDING reservations are NOT delivered — the cache holds only ACTIVE
+// bindings. The leader translates Deleted=true frames into tombstones.
+func (f *FSM) SetOnBinding(fn func(BindingEvent)) { f.onBinding = fn }
+
 // State returns the underlying sharded state for direct read access.
 func (f *FSM) State() *shardedState {
 	return f.state
@@ -126,11 +151,11 @@ func (f *FSM) Apply(log *hraft.Log) any {
 	case CmdRegister:
 		return f.applyRegister(cmd, log.Index)
 	case CmdUnregister:
-		return f.applyUnregister(cmd)
+		return f.applyUnregister(cmd, log.Index)
 	case CmdRemovePID:
-		return f.applyRemovePID(cmd)
+		return f.applyRemovePID(cmd, log.Index)
 	case CmdRemoveNode:
-		return f.applyRemoveNode(cmd)
+		return f.applyRemoveNode(cmd, log.Index)
 	case CmdRegisterPending:
 		return f.applyRegisterPending(cmd, log.Index)
 	case CmdRegisterAck:
@@ -138,7 +163,11 @@ func (f *FSM) Apply(log *hraft.Log) any {
 	case CmdRegisterExpired:
 		return f.applyRegisterExpired(cmd, log.Index)
 	case CmdRegisterUnreserve:
-		return f.applyRegisterUnreserve(cmd)
+		return f.applyRegisterUnreserve(cmd, log.Index)
+	case CmdDropRequired:
+		return f.applyDropRequired(cmd, log.Index)
+	case CmdRegisterReject:
+		return f.applyRegisterReject(cmd, log.Index)
 	default:
 		return fmt.Errorf("unknown command type: %d", cmd.Type)
 	}
@@ -154,6 +183,7 @@ func (f *FSM) applyRegister(cmd *Command, index uint64) any {
 	case registerInserted:
 		f.tel.recordFenceToken(f.pgLabel, nodeID, index)
 		f.tel.recordGlobalregSize(f.state.Len())
+		f.emitBinding(BindingEvent{Name: cmd.Name, PID: cmd.PID, RaftIndex: index})
 		return &RegisterResult{PID: existing, FenceToken: index}
 	case registerDedupe:
 		f.tel.recordGlobalregDedupe()
@@ -165,6 +195,7 @@ func (f *FSM) applyRegister(cmd *Command, index uint64) any {
 			f.state.register(cmd.Name, cmd.PID, nodeID, index)
 			f.tel.recordFenceToken(f.pgLabel, nodeID, index)
 			f.tel.recordGlobalregSize(f.state.Len())
+			f.emitBinding(BindingEvent{Name: cmd.Name, PID: cmd.PID, RaftIndex: index})
 			return &RegisterResult{
 				PID:         cmd.PID,
 				ResolvedPID: existing,
@@ -183,23 +214,77 @@ func (f *FSM) applyRegister(cmd *Command, index uint64) any {
 	}
 }
 
-func (f *FSM) applyUnregister(cmd *Command) any {
-	removed := f.state.unregister(cmd.Name)
-	if removed {
-		f.tel.recordGlobalregSize(f.state.Len())
+// emitBinding fans out an active-binding event to the dissem hook (if wired).
+// Called from every Apply path that mutates the ACTIVE binding set.
+func (f *FSM) emitBinding(ev BindingEvent) {
+	if f.onBinding != nil {
+		f.onBinding(ev)
 	}
-
-	return &UnregisterResult{Removed: removed}
 }
 
-func (f *FSM) applyRemovePID(cmd *Command) any {
+func (f *FSM) applyUnregister(cmd *Command, index uint64) any {
+	removed, existed := f.state.unregisterEntry(cmd.Name)
+	if existed {
+		f.tel.recordGlobalregSize(f.state.Len())
+		// A promoted Strong name removed via a Consistent unregister is still a
+		// terminal for any held exclusion: deliver a release to its holders.
+		if f.onExpired != nil && len(removed.RequiredNodes) > 0 {
+			f.tel.recordStrongRelease("unregister_active")
+			f.onExpired(ExpiredEvent{
+				Name:          cmd.Name,
+				PID:           removed.PID,
+				Epoch:         removed.Epoch,
+				Reason:        "unregister",
+				RequiredNodes: removed.RequiredNodes,
+				ExpiredAt:     time.Now(),
+			})
+		}
+		f.emitBinding(BindingEvent{
+			Name: cmd.Name, PID: removed.PID, RaftIndex: index, Deleted: true,
+		})
+	}
+
+	return &UnregisterResult{Removed: existed}
+}
+
+func (f *FSM) applyRemovePID(cmd *Command, index uint64) any {
 	pendingNames := f.state.lookupPendingByPID(cmd.PID)
 	for _, n := range pendingNames {
 		if e, ok := f.state.unreservePending(n, cmd.PID); ok && e != nil {
-			f.tel.recordRootRelease("pid_exit")
+			f.tel.recordStrongRelease("pid_exit")
+			if f.onExpired != nil {
+				f.onExpired(ExpiredEvent{
+					Name:          n,
+					PID:           e.PID,
+					Epoch:         e.Epoch,
+					Reason:        "pid_exit",
+					RequiredNodes: e.RequiredNodes,
+					ExpiredAt:     time.Now(),
+				})
+			}
 		}
 	}
-	count := f.state.removePID(cmd.PID)
+	removedNames, count, strongs := f.state.removePIDWithNames(cmd.PID)
+	for _, st := range strongs {
+		// A promoted Strong name removed on process exit is a terminal: release
+		// its exclusion on the holders.
+		f.tel.recordStrongRelease("pid_exit_active")
+		if f.onExpired != nil {
+			f.onExpired(ExpiredEvent{
+				Name:          st.Name,
+				PID:           st.PID,
+				Epoch:         st.Epoch,
+				Reason:        "pid_exit",
+				RequiredNodes: st.RequiredNodes,
+				ExpiredAt:     time.Now(),
+			})
+		}
+	}
+	for _, n := range removedNames {
+		f.emitBinding(BindingEvent{
+			Name: n, PID: cmd.PID, RaftIndex: index, Deleted: true,
+		})
+	}
 	if count > 0 || len(pendingNames) > 0 {
 		f.tel.recordGlobalregSize(f.state.Len())
 	}
@@ -207,8 +292,28 @@ func (f *FSM) applyRemovePID(cmd *Command) any {
 	return &RemoveResult{Count: count + len(pendingNames)}
 }
 
-func (f *FSM) applyRemoveNode(cmd *Command) any {
-	count, hasMore := f.state.removeNode(cmd.NodeID, cmd.Limit)
+func (f *FSM) applyRemoveNode(cmd *Command, index uint64) any {
+	removedNames, count, hasMore, strongs := f.state.removeNodeWithNames(cmd.NodeID, cmd.Limit)
+	for _, st := range strongs {
+		// A promoted Strong name on the departed node is a terminal: release its
+		// exclusion on the surviving holders.
+		f.tel.recordStrongRelease("node_removed_active")
+		if f.onExpired != nil {
+			f.onExpired(ExpiredEvent{
+				Name:          st.Name,
+				PID:           st.PID,
+				Epoch:         st.Epoch,
+				Reason:        "node_removed",
+				RequiredNodes: st.RequiredNodes,
+				ExpiredAt:     time.Now(),
+			})
+		}
+	}
+	for _, rn := range removedNames {
+		f.emitBinding(BindingEvent{
+			Name: rn.Name, PID: rn.PID, RaftIndex: index, Deleted: true,
+		})
+	}
 	if count > 0 {
 		f.tel.recordGlobalregSize(f.state.Len())
 	}
@@ -230,8 +335,8 @@ func (f *FSM) applyRegisterPending(cmd *Command, index uint64) any {
 		epoch, cmd.RequiredNodes, cmd.DeadlineUnixNano, int64(createdAt))
 	switch outcome {
 	case pendingInserted:
-		f.tel.recordRootPending("inserted")
-		f.tel.setRootPendingInFlight(f.state.PendingLen())
+		f.tel.recordStrongPending("inserted")
+		f.tel.setStrongPendingInFlight(f.state.PendingLen())
 		if f.onPending != nil {
 			req := make([]pid.NodeID, len(cmd.RequiredNodes))
 			copy(req, cmd.RequiredNodes)
@@ -249,16 +354,16 @@ func (f *FSM) applyRegisterPending(cmd *Command, index uint64) any {
 			State:      globalreg.RegisterStateUnknown,
 		}
 	case pendingDedupe:
-		f.tel.recordRootPending("dedupe")
+		f.tel.recordStrongPending("dedupe")
 		return &RegisterResult{PID: existing, FenceToken: epoch}
 	case pendingConflictActive:
-		f.tel.recordRootPending("conflict_active")
+		f.tel.recordStrongPending("conflict_active")
 		return &RegisterResult{
 			ExistingPID: existing,
 			Err:         globalreg.ErrNameAlreadyRegistered,
 		}
 	case pendingConflictPending:
-		f.tel.recordRootPending("conflict_pending")
+		f.tel.recordStrongPending("conflict_pending")
 		return &RegisterResult{
 			ExistingPID: existing,
 			Err:         globalreg.ErrPendingConflict,
@@ -276,9 +381,9 @@ func (f *FSM) applyRegisterAck(cmd *Command, index uint64) any {
 		return &AckResult{Recognized: false}
 	}
 	if fresh {
-		f.tel.recordRootAck("fresh")
+		f.tel.recordStrongAck("fresh")
 	} else {
-		f.tel.recordRootAck("duplicate")
+		f.tel.recordStrongAck("duplicate")
 	}
 	if !complete {
 		return &AckResult{Recognized: true, Complete: false}
@@ -288,8 +393,8 @@ func (f *FSM) applyRegisterAck(cmd *Command, index uint64) any {
 		return &AckResult{Recognized: true, Complete: true}
 	}
 	f.tel.recordFenceToken(f.pgLabel, promoted.NodeID, index)
-	f.tel.recordRootActive(ackBucket(len(promoted.AckSet)))
-	f.tel.setRootPendingInFlight(f.state.PendingLen())
+	f.tel.recordStrongActive(ackBucket(len(promoted.AckSet)))
+	f.tel.setStrongPendingInFlight(f.state.PendingLen())
 	f.tel.recordGlobalregSize(f.state.Len())
 	if f.onActive != nil {
 		f.onActive(ActiveEvent{
@@ -300,6 +405,7 @@ func (f *FSM) applyRegisterAck(cmd *Command, index uint64) any {
 			ActivationTime: time.Now(),
 		})
 	}
+	f.emitBinding(BindingEvent{Name: cmd.Name, PID: promoted.PID, RaftIndex: index})
 	return &AckResult{Recognized: true, Complete: true, Activated: true}
 }
 
@@ -309,43 +415,137 @@ func (f *FSM) applyRegisterExpired(cmd *Command, index uint64) any {
 	if !ok || e == nil {
 		return &ExpireResult{Removed: false}
 	}
-	f.tel.recordRootExpired(cmd.Reason)
-	f.tel.setRootPendingInFlight(f.state.PendingLen())
+	f.tel.recordStrongExpired(cmd.Reason)
+	f.tel.setStrongPendingInFlight(f.state.PendingLen())
 	if f.onExpired != nil {
 		f.onExpired(ExpiredEvent{
-			Name:        cmd.Name,
-			PID:         e.PID,
-			Epoch:       cmd.Epoch,
-			Reason:      cmd.Reason,
-			MissingAcks: missing,
-			ExpiredAt:   time.Unix(0, expiredAt),
+			Name:          cmd.Name,
+			PID:           e.PID,
+			Epoch:         cmd.Epoch,
+			Reason:        cmd.Reason,
+			MissingAcks:   missing,
+			RequiredNodes: e.RequiredNodes,
+			ExpiredAt:     time.Unix(0, expiredAt),
 		})
 	}
 	_ = index
 	return &ExpireResult{Removed: true, MissingAcks: missing}
 }
 
-func (f *FSM) applyRegisterUnreserve(cmd *Command) any {
+func (f *FSM) applyRegisterUnreserve(cmd *Command, index uint64) any {
 	e, ok := f.state.unreservePending(cmd.Name, cmd.PID)
 	if !ok {
-		removed := f.state.unregister(cmd.Name)
-		if removed {
+		// Not pending — the name may already be promoted to active. Removing the
+		// active entry is a terminal for any held exclusion, so deliver a release
+		// to its holders (RequiredNodes) keyed to the promotion epoch.
+		removed, existed := f.state.unregisterEntry(cmd.Name)
+		if existed {
 			f.tel.recordGlobalregSize(f.state.Len())
+			if f.onExpired != nil && len(removed.RequiredNodes) > 0 {
+				f.tel.recordStrongRelease("unreserve_active")
+				f.onExpired(ExpiredEvent{
+					Name:          cmd.Name,
+					PID:           removed.PID,
+					Epoch:         removed.Epoch,
+					Reason:        "unreserve",
+					RequiredNodes: removed.RequiredNodes,
+					ExpiredAt:     time.Now(),
+				})
+			}
+			f.emitBinding(BindingEvent{
+				Name: cmd.Name, PID: removed.PID, RaftIndex: index, Deleted: true,
+			})
 		}
-		return &UnregisterResult{Removed: removed}
+		return &UnregisterResult{Removed: existed}
 	}
-	f.tel.recordRootRelease("unreserve")
-	f.tel.setRootPendingInFlight(f.state.PendingLen())
+	f.tel.recordStrongRelease("unreserve")
+	f.tel.setStrongPendingInFlight(f.state.PendingLen())
 	if f.onExpired != nil {
 		f.onExpired(ExpiredEvent{
-			Name:      cmd.Name,
-			PID:       e.PID,
-			Epoch:     e.Epoch,
-			Reason:    "unreserve",
-			ExpiredAt: time.Now(),
+			Name:          cmd.Name,
+			PID:           e.PID,
+			Epoch:         e.Epoch,
+			Reason:        "unreserve",
+			RequiredNodes: e.RequiredNodes,
+			ExpiredAt:     time.Now(),
 		})
 	}
 	return &UnregisterResult{Removed: true}
+}
+
+// applyDropRequired removes a departed node from a pending reservation's
+// RequiredNodes set. If the remaining ack set then covers the reduced set the
+// entry is promoted to active in the same Apply, mirroring recordAck's
+// completion path. Idempotent: a drop for a node no longer required, an
+// already-promoted/expired entry, or a stale epoch is a no-op.
+func (f *FSM) applyDropRequired(cmd *Command, index uint64) any {
+	e, dropped, complete := f.state.dropRequired(cmd.Name, cmd.Epoch, cmd.NodeID)
+	if e == nil {
+		return &DropRequiredResult{Dropped: false}
+	}
+	if dropped {
+		f.tel.recordStrongDropRequired()
+	}
+	if !complete {
+		return &DropRequiredResult{Dropped: dropped}
+	}
+	promoted, ok := f.state.promotePending(cmd.Name, cmd.Epoch, index)
+	if !ok || promoted == nil {
+		return &DropRequiredResult{Dropped: dropped}
+	}
+	f.tel.recordFenceToken(f.pgLabel, promoted.NodeID, index)
+	f.tel.recordStrongActive(ackBucket(len(promoted.AckSet)))
+	f.tel.setStrongPendingInFlight(f.state.PendingLen())
+	f.tel.recordGlobalregSize(f.state.Len())
+	if f.onActive != nil {
+		f.onActive(ActiveEvent{
+			Name:           cmd.Name,
+			PID:            promoted.PID,
+			Epoch:          cmd.Epoch,
+			ActivationIdx:  index,
+			ActivationTime: time.Now(),
+		})
+	}
+	f.emitBinding(BindingEvent{Name: cmd.Name, PID: promoted.PID, RaftIndex: index})
+	return &DropRequiredResult{Dropped: dropped, Activated: true}
+}
+
+// applyRegisterReject terminally fails a pending reservation rejected by a
+// required node. NACK dominates: once rejected the entry is removed and never
+// resurrects, so any later ack/drop is a no-op. The rejecter and reason are
+// carried into the ExpiredEvent so the caller surfaces a conflict.
+func (f *FSM) applyRegisterReject(cmd *Command, index uint64) any {
+	reason := cmd.Reason
+	if reason == "" {
+		reason = strongRejectConflict
+	}
+	expiredAt := time.Now().UnixNano()
+	e, ok := f.state.rejectPending(cmd.Name, cmd.Epoch, cmd.AckerNode, reason, expiredAt)
+	if !ok || e == nil {
+		return &RejectResult{Rejected: false}
+	}
+	f.tel.recordStrongExpired(reason)
+	f.tel.setStrongPendingInFlight(f.state.PendingLen())
+	missing := make([]pid.NodeID, 0, len(e.RequiredNodes))
+	for _, n := range e.RequiredNodes {
+		if _, acked := e.AckSet[n]; !acked {
+			missing = append(missing, n)
+		}
+	}
+	if f.onExpired != nil {
+		f.onExpired(ExpiredEvent{
+			Name:          cmd.Name,
+			PID:           e.PID,
+			Epoch:         cmd.Epoch,
+			Reason:        reason,
+			RejectedBy:    cmd.AckerNode,
+			MissingAcks:   missing,
+			RequiredNodes: e.RequiredNodes,
+			ExpiredAt:     time.Unix(0, expiredAt),
+		})
+	}
+	_ = index
+	return &RejectResult{Rejected: true, RejectedBy: cmd.AckerNode}
 }
 
 // PendingLen returns the count of in-flight pending reservations.
@@ -408,6 +608,20 @@ type ExpireResult struct {
 	Removed     bool
 }
 
+// DropRequiredResult is returned by Apply for CmdDropRequired. Dropped is true
+// when the node was present in RequiredNodes and removed; Activated is true
+// when the drop completed the (reduced) ack set and promoted the entry.
+type DropRequiredResult struct {
+	Dropped   bool
+	Activated bool
+}
+
+// RejectResult is returned by Apply for CmdRegisterReject.
+type RejectResult struct {
+	RejectedBy pid.NodeID
+	Rejected   bool
+}
+
 // --- Snapshot / Restore ---
 
 // Snapshot returns a point-in-time snapshot of the FSM state.
@@ -431,7 +645,7 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 
 	f.state.restore(payload.Entries, payload.Pending)
 	f.tel.recordGlobalregSize(f.state.Len())
-	f.tel.setRootPendingInFlight(f.state.PendingLen())
+	f.tel.setStrongPendingInFlight(f.state.PendingLen())
 	if f.onRestore != nil {
 		f.onRestore()
 	}
