@@ -5,6 +5,7 @@ package system
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -111,9 +112,12 @@ func Raft() boot.Component {
 			// leader's reconciler adds. The operator already coordinates
 			// "exactly one node has empty join_addrs" for membership; we
 			// reuse that coordination instead of adding a duplicate key.
-			joinAddrs := cfg.Sub(ClusterName).GetStringSlice(ClusterMembershipJoin, nil)
+			// join_addrs is read as a comma-separated string by the cluster
+			// component (see cluster.go); we replicate that read here so the
+			// bootstrap inference matches what membership actually parsed.
+			joinStr := strings.TrimSpace(cfg.Sub(ClusterName).GetString(ClusterMembershipJoin, ""))
 			rc := raftapi.Config{
-				Bootstrap:         len(joinAddrs) == 0,
+				Bootstrap:         joinStr == "",
 				SnapshotThreshold: uint64(raftCfg.GetInt(ClusterRaftSnapshotThreshold, 0)),
 				SnapshotInterval:  raftCfg.GetDuration(ClusterRaftSnapshotInterval, 0),
 				SnapshotRetain:    raftCfg.GetInt(ClusterRaftSnapshotRetain, 0),
