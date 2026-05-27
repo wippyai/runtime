@@ -43,6 +43,37 @@ type mockDispatcher struct{}
 
 func (d *mockDispatcher) Dispatch(dispatcher.Command) dispatcher.Handler { return nil }
 
+type blockingProcess struct {
+	started   chan struct{}
+	unblock   chan struct{}
+	closed    chan struct{}
+	startOnce sync.Once
+	closeOnce sync.Once
+}
+
+func newBlockingProcess() *blockingProcess {
+	return &blockingProcess{
+		started: make(chan struct{}),
+		unblock: make(chan struct{}),
+		closed:  make(chan struct{}),
+	}
+}
+
+func (p *blockingProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
+	return nil
+}
+
+func (p *blockingProcess) Step(_ []process.Event, out *process.StepOutput) error {
+	p.startOnce.Do(func() { close(p.started) })
+	<-p.unblock
+	out.Done(nil)
+	return nil
+}
+
+func (p *blockingProcess) Close() {
+	p.closeOnce.Do(func() { close(p.closed) })
+}
+
 func newMockFactory(latency time.Duration) process.FactoryFunc {
 	return func() (process.Process, error) {
 		return &mockProcess{latency: latency}, nil
@@ -168,4 +199,104 @@ func TestLazyMaxWorkers(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestLazyStopDrainsAcceptedCallsAndWaiters(t *testing.T) {
+	activeProc := newBlockingProcess()
+	factoryCalls := atomic.Int32{}
+	p, err := New(func() (process.Process, error) {
+		factoryCalls.Add(1)
+		return activeProc, nil
+	}, &mockDispatcher{}, Config{MaxWorkers: 1, IdleTimeout: time.Minute})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	p.Start()
+
+	activeDone := make(chan error, 1)
+	go func() {
+		_, err := p.Call(context.Background(), "test", nil)
+		activeDone <- err
+	}()
+
+	select {
+	case <-activeProc.started:
+	case <-time.After(time.Second):
+		t.Fatal("active call did not start")
+	}
+
+	waiterDone := make(chan error, 1)
+	go func() {
+		_, err := p.Call(context.Background(), "test", nil)
+		waiterDone <- err
+	}()
+
+	waitFor(t, time.Second, func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return len(p.waiters) == 1
+	})
+
+	stopDone := make(chan struct{})
+	go func() {
+		p.Stop()
+		close(stopDone)
+	}()
+
+	select {
+	case <-stopDone:
+		t.Fatal("Stop returned before active call completed")
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	select {
+	case err := <-waiterDone:
+		t.Fatalf("waiter finished before worker release: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	close(activeProc.unblock)
+
+	select {
+	case err := <-activeDone:
+		if err != nil {
+			t.Fatalf("active call error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("active call did not finish")
+	}
+
+	select {
+	case err := <-waiterDone:
+		if err != nil {
+			t.Fatalf("waiter call error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("waiter call did not finish")
+	}
+
+	select {
+	case <-stopDone:
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not return after accepted calls completed")
+	}
+
+	select {
+	case <-activeProc.closed:
+	case <-time.After(time.Second):
+		t.Fatal("active process was not closed after Stop")
+	}
+}
+
+func waitFor(t *testing.T, timeout time.Duration, ok func() bool) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if ok() {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("condition not met before timeout")
 }

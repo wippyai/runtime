@@ -139,10 +139,19 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 	if entry.Kind != regapi.NamespaceDependency {
 		return regapi.DirectiveResult{}, nil
 	}
+	if !isRootDependency(entry) {
+		return regapi.DirectiveResult{}, nil
+	}
 
 	transcoder := payload.GetTranscoder(ctx)
 	if transcoder == nil {
 		return regapi.DirectiveResult{}, ErrDependencyTranscoderMissing
+	}
+
+	lockedVersions := snapshotModuleVersions(snapshot)
+	controlledModules, err := h.collectControlledModules(ctx, snapshot, transcoder)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
 	}
 
 	desiredDeps, err := h.collectDesiredDependencies(ctx, op, snapshot, transcoder)
@@ -150,17 +159,16 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		return regapi.DirectiveResult{}, err
 	}
 
-	desiredRoots := make([]DependencyDefinition, 0, len(desiredDeps))
 	desiredDepEntries := make([]regapi.Entry, 0, len(desiredDeps))
 	for _, dep := range desiredDeps {
-		desiredRoots = append(desiredRoots, dep.definition)
 		desiredDepEntries = append(desiredDepEntries, dep.entry)
 	}
 
 	var resolved []ResolvedModule
+	desiredRoots := dependencyDefinitions(desiredDeps)
 	if len(desiredRoots) > 0 {
 		var err error
-		resolved, err = h.resolveModules(ctx, desiredRoots)
+		resolved, err = h.resolveModules(ctx, desiredRoots, lockedVersions)
 		if err != nil {
 			return regapi.DirectiveResult{}, err
 		}
@@ -171,6 +179,11 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		return regapi.DirectiveResult{}, err
 	}
 	linkDeps := mergeLinkDependencies(desiredDepEntries, moduleEntries)
+	strictModules := resolvedModuleNames(resolved)
+	mutableModules, err := h.operationModules(ctx, op, snapshot, transcoder)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
 
 	combined := make([]regapi.Entry, 0, len(snapshot)+len(moduleEntries))
 	for _, e := range snapshot {
@@ -184,14 +197,14 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 	pipeline := build.New(
 		stages.Override(),
 		stages.Disable(),
-		stages.Link(stages.WithDependencies(linkDeps)),
+		stages.Link(stages.WithDependencies(linkDeps), stages.WithStrictRequirementModules(strictModules)),
 		stages.Override(),
 	)
 	if err := pipeline.Execute(ctx, &combined); err != nil {
 		return regapi.DirectiveResult{}, NewDependencyPipelineError(err)
 	}
 
-	additional, err := buildOperations(snapshot, combined, op.Entry.ID)
+	additional, err := buildOperations(snapshot, combined, op.Entry.ID, controlledModules, mutableModules)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -210,13 +223,38 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 	}, nil
 }
 
-func (h *DependencyHandler) collectDesiredDependencies(
+func (h *DependencyHandler) collectSnapshotDependencies(
 	ctx context.Context,
-	op regapi.Operation,
 	snapshot regapi.State,
 	transcoder payload.Transcoder,
 ) ([]desiredDependency, error) {
-	deps := make(map[regapi.ID]desiredDependency)
+	deps := make([]desiredDependency, 0)
+	for _, entry := range snapshot {
+		if !isRootDependency(entry) {
+			continue
+		}
+		def, err := decodeDependency(ctx, transcoder, entry)
+		if err != nil {
+			return nil, err
+		}
+		if def.Component == "" {
+			return nil, NewDependencyEntryInvalidError(entry.ID.String(), "component is required", "")
+		}
+		deps = append(deps, desiredDependency{
+			entry:      entry,
+			definition: def,
+		})
+	}
+	return deps, nil
+}
+
+func (h *DependencyHandler) collectControlledModules(
+	ctx context.Context,
+	snapshot regapi.State,
+	transcoder payload.Transcoder,
+) (map[string]struct{}, error) {
+	controlled := make(map[string]struct{})
+	dependencyLinks := make(map[string][]string)
 
 	for _, entry := range snapshot {
 		if entry.Kind != regapi.NamespaceDependency {
@@ -226,10 +264,63 @@ func (h *DependencyHandler) collectDesiredDependencies(
 		if err != nil {
 			return nil, err
 		}
-		deps[entry.ID] = desiredDependency{
-			entry:      entry,
-			definition: def,
+		if def.Component == "" {
+			return nil, NewDependencyEntryInvalidError(entry.ID.String(), "component is required", "")
 		}
+
+		if owner := entryModule(entry); owner != "" {
+			dependencyLinks[owner] = append(dependencyLinks[owner], def.Component)
+			continue
+		}
+		controlled[def.Component] = struct{}{}
+	}
+
+	queue := make([]string, 0, len(controlled))
+	for module := range controlled {
+		queue = append(queue, module)
+	}
+	for len(queue) > 0 {
+		module := queue[0]
+		queue = queue[1:]
+		for _, dep := range dependencyLinks[module] {
+			if _, seen := controlled[dep]; seen {
+				continue
+			}
+			controlled[dep] = struct{}{}
+			queue = append(queue, dep)
+		}
+	}
+
+	return controlled, nil
+}
+
+func dependencyDefinitions(deps []desiredDependency) []DependencyDefinition {
+	roots := make([]DependencyDefinition, 0, len(deps))
+	for _, dep := range deps {
+		roots = append(roots, dep.definition)
+	}
+	return roots
+}
+
+func (h *DependencyHandler) collectDesiredDependencies(
+	ctx context.Context,
+	op regapi.Operation,
+	snapshot regapi.State,
+	transcoder payload.Transcoder,
+) ([]desiredDependency, error) {
+	deps := make(map[regapi.ID]desiredDependency)
+	lockedVersions := snapshotModuleVersions(snapshot)
+	operationID := op.Entry.ID
+
+	current, err := h.collectSnapshotDependencies(ctx, snapshot, transcoder)
+	if err != nil {
+		return nil, err
+	}
+	for _, dep := range current {
+		if dep.entry.ID != operationID {
+			dep.definition = pinExistingDependencyVersion(dep.definition, lockedVersions)
+		}
+		deps[dep.entry.ID] = dep
 	}
 
 	switch op.Kind {
@@ -239,6 +330,9 @@ func (h *DependencyHandler) collectDesiredDependencies(
 		entry, ok := resolveOperationEntry(op, snapshot)
 		if !ok {
 			return nil, NewDependencyEntryMissingError(op.Entry.ID.String())
+		}
+		if !isRootDependency(entry) {
+			break
 		}
 		def, err := decodeDependency(ctx, transcoder, entry)
 		if err != nil {
@@ -258,6 +352,45 @@ func (h *DependencyHandler) collectDesiredDependencies(
 		result = append(result, dep)
 	}
 	return result, nil
+}
+
+func snapshotModuleVersions(snapshot regapi.State) map[string]string {
+	versions := make(map[string]string)
+	ambiguous := make(map[string]struct{})
+	for _, entry := range snapshot {
+		module := entryModule(entry)
+		if module == "" || entry.Meta == nil {
+			continue
+		}
+		raw, ok := entry.Meta[metaModuleVersionKey]
+		if !ok {
+			continue
+		}
+		version, ok := raw.(string)
+		if !ok || version == "" {
+			continue
+		}
+		if _, bad := ambiguous[module]; bad {
+			continue
+		}
+		if existing, seen := versions[module]; seen && existing != version {
+			delete(versions, module)
+			ambiguous[module] = struct{}{}
+			continue
+		}
+		versions[module] = version
+	}
+	return versions
+}
+
+func pinExistingDependencyVersion(def DependencyDefinition, moduleVersions map[string]string) DependencyDefinition {
+	if def.Component == "" {
+		return def
+	}
+	if version := moduleVersions[def.Component]; version != "" {
+		def.Version = version
+	}
+	return def
 }
 
 func mergeLinkDependencies(explicitDeps, moduleEntries []regapi.Entry) []regapi.Entry {
@@ -285,7 +418,7 @@ func mergeLinkDependencies(explicitDeps, moduleEntries []regapi.Entry) []regapi.
 	return merged
 }
 
-func (h *DependencyHandler) resolveModules(ctx context.Context, deps []DependencyDefinition) ([]ResolvedModule, error) {
+func (h *DependencyHandler) resolveModules(ctx context.Context, deps []DependencyDefinition, lockedVersions map[string]string) ([]ResolvedModule, error) {
 	roots := make([]DependencySpec, 0, len(deps))
 	for _, dep := range deps {
 		name, err := graph.ParseName(dep.Component)
@@ -302,7 +435,9 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 	resolveCtx, cancel := withOptionalTimeout(ctx, h.resolveTimeout)
 	defer cancel()
 
-	result, err := Resolve(resolveCtx, h.hub, roots, nil)
+	result, err := Resolve(resolveCtx, h.hub, roots, &ResolveOptions{
+		LockedVersions: lockedVersions,
+	})
 	if err != nil {
 		return nil, NewDependencyResolutionError(err)
 	}
@@ -311,6 +446,17 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 	}
 
 	return result.Modules, nil
+}
+
+func resolvedModuleNames(modules []ResolvedModule) []string {
+	names := make([]string, 0, len(modules))
+	for _, mod := range modules {
+		if mod.Org == "" || mod.Name == "" {
+			continue
+		}
+		names = append(names, mod.Org+"/"+mod.Name)
+	}
+	return names
 }
 
 func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []ResolvedModule, transcoder payload.Transcoder) ([]regapi.Entry, error) {
@@ -348,6 +494,18 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 	if err != nil {
 		return "", NewDependencyEntryInvalidError("", "invalid component", mod.Org+"/"+mod.Name)
 	}
+	moduleName := name.String()
+
+	if replacementPath, ok := h.replacementPath(moduleName); ok {
+		stat, err := os.Stat(replacementPath)
+		if err != nil {
+			return "", NewDependencyLoadError(replacementPath, err)
+		}
+		if !stat.IsDir() {
+			return "", NewDependencyLoadError(replacementPath, fmt.Errorf("replacement path is not a directory"))
+		}
+		return replacementPath, nil
+	}
 
 	expectedDigest := mod.Digest
 	expectedSize := mod.SizeBytes
@@ -375,9 +533,10 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 		defer cancel()
 
 		info, err := h.hub.GetDownloadURL(downloadURLCtx, &DownloadParams{
-			Org:     mod.Org,
-			Module:  mod.Name,
-			Version: mod.Version,
+			Org:       mod.Org,
+			Module:    mod.Name,
+			Version:   mod.Version,
+			VersionID: mod.VersionID,
 		})
 		if err != nil {
 			return "", NewDependencyDownloadError(modKey(mod), err)
@@ -408,7 +567,47 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 	return wappPath, nil
 }
 
-func verifyDownloadedArtifact(path, expectedDigest string, expectedSize uint64) error {
+func (h *DependencyHandler) replacementPath(moduleName string) (string, bool) {
+	if h.lockPath == "" {
+		return "", false
+	}
+	lockObj, err := lock.New(h.lockPath)
+	if err != nil {
+		return "", false
+	}
+	replacement, ok := lockObj.GetReplacement(moduleName)
+	if !ok || strings.TrimSpace(replacement.To) == "" {
+		return "", false
+	}
+	path := replacement.To
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(filepath.Dir(lockObj.Path()), path)
+	}
+	return path, true
+}
+
+func (h *DependencyHandler) operationModules(
+	ctx context.Context,
+	op regapi.Operation,
+	snapshot regapi.State,
+	transcoder payload.Transcoder,
+) (map[string]struct{}, error) {
+	modules := make(map[string]struct{})
+	entry, ok := resolveOperationEntry(op, snapshot)
+	if !ok || !isRootDependency(entry) {
+		return modules, nil
+	}
+	def, err := decodeDependency(ctx, transcoder, entry)
+	if err != nil {
+		return nil, err
+	}
+	if def.Component != "" {
+		modules[def.Component] = struct{}{}
+	}
+	return modules, nil
+}
+
+func VerifyDownloadedArtifact(path, expectedDigest string, expectedSize uint64) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return err
@@ -436,6 +635,10 @@ func verifyDownloadedArtifact(path, expectedDigest string, expectedSize uint64) 
 		return fmt.Errorf("digest mismatch: expected %s, got sha256:%s", expectedDigest, gotDigest)
 	}
 	return nil
+}
+
+func verifyDownloadedArtifact(path, expectedDigest string, expectedSize uint64) error {
+	return VerifyDownloadedArtifact(path, expectedDigest, expectedSize)
 }
 
 func parseExpectedDigest(raw string) (algorithm string, value string, err error) {
@@ -584,7 +787,13 @@ func unwrapPayloadData(data any) any {
 	return data
 }
 
-func buildOperations(current regapi.State, desired []regapi.Entry, originalID regapi.ID) ([]regapi.Operation, error) {
+func buildOperations(
+	current regapi.State,
+	desired []regapi.Entry,
+	originalID regapi.ID,
+	controlledModules map[string]struct{},
+	mutableModules map[string]struct{},
+) ([]regapi.Operation, error) {
 	currentByID := make(map[regapi.ID]regapi.Entry, len(current))
 	for _, entry := range current {
 		currentByID[entry.ID] = entry
@@ -606,6 +815,9 @@ func buildOperations(current regapi.State, desired []regapi.Entry, originalID re
 				return nil, NewDependencyEntryConflictError(id.String(), entryModule(existing), entryModule(entry))
 			}
 			if !entriesEqual(existing, entry) {
+				if sameImmutableModuleVersion(existing, entry, mutableModules) {
+					continue
+				}
 				ops = append(ops, regapi.Operation{Kind: regapi.EntryUpdate, Entry: entry})
 			}
 		} else {
@@ -621,11 +833,35 @@ func buildOperations(current regapi.State, desired []regapi.Entry, originalID re
 			continue
 		}
 		if module := entryModule(entry); module != "" {
+			if controlledModules != nil {
+				if _, ok := controlledModules[module]; !ok {
+					continue
+				}
+			}
 			ops = append(ops, regapi.Operation{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: id}})
 		}
 	}
 
 	return ops, nil
+}
+
+func sameImmutableModuleVersion(existing, desired regapi.Entry, mutableModules map[string]struct{}) bool {
+	if mutableModules == nil {
+		return false
+	}
+	module := entryModule(desired)
+	if module == "" || module != entryModule(existing) {
+		return false
+	}
+	if _, mutable := mutableModules[module]; mutable {
+		return false
+	}
+	existingVersion := moduleVersion(existing)
+	desiredVersion := moduleVersion(desired)
+	if existingVersion != "" && desiredVersion != "" && existingVersion != desiredVersion {
+		return false
+	}
+	return true
 }
 
 func entryConflict(existing, desired regapi.Entry) bool {
@@ -647,6 +883,22 @@ func entryModule(entry regapi.Entry) string {
 		}
 	}
 	return ""
+}
+
+func moduleVersion(entry regapi.Entry) string {
+	if entry.Meta == nil {
+		return ""
+	}
+	if v, ok := entry.Meta[metaModuleVersionKey]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+func isRootDependency(entry regapi.Entry) bool {
+	return entry.Kind == regapi.NamespaceDependency && entryModule(entry) == ""
 }
 
 func markModuleMeta(entry regapi.Entry, moduleName, moduleVersion string) regapi.Entry {

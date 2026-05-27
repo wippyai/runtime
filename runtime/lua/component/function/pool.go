@@ -5,6 +5,7 @@ package function
 import (
 	"context"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/wippyai/runtime/api/event"
@@ -25,11 +26,90 @@ import (
 	"go.uber.org/zap"
 )
 
+func newPoolEntry(pool funcpool.Pool, method, hostID string) *poolEntry {
+	return &poolEntry{
+		pool:    pool,
+		method:  method,
+		hostID:  hostID,
+		drained: make(chan struct{}),
+	}
+}
+
+func (e *poolEntry) acquire() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.retired {
+		return false
+	}
+	e.active++
+	return true
+}
+
+func (e *poolEntry) release() {
+	e.mu.Lock()
+	e.active--
+	if e.retired && e.active == 0 {
+		e.stopOnce.Do(func() { close(e.drained) })
+	}
+	e.mu.Unlock()
+}
+
+func (e *poolEntry) retire(stop func()) {
+	e.mu.Lock()
+	if e.retired {
+		e.mu.Unlock()
+		return
+	}
+	e.retired = true
+	if e.active == 0 {
+		e.stopOnce.Do(func() { close(e.drained) })
+		e.mu.Unlock()
+		stop()
+		return
+	}
+	drained := e.drained
+	e.mu.Unlock()
+
+	go func() {
+		<-drained
+		stop()
+	}()
+}
+
 // createPool creates a new pool for a function.
 func (m *Manager) createPool(id registry.ID, cfg *configEntry) error {
+	pool, err := m.buildPool(id, cfg)
+	if err != nil {
+		return err
+	}
+
+	hostID := m.nextPoolHostID(id)
+
+	m.mu.RLock()
+	started := m.started
+	m.mu.RUnlock()
+	if started {
+		pool.Start()
+	}
+
+	if started && m.node != nil {
+		if err := m.node.RegisterHost(hostID, pool); err != nil {
+			pool.Stop()
+			return err
+		}
+	}
+
+	m.mu.Lock()
+	m.pools[id] = newPoolEntry(pool, cfg.method, hostID)
+	m.mu.Unlock()
+
+	return nil
+}
+
+func (m *Manager) buildPool(id registry.ID, cfg *configEntry) (funcpool.Pool, error) {
 	factoryFn, err := m.factory.CreateFactory(id, engine.WithModule(processmod.Module))
 	if err != nil {
-		return err // Already has compile context from code.Manager
+		return nil, err // Already has compile context from code.Manager
 	}
 
 	execHooks := m.createExecutionHooks()
@@ -42,34 +122,45 @@ func (m *Manager) createPool(id registry.ID, cfg *configEntry) error {
 	}
 
 	if err != nil {
-		return runtimelua.NewCreatePoolError(err)
+		return nil, runtimelua.NewCreatePoolError(err)
 	}
 
-	m.mu.Lock()
-	m.pools[id] = &poolEntry{
-		pool:   pool,
-		method: cfg.method,
+	return pool, nil
+}
+
+// replacePool creates and starts the replacement before making it visible.
+func (m *Manager) replacePool(id registry.ID, cfg *configEntry) error {
+	pool, err := m.buildPool(id, cfg)
+	if err != nil {
+		return err
 	}
+
+	hostID := m.nextPoolHostID(id)
+
+	m.mu.RLock()
 	started := m.started
-	m.mu.Unlock()
-
-	if m.node != nil {
-		if err := m.node.RegisterHost(id.String(), pool); err != nil {
-			m.log.Warn("failed to register pool as host", zap.String("id", id.String()), zap.Error(err))
-		}
-	}
-
+	m.mu.RUnlock()
 	if started {
 		pool.Start()
 	}
 
-	return nil
-}
+	if started && m.node != nil {
+		if err := m.node.RegisterHost(hostID, pool); err != nil {
+			pool.Stop()
+			return err
+		}
+	}
 
-// replacePool stops old pool and creates new one.
-func (m *Manager) replacePool(id registry.ID, cfg *configEntry) error {
-	m.removePool(id)
-	return m.createPool(id, cfg)
+	newEntry := newPoolEntry(pool, cfg.method, hostID)
+	m.mu.Lock()
+	oldEntry, exists := m.pools[id]
+	m.pools[id] = newEntry
+	m.mu.Unlock()
+
+	if exists {
+		m.retirePoolEntry(oldEntry)
+	}
+	return nil
 }
 
 // removePool stops and removes a pool.
@@ -82,11 +173,24 @@ func (m *Manager) removePool(id registry.ID) {
 	m.mu.Unlock()
 
 	if exists {
+		m.retirePoolEntry(entry)
+	}
+}
+
+func (m *Manager) retirePoolEntry(entry *poolEntry) {
+	if entry == nil {
+		return
+	}
+	entry.retire(func() {
 		entry.pool.Stop()
 		if m.node != nil {
-			m.node.UnregisterHost(id.String())
+			m.node.UnregisterHost(entry.hostID)
 		}
-	}
+	})
+}
+
+func (m *Manager) nextPoolHostID(id registry.ID) string {
+	return id.String() + "#lua." + strconv.FormatUint(m.hostSeq.Add(1), 10)
 }
 
 // autoSelectPool automatically selects pool type based on config options (legacy behavior).
@@ -175,7 +279,7 @@ func (m *Manager) registerCaller(ctx context.Context, id registry.ID, options ru
 		return runtimelua.NewRegisterCallerError(&id, nil)
 	}
 
-	waiter, err := awaitSvc.Prepare(ctx, function.System, "function.(accept|reject)", path, 30*time.Second)
+	waiter, err := awaitSvc.Prepare(ctx, function.System, "function.(accept|reject)", path, event.DefaultAwaitTimeout)
 	if err != nil {
 		return runtimelua.NewRegisterCallerError(&id, err)
 	}

@@ -13,19 +13,73 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/service/queue/drivertest"
 	"go.uber.org/zap/zaptest"
 )
 
-func TestMemoryDriver_DeclareQueue(t *testing.T) {
+func requireDelivery(t *testing.T, deliveries <-chan *queueapi.Delivery) *queueapi.Delivery {
+	t.Helper()
+	select {
+	case delivery := <-deliveries:
+		require.NotNil(t, delivery)
+		require.NotNil(t, delivery.Message)
+		return delivery
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for delivery")
+		return nil
+	}
+}
+
+func requireNoDelivery(t *testing.T, deliveries <-chan *queueapi.Delivery) {
+	t.Helper()
+	select {
+	case delivery := <-deliveries:
+		t.Fatalf("unexpected delivery: %#v", delivery)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func newStartedMemoryDriver(t *testing.T) (context.Context, *Driver, registry.ID, chan *queueapi.Delivery) {
+	t.Helper()
+	logger := zaptest.NewLogger(t)
+	driver := NewDriver(registry.ParseID("test:driver"), logger)
+	ctx := context.Background()
+	queueID := registry.ParseID("test:queue1")
+
+	require.NoError(t, driver.DeclareQueue(ctx, queueID, &queueapi.Config{}))
+	_, err := driver.Start(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, driver.Stop(ctx)) })
+
+	deliveries := make(chan *queueapi.Delivery, 8)
+	cancel, err := driver.Attach(ctx, queueID, &queueapi.ConsumerOptions{}, deliveries)
+	require.NoError(t, err)
+	t.Cleanup(cancel)
+
+	return ctx, driver, queueID, deliveries
+}
+
+// TestMemoryDriver_Conformance runs the shared driver conformance suite.
+func TestMemoryDriver_Conformance(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+	driver := NewDriver(registry.ParseID("test:driver"), logger)
+	drivertest.New(t, driver).Run()
+}
+
+// --- Memory-specific tests below (internal state and lifecycle) ---
+
+func TestMemoryDriver_DeclareQueueInternal(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 	driver := NewDriver(registry.ParseID("test:driver"), logger)
 
 	ctx := context.Background()
 	queueID := registry.ParseID("test:queue1")
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionMaxLength, 50)
+	memBag := attrs.NewBag()
+	memBag.Set("max_length", 50)
+	cfg := &queueapi.Config{DriverOptions: attrs.NewBag()}
+	cfg.DriverOptions.Set("memory", memBag)
 
-	err := driver.DeclareQueue(ctx, queueID, opts)
+	err := driver.DeclareQueue(ctx, queueID, cfg)
 	require.NoError(t, err)
 
 	driver.mu.RLock()
@@ -37,149 +91,6 @@ func TestMemoryDriver_DeclareQueue(t *testing.T) {
 	assert.Equal(t, 50, cap(q.messages))
 }
 
-func TestMemoryDriver_PublishAndAttach(t *testing.T) {
-	logger := zaptest.NewLogger(t)
-	driver := NewDriver(registry.ParseID("test:driver"), logger)
-
-	ctx := context.Background()
-	queueID := registry.ParseID("test:queue1")
-
-	err := driver.DeclareQueue(ctx, queueID, attrs.NewBag())
-	require.NoError(t, err)
-
-	body := payload.New("test message")
-	msg := queueapi.AcquireMessage(body)
-	msg.ID = "msg1"
-
-	err = driver.Publish(ctx, queueID, msg)
-	require.NoError(t, err)
-
-	deliveries := make(chan *queueapi.Delivery, 10)
-	cancel, err := driver.Attach(ctx, queueID, deliveries)
-	require.NoError(t, err)
-	defer cancel()
-
-	select {
-	case delivery := <-deliveries:
-		assert.Equal(t, "msg1", delivery.Message.ID)
-		bodyData, ok := delivery.Message.Body.Data().(string)
-		require.True(t, ok, "expected string payload, got %T", delivery.Message.Body.Data())
-		assert.Equal(t, "test message", bodyData)
-
-		err = delivery.Ack(ctx)
-		assert.NoError(t, err)
-
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for message")
-	}
-}
-
-func TestMemoryDriver_MultipleMessages(t *testing.T) {
-	logger := zaptest.NewLogger(t)
-	driver := NewDriver(registry.ParseID("test:driver"), logger)
-
-	ctx := context.Background()
-	queueID := registry.ParseID("test:queue1")
-
-	err := driver.DeclareQueue(ctx, queueID, attrs.NewBag())
-	require.NoError(t, err)
-
-	msgs := make([]*queueapi.Message, 3)
-	for i := 0; i < 3; i++ {
-		body := payload.New("msg" + string(rune('a'+i)))
-		msg := queueapi.AcquireMessage(body)
-		msg.ID = string(rune('a' + i))
-		msgs[i] = msg
-	}
-
-	err = driver.Publish(ctx, queueID, msgs...)
-	require.NoError(t, err)
-
-	deliveries := make(chan *queueapi.Delivery, 10)
-	cancel, err := driver.Attach(ctx, queueID, deliveries)
-	require.NoError(t, err)
-	defer cancel()
-
-	received := 0
-	timeout := time.After(2 * time.Second)
-
-	for received < 3 {
-		select {
-		case delivery := <-deliveries:
-			assert.NotNil(t, delivery.Message)
-			err = delivery.Ack(ctx)
-			assert.NoError(t, err)
-			received++
-		case <-timeout:
-			t.Fatalf("timeout, only received %d of 3 messages", received)
-		}
-	}
-}
-
-func TestMemoryDriver_Nack(t *testing.T) {
-	logger := zaptest.NewLogger(t)
-	driver := NewDriver(registry.ParseID("test:driver"), logger)
-
-	ctx := context.Background()
-	queueID := registry.ParseID("test:queue1")
-
-	opts := attrs.NewBag()
-	opts.Set(queueapi.OptionMaxLength, 10)
-	err := driver.DeclareQueue(ctx, queueID, opts)
-	require.NoError(t, err)
-
-	body := payload.New("test")
-	msg := queueapi.AcquireMessage(body)
-	msg.ID = "msg1"
-
-	err = driver.Publish(ctx, queueID, msg)
-	require.NoError(t, err)
-
-	deliveries := make(chan *queueapi.Delivery, 10)
-	cancel, err := driver.Attach(ctx, queueID, deliveries)
-	require.NoError(t, err)
-	defer cancel()
-
-	delivery := <-deliveries
-	assert.Equal(t, "msg1", delivery.Message.ID)
-
-	err = delivery.Nack(ctx)
-	assert.NoError(t, err)
-
-	redelivered := <-deliveries
-	assert.Equal(t, "msg1", redelivered.Message.ID)
-}
-
-func TestMemoryDriver_GetQueueInfo(t *testing.T) {
-	logger := zaptest.NewLogger(t)
-	driver := NewDriver(registry.ParseID("test:driver"), logger)
-
-	ctx := context.Background()
-	queueID := registry.ParseID("test:queue1")
-
-	err := driver.DeclareQueue(ctx, queueID, attrs.NewBag())
-	require.NoError(t, err)
-
-	body1 := payload.New("msg1")
-	msg1 := queueapi.AcquireMessage(body1)
-	msg1.ID = "msg1"
-	body2 := payload.New("msg2")
-	msg2 := queueapi.AcquireMessage(body2)
-	msg2.ID = "msg2"
-
-	err = driver.Publish(ctx, queueID, msg1, msg2)
-	require.NoError(t, err)
-
-	info, err := driver.GetQueueInfo(ctx, queueID)
-	require.NoError(t, err)
-
-	count := info.GetInt(queueapi.StatsMessageCount, 0)
-	ready := info.GetInt(queueapi.StatsReady, 0)
-
-	assert.Equal(t, 2, count)
-	assert.Equal(t, 2, ready)
-}
-
 func TestMemoryDriver_Stop(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 	driver := NewDriver(registry.ParseID("test:driver"), logger)
@@ -187,7 +98,7 @@ func TestMemoryDriver_Stop(t *testing.T) {
 	ctx := context.Background()
 	queueID := registry.ParseID("test:queue1")
 
-	err := driver.DeclareQueue(ctx, queueID, attrs.NewBag())
+	err := driver.DeclareQueue(ctx, queueID, &queueapi.Config{})
 	require.NoError(t, err)
 
 	_, err = driver.Start(ctx)
@@ -210,7 +121,7 @@ func TestMemoryDriver_PublishBeforeStart(t *testing.T) {
 	ctx := context.Background()
 	queueID := registry.ParseID("test:queue1")
 
-	err := driver.DeclareQueue(ctx, queueID, attrs.NewBag())
+	err := driver.DeclareQueue(ctx, queueID, &queueapi.Config{})
 	require.NoError(t, err)
 
 	msg := queueapi.AcquireMessage(payload.New("test"))
@@ -227,7 +138,7 @@ func TestMemoryDriver_PublishAfterStop(t *testing.T) {
 	ctx := context.Background()
 	queueID := registry.ParseID("test:queue1")
 
-	err := driver.DeclareQueue(ctx, queueID, attrs.NewBag())
+	err := driver.DeclareQueue(ctx, queueID, &queueapi.Config{})
 	require.NoError(t, err)
 
 	_, err = driver.Start(ctx)
@@ -243,28 +154,147 @@ func TestMemoryDriver_PublishAfterStop(t *testing.T) {
 	assert.ErrorIs(t, err, queueapi.ErrQueueNotFound, "publish should fail after stop")
 }
 
-func TestMemoryDriver_AttachNonExistent(t *testing.T) {
-	logger := zaptest.NewLogger(t)
-	driver := NewDriver(registry.ParseID("test:driver"), logger)
+func TestMemoryDriver_NackRedeliverySurvivesMessageRelease(t *testing.T) {
+	ctx, driver, queueID, deliveries := newStartedMemoryDriver(t)
 
-	ctx := context.Background()
-	queueID := registry.ParseID("test:nonexistent")
+	msg := queueapi.AcquireMessageWithID("msg1", payload.New("payload-1"))
+	msg.Headers.Set("job_id", "job-1")
+	require.NoError(t, driver.Publish(ctx, queueID, msg))
 
-	deliveries := make(chan *queueapi.Delivery, 10)
-	_, err := driver.Attach(ctx, queueID, deliveries)
-	assert.ErrorIs(t, err, queueapi.ErrQueueNotFound)
+	first := requireDelivery(t, deliveries)
+	require.Equal(t, "msg1", first.Message.ID)
+	require.NoError(t, first.Nack(ctx))
+
+	queueapi.ReleaseMessage(first.Message)
+
+	redelivered := requireDelivery(t, deliveries)
+	require.Equal(t, "msg1", redelivered.Message.ID)
+	require.NotNil(t, redelivered.Message.Body)
+	require.Equal(t, "payload-1", redelivered.Message.Body.Data())
+	require.Equal(t, "job-1", redelivered.Message.Headers.GetString("job_id", ""))
 }
 
-func TestMemoryDriver_PublishNonExistent(t *testing.T) {
-	logger := zaptest.NewLogger(t)
-	driver := NewDriver(registry.ParseID("test:driver"), logger)
+func TestMemoryDriver_NackRedeliveryPreservesMultipleHeaders(t *testing.T) {
+	ctx, driver, queueID, deliveries := newStartedMemoryDriver(t)
 
-	ctx := context.Background()
-	queueID := registry.ParseID("test:nonexistent")
+	msg := queueapi.AcquireMessageWithID("msg-headers", payload.New("payload"))
+	msg.Headers.Set("job_id", "job-headers")
+	msg.Headers.Set(queueapi.HeaderCorrelationID, "corr-1")
+	msg.Headers.Set("priority", 7)
+	msg.Headers.Set("retryable", true)
+	require.NoError(t, driver.Publish(ctx, queueID, msg))
 
-	msg := queueapi.AcquireMessage(payload.New("test"))
-	err := driver.Publish(ctx, queueID, msg)
-	assert.ErrorIs(t, err, queueapi.ErrQueueNotFound)
+	first := requireDelivery(t, deliveries)
+	require.NoError(t, first.Nack(ctx))
+	queueapi.ReleaseMessage(first.Message)
+
+	redelivered := requireDelivery(t, deliveries)
+	require.Equal(t, "job-headers", redelivered.Message.Headers.GetString("job_id", ""))
+	require.Equal(t, "corr-1", redelivered.Message.Headers.GetString(queueapi.HeaderCorrelationID, ""))
+	require.Equal(t, 7, redelivered.Message.Headers.GetInt("priority", 0))
+	assert.Equal(t, true, redelivered.Message.Headers["retryable"])
+}
+
+func TestMemoryDriver_NackRedeliveryCloneIsIndependentFromReleasedOriginal(t *testing.T) {
+	ctx, driver, queueID, deliveries := newStartedMemoryDriver(t)
+
+	msg := queueapi.AcquireMessageWithID("msg-isolated", payload.New("body-a"))
+	msg.Headers.Set("job_id", "job-original")
+	require.NoError(t, driver.Publish(ctx, queueID, msg))
+
+	first := requireDelivery(t, deliveries)
+	require.NoError(t, first.Nack(ctx))
+	first.Message.ID = "mutated-after-nack"
+	first.Message.Headers.Set("job_id", "mutated-after-nack")
+	first.Message.Headers.Set("extra", "should-not-leak")
+	queueapi.ReleaseMessage(first.Message)
+
+	redelivered := requireDelivery(t, deliveries)
+	require.Equal(t, "msg-isolated", redelivered.Message.ID)
+	require.Equal(t, "job-original", redelivered.Message.Headers.GetString("job_id", ""))
+	require.Equal(t, "", redelivered.Message.Headers.GetString("extra", ""))
+}
+
+func TestMemoryDriver_NackRedeliveryCanBeNackedRepeatedly(t *testing.T) {
+	ctx, driver, queueID, deliveries := newStartedMemoryDriver(t)
+
+	msg := queueapi.AcquireMessageWithID("msg-repeat", payload.New("repeat-body"))
+	msg.Headers.Set("job_id", "job-repeat")
+	require.NoError(t, driver.Publish(ctx, queueID, msg))
+
+	for i := 0; i < 3; i++ {
+		delivery := requireDelivery(t, deliveries)
+		require.Equal(t, "msg-repeat", delivery.Message.ID)
+		require.NotNil(t, delivery.Message.Body)
+		require.Equal(t, "repeat-body", delivery.Message.Body.Data())
+		require.Equal(t, "job-repeat", delivery.Message.Headers.GetString("job_id", ""))
+		require.NoError(t, delivery.Nack(ctx))
+		queueapi.ReleaseMessage(delivery.Message)
+	}
+
+	final := requireDelivery(t, deliveries)
+	require.Equal(t, "msg-repeat", final.Message.ID)
+	require.Equal(t, "repeat-body", final.Message.Body.Data())
+	require.Equal(t, "job-repeat", final.Message.Headers.GetString("job_id", ""))
+}
+
+func TestMemoryDriver_AckDoesNotRedeliverAfterRelease(t *testing.T) {
+	ctx, driver, queueID, deliveries := newStartedMemoryDriver(t)
+
+	msg := queueapi.AcquireMessageWithID("msg-ack", payload.New("ack-body"))
+	require.NoError(t, driver.Publish(ctx, queueID, msg))
+
+	first := requireDelivery(t, deliveries)
+	require.NoError(t, first.Ack(ctx))
+	queueapi.ReleaseMessage(first.Message)
+
+	requireNoDelivery(t, deliveries)
+}
+
+func TestMemoryDriver_NackRedeliveryWithNilHeaderBag(t *testing.T) {
+	ctx, driver, queueID, deliveries := newStartedMemoryDriver(t)
+
+	msg := &queueapi.Message{ID: "manual", Body: payload.New("manual-body")}
+	require.NoError(t, driver.Publish(ctx, queueID, msg))
+
+	first := requireDelivery(t, deliveries)
+	require.NoError(t, first.Nack(ctx))
+	queueapi.ReleaseMessage(first.Message)
+
+	redelivered := requireDelivery(t, deliveries)
+	require.Equal(t, "manual", redelivered.Message.ID)
+	require.NotNil(t, redelivered.Message.Headers)
+	require.Equal(t, "manual-body", redelivered.Message.Body.Data())
+}
+
+func TestMemoryDriver_NackRedeliveryAfterPublishingSeveralMessages(t *testing.T) {
+	ctx, driver, queueID, deliveries := newStartedMemoryDriver(t)
+
+	for i := 1; i <= 3; i++ {
+		msg := queueapi.AcquireMessageWithID("msg-batch-"+string(rune('0'+i)), payload.New("body-"+string(rune('0'+i))))
+		msg.Headers.Set("job_id", "job-"+string(rune('0'+i)))
+		require.NoError(t, driver.Publish(ctx, queueID, msg))
+	}
+
+	first := requireDelivery(t, deliveries)
+	require.Equal(t, "msg-batch-1", first.Message.ID)
+	require.NoError(t, first.Nack(ctx))
+	queueapi.ReleaseMessage(first.Message)
+
+	second := requireDelivery(t, deliveries)
+	require.Equal(t, "msg-batch-2", second.Message.ID)
+	require.NoError(t, second.Ack(ctx))
+	queueapi.ReleaseMessage(second.Message)
+
+	third := requireDelivery(t, deliveries)
+	require.Equal(t, "msg-batch-3", third.Message.ID)
+	require.NoError(t, third.Ack(ctx))
+	queueapi.ReleaseMessage(third.Message)
+
+	redelivered := requireDelivery(t, deliveries)
+	require.Equal(t, "msg-batch-1", redelivered.Message.ID)
+	require.Equal(t, "body-1", redelivered.Message.Body.Data())
+	require.Equal(t, "job-1", redelivered.Message.Headers.GetString("job_id", ""))
 }
 
 func TestMemoryDriver_StopWithoutStart(t *testing.T) {

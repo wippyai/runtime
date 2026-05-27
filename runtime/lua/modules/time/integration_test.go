@@ -14,17 +14,25 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
+	relayapi "github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
 	"github.com/wippyai/runtime/system/clock"
+	sysrelay "github.com/wippyai/runtime/system/relay"
 	"github.com/wippyai/runtime/system/scheduler"
 	"github.com/wippyai/runtime/system/scheduler/actor"
 )
 
+// testHostID is the relay host the actor scheduler registers under. The
+// test PID's Host matches it so clock fire packages route back to the
+// running process.
+const testHostID = "time.test"
+
 type testScheduler struct {
 	*actor.Scheduler
 	clock   *clock.Dispatcher
+	node    *sysrelay.Node
 	pending map[string]chan *runtime.Result
 	mu      sync.Mutex
 }
@@ -56,6 +64,8 @@ func (ts *testScheduler) Execute(ctx context.Context, p pid.PID, proc process.Pr
 	ts.mu.Lock()
 	ts.pending[p.UniqID] = resultCh
 	ts.mu.Unlock()
+
+	ctx = ts.withRelay(ctx)
 
 	_, err := ts.Submit(ctx, p, proc, method, input)
 	if err != nil {
@@ -91,11 +101,54 @@ func newTestScheduler() *testScheduler {
 		actor.WithLifecycle(ts),
 	}
 	ts.Scheduler = actor.NewScheduler(reg, opts...)
+
+	// Mirror production relay wiring: the clock dispatcher fires by
+	// node.Send(pkg), routed by Target.Host to a registered host. The
+	// actor scheduler is itself a relay.Receiver that delivers a package
+	// into the target process's queue and wakes a worker to Step it, so it
+	// plays the host role the function pool fills in production.
+	ts.node = sysrelay.NewNode("time-test-node")
+	if err := ts.node.RegisterHost(testHostID, ts.Scheduler); err != nil {
+		panic(err)
+	}
 	return ts
 }
 
+// withRelay attaches the relay node so the clock dispatcher can schedule and
+// fire timers. relay.WithNode needs an AppContext on ctx; the harness opens
+// frame contexts off context.Background() (no AppContext), so seed one while
+// preserving the caller's frame context (PID, frame values).
+func (ts *testScheduler) withRelay(ctx context.Context) context.Context {
+	if ctxapi.AppFromContext(ctx) == nil {
+		ctx = ctxapi.WithAppContext(ctx, ctxapi.NewAppContext())
+	}
+	return relayapi.WithNode(ctx, ts.node)
+}
+
 func testPID() pid.PID {
-	return pid.PID{UniqID: "time-test"}
+	p := pid.PID{Host: testHostID, UniqID: "time-test"}
+	return p.Precomputed()
+}
+
+// openTimeFrameCtx opens a frame context with the test PID set. time.after /
+// time.timer / time.ticker read the frame PID to address clock fire packages
+// back to the running process; without it the module raises immediately.
+func openTimeFrameCtx(t *testing.T) (context.Context, ctxapi.FrameContext) {
+	t.Helper()
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	if err := runtime.SetFramePID(ctx, testPID()); err != nil {
+		t.Fatalf("set frame pid: %v", err)
+	}
+	return ctx, fc
+}
+
+// resultErr extracts the script error from a result for failure messages,
+// distinguishing a nil result from a completed-with-error result.
+func resultErr(r *runtime.Result) error {
+	if r == nil {
+		return context.DeadlineExceeded
+	}
+	return r.Error
 }
 
 func bindTimeModule(l *lua.LState) error {
@@ -141,7 +194,7 @@ func TestTickerBasic(t *testing.T) {
 		return #results
 	`
 
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, _ := openTimeFrameCtx(t)
 	proc := newLuaProcessWithChannels(t, script)
 
 	start := stdtime.Now()
@@ -154,10 +207,14 @@ func TestTickerBasic(t *testing.T) {
 	if result == nil {
 		t.Fatal("nil result")
 	}
+	if result.Error != nil {
+		t.Fatalf("script failed: %v", result.Error)
+	}
 
-	// Should take at least 30ms (3 * 10ms)
+	// 3 ticks at 10ms must take at least ~30ms; a vacuous run (no real
+	// fires) would return in microseconds.
 	if elapsed < 25*stdtime.Millisecond {
-		t.Logf("Warning: elapsed time %v shorter than expected", elapsed)
+		t.Fatalf("received 3 ticks in %v: ticker is not firing", elapsed)
 	}
 
 	t.Logf("Ticker basic: received ticks in %v", elapsed)
@@ -211,7 +268,7 @@ func TestMultipleTickersStaggered(t *testing.T) {
 		return #order
 	`
 
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, _ := openTimeFrameCtx(t)
 	proc := newLuaProcessWithChannels(t, script)
 
 	start := stdtime.Now()
@@ -223,6 +280,16 @@ func TestMultipleTickersStaggered(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("nil result")
+	}
+	if result.Error != nil {
+		t.Fatalf("script failed: %v", result.Error)
+	}
+
+	// ticker1 fires 3x at 5ms, the loop only returns after every coroutine
+	// drains its ticker; the slowest path (ticker1) needs ~15ms of real
+	// fires.
+	if elapsed < 12*stdtime.Millisecond {
+		t.Fatalf("staggered tickers completed in %v: not firing", elapsed)
 	}
 
 	t.Logf("Multiple staggered tickers: completed in %v", elapsed)
@@ -250,7 +317,7 @@ func TestTickerStop(t *testing.T) {
 		return count
 	`
 
-	ctx, _ := ctxapi.OpenFrameContext(context.Background())
+	ctx, _ := openTimeFrameCtx(t)
 	proc := newLuaProcessWithChannels(t, script)
 
 	start := stdtime.Now()
@@ -262,6 +329,14 @@ func TestTickerStop(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("nil result")
+	}
+	if result.Error != nil {
+		t.Fatalf("script failed: %v", result.Error)
+	}
+
+	// 3 ticks at 5ms require ~15ms of real fires before stop.
+	if elapsed < 12*stdtime.Millisecond {
+		t.Fatalf("3 ticks at 5ms completed in %v: not firing", elapsed)
 	}
 
 	t.Logf("Ticker stop: completed in %v", elapsed)
@@ -290,7 +365,7 @@ func TestTickerCleanupOnProcessExit(t *testing.T) {
 		return "done"
 	`
 
-	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	ctx, fc := openTimeFrameCtx(t)
 	proc := newLuaProcessWithChannels(t, script)
 
 	result, err := sched.Execute(ctx, testPID(), proc, "", nil)
@@ -299,6 +374,9 @@ func TestTickerCleanupOnProcessExit(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("nil result")
+	}
+	if result.Error != nil {
+		t.Fatalf("script failed: %v", result.Error)
 	}
 
 	// Release frame context - this triggers cleanup
@@ -336,7 +414,7 @@ func TestTimerCleanupOnProcessExit(t *testing.T) {
 		return "done"
 	`
 
-	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	ctx, fc := openTimeFrameCtx(t)
 	proc := newLuaProcessWithChannels(t, script)
 
 	result, err := sched.Execute(ctx, testPID(), proc, "", nil)
@@ -345,6 +423,9 @@ func TestTimerCleanupOnProcessExit(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("nil result")
+	}
+	if result.Error != nil {
+		t.Fatalf("script failed: %v", result.Error)
 	}
 
 	// Release frame context - this triggers cleanup

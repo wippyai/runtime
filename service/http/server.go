@@ -4,6 +4,8 @@ package http
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -16,12 +18,15 @@ import (
 	relaysys "github.com/wippyai/runtime/system/relay"
 
 	contextapi "github.com/wippyai/runtime/api/context"
+	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/logs"
+	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	config "github.com/wippyai/runtime/api/service/http"
 	"github.com/wippyai/runtime/api/supervisor"
+	"github.com/wippyai/runtime/runtime/security"
 )
 
 const (
@@ -44,6 +49,7 @@ type ServerService struct {
 	statusChan    chan any
 	server        *http.Server
 	mountPaths    map[registry.ID]string
+	mountHandlers map[registry.ID]http.Handler
 	routeMgr      *RouteManager
 	config        *config.ServerConfig
 	id            registry.ID
@@ -65,6 +71,7 @@ func NewServerService(id registry.ID, cfg *config.ServerConfig, middleware Middl
 		routeMgr:      routeManager,
 		statusChan:    make(chan any, StatusBuffer),
 		mountPaths:    make(map[registry.ID]string),
+		mountHandlers: make(map[registry.ID]http.Handler),
 		middlewareFac: middleware,
 	}, nil
 }
@@ -145,12 +152,38 @@ func (s *ServerService) Mount(id registry.ID, path string, handler http.Handler)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if oldPath, exists := s.mountPaths[id]; exists {
+		if oldPath == path {
+			if err := s.routeMgr.ReplaceMount(path, handler); err != nil {
+				return err
+			}
+			s.mountHandlers[id] = handler
+			return nil
+		}
+
+		oldHandler := s.mountHandlers[id]
+		if err := s.routeMgr.Unmount(oldPath); err != nil {
+			return err
+		}
+		if err := s.routeMgr.Mount(path, handler); err != nil {
+			if oldHandler != nil {
+				_ = s.routeMgr.Mount(oldPath, oldHandler)
+			}
+			return err
+		}
+
+		s.mountPaths[id] = path
+		s.mountHandlers[id] = handler
+		return nil
+	}
+
 	if err := s.routeMgr.Mount(path, handler); err != nil {
 		return err
 	}
 
 	// Store path mapping for later unmount
 	s.mountPaths[id] = path
+	s.mountHandlers[id] = handler
 	return nil
 }
 
@@ -170,6 +203,7 @@ func (s *ServerService) Remove(id registry.ID) error {
 
 	// Clean up the mapping
 	delete(s.mountPaths, id)
+	delete(s.mountHandlers, id)
 	return nil
 }
 
@@ -248,6 +282,12 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 			return s.ctx
 		},
 	}
+
+	ln, probe, err := s.buildListener(ctx)
+	if err != nil {
+		s.mu.Unlock()
+		return nil, err
+	}
 	s.server = srv
 	s.started.Store(true)
 
@@ -256,7 +296,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 	// Launch server
 	go func() {
 		// Use the captured server instance to avoid racing on s.server field.
-		err := srv.ListenAndServe()
+		err := srv.Serve(ln)
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			select {
 			case s.statusChan <- NewServerError(err):
@@ -267,7 +307,7 @@ func (s *ServerService) Start(ctx context.Context) (<-chan any, error) {
 		s.started.Store(false)
 	}()
 
-	if err := s.ensureRunning(ctx); err != nil {
+	if err := s.ensureRunning(ctx, probe); err != nil {
 		s.started.Store(false)
 		return nil, NewStartupCheckError(err)
 	}
@@ -316,8 +356,13 @@ func (s *ServerService) Stop(ctx context.Context) error {
 	return nil
 }
 
-// ensureRunning verifies if the server is listening on its configured address
-func (s *ServerService) ensureRunning(ctx context.Context) error {
+// probeFunc dials the server's bind fabric — clearnet for addr-only
+// services, and the overlay driver when cfg.Network is set.
+type probeFunc func(ctx context.Context, addr string) (net.Conn, error)
+
+// ensureRunning verifies that the server is listening by dialing itself on
+// the same fabric it bound on.
+func (s *ServerService) ensureRunning(ctx context.Context, probe probeFunc) error {
 	timeout := time.After(BootTimeout)
 	ticker := time.NewTicker(CheckInterval)
 	defer ticker.Stop()
@@ -330,14 +375,211 @@ func (s *ServerService) ensureRunning(ctx context.Context) error {
 			return NewStartupCanceledError(ctx.Err())
 		case <-ticker.C:
 			dialCtx, cancel := context.WithTimeout(ctx, time.Second)
-			dialer := &net.Dialer{}
-			conn, err := dialer.DialContext(dialCtx, "tcp", s.config.Addr)
+			conn, err := probe(dialCtx, s.config.Addr)
 			cancel()
 			if err == nil {
 				_ = conn.Close()
 				return nil
 			}
 		}
+	}
+}
+
+// buildListener resolves cfg.Network (if any) against the network registry,
+// enforces the network.bind permission, and returns a ready net.Listener
+// along with a probe dialer for ensureRunning. TLS is layered per cfg.TLS:
+//   - TLSModeOff: plain listener on driver or clearnet
+//   - TLSModeAuto: driver must implement netapi.TLSListener (tsnet does)
+//   - TLSModeManual: loads cert/key, wraps listener in tls.NewListener
+func (s *ServerService) buildListener(ctx context.Context) (net.Listener, probeFunc, error) {
+	if s.config.Network.Name != "" {
+		reg := netapi.GetNetworkRegistry(ctx)
+		if reg == nil {
+			return nil, nil, ErrNetworkRegistryNotAvailable
+		}
+		svc, err := reg.GetNetwork(s.config.Network)
+		if err != nil {
+			return nil, nil, NewNetworkResolveError(s.config.Network.String(), err)
+		}
+
+		if !security.IsAllowed(ctx, "network.bind", s.config.Network.String(), nil) {
+			return nil, nil, NewNetworkBindDeniedError(s.config.Network.String())
+		}
+
+		ln, err := s.overlayListen(ctx, svc)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		probe := func(ctx context.Context, addr string) (net.Conn, error) {
+			return svc.DialContext(ctx, "tcp", addr)
+		}
+		return ln, probe, nil
+	}
+
+	ln, err := s.clearnetListen(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	probe := func(ctx context.Context, addr string) (net.Conn, error) {
+		d := &net.Dialer{}
+		return d.DialContext(ctx, "tcp", addr)
+	}
+	return ln, probe, nil
+}
+
+// overlayListen binds through a network driver, layering TLS per cfg.
+func (s *ServerService) overlayListen(ctx context.Context, svc netapi.Service) (net.Listener, error) {
+	switch s.config.TLS.Mode {
+	case config.TLSModeAuto:
+		tlsSvc, ok := svc.(netapi.TLSListener)
+		if !ok {
+			return nil, NewNetworkAutoTLSUnsupportedError(s.config.Network.String())
+		}
+		ln, err := tlsSvc.ListenTLS(ctx, "tcp", s.config.Addr)
+		if err != nil {
+			return nil, NewNetworkListenError(s.config.Network.String(), err)
+		}
+		return ln, nil
+	case config.TLSModeManual:
+		raw, err := svc.Listen(ctx, "tcp", s.config.Addr)
+		if err != nil {
+			return nil, NewNetworkListenError(s.config.Network.String(), err)
+		}
+		cfg, err := loadServerTLSConfig(ctx, s.config.TLS)
+		if err != nil {
+			raw.Close()
+			return nil, err
+		}
+		return tls.NewListener(raw, cfg), nil
+	default:
+		ln, err := svc.Listen(ctx, "tcp", s.config.Addr)
+		if err != nil {
+			return nil, NewNetworkListenError(s.config.Network.String(), err)
+		}
+		return ln, nil
+	}
+}
+
+// clearnetListen binds on the host fabric, layering manual TLS if requested.
+// TLS auto is rejected without an overlay driver because plain http.Server
+// has no ACME integration.
+func (s *ServerService) clearnetListen(ctx context.Context) (net.Listener, error) {
+	if s.config.TLS.Mode == config.TLSModeAuto {
+		return nil, ErrClearnetAutoTLSUnsupported
+	}
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", s.config.Addr)
+	if err != nil {
+		return nil, err
+	}
+	if s.config.TLS.Mode == config.TLSModeManual {
+		cfg, err := loadServerTLSConfig(ctx, s.config.TLS)
+		if err != nil {
+			ln.Close()
+			return nil, err
+		}
+		return tls.NewListener(ln, cfg), nil
+	}
+	return ln, nil
+}
+
+// loadServerTLSConfig resolves cert/key material (inline PEM or env-backed)
+// and assembles a tls.Config. TLS 1.2 is the floor — 1.0/1.1 have been
+// deprecated since 2020 and are not user-selectable. Optional mTLS layers
+// a ClientCAs pool + ClientAuth policy on top.
+func loadServerTLSConfig(ctx context.Context, cfg config.ServerTLSConfig) (*tls.Config, error) {
+	certPEM, keyPEM, err := resolveCertKeyPEM(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, NewTLSLoadError(err)
+	}
+
+	out := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+	}
+
+	if cfg.ClientAuth == config.ClientAuthNone && cfg.ClientCA == "" && cfg.ClientCAEnv == "" {
+		return out, nil
+	}
+
+	out.ClientAuth = mapClientAuthType(cfg.ClientAuth)
+
+	caPEM, err := resolveClientCAPEM(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if len(caPEM) > 0 {
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return nil, NewTLSCAParseError()
+		}
+		out.ClientCAs = pool
+	}
+	return out, nil
+}
+
+// resolveCertKeyPEM returns the cert+key PEM bytes for Manual mode. The
+// config validator has already enforced the (inline XOR env) invariant.
+func resolveCertKeyPEM(ctx context.Context, cfg config.ServerTLSConfig) ([]byte, []byte, error) {
+	if cfg.Cert != "" {
+		return []byte(cfg.Cert), []byte(cfg.Key), nil
+	}
+	certPEM, err := lookupEnv(ctx, cfg.CertEnv)
+	if err != nil {
+		return nil, nil, err
+	}
+	keyPEM, err := lookupEnv(ctx, cfg.KeyEnv)
+	if err != nil {
+		return nil, nil, err
+	}
+	return certPEM, keyPEM, nil
+}
+
+// resolveClientCAPEM returns the optional client-CA PEM bundle (empty if
+// the user opted into a non-verifying auth mode without providing a pool).
+func resolveClientCAPEM(ctx context.Context, cfg config.ServerTLSConfig) ([]byte, error) {
+	if cfg.ClientCA != "" {
+		return []byte(cfg.ClientCA), nil
+	}
+	if cfg.ClientCAEnv != "" {
+		return lookupEnv(ctx, cfg.ClientCAEnv)
+	}
+	return nil, nil
+}
+
+// lookupEnv reads a named variable from the Wippy env registry (secure
+// store). Absence of the registry or variable is a hard error — callers
+// only reach this path when the config explicitly asked for env-backed
+// material.
+func lookupEnv(ctx context.Context, name string) ([]byte, error) {
+	reg := envapi.GetRegistry(ctx)
+	if reg == nil {
+		return nil, ErrTLSEnvRegistryUnavailable
+	}
+	val, err := reg.Get(ctx, name)
+	if err != nil {
+		return nil, NewTLSEnvResolveError(name, err)
+	}
+	return []byte(val), nil
+}
+
+func mapClientAuthType(a config.ClientAuthType) tls.ClientAuthType {
+	switch a {
+	case config.ClientAuthRequest:
+		return tls.RequestClientCert
+	case config.ClientAuthRequireAny:
+		return tls.RequireAnyClientCert
+	case config.ClientAuthVerifyIfGiven:
+		return tls.VerifyClientCertIfGiven
+	case config.ClientAuthRequireAndVerify:
+		return tls.RequireAndVerifyClientCert
+	default:
+		return tls.NoClientCert
 	}
 }
 

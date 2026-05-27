@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/cloudstorage"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -124,8 +125,10 @@ type MockTranscoder struct {
 	marshalError   error
 	unmarshalError error
 	bucket         string
+	bucketEnv      string
 	awsConfig      string
 	endpoint       string
+	endpointEnv    string
 	mockData       []byte
 }
 
@@ -145,16 +148,26 @@ func (m *MockTranscoder) Marshal(_ any) ([]byte, error) {
 	return m.mockData, nil
 }
 
-func (m *MockTranscoder) Unmarshal(_ payload.Payload, v any) error {
+func (m *MockTranscoder) Unmarshal(p payload.Payload, v any) error {
 	if m.unmarshalError != nil {
 		return m.unmarshalError
 	}
 
 	// For simplicity, mock implementation that sets predefined values
 	if cfg, ok := v.(*services3.Config); ok {
-		cfg.Bucket = m.bucket
-		cfg.AWSConfig = m.awsConfig
-		cfg.Endpoint = m.endpoint
+		if payloadData, ok := p.Data().(*services3.Config); ok {
+			cfg.Bucket = payloadData.Bucket
+			cfg.BucketEnv = payloadData.BucketEnv
+			cfg.AWSConfig = payloadData.AWSConfig
+			cfg.Endpoint = payloadData.Endpoint
+			cfg.EndpointEnv = payloadData.EndpointEnv
+		} else {
+			cfg.Bucket = m.bucket
+			cfg.BucketEnv = m.bucketEnv
+			cfg.AWSConfig = m.awsConfig
+			cfg.Endpoint = m.endpoint
+			cfg.EndpointEnv = m.endpointEnv
+		}
 	}
 
 	return nil
@@ -163,6 +176,43 @@ func (m *MockTranscoder) Unmarshal(_ payload.Payload, v any) error {
 func (m *MockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
 	return p, nil
 }
+
+type MockEnvRegistry struct {
+	variables map[string]string
+}
+
+func NewMockEnvRegistry() *MockEnvRegistry {
+	return &MockEnvRegistry{variables: make(map[string]string)}
+}
+
+func (m *MockEnvRegistry) Get(_ context.Context, name string) (string, error) {
+	if value, ok := m.variables[name]; ok {
+		return value, nil
+	}
+	return "", envapi.ErrVariableNotFound
+}
+
+func (m *MockEnvRegistry) Lookup(_ context.Context, name string) (string, bool, error) {
+	if value, ok := m.variables[name]; ok {
+		return value, true, nil
+	}
+	return "", false, nil
+}
+
+func (m *MockEnvRegistry) Set(_ context.Context, name string, value string) error {
+	m.variables[name] = value
+	return nil
+}
+
+func (m *MockEnvRegistry) All(_ context.Context) (map[string]string, error) {
+	return m.variables, nil
+}
+
+func (m *MockEnvRegistry) GetStorage(_ context.Context, _ registry.ID) (envapi.Storage, error) {
+	return nil, envapi.ErrStorageNotFound
+}
+
+func (m *MockEnvRegistry) RegisterStorage(_ registry.ID, _ envapi.Storage) {}
 
 // setupTestEnvironment creates a test environment with mocked dependencies
 //
@@ -173,9 +223,12 @@ func setupTestEnvironment() (*Manager, event.Bus, *MockResourceRegistry, context
 
 	// Set up the mock transcoder
 	transcoder := NewMockTranscoder()
+	envRegistry := NewMockEnvRegistry()
+	_ = envRegistry.Set(context.Background(), "S3_BUCKET", "env-bucket")
+	_ = envRegistry.Set(context.Background(), "S3_ENDPOINT", "http://env-minio:9000")
 
 	// Create manager
-	manager := NewManager(bus, transcoder, logger)
+	manager := NewManager(bus, transcoder, logger, envRegistry)
 
 	// Set up resource registry with AWS config provider
 	resourceRegistry := NewMockResourceRegistry()
@@ -288,6 +341,30 @@ func TestManager_Add(t *testing.T) {
 		// Verify metadata
 		meta := resourceEntry.Meta
 		assert.Equal(t, "test-bucket", meta["bucket"])
+	})
+
+	t.Run("successful storage addition from env fields", func(t *testing.T) {
+		envID := registry.NewID("test", "s3storage-env")
+		entry := registry.Entry{
+			ID:   envID,
+			Kind: services3.Kind,
+			Data: NewMockPayload(&services3.Config{
+				BucketEnv:   "S3_BUCKET",
+				AWSConfig:   "aws/config",
+				EndpointEnv: "S3_ENDPOINT",
+			}),
+		}
+
+		err := manager.Add(ctx, entry)
+		require.NoError(t, err)
+
+		evt := waitForResourceEvent(t, resourceEvents, resource.Register, time.Second)
+		assert.Equal(t, envID.String(), evt.Path)
+
+		resourceEntry, ok := evt.Data.(resource.Entry)
+		require.True(t, ok)
+		assert.Equal(t, "env-bucket", resourceEntry.Meta["bucket"])
+		assert.Equal(t, "http://env-minio:9000", resourceEntry.Meta["endpoint"])
 	})
 
 	t.Run("wrong entry kind", func(t *testing.T) {

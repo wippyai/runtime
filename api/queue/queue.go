@@ -6,7 +6,6 @@ package queue
 import (
 	"context"
 
-	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 )
@@ -21,9 +20,12 @@ const (
 	Delete  event.Kind = "queue.queue.delete"
 )
 
-// Queue represents a queue declaration with its configuration
+// Queue is the in-memory view of a declared queue held by the Manager.
+// Config carries the full typed configuration passed to the driver at
+// declare time; publishers use it to apply per-queue defaults to message
+// headers before handing to the driver.
 type Queue struct {
-	Options  attrs.Attributes
+	Config   *Config
 	ID       registry.ID
 	DriverID registry.ID
 	Name     string

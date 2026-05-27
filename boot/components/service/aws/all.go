@@ -8,5 +8,6 @@ func All() []boot.Component {
 	return []boot.Component{
 		AWS(),
 		S3(),
+		SQS(),
 	}
 }

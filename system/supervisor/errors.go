@@ -3,6 +3,7 @@
 package supervisor
 
 import (
+	"strings"
 	"time"
 
 	"github.com/wippyai/runtime/api/attrs"
@@ -59,6 +60,17 @@ func NewServiceStartError(serviceID string, err error) apierror.Error {
 		WithRetryable(apierror.True).
 		WithDetails(attrs.NewBagFrom(map[string]any{"service_id": serviceID, "cause": err.Error()})).
 		WithCause(err)
+}
+
+func NewServiceBlockedError(serviceID string, blockers []string) apierror.Error {
+	message := "service startup blocked by missing dependencies"
+	if serviceID != "" && len(blockers) > 0 {
+		message += ": " + serviceID + " requires " + strings.Join(blockers, ", ")
+	}
+
+	return apierror.New(apierror.Invalid, message).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"service_id": serviceID, "blockers": blockers}))
 }
 
 func NewServiceStopError(serviceID string, err error) apierror.Error {

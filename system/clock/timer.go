@@ -13,12 +13,27 @@ import (
 
 const timerShardCount = 64
 
+type timerCallback func(gen uint64)
+
 type timerEntry struct {
 	timer    *time.Timer
-	callback func()
+	callback timerCallback
 	firedC   chan time.Time
-	stopped  atomic.Bool
-	mu       sync.Mutex
+	// routerKey is non-nil when this timer was started by a router-
+	// driven TimerStartCmd (ChID != 0). The dispatcher reads it in
+	// stop handlers to clean its (pid, epoch, chID) reverse map. The
+	// fire path also clears it from the dispatcher reverse map after
+	// the callback runs.
+	routerKey *chIDKey
+	// onFireCleanup, when non-nil, runs after the callback and clears
+	// the dispatcher's reverse map entry. Kept separate from callback
+	// so the user-supplied payload-build closure stays decoupled from
+	// reverse-map bookkeeping.
+	onFireCleanup func()
+	mu            sync.Mutex
+	stopped       atomic.Bool
+	genRef        *atomic.Uint64
+	gen           uint64
 }
 
 type timerShard struct {
@@ -58,39 +73,135 @@ func (r *timerRegistry) deleteEntry(shard *timerShard, id uint64) {
 }
 
 func (r *timerRegistry) startWithCallback(d time.Duration, callback func()) uint64 {
+	var cb timerCallback
+	if callback != nil {
+		cb = func(uint64) {
+			callback()
+		}
+	}
+	return r.startWithCallbackAndKey(d, cb, nil, nil, nil)
+}
+
+// startWithCallbackAndKey reserves and arms in one step. Callers that
+// must install reverse-map state before the timer can fire use reserve
+// and arm separately.
+func (r *timerRegistry) startWithCallbackAndKey(d time.Duration, callback timerCallback, routerKey *chIDKey, onFireCleanup func(), genRef *atomic.Uint64) uint64 {
+	id := r.reserve(callback, routerKey, onFireCleanup, genRef)
+	r.arm(id, d)
+	return id
+}
+
+// reserve allocates an id and stores the entry without arming
+// time.AfterFunc. The entry is registered (and discoverable by stop,
+// reset, and drain) but cannot fire until arm runs. The entry also
+// stores a (pid, epoch, chID) reverse-map key plus an onFireCleanup
+// closure invoked after the user callback runs; the dispatcher uses
+// these to clean its (pid, epoch, chID) → id reverse map when the timer
+// fires or is stopped.
+func (r *timerRegistry) reserve(callback timerCallback, routerKey *chIDKey, onFireCleanup func(), genRef *atomic.Uint64) uint64 {
 	id := r.nextID.Add(1)
 	shard := r.getShard(id)
 
-	entry := &timerEntry{
-		callback: callback,
-		firedC:   make(chan time.Time, 1),
+	var gen uint64
+	if genRef != nil {
+		gen = genRef.Load()
 	}
-
-	entry.timer = time.AfterFunc(d, func() {
-		if entry.stopped.Load() {
-			return
-		}
-
-		if entry.callback != nil {
-			entry.callback()
-		}
-
-		select {
-		case entry.firedC <- time.Now():
-		default:
-		}
-
-		// Entries without callbacks are removed by wait/stop to preserve explicit lifecycle.
-		if entry.callback != nil {
-			r.deleteEntry(shard, id)
-		}
-	})
+	entry := &timerEntry{
+		callback:      callback,
+		firedC:        make(chan time.Time, 1),
+		routerKey:     routerKey,
+		onFireCleanup: onFireCleanup,
+		genRef:        genRef,
+		gen:           gen,
+	}
 
 	shard.mu.Lock()
 	shard.timers[id] = entry
 	shard.mu.Unlock()
 
 	return id
+}
+
+// arm starts time.AfterFunc for a reserved id. It is a no-op if the
+// entry was stopped or already fired before arming. Arming is the last
+// step so the reverse-map entry the dispatcher installs between reserve
+// and arm is guaranteed present before the timer can fire.
+func (r *timerRegistry) arm(id uint64, d time.Duration) {
+	shard, entry, ok := r.getEntry(id)
+	if !ok {
+		return
+	}
+
+	// Assign entry.timer under entry.mu: time.AfterFunc arms immediately and
+	// fire reads/clears entry.timer under the same lock, so the callback may
+	// run before this returns.
+	entry.mu.Lock()
+	if entry.stopped.Load() {
+		entry.mu.Unlock()
+		return
+	}
+	entry.timer = time.AfterFunc(d, func() {
+		r.fire(shard, id, entry)
+	})
+	entry.mu.Unlock()
+}
+
+func (r *timerRegistry) fire(shard *timerShard, id uint64, entry *timerEntry) {
+	entry.mu.Lock()
+	if entry.stopped.Load() {
+		entry.mu.Unlock()
+		return
+	}
+	callback := entry.callback
+	cleanup := entry.onFireCleanup
+	gen := entry.gen
+	if callback != nil {
+		entry.callback = nil
+		entry.onFireCleanup = nil
+		entry.genRef = nil
+		entry.timer = nil
+	}
+	entry.mu.Unlock()
+
+	if callback != nil {
+		r.deleteEntry(shard, id)
+		entry.mu.Lock()
+		entry.routerKey = nil
+		entry.mu.Unlock()
+		defer func() {
+			_ = recover()
+			if cleanup != nil {
+				func() {
+					defer func() { _ = recover() }()
+					cleanup()
+				}()
+			}
+		}()
+		callback(gen)
+	}
+
+	select {
+	case entry.firedC <- time.Now():
+	default:
+	}
+}
+
+// routerKey returns the (pid, epoch, chID) key for an active timer, or
+// nil if it wasn't registered via the ephemeral router.
+func (r *timerRegistry) routerKey(id uint64) *chIDKey {
+	shard := r.getShard(id)
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
+	if entry, ok := shard.timers[id]; ok {
+		entry.mu.Lock()
+		defer entry.mu.Unlock()
+		if entry.routerKey == nil {
+			return nil
+		}
+		key := *entry.routerKey
+		return &key
+	}
+	return nil
 }
 
 func (r *timerRegistry) wait(ctx context.Context, id uint64) (time.Time, error) {
@@ -123,12 +234,23 @@ func (r *timerRegistry) stop(id uint64) (bool, error) {
 	}
 
 	entry.stopped.Store(true)
-	stopped := entry.timer.Stop()
+	entry.mu.Lock()
+	timer := entry.timer
+	entry.callback = nil
+	entry.onFireCleanup = nil
+	entry.routerKey = nil
+	entry.genRef = nil
+	entry.timer = nil
+	entry.mu.Unlock()
+	stopped := false
+	if timer != nil {
+		stopped = timer.Stop()
+	}
 	return stopped, nil
 }
 
 func (r *timerRegistry) reset(id uint64, d time.Duration) (bool, error) {
-	_, entry, ok := r.getEntry(id)
+	shard, entry, ok := r.getEntry(id)
 
 	if !ok {
 		return false, clockapi.ErrTimerNotFound
@@ -139,6 +261,19 @@ func (r *timerRegistry) reset(id uint64, d time.Duration) (bool, error) {
 
 	if entry.stopped.Load() {
 		return false, clockapi.ErrTimerNotFound
+	}
+
+	if entry.genRef != nil {
+		entry.gen = entry.genRef.Add(1)
+	}
+
+	// A reserved-but-unarmed entry has no timer yet; arm it now rather
+	// than resetting a nil timer.
+	if entry.timer == nil {
+		entry.timer = time.AfterFunc(d, func() {
+			r.fire(shard, id, entry)
+		})
+		return false, nil
 	}
 
 	wasActive := entry.timer.Reset(d)
@@ -162,7 +297,17 @@ func (r *timerRegistry) close() {
 		shard.mu.Lock()
 		for id, entry := range shard.timers {
 			entry.stopped.Store(true)
-			entry.timer.Stop()
+			entry.mu.Lock()
+			timer := entry.timer
+			entry.callback = nil
+			entry.onFireCleanup = nil
+			entry.routerKey = nil
+			entry.genRef = nil
+			entry.timer = nil
+			entry.mu.Unlock()
+			if timer != nil {
+				timer.Stop()
+			}
 			delete(shard.timers, id)
 		}
 		shard.mu.Unlock()

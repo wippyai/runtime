@@ -127,7 +127,7 @@ func (d *Definition) routeToLocalProcess(cmd *process.SendCmd, tag uint64, from 
 			return
 		}
 		d.resumeProcess(tag, process.SendResult{}, nil)
-	})
+	}, "process.send")
 
 	return nil
 }

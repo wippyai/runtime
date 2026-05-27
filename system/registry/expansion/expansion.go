@@ -4,7 +4,6 @@ package expansion
 
 import (
 	"context"
-	"sort"
 
 	"github.com/wippyai/runtime/api/registry"
 	regtop "github.com/wippyai/runtime/system/registry/topology"
@@ -136,30 +135,43 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 	return &Plan{Ops: scoped, Effects: effects, Expanded: expanded}, nil
 }
 
-// SortOps sorts scoped operations by dependency order.
-func (p *Planner) SortOps(fromState registry.State, ops []ScopedOp) []ScopedOp {
+// SortOps sorts scoped operations with the canonical registry operation sorter.
+func (p *Planner) SortOps(fromState registry.State, ops []ScopedOp) ([]ScopedOp, error) {
 	if len(ops) == 0 {
-		return ops
+		return ops, nil
 	}
 
-	deleteOps := make([]ScopedOp, 0, len(ops))
-	otherOps := make([]ScopedOp, 0, len(ops))
+	changes := make(registry.ChangeSet, 0, len(ops))
+	scopes := make(map[operationKey][]registry.Scope, len(ops))
 	for _, op := range ops {
-		if op.Operation.Kind == registry.EntryDelete {
-			deleteOps = append(deleteOps, op)
-		} else {
-			otherOps = append(otherOps, op)
-		}
+		changes = append(changes, op.Operation)
+		key := operationKey{kind: op.Operation.Kind, id: op.Operation.Entry.ID}
+		scopes[key] = append(scopes[key], op.Scope)
 	}
 
-	result := make([]ScopedOp, 0, len(ops))
-	if len(deleteOps) > 0 {
-		result = append(result, sortScopedDeletes(fromState, deleteOps, p.Resolver)...)
+	stateBuilder := regtop.NewStateBuilder(p.Log, p.Resolver)
+	sorted, err := stateBuilder.SortChangeSet(fromState, changes)
+	if err != nil {
+		return nil, err
 	}
-	if len(otherOps) > 0 {
-		result = append(result, sortScopedCreates(otherOps, p.Resolver)...)
+
+	result := make([]ScopedOp, 0, len(sorted))
+	for _, op := range sorted {
+		key := operationKey{kind: op.Kind, id: op.Entry.ID}
+		queue := scopes[key]
+		if len(queue) == 0 {
+			return nil, NewSortedOperationScopeMissingError(op.Entry.ID, op.Kind)
+		}
+		result = append(result, ScopedOp{Operation: op, Scope: queue[0]})
+		scopes[key] = queue[1:]
 	}
-	return result
+
+	return result, nil
+}
+
+type operationKey struct {
+	kind string
+	id   registry.ID
 }
 
 // PrepareEffects runs Prepare on each effect and returns prepared effects.
@@ -195,76 +207,6 @@ func (p *Planner) RollbackEffects(ctx context.Context, effects []registry.Effect
 			p.Log.Warn("failed to rollback effect", zap.Error(err))
 		}
 	}
-}
-
-func sortScopedDeletes(fromState registry.State, ops []ScopedOp, resolver registry.DependencyResolver) []ScopedOp {
-	fromStateMap := make(map[registry.ID]registry.Entry, len(fromState))
-	for _, entry := range fromState {
-		fromStateMap[entry.ID] = entry
-	}
-
-	entries := make([]registry.Entry, 0, len(ops))
-	for _, op := range ops {
-		if entry, ok := fromStateMap[op.Operation.Entry.ID]; ok {
-			entries = append(entries, entry)
-		} else {
-			entries = append(entries, op.Operation.Entry)
-		}
-	}
-
-	sortedEntries := sortEntriesWithFallback(entries, resolver)
-
-	byID := make(map[registry.ID]ScopedOp, len(ops))
-	for _, op := range ops {
-		byID[op.Operation.Entry.ID] = op
-	}
-
-	result := make([]ScopedOp, 0, len(ops))
-	for i := len(sortedEntries) - 1; i >= 0; i-- {
-		entry := sortedEntries[i]
-		if op, ok := byID[entry.ID]; ok {
-			result = append(result, op)
-		}
-	}
-
-	return result
-}
-
-func sortScopedCreates(ops []ScopedOp, resolver registry.DependencyResolver) []ScopedOp {
-	entries := make([]registry.Entry, 0, len(ops))
-	for _, op := range ops {
-		entries = append(entries, op.Operation.Entry)
-	}
-
-	sortedEntries := sortEntriesWithFallback(entries, resolver)
-
-	byID := make(map[registry.ID]ScopedOp, len(ops))
-	for _, op := range ops {
-		byID[op.Operation.Entry.ID] = op
-	}
-
-	result := make([]ScopedOp, 0, len(ops))
-	for _, entry := range sortedEntries {
-		if op, ok := byID[entry.ID]; ok {
-			result = append(result, op)
-		}
-	}
-
-	return result
-}
-
-func sortEntriesWithFallback(entries []registry.Entry, resolver registry.DependencyResolver) []registry.Entry {
-	sorted, err := regtop.SortEntriesByDependency(entries, resolver)
-	if err == nil {
-		return sorted
-	}
-
-	fallback := make([]registry.Entry, len(entries))
-	copy(fallback, entries)
-	sort.Slice(fallback, func(i, j int) bool {
-		return fallback[i].ID.String() < fallback[j].ID.String()
-	})
-	return fallback
 }
 
 func entryFromSnapshot(snapshot registry.State, id registry.ID) (registry.Entry, bool) {

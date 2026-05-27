@@ -14,12 +14,15 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	systempayload "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/payload/json"
+	systemrelay "github.com/wippyai/runtime/system/relay"
 	"go.uber.org/zap"
 )
 
@@ -92,6 +95,60 @@ func TestManager_StartStop(t *testing.T) {
 	manager.Stop()
 	assert.False(t, manager.started)
 	assert.Empty(t, manager.pools)
+}
+
+func TestManager_StartStartsPreexistingPools(t *testing.T) {
+	log := zap.NewNop()
+	codeManager := &code.Manager{}
+	bus := newMockEventBus()
+	disp := &mockDispatcher{}
+	fsReg := newMockFSRegistry()
+	factory := newMockCompiledFactory()
+	manager := NewManager(log, codeManager, bus, disp, fsReg, factory)
+
+	pool := &trackingPool{}
+	id := registry.NewID("test", "preexisting")
+	manager.mu.Lock()
+	manager.pools[id] = newPoolEntry(pool, "main", "test:preexisting#lua.test")
+	manager.mu.Unlock()
+
+	require.NoError(t, manager.Start(context.Background()))
+	assert.Equal(t, 1, pool.starts)
+
+	require.NoError(t, manager.Start(context.Background()))
+	assert.Equal(t, 1, pool.starts, "manager start is idempotent for existing pools")
+
+	manager.Stop()
+	assert.Equal(t, 1, pool.stops)
+}
+
+func TestManager_StartRegistersPreexistingPoolHost(t *testing.T) {
+	log := zap.NewNop()
+	codeManager := &code.Manager{}
+	bus := newMockEventBus()
+	disp := &mockDispatcher{}
+	fsReg := newMockFSRegistry()
+	factory := newMockCompiledFactory()
+	manager := NewManager(log, codeManager, bus, disp, fsReg, factory)
+
+	node := systemrelay.NewNode("test-node")
+	id := registry.NewID("test", "preexisting_host")
+	hostID := "test:preexisting_host#lua.test"
+	pool := &trackingPool{}
+	manager.mu.Lock()
+	manager.pools[id] = newPoolEntry(pool, "main", hostID)
+	manager.mu.Unlock()
+
+	ctx := relay.WithNode(ctxapi.NewRootContext(), node)
+	require.NoError(t, manager.Start(ctx))
+
+	registered, ok := node.GetHost(hostID)
+	require.True(t, ok, "preexisting pool host must be registered on manager start")
+	assert.Same(t, pool, registered)
+
+	manager.Stop()
+	_, ok = node.GetHost(hostID)
+	assert.False(t, ok, "manager stop must unregister generation host")
 }
 
 func TestManager_Add_SourceFunction_InvalidKind(t *testing.T) {
@@ -344,6 +401,98 @@ func TestManager_Execute_PoolNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "pool not found")
 }
 
+func TestManager_ExecuteUsesPoolGenerationHost(t *testing.T) {
+	log := zap.NewNop()
+	codeManager := &code.Manager{}
+	bus := newMockEventBus()
+	disp := &mockDispatcher{}
+	fsReg := newMockFSRegistry()
+	factory := newMockCompiledFactory()
+	manager := NewManager(log, codeManager, bus, disp, fsReg, factory)
+
+	id := registry.NewID("test", "generation_func")
+	hostID := "test:generation_func#lua.1"
+	pool := &pidCapturePool{}
+	manager.mu.Lock()
+	manager.pools[id] = newPoolEntry(pool, "main", hostID)
+	manager.mu.Unlock()
+
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	defer func() { _ = fc.Close() }()
+	require.NoError(t, runtime.SetFramePID(ctx, (&pid.PID{Host: id.String(), UniqID: "call-1"}).Precomputed()))
+
+	result, err := manager.Execute(ctx, runtime.Task{ID: id})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "main", pool.method)
+	assert.Equal(t, 1, pool.calls)
+	assert.Equal(t, hostID, pool.framePID.Host)
+	assert.Equal(t, "call-1", pool.framePID.UniqID)
+
+	framePID, ok := runtime.GetFramePID(ctx)
+	require.True(t, ok)
+	assert.Equal(t, hostID, framePID.Host)
+	assert.Equal(t, "call-1", framePID.UniqID)
+}
+
+func TestPoolEntryRetireWaitsForActiveExecution(t *testing.T) {
+	entry := newPoolEntry(&trackingPool{}, "main", "test:retire#lua.1")
+	require.True(t, entry.acquire())
+
+	stopped := make(chan struct{})
+	entry.retire(func() {
+		close(stopped)
+	})
+
+	select {
+	case <-stopped:
+		t.Fatal("retired pool stopped before active execution released")
+	default:
+	}
+
+	assert.False(t, entry.acquire(), "retired entries must not accept new calls")
+	entry.release()
+
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("retired pool did not stop after active execution released")
+	}
+}
+
+func TestManager_RetiredPoolHostDrainsBeforeUnregister(t *testing.T) {
+	log := zap.NewNop()
+	codeManager := &code.Manager{}
+	bus := newMockEventBus()
+	disp := &mockDispatcher{}
+	fsReg := newMockFSRegistry()
+	factory := newMockCompiledFactory()
+	manager := NewManager(log, codeManager, bus, disp, fsReg, factory)
+
+	node := systemrelay.NewNode("test-node")
+	manager.node = node
+	hostID := "test:retired#lua.1"
+	pool := &trackingPool{}
+	entry := newPoolEntry(pool, "main", hostID)
+	require.NoError(t, node.RegisterHost(hostID, pool))
+	require.True(t, entry.acquire())
+
+	manager.retirePoolEntry(entry)
+
+	registered, ok := node.GetHost(hostID)
+	require.True(t, ok, "active retired generation must stay routable")
+	assert.Same(t, pool, registered)
+	assert.Equal(t, 0, pool.stops)
+
+	entry.release()
+
+	require.Eventually(t, func() bool {
+		_, exists := node.GetHost(hostID)
+		return !exists && pool.stops == 1
+	}, time.Second, 10*time.Millisecond)
+}
+
 func TestManager_ConfigOperations(t *testing.T) {
 	log := zap.NewNop()
 	codeManager := &code.Manager{}
@@ -543,6 +692,43 @@ func TestManager_ReplacePool(t *testing.T) {
 	manager.removePool(id)
 }
 
+func TestManager_ReplacePoolKeepsOldPoolOnBuildFailure(t *testing.T) {
+	log := zap.NewNop()
+	codeManager := &code.Manager{}
+	bus := newMockEventBus()
+	disp := &mockDispatcher{}
+	fsReg := newMockFSRegistry()
+	factory := newMockCompiledFactory()
+	manager := NewManager(log, codeManager, bus, disp, fsReg, factory)
+
+	id := registry.NewID("test", "replace_failure")
+	cfg := &configEntry{
+		method: "main",
+		pool:   api.PoolConfig{Type: api.PoolTypeInline},
+	}
+	require.NoError(t, manager.createPool(id, cfg))
+
+	manager.mu.RLock()
+	oldEntry := manager.pools[id]
+	manager.mu.RUnlock()
+	require.NotNil(t, oldEntry)
+
+	factory.shouldFail = true
+	err := manager.replacePool(id, &configEntry{
+		method: "broken",
+		pool:   api.PoolConfig{Type: api.PoolTypeInline},
+	})
+	require.Error(t, err)
+
+	manager.mu.RLock()
+	currentEntry := manager.pools[id]
+	manager.mu.RUnlock()
+	assert.Same(t, oldEntry, currentEntry)
+	assert.Equal(t, "main", currentEntry.method)
+
+	manager.removePool(id)
+}
+
 func TestManager_RemovePool_NonExistent(_ *testing.T) {
 	log := zap.NewNop()
 	codeManager := &code.Manager{}
@@ -668,4 +854,44 @@ func TestManager_Concurrency(_ *testing.T) {
 
 	<-done
 	<-done
+}
+
+type trackingPool struct {
+	starts int
+	stops  int
+}
+
+func (p *trackingPool) Call(context.Context, string, payload.Payloads) (*runtime.Result, error) {
+	return &runtime.Result{}, nil
+}
+
+func (p *trackingPool) Start() {
+	p.starts++
+}
+
+func (p *trackingPool) Stop() {
+	p.stops++
+}
+
+func (p *trackingPool) Send(*relay.Package) error {
+	return nil
+}
+
+type pidCapturePool struct {
+	framePID pid.PID
+	method   string
+	calls    int
+}
+
+func (p *pidCapturePool) Call(ctx context.Context, method string, _ payload.Payloads) (*runtime.Result, error) {
+	p.calls++
+	p.method = method
+	p.framePID, _ = runtime.GetFramePID(ctx)
+	return &runtime.Result{Value: payload.New("ok")}, nil
+}
+
+func (p *pidCapturePool) Start() {}
+func (p *pidCapturePool) Stop()  {}
+func (p *pidCapturePool) Send(*relay.Package) error {
+	return nil
 }

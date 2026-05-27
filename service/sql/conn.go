@@ -5,6 +5,8 @@ package sql
 import (
 	"context"
 	"database/sql"
+	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -137,10 +139,9 @@ func (p *ConnPool) Acquire(
 
 // Helper to build DSN string for different database types
 func buildDSN(kind registry.Kind, cfg *config.DBConfig) (string, error) {
-	opts := buildOptionsString(cfg.Options)
-
 	switch kind {
 	case config.Postgres:
+		opts := buildPostgresOptionsString(cfg.Options)
 		var b strings.Builder
 		b.Grow(128)
 		b.WriteString("host=")
@@ -160,6 +161,7 @@ func buildDSN(kind registry.Kind, cfg *config.DBConfig) (string, error) {
 		return b.String(), nil
 
 	case config.MySQL:
+		opts := buildMySQLOptionsString(cfg.Options)
 		var b strings.Builder
 		b.Grow(128)
 		b.WriteString(cfg.Username)
@@ -185,34 +187,56 @@ func buildDSN(kind registry.Kind, cfg *config.DBConfig) (string, error) {
 func getDriver(kind registry.Kind) string {
 	switch kind {
 	case config.Postgres:
-
 		return "postgres"
-
+	case config.MySQL:
+		return "mysql"
 	default:
 		return kind
 	}
 }
 
-// Helper to build options string from map
-func buildOptionsString(options map[string]string) string {
+// buildPostgresOptionsString renders lib/pq keyword/value options.
+func buildPostgresOptionsString(options map[string]string) string {
 	if len(options) == 0 {
 		return ""
 	}
 
+	keys := make([]string, 0, len(options))
+	for k := range options {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
 	var b strings.Builder
 	b.Grow(len(options) * 20)
-	first := true
-	for k, v := range options {
-		if !first {
+	for i, k := range keys {
+		if i > 0 {
 			b.WriteString(" ")
 		}
-		first = false
 		b.WriteString(k)
 		b.WriteString("=")
-		b.WriteString(v)
+		b.WriteString(options[k])
 	}
 
 	return b.String()
+}
+
+func buildMySQLOptionsString(options map[string]string) string {
+	if len(options) == 0 {
+		return ""
+	}
+
+	values := url.Values{}
+	for k, v := range options {
+		values.Set(k, v)
+	}
+	return values.Encode()
+}
+
+// Helper kept for older internal tests and benchmarks. PostgreSQL was the only
+// historical caller that used this space-separated keyword/value form.
+func buildOptionsString(options map[string]string) string {
+	return buildPostgresOptionsString(options)
 }
 
 // DBConn represents a database connection resource

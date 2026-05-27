@@ -281,16 +281,15 @@ func (m *Manager) Delete(ctx context.Context, ent registry.Entry) error {
 // ensureClientDependency ensures the client is in the lifecycle dependencies.
 func ensureClientDependency(cfg *api.WorkerConfig) {
 	clientStr := cfg.Client.String()
-	if cfg.Lifecycle.DependsOn == nil {
-		cfg.Lifecycle.DependsOn = []string{clientStr}
-		return
-	}
-	for _, dep := range cfg.Lifecycle.DependsOn {
+	deps := cfg.Lifecycle.RequiredServices()
+	for _, dep := range deps {
 		if dep == clientStr {
+			cfg.Lifecycle.Requires = deps
 			return
 		}
 	}
-	cfg.Lifecycle.DependsOn = append(cfg.Lifecycle.DependsOn, clientStr)
+	deps = append(deps, clientStr)
+	cfg.Lifecycle.Requires = deps
 }
 
 // DeleteWorker removes a worker configuration and service if it exists

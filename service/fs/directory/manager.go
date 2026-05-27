@@ -4,10 +4,13 @@ package directory
 
 import (
 	"context"
+	"path"
+	"path/filepath"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
 	fsapi "github.com/wippyai/runtime/api/fs"
+	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	dirapi "github.com/wippyai/runtime/api/service/fs/directory"
@@ -62,7 +65,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return systemfs.NewFilesystemAlreadyExistsError(entry.ID.String())
 	}
 
-	return m.registerFSLocked(ctx, entry.ID, cfg)
+	return m.registerFSLocked(ctx, entry, cfg)
 }
 
 // Update updates an existing directory filesystem
@@ -84,7 +87,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return systemfs.NewFilesystemNotFoundError(entry.ID.String())
 	}
 
-	if err := m.registerFSLocked(ctx, entry.ID, cfg); err != nil {
+	if err := m.registerFSLocked(ctx, entry, cfg); err != nil {
 		return err
 	}
 
@@ -136,19 +139,21 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 func (m *Manager) registerFS(ctx context.Context, id registry.ID, cfg *dirapi.Config) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.registerFSLocked(ctx, id, cfg)
+	return m.registerFSLocked(ctx, registry.Entry{ID: id}, cfg)
 }
 
-func (m *Manager) registerFSLocked(ctx context.Context, id registry.ID, cfg *dirapi.Config) error {
+func (m *Manager) registerFSLocked(ctx context.Context, entry registry.Entry, cfg *dirapi.Config) error {
+	id := entry.ID
+	dirPath := resolveDirectoryPath(ctx, entry, cfg)
 	fs, err := m.factory.CreateFS(CreateFSConfig{
-		DirPath:  cfg.Directory,
+		DirPath:  dirPath,
 		Mode:     cfg.GetMode(),
 		AutoInit: cfg.AutoInit,
 	})
 	if err != nil {
 		m.log.Error("failed to create filesystem instance",
 			zap.String("id", id.String()),
-			zap.String("directory", cfg.Directory),
+			zap.String("directory", dirPath),
 			zap.Error(err))
 		return systemfs.NewCreateFilesystemError(err)
 	}
@@ -166,9 +171,40 @@ func (m *Manager) registerFSLocked(ctx context.Context, id registry.ID, cfg *dir
 
 	m.log.Info("directory filesystem created",
 		zap.String("id", id.String()),
-		zap.String("path", cfg.Directory))
+		zap.String("path", dirPath))
 
 	return nil
+}
+
+func resolveDirectoryPath(ctx context.Context, entry registry.Entry, cfg *dirapi.Config) string {
+	if cfg == nil {
+		return ""
+	}
+	if cfg.Directory == "" || isAbsoluteConfiguredPath(cfg.Directory) {
+		return cfg.Directory
+	}
+	if cfg.Base == dirapi.BaseProject {
+		return cfg.Directory
+	}
+
+	moduleName := ""
+	if entry.Meta != nil {
+		moduleName = entry.Meta.GetString("module", "")
+	}
+	if moduleName == "" {
+		return cfg.Directory
+	}
+
+	root, ok := moduleapi.SourceRoot(ctx, moduleName)
+	if !ok {
+		return cfg.Directory
+	}
+
+	return filepath.Join(root, cfg.Directory)
+}
+
+func isAbsoluteConfiguredPath(dir string) bool {
+	return filepath.IsAbs(dir) || path.IsAbs(filepath.ToSlash(dir))
 }
 
 // removeFS removes the filesystem from the fs system

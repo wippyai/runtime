@@ -83,7 +83,7 @@ func TestMessagePool(t *testing.T) {
 
 		// Add some headers
 		msg.Headers.Set("custom", "value")
-		msg.Headers.Set(queue.HeaderPriority, 5)
+		msg.Headers.Set("amqp.priority", 5)
 
 		// Release the message
 		queue.ReleaseMessage(msg)
@@ -96,7 +96,7 @@ func TestMessagePool(t *testing.T) {
 		// Headers should be cleared
 		_, ok := msg.Headers.Get("custom")
 		assert.False(t, ok)
-		_, ok = msg.Headers.Get(queue.HeaderPriority)
+		_, ok = msg.Headers.Get("amqp.priority")
 		assert.False(t, ok)
 	})
 
@@ -135,9 +135,9 @@ func TestMessagePool(t *testing.T) {
 func TestMessageHeaders(t *testing.T) {
 	msg := queue.NewMessage(payload.New("test"))
 
-	// Set various headers
-	msg.Headers.Set(queue.HeaderPriority, 5)
-	msg.Headers.Set(queue.HeaderTTL, 3600)
+	// Driver-specific keys live under driver-prefixed namespaces.
+	msg.Headers.Set("amqp.priority", 5)
+	msg.Headers.Set("amqp.expiration", "3600")
 	msg.Headers.Set(queue.HeaderCorrelationID, "corr-123")
 	msg.Headers.Set(queue.HeaderReplyTo, "reply-queue")
 	msg.Headers.Set(queue.HeaderContentType, "application/json")
@@ -153,8 +153,8 @@ func TestMessageHeaders(t *testing.T) {
 	msg.Headers.Set(queue.HeaderDeadLetterTime, time.Now().Unix())
 
 	// Verify all headers
-	assert.Equal(t, 5, msg.Headers.GetInt(queue.HeaderPriority, 0))
-	assert.Equal(t, 3600, msg.Headers.GetInt(queue.HeaderTTL, 0))
+	assert.Equal(t, 5, msg.Headers.GetInt("amqp.priority", 0))
+	assert.Equal(t, "3600", msg.Headers.GetString("amqp.expiration", ""))
 	assert.Equal(t, "corr-123", msg.Headers.GetString(queue.HeaderCorrelationID, ""))
 	assert.Equal(t, "reply-queue", msg.Headers.GetString(queue.HeaderReplyTo, ""))
 	assert.Equal(t, "application/json", msg.Headers.GetString(queue.HeaderContentType, ""))
@@ -189,6 +189,64 @@ func TestMessageWithCustomHeaders(t *testing.T) {
 	assert.True(t, ok)
 }
 
+func TestCloneMessage(t *testing.T) {
+	t.Run("Nil", func(t *testing.T) {
+		assert.Nil(t, queue.CloneMessage(nil))
+	})
+
+	t.Run("CopiesIDBodyAndHeaders", func(t *testing.T) {
+		body := payload.New("clone-body")
+		msg := queue.NewMessageWithID("msg-1", body)
+		msg.Headers.Set("job_id", "job-1")
+		msg.Headers.Set("attempt", 2)
+
+		clone := queue.CloneMessage(msg)
+
+		assert.NotSame(t, msg, clone)
+		assert.Equal(t, "msg-1", clone.ID)
+		assert.Equal(t, body, clone.Body)
+		assert.Equal(t, "job-1", clone.Headers.GetString("job_id", ""))
+		assert.Equal(t, 2, clone.Headers.GetInt("attempt", 0))
+	})
+
+	t.Run("HeaderBagIsIndependent", func(t *testing.T) {
+		msg := queue.NewMessageWithID("msg-1", payload.New("clone-body"))
+		msg.Headers.Set("job_id", "job-1")
+
+		clone := queue.CloneMessage(msg)
+		msg.Headers.Set("job_id", "mutated")
+		msg.Headers.Set("new_header", "new")
+		clone.Headers.Set("clone_only", "yes")
+
+		assert.Equal(t, "job-1", clone.Headers.GetString("job_id", ""))
+		assert.Equal(t, "", clone.Headers.GetString("new_header", ""))
+		assert.Equal(t, "", msg.Headers.GetString("clone_only", ""))
+	})
+
+	t.Run("SurvivesOriginalRelease", func(t *testing.T) {
+		msg := queue.AcquireMessageWithID("pooled-1", payload.New("pooled-body"))
+		msg.Headers.Set("job_id", "job-1")
+
+		clone := queue.CloneMessage(msg)
+		queue.ReleaseMessage(msg)
+
+		assert.Equal(t, "pooled-1", clone.ID)
+		assert.NotNil(t, clone.Body)
+		assert.Equal(t, "pooled-body", clone.Body.Data())
+		assert.Equal(t, "job-1", clone.Headers.GetString("job_id", ""))
+	})
+
+	t.Run("NilHeadersBecomeEmptyBag", func(t *testing.T) {
+		msg := &queue.Message{ID: "manual", Body: payload.New("body")}
+
+		clone := queue.CloneMessage(msg)
+
+		assert.NotNil(t, clone.Headers)
+		assert.Equal(t, "manual", clone.ID)
+		assert.Equal(t, "body", clone.Body.Data())
+	})
+}
+
 func BenchmarkNewMessage(b *testing.B) {
 	body := payload.New("benchmark message")
 	b.ResetTimer()
@@ -215,7 +273,7 @@ func BenchmarkMessageWithHeaders(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		msg := queue.AcquireMessage(body)
-		msg.Headers.Set(queue.HeaderPriority, 5)
+		msg.Headers.Set("amqp.priority", 5)
 		msg.Headers.Set(queue.HeaderCorrelationID, "corr-123")
 		msg.Headers.Set(queue.HeaderTraceparent, "trace-123")
 		queue.ReleaseMessage(msg)

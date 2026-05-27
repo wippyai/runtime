@@ -76,19 +76,28 @@ func (h *DeclarationHandler) addOrUpdateQueue(ctx context.Context, entry registr
 		return NewDriverNotFoundError(cfg.Driver)
 	}
 
+	name := entry.ID.Name
+	if cfg.QueueName != "" {
+		name = cfg.QueueName
+	}
 	queue := &queueapi.Queue{
 		ID:       entry.ID,
 		DriverID: cfg.Driver,
-		Name:     entry.ID.Name,
-		Options:  cfg.Options,
+		Name:     name,
+		Config:   cfg,
 	}
 
-	h.bus.Send(ctx, event.Event{
+	if err := SendAndAwaitManagerAck(ctx, h.bus, event.Event{
 		System: queueapi.System,
 		Kind:   queueapi.Declare,
 		Path:   entry.ID.String(),
 		Data:   queue,
-	})
+	}, "queue declare"); err != nil {
+		h.logger.Error("queue declare rejected",
+			zap.String("id", entry.ID.String()),
+			zap.Error(err))
+		return err
+	}
 
 	h.logger.Info("queue "+action,
 		zap.String("id", entry.ID.String()),

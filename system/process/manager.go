@@ -6,6 +6,7 @@ import (
 	"context"
 	"time"
 
+	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/pid"
 	api "github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
@@ -45,6 +46,11 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 	host, ok := relayHost.(api.Host)
 	if !ok {
 		return pid.PID{}, NewInvalidHostError(start.HostID)
+	}
+
+	var err error
+	if start.Context, err = netapi.ApplyOverlayPair(ctx, start.Options, start.Context); err != nil {
+		return pid.PID{}, err
 	}
 
 	m.logger.Debug("starting process",

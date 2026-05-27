@@ -18,6 +18,9 @@ import (
 )
 
 func skipIfNoDocker(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Docker tests skipped in short mode")
+	}
 	if os.Getenv("SKIP_DOCKER_TESTS") == "1" {
 		t.Skip("Docker tests disabled via SKIP_DOCKER_TESTS")
 	}

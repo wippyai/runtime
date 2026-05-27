@@ -82,6 +82,9 @@ func newWorkflowTestFixture(t *testing.T, opts workflowTestOpts) *workflowTestFi
 	funcRegistry := sysfunc.NewFunctionRegistry(bus, logger.Named("function"))
 
 	ctx := ctxapi.NewRootContext()
+	awaitSvc := eventbus.NewAwaitService(bus)
+	require.NoError(t, awaitSvc.Start(ctx))
+	f.cleanups = append(f.cleanups, func() { _ = awaitSvc.Stop() })
 	ctx = function.WithRegistry(ctx, funcRegistry)
 	ctx = process.WithFactory(ctx, factoryRegistry)
 
@@ -118,8 +121,7 @@ func newWorkflowTestFixture(t *testing.T, opts workflowTestOpts) *workflowTestFi
 	factoryFn, err := processFactory.CreateFactory(opts.workflowID, factoryOpts...)
 	require.NoError(t, err)
 
-	awaiter := eventbus.NewAwaiter(bus, process.System, "factory.(accept|reject)")
-	waiter, err := awaiter.Prepare(ctx, opts.workflowID.String())
+	waiter, err := awaitSvc.Prepare(ctx, process.System, "factory.(accept|reject)", opts.workflowID.String(), 0)
 	require.NoError(t, err)
 
 	bus.Send(ctx, event.Event{

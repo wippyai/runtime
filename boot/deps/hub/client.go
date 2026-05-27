@@ -30,6 +30,8 @@ type Client struct {
 	Manifest manifestv1connect.ManifestServiceClient
 
 	httpClient *http.Client
+	baseURL    string
+	token      string
 }
 
 type Options struct {
@@ -48,7 +50,13 @@ func NewClient(opts Options) (*Client, error) {
 		return nil, fmt.Errorf("invalid registry URL: %w", err)
 	}
 
-	isLocal := u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1"
+	host := u.Hostname()
+	isLocal := host == "localhost" || host == "127.0.0.1" ||
+		// Container-side aliases for local Docker stacks: host.docker.internal
+		// (Docker Desktop / OrbStack) and host.containers.internal (Podman).
+		// They never resolve to anything but the host machine, so plaintext
+		// HTTP across them is no riskier than localhost.
+		host == "host.docker.internal" || host == "host.containers.internal"
 	if u.Scheme != "https" && !isLocal {
 		return nil, fmt.Errorf("registry must use HTTPS")
 	}
@@ -84,6 +92,8 @@ func NewClient(opts Options) (*Client, error) {
 		Download:   downloadv1connect.NewDownloadServiceClient(httpClient, baseURL, connectOpts...),
 		Manifest:   manifestv1connect.NewManifestServiceClient(httpClient, baseURL, connectOpts...),
 		httpClient: httpClient,
+		baseURL:    baseURL,
+		token:      opts.Token,
 	}, nil
 }
 

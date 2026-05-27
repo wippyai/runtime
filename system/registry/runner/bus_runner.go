@@ -5,8 +5,13 @@ package runner
 
 import (
 	"context"
+	"errors"
+	"sort"
+	"strconv"
+	"sync/atomic"
 	"time"
 
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 	"go.uber.org/zap"
@@ -23,18 +28,16 @@ type runnerBuilder interface {
 // state transitions, rollbacks, and error handling. It maintains operation order
 // and provides transactional semantics through the event bus.
 type BusRunner struct {
-	bus         event.Bus
-	builder     runnerBuilder
-	dispatch    registry.DispatchPolicy
-	log         *zap.Logger
-	acceptChan  chan event.Event
-	rejectChan  chan event.Event
-	acceptSubID event.SubscriberID
-	rejectSubID event.SubscriberID
-	waitTimeout time.Duration
+	bus                     event.Bus
+	builder                 runnerBuilder
+	dispatch                registry.DispatchPolicy
+	transactionParticipants func() []string
+	log                     *zap.Logger
+	txSeq                   atomic.Uint64
+	waitTimeout             time.Duration
 }
 
-const defaultEventWaitTimeout = 30 * time.Second
+const defaultEventWaitTimeout = event.DefaultAwaitTimeout
 
 // Option configures BusRunner behavior.
 type Option func(*BusRunner)
@@ -56,13 +59,19 @@ func WithEventWaitTimeout(timeout time.Duration) Option {
 	}
 }
 
+// WithTransactionParticipants configures the handlers that must acknowledge
+// registry.begin/commit/discard before a transition can continue.
+func WithTransactionParticipants(fn func() []string) Option {
+	return func(br *BusRunner) {
+		br.transactionParticipants = fn
+	}
+}
+
 // NewBusRunner creates a new BusRunner. This is a sequential bus, order of operations matter.
 func NewBusRunner(bus event.Bus, log *zap.Logger, builder runnerBuilder, opts ...Option) *BusRunner {
 	br := &BusRunner{
 		bus:         bus,
 		log:         log,
-		acceptChan:  make(chan event.Event),
-		rejectChan:  make(chan event.Event),
 		builder:     builder,
 		waitTimeout: defaultEventWaitTimeout,
 	}
@@ -74,10 +83,24 @@ func NewBusRunner(bus event.Bus, log *zap.Logger, builder runnerBuilder, opts ..
 	return br
 }
 
-// Transition applies a series of operations to transform the registry from an initial state
-// to a new state. If any operation fails, it rolls back all previously applied operations
-// to maintain consistency. The process is coordinated through the event bus with Accept/Reject
-// events determining the success of each operation.
+// Transition applies a series of operations to transform the registry from an
+// initial state to a new state. The changeset is dispatched in the order
+// provided by the upstream topological sort. Operations that reject with a
+// NotFound-class error (indicating their listener could not find a sibling
+// entry the listener depends on) are deferred and retried after the rest of
+// the pass completes; the loop iterates until every operation has either been
+// accepted, failed non-deferrably, or made zero progress in a full pass.
+//
+// This self-healing apply path makes boot ordering correct regardless of
+// whether every cross-entry dependency is declared via a topology resolver
+// pattern: declared deps short-circuit the loop to a single pass; undeclared
+// deps converge in O(dependency depth) passes. The deterministic sort fixes
+// in PR #270 are preserved upstream, so the order operations are tried in is
+// stable across runs.
+//
+// If any operation fails non-deferrably, or no pass makes progress while
+// rejections remain, every accepted operation is rolled back to the initial
+// state and the transaction is discarded.
 func (br *BusRunner) Transition(
 	ctx context.Context,
 	initialState registry.State,
@@ -86,45 +109,255 @@ func (br *BusRunner) Transition(
 	currentState := newStateMap(initialState)
 	originalState := newStateMap(initialState) // Keep a copy of the original state for rollbacks
 
-	if err := br.subscribeToEvents(ctx); err != nil {
-		return nil, err
+	txPath := br.nextTransactionPath()
+	txParticipants, err := br.registryTransactionParticipants()
+	if err != nil {
+		return stateMapToSlice(currentState), err
 	}
-	defer br.unsubscribeFromEvents(ctx)
+	if err := br.dispatchTransaction(ctx, txParticipants, registry.TxBegin, txPath, nil); err != nil {
+		return stateMapToSlice(currentState), err
+	}
 
-	br.bus.Send(ctx, event.Event{
-		System: registry.System,
-		Kind:   registry.TxBegin,
-	})
+	remaining := append(registry.ChangeSet(nil), cs...)
+	pass := 0
 
-	for _, op := range cs {
-		newState, err := br.applyOperation(ctx, currentState, op)
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil, err
+	for len(remaining) > 0 {
+		pass++
+		var (
+			deferred       registry.ChangeSet
+			lastDeferErr   error
+			fatalErr       error
+			fatalState     registry.StateMap
+			progressed     bool
+			retriedCount   int
+			deferredFirstP = pass == 1
+		)
+
+		for _, op := range remaining {
+			newState, opErr := br.applyOperation(ctx, currentState, op)
+			if opErr == nil {
+				currentState = newState
+				progressed = true
+				if !deferredFirstP {
+					retriedCount++
+					br.log.Info("operation accepted on retry",
+						zap.String("entry_id", op.Entry.ID.String()),
+						zap.String("op_kind", op.Kind),
+						zap.Int("pass", pass))
+				}
+				continue
 			}
-
-			br.log.Error("operation failed, initiating rollback", zap.Any("operation", op), zap.Error(err))
-			newState = br.rollback(ctx, originalState, newState)
-
-			// Only send Discard if there was an error, and rollback already happened
-			br.bus.Send(ctx, event.Event{
-				System: registry.System,
-				Kind:   registry.TxDiscard,
-				Data:   err,
-			})
-
-			return stateMapToSlice(newState), err // Already has context from applyOperation
+			if ctx.Err() != nil {
+				return nil, opErr
+			}
+			if isDeferrable(opErr) {
+				lastDeferErr = opErr
+				deferred = append(deferred, op)
+				br.log.Info("operation deferred for retry",
+					zap.String("entry_id", op.Entry.ID.String()),
+					zap.String("op_kind", op.Kind),
+					zap.Int("pass", pass),
+					zap.Error(opErr))
+				continue
+			}
+			fatalErr = opErr
+			fatalState = newState
+			break
 		}
 
-		currentState = newState
+		if fatalErr != nil {
+			br.log.Error("operation failed, initiating rollback", zap.Error(fatalErr))
+			rolled := br.rollback(ctx, originalState, fatalState)
+			if discardErr := br.dispatchTransaction(ctx, txParticipants, registry.TxDiscard, txPath, fatalErr); discardErr != nil {
+				br.log.Error("failed to discard transaction", zap.Error(discardErr))
+			}
+			return stateMapToSlice(rolled), fatalErr
+		}
+
+		if len(deferred) == 0 {
+			if retriedCount > 0 {
+				br.log.Info("apply converged after deferral",
+					zap.Int("passes", pass),
+					zap.Int("retried_ops", retriedCount))
+			}
+			break
+		}
+
+		if !progressed {
+			unresolved := make([]registry.ID, 0, len(deferred))
+			for _, op := range deferred {
+				unresolved = append(unresolved, op.Entry.ID)
+			}
+			finalErr := NewUnresolvedDependenciesError(unresolved, lastDeferErr)
+			br.log.Warn("operations rejected after retries",
+				zap.Int("passes", pass),
+				zap.Strings("unresolved", idStrings(unresolved)),
+				zap.Error(finalErr))
+			rolled := br.rollback(ctx, originalState, currentState)
+			if discardErr := br.dispatchTransaction(ctx, txParticipants, registry.TxDiscard, txPath, finalErr); discardErr != nil {
+				br.log.Error("failed to discard transaction", zap.Error(discardErr))
+			}
+			return stateMapToSlice(rolled), finalErr
+		}
+
+		remaining = deferred
 	}
+
+	if err := br.dispatchTransaction(ctx, txParticipants, registry.TxCommit, txPath, nil); err != nil {
+		br.log.Error("transaction commit failed, initiating rollback", zap.Error(err))
+		newState := br.rollback(ctx, originalState, currentState)
+		if discardErr := br.dispatchTransaction(ctx, txParticipants, registry.TxDiscard, txPath, err); discardErr != nil {
+			br.log.Error("failed to discard transaction after commit failure", zap.Error(discardErr))
+		}
+		return stateMapToSlice(newState), err
+	}
+
+	return stateMapToSlice(currentState), nil
+}
+
+// isDeferrable reports whether a failed operation can be retried after the
+// rest of the changeset has been dispatched. Listener errors are wrapped by
+// NewOperationRejectedError as apierror.Invalid with the original error
+// chained as Cause, so the unwrap walk inspects every layer and returns true
+// if any of them carries apierror.NotFound.
+func isDeferrable(err error) bool {
+	cur := err
+	for cur != nil {
+		var apiErr apierror.Error
+		if errors.As(cur, &apiErr) {
+			if apiErr.Kind() == apierror.NotFound {
+				return true
+			}
+			cur = errors.Unwrap(apiErr)
+			continue
+		}
+		cur = errors.Unwrap(cur)
+	}
+	return false
+}
+
+func idStrings(ids []registry.ID) []string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = id.String()
+	}
+	return out
+}
+
+func (br *BusRunner) nextTransactionPath() event.Path {
+	return "registry.tx/" + strconv.FormatUint(br.txSeq.Add(1), 10)
+}
+
+func (br *BusRunner) registryTransactionParticipants() ([]string, error) {
+	if br.transactionParticipants == nil {
+		return nil, nil
+	}
+	raw := br.transactionParticipants()
+	seen := make(map[string]struct{}, len(raw))
+	participants := make([]string, 0, len(raw))
+	for _, id := range raw {
+		if id == "" {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			return nil, NewDuplicateTransactionParticipantError(id)
+		}
+		seen[id] = struct{}{}
+		participants = append(participants, id)
+	}
+	sort.Strings(participants)
+	return participants, nil
+}
+
+type transactionWaiter struct {
+	waiter event.AwaitWaiter
+	id     string
+}
+
+func (br *BusRunner) dispatchTransaction(ctx context.Context, participants []string, kind event.Kind, txPath event.Path, data any) error {
+	path := transactionEventPath(txPath, kind)
+	waiters, err := br.prepareTransactionWaiters(ctx, participants, path)
+	if err != nil {
+		return err
+	}
+	defer closeTransactionWaiters(waiters)
 
 	br.bus.Send(ctx, event.Event{
 		System: registry.System,
-		Kind:   registry.TxCommit,
+		Kind:   kind,
+		Path:   path,
+		Data:   data,
 	})
 
-	return stateMapToSlice(currentState), nil
+	accepted := 0
+	rejected := false
+	var rejectErr error
+	for _, prepared := range waiters {
+		result := prepared.waiter.Wait()
+		if result.Accepted {
+			accepted++
+			br.log.Debug("received transaction accept event",
+				zap.String("kind", kind),
+				zap.String("path", path),
+				zap.String("participant", prepared.id),
+				zap.Int("accepted", accepted),
+				zap.Int("expected", len(participants)))
+			continue
+		}
+
+		if result.Event.Kind == "" {
+			if ctx.Err() != nil {
+				return NewTransactionRejectedError(kind, ctx.Err())
+			}
+			return NewTransactionTimeoutError(kind, br.waitTimeout, len(participants), accepted)
+		}
+
+		rejected = true
+		if rejectErr == nil {
+			rejectErr = result.Error
+		} else if result.Error != nil {
+			rejectErr = errors.Join(rejectErr, result.Error)
+		}
+	}
+	if rejected {
+		return NewTransactionRejectedError(kind, rejectErr)
+	}
+	return nil
+}
+
+func (br *BusRunner) prepareTransactionWaiters(ctx context.Context, participants []string, path event.Path) ([]transactionWaiter, error) {
+	waiters := make([]transactionWaiter, 0, len(participants))
+	for _, id := range participants {
+		waiter, err := br.prepareWaiter(ctx, registry.TxResult, participantReplyPath(path, id))
+		if err != nil {
+			closeTransactionWaiters(waiters)
+			return nil, err
+		}
+		waiters = append(waiters, transactionWaiter{id: id, waiter: waiter})
+	}
+	return waiters, nil
+}
+
+func closeTransactionWaiters(waiters []transactionWaiter) {
+	for _, prepared := range waiters {
+		prepared.waiter.Close()
+	}
+}
+
+func transactionEventPath(txPath event.Path, kind event.Kind) event.Path {
+	return txPath + "/" + kind
+}
+
+func participantReplyPath(path event.Path, participantID string) event.Path {
+	return path + "/" + participantID
+}
+
+func (br *BusRunner) prepareWaiter(ctx context.Context, kind event.Kind, path event.Path) (event.AwaitWaiter, error) {
+	awaitSvc := event.GetAwaitService(ctx)
+	if awaitSvc == nil {
+		return nil, NewAwaitServiceMissingError()
+	}
+	return awaitSvc.Prepare(ctx, registry.System, kind, path, br.waitTimeout)
 }
 
 func (br *BusRunner) applyOperation(
@@ -173,6 +406,12 @@ func (br *BusRunner) applyOperation(
 		return newState, nil
 	}
 
+	waiter, err := br.prepareWaiter(ctx, registry.EntryResult, op.Entry.ID.String())
+	if err != nil {
+		return state, err
+	}
+	defer waiter.Close()
+
 	// send the operation event
 	br.bus.Send(ctx, event.Event{
 		System: registry.System,
@@ -181,64 +420,36 @@ func (br *BusRunner) applyOperation(
 		Data:   op.Entry,
 	})
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, br.waitTimeout)
-	defer cancel()
+	result := waiter.Wait()
+	if result.Accepted {
+		br.log.Debug("received accept event",
+			zap.String("id", op.Entry.ID.String()),
+			zap.String("system", result.Event.System),
+			zap.String("kind", result.Event.Kind))
 
-	for {
-		select {
-		case confirmation := <-br.acceptChan:
-			id := registry.ParseID(confirmation.Path)
-			br.log.Debug("received accept event",
-				zap.String("id", id.String()),
-				zap.String("expected", op.Entry.ID.String()),
-				zap.String("system", confirmation.System),
-				zap.String("kind", confirmation.Kind))
-
-			if !id.Equal(op.Entry.ID) {
-				br.log.Error("unrelated accept event details",
-					zap.String("received_id", id.String()),
-					zap.String("expected_id", op.Entry.ID.String()),
-					zap.String("expected_kind", op.Entry.Kind))
-				return state, ErrUnrelatedAcceptEvent
-			}
-
-			// Apply the change to the state
-			newState, err := br.builder.ApplyOperation(state, op)
-			if err != nil {
-				return state, NewApplyChangeError(err)
-			}
-
-			return newState, nil
-
-		case rejection := <-br.rejectChan:
-			id := registry.ParseID(rejection.Path)
-			br.log.Debug("received reject event",
-				zap.String("id", id.String()),
-				zap.String("expected", op.Entry.ID.String()))
-
-			if !id.Equal(op.Entry.ID) {
-				return state, ErrUnrelatedRejectEvent
-			}
-
-			err, ok := rejection.Data.(error)
-			if !ok {
-				return state, NewOperationRejectedError(op.Entry.ID, nil)
-			}
-			return state, NewOperationRejectedError(op.Entry.ID, err)
-
-		case <-timeoutCtx.Done():
-			if ctx.Err() != nil {
-				return state, NewOperationCanceledError(op.Entry.ID, op.Entry.Kind, ctx.Err())
-			}
-			br.log.Error("event handler timeout - no listener responded",
-				zap.String("id", op.Entry.ID.String()),
-				zap.String("kind", op.Entry.Kind),
-				zap.String("operation", op.Kind),
-				zap.Duration("timeout", br.waitTimeout),
-				zap.String("hint", "check if a listener is registered for this entry kind"))
-			return state, NewEventHandlerTimeoutError(br.waitTimeout, op.Entry.ID, op.Entry.Kind)
+		newState, err := br.builder.ApplyOperation(state, op)
+		if err != nil {
+			return state, NewApplyChangeError(err)
 		}
+		return newState, nil
 	}
+
+	if result.Event.Kind != "" {
+		br.log.Debug("received reject event",
+			zap.String("id", op.Entry.ID.String()))
+		return state, NewOperationRejectedError(op.Entry.ID, result.Error)
+	}
+
+	if ctx.Err() != nil {
+		return state, NewOperationCanceledError(op.Entry.ID, op.Entry.Kind, ctx.Err())
+	}
+	br.log.Error("event handler timeout - no listener responded",
+		zap.String("id", op.Entry.ID.String()),
+		zap.String("kind", op.Entry.Kind),
+		zap.String("operation", op.Kind),
+		zap.Duration("timeout", br.waitTimeout),
+		zap.String("hint", "check if a listener is registered for this entry kind"))
+	return state, NewEventHandlerTimeoutError(br.waitTimeout, op.Entry.ID, op.Entry.Kind)
 }
 
 func (br *BusRunner) rollback(
@@ -278,29 +489,6 @@ func (br *BusRunner) rollback(
 		currentState = newState
 	}
 	return currentState
-}
-
-// subscribeToEvents subscribes to Accept and Reject eventbus.
-func (br *BusRunner) subscribeToEvents(ctx context.Context) error {
-	var err error
-	br.acceptSubID, err = br.bus.SubscribeP(ctx, registry.System, registry.EntryAccept, br.acceptChan)
-	if err != nil {
-		return NewListenEventsError(err)
-	}
-
-	br.rejectSubID, err = br.bus.SubscribeP(ctx, registry.System, registry.EntryReject, br.rejectChan)
-	if err != nil {
-		br.bus.Unsubscribe(ctx, br.acceptSubID) // Clean up accept subscription if reject subscription fails
-		return NewListenEventsError(err)
-	}
-
-	return nil
-}
-
-// unsubscribeFromEvents unsubscribes from Accept and Reject eventbus.
-func (br *BusRunner) unsubscribeFromEvents(ctx context.Context) {
-	br.bus.Unsubscribe(ctx, br.acceptSubID)
-	br.bus.Unsubscribe(ctx, br.rejectSubID)
 }
 
 // newStateMap creates a StateMap from a State slice

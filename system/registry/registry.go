@@ -124,8 +124,9 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 			return nil, NewExpandChangesError(err)
 		}
 
-		if plan.Expanded {
-			plan.Ops = planner.SortOps(snapshot, plan.Ops)
+		plan.Ops, err = planner.SortOps(snapshot, plan.Ops)
+		if err != nil {
+			return nil, NewSortChangesError(err)
 		}
 
 		allOps, historyOps = plan.SplitScopes()
@@ -135,8 +136,21 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 			return nil, NewPrepareEffectsError(err)
 		}
 	} else {
-		allOps = changes
-		historyOps = changes
+		sorted, err := r.builder.SortChangeSet(snapshot, changes)
+		if err != nil {
+			return nil, NewSortChangesError(err)
+		}
+		allOps = sorted
+		historyOps = sorted
+	}
+
+	// Topologically sort the changeset before dispatching to the runner so
+	// deletes hit the dep graph in reverse-dependency order (dependants
+	// first). Planner.SortOps only runs when expansion produced ops; the
+	// no-expansion path would otherwise reach the runner unsorted and fail
+	// against any dependency-aware runner (memory_graph.RemoveNode).
+	if sorted, sortErr := r.builder.SortChangeSet(snapshot, allOps); sortErr == nil {
+		allOps = sorted
 	}
 
 	r.mu.Lock()
@@ -274,8 +288,9 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			return NewExpandChangesError(err)
 		}
 
-		if plan.Expanded {
-			plan.Ops = planner.SortOps(snapshot, plan.Ops)
+		plan.Ops, err = planner.SortOps(snapshot, plan.Ops)
+		if err != nil {
+			return NewSortChangesError(err)
 		}
 
 		allOps, _ = plan.SplitScopes()
@@ -285,7 +300,19 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			return NewPrepareEffectsError(err)
 		}
 	} else {
-		allOps = changeset
+		sorted, err := r.builder.SortChangeSet(snapshot, changeset)
+		if err != nil {
+			return NewSortChangesError(err)
+		}
+		allOps = sorted
+	}
+
+	// Topologically sort before dispatching to the runner. Same invariant as
+	// Apply: reverse-dep order for deletes, forward-dep for creates/updates.
+	// Rollback paths hit this branch since backward changesets rarely go
+	// through expansion.
+	if sorted, sortErr := r.builder.SortChangeSet(snapshot, allOps); sortErr == nil {
+		allOps = sorted
 	}
 
 	r.mu.Lock()

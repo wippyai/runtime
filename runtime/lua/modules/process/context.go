@@ -8,6 +8,7 @@ import (
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
@@ -78,6 +79,13 @@ func parseSpawnerOptions(l *lua.LState, idx int) attrs.Bag {
 		}
 		options.Set(string(key), value.ToGoAny(v))
 	})
+
+	if net := options.GetString(netapi.OptionKeyNetwork, ""); net != "" {
+		if !security.IsAllowed(l.Context(), "network.select", net, nil) {
+			l.RaiseError("not allowed: network %s", net)
+			return nil
+		}
+	}
 
 	return options
 }

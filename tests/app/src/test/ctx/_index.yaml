@@ -133,3 +133,69 @@ entries:
       - time
     imports:
       assert2: app.lib:assert
+
+  # Worker: calls funcs.new():async() to test process->async func future delivery.
+  - name: process_calls_func_async_worker
+    kind: process.lua
+    meta:
+      comment: Worker that starts an async function from a process
+    source: file://process_calls_func_async_worker.lua
+    method: main
+    modules:
+      - funcs
+
+  - name: process_to_func_async
+    kind: function.lua
+    meta:
+      type: test
+      suite: ctx
+      description: Future payload delivery from process to async function call
+    source: file://process_to_func_async.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  # Worker: process.exec target that starts funcs.new():async().
+  - name: process_exec_async_worker
+    kind: process.lua
+    meta:
+      comment: Worker executed by process.exec that awaits an async function future
+    source: file://process_exec_async_worker.lua
+    method: main
+    modules:
+      - funcs
+
+  - name: process_exec_to_func_async
+    kind: function.lua
+    meta:
+      type: test
+      suite: ctx
+      description: process.exec target receives funcs.async future payload
+    source: file://process_exec_to_func_async.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
+  # Worker: process.exec target that selects over two funcs.new():async() futures.
+  - name: process_exec_async_select_worker
+    kind: process.lua
+    meta:
+      comment: Worker executed by process.exec that awaits two async future channels
+    source: file://process_exec_async_select_worker.lua
+    method: main
+    modules:
+      - funcs
+      - time
+
+  - name: process_exec_async_select
+    kind: function.lua
+    meta:
+      type: test
+      suite: ctx
+      description: process.exec target receives multiple funcs.async future payloads through channel.select
+    source: file://process_exec_async_select.lua
+    method: main
+    imports:
+      assert2: app.lib:assert

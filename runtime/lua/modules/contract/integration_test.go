@@ -45,6 +45,8 @@ type testScheduler struct {
 	*actor.Scheduler
 	contractDisp *syscontract.Dispatcher
 	pending      map[string]chan *runtime.Result
+	startHooks   map[string]func()
+	stopHooks    map[string]func()
 	mu           sync.Mutex
 }
 
@@ -52,7 +54,32 @@ func (ts *testScheduler) Stop() {
 	ts.Scheduler.Stop(context.Background())
 }
 
-func (ts *testScheduler) OnStart(_ context.Context, _ pid.PID, _ process.Process) error { return nil }
+// setLifecycleHooks registers per-PID callbacks fired on OnStart (after
+// Process.Init) and at the start of OnComplete (before the result is delivered
+// and before the worker tears the process down). A subscription sampler uses
+// these to bound its observation window strictly inside the live phase.
+func (ts *testScheduler) setLifecycleHooks(p pid.PID, onStart, onStop func()) {
+	ts.mu.Lock()
+	if ts.startHooks == nil {
+		ts.startHooks = make(map[string]func())
+	}
+	if ts.stopHooks == nil {
+		ts.stopHooks = make(map[string]func())
+	}
+	ts.startHooks[p.UniqID] = onStart
+	ts.stopHooks[p.UniqID] = onStop
+	ts.mu.Unlock()
+}
+
+func (ts *testScheduler) OnStart(_ context.Context, p pid.PID, _ process.Process) error {
+	ts.mu.Lock()
+	hook := ts.startHooks[p.UniqID]
+	ts.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	return nil
+}
 
 func (ts *testScheduler) OnComplete(_ context.Context, p pid.PID, result *runtime.Result) {
 	ts.mu.Lock()
@@ -60,7 +87,16 @@ func (ts *testScheduler) OnComplete(_ context.Context, p pid.PID, result *runtim
 	if ok {
 		delete(ts.pending, p.UniqID)
 	}
+	stop := ts.stopHooks[p.UniqID]
+	delete(ts.stopHooks, p.UniqID)
+	delete(ts.startHooks, p.UniqID)
 	ts.mu.Unlock()
+	// Stop the sampler before the result is delivered: this OnComplete runs on
+	// the worker goroutine ahead of Process.Close, so joining the sampler here
+	// guarantees no sample races teardown.
+	if stop != nil {
+		stop()
+	}
 	if ok {
 		ch <- result
 	}
@@ -194,6 +230,8 @@ func setupIntegrationTest(t *testing.T, numWorkers int) *integrationTestContext 
 
 	ts := &testScheduler{
 		pending:      make(map[string]chan *runtime.Result),
+		startHooks:   make(map[string]func()),
+		stopHooks:    make(map[string]func()),
 		contractDisp: contractDisp,
 	}
 
@@ -203,6 +241,7 @@ func setupIntegrationTest(t *testing.T, numWorkers int) *integrationTestContext 
 	}
 	ts.Scheduler = actor.NewScheduler(reg, opts...)
 	ts.Start()
+	ts.EnableStats()
 
 	return &integrationTestContext{
 		ctx:              ctx,

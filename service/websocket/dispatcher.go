@@ -285,28 +285,57 @@ func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.SubscribeCm
 	pidVal := cmd.PID
 	topic := cmd.Topic
 	log := d.log
+	connID := cmd.ConnID
+
+	// stop is the producer-stop handle wired back into the process through
+	// SetSubscriptionCleanup. closeChannel / drain / Abort / overflow call it
+	// when the subscription is reclaimed: it cancels the relay goroutine and
+	// tears down the connection so the registry read loop (entry.readLoop)
+	// also exits. No goroutine leak when the process drains, the consumer
+	// overflows, or the connection is closed from Lua.
+	loopCtx, cancelLoop := context.WithCancel(ctx)
+	var stopOnce sync.Once
+	stop := func() {
+		stopOnce.Do(func() {
+			cancelLoop()
+			registry.dropForStop(connID)
+		})
+	}
+
+	// sendTerminal relays a terminal so deliverMessage reclaims the
+	// subscription on a connection-driven close (remote close / EOF / read
+	// error). It is suppressed when stop already fired: a reclaim-triggered
+	// stop (closeChannel / drain / overflow) removes the subscription on the
+	// step thread, so a terminal to the now-unmatched unique topic is
+	// redundant and must not be emitted.
+	sendTerminal := func(reason string) {
+		if entry.reclaimedByProcess.Load() {
+			return
+		}
+		select {
+		case <-loopCtx.Done():
+			return
+		default:
+		}
+		pkg := relay.NewPackage(pid.Zero(), pidVal, topic, payload.NewTerminal())
+		if err := node.Send(pkg); err != nil {
+			log.Debug("failed to send terminal: "+reason,
+				zap.Uint64("conn_id", connID),
+				zap.Error(err))
+		}
+	}
 
 	go func() {
 		for {
 			select {
 			case msg, ok := <-entry.msgCh:
 				if !ok {
-					pkg := relay.NewPackage(pid.Zero(), pidVal, topic, payload.NewTerminal())
-					if err := node.Send(pkg); err != nil {
-						log.Debug("failed to send terminal on channel close",
-							zap.Uint64("conn_id", cmd.ConnID),
-							zap.Error(err))
-					}
+					sendTerminal("channel close")
 					return
 				}
 
 				if msg.EOF {
-					pkg := relay.NewPackage(pid.Zero(), pidVal, topic, payload.NewTerminal())
-					if err := node.Send(pkg); err != nil {
-						log.Debug("failed to send terminal on EOF",
-							zap.Uint64("conn_id", cmd.ConnID),
-							zap.Error(err))
-					}
+					sendTerminal("EOF")
 					return
 				}
 
@@ -318,24 +347,21 @@ func (d *Dispatcher) executeSubscribe(ctx context.Context, cmd wsapi.SubscribeCm
 				pkg := relay.NewPackage(pid.Zero(), pidVal, topic, p)
 				if err := node.Send(pkg); err != nil {
 					log.Debug("failed to relay message",
-						zap.Uint64("conn_id", cmd.ConnID),
+						zap.Uint64("conn_id", connID),
 						zap.Error(err))
 				}
-			case <-ctx.Done():
+			case <-loopCtx.Done():
+				// Reclaim-triggered stop. Subscription already gone; emit no
+				// terminal to the now-unmatched topic.
 				return
 			case <-entry.ctx.Done():
-				pkg := relay.NewPackage(pid.Zero(), pidVal, topic, payload.NewTerminal())
-				if err := node.Send(pkg); err != nil {
-					log.Debug("failed to send terminal on connection close",
-						zap.Uint64("conn_id", cmd.ConnID),
-						zap.Error(err))
-				}
+				sendTerminal("connection close")
 				return
 			}
 		}
 	}()
 
-	receiver.CompleteYield(tag, wsapi.Subscription{ConnID: cmd.ConnID, Topic: topic}, nil)
+	receiver.CompleteYield(tag, wsapi.Subscription{ConnID: cmd.ConnID, Topic: topic, Stop: stop}, nil)
 }
 
 func (d *Dispatcher) handle(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {

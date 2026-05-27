@@ -37,13 +37,14 @@ func Supervisor() boot.Component {
 				return ctx, ErrRegistryNotAvailable
 			}
 
-			// Register lifecycle dependency pattern
-			if err := reg.RegisterDependencyPattern(regapi.DependencyPattern{
-				Path:          "data.lifecycle.depends_on",
-				Description:   "Lifecycle dependencies",
-				AllowWildcard: true,
-			}); err != nil {
-				logger.Warn("failed to register lifecycle dependency pattern", zap.Error(err))
+			// Register lifecycle dependency patterns. "requires" is canonical;
+			// "depends_on" is kept so older modules feed the same registry graph.
+			for _, pattern := range getLifecycleDependencyPatterns() {
+				if err := reg.RegisterDependencyPattern(pattern); err != nil {
+					logger.Warn("failed to register lifecycle dependency pattern",
+						zap.String("path", pattern.Path),
+						zap.Error(err))
+				}
 			}
 
 			// Create dependency resolver that extracts dependencies from registry entries
@@ -76,6 +77,13 @@ func Supervisor() boot.Component {
 	})
 }
 
+func getLifecycleDependencyPatterns() []regapi.DependencyPattern {
+	return []regapi.DependencyPattern{
+		{Path: "data.lifecycle.requires", Description: "Lifecycle requirements", AllowWildcard: true},
+		{Path: "data.lifecycle.depends_on", Description: "Legacy lifecycle dependencies", AllowWildcard: true},
+	}
+}
+
 // createDependencyResolver creates a supervisor dependency resolver that extracts
 // dependencies from registry entries using the registry's topology resolver.
 func createDependencyResolver(reg regapi.Registry, _ *zap.Logger) supervisorapi.DependencyResolver {
@@ -99,7 +107,11 @@ func createDependencyResolver(reg regapi.Registry, _ *zap.Logger) supervisorapi.
 
 		deps := make([]regapi.ID, 0, len(depStrings))
 		for _, depStr := range depStrings {
-			deps = append(deps, regapi.ParseID(depStr))
+			depID := regapi.ParseID(depStr)
+			if depID.NS == "" {
+				depID = depID.WithDefaultNS(entry.ID.NS)
+			}
+			deps = append(deps, depID)
 		}
 
 		return deps, nil

@@ -218,7 +218,7 @@ func (d *Definition) executeSideEffect(cmd *workflowapi.SideEffectCmd, tag uint6
 			return
 		}
 		d.resumeProcess(tag, workflowapi.Result{}, nil)
-	})
+	}, "workflow.sideEffect")
 	return nil
 }
 

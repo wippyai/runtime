@@ -28,6 +28,16 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 				AutoInit:  true,
 				Mode:      "0755",
 				Type:      "",
+				Base:      BaseProject,
+			},
+			wantErr: false,
+		},
+		{
+			name: "module-relative config",
+			config: Config{
+				Directory: "./static/app",
+				Mode:      "0755",
+				Base:      BaseModule,
 			},
 			wantErr: false,
 		},
@@ -64,6 +74,7 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 			assert.Equal(t, tt.config.AutoInit, decoded.AutoInit)
 			assert.Equal(t, tt.config.Mode, decoded.Mode)
 			assert.Equal(t, tt.config.Type, decoded.Type)
+			assert.Equal(t, tt.config.Base, decoded.Base)
 		})
 	}
 }
@@ -122,6 +133,31 @@ func TestConfig_Validate(t *testing.T) {
 				Directory: "/data",
 			},
 			wantErr: false,
+		},
+		{
+			name: "valid module base",
+			config: Config{
+				Directory: "./static/app",
+				Base:      BaseModule,
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid project base",
+			config: Config{
+				Directory: "./static/app",
+				Base:      BaseProject,
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid base",
+			config: Config{
+				Directory: "./static/app",
+				Base:      "workspace",
+			},
+			wantErr: true,
+			errMsg:  "invalid directory base",
 		},
 	}
 

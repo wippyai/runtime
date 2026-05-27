@@ -106,6 +106,10 @@ func NewClosePackFileError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to close pack file").WithCause(cause).WithRetryable(apierror.False)
 }
 
+func NewPackIntegrityError(cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "pack integrity verification failed").WithCause(cause).WithRetryable(apierror.False)
+}
+
 func NewStatOutputFileError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to stat output file").WithCause(cause).WithRetryable(apierror.False)
 }

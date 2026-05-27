@@ -1,14 +1,21 @@
 // SPDX-License-Identifier: MPL-2.0
 
+// Package consumer holds the registry-kind identifier, errors, and
+// supervisor-lifecycle wrapper for queue.consumer entries.
 package consumer
 
 import (
+	"encoding/json"
 	"fmt"
 
 	apierror "github.com/wippyai/runtime/api/error"
+	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
 )
+
+// Kind identifies consumer entries in the registry.
+const Kind registry.Kind = "queue.consumer"
 
 const (
 	DefaultConcurrency = 1
@@ -17,21 +24,33 @@ const (
 	MaxPrefetch        = 10000
 )
 
-// Config represents the configuration for a queue consumer
+// Config is the registry-entry shape for kind=queue.consumer. It wraps
+// queueapi.ConsumerOptions with the supervisor lifecycle block (which is
+// a supervisor-layer concern, not a queue-layer one).
 type Config struct {
-	Queue       registry.ID                `json:"queue"`
-	Func        registry.ID                `json:"func"`
-	Lifecycle   supervisor.LifecycleConfig `json:"lifecycle"`
-	Concurrency int                        `json:"concurrency"`
-	Prefetch    int                        `json:"prefetch"`
+	queueapi.ConsumerOptions
+	Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
 }
 
-// Validate validates the consumer configuration and sets defaults
+// UnmarshalJSON merges the flat entry fields into the embedded core type.
+func (c *Config) UnmarshalJSON(data []byte) error {
+	var aux struct {
+		queueapi.ConsumerOptions
+		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	c.ConsumerOptions = aux.ConsumerOptions
+	c.Lifecycle = aux.Lifecycle
+	return nil
+}
+
+// Validate validates the consumer configuration and sets defaults.
 func (c *Config) Validate() error {
 	if c.Queue.Name == "" {
 		return ErrQueueIDRequired
 	}
-
 	if c.Func.Name == "" {
 		return ErrFunctionIDRequired
 	}

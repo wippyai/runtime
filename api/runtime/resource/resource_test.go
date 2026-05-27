@@ -174,6 +174,115 @@ func TestStore_AddCleanup(t *testing.T) {
 	})
 }
 
+func TestStore_AddCleanupBounded(t *testing.T) {
+	t.Run("cancelled cleanups do not accumulate", func(t *testing.T) {
+		store := NewStore()
+		defer func() { _ = store.Close() }()
+
+		const n = 100000
+		for i := 0; i < n; i++ {
+			cancel := store.AddCleanup(func() error { return nil })
+			cancel()
+			assert.Equal(t, 0, store.liveCleanups(),
+				"live cleanup count must stay bounded after cancel")
+		}
+	})
+
+	t.Run("live count tracks uncancelled cleanups", func(t *testing.T) {
+		store := NewStore()
+		defer func() { _ = store.Close() }()
+
+		c1 := store.AddCleanup(func() error { return nil })
+		c2 := store.AddCleanup(func() error { return nil })
+		c3 := store.AddCleanup(func() error { return nil })
+		assert.Equal(t, 3, store.liveCleanups())
+
+		c2()
+		assert.Equal(t, 2, store.liveCleanups())
+
+		c1()
+		c3()
+		assert.Equal(t, 0, store.liveCleanups())
+	})
+
+	t.Run("interleaved add and cancel stays bounded", func(t *testing.T) {
+		store := NewStore()
+		defer func() { _ = store.Close() }()
+
+		const n = 100000
+		for i := 0; i < n; i++ {
+			cancel := store.AddCleanup(func() error { return nil })
+			cancel()
+		}
+		assert.Equal(t, 0, store.liveCleanups())
+	})
+}
+
+func TestStore_Cancel(t *testing.T) {
+	t.Run("cancel is idempotent", func(t *testing.T) {
+		store := NewStore()
+		var ran int
+
+		cancel := store.AddCleanup(func() error {
+			ran++
+			return nil
+		})
+		cancel()
+		cancel()
+		cancel()
+
+		err := store.Close()
+		assert.NoError(t, err)
+		assert.Equal(t, 0, ran)
+	})
+
+	t.Run("cancel after close is safe", func(t *testing.T) {
+		store := NewStore()
+		cancel := store.AddCleanup(func() error { return nil })
+		_ = store.Close()
+		cancel() // no panic, no-op
+	})
+
+	t.Run("uncancelled cleanups still run after some cancels", func(t *testing.T) {
+		store := NewStore()
+		var order []int
+
+		_ = store.AddCleanup(func() error {
+			order = append(order, 1)
+			return nil
+		})
+		c2 := store.AddCleanup(func() error {
+			order = append(order, 2)
+			return nil
+		})
+		_ = store.AddCleanup(func() error {
+			order = append(order, 3)
+			return nil
+		})
+
+		c2()
+
+		err := store.Close()
+		assert.NoError(t, err)
+		assert.Equal(t, []int{3, 1}, order) // LIFO, 2 cancelled
+	})
+}
+
+func TestStore_PooledReuseStartsEmpty(t *testing.T) {
+	store := NewStore()
+	_ = store.AddCleanup(func() error { return nil })
+	_ = store.AddCleanup(func() error { return nil })
+	assert.Equal(t, 2, store.liveCleanups())
+	_ = store.Close()
+
+	// Reacquire from pool; may or may not be the same instance, but any
+	// instance handed out must start with no live cleanups.
+	reused := NewStore()
+	defer func() { _ = reused.Close() }()
+	assert.Equal(t, 0, reused.liveCleanups())
+	assert.False(t, reused.IsClosed())
+}
+
 func TestStore_Close(t *testing.T) {
 	t.Run("close twice is safe", func(t *testing.T) {
 		store := NewStore()

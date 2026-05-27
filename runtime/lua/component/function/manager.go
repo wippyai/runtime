@@ -7,6 +7,7 @@ package function
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/event"
@@ -31,10 +32,18 @@ type configEntry struct {
 	pool     api.PoolConfig
 }
 
-// poolEntry wraps a pool with its config.
+// poolEntry is one callable generation. Relay host registration is non-replacing,
+// so every generation gets a unique host and retired generations stay alive until
+// active calls release them.
 type poolEntry struct {
-	pool   funcpool.Pool
-	method string
+	drained  chan struct{}
+	pool     funcpool.Pool
+	method   string
+	hostID   string
+	mu       sync.Mutex
+	active   int
+	stopOnce sync.Once
+	retired  bool
 }
 
 // Manager handles both source and bytecode Lua function compilation, pooling and execution.
@@ -52,6 +61,7 @@ type Manager struct {
 	pools      map[registry.ID]*poolEntry
 	code       *code.Manager
 	mu         sync.RWMutex
+	hostSeq    atomic.Uint64
 	started    bool
 }
 
@@ -85,8 +95,26 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.node = relay.GetNode(ctx)
 
 	m.mu.Lock()
+	if m.started {
+		m.mu.Unlock()
+		return nil
+	}
 	m.started = true
+	entries := make([]*poolEntry, 0, len(m.pools))
+	for _, entry := range m.pools {
+		entries = append(entries, entry)
+	}
 	m.mu.Unlock()
+
+	for _, entry := range entries {
+		entry.pool.Start()
+		if m.node != nil && entry.hostID != "" {
+			if err := m.node.RegisterHost(entry.hostID, entry.pool); err != nil {
+				entry.pool.Stop()
+				return err
+			}
+		}
+	}
 
 	m.log.Info("function manager started")
 	return nil
@@ -100,7 +128,7 @@ func (m *Manager) Stop() {
 	for id, entry := range m.pools {
 		entry.pool.Stop()
 		if m.node != nil {
-			m.node.UnregisterHost(id.String())
+			m.node.UnregisterHost(entry.hostID)
 		}
 		m.log.Debug("pool stopped", zap.String("id", id.String()))
 	}

@@ -386,6 +386,39 @@ func TestSquashChangesets_MultipleEntries(t *testing.T) {
 	assert.True(t, foundEntry3)
 }
 
+func TestSquashChangesets_DeleteOpsDependentsBeforeDependencies(t *testing.T) {
+	builder := NewStateBuilder(zap.NewNop(), nil)
+
+	repoID := registry.NewID("app", "repo")
+	handlerID := registry.NewID("app", "handler")
+
+	repo := registry.Entry{
+		ID:   repoID,
+		Kind: "library.lua",
+		Meta: map[string]any{},
+	}
+	handler := registry.Entry{
+		ID:   handlerID,
+		Kind: "function.lua",
+		Meta: map[string]any{
+			registry.TagDependsOn: []string{repoID.String()},
+		},
+	}
+
+	squashed := builder.SquashChangesets([]registry.ChangeSet{
+		{
+			{Kind: registry.EntryDelete, Entry: repo},
+			{Kind: registry.EntryDelete, Entry: handler},
+		},
+	})
+
+	require.Len(t, squashed, 2)
+	assert.Equal(t, registry.EntryDelete, squashed[0].Kind)
+	assert.Equal(t, handlerID, squashed[0].Entry.ID)
+	assert.Equal(t, registry.EntryDelete, squashed[1].Kind)
+	assert.Equal(t, repoID, squashed[1].Entry.ID)
+}
+
 func TestReverseChangeset(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop(), nil)
 

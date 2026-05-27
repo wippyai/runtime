@@ -360,11 +360,29 @@ func TestBuildOptionsString(t *testing.T) {
 		result := buildOptionsString(map[string]string{"sslmode": "disable"})
 		assert.Equal(t, "sslmode=disable", result)
 	})
+
+	t.Run("postgres options are stable and space separated", func(t *testing.T) {
+		result := buildPostgresOptionsString(map[string]string{
+			"sslmode":          "disable",
+			"connect_timeout":  "10",
+			"application_name": "test",
+		})
+		assert.Equal(t, "application_name=test connect_timeout=10 sslmode=disable", result)
+	})
+
+	t.Run("mysql options are stable query parameters", func(t *testing.T) {
+		result := buildMySQLOptionsString(map[string]string{
+			"charset":   "utf8mb4",
+			"parseTime": "true",
+			"timeout":   "2s",
+		})
+		assert.Equal(t, "charset=utf8mb4&parseTime=true&timeout=2s", result)
+	})
 }
 
 func TestGetDriver(t *testing.T) {
 	assert.Equal(t, "postgres", getDriver(apiconfig.Postgres))
-	assert.Equal(t, apiconfig.MySQL, getDriver(apiconfig.MySQL))
+	assert.Equal(t, "mysql", getDriver(apiconfig.MySQL))
 	assert.Equal(t, "unknown", getDriver("unknown"))
 }
 

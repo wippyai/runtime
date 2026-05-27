@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
@@ -100,8 +101,20 @@ type Process struct {
 	yieldBuf       []*Task
 	messageQueue   []queuedMessage
 	threads        []*Task
-	yieldSeq       uint64
-	trapLinks      bool
+	// stalledChans tracks channels that retained an undeliverable message in
+	// the current flush pass, keyed on the resolved *Channel. Once a channel
+	// stalls, every later mailbox message for it (including a terminal) is also
+	// retained so a terminal cannot overtake earlier retained data on the same
+	// channel. Lazily created on first stall, cleared at the start of each flush.
+	stalledChans map[*Channel]struct{}
+	yieldSeq     uint64
+	// epoch is the monotonic incarnation counter. Incremented on every
+	// Init / clearExecution / Close drain and on Abort. Producers stamp
+	// every SubscriptionFrame with the epoch they were registered under;
+	// deliverMessage compares atomically so frames from prior incarnations
+	// are dropped without locking.
+	epoch     atomic.Uint64
+	trapLinks bool
 }
 
 // queuedMessage stores a message waiting to be delivered
@@ -136,7 +149,10 @@ func (p *Process) Subscribe(topic string, bufSize int) (*Channel, error) {
 }
 
 // SubscribeExisting registers an externally-owned channel for a topic.
-// Used by modules that manage their own channel lifecycle (websocket, timer, etc.).
+// Used by modules that manage their own channel lifecycle (events, timer,
+// websocket, etc.). A full bounded buffer with no waiting receiver retains the
+// message in messageQueue and redelivers it in order on a later flush, so a
+// slow consumer receives every message losslessly.
 // Returns error if topic already has a different channel subscribed.
 func (p *Process) SubscribeExisting(topic string, ch *Channel) error {
 	if p.subs == nil {
@@ -144,6 +160,119 @@ func (p *Process) SubscribeExisting(topic string, ch *Channel) error {
 	}
 	_, err := p.subs.addExisting(topic, ch)
 	return err
+}
+
+// SubscribeRouted creates a subscription for a producer-driven topic and
+// returns the owned channel, its subscription id, and a pointer to the
+// subscription's atomic generation counter.
+//
+// External producers (clock timers/tickers) stamp every SubscriptionFrame
+// with the process epoch, the returned subID, and the generation read from
+// genRef at fire time. deliverMessage drops frames whose epoch/subID/gen no
+// longer match the live subscription, so stale arms from a reset or a
+// recycled process incarnation never reach the channel.
+//
+// Must be called on the step goroutine.
+func (p *Process) SubscribeRouted(topic string, bufSize int) (ch *Channel, subID uint64, genRef *atomic.Uint64, err error) {
+	if p.subs == nil {
+		return nil, 0, nil, runtimelua.ErrProcessContextNotAvailable
+	}
+	sub, err := p.subs.add(topic, bufSize)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	return sub.channel, sub.id, &sub.gen, nil
+}
+
+// SetSubscriptionCleanup attaches a producer cleanup closure to a channel's
+// subscription. The closure is called at most once by closeChannel/drain.
+func (p *Process) SetSubscriptionCleanup(ch *Channel, fn func()) bool {
+	if p.subs == nil || ch == nil {
+		return false
+	}
+	p.subs.mu.Lock()
+	defer p.subs.mu.Unlock()
+	topic, ok := p.subs.byChannel[ch]
+	if !ok {
+		return false
+	}
+	sub := p.subs.byTopic[topic]
+	if sub == nil {
+		return false
+	}
+	sub.cleanup = fn
+	return true
+}
+
+// BumpSubscriptionGen advances the generation for a channel subscription.
+func (p *Process) BumpSubscriptionGen(ch *Channel) (uint64, bool) {
+	if p.subs == nil || ch == nil {
+		return 0, false
+	}
+	p.subs.mu.RLock()
+	topic, ok := p.subs.byChannel[ch]
+	var sub *subscription
+	if ok {
+		sub = p.subs.byTopic[topic]
+	}
+	p.subs.mu.RUnlock()
+	if sub == nil {
+		return 0, false
+	}
+	return sub.gen.Add(1), true
+}
+
+// UnsubscribeChannel detaches a channel from the topic subscription
+// map, removes the matching topic handler, and closes the channel.
+// Mirrors the unlisten yield path but is callable directly from Go
+// modules whose Lua API exposes a :close() method (events, websocket,
+// etc.). Returns true if a subscription was found and removed.
+//
+// Must be called on the step goroutine.
+func (p *Process) UnsubscribeChannel(ch *Channel) bool {
+	return p.closeChannel(ch)
+}
+
+// closeChannel performs the idempotent subscription cleanup cascade for a
+// channel on the step goroutine.
+func (p *Process) closeChannel(ch *Channel) bool {
+	if ch == nil || p.subs == nil {
+		return false
+	}
+	topic, sub, err := p.subs.removeAndReturnSubscription(ch)
+	if err != nil {
+		return false
+	}
+	p.RemoveTopicHandler(topic)
+	if sub != nil {
+		sub.gen.Add(1)
+		sub.callCleanup()
+	}
+	if !ch.IsClosed() {
+		p.applyExternalChannelResult(ch.Close(nil))
+	}
+	return true
+}
+
+func (p *Process) drainSubscriptionChannels() {
+	// Bump the incarnation counter so any in-flight producer frame stamped
+	// with the prior epoch is dropped by deliverMessage on arrival. Guards
+	// recycled processes (process pooling) against stale signals.
+	p.epoch.Add(1)
+	if p.subs == nil {
+		return
+	}
+	for _, sub := range p.subs.snapshotAndClear() {
+		if sub == nil {
+			continue
+		}
+		p.RemoveTopicHandler(sub.topic)
+		sub.gen.Add(1)
+		sub.callCleanup()
+		if sub.channel != nil && !sub.channel.IsClosed() {
+			p.applyExternalChannelResult(sub.channel.Close(nil))
+		}
+	}
 }
 
 // SetTopicHandler registers a handler for a topic.
@@ -188,14 +317,106 @@ func (p *Process) ChannelQueue() *TaskQueue {
 	return p.channelQueue
 }
 
+// Epoch returns the process incarnation counter. Routed producers stamp
+// every SubscriptionFrame with the epoch captured at subscribe time;
+// deliverMessage drops frames whose epoch no longer matches, so signals
+// from a prior incarnation (process pooling, Abort) never reach a recycled
+// subscription.
+func (p *Process) Epoch() uint64 {
+	return p.epoch.Load()
+}
+
 // HasSubscriptions returns true if there are active subscriptions.
+//
+// Subscriptions anchored to external producers (timers, websocket, http
+// stream) keep the deadlock detector idle (rather than killing the process)
+// while it waits on a timer / websocket / etc.
 func (p *Process) HasSubscriptions() bool {
+	if p.subs != nil {
+		p.subs.mu.RLock()
+		hasSubs := len(p.subs.byTopic) > 0
+		p.subs.mu.RUnlock()
+		if hasSubs {
+			return true
+		}
+	}
+	return false
+}
+
+// LiveSubscriptionCount returns the number of topic subscriptions currently
+// registered on the process. A one-shot subscription (funcs/contract async
+// future, time.after) is reclaimed on terminal delivery, so a long-lived
+// actor that calls many functions sequentially keeps this near the count of
+// concurrently-pending calls rather than growing without bound.
+func (p *Process) LiveSubscriptionCount() int {
 	if p.subs == nil {
-		return false
+		return 0
 	}
 	p.subs.mu.RLock()
-	defer p.subs.mu.RUnlock()
-	return len(p.subs.byTopic) > 0
+	n := len(p.subs.byTopic)
+	p.subs.mu.RUnlock()
+	return n
+}
+
+// LiveChannelSubscriptionCount returns the size of the channel-to-topic index.
+// It is maintained in lockstep with byTopic; a value that diverges from
+// LiveSubscriptionCount after unsubscribe is a half-removed-subscription leak.
+func (p *Process) LiveChannelSubscriptionCount() int {
+	if p.subs == nil {
+		return 0
+	}
+	p.subs.mu.RLock()
+	n := len(p.subs.byChannel)
+	p.subs.mu.RUnlock()
+	return n
+}
+
+// TopicHandlerCount returns the number of registered topic handlers. Handlers
+// are installed by Go-side subscriptions (message-mode listen, events,
+// websocket, async futures) and must be removed on unsubscribe / drain; a value
+// that climbs across listen/unlisten cycles is an orphan-handler leak.
+//
+// The handlers map is owned by the step goroutine. Read it only when no step is
+// in flight (e.g. after the scheduler worker pool is stopped).
+func (p *Process) TopicHandlerCount() int {
+	return len(p.handlers)
+}
+
+var _ process.StatsProvider = (*Process)(nil)
+
+// Stats implements process.StatsProvider. The scheduler collects these after
+// each Step when stats are enabled, exposing per-process liveness counters for
+// inspection. Subscriptions count one-shot async futures still awaiting a
+// result; a value that climbs without bound for an actor in a call loop is the
+// subscription-leak signature.
+func (p *Process) Stats() attrs.Attributes {
+	bag := attrs.NewBag()
+	bag.Set("subscriptions", p.LiveSubscriptionCount())
+	bag.Set("threads", len(p.threads))
+	bag.Set("channels", len(p.channels))
+	return bag
+}
+
+// Abort cancels all external producers without touching Lua channel state.
+// Safe to call from a non-step goroutine — e.g. the scheduler when a
+// process context is cancelled. The actual channel/handler cleanup is
+// performed by drainSubscriptionChannels on the next Init / clearExecution /
+// Close, on the owning step goroutine.
+func (p *Process) Abort() {
+	// Invalidate every in-flight frame from this incarnation. Any
+	// SubscriptionFrame stamped with the pre-Abort epoch arriving after
+	// this point is dropped by deliverMessage's epoch check.
+	p.epoch.Add(1)
+	if p.subs == nil {
+		return
+	}
+	// Invoke producer-stop cleanups so external producers (timers, ws read
+	// loops, async futures) stop. cleanupOnce makes this idempotent with the
+	// owning thread's drainSubscriptionChannels, which still owns map and
+	// channel teardown.
+	for _, sub := range p.subs.snapshotSubscriptions() {
+		sub.callCleanup()
+	}
 }
 
 // NewProcess creates a new Lua process with options.
@@ -248,6 +469,12 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 	if p.state == nil {
 		return runtimelua.ErrStateNotInitialized
 	}
+
+	// Drain any subscription state left over from a previous execution
+	// (process pooling) before clearing other maps. drainSubscriptionChannels
+	// bumps the epoch so any in-flight producer frames from the prior
+	// incarnation are dropped on arrival.
+	p.drainSubscriptionChannels()
 
 	// Clear state from previous execution (for pooled processes)
 	p.threads = p.threads[:0]
@@ -480,8 +707,20 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		p.externalTasks = externalTasks
 
 		// Continue looping if subscriptions were handled (may have added tasks)
-		// or if queue has tasks to process
+		// or if queue has tasks to process.
+		//
+		// Final flush before break: processChannelYields may have parked
+		// receivers whose matching messages were left in messageQueue by an
+		// earlier flush. Without this retry those messages would sit until
+		// the next external event resumed the process — breaking
+		// rendezvous delivery on system topics like @pid/events.
 		if !hadSubscriptions && p.queue.IsEmpty() {
+			if p.subs != nil && len(p.messageQueue) > 0 {
+				p.flushMessageQueue(p.subs)
+				if !p.queue.IsEmpty() {
+					continue
+				}
+			}
 			break
 		}
 	}
@@ -676,6 +915,39 @@ func (p *Process) updateChannelRefs(channels map[*Channel]int, blocks, releases 
 	}
 }
 
+// applyExternalChannelResult applies a ChannelResult produced by an external
+// send or close (i.e. one issued from deliverMessage or the unsubscribe
+// handler, not from a Lua-side channel op).
+//
+// It updates channel block/release refcounts on p.channels, wakes blocked
+// tasks via p.queue, and releases the pooled result exactly once.
+//
+// Must be called on the step goroutine. Safe with a nil result.
+func (p *Process) applyExternalChannelResult(result *ChannelResult) {
+	if result == nil {
+		return
+	}
+	if p.channels != nil {
+		p.updateChannelRefs(p.channels, result.Block, result.Release)
+	}
+	for _, upd := range result.GetUpdates() {
+		if upd == nil || upd.State == nil {
+			continue
+		}
+		t, err := p.GetTask(upd.State)
+		if err != nil {
+			continue
+		}
+		if upd.Error != nil {
+			t.ResumeWith(lua.LNil, lua.WrapError(upd.Error, "external channel op"))
+		} else {
+			t.ResumeWith(upd.GetResult()...)
+		}
+		p.queue.Push(t)
+	}
+	ReleaseResult(result)
+}
+
 // processSubscribeYields handles subscribe/unsubscribe yields.
 // Returns tasks not handled, whether any subscriptions were processed, and error.
 // Message queue is managed by Step() before calling this.
@@ -734,11 +1006,9 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, bool, error) {
 
 		// Handle unsubscribe request
 		if req, ok := lastYield.(*UnsubscribeRequest); ok {
-			err := subs.remove(req.Channel)
-			if err != nil {
-				task.ResumeWith(lua.LFalse, lua.WrapError(err, "unsubscribe"))
+			if !p.closeChannel(req.Channel) {
+				task.ResumeWith(lua.LFalse, lua.WrapError(luaapi.ErrChannelNotFound, "unsubscribe"))
 			} else {
-				req.Channel.Close(nil)
 				task.ResumeWith(lua.LTrue)
 			}
 			p.queue.Push(task)
@@ -752,42 +1022,79 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, bool, error) {
 }
 
 // flushMessageQueue delivers queued messages to subscribed channels.
-// Messages that can't be delivered stay in the queue (preserve order).
+// Messages that can't be delivered stay in the queue, preserving order.
+//
+// Invariant: for any channel, a terminal must not overtake data retained on
+// that same channel. A message retained for a full bounded buffer records the
+// channel in stalledChans; a later channel-closing message (terminal) for it is
+// then held until the backlog drains. Pure data is not held, so an
+// undeliverable message does not block unrelated later sends to the channel.
 func (p *Process) flushMessageQueue(subs *subscribeContext) {
 	if len(p.messageQueue) == 0 {
 		return
 	}
 
-	// Process queue, keeping undelivered messages
+	// stalledChans tracks per-pass stalled channels. clear(nil) is a no-op;
+	// the map is created lazily on the first stall to avoid an allocation on
+	// the common no-stall flush.
+	clear(p.stalledChans)
+
+	// Process queue, retaining undelivered messages in order.
 	remaining := p.messageQueue[:0]
 	for _, qm := range p.messageQueue {
 		if p.deliverMessage(subs, qm) {
-			continue // delivered, don't keep
+			remaining = append(remaining, qm) // retain in queue
 		}
-		remaining = append(remaining, qm) // not delivered, keep in queue
 	}
 	p.messageQueue = remaining
 }
 
+// markStalled records that a channel retained a message in the current flush
+// pass, lazily creating the set.
+func (p *Process) markStalled(ch *Channel) {
+	if p.stalledChans == nil {
+		p.stalledChans = make(map[*Channel]struct{})
+	}
+	p.stalledChans[ch] = struct{}{}
+}
+
+func (p *Process) isStalled(ch *Channel) bool {
+	if p.stalledChans == nil {
+		return false
+	}
+	_, ok := p.stalledChans[ch]
+	return ok
+}
+
 // deliverMessage attempts to deliver a queued message to its subscription.
-// Returns true if delivered (or terminal handled), false if no subscription exists.
-// Returns error if process should terminate (e.g., LINK_DOWN with trap_links=false).
-func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool {
+// Returns keep=true to retain the message in the queue (no subscription yet, a
+// full bounded buffer with no waiting receiver, or a channel-closing message
+// held behind that channel's retained backlog); keep=false to drop it
+// (delivered, terminal handled, stale frame, or routed one-shot overflow).
+//
+// Invariant: for any channel, a terminal must not overtake data retained on
+// that same channel this pass. Only channel-closing messages are held by the
+// stall; pure data retries normally and a full buffer preserves its order.
+func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep bool) {
 	topic := qm.Topic
 	handlerTopic := topic
+	frame, hasFrame := subscriptionFrameFromPayloads(qm.Payloads)
 
 	// Check for LINK_DOWN events when trap_links is false
 	// Per spec: without trap_links, process should fail when linked process fails
 	if topic == topology.TopicEvents && !p.trapLinks {
 		if isLinkDownEvent(qm.Payloads) {
 			p.linkDownError = errors.New("linked process failed")
-			return true // consume the message
+			return false // consume the message
 		}
 	}
 
 	// Find subscription for topic (supports glob patterns like "update.*")
 	sub, exists := subs.match(topic)
 	if !exists {
+		if hasFrame {
+			return false
+		}
 		// Fallback to inbox for non-@ topics
 		if !strings.HasPrefix(topic, "@") {
 			sub, exists = subs.get(topology.TopicInbox)
@@ -796,23 +1103,42 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 			}
 		}
 		if !exists {
-			return false // no subscription, keep in queue
+			return true // no subscription, keep in queue
 		}
 	}
 
-	// Check for terminal payload - unsubscribe and close channel
-	if len(qm.Payloads) == 1 && payload.IsTerminal(qm.Payloads[0]) {
-		p.RemoveTopicHandler(topic)
-		_ = subs.remove(sub.channel)
-		sub.channel.Close(nil)
+	payloads := qm.Payloads
+	outerTerminal := false
+	if hasFrame {
+		// Stale frame (prior epoch/subID/gen): drop regardless of stall. A
+		// stale frame is not live data, so dropping it does not reorder data.
+		if frame == nil || frame.Epoch != p.epoch.Load() || frame.SubID != sub.id || frame.Gen != sub.gen.Load() {
+			return false
+		}
+		payloads = frame.Payloads
+		outerTerminal = len(qm.Payloads) > 1 && payload.IsTerminal(qm.Payloads[len(qm.Payloads)-1])
+	}
+
+	terminalOnly := (len(payloads) == 1 && payload.IsTerminal(payloads[0])) || (len(payloads) == 0 && outerTerminal)
+	hasTerminal := outerTerminal || (len(payloads) > 1 && payload.IsTerminal(payloads[len(payloads)-1]))
+
+	// A channel-closing message must not overtake data retained on the same
+	// channel earlier this pass: hold it until the backlog drains. Pure data is
+	// not gated — it retries normally and a full bounded buffer preserves order
+	// on its own, so undeliverable data does not block unrelated later messages
+	// (e.g. inbox-fallback rendezvous delivery).
+	if (terminalOnly || hasTerminal) && p.isStalled(sub.channel) {
 		return true
 	}
 
-	// Check for terminal at end of multi-payload message (result + terminal pattern)
-	hasTerminal := len(qm.Payloads) > 1 && payload.IsTerminal(qm.Payloads[len(qm.Payloads)-1])
-	payloads := qm.Payloads
-	if hasTerminal {
-		payloads = qm.Payloads[:len(qm.Payloads)-1]
+	// Terminal-only payload: unsubscribe and close the channel.
+	if terminalOnly {
+		p.closeChannel(sub.channel)
+		return false
+	}
+
+	if len(payloads) > 0 && payload.IsTerminal(payloads[len(payloads)-1]) {
+		payloads = payloads[:len(payloads)-1]
 	}
 
 	// Check for topic handler
@@ -822,42 +1148,51 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) bool 
 		if value == nil {
 			// Handler processed but doesn't want to send to channel
 			if hasTerminal {
-				p.RemoveTopicHandler(topic)
-				_ = subs.remove(sub.channel)
-				sub.channel.Close(nil)
+				p.closeChannel(sub.channel)
 			}
-			return true
+			return false
 		}
 	} else {
 		value = PayloadsToLua(p.ctx, p.state, payloads)
 	}
 
-	result := sub.channel.Send(nil, value, nil)
-	if result != nil {
-		// Wake any blocked receivers
-		if result.Yields {
-			for _, upd := range result.GetUpdates() {
-				if upd.State == nil {
-					continue
-				}
-				t, err := p.GetTask(upd.State)
-				if err == nil {
-					t.ResumeWith(upd.GetResult()...)
-					p.queue.Push(t)
-				}
-			}
+	// External delivery is non-blocking: no producer task exists to park.
+	// TrySend hands off to a waiting receiver or buffers if there is room.
+	// When neither succeeds, the message stays in messageQueue and is
+	// retried on the next step — preserving mailbox order and rendezvous
+	// semantics on zero-buffer topics (@pid/events, @pid/inbox) and lossless
+	// in-order delivery to a slow consumer on a full bounded buffer.
+	result, sent := sub.channel.TrySend(value)
+	if !sent {
+		if sub.channel.IsClosed() {
+			p.closeChannel(sub.channel)
+			p.applyExternalChannelResult(result)
+			return false
 		}
-		ReleaseResult(result)
+		if hasFrame {
+			// Routed producer frame on a full bounded buffer with no
+			// waiting receiver: drop the value rather than retaining the
+			// message in the queue. A terminal frame still reclaims the
+			// subscription so one-shot producers retire even when unread.
+			if hasTerminal {
+				p.closeChannel(sub.channel)
+			}
+			return false
+		}
+		// Full bounded buffer, no waiting receiver, not a routed frame: retain
+		// in the queue and mark the channel stalled so later messages for it
+		// (including a terminal) stay behind this backlog.
+		p.markStalled(sub.channel)
+		return true
 	}
+	p.applyExternalChannelResult(result)
 
 	// Close channel after sending if terminal was present
 	if hasTerminal {
-		p.RemoveTopicHandler(topic)
-		_ = subs.remove(sub.channel)
-		sub.channel.Close(nil)
+		p.closeChannel(sub.channel)
 	}
 
-	return true
+	return false
 }
 
 // isLinkDownEvent checks if the payload contains a LINK_DOWN event.
@@ -1094,6 +1429,10 @@ func (p *Process) yieldToCommand(task *Task) dispatcher.Command {
 // Note: Per-execution resources (Store, ProcessContext) are automatically
 // released when FrameContext is released - they implement ctxapi.Closer.
 func (p *Process) Close() {
+	// Stop external producers and close their channels before tearing the
+	// Lua state down. Cancels in-flight clock timers, ws read loops, etc.
+	p.drainSubscriptionChannels()
+
 	// Close all threads
 	for _, task := range p.threads {
 		task.Close()
@@ -1128,6 +1467,7 @@ func (p *Process) Close() {
 	p.subs = nil
 	p.handlers = nil
 	p.messageQueue = nil
+	p.stalledChans = nil
 	p.trapLinks = false
 	p.linkDownError = nil
 
@@ -1212,6 +1552,11 @@ func (p *Process) resumeTaskWithResult(task *Task, data any, err error) {
 // Note: Does NOT clear p.ctx - that is done by Reset() which is called
 // by the scheduler after removing the process from the active map.
 func (p *Process) clearExecution() {
+	// Stop external producers and close their channels before clearing
+	// channel refcount / subscription maps. Bumps the epoch so any
+	// in-flight producer frame is dropped on arrival.
+	p.drainSubscriptionChannels()
+
 	// Close all spawned threads but keep them referenced for GC
 	for _, task := range p.threads {
 		task.Close()
@@ -1227,12 +1572,11 @@ func (p *Process) clearExecution() {
 	p.result = nil
 	p.execErr = nil
 
-	// Clear channel/subscription state
+	// Clear channel state. Subscription maps were already emptied under the
+	// subs mutex by drainSubscriptionChannels above; clearing them here again
+	// would be an unlocked write to a mutex-guarded map that races a
+	// concurrent Stats() / HasSubscriptions reader.
 	clear(p.channels)
-	if p.subs != nil {
-		clear(p.subs.byTopic)
-		clear(p.subs.byChannel)
-	}
 	clear(p.handlers)
 	if p.channelQueue != nil {
 		p.channelQueue.Drain()

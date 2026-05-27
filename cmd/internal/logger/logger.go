@@ -49,10 +49,14 @@ var (
 
 type Config struct {
 	AppStartTime time.Time
-	Verbose      bool
-	VeryVerbose  bool
-	Console      bool
-	Silent       bool
+	// Encoding selects the zap encoder. "" | "console" (default, humanized)
+	// or "json" for machine-parseable structured logs. The --console CLI
+	// flag and encoding from .wippy.yaml logger.encoding both feed into this.
+	Encoding    string
+	Verbose     bool
+	VeryVerbose bool
+	Console     bool
+	Silent      bool
 }
 
 func consoleTimeEncoder(startTime time.Time) zapcore.TimeEncoder {
@@ -96,7 +100,11 @@ func CreateLogger(cfg Config) (*zap.Logger, error) {
 
 	var zapCfg zap.Config
 
-	if cfg.Console {
+	// Console flag takes precedence (legacy -c behavior); otherwise
+	// honor Encoding from config. Empty Encoding falls back to
+	// development console output for readability.
+	switch {
+	case cfg.Console:
 		zapCfg = zap.Config{
 			Level:       zap.NewAtomicLevelAt(zapcore.InfoLevel),
 			Development: true,
@@ -117,7 +125,18 @@ func CreateLogger(cfg Config) (*zap.Logger, error) {
 			OutputPaths:      []string{"stdout"},
 			ErrorOutputPaths: []string{"stderr"},
 		}
-	} else {
+	case cfg.Encoding == "json":
+		zapCfg = zap.NewProductionConfig()
+		zapCfg.EncoderConfig.TimeKey = "ts"
+		zapCfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+		zapCfg.EncoderConfig.EncodeLevel = zapcore.LowercaseLevelEncoder
+		zapCfg.EncoderConfig.EncodeCaller = nil
+		zapCfg.EncoderConfig.CallerKey = ""
+		zapCfg.DisableCaller = true
+		zapCfg.DisableStacktrace = true
+		zapCfg.OutputPaths = []string{"stdout"}
+		zapCfg.ErrorOutputPaths = []string{"stderr"}
+	default:
 		zapCfg = zap.NewDevelopmentConfig()
 		zapCfg.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(time.DateTime)
 		zapCfg.DisableCaller = true

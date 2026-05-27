@@ -1,0 +1,146 @@
+# SPDX-License-Identifier: MPL-2.0
+
+version: "1.0"
+namespace: app.test.sqs
+
+entries:
+  # OS environment storage for reading credentials
+  - name: os_env
+    kind: env.storage.os
+
+  # ElasticMQ / LocalStack accepts any access key id; default to "test".
+  - name: AWS_ACCESS_KEY_ID
+    kind: env.variable
+    variable: AWS_ACCESS_KEY_ID
+    storage: app.test.sqs:os_env
+    default: test
+
+  - name: AWS_SECRET_ACCESS_KEY
+    kind: env.variable
+    variable: AWS_SECRET_ACCESS_KEY
+    storage: app.test.sqs:os_env
+    default: test
+
+  # Shared AWS config resource for the SQS driver.
+  - name: aws_config
+    kind: config.aws
+    region: us-east-1
+    access_key_id_env: app.test.sqs:AWS_ACCESS_KEY_ID
+    secret_access_key_env: app.test.sqs:AWS_SECRET_ACCESS_KEY
+
+  # SQS driver pointed at the local ElasticMQ REST endpoint. Swap the
+  # endpoint for http://localhost:4566 to use LocalStack instead.
+  - name: sqs_driver
+    kind: queue.driver.sqs
+    meta:
+      comment: SQS driver backed by local ElasticMQ
+    config: app.test.sqs:aws_config
+    endpoint: http://localhost:9324
+    lifecycle:
+      auto_start: true
+
+  # Standard (non-FIFO) test queue.
+  - name: tasks
+    kind: queue.queue
+    meta:
+      comment: SQS tasks queue
+    driver: app.test.sqs:sqs_driver
+    codec: json/plain
+
+  # Shared message handler (records outcomes into the in-memory store
+  # so tests can assert on handler-side observations).
+  - name: handler
+    kind: function.lua
+    meta:
+      comment: Records processed SQS messages into the store
+    source: file://handler.lua
+    method: main
+    modules:
+      - queue
+      - store
+      - logger
+      - time
+
+  - name: tasks_consumer
+    kind: queue.consumer
+    meta:
+      comment: Consumes SQS tasks
+    queue: app.test.sqs:tasks
+    func: app.test.sqs:handler
+    concurrency: 2
+    prefetch: 5
+    lifecycle:
+      auto_start: true
+
+  # Tests.
+  - name: publish
+    kind: function.lua
+    meta:
+      type: test
+      suite: sqs
+      description: queue.publish succeeds against SQS
+    source: file://publish.lua
+    method: main
+    modules:
+      - queue
+    imports:
+      assert2: app.lib:assert
+
+  - name: roundtrip
+    kind: function.lua
+    meta:
+      type: test
+      suite: sqs
+      description: publish then consume via SQS end-to-end
+    source: file://roundtrip.lua
+    method: main
+    modules:
+      - queue
+      - store
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: headers
+    kind: function.lua
+    meta:
+      type: test
+      suite: sqs
+      description: neutral + sqs-prefixed headers round-trip through SQS
+    source: file://headers.lua
+    method: main
+    modules:
+      - queue
+      - store
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: settle
+    kind: function.lua
+    meta:
+      type: test
+      suite: sqs
+      description: ack/nack single-shot on SQS delivery
+    source: file://settle.lua
+    method: main
+    modules:
+      - queue
+      - store
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: info
+    kind: function.lua
+    meta:
+      type: test
+      suite: sqs
+      description: queue.info returns driver stats for SQS
+    source: file://info.lua
+    method: main
+    modules:
+      - queue
+      - time
+    imports:
+      assert2: app.lib:assert

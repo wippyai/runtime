@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -28,6 +29,11 @@ const (
 
 type (
 	actKind int
+
+	startRoot struct {
+		id       string
+		required bool
+	}
 
 	action struct {
 		entry     *supervisor.Entry
@@ -182,13 +188,23 @@ func (s *Supervisor) Stop() error {
 	}
 
 	controllers := s.snapshotControllers()
+	s.cancelActiveStarts(controllers)
+	s.stopFailedStartRetries(controllers)
+
 	operations := make([]operation, 0)
 	for id, ctrl := range controllers {
+		deps, err := s.resolveDependencies(controllers, id)
+		if err != nil {
+			s.logger.Warn("failed to resolve service dependencies during shutdown; using lifecycle dependencies",
+				zap.String("serviceID", id),
+				zap.Error(err))
+			deps = ctrl.config.RequiredServices()
+		}
 		operations = append(operations, operation{
 			kind:         opStop,
 			id:           id,
 			controller:   ctrl,
-			dependencies: ctrl.config.DependsOn,
+			dependencies: deps,
 		})
 	}
 
@@ -202,6 +218,33 @@ func (s *Supervisor) Stop() error {
 
 	s.logger.Info("supervisor stopped")
 	return nil
+}
+
+func (s *Supervisor) cancelActiveStarts(controllers map[string]*Controller) {
+	for _, ctrl := range controllers {
+		ctrl.cancelStart()
+	}
+}
+
+func (s *Supervisor) stopFailedStartRetries(controllers map[string]*Controller) {
+	var wg sync.WaitGroup
+	for id, ctrl := range controllers {
+		state := ctrl.State()
+		if state.Desired != supervisor.StatusRunning || state.Status != supervisor.StatusFailed {
+			continue
+		}
+
+		wg.Add(1)
+		go func(id string, ctrl *Controller) {
+			defer wg.Done()
+			if err := ctrl.Stop(); err != nil {
+				s.logger.Warn("failed to stop retrying service before shutdown",
+					zap.String("serviceID", id),
+					zap.Error(err))
+			}
+		}(id, ctrl)
+	}
+	wg.Wait()
 }
 
 func (s *Supervisor) handleEvent(e event.Event) {
@@ -303,7 +346,11 @@ func (s *Supervisor) run(ctx context.Context) {
 			l := s.logger.With(zap.String("serviceID", action.serviceID))
 			if _, exists := controllers[action.serviceID]; exists {
 				l.Info("service start requested")
-				ops := s.buildStartOperations(controllers, action.serviceID)
+				ops, err := s.buildStartOperations(controllers, action.serviceID)
+				if err != nil {
+					s.logger.Error("failed to build start operations", zap.Error(err))
+					continue
+				}
 				if err := s.executeOperations(ctx, ops); err != nil {
 					s.logger.Error("failed to execute start operations", zap.Error(err))
 				}
@@ -319,7 +366,11 @@ func (s *Supervisor) run(ctx context.Context) {
 			l := s.logger.With(zap.String("serviceID", action.serviceID))
 			if _, exists := controllers[action.serviceID]; exists {
 				l.Info("service stop requested")
-				ops := s.buildStopOperations(controllers, action.serviceID)
+				ops, err := s.buildStopOperations(controllers, action.serviceID)
+				if err != nil {
+					s.logger.Error("failed to build stop operations", zap.Error(err))
+					continue
+				}
 				if err := s.executeOperations(ctx, ops); err != nil {
 					s.logger.Error("failed to execute stop operations", zap.Error(err))
 				}
@@ -381,46 +432,140 @@ func (s *Supervisor) resolveDependencies(
 	controllers map[string]*Controller,
 	serviceID string,
 ) ([]string, error) {
-	ctrl, exists := controllers[serviceID]
-	if !exists {
-		return nil, NewServiceNotFoundError(serviceID)
+	lifecycleDeps, registryDeps, err := s.resolveDependencySets(controllers, serviceID)
+	if err != nil {
+		return nil, err
 	}
 
-	// Start with lifecycle dependencies
-	deps := make(map[string]struct{})
-	for _, dep := range ctrl.config.DependsOn {
-		deps[dep] = struct{}{}
+	lifecycleServices, _, err := s.resolveServiceDependencyRefs(controllers, serviceID, lifecycleDeps, false)
+	if err != nil {
+		return nil, err
+	}
+	registryServices, _, err := s.resolveServiceDependencyRefs(controllers, serviceID, registryDeps, false)
+	if err != nil {
+		return nil, err
 	}
 
-	// Add registry-extracted dependencies if resolver is configured
-	if s.dependencyResolver != nil {
-		id := registry.ParseID(serviceID)
-		registryDeps, err := s.dependencyResolver(id)
-		if err != nil {
-			return nil, NewDependencyResolveError(serviceID, err)
-		}
-
-		for _, dep := range registryDeps {
-			deps[dep.String()] = struct{}{}
-		}
+	result := make([]string, 0, len(lifecycleServices)+len(registryServices))
+	for _, dep := range lifecycleServices {
+		result = appendUniqueString(result, dep)
 	}
-
-	// Convert to slice
-	result := make([]string, 0, len(deps))
-	for dep := range deps {
-		result = append(result, dep)
+	for _, dep := range registryServices {
+		result = appendUniqueString(result, dep)
 	}
 
 	return result, nil
 }
 
+func (s *Supervisor) resolveDependencySets(
+	controllers map[string]*Controller,
+	serviceID string,
+) ([]string, []string, error) {
+	ctrl, exists := controllers[serviceID]
+	if !exists {
+		return nil, nil, NewServiceNotFoundError(serviceID)
+	}
+
+	lifecycleDeps := ctrl.config.RequiredServices()
+	registryDeps := make([]string, 0)
+
+	if s.dependencyResolver != nil {
+		id := registry.ParseID(serviceID)
+		deps, err := s.dependencyResolver(id)
+		if err != nil {
+			return nil, nil, NewDependencyResolveError(serviceID, err)
+		}
+
+		for _, dep := range deps {
+			registryDeps = append(registryDeps, dependencyIDString(dep))
+		}
+	}
+
+	return lifecycleDeps, registryDeps, nil
+}
+
+func (s *Supervisor) resolveServiceDependencyRefs(
+	controllers map[string]*Controller,
+	sourceServiceID string,
+	refs []string,
+	blockUnresolved bool,
+) ([]string, []string, error) {
+	sourceID := registry.ParseID(sourceServiceID)
+	services := make([]string, 0, len(refs))
+	blockers := make([]string, 0)
+	visiting := make(map[string]struct{})
+	resolved := make(map[string]bool)
+
+	var visit func(ref string) (bool, error)
+	visit = func(ref string) (bool, error) {
+		depID := normalizeDependencyRef(sourceID, ref)
+		if depID == "" {
+			return false, nil
+		}
+
+		if _, exists := controllers[depID]; exists {
+			services = appendUniqueString(services, depID)
+			return true, nil
+		}
+
+		if found, ok := resolved[depID]; ok {
+			return found, nil
+		}
+		if _, ok := visiting[depID]; ok {
+			return false, nil
+		}
+
+		visiting[depID] = struct{}{}
+		foundService := false
+		if s.dependencyResolver != nil {
+			deps, err := s.dependencyResolver(registry.ParseID(depID))
+			if err != nil {
+				return false, err
+			}
+			for _, dep := range deps {
+				found, err := visit(dependencyIDString(dep))
+				if err != nil {
+					return false, err
+				}
+				foundService = foundService || found
+			}
+		}
+		delete(visiting, depID)
+		resolved[depID] = foundService
+		return foundService, nil
+	}
+
+	for _, ref := range refs {
+		depID := normalizeDependencyRef(sourceID, ref)
+		found, err := visit(depID)
+		if err != nil {
+			return nil, nil, NewDependencyResolveError(sourceServiceID, err)
+		}
+		if blockUnresolved && !found {
+			blockers = appendUniqueString(blockers, depID)
+		}
+	}
+
+	return services, blockers, nil
+}
+
 // execute processes the transaction by creating new services,
-// stopping removed services, and starting auto-start services
+// stopping removed services, and starting auto-start services.
+//
+// All iterations of tx.register, tx.remove, and s.controllers traverse a
+// pre-sorted slice of IDs. The supervisor feeds the sequencer in this order,
+// so a single hash-seed seam used to leak into the boot ordering and surface
+// as intermittent "filesystem not found"/"driver not found" rejections on
+// services whose listener depends on resources that should have started first.
 func (s *Supervisor) execute(ctx context.Context, tx *regTx) error {
+	registerIDs := sortedRegisterIDs(tx.register)
+	removeIDs := sortedRemoveIDs(tx.remove)
+
 	// Mutate controller registry under lock, then run potentially long transitions
 	// lock-free so state readers are never blocked behind start/stop timeouts.
 	s.mu.Lock()
-	for id, entry := range tx.register {
+	for _, id := range registerIDs {
+		entry := tx.register[id]
 		if _, exists := s.controllers[id]; !exists {
 			s.controllers[id] = NewController(s.ctx, entry.Service, entry.Config, s.createStateHandler(id))
 		}
@@ -431,7 +576,7 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) error {
 	var operations []operation
 
 	// Queue stop operations for services being removed
-	for id := range tx.remove {
+	for _, id := range removeIDs {
 		if ctrl, exists := controllers[id]; exists {
 			deps, err := s.resolveDependencies(controllers, id)
 			if err != nil {
@@ -446,61 +591,21 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) error {
 		}
 	}
 
-	// Build start operations for new auto-start services and their dependencies
-	visited := make(map[string]bool)
-	var buildStartOps func(id string) error
-	buildStartOps = func(id string) error {
-		if visited[id] {
-			return nil
-		}
-		visited[id] = true
-
-		ctrl, exists := controllers[id]
-		if !exists {
-			return NewServiceNotFoundError(id)
-		}
-
-		// Resolve all dependencies (lifecycle + registry-extracted)
-		deps, err := s.resolveDependencies(controllers, id)
-		if err != nil {
-			return err
-		}
-
-		// Visit dependencies first and filter out non-existent ones
-		validDeps := make([]string, 0, len(deps))
-		for _, depID := range deps {
-			// Skip dependencies that don't exist as controllers
-			// (registry-extracted deps might include non-service references)
-			if _, exists := controllers[depID]; !exists {
-				s.logger.Debug("skipping non-existent dependency",
-					zap.String("service_id", id),
-					zap.String("dependency", depID))
-				continue
-			}
-			validDeps = append(validDeps, depID)
-			if err := buildStartOps(depID); err != nil {
-				return err
-			}
-		}
-
-		operations = append(operations, operation{
-			kind:         opStart,
-			id:           id,
-			controller:   ctrl,
-			dependencies: validDeps,
-		})
-
-		return nil
-	}
-
-	// Find autostart services and build their start chains
-	for id, entry := range tx.register {
+	roots := make([]startRoot, 0, len(registerIDs))
+	for _, id := range registerIDs {
+		entry := tx.register[id]
 		if entry.Config.AutoStart {
-			if err := buildStartOps(id); err != nil {
-				return NewStartOperationsError(err)
-			}
+			roots = append(roots, startRoot{
+				id:       id,
+				required: entry.Config.StartupRequired(),
+			})
 		}
 	}
+	startOps, err := s.buildStartOperationsForRoots(controllers, roots)
+	if err != nil {
+		return NewStartOperationsError(err)
+	}
+	operations = append(operations, startOps...)
 
 	// Execute transitions in dependency order
 	if err := s.runTransition(ctx, operations); err != nil {
@@ -509,7 +614,7 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) error {
 
 	// Done stopped services
 	s.mu.Lock()
-	for id := range tx.remove {
+	for _, id := range removeIDs {
 		delete(s.controllers, id)
 	}
 	s.mu.Unlock()
@@ -520,53 +625,138 @@ func (s *Supervisor) execute(ctx context.Context, tx *regTx) error {
 func (s *Supervisor) buildStartOperations(
 	controllers map[string]*Controller,
 	serviceID string,
-) []operation {
-	visited := make(map[string]bool)
-	var operations []operation
+) ([]operation, error) {
+	return s.buildStartOperationsForRoots(controllers, []startRoot{{
+		id:       serviceID,
+		required: true,
+	}})
+}
 
-	var visit func(id string)
-	visit = func(id string) {
-		if visited[id] {
-			return
+func (s *Supervisor) buildStartOperationsForRoots(
+	controllers map[string]*Controller,
+	roots []startRoot,
+) ([]operation, error) {
+	nodes := make(map[string]*operation)
+	order := make([]string, 0, len(roots))
+	processedRequired := make(map[string]bool)
+
+	ensureNode := func(id string, ctrl *Controller, required bool) *operation {
+		if op, exists := nodes[id]; exists {
+			if required {
+				op.optional = false
+			}
+			return op
 		}
-		visited[id] = true
+
+		op := &operation{
+			kind:       opStart,
+			id:         id,
+			controller: ctrl,
+			optional:   !required,
+		}
+		nodes[id] = op
+		order = append(order, id)
+		return op
+	}
+
+	var visitWithPolicy func(id string, required bool) error
+	visitWithPolicy = func(id string, required bool) error {
+		if seenRequired, seen := processedRequired[id]; seen && (seenRequired || !required) {
+			return nil
+		}
 
 		ctrl, exists := controllers[id]
 		if !exists {
-			return
+			return NewServiceNotFoundError(id)
 		}
 
-		// Visit dependencies first
-		for _, depID := range ctrl.config.DependsOn {
-			visit(depID)
+		if ctrl.State().Status == supervisor.StatusRunning {
+			processedRequired[id] = processedRequired[id] || required
+			return nil
 		}
 
-		// Add operation after dependencies
-		operations = append(operations, operation{
-			kind:         opStart,
-			id:           id,
-			controller:   ctrl,
-			dependencies: ctrl.config.DependsOn,
-		})
+		op := ensureNode(id, ctrl, required)
+		processedRequired[id] = processedRequired[id] || required
+
+		lifecycleDeps, registryDeps, err := s.resolveDependencySets(controllers, id)
+		if err != nil {
+			return err
+		}
+
+		lifecycleServices, lifecycleBlockers, err := s.resolveServiceDependencyRefs(controllers, id, lifecycleDeps, true)
+		if err != nil {
+			return err
+		}
+		registryServices, _, err := s.resolveServiceDependencyRefs(controllers, id, registryDeps, false)
+		if err != nil {
+			return err
+		}
+		op.blockers = append(op.blockers, lifecycleBlockers...)
+
+		serviceDeps := make([]string, 0, len(lifecycleServices)+len(registryServices))
+		for _, depID := range lifecycleServices {
+			serviceDeps = appendUniqueString(serviceDeps, depID)
+		}
+		for _, depID := range registryServices {
+			serviceDeps = appendUniqueString(serviceDeps, depID)
+		}
+
+		for _, depID := range serviceDeps {
+			depCtrl, exists := controllers[depID]
+			if !exists {
+				op.blockers = appendUniqueString(op.blockers, depID)
+				continue
+			}
+			if depCtrl.State().Status == supervisor.StatusRunning {
+				continue
+			}
+			op.dependencies = appendUniqueString(op.dependencies, depID)
+			if err := visitWithPolicy(depID, required); err != nil {
+				return err
+			}
+		}
+
+		return nil
 	}
 
-	visit(serviceID)
-	return operations
+	for _, root := range roots {
+		if err := visitWithPolicy(root.id, root.required); err != nil {
+			return nil, err
+		}
+	}
+
+	operations := make([]operation, 0, len(order))
+	for _, id := range order {
+		operations = append(operations, *nodes[id])
+	}
+	return operations, nil
 }
 
 func (s *Supervisor) buildStopOperations(
 	controllers map[string]*Controller,
 	serviceID string,
-) []operation {
+) ([]operation, error) {
 	visited := make(map[string]bool)
 	var operations []operation
 
-	// First, build a reverse dependency map
+	controllerIDs := sortedControllerIDs(controllers)
 	dependedOnBy := make(map[string][]string)
-	for id, ctrl := range controllers {
-		for _, depID := range ctrl.config.DependsOn {
+	resolvedDeps := make(map[string][]string, len(controllers))
+	for _, id := range controllerIDs {
+		deps, err := s.resolveDependencies(controllers, id)
+		if err != nil {
+			return nil, err
+		}
+
+		validDeps := make([]string, 0, len(deps))
+		for _, depID := range deps {
+			if _, exists := controllers[depID]; !exists {
+				continue
+			}
+			validDeps = append(validDeps, depID)
 			dependedOnBy[depID] = append(dependedOnBy[depID], id)
 		}
+		resolvedDeps[id] = validDeps
 	}
 
 	var visit func(id string)
@@ -587,11 +777,70 @@ func (s *Supervisor) buildStopOperations(
 				kind:         opStop,
 				id:           id,
 				controller:   ctrl,
-				dependencies: ctrl.config.DependsOn,
+				dependencies: resolvedDeps[id],
 			})
 		}
 	}
 
 	visit(serviceID)
-	return operations
+	return operations, nil
+}
+
+func appendUniqueString(values []string, next string) []string {
+	for _, value := range values {
+		if value == next {
+			return values
+		}
+	}
+	return append(values, next)
+}
+
+// sortedRegisterIDs returns the keys of m sorted lexicographically. Used so
+// the supervisor processes registrations in a stable order independent of the
+// Go map iteration hash seed.
+func sortedRegisterIDs(m map[string]*supervisor.Entry) []string {
+	ids := make([]string, 0, len(m))
+	for id := range m {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// sortedRemoveIDs returns the keys of m sorted lexicographically.
+func sortedRemoveIDs(m map[string]struct{}) []string {
+	ids := make([]string, 0, len(m))
+	for id := range m {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// sortedControllerIDs returns the keys of m sorted lexicographically.
+func sortedControllerIDs(m map[string]*Controller) []string {
+	ids := make([]string, 0, len(m))
+	for id := range m {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func normalizeDependencyRef(sourceID registry.ID, ref string) string {
+	if ref == "" {
+		return ""
+	}
+	depID := registry.ParseID(ref)
+	if depID.NS == "" && sourceID.NS != "" {
+		depID = depID.WithDefaultNS(sourceID.NS)
+	}
+	return dependencyIDString(depID)
+}
+
+func dependencyIDString(id registry.ID) string {
+	if id.NS == "" {
+		return id.Name
+	}
+	return id.String()
 }

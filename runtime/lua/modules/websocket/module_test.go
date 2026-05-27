@@ -291,7 +291,7 @@ func TestWsSubscribeYield(t *testing.T) {
 }
 
 func TestWsCloseYield(t *testing.T) {
-	yield := AcquireWsCloseYield(789, 1000, "normal close")
+	yield := AcquireWsCloseYield(789, 1000, "normal close", nil)
 
 	if yield.CmdID() != wsapi.Close {
 		t.Errorf("expected wsapi.Close, got %d", yield.CmdID())
@@ -414,7 +414,7 @@ func TestYieldPooling(_ *testing.T) {
 			y3 := AcquireWsSubscribeYield(1, nil, pid.PID{}, "ws@1", nil)
 			ReleaseWsSubscribeYield(y3)
 
-			y4 := AcquireWsCloseYield(1, 1000, "")
+			y4 := AcquireWsCloseYield(1, 1000, "", nil)
 			ReleaseWsCloseYield(y4)
 
 			y5 := AcquireWsPingYield(1, nil)

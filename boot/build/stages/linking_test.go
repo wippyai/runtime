@@ -476,6 +476,138 @@ func TestLink_FullIDParameterName(t *testing.T) {
 	assert.Equal(t, "app:router", endpoint.Meta["router"])
 }
 
+func TestLink_ComponentNamespaceFullIDParameterName(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "__dependency.telegram"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "butschster/telegram",
+				"parameters": []any{
+					map[string]any{
+						"name":  "butschster.telegram:env_storage",
+						"value": "app.env:file",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("telegram", "env_storage"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{
+				"module": "butschster/telegram",
+			},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{
+						"entry": "telegram:webhook_url",
+						"path":  ".storage",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("telegram", "webhook_url"),
+			Kind: "env.variable",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link()
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	webhookURL := findEntry(entries, "telegram", "webhook_url")
+	require.NotNil(t, webhookURL)
+	data := webhookURL.Data.Data().(map[string]any)
+	assert.Equal(t, "app.env:file", data["storage"])
+}
+
+func TestLink_FullyQualifiedParameterDoesNotCrossRequirementNamespace(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "__dependency.facade"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "wippy/facade",
+				"parameters": []any{
+					map[string]any{
+						"name":  "wippy.facade:router",
+						"value": "app:api.public",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("app", "__dependency.dummy"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "wippy/dummy",
+				"parameters": []any{
+					map[string]any{
+						"name":  "wippy.dummy:router",
+						"value": "app:api",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("wippy.facade", "router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "wippy/facade"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{
+						"entry": "facade_endpoint",
+						"path":  ".meta.router",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("wippy.dummy", "router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "wippy/dummy"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{
+						"entry": "dummy_endpoint",
+						"path":  ".meta.router",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("wippy.facade", "facade_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+		{
+			ID:   registry.NewID("wippy.dummy", "dummy_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link()
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	facadeEndpoint := findEntry(entries, "wippy.facade", "facade_endpoint")
+	require.NotNil(t, facadeEndpoint)
+	assert.Equal(t, "app:api.public", facadeEndpoint.Meta["router"])
+
+	dummyEndpoint := findEntry(entries, "wippy.dummy", "dummy_endpoint")
+	require.NotNil(t, dummyEndpoint)
+	assert.Equal(t, "app:api", dummyEndpoint.Meta["router"])
+}
+
 func TestLink_NoValueError(t *testing.T) {
 	ctx, _ := setupTestContext()
 
@@ -502,6 +634,151 @@ func TestLink_NoValueError(t *testing.T) {
 	stage := Link()
 	err := stage.Execute(ctx, &entries)
 	// Linking stage now logs warnings instead of returning errors
+	require.NoError(t, err)
+}
+
+func TestLink_StrictRequirementsFailsOnMissingValue(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("test", "missing_param"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{
+						"entry": "service",
+						"path":  ".field",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("test", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirements())
+	err := stage.Execute(ctx, &entries)
+	require.ErrorContains(t, err, "unresolved requirements")
+}
+
+func TestLink_StrictRequirementsFailsOnMissingTarget(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "__dependency.telegram"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "butschster/telegram",
+				"parameters": []any{
+					map[string]any{
+						"name":  "telegram:webhook_router",
+						"value": "app:api",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("telegram", "webhook_router"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{
+						"entry": "telegram.handler:webhook_endpoint",
+						"path":  ".meta.router",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("telegram.handler", "webhook.endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{
+				"router": "telegram:router",
+			},
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirements())
+	err := stage.Execute(ctx, &entries)
+	require.ErrorContains(t, err, "unresolved requirements")
+	require.ErrorContains(t, err, "telegram.handler:webhook_endpoint")
+}
+
+func TestLink_StrictRequirementModulesIgnoresUnrelatedRequirements(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "unconfigured_req"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{
+						"entry": "service",
+						"path":  ".ignored",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("acme.module", "router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{
+				"module": "acme/module",
+			},
+			Data: payload.New(map[string]any{
+				"default": "app:api",
+				"targets": []any{
+					map[string]any{
+						"entry": "endpoint",
+						"path":  ".meta.router",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("acme.module", "endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"acme/module"}))
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	endpoint := findEntry(entries, "acme.module", "endpoint")
+	require.NotNil(t, endpoint)
+	assert.Equal(t, "app:api", endpoint.Meta["router"])
+}
+
+func TestLink_StrictRequirementModulesEmptyScopeDoesNotFailAppRequirements(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "unconfigured_req"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{
+						"entry": "missing",
+						"path":  ".value",
+					},
+				},
+			}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules(nil))
+	err := stage.Execute(ctx, &entries)
 	require.NoError(t, err)
 }
 

@@ -17,11 +17,14 @@ import (
 const subscriptionTypeName = "events.Subscription"
 
 type Subscription struct {
-	channelUD   *lua.LUserData
-	channel     *engine.Channel
-	unsubscribe func()
-	closed      bool
-	mu          sync.Mutex
+	channelUD     *lua.LUserData
+	channel       *engine.Channel
+	unsubscribe   func()
+	cancelCleanup func() // cancel handle from resource.Store.AddCleanup; must run on close.
+	proc          *engine.Process
+	topic         string
+	mu            sync.Mutex
+	closed        bool
 }
 
 func init() {
@@ -75,8 +78,18 @@ func subscriptionClose(l *lua.LState) int {
 		sub.unsubscribe()
 		sub.unsubscribe = nil
 	}
-	if sub.channel != nil {
-		sub.channel.Close(nil)
+	// Release the frame-store cleanup slot so a long-running process
+	// that opens many subscriptions doesn't accumulate dead cleanup
+	// closures.
+	if sub.cancelCleanup != nil {
+		sub.cancelCleanup()
+		sub.cancelCleanup = nil
+	}
+	// Detach the channel from the process subscription map and close it.
+	// engine.deliverMessage uses subs.byChannel / subs.byTopic; without
+	// this both maps grow with every events.subscribe call.
+	if sub.proc != nil && sub.channel != nil {
+		sub.proc.UnsubscribeChannel(sub.channel)
 	}
 
 	l.Push(lua.LTrue)
@@ -155,17 +168,22 @@ func (y *EventSubscribeYield) HandleResult(l *lua.LState, data any, err error) [
 	sub := &Subscription{
 		channelUD: channelUD,
 		channel:   y.Channel,
+		topic:     y.Topic,
+		proc:      proc,
 	}
 
 	// Store unsubscribe function from dispatcher
 	if eventSub, ok := data.(event.Subscription); ok && eventSub.Unsubscribe != nil {
 		sub.unsubscribe = eventSub.Unsubscribe
 
-		// Register cleanup to unsubscribe from dispatcher when frame is released
+		// Register cleanup to unsubscribe from dispatcher when frame is
+		// released, and save the cancel handle so sub:close() can release
+		// the slot — otherwise long-running processes that repeatedly
+		// subscribe accumulate dead closures in the frame store.
 		ctx := l.Context()
 		if ctx != nil {
 			if store := resource.GetStore(ctx); store != nil {
-				store.AddCleanup(func() error {
+				sub.cancelCleanup = store.AddCleanup(func() error {
 					sub.mu.Lock()
 					defer sub.mu.Unlock()
 					if !sub.closed && sub.unsubscribe != nil {

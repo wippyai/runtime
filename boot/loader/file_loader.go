@@ -33,7 +33,9 @@ type FileLoader struct {
 
 // NewFileLoader creates a new FileLoader.
 func NewFileLoader(log *zap.Logger) *FileLoader {
-	skipDirs := make(map[string]bool)
+	skipDirs := map[string]bool{
+		"node_modules": true,
+	}
 
 	// Skip temporal test directories when SKIP_TEMPORAL_TESTS is set.
 	// Keep both names for compatibility across fixtures.
@@ -50,6 +52,24 @@ func NewFileLoader(log *zap.Logger) *FileLoader {
 		skipDirs["cloudstorage"] = true
 		if log != nil {
 			log.Info("SKIP_CLOUDSTORAGE_TESTS is set, skipping cloudstorage directories")
+		}
+	}
+
+	// Skip SQS directory when SKIP_SQS_TESTS is set. These require a running
+	// ElasticMQ (or LocalStack) container reachable at the configured endpoint.
+	if os.Getenv("SKIP_SQS_TESTS") != "" {
+		skipDirs["sqs"] = true
+		if log != nil {
+			log.Info("SKIP_SQS_TESTS is set, skipping sqs directories")
+		}
+	}
+
+	// Skip network overlay tests when SKIP_NETWORK_TESTS is set. These
+	// require a running docker-compose stack (socks5-proxy container).
+	if os.Getenv("SKIP_NETWORK_TESTS") != "" {
+		skipDirs["network"] = true
+		if log != nil {
+			log.Info("SKIP_NETWORK_TESTS is set, skipping network directories")
 		}
 	}
 

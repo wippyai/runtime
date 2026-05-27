@@ -5,6 +5,7 @@ package function
 import (
 	"context"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/wippyai/runtime/api/event"
@@ -25,6 +26,35 @@ import (
 )
 
 func (m *Manager) createPool(id registry.ID, cfg *configEntry, module *wasmrt.Module) error {
+	pool, err := m.buildPool(cfg, module)
+	if err != nil {
+		return err
+	}
+
+	hostID := m.nextPoolHostID(id)
+
+	m.mu.RLock()
+	started := m.started
+	m.mu.RUnlock()
+	if started {
+		pool.Start()
+	}
+
+	if started && m.node != nil {
+		if err := m.node.RegisterHost(hostID, pool); err != nil {
+			pool.Stop()
+			return runtimewasm.NewRegisterHostError(hostID, err)
+		}
+	}
+
+	m.mu.Lock()
+	m.pools[id] = newPoolEntry(pool, cfg.method, hostID)
+	m.mu.Unlock()
+
+	return nil
+}
+
+func (m *Manager) buildPool(cfg *configEntry, module *wasmrt.Module) (funcpool.Pool, error) {
 	factory := m.processFactory(cfg, module)
 	factoryFn := factory.Create()
 
@@ -40,33 +70,44 @@ func (m *Manager) createPool(id registry.ID, cfg *configEntry, module *wasmrt.Mo
 		pool, err = m.autoSelectPool(factoryFn, cfg.pool, execHooks)
 	}
 	if err != nil {
-		return runtimewasm.NewCreatePoolError(err)
+		return nil, runtimewasm.NewCreatePoolError(err)
 	}
 
-	m.mu.Lock()
-	m.pools[id] = &poolEntry{
-		pool:   pool,
-		method: cfg.method,
+	return pool, nil
+}
+
+func (m *Manager) replacePool(id registry.ID, cfg *configEntry, module *wasmrt.Module) error {
+	pool, err := m.buildPool(cfg, module)
+	if err != nil {
+		return err
 	}
+
+	hostID := m.nextPoolHostID(id)
+
+	m.mu.RLock()
 	started := m.started
-	m.mu.Unlock()
-
-	if m.node != nil {
-		if err := m.node.RegisterHost(id.String(), pool); err != nil {
-			m.log.Warn("failed to register wasm pool as host", zap.String("id", id.String()), zap.Error(err))
-		}
-	}
-
+	m.mu.RUnlock()
 	if started {
 		pool.Start()
 	}
 
-	return nil
-}
+	if started && m.node != nil {
+		if err := m.node.RegisterHost(hostID, pool); err != nil {
+			pool.Stop()
+			return runtimewasm.NewRegisterHostError(hostID, err)
+		}
+	}
 
-func (m *Manager) replacePool(id registry.ID, cfg *configEntry, module *wasmrt.Module) error {
-	m.removePool(id)
-	return m.createPool(id, cfg, module)
+	newEntry := newPoolEntry(pool, cfg.method, hostID)
+	m.mu.Lock()
+	oldEntry, exists := m.pools[id]
+	m.pools[id] = newEntry
+	m.mu.Unlock()
+
+	if exists {
+		m.retirePoolEntry(oldEntry)
+	}
+	return nil
 }
 
 func (m *Manager) removePool(id registry.ID) {
@@ -78,11 +119,74 @@ func (m *Manager) removePool(id registry.ID) {
 	m.mu.Unlock()
 
 	if exists {
+		m.retirePoolEntry(entry)
+	}
+}
+
+func newPoolEntry(pool funcpool.Pool, method, hostID string) *poolEntry {
+	return &poolEntry{
+		pool:    pool,
+		method:  method,
+		hostID:  hostID,
+		drained: make(chan struct{}),
+	}
+}
+
+func (e *poolEntry) acquire() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.retired {
+		return false
+	}
+	e.active++
+	return true
+}
+
+func (e *poolEntry) release() {
+	e.mu.Lock()
+	e.active--
+	if e.retired && e.active == 0 {
+		e.stopOnce.Do(func() { close(e.drained) })
+	}
+	e.mu.Unlock()
+}
+
+func (e *poolEntry) retire(stop func()) {
+	e.mu.Lock()
+	if e.retired {
+		e.mu.Unlock()
+		return
+	}
+	e.retired = true
+	if e.active == 0 {
+		e.stopOnce.Do(func() { close(e.drained) })
+		e.mu.Unlock()
+		stop()
+		return
+	}
+	drained := e.drained
+	e.mu.Unlock()
+
+	go func() {
+		<-drained
+		stop()
+	}()
+}
+
+func (m *Manager) retirePoolEntry(entry *poolEntry) {
+	if entry == nil {
+		return
+	}
+	entry.retire(func() {
 		entry.pool.Stop()
 		if m.node != nil {
-			m.node.UnregisterHost(id.String())
+			m.node.UnregisterHost(entry.hostID)
 		}
-	}
+	})
+}
+
+func (m *Manager) nextPoolHostID(id registry.ID) string {
+	return id.String() + "#wasm." + strconv.FormatUint(m.hostSeq.Add(1), 10)
 }
 
 func (m *Manager) autoSelectPool(factory process.FactoryFunc, cfg api.PoolConfig, hooks funcpool.ExecutionHooks) (funcpool.Pool, error) {
@@ -167,7 +271,7 @@ func (m *Manager) registerCaller(ctx context.Context, id registry.ID, options ru
 		return runtimewasm.NewRegisterCallerError(&id, nil)
 	}
 
-	waiter, err := awaitSvc.Prepare(ctx, function.System, "function.(accept|reject)", path, 30*time.Second)
+	waiter, err := awaitSvc.Prepare(ctx, function.System, "function.(accept|reject)", path, event.DefaultAwaitTimeout)
 	if err != nil {
 		return runtimewasm.NewRegisterCallerError(&id, err)
 	}

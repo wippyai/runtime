@@ -4,6 +4,7 @@ package time
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
 	stdtime "time"
 
@@ -12,6 +13,15 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 )
+
+// Yield-pool / ToCommand tests for the subscription-routed time yields.
+//
+// The yields carry (Topic, SubID, Epoch, GenRef) and the corresponding
+// clock commands target the per-call subscription topic with a FireBuilder
+// closure. The dispatcher's opaque reverse-map key is the subscription id,
+// passed through the command's ChID field. Stop yields use the
+// (TargetPID, Epoch, ChID=SubID) variants. The tests below exercise the
+// shape and confirm sync.Pool reuse still works.
 
 func TestSleepYieldPool(t *testing.T) {
 	y1 := acquireSleepYield(stdtime.Second)
@@ -87,16 +97,22 @@ func TestSleepYieldPoolConcurrent(t *testing.T) {
 func TestTimerStartYieldPool(t *testing.T) {
 	ch := engine.NewChannel(1)
 	p := pid.PID{}
-	topic := "timer-test"
+	var gen atomic.Uint64
 
-	y1 := acquireTimerStartYield(stdtime.Second, ch, p, topic)
+	y1 := acquireTimerStartYield(stdtime.Second, ch, p, "timer@7", 7, 3, &gen)
 	if y1.Duration != stdtime.Second {
 		t.Errorf("expected Duration=%v, got %v", stdtime.Second, y1.Duration)
 	}
+	if y1.SubID != 7 || y1.Epoch != 3 || y1.GenRef != &gen || y1.Topic != "timer@7" {
+		t.Errorf("expected (Topic=timer@7,SubID=7,Epoch=3,GenRef=%p), got (%q,%d,%d,%p)", &gen, y1.Topic, y1.SubID, y1.Epoch, y1.GenRef)
+	}
 
 	ReleaseTimerStartYield(y1)
+	if y1.SubID != 0 || y1.Epoch != 0 || y1.GenRef != nil || y1.Topic != "" {
+		t.Errorf("release should zero Topic/SubID/Epoch/GenRef, got (%q,%d,%d,%p)", y1.Topic, y1.SubID, y1.Epoch, y1.GenRef)
+	}
 
-	y2 := acquireTimerStartYield(stdtime.Millisecond, ch, p, topic)
+	y2 := acquireTimerStartYield(stdtime.Millisecond, ch, p, "timer@11", 11, 5, &gen)
 	if y2.Duration != stdtime.Millisecond {
 		t.Errorf("expected Duration=%v, got %v", stdtime.Millisecond, y2.Duration)
 	}
@@ -105,10 +121,11 @@ func TestTimerStartYieldPool(t *testing.T) {
 
 func TestTimerStartYieldToCommand(t *testing.T) {
 	ch := engine.NewChannel(1)
-	p := pid.PID{}
-	topic := "timer-test-topic"
+	p := pid.PID{Node: "n", Host: "h", UniqID: "u"}
+	var gen atomic.Uint64
+	gen.Store(0)
 
-	y := acquireTimerStartYield(50*stdtime.Millisecond, ch, p, topic)
+	y := acquireTimerStartYield(50*stdtime.Millisecond, ch, p, "timer@9", 9, 2, &gen)
 	defer ReleaseTimerStartYield(y)
 
 	cmd := y.ToCommand()
@@ -120,38 +137,54 @@ func TestTimerStartYieldToCommand(t *testing.T) {
 	if timerCmd.Duration != 50*stdtime.Millisecond {
 		t.Errorf("expected Duration=50ms, got %v", timerCmd.Duration)
 	}
-	if timerCmd.Topic != topic {
-		t.Errorf("expected Topic=%q, got %q", topic, timerCmd.Topic)
+	if timerCmd.Topic != "timer@9" {
+		t.Errorf("expected Topic=%q, got %q", "timer@9", timerCmd.Topic)
+	}
+	if timerCmd.ChID != 9 || timerCmd.Epoch != 2 {
+		t.Errorf("expected (ChID=9,Epoch=2), got (%d,%d)", timerCmd.ChID, timerCmd.Epoch)
+	}
+	if timerCmd.GenRef != &gen {
+		t.Errorf("GenRef should propagate to the command")
+	}
+	if timerCmd.Build == nil {
+		t.Error("Build should be set for routed timers")
 	}
 }
 
 func TestTimerStopYieldPool(t *testing.T) {
-	y1 := acquireTimerStopYield(10)
-	if y1.TimerID != 10 {
-		t.Errorf("expected TimerID=10, got %v", y1.TimerID)
+	p := pid.PID{Node: "n"}
+	ch := engine.NewChannel(1)
+	y1 := acquireTimerStopYield(p, ch, 1, 10)
+	if y1.SubID != 10 || y1.Epoch != 1 || y1.PID != p || y1.Channel != ch {
+		t.Errorf("unexpected fields: %+v", y1)
 	}
 
 	ReleaseTimerStopYield(y1)
+	if y1.SubID != 0 || y1.Epoch != 0 || y1.Channel != nil {
+		t.Errorf("release should zero fields, got subID=%d epoch=%d channel=%p", y1.SubID, y1.Epoch, y1.Channel)
+	}
 
-	y2 := acquireTimerStopYield(20)
-	if y2.TimerID != 20 {
-		t.Errorf("expected TimerID=20, got %v", y2.TimerID)
+	y2 := acquireTimerStopYield(p, ch, 2, 20)
+	if y2.SubID != 20 || y2.Epoch != 2 {
+		t.Errorf("unexpected fields after re-acquire: %+v", y2)
 	}
 	ReleaseTimerStopYield(y2)
 }
 
 func TestTimerStopYieldToCommand(t *testing.T) {
-	y := acquireTimerStopYield(456)
+	p := pid.PID{Node: "n"}
+	ch := engine.NewChannel(1)
+	y := acquireTimerStopYield(p, ch, 7, 456)
 	defer ReleaseTimerStopYield(y)
 
 	cmd := y.ToCommand()
-	stopCmd, ok := cmd.(clockapi.TimerStopCmd)
+	stopCmd, ok := cmd.(clockapi.TimerStopByChIDCmd)
 	if !ok {
-		t.Fatalf("expected clockapi.TimerStopCmd, got %T", cmd)
+		t.Fatalf("expected clockapi.TimerStopByChIDCmd, got %T", cmd)
 	}
 
-	if stopCmd.TimerID != 456 {
-		t.Errorf("expected TimerID=456, got %v", stopCmd.TimerID)
+	if stopCmd.ChID != 456 || stopCmd.Epoch != 7 || stopCmd.TargetPID != p {
+		t.Errorf("unexpected command: %+v", stopCmd)
 	}
 }
 
@@ -197,16 +230,22 @@ func TestTimerResetYieldToCommand(t *testing.T) {
 func TestTickerStartYieldPool(t *testing.T) {
 	ch := engine.NewChannel(1)
 	p := pid.PID{}
-	topic := "test"
+	var gen atomic.Uint64
 
-	y1 := acquireTickerStartYield(stdtime.Second, ch, p, topic)
+	y1 := acquireTickerStartYield(stdtime.Second, ch, p, "ticker@13", 13, 4, &gen)
 	if y1.Duration != stdtime.Second {
 		t.Errorf("expected Duration=%v, got %v", stdtime.Second, y1.Duration)
 	}
+	if y1.SubID != 13 || y1.Epoch != 4 || y1.GenRef != &gen || y1.Topic != "ticker@13" {
+		t.Errorf("unexpected fields: %+v", y1)
+	}
 
 	ReleaseTickerStartYield(y1)
+	if y1.SubID != 0 || y1.Epoch != 0 || y1.GenRef != nil || y1.Topic != "" {
+		t.Errorf("release should zero fields")
+	}
 
-	y2 := acquireTickerStartYield(stdtime.Millisecond, ch, p, topic)
+	y2 := acquireTickerStartYield(stdtime.Millisecond, ch, p, "ticker@14", 14, 4, &gen)
 	if y2.Duration != stdtime.Millisecond {
 		t.Errorf("expected Duration=%v, got %v", stdtime.Millisecond, y2.Duration)
 	}
@@ -215,10 +254,10 @@ func TestTickerStartYieldPool(t *testing.T) {
 
 func TestTickerStartYieldToCommand(t *testing.T) {
 	ch := engine.NewChannel(1)
-	p := pid.PID{}
-	topic := "test-topic"
+	p := pid.PID{Node: "n"}
+	var gen atomic.Uint64
 
-	y := acquireTickerStartYield(100*stdtime.Millisecond, ch, p, topic)
+	y := acquireTickerStartYield(100*stdtime.Millisecond, ch, p, "ticker@21", 21, 6, &gen)
 	defer ReleaseTickerStartYield(y)
 
 	cmd := y.ToCommand()
@@ -230,37 +269,50 @@ func TestTickerStartYieldToCommand(t *testing.T) {
 	if startCmd.Duration != 100*stdtime.Millisecond {
 		t.Errorf("expected Duration=100ms, got %v", startCmd.Duration)
 	}
-	if startCmd.Topic != topic {
-		t.Errorf("expected Topic=%q, got %q", topic, startCmd.Topic)
+	if startCmd.Topic != "ticker@21" {
+		t.Errorf("expected Topic=%q, got %q", "ticker@21", startCmd.Topic)
+	}
+	if startCmd.ChID != 21 || startCmd.Epoch != 6 {
+		t.Errorf("unexpected (ChID,Epoch): (%d,%d)", startCmd.ChID, startCmd.Epoch)
+	}
+	if startCmd.Build == nil {
+		t.Error("Build should be set for routed tickers")
 	}
 }
 
 func TestTickerStopYieldPool(t *testing.T) {
-	y1 := acquireTickerStopYield(10)
-	if y1.TickerID != 10 {
-		t.Errorf("expected TickerID=10, got %v", y1.TickerID)
+	p := pid.PID{Node: "n"}
+	ch := engine.NewChannel(1)
+	y1 := acquireTickerStopYield(p, ch, 1, 10)
+	if y1.SubID != 10 || y1.Epoch != 1 || y1.Channel != ch {
+		t.Errorf("unexpected fields: %+v", y1)
 	}
 
 	ReleaseTickerStopYield(y1)
+	if y1.SubID != 0 || y1.Epoch != 0 || y1.Channel != nil {
+		t.Error("release should zero fields")
+	}
 
-	y2 := acquireTickerStopYield(20)
-	if y2.TickerID != 20 {
-		t.Errorf("expected TickerID=20, got %v", y2.TickerID)
+	y2 := acquireTickerStopYield(p, ch, 3, 20)
+	if y2.SubID != 20 || y2.Epoch != 3 {
+		t.Errorf("unexpected fields after re-acquire: %+v", y2)
 	}
 	ReleaseTickerStopYield(y2)
 }
 
 func TestTickerStopYieldToCommand(t *testing.T) {
-	y := acquireTickerStopYield(456)
+	p := pid.PID{Node: "n"}
+	ch := engine.NewChannel(1)
+	y := acquireTickerStopYield(p, ch, 9, 456)
 	defer ReleaseTickerStopYield(y)
 
 	cmd := y.ToCommand()
-	stopCmd, ok := cmd.(clockapi.TickerStopCmd)
+	stopCmd, ok := cmd.(clockapi.TickerStopByChIDCmd)
 	if !ok {
-		t.Fatalf("expected clockapi.TickerStopCmd, got %T", cmd)
+		t.Fatalf("expected clockapi.TickerStopByChIDCmd, got %T", cmd)
 	}
 
-	if stopCmd.TickerID != 456 {
-		t.Errorf("expected TickerID=456, got %v", stopCmd.TickerID)
+	if stopCmd.ChID != 456 || stopCmd.Epoch != 9 || stopCmd.TargetPID != p {
+		t.Errorf("unexpected command: %+v", stopCmd)
 	}
 }

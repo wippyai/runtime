@@ -242,6 +242,7 @@ Compresses data using Zstandard.
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
 | level | integer | 3 | Compression level (1-22) |
+| dict | string | nil | Dictionary bytes from `zstd.train_dict` |
 
 **Returns:** `string` - Compressed data, or `nil, error` on failure
 
@@ -252,6 +253,7 @@ Compresses data using Zstandard.
 | Input not a string | errors.INVALID | no |
 | Input is empty | errors.INVALID | no |
 | Level out of range (1-22) | errors.INVALID | no |
+| `dict` present but not a non-empty string | errors.INVALID | no |
 | Compression failed | errors.INTERNAL | no |
 
 **Notes:**
@@ -259,6 +261,7 @@ Compresses data using Zstandard.
 - Level 4-6: default compression
 - Level 7-9: better compression
 - Level 10-22: best compression
+- When `dict` is supplied, the decoder must use the same dictionary
 
 ### zstd.decode(data: string, options?: table) → string, error
 
@@ -274,6 +277,7 @@ Decompresses Zstandard data.
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
 | max_size | integer | 134217728 | Maximum decompressed size in bytes (128MB), max 1GB |
+| dict | string | nil | Dictionary bytes (must match the dict used to encode) |
 
 **Returns:** `string` - Decompressed data, or `nil, error` on failure
 
@@ -284,7 +288,78 @@ Decompresses Zstandard data.
 | Input not a string | errors.INVALID | no |
 | Input is empty | errors.INVALID | no |
 | Invalid Zstandard data | errors.INVALID | no |
+| `dict` present but not a non-empty string | errors.INVALID | no |
 | Decompressed size exceeds limit | errors.INTERNAL | no |
+| Wrong / missing dict for a dict-compressed frame | errors.INTERNAL | no |
+
+### zstd.train_dict(samples: table, options?: table) → string, error
+
+Trains a Zstandard dictionary from a set of representative samples. Use
+`encode`/`decode` with `{ dict = result }` to get much smaller frames for small,
+structurally-similar payloads (log lines, RPC frames, JSON events).
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| samples | table | yes | - | Array of non-empty strings; at least one must be >= 8 bytes |
+| options | table | no | nil | Training options |
+
+**options fields:**
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| size | integer | 114688 | Target dictionary size in bytes (256 to 1048576) |
+| id | integer | 0 | Dictionary id (uint32). `0` picks a random non-zero id |
+| level | integer | (best) | Compression level (1-22) used while building the dictionary |
+
+**Returns:** `string` - Serialized dictionary bytes, or `nil, error` on failure
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| samples not a table | errors.INVALID | no |
+| samples table is empty | errors.INVALID | no |
+| sample entry not a string | errors.INVALID | no |
+| sample entry is empty | errors.INVALID | no |
+| no sample is at least 8 bytes long | errors.INVALID | no |
+| `size` out of range (256..1048576) | errors.INVALID | no |
+| `id` does not fit in uint32 | errors.INVALID | no |
+| `level` out of range (1..22) | errors.INVALID | no |
+| Training failed | errors.INTERNAL | no |
+
+**Notes:**
+- Dictionaries are most useful for small payloads (under a few KB) that share
+  recurring structure. They do not help for already-random or already-compressed
+  data.
+- The returned bytes are an opaque zstd dictionary; pass them verbatim as
+  `dict = ...` to `zstd.encode`/`zstd.decode`. They are also accepted by other
+  zstd implementations.
+- This wraps `dict.BuildZstdDict` from `github.com/klauspost/compress` with
+  `HashBytes = 6` and `ZstdDictCompat = true`.
+
+### zstd.inspect_dict(dict: string) → table, error
+
+Inspects a serialized Zstandard dictionary and returns its metadata. Useful for
+diagnostics and for asserting that two parties share the same dictionary.
+
+| Param | Type | Required | Notes |
+|-------|------|----------|-------|
+| dict | string | yes | Dictionary bytes (e.g. produced by `zstd.train_dict`) |
+
+**Returns:** `table` with the fields below, or `nil, error` on failure:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | integer | Dictionary id (uint32, always non-zero for valid dicts) |
+| content_size | integer | Size of the dictionary content section, in bytes |
+
+**Errors (structured):**
+
+| Condition | Kind | Retryable |
+|-----------|------|-----------|
+| Input not a string | errors.INVALID | no |
+| Input is empty | errors.INVALID | no |
+| Invalid dictionary bytes | errors.INVALID | no |
 
 ## Errors
 

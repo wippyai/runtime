@@ -34,3 +34,15 @@ func NewDirectiveExpansionConflictError(entryID registry.ID) apierror.Error {
 			"entry_id": entryID.String(),
 		}))
 }
+
+// NewSortedOperationScopeMissingError returns a structured error for impossible
+// scope remapping after sorting. It should only happen if the sorter returns an
+// operation that was not present in the input plan.
+func NewSortedOperationScopeMissingError(entryID registry.ID, kind string) apierror.Error {
+	return apierror.New(apierror.Internal, "sorted operation has no matching expansion scope").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"entry_id": entryID.String(),
+			"op_kind":  kind,
+		}))
+}

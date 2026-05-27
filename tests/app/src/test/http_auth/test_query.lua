@@ -18,7 +18,8 @@ local function main()
 		return false, "login failed with status " .. login_res.status_code .. ": " .. (login_res.body or "")
 	end
 
-	local login_body = json.decode(login_res.body)
+	assert.not_nil(login_res.body, "login response body present")
+	local login_body = json.decode(tostring(login_res.body))
 	assert.not_nil(login_body, "login response should be valid JSON")
 	assert.not_nil(login_body.token, "login response should contain token")
 
@@ -31,8 +32,9 @@ local function main()
 	end
 
 	assert.eq(protected_res.status_code, 200, "should return 200 OK with query token")
+	assert.not_nil(protected_res.body, "protected response body present")
 
-	local protected_body = json.decode(protected_res.body)
+	local protected_body = json.decode(tostring(protected_res.body))
 	assert.not_nil(protected_body, "protected response should be valid JSON")
 	assert.eq(protected_body.message, "access granted", "should grant access")
 	assert.eq(protected_body.actor_id, "queryuser", "actor_id should match username")

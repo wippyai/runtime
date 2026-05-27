@@ -38,6 +38,13 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "region from env",
+			config: Config{
+				RegionEnv: "AWS_REGION",
+			},
+			wantErr: false,
+		},
+		{
 			name: "with env vars only",
 			config: Config{
 				Region:             "ap-southeast-1",
@@ -85,6 +92,13 @@ func TestConfig_Validate(t *testing.T) {
 				Region:             "us-west-1",
 				AccessKeyIDEnv:     "AWS_KEY",
 				SecretAccessKeyEnv: "AWS_SECRET",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid with region env",
+			config: Config{
+				RegionEnv: "AWS_REGION",
 			},
 			wantErr: false,
 		},

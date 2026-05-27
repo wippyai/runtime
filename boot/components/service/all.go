@@ -16,6 +16,7 @@ import (
 
 func All() []boot.Component {
 	components := []boot.Component{
+		Network(),
 		fs.Directory(),
 		fs.Embed(),
 		Template(),

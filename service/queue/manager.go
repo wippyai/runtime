@@ -145,7 +145,7 @@ func (m *Manager) handleQueueDeclare(e event.Event) {
 		ctx = context.Background()
 	}
 
-	if err := driver.DeclareQueue(ctx, queueEntry.ID, queueEntry.Options); err != nil {
+	if err := driver.DeclareQueue(ctx, queueEntry.ID, queueEntry.Config); err != nil {
 		m.logger.Error("failed to declare queue on driver",
 			zap.String("path", e.Path),
 			zap.Error(err))

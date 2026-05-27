@@ -33,14 +33,62 @@ const (
 	RouterID string = "router"
 )
 
+// TLSMode selects how TLS is terminated for an HTTP service.
+type TLSMode string
+
+const (
+	TLSModeOff    TLSMode = ""
+	TLSModeAuto   TLSMode = "auto"
+	TLSModeManual TLSMode = "manual"
+)
+
+// ClientAuthType selects how the server verifies client certificates (mTLS).
+// Maps onto crypto/tls ClientAuthType. Empty means "no client certs", the
+// non-mTLS default.
+type ClientAuthType string
+
+const (
+	ClientAuthNone             ClientAuthType = ""
+	ClientAuthRequest          ClientAuthType = "request"
+	ClientAuthRequireAny       ClientAuthType = "require_any"
+	ClientAuthVerifyIfGiven    ClientAuthType = "verify_if_given"
+	ClientAuthRequireAndVerify ClientAuthType = "require_and_verify"
+)
+
 // ServerConfig represents the initial configuration for the Timeouts service.
 type (
 	ServerConfig struct {
 		Meta      attrs.Bag                  `json:"meta"`
+		TLS       ServerTLSConfig            `json:"tls"`
+		Network   registry.ID                `json:"network"`
 		Addr      string                     `json:"addr"`
 		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
 		Timeouts  TimeoutConfig              `json:"timeouts"`
 		Host      HostConfig                 `json:"host"`
+	}
+
+	// ServerTLSConfig configures TLS termination for an HTTP service.
+	//
+	// For TLSModeManual, the cert/key pair is supplied via exactly one of:
+	//   - Cert + Key: PEM content. Typically populated by the file://
+	//     interpolator (manifest-relative, traversal-safe) at config-decode
+	//     time, but inline PEM strings also work.
+	//   - CertEnv + KeyEnv: env variable names resolved from the Wippy
+	//     env.Registry (secure store) at bind time. The data.tls.*_env
+	//     wildcard dep pattern ensures the referenced env entries are
+	//     registered before this service boots.
+	//
+	// Optional mTLS (Manual only) requires ClientAuth plus one of ClientCA
+	// or ClientCAEnv (a PEM bundle of trusted client CAs).
+	ServerTLSConfig struct {
+		Mode        TLSMode        `json:"mode"`
+		Cert        string         `json:"cert,omitempty"`
+		Key         string         `json:"key,omitempty"`
+		CertEnv     string         `json:"cert_env,omitempty"`
+		KeyEnv      string         `json:"key_env,omitempty"`
+		ClientCA    string         `json:"client_ca,omitempty"`
+		ClientCAEnv string         `json:"client_ca_env,omitempty"`
+		ClientAuth  ClientAuthType `json:"client_auth,omitempty"`
 	}
 
 	HostConfig struct {
@@ -146,7 +194,90 @@ func (c *ServerConfig) Validate() error {
 		return NewNegativeConfigError("worker count")
 	}
 
+	if err := c.TLS.Validate(); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// Validate checks if the TLS configuration is internally consistent.
+// Network/driver compatibility and env-var resolution are enforced at
+// server start.
+func (c *ServerTLSConfig) Validate() error {
+	switch c.Mode {
+	case TLSModeOff:
+		if c.hasAnyCertInput() || c.hasAnyMTLSInput() {
+			return ErrTLSOffHasInputs
+		}
+		return nil
+
+	case TLSModeAuto:
+		if c.hasAnyCertInput() {
+			return ErrTLSAutoHasCertInputs
+		}
+		if c.hasAnyMTLSInput() {
+			return ErrTLSMTLSRequiresManual
+		}
+		return nil
+
+	case TLSModeManual:
+		// Partial pairs take precedence over the generic "missing" message
+		// so users get an error pointing at the exact field they forgot.
+		if (c.Cert != "") != (c.Key != "") {
+			return ErrTLSManualPartialCert
+		}
+		if (c.CertEnv != "") != (c.KeyEnv != "") {
+			return ErrTLSManualPartialCertEnv
+		}
+		hasInline := c.Cert != "" && c.Key != ""
+		hasEnv := c.CertEnv != "" && c.KeyEnv != ""
+		if !hasInline && !hasEnv {
+			return ErrTLSManualMissingCert
+		}
+		if hasInline && hasEnv {
+			return ErrTLSManualAmbiguousCert
+		}
+		return c.validateClientAuth()
+
+	default:
+		return NewInvalidTLSModeError(string(c.Mode))
+	}
+}
+
+func (c *ServerTLSConfig) hasAnyCertInput() bool {
+	return c.Cert != "" || c.Key != "" || c.CertEnv != "" || c.KeyEnv != ""
+}
+
+func (c *ServerTLSConfig) hasAnyMTLSInput() bool {
+	return c.ClientCA != "" || c.ClientCAEnv != "" || c.ClientAuth != ClientAuthNone
+}
+
+// validateClientAuth enforces mTLS invariants under TLSModeManual:
+//   - ClientAuth, when set, must be a known value
+//   - Verifying modes (verify_if_given, require_and_verify) require a CA
+//   - ClientCA and ClientCAEnv are mutually exclusive
+func (c *ServerTLSConfig) validateClientAuth() error {
+	if c.ClientCA != "" && c.ClientCAEnv != "" {
+		return ErrTLSMTLSAmbiguousCA
+	}
+	switch c.ClientAuth {
+	case ClientAuthNone:
+		if c.ClientCA != "" || c.ClientCAEnv != "" {
+			return ErrTLSMTLSCAWithoutAuth
+		}
+		return nil
+	case ClientAuthRequest, ClientAuthRequireAny:
+		// These modes do not verify against a CA pool; a pool is optional.
+		return nil
+	case ClientAuthVerifyIfGiven, ClientAuthRequireAndVerify:
+		if c.ClientCA == "" && c.ClientCAEnv == "" {
+			return ErrTLSMTLSMissingCA
+		}
+		return nil
+	default:
+		return NewInvalidClientAuthError(string(c.ClientAuth))
+	}
 }
 
 // Validate checks if the timeout configuration is valid

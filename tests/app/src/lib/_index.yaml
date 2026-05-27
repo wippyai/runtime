@@ -15,3 +15,11 @@ entries:
     meta:
       comment: Test SDK library for eval imports testing
     source: file://test_sdk.lua
+
+  - name: sigv4
+    kind: library.lua
+    meta:
+      comment: AWS Signature Version 4 signer (pure Lua, backed by hash module)
+    source: file://sigv4.lua
+    modules:
+      - hash

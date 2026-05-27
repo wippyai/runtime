@@ -46,6 +46,25 @@ func runUntilDone(t *testing.T, proc *Process, maxSteps int) error {
 	return nil
 }
 
+func requireTruePayload(t *testing.T, result payload.Payload) {
+	t.Helper()
+	if result == nil {
+		t.Fatal("expected result, got nil")
+	}
+	switch v := result.Data().(type) {
+	case bool:
+		if !v {
+			t.Fatal("expected true, got false")
+		}
+	case lua.LBool:
+		if !v {
+			t.Fatal("expected true, got false")
+		}
+	default:
+		t.Fatalf("expected true, got %v (%T)", result.Data(), result.Data())
+	}
+}
+
 // TestChannelSendReturnValues tests that send returns correct values.
 // Per spec: send returns true on success (no value returned).
 func TestChannelSendReturnValues(t *testing.T) {
@@ -934,6 +953,241 @@ func TestSelectWakesOnClose(t *testing.T) {
 		}
 	}
 	t.Log("Select wakes on close test passed")
+}
+
+// TestSelectReceiveAlreadyClosedIsReady verifies the other close path:
+// a receive case must be immediately selectable even if the channel was
+// closed before select evaluates readiness.
+func TestSelectReceiveAlreadyClosedIsReady(t *testing.T) {
+	script := `
+		local ch = channel.new(0)
+		ch:close()
+
+		local result = channel.select{
+			ch:case_receive()
+		}
+
+		return result.channel == ch and result.ok == false and result.value == nil
+	`
+
+	proc := startChannelProcess(t, script)
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 10; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			requireTruePayload(t, output.Result())
+			return
+		}
+	}
+
+	t.Fatal("select on already closed channel did not complete")
+}
+
+func TestSelectReceiveAlreadyClosedAmongUnreadyCases(t *testing.T) {
+	script := `
+		local open_ch = channel.new(0)
+		local closed_ch = channel.new(0)
+		closed_ch:close()
+
+		local result = channel.select{
+			open_ch:case_receive(),
+			closed_ch:case_receive()
+		}
+
+		return result.channel == closed_ch and result.ok == false and result.value == nil
+	`
+
+	proc := startChannelProcess(t, script)
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 10; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			requireTruePayload(t, output.Result())
+			return
+		}
+	}
+
+	t.Fatal("select with already closed channel did not complete")
+}
+
+func TestSelectReceiveClosedBufferedDrainsThenOkFalse(t *testing.T) {
+	script := `
+		local ch = channel.new(1)
+		ch:send("buffered")
+		ch:close()
+
+		local first = channel.select{
+			ch:case_receive()
+		}
+		local second = channel.select{
+			ch:case_receive()
+		}
+
+		return first.channel == ch
+			and first.ok == true
+			and first.value == "buffered"
+			and second.channel == ch
+			and second.ok == false
+			and second.value == nil
+	`
+
+	proc := startChannelProcess(t, script)
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 10; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			requireTruePayload(t, output.Result())
+			return
+		}
+	}
+
+	t.Fatal("select on closed buffered channel did not complete")
+}
+
+func TestSelectReceiveClosedBeatsDefault(t *testing.T) {
+	script := `
+		local ch = channel.new(0)
+		ch:close()
+
+		local first = channel.select{
+			ch:case_receive(),
+			default = true
+		}
+		local second = channel.select{
+			ch:case_receive(),
+			default = true
+		}
+
+		return first.default ~= true
+			and first.channel == ch
+			and first.ok == false
+			and first.value == nil
+			and second.default ~= true
+			and second.channel == ch
+			and second.ok == false
+			and second.value == nil
+	`
+
+	proc := startChannelProcess(t, script)
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 10; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			requireTruePayload(t, output.Result())
+			return
+		}
+	}
+
+	t.Fatal("closed receive did not beat select default")
+}
+
+func TestSelectReceiveClosedBufferedDrainBeatsDefault(t *testing.T) {
+	script := `
+		local ch = channel.new(1)
+		ch:send("buffered")
+		ch:close()
+
+		local first = channel.select{
+			ch:case_receive(),
+			default = true
+		}
+		local second = channel.select{
+			ch:case_receive(),
+			default = true
+		}
+
+		return first.default ~= true
+			and first.channel == ch
+			and first.ok == true
+			and first.value == "buffered"
+			and second.default ~= true
+			and second.channel == ch
+			and second.ok == false
+			and second.value == nil
+	`
+
+	proc := startChannelProcess(t, script)
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 10; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			requireTruePayload(t, output.Result())
+			return
+		}
+	}
+
+	t.Fatal("closed buffered receive did not beat select default after drain")
+}
+
+func TestSelectClosedStopChannelLetsWorkerExitAfterMainClosesIt(t *testing.T) {
+	script := `
+		local stop = channel.new(0)
+		local done = channel.new(1)
+		local other = channel.new(0)
+
+		coroutine.spawn(function()
+			local result = channel.select{
+				other:case_receive(),
+				stop:case_receive()
+			}
+
+			if result.channel == stop and result.ok == false then
+				done:send(true)
+			else
+				done:send(false)
+			end
+		end)
+
+		stop:close()
+
+		local stopped = channel.select{
+			done:case_receive()
+		}
+
+		return stopped.value == true
+	`
+
+	proc := startChannelProcess(t, script)
+	defer proc.Close()
+
+	var output process.StepOutput
+	for i := 0; i < 20; i++ {
+		output.Reset()
+		if err := proc.Step(nil, &output); err != nil {
+			t.Fatalf("Step %d error: %v", i, err)
+		}
+		if output.Status() == process.StepDone {
+			requireTruePayload(t, output.Result())
+			return
+		}
+	}
+
+	t.Fatal("worker waiting on closed stop channel did not complete")
 }
 
 // TestBufferedCloseWithValues tests drain buffered values then ok=false

@@ -1,0 +1,297 @@
+# SPDX-License-Identifier: MPL-2.0
+
+version: "1.0"
+namespace: app.test.network
+
+entries:
+  # Reachable SOCKS5 proxy — docker-compose socks5-proxy on 127.0.0.1:1080
+  - name: fast_socks5
+    kind: network.socks5
+    meta:
+      comment: Fast SOCKS5 overlay for tests; requires docker-compose up
+    host: 127.0.0.1
+    port: 1080
+
+  # Unreachable SOCKS5 endpoint — proves overlay dial engages (vs clearnet)
+  - name: broken_socks5
+    kind: network.socks5
+    meta:
+      comment: Points at a closed port to prove overlay routing is active
+    host: 127.0.0.1
+    port: 19999
+
+  # Scope allowing all actions (baseline)
+  - name: allow_everything
+    kind: security.policy
+    policy:
+      actions: "*"
+      resources: "*"
+      effect: allow
+
+  # Scope that denies only network.select — combine with allow_everything
+  # to allow spawn/funcs.call but block explicit overlay selection.
+  - name: deny_network_select
+    kind: security.policy
+    policy:
+      actions:
+        - network.select
+      resources: "*"
+      effect: deny
+
+  # Callee: does http.get to local hello endpoint; returns {ok, status, err}
+  - name: overlay_callee
+    kind: function.lua
+    meta:
+      comment: Function callee that probes the ambient overlay via http.get
+    source: file://overlay_callee.lua
+    method: main
+    modules:
+      - http_client
+
+  # Process worker: does http.get to local hello endpoint; returns {ok, err}
+  - name: overlay_worker
+    kind: process.lua
+    meta:
+      comment: Worker that probes the ambient overlay via http.get
+    source: file://overlay_worker.lua
+    method: main
+    modules:
+      - http_client
+
+  # Callee that attempts overlay selection at all three Lua edges under the
+  # caller's security context. Used by denied_explicit.lua.
+  - name: denied_probe
+    kind: function.lua
+    meta:
+      comment: Probes network.select at http_client, funcs, and process edges
+    source: file://denied_probe.lua
+    method: main
+    modules:
+      - http_client
+      - funcs
+
+  # Mid-tier process in a 2-level chain; spawns overlay_worker and forwards
+  # its result. Used by grandchild_inheritance.lua.
+  - name: overlay_chain_worker
+    kind: process.lua
+    meta:
+      comment: Spawns overlay_worker and forwards its probe result
+    source: file://overlay_chain_worker.lua
+    method: main
+    modules:
+      - time
+
+  # Callee for cross_edge_propagation: spawns a process and forwards result.
+  - name: cross_edge_callee
+    kind: function.lua
+    meta:
+      comment: Function that spawns a process and relays its overlay probe
+    source: file://cross_edge_callee.lua
+    method: main
+    modules:
+      - time
+
+  # Inner link of cross_edge_propagation: process that nests a funcs.call
+  # which itself does the http probe. Exercises process->funcs inheritance.
+  - name: cross_edge_worker
+    kind: process.lua
+    meta:
+      comment: Process that calls overlay_callee via funcs.new with no overlay
+    source: file://cross_edge_worker.lua
+    method: main
+    modules:
+      - funcs
+
+  # Callee for batch_denied: issues http.request_batch with an overlay item.
+  - name: batch_probe
+    kind: function.lua
+    meta:
+      comment: Calls http.request_batch with a per-request overlay selection
+    source: file://batch_probe.lua
+    method: main
+    modules:
+      - http_client
+
+  # Visibility test — network entries registered and kind discoverable
+  - name: registry_visible
+    kind: function.lua
+    meta:
+      type: test
+      suite: network
+      description: network entries visible in registry
+    source: file://registry_visible.lua
+    method: main
+    modules:
+      - registry
+    imports:
+      assert2: app.lib:assert
+
+  # Unknown network id returns an error (registry lookup fails)
+  - name: unknown_network
+    kind: function.lua
+    meta:
+      type: test
+      suite: network
+      description: unknown overlay network id produces an error
+    source: file://unknown_network.lua
+    method: main
+    modules:
+      - http_client
+    imports:
+      assert2: app.lib:assert
+
+  # Broken proxy port — proves overlay dial engages (not clearnet fallback)
+  - name: broken_proxy
+    kind: function.lua
+    meta:
+      type: test
+      suite: network
+      description: selecting a broken SOCKS5 proxy fails to dial
+    source: file://broken_proxy.lua
+    method: main
+    modules:
+      - http_client
+    imports:
+      assert2: app.lib:assert
+
+  # funcs.with_options({network}) propagates overlay to the callee
+  - name: funcs_inheritance
+    kind: function.lua
+    meta:
+      type: test
+      suite: network
+      description: funcs.with_options network propagates via context
+    source: file://funcs_inheritance.lua
+    method: main
+    modules:
+      - funcs
+    imports:
+      assert2: app.lib:assert
+
+  # process.with_options({network}) propagates overlay to the worker
+  - name: spawn_inheritance
+    kind: function.lua
+    meta:
+      type: test
+      suite: network
+      description: process.with_options network propagates to child
+    source: file://spawn_inheritance.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  # Deny scope blocks explicit overlay selection at all Lua edges
+  - name: denied_explicit
+    kind: function.lua
+    meta:
+      type: test
+      suite: network
+      description: deny network.select blocks explicit selection everywhere
+    source: file://denied_explicit.lua
+    method: main
+    modules:
+      - security
+      - funcs
+    imports:
+      assert2: app.lib:assert
+
+  # With no overlay requested, traffic must go clearnet (permission not triggered)
+  - name: empty_clearnet
+    kind: function.lua
+    meta:
+      type: test
+      suite: network
+      description: no overlay selection means clearnet, no permission gate
+    source: file://empty_clearnet.lua
+    method: main
+    modules:
+      - http_client
+      - json
+    imports:
+      assert2: app.lib:assert
+
+  # Transitive inheritance: overlay travels through nested process spawns
+  - name: grandchild_inheritance
+    kind: function.lua
+    meta:
+      type: test
+      suite: network
+      description: overlay propagates through 2-level process chain
+    source: file://grandchild_inheritance.lua
+    method: main
+    modules:
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  # Cross-edge inheritance: funcs.with_options overlay reaches spawned process
+  - name: cross_edge_propagation
+    kind: function.lua
+    meta:
+      type: test
+      suite: network
+      description: overlay propagates funcs->process across boundaries
+    source: file://cross_edge_propagation.lua
+    method: main
+    modules:
+      - funcs
+    imports:
+      assert2: app.lib:assert
+
+  # http.request_batch per-request overlay must honor the permission gate
+  - name: batch_denied
+    kind: function.lua
+    meta:
+      type: test
+      suite: network
+      description: request_batch overlay selection is denied by scope
+    source: file://batch_denied.lua
+    method: main
+    modules:
+      - security
+      - funcs
+    imports:
+      assert2: app.lib:assert
+
+  # http.service entry that binds through a SOCKS5 overlay. SOCKS5 does not
+  # actually support Listen so auto_start is off — this entry exists so the
+  # YAML/config pipeline parses `network:` at the top level and stores it as
+  # data.network, which the http_server_overlay_config test verifies.
+  - name: overlay_http_service
+    kind: http.service
+    meta:
+      comment: HTTP service declaring a backing overlay network
+    addr: 127.0.0.1:0
+    network: app.test.network:fast_socks5
+
+  # Registry-level check: the overlay_http_service entry parses `network:` as
+  # data.network and preserves the ID through the transcoder roundtrip.
+  - name: http_server_overlay_config
+    kind: function.lua
+    meta:
+      type: test
+      suite: network
+      description: http.service network field is stored as data.network
+    source: file://http_server_overlay_config.lua
+    method: main
+    modules:
+      - registry
+    imports:
+      assert2: app.lib:assert
+
+  # Inherited overlay must not be gated by the descendant's own deny scope
+  - name: inherited_bypasses_deny
+    kind: function.lua
+    meta:
+      type: test
+      suite: network
+      description: ambient overlay bypasses network.select deny in child
+    source: file://inherited_bypasses_deny.lua
+    method: main
+    modules:
+      - security
+      - funcs
+    imports:
+      assert2: app.lib:assert

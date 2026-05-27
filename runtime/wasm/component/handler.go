@@ -53,6 +53,14 @@ func (h *Handler) Handle(ctx context.Context, evt event.Event) error {
 	return h.inner.Handle(ctx, evt)
 }
 
+func (h *Handler) RegistryTransactionParticipantID() string {
+	participant, ok := h.inner.(registry.TransactionParticipant)
+	if !ok {
+		return ""
+	}
+	return participant.RegistryTransactionParticipantID()
+}
+
 // UnpackConfig unpacks and validates entry configuration.
 func UnpackConfig[T any](ctx context.Context, entry registry.Entry) (*T, error) {
 	dtt := payload.GetTranscoder(ctx)

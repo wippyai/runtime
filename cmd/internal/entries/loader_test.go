@@ -14,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/boot"
 	contextapi "github.com/wippyai/runtime/api/context"
 	logapi "github.com/wippyai/runtime/api/logs"
+	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootpkg "github.com/wippyai/runtime/boot"
@@ -23,6 +24,7 @@ import (
 	yamlpayload "github.com/wippyai/runtime/system/payload/yaml"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
+	"gopkg.in/yaml.v3"
 )
 
 func TestPackReaderGetEntries(t *testing.T) {
@@ -167,6 +169,24 @@ func createTestWappFile(t *testing.T, dir string, name string, entries []wapp.En
 	return path
 }
 
+func createTestWappFileWithResources(t *testing.T, path, name string, entries []wapp.Entry, resources []wapp.ResourceSpec) {
+	t.Helper()
+
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	writer := wapp.NewWriter()
+	err = writer.PackWithResources(wapp.Metadata{"name": name}, entries, resources, file)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatalf("PackWithResources failed: %v", err)
+	}
+}
+
 func setupTestContext(t *testing.T) context.Context {
 	t.Helper()
 
@@ -231,6 +251,86 @@ func TestLoadEntriesFromPathsSingleWapp(t *testing.T) {
 	if !found["test.ns:entry2"] {
 		t.Error("Entry test.ns:entry2 not found")
 	}
+}
+
+func TestExtractWappToDirRestoresEmbeddedFilesystem(t *testing.T) {
+	projectRoot := t.TempDir()
+	vendorDir := filepath.Join(projectRoot, ".wippy", "vendor", "acme")
+	if err := os.MkdirAll(vendorDir, 0o755); err != nil {
+		t.Fatalf("mkdir vendor dir: %v", err)
+	}
+
+	resourceRoot := filepath.Join(t.TempDir(), "resource")
+	if err := os.MkdirAll(resourceRoot, 0o755); err != nil {
+		t.Fatalf("mkdir resource dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(resourceRoot, "app.js"), []byte("export const ok = true;\n"), 0o644); err != nil {
+		t.Fatalf("write app.js: %v", err)
+	}
+
+	wappPath := filepath.Join(vendorDir, "ui-v1.0.0.wapp")
+	createTestWappFileWithResources(t, wappPath, "acme/ui", []wapp.Entry{{
+		ID:   wapp.NewID("acme.ui", "static_fs"),
+		Kind: "fs.embed",
+		Meta: wapp.Metadata{"module": "acme/ui"},
+		Data: map[string]any{},
+	}}, []wapp.ResourceSpec{{
+		ID: wapp.NewID("acme.ui", "static_fs"),
+		FS: os.DirFS(resourceRoot),
+	}})
+
+	targetDir := filepath.Join(vendorDir, "ui")
+	if err := ExtractWappToDir(wappPath, targetDir); err != nil {
+		t.Fatalf("ExtractWappToDir failed: %v", err)
+	}
+
+	if _, err := os.Stat(wappPath); err == nil {
+		t.Fatalf("packed file should be removed after extraction: %s", wappPath)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("stat packed file: %v", err)
+	}
+
+	extractedJS := filepath.Join(targetDir, "static_fs", "app.js")
+	data, err := os.ReadFile(extractedJS)
+	if err != nil {
+		t.Fatalf("read extracted app.js: %v", err)
+	}
+	if string(data) != "export const ok = true;\n" {
+		t.Fatalf("extracted app.js = %q", string(data))
+	}
+
+	var index struct {
+		Entries []struct {
+			Name      string `yaml:"name"`
+			Kind      string `yaml:"kind"`
+			Directory string `yaml:"directory"`
+			Base      string `yaml:"base"`
+		} `yaml:"entries"`
+	}
+	indexData, err := os.ReadFile(filepath.Join(targetDir, "_index.yaml"))
+	if err != nil {
+		t.Fatalf("read extracted index: %v", err)
+	}
+	if err := yaml.Unmarshal(indexData, &index); err != nil {
+		t.Fatalf("parse extracted index: %v", err)
+	}
+
+	for _, entry := range index.Entries {
+		if entry.Name != "static_fs" {
+			continue
+		}
+		if entry.Kind != "fs.directory" {
+			t.Fatalf("extracted kind = %q, want fs.directory", entry.Kind)
+		}
+		if entry.Directory != "static_fs" {
+			t.Fatalf("extracted directory = %q, want %q", entry.Directory, "static_fs")
+		}
+		if entry.Base != "module" {
+			t.Fatalf("extracted base = %q, want %q", entry.Base, "module")
+		}
+		return
+	}
+	t.Fatalf("static_fs entry not found in extracted index")
 }
 
 func TestLoadEntriesFromPathsMultipleWapps(t *testing.T) {
@@ -640,6 +740,325 @@ entries:
 	}
 	if routerResolved != "app:api.public" {
 		t.Fatalf("module-aware load router = %q, want app:api.public", routerResolved)
+	}
+}
+
+func TestRegisterModuleSourceRoots_DirectoryModulesOnly(t *testing.T) {
+	ctx := setupTestContext(t)
+	tmpDir := t.TempDir()
+
+	appDir := filepath.Join(tmpDir, "src")
+	replacementDir := filepath.Join(tmpDir, "replacement")
+	unpackedDir := filepath.Join(tmpDir, "vendor", "acme", "ui")
+	missingDir := filepath.Join(tmpDir, "missing")
+	packedPath := filepath.Join(tmpDir, "vendor", "acme", "packed-v1.0.0.wapp")
+
+	for _, dir := range []string{appDir, replacementDir, unpackedDir, filepath.Dir(packedPath)} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(packedPath, []byte("not loaded by this helper"), 0o644); err != nil {
+		t.Fatalf("write packed path: %v", err)
+	}
+
+	registerModuleSourceRoots(ctx, []lock.ModuleLoadPath{
+		{Path: appDir},
+		{Path: replacementDir, Module: "acme/local"},
+		{Path: unpackedDir, Module: "acme/ui", Version: "1.2.3"},
+		{Path: packedPath, Module: "acme/packed", Version: "1.0.0"},
+		{Path: missingDir, Module: "acme/missing", Version: "1.0.0"},
+	})
+
+	replacementRoot, ok := moduleapi.SourceRoot(ctx, "acme/local")
+	if !ok {
+		t.Fatal("replacement module source root not registered")
+	}
+	if replacementRoot != replacementDir {
+		t.Fatalf("replacement root = %q, want %q", replacementRoot, replacementDir)
+	}
+
+	unpackedRoot, ok := moduleapi.SourceRoot(ctx, "acme/ui")
+	if !ok {
+		t.Fatal("unpacked module source root not registered")
+	}
+	if unpackedRoot != unpackedDir {
+		t.Fatalf("unpacked root = %q, want %q", unpackedRoot, unpackedDir)
+	}
+
+	if _, ok := moduleapi.SourceRoot(ctx, "acme/packed"); ok {
+		t.Fatal("packed .wapp module should not register a source root")
+	}
+	if _, ok := moduleapi.SourceRoot(ctx, "acme/missing"); ok {
+		t.Fatal("missing module directory should not register a source root")
+	}
+}
+
+func TestEnsureModulesInstalledSkipsReplacedModules(t *testing.T) {
+	tests := []struct {
+		name   string
+		unpack bool
+	}{
+		{name: "packed mode", unpack: false},
+		{name: "unpacked mode", unpack: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			lockPath := filepath.Join(tmpDir, lock.DefaultFilename)
+			lockObj, err := lock.New(lockPath)
+			if err != nil {
+				t.Fatalf("create lock: %v", err)
+			}
+
+			replacementDir := filepath.Join(tmpDir, "local", "ui")
+			if err := os.MkdirAll(replacementDir, 0o755); err != nil {
+				t.Fatalf("mkdir replacement: %v", err)
+			}
+
+			lockObj.SetOptions(lock.Options{UnpackModules: tt.unpack})
+			lockObj.SetModule(lock.Module{Name: "acme/ui", Version: "v1.0.0"})
+			lockObj.SetReplacement(lock.Replacement{From: "acme/ui", To: "local/ui"})
+
+			if err := ensureModulesInstalledFromLock(context.Background(), lockObj, zap.NewNop()); err != nil {
+				t.Fatalf("ensureModulesInstalledFromLock failed: %v", err)
+			}
+
+			vendorModuleDir := filepath.Join(tmpDir, ".wippy", "vendor", "acme", "ui")
+			if _, err := os.Stat(vendorModuleDir); err == nil {
+				t.Fatalf("replaced module should not be installed to vendor directory: %s", vendorModuleDir)
+			} else if !os.IsNotExist(err) {
+				t.Fatalf("stat vendor module directory: %v", err)
+			}
+
+			vendorWapp := filepath.Join(tmpDir, ".wippy", "vendor", "acme", "ui-v1.0.0.wapp")
+			if _, err := os.Stat(vendorWapp); err == nil {
+				t.Fatalf("replaced module should not be installed to vendor pack: %s", vendorWapp)
+			} else if !os.IsNotExist(err) {
+				t.Fatalf("stat vendor module pack: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoadEntriesFromModuleLoadPaths_AppliesSourceModuleExcludesToVersionedDependencies(t *testing.T) {
+	ctx := setupTestContext(t)
+	logger := zap.NewNop()
+	tmpDir := t.TempDir()
+
+	moduleDir := filepath.Join(tmpDir, "views")
+	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
+		t.Fatalf("mkdir module dir: %v", err)
+	}
+	moduleConfig := `organization: wippy
+module: views
+exclude:
+  - "app:**"
+exclude_meta:
+  type:
+    - test
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, "wippy.yaml"), []byte(moduleConfig), 0o644); err != nil {
+		t.Fatalf("write module config: %v", err)
+	}
+	appYAML := `version: "1.0"
+namespace: app
+entries:
+  - name: gateway
+    kind: http.service
+    addr: :19086
+    lifecycle:
+      auto_start: true
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, "app.yaml"), []byte(appYAML), 0o644); err != nil {
+		t.Fatalf("write module app.yaml: %v", err)
+	}
+	moduleYAML := `version: "1.0"
+namespace: wippy.views
+entries:
+  - name: render
+    kind: function.lua
+    meta:
+      type: test
+    source: |
+      return {}
+  - name: public_api
+    kind: http.endpoint
+    meta:
+      router: api.public
+    path: /views
+    method: GET
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, "views.yaml"), []byte(moduleYAML), 0o644); err != nil {
+		t.Fatalf("write module views.yaml: %v", err)
+	}
+
+	entries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+		{Path: moduleDir, Module: "wippy/views", Version: "0.4.15"},
+	}, logger)
+	if err != nil {
+		t.Fatalf("LoadEntriesFromModuleLoadPaths failed: %v", err)
+	}
+
+	found := map[string]regapi.Entry{}
+	for _, entry := range entries {
+		found[entry.ID.String()] = entry
+	}
+	if _, ok := found["app:gateway"]; ok {
+		t.Fatalf("versioned module leaked excluded app entry")
+	}
+	if _, ok := found["wippy.views:render"]; ok {
+		t.Fatalf("versioned module leaked excluded meta.type=test entry")
+	}
+	publicAPI, ok := found["wippy.views:public_api"]
+	if !ok {
+		t.Fatalf("non-excluded module entry missing")
+	}
+	if got := publicAPI.Meta.GetString("module", ""); got != "wippy/views" {
+		t.Fatalf("module meta = %q, want wippy/views", got)
+	}
+}
+
+func TestLoadEntriesFromModuleLoadPaths_AppliesSourceModuleExcludesToReplacements(t *testing.T) {
+	ctx := setupTestContext(t)
+	logger := zap.NewNop()
+	tmpDir := t.TempDir()
+
+	moduleDir := filepath.Join(tmpDir, "dataflow-src")
+	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
+		t.Fatalf("mkdir module dir: %v", err)
+	}
+	moduleConfig := `organization: wippy
+module: dataflow
+exclude_meta:
+  type:
+    - test
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, "wippy.yaml"), []byte(moduleConfig), 0o644); err != nil {
+		t.Fatalf("write module config: %v", err)
+	}
+	moduleYAML := `version: "1.0"
+namespace: userspace.dataflow
+entries:
+  - name: local_test
+    kind: function.lua
+    meta:
+      type: test
+    source: |
+      return {}
+  - name: real_handler
+    kind: function.lua
+    source: |
+      return {}
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, "_index.yaml"), []byte(moduleYAML), 0o644); err != nil {
+		t.Fatalf("write module _index.yaml: %v", err)
+	}
+
+	entries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+		{Path: moduleDir, Module: "wippy/dataflow"},
+	}, logger)
+	if err != nil {
+		t.Fatalf("LoadEntriesFromModuleLoadPaths failed: %v", err)
+	}
+
+	found := map[string]regapi.Entry{}
+	for _, entry := range entries {
+		found[entry.ID.String()] = entry
+	}
+	if _, ok := found["userspace.dataflow:local_test"]; ok {
+		t.Fatalf("replacement leaked excluded meta.type=test entry")
+	}
+	real, ok := found["userspace.dataflow:real_handler"]
+	if !ok {
+		t.Fatalf("non-excluded module entry missing")
+	}
+	if got := real.Meta.GetString("module", ""); got != "wippy/dataflow" {
+		t.Fatalf("module meta = %q, want wippy/dataflow", got)
+	}
+}
+
+// Mirrors the reported bug: a replacement points at a module's source tree
+// that ships a test/_index.yaml defining entries under a namespace the host
+// also uses. Without manifest filtering, the test fixture and the host's real
+// entry collide; with filtering, only the host entry survives.
+func TestLoadEntriesFromModuleLoadPaths_ReplacementHostCollisionFiltered(t *testing.T) {
+	ctx := setupTestContext(t)
+	logger := zap.NewNop()
+	tmpDir := t.TempDir()
+
+	moduleDir := filepath.Join(tmpDir, "facade-src")
+	if err := os.MkdirAll(filepath.Join(moduleDir, "test"), 0o755); err != nil {
+		t.Fatalf("mkdir module + test dir: %v", err)
+	}
+	moduleConfig := `organization: wippy
+module: facade
+exclude:
+  - "app:**"
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, "wippy.yaml"), []byte(moduleConfig), 0o644); err != nil {
+		t.Fatalf("write module config: %v", err)
+	}
+	moduleYAML := `version: "1.0"
+namespace: wippy.facade
+entries:
+  - name: real_handler
+    kind: function.lua
+    source: |
+      return {}
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, "_index.yaml"), []byte(moduleYAML), 0o644); err != nil {
+		t.Fatalf("write module _index.yaml: %v", err)
+	}
+	testFixtureYAML := `version: "1.0"
+namespace: app
+entries:
+  - name: gateway
+    kind: http.service
+    addr: :19085
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, "test", "_index.yaml"), []byte(testFixtureYAML), 0o644); err != nil {
+		t.Fatalf("write module test fixture: %v", err)
+	}
+
+	appDir := filepath.Join(tmpDir, "app")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatalf("mkdir app dir: %v", err)
+	}
+	hostYAML := `version: "1.0"
+namespace: app
+entries:
+  - name: gateway
+    kind: http.service
+    addr: :8086
+`
+	if err := os.WriteFile(filepath.Join(appDir, "_index.yaml"), []byte(hostYAML), 0o644); err != nil {
+		t.Fatalf("write host app _index.yaml: %v", err)
+	}
+
+	entries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+		{Path: appDir},
+		{Path: moduleDir, Module: "wippy/facade"},
+	}, logger)
+	if err != nil {
+		t.Fatalf("LoadEntriesFromModuleLoadPaths failed: %v", err)
+	}
+
+	gatewayCount := 0
+	var gateway regapi.Entry
+	for _, entry := range entries {
+		if entry.ID.String() != "app:gateway" {
+			continue
+		}
+		gatewayCount++
+		gateway = entry
+	}
+	if gatewayCount != 1 {
+		t.Fatalf("app:gateway count = %d, want 1 (collision not filtered)", gatewayCount)
+	}
+	if got := gateway.Meta.GetString("module", ""); got != "" {
+		t.Fatalf("app:gateway tagged with module=%q, want host (untagged) entry to win", got)
 	}
 }
 

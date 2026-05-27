@@ -98,6 +98,9 @@ func TestWorkerSend_Integration(t *testing.T) {
 	funcRegistry := sysfunc.NewFunctionRegistry(bus, logger.Named("function"))
 
 	ctx := ctxapi.NewRootContext()
+	awaitSvc := eventbus.NewAwaitService(bus)
+	require.NoError(t, awaitSvc.Start(ctx))
+	defer func() { _ = awaitSvc.Stop() }()
 	ctx = function.WithRegistry(ctx, funcRegistry)
 	ctx = process.WithFactory(ctx, factoryRegistry)
 
@@ -132,8 +135,7 @@ func TestWorkerSend_Integration(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	awaiter := eventbus.NewAwaiter(bus, process.System, "factory.(accept|reject)")
-	waiter, err := awaiter.Prepare(ctx, workflowID.String())
+	waiter, err := awaitSvc.Prepare(ctx, process.System, "factory.(accept|reject)", workflowID.String(), 0)
 	require.NoError(t, err)
 
 	bus.Send(ctx, event.Event{

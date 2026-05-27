@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: MPL-2.0
+
+version: "1.0"
+namespace: wippy.fsdir
+
+entries:
+  # Module-owned fs.directory with a relative path and no explicit base.
+  # The runtime must resolve it against this module's source root, so the
+  # asset lives at <module-root>/assets, a sibling of this src directory.
+  - name: assets
+    kind: fs.directory
+    meta:
+      comment: Module-owned assets, relative path resolved against module source root
+    directory: ./assets
+    auto_init: true

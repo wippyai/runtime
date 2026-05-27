@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,23 @@ import (
 	"go.uber.org/zap"
 )
 
+// downloadWappViaHubOrLegacy attempts the hub-mediated download first
+// (single HTTPS hop to the hub, hub retries into S3); if the hub doesn't
+// advertise the endpoint yet (404 / 405) and a presigned S3 URL is
+// available, falls back to the legacy direct-to-S3 flow.
+func downloadWappViaHubOrLegacy(ctx context.Context, hubClient *hub.Client, info *hub.DownloadInfo, wappPath string) error {
+	if info.Digest != "" {
+		err := hubClient.DownloadViaHub(ctx, info.Digest, wappPath)
+		if err == nil {
+			return nil
+		}
+		if !hub.IsHubEndpointMissing(err) || info.URL == "" {
+			return err
+		}
+	}
+	return hubClient.DownloadToFile(ctx, info.URL, wappPath)
+}
+
 var installCmd = &cobra.Command{
 	Use:   "install [module...]",
 	Short: "Install dependencies from lock file",
@@ -26,11 +44,13 @@ Downloads and installs all modules specified in the lock file.
 If the lock file is missing, runs 'wippy init' followed by 'wippy update'.
 
 Modules are installed to the vendor directory specified in the lock file.
+Local replacements are validated by the lock file and skipped by install because
+the runtime loads those modules directly from their replacement paths.
 
 When module names are provided as arguments, only those modules are processed.
 Use with --refresh to re-download modules when cache might be stale:
   wippy install --refresh
-  wippy install --refresh keeper/keeper wippy/relay`,
+  wippy install --refresh acme/ui wippy/relay`,
 	RunE: runInstall,
 }
 
@@ -76,35 +96,29 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 
-	modules := lockObj.GetModules()
-	if len(modules) == 0 {
-		logger.Info("no modules to install")
+	selection := selectInstallModules(lockObj, args, logger)
+	modules := selection.modules
+	if len(args) > 0 && selection.matched == 0 {
+		logger.Warn("no matching modules found in lock file", zap.Strings("requested", args))
 		return nil
 	}
-
-	// Filter modules if specific modules are requested
+	if len(modules) == 0 {
+		if selection.skippedReplaced > 0 {
+			logger.Info("all selected modules are local replacements; nothing to install",
+				zap.Int("skipped_replaced", selection.skippedReplaced))
+		} else {
+			logger.Info("no remote modules to install")
+		}
+		return nil
+	}
 	if len(args) > 0 {
-		targetModules := make(map[string]bool)
-		for _, arg := range args {
-			targetModules[arg] = true
-		}
-
-		filtered := make([]lock.Module, 0)
-		for _, mod := range modules {
-			if targetModules[mod.Name] {
-				filtered = append(filtered, mod)
-			}
-		}
-
-		if len(filtered) == 0 {
-			logger.Warn("no matching modules found in lock file", zap.Strings("requested", args))
-			return nil
-		}
-
-		modules = filtered
-		logger.Info("installing specific modules", zap.Int("count", len(modules)))
+		logger.Info("installing specific remote modules",
+			zap.Int("count", len(modules)),
+			zap.Int("skipped_replaced", selection.skippedReplaced))
 	} else {
-		logger.Info("modules to install", zap.Int("count", len(modules)))
+		logger.Info("remote modules to install",
+			zap.Int("count", len(modules)),
+			zap.Int("skipped_replaced", selection.skippedReplaced))
 	}
 
 	// Get auth credentials
@@ -133,7 +147,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	lockDir := filepath.Dir(lockObj.Path())
 	vendorPath := lockObj.GetVendorPath()
-	vendorDir := filepath.Join(lockDir, vendorPath)
+	vendorDir := lock.ResolveLockPath(lockDir, vendorPath)
 	shouldUnpack := lockObj.ShouldUnpackModules()
 
 	refresh := shouldBypassInstallCache(cmd)
@@ -163,7 +177,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 				if shouldUnpack {
 					// Unpack .wapp to directory when unpack is enabled
 					logger.Info("unpacking .wapp to directory", zap.String("module", module.Name))
-					if err := entries.ExtractWappToDir(resolved.Path, dirPath, lockDir); err != nil {
+					if err := entries.ExtractWappToDir(resolved.Path, dirPath); err != nil {
 						return NewExtractModuleError(module.Name, err)
 					}
 				}
@@ -194,13 +208,18 @@ func runInstall(cmd *cobra.Command, args []string) error {
 			return NewDownloadModuleError(moduleRef, err)
 		}
 
-		if downloadInfo.URL == "" {
+		if downloadInfo.URL == "" && downloadInfo.Digest == "" {
 			return NewNoContentDownloadedError(moduleRef)
 		}
 
-		// Download .wapp file
+		// Download .wapp file. Prefer the hub-mediated download path
+		// (one HTTPS hop to the hub, hub-side retry into S3) — same
+		// motivation as publish: a direct-to-S3 GET from a client on a
+		// flaky network fails without retry. Fall back to the legacy
+		// presigned-URL flow only if the new endpoint is missing on
+		// this hub deployment.
 		wappPath := filepath.Join(vendorDir, lock.WappPath(modName, module.Version))
-		if err := hubClient.DownloadToFile(app.Ctx, downloadInfo.URL, wappPath); err != nil {
+		if err := downloadWappViaHubOrLegacy(app.Ctx, hubClient, downloadInfo, wappPath); err != nil {
 			return NewDownloadModuleError(moduleRef, err)
 		}
 
@@ -209,7 +228,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 			if err := os.RemoveAll(dirPath); err != nil {
 				return NewStoreModuleError(moduleRef, err)
 			}
-			if err := entries.ExtractWappToDir(wappPath, dirPath, lockDir); err != nil {
+			if err := entries.ExtractWappToDir(wappPath, dirPath); err != nil {
 				return NewExtractModuleError(moduleRef, err)
 			}
 		}
@@ -238,6 +257,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	logFields := []zap.Field{
 		zap.Int("installed", installed),
 		zap.Int("cached", cached),
+		zap.Int("skipped_replaced", selection.skippedReplaced),
 		zap.Int("total", len(modules)),
 	}
 	logger.Info(logMsg, logFields...)
@@ -246,6 +266,49 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+type installSelection struct {
+	modules         []lock.Module
+	matched         int
+	skippedReplaced int
+}
+
+func selectInstallModules(lockObj *lock.Lock, requested []string, logger *zap.Logger) installSelection {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	if lockObj == nil {
+		return installSelection{}
+	}
+
+	var requestedSet map[string]bool
+	if len(requested) > 0 {
+		requestedSet = make(map[string]bool, len(requested))
+		for _, name := range requested {
+			requestedSet[name] = true
+		}
+	}
+
+	selection := installSelection{}
+	for _, module := range lockObj.GetModules() {
+		if requestedSet != nil && !requestedSet[module.Name] {
+			continue
+		}
+		selection.matched++
+
+		if repl, ok := lockObj.GetReplacement(module.Name); ok {
+			logger.Info("module is replaced by local source; skipping install",
+				zap.String("module", module.Name),
+				zap.String("replacement", repl.To))
+			selection.skippedReplaced++
+			continue
+		}
+
+		selection.modules = append(selection.modules, module)
+	}
+
+	return selection
 }
 
 func shouldBypassInstallCache(cmd *cobra.Command) bool {

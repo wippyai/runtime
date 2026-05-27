@@ -520,7 +520,6 @@ func (p *ParallelCoroutinesProcess) Step(events []process.Event, out *process.St
 		return nil
 	}
 
-	out.Continue()
 	return nil
 }
 

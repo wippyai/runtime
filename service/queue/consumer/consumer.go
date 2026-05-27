@@ -69,7 +69,8 @@ func (c *Consumer) Start(ctx context.Context) (<-chan any, error) {
 	}
 
 	// Attach to driver to receive deliveries
-	cancel, err := c.driver.Attach(ctx, c.queueID, c.deliveries)
+	opts := c.config.ConsumerOptions
+	cancel, err := c.driver.Attach(ctx, c.queueID, &opts, c.deliveries)
 	if err != nil {
 		c.workerCancel()
 		close(c.statusChan)
@@ -164,6 +165,13 @@ func (c *Consumer) worker(ctx context.Context, workerID int) {
 // processDelivery processes a single message delivery
 func (c *Consumer) processDelivery(ctx context.Context, delivery *queueapi.Delivery, workerID int) {
 	msg := delivery.Message
+	defer func() {
+		// Signal wrappers that outlived the handler (e.g. Lua userdata
+		// retained in a closure or coroutine) to stop dereferencing the
+		// pooled *Message before it goes back to sync.Pool.
+		delivery.Invalidate()
+		queueapi.ReleaseMessage(msg)
+	}()
 
 	c.logger.Debug("processing message",
 		zap.String("consumer", c.id.String()),
@@ -187,7 +195,11 @@ func (c *Consumer) processDelivery(ctx context.Context, delivery *queueapi.Deliv
 		err = result.Error
 	}
 
-	// Ack or Nack based on result
+	// Ack or Nack based on result. MarkSettled gates the broker call: if
+	// the handler already called msg:ack()/msg:nack() via the Lua
+	// wrapper, the settle slot is claimed and the consumer must skip its
+	// own settle to avoid double-ack (AMQP PRECONDITION_FAILED) or
+	// double-nack/visibility-timeout races.
 	if err != nil {
 		c.logger.Error("message processing failed",
 			zap.String("consumer", c.id.String()),
@@ -197,11 +209,13 @@ func (c *Consumer) processDelivery(ctx context.Context, delivery *queueapi.Deliv
 			zap.String("message_id", msg.ID),
 			zap.Error(err))
 
-		if nackErr := delivery.Nack(ctx); nackErr != nil {
-			c.logger.Error("failed to nack message",
-				zap.String("consumer", c.id.String()),
-				zap.String("message_id", msg.ID),
-				zap.Error(nackErr))
+		if delivery.MarkSettled() {
+			if nackErr := delivery.Nack(ctx); nackErr != nil {
+				c.logger.Error("failed to nack message",
+					zap.String("consumer", c.id.String()),
+					zap.String("message_id", msg.ID),
+					zap.Error(nackErr))
+			}
 		}
 	} else {
 		c.logger.Debug("message processed successfully",
@@ -209,11 +223,13 @@ func (c *Consumer) processDelivery(ctx context.Context, delivery *queueapi.Deliv
 			zap.Int("worker_id", workerID),
 			zap.String("message_id", msg.ID))
 
-		if ackErr := delivery.Ack(ctx); ackErr != nil {
-			c.logger.Error("failed to ack message",
-				zap.String("consumer", c.id.String()),
-				zap.String("message_id", msg.ID),
-				zap.Error(ackErr))
+		if delivery.MarkSettled() {
+			if ackErr := delivery.Ack(ctx); ackErr != nil {
+				c.logger.Error("failed to ack message",
+					zap.String("consumer", c.id.String()),
+					zap.String("message_id", msg.ID),
+					zap.Error(ackErr))
+			}
 		}
 	}
 }

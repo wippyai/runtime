@@ -29,16 +29,16 @@ func (m *MockDriver) Publish(ctx context.Context, q registry.ID, msgs ...*queue.
 	return args.Error(0)
 }
 
-func (m *MockDriver) Attach(ctx context.Context, q registry.ID, deliveries chan<- *queue.Delivery) (context.CancelFunc, error) {
-	args := m.Called(ctx, q, deliveries)
+func (m *MockDriver) Attach(ctx context.Context, q registry.ID, opts *queue.ConsumerOptions, deliveries chan<- *queue.Delivery) (context.CancelFunc, error) {
+	args := m.Called(ctx, q, opts, deliveries)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(context.CancelFunc), args.Error(1)
 }
 
-func (m *MockDriver) DeclareQueue(ctx context.Context, q registry.ID, opts attrs.Attributes) error {
-	args := m.Called(ctx, q, opts)
+func (m *MockDriver) DeclareQueue(ctx context.Context, q registry.ID, cfg *queue.Config) error {
+	args := m.Called(ctx, q, cfg)
 	return args.Error(0)
 }
 
@@ -53,21 +53,6 @@ func (m *MockDriver) GetQueueInfo(ctx context.Context, q registry.ID) (attrs.Att
 // MockManager is a mock implementation of the Manager interface
 type MockManager struct {
 	mock.Mock
-}
-
-func (m *MockManager) Add(ctx context.Context, entry registry.Entry) error {
-	args := m.Called(ctx, entry)
-	return args.Error(0)
-}
-
-func (m *MockManager) Update(ctx context.Context, entry registry.Entry) error {
-	args := m.Called(ctx, entry)
-	return args.Error(0)
-}
-
-func (m *MockManager) Delete(ctx context.Context, entry registry.Entry) error {
-	args := m.Called(ctx, entry)
-	return args.Error(0)
 }
 
 func (m *MockManager) Publish(ctx context.Context, q registry.ID, msgs ...*queue.Message) error {
@@ -102,24 +87,22 @@ func (m *MockManager) UnregisterInterceptor(name string) {
 func TestQueueTypes(t *testing.T) {
 	t.Run("Queue struct", func(t *testing.T) {
 		queueID := registry.NewID("test", "my-queue")
-		driverID := registry.NewID("test", "redis-driver")
-		opts := attrs.NewBag()
-		opts.Set(queue.OptionQueueName, "custom-queue-name")
-		opts.Set(queue.OptionDurable, true)
-		opts.Set(queue.OptionMaxLength, 1000)
-
+		driverID := registry.NewID("test", "mem-driver")
+		cfg := &queue.Config{
+			Driver:    driverID,
+			QueueName: "custom-queue-name",
+		}
 		q := &queue.Queue{
 			ID:       queueID,
 			DriverID: driverID,
 			Name:     "custom-queue-name",
-			Options:  opts,
+			Config:   cfg,
 		}
 
 		assert.Equal(t, queueID, q.ID)
 		assert.Equal(t, driverID, q.DriverID)
 		assert.Equal(t, "custom-queue-name", q.Name)
-		assert.Equal(t, true, q.Options.GetBool(queue.OptionDurable, false))
-		assert.Equal(t, 1000, q.Options.GetInt(queue.OptionMaxLength, 0))
+		assert.Equal(t, cfg, q.Config)
 	})
 
 	t.Run("Delivery struct", func(t *testing.T) {
@@ -141,13 +124,11 @@ func TestQueueTypes(t *testing.T) {
 
 		assert.Equal(t, msg, delivery.Message)
 
-		// Test Ack
 		err := delivery.Ack(context.Background())
 		assert.NoError(t, err)
 		assert.True(t, ackCalled)
 		assert.False(t, nackCalled)
 
-		// Reset and test Nack
 		ackCalled = false
 		err = delivery.Nack(context.Background())
 		assert.NoError(t, err)
@@ -204,12 +185,6 @@ func TestErrorInterface(t *testing.T) {
 	t.Run("ErrQueueClosed", func(t *testing.T) {
 		err := queuesvc.ErrQueueClosed
 		assert.Equal(t, apierror.Unavailable, err.Kind())
-		assert.Equal(t, apierror.False, err.Retryable())
-	})
-
-	t.Run("ErrMessageExpired", func(t *testing.T) {
-		err := queue.ErrMessageExpired
-		assert.Equal(t, apierror.Invalid, err.Kind())
 		assert.Equal(t, apierror.False, err.Retryable())
 	})
 
@@ -272,7 +247,7 @@ func TestDriverInterface(t *testing.T) {
 	driver := new(MockDriver)
 	ctx := context.Background()
 	queueID := registry.NewID("test", "my-queue")
-	opts := attrs.NewBag()
+	cfg := &queue.Config{Driver: registry.NewID("test", "drv")}
 	msgs := []*queue.Message{
 		queue.NewMessage(payload.New("msg1")),
 		queue.NewMessage(payload.New("msg2")),
@@ -286,8 +261,8 @@ func TestDriverInterface(t *testing.T) {
 	})
 
 	t.Run("DeclareQueue", func(t *testing.T) {
-		driver.On("DeclareQueue", ctx, queueID, opts).Return(nil).Once()
-		err := driver.DeclareQueue(ctx, queueID, opts)
+		driver.On("DeclareQueue", ctx, queueID, cfg).Return(nil).Once()
+		err := driver.DeclareQueue(ctx, queueID, cfg)
 		assert.NoError(t, err)
 		driver.AssertExpectations(t)
 	})
@@ -295,9 +270,10 @@ func TestDriverInterface(t *testing.T) {
 	t.Run("Attach", func(t *testing.T) {
 		deliveries := make(chan *queue.Delivery)
 		cancel := context.CancelFunc(func() {})
-		driver.On("Attach", ctx, queueID, mock.AnythingOfType("chan<- *queue.Delivery")).Return(cancel, nil).Once()
+		opts := &queue.ConsumerOptions{Queue: queueID, Concurrency: 1, Prefetch: 10}
+		driver.On("Attach", ctx, queueID, opts, mock.AnythingOfType("chan<- *queue.Delivery")).Return(cancel, nil).Once()
 
-		cancelFunc, err := driver.Attach(ctx, queueID, deliveries)
+		cancelFunc, err := driver.Attach(ctx, queueID, opts, deliveries)
 		assert.NoError(t, err)
 		assert.NotNil(t, cancelFunc)
 		driver.AssertExpectations(t)
@@ -322,8 +298,7 @@ func TestManagerInterface(t *testing.T) {
 	manager := new(MockManager)
 	ctx := context.Background()
 	queueID := registry.NewID("test", "my-queue")
-	driverID := registry.NewID("test", "redis-driver")
-	opts := attrs.NewBag()
+	driverID := registry.NewID("test", "mem-driver")
 	msgs := []*queue.Message{
 		queue.NewMessage(payload.New("msg1")),
 		queue.NewMessage(payload.New("msg2")),
@@ -351,7 +326,7 @@ func TestManagerInterface(t *testing.T) {
 			ID:       queueID,
 			DriverID: driverID,
 			Name:     "my-queue",
-			Options:  opts,
+			Config:   &queue.Config{Driver: driverID},
 		}
 		manager.On("GetQueue", queueID).Return(q, true).Once()
 
@@ -381,7 +356,6 @@ func TestInterceptorInterface(t *testing.T) {
 			},
 		}
 
-		// Test the interceptor chain
 		err := interceptor.Handle(ctx, queueID, msgs, func(_ context.Context, q registry.ID, msgs []*queue.Message) error {
 			assert.Equal(t, queueID, q)
 			assert.Len(t, msgs, 1)
@@ -403,58 +377,25 @@ func (i *testPublishInterceptor) Handle(ctx context.Context, q registry.ID, msgs
 	return i.handleFunc(ctx, q, msgs, next)
 }
 
-func TestQueueDeclarationFlow(t *testing.T) {
-	// Simulate a typical queue declaration flow
-	ctx := context.Background()
+func TestQueueGetQueueFlow(t *testing.T) {
 	manager := new(MockManager)
-
-	// Step 1: Register a driver (kind would be defined in service layer, e.g., "queue.redis")
-	driverID := registry.NewID("app", "redis-driver")
-	driverEntry := registry.Entry{
-		ID:   driverID,
-		Kind: "queue.redis", // This kind would be defined in service layer
-		Data: payload.New(map[string]any{
-			"dsn": "redis://localhost:6379",
-		}),
-	}
-
-	manager.On("Add", ctx, driverEntry).Return(nil).Once()
-	err := manager.Add(ctx, driverEntry)
-	require.NoError(t, err)
-
-	// Step 2: Declare a queue
 	queueID := registry.NewID("app", "my-queue")
-	queueOpts := attrs.NewBag()
-	queueOpts.Set(queue.OptionQueueName, "custom-name")
-	queueOpts.Set(queue.OptionDurable, true)
-	queueOpts.Set(queue.OptionMaxLength, 10000)
+	driverID := registry.NewID("app", "mem-driver")
 
-	queueEntry := registry.Entry{
-		ID:   queueID,
-		Kind: "queue.queue", // This kind would be defined in service layer
-		Data: payload.New(map[string]any{
-			"driver":  driverID.String(),
-			"options": queueOpts,
-		}),
-	}
-
-	manager.On("Add", ctx, queueEntry).Return(nil).Once()
-	err = manager.Add(ctx, queueEntry)
-	require.NoError(t, err)
-
-	// Step 3: Get the queue to verify it was created
 	expectedQueue := &queue.Queue{
 		ID:       queueID,
 		DriverID: driverID,
 		Name:     "custom-name",
-		Options:  queueOpts,
+		Config: &queue.Config{
+			Driver:    driverID,
+			QueueName: "custom-name",
+		},
 	}
 
 	manager.On("GetQueue", queueID).Return(expectedQueue, true).Once()
 	q, ok := manager.GetQueue(queueID)
-	assert.True(t, ok)
+	require.True(t, ok)
 	assert.Equal(t, expectedQueue, q)
-
 	manager.AssertExpectations(t)
 }
 
@@ -503,7 +444,7 @@ func TestContextFunctions(t *testing.T) {
 		retrieved := queue.GetManager(ctx)
 		assert.Equal(t, mockMgr, retrieved)
 
-		// Test idempotent - second set doesn't override
+		// Idempotent: second set does not override the first.
 		mockMgr2 := new(MockManager)
 		queue.WithManager(ctx, mockMgr2)
 		assert.Equal(t, mockMgr, queue.GetManager(ctx))

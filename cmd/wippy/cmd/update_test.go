@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	bootapi "github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"go.uber.org/zap"
@@ -115,6 +117,92 @@ func TestPruneStaleVendorArtifacts_RemovesStaleArtifacts(t *testing.T) {
 	assertPathMissing(t, updatedDir)
 	assertPathMissing(t, updatedLegacyDir)
 	assertPathMissing(t, updatedOldWapp)
+}
+
+func TestLoadDependencyScanEntriesIncludesReplacementSources(t *testing.T) {
+	ctx := setupLoaderContext(t)
+	ldr := bootapi.GetLoader(ctx)
+	if ldr == nil {
+		t.Fatal("loader not available in test context")
+	}
+
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, "app")
+	replacementDir := filepath.Join(tmpDir, "local", "ui")
+	replacementSrcDir := filepath.Join(replacementDir, "src")
+	for _, dir := range []string{appDir, replacementSrcDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	appYAML := `version: "1.0"
+namespace: app.deps
+entries:
+  - name: facade
+    kind: ns.dependency
+    component: wippy/facade
+    version: ">=v0.5.39"
+`
+	if err := os.WriteFile(filepath.Join(appDir, "_index.yaml"), []byte(appYAML), 0o644); err != nil {
+		t.Fatalf("write app index: %v", err)
+	}
+
+	replacementYAML := `version: "1.0"
+namespace: local.ui.deps
+entries:
+  - name: dataflow
+    kind: ns.dependency
+    component: wippy/dataflow
+    version: ">=v0.4.10"
+`
+	if err := os.WriteFile(filepath.Join(replacementSrcDir, "_index.yaml"), []byte(replacementYAML), 0o644); err != nil {
+		t.Fatalf("write replacement index: %v", err)
+	}
+
+	nodeModulesYAML := `version: "1.0"
+namespace: should.not.load
+entries:
+  - name: ignored
+    kind: ns.dependency
+    component: bad/module
+`
+	if err := os.MkdirAll(filepath.Join(replacementDir, "frontend", "node_modules", "noise"), 0o755); err != nil {
+		t.Fatalf("mkdir replacement node_modules: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(replacementDir, "frontend", "node_modules", "noise", "_index.yaml"), []byte(nodeModulesYAML), 0o644); err != nil {
+		t.Fatalf("write replacement noise index: %v", err)
+	}
+
+	lockPath := filepath.Join(tmpDir, lock.DefaultFilename)
+	lockObj, err := lock.New(lockPath)
+	if err != nil {
+		t.Fatalf("create lock: %v", err)
+	}
+	lockObj.SetDirectories(lock.Directories{Modules: ".wippy", Src: "app"})
+	lockObj.SetModule(lock.Module{Name: "acme/ui", Version: "v1.0.0"})
+	lockObj.SetReplacement(lock.Replacement{From: "acme/ui", To: "local/ui"})
+
+	loaded, err := loadDependencyScanEntries(ctx, ldr, appDir, lockObj, zap.NewNop())
+	if err != nil {
+		t.Fatalf("loadDependencyScanEntries failed: %v", err)
+	}
+
+	deps := extractRootDependencies(loaded, payload.GetTranscoder(ctx))
+	got := map[string]string{}
+	for _, dep := range deps {
+		got[dep.Org+"/"+dep.Module] = dep.Constraint
+	}
+
+	if got["wippy/facade"] != ">=v0.5.39" {
+		t.Fatalf("app dependency missing: got %v", got)
+	}
+	if got["wippy/dataflow"] != ">=v0.4.10" {
+		t.Fatalf("replacement dependency missing: got %v", got)
+	}
+	if _, ok := got["bad/module"]; ok {
+		t.Fatalf("replacement scan should use src subtree and ignore node_modules noise: got %v", got)
+	}
 }
 
 func mustWriteFile(t *testing.T, path string) {

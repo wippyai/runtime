@@ -4,8 +4,10 @@ package function
 
 import (
 	"context"
+	"errors"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/runtime/lua"
@@ -54,7 +56,8 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 }
 
 // Invalidate handles code invalidation for hot reload.
-func (m *Manager) Invalidate(_ context.Context, ids []registry.ID) {
+func (m *Manager) Invalidate(_ context.Context, ids []registry.ID) error {
+	var errs []error
 	for _, id := range ids {
 		cfg := m.getConfig(id)
 		if cfg == nil {
@@ -67,24 +70,36 @@ func (m *Manager) Invalidate(_ context.Context, ids []registry.ID) {
 		if cfg.bytecode != nil {
 			if _, err := component.LoadAndVerifyBytecode(m.fsRegistry, cfg.bytecode.FS, cfg.bytecode.Path, cfg.bytecode.Hash); err != nil {
 				m.log.Error("failed to reload bytecode", zap.Error(err))
+				errs = append(errs, err)
 				continue
 			}
 		}
 
 		if err := m.replacePool(id, cfg); err != nil {
 			m.log.Error("failed to invalidate function", zap.Error(err))
+			errs = append(errs, err)
 		}
 	}
+	return errors.Join(errs...)
 }
 
 // Execute runs a function with given task.
 func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 	m.mu.RLock()
 	entry, exists := m.pools[task.ID]
+	if exists && !entry.acquire() {
+		exists = false
+	}
 	m.mu.RUnlock()
 
 	if !exists {
 		return nil, runtimelua.NewPoolNotFoundError(task.ID.String())
+	}
+	defer entry.release()
+
+	var err error
+	if task.Context, err = netapi.ApplyOverlayPair(ctx, task.Options, task.Context); err != nil {
+		return nil, err
 	}
 
 	if len(task.Context) > 0 {
@@ -92,6 +107,15 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 		if fc != nil {
 			if err := fc.SetMultiple(task.Context...); err != nil {
 				return nil, runtimelua.NewOperationError("set task context", err)
+			}
+		}
+	}
+
+	if entry.hostID != "" {
+		if framePID, ok := runtime.GetFramePID(ctx); ok {
+			framePID.Host = entry.hostID
+			if err := runtime.SetFramePID(ctx, framePID.Precomputed()); err != nil {
+				return nil, runtimelua.NewOperationError("set frame pid", err)
 			}
 		}
 	}
@@ -118,13 +142,13 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 		return runtimelua.NewAddNodeError("function", err)
 	}
 
-	configEntry := &configEntry{
-		method: cfg.Method,
-		pool:   cfg.Pool,
-		source: cfg,
-	}
 	opts, _ := cfg.Meta.GetBag("options")
-	configEntry.options = opts
+	configEntry := &configEntry{
+		method:  cfg.Method,
+		pool:    cfg.Pool,
+		source:  cfg,
+		options: opts,
+	}
 
 	if err := m.createPool(entry.ID, configEntry); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
@@ -169,13 +193,13 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 		return runtimelua.NewAddNodeError("function", err)
 	}
 
+	opts, _ := cfg.Meta.GetBag("options")
 	configEntry := &configEntry{
 		method:   cfg.Method,
 		pool:     cfg.Pool,
 		bytecode: cfg,
+		options:  opts,
 	}
-	opts, _ := cfg.Meta.GetBag("options")
-	configEntry.options = opts
 
 	if err := m.createPool(entry.ID, configEntry); err != nil {
 		_ = m.code.DeleteNode(ctx, entry.ID)
@@ -217,13 +241,13 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 		return runtimelua.NewUpdateNodeError("function", err)
 	}
 
-	configEntry := &configEntry{
-		method: cfg.Method,
-		pool:   cfg.Pool,
-		source: cfg,
-	}
 	opts, _ := cfg.Meta.GetBag("options")
-	configEntry.options = opts
+	configEntry := &configEntry{
+		method:  cfg.Method,
+		pool:    cfg.Pool,
+		source:  cfg,
+		options: opts,
+	}
 
 	if err := m.replacePool(entry.ID, configEntry); err != nil {
 		return runtimelua.NewReplacePoolError(err)
@@ -261,13 +285,13 @@ func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) erro
 		return runtimelua.NewUpdateNodeError("function", err)
 	}
 
+	opts, _ := cfg.Meta.GetBag("options")
 	configEntry := &configEntry{
 		method:   cfg.Method,
 		pool:     cfg.Pool,
 		bytecode: cfg,
+		options:  opts,
 	}
-	opts, _ := cfg.Meta.GetBag("options")
-	configEntry.options = opts
 
 	if err := m.replacePool(entry.ID, configEntry); err != nil {
 		return runtimelua.NewReplacePoolError(err)

@@ -1,32 +1,17 @@
 // SPDX-License-Identifier: MPL-2.0
 
+// Package queue holds the registry-kind identifier and errors for
+// queue.queue entries. The entry shape is queueapi.Config directly.
 package queue
 
 import (
-	"github.com/wippyai/runtime/api/attrs"
+	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
 )
 
 // Kind identifies queue entries in the registry.
 const Kind registry.Kind = "queue.queue"
 
-// Config describes a queue entry and its driver options.
-type Config struct {
-	Options attrs.Bag   `json:"options"`
-	Driver  registry.ID `json:"driver"`
-}
-
-// Validate checks queue configuration constraints.
-func (c *Config) Validate() error {
-	if c.Driver.Name == "" {
-		return ErrDriverIDRequired
-	}
-	return nil
-}
-
-// InitDefaults initializes default values.
-func (c *Config) InitDefaults() {
-	if c.Options == nil {
-		c.Options = attrs.NewBag()
-	}
-}
+// Config aliases the core queue config so DecodeEntryConfig[queuecfg.Config]
+// keeps working while everything else reads queueapi.Config directly.
+type Config = queueapi.Config

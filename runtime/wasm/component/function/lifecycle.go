@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/runtime/wasm"
@@ -64,10 +65,19 @@ func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
 func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 	m.mu.RLock()
 	entry, exists := m.pools[task.ID]
+	if exists && !entry.acquire() {
+		exists = false
+	}
 	m.mu.RUnlock()
 
 	if !exists {
 		return nil, runtimewasm.NewPoolNotFoundError(task.ID.String())
+	}
+	defer entry.release()
+
+	var err error
+	if task.Context, err = netapi.ApplyOverlayPair(ctx, task.Options, task.Context); err != nil {
+		return nil, err
 	}
 
 	if len(task.Context) > 0 {
@@ -75,6 +85,15 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 		if fc != nil {
 			if err := fc.SetMultiple(task.Context...); err != nil {
 				return nil, fmt.Errorf("set task context: %w", err)
+			}
+		}
+	}
+
+	if entry.hostID != "" {
+		if framePID, ok := runtime.GetFramePID(ctx); ok {
+			framePID.Host = entry.hostID
+			if err := runtime.SetFramePID(ctx, framePID.Precomputed()); err != nil {
+				return nil, fmt.Errorf("set frame pid: %w", err)
 			}
 		}
 	}

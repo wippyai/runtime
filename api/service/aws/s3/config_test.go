@@ -39,6 +39,15 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "bucket and endpoint from env",
+			config: Config{
+				BucketEnv:   "S3_BUCKET",
+				AWSConfig:   "aws-cfg",
+				EndpointEnv: "S3_ENDPOINT",
+			},
+			wantErr: false,
+		},
+		{
 			name: "with custom endpoint",
 			config: Config{
 				Bucket:    "local-bucket",
@@ -87,6 +96,14 @@ func TestConfig_Validate(t *testing.T) {
 				Bucket:    "my-bucket",
 				AWSConfig: "aws-cfg",
 				Endpoint:  "http://minio:9000",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid with bucket env",
+			config: Config{
+				BucketEnv: "S3_BUCKET",
+				AWSConfig: "aws-cfg",
 			},
 			wantErr: false,
 		},

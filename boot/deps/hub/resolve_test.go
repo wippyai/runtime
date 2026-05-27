@@ -192,6 +192,49 @@ func TestResolve_SemverConstraint(t *testing.T) {
 	assert.Equal(t, "1.5.0", result.Modules[0].Version)
 }
 
+func TestResolve_PrefersLockedTransitiveVersionWhenConstraintAllowsIt(t *testing.T) {
+	p := newFakeProvider()
+	p.addModule("acme", "app", "1.0.0", ManifestDep{Org: "acme", Name: "lib", Version: ">=1.0.0"})
+	p.addModule("acme", "lib", "1.0.0")
+	p.addModule("acme", "lib", "1.5.0")
+
+	result, err := Resolve(context.Background(), p, []DependencySpec{
+		{Org: "acme", Name: "app", Constraint: "1.0.0"},
+	}, &ResolveOptions{
+		LockedVersions: map[string]string{
+			"acme/lib": "1.0.0",
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Empty(t, result.Errors)
+	require.Len(t, result.Modules, 2)
+	assert.Equal(t, "app", result.Modules[0].Name)
+	assert.Equal(t, "lib", result.Modules[1].Name)
+	assert.Equal(t, "1.0.0", result.Modules[1].Version)
+}
+
+func TestResolve_IgnoresLockedTransitiveVersionWhenConstraintRejectsIt(t *testing.T) {
+	p := newFakeProvider()
+	p.addModule("acme", "app", "1.0.0", ManifestDep{Org: "acme", Name: "lib", Version: ">=1.2.0"})
+	p.addModule("acme", "lib", "1.0.0")
+	p.addModule("acme", "lib", "1.5.0")
+
+	result, err := Resolve(context.Background(), p, []DependencySpec{
+		{Org: "acme", Name: "app", Constraint: "1.0.0"},
+	}, &ResolveOptions{
+		LockedVersions: map[string]string{
+			"acme/lib": "1.0.0",
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Empty(t, result.Errors)
+	require.Len(t, result.Modules, 2)
+	assert.Equal(t, "lib", result.Modules[1].Name)
+	assert.Equal(t, "1.5.0", result.Modules[1].Version)
+}
+
 func TestResolve_TildeConstraint(t *testing.T) {
 	p := newFakeProvider()
 	p.addModule("acme", "lib", "1.2.0")

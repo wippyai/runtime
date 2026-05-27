@@ -21,6 +21,7 @@ import (
 // mockEntryListener implements registry.EntryListener and registry.TransactionListener
 type mockEntryListener struct {
 	returnError   error
+	txReturnError error
 	addCalls      []registry.Entry
 	updateCalls   []registry.Entry
 	deleteCalls   []registry.Entry
@@ -44,16 +45,19 @@ func (m *mockEntryListener) Delete(_ context.Context, entry registry.Entry) erro
 	return m.returnError
 }
 
-func (m *mockEntryListener) Begin(_ context.Context) {
+func (m *mockEntryListener) Begin(_ context.Context) error {
 	m.beginCalled = true
+	return m.txReturnError
 }
 
-func (m *mockEntryListener) Commit(_ context.Context) {
+func (m *mockEntryListener) Commit(_ context.Context) error {
 	m.commitCalled = true
+	return m.txReturnError
 }
 
-func (m *mockEntryListener) Discard(_ context.Context) {
+func (m *mockEntryListener) Discard(_ context.Context) error {
 	m.discardCalled = true
+	return m.txReturnError
 }
 
 type eventCollector struct {
@@ -335,5 +339,34 @@ func TestNewTransactionHandler(t *testing.T) {
 			assert.Equal(t, tc.expectCommit, listener.commitCalled, "unexpected commit state")
 			assert.Equal(t, tc.expectDiscard, listener.discardCalled, "unexpected discard state")
 		})
+	}
+}
+
+func TestNewTransactionHandlerRejectsWhenListenerReturnsError(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	bus := eventbus.NewBus()
+	ctx = event.WithBus(ctx, bus)
+
+	rejects := make(chan event.Event, 1)
+	subID, err := bus.SubscribeP(ctx, registry.System, registry.TxReject, rejects)
+	require.NoError(t, err)
+	defer bus.Unsubscribe(ctx, subID)
+
+	listener := &mockEntryListener{txReturnError: assert.AnError}
+	handler := NewTransactionHandler(listener)
+
+	err = handler.Handle(ctx, event.Event{
+		System: registry.System,
+		Kind:   registry.TxCommit,
+		Path:   "tx/reject",
+	})
+	require.NoError(t, err)
+
+	select {
+	case rejection := <-rejects:
+		assert.Contains(t, rejection.Path, "tx/reject/")
+		assert.Equal(t, assert.AnError, rejection.Data)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for transaction reject")
 	}
 }

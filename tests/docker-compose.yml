@@ -152,6 +152,92 @@ services:
       timeout: 5s
       retries: 5
 
+  # ElasticMQ (SQS-compatible message queue) for SQS queue driver tests.
+  # Lightweight alternative to LocalStack when only SQS is needed.
+  elasticmq:
+    image: softwaremill/elasticmq-native:1.6.11
+    container_name: elasticmq
+    ports:
+      - "9324:9324"    # REST API
+      - "9325:9325"    # Management UI
+    networks:
+      - app-network
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -q --spider http://localhost:9325/ || exit 1" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+
+  # Tor SOCKS5 Proxy for network overlay tests
+  tor-proxy:
+    image: dperson/torproxy:latest
+    container_name: tor-proxy
+    ports:
+      - "9050:9050"       # SOCKS5 proxy
+    networks:
+      - overlay-network
+    healthcheck:
+      test: [ "CMD-SHELL", "nc -z localhost 9050 || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # Lightweight SOCKS5 proxy for fast overlay-network tests
+  socks5-proxy:
+    image: serjs/go-socks5-proxy:latest
+    container_name: socks5-proxy
+    environment:
+      REQUIRE_AUTH: "false"
+      PROXY_PORT: "1080"
+    ports:
+      - "1080:1080"       # SOCKS5 proxy
+    networks:
+      - overlay-network
+    healthcheck:
+      test: [ "CMD-SHELL", "nc -z localhost 1080 || exit 1" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+
+  # I2P Router with SAM bridge for network overlay tests
+  i2p:
+    image: geti2p/i2p:latest
+    container_name: i2p
+    ports:
+      - "7656:7656"       # SAM bridge
+      - "7657:7657"       # HTTP console
+      - "4444:4444"       # HTTP proxy
+    networks:
+      - overlay-network
+    healthcheck:
+      test: [ "CMD-SHELL", "nc -z localhost 7656 || exit 1" ]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 120s
+
+  # Headscale (self-hosted Tailscale control server) for overlay tests
+  headscale:
+    image: headscale/headscale:0.23
+    container_name: headscale
+    command: serve
+    ports:
+      - "8090:8080"       # gRPC/HTTP control plane
+    volumes:
+      - headscale-data:/var/lib/headscale
+      - ./headscale/config.yaml:/etc/headscale/config.yaml:ro
+    networks:
+      - overlay-network
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -q --spider http://localhost:8080/health || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
   # MinIO Client for bucket setup
   minio-setup:
     image: minio/mc:latest
@@ -166,6 +252,7 @@ services:
       mc alias set myminio http://minio:9000 minioadmin minioadmin;
       mc mb --ignore-existing myminio/test-bucket;
       mc anonymous set public myminio/test-bucket;
+      mc version enable myminio/test-bucket;
       exit 0;
       "
 
@@ -175,6 +262,7 @@ volumes:
   rabbitmq-logs:
   postgres-data:
   minio-data:
+  headscale-data:
 
 networks:
   otel-network:
@@ -182,4 +270,6 @@ networks:
   temporal-network:
     driver: bridge
   app-network:
+    driver: bridge
+  overlay-network:
     driver: bridge

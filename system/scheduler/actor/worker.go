@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/runtime"
 	sysprocess "github.com/wippyai/runtime/system/process"
@@ -212,6 +213,11 @@ func (w *Worker) executeOne(proc *Processor) {
 		if !proc.casState(StateRunning, StateComplete) {
 			return
 		}
+		// Signal ephemeral producers to stop before tearing down the queue,
+		// so a terminated process doesn't leak its channel-anchored producers.
+		if a, ok := stepper.(interface{ Abort() }); ok {
+			a.Abort()
+		}
 		proc.queue.Close()
 		w.scheduler.complete(proc, nil, sysprocess.ErrTerminated)
 		return
@@ -357,7 +363,8 @@ func (w *Worker) executeOne(proc *Processor) {
 		if meta != nil && meta.Method != "" {
 			method = meta.Method
 		}
-		if err := newProc.Init(proc.ctx, method, req.Input); err != nil {
+		upgradeCtx, _ := ctxapi.OpenFrameContext(proc.ctx)
+		if err := newProc.Init(upgradeCtx, method, req.Input); err != nil {
 			proc.Process.Close()
 			if !proc.casState(StateRunning, StateComplete) {
 				return
@@ -366,6 +373,7 @@ func (w *Worker) executeOne(proc *Processor) {
 			w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: init failed: %w", err))
 			return
 		}
+		proc.ctx = upgradeCtx
 
 		// Success - re-queue to local
 		if !proc.casState(StateRunning, StateReady) {

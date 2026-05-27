@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
@@ -17,20 +19,57 @@ import (
 	"go.uber.org/zap"
 )
 
+// startDeclareAckStub subscribes to queueapi.Declare / queueapi.Delete events
+// on the bus and echoes back queue.accept for the same path. The declaration
+// handler waits for that acknowledgement before returning — mirroring the
+// real queue Manager without pulling it into every unit test.
+func startDeclareAckStub(t *testing.T, bus event.Bus) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	sub, err := eventbus.NewSubscriber(ctx, bus, queueapi.System,
+		"queue.queue.(declare|delete)", func(e event.Event) {
+			bus.Send(ctx, event.Event{
+				System: queueapi.System,
+				Kind:   "queue.accept",
+				Path:   e.Path,
+			})
+		})
+	require.NoError(t, err)
+	t.Cleanup(sub.Close)
+}
+
+func newDeclarationTestContext(t *testing.T, bus event.Bus) context.Context {
+	t.Helper()
+	ctx := ctxapi.NewRootContext()
+	awaitSvc := eventbus.NewAwaitService(bus)
+	require.NoError(t, awaitSvc.Start(ctx))
+	t.Cleanup(func() { _ = awaitSvc.Stop() })
+	return event.WithAwaitService(ctx, awaitSvc)
+}
+
+func newTestConfig(driverName string) *queuecfg.Config {
+	bag := attrs.NewBag()
+	amqpBag := attrs.NewBag()
+	amqpBag.Set("max_length", 1000)
+	bag.Set("amqp", amqpBag)
+	return &queuecfg.Config{
+		Driver:        registry.NewID("test", driverName),
+		DriverOptions: bag,
+	}
+}
+
 func TestDeclarationHandler_Add(t *testing.T) {
-	ctx := context.Background()
 	bus := eventbus.NewBus()
+	ctx := newDeclarationTestContext(t, bus)
+	startDeclareAckStub(t, bus)
 	queueMgr := &mockQueueManagerForDecl{}
 	dtt := &mockDTTForDecl{}
 
 	handler := NewDeclarationHandler(bus, queueMgr, dtt, zap.NewNop())
 
-	config := &queuecfg.Config{
-		Driver: registry.NewID("test", "driver"),
-		Options: attrs.Bag{
-			queueapi.OptionMaxLength: 1000,
-		},
-	}
+	config := newTestConfig("driver")
 
 	entry := registry.Entry{
 		ID:   registry.NewID("app", "tasks"),
@@ -52,12 +91,7 @@ func TestDeclarationHandler_Add_DriverNotFound(t *testing.T) {
 
 	handler := NewDeclarationHandler(bus, queueMgr, dtt, zap.NewNop())
 
-	config := &queuecfg.Config{
-		Driver: registry.NewID("test", "driver"),
-		Options: attrs.Bag{
-			queueapi.OptionMaxLength: 1000,
-		},
-	}
+	config := newTestConfig("driver")
 
 	entry := registry.Entry{
 		ID:   registry.NewID("app", "tasks"),
@@ -88,19 +122,15 @@ func TestDeclarationHandler_Delete(t *testing.T) {
 }
 
 func TestDeclarationHandler_Update(t *testing.T) {
-	ctx := context.Background()
 	bus := eventbus.NewBus()
+	ctx := newDeclarationTestContext(t, bus)
+	startDeclareAckStub(t, bus)
 	queueMgr := &mockQueueManagerForDecl{}
 	dtt := &mockDTTForDecl{}
 
 	handler := NewDeclarationHandler(bus, queueMgr, dtt, zap.NewNop())
 
-	newConfig := &queuecfg.Config{
-		Driver: registry.NewID("test", "new-driver"),
-		Options: attrs.Bag{
-			queueapi.OptionMaxLength: 2000,
-		},
-	}
+	newConfig := newTestConfig("new-driver")
 
 	entry := registry.Entry{
 		ID:   registry.NewID("app", "tasks"),
@@ -142,11 +172,11 @@ func (m *mockDriverForDecl) Publish(_ context.Context, _ registry.ID, _ ...*queu
 	return nil
 }
 
-func (m *mockDriverForDecl) Attach(_ context.Context, _ registry.ID, _ chan<- *queueapi.Delivery) (context.CancelFunc, error) {
+func (m *mockDriverForDecl) Attach(_ context.Context, _ registry.ID, _ *queueapi.ConsumerOptions, _ chan<- *queueapi.Delivery) (context.CancelFunc, error) {
 	return func() {}, nil
 }
 
-func (m *mockDriverForDecl) DeclareQueue(_ context.Context, _ registry.ID, _ attrs.Attributes) error {
+func (m *mockDriverForDecl) DeclareQueue(_ context.Context, _ registry.ID, _ *queueapi.Config) error {
 	return nil
 }
 

@@ -3,12 +3,14 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/wippyai/runtime/api/boot"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
@@ -127,13 +129,14 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Scan source directory for dependencies
-	logger.Info("scanning source directory", zap.String("src_dir", srcDir))
+	// Scan app source plus local replacement sources for dependency entries.
+	// Replacement modules are not resolved from the hub, but their transitive
+	// ns.dependency entries are part of the active application graph.
+	logger.Info("scanning dependency sources", zap.String("src_dir", srcDir))
 
-	dirFS := os.DirFS(srcDir)
-	entries, err := app.Loader.LoadFS(app.Ctx, dirFS)
+	entries, err := loadDependencyScanEntries(app.Ctx, app.Loader, srcDir, oldLockObj, logger)
 	if err != nil {
-		return NewLoadEntriesFromSourceError(fmt.Errorf("source dir %s: %w", srcDir, err))
+		return NewLoadEntriesFromSourceError(err)
 	}
 
 	// Extract root dependencies from entries
@@ -312,11 +315,30 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 
 	oldLockObj, _ := lock.New(lockFilePath)
 
-	// Scan source to get constraints
-	dirFS := os.DirFS(srcDir)
-	entries, err := app.Loader.LoadFS(app.Ctx, dirFS)
+	replacedModules := make(map[string]bool)
+	for _, repl := range lockObj.GetReplacements() {
+		replacedModules[repl.From] = true
+	}
+
+	effectiveTargets := make([]string, 0, len(targetModules))
+	for _, moduleName := range targetModules {
+		if repl, ok := lockObj.GetReplacement(moduleName); ok {
+			logger.Info("requested module is replaced by local source; skipping hub update",
+				zap.String("module", moduleName),
+				zap.String("replacement", repl.To))
+			continue
+		}
+		effectiveTargets = append(effectiveTargets, moduleName)
+	}
+	if len(effectiveTargets) == 0 {
+		logger.Info("all requested modules are local replacements; nothing to update")
+		return nil
+	}
+
+	// Scan app source plus local replacement sources to get constraints.
+	entries, err := loadDependencyScanEntries(app.Ctx, app.Loader, srcDir, lockObj, logger)
 	if err != nil {
-		return NewLoadEntriesFromSourceError(fmt.Errorf("source dir %s: %w", srcDir, err))
+		return NewLoadEntriesFromSourceError(err)
 	}
 
 	// Extract source constraints
@@ -329,13 +351,8 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 
 	// Build frozen constraints from lock file (all modules except targets and replaced)
 	targetSet := make(map[string]bool)
-	for _, name := range targetModules {
+	for _, name := range effectiveTargets {
 		targetSet[name] = true
-	}
-
-	replacedModules := make(map[string]bool)
-	for _, repl := range lockObj.GetReplacements() {
-		replacedModules[repl.From] = true
 	}
 
 	modules := lockObj.GetModules()
@@ -359,7 +376,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	}
 
 	// Add target modules with source constraints
-	for _, moduleName := range targetModules {
+	for _, moduleName := range effectiveTargets {
 		constraint, ok := sourceConstraints[moduleName]
 		if !ok {
 			logger.Warn("module not found in source dependencies", zap.String("module", moduleName))
@@ -464,6 +481,66 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	return nil
 }
 
+func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir string, lockObj *lock.Lock, logger *zap.Logger) ([]regapi.Entry, error) {
+	if ldr == nil {
+		return nil, fmt.Errorf("loader not available")
+	}
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+
+	paths := []struct {
+		label string
+		path  string
+	}{
+		{label: "source", path: srcDir},
+	}
+
+	if lockObj != nil {
+		replacements := make(map[string]bool)
+		for _, repl := range lockObj.GetReplacements() {
+			replacements[repl.From] = true
+		}
+		for _, mp := range lockObj.GetModuleLoadPaths() {
+			if mp.Module == "" || !replacements[mp.Module] {
+				continue
+			}
+			paths = append(paths, struct {
+				label string
+				path  string
+			}{
+				label: "replacement " + mp.Module,
+				path:  mp.Path,
+			})
+		}
+	}
+
+	seen := make(map[string]bool, len(paths))
+	entries := make([]regapi.Entry, 0)
+	for _, scanPath := range paths {
+		absPath, err := filepath.Abs(scanPath.path)
+		if err != nil {
+			return nil, fmt.Errorf("%s path %s: %w", scanPath.label, scanPath.path, err)
+		}
+		if seen[absPath] {
+			continue
+		}
+		seen[absPath] = true
+
+		logger.Info("scanning dependency source",
+			zap.String("kind", scanPath.label),
+			zap.String("path", absPath))
+
+		loaded, err := ldr.LoadFS(ctx, os.DirFS(absPath))
+		if err != nil {
+			return nil, fmt.Errorf("%s path %s: %w", scanPath.label, absPath, err)
+		}
+		entries = append(entries, loaded...)
+	}
+
+	return entries, nil
+}
+
 func logChanges(logger *zap.Logger, changes *lock.Changes) {
 	if len(changes.Installed)+len(changes.Updated)+len(changes.Removed) > 0 {
 		logger.Info("changes detected",
@@ -505,7 +582,7 @@ func pruneStaleVendorArtifacts(lockObj *lock.Lock, changes *lock.Changes, logger
 	}
 
 	lockDir := filepath.Dir(lockObj.Path())
-	vendorDir := filepath.Join(lockDir, lockObj.GetVendorPath())
+	vendorDir := lock.ResolveLockPath(lockDir, lockObj.GetVendorPath())
 
 	for _, removed := range changes.Removed {
 		pruneModuleArtifacts(vendorDir, removed.Name, removed.Version, true, logger)

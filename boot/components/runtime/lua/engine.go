@@ -15,6 +15,7 @@ import (
 	logapi "github.com/wippyai/runtime/api/logs"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	bootpkg "github.com/wippyai/runtime/boot"
+	corecomponents "github.com/wippyai/runtime/boot/components/core"
 	"github.com/wippyai/runtime/boot/components/dispatchers"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/code/cache"
@@ -48,6 +49,7 @@ func Engine() boot.Component {
 			mainCacheSize := 10000
 			typeCheckEnabled := false
 			typeCheckStrict := false
+			invalidationWaitTimeout := code.DefaultInvalidationWaitTimeout
 			cacheCfg := cache.Config{
 				Enabled:          false,
 				Dir:              cache.DefaultDir,
@@ -56,10 +58,15 @@ func Engine() boot.Component {
 				TypecheckEnabled: true,
 			}
 			if cfg != nil {
+				registryCfg := cfg.Sub(corecomponents.RegistryName)
+				if registryCfg != nil {
+					invalidationWaitTimeout = registryCfg.GetDuration(corecomponents.RegistryEventWaitTimeout, invalidationWaitTimeout)
+				}
 				luaCfg := cfg.Sub("lua")
 				if luaCfg != nil {
 					protoCacheSize = luaCfg.GetInt("proto_cache_size", protoCacheSize)
 					mainCacheSize = luaCfg.GetInt("main_cache_size", mainCacheSize)
+					invalidationWaitTimeout = luaCfg.GetDuration("invalidation_wait_timeout", invalidationWaitTimeout)
 					typeSysCfg := luaCfg.Sub("type_system")
 					if typeSysCfg != nil {
 						typeCheckEnabled = typeSysCfg.GetBool("enabled", false)
@@ -96,7 +103,8 @@ func Engine() boot.Component {
 						Enabled: typeCheckEnabled,
 						Strict:  typeCheckStrict,
 					},
-					Cache: cacheCfg,
+					Cache:                   cacheCfg,
+					InvalidationWaitTimeout: invalidationWaitTimeout,
 				},
 			)
 			if err != nil {

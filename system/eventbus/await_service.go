@@ -4,6 +4,7 @@ package eventbus
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -72,6 +73,10 @@ func (s *AwaitService) Stop() error {
 
 // Prepare registers a waiter before the triggering request is sent.
 func (s *AwaitService) Prepare(ctx context.Context, system event.System, kind event.Kind, path event.Path, timeout time.Duration) (event.AwaitWaiter, error) {
+	if timeout <= 0 {
+		timeout = event.DefaultAwaitTimeout
+	}
+
 	d, err := s.getOrCreateDispatcher(system, kind)
 	if err != nil {
 		return nil, err
@@ -172,4 +177,8 @@ func (d *awaitDispatcher) handleEvent(evt event.Event) {
 		default:
 		}
 	}
+}
+
+func isAcceptKind(kind event.Kind) bool {
+	return kind == "accept" || strings.HasSuffix(kind, ".accept") || strings.HasSuffix(kind, ".accepted")
 }

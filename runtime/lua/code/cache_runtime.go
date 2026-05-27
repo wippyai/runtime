@@ -114,7 +114,7 @@ func (cm *Manager) saveTypecheckCache(node *Node, fingerprint string, deps []cac
 			EntryID:              node.ID.String(),
 			Kind:                 node.Kind,
 			Method:               node.Method,
-			SourceHash:           HashNode(node),
+			SourceHash:           nodeContentHash(node),
 			BuiltinHash:          cm.builtinHash,
 			TypecheckConfigHash:  cm.typeCfgHash,
 			Deps:                 deps,
@@ -174,7 +174,7 @@ func (cm *Manager) saveCompileCache(node *Node, fingerprint string, deps []cache
 			EntryID:            node.ID.String(),
 			Kind:               node.Kind,
 			Method:             node.Method,
-			SourceHash:         HashNode(node),
+			SourceHash:         nodeContentHash(node),
 			Deps:               deps,
 		},
 		Proto: data,
@@ -183,9 +183,13 @@ func (cm *Manager) saveCompileCache(node *Node, fingerprint string, deps []cache
 }
 
 func (cm *Manager) compileFingerprint(id registry.ID) (string, []cache.DepMeta, error) {
+	return cm.compileFingerprintFromGraph(cm.memGraph, id)
+}
+
+func (cm *Manager) compileFingerprintFromGraph(memGraph *MemoryGraph, id registry.ID) (string, []cache.DepMeta, error) {
 	memo := make(map[registry.ID]string)
 	meta := make(map[registry.ID][]cache.DepMeta)
-	fp, err := cm.compileFingerprintMemo(id, memo, meta)
+	fp, err := cm.compileFingerprintMemo(memGraph, id, memo, meta)
 	if err != nil {
 		return "", nil, err
 	}
@@ -200,7 +204,7 @@ func (cm *Manager) compileFingerprints(ids []registry.ID) map[registry.ID]string
 	meta := make(map[registry.ID][]cache.DepMeta)
 	out := make(map[registry.ID]string, len(ids))
 	for _, id := range ids {
-		fp, err := cm.compileFingerprintMemo(id, memo, meta)
+		fp, err := cm.compileFingerprintMemo(cm.memGraph, id, memo, meta)
 		if err == nil && fp != "" {
 			out[id] = fp
 		}
@@ -208,19 +212,19 @@ func (cm *Manager) compileFingerprints(ids []registry.ID) map[registry.ID]string
 	return out
 }
 
-func (cm *Manager) compileFingerprintMemo(id registry.ID, memo map[registry.ID]string, meta map[registry.ID][]cache.DepMeta) (string, error) {
+func (cm *Manager) compileFingerprintMemo(memGraph *MemoryGraph, id registry.ID, memo map[registry.ID]string, meta map[registry.ID][]cache.DepMeta) (string, error) {
 	if v, ok := memo[id]; ok {
 		return v, nil
 	}
-	node, err := cm.memGraph.GetNode(id)
+	node, err := memGraph.GetNode(id)
 	if err != nil {
 		return "", err
 	}
-	deps, _ := cm.memGraph.GetDependenciesWithAliases(id)
+	deps, _ := memGraph.GetDependenciesWithAliases(id)
 	depFPs := make([]cache.DepFingerprint, 0, len(deps))
 	depMeta := make([]cache.DepMeta, 0, len(deps))
 	for _, dep := range deps {
-		fp, err := cm.compileFingerprintMemo(dep.ID, memo, meta)
+		fp, err := cm.compileFingerprintMemo(memGraph, dep.ID, memo, meta)
 		if err != nil {
 			return "", err
 		}
@@ -236,16 +240,20 @@ func (cm *Manager) compileFingerprintMemo(id registry.ID, memo map[registry.ID]s
 			CompileFingerprint: fp,
 		})
 	}
-	fp := CompileFingerprint(node.ID.String(), node.Kind, HashNode(node), node.Method, depFPs)
+	fp := CompileFingerprint(node.ID.String(), node.Kind, nodeContentHash(node), node.Method, depFPs)
 	memo[id] = fp
 	meta[id] = depMeta
 	return fp, nil
 }
 
 func (cm *Manager) typecheckFingerprint(id registry.ID) (string, []cache.DepMeta, error) {
+	return cm.typecheckFingerprintFromGraph(cm.memGraph, id)
+}
+
+func (cm *Manager) typecheckFingerprintFromGraph(memGraph *MemoryGraph, id registry.ID) (string, []cache.DepMeta, error) {
 	memo := make(map[registry.ID]string)
 	meta := make(map[registry.ID][]cache.DepMeta)
-	fp, err := cm.typecheckFingerprintMemo(id, memo, meta)
+	fp, err := cm.typecheckFingerprintMemo(memGraph, id, memo, meta)
 	if err != nil {
 		return "", nil, err
 	}
@@ -260,7 +268,7 @@ func (cm *Manager) typecheckFingerprints(ids []registry.ID) map[registry.ID]stri
 	meta := make(map[registry.ID][]cache.DepMeta)
 	out := make(map[registry.ID]string, len(ids))
 	for _, id := range ids {
-		fp, err := cm.typecheckFingerprintMemo(id, memo, meta)
+		fp, err := cm.typecheckFingerprintMemo(cm.memGraph, id, memo, meta)
 		if err == nil && fp != "" {
 			out[id] = fp
 		}
@@ -268,19 +276,19 @@ func (cm *Manager) typecheckFingerprints(ids []registry.ID) map[registry.ID]stri
 	return out
 }
 
-func (cm *Manager) typecheckFingerprintMemo(id registry.ID, memo map[registry.ID]string, meta map[registry.ID][]cache.DepMeta) (string, error) {
+func (cm *Manager) typecheckFingerprintMemo(memGraph *MemoryGraph, id registry.ID, memo map[registry.ID]string, meta map[registry.ID][]cache.DepMeta) (string, error) {
 	if v, ok := memo[id]; ok {
 		return v, nil
 	}
-	node, err := cm.memGraph.GetNode(id)
+	node, err := memGraph.GetNode(id)
 	if err != nil {
 		return "", err
 	}
-	deps, _ := cm.memGraph.GetDependenciesWithAliases(id)
+	deps, _ := memGraph.GetDependenciesWithAliases(id)
 	depFPs := make([]cache.DepFingerprint, 0, len(deps))
 	depMeta := make([]cache.DepMeta, 0, len(deps))
 	for _, dep := range deps {
-		fp, err := cm.typecheckFingerprintMemo(dep.ID, memo, meta)
+		fp, err := cm.typecheckFingerprintMemo(memGraph, dep.ID, memo, meta)
 		if err != nil {
 			return "", err
 		}
@@ -296,7 +304,7 @@ func (cm *Manager) typecheckFingerprintMemo(id registry.ID, memo map[registry.ID
 			TypecheckFingerprint: fp,
 		})
 	}
-	fp := TypecheckFingerprint(node.ID.String(), node.Kind, HashNode(node), node.Method, cm.typeCfgHash, cm.builtinHash, depFPs)
+	fp := TypecheckFingerprint(node.ID.String(), node.Kind, nodeContentHash(node), node.Method, cm.typeCfgHash, cm.builtinHash, depFPs)
 	memo[id] = fp
 	meta[id] = depMeta
 	return fp, nil

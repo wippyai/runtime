@@ -263,6 +263,35 @@ func TestService_Stop_SendCancelError(t *testing.T) {
 	assert.Contains(t, err.Error(), "send cancel")
 }
 
+func TestService_Stop_AlreadyExitedDoesNotSendCancel(t *testing.T) {
+	svc := newTestService()
+	svc.statusCh = make(chan any, 1)
+	svc.statusCh <- errors.New("process failed")
+	close(svc.statusCh)
+	svc.childPID = pid.PID{UniqID: "child-123"}
+	node := &mockNode{sendErr: errors.New("process not found")}
+	ctx := setupTestContext(node, nil, nil)
+
+	err := svc.Stop(ctx)
+
+	require.NoError(t, err)
+	assert.Empty(t, node.sent)
+}
+
+func TestService_Stop_AlreadyClosedDoesNotSendCancel(t *testing.T) {
+	svc := newTestService()
+	svc.statusCh = make(chan any)
+	close(svc.statusCh)
+	svc.childPID = pid.PID{UniqID: "child-123"}
+	node := &mockNode{sendErr: errors.New("process not found")}
+	ctx := setupTestContext(node, nil, nil)
+
+	err := svc.Stop(ctx)
+
+	require.NoError(t, err)
+	assert.Empty(t, node.sent)
+}
+
 func TestService_Stop_Success(t *testing.T) {
 	svc := newTestService()
 	svc.statusCh = make(chan any, 1)

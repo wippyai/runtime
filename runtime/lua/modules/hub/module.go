@@ -23,11 +23,12 @@ import (
 
 // Options configure the hub module.
 type Options struct {
-	ModuleClient modulev1connect.ModuleServiceClient
-	AuthStore    *bootauth.Store
-	BaseURL      string
-	Token        string
-	Timeout      time.Duration
+	ModuleClient   modulev1connect.ModuleServiceClient
+	ArtifactClient ArtifactClient
+	AuthStore      *bootauth.Store
+	BaseURL        string
+	Token          string
+	Timeout        time.Duration
 }
 
 // DefaultOptions returns the default module options.
@@ -90,9 +91,10 @@ func (h *hubModule) build() (*lua.LTable, []luaapi.YieldType) {
 	modules.RawSetString("readme", lua.LGoFunc(h.modulesReadme))
 	modules.Immutable = true
 
-	versions := lua.CreateTable(0, 2)
+	versions := lua.CreateTable(0, 3)
 	versions.RawSetString("list", lua.LGoFunc(h.versionsList))
 	versions.RawSetString("get", lua.LGoFunc(h.versionsGet))
+	versions.RawSetString("inspect", lua.LGoFunc(h.versionsInspect))
 	versions.Immutable = true
 
 	dependencies := lua.CreateTable(0, 1)
@@ -363,6 +365,50 @@ func (h *hubModule) versionsGet(l *lua.LState) int {
 	return 1
 }
 
+func (h *hubModule) versionsInspect(l *lua.LState) int {
+	moduleRef, moduleKey, err := parseModuleRef(l, 1)
+	if err != nil {
+		return pushError(l, err)
+	}
+	versionRef, err := parseVersionRef(l, 2)
+	if err != nil {
+		return pushError(l, err)
+	}
+
+	ctx, err := h.requireContext(l)
+	if err != nil {
+		return pushError(l, err)
+	}
+	if !security.IsAllowed(ctx, "hub.versions.inspect", moduleKey, nil) {
+		return pushError(l, permissionDenied(l, "hub.versions.inspect", moduleKey))
+	}
+
+	base, err := parseBaseOptions(l, 3)
+	if err != nil {
+		return pushError(l, err)
+	}
+
+	client, err := h.artifactClient(l, base)
+	if err != nil {
+		return pushError(l, err)
+	}
+	params, paramsErr := downloadParamsFromRefs(moduleRef, versionRef)
+	if paramsErr != nil {
+		return pushError(l, invalidArgument(l, paramsErr.Error()))
+	}
+
+	ctx, cancel := withTimeout(ctx, base.timeout)
+	defer cancel()
+
+	inspection, callErr := inspectVersionArtifact(ctx, client, params, "")
+	if callErr != nil {
+		return pushError(l, hubCallError(l, callErr))
+	}
+
+	l.Push(artifactInspectionToTable(l, inspection))
+	return 1
+}
+
 func (h *hubModule) dependenciesGet(l *lua.LState) int {
 	moduleRef, moduleKey, err := parseModuleRef(l, 1)
 	if err != nil {
@@ -573,6 +619,22 @@ func (h *hubModule) moduleClient(l *lua.LState, base baseOptions) (modulev1conne
 		return h.opts.ModuleClient, nil
 	}
 
+	client, err := h.newHubClient(l, base)
+	if err != nil {
+		return nil, err
+	}
+	return client.Module, nil
+}
+
+func (h *hubModule) artifactClient(l *lua.LState, base baseOptions) (ArtifactClient, *lua.Error) {
+	if h.opts.ArtifactClient != nil {
+		return h.opts.ArtifactClient, nil
+	}
+
+	return h.newHubClient(l, base)
+}
+
+func (h *hubModule) newHubClient(l *lua.LState, base baseOptions) (*boothub.Client, *lua.Error) {
 	var store *bootauth.Store
 	registry := firstNonEmpty(base.registry, h.opts.BaseURL)
 	if registry == "" {
@@ -613,7 +675,7 @@ func (h *hubModule) moduleClient(l *lua.LState, base baseOptions) (modulev1conne
 		return nil, lua.WrapErrorWithLua(l, err, "hub client init").WithKind(lua.Invalid).WithRetryable(false)
 	}
 
-	return client.Module, nil
+	return client, nil
 }
 
 func withTimeout(ctx context.Context, timeout time.Duration) (context.Context, func()) {
@@ -1302,6 +1364,22 @@ func versionToTable(l *lua.LState, v *versionv1.Version) *lua.LTable {
 	result.RawSetString("source", lua.LString(v.GetSource()))
 	result.RawSetString("source_label", lua.LString(v.GetSourceLabel()))
 	result.RawSetString("metadata", versionMetadataToTable(l, v.GetMetadata()))
+	return result
+}
+
+func artifactInspectionToTable(l *lua.LState, inspection *artifactInspection) *lua.LTable {
+	result := lua.CreateTable(0, 7)
+	if inspection == nil {
+		return result
+	}
+	result.RawSetString("version", lua.LString(inspection.Version))
+	result.RawSetString("digest", lua.LString(inspection.Digest))
+	result.RawSetString("size_bytes", lua.LNumber(inspection.SizeBytes))
+	result.RawSetString("protected", lua.LBool(inspection.Protected))
+	result.RawSetString("entry_count", lua.LNumber(inspection.EntryCount))
+	result.RawSetString("entry_kinds", stringSliceToTable(l, inspection.EntryKinds))
+	result.RawSetString("requirements", requirementsToTable(l, inspection.Requirements))
+	result.RawSetString("cache_path", lua.LString(inspection.Path))
 	return result
 }
 

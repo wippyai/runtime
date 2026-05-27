@@ -15,6 +15,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -168,9 +169,13 @@ func createEntry(id registry.ID, kind registry.Kind, data string) registry.Entry
 
 // setupTestEnvironment prepares a test environment with necessary components.
 func setupTestEnvironment(t *testing.T) (context.Context, event.Bus, *BusRunner, *testComponent, func()) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctxapi.NewRootContext())
 
 	bus := eventbus.NewBus()
+	awaitSvc := eventbus.NewAwaitService(bus)
+	require.NoError(t, awaitSvc.Start(ctx))
+	ctx = event.WithAwaitService(ctx, awaitSvc)
+
 	busRunner := NewBusRunner(bus, zap.NewNop(), newTestBuilder(nil), WithDispatchPolicy(internalDispatchPolicy()))
 	component := newTestComponent(bus)
 
@@ -178,6 +183,7 @@ func setupTestEnvironment(t *testing.T) (context.Context, event.Bus, *BusRunner,
 
 	cleanup := func() {
 		componentCleanup()
+		_ = awaitSvc.Stop()
 		cancel()
 	}
 
@@ -542,6 +548,83 @@ func TestBusRunner_BeginAndCommitEvents(t *testing.T) {
 	assert.Equal(t, registry.TxCommit, receivedEvents[1].Kind, "Second event should be Commit")
 }
 
+func TestBusRunner_WaitsForTransactionAcknowledgements(t *testing.T) {
+	ctx, cancel := context.WithCancel(ctxapi.NewRootContext())
+	defer cancel()
+
+	bus := eventbus.NewBus()
+	awaitSvc := eventbus.NewAwaitService(bus)
+	require.NoError(t, awaitSvc.Start(ctx))
+	defer func() { _ = awaitSvc.Stop() }()
+	ctx = event.WithAwaitService(ctx, awaitSvc)
+
+	busRunner := NewBusRunner(
+		bus,
+		zap.NewNop(),
+		newTestBuilder(nil),
+		WithTransactionParticipants(func() []string { return []string{"tx-test-listener"} }),
+		WithEventWaitTimeout(500*time.Millisecond),
+	)
+
+	entryID := registry.NewID("", "tx-wait")
+	entry := registry.Entry{ID: entryID, Kind: "listener", Data: payload.NewString("ok")}
+
+	commitSeen := make(chan event.Path, 1)
+	releaseCommit := make(chan struct{})
+	txSub, err := eventbus.NewSubscriber(ctx, bus, registry.System, "registry.(begin|commit|discard)", func(evt event.Event) {
+		if evt.Kind == registry.TxCommit {
+			commitSeen <- evt.Path
+			<-releaseCommit
+		}
+		bus.Send(ctx, event.Event{
+			System: registry.System,
+			Kind:   registry.TxAccept,
+			Path:   evt.Path + "/tx-test-listener",
+		})
+	})
+	require.NoError(t, err)
+	defer txSub.Close()
+
+	entrySub, err := eventbus.NewSubscriber(ctx, bus, registry.System, registry.EntryCreate, func(evt event.Event) {
+		bus.Send(ctx, event.Event{
+			System: registry.System,
+			Kind:   registry.EntryAccept,
+			Path:   evt.Path,
+		})
+	})
+	require.NoError(t, err)
+	defer entrySub.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := busRunner.Transition(ctx, nil, registry.ChangeSet{
+			{Kind: registry.EntryCreate, Entry: entry},
+		})
+		done <- err
+	}()
+
+	select {
+	case <-commitSeen:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for commit event")
+	}
+
+	select {
+	case err := <-done:
+		t.Fatalf("transition completed before commit acknowledgement: %v", err)
+	default:
+	}
+
+	close(releaseCommit)
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for transition to finish")
+	}
+}
+
 func TestBusRunner_RollbackOrder(t *testing.T) {
 	ctx, _, busRunner, _, cleanup := setupTestEnvironment(t)
 	defer cleanup()
@@ -604,10 +687,15 @@ func TestBusRunner_RollbackOrder(t *testing.T) {
 }
 
 func TestBusRunner_ErrorPropagation(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	ctx, cancel := context.WithTimeout(ctxapi.NewRootContext(), time.Second*5)
 	defer cancel()
 
 	bus := eventbus.NewBus()
+	awaitSvc := eventbus.NewAwaitService(bus)
+	require.NoError(t, awaitSvc.Start(ctx))
+	defer func() { _ = awaitSvc.Stop() }()
+	ctx = event.WithAwaitService(ctx, awaitSvc)
+
 	busRunner := NewBusRunner(bus, zap.NewNop(), newTestBuilder(nil), WithDispatchPolicy(internalDispatchPolicy()))
 	expectedError := errors2.New("component configuration not allowed")
 
@@ -717,10 +805,15 @@ func TestBusRunner_BeginAndDiscardEvents(t *testing.T) {
 }
 
 func TestBusRunner_CustomEventWaitTimeout(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctxapi.NewRootContext())
 	defer cancel()
 
 	bus := eventbus.NewBus()
+	awaitSvc := eventbus.NewAwaitService(bus)
+	require.NoError(t, awaitSvc.Start(ctx))
+	defer func() { _ = awaitSvc.Stop() }()
+	ctx = event.WithAwaitService(ctx, awaitSvc)
+
 	busRunner := NewBusRunner(
 		bus,
 		zap.NewNop(),
@@ -752,10 +845,14 @@ func TestBusRunner_CustomEventWaitTimeout(t *testing.T) {
 // TestBusRunner_RollbackOrderWithResolver verifies that rollback deletes dependents before dependencies
 // when using a resolver that can extract dependencies from metadata.
 func TestBusRunner_RollbackOrderWithResolver(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctxapi.NewRootContext())
 	defer cancel()
 
 	bus := eventbus.NewBus()
+	awaitSvc := eventbus.NewAwaitService(bus)
+	require.NoError(t, awaitSvc.Start(ctx))
+	defer func() { _ = awaitSvc.Stop() }()
+	ctx = event.WithAwaitService(ctx, awaitSvc)
 
 	// Create resolver with meta.server pattern (like HTTP components use)
 	resolver := &testResolver{

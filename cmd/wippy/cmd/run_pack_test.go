@@ -558,6 +558,42 @@ override:
 	})
 }
 
+func TestVerifyPackedResourcesSmallFileAfterChunkedFile(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "assets/ts.worker.js", deterministicBytes(int(wapp.ChunkSize)+257))
+	writeTestFile(t, root, "assets/utils.js", []byte("export const ok = true;\n"))
+	writeTestFile(t, root, "app.js", []byte("import './assets/utils.js';\n"))
+
+	packPath := packTestResource(t, root)
+
+	err := verifyPackedResources(packPath, []wapp.ResourceSpec{{
+		ID: wapp.NewID("test", "static"),
+		FS: os.DirFS(root),
+	}})
+	if err != nil {
+		t.Fatalf("verifyPackedResources failed: %v", err)
+	}
+}
+
+func TestVerifyPackedResourcesDetectsContentMismatch(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "assets/app.js", []byte("before\n"))
+
+	packPath := packTestResource(t, root)
+	writeTestFile(t, root, "assets/app.js", []byte("after\n"))
+
+	err := verifyPackedResources(packPath, []wapp.ResourceSpec{{
+		ID: wapp.NewID("test", "static"),
+		FS: os.DirFS(root),
+	}})
+	if err == nil {
+		t.Fatal("verifyPackedResources succeeded after source changed")
+	}
+	if !strings.Contains(err.Error(), "content mismatch") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func createTestPackFile(t *testing.T, dir, name string, entries []wapp.Entry) string {
 	t.Helper()
 
@@ -579,6 +615,52 @@ func createTestPackFileWithMetadata(t *testing.T, dir, name string, metadata wap
 	}
 
 	return path
+}
+
+func packTestResource(t *testing.T, root string) string {
+	t.Helper()
+
+	packPath := filepath.Join(t.TempDir(), "test.wapp")
+	file, err := os.Create(packPath)
+	if err != nil {
+		t.Fatalf("create pack: %v", err)
+	}
+
+	writer := wapp.NewWriter()
+	err = writer.PackWithResources(wapp.Metadata{"name": "test"}, nil, []wapp.ResourceSpec{{
+		ID: wapp.NewID("test", "static"),
+		FS: os.DirFS(root),
+	}}, file)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatalf("pack resource: %v", err)
+	}
+
+	return packPath
+}
+
+func writeTestFile(t *testing.T, root, rel string, data []byte) {
+	t.Helper()
+
+	path := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", rel, err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write %s: %v", rel, err)
+	}
+}
+
+func deterministicBytes(n int) []byte {
+	out := make([]byte, n)
+	var x uint32 = 0x12345678
+	for i := range out {
+		x = 1664525*x + 1013904223
+		out[i] = byte(x >> 24)
+	}
+	return out
 }
 
 type failingPackRegistry struct {

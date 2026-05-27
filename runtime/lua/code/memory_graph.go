@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	glua "github.com/wippyai/go-lua"
+	"github.com/wippyai/go-lua/compiler/bytecode"
 	"github.com/wippyai/go-lua/types/io"
 	"github.com/wippyai/runtime/api/registry"
 	runtime "github.com/wippyai/runtime/api/runtime/lua"
@@ -19,19 +21,20 @@ import (
 type (
 	// Version tracks changes to nodes
 	Version struct {
-		Created time.Time
-		Hash    string
+		Created  time.Time
+		Hash     string
+		Revision uint64
 	}
 
 	// Node represents a code unit in the dependency graph.
 	Node struct {
-		Version  Version
 		Module   *runtime.ModuleDef
 		Manifest *io.Manifest
 		ID       registry.ID
 		Kind     registry.Kind
 		Source   string
 		Method   string
+		Version  Version
 	}
 
 	Preload struct {
@@ -74,6 +77,17 @@ func HashNode(node *Node) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+func HashNodeWithProto(node *Node, proto *glua.FunctionProto) string {
+	h := sha256.New()
+	h.Write([]byte(node.Method))
+	if proto != nil {
+		if data, err := bytecode.Dump(proto); err == nil {
+			h.Write(data)
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 // MemoryGraph is an in‑memory implementation of the CodeGraph interface.
 // It maintains nodes (representing code units/modules) and their dependency edges.
 // Dependency edges (of type runtime.Edge) carry an alias, which is later propagated into
@@ -95,6 +109,34 @@ func NewMemoryGraph() *MemoryGraph {
 		dependentsCache: make(map[registry.ID][]*Node),
 		cacheValid:      true,
 	}
+}
+
+func (m *MemoryGraph) Snapshot() *MemoryGraph {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	nodes := make(map[registry.ID]*Node, len(m.nodes))
+	for id, node := range m.nodes {
+		nodes[id] = cloneNode(node)
+	}
+	return &MemoryGraph{
+		graph:           m.graph.Clone(),
+		nodes:           nodes,
+		dependentsCache: make(map[registry.ID][]*Node),
+		cacheValid:      true,
+	}
+}
+
+func (m *MemoryGraph) SetManifestIfRevision(id registry.ID, revision uint64, manifest *io.Manifest) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	node, exists := m.nodes[id]
+	if !exists || node.Version.Revision != revision {
+		return false
+	}
+	node.Manifest = manifest
+	return true
 }
 
 // invalidateCacheLocked marks all caches as invalid. Must be called with mu held.
@@ -160,6 +202,63 @@ func (m *MemoryGraph) AddNode(n *Node) error {
 	}
 
 	m.graph.AddNode(n.ID)
+	m.nodes[n.ID] = n
+	m.invalidateCacheLocked()
+	return nil
+}
+
+// UpdateNode replaces an existing node's content and full dependency set
+// atomically. The graph is left unchanged if any dependency validation fails.
+func (m *MemoryGraph) UpdateNode(n *Node, deps []Import) error {
+	if n == nil {
+		return ErrNodeNil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.nodes[n.ID]; !exists {
+		return NewNodeNotFoundError(n.ID)
+	}
+
+	seenDeps := make(map[registry.ID]bool, len(deps))
+	aliases := make(map[string]registry.ID, len(deps))
+	for _, dep := range deps {
+		if _, exists := m.nodes[dep.ID]; !exists {
+			return NewNodeNotFoundError(dep.ID)
+		}
+		if seenDeps[dep.ID] {
+			return NewDependencyExistsError(n.ID, dep.ID)
+		}
+		seenDeps[dep.ID] = true
+
+		if dep.Alias != "" {
+			if existing, exists := aliases[dep.Alias]; exists && existing != dep.ID {
+				return NewAliasCollisionError(dep.Alias, n.ID, existing, true, dep.ID, true)
+			}
+			aliases[dep.Alias] = dep.ID
+		}
+
+		if m.hasCycle(n.ID, dep.ID) {
+			return ErrCycleDetected
+		}
+	}
+
+	nextGraph := m.graph.Clone()
+	oldDeps, err := nextGraph.GetNeighbors(n.ID)
+	if err != nil {
+		return err
+	}
+	for _, oldDep := range oldDeps {
+		if err := nextGraph.RemoveEdge(n.ID, oldDep); err != nil {
+			return err
+		}
+	}
+	for _, dep := range deps {
+		nextGraph.AddEdge(n.ID, dep.ID, 1, Edge{As: dep.Alias})
+	}
+
+	m.graph = nextGraph
 	m.nodes[n.ID] = n
 	m.invalidateCacheLocked()
 	return nil

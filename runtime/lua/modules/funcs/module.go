@@ -8,6 +8,7 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	contextapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/function"
+	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
@@ -233,6 +234,17 @@ func executorWithOptions(l *lua.LState) int {
 			options.Set(string(key), value.ToGoAny(v))
 		}
 	})
+
+	if net := options.GetString(netapi.OptionKeyNetwork, ""); net != "" {
+		if !security.IsAllowed(l.Context(), "network.select", net, nil) {
+			luaErr := lua.NewLuaError(l, "not allowed: network "+net).
+				WithKind(lua.PermissionDenied).
+				WithRetryable(false)
+			l.Push(lua.LNil)
+			l.Push(luaErr)
+			return 2
+		}
+	}
 
 	newExec := &Executor{
 		values:     exec.values,

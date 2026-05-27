@@ -27,6 +27,8 @@ const (
 	EntryAccept event.Kind = "entry.accept"
 	// EntryReject represents an event for rejecting a registry entry.
 	EntryReject event.Kind = "entry.reject"
+	// EntryResult matches entry accept/reject replies.
+	EntryResult event.Kind = "entry.(accept|reject)"
 
 	// TxBegin represents the start of a registry transaction.
 	TxBegin event.Kind = "registry.begin"
@@ -34,6 +36,12 @@ const (
 	TxCommit event.Kind = "registry.commit"
 	// TxDiscard represents the rollback of a registry transaction.
 	TxDiscard event.Kind = "registry.discard"
+	// TxAccept confirms a transaction lifecycle event has been handled.
+	TxAccept event.Kind = "registry.accept"
+	// TxReject rejects a transaction lifecycle event.
+	TxReject event.Kind = "registry.reject"
+	// TxResult matches transaction lifecycle accept/reject replies.
+	TxResult event.Kind = "registry.(accept|reject)"
 
 	// AllEvents matches any registry operation event.
 	AllEvents event.Kind = "(entry|registry).(create|update|delete|begin|commit|discard)"
@@ -154,6 +162,11 @@ type (
 		SquashChangesets([]ChangeSet) ChangeSet
 		// ReverseChangeset creates a changeset that undoes the given changeset operations
 		ReverseChangeset(ChangeSet) (ChangeSet, error)
+		// SortChangeSet orders a ChangeSet for safe application: deletes first in
+		// reverse-dependency order (dependants before dependees), then creates and
+		// updates in forward-dependency order. fromState is the state the deletes
+		// apply against, used to resolve current dependency edges.
+		SortChangeSet(fromState State, cs ChangeSet) (ChangeSet, error)
 	}
 
 	// OperationHandler defines methods for validating and applying registry operations
@@ -213,10 +226,16 @@ type (
 	// TransactionListener is an interface for components that want to track transaction lifecycle
 	TransactionListener interface {
 		// Begin is called when a transaction begins
-		Begin(ctx context.Context)
+		Begin(ctx context.Context) error
 		// Commit is called when a transaction successfully completes
-		Commit(ctx context.Context)
+		Commit(ctx context.Context) error
 		// Discard is called when a transaction is rolled back
-		Discard(ctx context.Context)
+		Discard(ctx context.Context) error
+	}
+
+	// TransactionParticipant marks event handlers that acknowledge registry transaction events.
+	TransactionParticipant interface {
+		// RegistryTransactionParticipantID returns the participant's stable in-process reply id.
+		RegistryTransactionParticipantID() string
 	}
 )

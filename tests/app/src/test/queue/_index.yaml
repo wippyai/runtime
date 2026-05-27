@@ -96,3 +96,74 @@ entries:
       - time
     imports:
       assert2: app.lib:assert
+
+  - name: info
+    kind: function.lua
+    meta:
+      type: test
+      suite: queue
+      description: queue.info stats lookup
+    source: file://info.lua
+    method: main
+    modules:
+      - queue
+    imports:
+      assert2: app.lib:assert
+
+  - name: ack_nack
+    kind: function.lua
+    meta:
+      type: test
+      suite: queue
+      description: ack/nack method surface
+    source: file://ack_nack.lua
+    method: main
+    modules:
+      - queue
+    imports:
+      assert2: app.lib:assert
+
+  - name: header_overrides
+    kind: function.lua
+    meta:
+      type: test
+      suite: queue
+      description: per-publish header overrides round-trip through consumer
+    source: file://header_overrides.lua
+    method: main
+    modules:
+      - queue
+      - store
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: settle_coordination
+    kind: function.lua
+    meta:
+      type: test
+      suite: queue
+      description: msg:ack/nack single-shot returns INVALID on second call
+    source: file://settle_coordination.lua
+    method: main
+    modules:
+      - queue
+      - store
+      - time
+    imports:
+      assert2: app.lib:assert
+
+  - name: concurrency
+    kind: function.lua
+    meta:
+      type: test
+      suite: queue
+      description: consumer concurrency=2 processes overlapping handlers
+    source: file://concurrency.lua
+    method: main
+    modules:
+      - queue
+      - store
+      - time
+    imports:
+      assert2: app.lib:assert

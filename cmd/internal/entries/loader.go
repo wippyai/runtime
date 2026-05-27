@@ -12,11 +12,13 @@ import (
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
+	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootpkg "github.com/wippyai/runtime/boot"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
+	depconfig "github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
@@ -55,6 +57,7 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 	}
 
 	modulePaths := lockObj.GetModuleLoadPaths()
+	registerModuleSourceRoots(ctx, modulePaths)
 	flatPaths := make([]string, len(modulePaths))
 	for i, mp := range modulePaths {
 		flatPaths[i] = mp.Path
@@ -103,7 +106,7 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 	}
 
 	lockDir := filepath.Dir(lockObj.Path())
-	vendorPath := filepath.Join(lockDir, lockObj.GetVendorPath())
+	vendorPath := lock.ResolveLockPath(lockDir, lockObj.GetVendorPath())
 	shouldUnpack := lockObj.ShouldUnpackModules()
 	logger.Debug("checking modules installation",
 		zap.String("vendor_path", vendorPath),
@@ -112,6 +115,13 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 	// Check which modules need installation
 	var missingModules []lock.Module
 	for _, mod := range modules {
+		if repl, ok := lockObj.GetReplacement(mod.Name); ok {
+			logger.Debug("module is replaced by local source; skipping auto-install",
+				zap.String("module", mod.Name),
+				zap.String("replacement", repl.To))
+			continue
+		}
+
 		name, err := graph.ParseName(mod.Name)
 		if err != nil {
 			logger.Warn("failed to parse module name", zap.String("module", mod.Name), zap.Error(err))
@@ -124,7 +134,7 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 				// Migrate legacy .wapp to extracted directory when unpack is enabled
 				dirPath := filepath.Join(vendorPath, lock.ModulePath(name))
 				logger.Info("unpacking .wapp to directory", zap.String("module", mod.Name))
-				if err := ExtractWappToDir(resolved.Path, dirPath, lockDir); err != nil {
+				if err := ExtractWappToDir(resolved.Path, dirPath); err != nil {
 					return NewExtractModuleError(mod.Name, err)
 				}
 			}
@@ -196,7 +206,7 @@ func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, log
 			if err := os.RemoveAll(dirPath); err != nil {
 				return NewExtractModuleError(moduleRef, err)
 			}
-			if err := ExtractWappToDir(fullWappPath, dirPath, lockDir); err != nil {
+			if err := ExtractWappToDir(fullWappPath, dirPath); err != nil {
 				return NewExtractModuleError(moduleRef, err)
 			}
 		}
@@ -277,7 +287,35 @@ func LoadEntriesFromModuleLoadPaths(
 	modulePaths []lock.ModuleLoadPath,
 	logger *zap.Logger,
 ) ([]regapi.Entry, error) {
+	registerModuleSourceRoots(ctx, modulePaths)
 	return loadEntriesWithModuleMeta(ctx, modulePaths, logger)
+}
+
+func registerModuleSourceRoots(ctx context.Context, modulePaths []lock.ModuleLoadPath) {
+	roots := moduleapi.SourceRoots{}
+	for _, mp := range modulePaths {
+		if mp.Module == "" || filepath.Ext(mp.Path) == ".wapp" {
+			continue
+		}
+
+		rootPath := mp.SourceRoot
+		if rootPath == "" {
+			rootPath = mp.Path
+		}
+
+		stat, err := os.Stat(rootPath)
+		if err != nil || !stat.IsDir() {
+			continue
+		}
+
+		root, err := filepath.Abs(rootPath)
+		if err != nil {
+			continue
+		}
+		roots[mp.Module] = root
+	}
+
+	moduleapi.WithSourceRoots(ctx, roots)
 }
 
 // loadEntriesWithModuleMeta loads entries from annotated paths and tags module entries
@@ -301,6 +339,13 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 			return nil, err
 		}
 
+		if shouldApplyModuleConfigFilters(mp) {
+			loaded, err = applyModuleConfigFilters(ctx, mp, loaded, logger)
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		if mp.Module != "" {
 			for i := range loaded {
 				loaded[i] = markModuleMeta(loaded[i], mp.Module, mp.Version)
@@ -315,6 +360,59 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 	}
 
 	return entries, nil
+}
+
+func shouldApplyModuleConfigFilters(mp lock.ModuleLoadPath) bool {
+	// Apply the module's wippy.yaml exclude/exclude_meta rules whenever we're
+	// loading a module from a directory tree — both versioned vendored sources
+	// and replacement paths (wippy.lock `replacements:`). Without this, a host
+	// app that points `replacements:` at a module's source picks up that
+	// module's own test fixtures (e.g. test/_index.yaml under namespace `app`),
+	// which then collide with the host's real entries via "use last definition"
+	// dedup. .wapp files are skipped: they were filtered at publish time, and
+	// re-running the filter would require parsing a manifest the archive does
+	// not expose.
+	return mp.Module != "" && filepath.Ext(mp.Path) != ".wapp"
+}
+
+func applyModuleConfigFilters(
+	ctx context.Context,
+	mp lock.ModuleLoadPath,
+	entries []regapi.Entry,
+	logger *zap.Logger,
+) ([]regapi.Entry, error) {
+	cfg, err := depconfig.Load(mp.Path)
+	if err != nil {
+		if logger != nil {
+			logger.Debug("module config not loaded for source dependency",
+				zap.String("module", mp.Module),
+				zap.String("path", mp.Path),
+				zap.Error(err))
+		}
+		return entries, nil
+	}
+	if len(cfg.Exclude) == 0 && len(cfg.ExcludeMeta) == 0 {
+		return entries, nil
+	}
+
+	filtered := append([]regapi.Entry(nil), entries...)
+	stage := stages.DisableWithOptions(stages.DisableOptions{
+		Entries:     cfg.Exclude,
+		MetaFilters: cfg.ExcludeMeta,
+	})
+	if err := stage.Execute(ctx, &filtered); err != nil {
+		return nil, err
+	}
+
+	if logger != nil && len(filtered) != len(entries) {
+		logger.Debug("applied module config filters",
+			zap.String("module", mp.Module),
+			zap.String("version", mp.Version),
+			zap.String("path", mp.Path),
+			zap.Int("before", len(entries)),
+			zap.Int("after", len(filtered)))
+	}
+	return filtered, nil
 }
 
 // NormalizeEntries applies the canonical entry normalization pipeline.

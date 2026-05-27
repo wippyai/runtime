@@ -5,6 +5,7 @@ package engine
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/payload"
@@ -22,6 +23,7 @@ type TopicHandler func(ctx context.Context, l *lua.LState, source pid.PID, topic
 type subscribeContext struct {
 	byTopic   map[string]*subscription
 	byChannel map[*Channel]string
+	nextID    uint64
 	mu        sync.RWMutex
 }
 
@@ -38,7 +40,7 @@ func (m *subscribeContext) add(topic string, bufSize int) (*subscription, error)
 	}
 
 	ch := NewChannel(bufSize)
-	sub := &subscription{topic: topic, channel: ch}
+	sub := m.newSubscriptionLocked(topic, ch)
 	m.byTopic[topic] = sub
 	m.byChannel[ch] = topic
 	return sub, nil
@@ -58,23 +60,42 @@ func (m *subscribeContext) addExisting(topic string, ch *Channel) (*subscription
 		return existing, nil
 	}
 
-	sub := &subscription{topic: topic, channel: ch}
+	sub := m.newSubscriptionLocked(topic, ch)
 	m.byTopic[topic] = sub
 	m.byChannel[ch] = topic
 	return sub, nil
 }
 
+func (m *subscribeContext) newSubscriptionLocked(topic string, ch *Channel) *subscription {
+	m.nextID++
+	return &subscription{topic: topic, channel: ch, id: m.nextID}
+}
+
 func (m *subscribeContext) remove(ch *Channel) error {
+	_, err := m.removeAndReturnTopic(ch)
+	return err
+}
+
+// removeAndReturnTopic removes a channel's subscription and returns the topic
+// that was registered for it. Callers use the returned topic to clean up the
+// matching handler entry via Process.RemoveTopicHandler.
+func (m *subscribeContext) removeAndReturnTopic(ch *Channel) (string, error) {
+	topic, _, err := m.removeAndReturnSubscription(ch)
+	return topic, err
+}
+
+func (m *subscribeContext) removeAndReturnSubscription(ch *Channel) (string, *subscription, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	topic, exists := m.byChannel[ch]
 	if !exists {
-		return luaapi.ErrChannelNotFound
+		return "", nil, luaapi.ErrChannelNotFound
 	}
+	sub := m.byTopic[topic]
 	delete(m.byTopic, topic)
 	delete(m.byChannel, ch)
-	return nil
+	return topic, sub, nil
 }
 
 func (m *subscribeContext) get(topic string) (*subscription, bool) {
@@ -93,10 +114,78 @@ func (m *subscribeContext) match(topic string) (*subscription, bool) {
 	return sub, exists
 }
 
+func (m *subscribeContext) snapshotAndClear() []*subscription {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.byTopic) == 0 {
+		return nil
+	}
+	out := make([]*subscription, 0, len(m.byTopic))
+	for _, sub := range m.byTopic {
+		out = append(out, sub)
+	}
+	clear(m.byTopic)
+	clear(m.byChannel)
+	return out
+}
+
+// snapshotSubscriptions returns the live subscriptions without clearing the
+// maps. Channel and handler removal stay with the owning step goroutine; this
+// is used by Abort to invoke producer-stop cleanups from a non-step goroutine.
+func (m *subscribeContext) snapshotSubscriptions() []*subscription {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.byTopic) == 0 {
+		return nil
+	}
+	out := make([]*subscription, 0, len(m.byTopic))
+	for _, sub := range m.byTopic {
+		out = append(out, sub)
+	}
+	return out
+}
+
 // subscription links a topic to a channel.
 type subscription struct {
-	channel *Channel
-	topic   string
+	cleanup     func()
+	channel     *Channel
+	topic       string
+	id          uint64
+	gen         atomic.Uint64
+	cleanupOnce sync.Once
+}
+
+func (s *subscription) callCleanup() {
+	if s == nil {
+		return
+	}
+	s.cleanupOnce.Do(func() {
+		if s.cleanup != nil {
+			s.cleanup()
+			s.cleanup = nil
+		}
+	})
+}
+
+// SubscriptionFrame carries process-epoch, subscription-id, and generation
+// guards for producer frames delivered through the normal subscription path.
+type SubscriptionFrame struct {
+	Payloads payload.Payloads
+	Epoch    uint64
+	SubID    uint64
+	Gen      uint64
+}
+
+func NewSubscriptionFramePayload(f *SubscriptionFrame) payload.Payload {
+	return payload.NewPayload(f, payload.Golang)
+}
+
+func subscriptionFrameFromPayloads(payloads payload.Payloads) (*SubscriptionFrame, bool) {
+	if len(payloads) == 0 || payloads[0] == nil {
+		return nil, false
+	}
+	frame, ok := payloads[0].Data().(*SubscriptionFrame)
+	return frame, ok
 }
 
 // SubscribeRequest is yielded to request a topic subscription.

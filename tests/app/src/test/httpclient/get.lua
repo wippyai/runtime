@@ -16,7 +16,7 @@ local function main()
 	assert.not_nil(resp.body, "body present")
 
 	-- Parse JSON response
-	local data = json.decode(resp.body)
+	local data = json.decode(tostring(resp.body))
 	assert.not_nil(data, "JSON parsed")
 	assert.eq(data.message, "hello world", "message field matches")
 

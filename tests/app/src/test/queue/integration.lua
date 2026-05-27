@@ -13,10 +13,17 @@ local function main()
 	-- Clear counter before test
 	s:delete("queue:counter")
 
-	-- Publish a message
+	local corr_id = "integration-" .. tostring(time.now():unix_nano())
+
+	-- Publish a message with neutral headers only. Driver-specific knobs
+	-- (amqp.mandatory, sqs.*) are verified separately in header_overrides.lua.
 	local ok, err = queue.publish("app.queue:tasks", {
 		action = "integration_test",
 		timestamp = tostring(time.now():unix_nano())
+	}, {
+		correlation_id = corr_id,
+		priority = 5,
+		partition_key = "tenant-42",
 	})
 
 	assert.is_nil(err, "publish should not return error")
@@ -34,6 +41,15 @@ local function main()
 	end
 
 	assert.eq(processed, true, "message should be processed by consumer")
+
+	-- Look up the processed record by correlation_id.
+	local rec, rec_err = s:get("queue:by_corr:" .. corr_id)
+	assert.is_nil(rec_err, "should read by correlation_id")
+	assert.not_nil(rec, "handler should have stored record keyed by correlation_id")
+	assert.eq(rec.correlation_id, corr_id, "record should carry the correlation_id we sent")
+	assert.not_nil(rec.headers, "record should carry the headers table")
+	assert.eq(rec.headers.priority, 5, "priority header should round-trip")
+	assert.eq(rec.headers.partition_key, "tenant-42", "partition_key should round-trip")
 
 	return true
 end

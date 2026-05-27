@@ -150,7 +150,8 @@ func TestServerConfig_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "full config",
 			config: ServerConfig{
-				Addr: ":8080",
+				Addr:    ":8080",
+				Network: registry.NewID("app.net", "overlay"),
 				Timeouts: TimeoutConfig{
 					ReadTimeout:  30 * time.Second,
 					WriteTimeout: 45 * time.Second,
@@ -174,7 +175,8 @@ func TestServerConfig_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "minimal config",
 			config: ServerConfig{
-				Addr: ":8080",
+				Addr:    ":8080",
+				Network: registry.NewID("app.net", "overlay"),
 			},
 			wantErr: false,
 		},
@@ -933,6 +935,149 @@ func TestFileUpload(t *testing.T) {
 	assert.Equal(t, "document", file.FieldName)
 	assert.Equal(t, "report.pdf", file.FileName)
 	assert.NotNil(t, file.Data)
+}
+
+func TestServerTLSConfig_Validate(t *testing.T) {
+	tests := []struct {
+		wantErr error
+		tls     ServerTLSConfig
+		name    string
+	}{
+		{
+			name: "off with no inputs is valid",
+			tls:  ServerTLSConfig{Mode: TLSModeOff},
+		},
+		{
+			name:    "off rejects cert inputs",
+			tls:     ServerTLSConfig{Mode: TLSModeOff, Cert: "x", Key: "y"},
+			wantErr: ErrTLSOffHasInputs,
+		},
+		{
+			name:    "off rejects mTLS inputs",
+			tls:     ServerTLSConfig{Mode: TLSModeOff, ClientAuth: ClientAuthRequest},
+			wantErr: ErrTLSOffHasInputs,
+		},
+		{
+			name: "auto with no inputs is valid",
+			tls:  ServerTLSConfig{Mode: TLSModeAuto},
+		},
+		{
+			name:    "auto rejects cert inputs",
+			tls:     ServerTLSConfig{Mode: TLSModeAuto, Cert: "x", Key: "y"},
+			wantErr: ErrTLSAutoHasCertInputs,
+		},
+		{
+			name:    "auto rejects mTLS",
+			tls:     ServerTLSConfig{Mode: TLSModeAuto, ClientAuth: ClientAuthRequest},
+			wantErr: ErrTLSMTLSRequiresManual,
+		},
+		{
+			name:    "manual requires some cert input",
+			tls:     ServerTLSConfig{Mode: TLSModeManual},
+			wantErr: ErrTLSManualMissingCert,
+		},
+		{
+			name: "manual inline cert is valid",
+			tls:  ServerTLSConfig{Mode: TLSModeManual, Cert: "pem", Key: "pem"},
+		},
+		{
+			name: "manual env cert is valid",
+			tls:  ServerTLSConfig{Mode: TLSModeManual, CertEnv: "A", KeyEnv: "B"},
+		},
+		{
+			name:    "manual inline+env is ambiguous",
+			tls:     ServerTLSConfig{Mode: TLSModeManual, Cert: "pem", Key: "pem", CertEnv: "A", KeyEnv: "B"},
+			wantErr: ErrTLSManualAmbiguousCert,
+		},
+		{
+			name:    "manual inline partial (cert without key)",
+			tls:     ServerTLSConfig{Mode: TLSModeManual, Cert: "pem"},
+			wantErr: ErrTLSManualPartialCert,
+		},
+		{
+			name:    "manual env partial (cert_env without key_env)",
+			tls:     ServerTLSConfig{Mode: TLSModeManual, CertEnv: "A"},
+			wantErr: ErrTLSManualPartialCertEnv,
+		},
+		{
+			name:    "manual inline partial after env set",
+			tls:     ServerTLSConfig{Mode: TLSModeManual, Cert: "pem", CertEnv: "A", KeyEnv: "B"},
+			wantErr: ErrTLSManualPartialCert,
+		},
+		{
+			name:    "manual env partial after inline set",
+			tls:     ServerTLSConfig{Mode: TLSModeManual, Cert: "pem", Key: "pem", CertEnv: "A"},
+			wantErr: ErrTLSManualPartialCertEnv,
+		},
+		{
+			name:    "manual mTLS with both CA sources",
+			tls:     ServerTLSConfig{Mode: TLSModeManual, Cert: "pem", Key: "pem", ClientCA: "ca", ClientCAEnv: "X", ClientAuth: ClientAuthRequireAndVerify},
+			wantErr: ErrTLSMTLSAmbiguousCA,
+		},
+		{
+			name:    "manual CA without auth",
+			tls:     ServerTLSConfig{Mode: TLSModeManual, Cert: "pem", Key: "pem", ClientCA: "ca"},
+			wantErr: ErrTLSMTLSCAWithoutAuth,
+		},
+		{
+			name:    "manual verify_if_given without CA",
+			tls:     ServerTLSConfig{Mode: TLSModeManual, Cert: "pem", Key: "pem", ClientAuth: ClientAuthVerifyIfGiven},
+			wantErr: ErrTLSMTLSMissingCA,
+		},
+		{
+			name:    "manual require_and_verify without CA",
+			tls:     ServerTLSConfig{Mode: TLSModeManual, Cert: "pem", Key: "pem", ClientAuth: ClientAuthRequireAndVerify},
+			wantErr: ErrTLSMTLSMissingCA,
+		},
+		{
+			name: "manual request auth without CA is fine",
+			tls:  ServerTLSConfig{Mode: TLSModeManual, Cert: "pem", Key: "pem", ClientAuth: ClientAuthRequest},
+		},
+		{
+			name: "manual require_any without CA is fine",
+			tls:  ServerTLSConfig{Mode: TLSModeManual, Cert: "pem", Key: "pem", ClientAuth: ClientAuthRequireAny},
+		},
+		{
+			name: "manual full mTLS inline is valid",
+			tls:  ServerTLSConfig{Mode: TLSModeManual, Cert: "pem", Key: "pem", ClientCA: "ca", ClientAuth: ClientAuthRequireAndVerify},
+		},
+		{
+			name: "manual full mTLS env is valid",
+			tls:  ServerTLSConfig{Mode: TLSModeManual, CertEnv: "A", KeyEnv: "B", ClientCAEnv: "C", ClientAuth: ClientAuthRequireAndVerify},
+		},
+		{
+			name:    "invalid tls mode",
+			tls:     ServerTLSConfig{Mode: "bogus"},
+			wantErr: nil, // message asserted below
+		},
+		{
+			name:    "invalid client_auth value",
+			tls:     ServerTLSConfig{Mode: TLSModeManual, Cert: "pem", Key: "pem", ClientAuth: ClientAuthType("handwavy")},
+			wantErr: nil, // message asserted below
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.tls.Validate()
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			if tt.name == "invalid tls mode" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid tls.mode")
+				return
+			}
+			if tt.name == "invalid client_auth value" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid tls.client_auth")
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
 }
 
 func TestErrorConstants(t *testing.T) {

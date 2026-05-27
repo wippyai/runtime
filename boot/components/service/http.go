@@ -82,6 +82,8 @@ func HTTP() boot.Component {
 				{Path: "data.server", Description: "Reference to HTTP server in data section"},
 				{Path: "data.middleware", Description: "List of middleware components", AllowWildcard: true},
 				{Path: "data.post_middleware", Description: "List of post-middleware components", AllowWildcard: true},
+				{Path: "data.network", Description: "Overlay network backing this HTTP service"},
+				{Path: "data.tls.*_env", Description: "Env variables referenced from TLS config", AllowWildcard: true},
 			}
 			for _, pattern := range httpPatterns {
 				if err := reg.RegisterDependencyPattern(pattern); err != nil {

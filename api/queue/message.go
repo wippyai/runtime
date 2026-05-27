@@ -10,24 +10,30 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 )
 
-// HeaderTimestamp is a standard message header key
+// Neutral message headers — application metadata carried verbatim by
+// every driver. Broker-specific concepts (priority, ttl, delay, partition
+// key, dedup, etc.) live under driver-prefixed keys (e.g. "amqp.priority",
+// "sqs.delay_seconds", "kafka.key") because their semantics don't
+// cross-map cleanly.
 const (
-	HeaderTimestamp     = "timestamp"      // Message creation timestamp
-	HeaderPriority      = "priority"       // Message priority (0-9, higher = more important)
-	HeaderTTL           = "ttl"            // Time to live in seconds
-	HeaderCorrelationID = "correlation_id" // For request-response correlation
-	HeaderReplyTo       = "reply_to"       // Queue name for responses
-	HeaderContentType   = "content_type"   // MIME type of body
-	HeaderMessageType   = "message_type"   // Application-specific message type
+	HeaderTimestamp     = "timestamp"
+	HeaderCorrelationID = "correlation_id"
+	HeaderReplyTo       = "reply_to"
+	HeaderContentType   = "content_type"
+	HeaderMessageType   = "message_type"
+	HeaderEncoding      = "encoding"
+	HeaderSchema        = "schema"
+	HeaderSource        = "source"
 
-	// HeaderTraceparent is a W3C Trace Context header
-	HeaderTraceparent = "traceparent" // W3C trace context
-	HeaderTracestate  = "tracestate"  // W3C trace state
+	// W3C Trace Context.
+	HeaderTraceparent = "traceparent"
+	HeaderTracestate  = "tracestate"
 
-	// HeaderOriginalQueue is a dead letter queue header
-	HeaderOriginalQueue    = "x_original_queue"     // Original queue name
-	HeaderDeadLetterReason = "x_dead_letter_reason" // Why message was dead-lettered
-	HeaderDeadLetterTime   = "x_dead_letter_time"   // When message was dead-lettered
+	// Dead-letter bookkeeping written by the manager layer.
+	HeaderAttempts         = "attempts"
+	HeaderOriginalQueue    = "x_original_queue"
+	HeaderDeadLetterReason = "x_dead_letter_reason"
+	HeaderDeadLetterTime   = "x_dead_letter_time"
 )
 
 // Message represents a queue message
@@ -93,4 +99,21 @@ func NewMessageWithID(id string, body payload.Payload) *Message {
 	msg := NewMessage(body)
 	msg.ID = id
 	return msg
+}
+
+// CloneMessage returns a non-pooled copy of msg that is safe to keep after
+// the original message is released back to the pool.
+func CloneMessage(msg *Message) *Message {
+	if msg == nil {
+		return nil
+	}
+	headers := attrs.NewBag()
+	for k, v := range msg.Headers {
+		headers.Set(k, v)
+	}
+	return &Message{
+		ID:      msg.ID,
+		Body:    msg.Body,
+		Headers: headers,
+	}
 }

@@ -238,6 +238,45 @@ func TestBuildDeltaWithoutTranscoder(t *testing.T) {
 	}
 }
 
+func TestBuildDeltaDetectsMetaOnlyChanges(t *testing.T) {
+	ctx := setupContextWithTranscoder()
+
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(ctx)
+	lua.OpenErrors(l)
+	setupModule(l)
+
+	err := l.DoString(`
+		local from = {
+			{
+				id = "app.test:handler",
+				kind = "function.lua",
+				meta = { comment = "old", tags = { "a" } },
+				data = { source = "return true", method = "main" },
+			},
+		}
+		local to = {
+			{
+				id = "app.test:handler",
+				kind = "function.lua",
+				meta = { comment = "new", tags = { "a" } },
+				data = { source = "return true", method = "main" },
+			},
+		}
+
+		local delta, err = registry.build_delta(from, to)
+		assert(err == nil, "unexpected error: " .. tostring(err))
+		assert(delta ~= nil, "delta should not be nil")
+		assert(#delta == 1, "expected one update, got " .. tostring(#delta))
+		assert(delta[1].kind == "entry.update", "expected entry.update, got " .. tostring(delta[1].kind))
+		assert(delta[1].entry.meta.comment == "new", "updated meta should be present")
+	`)
+	if err != nil {
+		t.Errorf("build_delta meta-only change test failed: %v", err)
+	}
+}
+
 func TestMapsEqual(t *testing.T) {
 	tests := []struct {
 		a        map[string]any

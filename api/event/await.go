@@ -9,6 +9,10 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
+// DefaultAwaitTimeout is the default request/reply wait budget used when a
+// caller passes a non-positive timeout to an AwaitService.
+const DefaultAwaitTimeout = 30 * time.Second
+
 var awaitServiceKey = &ctxapi.Key{Name: "event.await"}
 
 // AwaitResult contains the result of waiting for an event.
@@ -33,10 +37,12 @@ type AwaitWaiter interface {
 type AwaitService interface {
 	// Prepare registers a waiter before the triggering request is sent.
 	// This avoids reply races where response arrives before wait registration.
+	// A non-positive timeout uses DefaultAwaitTimeout.
 	Prepare(ctx context.Context, system System, kind Kind, path Path, timeout time.Duration) (AwaitWaiter, error)
 
 	// Await waits for an event matching system, kind, and path.
 	// Returns when matching event arrives or timeout expires.
+	// A non-positive timeout uses DefaultAwaitTimeout.
 	Await(ctx context.Context, system System, kind Kind, path Path, timeout time.Duration) AwaitResult
 
 	// Start initializes the service.

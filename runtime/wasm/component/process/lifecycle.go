@@ -4,7 +4,6 @@ package process
 
 import (
 	"context"
-	"time"
 
 	"github.com/wippyai/runtime/api/event"
 	processapi "github.com/wippyai/runtime/api/process"
@@ -180,7 +179,7 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, cfg *conf
 	}
 
 	path := id.String()
-	waiter, err := awaitSvc.Prepare(ctx, processapi.System, "factory.(accept|reject)", path, 30*time.Second)
+	waiter, err := awaitSvc.Prepare(ctx, processapi.System, "factory.(accept|reject)", path, event.DefaultAwaitTimeout)
 	if err != nil {
 		return runtimewasm.NewRegisterProcessFactoryError(&id, err)
 	}

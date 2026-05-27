@@ -17,8 +17,9 @@ const (
 
 // ResolveOptions configures the client-side dependency resolver.
 type ResolveOptions struct {
-	MaxDepth   int
-	MaxModules int
+	LockedVersions map[string]string
+	MaxDepth       int
+	MaxModules     int
 }
 
 // ManifestProvider retrieves manifests and version lists from the hub.
@@ -44,10 +45,11 @@ func Resolve(ctx context.Context, provider ManifestProvider, roots []DependencyS
 	}
 
 	r := &resolver{
-		provider:   provider,
-		maxDepth:   maxDepth,
-		maxModules: maxModules,
-		visited:    make(map[string]bool),
+		provider:       provider,
+		maxDepth:       maxDepth,
+		maxModules:     maxModules,
+		lockedVersions: opts.LockedVersions,
+		visited:        make(map[string]bool),
 	}
 
 	for _, root := range roots {
@@ -64,12 +66,13 @@ func Resolve(ctx context.Context, provider ManifestProvider, roots []DependencyS
 }
 
 type resolver struct {
-	provider   ManifestProvider
-	visited    map[string]bool
-	modules    []ResolvedModule
-	errors     []ResolutionError
-	maxDepth   int
-	maxModules int
+	provider       ManifestProvider
+	lockedVersions map[string]string
+	visited        map[string]bool
+	modules        []ResolvedModule
+	errors         []ResolutionError
+	maxDepth       int
+	maxModules     int
 }
 
 func (r *resolver) resolveOne(ctx context.Context, org, name, constraint string, depth int) {
@@ -146,6 +149,10 @@ func (r *resolver) resolveOne(ctx context.Context, org, name, constraint string,
 // (the server handles resolution). For semver ranges it lists versions and picks
 // the best match client-side.
 func (r *resolver) resolveConstraint(ctx context.Context, org, name, constraint string) (string, error) {
+	if locked := r.lockedVersions[org+"/"+name]; locked != "" && lockedVersionSatisfies(locked, constraint) {
+		return locked, nil
+	}
+
 	if constraint == "" || strings.HasPrefix(constraint, "@") {
 		return constraint, nil
 	}
@@ -200,4 +207,35 @@ func (r *resolver) resolveConstraint(ctx context.Context, org, name, constraint 
 	}
 
 	return best.String(), nil
+}
+
+func lockedVersionSatisfies(version, constraint string) bool {
+	version = strings.TrimSpace(version)
+	constraint = strings.TrimSpace(constraint)
+	if version == "" {
+		return false
+	}
+	if constraint == "" {
+		return true
+	}
+	if strings.HasPrefix(constraint, "@") {
+		return false
+	}
+
+	if semver.IsConstraint(constraint) {
+		parsed, err := semver.ParseConstraint(constraint)
+		if err != nil {
+			return false
+		}
+		locked, err := semver.ParseVersion(version)
+		if err != nil {
+			return false
+		}
+		return parsed.Match(locked)
+	}
+
+	if version == constraint || strings.TrimPrefix(version, "v") == strings.TrimPrefix(constraint, "v") {
+		return true
+	}
+	return false
 }

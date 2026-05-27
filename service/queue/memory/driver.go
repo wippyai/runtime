@@ -14,8 +14,14 @@ import (
 	"go.uber.org/zap"
 )
 
+// Driver option keys under the "memory" sub-bag of Config.DriverOptions.
+const (
+	optionMaxLength = "max_length"
+	defaultMaxLen   = 1000
+)
+
 type queue struct {
-	opts     attrs.Attributes
+	cfg      *queueapi.Config
 	messages chan *queueapi.Message
 	id       registry.ID
 	mu       sync.RWMutex
@@ -56,16 +62,13 @@ func (d *Driver) Publish(ctx context.Context, queueID registry.ID, msgs ...*queu
 		if msg.ID == "" {
 			msg.ID = uuid.New().String()
 		}
-
 		if err := q.send(ctx, d.lifecycleCtxDone(), msg); err != nil {
 			return err
 		}
 	}
-
 	return nil
 }
 
-// send safely sends a message to the queue, protected by mutex to prevent races with close.
 func (q *queue) send(ctx context.Context, driverDone <-chan struct{}, msg *queueapi.Message) error {
 	q.mu.RLock()
 	defer q.mu.RUnlock()
@@ -84,7 +87,6 @@ func (q *queue) send(ctx context.Context, driverDone <-chan struct{}, msg *queue
 	}
 }
 
-// requeue safely requeues a message, protected by mutex to prevent races with close.
 func (q *queue) requeue(ctx context.Context, msg *queueapi.Message) error {
 	q.mu.RLock()
 	defer q.mu.RUnlock()
@@ -103,7 +105,7 @@ func (q *queue) requeue(ctx context.Context, msg *queueapi.Message) error {
 	}
 }
 
-func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries chan<- *queueapi.Delivery) (context.CancelFunc, error) {
+func (d *Driver) Attach(ctx context.Context, queueID registry.ID, _ *queueapi.ConsumerOptions, deliveries chan<- *queueapi.Delivery) (context.CancelFunc, error) {
 	d.mu.RLock()
 	q, exists := d.queues[queueID]
 	d.mu.RUnlock()
@@ -132,7 +134,7 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 						return nil
 					},
 					Nack: func(ctx context.Context) error {
-						return q.requeue(ctx, msg)
+						return q.requeue(ctx, queueapi.CloneMessage(msg))
 					},
 				}
 
@@ -150,19 +152,31 @@ func (d *Driver) Attach(ctx context.Context, queueID registry.ID, deliveries cha
 	return cancel, nil
 }
 
-func (d *Driver) DeclareQueue(_ context.Context, queueID registry.ID, opts attrs.Attributes) error {
+func (d *Driver) DeclareQueue(_ context.Context, queueID registry.ID, cfg *queueapi.Config) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	if _, exists := d.queues[queueID]; exists {
+	// Redeclare is an update, not a no-op: swap in the latest cfg pointer
+	// so subsequent Publish / GetQueueInfo see the caller's latest options.
+	// Existing queued messages survive — changing options must not silently
+	// drop a backlog.
+	if existing, exists := d.queues[queueID]; exists {
+		existing.mu.Lock()
+		existing.cfg = cfg
+		existing.mu.Unlock()
 		return nil
 	}
 
-	maxLength := opts.GetInt(queueapi.OptionMaxLength, 1000)
+	maxLength := defaultMaxLen
+	if cfg != nil {
+		if v := cfg.DriverBag("memory").GetInt(optionMaxLength, 0); v > 0 {
+			maxLength = v
+		}
+	}
 
 	q := &queue{
 		id:       queueID,
-		opts:     opts,
+		cfg:      cfg,
 		messages: make(chan *queueapi.Message, maxLength),
 	}
 
@@ -196,7 +210,7 @@ func (d *Driver) GetQueueInfo(_ context.Context, queueID registry.ID) (attrs.Att
 	return info, nil
 }
 
-// neverClosedChan is a channel that never closes, used when driver is not started
+// neverClosedChan is a channel that never closes, used when driver is not started.
 var neverClosedChan = make(chan struct{})
 
 func (d *Driver) lifecycleCtxDone() <-chan struct{} {

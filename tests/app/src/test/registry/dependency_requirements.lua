@@ -166,6 +166,7 @@ local function main()
 			assert.ok(#targets > 0, "requirement has targets")
 			for t = 1, #targets do
 				local target = targets[t]
+				assert.not_nil(target, "target present")
 				local target_entry, get_err = registry.get(tostring(target.entry))
 				assert.is_nil(get_err, "target entry exists")
 				assert.not_nil(target_entry, "target entry found")

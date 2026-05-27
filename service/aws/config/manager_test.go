@@ -52,6 +52,7 @@ type MockTranscoder struct {
 	marshalError       error
 	unmarshalError     error
 	region             string
+	regionEnv          string
 	accessKeyIDEnv     string
 	secretAccessKeyEnv string
 	mockData           []byte
@@ -83,11 +84,13 @@ func (m *MockTranscoder) Unmarshal(p payload.Payload, v any) error {
 		if payloadData, ok := p.Data().(*awsconfigapi.Config); ok {
 			// Copy the values from the payload
 			cfg.Region = payloadData.Region
+			cfg.RegionEnv = payloadData.RegionEnv
 			cfg.AccessKeyIDEnv = payloadData.AccessKeyIDEnv
 			cfg.SecretAccessKeyEnv = payloadData.SecretAccessKeyEnv
 		} else {
 			// Fallback to predefined values if payload data is not the expected type
 			cfg.Region = m.region
+			cfg.RegionEnv = m.regionEnv
 			cfg.AccessKeyIDEnv = m.accessKeyIDEnv
 			cfg.SecretAccessKeyEnv = m.secretAccessKeyEnv
 		}
@@ -163,6 +166,7 @@ func setupTestEnvironment(t *testing.T) (*Manager, event.Bus, context.Context) {
 
 	require.NoError(t, envRegistry.Set(ctx, "AWS_ACCESS_KEY_ID", "test-access-key"))
 	require.NoError(t, envRegistry.Set(ctx, "AWS_SECRET_ACCESS_KEY", "test-secret-key"))
+	require.NoError(t, envRegistry.Set(ctx, "AWS_REGION", "eu-west-1"))
 
 	// Create manager
 	manager := NewManager(bus, transcoder, logger, envRegistry)
@@ -251,6 +255,33 @@ func TestManager_Add(t *testing.T) {
 		// Verify metadata
 		meta := resourceEntry.Meta
 		assert.Equal(t, "us-east-1", meta["region"])
+	})
+
+	t.Run("successful config addition with region env", func(t *testing.T) {
+		envID := registry.NewID("test", "awsconfig-region-env")
+		entry := registry.Entry{
+			ID:   envID,
+			Kind: awsconfigapi.Kind,
+			Data: NewMockPayload(&awsconfigapi.Config{
+				RegionEnv:          "AWS_REGION",
+				AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
+				SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
+			}),
+		}
+
+		err := manager.Add(ctx, entry)
+		require.NoError(t, err)
+
+		config, exists := manager.configs[envID]
+		assert.True(t, exists)
+		assert.Equal(t, "eu-west-1", config.Region)
+
+		evt := waitForResourceEvent(t, resourceEvents, resource.Register, time.Second)
+		assert.Equal(t, envID.String(), evt.Path)
+
+		resourceEntry, ok := evt.Data.(resource.Entry)
+		require.True(t, ok)
+		assert.Equal(t, "eu-west-1", resourceEntry.Meta["region"])
 	})
 
 	t.Run("wrong entry kind", func(t *testing.T) {
