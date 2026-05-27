@@ -653,28 +653,41 @@ func registryRegister(l *lua.LState) int {
 	name := l.CheckString(1)
 	secAttrs := map[string]any{"pid": self.String()}
 
-	// Determine registration mode. The second argument can be:
-	//   - a number (LOCAL=0, EVENTUAL=1, CONSISTENT=2, STRONG=3): registration mode
-	//   - a string: PID to register (legacy usage)
-	//   - absent: defaults to LOCAL with self PID
-	var p pidapi.PID
+	// Signature: register(name, scope?, pid?) → bool, err
+	//   scope: process.registry.LOCAL | EVENTUAL | CONSISTENT | STRONG (default LOCAL)
+	//   pid:   target PID string (default self)
+	// Foreign PID (pid != self) requires process.registry.foreign on the
+	// target PID in addition to the per-scope register capability on the name.
 	mode := topology.Local
-	p = self
+	p := self
 
-	if l.GetTop() >= 2 {
-		arg2 := l.Get(2)
-		switch v := arg2.(type) {
-		case lua.LNumber:
-			mode = topology.RegistrationMode(int(v))
-		case lua.LString:
-			// Legacy: second arg is a PID string.
-			var err error
-			p, err = pidapi.ParsePID(string(v))
-			if err != nil {
-				return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Invalid))
-			}
-		default:
-			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "second argument must be a mode (number) or PID (string)"))
+	if l.GetTop() >= 2 && l.Get(2) != lua.LNil {
+		num, ok := l.Get(2).(lua.LNumber)
+		if !ok {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "scope must be a number (process.registry.LOCAL|EVENTUAL|CONSISTENT|STRONG)"))
+		}
+		mode = topology.RegistrationMode(int(num))
+	}
+
+	if l.GetTop() >= 3 && l.Get(3) != lua.LNil {
+		raw, ok := l.Get(3).(lua.LString)
+		if !ok {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "pid must be a string"))
+		}
+		parsed, err := pidapi.ParsePID(string(raw))
+		if err != nil {
+			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "invalid pid", lua.Invalid))
+		}
+		p = parsed
+	}
+
+	// Mounting a name on a foreign PID is gated by an explicit second-axis
+	// capability — the per-scope register permission gates the NAME, this
+	// gates the TARGET PID. Default policy should deny; operators grant
+	// process.registry.foreign for supervisors / hot-upgrade flows.
+	if p != self {
+		if !security.IsAllowed(l.Context(), "process.registry.foreign", p.String(), secAttrs) {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to register foreign pid %s under name %q", p.String(), name)))
 		}
 	}
 

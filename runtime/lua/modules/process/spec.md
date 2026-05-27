@@ -373,33 +373,41 @@ Subtable for process name registration.
 | `process.registry.CONSISTENT`  | 1    | Raft (globalreg)            | Cluster-wide linearizable owner with fence token. Late ok. Scales to ~1M user-facing names.                 |
 | `process.registry.ROOT`        | 3    | Raft + all-live-node ack    | Cluster-wide linearizable owner; activation requires every live node in the membership snapshot to ack the committed epoch within a deadline. No late compensation: a missing ack expires the registration. Reserved for the small set of root/control-plane names (<10k).        |
 
-`process.registry.GLOBAL` is retained as a legacy alias for `CONSISTENT`
-and will be removed in a future release. Existing scripts continue to
-work unchanged.
+### process.registry.register(name: string, scope?: number, pid?: string) -> boolean, error
 
-### process.registry.register(name: string, scope_or_pid?: number | string) -> boolean, error
+Registers a name at the requested scope, optionally pointing at a foreign PID.
 
-Registers a name at the requested scope.
-
-| Param         | Type           | Required | Default | Notes                                                                                                                                       |
-|---------------|----------------|----------|---------|---------------------------------------------------------------------------------------------------------------------------------------------|
-| name          | string         | yes      | -       | Name to register.                                                                                                                            |
-| scope_or_pid  | number | string | no       | LOCAL   | Either a scope constant (`process.registry.LOCAL/EVENTUAL/CONSISTENT/ROOT`) or a legacy PID string. When omitted, registers self at LOCAL. |
+| Param | Type   | Required | Default | Notes                                                                                                |
+|-------|--------|----------|---------|------------------------------------------------------------------------------------------------------|
+| name  | string | yes      | —       | Name to register.                                                                                    |
+| scope | number | no       | LOCAL   | One of `process.registry.LOCAL` / `EVENTUAL` / `CONSISTENT` / `STRONG`.                              |
+| pid   | string | no       | self    | Target PID. When omitted, defaults to the caller's PID.                                              |
 
 **Returns:** `true` on success, or `nil, error` on failure.
 
-`ROOT` registration blocks the calling process until every live node in
+**Examples:**
+```lua
+process.registry.register("svc")                                        -- LOCAL, self
+process.registry.register("svc", process.registry.STRONG)               -- STRONG, self
+process.registry.register("svc", process.registry.STRONG, foreign_pid)  -- STRONG, foreign PID
+```
+
+**Authorization (two axes):**
+- **Per-scope name capability** — `process.registry.register.{local|eventual|consistent|strong}` on the *name* being registered.
+- **Foreign-PID capability** — when `pid != self`, also requires `process.registry.foreign` on the *target PID*. Owner registering own PID does not need this. Default policy should deny foreign; operators grant it for supervisors, hot-upgrade flows, etc.
+
+`STRONG` registration blocks the calling process until every live node in
 the membership snapshot has acked the committed epoch, or until the
 deadline elapses (default 10 s). On timeout, the runtime releases the
 reservation and the call returns an error whose `MissingAcks` list names
-the offending nodes — query via `process.registry.debug` or check the
-admin endpoint `/admin/globalreg/pending` for live status.
+the offending nodes.
 
-**Errors (strings):**
-- `"not allowed to register name (<scope>): <name>"` - permission denied
-- `"name already registered"` - name taken by another process
-- `"root name reservation pending for different PID"` - concurrent ROOT registration
-- `"root registration timed out before all live nodes acked"` - ROOT timeout
+**Errors (kinds):**
+- `PermissionDenied` — capability gate failed (scope or foreign-pid axis).
+- `AlreadyExists` — name taken by another process.
+- `Invalid` — `scope` was not a number, or `pid` was not a parseable PID string.
+- `Internal` — registry not available, raft not ready, or transport error.
+- `StrongRegistrationTimeoutError` / `StrongConflictError` — `STRONG` specifically (timeout or terminal NACK).
 
 ### process.registry.lookup(name: string) -> string, error
 

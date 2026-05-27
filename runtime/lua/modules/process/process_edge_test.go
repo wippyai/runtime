@@ -1029,6 +1029,103 @@ func TestProcessID_NoFrameContext(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// --- registry.register: new (name, scope?, pid?) signature ---
+
+// TestRegistryRegister_Strong_Self exercises the clean signature: name + scope.
+func TestRegistryRegister_Strong_Self(t *testing.T) {
+	reg := newFakeScopedRegistry()
+	self := pid.PID{Host: "h1", UniqID: "self", Node: "node-1"}
+	l := newLuaWithScopedRegistry(t, self, reg, false)
+
+	err := l.DoString(`
+		local ok, err = process.registry.register("svc-strong", process.registry.STRONG)
+		if not ok then error("expected true, got " .. tostring(ok) .. " err=" .. tostring(err)) end
+	`)
+	require.NoError(t, err)
+
+	res, _ := reg.Lookup(context.Background(), "svc-strong")
+	require.True(t, res.Found)
+	require.Equal(t, self, res.PID)
+}
+
+// TestRegistryRegister_ForeignPID_Permitted exercises (name, scope, pid)
+// when the caller has the process.registry.foreign capability (lax security).
+func TestRegistryRegister_ForeignPID_Permitted(t *testing.T) {
+	reg := newFakeScopedRegistry()
+	self := pid.PID{Host: "h1", UniqID: "owner", Node: "node-1"}
+	other := pid.PID{Host: "h1", UniqID: "other", Node: "node-1"}
+	l := newLuaWithScopedRegistry(t, self, reg, false)
+
+	err := l.DoString(fmt.Sprintf(`
+		local ok, err = process.registry.register("svc-foreign", process.registry.STRONG, %q)
+		if not ok then error("expected true, got " .. tostring(ok) .. " err=" .. tostring(err)) end
+	`, other.String()))
+	require.NoError(t, err)
+
+	res, _ := reg.Lookup(context.Background(), "svc-foreign")
+	require.True(t, res.Found)
+	require.Equal(t, other, res.PID, "foreign PID should be the registered binding")
+}
+
+// TestRegistryRegister_ForeignPID_Denied verifies the foreign-PID capability
+// is its own axis: strict security denies it even when the per-scope register
+// capability would have allowed registering self.
+func TestRegistryRegister_ForeignPID_Denied(t *testing.T) {
+	reg := newFakeScopedRegistry()
+	self := pid.PID{Host: "h1", UniqID: "owner", Node: "node-1"}
+	other := pid.PID{Host: "h1", UniqID: "other", Node: "node-1"}
+	l := newLuaWithScopedRegistry(t, self, reg, true)
+
+	err := l.DoString(fmt.Sprintf(`
+		local ok, err = process.registry.register("svc-foreign", process.registry.STRONG, %q)
+		if ok then error("expected false under strict security, got true") end
+		if err == nil then error("expected permission error") end
+		if err:kind() ~= "PermissionDenied" then
+			error("expected PermissionDenied, got " .. tostring(err:kind()))
+		end
+	`, other.String()))
+	require.NoError(t, err)
+
+	res, _ := reg.Lookup(context.Background(), "svc-foreign")
+	require.False(t, res.Found, "no binding should be installed when foreign-PID denied")
+}
+
+// TestRegistryRegister_InvalidScopeType — the legacy string-as-second-arg
+// overload is gone; passing a string for the scope argument must now be a
+// type error, not a covert "parse as PID" path.
+func TestRegistryRegister_InvalidScopeType(t *testing.T) {
+	reg := newFakeScopedRegistry()
+	self := pid.PID{Host: "h1", UniqID: "self", Node: "node-1"}
+	l := newLuaWithScopedRegistry(t, self, reg, false)
+
+	err := l.DoString(`
+		local ok, err = process.registry.register("svc", "not-a-scope")
+		if ok then error("expected false, got true") end
+		if err == nil then error("expected error") end
+		if err:kind() ~= "Invalid" then
+			error("expected Invalid, got " .. tostring(err:kind()))
+		end
+	`)
+	require.NoError(t, err)
+}
+
+// TestRegistryRegister_InvalidPIDType — pid arg must be a string.
+func TestRegistryRegister_InvalidPIDType(t *testing.T) {
+	reg := newFakeScopedRegistry()
+	self := pid.PID{Host: "h1", UniqID: "self", Node: "node-1"}
+	l := newLuaWithScopedRegistry(t, self, reg, false)
+
+	err := l.DoString(`
+		local ok, err = process.registry.register("svc", process.registry.STRONG, 12345)
+		if ok then error("expected false, got true") end
+		if err == nil then error("expected error") end
+		if err:kind() ~= "Invalid" then
+			error("expected Invalid, got " .. tostring(err:kind()))
+		end
+	`)
+	require.NoError(t, err)
+}
+
 // --- setOptions edge cases ---
 
 func TestSetOptions_UnsupportedKey(t *testing.T) {
