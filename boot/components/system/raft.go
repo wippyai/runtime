@@ -103,8 +103,17 @@ func Raft() boot.Component {
 			// Raft runs diskless (no data_dir): cluster state is ephemeral,
 			// restarts rejoin from peer state. Mesh transport addresses peers
 			// by NodeID over the internode layer, so no bind_addr/port.
+			//
+			// Bootstrap is inferred from cluster.membership.join_addrs: empty
+			// means this node has nothing to join, so it is the seed and
+			// bootstraps a fresh Raft configuration. Non-empty join_addrs
+			// means an existing cluster — this node is a follower that the
+			// leader's reconciler adds. The operator already coordinates
+			// "exactly one node has empty join_addrs" for membership; we
+			// reuse that coordination instead of adding a duplicate key.
+			joinAddrs := cfg.Sub(ClusterName).GetStringSlice(ClusterMembershipJoin, nil)
 			rc := raftapi.Config{
-				Bootstrap:         raftCfg.GetBool(ClusterRaftBootstrap, false),
+				Bootstrap:         len(joinAddrs) == 0,
 				SnapshotThreshold: uint64(raftCfg.GetInt(ClusterRaftSnapshotThreshold, 0)),
 				SnapshotInterval:  raftCfg.GetDuration(ClusterRaftSnapshotInterval, 0),
 				SnapshotRetain:    raftCfg.GetInt(ClusterRaftSnapshotRetain, 0),

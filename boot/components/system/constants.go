@@ -38,7 +38,6 @@ const (
 	ClusterRaftEnabled             boot.Name = "raft.enabled"
 	ClusterRaftEligible            boot.Name = "raft.eligible"
 	ClusterRaftPriority            boot.Name = "raft.priority"
-	ClusterRaftBootstrap           boot.Name = "raft.bootstrap"
 	ClusterRaftMaxVoters           boot.Name = "raft.max_voters"
 	ClusterRaftMaxStandbys         boot.Name = "raft.max_standbys"
 	ClusterRaftReconcileDebounce   boot.Name = "raft.reconcile_debounce"
