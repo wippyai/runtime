@@ -301,29 +301,49 @@ func (n *Node) monitorLeadership(statusCh chan<- any) {
 	sampleTicker := time.NewTicker(time.Second)
 	defer sampleTicker.Stop()
 
-	// Track election timing: set whenever we leave the leader state, used to
-	// compute election duration when we (re)enter leader.
+	// electionStart is set whenever we leave leader state, to compute
+	// election duration when we (re)enter it. wasLeader is the last
+	// observed leadership state. Both are touched only by this goroutine,
+	// so applyTransition needs no locking.
 	var electionStart time.Time
 	wasLeader := false
 
-	// hashicorp/raft's LeaderCh is non-buffered with non-blocking writes —
-	// the initial `true` notification fired during BootstrapCluster (which
-	// runs before this goroutine is reading) is dropped on the floor.
-	// Without the seed below, recordLeaderChange() would fire only on
-	// future transitions, leaving raft_leader_changes_total stuck at 0
-	// for nodes that became leader during startup. Mirrors the seed in
-	// sampleStateAndTerm: read state directly and emit the initial event.
-	if n.raft.State() == hraft.Leader {
-		n.tel.recordLeaderChange()
-		wasLeader = true
-		n.logger.Info("this node is now the raft leader (initial state)",
-			zap.String("id", n.localID))
-		n.bus.Send(context.Background(), event.Event{
-			System: cluster.System,
-			Kind:   cluster.LeaderElected,
-			Path:   n.localID,
-		})
+	// applyTransition fires the elected/lost side effects (election timing,
+	// leader-change counter, log line, bus event) when observed leadership
+	// diverges from wasLeader, and updates the tracking vars. reason tags
+	// the log line to distinguish the seed / LeaderCh / reconcile paths.
+	applyTransition := func(nowLeader bool, reason string) {
+		switch {
+		case nowLeader && !wasLeader:
+			if !electionStart.IsZero() {
+				n.tel.recordElection(time.Since(electionStart))
+			}
+			n.tel.recordLeaderChange()
+			wasLeader = true
+			n.logger.Info("this node is now the raft leader"+reason, zap.String("id", n.localID))
+			n.bus.Send(context.Background(), event.Event{
+				System: cluster.System,
+				Kind:   cluster.LeaderElected,
+				Path:   n.localID,
+			})
+		case !nowLeader && wasLeader:
+			wasLeader = false
+			electionStart = time.Now()
+			n.logger.Info("this node lost raft leadership"+reason, zap.String("id", n.localID))
+			n.bus.Send(context.Background(), event.Event{
+				System: cluster.System,
+				Kind:   cluster.LeaderLost,
+				Path:   n.localID,
+			})
+		}
 	}
+
+	// Seed the initial state: hashicorp/raft's LeaderCh is non-buffered with
+	// non-blocking writes, so the initial `true` fired during BootstrapCluster
+	// (before this goroutine reads) is dropped. Without seeding from the
+	// current state, raft_leader_changes_total stays 0 for a node that became
+	// leader at startup.
+	applyTransition(n.raft.State() == hraft.Leader, " (initial state)")
 
 	// Initial sample so dashboards see state immediately.
 	n.sampleStateAndTerm()
@@ -335,66 +355,16 @@ func (n *Node) monitorLeadership(statusCh chan<- any) {
 			if !ok {
 				return
 			}
-			if isLeader {
-				if !wasLeader && !electionStart.IsZero() {
-					n.tel.recordElection(time.Since(electionStart))
-				}
-				n.tel.recordLeaderChange()
-				wasLeader = true
-				n.logger.Info("this node is now the raft leader", zap.String("id", n.localID))
-				n.bus.Send(context.Background(), event.Event{
-					System: cluster.System,
-					Kind:   cluster.LeaderElected,
-					Path:   n.localID,
-				})
-			} else {
-				wasLeader = false
-				electionStart = time.Now()
-				n.logger.Info("this node lost raft leadership", zap.String("id", n.localID))
-				n.bus.Send(context.Background(), event.Event{
-					System: cluster.System,
-					Kind:   cluster.LeaderLost,
-					Path:   n.localID,
-				})
-			}
+			applyTransition(isLeader, "")
 			n.sampleStateAndTerm()
 			n.sampleVoterLadder()
 		case <-sampleTicker.C:
-			// Defense-in-depth reconciliation. hashicorp/raft's LeaderCh is
-			// non-buffered with non-blocking writes — transitions that fire
-			// while the goroutine is between selects are dropped silently.
-			// Compare actual state vs wasLeader on every tick and fire
-			// the missing transition if they diverge. Without this, the
-			// first leader-elected after BootstrapCluster is frequently
-			// lost (we observed `raft_leader_changes_total` stuck at 0
-			// during 30-min chaos despite 20+ leadership transitions in
-			// the logs).
-			currentlyLeader := n.raft.State() == hraft.Leader
-			switch {
-			case currentlyLeader && !wasLeader:
-				if !electionStart.IsZero() {
-					n.tel.recordElection(time.Since(electionStart))
-				}
-				n.tel.recordLeaderChange()
-				wasLeader = true
-				n.logger.Info("this node is now the raft leader (reconciled)",
-					zap.String("id", n.localID))
-				n.bus.Send(context.Background(), event.Event{
-					System: cluster.System,
-					Kind:   cluster.LeaderElected,
-					Path:   n.localID,
-				})
-			case !currentlyLeader && wasLeader:
-				wasLeader = false
-				electionStart = time.Now()
-				n.logger.Info("this node lost raft leadership (reconciled)",
-					zap.String("id", n.localID))
-				n.bus.Send(context.Background(), event.Event{
-					System: cluster.System,
-					Kind:   cluster.LeaderLost,
-					Path:   n.localID,
-				})
-			}
+			// Defense-in-depth reconciliation: LeaderCh transitions that fire
+			// while the goroutine is between selects are dropped silently, so
+			// compare actual state vs wasLeader each tick and fire any missed
+			// transition. Without this the first leader-elected after
+			// BootstrapCluster is frequently lost.
+			applyTransition(n.raft.State() == hraft.Leader, " (reconciled)")
 			n.sampleStateAndTerm()
 			n.sampleVoterLadder()
 		case <-n.stopCh:
