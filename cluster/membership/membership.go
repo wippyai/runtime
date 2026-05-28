@@ -187,6 +187,18 @@ func (s *Service) Start(ctx context.Context) error {
 	// multi-node cluster that is 10 mostly-empty gossip fan-outs/sec/node;
 	// 500ms still propagates deltas promptly and cuts idle wakeups 5x.
 	mlConfig.GossipInterval = 500 * time.Millisecond
+	// DeadNodeReclaimTime lets a node that has been dead longer than this be
+	// replaced by a node with the SAME name but a DIFFERENT address. This is
+	// exactly the k8s StatefulSet pod-restart case: a pod is killed (hard,
+	// no graceful Leave, so peers mark it StateDead at its old IP), the
+	// StatefulSet recreates it under the same name with a fresh pod IP, and
+	// it tries to rejoin. With the memberlist default of 0, peers reject the
+	// rejoin with "Conflicting address" until the dead entry ages out via
+	// GossipToTheDeadTime (~30s) — which is a large slice of post-kill
+	// reconvergence latency. 3s is long enough that a brief same-IP flap
+	// won't trigger a spurious reclaim, short enough that a restarted pod
+	// rejoins promptly.
+	mlConfig.DeadNodeReclaimTime = 3 * time.Second
 	mlConfig.Name = s.config.NodeName
 	mlConfig.BindAddr = s.config.BindAddr
 	mlConfig.BindPort = s.config.BindPort
