@@ -152,10 +152,9 @@ type Service struct {
 
 	// queueStress is the current pressure level of the action queue,
 	// updated atomically inside submit(). 0=normal, 1=approaching cap,
-	// 2=full. The hot-path Warn at submit() used to fire on every
-	// dropped operation under backpressure (thousands per second under
-	// chaos). We now log only on transitions between levels — the
-	// pg_queue_dropped_total counter captures the rate as a metric.
+	// 2=full. submit() logs only on transitions between levels, not on
+	// every dropped operation under backpressure (thousands per second
+	// under chaos); pg_queue_dropped_total captures the rate as a metric.
 	queueStress atomic.Int32
 }
 

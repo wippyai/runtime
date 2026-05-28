@@ -184,11 +184,10 @@ func (c *NodeConnection) bindDrain(notify <-chan struct{}, drain func(int) []Out
 // or Close is called, then returns the first non-clean error observed.
 //
 // The read pump runs INLINE on the caller's goroutine; only the write pump
-// is spawned. This keeps full duplex (separate read/write goroutines) while
-// removing the dedicated join/wait goroutine the old two-goroutine-plus-parent
-// shape required — the caller's goroutine IS the read pump. Net effect:
-// 3 long-lived goroutines per connected peer (control loop + this read pump
-// + the write pump) instead of 4.
+// is spawned. This keeps full duplex (separate read/write goroutines) with
+// no dedicated join/wait goroutine — the caller's goroutine IS the read
+// pump. Steady state is 3 long-lived goroutines per connected peer: the
+// control loop, this read pump, and the write pump.
 //
 // First-error-wins teardown: whichever pump fails first records its error and
 // Close()s the connection (cancel ctx + close net.Conn), which unblocks the

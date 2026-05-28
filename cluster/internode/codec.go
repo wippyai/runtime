@@ -41,14 +41,12 @@ type MessageCodec struct {
 func NewMessageCodec(transcoder payload.Transcoder) *MessageCodec {
 	mh := &codec.MsgpackHandle{}
 
-	// WriteExt enables the new MsgPack spec: strings are encoded as str type
-	// (not ambiguous raw), and []byte is encoded as bin type. Without this,
-	// string values inside map[string]any are decoded as []uint8 because both
-	// strings and bytes use the old-spec ambiguous "raw" format.
-	//
-	// BREAKING WIRE FORMAT: This is incompatible with the old spec encoding.
-	// All cluster nodes must be upgraded simultaneously; rolling upgrades across
-	// nodes running old and new codecs will fail to decode each other's messages.
+	// WriteExt selects the MsgPack 2.0 spec: strings encode as str type and
+	// []byte as bin type, so string values inside map[string]any decode back
+	// as strings rather than []uint8 (the 1.0 "raw" type is ambiguous between
+	// the two). The wire format is fixed across the cluster — every node must
+	// run the same codec, so cluster upgrades replace all nodes together
+	// rather than rolling node-by-node.
 	mh.WriteExt = true
 
 	mh.MapType = reflect.TypeOf(map[string]any(nil))

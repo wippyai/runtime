@@ -247,12 +247,12 @@ func (s *Service) Start(ctx context.Context) error {
 
 	// Join cluster if addresses provided.
 	//
-	// Retry with exponential backoff up to s.ctx cancellation. A
-	// single-shot Join used to fail boot when DNS was transiently
-	// unavailable — observed under DNSChaos: every seed address
-	// returned "connection refused on 10.43.x.x:53" within the chaos
-	// window, the boot exited with an unrecoverable error, and the
-	// pod went into CrashLoopBackOff right when peers came back.
+	// Retry with exponential backoff up to s.ctx cancellation so a
+	// transient DNS outage at boot does not crash the pod: under DNSChaos
+	// every seed address can return "connection refused on :53" for a
+	// window, and a single-shot Join would exit boot with an
+	// unrecoverable error and drop the pod into CrashLoopBackOff right as
+	// peers recover.
 	//
 	// memberlist.Join is idempotent (a re-join just discovers more
 	// members), so retrying is safe. We cap the per-attempt log
@@ -396,13 +396,6 @@ func (s *Service) rejoinLoop(ctx context.Context) {
 // healthy, larger = degraded) and surfaces nonzero scores as
 // gossip_probe_failures_total. Sampled at 5s — health degradation
 // persists across ticks, so polling faster is wasted CPU + metric writes.
-//
-// This loop used to also synthesize gossip_message_total{kind="ping"}
-// counters at one-per-member-per-second to approximate memberlist's
-// internal probe traffic for dashboards. That was fabrication, not real
-// measurement, and made every pod do a 1Hz metric write proportional to
-// cluster size. Removed: dashboards that need real probe counts should
-// instrument memberlist's transport directly.
 func (s *Service) emitHealthLoop(ctx context.Context) {
 	const sampleInterval = 5 * time.Second
 	t := time.NewTicker(sampleInterval)
