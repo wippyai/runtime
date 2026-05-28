@@ -381,8 +381,9 @@ type mockMembership struct {
 	nodes     []cluster.NodeInfo
 }
 
-func (m *mockMembership) Nodes() []cluster.NodeInfo   { return m.nodes }
-func (m *mockMembership) LocalNode() cluster.NodeInfo { return m.localNode }
+func (m *mockMembership) Nodes() []cluster.NodeInfo    { return m.nodes }
+func (m *mockMembership) LocalNode() cluster.NodeInfo  { return m.localNode }
+func (m *mockMembership) UpdateMeta(map[string]string) {}
 
 // --- Send() relay package parsing tests ---
 
