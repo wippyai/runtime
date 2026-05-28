@@ -1,0 +1,74 @@
+# SPDX-License-Identifier: MPL-2.0
+#
+# Minimal cluster configuration examples for the Wippy runtime.
+#
+# Cluster formation follows the Consul/Nomad model: every node ships the
+# same gossip seed list (membership.join_addrs) plus a bootstrap_expect
+# count, joins the gossip mesh, and the initial servers form raft quorum
+# automatically once enough peers are visible. There is no static peer
+# list to enumerate and no "new vs existing" state to flip by hand.
+#
+# Three topologies are shown below; use one.
+
+# ---------------------------------------------------------------------------
+# 1. Single node (development). Cluster enabled with no peers: the one node
+#    bootstraps itself immediately (bootstrap_expect defaults to 1).
+# ---------------------------------------------------------------------------
+cluster:
+  enabled: true
+  name: "dev-1"            # stable per-node id; must be unique across the cluster
+
+# ---------------------------------------------------------------------------
+# 2. Three-server cluster (all nodes are raft voters). Every node ships the
+#    same join_addrs and bootstrap_expect: 3. Quorum forms once all three are
+#    visible in gossip. This is the simplest production shape.
+# ---------------------------------------------------------------------------
+cluster:
+  enabled: true
+  name: "${POD_NAME}"      # e.g. injected per node
+  membership:
+    join_addrs: "node-0:7946,node-1:7946,node-2:7946"  # gossip seeds (any subset works)
+    # secret_key / secret_file: shared gossip encryption key. Nodes with
+    # different keys never see each other, so this also scopes the cluster.
+  raft:
+    bootstrap_expect: 3    # size of the initial voter quorum
+
+# ---------------------------------------------------------------------------
+# 3. Bounded-raft cluster: a few raft servers + many gossip-only clients.
+#    Servers run raft (voters/standbys, capped by max_voters/max_standbys);
+#    clients route names over gossip + the dissemination plane with no raft
+#    Node. Pick the role per node — e.g. by StatefulSet ordinal.
+# ---------------------------------------------------------------------------
+cluster:
+  enabled: true
+  name: "${POD_NAME}"
+  failure_domain: "${ZONE}"   # optional: spreads voters across domains
+  membership:
+    join_addrs: "node-0:7946,node-1:7946,node-2:7946"
+    secret_key: "${GOSSIP_SECRET}"
+  raft:
+    role: server              # "server" (default) runs raft; "client" is gossip-only
+    bootstrap_expect: 5       # initial server quorum (set on the server nodes)
+    max_voters: 5             # raft voters cap (odd; rest become non-voting standbys)
+    max_standbys: 4           # non-voting raft members kept warm for promotion
+    # priority: 100           # lower wins voter election ties; pin preferred voters
+  # On a client node, set:
+  #   raft:
+  #     role: client          # no raft Node; pure gossip + dissem routing
+
+# ---------------------------------------------------------------------------
+# Advanced raft tuning (all optional, sane defaults). Timeouts are Go
+# durations. The runtime enforces the hashicorp/raft invariants
+# (ElectionTimeout >= HeartbeatTimeout, LeaderLeaseTimeout coupled to
+# HeartbeatTimeout) so no combination of these can produce a config raft
+# rejects:
+#   raft:
+#     heartbeat_timeout: 3s
+#     election_timeout: 3s
+#     commit_timeout: 500ms
+#     snapshot_interval: 2m
+#     snapshot_threshold: 8192
+#     trailing_logs: 10240
+#     max_append_entries: 16
+#     reconcile_debounce: 2s
+#     reconcile_timeout: 2s

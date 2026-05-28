@@ -34,8 +34,17 @@ const (
 	ClusterFailureDomain        boot.Name = "failure_domain"
 
 	// Raft lives under cluster.raft.*. Enabling cluster auto-enables raft
-	// with sensible defaults; set ClusterRaftEnabled=false to opt out.
+	// with sensible defaults.
+	//
+	// raft.role is the primary server/client knob (Consul/Nomad style):
+	//   "server" (default) — runs a raft Node, participates in bootstrap
+	//                        and can be elected voter/standby.
+	//   "client"           — pure gossip + dissem routing, no raft Node.
+	// raft.enabled is the low-level on/off; a node runs raft only when
+	// enabled AND role != "client", so the two compose without conflict
+	// (either set to off yields a client).
 	ClusterRaftEnabled             boot.Name = "raft.enabled"
+	ClusterRaftRole                boot.Name = "raft.role"
 	ClusterRaftEligible            boot.Name = "raft.eligible"
 	ClusterRaftPriority            boot.Name = "raft.priority"
 	// BootstrapExpect: the expected size of the initial quorum (Consul/Nomad

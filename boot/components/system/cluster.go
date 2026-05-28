@@ -27,6 +27,25 @@ import (
 	"go.uber.org/zap"
 )
 
+// raft role values for cluster.raft.role. server (default) runs a raft
+// Node; client is pure gossip + dissem routing with no raft Node.
+const (
+	raftRoleServer = "server"
+	raftRoleClient = "client"
+)
+
+// clusterRaftEnabled reports whether this node runs a raft Node. It composes
+// the role knob with the low-level enabled flag: raft runs only when
+// cluster.raft.enabled is true AND cluster.raft.role is not "client". Either
+// knob set to off yields a pure gossip+dissem client, so no combination of
+// the two can contradict. clusterCfg is the cluster.* sub-config.
+func clusterRaftEnabled(clusterCfg boot.Config) bool {
+	if !clusterCfg.GetBool(ClusterRaftEnabled, true) {
+		return false
+	}
+	return !strings.EqualFold(clusterCfg.GetString(ClusterRaftRole, raftRoleServer), raftRoleClient)
+}
+
 // clusterHealthScoreCeiling is the maximum memberlist health score
 // (where 0 = healthy) at which the activity-based liveness check still
 // reports healthy. Memberlist scores 1 or 2 commonly during chaos
@@ -159,15 +178,14 @@ func Cluster() boot.Component {
 			// raft_eligible / raft_priority / failure_domain are advertised so the
 			// Raft membership reconciler can pick voters without a separate channel.
 			//
-			// raft_eligible is forced to false whenever cluster.raft.enabled is
-			// false: a pod that won't even start a raft Node cannot accept
-			// AddVoter, so the leader's reconciler must never pick it. Without
-			// this, a deliberate gossip-only client pod still advertises
-			// raft_eligible=true (the default), the reconciler tries to add it
-			// as a voter, AddVoter targets a pod with no raft, and the leader
-			// thrashes on the failing operation.
-			raftEnabled := clusterCfg.GetBool(ClusterRaftEnabled, true)
-			raftEligible := raftEnabled && clusterCfg.GetBool(ClusterRaftEligible, true)
+			// raft_eligible is forced to false on any node that won't run a
+			// raft Node (role=client or enabled=false): such a node cannot
+			// accept AddVoter, so the leader's reconciler must never pick it.
+			// Without this a gossip-only client still advertises
+			// raft_eligible=true (the default), the reconciler tries to add
+			// it as a voter, AddVoter targets a pod with no raft, and the
+			// leader thrashes on the failing operation.
+			raftEligible := clusterRaftEnabled(clusterCfg) && clusterCfg.GetBool(ClusterRaftEligible, true)
 			nodeMeta := clusterapi.NodeMeta{
 				"version":        "1.0.0",
 				"role":           "wippy",

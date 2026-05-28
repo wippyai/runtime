@@ -80,10 +80,11 @@ func Raft() boot.Component {
 			}
 
 			// Raft config lives under cluster.raft.* — enabling cluster
-			// auto-enables raft (default true). Set cluster.raft.enabled=false
-			// to opt out (e.g. workers that should never be raft members).
+			// auto-enables a raft server (default). Set cluster.raft.role=client
+			// (or cluster.raft.enabled=false) for nodes that should route over
+			// gossip+dissem without running a raft Node.
 			raftCfg := cfg.Sub(ClusterName)
-			if !raftCfg.GetBool(ClusterRaftEnabled, true) {
+			if !clusterRaftEnabled(raftCfg) {
 				return ctx, nil
 			}
 
