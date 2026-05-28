@@ -11,7 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
-	"github.com/wippyai/runtime/api/topology/namereg/globalreg"
+	"github.com/wippyai/runtime/api/topology/namereg/global"
 )
 
 // System constants for host and topic identifiers
@@ -107,11 +107,11 @@ type (
 	// Reads are served from the local replica; writes go through Raft.
 	GlobalRegistry interface {
 		// Lookup reads from the local Raft FSM replica. See
-		// globalreg.Registry.Lookup for option semantics. Lookup surfaces only
+		// global.Registry.Lookup for option semantics. Lookup surfaces only
 		// authoritative (active) names — a Strong reservation still in its
 		// promotion window is not yet resolvable, so cross-scope register guards
 		// consult IsStrongReserved instead.
-		Lookup(ctx context.Context, name string, opts ...globalreg.LookupOption) (globalreg.LookupResult, error)
+		Lookup(ctx context.Context, name string, opts ...global.LookupOption) (global.LookupResult, error)
 
 		// IsStrongReserved reports whether the local node holds a Strong
 		// reservation for name (a pending it has acked, awaiting promotion),
@@ -134,7 +134,7 @@ type (
 	// user-session-class names. The Lookup surface reuses globalreg's option
 	// types for API parity.
 	EventualRegistry interface {
-		Lookup(ctx context.Context, name string, opts ...globalreg.LookupOption) (globalreg.LookupResult, error)
+		Lookup(ctx context.Context, name string, opts ...global.LookupOption) (global.LookupResult, error)
 	}
 
 	// Monitor defines the interface for process monitoring

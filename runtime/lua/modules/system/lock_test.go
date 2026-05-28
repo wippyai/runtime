@@ -14,26 +14,26 @@ import (
 	pidapi "github.com/wippyai/runtime/api/pid"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/security"
-	globalregapi "github.com/wippyai/runtime/api/topology/namereg/globalreg"
-	"github.com/wippyai/runtime/system/topology/namereg/globalreg"
+	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
+	"github.com/wippyai/runtime/system/topology/namereg/global"
 )
 
-// fakeGlobalRegistry drives a real globalreg.FSM through the public
-// globalreg.Registry interface so we can exercise the STRONG state
+// fakeGlobalRegistry drives a real global.FSM through the public
+// global.Registry interface so we can exercise the STRONG state
 // machinery (including auto-release via applyRemovePID) without standing
 // up a real Raft cluster.
 type fakeGlobalRegistry struct {
-	fsm      *globalreg.FSM
+	fsm      *global.FSM
 	mu       sync.Mutex
 	logIndex uint64
 }
 
 func newFakeGlobalRegistry() *fakeGlobalRegistry {
-	return &fakeGlobalRegistry{fsm: globalreg.NewFSM()}
+	return &fakeGlobalRegistry{fsm: global.NewFSM()}
 }
 
-func (f *fakeGlobalRegistry) apply(cmd *globalreg.Command) any {
-	data, err := globalreg.EncodeCommand(cmd)
+func (f *fakeGlobalRegistry) apply(cmd *global.Command) any {
+	data, err := global.EncodeCommand(cmd)
 	if err != nil {
 		return err
 	}
@@ -42,55 +42,55 @@ func (f *fakeGlobalRegistry) apply(cmd *globalreg.Command) any {
 }
 
 func (f *fakeGlobalRegistry) Register(ctx context.Context, name string, p pidapi.PID) (pidapi.PID, error) {
-	out, err := f.RegisterScope(ctx, name, p, globalregapi.Consistent)
+	out, err := f.RegisterScope(ctx, name, p, globalapi.Consistent)
 	if err != nil {
 		return out.ExistingPID, err
 	}
 	return out.PID, nil
 }
 
-func (f *fakeGlobalRegistry) RegisterScope(ctx context.Context, name string, p pidapi.PID, mode globalregapi.RegistrationMode) (globalregapi.RegisterOutcome, error) {
+func (f *fakeGlobalRegistry) RegisterScope(ctx context.Context, name string, p pidapi.PID, mode globalapi.RegistrationMode) (globalapi.RegisterOutcome, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	// For test purposes, STRONG is modeled as a Consistent register: the
 	// Lua release path looks up holder PID, which the FSM exposes through
 	// the same Lookup machinery for both scopes.
-	cmd := &globalreg.Command{
-		Type:   globalreg.CmdRegister,
+	cmd := &global.Command{
+		Type:   global.CmdRegister,
 		Name:   name,
 		PID:    p,
 		NodeID: p.Node,
 	}
 	resp := f.apply(cmd)
-	r, ok := resp.(*globalreg.RegisterResult)
+	r, ok := resp.(*global.RegisterResult)
 	if !ok {
-		return globalregapi.RegisterOutcome{}, resp.(error)
+		return globalapi.RegisterOutcome{}, resp.(error)
 	}
 	if r.Err != nil {
-		return globalregapi.RegisterOutcome{ExistingPID: r.ExistingPID}, globalregapi.ErrNameAlreadyRegistered
+		return globalapi.RegisterOutcome{ExistingPID: r.ExistingPID}, globalapi.ErrNameAlreadyRegistered
 	}
-	return globalregapi.RegisterOutcome{PID: r.PID, Epoch: r.FenceToken, State: globalregapi.RegisterStateActive}, nil
+	return globalapi.RegisterOutcome{PID: r.PID, Epoch: r.FenceToken, State: globalapi.RegisterStateActive}, nil
 }
 
 func (f *fakeGlobalRegistry) Unregister(ctx context.Context, name string) (bool, error) {
-	return f.UnregisterScope(ctx, name, globalregapi.Consistent)
+	return f.UnregisterScope(ctx, name, globalapi.Consistent)
 }
 
-func (f *fakeGlobalRegistry) UnregisterScope(_ context.Context, name string, _ globalregapi.RegistrationMode) (bool, error) {
+func (f *fakeGlobalRegistry) UnregisterScope(_ context.Context, name string, _ globalapi.RegistrationMode) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	cmd := &globalreg.Command{Type: globalreg.CmdUnregister, Name: name}
+	cmd := &global.Command{Type: global.CmdUnregister, Name: name}
 	resp := f.apply(cmd)
-	r, ok := resp.(*globalreg.UnregisterResult)
+	r, ok := resp.(*global.UnregisterResult)
 	if !ok {
 		return false, resp.(error)
 	}
 	return r.Removed, nil
 }
 
-func (f *fakeGlobalRegistry) Lookup(_ context.Context, name string, opts ...globalregapi.LookupOption) (globalregapi.LookupResult, error) {
-	var o globalregapi.LookupOptions
+func (f *fakeGlobalRegistry) Lookup(_ context.Context, name string, opts ...globalapi.LookupOption) (globalapi.LookupResult, error) {
+	var o globalapi.LookupOptions
 	for _, opt := range opts {
 		opt(&o)
 	}
@@ -99,21 +99,21 @@ func (f *fakeGlobalRegistry) Lookup(_ context.Context, name string, opts ...glob
 	state := f.fsm.State()
 	if o.ByPID != nil {
 		names := state.LookupByPID(*o.ByPID)
-		return globalregapi.LookupResult{PID: *o.ByPID, NamesForPID: names, Found: len(names) > 0}, nil
+		return globalapi.LookupResult{PID: *o.ByPID, NamesForPID: names, Found: len(names) > 0}, nil
 	}
 	p, found := state.Lookup(name)
-	return globalregapi.LookupResult{PID: p, Found: found}, nil
+	return globalapi.LookupResult{PID: p, Found: found}, nil
 }
 
 func (f *fakeGlobalRegistry) LookupByPID(p pidapi.PID) []string {
-	r, _ := f.Lookup(context.Background(), "", globalregapi.ByPID(p))
+	r, _ := f.Lookup(context.Background(), "", globalapi.ByPID(p))
 	return r.NamesForPID
 }
 
 func (f *fakeGlobalRegistry) Remove(_ context.Context, p pidapi.PID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	cmd := &globalreg.Command{Type: globalreg.CmdRemovePID, PID: p}
+	cmd := &global.Command{Type: global.CmdRemovePID, PID: p}
 	f.apply(cmd)
 	return nil
 }
@@ -121,14 +121,14 @@ func (f *fakeGlobalRegistry) Remove(_ context.Context, p pidapi.PID) error {
 func (f *fakeGlobalRegistry) RemoveNode(_ context.Context, n pidapi.NodeID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	cmd := &globalreg.Command{Type: globalreg.CmdRemoveNode, NodeID: n}
+	cmd := &global.Command{Type: global.CmdRemoveNode, NodeID: n}
 	f.apply(cmd)
 	return nil
 }
 
-var _ globalregapi.Registry = (*fakeGlobalRegistry)(nil)
+var _ globalapi.Registry = (*fakeGlobalRegistry)(nil)
 
-func newLockTestState(t *testing.T, p pidapi.PID, reg globalregapi.Registry) *lua.LState {
+func newLockTestState(t *testing.T, p pidapi.PID, reg globalapi.Registry) *lua.LState {
 	t.Helper()
 	l := lua.NewState()
 	t.Cleanup(func() { l.Close() })
@@ -136,7 +136,7 @@ func newLockTestState(t *testing.T, p pidapi.PID, reg globalregapi.Registry) *lu
 	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
 	ctx = security.SetStrictMode(ctx, false)
 	if reg != nil {
-		ctx = globalregapi.WithRegistry(ctx, reg)
+		ctx = globalapi.WithRegistry(ctx, reg)
 	}
 
 	ctx, fc := ctxapi.OpenFrameContext(ctx)
@@ -171,7 +171,7 @@ func TestLockAcquire_Conflict(t *testing.T) {
 	pHolder := pidapi.PID{Host: "h1", UniqID: "holder", Node: "node-1"}
 	pOther := pidapi.PID{Host: "h1", UniqID: "other", Node: "node-1"}
 
-	_, err := reg.RegisterScope(context.Background(), "shared", pHolder, globalregapi.Strong)
+	_, err := reg.RegisterScope(context.Background(), "shared", pHolder, globalapi.Strong)
 	require.NoError(t, err)
 
 	l := newLockTestState(t, pOther, reg)
@@ -187,7 +187,7 @@ func TestLockAcquire_Conflict(t *testing.T) {
 func TestLockRelease_ByHolder(t *testing.T) {
 	reg := newFakeGlobalRegistry()
 	p := pidapi.PID{Host: "h1", UniqID: "p1", Node: "node-1"}
-	_, err := reg.RegisterScope(context.Background(), "lockA", p, globalregapi.Strong)
+	_, err := reg.RegisterScope(context.Background(), "lockA", p, globalapi.Strong)
 	require.NoError(t, err)
 
 	l := newLockTestState(t, p, reg)
@@ -220,7 +220,7 @@ func TestLockRelease_NotHeldByCaller(t *testing.T) {
 	pHolder := pidapi.PID{Host: "h1", UniqID: "holder", Node: "node-1"}
 	pOther := pidapi.PID{Host: "h1", UniqID: "other", Node: "node-1"}
 
-	_, err := reg.RegisterScope(context.Background(), "mine", pHolder, globalregapi.Strong)
+	_, err := reg.RegisterScope(context.Background(), "mine", pHolder, globalapi.Strong)
 	require.NoError(t, err)
 
 	l := newLockTestState(t, pOther, reg)
@@ -245,7 +245,7 @@ func TestLockAcquire_PermissionDenied(t *testing.T) {
 
 	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
 	ctx = security.SetStrictMode(ctx, true)
-	ctx = globalregapi.WithRegistry(ctx, reg)
+	ctx = globalapi.WithRegistry(ctx, reg)
 	ctx, fc := ctxapi.OpenFrameContext(ctx)
 	t.Cleanup(func() { ctxapi.ReleaseFrameContext(fc) })
 	require.NoError(t, runtimeapi.SetFramePID(ctx, p))
@@ -271,7 +271,7 @@ func TestLockRelease_PermissionDenied(t *testing.T) {
 
 	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
 	ctx = security.SetStrictMode(ctx, true)
-	ctx = globalregapi.WithRegistry(ctx, reg)
+	ctx = globalapi.WithRegistry(ctx, reg)
 	ctx, fc := ctxapi.OpenFrameContext(ctx)
 	t.Cleanup(func() { ctxapi.ReleaseFrameContext(fc) })
 	require.NoError(t, runtimeapi.SetFramePID(ctx, p))
@@ -296,7 +296,7 @@ func TestLockAutoRelease_OnHolderExit(t *testing.T) {
 	reg := newFakeGlobalRegistry()
 	p := pidapi.PID{Host: "h1", UniqID: "doomed", Node: "node-1"}
 
-	_, err := reg.RegisterScope(context.Background(), "auto", p, globalregapi.Strong)
+	_, err := reg.RegisterScope(context.Background(), "auto", p, globalapi.Strong)
 	require.NoError(t, err)
 
 	res, _ := reg.Lookup(context.Background(), "auto")

@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/topology"
-	globalregapi "github.com/wippyai/runtime/api/topology/namereg/globalreg"
+	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
 	"go.uber.org/zap"
 )
 
@@ -23,11 +23,11 @@ type fakeGlobalRegistry struct {
 	notReady bool
 }
 
-func (f *fakeGlobalRegistry) Lookup(_ context.Context, name string, _ ...globalregapi.LookupOption) (globalregapi.LookupResult, error) {
+func (f *fakeGlobalRegistry) Lookup(_ context.Context, name string, _ ...globalapi.LookupOption) (globalapi.LookupResult, error) {
 	if p, ok := f.active[name]; ok {
-		return globalregapi.LookupResult{PID: p, Found: true}, nil
+		return globalapi.LookupResult{PID: p, Found: true}, nil
 	}
-	return globalregapi.LookupResult{}, nil
+	return globalapi.LookupResult{}, nil
 }
 
 func (f *fakeGlobalRegistry) IsStrongReserved(name string) (pidapi.PID, bool) {
