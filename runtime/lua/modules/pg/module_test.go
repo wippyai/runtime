@@ -259,8 +259,9 @@ func TestModuleFunctions(t *testing.T) {
 	require.Equal(t, lua.LTTable, mod.Type())
 
 	modTbl := mod.(*lua.LTable)
-	// New API: only "open" and deprecated "scope" are module-level functions
-	functions := []string{"open", "scope"}
+	// open is the only module-level function; everything else is on the
+	// instance returned by pg.open().
+	functions := []string{"open"}
 	for _, fn := range functions {
 		assert.Equal(t, lua.LTFunction, modTbl.RawGetString(fn).Type(), "function %s not registered", fn)
 	}
@@ -1680,21 +1681,4 @@ func TestInstanceToStringAfterRelease(t *testing.T) {
 	assert.Equal(t, lua.ResumeOK, state)
 	require.Len(t, values, 1)
 	assert.Contains(t, values[0].String(), "released")
-}
-
-// ==========================================================================
-// pg.scope() deprecated stub test
-// ==========================================================================
-
-func TestScopeDeprecated(t *testing.T) {
-	l, _ := newLuaWithPID(t)
-
-	l.Push(l.GetGlobal("pg").(*lua.LTable).RawGetString("scope"))
-	l.Push(lua.LString("myapp"))
-	err := l.PCall(1, 2, nil)
-	require.NoError(t, err)
-
-	// Returns (nil, error)
-	assert.Equal(t, lua.LNil, l.Get(-2))
-	assert.NotEqual(t, lua.LNil, l.Get(-1))
 }
