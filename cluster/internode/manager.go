@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/wippyai/runtime/api/cluster"
@@ -229,14 +230,19 @@ type manager struct {
 	tlsConfig        *tls.Config
 	nodeStates       *NodeStateManager
 	controlLoops     map[cluster.NodeID]*nodeControlLoop
-	classReceivers   [numClasses]func(cluster.NodeID, []byte)
-	classOverflow    [numClasses]func(cluster.NodeID)
-	config           ManagerConfig
-	wg               sync.WaitGroup
-	actualPort       int
-	controlLoopsMu   sync.Mutex
-	classReceiversMu sync.RWMutex
-	classOverflowMu  sync.RWMutex
+	// classReceivers and classOverflow are accessed on every inbound
+	// frame (lookupClassReceiver runs in the read hot path). Registrations
+	// happen only at boot, so we keep the arrays behind atomic.Pointer
+	// snapshots: lookups are an atomic.Load (no mutex), and registrations
+	// publish a new array via atomic.Store under a write-only register
+	// mutex that serializes the read-modify-write.
+	classReceivers atomic.Pointer[[numClasses]func(cluster.NodeID, []byte)]
+	classOverflow  atomic.Pointer[[numClasses]func(cluster.NodeID)]
+	config         ManagerConfig
+	wg             sync.WaitGroup
+	actualPort     int
+	controlLoopsMu sync.Mutex
+	registerMu     sync.Mutex
 }
 
 func NewConnectionManager(config ManagerConfig, coll metrics.Collector) ConnectionManager {
@@ -426,16 +432,25 @@ func (m *manager) RecordDropReason(reason string) {
 // that class bypass the default onMessage callback and go straight to recv.
 // Idempotent: registering nil clears the receiver. Returns false if a
 // non-nil receiver is already registered for that class.
+//
+// Registrations are rare (boot-time) but lookups happen on every inbound
+// frame, so we publish a fresh snapshot via atomic.Pointer and lookups
+// skip the mutex entirely.
 func (m *manager) RegisterClassReceiver(class Class, recv func(cluster.NodeID, []byte)) bool {
 	if int(class) >= numClasses {
 		return false
 	}
-	m.classReceiversMu.Lock()
-	defer m.classReceiversMu.Unlock()
-	if recv != nil && m.classReceivers[class] != nil {
+	m.registerMu.Lock()
+	defer m.registerMu.Unlock()
+	var next [numClasses]func(cluster.NodeID, []byte)
+	if cur := m.classReceivers.Load(); cur != nil {
+		next = *cur
+	}
+	if recv != nil && next[class] != nil {
 		return false
 	}
-	m.classReceivers[class] = recv
+	next[class] = recv
+	m.classReceivers.Store(&next)
 	return true
 }
 
@@ -443,25 +458,32 @@ func (m *manager) lookupClassReceiver(class Class) func(cluster.NodeID, []byte) 
 	if int(class) >= numClasses {
 		return nil
 	}
-	m.classReceiversMu.RLock()
-	recv := m.classReceivers[class]
-	m.classReceiversMu.RUnlock()
-	return recv
+	snap := m.classReceivers.Load()
+	if snap == nil {
+		return nil
+	}
+	return snap[class]
 }
 
 // RegisterClassOverflowHandler claims the overflow-reset hook for a Class.
 // Registering nil clears the handler. Returns false if a non-nil handler is
-// already registered for that class.
+// already registered for that class. Snapshot semantics match
+// RegisterClassReceiver.
 func (m *manager) RegisterClassOverflowHandler(class Class, handler func(cluster.NodeID)) bool {
 	if int(class) >= numClasses {
 		return false
 	}
-	m.classOverflowMu.Lock()
-	defer m.classOverflowMu.Unlock()
-	if handler != nil && m.classOverflow[class] != nil {
+	m.registerMu.Lock()
+	defer m.registerMu.Unlock()
+	var next [numClasses]func(cluster.NodeID)
+	if cur := m.classOverflow.Load(); cur != nil {
+		next = *cur
+	}
+	if handler != nil && next[class] != nil {
 		return false
 	}
-	m.classOverflow[class] = handler
+	next[class] = handler
+	m.classOverflow.Store(&next)
 	return true
 }
 
@@ -469,10 +491,11 @@ func (m *manager) lookupClassOverflow(class Class) func(cluster.NodeID) {
 	if int(class) >= numClasses {
 		return nil
 	}
-	m.classOverflowMu.RLock()
-	h := m.classOverflow[class]
-	m.classOverflowMu.RUnlock()
-	return h
+	snap := m.classOverflow.Load()
+	if snap == nil {
+		return nil
+	}
+	return snap[class]
 }
 
 // EvictOrphanNodes walks the controlLoops + nodeStates and removes any
