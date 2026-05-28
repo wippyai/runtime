@@ -544,9 +544,8 @@ func pgOpen(l *lua.LState) int {
 }
 
 func buildModule() (*lua.LTable, []luaapi.YieldType) {
-	mod := lua.CreateTable(0, 2)
+	mod := lua.CreateTable(0, 1)
 	mod.RawSetString("open", lua.LGoFunc(pgOpen))
-	mod.RawSetString("scope", lua.LGoFunc(scope))
 	mod.Immutable = true
 
 	yields := []luaapi.YieldType{

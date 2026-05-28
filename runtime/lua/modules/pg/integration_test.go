@@ -30,10 +30,10 @@ import (
 	luapayload "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	pgmod "github.com/wippyai/runtime/runtime/lua/modules/pg"
 	timemod "github.com/wippyai/runtime/runtime/lua/modules/time"
+	syspg "github.com/wippyai/runtime/service/pg"
 	"github.com/wippyai/runtime/system/clock"
 	"github.com/wippyai/runtime/system/eventbus"
 	systempayload "github.com/wippyai/runtime/system/payload"
-	syspg "github.com/wippyai/runtime/service/pg"
 	sysrelay "github.com/wippyai/runtime/system/relay"
 	"github.com/wippyai/runtime/system/scheduler"
 	"github.com/wippyai/runtime/system/scheduler/actor"
@@ -2028,27 +2028,4 @@ return { main = main }
 	case <-time.After(15 * time.Second):
 		t.Fatal("timeout waiting for Lua script to finish")
 	}
-}
-
-// ==========================================================================
-// pg.scope() deprecation test
-// ==========================================================================
-
-func TestIntegration_ScopeDeprecated(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	tc := setupPGTest(t)
-	defer tc.Close(t)
-
-	// pg.scope() should return nil + error
-	result := runPGScript(t, tc, `
-		local s, err = pg.scope("myapp")
-		if err then
-			return "deprecated"
-		end
-		return "not_deprecated"
-	`)
-	require.NoError(t, result.Error)
-	assert.Equal(t, "deprecated", string(result.Value.Data().(lua.LString)))
 }
