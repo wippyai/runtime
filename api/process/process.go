@@ -5,7 +5,6 @@ package process
 
 import (
 	"context"
-	"time"
 
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -114,7 +113,7 @@ type (
 	// Manager defines the interface for process lifecycle management.
 	Manager interface {
 		Start(ctx context.Context, start *Start) (pid.PID, error)
-		Cancel(ctx context.Context, from, target pid.PID, deadline time.Time) error
+		Cancel(ctx context.Context, from, target pid.PID, reason string) error
 		Terminate(ctx context.Context, p pid.PID) error
 	}
 

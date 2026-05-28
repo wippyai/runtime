@@ -70,7 +70,7 @@ func (c *captureDelegate) MergeRemoteState(_ []byte, _ bool) {
 // TestMultiplex_TwoNodes_UserBroadcastDelivers verifies that when node A
 // produces a user-broadcast via a registered UserDelegate, node B's
 // matching UserDelegate (same Kind byte) receives it through memberlist.
-// This is the core convergence path used by eventualreg.
+// This is the core convergence path used by eventual.
 func TestMultiplex_TwoNodes_UserBroadcastDelivers(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

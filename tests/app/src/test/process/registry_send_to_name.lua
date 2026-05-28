@@ -58,7 +58,7 @@ local function main()
 	assert.eq(payload.echoed, "hello_via_name", "got correct echoed value")
 
 	-- Cleanup: cancel worker
-	process.cancel(worker_pid, "100ms")
+	process.cancel(worker_pid)
 
 	-- Wait for EXIT
 	timeout = time.after("2s")

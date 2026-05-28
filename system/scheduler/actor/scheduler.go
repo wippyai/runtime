@@ -121,18 +121,12 @@ func (s *Scheduler) Stop(ctx context.Context) {
 	// Set stopping first - prevents new submissions and pool release
 	s.stopping.Store(true)
 
-	// Determine deadline for cancel events
-	deadline := time.Now().Add(10 * time.Second)
-	if d, ok := ctx.Deadline(); ok {
-		deadline = d
-	}
-
 	// Push cancel event directly to each processor's queue.
 	// Safe because stopping=true prevents pool release.
 	// Wake idle/blocked processors so they process the cancel.
 	s.byPID.Range(func(_, value any) bool {
 		proc := value.(*Processor)
-		pkg := topology.CancelPackage(pid.PID{}, proc.pid, deadline)
+		pkg := topology.CancelPackage(pid.PID{}, proc.pid, "scheduler shutdown")
 		proc.queue.PushDirect(process.Event{
 			Type: process.EventMessage,
 			Data: pkg,

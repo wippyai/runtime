@@ -6,12 +6,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/payload"
 	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
@@ -19,6 +17,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/api/topology/namereg/global"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
@@ -454,28 +453,15 @@ func cancel(l *lua.LState) int {
 		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
 
-	var deadline time.Time
+	var reason string
 	if l.GetTop() >= 2 {
-		switch l.Get(2).Type() {
-		case lua.LTString:
-			durationStr := l.CheckString(2)
-			duration, err := time.ParseDuration(durationStr)
-			if err != nil {
-				return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, fmt.Sprintf("invalid duration format: %v", err)))
-			}
-			deadline = time.Now().Add(duration)
-		case lua.LTNumber, lua.LTInteger:
-			ms := l.CheckNumber(2)
-			deadline = time.Now().Add(time.Duration(ms) * time.Millisecond)
-		case lua.LTNil, lua.LTBool, lua.LTTable, lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
-			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "deadline must be either a duration string or milliseconds number"))
-		}
+		reason = l.CheckString(2)
 	}
 
 	yield := AcquireCancelYield()
 	yield.From = self
 	yield.Target = resolved.PID
-	yield.Deadline = deadline
+	yield.Reason = reason
 
 	l.Push(yield)
 	return -1
@@ -701,12 +687,12 @@ func registryRegister(l *lua.LState) int {
 			return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to register name (%s): %s", scopeLabel(mode), name)))
 		}
 
-		globalReg := globalreg.GetRegistry(l.Context())
+		globalReg := global.GetRegistry(l.Context())
 		if globalReg == nil {
 			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "global registry not available"))
 		}
 
-		_, err := globalReg.RegisterScope(l.Context(), name, p, globalreg.RegistrationMode(mode))
+		_, err := globalReg.RegisterScope(l.Context(), name, p, global.RegistrationMode(mode))
 		if err != nil {
 			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 		}
@@ -762,7 +748,7 @@ func scopeLabel(m topology.RegistrationMode) string {
 
 // eventualRegistrar is the minimal API the Lua surface needs from the
 // EVENTUAL registry. The shape decouples the module from the concrete
-// eventualreg.Service type so tests can substitute fakes.
+// eventual.Service type so tests can substitute fakes.
 type eventualRegistrar interface {
 	Register(name string, p pidapi.PID) (pidapi.PID, error)
 	Unregister(name string) bool
@@ -831,7 +817,7 @@ func registryUnregister(l *lua.LState) int {
 			return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to unregister name (%s): %s", scopeLabel(mode), name)))
 		}
 
-		globalReg := globalreg.GetRegistry(l.Context())
+		globalReg := global.GetRegistry(l.Context())
 		if globalReg == nil {
 			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "global registry not available"))
 		}
@@ -850,7 +836,7 @@ func registryUnregister(l *lua.LState) int {
 			return 1
 		}
 
-		removed, err := globalReg.UnregisterScope(l.Context(), name, globalreg.RegistrationMode(mode))
+		removed, err := globalReg.UnregisterScope(l.Context(), name, global.RegistrationMode(mode))
 		if err != nil {
 			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 		}

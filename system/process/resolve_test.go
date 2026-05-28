@@ -10,12 +10,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
-	"github.com/wippyai/runtime/api/globalreg"
 	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/api/topology/namereg/global"
 )
 
-// fakeGlobalReg is an in-memory globalreg.Registry used to drive the
+// fakeGlobalReg is an in-memory global.Registry used to drive the
 // global-name branch of ResolveDestination.
 type fakeGlobalReg struct {
 	entries map[string]pidapi.PID
@@ -30,12 +30,12 @@ func (r *fakeGlobalReg) Register(_ context.Context, name string, p pidapi.PID) (
 	return p, nil
 }
 
-func (r *fakeGlobalReg) RegisterScope(ctx context.Context, name string, p pidapi.PID, _ globalreg.RegistrationMode) (globalreg.RegisterOutcome, error) {
+func (r *fakeGlobalReg) RegisterScope(ctx context.Context, name string, p pidapi.PID, _ global.RegistrationMode) (global.RegisterOutcome, error) {
 	out, err := r.Register(ctx, name, p)
-	return globalreg.RegisterOutcome{PID: out, State: globalreg.RegisterStateActive}, err
+	return global.RegisterOutcome{PID: out, State: global.RegisterStateActive}, err
 }
 
-func (r *fakeGlobalReg) UnregisterScope(ctx context.Context, name string, _ globalreg.RegistrationMode) (bool, error) {
+func (r *fakeGlobalReg) UnregisterScope(ctx context.Context, name string, _ global.RegistrationMode) (bool, error) {
 	return r.Unregister(ctx, name)
 }
 
@@ -47,19 +47,19 @@ func (r *fakeGlobalReg) Unregister(_ context.Context, name string) (bool, error)
 	return true, nil
 }
 
-func (r *fakeGlobalReg) Lookup(_ context.Context, name string, opts ...globalreg.LookupOption) (globalreg.LookupResult, error) {
-	var o globalreg.LookupOptions
+func (r *fakeGlobalReg) Lookup(_ context.Context, name string, opts ...global.LookupOption) (global.LookupResult, error) {
+	var o global.LookupOptions
 	for _, opt := range opts {
 		opt(&o)
 	}
 	if o.ByPID != nil {
-		return globalreg.LookupResult{PID: *o.ByPID}, nil
+		return global.LookupResult{PID: *o.ByPID}, nil
 	}
 	p, ok := r.entries[name]
 	if !ok {
-		return globalreg.LookupResult{}, nil
+		return global.LookupResult{}, nil
 	}
-	return globalreg.LookupResult{PID: p, Found: true}, nil
+	return global.LookupResult{PID: p, Found: true}, nil
 }
 
 func (r *fakeGlobalReg) LookupByPID(_ pidapi.PID) []string { return nil }
@@ -80,12 +80,12 @@ func (r *fakeEventualReg) put(name string, p pidapi.PID) {
 	r.entries[name] = p
 }
 
-func (r *fakeEventualReg) Lookup(_ context.Context, name string, _ ...globalreg.LookupOption) (globalreg.LookupResult, error) {
+func (r *fakeEventualReg) Lookup(_ context.Context, name string, _ ...global.LookupOption) (global.LookupResult, error) {
 	p, ok := r.entries[name]
 	if !ok {
-		return globalreg.LookupResult{}, nil
+		return global.LookupResult{}, nil
 	}
-	return globalreg.LookupResult{PID: p, Found: true}, nil
+	return global.LookupResult{PID: p, Found: true}, nil
 }
 
 // fakeLocalReg implements topology.PIDRegistry without consulting any of
@@ -115,7 +115,7 @@ func (r *fakeLocalReg) Remove(_ pidapi.PID)      {}
 func buildCtx(gr *fakeGlobalReg, er *fakeEventualReg, lr *fakeLocalReg) context.Context {
 	ctx := ctxapi.NewRootContext()
 	if gr != nil {
-		globalreg.WithRegistry(ctx, gr)
+		global.WithRegistry(ctx, gr)
 	}
 	if er != nil {
 		topology.WithEventualRegistry(ctx, er)

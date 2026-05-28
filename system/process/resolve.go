@@ -6,9 +6,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/wippyai/runtime/api/globalreg"
 	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/api/topology/namereg/global"
 )
 
 // ErrCouldNotResolve is returned by ResolveDestination when no resolver
@@ -29,7 +29,7 @@ type ResolvedDestination struct {
 //  3. eventualreg
 //  4. local PIDRegistry
 //
-// Registries are read from ctx via globalreg.GetRegistry,
+// Registries are read from ctx via global.GetRegistry,
 // topology.GetEventualRegistry and topology.GetRegistry. A nil registry at
 // any layer is skipped silently — callers that need a layer to be present
 // must enforce that themselves.
@@ -38,7 +38,7 @@ func ResolveDestination(ctx context.Context, dest string) (ResolvedDestination, 
 		return ResolvedDestination{PID: p}, nil
 	}
 
-	if gr := globalreg.GetRegistry(ctx); gr != nil {
+	if gr := global.GetRegistry(ctx); gr != nil {
 		result, err := gr.Lookup(ctx, dest)
 		if err == nil && result.Found {
 			return ResolvedDestination{PID: result.PID}, nil

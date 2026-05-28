@@ -6,8 +6,8 @@ import (
 	"errors"
 
 	lua "github.com/wippyai/go-lua"
-	"github.com/wippyai/runtime/api/globalreg"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/runtime/security"
 )
 
@@ -32,7 +32,7 @@ func lockAcquire(l *lua.LState) int {
 		return 2
 	}
 
-	reg := globalreg.GetRegistry(l.Context())
+	reg := global.GetRegistry(l.Context())
 	if reg == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "global registry not available").WithKind(lua.Internal).WithRetryable(false))
@@ -46,7 +46,7 @@ func lockAcquire(l *lua.LState) int {
 		return 2
 	}
 
-	_, err := reg.RegisterScope(l.Context(), name, p, globalreg.Strong)
+	_, err := reg.RegisterScope(l.Context(), name, p, global.Strong)
 	if err != nil {
 		if isConflict(err) {
 			l.Push(lua.LBool(false))
@@ -72,7 +72,7 @@ func lockRelease(l *lua.LState) int {
 		return 2
 	}
 
-	reg := globalreg.GetRegistry(l.Context())
+	reg := global.GetRegistry(l.Context())
 	if reg == nil {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "global registry not available").WithKind(lua.Internal).WithRetryable(false))
@@ -102,7 +102,7 @@ func lockRelease(l *lua.LState) int {
 		return 2
 	}
 
-	removed, err := reg.UnregisterScope(l.Context(), name, globalreg.Strong)
+	removed, err := reg.UnregisterScope(l.Context(), name, global.Strong)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.WrapErrorWithLua(l, err, "lock release").WithRetryable(false))
@@ -117,15 +117,15 @@ func lockRelease(l *lua.LState) int {
 // isConflict reports whether a RegisterScope error is a name-taken
 // conflict (already-active, pending-for-other-PID, or rejected by a
 // peer during the Strong ack barrier). All three surface as
-// apierror.AlreadyExists in globalreg.
+// apierror.AlreadyExists in global.
 func isConflict(err error) bool {
-	if errors.Is(err, globalreg.ErrNameAlreadyRegistered) {
+	if errors.Is(err, global.ErrNameAlreadyRegistered) {
 		return true
 	}
-	if errors.Is(err, globalreg.ErrPendingConflict) {
+	if errors.Is(err, global.ErrPendingConflict) {
 		return true
 	}
-	if errors.Is(err, globalreg.ErrStrongRegistrationRejected) {
+	if errors.Is(err, global.ErrStrongRegistrationRejected) {
 		return true
 	}
 	return false

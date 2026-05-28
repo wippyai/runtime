@@ -4,7 +4,6 @@ package process
 
 import (
 	"context"
-	"time"
 
 	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/pid"
@@ -93,11 +92,11 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 	return procPID, nil
 }
 
-// Cancel sends a cancellation event to the process.
-func (m *Manager) Cancel(ctx context.Context, from, pidArg pid.PID, deadline time.Time) error {
+// Cancel sends a cancellation event to the process, carrying a reason.
+func (m *Manager) Cancel(ctx context.Context, from, pidArg pid.PID, reason string) error {
 	if pidArg.Node != "" && m.node != nil && pidArg.Node != m.node.ID() {
 		if router := relay.GetRouter(ctx); router != nil {
-			if err := router.Send(topology.CancelPackage(from, pidArg, deadline)); err != nil {
+			if err := router.Send(topology.CancelPackage(from, pidArg, reason)); err != nil {
 				m.logger.Error("failed to send remote cancel",
 					zap.String("pid", pidArg.String()),
 					zap.Error(err))
@@ -112,7 +111,7 @@ func (m *Manager) Cancel(ctx context.Context, from, pidArg pid.PID, deadline tim
 		return NewHostNotFoundError(pidArg.Host)
 	}
 
-	if err := relayHost.Send(topology.CancelPackage(from, pidArg, deadline)); err != nil {
+	if err := relayHost.Send(topology.CancelPackage(from, pidArg, reason)); err != nil {
 		m.logger.Error("failed to send cancel",
 			zap.String("pid", pidArg.String()),
 			zap.Error(err))

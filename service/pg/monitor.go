@@ -3,8 +3,8 @@
 package pg
 
 import (
-	pgapi "github.com/wippyai/runtime/api/pg"
 	"github.com/wippyai/runtime/api/pid"
+	pgapi "github.com/wippyai/runtime/api/service/pg"
 )
 
 // Monitor/Events subscriptions and their teardown, plus pg membership event

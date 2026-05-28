@@ -16,7 +16,7 @@ local function main()
 	time.sleep("10ms")
 
 	-- Cancel the worker
-	local _, cancel_err = process.cancel(worker_pid, "2s")
+	local _, cancel_err = process.cancel(worker_pid)
 	assert.is_nil(cancel_err, "cancel no error")
 
 	-- Wait for EXIT event

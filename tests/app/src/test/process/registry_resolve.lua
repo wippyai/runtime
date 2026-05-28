@@ -34,7 +34,7 @@ local function main()
 	end
 
 	-- Cancel worker
-	process.cancel(worker_pid, "100ms")
+	process.cancel(worker_pid)
 
 	-- Wait for EXIT
 	timeout = time.after("2s")

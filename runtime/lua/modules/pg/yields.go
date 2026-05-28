@@ -9,9 +9,9 @@ import (
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
-	pgapi "github.com/wippyai/runtime/api/pg"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/runtime/resource"
+	pgapi "github.com/wippyai/runtime/api/service/pg"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 )

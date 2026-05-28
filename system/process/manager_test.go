@@ -7,7 +7,6 @@ import (
 	"errors"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -178,9 +177,9 @@ func TestManager_Cancel(t *testing.T) {
 
 	from := pid.PID{Host: "caller", UniqID: "caller-1"}
 	p := pid.PID{Host: "test-host", UniqID: "proc-1"}
-	deadline := time.Now().Add(time.Second)
+	reason := "test cancel"
 
-	err := mgr.Cancel(context.Background(), from, p, deadline)
+	err := mgr.Cancel(context.Background(), from, p, reason)
 
 	require.NoError(t, err)
 	assert.True(t, host.sendCalled)
@@ -192,9 +191,9 @@ func TestManager_Cancel_HostNotFound(t *testing.T) {
 
 	from := pid.PID{Host: "caller", UniqID: "caller-1"}
 	p := pid.PID{Host: "nonexistent", UniqID: "proc-1"}
-	deadline := time.Now().Add(time.Second)
+	reason := "test cancel"
 
-	err := mgr.Cancel(context.Background(), from, p, deadline)
+	err := mgr.Cancel(context.Background(), from, p, reason)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "host not found")
@@ -209,9 +208,9 @@ func TestManager_Cancel_SendError(t *testing.T) {
 
 	from := pid.PID{Host: "caller", UniqID: "caller-1"}
 	p := pid.PID{Host: "test-host", UniqID: "proc-1"}
-	deadline := time.Now().Add(time.Second)
+	reason := "test cancel"
 
-	err := mgr.Cancel(context.Background(), from, p, deadline)
+	err := mgr.Cancel(context.Background(), from, p, reason)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "send failed")

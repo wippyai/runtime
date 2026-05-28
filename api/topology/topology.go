@@ -7,11 +7,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/topology/namereg/global"
 )
 
 // System constants for host and topic identifiers
@@ -33,8 +33,8 @@ var SystemPID = pid.PID{UniqID: "topology"}
 //
 //	Local      — per-node only; visible solely on the registering node.
 //	Eventual   — cluster-wide gossip/CRDT; available (AP); conflicts resolve
-//	             via the resolver and emit name_revoked. Converges after
-//	             partition heal. Sized for ~1M presence/session names.
+//	             via the resolver and cancel the loser with a reason. Converges
+//	             after partition heal. Sized for ~1M presence/session names.
 //	Consistent — Raft quorum, linearizable ownership. A minority partition
 //	             is blocked; lagging nodes may briefly stale-read. Scales to
 //	             ~1M user-facing names.
@@ -60,10 +60,6 @@ const (
 const (
 	// Cancel indicates a cancellation request.
 	Cancel Kind = "pid.cancel"
-	// NameRevoked notifies a process that an EVENTUAL name it held was lost to
-	// a different origin's winner after conflict resolution. It is a notify,
-	// not a kill: the process keeps running and may re-register.
-	NameRevoked Kind = "pid.name.revoked"
 	// Exit indicates a process has exited.
 	Exit Kind = "pid.exit"
 	// LinkDown indicates a linked process is down.
@@ -111,11 +107,11 @@ type (
 	// Reads are served from the local replica; writes go through Raft.
 	GlobalRegistry interface {
 		// Lookup reads from the local Raft FSM replica. See
-		// globalreg.Registry.Lookup for option semantics. Lookup surfaces only
+		// global.Registry.Lookup for option semantics. Lookup surfaces only
 		// authoritative (active) names — a Strong reservation still in its
 		// promotion window is not yet resolvable, so cross-scope register guards
 		// consult IsStrongReserved instead.
-		Lookup(ctx context.Context, name string, opts ...globalreg.LookupOption) (globalreg.LookupResult, error)
+		Lookup(ctx context.Context, name string, opts ...global.LookupOption) (global.LookupResult, error)
 
 		// IsStrongReserved reports whether the local node holds a Strong
 		// reservation for name (a pending it has acked, awaiting promotion),
@@ -138,7 +134,7 @@ type (
 	// user-session-class names. The Lookup surface reuses globalreg's option
 	// types for API parity.
 	EventualRegistry interface {
-		Lookup(ctx context.Context, name string, opts ...globalreg.LookupOption) (globalreg.LookupResult, error)
+		Lookup(ctx context.Context, name string, opts ...global.LookupOption) (global.LookupResult, error)
 	}
 
 	// Monitor defines the interface for process monitoring
@@ -188,24 +184,13 @@ type (
 		Kind   Kind            `json:"kind"`
 	}
 
-	// CancelEvent represents a process cancellation request
+	// CancelEvent represents a process cancellation request. Reason explains
+	// why the process is being cancelled (for example, a revoked name).
 	CancelEvent struct {
-		At       time.Time `json:"at"`
-		Deadline time.Time `json:"deadline"`
-		From     pid.PID   `json:"from"`
-		Kind     Kind      `json:"kind"`
-	}
-
-	// NameRevokedEvent notifies the target process that an EVENTUAL name it
-	// registered lost a conflict and is no longer owned by it. The process
-	// keeps running; it may re-register. Name + PID identify the exact lost
-	// registration so a consumer can ignore a revoke that no longer matches
-	// its current registration for the name (stale revoke after re-register).
-	NameRevokedEvent struct {
-		At   time.Time `json:"at"`
-		Name string    `json:"name"`
-		Kind Kind      `json:"kind"`
-		PID  pid.PID   `json:"pid"`
+		At     time.Time `json:"at"`
+		From   pid.PID   `json:"from"`
+		Kind   Kind      `json:"kind"`
+		Reason string    `json:"reason"`
 	}
 
 	// MonitorRequestEvent requests monitoring of a PID
@@ -241,35 +226,19 @@ type (
 	}
 )
 
-// CancelPackage creates a package for requesting cancellation of a process.
-// The package is sent to the target process with a specified deadline.
-func CancelPackage(from, to pid.PID, deadline time.Time) *relay.Package {
+// CancelPackage creates a package requesting cancellation of a process.
+// Reason explains why (for example, a revoked name) and is delivered to the
+// target process on TopicEvents.
+func CancelPackage(from, to pid.PID, reason string) *relay.Package {
 	return relay.NewPackage(
 		SystemPID,
 		to,
 		TopicEvents,
 		payload.New(&CancelEvent{
-			At:       time.Now(),
-			From:     from,
-			Kind:     Cancel,
-			Deadline: deadline,
-		}),
-	)
-}
-
-// NameRevokedPackage creates a package notifying a process that an EVENTUAL
-// name it held was revoked after conflict resolution. Delivered on
-// TopicEvents to the target PID, mirroring CancelPackage.
-func NameRevokedPackage(target pid.PID, name string) *relay.Package {
-	return relay.NewPackage(
-		SystemPID,
-		target,
-		TopicEvents,
-		payload.New(&NameRevokedEvent{
-			At:   time.Now(),
-			Kind: NameRevoked,
-			Name: name,
-			PID:  target,
+			At:     time.Now(),
+			From:   from,
+			Kind:   Cancel,
+			Reason: reason,
 		}),
 	)
 }

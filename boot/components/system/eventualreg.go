@@ -15,7 +15,7 @@ import (
 	relayapi "github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/cluster/membership"
-	"github.com/wippyai/runtime/system/eventualreg"
+	"github.com/wippyai/runtime/system/topology/namereg/eventual"
 	"go.uber.org/zap"
 )
 
@@ -23,7 +23,7 @@ import (
 // It depends on cluster (membership delegate registration) and topology
 // (PIDRegistry shadow-check wiring).
 func EventualReg() boot.Component {
-	var svc *eventualreg.Service
+	var svc *eventual.Service
 
 	return boot.New(boot.P{
 		Name:      EventualRegName,
@@ -44,7 +44,7 @@ func EventualReg() boot.Component {
 				return ctx, fmt.Errorf("eventualreg: membership service has unexpected type %T", m)
 			}
 
-			cfg := eventualreg.Config{
+			cfg := eventual.Config{
 				LocalNodeID:      memSvc.LocalNode().ID,
 				Peers:            &membershipPeerInventory{m: memSvc},
 				CrossScope:       newCrossScopeChecker(ctx),
@@ -56,9 +56,9 @@ func EventualReg() boot.Component {
 				// processes that lose a name to a different origin's winner.
 				Revoker: relayapi.GetRouter(ctx),
 			}
-			svc = eventualreg.NewService(cfg)
+			svc = eventual.NewService(cfg)
 
-			delegate := eventualreg.NewDelegate(svc, logger)
+			delegate := eventual.NewDelegate(svc, logger)
 			if err := memSvc.RegisterUserDelegate(delegate); err != nil {
 				return ctx, fmt.Errorf("eventualreg: register delegate: %w", err)
 			}
@@ -94,10 +94,10 @@ func EventualReg() boot.Component {
 	})
 }
 
-// eventualRegSender adapts membership.Service to eventualreg.MessageSender.
+// eventualRegSender adapts membership.Service to eventual.MessageSender.
 // Routes targeted shard-pull frames to a specific peer via the
 // reliable TCP user-message channel, using the eventualreg delegate's
-// Kind byte to land in the peer's eventualreg.OnFrame dispatcher.
+// Kind byte to land in the peer's eventual.OnFrame dispatcher.
 type eventualRegSender struct {
 	m *membership.Service
 }
@@ -106,10 +106,10 @@ func (s *eventualRegSender) Send(target string, payload []byte) error {
 	if s == nil || s.m == nil {
 		return fmt.Errorf("eventualreg: sender not wired")
 	}
-	return s.m.SendUserMessage(target, eventualreg.DelegateKind, payload)
+	return s.m.SendUserMessage(target, eventual.DelegateKind, payload)
 }
 
-// membershipPeerInventory adapts membership.Service to eventualreg.PeerInventory.
+// membershipPeerInventory adapts membership.Service to eventual.PeerInventory.
 type membershipPeerInventory struct {
 	m *membership.Service
 }
@@ -130,7 +130,7 @@ func (p *membershipPeerInventory) AlivePeers() []string {
 	return out
 }
 
-// crossScopeChecker satisfies eventualreg.CrossScopeChecker by consulting the
+// crossScopeChecker satisfies eventual.CrossScopeChecker by consulting the
 // CONSISTENT and LOCAL registries on every Register call. We resolve registries
 // lazily because raft (which provides CONSISTENT) lands in context AFTER this
 // component loads — Lookup-time resolution catches the wired-up version.
@@ -178,7 +178,7 @@ func (c *crossScopeChecker) NameReady() bool {
 	return true
 }
 
-// localPresenceChecker satisfies globalreg.LocalPresence. It reads LOCAL and
+// localPresenceChecker satisfies global.LocalPresence. It reads LOCAL and
 // EVENTUAL non-presence for the Strong-scope conditional ack WITHOUT going
 // through the composed lookups (which re-enter globalreg and would
 // self-reference a held reservation). LOCAL uses PIDRegistry.LookupLocal — the
@@ -220,7 +220,7 @@ func (c *localPresenceChecker) LookupEventual(name string) (pid.PID, bool) {
 	return pid.PID{}, false
 }
 
-// localNameRevoker satisfies globalreg.LocalNameRevoker. The join-epoch barrier
+// localNameRevoker satisfies global.LocalNameRevoker. The join-epoch barrier
 // uses it to drop a LOCAL or EVENTUAL binding this node holds for a name a Strong
 // reservation owns cluster-wide, before flipping name_ready. Registries are
 // resolved lazily because they land in context as their components load.
@@ -252,7 +252,7 @@ func (c *localNameRevoker) RevokeLocal(name string, keep pid.PID) bool {
 		return false
 	}
 	if router := relayapi.GetRouter(c.ctx); router != nil {
-		_ = router.Send(topology.NameRevokedPackage(held, name))
+		_ = router.Send(topology.CancelPackage(topology.SystemPID, held, "name revoked: "+name))
 	}
 	return true
 }

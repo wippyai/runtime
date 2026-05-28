@@ -10,26 +10,26 @@ import (
 	hraft "github.com/hashicorp/raft"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	globalregapi "github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/pid"
-	"github.com/wippyai/runtime/system/globalreg"
+	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
+	"github.com/wippyai/runtime/system/topology/namereg/global"
 )
 
-// mockGlobalRegistry implements globalreg.Registry interface using FSM for testing.
+// mockGlobalRegistry implements global.Registry interface using FSM for testing.
 type mockGlobalRegistry struct {
-	fsm      *globalreg.FSM
+	fsm      *global.FSM
 	mu       sync.RWMutex
 	logIndex uint64 // monotonically increasing Raft log index
 }
 
 func newMockGlobalRegistry() *mockGlobalRegistry {
 	return &mockGlobalRegistry{
-		fsm: globalreg.NewFSM(),
+		fsm: global.NewFSM(),
 	}
 }
 
-func (m *mockGlobalRegistry) applyCommand(cmd *globalreg.Command) any {
-	data, err := globalreg.EncodeCommand(cmd)
+func (m *mockGlobalRegistry) applyCommand(cmd *global.Command) any {
+	data, err := global.EncodeCommand(cmd)
 	if err != nil {
 		return err
 	}
@@ -41,14 +41,14 @@ func (m *mockGlobalRegistry) Register(ctx context.Context, name string, p pid.PI
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	cmd := &globalreg.Command{
-		Type:   globalreg.CmdRegister,
+	cmd := &global.Command{
+		Type:   global.CmdRegister,
 		Name:   name,
 		PID:    p,
 		NodeID: p.Node,
 	}
 	resp := m.applyCommand(cmd)
-	result, ok := resp.(*globalreg.RegisterResult)
+	result, ok := resp.(*global.RegisterResult)
 	if !ok {
 		return pid.PID{}, resp.(error)
 	}
@@ -58,12 +58,12 @@ func (m *mockGlobalRegistry) Register(ctx context.Context, name string, p pid.PI
 	return result.PID, nil
 }
 
-func (m *mockGlobalRegistry) RegisterScope(ctx context.Context, name string, p pid.PID, _ globalregapi.RegistrationMode) (globalregapi.RegisterOutcome, error) {
+func (m *mockGlobalRegistry) RegisterScope(ctx context.Context, name string, p pid.PID, _ globalapi.RegistrationMode) (globalapi.RegisterOutcome, error) {
 	pidOut, err := m.Register(ctx, name, p)
-	return globalregapi.RegisterOutcome{PID: pidOut, State: globalregapi.RegisterStateActive}, err
+	return globalapi.RegisterOutcome{PID: pidOut, State: globalapi.RegisterStateActive}, err
 }
 
-func (m *mockGlobalRegistry) UnregisterScope(ctx context.Context, name string, _ globalregapi.RegistrationMode) (bool, error) {
+func (m *mockGlobalRegistry) UnregisterScope(ctx context.Context, name string, _ globalapi.RegistrationMode) (bool, error) {
 	return m.Unregister(ctx, name)
 }
 
@@ -71,17 +71,17 @@ func (m *mockGlobalRegistry) Unregister(ctx context.Context, name string) (bool,
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	cmd := &globalreg.Command{Type: globalreg.CmdUnregister, Name: name}
+	cmd := &global.Command{Type: global.CmdUnregister, Name: name}
 	resp := m.applyCommand(cmd)
-	result, ok := resp.(*globalreg.UnregisterResult)
+	result, ok := resp.(*global.UnregisterResult)
 	if !ok {
 		return false, resp.(error)
 	}
 	return result.Removed, nil
 }
 
-func (m *mockGlobalRegistry) Lookup(_ context.Context, name string, opts ...globalregapi.LookupOption) (globalregapi.LookupResult, error) {
-	var o globalregapi.LookupOptions
+func (m *mockGlobalRegistry) Lookup(_ context.Context, name string, opts ...globalapi.LookupOption) (globalapi.LookupResult, error) {
+	var o globalapi.LookupOptions
 	for _, opt := range opts {
 		opt(&o)
 	}
@@ -92,18 +92,18 @@ func (m *mockGlobalRegistry) Lookup(_ context.Context, name string, opts ...glob
 	state := m.fsm.State()
 	if o.ByPID != nil {
 		names := state.LookupByPID(*o.ByPID)
-		return globalregapi.LookupResult{
+		return globalapi.LookupResult{
 			PID:         *o.ByPID,
 			NamesForPID: names,
 			Found:       len(names) > 0,
 		}, nil
 	}
 	p, found := state.Lookup(name)
-	return globalregapi.LookupResult{PID: p, Found: found}, nil
+	return globalapi.LookupResult{PID: p, Found: found}, nil
 }
 
 func (m *mockGlobalRegistry) LookupByPID(p pid.PID) []string {
-	r, _ := m.Lookup(context.Background(), "", globalregapi.ByPID(p))
+	r, _ := m.Lookup(context.Background(), "", globalapi.ByPID(p))
 	return r.NamesForPID
 }
 
@@ -111,7 +111,7 @@ func (m *mockGlobalRegistry) Remove(ctx context.Context, p pid.PID) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	cmd := &globalreg.Command{Type: globalreg.CmdRemovePID, PID: p}
+	cmd := &global.Command{Type: global.CmdRemovePID, PID: p}
 	m.applyCommand(cmd)
 	return nil
 }
@@ -120,14 +120,14 @@ func (m *mockGlobalRegistry) RemoveNode(ctx context.Context, nodeID pid.NodeID) 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	cmd := &globalreg.Command{Type: globalreg.CmdRemoveNode, NodeID: nodeID}
+	cmd := &global.Command{Type: global.CmdRemoveNode, NodeID: nodeID}
 	m.applyCommand(cmd)
 	return nil
 }
 
-var _ globalregapi.Registry = (*mockGlobalRegistry)(nil)
+var _ globalapi.Registry = (*mockGlobalRegistry)(nil)
 
-func simpleLookup(reg globalregapi.Registry, name string) (pid.PID, bool) {
+func simpleLookup(reg globalapi.Registry, name string) (pid.PID, bool) {
 	res, err := reg.Lookup(context.Background(), name)
 	if err != nil {
 		return pid.PID{}, false

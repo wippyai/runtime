@@ -12,12 +12,12 @@ import (
 	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
-	pgapi "github.com/wippyai/runtime/api/pg"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/security"
+	pgapi "github.com/wippyai/runtime/api/service/pg"
 	"github.com/wippyai/runtime/runtime/lua/engine"
 )
 

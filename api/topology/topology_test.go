@@ -142,13 +142,13 @@ func TestExitEvent_Marshal(t *testing.T) {
 
 func TestCancelEvent_Marshal(t *testing.T) {
 	now := time.Now()
-	deadline := now.Add(5 * time.Second)
+	reason := "boom"
 
 	event := CancelEvent{
-		At:       now,
-		Kind:     Cancel,
-		From:     pid.PID{UniqID: "pid-123"},
-		Deadline: deadline,
+		At:     now,
+		Kind:   Cancel,
+		From:   pid.PID{UniqID: "pid-123"},
+		Reason: reason,
 	}
 
 	data, err := json.Marshal(&event)
@@ -159,9 +159,9 @@ func TestCancelEvent_Marshal(t *testing.T) {
 func TestCancel(t *testing.T) {
 	from := pid.PID{UniqID: "from-pid"}
 	to := pid.PID{UniqID: "to-pid"}
-	deadline := time.Now().Add(10 * time.Second)
+	reason := "boom"
 
-	pkg := CancelPackage(from, to, deadline)
+	pkg := CancelPackage(from, to, reason)
 
 	assert.NotNil(t, pkg)
 	assert.Equal(t, to, pkg.Target)
@@ -175,7 +175,7 @@ func TestCancel(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, Cancel, event.Kind)
 	assert.Equal(t, from.UniqID, event.From.UniqID)
-	assert.WithinDuration(t, deadline, event.Deadline, time.Second)
+	assert.Equal(t, reason, event.Reason)
 }
 
 func TestContext_Registry(t *testing.T) {

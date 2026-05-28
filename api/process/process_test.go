@@ -7,7 +7,6 @@ import (
 	"errors"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/wippyai/runtime/api/attrs"
@@ -487,8 +486,8 @@ type mockManager struct{}
 func (m *mockManager) Start(_ context.Context, _ *Start) (pid.PID, error) {
 	return pid.PID{}, nil
 }
-func (m *mockManager) Cancel(_ context.Context, _, _ pid.PID, _ time.Time) error { return nil }
-func (m *mockManager) Terminate(_ context.Context, _ pid.PID) error              { return nil }
+func (m *mockManager) Cancel(_ context.Context, _, _ pid.PID, _ string) error { return nil }
+func (m *mockManager) Terminate(_ context.Context, _ pid.PID) error           { return nil }
 
 type mockFactory struct{}
 

@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/cluster"
-	pgapi "github.com/wippyai/runtime/api/pg"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
+	pgapi "github.com/wippyai/runtime/api/service/pg"
 	"github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
 )

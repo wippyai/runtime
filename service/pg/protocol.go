@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/payload"
-	pgapi "github.com/wippyai/runtime/api/pg"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
+	pgapi "github.com/wippyai/runtime/api/service/pg"
 	"github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
 )

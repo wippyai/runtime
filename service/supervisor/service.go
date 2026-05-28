@@ -6,7 +6,6 @@ package supervisor
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
@@ -137,7 +136,7 @@ func (svc *Service) Stop(ctx context.Context) error {
 		return ErrNoRelayNode
 	}
 
-	cancelPkg := topologyapi.CancelPackage(svc.supervisorPID, svc.childPID, time.Now().Add(svc.config.Lifecycle.StopTimeout))
+	cancelPkg := topologyapi.CancelPackage(svc.supervisorPID, svc.childPID, "service stopping")
 	if err := node.Send(cancelPkg); err != nil {
 		return newSendCancelError(err)
 	}

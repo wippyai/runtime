@@ -5,9 +5,9 @@ package pg
 import (
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
-	pgapi "github.com/wippyai/runtime/api/pg"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
+	pgapi "github.com/wippyai/runtime/api/service/pg"
 	"github.com/wippyai/runtime/api/topology"
 )
 

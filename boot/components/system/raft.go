@@ -9,20 +9,20 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	clusterapi "github.com/wippyai/runtime/api/cluster"
+	raftapi "github.com/wippyai/runtime/api/cluster/raft"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
-	globalregapi "github.com/wippyai/runtime/api/globalreg"
 	logapi "github.com/wippyai/runtime/api/logs"
 	metricsapi "github.com/wippyai/runtime/api/metrics"
-	raftapi "github.com/wippyai/runtime/api/raft"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
+	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/cluster/internode"
 	"github.com/wippyai/runtime/cluster/membership"
+	sysraft "github.com/wippyai/runtime/cluster/raft"
 	"github.com/wippyai/runtime/system/eventbus"
-	"github.com/wippyai/runtime/system/globalreg"
 	"github.com/wippyai/runtime/system/health"
-	sysraft "github.com/wippyai/runtime/system/raft"
+	"github.com/wippyai/runtime/system/topology/namereg/global"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
@@ -51,8 +51,8 @@ const raftLivenessNonVoterCeiling = 5 * time.Minute
 // Context keys for raft and global registry components.
 var (
 	raftNodeKey     = &ctxapi.Key{Name: "raft.node"}
-	globalRegFSMKey = &ctxapi.Key{Name: "globalreg.fsm"}
-	globalRegSvcKey = &ctxapi.Key{Name: "globalreg.service"}
+	globalRegFSMKey = &ctxapi.Key{Name: "global.fsm"}
+	globalRegSvcKey = &ctxapi.Key{Name: "global.service"}
 )
 
 // Raft returns a boot component that initializes the Raft consensus layer
@@ -61,7 +61,7 @@ var (
 func Raft() boot.Component {
 	var raftNode *sysraft.Node
 	var memberHandler *sysraft.MembershipHandler
-	var globalRegSvc *globalreg.Service
+	var globalRegSvc *global.Service
 	var nodeLeftSub *eventbus.Subscriber
 	var bootstrapWatcher *sysraft.BootstrapWatcher
 	var logger *zap.Logger
@@ -156,7 +156,7 @@ func Raft() boot.Component {
 			}
 
 			// Create the global registry FSM (the state machine Raft replicates).
-			fsm := globalreg.NewFSM()
+			fsm := global.NewFSM()
 
 			// Create the Raft node, wired to the metrics collector and global
 			// OTel providers so raft_*, gossip_*, pg_* series flow when those
@@ -173,7 +173,7 @@ func Raft() boot.Component {
 			if router == nil {
 				return ctx, fmt.Errorf("raft: relay router not available")
 			}
-			globalRegSvc = globalreg.NewService(
+			globalRegSvc = global.NewService(
 				raftNode, fsm, bus, topo,
 				router,
 				nil,
@@ -191,7 +191,7 @@ func Raft() boot.Component {
 
 			// Register the global registry as a relay host synchronously
 			// so exit events from topology can route to it.
-			if err := node.RegisterHost(globalreg.HostID, globalRegSvc); err != nil {
+			if err := node.RegisterHost(global.HostID, globalRegSvc); err != nil {
 				return ctx, fmt.Errorf("raft: register globalreg relay host: %w", err)
 			}
 
@@ -218,9 +218,9 @@ func Raft() boot.Component {
 
 			// Register on both context keys:
 			// - topology.GlobalRegistry for PIDRegistry integration (transparent lookup)
-			// - globalreg.Registry for direct Lua module access
+			// - global.Registry for direct Lua module access
 			ctx = topology.WithGlobalRegistry(ctx, globalRegSvc)
-			ctx = globalregapi.WithRegistry(ctx, globalRegSvc)
+			ctx = globalapi.WithRegistry(ctx, globalRegSvc)
 
 			// Wire the LOCAL/EVENTUAL presence reader used by the Strong-scope
 			// conditional ack. Resolution is lazy because the eventual registry
@@ -240,7 +240,7 @@ func Raft() boot.Component {
 			// the cache on FSM-miss so non-members resolve names locally.
 			if mem := clusterapi.GetMembership(ctx); mem != nil {
 				if memSvc, ok := mem.(*membership.Service); ok {
-					dissem := globalreg.NewDissem(node.ID(), logger.Named("dissem"))
+					dissem := global.NewDissem(node.ID(), logger.Named("dissem"))
 					if err := memSvc.RegisterUserDelegate(dissem); err != nil {
 						return ctx, fmt.Errorf("raft: register globalreg dissem delegate: %w", err)
 					}
@@ -435,4 +435,3 @@ func Raft() boot.Component {
 		},
 	})
 }
-

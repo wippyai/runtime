@@ -518,8 +518,8 @@ func (m *mockManager) Start(_ context.Context, _ *process.Start) (pid.PID, error
 	}
 	return m.startPID, nil
 }
-func (m *mockManager) Cancel(_ context.Context, _, _ pid.PID, _ time.Time) error { return nil }
-func (m *mockManager) Terminate(_ context.Context, _ pid.PID) error              { return nil }
+func (m *mockManager) Cancel(_ context.Context, _, _ pid.PID, _ string) error { return nil }
+func (m *mockManager) Terminate(_ context.Context, _ pid.PID) error           { return nil }
 
 func BenchmarkListener_Add(b *testing.B) {
 	bus := eventbus.NewBus()

@@ -25,7 +25,7 @@ local function main()
 	io.flush()
 
 	-- Cancel the child
-	local ok, cancel_err = process.cancel(child_pid, "5s")
+	local ok, cancel_err = process.cancel(child_pid)
 	if cancel_err then
 		return false, "cancel failed: " .. tostring(cancel_err)
 	end

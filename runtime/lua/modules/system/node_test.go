@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/cluster"
+	raftapi "github.com/wippyai/runtime/api/cluster/raft"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	pidapi "github.com/wippyai/runtime/api/pid"
-	raftapi "github.com/wippyai/runtime/api/raft"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/security"
 )
@@ -35,8 +35,8 @@ type stubMembership struct {
 	peers []cluster.NodeInfo
 }
 
-func (s *stubMembership) Nodes() []cluster.NodeInfo   { return s.peers }
-func (s *stubMembership) LocalNode() cluster.NodeInfo { return s.local }
+func (s *stubMembership) Nodes() []cluster.NodeInfo    { return s.peers }
+func (s *stubMembership) LocalNode() cluster.NodeInfo  { return s.local }
 func (s *stubMembership) UpdateMeta(map[string]string) {}
 
 func newNodeTestState(t *testing.T) (*lua.LState, context.Context) {
