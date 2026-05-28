@@ -220,6 +220,14 @@ func (s *Service) broadcastJoin(joins map[string][]pid.PID) {
 	}
 
 	wire := encodeJoinsPayload(joins)
+	// One payload shared across all targets: the codec reads it read-only
+	// during per-target encode, and relay.ReleaseMessage only nils its
+	// reference (never mutates the value). Building it once avoids a
+	// map + payload allocation per recipient.
+	body := payload.New(map[string]any{
+		"from":  s.localNodeID,
+		"joins": wire,
+	})
 
 	for _, nodeID := range targets {
 		cb := s.cbManager.GetCircuitBreaker(nodeID)
@@ -232,12 +240,7 @@ func (s *Service) broadcastJoin(joins map[string][]pid.PID) {
 			continue
 		}
 
-		pkg := relay.NewServicePackage(s.localNodeID, s.hostID, nodeID, s.hostID, pgapi.TopicJoin,
-			payload.New(map[string]any{
-				"from":  s.localNodeID,
-				"joins": wire,
-			}),
-		)
+		pkg := relay.NewServicePackage(s.localNodeID, s.hostID, nodeID, s.hostID, pgapi.TopicJoin, body)
 		if err := s.router.Send(pkg); err != nil {
 			s.logger.Warn("failed to broadcast join",
 				logNodeID(nodeID),
@@ -275,6 +278,11 @@ func (s *Service) broadcastLeave(leaves map[string][]pid.PID) {
 	}
 
 	wire := encodeJoinsPayload(leaves)
+	// Shared across targets — see broadcastJoin.
+	body := payload.New(map[string]any{
+		"from":   s.localNodeID,
+		"leaves": wire,
+	})
 
 	for _, nodeID := range targets {
 		cb := s.cbManager.GetCircuitBreaker(nodeID)
@@ -287,12 +295,7 @@ func (s *Service) broadcastLeave(leaves map[string][]pid.PID) {
 			continue
 		}
 
-		pkg := relay.NewServicePackage(s.localNodeID, s.hostID, nodeID, s.hostID, pgapi.TopicLeave,
-			payload.New(map[string]any{
-				"from":   s.localNodeID,
-				"leaves": wire,
-			}),
-		)
+		pkg := relay.NewServicePackage(s.localNodeID, s.hostID, nodeID, s.hostID, pgapi.TopicLeave, body)
 		if err := s.router.Send(pkg); err != nil {
 			s.logger.Warn("failed to broadcast leave",
 				logNodeID(nodeID),
