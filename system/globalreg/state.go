@@ -875,9 +875,9 @@ type pendingSnapshotEntry struct {
 	CreatedAt        int64        `codec:"c"`
 }
 
-// fsmSnapshotPayload is the top-level encoded snapshot. A legacy snapshot
-// containing only []snapshotEntry decodes into the same struct because
-// msgpack ignores missing fields.
+// fsmSnapshotPayload is the top-level encoded snapshot: active entries plus the
+// pending Strong reservations. Pending is omitempty, so a snapshot with no
+// pending reservations decodes with a nil Pending slice.
 type fsmSnapshotPayload struct {
 	Entries []snapshotEntry        `codec:"e"`
 	Pending []pendingSnapshotEntry `codec:"p,omitempty"`

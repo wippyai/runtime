@@ -61,9 +61,9 @@ func TestService_Lookup_Equivalence_StateLookup(t *testing.T) {
 	_, err := svc.Register("svc.parity", p)
 	require.NoError(t, err)
 
-	legacyPID, legacyOK := svc.state.Lookup("svc.parity")
+	statePID, stateOK := svc.state.Lookup("svc.parity")
 	res, err := svc.Lookup(context.Background(), "svc.parity")
 	require.NoError(t, err)
-	assert.Equal(t, legacyOK, res.Found)
-	assert.Equal(t, legacyPID, res.PID)
+	assert.Equal(t, stateOK, res.Found)
+	assert.Equal(t, statePID, res.PID)
 }

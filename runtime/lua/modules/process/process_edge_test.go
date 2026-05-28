@@ -1090,9 +1090,8 @@ func TestRegistryRegister_ForeignPID_Denied(t *testing.T) {
 	require.False(t, res.Found, "no binding should be installed when foreign-PID denied")
 }
 
-// TestRegistryRegister_InvalidScopeType — the legacy string-as-second-arg
-// overload is gone; passing a string for the scope argument must now be a
-// type error, not a covert "parse as PID" path.
+// TestRegistryRegister_InvalidScopeType verifies that passing a string for the
+// scope argument is a type error, not a covert "parse as PID" path.
 func TestRegistryRegister_InvalidScopeType(t *testing.T) {
 	reg := newFakeScopedRegistry()
 	self := pid.PID{Host: "h1", UniqID: "self", Node: "node-1"}
