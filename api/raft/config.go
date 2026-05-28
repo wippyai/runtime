@@ -77,8 +77,16 @@ func (c *Config) InitDefaults() {
 		c.HeartbeatTimeout = 3 * time.Second
 	}
 	if c.ElectionTimeout == 0 {
-		// Must be >= HeartbeatTimeout (hashicorp/raft requirement).
 		c.ElectionTimeout = 3 * time.Second
+	}
+	// Enforce the hashicorp/raft invariant ElectionTimeout >= HeartbeatTimeout
+	// rather than just defaulting each independently. An operator who raises
+	// only HeartbeatTimeout (e.g. heartbeat_timeout: 5s, election unset)
+	// would otherwise produce Election(3s) < Heartbeat(5s), which makes
+	// NewRaft reject the config and the node fail to boot. Clamp Election up
+	// so no operator timeout combination can yield a config raft refuses.
+	if c.ElectionTimeout < c.HeartbeatTimeout {
+		c.ElectionTimeout = c.HeartbeatTimeout
 	}
 	if c.CommitTimeout == 0 {
 		// The leader sends an empty AppendEntries every CommitTimeout to

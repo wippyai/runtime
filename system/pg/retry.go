@@ -321,8 +321,12 @@ func (rq *retryQueue) requeue(entry *retryEntry) {
 
 	rq.tel.recordRetry(pgLabel, op, entry.attempts)
 
+	// baseDelay * (1<<attempts) overflows to a negative Duration once
+	// attempts is large enough (maxRetries is operator-settable). Clamp on
+	// both bounds: an overflowed (<=0) delay would otherwise slip past the
+	// max check and schedule nextTry in the past, busy-looping the retry.
 	delay := rq.baseDelay * time.Duration(1<<entry.attempts)
-	if delay > rq.maxDelay {
+	if delay > rq.maxDelay || delay <= 0 {
 		delay = rq.maxDelay
 	}
 	entry.nextTry = time.Now().Add(delay)
