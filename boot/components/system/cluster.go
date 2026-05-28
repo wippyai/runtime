@@ -4,27 +4,86 @@ package system
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/wippyai/runtime/api/boot"
 	clusterapi "github.com/wippyai/runtime/api/cluster"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
+	metricsapi "github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	relayapi "github.com/wippyai/runtime/api/relay"
+	metricsboot "github.com/wippyai/runtime/boot/components/metrics"
 	"github.com/wippyai/runtime/cluster/internode"
 	"github.com/wippyai/runtime/cluster/membership"
+	"github.com/wippyai/runtime/system/health"
 	"github.com/wippyai/runtime/system/relay"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
 
+// raft role values for cluster.raft.role. server (default) runs a raft
+// Node; client is pure gossip + dissem routing with no raft Node.
+const (
+	raftRoleServer = "server"
+	raftRoleClient = "client"
+)
+
+// clusterRaftEnabled reports whether this node runs a raft Node. It composes
+// the role knob with the low-level enabled flag: raft runs only when
+// cluster.raft.enabled is true AND cluster.raft.role is not "client". Either
+// knob set to off yields a pure gossip+dissem client, so no combination of
+// the two can contradict. clusterCfg is the cluster.* sub-config.
+func clusterRaftEnabled(clusterCfg boot.Config) bool {
+	if !clusterCfg.GetBool(ClusterRaftEnabled, true) {
+		return false
+	}
+	return !strings.EqualFold(clusterCfg.GetString(ClusterRaftRole, raftRoleServer), raftRoleClient)
+}
+
+// discoverInternodePort starts a throwaway connection manager just long
+// enough to learn the actual listen port (AutoPort picks an ephemeral one),
+// then stops it. The discovered port is pinned on the real manager's config
+// so it binds the same port across restarts, and is advertised in node
+// metadata before the real manager starts.
+func discoverInternodePort(cfg internode.ManagerConfig, coll metricsapi.Collector) (int, error) {
+	tmp := internode.NewConnectionManager(cfg, coll)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := tmp.Start(ctx, func(clusterapi.NodeID, []byte) {}); err != nil {
+		return 0, NewConnectionManagerPreStartError(err)
+	}
+	port := tmp.GetListenPort()
+	if err := tmp.Stop(); err != nil {
+		return 0, NewConnectionManagerStopError(err)
+	}
+	return port, nil
+}
+
+// clusterHealthScoreCeiling is the maximum memberlist health score
+// (where 0 = healthy) at which the activity-based liveness check still
+// reports healthy. Memberlist scores 1 or 2 commonly during chaos
+// before stabilizing; scores beyond this indicate sustained probe
+// failure consistent with partition isolation.
+const clusterHealthScoreCeiling = 4
+
+// clusterGossipBootGrace is the window after Start during which the
+// gossip health check returns healthy unconditionally — gives a
+// freshly-launched pod time to join the cluster before kubelet's
+// liveness probe (3 failures × periodSeconds=5) can decide to SIGTERM
+// it. Without this, every chaos-killed pod is observed to exit 0
+// during rejoin and StatefulSet loops it into CrashLoopBackOff.
+const clusterGossipBootGrace = 60 * time.Second
+
 // Context keys for cluster components
 var (
-	internodeServiceKey  = &ctxapi.Key{Name: "cluster.internode"}
-	membershipServiceKey = &ctxapi.Key{Name: "cluster.membership"}
+	internodeServiceKey = &ctxapi.Key{Name: "cluster.internode"}
+	connMgrKey          = &ctxapi.Key{Name: "cluster.internode.conn"}
 )
 
 // WithInternodeService attaches InternodeService to context
@@ -39,18 +98,6 @@ func WithInternodeService(ctx context.Context, svc *internode.Service) context.C
 	return ctx
 }
 
-// WithMembership attaches Membership service to context todo move to api
-func WithMembership(ctx context.Context, m clusterapi.Membership) context.Context {
-	ac := ctxapi.AppFromContext(ctx)
-	if ac == nil {
-		return ctx
-	}
-	if ac.Get(membershipServiceKey) == nil {
-		ac.With(membershipServiceKey, m)
-	}
-	return ctx
-}
-
 func Cluster() boot.Component {
 	var membershipSvc *membership.Service
 	var internodeSvc *internode.Service
@@ -58,7 +105,8 @@ func Cluster() boot.Component {
 	var logger *zap.Logger
 
 	return boot.New(boot.P{
-		Name: ClusterName,
+		Name:      ClusterName,
+		DependsOn: []boot.Name{metricsboot.Name},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger = logapi.GetLogger(ctx).Named("cluster")
 			cfg := boot.GetConfig(ctx)
@@ -119,30 +167,37 @@ func Cluster() boot.Component {
 			connManagerCfg.AutoPort = clusterCfg.GetBool(ClusterInternodeAutoPort, true)
 			connManagerCfg.Logger = logger.Named("internode.conn")
 
-			connMgr = internode.NewConnectionManager(connManagerCfg)
-
-			// Pre-start connection manager to allocate port
-			tempCtx, tempCancel := context.WithCancel(context.Background())
-			dummyCallback := func(_ clusterapi.NodeID, _ []byte) {}
-
-			if err := connMgr.Start(tempCtx, dummyCallback); err != nil {
-				tempCancel()
-				return ctx, NewConnectionManagerPreStartError(err)
+			// Discover the actual internode port (AutoPort picks an
+			// ephemeral one) before the real start, since it's advertised in
+			// node metadata. Pin it so the real manager binds the same port
+			// across restarts.
+			actualPort, err := discoverInternodePort(connManagerCfg, metricsapi.GetCollector(ctx))
+			if err != nil {
+				return ctx, err
 			}
+			connManagerCfg.BindPort = actualPort
+			connManagerCfg.AutoPort = false
+			connMgr = internode.NewConnectionManager(connManagerCfg, metricsapi.GetCollector(ctx))
 
-			actualPort := connMgr.GetListenPort()
-
-			if err := connMgr.Stop(); err != nil {
-				tempCancel()
-				return ctx, NewConnectionManagerStopError(err)
-			}
-			tempCancel()
-
-			// Create node metadata with internode port
+			// Create node metadata with internode port and raft-eligibility hints.
+			// raft_eligible / raft_priority / failure_domain are advertised so the
+			// Raft membership reconciler can pick voters without a separate channel.
+			//
+			// raft_eligible is forced to false on any node that won't run a
+			// raft Node (role=client or enabled=false): such a node cannot
+			// accept AddVoter, so the leader's reconciler must never pick it.
+			// Without this a gossip-only client still advertises
+			// raft_eligible=true (the default), the reconciler tries to add
+			// it as a voter, AddVoter targets a pod with no raft, and the
+			// leader thrashes on the failing operation.
+			raftEligible := clusterRaftEnabled(clusterCfg) && clusterCfg.GetBool(ClusterRaftEligible, true)
 			nodeMeta := clusterapi.NodeMeta{
 				"version":        "1.0.0",
 				"role":           "wippy",
 				"internode_port": strconv.Itoa(actualPort),
+				"raft_eligible":  strconv.FormatBool(raftEligible),
+				"raft_priority":  strconv.Itoa(clusterCfg.GetInt(ClusterRaftPriority, 100)),
+				"failure_domain": clusterCfg.GetString(ClusterFailureDomain, ""),
 			}
 
 			// Create membership service config
@@ -158,11 +213,37 @@ func Cluster() boot.Component {
 				Meta:         nodeMeta,
 			}
 
-			membershipSvc = membership.NewService(memberCfg, bus, logger.Named("membership"))
+			membershipSvc = membership.NewService(
+				memberCfg, bus, logger.Named("membership"),
+				metricsapi.GetCollector(ctx),
+				otel.GetMeterProvider(),
+				otel.GetTracerProvider(),
+			)
 
 			// Create package callback for internode service
 			pkgCallback := func(pkg *relayapi.Package) error {
-				return node.Send(pkg)
+				// Copy fields before Send — Send may release the package.
+				targetHost := pkg.Target.Host
+				targetNode := pkg.Target.Node
+				topic := ""
+				if len(pkg.Messages) > 0 {
+					topic = pkg.Messages[0].Topic
+				}
+				err := node.Send(pkg)
+				if err != nil {
+					// Hot path under partition: targets in-flight when peer
+					// torn down. The Service-side onMessage already counts
+					// this as internode_dropped_total{reason="delivery_failed"};
+					// keep this at DEBUG to retain the rich context but stay
+					// quiet during chaos.
+					logger.Debug("internode delivery failed",
+						zap.String("target_host", targetHost),
+						zap.String("target_node", targetNode),
+						zap.String("topic", topic),
+						zap.Error(err),
+					)
+				}
+				return err
 			}
 
 			// Create internode service
@@ -175,19 +256,31 @@ func Cluster() boot.Component {
 				membershipSvc,
 			)
 
-			// Replace router with cluster-enabled router
+			// Enable internode routing on the existing router.
+			// The router was created during bootstrap with nil internode;
+			// now we set the internode service so cross-node messages are
+			// forwarded correctly.
 			router := relayapi.GetRouter(ctx)
 			if router == nil {
 				return ctx, ErrRouterNotAvailable
 			}
-
-			// Create new router with internode service for cluster
-			clusterRouter := relay.NewRouter(node, internodeSvc)
-			ctx = relayapi.WithRouter(ctx, clusterRouter)
+			if sysRouter, ok := router.(*relay.Router); ok {
+				sysRouter.SetInternode(internodeSvc)
+			} else {
+				return ctx, ErrRouterNotAvailable
+			}
 
 			// Store cluster components in context
-			ctx = WithMembership(ctx, membershipSvc)
+			ctx = clusterapi.WithMembership(ctx, membershipSvc)
 			ctx = WithInternodeService(ctx, internodeSvc)
+
+			// Expose the connection manager so the mesh-backed Raft
+			// transport (system/raft) can ride on the same internode
+			// connection as gossip, relay, and PG broadcast traffic.
+			// No separate Raft listener is bound.
+			if ac := ctxapi.AppFromContext(ctx); ac != nil {
+				ac.With(connMgrKey, connMgr)
+			}
 
 			logger.Info("cluster initialized",
 				zap.String("node_name", nodeName),
@@ -211,6 +304,39 @@ func Cluster() boot.Component {
 				if err := internodeSvc.Start(ctx); err != nil {
 					return NewInternodeStartError(err)
 				}
+			}
+
+			// Liveness check: memberlist HealthScore reports zero when
+			// gossip probes are clean. Anything non-zero means probes
+			// are failing — typically because we're partitioned. We
+			// tolerate transient suspects (score 1 or 2) but report
+			// unhealthy past the ceiling.
+			//
+			// Boot grace window: non-bootstrap pods have a legitimate
+			// startup interval before they finish joining the cluster,
+			// during which HealthScore() reads above the ceiling — not
+			// because the pod is partitioned, but because gossip
+			// hasn't converged yet. Without a grace window, kubelet
+			// sends SIGTERM after 3× failureThreshold (~15s), the
+			// runtime shuts down cleanly (exit 0), and the StatefulSet
+			// retries — produces the CrashLoopBackOff pattern observed
+			// every chaos cycle.
+			startedAt := time.Now()
+			if membershipSvc != nil {
+				health.Register("cluster.gossip", func() error {
+					if time.Since(startedAt) < clusterGossipBootGrace {
+						return nil
+					}
+					score := membershipSvc.HealthScore()
+					switch {
+					case score < 0:
+						return fmt.Errorf("memberlist not running")
+					case score > clusterHealthScoreCeiling:
+						return fmt.Errorf("memberlist health score %d exceeds ceiling %d",
+							score, clusterHealthScoreCeiling)
+					}
+					return nil
+				})
 			}
 
 			return nil

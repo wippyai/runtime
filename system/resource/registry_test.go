@@ -663,7 +663,7 @@ func TestService_ResourceAcquisitionEdgeCases(t *testing.T) {
 	// Test acquiring with deadline exceeded
 	deadlineCtx, cancel := context.WithTimeout(ctx, 1*time.Nanosecond)
 	defer cancel()
-	time.Sleep(1 * time.Millisecond) // Ensure deadline is exceeded
+	<-deadlineCtx.Done() // Wait for context to actually expire (Windows has ~15ms timer resolution)
 	_, err = service.Acquire(deadlineCtx, id, resource.ModeNormal)
 	assert.Equal(t, context.DeadlineExceeded, err)
 }

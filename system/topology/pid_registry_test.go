@@ -3,13 +3,108 @@
 package topology
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	globalregapi "github.com/wippyai/runtime/api/globalreg"
 	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/topology"
 	"go.uber.org/zap"
 )
+
+// fakeGlobalRegistry satisfies topology.GlobalRegistry. active names resolve
+// via Lookup; reserved names surface via IsStrongReserved (the promotion-window
+// guard) but NOT via Lookup, mirroring the real service.
+type fakeGlobalRegistry struct {
+	active   map[string]pidapi.PID
+	reserved map[string]pidapi.PID
+	notReady bool
+}
+
+func (f *fakeGlobalRegistry) Lookup(_ context.Context, name string, _ ...globalregapi.LookupOption) (globalregapi.LookupResult, error) {
+	if p, ok := f.active[name]; ok {
+		return globalregapi.LookupResult{PID: p, Found: true}, nil
+	}
+	return globalregapi.LookupResult{}, nil
+}
+
+func (f *fakeGlobalRegistry) IsStrongReserved(name string) (pidapi.PID, bool) {
+	p, ok := f.reserved[name]
+	return p, ok
+}
+
+func (f *fakeGlobalRegistry) NameReady() bool { return !f.notReady }
+
+// TestPIDRegistry_StrongReservationBlocksLocalBind proves a held Strong
+// reservation refuses a LOCAL bind of the same name to a different pid, and
+// allows the same pid, through the existing global-reg shadow-check seam.
+func TestPIDRegistry_StrongReservationBlocksLocalBind(t *testing.T) {
+	reserved := pidapi.PID{Node: "node-1", Host: "host", UniqID: "owner"}
+	gr := &fakeGlobalRegistry{
+		active:   map[string]pidapi.PID{},
+		reserved: map[string]pidapi.PID{"system.root": reserved},
+	}
+	reg := NewPIDRegistry(WithLogger(zap.NewNop()), WithGlobalRegistry(gr))
+
+	// A different pid is refused while the reservation is held.
+	other := pidapi.PID{Node: "node-1", Host: "host", UniqID: "other"}
+	existing, err := reg.Register("system.root", other)
+	assert.ErrorIs(t, err, topology.ErrNameAlreadyRegistered)
+	assert.Equal(t, reserved, existing, "the reserved pid is surfaced as taken")
+
+	// The same (reserved) pid is allowed.
+	got, err := reg.Register("system.root", reserved)
+	assert.NoError(t, err)
+	assert.Equal(t, reserved, got)
+
+	// Once the reservation clears, a fresh LOCAL bind succeeds.
+	delete(gr.reserved, "system.root")
+	got, err = reg.Register("system.free", other)
+	assert.NoError(t, err)
+	assert.Equal(t, other, got)
+}
+
+// TestPIDRegistry_JoinBarrierGatesLocalRegister proves a fresh LOCAL register is
+// refused with ErrNameServiceNotReady while the join-epoch barrier is in
+// progress, and allowed once it completes. A re-register of a name this node
+// already holds is allowed even while not ready (no shadowing risk).
+func TestPIDRegistry_JoinBarrierGatesLocalRegister(t *testing.T) {
+	gr := &fakeGlobalRegistry{
+		active:   map[string]pidapi.PID{},
+		reserved: map[string]pidapi.PID{},
+		notReady: true,
+	}
+	reg := NewPIDRegistry(WithLogger(zap.NewNop()), WithGlobalRegistry(gr))
+
+	p := pidapi.PID{Node: "node-1", Host: "host", UniqID: "p1"}
+	_, err := reg.Register("local.gated", p)
+	assert.ErrorIs(t, err, topology.ErrNameServiceNotReady, "fresh local register refused while barrier in progress")
+
+	// Barrier completes — the same register now succeeds.
+	gr.notReady = false
+	got, err := reg.Register("local.gated", p)
+	assert.NoError(t, err)
+	assert.Equal(t, p, got)
+}
+
+// TestPIDRegistry_JoinBarrierAllowsReRegister proves a re-register of an
+// already-held name to the same pid is allowed even while the barrier runs.
+func TestPIDRegistry_JoinBarrierAllowsReRegister(t *testing.T) {
+	gr := &fakeGlobalRegistry{active: map[string]pidapi.PID{}, reserved: map[string]pidapi.PID{}}
+	reg := NewPIDRegistry(WithLogger(zap.NewNop()), WithGlobalRegistry(gr))
+
+	p := pidapi.PID{Node: "node-1", Host: "host", UniqID: "p1"}
+	_, err := reg.Register("local.held", p)
+	require.NoError(t, err)
+
+	// Barrier (re)opens — a re-register of the held name to the same pid is safe.
+	gr.notReady = true
+	got, err := reg.Register("local.held", p)
+	assert.NoError(t, err)
+	assert.Equal(t, p, got)
+}
 
 func TestPIDRegistry_Register(t *testing.T) {
 	reg := NewPIDRegistry(WithLogger(zap.NewNop()))

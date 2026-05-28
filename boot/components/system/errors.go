@@ -17,6 +17,7 @@ var (
 	ErrRelayNotAvailableForCluster      = apierror.New(apierror.Internal, "relay node not available for cluster").WithRetryable(apierror.False)
 	ErrRouterNotAvailable               = apierror.New(apierror.Internal, "router not available in context").WithRetryable(apierror.False)
 	ErrTopologyNotAvailable             = apierror.New(apierror.Internal, "topology not available in context").WithRetryable(apierror.False)
+	ErrHandlerRegistryNotAvailable      = apierror.New(apierror.Internal, "handler registry not available in context").WithRetryable(apierror.False)
 )
 
 func NewHostnameError(cause error) apierror.Error {

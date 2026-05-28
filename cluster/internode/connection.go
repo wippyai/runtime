@@ -4,7 +4,6 @@ package internode
 
 import (
 	"bufio"
-	"container/list"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -89,10 +88,11 @@ func (ce *ConnectionError) ShouldRetry() bool {
 }
 
 const (
-	protocolVersion = 0x01
-	frameHeaderSize = 5 // 1 byte for version, 4 bytes for length
-	// writeBatchSize reserved for future use
-	writeFlushInterval     = 10 * time.Millisecond
+	// protocolVersion v2 added the per-frame Class byte so the wire is
+	// self-describing for sub-protocol dispatch. v1 (header [version, len])
+	// is no longer accepted; all nodes in a cluster upgrade together.
+	protocolVersion        = 0x02
+	frameHeaderSize        = 6 // 1 byte version, 1 byte class, 4 bytes length
 	defaultWriteBufferSize = 64 * 1024
 	readPoolBufferSize     = 32 * 1024
 )
@@ -104,19 +104,25 @@ var bufferPool = sync.Pool{
 	},
 }
 
-// Connection defines the public interface for a connection to another node.
-type Connection interface {
-	Run(handler func(msg []byte)) *ConnectionError
-	Send(data []byte) error
-	Close()
-	ExtractPendingMessages() [][]byte
-	RemoteNodeID() cluster.NodeID
+// Outbound is one queued message waiting to be sent on the wire. The Class
+// is preserved end-to-end so the receiver can dispatch by sub-protocol
+// without inspecting the payload, and so requeue-on-disconnect honors the
+// original QoS class.
+type Outbound struct {
+	Data  []byte
+	Class Class
 }
 
 // NodeConnectionConfig holds configuration parameters for a NodeConnection.
 type NodeConnectionConfig struct {
 	HandshakeTimeout time.Duration
 	MaxMessageSize   uint32
+	// MaxQueueSize caps the per-connection outbound queue (activeQueue).
+	// When the cap is reached, Send drops the new message and returns
+	// ErrQueueFull so the caller can record the drop. Zero means unbounded
+	// — that's a foot-gun under network-delay chaos and should only be used
+	// in tests.
+	MaxQueueSize int
 }
 
 // DefaultNodeConnectionConfig returns a default set of configuration parameters
@@ -125,41 +131,72 @@ func DefaultNodeConnectionConfig() NodeConnectionConfig {
 	return NodeConnectionConfig{
 		HandshakeTimeout: 5 * time.Second,
 		MaxMessageSize:   512 * 1024 * 1024,
+		MaxQueueSize:     4096,
 	}
 }
 
-// NodeConnection represents a single, framed, and optimized TCP connection to another node.
-// It provides message queuing, batching, and lifecycle management for internode communication.
+// NodeConnection represents a single, framed TCP connection to another node.
+// Its writeLoop drains the peer's per-class outbound queues directly (wired
+// via bindDrain) so there is a single queue and a single goroutine wakeup
+// per frame on the send path.
 type NodeConnection struct {
-	conn            net.Conn
-	logger          *zap.Logger
-	cancel          context.CancelFunc
-	activeQueue     *list.List
-	processingQueue *list.List
-	sendNotify      chan struct{}
-	remoteNode      cluster.NodeID
-	config          NodeConnectionConfig
-	lifecycleMu     sync.Mutex
-	queueMu         sync.Mutex
-	closed          atomic.Bool
+	conn          net.Conn
+	logger        *zap.Logger
+	cancel        context.CancelFunc
+	messageNotify <-chan struct{}
+	drainFn       func(int) []Outbound
+	requeueFn     func([]Outbound)
+	remoteNode    cluster.NodeID
+	config        NodeConnectionConfig
+	drainBatch    int
+	lifecycleMu   sync.Mutex
+	closed        atomic.Bool
 }
 
-// newNodeConnection creates a new, un-started NodeConnection.
+// newNodeConnection creates a new, un-started NodeConnection. bindDrain must
+// be called before Run to wire the outbound queue source.
 func newNodeConnection(conn net.Conn, remoteNode cluster.NodeID, config NodeConnectionConfig, logger *zap.Logger) *NodeConnection {
 	return &NodeConnection{
-		conn:            conn,
-		logger:          logger.With(zap.String("remote_node", remoteNode)),
-		config:          config,
-		remoteNode:      remoteNode,
-		activeQueue:     list.New(),
-		processingQueue: list.New(),
-		sendNotify:      make(chan struct{}, 1),
+		conn:       conn,
+		logger:     logger.With(zap.String("remote_node", remoteNode)),
+		config:     config,
+		remoteNode: remoteNode,
 	}
+}
+
+// bindDrain wires the per-class outbound queues that writeLoop drains. It
+// MUST be called before Run. notify is the peer's message notifier (signaled
+// when a message is queued); drain pulls up to batch messages in QoS order;
+// requeue returns an un-flushed batch to the per-class queues after a write
+// failure so a subsequent connection can deliver them.
+func (c *NodeConnection) bindDrain(notify <-chan struct{}, drain func(int) []Outbound, requeue func([]Outbound), batch int) {
+	c.messageNotify = notify
+	c.drainFn = drain
+	c.requeueFn = requeue
+	c.drainBatch = batch
 }
 
 // Run starts the connection's read/write loops and blocks until termination.
-// It returns a ConnectionError indicating the reason for termination.
-func (c *NodeConnection) Run(handler func(msg []byte)) *ConnectionError {
+// It returns a ConnectionError indicating the reason for termination. The
+// handler receives every decoded inbound frame tagged with its sub-protocol
+// Class so callers can dispatch by class without re-parsing payload.
+// Run drives the connection's full-duplex I/O until either direction fails
+// or Close is called, then returns the first non-clean error observed.
+//
+// The read pump runs INLINE on the caller's goroutine; only the write pump
+// is spawned. This keeps full duplex (separate read/write goroutines) with
+// no dedicated join/wait goroutine — the caller's goroutine IS the read
+// pump. Steady state is 3 long-lived goroutines per connected peer: the
+// control loop, this read pump, and the write pump.
+//
+// First-error-wins teardown: whichever pump fails first records its error and
+// Close()s the connection (cancel ctx + close net.Conn), which unblocks the
+// other pump (context cancellation alone does not interrupt a blocking
+// net.Conn.Read — only closing the conn does). The writer records its error
+// BEFORE calling Close so a writer-originated failure is captured before the
+// socket close wakes the inline reader; the reader then observes
+// ExitCleanShutdown and Run returns the writer's error.
+func (c *NodeConnection) Run(handler func(class Class, msg []byte)) *ConnectionError {
 	c.lifecycleMu.Lock()
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
@@ -167,60 +204,51 @@ func (c *NodeConnection) Run(handler func(msg []byte)) *ConnectionError {
 
 	defer c.Close()
 
-	var wg sync.WaitGroup
-	wg.Add(2)
+	errCh := make(chan *ConnectionError, 1)
+	writeDone := make(chan struct{})
 
-	errChan := make(chan *ConnectionError, 2)
+	// record keeps only the first non-clean error. The one-slot buffered
+	// channel + non-blocking send means the loser of the race silently
+	// drops its (necessarily clean-shutdown-shaped) error.
+	record := func(err *ConnectionError) {
+		if err == nil || err.Reason == ExitCleanShutdown {
+			return
+		}
+		select {
+		case errCh <- err:
+		default:
+		}
+	}
 
 	go func() {
-		defer wg.Done()
-		err := c.readLoop(ctx, handler)
-		// Only send non-nil errors that aren't clean shutdowns
-		if err != nil && (err.Reason != ExitCleanShutdown) {
-			errChan <- err
+		defer close(writeDone)
+		if err := c.writeLoop(ctx); err != nil && err.Reason != ExitCleanShutdown {
+			record(err) // record before Close so it wins over the reader's clean-shutdown
+			c.Close()   // cancels ctx + closes net.Conn, unblocking the inline reader
 		}
 	}()
 
-	go func() {
-		defer wg.Done()
-		err := c.writeLoop(ctx)
-		// Only send non-nil errors that aren't clean shutdowns
-		if err != nil && (err.Reason != ExitCleanShutdown) {
-			errChan <- err
-		}
-	}()
-
-	var firstErr *ConnectionError
-	select {
-	case firstErr = <-errChan:
-		// First error received, initiate shutdown of the other loop.
-		c.Close()
-	case <-ctx.Done():
-		// Shutdown initiated externally via Close().
-		firstErr = &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
+	// Inline read pump on the caller's goroutine.
+	readErr := c.readLoop(ctx, handler)
+	// Attribute the reader's error only if the reader is the FIRST cause:
+	// if the connection is already closed when the reader exits, the
+	// socket error is a consequence of an external Close() or a
+	// writer-triggered teardown (which already recorded its own cause),
+	// not an independent failure. This is what makes an external Close
+	// yield ExitCleanShutdown rather than a spurious read error.
+	if !c.closed.Load() {
+		record(readErr)
 	}
 
-	wg.Wait()
-	return firstErr
-}
-
-// Send enqueues a message for delivery. It is non-blocking and safe for concurrent use.
-// Returns ErrConnectionClosed if the connection has been closed.
-func (c *NodeConnection) Send(data []byte) error {
-	if c.closed.Load() {
-		return ErrConnectionClosed
-	}
-
-	c.queueMu.Lock()
-	c.activeQueue.PushBack(data)
-	c.queueMu.Unlock()
+	c.Close() // idempotent; stops the writer after the reader exits
+	<-writeDone
 
 	select {
-	case c.sendNotify <- struct{}{}:
+	case err := <-errCh:
+		return err
 	default:
+		return &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
 	}
-
-	return nil
 }
 
 // Close terminates the connection gracefully and cancels all ongoing operations.
@@ -240,64 +268,65 @@ func (c *NodeConnection) RemoteNodeID() cluster.NodeID {
 	return c.remoteNode
 }
 
-// ExtractPendingMessages returns all messages that were queued but not yet sent.
-// This is useful for message recovery during connection failures.
-func (c *NodeConnection) ExtractPendingMessages() [][]byte {
-	c.queueMu.Lock()
-	defer c.queueMu.Unlock()
-
-	c.processingQueue.PushBackList(c.activeQueue)
-	pending := make([][]byte, 0, c.processingQueue.Len())
-	for e := c.processingQueue.Front(); e != nil; e = e.Next() {
-		pending = append(pending, e.Value.([]byte))
-	}
-	return pending
-}
-
+// writeLoop drains this peer's per-class outbound queues (wired by bindDrain)
+// and flushes frames to the socket. It first drains everything currently
+// queued — including messages buffered while the connection was down — then
+// blocks on messageNotify for the next batch. On a write failure the
+// un-flushed batch is requeued so a subsequent connection can deliver it.
 func (c *NodeConnection) writeLoop(ctx context.Context) *ConnectionError {
+	if c.drainFn == nil || c.messageNotify == nil {
+		// bindDrain was not called — a programmer error. Park on ctx so the
+		// connection still tears down cleanly rather than panicking.
+		c.logger.Error("writeLoop started without a bound drain source")
+		<-ctx.Done()
+		return &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
+	}
+
 	writer := bufio.NewWriterSize(c.conn, defaultWriteBufferSize)
-	ticker := time.NewTicker(writeFlushInterval)
-	defer ticker.Stop()
 
 	for {
+		for ctx.Err() == nil {
+			batch := c.drainFn(c.drainBatch)
+			if len(batch) == 0 {
+				break
+			}
+			if err := c.flushBatch(writer, batch); err != nil {
+				c.requeueFn(batch)
+				// A flush error caused by an intentional local close (read
+				// pump failed first, or external Close) must not be reported
+				// as a writer-originated network error — that would override
+				// the real first cause in Run's first-error-wins contract.
+				if ctx.Err() != nil || c.closed.Load() {
+					return &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
+				}
+				return &ConnectionError{Reason: ExitNetworkError, Err: err}
+			}
+			if len(batch) < c.drainBatch {
+				break
+			}
+		}
+
 		select {
-		case <-c.sendNotify:
-		case <-ticker.C:
+		case <-c.messageNotify:
 		case <-ctx.Done():
 			return &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
 		}
-
-		c.queueMu.Lock()
-		if c.activeQueue.Len() == 0 {
-			c.queueMu.Unlock()
-			continue
-		}
-
-		c.processingQueue = c.activeQueue
-		c.activeQueue = list.New()
-		c.queueMu.Unlock()
-
-		if err := c.flushBatch(writer, c.processingQueue); err != nil {
-			return &ConnectionError{Reason: ExitNetworkError, Err: err}
-		}
-
-		// Clear processingQueue under lock to avoid race with ExtractPendingMessages
-		c.queueMu.Lock()
-		c.processingQueue.Init()
-		c.queueMu.Unlock()
 	}
 }
 
-func (c *NodeConnection) flushBatch(writer *bufio.Writer, batch *list.List) error {
-	for e := batch.Front(); e != nil; e = e.Next() {
-		if err := writeFrame(writer, e.Value.([]byte)); err != nil {
+// flushBatch writes every frame in batch to the buffered writer and flushes.
+// On any error it returns immediately; the caller requeues the whole batch
+// (no frame in a failed batch is guaranteed delivered).
+func (c *NodeConnection) flushBatch(writer *bufio.Writer, batch []Outbound) error {
+	for _, msg := range batch {
+		if err := writeFrame(writer, msg.Class, msg.Data); err != nil {
 			return err
 		}
 	}
 	return writer.Flush()
 }
 
-func (c *NodeConnection) readLoop(ctx context.Context, handler func(msg []byte)) *ConnectionError {
+func (c *NodeConnection) readLoop(ctx context.Context, handler func(class Class, msg []byte)) *ConnectionError {
 	reader := bufio.NewReader(c.conn)
 	for {
 		// Check for context cancellation before blocking on read.
@@ -307,7 +336,7 @@ func (c *NodeConnection) readLoop(ctx context.Context, handler func(msg []byte))
 		default:
 		}
 
-		msg, err := readFrame(reader, c.config.MaxMessageSize)
+		class, msg, err := readFrame(reader, c.config.MaxMessageSize)
 
 		if err != nil {
 			if errors.Is(err, io.EOF) || strings.Contains(err.Error(), "use of closed network connection") {
@@ -332,7 +361,7 @@ func (c *NodeConnection) readLoop(ctx context.Context, handler func(msg []byte))
 		}
 
 		// Call handler without logging - this is hot path
-		handler(msg)
+		handler(class, msg)
 	}
 }
 
@@ -342,10 +371,12 @@ type protocolError string
 // Error implements the error interface for protocolError.
 func (e protocolError) Error() string { return "protocol error: " + string(e) }
 
-// writeFrame writes a framed message to the writer with protocol version and length prefix.
-func writeFrame(w io.Writer, data []byte) error {
+// writeFrame writes a framed message to the writer with protocol version,
+// sub-protocol class, and length prefix.
+func writeFrame(w io.Writer, class Class, data []byte) error {
 	var header [frameHeaderSize]byte
 	header[0] = protocolVersion
+	header[1] = byte(class)
 
 	// Check for potential integer overflow before casting to uint32
 	dataLen := len(data)
@@ -353,7 +384,7 @@ func writeFrame(w io.Writer, data []byte) error {
 		return NewMessageTooLargeError(dataLen)
 	}
 
-	binary.LittleEndian.PutUint32(header[1:], uint32(dataLen))
+	binary.LittleEndian.PutUint32(header[2:], uint32(dataLen))
 	if _, err := w.Write(header[:]); err != nil {
 		return err
 	}
@@ -365,22 +396,27 @@ func writeFrame(w io.Writer, data []byte) error {
 	return nil
 }
 
-// readFrame reads a framed message from the reader, validating protocol version and message size.
-func readFrame(r io.Reader, maxMessageSize uint32) ([]byte, error) {
+// readFrame reads a framed message from the reader, validating protocol
+// version, sub-protocol class, and message size.
+func readFrame(r io.Reader, maxMessageSize uint32) (Class, []byte, error) {
 	var header [frameHeaderSize]byte
 	if _, err := io.ReadFull(r, header[:]); err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	if header[0] != protocolVersion {
-		return nil, protocolError(fmt.Sprintf("unexpected protocol version %d", header[0]))
+		return 0, nil, protocolError(fmt.Sprintf("unexpected protocol version %d", header[0]))
 	}
-	size := binary.LittleEndian.Uint32(header[1:])
+	class := Class(header[1])
+	if int(class) >= numClasses {
+		return 0, nil, protocolError(fmt.Sprintf("unknown sub-protocol class %d", header[1]))
+	}
+	size := binary.LittleEndian.Uint32(header[2:])
 	if size > maxMessageSize {
-		return nil, NewMessageSizeExceedsMaxError(int(size), int(maxMessageSize))
+		return 0, nil, NewMessageSizeExceedsMaxError(int(size), int(maxMessageSize))
 	}
 
 	if size == 0 {
-		return []byte{}, nil
+		return class, []byte{}, nil
 	}
 
 	var msg []byte
@@ -401,7 +437,7 @@ func readFrame(r io.Reader, maxMessageSize uint32) ([]byte, error) {
 
 	if _, err := io.ReadFull(r, msg); err != nil {
 		bufferPool.Put(bp)
-		return nil, err
+		return 0, nil, err
 	}
 
 	// If it's from the pool, we must copy it.
@@ -409,9 +445,9 @@ func readFrame(r io.Reader, maxMessageSize uint32) ([]byte, error) {
 		data := make([]byte, size)
 		copy(data, msg)
 		bufferPool.Put(bp)
-		return data, nil
+		return class, data, nil
 	}
 
 	// It was a large message allocated on its own.
-	return msg, nil
+	return class, msg, nil
 }

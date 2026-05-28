@@ -4,6 +4,7 @@ package otel
 
 import (
 	"context"
+	"time"
 
 	otelapi "github.com/wippyai/runtime/api/service/otel"
 	"go.opentelemetry.io/otel"
@@ -52,10 +53,25 @@ func InitializeProvider(ctx context.Context, cfg otelapi.Config, logger *zap.Log
 
 	sampler := createSampler(cfg)
 
+	// Bounded BatchSpanProcessor: fixed memory ceiling on the in-process
+	// queue, drop-on-overflow when the collector is unreachable. Matches
+	// canonical OTel guidance for memory-bound deployments.
 	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
+		sdktrace.WithBatcher(exporter,
+			sdktrace.WithMaxQueueSize(512),
+			sdktrace.WithMaxExportBatchSize(128),
+			sdktrace.WithBatchTimeout(2*time.Second),
+		),
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sampler),
+		sdktrace.WithRawSpanLimits(sdktrace.SpanLimits{
+			AttributeValueLengthLimit:   256,
+			AttributeCountLimit:         16,
+			EventCountLimit:             16,
+			LinkCountLimit:              16,
+			AttributePerEventCountLimit: 16,
+			AttributePerLinkCountLimit:  16,
+		}),
 	)
 
 	otel.SetTracerProvider(tp)
@@ -213,8 +229,13 @@ func InitializeMeterProvider(ctx context.Context, cfg otelapi.Config, logger *za
 		return nil, newCreateResourceError(err)
 	}
 
+	// 30s push interval balances dashboard freshness (rate over 1m sees
+	// 2 samples) with CPU/network overhead. The default of 60s is too
+	// coarse for 1m rate queries; 30s is the sweet spot for low-CPU runs.
 	mp := sdkmetric.NewMeterProvider(
-		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)),
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter,
+			sdkmetric.WithInterval(30*time.Second),
+		)),
 		sdkmetric.WithResource(res),
 	)
 

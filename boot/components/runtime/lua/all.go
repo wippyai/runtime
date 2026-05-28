@@ -47,5 +47,6 @@ func All() []boot.Component {
 		Workflow(),
 		YAML(),
 		LSP(),
+		PG(),
 	}
 }

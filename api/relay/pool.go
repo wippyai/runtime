@@ -70,6 +70,22 @@ func NewPackage(source, target pid.PID, topic Topic, payloads ...payload.Payload
 	return p
 }
 
+// NewServicePackage creates a package addressed between service hosts.
+// Unlike process PIDs, service addresses use empty UniqID since relay
+// routes host-level receivers by Target.Host alone.
+func NewServicePackage(sourceNode pid.NodeID, sourceHost pid.HostID, targetNode pid.NodeID, targetHost pid.HostID, topic Topic, payloads ...payload.Payload) *Package {
+	p := AcquirePackage()
+	src := pid.PID{Node: sourceNode, Host: sourceHost}
+	tgt := pid.PID{Node: targetNode, Host: targetHost}
+	p.Source = src.Precomputed()
+	p.Target = tgt.Precomputed()
+	msg := AcquireMessage()
+	msg.Topic = topic
+	msg.Payloads = payloads
+	p.Messages = append(p.Messages, msg)
+	return p
+}
+
 // NewMessagePackage creates a new package with pre-built messages.
 func NewMessagePackage(source, target pid.PID, msgs ...*Message) *Package {
 	p := AcquirePackage()

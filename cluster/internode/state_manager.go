@@ -3,9 +3,9 @@
 package internode
 
 import (
-	"container/list"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/wippyai/runtime/api/cluster"
 	"go.uber.org/zap"
@@ -15,17 +15,115 @@ var (
 	// ErrNodeNotManaged is returned when an operation is attempted on a node
 	// that has not been explicitly registered as a cluster member.
 	ErrNodeNotManaged = errors.New("node is not a managed member of the cluster")
+
+	// ErrQueueFull is returned by QueueMessageClass when a drop-newest class
+	// queue is at capacity. The caller is expected to log/count and proceed
+	// (Erlang `pg` semantics: fire-and-forget but observable).
+	ErrQueueFull = errors.New("internode: send queue is full")
+
+	// ErrUnknownClass is returned by QueueMessageClass when the class value
+	// is out of range. This is a programmer error, not a runtime condition.
+	ErrUnknownClass = errors.New("internode: unknown queue class (programmer error)")
+
+	// ErrRaftMeshOverflow is returned by QueueMessageClass when a
+	// ClassRaftMesh queue is at capacity. ClassRaftMesh carries a
+	// yamux-multiplexed byte-stream, so dropping a frame from the middle
+	// desyncs the demuxer and wedges the session silently. Instead of
+	// drop-oldest, the queue is cleared and the caller resets the peer's
+	// mesh session (close + rebuild) so the stream resyncs from a
+	// consistent point. The pending bytes are discarded with a metric.
+	ErrRaftMeshOverflow = errors.New("internode: raft mesh queue overflow (session reset required)")
 )
 
 type NodeState struct {
-	messageQueue  *list.List
+	createdAt     time.Time // for observability: when this state was first created
+	queues        [numClasses]*classQueue
 	messageNotify chan struct{}
 	connection    *NodeConnection
 	address       nodeAddress
+	lastDepth     [numClasses]int // last queue depth emitted to telemetry; guarded by queueMu
 	state         ConnectionState
 	stateMu       sync.RWMutex
 	queueMu       sync.Mutex
 }
+
+// classQueue is a bounded ring buffer of pending messages for one Class.
+// All access is guarded by NodeState.queueMu (held for cross-class
+// operations). Operates as drop-oldest or drop-newest depending on the
+// caller; capacity is fixed at construction.
+type classQueue struct {
+	buf  [][]byte
+	head int // index of the oldest element (next to drain)
+	size int // number of valid entries
+}
+
+func newClassQueue(cap int) *classQueue {
+	if cap <= 0 {
+		cap = 1
+	}
+	return &classQueue{buf: make([][]byte, cap)}
+}
+
+// pushOldest appends, dropping the oldest entry if full. Always succeeds.
+// Returns true if a drop occurred.
+func (q *classQueue) pushOldest(data []byte) (dropped bool) {
+	if q.size == len(q.buf) {
+		// drop oldest by advancing head; tail then writes over it
+		q.head = (q.head + 1) % len(q.buf)
+		q.size--
+		dropped = true
+	}
+	tail := (q.head + q.size) % len(q.buf)
+	q.buf[tail] = data
+	q.size++
+	return dropped
+}
+
+// pushNewest appends if there is room. Returns false if full (no insert).
+func (q *classQueue) pushNewest(data []byte) (accepted bool) {
+	if q.size == len(q.buf) {
+		return false
+	}
+	tail := (q.head + q.size) % len(q.buf)
+	q.buf[tail] = data
+	q.size++
+	return true
+}
+
+// pushFront inserts at the front for requeue (callers must respect cap).
+// Returns false if full.
+func (q *classQueue) pushFront(data []byte) (accepted bool) {
+	if q.size == len(q.buf) {
+		return false
+	}
+	q.head = (q.head - 1 + len(q.buf)) % len(q.buf)
+	q.buf[q.head] = data
+	q.size++
+	return true
+}
+
+// pop removes and returns the oldest entry; ok=false when empty.
+func (q *classQueue) pop() (data []byte, ok bool) {
+	if q.size == 0 {
+		return nil, false
+	}
+	data = q.buf[q.head]
+	q.buf[q.head] = nil // release reference
+	q.head = (q.head + 1) % len(q.buf)
+	q.size--
+	return data, true
+}
+
+// reset drops all entries. Allocations remain.
+func (q *classQueue) reset() {
+	for i := range q.buf {
+		q.buf[i] = nil
+	}
+	q.head = 0
+	q.size = 0
+}
+
+func (q *classQueue) len() int { return q.size }
 
 type nodeAddress struct {
 	addr string
@@ -35,29 +133,71 @@ type nodeAddress struct {
 type NodeStateManager struct {
 	nodeStates sync.Map // cluster.NodeID -> *NodeState
 	logger     *zap.Logger
+	tel        *telemetry
 	config     ManagerConfig
 }
 
-func NewNodeStateManager(config ManagerConfig, logger *zap.Logger) *NodeStateManager {
+func NewNodeStateManager(config ManagerConfig, tel *telemetry, logger *zap.Logger) *NodeStateManager {
 	return &NodeStateManager{
 		logger: logger.Named("state"),
+		tel:    tel,
 		config: config,
 	}
 }
 
 // CreateNodeState initializes the in-memory state for a new node.
 // This should only be called by the manager when a node joins the cluster.
+// If state already exists (e.g. stale entry from a previous incarnation),
+// the existing struct is reused: connection is closed and replaced, queue and
+// state are reset, but the messageNotify channel is kept so any existing
+// control loop continues to receive notifications without holding a stale
+// channel reference.
+//
+// Auto-managed nodes (created from inbound connections before the formal
+// NodeJoined event) are cleaned up when their connection closes; no separate
+// reaper goroutine is needed.
 func (nsm *NodeStateManager) CreateNodeState(nodeID cluster.NodeID) {
-	if _, ok := nsm.nodeStates.Load(nodeID); ok {
-		nsm.logger.Debug("State for node already exists, skipping creation", zap.String("node_id", nodeID))
+	if existing, ok := nsm.nodeStates.Load(nodeID); ok {
+		oldState := existing.(*NodeState)
+
+		// Reset connection
+		oldState.stateMu.Lock()
+		if oldState.connection != nil {
+			oldState.connection.Close()
+			oldState.connection = nil
+		}
+		oldState.state = StateNone
+		oldState.address = nodeAddress{}
+		oldState.stateMu.Unlock()
+
+		// Reset all queues
+		oldState.queueMu.Lock()
+		for i := range oldState.queues {
+			oldState.queues[i].reset()
+		}
+		oldState.lastDepth = [numClasses]int{}
+		oldState.queueMu.Unlock()
+
+		// Do NOT replace messageNotify — existing control loops hold a reference.
+		nsm.logger.Debug("Reset existing state for rejoining node", zap.String("node_id", nodeID))
 		return
 	}
 
-	nsm.logger.Debug("Creating new managed state for node", zap.String("node_id", nodeID))
+	caps := [numClasses]int{
+		ClassRaftControl: nsm.config.RaftControlQueueCap,
+		ClassGossip:      nsm.config.GossipQueueCap,
+		ClassPGBroadcast: nsm.config.PGBroadcastQueueCap,
+		ClassRaftMesh:    nsm.config.RaftMeshQueueCap,
+	}
+	queues := [numClasses]*classQueue{}
+	for i := range queues {
+		queues[i] = newClassQueue(caps[i])
+	}
 	newState := &NodeState{
-		messageQueue:  list.New(),
+		queues:        queues,
 		messageNotify: make(chan struct{}, 1),
 		state:         StateNone,
+		createdAt:     time.Now(),
 	}
 	nsm.nodeStates.Store(nodeID, newState)
 }
@@ -70,21 +210,88 @@ func (nsm *NodeStateManager) GetNodeState(nodeID cluster.NodeID) *NodeState {
 	return state.(*NodeState)
 }
 
-// QueueMessage adds a message to a managed node's queue.
-// It returns ErrNodeNotManaged if the node state does not exist.
-func (nsm *NodeStateManager) QueueMessage(nodeID cluster.NodeID, data []byte) error {
+// QueueMessageClass enqueues data for nodeID under the given class.
+// Drop policy is class-specific:
+//   - ClassRaftControl drops the oldest entry on overflow (etcd-style:
+//     idempotent control RPCs, newer state wins).
+//   - ClassGossip and ClassPGBroadcast drop the new entry and return
+//     ErrQueueFull (memberlist / Erlang `pg` style).
+//   - ClassRaftMesh carries a yamux byte-stream: a mid-stream drop
+//     corrupts the demuxer, so on overflow the queue is cleared, the
+//     pending bytes are discarded with a metric, and ErrRaftMeshOverflow
+//     is returned so the caller resets the peer's mesh session.
+//
+// In all drop cases, internode_dropped_total{class,reason="queue_full"}
+// is incremented.
+//
+// Returns ErrNodeNotManaged if no state exists for nodeID.
+// Returns ErrQueueFull for drop-newest classes when full.
+// Returns ErrRaftMeshOverflow for ClassRaftMesh when full.
+func (nsm *NodeStateManager) QueueMessageClass(nodeID cluster.NodeID, data []byte, class Class) error {
 	state := nsm.GetNodeState(nodeID)
 	if state == nil {
 		return ErrNodeNotManaged
 	}
-
 	if data == nil {
-		return nil // Do not queue nil data
+		return nil
+	}
+	if int(class) >= numClasses {
+		return ErrUnknownClass
 	}
 
 	state.queueMu.Lock()
-	state.messageQueue.PushBack(data)
+	q := state.queues[class]
+	var dropped bool
+	var rejected bool
+	var meshOverflow bool
+	var meshDiscarded int
+	switch class {
+	case ClassRaftControl:
+		dropped = q.pushOldest(data)
+	case ClassRaftMesh:
+		// Byte-stream class: never drop a frame from the middle. On
+		// overflow, discard the whole pending stream and signal a reset
+		// so yamux+raft re-establish a fresh session and resync. The new
+		// frame is dropped too — it belongs to the now-doomed stream.
+		if q.len() == len(q.buf) {
+			meshOverflow = true
+			meshDiscarded = q.len()
+			q.reset()
+		} else {
+			q.pushNewest(data)
+		}
+	case ClassGossip, ClassPGBroadcast:
+		if !q.pushNewest(data) {
+			rejected = true
+		}
+	}
+	depth := q.len()
+	depthChanged := depth != state.lastDepth[class]
+	state.lastDepth[class] = depth
 	state.queueMu.Unlock()
+
+	if dropped {
+		nsm.tel.recordDrop(class, "queue_full")
+	}
+	// internode_queue_depth is a gauge — emit only on change so the idle
+	// hot path does not write a metric event per queue op.
+	if depthChanged {
+		nsm.tel.recordQueueDepth(class, nodeID, depth)
+	}
+
+	if meshOverflow {
+		// Count each discarded frame plus the rejected new one so the
+		// reset is observable as drops, not silent.
+		for i := 0; i < meshDiscarded+1; i++ {
+			nsm.tel.recordDrop(class, "queue_full")
+		}
+		return ErrRaftMeshOverflow
+	}
+
+	if rejected {
+		nsm.tel.recordDrop(class, "queue_full")
+		return ErrQueueFull
+	}
 
 	select {
 	case state.messageNotify <- struct{}{}:
@@ -157,42 +364,56 @@ func (nsm *NodeStateManager) GetNodeAddress(nodeID cluster.NodeID) (string, int,
 	return addr.addr, addr.port, addr.addr != "" && addr.port != 0
 }
 
-func (nsm *NodeStateManager) DrainMessages(nodeID cluster.NodeID, maxCount int) [][]byte {
-	state := nsm.GetNodeState(nodeID)
-	if state == nil {
-		return nil
-	}
+// drainClasses defines the QoS draining order. ClassRaftControl drains
+// first (smallest latency budget); ClassRaftMesh second so multiplexed
+// hraft frames stay responsive; gossip and PG broadcast last. The order
+// matters under per-batch caps: a saturated control plane should not
+// starve raft mesh traffic forever.
+var drainClasses = [numClasses]Class{
+	ClassRaftControl,
+	ClassRaftMesh,
+	ClassGossip,
+	ClassPGBroadcast,
+}
 
-	if maxCount <= 0 {
+func (nsm *NodeStateManager) DrainMessages(nodeID cluster.NodeID, maxCount int) []Outbound {
+	state := nsm.GetNodeState(nodeID)
+	if state == nil || maxCount <= 0 {
 		return nil
 	}
 
 	state.queueMu.Lock()
-	defer state.queueMu.Unlock()
-
-	queueLen := state.messageQueue.Len()
-	if queueLen == 0 {
-		return nil
-	}
-
-	drainCount := maxCount
-	if queueLen < drainCount {
-		drainCount = queueLen
-	}
-	messages := make([][]byte, 0, drainCount)
-
-	for i := 0; i < drainCount; i++ {
-		elem := state.messageQueue.Front()
-		if elem == nil {
+	out := make([]Outbound, 0, maxCount)
+	for _, class := range drainClasses {
+		q := state.queues[class]
+		for q.len() > 0 && len(out) < maxCount {
+			d, _ := q.pop()
+			if d != nil {
+				out = append(out, Outbound{Data: d, Class: class})
+			}
+		}
+		if len(out) >= maxCount {
 			break
 		}
-		if data, ok := elem.Value.([]byte); ok && data != nil {
-			messages = append(messages, data)
-		}
-		state.messageQueue.Remove(elem)
 	}
+	// Snapshot post-drain depths. internode_queue_depth is a gauge — emit
+	// only the classes whose depth changed so an idle drain does not write
+	// numClasses no-op metric events.
+	var depths [numClasses]int
+	var depthChanged [numClasses]bool
+	for i, q := range state.queues {
+		depths[i] = q.len()
+		depthChanged[i] = depths[i] != state.lastDepth[i]
+		state.lastDepth[i] = depths[i]
+	}
+	state.queueMu.Unlock()
 
-	return messages
+	for _, class := range drainClasses {
+		if depthChanged[class] {
+			nsm.tel.recordQueueDepth(class, nodeID, depths[class])
+		}
+	}
+	return out
 }
 
 func (nsm *NodeStateManager) GetMessageNotifier(nodeID cluster.NodeID) <-chan struct{} {
@@ -206,26 +427,120 @@ func (nsm *NodeStateManager) GetMessageNotifier(nodeID cluster.NodeID) <-chan st
 	return state.messageNotify
 }
 
-func (nsm *NodeStateManager) RequeueMessages(nodeID cluster.NodeID, messages [][]byte) {
+// RequeueMessages returns previously-extracted Outbound entries to the
+// head of the per-class queue that originally produced them. Each entry's
+// class is honored individually so a mixed-class drain can be requeued
+// without losing QoS context. Internally splits the input by class and
+// delegates to RequeueMessagesClass for the per-class cap arithmetic.
+func (nsm *NodeStateManager) RequeueMessages(nodeID cluster.NodeID, messages []Outbound) {
 	if len(messages) == 0 {
 		return
 	}
+	var perClass [numClasses][][]byte
+	for _, m := range messages {
+		if m.Data == nil {
+			continue
+		}
+		if int(m.Class) >= numClasses {
+			continue
+		}
+		perClass[m.Class] = append(perClass[m.Class], m.Data)
+	}
+	for c := 0; c < numClasses; c++ {
+		if len(perClass[c]) == 0 {
+			continue
+		}
+		nsm.RequeueMessagesClass(nodeID, perClass[c], Class(c))
+	}
+}
 
+// RequeueMessagesClass returns previously-extracted messages to the head
+// of the per-class queue. Respects the class cap: any messages that
+// would exceed the cap are dropped with a metric. Drop-oldest classes
+// (RaftControl) silently discard from the tail to make room; drop-newest
+// classes (Gossip, PGBroadcast) discard the tail of the requeue input.
+// ClassRaftMesh is a byte-stream: a mid-stream drop is not safe, so on
+// overflow the whole queue is cleared and the reset path handles the
+// torn-down session (the connection that produced this requeue is itself
+// being closed).
+func (nsm *NodeStateManager) RequeueMessagesClass(nodeID cluster.NodeID, messages [][]byte, class Class) {
+	if len(messages) == 0 {
+		return
+	}
 	state := nsm.GetNodeState(nodeID)
 	if state == nil {
 		nsm.logger.Warn("Dropping messages to requeue for unmanaged node",
 			zap.String("node_id", nodeID),
-			zap.Int("message_count", len(messages)))
+			zap.Int("message_count", len(messages)),
+			zap.String("class", class.String()))
+		return
+	}
+	if int(class) >= numClasses {
 		return
 	}
 
 	state.queueMu.Lock()
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i] != nil {
-			state.messageQueue.PushFront(messages[i])
+	q := state.queues[class]
+	dropped := 0
+	switch class {
+	case ClassRaftControl:
+		// Drop-oldest semantics: if requeue would overflow, the queue
+		// silently makes room by discarding old entries. pushFront cannot
+		// drop, so drain from tail first.
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i] == nil {
+				continue
+			}
+			if !q.pushFront(messages[i]) {
+				// Full — drop one from tail to make room.
+				if d, _ := q.pop(); d != nil {
+					dropped++
+				}
+				_ = q.pushFront(messages[i])
+			}
+		}
+	case ClassRaftMesh:
+		// Byte-stream: requeue at the front while it fits. If it
+		// overflows, drop the entire queue rather than corrupt the
+		// stream mid-sequence; the session reset will rebuild it.
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i] == nil {
+				continue
+			}
+			if !q.pushFront(messages[i]) {
+				dropped += q.len()
+				q.reset()
+				dropped++ // the message that could not be requeued
+			}
+		}
+	case ClassGossip, ClassPGBroadcast:
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i] == nil {
+				continue
+			}
+			if !q.pushFront(messages[i]) {
+				dropped++
+			}
 		}
 	}
+	depth := q.len()
+	depthChanged := depth != state.lastDepth[class]
+	state.lastDepth[class] = depth
 	state.queueMu.Unlock()
+
+	for i := 0; i < dropped; i++ {
+		nsm.tel.recordDrop(class, "requeue_overflow")
+	}
+	if depthChanged {
+		nsm.tel.recordQueueDepth(class, nodeID, depth)
+	}
+
+	if dropped > 0 {
+		nsm.logger.Warn("Dropped messages during requeue (queue full)",
+			zap.String("node_id", nodeID),
+			zap.String("class", class.String()),
+			zap.Int("dropped", dropped))
+	}
 
 	select {
 	case state.messageNotify <- struct{}{}:
@@ -252,14 +567,17 @@ func (nsm *NodeStateManager) RemoveNodeState(nodeID cluster.NodeID) {
 	nodeState.stateMu.Unlock()
 
 	nodeState.queueMu.Lock()
-	queueLen := nodeState.messageQueue.Len()
-	nodeState.messageQueue.Init()
+	discarded := 0
+	for _, q := range nodeState.queues {
+		discarded += q.len()
+		q.reset()
+	}
 	nodeState.queueMu.Unlock()
 
-	if queueLen > 0 {
+	if discarded > 0 {
 		nsm.logger.Warn("Discarded pending messages for removed node",
 			zap.String("node", nodeID),
-			zap.Int("discarded_messages", queueLen))
+			zap.Int("discarded_messages", discarded))
 	}
 }
 

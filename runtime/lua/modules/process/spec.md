@@ -57,11 +57,16 @@ Returns the process ID (PID) for the current process.
 
 ### send(destination: string, topic: string, ...) -> boolean, error
 
-Sends message(s) to a process.
+Sends message(s) to a process. The destination may be a raw PID string,
+a globally-registered name, an eventually-registered name, or a locally
+registered name — resolution and (for global names) ownership-fence
+attachment + validation happen transparently inside the runtime. App
+code does not need to call `process.registry.debug.lookup_with_fence`
+or `process.registry.debug.validate_fence` to send safely.
 
 | Param | Type | Required | Default | Notes |
 |-------|------|----------|---------|-------|
-| destination | string | yes | - | PID string or registered name |
+| destination | string | yes | - | PID string or registered name (raw / global / eventual / local) |
 | topic | string | yes | - | Topic name (cannot start with `@`) |
 | ... | any | no | - | Payload values to send |
 
@@ -73,6 +78,7 @@ Sends message(s) to a process.
 - `"no router found"`
 - `"could not resolve: <name>"` - name not registered
 - `"not allowed to send to: <pid>"` - permission denied
+- `"stale fence"` - the receiving node observed a re-registration between resolution and delivery; safe to retry
 
 ### spawn(id: string, host: string, ...) -> string, error
 
@@ -356,20 +362,52 @@ Creates a Spawner with custom spawn options for child processes.
 
 Subtable for process name registration.
 
-### process.registry.register(name: string, pid?: string) -> boolean, error
+### Scopes
 
-Registers a name for a process.
+`process.registry` exposes four explicit scopes, in increasing strictness:
 
-| Param | Type | Required | Default | Notes |
-|-------|------|----------|---------|-------|
-| name | string | yes | - | Name to register |
-| pid | string | no | self | PID to register (defaults to current process) |
+| Constant                       | Wire | Backing store              | Semantics                                                                                                   |
+|--------------------------------|------|----------------------------|-------------------------------------------------------------------------------------------------------------|
+| `process.registry.LOCAL`       | 0    | per-node PID registry      | Visible only on the registering node. Default.                                                              |
+| `process.registry.EVENTUAL`    | 2    | gossip / CRDT (eventualreg) | Cluster-wide, eventually consistent. No fence; converges after partition heal. Sized for ~1M presence names. |
+| `process.registry.CONSISTENT`  | 1    | Raft (globalreg)            | Cluster-wide linearizable owner with fence token. Late ok. Scales to ~1M user-facing names.                 |
+| `process.registry.ROOT`        | 3    | Raft + all-live-node ack    | Cluster-wide linearizable owner; activation requires every live node in the membership snapshot to ack the committed epoch within a deadline. No late compensation: a missing ack expires the registration. Reserved for the small set of root/control-plane names (<10k).        |
 
-**Returns:** `true` on success, or `nil, error` on failure
+### process.registry.register(name: string, scope?: number, pid?: string) -> boolean, error
 
-**Errors (strings):**
-- `"not allowed to register name: <name>"` - permission denied
-- `"name already registered"` - name taken by another process
+Registers a name at the requested scope, optionally pointing at a foreign PID.
+
+| Param | Type   | Required | Default | Notes                                                                                                |
+|-------|--------|----------|---------|------------------------------------------------------------------------------------------------------|
+| name  | string | yes      | —       | Name to register.                                                                                    |
+| scope | number | no       | LOCAL   | One of `process.registry.LOCAL` / `EVENTUAL` / `CONSISTENT` / `STRONG`.                              |
+| pid   | string | no       | self    | Target PID. When omitted, defaults to the caller's PID.                                              |
+
+**Returns:** `true` on success, or `nil, error` on failure.
+
+**Examples:**
+```lua
+process.registry.register("svc")                                        -- LOCAL, self
+process.registry.register("svc", process.registry.STRONG)               -- STRONG, self
+process.registry.register("svc", process.registry.STRONG, foreign_pid)  -- STRONG, foreign PID
+```
+
+**Authorization (two axes):**
+- **Per-scope name capability** — `process.registry.register.{local|eventual|consistent|strong}` on the *name* being registered.
+- **Foreign-PID capability** — when `pid != self`, also requires `process.registry.foreign` on the *target PID*. Owner registering own PID does not need this. Default policy should deny foreign; operators grant it for supervisors, hot-upgrade flows, etc.
+
+`STRONG` registration blocks the calling process until every live node in
+the membership snapshot has acked the committed epoch, or until the
+deadline elapses (default 10 s). On timeout, the runtime releases the
+reservation and the call returns an error whose `MissingAcks` list names
+the offending nodes.
+
+**Errors (kinds):**
+- `PermissionDenied` — capability gate failed (scope or foreign-pid axis).
+- `AlreadyExists` — name taken by another process.
+- `Invalid` — `scope` was not a number, or `pid` was not a parseable PID string.
+- `Internal` — registry not available, raft not ready, or transport error.
+- `StrongRegistrationTimeoutError` / `StrongConflictError` — `STRONG` specifically (timeout or terminal NACK).
 
 ### process.registry.lookup(name: string) -> string, error
 
@@ -396,6 +434,55 @@ Removes a name registration.
 
 **Errors (strings):**
 - `"not allowed to unregister name: <name>"` - permission denied
+
+## process.registry.debug
+
+> Diagnostic / low-level only. **Prefer `process.send(name, ...)` for normal
+> sends** — fences are attached and validated automatically by the runtime.
+> These functions exist so operators can inspect the strongly consistent
+> global registry directly; calling them from app code is a smell and emits a
+> one-shot deprecation banner on stderr.
+
+### process.registry.debug.lookup_with_fence(name: string) -> table, error
+
+Looks up a globally registered name and returns both the PID and the
+current fence (Raft log index of the registration). Used by chaos
+probes and admin tools; **not** required for normal sends.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| name | string | yes | - | Globally registered name |
+
+**Returns:** table `{ pid = "<pid-string>", fence_token = <number> }`, or `nil, error` if not found.
+
+**Errors (strings):**
+- `"name not registered"`
+- `"global registry not available"`
+
+### process.registry.debug.validate_fence(name: string, token: integer) -> boolean, error
+
+Verifies that the supplied fence token still matches the current
+registration of `name`. Used by chaos probes and admin tools.
+
+| Param | Type | Required | Default | Notes |
+|-------|------|----------|---------|-------|
+| name | string | yes | - | Globally registered name |
+| token | integer | yes | - | Fence token previously obtained from `debug.lookup_with_fence` |
+
+**Returns:** `true` if the token is still current; `false, error` if the
+registration changed or the name is no longer registered.
+
+**Errors (strings):**
+- `"stale fence"` - registration superseded since the token was issued
+- `"global registry not available"`
+
+### Deprecated top-level aliases
+
+`process.registry.lookup_with_fence` and `process.registry.validate_fence`
+are still callable for compatibility but emit a one-shot deprecation
+warning on stderr. They will be removed in a future cycle — point
+callers at `process.send(name, ...)` for normal use and
+`process.registry.debug.*` for diagnostics.
 
 ## Types
 

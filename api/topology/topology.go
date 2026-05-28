@@ -4,8 +4,10 @@
 package topology
 
 import (
+	"context"
 	"time"
 
+	"github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
@@ -26,10 +28,42 @@ const (
 // SystemPID is the sender PID for topology system messages.
 var SystemPID = pid.PID{UniqID: "topology"}
 
+// Registration mode constants. The four scopes form a strict ordering on
+// the consistency / cost axis: Local < Eventual < Consistent < Strong.
+//
+//	Local      — per-node only; visible solely on the registering node.
+//	Eventual   — cluster-wide gossip/CRDT; available (AP); conflicts resolve
+//	             via the resolver and emit name_revoked. Converges after
+//	             partition heal. Sized for ~1M presence/session names.
+//	Consistent — Raft quorum, linearizable ownership. A minority partition
+//	             is blocked; lagging nodes may briefly stale-read. Scales to
+//	             ~1M user-facing names.
+//	Strong     — Raft quorum plus an ack from every live node before the
+//	             name is authoritative; no stale window. A minority partition
+//	             or any required node being down stalls it. The strictest
+//	             scope, for the small set of control-plane names (<10k).
+const (
+	// Local is the default; the name is visible only on the registering node.
+	Local RegistrationMode = 0
+	// Eventual registers the name cluster-wide via gossip/CRDT.
+	// No distributed lock; converges after partition heal.
+	Eventual RegistrationMode = 1
+	// Consistent registers the name cluster-wide via Raft consensus as a
+	// linearizable singleton.
+	Consistent RegistrationMode = 2
+	// Strong is the strictest scope: Raft singleton plus all-live-node ack
+	// on the committed epoch within a deadline. No stale window.
+	Strong RegistrationMode = 3
+)
+
 // Event kind constants for process lifecycle events.
 const (
 	// Cancel indicates a cancellation request.
 	Cancel Kind = "pid.cancel"
+	// NameRevoked notifies a process that an EVENTUAL name it held was lost to
+	// a different origin's winner after conflict resolution. It is a notify,
+	// not a kill: the process keeps running and may re-register.
+	NameRevoked Kind = "pid.name.revoked"
 	// Exit indicates a process has exited.
 	Exit Kind = "pid.exit"
 	// LinkDown indicates a linked process is down.
@@ -48,6 +82,10 @@ type (
 	// Kind represents the type of a topology event
 	Kind = string
 
+	// RegistrationMode selects the name-registration scope: Local, Eventual,
+	// Consistent, or Strong. See the const block for ordering and semantics.
+	RegistrationMode int
+
 	// PIDRegistry defines the interface for a Target registry with Erlang-style semantics
 	PIDRegistry interface {
 		// Register associates a name with a PID atomically.
@@ -60,12 +98,47 @@ type (
 		// Returns true if the name was registered and has been removed
 		Unregister(name string) bool
 
-		// Lookup finds the Target registered with a given name
+		// Lookup finds the Target registered with a given name.
+		// Checks the global registry first (if available), then local.
 		// Returns the Target and true if found, empty Target and false if not found
 		Lookup(name string) (pid.PID, bool)
 
 		// Remove completely removes a pid from a registry
 		Remove(p pid.PID)
+	}
+
+	// GlobalRegistry provides cluster-wide name registration via Raft consensus.
+	// Reads are served from the local replica; writes go through Raft.
+	GlobalRegistry interface {
+		// Lookup reads from the local Raft FSM replica. See
+		// globalreg.Registry.Lookup for option semantics. Lookup surfaces only
+		// authoritative (active) names — a Strong reservation still in its
+		// promotion window is not yet resolvable, so cross-scope register guards
+		// consult IsStrongReserved instead.
+		Lookup(ctx context.Context, name string, opts ...globalreg.LookupOption) (globalreg.LookupResult, error)
+
+		// IsStrongReserved reports whether the local node holds a Strong
+		// reservation for name (a pending it has acked, awaiting promotion),
+		// returning the reserved pid as taken. Register-time guards on the LOCAL
+		// and EVENTUAL scopes consult this so a name in the promotion window is
+		// never granted to a different pid.
+		IsStrongReserved(name string) (pid.PID, bool)
+
+		// NameReady reports whether the node's join-epoch barrier has completed.
+		// Until it returns true a participating LOCAL or EVENTUAL register is
+		// refused (ErrNameServiceNotReady): the node has not yet learned the
+		// cluster's PENDING∪ACTIVE Strong names and could shadow one. A node with
+		// no Raft membership (empty FSM) still completes the barrier via the
+		// leader snapshot, so this gates correctly on every node.
+		NameReady() bool
+	}
+
+	// EventualRegistry provides cluster-wide name registration via gossip/CRDT.
+	// Eventually consistent — converges after partition heal. Sized for ~100k
+	// user-session-class names. The Lookup surface reuses globalreg's option
+	// types for API parity.
+	EventualRegistry interface {
+		Lookup(ctx context.Context, name string, opts ...globalreg.LookupOption) (globalreg.LookupResult, error)
 	}
 
 	// Monitor defines the interface for process monitoring
@@ -123,6 +196,18 @@ type (
 		Kind     Kind      `json:"kind"`
 	}
 
+	// NameRevokedEvent notifies the target process that an EVENTUAL name it
+	// registered lost a conflict and is no longer owned by it. The process
+	// keeps running; it may re-register. Name + PID identify the exact lost
+	// registration so a consumer can ignore a revoke that no longer matches
+	// its current registration for the name (stale revoke after re-register).
+	NameRevokedEvent struct {
+		At   time.Time `json:"at"`
+		Name string    `json:"name"`
+		Kind Kind      `json:"kind"`
+		PID  pid.PID   `json:"pid"`
+	}
+
 	// MonitorRequestEvent requests monitoring of a PID
 	MonitorRequestEvent struct {
 		At     time.Time `json:"at"`
@@ -168,6 +253,23 @@ func CancelPackage(from, to pid.PID, deadline time.Time) *relay.Package {
 			From:     from,
 			Kind:     Cancel,
 			Deadline: deadline,
+		}),
+	)
+}
+
+// NameRevokedPackage creates a package notifying a process that an EVENTUAL
+// name it held was revoked after conflict resolution. Delivered on
+// TopicEvents to the target PID, mirroring CancelPackage.
+func NameRevokedPackage(target pid.PID, name string) *relay.Package {
+	return relay.NewPackage(
+		SystemPID,
+		target,
+		TopicEvents,
+		payload.New(&NameRevokedEvent{
+			At:   time.Now(),
+			Kind: NameRevoked,
+			Name: name,
+			PID:  target,
 		}),
 	)
 }

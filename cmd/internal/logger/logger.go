@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/fatih/color"
+	syslogs "github.com/wippyai/runtime/system/logs"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -99,9 +100,8 @@ func CreateLogger(cfg Config) (*zap.Logger, error) {
 
 	var zapCfg zap.Config
 
-	// Console flag takes precedence (legacy -c behavior); otherwise
-	// honor Encoding from config. Empty Encoding falls back to
-	// development console output for readability.
+	// Console flag takes precedence; otherwise honor Encoding from config.
+	// Empty Encoding falls back to development console output for readability.
 	switch {
 	case cfg.Console:
 		zapCfg = zap.Config{
@@ -153,9 +153,25 @@ func CreateLogger(cfg Config) (*zap.Logger, error) {
 	default:
 		zapCfg.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
 		zapCfg.DisableStacktrace = true
+		// Defense-in-depth log sampling for the steady-state path. Console
+		// and Verbose modes intentionally skip this so debugging stays
+		// honest. Under chaos partition we observed ~thousands of identical
+		// WARN/ERROR lines per second; sampling caps that at ~100/s for
+		// the first second of any unique message, then 1-in-100 thereafter.
+		// The per-site fixes (metric counters) remain primary; this is
+		// purely a fail-safe so a future hot WARN cannot OOM the runtime.
+		if !cfg.Console {
+			zapCfg.Sampling = &zap.SamplingConfig{
+				Initial:    100,
+				Thereafter: 100,
+			}
+		}
 	}
 
-	logger, err := zapCfg.Build()
+	// zap.Hooks fires the closure on every emission. The hook itself
+	// is a no-op until the metrics boot component calls
+	// syslogs.SetEmissionCollector — see system/logs/emissionhook.go.
+	logger, err := zapCfg.Build(zap.Hooks(syslogs.EmissionHook))
 	if err != nil {
 		return nil, NewBuildLoggerError(err)
 	}

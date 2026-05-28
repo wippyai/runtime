@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	ErrNilChannel = errors.New("nil channel provided")
-	ErrBusClosed  = errors.New("bus is closed")
+	ErrNilChannel            = errors.New("nil channel provided")
+	ErrBusClosed             = errors.New("bus is closed")
+	ErrSubscribersCapReached = errors.New("eventbus subscribers cap reached")
 )
 
 // NewSubscriberError creates an error for subscriber creation failures.

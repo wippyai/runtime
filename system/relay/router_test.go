@@ -118,16 +118,6 @@ func TestRouter_Send(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, errToSend, err)
 	})
-
-	t.Run("Propagate error from internode", func(t *testing.T) {
-		errToSend := errors.New("internode send failed")
-		errInternode := &mockReceiver{sendErr: errToSend}
-		router := relay.NewRouter(localNode, errInternode)
-
-		err := router.Send(pkgToRemote)
-		require.Error(t, err)
-		assert.Equal(t, errToSend, err)
-	})
 }
 
 func TestRouter_PeerNodes(t *testing.T) {

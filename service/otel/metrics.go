@@ -107,6 +107,22 @@ func (e *MetricsExporter) getOrCreateGauge(name string) (otelmetric.Float64Gauge
 	return g, nil
 }
 
+// otelHistogramBuckets aligns OTel histogram bucket boundaries with the
+// Prometheus client_golang DefBuckets that our in-pod Prometheus exporter
+// uses (see service/metrics/prometheus/exporter.go). Without this, OTel's
+// SDK default boundaries (5, 10, 25, 50, 75, 100, 250, 500, 750, 1000,
+// 2500, 5000, 7500, 10000) get pushed to Prometheus alongside the in-pod
+// /metrics scrape that uses (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1,
+// 2.5, 5, 10). The two schemes get joined into one bucket label set, and
+// histogram_quantile() over the merged series returns wildly wrong
+// percentiles (saw pg_op_p99 reported as 4.9s when actual p99 was <5ms,
+// because the `le=10000` bucket from the OTel side caught observations
+// that should have been in `le=0.005` from the Prometheus side).
+//
+// Both export paths now produce the same bucket set, so the merged series
+// is a true sum and histogram_quantile() returns the correct percentile.
+var otelHistogramBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
+
 func (e *MetricsExporter) getOrCreateHistogram(name string) (otelmetric.Float64Histogram, error) {
 	e.mu.RLock()
 	h, ok := e.histos[name]
@@ -122,7 +138,8 @@ func (e *MetricsExporter) getOrCreateHistogram(name string) (otelmetric.Float64H
 		return h, nil
 	}
 
-	h, err := e.meter.Float64Histogram(name)
+	h, err := e.meter.Float64Histogram(name,
+		otelmetric.WithExplicitBucketBoundaries(otelHistogramBuckets...))
 	if err != nil {
 		return nil, err
 	}

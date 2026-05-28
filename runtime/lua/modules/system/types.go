@@ -92,10 +92,60 @@ var hostsType = typ.NewInterface("system.hosts", []typ.Method{
 	{Name: "processes", Type: typ.Func().Param("host_id", typ.String).Returns(typ.NewArray(processStatsType), typ.NewOptional(typ.LuaError)).Build()},
 })
 
+// serviceStateType describes one supervised service's state, matching the
+// table supervisorState/supervisorStates build.
+var serviceStateType = typ.NewRecord().
+	Field("id", typ.String).
+	Field("status", typ.String).
+	Field("desired", typ.String).
+	Field("retry_count", typ.Number).
+	Field("last_update", typ.Number).
+	Field("started_at", typ.Number).
+	Field("details", typ.NewOptional(typ.String)).
+	Build()
+
 // supervisor submodule type
 var supervisorType = typ.NewInterface("system.supervisor", []typ.Method{
-	{Name: "state", Type: typ.Func().Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
-	{Name: "states", Type: typ.Func().Returns(typ.NewMap(typ.String, typ.String), typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "state", Type: typ.Func().Param("service_id", typ.String).Returns(serviceStateType, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "states", Type: typ.Func().Returns(typ.NewArray(serviceStateType), typ.NewOptional(typ.LuaError)).Build()},
+})
+
+// NodeInfo type describing a cluster member.
+var nodeInfoType = typ.NewRecord().
+	Field("id", typ.String).
+	Field("is_local", typ.Boolean).
+	Field("addr", typ.NewOptional(typ.String)).
+	Field("meta", typ.NewOptional(typ.NewMap(typ.String, typ.String))).
+	Build()
+
+// node submodule type
+var nodeType = typ.NewInterface("system.node", []typ.Method{
+	{Name: "id", Type: typ.Func().Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "addr", Type: typ.Func().Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "role", Type: typ.Func().Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+})
+
+// cluster submodule type
+var clusterType = typ.NewInterface("system.cluster", []typ.Method{
+	{Name: "members", Type: typ.Func().Returns(typ.NewArray(nodeInfoType), typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "leader", Type: typ.Func().Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "size", Type: typ.Func().Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
+})
+
+// raft submodule type
+var raftType = typ.NewInterface("system.raft", []typ.Method{
+	{Name: "is_leader", Type: typ.Func().Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "is_member", Type: typ.Func().Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "role", Type: typ.Func().Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "term", Type: typ.Func().Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "commit_index", Type: typ.Func().Returns(typ.Number, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "stats", Type: typ.Func().Returns(typ.NewMap(typ.String, typ.String), typ.NewOptional(typ.LuaError)).Build()},
+})
+
+// lock submodule type
+var lockType = typ.NewInterface("system.lock", []typ.Method{
+	{Name: "acquire", Type: typ.Func().Param("name", typ.String).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+	{Name: "release", Type: typ.Func().Param("name", typ.String).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 })
 
 // Methods interface
@@ -112,6 +162,7 @@ func ModuleTypes() *io.Manifest {
 	m.DefineType("ModuleInfo", moduleInfoType)
 	m.DefineType("HostStats", hostStatsType)
 	m.DefineType("ProcessStats", processStatsType)
+	m.DefineType("NodeInfo", nodeInfoType)
 
 	// Submodule fields
 	submodulesType := typ.NewRecord().
@@ -121,6 +172,10 @@ func ModuleTypes() *io.Manifest {
 		Field("process", processSubType).
 		Field("supervisor", supervisorType).
 		Field("hosts", hostsType).
+		Field("node", nodeType).
+		Field("cluster", clusterType).
+		Field("raft", raftType).
+		Field("lock", lockType).
 		Build()
 
 	// Combine methods and fields via intersection

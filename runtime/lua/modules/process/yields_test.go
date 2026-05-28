@@ -249,3 +249,15 @@ func TestYieldCmdID(t *testing.T) {
 		})
 	}
 }
+
+func TestSendYield_Release_ResetsFields(t *testing.T) {
+	y := AcquireSendYield()
+	y.From = pid.PID{Host: "test", UniqID: "from"}
+	y.Topic = "hello"
+	y.Release()
+
+	y2 := AcquireSendYield()
+	assert.Equal(t, pid.PID{}, y2.From, "From should be reset after release")
+	assert.Equal(t, "", y2.Topic, "Topic should be reset after release")
+	y2.Release()
+}

@@ -249,6 +249,14 @@ func (c *Channel) Receive(task *lua.LState, selectOp *SelectOp) *ChannelResult {
 	return c.blockReceiver(task, sel)
 }
 
+// Drain discards all buffered values from the channel without closing it.
+// Returns the number of items discarded. Not thread-safe.
+func (c *Channel) Drain() int {
+	n := c.buffer.Len()
+	c.buffer.Init()
+	return n
+}
+
 func (c *Channel) Close(caller *lua.LState) *ChannelResult {
 	if c.closed {
 		return errorResult(caller, errors.New("close of closed channel"))

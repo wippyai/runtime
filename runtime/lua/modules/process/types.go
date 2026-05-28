@@ -72,21 +72,35 @@ var eventType = typ.NewRecord().
 	Field("LINK_DOWN", typ.String).
 	Build()
 
-var registrySubType = typ.NewInterface("process.registry", []typ.Method{
+// process.registry surface: scoped registration with optional foreign PID.
+// Scope constants live on the same table as the methods (LOCAL, EVENTUAL,
+// CONSISTENT, STRONG), exposed as numeric tags.
+var registryFieldsType = typ.NewRecord().
+	Field("LOCAL", typ.Number).
+	Field("EVENTUAL", typ.Number).
+	Field("CONSISTENT", typ.Number).
+	Field("STRONG", typ.Number).
+	Build()
+
+var registryMethodsType = typ.NewInterface("process.registry", []typ.Method{
 	{Name: "register", Type: typ.Func().
-		Param("s", typ.String).
-		OptParam("n", typ.String).
+		Param("name", typ.String).
+		OptParam("scope", typ.Number).
+		OptParam("pid", typ.String).
 		Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
 		Build()},
 	{Name: "lookup", Type: typ.Func().
-		Param("s", typ.String).
+		Param("name", typ.String).
 		Returns(typ.String, typ.NewOptional(typ.LuaError)).
 		Build()},
 	{Name: "unregister", Type: typ.Func().
-		Param("s", typ.String).
-		Returns(typ.Boolean).
+		Param("name", typ.String).
+		OptParam("scope", typ.Number).
+		Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
 		Build()},
 })
+
+var registrySubType = typ.NewIntersection(registryMethodsType, registryFieldsType)
 
 var spawnBuilderType *typ.Interface
 

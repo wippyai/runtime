@@ -12,9 +12,11 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/wippyai/runtime/api/cluster"
+	"github.com/wippyai/runtime/api/metrics"
 	"go.uber.org/zap"
 )
 
@@ -69,26 +71,51 @@ type ManagerConfig struct {
 	CommandQueueSize  int
 	HandshakeTimeout  time.Duration
 	OutboundQueueSize int
-	InitialRetryDelay time.Duration
-	MaxRetryDelay     time.Duration
-	DrainBatchSize    int
-	MaxMessageSize    uint32
-	AutoPort          bool
+	// Per-class send queue caps. Capacities chosen from canonical references:
+	// etcd default for control (4096); 2x memberlist default for gossip
+	// (1024); sized for fan-out for app broadcasts (2048). Hitting a cap
+	// drops with a metric (internode_dropped_total{class,reason="queue_full"})
+	// rather than blocking or growing.
+	RaftControlQueueCap int
+	GossipQueueCap      int
+	PGBroadcastQueueCap int
+	// RaftMeshQueueCap caps the per-peer queue for the multiplexed Raft
+	// transport byte-stream (ClassRaftMesh). Sized like RaftControl: under
+	// healthy steady state Raft frames drain fast. On overflow the queue
+	// is cleared and the peer's mesh session is reset (drop-oldest is
+	// unsafe for a byte-stream) so yamux+raft resync and pre-vote recovers.
+	RaftMeshQueueCap int
+	// OutboundConnQueueCap caps the per-connection outbound queue inside
+	// NodeConnection (drain target of the per-class queues above). Without
+	// this cap, network-delay chaos lets the connection-level queue grow
+	// unbounded even though the upstream class queues are bounded.
+	// Drops here count as internode_dropped_total{reason="conn_queue_full"}.
+	OutboundConnQueueCap int
+	InitialRetryDelay    time.Duration
+	MaxRetryDelay        time.Duration
+	DrainBatchSize       int
+	MaxMessageSize       uint32
+	AutoPort             bool
 }
 
 func DefaultManagerConfig() ManagerConfig {
 	return ManagerConfig{
-		HandshakeTimeout:  5 * time.Second,
-		OutboundQueueSize: 256,
-		MaxMessageSize:    512 * 1024 * 1024,
-		TLS:               ManagerTLSConfig{Enabled: false},
-		InitialRetryDelay: 10 * time.Millisecond,
-		MaxRetryDelay:     5 * time.Second,
-		AutoPort:          true,
-		BindPort:          DefaultPortRangeStart,
-		DrainBatchSize:    32,
-		CommandQueueSize:  256,
-		MaxRetryAttempts:  10,
+		HandshakeTimeout:     5 * time.Second,
+		OutboundQueueSize:    256,
+		MaxMessageSize:       512 * 1024 * 1024,
+		TLS:                  ManagerTLSConfig{Enabled: false},
+		InitialRetryDelay:    10 * time.Millisecond,
+		MaxRetryDelay:        5 * time.Second,
+		AutoPort:             true,
+		BindPort:             DefaultPortRangeStart,
+		DrainBatchSize:       32,
+		CommandQueueSize:     256,
+		MaxRetryAttempts:     10,
+		RaftControlQueueCap:  4096,
+		GossipQueueCap:       1024,
+		PGBroadcastQueueCap:  2048,
+		RaftMeshQueueCap:     4096,
+		OutboundConnQueueCap: 4096,
 	}
 }
 
@@ -96,6 +123,7 @@ func (mc ManagerConfig) NodeConnectionConfig() NodeConnectionConfig {
 	return NodeConnectionConfig{
 		HandshakeTimeout: mc.HandshakeTimeout,
 		MaxMessageSize:   mc.MaxMessageSize,
+		MaxQueueSize:     mc.OutboundConnQueueCap,
 	}
 }
 
@@ -146,7 +174,7 @@ type nodeControlLoop struct {
 type ConnectionManager interface {
 	Start(ctx context.Context, onMessage func(nodeID cluster.NodeID, data []byte)) error
 	Stop() error
-	SendToNode(nodeID cluster.NodeID, data []byte) error
+	SendToNode(nodeID cluster.NodeID, data []byte, class Class) error
 	EnsureConnection(nodeID cluster.NodeID, addr string, port int)
 	DisconnectFromNode(nodeID cluster.NodeID)
 	ConnectedNodes() []cluster.NodeID
@@ -155,29 +183,75 @@ type ConnectionManager interface {
 	// AddManagedNode adds a node to be managed by lifecycle events
 	AddManagedNode(nodeID cluster.NodeID)
 	RemoveManagedNode(nodeID cluster.NodeID)
+	IsManaged(nodeID cluster.NodeID) bool
+
+	// EvictOrphanNodes removes managed nodes that are not present in the
+	// supplied authoritative set. Returns the count of evicted nodes.
+	// Defensive sweep against the case where a `cluster.NodeLeft` event
+	// is missed under partition / gossip storm — without this, the
+	// per-node state in the connection manager and its underlying
+	// state_manager grows monotonically as the cluster churns.
+	EvictOrphanNodes(known map[cluster.NodeID]struct{}) int
+
+	// RecordDropReason increments internode_dropped_total{reason=...} for
+	// drop events that originate outside the per-class queue path
+	// (RX-side delivery failure, TX-side encode failure, etc.). Lets
+	// callers count drops without taking a dependency on the unexported
+	// telemetry type.
+	RecordDropReason(reason string)
+
+	// RegisterClassReceiver wires an inbound dispatcher for a single
+	// sub-protocol class. When a frame with this class arrives, the
+	// per-class receiver is invoked instead of the default onMessage
+	// callback registered via Start. Returns false if a receiver is
+	// already registered for the class. The mesh-backed Raft transport
+	// uses this to claim ClassRaftMesh; the default class set continues
+	// to flow through Start's onMessage.
+	RegisterClassReceiver(class Class, recv func(nodeID cluster.NodeID, data []byte)) bool
+
+	// RegisterClassOverflowHandler wires a callback invoked when the
+	// per-peer send queue for `class` overflows and the class's drop
+	// policy is "reset the underlying transport" rather than drop a
+	// frame. Only ClassRaftMesh uses this: its queue carries a
+	// yamux byte-stream, so on overflow the handler tears down the
+	// peer's mesh session (close + rebuild) instead of dropping a
+	// frame from the middle of the stream. The handler is invoked off
+	// the producer's goroutine and MUST NOT block. Returns false if a
+	// handler is already registered for the class.
+	RegisterClassOverflowHandler(class Class, handler func(nodeID cluster.NodeID)) bool
 }
 
 type manager struct {
-	ctx            context.Context
-	listener       net.Listener
-	cancel         context.CancelFunc
-	logger         *zap.Logger
-	onMessage      func(cluster.NodeID, []byte)
-	tlsConfig      *tls.Config
-	nodeStates     *NodeStateManager
-	controlLoops   map[cluster.NodeID]*nodeControlLoop
+	ctx              context.Context
+	listener         net.Listener
+	cancel           context.CancelFunc
+	logger           *zap.Logger
+	onMessage        func(cluster.NodeID, []byte)
+	tlsConfig        *tls.Config
+	nodeStates       *NodeStateManager
+	controlLoops     map[cluster.NodeID]*nodeControlLoop
+	// classReceivers and classOverflow are accessed on every inbound
+	// frame (lookupClassReceiver runs in the read hot path). Registrations
+	// happen only at boot, so we keep the arrays behind atomic.Pointer
+	// snapshots: lookups are an atomic.Load (no mutex), and registrations
+	// publish a new array via atomic.Store under a write-only register
+	// mutex that serializes the read-modify-write.
+	classReceivers atomic.Pointer[[numClasses]func(cluster.NodeID, []byte)]
+	classOverflow  atomic.Pointer[[numClasses]func(cluster.NodeID)]
 	config         ManagerConfig
 	wg             sync.WaitGroup
 	actualPort     int
 	controlLoopsMu sync.Mutex
+	registerMu     sync.Mutex
 }
 
-func NewConnectionManager(config ManagerConfig) ConnectionManager {
+func NewConnectionManager(config ManagerConfig, coll metrics.Collector) ConnectionManager {
 	logger := config.Logger.Named("conn")
+	tel := newTelemetry(coll)
 	return &manager{
 		config:       config,
 		logger:       logger,
-		nodeStates:   NewNodeStateManager(config, logger),
+		nodeStates:   NewNodeStateManager(config, tel, logger),
 		controlLoops: make(map[cluster.NodeID]*nodeControlLoop),
 	}
 }
@@ -231,15 +305,29 @@ func (m *manager) Stop() error {
 	return nil
 }
 
-func (m *manager) SendToNode(nodeID cluster.NodeID, data []byte) error {
-	err := m.nodeStates.QueueMessage(nodeID, data)
+func (m *manager) SendToNode(nodeID cluster.NodeID, data []byte, class Class) error {
+	err := m.nodeStates.QueueMessageClass(nodeID, data, class)
 	if err != nil {
 		if errors.Is(err, ErrNodeNotManaged) {
-			m.logger.Warn("Dropping message for non-existent or unmanaged node", zap.String("target_node", nodeID))
-			// Return nil to not propagate "node not found" errors for fire-and-forget sends.
-			// The caller can check the cluster membership itself if a response is required.
+			// Hot path under partition: gossip can mark a peer dead before
+			// the PG layer stops targeting it. Counted as a drop with no
+			// log to avoid the kind of flood we saw during chaos (thousands
+			// per second per pod). The metric is the source of truth.
+			m.nodeStates.tel.recordDrop(class, "node_not_managed")
 			return nil
 		}
+		if errors.Is(err, ErrRaftMeshOverflow) {
+			// Byte-stream overflow: the queue already discarded the pending
+			// stream and recorded drops. Reset the peer's mesh session so
+			// yamux+raft re-establish cleanly. Run off this goroutine so a
+			// reset never blocks the producer (the handler closes a session;
+			// the rebuild happens lazily on the next frame).
+			if h := m.lookupClassOverflow(class); h != nil {
+				go h(nodeID)
+			}
+			return nil
+		}
+		// ErrQueueFull surfaces to the caller (broadcast path will count it).
 		return err
 	}
 	return nil
@@ -277,17 +365,182 @@ func (m *manager) ConnectedNodes() []cluster.NodeID {
 
 func (m *manager) AddManagedNode(nodeID cluster.NodeID) {
 	m.logger.Info("Adding new managed node", zap.String("node", nodeID))
+
+	// If the node already has state, it was either:
+	// (a) auto-managed by handleInboundConnection (possibly with an active
+	//     or in-flight connection), or
+	// (b) a stale entry left behind somehow.
+	//
+	// In case (a) we must not tear down the control loop because it may hold
+	// a healthy connection or have a cmdConnected in flight. In case (b) the
+	// state is already clean (RemoveManagedNode would have been called on
+	// node leave). Either way, skipping teardown is safe.
+	if m.nodeStates.GetNodeState(nodeID) != nil {
+		m.logger.Debug("Node already managed, skipping teardown",
+			zap.String("node", nodeID))
+		return
+	}
+
+	// If there's an old control loop for this node (e.g. from a previous
+	// incarnation that left and is now rejoining), tear it down first to
+	// prevent the old loop from interfering with the new state.
+	m.controlLoopsMu.Lock()
+	if oldLoop, exists := m.controlLoops[nodeID]; exists {
+		m.logger.Info("Tearing down stale control loop for rejoining node", zap.String("node", nodeID))
+		oldLoop.cancel()
+		delete(m.controlLoops, nodeID)
+	}
+	m.controlLoopsMu.Unlock()
+
 	m.nodeStates.CreateNodeState(nodeID)
 }
 
 func (m *manager) RemoveManagedNode(nodeID cluster.NodeID) {
 	m.logger.Info("Removing managed node", zap.String("node", nodeID))
-	m.sendCommand(nodeID, nodeCommand{Type: cmdKill})
+
+	// Cancel the control loop directly and remove it from the map.
+	// This is synchronous with respect to the map entry, preventing
+	// races where a new node with the same ID starts before the old
+	// loop has processed cmdKill.
+	m.controlLoopsMu.Lock()
+	if loop, exists := m.controlLoops[nodeID]; exists {
+		loop.cancel()
+		delete(m.controlLoops, nodeID)
+	}
+	m.controlLoopsMu.Unlock()
+
 	m.nodeStates.RemoveNodeState(nodeID)
 }
 
 func (m *manager) GetListenPort() int {
 	return m.actualPort
+}
+
+func (m *manager) IsManaged(nodeID cluster.NodeID) bool {
+	return m.nodeStates.GetNodeState(nodeID) != nil
+}
+
+// RecordDropReason exposes the unexported telemetry counter for callers that
+// drop messages outside the per-class queue path (RX delivery failures, TX
+// pre-send encode failures, etc.). The label "class" is set to "unknown"
+// because those drop sites don't carry class context.
+func (m *manager) RecordDropReason(reason string) {
+	m.nodeStates.tel.recordDropReason(reason)
+}
+
+// RegisterClassReceiver claims a sub-protocol Class so inbound frames with
+// that class bypass the default onMessage callback and go straight to recv.
+// Idempotent: registering nil clears the receiver. Returns false if a
+// non-nil receiver is already registered for that class.
+//
+// Registrations are rare (boot-time) but lookups happen on every inbound
+// frame, so we publish a fresh snapshot via atomic.Pointer and lookups
+// skip the mutex entirely.
+func (m *manager) RegisterClassReceiver(class Class, recv func(cluster.NodeID, []byte)) bool {
+	if int(class) >= numClasses {
+		return false
+	}
+	m.registerMu.Lock()
+	defer m.registerMu.Unlock()
+	var next [numClasses]func(cluster.NodeID, []byte)
+	if cur := m.classReceivers.Load(); cur != nil {
+		next = *cur
+	}
+	if recv != nil && next[class] != nil {
+		return false
+	}
+	next[class] = recv
+	m.classReceivers.Store(&next)
+	return true
+}
+
+func (m *manager) lookupClassReceiver(class Class) func(cluster.NodeID, []byte) {
+	if int(class) >= numClasses {
+		return nil
+	}
+	snap := m.classReceivers.Load()
+	if snap == nil {
+		return nil
+	}
+	return snap[class]
+}
+
+// RegisterClassOverflowHandler claims the overflow-reset hook for a Class.
+// Registering nil clears the handler. Returns false if a non-nil handler is
+// already registered for that class. Snapshot semantics match
+// RegisterClassReceiver.
+func (m *manager) RegisterClassOverflowHandler(class Class, handler func(cluster.NodeID)) bool {
+	if int(class) >= numClasses {
+		return false
+	}
+	m.registerMu.Lock()
+	defer m.registerMu.Unlock()
+	var next [numClasses]func(cluster.NodeID)
+	if cur := m.classOverflow.Load(); cur != nil {
+		next = *cur
+	}
+	if handler != nil && next[class] != nil {
+		return false
+	}
+	next[class] = handler
+	m.classOverflow.Store(&next)
+	return true
+}
+
+func (m *manager) lookupClassOverflow(class Class) func(cluster.NodeID) {
+	if int(class) >= numClasses {
+		return nil
+	}
+	snap := m.classOverflow.Load()
+	if snap == nil {
+		return nil
+	}
+	return snap[class]
+}
+
+// EvictOrphanNodes walks the controlLoops + nodeStates and removes any
+// node not in `known`. Returns the count of removals. Caller passes a
+// snapshot of the membership view as the authoritative truth.
+func (m *manager) EvictOrphanNodes(known map[cluster.NodeID]struct{}) int {
+	if known == nil {
+		return 0
+	}
+	// Find orphans under the controlLoops lock so we get a consistent
+	// snapshot of which nodes the manager believes are alive.
+	var orphans []cluster.NodeID
+	m.controlLoopsMu.Lock()
+	for nodeID := range m.controlLoops {
+		if _, ok := known[nodeID]; !ok && nodeID != m.config.LocalNodeID {
+			orphans = append(orphans, nodeID)
+		}
+	}
+	m.controlLoopsMu.Unlock()
+
+	// Also catch nodes that have nodeState but no controlLoop (auto-managed
+	// from inbound connection that never produced traffic).
+	m.nodeStates.nodeStates.Range(func(key, _ any) bool {
+		nodeID := key.(cluster.NodeID)
+		if nodeID == m.config.LocalNodeID {
+			return true
+		}
+		if _, ok := known[nodeID]; ok {
+			return true
+		}
+		// Avoid double-add if already in the orphans slice from controlLoops.
+		for _, existing := range orphans {
+			if existing == nodeID {
+				return true
+			}
+		}
+		orphans = append(orphans, nodeID)
+		return true
+	})
+
+	for _, nodeID := range orphans {
+		m.RemoveManagedNode(nodeID)
+		m.nodeStates.tel.recordEviction("orphan")
+	}
+	return len(orphans)
 }
 
 func (m *manager) sendCommand(nodeID cluster.NodeID, cmd nodeCommand) {
@@ -317,7 +570,7 @@ func (m *manager) sendCommand(nodeID cluster.NodeID, cmd nodeCommand) {
 		m.wg.Add(1)
 		go func() {
 			defer m.wg.Done()
-			defer m.cleanupControlLoop(nodeID)
+			defer m.cleanupControlLoop(nodeID, loop)
 			loop.run()
 		}()
 	}
@@ -329,9 +582,14 @@ func (m *manager) sendCommand(nodeID cluster.NodeID, cmd nodeCommand) {
 	}
 }
 
-func (m *manager) cleanupControlLoop(nodeID cluster.NodeID) {
+func (m *manager) cleanupControlLoop(nodeID cluster.NodeID, self *nodeControlLoop) {
 	m.controlLoopsMu.Lock()
-	delete(m.controlLoops, nodeID)
+	// Only delete the map entry if it still points to THIS loop.
+	// A replacement loop may have been created (e.g. by AddManagedNode
+	// tearing down the old loop and sendCommand creating a new one).
+	if current, exists := m.controlLoops[nodeID]; exists && current == self {
+		delete(m.controlLoops, nodeID)
+	}
 	m.controlLoopsMu.Unlock()
 	m.logger.Debug("Control loop cleaned up", zap.String("node", nodeID))
 }
@@ -339,15 +597,6 @@ func (m *manager) cleanupControlLoop(nodeID cluster.NodeID) {
 func (loop *nodeControlLoop) run() {
 	loop.logger.Debug("Control loop started")
 	defer loop.logger.Debug("Control loop stopped")
-
-	// The NodeState is guaranteed to exist by the new design, so GetMessageNotifier will return a valid channel.
-	messageNotifier := loop.manager.nodeStates.GetMessageNotifier(loop.nodeID)
-	if messageNotifier == nil {
-		// This path indicates a severe logic error in the new design.
-		loop.logger.Error("Failed to get message notifier for a managed node; loop will be ineffective.",
-			zap.String("node", loop.nodeID))
-		messageNotifier = make(<-chan struct{}) // Prevent nil-channel-select panic.
-	}
 
 	for {
 		select {
@@ -359,11 +608,6 @@ func (loop *nodeControlLoop) run() {
 			if loop.handleCommand(cmd) {
 				loop.cleanup()
 				return
-			}
-
-		case <-messageNotifier:
-			if loop.state == StateConnected && loop.connection != nil {
-				loop.drainMessages()
 			}
 		}
 	}
@@ -390,6 +634,10 @@ func (loop *nodeControlLoop) handleCommand(cmd nodeCommand) bool {
 func (loop *nodeControlLoop) handleConnect(data connectData) {
 	loop.addr = data.Addr
 	loop.port = data.Port
+	loop.logger.Debug("handleConnect called",
+		zap.String("addr", data.Addr),
+		zap.Int("port", data.Port),
+		zap.String("state", loop.state.String()))
 	if loop.state == StateConnecting || loop.state == StateConnected || loop.state == StateDead {
 		return
 	}
@@ -405,6 +653,9 @@ func (loop *nodeControlLoop) handleConnect(data connectData) {
 }
 
 func (loop *nodeControlLoop) handleConnected(data connectedData) {
+	loop.logger.Debug("handleConnected called",
+		zap.String("state", loop.state.String()),
+		zap.Bool("has_connection", data.Connection != nil))
 	if loop.state == StateConnected {
 		if data.Connection != nil {
 			data.Connection.Close()
@@ -426,26 +677,56 @@ func (loop *nodeControlLoop) handleConnected(data connectedData) {
 	loop.manager.nodeStates.SetNodeConnection(loop.nodeID, loop.connection, loop.state)
 	loop.logger.Info("Connection established successfully", zap.Bool("is_outbound", loop.isOutbound))
 
+	// Wire the connection's writeLoop to drain this node's per-class queues
+	// directly. It self-drains anything buffered while the node was
+	// disconnected, so no explicit drain call is needed here.
+	loop.bindConnectionDrain()
+
+	// Capture the connection now and hand it to the monitor goroutine.
+	// Reading loop.connection inside the goroutine races with cleanup
+	// paths that set loop.connection = nil on disconnect/kill.
+	conn := loop.connection
 	loop.manager.wg.Add(1)
 	go func() {
 		defer loop.manager.wg.Done()
-		loop.monitorConnection()
+		loop.monitorConnection(conn)
 	}()
+}
 
-	loop.drainMessages()
+// bindConnectionDrain wires loop.connection's writeLoop to this node's
+// per-class outbound queues. Must be called before the connection's Run.
+func (loop *nodeControlLoop) bindConnectionDrain() {
+	nodeID := loop.nodeID
+	nsm := loop.manager.nodeStates
+	notify := nsm.GetMessageNotifier(nodeID)
+	if notify == nil {
+		loop.logger.Error("no message notifier for managed node", zap.String("node", nodeID))
+		notify = make(chan struct{})
+	}
+	loop.connection.bindDrain(
+		notify,
+		func(n int) []Outbound { return nsm.DrainMessages(nodeID, n) },
+		func(b []Outbound) { nsm.RequeueMessages(nodeID, b) },
+		loop.manager.config.DrainBatchSize,
+	)
 }
 
 func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
+	loop.logger.Debug("handleDisconnected called",
+		zap.String("state", loop.state.String()),
+		zap.Bool("should_retry", data.ShouldRetry),
+		zap.Error(data.Error),
+		zap.Int("retry_count", loop.retryCount))
 	if loop.state == StateDead {
 		return
 	}
+	// Un-drained messages remain in the per-class queues — a subsequent
+	// connection's writeLoop delivers them. Only the writeLoop's own
+	// in-flight batch needs requeue, and it handles that itself on a
+	// write failure before returning.
 	if loop.connection != nil {
-		pending := loop.connection.ExtractPendingMessages()
 		loop.connection.Close()
 		loop.connection = nil
-		if len(pending) > 0 {
-			loop.manager.nodeStates.RequeueMessages(loop.nodeID, pending)
-		}
 	}
 	loop.manager.nodeStates.SetNodeConnection(loop.nodeID, nil, StateNone)
 
@@ -473,12 +754,8 @@ func (loop *nodeControlLoop) handleKill() {
 
 func (loop *nodeControlLoop) cleanup() {
 	if loop.connection != nil {
-		pending := loop.connection.ExtractPendingMessages()
 		loop.connection.Close()
 		loop.connection = nil
-		if len(pending) > 0 {
-			loop.manager.nodeStates.RequeueMessages(loop.nodeID, pending)
-		}
 	}
 	loop.manager.nodeStates.SetNodeConnection(loop.nodeID, nil, StateNone)
 }
@@ -495,6 +772,7 @@ func (loop *nodeControlLoop) attemptConnection() {
 		return
 	}
 	addr := net.JoinHostPort(loop.addr, fmt.Sprintf("%d", loop.port))
+	loop.logger.Debug("Attempting outbound connection", zap.String("target_addr", addr))
 	var conn net.Conn
 	var err error
 	if loop.manager.tlsConfig != nil {
@@ -519,11 +797,15 @@ func (loop *nodeControlLoop) attemptConnection() {
 	loop.sendCommandToSelf(nodeCommand{Type: cmdConnected, Data: connectedData{Connection: nodeConn}})
 }
 
-func (loop *nodeControlLoop) monitorConnection() {
-	if loop.connection == nil {
+func (loop *nodeControlLoop) monitorConnection(conn *NodeConnection) {
+	if conn == nil {
 		return
 	}
-	err := loop.connection.Run(func(msg []byte) {
+	err := conn.Run(func(class Class, msg []byte) {
+		if recv := loop.manager.lookupClassReceiver(class); recv != nil {
+			recv(loop.nodeID, msg)
+			return
+		}
 		loop.manager.onMessage(loop.nodeID, msg)
 	})
 	shouldRetry := false
@@ -534,23 +816,6 @@ func (loop *nodeControlLoop) monitorConnection() {
 		}
 	}
 	loop.sendDisconnected(err, shouldRetry)
-}
-
-func (loop *nodeControlLoop) drainMessages() {
-	if loop.connection == nil {
-		return
-	}
-	messages := loop.manager.nodeStates.DrainMessages(loop.nodeID, loop.manager.config.DrainBatchSize)
-	if len(messages) == 0 {
-		return
-	}
-	for i, data := range messages {
-		if err := loop.connection.Send(data); err != nil {
-			loop.logger.Error("Failed to send message, will be requeued", zap.Error(err))
-			loop.manager.nodeStates.RequeueMessages(loop.nodeID, messages[i:])
-			break
-		}
-	}
 }
 
 func (loop *nodeControlLoop) sendDisconnected(err error, shouldRetry bool) {
@@ -598,15 +863,20 @@ func (m *manager) listen(addr string) (net.Listener, error) {
 }
 
 func (m *manager) acceptLoop() {
+	m.logger.Debug("Accept loop started", zap.Int("listen_port", m.actualPort))
 	for {
 		conn, err := m.listener.Accept()
 		if err != nil {
 			if m.ctx.Err() != nil {
+				m.logger.Debug("Accept loop stopping (context cancelled)")
 				return
 			}
 			m.logger.Error("Failed to accept connection", zap.Error(err))
 			continue
 		}
+		m.logger.Debug("Accepted inbound TCP connection",
+			zap.String("remote_addr", conn.RemoteAddr().String()),
+			zap.String("local_addr", conn.LocalAddr().String()))
 		m.wg.Add(1)
 		go func() {
 			defer m.wg.Done()
@@ -616,17 +886,24 @@ func (m *manager) acceptLoop() {
 }
 
 func (m *manager) handleInboundConnection(conn net.Conn) {
+	m.logger.Debug("Handling inbound connection",
+		zap.String("remote_addr", conn.RemoteAddr().String()),
+		zap.String("local_node", m.config.LocalNodeID))
+
 	nodeConn, err := PerformServerHandshake(conn, m.config.NodeConnectionConfig(), m.logger, m.config.LocalNodeID)
 	if err != nil {
 		m.logger.Warn("Inbound handshake failed", zap.Error(err), zap.String("remote_addr", conn.RemoteAddr().String()))
 		return
 	}
 	remoteNodeID := nodeConn.RemoteNodeID()
+	m.logger.Debug("Inbound handshake succeeded", zap.String("remote_node", remoteNodeID))
 
+	// Auto-manage the node if not already managed. This handles the race where
+	// the remote node's outbound connection arrives before the local NodeJoined
+	// event is processed (which would call AddManagedNode).
 	if m.nodeStates.GetNodeState(remoteNodeID) == nil {
-		m.logger.Warn("Received connection from an unmanaged/unknown node", zap.String("node", remoteNodeID))
-		nodeConn.Close()
-		return
+		m.logger.Info("Auto-managing node from inbound connection", zap.String("node", remoteNodeID))
+		m.nodeStates.CreateNodeState(remoteNodeID)
 	}
 
 	_, currentState := m.nodeStates.GetNodeConnection(remoteNodeID)
@@ -642,6 +919,7 @@ func (m *manager) handleInboundConnection(conn net.Conn) {
 		return
 	}
 
+	m.logger.Debug("Accepting inbound connection, sending cmdConnected", zap.String("remote_node", remoteNodeID))
 	m.sendCommand(remoteNodeID, nodeCommand{
 		Type: cmdConnected,
 		Data: connectedData{Connection: nodeConn},

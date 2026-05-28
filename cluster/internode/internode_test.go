@@ -65,7 +65,7 @@ func (m *mockConnectionManager) Stop() error {
 	return nil
 }
 
-func (m *mockConnectionManager) SendToNode(_ cluster.NodeID, _ []byte) error {
+func (m *mockConnectionManager) SendToNode(_ cluster.NodeID, _ []byte, _ Class) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.sendError != nil {
@@ -114,6 +114,24 @@ func (m *mockConnectionManager) RemoveManagedNode(nodeID cluster.NodeID) {
 	delete(m.managedNodes, nodeID)
 }
 
+func (m *mockConnectionManager) IsManaged(nodeID cluster.NodeID) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.managedNodes[nodeID]
+}
+
+func (m *mockConnectionManager) RecordDropReason(_ string) {}
+
+func (m *mockConnectionManager) EvictOrphanNodes(_ map[cluster.NodeID]struct{}) int { return 0 }
+
+func (m *mockConnectionManager) RegisterClassReceiver(_ Class, _ func(cluster.NodeID, []byte)) bool {
+	return true
+}
+
+func (m *mockConnectionManager) RegisterClassOverflowHandler(_ Class, _ func(cluster.NodeID)) bool {
+	return true
+}
+
 type mockCodec struct {
 	encodeError error
 	decodeError error
@@ -151,6 +169,8 @@ func (m *mockMembership) Nodes() []cluster.NodeInfo {
 func (m *mockMembership) LocalNode() cluster.NodeInfo {
 	return m.localNode
 }
+
+func (m *mockMembership) UpdateMeta(map[string]string) {}
 
 // Tests
 
@@ -552,4 +572,23 @@ func TestService_OnMessage_DeliveryError(t *testing.T) {
 	defer func() { _ = service.Stop() }()
 
 	connMan.onMessage("remote-node", []byte("data"))
+}
+
+func TestClassForTopic(t *testing.T) {
+	cases := []struct {
+		topic string
+		want  Class
+	}{
+		{"pg.join", ClassRaftControl},
+		{"pg.leave", ClassRaftControl},
+		{"pg.discover", ClassRaftControl},
+		{"pg.sync", ClassRaftControl},
+		{"app.broadcast.ping", ClassPGBroadcast},
+		{"", ClassPGBroadcast}, // unknown defaults to broadcast
+	}
+	for _, c := range cases {
+		if got := ClassForTopic(c.topic); got != c.want {
+			t.Errorf("ClassForTopic(%q) = %v, want %v", c.topic, got, c.want)
+		}
+	}
 }

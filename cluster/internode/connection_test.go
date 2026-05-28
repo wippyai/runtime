@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/wippyai/runtime/api/cluster"
 	"go.uber.org/zap"
 )
 
@@ -77,9 +76,76 @@ func (c *mockConn) setWriteError(err error) {
 	c.writeErr = err
 }
 
+// --- TEST DRAIN SOURCE ---
+
+// testDrainSource is an in-memory stand-in for the per-class outbound queues a
+// NodeConnection drains in production. Tests push messages; the connection's
+// writeLoop drains them via the bindDrain wiring.
+type testDrainSource struct {
+	notify   chan struct{}
+	queue    []Outbound
+	requeued []Outbound
+	mu       sync.Mutex
+}
+
+func newTestDrainSource() *testDrainSource {
+	return &testDrainSource{notify: make(chan struct{}, 1)}
+}
+
+func (s *testDrainSource) bind(c *NodeConnection) {
+	c.bindDrain(s.notify, s.drain, s.requeue, 32)
+}
+
+func (s *testDrainSource) push(data []byte, class Class) {
+	s.mu.Lock()
+	s.queue = append(s.queue, Outbound{Data: data, Class: class})
+	s.mu.Unlock()
+	select {
+	case s.notify <- struct{}{}:
+	default:
+	}
+}
+
+func (s *testDrainSource) drain(n int) []Outbound {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.queue) == 0 {
+		return nil
+	}
+	if n > len(s.queue) {
+		n = len(s.queue)
+	}
+	out := make([]Outbound, n)
+	copy(out, s.queue[:n])
+	s.queue = s.queue[n:]
+	return out
+}
+
+func (s *testDrainSource) requeue(b []Outbound) {
+	s.mu.Lock()
+	s.requeued = append(s.requeued, b...)
+	s.mu.Unlock()
+}
+
+func (s *testDrainSource) requeuedMessages() []Outbound {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Outbound(nil), s.requeued...)
+}
+
 // --- TEST HELPERS ---
 
-func newTestConnectionPair(t *testing.T, _, _ cluster.NodeID) (Connection, Connection) {
+// testConnPair is a handshaked NodeConnection pair, each wired to a drain source.
+type testConnPair struct {
+	a    *NodeConnection
+	b    *NodeConnection
+	srcA *testDrainSource
+	srcB *testDrainSource
+}
+
+// newTestConnectionPair builds a handshaked NodeConnection pair over an
+// in-memory pipe, each wired to its own testDrainSource.
+func newTestConnectionPair(t *testing.T) testConnPair {
 	t.Helper()
 	pipeA, pipeB := net.Pipe()
 	cfg := DefaultNodeConnectionConfig()
@@ -105,26 +171,32 @@ func newTestConnectionPair(t *testing.T, _, _ cluster.NodeID) (Connection, Conne
 	require.NotNil(t, connA)
 	require.NotNil(t, connB)
 
+	srcA := newTestDrainSource()
+	srcA.bind(connA)
+	srcB := newTestDrainSource()
+	srcB.bind(connB)
+
 	t.Cleanup(func() {
 		// Close() is idempotent, so calling it in cleanup is safe even if the test closes it.
 		connA.Close()
 		connB.Close()
 	})
 
-	return connA, connB
+	return testConnPair{a: connA, b: connB, srcA: srcA, srcB: srcB}
 }
 
 // --- TEST SUITE ---
 
 func TestNodeConnection_SendReceive(t *testing.T) {
-	nodeA, nodeB := newTestConnectionPair(t, "node-A", "node-B")
+	p := newTestConnectionPair(t)
+	nodeA, nodeB, srcA := p.a, p.b, p.srcA
 	msgChan := make(chan []byte, 1)
 
-	go func() { _ = nodeA.Run(func(_ []byte) {}) }()
-	go func() { _ = nodeB.Run(func(msg []byte) { msgChan <- msg }) }()
+	go func() { _ = nodeA.Run(func(_ Class, _ []byte) {}) }()
+	go func() { _ = nodeB.Run(func(_ Class, msg []byte) { msgChan <- msg }) }()
 
 	testMsg := []byte("hello, world!")
-	require.NoError(t, nodeA.Send(testMsg))
+	srcA.push(testMsg, ClassPGBroadcast)
 
 	select {
 	case receivedMsg := <-msgChan:
@@ -135,10 +207,11 @@ func TestNodeConnection_SendReceive(t *testing.T) {
 }
 
 func TestNodeConnection_Shutdown(t *testing.T) {
-	nodeA, nodeB := newTestConnectionPair(t, "node-A", "node-B")
+	p := newTestConnectionPair(t)
+	nodeA, nodeB := p.a, p.b
 	runLoopExited := make(chan *ConnectionError, 1)
 
-	go func() { runLoopExited <- nodeB.Run(func(_ []byte) {}) }()
+	go func() { runLoopExited <- nodeB.Run(func(_ Class, _ []byte) {}) }()
 
 	time.Sleep(50 * time.Millisecond)
 	nodeA.Close()
@@ -153,10 +226,10 @@ func TestNodeConnection_Shutdown(t *testing.T) {
 }
 
 func TestNodeConnection_SelfClose(t *testing.T) {
-	nodeA, _ := newTestConnectionPair(t, "node-A", "node-B")
+	nodeA := newTestConnectionPair(t).a
 	runLoopExited := make(chan *ConnectionError, 1)
 
-	go func() { runLoopExited <- nodeA.Run(func(_ []byte) {}) }()
+	go func() { runLoopExited <- nodeA.Run(func(_ Class, _ []byte) {}) }()
 
 	time.Sleep(50 * time.Millisecond)
 	nodeA.Close()
@@ -171,13 +244,14 @@ func TestNodeConnection_SelfClose(t *testing.T) {
 }
 
 func TestNodeConnection_ZeroLengthMessage(t *testing.T) {
-	nodeA, nodeB := newTestConnectionPair(t, "node-A", "node-B")
+	p := newTestConnectionPair(t)
+	nodeA, nodeB, srcA := p.a, p.b, p.srcA
 	msgChan := make(chan []byte, 1)
 
-	go func() { _ = nodeA.Run(func(_ []byte) {}) }()
-	go func() { _ = nodeB.Run(func(data []byte) { msgChan <- data }) }()
+	go func() { _ = nodeA.Run(func(_ Class, _ []byte) {}) }()
+	go func() { _ = nodeB.Run(func(_ Class, data []byte) { msgChan <- data }) }()
 
-	require.NoError(t, nodeA.Send([]byte{}))
+	srcA.push([]byte{}, ClassPGBroadcast)
 
 	select {
 	case msg := <-msgChan:
@@ -189,16 +263,17 @@ func TestNodeConnection_ZeroLengthMessage(t *testing.T) {
 }
 
 func TestNodeConnection_ConcurrentSend(t *testing.T) {
-	nodeA, nodeB := newTestConnectionPair(t, "node-A", "node-B")
+	p := newTestConnectionPair(t)
+	nodeA, nodeB, srcA := p.a, p.b, p.srcA
 
 	const numMessages = 5000
 	const numSenders = 20
 	var receivedCount int64
 	doneChan := make(chan struct{})
 
-	go func() { _ = nodeA.Run(func(_ []byte) {}) }()
+	go func() { _ = nodeA.Run(func(_ Class, _ []byte) {}) }()
 	go func() {
-		_ = nodeB.Run(func(_ []byte) {
+		_ = nodeB.Run(func(_ Class, _ []byte) {
 			if atomic.AddInt64(&receivedCount, 1) == numMessages {
 				close(doneChan)
 			}
@@ -211,10 +286,7 @@ func TestNodeConnection_ConcurrentSend(t *testing.T) {
 		go func(senderID int) {
 			defer sendWg.Done()
 			for j := 0; j < numMessages/numSenders; j++ {
-				msg := []byte(fmt.Sprintf("sender-%d-msg-%d", senderID, j))
-				if err := nodeA.Send(msg); errors.Is(err, ErrConnectionClosed) {
-					return
-				}
+				srcA.push([]byte(fmt.Sprintf("sender-%d-msg-%d", senderID, j)), ClassPGBroadcast)
 			}
 		}(i)
 	}
@@ -225,16 +297,6 @@ func TestNodeConnection_ConcurrentSend(t *testing.T) {
 		t.Fatalf("Test timed out. Received %d of %d", atomic.LoadInt64(&receivedCount), numMessages)
 	}
 	sendWg.Wait()
-}
-
-func TestNodeConnection_ErrorOnSendToClosed(t *testing.T) {
-	nodeA, _ := newTestConnectionPair(t, "node-A", "node-B")
-	nodeA.Close()
-	time.Sleep(10 * time.Millisecond)
-
-	err := nodeA.Send([]byte("this should fail"))
-	require.Error(t, err)
-	require.ErrorIs(t, err, ErrConnectionClosed)
 }
 
 func TestConnectionError_ShouldRetry(t *testing.T) {
@@ -258,29 +320,28 @@ func TestConnectionError_ShouldRetry(t *testing.T) {
 	}
 }
 
-func TestNodeConnection_FailureAndMessageExtraction(t *testing.T) {
+// TestNodeConnection_WriteFailureRequeues verifies that when a flush fails,
+// the writeLoop hands the un-flushed batch back through the requeue closure so
+// a subsequent connection can deliver it, and the run loop exits with
+// ExitNetworkError.
+func TestNodeConnection_WriteFailureRequeues(t *testing.T) {
 	mockA, mockB := newMockConnPair()
-	cfg := DefaultNodeConnectionConfig()
-	logger := zap.NewNop()
+	t.Cleanup(func() { _ = mockA.Close(); _ = mockB.Close() })
 
-	nodeA := newNodeConnection(mockA, "node-B", cfg, logger)
-	nodeB := newNodeConnection(mockB, "node-A", cfg, logger)
-	t.Cleanup(func() { nodeA.Close(); nodeB.Close() })
+	nodeA := newNodeConnection(mockA, "node-B", DefaultNodeConnectionConfig(), zap.NewNop())
+	t.Cleanup(nodeA.Close)
 
-	runErrA := make(chan *ConnectionError, 1)
+	srcA := newTestDrainSource()
+	srcA.bind(nodeA)
 
-	go func() { _ = nodeB.Run(func(_ []byte) {}) }()
-	go func() { runErrA <- nodeA.Run(func(_ []byte) {}) }()
-
-	msg1 := []byte("unsent-1")
-	require.NoError(t, nodeA.Send(msg1))
-
-	time.Sleep(50 * time.Millisecond)
 	injectedErr := errors.New("injected physical write error")
 	mockA.setWriteError(injectedErr)
 
-	msg2 := []byte("unsent-2")
-	require.NoError(t, nodeA.Send(msg2))
+	runErrA := make(chan *ConnectionError, 1)
+	go func() { runErrA <- nodeA.Run(func(_ Class, _ []byte) {}) }()
+
+	msg := []byte("unsent")
+	srcA.push(msg, ClassPGBroadcast)
 
 	select {
 	case err := <-runErrA:
@@ -290,12 +351,8 @@ func TestNodeConnection_FailureAndMessageExtraction(t *testing.T) {
 		t.Fatal("timed out waiting for connection to fail")
 	}
 
-	pending := nodeA.ExtractPendingMessages()
-	require.GreaterOrEqual(t, len(pending), 1, "at least one message should be recovered")
-	if len(pending) == 2 {
-		require.Equal(t, msg1, pending[0])
-		require.Equal(t, msg2, pending[1])
-	} else {
-		require.Equal(t, msg2, pending[0], "if only one message is pending, it must be the one sent after the write error")
-	}
+	requeued := srcA.requeuedMessages()
+	require.Len(t, requeued, 1, "the un-flushed message must be requeued")
+	require.Equal(t, msg, requeued[0].Data)
+	require.Equal(t, ClassPGBroadcast, requeued[0].Class)
 }

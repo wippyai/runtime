@@ -34,7 +34,7 @@ func TestMultiNodeClusterFormation(t *testing.T) {
 		BindAddr: "127.0.0.1",
 		BindPort: 0, // Auto-assign port
 		Meta:     cluster.NodeMeta{"role": "bootstrap"},
-	}, bus1, logger)
+	}, bus1, logger, nil, nil, nil)
 
 	err := node1.Start(ctx)
 	require.NoError(t, err)
@@ -63,7 +63,7 @@ func TestMultiNodeClusterFormation(t *testing.T) {
 		BindPort:  0,
 		JoinAddrs: []string{joinAddr},
 		Meta:      cluster.NodeMeta{"role": "worker"},
-	}, bus2, logger)
+	}, bus2, logger, nil, nil, nil)
 
 	err = node2.Start(ctx)
 	require.NoError(t, err)
@@ -77,7 +77,7 @@ func TestMultiNodeClusterFormation(t *testing.T) {
 		BindPort:  0,
 		JoinAddrs: []string{joinAddr},
 		Meta:      cluster.NodeMeta{"role": "worker"},
-	}, bus3, logger)
+	}, bus3, logger, nil, nil, nil)
 
 	err = node3.Start(ctx)
 	require.NoError(t, err)
@@ -118,7 +118,7 @@ func TestNodeLeaveDetection(t *testing.T) {
 		NodeName: "node-1",
 		BindAddr: "127.0.0.1",
 		BindPort: 0,
-	}, bus1, logger)
+	}, bus1, logger, nil, nil, nil)
 
 	err := node1.Start(ctx)
 	require.NoError(t, err)
@@ -143,7 +143,7 @@ func TestNodeLeaveDetection(t *testing.T) {
 		BindAddr:  "127.0.0.1",
 		BindPort:  0,
 		JoinAddrs: []string{joinAddr},
-	}, bus2, logger)
+	}, bus2, logger, nil, nil, nil)
 
 	err = node2.Start(ctx)
 	require.NoError(t, err)
@@ -183,7 +183,7 @@ func TestNodeFailureDetection(t *testing.T) {
 		NodeName: "node-1",
 		BindAddr: "127.0.0.1",
 		BindPort: 0,
-	}, bus1, logger)
+	}, bus1, logger, nil, nil, nil)
 
 	err := node1.Start(ctx)
 	require.NoError(t, err)
@@ -207,7 +207,7 @@ func TestNodeFailureDetection(t *testing.T) {
 		BindAddr:  "127.0.0.1",
 		BindPort:  0,
 		JoinAddrs: []string{joinAddr},
-	}, bus2, logger)
+	}, bus2, logger, nil, nil, nil)
 
 	err = node2.Start(ctx)
 	require.NoError(t, err)
@@ -244,7 +244,7 @@ func TestConcurrentJoins(t *testing.T) {
 		NodeName: "bootstrap",
 		BindAddr: "127.0.0.1",
 		BindPort: 0,
-	}, bus1, logger)
+	}, bus1, logger, nil, nil, nil)
 
 	err := node1.Start(ctx)
 	require.NoError(t, err)
@@ -269,7 +269,7 @@ func TestConcurrentJoins(t *testing.T) {
 				BindAddr:  "127.0.0.1",
 				BindPort:  0,
 				JoinAddrs: []string{joinAddr},
-			}, bus, logger)
+			}, bus, logger, nil, nil, nil)
 
 			if err := node.Start(ctx); err != nil {
 				t.Errorf("node %d failed to start: %v", idx, err)
@@ -332,7 +332,7 @@ func TestMetadataUpdate(t *testing.T) {
 		BindAddr: "127.0.0.1",
 		BindPort: 0,
 		Meta:     cluster.NodeMeta{"version": "1.0"},
-	}, bus1, logger)
+	}, bus1, logger, nil, nil, nil)
 
 	err := node1.Start(ctx)
 	require.NoError(t, err)
@@ -358,7 +358,7 @@ func TestMetadataUpdate(t *testing.T) {
 		BindPort:  0,
 		JoinAddrs: []string{joinAddr},
 		Meta:      cluster.NodeMeta{"version": "1.0"},
-	}, bus2, logger)
+	}, bus2, logger, nil, nil, nil)
 
 	err = node2.Start(ctx)
 	require.NoError(t, err)
@@ -396,7 +396,7 @@ func TestClusterPartitionRecovery(t *testing.T) {
 		NodeName: "node-1",
 		BindAddr: "127.0.0.1",
 		BindPort: 0,
-	}, bus1, logger)
+	}, bus1, logger, nil, nil, nil)
 
 	err := node1.Start(ctx)
 	require.NoError(t, err)
@@ -410,7 +410,7 @@ func TestClusterPartitionRecovery(t *testing.T) {
 		BindAddr:  "127.0.0.1",
 		BindPort:  0,
 		JoinAddrs: []string{joinAddr},
-	}, bus2, logger)
+	}, bus2, logger, nil, nil, nil)
 
 	err = node2.Start(ctx)
 	require.NoError(t, err)
@@ -451,17 +451,23 @@ func TestClusterPartitionRecovery(t *testing.T) {
 		BindAddr:  "127.0.0.1",
 		BindPort:  0,
 		JoinAddrs: []string{joinAddr},
-	}, bus2new, logger)
+	}, bus2new, logger, nil, nil, nil)
 
 	err = node2new.Start(ctx)
 	require.NoError(t, err)
 	defer func() { _ = node2new.Stop() }()
 
-	// Wait for rejoin
+	// Wait for rejoin. The deadline matches the leave-detection window
+	// above (30s): a node restarting under the same name re-joins with a
+	// fresh, low memberlist incarnation and must reconcile it against the
+	// incarnation surviving peers recorded before it left. That
+	// reconciliation takes several gossip cycles, and the -race detector's
+	// ~10x slowdown pushes it past a tight 10s bound even though the
+	// convergence itself is correct.
 	select {
 	case <-rejoinCh:
 		// Success
-	case <-time.After(10 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("timeout waiting for node2 to rejoin")
 	}
 

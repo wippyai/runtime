@@ -20,6 +20,13 @@ var (
 	ErrPIDNotFound           = apierror.New(apierror.NotFound, "pid not found").WithRetryable(apierror.False)
 	ErrPIDNotRegistered      = apierror.New(apierror.NotFound, "pid not registered").WithRetryable(apierror.False)
 	ErrAlreadyMonitoring     = apierror.New(apierror.AlreadyExists, "already monitoring pid").WithRetryable(apierror.False)
+
+	// ErrNameServiceNotReady is returned by a participating LOCAL register while
+	// the node's join-epoch barrier is still in progress. Until the barrier
+	// installs the leader's Strong snapshot and revokes conflicting local names,
+	// a LOCAL bind could shadow a Strong name owned cluster-wide. Retryable: the
+	// barrier completes shortly after join/rejoin.
+	ErrNameServiceNotReady = apierror.New(apierror.Unavailable, "name service not ready: join-epoch barrier in progress").WithRetryable(apierror.True)
 )
 
 // NameAlreadyRegisteredError creates an error with the existing PID in details.

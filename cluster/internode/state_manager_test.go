@@ -15,9 +15,33 @@ import (
 )
 
 func setupStateManager() *NodeStateManager {
-	config := ManagerConfig{}
+	config := DefaultManagerConfig()
+	config.Logger = zap.NewNop()
 	logger := zap.NewNop()
-	return NewNodeStateManager(config, logger)
+	return NewNodeStateManager(config, newTelemetry(nil), logger)
+}
+
+// setupStateManagerSmallCaps builds a manager whose per-class caps are
+// small so overflow can be driven deterministically in a unit test.
+func setupStateManagerSmallCaps(cap int) *NodeStateManager {
+	config := DefaultManagerConfig()
+	config.Logger = zap.NewNop()
+	config.RaftControlQueueCap = cap
+	config.GossipQueueCap = cap
+	config.PGBroadcastQueueCap = cap
+	config.RaftMeshQueueCap = cap
+	return NewNodeStateManager(config, newTelemetry(nil), zap.NewNop())
+}
+
+// drainAllData drains every queued frame across all classes in QoS order
+// and returns the raw payloads. Used to inspect what survived an overflow.
+func drainAllData(nsm *NodeStateManager, nodeID cluster.NodeID) [][]byte {
+	out := nsm.DrainMessages(nodeID, 1<<20)
+	data := make([][]byte, 0, len(out))
+	for _, o := range out {
+		data = append(data, o.Data)
+	}
+	return data
 }
 
 func createMockConnection(nodeID cluster.NodeID) *NodeConnection {
@@ -39,7 +63,9 @@ func TestNodeStateManager_CreateNodeState(t *testing.T) {
 	// Verify state exists
 	state := nsm.GetNodeState(nodeID)
 	require.NotNil(t, state)
-	assert.NotNil(t, state.messageQueue)
+	for i, q := range state.queues {
+		assert.NotNil(t, q, "queue[%d] must not be nil", i)
+	}
 	assert.NotNil(t, state.messageNotify)
 	assert.Equal(t, StateNone, state.state)
 }
@@ -113,7 +139,7 @@ func TestNodeStateManager_QueueMessage(t *testing.T) {
 
 	// Queue message
 	data := []byte("test message")
-	err := nsm.QueueMessage(nodeID, data)
+	err := nsm.QueueMessageClass(nodeID, data, ClassRaftControl)
 	require.NoError(t, err)
 
 	// Verify notification sent
@@ -127,7 +153,8 @@ func TestNodeStateManager_QueueMessage(t *testing.T) {
 	// Drain and verify
 	messages := nsm.DrainMessages(nodeID, 10)
 	require.Len(t, messages, 1)
-	assert.Equal(t, data, messages[0])
+	assert.Equal(t, data, messages[0].Data)
+	assert.Equal(t, ClassRaftControl, messages[0].Class)
 }
 
 func TestNodeStateManager_QueueMessage_Nil(t *testing.T) {
@@ -137,7 +164,7 @@ func TestNodeStateManager_QueueMessage_Nil(t *testing.T) {
 	nsm.CreateNodeState(nodeID)
 
 	// Queue nil should be no-op
-	err := nsm.QueueMessage(nodeID, nil)
+	err := nsm.QueueMessageClass(nodeID, nil, ClassRaftControl)
 	require.NoError(t, err)
 
 	messages := nsm.DrainMessages(nodeID, 10)
@@ -149,7 +176,7 @@ func TestNodeStateManager_QueueMessage_UnmanagedNode(t *testing.T) {
 	nodeID := "unmanaged"
 
 	// Should return error
-	err := nsm.QueueMessage(nodeID, []byte("test"))
+	err := nsm.QueueMessageClass(nodeID, []byte("test"), ClassRaftControl)
 	assert.Equal(t, ErrNodeNotManaged, err)
 }
 
@@ -162,7 +189,7 @@ func TestNodeStateManager_QueueMessage_Multiple(t *testing.T) {
 	// Queue multiple messages
 	for i := 0; i < 5; i++ {
 		data := []byte{byte(i)}
-		err := nsm.QueueMessage(nodeID, data)
+		err := nsm.QueueMessageClass(nodeID, data, ClassRaftControl)
 		require.NoError(t, err)
 	}
 
@@ -170,7 +197,8 @@ func TestNodeStateManager_QueueMessage_Multiple(t *testing.T) {
 	messages := nsm.DrainMessages(nodeID, 10)
 	require.Len(t, messages, 5)
 	for i := 0; i < 5; i++ {
-		assert.Equal(t, []byte{byte(i)}, messages[i])
+		assert.Equal(t, []byte{byte(i)}, messages[i].Data)
+		assert.Equal(t, ClassRaftControl, messages[i].Class)
 	}
 }
 
@@ -182,7 +210,7 @@ func TestNodeStateManager_DrainMessages_MaxCount(t *testing.T) {
 
 	// Queue 10 messages
 	for i := 0; i < 10; i++ {
-		_ = nsm.QueueMessage(nodeID, []byte{byte(i)})
+		_ = nsm.QueueMessageClass(nodeID, []byte{byte(i)}, ClassRaftControl)
 	}
 
 	// Drain only 3
@@ -217,7 +245,7 @@ func TestNodeStateManager_DrainMessages_ZeroMaxCount(t *testing.T) {
 	nodeID := "test-node-1"
 
 	nsm.CreateNodeState(nodeID)
-	_ = nsm.QueueMessage(nodeID, []byte("test"))
+	_ = nsm.QueueMessageClass(nodeID, []byte("test"), ClassRaftControl)
 
 	messages := nsm.DrainMessages(nodeID, 0)
 	assert.Nil(t, messages)
@@ -230,18 +258,18 @@ func TestNodeStateManager_RequeueMessages(t *testing.T) {
 	nsm.CreateNodeState(nodeID)
 
 	// Queue initial message
-	_ = nsm.QueueMessage(nodeID, []byte{1})
+	_ = nsm.QueueMessageClass(nodeID, []byte{1}, ClassRaftControl)
 
 	// Requeue messages (should be inserted at front)
 	toRequeue := [][]byte{{2}, {3}}
-	nsm.RequeueMessages(nodeID, toRequeue)
+	nsm.RequeueMessagesClass(nodeID, toRequeue, ClassRaftControl)
 
 	// Drain should return requeued messages first, then original
 	messages := nsm.DrainMessages(nodeID, 10)
 	require.Len(t, messages, 3)
-	assert.Equal(t, []byte{2}, messages[0]) // First requeued
-	assert.Equal(t, []byte{3}, messages[1]) // Second requeued
-	assert.Equal(t, []byte{1}, messages[2]) // Original message last
+	assert.Equal(t, []byte{2}, messages[0].Data) // First requeued
+	assert.Equal(t, []byte{3}, messages[1].Data) // Second requeued
+	assert.Equal(t, []byte{1}, messages[2].Data) // Original message last
 }
 
 func TestNodeStateManager_RequeueMessages_Empty(_ *testing.T) {
@@ -251,7 +279,7 @@ func TestNodeStateManager_RequeueMessages_Empty(_ *testing.T) {
 	nsm.CreateNodeState(nodeID)
 
 	// Should be no-op
-	nsm.RequeueMessages(nodeID, [][]byte{})
+	nsm.RequeueMessagesClass(nodeID, [][]byte{}, ClassRaftControl)
 }
 
 func TestNodeStateManager_RequeueMessages_UnmanagedNode(_ *testing.T) {
@@ -259,7 +287,7 @@ func TestNodeStateManager_RequeueMessages_UnmanagedNode(_ *testing.T) {
 	nodeID := "unmanaged"
 
 	// Should not panic, messages dropped
-	nsm.RequeueMessages(nodeID, [][]byte{{1}, {2}})
+	nsm.RequeueMessagesClass(nodeID, [][]byte{{1}, {2}}, ClassRaftControl)
 }
 
 func TestNodeStateManager_SetGetNodeConnection(t *testing.T) {
@@ -375,7 +403,7 @@ func TestNodeStateManager_GetMessageNotifier(t *testing.T) {
 	assert.NotNil(t, notifier)
 
 	// Queue message should trigger notifier
-	_ = nsm.QueueMessage(nodeID, []byte("test"))
+	_ = nsm.QueueMessageClass(nodeID, []byte("test"), ClassRaftControl)
 
 	select {
 	case <-notifier:
@@ -442,7 +470,7 @@ func TestNodeStateManager_Concurrent_QueueDrain(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < messagesPerGoroutine; j++ {
 				data := []byte{byte(id), byte(j)}
-				_ = nsm.QueueMessage(nodeID, data)
+				_ = nsm.QueueMessageClass(nodeID, data, ClassRaftControl)
 			}
 		}(i)
 	}
@@ -519,7 +547,7 @@ func TestNodeStateManager_Concurrent_CreateRemove(_ *testing.T) {
 			defer wg.Done()
 			nodeID := "test-node-" + strconv.Itoa(id)
 			nsm.CreateNodeState(nodeID)
-			_ = nsm.QueueMessage(nodeID, []byte{byte(id)})
+			_ = nsm.QueueMessageClass(nodeID, []byte{byte(id)}, ClassRaftControl)
 		}(i)
 	}
 
@@ -534,6 +562,122 @@ func TestNodeStateManager_Concurrent_CreateRemove(_ *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+// TestQueueMessageClass_RaftMeshOverflow_ResetsNotDropsMidStream proves
+// the byte-stream contract for ClassRaftMesh. ClassRaftMesh carries a
+// yamux-multiplexed byte-stream, so dropping a frame from the middle
+// desyncs the demuxer and wedges the session. On overflow the queue must
+// signal a session reset (ErrRaftMeshOverflow) and clear the pending
+// stream — never drop-oldest and hand a gap-riddled stream downstream.
+func TestQueueMessageClass_RaftMeshOverflow_ResetsNotDropsMidStream(t *testing.T) {
+	const cap = 4
+	nsm := setupStateManagerSmallCaps(cap)
+	nodeID := "peer-1"
+	nsm.CreateNodeState(nodeID)
+
+	// Fill the queue exactly to capacity with ordered byte-stream frames.
+	for i := 0; i < cap; i++ {
+		require.NoError(t, nsm.QueueMessageClass(nodeID, []byte{byte(i)}, ClassRaftMesh))
+	}
+
+	// The next frame overflows. A drop-oldest queue would silently discard
+	// frame 0 and accept frame cap, leaving a stream with a hole in the
+	// middle. The byte-stream-safe contract: return ErrRaftMeshOverflow and
+	// discard the whole pending stream so the session can be reset and
+	// resynced from a consistent point.
+	err := nsm.QueueMessageClass(nodeID, []byte{byte(cap)}, ClassRaftMesh)
+	require.ErrorIs(t, err, ErrRaftMeshOverflow,
+		"overflow must signal a session reset, not drop-oldest")
+
+	// No surviving stream with a mid-stream gap: the queue is cleared.
+	survived := drainAllData(nsm, nodeID)
+	require.Empty(t, survived,
+		"on overflow the pending byte-stream must be discarded wholesale, not partially")
+}
+
+// TestQueueMessageClass_RaftMeshNoOverflow_PreservesOrder asserts that
+// below capacity ClassRaftMesh keeps every frame in strict order — the
+// byte-stream is delivered intact when there is room.
+func TestQueueMessageClass_RaftMeshNoOverflow_PreservesOrder(t *testing.T) {
+	const cap = 8
+	nsm := setupStateManagerSmallCaps(cap)
+	nodeID := "peer-1"
+	nsm.CreateNodeState(nodeID)
+
+	for i := 0; i < cap; i++ {
+		require.NoError(t, nsm.QueueMessageClass(nodeID, []byte{byte(i)}, ClassRaftMesh))
+	}
+
+	got := drainAllData(nsm, nodeID)
+	require.Len(t, got, cap)
+	for i := 0; i < cap; i++ {
+		assert.Equal(t, []byte{byte(i)}, got[i], "frame %d out of order", i)
+	}
+}
+
+// TestQueueMessageClass_RaftControlDropOldestUnchanged guards the datagram
+// class behavior: ClassRaftControl still drops the OLDEST entry on
+// overflow (etcd semantics) and accepts the new frame. No regression from
+// the byte-stream fix.
+func TestQueueMessageClass_RaftControlDropOldestUnchanged(t *testing.T) {
+	const cap = 4
+	nsm := setupStateManagerSmallCaps(cap)
+	nodeID := "peer-1"
+	nsm.CreateNodeState(nodeID)
+
+	for i := 0; i < cap; i++ {
+		require.NoError(t, nsm.QueueMessageClass(nodeID, []byte{byte(i)}, ClassRaftControl))
+	}
+	// Overflow: drop-oldest, accept new, no error.
+	require.NoError(t, nsm.QueueMessageClass(nodeID, []byte{byte(cap)}, ClassRaftControl))
+
+	got := drainAllData(nsm, nodeID)
+	require.Len(t, got, cap, "drop-oldest keeps the queue at capacity")
+	// Oldest (frame 0) dropped; frames 1..cap survive in order.
+	for i := 0; i < cap; i++ {
+		assert.Equal(t, []byte{byte(i + 1)}, got[i])
+	}
+}
+
+// TestQueueMessageClass_GossipDropNewestUnchanged guards the drop-newest
+// datagram classes: ClassGossip rejects the new frame with ErrQueueFull on
+// overflow and keeps the existing entries. No regression.
+func TestQueueMessageClass_GossipDropNewestUnchanged(t *testing.T) {
+	const cap = 4
+	nsm := setupStateManagerSmallCaps(cap)
+	nodeID := "peer-1"
+	nsm.CreateNodeState(nodeID)
+
+	for i := 0; i < cap; i++ {
+		require.NoError(t, nsm.QueueMessageClass(nodeID, []byte{byte(i)}, ClassGossip))
+	}
+	err := nsm.QueueMessageClass(nodeID, []byte{byte(cap)}, ClassGossip)
+	require.ErrorIs(t, err, ErrQueueFull, "drop-newest classes reject the new frame")
+
+	got := drainAllData(nsm, nodeID)
+	require.Len(t, got, cap)
+	for i := 0; i < cap; i++ {
+		assert.Equal(t, []byte{byte(i)}, got[i], "existing entries kept on drop-newest")
+	}
+}
+
+// TestQueueMessageClass_PGBroadcastDropNewestUnchanged mirrors the gossip
+// guard for ClassPGBroadcast.
+func TestQueueMessageClass_PGBroadcastDropNewestUnchanged(t *testing.T) {
+	const cap = 4
+	nsm := setupStateManagerSmallCaps(cap)
+	nodeID := "peer-1"
+	nsm.CreateNodeState(nodeID)
+
+	for i := 0; i < cap; i++ {
+		require.NoError(t, nsm.QueueMessageClass(nodeID, []byte{byte(i)}, ClassPGBroadcast))
+	}
+	err := nsm.QueueMessageClass(nodeID, []byte{byte(cap)}, ClassPGBroadcast)
+	require.ErrorIs(t, err, ErrQueueFull)
+
+	got := drainAllData(nsm, nodeID)
+	require.Len(t, got, cap)
 }
 
 func TestNodeStateManager_Concurrent_AddressUpdates(t *testing.T) {

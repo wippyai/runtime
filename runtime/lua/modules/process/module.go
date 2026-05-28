@@ -3,6 +3,7 @@
 package process
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/payload"
 	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
@@ -22,6 +24,7 @@ import (
 	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/security"
+	sysprocess "github.com/wippyai/runtime/system/process"
 )
 
 var (
@@ -88,10 +91,14 @@ func init() {
 	eventsTbl.Immutable = true
 	moduleTable.RawSetString("event", eventsTbl)
 
-	reg := lua.CreateTable(0, 3)
+	reg := lua.CreateTable(0, 9)
 	reg.RawSetString("register", lua.LGoFunc(registryRegister))
 	reg.RawSetString("lookup", lua.LGoFunc(registryLookup))
 	reg.RawSetString("unregister", lua.LGoFunc(registryUnregister))
+	reg.RawSetString("LOCAL", lua.LNumber(float64(topology.Local)))
+	reg.RawSetString("EVENTUAL", lua.LNumber(float64(topology.Eventual)))
+	reg.RawSetString("CONSISTENT", lua.LNumber(float64(topology.Consistent)))
+	reg.RawSetString("STRONG", lua.LNumber(float64(topology.Strong)))
 	reg.Immutable = true
 	moduleTable.RawSetString("registry", reg)
 
@@ -152,34 +159,20 @@ func getRegistry(l *lua.LState) (topology.PIDRegistry, bool) {
 	return reg, true
 }
 
-func resolvePID(l *lua.LState, pidOrName string, permission string, senderPID pidapi.PID) (pidapi.PID, error) {
+func resolvePID(l *lua.LState, pidOrName string, permission string, senderPID pidapi.PID) (sysprocess.ResolvedDestination, error) {
 	secAttrs := map[string]any{"pid": senderPID.String()}
 
-	p, err := pidapi.ParsePID(pidOrName)
-	if err == nil {
-		if !security.IsAllowed(l.Context(), permission, p.String(), secAttrs) {
-			return pidapi.PID{}, runtimelua.NewNotAllowedError(
-				strings.TrimPrefix(permission, "process."), pidOrName)
-		}
-		return p, nil
+	resolved, err := sysprocess.ResolveDestination(l.Context(), pidOrName)
+	if err != nil {
+		return sysprocess.ResolvedDestination{}, runtimelua.NewCouldNotResolveError(pidOrName)
 	}
 
-	reg, ok := getRegistry(l)
-	if !ok {
-		return pidapi.PID{}, runtimelua.ErrCouldNotAccessRegistry
-	}
-
-	p, found := reg.Lookup(pidOrName)
-	if !found {
-		return pidapi.PID{}, runtimelua.NewCouldNotResolveError(pidOrName)
-	}
-
-	if !security.IsAllowed(l.Context(), permission, p.String(), secAttrs) {
-		return pidapi.PID{}, runtimelua.NewNotAllowedError(
+	if !security.IsAllowed(l.Context(), permission, resolved.PID.String(), secAttrs) {
+		return sysprocess.ResolvedDestination{}, runtimelua.NewNotAllowedError(
 			strings.TrimPrefix(permission, "process."), pidOrName)
 	}
 
-	return p, nil
+	return resolved, nil
 }
 
 func createPayloadsFromArgs(l *lua.LState) payload.Payloads {
@@ -241,14 +234,14 @@ func send(l *lua.LState) int {
 		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "cannot send to @ topics"))
 	}
 
-	target, err := resolvePID(l, pidOrName, "process.send", self)
+	resolved, err := resolvePID(l, pidOrName, "process.send", self)
 	if err != nil {
 		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
 
 	yield := AcquireSendYield()
 	yield.From = self
-	yield.To = target
+	yield.To = resolved.PID
 	yield.Topic = topic
 	yield.Payloads = createPayloadsFromArgs(l)
 
@@ -432,13 +425,13 @@ func terminate(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	target, err := resolvePID(l, pidOrName, "process.terminate", self)
+	resolved, err := resolvePID(l, pidOrName, "process.terminate", self)
 	if err != nil {
 		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
 
 	yield := AcquireTerminateYield()
-	yield.Target = target
+	yield.Target = resolved.PID
 
 	l.Push(yield)
 	return -1
@@ -456,7 +449,7 @@ func cancel(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	target, err := resolvePID(l, pidOrName, "process.cancel", self)
+	resolved, err := resolvePID(l, pidOrName, "process.cancel", self)
 	if err != nil {
 		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
@@ -481,7 +474,7 @@ func cancel(l *lua.LState) int {
 
 	yield := AcquireCancelYield()
 	yield.From = self
-	yield.Target = target
+	yield.Target = resolved.PID
 	yield.Deadline = deadline
 
 	l.Push(yield)
@@ -558,14 +551,14 @@ func monitor(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	target, err := resolvePID(l, pidOrName, "process.monitor", self)
+	resolved, err := resolvePID(l, pidOrName, "process.monitor", self)
 	if err != nil {
 		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
 
 	yield := AcquireMonitorYield()
 	yield.Watcher = self
-	yield.Target = target
+	yield.Target = resolved.PID
 
 	l.Push(yield)
 	return -1
@@ -583,14 +576,14 @@ func unmonitor(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	target, err := resolvePID(l, pidOrName, "process.unmonitor", self)
+	resolved, err := resolvePID(l, pidOrName, "process.unmonitor", self)
 	if err != nil {
 		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
 
 	yield := AcquireUnmonitorYield()
 	yield.Watcher = self
-	yield.Target = target
+	yield.Target = resolved.PID
 
 	l.Push(yield)
 	return -1
@@ -608,14 +601,14 @@ func link(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	target, err := resolvePID(l, pidOrName, "process.link", self)
+	resolved, err := resolvePID(l, pidOrName, "process.link", self)
 	if err != nil {
 		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
 
 	yield := AcquireLinkYield()
 	yield.From = self
-	yield.To = target
+	yield.To = resolved.PID
 
 	l.Push(yield)
 	return -1
@@ -633,14 +626,14 @@ func unlink(l *lua.LState) int {
 
 	pidOrName := l.CheckString(1)
 
-	target, err := resolvePID(l, pidOrName, "process.unlink", self)
+	resolved, err := resolvePID(l, pidOrName, "process.unlink", self)
 	if err != nil {
 		return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
 	}
 
 	yield := AcquireUnlinkYield()
 	yield.From = self
-	yield.To = target
+	yield.To = resolved.PID
 
 	l.Push(yield)
 	return -1
@@ -660,20 +653,86 @@ func registryRegister(l *lua.LState) int {
 	name := l.CheckString(1)
 	secAttrs := map[string]any{"pid": self.String()}
 
-	if !security.IsAllowed(l.Context(), "process.registry.register", name, secAttrs) {
-		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to register name: %s", name)))
+	// Signature: register(name, scope?, pid?) → bool, err
+	//   scope: process.registry.LOCAL | EVENTUAL | CONSISTENT | STRONG (default LOCAL)
+	//   pid:   target PID string (default self)
+	// Foreign PID (pid != self) requires process.registry.foreign on the
+	// target PID in addition to the per-scope register capability on the name.
+	mode := topology.Local
+	p := self
+
+	if l.GetTop() >= 2 && l.Get(2) != lua.LNil {
+		num, ok := l.Get(2).(lua.LNumber)
+		if !ok {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "scope must be a number (process.registry.LOCAL|EVENTUAL|CONSISTENT|STRONG)"))
+		}
+		mode = topology.RegistrationMode(int(num))
 	}
 
-	var p pidapi.PID
-	if l.GetTop() >= 2 {
-		pidStr := l.CheckString(2)
-		var err error
-		p, err = pidapi.ParsePID(pidStr)
-		if err != nil {
-			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Invalid))
+	if l.GetTop() >= 3 && l.Get(3) != lua.LNil {
+		raw, ok := l.Get(3).(lua.LString)
+		if !ok {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "pid must be a string"))
 		}
-	} else {
-		p = self
+		parsed, err := pidapi.ParsePID(string(raw))
+		if err != nil {
+			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "invalid pid", lua.Invalid))
+		}
+		p = parsed
+	}
+
+	// Mounting a name on a foreign PID is gated by an explicit second-axis
+	// capability — the per-scope register permission gates the NAME, this
+	// gates the TARGET PID. Default policy should deny; operators grant
+	// process.registry.foreign for supervisors / hot-upgrade flows.
+	if p != self {
+		if !security.IsAllowed(l.Context(), "process.registry.foreign", p.String(), secAttrs) {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to register foreign pid %s under name %q", p.String(), name)))
+		}
+	}
+
+	switch mode {
+	case topology.Consistent, topology.Strong:
+		permission := "process.registry.register.consistent"
+		if mode == topology.Strong {
+			permission = "process.registry.register.strong"
+		}
+		if !security.IsAllowed(l.Context(), permission, name, secAttrs) {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to register name (%s): %s", scopeLabel(mode), name)))
+		}
+
+		globalReg := globalreg.GetRegistry(l.Context())
+		if globalReg == nil {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "global registry not available"))
+		}
+
+		_, err := globalReg.RegisterScope(l.Context(), name, p, globalreg.RegistrationMode(mode))
+		if err != nil {
+			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
+		}
+
+		l.Push(lua.LTrue)
+		return 1
+	case topology.Eventual:
+		if !security.IsAllowed(l.Context(), "process.registry.register.eventual", name, secAttrs) {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to register name (eventual): %s", name)))
+		}
+
+		eventualReg := getEventualRegistrar(l.Context())
+		if eventualReg == nil {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "eventual registry not available"))
+		}
+
+		if _, err := eventualReg.Register(name, p); err != nil {
+			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.AlreadyExists))
+		}
+
+		l.Push(lua.LTrue)
+		return 1
+	}
+
+	if !security.IsAllowed(l.Context(), "process.registry.register", name, secAttrs) {
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to register name: %s", name)))
 	}
 
 	_, err := reg.Register(name, p)
@@ -683,6 +742,44 @@ func registryRegister(l *lua.LState) int {
 
 	l.Push(lua.LTrue)
 	return 1
+}
+
+// scopeLabel returns the short string label used in error messages.
+func scopeLabel(m topology.RegistrationMode) string {
+	switch m {
+	case topology.Local:
+		return "local"
+	case topology.Eventual:
+		return "eventual"
+	case topology.Consistent:
+		return "consistent"
+	case topology.Strong:
+		return "strong"
+	default:
+		return "unknown"
+	}
+}
+
+// eventualRegistrar is the minimal API the Lua surface needs from the
+// EVENTUAL registry. The shape decouples the module from the concrete
+// eventualreg.Service type so tests can substitute fakes.
+type eventualRegistrar interface {
+	Register(name string, p pidapi.PID) (pidapi.PID, error)
+	Unregister(name string) bool
+}
+
+// getEventualRegistrar walks the topology context for an EventualRegistry
+// and type-asserts the Register/Unregister surface the Lua glue needs.
+// Returns nil when no eventual registry is bound.
+func getEventualRegistrar(ctx context.Context) eventualRegistrar {
+	er := topology.GetEventualRegistry(ctx)
+	if er == nil {
+		return nil
+	}
+	if reg, ok := er.(eventualRegistrar); ok {
+		return reg
+	}
+	return nil
 }
 
 func registryLookup(l *lua.LState) int {
@@ -715,6 +812,64 @@ func registryUnregister(l *lua.LState) int {
 
 	name := l.CheckString(1)
 	secAttrs := map[string]any{"pid": self.String()}
+
+	// Check for mode argument.
+	mode := topology.Local
+	if l.GetTop() >= 2 {
+		if modeVal, ok := l.Get(2).(lua.LNumber); ok {
+			mode = topology.RegistrationMode(int(modeVal))
+		}
+	}
+
+	switch mode {
+	case topology.Consistent, topology.Strong:
+		permission := "process.registry.unregister.consistent"
+		if mode == topology.Strong {
+			permission = "process.registry.unregister.strong"
+		}
+		if !security.IsAllowed(l.Context(), permission, name, secAttrs) {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to unregister name (%s): %s", scopeLabel(mode), name)))
+		}
+
+		globalReg := globalreg.GetRegistry(l.Context())
+		if globalReg == nil {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "global registry not available"))
+		}
+
+		// Authority lives here: the primitive does not enforce holder identity,
+		// so a caller with the unregister permission cannot drop another PID's
+		// name. Treat owner mismatch (or unheld name) as a not-removed result
+		// rather than an error, matching the existing false-on-no-removal
+		// convention.
+		res, err := globalReg.Lookup(l.Context(), name)
+		if err != nil {
+			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
+		}
+		if !res.Found || res.PID != self {
+			l.Push(lua.LBool(false))
+			return 1
+		}
+
+		removed, err := globalReg.UnregisterScope(l.Context(), name, globalreg.RegistrationMode(mode))
+		if err != nil {
+			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
+		}
+
+		l.Push(lua.LBool(removed))
+		return 1
+	case topology.Eventual:
+		if !security.IsAllowed(l.Context(), "process.registry.unregister.eventual", name, secAttrs) {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to unregister name (eventual): %s", name)))
+		}
+
+		eventualReg := getEventualRegistrar(l.Context())
+		if eventualReg == nil {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "eventual registry not available"))
+		}
+
+		l.Push(lua.LBool(eventualReg.Unregister(name)))
+		return 1
+	}
 
 	if !security.IsAllowed(l.Context(), "process.registry.unregister", name, secAttrs) {
 		return pushProcessError(l, lua.LNil, newProcessError(l, lua.PermissionDenied, fmt.Sprintf("not allowed to unregister name: %s", name)))

@@ -2,12 +2,17 @@
 
 package system
 
-import "github.com/wippyai/runtime/api/boot"
+import (
+	"github.com/wippyai/runtime/api/boot"
+	"github.com/wippyai/runtime/boot/components/dispatchers"
+)
 
 func All() []boot.Component {
 	return []boot.Component{
 		Cluster(),
 		Topology(),
+		Raft(),
+		EventualReg(),
 		Lifecycle(),
 		Filesystem(),
 		Environment(),
@@ -19,5 +24,7 @@ func All() []boot.Component {
 		Interceptor(),
 		Contracts(),
 		Functions(),
+		PG(),
+		dispatchers.PGDispatcher(),
 	}
 }
