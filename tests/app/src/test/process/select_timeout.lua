@@ -17,7 +17,7 @@ local function main()
 	time.sleep("10ms")
 
 	-- Cancel worker
-	process.cancel(worker_pid, "100ms")
+	process.cancel(worker_pid)
 
 	-- Use channel.select with both events channel AND a timeout
 	-- The events channel should fire BEFORE the 5 second timeout

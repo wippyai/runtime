@@ -4,7 +4,7 @@ package system
 
 import (
 	lua "github.com/wippyai/go-lua"
-	raftapi "github.com/wippyai/runtime/api/raft"
+	raftapi "github.com/wippyai/runtime/api/cluster/raft"
 	"github.com/wippyai/runtime/runtime/security"
 )
 

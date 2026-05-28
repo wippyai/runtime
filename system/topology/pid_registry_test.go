@@ -8,9 +8,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	globalregapi "github.com/wippyai/runtime/api/globalreg"
 	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/topology"
+	globalregapi "github.com/wippyai/runtime/api/topology/namereg/globalreg"
 	"go.uber.org/zap"
 )
 

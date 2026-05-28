@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	pgapi "github.com/wippyai/runtime/api/pg"
+	pgapi "github.com/wippyai/runtime/api/service/pg"
 	"go.uber.org/zap"
 )
 

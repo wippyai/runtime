@@ -7,7 +7,7 @@ package system
 import (
 	hraft "github.com/hashicorp/raft"
 
-	"github.com/wippyai/runtime/system/globalreg"
+	"github.com/wippyai/runtime/system/topology/namereg/globalreg"
 )
 
 // wrapFSM wraps the FSM with a DelayingFSM for integration testing.

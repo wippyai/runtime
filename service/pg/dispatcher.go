@@ -7,7 +7,7 @@ import (
 	"errors"
 
 	"github.com/wippyai/runtime/api/dispatcher"
-	pgapi "github.com/wippyai/runtime/api/pg"
+	pgapi "github.com/wippyai/runtime/api/service/pg"
 )
 
 var errNoInstance = errors.New("pg: command has no instance set")

@@ -14,14 +14,14 @@ import (
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
-	globalregapi "github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/topology"
-	"github.com/wippyai/runtime/system/globalreg"
+	globalregapi "github.com/wippyai/runtime/api/topology/namereg/globalreg"
+	"github.com/wippyai/runtime/system/topology/namereg/globalreg"
 )
 
 // --- test helpers ---
@@ -589,57 +589,24 @@ func TestSend_TooFewArgs(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// --- Lua cancel validation ---
+// --- Lua cancel reason ---
 
-func TestCancel_InvalidDurationString(t *testing.T) {
+func TestCancel_NonStringReason(t *testing.T) {
 	l, selfPID := newLuaWithPID(t)
 	pidStr := selfPID.String()
 
-	err := l.DoString(fmt.Sprintf(`
-		local ok, err = process.cancel("%s", "not-a-duration")
-		if ok ~= nil then error("expected nil") end
-		if err:kind() ~= "Invalid" then
-			error("expected Invalid kind, got: " .. tostring(err:kind()))
-		end
-		if not string.find(tostring(err), "invalid duration format") then
-			error("expected duration format error, got: " .. tostring(err))
-		end
-	`, pidStr))
-	assert.NoError(t, err)
+	// The second argument is a reason string; a non-string raises a type error.
+	err := l.DoString(fmt.Sprintf(`process.cancel("%s", true)`, pidStr))
+	assert.Error(t, err)
 }
 
-func TestCancel_InvalidDeadlineType(t *testing.T) {
+func TestCancel_TableReasonType(t *testing.T) {
 	l, selfPID := newLuaWithPID(t)
 	pidStr := selfPID.String()
 
-	err := l.DoString(fmt.Sprintf(`
-		local ok, err = process.cancel("%s", true)
-		if ok ~= nil then error("expected nil") end
-		if err:kind() ~= "Invalid" then
-			error("expected Invalid kind, got: " .. tostring(err:kind()))
-		end
-		if tostring(err) ~= "deadline must be either a duration string or milliseconds number" then
-			error("expected deadline type error, got: " .. tostring(err))
-		end
-	`, pidStr))
-	assert.NoError(t, err)
-}
-
-func TestCancel_TableDeadlineType(t *testing.T) {
-	l, selfPID := newLuaWithPID(t)
-	pidStr := selfPID.String()
-
-	err := l.DoString(fmt.Sprintf(`
-		local ok, err = process.cancel("%s", {})
-		if ok ~= nil then error("expected nil") end
-		if err:kind() ~= "Invalid" then
-			error("expected Invalid kind, got: " .. tostring(err:kind()))
-		end
-		if tostring(err) ~= "deadline must be either a duration string or milliseconds number" then
-			error("expected deadline type error, got: " .. tostring(err))
-		end
-	`, pidStr))
-	assert.NoError(t, err)
+	// A table reason is a type error, same as any non-string second argument.
+	err := l.DoString(fmt.Sprintf(`process.cancel("%s", {})`, pidStr))
+	assert.Error(t, err)
 }
 
 // --- Lua registry operations ---

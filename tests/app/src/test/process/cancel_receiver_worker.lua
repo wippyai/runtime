@@ -60,7 +60,7 @@ local function main()
 		from = from,
 		has_payload = payload ~= nil,
 		kind = payload and payload.kind or nil,
-		has_deadline = payload and payload.deadline ~= nil or false,
+		has_reason = payload and payload.reason ~= nil or false,
 	}
 end
 

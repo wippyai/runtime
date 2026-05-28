@@ -25,7 +25,7 @@ local function main()
 
 	-- Wait a bit then cancel (will trigger events channel)
 	time.sleep("50ms")
-	_, err = process.cancel(worker_pid, "100ms")
+	_, err = process.cancel(worker_pid)
 	assert.is_nil(err, "cancel no error")
 
 	-- Wait for EXIT

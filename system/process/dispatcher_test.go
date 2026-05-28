@@ -39,8 +39,8 @@ func (m *mockProcessManager) Terminate(ctx context.Context, target pid.PID) erro
 	return args.Error(0)
 }
 
-func (m *mockProcessManager) Cancel(ctx context.Context, from, target pid.PID, deadline time.Time) error {
-	args := m.Called(ctx, from, target, deadline)
+func (m *mockProcessManager) Cancel(ctx context.Context, from, target pid.PID, reason string) error {
+	args := m.Called(ctx, from, target, reason)
 	return args.Error(0)
 }
 
@@ -255,15 +255,15 @@ func TestDispatcher_HandleCancel(t *testing.T) {
 
 	fromPID := pid.PID{Host: "test", UniqID: "from"}
 	targetPID := pid.PID{Host: "test", UniqID: "target"}
-	deadline := time.Now().Add(5 * time.Second)
-	manager.On("Cancel", mock.Anything, fromPID, targetPID, deadline).Return(nil)
+	reason := "test cancel"
+	manager.On("Cancel", mock.Anything, fromPID, targetPID, reason).Return(nil)
 
 	d := NewDispatcher(manager, router, topo, nil)
 
 	cmd := &process.CancelCmd{
-		From:     fromPID,
-		Target:   targetPID,
-		Deadline: deadline,
+		From:   fromPID,
+		Target: targetPID,
+		Reason: reason,
 	}
 
 	receiver := &mockResultReceiver{}

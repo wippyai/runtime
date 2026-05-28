@@ -6,8 +6,8 @@ import (
 	"errors"
 
 	lua "github.com/wippyai/go-lua"
-	"github.com/wippyai/runtime/api/globalreg"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/topology/namereg/globalreg"
 	"github.com/wippyai/runtime/runtime/security"
 )
 

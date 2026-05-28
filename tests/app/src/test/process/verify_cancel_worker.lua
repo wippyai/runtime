@@ -11,7 +11,7 @@ local function main()
 	end
 
 	-- Send cancel to child
-	local _, cancel_err = process.cancel(child_pid, "1s")
+	local _, cancel_err = process.cancel(child_pid)
 	if cancel_err then
 		return false, "cancel failed: " .. tostring(cancel_err)
 	end

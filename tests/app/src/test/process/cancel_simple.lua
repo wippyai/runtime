@@ -16,7 +16,7 @@ local function main()
 	time.sleep("10ms")
 
 	-- Cancel worker
-	process.cancel(worker_pid, "100ms")
+	process.cancel(worker_pid)
 
 	-- Wait for EXIT (blocking - will hang if cancel doesn't work)
 	local event = events_ch:receive()

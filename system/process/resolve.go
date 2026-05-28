@@ -6,9 +6,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/wippyai/runtime/api/globalreg"
 	pidapi "github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/api/topology/namereg/globalreg"
 )
 
 // ErrCouldNotResolve is returned by ResolveDestination when no resolver

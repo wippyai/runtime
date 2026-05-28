@@ -9,20 +9,20 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	clusterapi "github.com/wippyai/runtime/api/cluster"
+	raftapi "github.com/wippyai/runtime/api/cluster/raft"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
-	globalregapi "github.com/wippyai/runtime/api/globalreg"
 	logapi "github.com/wippyai/runtime/api/logs"
 	metricsapi "github.com/wippyai/runtime/api/metrics"
-	raftapi "github.com/wippyai/runtime/api/raft"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
+	globalregapi "github.com/wippyai/runtime/api/topology/namereg/globalreg"
 	"github.com/wippyai/runtime/cluster/internode"
 	"github.com/wippyai/runtime/cluster/membership"
+	sysraft "github.com/wippyai/runtime/cluster/raft"
 	"github.com/wippyai/runtime/system/eventbus"
-	"github.com/wippyai/runtime/system/globalreg"
 	"github.com/wippyai/runtime/system/health"
-	sysraft "github.com/wippyai/runtime/system/raft"
+	"github.com/wippyai/runtime/system/topology/namereg/globalreg"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
@@ -435,4 +435,3 @@ func Raft() boot.Component {
 		},
 	})
 }
-

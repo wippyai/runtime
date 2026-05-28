@@ -31,7 +31,7 @@ func init() {
 		Field("from", typ.String).
 		OptField("result", typ.Any).
 		OptField("error", typ.Any).
-		OptField("deadline", typ.String).
+		OptField("reason", typ.String).
 		Build()
 	eventMethods := typ.NewInterface("process.EventMethods", []typ.Method{
 		{Name: "payload", Type: typ.Func().

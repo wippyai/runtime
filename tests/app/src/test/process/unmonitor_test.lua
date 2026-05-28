@@ -22,7 +22,7 @@ local function main()
 	end
 
 	-- Cancel the worker
-	_, err = process.cancel(worker_pid, "100ms")
+	_, err = process.cancel(worker_pid)
 	assert.is_nil(err, "cancel no error")
 
 	-- Should NOT receive EXIT because we unmonitored

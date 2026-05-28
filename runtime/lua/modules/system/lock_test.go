@@ -11,11 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
 	ctxapi "github.com/wippyai/runtime/api/context"
-	globalregapi "github.com/wippyai/runtime/api/globalreg"
 	pidapi "github.com/wippyai/runtime/api/pid"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/security"
-	"github.com/wippyai/runtime/system/globalreg"
+	globalregapi "github.com/wippyai/runtime/api/topology/namereg/globalreg"
+	"github.com/wippyai/runtime/system/topology/namereg/globalreg"
 )
 
 // fakeGlobalRegistry drives a real globalreg.FSM through the public

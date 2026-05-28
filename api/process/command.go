@@ -4,7 +4,6 @@ package process
 
 import (
 	"sync"
-	"time"
 
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
@@ -96,11 +95,11 @@ func (c *TerminateCmd) Release() {
 	terminateCmdPool.Put(c)
 }
 
-// CancelCmd cancels a process with optional deadline.
+// CancelCmd cancels a process, carrying a reason delivered to the target.
 type CancelCmd struct {
-	Deadline time.Time
-	From     pid.PID
-	Target   pid.PID
+	From   pid.PID
+	Target pid.PID
+	Reason string
 }
 
 var cancelCmdPool = sync.Pool{New: func() any { return &CancelCmd{} }}
@@ -111,7 +110,7 @@ func (c *CancelCmd) CmdID() dispatcher.CommandID { return Cancel }
 func (c *CancelCmd) Release() {
 	c.From = pid.PID{}
 	c.Target = pid.PID{}
-	c.Deadline = time.Time{}
+	c.Reason = ""
 	cancelCmdPool.Put(c)
 }
 

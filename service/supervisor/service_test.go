@@ -93,7 +93,7 @@ func (m *mockProcessManager) Start(_ context.Context, _ *processapi.Start) (pid.
 	return m.startedPID, nil
 }
 
-func (m *mockProcessManager) Cancel(context.Context, pid.PID, pid.PID, time.Time) error {
+func (m *mockProcessManager) Cancel(context.Context, pid.PID, pid.PID, string) error {
 	return nil
 }
 

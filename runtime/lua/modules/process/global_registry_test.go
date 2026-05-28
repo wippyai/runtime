@@ -10,9 +10,9 @@ import (
 	hraft "github.com/hashicorp/raft"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	globalregapi "github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/pid"
-	"github.com/wippyai/runtime/system/globalreg"
+	globalregapi "github.com/wippyai/runtime/api/topology/namereg/globalreg"
+	"github.com/wippyai/runtime/system/topology/namereg/globalreg"
 )
 
 // mockGlobalRegistry implements globalreg.Registry interface using FSM for testing.

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/dispatcher"
-	pgapi "github.com/wippyai/runtime/api/pg"
+	pgapi "github.com/wippyai/runtime/api/service/pg"
 )
 
 // mockResultReceiver captures CompleteYield calls for assertion.

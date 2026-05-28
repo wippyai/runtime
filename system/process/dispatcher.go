@@ -93,7 +93,7 @@ func (d *Dispatcher) handleTerminate(ctx context.Context, cmd dispatcher.Command
 func (d *Dispatcher) handleCancel(ctx context.Context, cmd dispatcher.Command, tag uint64, receiver dispatcher.ResultReceiver) error {
 	cancelCmd := cmd.(*api.CancelCmd)
 
-	err := d.manager.Cancel(ctx, cancelCmd.From, cancelCmd.Target, cancelCmd.Deadline)
+	err := d.manager.Cancel(ctx, cancelCmd.From, cancelCmd.Target, cancelCmd.Reason)
 	receiver.CompleteYield(tag, nil, err)
 	return nil
 }

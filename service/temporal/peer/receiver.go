@@ -129,14 +129,7 @@ func (r *Receiver) handleCancelRequest(event *topology.CancelEvent, target pid.P
 		return fmt.Errorf("workflow ID is empty")
 	}
 
-	ctx := r.ctx
-	if !event.Deadline.IsZero() {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithDeadline(r.ctx, event.Deadline)
-		defer cancel()
-	}
-
-	return r.client.CancelWorkflow(ctx, workflowID, "")
+	return r.client.CancelWorkflow(r.ctx, workflowID, event.Reason)
 }
 
 func (r *Receiver) signalWorkflow(from, target pid.PID, msg *relay.Message) error {

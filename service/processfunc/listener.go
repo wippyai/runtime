@@ -265,7 +265,7 @@ func (h *processHandler) Call(ctx context.Context, task runtime.Task) (*runtime.
 			if err := h.node.Send(topapi.CancelPackage(
 				callerPID,
 				processPID,
-				time.Now().Add(DefaultCancelTimeout),
+				"caller context canceled",
 			)); err != nil {
 				h.log.Warn("failed to send cancel",
 					zap.String("pid", pidStr),

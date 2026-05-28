@@ -15,7 +15,7 @@ import (
 	relayapi "github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/cluster/membership"
-	"github.com/wippyai/runtime/system/eventualreg"
+	"github.com/wippyai/runtime/system/topology/namereg/eventualreg"
 	"go.uber.org/zap"
 )
 
@@ -252,7 +252,7 @@ func (c *localNameRevoker) RevokeLocal(name string, keep pid.PID) bool {
 		return false
 	}
 	if router := relayapi.GetRouter(c.ctx); router != nil {
-		_ = router.Send(topology.NameRevokedPackage(held, name))
+		_ = router.Send(topology.CancelPackage(topology.SystemPID, held, "name revoked: "+name))
 	}
 	return true
 }
