@@ -636,6 +636,125 @@ func TestDependencyHandler_Expand_DoesNotFailOnUnrelatedSnapshotRequirement(t *t
 	assert.True(t, createdService, "unrelated app requirements must not block dependency install")
 }
 
+// TestDependencyHandler_Expand_DoesNotReValidateUntouchedInstalledModule proves
+// that installing one module does not strict-re-validate a different, already
+// installed module that is unchanged. The installed module carries an
+// unprovided, no-default requirement; touching an unrelated dependency must not
+// turn that into a hard failure.
+func TestDependencyHandler_Expand_DoesNotReValidateUntouchedInstalledModule(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, "vendor")
+
+	// Newly installed module (the op); no requirements.
+	writeWapp(t, filepath.Join(vendorDir, "acme", "fresh-v1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("acme.fresh", "service"),
+			Kind: "process.lua",
+			Data: map[string]any{"ok": true},
+		},
+	})
+	// Already installed sibling module with an unprovided, no-default requirement.
+	writeWapp(t, filepath.Join(vendorDir, "acme", "legacy-v1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("acme.legacy", "needs_value"),
+			Kind: regapi.NamespaceRequirement,
+			Data: map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "acme.legacy:target", "path": ".value"},
+				},
+			},
+		},
+		{
+			ID:   wapp.NewID("acme.legacy", "target"),
+			Kind: "process.lua",
+			Data: map[string]any{},
+		},
+	})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	snapshot := regapi.State{
+		{
+			ID:   regapi.NewID("app.deps", "legacy"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.NewPayload(`{"component":"acme/legacy","version":"v1.0.0"}`, payload.JSON),
+		},
+		// Module-owned entry stamping legacy's installed version into the snapshot.
+		markModuleMeta(regapi.Entry{
+			ID:   regapi.NewID("acme.legacy", "target"),
+			Kind: "process.lua",
+			Data: payload.NewPayload(`{}`, payload.JSON),
+		}, "acme/legacy", "v1.0.0"),
+	}
+
+	rootDep := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "fresh"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/fresh","version":"v1.0.0"}`, payload.JSON),
+	}
+
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, snapshot)
+	require.NoError(t, err, "installing an unrelated module must not re-validate an untouched installed module")
+	assert.True(t, result.Applied)
+}
+
+// TestDependencyHandler_Expand_NewModuleMissingRequirementStillFails guards that
+// scoping strict validation to touched modules does not relax validation of the
+// module actually being installed: a new module with an unprovided, no-default
+// requirement must still fail.
+func TestDependencyHandler_Expand_NewModuleMissingRequirementStillFails(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, "vendor")
+
+	writeWapp(t, filepath.Join(vendorDir, "acme", "needy-v1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("acme.needy", "needs_value"),
+			Kind: regapi.NamespaceRequirement,
+			Data: map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "acme.needy:target", "path": ".value"},
+				},
+			},
+		},
+		{
+			ID:   wapp.NewID("acme.needy", "target"),
+			Kind: "process.lua",
+			Data: map[string]any{},
+		},
+	})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	rootDep := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "needy"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/needy","version":"v1.0.0"}`, payload.JSON),
+	}
+
+	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, regapi.State{})
+	require.Error(t, err, "a newly installed module with an unprovided required value must fail")
+}
+
 func TestDependencyHandler_Expand_DeleteLastDependencyDoesNotFailOnUnrelatedSnapshotRequirement(t *testing.T) {
 	ctx := newTestContext()
 

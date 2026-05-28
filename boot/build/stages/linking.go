@@ -16,9 +16,13 @@ import (
 	"go.uber.org/zap"
 )
 
-// RequirementDefinition represents the data structure of an ns.requirement entry
+// RequirementDefinition represents the data structure of an ns.requirement entry.
+// Default is a pointer so an explicitly-empty default ("") is distinguishable
+// from an absent one (nil): a requirement with any default — including "" — is
+// optional and resolves to that default when no dependency parameter supplies a
+// value; a requirement with no default is mandatory.
 type RequirementDefinition struct {
-	Default string              `json:"default" yaml:"default"`
+	Default *string             `json:"default" yaml:"default"`
 	Targets []RequirementTarget `json:"targets" yaml:"targets"`
 }
 
@@ -250,7 +254,7 @@ func (s *linkStage) processRequirement(
 
 func (s *linkStage) resolveValue(
 	requirementName string,
-	defaultValue string,
+	defaultValue *string,
 	requirementNS string,
 	requirementModule string,
 	dependencies map[string]decodedDependency,
@@ -312,9 +316,11 @@ func (s *linkStage) resolveValue(
 		return foundValues[0].value, nil
 	}
 
-	// Fall back to default
-	if defaultValue != "" {
-		return defaultValue, nil
+	// Fall back to the default when one is defined. A present-but-empty
+	// default ("") is a valid resolved value; only an absent default (nil)
+	// leaves the requirement unresolved.
+	if defaultValue != nil {
+		return *defaultValue, nil
 	}
 
 	// No value available
