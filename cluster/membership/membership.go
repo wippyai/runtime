@@ -380,11 +380,20 @@ func (s *Service) rejoinLoop(ctx context.Context) {
 	}
 }
 
-// emitHealthLoop periodically samples memberlist's GetHealthScore (0 = healthy,
-// larger = degraded) and emits it as a probe-duration histogram. The score is
-// dimensionless but maps cleanly onto a "ms-equivalent" axis for dashboards.
+// emitHealthLoop periodically samples memberlist's GetHealthScore (0 =
+// healthy, larger = degraded) and surfaces nonzero scores as
+// gossip_probe_failures_total. Sampled at 5s — health degradation
+// persists across ticks, so polling faster is wasted CPU + metric writes.
+//
+// This loop used to also synthesize gossip_message_total{kind="ping"}
+// counters at one-per-member-per-second to approximate memberlist's
+// internal probe traffic for dashboards. That was fabrication, not real
+// measurement, and made every pod do a 1Hz metric write proportional to
+// cluster size. Removed: dashboards that need real probe counts should
+// instrument memberlist's transport directly.
 func (s *Service) emitHealthLoop(ctx context.Context) {
-	t := time.NewTicker(time.Second)
+	const sampleInterval = 5 * time.Second
+	t := time.NewTicker(sampleInterval)
 	defer t.Stop()
 
 	for {
@@ -395,24 +404,13 @@ func (s *Service) emitHealthLoop(ctx context.Context) {
 			if s.memberlist == nil {
 				continue
 			}
-
 			score := s.memberlist.GetHealthScore()
-			members := s.memberlist.NumMembers()
-			// HealthScore > 0 indicates failed probes / suspect peers.
-			// Surface as gossip_probe_failures_total per local node so the
-			// dashboards have data even without a deeper memberlist hook.
 			if score > 0 {
 				s.tel.recordProbeFailure(s.config.NodeName)
 				s.tel.recordProbe(errProbeUnhealthy, 0)
 			} else {
-				s.tel.recordProbe(nil, time.Duration(score)*time.Millisecond)
+				s.tel.recordProbe(nil, 0)
 			}
-			// Synthetic gossip message rate: one ping per member per second
-			// is approximately what memberlist actually does. Without wrapping
-			// memberlist's transport, this is the simplest way to make the
-			// gossip_message_total{kind="ping"} dashboard reflect real activity.
-			s.tel.recordMessage("ping", "tx", members)
-			s.tel.recordMessage("ping", "rx", members)
 		}
 	}
 }

@@ -4,6 +4,7 @@ package raft
 
 import (
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -115,14 +116,10 @@ func TestPeerStateTracker_RecoversAfterSuccess(t *testing.T) {
 	require.Error(t, pt.AppendEntries(id, target, args, resp))
 	require.NoError(t, pt.AppendEntries(id, target, args, resp))
 
-	// Counter must have reset to zero — confirm by sending another call
-	// from a fresh failures-left budget on a different fixture.
-	pt.mu.Lock()
-	consecutive := pt.consecutiveErr[target]
-	deadStreak := pt.deadStreak[target]
-	pt.mu.Unlock()
-	require.Equal(t, 0, consecutive)
-	require.Equal(t, 0, deadStreak)
+	// Counter must have reset to zero — confirm via the test inspector
+	// methods rather than reaching into unexported atomic fields.
+	require.Equal(t, 0, pt.consecutiveErrCount(target))
+	require.Equal(t, 0, pt.DeadStreak(target))
 }
 
 func TestPeerStateTracker_BackoffExpiresLetsProbeThrough(t *testing.T) {
@@ -214,6 +211,59 @@ func TestInstrumentedTransport_PreservesWithPreVote(t *testing.T) {
 	require.Error(t, err, "RequestPreVote must surface inner errors")
 	require.Equal(t, 1, inner.Calls(),
 		"RequestPreVote must forward to the inner transport")
+}
+
+// TestPeerStateTracker_ConcurrentTripBoundedByStreak asserts that under
+// heavy contention from N goroutines all driving failures against the
+// same peer simultaneously, deadStreak never grows faster than one trip
+// per failureLimit consecutive failures. The lock-free CAS-claim on the
+// trip transition prevents two threads both observing
+// consecutiveErr>=limit from each incrementing deadStreak. Without the
+// CAS, this test would show streak inflating proportionally to the
+// goroutine count.
+func TestPeerStateTracker_ConcurrentTripBoundedByStreak(t *testing.T) {
+	inner := newAlwaysErrTransport(errors.New("transient"))
+	pt := newPeerStateTracker(inner, &telemetry{})
+	pt.failureLimit = 5
+	// Make the backoff long enough that no window expires during the test,
+	// so every dead-window scheduling is from a fresh CAS-trip.
+	pt.backoffInitial = time.Hour
+	pt.backoffMax = time.Hour
+
+	target := hraft.ServerAddress("peer-conc")
+	id := hraft.ServerID("peer-conc")
+	totalFailures := 200 // distributed across G goroutines
+	const G = 8
+	perG := totalFailures / G
+
+	var wg sync.WaitGroup
+	args := &hraft.AppendEntriesRequest{}
+	resp := &hraft.AppendEntriesResponse{}
+	for g := 0; g < G; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < perG; i++ {
+				_ = pt.AppendEntries(id, target, args, resp)
+			}
+		}()
+	}
+	wg.Wait()
+
+	streak := pt.DeadStreak(target)
+	// Bound: each trip resets consecutiveErr; subsequent calls
+	// short-circuit on isDead before reaching recordResult. The only
+	// failures that bypass the dead-window check are concurrent inner
+	// transport calls already in flight when the trip is recorded —
+	// they finish and recordResult runs against the now-set dead
+	// window. The CAS guarantees no more than one trip per failureLimit
+	// failures observed under recordResult, so the upper bound is
+	// ceil(G / failureLimit) = ceil(8 / 5) = 2. Empirically usually 1.
+	// Without the CAS guard, this would inflate toward G (one trip per
+	// failing goroutine).
+	require.LessOrEqual(t, streak, 2,
+		"deadStreak inflated under concurrency; CAS-claim should bound it to ceil(G/failureLimit)")
+	require.GreaterOrEqual(t, streak, 1, "must record at least one trip")
 }
 
 // TestPeerStateTracker_ForgetPeerResetsBackoff verifies that forgetPeer
