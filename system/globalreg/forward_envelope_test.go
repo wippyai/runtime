@@ -50,7 +50,6 @@ func TestEncodeForwardResponse_RoundTripRegister(t *testing.T) {
 
 			decoded, err := decodeForwardResponse(envelope)
 			require.NoError(t, err)
-			assert.True(t, decoded.V1)
 			assert.Equal(t, uint64(42), decoded.CorrID)
 			assert.Equal(t, CmdRegister, decoded.CmdKind)
 			assert.Empty(t, decoded.ErrMsg)
@@ -79,7 +78,6 @@ func TestEncodeForwardResponse_RoundTripUnregister(t *testing.T) {
 
 		decoded, err := decodeForwardResponse(envelope)
 		require.NoError(t, err)
-		assert.True(t, decoded.V1)
 		assert.Equal(t, CmdUnregister, decoded.CmdKind)
 		ur, ok := decoded.Result.(*UnregisterResult)
 		require.True(t, ok)
@@ -96,7 +94,6 @@ func TestEncodeForwardResponse_RoundTripRemove(t *testing.T) {
 
 		decoded, err := decodeForwardResponse(envelope)
 		require.NoError(t, err)
-		assert.True(t, decoded.V1)
 		assert.Equal(t, cmd, decoded.CmdKind)
 		rr, ok := decoded.Result.(*RemoveResult)
 		require.True(t, ok)
@@ -111,33 +108,24 @@ func TestEncodeForwardResponse_ErrorOnly(t *testing.T) {
 
 	decoded, err := decodeForwardResponse(envelope)
 	require.NoError(t, err)
-	assert.True(t, decoded.V1)
 	assert.Equal(t, "leader unavailable", decoded.ErrMsg)
 	assert.Equal(t, CmdRegister, decoded.CmdKind)
 	assert.Nil(t, decoded.Result)
 }
 
-func TestDecodeForwardResponse_LegacyV0_EmptyEnvelope(t *testing.T) {
+func TestDecodeForwardResponse_RejectsHeaderlessEnvelope(t *testing.T) {
 	envelope := make([]byte, 8)
 	binary.BigEndian.PutUint64(envelope[:8], 1)
-	decoded, err := decodeForwardResponse(envelope)
-	require.NoError(t, err)
-	assert.False(t, decoded.V1)
-	assert.Equal(t, uint64(1), decoded.CorrID)
-	assert.Empty(t, decoded.ErrMsg)
-	assert.Nil(t, decoded.Result)
+	_, err := decodeForwardResponse(envelope)
+	require.Error(t, err)
 }
 
-func TestDecodeForwardResponse_LegacyV0_ErrorString(t *testing.T) {
+func TestDecodeForwardResponse_RejectsBadMagic(t *testing.T) {
 	envelope := make([]byte, 8)
 	binary.BigEndian.PutUint64(envelope[:8], 2)
-	envelope = append(envelope, []byte("legacy error from old leader")...)
-	decoded, err := decodeForwardResponse(envelope)
-	require.NoError(t, err)
-	assert.False(t, decoded.V1)
-	assert.Equal(t, uint64(2), decoded.CorrID)
-	assert.Equal(t, "legacy error from old leader", decoded.ErrMsg)
-	assert.Nil(t, decoded.Result)
+	envelope = append(envelope, []byte("not a v1 envelope")...)
+	_, err := decodeForwardResponse(envelope)
+	require.Error(t, err)
 }
 
 func TestDecodeForwardResponse_TruncatedV1Header(t *testing.T) {

@@ -21,13 +21,12 @@ import (
 // commands to the raft leader and relay the response back on the
 // originating correlation id. Split out of service.go; same package.
 
-// forwardResponse wraps the result of a forwarded command. It carries the
-// typed FSM response (Result) for v1 envelopes; older v0 envelopes set only
-// ErrMsg and leave Result nil.
+// forwardResponse wraps the result of a forwarded command. Result carries the
+// typed FSM response on success; ErrMsg carries the failure otherwise. The two
+// are mutually exclusive.
 type forwardResponse struct {
 	Result any
 	ErrMsg string
-	V1     bool
 }
 
 // correlationIDCounter generates unique correlation IDs for forwarded requests.
@@ -385,7 +384,6 @@ func (s *Service) handleForwardResponse(msg *relay.Message) {
 	resp := &forwardResponse{
 		ErrMsg: decoded.ErrMsg,
 		Result: decoded.Result,
-		V1:     decoded.V1,
 	}
 	s.deliverForward(decoded.CorrID, resp)
 }

@@ -910,9 +910,8 @@ func (d *delegate) LocalState(join bool) []byte {
 	d.service.userDelegateMu.RUnlock()
 
 	if len(dels) == 0 {
-		// Backwards-compat shape: prior code returned `{}`. An empty multiplex
-		// stream parses as zero frames so receivers tolerate either.
-		return []byte("{}")
+		// No delegates: an empty multiplex stream (zero frames).
+		return nil
 	}
 
 	out := make([]byte, 0, 64)
@@ -942,11 +941,6 @@ func (d *delegate) MergeRemoteState(buf []byte, join bool) {
 		d.service.logger.Debug("merging remote state",
 			zap.Int("size", len(buf)),
 			zap.Bool("join", join))
-	}
-
-	// Tolerate the legacy "{}" payload.
-	if len(buf) == 2 && buf[0] == '{' && buf[1] == '}' {
-		return
 	}
 
 	for len(buf) >= 5 {

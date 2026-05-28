@@ -88,21 +88,6 @@ func TestService_Lookup_ByPID_EmptyPID(t *testing.T) {
 	assert.Empty(t, res.NamesForPID)
 }
 
-func TestService_LegacyShims_AgreeWithUnified(t *testing.T) {
-	s := newServiceWithState(t)
-	p := pid.PID{Node: "node-a", Host: "h", UniqID: "owner"}
-	registerInFSM(t, s.fsm, "svc.shim", p, 99)
-	registerInFSM(t, s.fsm, "svc.also.shim", p, 100)
-
-	namesOld := s.LookupByPID(p)
-	namesNew, err := s.Lookup(context.Background(), "", globalreg.ByPID(p))
-	require.NoError(t, err)
-	sort.Strings(namesOld)
-	sortedNew := append([]string(nil), namesNew.NamesForPID...)
-	sort.Strings(sortedNew)
-	assert.Equal(t, namesOld, sortedNew)
-}
-
 func TestService_Lookup_PropertyParity(t *testing.T) {
 	s := newServiceWithState(t)
 

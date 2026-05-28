@@ -615,12 +615,6 @@ func (s *Service) Lookup(ctx context.Context, name string, opts ...globalreg.Loo
 	return globalreg.LookupResult{Found: false}, nil
 }
 
-// Deprecated: use Lookup(ctx, "", globalreg.ByPID(p)).
-func (s *Service) LookupByPID(p pid.PID) []string {
-	r, _ := s.Lookup(context.Background(), "", globalreg.ByPID(p))
-	return r.NamesForPID
-}
-
 // Remove removes all global names for a PID via Raft.
 func (s *Service) Remove(_ context.Context, p pid.PID) error {
 	cmd := &Command{
