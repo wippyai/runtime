@@ -10,6 +10,10 @@ import "time"
 // is ephemeral, restarts rejoin from peer state, persistence-vs-quorum
 // failure modes are removed by construction. There is no data_dir.
 //
+// The transport is the wippy internode mesh exclusively: peers are addressed
+// by NodeID over the existing internode connection, so there is no bind
+// address, port, or advertise address to configure.
+//
 // Cluster formation follows the Consul/Nomad gossip-driven pattern. Every
 // initial node ships the same single knob, BootstrapExpect, and joins the
 // gossip mesh. A small watcher on each node observes the converged gossip
@@ -21,6 +25,16 @@ import "time"
 // see existing peers as raft_status="in" and skip bootstrap; the leader's
 // reconciler adds them via AddVoter.
 type Config struct {
+	CommitTimeout     time.Duration `json:"commit_timeout"`
+	SnapshotInterval  time.Duration `json:"snapshot_interval"`
+	ElectionTimeout   time.Duration `json:"election_timeout"`
+	HeartbeatTimeout  time.Duration `json:"heartbeat_timeout"`
+	SnapshotThreshold uint64        `json:"snapshot_threshold"`
+	// TrailingLogs caps how many log entries are retained after a snapshot.
+	// hashicorp/raft default is 10240 which keeps a lot of memory under
+	// partition; lower this for memory-constrained nodes. Zero means use
+	// the hashicorp/raft library default.
+	TrailingLogs uint64 `json:"trailing_logs"`
 	// BootstrapExpect is the expected size of the initial quorum. The
 	// gossip-driven bootstrap watcher uses this to decide when to form
 	// the cluster:
@@ -33,26 +47,8 @@ type Config struct {
 	//         server list. After a full-cluster cold-start they all
 	//         converge on the same configuration at log index 1.
 	BootstrapExpect int `json:"bootstrap_expect,omitempty"`
-	// Deprecated: mesh transport ignores this field. Kept only so legacy
-	// TCP test fallbacks still compile; production runs over the mesh
-	// transport which addresses peers by NodeID over the internode layer.
-	AdvertiseAddr string `json:"advertise_addr,omitempty"`
-	// Deprecated: mesh transport ignores this field. See AdvertiseAddr.
-	BindAddr          string        `json:"bind_addr"`
-	CommitTimeout     time.Duration `json:"commit_timeout"`
-	SnapshotInterval  time.Duration `json:"snapshot_interval"`
-	ElectionTimeout   time.Duration `json:"election_timeout"`
-	HeartbeatTimeout  time.Duration `json:"heartbeat_timeout"`
-	SnapshotThreshold uint64        `json:"snapshot_threshold"`
-	// TrailingLogs caps how many log entries are retained after a snapshot.
-	// hashicorp/raft default is 10240 which keeps a lot of memory under
-	// partition; lower this for memory-constrained nodes. Zero means use
-	// the hashicorp/raft library default.
-	TrailingLogs uint64 `json:"trailing_logs"`
-	// Deprecated: mesh transport ignores this field. See AdvertiseAddr.
-	BindPort       int `json:"bind_port"`
-	SnapshotRetain int `json:"snapshot_retain"`
-	MaxPool        int `json:"max_pool"`
+	SnapshotRetain  int `json:"snapshot_retain"`
+	MaxPool         int `json:"max_pool"`
 	// MaxAppendEntries caps how many log entries the leader packs into a
 	// single AppendEntries RPC. The hashicorp/raft default is 64 which,
 	// when a follower restarts with an empty log and needs to catch up
@@ -61,18 +57,10 @@ type Config struct {
 	// throughput so under chaos a returning pod doesn't OOM the leader
 	// while it ships history. Zero means use the library default.
 	MaxAppendEntries int `json:"max_append_entries"`
-	// Deprecated: mesh transport ignores this field. See AdvertiseAddr.
-	AutoPort bool `json:"auto_port"`
 }
 
 // InitDefaults fills zero-valued fields with sensible defaults.
 func (c *Config) InitDefaults() {
-	if c.BindAddr == "" {
-		c.BindAddr = "0.0.0.0"
-	}
-	if c.BindPort == 0 {
-		c.BindPort = 7960
-	}
 	if c.SnapshotRetain == 0 {
 		c.SnapshotRetain = 3
 	}
@@ -84,8 +72,8 @@ func (c *Config) InitDefaults() {
 	}
 	if c.HeartbeatTimeout == 0 {
 		// Idle clusters fan a heartbeat AppendEntries out to every follower
-		// on this cadence; at 3s the leader's idle RPC volume is a third of
-		// the old 1s default. Trade-off: leader-failure detection takes ~3s.
+		// on this cadence; 3s keeps idle leader RPC volume low at the cost
+		// of ~3s leader-failure detection.
 		c.HeartbeatTimeout = 3 * time.Second
 	}
 	if c.ElectionTimeout == 0 {
@@ -94,9 +82,9 @@ func (c *Config) InitDefaults() {
 	}
 	if c.CommitTimeout == 0 {
 		// The leader sends an empty AppendEntries every CommitTimeout to
-		// propagate the commit index even with no new log entries. 500ms
-		// (vs the old 50ms) cuts that idle fan-out 10x; real entries still
-		// replicate immediately via the trigger path.
+		// propagate the commit index even with no new log entries; 500ms
+		// keeps that idle fan-out light while real entries still replicate
+		// immediately via the trigger path.
 		c.CommitTimeout = 500 * time.Millisecond
 	}
 	if c.MaxPool == 0 {

@@ -45,7 +45,6 @@ type Node struct {
 	tel         *telemetry
 	localID     string
 	config      raftapi.Config
-	actualPort  int
 	voterCap    int
 	mu          sync.Mutex
 	started     bool
@@ -180,20 +179,10 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 		return nil, fmt.Errorf("raft node already started")
 	}
 
-	useMesh := n.connMgr != nil
-	if useMesh {
-		// Mesh transport has no dedicated Raft listener; actualPort=0 here
-		// and is used only by resolveAdvertiseAddr on the legacy TCP fallback below.
-		n.actualPort = 0
-	} else {
-		// Legacy TCP transport path. Used by Raft instances that have
-		// not been wired to the internode connection manager.
-		port, err := autoDetectPort(n.config)
-		if err != nil {
-			return nil, fmt.Errorf("raft port detection: %w", err)
-		}
-		n.actualPort = port
-		n.config.BindPort = port //nolint:staticcheck // legacy TCP fallback path; mesh transport ignores this field.
+	// Raft rides the wippy internode mesh exclusively; the connection
+	// manager must be wired via SetConnectionManager before Start.
+	if n.connMgr == nil {
+		return nil, fmt.Errorf("raft: connection manager not set (call SetConnectionManager before Start)")
 	}
 
 	// Diskless control plane: the cluster state is ephemeral; on restart a
@@ -210,27 +199,14 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 	// thousands of unsampled lines per second per pod.
 	netLogOut := newRaftStderrAdapter(n.logger.Named("raft-net"))
 
-	var inner hraft.Transport
-	if useMesh {
-		// Mesh-backed transport: yamux session per peer over the
-		// existing internode connection (ClassRaftMesh frames). No
-		// dedicated Raft listener is bound.
-		n.streamLayer = newMeshStreamLayer(n.localID, n.connMgr, n.logger.Named("raft-mesh"))
-		if err := n.streamLayer.register(); err != nil {
-			return nil, fmt.Errorf("register raft mesh receiver: %w", err)
-		}
-		inner = hraft.NewNetworkTransport(n.streamLayer, n.config.MaxPool, 10*time.Second, netLogOut)
-	} else {
-		// Legacy TCP transport. Retained for Raft instances that
-		// haven't been wired through the internode mesh yet.
-		bindAddr := resolveTransportAddr(n.config)
-		advertiseAddr := resolveAdvertiseAddr(n.config, n.actualPort)
-		tcpTransport, err := hraft.NewTCPTransport(bindAddr, advertiseAddr, n.config.MaxPool, 10*time.Second, netLogOut)
-		if err != nil {
-			return nil, fmt.Errorf("create raft transport: %w", err)
-		}
-		inner = tcpTransport
+	// Mesh-backed transport: yamux session per peer over the existing
+	// internode connection (ClassRaftMesh frames). No dedicated Raft
+	// listener is bound; peers are addressed by NodeID.
+	n.streamLayer = newMeshStreamLayer(n.localID, n.connMgr, n.logger.Named("raft-mesh"))
+	if err := n.streamLayer.register(); err != nil {
+		return nil, fmt.Errorf("register raft mesh receiver: %w", err)
 	}
+	var inner hraft.Transport = hraft.NewNetworkTransport(n.streamLayer, n.config.MaxPool, 10*time.Second, netLogOut)
 
 	// Stack: peerStateTracker over instrumentedTransport over the
 	// chosen inner transport. The tracker short-circuits writes to
