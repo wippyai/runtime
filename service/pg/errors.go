@@ -16,6 +16,21 @@ var (
 	ErrScopeNotFound = apierror.New(apierror.NotFound, "pg scope not found").WithRetryable(apierror.False)
 )
 
+// Service-instance errors, surfaced by the PG engine (not the scope manager).
+var (
+	// ErrNotJoined is returned when a process tries to leave a group it hasn't joined.
+	ErrNotJoined = apierror.New(apierror.NotFound, "pg: process not joined in group").WithRetryable(apierror.False)
+
+	// ErrGroupNotFound is returned when querying a non-existent group.
+	ErrGroupNotFound = apierror.New(apierror.NotFound, "pg: group not found").WithRetryable(apierror.False)
+
+	// ErrServiceStopped is returned when the pg service is not running.
+	ErrServiceStopped = apierror.New(apierror.Unavailable, "pg: service stopped").WithRetryable(apierror.False)
+
+	// ErrBackpressure is returned when the event loop queue is full.
+	ErrBackpressure = apierror.New(apierror.Unavailable, "pg: event loop backpressure, try again later").WithRetryable(apierror.True)
+)
+
 // NewDecodeConfigError creates an error for config decode failures.
 func NewDecodeConfigError(cause error) apierror.Error {
 	return apierror.New(apierror.Invalid, "failed to decode pg scope config").

@@ -33,7 +33,7 @@ import (
 	"github.com/wippyai/runtime/system/clock"
 	"github.com/wippyai/runtime/system/eventbus"
 	systempayload "github.com/wippyai/runtime/system/payload"
-	syspg "github.com/wippyai/runtime/system/pg"
+	syspg "github.com/wippyai/runtime/service/pg"
 	sysrelay "github.com/wippyai/runtime/system/relay"
 	"github.com/wippyai/runtime/system/scheduler"
 	"github.com/wippyai/runtime/system/scheduler/actor"

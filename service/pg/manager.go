@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 
-// Package pg provides the PG scope manager that creates and manages
-// independent process group instances following Erlang/OTP pg scope semantics.
+// Package pg implements distributed named process groups as a service.
+//
+// It contains both the scope Manager (a registry.EntryListener that creates
+// one independent process-group instance per pg.Scope entry) and the Service
+// engine each instance runs: a single-writer event loop, eventually-consistent
+// cross-node membership, broadcast, and monitor/events. Semantics follow
+// Erlang/OTP's pg module.
 package pg
 
 import (
@@ -20,7 +25,6 @@ import (
 	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/api/topology"
 	entryutil "github.com/wippyai/runtime/internal/entry"
-	systempg "github.com/wippyai/runtime/system/pg"
 
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
@@ -36,7 +40,7 @@ type Manager struct {
 	topo       topology.Topology
 	membership cluster.Membership
 	log        *zap.Logger
-	scopes     map[registry.ID]*systempg.Service
+	scopes     map[registry.ID]*Service
 	localNode  pid.NodeID
 	mu         sync.RWMutex
 }
@@ -60,7 +64,7 @@ func NewManager(
 		membership: membership,
 		localNode:  localNode,
 		log:        log,
-		scopes:     make(map[registry.ID]*systempg.Service),
+		scopes:     make(map[registry.ID]*Service),
 	}
 }
 
@@ -98,7 +102,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	// Create the PG service instance, wired to the metrics collector and
 	// global OTel providers so pg_* series flow when ops happen.
-	svc := systempg.NewService(
+	svc := NewService(
 		m.log, hostID, cfg, router, m.topo, m.membership, m.bus, m.localNode,
 		metricsapi.GetCollector(ctx),
 		otel.GetMeterProvider(),
@@ -211,7 +215,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 }
 
 // GetScope returns a PG service by registry ID.
-func (m *Manager) GetScope(id registry.ID) (*systempg.Service, bool) {
+func (m *Manager) GetScope(id registry.ID) (*Service, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	svc, ok := m.scopes[id]
