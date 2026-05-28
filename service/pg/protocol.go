@@ -375,7 +375,8 @@ func (s *Service) handleDiscover(fromNodeID pid.NodeID) {
 
 	// If we don't know about this node yet, discover it back
 	if _, exists := s.state.remote[fromNodeID]; !exists {
-		// Register the remote node (empty state for now, will be filled by sync)
+		// Register the remote node with empty groups; the sync response
+		// from sendSync fills them in.
 		s.state.remote[fromNodeID] = &remoteNode{
 			nodeID: fromNodeID,
 			groups: make(map[string][]pid.PID),
