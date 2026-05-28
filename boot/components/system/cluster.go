@@ -46,6 +46,25 @@ func clusterRaftEnabled(clusterCfg boot.Config) bool {
 	return !strings.EqualFold(clusterCfg.GetString(ClusterRaftRole, raftRoleServer), raftRoleClient)
 }
 
+// discoverInternodePort starts a throwaway connection manager just long
+// enough to learn the actual listen port (AutoPort picks an ephemeral one),
+// then stops it. The discovered port is pinned on the real manager's config
+// so it binds the same port across restarts, and is advertised in node
+// metadata before the real manager starts.
+func discoverInternodePort(cfg internode.ManagerConfig, coll metricsapi.Collector) (int, error) {
+	tmp := internode.NewConnectionManager(cfg, coll)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := tmp.Start(ctx, func(clusterapi.NodeID, []byte) {}); err != nil {
+		return 0, NewConnectionManagerPreStartError(err)
+	}
+	port := tmp.GetListenPort()
+	if err := tmp.Stop(); err != nil {
+		return 0, NewConnectionManagerStopError(err)
+	}
+	return port, nil
+}
+
 // clusterHealthScoreCeiling is the maximum memberlist health score
 // (where 0 = healthy) at which the activity-based liveness check still
 // reports healthy. Memberlist scores 1 or 2 commonly during chaos
@@ -148,28 +167,14 @@ func Cluster() boot.Component {
 			connManagerCfg.AutoPort = clusterCfg.GetBool(ClusterInternodeAutoPort, true)
 			connManagerCfg.Logger = logger.Named("internode.conn")
 
-			// Pre-start a temporary connection manager to allocate a port.
-			// This discovers the actual port (especially with AutoPort),
-			// which is needed for metadata before the real start.
-			tempConnMgr := internode.NewConnectionManager(connManagerCfg, metricsapi.GetCollector(ctx))
-			tempCtx, tempCancel := context.WithCancel(context.Background())
-			dummyCallback := func(_ clusterapi.NodeID, _ []byte) {}
-
-			if err := tempConnMgr.Start(tempCtx, dummyCallback); err != nil {
-				tempCancel()
-				return ctx, NewConnectionManagerPreStartError(err)
+			// Discover the actual internode port (AutoPort picks an
+			// ephemeral one) before the real start, since it's advertised in
+			// node metadata. Pin it so the real manager binds the same port
+			// across restarts.
+			actualPort, err := discoverInternodePort(connManagerCfg, metricsapi.GetCollector(ctx))
+			if err != nil {
+				return ctx, err
 			}
-
-			actualPort := tempConnMgr.GetListenPort()
-
-			if err := tempConnMgr.Stop(); err != nil {
-				tempCancel()
-				return ctx, NewConnectionManagerStopError(err)
-			}
-			tempCancel()
-
-			// Pin the discovered port so the real connection manager
-			// binds exactly the same port on restart.
 			connManagerCfg.BindPort = actualPort
 			connManagerCfg.AutoPort = false
 			connMgr = internode.NewConnectionManager(connManagerCfg, metricsapi.GetCollector(ctx))
