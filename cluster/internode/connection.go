@@ -234,8 +234,8 @@ func (c *NodeConnection) Run(handler func(class Class, msg []byte)) *ConnectionE
 	// if the connection is already closed when the reader exits, the
 	// socket error is a consequence of an external Close() or a
 	// writer-triggered teardown (which already recorded its own cause),
-	// not an independent failure. This preserves the old contract where
-	// an external Close yields ExitCleanShutdown.
+	// not an independent failure. This is what makes an external Close
+	// yield ExitCleanShutdown rather than a spurious read error.
 	if !c.closed.Load() {
 		record(readErr)
 	}
