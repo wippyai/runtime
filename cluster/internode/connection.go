@@ -113,13 +113,6 @@ type Outbound struct {
 	Class Class
 }
 
-// Connection defines the public interface for a connection to another node.
-type Connection interface {
-	Run(handler func(class Class, msg []byte)) *ConnectionError
-	Close()
-	RemoteNodeID() cluster.NodeID
-}
-
 // NodeConnectionConfig holds configuration parameters for a NodeConnection.
 type NodeConnectionConfig struct {
 	HandshakeTimeout time.Duration
@@ -187,6 +180,22 @@ func (c *NodeConnection) bindDrain(notify <-chan struct{}, drain func(int) []Out
 // It returns a ConnectionError indicating the reason for termination. The
 // handler receives every decoded inbound frame tagged with its sub-protocol
 // Class so callers can dispatch by class without re-parsing payload.
+// Run drives the connection's full-duplex I/O until either direction fails
+// or Close is called, then returns the first non-clean error observed.
+//
+// The read pump runs INLINE on the caller's goroutine; only the write pump
+// is spawned. This keeps full duplex (separate read/write goroutines) with
+// no dedicated join/wait goroutine — the caller's goroutine IS the read
+// pump. Steady state is 3 long-lived goroutines per connected peer: the
+// control loop, this read pump, and the write pump.
+//
+// First-error-wins teardown: whichever pump fails first records its error and
+// Close()s the connection (cancel ctx + close net.Conn), which unblocks the
+// other pump (context cancellation alone does not interrupt a blocking
+// net.Conn.Read — only closing the conn does). The writer records its error
+// BEFORE calling Close so a writer-originated failure is captured before the
+// socket close wakes the inline reader; the reader then observes
+// ExitCleanShutdown and Run returns the writer's error.
 func (c *NodeConnection) Run(handler func(class Class, msg []byte)) *ConnectionError {
 	c.lifecycleMu.Lock()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -195,41 +204,51 @@ func (c *NodeConnection) Run(handler func(class Class, msg []byte)) *ConnectionE
 
 	defer c.Close()
 
-	var wg sync.WaitGroup
-	wg.Add(2)
+	errCh := make(chan *ConnectionError, 1)
+	writeDone := make(chan struct{})
 
-	errChan := make(chan *ConnectionError, 2)
-
-	go func() {
-		defer wg.Done()
-		err := c.readLoop(ctx, handler)
-		// Only send non-nil errors that aren't clean shutdowns
-		if err != nil && (err.Reason != ExitCleanShutdown) {
-			errChan <- err
+	// record keeps only the first non-clean error. The one-slot buffered
+	// channel + non-blocking send means the loser of the race silently
+	// drops its (necessarily clean-shutdown-shaped) error.
+	record := func(err *ConnectionError) {
+		if err == nil || err.Reason == ExitCleanShutdown {
+			return
 		}
-	}()
-
-	go func() {
-		defer wg.Done()
-		err := c.writeLoop(ctx)
-		// Only send non-nil errors that aren't clean shutdowns
-		if err != nil && (err.Reason != ExitCleanShutdown) {
-			errChan <- err
+		select {
+		case errCh <- err:
+		default:
 		}
-	}()
-
-	var firstErr *ConnectionError
-	select {
-	case firstErr = <-errChan:
-		// First error received, initiate shutdown of the other loop.
-		c.Close()
-	case <-ctx.Done():
-		// Shutdown initiated externally via Close().
-		firstErr = &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
 	}
 
-	wg.Wait()
-	return firstErr
+	go func() {
+		defer close(writeDone)
+		if err := c.writeLoop(ctx); err != nil && err.Reason != ExitCleanShutdown {
+			record(err) // record before Close so it wins over the reader's clean-shutdown
+			c.Close()   // cancels ctx + closes net.Conn, unblocking the inline reader
+		}
+	}()
+
+	// Inline read pump on the caller's goroutine.
+	readErr := c.readLoop(ctx, handler)
+	// Attribute the reader's error only if the reader is the FIRST cause:
+	// if the connection is already closed when the reader exits, the
+	// socket error is a consequence of an external Close() or a
+	// writer-triggered teardown (which already recorded its own cause),
+	// not an independent failure. This is what makes an external Close
+	// yield ExitCleanShutdown rather than a spurious read error.
+	if !c.closed.Load() {
+		record(readErr)
+	}
+
+	c.Close() // idempotent; stops the writer after the reader exits
+	<-writeDone
+
+	select {
+	case err := <-errCh:
+		return err
+	default:
+		return &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
+	}
 }
 
 // Close terminates the connection gracefully and cancels all ongoing operations.
@@ -273,6 +292,13 @@ func (c *NodeConnection) writeLoop(ctx context.Context) *ConnectionError {
 			}
 			if err := c.flushBatch(writer, batch); err != nil {
 				c.requeueFn(batch)
+				// A flush error caused by an intentional local close (read
+				// pump failed first, or external Close) must not be reported
+				// as a writer-originated network error — that would override
+				// the real first cause in Run's first-error-wins contract.
+				if ctx.Err() != nil || c.closed.Load() {
+					return &ConnectionError{Reason: ExitCleanShutdown, Err: ErrCleanShutdown}
+				}
 				return &ConnectionError{Reason: ExitNetworkError, Err: err}
 			}
 			if len(batch) < c.drainBatch {

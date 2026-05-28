@@ -337,10 +337,10 @@ func (d *Dissem) NotifyMsg(payload []byte) {
 	}
 }
 
-// LocalState is the bulk-transfer payload for memberlist push/pull. We carry
-// only the cache size in a tiny digest header; the full delta stream rides
-// the gossip channel. The push/pull path is here so a fresh peer's first
-// state-sync receives at least an empty marker (legacy "{}" tolerated).
+// LocalState returns nil: dissem does not use memberlist's bulk push/pull
+// transfer. Name bindings propagate over the gossip delta channel, and a
+// fresh peer's full snapshot rides the JoinNameEpoch RPC. The method exists
+// only to satisfy the memberlist delegate interface.
 func (d *Dissem) LocalState(_ bool) []byte { return nil }
 
 // MergeRemoteState is a no-op for dissem — the snapshot path is the

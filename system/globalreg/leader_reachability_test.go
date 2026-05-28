@@ -64,6 +64,12 @@ func (r *togglingRaft) LeadershipTransfer(_ raftapi.ServerID, _ time.Duration) e
 func (r *togglingRaft) GetConfiguration() ([]raftapi.Server, error) { return nil, nil }
 func (r *togglingRaft) Stats() map[string]string                    { return nil }
 
+// LastContact returns zero so leaderReachable() falls through to the
+// wire-level pingLeader path — that's the path these tests exercise.
+// The Service.LastContact()-based fast-path is integration-tested in
+// the chaos harness with a real raft instance.
+func (r *togglingRaft) LastContact() time.Time { return time.Time{} }
+
 // --- No-flap: NodeJoined no longer touches the gate ---
 
 // TestNoFlap_NodeJoinedDoesNotCloseGateOrBumpEpoch proves the old flap is gone.

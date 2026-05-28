@@ -170,6 +170,8 @@ func (m *mockMembership) LocalNode() cluster.NodeInfo {
 	return m.localNode
 }
 
+func (m *mockMembership) UpdateMeta(map[string]string) {}
+
 // Tests
 
 func setupService(_ *testing.T) (*Service, *mockConnectionManager, *mockCodec, *eventbus.Bus, context.Context, context.CancelFunc) {

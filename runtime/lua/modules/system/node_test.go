@@ -37,6 +37,7 @@ type stubMembership struct {
 
 func (s *stubMembership) Nodes() []cluster.NodeInfo   { return s.peers }
 func (s *stubMembership) LocalNode() cluster.NodeInfo { return s.local }
+func (s *stubMembership) UpdateMeta(map[string]string) {}
 
 func newNodeTestState(t *testing.T) (*lua.LState, context.Context) {
 	t.Helper()

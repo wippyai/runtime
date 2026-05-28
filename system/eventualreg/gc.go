@@ -157,7 +157,8 @@ func (g *GCRunner) Start() {
 	go g.loop()
 }
 
-// Stop cancels the reaper and waits for the current pass to finish.
+// Stop signals the reaper to exit. A pass already in progress runs to
+// completion; Stop does not block on it. Idempotent.
 func (g *GCRunner) Stop() {
 	g.stopOnce.Do(func() { close(g.done) })
 }

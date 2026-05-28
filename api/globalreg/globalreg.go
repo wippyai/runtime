@@ -162,9 +162,6 @@ type (
 		// readiness/transport failures.
 		Lookup(ctx context.Context, name string, opts ...LookupOption) (LookupResult, error)
 
-		// Deprecated: use Lookup(ctx, "", ByPID(p)) instead.
-		LookupByPID(p pid.PID) []string
-
 		// Remove removes all global names for a PID. Goes through Raft.
 		Remove(ctx context.Context, p pid.PID) error
 

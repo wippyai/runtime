@@ -615,7 +615,8 @@ func TestDelegate_LocalState(t *testing.T) {
 
 	state := d.LocalState(false)
 
-	assert.Equal(t, []byte("{}"), state)
+	// No user delegates: an empty multiplex stream (zero frames).
+	assert.Empty(t, state)
 }
 
 func TestDelegate_MergeRemoteState(t *testing.T) {

@@ -16,10 +16,9 @@ import (
 // forwardWireVersion is the version byte used by v1 forward-response envelopes.
 const forwardWireVersion = 1
 
-// forwardWireMagic is the discriminator byte placed at offset 8 of a v1
-// envelope. v0 envelopes carry an error string in the same position, which is
-// always non-zero printable ASCII (Go's fmt.Errorf / errors.New cannot return
-// a string starting with a NUL byte), so this magic byte is unambiguous.
+// forwardWireMagic is the discriminator byte at offset 8 of a response
+// envelope; a valid envelope always carries 0x00 here, followed by the version
+// byte. Any other byte marks a malformed envelope.
 const forwardWireMagic = 0x00
 
 // commandLabel returns a low-cardinality label for prometheus.
@@ -51,10 +50,9 @@ func commandLabel(t CommandType) string {
 	}
 }
 
-// forwardBody is the msgpack-encoded body of a v1 forward-response envelope.
-// It is intentionally simple: a single command-kind discriminator, an optional
-// error string (mirrors v0 semantics), and an opaque result blob whose shape
-// is determined by CmdKind.
+// forwardBody is the msgpack-encoded body of a forward-response envelope. It
+// is intentionally simple: a single command-kind discriminator, an optional
+// error string, and an opaque result blob whose shape is determined by CmdKind.
 type forwardBody struct {
 	Err     string      `codec:"e,omitempty"`
 	Result  []byte      `codec:"r,omitempty"`
@@ -102,9 +100,9 @@ type wireRejectResult struct {
 // forwarding follower. It returns the encoded bytes and the matching command
 // kind tag for the envelope header.
 //
-// If result is nil, the function returns (nil, nil) — a v0-equivalent empty
-// result. Callers that need to distinguish "no result" from "encode error"
-// should inspect the error.
+// If result is nil, the function returns (nil, nil) — an empty result.
+// Callers that need to distinguish "no result" from "encode error" should
+// inspect the error.
 func encodeFSMResult(cmd CommandType, result any) ([]byte, error) {
 	switch v := result.(type) {
 	case nil:
@@ -228,42 +226,27 @@ type decodedForwardResponse struct {
 	ErrMsg  string
 	CorrID  uint64
 	CmdKind CommandType
-	V1      bool
 }
 
-// decodeForwardResponse parses an envelope produced by either an old (v0) or a
-// new (v1) leader. Callers must already have ensured len(envelope) >= 8.
+// decodeForwardResponse parses a response envelope from the leader:
 //
-// v0 wire format (legacy): [8B corrID][errMsg bytes]
-// v1 wire format (new):    [8B corrID][0x00][0x01][msgpack(forwardBody)]
+//	[8B corrID][0x00 magic][0x01 version][msgpack(forwardBody)]
 //
-// On v0 input the returned CmdKind is zero and Result is nil. On v1 input the
-// Result field carries the typed pointer (e.g. *RegisterResult) when the
-// command applied successfully.
+// The Result field carries the typed pointer (e.g. *RegisterResult) when the
+// command applied successfully; ErrMsg carries the failure otherwise.
 func decodeForwardResponse(envelope []byte) (decodedForwardResponse, error) {
-	if len(envelope) < 8 {
+	if len(envelope) < 10 {
 		return decodedForwardResponse{}, fmt.Errorf("forward response too short: %d bytes", len(envelope))
 	}
 	out := decodedForwardResponse{
 		CorrID: binary.BigEndian.Uint64(envelope[:8]),
 	}
-	// v0: nothing after the corrID, or first byte after corrID is non-zero
-	// (= start of a printable error string).
-	if len(envelope) == 8 {
-		return out, nil
-	}
 	if envelope[8] != forwardWireMagic {
-		out.ErrMsg = string(envelope[8:])
-		return out, nil
-	}
-	// v1: require at least the version byte.
-	if len(envelope) < 10 {
-		return out, fmt.Errorf("forward response v1 header truncated: %d bytes", len(envelope))
+		return out, fmt.Errorf("forward response: bad magic 0x%02x", envelope[8])
 	}
 	if envelope[9] != forwardWireVersion {
 		return out, fmt.Errorf("forward response: unsupported version %d", envelope[9])
 	}
-	out.V1 = true
 	var body forwardBody
 	if err := unmarshalMsgpack(envelope[10:], &body); err != nil {
 		return out, fmt.Errorf("decode forward body: %w", err)

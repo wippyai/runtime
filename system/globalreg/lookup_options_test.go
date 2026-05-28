@@ -38,15 +38,15 @@ func TestService_Lookup_Equivalence_Plain(t *testing.T) {
 	p := pid.PID{Node: "node-a", Host: "h", UniqID: "p1"}
 	registerInFSM(t, s.fsm, "svc.alpha", p, 1)
 
-	// Legacy direct state read.
-	legacyPID, legacyOK := s.fsm.State().Lookup("svc.alpha")
-	require.True(t, legacyOK)
+	// Direct state read.
+	statePID, stateOK := s.fsm.State().Lookup("svc.alpha")
+	require.True(t, stateOK)
 
 	// New unified API, no options.
 	res, err := s.Lookup(context.Background(), "svc.alpha")
 	require.NoError(t, err)
 	assert.True(t, res.Found)
-	assert.Equal(t, legacyPID, res.PID)
+	assert.Equal(t, statePID, res.PID)
 	assert.Nil(t, res.NamesForPID)
 }
 
@@ -59,9 +59,9 @@ func TestService_Lookup_Equivalence_ByPID(t *testing.T) {
 	registerInFSM(t, s.fsm, "svc.three", p, 3)
 	registerInFSM(t, s.fsm, "svc.elsewhere", other, 4)
 
-	legacyNames := s.fsm.State().LookupByPID(p)
-	sort.Strings(legacyNames)
-	require.Equal(t, []string{"svc.one", "svc.three", "svc.two"}, legacyNames)
+	stateNames := s.fsm.State().LookupByPID(p)
+	sort.Strings(stateNames)
+	require.Equal(t, []string{"svc.one", "svc.three", "svc.two"}, stateNames)
 
 	res, err := s.Lookup(context.Background(), "", globalreg.ByPID(p))
 	require.NoError(t, err)
@@ -69,7 +69,7 @@ func TestService_Lookup_Equivalence_ByPID(t *testing.T) {
 	assert.Equal(t, p, res.PID)
 	got := append([]string(nil), res.NamesForPID...)
 	sort.Strings(got)
-	assert.Equal(t, legacyNames, got)
+	assert.Equal(t, stateNames, got)
 }
 
 func TestService_Lookup_NotFound(t *testing.T) {
@@ -86,21 +86,6 @@ func TestService_Lookup_ByPID_EmptyPID(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, res.Found)
 	assert.Empty(t, res.NamesForPID)
-}
-
-func TestService_LegacyShims_AgreeWithUnified(t *testing.T) {
-	s := newServiceWithState(t)
-	p := pid.PID{Node: "node-a", Host: "h", UniqID: "owner"}
-	registerInFSM(t, s.fsm, "svc.shim", p, 99)
-	registerInFSM(t, s.fsm, "svc.also.shim", p, 100)
-
-	namesOld := s.LookupByPID(p)
-	namesNew, err := s.Lookup(context.Background(), "", globalreg.ByPID(p))
-	require.NoError(t, err)
-	sort.Strings(namesOld)
-	sortedNew := append([]string(nil), namesNew.NamesForPID...)
-	sort.Strings(sortedNew)
-	assert.Equal(t, namesOld, sortedNew)
 }
 
 func TestService_Lookup_PropertyParity(t *testing.T) {
@@ -122,21 +107,21 @@ func TestService_Lookup_PropertyParity(t *testing.T) {
 	}
 
 	for _, op := range ops {
-		legacyP, legacyOK := s.fsm.State().Lookup(op.name)
+		stateP, stateOK := s.fsm.State().Lookup(op.name)
 		res, err := s.Lookup(context.Background(), op.name)
 		require.NoError(t, err)
-		assert.Equal(t, legacyOK, res.Found, "op=%s", op.name)
-		assert.Equal(t, legacyP, res.PID, "op=%s", op.name)
+		assert.Equal(t, stateOK, res.Found, "op=%s", op.name)
+		assert.Equal(t, stateP, res.PID, "op=%s", op.name)
 	}
 
 	for _, op := range ops {
-		legacyNames := s.fsm.State().LookupByPID(op.p)
+		stateNames := s.fsm.State().LookupByPID(op.p)
 		resPID, err := s.Lookup(context.Background(), "", globalreg.ByPID(op.p))
 		require.NoError(t, err)
-		sort.Strings(legacyNames)
+		sort.Strings(stateNames)
 		got := append([]string(nil), resPID.NamesForPID...)
 		sort.Strings(got)
-		assert.Equal(t, legacyNames, got, "byPID=%s", op.p.UniqID)
-		assert.Equal(t, len(legacyNames) > 0, resPID.Found, "byPID=%s", op.p.UniqID)
+		assert.Equal(t, stateNames, got, "byPID=%s", op.p.UniqID)
+		assert.Equal(t, len(stateNames) > 0, resPID.Found, "byPID=%s", op.p.UniqID)
 	}
 }

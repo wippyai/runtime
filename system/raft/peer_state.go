@@ -5,6 +5,7 @@ package raft
 import (
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	hraft "github.com/hashicorp/raft"
@@ -37,19 +38,36 @@ var errPeerDead = errors.New("raft-net: peer dead, backoff in effect")
 //     dead-window expiry up to `backoffMax`.
 //   - The backoff is per-peer; one dead peer never blocks calls to
 //     others.
+//
+// The hot path (AppendEntries / RequestVote / RequestPreVote /
+// AppendEntriesPipeline) is fully lock-free: per-peer state lives in a
+// sync.Map (lock-free Load for known keys; brief contention only on the
+// very first call per peer) and each peer's state is held in atomic
+// fields. Threshold trips are claimed via CAS so concurrent failing
+// senders against the same peer cannot double-count a single trip.
 type peerStateTracker struct {
 	hraft.Transport
 	tel *telemetry
 
-	consecutiveErr map[hraft.ServerAddress]int
-	deadUntil      map[hraft.ServerAddress]time.Time
-	deadStreak     map[hraft.ServerAddress]int
+	// peers is a map[hraft.ServerAddress]*peerState. Lock-free reads on
+	// the hot path; LoadOrStore on first-write per peer.
+	peers sync.Map
 
 	backoffInitial time.Duration
 	backoffMax     time.Duration
 
-	mu           sync.Mutex
 	failureLimit int
+}
+
+// peerState holds per-peer failure-tracker state. All fields are atomic
+// so the AppendEntries / RequestVote hot path needs no mutex.
+//
+// deadUntilUnixNano == 0 means "not in a dead window". A non-zero value
+// is the deadline (UnixNano); reads compare against time.Now().UnixNano().
+type peerState struct {
+	consecutiveErr    atomic.Int32
+	deadStreak        atomic.Int32
+	deadUntilUnixNano atomic.Int64
 }
 
 const (
@@ -62,9 +80,6 @@ func newPeerStateTracker(inner hraft.Transport, tel *telemetry) *peerStateTracke
 	return &peerStateTracker{
 		Transport:      inner,
 		tel:            tel,
-		consecutiveErr: make(map[hraft.ServerAddress]int),
-		deadUntil:      make(map[hraft.ServerAddress]time.Time),
-		deadStreak:     make(map[hraft.ServerAddress]int),
 		failureLimit:   defaultFailureLimit,
 		backoffInitial: defaultBackoffInitial,
 		backoffMax:     defaultBackoffMax,
@@ -154,22 +169,24 @@ func (t *peerStateTracker) AppendEntriesPipeline(id hraft.ServerID,
 }
 
 // isDead returns true if the peer is currently in the dead window.
-// Side-effect free except for clearing the entry once the window
-// expires (which is also done with the mu held).
+// Lock-free: one atomic.Load on deadUntilUnixNano. If the window has
+// expired, the function clears the deadline (best-effort CAS) so the
+// next caller's recordResult writes against a clean slate.
 func (t *peerStateTracker) isDead(target hraft.ServerAddress) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	until, ok := t.deadUntil[target]
-	if !ok {
+	ps := t.lookup(target)
+	if ps == nil {
 		return false
 	}
-	if time.Now().Before(until) {
+	until := ps.deadUntilUnixNano.Load()
+	if until == 0 {
+		return false
+	}
+	if time.Now().UnixNano() < until {
 		return true
 	}
-	// Window expired — let one probe through. The probe outcome will
-	// either fully reset the streak (success) or extend the streak
-	// (further failure).
-	delete(t.deadUntil, target)
+	// Window expired — try to clear the deadline. If another caller wins
+	// the CAS, fine; either way the entry is no longer "dead".
+	ps.deadUntilUnixNano.CompareAndSwap(until, 0)
 	return false
 }
 
@@ -178,26 +195,43 @@ func (t *peerStateTracker) isDead(target hraft.ServerAddress) bool {
 // to proactively evict a voter that gossip ALSO sees as suspect/dead, rather
 // than waiting for the gossip expiration.
 func (t *peerStateTracker) DeadStreak(target hraft.ServerAddress) int {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.deadStreak[target]
+	ps := t.lookup(target)
+	if ps == nil {
+		return 0
+	}
+	return int(ps.deadStreak.Load())
+}
+
+// forgetPeer drops all accumulated failure state for target. Called on
+// cluster.NodeLeft so a rebirth of a pod (same NodeID, fresh process,
+// fresh yamux session) does not inherit the exponential backoff that
+// accumulated while the old incarnation was failing. Without this, a
+// killed pod's NodeID could sit in the dead window for up to backoffMax
+// after a fresh process is already accepting connections, leaving the
+// reborn peer effectively unreachable until the timer expires.
+func (t *peerStateTracker) forgetPeer(target hraft.ServerAddress) {
+	t.peers.Delete(target)
 }
 
 // recordResult updates the per-peer counters after a transport call.
-// On success: full reset. On failure: bump consecutive counter, and
-// once the threshold is hit, mark the peer dead with exponential
-// backoff scaled by the dead-streak length.
+// On success: full reset of all three atomic counters. On failure:
+// atomic add to consecutiveErr; when the threshold is hit, claim the
+// trip via CAS so only one concurrent failure registers the dead window.
 func (t *peerStateTracker) recordResult(target hraft.ServerAddress, id string, err error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	if err == nil {
-		if t.consecutiveErr[target] > 0 || t.deadStreak[target] > 0 {
+		ps := t.lookup(target)
+		if ps == nil {
+			return
+		}
+		// recovered? Fire telemetry if any tracked field was non-zero.
+		// The three Loads are independent atomics; "any non-zero" is a
+		// best-effort signal and doesn't need to be a snapshot.
+		if ps.consecutiveErr.Load() > 0 || ps.deadStreak.Load() > 0 || ps.deadUntilUnixNano.Load() > 0 {
 			t.tel.recordPeerRecovered(id)
 		}
-		delete(t.consecutiveErr, target)
-		delete(t.deadStreak, target)
-		delete(t.deadUntil, target)
+		ps.consecutiveErr.Store(0)
+		ps.deadStreak.Store(0)
+		ps.deadUntilUnixNano.Store(0)
 		return
 	}
 
@@ -206,22 +240,59 @@ func (t *peerStateTracker) recordResult(target hraft.ServerAddress, id string, e
 		return
 	}
 
-	t.consecutiveErr[target]++
-	if t.consecutiveErr[target] < t.failureLimit {
+	ps := t.getOrCreate(target)
+	n := ps.consecutiveErr.Add(1)
+	if int(n) < t.failureLimit {
 		return
 	}
 
-	// Threshold tripped: schedule the dead window. Streak grows so
-	// chronic offenders back off longer (capped at backoffMax).
-	t.deadStreak[target]++
-	backoff := t.backoffInitial << uint(t.deadStreak[target]-1)
+	// Threshold tripped — try to CLAIM the trip via CAS. Only the
+	// goroutine that successfully resets consecutiveErr from n→0
+	// proceeds to schedule the dead window; concurrent failing senders
+	// who saw n>=failureLimit but lose the CAS skip the trip (the
+	// winner already scheduled it). This prevents two threads both
+	// observing n>=failureLimit from each incrementing deadStreak.
+	if !ps.consecutiveErr.CompareAndSwap(n, 0) {
+		return
+	}
+
+	streak := ps.deadStreak.Add(1)
+	backoff := t.backoffInitial << uint(streak-1)
 	if backoff > t.backoffMax || backoff <= 0 {
 		backoff = t.backoffMax
 	}
-	t.deadUntil[target] = time.Now().Add(backoff)
+	ps.deadUntilUnixNano.Store(time.Now().Add(backoff).UnixNano())
 	t.tel.recordPeerDead(id, backoff)
+}
 
-	// Reset the counter so the next failure-after-recovery starts
-	// fresh rather than instantly re-tripping.
-	t.consecutiveErr[target] = 0
+// lookup returns the peerState for target without creating one.
+// Lock-free under sync.Map's read-mostly path.
+func (t *peerStateTracker) lookup(target hraft.ServerAddress) *peerState {
+	v, ok := t.peers.Load(target)
+	if !ok {
+		return nil
+	}
+	return v.(*peerState)
+}
+
+// getOrCreate returns the peerState for target, creating one atomically
+// on first use. Used by failure paths only; success paths use lookup so
+// success against a never-failed peer doesn't allocate.
+func (t *peerStateTracker) getOrCreate(target hraft.ServerAddress) *peerState {
+	if ps, ok := t.peers.Load(target); ok {
+		return ps.(*peerState)
+	}
+	v, _ := t.peers.LoadOrStore(target, &peerState{})
+	return v.(*peerState)
+}
+
+// consecutiveErrCount is a test-only inspector that returns the current
+// consecutive-failure count for target. Exposed so tests can assert
+// counters without poking unexported atomic fields directly.
+func (t *peerStateTracker) consecutiveErrCount(target hraft.ServerAddress) int {
+	ps := t.lookup(target)
+	if ps == nil {
+		return 0
+	}
+	return int(ps.consecutiveErr.Load())
 }

@@ -15,7 +15,6 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 )
 
-// Keep existing structs - no changes to your data model
 type encodedPayload struct {
 	Data   any
 	Format payload.Format
@@ -42,14 +41,12 @@ type MessageCodec struct {
 func NewMessageCodec(transcoder payload.Transcoder) *MessageCodec {
 	mh := &codec.MsgpackHandle{}
 
-	// WriteExt enables the new MsgPack spec: strings are encoded as str type
-	// (not ambiguous raw), and []byte is encoded as bin type. Without this,
-	// string values inside map[string]any are decoded as []uint8 because both
-	// strings and bytes use the old-spec ambiguous "raw" format.
-	//
-	// BREAKING WIRE FORMAT: This is incompatible with the old spec encoding.
-	// All cluster nodes must be upgraded simultaneously; rolling upgrades across
-	// nodes running old and new codecs will fail to decode each other's messages.
+	// WriteExt selects the MsgPack 2.0 spec: strings encode as str type and
+	// []byte as bin type, so string values inside map[string]any decode back
+	// as strings rather than []uint8 (the 1.0 "raw" type is ambiguous between
+	// the two). The wire format is fixed across the cluster — every node must
+	// run the same codec, so cluster upgrades replace all nodes together
+	// rather than rolling node-by-node.
 	mh.WriteExt = true
 
 	mh.MapType = reflect.TypeOf(map[string]any(nil))
@@ -201,11 +198,15 @@ func (pidExtension) WriteExt(v any) []byte {
 }
 
 func (pidExtension) ReadExt(dst any, src []byte) {
+	// The msgpack ext API has no error return. A PID field that fails to
+	// parse (corrupt or version-mismatched wire bytes) leaves dst at the
+	// zero PID; downstream routing rejects an empty Source/Target rather
+	// than acting on a wrong address, so the failure surfaces as a dropped
+	// message, not silent misdelivery.
 	p, err := pid.ParsePID(string(src))
 	if err != nil {
 		return
 	}
-
 	if pidPtr, ok := dst.(*pid.PID); ok {
 		*pidPtr = p
 	}

@@ -34,10 +34,29 @@ const (
 	ClusterFailureDomain        boot.Name = "failure_domain"
 
 	// Raft lives under cluster.raft.*. Enabling cluster auto-enables raft
-	// with sensible defaults; set ClusterRaftEnabled=false to opt out.
+	// with sensible defaults.
+	//
+	// raft.role is the primary server/client knob (Consul/Nomad style):
+	//   "server" (default) — runs a raft Node, participates in bootstrap
+	//                        and can be elected voter/standby.
+	//   "client"           — pure gossip + dissem routing, no raft Node.
+	// raft.enabled is the low-level on/off; a node runs raft only when
+	// enabled AND role != "client", so the two compose without conflict
+	// (either set to off yields a client).
 	ClusterRaftEnabled             boot.Name = "raft.enabled"
+	ClusterRaftRole                boot.Name = "raft.role"
 	ClusterRaftEligible            boot.Name = "raft.eligible"
 	ClusterRaftPriority            boot.Name = "raft.priority"
+	// BootstrapExpect: the expected size of the initial quorum (Consul/Nomad
+	// pattern). All initial nodes ship the same number and join gossip; once
+	// that many raft-eligible peers are stably visible they all derive the
+	// same sorted server list and call BootstrapCluster with it. Nodes
+	// joining a running cluster see existing peers as raft_status=in and
+	// skip bootstrap entirely — the leader's reconciler adds them.
+	//   0 -> never self-bootstrap (joining an existing cluster)
+	//   1 -> single-node mode; bootstrap immediately with self
+	//   N -> wait for N alive eligible peers, then form
+	ClusterRaftBootstrapExpect boot.Name = "raft.bootstrap_expect"
 	ClusterRaftMaxVoters           boot.Name = "raft.max_voters"
 	ClusterRaftMaxStandbys         boot.Name = "raft.max_standbys"
 	ClusterRaftReconcileDebounce   boot.Name = "raft.reconcile_debounce"

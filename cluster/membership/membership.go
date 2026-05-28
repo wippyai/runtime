@@ -49,6 +49,7 @@ type UserDelegate interface {
 // Service implements cluster membership using memberlist
 type Service struct {
 	ctx            context.Context
+	cancel         context.CancelFunc
 	bus            event.Bus
 	transport      memberlist.Transport
 	logger         *zap.Logger
@@ -176,7 +177,10 @@ func New(opts ...Option) *Service {
 
 // Start initializes and starts the membership service
 func (s *Service) Start(ctx context.Context) error {
-	s.ctx = ctx
+	// Derive a cancellable context so Stop terminates the background loops
+	// (emitHealthLoop, rejoinLoop) without depending on the parent ctx
+	// being cancelled at the same time.
+	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.logger.Info("starting service",
 		zap.String("node_name", s.config.NodeName),
 		zap.String("bind_address", fmt.Sprintf("%s:%d", s.config.BindAddr, s.config.BindPort)))
@@ -187,6 +191,18 @@ func (s *Service) Start(ctx context.Context) error {
 	// multi-node cluster that is 10 mostly-empty gossip fan-outs/sec/node;
 	// 500ms still propagates deltas promptly and cuts idle wakeups 5x.
 	mlConfig.GossipInterval = 500 * time.Millisecond
+	// DeadNodeReclaimTime lets a node that has been dead longer than this be
+	// replaced by a node with the SAME name but a DIFFERENT address. This is
+	// exactly the k8s StatefulSet pod-restart case: a pod is killed (hard,
+	// no graceful Leave, so peers mark it StateDead at its old IP), the
+	// StatefulSet recreates it under the same name with a fresh pod IP, and
+	// it tries to rejoin. With the memberlist default of 0, peers reject the
+	// rejoin with "Conflicting address" until the dead entry ages out via
+	// GossipToTheDeadTime (~30s) — which is a large slice of post-kill
+	// reconvergence latency. 3s is long enough that a brief same-IP flap
+	// won't trigger a spurious reclaim, short enough that a restarted pod
+	// rejoins promptly.
+	mlConfig.DeadNodeReclaimTime = 3 * time.Second
 	mlConfig.Name = s.config.NodeName
 	mlConfig.BindAddr = s.config.BindAddr
 	mlConfig.BindPort = s.config.BindPort
@@ -208,9 +224,9 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 
 	// Pipe memberlist logs into our zap logger. In non-verbose mode we only
-	// surface [ERR] and [WARN] lines; [DEBUG]/[INFO] are dropped. We never
-	// silence ERR — silently discarding "Failed to decode user message"
-	// (or similar) is what masked Bug 7 for so long.
+	// surface [ERR] and [WARN] lines; [DEBUG]/[INFO] are dropped. ERR is
+	// never silenced — discarding lines like "Failed to decode user
+	// message" hides real protocol faults.
 	mlConfig.LogOutput = newMemberlistLogWriter(s.logger.Named("memberlist"), s.config.VeryVerbose)
 
 	// Load secret key if provided
@@ -235,12 +251,12 @@ func (s *Service) Start(ctx context.Context) error {
 
 	// Join cluster if addresses provided.
 	//
-	// Retry with exponential backoff up to s.ctx cancellation. A
-	// single-shot Join used to fail boot when DNS was transiently
-	// unavailable — observed under DNSChaos: every seed address
-	// returned "connection refused on 10.43.x.x:53" within the chaos
-	// window, the boot exited with an unrecoverable error, and the
-	// pod went into CrashLoopBackOff right when peers came back.
+	// Retry with exponential backoff up to s.ctx cancellation so a
+	// transient DNS outage at boot does not crash the pod: under DNSChaos
+	// every seed address can return "connection refused on :53" for a
+	// window, and a single-shot Join would exit boot with an
+	// unrecoverable error and drop the pod into CrashLoopBackOff right as
+	// peers recover.
 	//
 	// memberlist.Join is idempotent (a re-join just discovers more
 	// members), so retrying is safe. We cap the per-attempt log
@@ -380,11 +396,13 @@ func (s *Service) rejoinLoop(ctx context.Context) {
 	}
 }
 
-// emitHealthLoop periodically samples memberlist's GetHealthScore (0 = healthy,
-// larger = degraded) and emits it as a probe-duration histogram. The score is
-// dimensionless but maps cleanly onto a "ms-equivalent" axis for dashboards.
+// emitHealthLoop periodically samples memberlist's GetHealthScore (0 =
+// healthy, larger = degraded) and surfaces nonzero scores as
+// gossip_probe_failures_total. Sampled at 5s — health degradation
+// persists across ticks, so polling faster is wasted CPU + metric writes.
 func (s *Service) emitHealthLoop(ctx context.Context) {
-	t := time.NewTicker(time.Second)
+	const sampleInterval = 5 * time.Second
+	t := time.NewTicker(sampleInterval)
 	defer t.Stop()
 
 	for {
@@ -395,24 +413,13 @@ func (s *Service) emitHealthLoop(ctx context.Context) {
 			if s.memberlist == nil {
 				continue
 			}
-
 			score := s.memberlist.GetHealthScore()
-			members := s.memberlist.NumMembers()
-			// HealthScore > 0 indicates failed probes / suspect peers.
-			// Surface as gossip_probe_failures_total per local node so the
-			// dashboards have data even without a deeper memberlist hook.
 			if score > 0 {
 				s.tel.recordProbeFailure(s.config.NodeName)
 				s.tel.recordProbe(errProbeUnhealthy, 0)
 			} else {
-				s.tel.recordProbe(nil, time.Duration(score)*time.Millisecond)
+				s.tel.recordProbe(nil, 0)
 			}
-			// Synthetic gossip message rate: one ping per member per second
-			// is approximately what memberlist actually does. Without wrapping
-			// memberlist's transport, this is the simplest way to make the
-			// gossip_message_total{kind="ping"} dashboard reflect real activity.
-			s.tel.recordMessage("ping", "tx", members)
-			s.tel.recordMessage("ping", "rx", members)
 		}
 	}
 }
@@ -435,6 +442,12 @@ func (s *Service) HealthScore() int {
 // Stop gracefully shuts down the membership service
 func (s *Service) Stop() error {
 	s.logger.Info("shutting down cluster membership service")
+
+	// Cancel the background loops before tearing down memberlist so
+	// rejoinLoop can't call Join on a shut-down instance.
+	if s.cancel != nil {
+		s.cancel()
+	}
 
 	s.tel.recordLeave()
 
@@ -897,9 +910,8 @@ func (d *delegate) LocalState(join bool) []byte {
 	d.service.userDelegateMu.RUnlock()
 
 	if len(dels) == 0 {
-		// Backwards-compat shape: prior code returned `{}`. An empty multiplex
-		// stream parses as zero frames so receivers tolerate either.
-		return []byte("{}")
+		// No delegates: an empty multiplex stream (zero frames).
+		return nil
 	}
 
 	out := make([]byte, 0, 64)
@@ -929,11 +941,6 @@ func (d *delegate) MergeRemoteState(buf []byte, join bool) {
 		d.service.logger.Debug("merging remote state",
 			zap.Int("size", len(buf)),
 			zap.Bool("join", join))
-	}
-
-	// Tolerate the legacy "{}" payload.
-	if len(buf) == 2 && buf[0] == '{' && buf[1] == '}' {
-		return
 	}
 
 	for len(buf) >= 5 {

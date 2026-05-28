@@ -83,8 +83,7 @@ func (r *Router) Send(pkg *api.Package) error {
 	}
 
 	// Fallback to internode for unknown nodes. Lock-free hot-path read:
-	// atomic.Pointer.Load is a single MOV vs the old RWMutex RLock+RUnlock
-	// CAS pair, on every message send.
+	// atomic.Pointer.Load is a single MOV on every message send.
 	if p := r.internode.Load(); p != nil {
 		return (*p).Send(pkg)
 	}

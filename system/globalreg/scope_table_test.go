@@ -147,9 +147,9 @@ func TestConsistentScope_ConcurrentCrossNode(t *testing.T) {
 	}
 }
 
-// TestScopeTable_BackCompatRegister verifies that the legacy Register
-// signature (no mode) still works after the API extension.
-func TestScopeTable_BackCompatRegister(t *testing.T) {
+// TestScopeTable_RegisterDefaultsToConsistent verifies that Register (the
+// no-mode convenience over RegisterScope) registers and unregisters a name.
+func TestScopeTable_RegisterDefaultsToConsistent(t *testing.T) {
 	fsm := NewFSM()
 	svc := newTestService(fsm, true)
 

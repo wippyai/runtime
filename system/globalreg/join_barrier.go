@@ -113,33 +113,9 @@ func (s *Service) buildJoinSnapshot(corrID uint64) *joinResponseEnvelope {
 // resolveForwardTarget so a non-member (which never observes the leader
 // directly) can still pull the snapshot through any raft member.
 func (s *Service) forwardJoinRequest(nodeEpoch uint64) (*joinResponseEnvelope, error) {
-	var (
-		targets []pid.NodeID
-		lastErr error
-	)
-	backoff := 100 * time.Millisecond
-	for i := 0; i < 30; i++ {
-		t, err := s.resolveForwardTarget()
-		if err == nil && len(t) > 0 {
-			targets = t
-			break
-		}
-		lastErr = err
-		select {
-		case <-s.stopCh:
-			return nil, globalreg.ErrNotAvailable
-		case <-time.After(backoff):
-		}
-		backoff *= 2
-		if backoff > time.Second {
-			backoff = time.Second
-		}
-	}
-	if len(targets) == 0 {
-		if lastErr != nil {
-			return nil, lastErr
-		}
-		return nil, globalreg.ErrNotAvailable
+	targets, err := s.waitForForwardTargets()
+	if err != nil {
+		return nil, err
 	}
 
 	corrID := correlationIDCounter.Add(1)

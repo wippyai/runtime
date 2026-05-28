@@ -457,11 +457,17 @@ func TestClusterPartitionRecovery(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = node2new.Stop() }()
 
-	// Wait for rejoin
+	// Wait for rejoin. The deadline matches the leave-detection window
+	// above (30s): a node restarting under the same name re-joins with a
+	// fresh, low memberlist incarnation and must reconcile it against the
+	// incarnation surviving peers recorded before it left. That
+	// reconciliation takes several gossip cycles, and the -race detector's
+	// ~10x slowdown pushes it past a tight 10s bound even though the
+	// convergence itself is correct.
 	select {
 	case <-rejoinCh:
 		// Success
-	case <-time.After(10 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("timeout waiting for node2 to rejoin")
 	}
 

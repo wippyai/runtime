@@ -45,7 +45,6 @@ type Node struct {
 	tel         *telemetry
 	localID     string
 	config      raftapi.Config
-	actualPort  int
 	voterCap    int
 	mu          sync.Mutex
 	started     bool
@@ -67,6 +66,11 @@ func NewNode(localID string, fsm hraft.FSM, cfg raftapi.Config, bus event.Bus, l
 	}
 }
 
+// LocalID returns the NodeID this raft instance was constructed with.
+// Used by the bootstrap watcher and other coordinator goroutines that
+// need to reason about the local node without consulting the transport.
+func (n *Node) LocalID() string { return n.localID }
+
 // SetConnectionManager wires the wippy internode connection manager
 // that the mesh-backed Raft transport rides on top of. Must be called
 // before Start; calling Start without a connection manager set returns
@@ -80,20 +84,30 @@ func (n *Node) SetConnectionManager(connMgr internode.ConnectionManager) {
 	n.connMgr = connMgr
 }
 
-// OnNodeLeft tears down the mesh transport session for a departed node.
-// Wired by boot to cluster.NodeLeft so a node's per-peer yamux session,
-// its backing classConn, and the session acceptLoop goroutine are
-// released on departure instead of leaking, and so a rejoin builds a
-// fresh session rather than reusing the stale one. No-op when the legacy
-// TCP transport is in use (no mesh stream layer) or before Start.
+// OnNodeLeft tears down the mesh transport session for a departed node
+// AND clears any accumulated per-peer failure state on the peer-state
+// tracker. Wired by boot to cluster.NodeLeft so a node's per-peer yamux
+// session, its backing classConn, and the session acceptLoop goroutine
+// are released on departure instead of leaking, and so a rejoin builds
+// a fresh session rather than reusing the stale one. Clearing the
+// tracker state means a reborn pod (same NodeID, fresh process) is not
+// stuck behind the exponential dead-window backoff that grew while its
+// previous incarnation was failing. No-op before Start (no stream layer
+// or transport wired yet).
 func (n *Node) OnNodeLeft(node cluster.NodeID) {
 	n.mu.Lock()
 	sl := n.streamLayer
+	tracker, _ := n.transport.(*peerStateTracker)
 	n.mu.Unlock()
-	if sl == nil || node == "" || node == n.localID {
+	if node == "" || node == n.localID {
 		return
 	}
-	sl.removePeer(node)
+	if sl != nil {
+		sl.removePeer(node)
+	}
+	if tracker != nil {
+		tracker.forgetPeer(hraft.ServerAddress(node))
+	}
 }
 
 // Telemetry exposes the internal telemetry handle so the MembershipHandler
@@ -165,20 +179,10 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 		return nil, fmt.Errorf("raft node already started")
 	}
 
-	useMesh := n.connMgr != nil
-	if useMesh {
-		// Mesh transport has no dedicated Raft listener; actualPort=0 here
-		// and is used only by resolveAdvertiseAddr on the legacy TCP fallback below.
-		n.actualPort = 0
-	} else {
-		// Legacy TCP transport path. Used by Raft instances that have
-		// not been wired to the internode connection manager.
-		port, err := autoDetectPort(n.config)
-		if err != nil {
-			return nil, fmt.Errorf("raft port detection: %w", err)
-		}
-		n.actualPort = port
-		n.config.BindPort = port //nolint:staticcheck // legacy TCP fallback path; mesh transport ignores this field.
+	// Raft rides the wippy internode mesh exclusively; the connection
+	// manager must be wired via SetConnectionManager before Start.
+	if n.connMgr == nil {
+		return nil, fmt.Errorf("raft: connection manager not set (call SetConnectionManager before Start)")
 	}
 
 	// Diskless control plane: the cluster state is ephemeral; on restart a
@@ -195,27 +199,14 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 	// thousands of unsampled lines per second per pod.
 	netLogOut := newRaftStderrAdapter(n.logger.Named("raft-net"))
 
-	var inner hraft.Transport
-	if useMesh {
-		// Mesh-backed transport: yamux session per peer over the
-		// existing internode connection (ClassRaftMesh frames). No
-		// dedicated Raft listener is bound.
-		n.streamLayer = newMeshStreamLayer(n.localID, n.connMgr, n.logger.Named("raft-mesh"))
-		if err := n.streamLayer.register(); err != nil {
-			return nil, fmt.Errorf("register raft mesh receiver: %w", err)
-		}
-		inner = hraft.NewNetworkTransport(n.streamLayer, n.config.MaxPool, 10*time.Second, netLogOut)
-	} else {
-		// Legacy TCP transport. Retained for Raft instances that
-		// haven't been wired through the internode mesh yet.
-		bindAddr := resolveTransportAddr(n.config)
-		advertiseAddr := resolveAdvertiseAddr(n.config, n.actualPort)
-		tcpTransport, err := hraft.NewTCPTransport(bindAddr, advertiseAddr, n.config.MaxPool, 10*time.Second, netLogOut)
-		if err != nil {
-			return nil, fmt.Errorf("create raft transport: %w", err)
-		}
-		inner = tcpTransport
+	// Mesh-backed transport: yamux session per peer over the existing
+	// internode connection (ClassRaftMesh frames). No dedicated Raft
+	// listener is bound; peers are addressed by NodeID.
+	n.streamLayer = newMeshStreamLayer(n.localID, n.connMgr, n.logger.Named("raft-mesh"))
+	if err := n.streamLayer.register(); err != nil {
+		return nil, fmt.Errorf("register raft mesh receiver: %w", err)
 	}
+	var inner hraft.Transport = hraft.NewNetworkTransport(n.streamLayer, n.config.MaxPool, 10*time.Second, netLogOut)
 
 	// Stack: peerStateTracker over instrumentedTransport over the
 	// chosen inner transport. The tracker short-circuits writes to
@@ -241,29 +232,12 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 	}
 	n.raft = r
 
-	// Bootstrap if configured and no existing state.
-	if n.config.Bootstrap {
-		hasState, err := hraft.HasExistingState(n.logStore, n.stableStore, n.snapStore)
-		if err != nil {
-			return nil, fmt.Errorf("check existing raft state: %w", err)
-		}
-		if !hasState {
-			cfg := hraft.Configuration{
-				Servers: []hraft.Server{
-					{
-						ID:      hraft.ServerID(n.localID),
-						Address: n.transport.LocalAddr(),
-					},
-				},
-			}
-			f := r.BootstrapCluster(cfg)
-			if err := f.Error(); err != nil {
-				n.logger.Warn("raft bootstrap failed (may already be bootstrapped)", zap.Error(err))
-			} else {
-				n.logger.Info("raft cluster bootstrapped", zap.String("id", n.localID))
-			}
-		}
-	}
+	// Cluster formation is deferred to the gossip-driven bootstrap watcher
+	// (see bootstrap.go). The watcher observes the converged gossip view
+	// and calls Bootstrap once exactly BootstrapExpect raft-eligible peers
+	// are visible. Start does not block on bootstrap; nodes joining an
+	// already-formed cluster never bootstrap and are added by the leader's
+	// reconciler via AddVoter.
 
 	n.started = true
 
@@ -274,7 +248,7 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 	n.logger.Info("raft node started",
 		zap.String("id", n.localID),
 		zap.String("transport", "mesh"),
-		zap.Bool("bootstrap", n.config.Bootstrap))
+		zap.Int("bootstrap_expect", n.config.BootstrapExpect))
 
 	return statusCh, nil
 }
@@ -327,29 +301,49 @@ func (n *Node) monitorLeadership(statusCh chan<- any) {
 	sampleTicker := time.NewTicker(time.Second)
 	defer sampleTicker.Stop()
 
-	// Track election timing: set whenever we leave the leader state, used to
-	// compute election duration when we (re)enter leader.
+	// electionStart is set whenever we leave leader state, to compute
+	// election duration when we (re)enter it. wasLeader is the last
+	// observed leadership state. Both are touched only by this goroutine,
+	// so applyTransition needs no locking.
 	var electionStart time.Time
 	wasLeader := false
 
-	// hashicorp/raft's LeaderCh is non-buffered with non-blocking writes —
-	// the initial `true` notification fired during BootstrapCluster (which
-	// runs before this goroutine is reading) is dropped on the floor.
-	// Without the seed below, recordLeaderChange() would fire only on
-	// future transitions, leaving raft_leader_changes_total stuck at 0
-	// for nodes that became leader during startup. Mirrors the seed in
-	// sampleStateAndTerm: read state directly and emit the initial event.
-	if n.raft.State() == hraft.Leader {
-		n.tel.recordLeaderChange()
-		wasLeader = true
-		n.logger.Info("this node is now the raft leader (initial state)",
-			zap.String("id", n.localID))
-		n.bus.Send(context.Background(), event.Event{
-			System: cluster.System,
-			Kind:   cluster.LeaderElected,
-			Path:   n.localID,
-		})
+	// applyTransition fires the elected/lost side effects (election timing,
+	// leader-change counter, log line, bus event) when observed leadership
+	// diverges from wasLeader, and updates the tracking vars. reason tags
+	// the log line to distinguish the seed / LeaderCh / reconcile paths.
+	applyTransition := func(nowLeader bool, reason string) {
+		switch {
+		case nowLeader && !wasLeader:
+			if !electionStart.IsZero() {
+				n.tel.recordElection(time.Since(electionStart))
+			}
+			n.tel.recordLeaderChange()
+			wasLeader = true
+			n.logger.Info("this node is now the raft leader"+reason, zap.String("id", n.localID))
+			n.bus.Send(context.Background(), event.Event{
+				System: cluster.System,
+				Kind:   cluster.LeaderElected,
+				Path:   n.localID,
+			})
+		case !nowLeader && wasLeader:
+			wasLeader = false
+			electionStart = time.Now()
+			n.logger.Info("this node lost raft leadership"+reason, zap.String("id", n.localID))
+			n.bus.Send(context.Background(), event.Event{
+				System: cluster.System,
+				Kind:   cluster.LeaderLost,
+				Path:   n.localID,
+			})
+		}
 	}
+
+	// Seed the initial state: hashicorp/raft's LeaderCh is non-buffered with
+	// non-blocking writes, so the initial `true` fired during BootstrapCluster
+	// (before this goroutine reads) is dropped. Without seeding from the
+	// current state, raft_leader_changes_total stays 0 for a node that became
+	// leader at startup.
+	applyTransition(n.raft.State() == hraft.Leader, " (initial state)")
 
 	// Initial sample so dashboards see state immediately.
 	n.sampleStateAndTerm()
@@ -361,66 +355,16 @@ func (n *Node) monitorLeadership(statusCh chan<- any) {
 			if !ok {
 				return
 			}
-			if isLeader {
-				if !wasLeader && !electionStart.IsZero() {
-					n.tel.recordElection(time.Since(electionStart))
-				}
-				n.tel.recordLeaderChange()
-				wasLeader = true
-				n.logger.Info("this node is now the raft leader", zap.String("id", n.localID))
-				n.bus.Send(context.Background(), event.Event{
-					System: cluster.System,
-					Kind:   cluster.LeaderElected,
-					Path:   n.localID,
-				})
-			} else {
-				wasLeader = false
-				electionStart = time.Now()
-				n.logger.Info("this node lost raft leadership", zap.String("id", n.localID))
-				n.bus.Send(context.Background(), event.Event{
-					System: cluster.System,
-					Kind:   cluster.LeaderLost,
-					Path:   n.localID,
-				})
-			}
+			applyTransition(isLeader, "")
 			n.sampleStateAndTerm()
 			n.sampleVoterLadder()
 		case <-sampleTicker.C:
-			// Defense-in-depth reconciliation. hashicorp/raft's LeaderCh is
-			// non-buffered with non-blocking writes — transitions that fire
-			// while the goroutine is between selects are dropped silently.
-			// Compare actual state vs wasLeader on every tick and fire
-			// the missing transition if they diverge. Without this, the
-			// first leader-elected after BootstrapCluster is frequently
-			// lost (we observed `raft_leader_changes_total` stuck at 0
-			// during 30-min chaos despite 20+ leadership transitions in
-			// the logs).
-			currentlyLeader := n.raft.State() == hraft.Leader
-			switch {
-			case currentlyLeader && !wasLeader:
-				if !electionStart.IsZero() {
-					n.tel.recordElection(time.Since(electionStart))
-				}
-				n.tel.recordLeaderChange()
-				wasLeader = true
-				n.logger.Info("this node is now the raft leader (reconciled)",
-					zap.String("id", n.localID))
-				n.bus.Send(context.Background(), event.Event{
-					System: cluster.System,
-					Kind:   cluster.LeaderElected,
-					Path:   n.localID,
-				})
-			case !currentlyLeader && wasLeader:
-				wasLeader = false
-				electionStart = time.Now()
-				n.logger.Info("this node lost raft leadership (reconciled)",
-					zap.String("id", n.localID))
-				n.bus.Send(context.Background(), event.Event{
-					System: cluster.System,
-					Kind:   cluster.LeaderLost,
-					Path:   n.localID,
-				})
-			}
+			// Defense-in-depth reconciliation: LeaderCh transitions that fire
+			// while the goroutine is between selects are dropped silently, so
+			// compare actual state vs wasLeader each tick and fire any missed
+			// transition. Without this the first leader-elected after
+			// BootstrapCluster is frequently lost.
+			applyTransition(n.raft.State() == hraft.Leader, " (reconciled)")
 			n.sampleStateAndTerm()
 			n.sampleVoterLadder()
 		case <-n.stopCh:
@@ -600,6 +544,56 @@ func (n *Node) Barrier(timeout time.Duration) error {
 	}
 	f := n.raft.Barrier(timeout)
 	return n.translateError(f.Error())
+}
+
+// Bootstrap forms a fresh raft cluster from the given NodeIDs as voters.
+// Under the mesh transport, the raft ServerAddress equals the NodeID.
+// Called by the gossip-driven bootstrap watcher once exactly
+// BootstrapExpect raft-eligible peers are stably visible — each peer
+// derives the same sorted list and calls Bootstrap with it, so every
+// node stamps an identical Configuration at log index 1.
+//
+// Idempotent: returns nil if raft has already been bootstrapped (e.g. the
+// leader's reconciler added us via AddVoter before our watcher fired) or
+// if a peer's bootstrap propagated to us first. The "already bootstrapped"
+// path is the dominant one for nodes joining an existing cluster.
+func (n *Node) Bootstrap(voterIDs []string) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if !n.started || n.raft == nil {
+		return raftapi.ErrNotRunning
+	}
+	hasState, err := hraft.HasExistingState(n.logStore, n.stableStore, n.snapStore)
+	if err != nil {
+		return fmt.Errorf("check existing raft state: %w", err)
+	}
+	if hasState {
+		return nil
+	}
+	// Under the mesh transport a peer's raft address equals its NodeID, and
+	// transport.LocalAddr() already returns ServerAddress(localID); resolve
+	// self through it and address every other voter by its NodeID.
+	localAddr := n.transport.LocalAddr()
+	hsrv := make([]hraft.Server, 0, len(voterIDs))
+	for _, id := range voterIDs {
+		addr := hraft.ServerAddress(id)
+		if id == n.localID {
+			addr = localAddr
+		}
+		hsrv = append(hsrv, hraft.Server{
+			Suffrage: hraft.Voter,
+			ID:       hraft.ServerID(id),
+			Address:  addr,
+		})
+	}
+	f := n.raft.BootstrapCluster(hraft.Configuration{Servers: hsrv})
+	if err := f.Error(); err != nil {
+		return fmt.Errorf("raft bootstrap: %w", err)
+	}
+	n.logger.Info("raft cluster bootstrapped",
+		zap.String("id", n.localID),
+		zap.Int("initial_size", len(hsrv)))
+	return nil
 }
 
 // AddVoter adds a voting member to the cluster.
@@ -994,18 +988,16 @@ func (it *instrumentedTransport) RequestVote(id hraft.ServerID, target hraft.Ser
 // The peerStateTracker layer above asserts the inner satisfies
 // WithPreVote on every pre-vote RPC; without this method that
 // assertion fails and every election emits an error, causing an
-// election storm. Observed in cluster as 22 restarts on the leader
-// pod after Bug 21 unmasked the symptom.
+// election storm.
 func (it *instrumentedTransport) RequestPreVote(id hraft.ServerID, target hraft.ServerAddress,
 	args *hraft.RequestPreVoteRequest, resp *hraft.RequestPreVoteResponse) error {
 	start := time.Now()
 	withPV, ok := it.Transport.(hraft.WithPreVote)
 	if !ok {
-		// The TCP transport hashicorp/raft hands us implements
-		// WithPreVote, so this branch should not be reachable in
-		// production. Surface as an error rather than panic so a
-		// misconfiguration is visible in metrics rather than crashing
-		// the pod.
+		// The mesh-backed hraft.NetworkTransport implements WithPreVote,
+		// so this branch is not reachable in production. Surface as an
+		// error rather than panic so a misconfiguration is visible in
+		// metrics rather than crashing the pod.
 		err := fmt.Errorf("raft-net: inner transport %T does not implement hraft.WithPreVote", it.Transport)
 		it.tel.recordRequestPreVote(string(id), err, time.Since(start))
 		return err

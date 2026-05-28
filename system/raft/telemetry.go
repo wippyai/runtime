@@ -42,6 +42,7 @@ func newTelemetry(coll metrics.Collector, mp otelmetric.MeterProvider, tp trace.
 		coll.CounterAdd("raft_peer_dead_total", 0, metrics.Labels{"peer": "_init"})
 		coll.CounterAdd("raft_peer_dead_skip_total", 0, metrics.Labels{"peer": "_init"})
 		coll.CounterAdd("raft_peer_recovered_total", 0, metrics.Labels{"peer": "_init"})
+		coll.CounterAdd("raft_voter_churn_burst_total", 0, nil)
 	}
 	return t
 }

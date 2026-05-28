@@ -100,9 +100,8 @@ func CreateLogger(cfg Config) (*zap.Logger, error) {
 
 	var zapCfg zap.Config
 
-	// Console flag takes precedence (legacy -c behavior); otherwise
-	// honor Encoding from config. Empty Encoding falls back to
-	// development console output for readability.
+	// Console flag takes precedence; otherwise honor Encoding from config.
+	// Empty Encoding falls back to development console output for readability.
 	switch {
 	case cfg.Console:
 		zapCfg = zap.Config{

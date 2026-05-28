@@ -39,3 +39,10 @@ dist/
 *.log
 /.claude/
 /protocols/
+
+# Local cluster-singleton test harness: build artifacts and runtime scratch
+/tests/cluster-singleton/bin/
+/tests/cluster-singleton/pids/
+/tests/cluster-singleton/logs/
+/tests/cluster-singleton/instances/
+/tests/cluster-singleton/lint_project/

@@ -33,6 +33,8 @@ func (m *fakeMembership) LocalNode() clusterapi.NodeInfo {
 	return clusterapi.NodeInfo{ID: m.local}
 }
 
+func (m *fakeMembership) UpdateMeta(map[string]string) {}
+
 // newStrongTestService wires a single-node service in leader role with a fake
 // membership and direct-apply raft. handlePendingEvent will fire an ack for
 // the local node synchronously inside FSM.Apply, which completes the set on

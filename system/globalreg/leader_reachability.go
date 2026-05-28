@@ -42,8 +42,8 @@ type leaderPongEnvelope struct {
 }
 
 // monitorLeaderReachability ties name-readiness to leader reachability rather
-// than peer membership churn. It probes the leader on a fixed cadence and runs
-// a debounced state machine:
+// than peer membership churn. It samples leader reachability on a fixed
+// cadence and runs a debounced state machine:
 //
 //   - reachable -> unreachable (after probeGrace consecutive failures): close
 //     the name-ready gate. A partitioned node can no longer be sure it isn't
@@ -54,9 +54,14 @@ type leaderPongEnvelope struct {
 //     barrier (epoch bump + snapshot fetch + conflict revoke); the gate reopens
 //     only when the barrier completes.
 //
-// A node that is itself the leader reaches itself trivially, so it stays
-// reachable and its Start barrier covers it. The initial state is reachable so
-// the first-join path is owned by joinBarrierOnStart, not a spurious rejoin.
+// A node that is itself the leader reaches itself trivially. A raft MEMBER
+// (follower with a known leader) reads its own LastContact() from the raft
+// transport — every heartbeat tick from the leader is already a reachability
+// proof, so there's no need to send our own probe across the wire. Only true
+// non-members fall through to the cross-cluster leaderPing/leaderPong RPC.
+//
+// The initial state is reachable so the first-join path is owned by
+// joinBarrierOnStart, not a spurious rejoin.
 func (s *Service) monitorLeaderReachability() {
 	interval := s.probeInterval
 	if interval <= 0 {
@@ -77,7 +82,7 @@ func (s *Service) monitorLeaderReachability() {
 		case <-s.stopCh:
 			return
 		case <-t.C:
-			if s.pingLeader() == nil {
+			if s.leaderReachable(interval) == nil {
 				failures = 0
 				if !reachable {
 					reachable = true
@@ -96,6 +101,39 @@ func (s *Service) monitorLeaderReachability() {
 			}
 		}
 	}
+}
+
+// leaderReachable returns nil when the leader is currently reachable.
+// Resolution order:
+//  1. We are the leader → reachable.
+//  2. We are a raft member with a known leader and recent LastContact
+//     → reachable, no network probe needed.
+//  3. Otherwise (non-member, or member with stale/zero LastContact)
+//     → fall back to the cross-cluster leaderPing RPC.
+//
+// staleness is bounded at 5 × probeInterval: the leader sends an empty
+// AppendEntries every HeartbeatTimeout (3s default); a node that has
+// gone 15+ seconds without one is on the wrong side of something even
+// if raft hasn't given up on its leader yet.
+func (s *Service) leaderReachable(probeInterval time.Duration) error {
+	if s.raftSvc == nil {
+		return globalreg.ErrNotAvailable
+	}
+	if s.raftSvc.IsLeader() {
+		return nil
+	}
+	if leaderID, _, err := s.raftSvc.Leader(); err == nil && leaderID != "" {
+		last := s.raftSvc.LastContact()
+		if !last.IsZero() {
+			if time.Since(last) < 5*probeInterval {
+				return nil
+			}
+			return globalreg.ErrNotAvailable
+		}
+	}
+	// Either no leader is known yet (just-joined member) or we're a
+	// non-member: probe across the wire.
+	return s.pingLeader()
 }
 
 // pingLeader probes leader reachability. The leader reaches itself trivially.
