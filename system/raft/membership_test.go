@@ -138,6 +138,7 @@ func (f *fakeRaft) State() raftapi.State                                     { r
 func (f *fakeRaft) Barrier(_ time.Duration) error                            { return nil }
 func (f *fakeRaft) CommitIndex() uint64                                      { return 0 }
 func (f *fakeRaft) Stats() map[string]string                                 { return nil }
+func (f *fakeRaft) LastContact() time.Time                                   { return time.Time{} }
 
 func (f *fakeRaft) upsertLocked(s raftapi.Server) {
 	for i, existing := range f.servers {

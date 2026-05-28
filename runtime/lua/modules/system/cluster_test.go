@@ -60,6 +60,7 @@ func (f *fakeRaftService) GetConfiguration() ([]raftapi.Server, error) {
 	return out, nil
 }
 func (f *fakeRaftService) Stats() map[string]string { return f.stats }
+func (f *fakeRaftService) LastContact() time.Time   { return time.Time{} }
 
 func newClusterTestState(t *testing.T) (*lua.LState, context.Context) {
 	t.Helper()

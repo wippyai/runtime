@@ -100,6 +100,7 @@ func (r *noLeaderRaft) LeadershipTransfer(_ raftapi.ServerID, _ time.Duration) e
 }
 func (r *noLeaderRaft) GetConfiguration() ([]raftapi.Server, error) { return nil, nil }
 func (r *noLeaderRaft) Stats() map[string]string                    { return nil }
+func (r *noLeaderRaft) LastContact() time.Time                      { return time.Time{} }
 
 // TestResolveForwardTarget_LeaderKnownIsFirst proves that when Leader() returns
 // a non-empty ID, it is the first candidate; the derived set comes after.
@@ -235,6 +236,7 @@ func (r *memberFollowerRaft) LeadershipTransfer(_ raftapi.ServerID, _ time.Durat
 }
 func (r *memberFollowerRaft) GetConfiguration() ([]raftapi.Server, error) { return nil, nil }
 func (r *memberFollowerRaft) Stats() map[string]string                    { return nil }
+func (r *memberFollowerRaft) LastContact() time.Time                      { return time.Time{} }
 func (r *memberFollowerRaft) SetLeader(id raftapi.ServerID)               { r.leaderID = id }
 
 // TestForwardToLeader_NonMemberReachesLeaderViaMember proves the foundational

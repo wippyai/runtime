@@ -117,6 +117,14 @@ type (
 		// statistics as string key/value pairs (term, commit_index,
 		// last_log_index, applied_index, fsm_pending, etc.). Read-only.
 		Stats() map[string]string
+
+		// LastContact returns the timestamp of the last AppendEntries
+		// received from the leader (zero for the leader itself or
+		// before any contact has been recorded). Members use this as
+		// a local liveness signal instead of an explicit reachability
+		// probe — every heartbeat tick from the leader is already a
+		// reachability proof.
+		LastContact() time.Time
 	}
 
 	// Server describes a node in the Raft cluster.

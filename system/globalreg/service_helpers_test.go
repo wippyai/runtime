@@ -78,6 +78,7 @@ func (r *directApplyRaft) GetConfiguration() ([]raftapi.Server, error) {
 	return nil, nil
 }
 func (r *directApplyRaft) Stats() map[string]string { return nil }
+func (r *directApplyRaft) LastContact() time.Time   { return time.Time{} }
 
 // nopBus is a no-op event.Bus that ignores subscriptions.
 type nopBus struct{}
