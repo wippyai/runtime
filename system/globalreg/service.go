@@ -453,8 +453,8 @@ func (s *Service) dropDepartedFromPending(nodeID pid.NodeID) {
 
 // --- globalreg.Registry implementation ---
 
-// Register registers a name at Consistent scope. Kept for back-compat
-// callers that have not been migrated to RegisterScope.
+// Register registers a name at Consistent scope: the no-mode convenience over
+// RegisterScope.
 func (s *Service) Register(ctx context.Context, name string, p pid.PID) (pid.PID, error) {
 	out, err := s.RegisterScope(ctx, name, p, globalreg.Consistent)
 	if err != nil {
@@ -521,7 +521,8 @@ func (s *Service) registerConsistent(name string, p pid.PID) (globalreg.Register
 	}, nil
 }
 
-// Unregister removes a Consistent-scope registration. Back-compat shim.
+// Unregister removes a Consistent-scope registration: the no-mode convenience
+// over UnregisterScope.
 func (s *Service) Unregister(ctx context.Context, name string) (bool, error) {
 	return s.UnregisterScope(ctx, name, globalreg.Consistent)
 }

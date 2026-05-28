@@ -16,10 +16,9 @@ import (
 // forwardWireVersion is the version byte used by v1 forward-response envelopes.
 const forwardWireVersion = 1
 
-// forwardWireMagic is the discriminator byte placed at offset 8 of a v1
-// envelope. v0 envelopes carry an error string in the same position, which is
-// always non-zero printable ASCII (Go's fmt.Errorf / errors.New cannot return
-// a string starting with a NUL byte), so this magic byte is unambiguous.
+// forwardWireMagic is the discriminator byte at offset 8 of a response
+// envelope; a valid envelope always carries 0x00 here, followed by the version
+// byte. Any other byte marks a malformed envelope.
 const forwardWireMagic = 0x00
 
 // commandLabel returns a low-cardinality label for prometheus.
@@ -51,10 +50,9 @@ func commandLabel(t CommandType) string {
 	}
 }
 
-// forwardBody is the msgpack-encoded body of a v1 forward-response envelope.
-// It is intentionally simple: a single command-kind discriminator, an optional
-// error string (mirrors v0 semantics), and an opaque result blob whose shape
-// is determined by CmdKind.
+// forwardBody is the msgpack-encoded body of a forward-response envelope. It
+// is intentionally simple: a single command-kind discriminator, an optional
+// error string, and an opaque result blob whose shape is determined by CmdKind.
 type forwardBody struct {
 	Err     string      `codec:"e,omitempty"`
 	Result  []byte      `codec:"r,omitempty"`
@@ -102,9 +100,9 @@ type wireRejectResult struct {
 // forwarding follower. It returns the encoded bytes and the matching command
 // kind tag for the envelope header.
 //
-// If result is nil, the function returns (nil, nil) — a v0-equivalent empty
-// result. Callers that need to distinguish "no result" from "encode error"
-// should inspect the error.
+// If result is nil, the function returns (nil, nil) — an empty result.
+// Callers that need to distinguish "no result" from "encode error" should
+// inspect the error.
 func encodeFSMResult(cmd CommandType, result any) ([]byte, error) {
 	switch v := result.(type) {
 	case nil:

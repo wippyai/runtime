@@ -351,9 +351,8 @@ func (s *Service) replyForward(sourceNode pid.NodeID, corrID uint64, cmd Command
 // command. When this node is an intermediate hop (its corrID is registered in
 // forwardProxies because it re-forwarded the original request on behalf of a
 // non-member), the response bytes are relayed verbatim to the origin node
-// instead of being delivered locally. Otherwise it accepts both legacy v0
-// (error-string-only) and new v1 (typed result) envelopes so a mid-upgrade
-// cluster never wedges a follower.
+// instead of being delivered locally. Otherwise it decodes the typed v1
+// envelope and delivers the result to the waiting caller.
 func (s *Service) handleForwardResponse(msg *relay.Message) {
 	if len(msg.Payloads) == 0 {
 		return
