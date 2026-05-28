@@ -5,12 +5,15 @@ package pg
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/wippyai/runtime/api/payload"
 	pgapi "github.com/wippyai/runtime/api/pg"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/cluster/internode"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -133,4 +136,68 @@ func (s *Service) deliverMonitorEventWithCircuitBreaker(group string, kind strin
 
 	deliver(groupEntries)
 	deliver(wildcardEntries)
+}
+
+// Broadcast sends a message to all members of a group across all nodes.
+func (s *Service) Broadcast(from pid.PID, group pgapi.Group, topic string, payloads payload.Payloads) (int, error) {
+	span := noopSpan
+	if s.tel.tracing {
+		_, span = s.tel.tracer.Start(s.currentCtx(), "pg.broadcast",
+			trace.WithAttributes(
+				attribute.String("pg.name", group),
+				attribute.String("node.id", s.localNodeID),
+			),
+		)
+		defer span.End()
+	}
+
+	start := time.Now()
+	// Snapshot members inside the event loop for consistency.
+	membersCh := make(chan []pid.PID, 1)
+	if !s.submit(func() {
+		membersCh <- s.state.getMembers(group)
+	}) {
+		err := s.submitError()
+		s.tel.setSpanError(span, err)
+		s.tel.recordBroadcast(group, 0, err, time.Since(start))
+		return 0, err
+	}
+
+	var members []pid.PID
+	select {
+	case members = <-membersCh:
+	case <-s.currentCtx().Done():
+		s.tel.setSpanError(span, ErrServiceStopped)
+		s.tel.recordBroadcast(group, 0, ErrServiceStopped, time.Since(start))
+		return 0, ErrServiceStopped
+	}
+
+	// Send outside the event loop so we don't block the action queue.
+	sent := s.sendToMembers(from, topic, payloads, members)
+	span.SetAttributes(attribute.Int("pg.recipients", sent))
+	s.tel.recordBroadcast(group, sent, nil, time.Since(start))
+	s.activity.Touch()
+	return sent, nil
+}
+
+// BroadcastLocal sends a message to local members of a group only.
+func (s *Service) BroadcastLocal(from pid.PID, group pgapi.Group, topic string, payloads payload.Payloads) (int, error) {
+	// Snapshot members inside the event loop for consistency.
+	membersCh := make(chan []pid.PID, 1)
+	if !s.submit(func() {
+		membersCh <- s.state.getLocalMembers(group)
+	}) {
+		return 0, s.submitError()
+	}
+
+	var members []pid.PID
+	select {
+	case members = <-membersCh:
+	case <-s.currentCtx().Done():
+		return 0, ErrServiceStopped
+	}
+
+	// Send outside the event loop so we don't block the action queue.
+	sent := s.sendToMembers(from, topic, payloads, members)
+	return sent, nil
 }
