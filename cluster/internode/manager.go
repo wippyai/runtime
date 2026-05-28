@@ -682,10 +682,14 @@ func (loop *nodeControlLoop) handleConnected(data connectedData) {
 	// disconnected, so no explicit drain call is needed here.
 	loop.bindConnectionDrain()
 
+	// Capture the connection now and hand it to the monitor goroutine.
+	// Reading loop.connection inside the goroutine races with cleanup
+	// paths that set loop.connection = nil on disconnect/kill.
+	conn := loop.connection
 	loop.manager.wg.Add(1)
 	go func() {
 		defer loop.manager.wg.Done()
-		loop.monitorConnection()
+		loop.monitorConnection(conn)
 	}()
 }
 
@@ -793,11 +797,11 @@ func (loop *nodeControlLoop) attemptConnection() {
 	loop.sendCommandToSelf(nodeCommand{Type: cmdConnected, Data: connectedData{Connection: nodeConn}})
 }
 
-func (loop *nodeControlLoop) monitorConnection() {
-	if loop.connection == nil {
+func (loop *nodeControlLoop) monitorConnection(conn *NodeConnection) {
+	if conn == nil {
 		return
 	}
-	err := loop.connection.Run(func(class Class, msg []byte) {
+	err := conn.Run(func(class Class, msg []byte) {
 		if recv := loop.manager.lookupClassReceiver(class); recv != nil {
 			recv(loop.nodeID, msg)
 			return
