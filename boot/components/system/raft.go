@@ -137,6 +137,23 @@ func Raft() boot.Component {
 				ReconcileTimeout:  raftCfg.GetDuration(ClusterRaftReconcileTimeout, 2*time.Second),
 			}
 
+			// Raft rides the internode mesh exclusively. Without a connection
+			// manager (cluster transport not wired — e.g. a single-node
+			// process with no internode layer) raft cannot form, so the whole
+			// component no-ops: raftNode stays nil and every Start-phase hook
+			// guards on it. This is the path single-node/CLI runs take when
+			// cluster gossip is enabled but the internode mesh is not.
+			var connMgr internode.ConnectionManager
+			if ac := ctxapi.AppFromContext(ctx); ac != nil {
+				if v := ac.Get(connMgrKey); v != nil {
+					connMgr, _ = v.(internode.ConnectionManager)
+				}
+			}
+			if connMgr == nil {
+				logger.Warn("raft disabled: internode connection manager not available (no mesh transport)")
+				return ctx, nil
+			}
+
 			// Create the global registry FSM (the state machine Raft replicates).
 			fsm := globalreg.NewFSM()
 
@@ -148,17 +165,7 @@ func Raft() boot.Component {
 			tp := otel.GetTracerProvider()
 
 			raftNode = sysraft.NewNode(node.ID(), wrapFSM(fsm), rc, bus, logger.Named("node"), coll, mp, tp)
-
-			// Wire the internode connection manager so the mesh-backed
-			// transport can register its ClassRaftMesh receiver during
-			// Start. Without it, Start fails fast with a clear error.
-			if ac := ctxapi.AppFromContext(ctx); ac != nil {
-				if v := ac.Get(connMgrKey); v != nil {
-					if cm, ok := v.(internode.ConnectionManager); ok {
-						raftNode.SetConnectionManager(cm)
-					}
-				}
-			}
+			raftNode.SetConnectionManager(connMgr)
 
 			// Create the global registry service wrapping Raft + FSM.
 			router := relay.GetRouter(ctx)
