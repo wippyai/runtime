@@ -711,12 +711,9 @@ func (s *shardedState) removePIDWithNames(p pid.PID) ([]string, int, []strongTer
 	return removedAll, removed, strongs
 }
 
-// removeNode removes up to `limit` names for PIDs on a node. If limit ≤ 0, all
-// matching names are removed in a single call (legacy behavior). Returns the
-// number removed, whether more remain — callers can chunk to keep each FSM
-// Apply bounded so other writes interleave — and any promoted Strong names
-// removedNameEntry records one (name, pid) tuple a removeNodeWithNames pass dropped, so
-// the dissem broadcaster can emit a per-name tombstone with the correct pid.
+// removedNameEntry records one (name, pid) tuple a removeNodeWithNames pass
+// dropped, so the dissem broadcaster can emit a per-name tombstone with the
+// correct pid.
 type removedNameEntry struct {
 	Name string
 	PID  pid.PID

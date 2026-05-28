@@ -220,9 +220,9 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 
 	// Pipe memberlist logs into our zap logger. In non-verbose mode we only
-	// surface [ERR] and [WARN] lines; [DEBUG]/[INFO] are dropped. We never
-	// silence ERR — silently discarding "Failed to decode user message"
-	// (or similar) is what masked Bug 7 for so long.
+	// surface [ERR] and [WARN] lines; [DEBUG]/[INFO] are dropped. ERR is
+	// never silenced — discarding lines like "Failed to decode user
+	// message" hides real protocol faults.
 	mlConfig.LogOutput = newMemberlistLogWriter(s.logger.Named("memberlist"), s.config.VeryVerbose)
 
 	// Load secret key if provided

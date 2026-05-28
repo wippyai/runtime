@@ -162,17 +162,13 @@ func localIsMember(l *lua.LState, svc raftapi.Service) bool {
 
 // localRoleFromService composes "leader" | "voter" | "standby" |
 // "non-member" from IsLeader plus the local suffrage in the committed
-// configuration. Pure local read. Returns "non-member" when svc is nil.
-func localRoleFromService(svc raftapi.Service, args ...string) string {
+// configuration. Returns "non-member" when svc is nil or id is empty.
+func localRoleFromService(svc raftapi.Service, id string) string {
 	if svc == nil {
 		return "non-member"
 	}
 	if svc.IsLeader() {
 		return "leader"
-	}
-	var id string
-	if len(args) > 0 {
-		id = args[0]
 	}
 	if id == "" {
 		return "non-member"

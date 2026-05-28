@@ -44,7 +44,7 @@ func initModuleTable() {
 // Module is the system module definition.
 var Module = &luaapi.ModuleDef{
 	Name:        "system",
-	Description: "System memory, GC, runtime, process, and node info",
+	Description: "System runtime, process, and cluster (node/cluster/raft/lock) introspection",
 	Class:       []string{luaapi.ClassProcess, luaapi.ClassNondeterministic},
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		initOnce.Do(initModuleTable)

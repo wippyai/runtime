@@ -113,13 +113,6 @@ type Outbound struct {
 	Class Class
 }
 
-// Connection defines the public interface for a connection to another node.
-type Connection interface {
-	Run(handler func(class Class, msg []byte)) *ConnectionError
-	Close()
-	RemoteNodeID() cluster.NodeID
-}
-
 // NodeConnectionConfig holds configuration parameters for a NodeConnection.
 type NodeConnectionConfig struct {
 	HandshakeTimeout time.Duration

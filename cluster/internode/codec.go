@@ -15,7 +15,6 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 )
 
-// Keep existing structs - no changes to your data model
 type encodedPayload struct {
 	Data   any
 	Format payload.Format

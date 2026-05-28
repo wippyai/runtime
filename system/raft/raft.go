@@ -1045,8 +1045,7 @@ func (it *instrumentedTransport) RequestVote(id hraft.ServerID, target hraft.Ser
 // The peerStateTracker layer above asserts the inner satisfies
 // WithPreVote on every pre-vote RPC; without this method that
 // assertion fails and every election emits an error, causing an
-// election storm. Observed in cluster as 22 restarts on the leader
-// pod after Bug 21 unmasked the symptom.
+// election storm.
 func (it *instrumentedTransport) RequestPreVote(id hraft.ServerID, target hraft.ServerAddress,
 	args *hraft.RequestPreVoteRequest, resp *hraft.RequestPreVoteResponse) error {
 	start := time.Now()

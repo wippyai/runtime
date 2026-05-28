@@ -86,8 +86,8 @@ func (s *Service) sendToMembers(from pid.PID, topic string, payloads payload.Pay
 	return sent
 }
 
-// deliverMonitorEvent sends a membership event to all monitors with circuit breaker protection.
-// Must be called from the event loop.
+// deliverMonitorEventWithCircuitBreaker sends a membership event to all
+// monitors with circuit breaker protection. Must be called from the event loop.
 func (s *Service) deliverMonitorEventWithCircuitBreaker(group string, kind string, pids []pid.PID) {
 	groupEntries := s.monitors[group]
 	wildcardEntries := s.monitors[""]
