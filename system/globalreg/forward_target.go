@@ -3,6 +3,8 @@
 package globalreg
 
 import (
+	"time"
+
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/globalreg"
 	"github.com/wippyai/runtime/api/pid"
@@ -15,6 +17,16 @@ import (
 // that keeps a momentary leader-flip from spinning a write around the
 // cluster.
 const maxForwardHops uint8 = 1
+
+// Forward-target resolution backoff. After a start or rejoin, membership
+// and leader state take a beat to settle, so resolveForwardTarget is
+// retried a bounded number of times with exponential backoff rather than
+// failing the first write outright.
+const (
+	forwardResolveAttempts    = 30
+	forwardResolveBackoffInit = 100 * time.Millisecond
+	forwardResolveBackoffMax  = time.Second
+)
 
 // MemberDeriver computes the ordered set of raft members a non-member should
 // fall back to when no leader is known. The implementation closes over the
@@ -122,4 +134,36 @@ func (s *Service) reForwardTarget(hop uint8) (pid.NodeID, bool) {
 		return "", false
 	}
 	return id, true
+}
+
+// waitForForwardTargets resolves the deterministic forward targets, retrying
+// with exponential backoff (100ms doubling, capped at 1s, up to 30 attempts)
+// because membership and leader state may need a beat to settle after a
+// start or rejoin. Returns the resolved targets, or the last resolve error
+// (ErrNotAvailable if none) when nothing becomes available before stopCh
+// closes or the attempts run out. Callers record their own telemetry on the
+// returned error.
+func (s *Service) waitForForwardTargets() ([]pid.NodeID, error) {
+	var lastErr error
+	backoff := forwardResolveBackoffInit
+	for i := 0; i < forwardResolveAttempts; i++ {
+		t, err := s.resolveForwardTarget()
+		if err == nil && len(t) > 0 {
+			return t, nil
+		}
+		lastErr = err
+		select {
+		case <-s.stopCh:
+			return nil, globalreg.ErrNotAvailable
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+		if backoff > forwardResolveBackoffMax {
+			backoff = forwardResolveBackoffMax
+		}
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, globalreg.ErrNotAvailable
 }
