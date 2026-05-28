@@ -7,7 +7,7 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
-	systempg "github.com/wippyai/runtime/system/pg"
+	pg "github.com/wippyai/runtime/service/pg"
 )
 
 func PGDispatcher() boot.Component {
@@ -20,7 +20,7 @@ func PGDispatcher() boot.Component {
 				return ctx, ErrDispatcherNotFound
 			}
 
-			d := systempg.NewDispatcher()
+			d := pg.NewDispatcher()
 			d.RegisterAll(reg.Register)
 
 			return ctx, nil
