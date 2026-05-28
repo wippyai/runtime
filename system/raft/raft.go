@@ -92,8 +92,8 @@ func (n *Node) SetConnectionManager(connMgr internode.ConnectionManager) {
 // a fresh session rather than reusing the stale one. Clearing the
 // tracker state means a reborn pod (same NodeID, fresh process) is not
 // stuck behind the exponential dead-window backoff that grew while its
-// previous incarnation was failing. No-op when the legacy TCP transport
-// is in use (no mesh stream layer) or before Start.
+// previous incarnation was failing. No-op before Start (no stream layer
+// or transport wired yet).
 func (n *Node) OnNodeLeft(node cluster.NodeID) {
 	n.mu.Lock()
 	sl := n.streamLayer
@@ -600,12 +600,9 @@ func (n *Node) Bootstrap(voterIDs []string) error {
 	if hasState {
 		return nil
 	}
-	// Under the mesh transport every peer's raft address equals its
-	// NodeID (transport.LocalAddr() returns ServerAddress(localID)). Under
-	// the legacy TCP fallback the local node uses its actual bind address.
-	// Resolve self via transport so both paths work; non-self entries use
-	// the supplied ID as their address (mesh path is the only one that
-	// ever supplies multi-peer lists).
+	// Under the mesh transport a peer's raft address equals its NodeID, and
+	// transport.LocalAddr() already returns ServerAddress(localID); resolve
+	// self through it and address every other voter by its NodeID.
 	localAddr := n.transport.LocalAddr()
 	hsrv := make([]hraft.Server, 0, len(voterIDs))
 	for _, id := range voterIDs {
@@ -1027,11 +1024,10 @@ func (it *instrumentedTransport) RequestPreVote(id hraft.ServerID, target hraft.
 	start := time.Now()
 	withPV, ok := it.Transport.(hraft.WithPreVote)
 	if !ok {
-		// The TCP transport hashicorp/raft hands us implements
-		// WithPreVote, so this branch should not be reachable in
-		// production. Surface as an error rather than panic so a
-		// misconfiguration is visible in metrics rather than crashing
-		// the pod.
+		// The mesh-backed hraft.NetworkTransport implements WithPreVote,
+		// so this branch is not reachable in production. Surface as an
+		// error rather than panic so a misconfiguration is visible in
+		// metrics rather than crashing the pod.
 		err := fmt.Errorf("raft-net: inner transport %T does not implement hraft.WithPreVote", it.Transport)
 		it.tel.recordRequestPreVote(string(id), err, time.Since(start))
 		return err

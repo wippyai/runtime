@@ -99,7 +99,6 @@ type Service struct {
 	lookupPending    map[uint64]chan *lookupResponseEnvelope
 	ackerEpochs      map[pid.NodeID]uint64
 	strongExclusions map[string]strongExclusion
-	rebroadcastStop  chan struct{}
 	tel              *telemetry
 	monitoredPIDs    sync.Map
 	localNode        pid.NodeID
@@ -374,7 +373,6 @@ func (s *Service) Start(ctx context.Context) (<-chan any, error) {
 		return nil, fmt.Errorf("global registry service already started")
 	}
 	s.started = true
-	s.rebroadcastStop = make(chan struct{})
 	s.mu.Unlock()
 
 	// Open the join-epoch barrier: fresh node epoch, name service not ready
@@ -460,6 +458,12 @@ func (s *Service) Stop(_ context.Context) error {
 	s.mu.Unlock()
 
 	close(s.stopCh)
+
+	// Stop the dissem plane's GC goroutine, which runs off its own stopCh
+	// (s.stopCh does not reach it).
+	if d := s.loadDissem(); d != nil {
+		d.Stop()
+	}
 
 	s.logger.Info("global registry service stopped", zap.String("node", s.localNode))
 	return nil

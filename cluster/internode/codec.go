@@ -198,11 +198,15 @@ func (pidExtension) WriteExt(v any) []byte {
 }
 
 func (pidExtension) ReadExt(dst any, src []byte) {
+	// The msgpack ext API has no error return. A PID field that fails to
+	// parse (corrupt or version-mismatched wire bytes) leaves dst at the
+	// zero PID; downstream routing rejects an empty Source/Target rather
+	// than acting on a wrong address, so the failure surfaces as a dropped
+	// message, not silent misdelivery.
 	p, err := pid.ParsePID(string(src))
 	if err != nil {
 		return
 	}
-
 	if pidPtr, ok := dst.(*pid.PID); ok {
 		*pidPtr = p
 	}

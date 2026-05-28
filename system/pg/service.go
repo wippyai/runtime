@@ -1110,7 +1110,7 @@ func (s *Service) Monitor(group string, p pid.PID, topic string) pgapi.MonitorRe
 		// unsubscribe returns (matches Erlang pg:demonitor/2 semantics).
 		unsubscribe := func() {
 			unsub := make(chan struct{}, 1)
-			s.submit(func() {
+			if !s.submit(func() {
 				s.removeMonitor(group, id, p)
 				// If the process has no more group memberships and no more
 				// monitor subscriptions, stop monitoring it.
@@ -1118,7 +1118,13 @@ func (s *Service) Monitor(group string, p pid.PID, topic string) pgapi.MonitorRe
 					s.demonitorProcess(p)
 				}
 				unsub <- struct{}{}
-			})
+			}) {
+				// Action queue full: the removal closure never ran, so
+				// don't wait on unsub (it would block until service ctx
+				// cancellation). The monitor entry is reaped later on the
+				// process/node-cleanup path.
+				return
+			}
 			select {
 			case <-unsub:
 			case <-s.currentCtx().Done():
@@ -1262,13 +1268,19 @@ func (s *Service) Events(p pid.PID, topic string) pgapi.EventsResult {
 
 		unsubscribe := func() {
 			unsub := make(chan struct{}, 1)
-			s.submit(func() {
+			if !s.submit(func() {
 				s.removeMonitor("", id, p)
 				if !s.hasMonitorSubscriptions(p) && !s.hasGroupMemberships(p) {
 					s.demonitorProcess(p)
 				}
 				unsub <- struct{}{}
-			})
+			}) {
+				// Action queue full: the removal closure never ran, so
+				// don't wait on unsub (it would block until service ctx
+				// cancellation). The monitor entry is reaped later on the
+				// process/node-cleanup path.
+				return
+			}
 			select {
 			case <-unsub:
 			case <-s.currentCtx().Done():

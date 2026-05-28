@@ -49,6 +49,7 @@ type UserDelegate interface {
 // Service implements cluster membership using memberlist
 type Service struct {
 	ctx            context.Context
+	cancel         context.CancelFunc
 	bus            event.Bus
 	transport      memberlist.Transport
 	logger         *zap.Logger
@@ -176,7 +177,10 @@ func New(opts ...Option) *Service {
 
 // Start initializes and starts the membership service
 func (s *Service) Start(ctx context.Context) error {
-	s.ctx = ctx
+	// Derive a cancellable context so Stop terminates the background loops
+	// (emitHealthLoop, rejoinLoop) without depending on the parent ctx
+	// being cancelled at the same time.
+	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.logger.Info("starting service",
 		zap.String("node_name", s.config.NodeName),
 		zap.String("bind_address", fmt.Sprintf("%s:%d", s.config.BindAddr, s.config.BindPort)))
@@ -438,6 +442,12 @@ func (s *Service) HealthScore() int {
 // Stop gracefully shuts down the membership service
 func (s *Service) Stop() error {
 	s.logger.Info("shutting down cluster membership service")
+
+	// Cancel the background loops before tearing down memberlist so
+	// rejoinLoop can't call Join on a shut-down instance.
+	if s.cancel != nil {
+		s.cancel()
+	}
 
 	s.tel.recordLeave()
 
