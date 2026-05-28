@@ -671,22 +671,14 @@ func (s *shardedState) removePIDWithNames(p pid.PID) ([]string, int, []strongTer
 		names, ok := sh.pidNames[pidKey]
 		if ok {
 			for _, name := range names {
-				e, present := sh.names[name]
-				if !present {
+				e, st := dropNameLocked(sh, name)
+				if e == nil {
 					continue
 				}
-				if len(e.RequiredNodes) > 0 {
-					req := make([]pid.NodeID, len(e.RequiredNodes))
-					copy(req, e.RequiredNodes)
-					strongs = append(strongs, strongTerminal{
-						Name:          name,
-						PID:           e.PID,
-						RequiredNodes: req,
-						Epoch:         e.Epoch,
-					})
+				if st != nil {
+					strongs = append(strongs, *st)
 				}
 				removedAll = append(removedAll, name)
-				delete(sh.names, name)
 				removed++
 			}
 			delete(sh.pidNames, pidKey)
@@ -719,9 +711,10 @@ type removedNameEntry struct {
 	PID  pid.PID
 }
 
-// removeNodeWithNames mirrors removeNode but also returns the per-name list of
-// removed (name, pid) tuples. Dissem uses the list to emit one tombstone per
-// removed name.
+// removeNodeWithNames removes up to limit names for all PIDs on a node and
+// returns the per-name list of removed (name, pid) tuples, the count, whether
+// more remain (limit hit), and any Strong terminals for tombstoning. Dissem
+// emits one tombstone per removed name.
 func (s *shardedState) removeNodeWithNames(nodeID pid.NodeID, limit int) ([]removedNameEntry, int, bool, []strongTerminal) {
 	val, ok := s.nodeIndex.Load(nodeID)
 	if !ok {
@@ -769,22 +762,14 @@ func (s *shardedState) removeNodeWithNames(nodeID pid.NodeID, limit int) ([]remo
 				if cap >= 0 && removed >= cap {
 					break
 				}
-				e, present := sh.names[names[j]]
-				if !present {
+				e, st := dropNameLocked(sh, names[j])
+				if e == nil {
 					continue
 				}
-				if len(e.RequiredNodes) > 0 {
-					req := make([]pid.NodeID, len(e.RequiredNodes))
-					copy(req, e.RequiredNodes)
-					strongs = append(strongs, strongTerminal{
-						Name:          names[j],
-						PID:           e.PID,
-						RequiredNodes: req,
-						Epoch:         e.Epoch,
-					})
+				if st != nil {
+					strongs = append(strongs, *st)
 				}
 				removedAll = append(removedAll, removedNameEntry{Name: names[j], PID: e.PID})
-				delete(sh.names, names[j])
 				removed++
 			}
 			if j == len(names) {
@@ -816,6 +801,27 @@ func (s *shardedState) removeNodeWithNames(nodeID pid.NodeID, limit int) ([]remo
 }
 
 // --- Helpers ---
+
+// dropNameLocked removes name from the shard's name table and, if it was a
+// Strong registration, returns its terminal record for tombstoning. Returns
+// the removed entry (nil if the name was absent) so callers can read its PID.
+// Caller must hold sh.mu write-lock. Shared by removePIDWithNames and
+// removeNodeWithNames, which differ only in their outer iteration (single
+// pid vs node-indexed, unlimited vs chunked).
+func dropNameLocked(sh *shard, name string) (*nameEntry, *strongTerminal) {
+	e, present := sh.names[name]
+	if !present {
+		return nil, nil
+	}
+	var st *strongTerminal
+	if len(e.RequiredNodes) > 0 {
+		req := make([]pid.NodeID, len(e.RequiredNodes))
+		copy(req, e.RequiredNodes)
+		st = &strongTerminal{Name: name, PID: e.PID, RequiredNodes: req, Epoch: e.Epoch}
+	}
+	delete(sh.names, name)
+	return e, st
+}
 
 // removePIDName removes a single name from the pidNames reverse index within a shard.
 // Caller must hold sh.mu write-lock.
