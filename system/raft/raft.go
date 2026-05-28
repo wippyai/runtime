@@ -85,20 +85,30 @@ func (n *Node) SetConnectionManager(connMgr internode.ConnectionManager) {
 	n.connMgr = connMgr
 }
 
-// OnNodeLeft tears down the mesh transport session for a departed node.
-// Wired by boot to cluster.NodeLeft so a node's per-peer yamux session,
-// its backing classConn, and the session acceptLoop goroutine are
-// released on departure instead of leaking, and so a rejoin builds a
-// fresh session rather than reusing the stale one. No-op when the legacy
-// TCP transport is in use (no mesh stream layer) or before Start.
+// OnNodeLeft tears down the mesh transport session for a departed node
+// AND clears any accumulated per-peer failure state on the peer-state
+// tracker. Wired by boot to cluster.NodeLeft so a node's per-peer yamux
+// session, its backing classConn, and the session acceptLoop goroutine
+// are released on departure instead of leaking, and so a rejoin builds
+// a fresh session rather than reusing the stale one. Clearing the
+// tracker state means a reborn pod (same NodeID, fresh process) is not
+// stuck behind the exponential dead-window backoff that grew while its
+// previous incarnation was failing. No-op when the legacy TCP transport
+// is in use (no mesh stream layer) or before Start.
 func (n *Node) OnNodeLeft(node cluster.NodeID) {
 	n.mu.Lock()
 	sl := n.streamLayer
+	tracker, _ := n.transport.(*peerStateTracker)
 	n.mu.Unlock()
-	if sl == nil || node == "" || node == n.localID {
+	if node == "" || node == n.localID {
 		return
 	}
-	sl.removePeer(node)
+	if sl != nil {
+		sl.removePeer(node)
+	}
+	if tracker != nil {
+		tracker.forgetPeer(hraft.ServerAddress(node))
+	}
 }
 
 // Telemetry exposes the internal telemetry handle so the MembershipHandler

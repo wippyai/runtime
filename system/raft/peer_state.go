@@ -183,6 +183,21 @@ func (t *peerStateTracker) DeadStreak(target hraft.ServerAddress) int {
 	return t.deadStreak[target]
 }
 
+// forgetPeer drops all accumulated failure state for target. Called on
+// cluster.NodeLeft so a rebirth of a pod (same NodeID, fresh process,
+// fresh yamux session) does not inherit the exponential backoff that
+// accumulated while the old incarnation was failing. Without this, a
+// killed pod's NodeID could sit in the dead window for up to backoffMax
+// after a fresh process is already accepting connections, leaving the
+// reborn peer effectively unreachable until the timer expires.
+func (t *peerStateTracker) forgetPeer(target hraft.ServerAddress) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.consecutiveErr, target)
+	delete(t.deadStreak, target)
+	delete(t.deadUntil, target)
+}
+
 // recordResult updates the per-peer counters after a transport call.
 // On success: full reset. On failure: bump consecutive counter, and
 // once the threshold is hit, mark the peer dead with exponential

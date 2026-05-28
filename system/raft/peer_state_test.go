@@ -215,3 +215,45 @@ func TestInstrumentedTransport_PreservesWithPreVote(t *testing.T) {
 	require.Equal(t, 1, inner.Calls(),
 		"RequestPreVote must forward to the inner transport")
 }
+
+// TestPeerStateTracker_ForgetPeerResetsBackoff verifies that forgetPeer
+// (called from Node.OnNodeLeft) clears the accumulated dead-streak and
+// dead window for a departing peer. Without this, a pod killed and
+// reborn under the same NodeID is trapped behind exponential backoff
+// inherited from its previous failing incarnation.
+func TestPeerStateTracker_ForgetPeerResetsBackoff(t *testing.T) {
+	inner := newAlwaysErrTransport(errors.New("transient"))
+	tel := &telemetry{}
+	tr := newPeerStateTracker(inner, tel)
+	// Tighter knobs so the test doesn't have to wait for backoffInitial.
+	tr.failureLimit = 2
+	tr.backoffInitial = 50 * time.Millisecond
+	tr.backoffMax = 500 * time.Millisecond
+
+	target := hraft.ServerAddress("peer-X")
+	args := &hraft.AppendEntriesRequest{Term: 1}
+	resp := &hraft.AppendEntriesResponse{}
+
+	// Drive the peer into the dead window: 2 consecutive failures trips,
+	// next call short-circuits with errPeerDead.
+	for i := 0; i < tr.failureLimit; i++ {
+		_ = tr.AppendEntries("peer-X", target, args, resp)
+	}
+	require.Equal(t, 1, tr.DeadStreak(target), "first dead-window entry")
+	err := tr.AppendEntries("peer-X", target, args, resp)
+	require.ErrorIs(t, err, errPeerDead,
+		"peer must be short-circuited while in dead window")
+
+	// Simulate the peer departing gossip — the tracker must forget it.
+	tr.forgetPeer(target)
+	require.Equal(t, 0, tr.DeadStreak(target),
+		"deadStreak must be cleared by forgetPeer")
+
+	// Next call must reach the inner transport (no short-circuit), even
+	// though backoffInitial has not elapsed. A reborn peer accepts the
+	// first probe; the inherited dead window would otherwise drop it.
+	preCalls := inner.Calls()
+	_ = tr.AppendEntries("peer-X", target, args, resp)
+	require.Equal(t, preCalls+1, inner.Calls(),
+		"forgetPeer must release the short-circuit immediately")
+}
