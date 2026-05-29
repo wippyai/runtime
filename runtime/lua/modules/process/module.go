@@ -639,24 +639,16 @@ func registryRegister(l *lua.LState) int {
 	name := l.CheckString(1)
 	secAttrs := map[string]any{"pid": self.String()}
 
-	// Signature: register(name, scope?, pid?) → bool, err
-	//   scope: process.registry.LOCAL | EVENTUAL | CONSISTENT | STRONG (default LOCAL)
+	// Signature: register(name, pid?, scope?) → bool, err
 	//   pid:   target PID string (default self)
+	//   scope: process.registry.LOCAL | EVENTUAL | CONSISTENT | STRONG (default LOCAL)
 	// Foreign PID (pid != self) requires process.registry.foreign on the
 	// target PID in addition to the per-scope register capability on the name.
 	mode := topology.Local
 	p := self
 
 	if l.GetTop() >= 2 && l.Get(2) != lua.LNil {
-		num, ok := l.Get(2).(lua.LNumber)
-		if !ok {
-			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "scope must be a number (process.registry.LOCAL|EVENTUAL|CONSISTENT|STRONG)"))
-		}
-		mode = topology.RegistrationMode(int(num))
-	}
-
-	if l.GetTop() >= 3 && l.Get(3) != lua.LNil {
-		raw, ok := l.Get(3).(lua.LString)
+		raw, ok := l.Get(2).(lua.LString)
 		if !ok {
 			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "pid must be a string"))
 		}
@@ -665,6 +657,14 @@ func registryRegister(l *lua.LState) int {
 			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "invalid pid", lua.Invalid))
 		}
 		p = parsed
+	}
+
+	if l.GetTop() >= 3 && l.Get(3) != lua.LNil {
+		num, ok := l.Get(3).(lua.LNumber)
+		if !ok {
+			return pushProcessError(l, lua.LNil, newProcessError(l, lua.Invalid, "scope must be a number (process.registry.LOCAL|EVENTUAL|CONSISTENT|STRONG)"))
+		}
+		mode = topology.RegistrationMode(int(num))
 	}
 
 	// Mounting a name on a foreign PID is gated by an explicit second-axis

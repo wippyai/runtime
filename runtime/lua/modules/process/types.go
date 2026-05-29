@@ -85,8 +85,8 @@ var registryFieldsType = typ.NewRecord().
 var registryMethodsType = typ.NewInterface("process.registry", []typ.Method{
 	{Name: "register", Type: typ.Func().
 		Param("name", typ.String).
-		OptParam("scope", typ.Number).
 		OptParam("pid", typ.String).
+		OptParam("scope", typ.Number).
 		Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).
 		Build()},
 	{Name: "lookup", Type: typ.Func().

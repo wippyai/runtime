@@ -371,25 +371,26 @@ Subtable for process name registration.
 | `process.registry.LOCAL`       | 0    | per-node PID registry      | Visible only on the registering node. Default.                                                              |
 | `process.registry.EVENTUAL`    | 2    | gossip / CRDT (eventualreg) | Cluster-wide, eventually consistent. No fence; converges after partition heal. Sized for ~1M presence names. |
 | `process.registry.CONSISTENT`  | 1    | Raft (globalreg)            | Cluster-wide linearizable owner with fence token. Late ok. Scales to ~1M user-facing names.                 |
-| `process.registry.ROOT`        | 3    | Raft + all-live-node ack    | Cluster-wide linearizable owner; activation requires every live node in the membership snapshot to ack the committed epoch within a deadline. No late compensation: a missing ack expires the registration. Reserved for the small set of root/control-plane names (<10k).        |
+| `process.registry.STRONG`      | 3    | Raft + all-live-node ack    | Cluster-wide linearizable owner; activation requires every live node in the membership snapshot to ack the committed epoch within a deadline. No late compensation: a missing ack expires the registration. Reserved for the small set of root/control-plane names (<10k).        |
 
-### process.registry.register(name: string, scope?: number, pid?: string) -> boolean, error
+### process.registry.register(name: string, pid?: string, scope?: number) -> boolean, error
 
-Registers a name at the requested scope, optionally pointing at a foreign PID.
+Registers a name, optionally pointing at a foreign PID and/or at a wider scope.
 
 | Param | Type   | Required | Default | Notes                                                                                                |
 |-------|--------|----------|---------|------------------------------------------------------------------------------------------------------|
 | name  | string | yes      | —       | Name to register.                                                                                    |
+| pid   | string | no       | self    | Target PID. When omitted (or `nil`), defaults to the caller's PID.                                   |
 | scope | number | no       | LOCAL   | One of `process.registry.LOCAL` / `EVENTUAL` / `CONSISTENT` / `STRONG`.                              |
-| pid   | string | no       | self    | Target PID. When omitted, defaults to the caller's PID.                                              |
 
 **Returns:** `true` on success, or `nil, error` on failure.
 
 **Examples:**
 ```lua
-process.registry.register("svc")                                        -- LOCAL, self
-process.registry.register("svc", process.registry.STRONG)               -- STRONG, self
-process.registry.register("svc", process.registry.STRONG, foreign_pid)  -- STRONG, foreign PID
+process.registry.register("svc")                                       -- LOCAL, self
+process.registry.register("svc", foreign_pid)                          -- LOCAL, foreign PID
+process.registry.register("svc", nil, process.registry.STRONG)         -- STRONG, self
+process.registry.register("svc", foreign_pid, process.registry.STRONG) -- STRONG, foreign PID
 ```
 
 **Authorization (two axes):**
