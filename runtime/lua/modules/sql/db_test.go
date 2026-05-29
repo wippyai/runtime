@@ -64,8 +64,6 @@ func TestMapDBTypeFromResourceKind(t *testing.T) {
 		{"db.sql.postgres", TypePostgres},
 		{"db.sql.mysql", TypeMySQL},
 		{"db.sql.sqlite", TypeSQLite},
-		{"db.sql.mssql", TypeMSSQL},
-		{"db.sql.oracle", TypeOracle},
 		{"unknown", TypeUnknown},
 		{"", TypeUnknown},
 	}

@@ -516,10 +516,8 @@ func statementBuilder(dbType registry.Kind) sq.StatementBuilderType {
 	switch dbType {
 	case sqlconfig.Postgres:
 		return sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
-	case sqlconfig.MySQL, sqlconfig.SQLite, sqlconfig.MSSQL:
+	case sqlconfig.MySQL, sqlconfig.SQLite:
 		return sq.StatementBuilder.PlaceholderFormat(sq.Question)
-	case sqlconfig.Oracle:
-		return sq.StatementBuilder.PlaceholderFormat(sq.Colon)
 	default:
 		// Default to PostgreSQL-style for unknown types
 		return sq.StatementBuilder.PlaceholderFormat(sq.Dollar)

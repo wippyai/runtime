@@ -22,12 +22,6 @@ const (
 
 	// SQLite identifies a SQLite database in the registry
 	SQLite registry.Kind = "db.sql.sqlite"
-
-	// MSSQL identifies a Microsoft SQL Server database in the registry
-	MSSQL registry.Kind = "db.sql.mssql"
-
-	// Oracle identifies an Oracle database in the registry
-	Oracle registry.Kind = "db.sql.oracle"
 )
 
 // Default configuration values
