@@ -1038,7 +1038,7 @@ func TestRegistryRegister_Strong_Self(t *testing.T) {
 	l := newLuaWithScopedRegistry(t, self, reg, false)
 
 	err := l.DoString(`
-		local ok, err = process.registry.register("svc-strong", process.registry.STRONG)
+		local ok, err = process.registry.register("svc-strong", nil, process.registry.STRONG)
 		if not ok then error("expected true, got " .. tostring(ok) .. " err=" .. tostring(err)) end
 	`)
 	require.NoError(t, err)
@@ -1048,7 +1048,7 @@ func TestRegistryRegister_Strong_Self(t *testing.T) {
 	require.Equal(t, self, res.PID)
 }
 
-// TestRegistryRegister_ForeignPID_Permitted exercises (name, scope, pid)
+// TestRegistryRegister_ForeignPID_Permitted exercises (name, pid, scope)
 // when the caller has the process.registry.foreign capability (lax security).
 func TestRegistryRegister_ForeignPID_Permitted(t *testing.T) {
 	reg := newFakeScopedRegistry()
@@ -1057,7 +1057,7 @@ func TestRegistryRegister_ForeignPID_Permitted(t *testing.T) {
 	l := newLuaWithScopedRegistry(t, self, reg, false)
 
 	err := l.DoString(fmt.Sprintf(`
-		local ok, err = process.registry.register("svc-foreign", process.registry.STRONG, %q)
+		local ok, err = process.registry.register("svc-foreign", %q, process.registry.STRONG)
 		if not ok then error("expected true, got " .. tostring(ok) .. " err=" .. tostring(err)) end
 	`, other.String()))
 	require.NoError(t, err)
@@ -1077,7 +1077,7 @@ func TestRegistryRegister_ForeignPID_Denied(t *testing.T) {
 	l := newLuaWithScopedRegistry(t, self, reg, true)
 
 	err := l.DoString(fmt.Sprintf(`
-		local ok, err = process.registry.register("svc-foreign", process.registry.STRONG, %q)
+		local ok, err = process.registry.register("svc-foreign", %q, process.registry.STRONG)
 		if ok then error("expected false under strict security, got true") end
 		if err == nil then error("expected permission error") end
 		if err:kind() ~= "PermissionDenied" then
@@ -1098,7 +1098,7 @@ func TestRegistryRegister_InvalidScopeType(t *testing.T) {
 	l := newLuaWithScopedRegistry(t, self, reg, false)
 
 	err := l.DoString(`
-		local ok, err = process.registry.register("svc", "not-a-scope")
+		local ok, err = process.registry.register("svc", nil, "not-a-scope")
 		if ok then error("expected false, got true") end
 		if err == nil then error("expected error") end
 		if err:kind() ~= "Invalid" then
@@ -1115,7 +1115,7 @@ func TestRegistryRegister_InvalidPIDType(t *testing.T) {
 	l := newLuaWithScopedRegistry(t, self, reg, false)
 
 	err := l.DoString(`
-		local ok, err = process.registry.register("svc", process.registry.STRONG, 12345)
+		local ok, err = process.registry.register("svc", 12345)
 		if ok then error("expected false, got true") end
 		if err == nil then error("expected error") end
 		if err:kind() ~= "Invalid" then
