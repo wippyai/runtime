@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
-//go:build treesitter
+//go:build !treesitter
 
 package lua
 
@@ -8,23 +8,16 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/boot"
-	"github.com/wippyai/runtime/runtime/lua/modules/treesitter"
 )
 
+// TreeSitter is a no-op when the runtime is built without the `treesitter`
+// build tag. The treesitter Lua module and its grammar dependencies are then
+// excluded from the binary. Build with `-tags treesitter` to include them.
 func TreeSitter() boot.Component {
 	return boot.New(boot.P{
 		Name:      TreeSitterName,
 		DependsOn: []boot.Name{EngineName},
 		Load: func(ctx context.Context) (context.Context, error) {
-			cm := GetCodeManager(ctx)
-			if cm == nil {
-				return ctx, nil
-			}
-
-			if err := AddModules(ctx, cm, treesitter.Module); err != nil {
-				return ctx, err
-			}
-
 			return ctx, nil
 		},
 	})
