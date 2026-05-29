@@ -3,12 +3,16 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/boot"
+	"go.uber.org/zap"
 )
 
 func TestCoerceSetValue(t *testing.T) {
@@ -66,4 +70,44 @@ func TestApplySetOverrides_Malformed(t *testing.T) {
 		_, err := applySetOverrides(boot.NewConfig(), []string{bad})
 		assert.Error(t, err, "expected error for %q", bad)
 	}
+}
+
+// TestLoadRuntimeConfig_SetFlag exercises --set end to end: through the cobra
+// flag, into loadRuntimeConfig, merged over an on-disk .wippy.yaml.
+func TestLoadRuntimeConfig_SetFlag(t *testing.T) {
+	tempDir := t.TempDir()
+	cfgPath := filepath.Join(tempDir, "wippy.yaml")
+	cfgBody := []byte("version: \"1.0\"\n" +
+		"cluster:\n" +
+		"  enabled: false\n" +
+		"  membership:\n" +
+		"    bind_port: 7946\n" +
+		"    join_addrs: \"seed:7946\"\n")
+	require.NoError(t, os.WriteFile(cfgPath, cfgBody, 0o644))
+
+	prevConfigFile, prevProfiler := configFile, profiler
+	prevVerbose, prevVeryVerbose, prevConsole, prevEventStreams := verbose, veryVerbose, console, eventStreams
+	configFile = cfgPath
+	profiler, verbose, veryVerbose, console, eventStreams = false, false, false, false, false
+	t.Cleanup(func() {
+		configFile, profiler = prevConfigFile, prevProfiler
+		verbose, veryVerbose, console, eventStreams = prevVerbose, prevVeryVerbose, prevConsole, prevEventStreams
+	})
+
+	cmd := &cobra.Command{}
+	cmd.Flags().StringArray("set", nil, "")
+	require.NoError(t, cmd.Flags().Set("set", "cluster.enabled=true"))
+	require.NoError(t, cmd.Flags().Set("set", "cluster.raft.bootstrap_expect=3"))
+
+	cfg, err := loadRuntimeConfig(cmd, zap.NewNop())
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	// --set overrides the file value...
+	assert.True(t, cfg.GetBool("cluster.enabled", false))
+	// ...adds a new nested leaf...
+	assert.Equal(t, 3, cfg.Sub("cluster").GetInt("raft.bootstrap_expect", 1))
+	// ...and leaves the file's other cluster leaves intact.
+	assert.Equal(t, 7946, cfg.GetInt("cluster.membership.bind_port", 0))
+	assert.Equal(t, "seed:7946", cfg.GetString("cluster.membership.join_addrs", ""))
 }
