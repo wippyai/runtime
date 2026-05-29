@@ -78,6 +78,7 @@ func init() {
 	runCmd.Flags().StringP("exec", "x", "", "Execute process and exit (format: namespace:entry)")
 	runCmd.Flags().String("host", "", "Terminal host ID for exec (auto-detected if only one terminal.host exists)")
 	runCmd.Flags().String("registry", "", "Registry URL for hub modules (default: from credentials)")
+	runCmd.Flags().StringArray("set", nil, "Override a .wippy.yaml config value (format: section.path=value, repeatable)")
 }
 
 // commandMeta represents the command metadata from entry.Meta
@@ -292,6 +293,14 @@ func loadRuntimeConfigWithDefaults(cmd *cobra.Command, logger *zap.Logger, runti
 
 	if cmd == nil {
 		return cfg, nil
+	}
+
+	if sets, _ := cmd.Flags().GetStringArray("set"); len(sets) > 0 {
+		merged, err := applySetOverrides(cfg, sets)
+		if err != nil {
+			return nil, err
+		}
+		cfg = merged
 	}
 
 	overrides, _ := cmd.Flags().GetStringSlice("override")
@@ -522,6 +531,56 @@ func applyCLIOverrides(cfg boot.Config) boot.Config {
 	opts = append(opts, boot.WithSection("logmanager", logmanagerCfg))
 
 	return bootconfig.Merge(cfg, boot.NewConfig(opts...))
+}
+
+// applySetOverrides merges --set section.path=value pairs into the boot config,
+// taking precedence over the config file. The first path segment is the section;
+// the remainder is the dotted leaf key, matching how the YAML is flattened — so
+// `--set cluster.enabled=true` overrides only that leaf and preserves the rest of
+// the cluster section. Values are coerced via coerceSetValue.
+func applySetOverrides(cfg boot.Config, sets []string) (boot.Config, error) {
+	sections := make(map[string]map[string]any)
+	for _, s := range sets {
+		key, val, ok := strings.Cut(s, "=")
+		if !ok {
+			return nil, fmt.Errorf("invalid --set %q: expected section.path=value", s)
+		}
+		key = strings.TrimSpace(key)
+		dot := strings.IndexByte(key, '.')
+		if dot <= 0 || dot == len(key)-1 {
+			return nil, fmt.Errorf("invalid --set %q: key must be section.path (e.g. cluster.enabled)", s)
+		}
+		section, sub := key[:dot], key[dot+1:]
+		if sections[section] == nil {
+			sections[section] = make(map[string]any)
+		}
+		sections[section][sub] = coerceSetValue(val)
+	}
+
+	opts := make([]boot.ConfigOption, 0, len(sections))
+	for name, vals := range sections {
+		opts = append(opts, boot.WithSection(name, vals))
+	}
+	return bootconfig.Merge(cfg, boot.NewConfig(opts...)), nil
+}
+
+// coerceSetValue converts a --set string to the type config consumers expect:
+// `true`/`false` to bool, integers to int, decimals to float64; everything else
+// (durations like "5s", addresses, names) stays a string.
+func coerceSetValue(s string) any {
+	switch s {
+	case "true":
+		return true
+	case "false":
+		return false
+	}
+	if i, err := strconv.Atoi(s); err == nil {
+		return i
+	}
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		return f
+	}
+	return s
 }
 
 // applyOverrideFlags parses repeated `-o namespace:entry:field=value` flags and

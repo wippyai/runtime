@@ -12,7 +12,7 @@
 <div align="center">
 
 [![Documentation](https://img.shields.io/badge/docs-wippy.ai-0F6640.svg?style=for-the-badge)][documentation]
-[![Go Version](https://img.shields.io/badge/go-1.25+-00ADD8.svg?style=for-the-badge&logo=go)](#installation)
+[![Go Version](https://img.shields.io/badge/go-1.26+-00ADD8.svg?style=for-the-badge&logo=go)](#installation)
 [![License](https://img.shields.io/badge/license-MPL%202.0-brightgreen.svg?style=for-the-badge)](LICENSE)
 
 </div>
@@ -75,10 +75,12 @@ The architecture enables declarative composition of complex applications that ca
 - HTTP request tracing
 
 **Clustering**
-- Gossip-based membership discovery
-- Cross-node process messaging via relay
-- Distributed topology tracking
-- Secret-based cluster authentication
+- Bounded Raft consensus core (voters, standbys, gossip-only clients)
+- SWIM gossip membership with gossip-driven bootstrap (`bootstrap_expect`)
+- Cluster-wide process names with consistency scopes: local, eventual, consistent, strong
+- Distributed locks, auto-released when the holder exits
+- Process groups: join named groups and broadcast across nodes
+- Location-transparent process messaging via relay; encrypted gossip
 
 **Extensibility**
 - Pluggable command dispatchers
@@ -102,14 +104,31 @@ wippy init        # Initialize project with lock file
 wippy install     # Install dependencies from lock file
 wippy update      # Update dependencies to latest versions
 wippy run         # Run application
-wippy replace     # Manage local module overrides
 ```
 
 ## Cluster Mode
 
+Configure clustering in `.wippy.yaml` — point each node at a seed and set the expected initial quorum size:
+
+```yaml
+cluster:
+  enabled: true
+  name: node-1
+  membership:
+    join_addrs: "node-2:7946,node-3:7946"
+  raft:
+    bootstrap_expect: 3
 ```
-wippy run --cluster --cluster-name=node1 --cluster-join=seed:7946
+
+Any config value can also be set on the command line with repeatable `--set section.path=value`, which take precedence over the file:
+
 ```
+wippy run --set cluster.enabled=true \
+          --set cluster.membership.join_addrs=node-2:7946,node-3:7946 \
+          --set cluster.raft.bootstrap_expect=3
+```
+
+See the [documentation][documentation] for the cluster model — naming scopes, routing, distributed locks, and process groups.
 
 ## Configuration
 
@@ -234,7 +253,7 @@ shutdown:
 
 ## Requirements
 
-- Go 1.25+
+- Go 1.26+
 
 ## License
 
