@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 
-//go:build excel
-
 // Package excel provides Excel file operations for Lua.
 package excel
 

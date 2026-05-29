@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
-//go:build treesitter && !windows
+//go:build treesitter
 
 package treesitter
 

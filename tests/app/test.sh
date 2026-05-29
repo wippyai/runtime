@@ -37,7 +37,7 @@ fi
 export SKIP_SQS_TESTS
 
 GOCACHE=/tmp/wippy-gocache GOTMPDIR=/tmp/wippy-gotmp OTEL_SDK_DISABLED=true SKIP_TEMPORAL_TESTS=1 SKIP_CLOUDSTORAGE_TESTS=1 GOEXPERIMENT=jsonv2 \
-	go run ../../cmd/wippy run -c -s test | tee "$test_log"
+	go run -tags treesitter ../../cmd/wippy run -c -s test | tee "$test_log"
 
 # The test runner currently prints failures but exits 0; enforce failure here.
 clean_log="$(mktemp /tmp/wippy-app-tests-clean.XXXXXX.log)"
