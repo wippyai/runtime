@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
+//go:build treesitter
+
 // Package treesitter provides Tree-sitter parsing functionality and language support
 package treesitter
 
