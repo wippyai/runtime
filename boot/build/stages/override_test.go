@@ -97,6 +97,44 @@ func TestOverride_NestedPath(t *testing.T) {
 	}
 }
 
+func TestOverride_KindPathChangesEntryKind(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "db"),
+			Kind: "db.sql.sqlite",
+			Data: payload.New(map[string]any{
+				"kind": "data-kind-stays-data",
+				"file": ".wippy/app.db",
+			}),
+		},
+	}
+
+	cfg := boot.NewConfig(
+		boot.WithSection("override", map[string]any{
+			"app:db:kind":      "db.sql.postgres",
+			"app:db:data.kind": "explicit-data-kind",
+		}),
+	)
+
+	ctx = boot.WithConfig(ctx, cfg)
+	stage := Override()
+
+	if err := stage.Execute(ctx, &entries); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if entries[0].Kind != "db.sql.postgres" {
+		t.Fatalf("Kind = %q, want db.sql.postgres", entries[0].Kind)
+	}
+
+	data := entries[0].Data.Data().(map[string]any)
+	if data["kind"] != "explicit-data-kind" {
+		t.Fatalf("data.kind = %v, want explicit-data-kind", data["kind"])
+	}
+}
+
 func TestOverride_MetaPath(t *testing.T) {
 	ctx, _ := setupTestContext()
 

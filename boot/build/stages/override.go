@@ -4,6 +4,7 @@ package stages
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -72,7 +73,7 @@ func (s *overrideStage) Execute(ctx context.Context, entries *[]registry.Entry) 
 		}
 
 		for _, targetEntry := range targetEntries {
-			if err := mutator.Set(targetEntry, path, value); err != nil {
+			if err := applyOverrideValue(mutator, targetEntry, path, value); err != nil {
 				errs = append(errs, NewSetValueError(namespace, entryName, path, err))
 				continue
 			}
@@ -85,6 +86,26 @@ func (s *overrideStage) Execute(ctx context.Context, entries *[]registry.Entry) 
 	}
 
 	return nil
+}
+
+func applyOverrideValue(mutator *entry.Mutator, target *registry.Entry, path string, value any) error {
+	normalizedPath := strings.TrimPrefix(path, ".")
+	if normalizedPath == "kind" {
+		kind, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("kind override must be a string, got %T", value)
+		}
+
+		kind = strings.TrimSpace(kind)
+		if kind == "" {
+			return fmt.Errorf("kind override must not be empty")
+		}
+
+		target.Kind = registry.Kind(kind)
+		return nil
+	}
+
+	return mutator.Set(target, path, value)
 }
 
 // parseOverrideKey parses a key in format "namespace:entry:path" into components.

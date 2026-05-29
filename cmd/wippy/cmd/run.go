@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -546,12 +547,13 @@ func applyOverrideFlags(cfg boot.Config, overrides []string, logger *zap.Logger)
 		}
 
 		key := fmt.Sprintf("%s:%s:%s", namespace, entry, field)
-		overrideMap[key] = value
+		parsedValue := parseOverrideValue(value)
+		overrideMap[key] = parsedValue
 
 		if logger != nil {
 			logger.Debug("applying override",
 				zap.String("key", key),
-				zap.String("value", value))
+				zap.Any("value", parsedValue))
 		}
 	}
 
@@ -564,6 +566,32 @@ func applyOverrideFlags(cfg boot.Config, overrides []string, logger *zap.Logger)
 	}
 
 	return boot.NewConfig(opts...), nil
+}
+
+func parseOverrideValue(raw string) any {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return raw
+	}
+
+	switch strings.ToLower(trimmed) {
+	case "true":
+		return true
+	case "false":
+		return false
+	}
+
+	if i, err := strconv.ParseInt(trimmed, 10, 0); err == nil && strconv.FormatInt(i, 10) == trimmed {
+		return int(i)
+	}
+
+	if strings.ContainsAny(trimmed, ".eE") {
+		if f, err := strconv.ParseFloat(trimmed, 64); err == nil {
+			return f
+		}
+	}
+
+	return raw
 }
 
 // parseOverride parses `namespace:entry:field=value`.

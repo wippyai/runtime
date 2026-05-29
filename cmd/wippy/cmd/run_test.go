@@ -71,6 +71,8 @@ func TestLoadRuntimeConfigAppliesOverridesAndCLISettings(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.Flags().StringSlice("override", nil, "")
 	require.NoError(t, cmd.Flags().Set("override", "app:test:enabled=true"))
+	require.NoError(t, cmd.Flags().Set("override", "app:db:port=5432"))
+	require.NoError(t, cmd.Flags().Set("override", "app:gateway:addr=:9090"))
 
 	cfg, err := loadRuntimeConfig(cmd, zap.NewNop())
 	require.NoError(t, err)
@@ -82,7 +84,15 @@ func TestLoadRuntimeConfigAppliesOverridesAndCLISettings(t *testing.T) {
 
 	overrideCfg := cfg.Sub("override")
 	require.NotNil(t, overrideCfg)
-	require.Equal(t, "true", overrideCfg.GetString("app:test:enabled", ""))
+	enabled, ok := overrideCfg.Get("app:test:enabled")
+	require.True(t, ok)
+	require.Equal(t, true, enabled)
+
+	port, ok := overrideCfg.Get("app:db:port")
+	require.True(t, ok)
+	require.Equal(t, 5432, port)
+
+	require.Equal(t, ":9090", overrideCfg.GetString("app:gateway:addr", ""))
 }
 
 func TestLoadRuntimeConfigWithDefaultsAppliesPackDefaultsWhenFileMissingKey(t *testing.T) {
