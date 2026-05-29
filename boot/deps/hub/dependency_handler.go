@@ -179,7 +179,14 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		return regapi.DirectiveResult{}, err
 	}
 	linkDeps := mergeLinkDependencies(desiredDepEntries, moduleEntries)
-	strictModules := resolvedModuleNames(resolved)
+	opComponent := ""
+	for _, dep := range desiredDeps {
+		if dep.entry.ID == op.Entry.ID {
+			opComponent = dep.definition.Component
+			break
+		}
+	}
+	strictModules := touchedModuleNames(resolved, snapshot, opComponent)
 	mutableModules, err := h.operationModules(ctx, op, snapshot, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
@@ -448,13 +455,25 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 	return result.Modules, nil
 }
 
-func resolvedModuleNames(modules []ResolvedModule) []string {
+// touchedModuleNames returns the resolved modules this operation actually
+// affects: those new or version-changed relative to the snapshot, plus the
+// module of the dependency entry being changed in this operation. Modules
+// already installed at the same version that this operation does not target are
+// trusted — they were validated when installed — and are excluded from strict
+// requirement enforcement, so a partial update does not re-validate
+// dependencies it did not touch.
+func touchedModuleNames(modules []ResolvedModule, snapshot regapi.State, opComponent string) []string {
+	installed := snapshotModuleVersions(snapshot)
 	names := make([]string, 0, len(modules))
 	for _, mod := range modules {
 		if mod.Org == "" || mod.Name == "" {
 			continue
 		}
-		names = append(names, mod.Org+"/"+mod.Name)
+		name := mod.Org + "/" + mod.Name
+		version, known := installed[name]
+		if !known || version != mod.Version || name == opComponent {
+			names = append(names, name)
+		}
 	}
 	return names
 }

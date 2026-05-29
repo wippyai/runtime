@@ -1090,6 +1090,81 @@ func TestLink_MultipleRequirements(t *testing.T) {
 	assert.Equal(t, "8080", data["port"])
 }
 
+// TestLink_EmptyDefaultResolvesUnderStrict verifies that a requirement whose
+// default is present but empty ("") is treated as a valid resolved value
+// rather than an unresolved requirement, even under strict enforcement.
+func TestLink_EmptyDefaultResolvesUnderStrict(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("acme.module", "opt"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "acme/module"},
+			Data: payload.New(map[string]any{
+				"default": "", // present but empty: optional, resolves to ""
+				"targets": []any{
+					map[string]any{"entry": "endpoint", "path": ".meta.opt"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("acme.module", "endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"acme/module"}))
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	endpoint := findEntry(entries, "acme.module", "endpoint")
+	require.NotNil(t, endpoint)
+	assert.Equal(t, "", endpoint.Meta["opt"])
+}
+
+// TestLink_EmptyProvidedValueResolvesUnderStrict verifies that a dependency
+// parameter supplying an empty value satisfies a requirement (and does not
+// fall through to the unresolved path) under strict enforcement.
+func TestLink_EmptyProvidedValueResolvesUnderStrict(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "__dependency.module"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "vendor/module",
+				"parameters": []any{
+					map[string]any{"name": "opt", "value": ""},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.module", "opt"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "vendor/module"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "endpoint", "path": ".meta.opt"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.module", "endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"vendor/module"}))
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+}
+
 // Helper functions
 
 type mockTranscoder struct{}
@@ -1110,7 +1185,8 @@ func (m *mockTranscoder) Unmarshal(p payload.Payload, v any) error {
 		// Simple reflection-based assignment for test structs
 		if reqDef, ok := v.(*RequirementDefinition); ok {
 			if def, ok := dataMap["default"].(string); ok {
-				reqDef.Default = def
+				d := def
+				reqDef.Default = &d
 			}
 			if targets, ok := dataMap["targets"].([]any); ok {
 				for _, t := range targets {
