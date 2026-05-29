@@ -76,7 +76,7 @@ func TestModuleHasTypes(t *testing.T) {
 		t.Fatalf("expected types to be a table, got %T", types)
 	}
 
-	expectedTypes := []string{"POSTGRES", "MYSQL", "SQLITE", "MSSQL", "ORACLE", "UNKNOWN"}
+	expectedTypes := []string{"POSTGRES", "MYSQL", "SQLITE", "UNKNOWN"}
 	for _, name := range expectedTypes {
 		if table.RawGetString(name) == lua.LNil {
 			t.Errorf("expected type table to have '%s'", name)
@@ -359,8 +359,6 @@ func TestModuleConstants(t *testing.T) {
 		{"TypePostgres", TypePostgres, "postgres"},
 		{"TypeMySQL", TypeMySQL, "mysql"},
 		{"TypeSQLite", TypeSQLite, "sqlite"},
-		{"TypeMSSQL", TypeMSSQL, "mssql"},
-		{"TypeOracle", TypeOracle, "oracle"},
 		{"TypeUnknown", TypeUnknown, "unknown"},
 	}
 

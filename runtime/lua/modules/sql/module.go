@@ -15,8 +15,6 @@ const (
 	TypePostgres = "postgres"
 	TypeMySQL    = "mysql"
 	TypeSQLite   = "sqlite"
-	TypeMSSQL    = "mssql"
-	TypeOracle   = "oracle"
 	TypeUnknown  = "unknown"
 
 	IsolationDefault         = "default"
@@ -50,12 +48,10 @@ func initModuleTable() {
 	nullUD := &lua.LUserData{Value: "SQL_NULL"}
 	mod.RawSetString("NULL", nullUD)
 
-	types := lua.CreateTable(0, 6)
+	types := lua.CreateTable(0, 4)
 	types.RawSetString("POSTGRES", lua.LString(TypePostgres))
 	types.RawSetString("MYSQL", lua.LString(TypeMySQL))
 	types.RawSetString("SQLITE", lua.LString(TypeSQLite))
-	types.RawSetString("MSSQL", lua.LString(TypeMSSQL))
-	types.RawSetString("ORACLE", lua.LString(TypeOracle))
 	types.RawSetString("UNKNOWN", lua.LString(TypeUnknown))
 	types.Immutable = true
 	mod.RawSetString("type", types)
@@ -111,10 +107,6 @@ func mapDBTypeFromResourceKind(dbType string) string {
 		return TypeMySQL
 	case sqlapi.SQLite:
 		return TypeSQLite
-	case sqlapi.MSSQL:
-		return TypeMSSQL
-	case sqlapi.Oracle:
-		return TypeOracle
 	default:
 		return TypeUnknown
 	}

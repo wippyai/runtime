@@ -545,8 +545,6 @@ var sqlTypeConstType = typ.NewRecord().
 	Field("POSTGRES", typ.String).
 	Field("MYSQL", typ.String).
 	Field("SQLITE", typ.String).
-	Field("MSSQL", typ.String).
-	Field("ORACLE", typ.String).
 	Field("UNKNOWN", typ.String).
 	Build()
 
