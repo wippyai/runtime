@@ -93,23 +93,6 @@ Each process is sandboxed to the capabilities you grant it, your data stays on i
 - Event-driven component lifecycle
 - WebAssembly runtime
 
-## Built-in infrastructure
-
-Much of the infrastructure a typical application runs as separate services is built into the runtime. For many agentic and cluster-aware applications, this removes the need for external orchestration, queues, caching, and coordination layers:
-
-| Instead of | Built in |
-|---|---|
-| Airflow / Step Functions / custom job runners | Durable workflows that checkpoint, replay, and resume across restarts |
-| RabbitMQ / Kafka / SQS / Sidekiq / Celery | Message queues with consumer worker pools |
-| Redis / Memcached | KV stores with in-memory and SQL backends |
-| Pinecone / Weaviate / Chroma | Vector search in SQLite and Postgres |
-| Cron / Quartz | Scheduled jobs via durable timers and supervised processes |
-| Akka / Orleans / Erlang OTP | Actors, supervision trees, channels, monitors, location-transparent PIDs |
-| ZooKeeper / etcd / Consul / Redis locks | Raft + gossip cluster, distributed locks, process groups |
-| Redis Pub/Sub / NATS | Event bus and location-transparent process messaging |
-
-This keeps deployment to a single process and application state in one place. Temporal is integrated for heavy-duty durable execution.
-
 ## Installation
 
 ```
