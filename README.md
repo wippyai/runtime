@@ -21,6 +21,7 @@
 Wippy is an open-source, actor-model runtime for building complex applications and agent systems — without the stack of infrastructure they normally require.
 
 Durable workflows, queues, scheduling, caching, vector search, and clustering are part of the runtime, so the accidental complexity of wiring a dozen services together — and keeping them consistent, secured, and observable — goes away. Your code runs as isolated, supervised processes, written in typed, linted Lua, that communicate by message passing with no shared state to corrupt; a failure is contained and recovered instead of cascading.
+
 Each process is sandboxed to the capabilities you grant it, your data stays on infrastructure you own, and every change is versioned and reversible. Applications can also evolve at runtime — updated by your team or an AI agent over MCP — without redeploys.
 
 ## Features
