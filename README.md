@@ -90,9 +90,9 @@ The architecture enables declarative composition of complex applications that ca
 - Event-driven component lifecycle
 - WebAssembly runtime
 
-## Fewer moving parts
+## Built-in infrastructure
 
-Wippy drastically simplifies and speeds up building **agentic and cluster-aware applications**: infrastructure you'd normally run as separate services is part of the runtime. For a wide range of applications, the stack collapses into a single binary:
+Much of the infrastructure a typical application runs as separate services is built into the runtime. For many agentic and cluster-aware applications, this removes the need for external orchestration, queues, caching, and coordination layers:
 
 | Instead of | Built in |
 |---|---|
@@ -104,7 +104,7 @@ Wippy drastically simplifies and speeds up building **agentic and cluster-aware 
 | ZooKeeper / etcd / Consul / Redis locks | Raft + gossip cluster, distributed locks, process groups |
 | Redis Pub/Sub / NATS | Event bus and location-transparent process messaging |
 
-One process to deploy and one place to reason about state, instead of a fleet of services to wire together, secure, and operate. Wippy integrates [Temporal](https://temporal.io) for heavy-duty durable execution.
+This keeps deployment to a single process and application state in one place. Temporal is integrated for heavy-duty durable execution.
 
 ## Installation
 
