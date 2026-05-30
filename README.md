@@ -20,7 +20,7 @@
 
 Wippy is a process-oriented runtime for building adaptive software systems. It combines Lua 5.3 scripting with Go's performance to create isolated, supervised processes that can be updated without downtime. The entire application state can be exported to a single file for portable deployments.
 
-The architecture enables declarative composition of complex applications that can introspect and modify their own structure at runtime. Designed for AI agents, automation platforms, and systems where components need to evolve based on operational feedback.
+The architecture enables declarative composition of complex applications that can introspect and modify their own structure at runtime, from their own code or through external agents over MCP. Designed for AI agents, automation platforms, and systems where components need to evolve based on operational feedback.
 
 ## Features
 
@@ -64,6 +64,7 @@ The architecture enables declarative composition of complex applications that ca
 **Storage**
 - KV stores with memory and SQL backends
 - SQL databases: Postgres, MySQL, SQLite, MSSQL
+- Vector search in SQLite and Postgres for embeddings and RAG
 - Message queues with consumer worker pools
 - AWS S3 and cloud storage abstraction
 - Environment variable providers (OS, file, memory, composite)
@@ -99,6 +100,7 @@ Much of the infrastructure a typical application runs as separate services is bu
 | Airflow / Step Functions / custom job runners | Durable workflows that checkpoint, replay, and resume across restarts |
 | RabbitMQ / Kafka / SQS / Sidekiq / Celery | Message queues with consumer worker pools |
 | Redis / Memcached | KV stores with in-memory and SQL backends |
+| Pinecone / Weaviate / Chroma | Vector search in SQLite and Postgres |
 | Cron / Quartz | Scheduled jobs via durable timers and supervised processes |
 | Akka / Orleans / Erlang OTP | Actors, supervision trees, channels, monitors, location-transparent PIDs |
 | ZooKeeper / etcd / Consul / Redis locks | Raft + gossip cluster, distributed locks, process groups |
