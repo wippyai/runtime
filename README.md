@@ -18,9 +18,11 @@
 
 </div>
 
-Wippy is a process-oriented runtime for building adaptive software systems. It combines Lua 5.3 scripting with Go's performance to create isolated, supervised processes that can be updated without downtime. The entire application state can be exported to a single file for portable deployments.
+Wippy is an open-source, actor-model runtime for building complex applications and agent systems — without the stack of infrastructure they normally require.
 
-The architecture enables declarative composition of complex applications that can introspect and modify their own structure at runtime, from their own code or through external agents over MCP. Designed for AI agents, automation platforms, and systems where components need to evolve based on operational feedback.
+Durable workflows, queues, scheduling, caching, vector search, and clustering are part of the runtime, so the accidental complexity of wiring a dozen services together — and keeping them consistent, secured, and observable — goes away. Your code runs as isolated, supervised processes, written in Lua, that communicate by message passing with no shared state to corrupt; a failure is contained and recovered instead of cascading. That's the actor model — Erlang's lineage — and it keeps systems resilient as they scale, all in a single self-hostable binary that runs from a laptop to a cluster.
+
+Each process is sandboxed to the capabilities you grant it, your data stays on infrastructure you own, and every change is versioned and reversible. Applications can also evolve at runtime — updated by your team or an AI agent over MCP — without redeploys.
 
 ## Features
 
