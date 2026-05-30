@@ -264,5 +264,5 @@ Mozilla Public License 2.0
 - [Documentation][documentation]
 - [Issues](https://github.com/wippyai/runtime/issues)
 
-[documentation]: https://docs.wippy.ai
+[documentation]: https://wippy.ai/en/
 
