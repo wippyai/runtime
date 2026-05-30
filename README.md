@@ -90,6 +90,22 @@ The architecture enables declarative composition of complex applications that ca
 - Event-driven component lifecycle
 - WebAssembly runtime
 
+## Fewer moving parts
+
+Wippy drastically simplifies and speeds up building **agentic and cluster-aware applications**: infrastructure you'd normally run as separate services is part of the runtime. For a wide range of applications, the stack collapses into a single binary:
+
+| Instead of | Built in |
+|---|---|
+| Airflow / Step Functions / custom job runners | Durable workflows that checkpoint, replay, and resume across restarts |
+| RabbitMQ / Kafka / SQS / Sidekiq / Celery | Message queues with consumer worker pools |
+| Redis / Memcached | KV stores with in-memory and SQL backends |
+| Cron / Quartz | Scheduled jobs via durable timers and supervised processes |
+| Akka / Orleans / Erlang OTP | Actors, supervision trees, channels, monitors, location-transparent PIDs |
+| ZooKeeper / etcd / Consul / Redis locks | Raft + gossip cluster, distributed locks, process groups |
+| Redis Pub/Sub / NATS | Event bus and location-transparent process messaging |
+
+One process to deploy and one place to reason about state, instead of a fleet of services to wire together, secure, and operate. Wippy integrates [Temporal](https://temporal.io) for heavy-duty durable execution.
+
 ## Installation
 
 ```
