@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/cluster"
-	"github.com/wippyai/runtime/api/event"
 	raftapi "github.com/wippyai/runtime/api/cluster/raft"
+	"github.com/wippyai/runtime/api/event"
 
 	"go.uber.org/zap"
 )

@@ -12,10 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wippyai/runtime/api/cluster"
+	raftapi "github.com/wippyai/runtime/api/cluster/raft"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
-	raftapi "github.com/wippyai/runtime/api/cluster/raft"
 	"github.com/wippyai/runtime/api/relay"
 )
 

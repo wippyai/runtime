@@ -22,9 +22,9 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/wippyai/runtime/api/cluster"
+	raftapi "github.com/wippyai/runtime/api/cluster/raft"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/metrics"
-	raftapi "github.com/wippyai/runtime/api/cluster/raft"
 	"github.com/wippyai/runtime/cluster/internode"
 )
 

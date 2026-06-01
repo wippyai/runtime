@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/cluster"
-	"github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/topology/namereg/global"
 )
 
 // maxForwardHops bounds the re-forward chain. A non-leader receiving a

@@ -9,11 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wippyai/runtime/api/topology/namereg/global"
+	raftapi "github.com/wippyai/runtime/api/cluster/raft"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
-	raftapi "github.com/wippyai/runtime/api/cluster/raft"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/topology/namereg/global"
 	"go.uber.org/zap"
 )
 

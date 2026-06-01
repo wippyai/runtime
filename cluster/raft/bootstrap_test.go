@@ -14,18 +14,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/cluster"
-	"github.com/wippyai/runtime/api/event"
 	raftapi "github.com/wippyai/runtime/api/cluster/raft"
+	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
 // memberStub satisfies bootstrapMembership for watcher tests. Thread-safe.
 type memberStub struct {
-	mu    sync.Mutex
+	meta  map[string]string
 	local cluster.NodeInfo
 	peers []cluster.NodeInfo
-	meta  map[string]string
+	mu    sync.Mutex
 }
 
 func newMemberStub(localID string) *memberStub {
@@ -90,13 +90,13 @@ func peerWithExpect(id string, expect int, eligibleOverride string) cluster.Node
 
 // nodeStub satisfies bootstrapNode. Thread-safe.
 type nodeStub struct {
-	mu              sync.Mutex
-	state           raftapi.State
-	leader          raftapi.ServerID
-	bootstrapped    [][]string
 	bootstrapErr    error
 	bootstrapHook   func() error // per-call override; runs before bootstrapErr
 	bootstrapCalled chan struct{}
+	leader          raftapi.ServerID
+	bootstrapped    [][]string
+	state           raftapi.State
+	mu              sync.Mutex
 }
 
 func newNodeStub() *nodeStub {
@@ -142,14 +142,14 @@ func (n *nodeStub) State() raftapi.State {
 func (n *nodeStub) Leader() (raftapi.ServerID, raftapi.ServerAddress, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	return n.leader, raftapi.ServerAddress(n.leader), nil
+	return n.leader, n.leader, nil
 }
 
 func (n *nodeStub) setEstablished(leader string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.state = raftapi.Follower
-	n.leader = raftapi.ServerID(leader)
+	n.leader = leader
 }
 
 func (n *nodeStub) bootstrapCalls() [][]string {

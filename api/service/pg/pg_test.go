@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/dispatcher"
-	pgapi "github.com/wippyai/runtime/api/service/pg"
 	"github.com/wippyai/runtime/api/pid"
+	pgapi "github.com/wippyai/runtime/api/service/pg"
 )
 
 func testPID(host, uniq string) pid.PID {

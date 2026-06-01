@@ -43,10 +43,10 @@ const (
 	// raft.enabled is the low-level on/off; a node runs raft only when
 	// enabled AND role != "client", so the two compose without conflict
 	// (either set to off yields a client).
-	ClusterRaftEnabled             boot.Name = "raft.enabled"
-	ClusterRaftRole                boot.Name = "raft.role"
-	ClusterRaftEligible            boot.Name = "raft.eligible"
-	ClusterRaftPriority            boot.Name = "raft.priority"
+	ClusterRaftEnabled  boot.Name = "raft.enabled"
+	ClusterRaftRole     boot.Name = "raft.role"
+	ClusterRaftEligible boot.Name = "raft.eligible"
+	ClusterRaftPriority boot.Name = "raft.priority"
 	// BootstrapExpect: the expected size of the initial quorum (Consul/Nomad
 	// pattern). All initial nodes ship the same number and join gossip; once
 	// that many raft-eligible peers are stably visible they all derive the
@@ -56,7 +56,7 @@ const (
 	//   0 -> never self-bootstrap (joining an existing cluster)
 	//   1 -> single-node mode; bootstrap immediately with self
 	//   N -> wait for N alive eligible peers, then form
-	ClusterRaftBootstrapExpect boot.Name = "raft.bootstrap_expect"
+	ClusterRaftBootstrapExpect     boot.Name = "raft.bootstrap_expect"
 	ClusterRaftMaxVoters           boot.Name = "raft.max_voters"
 	ClusterRaftMaxStandbys         boot.Name = "raft.max_standbys"
 	ClusterRaftReconcileDebounce   boot.Name = "raft.reconcile_debounce"

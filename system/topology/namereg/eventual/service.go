@@ -11,11 +11,11 @@ import (
 
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
-	"github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )

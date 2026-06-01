@@ -12,8 +12,8 @@ import (
 	"github.com/hashicorp/go-msgpack/v2/codec"
 	hraft "github.com/hashicorp/raft"
 
-	"github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/topology/namereg/global"
 )
 
 // PendingEvent is delivered to FSM.onPending after applyRegisterPending

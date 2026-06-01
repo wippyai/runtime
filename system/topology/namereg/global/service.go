@@ -10,13 +10,13 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/cluster"
+	raftapi "github.com/wippyai/runtime/api/cluster/raft"
 	"github.com/wippyai/runtime/api/event"
-	"github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/pid"
-	raftapi "github.com/wippyai/runtime/api/cluster/raft"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/api/topology/namereg/global"
 
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
@@ -876,5 +876,5 @@ func (s *Service) ExpiredHistory() []ExpiredRecord {
 // Ensure Service implements the interfaces.
 var (
 	_ global.Registry = (*Service)(nil)
-	_ relay.Receiver     = (*Service)(nil)
+	_ relay.Receiver  = (*Service)(nil)
 )

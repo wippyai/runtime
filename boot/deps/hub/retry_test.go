@@ -14,19 +14,19 @@ import (
 // 404 (an older hub with no such route) is endpoint-missing.
 func TestIsHubEndpointMissing_StructuredVsBare(t *testing.T) {
 	cases := []struct {
-		name    string
 		err     error
+		name    string
 		missing bool
 		modNF   bool
 	}{
-		{"bare 404 (old hub, no route)", &hubStatusError{statusCode: 404, body: "404 page not found\n"}, true, false},
-		{"empty 404", &hubStatusError{statusCode: 404, body: ""}, true, false},
-		{"structured module not_found", &hubStatusError{statusCode: 404, body: `{"error":{"code":"not_found","message":"resource not found"}}`}, false, true},
-		{"structured other not_found code", &hubStatusError{statusCode: 404, body: `{"error":{"code":"version_not_found"}}`}, false, false},
-		{"405 method not allowed", &hubStatusError{statusCode: http.StatusMethodNotAllowed, body: ""}, true, false},
-		{"409 version exists", &hubStatusError{statusCode: 409, body: `{"error":{"code":"version_exists"}}`}, false, false},
-		{"403 forbidden", &hubStatusError{statusCode: 403, body: `{"error":{"code":"forbidden"}}`}, false, false},
-		{"non-hub error", assertErr("boom"), false, false},
+		{name: "bare 404 (old hub, no route)", err: &hubStatusError{statusCode: 404, body: "404 page not found\n"}, missing: true, modNF: false},
+		{name: "empty 404", err: &hubStatusError{statusCode: 404, body: ""}, missing: true, modNF: false},
+		{name: "structured module not_found", err: &hubStatusError{statusCode: 404, body: `{"error":{"code":"not_found","message":"resource not found"}}`}, missing: false, modNF: true},
+		{name: "structured other not_found code", err: &hubStatusError{statusCode: 404, body: `{"error":{"code":"version_not_found"}}`}, missing: false, modNF: false},
+		{name: "405 method not allowed", err: &hubStatusError{statusCode: http.StatusMethodNotAllowed, body: ""}, missing: true, modNF: false},
+		{name: "409 version exists", err: &hubStatusError{statusCode: 409, body: `{"error":{"code":"version_exists"}}`}, missing: false, modNF: false},
+		{name: "403 forbidden", err: &hubStatusError{statusCode: 403, body: `{"error":{"code":"forbidden"}}`}, missing: false, modNF: false},
+		{name: "non-hub error", err: assertErr("boom"), missing: false, modNF: false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

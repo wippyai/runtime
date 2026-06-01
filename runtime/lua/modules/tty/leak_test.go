@@ -106,26 +106,6 @@ func ttyDeliverEvent(t *testing.T, proc *engine.Process, ev *svcterm.TTYEvent) {
 	require.NoError(t, proc.Step(events, &output))
 }
 
-// ttyDeliverTerminal closes the tty events subscription channel the way the
-// engine reclaims any subscription: a terminal payload on the topic. The
-// terminal frame drives deliverMessage -> closeChannel, removing the
-// subscription and its handler.
-func ttyDeliverTerminal(t *testing.T, proc *engine.Process) {
-	t.Helper()
-	var output process.StepOutput
-	events := []process.Event{{
-		Type: process.EventMessage,
-		Data: &relay.Package{
-			Messages: []*relay.Message{{
-				Topic:    svcterm.TopicTTYEvents,
-				Payloads: payload.Payloads{payload.NewTerminal()},
-			}},
-		},
-	}}
-	output.Reset()
-	require.NoError(t, proc.Step(events, &output))
-}
-
 func ttyHandlerCount(proc *engine.Process) int {
 	_, hasHandler := proc.GetTopicHandler(svcterm.TopicTTYEvents)
 	if hasHandler {

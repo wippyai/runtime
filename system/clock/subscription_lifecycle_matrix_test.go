@@ -42,7 +42,7 @@ type relayPackageSnapshot struct {
 	payloads payload.Payloads
 }
 
-func startMatrixTimer(t *testing.T, d *Dispatcher, ctx context.Context, duration time.Duration, chID uint64, build clockapi.FireBuilder, genRef *atomic.Uint64) clockapi.TimerStartResult {
+func startMatrixTimer(ctx context.Context, t *testing.T, d *Dispatcher, duration time.Duration, chID uint64, build clockapi.FireBuilder, genRef *atomic.Uint64) clockapi.TimerStartResult {
 	t.Helper()
 	rcv := newMockReceiver()
 	if err := d.handleTimerStart(ctx, clockapi.TimerStartCmd{
@@ -88,7 +88,7 @@ func TestClockSubscriptionLifecycleProofMatrix(t *testing.T) {
 		d, node, ctx, cancel := newDispatcherWithCtx(t)
 		defer stopDispatcher(t, d, cancel)
 
-		startMatrixTimer(t, d, ctx, 5*time.Millisecond, 1, func(at time.Time, gen uint64) payload.Payload {
+		startMatrixTimer(ctx, t, d, 5*time.Millisecond, 1, func(at time.Time, gen uint64) payload.Payload {
 			return payload.NewPayload(at.UnixNano(), payload.Golang)
 		}, nil)
 
@@ -106,7 +106,7 @@ func TestClockSubscriptionLifecycleProofMatrix(t *testing.T) {
 		d, _, ctx, cancel := newDispatcherWithCtx(t)
 		defer stopDispatcher(t, d, cancel)
 
-		result := startMatrixTimer(t, d, ctx, time.Hour, 2, func(at time.Time, gen uint64) payload.Payload {
+		result := startMatrixTimer(ctx, t, d, time.Hour, 2, func(at time.Time, gen uint64) payload.Payload {
 			return payload.NewPayload(at.UnixNano(), payload.Golang)
 		}, nil)
 		stopped, err := d.stopTimerByID(result.ID)
@@ -125,7 +125,7 @@ func TestClockSubscriptionLifecycleProofMatrix(t *testing.T) {
 		d, node, ctx, cancel := newDispatcherWithCtx(t)
 		defer stopDispatcher(t, d, cancel)
 
-		result := startMatrixTimer(t, d, ctx, 5*time.Millisecond, 3, func(at time.Time, gen uint64) payload.Payload {
+		result := startMatrixTimer(ctx, t, d, 5*time.Millisecond, 3, func(at time.Time, gen uint64) payload.Payload {
 			return payload.NewPayload(at.UnixNano(), payload.Golang)
 		}, nil)
 		waitForClockPackages(t, node, 1)
@@ -140,7 +140,7 @@ func TestClockSubscriptionLifecycleProofMatrix(t *testing.T) {
 		defer stopDispatcher(t, d, cancel)
 
 		var gen atomic.Uint64
-		result := startMatrixTimer(t, d, ctx, time.Hour, 4, func(at time.Time, gen uint64) payload.Payload {
+		result := startMatrixTimer(ctx, t, d, time.Hour, 4, func(at time.Time, gen uint64) payload.Payload {
 			return payload.NewPayload(gen, payload.Golang)
 		}, &gen)
 		resetRcv := newMockReceiver()
@@ -162,7 +162,7 @@ func TestClockSubscriptionLifecycleProofMatrix(t *testing.T) {
 	// pending timers and clears reverse maps.
 	t.Run("case8 drain-with-pending cancels dispatcher", func(t *testing.T) {
 		d, _, ctx, cancel := newDispatcherWithCtx(t)
-		startMatrixTimer(t, d, ctx, time.Hour, 5, func(at time.Time, gen uint64) payload.Payload {
+		startMatrixTimer(ctx, t, d, time.Hour, 5, func(at time.Time, gen uint64) payload.Payload {
 			return payload.NewPayload(at.UnixNano(), payload.Golang)
 		}, nil)
 		stopDispatcher(t, d, cancel)
@@ -235,7 +235,7 @@ func TestClockSubscriptionLifecycleProofMatrix(t *testing.T) {
 		d, _, ctx, cancel := newDispatcherWithCtx(t)
 		defer stopDispatcher(t, d, cancel)
 
-		startMatrixTimer(t, d, ctx, 5*time.Millisecond, 31, func(at time.Time, gen uint64) payload.Payload {
+		startMatrixTimer(ctx, t, d, 5*time.Millisecond, 31, func(at time.Time, gen uint64) payload.Payload {
 			panic("boom")
 		}, nil)
 		time.Sleep(30 * time.Millisecond)
@@ -248,7 +248,7 @@ func TestClockSubscriptionLifecycleProofMatrix(t *testing.T) {
 	t.Run("case33 zero/negative duration same terminal path", func(t *testing.T) {
 		for _, duration := range []time.Duration{0, -time.Millisecond} {
 			d, node, ctx, cancel := newDispatcherWithCtx(t)
-			result := startMatrixTimer(t, d, ctx, duration, 33, func(at time.Time, gen uint64) payload.Payload {
+			result := startMatrixTimer(ctx, t, d, duration, 33, func(at time.Time, gen uint64) payload.Payload {
 				return payload.NewPayload(at.UnixNano(), payload.Golang)
 			}, nil)
 			if result.ID != 0 {

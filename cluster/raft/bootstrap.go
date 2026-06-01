@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/wippyai/runtime/api/cluster"
-	"github.com/wippyai/runtime/api/event"
 	raftapi "github.com/wippyai/runtime/api/cluster/raft"
+	"github.com/wippyai/runtime/api/event"
 	"go.uber.org/zap"
 )
 
@@ -89,17 +89,16 @@ type BootstrapWatcherConfig struct {
 // (State is Leader or Follower with a known leader), the watcher
 // transitions itself to raft_status=in and exits.
 type BootstrapWatcher struct {
-	cfg     BootstrapWatcherConfig
 	node    bootstrapNode
 	member  bootstrapMembership
 	bus     event.Bus
 	logger  *zap.Logger
+	stopCh  chan struct{}
+	doneCh  chan struct{}
 	localID string
-
-	stopCh chan struct{}
-	doneCh chan struct{}
-	mu     sync.Mutex
-	state  string // "pre" or "in"
+	state   string // "pre" or "in"
+	cfg     BootstrapWatcherConfig
+	mu      sync.Mutex
 }
 
 // NewBootstrapWatcher wires the watcher. Start must be called separately

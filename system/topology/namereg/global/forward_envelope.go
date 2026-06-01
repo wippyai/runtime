@@ -9,8 +9,8 @@ import (
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
 
-	"github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/topology/namereg/global"
 )
 
 // forwardWireVersion is the version byte used by v1 forward-response envelopes.
