@@ -3,6 +3,9 @@
 name: Release
 
 on:
+  push:
+    branches:
+      - ci/nightly-signed-releases
   workflow_dispatch:
     inputs:
       version:
@@ -49,6 +52,7 @@ jobs:
           RAW_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          RAW_VERSION="${RAW_VERSION:-0.0.0-citest-$(git rev-parse --short=7 HEAD)}"
           ver="${RAW_VERSION#v}"
           if ! printf '%s' "$ver" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
             echo "invalid version '$RAW_VERSION' (expected semver like 0.2.1 or v0.2.1)" >&2
@@ -222,7 +226,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.validate.outputs.tag }}
-          PRERELEASE: ${{ inputs.prerelease }}
+          PRERELEASE: ${{ github.event_name == 'push' && 'true' || inputs.prerelease }}
           DRAFT: ${{ inputs.draft }}
         run: |
           set -euo pipefail
