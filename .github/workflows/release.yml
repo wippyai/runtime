@@ -1,0 +1,237 @@
+# SPDX-License-Identifier: MPL-2.0
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, e.g. 0.2.1 or v0.2.1'
+        type: string
+        required: true
+      prerelease:
+        description: 'Mark as prerelease (does not become Latest)'
+        type: boolean
+        default: false
+      draft:
+        description: 'Create as draft to review before publishing'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      version: ${{ steps.v.outputs.version }}
+      short_sha: ${{ steps.v.outputs.short_sha }}
+      build_date: ${{ steps.v.outputs.build_date }}
+      prev_tag: ${{ steps.v.outputs.prev_tag }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve and check version
+        id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RAW_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          ver="${RAW_VERSION#v}"
+          if ! printf '%s' "$ver" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
+            echo "invalid version '$RAW_VERSION' (expected semver like 0.2.1 or v0.2.1)" >&2
+            exit 1
+          fi
+          tag="v$ver"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "tag $tag already exists; published versions are immutable" >&2
+            exit 1
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "release $tag already exists" >&2
+            exit 1
+          fi
+          prev_tag=$(git tag --sort=-creatordate | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+          {
+            echo "tag=$tag"
+            echo "version=$tag"
+            echo "short_sha=$(git rev-parse --short=7 HEAD)"
+            echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "prev_tag=$prev_tag"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64, runner: ubuntu-latest }
+          - { goos: linux, goarch: arm64, runner: ubuntu-24.04-arm }
+          - { goos: darwin, goarch: amd64, runner: macos-26-intel }
+          - { goos: darwin, goarch: arm64, runner: macos-26 }
+          - { goos: windows, goarch: amd64, runner: windows-latest }
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+
+      - name: Setup msys (Windows)
+        if: matrix.goos == 'windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-toolchain mingw-w64-x86_64-sqlite3
+          path-type: inherit
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: true
+        env:
+          MSYSTEM: MINGW64
+
+      - name: Build
+        if: matrix.goos != 'windows'
+        shell: bash
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          SHORT_SHA: ${{ needs.validate.outputs.short_sha }}
+          BUILD_DATE: ${{ needs.validate.outputs.build_date }}
+        run: make build-wippy-local WIPPY_VERSION="$VERSION" WIPPY_COMMIT="$SHORT_SHA" WIPPY_DATE="$BUILD_DATE"
+
+      - name: Build (Windows)
+        if: matrix.goos == 'windows'
+        shell: 'msys2 {0}'
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          SHORT_SHA: ${{ needs.validate.outputs.short_sha }}
+          BUILD_DATE: ${{ needs.validate.outputs.build_date }}
+        run: |
+          set -euo pipefail
+          make build-wippy-local WIPPY_VERSION="$VERSION" WIPPY_COMMIT="$SHORT_SHA" WIPPY_DATE="$BUILD_DATE"
+          mv dist/wippy-windows-amd64 dist/wippy-windows-amd64.exe
+
+      - name: Smoke check
+        if: matrix.goos != 'windows'
+        shell: bash
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          bin="dist/wippy-${{ matrix.goos }}-${{ matrix.goarch }}"
+          "./$bin" --help >/dev/null
+          grep -a -- "$VERSION" "$bin" >/dev/null || { echo "version $VERSION not embedded in $bin"; exit 1; }
+
+      - name: Smoke check (Windows)
+        if: matrix.goos == 'windows'
+        shell: 'msys2 {0}'
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          bin="dist/wippy-windows-amd64.exe"
+          "./$bin" --help >/dev/null
+          grep -a -- "$VERSION" "$bin" >/dev/null || { echo "version $VERSION not embedded in $bin"; exit 1; }
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: wippy-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/wippy-${{ matrix.goos }}-${{ matrix.goarch }}*
+          if-no-files-found: error
+          retention-days: 3
+
+  release:
+    name: Sign and publish
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Download binaries
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: wippy-*
+          merge-multiple: true
+
+      - name: Sign binaries
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: go run ./tools/signrelease dist/wippy-*
+
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum $(ls wippy-* | grep -v '\.sig$') > SHA256SUMS
+
+      - name: Release notes
+        env:
+          PREV_TAG: ${{ needs.validate.outputs.prev_tag }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## ${TAG}"
+            echo
+            echo "Commit: ${GITHUB_SHA}"
+            echo
+            echo "## Changes"
+            if [ -n "$PREV_TAG" ]; then
+              git log --pretty='- %h %s' "${PREV_TAG}..HEAD"
+            else
+              git log --pretty='- %h %s' -n 50 HEAD
+            fi
+            echo
+            echo "## Verify"
+            echo '```'
+            echo "sha256sum -c SHA256SUMS"
+            echo "# each wippy-<os>-<arch>.sig is base64(ed25519 detached sig); verify with release_key.pub"
+            echo '```'
+          } > release-notes.md
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.validate.outputs.tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          DRAFT: ${{ inputs.draft }}
+        run: |
+          set -euo pipefail
+          flags=()
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          if [ "$DRAFT" = "true" ]; then flags+=(--draft); fi
+          if [ "$PRERELEASE" != "true" ] && [ "$DRAFT" != "true" ]; then flags+=(--latest); fi
+          gh release create "$TAG" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --notes-file release-notes.md \
+            "${flags[@]}"
