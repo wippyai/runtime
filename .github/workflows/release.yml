@@ -3,6 +3,9 @@
 name: Release
 
 on:
+  push:
+    branches:
+      - ci/nightly-signed-releases
   workflow_dispatch:
     inputs:
       version:
@@ -49,9 +52,10 @@ jobs:
           RAW_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          RAW_VERSION="${RAW_VERSION:-0.4.0}"
           ver="${RAW_VERSION#v}"
-          if ! printf '%s' "$ver" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
-            echo "invalid version '$RAW_VERSION' (expected semver like 0.2.1 or v0.2.1)" >&2
+          if ! printf '%s' "$ver" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+[a-z]*([-+][0-9A-Za-z.-]+)?$'; then
+            echo "invalid version '$RAW_VERSION' (expected e.g. 0.4.0, 0.3.1a, or 1.0.0-rc.1)" >&2
             exit 1
           fi
           tag="v$ver"
@@ -63,7 +67,7 @@ jobs:
             echo "release $tag already exists" >&2
             exit 1
           fi
-          latest=$(git tag --list 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
+          latest=$(git tag --list 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+[a-z]*$' | sort -V | tail -1 || true)
           if [ -n "$latest" ]; then
             higher=$(printf '%s\n%s\n' "$latest" "$tag" | sort -V | tail -1)
             if [ "$tag" = "$latest" ] || [ "$higher" != "$tag" ]; then
