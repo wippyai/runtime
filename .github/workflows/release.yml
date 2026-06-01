@@ -17,6 +17,10 @@ on:
         description: 'Create as draft to review before publishing'
         type: boolean
         default: false
+      force:
+        description: 'Bypass the must-be-greater-than-latest guard (duplicate check still applies)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -47,6 +51,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RAW_VERSION: ${{ inputs.version }}
+          FORCE: ${{ inputs.force }}
         run: |
           set -euo pipefail
           ver="${RAW_VERSION#v}"
@@ -64,10 +69,10 @@ jobs:
             exit 1
           fi
           latest=$(git tag --list 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+[a-z]*$' | sort -V | tail -1 || true)
-          if [ -n "$latest" ]; then
+          if [ "$FORCE" != "true" ] && [ -n "$latest" ]; then
             higher=$(printf '%s\n%s\n' "$latest" "$tag" | sort -V | tail -1)
             if [ "$tag" = "$latest" ] || [ "$higher" != "$tag" ]; then
-              echo "version $tag must be greater than the latest release $latest" >&2
+              echo "version $tag must be greater than the latest release $latest (use force to override)" >&2
               exit 1
             fi
           fi
