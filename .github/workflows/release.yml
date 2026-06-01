@@ -170,6 +170,8 @@ jobs:
     name: Sign and publish
     needs: [validate, build]
     runs-on: ubuntu-latest
+    env:
+      HUB_SERVICE_SECRET: ${{ secrets.HUB_SERVICE_SECRET }}
     steps:
       - name: Check out code
         uses: actions/checkout@v6
@@ -243,3 +245,12 @@ jobs:
             --title "$TAG" \
             --notes-file release-notes.md \
             "${flags[@]}"
+
+      - name: Register release on hub
+        if: ${{ inputs.draft == false && env.HUB_SERVICE_SECRET != '' }}
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          HUB_URL: ${{ vars.HUB_URL }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: CHANGELOG="$(cat release-notes.md)" go run ./tools/hubpublish dist/wippy-*
