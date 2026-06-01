@@ -3,9 +3,6 @@
 name: Release
 
 on:
-  push:
-    branches:
-      - ci/nightly-signed-releases
   workflow_dispatch:
     inputs:
       version:
@@ -52,7 +49,6 @@ jobs:
           RAW_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          RAW_VERSION="${RAW_VERSION:-0.4.0}"
           ver="${RAW_VERSION#v}"
           if ! printf '%s' "$ver" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+[a-z]*([-+][0-9A-Za-z.-]+)?$'; then
             echo "invalid version '$RAW_VERSION' (expected e.g. 0.4.0, 0.3.1a, or 1.0.0-rc.1)" >&2
