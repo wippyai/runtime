@@ -18,11 +18,11 @@
 
 </div>
 
-Wippy is an open-source, actor-model runtime for building complex applications and agent systems — without the stack of infrastructure they normally require.
+Wippy is an open-source, actor-model runtime for building complex applications and agent systems - without the stack of infrastructure they normally require.
 
-Durable workflows, queues, scheduling, caching, vector search, and clustering are part of the runtime, so the accidental complexity of wiring a dozen services together — and keeping them consistent, secured, and observable — goes away. Your code runs as isolated, supervised processes, written in typed, linted Lua, that communicate by message passing with no shared state to corrupt; a failure is contained and recovered instead of cascading.
+Durable workflows, queues, scheduling, caching, vector search, and clustering are part of the runtime, so the accidental complexity of wiring a dozen services together - and keeping them consistent, secured, and observable - goes away. Your code runs as isolated, supervised processes, written in typed, linted Lua, that communicate by message passing with no shared state to corrupt; a failure is contained and recovered instead of cascading.
 
-Each process is sandboxed to the capabilities you grant it, your data stays on infrastructure you own, and every change is versioned and reversible. Applications can also evolve at runtime — updated by your team or an AI agent over MCP — without redeploys.
+Each process is sandboxed to the capabilities you grant it, your data stays on infrastructure you own, and every change is versioned and reversible. Applications can also evolve at runtime - updated by your team or an AI agent over MCP - without redeploys.
 
 ## Features
 
@@ -112,7 +112,7 @@ wippy run         # Run application
 
 ## Cluster Mode
 
-Configure clustering in `.wippy.yaml` — point each node at a seed and set the expected initial quorum size:
+Configure clustering in `.wippy.yaml` - point each node at a seed and set the expected initial quorum size:
 
 ```yaml
 cluster:
@@ -132,7 +132,7 @@ wippy run --set cluster.enabled=true \
           --set cluster.raft.bootstrap_expect=3
 ```
 
-See the [documentation][documentation] for the cluster model — naming scopes, routing, distributed locks, and process groups.
+See the [documentation][documentation] for the cluster model - naming scopes, routing, distributed locks, and process groups.
 
 ## Configuration
 
