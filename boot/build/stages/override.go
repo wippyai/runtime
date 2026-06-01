@@ -101,7 +101,7 @@ func applyOverrideValue(mutator *entry.Mutator, target *registry.Entry, path str
 			return fmt.Errorf("kind override must not be empty")
 		}
 
-		target.Kind = registry.Kind(kind)
+		target.Kind = kind
 		return nil
 	}
 

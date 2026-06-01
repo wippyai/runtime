@@ -80,7 +80,7 @@ func (s *Store) AddCleanup(fn func() error) func() {
 // currently linked (already cancelled, or the list was emptied by Close) is
 // left untouched. Caller must hold s.mu.
 func (s *Store) unlink(node *cleanupNode) {
-	// A linked node is identified by being an endpoint or having neighbours.
+	// A linked node is identified by being an endpoint or having neighbors.
 	if node.prev == nil && node.next == nil && s.head != node {
 		return
 	}

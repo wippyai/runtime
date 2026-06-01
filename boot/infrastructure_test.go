@@ -109,7 +109,7 @@ func TestNewBootstrapContext(t *testing.T) {
 
 		node := relayapi.GetNode(ctx)
 		require.NotNil(t, node)
-		assert.Equal(t, "node-from-env", string(node.ID()))
+		assert.Equal(t, "node-from-env", node.ID())
 	})
 
 	t.Run("config relay node name overrides WIPPY_NODE_ID", func(t *testing.T) {
@@ -126,7 +126,7 @@ func TestNewBootstrapContext(t *testing.T) {
 
 		node := relayapi.GetNode(ctx)
 		require.NotNil(t, node)
-		assert.Equal(t, "custom-node", string(node.ID()))
+		assert.Equal(t, "custom-node", node.ID())
 	})
 
 	t.Run("configures custom supervisor host settings", func(t *testing.T) {

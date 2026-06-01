@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/topology/namereg/global"
 )
 
 // memSink is an in-memory hraft.SnapshotSink used to round-trip FSM

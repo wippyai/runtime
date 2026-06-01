@@ -245,7 +245,7 @@ func executeRequest(ctx context.Context, pool *Pool, networkReg netapi.NetworkRe
 	for name, value := range req.Cookies {
 		// Outbound HTTP request cookies; Secure/HttpOnly/SameSite are
 		// response-side attributes the client cannot set meaningfully.
-		httpReq.AddCookie(&gohttp.Cookie{Name: name, Value: value}) //nolint:gosec // G124 does not apply to client-sent cookies
+		httpReq.AddCookie(&gohttp.Cookie{Name: name, Value: value})
 	}
 	if req.BasicAuthUser != "" {
 		httpReq.SetBasicAuth(req.BasicAuthUser, req.BasicAuthPass)

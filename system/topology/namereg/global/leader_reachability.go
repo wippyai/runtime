@@ -5,10 +5,10 @@ package global
 import (
 	"time"
 
-	"github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
+	"github.com/wippyai/runtime/api/topology/namereg/global"
 
 	"go.uber.org/zap"
 )

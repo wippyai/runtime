@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/topology/namereg/global"
 )
 
 func TestService_Lookup_NoOptions(t *testing.T) {

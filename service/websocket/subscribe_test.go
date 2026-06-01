@@ -57,8 +57,8 @@ type subscribeFixture struct {
 	ctx      context.Context
 	handlers map[dispatcher.CommandID]dispatcher.Handler
 	host     *captureHost
-	connID   uint64
 	teardown func()
+	connID   uint64
 }
 
 func newSubscribeFixture(t *testing.T, wsURL string) *subscribeFixture {

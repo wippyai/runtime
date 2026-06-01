@@ -15,23 +15,23 @@ import (
 // contradict (any "off" wins).
 func TestClusterRaftEnabled_RoleComposition(t *testing.T) {
 	cases := []struct {
-		name    string
 		section map[string]any
+		name    string
 		want    bool
 	}{
-		{"defaults (no raft.* set)", map[string]any{}, true},
-		{"role server", map[string]any{"raft.role": "server"}, true},
-		{"role client", map[string]any{"raft.role": "client"}, false},
-		{"role client mixed case", map[string]any{"raft.role": "Client"}, false},
-		{"enabled false", map[string]any{"raft.enabled": false}, false},
-		{"enabled true role server", map[string]any{"raft.enabled": true, "raft.role": "server"}, true},
-		{"enabled true role client", map[string]any{"raft.enabled": true, "raft.role": "client"}, false},
-		{"enabled false role server", map[string]any{"raft.enabled": false, "raft.role": "server"}, false},
-		{"unknown role treated as server", map[string]any{"raft.role": "voter"}, true},
+		{name: "defaults (no raft.* set)", section: map[string]any{}, want: true},
+		{name: "role server", section: map[string]any{"raft.role": "server"}, want: true},
+		{name: "role client", section: map[string]any{"raft.role": "client"}, want: false},
+		{name: "role client mixed case", section: map[string]any{"raft.role": "Client"}, want: false},
+		{name: "enabled false", section: map[string]any{"raft.enabled": false}, want: false},
+		{name: "enabled true role server", section: map[string]any{"raft.enabled": true, "raft.role": "server"}, want: true},
+		{name: "enabled true role client", section: map[string]any{"raft.enabled": true, "raft.role": "client"}, want: false},
+		{name: "enabled false role server", section: map[string]any{"raft.enabled": false, "raft.role": "server"}, want: false},
+		{name: "unknown role treated as server", section: map[string]any{"raft.role": "voter"}, want: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := boot.NewConfig(boot.WithSection(string(ClusterName), tc.section))
+			cfg := boot.NewConfig(boot.WithSection(ClusterName, tc.section))
 			require.Equal(t, tc.want, clusterRaftEnabled(cfg.Sub(ClusterName)))
 		})
 	}

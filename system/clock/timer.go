@@ -30,10 +30,10 @@ type timerEntry struct {
 	// so the user-supplied payload-build closure stays decoupled from
 	// reverse-map bookkeeping.
 	onFireCleanup func()
-	mu            sync.Mutex
-	stopped       atomic.Bool
 	genRef        *atomic.Uint64
 	gen           uint64
+	mu            sync.Mutex
+	stopped       atomic.Bool
 }
 
 type timerShard struct {

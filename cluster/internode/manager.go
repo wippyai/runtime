@@ -222,14 +222,14 @@ type ConnectionManager interface {
 }
 
 type manager struct {
-	ctx              context.Context
-	listener         net.Listener
-	cancel           context.CancelFunc
-	logger           *zap.Logger
-	onMessage        func(cluster.NodeID, []byte)
-	tlsConfig        *tls.Config
-	nodeStates       *NodeStateManager
-	controlLoops     map[cluster.NodeID]*nodeControlLoop
+	ctx          context.Context
+	listener     net.Listener
+	cancel       context.CancelFunc
+	logger       *zap.Logger
+	onMessage    func(cluster.NodeID, []byte)
+	tlsConfig    *tls.Config
+	nodeStates   *NodeStateManager
+	controlLoops map[cluster.NodeID]*nodeControlLoop
 	// classReceivers and classOverflow are accessed on every inbound
 	// frame (lookupClassReceiver runs in the read hot path). Registrations
 	// happen only at boot, so we keep the arrays behind atomic.Pointer
