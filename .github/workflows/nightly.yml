@@ -1,0 +1,245 @@
+# SPDX-License-Identifier: MPL-2.0
+
+name: Nightly
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Build a nightly even if no new commits'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+env:
+  NIGHTLY_KEEP: '14'
+
+jobs:
+  gate:
+    name: Gate
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.gate.outputs.should_release }}
+      version: ${{ steps.gate.outputs.version }}
+      tag: ${{ steps.gate.outputs.tag }}
+      short_sha: ${{ steps.gate.outputs.short_sha }}
+      build_date: ${{ steps.gate.outputs.build_date }}
+      prev_tag: ${{ steps.gate.outputs.prev_tag }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Decide
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_SHA: ${{ github.sha }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          set -euo pipefail
+          prev_tag=$(gh release list --limit 200 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | startswith("nightly-"))] | sort_by(.createdAt) | last | .tagName')
+          prev_sha=""
+          if [[ -n "$prev_tag" && "$prev_tag" != "null" ]]; then
+            prev_sha=$(git rev-list -n1 "$prev_tag" 2>/dev/null || echo "")
+          else
+            prev_tag=""
+          fi
+          short_sha=$(git rev-parse --short=7 HEAD)
+          version="nightly-$(date -u +%Y%m%d)-${short_sha}"
+          {
+            echo "prev_tag=$prev_tag"
+            echo "version=$version"
+            echo "tag=$version"
+            echo "short_sha=$short_sha"
+            echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_OUTPUT"
+          PREV_SHA="$prev_sha" FORCE="${FORCE:-false}" bash .github/scripts/should-release.sh
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: gate
+    if: needs.gate.outputs.should_release == 'true'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64, runner: ubuntu-latest }
+          - { goos: linux, goarch: arm64, runner: ubuntu-24.04-arm }
+          - { goos: darwin, goarch: amd64, runner: macos-26-intel }
+          - { goos: darwin, goarch: arm64, runner: macos-26 }
+          - { goos: windows, goarch: amd64, runner: windows-latest }
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+
+      - name: Setup msys (Windows)
+        if: matrix.goos == 'windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-toolchain mingw-w64-x86_64-sqlite3
+          path-type: inherit
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: true
+        env:
+          MSYSTEM: MINGW64
+
+      - name: Build
+        if: matrix.goos != 'windows'
+        shell: bash
+        env:
+          VERSION: ${{ needs.gate.outputs.version }}
+          SHORT_SHA: ${{ needs.gate.outputs.short_sha }}
+          BUILD_DATE: ${{ needs.gate.outputs.build_date }}
+        run: make build-wippy-local WIPPY_VERSION="$VERSION" WIPPY_COMMIT="$SHORT_SHA" WIPPY_DATE="$BUILD_DATE"
+
+      - name: Build (Windows)
+        if: matrix.goos == 'windows'
+        shell: 'msys2 {0}'
+        env:
+          VERSION: ${{ needs.gate.outputs.version }}
+          SHORT_SHA: ${{ needs.gate.outputs.short_sha }}
+          BUILD_DATE: ${{ needs.gate.outputs.build_date }}
+        run: |
+          set -euo pipefail
+          make build-wippy-local WIPPY_VERSION="$VERSION" WIPPY_COMMIT="$SHORT_SHA" WIPPY_DATE="$BUILD_DATE"
+          mv dist/wippy-windows-amd64 dist/wippy-windows-amd64.exe
+
+      - name: Smoke check
+        if: matrix.goos != 'windows'
+        shell: bash
+        env:
+          VERSION: ${{ needs.gate.outputs.version }}
+        run: |
+          set -euo pipefail
+          bin="dist/wippy-${{ matrix.goos }}-${{ matrix.goarch }}"
+          "./$bin" --help >/dev/null
+          grep -a -- "$VERSION" "$bin" >/dev/null || { echo "version $VERSION not embedded in $bin"; exit 1; }
+
+      - name: Smoke check (Windows)
+        if: matrix.goos == 'windows'
+        shell: 'msys2 {0}'
+        env:
+          VERSION: ${{ needs.gate.outputs.version }}
+        run: |
+          set -euo pipefail
+          bin="dist/wippy-windows-amd64.exe"
+          "./$bin" --help >/dev/null
+          grep -a -- "$VERSION" "$bin" >/dev/null || { echo "version $VERSION not embedded in $bin"; exit 1; }
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: wippy-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/wippy-${{ matrix.goos }}-${{ matrix.goarch }}*
+          if-no-files-found: error
+          retention-days: 3
+
+  release:
+    name: Sign and publish
+    needs: [gate, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Download binaries
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: wippy-*
+          merge-multiple: true
+
+      - name: Sign binaries
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: go run ./tools/signrelease dist/wippy-*
+
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum $(ls wippy-* | grep -v '\.sig$') > SHA256SUMS
+
+      - name: Release notes
+        env:
+          PREV_TAG: ${{ needs.gate.outputs.prev_tag }}
+        run: |
+          set -euo pipefail
+          {
+            echo "Automated nightly build."
+            echo
+            echo "Commit: ${GITHUB_SHA}"
+            echo
+            echo "## Changes"
+            if [ -n "$PREV_TAG" ]; then
+              git log --pretty='- %h %s' "${PREV_TAG}..HEAD"
+            else
+              git log --pretty='- %h %s' -n 50 HEAD
+            fi
+            echo
+            echo "## Verify"
+            echo '```'
+            echo "sha256sum -c SHA256SUMS"
+            echo "# each wippy-<os>-<arch>.sig is base64(ed25519 detached sig); verify with release_key.pub"
+            echo '```'
+          } > release-notes.md
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.gate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" dist/* \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Nightly ${TAG#nightly-}" \
+            --notes-file release-notes.md
+
+  prune:
+    name: Prune old nightlies
+    needs: [gate, release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete nightlies beyond retention
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release list --repo "$REPO" --limit 200 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | startswith("nightly-"))] | sort_by(.createdAt) | reverse | .['"$NIGHTLY_KEEP"':] | .[].tagName' \
+          | while read -r tag; do
+              [ -z "$tag" ] && continue
+              echo "deleting $tag"
+              gh release delete "$tag" --repo "$REPO" --cleanup-tag --yes
+            done
