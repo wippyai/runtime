@@ -568,8 +568,8 @@ github.com/wippyai/tree-sitter-markdown v0.0.3 h1:u6e53+hzPSS848Xhm+I48SwtvWQHrC
 github.com/wippyai/tree-sitter-markdown v0.0.3/go.mod h1:LDcC3ar1PlugUgz7YetXmrEoSDMeQuh+CoW53+QpZtc=
 github.com/wippyai/tree-sitter-sql v0.0.4 h1:0hJyjkV6/lhoGA5FJAaf96od2xyo+OJINSEMx/IYqLQ=
 github.com/wippyai/tree-sitter-sql v0.0.4/go.mod h1:QN9CfIO55fwQNVNk1p/7pjxrLk7iKxrQs42Zh6lrr84=
-github.com/wippyai/wapp v0.1.1 h1:34MQrXp3B27oZxz7FMEvqgBuDBggxnnj/gG6Y2wqP6Q=
-github.com/wippyai/wapp v0.1.1/go.mod h1:ndCkYR80+osLGbd7AFWlP+3DxwooR+R6cxQYPZhksg4=
+github.com/wippyai/wapp v0.1.2 h1:fCoxKr9s3gk+pWx4XcnIQmOVgPiuimXf3QcE9mHbdmw=
+github.com/wippyai/wapp v0.1.2/go.mod h1:ndCkYR80+osLGbd7AFWlP+3DxwooR+R6cxQYPZhksg4=
 github.com/wippyai/wasm-runtime v0.0.0-20260209224309-586ea6933075 h1:TZZCgi+CTZKcHRhpziSl9t1T33Dq+VWBNZQ9w6e9b+M=
 github.com/wippyai/wasm-runtime v0.0.0-20260209224309-586ea6933075/go.mod h1:1AVYdZibORqlBez081Seakxv2u9IR+KIMrvlBKsk2bQ=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=

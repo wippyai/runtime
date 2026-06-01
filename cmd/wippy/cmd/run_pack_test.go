@@ -575,6 +575,24 @@ func TestVerifyPackedResourcesSmallFileAfterChunkedFile(t *testing.T) {
 	}
 }
 
+func TestVerifyPackedResourcesMultipleLargeChunkedFiles(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "assets/000_small.txt", []byte("hello world"))
+	writeTestFile(t, root, "assets/bundle_a.js", deterministicBytes(18*int(wapp.ChunkSize)+4567))
+	writeTestFile(t, root, "assets/bundle_b.js", deterministicBytes(3*int(wapp.ChunkSize)+777))
+	writeTestFile(t, root, "assets/zzz_small.txt", []byte("another small file"))
+
+	packPath := packTestResource(t, root)
+
+	err := verifyPackedResources(packPath, []wapp.ResourceSpec{{
+		ID: wapp.NewID("test", "static"),
+		FS: os.DirFS(root),
+	}})
+	if err != nil {
+		t.Fatalf("verifyPackedResources failed: %v", err)
+	}
+}
+
 func TestVerifyPackedResourcesDetectsContentMismatch(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "assets/app.js", []byte("before\n"))
