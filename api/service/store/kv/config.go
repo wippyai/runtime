@@ -20,7 +20,8 @@ const (
 )
 
 // namespacePattern constrains an app namespace so it can never collide with the
-// reserved @sys/ system prefix (a leading @ is excluded by the leading [a-z]).
+// reserved _sys system namespace (a leading underscore is excluded by the
+// required leading [a-z]). System coordination lives under _sys:* keys.
 var namespacePattern = regexp.MustCompile(`^[a-z][a-z0-9._-]*$`)
 
 // ErrInvalidNamespace is returned for a missing or malformed namespace.

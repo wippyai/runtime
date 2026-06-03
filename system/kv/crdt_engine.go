@@ -105,7 +105,7 @@ func (e *CRDTEngine) isDurableKey(key string) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for ns := range e.durableNS {
-		if strings.HasPrefix(key, ns+"/") {
+		if strings.HasPrefix(key, ns+":") {
 			return true
 		}
 	}

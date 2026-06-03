@@ -5,6 +5,7 @@ package system
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -123,9 +124,9 @@ func Raft() boot.Component {
 				return ctx, nil
 			}
 
-			// Raft runs diskless (no data_dir): cluster state is ephemeral,
-			// restarts rejoin from peer state. Mesh transport addresses peers
-			// by NodeID over the internode layer, so no bind_addr/port.
+			// Raft is fs-durable by default (data_dir, below). Mesh transport
+			// addresses peers by NodeID over the internode layer, so no
+			// bind_addr/port.
 			//
 			// Cluster formation follows the Consul/Nomad gossip-driven pattern:
 			// each node ships the single knob BootstrapExpect (the expected
@@ -147,7 +148,14 @@ func Raft() boot.Component {
 				HeartbeatTimeout:  raftCfg.GetDuration(ClusterRaftHeartbeatTimeout, 0),
 				ElectionTimeout:   raftCfg.GetDuration(ClusterRaftElectionTimeout, 0),
 				CommitTimeout:     raftCfg.GetDuration(ClusterRaftCommitTimeout, 0),
-				DataDir:           raftCfg.GetString(ClusterRaftDataDir, ""),
+			}
+			// store.kv.raft requires a durable raft; default the node data_dir to
+			// ~/.wippy/store so raft is fs-durable out of the box (no toggle). The
+			// shared raft (registry + kv) lives under <data_dir>/_sys/raft.
+			if base := nodeDataDir(raftCfg); base != "" {
+				rc.DataDir = filepath.Join(base, "_sys", "raft")
+			} else {
+				logger.Warn("raft: no data_dir and no home directory; running diskless")
 			}
 
 			// Capture handler config for the Start phase. Reading it here

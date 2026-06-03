@@ -14,21 +14,21 @@ import (
 )
 
 // physicalKey maps a logical store key into the engine's flat keyspace under the
-// store's namespace: "<namespace>/<ns:name>".
+// store's namespace: "<namespace>:<ns:name>".
 func physicalKey(namespace string, key registry.ID) string {
-	return namespace + "/" + key.String()
+	return namespace + ":" + key.String()
 }
 
 // physicalPrefix is the engine-level scan prefix for this namespace plus an
 // optional logical prefix.
 func physicalPrefix(namespace, prefix string) string {
-	return namespace + "/" + prefix
+	return namespace + ":" + prefix
 }
 
 // logicalKey strips the namespace prefix and parses the remainder back into a
 // registry.ID. Returns false for a key outside the namespace (defense in depth).
 func logicalKey(namespace, phys string) (registry.ID, bool) {
-	prefix := namespace + "/"
+	prefix := namespace + ":"
 	if !strings.HasPrefix(phys, prefix) {
 		return registry.ID{}, false
 	}

@@ -65,9 +65,8 @@ func KVCRDT() boot.Component {
 			engine = systemkv.NewCRDTEngine(node.ID(), eventapi.GetBus(ctx), logger)
 
 			if cfg := boot.GetConfig(ctx); cfg != nil {
-				dataDir := cfg.Sub(ClusterName).GetString(ClusterRaftDataDir, "")
-				if dataDir != "" {
-					engine.SetDurability(filepath.Join(dataDir, "kvcrdt"), 30*time.Second)
+				if base := nodeDataDir(cfg.Sub(ClusterName)); base != "" {
+					engine.SetDurability(filepath.Join(base, "_sys", "kvcrdt"), 30*time.Second)
 				}
 			}
 

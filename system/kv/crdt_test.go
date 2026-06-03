@@ -125,8 +125,8 @@ func TestCRDTEngine_DurablePersistsOnlyMarkedNamespaces(t *testing.T) {
 	if err := e1.Start(ctx); err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	_, _ = e1.Set("dur/k", []byte("keep"))
-	_, _ = e1.Set("eph/k", []byte("drop"))
+	_, _ = e1.Set("dur:k", []byte("keep"))
+	_, _ = e1.Set("eph:k", []byte("drop"))
 	if err := e1.snapshotDurable(); err != nil {
 		t.Fatalf("snapshot: %v", err)
 	}
@@ -140,10 +140,10 @@ func TestCRDTEngine_DurablePersistsOnlyMarkedNamespaces(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = e2.Stop() })
 
-	if got, err := e2.Get("dur/k"); err != nil || string(got.Value) != "keep" {
+	if got, err := e2.Get("dur:k"); err != nil || string(got.Value) != "keep" {
 		t.Fatalf("durable key lost after restart: %+v err=%v", got, err)
 	}
-	if _, err := e2.Get("eph/k"); !errors.Is(err, kvapi.ErrKeyNotFound) {
+	if _, err := e2.Get("eph:k"); !errors.Is(err, kvapi.ErrKeyNotFound) {
 		t.Fatalf("ephemeral key should not survive restart, got err=%v", err)
 	}
 }
