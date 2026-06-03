@@ -474,7 +474,19 @@ func (st *strongState) leaderPromote(name string, epoch, headerVer uint64, hdr p
 	for _, n := range hdr.RequiredNodes {
 		ops = append(ops, kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: ackKey(name, epoch, n)})
 	}
-	if committed, terr := st.svc.engine.Txn(ops); terr != nil || !committed {
+	committed, terr := st.svc.engine.Txn(ops)
+	if terr != nil {
+		return
+	}
+	if !committed {
+		// Promotion failed. If a conflicting binding now holds the name (active
+		// not absent), the reservation lost -> terminal conflict (otherwise it is
+		// a benign version race the next reconcile/sweep retries). Without this a
+		// complete-but-unpromotable pending would retry forever and hang the
+		// waiter until its deadline.
+		if _, gerr := st.svc.engine.Get(activeKey(name)); gerr == nil {
+			st.leaderExpire(name, epoch, headerVer, hdr, strongRejectConflict)
+		}
 		return
 	}
 	st.takeTerminal(name)

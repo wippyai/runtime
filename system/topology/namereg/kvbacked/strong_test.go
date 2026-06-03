@@ -168,6 +168,23 @@ func TestStrong_RecoversActiveExclusionOnSeed(t *testing.T) {
 	}
 }
 
+// TestCrossScope_ConsistentBlockedByStrongPending proves a CONSISTENT register
+// is refused (ErrPendingConflict) while a STRONG reservation for the same name
+// is in flight — the cross-scope invariant that a pending owns the name.
+func TestCrossScope_ConsistentBlockedByStrongPending(t *testing.T) {
+	r := newStrongReg(t, []pid.NodeID{"node-1", "ghost"}, 5*time.Second, nil)
+	p := mkPID("node-1", "a")
+	go func() { _, _ = r.RegisterScope(context.Background(), "svc", p, globalapi.Strong) }()
+
+	if !eventually(t, 2*time.Second, func() bool { _, ok := r.IsStrongReserved("svc"); return ok }) {
+		t.Fatalf("strong pending expected")
+	}
+	_, err := r.RegisterScope(context.Background(), "svc", mkPID("node-1", "b"), globalapi.Consistent)
+	if !errors.Is(err, globalapi.ErrPendingConflict) {
+		t.Fatalf("CONSISTENT register during STRONG pending must be ErrPendingConflict, got %v", err)
+	}
+}
+
 func eventually(t *testing.T, timeout time.Duration, cond func() bool) bool {
 	t.Helper()
 	deadline := time.Now().Add(timeout)

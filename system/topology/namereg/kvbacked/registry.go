@@ -207,6 +207,9 @@ func (s *Service) registerConsistent(name string, p pid.PID) (globalapi.Register
 	}
 
 	committed, err := s.engine.Txn([]kvapi.TxnOp{
+		// A STRONG reservation in flight for this name blocks a CONSISTENT bind
+		// (cross-scope: the pending owns the name until it promotes or expires).
+		{Kind: kvapi.TxnCheck, Cond: kvapi.CondAbsent, Key: pendingKey(name)},
 		{Kind: kvapi.TxnPut, Cond: kvapi.CondAbsent, Key: activeKey(name), Value: val},
 		{Kind: kvapi.TxnPut, Cond: kvapi.CondAny, Key: pidIndexKey(p, name), Value: idx},
 		{Kind: kvapi.TxnPut, Cond: kvapi.CondAny, Key: nodeIndexKey(p, name), Value: idx},
@@ -231,6 +234,15 @@ func (s *Service) resolveConflict(name string, incoming pid.PID) (globalapi.Regi
 	for attempt := 0; attempt < maxResolveRetries; attempt++ {
 		e, err := s.get(activeKey(name))
 		if errors.Is(err, kvapi.ErrKeyNotFound) {
+			// Active absent but the register was rejected: a STRONG reservation is
+			// pending for this name. Report it rather than re-registering forever.
+			if pe, perr := s.get(pendingKey(name)); perr == nil {
+				existing := pid.PID{}
+				if ph, derr := decodePending(pe.Value); derr == nil {
+					existing, _ = pid.ParsePID(ph.PID)
+				}
+				return globalapi.RegisterOutcome{ExistingPID: existing}, globalapi.ErrPendingConflict
+			}
 			out, rerr := s.registerConsistent(name, incoming)
 			return out, rerr
 		}

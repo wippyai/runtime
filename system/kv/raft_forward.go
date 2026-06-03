@@ -321,6 +321,10 @@ func (e *RaftEngine) handleReadResp(msg *relay.Message) {
 	vlen := binary.BigEndian.Uint32(out[25:29])
 	if 29+int(vlen) <= len(out) {
 		res.value = append([]byte(nil), out[29:29+int(vlen)]...)
+	} else if res.found {
+		// A found entry whose value is truncated is a malformed frame; surface an
+		// error rather than returning a silently-empty value.
+		res.err = staticErr("kv: read response truncated")
 	}
 
 	e.fwdMu.Lock()
