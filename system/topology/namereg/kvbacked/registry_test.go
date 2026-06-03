@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/wippyai/runtime/api/pid"
+	kvapi "github.com/wippyai/runtime/api/store/kv"
 	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/system/eventbus"
 	systemkv "github.com/wippyai/runtime/system/kv"
@@ -145,6 +146,49 @@ func TestConsistent_ByPIDAndUnregister(t *testing.T) {
 	}
 	if names := r.namesForPID(p); len(names) != 2 {
 		t.Fatalf("reverse index not cleaned: %v", names)
+	}
+}
+
+// fakeLeaderEngine is an empty local engine whose GetViaLeader reads from a
+// separate "leader" engine, simulating a non-member forwarding a read.
+type fakeLeaderEngine struct {
+	*systemkv.Service
+	leader *systemkv.Service
+}
+
+func (f *fakeLeaderEngine) GetViaLeader(key string) (kvapi.Entry, error) { return f.leader.Get(key) }
+
+// TestConsistent_NonMemberColdMissForward proves a non-member whose local
+// replica and dissem cache both miss resolves an active name by forwarding the
+// read to the leader.
+func TestConsistent_NonMemberColdMissForward(t *testing.T) {
+	leaderEng := systemkv.NewService("leader", eventbus.NewBus(), nil)
+	if _, err := leaderEng.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = leaderEng.Stop(context.Background()) })
+	// Register a name on the leader registry.
+	p := mkPID("node-1", "a")
+	if _, err := NewService(leaderEng, "node-1", nil, nil).Register(context.Background(), "svc", p); err != nil {
+		t.Fatal(err)
+	}
+
+	localEng := systemkv.NewService("client", eventbus.NewBus(), nil)
+	if _, err := localEng.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = localEng.Stop(context.Background()) })
+
+	client := NewService(&fakeLeaderEngine{Service: localEng, leader: leaderEng}, "client", nil, nil)
+	// Without the non-member flag, a local+dissem miss returns not-found.
+	if res, _ := client.Lookup(context.Background(), "svc"); res.Found {
+		t.Fatalf("member-mode lookup must not forward")
+	}
+	// As a non-member, the cold miss forward-resolves through the leader.
+	client.SetNonMember(func() bool { return true })
+	res, err := client.Lookup(context.Background(), "svc")
+	if err != nil || !res.Found || res.PID.String() != p.String() {
+		t.Fatalf("non-member cold-miss forward failed: res=%+v err=%v", res, err)
 	}
 }
 

@@ -106,6 +106,7 @@ type strongState struct {
 	waiters         map[string][]*strongWaiter
 	terminalReason  map[string]string
 	terminalMissing map[string][]pid.NodeID
+	terminalEpoch   map[string]uint64
 	deadline        time.Duration
 	mu              sync.Mutex
 }
@@ -143,6 +144,7 @@ func (s *Service) ConfigureStrong(deps StrongDeps) {
 		waiters:         make(map[string][]*strongWaiter),
 		terminalReason:  make(map[string]string),
 		terminalMissing: make(map[string][]pid.NodeID),
+		terminalEpoch:   make(map[string]uint64),
 	}
 }
 
@@ -262,37 +264,41 @@ func (st *strongState) finalize(name string, p pid.PID, out globalapi.RegisterOu
 		}
 		return globalapi.RegisterOutcome{PID: p, Epoch: out.Epoch, State: globalapi.RegisterStateActive}, nil
 	case globalapi.RegisterStateExpired:
-		reason, missing := st.takeTerminal(name)
+		reason, missing, epoch := st.takeTerminal(name)
 		if reason == strongRejectConflict {
-			return out, &globalapi.StrongConflictError{Name: name, Epoch: out.Epoch, Reason: strongRejectConflict}
+			return out, &globalapi.StrongConflictError{Name: name, Epoch: epoch, Reason: strongRejectConflict}
 		}
-		return out, &globalapi.StrongRegistrationTimeoutError{Name: name, Epoch: out.Epoch, MissingAcks: missing}
+		return out, &globalapi.StrongRegistrationTimeoutError{Name: name, Epoch: epoch, MissingAcks: missing}
 	default:
 		return out, globalapi.ErrNotAvailable
 	}
 }
 
-func (st *strongState) setTerminal(name, reason string, missing []pid.NodeID) {
+func (st *strongState) setTerminal(name, reason string, missing []pid.NodeID, epoch uint64) {
 	st.mu.Lock()
 	st.terminalReason[name] = reason
+	st.terminalEpoch[name] = epoch
 	if len(missing) > 0 {
 		st.terminalMissing[name] = missing
 	}
 	st.mu.Unlock()
 }
 
-// takeTerminal returns and clears the terminal reason + missing-ack node set for
-// a name (missing as []string for StrongRegistrationTimeoutError).
-func (st *strongState) takeTerminal(name string) (string, []string) {
+// takeTerminal returns and clears the terminal reason, missing-ack node set, and
+// epoch for a name — the authoritative outcome detail, independent of which
+// concurrent onTerminal delivered the (epoch-less) Expired signal.
+func (st *strongState) takeTerminal(name string) (string, []string, uint64) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	r := st.terminalReason[name]
 	delete(st.terminalReason, name)
+	ep := st.terminalEpoch[name]
+	delete(st.terminalEpoch, name)
 	m := st.terminalMissing[name]
 	delete(st.terminalMissing, name)
 	out := make([]string, len(m))
 	copy(out, m)
-	return r, out
+	return r, out, ep
 }
 
 func (st *strongState) conflictOutcome(name string, p pid.PID) (globalapi.RegisterOutcome, error) {
@@ -386,7 +392,7 @@ func (st *strongState) attest(name string, epoch uint64, pendingPID pid.PID, req
 		return // already rejected
 	}
 	if cp, conflict := st.localConflict(name, pendingPID); conflict && cp.String() != pendingPID.String() {
-		st.setTerminal(name, strongRejectConflict, nil)
+		st.setTerminal(name, strongRejectConflict, nil, epoch)
 		if _, _, err := st.svc.engine.SetIfAbsent(rejectKey(name, epoch, st.svc.selfNode), []byte(strongRejectConflict)); err != nil {
 			st.logger.Debug("strong reject write failed", zap.String("name", name), zap.Error(err))
 		}
@@ -492,7 +498,7 @@ func (st *strongState) leaderExpire(name string, epoch, headerVer uint64, hdr pe
 	if committed, terr := st.svc.engine.Txn(ops); terr != nil || !committed {
 		return
 	}
-	st.setTerminal(name, reason, missing)
+	st.setTerminal(name, reason, missing, epoch)
 	st.stopTimer(name)
 	st.reconcile(name)
 }
@@ -530,15 +536,14 @@ func (st *strongState) onActive(name string, epoch uint64, ap pid.PID) {
 
 func (st *strongState) onTerminal(name string) {
 	st.mu.Lock()
-	ex, had := st.exclusions[name]
 	delete(st.exclusions, name)
 	st.mu.Unlock()
 	st.stopTimer(name)
-	if had {
-		st.deliver(name, globalapi.RegisterOutcome{Epoch: ex.epoch, State: globalapi.RegisterStateExpired})
-	} else {
-		st.deliver(name, globalapi.RegisterOutcome{State: globalapi.RegisterStateExpired})
-	}
+	// Deterministic, idempotent: deliver an epoch-less Expired signal. finalize
+	// reads the authoritative epoch/reason/missing from the terminal tracking, so
+	// concurrent onTerminal calls (watch + recursive reconcile + timer) cannot
+	// produce a non-deterministic outcome, and the reject path still delivers.
+	st.deliver(name, globalapi.RegisterOutcome{State: globalapi.RegisterStateExpired})
 }
 
 func (st *strongState) reserved(name string) (pid.PID, bool) {

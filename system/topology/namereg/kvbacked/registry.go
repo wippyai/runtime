@@ -107,6 +107,7 @@ type Service struct {
 	leaderRead leaderReadEngine
 	topo       topology.Topology
 	leaderFn   func() bool
+	nonMember  func() bool
 	strong     *strongState
 	dissem     *global.Dissem
 	logger     *zap.Logger
@@ -130,6 +131,13 @@ func (s *Service) SetLeaderFunc(fn func() bool) {
 		s.leaderFn = fn
 	}
 }
+
+// SetNonMember marks this node as a registry non-member (role=client, no raft
+// FSM). When set and true, a Lookup that misses both the local replica and the
+// dissem cache forward-resolves through the leader, so a freshly-joined client
+// resolves names before gossip converges. Members leave it unset (a local miss
+// is authoritative — no forward).
+func (s *Service) SetNonMember(fn func() bool) { s.nonMember = fn }
 
 // get reads a key through the leader when the backend supports it, so a write
 // path observes its own and prior committed writes even on a follower.
@@ -326,6 +334,17 @@ func (s *Service) Lookup(_ context.Context, name string, opts ...globalapi.Looku
 		if s.dissem != nil {
 			if p, ok := s.dissem.Lookup(name); ok {
 				return globalapi.LookupResult{PID: p, Found: true}, nil
+			}
+		}
+		// Non-member cold-miss: forward-resolve through the leader so a client
+		// that joined before gossip converged still resolves an active name.
+		if s.nonMember != nil && s.nonMember() && s.leaderRead != nil {
+			if fe, ferr := s.leaderRead.GetViaLeader(activeKey(name)); ferr == nil {
+				if av, derr := decodeActive(fe.Value); derr == nil {
+					if p, perr := pid.ParsePID(av.PID); perr == nil {
+						return globalapi.LookupResult{PID: p, Found: true}, nil
+					}
+				}
 			}
 		}
 		return globalapi.LookupResult{Found: false}, nil
