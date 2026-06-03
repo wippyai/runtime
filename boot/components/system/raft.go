@@ -201,13 +201,19 @@ func Raft() boot.Component {
 			kvFSM := systemkv.NewRaftFSM(bus)
 			rootFSM := multiplex.New(wrapFSM(fsm), kvFSM)
 			raftNode = sysraft.NewNode(node.ID(), rootFSM, rc, bus, logger.Named("node"), coll, mp, tp)
-			kvEngine = systemkv.NewRaftEngine(raftNode, kvFSM, bus, node.ID(), logger.Named("kv"))
 			raftNode.SetConnectionManager(connMgr)
 
-			// Create the global registry service wrapping Raft + FSM.
+			// Relay router: carries global-registry and kv leader-forwarding.
 			router := relay.GetRouter(ctx)
 			if router == nil {
 				return ctx, fmt.Errorf("raft: relay router not available")
+			}
+
+			// kv engine forwards follower writes to the leader over the relay;
+			// register it as a relay host so forwarded requests/responses land.
+			kvEngine = systemkv.NewRaftEngine(raftNode, kvFSM, bus, node.ID(), router, logger.Named("kv"))
+			if err := node.RegisterHost(systemkv.KVRaftHostID, kvEngine); err != nil {
+				return ctx, fmt.Errorf("raft: register kv relay host: %w", err)
 			}
 			globalRegSvc = global.NewService(
 				raftNode, fsm, bus, topo,

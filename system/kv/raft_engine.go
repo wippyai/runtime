@@ -4,6 +4,7 @@ package kv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -11,6 +12,7 @@ import (
 
 	raftapi "github.com/wippyai/runtime/api/cluster/raft"
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/relay"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
 	"github.com/wippyai/runtime/cluster/raft/multiplex"
 	"go.uber.org/zap"
@@ -20,10 +22,12 @@ import (
 const raftApplyTimeout = 5 * time.Second
 
 // raftSubmitter is the narrow slice of raftapi.Service the engine needs:
-// propose a command and learn leadership. raftapi.Service satisfies it.
+// propose a command, learn leadership, and resolve the leader for forwarding.
+// raftapi.Service satisfies it.
 type raftSubmitter interface {
 	Apply(cmd []byte, timeout time.Duration) (*raftapi.ApplyResponse, error)
 	IsLeader() bool
+	Leader() (raftapi.ServerID, raftapi.ServerAddress, error)
 }
 
 // leaseSweepInterval is how often the leader scans for expired leases.
@@ -39,16 +43,21 @@ type RaftEngine struct {
 	ctx       context.Context
 	fsm       *RaftFSM
 	logger    *zap.Logger
+	router    relay.Receiver
 	deadlines map[kvapi.LeaseID]time.Time
+	pending   map[uint64]chan applyResult
 	cancel    context.CancelFunc
 	localNode string
 	wg        sync.WaitGroup
 	leaseSeq  atomic.Uint64
 	schedMu   sync.Mutex
+	fwdMu     sync.Mutex
 }
 
 // NewRaftEngine builds the shared engine. localNode scopes generated lease ids.
-func NewRaftEngine(raft raftSubmitter, fsm *RaftFSM, bus event.Bus, localNode string, logger *zap.Logger) *RaftEngine {
+// router carries leader-forwarded writes; nil disables forwarding (writes then
+// only succeed on the leader).
+func NewRaftEngine(raft raftSubmitter, fsm *RaftFSM, bus event.Bus, localNode string, router relay.Receiver, logger *zap.Logger) *RaftEngine {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -57,8 +66,10 @@ func NewRaftEngine(raft raftSubmitter, fsm *RaftFSM, bus event.Bus, localNode st
 		fsm:       fsm,
 		bus:       bus,
 		logger:    logger.Named("kv-raft"),
+		router:    router,
 		localNode: localNode,
 		deadlines: make(map[kvapi.LeaseID]time.Time),
+		pending:   make(map[uint64]chan applyResult),
 	}
 }
 
@@ -79,12 +90,18 @@ func (e *RaftEngine) Stop() error {
 	return nil
 }
 
-// propose submits a command through raft. Writes only succeed on the leader;
-// a follower returns ErrNotLeader (retryable) — callers retry against the
-// leader. Leader-forwarding is a planned enhancement.
+// propose submits a command through raft. On the leader it applies directly; on
+// a follower it forwards to the leader over the relay (when a router is wired).
 func (e *RaftEngine) propose(c command) (applyResult, error) {
 	data := append([]byte{multiplex.KVDomain}, encodeCommand(c)...)
 	resp, err := e.raft.Apply(data, raftApplyTimeout)
+	if errors.Is(err, raftapi.ErrNotLeader) && e.router != nil {
+		res, ferr := e.forwardToLeader(data)
+		if ferr != nil {
+			return applyResult{}, ferr
+		}
+		return res, res.Err
+	}
 	if err != nil {
 		return applyResult{}, err
 	}

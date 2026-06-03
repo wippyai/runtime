@@ -12,6 +12,7 @@ import (
 	hraft "github.com/hashicorp/raft"
 
 	raftapi "github.com/wippyai/runtime/api/cluster/raft"
+	"github.com/wippyai/runtime/api/relay"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
 	"github.com/wippyai/runtime/cluster/raft/multiplex"
 	"github.com/wippyai/runtime/system/eventbus"
@@ -43,11 +44,20 @@ func TestEncodeDecodeCommand(t *testing.T) {
 // fakeRaft simulates a single-node leader: Apply strips the multiplex domain
 // byte (as the router would) and applies straight to the FSM.
 type fakeRaft struct {
-	fsm    *RaftFSM
-	leader bool
+	fsm      *RaftFSM
+	leaderID string
+	leader   bool
 }
 
 func (f *fakeRaft) IsLeader() bool { return f.leader }
+
+func (f *fakeRaft) Leader() (raftapi.ServerID, raftapi.ServerAddress, error) {
+	id := f.leaderID
+	if id == "" {
+		id = "node-1"
+	}
+	return id, "", nil
+}
 
 func (f *fakeRaft) Apply(cmd []byte, _ time.Duration) (*raftapi.ApplyResponse, error) {
 	if !f.leader {
@@ -63,7 +73,7 @@ func (f *fakeRaft) Apply(cmd []byte, _ time.Duration) (*raftapi.ApplyResponse, e
 func newEngine(t *testing.T) (*RaftEngine, *RaftFSM) {
 	t.Helper()
 	fsm := NewRaftFSM(eventbus.NewBus())
-	eng := NewRaftEngine(&fakeRaft{fsm: fsm, leader: true}, fsm, eventbus.NewBus(), "node-1", nil)
+	eng := NewRaftEngine(&fakeRaft{fsm: fsm, leader: true}, fsm, eventbus.NewBus(), "node-1", nil, nil)
 	if err := eng.Start(context.Background()); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -130,9 +140,57 @@ func TestRaftEngine_Scan(t *testing.T) {
 
 func TestRaftEngine_FollowerWriteRejected(t *testing.T) {
 	fsm := NewRaftFSM(nil)
-	eng := NewRaftEngine(&fakeRaft{fsm: fsm, leader: false}, fsm, nil, "node-1", nil)
+	eng := NewRaftEngine(&fakeRaft{fsm: fsm, leader: false}, fsm, nil, "node-1", nil, nil)
 	if _, err := eng.Set("k", []byte("v")); !errors.Is(err, raftapi.ErrNotLeader) {
 		t.Fatalf("follower set = %v, want ErrNotLeader", err)
+	}
+}
+
+// routerTo delivers a forwarded package straight to the target engine's Send,
+// modeling the relay routing a follower→leader write.
+type routerTo struct{ engines map[string]*RaftEngine }
+
+func (r *routerTo) Send(pkg *relay.Package) error {
+	e, ok := r.engines[pkg.Target.Node]
+	if !ok {
+		relay.ReleasePackage(pkg)
+		return errors.New("no engine for target")
+	}
+	return e.Send(pkg)
+}
+
+// TestRaftEngine_ForwardToLeader verifies a follower's write is forwarded over
+// the relay to the leader, applied there, and the result returned.
+func TestRaftEngine_ForwardToLeader(t *testing.T) {
+	router := &routerTo{}
+	aFSM := NewRaftFSM(nil)
+	bFSM := NewRaftFSM(nil)
+	a := NewRaftEngine(&fakeRaft{fsm: aFSM, leader: true, leaderID: "A"}, aFSM, nil, "A", router, nil)
+	b := NewRaftEngine(&fakeRaft{fsm: bFSM, leader: false, leaderID: "A"}, bFSM, nil, "B", router, nil)
+	router.engines = map[string]*RaftEngine{"A": a, "B": b}
+	if err := a.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Stop(); _ = b.Stop() })
+
+	v, err := b.Set("k", []byte("v"))
+	if err != nil {
+		t.Fatalf("follower forwarded set: %v", err)
+	}
+	if v == 0 {
+		t.Fatalf("forwarded set returned version 0")
+	}
+	if e, ok := aFSM.get("k"); !ok || string(e.Value) != "v" {
+		t.Fatalf("leader FSM missing forwarded write: %+v ok=%v", e, ok)
+	}
+
+	// A forwarded delete of a missing key must surface ErrKeyNotFound (sentinel
+	// preserved across the wire).
+	if err := b.Delete("missing"); !errors.Is(err, kvapi.ErrKeyNotFound) {
+		t.Fatalf("forwarded delete-missing = %v, want ErrKeyNotFound", err)
 	}
 }
 
