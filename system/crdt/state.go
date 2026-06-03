@@ -278,14 +278,33 @@ func (s *State) Apply(in Entry) (MergeOutcome, Entry) {
 		return MergeApplied, in
 	}
 
-	// Same (Node, Counter) — wall-clock LWW + delete-wins.
+	// Concurrent (compareDots==0: different origin, or identical dot) — resolve
+	// by wall-clock LWW with a deterministic total order so every replica
+	// converges on the same winner regardless of arrival order.
 	if in.Wall > cur.Wall {
 		s.swap(sh, cur, &in)
 		return MergeWallTiebreak, in
 	}
-	if in.Wall == cur.Wall && in.Deleted && !cur.Deleted {
+	if in.Wall < cur.Wall {
+		return MergeNoop, *cur
+	}
+	// Equal wall: a delete deterministically beats a live write (symmetric on
+	// both replicas).
+	if in.Deleted != cur.Deleted {
+		if in.Deleted {
+			s.swap(sh, cur, &in)
+			return MergeDeleteWins, in
+		}
+		return MergeNoop, *cur
+	}
+	// Same deleted-ness and equal wall: break the tie by global origin identity,
+	// then counter. Identical dots are a no-op (idempotent). Comparing the origin
+	// STRING (not the replica-local interned id) keeps the order identical on
+	// every replica.
+	inOrigin, curOrigin := s.NodeString(in.Node), s.NodeString(cur.Node)
+	if inOrigin > curOrigin || (inOrigin == curOrigin && in.Counter > cur.Counter) {
 		s.swap(sh, cur, &in)
-		return MergeDeleteWins, in
+		return MergeWallTiebreak, in
 	}
 	return MergeNoop, *cur
 }
