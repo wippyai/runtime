@@ -351,7 +351,11 @@ func (st *strongState) reconcile(name string) {
 	// Active wins: deliver success, convert the exclusion to Active, stop timing.
 	if e, err := st.svc.engine.Get(activeKey(name)); err == nil {
 		if av, derr := decodeActive(e.Value); derr == nil && av.Strong {
-			ap, _ := pid.ParsePID(av.PID)
+			ap, perr := pid.ParsePID(av.PID)
+			if perr != nil {
+				st.logger.Debug("strong: invalid active pid", zap.String("name", name), zap.Error(perr))
+				return
+			}
 			st.onActive(name, e.Epoch, ap)
 			return
 		}

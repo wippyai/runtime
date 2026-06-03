@@ -104,9 +104,14 @@ func (st *strongState) dropNodeFromPending(name string, node pid.NodeID) {
 	if eerr != nil {
 		return
 	}
+	// Atomically drop the node from RequiredNodes and delete its now-orphaned
+	// ack/reject keys (they would otherwise never be cleaned, since promote/expire
+	// only sweep keys for the remaining RequiredNodes).
 	committed, terr := st.svc.engine.Txn([]kvapi.TxnOp{
 		{Kind: kvapi.TxnCheck, Cond: kvapi.CondVersion, Key: pendingKey(name), Expect: pe.Version},
 		{Kind: kvapi.TxnPut, Cond: kvapi.CondAny, Key: pendingKey(name), Value: val},
+		{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: ackKey(name, pe.Epoch, node)},
+		{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: rejectKey(name, pe.Epoch, node)},
 	})
 	if terr != nil || !committed {
 		return
