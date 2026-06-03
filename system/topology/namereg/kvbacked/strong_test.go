@@ -128,6 +128,46 @@ func TestStrong_UnregisterClearsPending(t *testing.T) {
 	}
 }
 
+// TestStrong_RecoversActiveExclusionOnSeed proves a node restart re-latches the
+// exclusion for an already-active Strong name during seed(), so IsStrongReserved
+// stays correct after recovery (cross-scope guard not bypassed).
+func TestStrong_RecoversActiveExclusionOnSeed(t *testing.T) {
+	eng := systemkv.NewService("reg", eventbus.NewBus(), nil)
+	if _, err := eng.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
+	deps := StrongDeps{
+		Membership: func() []pid.NodeID { return []pid.NodeID{"node-1"} },
+		IsLeader:   func() bool { return true },
+		Deadline:   2 * time.Second,
+	}
+	p := mkPID("node-1", "a")
+
+	r1 := NewService(eng, "node-1", nil, nil)
+	r1.ConfigureStrong(deps)
+	if out, err := r1.RegisterScope(context.Background(), "svc", p, globalapi.Strong); err != nil || out.State != globalapi.RegisterStateActive {
+		t.Fatalf("strong register: out=%+v err=%v", out, err)
+	}
+
+	// "Restart": fresh Service over the same engine; in-memory exclusions empty.
+	r2 := NewService(eng, "node-1", nil, nil)
+	r2.ConfigureStrong(deps)
+	if _, ok := r2.IsStrongReserved("svc"); ok {
+		t.Fatalf("exclusion must be empty before seed")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := r2.StartReconciler(ctx); err != nil {
+		t.Fatalf("start reconciler: %v", err)
+	}
+	// seed() runs synchronously in StartReconciler; the active Strong name must be
+	// re-latched.
+	if rp, ok := r2.IsStrongReserved("svc"); !ok || rp.String() != p.String() {
+		t.Fatalf("active Strong exclusion not recovered on seed: %v,%v", rp, ok)
+	}
+}
+
 func eventually(t *testing.T, timeout time.Duration, cond func() bool) bool {
 	t.Helper()
 	deadline := time.Now().Add(timeout)

@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
 	"github.com/wippyai/runtime/system/topology/namereg/global"
+	"go.uber.org/zap"
 )
 
 // StartReconciler drives the registry off the kv watch stream: active-binding
@@ -84,6 +85,17 @@ func (s *Service) seed() {
 	}
 	if s.strong != nil {
 		s.strong.reconcileAllPending()
+		// Re-latch exclusions for ACTIVE Strong names recovered from the kv
+		// (snapshot restore / restart): in-memory strongState starts empty, and
+		// stable active names emit no watch event, so without this scan
+		// IsStrongReserved would wrongly report them free and a LOCAL/EVENTUAL
+		// register could shadow a live Strong name.
+		_ = s.engine.Scan(activePrefix, func(e kvapi.Entry) bool {
+			if av, derr := decodeActive(e.Value); derr == nil && av.Strong {
+				s.strong.reconcile(strings.TrimPrefix(e.Key, activePrefix))
+			}
+			return true
+		})
 	}
 }
 
@@ -94,6 +106,11 @@ func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) {
 		key = ev.Current.Key
 	case ev.Previous != nil:
 		key = ev.Previous.Key
+	}
+	// Registry keys are never lease-bound, so a WatchExpired here is a design
+	// violation. It is still handled safely below (as a delete); surface it.
+	if ev.Type == kvapi.WatchExpired && strings.HasPrefix(key, registryPrefix) {
+		s.logger.Debug("registry key expired via lease (unexpected)", zap.String("key", key))
 	}
 	switch {
 	case strings.HasPrefix(key, activePrefix):
