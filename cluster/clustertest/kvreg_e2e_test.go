@@ -102,6 +102,55 @@ func TestE2E_KVRegistry_StrongPromotes(t *testing.T) {
 	}
 }
 
+// TestE2E_KVRegistry_SurvivesLeaderKill is the resilience capstone: a CONSISTENT
+// name registered on the leader survives the leader's death (replicated state),
+// and registration continues on a survivor after failover — all through the
+// kv-backed registry over real raft.
+func TestE2E_KVRegistry_SurvivesLeaderKill(t *testing.T) {
+	if testing.Short() {
+		t.Skip("real multi-node failover test")
+	}
+	c := NewCluster(t, 3)
+	regOf := func(n *Node) *kvbacked.Service { return kvbacked.NewService(n.KV, n.ID, nil, nil) }
+
+	leader := c.Leader()
+	p := pid.PID{Node: leader.ID, Host: "proc", UniqID: "k1"}
+	if _, err := regOf(leader).RegisterScope(context.Background(), "svc", p, globalapi.Consistent); err != nil {
+		t.Fatalf("register before kill: %v", err)
+	}
+
+	for i, n := range c.Nodes() {
+		if n == leader {
+			c.Kill(i)
+			break
+		}
+	}
+	newLeader := c.WaitLeader(10 * time.Second)
+	if newLeader == leader {
+		t.Fatalf("leader did not change after kill")
+	}
+
+	// The name registered before the kill still resolves cluster-wide.
+	for _, n := range c.Nodes() {
+		if n == leader {
+			continue
+		}
+		waitLookup(t, regOf(n), "svc", p, 8*time.Second)
+	}
+
+	// Registration continues after failover.
+	p2 := pid.PID{Node: newLeader.ID, Host: "proc", UniqID: "k2"}
+	if _, err := regOf(newLeader).RegisterScope(context.Background(), "svc2", p2, globalapi.Consistent); err != nil {
+		t.Fatalf("register after failover: %v", err)
+	}
+	for _, n := range c.Nodes() {
+		if n == leader {
+			continue
+		}
+		waitLookup(t, regOf(n), "svc2", p2, 8*time.Second)
+	}
+}
+
 func waitLookup(t *testing.T, r *kvbacked.Service, name string, want pid.PID, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
