@@ -5,6 +5,7 @@ package kvbacked
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/wippyai/runtime/api/pid"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
@@ -24,8 +25,14 @@ func (s *Service) StartReconciler(ctx context.Context) error {
 		return err
 	}
 	s.seed()
+	// The node has now learned and latched the cluster's in-flight/active Strong
+	// reservations; name-readiness can flip so cross-scope guards see them.
+	s.ready.Store(true)
 	if s.dissem != nil {
 		go s.dissem.RunGC()
+	}
+	if s.strong != nil {
+		go s.leaderSweep(ctx)
 	}
 	go func() {
 		defer func() { _ = w.Close() }()
@@ -45,6 +52,25 @@ func (s *Service) StartReconciler(ctx context.Context) error {
 		}
 	}()
 	return nil
+}
+
+// leaderSweep periodically re-drives every in-flight pending while this node is
+// the leader. It re-arms deadline timers and resumes promotion/expiry after a
+// leadership change (a new leader has no timers for pendings opened under the
+// old one) and backstops any missed watch event.
+func (s *Service) leaderSweep(ctx context.Context) {
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if s.leaderFn() {
+				s.strong.reconcileAllPending()
+			}
+		}
+	}
 }
 
 // seed primes local state from the current kv snapshot: dissem cache from active

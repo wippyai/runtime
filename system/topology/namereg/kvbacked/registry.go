@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
 	"github.com/wippyai/runtime/api/pid"
@@ -104,16 +105,17 @@ type barrierEngine interface {
 type Service struct {
 	engine     kvapi.Engine
 	leaderRead leaderReadEngine
-	resolve    globalapi.ResolveFunc
-	logger     *zap.Logger
+	topo       topology.Topology
+	leaderFn   func() bool
 	strong     *strongState
 	dissem     *global.Dissem
-	leaderFn   func() bool
+	logger     *zap.Logger
 	barrier    func() error
-	topo       topology.Topology
+	resolve    globalapi.ResolveFunc
 	self       pid.PID
 	monitored  sync.Map
 	selfNode   pid.NodeID
+	ready      atomic.Bool
 }
 
 // ConfigureDissem attaches the active-binding dissemination plane so non-member
@@ -399,7 +401,7 @@ func (s *Service) deleteBinding(p pid.PID, name string) {
 		{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: pidIndexKey(p, name)},
 		{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: nodeIndexKey(p, name)},
 	}
-	if e, err := s.get(activeKey(name)); err == nil {
+	if e, err := s.engine.Get(activeKey(name)); err == nil {
 		if av, derr := decodeActive(e.Value); derr == nil {
 			if owner, perr := pid.ParsePID(av.PID); perr == nil && owner.String() == p.String() {
 				ops = append(ops,

@@ -95,18 +95,19 @@ type StrongDeps struct {
 }
 
 type strongState struct {
-	svc            *Service
-	membership     func() []pid.NodeID
-	isLeader       func() bool
-	localConflict  func(name string, p pid.PID) (pid.PID, bool)
-	clock          func() time.Time
-	logger         *zap.Logger
-	exclusions     map[string]strongExclusion
-	timers         map[string]*time.Timer
-	waiters        map[string][]*strongWaiter
-	terminalReason map[string]string
-	deadline       time.Duration
-	mu             sync.Mutex
+	svc             *Service
+	membership      func() []pid.NodeID
+	isLeader        func() bool
+	localConflict   func(name string, p pid.PID) (pid.PID, bool)
+	clock           func() time.Time
+	logger          *zap.Logger
+	exclusions      map[string]strongExclusion
+	timers          map[string]*time.Timer
+	waiters         map[string][]*strongWaiter
+	terminalReason  map[string]string
+	terminalMissing map[string][]pid.NodeID
+	deadline        time.Duration
+	mu              sync.Mutex
 }
 
 // ConfigureStrong enables the Strong-scope plane with cluster hooks. Until it is
@@ -130,17 +131,18 @@ func (s *Service) ConfigureStrong(deps StrongDeps) {
 	}
 	s.SetLeaderFunc(isLeader)
 	s.strong = &strongState{
-		svc:            s,
-		membership:     deps.Membership,
-		isLeader:       isLeader,
-		localConflict:  localConflict,
-		clock:          clock,
-		deadline:       deadline,
-		logger:         s.logger.Named("strong"),
-		exclusions:     make(map[string]strongExclusion),
-		timers:         make(map[string]*time.Timer),
-		waiters:        make(map[string][]*strongWaiter),
-		terminalReason: make(map[string]string),
+		svc:             s,
+		membership:      deps.Membership,
+		isLeader:        isLeader,
+		localConflict:   localConflict,
+		clock:           clock,
+		deadline:        deadline,
+		logger:          s.logger.Named("strong"),
+		exclusions:      make(map[string]strongExclusion),
+		timers:          make(map[string]*time.Timer),
+		waiters:         make(map[string][]*strongWaiter),
+		terminalReason:  make(map[string]string),
+		terminalMissing: make(map[string][]pid.NodeID),
 	}
 }
 
@@ -166,7 +168,10 @@ func (s *Service) strongReserved(name string) (pid.PID, bool) {
 }
 
 func (s *Service) nameReady() bool {
-	return true
+	// No Strong plane -> no join barrier needed. Otherwise the node is ready
+	// only once the reconciler has seeded (learned and latched the cluster's
+	// in-flight/active Strong reservations), so it cannot shadow one.
+	return s.strong == nil || s.ready.Load()
 }
 
 func (st *strongState) register(ctx context.Context, name string, p pid.PID) (globalapi.RegisterOutcome, error) {
@@ -177,6 +182,16 @@ func (st *strongState) register(ctx context.Context, name string, p pid.PID) (gl
 	deadline := st.clock().Add(st.deadline)
 	if dl, ok := ctx.Deadline(); ok && dl.Before(deadline) && time.Until(dl) >= 50*time.Millisecond {
 		deadline = dl
+	}
+	// Guarantee the wait is bounded: if the caller's context has no deadline, the
+	// waiter must still not block forever should a reconcile path skip delivery.
+	// The backstop fires a grace period AFTER the Strong deadline so the normal
+	// expiry path (leader timer -> leaderExpire -> deliver) wins the race and
+	// returns the typed StrongRegistrationTimeoutError rather than ctx.Err().
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, deadline.Add(2*time.Second))
+		defer cancel()
 	}
 
 	hdr, err := encode(pendingHeader{
@@ -247,27 +262,37 @@ func (st *strongState) finalize(name string, p pid.PID, out globalapi.RegisterOu
 		}
 		return globalapi.RegisterOutcome{PID: p, Epoch: out.Epoch, State: globalapi.RegisterStateActive}, nil
 	case globalapi.RegisterStateExpired:
-		if st.takeReason(name) == strongRejectConflict {
+		reason, missing := st.takeTerminal(name)
+		if reason == strongRejectConflict {
 			return out, &globalapi.StrongConflictError{Name: name, Epoch: out.Epoch, Reason: strongRejectConflict}
 		}
-		return out, &globalapi.StrongRegistrationTimeoutError{Name: name, Epoch: out.Epoch}
+		return out, &globalapi.StrongRegistrationTimeoutError{Name: name, Epoch: out.Epoch, MissingAcks: missing}
 	default:
 		return out, globalapi.ErrNotAvailable
 	}
 }
 
-func (st *strongState) setReason(name, reason string) {
+func (st *strongState) setTerminal(name, reason string, missing []pid.NodeID) {
 	st.mu.Lock()
 	st.terminalReason[name] = reason
+	if len(missing) > 0 {
+		st.terminalMissing[name] = missing
+	}
 	st.mu.Unlock()
 }
 
-func (st *strongState) takeReason(name string) string {
+// takeTerminal returns and clears the terminal reason + missing-ack node set for
+// a name (missing as []string for StrongRegistrationTimeoutError).
+func (st *strongState) takeTerminal(name string) (string, []string) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	r := st.terminalReason[name]
 	delete(st.terminalReason, name)
-	return r
+	m := st.terminalMissing[name]
+	delete(st.terminalMissing, name)
+	out := make([]string, len(m))
+	copy(out, m)
+	return r, out
 }
 
 func (st *strongState) conflictOutcome(name string, p pid.PID) (globalapi.RegisterOutcome, error) {
@@ -361,7 +386,7 @@ func (st *strongState) attest(name string, epoch uint64, pendingPID pid.PID, req
 		return // already rejected
 	}
 	if cp, conflict := st.localConflict(name, pendingPID); conflict && cp.String() != pendingPID.String() {
-		st.setReason(name, strongRejectConflict)
+		st.setTerminal(name, strongRejectConflict, nil)
 		if _, _, err := st.svc.engine.SetIfAbsent(rejectKey(name, epoch, st.svc.selfNode), []byte(strongRejectConflict)); err != nil {
 			st.logger.Debug("strong reject write failed", zap.String("name", name), zap.Error(err))
 		}
@@ -442,17 +467,23 @@ func (st *strongState) leaderPromote(name string, epoch, headerVer uint64, hdr p
 	if committed, terr := st.svc.engine.Txn(ops); terr != nil || !committed {
 		return
 	}
-	st.takeReason(name)
+	st.takeTerminal(name)
 	st.stopTimer(name)
 	st.reconcile(name)
 }
 
 func (st *strongState) leaderExpire(name string, epoch, headerVer uint64, hdr pendingHeader, reason string) {
+	// Compute the missing-ack set before the txn deletes the ack keys, so the
+	// timeout error can report which nodes failed to ack.
+	var missing []pid.NodeID
 	ops := []kvapi.TxnOp{
 		{Kind: kvapi.TxnCheck, Cond: kvapi.CondVersion, Key: pendingKey(name), Expect: headerVer},
 		{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: pendingKey(name)},
 	}
 	for _, n := range hdr.RequiredNodes {
+		if _, err := st.svc.engine.Get(ackKey(name, epoch, n)); err != nil {
+			missing = append(missing, n)
+		}
 		ops = append(ops,
 			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: ackKey(name, epoch, n)},
 			kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: rejectKey(name, epoch, n)},
@@ -461,7 +492,7 @@ func (st *strongState) leaderExpire(name string, epoch, headerVer uint64, hdr pe
 	if committed, terr := st.svc.engine.Txn(ops); terr != nil || !committed {
 		return
 	}
-	st.setReason(name, reason)
+	st.setTerminal(name, reason, missing)
 	st.stopTimer(name)
 	st.reconcile(name)
 }
