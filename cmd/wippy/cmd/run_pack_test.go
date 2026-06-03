@@ -149,6 +149,76 @@ func TestIsHubModuleRef_WithUppercaseWappExtension(t *testing.T) {
 	}
 }
 
+func TestSelectPackCommand(t *testing.T) {
+	tests := []struct {
+		name        string
+		commandName string
+		wantEntry   string
+		wantErr     string
+		commands    []packCommand
+	}{
+		{name: "no commands", commands: nil, wantEntry: ""},
+		{
+			name:        "explicit name match",
+			commands:    []packCommand{{name: "snake", entryID: "snake:play"}, {name: "edit", entryID: "snake:edit"}},
+			commandName: "edit",
+			wantEntry:   "snake:edit",
+		},
+		{
+			name:        "explicit name missing",
+			commands:    []packCommand{{name: "snake", entryID: "snake:play"}},
+			commandName: "nope",
+			wantErr:     `command "nope" not found in pack`,
+		},
+		{
+			name:      "single command without main auto-runs",
+			commands:  []packCommand{{name: "snake", entryID: "snake:play"}},
+			wantEntry: "snake:play",
+		},
+		{
+			name:      "single command with main auto-runs",
+			commands:  []packCommand{{name: "snake", entryID: "snake:play", main: true}},
+			wantEntry: "snake:play",
+		},
+		{
+			name:      "multiple commands one main",
+			commands:  []packCommand{{name: "snake", entryID: "snake:play"}, {name: "edit", entryID: "snake:edit", main: true}},
+			wantEntry: "snake:edit",
+		},
+		{
+			name:     "multiple commands no main errors with sorted names",
+			commands: []packCommand{{name: "snake", entryID: "snake:play"}, {name: "edit", entryID: "snake:edit"}},
+			wantErr:  "no command is marked as main; specify one of: edit, snake",
+		},
+		{
+			name:     "multiple main commands error",
+			commands: []packCommand{{name: "snake", entryID: "snake:play", main: true}, {name: "edit", entryID: "snake:edit", main: true}},
+			wantErr:  "multiple commands marked as main in pack: snake, edit",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := selectPackCommand(tc.commands, tc.commandName)
+			if tc.wantErr != "" {
+				if err == nil || err.Error() != tc.wantErr {
+					t.Fatalf("selectPackCommand error = %v, want %q", err, tc.wantErr)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("selectPackCommand unexpected error: %v", err)
+			}
+
+			if got != tc.wantEntry {
+				t.Fatalf("selectPackCommand = %q, want %q", got, tc.wantEntry)
+			}
+		})
+	}
+}
+
 func TestBootstrapPackRuntimeWithDefaults_Harness(t *testing.T) {
 	t.Run("applies runtime defaults when config key is missing", func(t *testing.T) {
 		tmpDir := t.TempDir()
