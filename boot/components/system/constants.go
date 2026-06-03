@@ -69,6 +69,7 @@ const (
 	ClusterRaftHeartbeatTimeout    boot.Name = "raft.heartbeat_timeout"
 	ClusterRaftElectionTimeout     boot.Name = "raft.election_timeout"
 	ClusterRaftCommitTimeout       boot.Name = "raft.commit_timeout"
+	ClusterRaftDataDir             boot.Name = "raft.data_dir"
 	ClusterRaftLeaderProbeInterval boot.Name = "raft.leader_probe_interval"
 	ClusterRaftLeaderProbeGrace    boot.Name = "raft.leader_probe_grace"
 )

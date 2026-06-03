@@ -6,9 +6,10 @@ import "time"
 
 // Config holds configuration for a Raft node.
 //
-// Raft runs with a diskless control plane (in-memory stores): cluster state
-// is ephemeral, restarts rejoin from peer state, persistence-vs-quorum
-// failure modes are removed by construction. There is no data_dir.
+// Raft defaults to a diskless control plane (in-memory stores): cluster state
+// is ephemeral, restarts rejoin from peer state, persistence-vs-quorum failure
+// modes are removed by construction. Setting DataDir opts into fs-durable
+// storage, which a store.kv.raft entry requires.
 //
 // The transport is the wippy internode mesh exclusively: peers are addressed
 // by NodeID over the existing internode connection, so there is no bind
@@ -57,6 +58,12 @@ type Config struct {
 	// throughput so under chaos a returning pod doesn't OOM the leader
 	// while it ships history. Zero means use the library default.
 	MaxAppendEntries int `json:"max_append_entries"`
+	// DataDir enables fs-durable raft storage (raft-wal log + bbolt stable
+	// store + file snapshots) rooted at this OS path. Empty (the default)
+	// keeps the diskless in-memory stores. Durability is required once a
+	// store.kv.raft entry rides this raft; a node configured diskless still
+	// works and catches up from peers.
+	DataDir string `json:"data_dir,omitempty"`
 }
 
 // InitDefaults fills zero-valued fields with sensible defaults.

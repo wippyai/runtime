@@ -20,6 +20,7 @@ import (
 	"github.com/wippyai/runtime/cluster/internode"
 	"github.com/wippyai/runtime/cluster/membership"
 	sysraft "github.com/wippyai/runtime/cluster/raft"
+	"github.com/wippyai/runtime/cluster/raft/multiplex"
 	"github.com/wippyai/runtime/system/eventbus"
 	"github.com/wippyai/runtime/system/health"
 	"github.com/wippyai/runtime/system/topology/namereg/global"
@@ -127,6 +128,7 @@ func Raft() boot.Component {
 				HeartbeatTimeout:  raftCfg.GetDuration(ClusterRaftHeartbeatTimeout, 0),
 				ElectionTimeout:   raftCfg.GetDuration(ClusterRaftElectionTimeout, 0),
 				CommitTimeout:     raftCfg.GetDuration(ClusterRaftCommitTimeout, 0),
+				DataDir:           raftCfg.GetString(ClusterRaftDataDir, ""),
 			}
 
 			// Capture handler config for the Start phase. Reading it here
@@ -165,7 +167,11 @@ func Raft() boot.Component {
 			mp := otel.GetMeterProvider()
 			tp := otel.GetTracerProvider()
 
-			raftNode = sysraft.NewNode(node.ID(), wrapFSM(fsm), rc, bus, logger.Named("node"), coll, mp, tp)
+			// Single shared raft: the FSM slot is a multiplex router so a future
+			// store.kv.raft can ride the same node. With a nil kv FSM the router
+			// is transparent — every command goes to the global registry FSM.
+			rootFSM := multiplex.New(wrapFSM(fsm), nil)
+			raftNode = sysraft.NewNode(node.ID(), rootFSM, rc, bus, logger.Named("node"), coll, mp, tp)
 			raftNode.SetConnectionManager(connMgr)
 
 			// Create the global registry service wrapping Raft + FSM.
