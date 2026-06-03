@@ -16,7 +16,6 @@ var futureType = typ.NewInterface("funcs.Future", []typ.Method{
 	{Name: "result", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
 	{Name: "error", Type: typ.Func().Param("self", typ.Self).Returns(typ.NewOptional(typ.LuaError), typ.Boolean).Build()},
 	{Name: "cancel", Type: typ.Func().Param("self", typ.Self).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
-	{Name: "await", Type: typ.Func().Param("self", typ.Self).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
 })
 
 // Forward declaration for self-referential Executor type
