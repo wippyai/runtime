@@ -10,5 +10,6 @@ func All() []boot.Component {
 		Dispatcher(DefaultWorkers),
 		MemStore(),
 		SQLStore(),
+		KVRaftStore(),
 	}
 }

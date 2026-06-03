@@ -23,6 +23,7 @@ import (
 	"github.com/wippyai/runtime/cluster/raft/multiplex"
 	"github.com/wippyai/runtime/system/eventbus"
 	"github.com/wippyai/runtime/system/health"
+	systemkv "github.com/wippyai/runtime/system/kv"
 	"github.com/wippyai/runtime/system/topology/namereg/global"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
@@ -54,7 +55,24 @@ var (
 	raftNodeKey     = &ctxapi.Key{Name: "raft.node"}
 	globalRegFSMKey = &ctxapi.Key{Name: "global.fsm"}
 	globalRegSvcKey = &ctxapi.Key{Name: "global.service"}
+	kvEngineKey     = &ctxapi.Key{Name: "kv.raft.engine"}
 )
+
+// GetKVRaftEngine returns the shared raft-backed kv engine wired by the raft
+// boot component, or nil when raft is disabled. store.kv.raft entries scope it
+// by namespace.
+func GetKVRaftEngine(ctx context.Context) *systemkv.RaftEngine {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+	v := ac.Get(kvEngineKey)
+	if v == nil {
+		return nil
+	}
+	eng, _ := v.(*systemkv.RaftEngine)
+	return eng
+}
 
 // Raft returns a boot component that initializes the Raft consensus layer
 // and the global registry service. Raft is only active when the cluster
@@ -67,6 +85,7 @@ func Raft() boot.Component {
 	var bootstrapWatcher *sysraft.BootstrapWatcher
 	var logger *zap.Logger
 	var handlerCfg sysraft.HandlerConfig
+	var kvEngine *systemkv.RaftEngine
 	var bootstrapExpect int
 
 	return boot.New(boot.P{
@@ -167,11 +186,14 @@ func Raft() boot.Component {
 			mp := otel.GetMeterProvider()
 			tp := otel.GetTracerProvider()
 
-			// Single shared raft: the FSM slot is a multiplex router so a future
-			// store.kv.raft can ride the same node. With a nil kv FSM the router
-			// is transparent — every command goes to the global registry FSM.
-			rootFSM := multiplex.New(wrapFSM(fsm), nil)
+			// Single shared raft: the FSM slot is a multiplex router so the kv
+			// state machine (store.kv.raft) rides the same node alongside the
+			// global registry. Untagged commands go to the registry; kv-tagged
+			// commands go to the kv FSM.
+			kvFSM := systemkv.NewRaftFSM(bus)
+			rootFSM := multiplex.New(wrapFSM(fsm), kvFSM)
 			raftNode = sysraft.NewNode(node.ID(), rootFSM, rc, bus, logger.Named("node"), coll, mp, tp)
+			kvEngine = systemkv.NewRaftEngine(raftNode, kvFSM, bus, node.ID(), logger.Named("kv"))
 			raftNode.SetConnectionManager(connMgr)
 
 			// Create the global registry service wrapping Raft + FSM.
@@ -207,6 +229,7 @@ func Raft() boot.Component {
 				ac.With(raftNodeKey, raftNode)
 				ac.With(globalRegFSMKey, fsm)
 				ac.With(globalRegSvcKey, globalRegSvc)
+				ac.With(kvEngineKey, kvEngine)
 			}
 
 			// Register the global registry in the topology context
@@ -275,6 +298,13 @@ func Raft() boot.Component {
 				for range statusCh { //nolint:revive // intentionally empty: draining channel
 				}
 			}()
+
+			// Start the kv engine's leader-side lease sweeper.
+			if kvEngine != nil {
+				if err := kvEngine.Start(ctx); err != nil {
+					return fmt.Errorf("start kv engine: %w", err)
+				}
+			}
 
 			// Liveness check: a follower that has not heard from the leader
 			// in the per-role ceiling is on the wrong side of a partition.
@@ -415,6 +445,10 @@ func Raft() boot.Component {
 		Stop: func(_ context.Context) error {
 			if nodeLeftSub != nil {
 				nodeLeftSub.Close()
+			}
+
+			if kvEngine != nil {
+				_ = kvEngine.Stop()
 			}
 
 			if bootstrapWatcher != nil {
