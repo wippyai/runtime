@@ -1,0 +1,141 @@
+// SPDX-License-Identifier: MPL-2.0
+
+package kvbacked
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/wippyai/runtime/api/pid"
+	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
+	"github.com/wippyai/runtime/system/eventbus"
+	systemkv "github.com/wippyai/runtime/system/kv"
+)
+
+func newStrongReg(t *testing.T, members []pid.NodeID, deadline time.Duration, lc func(string, pid.PID) (pid.PID, bool)) *Service {
+	t.Helper()
+	eng := systemkv.NewService("reg", eventbus.NewBus(), nil)
+	if _, err := eng.Start(context.Background()); err != nil {
+		t.Fatalf("engine start: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
+	r := NewService(eng, "node-1", nil, nil)
+	r.ConfigureStrong(StrongDeps{
+		Membership:    func() []pid.NodeID { return members },
+		IsLeader:      func() bool { return true },
+		LocalConflict: lc,
+		Deadline:      deadline,
+	})
+	return r
+}
+
+func TestStrong_RegisterPromotes(t *testing.T) {
+	r := newStrongReg(t, []pid.NodeID{"node-1"}, 2*time.Second, nil)
+	p := mkPID("node-1", "a")
+
+	out, err := r.RegisterScope(context.Background(), "svc", p, globalapi.Strong)
+	if err != nil {
+		t.Fatalf("strong register: %v", err)
+	}
+	if out.State != globalapi.RegisterStateActive || out.PID.String() != p.String() {
+		t.Fatalf("outcome: %+v", out)
+	}
+
+	res, _ := r.Lookup(context.Background(), "svc")
+	if !res.Found || res.PID.String() != p.String() {
+		t.Fatalf("lookup after strong promote: %+v", res)
+	}
+	if rp, ok := r.IsStrongReserved("svc"); !ok || rp.String() != p.String() {
+		t.Fatalf("IsStrongReserved = %v,%v", rp, ok)
+	}
+}
+
+func TestStrong_TimeoutWhenAckMissing(t *testing.T) {
+	r := newStrongReg(t, []pid.NodeID{"node-1", "ghost"}, 300*time.Millisecond, nil)
+	p := mkPID("node-1", "a")
+
+	_, err := r.RegisterScope(context.Background(), "svc", p, globalapi.Strong)
+	var te *globalapi.StrongRegistrationTimeoutError
+	if !errors.As(err, &te) {
+		t.Fatalf("want StrongRegistrationTimeoutError, got %v", err)
+	}
+	if res, _ := r.Lookup(context.Background(), "svc"); res.Found {
+		t.Fatalf("name must not be active after timeout")
+	}
+}
+
+func TestStrong_RejectOnLocalConflict(t *testing.T) {
+	other := mkPID("node-1", "other")
+	lc := func(string, pid.PID) (pid.PID, bool) { return other, true }
+	r := newStrongReg(t, []pid.NodeID{"node-1"}, 2*time.Second, lc)
+	p := mkPID("node-1", "a")
+
+	_, err := r.RegisterScope(context.Background(), "svc", p, globalapi.Strong)
+	var ce *globalapi.StrongConflictError
+	if !errors.As(err, &ce) {
+		t.Fatalf("want StrongConflictError, got %v", err)
+	}
+	if res, _ := r.Lookup(context.Background(), "svc"); res.Found {
+		t.Fatalf("rejected name must not be active")
+	}
+}
+
+func TestStrong_ReservedDuringWindowThenReleased(t *testing.T) {
+	r := newStrongReg(t, []pid.NodeID{"node-1", "ghost"}, 600*time.Millisecond, nil)
+	p := mkPID("node-1", "a")
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.RegisterScope(context.Background(), "svc", p, globalapi.Strong)
+		done <- err
+	}()
+
+	if !eventually(t, 2*time.Second, func() bool { _, ok := r.IsStrongReserved("svc"); return ok }) {
+		t.Fatalf("name must be reserved during the promotion window")
+	}
+
+	if err := <-done; err == nil {
+		t.Fatalf("register must expire when an ack is missing")
+	}
+	if !eventually(t, 2*time.Second, func() bool { _, ok := r.IsStrongReserved("svc"); return !ok }) {
+		t.Fatalf("reservation must clear after expiry")
+	}
+}
+
+func TestStrong_UnregisterClearsPending(t *testing.T) {
+	r := newStrongReg(t, []pid.NodeID{"node-1", "ghost"}, 5*time.Second, nil)
+	p := mkPID("node-1", "a")
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.RegisterScope(context.Background(), "svc", p, globalapi.Strong)
+		done <- err
+	}()
+	if !eventually(t, 2*time.Second, func() bool { _, ok := r.IsStrongReserved("svc"); return ok }) {
+		t.Fatalf("pending reservation expected")
+	}
+
+	if _, err := r.UnregisterScope(context.Background(), "svc", globalapi.Strong); err != nil {
+		t.Fatalf("unregister strong: %v", err)
+	}
+	if err := <-done; err == nil {
+		t.Fatalf("register must terminate after unregister")
+	}
+	if _, ok := r.IsStrongReserved("svc"); ok {
+		t.Fatalf("reservation must be cleared after unregister")
+	}
+}
+
+func eventually(t *testing.T, timeout time.Duration, cond func() bool) bool {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return cond()
+}

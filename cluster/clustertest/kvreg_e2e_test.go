@@ -55,6 +55,53 @@ func TestE2E_KVRegistry_ConsistentReplicates(t *testing.T) {
 	}
 }
 
+// TestE2E_KVRegistry_StrongPromotes proves a Strong-scope registration opened on
+// a follower collects an ack from every node (each ack is a raft-replicated kv
+// write — no ack relay), the leader promotes atomically, and the active name is
+// resolvable on every node.
+func TestE2E_KVRegistry_StrongPromotes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("real multi-node strong test")
+	}
+	c := NewCluster(t, 3)
+
+	var members []pid.NodeID
+	for _, n := range c.Nodes() {
+		members = append(members, n.ID)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	regs := make(map[string]*kvbacked.Service, len(c.Nodes()))
+	for _, n := range c.Nodes() {
+		node := n
+		reg := kvbacked.NewService(node.KV, node.ID, nil, nil)
+		reg.ConfigureStrong(kvbacked.StrongDeps{
+			Membership: func() []pid.NodeID { return members },
+			IsLeader:   func() bool { return node.Raft.IsLeader() },
+			Deadline:   8 * time.Second,
+		})
+		if err := reg.StartReconciler(ctx); err != nil {
+			t.Fatalf("start reconciler on %s: %v", node.ID, err)
+		}
+		regs[node.ID] = reg
+	}
+
+	f := c.Follower()
+	p := pid.PID{Node: f.ID, Host: "proc", UniqID: "s1"}
+	out, err := regs[f.ID].RegisterScope(context.Background(), "strongsvc", p, globalapi.Strong)
+	if err != nil {
+		t.Fatalf("strong register on follower: %v", err)
+	}
+	if out.State != globalapi.RegisterStateActive || out.PID.String() != p.String() {
+		t.Fatalf("strong outcome: %+v", out)
+	}
+
+	for _, n := range c.Nodes() {
+		waitLookup(t, regs[n.ID], "strongsvc", p, 5*time.Second)
+	}
+}
+
 func waitLookup(t *testing.T, r *kvbacked.Service, name string, want pid.PID, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)

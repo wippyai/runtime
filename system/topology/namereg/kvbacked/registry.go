@@ -67,9 +67,13 @@ func encode(v any) ([]byte, error) {
 	return buf, nil
 }
 
+func decodeInto(data []byte, v any) error {
+	return codec.NewDecoderBytes(data, &codec.MsgpackHandle{}).Decode(v)
+}
+
 func decodeActive(data []byte) (activeValue, error) {
 	var v activeValue
-	err := codec.NewDecoderBytes(data, &codec.MsgpackHandle{}).Decode(&v)
+	err := decodeInto(data, &v)
 	return v, err
 }
 
@@ -91,6 +95,7 @@ type Service struct {
 	leaderRead leaderReadEngine
 	resolve    globalapi.ResolveFunc
 	logger     *zap.Logger
+	strong     *strongState
 	selfNode   pid.NodeID
 }
 
