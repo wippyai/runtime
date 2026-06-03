@@ -87,6 +87,7 @@ func Raft() boot.Component {
 	var logger *zap.Logger
 	var handlerCfg sysraft.HandlerConfig
 	var kvEngine *systemkv.RaftEngine
+	var lockSvc *systemkv.LockService
 	var bootstrapExpect int
 
 	return boot.New(boot.P{
@@ -215,6 +216,15 @@ func Raft() boot.Component {
 			if err := node.RegisterHost(systemkv.KVRaftHostID, kvEngine); err != nil {
 				return ctx, fmt.Errorf("raft: register kv relay host: %w", err)
 			}
+
+			// Distributed locks over the shared kv (_sys:lock): linearizable
+			// acquire/release, auto-release on holder process exit (topology
+			// monitor -> the lock relay host) and on node leave (ReapNode, below).
+			lockSvc = systemkv.NewLockService(kvEngine, topo, node.ID(), logger.Named("lock"))
+			if err := node.RegisterHost(systemkv.LockHostID, lockSvc); err != nil {
+				return ctx, fmt.Errorf("raft: register lock relay host: %w", err)
+			}
+			ctx = systemkv.WithLockService(ctx, lockSvc)
 			globalRegSvc = global.NewService(
 				raftNode, fsm, bus, topo,
 				router,
@@ -424,6 +434,9 @@ func Raft() boot.Component {
 							return
 						}
 						raftNode.OnNodeLeft(ne.Node.ID)
+						if lockSvc != nil {
+							lockSvc.ReapNode(ne.Node.ID)
+						}
 					})
 				if err != nil {
 					return fmt.Errorf("subscribe raft node-left: %w", err)
