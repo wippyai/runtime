@@ -148,6 +148,34 @@ func TestConsistent_ByPIDAndUnregister(t *testing.T) {
 	}
 }
 
+// TestConsistent_ReapDoesNotClobberReassigned proves reaping a dead PID's names
+// never deletes a name that has since been taken over by a different PID (the
+// active binding delete is owner+version guarded).
+func TestConsistent_ReapDoesNotClobberReassigned(t *testing.T) {
+	r := newReg(t)
+	p1 := mkPID("node-1", "a")
+	p2 := mkPID("node-2", "b")
+
+	if _, err := r.Register(context.Background(), "svc", p1); err != nil {
+		t.Fatal(err)
+	}
+	// Name is handed to p2 (unregister + re-register).
+	if _, err := r.Unregister(context.Background(), "svc"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Register(context.Background(), "svc", p2); err != nil {
+		t.Fatal(err)
+	}
+
+	// A late reap of p1's binding must NOT delete p2's active name.
+	r.deleteBinding(p1, "svc")
+
+	res, _ := r.Lookup(context.Background(), "svc")
+	if !res.Found || res.PID.String() != p2.String() {
+		t.Fatalf("reap of dead p1 clobbered p2's name: %+v", res)
+	}
+}
+
 func TestConsistent_RemoveAndRemoveNode(t *testing.T) {
 	r := newReg(t)
 	p1 := mkPID("node-1", "a")

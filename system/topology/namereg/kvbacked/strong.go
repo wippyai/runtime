@@ -208,6 +208,16 @@ func (st *strongState) register(ctx context.Context, name string, p pid.PID) (gl
 	}
 	epoch := pe.Epoch
 
+	// Decode before installing the waiter: an undecodable pending (should never
+	// happen — we just wrote it) must fail fast, not hang the waiter forever.
+	// Best-effort remove the bad entry so it does not linger.
+	phdr, derr := decodePending(pe.Value)
+	if derr != nil {
+		_, _ = st.svc.engine.CompareAndDelete(pendingKey(name), pe.Version)
+		return globalapi.RegisterOutcome{}, derr
+	}
+	pendingPID, _ := pid.ParsePID(phdr.PID)
+
 	waiter := &strongWaiter{ch: make(chan globalapi.RegisterOutcome, 1)}
 	st.addWaiter(name, waiter)
 	defer st.removeWaiter(name, waiter)
@@ -216,12 +226,9 @@ func (st *strongState) register(ctx context.Context, name string, p pid.PID) (gl
 	// exists (read via the leader), so it must not go through reconcile, whose
 	// local read may not see the freshly-forwarded write yet and would
 	// mis-fire onTerminal. The watch reconciler advances it from here on.
-	if hdr, derr := decodePending(pe.Value); derr == nil {
-		pendingPID, _ := pid.ParsePID(hdr.PID)
-		st.attest(name, epoch, pendingPID, hdr.RequiredNodes)
-		if st.isLeader() {
-			st.leaderDrive(name, epoch, pe.Version, hdr)
-		}
+	st.attest(name, epoch, pendingPID, phdr.RequiredNodes)
+	if st.isLeader() {
+		st.leaderDrive(name, epoch, pe.Version, phdr)
 	}
 
 	select {

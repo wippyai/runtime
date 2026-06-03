@@ -390,13 +390,26 @@ func (s *Service) reap(base string) {
 	}
 }
 
+// deleteBinding reaps p's binding for name. p's stale reverse-index keys are
+// always removed, but the active binding is deleted only if it still belongs to
+// p (version-guarded) — so reaping a dead PID never clobbers a name that a live
+// PID has since taken over.
 func (s *Service) deleteBinding(p pid.PID, name string) {
-	_, err := s.engine.Txn([]kvapi.TxnOp{
-		{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: activeKey(name)},
+	ops := []kvapi.TxnOp{
 		{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: pidIndexKey(p, name)},
 		{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: nodeIndexKey(p, name)},
-	})
-	if err != nil {
+	}
+	if e, err := s.get(activeKey(name)); err == nil {
+		if av, derr := decodeActive(e.Value); derr == nil {
+			if owner, perr := pid.ParsePID(av.PID); perr == nil && owner.String() == p.String() {
+				ops = append(ops,
+					kvapi.TxnOp{Kind: kvapi.TxnCheck, Cond: kvapi.CondVersion, Key: activeKey(name), Expect: e.Version},
+					kvapi.TxnOp{Kind: kvapi.TxnDelete, Cond: kvapi.CondAny, Key: activeKey(name)},
+				)
+			}
+		}
+	}
+	if _, err := s.engine.Txn(ops); err != nil {
 		s.logger.Debug("kvreg reap delete failed", zap.String("name", name), zap.Error(err))
 	}
 }
