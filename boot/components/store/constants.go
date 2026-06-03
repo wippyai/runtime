@@ -9,6 +9,7 @@ const (
 	MemStoreName    boot.Name = "store.memory"
 	SQLStoreName    boot.Name = "store.sql"
 	KVRaftStoreName boot.Name = "store.kv.raft"
+	KVCRDTStoreName boot.Name = "store.kv.crdt"
 
 	DispatcherDeps boot.Name = "dispatcher"
 )

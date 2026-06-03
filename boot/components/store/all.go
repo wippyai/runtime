@@ -11,5 +11,6 @@ func All() []boot.Component {
 		MemStore(),
 		SQLStore(),
 		KVRaftStore(),
+		KVCRDTStore(),
 	}
 }
