@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -31,8 +32,15 @@ import (
 var hubModulePattern = regexp.MustCompile(`^([a-z][a-z0-9-]*)/([a-z][a-z0-9-]*)(?:@(.+))?$`)
 var hubIdentPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
+type packCommand struct {
+	name    string
+	entryID string
+	main    bool
+}
+
 // findPackCommand finds a command entry in the pack.
-// If commandName is empty, it only auto-selects a command marked as main.
+// If commandName is empty, it auto-selects the command marked as main, or the
+// only command when the pack defines exactly one.
 func findPackCommand(ctx context.Context, commandName string) (string, error) {
 	reg := registry.GetRegistry(ctx)
 	if reg == nil {
@@ -44,11 +52,7 @@ func findPackCommand(ctx context.Context, commandName string) (string, error) {
 		return "", fmt.Errorf("failed to query registry for pack commands: %w", err)
 	}
 
-	var commands []struct {
-		name    string
-		entryID string
-		main    bool
-	}
+	var commands []packCommand
 
 	for _, e := range allEntries {
 		if !isProcessKind(e.Kind) {
@@ -60,21 +64,13 @@ func findPackCommand(ctx context.Context, commandName string) (string, error) {
 			continue
 		}
 
-		commands = append(commands, struct {
-			name    string
-			entryID string
-			main    bool
-		}{name: cmdMeta.Name, entryID: e.ID.String(), main: cmdMeta.Main})
+		commands = append(commands, packCommand{name: cmdMeta.Name, entryID: e.ID.String(), main: cmdMeta.Main})
 	}
 
 	return selectPackCommand(commands, commandName)
 }
 
-func selectPackCommand(commands []struct {
-	name    string
-	entryID string
-	main    bool
-}, commandName string) (string, error) {
+func selectPackCommand(commands []packCommand, commandName string) (string, error) {
 	if len(commands) == 0 {
 		return "", nil
 	}
@@ -99,10 +95,20 @@ func selectPackCommand(commands []struct {
 	}
 
 	switch len(mainCommands) {
-	case 0:
-		return "", nil
 	case 1:
 		return mainEntryID, nil
+	case 0:
+		if len(commands) == 1 {
+			return commands[0].entryID, nil
+		}
+
+		names := make([]string, len(commands))
+		for i, c := range commands {
+			names[i] = c.name
+		}
+
+		sort.Strings(names)
+		return "", fmt.Errorf("no command is marked as main; specify one of: %s", strings.Join(names, ", "))
 	default:
 		return "", fmt.Errorf("multiple commands marked as main in pack: %s", strings.Join(mainCommands, ", "))
 	}
