@@ -64,7 +64,9 @@ func (s *LockService) Acquire(name string, holder pid.PID) (bool, error) {
 	return stored, nil
 }
 
-// Release frees the lock iff held by holder; returns true when released.
+// Release frees the lock iff held by holder; returns true when released. The
+// holder check and delete are atomic via CompareAndDelete on the read version,
+// so a concurrent reap+reacquire between read and delete cannot be clobbered.
 func (s *LockService) Release(name string, holder pid.PID) (bool, error) {
 	e, err := s.engine.Get(lockKey(name))
 	if err != nil {
@@ -76,13 +78,7 @@ func (s *LockService) Release(name string, holder pid.PID) (bool, error) {
 	if string(e.Value) != holder.String() {
 		return false, nil
 	}
-	if err := s.engine.Delete(lockKey(name)); err != nil {
-		if errors.Is(err, kvapi.ErrKeyNotFound) {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
+	return s.engine.CompareAndDelete(lockKey(name), e.Version)
 }
 
 // Holder returns the current lock holder, or (zero, false) if free.

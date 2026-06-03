@@ -20,10 +20,48 @@ type Entry struct {
 	LeaseID LeaseID
 	Value   []byte
 	Version Version
+	// Epoch is the raft log index at which the key was last written; 0 for
+	// non-raft backends. Replicated registries use it as a fence and dissem dot.
+	Epoch uint64
 }
 
 // LeaseID uniquely identifies a lease within an engine instance.
 type LeaseID string
+
+// TxnOpKind selects the mutation a TxnOp performs.
+type TxnOpKind uint8
+
+const (
+	// TxnCheck asserts a precondition without mutating.
+	TxnCheck TxnOpKind = iota
+	// TxnPut writes Value when all preconditions hold.
+	TxnPut
+	// TxnDelete removes the key when all preconditions hold.
+	TxnDelete
+)
+
+// TxnCond is the precondition evaluated against a key's current state.
+type TxnCond uint8
+
+const (
+	// CondAny imposes no precondition.
+	CondAny TxnCond = iota
+	// CondAbsent requires the key to not exist.
+	CondAbsent
+	// CondExists requires the key to exist at any version.
+	CondExists
+	// CondVersion requires the key's version to equal Expect.
+	CondVersion
+)
+
+// TxnOp is one conditional operation within a Txn.
+type TxnOp struct {
+	Key    string
+	Value  []byte
+	Expect Version
+	Kind   TxnOpKind
+	Cond   TxnCond
+}
 
 // Engine is the low-level coordination key-value store. Reads are always local
 // (served from an in-memory replica); writes may replicate depending on the
@@ -46,6 +84,15 @@ type Engine interface {
 	// Returns the new version and true on success, or the actual version and
 	// false on mismatch.
 	CompareAndSwap(key string, expect Version, value []byte) (Version, bool, error)
+
+	// CompareAndDelete removes key only if its current version matches expect.
+	// Returns true when deleted; false on version mismatch or a missing key.
+	CompareAndDelete(key string, expect Version) (bool, error)
+
+	// Txn applies a list of conditional operations atomically: if every
+	// precondition holds against current state the writes are applied together,
+	// otherwise none are. Returns whether the transaction committed.
+	Txn(ops []TxnOp) (bool, error)
 
 	// Scan iterates entries whose keys start with prefix; fn returns false to
 	// stop.

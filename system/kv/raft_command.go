@@ -23,6 +23,8 @@ const (
 	opLeaseGrant
 	opLeaseRenew
 	opLeaseRevoke
+	opCompareAndDelete
+	opTxn
 )
 
 // command is a single replicated mutation. Not all fields apply to every op;
@@ -88,6 +90,61 @@ func decodeCommand(data []byte) (command, error) {
 	}
 	c.TTLms = int64(binary.BigEndian.Uint64(data[off : off+8]))
 	return c, nil
+}
+
+// encodeTxn serializes a transaction command with layout:
+//
+//	op:1(opTxn) | count:4 | repeated{ kind:1 | cond:1 | keyLen:4|key | valLen:4|val | expect:8 }
+func encodeTxn(ops []kvapi.TxnOp) []byte {
+	buf := make([]byte, 0, 1+4+len(ops)*32)
+	buf = append(buf, byte(opTxn))
+	buf = binary.BigEndian.AppendUint32(buf, uint32(len(ops)))
+	for _, op := range ops {
+		buf = append(buf, byte(op.Kind), byte(op.Cond))
+		buf = appendBytes(buf, []byte(op.Key))
+		buf = appendBytes(buf, op.Value)
+		buf = binary.BigEndian.AppendUint64(buf, op.Expect)
+	}
+	return buf
+}
+
+// decodeTxn reverses encodeTxn.
+func decodeTxn(data []byte) ([]kvapi.TxnOp, error) {
+	if len(data) < 5 || opcode(data[0]) != opTxn {
+		return nil, fmt.Errorf("kv txn: bad header")
+	}
+	n := int(binary.BigEndian.Uint32(data[1:5]))
+	off := 5
+	ops := make([]kvapi.TxnOp, 0, n)
+	for i := 0; i < n; i++ {
+		if off+2 > len(data) {
+			return nil, fmt.Errorf("kv txn: truncated op header at %d", off)
+		}
+		op := kvapi.TxnOp{Kind: kvapi.TxnOpKind(data[off]), Cond: kvapi.TxnCond(data[off+1])}
+		off += 2
+
+		key, koff, err := readBytes(data, off)
+		if err != nil {
+			return nil, err
+		}
+		off = koff
+		op.Key = string(key)
+
+		val, voff, err := readBytes(data, off)
+		if err != nil {
+			return nil, err
+		}
+		off = voff
+		op.Value = val
+
+		if off+8 > len(data) {
+			return nil, fmt.Errorf("kv txn: truncated expect at %d", off)
+		}
+		op.Expect = binary.BigEndian.Uint64(data[off : off+8])
+		off += 8
+		ops = append(ops, op)
+	}
+	return ops, nil
 }
 
 func appendBytes(buf, b []byte) []byte {

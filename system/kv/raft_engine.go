@@ -28,6 +28,17 @@ type raftSubmitter interface {
 	Apply(cmd []byte, timeout time.Duration) (*raftapi.ApplyResponse, error)
 	IsLeader() bool
 	Leader() (raftapi.ServerID, raftapi.ServerAddress, error)
+	Barrier(timeout time.Duration) error
+	CommitIndex() uint64
+}
+
+// LinearizableEngine is a kvapi.Engine that can also serve barriered reads and
+// scans stamped with the cluster commit index. Only the raft backend satisfies
+// it; the kv-backed name registry requires it.
+type LinearizableEngine interface {
+	kvapi.Engine
+	GetLinearizable(key string) (kvapi.Entry, error)
+	ScanAtIndex(prefix string, fn func(kvapi.Entry) bool) (uint64, error)
 }
 
 // leaseSweepInterval is how often the leader scans for expired leases.
@@ -93,7 +104,13 @@ func (e *RaftEngine) Stop() error {
 // propose submits a command through raft. On the leader it applies directly; on
 // a follower it forwards to the leader over the relay (when a router is wired).
 func (e *RaftEngine) propose(c command) (applyResult, error) {
-	data := append([]byte{multiplex.KVDomain}, encodeCommand(c)...)
+	return e.proposeRaw(encodeCommand(c))
+}
+
+// proposeRaw submits an already-encoded kv command (single command or txn)
+// through raft, forwarding to the leader on a follower.
+func (e *RaftEngine) proposeRaw(cmd []byte) (applyResult, error) {
+	data := append([]byte{multiplex.KVDomain}, cmd...)
 	resp, err := e.raft.Apply(data, raftApplyTimeout)
 	if errors.Is(err, raftapi.ErrNotLeader) && e.router != nil {
 		res, ferr := e.forwardToLeader(data)
@@ -127,6 +144,26 @@ func (e *RaftEngine) Scan(prefix string, fn func(kvapi.Entry) bool) error {
 	return nil
 }
 
+// GetLinearizable issues a raft barrier so the local FSM has applied every
+// committed command, then reads the key locally.
+func (e *RaftEngine) GetLinearizable(key string) (kvapi.Entry, error) {
+	if err := e.raft.Barrier(raftApplyTimeout); err != nil {
+		return kvapi.Entry{}, err
+	}
+	return e.Get(key)
+}
+
+// ScanAtIndex captures the cluster commit index, then scans the published
+// snapshot under prefix, returning the index as the consistent "as-of" point.
+func (e *RaftEngine) ScanAtIndex(prefix string, fn func(kvapi.Entry) bool) (uint64, error) {
+	if err := e.raft.Barrier(raftApplyTimeout); err != nil {
+		return 0, err
+	}
+	idx := e.raft.CommitIndex()
+	e.fsm.scan(prefix, fn)
+	return idx, nil
+}
+
 func (e *RaftEngine) Watch(ctx context.Context, prefix string) (kvapi.Watcher, error) {
 	if e.bus == nil {
 		return nil, fmt.Errorf("kv: event bus not available")
@@ -149,6 +186,16 @@ func (e *RaftEngine) Delete(key string) error {
 func (e *RaftEngine) SetIfAbsent(key string, value []byte) (kvapi.Version, bool, error) {
 	res, err := e.propose(command{Op: opSetIfAbsent, Key: key, Value: value})
 	return res.Version, res.OK, err
+}
+
+func (e *RaftEngine) CompareAndDelete(key string, expect kvapi.Version) (bool, error) {
+	res, err := e.propose(command{Op: opCompareAndDelete, Key: key, Expect: expect})
+	return res.OK, err
+}
+
+func (e *RaftEngine) Txn(ops []kvapi.TxnOp) (bool, error) {
+	res, err := e.proposeRaw(encodeTxn(ops))
+	return res.OK, err
 }
 
 func (e *RaftEngine) CompareAndSwap(key string, expect kvapi.Version, value []byte) (kvapi.Version, bool, error) {
@@ -264,4 +311,7 @@ func (e *RaftEngine) sweepExpired() {
 	}
 }
 
-var _ kvapi.Engine = (*RaftEngine)(nil)
+var (
+	_ kvapi.Engine       = (*RaftEngine)(nil)
+	_ LinearizableEngine = (*RaftEngine)(nil)
+)

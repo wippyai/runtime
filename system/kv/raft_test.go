@@ -46,6 +46,7 @@ func TestEncodeDecodeCommand(t *testing.T) {
 type fakeRaft struct {
 	fsm      *RaftFSM
 	leaderID string
+	index    uint64
 	leader   bool
 }
 
@@ -59,6 +60,10 @@ func (f *fakeRaft) Leader() (raftapi.ServerID, raftapi.ServerAddress, error) {
 	return id, "", nil
 }
 
+func (f *fakeRaft) Barrier(time.Duration) error { return nil }
+
+func (f *fakeRaft) CommitIndex() uint64 { return f.index }
+
 func (f *fakeRaft) Apply(cmd []byte, _ time.Duration) (*raftapi.ApplyResponse, error) {
 	if !f.leader {
 		return nil, raftapi.ErrNotLeader
@@ -66,7 +71,8 @@ func (f *fakeRaft) Apply(cmd []byte, _ time.Duration) (*raftapi.ApplyResponse, e
 	if len(cmd) == 0 || cmd[0] != multiplex.KVDomain {
 		return nil, raftapi.ErrNotLeader
 	}
-	res := f.fsm.Apply(&hraft.Log{Data: cmd[1:]})
+	f.index++
+	res := f.fsm.Apply(&hraft.Log{Data: cmd[1:], Index: f.index})
 	return &raftapi.ApplyResponse{Response: res}, nil
 }
 

@@ -248,6 +248,48 @@ func (s *Service) CompareAndSwap(key string, expect kvapi.Version, value []byte)
 	return ver, ok, err
 }
 
+func (s *Service) CompareAndDelete(key string, expect kvapi.Version) (bool, error) {
+	var deleted bool
+	err := s.submitAndWait(func() error {
+		prev := s.state.get(key)
+		deleted, _ = s.state.compareAndDelete(key, expect)
+		if deleted {
+			s.emitEvent(kvapi.WatchDelete, nil, prev)
+			s.publishSnapshot()
+		}
+		return nil
+	})
+	return deleted, err
+}
+
+func (s *Service) Txn(ops []kvapi.TxnOp) (bool, error) {
+	var committed bool
+	err := s.submitAndWait(func() error {
+		for _, op := range ops {
+			if !condHolds(op.Cond, op.Expect, s.state.get(op.Key)) {
+				return nil
+			}
+		}
+		for _, op := range ops {
+			switch op.Kind {
+			case kvapi.TxnPut:
+				prev := s.state.get(op.Key)
+				s.state.set(op.Key, op.Value, "")
+				s.emitPut(op.Key, prev)
+			case kvapi.TxnDelete:
+				if prev := s.state.del(op.Key); prev != nil {
+					s.emitEvent(kvapi.WatchDelete, nil, prev)
+				}
+			case kvapi.TxnCheck:
+			}
+		}
+		committed = true
+		s.publishSnapshot()
+		return nil
+	})
+	return committed, err
+}
+
 func (s *Service) SetWithLease(key string, value []byte, leaseID kvapi.LeaseID) (kvapi.Version, error) {
 	var ver kvapi.Version
 	err := s.submitAndWait(func() error {

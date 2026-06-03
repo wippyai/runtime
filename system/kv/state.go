@@ -10,9 +10,10 @@ import (
 
 // state holds the mutable KV data, accessed only from the event loop goroutine.
 type state struct {
-	entries map[string]*entry
-	leases  map[kvapi.LeaseID]*leaseState
-	version kvapi.Version // global monotonic revision counter
+	entries    map[string]*entry
+	leases     map[kvapi.LeaseID]*leaseState
+	version    kvapi.Version // global monotonic revision counter
+	applyIndex uint64        // raft log index of the command currently applying
 }
 
 // entry is a single key-value pair with metadata.
@@ -21,6 +22,7 @@ type entry struct {
 	leaseID kvapi.LeaseID
 	value   []byte
 	version kvapi.Version
+	epoch   uint64 // raft log index at which this entry was last written
 }
 
 // leaseState tracks a lease and its attached keys.
@@ -67,6 +69,7 @@ func (s *state) set(key string, value []byte, leaseID kvapi.LeaseID) (*entry, kv
 		value:   value,
 		version: ver,
 		leaseID: leaseID,
+		epoch:   s.applyIndex,
 	}
 	s.entries[key] = e
 
@@ -133,6 +136,36 @@ func (s *state) cas(key string, expect kvapi.Version, value []byte) (kvapi.Versi
 	return ver, true
 }
 
+// compareAndDelete removes key only if its current version matches expect.
+// Returns (deleted, existed).
+func (s *state) compareAndDelete(key string, expect kvapi.Version) (deleted, existed bool) {
+	e, ok := s.entries[key]
+	if !ok {
+		return false, false
+	}
+	if e.version != expect {
+		return false, true
+	}
+	s.del(key)
+	return true, true
+}
+
+// condHolds evaluates a txn precondition against the current entry (nil=absent).
+func condHolds(cond kvapi.TxnCond, expect kvapi.Version, e *entry) bool {
+	switch cond {
+	case kvapi.CondAny:
+		return true
+	case kvapi.CondAbsent:
+		return e == nil
+	case kvapi.CondExists:
+		return e != nil
+	case kvapi.CondVersion:
+		return e != nil && e.version == expect
+	default:
+		return false
+	}
+}
+
 // addLease registers a new lease.
 func (s *state) addLease(id kvapi.LeaseID, ttlMs int64) {
 	s.leases[id] = &leaseState{
@@ -169,6 +202,7 @@ func (s *state) snapshot() *stateSnapshot {
 			Value:   copyBytes(e.value),
 			Version: e.version,
 			LeaseID: e.leaseID,
+			Epoch:   e.epoch,
 		}
 	}
 	return snap

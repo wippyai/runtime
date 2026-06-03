@@ -281,6 +281,31 @@ func (e *CRDTEngine) CompareAndSwap(key string, expect kvapi.Version, value []by
 	return en.Counter, true, nil
 }
 
+// CompareAndDelete is best-effort on the CRDT backend (local compare, not
+// linearizable); concurrent writers on other nodes converge by wall-clock LWW.
+func (e *CRDTEngine) CompareAndDelete(key string, expect kvapi.Version) (bool, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	cur, ok := e.state.LookupEntry(key)
+	if !ok || cur.Counter != expect {
+		return false, nil
+	}
+	en, removed := e.state.Unregister(key, e.wall())
+	if !removed {
+		return false, nil
+	}
+	e.queue.Push(en)
+	e.detachKey(key)
+	e.emit(kvapi.WatchDelete, &kvapi.Entry{Key: key})
+	return true, nil
+}
+
+// Txn is unsupported on the CRDT backend: atomic multi-key transactions require
+// linearizable consensus. The kv-backed registry runs on the raft backend only.
+func (e *CRDTEngine) Txn(_ []kvapi.TxnOp) (bool, error) {
+	return false, kvapi.ErrUnsupported
+}
+
 // --- leases (local wall-clock; tombstones gossip on expiry) ---
 
 func (e *CRDTEngine) GrantLease(_ context.Context, ttl time.Duration) (kvapi.Lease, error) {

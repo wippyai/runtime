@@ -55,6 +55,18 @@ func (f *RaftFSM) Apply(log *hraft.Log) any {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	f.state.applyIndex = log.Index
+
+	if len(log.Data) > 0 && opcode(log.Data[0]) == opTxn {
+		ops, err := decodeTxn(log.Data)
+		if err != nil {
+			return applyResult{Err: err}
+		}
+		res := f.applyTxn(ops)
+		f.snap.Store(f.state.snapshot())
+		return res
+	}
+
 	c, err := decodeCommand(log.Data)
 	if err != nil {
 		return applyResult{Err: err}
@@ -63,6 +75,30 @@ func (f *RaftFSM) Apply(log *hraft.Log) any {
 	res := f.applyCommand(c)
 	f.snap.Store(f.state.snapshot())
 	return res
+}
+
+// applyTxn evaluates every precondition against current state, then applies all
+// puts/deletes iff all hold (all-or-nothing under the FSM mutex).
+func (f *RaftFSM) applyTxn(ops []kvapi.TxnOp) applyResult {
+	for _, op := range ops {
+		if !condHolds(op.Cond, op.Expect, f.state.get(op.Key)) {
+			return applyResult{OK: false}
+		}
+	}
+	for _, op := range ops {
+		switch op.Kind {
+		case kvapi.TxnPut:
+			prev := f.state.get(op.Key)
+			f.state.set(op.Key, op.Value, "")
+			f.emitPut(op.Key, prev)
+		case kvapi.TxnDelete:
+			if prev := f.state.del(op.Key); prev != nil {
+				f.emitEvent(kvapi.WatchDelete, nil, prev)
+			}
+		case kvapi.TxnCheck:
+		}
+	}
+	return applyResult{OK: true}
 }
 
 func (f *RaftFSM) applyCommand(c command) applyResult {
@@ -90,6 +126,13 @@ func (f *RaftFSM) applyCommand(c command) applyResult {
 			f.emitPut(c.Key, nil)
 		}
 		return applyResult{Version: ver, OK: ok}
+	case opCompareAndDelete:
+		prev := f.state.get(c.Key)
+		deleted, _ := f.state.compareAndDelete(c.Key, c.Expect)
+		if deleted {
+			f.emitEvent(kvapi.WatchDelete, nil, prev)
+		}
+		return applyResult{OK: deleted}
 	case opSetWithLease:
 		if _, ok := f.leases.getHandle(c.LeaseID); !ok {
 			return applyResult{Err: kvapi.ErrLeaseNotFound}
@@ -163,6 +206,7 @@ type snapEntry struct {
 	LeaseID string
 	Value   []byte
 	Version uint64
+	Epoch   uint64
 }
 
 type snapLease struct {
@@ -186,7 +230,7 @@ func (f *RaftFSM) Snapshot() (hraft.FSMSnapshot, error) {
 	st := fsmState{Version: f.state.version}
 	for _, e := range f.state.entries {
 		st.Entries = append(st.Entries, snapEntry{
-			Key: e.key, Value: e.value, Version: e.version, LeaseID: string(e.leaseID),
+			Key: e.key, Value: e.value, Version: e.version, LeaseID: string(e.leaseID), Epoch: e.epoch,
 		})
 	}
 	for id, ls := range f.state.leases {
@@ -225,7 +269,7 @@ func (f *RaftFSM) Restore(rc io.ReadCloser) error {
 	}
 	for _, e := range st.Entries {
 		fresh.entries[e.Key] = &entry{
-			key: e.Key, value: e.Value, version: e.Version, leaseID: kvapi.LeaseID(e.LeaseID),
+			key: e.Key, value: e.Value, version: e.Version, leaseID: kvapi.LeaseID(e.LeaseID), epoch: e.Epoch,
 		}
 		if e.LeaseID != "" {
 			if ls, ok := fresh.leases[kvapi.LeaseID(e.LeaseID)]; ok {
