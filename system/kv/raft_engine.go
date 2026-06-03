@@ -213,20 +213,19 @@ func (e *RaftEngine) leaseSweeper() {
 	ticker := time.NewTicker(leaseSweepInterval)
 	defer ticker.Stop()
 
-	wasLeader := false
 	for {
 		select {
 		case <-e.ctx.Done():
 			return
 		case <-ticker.C:
-			isLeader := e.raft.IsLeader()
-			if isLeader && !wasLeader {
-				e.rearmFromState()
-			}
-			wasLeader = isLeader
-			if !isLeader {
+			if !e.raft.IsLeader() {
 				continue
 			}
+			// Re-arm every tick so the leader picks up leases granted anywhere
+			// in the cluster (e.g. a TTL'd write issued on a follower, applied
+			// via forwarding), not only on a leadership change. rearmFromState
+			// only adds leases not already scheduled, so this is idempotent.
+			e.rearmFromState()
 			e.sweepExpired()
 		}
 	}
