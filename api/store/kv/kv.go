@@ -149,7 +149,11 @@ const (
 type WatchEvent struct {
 	Current  *Entry // after the change (nil on delete/expire)
 	Previous *Entry // before the change (nil on create)
-	Type     WatchEventType
+	// Index is the raft log index at which the change was applied (0 for
+	// non-raft backends). It is the monotonic dot for delete tombstones, which
+	// carry no Current entry.
+	Index uint64
+	Type  WatchEventType
 }
 
 // Watcher delivers change events for keys matching a prefix.

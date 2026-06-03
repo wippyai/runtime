@@ -297,7 +297,7 @@ func (f *RaftFSM) emitEvent(typ kvapi.WatchEventType, current *kvapi.Entry, prev
 	if f.bus == nil {
 		return
 	}
-	evt := kvapi.WatchEvent{Type: typ, Current: current}
+	evt := kvapi.WatchEvent{Type: typ, Current: current, Index: f.state.applyIndex}
 	key := ""
 	if current != nil {
 		key = current.Key

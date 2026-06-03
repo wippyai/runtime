@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -15,6 +16,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	metricsapi "github.com/wippyai/runtime/api/metrics"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
 	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
@@ -26,6 +28,7 @@ import (
 	"github.com/wippyai/runtime/system/health"
 	systemkv "github.com/wippyai/runtime/system/kv"
 	"github.com/wippyai/runtime/system/topology/namereg/global"
+	"github.com/wippyai/runtime/system/topology/namereg/kvbacked"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
@@ -88,6 +91,8 @@ func Raft() boot.Component {
 	var handlerCfg sysraft.HandlerConfig
 	var kvEngine *systemkv.RaftEngine
 	var lockSvc *systemkv.LockService
+	var kvReg *kvbacked.Service
+	var useKVRegistry bool
 	var bootstrapExpect int
 
 	return boot.New(boot.P{
@@ -260,20 +265,66 @@ func Raft() boot.Component {
 			// so PIDRegistry can check it for conflicts.
 			ctx = raftapi.WithService(ctx, raftNode)
 
+			// Select the live name-registry backend. Default "fsm" keeps the
+			// dedicated registry FSM authoritative; "kv" serves the same two
+			// facades from the shared kv keyspace (_sys:registry).
+			useKVRegistry = strings.EqualFold(
+				raftCfg.GetString(ClusterRaftRegistryBackend, registryBackendFSM), registryBackendKV)
+
+			var liveReg interface {
+				topology.GlobalRegistry
+				globalapi.Registry
+			} = globalRegSvc
+
+			if useKVRegistry {
+				kvReg = kvbacked.NewService(kvEngine, node.ID(), nil, logger.Named("kvreg"))
+				kvReg.SetTopology(topo)
+				kvReg.ConfigureStrong(kvbacked.StrongDeps{
+					Membership: func() []pid.NodeID {
+						ms, ok := clusterapi.GetMembership(ctx).(*membership.Service)
+						if !ok || ms == nil {
+							return nil
+						}
+						var out []pid.NodeID
+						for _, n := range ms.Nodes() {
+							if n.ID != "" {
+								out = append(out, n.ID)
+							}
+						}
+						return out
+					},
+					IsLeader: raftNode.IsLeader,
+					LocalConflict: func(name string, _ pid.PID) (pid.PID, bool) {
+						lp := &localPresenceChecker{ctx: ctx}
+						if cp, ok := lp.LookupLocal(name); ok {
+							return cp, true
+						}
+						if cp, ok := lp.LookupEventual(name); ok {
+							return cp, true
+						}
+						return pid.PID{}, false
+					},
+				})
+				if err := node.RegisterHost(kvbacked.RegistryHostID, kvReg); err != nil {
+					return ctx, fmt.Errorf("raft: register kv registry relay host: %w", err)
+				}
+				liveReg = kvReg
+			}
+
 			// Wire the global registry into the PID registry for
 			// transparent lookup (global names take priority over local).
 			pidReg := topology.GetRegistry(ctx)
 			if pidReg != nil {
 				if setter, ok := pidReg.(interface{ SetGlobalRegistry(topology.GlobalRegistry) }); ok {
-					setter.SetGlobalRegistry(globalRegSvc)
+					setter.SetGlobalRegistry(liveReg)
 				}
 			}
 
 			// Register on both context keys:
 			// - topology.GlobalRegistry for PIDRegistry integration (transparent lookup)
 			// - global.Registry for direct Lua module access
-			ctx = topology.WithGlobalRegistry(ctx, globalRegSvc)
-			ctx = globalapi.WithRegistry(ctx, globalRegSvc)
+			ctx = topology.WithGlobalRegistry(ctx, liveReg)
+			ctx = globalapi.WithRegistry(ctx, liveReg)
 
 			// Wire the LOCAL/EVENTUAL presence reader used by the Strong-scope
 			// conditional ack. Resolution is lazy because the eventual registry
@@ -297,7 +348,12 @@ func Raft() boot.Component {
 					if err := memSvc.RegisterUserDelegate(dissem); err != nil {
 						return ctx, fmt.Errorf("raft: register globalreg dissem delegate: %w", err)
 					}
-					globalRegSvc.SetDissem(dissem)
+					if useKVRegistry {
+						kvReg.ConfigureDissem(dissem)
+						kvReg.SetLeaderFunc(raftNode.IsLeader)
+					} else {
+						globalRegSvc.SetDissem(dissem)
+					}
 				}
 			}
 
@@ -437,6 +493,9 @@ func Raft() boot.Component {
 						if lockSvc != nil {
 							lockSvc.ReapNode(ne.Node.ID)
 						}
+						if kvReg != nil {
+							kvReg.DropNode(ne.Node.ID)
+						}
 					})
 				if err != nil {
 					return fmt.Errorf("subscribe raft node-left: %w", err)
@@ -444,8 +503,15 @@ func Raft() boot.Component {
 				nodeLeftSub = sub
 			}
 
-			// Start the global registry service.
-			if globalRegSvc != nil {
+			// Start the live name registry: the kv reconciler when the kv
+			// backend is selected, otherwise the dedicated registry FSM service.
+			if useKVRegistry {
+				if kvReg != nil {
+					if err := kvReg.StartReconciler(ctx); err != nil {
+						return fmt.Errorf("start kv registry reconciler: %w", err)
+					}
+				}
+			} else if globalRegSvc != nil {
 				if membership != nil {
 					globalRegSvc.SetMembership(membership)
 				} else {

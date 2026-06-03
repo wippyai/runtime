@@ -128,6 +128,7 @@ func (s *Service) ConfigureStrong(deps StrongDeps) {
 	if isLeader == nil {
 		isLeader = func() bool { return true }
 	}
+	s.SetLeaderFunc(isLeader)
 	s.strong = &strongState{
 		svc:            s,
 		membership:     deps.Membership,
@@ -453,6 +454,7 @@ func (st *strongState) onActive(name string, epoch uint64, ap pid.PID) {
 	st.exclusions[name] = strongExclusion{pid: ap, epoch: epoch, state: exclusionActive}
 	st.mu.Unlock()
 	st.stopTimer(name)
+	st.svc.monitor(ap)
 	st.deliver(name, globalapi.RegisterOutcome{PID: ap, Epoch: epoch, State: globalapi.RegisterStateActive})
 }
 

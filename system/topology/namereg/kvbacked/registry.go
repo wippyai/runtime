@@ -11,11 +11,14 @@ package kvbacked
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
 	"github.com/wippyai/runtime/api/pid"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
+	"github.com/wippyai/runtime/api/topology"
 	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
+	"github.com/wippyai/runtime/system/topology/namereg/global"
 	"go.uber.org/zap"
 )
 
@@ -96,7 +99,25 @@ type Service struct {
 	resolve    globalapi.ResolveFunc
 	logger     *zap.Logger
 	strong     *strongState
+	dissem     *global.Dissem
+	leaderFn   func() bool
+	topo       topology.Topology
+	self       pid.PID
+	monitored  sync.Map
 	selfNode   pid.NodeID
+}
+
+// ConfigureDissem attaches the active-binding dissemination plane so non-member
+// nodes (no raft FSM) resolve names from the gossiped cache. The Dissem must be
+// registered as the membership UserDelegate by the caller.
+func (s *Service) ConfigureDissem(d *global.Dissem) { s.dissem = d }
+
+// SetLeaderFunc sets the leadership predicate used by the dissem translator
+// (leader broadcasts, followers apply locally).
+func (s *Service) SetLeaderFunc(fn func() bool) {
+	if fn != nil {
+		s.leaderFn = fn
+	}
 }
 
 // get reads a key through the leader when the backend supports it, so a write
@@ -118,7 +139,14 @@ func NewService(engine kvapi.Engine, selfNode pid.NodeID, resolve globalapi.Reso
 	if resolve == nil {
 		resolve = globalapi.DefaultResolve
 	}
-	s := &Service{engine: engine, selfNode: selfNode, resolve: resolve, logger: logger.Named("kvreg")}
+	s := &Service{
+		engine:   engine,
+		selfNode: selfNode,
+		resolve:  resolve,
+		logger:   logger.Named("kvreg"),
+		leaderFn: func() bool { return true },
+		self:     pid.PID{Node: selfNode, Host: RegistryHostID},
+	}
 	if lr, ok := engine.(leaderReadEngine); ok {
 		s.leaderRead = lr
 	}
@@ -169,6 +197,7 @@ func (s *Service) registerConsistent(name string, p pid.PID) (globalapi.Register
 		if gerr != nil {
 			return globalapi.RegisterOutcome{}, gerr
 		}
+		s.monitor(p)
 		return globalapi.RegisterOutcome{PID: p, Epoch: e.Epoch, State: globalapi.RegisterStateActive}, nil
 	}
 	return s.resolveConflict(name, p)
@@ -280,6 +309,11 @@ func (s *Service) Lookup(_ context.Context, name string, opts ...globalapi.Looku
 	}
 	e, err := s.engine.Get(activeKey(name))
 	if errors.Is(err, kvapi.ErrKeyNotFound) {
+		if s.dissem != nil {
+			if p, ok := s.dissem.Lookup(name); ok {
+				return globalapi.LookupResult{PID: p, Found: true}, nil
+			}
+		}
 		return globalapi.LookupResult{Found: false}, nil
 	}
 	if err != nil {

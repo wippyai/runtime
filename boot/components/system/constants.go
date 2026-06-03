@@ -73,4 +73,14 @@ const (
 	ClusterRaftDataDir             boot.Name = "raft.data_dir"
 	ClusterRaftLeaderProbeInterval boot.Name = "raft.leader_probe_interval"
 	ClusterRaftLeaderProbeGrace    boot.Name = "raft.leader_probe_grace"
+	// RegistryBackend selects the cluster name-registry implementation:
+	//   "fsm" (default) -> the dedicated global registry raft FSM
+	//   "kv"            -> the registry on the shared kv keyspace (_sys:registry)
+	ClusterRaftRegistryBackend boot.Name = "raft.registry_backend"
+)
+
+// Registry backend selector values for ClusterRaftRegistryBackend.
+const (
+	registryBackendFSM = "fsm"
+	registryBackendKV  = "kv"
 )
