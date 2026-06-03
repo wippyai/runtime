@@ -440,6 +440,7 @@ func entryToCluster(e *entry) *kvapi.Entry {
 		Value:   e.value,
 		Version: e.version,
 		LeaseID: e.leaseID,
+		Epoch:   e.epoch,
 	}
 }
 

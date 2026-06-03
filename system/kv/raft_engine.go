@@ -146,6 +146,16 @@ func (e *RaftEngine) Scan(prefix string, fn func(kvapi.Entry) bool) error {
 	return nil
 }
 
+// BarrierLeader blocks until the local FSM has applied every committed command,
+// so a subsequent local read is linearizable. It is a no-op off the leader
+// (hashicorp raft Barrier is a leader operation).
+func (e *RaftEngine) BarrierLeader() error {
+	if !e.raft.IsLeader() {
+		return nil
+	}
+	return e.raft.Barrier(raftApplyTimeout)
+}
+
 // GetLinearizable issues a raft barrier so the local FSM has applied every
 // committed command, then reads the key locally.
 func (e *RaftEngine) GetLinearizable(key string) (kvapi.Entry, error) {

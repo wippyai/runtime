@@ -154,7 +154,17 @@ func (e *RaftEngine) sendForward(leaderNode string, data []byte) (applyResult, e
 		}
 		return res, nil
 	case <-time.After(raftApplyTimeout):
-		return applyResult{}, errForwardNotLeader
+		// Final non-blocking check: a response that arrived simultaneously with
+		// the timeout must not be dropped (else an applied write is retried).
+		select {
+		case res := <-ch:
+			if errors.Is(res.Err, errForwardNotLeader) {
+				return applyResult{}, errForwardNotLeader
+			}
+			return res, nil
+		default:
+			return applyResult{}, errForwardNotLeader
+		}
 	case <-e.ctx.Done():
 		return applyResult{}, staticErr("kv: engine stopped")
 	}
@@ -216,7 +226,12 @@ func (e *RaftEngine) sendRead(leaderNode, key string) (readResult, error) {
 	case res := <-ch:
 		return res, nil
 	case <-time.After(raftApplyTimeout):
-		return readResult{err: errForwardNotLeader}, nil
+		select {
+		case res := <-ch:
+			return res, nil
+		default:
+			return readResult{err: errForwardNotLeader}, nil
+		}
 	case <-e.ctx.Done():
 		return readResult{}, staticErr("kv: engine stopped")
 	}

@@ -24,8 +24,14 @@ func (s *Service) StartReconciler(ctx context.Context) error {
 		return err
 	}
 	s.seed()
+	if s.dissem != nil {
+		go s.dissem.RunGC()
+	}
 	go func() {
 		defer func() { _ = w.Close() }()
+		if s.dissem != nil {
+			defer s.dissem.Stop()
+		}
 		for {
 			select {
 			case <-ctx.Done():
@@ -67,7 +73,9 @@ func (s *Service) handleWatchEvent(ev kvapi.WatchEvent) {
 	case strings.HasPrefix(key, activePrefix):
 		name := strings.TrimPrefix(key, activePrefix)
 		if ev.Current != nil {
-			s.translateActive(name, ev.Current.Value, ev.Current.Epoch, false)
+			// Dot is the op's raft index (ev.Index), authoritative regardless of
+			// whether the snapshot Entry carries Epoch.
+			s.translateActive(name, ev.Current.Value, ev.Index, false)
 		} else {
 			s.translateActive(name, nil, ev.Index, true)
 		}

@@ -212,7 +212,17 @@ func (st *strongState) register(ctx context.Context, name string, p pid.PID) (gl
 	st.addWaiter(name, waiter)
 	defer st.removeWaiter(name, waiter)
 
-	st.reconcile(name)
+	// Drive the just-opened pending directly: the caller goroutine knows it
+	// exists (read via the leader), so it must not go through reconcile, whose
+	// local read may not see the freshly-forwarded write yet and would
+	// mis-fire onTerminal. The watch reconciler advances it from here on.
+	if hdr, derr := decodePending(pe.Value); derr == nil {
+		pendingPID, _ := pid.ParsePID(hdr.PID)
+		st.attest(name, epoch, pendingPID, hdr.RequiredNodes)
+		if st.isLeader() {
+			st.leaderDrive(name, epoch, pe.Version, hdr)
+		}
+	}
 
 	select {
 	case <-ctx.Done():
@@ -295,8 +305,13 @@ func (st *strongState) requiredNodes() []pid.NodeID {
 // reconcile advances the Strong state machine for name. Safe to call on any node
 // on any observed change and on the leader deadline tick; idempotent.
 func (st *strongState) reconcile(name string) {
+	// Reads are local (no forwarding): reconcile runs on the watch goroutine and
+	// must not block on a leader round-trip. The leader linearizes its
+	// promote/expire decision with a barrier in leaderDrive; promote/expire txns
+	// are version-guarded so a stale read never causes a wrong mutation.
+	//
 	// Active wins: deliver success, convert the exclusion to Active, stop timing.
-	if e, err := st.svc.get(activeKey(name)); err == nil {
+	if e, err := st.svc.engine.Get(activeKey(name)); err == nil {
 		if av, derr := decodeActive(e.Value); derr == nil && av.Strong {
 			ap, _ := pid.ParsePID(av.PID)
 			st.onActive(name, e.Epoch, ap)
@@ -304,7 +319,7 @@ func (st *strongState) reconcile(name string) {
 		}
 	}
 
-	pe, err := st.svc.get(pendingKey(name))
+	pe, err := st.svc.engine.Get(pendingKey(name))
 	if errors.Is(err, kvapi.ErrKeyNotFound) {
 		st.onTerminal(name)
 		return
@@ -354,21 +369,38 @@ func (st *strongState) attest(name string, epoch uint64, pendingPID pid.PID, req
 // leaderDrive promotes when the ack set is complete, or expires on reject or
 // deadline. Runs only on the leader.
 func (st *strongState) leaderDrive(name string, epoch, headerVer uint64, hdr pendingHeader) {
+	// Watch-driven path needs no barrier: raft applies in order, so the ack/
+	// reject event that triggered this drive implies all prior acks/rejects are
+	// already applied locally. A reject wins; a complete ack set promotes.
 	for _, n := range hdr.RequiredNodes {
 		if _, err := st.svc.engine.Get(rejectKey(name, epoch, n)); err == nil {
 			st.leaderExpire(name, epoch, headerVer, hdr, strongRejectConflict)
 			return
 		}
 	}
-	if st.clock().UnixNano() > hdr.DeadlineUnixNano {
-		st.leaderExpire(name, epoch, headerVer, hdr, "deadline")
+	if st.complete(name, epoch, hdr.RequiredNodes) {
+		st.leaderPromote(name, epoch, headerVer, hdr)
 		return
 	}
-	if !st.complete(name, epoch, hdr.RequiredNodes) {
+	if st.clock().UnixNano() <= hdr.DeadlineUnixNano {
 		st.armTimer(name, hdr.DeadlineUnixNano)
 		return
 	}
-	st.leaderPromote(name, epoch, headerVer, hdr)
+	// Deadline reached. Barrier so a committed-but-unapplied ack set is not
+	// falsely expired, then re-check completion before giving up. The barrier
+	// runs at most once per reservation (the deadline tick), never on the hot
+	// ack path.
+	if st.svc.barrier != nil {
+		if err := st.svc.barrier(); err != nil {
+			st.armTimer(name, hdr.DeadlineUnixNano)
+			return
+		}
+	}
+	if st.complete(name, epoch, hdr.RequiredNodes) {
+		st.leaderPromote(name, epoch, headerVer, hdr)
+		return
+	}
+	st.leaderExpire(name, epoch, headerVer, hdr, "deadline")
 }
 
 func (st *strongState) complete(name string, epoch uint64, required []pid.NodeID) bool {

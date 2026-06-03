@@ -30,6 +30,7 @@ type RaftFSM struct {
 	leases *leaseManager
 	snap   atomic.Pointer[stateSnapshot]
 	system event.System
+	outbox []event.Event
 	mu     sync.Mutex
 }
 
@@ -64,6 +65,7 @@ func (f *RaftFSM) Apply(log *hraft.Log) any {
 		}
 		res := f.applyTxn(ops)
 		f.snap.Store(f.state.snapshot())
+		f.flush()
 		return res
 	}
 
@@ -74,7 +76,20 @@ func (f *RaftFSM) Apply(log *hraft.Log) any {
 
 	res := f.applyCommand(c)
 	f.snap.Store(f.state.snapshot())
+	f.flush()
 	return res
+}
+
+// flush delivers buffered watch events after the new snapshot is published, so a
+// watcher that reacts by reading the kv observes the change that triggered it.
+func (f *RaftFSM) flush() {
+	if len(f.outbox) == 0 {
+		return
+	}
+	for i := range f.outbox {
+		f.bus.Send(context.Background(), f.outbox[i])
+	}
+	f.outbox = f.outbox[:0]
 }
 
 // applyTxn evaluates every precondition against current state, then applies all
@@ -308,14 +323,14 @@ func (f *RaftFSM) emitEvent(typ kvapi.WatchEventType, current *kvapi.Entry, prev
 			key = prev.key
 		}
 	}
-	f.bus.Send(context.Background(), event.Event{System: f.system, Kind: key, Data: evt})
+	f.outbox = append(f.outbox, event.Event{System: f.system, Kind: key, Data: evt})
 }
 
 func entryToAPI(e *entry) *kvapi.Entry {
 	if e == nil {
 		return nil
 	}
-	return &kvapi.Entry{Key: e.key, Value: e.value, Version: e.version, LeaseID: e.leaseID}
+	return &kvapi.Entry{Key: e.key, Value: e.value, Version: e.version, LeaseID: e.leaseID, Epoch: e.epoch}
 }
 
 // raftSnapshot is the persisted form of a kv FSM snapshot.

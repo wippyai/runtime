@@ -31,8 +31,9 @@ const (
 )
 
 // maxResolveRetries bounds the conflict-resolution CAS loop when an override
-// ResolveFunc awards a contested name to the incoming claimant.
-const maxResolveRetries = 8
+// ResolveFunc awards a contested name to the incoming claimant. Exhaustion under
+// sustained contention returns a retryable error rather than a hard failure.
+const maxResolveRetries = 32
 
 func activeKey(name string) string { return activePrefix + name }
 
@@ -92,6 +93,13 @@ type leaderReadEngine interface {
 	GetViaLeader(key string) (kvapi.Entry, error)
 }
 
+// barrierEngine is the optional leader-barrier surface: blocks until the local
+// FSM has applied all committed commands so a subsequent local read is
+// linearizable. Used before the Strong promote/expire decision.
+type barrierEngine interface {
+	BarrierLeader() error
+}
+
 // Service is the kv-backed name registry.
 type Service struct {
 	engine     kvapi.Engine
@@ -101,6 +109,7 @@ type Service struct {
 	strong     *strongState
 	dissem     *global.Dissem
 	leaderFn   func() bool
+	barrier    func() error
 	topo       topology.Topology
 	self       pid.PID
 	monitored  sync.Map
@@ -149,6 +158,9 @@ func NewService(engine kvapi.Engine, selfNode pid.NodeID, resolve globalapi.Reso
 	}
 	if lr, ok := engine.(leaderReadEngine); ok {
 		s.leaderRead = lr
+	}
+	if be, ok := engine.(barrierEngine); ok {
+		s.barrier = be.BarrierLeader
 	}
 	return s
 }
@@ -242,7 +254,7 @@ func (s *Service) resolveConflict(name string, incoming pid.PID) (globalapi.Regi
 			return globalapi.RegisterOutcome{PID: incoming, Epoch: ne.Epoch, State: globalapi.RegisterStateActive}, nil
 		}
 	}
-	return globalapi.RegisterOutcome{}, globalapi.ErrNotAvailable
+	return globalapi.RegisterOutcome{}, globalapi.ErrNotReady
 }
 
 func (s *Service) swapOwner(name string, expectVer kvapi.Version, old, incoming pid.PID) (bool, error) {
