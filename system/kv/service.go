@@ -194,6 +194,20 @@ func (s *Service) Scan(prefix string, fn func(kvapi.Entry) bool) error {
 	return nil
 }
 
+// GetLinearizable is a plain Get on the single-node in-memory engine, which is
+// trivially linearizable. Present so Service satisfies LinearizableEngine.
+func (s *Service) GetLinearizable(key string) (kvapi.Entry, error) { return s.Get(key) }
+
+// ScanAtIndex scans and returns the current global version as the as-of index.
+func (s *Service) ScanAtIndex(prefix string, fn func(kvapi.Entry) bool) (uint64, error) {
+	if err := s.Scan(prefix, fn); err != nil {
+		return 0, err
+	}
+	var idx uint64
+	err := s.submitAndWait(func() error { idx = s.state.version; return nil })
+	return idx, err
+}
+
 // --- kvapi.Engine write operations (serialized through event loop) ---
 
 func (s *Service) Set(key string, value []byte) (kvapi.Version, error) {
@@ -430,4 +444,7 @@ func entryToCluster(e *entry) *kvapi.Entry {
 }
 
 // Verify interface compliance.
-var _ kvapi.Engine = (*Service)(nil)
+var (
+	_ kvapi.Engine       = (*Service)(nil)
+	_ LinearizableEngine = (*Service)(nil)
+)

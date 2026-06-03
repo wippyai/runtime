@@ -49,20 +49,21 @@ const leaseSweepInterval = time.Second
 // A single RaftEngine is shared node-wide; store.kv.raft entries scope it by
 // key namespace.
 type RaftEngine struct {
-	raft      raftSubmitter
-	bus       event.Bus
-	ctx       context.Context
-	fsm       *RaftFSM
-	logger    *zap.Logger
-	router    relay.Receiver
-	deadlines map[kvapi.LeaseID]time.Time
-	pending   map[uint64]chan applyResult
-	cancel    context.CancelFunc
-	localNode string
-	wg        sync.WaitGroup
-	leaseSeq  atomic.Uint64
-	schedMu   sync.Mutex
-	fwdMu     sync.Mutex
+	raft         raftSubmitter
+	bus          event.Bus
+	ctx          context.Context
+	fsm          *RaftFSM
+	logger       *zap.Logger
+	router       relay.Receiver
+	deadlines    map[kvapi.LeaseID]time.Time
+	pending      map[uint64]chan applyResult
+	pendingReads map[uint64]chan readResult
+	cancel       context.CancelFunc
+	localNode    string
+	wg           sync.WaitGroup
+	leaseSeq     atomic.Uint64
+	schedMu      sync.Mutex
+	fwdMu        sync.Mutex
 }
 
 // NewRaftEngine builds the shared engine. localNode scopes generated lease ids.
@@ -73,14 +74,15 @@ func NewRaftEngine(raft raftSubmitter, fsm *RaftFSM, bus event.Bus, localNode st
 		logger = zap.NewNop()
 	}
 	return &RaftEngine{
-		raft:      raft,
-		fsm:       fsm,
-		bus:       bus,
-		logger:    logger.Named("kv-raft"),
-		router:    router,
-		localNode: localNode,
-		deadlines: make(map[kvapi.LeaseID]time.Time),
-		pending:   make(map[uint64]chan applyResult),
+		raft:         raft,
+		fsm:          fsm,
+		bus:          bus,
+		logger:       logger.Named("kv-raft"),
+		router:       router,
+		localNode:    localNode,
+		deadlines:    make(map[kvapi.LeaseID]time.Time),
+		pending:      make(map[uint64]chan applyResult),
+		pendingReads: make(map[uint64]chan readResult),
 	}
 }
 
