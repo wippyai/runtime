@@ -673,6 +673,19 @@ func (s *Service) applyIncoming(e *Entry, originStr string) {
 	e.Node = internedOrigin
 
 	outcome, _, lost := s.state.Apply(e)
+
+	// Epidemic forwarding: a frame that changed local state is new information,
+	// so re-broadcast it. The origin emits each delta one-shot to only
+	// GossipNodes peers; without forwarding the rest of the cluster converges
+	// solely via slow anti-entropy. Loop-free because a re-applied entry is a
+	// MergeNoop and is not re-queued. The queued entry is a copy: State retains
+	// `e` and may mutate it on later merges.
+	if outcome == MergeApplied || outcome == MergeConflictResolved || outcome == MergeDeleteWins {
+		cp := *e
+		s.queue.Push(&cp)
+		s.tel.setQueueDepth(s.queue.Depth())
+	}
+
 	switch outcome {
 	case MergeApplied:
 		// nothing extra
