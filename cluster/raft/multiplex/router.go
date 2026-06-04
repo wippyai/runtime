@@ -93,7 +93,12 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 
 	if n < 4 || magic != snapshotMagic {
 		legacy := io.NopCloser(io.MultiReader(bytes.NewReader(read), rc))
-		return f.primary.Restore(legacy)
+		if err := f.primary.Restore(legacy); err != nil {
+			return err
+		}
+		// A legacy bare-primary snapshot carries no kv section, so reset the kv
+		// FSM rather than leave it holding stale state.
+		return f.resetUnseenKV(false)
 	}
 
 	var ver [1]byte
@@ -104,11 +109,12 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 		return fmt.Errorf("multiplex restore: unsupported snapshot version %d", ver[0])
 	}
 
+	seenKV := false
 	for {
 		var hdr [9]byte
 		_, err := io.ReadFull(rc, hdr[:])
 		if err == io.EOF {
-			return nil
+			break
 		}
 		if err != nil {
 			return fmt.Errorf("multiplex restore: read section header: %w", err)
@@ -126,6 +132,7 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 			target = f.primary
 		case kvDomain:
 			target = f.kv
+			seenKV = true
 		}
 		if target == nil {
 			continue
@@ -134,6 +141,24 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 			return fmt.Errorf("multiplex restore: restore section %d: %w", domain, err)
 		}
 	}
+	return f.resetUnseenKV(seenKV)
+}
+
+// resetUnseenKV clears the kv FSM when the restored snapshot carried no kv
+// section — a legacy bare-primary snapshot, or one written by a node with kv
+// disabled. Raft calls Restore to REPLACE all state, so a child whose section is
+// absent must be reset to empty; otherwise it keeps stale entries after an
+// InstallSnapshot and diverges from the rest of the cluster. An empty stream is
+// the kv FSM's reset-to-empty contract. The primary section is always written,
+// so only the kv child can be absent.
+func (f *FSM) resetUnseenKV(seenKV bool) error {
+	if f.kv == nil || seenKV {
+		return nil
+	}
+	if err := f.kv.Restore(io.NopCloser(bytes.NewReader(nil))); err != nil {
+		return fmt.Errorf("multiplex restore: reset kv: %w", err)
+	}
+	return nil
 }
 
 // snapshot frames the child snapshots. Each child's Persist is captured into a

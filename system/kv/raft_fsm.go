@@ -269,13 +269,21 @@ func (f *RaftFSM) Snapshot() (hraft.FSMSnapshot, error) {
 	return &raftSnapshot{data: buf.Bytes()}, nil
 }
 
-// Restore rebuilds the state from a snapshot stream.
+// Restore rebuilds the state from a snapshot stream. An empty stream is a
+// reset-to-empty: the multiplex router feeds it when a restored snapshot carries
+// no kv section, so the FSM must clear its state rather than reject the stream.
 func (f *RaftFSM) Restore(rc io.ReadCloser) error {
 	defer rc.Close()
 
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return fmt.Errorf("kv fsm restore: read: %w", err)
+	}
 	var st fsmState
-	if err := gob.NewDecoder(rc).Decode(&st); err != nil {
-		return fmt.Errorf("kv fsm restore: %w", err)
+	if len(data) > 0 {
+		if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&st); err != nil {
+			return fmt.Errorf("kv fsm restore: %w", err)
+		}
 	}
 
 	f.mu.Lock()
