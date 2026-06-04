@@ -60,6 +60,7 @@ type RaftEngine struct {
 	pendingReads map[uint64]chan readResult
 	cancel       context.CancelFunc
 	localNode    string
+	forwardWait  time.Duration
 	wg           sync.WaitGroup
 	leaseSeq     atomic.Uint64
 	schedMu      sync.Mutex
@@ -80,6 +81,7 @@ func NewRaftEngine(raft raftSubmitter, fsm *RaftFSM, bus event.Bus, localNode st
 		logger:       logger.Named("kv-raft"),
 		router:       router,
 		localNode:    localNode,
+		forwardWait:  forwardWaitTimeout,
 		deadlines:    make(map[kvapi.LeaseID]time.Time),
 		pending:      make(map[uint64]chan applyResult),
 		pendingReads: make(map[uint64]chan readResult),

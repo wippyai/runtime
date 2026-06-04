@@ -50,9 +50,25 @@ const maxForwardHops byte = 2
 
 var kvCorrIDCounter atomic.Uint64
 
-// errForwardNotLeader marks a forwarded write that reached a non-leader, so the
-// caller re-resolves the leader and retries.
+// forwardReplyGrace is added to raftApplyTimeout to size the follower's wait for
+// a forward reply. The leader applies with raftApplyTimeout, so waiting strictly
+// longer lets a slow-but-committed apply's reply arrive instead of spuriously
+// timing out — keeping a successful forwarded write from surfacing as a timeout.
+const forwardReplyGrace = 2 * time.Second
+
+// forwardWaitTimeout is how long a forwarder waits for a reply before giving up.
+const forwardWaitTimeout = raftApplyTimeout + forwardReplyGrace
+
+// errForwardNotLeader marks a forwarded write that reached a non-leader. The op
+// was provably NOT applied (a leader that loses leadership mid-Apply does not
+// commit), so the caller may safely re-resolve the leader and retry.
 var errForwardNotLeader = staticErr("kv: forwarded write reached a non-leader")
+
+// errForwardTimeout marks a forwarded write whose reply never arrived. Unlike a
+// not-leader rejection the outcome is ambiguous — the leader may have committed
+// it — so it MUST NOT be retried, or a committed non-idempotent op (Set/CAS/
+// Delete) would apply twice. The caller surfaces it as an honest write error.
+var errForwardTimeout = staticErr("kv: forwarded write timed out")
 
 // errNoForwardLeader is returned when no leader can be resolved within retries.
 var errNoForwardLeader = staticErr("kv: no raft leader for forwarded write")
@@ -165,9 +181,12 @@ func (e *RaftEngine) sendForward(leaderNode string, data []byte, hop byte) (appl
 			return applyResult{}, errForwardNotLeader
 		}
 		return res, nil
-	case <-time.After(raftApplyTimeout):
+	case <-time.After(e.forwardWait):
 		// Final non-blocking check: a response that arrived simultaneously with
-		// the timeout must not be dropped (else an applied write is retried).
+		// the timeout must not be dropped (else an applied write is mistaken for a
+		// timeout). A genuine timeout returns errForwardTimeout, which the caller
+		// does NOT retry — the write may have committed, so retrying could
+		// double-apply.
 		select {
 		case res := <-ch:
 			if errors.Is(res.Err, errForwardNotLeader) {
@@ -175,7 +194,7 @@ func (e *RaftEngine) sendForward(leaderNode string, data []byte, hop byte) (appl
 			}
 			return res, nil
 		default:
-			return applyResult{}, errForwardNotLeader
+			return applyResult{}, errForwardTimeout
 		}
 	case <-e.ctx.Done():
 		return applyResult{}, staticErr("kv: engine stopped")
@@ -246,7 +265,7 @@ func (e *RaftEngine) sendRead(leaderNode, key string, hop byte) (readResult, err
 	select {
 	case res := <-ch:
 		return res, nil
-	case <-time.After(raftApplyTimeout):
+	case <-time.After(e.forwardWait):
 		select {
 		case res := <-ch:
 			return res, nil
