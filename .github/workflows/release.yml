@@ -9,6 +9,10 @@ on:
         description: 'Release version, e.g. 0.2.1 or v0.2.1'
         type: string
         required: true
+      description:
+        description: 'Release notes summary (shown at the top of the release and hub changelog)'
+        type: string
+        required: true
       prerelease:
         description: 'Mark as prerelease (does not become Latest)'
         type: boolean
@@ -206,16 +210,23 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          sha256sum $(ls wippy-* | grep -v '\.sig$') > SHA256SUMS
+          files=()
+          for f in wippy-*; do
+            [ "${f%.sig}" = "$f" ] && files+=("$f")
+          done
+          sha256sum "${files[@]}" > SHA256SUMS
 
       - name: Release notes
         env:
           PREV_TAG: ${{ needs.validate.outputs.prev_tag }}
           TAG: ${{ needs.validate.outputs.tag }}
+          DESCRIPTION: ${{ inputs.description }}
         run: |
           set -euo pipefail
           {
             echo "## ${TAG}"
+            echo
+            printf '%s\n' "$DESCRIPTION"
             echo
             echo "Commit: ${GITHUB_SHA}"
             echo
