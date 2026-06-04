@@ -95,6 +95,18 @@ func (d *Dispatcher) execute(j job) {
 		exists, err := c.Store.Has(j.ctx, c.Key)
 		j.receiver.CompleteYield(j.tag, store.HasResponse{Exists: exists, Error: err}, nil)
 
+	case *store.EntryCmd:
+		entry, err := store.ReadEntry(j.ctx, c.Store, c.Key)
+		j.receiver.CompleteYield(j.tag, store.EntryResponse{Entry: entry, Error: err}, nil)
+
+	case *store.ListCmd:
+		page, err := store.ListEntries(j.ctx, c.Store, c.Opts)
+		j.receiver.CompleteYield(j.tag, store.ListResponse{Page: page, Error: err}, nil)
+
+	case *store.PutCmd:
+		entry, err := store.PutEntry(j.ctx, c.Store, c.Key, c.Value, c.Opts)
+		j.receiver.CompleteYield(j.tag, store.PutResponse{Entry: entry, Error: err}, nil)
+
 	default:
 		// unknown command type, ignore
 	}
@@ -112,4 +124,7 @@ func (d *Dispatcher) RegisterAll(register func(id dispatcher.CommandID, h dispat
 	register(store.Set, h)
 	register(store.Delete, h)
 	register(store.Has, h)
+	register(store.EntryCommand, h)
+	register(store.ListCommand, h)
+	register(store.PutCommand, h)
 }

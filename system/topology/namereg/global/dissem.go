@@ -153,8 +153,18 @@ func (d *Dissem) merge(in bindingDelta) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	existing, ok := d.cache[in.Name]
-	if ok && in.RaftIndex <= existing.RaftIndex {
-		return false
+	if ok {
+		if in.RaftIndex < existing.RaftIndex {
+			return false
+		}
+		if in.RaftIndex == existing.RaftIndex {
+			// Same-index tie-break: a live binding deterministically wins over a
+			// tombstone regardless of gossip arrival order; otherwise keep. (Distinct
+			// ops carry distinct raft indices, so this only guards a degenerate case.)
+			if !existing.Deleted || in.Deleted {
+				return false
+			}
+		}
 	}
 	d.cache[in.Name] = bindingEntry{
 		PID:       in.PID,

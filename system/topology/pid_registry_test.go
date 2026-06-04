@@ -37,6 +37,17 @@ func (f *fakeGlobalRegistry) IsStrongReserved(name string) (pidapi.PID, bool) {
 
 func (f *fakeGlobalRegistry) NameReady() bool { return !f.notReady }
 
+type fakeEventualRegistry struct {
+	active map[string]pidapi.PID
+}
+
+func (f *fakeEventualRegistry) Lookup(_ context.Context, name string, _ ...globalapi.LookupOption) (globalapi.LookupResult, error) {
+	if p, ok := f.active[name]; ok {
+		return globalapi.LookupResult{PID: p, Found: true}, nil
+	}
+	return globalapi.LookupResult{}, nil
+}
+
 // TestPIDRegistry_StrongReservationBlocksLocalBind proves a held Strong
 // reservation refuses a LOCAL bind of the same name to a different pid, and
 // allows the same pid, through the existing global-reg shadow-check seam.
@@ -104,6 +115,66 @@ func TestPIDRegistry_JoinBarrierAllowsReRegister(t *testing.T) {
 	got, err := reg.Register("local.held", p)
 	assert.NoError(t, err)
 	assert.Equal(t, p, got)
+}
+
+// TestPIDRegistry_LookupIncludesEventualRegistry is the regression for Lua
+// process.registry.lookup resolving EVENTUAL names: Lua calls PIDRegistry.Lookup,
+// so a name learned by the gossip registry must be visible here.
+func TestPIDRegistry_LookupIncludesEventualRegistry(t *testing.T) {
+	p := pidapi.PID{Node: "node-2", Host: "host", UniqID: "evt"}
+	reg := NewPIDRegistry(WithLogger(zap.NewNop()), WithEventualRegistry(&fakeEventualRegistry{
+		active: map[string]pidapi.PID{"session.remote": p},
+	}))
+
+	got, ok := reg.Lookup("session.remote")
+	assert.True(t, ok)
+	assert.Equal(t, p, got)
+}
+
+// TestPIDRegistry_LookupScopePrecedence documents the composed lookup order:
+// global names win over EVENTUAL names, and EVENTUAL names win over LOCAL names.
+func TestPIDRegistry_LookupScopePrecedence(t *testing.T) {
+	localPID := pidapi.PID{Node: "node-1", Host: "host", UniqID: "local"}
+	eventualPID := pidapi.PID{Node: "node-2", Host: "host", UniqID: "eventual"}
+	globalPID := pidapi.PID{Node: "node-3", Host: "host", UniqID: "global"}
+
+	reg := NewPIDRegistry(WithLogger(zap.NewNop()))
+	_, err := reg.Register("svc.shared", localPID)
+	require.NoError(t, err)
+
+	gr := &fakeGlobalRegistry{
+		active:   map[string]pidapi.PID{"svc.shared": globalPID},
+		reserved: map[string]pidapi.PID{},
+	}
+	er := &fakeEventualRegistry{active: map[string]pidapi.PID{"svc.shared": eventualPID}}
+	reg.SetGlobalRegistry(gr)
+	reg.SetEventualRegistry(er)
+
+	got, ok := reg.Lookup("svc.shared")
+	require.True(t, ok)
+	assert.Equal(t, globalPID, got)
+
+	delete(gr.active, "svc.shared")
+	got, ok = reg.Lookup("svc.shared")
+	require.True(t, ok)
+	assert.Equal(t, eventualPID, got)
+
+	delete(er.active, "svc.shared")
+	got, ok = reg.Lookup("svc.shared")
+	require.True(t, ok)
+	assert.Equal(t, localPID, got)
+}
+
+func TestPIDRegistry_RegisterRejectsLocalShadowingEventualName(t *testing.T) {
+	eventualPID := pidapi.PID{Node: "node-2", Host: "host", UniqID: "eventual"}
+	localPID := pidapi.PID{Node: "node-1", Host: "host", UniqID: "local"}
+	reg := NewPIDRegistry(WithLogger(zap.NewNop()), WithEventualRegistry(&fakeEventualRegistry{
+		active: map[string]pidapi.PID{"svc.shared": eventualPID},
+	}))
+
+	existing, err := reg.Register("svc.shared", localPID)
+	assert.ErrorIs(t, err, topology.ErrNameAlreadyRegistered)
+	assert.Equal(t, eventualPID, existing)
 }
 
 func TestPIDRegistry_Register(t *testing.T) {

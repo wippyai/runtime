@@ -17,6 +17,7 @@ const (
 	RaftName        boot.Name = "raft"
 	GlobalRegName   boot.Name = "globalreg"
 	EventualRegName boot.Name = "eventualreg"
+	KVCRDTName      boot.Name = "kv.crdt"
 	PGName          boot.Name = "pg"
 
 	// ClusterEnabled is a Cluster configuration key
@@ -69,6 +70,17 @@ const (
 	ClusterRaftHeartbeatTimeout    boot.Name = "raft.heartbeat_timeout"
 	ClusterRaftElectionTimeout     boot.Name = "raft.election_timeout"
 	ClusterRaftCommitTimeout       boot.Name = "raft.commit_timeout"
+	ClusterRaftDataDir             boot.Name = "raft.data_dir"
 	ClusterRaftLeaderProbeInterval boot.Name = "raft.leader_probe_interval"
 	ClusterRaftLeaderProbeGrace    boot.Name = "raft.leader_probe_grace"
+	// RegistryBackend selects the cluster name-registry implementation:
+	//   "kv" (default) -> the registry on the shared kv keyspace (_sys:registry)
+	//   "fsm"          -> the dedicated global registry raft FSM (fallback)
+	ClusterRaftRegistryBackend boot.Name = "raft.registry_backend"
+)
+
+// Registry backend selector values for ClusterRaftRegistryBackend.
+const (
+	registryBackendFSM = "fsm"
+	registryBackendKV  = "kv"
 )

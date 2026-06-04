@@ -191,6 +191,13 @@ func (s *Service) Start(ctx context.Context) error {
 	// multi-node cluster that is 10 mostly-empty gossip fan-outs/sec/node;
 	// 500ms still propagates deltas promptly and cuts idle wakeups 5x.
 	mlConfig.GossipInterval = 500 * time.Millisecond
+	// PushPullInterval is the anti-entropy full-state sync cadence. It backstops
+	// the epidemic delta path (eventualreg forwards deltas it learns, but a
+	// one-shot gossip wave can probabilistically miss a tail node) and heals
+	// post-partition divergence. DefaultLocalConfig's 15s left a missed tail
+	// resolving in tens of seconds; 5s bounds that worst case while keeping the
+	// small registry state cheap to exchange.
+	mlConfig.PushPullInterval = 5 * time.Second
 	// DeadNodeReclaimTime lets a node that has been dead longer than this be
 	// replaced by a node with the SAME name but a DIFFERENT address. This is
 	// exactly the k8s StatefulSet pod-restart case: a pod is killed (hard,

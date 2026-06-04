@@ -1,0 +1,25 @@
+# Example store.kv.* entries (documentation only; not loaded by the runtime).
+#
+# data_dir is node-level config, NOT per-entry. It defaults to ~/.wippy/store.
+# The shared raft and durable crdt snapshots live under <data_dir>/_sys/.
+cluster:
+  raft:
+    # data_dir: /var/lib/wippy/store   # optional; default ~/.wippy/store
+
+entries:
+  # Raft-replicated, always fs-durable, linearizable.
+  - name: deployments
+    kind: store.kv.raft
+    namespace: deploy
+
+  # Gossip CRDT, in-memory: ephemeral overlay, reconstructs from peers.
+  - name: sessions
+    kind: store.kv.crdt
+    namespace: sess
+    durable: false
+
+  # Gossip CRDT, fs-durable: survives a full-cluster restart.
+  - name: kb_index
+    kind: store.kv.crdt
+    namespace: kb
+    durable: true

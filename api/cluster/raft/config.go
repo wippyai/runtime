@@ -6,9 +6,10 @@ import "time"
 
 // Config holds configuration for a Raft node.
 //
-// Raft runs with a diskless control plane (in-memory stores): cluster state
-// is ephemeral, restarts rejoin from peer state, persistence-vs-quorum
-// failure modes are removed by construction. There is no data_dir.
+// Raft defaults to a diskless control plane (in-memory stores): cluster state
+// is ephemeral, restarts rejoin from peer state, persistence-vs-quorum failure
+// modes are removed by construction. Setting DataDir opts into fs-durable
+// storage, which a store.kv.raft entry requires.
 //
 // The transport is the wippy internode mesh exclusively: peers are addressed
 // by NodeID over the existing internode connection, so there is no bind
@@ -25,38 +26,17 @@ import "time"
 // see existing peers as raft_status="in" and skip bootstrap; the leader's
 // reconciler adds them via AddVoter.
 type Config struct {
+	DataDir           string        `json:"data_dir,omitempty"`
 	CommitTimeout     time.Duration `json:"commit_timeout"`
 	SnapshotInterval  time.Duration `json:"snapshot_interval"`
 	ElectionTimeout   time.Duration `json:"election_timeout"`
 	HeartbeatTimeout  time.Duration `json:"heartbeat_timeout"`
 	SnapshotThreshold uint64        `json:"snapshot_threshold"`
-	// TrailingLogs caps how many log entries are retained after a snapshot.
-	// hashicorp/raft default is 10240 which keeps a lot of memory under
-	// partition; lower this for memory-constrained nodes. Zero means use
-	// the hashicorp/raft library default.
-	TrailingLogs uint64 `json:"trailing_logs"`
-	// BootstrapExpect is the expected size of the initial quorum. The
-	// gossip-driven bootstrap watcher uses this to decide when to form
-	// the cluster:
-	//   0  -> never self-bootstrap; this node joins an existing cluster
-	//         (waits for the leader's reconciler to AddVoter it).
-	//   1  -> single-node mode; bootstrap immediately with [self].
-	//   N  -> wait for exactly N raft-eligible alive members advertising
-	//         the same BootstrapExpect and raft_status="pre", then all
-	//         N call BootstrapCluster with the deterministically-sorted
-	//         server list. After a full-cluster cold-start they all
-	//         converge on the same configuration at log index 1.
-	BootstrapExpect int `json:"bootstrap_expect,omitempty"`
-	SnapshotRetain  int `json:"snapshot_retain"`
-	MaxPool         int `json:"max_pool"`
-	// MaxAppendEntries caps how many log entries the leader packs into a
-	// single AppendEntries RPC. The hashicorp/raft default is 64 which,
-	// when a follower restarts with an empty log and needs to catch up
-	// hundreds of entries, lets the leader queue large batches in
-	// memory simultaneously. Setting this to 16 throttles the catch-up
-	// throughput so under chaos a returning pod doesn't OOM the leader
-	// while it ships history. Zero means use the library default.
-	MaxAppendEntries int `json:"max_append_entries"`
+	TrailingLogs      uint64        `json:"trailing_logs"`
+	BootstrapExpect   int           `json:"bootstrap_expect,omitempty"`
+	SnapshotRetain    int           `json:"snapshot_retain"`
+	MaxPool           int           `json:"max_pool"`
+	MaxAppendEntries  int           `json:"max_append_entries"`
 }
 
 // InitDefaults fills zero-valued fields with sensible defaults.

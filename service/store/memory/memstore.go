@@ -4,6 +4,8 @@ package memory
 
 import (
 	"context"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,6 +23,10 @@ import (
 
 var (
 	_ store.Store        = (*Store)(nil)
+	_ store.InfoProvider = (*Store)(nil)
+	_ store.EntryReader  = (*Store)(nil)
+	_ store.Lister       = (*Store)(nil)
+	_ store.Putter       = (*Store)(nil)
 	_ resource.Provider  = (*Store)(nil)
 	_ supervisor.Service = (*Store)(nil)
 )
@@ -37,6 +43,7 @@ type Store struct {
 	wg         sync.WaitGroup
 	mu         sync.RWMutex
 	closed     bool
+	version    store.Version
 }
 
 // storeEntry represents a single key-value pair with metadata
@@ -44,6 +51,7 @@ type storeEntry struct {
 	value      payload.Payload
 	expiration *time.Time
 	lastAccess time.Time
+	version    store.Version
 }
 
 // NewStore creates a new in-memory key-value store
@@ -147,6 +155,32 @@ func (m *Store) Get(_ context.Context, key registry.ID) (payload.Payload, error)
 	return entry.value, nil
 }
 
+// Entry retrieves a value and its monotonic store version.
+func (m *Store) Entry(_ context.Context, key registry.ID) (store.VersionedEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.closed {
+		return store.VersionedEntry{}, servicestore.ErrStoreClosed
+	}
+
+	keyStr := key.String()
+	entry, exists := m.data[keyStr]
+	if !exists {
+		return store.VersionedEntry{}, store.ErrKeyNotFound
+	}
+	if entryExpired(entry, time.Now()) {
+		delete(m.data, keyStr)
+		return store.VersionedEntry{}, store.ErrKeyNotFound
+	}
+
+	entry.lastAccess = time.Now()
+	return store.VersionedEntry{
+		Entry:   store.Entry{Key: key, Value: entry.value},
+		Version: entry.version,
+	}, nil
+}
+
 // Set stores or updates a value with the given key
 func (m *Store) Set(_ context.Context, entry store.Entry) error {
 	m.mu.Lock()
@@ -156,28 +190,91 @@ func (m *Store) Set(_ context.Context, entry store.Entry) error {
 		return servicestore.ErrStoreClosed
 	}
 
+	now := time.Now()
 	keyStr := entry.Key.String()
+	m.purgeExpiredLocked(now)
+	_, exists := m.data[keyStr]
 
 	// Check if we're at capacity and need to reject
-	if m.config.MaxSize > 0 && len(m.data) >= m.config.MaxSize && m.data[keyStr] == nil {
+	if m.config.MaxSize > 0 && len(m.data) >= m.config.MaxSize && !exists {
 		return servicestore.ErrStoreFull
 	}
 
 	// Calculate expiration time if TTL is set
 	var expiration *time.Time
 	if entry.TTL > 0 {
-		exp := time.Now().Add(entry.TTL)
+		exp := now.Add(entry.TTL)
 		expiration = &exp
 	}
 
 	// Store the entry
+	m.version++
 	m.data[keyStr] = &storeEntry{
 		value:      entry.Value,
 		expiration: expiration,
-		lastAccess: time.Now(),
+		lastAccess: now,
+		version:    m.version,
 	}
 
 	return nil
+}
+
+// Put stores a value with optional absent/version preconditions.
+func (m *Store) Put(_ context.Context, key registry.ID, value payload.Payload, opts store.PutOptions) (store.VersionedEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.closed {
+		return store.VersionedEntry{}, servicestore.ErrStoreClosed
+	}
+	if opts.OnlyIfAbsent && opts.HasVersion {
+		return store.VersionedEntry{}, store.ErrInvalidOptions
+	}
+	if opts.HasVersion && opts.Version == 0 {
+		return store.VersionedEntry{}, store.ErrInvalidOptions
+	}
+	if opts.TTL < 0 {
+		return store.VersionedEntry{}, store.ErrInvalidOptions
+	}
+
+	now := time.Now()
+	keyStr := key.String()
+	m.purgeExpiredLocked(now)
+	existing, exists := m.data[keyStr]
+	if opts.OnlyIfAbsent && exists {
+		return store.VersionedEntry{}, store.ErrKeyExists
+	}
+	if opts.HasVersion {
+		if !exists {
+			return store.VersionedEntry{}, store.ErrKeyNotFound
+		}
+		if existing.version != opts.Version {
+			return store.VersionedEntry{}, store.ErrVersionMismatch
+		}
+	}
+
+	if m.config.MaxSize > 0 && len(m.data) >= m.config.MaxSize && !exists {
+		return store.VersionedEntry{}, servicestore.ErrStoreFull
+	}
+
+	var expiration *time.Time
+	if opts.TTL > 0 {
+		exp := now.Add(opts.TTL)
+		expiration = &exp
+	}
+
+	m.version++
+	version := m.version
+	m.data[keyStr] = &storeEntry{
+		value:      value,
+		expiration: expiration,
+		lastAccess: now,
+		version:    version,
+	}
+	return store.VersionedEntry{
+		Entry:   store.Entry{Key: key, Value: value, TTL: opts.TTL},
+		Version: version,
+	}, nil
 }
 
 // Delete removes a value with the given key
@@ -190,7 +287,12 @@ func (m *Store) Delete(_ context.Context, key registry.ID) error {
 	}
 
 	keyStr := key.String()
-	if _, exists := m.data[keyStr]; !exists {
+	entry, exists := m.data[keyStr]
+	if !exists {
+		return store.ErrKeyNotFound
+	}
+	if entryExpired(entry, time.Now()) {
+		delete(m.data, keyStr)
 		return store.ErrKeyNotFound
 	}
 
@@ -222,6 +324,50 @@ func (m *Store) Has(_ context.Context, key registry.ID) (bool, error) {
 	return true, nil
 }
 
+// List returns a deterministic page of non-expired entries.
+func (m *Store) List(_ context.Context, opts store.ListOptions) (store.Page, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.closed {
+		return store.Page{}, servicestore.ErrStoreClosed
+	}
+
+	now := time.Now()
+	items := make([]store.VersionedEntry, 0, len(m.data))
+	for keyStr, entry := range m.data {
+		if entryExpired(entry, now) {
+			delete(m.data, keyStr)
+			continue
+		}
+		if opts.Prefix != "" && !strings.HasPrefix(keyStr, opts.Prefix) {
+			continue
+		}
+		items = append(items, store.VersionedEntry{
+			Entry:   store.Entry{Key: registry.ParseID(keyStr), Value: entry.value},
+			Version: entry.version,
+		})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Key.String() < items[j].Key.String()
+	})
+	return store.PageFromSorted(items, opts), nil
+}
+
+// StoreInfo reports the memory store's stable capabilities.
+func (m *Store) StoreInfo(_ context.Context) store.Info {
+	return store.Info{
+		ID:             m.id,
+		Backend:        store.BackendMemory,
+		Consistency:    store.ConsistencyLocal,
+		Durable:        false,
+		List:           true,
+		Versioned:      true,
+		ConditionalPut: true,
+		TTL:            true,
+	}
+}
+
 // cleanupLoop periodically checks for and removes expired entries
 func (m *Store) cleanupLoop(ctx context.Context) {
 	defer m.wg.Done()
@@ -245,7 +391,6 @@ func (m *Store) cleanupLoop(ctx context.Context) {
 // cleanup removes expired entries
 func (m *Store) cleanup() {
 	now := time.Now()
-	expired := 0
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -254,16 +399,25 @@ func (m *Store) cleanup() {
 		return
 	}
 
+	expired := m.purgeExpiredLocked(now)
+	if expired > 0 {
+		m.log.Debug("removed expired entries", zap.Int("count", expired))
+	}
+}
+
+func (m *Store) purgeExpiredLocked(now time.Time) int {
+	expired := 0
 	for key, entry := range m.data {
-		if entry.expiration != nil && now.After(*entry.expiration) {
+		if entryExpired(entry, now) {
 			delete(m.data, key)
 			expired++
 		}
 	}
+	return expired
+}
 
-	if expired > 0 {
-		m.log.Debug("removed expired entries", zap.Int("count", expired))
-	}
+func entryExpired(entry *storeEntry, now time.Time) bool {
+	return entry.expiration != nil && now.After(*entry.expiration)
 }
 
 // Acquire implements resource.Provider interface
@@ -317,6 +471,10 @@ func (r *storeResource) Release() {
 // Ensure Store implements all required interfaces
 var (
 	_ store.Store        = (*Store)(nil)
+	_ store.InfoProvider = (*Store)(nil)
+	_ store.EntryReader  = (*Store)(nil)
+	_ store.Lister       = (*Store)(nil)
+	_ store.Putter       = (*Store)(nil)
 	_ resource.Provider  = (*Store)(nil)
 	_ supervisor.Service = (*Store)(nil)
 )
