@@ -23,7 +23,11 @@ Durable workflows, queues, scheduling, caching, vector search, and clustering ar
 
 Each process is sandboxed to the capabilities you grant it, your data stays on infrastructure you own, and every change is versioned and reversible. Applications can also evolve at runtime - updated by your team or an AI agent over MCP - without redeploys.
 
-[![App Template](https://img.shields.io/badge/app%20template-wippyai%2Fapp-FF8C42.svg?style=for-the-badge)](https://github.com/wippyai/app)
+<p align="center">
+    <a href="https://github.com/wippyai/app">
+        <img src="https://img.shields.io/badge/app%20template-wippyai%2Fapp-FF8C42.svg?style=for-the-badge" alt="App Template">
+    </a>
+</p>
 
 ## Features
 
