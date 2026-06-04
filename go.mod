@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: MPL-2.0
-
 module github.com/wippyai/runtime
+
+// SPDX-License-Identifier: MPL-2.0
 
 go 1.26.1
 
