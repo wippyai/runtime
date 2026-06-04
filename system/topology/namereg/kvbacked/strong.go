@@ -379,8 +379,37 @@ func (st *strongState) reconcile(name string) {
 	st.attest(name, epoch, pendingPID, hdr.RequiredNodes)
 
 	if st.isLeader() {
+		// A required node that left the cluster between reservation and promotion
+		// (e.g. it died coincident with a leadership change, so this leader never
+		// received its NodeLeft) would otherwise block completion until the
+		// deadline. Prune it against the live membership so the reservation can
+		// promote on the survivors. dropNodeFromPending re-drives reconcile with
+		// the fresh header, so return after a prune to act on up-to-date state.
+		if st.pruneDepartedRequired(name, hdr) {
+			return
+		}
 		st.leaderDrive(name, epoch, pe.Version, hdr)
 	}
+}
+
+// pruneDepartedRequired drops from name's pending RequiredNodes any node no
+// longer in the live membership (self is always live). Leader-only. Returns true
+// if it dropped one — dropNodeFromPending is atomic, version-guarded, and tail-
+// reconciles, so the caller should stop and let that re-drive continue. A node
+// still present but merely un-acked is NOT pruned (the all-required-ack guarantee
+// for live nodes is preserved).
+func (st *strongState) pruneDepartedRequired(name string, hdr pendingHeader) bool {
+	live := make(map[pid.NodeID]struct{}, len(hdr.RequiredNodes))
+	for _, n := range st.requiredNodes() {
+		live[n] = struct{}{}
+	}
+	for _, n := range hdr.RequiredNodes {
+		if _, ok := live[n]; !ok {
+			st.dropNodeFromPending(name, n)
+			return true
+		}
+	}
+	return false
 }
 
 // attest makes this node ack (and latch an exclusion) or reject the pending,

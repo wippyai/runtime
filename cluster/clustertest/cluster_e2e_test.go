@@ -130,6 +130,53 @@ func TestE2E_DurableRestart(t *testing.T) {
 	waitKV(t, c.Node(0), "durable", "yes", 5*time.Second)
 }
 
+// TestE2E_DurableRestartPreservesEpoch proves the per-key epoch (== raft log
+// index, the dissem LWW dot and strong join fence) survives a kill+restart
+// unchanged AND that post-restart writes continue stamping strictly greater
+// epochs — i.e. the epoch counter never resets to 0 across a snapshot/restore.
+func TestE2E_DurableRestartPreservesEpoch(t *testing.T) {
+	if testing.Short() {
+		t.Skip("real raft durability test")
+	}
+	c := NewCluster(t, 1)
+	if _, err := c.Node(0).KV.Set("ep", []byte("v1")); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	before, err := c.Node(0).KV.Get("ep")
+	if err != nil {
+		t.Fatalf("get before: %v", err)
+	}
+	if before.Epoch == 0 {
+		t.Fatalf("epoch must be the raft index, got 0")
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	c.Kill(0)
+	c.Restart(0)
+	c.WaitLeader(10 * time.Second)
+	waitKV(t, c.Node(0), "ep", "v1", 5*time.Second)
+
+	after, err := c.Node(0).KV.Get("ep")
+	if err != nil {
+		t.Fatalf("get after restart: %v", err)
+	}
+	if after.Epoch != before.Epoch {
+		t.Fatalf("epoch must be preserved across restart: before=%d after=%d", before.Epoch, after.Epoch)
+	}
+
+	// A post-restart write must stamp a strictly greater epoch (no reset to 0).
+	if _, err := c.Node(0).KV.Set("ep2", []byte("v2")); err != nil {
+		t.Fatalf("set after restart: %v", err)
+	}
+	next, err := c.Node(0).KV.Get("ep2")
+	if err != nil {
+		t.Fatalf("get ep2: %v", err)
+	}
+	if next.Epoch <= before.Epoch {
+		t.Fatalf("post-restart epoch must continue monotonically: before=%d next=%d", before.Epoch, next.Epoch)
+	}
+}
+
 // TestE2E_SharedRaftCarriesBoth proves the single raft multiplexes a non-kv
 // (primary) command alongside kv commands across all nodes.
 func TestE2E_SharedRaftCarriesBoth(t *testing.T) {

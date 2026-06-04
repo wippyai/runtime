@@ -148,6 +148,67 @@ func TestCRDTEngine_DurablePersistsOnlyMarkedNamespaces(t *testing.T) {
 	}
 }
 
+// TestCRDTEngine_DurableTombstoneSurvivesRestartNoResurrection proves a deleted
+// durable key stays deleted across a restart (the tombstone is persisted, not
+// dropped to a live value) AND that re-gossiping the restored node's loaded
+// state does not resurrect the key on a peer that still holds it live — the
+// delete (higher per-node counter than the original set) wins everywhere.
+func TestCRDTEngine_DurableTombstoneSurvivesRestartNoResurrection(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	e1 := NewCRDTEngine("n1", eventbus.NewBus(), zap.NewNop())
+	e1.SetDurability(dir, time.Hour)
+	e1.MarkDurable("dur")
+	if err := e1.Start(ctx); err != nil {
+		t.Fatalf("start e1: %v", err)
+	}
+
+	// A peer that learns the key live before it is deleted.
+	peer := newCRDT(t, "n3")
+	peer.MarkDurable("dur")
+
+	if _, err := e1.Set("dur:k", []byte("v")); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	gossip(e1, peer)
+	if got, err := peer.Get("dur:k"); err != nil || string(got.Value) != "v" {
+		t.Fatalf("peer must learn the live key first: %+v err=%v", got, err)
+	}
+
+	if err := e1.Delete("dur:k"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if err := e1.snapshotDurable(); err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	_ = e1.Stop()
+
+	// Restart from disk: the tombstone must be restored, not resurrected as live.
+	e2 := NewCRDTEngine("n1", eventbus.NewBus(), zap.NewNop())
+	e2.SetDurability(dir, time.Hour)
+	e2.MarkDurable("dur")
+	if err := e2.Start(ctx); err != nil {
+		t.Fatalf("restart e2: %v", err)
+	}
+	t.Cleanup(func() { _ = e2.Stop() })
+
+	if _, err := e2.Get("dur:k"); !errors.Is(err, kvapi.ErrKeyNotFound) {
+		t.Fatalf("deleted durable key must stay deleted after restart, got err=%v", err)
+	}
+
+	// Re-gossiping the restored node must carry the tombstone and delete the
+	// peer's still-live copy — no resurrection in either direction.
+	gossip(e2, peer)
+	if _, err := peer.Get("dur:k"); !errors.Is(err, kvapi.ErrKeyNotFound) {
+		t.Fatalf("peer's live copy must be deleted by the restored tombstone, got err=%v", err)
+	}
+	gossip(peer, e2)
+	if _, err := e2.Get("dur:k"); !errors.Is(err, kvapi.ErrKeyNotFound) {
+		t.Fatalf("restored node must not be resurrected by peer gossip, got err=%v", err)
+	}
+}
+
 func TestCRDTEngine_LeaseExpiry(t *testing.T) {
 	e := newCRDT(t, "n1")
 	lease, err := e.GrantLease(context.Background(), 50*time.Millisecond)

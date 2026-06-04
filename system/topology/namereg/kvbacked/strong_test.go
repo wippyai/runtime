@@ -5,6 +5,7 @@ package kvbacked
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -212,6 +213,76 @@ func TestCrossScope_ConsistentCannotDisplaceStrongActive(t *testing.T) {
 	}
 	if res, _ := r.Lookup(context.Background(), "svc"); res.PID.String() != strongPID.String() {
 		t.Fatalf("STRONG owner displaced: %s", res.PID)
+	}
+}
+
+// TestStrong_PromotesOnSurvivorsWhenRequiredNodeDeparts proves the P0 reconcile
+// fix: a pending Strong reservation whose required node leaves the membership
+// (e.g. it died coincident with a leader change, so no NodeLeft pruned it) is
+// pruned on the leader's reconcile/sweep and PROMOTES on the surviving acks,
+// instead of waiting on the departed node's ack until the deadline and expiring.
+// Pre-fix this times out (stays pending until the long deadline); post-fix it
+// promotes within a sweep tick of the membership drop.
+func TestStrong_PromotesOnSurvivorsWhenRequiredNodeDeparts(t *testing.T) {
+	eng := systemkv.NewService("reg", eventbus.NewBus(), nil)
+	if _, err := eng.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
+
+	var mu sync.Mutex
+	members := []pid.NodeID{"node-1", "ghost"}
+	r := NewService(eng, "node-1", nil, nil)
+	r.ConfigureStrong(StrongDeps{
+		Membership: func() []pid.NodeID {
+			mu.Lock()
+			defer mu.Unlock()
+			return append([]pid.NodeID(nil), members...)
+		},
+		IsLeader: func() bool { return true },
+		Deadline: 10 * time.Second, // long: must promote via prune, not via expiry
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := r.StartReconciler(ctx); err != nil {
+		t.Fatalf("start reconciler: %v", err)
+	}
+
+	p := mkPID("node-1", "a")
+	done := make(chan globalapi.RegisterOutcome, 1)
+	errc := make(chan error, 1)
+	go func() {
+		out, err := r.RegisterScope(context.Background(), "svc", p, globalapi.Strong)
+		if err != nil {
+			errc <- err
+			return
+		}
+		done <- out
+	}()
+
+	// node-1 acks itself; "ghost" never will, so the reservation is pending.
+	if !eventually(t, 3*time.Second, func() bool { _, ok := r.IsStrongReserved("svc"); return ok }) {
+		t.Fatalf("pending reservation expected")
+	}
+
+	// "ghost" leaves the membership (gossip drop). The leader must prune it from
+	// RequiredNodes and promote on the surviving ack (node-1).
+	mu.Lock()
+	members = []pid.NodeID{"node-1"}
+	mu.Unlock()
+
+	select {
+	case out := <-done:
+		if out.State != globalapi.RegisterStateActive || out.PID.String() != p.String() {
+			t.Fatalf("want Active on survivors after required node departs, got %+v", out)
+		}
+		if rp, ok := r.IsStrongReserved("svc"); !ok || rp.String() != p.String() {
+			t.Fatalf("promoted name must stay reserved: %v,%v", rp, ok)
+		}
+	case err := <-errc:
+		t.Fatalf("reservation did not promote on survivors; got error %v (pre-fix expires)", err)
+	case <-time.After(5 * time.Second):
+		t.Fatalf("reservation neither promoted nor failed within 5s after the required node departed (pre-fix: stays pending until deadline)")
 	}
 }
 
