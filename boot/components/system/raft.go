@@ -265,11 +265,11 @@ func Raft() boot.Component {
 			// so PIDRegistry can check it for conflicts.
 			ctx = raftapi.WithService(ctx, raftNode)
 
-			// Select the live name-registry backend. Default "fsm" keeps the
+			// Select the live name-registry backend. Default "kv" serves the two
 			// dedicated registry FSM authoritative; "kv" serves the same two
 			// facades from the shared kv keyspace (_sys:registry).
 			useKVRegistry = strings.EqualFold(
-				raftCfg.GetString(ClusterRaftRegistryBackend, registryBackendFSM), registryBackendKV)
+				raftCfg.GetString(ClusterRaftRegistryBackend, registryBackendKV), registryBackendKV)
 
 			var liveReg interface {
 				topology.GlobalRegistry

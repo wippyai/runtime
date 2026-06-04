@@ -74,8 +74,8 @@ const (
 	ClusterRaftLeaderProbeInterval boot.Name = "raft.leader_probe_interval"
 	ClusterRaftLeaderProbeGrace    boot.Name = "raft.leader_probe_grace"
 	// RegistryBackend selects the cluster name-registry implementation:
-	//   "fsm" (default) -> the dedicated global registry raft FSM
-	//   "kv"            -> the registry on the shared kv keyspace (_sys:registry)
+	//   "kv" (default) -> the registry on the shared kv keyspace (_sys:registry)
+	//   "fsm"          -> the dedicated global registry raft FSM (fallback)
 	ClusterRaftRegistryBackend boot.Name = "raft.registry_backend"
 )
 
