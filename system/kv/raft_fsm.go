@@ -130,9 +130,10 @@ func (f *RaftFSM) applyCommand(c command) applyResult {
 		f.emitEvent(kvapi.WatchDelete, nil, prev)
 		return applyResult{OK: true}
 	case opCAS:
+		prev := f.state.get(c.Key)
 		ver, ok := f.state.cas(c.Key, c.Expect, c.Value)
 		if ok {
-			f.emitPut(c.Key, nil)
+			f.emitPut(c.Key, prev)
 		}
 		return applyResult{Version: ver, OK: ok}
 	case opSetIfAbsent:

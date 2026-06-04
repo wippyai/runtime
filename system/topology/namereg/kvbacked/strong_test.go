@@ -185,6 +185,36 @@ func TestCrossScope_ConsistentBlockedByStrongPending(t *testing.T) {
 	}
 }
 
+// TestCrossScope_ConsistentCannotDisplaceStrongActive proves a CONSISTENT
+// register cannot take over a name already held by a STRONG owner, even with a
+// custom resolver that would award the name to the incoming claimant.
+func TestCrossScope_ConsistentCannotDisplaceStrongActive(t *testing.T) {
+	eng := systemkv.NewService("reg", eventbus.NewBus(), nil)
+	if _, err := eng.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
+	// Resolver that always awards the name to the incoming claimant.
+	r := NewService(eng, "node-1", func(_ string, _, incoming pid.PID) pid.PID { return incoming }, nil)
+	r.ConfigureStrong(StrongDeps{
+		Membership: func() []pid.NodeID { return []pid.NodeID{"node-1"} },
+		IsLeader:   func() bool { return true },
+		Deadline:   2 * time.Second,
+	})
+	strongPID := mkPID("node-1", "strong")
+	if out, err := r.RegisterScope(context.Background(), "svc", strongPID, globalapi.Strong); err != nil || out.State != globalapi.RegisterStateActive {
+		t.Fatalf("strong register: out=%+v err=%v", out, err)
+	}
+
+	_, err := r.RegisterScope(context.Background(), "svc", mkPID("node-2", "cons"), globalapi.Consistent)
+	if !errors.Is(err, globalapi.ErrNameAlreadyRegistered) {
+		t.Fatalf("CONSISTENT must not displace STRONG, got %v", err)
+	}
+	if res, _ := r.Lookup(context.Background(), "svc"); res.PID.String() != strongPID.String() {
+		t.Fatalf("STRONG owner displaced: %s", res.PID)
+	}
+}
+
 func eventually(t *testing.T, timeout time.Duration, cond func() bool) bool {
 	t.Helper()
 	deadline := time.Now().Add(timeout)

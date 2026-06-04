@@ -252,9 +252,10 @@ func (s *Service) CompareAndSwap(key string, expect kvapi.Version, value []byte)
 	var ver kvapi.Version
 	var ok bool
 	err := s.submitAndWait(func() error {
+		prev := s.state.get(key)
 		ver, ok = s.state.cas(key, expect, value)
 		if ok {
-			s.emitPut(key, s.state.get(key))
+			s.emitPut(key, prev)
 			s.publishSnapshot()
 		}
 		return nil

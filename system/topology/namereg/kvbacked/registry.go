@@ -260,6 +260,11 @@ func (s *Service) resolveConflict(name string, incoming pid.PID) (globalapi.Regi
 		if existing.String() == incoming.String() {
 			return globalapi.RegisterOutcome{PID: incoming, Epoch: e.Epoch, State: globalapi.RegisterStateActive}, nil
 		}
+		if av.Strong {
+			// Precedence: a CONSISTENT register can never displace a STRONG owner,
+			// regardless of what a custom ResolveFunc returns.
+			return globalapi.RegisterOutcome{ExistingPID: existing}, globalapi.ErrNameAlreadyRegistered
+		}
 		winner := s.resolve(name, existing, incoming)
 		if winner.String() == existing.String() {
 			return globalapi.RegisterOutcome{PID: existing, ExistingPID: existing}, globalapi.ErrNameAlreadyRegistered

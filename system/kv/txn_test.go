@@ -4,11 +4,14 @@ package kv
 
 import (
 	"bytes"
+	"context"
 	"encoding/gob"
 	"io"
 	"testing"
+	"time"
 
 	kvapi "github.com/wippyai/runtime/api/store/kv"
+	"github.com/wippyai/runtime/system/eventbus"
 )
 
 func TestEncodeDecodeTxn(t *testing.T) {
@@ -31,6 +34,50 @@ func TestEncodeDecodeTxn(t *testing.T) {
 			string(g.Value) != string(op.Value) || g.Expect != op.Expect {
 			t.Fatalf("op %d mismatch: %+v != %+v", i, g, op)
 		}
+	}
+}
+
+func TestRaftEngine_CASWatchPrevious(t *testing.T) {
+	// Shared bus so the watcher (engine bus) sees FSM-emitted events, mirroring
+	// production wiring (newEngine uses split buses for non-watch tests).
+	bus := eventbus.NewBus()
+	fsm := NewRaftFSM(bus)
+	eng := NewRaftEngine(&fakeRaft{fsm: fsm, leader: true}, fsm, bus, "node-1", nil, nil)
+	if err := eng.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Stop() })
+	w, err := eng.Watch(context.Background(), "")
+	if err != nil {
+		t.Fatalf("watch: %v", err)
+	}
+	defer func() { _ = w.Close() }()
+
+	readEvt := func() kvapi.WatchEvent {
+		select {
+		case e := <-w.Events():
+			return e
+		case <-time.After(2 * time.Second):
+			t.Fatal("watch event timeout")
+			return kvapi.WatchEvent{}
+		}
+	}
+
+	v1, err := eng.Set("k", []byte("v1"))
+	if err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	readEvt() // the initial put
+
+	if _, ok, err := eng.CompareAndSwap("k", v1, []byte("v2")); err != nil || !ok {
+		t.Fatalf("cas: ok=%v err=%v", ok, err)
+	}
+	ev := readEvt()
+	if ev.Current == nil || string(ev.Current.Value) != "v2" {
+		t.Fatalf("cas Current = %+v, want v2", ev.Current)
+	}
+	if ev.Previous == nil || string(ev.Previous.Value) != "v1" {
+		t.Fatalf("cas Previous = %+v, want v1", ev.Previous)
 	}
 }
 
