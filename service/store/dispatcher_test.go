@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -79,6 +80,28 @@ func (s *mockStore) Has(_ context.Context, key registry.ID) (bool, error) {
 	defer s.mu.RUnlock()
 	_, ok := s.data[key.String()]
 	return ok, nil
+}
+
+func (s *mockStore) Scan(_ context.Context, opts storeapi.ScanOptions, fn func(storeapi.Entry) bool) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	count := 0
+	for key, value := range s.data {
+		if opts.Prefix != "" && !strings.HasPrefix(key, opts.Prefix) {
+			continue
+		}
+		if opts.After != "" && key <= opts.After {
+			continue
+		}
+		if opts.Limit > 0 && count >= opts.Limit {
+			return nil
+		}
+		count++
+		if !fn(storeapi.Entry{Key: registry.ParseID(key), Value: value}) {
+			return nil
+		}
+	}
+	return nil
 }
 
 func TestDispatcher(t *testing.T) {
@@ -221,11 +244,14 @@ func TestRegisterAll(t *testing.T) {
 		handlers[id] = h
 	})
 
-	assert.Len(t, handlers, 4)
+	assert.Len(t, handlers, 7)
 	assert.NotNil(t, handlers[storeapi.Get])
 	assert.NotNil(t, handlers[storeapi.Set])
 	assert.NotNil(t, handlers[storeapi.Delete])
 	assert.NotNil(t, handlers[storeapi.Has])
+	assert.NotNil(t, handlers[storeapi.EntryCommand])
+	assert.NotNil(t, handlers[storeapi.ListCommand])
+	assert.NotNil(t, handlers[storeapi.PutCommand])
 }
 
 func TestDispatcher_Lifecycle(t *testing.T) {
@@ -402,6 +428,72 @@ func TestDispatcher_AllOperations(t *testing.T) {
 		select {
 		case resp := <-done:
 			assert.NoError(t, resp.Error)
+		case <-time.After(time.Second):
+			t.Fatal("timeout")
+		}
+	})
+
+	t.Run("Put", func(t *testing.T) {
+		done := make(chan storeapi.PutResponse, 1)
+		cmd := &storeapi.PutCmd{
+			Store: ms,
+			Key:   registry.NewID("test", "put-key"),
+			Value: payload.New("put-value"),
+		}
+		require.NoError(t, d.handle(ctx, cmd, 5, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
+			done <- data.(storeapi.PutResponse)
+		}}))
+
+		select {
+		case resp := <-done:
+			assert.NoError(t, resp.Error)
+			assert.Equal(t, "test:put-key", resp.Entry.Key.String())
+			assert.Equal(t, "put-value", resp.Entry.Value.Data())
+		case <-time.After(time.Second):
+			t.Fatal("timeout")
+		}
+	})
+
+	t.Run("Entry", func(t *testing.T) {
+		done := make(chan storeapi.EntryResponse, 1)
+		cmd := &storeapi.EntryCmd{
+			Store: ms,
+			Key:   registry.NewID("test", "put-key"),
+		}
+		require.NoError(t, d.handle(ctx, cmd, 6, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
+			done <- data.(storeapi.EntryResponse)
+		}}))
+
+		select {
+		case resp := <-done:
+			assert.NoError(t, resp.Error)
+			assert.Equal(t, "test:put-key", resp.Entry.Key.String())
+			assert.Equal(t, "put-value", resp.Entry.Value.Data())
+		case <-time.After(time.Second):
+			t.Fatal("timeout")
+		}
+	})
+
+	t.Run("List", func(t *testing.T) {
+		require.NoError(t, ms.Set(ctx, storeapi.Entry{Key: registry.NewID("test", "list-b"), Value: payload.New("b")}))
+		require.NoError(t, ms.Set(ctx, storeapi.Entry{Key: registry.NewID("test", "list-a"), Value: payload.New("a")}))
+
+		done := make(chan storeapi.ListResponse, 1)
+		cmd := &storeapi.ListCmd{
+			Store: ms,
+			Opts:  storeapi.ListOptions{Prefix: "test:list-", Limit: 1},
+		}
+		require.NoError(t, d.handle(ctx, cmd, 7, &testReceiver{onComplete: func(_ uint64, data any, _ error) {
+			done <- data.(storeapi.ListResponse)
+		}}))
+
+		select {
+		case resp := <-done:
+			assert.NoError(t, resp.Error)
+			require.Len(t, resp.Page.Items, 1)
+			assert.Equal(t, "test:list-a", resp.Page.Items[0].Key.String())
+			assert.Equal(t, "test:list-a", resp.Page.Cursor)
+			assert.True(t, resp.Page.HasMore)
 		case <-time.After(time.Second):
 			t.Fatal("timeout")
 		}

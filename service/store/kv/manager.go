@@ -11,6 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	kvcfg "github.com/wippyai/runtime/api/service/store/kv"
+	"github.com/wippyai/runtime/api/store"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
 	"github.com/wippyai/runtime/api/supervisor"
 	entryutil "github.com/wippyai/runtime/internal/entry"
@@ -64,7 +65,15 @@ func (m *RaftManager) Add(ctx context.Context, entry registry.Entry) error {
 		return err
 	}
 
-	st := NewStore(entry.ID, cfg.Namespace, m.engine, m.dtt, m.log)
+	st := NewStoreWithInfo(entry.ID, cfg.Namespace, m.engine, m.dtt, m.log, store.Info{
+		Backend:        store.BackendKVRaft,
+		Consistency:    store.ConsistencyLinearizable,
+		Durable:        true,
+		List:           true,
+		Versioned:      true,
+		ConditionalPut: true,
+		TTL:            true,
+	})
 	m.stores[entry.ID] = st
 
 	m.bus.Send(ctx, event.Event{
@@ -100,7 +109,15 @@ func (m *RaftManager) Update(ctx context.Context, entry registry.Entry) error {
 	if err != nil {
 		return err
 	}
-	st := NewStore(entry.ID, cfg.Namespace, m.engine, m.dtt, m.log)
+	st := NewStoreWithInfo(entry.ID, cfg.Namespace, m.engine, m.dtt, m.log, store.Info{
+		Backend:        store.BackendKVRaft,
+		Consistency:    store.ConsistencyLinearizable,
+		Durable:        true,
+		List:           true,
+		Versioned:      true,
+		ConditionalPut: true,
+		TTL:            true,
+	})
 	m.stores[entry.ID] = st
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,

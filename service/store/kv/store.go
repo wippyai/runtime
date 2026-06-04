@@ -5,6 +5,7 @@ package kv
 import (
 	"context"
 	"errors"
+	"sort"
 	"sync"
 
 	"github.com/wippyai/runtime/api/payload"
@@ -21,9 +22,18 @@ var (
 	_ store.Store        = (*Store)(nil)
 	_ store.Scanner      = (*Store)(nil)
 	_ store.Atomic       = (*Store)(nil)
+	_ store.InfoProvider = (*Store)(nil)
+	_ store.EntryReader  = (*Store)(nil)
+	_ store.Lister       = (*Store)(nil)
+	_ store.Putter       = (*Store)(nil)
 	_ resource.Provider  = (*Store)(nil)
 	_ supervisor.Service = (*Store)(nil)
 )
+
+type linearizableEngine interface {
+	GetLinearizable(key string) (kvapi.Entry, error)
+	ScanAtIndex(prefix string, fn func(kvapi.Entry) bool) (uint64, error)
+}
 
 // Store adapts a shared kv engine to api/store.Store, scoped to a namespace.
 // The engine lifecycle is node-level (owned by boot); this wrapper's Start/Stop
@@ -35,21 +45,37 @@ type Store struct {
 	statusChan chan any
 	id         registry.ID
 	namespace  string
+	info       store.Info
 	mu         sync.Mutex
 	closed     bool
 }
 
 // NewStore builds a namespaced store over the shared engine.
 func NewStore(id registry.ID, namespace string, engine kvapi.Engine, dtt payload.Transcoder, log *zap.Logger) *Store {
+	return NewStoreWithInfo(id, namespace, engine, dtt, log, store.Info{
+		Backend:        store.BackendUnknown,
+		Consistency:    store.ConsistencyUnknown,
+		Durable:        false,
+		List:           true,
+		Versioned:      true,
+		ConditionalPut: true,
+		TTL:            true,
+	})
+}
+
+// NewStoreWithInfo builds a namespaced store and advertises stable capabilities.
+func NewStoreWithInfo(id registry.ID, namespace string, engine kvapi.Engine, dtt payload.Transcoder, log *zap.Logger, info store.Info) *Store {
 	if log == nil {
 		log = zap.NewNop()
 	}
+	info.ID = id
 	return &Store{
 		engine:     engine,
 		dtt:        dtt,
 		log:        log.With(zap.String("component", "store.kv"), zap.String("id", id.String())),
 		namespace:  namespace,
 		id:         id,
+		info:       info,
 		statusChan: make(chan any, 1),
 	}
 }
@@ -78,7 +104,17 @@ func mapNotFound(err error) error {
 	if errors.Is(err, kvapi.ErrKeyNotFound) {
 		return store.ErrKeyNotFound
 	}
+	if errors.Is(err, kvapi.ErrUnsupported) {
+		return store.ErrUnsupported
+	}
 	return err
+}
+
+// StoreInfo reports the capabilities configured by the store manager.
+func (s *Store) StoreInfo(_ context.Context) store.Info {
+	info := s.info
+	info.ID = s.id
+	return info
 }
 
 // Get implements store.Store.
@@ -88,6 +124,15 @@ func (s *Store) Get(_ context.Context, key registry.ID) (payload.Payload, error)
 		return nil, mapNotFound(err)
 	}
 	return decodeValue(ent.Value), nil
+}
+
+// Entry implements store.EntryReader.
+func (s *Store) Entry(_ context.Context, key registry.ID) (store.VersionedEntry, error) {
+	ent, err := s.getEngineEntry(key)
+	if err != nil {
+		return store.VersionedEntry{}, mapNotFound(err)
+	}
+	return versionedFromEngine(s.namespace, ent)
 }
 
 // Set implements store.Store. A non-zero TTL binds the key to a fresh lease.
@@ -128,33 +173,42 @@ func (s *Store) Has(_ context.Context, key registry.ID) (bool, error) {
 
 // Scan implements store.Scanner, confined to the store's namespace.
 func (s *Store) Scan(_ context.Context, opts store.ScanOptions, fn func(store.Entry) bool) error {
+	items, err := s.collectEntries(opts.Prefix)
+	if err != nil {
+		return err
+	}
 	count := 0
-	return s.engine.Scan(physicalPrefix(s.namespace, opts.Prefix), func(e kvapi.Entry) bool {
-		key, ok := logicalKey(s.namespace, e.Key)
-		if !ok {
-			return true
-		}
-		if opts.After != "" && key.String() <= opts.After {
-			return true
+	for _, item := range items {
+		if opts.After != "" && item.Key.String() <= opts.After {
+			continue
 		}
 		if opts.Limit > 0 && count >= opts.Limit {
-			return false
+			return nil
 		}
 		count++
-		return fn(store.Entry{Key: key, Value: decodeValue(e.Value)})
-	})
+		if !fn(item.Entry) {
+			return nil
+		}
+	}
+	return nil
+}
+
+// List implements store.Lister.
+func (s *Store) List(_ context.Context, opts store.ListOptions) (store.Page, error) {
+	items, err := s.collectEntries(opts.Prefix)
+	if err != nil {
+		return store.Page{}, err
+	}
+	return store.PageFromSorted(items, opts), nil
 }
 
 // GetVersioned implements store.Atomic.
 func (s *Store) GetVersioned(_ context.Context, key registry.ID) (store.VersionedEntry, error) {
-	ent, err := s.engine.Get(physicalKey(s.namespace, key))
+	ent, err := s.getEngineEntry(key)
 	if err != nil {
 		return store.VersionedEntry{}, mapNotFound(err)
 	}
-	return store.VersionedEntry{
-		Entry:   store.Entry{Key: key, Value: decodeValue(ent.Value)},
-		Version: store.Version(ent.Version),
-	}, nil
+	return versionedFromEngine(s.namespace, ent)
 }
 
 // CompareAndSwap implements store.Atomic.
@@ -184,6 +238,143 @@ func (s *Store) SetIfAbsent(ctx context.Context, entry store.Entry) (bool, error
 	}
 	_, ok, err := s.engine.SetIfAbsent(phys, b)
 	return ok, err
+}
+
+// Put implements store.Putter.
+func (s *Store) Put(ctx context.Context, key registry.ID, value payload.Payload, opts store.PutOptions) (store.VersionedEntry, error) {
+	if opts.OnlyIfAbsent && opts.HasVersion {
+		return store.VersionedEntry{}, store.ErrInvalidOptions
+	}
+	if opts.HasVersion && opts.Version == 0 {
+		return store.VersionedEntry{}, store.ErrInvalidOptions
+	}
+	if opts.TTL < 0 {
+		return store.VersionedEntry{}, store.ErrInvalidOptions
+	}
+	if opts.HasVersion && opts.TTL > 0 {
+		return store.VersionedEntry{}, store.ErrInvalidOptions
+	}
+	if (opts.OnlyIfAbsent || opts.HasVersion) && !s.info.ConditionalPut {
+		return store.VersionedEntry{}, store.ErrUnsupported
+	}
+
+	b, err := encodeValue(s.dtt, value)
+	if err != nil {
+		return store.VersionedEntry{}, err
+	}
+	phys := physicalKey(s.namespace, key)
+
+	var version kvapi.Version
+	if opts.OnlyIfAbsent {
+		if opts.TTL > 0 {
+			lease, err := s.engine.GrantLease(ctx, opts.TTL)
+			if err != nil {
+				return store.VersionedEntry{}, mapNotFound(err)
+			}
+			var ok bool
+			version, ok, err = s.engine.SetIfAbsentWithLease(phys, b, lease.ID())
+			if err != nil {
+				return store.VersionedEntry{}, mapNotFound(err)
+			}
+			if !ok {
+				_ = lease.Revoke(ctx)
+				return store.VersionedEntry{}, store.ErrKeyExists
+			}
+		} else {
+			var ok bool
+			version, ok, err = s.engine.SetIfAbsent(phys, b)
+			if err != nil {
+				return store.VersionedEntry{}, mapNotFound(err)
+			}
+			if !ok {
+				return store.VersionedEntry{}, store.ErrKeyExists
+			}
+		}
+	} else if opts.HasVersion {
+		var ok bool
+		version, ok, err = s.engine.CompareAndSwap(phys, kvapi.Version(opts.Version), b)
+		if err != nil {
+			return store.VersionedEntry{}, mapNotFound(err)
+		}
+		if !ok {
+			if version == 0 {
+				return store.VersionedEntry{}, store.ErrKeyNotFound
+			}
+			return store.VersionedEntry{}, store.ErrVersionMismatch
+		}
+	} else if opts.TTL > 0 {
+		lease, err := s.engine.GrantLease(ctx, opts.TTL)
+		if err != nil {
+			return store.VersionedEntry{}, mapNotFound(err)
+		}
+		version, err = s.engine.SetWithLease(phys, b, lease.ID())
+		if err != nil {
+			_ = lease.Revoke(ctx)
+			return store.VersionedEntry{}, mapNotFound(err)
+		}
+	} else {
+		version, err = s.engine.Set(phys, b)
+		if err != nil {
+			return store.VersionedEntry{}, mapNotFound(err)
+		}
+	}
+
+	return store.VersionedEntry{
+		Entry:   store.Entry{Key: key, Value: value, TTL: opts.TTL},
+		Version: store.Version(version),
+	}, nil
+}
+
+func (s *Store) getEngineEntry(key registry.ID) (kvapi.Entry, error) {
+	phys := physicalKey(s.namespace, key)
+	if s.info.Consistency == store.ConsistencyLinearizable {
+		if engine, ok := s.engine.(linearizableEngine); ok {
+			return engine.GetLinearizable(phys)
+		}
+	}
+	return s.engine.Get(phys)
+}
+
+func (s *Store) collectEntries(prefix string) ([]store.VersionedEntry, error) {
+	items := make([]store.VersionedEntry, 0)
+	scan := func(e kvapi.Entry) bool {
+		item, err := versionedFromEngine(s.namespace, e)
+		if err != nil {
+			return true
+		}
+		items = append(items, item)
+		return true
+	}
+
+	var err error
+	physPrefix := physicalPrefix(s.namespace, prefix)
+	if s.info.Consistency == store.ConsistencyLinearizable {
+		if engine, ok := s.engine.(linearizableEngine); ok {
+			_, err = engine.ScanAtIndex(physPrefix, scan)
+		} else {
+			err = s.engine.Scan(physPrefix, scan)
+		}
+	} else {
+		err = s.engine.Scan(physPrefix, scan)
+	}
+	if err != nil {
+		return nil, mapNotFound(err)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Key.String() < items[j].Key.String()
+	})
+	return items, nil
+}
+
+func versionedFromEngine(namespace string, ent kvapi.Entry) (store.VersionedEntry, error) {
+	key, ok := logicalKey(namespace, ent.Key)
+	if !ok {
+		return store.VersionedEntry{}, store.ErrInvalidKey
+	}
+	return store.VersionedEntry{
+		Entry:   store.Entry{Key: key, Value: decodeValue(ent.Value)},
+		Version: store.Version(ent.Version),
+	}, nil
 }
 
 // Acquire implements resource.Provider.

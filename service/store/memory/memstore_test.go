@@ -149,6 +149,62 @@ func TestMemoryStore_Set(t *testing.T) {
 	assert.Equal(t, servicestore.ErrStoreClosed, err)
 }
 
+func TestMemoryStore_InfoEntryListPut(t *testing.T) {
+	ms := createTestStore(t)
+	ctx := ctxapi.NewRootContext()
+
+	info := ms.StoreInfo(ctx)
+	assert.Equal(t, registry.NewID("test", "store"), info.ID)
+	assert.Equal(t, store.BackendMemory, info.Backend)
+	assert.Equal(t, store.ConsistencyLocal, info.Consistency)
+	assert.False(t, info.Durable)
+	assert.True(t, info.List)
+	assert.True(t, info.Versioned)
+	assert.True(t, info.ConditionalPut)
+	assert.True(t, info.TTL)
+
+	first, err := ms.Put(ctx, registry.ParseID("test:item-b"), payload.New("b"), store.PutOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "test:item-b", first.Key.String())
+	assert.NotZero(t, first.Version)
+
+	_, err = ms.Put(ctx, registry.ParseID("test:bad-ttl"), payload.New("bad"), store.PutOptions{TTL: -time.Second})
+	assert.ErrorIs(t, err, store.ErrInvalidOptions)
+
+	_, err = ms.Put(ctx, registry.ParseID("test:item-b"), payload.New("dupe"), store.PutOptions{OnlyIfAbsent: true})
+	assert.ErrorIs(t, err, store.ErrKeyExists)
+
+	_, err = ms.Put(ctx, registry.ParseID("test:item-b"), payload.New("bad"), store.PutOptions{HasVersion: true, Version: first.Version + 100})
+	assert.ErrorIs(t, err, store.ErrVersionMismatch)
+
+	second, err := ms.Put(ctx, registry.ParseID("test:item-b"), payload.New("updated"), store.PutOptions{HasVersion: true, Version: first.Version})
+	require.NoError(t, err)
+	assert.Greater(t, second.Version, first.Version)
+
+	entry, err := ms.Entry(ctx, registry.ParseID("test:item-b"))
+	require.NoError(t, err)
+	assert.Equal(t, second.Version, entry.Version)
+	assert.Equal(t, "updated", entry.Value.Data())
+
+	_, err = ms.Put(ctx, registry.ParseID("test:item-a"), payload.New("a"), store.PutOptions{})
+	require.NoError(t, err)
+	_, err = ms.Put(ctx, registry.ParseID("other:item"), payload.New("other"), store.PutOptions{})
+	require.NoError(t, err)
+
+	page, err := ms.List(ctx, store.ListOptions{Prefix: "test:item-", Limit: 1})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, "test:item-a", page.Items[0].Key.String())
+	assert.Equal(t, "test:item-a", page.Cursor)
+	assert.True(t, page.HasMore)
+
+	next, err := ms.List(ctx, store.ListOptions{Prefix: "test:item-", After: page.Cursor, Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, next.Items, 1)
+	assert.Equal(t, "test:item-b", next.Items[0].Key.String())
+	assert.False(t, next.HasMore)
+}
+
 // TestMemoryStore_Delete tests the Delete functionality
 func TestMemoryStore_Delete(t *testing.T) {
 	ms := createTestStore(t)
@@ -625,6 +681,26 @@ func TestMemoryStore_CapacityBoundary(t *testing.T) {
 
 	err = ms.Set(ctx, createTestEntry("test:key10", 10))
 	require.NoError(t, err)
+}
+
+func TestMemoryStore_SetPurgesExpiredBeforeCapacity(t *testing.T) {
+	logger := zap.NewNop()
+	config := &memcfg.Config{MaxSize: 1}
+	ms := memorystore.NewStore(registry.NewID("test", "capacity-ttl"), config, logger)
+	ctx := ctxapi.NewRootContext()
+
+	err := ms.Set(ctx, createTestEntryWithTTL("test:expired", "old", 20*time.Millisecond))
+	require.NoError(t, err)
+	time.Sleep(40 * time.Millisecond)
+
+	err = ms.Set(ctx, createTestEntry("test:fresh", "new"))
+	require.NoError(t, err)
+
+	_, err = ms.Get(ctx, registry.ParseID("test:expired"))
+	assert.ErrorIs(t, err, store.ErrKeyNotFound)
+	got, err := ms.Get(ctx, registry.ParseID("test:fresh"))
+	require.NoError(t, err)
+	assert.Equal(t, "new", got.Data())
 }
 
 // TestMemoryStore_CleanupBehavior tests the cleanup routine's behavior

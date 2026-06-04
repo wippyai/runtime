@@ -4,6 +4,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -25,6 +26,9 @@ func TestErrors(t *testing.T) {
 		{"key not found", ErrKeyNotFound, "key not found"},
 		{"key exists", ErrKeyExists, "key already exists"},
 		{"invalid key", ErrInvalidKey, "invalid key format"},
+		{"invalid options", ErrInvalidOptions, "invalid store options"},
+		{"unsupported", ErrUnsupported, "operation not supported by this store"},
+		{"version mismatch", ErrVersionMismatch, "version mismatch"},
 	}
 
 	for _, tt := range tests {
@@ -50,6 +54,21 @@ func TestError_Interface(t *testing.T) {
 	t.Run("ErrInvalidKey", func(t *testing.T) {
 		assert.Equal(t, apierror.Invalid, ErrInvalidKey.Kind())
 		assert.Equal(t, apierror.False, ErrInvalidKey.Retryable())
+	})
+
+	t.Run("ErrInvalidOptions", func(t *testing.T) {
+		assert.Equal(t, apierror.Invalid, ErrInvalidOptions.Kind())
+		assert.Equal(t, apierror.False, ErrInvalidOptions.Retryable())
+	})
+
+	t.Run("ErrUnsupported", func(t *testing.T) {
+		assert.Equal(t, apierror.Invalid, ErrUnsupported.Kind())
+		assert.Equal(t, apierror.False, ErrUnsupported.Retryable())
+	})
+
+	t.Run("ErrVersionMismatch", func(t *testing.T) {
+		assert.Equal(t, apierror.Conflict, ErrVersionMismatch.Kind())
+		assert.Equal(t, apierror.True, ErrVersionMismatch.Retryable())
 	})
 }
 
@@ -105,6 +124,49 @@ func TestCommandPools(t *testing.T) {
 		assert.NotNil(t, cmd2)
 		assert.Equal(t, registry.ID{}, cmd2.Key)
 	})
+
+	t.Run("EntryCmd pool", func(t *testing.T) {
+		cmd := AcquireEntryCmd()
+		assert.NotNil(t, cmd)
+		assert.Equal(t, EntryCommand, cmd.CmdID())
+
+		cmd.Key = registry.NewID("test", "key")
+		cmd.Release()
+
+		cmd2 := AcquireEntryCmd()
+		assert.NotNil(t, cmd2)
+		assert.Equal(t, registry.ID{}, cmd2.Key)
+	})
+
+	t.Run("ListCmd pool", func(t *testing.T) {
+		cmd := AcquireListCmd()
+		assert.NotNil(t, cmd)
+		assert.Equal(t, ListCommand, cmd.CmdID())
+
+		cmd.Opts = ListOptions{Prefix: "test:"}
+		cmd.Release()
+
+		cmd2 := AcquireListCmd()
+		assert.NotNil(t, cmd2)
+		assert.Equal(t, ListOptions{}, cmd2.Opts)
+	})
+
+	t.Run("PutCmd pool", func(t *testing.T) {
+		cmd := AcquirePutCmd()
+		assert.NotNil(t, cmd)
+		assert.Equal(t, PutCommand, cmd.CmdID())
+
+		cmd.Key = registry.NewID("test", "key")
+		cmd.Value = payload.New("value")
+		cmd.Opts = PutOptions{OnlyIfAbsent: true}
+		cmd.Release()
+
+		cmd2 := AcquirePutCmd()
+		assert.NotNil(t, cmd2)
+		assert.Equal(t, registry.ID{}, cmd2.Key)
+		assert.Nil(t, cmd2.Value)
+		assert.Equal(t, PutOptions{}, cmd2.Opts)
+	})
 }
 
 func TestResponseTypes(t *testing.T) {
@@ -142,6 +204,77 @@ func TestResponseTypes(t *testing.T) {
 		resp2 := HasResponse{Exists: false, Error: nil}
 		assert.False(t, resp2.Exists)
 	})
+
+	t.Run("EntryResponse", func(t *testing.T) {
+		resp := EntryResponse{Entry: VersionedEntry{Version: 1}, Error: nil}
+		assert.Equal(t, Version(1), resp.Entry.Version)
+		assert.NoError(t, resp.Error)
+	})
+
+	t.Run("ListResponse", func(t *testing.T) {
+		resp := ListResponse{Page: Page{HasMore: true}, Error: nil}
+		assert.True(t, resp.Page.HasMore)
+		assert.NoError(t, resp.Error)
+	})
+
+	t.Run("PutResponse", func(t *testing.T) {
+		resp := PutResponse{Entry: VersionedEntry{Version: 2}, Error: nil}
+		assert.Equal(t, Version(2), resp.Entry.Version)
+		assert.NoError(t, resp.Error)
+	})
+}
+
+func TestNormalizeListOptionsAndPageFromSorted(t *testing.T) {
+	items := []VersionedEntry{
+		{Entry: Entry{Key: registry.ParseID("test:a")}, Version: 1},
+		{Entry: Entry{Key: registry.ParseID("test:b")}, Version: 2},
+		{Entry: Entry{Key: registry.ParseID("test:c")}, Version: 3},
+	}
+
+	assert.Equal(t, DefaultListLimit, NormalizeListOptions(ListOptions{}).Limit)
+	assert.Equal(t, MaxListLimit, NormalizeListOptions(ListOptions{Limit: MaxListLimit + 1}).Limit)
+
+	page := PageFromSorted(items, ListOptions{After: "test:a", Limit: 1})
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, "test:b", page.Items[0].Key.String())
+	assert.Equal(t, "test:b", page.Cursor)
+	assert.True(t, page.HasMore)
+}
+
+func TestPutEntryValidation(t *testing.T) {
+	s := &validationStore{}
+	key := registry.ParseID("test:key")
+
+	_, err := PutEntry(context.Background(), s, key, payload.New("value"), PutOptions{TTL: -time.Second})
+	assert.ErrorIs(t, err, ErrInvalidOptions)
+	assert.False(t, s.setCalled)
+
+	_, err = PutEntry(context.Background(), s, key, payload.New("value"), PutOptions{OnlyIfAbsent: true, HasVersion: true, Version: 1})
+	assert.ErrorIs(t, err, ErrInvalidOptions)
+
+	_, err = PutEntry(context.Background(), s, key, payload.New("value"), PutOptions{HasVersion: true})
+	assert.ErrorIs(t, err, ErrInvalidOptions)
+}
+
+type validationStore struct {
+	setCalled bool
+}
+
+func (s *validationStore) Get(context.Context, registry.ID) (payload.Payload, error) {
+	return nil, ErrKeyNotFound
+}
+
+func (s *validationStore) Set(_ context.Context, _ Entry) error {
+	s.setCalled = true
+	return nil
+}
+
+func (s *validationStore) Delete(context.Context, registry.ID) error {
+	return nil
+}
+
+func (s *validationStore) Has(context.Context, registry.ID) (bool, error) {
+	return false, nil
 }
 
 func TestEntry_Marshal(t *testing.T) {

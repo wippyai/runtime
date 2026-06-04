@@ -85,3 +85,35 @@ func TestDissem_ReconcilerBroadcastsOnRegister(t *testing.T) {
 		t.Fatalf("reconciler must broadcast the active binding into dissem")
 	}
 }
+
+// TestDissem_ReconcilerSeedsExistingActive proves a restarted registry service
+// primes the dissem cache from the current kv snapshot before watching future
+// changes. Without this, non-member/client lookups can miss stable names until
+// another write happens.
+func TestDissem_ReconcilerSeedsExistingActive(t *testing.T) {
+	eng := systemkv.NewService("A", eventbus.NewBus(), nil)
+	if _, err := eng.Start(context.Background()); err != nil {
+		t.Fatalf("engine start: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Stop(context.Background()) })
+
+	p := mkPID("A", "1")
+	writer := NewService(eng, "A", nil, nil)
+	if _, err := writer.RegisterScope(context.Background(), "svc", p, globalapi.Consistent); err != nil {
+		t.Fatalf("seed register: %v", err)
+	}
+
+	dissem := global.NewDissem("A", zap.NewNop())
+	restarted := NewService(eng, "A", nil, nil)
+	restarted.ConfigureDissem(dissem)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := restarted.StartReconciler(ctx); err != nil {
+		t.Fatalf("start reconciler: %v", err)
+	}
+
+	got, ok := dissem.Lookup("svc")
+	if !ok || got.String() != p.String() {
+		t.Fatalf("reconciler seed must prime dissem cache: got=%s ok=%v", got, ok)
+	}
+}

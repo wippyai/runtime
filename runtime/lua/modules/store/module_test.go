@@ -60,6 +60,18 @@ func (s *memoryStore) Has(_ context.Context, key registry.ID) (bool, error) {
 	return ok, nil
 }
 
+func (s *memoryStore) StoreInfo(_ context.Context) store.Info {
+	return store.Info{
+		Backend:        store.BackendMemory,
+		Consistency:    store.ConsistencyLocal,
+		Durable:        false,
+		List:           true,
+		Versioned:      false,
+		ConditionalPut: false,
+		TTL:            true,
+	}
+}
+
 // mockResource wraps a store for resource acquisition
 type mockResource struct {
 	store    store.Store
@@ -171,6 +183,40 @@ func TestModuleLoads(t *testing.T) {
 	modTbl := mod.(*lua.LTable)
 	if modTbl.RawGetString("get").Type() != lua.LTFunction {
 		t.Error("get function not registered")
+	}
+}
+
+func TestModuleConstants(t *testing.T) {
+	l := setupState()
+	defer l.Close()
+
+	mod := l.GetGlobal("store").(*lua.LTable)
+	backend := mod.RawGetString("backend").(*lua.LTable)
+	consistency := mod.RawGetString("consistency").(*lua.LTable)
+
+	if backend.RawGetString("KV_RAFT") != lua.LString("kv.raft") {
+		t.Error("backend.KV_RAFT constant mismatch")
+	}
+	if backend.RawGetString("KV_CRDT") != lua.LString("kv.crdt") {
+		t.Error("backend.KV_CRDT constant mismatch")
+	}
+	if backend.RawGetString("MEMORY") != lua.LString("memory") {
+		t.Error("backend.MEMORY constant mismatch")
+	}
+	if backend.RawGetString("SQL") != lua.LString("sql") {
+		t.Error("backend.SQL constant mismatch")
+	}
+	if consistency.RawGetString("LINEARIZABLE") != lua.LString("linearizable") {
+		t.Error("consistency.LINEARIZABLE constant mismatch")
+	}
+	if consistency.RawGetString("EVENTUAL") != lua.LString("eventual") {
+		t.Error("consistency.EVENTUAL constant mismatch")
+	}
+	if consistency.RawGetString("LOCAL") != lua.LString("local") {
+		t.Error("consistency.LOCAL constant mismatch")
+	}
+	if !backend.Immutable || !consistency.Immutable {
+		t.Error("constant tables should be immutable")
 	}
 }
 
@@ -350,6 +396,34 @@ func TestStoreRelease(t *testing.T) {
 	}
 }
 
+func TestStoreInfo(t *testing.T) {
+	reg := newMockRegistry()
+	mem := newMemoryStore()
+	reg.Register("test:mystore", mem)
+
+	l := setupStateWithContext(reg)
+	defer l.Close()
+
+	err := l.DoString(`
+		local s, err = store.get("test:mystore")
+		if err then error("unexpected get error: " .. tostring(err)) end
+
+		local info, info_err = s:info()
+		if info_err then error("unexpected info error: " .. tostring(info_err)) end
+		if info.id ~= "test:mystore" then error("id mismatch: " .. tostring(info.id)) end
+		if info.backend ~= store.backend.MEMORY then error("backend mismatch") end
+		if info.consistency ~= store.consistency.LOCAL then error("consistency mismatch") end
+		if info.durable ~= false then error("durable mismatch") end
+		if info.list ~= true then error("list mismatch") end
+		if info.versioned ~= false then error("versioned mismatch") end
+		if info.conditional_put ~= false then error("conditional_put mismatch") end
+		if info.ttl ~= true then error("ttl mismatch") end
+	`)
+	if err != nil {
+		t.Errorf("test failed: %v", err)
+	}
+}
+
 func TestStoreReleaseIdempotent(t *testing.T) {
 	reg := newMockRegistry()
 	mem := newMemoryStore()
@@ -418,6 +492,10 @@ func TestStoreMethodsExist(t *testing.T) {
 
 		-- Verify all methods exist
 		if type(s.get) ~= "function" then error("s:get should be a method") end
+		if type(s.info) ~= "function" then error("s:info should be a method") end
+		if type(s.entry) ~= "function" then error("s:entry should be a method") end
+		if type(s.list) ~= "function" then error("s:list should be a method") end
+		if type(s.put) ~= "function" then error("s:put should be a method") end
 		if type(s.set) ~= "function" then error("s:set should be a method") end
 		if type(s.has) ~= "function" then error("s:has should be a method") end
 		if type(s.delete) ~= "function" then error("s:delete should be a method") end
@@ -427,5 +505,166 @@ func TestStoreMethodsExist(t *testing.T) {
 	`)
 	if err != nil {
 		t.Errorf("test failed: %v", err)
+	}
+}
+
+func TestRichYieldHandleResults(t *testing.T) {
+	l := setupState()
+	defer l.Close()
+
+	entry := store.VersionedEntry{
+		Entry:   store.Entry{Key: registry.ParseID("test:key"), Value: payload.NewPayload(lua.LString("value"), payload.Lua)},
+		Version: 42,
+	}
+
+	entryVals := (&EntryYield{}).HandleResult(l, store.EntryResponse{Entry: entry}, nil)
+	if len(entryVals) != 2 || entryVals[1] != lua.LNil {
+		t.Fatalf("entry yield returned unexpected values: %#v", entryVals)
+	}
+	entryTable, ok := entryVals[0].(*lua.LTable)
+	if !ok {
+		t.Fatalf("entry yield value = %T, want table", entryVals[0])
+	}
+	if entryTable.RawGetString("key") != lua.LString("test:key") {
+		t.Error("entry key mismatch")
+	}
+	if entryTable.RawGetString("value") != lua.LString("value") {
+		t.Error("entry value mismatch")
+	}
+	if entryTable.RawGetString("version") != lua.LString("42") {
+		t.Error("entry version mismatch")
+	}
+
+	pageVals := (&ListYield{}).HandleResult(l, store.ListResponse{Page: store.Page{
+		Items:   []store.VersionedEntry{entry},
+		Cursor:  "test:key",
+		HasMore: true,
+	}}, nil)
+	if len(pageVals) != 2 || pageVals[1] != lua.LNil {
+		t.Fatalf("list yield returned unexpected values: %#v", pageVals)
+	}
+	pageTable := pageVals[0].(*lua.LTable)
+	items := pageTable.RawGetString("items").(*lua.LTable)
+	if items.Len() != 1 {
+		t.Fatalf("items length = %d, want 1", items.Len())
+	}
+	if pageTable.RawGetString("cursor") != lua.LString("test:key") {
+		t.Error("cursor mismatch")
+	}
+	if pageTable.RawGetString("has_more") != lua.LTrue {
+		t.Error("has_more mismatch")
+	}
+
+	putVals := (&PutYield{}).HandleResult(l, store.PutResponse{Entry: entry}, nil)
+	if len(putVals) != 2 || putVals[1] != lua.LNil {
+		t.Fatalf("put yield returned unexpected values: %#v", putVals)
+	}
+}
+
+func TestParseRichOptions(t *testing.T) {
+	l := setupState()
+	defer l.Close()
+
+	t.Run("list limit", func(t *testing.T) {
+		tbl := l.NewTable()
+		tbl.RawSetString("limit", lua.LInteger(50))
+		l.Push(tbl)
+		opts, msg := parseListOptions(l, 1)
+		l.Pop(1)
+		if msg != "" || opts.Limit != 50 {
+			t.Fatalf("parseListOptions = limit %d msg %q, want 50 and no error", opts.Limit, msg)
+		}
+
+		tbl = l.NewTable()
+		tbl.RawSetString("limit", lua.LNumber(2.5))
+		l.Push(tbl)
+		_, msg = parseListOptions(l, 1)
+		l.Pop(1)
+		if msg == "" {
+			t.Fatal("fractional list limit should fail")
+		}
+	})
+
+	t.Run("if_version", func(t *testing.T) {
+		parse := func(v lua.LValue) (store.PutOptions, string) {
+			tbl := l.NewTable()
+			tbl.RawSetString("if_version", v)
+			l.Push(tbl)
+			opts, msg := parsePutOptions(l, 1)
+			l.Pop(1)
+			return opts, msg
+		}
+
+		opts, msg := parse(lua.LString("18446744073709551615"))
+		if msg != "" || !opts.HasVersion || opts.Version != store.Version(^uint64(0)) {
+			t.Fatalf("string if_version = %#v msg %q, want max uint64", opts, msg)
+		}
+
+		opts, msg = parse(lua.LInteger(42))
+		if msg != "" || !opts.HasVersion || opts.Version != 42 {
+			t.Fatalf("integer if_version = %#v msg %q, want 42", opts, msg)
+		}
+
+		if _, msg = parse(lua.LNumber(9007199254740993)); msg == "" {
+			t.Fatal("unsafe numeric if_version should fail")
+		}
+		if _, msg = parse(lua.LString("0")); msg == "" {
+			t.Fatal("zero if_version should fail")
+		}
+	})
+}
+
+func TestRichYieldErrorKinds(t *testing.T) {
+	l := setupState()
+	defer l.Close()
+
+	tests := []struct {
+		name  string
+		resp  any
+		yield interface {
+			HandleResult(*lua.LState, any, error) []lua.LValue
+		}
+		kind lua.Kind
+	}{
+		{
+			name:  "entry not found",
+			resp:  store.EntryResponse{Error: store.ErrKeyNotFound},
+			yield: &EntryYield{},
+			kind:  lua.NotFound,
+		},
+		{
+			name:  "put already exists",
+			resp:  store.PutResponse{Error: store.ErrKeyExists},
+			yield: &PutYield{},
+			kind:  lua.AlreadyExists,
+		},
+		{
+			name:  "put conflict",
+			resp:  store.PutResponse{Error: store.ErrVersionMismatch},
+			yield: &PutYield{},
+			kind:  lua.Conflict,
+		},
+		{
+			name:  "list unsupported",
+			resp:  store.ListResponse{Error: store.ErrUnsupported},
+			yield: &ListYield{},
+			kind:  lua.Invalid,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vals := tt.yield.HandleResult(l, tt.resp, nil)
+			if vals[0] != lua.LNil {
+				t.Fatalf("first value = %v, want nil", vals[0])
+			}
+			luaErr, ok := vals[1].(*lua.Error)
+			if !ok {
+				t.Fatalf("second value = %T, want *lua.Error", vals[1])
+			}
+			if luaErr.Kind() != tt.kind {
+				t.Fatalf("kind = %s, want %s", luaErr.Kind(), tt.kind)
+			}
+		})
 	}
 }

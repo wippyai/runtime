@@ -11,6 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	kvcfg "github.com/wippyai/runtime/api/service/store/kv"
+	"github.com/wippyai/runtime/api/store"
 	"github.com/wippyai/runtime/api/supervisor"
 	entryutil "github.com/wippyai/runtime/internal/entry"
 	storesvc "github.com/wippyai/runtime/service/store"
@@ -68,7 +69,15 @@ func (m *CRDTManager) Add(ctx context.Context, entry registry.Entry) error {
 		m.engine.MarkDurable(cfg.Namespace)
 	}
 
-	st := NewStore(entry.ID, cfg.Namespace, m.engine, m.dtt, m.log)
+	st := NewStoreWithInfo(entry.ID, cfg.Namespace, m.engine, m.dtt, m.log, store.Info{
+		Backend:        store.BackendKVCRDT,
+		Consistency:    store.ConsistencyEventual,
+		Durable:        cfg.Durable,
+		List:           true,
+		Versioned:      true,
+		ConditionalPut: false,
+		TTL:            true,
+	})
 	m.stores[entry.ID] = st
 
 	m.bus.Send(ctx, event.Event{
@@ -108,7 +117,15 @@ func (m *CRDTManager) Update(ctx context.Context, entry registry.Entry) error {
 	if cfg.Durable {
 		m.engine.MarkDurable(cfg.Namespace)
 	}
-	st := NewStore(entry.ID, cfg.Namespace, m.engine, m.dtt, m.log)
+	st := NewStoreWithInfo(entry.ID, cfg.Namespace, m.engine, m.dtt, m.log, store.Info{
+		Backend:        store.BackendKVCRDT,
+		Consistency:    store.ConsistencyEventual,
+		Durable:        cfg.Durable,
+		List:           true,
+		Versioned:      true,
+		ConditionalPut: false,
+		TTL:            true,
+	})
 	m.stores[entry.ID] = st
 	m.bus.Send(ctx, event.Event{
 		System: supervisor.System,

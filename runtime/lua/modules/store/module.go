@@ -7,6 +7,7 @@ import (
 
 	lua "github.com/wippyai/go-lua"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	storeapi "github.com/wippyai/runtime/api/store"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 )
 
@@ -18,8 +19,26 @@ var (
 )
 
 func initModuleTable() {
-	mod := lua.CreateTable(0, 1)
+	mod := lua.CreateTable(0, 3)
 	mod.RawSetString("get", lua.LGoFunc(storeGet))
+
+	backend := lua.CreateTable(0, 5)
+	backend.RawSetString("KV_RAFT", lua.LString(storeapi.BackendKVRaft))
+	backend.RawSetString("KV_CRDT", lua.LString(storeapi.BackendKVCRDT))
+	backend.RawSetString("MEMORY", lua.LString(storeapi.BackendMemory))
+	backend.RawSetString("SQL", lua.LString(storeapi.BackendSQL))
+	backend.RawSetString("UNKNOWN", lua.LString(storeapi.BackendUnknown))
+	backend.Immutable = true
+	mod.RawSetString("backend", backend)
+
+	consistency := lua.CreateTable(0, 4)
+	consistency.RawSetString("LINEARIZABLE", lua.LString(storeapi.ConsistencyLinearizable))
+	consistency.RawSetString("EVENTUAL", lua.LString(storeapi.ConsistencyEventual))
+	consistency.RawSetString("LOCAL", lua.LString(storeapi.ConsistencyLocal))
+	consistency.RawSetString("UNKNOWN", lua.LString(storeapi.ConsistencyUnknown))
+	consistency.Immutable = true
+	mod.RawSetString("consistency", consistency)
+
 	mod.Immutable = true
 	moduleTable = mod
 }
@@ -37,7 +56,15 @@ var Module = &luaapi.ModuleDef{
 	Class:       []string{luaapi.ClassStorage, luaapi.ClassIO, luaapi.ClassNondeterministic},
 	Build: func() (*lua.LTable, []luaapi.YieldType) {
 		initOnce.Do(initModuleTable)
-		return moduleTable, nil
+		return moduleTable, []luaapi.YieldType{
+			{Sample: &GetYield{}, CmdID: storeapi.Get},
+			{Sample: &SetYield{}, CmdID: storeapi.Set},
+			{Sample: &DeleteYield{}, CmdID: storeapi.Delete},
+			{Sample: &HasYield{}, CmdID: storeapi.Has},
+			{Sample: &EntryYield{}, CmdID: storeapi.EntryCommand},
+			{Sample: &ListYield{}, CmdID: storeapi.ListCommand},
+			{Sample: &PutYield{}, CmdID: storeapi.PutCommand},
+		}
 	},
 	Types: ModuleTypes,
 }
