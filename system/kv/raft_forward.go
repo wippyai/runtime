@@ -41,6 +41,13 @@ type readResult struct {
 // on a node that just lost leadership.
 const maxForwardRetries = 3
 
+// maxForwardHops bounds re-forwarding: a non-leader member that receives a
+// forwarded op relays it to the leader it can resolve, so a registry non-member
+// (role=client, no raft state to call raft.Leader()) can forward to any member
+// and still reach the leader. Each relay increments the hop; past this bound the
+// op is rejected as not-leader rather than chained further.
+const maxForwardHops byte = 2
+
 var kvCorrIDCounter atomic.Uint64
 
 // errForwardNotLeader marks a forwarded write that reached a non-leader, so the
@@ -103,13 +110,17 @@ func kindToErr(kind byte, msg string) error {
 // the applied result, re-resolving the leader on a mid-flight election. `data`
 // is the [KVDomain|cmd] blob exactly as a local Apply would receive.
 func (e *RaftEngine) forwardToLeader(data []byte) (applyResult, error) {
+	return e.forwardToLeaderHop(data, 0)
+}
+
+func (e *RaftEngine) forwardToLeaderHop(data []byte, hop byte) (applyResult, error) {
 	for attempt := 0; attempt < maxForwardRetries; attempt++ {
 		leaderID, _, err := e.raft.Leader()
 		if err != nil || leaderID == "" {
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
-		res, transportErr := e.sendForward(leaderID, data)
+		res, transportErr := e.sendForward(leaderID, data, hop)
 		if errors.Is(transportErr, errForwardNotLeader) {
 			time.Sleep(50 * time.Millisecond)
 			continue
@@ -124,7 +135,7 @@ func (e *RaftEngine) forwardToLeader(data []byte) (applyResult, error) {
 
 // sendForward performs one forward round-trip to leaderNode. A errForwardNotLeader
 // transport error means the target rejected as non-leader (caller retries).
-func (e *RaftEngine) sendForward(leaderNode string, data []byte) (applyResult, error) {
+func (e *RaftEngine) sendForward(leaderNode string, data []byte, hop byte) (applyResult, error) {
 	corr := kvCorrIDCounter.Add(1)
 	ch := make(chan applyResult, 1)
 	e.fwdMu.Lock()
@@ -136,9 +147,10 @@ func (e *RaftEngine) sendForward(leaderNode string, data []byte) (applyResult, e
 		e.fwdMu.Unlock()
 	}()
 
-	env := make([]byte, 8+len(data))
+	env := make([]byte, 9+len(data))
 	binary.BigEndian.PutUint64(env[:8], corr)
-	copy(env[8:], data)
+	env[8] = hop
+	copy(env[9:], data)
 
 	pkg := relay.NewServicePackage(e.localNode, KVRaftHostID, leaderNode, KVRaftHostID,
 		topicKVForwardReq, payload.New(env))
@@ -181,26 +193,34 @@ func (e *RaftEngine) GetViaLeader(key string) (kvapi.Entry, error) {
 }
 
 func (e *RaftEngine) forwardRead(key string) (kvapi.Entry, error) {
+	res, err := e.forwardReadHop(key, 0)
+	if err != nil {
+		return kvapi.Entry{}, err
+	}
+	if !res.found {
+		return kvapi.Entry{}, kvapi.ErrKeyNotFound
+	}
+	return kvapi.Entry{Key: key, Value: res.value, Version: res.version, Epoch: res.epoch}, nil
+}
+
+func (e *RaftEngine) forwardReadHop(key string, hop byte) (readResult, error) {
 	for attempt := 0; attempt < maxForwardRetries; attempt++ {
 		leaderID, _, err := e.raft.Leader()
 		if err != nil || leaderID == "" {
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
-		res, transportErr := e.sendRead(leaderID, key)
+		res, transportErr := e.sendRead(leaderID, key, hop)
 		if transportErr != nil || errors.Is(res.err, errForwardNotLeader) {
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
-		if !res.found {
-			return kvapi.Entry{}, kvapi.ErrKeyNotFound
-		}
-		return kvapi.Entry{Key: key, Value: res.value, Version: res.version, Epoch: res.epoch}, nil
+		return res, nil
 	}
-	return kvapi.Entry{}, errNoForwardLeader
+	return readResult{}, errNoForwardLeader
 }
 
-func (e *RaftEngine) sendRead(leaderNode, key string) (readResult, error) {
+func (e *RaftEngine) sendRead(leaderNode, key string, hop byte) (readResult, error) {
 	corr := kvCorrIDCounter.Add(1)
 	ch := make(chan readResult, 1)
 	e.fwdMu.Lock()
@@ -212,9 +232,10 @@ func (e *RaftEngine) sendRead(leaderNode, key string) (readResult, error) {
 		e.fwdMu.Unlock()
 	}()
 
-	env := make([]byte, 8+len(key))
+	env := make([]byte, 9+len(key))
 	binary.BigEndian.PutUint64(env[:8], corr)
-	copy(env[8:], key)
+	env[8] = hop
+	copy(env[9:], key)
 
 	pkg := relay.NewServicePackage(e.localNode, KVRaftHostID, leaderNode, KVRaftHostID,
 		topicKVReadReq, payload.New(env))
@@ -261,19 +282,32 @@ func (e *RaftEngine) handleReadReq(source pid.PID, msg *relay.Message) {
 		return
 	}
 	env, ok := msg.Payloads[0].Data().([]byte)
-	if !ok || len(env) < 8 {
+	if !ok || len(env) < 9 {
 		return
 	}
 	corr := binary.BigEndian.Uint64(env[:8])
-	key := string(env[8:])
+	hop := env[8]
+	key := string(env[9:])
 
-	var res readResult
-	if !e.raft.IsLeader() {
-		res.err = errForwardNotLeader
-	} else if ent, err := e.Get(key); err == nil {
-		res.found, res.value, res.version, res.epoch = true, ent.Value, ent.Version, ent.Epoch
+	if e.raft.IsLeader() {
+		var res readResult
+		if ent, err := e.Get(key); err == nil {
+			res.found, res.value, res.version, res.epoch = true, ent.Value, ent.Version, ent.Epoch
+		}
+		e.replyRead(source.Node, corr, res)
+		return
 	}
-	e.replyRead(source.Node, corr, res)
+	if hop >= maxForwardHops {
+		e.replyRead(source.Node, corr, readResult{err: errForwardNotLeader})
+		return
+	}
+	go func() {
+		res, err := e.forwardReadHop(key, hop+1)
+		if err != nil {
+			res = readResult{err: errForwardNotLeader}
+		}
+		e.replyRead(source.Node, corr, res)
+	}()
 }
 
 func (e *RaftEngine) replyRead(node pid.NodeID, corr uint64, res readResult) {
@@ -344,23 +378,39 @@ func (e *RaftEngine) handleForwardReq(source pid.PID, msg *relay.Message) {
 		return
 	}
 	env, ok := msg.Payloads[0].Data().([]byte)
-	if !ok || len(env) < 8 {
+	if !ok || len(env) < 9 {
 		return
 	}
 	corr := binary.BigEndian.Uint64(env[:8])
-	data := env[8:]
+	hop := env[8]
+	data := env[9:]
 
-	var res applyResult
-	resp, err := e.raft.Apply(data, raftApplyTimeout)
-	switch {
-	case err != nil:
-		res = applyResult{Err: err}
-	case resp.Response != nil:
-		if r, isRes := resp.Response.(applyResult); isRes {
-			res = r
+	if e.raft.IsLeader() {
+		var res applyResult
+		resp, err := e.raft.Apply(data, raftApplyTimeout)
+		switch {
+		case err != nil:
+			res = applyResult{Err: err}
+		case resp.Response != nil:
+			if r, isRes := resp.Response.(applyResult); isRes {
+				res = r
+			}
 		}
+		e.replyForward(source.Node, corr, res)
+		return
 	}
-	e.replyForward(source.Node, corr, res)
+	if hop >= maxForwardHops {
+		e.replyForward(source.Node, corr, applyResult{Err: raftapi.ErrNotLeader})
+		return
+	}
+	relayed := append([]byte(nil), data...)
+	go func() {
+		res, err := e.forwardToLeaderHop(relayed, hop+1)
+		if err != nil {
+			res = applyResult{Err: err}
+		}
+		e.replyForward(source.Node, corr, res)
+	}()
 }
 
 func (e *RaftEngine) replyForward(node pid.NodeID, corr uint64, res applyResult) {
