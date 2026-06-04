@@ -27,10 +27,10 @@ type entry struct {
 
 // leaseState tracks a lease and its attached keys.
 type leaseState struct {
-	keys map[string]struct{} // keys bound to this lease
-	id   kvapi.LeaseID
-	ttl  int64 // original TTL in milliseconds
-	// expiresAt is managed by the lease heap in the service
+	keys        map[string]struct{} // keys bound to this lease
+	id          kvapi.LeaseID
+	ttl         int64 // original TTL in milliseconds
+	expiresAtMs int64 // absolute deadline (unix ms), replicated so a new leader honors it across a leadership change instead of resetting the clock
 }
 
 func newState() *state {
@@ -167,11 +167,12 @@ func condHolds(cond kvapi.TxnCond, expect kvapi.Version, e *entry) bool {
 }
 
 // addLease registers a new lease.
-func (s *state) addLease(id kvapi.LeaseID, ttlMs int64) {
+func (s *state) addLease(id kvapi.LeaseID, ttlMs, expiresAtMs int64) {
 	s.leases[id] = &leaseState{
-		id:   id,
-		ttl:  ttlMs,
-		keys: make(map[string]struct{}),
+		id:          id,
+		ttl:         ttlMs,
+		expiresAtMs: expiresAtMs,
+		keys:        make(map[string]struct{}),
 	}
 }
 

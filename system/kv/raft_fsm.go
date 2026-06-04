@@ -166,12 +166,15 @@ func (f *RaftFSM) applyCommand(c command) applyResult {
 		}
 		return applyResult{Version: ver, OK: ok}
 	case opLeaseGrant:
-		f.state.addLease(c.LeaseID, c.TTLms)
+		f.state.addLease(c.LeaseID, c.TTLms, c.ExpiresAtMs)
 		f.leases.grant(c.LeaseID, msToDuration(c.TTLms), time.Now())
 		return applyResult{OK: true}
 	case opLeaseRenew:
 		if !f.leases.renew(c.LeaseID, time.Now()) {
 			return applyResult{Err: kvapi.ErrLeaseNotFound}
+		}
+		if ls, ok := f.state.leases[c.LeaseID]; ok {
+			ls.expiresAtMs = c.ExpiresAtMs
 		}
 		return applyResult{OK: true}
 	case opLeaseRevoke:
@@ -203,14 +206,15 @@ func (f *RaftFSM) scan(prefix string, fn func(kvapi.Entry) bool) {
 	f.snap.Load().scan(prefix, fn)
 }
 
-// leaseSnapshot returns the (id, ttlMs) of every live lease, used by a node
-// that just became leader to re-arm expiry timers.
+// leaseSnapshot returns the (id, absolute-deadline-ms) of every live lease, used
+// by a node that just became leader to re-arm expiry timers from the replicated
+// deadline rather than resetting the clock to now+ttl.
 func (f *RaftFSM) leaseSnapshot() map[kvapi.LeaseID]int64 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	out := make(map[kvapi.LeaseID]int64, len(f.state.leases))
 	for id, ls := range f.state.leases {
-		out[id] = ls.ttl
+		out[id] = ls.expiresAtMs
 	}
 	return out
 }
@@ -226,9 +230,10 @@ type snapEntry struct {
 }
 
 type snapLease struct {
-	ID    string
-	Keys  []string
-	TTLms int64
+	ID          string
+	Keys        []string
+	TTLms       int64
+	ExpiresAtMs int64
 }
 
 type fsmState struct {
@@ -254,7 +259,7 @@ func (f *RaftFSM) Snapshot() (hraft.FSMSnapshot, error) {
 		for k := range ls.keys {
 			keys = append(keys, k)
 		}
-		st.Leases = append(st.Leases, snapLease{ID: string(id), TTLms: ls.ttl, Keys: keys})
+		st.Leases = append(st.Leases, snapLease{ID: string(id), TTLms: ls.ttl, ExpiresAtMs: ls.expiresAtMs, Keys: keys})
 	}
 
 	var buf bytes.Buffer
@@ -280,7 +285,7 @@ func (f *RaftFSM) Restore(rc io.ReadCloser) error {
 	fresh.version = st.Version
 	freshLeases := newLeaseManager()
 	for _, l := range st.Leases {
-		fresh.addLease(kvapi.LeaseID(l.ID), l.TTLms)
+		fresh.addLease(kvapi.LeaseID(l.ID), l.TTLms, l.ExpiresAtMs)
 		freshLeases.grant(kvapi.LeaseID(l.ID), msToDuration(l.TTLms), time.Now())
 	}
 	for _, e := range st.Entries {

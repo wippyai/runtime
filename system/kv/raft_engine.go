@@ -232,17 +232,19 @@ func (e *RaftEngine) SetIfAbsentWithLease(key string, value []byte, lease kvapi.
 func (e *RaftEngine) GrantLease(_ context.Context, ttl time.Duration) (kvapi.Lease, error) {
 	seq := e.leaseSeq.Add(1)
 	id := kvapi.LeaseID(fmt.Sprintf("%s-lease-%d", e.localNode, seq))
-	if _, err := e.propose(command{Op: opLeaseGrant, LeaseID: id, TTLms: ttl.Milliseconds()}); err != nil {
+	expiresAt := time.Now().Add(ttl)
+	if _, err := e.propose(command{Op: opLeaseGrant, LeaseID: id, TTLms: ttl.Milliseconds(), ExpiresAtMs: expiresAt.UnixMilli()}); err != nil {
 		return nil, err
 	}
-	e.trackLease(id, ttl)
+	e.trackLease(id, expiresAt)
 
 	h := newLease(id, ttl)
 	h.keepAlive = func(_ context.Context) error {
-		if _, err := e.propose(command{Op: opLeaseRenew, LeaseID: id}); err != nil {
+		renewed := time.Now().Add(ttl)
+		if _, err := e.propose(command{Op: opLeaseRenew, LeaseID: id, TTLms: ttl.Milliseconds(), ExpiresAtMs: renewed.UnixMilli()}); err != nil {
 			return err
 		}
-		e.trackLease(id, ttl)
+		e.trackLease(id, renewed)
 		return nil
 	}
 	h.revoke = func(_ context.Context) error {
@@ -253,9 +255,9 @@ func (e *RaftEngine) GrantLease(_ context.Context, ttl time.Duration) (kvapi.Lea
 	return h, nil
 }
 
-func (e *RaftEngine) trackLease(id kvapi.LeaseID, ttl time.Duration) {
+func (e *RaftEngine) trackLease(id kvapi.LeaseID, deadline time.Time) {
 	e.schedMu.Lock()
-	e.deadlines[id] = time.Now().Add(ttl)
+	e.deadlines[id] = deadline
 	e.schedMu.Unlock()
 }
 
@@ -266,9 +268,10 @@ func (e *RaftEngine) forgetLease(id kvapi.LeaseID) {
 }
 
 // leaseSweeper proposes a revoke for each expired lease while this node is the
-// leader. On gaining leadership it re-arms deadlines from the replicated lease
-// set (resetting the clock — a lease may outlive its TTL by up to one failover,
-// the same bound etcd accepts). Followers never expire leases.
+// leader. On gaining leadership it re-arms deadlines from the replicated absolute
+// deadline of each lease, so a lease honors its original expiry across any number
+// of leadership changes instead of having its clock reset. Followers never expire
+// leases.
 func (e *RaftEngine) leaseSweeper() {
 	defer e.wg.Done()
 	ticker := time.NewTicker(leaseSweepInterval)
@@ -293,13 +296,11 @@ func (e *RaftEngine) leaseSweeper() {
 }
 
 func (e *RaftEngine) rearmFromState() {
-	now := time.Now()
 	leases := e.fsm.leaseSnapshot()
 	e.schedMu.Lock()
-	for id, ttlMs := range leases {
+	for id, expiresAtMs := range leases {
 		if _, ok := e.deadlines[id]; !ok {
-			ttl := msToDuration(ttlMs)
-			e.deadlines[id] = now.Add(ttl)
+			e.deadlines[id] = time.UnixMilli(expiresAtMs)
 		}
 	}
 	e.schedMu.Unlock()

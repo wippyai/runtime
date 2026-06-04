@@ -344,7 +344,7 @@ func (s *Service) GrantLease(_ context.Context, ttl time.Duration) (kvapi.Lease,
 	err := s.submitAndWait(func() error {
 		s.leaseSeq++
 		id := kvapi.LeaseID(fmt.Sprintf("%s-lease-%d", s.name, s.leaseSeq))
-		s.state.addLease(id, ttl.Milliseconds())
+		s.state.addLease(id, ttl.Milliseconds(), time.Now().Add(ttl).UnixMilli())
 		handle = s.leases.grant(id, ttl, time.Now())
 		return nil
 	})

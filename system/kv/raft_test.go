@@ -25,7 +25,8 @@ func TestEncodeDecodeCommand(t *testing.T) {
 		{Op: opCAS, Key: "k", Value: []byte("v2"), Expect: 7},
 		{Op: opSetIfAbsent, Key: "k", Value: []byte("v")},
 		{Op: opSetWithLease, Key: "k", Value: []byte("v"), LeaseID: "l1"},
-		{Op: opLeaseGrant, LeaseID: "l1", TTLms: 5000},
+		{Op: opLeaseGrant, LeaseID: "l1", TTLms: 5000, ExpiresAtMs: 1_700_000_005_000},
+		{Op: opLeaseRenew, LeaseID: "l1", TTLms: 5000, ExpiresAtMs: 1_700_000_010_000},
 		{Op: opLeaseRevoke, LeaseID: "l1"},
 		{Op: opSet, Key: "", Value: nil},
 	}
@@ -35,7 +36,8 @@ func TestEncodeDecodeCommand(t *testing.T) {
 			t.Fatalf("decode %v: %v", c.Op, err)
 		}
 		if got.Op != c.Op || got.Key != c.Key || string(got.Value) != string(c.Value) ||
-			got.Expect != c.Expect || got.LeaseID != c.LeaseID || got.TTLms != c.TTLms {
+			got.Expect != c.Expect || got.LeaseID != c.LeaseID || got.TTLms != c.TTLms ||
+			got.ExpiresAtMs != c.ExpiresAtMs {
 			t.Fatalf("round-trip mismatch: %+v != %+v", got, c)
 		}
 	}
