@@ -16,23 +16,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// clientSubmitter models a registry non-member (role=client): it runs no raft
-// node, so every kv op is "not leader" and the RaftEngine forwards it to the
-// leader over the relay. Leader resolves the current leader id dynamically.
-type clientSubmitter struct {
-	leader func() string
-}
-
-func (c clientSubmitter) Apply([]byte, time.Duration) (*raftapi.ApplyResponse, error) {
-	return nil, raftapi.ErrNotLeader
-}
-func (c clientSubmitter) IsLeader() bool { return false }
-func (c clientSubmitter) Leader() (raftapi.ServerID, raftapi.ServerAddress, error) {
-	return c.leader(), "", nil
-}
-func (c clientSubmitter) Barrier(time.Duration) error { return raftapi.ErrNotLeader }
-func (c clientSubmitter) CommitIndex() uint64         { return 0 }
-
 // newClientRegistry builds a non-member client registry: an empty local kv whose
 // reads/writes all forward to the leader over the harness relay, plus a kv-backed
 // registry in non-member mode (cold-miss forward-resolve enabled).
@@ -55,7 +38,10 @@ func (c *Cluster) newClientRegistryTarget(t *testing.T, id string, target func()
 	bus := eventbus.NewBus()
 	fsm := systemkv.NewRaftFSM(bus)
 	eng := systemkv.NewRaftEngine(
-		clientSubmitter{leader: target},
+		systemkv.ClientSubmitter{Resolve: func() (raftapi.ServerID, bool) {
+			t := target()
+			return t, t != ""
+		}},
 		fsm, bus, id, c.router, zap.NewNop())
 	c.router.register(id, systemkv.KVRaftHostID, eng)
 	if err := eng.Start(context.Background()); err != nil {

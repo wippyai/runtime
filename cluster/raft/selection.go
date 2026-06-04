@@ -19,6 +19,22 @@ type candidate struct {
 	Priority      int
 }
 
+// PickForwardTarget chooses a raft member a registry non-member (role=client)
+// forwards its kv ops to. It need not be the leader: the target member
+// re-forwards to the leader it can resolve. nodes is a gossip snapshot
+// (membership only reports live peers, so a departed target naturally drops out
+// and the next call re-picks). self is excluded. Selection is deterministic
+// (eligible-only, ranked by priority then ID) so retries are stable. Returns
+// ("", false) when no other eligible member is visible yet.
+func PickForwardTarget(nodes []cluster.NodeInfo, self cluster.NodeID) (cluster.NodeID, bool) {
+	for _, c := range candidatesFromMembership(nodes) {
+		if c.ID != self {
+			return c.ID, true
+		}
+	}
+	return "", false
+}
+
 // candidatesFromMembership turns a snapshot of cluster.Membership into the
 // ordered candidate list used by reconcile. Nodes with raft_eligible=false
 // are filtered out.
