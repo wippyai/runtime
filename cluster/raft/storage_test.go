@@ -24,6 +24,39 @@ func TestOpenStores_DisklessByDefault(t *testing.T) {
 	}
 }
 
+// TestOpenBoltLogStore_RoundTrip exercises the bbolt LogStore used on Windows
+// (raft-wal cannot fsync its directory there). Run on every OS so the Windows
+// log path is proven without a Windows runner: a stored log survives reopen.
+func TestOpenBoltLogStore_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	ls, closeLog, err := openBoltLogStore(dir)
+	if err != nil {
+		t.Fatalf("openBoltLogStore: %v", err)
+	}
+	if _, ok := ls.(*hraft.InmemStore); ok {
+		t.Fatalf("bolt log store must not be in-memory")
+	}
+	if err := ls.StoreLogs([]*hraft.Log{{Index: 1, Term: 1, Data: []byte("hello")}}); err != nil {
+		t.Fatalf("store log: %v", err)
+	}
+	if err := closeLog(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	ls2, closeLog2, err := openBoltLogStore(dir)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer func() { _ = closeLog2() }()
+	var l hraft.Log
+	if err := ls2.GetLog(1, &l); err != nil {
+		t.Fatalf("get log after reopen: %v", err)
+	}
+	if string(l.Data) != "hello" {
+		t.Fatalf("bolt log data after reopen = %q, want hello", l.Data)
+	}
+}
+
 func TestOpenStores_DurableRoundTrip(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "raft") // nested: MkdirAll must create it
 
