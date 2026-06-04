@@ -14,7 +14,6 @@
 [![Documentation](https://img.shields.io/badge/docs-wippy.ai-0F6640.svg?style=for-the-badge)][documentation]
 [![Go Version](https://img.shields.io/badge/go-1.26+-00ADD8.svg?style=for-the-badge&logo=go)](#installation)
 [![License](https://img.shields.io/badge/license-MPL%202.0-brightgreen.svg?style=for-the-badge)](LICENSE)
-[![App Template](https://img.shields.io/badge/app%20template-wippyai%2Fapp-FF8C42.svg?style=for-the-badge)](https://github.com/wippyai/app)
 
 </div>
 
@@ -23,6 +22,8 @@ Wippy is an open-source, actor-model runtime for building complex applications a
 Durable workflows, queues, scheduling, caching, vector search, and clustering are part of the runtime, so the accidental complexity of wiring a dozen services together - and keeping them consistent, secured, and observable - goes away. Your code runs as isolated, supervised processes, written in typed, linted Lua, that communicate by message passing with no shared state to corrupt; a failure is contained and recovered instead of cascading.
 
 Each process is sandboxed to the capabilities you grant it, your data stays on infrastructure you own, and every change is versioned and reversible. Applications can also evolve at runtime - updated by your team or an AI agent over MCP - without redeploys.
+
+[![App Template](https://img.shields.io/badge/app%20template-wippyai%2Fapp-FF8C42.svg?style=for-the-badge)](https://github.com/wippyai/app)
 
 ## Features
 
