@@ -125,19 +125,28 @@ func (s *LockService) ReapNode(node pid.NodeID) {
 	s.reap(func(h pid.PID) bool { return h.Node == node })
 }
 
-// reap deletes every lock whose holder matches. Idempotent: a concurrent reap on
-// another node that already deleted the key is a harmless ErrKeyNotFound.
+// reap deletes every lock whose holder matches, guarded by the version observed
+// during the scan. CompareAndDelete makes a reap that races a release+reacquire
+// a no-op (OK=false, err=nil) instead of an unconditional delete: two nodes
+// reaping the same departed holder, or a reap arriving after the lock was
+// re-acquired by a live holder, can never destroy the new holder's lock. The
+// scan reads the local (possibly stale) snapshot; the version guard is what
+// makes acting on that snapshot safe.
 func (s *LockService) reap(match func(pid.PID) bool) {
-	var victims []string
+	type victim struct {
+		key     string
+		version kvapi.Version
+	}
+	var victims []victim
 	_ = s.engine.Scan(lockPrefix, func(e kvapi.Entry) bool {
 		if p, err := pid.ParsePID(string(e.Value)); err == nil && match(p) {
-			victims = append(victims, e.Key)
+			victims = append(victims, victim{key: e.Key, version: e.Version})
 		}
 		return true
 	})
-	for _, k := range victims {
-		if err := s.engine.Delete(k); err != nil && !errors.Is(err, kvapi.ErrKeyNotFound) {
-			s.logger.Debug("lock reap delete failed", zap.String("key", k), zap.Error(err))
+	for _, v := range victims {
+		if _, err := s.engine.CompareAndDelete(v.key, v.version); err != nil && !errors.Is(err, kvapi.ErrKeyNotFound) {
+			s.logger.Debug("lock reap delete failed", zap.String("key", v.key), zap.Error(err))
 		}
 	}
 }
