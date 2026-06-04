@@ -23,6 +23,18 @@ import (
 // reaps independently; the resulting tombstones gossip so the cluster converges.
 const crdtReapInterval = time.Second
 
+// crdtTombstoneGCInterval is how often the local tombstone GC pass runs.
+const crdtTombstoneGCInterval = time.Minute
+
+// crdtTombstoneFloor is the wall-clock age past which a delete tombstone is
+// dropped to bound memory. It must exceed the anti-entropy convergence window by
+// a wide margin so a tombstone is reaped only after every alive peer has
+// certainly observed it via push/pull; the value mirrors the eventual registry's
+// DefaultWallFloor. CV-gated (safe-counter) reaping — which would let healthy
+// clusters drop tombstones sooner — needs a per-origin digest exchange the
+// store.kv.crdt delegate does not run, so the wall floor is the sole bound.
+const crdtTombstoneFloor = 15 * time.Minute
+
 // wallScale shifts the real millisecond clock left so a per-node tiebreak fits
 // in the low digits. crdt.State.Apply resolves a cross-origin conflict purely by
 // Wall and otherwise keeps the current entry, so two distinct concurrent writers
@@ -37,23 +49,25 @@ const wallScale = 1_000_000
 // SetIfAbsent are best-effort under eventual consistency — use store.kv.raft for
 // linearizable conditional writes.
 type CRDTEngine struct {
-	bus          event.Bus
-	ctx          context.Context
-	durableNS    map[string]struct{}
-	queue        *crdt.BroadcastQueue
-	logger       *zap.Logger
-	state        *crdt.State
-	cancel       context.CancelFunc
-	leaseKeys    map[kvapi.LeaseID]map[string]struct{}
-	deadlines    map[kvapi.LeaseID]time.Time
-	keyLease     map[string]kvapi.LeaseID
-	system       event.System
-	dataDir      string
-	wg           sync.WaitGroup
-	snapInterval time.Duration
-	leaseSeq     atomic.Uint64
-	tiebreak     int64
-	mu           sync.Mutex
+	bus            event.Bus
+	ctx            context.Context
+	durableNS      map[string]struct{}
+	queue          *crdt.BroadcastQueue
+	logger         *zap.Logger
+	state          *crdt.State
+	cancel         context.CancelFunc
+	leaseKeys      map[kvapi.LeaseID]map[string]struct{}
+	deadlines      map[kvapi.LeaseID]time.Time
+	keyLease       map[string]kvapi.LeaseID
+	system         event.System
+	dataDir        string
+	wg             sync.WaitGroup
+	snapInterval   time.Duration
+	gcInterval     time.Duration
+	tombstoneFloor time.Duration
+	leaseSeq       atomic.Uint64
+	tiebreak       int64
+	mu             sync.Mutex
 }
 
 // NewCRDTEngine builds the node-wide crdt engine.
@@ -64,17 +78,19 @@ func NewCRDTEngine(localNode string, bus event.Bus, logger *zap.Logger) *CRDTEng
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(localNode))
 	return &CRDTEngine{
-		state:        crdt.NewState(localNode),
-		queue:        crdt.NewBroadcastQueue(localNode, 0),
-		bus:          bus,
-		logger:       logger.Named("kv-crdt"),
-		system:       "kv:crdt",
-		tiebreak:     int64(h.Sum32() % wallScale),
-		durableNS:    make(map[string]struct{}),
-		snapInterval: 30 * time.Second,
-		leaseKeys:    make(map[kvapi.LeaseID]map[string]struct{}),
-		deadlines:    make(map[kvapi.LeaseID]time.Time),
-		keyLease:     make(map[string]kvapi.LeaseID),
+		state:          crdt.NewState(localNode),
+		queue:          crdt.NewBroadcastQueue(localNode, 0),
+		bus:            bus,
+		logger:         logger.Named("kv-crdt"),
+		system:         "kv:crdt",
+		tiebreak:       int64(h.Sum32() % wallScale),
+		durableNS:      make(map[string]struct{}),
+		snapInterval:   30 * time.Second,
+		gcInterval:     crdtTombstoneGCInterval,
+		tombstoneFloor: crdtTombstoneFloor,
+		leaseKeys:      make(map[kvapi.LeaseID]map[string]struct{}),
+		deadlines:      make(map[kvapi.LeaseID]time.Time),
+		keyLease:       make(map[string]kvapi.LeaseID),
 	}
 }
 
@@ -166,6 +182,8 @@ func (e *CRDTEngine) Start(ctx context.Context) error {
 	}
 	e.wg.Add(1)
 	go e.reaper()
+	e.wg.Add(1)
+	go e.tombstoneReaper()
 	if e.dataDir != "" {
 		e.wg.Add(1)
 		go e.snapshotter()
@@ -426,6 +444,36 @@ func (e *CRDTEngine) reaper() {
 			}
 		}
 	}
+}
+
+// tombstoneReaper periodically drops delete tombstones older than the wall
+// floor. Without it a churn of put/delete on a store.kv.crdt namespace grows
+// local state — and every gossip frame and durable snapshot — without bound,
+// because every Delete leaves a tombstone that otherwise lives forever.
+func (e *CRDTEngine) tombstoneReaper() {
+	defer e.wg.Done()
+	ticker := time.NewTicker(e.gcInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-e.ctx.Done():
+			return
+		case <-ticker.C:
+			if safe, floor := e.gcTombstones(); safe+floor > 0 {
+				e.logger.Debug("crdt: reaped tombstones", zap.Int("safe", safe), zap.Int("wall_floor", floor))
+			}
+		}
+	}
+}
+
+// gcTombstones runs one tombstone GC pass. safeByNode is nil because the
+// store.kv.crdt delegate exchanges no per-origin CV digests, so the wall floor
+// is the only drop criterion; now and the floor are in the engine's scaled wall
+// units (real ms * wallScale) to match Entry.Wall.
+func (e *CRDTEngine) gcTombstones() (int, int) {
+	nowScaled := time.Now().UnixMilli() * wallScale
+	floorScaled := e.tombstoneFloor.Milliseconds() * wallScale
+	return e.state.ReapTombstones(nil, nowScaled, floorScaled)
 }
 
 // --- gossip hooks (driven by the delegate) ---
