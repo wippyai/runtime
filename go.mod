@@ -78,7 +78,7 @@ require (
 	go.temporal.io/api v1.62.9
 	go.temporal.io/sdk v1.42.0
 	go.temporal.io/sdk/contrib/opentelemetry v0.7.0
-	go.uber.org/zap v1.27.1
+	go.uber.org/zap v1.28.0
 	golang.org/x/crypto v0.52.0
 	golang.org/x/net v0.54.0
 	golang.org/x/sys v0.45.0
