@@ -289,6 +289,54 @@ func TestSQLStore_SetGet(t *testing.T) {
 	assert.Nil(t, result)
 }
 
+func TestSQLStore_InfoEntryListPut(t *testing.T) {
+	ss, db, ctx := MakeStore(t)
+	defer func() { _ = db.Close() }()
+
+	info := ss.StoreInfo(ctx)
+	assert.Equal(t, registry.NewID("test", "store"), info.ID)
+	assert.Equal(t, store.BackendSQL, info.Backend)
+	assert.Equal(t, store.ConsistencyLocal, info.Consistency)
+	assert.True(t, info.Durable)
+	assert.True(t, info.List)
+	assert.False(t, info.Versioned)
+	assert.False(t, info.ConditionalPut)
+	assert.True(t, info.TTL)
+
+	_, err := ss.Put(ctx, registry.ParseID("test:item-b"), payload.New("b"), store.PutOptions{OnlyIfAbsent: true})
+	assert.ErrorIs(t, err, store.ErrUnsupported)
+	_, err = ss.Put(ctx, registry.ParseID("test:bad-ttl"), payload.New("bad"), store.PutOptions{TTL: -time.Second})
+	assert.ErrorIs(t, err, store.ErrInvalidOptions)
+
+	put, err := ss.Put(ctx, registry.ParseID("test:item-b"), payload.New("b"), store.PutOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "test:item-b", put.Key.String())
+	assert.Zero(t, put.Version)
+
+	entry, err := ss.Entry(ctx, registry.ParseID("test:item-b"))
+	require.NoError(t, err)
+	assert.Equal(t, "test:item-b", entry.Key.String())
+	assert.Zero(t, entry.Version)
+
+	_, err = ss.Put(ctx, registry.ParseID("test:item-a"), payload.New("a"), store.PutOptions{})
+	require.NoError(t, err)
+	_, err = ss.Put(ctx, registry.ParseID("other:item"), payload.New("other"), store.PutOptions{})
+	require.NoError(t, err)
+
+	page, err := ss.List(ctx, store.ListOptions{Prefix: "test:item-", Limit: 1})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, "test:item-a", page.Items[0].Key.String())
+	assert.Equal(t, "test:item-a", page.Cursor)
+	assert.True(t, page.HasMore)
+
+	next, err := ss.List(ctx, store.ListOptions{Prefix: "test:item-", After: page.Cursor, Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, next.Items, 1)
+	assert.Equal(t, "test:item-b", next.Items[0].Key.String())
+	assert.False(t, next.HasMore)
+}
+
 // TestSQLStore_Get_ExpiredKey tests retrieval of an expired key
 func TestSQLStore_Get_ExpiredKey(t *testing.T) {
 	// Create a default config

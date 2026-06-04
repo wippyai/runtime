@@ -12,17 +12,20 @@ import (
 
 func init() {
 	dispatcher.MustRegisterCommands("store",
-		Get, Set, Delete, Has,
+		Get, Set, Delete, Has, EntryCommand, ListCommand, PutCommand,
 	)
 }
 
 // Command IDs for store operations.
 // Range 120-129 is reserved for key-value store commands.
 const (
-	Get    dispatcher.CommandID = 120 // Get value by key
-	Set    dispatcher.CommandID = 121 // Set value with key
-	Delete dispatcher.CommandID = 122 // Delete key
-	Has    dispatcher.CommandID = 123 // Check if key exists
+	Get          dispatcher.CommandID = 120 // Get value by key
+	Set          dispatcher.CommandID = 121 // Set value with key
+	Delete       dispatcher.CommandID = 122 // Delete key
+	Has          dispatcher.CommandID = 123 // Check if key exists
+	EntryCommand dispatcher.CommandID = 124 // Get value with metadata
+	ListCommand  dispatcher.CommandID = 125 // List keys deterministically
+	PutCommand   dispatcher.CommandID = 126 // Rich put with conditions
 )
 
 // GetCmd retrieves a value from the store.
@@ -93,6 +96,61 @@ func (c *HasCmd) Release() {
 	hasCmdPool.Put(c)
 }
 
+// EntryCmd retrieves a value with store metadata.
+type EntryCmd struct {
+	Store Store
+	Key   registry.ID
+}
+
+var entryCmdPool = sync.Pool{New: func() any { return &EntryCmd{} }}
+
+// AcquireEntryCmd returns a pooled EntryCmd.
+func AcquireEntryCmd() *EntryCmd                { return entryCmdPool.Get().(*EntryCmd) }
+func (c *EntryCmd) CmdID() dispatcher.CommandID { return EntryCommand }
+func (c *EntryCmd) Release() {
+	c.Store = nil
+	c.Key = registry.ID{}
+	entryCmdPool.Put(c)
+}
+
+// ListCmd lists store entries.
+type ListCmd struct {
+	Store Store
+	Opts  ListOptions
+}
+
+var listCmdPool = sync.Pool{New: func() any { return &ListCmd{} }}
+
+// AcquireListCmd returns a pooled ListCmd.
+func AcquireListCmd() *ListCmd                 { return listCmdPool.Get().(*ListCmd) }
+func (c *ListCmd) CmdID() dispatcher.CommandID { return ListCommand }
+func (c *ListCmd) Release() {
+	c.Store = nil
+	c.Opts = ListOptions{}
+	listCmdPool.Put(c)
+}
+
+// PutCmd writes a value with optional preconditions.
+type PutCmd struct {
+	Store Store
+	Value payload.Payload
+	Key   registry.ID
+	Opts  PutOptions
+}
+
+var putCmdPool = sync.Pool{New: func() any { return &PutCmd{} }}
+
+// AcquirePutCmd returns a pooled PutCmd.
+func AcquirePutCmd() *PutCmd                  { return putCmdPool.Get().(*PutCmd) }
+func (c *PutCmd) CmdID() dispatcher.CommandID { return PutCommand }
+func (c *PutCmd) Release() {
+	c.Store = nil
+	c.Key = registry.ID{}
+	c.Value = nil
+	c.Opts = PutOptions{}
+	putCmdPool.Put(c)
+}
+
 // GetResponse contains the result of a get operation.
 type GetResponse struct {
 	Value payload.Payload
@@ -114,4 +172,22 @@ type DeleteResponse struct {
 type HasResponse struct {
 	Error  error
 	Exists bool
+}
+
+// EntryResponse contains an entry plus metadata.
+type EntryResponse struct {
+	Error error
+	Entry VersionedEntry
+}
+
+// ListResponse contains a deterministic list page.
+type ListResponse struct {
+	Error error
+	Page  Page
+}
+
+// PutResponse contains the stored entry.
+type PutResponse struct {
+	Error error
+	Entry VersionedEntry
 }

@@ -45,10 +45,11 @@ func (d *Delegate) NotifyMsg(payload []byte) {
 // LocalState returns the bulk-transfer payload for an outgoing memberlist
 // push/pull. Wire format:
 //
-//	digest:DigestSize | cv_len:2 | repeated{ node_len:1 | node | counter:8 }
+//	digest:DigestSize | cv_len:2 | repeated{ node_len:1 | node | counter:8 } | node_len:1 | node
 //
 // The peer receives both pieces in one push/pull and uses the digest to
-// detect divergence; the CV unblocks tombstone GC.
+// detect divergence; the CV unblocks tombstone GC. The trailing node id is the
+// authoritative sender so the receiver can target shard-pull requests.
 func (d *Delegate) LocalState(_ bool) []byte {
 	digest := d.svc.LocalDigest().Encode()
 
@@ -72,10 +73,16 @@ func (d *Delegate) LocalState(_ bool) []byte {
 		out = binary.LittleEndian.AppendUint64(out, p.counter)
 	}
 
-	// No appended shard payload by default — receivers request shards
-	// separately by mismatched-digest negotiation. The current memberlist
-	// integration is push-only for state, which converges in O(log N) ticks
-	// without explicit pull because both sides keep shipping their LocalState.
+	// Append our node id so the receiver can target shard-pull requests at the
+	// actual sender instead of guessing from the CV. Trailing bytes: older peers
+	// stop after the CV pairs and ignore this; newer peers read it.
+	id := d.svc.cfg.LocalNodeID
+	if len(id) > 0xFF {
+		id = id[:0xFF]
+	}
+	out = append(out, byte(len(id)))
+	out = append(out, id...)
+
 	return out
 }
 
@@ -124,18 +131,25 @@ func (d *Delegate) MergeRemoteState(buf []byte, _ bool) {
 			peerCV = grow
 		}
 		peerCV[localID] = counter
-		// Heuristic: the peer's locally-highest counter is likely from itself —
-		// we can't be certain, but we record peerCV regardless and forget on leave.
+		// Fallback when the sender did not append its id (older peer): the
+		// locally-highest counter is the best guess for the sender.
 		if peerNode == "" || counter > peerCV[d.svc.state.internNode(peerNode)] {
 			peerNode = name
 		}
 	}
 
-	// Compare digests; on mismatch, ask the peer for the divergent
-	// shards over reliable TCP. The push-only LocalState body carries
-	// only the digest+CV, so when the broadcast queue overflows under
-	// chaos there is otherwise no recovery channel — RequestShards
-	// closes that gap. Rate-limited inside the service.
+	// Authoritative sender id appended by LocalState, when present.
+	if off < len(buf) {
+		nameLen := int(buf[off])
+		off++
+		if off+nameLen <= len(buf) {
+			peerNode = string(buf[off : off+nameLen])
+		}
+	}
+
+	// Compare digests; on mismatch, ask the sender for the divergent shards over
+	// reliable TCP. RequestShards is the recovery channel when the one-shot
+	// broadcast queue overflows under chaos. Rate-limited inside the service.
 	local := d.svc.LocalDigest()
 	mismatched := local.Diff(digest)
 
@@ -143,7 +157,7 @@ func (d *Delegate) MergeRemoteState(buf []byte, _ bool) {
 	if len(mismatched) > 0 {
 		d.logger.Debug("eventualreg: digest mismatch",
 			zap.String("peer", peerNode), zap.Int("shards", len(mismatched)))
-		if peerNode != "" {
+		if peerNode != "" && peerNode != d.svc.cfg.LocalNodeID {
 			d.svc.RequestShards(peerNode, mismatched)
 		}
 	}

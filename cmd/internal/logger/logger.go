@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/fatih/color"
-	syslogs "github.com/wippyai/runtime/system/logs"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -168,10 +167,7 @@ func CreateLogger(cfg Config) (*zap.Logger, error) {
 		}
 	}
 
-	// zap.Hooks fires the closure on every emission. The hook itself
-	// is a no-op until the metrics boot component calls
-	// syslogs.SetEmissionCollector — see system/logs/emissionhook.go.
-	logger, err := zapCfg.Build(zap.Hooks(syslogs.EmissionHook))
+	logger, err := zapCfg.Build()
 	if err != nil {
 		return nil, NewBuildLoggerError(err)
 	}

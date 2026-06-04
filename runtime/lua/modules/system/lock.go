@@ -3,18 +3,16 @@
 package system
 
 import (
-	"errors"
-
 	lua "github.com/wippyai/go-lua"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
-	"github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/runtime/security"
+	systemkv "github.com/wippyai/runtime/system/kv"
 )
 
-// createLockTable builds the system.lock surface. Locks are STRONG-scope
-// names with a holder PID. Authority and auto-release on holder death
-// come from the existing globalreg STRONG machinery; this module adds
-// no new FSM commands, gossip, or admin overrides.
+// createLockTable builds the system.lock surface. A lock is an entry in the
+// shared kv at _sys:lock:<name> holding the owner PID: mutual exclusion is
+// linearizable via raft, and a holder's locks auto-release when the holder
+// process exits (topology monitor) or its node leaves the cluster.
 func createLockTable() *lua.LTable {
 	t := lua.CreateTable(0, 2)
 	t.RawSetString("acquire", lua.LGoFunc(lockAcquire))
@@ -32,10 +30,10 @@ func lockAcquire(l *lua.LState) int {
 		return 2
 	}
 
-	reg := global.GetRegistry(l.Context())
-	if reg == nil {
+	ls := systemkv.GetLockService(l.Context())
+	if ls == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "global registry not available").WithKind(lua.Internal).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "lock service not available").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -46,15 +44,15 @@ func lockAcquire(l *lua.LState) int {
 		return 2
 	}
 
-	_, err := reg.RegisterScope(l.Context(), name, p, global.Strong)
+	acquired, err := ls.Acquire(name, p)
 	if err != nil {
-		if isConflict(err) {
-			l.Push(lua.LBool(false))
-			l.Push(lua.WrapErrorWithLua(l, err, "lock acquire").WithKind(lua.AlreadyExists).WithRetryable(false))
-			return 2
-		}
 		l.Push(lua.LNil)
 		l.Push(lua.WrapErrorWithLua(l, err, "lock acquire").WithRetryable(false))
+		return 2
+	}
+	if !acquired {
+		l.Push(lua.LBool(false))
+		l.Push(lua.NewLuaError(l, "lock held: "+name).WithKind(lua.AlreadyExists).WithRetryable(false))
 		return 2
 	}
 
@@ -72,10 +70,10 @@ func lockRelease(l *lua.LState) int {
 		return 2
 	}
 
-	reg := global.GetRegistry(l.Context())
-	if reg == nil {
+	ls := systemkv.GetLockService(l.Context())
+	if ls == nil {
 		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "global registry not available").WithKind(lua.Internal).WithRetryable(false))
+		l.Push(lua.NewLuaError(l, "lock service not available").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -86,47 +84,15 @@ func lockRelease(l *lua.LState) int {
 		return 2
 	}
 
-	// Verify caller holds the lock before unregistering. The globalreg
-	// Strong unregister path itself does not enforce holder identity,
-	// so authority lives here: a non-holder cannot drop someone else's
-	// lock, and releasing a free name reports false rather than removed.
-	res, err := reg.Lookup(l.Context(), name)
-	if err != nil {
-		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "lock release lookup").WithRetryable(false))
-		return 2
-	}
-	if !res.Found || res.PID != p {
-		l.Push(lua.LBool(false))
-		l.Push(lua.LNil)
-		return 2
-	}
-
-	removed, err := reg.UnregisterScope(l.Context(), name, global.Strong)
+	// Release verifies the caller holds the lock; a non-holder gets false.
+	released, err := ls.Release(name, p)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.WrapErrorWithLua(l, err, "lock release").WithRetryable(false))
 		return 2
 	}
 
-	l.Push(lua.LBool(removed))
+	l.Push(lua.LBool(released))
 	l.Push(lua.LNil)
 	return 2
-}
-
-// isConflict reports whether a RegisterScope error is a name-taken
-// conflict (already-active, pending-for-other-PID, or rejected by a
-// peer during the Strong ack barrier). All three surface as
-// apierror.AlreadyExists in global.
-func isConflict(err error) bool {
-	if errors.Is(err, global.ErrNameAlreadyRegistered) {
-		return true
-	}
-	if errors.Is(err, global.ErrPendingConflict) {
-		return true
-	}
-	if errors.Is(err, global.ErrStrongRegistrationRejected) {
-		return true
-	}
-	return false
 }

@@ -20,16 +20,21 @@ const TypeName = "Future"
 // This avoids circular dependency while allowing cancel to be called.
 var CancelFunc func(l *lua.LState) int
 
+// Methods is the set of Lua methods registered on the Future type. Exported so
+// the type manifest (funcs.Future in the funcs package) can be checked against the
+// methods the runtime actually registers.
+var Methods = map[string]lua.LGoFunc{
+	"response":    futureResponse,
+	"channel":     futureResponse, // alias for backwards compatibility
+	"is_complete": futureIsComplete,
+	"is_canceled": futureIsCanceled,
+	"result":      futureResult,
+	"error":       futureError,
+	"cancel":      futureCancel,
+}
+
 func init() {
-	value.RegisterTypeMethods(nil, TypeName, nil, map[string]lua.LGoFunc{
-		"response":    futureResponse,
-		"channel":     futureResponse, // alias for backwards compatibility
-		"is_complete": futureIsComplete,
-		"is_canceled": futureIsCanceled,
-		"result":      futureResult,
-		"error":       futureError,
-		"cancel":      futureCancel,
-	})
+	value.RegisterTypeMethods(nil, TypeName, nil, Methods)
 }
 
 // futureCancel delegates to CancelFunc if set.

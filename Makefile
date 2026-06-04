@@ -46,6 +46,17 @@ test-network:
 lint:
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0 run --timeout=10m --build-tags=race ./...
 
+# Mutation testing with gremlins. Coverage is scoped to the directory gremlins
+# runs from, so target a package subtree via MUTATE_DIR. workers=1 keeps per-
+# mutant timing free of contention and the generous timeout coefficient stops
+# fast packages (whose cached coverage baseline is tiny) from spuriously timing
+# out while each mutant recompiles — together these make the score deterministic.
+# Example: make mutation MUTATE_DIR=system/topology/namereg/kvbacked
+MUTATE_DIR ?= service/store/kv
+.PHONY: mutation
+mutation:
+	cd $(MUTATE_DIR) && go run github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0 unleash --workers 1 --timeout-coefficient 30
+
 mock:
 	go tool mockgen -destination tests/mock/identityv1connect/identityv1connect.go github.com/wippyai/module-registry-proto-go/registry/identity/v1/identityv1connect OrganizationServiceClient
 	go tool mockgen -destination tests/mock/modulev1connect/modulev1connect.go github.com/wippyai/module-registry-proto-go/registry/module/v1/modulev1connect ModuleServiceClient,CommitServiceClient,LabelServiceClient,DownloadServiceClient

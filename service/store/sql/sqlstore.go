@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,10 @@ import (
 
 var (
 	_ store.Store        = (*Store)(nil)
+	_ store.InfoProvider = (*Store)(nil)
+	_ store.EntryReader  = (*Store)(nil)
+	_ store.Lister       = (*Store)(nil)
+	_ store.Putter       = (*Store)(nil)
 	_ resource.Provider  = (*Store)(nil)
 	_ supervisor.Service = (*Store)(nil)
 )
@@ -153,6 +158,16 @@ func (s *Store) Get(ctx context.Context, key registry.ID) (payload.Payload, erro
 	return p, nil
 }
 
+// Entry retrieves a value with metadata. The current SQL schema has no version
+// column, so Version is always 0 and StoreInfo reports Versioned=false.
+func (s *Store) Entry(ctx context.Context, key registry.ID) (store.VersionedEntry, error) {
+	value, err := s.Get(ctx, key)
+	if err != nil {
+		return store.VersionedEntry{}, err
+	}
+	return store.VersionedEntry{Entry: store.Entry{Key: key, Value: value}}, nil
+}
+
 // Set stores or updates a value with the given key
 // Overwrites any existing value if the key already exists
 func (s *Store) Set(ctx context.Context, entry store.Entry) error {
@@ -249,6 +264,22 @@ func (s *Store) Set(ctx context.Context, entry store.Entry) error {
 	}
 
 	return err
+}
+
+// Put stores a value and returns the resulting entry. Conditional puts are not
+// exposed for the SQL store because the current table schema is unversioned.
+func (s *Store) Put(ctx context.Context, key registry.ID, value payload.Payload, opts store.PutOptions) (store.VersionedEntry, error) {
+	if opts.TTL < 0 {
+		return store.VersionedEntry{}, store.ErrInvalidOptions
+	}
+	if opts.OnlyIfAbsent || opts.HasVersion {
+		return store.VersionedEntry{}, store.ErrUnsupported
+	}
+	entry := store.Entry{Key: key, Value: value, TTL: opts.TTL}
+	if err := s.Set(ctx, entry); err != nil {
+		return store.VersionedEntry{}, err
+	}
+	return store.VersionedEntry{Entry: entry}, nil
 }
 
 // Delete removes a value with the given key
@@ -350,6 +381,100 @@ func (s *Store) Has(ctx context.Context, key registry.ID) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// List returns a deterministic key-ordered page of non-expired entries.
+func (s *Store) List(ctx context.Context, opts store.ListOptions) (store.Page, error) {
+	opts = store.NormalizeListOptions(opts)
+
+	s.mu.RLock()
+	if s.closed {
+		s.mu.RUnlock()
+		return store.Page{}, servicestore.ErrStoreClosed
+	}
+	s.mu.RUnlock()
+
+	h, err := s.acquireDB(ctx)
+	if err != nil {
+		return store.Page{}, err
+	}
+	defer h.release()
+
+	qb := statementBuilder(h.dbType)
+	query := qb.
+		Select(s.config.IDColumnName, s.config.PayloadColumnName).
+		From(s.config.TableName).
+		Where(sq.Or{
+			sq.Eq{s.config.ExpireColumnName: nil},
+			sq.Gt{s.config.ExpireColumnName: time.Now().UTC()},
+		}).
+		OrderBy(s.config.IDColumnName + " ASC").
+		Limit(uint64(opts.Limit + 1))
+
+	if opts.Prefix != "" {
+		query = query.Where(sq.Expr(
+			s.config.IDColumnName+" LIKE ? ESCAPE '\\'",
+			escapeSQLLike(opts.Prefix)+"%",
+		))
+	}
+	if opts.After != "" {
+		query = query.Where(sq.Gt{s.config.IDColumnName: opts.After})
+	}
+
+	querySQL, args, err := query.ToSql()
+	if err != nil {
+		s.log.Error("failed to build list query", zap.String("error", err.Error()))
+		return store.Page{}, err
+	}
+
+	rows, err := h.db.QueryContext(ctx, querySQL, args...)
+	if err != nil {
+		s.log.Error("failed to execute list query", zap.String("error", err.Error()))
+		return store.Page{}, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	items := make([]store.VersionedEntry, 0, opts.Limit+1)
+	for rows.Next() {
+		var key string
+		var data []byte
+		if err := rows.Scan(&key, &data); err != nil {
+			return store.Page{}, err
+		}
+		items = append(items, store.VersionedEntry{
+			Entry: store.Entry{
+				Key:   registry.ParseID(key),
+				Value: payload.NewPayload(data, payload.JSON),
+			},
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return store.Page{}, err
+	}
+
+	hasMore := len(items) > opts.Limit
+	if hasMore {
+		items = items[:opts.Limit]
+	}
+	cursor := ""
+	if len(items) > 0 {
+		cursor = items[len(items)-1].Key.String()
+	}
+	return store.Page{Items: items, Cursor: cursor, HasMore: hasMore}, nil
+}
+
+// StoreInfo reports SQL store capabilities for Lua callers.
+func (s *Store) StoreInfo(_ context.Context) store.Info {
+	return store.Info{
+		ID:             s.id,
+		Backend:        store.BackendSQL,
+		Consistency:    store.ConsistencyLocal,
+		Durable:        true,
+		List:           true,
+		Versioned:      false,
+		ConditionalPut: false,
+		TTL:            true,
+	}
 }
 
 // Acquire implements resource.Provider interface
@@ -522,4 +647,11 @@ func statementBuilder(dbType registry.Kind) sq.StatementBuilderType {
 		// Default to PostgreSQL-style for unknown types
 		return sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 	}
+}
+
+func escapeSQLLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
 }

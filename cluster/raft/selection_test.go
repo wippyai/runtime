@@ -20,6 +20,53 @@ func node(id, addr string, meta map[string]string) cluster.NodeInfo {
 	return cluster.NodeInfo{ID: id, Addr: addr, Meta: m}
 }
 
+func TestPickForwardTarget(t *testing.T) {
+	srv := func(id string) cluster.NodeInfo {
+		return node(id, id, map[string]string{"raft_eligible": "true", "raft_priority": "100"})
+	}
+	client := func(id string) cluster.NodeInfo {
+		return node(id, id, map[string]string{"raft_eligible": "false"})
+	}
+
+	t.Run("picks lowest-ranked eligible member, excludes self", func(t *testing.T) {
+		// Unordered gossip view; self is an eligible member but must be skipped.
+		got, ok := PickForwardTarget([]cluster.NodeInfo{srv("n3"), srv("n1"), srv("n2")}, "n1")
+		require.True(t, ok)
+		assert.Equal(t, "n2", got, "first eligible by priority/ID order, excluding self")
+	})
+
+	t.Run("deterministic regardless of gossip order", func(t *testing.T) {
+		a, _ := PickForwardTarget([]cluster.NodeInfo{srv("a"), srv("b"), srv("c")}, "client")
+		b, _ := PickForwardTarget([]cluster.NodeInfo{srv("c"), srv("b"), srv("a")}, "client")
+		assert.Equal(t, a, b)
+		assert.Equal(t, "a", a)
+	})
+
+	t.Run("ineligible members are never targeted", func(t *testing.T) {
+		got, ok := PickForwardTarget([]cluster.NodeInfo{client("c1"), srv("s1"), client("c2")}, "c1")
+		require.True(t, ok)
+		assert.Equal(t, "s1", got)
+	})
+
+	t.Run("departed target drops out so the next pick rolls over", func(t *testing.T) {
+		// Membership reports only live peers: once s1 leaves the snapshot, the
+		// deterministic next choice is s2 with no extra failover bookkeeping.
+		got, ok := PickForwardTarget([]cluster.NodeInfo{srv("s2"), srv("s3")}, "client")
+		require.True(t, ok)
+		assert.Equal(t, "s2", got)
+	})
+
+	t.Run("no eligible peer yet", func(t *testing.T) {
+		_, ok := PickForwardTarget([]cluster.NodeInfo{client("c1")}, "c1")
+		assert.False(t, ok)
+		_, ok = PickForwardTarget(nil, "self")
+		assert.False(t, ok)
+		// Only self is eligible -> nothing to forward to.
+		_, ok = PickForwardTarget([]cluster.NodeInfo{srv("self")}, "self")
+		assert.False(t, ok)
+	})
+}
+
 func TestDesiredVoterCount(t *testing.T) {
 	cases := []struct {
 		name      string

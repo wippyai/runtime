@@ -36,6 +36,7 @@ type Node struct {
 	logStore    hraft.LogStore
 	stableStore hraft.StableStore
 	snapStore   hraft.SnapshotStore
+	closeStores func() error
 	transport   hraft.Transport
 	streamLayer *meshStreamLayer
 	connMgr     internode.ConnectionManager
@@ -185,13 +186,18 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 		return nil, fmt.Errorf("raft: connection manager not set (call SetConnectionManager before Start)")
 	}
 
-	// Diskless control plane: the cluster state is ephemeral; on restart a
-	// node rejoins quorum and replays from peers. Bounding raft to in-memory
-	// stores matches the design (Erlang-global / Akka-ddata style) and
-	// removes the persistence-vs-quorum failure modes that disk introduces.
-	n.logStore = hraft.NewInmemStore()
-	n.stableStore = hraft.NewInmemStore()
-	n.snapStore = hraft.NewInmemSnapshotStore()
+	// Storage backend: diskless in-memory by default (control-plane state is
+	// ephemeral and replays from peers on restart); fs-durable raft-wal + bbolt
+	// + file snapshots when DataDir is set, which a store.kv.raft entry requires.
+	logStore, stableStore, snapStore, closeStores, err := openStores(
+		n.config.DataDir, n.config.SnapshotRetain, newRaftStderrAdapter(n.logger.Named("raft-store")))
+	if err != nil {
+		return nil, err
+	}
+	n.logStore = logStore
+	n.stableStore = stableStore
+	n.snapStore = snapStore
+	n.closeStores = closeStores
 
 	// Pipe hashicorp/raft's transport-internal logger through zap with
 	// per-line rate limiting. Default behavior writes broken-pipe storms
@@ -283,6 +289,12 @@ func (n *Node) Stop(_ context.Context) error {
 			if err := closer.Close(); err != nil {
 				n.logger.Warn("raft transport close failed", zap.Error(err))
 			}
+		}
+	}
+
+	if n.closeStores != nil {
+		if err := n.closeStores(); err != nil {
+			n.logger.Warn("raft store close failed", zap.Error(err))
 		}
 	}
 

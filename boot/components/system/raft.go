@@ -5,6 +5,8 @@ package system
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -14,15 +16,19 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	metricsapi "github.com/wippyai/runtime/api/metrics"
+	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/topology"
 	globalapi "github.com/wippyai/runtime/api/topology/namereg/global"
 	"github.com/wippyai/runtime/cluster/internode"
 	"github.com/wippyai/runtime/cluster/membership"
 	sysraft "github.com/wippyai/runtime/cluster/raft"
+	"github.com/wippyai/runtime/cluster/raft/multiplex"
 	"github.com/wippyai/runtime/system/eventbus"
 	"github.com/wippyai/runtime/system/health"
+	systemkv "github.com/wippyai/runtime/system/kv"
 	"github.com/wippyai/runtime/system/topology/namereg/global"
+	"github.com/wippyai/runtime/system/topology/namereg/kvbacked"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
@@ -53,11 +59,103 @@ var (
 	raftNodeKey     = &ctxapi.Key{Name: "raft.node"}
 	globalRegFSMKey = &ctxapi.Key{Name: "global.fsm"}
 	globalRegSvcKey = &ctxapi.Key{Name: "global.service"}
+	kvEngineKey     = &ctxapi.Key{Name: "kv.raft.engine"}
 )
+
+// GetKVRaftEngine returns the shared raft-backed kv engine wired by the raft
+// boot component, or nil when raft is disabled. store.kv.raft entries scope it
+// by namespace.
+func GetKVRaftEngine(ctx context.Context) *systemkv.RaftEngine {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+	v := ac.Get(kvEngineKey)
+	if v == nil {
+		return nil
+	}
+	eng, _ := v.(*systemkv.RaftEngine)
+	return eng
+}
 
 // Raft returns a boot component that initializes the Raft consensus layer
 // and the global registry service. Raft is only active when the cluster
 // is enabled and raft is explicitly enabled in config.
+// loadClientRegistry wires the kv-backed name registry on a node that runs no
+// raft Node (cluster.raft.role=client / raft.enabled=false). Such a node has no
+// FSM, so it forwards every kv op over the relay to a raft member it picks from
+// the gossip view (sysraft.PickForwardTarget); that member re-forwards to the
+// leader. Lookups resolve from the gossiped dissem cache, then cold-miss
+// forward-resolve through the leader. The registry is exposed on the same two
+// context facades as the server path, so every consumer is backend-agnostic.
+//
+// It is a no-op (returns ctx unchanged) when the kv backend is not selected or a
+// prerequisite (relay, membership, topology) is missing — preserving the prior
+// behavior where a client wired no global registry at all. raftCfg is cluster.*.
+func loadClientRegistry(ctx context.Context, raftCfg boot.Config, logger *zap.Logger) (context.Context, error) {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	if !strings.EqualFold(
+		raftCfg.GetString(ClusterRaftRegistryBackend, registryBackendKV), registryBackendKV) {
+		return ctx, nil
+	}
+
+	bus := event.GetBus(ctx)
+	node := relay.GetNode(ctx)
+	router := relay.GetRouter(ctx)
+	topo := topology.GetTopology(ctx)
+	memSvc, _ := clusterapi.GetMembership(ctx).(*membership.Service)
+	if bus == nil || node == nil || router == nil || topo == nil || memSvc == nil {
+		return ctx, nil
+	}
+
+	selfID := node.ID()
+	kvFSM := systemkv.NewRaftFSM(bus)
+	submitter := systemkv.ClientSubmitter{Resolve: func() (raftapi.ServerID, bool) {
+		return sysraft.PickForwardTarget(memSvc.Nodes(), selfID)
+	}}
+	kvEngine := systemkv.NewRaftEngine(submitter, kvFSM, bus, selfID, router, logger.Named("kv"))
+	if err := node.RegisterHost(systemkv.KVRaftHostID, kvEngine); err != nil {
+		return ctx, fmt.Errorf("raft(client): register kv relay host: %w", err)
+	}
+	if err := kvEngine.Start(ctx); err != nil {
+		return ctx, fmt.Errorf("raft(client): start kv engine: %w", err)
+	}
+
+	kvReg := kvbacked.NewService(kvEngine, selfID, nil, logger.Named("kvreg"))
+	kvReg.SetTopology(topo)
+	kvReg.SetNonMember(func() bool { return true })
+	kvReg.SetLeaderFunc(func() bool { return false })
+	if err := node.RegisterHost(kvbacked.RegistryHostID, kvReg); err != nil {
+		return ctx, fmt.Errorf("raft(client): register kv registry relay host: %w", err)
+	}
+
+	dissem := global.NewDissem(selfID, logger.Named("dissem"))
+	if err := memSvc.RegisterUserDelegate(dissem); err != nil {
+		return ctx, fmt.Errorf("raft(client): register dissem delegate: %w", err)
+	}
+	kvReg.ConfigureDissem(dissem)
+
+	var liveReg interface {
+		topology.GlobalRegistry
+		globalapi.Registry
+	} = kvReg
+
+	if pidReg := topology.GetRegistry(ctx); pidReg != nil {
+		if setter, ok := pidReg.(interface {
+			SetGlobalRegistry(topology.GlobalRegistry)
+		}); ok {
+			setter.SetGlobalRegistry(liveReg)
+		}
+	}
+	ctx = topology.WithGlobalRegistry(ctx, liveReg)
+	ctx = globalapi.WithRegistry(ctx, liveReg)
+
+	logger.Info("raft(client): kv name registry wired (non-member, forward-resolve)")
+	return ctx, nil
+}
+
 func Raft() boot.Component {
 	var raftNode *sysraft.Node
 	var memberHandler *sysraft.MembershipHandler
@@ -66,6 +164,10 @@ func Raft() boot.Component {
 	var bootstrapWatcher *sysraft.BootstrapWatcher
 	var logger *zap.Logger
 	var handlerCfg sysraft.HandlerConfig
+	var kvEngine *systemkv.RaftEngine
+	var lockSvc *systemkv.LockService
+	var kvReg *kvbacked.Service
+	var useKVRegistry bool
 	var bootstrapExpect int
 
 	return boot.New(boot.P{
@@ -85,7 +187,7 @@ func Raft() boot.Component {
 			// gossip+dissem without running a raft Node.
 			raftCfg := cfg.Sub(ClusterName)
 			if !clusterRaftEnabled(raftCfg) {
-				return ctx, nil
+				return loadClientRegistry(ctx, raftCfg, logger)
 			}
 
 			bus := event.GetBus(ctx)
@@ -103,9 +205,9 @@ func Raft() boot.Component {
 				return ctx, nil
 			}
 
-			// Raft runs diskless (no data_dir): cluster state is ephemeral,
-			// restarts rejoin from peer state. Mesh transport addresses peers
-			// by NodeID over the internode layer, so no bind_addr/port.
+			// Raft is fs-durable by default (data_dir, below). Mesh transport
+			// addresses peers by NodeID over the internode layer, so no
+			// bind_addr/port.
 			//
 			// Cluster formation follows the Consul/Nomad gossip-driven pattern:
 			// each node ships the single knob BootstrapExpect (the expected
@@ -127,6 +229,14 @@ func Raft() boot.Component {
 				HeartbeatTimeout:  raftCfg.GetDuration(ClusterRaftHeartbeatTimeout, 0),
 				ElectionTimeout:   raftCfg.GetDuration(ClusterRaftElectionTimeout, 0),
 				CommitTimeout:     raftCfg.GetDuration(ClusterRaftCommitTimeout, 0),
+			}
+			// store.kv.raft requires a durable raft; default the node data_dir to
+			// ~/.wippy/store so raft is fs-durable out of the box (no toggle). The
+			// shared raft (registry + kv) lives under <data_dir>/_sys/raft.
+			if base := nodeDataDir(raftCfg); base != "" {
+				rc.DataDir = filepath.Join(base, "_sys", "raft")
+			} else {
+				logger.Warn("raft: no data_dir and no home directory; running diskless")
 			}
 
 			// Capture handler config for the Start phase. Reading it here
@@ -165,14 +275,36 @@ func Raft() boot.Component {
 			mp := otel.GetMeterProvider()
 			tp := otel.GetTracerProvider()
 
-			raftNode = sysraft.NewNode(node.ID(), wrapFSM(fsm), rc, bus, logger.Named("node"), coll, mp, tp)
+			// Single shared raft: the FSM slot is a multiplex router so the kv
+			// state machine (store.kv.raft) rides the same node alongside the
+			// global registry. Untagged commands go to the registry; kv-tagged
+			// commands go to the kv FSM.
+			kvFSM := systemkv.NewRaftFSM(bus)
+			rootFSM := multiplex.New(wrapFSM(fsm), kvFSM)
+			raftNode = sysraft.NewNode(node.ID(), rootFSM, rc, bus, logger.Named("node"), coll, mp, tp)
 			raftNode.SetConnectionManager(connMgr)
 
-			// Create the global registry service wrapping Raft + FSM.
+			// Relay router: carries global-registry and kv leader-forwarding.
 			router := relay.GetRouter(ctx)
 			if router == nil {
 				return ctx, fmt.Errorf("raft: relay router not available")
 			}
+
+			// kv engine forwards follower writes to the leader over the relay;
+			// register it as a relay host so forwarded requests/responses land.
+			kvEngine = systemkv.NewRaftEngine(raftNode, kvFSM, bus, node.ID(), router, logger.Named("kv"))
+			if err := node.RegisterHost(systemkv.KVRaftHostID, kvEngine); err != nil {
+				return ctx, fmt.Errorf("raft: register kv relay host: %w", err)
+			}
+
+			// Distributed locks over the shared kv (_sys:lock): linearizable
+			// acquire/release, auto-release on holder process exit (topology
+			// monitor -> the lock relay host) and on node leave (ReapNode, below).
+			lockSvc = systemkv.NewLockService(kvEngine, topo, node.ID(), logger.Named("lock"))
+			if err := node.RegisterHost(systemkv.LockHostID, lockSvc); err != nil {
+				return ctx, fmt.Errorf("raft: register lock relay host: %w", err)
+			}
+			ctx = systemkv.WithLockService(ctx, lockSvc)
 			globalRegSvc = global.NewService(
 				raftNode, fsm, bus, topo,
 				router,
@@ -201,26 +333,73 @@ func Raft() boot.Component {
 				ac.With(raftNodeKey, raftNode)
 				ac.With(globalRegFSMKey, fsm)
 				ac.With(globalRegSvcKey, globalRegSvc)
+				ac.With(kvEngineKey, kvEngine)
 			}
 
 			// Register the global registry in the topology context
 			// so PIDRegistry can check it for conflicts.
 			ctx = raftapi.WithService(ctx, raftNode)
 
+			// Select the live name-registry backend. Default "kv" serves the two
+			// dedicated registry FSM authoritative; "kv" serves the same two
+			// facades from the shared kv keyspace (_sys:registry).
+			useKVRegistry = strings.EqualFold(
+				raftCfg.GetString(ClusterRaftRegistryBackend, registryBackendKV), registryBackendKV)
+
+			var liveReg interface {
+				topology.GlobalRegistry
+				globalapi.Registry
+			} = globalRegSvc
+
+			if useKVRegistry {
+				kvReg = kvbacked.NewService(kvEngine, node.ID(), nil, logger.Named("kvreg"))
+				kvReg.SetTopology(topo)
+				kvReg.ConfigureStrong(kvbacked.StrongDeps{
+					Membership: func() []pid.NodeID {
+						ms, ok := clusterapi.GetMembership(ctx).(*membership.Service)
+						if !ok || ms == nil {
+							return nil
+						}
+						var out []pid.NodeID
+						for _, n := range ms.Nodes() {
+							if n.ID != "" {
+								out = append(out, n.ID)
+							}
+						}
+						return out
+					},
+					IsLeader: raftNode.IsLeader,
+					LocalConflict: func(name string, _ pid.PID) (pid.PID, bool) {
+						lp := &localPresenceChecker{ctx: ctx}
+						if cp, ok := lp.LookupLocal(name); ok {
+							return cp, true
+						}
+						if cp, ok := lp.LookupEventual(name); ok {
+							return cp, true
+						}
+						return pid.PID{}, false
+					},
+				})
+				if err := node.RegisterHost(kvbacked.RegistryHostID, kvReg); err != nil {
+					return ctx, fmt.Errorf("raft: register kv registry relay host: %w", err)
+				}
+				liveReg = kvReg
+			}
+
 			// Wire the global registry into the PID registry for
 			// transparent lookup (global names take priority over local).
 			pidReg := topology.GetRegistry(ctx)
 			if pidReg != nil {
 				if setter, ok := pidReg.(interface{ SetGlobalRegistry(topology.GlobalRegistry) }); ok {
-					setter.SetGlobalRegistry(globalRegSvc)
+					setter.SetGlobalRegistry(liveReg)
 				}
 			}
 
 			// Register on both context keys:
 			// - topology.GlobalRegistry for PIDRegistry integration (transparent lookup)
 			// - global.Registry for direct Lua module access
-			ctx = topology.WithGlobalRegistry(ctx, globalRegSvc)
-			ctx = globalapi.WithRegistry(ctx, globalRegSvc)
+			ctx = topology.WithGlobalRegistry(ctx, liveReg)
+			ctx = globalapi.WithRegistry(ctx, liveReg)
 
 			// Wire the LOCAL/EVENTUAL presence reader used by the Strong-scope
 			// conditional ack. Resolution is lazy because the eventual registry
@@ -244,7 +423,12 @@ func Raft() boot.Component {
 					if err := memSvc.RegisterUserDelegate(dissem); err != nil {
 						return ctx, fmt.Errorf("raft: register globalreg dissem delegate: %w", err)
 					}
-					globalRegSvc.SetDissem(dissem)
+					if useKVRegistry {
+						kvReg.ConfigureDissem(dissem)
+						kvReg.SetLeaderFunc(raftNode.IsLeader)
+					} else {
+						globalRegSvc.SetDissem(dissem)
+					}
 				}
 			}
 
@@ -269,6 +453,13 @@ func Raft() boot.Component {
 				for range statusCh { //nolint:revive // intentionally empty: draining channel
 				}
 			}()
+
+			// Start the kv engine's leader-side lease sweeper.
+			if kvEngine != nil {
+				if err := kvEngine.Start(ctx); err != nil {
+					return fmt.Errorf("start kv engine: %w", err)
+				}
+			}
 
 			// Liveness check: a follower that has not heard from the leader
 			// in the per-role ceiling is on the wrong side of a partition.
@@ -374,6 +565,12 @@ func Raft() boot.Component {
 							return
 						}
 						raftNode.OnNodeLeft(ne.Node.ID)
+						if lockSvc != nil {
+							lockSvc.ReapNode(ne.Node.ID)
+						}
+						if kvReg != nil {
+							kvReg.DropNode(ne.Node.ID)
+						}
 					})
 				if err != nil {
 					return fmt.Errorf("subscribe raft node-left: %w", err)
@@ -381,8 +578,15 @@ func Raft() boot.Component {
 				nodeLeftSub = sub
 			}
 
-			// Start the global registry service.
-			if globalRegSvc != nil {
+			// Start the live name registry: the kv reconciler when the kv
+			// backend is selected, otherwise the dedicated registry FSM service.
+			if useKVRegistry {
+				if kvReg != nil {
+					if err := kvReg.StartReconciler(ctx); err != nil {
+						return fmt.Errorf("start kv registry reconciler: %w", err)
+					}
+				}
+			} else if globalRegSvc != nil {
 				if membership != nil {
 					globalRegSvc.SetMembership(membership)
 				} else {
@@ -409,6 +613,10 @@ func Raft() boot.Component {
 		Stop: func(_ context.Context) error {
 			if nodeLeftSub != nil {
 				nodeLeftSub.Close()
+			}
+
+			if kvEngine != nil {
+				_ = kvEngine.Stop()
 			}
 
 			if bootstrapWatcher != nil {

@@ -13,6 +13,7 @@ func All() []boot.Component {
 		Topology(),
 		Raft(),
 		EventualReg(),
+		KVCRDT(),
 		Lifecycle(),
 		Filesystem(),
 		Environment(),
