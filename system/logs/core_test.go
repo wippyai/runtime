@@ -9,6 +9,7 @@ import (
 	api "github.com/wippyai/runtime/api/logs"
 
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/metrics"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -76,6 +77,28 @@ func (t *testEventBus) Send(_ context.Context, event event.Event) {
 	t.sendCalls = append(t.sendCalls, event)
 }
 
+type testMetricsCollector struct {
+	counters map[string]float64
+}
+
+func (t *testMetricsCollector) CounterInc(name string, labels metrics.Labels) {
+	t.CounterAdd(name, 1, labels)
+}
+
+func (t *testMetricsCollector) CounterAdd(name string, delta float64, labels metrics.Labels) {
+	if t.counters == nil {
+		t.counters = make(map[string]float64)
+	}
+	t.counters[name+"/"+labels["level"]] += delta
+}
+
+func (t *testMetricsCollector) GaugeSet(string, float64, metrics.Labels)         {}
+func (t *testMetricsCollector) GaugeInc(string, metrics.Labels)                  {}
+func (t *testMetricsCollector) GaugeDec(string, metrics.Labels)                  {}
+func (t *testMetricsCollector) HistogramObserve(string, float64, metrics.Labels) {}
+func (t *testMetricsCollector) RegisterExporter(metrics.Exporter) error          { return nil }
+func (t *testMetricsCollector) Close() error                                     { return nil }
+
 func TestNewCore(t *testing.T) {
 	downstream := &testDownstreamCore{}
 	bus := &testEventBus{}
@@ -88,6 +111,29 @@ func TestNewCore(t *testing.T) {
 	}
 	if config.StreamToEvents {
 		t.Error("expected StreamToEvents to be false")
+	}
+}
+
+func TestCore_LogEmissionMetric(t *testing.T) {
+	downstream := &testDownstreamCore{}
+	bus := &testEventBus{}
+	core := NewCore(downstream, bus)
+	coll := &testMetricsCollector{}
+	core.SetCollector(coll)
+	core.Configure(api.Config{
+		PropagateDownstream: true,
+		StreamToEvents:      false,
+		MinLevel:            zapcore.DebugLevel,
+	})
+
+	if _, ok := coll.counters["runtime_log_emissions_total/info"]; !ok {
+		t.Fatal("expected info log emission counter to be bootstrapped")
+	}
+	if err := core.Write(zapcore.Entry{Level: zapcore.InfoLevel, Message: "hello"}, nil); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if got := coll.counters["runtime_log_emissions_total/info"]; got != 1 {
+		t.Fatalf("runtime_log_emissions_total/info = %v, want 1", got)
 	}
 }
 

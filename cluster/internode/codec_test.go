@@ -3,7 +3,9 @@
 package internode
 
 import (
+	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
@@ -25,6 +27,28 @@ func (mt *mockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payloa
 }
 
 func (mt *mockTranscoder) Unmarshal(_ payload.Payload, _ any) error {
+	return nil
+}
+
+type mutatingTranscoder struct{}
+
+func (mt *mutatingTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
+	m, ok := p.Data().(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("mutating transcoder got %T", p.Data())
+	}
+	m["normalized"] = true
+	if reps, ok := m["replicas"].([]any); ok {
+		for i, rep := range reps {
+			if rm, ok := rep.(map[string]any); ok {
+				rm["ordinal"] = i
+			}
+		}
+	}
+	return payload.New(m), nil
+}
+
+func (mt *mutatingTranscoder) Unmarshal(_ payload.Payload, _ any) error {
 	return nil
 }
 
@@ -115,6 +139,112 @@ func TestMessageCodec_PackagePIDs_SourceTarget(t *testing.T) {
 	}
 	if decoded.Messages[0].Topic != "test.topic" {
 		t.Errorf("Topic mismatch. Expected 'test.topic', got %q", decoded.Messages[0].Topic)
+	}
+}
+
+func TestMessageCodec_ConcurrentEncodeSharedMapPayload(t *testing.T) {
+	const mutableFormat payload.Format = "test/mutable-map"
+	codec := NewMessageCodec(&mutatingTranscoder{})
+	shared := map[string]any{
+		"service": "qwen-fleet",
+		"replicas": []any{
+			map[string]any{"node": "towers", "port": 8000},
+			map[string]any{"node": "towers", "port": 8001},
+			map[string]any{"node": "mac", "port": 8000},
+		},
+	}
+	pkg := &relay.Package{
+		Source: pid.PID{Node: "leader", Host: "pg", UniqID: "src"},
+		Target: pid.PID{Node: "worker", Host: "pg", UniqID: "dst"},
+		Messages: []*relay.Message{{
+			Topic:    "app.broadcast.deploy",
+			Payloads: []payload.Payload{payload.NewPayload(shared, mutableFormat)},
+		}},
+	}
+
+	const workers = 32
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 200; j++ {
+				encoded, err := codec.Encode(pkg)
+				if err != nil {
+					errs <- err
+					return
+				}
+				decoded, err := codec.Decode(encoded)
+				if err != nil {
+					errs <- err
+					return
+				}
+				data := decoded.Messages[0].Payloads[0].Data().(map[string]any)
+				if data["service"] != "qwen-fleet" {
+					errs <- fmt.Errorf("decoded service = %v", data["service"])
+					relay.ReleasePackage(decoded)
+					return
+				}
+				if data["normalized"] != true {
+					errs <- fmt.Errorf("decoded normalized = %v", data["normalized"])
+					relay.ReleasePackage(decoded)
+					return
+				}
+				relay.ReleasePackage(decoded)
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	encoded, err := codec.Encode(pkg)
+	if err != nil {
+		t.Fatalf("encode after fanout: %v", err)
+	}
+	shared["service"] = "mutated-after-encode"
+	decoded, err := codec.Decode(encoded)
+	if err != nil {
+		t.Fatalf("decode after source mutation: %v", err)
+	}
+	defer relay.ReleasePackage(decoded)
+	got := decoded.Messages[0].Payloads[0].Data().(map[string]any)
+	if got["service"] != "qwen-fleet" {
+		t.Fatalf("encoded payload aliased source map, got service=%v", got["service"])
+	}
+	if _, ok := shared["normalized"]; ok {
+		t.Fatalf("transcoder mutated shared source map")
+	}
+}
+
+func TestEncodeData_DoesNotCopyImmutableWireFormats(t *testing.T) {
+	raw := []byte("wire")
+	for _, p := range []payload.Payload{
+		payload.NewPayload(raw, payload.JSON),
+		payload.NewPayload(raw, payload.Bytes),
+		payload.NewPayload(raw, payload.MsgPack),
+		payload.NewString("text"),
+	} {
+		allocs := testing.AllocsPerRun(1000, func() {
+			_ = encodeData(p)
+		})
+		if allocs != 0 {
+			t.Fatalf("encodeData(%s) allocations = %v, want 0", p.Format(), allocs)
+		}
+	}
+}
+
+func TestEncodeData_SnapshotsGolangMap(t *testing.T) {
+	src := map[string]any{"k": "v"}
+	got := encodeData(payload.New(src)).(map[string]any)
+	src["k"] = "mutated"
+	if got["k"] != "v" {
+		t.Fatalf("Golang map payload was not snapshotted: %v", got["k"])
 	}
 }
 

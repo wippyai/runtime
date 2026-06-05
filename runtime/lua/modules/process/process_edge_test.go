@@ -106,6 +106,59 @@ func (r *fakePIDRegistry) Remove(p pid.PID) {
 	}
 }
 
+type fakeEventualRegistry struct {
+	entries map[string]pid.PID
+	mu      sync.Mutex
+}
+
+func (r *fakeEventualRegistry) Register(name string, p pid.PID) (pid.PID, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.entries == nil {
+		r.entries = make(map[string]pid.PID)
+	}
+	if existing, ok := r.entries[name]; ok && existing != p {
+		return existing, fmt.Errorf("name %q already registered", name)
+	}
+	r.entries[name] = p
+	return p, nil
+}
+
+func (r *fakeEventualRegistry) Unregister(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.entries == nil {
+		return false
+	}
+	_, ok := r.entries[name]
+	if ok {
+		delete(r.entries, name)
+	}
+	return ok
+}
+
+func (r *fakeEventualRegistry) Lookup(_ context.Context, name string, opts ...globalapi.LookupOption) (globalapi.LookupResult, error) {
+	var o globalapi.LookupOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if o.ByPID != nil {
+		for _, p := range r.entries {
+			if p == *o.ByPID {
+				return globalapi.LookupResult{PID: *o.ByPID, Found: true}, nil
+			}
+		}
+		return globalapi.LookupResult{PID: *o.ByPID}, nil
+	}
+	p, found := r.entries[name]
+	return globalapi.LookupResult{PID: p, Found: found}, nil
+}
+
+var _ topology.EventualRegistry = (*fakeEventualRegistry)(nil)
+var _ eventualRegistrar = (*fakeEventualRegistry)(nil)
+
 // --- Yield HandleResult edge cases ---
 
 func TestCancelYield_HandleResult_Error(t *testing.T) {
@@ -814,6 +867,90 @@ func newLuaWithScopedRegistry(t *testing.T, p pid.PID, scoped globalapi.Registry
 	require.NoError(t, runtimeapi.SetFramePID(ctx, p))
 	l.SetContext(ctx)
 	return l
+}
+
+func newLuaWithScopedRegistries(t *testing.T, p pid.PID, local topology.PIDRegistry, scoped globalapi.Registry, eventual topology.EventualRegistry) *lua.LState {
+	t.Helper()
+	l := lua.NewState()
+	t.Cleanup(l.Close)
+	bindProcess(l)
+
+	ctx := ctxapi.NewRootContext()
+	security.SetStrictMode(ctx, false)
+	if local != nil {
+		topology.WithRegistry(ctx, local)
+	}
+	if scoped != nil {
+		ctx = globalapi.WithRegistry(ctx, scoped)
+	}
+	if eventual != nil {
+		topology.WithEventualRegistry(ctx, eventual)
+	}
+	ctx, fc := ctxapi.OpenFrameContext(ctx)
+	t.Cleanup(func() { ctxapi.ReleaseFrameContext(fc) })
+	require.NoError(t, runtimeapi.SetFramePID(ctx, p))
+	l.SetContext(ctx)
+	return l
+}
+
+func TestRegistryLookup_GlobalScope(t *testing.T) {
+	globalReg := newFakeScopedRegistry()
+	holder := pid.PID{Host: "h1", UniqID: "global-holder", Node: "node-1"}
+	_, err := globalReg.RegisterScope(context.Background(), "svc-global", holder, globalapi.Consistent)
+	require.NoError(t, err)
+
+	l := newLuaWithScopedRegistries(t, pid.PID{Host: "h1", UniqID: "caller", Node: "node-1"}, &fakePIDRegistry{}, globalReg, nil)
+
+	err = l.DoString(fmt.Sprintf(`
+		local p, err = process.registry.lookup("svc-global")
+		if p ~= %q then error("expected global pid, got " .. tostring(p) .. " err=" .. tostring(err)) end
+	`, holder.String()))
+	require.NoError(t, err)
+}
+
+func TestRegistryLookup_GlobalScopeWithoutLocalRegistry(t *testing.T) {
+	globalReg := newFakeScopedRegistry()
+	holder := pid.PID{Host: "h1", UniqID: "global-holder", Node: "node-1"}
+	_, err := globalReg.RegisterScope(context.Background(), "svc-global-only", holder, globalapi.Consistent)
+	require.NoError(t, err)
+
+	l := newLuaWithScopedRegistries(t, pid.PID{Host: "h1", UniqID: "caller", Node: "node-1"}, nil, globalReg, nil)
+
+	err = l.DoString(fmt.Sprintf(`
+		local p, err = process.registry.lookup("svc-global-only")
+		if p ~= %q then error("expected global pid without local registry, got " .. tostring(p) .. " err=" .. tostring(err)) end
+	`, holder.String()))
+	require.NoError(t, err)
+}
+
+func TestRegistryLookup_EventualScope(t *testing.T) {
+	eventualReg := &fakeEventualRegistry{}
+	holder := pid.PID{Host: "h1", UniqID: "eventual-holder", Node: "node-1"}
+	_, err := eventualReg.Register("svc-eventual", holder)
+	require.NoError(t, err)
+
+	l := newLuaWithScopedRegistries(t, pid.PID{Host: "h1", UniqID: "caller", Node: "node-1"}, &fakePIDRegistry{}, nil, eventualReg)
+
+	err = l.DoString(fmt.Sprintf(`
+		local p, err = process.registry.lookup("svc-eventual")
+		if p ~= %q then error("expected eventual pid, got " .. tostring(p) .. " err=" .. tostring(err)) end
+	`, holder.String()))
+	require.NoError(t, err)
+}
+
+func TestRegistryLookup_EventualScopeWithoutLocalRegistry(t *testing.T) {
+	eventualReg := &fakeEventualRegistry{}
+	holder := pid.PID{Host: "h1", UniqID: "eventual-holder", Node: "node-1"}
+	_, err := eventualReg.Register("svc-eventual-only", holder)
+	require.NoError(t, err)
+
+	l := newLuaWithScopedRegistries(t, pid.PID{Host: "h1", UniqID: "caller", Node: "node-1"}, nil, nil, eventualReg)
+
+	err = l.DoString(fmt.Sprintf(`
+		local p, err = process.registry.lookup("svc-eventual-only")
+		if p ~= %q then error("expected eventual pid without local registry, got " .. tostring(p) .. " err=" .. tostring(err)) end
+	`, holder.String()))
+	require.NoError(t, err)
 }
 
 // TestRegistryUnregister_Strong_ByHolder verifies the holder can drop its

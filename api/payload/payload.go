@@ -107,6 +107,63 @@ func NewPayload(data any, format Format) Payload {
 	return payload{data: data, format: format}
 }
 
+// SnapshotData returns a transport-safe copy of common mutable payload data.
+// Payloads frequently carry map[string]any / []any trees assembled by services
+// and then fanned out to multiple peers. Encoding those trees directly lets one
+// goroutine iterate a map while another goroutine mutates or normalizes it. The
+// snapshot copies maps, []any slices, and byte buffers recursively; immutable
+// scalars and structs are returned by value.
+func SnapshotData(data any) any {
+	switch v := data.(type) {
+	case map[string]any:
+		cp := make(map[string]any, len(v))
+		for k, val := range v {
+			cp[k] = SnapshotData(val)
+		}
+		return cp
+	case map[any]any:
+		cp := make(map[any]any, len(v))
+		for k, val := range v {
+			cp[SnapshotData(k)] = SnapshotData(val)
+		}
+		return cp
+	case []any:
+		cp := make([]any, len(v))
+		for i, val := range v {
+			cp[i] = SnapshotData(val)
+		}
+		return cp
+	case []byte:
+		return append([]byte(nil), v...)
+	case Payload:
+		return Snapshot(v)
+	case Payloads:
+		return SnapshotAll(v)
+	default:
+		return data
+	}
+}
+
+// Snapshot returns a payload with SnapshotData applied to its data.
+func Snapshot(p Payload) Payload {
+	if p == nil {
+		return nil
+	}
+	return NewPayload(SnapshotData(p.Data()), p.Format())
+}
+
+// SnapshotAll returns a new payload slice with each payload snapshot-copied.
+func SnapshotAll(in Payloads) Payloads {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(Payloads, len(in))
+	for i, p := range in {
+		out[i] = Snapshot(p)
+	}
+	return out
+}
+
 // New creates a new payload with the given data and assumes the Golang format.
 func New(data any) Payload {
 	return NewPayload(data, Golang)

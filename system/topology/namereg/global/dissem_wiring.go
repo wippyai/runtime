@@ -38,6 +38,8 @@ const (
 	topicDigestDelta relay.Topic = "global.dissem.delta"
 )
 
+const digestDeltaMaxFrameBytes = 64 * 1024
+
 // lookupRequestEnvelope is the wire form of a cold-miss forward-resolve.
 type lookupRequestEnvelope struct {
 	Name   string     `codec:"n"`
@@ -55,8 +57,8 @@ type lookupResponseEnvelope struct {
 	Found     bool    `codec:"f"`
 }
 
-// digestEnvelope carries a node's cache digest (name -> raftIndex) for
-// anti-entropy. Sorted name order; only live entries (no tombstones).
+// digestEnvelope carries a node's cache digest (name -> raftIndex, deleted)
+// for anti-entropy. Sorted name order.
 type digestEnvelope struct {
 	Origin  pid.NodeID    `codec:"o"`
 	Entries []digestEntry `codec:"en"`
@@ -66,6 +68,14 @@ type digestEnvelope struct {
 type digestEntry struct {
 	Name      string `codec:"n"`
 	RaftIndex uint64 `codec:"i"`
+	Deleted   bool   `codec:"d,omitempty"`
+}
+
+func peerDigestCurrent(cur digestEntry, local digestEntry) bool {
+	if cur.RaftIndex > local.RaftIndex {
+		return true
+	}
+	return cur.RaftIndex == local.RaftIndex && cur.Deleted == local.Deleted
 }
 
 // SetDissem wires the dissemination plane after construction. The boot path
@@ -362,9 +372,9 @@ func (s *Service) handleDigestExchange(msg *relay.Message) {
 	if d == nil {
 		return
 	}
-	peer := make(map[string]uint64, len(env.Entries))
+	peer := make(map[string]digestEntry, len(env.Entries))
 	for _, e := range env.Entries {
-		peer[e.Name] = e.RaftIndex
+		peer[e.Name] = e
 	}
 
 	var deltas []bindingDelta
@@ -377,7 +387,7 @@ func (s *Service) handleDigestExchange(msg *relay.Message) {
 			if !found {
 				continue
 			}
-			if cur, ok := peer[name]; ok && cur >= idx {
+			if cur, ok := peer[name]; ok && peerDigestCurrent(cur, digestEntry{Name: name, RaftIndex: idx}) {
 				continue
 			}
 			deltas = append(deltas, bindingDelta{
@@ -389,9 +399,10 @@ func (s *Service) handleDigestExchange(msg *relay.Message) {
 		}
 	}
 	// Names present in our dissem cache but not the FSM (or with higher index)
-	// fold in too. The dissem snapshot already excludes tombstones.
+	// fold in too. Tombstones are included so anti-entropy repairs missed
+	// deletes, not just missed live bindings.
 	for _, e := range d.DigestSnapshot().Entries {
-		if cur, ok := peer[e.Name]; ok && cur >= e.RaftIndex {
+		if cur, ok := peer[e.Name]; ok && peerDigestCurrent(cur, digestEntry(e)) {
 			continue
 		}
 		// Avoid double-emitting names the FSM block above already produced at
@@ -404,6 +415,15 @@ func (s *Service) handleDigestExchange(msg *relay.Message) {
 			}
 		}
 		if dup {
+			continue
+		}
+		if e.Deleted {
+			deltas = append(deltas, bindingDelta{
+				Name:      e.Name,
+				RaftIndex: e.RaftIndex,
+				Wall:      time.Now().UnixNano(),
+				Deleted:   true,
+			})
 			continue
 		}
 		if p, found := d.Lookup(e.Name); found {
@@ -419,15 +439,16 @@ func (s *Service) handleDigestExchange(msg *relay.Message) {
 	if len(deltas) == 0 {
 		return
 	}
-	frame := encodeBindingFrame(deltas)
-	pkg := relay.NewServicePackage(
-		s.localNode, HostID,
-		env.Origin, HostID,
-		topicDigestDelta,
-		payload.New(frame),
-	)
-	if err := s.router.Send(pkg); err != nil {
-		relay.ReleasePackage(pkg)
+	for _, frame := range encodeBindingFramesBounded(deltas, digestDeltaMaxFrameBytes) {
+		pkg := relay.NewServicePackage(
+			s.localNode, HostID,
+			env.Origin, HostID,
+			topicDigestDelta,
+			payload.New(frame),
+		)
+		if err := s.router.Send(pkg); err != nil {
+			relay.ReleasePackage(pkg)
+		}
 	}
 }
 
@@ -462,6 +483,43 @@ func encodeBindingFrame(deltas []bindingDelta) []byte {
 		}
 	}
 	return out
+}
+
+func encodeBindingFramesBounded(deltas []bindingDelta, maxBytes int) [][]byte {
+	if len(deltas) == 0 {
+		return nil
+	}
+	if maxBytes <= 0 {
+		maxBytes = digestDeltaMaxFrameBytes
+	}
+	var frames [][]byte
+	var cur []byte
+	flush := func() {
+		if len(cur) == 0 {
+			return
+		}
+		frames = append(frames, cur)
+		cur = nil
+	}
+	for _, d := range deltas {
+		encoded, err := encodeBindingDelta(nil, d)
+		if err != nil {
+			continue
+		}
+		if len(encoded) > maxBytes {
+			flush()
+			continue
+		}
+		if len(cur) > 0 && len(cur)+len(encoded) > maxBytes {
+			flush()
+		}
+		cur = append(cur, encoded...)
+		if len(cur) >= maxBytes {
+			flush()
+		}
+	}
+	flush()
+	return frames
 }
 
 // startJoinSnapshotSeedingForConsistent extends the join-epoch snapshot with

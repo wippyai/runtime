@@ -26,14 +26,13 @@ const crdtReapInterval = time.Second
 // crdtTombstoneGCInterval is how often the local tombstone GC pass runs.
 const crdtTombstoneGCInterval = time.Minute
 
-// crdtTombstoneFloor is the wall-clock age past which a delete tombstone is
-// dropped to bound memory. It must exceed the anti-entropy convergence window by
-// a wide margin so a tombstone is reaped only after every alive peer has
-// certainly observed it via push/pull; the value mirrors the eventual registry's
-// DefaultWallFloor. CV-gated (safe-counter) reaping — which would let healthy
-// clusters drop tombstones sooner — needs a per-origin digest exchange the
-// store.kv.crdt delegate does not run, so the wall floor is the sole bound.
-const crdtTombstoneFloor = 15 * time.Minute
+// DefaultTombstoneRetention is the default age-only delete-tombstone retention
+// for store.kv.crdt. A non-positive value disables age-only GC. That is the
+// correctness-first default: without per-peer delete acknowledgements or
+// per-origin CV digests, any finite wall-clock floor encodes a max-partition
+// assumption and can resurrect deletes on nodes that were offline longer than
+// the floor.
+const DefaultTombstoneRetention time.Duration = 0
 
 // wallScale shifts the real millisecond clock left so a per-node tiebreak fits
 // in the low digits. crdt.State.Apply resolves a cross-origin conflict purely by
@@ -87,7 +86,7 @@ func NewCRDTEngine(localNode string, bus event.Bus, logger *zap.Logger) *CRDTEng
 		durableNS:      make(map[string]struct{}),
 		snapInterval:   30 * time.Second,
 		gcInterval:     crdtTombstoneGCInterval,
-		tombstoneFloor: crdtTombstoneFloor,
+		tombstoneFloor: DefaultTombstoneRetention,
 		leaseKeys:      make(map[kvapi.LeaseID]map[string]struct{}),
 		deadlines:      make(map[kvapi.LeaseID]time.Time),
 		keyLease:       make(map[string]kvapi.LeaseID),
@@ -106,6 +105,16 @@ func (e *CRDTEngine) SetDurability(dataDir string, interval time.Duration) {
 	if interval > 0 {
 		e.snapInterval = interval
 	}
+	e.mu.Unlock()
+}
+
+// SetTombstoneRetention sets the age-only delete tombstone retention. A
+// non-positive duration disables age-only GC and keeps delete fences until the
+// process restarts or a future CV-gated GC mechanism can prove every peer has
+// observed the delete.
+func (e *CRDTEngine) SetTombstoneRetention(retention time.Duration) {
+	e.mu.Lock()
+	e.tombstoneFloor = retention
 	e.mu.Unlock()
 }
 
@@ -446,10 +455,10 @@ func (e *CRDTEngine) reaper() {
 	}
 }
 
-// tombstoneReaper periodically drops delete tombstones older than the wall
-// floor. Without it a churn of put/delete on a store.kv.crdt namespace grows
-// local state — and every gossip frame and durable snapshot — without bound,
-// because every Delete leaves a tombstone that otherwise lives forever.
+// tombstoneReaper periodically drops delete tombstones older than the configured
+// wall floor. With the default non-positive floor it is correctness-first and
+// does not age out tombstones; operators can configure a positive retention to
+// trade max-partition tolerance for bounded delete-churn memory.
 func (e *CRDTEngine) tombstoneReaper() {
 	defer e.wg.Done()
 	ticker := time.NewTicker(e.gcInterval)
@@ -468,11 +477,14 @@ func (e *CRDTEngine) tombstoneReaper() {
 
 // gcTombstones runs one tombstone GC pass. safeByNode is nil because the
 // store.kv.crdt delegate exchanges no per-origin CV digests, so the wall floor
-// is the only drop criterion; now and the floor are in the engine's scaled wall
-// units (real ms * wallScale) to match Entry.Wall.
+// is the only age-based drop criterion; now and the floor are in the engine's
+// scaled wall units (real ms * wallScale) to match Entry.Wall.
 func (e *CRDTEngine) gcTombstones() (int, int) {
+	e.mu.Lock()
+	retention := e.tombstoneFloor
+	e.mu.Unlock()
 	nowScaled := time.Now().UnixMilli() * wallScale
-	floorScaled := e.tombstoneFloor.Milliseconds() * wallScale
+	floorScaled := retention.Milliseconds() * wallScale
 	return e.state.ReapTombstones(nil, nowScaled, floorScaled)
 }
 

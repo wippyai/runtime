@@ -9,6 +9,7 @@ import (
 	api "github.com/wippyai/runtime/api/logs"
 
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/metrics"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -16,6 +17,7 @@ type Core struct {
 	downstream zapcore.Core
 	bus        event.Bus
 	config     *atomic.Value
+	collector  atomic.Pointer[metrics.Collector]
 }
 
 func NewCore(downstream zapcore.Core, bus event.Bus) api.Core {
@@ -41,6 +43,17 @@ func (c *Core) GetConfig() api.Config {
 	return c.config.Load().(api.Config)
 }
 
+func (c *Core) SetCollector(coll metrics.Collector) {
+	if coll == nil {
+		c.collector.Store(nil)
+		return
+	}
+	for _, level := range []string{"debug", "info", "warn", "error", "dpanic", "panic", "fatal"} {
+		coll.CounterAdd("runtime_log_emissions_total", 0, metrics.Labels{"level": level})
+	}
+	c.collector.Store(&coll)
+}
+
 func (c *Core) Enabled(level zapcore.Level) bool {
 	cfg := c.config.Load().(api.Config)
 
@@ -56,11 +69,15 @@ func (c *Core) Enabled(level zapcore.Level) bool {
 }
 
 func (c *Core) With(fields []zapcore.Field) zapcore.Core {
-	return &Core{
+	child := &Core{
 		downstream: c.downstream.With(fields),
 		bus:        c.bus,
 		config:     c.config,
 	}
+	if coll := c.collector.Load(); coll != nil {
+		child.collector.Store(coll)
+	}
+	return child
 }
 
 func (c *Core) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
@@ -84,6 +101,7 @@ func (c *Core) Write(ent zapcore.Entry, fields []zapcore.Field) error {
 	if cfg.StreamToEvents {
 		c.publishLogEvent(ent, fields)
 	}
+	c.recordEmission(ent.Level)
 
 	return nil
 }
@@ -96,6 +114,12 @@ func (c *Core) Sync() error {
 	}
 
 	return nil
+}
+
+func (c *Core) recordEmission(level zapcore.Level) {
+	if coll := c.collector.Load(); coll != nil {
+		(*coll).CounterInc("runtime_log_emissions_total", metrics.Labels{"level": level.String()})
+	}
 }
 
 type logEntry struct {

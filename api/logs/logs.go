@@ -7,6 +7,7 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/metrics"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -34,6 +35,7 @@ type (
 		zapcore.Core
 		Configure(cfg Config)
 		GetConfig() Config
+		SetCollector(c metrics.Collector)
 	}
 
 	// Manager represents a logging manager that can be started and stopped.
@@ -41,5 +43,6 @@ type (
 		Start(ctx context.Context) error
 		Stop() error
 		GetConfig() Config
+		SetCollector(c metrics.Collector)
 	}
 )

@@ -230,6 +230,12 @@ func newProcessSubSampler(proc *engine.Process) *processSubSampler {
 		case <-s.stopCh:
 			return
 		}
+		live := s.proc.LiveSubscriptionCount()
+		s.samples++
+		s.lastLive = live
+		if live > s.maxLive {
+			s.maxLive = live
+		}
 		ticker := stdtime.NewTicker(100 * stdtime.Microsecond)
 		defer ticker.Stop()
 		for {

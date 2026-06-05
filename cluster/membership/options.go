@@ -3,6 +3,8 @@
 package membership
 
 import (
+	"time"
+
 	"github.com/hashicorp/memberlist"
 	"github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
@@ -16,21 +18,24 @@ import (
 type Option func(*options)
 
 type options struct {
-	transport    memberlist.Transport
-	bus          event.Bus
-	meta         cluster.NodeMeta
-	logger       *zap.Logger
-	coll         metrics.Collector
-	mp           otelmetric.MeterProvider
-	tp           trace.TracerProvider
-	nodeName     string
-	bindAddr     string
-	secretFile   string
-	secretString string
-	advertiseIP  string
-	joinAddrs    []string
-	bindPort     int
-	veryVerbose  bool
+	transport           memberlist.Transport
+	bus                 event.Bus
+	coll                metrics.Collector
+	mp                  otelmetric.MeterProvider
+	tp                  trace.TracerProvider
+	meta                cluster.NodeMeta
+	logger              *zap.Logger
+	nodeName            string
+	bindAddr            string
+	secretFile          string
+	secretString        string
+	advertiseIP         string
+	joinAddrs           []string
+	gossipInterval      time.Duration
+	pushPullInterval    time.Duration
+	deadNodeReclaimTime time.Duration
+	bindPort            int
+	veryVerbose         bool
 }
 
 func defaultOptions() *options {
@@ -77,4 +82,23 @@ func WithTelemetry(coll metrics.Collector, mp otelmetric.MeterProvider, tp trace
 		o.mp = mp
 		o.tp = tp
 	}
+}
+
+// WithGossipInterval tunes memberlist's UDP gossip cadence. Non-positive values
+// fall back to the production default at Start.
+func WithGossipInterval(d time.Duration) Option {
+	return func(o *options) { o.gossipInterval = d }
+}
+
+// WithPushPullInterval tunes memberlist's TCP full-state anti-entropy cadence.
+// Non-positive values fall back to the production default at Start.
+func WithPushPullInterval(d time.Duration) Option {
+	return func(o *options) { o.pushPullInterval = d }
+}
+
+// WithDeadNodeReclaimTime tunes how long a dead same-name member must remain
+// dead before a different address can reclaim that node name. Non-positive
+// values fall back to the production default at Start.
+func WithDeadNodeReclaimTime(d time.Duration) Option {
+	return func(o *options) { o.deadNodeReclaimTime = d }
 }

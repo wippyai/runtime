@@ -67,6 +67,173 @@ func (c *captureDelegate) MergeRemoteState(_ []byte, _ bool) {
 	c.mergeRx.Add(1)
 }
 
+type oneShotDelegate struct {
+	body []byte
+	sent atomic.Bool
+	kind byte
+}
+
+func (d *oneShotDelegate) Kind() byte { return d.kind }
+
+func (d *oneShotDelegate) GetBroadcasts(_, _ int) [][]byte {
+	if d.sent.Swap(true) {
+		return nil
+	}
+	return [][]byte{d.body}
+}
+
+func (d *oneShotDelegate) NotifyMsg(_ []byte)                {}
+func (d *oneShotDelegate) LocalState(_ bool) []byte          { return nil }
+func (d *oneShotDelegate) MergeRemoteState(_ []byte, _ bool) {}
+
+type stickyDelegate struct {
+	body  []byte
+	calls atomic.Int64
+	kind  byte
+}
+
+func (d *stickyDelegate) Kind() byte { return d.kind }
+func (d *stickyDelegate) GetBroadcasts(_, _ int) [][]byte {
+	d.calls.Add(1)
+	return [][]byte{d.body}
+}
+func (d *stickyDelegate) NotifyMsg(_ []byte)                {}
+func (d *stickyDelegate) LocalState(_ bool) []byte          { return nil }
+func (d *stickyDelegate) MergeRemoteState(_ []byte, _ bool) {}
+
+func TestDelegate_GetBroadcasts_RetransmitsOneShotUserFrame(t *testing.T) {
+	logger := zap.NewNop()
+	bus := eventbus.NewBus()
+	svc := NewService(Config{NodeName: "node-a"}, bus, logger, nil, nil, nil)
+	ud := &oneShotDelegate{kind: 0xE1, body: []byte("delta")}
+	if err := svc.RegisterUserDelegate(ud); err != nil {
+		t.Fatalf("register delegate: %v", err)
+	}
+
+	d := newDelegate(svc, 3)
+	first := d.GetBroadcasts(10, 512)
+	if len(first) != 1 {
+		t.Fatalf("first GetBroadcasts returned %d frames, want 1", len(first))
+	}
+	second := d.GetBroadcasts(10, 512)
+	if len(second) != 1 {
+		t.Fatalf("second GetBroadcasts returned %d frames, want retransmit of queued frame", len(second))
+	}
+	if string(first[0]) != string(second[0]) {
+		t.Fatalf("retransmit frame mismatch: %q != %q", string(first[0]), string(second[0]))
+	}
+}
+
+func TestDelegate_GetBroadcasts_DuplicateFrameDoesNotResetTransmitLimit(t *testing.T) {
+	logger := zap.NewNop()
+	bus := eventbus.NewBus()
+	svc := NewService(Config{NodeName: "node-a"}, bus, logger, nil, nil, nil)
+	ud := &stickyDelegate{kind: 0xE1, body: []byte("same-delta")}
+	if err := svc.RegisterUserDelegate(ud); err != nil {
+		t.Fatalf("register delegate: %v", err)
+	}
+
+	d := newDelegate(svc, 3)
+	for i := 0; i < 3; i++ {
+		frames := d.GetBroadcasts(10, 512)
+		if len(frames) != 1 {
+			t.Fatalf("GetBroadcasts round %d returned %d frames, want 1", i+1, len(frames))
+		}
+	}
+	if queued := d.broadcasts.NumQueued(); queued != 0 {
+		t.Fatalf("duplicate frame reset transmit limit; queued=%d want 0 after limit", queued)
+	}
+}
+
+func TestDelegate_GetBroadcasts_DuplicateFrameDoesNotConsumeNewWorkBudget(t *testing.T) {
+	logger := zap.NewNop()
+	bus := eventbus.NewBus()
+	svc := NewService(Config{NodeName: "node-a"}, bus, logger, nil, nil, nil)
+	dup := &stickyDelegate{kind: 0xE1, body: []byte("duplicate-delta")}
+	next := &oneShotDelegate{kind: 0xE2, body: []byte("other-delta")}
+	if err := svc.RegisterUserDelegate(dup); err != nil {
+		t.Fatalf("register duplicate delegate: %v", err)
+	}
+	if err := svc.RegisterUserDelegate(next); err != nil {
+		t.Fatalf("register second delegate: %v", err)
+	}
+
+	d := newDelegate(svc, 3)
+	first := d.GetBroadcasts(10, 512)
+	if len(first) != 2 {
+		t.Fatalf("first GetBroadcasts returned %d frames, want 2", len(first))
+	}
+	second := d.GetBroadcasts(10, 512)
+	if len(second) != 2 {
+		t.Fatalf("duplicate should not consume new-work budget; second returned %d frames, want 2", len(second))
+	}
+}
+
+func TestDelegate_GetBroadcasts_RetainsFrameTooLargeForCurrentBudget(t *testing.T) {
+	logger := zap.NewNop()
+	bus := eventbus.NewBus()
+	svc := NewService(Config{NodeName: "node-a"}, bus, logger, nil, nil, nil)
+	ud := &oneShotDelegate{kind: 0xE1, body: make([]byte, 1024)}
+	if err := svc.RegisterUserDelegate(ud); err != nil {
+		t.Fatalf("register delegate: %v", err)
+	}
+
+	d := newDelegate(svc, 3)
+	if frames := d.GetBroadcasts(10, 128); len(frames) != 0 {
+		t.Fatalf("oversized frame returned %d frames, want 0", len(frames))
+	}
+	if queued := d.broadcasts.NumQueued(); queued != 1 {
+		t.Fatalf("frame too large for current budget queued=%d want 1", queued)
+	}
+	if frames := d.GetBroadcasts(10, 2048); len(frames) != 1 {
+		t.Fatalf("retained frame returned %d frames once budget fits, want 1", len(frames))
+	}
+}
+
+func TestDelegate_GetBroadcasts_DropsFrameTooLargeForMemberlistPacket(t *testing.T) {
+	logger := zap.NewNop()
+	bus := eventbus.NewBus()
+	svc := NewService(Config{NodeName: "node-a"}, bus, logger, nil, nil, nil)
+	ud := &oneShotDelegate{kind: 0xE1, body: make([]byte, userBroadcastMaxPacketBytes)}
+	if err := svc.RegisterUserDelegate(ud); err != nil {
+		t.Fatalf("register delegate: %v", err)
+	}
+
+	d := newDelegate(svc, 3)
+	if frames := d.GetBroadcasts(10, userBroadcastMaxPacketBytes*2); len(frames) != 0 {
+		t.Fatalf("impossible-size frame returned %d frames, want 0", len(frames))
+	}
+	if queued := d.broadcasts.NumQueued(); queued != 0 {
+		t.Fatalf("impossible-size frame queued=%d want 0", queued)
+	}
+}
+
+func TestDelegate_GetBroadcasts_BackpressureSkipsDelegatePolling(t *testing.T) {
+	logger := zap.NewNop()
+	bus := eventbus.NewBus()
+	svc := NewService(Config{NodeName: "node-a"}, bus, logger, nil, nil, nil)
+	ud := &stickyDelegate{kind: 0xE1, body: []byte("new-delta")}
+	if err := svc.RegisterUserDelegate(ud); err != nil {
+		t.Fatalf("register delegate: %v", err)
+	}
+
+	d := newDelegate(svc, 3)
+	for i := 0; i < userBroadcastBackpressure; i++ {
+		frame := []byte{0xE1, 2, 0, 0, 0, byte(i), byte(i >> 8)}
+		if !d.queueBroadcast(frame) {
+			t.Fatalf("queue prefill %d was rejected", i)
+		}
+	}
+
+	frames := d.GetBroadcasts(10, 512)
+	if len(frames) == 0 {
+		t.Fatalf("expected queued frames to drain under backpressure")
+	}
+	if got := ud.calls.Load(); got != 0 {
+		t.Fatalf("delegate polled under backpressure: calls=%d", got)
+	}
+}
+
 // TestMultiplex_TwoNodes_UserBroadcastDelivers verifies that when node A
 // produces a user-broadcast via a registered UserDelegate, node B's
 // matching UserDelegate (same Kind byte) receives it through memberlist.
