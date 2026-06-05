@@ -12,4 +12,5 @@ var (
 	ErrPasswordRequired    = apierror.New(apierror.Invalid, "password is required").WithRetryable(apierror.False)
 	ErrSlotNameRequired    = apierror.New(apierror.Invalid, "slot_name is required").WithRetryable(apierror.False)
 	ErrPublicationRequired = apierror.New(apierror.Invalid, "publication or tables is required").WithRetryable(apierror.False)
+	ErrInvalidInterval     = apierror.New(apierror.Invalid, "interval must be a non-negative duration (e.g. 10s)").WithRetryable(apierror.False)
 )

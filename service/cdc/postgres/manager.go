@@ -70,18 +70,22 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return NewInvalidConfigError(err)
 	}
 
+	standby, _ := cfg.StandbyDuration()
+	status, _ := cfg.StatusDuration()
 	replDSN, adminDSN := buildDSNs(cfg)
 	src := NewSource(SourceOptions{
-		ReplDSN:     replDSN,
-		AdminDSN:    adminDSN,
-		Slot:        cfg.SlotName,
-		Publication: cfg.Publication,
-		Tables:      cfg.Tables,
-		EventSystem: cfg.EventSystem,
-		Temporary:   cfg.Temporary,
-		Snapshot:    cfg.Snapshot,
-		Bus:         m.bus,
-		Log:         m.log.With(zap.String("id", entry.ID.String())),
+		ReplDSN:         replDSN,
+		AdminDSN:        adminDSN,
+		Slot:            cfg.SlotName,
+		Publication:     cfg.Publication,
+		Tables:          cfg.Tables,
+		EventSystem:     cfg.EventSystem,
+		Temporary:       cfg.Temporary,
+		Snapshot:        cfg.Snapshot,
+		StandbyInterval: standby,
+		StatusInterval:  status,
+		Bus:             m.bus,
+		Log:             m.log.With(zap.String("id", entry.ID.String())),
 	})
 
 	m.sources[entry.ID] = src
@@ -113,18 +117,22 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	m.unregister(ctx, entry)
 
+	standby, _ := cfg.StandbyDuration()
+	status, _ := cfg.StatusDuration()
 	replDSN, adminDSN := buildDSNs(cfg)
 	src := NewSource(SourceOptions{
-		ReplDSN:     replDSN,
-		AdminDSN:    adminDSN,
-		Slot:        cfg.SlotName,
-		Publication: cfg.Publication,
-		Tables:      cfg.Tables,
-		EventSystem: cfg.EventSystem,
-		Temporary:   cfg.Temporary,
-		Snapshot:    cfg.Snapshot,
-		Bus:         m.bus,
-		Log:         m.log.With(zap.String("id", entry.ID.String())),
+		ReplDSN:         replDSN,
+		AdminDSN:        adminDSN,
+		Slot:            cfg.SlotName,
+		Publication:     cfg.Publication,
+		Tables:          cfg.Tables,
+		EventSystem:     cfg.EventSystem,
+		Temporary:       cfg.Temporary,
+		Snapshot:        cfg.Snapshot,
+		StandbyInterval: standby,
+		StatusInterval:  status,
+		Bus:             m.bus,
+		Log:             m.log.With(zap.String("id", entry.ID.String())),
 	})
 	m.sources[entry.ID] = src
 	m.register(ctx, entry, src, cfg.Lifecycle)

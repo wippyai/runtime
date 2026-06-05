@@ -4,6 +4,7 @@ package cdc
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,6 +68,39 @@ func TestConfigEnvSatisfiesRequired(t *testing.T) {
 		Publication: "pub",
 	}
 	require.NoError(t, c.Validate())
+}
+
+func TestConfigIntervalsParse(t *testing.T) {
+	c := validConfig()
+	c.StandbyInterval = "5s"
+	c.StatusInterval = "1m"
+	require.NoError(t, c.Validate())
+
+	standby, err := c.StandbyDuration()
+	require.NoError(t, err)
+	assert.Equal(t, 5*time.Second, standby)
+
+	status, err := c.StatusDuration()
+	require.NoError(t, err)
+	assert.Equal(t, time.Minute, status)
+}
+
+func TestConfigIntervalsEmptyMeansDefault(t *testing.T) {
+	c := validConfig()
+	standby, err := c.StandbyDuration()
+	require.NoError(t, err)
+	assert.Equal(t, time.Duration(0), standby)
+}
+
+func TestConfigIntervalsInvalid(t *testing.T) {
+	for _, bad := range []string{"nonsense", "-5s", "10"} {
+		c := validConfig()
+		c.StandbyInterval = bad
+		require.ErrorIs(t, c.Validate(), ErrInvalidInterval, "standby %q must be rejected", bad)
+	}
+	c := validConfig()
+	c.StatusInterval = "abc"
+	require.ErrorIs(t, c.Validate(), ErrInvalidInterval)
 }
 
 func TestConfigInitDefaults(t *testing.T) {
