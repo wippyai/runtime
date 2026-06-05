@@ -30,6 +30,9 @@ cluster:
     join_addrs: "node-0:7946,node-1:7946,node-2:7946"  # gossip seeds (any subset works)
     # secret_key / secret_file: shared gossip encryption key. Nodes with
     # different keys never see each other, so this also scopes the cluster.
+    # gossip_interval: 500ms       # UDP gossip cadence; lower is faster but noisier.
+    # push_pull_interval: 5s       # TCP full-state anti-entropy cadence.
+    # dead_node_reclaim_time: 30s  # same-name/different-address reclaim after hard death.
   raft:
     bootstrap_expect: 3    # size of the initial voter quorum
 
@@ -46,6 +49,7 @@ cluster:
   membership:
     join_addrs: "node-0:7946,node-1:7946,node-2:7946"
     secret_key: "${GOSSIP_SECRET}"
+    # dead_node_reclaim_time: 30s # set lower, e.g. 3s, only when same-name pod IP reuse is expected and false-dead probes are rare.
   raft:
     role: server              # "server" (default) runs raft; "client" is gossip-only
     bootstrap_expect: 5       # initial server quorum (set on the server nodes)
@@ -72,3 +76,10 @@ cluster:
 #     max_append_entries: 16
 #     reconcile_debounce: 2s
 #     reconcile_timeout: 2s
+#     # AP delete-retention mode:
+#     #   0    = correctness-first cache fences; no age-only expiry.
+#     #   >0   = memory-bound mode; safe only if it exceeds max offline/partition time.
+#     # Durable per-peer causal ACK / membership-epoch retirement is the stronger
+#     # future compaction mode; do not treat a TTL as causal proof.
+#     global_dissem_tombstone_retention: 0
+#   kv_crdt_tombstone_retention: 0

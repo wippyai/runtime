@@ -8,13 +8,17 @@ import (
 	"sync"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // memberlistLogWriter routes memberlist's standard-library logger output
-// through zap, preserving severity. Without this, memberlist [ERR] lines
-// (e.g., "Failed to decode user message") get swallowed by io.Discard and
-// real bugs hide for as long as no one runs with VeryVerbose. Symptom-only
-// noise ([DEBUG]/[INFO]) is dropped unless verbose is enabled.
+// through zap with runtime-oriented severity. Without this, memberlist [ERR]
+// lines (e.g., "Failed to decode user message") get swallowed by io.Discard
+// and real bugs hide for as long as no one runs with VeryVerbose. Some
+// memberlist [ERR] lines are normal SWIM failure-detection symptoms under
+// partitions or packet loss; those are telemetry signals, not runtime errors,
+// and are downgraded so chaos/network churn does not poison the error-log SLO.
+// Symptom-only noise ([DEBUG]/[INFO]) is dropped unless verbose is enabled.
 type memberlistLogWriter struct {
 	logger  *zap.Logger
 	buf     bytes.Buffer
@@ -53,19 +57,16 @@ func (w *memberlistLogWriter) emit(line string) {
 	if line == "" {
 		return
 	}
-	// memberlist's stdlib logger prefixes severity like "[ERR]" / "[WARN]" /
-	// "[INFO]" / "[DEBUG]". The standard log.Logger also prefixes a date and
-	// time — strip those by matching the bracketed tag.
-	switch {
-	case strings.Contains(line, "[ERR]"), strings.Contains(line, "[ERROR]"):
+	switch memberlistZapLevel(line) {
+	case zapcore.ErrorLevel:
 		w.logger.Error("memberlist", zap.String("msg", line))
-	case strings.Contains(line, "[WARN]"):
+	case zapcore.WarnLevel:
 		w.logger.Warn("memberlist", zap.String("msg", line))
-	case strings.Contains(line, "[INFO]"):
+	case zapcore.InfoLevel:
 		if w.verbose {
 			w.logger.Info("memberlist", zap.String("msg", line))
 		}
-	case strings.Contains(line, "[DEBUG]"):
+	case zapcore.DebugLevel:
 		if w.verbose {
 			w.logger.Debug("memberlist", zap.String("msg", line))
 		}
@@ -75,4 +76,43 @@ func (w *memberlistLogWriter) emit(line string) {
 			w.logger.Info("memberlist", zap.String("msg", line))
 		}
 	}
+}
+
+func memberlistZapLevel(line string) zapcore.Level {
+	// memberlist's stdlib logger prefixes severity like "[ERR]" / "[WARN]" /
+	// "[INFO]" / "[DEBUG]". The standard log.Logger can also prefix a date and
+	// time, so classify by matching the bracketed tag anywhere in the line.
+	switch {
+	case strings.Contains(line, "[ERR]"), strings.Contains(line, "[ERROR]"):
+		if isExpectedMemberlistNetworkFailure(line) {
+			return zapcore.WarnLevel
+		}
+		return zapcore.ErrorLevel
+	case strings.Contains(line, "[WARN]"):
+		return zapcore.WarnLevel
+	case strings.Contains(line, "[INFO]"):
+		return zapcore.InfoLevel
+	case strings.Contains(line, "[DEBUG]"):
+		return zapcore.DebugLevel
+	default:
+		return zapcore.InvalidLevel
+	}
+}
+
+func isExpectedMemberlistNetworkFailure(line string) bool {
+	msg := strings.ToLower(line)
+	expected := [...]string{
+		"failed fallback tcp ping",
+		"failed to send gossip",
+		"failed to send indirect ping",
+		"failed to send indirect udp ping",
+		"failed to send udp ping",
+		"failed to send udp compound ping",
+	}
+	for _, needle := range expected {
+		if strings.Contains(msg, needle) {
+			return true
+		}
+	}
+	return false
 }

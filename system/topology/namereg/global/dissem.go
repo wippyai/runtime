@@ -27,15 +27,15 @@ const (
 	// dissemMaxFrameBytes mirrors eventualreg's safe UDP packet ceiling.
 	dissemMaxFrameBytes = 1400
 
-	// tombstoneGCInterval is the period the cache sweeps tombstones older than
-	// tombstoneWallFloor. Cheap walk; intentionally infrequent.
+	// tombstoneGCInterval is the period the cache checks whether tombstone
+	// expiry is explicitly enabled. Cheap walk; intentionally infrequent.
 	tombstoneGCInterval = 5 * time.Minute
 
-	// tombstoneWallFloor is the minimum wall-time a tombstone is retained
-	// before GC drops it. Conservative — a node that missed the broadcast and
-	// anti-entropy for longer than this is rare and would heal via a fresh
-	// authoritative bind anyway.
-	tombstoneWallFloor = 15 * time.Minute
+	// tombstoneWallFloor is the default deleted-binding fence retention for the
+	// AP cache. Zero disables age-only GC by default: without per-peer delete
+	// acknowledgements or a durable delete vector, a finite default TTL is only
+	// an operator assumption about max partition length.
+	tombstoneWallFloor = 0
 
 	// antiEntropyInterval drives the periodic digest exchange with a derived
 	// member. Bounded; one peer per tick.
@@ -70,14 +70,15 @@ type bindingEntry struct {
 //   - LocalApply      (member's own FSM.Apply seeding the cache so members can
 //     use the cache as a fast path alongside their FSM).
 type Dissem struct {
-	logger    *zap.Logger
-	cache     map[string]bindingEntry
-	stopCh    chan struct{}
-	localNode pid.NodeID
-	queue     []bindingDelta
-	qDropped  uint64
-	mu        sync.RWMutex
-	qMu       sync.Mutex
+	cache              map[string]bindingEntry
+	logger             *zap.Logger
+	stopCh             chan struct{}
+	localNode          pid.NodeID
+	queue              []bindingDelta
+	tombstoneRetention time.Duration
+	qDropped           uint64
+	mu                 sync.RWMutex
+	qMu                sync.Mutex
 }
 
 // bindingDelta is the wire form of one cache mutation. Encoded compactly so
@@ -100,17 +101,36 @@ type bindingDelta struct {
 	Deleted   bool
 }
 
+// DissemOption tunes the active-binding dissemination cache.
+type DissemOption func(*Dissem)
+
+// WithTombstoneRetention tunes how long deleted bindings remain in the AP cache
+// to fence stale lower-index live gossip. A non-positive value keeps the
+// default.
+func WithTombstoneRetention(retention time.Duration) DissemOption {
+	return func(d *Dissem) {
+		if retention > 0 {
+			d.tombstoneRetention = retention
+		}
+	}
+}
+
 // NewDissem builds an empty dissemination plane bound to the local node ID.
-func NewDissem(localNode pid.NodeID, logger *zap.Logger) *Dissem {
+func NewDissem(localNode pid.NodeID, logger *zap.Logger, opts ...DissemOption) *Dissem {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	return &Dissem{
-		localNode: localNode,
-		logger:    logger.Named("global.dissem"),
-		cache:     make(map[string]bindingEntry, 64),
-		stopCh:    make(chan struct{}),
+	d := &Dissem{
+		localNode:          localNode,
+		logger:             logger.Named("global.dissem"),
+		cache:              make(map[string]bindingEntry, 64),
+		stopCh:             make(chan struct{}),
+		tombstoneRetention: tombstoneWallFloor,
 	}
+	for _, opt := range opts {
+		opt(d)
+	}
+	return d
 }
 
 // Kind reports the multiplex byte for globalreg dissemination frames.
@@ -368,8 +388,10 @@ func (d *Dissem) Stop() {
 	}
 }
 
-// RunGC sweeps tombstones older than tombstoneWallFloor. Bounded; one walk per
-// tick. Safe to call exactly once after construction.
+// RunGC sweeps tombstones older than tombstoneRetention. Bounded retention is
+// safe for this AP cache because Raft/FSM is the source of truth and memberlist
+// retransmission windows are finite; the floor exists only to fence stale
+// lower-index live gossip.
 func (d *Dissem) RunGC() {
 	t := time.NewTicker(tombstoneGCInterval)
 	defer t.Stop()
@@ -383,10 +405,14 @@ func (d *Dissem) RunGC() {
 	}
 }
 
-// sweepTombstones drops every tombstone whose wall-time predates the floor.
-// Held only briefly under the cache write-lock.
+// sweepTombstones drops every tombstone whose wall-time predates the floor. Held
+// only briefly under the cache write-lock.
 func (d *Dissem) sweepTombstones(nowNano int64) int {
-	floor := nowNano - tombstoneWallFloor.Nanoseconds()
+	retention := d.tombstoneRetention
+	if retention <= 0 {
+		return 0
+	}
+	floor := nowNano - retention.Nanoseconds()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	removed := 0
@@ -402,29 +428,29 @@ func (d *Dissem) sweepTombstones(nowNano int64) int {
 	return removed
 }
 
-// Digest is a compact projection of the cache used by anti-entropy: name -> raftIndex.
-// Sorted in name order so the comparison is deterministic.
+// Digest is a compact projection of the cache used by anti-entropy:
+// name -> (raftIndex, deleted). Sorted in name order so comparison is
+// deterministic.
 type Digest struct {
 	Entries []DigestEntry
 }
 
-// DigestEntry is one name + index in a digest.
+// DigestEntry is one name + index in a digest. Deleted entries are included so
+// anti-entropy can repair peers that missed a tombstone broadcast.
 type DigestEntry struct {
 	Name      string
 	RaftIndex uint64
+	Deleted   bool
 }
 
-// DigestSnapshot returns a sorted snapshot of (name, raftIndex) for active
-// (non-tombstoned) entries. Used by anti-entropy mismatch detection.
+// DigestSnapshot returns a sorted snapshot of (name, raftIndex, deleted) for
+// the cache. Used by anti-entropy mismatch detection.
 func (d *Dissem) DigestSnapshot() Digest {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	out := make([]DigestEntry, 0, len(d.cache))
 	for name, e := range d.cache {
-		if e.Deleted {
-			continue
-		}
-		out = append(out, DigestEntry{Name: name, RaftIndex: e.RaftIndex})
+		out = append(out, DigestEntry{Name: name, RaftIndex: e.RaftIndex, Deleted: e.Deleted})
 	}
 	return Digest{Entries: out}
 }

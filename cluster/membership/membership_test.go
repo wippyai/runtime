@@ -43,6 +43,39 @@ func setupService(_ *testing.T) (*Service, *eventbus.Bus, context.Context, conte
 	return service, bus, ctx, cancel
 }
 
+func TestApplyMemberlistTiming_DefaultsAndBadValues(t *testing.T) {
+	cfg := memberlist.DefaultLocalConfig()
+	applyMemberlistTiming(cfg, Config{})
+
+	assert.Equal(t, DefaultGossipInterval, cfg.GossipInterval)
+	assert.Equal(t, DefaultPushPullInterval, cfg.PushPullInterval)
+	assert.Equal(t, DefaultDeadNodeReclaimTime, cfg.DeadNodeReclaimTime)
+
+	cfg = memberlist.DefaultLocalConfig()
+	applyMemberlistTiming(cfg, Config{
+		GossipInterval:      -time.Second,
+		PushPullInterval:    -time.Second,
+		DeadNodeReclaimTime: -time.Second,
+	})
+
+	assert.Equal(t, DefaultGossipInterval, cfg.GossipInterval)
+	assert.Equal(t, DefaultPushPullInterval, cfg.PushPullInterval)
+	assert.Equal(t, DefaultDeadNodeReclaimTime, cfg.DeadNodeReclaimTime)
+}
+
+func TestApplyMemberlistTiming_CustomValues(t *testing.T) {
+	cfg := memberlist.DefaultLocalConfig()
+	applyMemberlistTiming(cfg, Config{
+		GossipInterval:      750 * time.Millisecond,
+		PushPullInterval:    10 * time.Second,
+		DeadNodeReclaimTime: 2 * time.Minute,
+	})
+
+	assert.Equal(t, 750*time.Millisecond, cfg.GossipInterval)
+	assert.Equal(t, 10*time.Second, cfg.PushPullInterval)
+	assert.Equal(t, 2*time.Minute, cfg.DeadNodeReclaimTime)
+}
+
 func generateSecretKey() string {
 	key := make([]byte, 32)
 	for i := range key {
@@ -108,6 +141,15 @@ func TestService_Start_WithSecretKey(t *testing.T) {
 	defer func() { _ = service.Stop() }()
 
 	assert.NotNil(t, service.memberlist)
+}
+
+func TestService_SendUserMessageRejectsOversizedPayloadBeforeStart(t *testing.T) {
+	service, _, _, cancel := setupService(t)
+	defer cancel()
+
+	err := service.SendUserMessage("peer", 0xE1, make([]byte, ReliableUserMessageMaxPayloadBytes+1))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reliable payload too large")
 }
 
 func TestService_Start_WithAdvertiseIP(t *testing.T) {
@@ -539,7 +581,7 @@ func TestDelegate_NodeMeta_ValidJSON(t *testing.T) {
 	service, _, _, cancel := setupService(t)
 	defer cancel()
 
-	d := &delegate{service: service}
+	d := newDelegate(service, memberlist.DefaultLocalConfig().RetransmitMult)
 
 	meta := d.NodeMeta(512)
 
@@ -565,7 +607,7 @@ func TestDelegate_NodeMeta_EmptyMeta(t *testing.T) {
 	}
 
 	service := NewService(config, bus, logger, nil, nil, nil)
-	d := &delegate{service: service}
+	d := newDelegate(service, memberlist.DefaultLocalConfig().RetransmitMult)
 
 	meta := d.NodeMeta(512)
 
@@ -589,7 +631,7 @@ func TestDelegate_NodeMeta_ExceedsLimit(t *testing.T) {
 	}
 
 	service := NewService(config, bus, logger, nil, nil, nil)
-	d := &delegate{service: service}
+	d := newDelegate(service, memberlist.DefaultLocalConfig().RetransmitMult)
 
 	meta := d.NodeMeta(10)
 
@@ -600,7 +642,7 @@ func TestDelegate_GetBroadcasts(t *testing.T) {
 	service, _, _, cancel := setupService(t)
 	defer cancel()
 
-	d := &delegate{service: service}
+	d := newDelegate(service, memberlist.DefaultLocalConfig().RetransmitMult)
 
 	broadcasts := d.GetBroadcasts(10, 512)
 
@@ -611,7 +653,7 @@ func TestDelegate_LocalState(t *testing.T) {
 	service, _, _, cancel := setupService(t)
 	defer cancel()
 
-	d := &delegate{service: service}
+	d := newDelegate(service, memberlist.DefaultLocalConfig().RetransmitMult)
 
 	state := d.LocalState(false)
 
@@ -623,7 +665,7 @@ func TestDelegate_MergeRemoteState(t *testing.T) {
 	service, _, _, cancel := setupService(t)
 	defer cancel()
 
-	d := &delegate{service: service}
+	d := newDelegate(service, memberlist.DefaultLocalConfig().RetransmitMult)
 
 	d.MergeRemoteState([]byte(`{"key":"value"}`), true)
 }
@@ -632,9 +674,29 @@ func TestDelegate_NotifyMsg(t *testing.T) {
 	service, _, _, cancel := setupService(t)
 	defer cancel()
 
-	d := &delegate{service: service}
+	d := newDelegate(service, memberlist.DefaultLocalConfig().RetransmitMult)
 
 	d.NotifyMsg([]byte("test message"))
+}
+
+func TestDelegate_NotifyMsgDropsOversizedReliablePayload(t *testing.T) {
+	service, _, _, cancel := setupService(t)
+	defer cancel()
+
+	cap := &captureDelegate{kind: 0xE1}
+	require.NoError(t, service.RegisterUserDelegate(cap))
+	d := newDelegate(service, memberlist.DefaultLocalConfig().RetransmitMult)
+
+	payload := make([]byte, ReliableUserMessageMaxPayloadBytes+1)
+	wrapped := make([]byte, 0, len(payload)+5)
+	wrapped = append(wrapped, cap.kind)
+	n := uint32(len(payload))
+	wrapped = append(wrapped, byte(n), byte(n>>8), byte(n>>16), byte(n>>24))
+	wrapped = append(wrapped, payload...)
+
+	d.NotifyMsg(wrapped)
+
+	assert.Equal(t, int64(0), cap.rx.Load())
 }
 
 func TestDelegate_NotifyMsg_VeryVerbose(_ *testing.T) {
@@ -649,7 +711,7 @@ func TestDelegate_NotifyMsg_VeryVerbose(_ *testing.T) {
 	}
 
 	service := NewService(config, bus, logger, nil, nil, nil)
-	d := &delegate{service: service}
+	d := newDelegate(service, memberlist.DefaultLocalConfig().RetransmitMult)
 
 	d.NotifyMsg([]byte("test message"))
 }
@@ -666,7 +728,7 @@ func TestDelegate_MergeRemoteState_VeryVerbose(_ *testing.T) {
 	}
 
 	service := NewService(config, bus, logger, nil, nil, nil)
-	d := &delegate{service: service}
+	d := newDelegate(service, memberlist.DefaultLocalConfig().RetransmitMult)
 
 	d.MergeRemoteState([]byte(`{"key":"value"}`), true)
 }

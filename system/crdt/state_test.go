@@ -249,6 +249,21 @@ func TestState_ReapTombstones_SafeCounter(t *testing.T) {
 	}
 }
 
+func TestState_ReapTombstones_WallFloorDisabled(t *testing.T) {
+	s := NewState("node-A")
+	_, _ = s.Register("k", []byte("v"), 100)
+	_, _ = s.Unregister("k", 200)
+
+	cv := []uint64{0}
+	gcSafe, gcFloor := s.ReapTombstones(cv, 1_000_000_000, 0)
+	if gcSafe != 0 || gcFloor != 0 {
+		t.Errorf("gcSafe=%d gcFloor=%d, want 0/0", gcSafe, gcFloor)
+	}
+	if s.TombstoneCount() != 1 {
+		t.Errorf("tombstone reaped with wall floor disabled")
+	}
+}
+
 func TestState_RangeOrdered(t *testing.T) {
 	s := NewState("node-A")
 	keys := []string{"a", "c", "b", "e", "d"}

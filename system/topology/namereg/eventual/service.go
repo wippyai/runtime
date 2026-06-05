@@ -99,7 +99,8 @@ type Config struct {
 	AntiEntropyPeriod time.Duration
 	// GCPeriod is the tombstone reap cadence. Default 20 s.
 	GCPeriod time.Duration
-	// WallFloor caps tombstone age. Default 15 min.
+	// WallFloor caps tombstone age when positive. Default 0 disables
+	// time-based tombstone expiry; safe-counter GC remains enabled.
 	WallFloor time.Duration
 	// ShardRequestCooldown suppresses repeated shard requests to the
 	// same peer within this window — keeps a sustained mismatch from
@@ -139,9 +140,6 @@ func NewService(cfg Config) *Service {
 	}
 	if cfg.GCPeriod <= 0 {
 		cfg.GCPeriod = 20 * time.Second
-	}
-	if cfg.WallFloor <= 0 {
-		cfg.WallFloor = DefaultWallFloor
 	}
 	if cfg.BroadcastCap <= 0 {
 		cfg.BroadcastCap = 4096
@@ -450,28 +448,50 @@ func (s *Service) handleShardRequestFrame(body []byte) {
 		return
 	}
 	payloads := make([][]byte, 0, len(ids))
+	payloadsSkipped := 0
+	maxShardPayloadBytes := ReliableFrameMaxBytes - (2 + len(s.cfg.LocalNodeID))
 	for _, id := range ids {
-		p, err := s.LocalShardPayload(id)
+		entries := s.state.ShardEntries(int(id))
+		chunks, skipped, err := EncodeShardPayloadsBounded(id, entries, s.state.NodeString, maxShardPayloadBytes)
 		if err != nil {
 			s.logger.Warn("eventualreg: encode shard", zap.Uint16("shard", id), zap.Error(err))
 			continue
 		}
-		payloads = append(payloads, p)
+		payloadsSkipped += skipped
+		payloads = append(payloads, chunks...)
 	}
 	if len(payloads) == 0 {
+		if payloadsSkipped > 0 {
+			s.logger.Warn("eventualreg: shard response entries exceeded reliable frame cap",
+				zap.String("to", sender),
+				zap.Int("skipped", payloadsSkipped),
+				zap.Int("max_bytes", ReliableFrameMaxBytes))
+		}
 		return
 	}
-	frame, err := EncodeShardResponseFrame(s.cfg.LocalNodeID, payloads)
+	frames, sent, skipped, err := EncodeShardResponseFramesBounded(s.cfg.LocalNodeID, payloads, ReliableFrameMaxBytes)
 	if err != nil {
 		s.logger.Warn("eventualreg: encode response frame", zap.Error(err))
 		return
 	}
-	if err := s.cfg.Sender.Send(sender, frame); err != nil {
-		s.logger.Debug("eventualreg: send shard response failed",
-			zap.String("to", sender), zap.Error(err))
+	if skipped+payloadsSkipped > 0 {
+		s.logger.Warn("eventualreg: shard response payloads exceeded reliable frame cap",
+			zap.String("to", sender),
+			zap.Int("skipped_payloads", skipped),
+			zap.Int("skipped_entries", payloadsSkipped),
+			zap.Int("max_bytes", ReliableFrameMaxBytes))
+	}
+	if len(frames) == 0 {
 		return
 	}
-	s.tel.recordShardResponse("tx", len(payloads))
+	for _, frame := range frames {
+		if err := s.cfg.Sender.Send(sender, frame); err != nil {
+			s.logger.Debug("eventualreg: send shard response failed",
+				zap.String("to", sender), zap.Error(err))
+			return
+		}
+	}
+	s.tel.recordShardResponse("tx", sent)
 }
 
 func (s *Service) handleShardResponseFrame(body []byte) {

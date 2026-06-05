@@ -124,9 +124,63 @@ func DecodeShardResponseFrame(data []byte) (senderNode string, payload []byte, e
 // limit and start a new frame.
 const MaxFrameBytes = 1400
 
+// ReliableFrameMaxBytes is the cap for one targeted reliable anti-entropy
+// frame. It mirrors membership.ReliableUserMessageMaxPayloadBytes without
+// importing membership into this lower-level package.
+const ReliableFrameMaxBytes = 64 * 1024
+
 // ErrFrameOverflow indicates a delta would exceed MaxFrameBytes by itself.
 // Callers should send the offending entry over TCP instead (digest exchange).
 var ErrFrameOverflow = errors.New("eventualreg: delta exceeds frame size")
+
+// EncodeShardResponseFramesBounded packs shard payloads into one or more
+// FrameTypeShardResponse frames, each at most maxBytes. A single shard payload
+// that cannot fit is skipped: retrying it unchanged would only create an
+// oversized reliable message forever.
+func EncodeShardResponseFramesBounded(senderNode string, payloads [][]byte, maxBytes int) (frames [][]byte, payloadsSent int, payloadsSkipped int, err error) {
+	if len(senderNode) > 0xFF {
+		return nil, 0, 0, fmt.Errorf("eventualreg: sender node too long: %d", len(senderNode))
+	}
+	headerLen := 2 + len(senderNode)
+	if maxBytes <= headerLen {
+		return nil, 0, len(payloads), nil
+	}
+
+	var batch [][]byte
+	batchBytes := headerLen
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		frame, err := EncodeShardResponseFrame(senderNode, batch)
+		if err != nil {
+			return err
+		}
+		frames = append(frames, frame)
+		payloadsSent += len(batch)
+		batch = nil
+		batchBytes = headerLen
+		return nil
+	}
+
+	for _, p := range payloads {
+		if len(p)+headerLen > maxBytes {
+			payloadsSkipped++
+			continue
+		}
+		if batchBytes+len(p) > maxBytes {
+			if err := flush(); err != nil {
+				return nil, 0, 0, err
+			}
+		}
+		batch = append(batch, p)
+		batchBytes += len(p)
+	}
+	if err := flush(); err != nil {
+		return nil, 0, 0, err
+	}
+	return frames, payloadsSent, payloadsSkipped, nil
+}
 
 // EncodeDelta writes one entry into the buffer using a compact format:
 //

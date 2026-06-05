@@ -9,6 +9,7 @@ import (
 	api "github.com/wippyai/runtime/api/logs"
 
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
@@ -145,4 +146,8 @@ func (m *Manager) GetConfig() api.Config {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.config
+}
+
+func (m *Manager) SetCollector(c metrics.Collector) {
+	m.core.SetCollector(c)
 }

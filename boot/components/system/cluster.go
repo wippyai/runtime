@@ -209,8 +209,20 @@ func Cluster() boot.Component {
 				SecretFile:   clusterCfg.GetString(ClusterMembershipSecretFile, ""),
 				SecretString: clusterCfg.GetString(ClusterMembershipSecret, ""),
 				AdvertiseIP:  clusterCfg.GetString(ClusterMembershipAdvertise, ""),
-				VeryVerbose:  false,
-				Meta:         nodeMeta,
+				GossipInterval: clusterCfg.GetDuration(
+					ClusterMembershipGossipInterval,
+					membership.DefaultGossipInterval,
+				),
+				PushPullInterval: clusterCfg.GetDuration(
+					ClusterMembershipPushPullInterval,
+					membership.DefaultPushPullInterval,
+				),
+				DeadNodeReclaimTime: clusterCfg.GetDuration(
+					ClusterMembershipDeadNodeReclaimTime,
+					membership.DefaultDeadNodeReclaimTime,
+				),
+				VeryVerbose: false,
+				Meta:        nodeMeta,
 			}
 
 			membershipSvc = membership.NewService(

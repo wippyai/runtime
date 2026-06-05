@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/metrics"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -81,6 +82,8 @@ func (m *MockCore) Configure(cfg Config) {
 func (m *MockCore) GetConfig() Config {
 	return m.config
 }
+
+func (m *MockCore) SetCollector(metrics.Collector) {}
 
 // TestCoreInterface tests the Core interface implementation
 func TestCoreInterface(t *testing.T) {
@@ -160,9 +163,10 @@ type mockManager struct {
 	config Config
 }
 
-func (m *mockManager) Start(_ context.Context) error { return nil }
-func (m *mockManager) Stop() error                   { return nil }
-func (m *mockManager) GetConfig() Config             { return m.config }
+func (m *mockManager) Start(_ context.Context) error  { return nil }
+func (m *mockManager) Stop() error                    { return nil }
+func (m *mockManager) GetConfig() Config              { return m.config }
+func (m *mockManager) SetCollector(metrics.Collector) {}
 
 func TestContext_Manager(t *testing.T) {
 	t.Run("with app context", func(t *testing.T) {

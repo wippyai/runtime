@@ -4,6 +4,8 @@ package global
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clusterapi "github.com/wippyai/runtime/api/cluster"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 )
@@ -58,19 +61,196 @@ func TestDissem_TombstoneSurfacesNotFound(t *testing.T) {
 	assert.False(t, ok, "tombstone surfaces as not-found")
 }
 
-// TestDissem_TombstoneGC_WallFloor asserts sweepTombstones drops tombstones
-// older than the wall floor and keeps fresh ones.
-func TestDissem_TombstoneGC_WallFloor(t *testing.T) {
+// TestDissem_TombstoneGC_DefaultDisabled asserts the default does not age out
+// tombstones without an explicit operator retention window.
+func TestDissem_TombstoneGC_DefaultDisabled(t *testing.T) {
 	d := NewDissem("node-a", nil)
 	p := makePID("node-a", "h", "p1")
 
 	now := time.Now().UnixNano()
-	d.merge(bindingDelta{Name: "old.ts", PID: p, RaftIndex: 1, Wall: now - 2*tombstoneWallFloor.Nanoseconds(), Deleted: true})
+	d.merge(bindingDelta{Name: "old.ts", PID: p, RaftIndex: 9, Wall: now - (365 * 24 * time.Hour).Nanoseconds(), Deleted: true})
 	d.merge(bindingDelta{Name: "fresh.ts", PID: p, RaftIndex: 2, Wall: now, Deleted: true})
 
 	removed := d.sweepTombstones(now)
-	assert.Equal(t, 1, removed, "only the old tombstone is GC'd")
-	assert.Equal(t, 1, d.CacheSize(), "fresh tombstone retained")
+	assert.Equal(t, 0, removed, "default retention must not age out delete fences")
+	assert.Equal(t, 2, d.CacheSize(), "tombstones retained")
+}
+
+func TestDissem_TombstoneRetentionOption(t *testing.T) {
+	d := NewDissem("node-a", nil, WithTombstoneRetention(time.Hour))
+	p := makePID("node-a", "h", "p1")
+
+	now := time.Now().UnixNano()
+	d.merge(bindingDelta{Name: "old.ts", PID: p, RaftIndex: 9, Wall: now - (2 * time.Hour).Nanoseconds(), Deleted: true})
+	d.merge(bindingDelta{Name: "fresh.ts", PID: p, RaftIndex: 10, Wall: now - (30 * time.Minute).Nanoseconds(), Deleted: true})
+
+	removed := d.sweepTombstones(now)
+	assert.Equal(t, 1, removed, "custom retention should expire only entries past the configured floor")
+	assert.Equal(t, 1, d.CacheSize())
+}
+
+func TestDissem_TombstoneRetentionOptionRejectsNonPositive(t *testing.T) {
+	d := NewDissem("node-a", nil, WithTombstoneRetention(-time.Hour))
+	p := makePID("node-a", "h", "p1")
+
+	now := time.Now().UnixNano()
+	d.merge(bindingDelta{Name: "old.ts", PID: p, RaftIndex: 9, Wall: now - (365 * 24 * time.Hour).Nanoseconds(), Deleted: true})
+
+	removed := d.sweepTombstones(now)
+	assert.Equal(t, 0, removed, "bad retention values must keep the correctness-first default")
+	assert.Equal(t, 1, d.CacheSize())
+}
+
+func TestDissem_TombstoneFencesStaleLiveAfterSweep(t *testing.T) {
+	d := NewDissem("node-a", nil)
+	p := makePID("node-a", "h", "p1")
+
+	now := time.Now().UnixNano()
+	d.merge(bindingDelta{Name: "svc.gone", PID: p, RaftIndex: 10, Wall: now, Deleted: true})
+	assert.Equal(t, 0, d.sweepTombstones(now))
+
+	d.NotifyMsg(encodeBindingFrame([]bindingDelta{{
+		Name:      "svc.gone",
+		PID:       p,
+		RaftIndex: 7,
+		Wall:      now,
+	}}))
+
+	_, ok := d.Lookup("svc.gone")
+	assert.False(t, ok, "retained tombstone must reject stale lower-index live gossip")
+}
+
+func TestDissem_DigestSnapshotIncludesTombstones(t *testing.T) {
+	d := NewDissem("node-a", nil)
+	p := makePID("node-a", "h", "p1")
+	d.merge(bindingDelta{Name: "svc.live", PID: p, RaftIndex: 7})
+	d.merge(bindingDelta{Name: "svc.dead", PID: p, RaftIndex: 9, Deleted: true})
+
+	snap := d.DigestSnapshot()
+	seen := map[string]DigestEntry{}
+	for _, e := range snap.Entries {
+		seen[e.Name] = e
+	}
+	require.Contains(t, seen, "svc.live")
+	require.Contains(t, seen, "svc.dead")
+	assert.False(t, seen["svc.live"].Deleted)
+	assert.True(t, seen["svc.dead"].Deleted)
+	assert.Equal(t, uint64(9), seen["svc.dead"].RaftIndex)
+}
+
+func TestService_DigestExchangeRepairsMissedTombstone(t *testing.T) {
+	router := &capturingRouter{}
+	fsm := NewFSM()
+	svc := NewService(newDirectApplyRaft(fsm, true), fsm, &nopBus{}, nil, router, &fakeMembership{local: "member", ids: []string{"member"}}, "member", noopLogger(), nil, nil, nil)
+	d := NewDissem("member", nil)
+	svc.SetDissem(d)
+	d.merge(bindingDelta{Name: "svc.dead", RaftIndex: 10, Deleted: true})
+
+	body, err := marshalMsgpack(digestEnvelope{
+		Origin: "peer",
+		Entries: []digestEntry{{
+			Name:      "svc.dead",
+			RaftIndex: 7,
+		}},
+		CorrID: 99,
+	})
+	require.NoError(t, err)
+
+	svc.handleDigestExchange(&relay.Message{
+		Topic:    topicDigestExchange,
+		Payloads: payload.Payloads{payload.New(body)},
+	})
+
+	sent := router.byTopic(topicDigestDelta)
+	require.Len(t, sent, 1)
+	assert.Equal(t, pid.NodeID("peer"), sent[0].target)
+
+	deltas, err := decodeBindingFrame(sent[0].body)
+	require.NoError(t, err)
+	require.Len(t, deltas, 1)
+	assert.Equal(t, "svc.dead", deltas[0].Name)
+	assert.Equal(t, uint64(10), deltas[0].RaftIndex)
+	assert.True(t, deltas[0].Deleted, "missed delete must be repaired as a tombstone delta")
+}
+
+func TestService_DigestExchangeRepairsSameIndexDeleteMismatch(t *testing.T) {
+	router := &capturingRouter{}
+	fsm := NewFSM()
+	svc := NewService(newDirectApplyRaft(fsm, true), fsm, &nopBus{}, nil, router, &fakeMembership{local: "member", ids: []string{"member"}}, "member", noopLogger(), nil, nil, nil)
+	d := NewDissem("member", nil)
+	svc.SetDissem(d)
+	d.merge(bindingDelta{Name: "svc.dead", RaftIndex: 10, Deleted: true})
+
+	body, err := marshalMsgpack(digestEnvelope{
+		Origin: "peer",
+		Entries: []digestEntry{{
+			Name:      "svc.dead",
+			RaftIndex: 10,
+			Deleted:   false,
+		}},
+		CorrID: 99,
+	})
+	require.NoError(t, err)
+
+	svc.handleDigestExchange(&relay.Message{
+		Topic:    topicDigestExchange,
+		Payloads: payload.Payloads{payload.New(body)},
+	})
+
+	sent := router.byTopic(topicDigestDelta)
+	require.Len(t, sent, 1)
+	deltas, err := decodeBindingFrame(sent[0].body)
+	require.NoError(t, err)
+	require.Len(t, deltas, 1)
+	assert.True(t, deltas[0].Deleted)
+	assert.Equal(t, uint64(10), deltas[0].RaftIndex)
+}
+
+func TestEncodeBindingFramesBounded(t *testing.T) {
+	var deltas []bindingDelta
+	for i := 0; i < 20; i++ {
+		deltas = append(deltas, bindingDelta{
+			Name:      fmt.Sprintf("svc.%02d.%s", i, strings.Repeat("x", 40)),
+			PID:       makePID("node", "host", strings.Repeat("u", 20)),
+			RaftIndex: uint64(i + 1),
+			Wall:      1,
+		})
+	}
+
+	frames := encodeBindingFramesBounded(deltas, 256)
+	require.Greater(t, len(frames), 1)
+	total := 0
+	for _, frame := range frames {
+		require.LessOrEqual(t, len(frame), 256)
+		decoded, err := decodeBindingFrame(frame)
+		require.NoError(t, err)
+		total += len(decoded)
+	}
+	assert.Equal(t, len(deltas), total)
+}
+
+func TestEncodeBindingFramesBoundedSkipsImpossibleDelta(t *testing.T) {
+	frames := encodeBindingFramesBounded([]bindingDelta{
+		{
+			Name:      "svc.ok",
+			PID:       makePID("node", "host", "uniq"),
+			RaftIndex: 1,
+			Wall:      1,
+		},
+		{
+			Name:      "svc." + strings.Repeat("x", 512),
+			PID:       makePID("node", "host", "uniq"),
+			RaftIndex: 2,
+			Wall:      1,
+		},
+	}, 128)
+
+	require.Len(t, frames, 1)
+	require.LessOrEqual(t, len(frames[0]), 128)
+	decoded, err := decodeBindingFrame(frames[0])
+	require.NoError(t, err)
+	require.Len(t, decoded, 1)
+	assert.Equal(t, "svc.ok", decoded[0].Name)
 }
 
 // TestDissem_RoundTripEncoding asserts the binary frame format round-trips

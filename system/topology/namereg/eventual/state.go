@@ -668,12 +668,15 @@ func (s *State) LiveCount() int64 { return s.live.Load() }
 // TombstoneCount returns the number of names whose visible winner is a tombstone.
 func (s *State) TombstoneCount() int64 { return s.tombstone.Load() }
 
-// ReapTombstones drops per-origin tombstone dots whose origin counter is ≤ the
-// safe counter for that origin, or older than the wall floor. `safeByNode` is
-// keyed by compact node ID. Wall is a GC retention floor only here — never a
-// conflict-resolution discriminator. A name whose record becomes empty is
-// removed; if reaping changes the visible winner, the live/tombstone gauges
-// are adjusted. Returns counts: (gcSafe, gcWallFloor) of dots dropped.
+// ReapTombstones drops per-origin tombstone dots whose origin counter is <= the
+// safe counter for that origin. If wallFloorMs is positive, old tombstones may
+// also be dropped as an explicit operator memory-bound tradeoff. A non-positive
+// wallFloorMs disables age-based expiry because ORSWOT safety requires either
+// causal dominance or an external guarantee that stale live dots cannot return.
+// `safeByNode` is keyed by compact node ID. Wall is a GC retention floor only
+// here, never a conflict-resolution discriminator. A name whose record becomes
+// empty is removed; if reaping changes the visible winner, the live/tombstone
+// gauges are adjusted. Returns counts: (gcSafe, gcWallFloor) of dots dropped.
 func (s *State) ReapTombstones(safeByNode []uint64, nowMs, wallFloorMs int64) (int, int) {
 	var safe, floor int
 	for i := range s.shards {
@@ -691,7 +694,7 @@ func (s *State) ReapTombstones(safeByNode []uint64, nowMs, wallFloorMs int64) (i
 					safe++
 					continue
 				}
-				if nowMs-e.Wall > wallFloorMs {
+				if wallFloorMs > 0 && nowMs-e.Wall > wallFloorMs {
 					delete(rec.dots, node)
 					s.release(node)
 					floor++

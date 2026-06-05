@@ -769,20 +769,47 @@ func getEventualRegistrar(ctx context.Context) eventualRegistrar {
 }
 
 func registryLookup(l *lua.LState) int {
-	reg, ok := getRegistry(l)
-	if !ok {
-		return 2
+	ctx := l.Context()
+	if ctx == nil {
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "no context found"))
 	}
 
 	name := l.CheckString(1)
+	checked := false
 
-	p, found := reg.Lookup(name)
-	if !found {
-		return pushProcessError(l, lua.LNil, newProcessError(l, lua.NotFound, "name not registered"))
+	if globalReg := global.GetRegistry(ctx); globalReg != nil {
+		checked = true
+		if res, err := globalReg.Lookup(ctx, name); err != nil {
+			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
+		} else if res.Found {
+			l.Push(lua.LString(res.PID.String()))
+			return 1
+		}
 	}
 
-	l.Push(lua.LString(p.String()))
-	return 1
+	if eventualReg := topology.GetEventualRegistry(ctx); eventualReg != nil {
+		checked = true
+		if res, err := eventualReg.Lookup(ctx, name); err != nil {
+			return pushProcessError(l, lua.LNil, wrapProcessError(l, err, "", lua.Internal))
+		} else if res.Found {
+			l.Push(lua.LString(res.PID.String()))
+			return 1
+		}
+	}
+
+	if reg := topology.GetRegistry(ctx); reg != nil {
+		checked = true
+		if p, found := reg.Lookup(name); found {
+			l.Push(lua.LString(p.String()))
+			return 1
+		}
+	}
+
+	if !checked {
+		return pushProcessError(l, lua.LNil, newProcessError(l, lua.Internal, "no registry found in context"))
+	}
+
+	return pushProcessError(l, lua.LNil, newProcessError(l, lua.NotFound, "name not registered"))
 }
 
 func registryUnregister(l *lua.LState) int {

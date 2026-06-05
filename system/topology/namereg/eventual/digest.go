@@ -113,6 +113,72 @@ func EncodeShardPayload(buf []byte, shardID uint16, entries []*Entry, originLook
 	return buf, nil
 }
 
+// EncodeShardPayloadsBounded serializes a shard into one or more shard payloads,
+// each at most maxBytes. Chunking at entry boundaries keeps the targeted
+// anti-entropy path useful for large shards without allowing a single response
+// to become an unbounded reliable-message allocation. Entries that cannot fit by
+// themselves are skipped.
+func EncodeShardPayloadsBounded(shardID uint16, entries []*Entry, originLookup func(uint32) string, maxBytes int) (payloads [][]byte, skipped int, err error) {
+	const headerLen = 6
+	if maxBytes <= headerLen {
+		return nil, len(entries), nil
+	}
+
+	buf := make([]byte, 0, maxBytes)
+	startPayload := func() {
+		buf = binary.LittleEndian.AppendUint16(buf[:0], shardID)
+		buf = binary.LittleEndian.AppendUint32(buf, 0)
+	}
+	count := uint32(0)
+	startPayload()
+
+	flush := func() {
+		if count == 0 {
+			return
+		}
+		binary.LittleEndian.PutUint32(buf[2:6], count)
+		payloads = append(payloads, append([]byte(nil), buf...))
+		count = 0
+		startPayload()
+	}
+
+	for _, e := range entries {
+		origin := originLookup(e.Node)
+		recLen, err := encodedDeltaLen(e, origin)
+		if err != nil {
+			return nil, 0, err
+		}
+		if recLen+headerLen > maxBytes {
+			skipped++
+			continue
+		}
+		if len(buf)+recLen > maxBytes {
+			flush()
+		}
+		buf, err = EncodeDelta(buf, e, origin)
+		if err != nil {
+			return nil, 0, err
+		}
+		count++
+	}
+	flush()
+	return payloads, skipped, nil
+}
+
+func encodedDeltaLen(e *Entry, originNodeStr string) (int, error) {
+	if len(e.Name) > 0xFFFF {
+		return 0, fmt.Errorf("eventualreg: name too long: %d bytes", len(e.Name))
+	}
+	if len(originNodeStr) > 0xFF {
+		return 0, fmt.Errorf("eventualreg: origin node too long: %d bytes", len(originNodeStr))
+	}
+	if len(e.PID.Node) > 0xFF || len(e.PID.Host) > 0xFF || len(e.PID.UniqID) > 0xFFFF {
+		return 0, fmt.Errorf("eventualreg: pid fields too long")
+	}
+	return 1 + 2 + len(e.Name) + 1 + len(originNodeStr) + 8 + 8 + 4 +
+		1 + len(e.PID.Node) + 1 + len(e.PID.Host) + 2 + len(e.PID.UniqID), nil
+}
+
 // DecodeShardPayload parses a shard bulk-transfer body.
 func DecodeShardPayload(data []byte) (ShardPayload, int, error) {
 	if len(data) < 6 {

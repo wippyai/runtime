@@ -273,9 +273,14 @@ func (n *Node) Stop(_ context.Context) error {
 
 	// Attempt graceful leadership transfer before shutdown.
 	if n.raft.State() == hraft.Leader {
-		n.logger.Info("transferring raft leadership before shutdown")
-		if err := n.raft.LeadershipTransfer().Error(); err != nil {
-			n.logger.Warn("leadership transfer failed", zap.Error(err))
+		timeout := n.config.ShutdownTransferTimeout
+		if timeout <= 0 {
+			timeout = n.config.ElectionTimeout
+		}
+		n.logger.Info("transferring raft leadership before shutdown",
+			zap.Duration("timeout", timeout))
+		if err := n.LeadershipTransfer("", timeout); err != nil {
+			n.logger.Warn("leadership transfer before shutdown failed; continuing shutdown", zap.Error(err))
 		}
 	}
 

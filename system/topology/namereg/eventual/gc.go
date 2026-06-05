@@ -7,10 +7,11 @@ import (
 	"time"
 )
 
-// DefaultWallFloor is the wall-clock cutoff at which a tombstone is dropped
-// regardless of safe-counter ack. Bounds memory if a node never acks back
-// (e.g. permanent partition).
-const DefaultWallFloor = 15 * time.Minute
+// DefaultWallFloor disables age-based tombstone expiry. Tombstones are safely
+// reclaimed by version-vector acks from every alive peer. Operators may set a
+// positive WallFloor as an explicit memory-bound tradeoff, but age alone cannot
+// prove that delayed live dots are gone.
+const DefaultWallFloor = 0
 
 // TombstoneTracker records, per origin node, the highest counter that EVERY
 // alive cluster member has acknowledged. Acknowledgment comes from digest
@@ -124,16 +125,13 @@ type GCConfig struct {
 	OnWallFloor func(int)                  // counter callback for wall-floor drops
 	OnReclaim   func(int)                  // counter callback for reclaimed compact ids
 	Period      time.Duration              // ticker cadence (default 20 s)
-	WallFloor   time.Duration              // age at which tombstones drop (default 15 min)
+	WallFloor   time.Duration              // optional age at which tombstones drop; <=0 disables
 }
 
 // NewGCRunner constructs a runner. Must call Start to begin.
 func NewGCRunner(cfg GCConfig) *GCRunner {
 	if cfg.Period <= 0 {
 		cfg.Period = 20 * time.Second
-	}
-	if cfg.WallFloor <= 0 {
-		cfg.WallFloor = DefaultWallFloor
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
