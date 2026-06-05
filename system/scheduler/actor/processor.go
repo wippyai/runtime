@@ -68,19 +68,26 @@ type Processor struct {
 	pooled     bool
 }
 
-// casState atomically compares-and-swaps state (ignoring wakeup flag).
-// Returns true if swap succeeded.
-// NOTE: This does NOT retry on CAS failure - if state doesn't match, returns false.
-// This prevents race where processor finishes quickly and gets re-queued before
-// a competing worker's CAS retry sees the new Ready state.
+// casState atomically transitions the masked state from old to newState,
+// preserving the wakeup flag. It returns false only when the masked state no
+// longer equals old, i.e. another transition won the race. A CAS failure caused
+// solely by a concurrent setWakeup flipping the wakeup bit (while the masked
+// state still equals old) is retried: dropping the transition there would
+// strand the processor in Running|wakeup with a queued event and never re-queue
+// it. The retry is reachable only when old is StateRunning (the single masked
+// state setWakeup writes against), so every other caller stays single-shot, and
+// it is bounded because setWakeup is idempotent.
 func (p *Processor) casState(old, newState ProcessState) bool {
-	current := ProcessState(p.state.Load())
-	if current&stateMask != old {
-		return false
+	for {
+		current := ProcessState(p.state.Load())
+		if current&stateMask != old {
+			return false
+		}
+		newWithFlags := (newState & stateMask) | (current & wakeupFlag)
+		if p.state.CompareAndSwap(int32(current), int32(newWithFlags)) {
+			return true
+		}
 	}
-	// Preserve wakeup flag in new state
-	newWithFlags := (newState & stateMask) | (current & wakeupFlag)
-	return p.state.CompareAndSwap(int32(current), int32(newWithFlags))
 }
 
 // setWakeup atomically sets the wakeup flag if state matches expected.
