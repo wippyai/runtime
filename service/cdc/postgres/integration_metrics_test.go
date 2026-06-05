@@ -16,8 +16,9 @@ import (
 )
 
 type fakeCollector struct {
-	gauges map[string]float64
-	mu     sync.Mutex
+	gauges   map[string]float64
+	counters map[string]int
+	mu       sync.Mutex
 }
 
 func (f *fakeCollector) GaugeSet(name string, value float64, _ metrics.Labels) {
@@ -33,7 +34,17 @@ func (f *fakeCollector) has(name string) bool {
 	return ok
 }
 
-func (f *fakeCollector) CounterInc(string, metrics.Labels)              {}
+func (f *fakeCollector) counter(name string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.counters[name]
+}
+
+func (f *fakeCollector) CounterInc(name string, _ metrics.Labels) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.counters[name]++
+}
 func (f *fakeCollector) CounterAdd(string, float64, metrics.Labels)     {}
 func (f *fakeCollector) GaugeInc(string, metrics.Labels)                {}
 func (f *fakeCollector) GaugeDec(string, metrics.Labels)                {}
@@ -50,7 +61,10 @@ func TestReportLagRecordsGauge(t *testing.T) {
 	dropSlot(t, repl)
 	defer dropSlot(t, repl)
 
-	fc := &fakeCollector{gauges: map[string]float64{}}
+	_, err = db.Exec(`DELETE FROM accounts`)
+	require.NoError(t, err)
+
+	fc := &fakeCollector{gauges: map[string]float64{}, counters: map[string]int{}}
 	base := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
 	base = metrics.WithCollector(base, fc)
 
@@ -66,6 +80,12 @@ func TestReportLagRecordsGauge(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return fc.has(retainedWALGauge)
 	}, 5*time.Second, 100*time.Millisecond, "retained WAL gauge must be recorded for slot-lag monitoring")
+
+	_, err = db.Exec(`INSERT INTO accounts (email, balance) VALUES ('metric@w.ai', 1)`)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return fc.counter(changesCounter) >= 1
+	}, 10*time.Second, 100*time.Millisecond, "changes counter must increment on a streamed change")
 
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	require.NoError(t, src.Stop(stopCtx))

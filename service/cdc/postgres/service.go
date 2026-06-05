@@ -23,7 +23,10 @@ import (
 	config "github.com/wippyai/runtime/api/service/cdc"
 )
 
-const retainedWALGauge = "wippy_cdc_retained_wal_bytes"
+const (
+	retainedWALGauge = "wippy_cdc_retained_wal_bytes"
+	changesCounter   = "wippy_cdc_changes_total"
+)
 
 const (
 	defaultStandbyInterval = 10 * time.Second
@@ -323,6 +326,9 @@ func (s *Source) run(
 			}
 			for i := range changes {
 				s.emitChange(ctx, changes[i])
+				if mc != nil {
+					mc.CounterInc(changesCounter, metrics.Labels{"slot": s.slot, "op": string(changes[i].Op)})
+				}
 			}
 			if end := xld.WALStart + pglogrepl.LSN(len(xld.WALData)); end > clientPos {
 				clientPos = end
