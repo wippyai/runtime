@@ -36,7 +36,20 @@ type Config struct {
 	BootstrapExpect   int           `json:"bootstrap_expect,omitempty"`
 	SnapshotRetain    int           `json:"snapshot_retain"`
 	MaxPool           int           `json:"max_pool"`
-	MaxAppendEntries  int           `json:"max_append_entries"`
+	// ShutdownTransferTimeout bounds the best-effort leadership transfer
+	// attempted by Stop() when this node is leader. Zero defaults to one
+	// election timeout. The transfer is an availability optimization, not a
+	// safety requirement, so shutdown must continue if no eligible follower
+	// can take leadership promptly.
+	ShutdownTransferTimeout time.Duration `json:"shutdown_transfer_timeout"`
+	// MaxAppendEntries caps how many log entries the leader packs into a
+	// single AppendEntries RPC. The hashicorp/raft default is 64 which,
+	// when a follower restarts with an empty log and needs to catch up
+	// hundreds of entries, lets the leader queue large batches in
+	// memory simultaneously. Setting this to 16 throttles the catch-up
+	// throughput so under chaos a returning pod doesn't OOM the leader
+	// while it ships history. Zero means use the library default.
+	MaxAppendEntries int `json:"max_append_entries"`
 }
 
 // InitDefaults fills zero-valued fields with sensible defaults.
@@ -77,6 +90,9 @@ func (c *Config) InitDefaults() {
 	}
 	if c.MaxPool == 0 {
 		c.MaxPool = 3
+	}
+	if c.ShutdownTransferTimeout == 0 {
+		c.ShutdownTransferTimeout = c.ElectionTimeout
 	}
 	if c.MaxAppendEntries == 0 {
 		// Default below hashicorp's 64 to cap leader memory during

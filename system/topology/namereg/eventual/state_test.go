@@ -427,6 +427,29 @@ func TestState_ReapTombstones_WallFloor(t *testing.T) {
 	}
 }
 
+func TestState_ReapTombstones_WallFloorDisabled(t *testing.T) {
+	s := NewState("node-A")
+	pA := makePID("node-A", "h", "1")
+	_, _ = reg(s, "alice", pA, 100)
+	_ = s.Unregister("alice", 200)
+
+	cv := make([]uint64, 1)
+	cv[0] = 0
+	gcSafe, gcFloor := s.ReapTombstones(cv, 1_000_000_000, 0)
+	if gcSafe != 0 {
+		t.Errorf("gcSafe=%d, want 0", gcSafe)
+	}
+	if gcFloor != 0 {
+		t.Errorf("gcFloor=%d, want 0", gcFloor)
+	}
+	if s.TombstoneCount() != 1 {
+		t.Errorf("tombstone reaped with wall floor disabled")
+	}
+	if _, found := s.Lookup("alice"); found {
+		t.Errorf("tombstoned name resurrected")
+	}
+}
+
 func TestState_DeltaRoundTrip(t *testing.T) {
 	s := NewState("node-A")
 	pA := makePID("node-A", "h", "1")
@@ -529,6 +552,58 @@ func TestService_ShardPullRecoversDroppedDelta(t *testing.T) {
 	// Cooldown: a second immediate request must be suppressed.
 	if b.RequestShards("node-A", mismatched) {
 		t.Errorf("cooldown should have suppressed second request")
+	}
+}
+
+func TestService_ShardPullLargeResponseChunkedBoundedConverges(t *testing.T) {
+	cfgA := Config{LocalNodeID: "node-A"}
+	cfgB := Config{LocalNodeID: "node-B"}
+	a := NewService(cfgA)
+	b := NewService(cfgB)
+	t.Cleanup(func() { _ = a.Stop(); _ = b.Stop() })
+
+	senderToA := &recordingSender{peer: a}
+	senderToB := &recordingSender{peer: b}
+	a.cfg.Sender = senderToB
+	b.cfg.Sender = senderToA
+
+	const n = 900
+	for i := 0; i < n; i++ {
+		name := fmt.Sprintf("large-shard-repair-%04d", i)
+		p := makePID("node-A", "host", fmt.Sprintf("pid-with-enough-bytes-to-force-chunking-%04d", i))
+		if _, err := a.Register(name, p); err != nil {
+			t.Fatalf("register %s on A: %v", name, err)
+		}
+	}
+
+	mismatched := b.LocalDigest().Diff(a.LocalDigest())
+	if len(mismatched) == 0 {
+		t.Fatalf("expected digest mismatch with empty B")
+	}
+	if !b.RequestShards("node-A", mismatched) {
+		t.Fatalf("RequestShards should have emitted")
+	}
+
+	responseFrames := 0
+	for _, sent := range senderToB.sent {
+		if len(sent.Payload) == 0 || FrameType(sent.Payload[0]) != FrameTypeShardResponse {
+			continue
+		}
+		responseFrames++
+		if len(sent.Payload) > ReliableFrameMaxBytes {
+			t.Fatalf("response frame too large: %d > %d", len(sent.Payload), ReliableFrameMaxBytes)
+		}
+	}
+	if responseFrames < 2 {
+		t.Fatalf("expected chunked response across multiple frames, got %d", responseFrames)
+	}
+
+	for i := 0; i < n; i++ {
+		name := fmt.Sprintf("large-shard-repair-%04d", i)
+		res, err := b.Lookup(context.Background(), name)
+		if err != nil || !res.Found {
+			t.Fatalf("%s not recovered on B: err=%v found=%v", name, err, res.Found)
+		}
 	}
 }
 

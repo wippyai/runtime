@@ -4,6 +4,7 @@ package membership
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -95,11 +96,15 @@ func (s *Service) SendUserMessage(targetNodeID string, kind byte, payload []byte
 	if kind == 0 {
 		return errors.New("membership: SendUserMessage kind 0 is reserved")
 	}
-	if s.memberlist == nil {
-		return errors.New("membership: not started")
-	}
 	if uint64(len(payload)) > uint64(^uint32(0)) {
 		return fmt.Errorf("membership: payload too large: %d", len(payload))
+	}
+	if len(payload) > ReliableUserMessageMaxPayloadBytes {
+		return fmt.Errorf("membership: reliable payload too large: %d > %d",
+			len(payload), ReliableUserMessageMaxPayloadBytes)
+	}
+	if s.memberlist == nil {
+		return errors.New("membership: not started")
 	}
 	wrapped := make([]byte, 0, len(payload)+5)
 	wrapped = append(wrapped, kind)
@@ -116,16 +121,51 @@ func (s *Service) SendUserMessage(targetNodeID string, kind byte, payload []byte
 
 // Config holds membership service configuration
 type Config struct {
-	Transport    memberlist.Transport
-	Meta         cluster.NodeMeta
-	NodeName     string
-	BindAddr     string
-	SecretFile   string
-	SecretString string
-	AdvertiseIP  string
-	JoinAddrs    []string
-	BindPort     int
-	VeryVerbose  bool
+	Transport           memberlist.Transport
+	Meta                cluster.NodeMeta
+	SecretString        string
+	NodeName            string
+	BindAddr            string
+	SecretFile          string
+	AdvertiseIP         string
+	JoinAddrs           []string
+	GossipInterval      time.Duration
+	PushPullInterval    time.Duration
+	DeadNodeReclaimTime time.Duration
+	BindPort            int
+	VeryVerbose         bool
+}
+
+const (
+	DefaultGossipInterval      = 500 * time.Millisecond
+	DefaultPushPullInterval    = 5 * time.Second
+	DefaultDeadNodeReclaimTime = 30 * time.Second
+
+	userBroadcastRetain       = 8192
+	userBroadcastBackpressure = userBroadcastRetain / 2
+	// Match memberlist's conservative UDP buffer. User broadcasts above this
+	// cannot fit once memberlist adds its own user-message/compound headers.
+	userBroadcastMaxPacketBytes = 1400
+	// ReliableUserMessageMaxPayloadBytes bounds the payload carried inside one
+	// targeted TCP user-message. The wire envelope can represent uint32 sizes,
+	// but accepting multi-MiB/GiB repair frames would make bad peers or bad
+	// values translate directly into heap pressure. Larger anti-entropy payloads
+	// must be split by the caller.
+	ReliableUserMessageMaxPayloadBytes = 64 * 1024
+)
+
+func positiveDuration(v, def time.Duration) time.Duration {
+	if v > 0 {
+		return v
+	}
+	return def
+}
+
+func applyMemberlistTiming(mlConfig *memberlist.Config, cfg Config) {
+	mlConfig.GossipInterval = positiveDuration(cfg.GossipInterval, DefaultGossipInterval)
+	mlConfig.PushPullInterval = positiveDuration(cfg.PushPullInterval, DefaultPushPullInterval)
+	mlConfig.DeadNodeReclaimTime = positiveDuration(
+		cfg.DeadNodeReclaimTime, DefaultDeadNodeReclaimTime)
 }
 
 // NewService creates a new membership service.
@@ -156,15 +196,18 @@ func New(opts ...Option) *Service {
 		logger: o.logger,
 		bus:    o.bus,
 		config: Config{
-			NodeName:     o.nodeName,
-			BindAddr:     o.bindAddr,
-			BindPort:     o.bindPort,
-			JoinAddrs:    o.joinAddrs,
-			SecretFile:   o.secretFile,
-			SecretString: o.secretString,
-			AdvertiseIP:  o.advertiseIP,
-			VeryVerbose:  o.veryVerbose,
-			Meta:         o.meta,
+			Meta:                o.meta,
+			GossipInterval:      o.gossipInterval,
+			PushPullInterval:    o.pushPullInterval,
+			DeadNodeReclaimTime: o.deadNodeReclaimTime,
+			NodeName:            o.nodeName,
+			BindAddr:            o.bindAddr,
+			SecretFile:          o.secretFile,
+			SecretString:        o.secretString,
+			AdvertiseIP:         o.advertiseIP,
+			JoinAddrs:           o.joinAddrs,
+			BindPort:            o.bindPort,
+			VeryVerbose:         o.veryVerbose,
 		},
 		transport:  o.transport,
 		nodes:      make(map[string]cluster.NodeInfo),
@@ -190,31 +233,23 @@ func (s *Service) Start(ctx context.Context) error {
 	// DefaultLocalConfig gossips every 100ms — tuned for loopback. On a real
 	// multi-node cluster that is 10 mostly-empty gossip fan-outs/sec/node;
 	// 500ms still propagates deltas promptly and cuts idle wakeups 5x.
-	mlConfig.GossipInterval = 500 * time.Millisecond
 	// PushPullInterval is the anti-entropy full-state sync cadence. It backstops
 	// the epidemic delta path (eventualreg forwards deltas it learns, but a
 	// one-shot gossip wave can probabilistically miss a tail node) and heals
 	// post-partition divergence. DefaultLocalConfig's 15s left a missed tail
 	// resolving in tens of seconds; 5s bounds that worst case while keeping the
 	// small registry state cheap to exchange.
-	mlConfig.PushPullInterval = 5 * time.Second
 	// DeadNodeReclaimTime lets a node that has been dead longer than this be
-	// replaced by a node with the SAME name but a DIFFERENT address. This is
-	// exactly the k8s StatefulSet pod-restart case: a pod is killed (hard,
-	// no graceful Leave, so peers mark it StateDead at its old IP), the
-	// StatefulSet recreates it under the same name with a fresh pod IP, and
-	// it tries to rejoin. With the memberlist default of 0, peers reject the
-	// rejoin with "Conflicting address" until the dead entry ages out via
-	// GossipToTheDeadTime (~30s) — which is a large slice of post-kill
-	// reconvergence latency. 3s is long enough that a brief same-IP flap
-	// won't trigger a spurious reclaim, short enough that a restarted pod
-	// rejoins promptly.
-	mlConfig.DeadNodeReclaimTime = 3 * time.Second
+	// replaced by a node with the SAME name but a DIFFERENT address. Keep it
+	// explicit and conservative: too small a value can turn transient probe
+	// failures into same-name replacement churn; too large a value delays
+	// StatefulSet-style pod rejoin after hard kill/new IP.
+	applyMemberlistTiming(mlConfig, s.config)
 	mlConfig.Name = s.config.NodeName
 	mlConfig.BindAddr = s.config.BindAddr
 	mlConfig.BindPort = s.config.BindPort
 	mlConfig.Events = &eventDelegate{service: s}
-	mlConfig.Delegate = &delegate{service: s}
+	mlConfig.Delegate = newDelegate(s, mlConfig.RetransmitMult)
 
 	// Use custom transport if provided (for testing)
 	if s.transport != nil {
@@ -780,7 +815,86 @@ func (ed *eventDelegate) parseNodeMeta(meta []byte) cluster.NodeMeta {
 
 // delegate handles memberlist delegate functions
 type delegate struct {
-	service *Service
+	queued     map[string]struct{}
+	service    *Service
+	broadcasts memberlist.TransmitLimitedQueue
+	queuedMu   sync.Mutex
+}
+
+func newDelegate(service *Service, retransmitMult int) *delegate {
+	if retransmitMult <= 0 {
+		retransmitMult = 1
+	}
+	d := &delegate{
+		service: service,
+		queued:  make(map[string]struct{}),
+	}
+	d.broadcasts.NumNodes = service.broadcastNodeCount
+	d.broadcasts.RetransmitMult = retransmitMult
+	return d
+}
+
+func (s *Service) broadcastNodeCount() int {
+	if s.memberlist != nil {
+		if n := len(s.memberlist.Members()); n > 0 {
+			return n
+		}
+	}
+	s.mu.RLock()
+	n := len(s.nodes)
+	s.mu.RUnlock()
+	if n > 0 {
+		return n
+	}
+	return 1
+}
+
+type muxBroadcast struct {
+	finished func(string)
+	name     string
+	msg      []byte
+}
+
+func (b *muxBroadcast) Invalidates(other memberlist.Broadcast) bool {
+	o, ok := other.(*muxBroadcast)
+	return ok && b.name == o.name
+}
+
+func (b *muxBroadcast) Name() string { return b.name }
+func (b *muxBroadcast) Message() []byte {
+	return b.msg
+}
+func (b *muxBroadcast) Finished() {
+	if b.finished != nil {
+		b.finished(b.name)
+	}
+}
+
+var _ memberlist.NamedBroadcast = (*muxBroadcast)(nil)
+
+func (d *delegate) queueBroadcast(frame []byte) bool {
+	sum := sha256.Sum256(frame)
+	name := string(sum[:])
+	d.queuedMu.Lock()
+	if _, exists := d.queued[name]; exists {
+		d.queuedMu.Unlock()
+		return false
+	}
+	d.queued[name] = struct{}{}
+	d.queuedMu.Unlock()
+
+	d.broadcasts.QueueBroadcast(&muxBroadcast{
+		name:     name,
+		msg:      frame,
+		finished: d.forgetBroadcast,
+	})
+	return true
+}
+
+func (d *delegate) forgetBroadcast(name string) {
+	d.queuedMu.Lock()
+	delete(d.queued, name)
+	d.queuedMu.Unlock()
 }
 
 func (d *delegate) NodeMeta(limit int) []byte {
@@ -829,12 +943,47 @@ func (d *delegate) NotifyMsg(data []byte) {
 	if int(plen)+5 != len(data) {
 		return
 	}
+	if plen > ReliableUserMessageMaxPayloadBytes {
+		return
+	}
 	if ud := d.service.lookupUserDelegate(kind); ud != nil {
 		ud.NotifyMsg(data[5:])
 	}
 }
 
 func (d *delegate) GetBroadcasts(overhead, limit int) [][]byte {
+	if d.service.tel != nil && d.service.tel.coll != nil {
+		d.service.tel.coll.CounterInc("gossip_user_getbroadcasts_calls_total", nil)
+	}
+
+	recordOut := func(out [][]byte) {
+		if d.service.tel == nil || d.service.tel.coll == nil || len(out) == 0 {
+			return
+		}
+		totalBytes := 0
+		totalCost := 0
+		for _, frame := range out {
+			totalBytes += len(frame)
+			totalCost += len(frame) + overhead
+		}
+		d.service.tel.coll.CounterAdd("gossip_user_getbroadcasts_frames_total", float64(len(out)), nil)
+		d.service.tel.coll.CounterAdd("gossip_user_getbroadcasts_bytes_total", float64(totalBytes), nil)
+		if totalCost > limit {
+			d.service.tel.coll.CounterInc("gossip_user_getbroadcasts_overshoot_total", nil)
+		}
+	}
+
+	queued := d.broadcasts.NumQueued()
+	if queued > userBroadcastRetain {
+		d.broadcasts.Prune(userBroadcastRetain)
+		queued = userBroadcastRetain
+	}
+	if queued >= userBroadcastBackpressure {
+		out := d.broadcasts.GetBroadcasts(overhead, limit)
+		recordOut(out)
+		return out
+	}
+
 	d.service.userDelegateMu.RLock()
 	dels := make([]UserDelegate, 0, len(d.service.userDelegates))
 	for _, ud := range d.service.userDelegates {
@@ -849,25 +998,31 @@ func (d *delegate) GetBroadcasts(overhead, limit int) [][]byte {
 	// hogged the cycle).
 	sort.Slice(dels, func(i, j int) bool { return dels[i].Kind() < dels[j].Kind() })
 
-	if d.service.tel != nil && d.service.tel.coll != nil {
-		d.service.tel.coll.CounterInc("gossip_user_getbroadcasts_calls_total", nil)
-	}
-
-	var out [][]byte
-	totalBytes := 0
-	totalCost := 0
+	queuedCost := 0
 	muxOverhead := overhead + 5
 
 	wrap := func(ud UserDelegate, frames [][]byte) {
 		for _, f := range frames {
+			if uint64(len(f)) > uint64(^uint32(0)) {
+				if d.service.tel != nil && d.service.tel.coll != nil {
+					d.service.tel.coll.CounterInc("gossip_user_getbroadcasts_frame_dropped_total", nil)
+				}
+				continue
+			}
 			wrapped := make([]byte, 0, len(f)+5)
 			wrapped = append(wrapped, ud.Kind())
 			n := uint32(len(f))
 			wrapped = append(wrapped, byte(n), byte(n>>8), byte(n>>16), byte(n>>24))
 			wrapped = append(wrapped, f...)
-			totalCost += len(wrapped) + overhead
-			totalBytes += len(wrapped)
-			out = append(out, wrapped)
+			if len(wrapped)+overhead > userBroadcastMaxPacketBytes {
+				if d.service.tel != nil && d.service.tel.coll != nil {
+					d.service.tel.coll.CounterInc("gossip_user_getbroadcasts_frame_dropped_total", nil)
+				}
+				continue
+			}
+			if d.queueBroadcast(wrapped) {
+				queuedCost += len(wrapped) + overhead
+			}
 		}
 	}
 
@@ -890,7 +1045,7 @@ func (d *delegate) GetBroadcasts(overhead, limit int) [][]byte {
 	// budget contract bounds emission to what fits the remainder. This
 	// recovers throughput when one delegate is silent.
 	for _, ud := range dels {
-		remaining := limit - totalCost
+		remaining := limit - queuedCost
 		if remaining <= muxOverhead {
 			break
 		}
@@ -898,13 +1053,11 @@ func (d *delegate) GetBroadcasts(overhead, limit int) [][]byte {
 		wrap(ud, frames)
 	}
 
-	if d.service.tel != nil && d.service.tel.coll != nil && len(out) > 0 {
-		d.service.tel.coll.CounterAdd("gossip_user_getbroadcasts_frames_total", float64(len(out)), nil)
-		d.service.tel.coll.CounterAdd("gossip_user_getbroadcasts_bytes_total", float64(totalBytes), nil)
-		if totalCost > limit {
-			d.service.tel.coll.CounterInc("gossip_user_getbroadcasts_overshoot_total", nil)
-		}
+	if d.broadcasts.NumQueued() > userBroadcastRetain {
+		d.broadcasts.Prune(userBroadcastRetain)
 	}
+	out := d.broadcasts.GetBroadcasts(overhead, limit)
+	recordOut(out)
 	return out
 }
 

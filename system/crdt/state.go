@@ -518,9 +518,11 @@ func (s *State) Range(start, end string, fn func(Entry) bool) {
 	}
 }
 
-// ReapTombstones drops tombstones whose origin counter is ≤ the safe
-// counter for that origin. `safeByNode` is keyed by compact node ID.
-// Tombstones with `nowMs - Wall > wallFloorMs` are dropped regardless.
+// ReapTombstones drops tombstones whose origin counter is <= the safe counter
+// for that origin. `safeByNode` is keyed by compact node ID. If wallFloorMs is
+// positive, tombstones with `nowMs - Wall > wallFloorMs` are also dropped as an
+// explicit operator tradeoff. A non-positive wallFloorMs disables time-based
+// expiry because age alone cannot prove that delayed live dots are gone.
 // Returns counts: (gcSafe, gcWallFloor).
 func (s *State) ReapTombstones(safeByNode []uint64, nowMs, wallFloorMs int64) (int, int) {
 	var safe, floor int
@@ -537,7 +539,7 @@ func (s *State) ReapTombstones(safeByNode []uint64, nowMs, wallFloorMs int64) (i
 				safe++
 				continue
 			}
-			if nowMs-e.Wall > wallFloorMs {
+			if wallFloorMs > 0 && nowMs-e.Wall > wallFloorMs {
 				delete(sh.entries, key)
 				s.tombstone.Add(-1)
 				floor++

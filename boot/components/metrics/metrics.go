@@ -7,6 +7,7 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/event"
+	logapi "github.com/wippyai/runtime/api/logs"
 	api "github.com/wippyai/runtime/api/metrics"
 	apicfg "github.com/wippyai/runtime/api/service/metrics"
 	impl "github.com/wippyai/runtime/service/metrics"
@@ -28,11 +29,17 @@ func Metrics() boot.Component {
 			if b, ok := event.GetBus(ctx).(*eventbus.Bus); ok {
 				b.SetCollector(collector)
 			}
+			if mgr := logapi.GetManager(ctx); mgr != nil {
+				mgr.SetCollector(collector)
+			}
 			return ctx, nil
 		},
 		Stop: func(ctx context.Context) error {
 			if b, ok := event.GetBus(ctx).(*eventbus.Bus); ok {
 				b.SetCollector(nil)
+			}
+			if mgr := logapi.GetManager(ctx); mgr != nil {
+				mgr.SetCollector(nil)
 			}
 			if collector != nil {
 				return collector.Close()

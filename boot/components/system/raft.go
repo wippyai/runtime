@@ -169,6 +169,7 @@ func Raft() boot.Component {
 	var kvReg *kvbacked.Service
 	var useKVRegistry bool
 	var bootstrapExpect int
+	var globalDissemTombstoneRetention time.Duration
 
 	return boot.New(boot.P{
 		Name:      RaftName,
@@ -247,6 +248,7 @@ func Raft() boot.Component {
 				ReconcileDebounce: raftCfg.GetDuration(ClusterRaftReconcileDebounce, 2*time.Second),
 				ReconcileTimeout:  raftCfg.GetDuration(ClusterRaftReconcileTimeout, 2*time.Second),
 			}
+			globalDissemTombstoneRetention = raftCfg.GetDuration(ClusterRaftGlobalDissemTombstoneRetention, 0)
 
 			// Raft rides the internode mesh exclusively. Without a connection
 			// manager (cluster transport not wired — e.g. a single-node
@@ -419,7 +421,8 @@ func Raft() boot.Component {
 			// the cache on FSM-miss so non-members resolve names locally.
 			if mem := clusterapi.GetMembership(ctx); mem != nil {
 				if memSvc, ok := mem.(*membership.Service); ok {
-					dissem := global.NewDissem(node.ID(), logger.Named("dissem"))
+					dissem := global.NewDissem(node.ID(), logger.Named("dissem"),
+						global.WithTombstoneRetention(globalDissemTombstoneRetention))
 					if err := memSvc.RegisterUserDelegate(dissem); err != nil {
 						return ctx, fmt.Errorf("raft: register globalreg dissem delegate: %w", err)
 					}

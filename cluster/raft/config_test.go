@@ -37,6 +37,8 @@ func TestConfigInvariants_AcceptedByHraft(t *testing.T) {
 			cfg.InitDefaults()
 			require.GreaterOrEqual(t, cfg.ElectionTimeout, cfg.HeartbeatTimeout,
 				"InitDefaults must enforce ElectionTimeout >= HeartbeatTimeout")
+			require.Positive(t, cfg.ShutdownTransferTimeout,
+				"InitDefaults must set a bounded shutdown leadership-transfer timeout")
 
 			rc := toHashicorpConfig("node-1", cfg)
 			require.LessOrEqual(t, rc.LeaderLeaseTimeout, rc.HeartbeatTimeout,
