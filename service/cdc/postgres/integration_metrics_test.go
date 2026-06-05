@@ -45,12 +45,12 @@ func (f *fakeCollector) CounterInc(name string, _ metrics.Labels) {
 	defer f.mu.Unlock()
 	f.counters[name]++
 }
-func (f *fakeCollector) CounterAdd(string, float64, metrics.Labels)     {}
-func (f *fakeCollector) GaugeInc(string, metrics.Labels)                {}
-func (f *fakeCollector) GaugeDec(string, metrics.Labels)                {}
+func (f *fakeCollector) CounterAdd(string, float64, metrics.Labels)       {}
+func (f *fakeCollector) GaugeInc(string, metrics.Labels)                  {}
+func (f *fakeCollector) GaugeDec(string, metrics.Labels)                  {}
 func (f *fakeCollector) HistogramObserve(string, float64, metrics.Labels) {}
-func (f *fakeCollector) RegisterExporter(metrics.Exporter) error        { return nil }
-func (f *fakeCollector) Close() error                                   { return nil }
+func (f *fakeCollector) RegisterExporter(metrics.Exporter) error          { return nil }
+func (f *fakeCollector) Close() error                                     { return nil }
 
 func TestReportLagRecordsGauge(t *testing.T) {
 	repl, admin := dsns(t)

@@ -20,6 +20,8 @@ const (
 	ErrorKind          = "error"
 	OutputPlugin       = "pgoutput"
 	ProtocolVersion    = 1
+
+	StreamingProtocolVersion = 2
 )
 
 type Config struct {
@@ -43,6 +45,7 @@ type Config struct {
 	Port            int                        `json:"port"`
 	Temporary       bool                       `json:"temporary,omitempty"`
 	Snapshot        bool                       `json:"snapshot,omitempty"`
+	Streaming       bool                       `json:"streaming,omitempty"`
 }
 
 func (c *Config) InitDefaults() {

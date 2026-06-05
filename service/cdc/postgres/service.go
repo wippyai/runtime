@@ -54,6 +54,7 @@ type SourceOptions struct {
 	StatusInterval  time.Duration
 	Temporary       bool
 	Snapshot        bool
+	Streaming       bool
 }
 
 type Source struct {
@@ -74,6 +75,7 @@ type Source struct {
 	mu              sync.Mutex
 	temporary       bool
 	snapshot        bool
+	streaming       bool
 	stopped         atomic.Bool
 	dropSlot        atomic.Bool
 }
@@ -113,6 +115,7 @@ func NewSource(opts SourceOptions) *Source {
 		tables:          opts.Tables,
 		temporary:       opts.Temporary,
 		snapshot:        opts.Snapshot,
+		streaming:       opts.Streaming,
 		standbyInterval: standby,
 		statusInterval:  status,
 	}
@@ -243,9 +246,16 @@ func (s *Source) run(
 		}
 	}
 
+	protoVersion := config.ProtocolVersion
+	if s.streaming {
+		protoVersion = config.StreamingProtocolVersion
+	}
 	pluginArgs := []string{
-		fmt.Sprintf("proto_version '%d'", config.ProtocolVersion),
+		fmt.Sprintf("proto_version '%d'", protoVersion),
 		fmt.Sprintf("publication_names '%s'", publication),
+	}
+	if s.streaming {
+		pluginArgs = append(pluginArgs, "streaming 'on'")
 	}
 	if err := pglogrepl.StartReplication(ctx, conn, s.slot, startLSN,
 		pglogrepl.StartReplicationOptions{PluginArgs: pluginArgs}); err != nil {
@@ -254,6 +264,9 @@ func (s *Source) run(
 	}
 
 	dec := newDecoder()
+	if s.streaming {
+		dec = newStreamingDecoder()
+	}
 	clientPos := startLSN
 	now := time.Now()
 	nextStandby := now.Add(s.standbyInterval)
