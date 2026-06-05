@@ -46,6 +46,7 @@ type Config struct {
 	Temporary       bool                       `json:"temporary,omitempty"`
 	Snapshot        bool                       `json:"snapshot,omitempty"`
 	Streaming       bool                       `json:"streaming,omitempty"`
+	Failover        bool                       `json:"failover,omitempty"`
 }
 
 func (c *Config) InitDefaults() {
@@ -79,6 +80,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Publication == "" && len(c.Tables) == 0 {
 		return ErrPublicationRequired
+	}
+	if c.Failover && c.Temporary {
+		return ErrFailoverTemporary
 	}
 	if _, err := c.StandbyDuration(); err != nil {
 		return err

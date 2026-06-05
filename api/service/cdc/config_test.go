@@ -103,6 +103,16 @@ func TestConfigIntervalsInvalid(t *testing.T) {
 	require.ErrorIs(t, c.Validate(), ErrInvalidInterval)
 }
 
+func TestConfigFailoverRequiresPersistentSlot(t *testing.T) {
+	c := validConfig()
+	c.Failover = true
+	c.Temporary = true
+	require.ErrorIs(t, c.Validate(), ErrFailoverTemporary)
+
+	c.Temporary = false
+	require.NoError(t, c.Validate())
+}
+
 func TestConfigInitDefaults(t *testing.T) {
 	c := &Config{}
 	c.InitDefaults()

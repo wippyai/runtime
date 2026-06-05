@@ -13,4 +13,5 @@ var (
 	ErrSlotNameRequired    = apierror.New(apierror.Invalid, "slot_name is required").WithRetryable(apierror.False)
 	ErrPublicationRequired = apierror.New(apierror.Invalid, "publication or tables is required").WithRetryable(apierror.False)
 	ErrInvalidInterval     = apierror.New(apierror.Invalid, "interval must be a non-negative duration (e.g. 10s)").WithRetryable(apierror.False)
+	ErrFailoverTemporary   = apierror.New(apierror.Invalid, "failover cannot be set on a temporary slot").WithRetryable(apierror.False)
 )

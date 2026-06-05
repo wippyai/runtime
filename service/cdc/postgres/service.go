@@ -55,6 +55,7 @@ type SourceOptions struct {
 	Temporary       bool
 	Snapshot        bool
 	Streaming       bool
+	Failover        bool
 }
 
 type Source struct {
@@ -76,6 +77,7 @@ type Source struct {
 	temporary       bool
 	snapshot        bool
 	streaming       bool
+	failover        bool
 	stopped         atomic.Bool
 	dropSlot        atomic.Bool
 }
@@ -116,6 +118,7 @@ func NewSource(opts SourceOptions) *Source {
 		temporary:       opts.Temporary,
 		snapshot:        opts.Snapshot,
 		streaming:       opts.Streaming,
+		failover:        opts.Failover,
 		standbyInterval: standby,
 		statusInterval:  status,
 	}
@@ -455,10 +458,25 @@ func (s *Source) prepareSlot(
 		}
 	}
 
+	if s.failover && !s.temporary {
+		if err := s.setSlotFailover(ctx, conn); err != nil {
+			return 0, "", err
+		}
+	}
+
 	if start == 0 {
 		start = fallback
 	}
 	return start, snapshotName, nil
+}
+
+func (s *Source) setSlotFailover(ctx context.Context, conn *pgconn.PgConn) error {
+	cmd := fmt.Sprintf("ALTER_REPLICATION_SLOT %s ( FAILOVER )", s.slot)
+	if err := conn.Exec(ctx, cmd).Close(); err != nil {
+		return fmt.Errorf("set slot failover: %w", err)
+	}
+	s.log.Info("cdc slot marked for failover", zap.String("slot", s.slot))
+	return nil
 }
 
 type tableRef struct {
