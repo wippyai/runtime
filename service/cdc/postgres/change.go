@@ -5,9 +5,10 @@ package postgres
 type Op string
 
 const (
-	OpInsert Op = "insert"
-	OpUpdate Op = "update"
-	OpDelete Op = "delete"
+	OpInsert   Op = "insert"
+	OpUpdate   Op = "update"
+	OpDelete   Op = "delete"
+	OpSnapshot Op = "snapshot"
 )
 
 type RowChange struct {

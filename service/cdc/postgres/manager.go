@@ -79,6 +79,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		Tables:      cfg.Tables,
 		EventSystem: cfg.EventSystem,
 		Temporary:   cfg.Temporary,
+		Snapshot:    cfg.Snapshot,
 		Bus:         m.bus,
 		Log:         m.log.With(zap.String("id", entry.ID.String())),
 	})
@@ -121,6 +122,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		Tables:      cfg.Tables,
 		EventSystem: cfg.EventSystem,
 		Temporary:   cfg.Temporary,
+		Snapshot:    cfg.Snapshot,
 		Bus:         m.bus,
 		Log:         m.log.With(zap.String("id", entry.ID.String())),
 	})

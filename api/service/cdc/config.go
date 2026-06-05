@@ -38,6 +38,7 @@ type Config struct {
 	Lifecycle   supervisor.LifecycleConfig `json:"lifecycle"`
 	Port        int                        `json:"port"`
 	Temporary   bool                       `json:"temporary,omitempty"`
+	Snapshot    bool                       `json:"snapshot,omitempty"`
 }
 
 func (c *Config) InitDefaults() {
