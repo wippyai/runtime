@@ -19,8 +19,11 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/metrics"
 	config "github.com/wippyai/runtime/api/service/cdc"
 )
+
+const retainedWALGauge = "wippy_cdc_retained_wal_bytes"
 
 const (
 	defaultStandbyInterval = 10 * time.Second
@@ -181,7 +184,7 @@ func (s *Source) Start(ctx context.Context) (<-chan any, error) {
 	default:
 	}
 
-	go s.run(runCtx, conn, adminDB, cp, startLSN, snapshotName, publication, status, done)
+	go s.run(runCtx, conn, adminDB, cp, startLSN, snapshotName, publication, metrics.GetCollector(ctx), status, done)
 	return status, nil
 }
 
@@ -220,6 +223,7 @@ func (s *Source) run(
 	startLSN pglogrepl.LSN,
 	snapshotName string,
 	publication string,
+	mc metrics.Collector,
 	status chan any,
 	done chan struct{},
 ) {
@@ -266,7 +270,7 @@ func (s *Source) run(
 			nextStandby = now.Add(s.standbyInterval)
 		}
 		if !now.Before(nextStatus) {
-			s.reportLag(ctx, adminDB)
+			s.reportLag(ctx, adminDB, mc)
 			nextStatus = now.Add(s.statusInterval)
 		}
 
@@ -347,7 +351,7 @@ func (s *Source) emitChange(ctx context.Context, c RowChange) {
 	})
 }
 
-func (s *Source) reportLag(ctx context.Context, adminDB *sql.DB) {
+func (s *Source) reportLag(ctx context.Context, adminDB *sql.DB, mc metrics.Collector) {
 	var retained int64
 	err := adminDB.QueryRowContext(ctx,
 		`SELECT COALESCE(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn), 0)::bigint
@@ -355,6 +359,9 @@ func (s *Source) reportLag(ctx context.Context, adminDB *sql.DB) {
 	if err != nil {
 		s.log.Warn("cdc lag query failed", zap.String("slot", s.slot), zap.Error(err))
 		return
+	}
+	if mc != nil {
+		mc.GaugeSet(retainedWALGauge, float64(retained), metrics.Labels{"slot": s.slot})
 	}
 	s.bus.Send(ctx, event.Event{
 		System: s.eventSystem,
