@@ -176,13 +176,18 @@ func (d *decoder) abortStream(topXid, subXid uint32) {
 		return
 	}
 	src := d.buffer[topXid]
-	kept := src[:0]
+	n := 0
 	for _, bc := range src {
 		if bc.subxid != subXid {
-			kept = append(kept, bc)
+			src[n] = bc
+			n++
 		}
 	}
-	d.buffer[topXid] = kept
+	if n == 0 {
+		delete(d.buffer, topXid)
+		return
+	}
+	d.buffer[topXid] = src[:n]
 }
 
 func (d *decoder) truncate(m *pglogrepl.TruncateMessage, walStart pglogrepl.LSN) ([]RowChange, error) {

@@ -133,6 +133,8 @@ func (s *Source) Start(ctx context.Context) (<-chan any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open admin connection: %w", err)
 	}
+	adminDB.SetMaxOpenConns(2)
+	adminDB.SetMaxIdleConns(1)
 	if err := adminDB.PingContext(ctx); err != nil {
 		_ = adminDB.Close()
 		return nil, fmt.Errorf("ping admin connection: %w", err)
@@ -270,7 +272,20 @@ func (s *Source) run(
 	if s.streaming {
 		dec = newStreamingDecoder()
 	}
+
+	var opLabels map[Op]metrics.Labels
+	if mc != nil {
+		opLabels = map[Op]metrics.Labels{
+			OpInsert:   {"slot": s.slot, "op": string(OpInsert)},
+			OpUpdate:   {"slot": s.slot, "op": string(OpUpdate)},
+			OpDelete:   {"slot": s.slot, "op": string(OpDelete)},
+			OpTruncate: {"slot": s.slot, "op": string(OpTruncate)},
+			OpSnapshot: {"slot": s.slot, "op": string(OpSnapshot)},
+		}
+	}
+
 	clientPos := startLSN
+	lastSaved := pglogrepl.LSN(0)
 	now := time.Now()
 	nextStandby := now.Add(s.standbyInterval)
 	nextStatus := now.Add(s.statusInterval)
@@ -282,7 +297,15 @@ func (s *Source) run(
 
 		now = time.Now()
 		if !now.Before(nextStandby) {
-			if err := checkpointAndAck(ctx, conn, cp, s.slot, clientPos); err != nil {
+			if clientPos > lastSaved {
+				if err := cp.Save(ctx, s.slot, clientPos); err != nil {
+					s.fail(ctx, status, err)
+					return
+				}
+				lastSaved = clientPos
+			}
+			if err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
+				pglogrepl.StandbyStatusUpdate{WALWritePosition: clientPos}); err != nil {
 				s.fail(ctx, status, err)
 				return
 			}
@@ -343,7 +366,7 @@ func (s *Source) run(
 			for i := range changes {
 				s.emitChange(ctx, changes[i])
 				if mc != nil {
-					mc.CounterInc(changesCounter, metrics.Labels{"slot": s.slot, "op": string(changes[i].Op)})
+					mc.CounterInc(changesCounter, opLabels[changes[i].Op])
 				}
 			}
 			if end := xld.WALStart + pglogrepl.LSN(len(xld.WALData)); end > clientPos {
@@ -351,17 +374,6 @@ func (s *Source) run(
 			}
 		}
 	}
-}
-
-func checkpointAndAck(ctx context.Context, conn *pgconn.PgConn, cp Checkpointer, slot string, pos pglogrepl.LSN) error {
-	if err := cp.Save(ctx, slot, pos); err != nil {
-		return err
-	}
-	if err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
-		pglogrepl.StandbyStatusUpdate{WALWritePosition: pos}); err != nil {
-		return fmt.Errorf("standby status update: %w", err)
-	}
-	return nil
 }
 
 func (s *Source) emitChange(ctx context.Context, c RowChange) {
@@ -578,13 +590,14 @@ func (s *Source) fetchSnapshotBatch(ctx context.Context, conn *sql.Conn, tbl tab
 		return 0, fmt.Errorf("snapshot columns %s.%s: %w", tbl.schema, tbl.name, err)
 	}
 
+	vals := make([]sql.NullString, len(cols))
+	ptrs := make([]any, len(cols))
+	for i := range vals {
+		ptrs[i] = &vals[i]
+	}
+
 	got := 0
 	for rows.Next() {
-		vals := make([]sql.NullString, len(cols))
-		ptrs := make([]any, len(cols))
-		for i := range vals {
-			ptrs[i] = &vals[i]
-		}
 		if err := rows.Scan(ptrs...); err != nil {
 			return got, fmt.Errorf("scan snapshot row: %w", err)
 		}
@@ -678,6 +691,7 @@ func (s *Source) dropSlotAndCheckpoint(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("open admin connection for slot drop: %w", err)
 	}
+	adminDB.SetMaxOpenConns(1)
 	defer func() { _ = adminDB.Close() }()
 
 	if err := dropReplicationSlot(ctx, adminDB, s.slot); err != nil {
