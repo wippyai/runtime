@@ -365,10 +365,12 @@ func TestNonMemberResolvesActiveStrongAfterBroadcast(t *testing.T) {
 	leaderDissem := NewDissem("leader", nil)
 	leaderSvc.SetDissem(leaderDissem)
 
-	// Open + ack a Strong pending so it promotes.
+	// Open a Strong pending. On the leader the service's own evaluation
+	// auto-acks and promotes it (the production flow) and queues the
+	// promote-broadcast on a background goroutine; wait for that broadcast
+	// instead of driving a second, racing ack by hand.
 	owner := makePID("worker-1", "host", "strong")
-	epoch := openPending(t, leaderFSM, "svc.strong", owner, "worker-1", []pid.NodeID{"leader"}, 10)
-	applyAt(t, leaderFSM, &Command{Type: CmdRegisterAck, Name: "svc.strong", Epoch: epoch, AckerNode: "leader"}, 11)
+	openPending(t, leaderFSM, "svc.strong", owner, "worker-1", []pid.NodeID{"leader"}, 10)
 
 	// Non-member side.
 	nonMemFSM := NewFSM()
@@ -376,8 +378,11 @@ func TestNonMemberResolvesActiveStrongAfterBroadcast(t *testing.T) {
 	nonMemDissem := NewDissem("non-mem", nil)
 	nonMemSvc.SetDissem(nonMemDissem)
 
-	frames := leaderDissem.GetBroadcasts(40, dissemMaxFrameBytes)
-	require.NotEmpty(t, frames)
+	var frames [][]byte
+	require.Eventually(t, func() bool {
+		frames = leaderDissem.GetBroadcasts(40, dissemMaxFrameBytes)
+		return len(frames) > 0
+	}, 2*time.Second, 5*time.Millisecond, "leader auto-acks the strong pending and queues a broadcast")
 	for _, f := range frames {
 		nonMemDissem.NotifyMsg(f)
 	}
