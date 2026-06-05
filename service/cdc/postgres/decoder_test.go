@@ -89,6 +89,46 @@ func TestDecoderDelete(t *testing.T) {
 	assert.Nil(t, c.After)
 }
 
+func TestDecoderTruncate(t *testing.T) {
+	d := newDecoder()
+	seedRelAndBegin(t, d)
+
+	changes, err := d.apply(&pglogrepl.TruncateMessage{RelationNum: 1, RelationIDs: []uint32{42}}, 0x50)
+	require.NoError(t, err)
+	require.Len(t, changes, 1)
+
+	c := changes[0]
+	assert.Equal(t, OpTruncate, c.Op)
+	assert.Equal(t, "public", c.Schema)
+	assert.Equal(t, "accounts", c.Table)
+	assert.Nil(t, c.Before)
+	assert.Nil(t, c.After)
+}
+
+func TestDecoderTruncateMultipleRelations(t *testing.T) {
+	d := newDecoder()
+	_, err := d.apply(accountsRel(), 0)
+	require.NoError(t, err)
+	_, err = d.apply(&pglogrepl.RelationMessage{
+		RelationID: 43, Namespace: "public", RelationName: "orders",
+		Columns: []*pglogrepl.RelationMessageColumn{{Name: "id"}},
+	}, 0)
+	require.NoError(t, err)
+
+	changes, err := d.apply(&pglogrepl.TruncateMessage{RelationNum: 2, RelationIDs: []uint32{42, 43}}, 0x60)
+	require.NoError(t, err)
+	require.Len(t, changes, 2)
+	assert.Equal(t, "accounts", changes[0].Table)
+	assert.Equal(t, "orders", changes[1].Table)
+}
+
+func TestDecoderTruncateUnknownRelation(t *testing.T) {
+	d := newDecoder()
+	changes, err := d.apply(&pglogrepl.TruncateMessage{RelationNum: 1, RelationIDs: []uint32{999}}, 0x50)
+	require.ErrorIs(t, err, ErrUnknownRelation)
+	assert.Nil(t, changes)
+}
+
 func TestDecoderUnknownRelation(t *testing.T) {
 	d := newDecoder()
 	changes, err := d.apply(&pglogrepl.InsertMessage{RelationID: 99, Tuple: textTuple("1")}, 0x10)

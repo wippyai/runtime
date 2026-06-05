@@ -42,8 +42,29 @@ func (d *decoder) apply(msg pglogrepl.Message, walStart pglogrepl.LSN) ([]RowCha
 		return d.one(OpUpdate, m.RelationID, m.OldTuple, m.NewTuple, walStart)
 	case *pglogrepl.DeleteMessage:
 		return d.one(OpDelete, m.RelationID, m.OldTuple, nil, walStart)
+	case *pglogrepl.TruncateMessage:
+		return d.truncate(m, walStart)
 	}
 	return nil, nil
+}
+
+func (d *decoder) truncate(m *pglogrepl.TruncateMessage, walStart pglogrepl.LSN) ([]RowChange, error) {
+	changes := make([]RowChange, 0, len(m.RelationIDs))
+	for _, relID := range m.RelationIDs {
+		rel, ok := d.rels.get(relID)
+		if !ok {
+			return nil, fmt.Errorf("%w: %d", ErrUnknownRelation, relID)
+		}
+		changes = append(changes, RowChange{
+			Op:        OpTruncate,
+			Schema:    rel.Namespace,
+			Table:     rel.RelationName,
+			LSN:       walStart.String(),
+			CommitLSN: d.commitLSN.String(),
+			XID:       d.xid,
+		})
+	}
+	return changes, nil
 }
 
 func (d *decoder) one(op Op, relID uint32, oldT, newT *pglogrepl.TupleData, walStart pglogrepl.LSN) ([]RowChange, error) {

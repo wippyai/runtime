@@ -9,6 +9,7 @@ const (
 	OpUpdate   Op = "update"
 	OpDelete   Op = "delete"
 	OpSnapshot Op = "snapshot"
+	OpTruncate Op = "truncate"
 )
 
 type RowChange struct {
