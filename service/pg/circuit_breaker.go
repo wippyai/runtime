@@ -116,6 +116,23 @@ func (cb *circuitBreaker) RecordSuccess() {
 	}
 }
 
+// Reset forces the breaker closed with a clean failure count. Used when an
+// authoritative signal — a membership NodeJoined for the peer — confirms the
+// downstream is reachable again, so the breaker's open assumption is stale and
+// must not gate the immediate re-discovery (which would otherwise wait out the
+// full reset window, leaving the registry stale for up to resetTimeout).
+func (cb *circuitBreaker) Reset() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	if cb.state == CircuitClosed && cb.failures == 0 {
+		return
+	}
+	cb.state = CircuitClosed
+	cb.failures = 0
+	cb.tel.recordCircuitBreakerState(cb.nodeID, "closed")
+}
+
 // RecordFailure records a failed request, potentially opening the circuit.
 func (cb *circuitBreaker) RecordFailure() {
 	cb.mu.Lock()
