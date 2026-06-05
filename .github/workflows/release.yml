@@ -10,9 +10,9 @@ on:
         type: string
         required: true
       description:
-        description: 'Release notes summary (shown at the top of the release and hub changelog)'
+        description: 'Release notes summary (shown at the top of the release and hub changelog). Leave blank to auto-generate from the commit log.'
         type: string
-        required: true
+        required: false
       prerelease:
         description: 'Mark as prerelease (does not become Latest)'
         type: boolean
@@ -216,11 +216,36 @@ jobs:
           done
           sha256sum "${files[@]}" > SHA256SUMS
 
+      - name: Resolve description
+        env:
+          DESCRIPTION_INPUT: ${{ inputs.description }}
+          PREV_TAG: ${{ needs.validate.outputs.prev_tag }}
+          TAG: ${{ needs.validate.outputs.tag }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+        run: |
+          set -euo pipefail
+          if [ -n "${DESCRIPTION_INPUT//[[:space:]]/}" ]; then
+            description="$DESCRIPTION_INPUT"
+          else
+            if [ -n "$PREV_TAG" ]; then
+              commits="$(git log --pretty='- %h %s' "${PREV_TAG}..HEAD")"
+            else
+              commits="$(git log --pretty='- %h %s' -n 50 HEAD)"
+            fi
+            description="$(printf '%s\n' "$commits" | RELEASE_TAG="$TAG" go run ./tools/gendesc)"
+          fi
+          printf '%s' "$description" > description.txt
+          {
+            echo "DESCRIPTION<<__GENDESC_EOF__"
+            printf '%s\n' "$description"
+            echo "__GENDESC_EOF__"
+          } >> "$GITHUB_ENV"
+
       - name: Release notes
         env:
           PREV_TAG: ${{ needs.validate.outputs.prev_tag }}
           TAG: ${{ needs.validate.outputs.tag }}
-          DESCRIPTION: ${{ inputs.description }}
         run: |
           set -euo pipefail
           {
@@ -269,4 +294,4 @@ jobs:
           HUB_URL: ${{ vars.HUB_URL }}
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
           PRERELEASE: ${{ inputs.prerelease }}
-        run: CHANGELOG="$(cat release-notes.md)" go run ./tools/hubpublish dist/wippy-*
+        run: CHANGELOG="$(cat description.txt)" go run ./tools/hubpublish dist/wippy-*
