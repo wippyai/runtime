@@ -256,6 +256,11 @@ func (s *Service) handleNodeJoinedEvent(e event.Event) {
 	}
 
 	s.submit(func() {
+		// A rejoin is authoritative proof the peer is reachable again, so clear
+		// any open breaker from the prior outage; otherwise sendDiscover (and the
+		// anti-entropy reconcile) would stay gated until the reset window elapses
+		// and the registry would converge late.
+		s.cbManager.GetCircuitBreaker(nodeID).Reset()
 		s.sendDiscover(nodeID)
 	})
 }

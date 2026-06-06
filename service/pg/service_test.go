@@ -934,6 +934,43 @@ func TestServiceHandleNodeJoinedEvent(t *testing.T) {
 	assert.True(t, found, "should send discover on node joined event")
 }
 
+// TestServiceNodeJoinedResetsCircuitBreaker verifies that a NodeJoined event —
+// authoritative evidence from membership that a peer is reachable again —
+// resets that peer's circuit breaker so re-discovery proceeds immediately,
+// rather than being gated by the still-open breaker until its reset window
+// elapses (which would leave the registry stale for up to resetTimeout).
+func TestServiceNodeJoinedResetsCircuitBreaker(t *testing.T) {
+	svc, router, _ := startTestService(t)
+
+	// Open the breaker for a peer (a sustained send fault under partition).
+	cb := svc.cbManager.GetCircuitBreaker("node-down")
+	for i := 0; i < 10; i++ {
+		cb.RecordFailure()
+	}
+	require.Equal(t, CircuitOpen, cb.State(), "breaker should be open after repeated failures")
+
+	router.reset()
+
+	// The peer rejoins — memberlist gossip surfaces NodeJoined.
+	svc.handleNodeJoinedEvent(event.Event{
+		Data: cluster.NodeEvent{Node: cluster.NodeInfo{ID: "node-down"}},
+	})
+	time.Sleep(50 * time.Millisecond)
+
+	assert.Equal(t, CircuitClosed, svc.cbManager.GetCircuitBreaker("node-down").State(),
+		"node-joined should reset the peer circuit breaker")
+
+	found := false
+	for _, s := range router.getSends() {
+		for _, msg := range s.Messages {
+			if msg.Topic == pgapi.TopicDiscover {
+				found = true
+			}
+		}
+	}
+	assert.True(t, found, "re-discovery must be sent on rejoin despite a previously-open breaker")
+}
+
 func TestServiceHandleNodeJoinedEventLocalNode(t *testing.T) {
 	svc, router, _ := startTestService(t)
 
