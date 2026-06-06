@@ -119,7 +119,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.26'
+          go-version: '1.26.4'
           cache: true
         env:
           MSYSTEM: MINGW64
@@ -191,7 +191,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.26'
+          go-version: '1.26.4'
           cache: true
 
       - name: Download binaries
