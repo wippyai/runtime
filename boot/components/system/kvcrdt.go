@@ -70,6 +70,17 @@ func KVCRDT() boot.Component {
 					ClusterKVCRDTTombstoneRetention,
 					systemkv.DefaultTombstoneRetention,
 				))
+				if clusterCfg.GetBool(ClusterKVCRDTTombstoneGCAlivePeers, false) {
+					engine.SetAlivePeers(func() map[string]struct{} {
+						alive := map[string]struct{}{node.ID(): {}}
+						for _, n := range memSvc.Nodes() {
+							if n.ID != "" {
+								alive[n.ID] = struct{}{}
+							}
+						}
+						return alive
+					})
+				}
 				if base := nodeDataDir(clusterCfg); base != "" {
 					engine.SetDurability(filepath.Join(base, "_sys", "kvcrdt"), 30*time.Second)
 				}
