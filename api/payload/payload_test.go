@@ -62,6 +62,39 @@ func TestNewPayload(t *testing.T) {
 	}
 }
 
+func TestSnapshotData_IsolatesMutableTrees(t *testing.T) {
+	orig := map[string]any{
+		"name": "svc",
+		"nested": map[string]any{
+			"replicas": 3,
+		},
+		"items": []any{
+			map[string]any{"node": "a"},
+			[]byte("abc"),
+		},
+	}
+
+	snap := SnapshotData(orig).(map[string]any)
+	orig["name"] = "changed"
+	orig["nested"].(map[string]any)["replicas"] = 9
+	orig["items"].([]any)[0].(map[string]any)["node"] = "b"
+	orig["items"].([]any)[1].([]byte)[0] = 'z'
+
+	assert.Equal(t, "svc", snap["name"])
+	assert.Equal(t, 3, snap["nested"].(map[string]any)["replicas"])
+	assert.Equal(t, "a", snap["items"].([]any)[0].(map[string]any)["node"])
+	assert.Equal(t, []byte("abc"), snap["items"].([]any)[1].([]byte))
+}
+
+func TestSnapshotData_ScalarsDoNotAllocate(t *testing.T) {
+	allocs := testing.AllocsPerRun(1000, func() {
+		if got := SnapshotData("immutable"); got != "immutable" {
+			t.Fatalf("snapshot scalar = %v", got)
+		}
+	})
+	assert.Zero(t, allocs)
+}
+
 func TestNew(t *testing.T) {
 	tests := []struct {
 		name         string
