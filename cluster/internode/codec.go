@@ -112,7 +112,7 @@ func (c *MessageCodec) Encode(pkg *relay.Package) ([]byte, error) {
 			}
 			encMsg.Payloads[j] = encodedPayload{
 				Format: normalizedPayload.Format(),
-				Data:   normalizedPayload.Data(),
+				Data:   encodeData(normalizedPayload),
 			}
 		}
 		encPkg.Messages[i] = encMsg
@@ -178,8 +178,15 @@ func (c *MessageCodec) normalizePayload(p payload.Payload) (payload.Payload, err
 	case payload.JSON, payload.Bytes, payload.String, payload.GoError, payload.Golang, payload.MsgPack:
 		return p, nil
 	default:
-		return c.transcoder.Transcode(p, payload.Golang)
+		return c.transcoder.Transcode(payload.Snapshot(p), payload.Golang)
 	}
+}
+
+func encodeData(p payload.Payload) any {
+	if p.Format() == payload.Golang {
+		return payload.SnapshotData(p.Data())
+	}
+	return p.Data()
 }
 
 type pidExtension struct{}

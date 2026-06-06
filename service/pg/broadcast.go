@@ -18,12 +18,10 @@ import (
 )
 
 // sendToMembers sends a message to each member PID via the router.
-// The payloads slice is shared across every recipient's message:
-// relay.ReleaseMessage only nils its Payloads reference (it does not
-// recycle the slice or mutate the payload values), and the codec reads
-// payloads read-only during encode — so there is no aliasing hazard and
-// no need to copy the slice per recipient. Uses circuit breaker pattern
-// to protect against slow nodes.
+// The payload slice is shared across recipients; the internode codec snapshots
+// mutable payload data immediately before wire encoding. Keeping fanout at the
+// slice-reference level avoids an extra per-recipient deep copy while preserving
+// transport safety at the codec boundary.
 func (s *Service) sendToMembers(from pid.PID, topic string, payloads payload.Payloads, members []pid.PID) int {
 	sent := 0
 
