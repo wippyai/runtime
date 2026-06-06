@@ -190,6 +190,37 @@ func TestIntegration_ConnectionRetryOnFailure(t *testing.T) {
 	assert.Greater(t, node2Received.Load(), int32(0), "node-2 should receive message after retry")
 }
 
+func TestIntegration_EnsureConnectionUpdatesDoNotRaceWithDial(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	config := DefaultManagerConfig()
+	config.LocalNodeID = "node-1"
+	config.BindAddr = "127.0.0.1"
+	config.AutoPort = true
+	config.Logger = zap.NewNop()
+	config.HandshakeTimeout = 5 * time.Millisecond
+	config.InitialRetryDelay = time.Millisecond
+	config.MaxRetryDelay = 2 * time.Millisecond
+	config.MaxRetryAttempts = 100
+
+	cm := NewConnectionManager(config, nil)
+	require.NoError(t, cm.Start(ctx, func(cluster.NodeID, []byte) {}))
+	defer func() { _ = cm.Stop() }()
+
+	cm.AddManagedNode("node-2")
+	cm.EnsureConnection("node-2", "127.0.0.1", 19990)
+	time.Sleep(20 * time.Millisecond)
+
+	for i := 0; i < 100; i++ {
+		cm.EnsureConnection("node-2", "127.0.0.1", 19990+i%8)
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func TestIntegration_GracefulDisconnect(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
