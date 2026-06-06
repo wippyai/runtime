@@ -645,10 +645,11 @@ func (loop *nodeControlLoop) handleConnect(data connectData) {
 	loop.isOutbound = true
 	loop.manager.nodeStates.SetNodeState(loop.nodeID, loop.state)
 
+	addr, port := loop.addr, loop.port
 	loop.manager.wg.Add(1)
 	go func() {
 		defer loop.manager.wg.Done()
-		loop.attemptConnection()
+		loop.attemptConnection(addr, port)
 	}()
 }
 
@@ -736,10 +737,11 @@ func (loop *nodeControlLoop) handleDisconnected(data disconnectedData) {
 		if loop.retryDelay < loop.manager.config.MaxRetryDelay {
 			loop.retryDelay *= 2
 		}
+		fallbackAddr, fallbackPort := loop.addr, loop.port
 		time.AfterFunc(loop.retryDelay, func() {
 			addr, port, hasAddr := loop.manager.nodeStates.GetNodeAddress(loop.nodeID)
 			if !hasAddr {
-				addr, port = loop.addr, loop.port
+				addr, port = fallbackAddr, fallbackPort
 			}
 			loop.sendCommandToSelf(nodeCommand{Type: cmdConnect, Data: connectData{Addr: addr, Port: port}})
 		})
@@ -767,12 +769,12 @@ func (loop *nodeControlLoop) sendCommandToSelf(cmd nodeCommand) {
 	}
 }
 
-func (loop *nodeControlLoop) attemptConnection() {
+func (loop *nodeControlLoop) attemptConnection(addr string, port int) {
 	if loop.ctx.Err() != nil {
 		return
 	}
-	addr := net.JoinHostPort(loop.addr, fmt.Sprintf("%d", loop.port))
-	loop.logger.Debug("Attempting outbound connection", zap.String("target_addr", addr))
+	targetAddr := net.JoinHostPort(addr, fmt.Sprintf("%d", port))
+	loop.logger.Debug("Attempting outbound connection", zap.String("target_addr", targetAddr))
 	var conn net.Conn
 	var err error
 	if loop.manager.tlsConfig != nil {
@@ -780,10 +782,10 @@ func (loop *nodeControlLoop) attemptConnection() {
 			NetDialer: &net.Dialer{Timeout: loop.manager.config.HandshakeTimeout},
 			Config:    loop.manager.tlsConfig,
 		}
-		conn, err = dialer.DialContext(loop.ctx, "tcp", addr)
+		conn, err = dialer.DialContext(loop.ctx, "tcp", targetAddr)
 	} else {
 		dialer := &net.Dialer{Timeout: loop.manager.config.HandshakeTimeout}
-		conn, err = dialer.DialContext(loop.ctx, "tcp", addr)
+		conn, err = dialer.DialContext(loop.ctx, "tcp", targetAddr)
 	}
 	if err != nil {
 		loop.sendDisconnected(err, true)
