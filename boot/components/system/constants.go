@@ -37,10 +37,17 @@ const (
 	ClusterMembershipDeadNodeReclaimTime boot.Name = "membership.dead_node_reclaim_time"
 	ClusterFailureDomain                 boot.Name = "failure_domain"
 	// ClusterKVCRDTTombstoneRetention bounds store.kv.crdt delete tombstone
-	// retention. 0 disables age-only GC and is correctness-first for long
-	// partitions; a positive duration bounds memory by assuming no peer is
-	// offline longer than the retention.
+	// retention by age. 0 disables age-only GC; clustered nodes still reclaim
+	// tombstones after exact tombstone acknowledgement when an acknowledgement
+	// peer set is explicitly configured. A positive duration is an explicit
+	// memory-vs-max-partition tradeoff.
 	ClusterKVCRDTTombstoneRetention boot.Name = "kv_crdt_tombstone_retention"
+	// ClusterKVCRDTTombstoneGCAlivePeers uses the current alive membership as the
+	// tombstone-GC acknowledgement set. This bounds delete-churn memory when
+	// acknowledged peers cannot roll back to stale AP state and departed nodes'
+	// old AP state is externally retired before rejoin; leave it false when
+	// stale durable replicas may reappear under the same node ID.
+	ClusterKVCRDTTombstoneGCAlivePeers boot.Name = "kv_crdt_tombstone_gc_alive_peers"
 
 	// Raft lives under cluster.raft.*. Enabling cluster auto-enables raft
 	// with sensible defaults.

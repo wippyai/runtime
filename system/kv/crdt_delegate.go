@@ -35,6 +35,8 @@ func (d *CRDTDelegate) LocalState(_ bool) []byte { return d.engine.FullState() }
 // MergeRemoteState applies a peer's full-state push/pull payload.
 func (d *CRDTDelegate) MergeRemoteState(buf []byte, _ bool) {
 	if len(buf) > 0 {
-		d.engine.OnFrame(buf)
+		if !d.engine.mergeFullState(buf) {
+			d.engine.OnFrame(buf)
+		}
 	}
 }
