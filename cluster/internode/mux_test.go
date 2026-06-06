@@ -36,7 +36,7 @@ func TestMux_ClassRoundTripPerClass(t *testing.T) {
 		})
 	}()
 
-	classes := []Class{ClassRaftControl, ClassGossip, ClassPGBroadcast, ClassRaftMesh}
+	classes := []Class{ClassRaftControl, ClassGossip, ClassPGBroadcast, ClassRaftRPC}
 	for _, c := range classes {
 		payload := []byte("payload-" + c.String())
 		srcA.push(payload, c)
@@ -70,7 +70,7 @@ func TestMux_ConcurrentSendersDoNotInterleave(t *testing.T) {
 	a, b, srcA := p.a, p.b, p.srcA
 
 	const perClass = 500
-	classes := []Class{ClassRaftControl, ClassGossip, ClassPGBroadcast, ClassRaftMesh}
+	classes := []Class{ClassRaftControl, ClassGossip, ClassPGBroadcast, ClassRaftRPC}
 
 	var perClassCount [numClasses]atomic.Int64
 	done := make(chan struct{})
@@ -184,13 +184,13 @@ func TestMux_RegisterClassReceiverRoutesPerClass(t *testing.T) {
 	}))
 
 	raftDelivered := make(chan []byte, 4)
-	ok := mgrA.RegisterClassReceiver(ClassRaftMesh, func(_ string, data []byte) {
+	ok := mgrA.RegisterClassReceiver(ClassRaftRPC, func(_ string, data []byte) {
 		cp := make([]byte, len(data))
 		copy(cp, data)
 		raftDelivered <- cp
 	})
 	require.True(t, ok)
-	require.False(t, mgrA.RegisterClassReceiver(ClassRaftMesh,
+	require.False(t, mgrA.RegisterClassReceiver(ClassRaftRPC,
 		func(_ string, _ []byte) {}), "second registration must fail")
 
 	// Spin up the peer leg manually so we can stay inside the package.
@@ -221,7 +221,7 @@ func TestMux_RegisterClassReceiverRoutesPerClass(t *testing.T) {
 	require.True(t, isConnected(mgrB, "node-A"))
 
 	require.NoError(t, mgrB.SendToNode("node-A", []byte("default-payload"), ClassPGBroadcast))
-	require.NoError(t, mgrB.SendToNode("node-A", []byte("raft-payload"), ClassRaftMesh))
+	require.NoError(t, mgrB.SendToNode("node-A", []byte("raft-payload"), ClassRaftRPC))
 
 	select {
 	case got := <-defaultDelivered:
@@ -234,7 +234,7 @@ func TestMux_RegisterClassReceiverRoutesPerClass(t *testing.T) {
 	case got := <-raftDelivered:
 		require.Equal(t, []byte("raft-payload"), got)
 	case <-time.After(2 * time.Second):
-		t.Fatal("ClassRaftMesh receiver never fired")
+		t.Fatal("ClassRaftRPC receiver never fired")
 	}
 }
 

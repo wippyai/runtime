@@ -149,23 +149,22 @@ func (c *Cluster) WaitLeader(timeout time.Duration) *Node {
 	return nil
 }
 
-// Partition isolates node i from the rest of the cluster (raft + relay) and tears
-// down its raft mesh sessions on both sides, as gossip NodeLeft would in prod.
+// Partition isolates node i from the rest of the cluster (raft + relay) and
+// clears raft peer failure state on both sides, as gossip NodeLeft would in prod.
 func (c *Cluster) Partition(i int) {
 	c.mesh.partition(c.ids[i])
 	c.forgetSessions(i)
 }
 
-// Heal restores node i's links and forces stale (broken) raft mesh sessions to
-// rebuild — the yamux session that broke during the partition is cached until
-// removePeer, which gossip NodeLeft/rejoin triggers in production.
+// Heal restores node i's links and clears stale raft peer failure state, matching
+// the NodeLeft/rejoin path production uses for a fresh incarnation.
 func (c *Cluster) Heal(i int) {
 	c.mesh.heal(c.ids[i])
 	c.forgetSessions(i)
 }
 
-// forgetSessions tears down the raft mesh session between node i and every other
-// node on both sides, so the next AppendEntries rebuilds a fresh yamux session.
+// forgetSessions clears raft peer state between node i and every other node on
+// both sides. Kept as a helper name for older tests.
 func (c *Cluster) forgetSessions(i int) {
 	id := c.ids[i]
 	for j, n := range c.nodes {
@@ -182,13 +181,13 @@ func (c *Cluster) forgetSessions(i int) {
 // Kill stops node i's raft and marks it unreachable (hard crash).
 func (c *Cluster) Kill(i int) {
 	n := c.nodes[i]
+	c.mesh.setDown(n.ID, true)
 	if n.KV != nil {
 		_ = n.KV.Stop()
 	}
 	if n.Raft != nil {
 		_ = n.Raft.Stop(context.Background())
 	}
-	c.mesh.setDown(n.ID, true)
 	c.forgetSessions(i)
 }
 

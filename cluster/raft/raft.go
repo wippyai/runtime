@@ -38,7 +38,6 @@ type Node struct {
 	snapStore   hraft.SnapshotStore
 	closeStores func() error
 	transport   hraft.Transport
-	streamLayer *meshStreamLayer
 	connMgr     internode.ConnectionManager
 	logger      *zap.Logger
 	raft        *hraft.Raft
@@ -85,26 +84,16 @@ func (n *Node) SetConnectionManager(connMgr internode.ConnectionManager) {
 	n.connMgr = connMgr
 }
 
-// OnNodeLeft tears down the mesh transport session for a departed node
-// AND clears any accumulated per-peer failure state on the peer-state
-// tracker. Wired by boot to cluster.NodeLeft so a node's per-peer yamux
-// session, its backing classConn, and the session acceptLoop goroutine
-// are released on departure instead of leaking, and so a rejoin builds
-// a fresh session rather than reusing the stale one. Clearing the
-// tracker state means a reborn pod (same NodeID, fresh process) is not
-// stuck behind the exponential dead-window backoff that grew while its
-// previous incarnation was failing. No-op before Start (no stream layer
-// or transport wired yet).
+// OnNodeLeft clears accumulated per-peer failure state on the peer-state
+// tracker. Wired by boot to cluster.NodeLeft so a reborn pod (same NodeID,
+// fresh process) is not stuck behind the exponential dead-window backoff
+// that grew while its previous incarnation was failing.
 func (n *Node) OnNodeLeft(node cluster.NodeID) {
 	n.mu.Lock()
-	sl := n.streamLayer
 	tracker, _ := n.transport.(*peerStateTracker)
 	n.mu.Unlock()
 	if node == "" || node == n.localID {
 		return
-	}
-	if sl != nil {
-		sl.removePeer(node)
 	}
 	if tracker != nil {
 		tracker.forgetPeer(hraft.ServerAddress(node))
@@ -199,20 +188,13 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 	n.snapStore = snapStore
 	n.closeStores = closeStores
 
-	// Pipe hashicorp/raft's transport-internal logger through zap with
-	// per-line rate limiting. Default behavior writes broken-pipe storms
-	// straight to os.Stderr, which under network-partition chaos produces
-	// thousands of unsampled lines per second per pod.
-	netLogOut := newRaftStderrAdapter(n.logger.Named("raft-net"))
-
-	// Mesh-backed transport: yamux session per peer over the existing
-	// internode connection (ClassRaftMesh frames). No dedicated Raft
-	// listener is bound; peers are addressed by NodeID.
-	n.streamLayer = newMeshStreamLayer(n.localID, n.connMgr, n.logger.Named("raft-mesh"))
-	if err := n.streamLayer.register(); err != nil {
-		return nil, fmt.Errorf("register raft mesh receiver: %w", err)
+	// Raft uses internode as a framed request/reply message bus. There is no
+	// byte stream, TCP listener, multiplexer, or session reset path here:
+	// each raft RPC is one independent request and reply correlated by ID.
+	inner, err := newRaftMessageTransport(n.localID, n.connMgr, 10*time.Second, n.logger.Named("raft-rpc"))
+	if err != nil {
+		return nil, fmt.Errorf("register raft internode transport: %w", err)
 	}
-	var inner hraft.Transport = hraft.NewNetworkTransport(n.streamLayer, n.config.MaxPool, 10*time.Second, netLogOut)
 
 	// Stack: peerStateTracker over instrumentedTransport over the
 	// chosen inner transport. The tracker short-circuits writes to
@@ -231,9 +213,8 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 	wrappedFSM := &instrumentedFSM{FSM: n.fsm, tel: n.tel}
 	r, err := hraft.NewRaft(rc, wrappedFSM, n.logStore, n.stableStore, n.snapStore, n.transport)
 	if err != nil {
-		if closer, ok := inner.(hraft.WithClose); ok {
-			_ = closer.Close()
-		}
+		_ = inner.Close()
+		_ = closeStores()
 		return nil, fmt.Errorf("create raft instance: %w", err)
 	}
 	n.raft = r
@@ -253,7 +234,7 @@ func (n *Node) Start(_ context.Context) (<-chan any, error) {
 
 	n.logger.Info("raft node started",
 		zap.String("id", n.localID),
-		zap.String("transport", "mesh"),
+		zap.String("transport", "internode-rpc"),
 		zap.Int("bootstrap_expect", n.config.BootstrapExpect))
 
 	return statusCh, nil
@@ -564,7 +545,7 @@ func (n *Node) Barrier(timeout time.Duration) error {
 }
 
 // Bootstrap forms a fresh raft cluster from the given NodeIDs as voters.
-// Under the mesh transport, the raft ServerAddress equals the NodeID.
+// Under the internode raft RPC transport, the raft ServerAddress equals the NodeID.
 // Called by the gossip-driven bootstrap watcher once exactly
 // BootstrapExpect raft-eligible peers are stably visible — each peer
 // derives the same sorted list and calls Bootstrap with it, so every
@@ -587,7 +568,7 @@ func (n *Node) Bootstrap(voterIDs []string) error {
 	if hasState {
 		return nil
 	}
-	// Under the mesh transport a peer's raft address equals its NodeID, and
+	// Under the internode raft RPC transport a peer's raft address equals its NodeID, and
 	// transport.LocalAddr() already returns ServerAddress(localID); resolve
 	// self through it and address every other voter by its NodeID.
 	localAddr := n.transport.LocalAddr()
@@ -972,9 +953,8 @@ func (it *instrumentedTransport) Close() error {
 	return nil
 }
 
-// AppendEntriesPipeline wraps the inner pipeline so streaming AE replications
-// also emit raft_append_entries_* metrics. Without this wrap, steady-state
-// raft traffic (which uses the pipeline path) is invisible.
+// AppendEntriesPipeline wraps the inner pipeline so steady-state AE
+// replication emits raft_append_entries_* metrics.
 func (it *instrumentedTransport) AppendEntriesPipeline(id hraft.ServerID,
 	target hraft.ServerAddress) (hraft.AppendPipeline, error) {
 	inner, err := it.Transport.AppendEntriesPipeline(id, target)
@@ -1001,7 +981,7 @@ func (it *instrumentedTransport) RequestVote(id hraft.ServerID, target hraft.Ser
 // hashicorp/raft team factored RequestPreVote into the WithPreVote
 // interface "as it wasn't in the original interface specification").
 // Without this method, the wrapper does NOT satisfy hraft.WithPreVote
-// — even though the concrete inner (*hraft.NetworkTransport) does.
+// — even though the concrete inner transport does.
 // The peerStateTracker layer above asserts the inner satisfies
 // WithPreVote on every pre-vote RPC; without this method that
 // assertion fails and every election emits an error, causing an
@@ -1011,10 +991,8 @@ func (it *instrumentedTransport) RequestPreVote(id hraft.ServerID, target hraft.
 	start := time.Now()
 	withPV, ok := it.Transport.(hraft.WithPreVote)
 	if !ok {
-		// The mesh-backed hraft.NetworkTransport implements WithPreVote,
-		// so this branch is not reachable in production. Surface as an
-		// error rather than panic so a misconfiguration is visible in
-		// metrics rather than crashing the pod.
+		// Surface as an error rather than panic so a misconfiguration is
+		// visible in metrics rather than crashing the pod.
 		err := fmt.Errorf("raft-net: inner transport %T does not implement hraft.WithPreVote", it.Transport)
 		it.tel.recordRequestPreVote(string(id), err, time.Since(start))
 		return err

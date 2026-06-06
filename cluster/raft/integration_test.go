@@ -25,26 +25,26 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
-// meshFabric ties N in-process internode.ConnectionManagers together
+// raftRPCFabric ties N in-process internode.ConnectionManagers together
 // so SendToNode on any one dispatches synchronously into the target's
 // registered class receiver. There is no real TCP; frames arrive
 // in-order, in-memory. Used by the integration tests to exercise raft
-// over the mesh transport without spinning up real network endpoints.
-type meshFabric struct {
+// over the internode raft RPC transport without spinning up real network
+// endpoints.
+type raftRPCFabric struct {
 	mu    sync.Mutex
-	conns map[cluster.NodeID]*meshConn
+	conns map[cluster.NodeID]*raftRPCConn
 }
 
-func newMeshFabric() *meshFabric {
-	return &meshFabric{conns: map[cluster.NodeID]*meshConn{}}
+func newRaftRPCFabric() *raftRPCFabric {
+	return &raftRPCFabric{conns: map[cluster.NodeID]*raftRPCConn{}}
 }
 
-func (f *meshFabric) connect(id cluster.NodeID) *meshConn {
-	c := &meshConn{
+func (f *raftRPCFabric) connect(id cluster.NodeID) *raftRPCConn {
+	c := &raftRPCConn{
 		fabric:    f,
 		self:      id,
 		receivers: map[internode.Class]func(cluster.NodeID, []byte){},
-		overflow:  map[internode.Class]func(cluster.NodeID){},
 	}
 	f.mu.Lock()
 	f.conns[id] = c
@@ -52,34 +52,33 @@ func (f *meshFabric) connect(id cluster.NodeID) *meshConn {
 	return c
 }
 
-// meshConn implements internode.ConnectionManager for a single endpoint
-// in a meshFabric. Outbound frames are looked up by target NodeID in the
+// raftRPCConn implements internode.ConnectionManager for a single endpoint
+// in a raftRPCFabric. Outbound frames are looked up by target NodeID in the
 // fabric and handed to the target's registered receiver.
-type meshConn struct {
-	fabric    *meshFabric
+type raftRPCConn struct {
+	fabric    *raftRPCFabric
 	self      cluster.NodeID
 	mu        sync.Mutex
 	receivers map[internode.Class]func(cluster.NodeID, []byte)
-	overflow  map[internode.Class]func(cluster.NodeID)
 }
 
-func (c *meshConn) Start(_ context.Context, _ func(cluster.NodeID, []byte)) error {
+func (c *raftRPCConn) Start(_ context.Context, _ func(cluster.NodeID, []byte)) error {
 	return nil
 }
-func (c *meshConn) Stop() error { return nil }
+func (c *raftRPCConn) Stop() error { return nil }
 
-func (c *meshConn) SendToNode(target cluster.NodeID, data []byte, class internode.Class) error {
+func (c *raftRPCConn) SendToNode(target cluster.NodeID, data []byte, class internode.Class) error {
 	c.fabric.mu.Lock()
 	peer := c.fabric.conns[target]
 	c.fabric.mu.Unlock()
 	if peer == nil {
-		return fmt.Errorf("mesh fabric: unknown peer %q", target)
+		return fmt.Errorf("raft rpc fabric: unknown peer %q", target)
 	}
 	peer.mu.Lock()
 	r := peer.receivers[class]
 	peer.mu.Unlock()
 	if r == nil {
-		return errors.New("mesh fabric: no receiver registered for class")
+		return errors.New("raft rpc fabric: no receiver registered for class")
 	}
 	cp := make([]byte, len(data))
 	copy(cp, data)
@@ -87,17 +86,17 @@ func (c *meshConn) SendToNode(target cluster.NodeID, data []byte, class internod
 	return nil
 }
 
-func (c *meshConn) EnsureConnection(_ cluster.NodeID, _ string, _ int) {}
-func (c *meshConn) DisconnectFromNode(_ cluster.NodeID)                {}
-func (c *meshConn) ConnectedNodes() []cluster.NodeID                   { return nil }
-func (c *meshConn) GetListenPort() int                                 { return 0 }
-func (c *meshConn) AddManagedNode(_ cluster.NodeID)                    {}
-func (c *meshConn) RemoveManagedNode(_ cluster.NodeID)                 {}
-func (c *meshConn) IsManaged(_ cluster.NodeID) bool                    { return true }
-func (c *meshConn) EvictOrphanNodes(_ map[cluster.NodeID]struct{}) int { return 0 }
-func (c *meshConn) RecordDropReason(_ string)                          {}
+func (c *raftRPCConn) EnsureConnection(_ cluster.NodeID, _ string, _ int) {}
+func (c *raftRPCConn) DisconnectFromNode(_ cluster.NodeID)                {}
+func (c *raftRPCConn) ConnectedNodes() []cluster.NodeID                   { return nil }
+func (c *raftRPCConn) GetListenPort() int                                 { return 0 }
+func (c *raftRPCConn) AddManagedNode(_ cluster.NodeID)                    {}
+func (c *raftRPCConn) RemoveManagedNode(_ cluster.NodeID)                 {}
+func (c *raftRPCConn) IsManaged(_ cluster.NodeID) bool                    { return true }
+func (c *raftRPCConn) EvictOrphanNodes(_ map[cluster.NodeID]struct{}) int { return 0 }
+func (c *raftRPCConn) RecordDropReason(_ string)                          {}
 
-func (c *meshConn) RegisterClassReceiver(class internode.Class, recv func(cluster.NodeID, []byte)) bool {
+func (c *raftRPCConn) RegisterClassReceiver(class internode.Class, recv func(cluster.NodeID, []byte)) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if recv != nil && c.receivers[class] != nil {
@@ -107,17 +106,7 @@ func (c *meshConn) RegisterClassReceiver(class internode.Class, recv func(cluste
 	return true
 }
 
-func (c *meshConn) RegisterClassOverflowHandler(class internode.Class, handler func(cluster.NodeID)) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if handler != nil && c.overflow[class] != nil {
-		return false
-	}
-	c.overflow[class] = handler
-	return true
-}
-
-var _ internode.ConnectionManager = (*meshConn)(nil)
+var _ internode.ConnectionManager = (*raftRPCConn)(nil)
 
 // noopFSM is a state machine that ignores all input. Sufficient for
 // membership-focused integration tests where we don't exercise log replication
@@ -171,7 +160,7 @@ func (m *staticMembership) replace(local cluster.NodeInfo, all []cluster.NodeInf
 // This sidesteps the gossip-driven BootstrapWatcher (which would need a
 // real membership implementation); these integration tests drive raft
 // directly via the reconciler.
-func startNode(t *testing.T, fabric *meshFabric, id string, bootstrap bool) *Node {
+func startNode(t *testing.T, fabric *raftRPCFabric, id string, bootstrap bool) *Node {
 	t.Helper()
 	cfg := raftapi.Config{
 		// Defaults are fine for in-process loopback; HeartbeatTimeout/ElectionTimeout
@@ -212,7 +201,7 @@ func waitForLeader(t *testing.T, n *Node, timeout time.Duration) {
 }
 
 // asMember builds a NodeInfo for the membership snapshot from a live
-// node. Under the mesh transport the raft ServerAddress equals the
+// node. Under the internode raft RPC transport the raft ServerAddress equals the
 // NodeID, so we set Addr to the same value (matches selection.go).
 func asMember(n *Node) cluster.NodeInfo {
 	return cluster.NodeInfo{
@@ -235,7 +224,7 @@ func TestIntegration_VoterCapAcrossSevenNodes(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	fabric := newMeshFabric()
+	fabric := newRaftRPCFabric()
 	const total = 7
 	nodes := make([]*Node, total)
 	for i := 0; i < total; i++ {
@@ -290,7 +279,7 @@ func TestIntegration_GrowFromOneToFive(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	fabric := newMeshFabric()
+	fabric := newRaftRPCFabric()
 	leader := startNode(t, fabric, "node-0", true)
 	waitForLeader(t, leader, 5*time.Second)
 
@@ -345,7 +334,7 @@ func TestIntegration_DemoteOnShrink(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	fabric := newMeshFabric()
+	fabric := newRaftRPCFabric()
 	leader := startNode(t, fabric, "node-0", true)
 	waitForLeader(t, leader, 5*time.Second)
 	others := []*Node{

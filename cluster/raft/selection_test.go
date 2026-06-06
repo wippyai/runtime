@@ -117,7 +117,7 @@ func TestCandidatesFromMembership_FiltersAndSorts(t *testing.T) {
 	assert.Equal(t, "n2", got[1].ID)
 	assert.Equal(t, "n3", got[2].ID)
 	assert.Equal(t, "n5", got[3].ID)
-	// Under the mesh transport, candidate.Addr is the NodeID itself.
+	// Under the internode RPC transport, candidate.Addr is the NodeID itself.
 	assert.Equal(t, "n1", got[0].Addr)
 }
 

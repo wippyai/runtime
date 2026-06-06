@@ -14,7 +14,7 @@ import (
 // voting. Pure data; carries pre-parsed gossip hints.
 type candidate struct {
 	ID            cluster.NodeID
-	Addr          string // hraft.ServerAddress — the NodeID itself under the mesh transport
+	Addr          string // hraft.ServerAddress: the NodeID itself under internode RPC transport.
 	FailureDomain string
 	Priority      int
 }
@@ -58,7 +58,7 @@ func candidatesFromMembership(nodes []cluster.NodeInfo) []candidate {
 // candidateFromNode extracts a candidate from a single NodeInfo.
 // Returns (zero, false) if the node is ineligible.
 //
-// Under the mesh transport, hraft.ServerAddress is the NodeID itself —
+// Under the internode RPC transport, hraft.ServerAddress is the NodeID itself:
 // there is no host:port to resolve.
 func candidateFromNode(n cluster.NodeInfo) (candidate, bool) {
 	if n.Meta == nil {
@@ -371,7 +371,7 @@ const (
 //   - desiredMembers: the bounded Raft membership (voters ∪ standby
 //     nonvoters, from raftMembers); anything live but absent here gets removed
 //   - current:        current Raft config (from GetConfiguration)
-//   - addrLookup:     nodeID → ServerAddress (the NodeID under the mesh transport)
+//   - addrLookup:     nodeID -> ServerAddress (the NodeID under internode RPC transport)
 func reconcileDiff(
 	desiredVoters map[cluster.NodeID]struct{},
 	desiredMembers []candidate,

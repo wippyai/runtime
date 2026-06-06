@@ -263,7 +263,7 @@ func Raft() boot.Component {
 				}
 			}
 			if connMgr == nil {
-				logger.Warn("raft disabled: internode connection manager not available (no mesh transport)")
+				logger.Warn("raft disabled: internode connection manager not available")
 				return ctx, nil
 			}
 
@@ -556,10 +556,8 @@ func Raft() boot.Component {
 				}
 			}
 
-			// Tear down a departed node's mesh transport session on
-			// NodeLeft so its per-peer yamux session, classConn, and
-			// acceptLoop goroutine are released instead of leaking, and so
-			// a rejoin builds a fresh session against the new incarnation.
+			// Clear a departed node's raft peer failure state on NodeLeft so
+			// a rejoin is not stuck behind backoff from the old incarnation.
 			if bus != nil {
 				sub, err := eventbus.NewSubscriber(ctx, bus, clusterapi.System, clusterapi.NodeLeft,
 					func(e event.Event) {

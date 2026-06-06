@@ -38,7 +38,6 @@ require (
 	github.com/hashicorp/raft v1.7.2
 	github.com/hashicorp/raft-boltdb/v2 v2.3.1
 	github.com/hashicorp/raft-wal v0.4.2
-	github.com/hashicorp/yamux v0.1.2
 	github.com/kaptinlin/jsonschema v0.7.7
 	github.com/klauspost/compress v1.18.5
 	github.com/lib/pq v1.12.3

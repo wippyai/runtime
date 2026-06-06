@@ -128,10 +128,6 @@ func (m *mockConnectionManager) RegisterClassReceiver(_ Class, _ func(cluster.No
 	return true
 }
 
-func (m *mockConnectionManager) RegisterClassOverflowHandler(_ Class, _ func(cluster.NodeID)) bool {
-	return true
-}
-
 type mockCodec struct {
 	encodeError error
 	decodeError error

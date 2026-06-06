@@ -16,23 +16,14 @@ var (
 	// that has not been explicitly registered as a cluster member.
 	ErrNodeNotManaged = errors.New("node is not a managed member of the cluster")
 
-	// ErrQueueFull is returned by QueueMessageClass when a drop-newest class
-	// queue is at capacity. The caller is expected to log/count and proceed
-	// (Erlang `pg` semantics: fire-and-forget but observable).
+	// ErrQueueFull is returned by QueueMessageClass when the gossip queue is
+	// at capacity. Gossip is intentionally lossy; reliable actor and raft
+	// classes do not overflow while the node remains managed.
 	ErrQueueFull = errors.New("internode: send queue is full")
 
 	// ErrUnknownClass is returned by QueueMessageClass when the class value
 	// is out of range. This is a programmer error, not a runtime condition.
 	ErrUnknownClass = errors.New("internode: unknown queue class (programmer error)")
-
-	// ErrRaftMeshOverflow is returned by QueueMessageClass when a
-	// ClassRaftMesh queue is at capacity. ClassRaftMesh carries a
-	// yamux-multiplexed byte-stream, so dropping a frame from the middle
-	// desyncs the demuxer and wedges the session silently. Instead of
-	// drop-oldest, the queue is cleared and the caller resets the peer's
-	// mesh session (close + rebuild) so the stream resyncs from a
-	// consistent point. The pending bytes are discarded with a metric.
-	ErrRaftMeshOverflow = errors.New("internode: raft mesh queue overflow (session reset required)")
 )
 
 type NodeState struct {
@@ -47,40 +38,30 @@ type NodeState struct {
 	queueMu       sync.Mutex
 }
 
-// classQueue is a bounded ring buffer of pending messages for one Class.
+// classQueue is a FIFO of pending messages for one Class.
 // All access is guarded by NodeState.queueMu (held for cross-class
-// operations). Operates as drop-oldest or drop-newest depending on the
-// caller; capacity is fixed at construction.
+// operations). A zero capacity is unbounded.
 type classQueue struct {
-	buf  [][]byte
-	head int // index of the oldest element (next to drain)
-	size int // number of valid entries
+	buf       [][]byte
+	head      int // index of the oldest element (next to drain)
+	size      int // number of valid entries
+	unbounded bool
 }
 
 func newClassQueue(cap int) *classQueue {
 	if cap <= 0 {
-		cap = 1
+		return &classQueue{unbounded: true}
 	}
 	return &classQueue{buf: make([][]byte, cap)}
 }
 
-// pushOldest appends, dropping the oldest entry if full. Always succeeds.
-// Returns true if a drop occurred.
-func (q *classQueue) pushOldest(data []byte) (dropped bool) {
-	if q.size == len(q.buf) {
-		// drop oldest by advancing head; tail then writes over it
-		q.head = (q.head + 1) % len(q.buf)
-		q.size--
-		dropped = true
-	}
-	tail := (q.head + q.size) % len(q.buf)
-	q.buf[tail] = data
-	q.size++
-	return dropped
-}
-
 // pushNewest appends if there is room. Returns false if full (no insert).
 func (q *classQueue) pushNewest(data []byte) (accepted bool) {
+	if q.unbounded {
+		q.buf = append(q.buf, data)
+		q.size++
+		return true
+	}
 	if q.size == len(q.buf) {
 		return false
 	}
@@ -93,6 +74,18 @@ func (q *classQueue) pushNewest(data []byte) (accepted bool) {
 // pushFront inserts at the front for requeue (callers must respect cap).
 // Returns false if full.
 func (q *classQueue) pushFront(data []byte) (accepted bool) {
+	if q.unbounded {
+		if q.head > 0 {
+			q.head--
+			q.buf[q.head] = data
+		} else {
+			q.buf = append(q.buf, nil)
+			copy(q.buf[1:], q.buf)
+			q.buf[0] = data
+		}
+		q.size++
+		return true
+	}
 	if q.size == len(q.buf) {
 		return false
 	}
@@ -107,6 +100,24 @@ func (q *classQueue) pop() (data []byte, ok bool) {
 	if q.size == 0 {
 		return nil, false
 	}
+	if q.unbounded {
+		data = q.buf[q.head]
+		q.buf[q.head] = nil
+		q.head++
+		q.size--
+		if q.size == 0 {
+			q.head = 0
+			q.buf = q.buf[:0]
+		} else if q.head > 1024 && q.head*2 >= len(q.buf) {
+			copy(q.buf, q.buf[q.head:])
+			for i := q.size; i < len(q.buf); i++ {
+				q.buf[i] = nil
+			}
+			q.buf = q.buf[:q.size]
+			q.head = 0
+		}
+		return data, true
+	}
 	data = q.buf[q.head]
 	q.buf[q.head] = nil // release reference
 	q.head = (q.head + 1) % len(q.buf)
@@ -118,6 +129,9 @@ func (q *classQueue) pop() (data []byte, ok bool) {
 func (q *classQueue) reset() {
 	for i := range q.buf {
 		q.buf[i] = nil
+	}
+	if q.unbounded {
+		q.buf = q.buf[:0]
 	}
 	q.head = 0
 	q.size = 0
@@ -184,10 +198,10 @@ func (nsm *NodeStateManager) CreateNodeState(nodeID cluster.NodeID) {
 	}
 
 	caps := [numClasses]int{
-		ClassRaftControl: nsm.config.RaftControlQueueCap,
+		ClassRaftControl: 0,
 		ClassGossip:      nsm.config.GossipQueueCap,
-		ClassPGBroadcast: nsm.config.PGBroadcastQueueCap,
-		ClassRaftMesh:    nsm.config.RaftMeshQueueCap,
+		ClassPGBroadcast: 0,
+		ClassRaftRPC:     0,
 	}
 	queues := [numClasses]*classQueue{}
 	for i := range queues {
@@ -211,22 +225,16 @@ func (nsm *NodeStateManager) GetNodeState(nodeID cluster.NodeID) *NodeState {
 }
 
 // QueueMessageClass enqueues data for nodeID under the given class.
-// Drop policy is class-specific:
-//   - ClassRaftControl drops the oldest entry on overflow (etcd-style:
-//     idempotent control RPCs, newer state wins).
-//   - ClassGossip and ClassPGBroadcast drop the new entry and return
-//     ErrQueueFull (memberlist / Erlang `pg` style).
-//   - ClassRaftMesh carries a yamux byte-stream: a mid-stream drop
-//     corrupts the demuxer, so on overflow the queue is cleared, the
-//     pending bytes are discarded with a metric, and ErrRaftMeshOverflow
-//     is returned so the caller resets the peer's mesh session.
+// Delivery policy is class-specific:
+//   - ClassRaftControl, ClassPGBroadcast, and ClassRaftRPC are reliable
+//     while the peer remains managed.
+//   - ClassGossip drops the new entry and returns ErrQueueFull when full.
 //
 // In all drop cases, internode_dropped_total{class,reason="queue_full"}
 // is incremented.
 //
 // Returns ErrNodeNotManaged if no state exists for nodeID.
-// Returns ErrQueueFull for drop-newest classes when full.
-// Returns ErrRaftMeshOverflow for ClassRaftMesh when full.
+// Returns ErrQueueFull for gossip when full.
 func (nsm *NodeStateManager) QueueMessageClass(nodeID cluster.NodeID, data []byte, class Class) error {
 	state := nsm.GetNodeState(nodeID)
 	if state == nil {
@@ -241,26 +249,11 @@ func (nsm *NodeStateManager) QueueMessageClass(nodeID cluster.NodeID, data []byt
 
 	state.queueMu.Lock()
 	q := state.queues[class]
-	var dropped bool
 	var rejected bool
-	var meshOverflow bool
-	var meshDiscarded int
 	switch class {
-	case ClassRaftControl:
-		dropped = q.pushOldest(data)
-	case ClassRaftMesh:
-		// Byte-stream class: never drop a frame from the middle. On
-		// overflow, discard the whole pending stream and signal a reset
-		// so yamux+raft re-establish a fresh session and resync. The new
-		// frame is dropped too — it belongs to the now-doomed stream.
-		if q.len() == len(q.buf) {
-			meshOverflow = true
-			meshDiscarded = q.len()
-			q.reset()
-		} else {
-			q.pushNewest(data)
-		}
-	case ClassGossip, ClassPGBroadcast:
+	case ClassRaftControl, ClassPGBroadcast, ClassRaftRPC:
+		q.pushNewest(data)
+	case ClassGossip:
 		if !q.pushNewest(data) {
 			rejected = true
 		}
@@ -270,22 +263,10 @@ func (nsm *NodeStateManager) QueueMessageClass(nodeID cluster.NodeID, data []byt
 	state.lastDepth[class] = depth
 	state.queueMu.Unlock()
 
-	if dropped {
-		nsm.tel.recordDrop(class, "queue_full")
-	}
 	// internode_queue_depth is a gauge — emit only on change so the idle
 	// hot path does not write a metric event per queue op.
 	if depthChanged {
 		nsm.tel.recordQueueDepth(class, nodeID, depth)
-	}
-
-	if meshOverflow {
-		// Count each discarded frame plus the rejected new one so the
-		// reset is observable as drops, not silent.
-		for i := 0; i < meshDiscarded+1; i++ {
-			nsm.tel.recordDrop(class, "queue_full")
-		}
-		return ErrRaftMeshOverflow
 	}
 
 	if rejected {
@@ -365,13 +346,13 @@ func (nsm *NodeStateManager) GetNodeAddress(nodeID cluster.NodeID) (string, int,
 }
 
 // drainClasses defines the QoS draining order. ClassRaftControl drains
-// first (smallest latency budget); ClassRaftMesh second so multiplexed
-// hraft frames stay responsive; gossip and PG broadcast last. The order
+// first (smallest latency budget); ClassRaftRPC second so raft RPC
+// frames stay responsive; gossip and PG broadcast last. The order
 // matters under per-batch caps: a saturated control plane should not
-// starve raft mesh traffic forever.
+// starve raft RPC traffic forever.
 var drainClasses = [numClasses]Class{
 	ClassRaftControl,
-	ClassRaftMesh,
+	ClassRaftRPC,
 	ClassGossip,
 	ClassPGBroadcast,
 }
@@ -455,14 +436,8 @@ func (nsm *NodeStateManager) RequeueMessages(nodeID cluster.NodeID, messages []O
 }
 
 // RequeueMessagesClass returns previously-extracted messages to the head
-// of the per-class queue. Respects the class cap: any messages that
-// would exceed the cap are dropped with a metric. Drop-oldest classes
-// (RaftControl) silently discard from the tail to make room; drop-newest
-// classes (Gossip, PGBroadcast) discard the tail of the requeue input.
-// ClassRaftMesh is a byte-stream: a mid-stream drop is not safe, so on
-// overflow the whole queue is cleared and the reset path handles the
-// torn-down session (the connection that produced this requeue is itself
-// being closed).
+// of the per-class queue. Reliable classes are preserved while the peer
+// remains managed. Gossip keeps its lossy cap.
 func (nsm *NodeStateManager) RequeueMessagesClass(nodeID cluster.NodeID, messages [][]byte, class Class) {
 	if len(messages) == 0 {
 		return
@@ -483,37 +458,14 @@ func (nsm *NodeStateManager) RequeueMessagesClass(nodeID cluster.NodeID, message
 	q := state.queues[class]
 	dropped := 0
 	switch class {
-	case ClassRaftControl:
-		// Drop-oldest semantics: if requeue would overflow, the queue
-		// silently makes room by discarding old entries. pushFront cannot
-		// drop, so drain from tail first.
+	case ClassRaftControl, ClassPGBroadcast, ClassRaftRPC:
 		for i := len(messages) - 1; i >= 0; i-- {
 			if messages[i] == nil {
 				continue
 			}
-			if !q.pushFront(messages[i]) {
-				// Full — drop one from tail to make room.
-				if d, _ := q.pop(); d != nil {
-					dropped++
-				}
-				_ = q.pushFront(messages[i])
-			}
+			q.pushFront(messages[i])
 		}
-	case ClassRaftMesh:
-		// Byte-stream: requeue at the front while it fits. If it
-		// overflows, drop the entire queue rather than corrupt the
-		// stream mid-sequence; the session reset will rebuild it.
-		for i := len(messages) - 1; i >= 0; i-- {
-			if messages[i] == nil {
-				continue
-			}
-			if !q.pushFront(messages[i]) {
-				dropped += q.len()
-				q.reset()
-				dropped++ // the message that could not be requeued
-			}
-		}
-	case ClassGossip, ClassPGBroadcast:
+	case ClassGossip:
 		for i := len(messages) - 1; i >= 0; i-- {
 			if messages[i] == nil {
 				continue
