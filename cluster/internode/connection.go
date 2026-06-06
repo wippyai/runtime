@@ -117,12 +117,6 @@ type Outbound struct {
 type NodeConnectionConfig struct {
 	HandshakeTimeout time.Duration
 	MaxMessageSize   uint32
-	// MaxQueueSize caps the per-connection outbound queue (activeQueue).
-	// When the cap is reached, Send drops the new message and returns
-	// ErrQueueFull so the caller can record the drop. Zero means unbounded
-	// — that's a foot-gun under network-delay chaos and should only be used
-	// in tests.
-	MaxQueueSize int
 }
 
 // DefaultNodeConnectionConfig returns a default set of configuration parameters
@@ -131,7 +125,6 @@ func DefaultNodeConnectionConfig() NodeConnectionConfig {
 	return NodeConnectionConfig{
 		HandshakeTimeout: 5 * time.Second,
 		MaxMessageSize:   512 * 1024 * 1024,
-		MaxQueueSize:     4096,
 	}
 }
 

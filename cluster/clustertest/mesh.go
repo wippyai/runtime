@@ -43,7 +43,6 @@ func (m *mesh) connect(id cluster.NodeID) *meshConn {
 		mesh:      m,
 		self:      id,
 		receivers: map[internode.Class]func(cluster.NodeID, []byte){},
-		overflow:  map[internode.Class]func(cluster.NodeID){},
 		inbox:     make(chan inboundMsg, 8192),
 		done:      make(chan struct{}),
 	}
@@ -122,7 +121,6 @@ type inboundMsg struct {
 type meshConn struct {
 	mesh      *mesh
 	receivers map[internode.Class]func(cluster.NodeID, []byte)
-	overflow  map[internode.Class]func(cluster.NodeID)
 	inbox     chan inboundMsg
 	done      chan struct{}
 	self      cluster.NodeID
@@ -159,7 +157,7 @@ func (c *meshConn) SendToNode(target cluster.NodeID, data []byte, class internod
 	r := peer.receivers[class]
 	peer.mu.Unlock()
 	if r == nil {
-		return errors.New("clustertest: no receiver for class")
+		return errBlocked
 	}
 	cp := make([]byte, len(data))
 	copy(cp, data)
@@ -188,16 +186,6 @@ func (c *meshConn) RegisterClassReceiver(class internode.Class, recv func(cluste
 		return false
 	}
 	c.receivers[class] = recv
-	return true
-}
-
-func (c *meshConn) RegisterClassOverflowHandler(class internode.Class, handler func(cluster.NodeID)) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if handler != nil && c.overflow[class] != nil {
-		return false
-	}
-	c.overflow[class] = handler
 	return true
 }
 

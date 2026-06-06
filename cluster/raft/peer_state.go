@@ -130,11 +130,9 @@ func (t *peerStateTracker) RequestVote(id hraft.ServerID, target hraft.ServerAdd
 // dead-backoff window, otherwise forward to the inner transport and feed
 // the result into the per-peer failure tracker.
 //
-// The inner is hraft.NetworkTransport (TCPTransport in v1.7.3+) which
-// implements RequestPreVote natively. If a future caller wraps a transport
-// that doesn't, the type assertion below panics with a clear message
-// rather than silently semantically downgrading to a regular RequestVote
-// (which would cause the very term inflation pre-vote is meant to prevent).
+// The inner transport must implement RequestPreVote natively. If a future
+// caller wraps a transport that doesn't, return a clear error rather than
+// silently semantically downgrading to a regular RequestVote.
 func (t *peerStateTracker) RequestPreVote(id hraft.ServerID, target hraft.ServerAddress,
 	args *hraft.RequestPreVoteRequest, resp *hraft.RequestPreVoteResponse) error {
 	if t.isDead(target) {
@@ -203,12 +201,9 @@ func (t *peerStateTracker) DeadStreak(target hraft.ServerAddress) int {
 }
 
 // forgetPeer drops all accumulated failure state for target. Called on
-// cluster.NodeLeft so a rebirth of a pod (same NodeID, fresh process,
-// fresh yamux session) does not inherit the exponential backoff that
-// accumulated while the old incarnation was failing. Without this, a
-// killed pod's NodeID could sit in the dead window for up to backoffMax
-// after a fresh process is already accepting connections, leaving the
-// reborn peer effectively unreachable until the timer expires.
+// cluster.NodeLeft so a rebirth of a pod (same NodeID, fresh process) does
+// not inherit the exponential backoff that accumulated while the old
+// incarnation was failing.
 func (t *peerStateTracker) forgetPeer(target hraft.ServerAddress) {
 	t.peers.Delete(target)
 }

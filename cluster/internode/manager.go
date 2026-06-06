@@ -71,51 +71,33 @@ type ManagerConfig struct {
 	CommandQueueSize  int
 	HandshakeTimeout  time.Duration
 	OutboundQueueSize int
-	// Per-class send queue caps. Capacities chosen from canonical references:
-	// etcd default for control (4096); 2x memberlist default for gossip
-	// (1024); sized for fan-out for app broadcasts (2048). Hitting a cap
-	// drops with a metric (internode_dropped_total{class,reason="queue_full"})
-	// rather than blocking or growing.
-	RaftControlQueueCap int
-	GossipQueueCap      int
-	PGBroadcastQueueCap int
-	// RaftMeshQueueCap caps the per-peer queue for the multiplexed Raft
-	// transport byte-stream (ClassRaftMesh). Sized like RaftControl: under
-	// healthy steady state Raft frames drain fast. On overflow the queue
-	// is cleared and the peer's mesh session is reset (drop-oldest is
-	// unsafe for a byte-stream) so yamux+raft resync and pre-vote recovers.
-	RaftMeshQueueCap int
-	// OutboundConnQueueCap caps the per-connection outbound queue inside
-	// NodeConnection (drain target of the per-class queues above). Without
-	// this cap, network-delay chaos lets the connection-level queue grow
-	// unbounded even though the upstream class queues are bounded.
-	// Drops here count as internode_dropped_total{reason="conn_queue_full"}.
-	OutboundConnQueueCap int
-	InitialRetryDelay    time.Duration
-	MaxRetryDelay        time.Duration
-	DrainBatchSize       int
-	MaxMessageSize       uint32
-	AutoPort             bool
+	// GossipQueueCap bounds SWIM/memberlist-style gossip. Gossip is the only
+	// intentionally lossy internode class; reliable actor and raft classes
+	// queue while the peer remains managed and are discarded only on node
+	// removal.
+	GossipQueueCap int
+
+	InitialRetryDelay time.Duration
+	MaxRetryDelay     time.Duration
+	DrainBatchSize    int
+	MaxMessageSize    uint32
+	AutoPort          bool
 }
 
 func DefaultManagerConfig() ManagerConfig {
 	return ManagerConfig{
-		HandshakeTimeout:     5 * time.Second,
-		OutboundQueueSize:    256,
-		MaxMessageSize:       512 * 1024 * 1024,
-		TLS:                  ManagerTLSConfig{Enabled: false},
-		InitialRetryDelay:    10 * time.Millisecond,
-		MaxRetryDelay:        5 * time.Second,
-		AutoPort:             true,
-		BindPort:             DefaultPortRangeStart,
-		DrainBatchSize:       32,
-		CommandQueueSize:     256,
-		MaxRetryAttempts:     10,
-		RaftControlQueueCap:  4096,
-		GossipQueueCap:       1024,
-		PGBroadcastQueueCap:  2048,
-		RaftMeshQueueCap:     4096,
-		OutboundConnQueueCap: 4096,
+		HandshakeTimeout:  5 * time.Second,
+		OutboundQueueSize: 256,
+		MaxMessageSize:    512 * 1024 * 1024,
+		TLS:               ManagerTLSConfig{Enabled: false},
+		InitialRetryDelay: 10 * time.Millisecond,
+		MaxRetryDelay:     5 * time.Second,
+		AutoPort:          true,
+		BindPort:          DefaultPortRangeStart,
+		DrainBatchSize:    32,
+		CommandQueueSize:  256,
+		MaxRetryAttempts:  10,
+		GossipQueueCap:    1024,
 	}
 }
 
@@ -123,7 +105,6 @@ func (mc ManagerConfig) NodeConnectionConfig() NodeConnectionConfig {
 	return NodeConnectionConfig{
 		HandshakeTimeout: mc.HandshakeTimeout,
 		MaxMessageSize:   mc.MaxMessageSize,
-		MaxQueueSize:     mc.OutboundConnQueueCap,
 	}
 }
 
@@ -205,20 +186,9 @@ type ConnectionManager interface {
 	// per-class receiver is invoked instead of the default onMessage
 	// callback registered via Start. Returns false if a receiver is
 	// already registered for the class. The mesh-backed Raft transport
-	// uses this to claim ClassRaftMesh; the default class set continues
+	// uses this to claim ClassRaftRPC; the default class set continues
 	// to flow through Start's onMessage.
 	RegisterClassReceiver(class Class, recv func(nodeID cluster.NodeID, data []byte)) bool
-
-	// RegisterClassOverflowHandler wires a callback invoked when the
-	// per-peer send queue for `class` overflows and the class's drop
-	// policy is "reset the underlying transport" rather than drop a
-	// frame. Only ClassRaftMesh uses this: its queue carries a
-	// yamux byte-stream, so on overflow the handler tears down the
-	// peer's mesh session (close + rebuild) instead of dropping a
-	// frame from the middle of the stream. The handler is invoked off
-	// the producer's goroutine and MUST NOT block. Returns false if a
-	// handler is already registered for the class.
-	RegisterClassOverflowHandler(class Class, handler func(nodeID cluster.NodeID)) bool
 }
 
 type manager struct {
@@ -230,14 +200,10 @@ type manager struct {
 	tlsConfig    *tls.Config
 	nodeStates   *NodeStateManager
 	controlLoops map[cluster.NodeID]*nodeControlLoop
-	// classReceivers and classOverflow are accessed on every inbound
-	// frame (lookupClassReceiver runs in the read hot path). Registrations
-	// happen only at boot, so we keep the arrays behind atomic.Pointer
-	// snapshots: lookups are an atomic.Load (no mutex), and registrations
-	// publish a new array via atomic.Store under a write-only register
-	// mutex that serializes the read-modify-write.
+	// classReceivers is accessed on every inbound frame (lookupClassReceiver
+	// runs in the read hot path). Registrations happen only at boot, so we
+	// keep the array behind an atomic.Pointer snapshot.
 	classReceivers atomic.Pointer[[numClasses]func(cluster.NodeID, []byte)]
-	classOverflow  atomic.Pointer[[numClasses]func(cluster.NodeID)]
 	config         ManagerConfig
 	wg             sync.WaitGroup
 	actualPort     int
@@ -314,17 +280,6 @@ func (m *manager) SendToNode(nodeID cluster.NodeID, data []byte, class Class) er
 			// log to avoid the kind of flood we saw during chaos (thousands
 			// per second per pod). The metric is the source of truth.
 			m.nodeStates.tel.recordDrop(class, "node_not_managed")
-			return nil
-		}
-		if errors.Is(err, ErrRaftMeshOverflow) {
-			// Byte-stream overflow: the queue already discarded the pending
-			// stream and recorded drops. Reset the peer's mesh session so
-			// yamux+raft re-establish cleanly. Run off this goroutine so a
-			// reset never blocks the producer (the handler closes a session;
-			// the rebuild happens lazily on the next frame).
-			if h := m.lookupClassOverflow(class); h != nil {
-				go h(nodeID)
-			}
 			return nil
 		}
 		// ErrQueueFull surfaces to the caller (broadcast path will count it).
@@ -459,39 +414,6 @@ func (m *manager) lookupClassReceiver(class Class) func(cluster.NodeID, []byte) 
 		return nil
 	}
 	snap := m.classReceivers.Load()
-	if snap == nil {
-		return nil
-	}
-	return snap[class]
-}
-
-// RegisterClassOverflowHandler claims the overflow-reset hook for a Class.
-// Registering nil clears the handler. Returns false if a non-nil handler is
-// already registered for that class. Snapshot semantics match
-// RegisterClassReceiver.
-func (m *manager) RegisterClassOverflowHandler(class Class, handler func(cluster.NodeID)) bool {
-	if int(class) >= numClasses {
-		return false
-	}
-	m.registerMu.Lock()
-	defer m.registerMu.Unlock()
-	var next [numClasses]func(cluster.NodeID)
-	if cur := m.classOverflow.Load(); cur != nil {
-		next = *cur
-	}
-	if handler != nil && next[class] != nil {
-		return false
-	}
-	next[class] = handler
-	m.classOverflow.Store(&next)
-	return true
-}
-
-func (m *manager) lookupClassOverflow(class Class) func(cluster.NodeID) {
-	if int(class) >= numClasses {
-		return nil
-	}
-	snap := m.classOverflow.Load()
 	if snap == nil {
 		return nil
 	}

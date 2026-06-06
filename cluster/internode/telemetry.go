@@ -16,7 +16,7 @@ func newTelemetry(coll metrics.Collector) *telemetry {
 		return t
 	}
 	// Bootstrap counters so dashboards have visible series before any drop.
-	for _, c := range []Class{ClassRaftControl, ClassGossip, ClassPGBroadcast, ClassRaftMesh} {
+	for _, c := range []Class{ClassRaftControl, ClassGossip, ClassPGBroadcast, ClassRaftRPC} {
 		coll.CounterAdd("internode_dropped_total", 0, metrics.Labels{
 			"class": c.String(), "reason": "queue_full",
 		})
