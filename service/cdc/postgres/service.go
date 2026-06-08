@@ -29,33 +29,33 @@ const (
 )
 
 const (
-	defaultStandbyInterval = 10 * time.Second
-	defaultStatusInterval  = 30 * time.Second
-	slotActiveSQLState     = "55006"
-	slotDropMaxAttempts    = 10
-	slotDropRetryDelay     = 100 * time.Millisecond
-	snapshotFetchSize      = 1000
-	snapshotCursor         = "wippy_cdc_snapshot"
-	snapshotFetchSQL       = "FETCH 1000 FROM " + snapshotCursor
-	snapshotCloseSQL       = "CLOSE " + snapshotCursor
+	defaultStandbyInterval   = 10 * time.Second
+	defaultStatusInterval    = 30 * time.Second
+	defaultSnapshotFetchSize = 1000
+	slotActiveSQLState       = "55006"
+	slotDropMaxAttempts      = 10
+	slotDropRetryDelay       = 100 * time.Millisecond
+	snapshotCursor           = "wippy_cdc_snapshot"
+	snapshotCloseSQL         = "CLOSE " + snapshotCursor
 )
 
 type SourceOptions struct {
-	Bus             event.Bus
-	Checkpoint      Checkpointer
-	Log             *zap.Logger
-	ReplDSN         string
-	AdminDSN        string
-	Slot            string
-	Publication     string
-	EventSystem     string
-	Tables          []string
-	StandbyInterval time.Duration
-	StatusInterval  time.Duration
-	Temporary       bool
-	Snapshot        bool
-	Streaming       bool
-	Failover        bool
+	Bus               event.Bus
+	Checkpoint        Checkpointer
+	Log               *zap.Logger
+	ReplDSN           string
+	AdminDSN          string
+	Slot              string
+	Publication       string
+	EventSystem       string
+	Tables            []string
+	StandbyInterval   time.Duration
+	StatusInterval    time.Duration
+	SnapshotFetchSize int
+	Temporary         bool
+	Snapshot          bool
+	Streaming         bool
+	Failover          bool
 }
 
 type Source struct {
@@ -71,15 +71,16 @@ type Source struct {
 	eventSystem string
 	tables      []string
 
-	standbyInterval time.Duration
-	statusInterval  time.Duration
-	mu              sync.Mutex
-	temporary       bool
-	snapshot        bool
-	streaming       bool
-	failover        bool
-	stopped         atomic.Bool
-	dropSlot        atomic.Bool
+	standbyInterval   time.Duration
+	statusInterval    time.Duration
+	snapshotFetchSize int
+	mu                sync.Mutex
+	temporary         bool
+	snapshot          bool
+	streaming         bool
+	failover          bool
+	stopped           atomic.Bool
+	dropSlot          atomic.Bool
 }
 
 var snapshotFailpoint func() error
@@ -105,22 +106,27 @@ func NewSource(opts SourceOptions) *Source {
 	if status <= 0 {
 		status = defaultStatusInterval
 	}
+	fetch := opts.SnapshotFetchSize
+	if fetch <= 0 {
+		fetch = defaultSnapshotFetchSize
+	}
 	return &Source{
-		bus:             opts.Bus,
-		log:             log,
-		injectedCP:      opts.Checkpoint,
-		replDSN:         opts.ReplDSN,
-		adminDSN:        opts.AdminDSN,
-		slot:            opts.Slot,
-		publication:     opts.Publication,
-		eventSystem:     system,
-		tables:          opts.Tables,
-		temporary:       opts.Temporary,
-		snapshot:        opts.Snapshot,
-		streaming:       opts.Streaming,
-		failover:        opts.Failover,
-		standbyInterval: standby,
-		statusInterval:  status,
+		bus:               opts.Bus,
+		log:               log,
+		injectedCP:        opts.Checkpoint,
+		replDSN:           opts.ReplDSN,
+		adminDSN:          opts.AdminDSN,
+		slot:              opts.Slot,
+		publication:       opts.Publication,
+		eventSystem:       system,
+		tables:            opts.Tables,
+		temporary:         opts.Temporary,
+		snapshot:          opts.Snapshot,
+		streaming:         opts.Streaming,
+		failover:          opts.Failover,
+		standbyInterval:   standby,
+		statusInterval:    status,
+		snapshotFetchSize: fetch,
 	}
 }
 
@@ -565,21 +571,22 @@ func (s *Source) snapshotTable(ctx context.Context, conn *sql.Conn, tbl tableRef
 	}
 	defer func() { _, _ = conn.ExecContext(context.WithoutCancel(ctx), snapshotCloseSQL) }()
 
+	fetchSQL := fmt.Sprintf("FETCH %d FROM %s", s.snapshotFetchSize, snapshotCursor)
 	n := 0
 	for {
-		got, err := s.fetchSnapshotBatch(ctx, conn, tbl)
+		got, err := s.fetchSnapshotBatch(ctx, conn, tbl, fetchSQL)
 		if err != nil {
 			return n, err
 		}
 		n += got
-		if got < snapshotFetchSize {
+		if got < s.snapshotFetchSize {
 			return n, nil
 		}
 	}
 }
 
-func (s *Source) fetchSnapshotBatch(ctx context.Context, conn *sql.Conn, tbl tableRef) (int, error) {
-	rows, err := conn.QueryContext(ctx, snapshotFetchSQL)
+func (s *Source) fetchSnapshotBatch(ctx context.Context, conn *sql.Conn, tbl tableRef, fetchSQL string) (int, error) {
+	rows, err := conn.QueryContext(ctx, fetchSQL)
 	if err != nil {
 		return 0, fmt.Errorf("fetch %s.%s: %w", tbl.schema, tbl.name, err)
 	}

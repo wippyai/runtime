@@ -103,6 +103,23 @@ func TestConfigIntervalsInvalid(t *testing.T) {
 	require.ErrorIs(t, c.Validate(), ErrInvalidInterval)
 }
 
+func TestConfigSnapshotFetchSizeAcceptsZeroAndPositive(t *testing.T) {
+	c := validConfig()
+	require.NoError(t, c.Validate())
+
+	c.SnapshotFetchSize = 0
+	require.NoError(t, c.Validate())
+
+	c.SnapshotFetchSize = 4096
+	require.NoError(t, c.Validate())
+}
+
+func TestConfigSnapshotFetchSizeRejectsNegative(t *testing.T) {
+	c := validConfig()
+	c.SnapshotFetchSize = -1
+	require.ErrorIs(t, c.Validate(), ErrInvalidSnapshotFetchSize)
+}
+
 func TestConfigFailoverRequiresPersistentSlot(t *testing.T) {
 	c := validConfig()
 	c.Failover = true

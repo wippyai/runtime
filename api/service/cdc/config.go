@@ -25,28 +25,29 @@ const (
 )
 
 type Config struct {
-	Options         map[string]string          `json:"options"`
-	Database        string                     `json:"database"`
-	Password        string                     `json:"password"`
-	Host            string                     `json:"host"`
-	Username        string                     `json:"username"`
-	HostEnv         string                     `json:"host_env,omitempty"`
-	PortEnv         string                     `json:"port_env,omitempty"`
-	DatabaseEnv     string                     `json:"database_env,omitempty"`
-	UsernameEnv     string                     `json:"username_env,omitempty"`
-	PasswordEnv     string                     `json:"password_env,omitempty"`
-	SlotName        string                     `json:"slot_name"`
-	Publication     string                     `json:"publication,omitempty"`
-	EventSystem     string                     `json:"event_system,omitempty"`
-	StandbyInterval string                     `json:"standby_interval,omitempty"`
-	StatusInterval  string                     `json:"status_interval,omitempty"`
-	Tables          []string                   `json:"tables,omitempty"`
-	Lifecycle       supervisor.LifecycleConfig `json:"lifecycle"`
-	Port            int                        `json:"port"`
-	Temporary       bool                       `json:"temporary,omitempty"`
-	Snapshot        bool                       `json:"snapshot,omitempty"`
-	Streaming       bool                       `json:"streaming,omitempty"`
-	Failover        bool                       `json:"failover,omitempty"`
+	Options           map[string]string          `json:"options"`
+	Database          string                     `json:"database"`
+	Password          string                     `json:"password"`
+	Host              string                     `json:"host"`
+	Username          string                     `json:"username"`
+	HostEnv           string                     `json:"host_env,omitempty"`
+	PortEnv           string                     `json:"port_env,omitempty"`
+	DatabaseEnv       string                     `json:"database_env,omitempty"`
+	UsernameEnv       string                     `json:"username_env,omitempty"`
+	PasswordEnv       string                     `json:"password_env,omitempty"`
+	SlotName          string                     `json:"slot_name"`
+	Publication       string                     `json:"publication,omitempty"`
+	EventSystem       string                     `json:"event_system,omitempty"`
+	StandbyInterval   string                     `json:"standby_interval,omitempty"`
+	StatusInterval    string                     `json:"status_interval,omitempty"`
+	Tables            []string                   `json:"tables,omitempty"`
+	Lifecycle         supervisor.LifecycleConfig `json:"lifecycle"`
+	Port              int                        `json:"port"`
+	SnapshotFetchSize int                        `json:"snapshot_fetch_size,omitempty"`
+	Temporary         bool                       `json:"temporary,omitempty"`
+	Snapshot          bool                       `json:"snapshot,omitempty"`
+	Streaming         bool                       `json:"streaming,omitempty"`
+	Failover          bool                       `json:"failover,omitempty"`
 }
 
 func (c *Config) InitDefaults() {
@@ -83,6 +84,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Failover && c.Temporary {
 		return ErrFailoverTemporary
+	}
+	if c.SnapshotFetchSize < 0 {
+		return ErrInvalidSnapshotFetchSize
 	}
 	if _, err := c.StandbyDuration(); err != nil {
 		return err

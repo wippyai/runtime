@@ -17,18 +17,21 @@ func TestNewSourceDefaults(t *testing.T) {
 	s := NewSource(SourceOptions{})
 	assert.Equal(t, defaultStandbyInterval, s.standbyInterval)
 	assert.Equal(t, defaultStatusInterval, s.statusInterval)
+	assert.Equal(t, defaultSnapshotFetchSize, s.snapshotFetchSize)
 	assert.Equal(t, config.DefaultEventSystem, s.eventSystem)
 	assert.NotNil(t, s.log)
 }
 
 func TestNewSourceHonorsOverrides(t *testing.T) {
 	s := NewSource(SourceOptions{
-		StandbyInterval: 1 * time.Second,
-		StatusInterval:  2 * time.Second,
-		EventSystem:     "custom_system",
+		StandbyInterval:   1 * time.Second,
+		StatusInterval:    2 * time.Second,
+		SnapshotFetchSize: 4096,
+		EventSystem:       "custom_system",
 	})
 	assert.Equal(t, 1*time.Second, s.standbyInterval)
 	assert.Equal(t, 2*time.Second, s.statusInterval)
+	assert.Equal(t, 4096, s.snapshotFetchSize)
 	assert.Equal(t, "custom_system", s.eventSystem)
 }
 
