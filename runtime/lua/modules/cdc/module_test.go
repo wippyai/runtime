@@ -68,9 +68,13 @@ func TestListSourcesReturnsAllInfos(t *testing.T) {
 		assert(err == nil, "unexpected error: " .. tostring(err))
 		assert(#rows == 2, "expected 2 rows, got " .. tostring(#rows))
 		assert(rows[1].slot == "slot_a")
+		assert(rows[1].publication == "pub_a")
+		assert(rows[1].tables == nil, "row with no tables should omit the tables key")
 		assert(rows[1].streaming == true)
 		assert(rows[2].slot == "slot_b")
+		assert(rows[2].publication == nil, "row with no publication should omit the publication key")
 		assert(rows[2].tables[1] == "public.t")
+		assert(#rows[2].tables == 1)
 		assert(rows[2].failover == true)
 	`))
 }

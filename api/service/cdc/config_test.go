@@ -92,6 +92,21 @@ func TestConfigIntervalsEmptyMeansDefault(t *testing.T) {
 	assert.Equal(t, time.Duration(0), standby)
 }
 
+func TestConfigIntervalsZeroIsAccepted(t *testing.T) {
+	c := validConfig()
+	c.StandbyInterval = "0s"
+	c.StatusInterval = "0ms"
+	require.NoError(t, c.Validate())
+
+	standby, err := c.StandbyDuration()
+	require.NoError(t, err)
+	assert.Equal(t, time.Duration(0), standby)
+
+	status, err := c.StatusDuration()
+	require.NoError(t, err)
+	assert.Equal(t, time.Duration(0), status)
+}
+
 func TestConfigIntervalsInvalid(t *testing.T) {
 	for _, bad := range []string{"nonsense", "-5s", "10"} {
 		c := validConfig()
