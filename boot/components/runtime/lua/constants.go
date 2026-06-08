@@ -45,4 +45,5 @@ const (
 	YAMLName      = "lua.yaml"
 	LSPName       = "lua.lsp"
 	PGModuleName  = "lua.pg"
+	CDCName       = "lua.cdc"
 )

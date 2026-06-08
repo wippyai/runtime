@@ -21,12 +21,14 @@ import (
 )
 
 type Manager struct {
-	dtt     payload.Transcoder
-	bus     event.Bus
-	env     envapi.Registry
-	log     *zap.Logger
-	sources map[registry.ID]*Source
-	mu      sync.Mutex
+	dtt        payload.Transcoder
+	bus        event.Bus
+	env        envapi.Registry
+	log        *zap.Logger
+	sources    map[registry.ID]*Source
+	infos      map[registry.ID]config.SourceInfo
+	infosByKey map[string]registry.ID
+	mu         sync.Mutex
 }
 
 func NewManager(dtt payload.Transcoder, bus event.Bus, log *zap.Logger, env envapi.Registry) (*Manager, error) {
@@ -40,11 +42,13 @@ func NewManager(dtt payload.Transcoder, bus event.Bus, log *zap.Logger, env enva
 		log = zap.NewNop()
 	}
 	return &Manager{
-		dtt:     dtt,
-		bus:     bus,
-		env:     env,
-		log:     log,
-		sources: make(map[registry.ID]*Source),
+		dtt:        dtt,
+		bus:        bus,
+		env:        env,
+		log:        log,
+		sources:    make(map[registry.ID]*Source),
+		infos:      make(map[registry.ID]config.SourceInfo),
+		infosByKey: make(map[string]registry.ID),
 	}, nil
 }
 
@@ -92,6 +96,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	})
 
 	m.sources[entry.ID] = src
+	m.storeInfo(entry, cfg)
 	m.register(ctx, entry, src, cfg.Lifecycle)
 	return nil
 }
@@ -118,6 +123,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return NewInvalidConfigError(err)
 	}
 
+	m.removeInfo(entry.ID)
 	m.unregister(ctx, entry)
 
 	standby, _ := cfg.StandbyDuration()
@@ -141,6 +147,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		Log:               m.log.With(zap.String("id", entry.ID.String())),
 	})
 	m.sources[entry.ID] = src
+	m.storeInfo(entry, cfg)
 	m.register(ctx, entry, src, cfg.Lifecycle)
 	return nil
 }
@@ -154,9 +161,66 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		return NewServiceNotFoundError(entry.ID)
 	}
 	src.MarkForSlotDrop()
+	m.removeInfo(entry.ID)
 	m.unregister(ctx, entry)
 	delete(m.sources, entry.ID)
 	return nil
+}
+
+func (m *Manager) storeInfo(entry registry.Entry, cfg *config.Config) {
+	info := config.SourceInfo{
+		Name:        entry.ID.String(),
+		Slot:        cfg.SlotName,
+		EventSystem: cfg.EventSystem,
+		Publication: cfg.Publication,
+		Tables:      append([]string(nil), cfg.Tables...),
+		Streaming:   cfg.Streaming,
+		Failover:    cfg.Failover,
+		Temporary:   cfg.Temporary,
+		Snapshot:    cfg.Snapshot,
+	}
+	if info.EventSystem == "" {
+		info.EventSystem = config.DefaultEventSystem
+	}
+	m.infos[entry.ID] = info
+	m.infosByKey[info.Slot] = entry.ID
+}
+
+func (m *Manager) removeInfo(id registry.ID) {
+	if info, ok := m.infos[id]; ok {
+		if current, present := m.infosByKey[info.Slot]; present && current == id {
+			delete(m.infosByKey, info.Slot)
+		}
+		delete(m.infos, id)
+	}
+}
+
+func (m *Manager) List() []config.SourceInfo {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	out := make([]config.SourceInfo, 0, len(m.infos))
+	for _, info := range m.infos {
+		out = append(out, info)
+	}
+	return out
+}
+
+func (m *Manager) Get(name string) (config.SourceInfo, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if id, ok := m.infosByKey[name]; ok {
+		if info, present := m.infos[id]; present {
+			return info, true
+		}
+	}
+	for _, info := range m.infos {
+		if info.Name == name {
+			return info, true
+		}
+	}
+	return config.SourceInfo{}, false
 }
 
 func (m *Manager) register(ctx context.Context, entry registry.Entry, src *Source, lifecycle supervisor.LifecycleConfig) {

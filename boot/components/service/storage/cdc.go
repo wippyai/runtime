@@ -10,6 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
+	cdcapi "github.com/wippyai/runtime/api/service/cdc"
 	bootpkg "github.com/wippyai/runtime/boot"
 	bootsystem "github.com/wippyai/runtime/boot/components/system"
 	cdc "github.com/wippyai/runtime/service/cdc/postgres"
@@ -32,7 +33,7 @@ func CDC() boot.Component {
 			}
 
 			handlers.RegisterListener("db.cdc.*", manager)
-			return ctx, nil
+			return cdcapi.WithSourceInspector(ctx, manager), nil
 		},
 	})
 }
