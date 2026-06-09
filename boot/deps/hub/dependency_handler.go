@@ -150,22 +150,14 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		return regapi.DirectiveResult{}, ErrDependencyTranscoderMissing
 	}
 
-	overallStart := time.Now()
-
-	step := time.Now()
 	lockedVersions := snapshotModuleVersions(snapshot)
-	dLockedVersions := time.Since(step)
 
-	step = time.Now()
 	controlledModules, err := h.collectControlledModules(ctx, snapshot, transcoder)
-	dCollectControlled := time.Since(step)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
 
-	step = time.Now()
 	desiredDeps, err := h.collectDesiredDependencies(ctx, op, snapshot, transcoder)
-	dCollectDesired := time.Since(step)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -177,7 +169,6 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 
 	var resolved []ResolvedModule
 	desiredRoots := dependencyDefinitions(desiredDeps)
-	step = time.Now()
 	if len(desiredRoots) > 0 {
 		var err error
 		resolved, err = h.resolveModules(ctx, desiredRoots, lockedVersions)
@@ -185,11 +176,8 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 			return regapi.DirectiveResult{}, err
 		}
 	}
-	dResolveModules := time.Since(step)
 
-	step = time.Now()
 	moduleEntries, err := h.loadModuleEntries(ctx, resolved, transcoder)
-	dLoadEntries := time.Since(step)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -202,14 +190,11 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		}
 	}
 	strictModules := touchedModuleNames(resolved, snapshot, opComponent)
-	step = time.Now()
 	mutableModules, err := h.operationModules(ctx, op, snapshot, transcoder)
-	dOpModules := time.Since(step)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
 
-	step = time.Now()
 	combined := make([]regapi.Entry, 0, len(snapshot)+len(moduleEntries))
 	for _, e := range snapshot {
 		if entryModule(e) != "" {
@@ -218,9 +203,7 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		combined = append(combined, e)
 	}
 	combined = append(combined, moduleEntries...)
-	dCombineFilter := time.Since(step)
 
-	step = time.Now()
 	pipeline := build.New(
 		stages.Override(),
 		stages.Disable(),
@@ -230,31 +213,10 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 	if err := pipeline.Execute(ctx, &combined); err != nil {
 		return regapi.DirectiveResult{}, NewDependencyPipelineError(err)
 	}
-	dPipeline := time.Since(step)
 
-	step = time.Now()
 	additional, err := buildOperations(snapshot, combined, op.Entry.ID, controlledModules, mutableModules)
-	dBuildOps := time.Since(step)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
-	}
-
-	if h.logger != nil {
-		h.logger.Info("hub Expand phase timings",
-			zap.String("entry_id", op.Entry.ID.String()),
-			zap.Duration("total", time.Since(overallStart)),
-			zap.Duration("locked_versions", dLockedVersions),
-			zap.Duration("collect_controlled", dCollectControlled),
-			zap.Duration("collect_desired", dCollectDesired),
-			zap.Duration("resolve_modules", dResolveModules),
-			zap.Duration("load_module_entries", dLoadEntries),
-			zap.Duration("op_modules", dOpModules),
-			zap.Duration("combine_filter", dCombineFilter),
-			zap.Duration("pipeline_execute", dPipeline),
-			zap.Duration("build_ops", dBuildOps),
-			zap.Int("snapshot_entries", len(snapshot)),
-			zap.Int("combined_entries", len(combined)),
-		)
 	}
 
 	scoped := make([]regapi.ScopedOperation, 0, len(additional))

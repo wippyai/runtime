@@ -6,7 +6,6 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"go.uber.org/zap"
 
@@ -15,42 +14,6 @@ import (
 	regexp "github.com/wippyai/runtime/system/registry/expansion"
 	"github.com/wippyai/runtime/system/registry/topology"
 )
-
-// applyPhases tracks per-phase wall-clock cost of (*Reg).Apply. The struct
-// is intentionally not exported and the log is emitted at Info level under
-// the "apply phase timings" message so operators can grep it for slow
-// changeset applies.
-type applyPhases struct {
-	snapshot       time.Duration
-	expand         time.Duration
-	plannerSort    time.Duration
-	prepareEffects time.Duration
-	sortNoPlanner  time.Duration
-	sortSecondPass time.Duration
-	runner         time.Duration
-	commitEffects  time.Duration
-	historySave    time.Duration
-	rebuildIndex   time.Duration
-	patchDepIndex  time.Duration
-}
-
-func (p applyPhases) zapFields(changeCount int, sortedOps int) []zap.Field {
-	return []zap.Field{
-		zap.Int("change_count", changeCount),
-		zap.Int("sorted_ops", sortedOps),
-		zap.Duration("snapshot", p.snapshot),
-		zap.Duration("expand", p.expand),
-		zap.Duration("planner_sort", p.plannerSort),
-		zap.Duration("prepare_effects", p.prepareEffects),
-		zap.Duration("sort_no_planner", p.sortNoPlanner),
-		zap.Duration("sort_second_pass", p.sortSecondPass),
-		zap.Duration("runner_transition", p.runner),
-		zap.Duration("commit_effects", p.commitEffects),
-		zap.Duration("history_save", p.historySave),
-		zap.Duration("rebuild_index", p.rebuildIndex),
-		zap.Duration("patch_dep_index", p.patchDepIndex),
-	}
-}
 
 // indexedSortBuilder is the optional capability that lets Reg.Apply call
 // SortChangeSetWithIndex instead of the legacy SortChangeSet. The in-tree
@@ -180,8 +143,6 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 
 	r.log.Info("apply started", zap.Int("change_count", len(changes)))
 
-	var phases applyPhases
-
 	var (
 		allOps      registry.ChangeSet
 		historyOps  registry.ChangeSet
@@ -191,44 +152,34 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		baseVersion registry.Version
 	)
 
-	snapStart := time.Now()
 	r.mu.RLock()
 	snapshot = make(registry.State, len(r.state))
 	copy(snapshot, r.state)
 	baseVersion = r.currentVersion
 	r.mu.RUnlock()
-	phases.snapshot = time.Since(snapStart)
 
 	if len(r.directivesByKind) > 0 {
 		planner = regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
 
-		expandStart := time.Now()
 		plan, err := planner.Expand(ctx, changes, snapshot)
-		phases.expand = time.Since(expandStart)
 		if err != nil {
 			return nil, NewExpandChangesError(err)
 		}
 
-		plannerSortStart := time.Now()
 		plan.Ops, err = planner.SortOps(snapshot, plan.Ops)
-		phases.plannerSort = time.Since(plannerSortStart)
 		if err != nil {
 			return nil, NewSortChangesError(err)
 		}
 
 		allOps, historyOps = plan.SplitScopes()
 
-		prepareStart := time.Now()
 		preparedEff, err = planner.PrepareEffects(ctx, plan.Effects)
-		phases.prepareEffects = time.Since(prepareStart)
 		if err != nil {
 			planner.RollbackEffects(ctx, preparedEff)
 			return nil, NewPrepareEffectsError(err)
 		}
 	} else {
-		sortStart := time.Now()
 		sorted, err := r.sortWithIndex(snapshot, changes)
-		phases.sortNoPlanner = time.Since(sortStart)
 		if err != nil {
 			return nil, NewSortChangesError(err)
 		}
@@ -241,11 +192,9 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	// first). Planner.SortOps only runs when expansion produced ops; the
 	// no-expansion path would otherwise reach the runner unsorted and fail
 	// against any dependency-aware runner (memory_graph.RemoveNode).
-	secondSortStart := time.Now()
 	if sorted, sortErr := r.sortWithIndex(snapshot, allOps); sortErr == nil {
 		allOps = sorted
 	}
-	phases.sortSecondPass = time.Since(secondSortStart)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -263,9 +212,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	}
 
 	r.log.Debug("calling runner.Transition")
-	runnerStart := time.Now()
 	newState, err := r.runner.Transition(ctx, r.state, allOps)
-	phases.runner = time.Since(runnerStart)
 	if err != nil {
 		r.log.Error("failed to apply changes", zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
@@ -283,10 +230,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	}
 
 	if planner != nil {
-		commitStart := time.Now()
-		err := planner.CommitEffects(ctx, preparedEff)
-		phases.commitEffects = time.Since(commitStart)
-		if err != nil {
+		if err := planner.CommitEffects(ctx, preparedEff); err != nil {
 			r.log.Error("failed to commit effects", zap.Error(err))
 			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 				planner.RollbackEffects(ctx, preparedEff)
@@ -301,10 +245,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		r.log.Debug("saving new version", zap.Any("new_version", newVersion))
 
 		enrichedChanges := r.enrichChangeset(historyOps)
-		historyStart := time.Now()
-		err = r.history.Save(newVersion, enrichedChanges, true)
-		phases.historySave = time.Since(historyStart)
-		if err != nil {
+		if err := r.history.Save(newVersion, enrichedChanges, true); err != nil {
 			r.log.Error("failed to save new version", zap.Error(err))
 			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 				if planner != nil {
@@ -319,25 +260,15 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		}
 
 		r.state = newState
-		rebuildStart := time.Now()
 		r.rebuildIndex()
-		phases.rebuildIndex = time.Since(rebuildStart)
-		patchStart := time.Now()
 		r.patchDepIndex(allOps)
-		phases.patchDepIndex = time.Since(patchStart)
 		r.currentVersion = newVersion
-		r.log.Info("apply phase timings", phases.zapFields(len(changes), len(allOps))...)
 		return newVersion, nil
 	}
 
 	r.state = newState
-	rebuildStart := time.Now()
 	r.rebuildIndex()
-	phases.rebuildIndex = time.Since(rebuildStart)
-	patchStart := time.Now()
 	r.patchDepIndex(allOps)
-	phases.patchDepIndex = time.Since(patchStart)
-	r.log.Info("apply phase timings", phases.zapFields(len(changes), len(allOps))...)
 	return r.currentVersion, nil
 }
 
