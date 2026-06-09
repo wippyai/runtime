@@ -162,8 +162,7 @@ func (r *resolver) fetchManifest(ctx context.Context, org, name, version string)
 	}
 
 	if cache, ok := r.provider.(*ManifestCache); ok {
-		cache.Evict(org, name)
-		fresh, ferr := r.provider.GetManifest(ctx, org, name, version)
+		fresh, ferr := cache.Refresh(ctx, org, name, version)
 		if ferr != nil {
 			return nil, ferr
 		}

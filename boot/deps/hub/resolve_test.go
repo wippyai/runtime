@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -494,9 +495,9 @@ func TestResolve_LockedDigestCacheHeals(t *testing.T) {
 	p.addModule("acme", "http", "1.0.0")
 
 	cache := NewManifestCache(p)
-	cache.store["acme/http@1.0.0"] = &ModuleManifest{
+	_ = cache.store.Set("acme/http@1.0.0", &ModuleManifest{
 		Org: "acme", Name: "http", Version: "1.0.0", Digest: "sha256:stale",
-	}
+	})
 
 	result, err := Resolve(context.Background(), cache, []DependencySpec{
 		{Org: "acme", Name: "http", Constraint: "1.0.0"},
@@ -515,9 +516,9 @@ func TestResolve_LockedDigestCacheDriftErrors(t *testing.T) {
 	p.addModule("acme", "http", "1.0.0")
 
 	cache := NewManifestCache(p)
-	cache.store["acme/http@1.0.0"] = &ModuleManifest{
+	_ = cache.store.Set("acme/http@1.0.0", &ModuleManifest{
 		Org: "acme", Name: "http", Version: "1.0.0", Digest: "sha256:stale",
-	}
+	})
 	p.override("acme", "http", "1.0.0", "sha256:drift")
 
 	result, err := Resolve(context.Background(), cache, []DependencySpec{
@@ -546,4 +547,63 @@ func TestResolve_LockedDigestMissingKeyDoesNotValidate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, result.Errors)
 	require.Len(t, result.Modules, 1)
+}
+
+func TestManifestCache_LRUBoundedCapacity(t *testing.T) {
+	p := newFakeProvider()
+	for i := 0; i < 5; i++ {
+		p.addModule("acme", "m"+fmt.Sprint(i), "1.0.0")
+	}
+
+	cache := NewManifestCacheWithOptions(p, 2, 0, 0)
+	defer cache.Close()
+
+	for i := 0; i < 5; i++ {
+		_, err := cache.GetManifest(context.Background(), "acme", "m"+fmt.Sprint(i), "1.0.0")
+		require.NoError(t, err)
+	}
+
+	assert.LessOrEqual(t, cache.Len(), 2,
+		"LRU must enforce capacity even under churn")
+}
+
+func TestManifestCache_RefreshOverwritesStale(t *testing.T) {
+	p := newMutableProvider()
+	p.addModule("acme", "http", "1.0.0")
+
+	cache := NewManifestCache(p)
+	defer cache.Close()
+	_ = cache.store.Set("acme/http@1.0.0", &ModuleManifest{
+		Org: "acme", Name: "http", Version: "1.0.0", Digest: "sha256:stale",
+	})
+
+	hit, _ := cache.GetManifest(context.Background(), "acme", "http", "1.0.0")
+	require.NotNil(t, hit)
+	assert.Equal(t, "sha256:stale", hit.Digest)
+
+	fresh, err := cache.Refresh(context.Background(), "acme", "http", "1.0.0")
+	require.NoError(t, err)
+	require.NotNil(t, fresh)
+	assert.Equal(t, "sha256:1.0.0", fresh.Digest, "Refresh must bypass cache and store fresh")
+
+	after, _ := cache.GetManifest(context.Background(), "acme", "http", "1.0.0")
+	require.NotNil(t, after)
+	assert.Equal(t, "sha256:1.0.0", after.Digest, "subsequent Get must see refreshed manifest")
+}
+
+func TestManifestCache_TTLExpiry(t *testing.T) {
+	p := newFakeProvider()
+	p.addModule("acme", "http", "1.0.0")
+
+	cache := NewManifestCacheWithOptions(p, 16, 25*time.Millisecond, 0)
+	defer cache.Close()
+
+	_, err := cache.GetManifest(context.Background(), "acme", "http", "1.0.0")
+	require.NoError(t, err)
+	require.Equal(t, 1, cache.Len())
+
+	time.Sleep(50 * time.Millisecond)
+
+	_, hit := cache.store.Get("acme/http@1.0.0")
+	assert.False(t, hit, "expired entry must not be served after TTL")
 }
