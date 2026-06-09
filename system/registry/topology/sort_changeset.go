@@ -5,6 +5,8 @@ package topology
 import (
 	"sort"
 
+	"go.uber.org/zap"
+
 	"github.com/wippyai/runtime/api/registry"
 )
 
@@ -16,7 +18,31 @@ import (
 // target-side graph, deletes clean up the source-side graph, and extra
 // operation-level edges preserve same-ID replacement and
 // importer-before-dependency-delete cases.
+//
+// This entry point materializes a fresh DepIndex from fromState on every call,
+// which is O(N x P x T) and is the legacy path. New callers should keep a
+// long-lived DepIndex and use SortChangeSetWithIndex instead so the source-side
+// scan becomes O(#deletes x #dependents).
 func (b *StateBuilder) SortChangeSet(fromState registry.State, changeSet registry.ChangeSet) (registry.ChangeSet, error) {
+	if len(changeSet) == 0 {
+		return changeSet, nil
+	}
+
+	if !hasDeleteOp(changeSet) {
+		// No source-side constraints to discover: the index is unused on this path.
+		return b.SortChangeSetWithIndex(fromState, changeSet, nil)
+	}
+
+	depIdx := BuildDepIndex(fromState, b.resolver)
+	return b.SortChangeSetWithIndex(fromState, changeSet, depIdx)
+}
+
+// SortChangeSetWithIndex is the indexed variant of SortChangeSet. Pass a
+// long-lived DepIndex (built once at Reg start and maintained by Reg.Apply)
+// to skip the per-call full-state scan. Passing a nil index is permitted when
+// the changeset has no delete operations, because source-side constraints
+// only apply to deletes.
+func (b *StateBuilder) SortChangeSetWithIndex(fromState registry.State, changeSet registry.ChangeSet, depIdx *DepIndex) (registry.ChangeSet, error) {
 	if len(changeSet) == 0 {
 		return changeSet, nil
 	}
@@ -86,20 +112,38 @@ func (b *StateBuilder) SortChangeSet(fromState registry.State, changeSet registr
 	// Source-side dependencies: every live dependent must be updated or deleted
 	// before a dependency can be removed. Missing dependent operations are left
 	// unconstrained so the normal listener validation rejects invalid changesets.
-	fromUniverse := dependencyUniverse(fromState)
-	for _, entry := range fromState {
-		for _, depID := range b.entryDependencyIDs(entry, fromUniverse) {
-			deleteIndexes := deleteIndexesByID[depID]
-			if len(deleteIndexes) == 0 {
+	if depIdx != nil && len(deleteIndexesByID) > 0 {
+		stateByID := stateIDIndex(fromState)
+		dependents := make(map[registry.ID]struct{})
+		for id, deleteIndexes := range deleteIndexesByID {
+			entry, ok := stateByID[id]
+			if !ok {
+				if b.log != nil {
+					b.log.Warn("delete target missing from fromState; skipping source-side constraints",
+						zap.String("entry_id", id.String()))
+				}
 				continue
 			}
-			for _, dependentIndex := range opIndexesByID[entry.ID] {
-				kind := changeSet[dependentIndex].Kind
-				if kind != registry.EntryUpdate && kind != registry.EntryDelete {
-					continue
+			clearIDSet(dependents)
+			depIdx.Dependents(entry, dependents)
+			if b.log != nil && b.log.Core().Enabled(zap.DebugLevel) {
+				depIDs := make([]string, 0, len(dependents))
+				for did := range dependents {
+					depIDs = append(depIDs, did.String())
 				}
-				for _, deleteIndex := range deleteIndexes {
-					addConstraint(dependentIndex, deleteIndex)
+				b.log.Debug("delete source-side dependents lookup",
+					zap.String("delete_id", id.String()),
+					zap.Strings("dependents", depIDs))
+			}
+			for dependentID := range dependents {
+				for _, dependentIndex := range opIndexesByID[dependentID] {
+					kind := changeSet[dependentIndex].Kind
+					if kind != registry.EntryUpdate && kind != registry.EntryDelete {
+						continue
+					}
+					for _, deleteIndex := range deleteIndexes {
+						addConstraint(dependentIndex, deleteIndex)
+					}
 				}
 			}
 		}
@@ -117,6 +161,29 @@ func (b *StateBuilder) SortChangeSet(fromState registry.State, changeSet registr
 	}
 
 	return sortedChangeSet, nil
+}
+
+func hasDeleteOp(changeSet registry.ChangeSet) bool {
+	for _, op := range changeSet {
+		if op.Kind == registry.EntryDelete {
+			return true
+		}
+	}
+	return false
+}
+
+func stateIDIndex(state registry.State) map[registry.ID]registry.Entry {
+	out := make(map[registry.ID]registry.Entry, len(state))
+	for _, entry := range state {
+		out[entry.ID] = entry
+	}
+	return out
+}
+
+func clearIDSet(set map[registry.ID]struct{}) {
+	for k := range set {
+		delete(set, k)
+	}
 }
 
 type dependencySet struct {

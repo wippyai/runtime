@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -423,4 +424,186 @@ func TestResolve_PreservesModuleMetadata(t *testing.T) {
 	assert.Equal(t, uint64(4096), m.SizeBytes)
 	assert.True(t, m.Protected)
 	assert.Equal(t, "https://example.com/lib.wapp", m.URL)
+}
+
+type mutableProvider struct {
+	fakeManifestProvider
+	overrides map[string]*ModuleManifest
+}
+
+func newMutableProvider() *mutableProvider {
+	return &mutableProvider{
+		fakeManifestProvider: *newFakeProvider(),
+		overrides:            make(map[string]*ModuleManifest),
+	}
+}
+
+func (m *mutableProvider) override(org, name, version, digest string) {
+	key := org + "/" + name + "@" + version
+	m.overrides[key] = &ModuleManifest{
+		Org:     org,
+		Name:    name,
+		Version: version,
+		Digest:  digest,
+	}
+}
+
+func (m *mutableProvider) GetManifest(ctx context.Context, org, module, constraint string) (*ModuleManifest, error) {
+	key := org + "/" + module + "@" + constraint
+	if mm, ok := m.overrides[key]; ok {
+		return mm, nil
+	}
+	return m.fakeManifestProvider.GetManifest(ctx, org, module, constraint)
+}
+
+func TestResolve_LockedDigestMatch(t *testing.T) {
+	p := newFakeProvider()
+	p.addModule("acme", "http", "1.0.0")
+
+	result, err := Resolve(context.Background(), p, []DependencySpec{
+		{Org: "acme", Name: "http", Constraint: "1.0.0"},
+	}, &ResolveOptions{
+		LockedDigests: map[string]string{"acme/http": "sha256:1.0.0"},
+	})
+
+	require.NoError(t, err)
+	assert.Empty(t, result.Errors)
+	require.Len(t, result.Modules, 1)
+	assert.Equal(t, "sha256:1.0.0", result.Modules[0].Digest)
+}
+
+func TestResolve_LockedDigestMismatchBareProvider(t *testing.T) {
+	p := newFakeProvider()
+	p.addModule("acme", "http", "1.0.0")
+
+	result, err := Resolve(context.Background(), p, []DependencySpec{
+		{Org: "acme", Name: "http", Constraint: "1.0.0"},
+	}, &ResolveOptions{
+		LockedDigests: map[string]string{"acme/http": "sha256:expected"},
+	})
+
+	require.NoError(t, err)
+	require.Empty(t, result.Modules)
+	require.Len(t, result.Errors, 1)
+	assert.Contains(t, result.Errors[0].Message, "manifest digest mismatch")
+	assert.Contains(t, result.Errors[0].Message, "sha256:expected")
+	assert.Contains(t, result.Errors[0].Message, "sha256:1.0.0")
+}
+
+func TestResolve_LockedDigestCacheHeals(t *testing.T) {
+	p := newMutableProvider()
+	p.addModule("acme", "http", "1.0.0")
+
+	cache := NewManifestCache(p)
+	_ = cache.store.Set("acme/http@1.0.0", &ModuleManifest{
+		Org: "acme", Name: "http", Version: "1.0.0", Digest: "sha256:stale",
+	})
+
+	result, err := Resolve(context.Background(), cache, []DependencySpec{
+		{Org: "acme", Name: "http", Constraint: "1.0.0"},
+	}, &ResolveOptions{
+		LockedDigests: map[string]string{"acme/http": "sha256:1.0.0"},
+	})
+
+	require.NoError(t, err)
+	assert.Empty(t, result.Errors)
+	require.Len(t, result.Modules, 1)
+	assert.Equal(t, "sha256:1.0.0", result.Modules[0].Digest)
+}
+
+func TestResolve_LockedDigestCacheDriftErrors(t *testing.T) {
+	p := newMutableProvider()
+	p.addModule("acme", "http", "1.0.0")
+
+	cache := NewManifestCache(p)
+	_ = cache.store.Set("acme/http@1.0.0", &ModuleManifest{
+		Org: "acme", Name: "http", Version: "1.0.0", Digest: "sha256:stale",
+	})
+	p.override("acme", "http", "1.0.0", "sha256:drift")
+
+	result, err := Resolve(context.Background(), cache, []DependencySpec{
+		{Org: "acme", Name: "http", Constraint: "1.0.0"},
+	}, &ResolveOptions{
+		LockedDigests: map[string]string{"acme/http": "sha256:expected"},
+	})
+
+	require.NoError(t, err)
+	require.Empty(t, result.Modules)
+	require.Len(t, result.Errors, 1)
+	assert.Contains(t, result.Errors[0].Message, "manifest digest mismatch")
+	assert.Contains(t, result.Errors[0].Message, "sha256:drift")
+}
+
+func TestResolve_LockedDigestMissingKeyDoesNotValidate(t *testing.T) {
+	p := newFakeProvider()
+	p.addModule("acme", "http", "1.0.0")
+
+	result, err := Resolve(context.Background(), p, []DependencySpec{
+		{Org: "acme", Name: "http", Constraint: "1.0.0"},
+	}, &ResolveOptions{
+		LockedDigests: map[string]string{"other/module": "sha256:irrelevant"},
+	})
+
+	require.NoError(t, err)
+	assert.Empty(t, result.Errors)
+	require.Len(t, result.Modules, 1)
+}
+
+func TestManifestCache_LRUBoundedCapacity(t *testing.T) {
+	p := newFakeProvider()
+	for i := 0; i < 5; i++ {
+		p.addModule("acme", "m"+fmt.Sprint(i), "1.0.0")
+	}
+
+	cache := NewManifestCacheWithOptions(p, 2, 0, 0)
+	defer cache.Close()
+
+	for i := 0; i < 5; i++ {
+		_, err := cache.GetManifest(context.Background(), "acme", "m"+fmt.Sprint(i), "1.0.0")
+		require.NoError(t, err)
+	}
+
+	assert.LessOrEqual(t, cache.Len(), 2,
+		"LRU must enforce capacity even under churn")
+}
+
+func TestManifestCache_RefreshOverwritesStale(t *testing.T) {
+	p := newMutableProvider()
+	p.addModule("acme", "http", "1.0.0")
+
+	cache := NewManifestCache(p)
+	defer cache.Close()
+	_ = cache.store.Set("acme/http@1.0.0", &ModuleManifest{
+		Org: "acme", Name: "http", Version: "1.0.0", Digest: "sha256:stale",
+	})
+
+	hit, _ := cache.GetManifest(context.Background(), "acme", "http", "1.0.0")
+	require.NotNil(t, hit)
+	assert.Equal(t, "sha256:stale", hit.Digest)
+
+	fresh, err := cache.Refresh(context.Background(), "acme", "http", "1.0.0")
+	require.NoError(t, err)
+	require.NotNil(t, fresh)
+	assert.Equal(t, "sha256:1.0.0", fresh.Digest, "Refresh must bypass cache and store fresh")
+
+	after, _ := cache.GetManifest(context.Background(), "acme", "http", "1.0.0")
+	require.NotNil(t, after)
+	assert.Equal(t, "sha256:1.0.0", after.Digest, "subsequent Get must see refreshed manifest")
+}
+
+func TestManifestCache_TTLExpiry(t *testing.T) {
+	p := newFakeProvider()
+	p.addModule("acme", "http", "1.0.0")
+
+	cache := NewManifestCacheWithOptions(p, 16, 25*time.Millisecond, 0)
+	defer cache.Close()
+
+	_, err := cache.GetManifest(context.Background(), "acme", "http", "1.0.0")
+	require.NoError(t, err)
+	require.Equal(t, 1, cache.Len())
+
+	time.Sleep(50 * time.Millisecond)
+
+	_, hit := cache.store.Get("acme/http@1.0.0")
+	assert.False(t, hit, "expired entry must not be served after TTL")
 }

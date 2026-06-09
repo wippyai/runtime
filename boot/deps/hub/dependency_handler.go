@@ -47,6 +47,7 @@ type DependencyHandlerOptions struct {
 
 type DependencyHandler struct {
 	hub             HubClient
+	manifestCache   *ManifestCache
 	logger          *zap.Logger
 	lockPath        string
 	vendorDir       string
@@ -116,6 +117,7 @@ func NewDependencyHandler(opts DependencyHandlerOptions) (*DependencyHandler, er
 
 	return &DependencyHandler{
 		hub:             client,
+		manifestCache:   NewManifestCache(client),
 		logger:          logger,
 		lockPath:        lockPath,
 		vendorDir:       vendorDir,
@@ -149,6 +151,7 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 	}
 
 	lockedVersions := snapshotModuleVersions(snapshot)
+
 	controlledModules, err := h.collectControlledModules(ctx, snapshot, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
@@ -442,8 +445,13 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 	resolveCtx, cancel := withOptionalTimeout(ctx, h.resolveTimeout)
 	defer cancel()
 
-	result, err := Resolve(resolveCtx, h.hub, roots, &ResolveOptions{
+	provider := ManifestProvider(h.hub)
+	if h.manifestCache != nil {
+		provider = h.manifestCache
+	}
+	result, err := Resolve(resolveCtx, provider, roots, &ResolveOptions{
 		LockedVersions: lockedVersions,
+		LockedDigests:  h.lockedModuleDigests(),
 	})
 	if err != nil {
 		return nil, NewDependencyResolutionError(err)
@@ -705,6 +713,31 @@ func (h *DependencyHandler) installedVersion(moduleName string) (string, bool) {
 		return "", false
 	}
 	return mod.Version, true
+}
+
+func (h *DependencyHandler) lockedModuleDigests() map[string]string {
+	if h.lockPath == "" {
+		return nil
+	}
+	lockObj, err := lock.New(h.lockPath)
+	if err != nil {
+		return nil
+	}
+	modules := lockObj.GetModules()
+	if len(modules) == 0 {
+		return nil
+	}
+	digests := make(map[string]string, len(modules))
+	for _, mod := range modules {
+		if mod.Hash == "" || mod.Name == "" {
+			continue
+		}
+		digests[mod.Name] = mod.Hash
+	}
+	if len(digests) == 0 {
+		return nil
+	}
+	return digests
 }
 
 func loadRawEntriesFromPaths(

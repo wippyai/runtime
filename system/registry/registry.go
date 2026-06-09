@@ -12,7 +12,16 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
 	regexp "github.com/wippyai/runtime/system/registry/expansion"
+	"github.com/wippyai/runtime/system/registry/topology"
 )
+
+// indexedSortBuilder is the optional capability that lets Reg.Apply call
+// SortChangeSetWithIndex instead of the legacy SortChangeSet. The in-tree
+// *topology.StateBuilder satisfies it; out-of-tree builders fall back to the
+// O(N x P x T) legacy path automatically.
+type indexedSortBuilder interface {
+	SortChangeSetWithIndex(fromState registry.State, cs registry.ChangeSet, depIdx *topology.DepIndex) (registry.ChangeSet, error)
+}
 
 type Reg struct {
 	history          registry.History
@@ -22,6 +31,7 @@ type Reg struct {
 	directivesByKind map[registry.Kind][]registry.Directive
 	currentVersion   registry.Version
 	stateIndex       map[registry.ID]int
+	depIndex         *topology.DepIndex
 	log              *zap.Logger
 	state            registry.State
 	versionNum       atomic.Uint64
@@ -70,6 +80,38 @@ func (r *Reg) rebuildIndex() {
 	for i, entry := range r.state {
 		r.stateIndex[entry.ID] = i
 	}
+}
+
+// rebuildDepIndex regenerates the inverse-dependency index from the current
+// state. Must be called either with applyMu held (single-writer, no concurrent
+// readers) or before the registry is exposed to callers. r.mu alone is not
+// sufficient because sortWithIndex reads r.depIndex outside r.mu. Only useful
+// when the builder is the in-tree topology builder; for other builders the
+// index is left nil and Reg falls back to the legacy O(N x P x T) sort.
+func (r *Reg) rebuildDepIndex() {
+	if _, ok := r.builder.(indexedSortBuilder); !ok {
+		r.depIndex = nil
+		return
+	}
+	r.depIndex = topology.BuildDepIndex(r.state, r.resolver)
+}
+
+// sortWithIndex dispatches to SortChangeSetWithIndex when the builder
+// supports it and an index is available; otherwise it falls back to the
+// legacy SortChangeSet path. Lazily builds the index on first use so that
+// callers who skipped LoadState (e.g. tests / no-history hosts) still pay
+// the build cost once instead of running the legacy O(N) sort forever.
+// Caller must hold applyMu.
+func (r *Reg) sortWithIndex(fromState registry.State, cs registry.ChangeSet) (registry.ChangeSet, error) {
+	if r.depIndex == nil {
+		r.rebuildDepIndex()
+	}
+	if r.depIndex != nil {
+		if swi, ok := r.builder.(indexedSortBuilder); ok {
+			return swi.SortChangeSetWithIndex(fromState, cs, r.depIndex)
+		}
+	}
+	return r.builder.SortChangeSet(fromState, cs)
 }
 
 // --- EntryReader Interface Implementation ---
@@ -130,13 +172,14 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		}
 
 		allOps, historyOps = plan.SplitScopes()
+
 		preparedEff, err = planner.PrepareEffects(ctx, plan.Effects)
 		if err != nil {
 			planner.RollbackEffects(ctx, preparedEff)
 			return nil, NewPrepareEffectsError(err)
 		}
 	} else {
-		sorted, err := r.builder.SortChangeSet(snapshot, changes)
+		sorted, err := r.sortWithIndex(snapshot, changes)
 		if err != nil {
 			return nil, NewSortChangesError(err)
 		}
@@ -149,7 +192,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	// first). Planner.SortOps only runs when expansion produced ops; the
 	// no-expansion path would otherwise reach the runner unsorted and fail
 	// against any dependency-aware runner (memory_graph.RemoveNode).
-	if sorted, sortErr := r.builder.SortChangeSet(snapshot, allOps); sortErr == nil {
+	if sorted, sortErr := r.sortWithIndex(snapshot, allOps); sortErr == nil {
 		allOps = sorted
 	}
 
@@ -202,8 +245,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		r.log.Debug("saving new version", zap.Any("new_version", newVersion))
 
 		enrichedChanges := r.enrichChangeset(historyOps)
-		err = r.history.Save(newVersion, enrichedChanges, true)
-		if err != nil {
+		if err := r.history.Save(newVersion, enrichedChanges, true); err != nil {
 			r.log.Error("failed to save new version", zap.Error(err))
 			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
 				if planner != nil {
@@ -219,13 +261,25 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 
 		r.state = newState
 		r.rebuildIndex()
+		r.patchDepIndex(allOps)
 		r.currentVersion = newVersion
 		return newVersion, nil
 	}
 
 	r.state = newState
 	r.rebuildIndex()
+	r.patchDepIndex(allOps)
 	return r.currentVersion, nil
+}
+
+// patchDepIndex folds committed ops back into the inverse-dependency index so
+// the next Apply can keep using O(1) source-side lookups. No-op when the
+// builder doesn't expose the indexed sort.
+func (r *Reg) patchDepIndex(ops registry.ChangeSet) {
+	if r.depIndex == nil {
+		return
+	}
+	r.depIndex.Patch(ops, r.resolver)
 }
 
 func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
@@ -360,6 +414,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 
 	r.state = newState
 	r.rebuildIndex()
+	r.rebuildDepIndex()
 	r.currentVersion = targetVersion
 
 	r.log.Debug("version applied successfully", zap.Uint("version", targetVersion.ID()))
@@ -521,6 +576,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 
 	r.state = newState
 	r.rebuildIndex()
+	r.rebuildDepIndex()
 	r.currentVersion = targetVersion
 	r.versionNum.Store(uint64(targetVersion.ID()))
 
@@ -538,6 +594,7 @@ func (r *Reg) rollback(ctx context.Context, from, to registry.State) error {
 
 	r.state = partial // we remain in a desynced state
 	r.rebuildIndex()
+	r.rebuildDepIndex()
 
 	return err
 }

@@ -25,7 +25,7 @@ type Directories struct {
 type Module struct {
 	Name      string `yaml:"name"`                 // Module identifier in org/module format
 	Version   string `yaml:"version"`              // Semantic version (e.g., v0.0.11)
-	Hash      string `yaml:"hash,omitempty"`       // Optional commit hash for exact pinning
+	Hash      string `yaml:"hash,omitempty"`       // Manifest digest (e.g. sha256:...), populated on install
 	LocalHash string `yaml:"local_hash,omitempty"` // Computed hash from loaded entries for verification
 }
 
