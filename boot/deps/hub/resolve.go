@@ -18,6 +18,7 @@ const (
 // ResolveOptions configures the client-side dependency resolver.
 type ResolveOptions struct {
 	LockedVersions map[string]string
+	LockedDigests  map[string]string
 	MaxDepth       int
 	MaxModules     int
 }
@@ -49,6 +50,7 @@ func Resolve(ctx context.Context, provider ManifestProvider, roots []DependencyS
 		maxDepth:       maxDepth,
 		maxModules:     maxModules,
 		lockedVersions: opts.LockedVersions,
+		lockedDigests:  opts.LockedDigests,
 		visited:        make(map[string]bool),
 	}
 
@@ -68,6 +70,7 @@ func Resolve(ctx context.Context, provider ManifestProvider, roots []DependencyS
 type resolver struct {
 	provider       ManifestProvider
 	lockedVersions map[string]string
+	lockedDigests  map[string]string
 	visited        map[string]bool
 	modules        []ResolvedModule
 	errors         []ResolutionError
@@ -117,7 +120,7 @@ func (r *resolver) resolveOne(ctx context.Context, org, name, constraint string,
 		return
 	}
 
-	manifest, err := r.provider.GetManifest(ctx, org, name, version)
+	manifest, err := r.fetchManifest(ctx, org, name, version)
 	if err != nil {
 		r.errors = append(r.errors, ResolutionError{
 			Org:        org,
@@ -142,6 +145,40 @@ func (r *resolver) resolveOne(ctx context.Context, org, name, constraint string,
 	for _, dep := range manifest.Dependencies {
 		r.resolveOne(ctx, dep.Org, dep.Name, dep.Version, depth+1)
 	}
+}
+
+func (r *resolver) fetchManifest(ctx context.Context, org, name, version string) (*ModuleManifest, error) {
+	manifest, err := r.provider.GetManifest(ctx, org, name, version)
+	if err != nil {
+		return nil, err
+	}
+	if manifest == nil {
+		return nil, fmt.Errorf("hub returned no manifest for %s/%s@%s", org, name, version)
+	}
+
+	expected := r.lockedDigests[org+"/"+name]
+	if expected == "" || manifest.Digest == expected {
+		return manifest, nil
+	}
+
+	if cache, ok := r.provider.(*ManifestCache); ok {
+		cache.Evict(org, name)
+		fresh, ferr := r.provider.GetManifest(ctx, org, name, version)
+		if ferr != nil {
+			return nil, ferr
+		}
+		if fresh != nil && fresh.Digest == expected {
+			return fresh, nil
+		}
+		if fresh != nil {
+			manifest = fresh
+		}
+	}
+
+	return nil, fmt.Errorf(
+		"manifest digest mismatch for %s/%s@%s: lockfile pins %s, hub served %s",
+		org, name, version, expected, manifest.Digest,
+	)
 }
 
 // resolveConstraint determines the exact version to fetch for a given constraint.

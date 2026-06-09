@@ -47,6 +47,7 @@ type DependencyHandlerOptions struct {
 
 type DependencyHandler struct {
 	hub             HubClient
+	manifestCache   *ManifestCache
 	logger          *zap.Logger
 	lockPath        string
 	vendorDir       string
@@ -116,6 +117,7 @@ func NewDependencyHandler(opts DependencyHandlerOptions) (*DependencyHandler, er
 
 	return &DependencyHandler{
 		hub:             client,
+		manifestCache:   NewManifestCache(client),
 		logger:          logger,
 		lockPath:        lockPath,
 		vendorDir:       vendorDir,
@@ -148,13 +150,22 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		return regapi.DirectiveResult{}, ErrDependencyTranscoderMissing
 	}
 
+	overallStart := time.Now()
+
+	step := time.Now()
 	lockedVersions := snapshotModuleVersions(snapshot)
+	dLockedVersions := time.Since(step)
+
+	step = time.Now()
 	controlledModules, err := h.collectControlledModules(ctx, snapshot, transcoder)
+	dCollectControlled := time.Since(step)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
 
+	step = time.Now()
 	desiredDeps, err := h.collectDesiredDependencies(ctx, op, snapshot, transcoder)
+	dCollectDesired := time.Since(step)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -166,6 +177,7 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 
 	var resolved []ResolvedModule
 	desiredRoots := dependencyDefinitions(desiredDeps)
+	step = time.Now()
 	if len(desiredRoots) > 0 {
 		var err error
 		resolved, err = h.resolveModules(ctx, desiredRoots, lockedVersions)
@@ -173,8 +185,11 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 			return regapi.DirectiveResult{}, err
 		}
 	}
+	dResolveModules := time.Since(step)
 
+	step = time.Now()
 	moduleEntries, err := h.loadModuleEntries(ctx, resolved, transcoder)
+	dLoadEntries := time.Since(step)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -187,11 +202,14 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		}
 	}
 	strictModules := touchedModuleNames(resolved, snapshot, opComponent)
+	step = time.Now()
 	mutableModules, err := h.operationModules(ctx, op, snapshot, transcoder)
+	dOpModules := time.Since(step)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
 
+	step = time.Now()
 	combined := make([]regapi.Entry, 0, len(snapshot)+len(moduleEntries))
 	for _, e := range snapshot {
 		if entryModule(e) != "" {
@@ -200,7 +218,9 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		combined = append(combined, e)
 	}
 	combined = append(combined, moduleEntries...)
+	dCombineFilter := time.Since(step)
 
+	step = time.Now()
 	pipeline := build.New(
 		stages.Override(),
 		stages.Disable(),
@@ -210,10 +230,31 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 	if err := pipeline.Execute(ctx, &combined); err != nil {
 		return regapi.DirectiveResult{}, NewDependencyPipelineError(err)
 	}
+	dPipeline := time.Since(step)
 
+	step = time.Now()
 	additional, err := buildOperations(snapshot, combined, op.Entry.ID, controlledModules, mutableModules)
+	dBuildOps := time.Since(step)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
+	}
+
+	if h.logger != nil {
+		h.logger.Info("hub Expand phase timings",
+			zap.String("entry_id", op.Entry.ID.String()),
+			zap.Duration("total", time.Since(overallStart)),
+			zap.Duration("locked_versions", dLockedVersions),
+			zap.Duration("collect_controlled", dCollectControlled),
+			zap.Duration("collect_desired", dCollectDesired),
+			zap.Duration("resolve_modules", dResolveModules),
+			zap.Duration("load_module_entries", dLoadEntries),
+			zap.Duration("op_modules", dOpModules),
+			zap.Duration("combine_filter", dCombineFilter),
+			zap.Duration("pipeline_execute", dPipeline),
+			zap.Duration("build_ops", dBuildOps),
+			zap.Int("snapshot_entries", len(snapshot)),
+			zap.Int("combined_entries", len(combined)),
+		)
 	}
 
 	scoped := make([]regapi.ScopedOperation, 0, len(additional))
@@ -442,8 +483,13 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 	resolveCtx, cancel := withOptionalTimeout(ctx, h.resolveTimeout)
 	defer cancel()
 
-	result, err := Resolve(resolveCtx, h.hub, roots, &ResolveOptions{
+	provider := ManifestProvider(h.hub)
+	if h.manifestCache != nil {
+		provider = h.manifestCache
+	}
+	result, err := Resolve(resolveCtx, provider, roots, &ResolveOptions{
 		LockedVersions: lockedVersions,
+		LockedDigests:  h.lockedModuleDigests(),
 	})
 	if err != nil {
 		return nil, NewDependencyResolutionError(err)
@@ -705,6 +751,31 @@ func (h *DependencyHandler) installedVersion(moduleName string) (string, bool) {
 		return "", false
 	}
 	return mod.Version, true
+}
+
+func (h *DependencyHandler) lockedModuleDigests() map[string]string {
+	if h.lockPath == "" {
+		return nil
+	}
+	lockObj, err := lock.New(h.lockPath)
+	if err != nil {
+		return nil
+	}
+	modules := lockObj.GetModules()
+	if len(modules) == 0 {
+		return nil
+	}
+	digests := make(map[string]string, len(modules))
+	for _, mod := range modules {
+		if mod.Hash == "" || mod.Name == "" {
+			continue
+		}
+		digests[mod.Name] = mod.Hash
+	}
+	if len(digests) == 0 {
+		return nil
+	}
+	return digests
 }
 
 func loadRawEntriesFromPaths(
