@@ -41,6 +41,22 @@ type fakeEventualRegistry struct {
 	active map[string]pidapi.PID
 }
 
+func (f *fakeEventualRegistry) Register(name string, p pidapi.PID) (pidapi.PID, error) {
+	if f.active == nil {
+		f.active = map[string]pidapi.PID{}
+	}
+	f.active[name] = p
+	return p, nil
+}
+
+func (f *fakeEventualRegistry) Unregister(name string) bool {
+	if _, ok := f.active[name]; !ok {
+		return false
+	}
+	delete(f.active, name)
+	return true
+}
+
 func (f *fakeEventualRegistry) Lookup(_ context.Context, name string, _ ...globalapi.LookupOption) (globalapi.LookupResult, error) {
 	if p, ok := f.active[name]; ok {
 		return globalapi.LookupResult{PID: p, Found: true}, nil

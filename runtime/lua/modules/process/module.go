@@ -746,26 +746,13 @@ func scopeLabel(m topology.RegistrationMode) string {
 	}
 }
 
-// eventualRegistrar is the minimal API the Lua surface needs from the
-// EVENTUAL registry. The shape decouples the module from the concrete
-// eventual.Service type so tests can substitute fakes.
-type eventualRegistrar interface {
-	Register(name string, p pidapi.PID) (pidapi.PID, error)
-	Unregister(name string) bool
-}
+// eventualRegistrar is the EVENTUAL registry surface the Lua module needs.
+type eventualRegistrar = topology.EventualRegistry
 
-// getEventualRegistrar walks the topology context for an EventualRegistry
-// and type-asserts the Register/Unregister surface the Lua glue needs.
+// getEventualRegistrar walks the topology context for an EventualRegistry.
 // Returns nil when no eventual registry is bound.
 func getEventualRegistrar(ctx context.Context) eventualRegistrar {
-	er := topology.GetEventualRegistry(ctx)
-	if er == nil {
-		return nil
-	}
-	if reg, ok := er.(eventualRegistrar); ok {
-		return reg
-	}
-	return nil
+	return topology.GetEventualRegistry(ctx)
 }
 
 func registryLookup(l *lua.LState) int {
