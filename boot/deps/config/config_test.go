@@ -293,3 +293,25 @@ metadata:
 	require.True(t, ok)
 	assert.Equal(t, "debug", loggerMap["level"])
 }
+
+// --- EntryExcludes ---
+
+func TestEntryExcludes(t *testing.T) {
+	tests := []struct {
+		name    string
+		exclude []string
+		want    []string
+	}{
+		{name: "nil", exclude: nil, want: nil},
+		{name: "only file globs", exclude: []string{"_old/**", "test/**", "*.test.lua"}, want: []string{}},
+		{name: "only entry patterns", exclude: []string{"app:**", "app.env:**"}, want: []string{"app:**", "app.env:**"}},
+		{name: "mixed file globs and entry patterns", exclude: []string{"_old/**", "app:**"}, want: []string{"app:**"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &ModuleConfig{Exclude: tc.exclude}
+			assert.Equal(t, tc.want, cfg.EntryExcludes())
+		})
+	}
+}

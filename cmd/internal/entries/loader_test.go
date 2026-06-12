@@ -1062,6 +1062,252 @@ entries:
 	}
 }
 
+// Mirrors the real replacement layout: the module keeps wippy.yaml at its root
+// while entries live under src/. The load path points at src/ (Path) and the
+// module root is carried separately (SourceRoot). The manifest filter must read
+// the config from SourceRoot, otherwise the publish-excluded app:** test
+// fixture leaks and collides with the host's real app:gateway entry.
+func TestLoadEntriesFromModuleLoadPaths_ReplacementWithSrcLayoutFilters(t *testing.T) {
+	ctx := setupTestContext(t)
+	logger := zap.NewNop()
+	tmpDir := t.TempDir()
+
+	moduleRoot := filepath.Join(tmpDir, "component")
+	srcDir := filepath.Join(moduleRoot, "src")
+	if err := os.MkdirAll(filepath.Join(srcDir, "test"), 0o755); err != nil {
+		t.Fatalf("mkdir module src + test dir: %v", err)
+	}
+	moduleConfig := `organization: kickside
+module: component
+exclude:
+  - "_old/**"
+  - "app:**"
+`
+	if err := os.WriteFile(filepath.Join(moduleRoot, "wippy.yaml"), []byte(moduleConfig), 0o644); err != nil {
+		t.Fatalf("write module config: %v", err)
+	}
+	moduleYAML := `version: "1.0"
+namespace: kickside.component
+entries:
+  - name: real_handler
+    kind: function.lua
+    source: |
+      return {}
+`
+	if err := os.WriteFile(filepath.Join(srcDir, "_index.yaml"), []byte(moduleYAML), 0o644); err != nil {
+		t.Fatalf("write module _index.yaml: %v", err)
+	}
+	testFixtureYAML := `version: "1.0"
+namespace: app
+entries:
+  - name: gateway
+    kind: http.service
+    addr: :19086
+`
+	if err := os.WriteFile(filepath.Join(srcDir, "test", "_index.yaml"), []byte(testFixtureYAML), 0o644); err != nil {
+		t.Fatalf("write module test fixture: %v", err)
+	}
+
+	appDir := filepath.Join(tmpDir, "app")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatalf("mkdir app dir: %v", err)
+	}
+	hostYAML := `version: "1.0"
+namespace: app
+entries:
+  - name: gateway
+    kind: http.service
+    addr: :8087
+`
+	if err := os.WriteFile(filepath.Join(appDir, "_index.yaml"), []byte(hostYAML), 0o644); err != nil {
+		t.Fatalf("write host app _index.yaml: %v", err)
+	}
+
+	entries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+		{Path: appDir},
+		{Path: srcDir, Module: "kickside/component", SourceRoot: moduleRoot},
+	}, logger)
+	if err != nil {
+		t.Fatalf("LoadEntriesFromModuleLoadPaths failed: %v", err)
+	}
+
+	gatewayCount := 0
+	var gateway regapi.Entry
+	found := map[string]regapi.Entry{}
+	for _, entry := range entries {
+		found[entry.ID.String()] = entry
+		if entry.ID.String() == "app:gateway" {
+			gatewayCount++
+			gateway = entry
+		}
+	}
+	if gatewayCount != 1 {
+		t.Fatalf("app:gateway count = %d, want 1 (src-layout collision not filtered)", gatewayCount)
+	}
+	if got := gateway.Meta.GetString("module", ""); got != "" {
+		t.Fatalf("app:gateway tagged with module=%q, want host (untagged) entry to win", got)
+	}
+	if _, ok := found["kickside.component:real_handler"]; !ok {
+		t.Fatalf("non-excluded module entry missing")
+	}
+}
+
+// A module whose exclude list holds only source-file globs (no entry-ID
+// patterns and no exclude_meta) must load all its entries unchanged: file
+// globs are pack-time file filters, not entry patterns, so they neither drop
+// entries nor error out.
+func TestLoadEntriesFromModuleLoadPaths_OnlyFileGlobExcludesIsNoOp(t *testing.T) {
+	ctx := setupTestContext(t)
+	logger := zap.NewNop()
+	tmpDir := t.TempDir()
+
+	moduleRoot := filepath.Join(tmpDir, "events")
+	srcDir := filepath.Join(moduleRoot, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatalf("mkdir module src: %v", err)
+	}
+	moduleConfig := `organization: kickside
+module: events
+exclude:
+  - "_old/**"
+  - "test/**"
+`
+	if err := os.WriteFile(filepath.Join(moduleRoot, "wippy.yaml"), []byte(moduleConfig), 0o644); err != nil {
+		t.Fatalf("write module config: %v", err)
+	}
+	moduleYAML := `version: "1.0"
+namespace: kickside.events
+entries:
+  - name: emitter
+    kind: function.lua
+    source: |
+      return {}
+  - name: listener
+    kind: function.lua
+    source: |
+      return {}
+`
+	if err := os.WriteFile(filepath.Join(srcDir, "_index.yaml"), []byte(moduleYAML), 0o644); err != nil {
+		t.Fatalf("write module _index.yaml: %v", err)
+	}
+
+	entries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+		{Path: srcDir, Module: "kickside/events", SourceRoot: moduleRoot},
+	}, logger)
+	if err != nil {
+		t.Fatalf("LoadEntriesFromModuleLoadPaths failed: %v", err)
+	}
+
+	found := map[string]bool{}
+	for _, e := range entries {
+		found[e.ID.String()] = true
+	}
+	for _, id := range []string{"kickside.events:emitter", "kickside.events:listener"} {
+		if !found[id] {
+			t.Fatalf("entry %s dropped by file-glob-only exclude", id)
+		}
+	}
+}
+
+// A genuinely malformed entry-ID pattern (colon present, empty name) must
+// still surface as an error: EntryExcludes only drops no-colon file globs, it
+// does not swallow real entry-pattern mistakes.
+func TestLoadEntriesFromModuleLoadPaths_MalformedEntryPatternStillErrors(t *testing.T) {
+	ctx := setupTestContext(t)
+	logger := zap.NewNop()
+	tmpDir := t.TempDir()
+
+	moduleRoot := filepath.Join(tmpDir, "broken")
+	srcDir := filepath.Join(moduleRoot, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatalf("mkdir module src: %v", err)
+	}
+	moduleConfig := `organization: kickside
+module: broken
+exclude:
+  - "app:"
+`
+	if err := os.WriteFile(filepath.Join(moduleRoot, "wippy.yaml"), []byte(moduleConfig), 0o644); err != nil {
+		t.Fatalf("write module config: %v", err)
+	}
+	moduleYAML := `version: "1.0"
+namespace: kickside.broken
+entries:
+  - name: handler
+    kind: function.lua
+    source: |
+      return {}
+`
+	if err := os.WriteFile(filepath.Join(srcDir, "_index.yaml"), []byte(moduleYAML), 0o644); err != nil {
+		t.Fatalf("write module _index.yaml: %v", err)
+	}
+
+	_, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+		{Path: srcDir, Module: "kickside/broken", SourceRoot: moduleRoot},
+	}, logger)
+	if err == nil {
+		t.Fatalf("expected error for malformed entry pattern \"app:\", got nil")
+	}
+}
+
+// The SourceRoot config fix must also apply exclude_meta (not just entry-ID
+// patterns) for a replacement whose entries live under src/.
+func TestLoadEntriesFromModuleLoadPaths_ExcludeMetaAppliedViaSrcLayout(t *testing.T) {
+	ctx := setupTestContext(t)
+	logger := zap.NewNop()
+	tmpDir := t.TempDir()
+
+	moduleRoot := filepath.Join(tmpDir, "contract")
+	srcDir := filepath.Join(moduleRoot, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatalf("mkdir module src: %v", err)
+	}
+	moduleConfig := `organization: kickside
+module: contract
+exclude_meta:
+  type:
+    - test
+`
+	if err := os.WriteFile(filepath.Join(moduleRoot, "wippy.yaml"), []byte(moduleConfig), 0o644); err != nil {
+		t.Fatalf("write module config: %v", err)
+	}
+	moduleYAML := `version: "1.0"
+namespace: kickside.contract
+entries:
+  - name: fixture
+    kind: function.lua
+    meta:
+      type: test
+    source: |
+      return {}
+  - name: real_handler
+    kind: function.lua
+    source: |
+      return {}
+`
+	if err := os.WriteFile(filepath.Join(srcDir, "_index.yaml"), []byte(moduleYAML), 0o644); err != nil {
+		t.Fatalf("write module _index.yaml: %v", err)
+	}
+
+	entries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+		{Path: srcDir, Module: "kickside/contract", SourceRoot: moduleRoot},
+	}, logger)
+	if err != nil {
+		t.Fatalf("LoadEntriesFromModuleLoadPaths failed: %v", err)
+	}
+
+	found := map[string]bool{}
+	for _, e := range entries {
+		found[e.ID.String()] = true
+	}
+	if found["kickside.contract:fixture"] {
+		t.Fatalf("meta.type=test entry leaked despite exclude_meta (src layout)")
+	}
+	if !found["kickside.contract:real_handler"] {
+		t.Fatalf("non-excluded module entry missing")
+	}
+}
+
 func TestNormalizeEntries_PreLinkOverrideAffectsRequirementDefaults(t *testing.T) {
 	ctx := setupTestContext(t)
 	cfg := boot.NewConfig(boot.WithSection("override", map[string]any{
