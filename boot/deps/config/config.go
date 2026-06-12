@@ -113,6 +113,26 @@ func (c *ModuleConfig) ValidateForLabel() error {
 	return nil
 }
 
+// EntryExcludes returns the exclude patterns that target registry entries in
+// namespace:name form. Patterns without a ':' separator are source-file globs
+// (for example "_old/**", "test/**" or "*.test.lua") consumed when collecting
+// files, not entry-ID patterns; they are omitted here so the entry-disable
+// stage does not reject them as malformed entry patterns.
+func (c *ModuleConfig) EntryExcludes() []string {
+	if len(c.Exclude) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(c.Exclude))
+	for _, pattern := range c.Exclude {
+		if strings.Contains(pattern, ":") {
+			out = append(out, pattern)
+		}
+	}
+
+	return out
+}
+
 func (c *ModuleConfig) Namespace() string {
 	return c.Organization + "." + c.ModuleName
 }

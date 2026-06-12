@@ -1062,6 +1062,96 @@ entries:
 	}
 }
 
+// Mirrors the real replacement layout: the module keeps wippy.yaml at its root
+// while entries live under src/. The load path points at src/ (Path) and the
+// module root is carried separately (SourceRoot). The manifest filter must read
+// the config from SourceRoot, otherwise the publish-excluded app:** test
+// fixture leaks and collides with the host's real app:gateway entry.
+func TestLoadEntriesFromModuleLoadPaths_ReplacementWithSrcLayoutFilters(t *testing.T) {
+	ctx := setupTestContext(t)
+	logger := zap.NewNop()
+	tmpDir := t.TempDir()
+
+	moduleRoot := filepath.Join(tmpDir, "component")
+	srcDir := filepath.Join(moduleRoot, "src")
+	if err := os.MkdirAll(filepath.Join(srcDir, "test"), 0o755); err != nil {
+		t.Fatalf("mkdir module src + test dir: %v", err)
+	}
+	moduleConfig := `organization: kickside
+module: component
+exclude:
+  - "_old/**"
+  - "app:**"
+`
+	if err := os.WriteFile(filepath.Join(moduleRoot, "wippy.yaml"), []byte(moduleConfig), 0o644); err != nil {
+		t.Fatalf("write module config: %v", err)
+	}
+	moduleYAML := `version: "1.0"
+namespace: kickside.component
+entries:
+  - name: real_handler
+    kind: function.lua
+    source: |
+      return {}
+`
+	if err := os.WriteFile(filepath.Join(srcDir, "_index.yaml"), []byte(moduleYAML), 0o644); err != nil {
+		t.Fatalf("write module _index.yaml: %v", err)
+	}
+	testFixtureYAML := `version: "1.0"
+namespace: app
+entries:
+  - name: gateway
+    kind: http.service
+    addr: :19086
+`
+	if err := os.WriteFile(filepath.Join(srcDir, "test", "_index.yaml"), []byte(testFixtureYAML), 0o644); err != nil {
+		t.Fatalf("write module test fixture: %v", err)
+	}
+
+	appDir := filepath.Join(tmpDir, "app")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatalf("mkdir app dir: %v", err)
+	}
+	hostYAML := `version: "1.0"
+namespace: app
+entries:
+  - name: gateway
+    kind: http.service
+    addr: :8087
+`
+	if err := os.WriteFile(filepath.Join(appDir, "_index.yaml"), []byte(hostYAML), 0o644); err != nil {
+		t.Fatalf("write host app _index.yaml: %v", err)
+	}
+
+	entries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
+		{Path: appDir},
+		{Path: srcDir, Module: "kickside/component", SourceRoot: moduleRoot},
+	}, logger)
+	if err != nil {
+		t.Fatalf("LoadEntriesFromModuleLoadPaths failed: %v", err)
+	}
+
+	gatewayCount := 0
+	var gateway regapi.Entry
+	found := map[string]regapi.Entry{}
+	for _, entry := range entries {
+		found[entry.ID.String()] = entry
+		if entry.ID.String() == "app:gateway" {
+			gatewayCount++
+			gateway = entry
+		}
+	}
+	if gatewayCount != 1 {
+		t.Fatalf("app:gateway count = %d, want 1 (src-layout collision not filtered)", gatewayCount)
+	}
+	if got := gateway.Meta.GetString("module", ""); got != "" {
+		t.Fatalf("app:gateway tagged with module=%q, want host (untagged) entry to win", got)
+	}
+	if _, ok := found["kickside.component:real_handler"]; !ok {
+		t.Fatalf("non-excluded module entry missing")
+	}
+}
+
 func TestNormalizeEntries_PreLinkOverrideAffectsRequirementDefaults(t *testing.T) {
 	ctx := setupTestContext(t)
 	cfg := boot.NewConfig(boot.WithSection("override", map[string]any{

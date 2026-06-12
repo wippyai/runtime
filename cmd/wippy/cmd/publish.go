@@ -454,7 +454,7 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 	}
 
 	disableOpts := stages.DisableOptions{
-		Entries:     cfg.Exclude,
+		Entries:     cfg.EntryExcludes(),
 		MetaFilters: cfg.ExcludeMeta,
 	}
 

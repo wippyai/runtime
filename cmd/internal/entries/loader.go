@@ -381,23 +381,29 @@ func applyModuleConfigFilters(
 	entries []regapi.Entry,
 	logger *zap.Logger,
 ) ([]regapi.Entry, error) {
-	cfg, err := depconfig.Load(mp.Path)
+	configDir := mp.SourceRoot
+	if configDir == "" {
+		configDir = mp.Path
+	}
+
+	cfg, err := depconfig.Load(configDir)
 	if err != nil {
 		if logger != nil {
 			logger.Debug("module config not loaded for source dependency",
 				zap.String("module", mp.Module),
-				zap.String("path", mp.Path),
+				zap.String("path", configDir),
 				zap.Error(err))
 		}
 		return entries, nil
 	}
-	if len(cfg.Exclude) == 0 && len(cfg.ExcludeMeta) == 0 {
+	entryExcludes := cfg.EntryExcludes()
+	if len(entryExcludes) == 0 && len(cfg.ExcludeMeta) == 0 {
 		return entries, nil
 	}
 
 	filtered := append([]regapi.Entry(nil), entries...)
 	stage := stages.DisableWithOptions(stages.DisableOptions{
-		Entries:     cfg.Exclude,
+		Entries:     entryExcludes,
 		MetaFilters: cfg.ExcludeMeta,
 	})
 	if err := stage.Execute(ctx, &filtered); err != nil {
