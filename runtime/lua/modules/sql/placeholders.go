@@ -142,7 +142,7 @@ func dollarQuoteEnd(query string, start int) (int, bool) {
 			}
 			return i + 1 + end + len(tag), true
 		}
-		if !(ch == '_' || ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9') {
+		if ch != '_' && (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') {
 			return 0, false
 		}
 		i++
