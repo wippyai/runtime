@@ -48,6 +48,5 @@ func All() []boot.Component {
 		YAML(),
 		LSP(),
 		PG(),
-		CDC(),
 	}
 }

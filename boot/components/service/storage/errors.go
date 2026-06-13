@@ -19,7 +19,3 @@ var (
 func NewSQLManagerError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to create sql manager").WithCause(cause)
 }
-
-func NewCDCManagerError(cause error) apierror.Error {
-	return apierror.New(apierror.Internal, "failed to create cdc manager").WithCause(cause)
-}
