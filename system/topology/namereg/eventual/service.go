@@ -237,7 +237,16 @@ func WithPriority(p uint32) RegisterOption {
 // when a different-origin entry out-ranks this fresh claim (the caller lost the
 // concurrent conflict — a name_revoked is also signaled to `p`). Cross-scope
 // conflicts (CONSISTENT/LOCAL) are rejected.
-func (s *Service) Register(name string, p pid.PID, opts ...RegisterOption) (pid.PID, error) {
+func (s *Service) Register(name string, p pid.PID) (pid.PID, error) {
+	return s.register(name, p)
+}
+
+// RegisterWithOptions is Register with conflict-resolution options.
+func (s *Service) RegisterWithOptions(name string, p pid.PID, opts ...RegisterOption) (pid.PID, error) {
+	return s.register(name, p, opts...)
+}
+
+func (s *Service) register(name string, p pid.PID, opts ...RegisterOption) (pid.PID, error) {
 	if s.stopped.Load() {
 		return pid.PID{}, ErrServiceStopped
 	}

@@ -173,7 +173,7 @@ func TestRevoke_NotEmittedWhenLocalWins(t *testing.T) {
 
 	localPID := pid.PID{Node: "node-A", Host: "h", UniqID: "local"}
 	// Local registers with high priority — it must beat a lower-priority remote.
-	_, err := svc.Register("svc.leader", localPID, eventual.WithPriority(10))
+	_, err := svc.RegisterWithOptions("svc.leader", localPID, eventual.WithPriority(10))
 	require.NoError(t, err)
 
 	loserPID := pid.PID{Node: "node-B", Host: "h", UniqID: "remote"}

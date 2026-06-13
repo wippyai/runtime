@@ -80,6 +80,19 @@ func (r *fakeEventualReg) put(name string, p pidapi.PID) {
 	r.entries[name] = p
 }
 
+func (r *fakeEventualReg) Register(name string, p pidapi.PID) (pidapi.PID, error) {
+	r.entries[name] = p
+	return p, nil
+}
+
+func (r *fakeEventualReg) Unregister(name string) bool {
+	if _, ok := r.entries[name]; !ok {
+		return false
+	}
+	delete(r.entries, name)
+	return true
+}
+
 func (r *fakeEventualReg) Lookup(_ context.Context, name string, _ ...global.LookupOption) (global.LookupResult, error) {
 	p, ok := r.entries[name]
 	if !ok {

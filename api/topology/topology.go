@@ -134,6 +134,8 @@ type (
 	// user-session-class names. The Lookup surface reuses globalreg's option
 	// types for API parity.
 	EventualRegistry interface {
+		Register(name string, p pid.PID) (pid.PID, error)
+		Unregister(name string) bool
 		Lookup(ctx context.Context, name string, opts ...global.LookupOption) (global.LookupResult, error)
 	}
 
