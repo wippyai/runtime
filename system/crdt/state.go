@@ -525,7 +525,21 @@ func (s *State) Range(start, end string, fn func(Entry) bool) {
 // expiry because age alone cannot prove that delayed live dots are gone.
 // Returns counts: (gcSafe, gcWallFloor).
 func (s *State) ReapTombstones(safeByNode []uint64, nowMs, wallFloorMs int64) (int, int) {
+	canReap := func(e Entry) bool {
+		return int(e.Node) < len(safeByNode) && e.Counter <= safeByNode[e.Node]
+	}
+	safe, floor, _ := s.ReapTombstonesWhere(canReap, nowMs, wallFloorMs)
+	return safe, floor
+}
+
+// ReapTombstonesWhere drops tombstones accepted by canReap. If canReap is nil,
+// only wall-floor expiry can reap tombstones. If wallFloorMs is positive,
+// tombstones with nowMs-Wall > wallFloorMs are dropped as an explicit operator
+// tradeoff. It returns counts plus the exact tombstone entries removed so
+// callers can prune per-dot acknowledgement state.
+func (s *State) ReapTombstonesWhere(canReap func(Entry) bool, nowMs, wallFloorMs int64) (int, int, []Entry) {
 	var safe, floor int
+	var reaped []Entry
 	for i := range s.shards {
 		sh := &s.shards[i]
 		sh.mu.Lock()
@@ -533,21 +547,24 @@ func (s *State) ReapTombstones(safeByNode []uint64, nowMs, wallFloorMs int64) (i
 			if !e.Deleted {
 				continue
 			}
-			if int(e.Node) < len(safeByNode) && e.Counter <= safeByNode[e.Node] {
+			ent := *e
+			if canReap != nil && canReap(ent) {
 				delete(sh.entries, key)
 				s.tombstone.Add(-1)
+				reaped = append(reaped, ent)
 				safe++
 				continue
 			}
 			if wallFloorMs > 0 && nowMs-e.Wall > wallFloorMs {
 				delete(sh.entries, key)
 				s.tombstone.Add(-1)
+				reaped = append(reaped, ent)
 				floor++
 			}
 		}
 		sh.mu.Unlock()
 	}
-	return safe, floor
+	return safe, floor, reaped
 }
 
 func cloneBytes(b []byte) []byte {

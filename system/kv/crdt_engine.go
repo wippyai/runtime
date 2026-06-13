@@ -3,7 +3,9 @@
 package kv
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"hash/fnv"
 	"os"
@@ -27,12 +29,16 @@ const crdtReapInterval = time.Second
 const crdtTombstoneGCInterval = time.Minute
 
 // DefaultTombstoneRetention is the default age-only delete-tombstone retention
-// for store.kv.crdt. A non-positive value disables age-only GC. That is the
-// correctness-first default: without per-peer delete acknowledgements or
-// per-origin CV digests, any finite wall-clock floor encodes a max-partition
-// assumption and can resurrect deletes on nodes that were offline longer than
-// the floor.
+// for store.kv.crdt. A non-positive value disables age-only GC. Clustered
+// deployments can opt into acknowledgement-gated GC by wiring a peer set; a
+// positive wall floor is only an explicit max-partition tradeoff for operators
+// that want a hard memory bound independent of peer acks.
 const DefaultTombstoneRetention time.Duration = 0
+
+type tombstoneDot struct {
+	node    uint32
+	counter uint64
+}
 
 // wallScale shifts the real millisecond clock left so a per-node tiebreak fits
 // in the low digits. crdt.State.Apply resolves a cross-origin conflict purely by
@@ -55,9 +61,12 @@ type CRDTEngine struct {
 	logger         *zap.Logger
 	state          *crdt.State
 	cancel         context.CancelFunc
+	peerTombAck    map[string]map[tombstoneDot]struct{}
+	aliveFn        func() map[string]struct{}
 	leaseKeys      map[kvapi.LeaseID]map[string]struct{}
 	deadlines      map[kvapi.LeaseID]time.Time
 	keyLease       map[string]kvapi.LeaseID
+	localNode      string
 	system         event.System
 	dataDir        string
 	wg             sync.WaitGroup
@@ -82,7 +91,9 @@ func NewCRDTEngine(localNode string, bus event.Bus, logger *zap.Logger) *CRDTEng
 		bus:            bus,
 		logger:         logger.Named("kv-crdt"),
 		system:         "kv:crdt",
+		localNode:      localNode,
 		tiebreak:       int64(h.Sum32() % wallScale),
+		peerTombAck:    make(map[string]map[tombstoneDot]struct{}),
 		durableNS:      make(map[string]struct{}),
 		snapInterval:   30 * time.Second,
 		gcInterval:     crdtTombstoneGCInterval,
@@ -109,12 +120,25 @@ func (e *CRDTEngine) SetDurability(dataDir string, interval time.Duration) {
 }
 
 // SetTombstoneRetention sets the age-only delete tombstone retention. A
-// non-positive duration disables age-only GC and keeps delete fences until the
-// process restarts or a future CV-gated GC mechanism can prove every peer has
-// observed the delete.
+// non-positive duration disables age-only GC and keeps delete fences until
+// acknowledgement-gated GC can prove the configured peer set has observed each
+// delete.
 func (e *CRDTEngine) SetTombstoneRetention(retention time.Duration) {
 	e.mu.Lock()
 	e.tombstoneFloor = retention
+	e.mu.Unlock()
+}
+
+// SetAlivePeers wires the peer set whose tombstone acknowledgements are
+// required by GC. The returned map must include the local node when it is alive.
+// Omitting a peer is safe only when that peer's stale AP state has been retired
+// or fenced from rejoining under the same node ID; counting an acknowledged peer
+// is safe only when it cannot roll back to a pre-ack snapshot. A nil function
+// disables acknowledgement-gated GC and preserves the default
+// infinite-retention safety behavior.
+func (e *CRDTEngine) SetAlivePeers(fn func() map[string]struct{}) {
+	e.mu.Lock()
+	e.aliveFn = fn
 	e.mu.Unlock()
 }
 
@@ -475,17 +499,79 @@ func (e *CRDTEngine) tombstoneReaper() {
 	}
 }
 
-// gcTombstones runs one tombstone GC pass. safeByNode is nil because the
-// store.kv.crdt delegate exchanges no per-origin CV digests, so the wall floor
-// is the only age-based drop criterion; now and the floor are in the engine's
-// scaled wall units (real ms * wallScale) to match Entry.Wall.
+// gcTombstones runs one tombstone GC pass. A tombstone is safe to drop only
+// after every configured peer has sent a full-state snapshot containing that
+// exact delete dot. Otherwise the default correctness-first behavior retains
+// tombstones indefinitely. now and the floor are in the engine's scaled wall
+// units (real ms * wallScale) to match Entry.Wall.
 func (e *CRDTEngine) gcTombstones() (int, int) {
 	e.mu.Lock()
 	retention := e.tombstoneFloor
 	e.mu.Unlock()
 	nowScaled := time.Now().UnixMilli() * wallScale
 	floorScaled := retention.Milliseconds() * wallScale
-	return e.state.ReapTombstones(nil, nowScaled, floorScaled)
+	safe, floor, reaped := e.state.ReapTombstonesWhere(e.tombstoneAckedByPeers(), nowScaled, floorScaled)
+	e.pruneTombstoneAcks(reaped)
+	return safe, floor
+}
+
+func (e *CRDTEngine) tombstoneAckedByPeers() func(crdt.Entry) bool {
+	e.mu.Lock()
+	aliveFn := e.aliveFn
+	localNode := e.localNode
+	e.mu.Unlock()
+	if aliveFn == nil {
+		return nil
+	}
+	alive := aliveFn()
+	if len(alive) == 0 {
+		return nil
+	}
+
+	e.mu.Lock()
+	peerAck := make([]map[tombstoneDot]struct{}, 0, len(alive))
+	for peer := range alive {
+		if peer == localNode {
+			continue
+		}
+		src := e.peerTombAck[peer]
+		cp := make(map[tombstoneDot]struct{}, len(src))
+		for dot := range src {
+			cp[dot] = struct{}{}
+		}
+		peerAck = append(peerAck, cp)
+	}
+	e.mu.Unlock()
+
+	return func(ent crdt.Entry) bool {
+		dot := tombstoneDot{node: ent.Node, counter: ent.Counter}
+		for _, ack := range peerAck {
+			if _, ok := ack[dot]; !ok {
+				return false
+			}
+		}
+		return true
+	}
+}
+
+func (e *CRDTEngine) pruneTombstoneAcks(reaped []crdt.Entry) {
+	if len(reaped) == 0 {
+		return
+	}
+	dots := make([]tombstoneDot, 0, len(reaped))
+	for i := range reaped {
+		dots = append(dots, tombstoneDot{node: reaped[i].Node, counter: reaped[i].Counter})
+	}
+	e.mu.Lock()
+	for peer, ack := range e.peerTombAck {
+		for _, dot := range dots {
+			delete(ack, dot)
+		}
+		if len(ack) == 0 {
+			delete(e.peerTombAck, peer)
+		}
+	}
+	e.mu.Unlock()
 }
 
 // --- gossip hooks (driven by the delegate) ---
@@ -498,6 +584,13 @@ func (e *CRDTEngine) DrainBroadcasts(overhead, budget int) [][]byte {
 // OnFrame applies an inbound delta frame and epidemically re-broadcasts entries
 // that advanced local state, so deltas reach the whole cluster.
 func (e *CRDTEngine) OnFrame(data []byte) {
+	if e.mergeFullState(data) {
+		return
+	}
+	e.onFrame(data, "")
+}
+
+func (e *CRDTEngine) onFrame(data []byte, ackPeer string) {
 	entries, origins, err := crdt.DecodeFrame(data)
 	if err != nil {
 		e.logger.Debug("crdt: malformed frame", zap.Error(err))
@@ -505,6 +598,9 @@ func (e *CRDTEngine) OnFrame(data []byte) {
 	for i := range entries {
 		en := entries[i]
 		en.Node = e.state.InternNode(origins[i])
+		if ackPeer != "" && en.Deleted {
+			e.recordPeerTombstoneAck(ackPeer, en)
+		}
 		outcome, merged := e.state.Apply(en)
 		if outcome == crdt.MergeApplied || outcome == crdt.MergeDeleteWins {
 			e.queue.Push(merged)
@@ -518,19 +614,73 @@ func (e *CRDTEngine) OnFrame(data []byte) {
 }
 
 // FullState encodes every entry as a single delta frame for a memberlist
-// push/pull bulk sync. The receiver feeds it back through OnFrame.
+// push/pull bulk sync. The envelope carries the sender identity so receivers
+// can treat tombstones present in the snapshot as per-peer delete
+// acknowledgements.
 func (e *CRDTEngine) FullState() []byte {
-	var out []byte
+	var deltas []byte
 	for shard := 0; shard < crdt.ShardCount; shard++ {
 		entries := e.state.ShardEntries(shard)
 		for i := range entries {
 			buf, err := crdt.EncodeDelta(nil, &entries[i], e.state.NodeString(entries[i].Node))
 			if err == nil {
-				out = append(out, buf...)
+				deltas = append(deltas, buf...)
 			}
 		}
 	}
+	return e.encodeFullState(deltas)
+}
+
+var kvCRDTFullStateMagic = [...]byte{'w', 'k', 'v', 'c', 'r', 'd', 't', 1}
+
+func (e *CRDTEngine) encodeFullState(deltas []byte) []byte {
+	node := e.localNode
+	if len(node) > 0xFFFF {
+		return deltas
+	}
+	size := len(kvCRDTFullStateMagic) + 2 + len(node) + len(deltas)
+	out := make([]byte, 0, size)
+	out = append(out, kvCRDTFullStateMagic[:]...)
+	out = binary.LittleEndian.AppendUint16(out, uint16(len(node)))
+	out = append(out, node...)
+	out = append(out, deltas...)
 	return out
+}
+
+func (e *CRDTEngine) mergeFullState(buf []byte) bool {
+	if len(buf) < len(kvCRDTFullStateMagic) || !bytes.Equal(buf[:len(kvCRDTFullStateMagic)], kvCRDTFullStateMagic[:]) {
+		return false
+	}
+	pos := len(kvCRDTFullStateMagic)
+	if len(buf)-pos < 2 {
+		return true
+	}
+	nodeLen := int(binary.LittleEndian.Uint16(buf[pos:]))
+	pos += 2
+	if nodeLen == 0 || len(buf)-pos < nodeLen {
+		return true
+	}
+	peer := string(buf[pos : pos+nodeLen])
+	pos += nodeLen
+	if pos < len(buf) {
+		e.onFrame(buf[pos:], peer)
+	}
+	return true
+}
+
+func (e *CRDTEngine) recordPeerTombstoneAck(peer string, ent crdt.Entry) {
+	if peer == "" {
+		return
+	}
+	dot := tombstoneDot{node: ent.Node, counter: ent.Counter}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	m := e.peerTombAck[peer]
+	if m == nil {
+		m = make(map[tombstoneDot]struct{})
+		e.peerTombAck[peer] = m
+	}
+	m[dot] = struct{}{}
 }
 
 func (e *CRDTEngine) emit(typ kvapi.WatchEventType, cur *kvapi.Entry) {
