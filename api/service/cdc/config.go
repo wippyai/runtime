@@ -14,12 +14,8 @@ const (
 )
 
 const (
-	DefaultEventSystem = "postgres_cdc"
-	ChangeKind         = "change"
-	StatusKind         = "status"
-	ErrorKind          = "error"
-	OutputPlugin       = "pgoutput"
-	ProtocolVersion    = 1
+	OutputPlugin    = "pgoutput"
+	ProtocolVersion = 1
 
 	StreamingProtocolVersion = 2
 )
@@ -37,7 +33,6 @@ type Config struct {
 	PasswordEnv       string                     `json:"password_env,omitempty"`
 	SlotName          string                     `json:"slot_name"`
 	Publication       string                     `json:"publication,omitempty"`
-	EventSystem       string                     `json:"event_system,omitempty"`
 	StandbyInterval   string                     `json:"standby_interval,omitempty"`
 	StatusInterval    string                     `json:"status_interval,omitempty"`
 	Tables            []string                   `json:"tables,omitempty"`
@@ -53,9 +48,6 @@ type Config struct {
 func (c *Config) InitDefaults() {
 	if c.Options == nil {
 		c.Options = make(map[string]string)
-	}
-	if c.EventSystem == "" {
-		c.EventSystem = DefaultEventSystem
 	}
 	c.Lifecycle.InitDefaults()
 }

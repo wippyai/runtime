@@ -42,13 +42,14 @@ func TestUnchangedToastIsMarked(t *testing.T) {
 	dropNamedSlot(t, repl, toastSlot)
 	defer dropNamedSlot(t, repl, toastSlot)
 
-	bus := newCaptureBus()
+	capture := newChangeCapture()
 	src := NewSource(SourceOptions{
 		ReplDSN: repl, AdminDSN: admin, Slot: toastSlot, Publication: "toasty_pub",
-		Bus: bus, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
+		StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
 	})
 	runCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	attachCapture(t, runCtx, src, capture)
 	_, err = src.Start(runCtx)
 	require.NoError(t, err)
 
@@ -61,8 +62,8 @@ func TestUnchangedToastIsMarked(t *testing.T) {
 	var upd *RowChange
 	for upd == nil {
 		select {
-		case e := <-bus.ch:
-			if rc, ok := e.Data.(RowChange); ok && rc.Op == OpUpdate && rc.Table == "toasty" {
+		case rc := <-capture.ch:
+			if rc.Op == OpUpdate && rc.Table == "toasty" {
 				c := rc
 				upd = &c
 			}

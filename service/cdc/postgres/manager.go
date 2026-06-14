@@ -80,10 +80,10 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	src := NewSource(SourceOptions{
 		ReplDSN:           replDSN,
 		AdminDSN:          adminDSN,
+		Name:              entry.ID.String(),
 		Slot:              cfg.SlotName,
 		Publication:       cfg.Publication,
 		Tables:            cfg.Tables,
-		EventSystem:       cfg.EventSystem,
 		Temporary:         cfg.Temporary,
 		Snapshot:          cfg.Snapshot,
 		Streaming:         cfg.Streaming,
@@ -91,7 +91,6 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		StandbyInterval:   standby,
 		StatusInterval:    status,
 		SnapshotFetchSize: cfg.SnapshotFetchSize,
-		Bus:               m.bus,
 		Log:               m.log.With(zap.String("id", entry.ID.String())),
 	})
 
@@ -123,6 +122,10 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return NewInvalidConfigError(err)
 	}
 
+	old := m.sources[entry.ID]
+	if old != nil {
+		old.closeSubscriptions()
+	}
 	m.removeInfo(entry.ID)
 	m.unregister(ctx, entry)
 
@@ -132,10 +135,10 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	src := NewSource(SourceOptions{
 		ReplDSN:           replDSN,
 		AdminDSN:          adminDSN,
+		Name:              entry.ID.String(),
 		Slot:              cfg.SlotName,
 		Publication:       cfg.Publication,
 		Tables:            cfg.Tables,
-		EventSystem:       cfg.EventSystem,
 		Temporary:         cfg.Temporary,
 		Snapshot:          cfg.Snapshot,
 		Streaming:         cfg.Streaming,
@@ -143,7 +146,6 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		StandbyInterval:   standby,
 		StatusInterval:    status,
 		SnapshotFetchSize: cfg.SnapshotFetchSize,
-		Bus:               m.bus,
 		Log:               m.log.With(zap.String("id", entry.ID.String())),
 	})
 	m.sources[entry.ID] = src
@@ -161,6 +163,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		return NewServiceNotFoundError(entry.ID)
 	}
 	src.MarkForSlotDrop()
+	src.closeSubscriptions()
 	m.removeInfo(entry.ID)
 	m.unregister(ctx, entry)
 	delete(m.sources, entry.ID)
@@ -171,16 +174,12 @@ func (m *Manager) storeInfo(entry registry.Entry, cfg *config.Config) {
 	info := config.SourceInfo{
 		Name:        entry.ID.String(),
 		Slot:        cfg.SlotName,
-		EventSystem: cfg.EventSystem,
 		Publication: cfg.Publication,
 		Tables:      append([]string(nil), cfg.Tables...),
 		Streaming:   cfg.Streaming,
 		Failover:    cfg.Failover,
 		Temporary:   cfg.Temporary,
 		Snapshot:    cfg.Snapshot,
-	}
-	if info.EventSystem == "" {
-		info.EventSystem = config.DefaultEventSystem
 	}
 	m.infos[entry.ID] = info
 	m.infosByKey[info.Slot] = entry.ID
@@ -221,6 +220,32 @@ func (m *Manager) Get(name string) (config.SourceInfo, bool) {
 		}
 	}
 	return config.SourceInfo{}, false
+}
+
+func (m *Manager) Stream(_ context.Context, name string, opts config.StreamOptions) (config.ChangeStream, config.SourceInfo, error) {
+	m.mu.Lock()
+	src, info, ok := m.lookupSourceLocked(name)
+	m.mu.Unlock()
+	if !ok {
+		return nil, config.SourceInfo{}, NewServiceNotFoundError(registry.ParseID(name))
+	}
+	return src.Subscribe(opts), info, nil
+}
+
+func (m *Manager) lookupSourceLocked(name string) (*Source, config.SourceInfo, bool) {
+	if id, ok := m.infosByKey[name]; ok {
+		if src := m.sources[id]; src != nil {
+			return src, m.infos[id], true
+		}
+	}
+	for id, info := range m.infos {
+		if info.Name == name {
+			if src := m.sources[id]; src != nil {
+				return src, info, true
+			}
+		}
+	}
+	return nil, config.SourceInfo{}, false
 }
 
 func (m *Manager) register(ctx context.Context, entry registry.Entry, src *Source, lifecycle supervisor.LifecycleConfig) {

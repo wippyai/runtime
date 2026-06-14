@@ -11,13 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func waitForEmail(t *testing.T, b *captureBus, email string, timeout time.Duration) {
+func waitForEmail(t *testing.T, b *changeCapture, email string, timeout time.Duration) {
 	t.Helper()
 	deadline := time.After(timeout)
 	for {
 		select {
-		case e := <-b.ch:
-			if rc, ok := e.Data.(RowChange); ok && rc.After["email"] == email {
+		case rc := <-b.ch:
+			if rc.After["email"] == email {
 				return
 			}
 		case <-deadline:
@@ -38,18 +38,19 @@ func TestResumeDeliversChangesMadeWhileDown(t *testing.T) {
 	_, err = adminDB.Exec(`DELETE FROM accounts WHERE email IN ('down0@w.ai','down1@w.ai')`)
 	require.NoError(t, err)
 
-	bus := newCaptureBus()
+	capture := newChangeCapture()
 	src := NewSource(SourceOptions{
 		ReplDSN: repl, AdminDSN: admin, Slot: itSlot, Publication: "wippy_cdc_pub",
-		Bus: bus, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
+		StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
+	attachCapture(t, ctx, src, capture)
 	_, err = src.Start(ctx)
 	require.NoError(t, err)
 
 	_, err = adminDB.Exec(`INSERT INTO accounts (email, balance) VALUES ('down0@w.ai', 1)`)
 	require.NoError(t, err)
-	waitForEmail(t, bus, "down0@w.ai", 15*time.Second)
+	waitForEmail(t, capture, "down0@w.ai", 15*time.Second)
 
 	require.Eventually(t, func() bool {
 		var raw string
@@ -66,17 +67,18 @@ func TestResumeDeliversChangesMadeWhileDown(t *testing.T) {
 	_, err = adminDB.Exec(`INSERT INTO accounts (email, balance) VALUES ('down1@w.ai', 2)`)
 	require.NoError(t, err)
 
-	bus2 := newCaptureBus()
+	capture2 := newChangeCapture()
 	src2 := NewSource(SourceOptions{
 		ReplDSN: repl, AdminDSN: admin, Slot: itSlot, Publication: "wippy_cdc_pub",
-		Bus: bus2, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
+		StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
 	})
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	defer cancel2()
+	attachCapture(t, ctx2, src2, capture2)
 	_, err = src2.Start(ctx2)
 	require.NoError(t, err)
 
-	waitForEmail(t, bus2, "down1@w.ai", 15*time.Second)
+	waitForEmail(t, capture2, "down1@w.ai", 15*time.Second)
 
 	stopCtx2, stopCancel2 := context.WithTimeout(context.Background(), 5*time.Second)
 	require.NoError(t, src2.Stop(stopCtx2))

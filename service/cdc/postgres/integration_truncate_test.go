@@ -24,19 +24,20 @@ func TestTruncateIsStreamed(t *testing.T) {
 	_, err = db.Exec(`DELETE FROM accounts`)
 	require.NoError(t, err)
 
-	bus := newCaptureBus()
+	capture := newChangeCapture()
 	src := NewSource(SourceOptions{
 		ReplDSN: repl, AdminDSN: admin, Slot: itSlot, Publication: "wippy_cdc_pub",
-		Bus: bus, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
+		StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	attachCapture(t, ctx, src, capture)
 	_, err = src.Start(ctx)
 	require.NoError(t, err)
 
 	_, err = db.Exec(`INSERT INTO accounts (email, balance) VALUES ('trunc@w.ai', 1)`)
 	require.NoError(t, err)
-	waitForEmail(t, bus, "trunc@w.ai", 15*time.Second)
+	waitForEmail(t, capture, "trunc@w.ai", 15*time.Second)
 
 	_, err = db.Exec(`TRUNCATE accounts`)
 	require.NoError(t, err)
@@ -45,8 +46,8 @@ func TestTruncateIsStreamed(t *testing.T) {
 	var got *RowChange
 	for got == nil {
 		select {
-		case e := <-bus.ch:
-			if rc, ok := e.Data.(RowChange); ok && rc.Op == OpTruncate {
+		case rc := <-capture.ch:
+			if rc.Op == OpTruncate {
 				c := rc
 				got = &c
 			}

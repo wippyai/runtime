@@ -13,35 +13,68 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wippyai/runtime/api/event"
+	cdcapi "github.com/wippyai/runtime/api/service/cdc"
 
 	_ "github.com/lib/pq"
 )
 
 const itSlot = "wippy_cdc_it"
 
-type captureBus struct {
-	ch chan event.Event
+type changeCapture struct {
+	ch chan RowChange
 }
 
-func newCaptureBus() *captureBus { return &captureBus{ch: make(chan event.Event, 256)} }
+func newChangeCapture(capacity ...int) *changeCapture {
+	size := 256
+	if len(capacity) > 0 && capacity[0] > 0 {
+		size = capacity[0]
+	}
+	return &changeCapture{ch: make(chan RowChange, size)}
+}
 
-func (b *captureBus) Send(_ context.Context, e event.Event) {
+func (c *changeCapture) send(change RowChange) {
 	select {
-	case b.ch <- e:
+	case c.ch <- change:
 	default:
 	}
 }
 
-func (b *captureBus) Subscribe(context.Context, event.System, chan<- event.Event) (event.SubscriberID, error) {
-	return "", nil
+func attachCapture(t *testing.T, ctx context.Context, src *Source, capture *changeCapture, capacity ...int) {
+	t.Helper()
+	size := 8192
+	if len(capacity) > 0 && capacity[0] > 0 {
+		size = capacity[0]
+	}
+	stream := src.Subscribe(cdcapi.StreamOptions{Buffer: size})
+	t.Cleanup(stream.Close)
+	go func() {
+		for {
+			select {
+			case change, ok := <-stream.Changes():
+				if !ok {
+					return
+				}
+				capture.send(rowChangeFromAPI(change))
+			case <-ctx.Done():
+				stream.Close()
+				return
+			}
+		}
+	}()
 }
 
-func (b *captureBus) SubscribeP(context.Context, event.System, event.Kind, chan<- event.Event) (event.SubscriberID, error) {
-	return "", nil
+func rowChangeFromAPI(change cdcapi.Change) RowChange {
+	return RowChange{
+		Before:    change.Before,
+		After:     change.After,
+		Op:        Op(change.Op),
+		Schema:    change.Schema,
+		Table:     change.Table,
+		LSN:       change.LSN,
+		CommitLSN: change.CommitLSN,
+		XID:       change.XID,
+	}
 }
-
-func (b *captureBus) Unsubscribe(context.Context, event.SubscriberID) {}
 
 func dsns(t *testing.T) (repl, admin string) {
 	t.Helper()
@@ -84,20 +117,18 @@ func dropSlot(t *testing.T, repl string) {
 	_ = conn.Exec(ctx, `SELECT pg_drop_replication_slot('`+itSlot+`')`).Close()
 }
 
-func collectOps(t *testing.T, b *captureBus, timeout time.Duration) []RowChange {
+func collectOps(t *testing.T, capture *changeCapture, timeout time.Duration) []RowChange {
 	t.Helper()
 	deadline := time.After(timeout)
 	var got []RowChange
 	seen := map[Op]bool{}
 	for {
 		select {
-		case e := <-b.ch:
-			if rc, ok := e.Data.(RowChange); ok {
-				got = append(got, rc)
-				seen[rc.Op] = true
-				if seen[OpInsert] && seen[OpUpdate] && seen[OpDelete] {
-					return got
-				}
+		case rc := <-capture.ch:
+			got = append(got, rc)
+			seen[rc.Op] = true
+			if seen[OpInsert] && seen[OpUpdate] && seen[OpDelete] {
+				return got
 			}
 		case <-deadline:
 			return got
@@ -117,12 +148,13 @@ func TestSourceStreamsAndResumes(t *testing.T) {
 	_, err = adminDB.Exec(`DELETE FROM accounts WHERE email IN ('it@w.ai','it2@w.ai')`)
 	require.NoError(t, err)
 
-	bus := newCaptureBus()
+	capture := newChangeCapture()
 	src := NewSource(SourceOptions{
 		ReplDSN: repl, AdminDSN: admin, Slot: itSlot, Publication: "wippy_cdc_pub",
-		Bus: bus, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
+		StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
+	attachCapture(t, ctx, src, capture)
 	_, err = src.Start(ctx)
 	require.NoError(t, err)
 
@@ -133,7 +165,7 @@ func TestSourceStreamsAndResumes(t *testing.T) {
 	_, err = adminDB.Exec(`DELETE FROM accounts WHERE email='it@w.ai'`)
 	require.NoError(t, err)
 
-	got := collectOps(t, bus, 15*time.Second)
+	got := collectOps(t, capture, 15*time.Second)
 	ops := map[Op]int{}
 	for _, c := range got {
 		ops[c.Op]++
@@ -159,13 +191,14 @@ func TestSourceStreamsAndResumes(t *testing.T) {
 	stopCancel()
 	cancel()
 
-	bus2 := newCaptureBus()
+	capture2 := newChangeCapture()
 	src2 := NewSource(SourceOptions{
 		ReplDSN: repl, AdminDSN: admin, Slot: itSlot, Publication: "wippy_cdc_pub",
-		Bus: bus2, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
+		StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
 	})
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	defer cancel2()
+	attachCapture(t, ctx2, src2, capture2)
 	_, err = src2.Start(ctx2)
 	require.NoError(t, err)
 
@@ -176,8 +209,8 @@ func TestSourceStreamsAndResumes(t *testing.T) {
 	gotNew := false
 	for !gotNew {
 		select {
-		case e := <-bus2.ch:
-			if rc, ok := e.Data.(RowChange); ok && rc.After["email"] == "it2@w.ai" {
+		case rc := <-capture2.ch:
+			if rc.After["email"] == "it2@w.ai" {
 				gotNew = true
 			}
 		case <-deadline:

@@ -23,10 +23,9 @@ func TestFailoverSlotIsMarked(t *testing.T) {
 	dropNamedSlot(t, repl, failoverSlot)
 	defer dropNamedSlot(t, repl, failoverSlot)
 
-	bus := newCaptureBus()
 	src := NewSource(SourceOptions{
 		ReplDSN: repl, AdminDSN: admin, Slot: failoverSlot, Publication: "wippy_cdc_pub",
-		Bus: bus, Failover: true, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
+		Failover: true, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -13,17 +13,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func waitForSnapshotEmail(t *testing.T, b *captureBus, email string, op Op, timeout time.Duration) RowChange {
+func waitForSnapshotEmail(t *testing.T, b *changeCapture, email string, op Op, timeout time.Duration) RowChange {
 	t.Helper()
 	deadline := time.After(timeout)
 	for {
 		select {
-		case e := <-b.ch:
-			if rc, ok := e.Data.(RowChange); ok {
-				if em, _ := rc.After["email"].(string); em == email {
-					require.Equal(t, op, rc.Op)
-					return rc
-				}
+		case rc := <-b.ch:
+			if em, _ := rc.After["email"].(string); em == email {
+				require.Equal(t, op, rc.Op)
+				return rc
 			}
 		case <-deadline:
 			t.Fatalf("no %s change for %q within %s", op, email, timeout)
@@ -45,13 +43,14 @@ func TestSnapshotBootstrapsExistingRows(t *testing.T) {
 	_, err = db.Exec(`INSERT INTO accounts (email, balance) VALUES ('snap1@w.ai', 1), ('snap2@w.ai', 2)`)
 	require.NoError(t, err)
 
-	bus := newCaptureBus()
+	capture := newChangeCapture()
 	src := NewSource(SourceOptions{
 		ReplDSN: repl, AdminDSN: admin, Slot: itSlot, Publication: "wippy_cdc_pub",
-		Bus: bus, Snapshot: true, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
+		Snapshot: true, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	attachCapture(t, ctx, src, capture)
 
 	_, err = src.Start(ctx)
 	require.NoError(t, err)
@@ -60,11 +59,9 @@ func TestSnapshotBootstrapsExistingRows(t *testing.T) {
 	deadline := time.After(15 * time.Second)
 	for len(seen) < 2 {
 		select {
-		case e := <-bus.ch:
-			if rc, ok := e.Data.(RowChange); ok {
-				if em, _ := rc.After["email"].(string); em == "snap1@w.ai" || em == "snap2@w.ai" {
-					seen[em] = rc.Op
-				}
+		case rc := <-capture.ch:
+			if em, _ := rc.After["email"].(string); em == "snap1@w.ai" || em == "snap2@w.ai" {
+				seen[em] = rc.Op
 			}
 		case <-deadline:
 			t.Fatalf("snapshot incomplete, saw: %v", seen)
@@ -80,12 +77,10 @@ func TestSnapshotBootstrapsExistingRows(t *testing.T) {
 	deadline2 := time.After(15 * time.Second)
 	for !gotSnap3 {
 		select {
-		case e := <-bus.ch:
-			if rc, ok := e.Data.(RowChange); ok {
-				if em, _ := rc.After["email"].(string); em == "snap3@w.ai" {
-					assert.Equal(t, OpInsert, rc.Op, "post-snapshot change must stream as insert")
-					gotSnap3 = true
-				}
+		case rc := <-capture.ch:
+			if em, _ := rc.After["email"].(string); em == "snap3@w.ai" {
+				assert.Equal(t, OpInsert, rc.Op, "post-snapshot change must stream as insert")
+				gotSnap3 = true
 			}
 		case <-deadline2:
 			t.Fatal("post-snapshot insert not streamed")
@@ -111,17 +106,18 @@ func TestSnapshotPreservesNull(t *testing.T) {
 	_, err = db.Exec(`INSERT INTO accounts (email, balance, note) VALUES ('null@w.ai', 1, NULL)`)
 	require.NoError(t, err)
 
-	bus := newCaptureBus()
+	capture := newChangeCapture()
 	src := NewSource(SourceOptions{
 		ReplDSN: repl, AdminDSN: admin, Slot: itSlot, Publication: "wippy_cdc_pub",
-		Bus: bus, Snapshot: true, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
+		Snapshot: true, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	attachCapture(t, ctx, src, capture)
 	_, err = src.Start(ctx)
 	require.NoError(t, err)
 
-	rc := waitForSnapshotEmail(t, bus, "null@w.ai", OpSnapshot, 15*time.Second)
+	rc := waitForSnapshotEmail(t, capture, "null@w.ai", OpSnapshot, 15*time.Second)
 	assert.Nil(t, rc.After["note"], "NULL column must map to nil in snapshot row")
 
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -143,18 +139,19 @@ func TestSnapshotSkippedOnResume(t *testing.T) {
 	_, err = db.Exec(`INSERT INTO accounts (email, balance) VALUES ('resume-base@w.ai', 1)`)
 	require.NoError(t, err)
 
-	bus := newCaptureBus()
-	mk := func(b *captureBus) *Source {
+	capture := newChangeCapture()
+	mk := func(b *changeCapture) *Source {
 		return NewSource(SourceOptions{
 			ReplDSN: repl, AdminDSN: admin, Slot: itSlot, Publication: "wippy_cdc_pub",
-			Bus: b, Snapshot: true, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
+			Snapshot: true, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
 		})
 	}
-	src := mk(bus)
+	src := mk(capture)
 	ctx, cancel := context.WithCancel(context.Background())
+	attachCapture(t, ctx, src, capture)
 	_, err = src.Start(ctx)
 	require.NoError(t, err)
-	waitForSnapshotEmail(t, bus, "resume-base@w.ai", OpSnapshot, 15*time.Second)
+	waitForSnapshotEmail(t, capture, "resume-base@w.ai", OpSnapshot, 15*time.Second)
 	require.Eventually(t, func() bool {
 		var raw string
 		e := db.QueryRow(`SELECT lsn FROM wippy_cdc_offsets WHERE slot=$1`, itSlot).Scan(&raw)
@@ -165,10 +162,11 @@ func TestSnapshotSkippedOnResume(t *testing.T) {
 	sc()
 	cancel()
 
-	bus2 := newCaptureBus()
-	src2 := mk(bus2)
+	capture2 := newChangeCapture()
+	src2 := mk(capture2)
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	defer cancel2()
+	attachCapture(t, ctx2, src2, capture2)
 	_, err = src2.Start(ctx2)
 	require.NoError(t, err)
 
@@ -179,13 +177,11 @@ func TestSnapshotSkippedOnResume(t *testing.T) {
 	got := false
 	for !got {
 		select {
-		case e := <-bus2.ch:
-			if rc, ok := e.Data.(RowChange); ok {
-				assert.NotEqual(t, OpSnapshot, rc.Op, "resume must not re-snapshot existing rows")
-				if em, _ := rc.After["email"].(string); em == "resume-new@w.ai" {
-					assert.Equal(t, OpInsert, rc.Op)
-					got = true
-				}
+		case rc := <-capture2.ch:
+			assert.NotEqual(t, OpSnapshot, rc.Op, "resume must not re-snapshot existing rows")
+			if em, _ := rc.After["email"].(string); em == "resume-new@w.ai" {
+				assert.Equal(t, OpInsert, rc.Op)
+				got = true
 			}
 		case <-deadline:
 			t.Fatal("resumed source did not stream the new insert")
@@ -214,10 +210,9 @@ func TestSnapshotFailureDropsSlotForCleanRetry(t *testing.T) {
 	snapshotFailpoint = func() error { return errors.New("injected snapshot failure") }
 	defer func() { snapshotFailpoint = nil }()
 
-	bus := newCaptureBus()
 	src := NewSource(SourceOptions{
 		ReplDSN: repl, AdminDSN: admin, Slot: itSlot, Publication: "wippy_cdc_pub",
-		Bus: bus, Snapshot: true, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
+		Snapshot: true, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	status, err := src.Start(ctx)
@@ -236,16 +231,17 @@ func TestSnapshotFailureDropsSlotForCleanRetry(t *testing.T) {
 	assert.Equal(t, 0, offsets, "snapshot failure must delete the checkpoint")
 
 	snapshotFailpoint = nil
-	bus2 := newCaptureBus()
+	capture2 := newChangeCapture()
 	src2 := NewSource(SourceOptions{
 		ReplDSN: repl, AdminDSN: admin, Slot: itSlot, Publication: "wippy_cdc_pub",
-		Bus: bus2, Snapshot: true, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
+		Snapshot: true, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
 	})
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	defer cancel2()
+	attachCapture(t, ctx2, src2, capture2)
 	_, err = src2.Start(ctx2)
 	require.NoError(t, err)
-	waitForSnapshotEmail(t, bus2, "retry@w.ai", OpSnapshot, 15*time.Second)
+	waitForSnapshotEmail(t, capture2, "retry@w.ai", OpSnapshot, 15*time.Second)
 
 	stopCtx, sc := context.WithTimeout(context.Background(), 5*time.Second)
 	require.NoError(t, src2.Stop(stopCtx))

@@ -70,7 +70,7 @@ func TestReportLagRecordsGauge(t *testing.T) {
 
 	src := NewSource(SourceOptions{
 		ReplDSN: repl, AdminDSN: admin, Slot: itSlot, Publication: "wippy_cdc_pub",
-		Bus: newCaptureBus(), StandbyInterval: 200 * time.Millisecond, StatusInterval: 200 * time.Millisecond,
+		StandbyInterval: 200 * time.Millisecond, StatusInterval: 200 * time.Millisecond,
 	})
 	ctx, cancel := context.WithCancel(base)
 	defer cancel()

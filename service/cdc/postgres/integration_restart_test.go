@@ -23,20 +23,21 @@ func TestRestartSameInstanceAfterFailure(t *testing.T) {
 	_, err = db.Exec(`DELETE FROM accounts WHERE email IN ('rs1@w.ai','rs2@w.ai')`)
 	require.NoError(t, err)
 
-	bus := newCaptureBus()
+	capture := newChangeCapture()
 	src := NewSource(SourceOptions{
 		ReplDSN: repl, AdminDSN: admin, Slot: itSlot, Publication: "wippy_cdc_pub",
-		Bus: bus, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
+		StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	attachCapture(t, ctx, src, capture)
 
 	status, err := src.Start(ctx)
 	require.NoError(t, err)
 
 	_, err = db.Exec(`INSERT INTO accounts (email, balance) VALUES ('rs1@w.ai', 1)`)
 	require.NoError(t, err)
-	waitForEmail(t, bus, "rs1@w.ai", 15*time.Second)
+	waitForEmail(t, capture, "rs1@w.ai", 15*time.Second)
 
 	_, err = db.Exec(`SELECT pg_terminate_backend(active_pid) FROM pg_replication_slots
 		WHERE slot_name = $1 AND active_pid IS NOT NULL`, itSlot)
@@ -48,12 +49,13 @@ func TestRestartSameInstanceAfterFailure(t *testing.T) {
 		t.Fatal("run goroutine did not exit after backend termination")
 	}
 
+	attachCapture(t, ctx, src, capture)
 	_, err = src.Start(ctx)
 	require.NoError(t, err, "Start must succeed on the same instance after a failure (supervisor retry contract)")
 
 	_, err = db.Exec(`INSERT INTO accounts (email, balance) VALUES ('rs2@w.ai', 2)`)
 	require.NoError(t, err)
-	waitForEmail(t, bus, "rs2@w.ai", 15*time.Second)
+	waitForEmail(t, capture, "rs2@w.ai", 15*time.Second)
 
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	require.NoError(t, src.Stop(stopCtx))

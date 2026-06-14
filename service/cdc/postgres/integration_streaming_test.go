@@ -11,8 +11,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/wippyai/runtime/api/event"
 )
 
 const streamSlot = "wippy_cdc_stream"
@@ -38,13 +36,14 @@ func TestStreamingLargeTransactionDelivers(t *testing.T) {
 	dropNamedSlot(t, repl, streamSlot)
 	defer dropNamedSlot(t, repl, streamSlot)
 
-	bus := &captureBus{ch: make(chan event.Event, 8192)}
+	capture := newChangeCapture(8192)
 	src := NewSource(SourceOptions{
 		ReplDSN: repl, AdminDSN: admin, Slot: streamSlot, Publication: "wippy_cdc_pub",
-		Bus: bus, Streaming: true, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
+		Streaming: true, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	attachCapture(t, ctx, src, capture, 8192)
 	_, err = src.Start(ctx)
 	require.NoError(t, err)
 
@@ -58,8 +57,8 @@ func TestStreamingLargeTransactionDelivers(t *testing.T) {
 	deadline := time.After(30 * time.Second)
 	for len(seen) < 2000 {
 		select {
-		case e := <-bus.ch:
-			if rc, ok := e.Data.(RowChange); ok && rc.Op == OpInsert {
+		case rc := <-capture.ch:
+			if rc.Op == OpInsert {
 				if em, _ := rc.After["email"].(string); strings.HasPrefix(em, "st") {
 					seen[em] = true
 				}
@@ -87,13 +86,14 @@ func TestStreamingAbortedTransactionDiscarded(t *testing.T) {
 	dropNamedSlot(t, repl, streamSlot)
 	defer dropNamedSlot(t, repl, streamSlot)
 
-	bus := &captureBus{ch: make(chan event.Event, 8192)}
+	capture := newChangeCapture(8192)
 	src := NewSource(SourceOptions{
 		ReplDSN: repl, AdminDSN: admin, Slot: streamSlot, Publication: "wippy_cdc_pub",
-		Bus: bus, Streaming: true, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
+		Streaming: true, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	attachCapture(t, ctx, src, capture, 8192)
 	_, err = src.Start(ctx)
 	require.NoError(t, err)
 
@@ -110,8 +110,8 @@ func TestStreamingAbortedTransactionDiscarded(t *testing.T) {
 	deadline := time.After(30 * time.Second)
 	for !gotMarker {
 		select {
-		case e := <-bus.ch:
-			if rc, ok := e.Data.(RowChange); ok && rc.Op == OpInsert {
+		case rc := <-capture.ch:
+			if rc.Op == OpInsert {
 				em, _ := rc.After["email"].(string)
 				require.False(t, strings.HasPrefix(em, "ab"), "aborted streamed changes must not be delivered")
 				if em == "marker@w.ai" {

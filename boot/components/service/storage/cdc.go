@@ -33,7 +33,9 @@ func CDC() boot.Component {
 			}
 
 			handlers.RegisterListener("db.cdc.*", manager)
-			return cdcapi.WithSourceInspector(ctx, manager), nil
+			ctx = cdcapi.WithSourceInspector(ctx, manager)
+			ctx = cdcapi.WithSourceStreamer(ctx, manager)
+			return ctx, nil
 		},
 	})
 }

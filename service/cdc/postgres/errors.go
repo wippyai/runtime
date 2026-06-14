@@ -16,6 +16,8 @@ var (
 	ErrNoPublication      = errors.New("cdc: no publication and no tables configured")
 	ErrTranscoderRequired = apierror.New(apierror.Invalid, "transcoder is required").WithRetryable(apierror.False)
 	ErrEventBusRequired   = apierror.New(apierror.Invalid, "event bus is required").WithRetryable(apierror.False)
+	ErrNoSourceStreamer   = apierror.New(apierror.Internal, "cdc source streamer not available").WithRetryable(apierror.False)
+	ErrNoRelayNode        = apierror.New(apierror.Internal, "relay node not available").WithRetryable(apierror.False)
 )
 
 func NewUnsupportedEntryKindError(kind registry.Kind) apierror.Error {
