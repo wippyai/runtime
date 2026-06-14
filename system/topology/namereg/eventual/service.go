@@ -125,9 +125,19 @@ type Service struct {
 	nodeLeftSub      *eventbus.Subscriber
 	cfg              Config
 	stopOnce         sync.Once
+	// owned holds names this node registered live and still intends to keep, with
+	// the pid/priority to re-assert them. Guarded by ownedMu.
+	owned map[string]ownedReg
 	// lastShardRequestMu guards lastShardRequest.
 	lastShardRequestMu sync.Mutex
+	ownedMu            sync.Mutex
 	stopped            atomic.Bool
+}
+
+// ownedReg is a locally-held registration the service can re-assert.
+type ownedReg struct {
+	pid      pid.PID
+	priority uint32
 }
 
 // NewService constructs a Service. Must call Start before use.
@@ -161,6 +171,7 @@ func NewService(cfg Config) *Service {
 		tel:              tel,
 		logger:           cfg.Logger.Named("eventualreg"),
 		lastShardRequest: map[string]int64{},
+		owned:            map[string]ownedReg{},
 	}
 
 	gcCfg := GCConfig{
@@ -294,6 +305,9 @@ func (s *Service) register(name string, p pid.PID, opts ...RegisterOption) (pid.
 		return res.Winner.PID, ErrNameAlreadyRegistered
 	}
 	s.queue.Push(res.Entry)
+	s.ownedMu.Lock()
+	s.owned[name] = ownedReg{pid: p, priority: o.priority}
+	s.ownedMu.Unlock()
 	s.tel.recordRegister("ok")
 	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
 	s.tel.setQueueDepth(s.queue.Depth())
@@ -340,6 +354,9 @@ func (s *Service) RevokeForStrong(name string, keep pid.PID) bool {
 	if e == nil {
 		return false
 	}
+	s.ownedMu.Lock()
+	delete(s.owned, name)
+	s.ownedMu.Unlock()
 	s.queue.Push(e)
 	s.emitRevoke(&LostBinding{Name: name, PID: cur})
 	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
@@ -357,6 +374,9 @@ func (s *Service) Unregister(name string) bool {
 		s.tel.recordUnregister("not_found")
 		return false
 	}
+	s.ownedMu.Lock()
+	delete(s.owned, name)
+	s.ownedMu.Unlock()
 	s.queue.Push(e)
 	s.tel.recordUnregister("ok")
 	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
@@ -715,6 +735,15 @@ func (s *Service) applyIncoming(e *Entry, originStr string) {
 		s.tel.setQueueDepth(s.queue.Depth())
 	}
 
+	// A state-changing dot for our own origin can only be a peer echoing our state
+	// back — including a prior incarnation's dot or a node-left reap tombstone that
+	// overwrote a name we still own. Re-assert it so it is re-minted above the
+	// stale counter and converges the cluster back to live.
+	if e.Node == s.state.LocalNode() &&
+		(outcome == MergeApplied || outcome == MergeDeleteWins || outcome == MergeConflictResolved) {
+		s.reassertOwned(e.Name)
+	}
+
 	switch outcome {
 	case MergeApplied:
 		// nothing extra
@@ -734,6 +763,27 @@ func (s *Service) applyIncoming(e *Entry, originStr string) {
 			s.tel.recordTombstoneLate()
 		}
 	}
+}
+
+// reassertOwned re-registers a name this node still owns whose live binding was
+// overwritten by a stale same-origin dot (see applyIncoming). It no-ops when the
+// name is not owned or already resolves to our pid, so it fires at most once per
+// stale override and cannot loop.
+func (s *Service) reassertOwned(name string) {
+	s.ownedMu.Lock()
+	reg, ok := s.owned[name]
+	s.ownedMu.Unlock()
+	if !ok {
+		return
+	}
+	if cur, found := s.state.Lookup(name); found && cur == reg.pid {
+		return
+	}
+	res := s.state.Register(name, reg.pid, time.Now().UnixMilli(), reg.priority)
+	s.queue.Push(res.Entry)
+	s.tel.recordReregistration()
+	s.tel.setEntries(s.state.LiveCount(), s.state.TombstoneCount())
+	s.tel.setQueueDepth(s.queue.Depth())
 }
 
 // aliveSet returns the current alive peer set (including self) as a lookup
