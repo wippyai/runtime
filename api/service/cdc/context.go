@@ -7,7 +7,6 @@ import "context"
 type SourceInfo struct {
 	Name        string   `json:"name"`
 	Slot        string   `json:"slot"`
-	EventSystem string   `json:"event_system"`
 	Publication string   `json:"publication,omitempty"`
 	Tables      []string `json:"tables,omitempty"`
 	Streaming   bool     `json:"streaming,omitempty"`
@@ -22,6 +21,7 @@ type SourceInspector interface {
 }
 
 type sourceInspectorKey struct{}
+type sourceStreamerKey struct{}
 
 func WithSourceInspector(ctx context.Context, inspector SourceInspector) context.Context {
 	if inspector == nil {
@@ -32,5 +32,17 @@ func WithSourceInspector(ctx context.Context, inspector SourceInspector) context
 
 func GetSourceInspector(ctx context.Context) SourceInspector {
 	v, _ := ctx.Value(sourceInspectorKey{}).(SourceInspector)
+	return v
+}
+
+func WithSourceStreamer(ctx context.Context, streamer SourceStreamer) context.Context {
+	if streamer == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, sourceStreamerKey{}, streamer)
+}
+
+func GetSourceStreamer(ctx context.Context) SourceStreamer {
+	v, _ := ctx.Value(sourceStreamerKey{}).(SourceStreamer)
 	return v
 }

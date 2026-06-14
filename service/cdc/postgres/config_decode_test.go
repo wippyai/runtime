@@ -49,7 +49,6 @@ func TestConfigWireFormatMapsAndBuildsDSN(t *testing.T) {
 	assert.True(t, cfg.Snapshot)
 	assert.Equal(t, "5s", cfg.StandbyInterval)
 	assert.Equal(t, []string{"public.accounts", "public.orders"}, cfg.Tables)
-	assert.Equal(t, config.DefaultEventSystem, cfg.EventSystem)
 
 	standby, err := cfg.StandbyDuration()
 	require.NoError(t, err)

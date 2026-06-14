@@ -39,13 +39,11 @@ func TestSupervisorStartsSourceAndDelivers(t *testing.T) {
 
 	src := NewSource(SourceOptions{
 		ReplDSN: repl, AdminDSN: admin, Slot: superSlot, Publication: "wippy_cdc_pub",
-		Bus: bus, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
+		StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
 	})
 
-	ch := make(chan event.Event, 64)
-	subID, err := bus.SubscribeP(supCtx, "postgres_cdc", "change", ch)
-	require.NoError(t, err)
-	defer bus.Unsubscribe(supCtx, subID)
+	capture := newChangeCapture()
+	attachCapture(t, supCtx, src, capture)
 
 	lc := apisup.LifecycleConfig{AutoStart: true}
 	lc.InitDefaults()
@@ -70,14 +68,12 @@ func TestSupervisorStartsSourceAndDelivers(t *testing.T) {
 	deadline := time.After(15 * time.Second)
 	for {
 		select {
-		case e := <-ch:
-			if rc, ok := e.Data.(RowChange); ok {
-				if em, _ := rc.After["email"].(string); em == "super@w.ai" {
-					return
-				}
+		case rc := <-capture.ch:
+			if em, _ := rc.After["email"].(string); em == "super@w.ai" {
+				return
 			}
 		case <-deadline:
-			t.Fatal("change did not flow through the real bus + supervisor chain")
+			t.Fatal("change did not flow through the supervised cdc source stream")
 		}
 	}
 }

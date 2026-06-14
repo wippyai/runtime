@@ -18,7 +18,6 @@ import (
 	"github.com/lib/pq"
 	"go.uber.org/zap"
 
-	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/metrics"
 	config "github.com/wippyai/runtime/api/service/cdc"
 )
@@ -40,14 +39,13 @@ const (
 )
 
 type SourceOptions struct {
-	Bus               event.Bus
 	Checkpoint        Checkpointer
 	Log               *zap.Logger
 	ReplDSN           string
 	AdminDSN          string
+	Name              string
 	Slot              string
 	Publication       string
-	EventSystem       string
 	Tables            []string
 	StandbyInterval   time.Duration
 	StatusInterval    time.Duration
@@ -59,22 +57,23 @@ type SourceOptions struct {
 }
 
 type Source struct {
-	bus         event.Bus
-	log         *zap.Logger
-	injectedCP  Checkpointer
-	cancel      context.CancelFunc
-	done        chan struct{}
-	replDSN     string
-	adminDSN    string
-	slot        string
-	publication string
-	eventSystem string
-	tables      []string
-
+	log               *zap.Logger
+	injectedCP        Checkpointer
+	cancel            context.CancelFunc
+	done              chan struct{}
+	subs              map[uint64]*sourceSubscription
+	replDSN           string
+	adminDSN          string
+	name              string
+	slot              string
+	publication       string
+	tables            []string
 	standbyInterval   time.Duration
 	statusInterval    time.Duration
-	snapshotFetchSize int
 	mu                sync.Mutex
+	subMu             sync.RWMutex
+	nextSubID         uint64
+	snapshotFetchSize int
 	temporary         bool
 	snapshot          bool
 	streaming         bool
@@ -94,10 +93,6 @@ func NewSource(opts SourceOptions) *Source {
 	if log == nil {
 		log = zap.NewNop()
 	}
-	system := opts.EventSystem
-	if system == "" {
-		system = config.DefaultEventSystem
-	}
 	standby := opts.StandbyInterval
 	if standby <= 0 {
 		standby = defaultStandbyInterval
@@ -111,15 +106,15 @@ func NewSource(opts SourceOptions) *Source {
 		fetch = defaultSnapshotFetchSize
 	}
 	return &Source{
-		bus:               opts.Bus,
 		log:               log,
 		injectedCP:        opts.Checkpoint,
 		replDSN:           opts.ReplDSN,
 		adminDSN:          opts.AdminDSN,
+		name:              opts.Name,
 		slot:              opts.Slot,
 		publication:       opts.Publication,
-		eventSystem:       system,
 		tables:            opts.Tables,
+		subs:              make(map[uint64]*sourceSubscription),
 		temporary:         opts.Temporary,
 		snapshot:          opts.Snapshot,
 		streaming:         opts.Streaming,
@@ -209,6 +204,7 @@ func (s *Source) Stop(ctx context.Context) error {
 	if !s.stopped.CompareAndSwap(false, true) {
 		return nil
 	}
+	defer s.closeSubscriptions()
 
 	s.mu.Lock()
 	cancel := s.cancel
@@ -246,6 +242,7 @@ func (s *Source) run(
 ) {
 	defer close(done)
 	defer close(status)
+	defer s.closeSubscriptions()
 	defer func() { _ = adminDB.Close() }()
 	defer func() { _ = conn.Close(context.Background()) }()
 
@@ -383,11 +380,17 @@ func (s *Source) run(
 }
 
 func (s *Source) emitChange(ctx context.Context, c RowChange) {
-	s.bus.Send(ctx, event.Event{
-		System: s.eventSystem,
-		Kind:   config.ChangeKind,
-		Path:   c.Relation(),
-		Data:   c,
+	s.publishChange(ctx, config.Change{
+		Source:    s.name,
+		Op:        string(c.Op),
+		Schema:    c.Schema,
+		Table:     c.Table,
+		Relation:  c.Relation(),
+		LSN:       c.LSN,
+		CommitLSN: c.CommitLSN,
+		XID:       c.XID,
+		Before:    c.Before,
+		After:     c.After,
 	})
 }
 
@@ -403,25 +406,10 @@ func (s *Source) reportLag(ctx context.Context, adminDB *sql.DB, mc metrics.Coll
 	if mc != nil {
 		mc.GaugeSet(retainedWALGauge, float64(retained), metrics.Labels{"slot": s.slot})
 	}
-	s.bus.Send(ctx, event.Event{
-		System: s.eventSystem,
-		Kind:   config.StatusKind,
-		Path:   s.slot,
-		Data: map[string]any{
-			"slot":               s.slot,
-			"retained_wal_bytes": retained,
-		},
-	})
 }
 
-func (s *Source) fail(ctx context.Context, status chan any, err error) {
+func (s *Source) fail(_ context.Context, status chan any, err error) {
 	s.log.Error("cdc stream error", zap.String("slot", s.slot), zap.Error(err))
-	s.bus.Send(context.WithoutCancel(ctx), event.Event{
-		System: s.eventSystem,
-		Kind:   config.ErrorKind,
-		Path:   s.slot,
-		Data:   map[string]any{"slot": s.slot, "error": err.Error()},
-	})
 	select {
 	case status <- err:
 	default:

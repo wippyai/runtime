@@ -148,7 +148,6 @@ func TestConfigFailoverRequiresPersistentSlot(t *testing.T) {
 func TestConfigInitDefaults(t *testing.T) {
 	c := &Config{}
 	c.InitDefaults()
-	assert.Equal(t, DefaultEventSystem, c.EventSystem)
 	assert.NotNil(t, c.Options)
 	assert.Equal(t, supervisor.StartupRequired, c.Lifecycle.StartupMode())
 }

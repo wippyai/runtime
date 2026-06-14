@@ -40,13 +40,14 @@ func TestMultiTablePublicationRoutesByRelation(t *testing.T) {
 	dropNamedSlot(t, repl, multiSlot)
 	defer dropNamedSlot(t, repl, multiSlot)
 
-	bus := newCaptureBus()
+	capture := newChangeCapture()
 	src := NewSource(SourceOptions{
 		ReplDSN: repl, AdminDSN: admin, Slot: multiSlot, Publication: "multi_pub",
-		Bus: bus, StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
+		StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
 	})
 	runCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	attachCapture(t, runCtx, src, capture)
 	_, err = src.Start(runCtx)
 	require.NoError(t, err)
 
@@ -59,8 +60,8 @@ func TestMultiTablePublicationRoutesByRelation(t *testing.T) {
 	deadline := time.After(15 * time.Second)
 	for len(byTable) < 2 {
 		select {
-		case e := <-bus.ch:
-			if rc, ok := e.Data.(RowChange); ok && rc.Op == OpInsert {
+		case rc := <-capture.ch:
+			if rc.Op == OpInsert {
 				byTable[rc.Table] = rc
 			}
 		case <-deadline:

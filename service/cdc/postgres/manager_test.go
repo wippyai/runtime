@@ -3,6 +3,7 @@
 package postgres
 
 import (
+	"context"
 	"net/url"
 	"sort"
 	"testing"
@@ -56,9 +57,8 @@ func TestManagerStoreAndListInfos(t *testing.T) {
 		Streaming:   true,
 	})
 	m.storeInfo(registry.Entry{ID: registry.NewID("test", "id-b"), Kind: config.Postgres}, &config.Config{
-		SlotName:    "slot_b",
-		Tables:      []string{"public.t"},
-		EventSystem: "custom_system",
+		SlotName: "slot_b",
+		Tables:   []string{"public.t"},
 	})
 
 	infos := m.List()
@@ -71,12 +71,10 @@ func TestManagerStoreAndListInfos(t *testing.T) {
 	a, ok := m.Get("slot_a")
 	require.True(t, ok)
 	assert.Equal(t, "pub_a", a.Publication)
-	assert.Equal(t, config.DefaultEventSystem, a.EventSystem)
 	assert.True(t, a.Streaming)
 
 	b, ok := m.Get("slot_b")
 	require.True(t, ok)
-	assert.Equal(t, "custom_system", b.EventSystem)
 	assert.Equal(t, []string{"public.t"}, b.Tables)
 
 	_, ok = m.Get("unknown")
@@ -85,6 +83,26 @@ func TestManagerStoreAndListInfos(t *testing.T) {
 	byID, ok := m.Get(infos[0].Name)
 	require.True(t, ok)
 	assert.Equal(t, infos[0].Slot, byID.Slot)
+}
+
+func TestManagerStreamBySlotAndID(t *testing.T) {
+	m := newInspectorManager()
+	id := registry.NewID("test", "id-stream")
+	src := NewSource(SourceOptions{Name: id.String(), Slot: "slot_stream"})
+	m.sources[id] = src
+	m.storeInfo(registry.Entry{ID: id, Kind: config.Postgres}, &config.Config{SlotName: "slot_stream", Tables: []string{"public.accounts"}})
+
+	stream, info, err := m.Stream(context.Background(), "slot_stream", config.StreamOptions{Buffer: 2})
+	require.NoError(t, err)
+	require.NotNil(t, stream)
+	assert.Equal(t, "slot_stream", info.Slot)
+	stream.Close()
+
+	stream, info, err = m.Stream(context.Background(), id.String(), config.StreamOptions{})
+	require.NoError(t, err)
+	require.NotNil(t, stream)
+	assert.Equal(t, id.String(), info.Name)
+	stream.Close()
 }
 
 func TestManagerRemoveInfo(t *testing.T) {

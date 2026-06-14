@@ -23,7 +23,7 @@ func startBriefSource(t *testing.T, repl, admin string) *Source {
 	t.Helper()
 	src := NewSource(SourceOptions{
 		ReplDSN: repl, AdminDSN: admin, Slot: itSlot, Publication: "wippy_cdc_pub",
-		Bus: newCaptureBus(), StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
+		StandbyInterval: 200 * time.Millisecond, StatusInterval: time.Hour,
 	})
 	_, err := src.Start(context.Background())
 	require.NoError(t, err)
