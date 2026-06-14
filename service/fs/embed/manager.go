@@ -4,6 +4,7 @@ package embed
 
 import (
 	"context"
+	"io/fs"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
@@ -59,7 +60,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		return systemfs.NewFilesystemAlreadyExistsError(entry.ID.String())
 	}
 
-	if err := m.registerFS(ctx, entry.ID); err != nil {
+	if err := m.registerFS(ctx, entry); err != nil {
 		return err
 	}
 
@@ -82,7 +83,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	// Remove old, register new
 	m.removeFS(ctx, entry.ID)
-	if err := m.registerFS(ctx, entry.ID); err != nil {
+	if err := m.registerFS(ctx, entry); err != nil {
 		return err
 	}
 
@@ -110,13 +111,15 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	return nil
 }
 
-// registerFS retrieves the filesystem from embed registry and registers it.
-func (m *Manager) registerFS(ctx context.Context, id registry.ID) error {
-	// Get filesystem from embed registry
-	packFS, err := m.embedReg.GetFS(id)
+// registerFS retrieves the filesystem from the embed registry and registers it.
+// Resolution is entry-aware when the registry supports it, so updates select the
+// pack matching the entry's module/version rather than an arbitrary pack that
+// happens to expose the same resource ID.
+func (m *Manager) registerFS(ctx context.Context, entry registry.Entry) error {
+	packFS, err := m.resolveFS(entry)
 	if err != nil {
 		m.log.Error("failed to get embedded filesystem",
-			zap.String("id", id.String()),
+			zap.String("id", entry.ID.String()),
 			zap.Error(err))
 		return systemfs.NewGetEmbeddedFilesystemError(err)
 	}
@@ -125,17 +128,26 @@ func (m *Manager) registerFS(ctx context.Context, id registry.ID) error {
 	fs := fsapi.NewReadOnlyFS(packFS)
 
 	// Store in filesystems map
-	m.filesystems[id] = fs
+	m.filesystems[entry.ID] = fs
 
 	// Register with filesystem registry
 	m.bus.Send(ctx, event.Event{
 		System: fsapi.System,
 		Kind:   fsapi.FsRegister,
-		Path:   id.String(),
+		Path:   entry.ID.String(),
 		Data:   fs,
 	})
 
 	return nil
+}
+
+// resolveFS prefers an entry-aware lookup when the registry implements
+// embedapi.EntryResolver, otherwise falls back to ID-based lookup.
+func (m *Manager) resolveFS(entry registry.Entry) (fs.ReadDirFS, error) {
+	if resolver, ok := m.embedReg.(embedapi.EntryResolver); ok {
+		return resolver.GetFSForEntry(entry)
+	}
+	return m.embedReg.GetFS(entry.ID)
 }
 
 // removeFS removes the filesystem from the fs system.
