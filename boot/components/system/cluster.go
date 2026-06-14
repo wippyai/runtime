@@ -221,6 +221,22 @@ func Cluster() boot.Component {
 					ClusterMembershipDeadNodeReclaimTime,
 					membership.DefaultDeadNodeReclaimTime,
 				),
+				ProbeInterval: clusterCfg.GetDuration(
+					ClusterMembershipProbeInterval,
+					0,
+				),
+				ProbeTimeout: clusterCfg.GetDuration(
+					ClusterMembershipProbeTimeout,
+					0,
+				),
+				TCPTimeout: clusterCfg.GetDuration(
+					ClusterMembershipTCPTimeout,
+					0,
+				),
+				SuspicionMult: clusterCfg.GetInt(
+					ClusterMembershipSuspicionMult,
+					0,
+				),
 				VeryVerbose: false,
 				Meta:        nodeMeta,
 			}

@@ -35,6 +35,10 @@ const (
 	ClusterMembershipGossipInterval      boot.Name = "membership.gossip_interval"
 	ClusterMembershipPushPullInterval    boot.Name = "membership.push_pull_interval"
 	ClusterMembershipDeadNodeReclaimTime boot.Name = "membership.dead_node_reclaim_time"
+	ClusterMembershipProbeInterval       boot.Name = "membership.probe_interval"
+	ClusterMembershipProbeTimeout        boot.Name = "membership.probe_timeout"
+	ClusterMembershipTCPTimeout          boot.Name = "membership.tcp_timeout"
+	ClusterMembershipSuspicionMult       boot.Name = "membership.suspicion_mult"
 	ClusterFailureDomain                 boot.Name = "failure_domain"
 	// ClusterKVCRDTTombstoneRetention bounds store.kv.crdt delete tombstone
 	// retention by age. 0 disables age-only GC; clustered nodes still reclaim

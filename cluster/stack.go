@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"time"
 
 	clusterapi "github.com/wippyai/runtime/api/cluster"
 	"github.com/wippyai/runtime/api/event"
@@ -65,16 +66,23 @@ type StackConfig struct {
 	// the harness to avoid disturbing the runtime's raft quorum.
 	Meta clusterapi.NodeMeta
 
-	NodeName            string
-	MembershipBindAddr  string
-	MembershipAdvertise string
-	SecretKey           string
-	SecretFile          string
-	InternodeBindAddr   string
-	JoinAddrs           []string
-	MembershipBindPort  int
-	InternodeBindPort   int
-	InternodeAutoPort   bool
+	NodeName                      string
+	MembershipBindAddr            string
+	MembershipAdvertise           string
+	SecretKey                     string
+	SecretFile                    string
+	InternodeBindAddr             string
+	JoinAddrs                     []string
+	MembershipGossipInterval      time.Duration
+	MembershipPushPullInterval    time.Duration
+	MembershipDeadNodeReclaimTime time.Duration
+	MembershipProbeInterval       time.Duration
+	MembershipProbeTimeout        time.Duration
+	MembershipTCPTimeout          time.Duration
+	MembershipBindPort            int
+	InternodeBindPort             int
+	MembershipSuspicionMult       int
+	InternodeAutoPort             bool
 }
 
 // AssembleStack constructs the relay node, router, membership service,
@@ -137,14 +145,21 @@ func AssembleStack(cfg StackConfig) (*Stack, error) {
 	meta["internode_port"] = strconv.Itoa(actualPort)
 
 	memCfg := membership.Config{
-		NodeName:     cfg.NodeName,
-		BindAddr:     stringOr(cfg.MembershipBindAddr, "0.0.0.0"),
-		BindPort:     intOr(cfg.MembershipBindPort, 7946),
-		JoinAddrs:    cfg.JoinAddrs,
-		SecretFile:   cfg.SecretFile,
-		SecretString: cfg.SecretKey,
-		AdvertiseIP:  cfg.MembershipAdvertise,
-		Meta:         meta,
+		NodeName:            cfg.NodeName,
+		BindAddr:            stringOr(cfg.MembershipBindAddr, "0.0.0.0"),
+		BindPort:            intOr(cfg.MembershipBindPort, 7946),
+		JoinAddrs:           cfg.JoinAddrs,
+		SecretFile:          cfg.SecretFile,
+		SecretString:        cfg.SecretKey,
+		AdvertiseIP:         cfg.MembershipAdvertise,
+		GossipInterval:      cfg.MembershipGossipInterval,
+		PushPullInterval:    cfg.MembershipPushPullInterval,
+		DeadNodeReclaimTime: cfg.MembershipDeadNodeReclaimTime,
+		ProbeInterval:       cfg.MembershipProbeInterval,
+		ProbeTimeout:        cfg.MembershipProbeTimeout,
+		TCPTimeout:          cfg.MembershipTCPTimeout,
+		SuspicionMult:       cfg.MembershipSuspicionMult,
+		Meta:                meta,
 	}
 
 	memSvc := membership.NewService(
