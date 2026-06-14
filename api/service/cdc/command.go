@@ -14,7 +14,7 @@ func init() {
 }
 
 const (
-	Subscribe dispatcher.CommandID = 170
+	Subscribe dispatcher.CommandID = 172
 )
 
 type StreamOptions struct {

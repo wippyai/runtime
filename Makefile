@@ -15,6 +15,7 @@ test:
 	go test ./cluster/... -v -race -short
 	go test --tags "fts5 sqlite_vec treesitter" ./runtime/... -v -race -short
 	go test ./boot/... -v -race -short
+	go test --tags "fts5 sqlite_vec treesitter" ./cmd/... -v -race -short
 
 test-system:
 	go test ./internal/... -v -race
