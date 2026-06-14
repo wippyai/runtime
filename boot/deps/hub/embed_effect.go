@@ -1,0 +1,226 @@
+// SPDX-License-Identifier: MPL-2.0
+
+package hub
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+
+	"github.com/wippyai/runtime/api/attrs"
+	apierror "github.com/wippyai/runtime/api/error"
+	regapi "github.com/wippyai/runtime/api/registry"
+	embedpkg "github.com/wippyai/runtime/service/fs/embed"
+	"github.com/wippyai/wapp"
+	"go.uber.org/zap"
+)
+
+// embedPackRegistry is the subset of the embed registry used to manage the
+// lifecycle of module-owned .wapp packs. It is satisfied by
+// *service/fs/embed.Registry and stubbed in tests.
+type embedPackRegistry interface {
+	RegisterPack(packPath, module, version string, reader *wapp.Reader, file *os.File) error
+	UnregisterPack(packPath string) error
+	UnregisterModule(module, version string) error
+}
+
+// stagedPack describes a new module pack to register during Prepare and to
+// roll back (unregister + close) if the apply fails.
+type stagedPack struct {
+	packPath string
+	module   string
+	version  string
+}
+
+// obsoletePack identifies a module pack to unregister (and close) on Commit
+// because the module was removed or replaced by a newer version.
+type obsoletePack struct {
+	module  string
+	version string
+}
+
+// embedPackEffect ties embedded-pack lifecycle to a module operation. Embedded
+// packs are module resources owned by dependency expansion, not by fs.embed
+// entries, so this effect runs alongside the registry changeset:
+//
+//   - Prepare registers newly resolved packs so the fs.embed entries created in
+//     the same changeset resolve during apply. New packs are keyed by their own
+//     .wapp path, so a version update stages the new pack without disturbing the
+//     pack still serving the old version.
+//   - Commit unregisters and closes packs made obsolete by the operation
+//     (removed modules on uninstall, prior versions on update). The new packs
+//     stay registered.
+//   - Rollback unregisters and closes the packs staged in Prepare, restoring the
+//     pre-operation set. Obsolete packs are left untouched because they are only
+//     dropped on a successful Commit.
+type embedPackEffect struct {
+	reg      embedPackRegistry
+	staged   []stagedPack
+	obsolete []obsoletePack
+	logger   *zap.Logger
+
+	prepared []string // pack paths registered by Prepare, for rollback
+}
+
+func (e *embedPackEffect) Prepare(_ context.Context) error {
+	for _, sp := range e.staged {
+		f, err := os.Open(sp.packPath)
+		if err != nil {
+			return newOpenPackError(sp.packPath, err)
+		}
+
+		reader, err := wapp.NewReader(f)
+		if err != nil {
+			f.Close()
+			return newReadPackError(sp.packPath, err)
+		}
+
+		if err := e.reg.RegisterPack(sp.packPath, sp.module, sp.version, reader, f); err != nil {
+			f.Close()
+			return newRegisterPackError(sp.packPath, err)
+		}
+		e.prepared = append(e.prepared, sp.packPath)
+
+		e.logger.Debug("staged embedded pack",
+			zap.String("path", sp.packPath),
+			zap.String("module", sp.module),
+			zap.String("version", sp.version))
+	}
+	return nil
+}
+
+func (e *embedPackEffect) Commit(_ context.Context) error {
+	for _, op := range e.obsolete {
+		if err := e.reg.UnregisterModule(op.module, op.version); err != nil {
+			// Logged, not fatal: the changeset already committed and the old
+			// pack is no longer referenced by any live entry. Failing here
+			// would only leak a file handle for the rest of the process life.
+			e.logger.Warn("failed to unregister obsolete embedded pack",
+				zap.String("module", op.module),
+				zap.String("version", op.version),
+				zap.Error(err))
+			continue
+		}
+		e.logger.Debug("released obsolete embedded pack",
+			zap.String("module", op.module),
+			zap.String("version", op.version))
+	}
+	return nil
+}
+
+func (e *embedPackEffect) Rollback(_ context.Context) error {
+	for _, packPath := range e.prepared {
+		if err := e.reg.UnregisterPack(packPath); err != nil {
+			e.logger.Warn("failed to unregister staged embedded pack during rollback",
+				zap.String("path", packPath),
+				zap.Error(err))
+		}
+	}
+	e.prepared = nil
+	return nil
+}
+
+// buildEmbedPackEffect computes the pack-lifecycle effect for a module
+// operation. resolved are the desired modules after the operation; snapshot is
+// the registry state before it. staged packs are the resolved modules backed by
+// a .wapp on disk; obsolete packs are modules present in the snapshot whose
+// version is no longer desired (removed) or has changed (updated).
+//
+// Returns nil when there is no embed registry in the context, or when neither
+// staged nor obsolete packs exist, so callers can append it unconditionally.
+func (h *DependencyHandler) buildEmbedPackEffect(
+	ctx context.Context,
+	resolved []ResolvedModule,
+	snapshot regapi.State,
+) (*embedPackEffect, error) {
+	reg := embedpkg.GetRegistryFromContext(ctx)
+	if reg == nil {
+		return nil, nil
+	}
+
+	desired := make(map[string]string, len(resolved))
+	staged := make([]stagedPack, 0, len(resolved))
+	for _, mod := range resolved {
+		name := mod.Org + "/" + mod.Name
+		desired[name] = mod.Version
+
+		path, isWapp, err := h.modulePackPath(ctx, mod)
+		if err != nil {
+			return nil, err
+		}
+		if !isWapp {
+			continue
+		}
+		staged = append(staged, stagedPack{
+			packPath: path,
+			module:   name,
+			version:  mod.Version,
+		})
+	}
+
+	obsolete := obsoletePacksFor(snapshot, desired)
+
+	if len(staged) == 0 && len(obsolete) == 0 {
+		return nil, nil
+	}
+
+	logger := h.logger
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+
+	return &embedPackEffect{
+		reg:      reg,
+		staged:   staged,
+		obsolete: obsolete,
+		logger:   logger.Named("embed_pack"),
+	}, nil
+}
+
+// obsoletePacksFor returns the snapshot modules whose version is not the desired
+// version (changed) or which are no longer desired at all (removed). A staged
+// pack for the new version is keyed by its own path, so unregistering the old
+// version by (module, version) never affects the new pack.
+func obsoletePacksFor(snapshot regapi.State, desired map[string]string) []obsoletePack {
+	current := snapshotModuleVersions(snapshot)
+	obsolete := make([]obsoletePack, 0)
+	for module, version := range current {
+		if version == "" {
+			continue
+		}
+		if want, ok := desired[module]; ok && want == version {
+			continue
+		}
+		obsolete = append(obsolete, obsoletePack{module: module, version: version})
+	}
+	return obsolete
+}
+
+// modulePackPath returns the on-disk path the module would be registered under
+// and whether that path is a .wapp pack. Replacement (local source) and
+// unpacked modules are directories and are reported as non-pack.
+func (h *DependencyHandler) modulePackPath(ctx context.Context, mod ResolvedModule) (string, bool, error) {
+	path, err := h.ensureModuleAvailable(ctx, mod)
+	if err != nil {
+		return "", false, err
+	}
+	return path, filepath.Ext(path) == ".wapp", nil
+}
+
+func newOpenPackError(path string, cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "open embedded pack failed").
+		WithDetails(attrs.NewBagFrom(map[string]any{"path": path})).
+		WithCause(cause)
+}
+
+func newReadPackError(path string, cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "read embedded pack failed").
+		WithDetails(attrs.NewBagFrom(map[string]any{"path": path})).
+		WithCause(cause)
+}
+
+func newRegisterPackError(path string, cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "register embedded pack failed").
+		WithDetails(attrs.NewBagFrom(map[string]any{"path": path})).
+		WithCause(cause)
+}
