@@ -44,23 +44,36 @@ func setupService(_ *testing.T) (*Service, *eventbus.Bus, context.Context, conte
 }
 
 func TestApplyMemberlistTiming_DefaultsAndBadValues(t *testing.T) {
+	base := memberlist.DefaultLocalConfig()
 	cfg := memberlist.DefaultLocalConfig()
 	applyMemberlistTiming(cfg, Config{})
 
 	assert.Equal(t, DefaultGossipInterval, cfg.GossipInterval)
 	assert.Equal(t, DefaultPushPullInterval, cfg.PushPullInterval)
 	assert.Equal(t, DefaultDeadNodeReclaimTime, cfg.DeadNodeReclaimTime)
+	assert.Equal(t, base.ProbeInterval, cfg.ProbeInterval)
+	assert.Equal(t, base.ProbeTimeout, cfg.ProbeTimeout)
+	assert.Equal(t, base.TCPTimeout, cfg.TCPTimeout)
+	assert.Equal(t, base.SuspicionMult, cfg.SuspicionMult)
 
 	cfg = memberlist.DefaultLocalConfig()
 	applyMemberlistTiming(cfg, Config{
 		GossipInterval:      -time.Second,
 		PushPullInterval:    -time.Second,
 		DeadNodeReclaimTime: -time.Second,
+		ProbeInterval:       -time.Second,
+		ProbeTimeout:        -time.Second,
+		TCPTimeout:          -time.Second,
+		SuspicionMult:       -1,
 	})
 
 	assert.Equal(t, DefaultGossipInterval, cfg.GossipInterval)
 	assert.Equal(t, DefaultPushPullInterval, cfg.PushPullInterval)
 	assert.Equal(t, DefaultDeadNodeReclaimTime, cfg.DeadNodeReclaimTime)
+	assert.Equal(t, base.ProbeInterval, cfg.ProbeInterval)
+	assert.Equal(t, base.ProbeTimeout, cfg.ProbeTimeout)
+	assert.Equal(t, base.TCPTimeout, cfg.TCPTimeout)
+	assert.Equal(t, base.SuspicionMult, cfg.SuspicionMult)
 }
 
 func TestApplyMemberlistTiming_CustomValues(t *testing.T) {
@@ -69,11 +82,39 @@ func TestApplyMemberlistTiming_CustomValues(t *testing.T) {
 		GossipInterval:      750 * time.Millisecond,
 		PushPullInterval:    10 * time.Second,
 		DeadNodeReclaimTime: 2 * time.Minute,
+		ProbeInterval:       2 * time.Second,
+		ProbeTimeout:        3 * time.Second,
+		TCPTimeout:          10 * time.Second,
+		SuspicionMult:       10,
 	})
 
 	assert.Equal(t, 750*time.Millisecond, cfg.GossipInterval)
 	assert.Equal(t, 10*time.Second, cfg.PushPullInterval)
 	assert.Equal(t, 2*time.Minute, cfg.DeadNodeReclaimTime)
+	assert.Equal(t, 2*time.Second, cfg.ProbeInterval)
+	assert.Equal(t, 3*time.Second, cfg.ProbeTimeout)
+	assert.Equal(t, 10*time.Second, cfg.TCPTimeout)
+	assert.Equal(t, 10, cfg.SuspicionMult)
+}
+
+func TestNew_WithMemberlistTimingOptions(t *testing.T) {
+	service := New(
+		WithGossipInterval(750*time.Millisecond),
+		WithPushPullInterval(10*time.Second),
+		WithDeadNodeReclaimTime(2*time.Minute),
+		WithProbeInterval(2*time.Second),
+		WithProbeTimeout(3*time.Second),
+		WithTCPTimeout(10*time.Second),
+		WithSuspicionMult(10),
+	)
+
+	assert.Equal(t, 750*time.Millisecond, service.config.GossipInterval)
+	assert.Equal(t, 10*time.Second, service.config.PushPullInterval)
+	assert.Equal(t, 2*time.Minute, service.config.DeadNodeReclaimTime)
+	assert.Equal(t, 2*time.Second, service.config.ProbeInterval)
+	assert.Equal(t, 3*time.Second, service.config.ProbeTimeout)
+	assert.Equal(t, 10*time.Second, service.config.TCPTimeout)
+	assert.Equal(t, 10, service.config.SuspicionMult)
 }
 
 func generateSecretKey() string {

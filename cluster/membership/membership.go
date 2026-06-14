@@ -132,7 +132,11 @@ type Config struct {
 	GossipInterval      time.Duration
 	PushPullInterval    time.Duration
 	DeadNodeReclaimTime time.Duration
+	ProbeInterval       time.Duration
+	ProbeTimeout        time.Duration
+	TCPTimeout          time.Duration
 	BindPort            int
+	SuspicionMult       int
 	VeryVerbose         bool
 }
 
@@ -166,6 +170,18 @@ func applyMemberlistTiming(mlConfig *memberlist.Config, cfg Config) {
 	mlConfig.PushPullInterval = positiveDuration(cfg.PushPullInterval, DefaultPushPullInterval)
 	mlConfig.DeadNodeReclaimTime = positiveDuration(
 		cfg.DeadNodeReclaimTime, DefaultDeadNodeReclaimTime)
+	if cfg.ProbeInterval > 0 {
+		mlConfig.ProbeInterval = cfg.ProbeInterval
+	}
+	if cfg.ProbeTimeout > 0 {
+		mlConfig.ProbeTimeout = cfg.ProbeTimeout
+	}
+	if cfg.TCPTimeout > 0 {
+		mlConfig.TCPTimeout = cfg.TCPTimeout
+	}
+	if cfg.SuspicionMult > 0 {
+		mlConfig.SuspicionMult = cfg.SuspicionMult
+	}
 }
 
 // NewService creates a new membership service.
@@ -200,6 +216,10 @@ func New(opts ...Option) *Service {
 			GossipInterval:      o.gossipInterval,
 			PushPullInterval:    o.pushPullInterval,
 			DeadNodeReclaimTime: o.deadNodeReclaimTime,
+			ProbeInterval:       o.probeInterval,
+			ProbeTimeout:        o.probeTimeout,
+			TCPTimeout:          o.tcpTimeout,
+			SuspicionMult:       o.suspicionMult,
 			NodeName:            o.nodeName,
 			BindAddr:            o.bindAddr,
 			SecretFile:          o.secretFile,

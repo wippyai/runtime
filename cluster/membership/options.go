@@ -34,7 +34,11 @@ type options struct {
 	gossipInterval      time.Duration
 	pushPullInterval    time.Duration
 	deadNodeReclaimTime time.Duration
+	probeInterval       time.Duration
+	probeTimeout        time.Duration
+	tcpTimeout          time.Duration
 	bindPort            int
+	suspicionMult       int
 	veryVerbose         bool
 }
 
@@ -101,4 +105,28 @@ func WithPushPullInterval(d time.Duration) Option {
 // values fall back to the production default at Start.
 func WithDeadNodeReclaimTime(d time.Duration) Option {
 	return func(o *options) { o.deadNodeReclaimTime = d }
+}
+
+// WithProbeInterval tunes memberlist's direct probe cadence. Non-positive
+// values keep memberlist's default.
+func WithProbeInterval(d time.Duration) Option {
+	return func(o *options) { o.probeInterval = d }
+}
+
+// WithProbeTimeout tunes how long memberlist waits for a direct probe before
+// suspecting a peer. Non-positive values keep memberlist's default.
+func WithProbeTimeout(d time.Duration) Option {
+	return func(o *options) { o.probeTimeout = d }
+}
+
+// WithTCPTimeout tunes memberlist TCP operations such as push/pull and
+// reliable user messages. Non-positive values keep memberlist's default.
+func WithTCPTimeout(d time.Duration) Option {
+	return func(o *options) { o.tcpTimeout = d }
+}
+
+// WithSuspicionMult tunes memberlist's suspicion timeout multiplier.
+// Non-positive values keep memberlist's default.
+func WithSuspicionMult(mult int) Option {
+	return func(o *options) { o.suspicionMult = mult }
 }
