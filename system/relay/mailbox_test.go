@@ -197,6 +197,41 @@ func TestMailbox_DetachDuringDelivery(t *testing.T) {
 	// Message should be dropped without error
 }
 
+// A receiver's owner closes its own channel on teardown (Detach only removes the
+// map entry). A delivery racing that close hits a send-on-closed-channel, which
+// must be dropped, never panicking the worker — proven by a subsequent delivery
+// to a live receiver on the same worker still arriving.
+func TestMailbox_ClosedReceiverDoesNotKillWorker(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	mailbox := NewMailbox(ctx, WithBufferSize(4), WithWorkerCount(1))
+
+	dead := pidapi.PID{Node: "node1", Host: "host1", UniqID: "dead"}
+	deadCh := make(chan *relay.Package, 1)
+	_, err := mailbox.Attach(dead, deadCh)
+	assert.NoError(t, err)
+	close(deadCh) // owner closed its channel on teardown
+
+	live := pidapi.PID{Node: "node1", Host: "host1", UniqID: "live"}
+	liveCh := make(chan *relay.Package, 1)
+	_, err = mailbox.Attach(live, liveCh)
+	assert.NoError(t, err)
+
+	src := pidapi.PID{Node: "node1", Host: "host1", UniqID: "src"}
+	assert.NoError(t, mailbox.Send(&relay.Package{Source: src, Target: dead,
+		Messages: []*relay.Message{{Topic: "x"}}}))
+	assert.NoError(t, mailbox.Send(&relay.Package{Source: src, Target: live,
+		Messages: []*relay.Message{{Topic: "y"}}}))
+
+	select {
+	case got := <-liveCh:
+		assert.Equal(t, live, got.Target)
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker died after a send to a closed receiver: live delivery never arrived")
+	}
+}
+
 func TestMailbox_MultipleWorkers(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
