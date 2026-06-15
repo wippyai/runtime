@@ -315,6 +315,113 @@ func TestHubModule_ModuleClientShortCircuitDoesNotInitializeStore(t *testing.T) 
 	assert.Nil(t, h.store)
 }
 
+func setupStrictContext() context.Context {
+	ctx := context.Background()
+	appCtx := ctxapi.NewAppContext()
+	ctx = ctxapi.WithAppContext(ctx, appCtx)
+	ctx = secapi.SetStrictMode(ctx, true)
+	ctx, _ = ctxapi.OpenFrameContext(ctx)
+	return ctx
+}
+
+func TestAuthSetTokenSucceeds(t *testing.T) {
+	const reg = "https://reg-set.example.com"
+	t.Cleanup(func() { bootauth.ClearRuntimeToken(reg) })
+
+	mod := NewModule(Options{})
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(setupContext())
+
+	tbl, _ := mod.Build()
+	l.SetGlobal(mod.Name, tbl)
+
+	if err := l.DoString(`
+		local ok, err = hub.auth.set_token("wpy_validtoken1234567890", "https://reg-set.example.com")
+		if err then error(err) end
+		if ok ~= true then error("expected true") end
+	`); err != nil {
+		t.Fatalf("lua error: %v", err)
+	}
+
+	got, err := bootauth.NewStore(bootauth.NewConfig(t.TempDir())).Get(reg)
+	require.NoError(t, err)
+	assert.Equal(t, "wpy_validtoken1234567890", got.Token)
+}
+
+func TestAuthSetTokenInvalidFormat(t *testing.T) {
+	const reg = "https://reg-bad.example.com"
+	t.Cleanup(func() { bootauth.ClearRuntimeToken(reg) })
+
+	mod := NewModule(Options{})
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(setupContext())
+
+	tbl, _ := mod.Build()
+	l.SetGlobal(mod.Name, tbl)
+
+	if err := l.DoString(`
+		local ok, err = hub.auth.set_token("bad", "https://reg-bad.example.com")
+		if err == nil then error("expected error") end
+		if ok ~= nil then error("expected nil ok") end
+	`); err != nil {
+		t.Fatalf("lua error: %v", err)
+	}
+
+	_, err := bootauth.NewStore(bootauth.NewConfig(t.TempDir())).Get(reg)
+	require.Error(t, err)
+}
+
+func TestAuthSetTokenPermissionDenied(t *testing.T) {
+	const reg = "https://reg-denied.example.com"
+	t.Cleanup(func() { bootauth.ClearRuntimeToken(reg) })
+
+	mod := NewModule(Options{})
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(setupStrictContext())
+
+	tbl, _ := mod.Build()
+	l.SetGlobal(mod.Name, tbl)
+
+	if err := l.DoString(`
+		local ok, err = hub.auth.set_token("wpy_validtoken1234567890", "https://reg-denied.example.com")
+		if err == nil then error("expected permission denied") end
+		if ok ~= nil then error("expected nil ok") end
+	`); err != nil {
+		t.Fatalf("lua error: %v", err)
+	}
+
+	_, err := bootauth.NewStore(bootauth.NewConfig(t.TempDir())).Get(reg)
+	require.Error(t, err)
+}
+
+func TestAuthClearToken(t *testing.T) {
+	const reg = "https://reg-clear.example.com"
+	bootauth.SetRuntimeToken(reg, "wpy_validtoken1234567890")
+	t.Cleanup(func() { bootauth.ClearRuntimeToken(reg) })
+
+	mod := NewModule(Options{})
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(setupContext())
+
+	tbl, _ := mod.Build()
+	l.SetGlobal(mod.Name, tbl)
+
+	if err := l.DoString(`
+		local ok, err = hub.auth.clear_token("https://reg-clear.example.com")
+		if err then error(err) end
+		if ok ~= true then error("expected true") end
+	`); err != nil {
+		t.Fatalf("lua error: %v", err)
+	}
+
+	_, err := bootauth.NewStore(bootauth.NewConfig(t.TempDir())).Get(reg)
+	require.Error(t, err)
+}
+
 func buildWappBytesForHubModuleTest(t *testing.T, entries []wapp.Entry) []byte {
 	t.Helper()
 	var buf bytes.Buffer

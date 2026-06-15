@@ -82,7 +82,7 @@ func (h *hubModule) authStore() *bootauth.Store {
 }
 
 func (h *hubModule) build() (*lua.LTable, []luaapi.YieldType) {
-	mod := lua.CreateTable(0, 5)
+	mod := lua.CreateTable(0, 6)
 
 	modules := lua.CreateTable(0, 4)
 	modules.RawSetString("list", lua.LGoFunc(h.modulesList))
@@ -109,11 +109,17 @@ func (h *hubModule) build() (*lua.LTable, []luaapi.YieldType) {
 	files.RawSetString("list", lua.LGoFunc(h.filesList))
 	files.Immutable = true
 
+	auth := lua.CreateTable(0, 2)
+	auth.RawSetString("set_token", lua.LGoFunc(h.authSetToken))
+	auth.RawSetString("clear_token", lua.LGoFunc(h.authClearToken))
+	auth.Immutable = true
+
 	mod.RawSetString("modules", modules)
 	mod.RawSetString("versions", versions)
 	mod.RawSetString("dependencies", dependencies)
 	mod.RawSetString("dependents", dependents)
 	mod.RawSetString("files", files)
+	mod.RawSetString("auth", auth)
 	mod.Immutable = true
 
 	return mod, nil
@@ -676,6 +682,60 @@ func (h *hubModule) newHubClient(l *lua.LState, base baseOptions) (*boothub.Clie
 	}
 
 	return client, nil
+}
+
+func (h *hubModule) resolveRegistry(registry string) string {
+	registry = firstNonEmpty(registry, h.opts.BaseURL)
+	if registry == "" {
+		if store := h.authStore(); store != nil {
+			registry = store.DefaultRegistry()
+		}
+	}
+
+	return registry
+}
+
+func (h *hubModule) authSetToken(l *lua.LState) int {
+	token := strings.TrimSpace(l.OptString(1, ""))
+	registry := h.resolveRegistry(l.OptString(2, ""))
+
+	ctx, err := h.requireContext(l)
+	if err != nil {
+		return pushError(l, err)
+	}
+	if !security.IsAllowed(ctx, "hub.auth.set_token", registry, nil) {
+		return pushError(l, permissionDenied(l, "hub.auth.set_token", registry))
+	}
+
+	if formatErr := bootauth.ValidateTokenFormat(token); formatErr != nil {
+		return pushError(l, invalidArgument(l, formatErr.Error()))
+	}
+
+	bootauth.SetRuntimeToken(registry, token)
+
+	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+
+	return 2
+}
+
+func (h *hubModule) authClearToken(l *lua.LState) int {
+	registry := h.resolveRegistry(l.OptString(1, ""))
+
+	ctx, err := h.requireContext(l)
+	if err != nil {
+		return pushError(l, err)
+	}
+	if !security.IsAllowed(ctx, "hub.auth.clear_token", registry, nil) {
+		return pushError(l, permissionDenied(l, "hub.auth.clear_token", registry))
+	}
+
+	bootauth.ClearRuntimeToken(registry)
+
+	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+
+	return 2
 }
 
 func withTimeout(ctx context.Context, timeout time.Duration) (context.Context, func()) {
