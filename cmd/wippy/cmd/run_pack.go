@@ -494,7 +494,7 @@ func runPackEntries(
 		}
 	}
 
-	waitForShutdownSignal(sigChan, logger, cancel)
+	waitForShutdownSignal(sigChan, logger, nil)
 
 	exitCode := shutdown.Perform(ctx, loader, logger, silentLogs)
 	if exitCode != 0 {
