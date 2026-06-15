@@ -76,7 +76,7 @@ var testCmd = &cobra.Command{
 	Short: "Run the test entrypoint",
 	Long: `Run the test entrypoint of the local app, a .wapp file, or a hub module.
 
-Only the entry whose command name is "test" is executed; 'wippy run' never runs it.
+Only the entry declaring the "test" use case is executed; 'wippy run' never runs it.
 
 Examples:
   wippy test                                # Run the local app's tests
@@ -104,23 +104,24 @@ func init() {
 
 // commandMeta represents the command metadata from entry.Meta
 type commandMeta struct {
-	Name  string `json:"name"`
-	Short string `json:"short"`
-	Main  bool   `json:"main"`
+	Name    string `json:"name"`
+	Short   string `json:"short"`
+	UseCase string `json:"use_case"`
+	Main    bool   `json:"main"`
 }
 
 // runApp is the primary `wippy run` execution flow.
 // It resolves invocation mode (runtime, pack, hub module, exec), bootstraps
 // components, loads registry entries, and blocks until shutdown.
 func runApp(cmd *cobra.Command, args []string) error {
-	return runWithMode(cmd, args, modeRun)
+	return runWithUseCase(cmd, args, defaultUseCase)
 }
 
 func runTest(cmd *cobra.Command, args []string) error {
-	return runWithMode(cmd, args, modeTest)
+	return runWithUseCase(cmd, args, "test")
 }
 
-func runWithMode(cmd *cobra.Command, args []string, mode runMode) error {
+func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 	memLimit := initMemoryLimit()
 
 	var commandName string
@@ -141,7 +142,7 @@ func runWithMode(cmd *cobra.Command, args []string, mode runMode) error {
 
 	if commandName != "" {
 		if strings.HasSuffix(commandName, ".wapp") {
-			return runFromPackFile(cmd, commandName, commandArgs, mode)
+			return runFromPackFile(cmd, commandName, commandArgs, useCase)
 		}
 
 		if isHubModuleRef(commandName) {
@@ -149,11 +150,11 @@ func runWithMode(cmd *cobra.Command, args []string, mode runMode) error {
 			if err != nil {
 				return err
 			}
-			return runFromPackFiles(cmd, packPaths, commandArgs, mode)
+			return runFromPackFiles(cmd, packPaths, commandArgs, useCase)
 		}
 	}
 
-	if execSpec != "" || commandName != "" || mode == modeTest {
+	if execSpec != "" || commandName != "" || useCase != defaultUseCase {
 		flagsChanged := cmd != nil && (cmd.Flags().Changed("silent") || cmd.Flags().Changed("verbose") || cmd.Flags().Changed("very-verbose") || cmd.Flags().Changed("console"))
 		if !flagsChanged {
 			silentLogs = true
@@ -237,22 +238,20 @@ func runWithMode(cmd *cobra.Command, args []string, mode runMode) error {
 		logger.Info("runtime ready")
 	}
 
-	// Resolve the entrypoint to execute.
-	if mode == modeTest {
-		entryID, err := resolveCommandToEntry(ctx, testCommandName)
+	// Resolve the entrypoint to execute. Bare `wippy run` (default use case, no
+	// named entrypoint) boots the app without executing one; any other use case,
+	// or an explicit name, selects an entrypoint declaratively by use case.
+	if commandName != "" || useCase != defaultUseCase {
+		commands, err := collectCommands(ctx)
 		if err != nil {
 			return err
-		}
-		execSpec = entryID
-	} else if commandName != "" {
-		if commandName == testCommandName {
-			return fmt.Errorf("the %q entrypoint runs with 'wippy test', not 'wippy run'", testCommandName)
 		}
 
-		entryID, err := resolveCommandToEntry(ctx, commandName)
+		entryID, err := selectEntrypoint(commands, commandName, useCase)
 		if err != nil {
 			return err
 		}
+
 		execSpec = entryID
 		args = commandArgs
 	}
@@ -274,32 +273,6 @@ func runWithMode(cmd *cobra.Command, args []string, mode runMode) error {
 	}
 
 	return nil
-}
-
-// resolveCommandToEntry finds an entry with meta.command.name matching the given name
-func resolveCommandToEntry(ctx context.Context, name string) (string, error) {
-	reg := registry.GetRegistry(ctx)
-	if reg == nil {
-		return "", fmt.Errorf("registry not available")
-	}
-
-	allEntries, err := reg.GetAllEntries()
-	if err != nil {
-		return "", fmt.Errorf("failed to query registry for commands: %w", err)
-	}
-
-	for _, e := range allEntries {
-		if !isProcessKind(e.Kind) {
-			continue
-		}
-
-		cmdMeta := extractCommandMeta(e.Meta)
-		if cmdMeta != nil && cmdMeta.Name == name {
-			return e.ID.String(), nil
-		}
-	}
-
-	return "", fmt.Errorf("command %q not found. Use 'wippy run list' to see available commands", name)
 }
 
 // loadRuntimeConfig resolves the effective runtime configuration for run-like
@@ -378,7 +351,12 @@ func extractCommandMeta(meta map[string]any) *commandMeta {
 
 	short, _ := cmdMap["short"].(string)
 	main, _ := cmdMap["main"].(bool)
-	return &commandMeta{Name: name, Short: short, Main: main}
+	useCase, _ := cmdMap["use_case"].(string)
+	if useCase == "" {
+		useCase = defaultUseCase
+	}
+
+	return &commandMeta{Name: name, Short: short, UseCase: useCase, Main: main}
 }
 
 // runList prints all command-enabled process entries from resolved lock modules.
@@ -398,6 +376,7 @@ func runList(cmd *cobra.Command, _ []string) error {
 	var commands []struct {
 		Name    string
 		Short   string
+		UseCase string
 		EntryID string
 	}
 
@@ -419,10 +398,12 @@ func runList(cmd *cobra.Command, _ []string) error {
 		commands = append(commands, struct {
 			Name    string
 			Short   string
+			UseCase string
 			EntryID string
 		}{
 			Name:    cmdMeta.Name,
 			Short:   cmdMeta.Short,
+			UseCase: cmdMeta.UseCase,
 			EntryID: e.ID.String(),
 		})
 	}
@@ -448,6 +429,9 @@ func runList(cmd *cobra.Command, _ []string) error {
 		fmt.Printf("  %s", nameStyle.Render(c.Name))
 		if c.Short != "" {
 			fmt.Printf("  %s", c.Short)
+		}
+		if c.UseCase != defaultUseCase {
+			fmt.Printf("  %s", dimStyle.Render(fmt.Sprintf("[wippy %s]", commandForUseCase(c.UseCase))))
 		}
 		fmt.Printf("  %s\n", dimStyle.Render("("+c.EntryID+")"))
 	}

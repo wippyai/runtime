@@ -67,7 +67,7 @@ func TestRunPackEntries_InvalidRequirementFailsNormalizationPipeline(t *testing.
 		},
 	}
 
-	err = runPackEntries(ctx, loader, zap.NewNop(), packEntries, []string{"missing"}, modeRun)
+	err = runPackEntries(ctx, loader, zap.NewNop(), packEntries, []string{"missing"}, defaultUseCase)
 	if err == nil {
 		t.Fatal("expected normalization pipeline error")
 	}
@@ -104,7 +104,7 @@ func TestRunPackEntries_NoEntrypointRunsAsServer(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- runPackEntries(ctx, loader, zap.NewNop(), nil, nil, modeRun)
+		done <- runPackEntries(ctx, loader, zap.NewNop(), nil, nil, defaultUseCase)
 	}()
 
 	select {
@@ -146,7 +146,7 @@ func TestRunPackEntries_TestModeWithoutTestEntrypointErrors(t *testing.T) {
 		_ = embedReg.Close()
 	})
 
-	err = runPackEntries(ctx, loader, zap.NewNop(), nil, nil, modeTest)
+	err = runPackEntries(ctx, loader, zap.NewNop(), nil, nil, "test")
 	if err == nil {
 		t.Fatal("expected an error when there is no test entrypoint")
 	}
@@ -176,11 +176,11 @@ func TestRunPackEntries_RunModeUnknownCommandErrors(t *testing.T) {
 		_ = embedReg.Close()
 	})
 
-	err = runPackEntries(ctx, loader, zap.NewNop(), nil, []string{"nope"}, modeRun)
+	err = runPackEntries(ctx, loader, zap.NewNop(), nil, []string{"nope"}, defaultUseCase)
 	if err == nil {
 		t.Fatal("expected an error for an unknown command")
 	}
-	if !strings.Contains(err.Error(), `command "nope" not found in pack`) {
+	if !strings.Contains(err.Error(), `command "nope" not found`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -214,7 +214,7 @@ func TestRunFromPackFiles_InvalidRequirementFailsNormalizationPipeline(t *testin
 		},
 	})
 
-	err := runFromPackFiles(nil, []string{packPath}, []string{"missing"}, modeRun)
+	err := runFromPackFiles(nil, []string{packPath}, []string{"missing"}, defaultUseCase)
 	if err == nil {
 		t.Fatal("expected command lookup error")
 	}
@@ -255,123 +255,185 @@ func TestIsHubModuleRef_WithUppercaseWappExtension(t *testing.T) {
 	}
 }
 
-func TestSelectPackCommand(t *testing.T) {
+func TestSelectEntrypoint(t *testing.T) {
+	run := func(name, entryID string, main bool) packCommand {
+		return packCommand{name: name, entryID: entryID, useCase: defaultUseCase, main: main}
+	}
+
+	test := func(name, entryID string) packCommand {
+		return packCommand{name: name, entryID: entryID, useCase: "test"}
+	}
+
 	tests := []struct {
 		name        string
 		commandName string
+		useCase     string
 		wantEntry   string
 		wantErr     string
 		commands    []packCommand
-		mode        runMode
 	}{
 		{
-			name:      "run mode no commands runs nothing",
+			name:      "default use case, no commands, runs nothing",
+			useCase:   defaultUseCase,
 			commands:  nil,
 			wantEntry: "",
 		},
 		{
 			name:        "explicit name match",
-			commands:    []packCommand{{name: "snake", entryID: "snake:play"}, {name: "edit", entryID: "snake:edit"}},
+			useCase:     defaultUseCase,
+			commands:    []packCommand{run("snake", "snake:play", false), run("edit", "snake:edit", false)},
 			commandName: "edit",
 			wantEntry:   "snake:edit",
 		},
 		{
 			name:        "explicit name missing",
-			commands:    []packCommand{{name: "snake", entryID: "snake:play"}},
+			useCase:     defaultUseCase,
+			commands:    []packCommand{run("snake", "snake:play", false)},
 			commandName: "nope",
-			wantErr:     `command "nope" not found in pack`,
+			wantErr:     `command "nope" not found; use 'wippy run list' to see available commands`,
 		},
 		{
 			name:      "single command without main auto-runs",
-			commands:  []packCommand{{name: "snake", entryID: "snake:play"}},
+			useCase:   defaultUseCase,
+			commands:  []packCommand{run("snake", "snake:play", false)},
 			wantEntry: "snake:play",
 		},
 		{
 			name:      "single command with main auto-runs",
-			commands:  []packCommand{{name: "snake", entryID: "snake:play", main: true}},
+			useCase:   defaultUseCase,
+			commands:  []packCommand{run("snake", "snake:play", true)},
 			wantEntry: "snake:play",
 		},
 		{
 			name:      "multiple commands one main",
-			commands:  []packCommand{{name: "snake", entryID: "snake:play"}, {name: "edit", entryID: "snake:edit", main: true}},
+			useCase:   defaultUseCase,
+			commands:  []packCommand{run("snake", "snake:play", false), run("edit", "snake:edit", true)},
 			wantEntry: "snake:edit",
 		},
 		{
 			name:     "multiple commands no main errors with sorted names",
-			commands: []packCommand{{name: "snake", entryID: "snake:play"}, {name: "edit", entryID: "snake:edit"}},
+			useCase:  defaultUseCase,
+			commands: []packCommand{run("snake", "snake:play", false), run("edit", "snake:edit", false)},
 			wantErr:  "no entrypoint specified; run one of: edit, snake",
 		},
 		{
 			name:     "multiple main commands error",
-			commands: []packCommand{{name: "snake", entryID: "snake:play", main: true}, {name: "edit", entryID: "snake:edit", main: true}},
-			wantErr:  "multiple commands marked as main in pack: snake, edit",
+			useCase:  defaultUseCase,
+			commands: []packCommand{run("snake", "snake:play", true), run("edit", "snake:edit", true)},
+			wantErr:  "multiple commands marked as main: snake, edit",
 		},
 		{
-			name:      "only test entrypoint runs nothing in run mode",
-			commands:  []packCommand{{name: "test", entryID: "wippy.test:runner"}},
+			name:      "only test use case entry, default use case runs nothing",
+			useCase:   defaultUseCase,
+			commands:  []packCommand{test("test", "wippy.test:runner")},
 			wantEntry: "",
 		},
 		{
-			name:      "test entrypoint excluded, single non-test auto-runs",
-			commands:  []packCommand{{name: "test", entryID: "wippy.test:runner"}, {name: "snake", entryID: "snake:play"}},
+			name:      "test use case excluded, single default entry auto-runs",
+			useCase:   defaultUseCase,
+			commands:  []packCommand{test("test", "wippy.test:runner"), run("snake", "snake:play", false)},
 			wantEntry: "snake:play",
 		},
 		{
-			name:        "explicit test entrypoint refused in run mode",
-			commands:    []packCommand{{name: "test", entryID: "wippy.test:runner"}, {name: "snake", entryID: "snake:play"}},
+			name:        "explicit test name hints at its use case",
+			useCase:     defaultUseCase,
+			commands:    []packCommand{test("test", "wippy.test:runner"), run("snake", "snake:play", false)},
 			commandName: "test",
-			wantErr:     `the "test" entrypoint runs with 'wippy test', not 'wippy run'`,
+			wantErr:     `the "test" entrypoint belongs to the "test" use case; run it with 'wippy test'`,
 		},
 		{
-			name:        "explicit non-test selected even when test present",
-			commands:    []packCommand{{name: "test", entryID: "wippy.test:runner"}, {name: "snake", entryID: "snake:play"}},
+			name:        "explicit default entry selected even when test present",
+			useCase:     defaultUseCase,
+			commands:    []packCommand{test("test", "wippy.test:runner"), run("snake", "snake:play", false)},
 			commandName: "snake",
 			wantEntry:   "snake:play",
 		},
 		{
-			name:     "test excluded then multiple non-test require explicit",
-			commands: []packCommand{{name: "test", entryID: "wippy.test:runner"}, {name: "snake", entryID: "snake:play"}, {name: "edit", entryID: "snake:edit"}},
+			name:     "test excluded then multiple default entries require explicit",
+			useCase:  defaultUseCase,
+			commands: []packCommand{test("test", "wippy.test:runner"), run("snake", "snake:play", false), run("edit", "snake:edit", false)},
 			wantErr:  "no entrypoint specified; run one of: edit, snake",
 		},
 		{
-			name:      "test mode selects the test entrypoint",
-			commands:  []packCommand{{name: "snake", entryID: "snake:play", main: true}, {name: "test", entryID: "wippy.test:runner"}},
-			mode:      modeTest,
+			name:      "test use case selects the test entrypoint regardless of name",
+			useCase:   "test",
+			commands:  []packCommand{run("snake", "snake:play", true), test("runner", "wippy.test:runner")},
 			wantEntry: "wippy.test:runner",
 		},
 		{
-			name:     "test mode without a test entrypoint errors",
-			commands: []packCommand{{name: "snake", entryID: "snake:play"}},
-			mode:     modeTest,
+			name:     "test use case without a test entrypoint errors",
+			useCase:  "test",
+			commands: []packCommand{run("snake", "snake:play", false)},
 			wantErr:  "no test entrypoint found",
 		},
 		{
-			name:     "test mode with no commands errors",
+			name:     "test use case with no commands errors",
+			useCase:  "test",
 			commands: nil,
-			mode:     modeTest,
 			wantErr:  "no test entrypoint found",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := selectPackCommand(tc.commands, tc.commandName, tc.mode)
+			got, err := selectEntrypoint(tc.commands, tc.commandName, tc.useCase)
 			if tc.wantErr != "" {
 				if err == nil || err.Error() != tc.wantErr {
-					t.Fatalf("selectPackCommand error = %v, want %q", err, tc.wantErr)
+					t.Fatalf("selectEntrypoint error = %v, want %q", err, tc.wantErr)
 				}
 
 				return
 			}
 
 			if err != nil {
-				t.Fatalf("selectPackCommand unexpected error: %v", err)
+				t.Fatalf("selectEntrypoint unexpected error: %v", err)
 			}
 
 			if got != tc.wantEntry {
-				t.Fatalf("selectPackCommand = %q, want %q", got, tc.wantEntry)
+				t.Fatalf("selectEntrypoint = %q, want %q", got, tc.wantEntry)
 			}
 		})
+	}
+}
+
+func TestCommandsFromEntries(t *testing.T) {
+	entries := []regapi.Entry{
+		{
+			ID:   regapi.NewID("app", "gateway"),
+			Kind: "http.service",
+			Meta: map[string]any{"comment": "not a command"},
+		},
+		{
+			ID:   regapi.NewID("app", "cli"),
+			Kind: "function.lua",
+			Meta: map[string]any{"command": map[string]any{"name": "cli"}},
+		},
+		{
+			ID:   regapi.NewID("app", "serve"),
+			Kind: "process.lua",
+			Meta: map[string]any{"command": map[string]any{"name": "serve", "main": true}},
+		},
+		{
+			ID:   regapi.NewID("app", "runner"),
+			Kind: "process.lua",
+			Meta: map[string]any{"command": map[string]any{"name": "test", "use_case": "test"}},
+		},
+	}
+
+	got := commandsFromEntries(entries)
+	want := []packCommand{
+		{name: "serve", entryID: "app:serve", useCase: defaultUseCase, main: true},
+		{name: "test", entryID: "app:runner", useCase: "test"},
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("commandsFromEntries returned %d commands, want %d: %+v", len(got), len(want), got)
+	}
+
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("command[%d] = %+v, want %+v", i, got[i], want[i])
+		}
 	}
 }
 

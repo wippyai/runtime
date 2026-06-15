@@ -32,41 +32,23 @@ import (
 var hubModulePattern = regexp.MustCompile(`^([a-z][a-z0-9-]*)/([a-z][a-z0-9-]*)(?:@(.+))?$`)
 var hubIdentPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
-// testCommandName is the reserved entrypoint name for test runners. `wippy run`
-// never selects it; `wippy test` selects only it.
-const testCommandName = "test"
-
-// runMode selects which entrypoint a run-like command targets.
-type runMode int
-
-const (
-	modeRun runMode = iota
-	modeTest
-)
+// defaultUseCase is the use case targeted by `wippy run`. An entry whose
+// command meta omits a use case belongs to it. `wippy test` targets the "test"
+// use case instead; future run-like commands target their own use case.
+const defaultUseCase = "run"
 
 type packCommand struct {
 	name    string
 	entryID string
+	useCase string
 	main    bool
 }
 
-// findPackCommand resolves the entrypoint to execute from the loaded registry.
-// In modeRun it never selects the test entrypoint; in modeTest it selects only the
-// test entrypoint. See selectPackCommand for the selection rules.
-func findPackCommand(ctx context.Context, commandName string, mode runMode) (string, error) {
-	reg := registry.GetRegistry(ctx)
-	if reg == nil {
-		return "", fmt.Errorf("registry not available")
-	}
-
-	allEntries, err := reg.GetAllEntries()
-	if err != nil {
-		return "", fmt.Errorf("failed to query registry for pack commands: %w", err)
-	}
-
+// commandsFromEntries projects registry entries into the command entrypoints
+// they declare, ignoring entries without process kind or command meta.
+func commandsFromEntries(items []registry.Entry) []packCommand {
 	var commands []packCommand
-
-	for _, e := range allEntries {
+	for _, e := range items {
 		if !isProcessKind(e.Kind) {
 			continue
 		}
@@ -76,60 +58,97 @@ func findPackCommand(ctx context.Context, commandName string, mode runMode) (str
 			continue
 		}
 
-		commands = append(commands, packCommand{name: cmdMeta.Name, entryID: e.ID.String(), main: cmdMeta.Main})
+		commands = append(commands, packCommand{
+			name:    cmdMeta.Name,
+			entryID: e.ID.String(),
+			useCase: cmdMeta.UseCase,
+			main:    cmdMeta.Main,
+		})
 	}
 
-	return selectPackCommand(commands, commandName, mode)
+	return commands
 }
 
-// selectPackCommand picks the entrypoint to execute.
-//
-// modeTest selects the test entrypoint (name == testCommandName) and errors when
-// none exists.
-//
-// modeRun never selects the test entrypoint. With an explicit name it matches a
-// non-test command (and refuses "test"). With no name it auto-selects the single
-// main entrypoint, or the only non-test entrypoint; it errors when several non-test
-// entrypoints exist without a main, and returns "" (boot the app without executing
-// an entrypoint) when there is no non-test entrypoint at all.
-func selectPackCommand(commands []packCommand, commandName string, mode runMode) (string, error) {
-	if mode == modeTest {
-		for _, c := range commands {
-			if c.name == testCommandName {
-				return c.entryID, nil
-			}
-		}
-		return "", fmt.Errorf("no test entrypoint found")
+// collectCommands gathers every command entrypoint declared in the loaded registry.
+func collectCommands(ctx context.Context) ([]packCommand, error) {
+	reg := registry.GetRegistry(ctx)
+	if reg == nil {
+		return nil, fmt.Errorf("registry not available")
 	}
 
-	if commandName == testCommandName {
-		return "", fmt.Errorf("the %q entrypoint runs with 'wippy test', not 'wippy run'", testCommandName)
+	allEntries, err := reg.GetAllEntries()
+	if err != nil {
+		return nil, fmt.Errorf("failed to query registry for commands: %w", err)
 	}
 
-	nonTest := make([]packCommand, 0, len(commands))
+	return commandsFromEntries(allEntries), nil
+}
+
+// commandForUseCase maps a declared use case to the top-level CLI command that
+// targets it (the default use case maps to `wippy run`, every other use case
+// maps to a command of the same name, e.g. `wippy test`).
+func commandForUseCase(useCase string) string {
+	if useCase == defaultUseCase {
+		return "run"
+	}
+
+	return useCase
+}
+
+// findPackCommand resolves the entrypoint to execute from the loaded registry
+// for the given use case. See selectEntrypoint for the selection rules.
+func findPackCommand(ctx context.Context, commandName, useCase string) (string, error) {
+	commands, err := collectCommands(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	return selectEntrypoint(commands, commandName, useCase)
+}
+
+// selectEntrypoint picks the entrypoint to execute for a use case.
+//
+// Only entries whose declared use case matches are eligible. With an explicit
+// name it returns the matching eligible entry; a name that exists only under a
+// different use case yields a hint to invoke that use case's command. With no
+// name it auto-selects the single main entrypoint, then the only eligible
+// entrypoint, and errors when several remain without a main. When nothing
+// matches it returns "" for the default use case (boot the app without executing
+// an entrypoint) and errors for any other use case.
+func selectEntrypoint(commands []packCommand, commandName, useCase string) (string, error) {
+	matching := make([]packCommand, 0, len(commands))
 	for _, c := range commands {
-		if c.name == testCommandName {
-			continue
+		if c.useCase == useCase {
+			matching = append(matching, c)
 		}
-		nonTest = append(nonTest, c)
 	}
 
 	if commandName != "" {
-		for _, c := range nonTest {
+		for _, c := range matching {
 			if c.name == commandName {
 				return c.entryID, nil
 			}
 		}
-		return "", fmt.Errorf("command %q not found in pack", commandName)
+
+		for _, c := range commands {
+			if c.name == commandName {
+				return "", fmt.Errorf("the %q entrypoint belongs to the %q use case; run it with 'wippy %s'", commandName, c.useCase, commandForUseCase(c.useCase))
+			}
+		}
+
+		return "", fmt.Errorf("command %q not found; use 'wippy run list' to see available commands", commandName)
 	}
 
-	if len(nonTest) == 0 {
-		return "", nil
+	if len(matching) == 0 {
+		if useCase == defaultUseCase {
+			return "", nil
+		}
+		return "", fmt.Errorf("no %s entrypoint found", useCase)
 	}
 
 	var mainCommands []string
 	var mainEntryID string
-	for _, c := range nonTest {
+	for _, c := range matching {
 		if !c.main {
 			continue
 		}
@@ -141,19 +160,19 @@ func selectPackCommand(commands []packCommand, commandName string, mode runMode)
 	case 1:
 		return mainEntryID, nil
 	case 0:
-		if len(nonTest) == 1 {
-			return nonTest[0].entryID, nil
+		if len(matching) == 1 {
+			return matching[0].entryID, nil
 		}
 
-		names := make([]string, len(nonTest))
-		for i, c := range nonTest {
+		names := make([]string, len(matching))
+		for i, c := range matching {
 			names[i] = c.name
 		}
 
 		sort.Strings(names)
 		return "", fmt.Errorf("no entrypoint specified; run one of: %s", strings.Join(names, ", "))
 	default:
-		return "", fmt.Errorf("multiple commands marked as main in pack: %s", strings.Join(mainCommands, ", "))
+		return "", fmt.Errorf("multiple commands marked as main: %s", strings.Join(mainCommands, ", "))
 	}
 }
 
@@ -350,7 +369,7 @@ func getCacheDir() string {
 }
 
 // runFromPackFile executes runtime from one .wapp file.
-func runFromPackFile(cmd *cobra.Command, packFile string, args []string, mode runMode) error {
+func runFromPackFile(cmd *cobra.Command, packFile string, args []string, useCase string) error {
 	memLimit := initMemoryLimit()
 
 	banner.Print(silentLogs)
@@ -385,11 +404,11 @@ func runFromPackFile(cmd *cobra.Command, packFile string, args []string, mode ru
 
 	runLogger.Info("loaded entries from pack", zap.Int("count", len(packEntries)))
 
-	return runPackEntries(ctx, loader, runLogger, packEntries, args, mode)
+	return runPackEntries(ctx, loader, runLogger, packEntries, args, useCase)
 }
 
 // runFromPackFiles executes runtime from multiple already resolved .wapp files.
-func runFromPackFiles(cmd *cobra.Command, packFiles []string, args []string, mode runMode) error {
+func runFromPackFiles(cmd *cobra.Command, packFiles []string, args []string, useCase string) error {
 	memLimit := initMemoryLimit()
 
 	banner.Print(silentLogs)
@@ -424,7 +443,7 @@ func runFromPackFiles(cmd *cobra.Command, packFiles []string, args []string, mod
 
 	runLogger.Info("loaded entries from packs", zap.Int("count", len(packEntries)))
 
-	return runPackEntries(ctx, loader, runLogger, packEntries, args, mode)
+	return runPackEntries(ctx, loader, runLogger, packEntries, args, useCase)
 }
 
 // runPackEntries starts runtime, applies pack entries to registry, optionally
@@ -435,7 +454,7 @@ func runPackEntries(
 	logger *zap.Logger,
 	packEntries []registry.Entry,
 	args []string,
-	mode runMode,
+	useCase string,
 ) error {
 	sigChan := setupSupervisorSignalChannel(ctx)
 	defer signal.Stop(sigChan)
@@ -457,12 +476,12 @@ func runPackEntries(
 	}
 
 	commandName := ""
-	if mode == modeRun && len(args) > 0 {
+	if useCase == defaultUseCase && len(args) > 0 {
 		commandName = args[0]
 		args = args[1:]
 	}
 
-	entryID, err := findPackCommand(appCtx, commandName, mode)
+	entryID, err := findPackCommand(appCtx, commandName, useCase)
 	if err != nil {
 		logger.Error("failed to find command", zap.Error(err))
 		return err

@@ -87,6 +87,7 @@ entries:
       command:
         name: test
         short: Run application tests
+        use_case: test
     source: file://runner.lua
     method: main
     modules:
