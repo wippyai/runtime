@@ -9,10 +9,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
 	"github.com/wippyai/runtime/cmd/internal/shutdown"
@@ -65,7 +67,7 @@ func TestRunPackEntries_InvalidRequirementFailsNormalizationPipeline(t *testing.
 		},
 	}
 
-	err = runPackEntries(ctx, loader, zap.NewNop(), packEntries, []string{"missing"})
+	err = runPackEntries(ctx, loader, zap.NewNop(), packEntries, []string{"missing"}, modeRun)
 	if err == nil {
 		t.Fatal("expected normalization pipeline error")
 	}
@@ -75,6 +77,110 @@ func TestRunPackEntries_InvalidRequirementFailsNormalizationPipeline(t *testing.
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !strings.Contains(errText, "failed to decode requirement") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunPackEntries_NoEntrypointRunsAsServer(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "wippy.yaml")
+	if err := os.WriteFile(cfgPath, []byte("version: \"1.0\"\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	prevConfigFile := configFile
+	configFile = cfgPath
+	t.Cleanup(func() {
+		configFile = prevConfigFile
+	})
+
+	ctx, loader, _, embedReg, err := bootstrapPackRuntime(nil, zap.NewNop())
+	if err != nil {
+		t.Fatalf("bootstrap pack runtime: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = embedReg.Close()
+	})
+
+	done := make(chan error, 1)
+	go func() {
+		done <- runPackEntries(ctx, loader, zap.NewNop(), nil, nil, modeRun)
+	}()
+
+	select {
+	case runErr := <-done:
+		t.Fatalf("runPackEntries exited immediately; expected it to keep running: %v", runErr)
+	case <-time.After(2 * time.Second):
+	}
+
+	supervisorapi.TriggerShutdown(ctx, 0)
+
+	select {
+	case runErr := <-done:
+		if runErr != nil {
+			t.Fatalf("runPackEntries returned error: %v", runErr)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("runPackEntries did not stop after shutdown was triggered")
+	}
+}
+
+func TestRunPackEntries_TestModeWithoutTestEntrypointErrors(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "wippy.yaml")
+	if err := os.WriteFile(cfgPath, []byte("version: \"1.0\"\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	prevConfigFile := configFile
+	configFile = cfgPath
+	t.Cleanup(func() {
+		configFile = prevConfigFile
+	})
+
+	ctx, loader, _, embedReg, err := bootstrapPackRuntime(nil, zap.NewNop())
+	if err != nil {
+		t.Fatalf("bootstrap pack runtime: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = embedReg.Close()
+	})
+
+	err = runPackEntries(ctx, loader, zap.NewNop(), nil, nil, modeTest)
+	if err == nil {
+		t.Fatal("expected an error when there is no test entrypoint")
+	}
+	if !strings.Contains(err.Error(), "no test entrypoint found") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunPackEntries_RunModeUnknownCommandErrors(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "wippy.yaml")
+	if err := os.WriteFile(cfgPath, []byte("version: \"1.0\"\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	prevConfigFile := configFile
+	configFile = cfgPath
+	t.Cleanup(func() {
+		configFile = prevConfigFile
+	})
+
+	ctx, loader, _, embedReg, err := bootstrapPackRuntime(nil, zap.NewNop())
+	if err != nil {
+		t.Fatalf("bootstrap pack runtime: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = embedReg.Close()
+	})
+
+	err = runPackEntries(ctx, loader, zap.NewNop(), nil, []string{"nope"}, modeRun)
+	if err == nil {
+		t.Fatal("expected an error for an unknown command")
+	}
+	if !strings.Contains(err.Error(), `command "nope" not found in pack`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -108,7 +214,7 @@ func TestRunFromPackFiles_InvalidRequirementFailsNormalizationPipeline(t *testin
 		},
 	})
 
-	err := runFromPackFiles(nil, []string{packPath}, []string{"missing"})
+	err := runFromPackFiles(nil, []string{packPath}, []string{"missing"}, modeRun)
 	if err == nil {
 		t.Fatal("expected command lookup error")
 	}
@@ -156,8 +262,13 @@ func TestSelectPackCommand(t *testing.T) {
 		wantEntry   string
 		wantErr     string
 		commands    []packCommand
+		mode        runMode
 	}{
-		{name: "no commands", commands: nil, wantEntry: ""},
+		{
+			name:      "run mode no commands runs nothing",
+			commands:  nil,
+			wantEntry: "",
+		},
 		{
 			name:        "explicit name match",
 			commands:    []packCommand{{name: "snake", entryID: "snake:play"}, {name: "edit", entryID: "snake:edit"}},
@@ -188,18 +299,63 @@ func TestSelectPackCommand(t *testing.T) {
 		{
 			name:     "multiple commands no main errors with sorted names",
 			commands: []packCommand{{name: "snake", entryID: "snake:play"}, {name: "edit", entryID: "snake:edit"}},
-			wantErr:  "no command is marked as main; specify one of: edit, snake",
+			wantErr:  "no entrypoint specified; run one of: edit, snake",
 		},
 		{
 			name:     "multiple main commands error",
 			commands: []packCommand{{name: "snake", entryID: "snake:play", main: true}, {name: "edit", entryID: "snake:edit", main: true}},
 			wantErr:  "multiple commands marked as main in pack: snake, edit",
 		},
+		{
+			name:      "only test entrypoint runs nothing in run mode",
+			commands:  []packCommand{{name: "test", entryID: "wippy.test:runner"}},
+			wantEntry: "",
+		},
+		{
+			name:      "test entrypoint excluded, single non-test auto-runs",
+			commands:  []packCommand{{name: "test", entryID: "wippy.test:runner"}, {name: "snake", entryID: "snake:play"}},
+			wantEntry: "snake:play",
+		},
+		{
+			name:        "explicit test entrypoint refused in run mode",
+			commands:    []packCommand{{name: "test", entryID: "wippy.test:runner"}, {name: "snake", entryID: "snake:play"}},
+			commandName: "test",
+			wantErr:     `the "test" entrypoint runs with 'wippy test', not 'wippy run'`,
+		},
+		{
+			name:        "explicit non-test selected even when test present",
+			commands:    []packCommand{{name: "test", entryID: "wippy.test:runner"}, {name: "snake", entryID: "snake:play"}},
+			commandName: "snake",
+			wantEntry:   "snake:play",
+		},
+		{
+			name:     "test excluded then multiple non-test require explicit",
+			commands: []packCommand{{name: "test", entryID: "wippy.test:runner"}, {name: "snake", entryID: "snake:play"}, {name: "edit", entryID: "snake:edit"}},
+			wantErr:  "no entrypoint specified; run one of: edit, snake",
+		},
+		{
+			name:      "test mode selects the test entrypoint",
+			commands:  []packCommand{{name: "snake", entryID: "snake:play", main: true}, {name: "test", entryID: "wippy.test:runner"}},
+			mode:      modeTest,
+			wantEntry: "wippy.test:runner",
+		},
+		{
+			name:     "test mode without a test entrypoint errors",
+			commands: []packCommand{{name: "snake", entryID: "snake:play"}},
+			mode:     modeTest,
+			wantErr:  "no test entrypoint found",
+		},
+		{
+			name:     "test mode with no commands errors",
+			commands: nil,
+			mode:     modeTest,
+			wantErr:  "no test entrypoint found",
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := selectPackCommand(tc.commands, tc.commandName)
+			got, err := selectPackCommand(tc.commands, tc.commandName, tc.mode)
 			if tc.wantErr != "" {
 				if err == nil || err.Error() != tc.wantErr {
 					t.Fatalf("selectPackCommand error = %v, want %q", err, tc.wantErr)
