@@ -12,6 +12,7 @@ import (
 
 	"connectrpc.com/connect"
 	lua "github.com/wippyai/go-lua"
+	authapi "github.com/wippyai/runtime/api/auth"
 	modulev1 "github.com/wippyai/runtime/api/hub/wippy/api/hub/module/v1"
 	modulev1connect "github.com/wippyai/runtime/api/hub/wippy/api/hub/module/v1/modulev1connect"
 	versionv1 "github.com/wippyai/runtime/api/hub/wippy/api/hub/version/v1"
@@ -109,9 +110,10 @@ func (h *hubModule) build() (*lua.LTable, []luaapi.YieldType) {
 	files.RawSetString("list", lua.LGoFunc(h.filesList))
 	files.Immutable = true
 
-	auth := lua.CreateTable(0, 2)
+	auth := lua.CreateTable(0, 3)
 	auth.RawSetString("set_token", lua.LGoFunc(h.authSetToken))
 	auth.RawSetString("clear_token", lua.LGoFunc(h.authClearToken))
+	auth.RawSetString("status", lua.LGoFunc(h.authStatus))
 	auth.Immutable = true
 
 	mod.RawSetString("modules", modules)
@@ -736,6 +738,92 @@ func (h *hubModule) authClearToken(l *lua.LState) int {
 	l.Push(lua.LNil)
 
 	return 2
+}
+
+func (h *hubModule) authStatus(l *lua.LState) int {
+	registry := h.resolveRegistry(l.OptString(1, ""))
+
+	ctx, err := h.requireContext(l)
+	if err != nil {
+		return pushError(l, err)
+	}
+	if !security.IsAllowed(ctx, "hub.auth.status", registry, nil) {
+		return pushError(l, permissionDenied(l, "hub.auth.status", registry))
+	}
+
+	var cred *authapi.Credential
+	if store := h.authStore(); store != nil {
+		cred, _ = store.Get(registry)
+	}
+
+	if cred == nil || cred.Token == "" {
+		return pushAuthStatus(l, registry, false, nil, nil)
+	}
+
+	client, clientErr := bootauth.NewClient(registry)
+	if clientErr != nil {
+		return pushError(l, lua.WrapErrorWithLua(l, clientErr, "auth client init").WithKind(lua.Invalid).WithRetryable(false))
+	}
+
+	result, validateErr := client.Validate(ctx, cred.Token)
+	if validateErr != nil {
+		if errors.Is(validateErr, authapi.ErrTokenInvalid) ||
+			errors.Is(validateErr, authapi.ErrTokenExpired) ||
+			errors.Is(validateErr, authapi.ErrInsufficientScope) {
+			return pushAuthStatus(l, registry, false, cred, nil)
+		}
+
+		return pushError(l, hubCallError(l, validateErr))
+	}
+
+	return pushAuthStatus(l, registry, true, cred, result)
+}
+
+func pushAuthStatus(l *lua.LState, registry string, authenticated bool, cred *authapi.Credential, result *bootauth.ValidateResult) int {
+	status := lua.CreateTable(0, 7)
+	status.RawSetString("authenticated", lua.LBool(authenticated))
+	status.RawSetString("registry", lua.LString(registry))
+
+	if authenticated && cred != nil {
+		if cred.Username != "" {
+			status.RawSetString("username", lua.LString(cred.Username))
+		}
+		if cred.UserID != "" {
+			status.RawSetString("user_id", lua.LString(cred.UserID))
+		}
+		if cred.Scope != "" {
+			status.RawSetString("scope", lua.LString(string(cred.Scope)))
+		}
+		if !cred.ExpiresAt.IsZero() {
+			status.RawSetString("expires_at", lua.LString(cred.ExpiresAt.Format(time.RFC3339)))
+			status.RawSetString("expired", lua.LBool(cred.IsExpired()))
+		}
+	}
+
+	var orgs []bootauth.OrgInfo
+	if result != nil {
+		orgs = result.Orgs
+	}
+	status.RawSetString("orgs", orgsToTable(orgs))
+
+	l.Push(status)
+	l.Push(lua.LNil)
+
+	return 2
+}
+
+func orgsToTable(orgs []bootauth.OrgInfo) *lua.LTable {
+	items := lua.CreateTable(len(orgs), 0)
+	for i, o := range orgs {
+		entry := lua.CreateTable(0, 4)
+		entry.RawSetString("id", lua.LString(o.ID))
+		entry.RawSetString("name", lua.LString(o.Name))
+		entry.RawSetString("display_name", lua.LString(o.DisplayName))
+		entry.RawSetString("role", lua.LString(o.Role))
+		items.RawSetInt(i+1, entry)
+	}
+
+	return items
 }
 
 func withTimeout(ctx context.Context, timeout time.Duration) (context.Context, func()) {

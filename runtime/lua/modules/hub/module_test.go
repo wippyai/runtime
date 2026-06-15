@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
+	authapi "github.com/wippyai/runtime/api/auth"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	modulev1 "github.com/wippyai/runtime/api/hub/wippy/api/hub/module/v1"
 	modulev1connect "github.com/wippyai/runtime/api/hub/wippy/api/hub/module/v1/modulev1connect"
@@ -420,6 +423,133 @@ func TestAuthClearToken(t *testing.T) {
 
 	_, err := bootauth.NewStore(bootauth.NewConfig(t.TempDir())).Get(reg)
 	require.Error(t, err)
+}
+
+func TestAuthStatusAuthenticated(t *testing.T) {
+	t.Setenv(bootauth.EnvToken, "")
+
+	const token = "wpy_statustoken123456789"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/account/orgs" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"org":{"id":"org-1","name":"acme","display_name":"Acme"},"role":"admin"},{"org":{"id":"org-2","name":"beta","display_name":"Beta"},"role":"member"}]`))
+	}))
+	defer srv.Close()
+
+	store := bootauth.NewStore(bootauth.NewConfig(t.TempDir()))
+	require.NoError(t, store.Set(&authapi.Credential{
+		Token:    token,
+		Registry: srv.URL,
+		Username: "alice",
+		Scope:    authapi.ScopePublish,
+	}, false))
+
+	mod := NewModule(Options{AuthStore: store})
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(setupContext())
+
+	tbl, _ := mod.Build()
+	l.SetGlobal(mod.Name, tbl)
+	l.SetGlobal("REGISTRY", lua.LString(srv.URL))
+
+	if err := l.DoString(`
+		local st, err = hub.auth.status(REGISTRY)
+		if err then error(err) end
+		if st.authenticated ~= true then error("expected authenticated") end
+		if st.username ~= "alice" then error("username mismatch") end
+		if st.scope ~= "publish" then error("scope mismatch") end
+		if #st.orgs ~= 2 then error("expected 2 orgs, got " .. tostring(#st.orgs)) end
+		if st.orgs[1].name ~= "acme" then error("org1 name mismatch") end
+		if st.orgs[1].role ~= "admin" then error("org1 role mismatch") end
+		if st.orgs[2].display_name ~= "Beta" then error("org2 display_name mismatch") end
+	`); err != nil {
+		t.Fatalf("lua error: %v", err)
+	}
+}
+
+func TestAuthStatusNotAuthenticated(t *testing.T) {
+	t.Setenv(bootauth.EnvToken, "")
+
+	mod := NewModule(Options{})
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(setupContext())
+
+	tbl, _ := mod.Build()
+	l.SetGlobal(mod.Name, tbl)
+
+	if err := l.DoString(`
+		local st, err = hub.auth.status("http://127.0.0.1:1/no-creds-here")
+		if err then error(err) end
+		if st.authenticated ~= false then error("expected not authenticated") end
+		if #st.orgs ~= 0 then error("expected no orgs") end
+	`); err != nil {
+		t.Fatalf("lua error: %v", err)
+	}
+}
+
+func TestAuthStatusInvalidTokenSuppressesIdentity(t *testing.T) {
+	t.Setenv(bootauth.EnvToken, "")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	store := bootauth.NewStore(bootauth.NewConfig(t.TempDir()))
+	require.NoError(t, store.Set(&authapi.Credential{
+		Token:    "wpy_storedtoken123456789",
+		Registry: srv.URL,
+		Username: "alice",
+		Scope:    authapi.ScopePublish,
+	}, false))
+
+	mod := NewModule(Options{AuthStore: store})
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(setupContext())
+
+	tbl, _ := mod.Build()
+	l.SetGlobal(mod.Name, tbl)
+	l.SetGlobal("REGISTRY", lua.LString(srv.URL))
+
+	if err := l.DoString(`
+		local st, err = hub.auth.status(REGISTRY)
+		if err then error(err) end
+		if st.authenticated ~= false then error("expected not authenticated") end
+		if st.username ~= nil then error("expected username suppressed when not authenticated") end
+		if st.scope ~= nil then error("expected scope suppressed when not authenticated") end
+		if #st.orgs ~= 0 then error("expected no orgs") end
+	`); err != nil {
+		t.Fatalf("lua error: %v", err)
+	}
+}
+
+func TestAuthStatusPermissionDenied(t *testing.T) {
+	mod := NewModule(Options{})
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(setupStrictContext())
+
+	tbl, _ := mod.Build()
+	l.SetGlobal(mod.Name, tbl)
+
+	if err := l.DoString(`
+		local st, err = hub.auth.status("https://reg-status-denied.example.com")
+		if err == nil then error("expected permission denied") end
+		if st ~= nil then error("expected nil status") end
+	`); err != nil {
+		t.Fatalf("lua error: %v", err)
+	}
 }
 
 func buildWappBytesForHubModuleTest(t *testing.T, entries []wapp.Entry) []byte {
