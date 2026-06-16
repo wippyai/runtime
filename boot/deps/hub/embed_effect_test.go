@@ -66,6 +66,20 @@ func (s *stubPackRegistry) UnregisterModule(module, version string) error {
 	return nil
 }
 
+func (s *stubPackRegistry) Close() error {
+	var firstErr error
+	for packPath, f := range s.files {
+		if f != nil {
+			if err := f.Close(); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		delete(s.files, packPath)
+		delete(s.registered, packPath)
+	}
+	return firstErr
+}
+
 // writeResourceWapp writes a .wapp containing one filesystem resource.
 func writeResourceWapp(t *testing.T, path, ns, name string, files map[string]string) {
 	t.Helper()
@@ -103,6 +117,7 @@ func TestEmbedPackEffect_PrepareCommit(t *testing.T) {
 	writeResourceWapp(t, packPath, "ui", "app", map[string]string{"index.html": "<html>"})
 
 	reg := newStubPackRegistry()
+	defer func() { require.NoError(t, reg.Close()) }()
 	eff := newEffect(reg, []stagedPack{{packPath: packPath, module: "org/mod", version: "1.0.0"}}, nil)
 
 	require.NoError(t, eff.Prepare(context.Background()))
@@ -137,6 +152,7 @@ func TestEmbedPackEffect_Update(t *testing.T) {
 	writeResourceWapp(t, newPack, "ui", "app", map[string]string{"index.html": "<html>v2"})
 
 	reg := newStubPackRegistry()
+	defer func() { require.NoError(t, reg.Close()) }()
 	eff := newEffect(reg,
 		[]stagedPack{{packPath: newPack, module: "org/mod", version: "2.0.0"}},
 		[]obsoletePack{{module: "org/mod", version: "1.0.0"}},
@@ -258,6 +274,7 @@ func TestBuildEmbedPackEffect_SkipsUnchangedResolvedPack(t *testing.T) {
 
 func TestBuildEmbedPackEffect_StagesOnlyChangedPacks(t *testing.T) {
 	reg := embedpkg.NewRegistry()
+	defer func() { require.NoError(t, reg.Close()) }()
 	ctx := embedapi.WithRegistry(newTestContext(), reg)
 	vendorDir := t.TempDir()
 

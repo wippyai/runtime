@@ -156,38 +156,44 @@ func (r *Registry) GetFS(id registry.ID) (fs.ReadDirFS, error) {
 // owns the entry's module and version (from meta.module / meta.module_version).
 // This is deterministic across updates: while a new pack is staged alongside the
 // old one, the entry's own metadata selects the correct version. Entries without
-// module metadata, or whose owning pack is not registered, fall back to GetFS.
+// module metadata fall back to GetFS. Versioned module entries require their
+// exact pack to be registered so updates never silently serve an older pack.
 func (r *Registry) GetFSForEntry(entry registry.Entry) (fs.ReadDirFS, error) {
 	module := entryMeta(entry, metaModuleKey)
 	version := entryMeta(entry, metaModuleVersionKey)
 
 	if module != "" {
-		r.mu.RLock()
-		var match *pack
-		for _, p := range r.packs {
-			if p.module != module {
-				continue
-			}
-			if version != "" && p.version != version {
-				continue
-			}
-			if !p.owns(entry.ID) {
-				continue
-			}
-			match = p
-			break
+		fsys, found, err := r.getFSForModuleEntry(entry, module, version)
+		if found {
+			return fsys, err
 		}
-		r.mu.RUnlock()
-
-		if match != nil {
-			fsys, err := match.reader.GetFS(wapp.NewID(entry.ID.NS, entry.ID.Name))
-			if err == nil {
-				return fsys, nil
-			}
+		if version != "" {
+			return nil, systemfs.NewFilesystemNotFoundWithCauseError(entry.ID.String(), fs.ErrNotExist)
 		}
 	}
 
 	return r.GetFS(entry.ID)
+}
+
+func (r *Registry) getFSForModuleEntry(entry registry.Entry, module, version string) (fs.ReadDirFS, bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, p := range r.packs {
+		if p.module != module {
+			continue
+		}
+		if version != "" && p.version != version {
+			continue
+		}
+		if !p.owns(entry.ID) {
+			continue
+		}
+		fsys, err := p.reader.GetFS(wapp.NewID(entry.ID.NS, entry.ID.Name))
+		return fsys, true, err
+	}
+
+	return nil, false, nil
 }
 
 // Close implements embedapi.Registry.Close.

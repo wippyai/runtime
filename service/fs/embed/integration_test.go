@@ -91,6 +91,35 @@ func TestLiveUpdate_NewVersionResolvesWhileOldStaged(t *testing.T) {
 	assert.Equal(t, "2", string(data))
 }
 
+// TestLiveUpdate_MissingNewVersionDoesNotSwapToOld proves update is strict
+// about module version metadata. If the new pack was not staged, updating the
+// fs.embed entry must fail and leave the current live filesystem in place.
+func TestLiveUpdate_MissingNewVersionDoesNotSwapToOld(t *testing.T) {
+	reg := NewRegistry()
+	oldReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "1"})
+	require.NoError(t, reg.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, nil))
+
+	manager := NewManager(eventbus.NewBus(), &mockDTT{}, reg, zap.NewNop())
+	oldEntry := registry.Entry{
+		ID:   registry.NewID("ui", "app"),
+		Kind: embedapi.Kind,
+		Meta: moduleMeta("org/mod", "1.0.0"),
+		Data: payload.New(&embedapi.Config{}),
+	}
+	require.NoError(t, manager.Add(context.Background(), oldEntry))
+	assert.Equal(t, "1", readManagerFile(t, manager, oldEntry.ID, "v.txt"))
+
+	newEntry := oldEntry
+	newEntry.Meta = moduleMeta("org/mod", "2.0.0")
+	err := manager.Update(context.Background(), newEntry)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get embedded filesystem")
+	assert.Equal(t, "1", readManagerFile(t, manager, oldEntry.ID, "v.txt"))
+
+	_, err = manager.resolveFS(newEntry)
+	require.Error(t, err)
+}
+
 // TestUninstall_PackUnregisteredNoLongerResolves confirms that once a module pack
 // is unregistered, its fs.embed entry no longer resolves.
 func TestUninstall_PackUnregisteredNoLongerResolves(t *testing.T) {

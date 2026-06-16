@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	eventapi "github.com/wippyai/runtime/api/event"
+	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
@@ -190,7 +192,7 @@ func TestManager_Update_NotFound(t *testing.T) {
 
 func TestManager_Update_ResolutionFailureKeepsExistingFS(t *testing.T) {
 	ctx := context.Background()
-	bus := eventbus.NewBus()
+	bus := &recordingBus{}
 	embedReg := &mockEntryResolverRegistry{
 		mockEmbedRegistry: mockEmbedRegistry{},
 		byEntry: map[string]fs.ReadDirFS{
@@ -207,6 +209,7 @@ func TestManager_Update_ResolutionFailureKeepsExistingFS(t *testing.T) {
 		Data: payload.New(&embedapi.Config{}),
 	}
 	require.NoError(t, manager.Add(ctx, entry))
+	bus.reset()
 
 	updateEntry := entry
 	updateEntry.Meta = map[string]any{"module": "org/mod", "module_version": "2.0.0"}
@@ -219,6 +222,7 @@ func TestManager_Update_ResolutionFailureKeepsExistingFS(t *testing.T) {
 	manager.mu.RUnlock()
 	assert.True(t, ok, "failed update must keep the current live filesystem")
 	assert.Equal(t, "test:fs|org/mod|2.0.0", embedReg.lastEntryKey)
+	assert.Empty(t, bus.events, "failed update must not send fs delete/register events")
 }
 
 func TestManager_Delete(t *testing.T) {
@@ -305,7 +309,7 @@ func TestManager_Add_UsesEntryResolver(t *testing.T) {
 
 func TestManager_Update_SelectsNewVersionViaResolver(t *testing.T) {
 	ctx := context.Background()
-	bus := eventbus.NewBus()
+	bus := &recordingBus{}
 	oldFS := &mockReadDirFS{}
 	newFS := &mockReadDirFS{}
 	embedReg := &mockEntryResolverRegistry{
@@ -328,6 +332,7 @@ func TestManager_Update_SelectsNewVersionViaResolver(t *testing.T) {
 		Data: payload.New(&embedapi.Config{}),
 	}
 	require.NoError(t, manager.Add(ctx, addEntry))
+	bus.reset()
 
 	updateEntry := addEntry
 	updateEntry.Meta = map[string]any{"module": "org/mod", "module_version": "2.0.0"}
@@ -339,9 +344,42 @@ func TestManager_Update_SelectsNewVersionViaResolver(t *testing.T) {
 	// The stored FS is wrapped; assert resolver was asked for the new version.
 	require.NotNil(t, stored)
 	assert.Equal(t, "test:fs|org/mod|2.0.0", embedReg.lastEntryKey)
+	require.Len(t, bus.events, 2)
+	assert.Equal(t, fsapi.FsDelete, bus.events[0].Kind)
+	assert.Equal(t, updateEntry.ID.String(), bus.events[0].Path)
+	assert.Equal(t, fsapi.FsRegister, bus.events[1].Kind)
+	assert.Equal(t, updateEntry.ID.String(), bus.events[1].Path)
+	assert.NotNil(t, bus.events[1].Data)
 }
 
 // Mock implementations
+
+type recordingBus struct {
+	events []eventapi.Event
+}
+
+func (b *recordingBus) Subscribe(context.Context, eventapi.System, chan<- eventapi.Event) (eventapi.SubscriberID, error) {
+	return "", nil
+}
+
+func (b *recordingBus) SubscribeP(
+	context.Context,
+	eventapi.System,
+	eventapi.Kind,
+	chan<- eventapi.Event,
+) (eventapi.SubscriberID, error) {
+	return "", nil
+}
+
+func (b *recordingBus) Unsubscribe(context.Context, eventapi.SubscriberID) {}
+
+func (b *recordingBus) Send(_ context.Context, evt eventapi.Event) {
+	b.events = append(b.events, evt)
+}
+
+func (b *recordingBus) reset() {
+	b.events = nil
+}
 
 type mockEmbedRegistry struct {
 	filesystems map[string]fs.ReadDirFS

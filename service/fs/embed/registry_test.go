@@ -207,17 +207,28 @@ func TestRegistry_GetFSForEntry(t *testing.T) {
 		assert.Equal(t, "legacy", string(data))
 	})
 
-	t.Run("falls back to GetFS when owning pack not registered", func(t *testing.T) {
+	t.Run("does not fall back to another pack when versioned owner is missing", func(t *testing.T) {
 		r := NewRegistry()
-		reader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "x"})
-		// Pack is registered under a different module than the entry claims.
-		require.NoError(t, r.RegisterPack("p.wapp", "org/other", "1.0.0", reader, nil))
+		oldReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "old"})
+		otherReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "other"})
+		require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, nil))
+		require.NoError(t, r.RegisterPack("org/other-v9.9.9.wapp", "org/other", "9.9.9", otherReader, nil))
 
-		fsys, err := r.GetFSForEntry(makeEntry("ui", "app", "org/mod", "9.9.9"))
+		_, err := r.GetFSForEntry(makeEntry("ui", "app", "org/mod", "2.0.0"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("falls back to GetFS when module version is omitted", func(t *testing.T) {
+		r := NewRegistry()
+		reader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "legacy"})
+		require.NoError(t, r.RegisterPack("legacy.wapp", "", "", reader, nil))
+
+		fsys, err := r.GetFSForEntry(makeEntry("ui", "app", "org/mod", ""))
 		require.NoError(t, err)
 		data, err := fs.ReadFile(fsys, "v.txt")
 		require.NoError(t, err)
-		assert.Equal(t, "x", string(data))
+		assert.Equal(t, "legacy", string(data))
 	})
 }
 
