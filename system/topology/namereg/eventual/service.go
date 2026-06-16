@@ -112,25 +112,24 @@ type Config struct {
 
 // Service is the gossip-based name registry.
 type Service struct {
-	state   *State
-	queue   *BroadcastQueue
-	tracker *TombstoneTracker
-	gc      *GCRunner
-	tel     *telemetry
-	logger  *zap.Logger
 	// lastShardRequest tracks per-peer cooldown for shard-pull requests.
 	// Key: peer node string. Value: unix-nanos of the last request emitted.
 	// Reads/writes are guarded by lastShardRequestMu.
 	lastShardRequest map[string]int64
 	nodeLeftSub      *eventbus.Subscriber
-	cfg              Config
-	stopOnce         sync.Once
+	tracker          *TombstoneTracker
+	gc               *GCRunner
+	tel              *telemetry
+	logger           *zap.Logger
+	state            *State
+	queue            *BroadcastQueue
 	// owned holds names this node registered live and still intends to keep, with
 	// the pid/priority to re-assert them. Guarded by ownedMu.
-	owned map[string]ownedReg
-	// lastShardRequestMu guards lastShardRequest.
-	lastShardRequestMu sync.Mutex
+	owned              map[string]ownedReg
+	cfg                Config
+	stopOnce           sync.Once
 	ownedMu            sync.Mutex
+	lastShardRequestMu sync.Mutex
 	stopped            atomic.Bool
 }
 
