@@ -229,6 +229,23 @@ func TestShutdownContext(t *testing.T) {
 		assert.NotNil(t, retrieved)
 	})
 
+	t.Run("SetSignalChannel_ResetsShutdownState", func(t *testing.T) {
+		setExitCode(9)
+		shutdownSent.Store(true)
+		appCtx := ctxapi.NewAppContext()
+		ctx := ctxapi.WithAppContext(context.Background(), appCtx)
+
+		ch := make(chan os.Signal, 1)
+		SetSignalChannel(ctx, ch)
+
+		assert.Equal(t, 0, GetExitCode())
+		TriggerShutdown(ctx, 3)
+		assert.Equal(t, 3, GetExitCode())
+		assert.Equal(t, 1, len(ch))
+		setExitCode(0)
+		shutdownSent.Store(false)
+	})
+
 	t.Run("getSignalChannel_NoAppContext", func(t *testing.T) {
 		ctx := context.Background()
 		ch := getSignalChannel(ctx)
