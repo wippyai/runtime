@@ -5,6 +5,7 @@ package hub
 import (
 	"bytes"
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,12 +23,11 @@ import (
 
 // stubPackRegistry records pack lifecycle calls for assertions.
 type stubPackRegistry struct {
+	registerErr    error
 	registered     map[string]*wapp.Reader
 	files          map[string]*os.File
 	unregistered   []string
 	modulesDropped []droppedModule
-
-	registerErr error
 }
 
 type droppedModule struct {
@@ -256,6 +256,85 @@ func TestBuildEmbedPackEffect_SkipsUnchangedResolvedPack(t *testing.T) {
 	assert.Nil(t, eff)
 }
 
+func TestBuildEmbedPackEffect_StagesOnlyChangedPacks(t *testing.T) {
+	reg := embedpkg.NewRegistry()
+	ctx := embedapi.WithRegistry(newTestContext(), reg)
+	vendorDir := t.TempDir()
+
+	oldReader := createHubResourceReader(t, "ui", "app", map[string]string{"v.txt": "1"})
+	stableReader := createHubResourceReader(t, "ui", "stable", map[string]string{"v.txt": "stable"})
+	removedReader := createHubResourceReader(t, "ui", "removed", map[string]string{"v.txt": "removed"})
+	require.NoError(t, reg.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, nil))
+	require.NoError(t, reg.RegisterPack("org/stable-v1.0.0.wapp", "org/stable", "1.0.0", stableReader, nil))
+	require.NoError(t, reg.RegisterPack("org/removed-v3.0.0.wapp", "org/removed", "3.0.0", removedReader, nil))
+
+	newPack := filepath.Join(vendorDir, "org", "mod-2.0.0.wapp")
+	writeResourceWapp(t, newPack, "ui", "app", map[string]string{"v.txt": "2"})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getDownload: func(context.Context, *DownloadParams) (*DownloadInfo, error) {
+				t.Fatal("test pack already exists in the vendor cache")
+				return nil, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	resolved := []ResolvedModule{
+		{Org: "org", Name: "mod", Version: "2.0.0"},
+		{Org: "org", Name: "stable", Version: "1.0.0"},
+	}
+	snapshot := regapi.State{
+		moduleEntry("ui", "app", "org/mod", "1.0.0"),
+		moduleEntry("ui", "stable", "org/stable", "1.0.0"),
+		moduleEntry("ui", "removed", "org/removed", "3.0.0"),
+	}
+
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot)
+	require.NoError(t, err)
+	require.NotNil(t, eff)
+	assert.Equal(t, []stagedPack{{packPath: newPack, module: "org/mod", version: "2.0.0"}}, eff.staged)
+	assert.ElementsMatch(t, []obsoletePack{
+		{module: "org/mod", version: "1.0.0"},
+		{module: "org/removed", version: "3.0.0"},
+	}, eff.obsolete)
+
+	require.NoError(t, eff.Prepare(context.Background()))
+	assert.Equal(t, "1", readHubResource(t, reg, moduleEntry("ui", "app", "org/mod", "1.0.0"), "v.txt"))
+	assert.Equal(t, "2", readHubResource(t, reg, moduleEntry("ui", "app", "org/mod", "2.0.0"), "v.txt"))
+	assert.Equal(t, "stable", readHubResource(t, reg, moduleEntry("ui", "stable", "org/stable", "1.0.0"), "v.txt"))
+
+	require.NoError(t, eff.Commit(context.Background()))
+	assert.Equal(t, "2", readHubResource(t, reg, moduleEntry("ui", "app", "org/mod", "2.0.0"), "v.txt"))
+	assert.Equal(t, "stable", readHubResource(t, reg, moduleEntry("ui", "stable", "org/stable", "1.0.0"), "v.txt"))
+	_, err = reg.GetFS(regapi.NewID("ui", "removed"))
+	require.Error(t, err)
+}
+
+func TestEmbedPackEffect_UpdateRollbackKeepsLiveOldVersion(t *testing.T) {
+	reg := embedpkg.NewRegistry()
+	oldReader := createHubResourceReader(t, "ui", "app", map[string]string{"v.txt": "1"})
+	require.NoError(t, reg.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, nil))
+
+	dir := t.TempDir()
+	newPack := filepath.Join(dir, "org", "mod-v2.0.0.wapp")
+	writeResourceWapp(t, newPack, "ui", "app", map[string]string{"v.txt": "2"})
+
+	eff := newEffect(reg,
+		[]stagedPack{{packPath: newPack, module: "org/mod", version: "2.0.0"}},
+		[]obsoletePack{{module: "org/mod", version: "1.0.0"}},
+	)
+
+	require.NoError(t, eff.Prepare(context.Background()))
+	assert.Equal(t, "2", readHubResource(t, reg, moduleEntry("ui", "app", "org/mod", "2.0.0"), "v.txt"))
+
+	require.NoError(t, eff.Rollback(context.Background()))
+	assert.Equal(t, "1", readHubResource(t, reg, moduleEntry("ui", "app", "org/mod", "1.0.0"), "v.txt"))
+}
+
 func moduleEntry(ns, name, module, version string) regapi.Entry {
 	meta := attrs.NewBag()
 	meta.Set(metaModuleKey, module)
@@ -263,4 +342,28 @@ func moduleEntry(ns, name, module, version string) regapi.Entry {
 		meta.Set(metaModuleVersionKey, version)
 	}
 	return regapi.Entry{ID: regapi.NewID(ns, name), Meta: meta}
+}
+
+func createHubResourceReader(t *testing.T, ns, name string, files map[string]string) *wapp.Reader {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), name+".wapp")
+	writeResourceWapp(t, path, ns, name, files)
+	file, err := os.Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = file.Close() })
+
+	reader, err := wapp.NewReader(file)
+	require.NoError(t, err)
+	return reader
+}
+
+func readHubResource(t *testing.T, reg *embedpkg.Registry, entry regapi.Entry, name string) string {
+	t.Helper()
+
+	fsys, err := reg.GetFSForEntry(entry)
+	require.NoError(t, err)
+	data, err := fs.ReadFile(fsys, name)
+	require.NoError(t, err)
+	return string(data)
 }

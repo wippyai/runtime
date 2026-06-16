@@ -188,6 +188,39 @@ func TestManager_Update_NotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
+func TestManager_Update_ResolutionFailureKeepsExistingFS(t *testing.T) {
+	ctx := context.Background()
+	bus := eventbus.NewBus()
+	embedReg := &mockEntryResolverRegistry{
+		mockEmbedRegistry: mockEmbedRegistry{},
+		byEntry: map[string]fs.ReadDirFS{
+			"test:fs|org/mod|1.0.0": &mockReadDirFS{},
+		},
+	}
+	dtt := &mockDTT{}
+
+	manager := NewManager(bus, dtt, embedReg, zap.NewNop())
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "fs"),
+		Kind: embedapi.Kind,
+		Meta: map[string]any{"module": "org/mod", "module_version": "1.0.0"},
+		Data: payload.New(&embedapi.Config{}),
+	}
+	require.NoError(t, manager.Add(ctx, entry))
+
+	updateEntry := entry
+	updateEntry.Meta = map[string]any{"module": "org/mod", "module_version": "2.0.0"}
+	err := manager.Update(ctx, updateEntry)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get embedded filesystem")
+
+	manager.mu.RLock()
+	_, ok := manager.filesystems[entry.ID]
+	manager.mu.RUnlock()
+	assert.True(t, ok, "failed update must keep the current live filesystem")
+	assert.Equal(t, "test:fs|org/mod|2.0.0", embedReg.lastEntryKey)
+}
+
 func TestManager_Delete(t *testing.T) {
 	ctx := context.Background()
 	bus := eventbus.NewBus()
@@ -334,9 +367,9 @@ func (r *mockEmbedRegistry) Register(_ string, _ any) error {
 type mockEntryResolverRegistry struct {
 	mockEmbedRegistry
 	byEntry      map[string]fs.ReadDirFS
+	lastEntryKey string
 	entryCalls   int
 	idCalls      int
-	lastEntryKey string
 }
 
 func entryResolverKey(entry registry.Entry) string {

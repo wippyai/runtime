@@ -81,11 +81,12 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return systemfs.NewFilesystemNotFoundError(entry.ID.String())
 	}
 
-	// Remove old, register new
-	m.removeFS(ctx, entry.ID)
-	if err := m.registerFS(ctx, entry); err != nil {
+	nextFS, err := m.fsForEntry(entry)
+	if err != nil {
 		return err
 	}
+	m.removeFS(ctx, entry.ID)
+	m.storeFS(ctx, entry.ID, nextFS)
 
 	m.log.Info("embedded filesystem updated", zap.String("id", entry.ID.String()))
 	return nil
@@ -116,29 +117,35 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 // pack matching the entry's module/version rather than an arbitrary pack that
 // happens to expose the same resource ID.
 func (m *Manager) registerFS(ctx context.Context, entry registry.Entry) error {
+	fs, err := m.fsForEntry(entry)
+	if err != nil {
+		return err
+	}
+	m.storeFS(ctx, entry.ID, fs)
+	return nil
+}
+
+func (m *Manager) fsForEntry(entry registry.Entry) (fsapi.FS, error) {
 	packFS, err := m.resolveFS(entry)
 	if err != nil {
 		m.log.Error("failed to get embedded filesystem",
 			zap.String("id", entry.ID.String()),
 			zap.Error(err))
-		return systemfs.NewGetEmbeddedFilesystemError(err)
+		return nil, systemfs.NewGetEmbeddedFilesystemError(err)
 	}
+	return fsapi.NewReadOnlyFS(packFS), nil
+}
 
-	// Wrap in read-only adapter
-	fs := fsapi.NewReadOnlyFS(packFS)
-
-	// Store in filesystems map
-	m.filesystems[entry.ID] = fs
+func (m *Manager) storeFS(ctx context.Context, id registry.ID, fs fsapi.FS) {
+	m.filesystems[id] = fs
 
 	// Register with filesystem registry
 	m.bus.Send(ctx, event.Event{
 		System: fsapi.System,
 		Kind:   fsapi.FsRegister,
-		Path:   entry.ID.String(),
+		Path:   id.String(),
 		Data:   fs,
 	})
-
-	return nil
 }
 
 // resolveFS prefers an entry-aware lookup when the registry implements

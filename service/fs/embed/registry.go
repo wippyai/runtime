@@ -19,12 +19,12 @@ import (
 // owns and the optional file handle that backs it. The handle is owned by the
 // registry and closed when the pack is unregistered or the registry is closed.
 type pack struct {
-	packPath  string
-	module    string
-	version   string
 	reader    *wapp.Reader
 	file      *os.File
 	resources map[registry.ID]struct{}
+	packPath  string
+	module    string
+	version   string
 }
 
 // owns reports whether the pack exposes the given resource ID.
@@ -80,7 +80,9 @@ func (r *Registry) RegisterPack(packPath, module, version string, reader *wapp.R
 	defer r.mu.Unlock()
 
 	if existing, ok := r.packs[packPath]; ok {
-		closeFile(existing.file)
+		if err := closeFile(existing.file); err != nil {
+			return err
+		}
 	}
 
 	r.packs[packPath] = &pack{
