@@ -187,9 +187,9 @@ func (d *Definition) executeContinueAsNew() {
 		return
 	}
 
-	workflowType := d.id.String()
+	workflowType := d.id.Qualified()
 	if req.Source.Name != "" {
-		workflowType = req.Source.String()
+		workflowType = req.Source.Qualified()
 	}
 
 	var input *commonpb.Payloads

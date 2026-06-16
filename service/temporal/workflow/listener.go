@@ -95,7 +95,7 @@ func (l *Listener) handleEntry(ctx context.Context, entry registry.Entry) error 
 	}
 
 	// Use custom name from metadata or default to full ID
-	workflowName := workflowMeta.GetString(MetaWorkflowName, entry.ID.String())
+	workflowName := workflowMeta.GetString(MetaWorkflowName, entry.ID.Qualified())
 
 	err = l.workers.RegisterWorkflow(ctx, workerID, workflowName, factory)
 	if err != nil {
@@ -135,7 +135,7 @@ func (l *Listener) handleDelete(ctx context.Context, entry registry.Entry) error
 	}
 
 	// Use custom name from metadata or default to full ID
-	workflowName := workflowMeta.GetString(MetaWorkflowName, entry.ID.String())
+	workflowName := workflowMeta.GetString(MetaWorkflowName, entry.ID.Qualified())
 
 	if err := l.workers.UnregisterWorkflow(ctx, workerID, workflowName); err != nil {
 		l.log.Error("failed to unregister workflow",

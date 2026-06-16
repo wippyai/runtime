@@ -29,7 +29,7 @@ const (
 
 // executeFunctionCall executes a function as an activity.
 func (d *Definition) executeFunctionCall(cmd *function.CallCmd, tag uint64) error {
-	activityName := cmd.Task.ID.String()
+	activityName := cmd.Task.ID.Qualified()
 
 	args, err := d.dc.ToPayloads(cmd.Task.Payloads)
 	if err != nil {
@@ -61,7 +61,7 @@ func (d *Definition) executeFunctionCall(cmd *function.CallCmd, tag uint64) erro
 
 // executeFunctionAsyncStart starts an activity and wires its completion to a future topic.
 func (d *Definition) executeFunctionAsyncStart(cmd *function.AsyncStartCmd, tag uint64) error {
-	activityName := cmd.Task.ID.String()
+	activityName := cmd.Task.ID.Qualified()
 
 	args, err := d.dc.ToPayloads(cmd.Task.Payloads)
 	if err != nil {
@@ -239,7 +239,7 @@ func (d *Definition) GetWorkflowInfo() workflowapi.Info {
 
 // executeWorkflowExec executes a child workflow synchronously and returns the result.
 func (d *Definition) executeWorkflowExec(cmd *workflowapi.ExecCmd, tag uint64) error {
-	workflowName := cmd.ID.String()
+	workflowName := cmd.ID.Qualified()
 
 	var args *commonpb.Payloads
 	if len(cmd.Args) > 0 {

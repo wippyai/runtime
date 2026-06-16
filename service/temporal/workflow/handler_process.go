@@ -151,7 +151,7 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 		return nil
 	}
 
-	workflowName := cmd.Start.Source.String()
+	workflowName := cmd.Start.Source.Qualified()
 
 	args, err := d.dc.ToPayloads(cmd.Start.Input)
 	if err != nil {
@@ -304,7 +304,7 @@ func (d *Definition) executeProcessUnlink(_ *process.UnlinkCmd, tag uint64) erro
 
 // executeProcessExec handles process.exec from workflows by executing a child workflow synchronously.
 func (d *Definition) executeProcessExec(cmd *process.ExecCmd, tag uint64) error {
-	workflowName := cmd.Source.String()
+	workflowName := cmd.Source.Qualified()
 
 	var args *commonpb.Payloads
 	if len(cmd.Input) > 0 {
