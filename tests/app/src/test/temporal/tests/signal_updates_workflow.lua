@@ -80,7 +80,7 @@ local function main()
 	if msg == nil then
 		error("missing message for increment ok")
 	end
-	local data = payload_data(msg)
+	local data = payload_data(msg as Message)
 	if type(data) ~= "table" then
 		error("increment ok payload must be table")
 	end
@@ -102,7 +102,7 @@ local function main()
 	if msg == nil then
 		error("missing message for decrement ok")
 	end
-	data = payload_data(msg)
+	data = payload_data(msg as Message)
 	if type(data) ~= "table" then
 		error("decrement ok payload must be table")
 	end
@@ -117,7 +117,7 @@ local function main()
 	if msg == nil then
 		error("missing message for decrement nak")
 	end
-	data = payload_data(msg)
+	data = payload_data(msg as Message)
 	assert.contains(tostring(data), "negative", "negative reject reason")
 
 	ok, send_err = process.send(pid, "increment", { amount = "bad" })
@@ -129,7 +129,7 @@ local function main()
 	if msg == nil then
 		error("missing message for increment nak")
 	end
-	data = payload_data(msg)
+	data = payload_data(msg as Message)
 	assert.contains(tostring(data), "amount must be a number", "amount validation")
 
 	ok, send_err = process.send(pid, "get_value", {})
@@ -148,7 +148,7 @@ local function main()
 	if msg == nil then
 		error("missing message for get_value ok")
 	end
-	data = payload_data(msg)
+	data = payload_data(msg as Message)
 	if type(data) ~= "table" then
 		error("get_value ok payload must be table")
 	end
@@ -170,7 +170,7 @@ local function main()
 	if msg == nil then
 		error("missing message for fail error")
 	end
-	data = payload_data(msg)
+	data = payload_data(msg as Message)
 	assert.contains(tostring(data), "intentional failure", "fail error payload")
 
 	ok, send_err = process.send(pid, "finish", {})
@@ -189,7 +189,7 @@ local function main()
 	if msg == nil then
 		error("missing message for finish ok")
 	end
-	data = payload_data(msg)
+	data = payload_data(msg as Message)
 	if type(data) ~= "table" then
 		error("finish ok payload must be table")
 	end

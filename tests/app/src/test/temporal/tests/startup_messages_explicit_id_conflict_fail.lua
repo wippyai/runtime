@@ -85,7 +85,7 @@ local function main()
 		msg, wait_err = wait_for_topic(inbox, pid, "ok", "5s")
 		assert.is_nil(wait_err, wait_err)
 		assert.not_nil(msg, "first startup ok received")
-		local data = payload_data(msg)
+		local data = payload_data(msg as Message)
 		assert.is_table(data, "first startup ok payload table")
 		assert.eq(data.value, 1, "first startup increment applied")
 
