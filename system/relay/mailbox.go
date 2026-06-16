@@ -82,17 +82,6 @@ func NewMailbox(ctx context.Context, opts ...MailboxOption) *Mailbox {
 		go m.worker(i)
 	}
 
-	// Close job queues when context is canceled.
-	// Guard against nil Done channel (context.Background/TODO never cancel).
-	if ctx.Done() != nil {
-		go func() {
-			<-ctx.Done()
-			for i := range jobQueues {
-				close(jobQueues[i])
-			}
-		}()
-	}
-
 	return m
 }
 
@@ -155,12 +144,19 @@ func (m *Mailbox) Send(pkg *api.Package) error {
 	}
 }
 
-// worker processes packages from its dedicated queue.
+// worker processes packages from its dedicated queue until the context is
+// canceled. The queues are never closed (a send racing a close would panic),
+// so the worker exits on ctx.Done rather than ranging over a closed channel.
 func (m *Mailbox) worker(queueIndex int) {
 	queue := m.jobQueues[queueIndex]
 
-	for pkg := range queue {
-		m.deliver(pkg)
+	for {
+		select {
+		case pkg := <-queue:
+			m.deliver(pkg)
+		case <-m.ctx.Done():
+			return
+		}
 	}
 }
 
@@ -186,6 +182,22 @@ func (m *Mailbox) deliver(pkg *api.Package) {
 			zap.String("target", targetKey))
 		return
 	}
+
+	m.deliverTo(ch, pkg, targetKey)
+}
+
+// deliverTo performs the receiver-channel send. The channel is owned by the
+// attached process, which may close it concurrently with this send (Detach only
+// removes the map entry). A send on a closed channel panics, which must never
+// take down the worker, so it is recovered: a closed receiver means the process
+// is gone and the package is dropped.
+func (m *Mailbox) deliverTo(ch chan *api.Package, pkg *api.Package, targetKey string) {
+	defer func() {
+		if r := recover(); r != nil {
+			m.config.logger.Debug("dropped delivery to closed receiver",
+				zap.String("target", targetKey))
+		}
+	}()
 
 	select {
 	case ch <- pkg:
