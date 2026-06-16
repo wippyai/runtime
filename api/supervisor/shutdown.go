@@ -35,6 +35,8 @@ func GetExitCode() int {
 func SetSignalChannel(ctx context.Context, ch chan<- os.Signal) {
 	ac := ctxapi.AppFromContext(ctx)
 	if ac != nil {
+		setExitCode(0)
+		shutdownSent.Store(false)
 		ac.With(signalChannelKey, ch)
 	}
 }
