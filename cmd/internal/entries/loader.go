@@ -72,7 +72,7 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 	logger.Info("loaded entries", zap.Int("count", len(entries)))
 
 	// Register .wapp files with embed registry for fs.embed support
-	if err := registerWappWithEmbedRegistry(ctx, flatPaths, logger); err != nil {
+	if err := registerWappWithEmbedRegistry(ctx, modulePaths, logger); err != nil {
 		return err
 	}
 
@@ -692,35 +692,41 @@ func ConvertToWappEntries(entries []regapi.Entry) []wapp.Entry {
 }
 
 // registerWappWithEmbedRegistry registers .wapp files with the embed registry for fs.embed support.
-// Files are kept open and tracked by the registry for cleanup on close.
-func registerWappWithEmbedRegistry(ctx context.Context, paths []string, logger *zap.Logger) error {
+// Files are kept open and owned by the registry, which closes them on unregister
+// or registry close. Packs are tagged with their owning module/version so live
+// module updates and uninstalls can target the exact pack via the same API the
+// hub dependency handler uses.
+func registerWappWithEmbedRegistry(ctx context.Context, modulePaths []lock.ModuleLoadPath, logger *zap.Logger) error {
 	embedReg := embedpkg.GetRegistryFromContext(ctx)
 	if embedReg == nil {
 		return nil // No embed registry, skip
 	}
 
-	for _, path := range paths {
-		if filepath.Ext(path) != ".wapp" {
+	for _, mp := range modulePaths {
+		if filepath.Ext(mp.Path) != ".wapp" {
 			continue
 		}
 
-		f, err := os.Open(path)
+		f, err := os.Open(mp.Path)
 		if err != nil {
-			return NewOpenWappError(path, err)
+			return NewOpenWappError(mp.Path, err)
 		}
 
 		reader, err := wapp.NewReader(f)
 		if err != nil {
 			f.Close()
-			return NewReadWappError(path, err)
+			return NewReadWappError(mp.Path, err)
 		}
 
-		if err := embedReg.Register(path, reader, f); err != nil {
+		if err := embedReg.RegisterPack(mp.Path, mp.Module, mp.Version, reader, f); err != nil {
 			f.Close()
 			return NewRegisterEmbedResourcesError(err)
 		}
 
-		logger.Debug("registered wapp with embed registry", zap.String("path", path))
+		logger.Debug("registered wapp with embed registry",
+			zap.String("path", mp.Path),
+			zap.String("module", mp.Module),
+			zap.String("version", mp.Version))
 	}
 
 	return nil
