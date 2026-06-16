@@ -363,6 +363,30 @@ func TestBuildOperations_UpdatedEntries(t *testing.T) {
 	assert.Equal(t, regapi.EntryUpdate, ops[0].Kind)
 }
 
+func TestBuildOperations_KindChangeUsesDeleteCreate(t *testing.T) {
+	id := regapi.NewID("ui", "assets")
+	current := regapi.State{{
+		ID:   id,
+		Kind: "fs.embed",
+		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/ui"}),
+		Data: payload.New(map[string]any{}),
+	}}
+	desired := []regapi.Entry{{
+		ID:   id,
+		Kind: "fs.directory",
+		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/ui"}),
+		Data: payload.New(map[string]any{"directory": "assets", "base": "module"}),
+	}}
+
+	ops, err := buildOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
+	require.NoError(t, err)
+	require.Len(t, ops, 2)
+	assert.Equal(t, regapi.EntryDelete, ops[0].Kind)
+	assert.Equal(t, regapi.Kind("fs.embed"), ops[0].Entry.Kind)
+	assert.Equal(t, regapi.EntryCreate, ops[1].Kind)
+	assert.Equal(t, regapi.Kind("fs.directory"), ops[1].Entry.Kind)
+}
+
 func TestBuildOperations_UnchangedEntries(t *testing.T) {
 	entry := regapi.Entry{
 		ID:   regapi.NewID("app", "svc"),

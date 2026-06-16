@@ -130,6 +130,20 @@ func (r *Registry) UnregisterModule(module, version string) error {
 	return firstErr
 }
 
+// HasModulePack reports whether a pack for the exact module and version is
+// currently registered.
+func (r *Registry) HasModulePack(module, version string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, p := range r.packs {
+		if p.module == module && p.version == version {
+			return true
+		}
+	}
+	return false
+}
+
 // GetFS implements embedapi.Registry.GetFS.
 // It searches all registered packs for a resource with the given ID and returns
 // the first match. Use GetFSForEntry when a specific module version must be

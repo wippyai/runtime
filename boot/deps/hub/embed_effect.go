@@ -66,17 +66,20 @@ func (e *embedPackEffect) Prepare(_ context.Context) error {
 	for _, sp := range e.staged {
 		f, err := os.Open(sp.packPath)
 		if err != nil {
+			e.rollbackPrepared()
 			return newOpenPackError(sp.packPath, err)
 		}
 
 		reader, err := wapp.NewReader(f)
 		if err != nil {
 			f.Close()
+			e.rollbackPrepared()
 			return newReadPackError(sp.packPath, err)
 		}
 
 		if err := e.reg.RegisterPack(sp.packPath, sp.module, sp.version, reader, f); err != nil {
 			f.Close()
+			e.rollbackPrepared()
 			return newRegisterPackError(sp.packPath, err)
 		}
 		e.prepared = append(e.prepared, sp.packPath)
@@ -109,6 +112,11 @@ func (e *embedPackEffect) Commit(_ context.Context) error {
 }
 
 func (e *embedPackEffect) Rollback(_ context.Context) error {
+	e.rollbackPrepared()
+	return nil
+}
+
+func (e *embedPackEffect) rollbackPrepared() {
 	for _, packPath := range e.prepared {
 		if err := e.reg.UnregisterPack(packPath); err != nil {
 			e.logger.Warn("failed to unregister staged embedded pack during rollback",
@@ -117,7 +125,6 @@ func (e *embedPackEffect) Rollback(_ context.Context) error {
 		}
 	}
 	e.prepared = nil
-	return nil
 }
 
 // buildEmbedPackEffect computes the pack-lifecycle effect for a module
@@ -143,9 +150,9 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 	staged := make([]stagedPack, 0, len(resolved))
 	for _, mod := range resolved {
 		name := mod.Org + "/" + mod.Name
-		desired[name] = mod.Version
 
-		if installed[name] == mod.Version {
+		if installed[name] == mod.Version && reg.HasModulePack(name, mod.Version) && !h.moduleUsesDirectoryMode(name) {
+			desired[name] = mod.Version
 			continue
 		}
 
@@ -156,6 +163,7 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 		if !isWapp {
 			continue
 		}
+		desired[name] = mod.Version
 		staged = append(staged, stagedPack{
 			packPath: path,
 			module:   name,

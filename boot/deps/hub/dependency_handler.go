@@ -18,6 +18,7 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
 	apierror "github.com/wippyai/runtime/api/error"
+	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/boot/build"
@@ -25,6 +26,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/auth"
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	"github.com/wippyai/runtime/boot/deps/wappextract"
 	"github.com/wippyai/runtime/boot/loader"
 	"github.com/wippyai/runtime/boot/loader/interpolate"
 	entrypkg "github.com/wippyai/runtime/internal/entry"
@@ -520,7 +522,23 @@ func (h *DependencyHandler) loadEntriesForModule(ctx context.Context, transcoder
 	if err != nil {
 		return nil, err
 	}
+	registerResolvedModuleSourceRoot(ctx, mod.Org+"/"+mod.Name, modulePath)
 	return loadRawEntriesFromPaths(ctx, []string{modulePath}, h.logger, transcoder)
+}
+
+func registerResolvedModuleSourceRoot(ctx context.Context, moduleName, modulePath string) {
+	if moduleName == "" || filepath.Ext(modulePath) == ".wapp" {
+		return
+	}
+	stat, err := os.Stat(modulePath)
+	if err != nil || !stat.IsDir() {
+		return
+	}
+	root, err := filepath.Abs(modulePath)
+	if err != nil {
+		return
+	}
+	moduleapi.WithSourceRoots(ctx, moduleapi.SourceRoots{moduleName: root})
 }
 
 func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod ResolvedModule) (string, error) {
@@ -545,11 +563,19 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 		return replacementPath, nil
 	}
 
+	shouldUnpack := h.shouldUnpackModules()
+	dirPath := filepath.Join(h.vendorDir, lock.ModulePath(name))
 	expectedDigest := mod.Digest
 	expectedSize := mod.SizeBytes
 	wappPath := filepath.Join(h.vendorDir, lock.WappPath(name, mod.Version))
 	if exists(wappPath) {
 		if err := verifyDownloadedArtifact(wappPath, expectedDigest, expectedSize); err == nil {
+			if shouldUnpack {
+				if err := h.extractWappModule(wappPath, dirPath); err != nil {
+					return "", err
+				}
+				return dirPath, nil
+			}
 			return wappPath, nil
 		}
 		h.logger.Warn("cached dependency artifact failed integrity check; redownloading",
@@ -558,7 +584,6 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 		_ = os.Remove(wappPath)
 	}
 
-	dirPath := filepath.Join(h.vendorDir, lock.ModulePath(name))
 	if exists(dirPath) {
 		if installed, ok := h.installedVersion(name.String()); ok && installed == mod.Version {
 			return dirPath, nil
@@ -602,7 +627,70 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 		return "", NewDependencyIntegrityError(modKey(mod), err, expectedDigest, expectedSize)
 	}
 
+	if shouldUnpack {
+		if err := h.extractWappModule(wappPath, dirPath); err != nil {
+			return "", err
+		}
+		return dirPath, nil
+	}
+
 	return wappPath, nil
+}
+
+func (h *DependencyHandler) extractWappModule(wappPath, dirPath string) error {
+	tmpDir, err := os.MkdirTemp(filepath.Dir(dirPath), "."+filepath.Base(dirPath)+".extract-*")
+	if err != nil {
+		return NewDependencyLoadError(dirPath, err)
+	}
+	cleanupTmp := true
+	defer func() {
+		if cleanupTmp {
+			_ = os.RemoveAll(tmpDir)
+		}
+	}()
+
+	if err := wappextract.ExtractWappToDir(wappPath, tmpDir); err != nil {
+		return NewDependencyLoadError(wappPath, err)
+	}
+	if err := replaceDirectory(dirPath, tmpDir); err != nil {
+		return NewDependencyLoadError(dirPath, err)
+	}
+	cleanupTmp = false
+	return nil
+}
+
+func replaceDirectory(targetDir, replacementDir string) error {
+	parent := filepath.Dir(targetDir)
+	base := filepath.Base(targetDir)
+	var backupDir string
+
+	if exists(targetDir) {
+		var err error
+		backupDir, err = os.MkdirTemp(parent, "."+base+".backup-*")
+		if err != nil {
+			return fmt.Errorf("create backup directory: %w", err)
+		}
+		if err := os.Remove(backupDir); err != nil {
+			_ = os.RemoveAll(backupDir)
+			return fmt.Errorf("prepare backup directory: %w", err)
+		}
+		if err := os.Rename(targetDir, backupDir); err != nil {
+			_ = os.RemoveAll(backupDir)
+			return fmt.Errorf("move existing directory aside: %w", err)
+		}
+	}
+
+	if err := os.Rename(replacementDir, targetDir); err != nil {
+		if backupDir != "" {
+			_ = os.Rename(backupDir, targetDir)
+		}
+		return fmt.Errorf("activate extracted directory: %w", err)
+	}
+
+	if backupDir != "" {
+		_ = os.RemoveAll(backupDir)
+	}
+	return nil
 }
 
 func (h *DependencyHandler) replacementPath(moduleName string) (string, bool) {
@@ -622,6 +710,24 @@ func (h *DependencyHandler) replacementPath(moduleName string) (string, bool) {
 		path = filepath.Join(filepath.Dir(lockObj.Path()), path)
 	}
 	return path, true
+}
+
+func (h *DependencyHandler) shouldUnpackModules() bool {
+	if h.lockPath == "" {
+		return false
+	}
+	lockObj, err := lock.New(h.lockPath)
+	if err != nil {
+		return false
+	}
+	return lockObj.ShouldUnpackModules()
+}
+
+func (h *DependencyHandler) moduleUsesDirectoryMode(moduleName string) bool {
+	if _, ok := h.replacementPath(moduleName); ok {
+		return true
+	}
+	return h.shouldUnpackModules()
 }
 
 func (h *DependencyHandler) operationModules(
@@ -878,6 +984,13 @@ func buildOperations(
 				return nil, NewDependencyEntryConflictError(id.String(), entryModule(existing), entryModule(entry))
 			}
 			if !entriesEqual(existing, entry) {
+				if existing.Kind != entry.Kind {
+					ops = append(ops,
+						regapi.Operation{Kind: regapi.EntryDelete, Entry: existing},
+						regapi.Operation{Kind: regapi.EntryCreate, Entry: entry},
+					)
+					continue
+				}
 				if sameImmutableModuleVersion(existing, entry, mutableModules) {
 					continue
 				}

@@ -281,6 +281,15 @@ func TestRegistry_UnregisterModule(t *testing.T) {
 	})
 }
 
+func TestRegistry_HasModulePack(t *testing.T) {
+	r := NewRegistry()
+	require.NoError(t, r.RegisterPack("mod-v1.wapp", "org/mod", "1.0.0", createTestReader(t), nil))
+
+	assert.True(t, r.HasModulePack("org/mod", "1.0.0"))
+	assert.False(t, r.HasModulePack("org/mod", "2.0.0"))
+	assert.False(t, r.HasModulePack("org/other", "1.0.0"))
+}
+
 func TestRegistry_Close(t *testing.T) {
 	t.Run("clears all packs", func(t *testing.T) {
 		r := NewRegistry()
