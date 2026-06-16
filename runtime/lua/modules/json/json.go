@@ -8,7 +8,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"sync"
 
@@ -131,6 +133,28 @@ func validationError(l *lua.LState, goErr error, context string) int {
 	l.Push(lua.LFalse)
 	l.Push(err)
 	return 2
+}
+
+func evaluationResultError(result *jsonschema.EvaluationResult) error {
+	if result == nil {
+		return errors.New("validation failed")
+	}
+	details := result.DetailedErrors()
+	if len(details) == 0 {
+		return errors.New("validation failed")
+	}
+
+	keys := make([]string, 0, len(details))
+	for key := range details {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	first := keys[0]
+	if len(keys) == 1 {
+		return fmt.Errorf("%s: %s", first, details[first])
+	}
+	return fmt.Errorf("%s: %s (+%d more)", first, details[first], len(keys)-1)
 }
 
 func Encode(value lua.LValue) ([]byte, error) {
@@ -559,7 +583,7 @@ func schemaValidateFunc(l *lua.LState) int {
 	}
 
 	if !result.IsValid() {
-		return validationError(l, result, "validation failed")
+		return validationError(l, evaluationResultError(result), "validation failed")
 	}
 
 	l.Push(lua.LTrue)
@@ -590,7 +614,7 @@ func schemaValidateStringFunc(l *lua.LState) int {
 
 	result := schema.Validate([]byte(jsonStr))
 	if !result.IsValid() {
-		return validationError(l, result, "validation failed")
+		return validationError(l, evaluationResultError(result), "validation failed")
 	}
 
 	l.Push(lua.LTrue)
