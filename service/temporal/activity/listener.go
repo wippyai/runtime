@@ -20,6 +20,7 @@ const (
 	MetaActivityBag      = "activity"
 	MetaActivityWorker   = "worker"
 	MetaActivityLocal    = "local"
+	MetaActivityName     = "name"
 )
 
 // WorkerRegistry provides access to workers for activity registration
@@ -91,8 +92,8 @@ func (l *Listener) handleEntry(ctx context.Context, entry registry.Entry) error 
 		return nil
 	}
 
-	// Always use full ID as activity name
-	activityName := entry.ID.Qualified()
+	// Use custom name from metadata or default to qualified ID
+	activityName := activityMeta.GetString(MetaActivityName, entry.ID.Qualified())
 	isLocal := activityMeta.GetBool(MetaActivityLocal, false)
 
 	if isLocal {
@@ -139,8 +140,8 @@ func (l *Listener) handleDelete(ctx context.Context, entry registry.Entry) error
 		return nil
 	}
 
-	// Always use full ID as activity name
-	activityName := entry.ID.Qualified()
+	// Use custom name from metadata or default to qualified ID
+	activityName := activityMeta.GetString(MetaActivityName, entry.ID.Qualified())
 
 	if err := l.workers.UnregisterActivity(ctx, workerID, activityName); err != nil {
 		l.log.Error("failed to unregister activity",

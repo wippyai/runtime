@@ -36,7 +36,7 @@ func (w *Worker) Run(ctx context.Context, start *process.Start) (pid.PID, error)
 		taskQueue = w.config.TaskQueue
 	}
 
-	workflowName := start.Source.Qualified()
+	workflowName := resolveWorkflowName(start)
 	hostID := w.id.String()
 
 	execCtx := ctx

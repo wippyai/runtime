@@ -132,6 +132,35 @@ func TestListener_Add_RegisterActivity(t *testing.T) {
 		assert.True(t, exists)
 		assert.Equal(t, entry.ID, funcID)
 	})
+
+	t.Run("custom name from metadata is used for register and unregister", func(t *testing.T) {
+		logger := zaptest.NewLogger(t)
+		workers := newMockWorkerRegistry()
+		listener := NewListener(logger, workers)
+
+		entry := registry.Entry{
+			ID:   registry.NewID("app.functions", "my_func"),
+			Kind: "function.lua",
+			Meta: attrs.Bag{
+				"temporal": map[string]any{
+					"activity": map[string]any{
+						"worker": "app.workers:default",
+						"name":   "ExternalActivity",
+					},
+				},
+			},
+		}
+
+		err := listener.Add(context.Background(), entry)
+		require.NoError(t, err)
+		funcID, exists := workers.activities["app.workers:default:ExternalActivity"]
+		assert.True(t, exists)
+		assert.Equal(t, entry.ID, funcID)
+
+		err = listener.Delete(context.Background(), entry)
+		require.NoError(t, err)
+		assert.Empty(t, workers.activities)
+	})
 }
 
 func TestListener_Add_SkipNonActivity(t *testing.T) {
