@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -19,6 +20,21 @@ import (
 // _index.yaml files and source files. After extraction, the .wapp file is
 // removed.
 func ExtractWappToDir(wappPath, targetDir string) error {
+	return extractWappToDir(wappPath, targetDir, true)
+}
+
+// ExtractWappToDirKeepSource extracts a .wapp file without removing the
+// source .wapp. Use this when another step must complete before the packed
+// artifact can be safely discarded.
+func ExtractWappToDirKeepSource(wappPath, targetDir string) error {
+	return extractWappToDir(wappPath, targetDir, false)
+}
+
+func extractWappToDir(wappPath, targetDir string, removeSource bool) error {
+	if targetDir == "" {
+		return fmt.Errorf("target directory is empty")
+	}
+
 	file, err := os.Open(wappPath)
 	if err != nil {
 		return fmt.Errorf("open wapp file: %w", err)
@@ -76,7 +92,10 @@ func ExtractWappToDir(wappPath, targetDir string) error {
 		grouped[ns] = append(grouped[ns], entry)
 	}
 
-	nsDirs := resolveNamespaceDirs(targetDir, namespaces)
+	nsDirs, err := resolveNamespaceDirs(targetDir, namespaces)
+	if err != nil {
+		return err
+	}
 	for _, ns := range namespaces {
 		nsDir := nsDirs[ns]
 		if err := os.MkdirAll(nsDir, 0755); err != nil {
@@ -98,8 +117,10 @@ func ExtractWappToDir(wappPath, targetDir string) error {
 	if err != nil {
 		return fmt.Errorf("close wapp file: %w", err)
 	}
-	if err := os.Remove(wappPath); err != nil {
-		return fmt.Errorf("remove wapp file: %w", err)
+	if removeSource {
+		if err := os.Remove(wappPath); err != nil {
+			return fmt.Errorf("remove wapp file: %w", err)
+		}
 	}
 	return nil
 }
@@ -141,7 +162,14 @@ func restoreEmbeddedResources(in restoreInput) ([]wapp.Entry, []extractedResourc
 			continue
 		}
 
-		resDir := filepath.Join(in.TargetDir, entry.ID.Name)
+		entryName, err := safePathSegment("entry name", entry.ID.Name)
+		if err != nil {
+			return nil, nil, err
+		}
+		resDir, err := safeJoinSegments(in.TargetDir, entryName)
+		if err != nil {
+			return nil, nil, err
+		}
 		if err := os.MkdirAll(resDir, 0755); err != nil {
 			return nil, nil, fmt.Errorf("create resource directory %s: %w", entry.ID.Name, err)
 		}
@@ -154,7 +182,7 @@ func restoreEmbeddedResources(in restoreInput) ([]wapp.Entry, []extractedResourc
 			Kind: "fs.directory",
 			Meta: entry.Meta,
 			Data: map[string]any{
-				"directory": entry.ID.Name,
+				"directory": entryName,
 				"base":      "module",
 			},
 		}
@@ -170,13 +198,13 @@ func restoreEmbeddedResources(in restoreInput) ([]wapp.Entry, []extractedResourc
 	return result, remaining, nil
 }
 
-func resolveNamespaceDirs(targetDir string, namespaces []string) map[string]string {
+func resolveNamespaceDirs(targetDir string, namespaces []string) (map[string]string, error) {
 	dirs := make(map[string]string, len(namespaces))
 	if len(namespaces) <= 1 {
 		for _, ns := range namespaces {
 			dirs[ns] = targetDir
 		}
-		return dirs
+		return dirs, nil
 	}
 
 	prefix := commonDotPrefix(namespaces)
@@ -186,11 +214,14 @@ func resolveNamespaceDirs(targetDir string, namespaces []string) map[string]stri
 		if suffix == "" {
 			dirs[ns] = targetDir
 		} else {
-			relPath := strings.ReplaceAll(suffix, ".", string(filepath.Separator))
-			dirs[ns] = filepath.Join(targetDir, relPath)
+			nsDir, err := namespaceDir(targetDir, suffix)
+			if err != nil {
+				return nil, fmt.Errorf("resolve namespace directory %s: %w", ns, err)
+			}
+			dirs[ns] = nsDir
 		}
 	}
-	return dirs
+	return dirs, nil
 }
 
 func commonDotPrefix(strs []string) string {
@@ -239,12 +270,21 @@ func writeNamespaceIndex(dir, namespace string, entries []wapp.Entry) error {
 	if err != nil {
 		return fmt.Errorf("marshal index: %w", err)
 	}
-	return os.WriteFile(filepath.Join(dir, "_index.yaml"), data, 0644)
+	indexPath, err := safeJoinSegments(dir, "_index.yaml")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(indexPath, data, 0644)
 }
 
 func buildEntryNode(dir string, entry wapp.Entry) (*yaml.Node, error) {
+	entryName, err := safePathSegment("entry name", entry.ID.Name)
+	if err != nil {
+		return nil, err
+	}
+
 	node := &yaml.Node{Kind: yaml.MappingNode}
-	addScalarPair(node, "name", entry.ID.Name)
+	addScalarPair(node, "name", entryName)
 	addScalarPair(node, "kind", entry.Kind)
 
 	if len(entry.Meta) > 0 {
@@ -271,8 +311,12 @@ func buildEntryNode(dir string, entry wapp.Entry) (*yaml.Node, error) {
 
 	if ext := sourceExtForKind(entry.Kind); ext != "" {
 		if src, ok := dataMap["source"].(string); ok && src != "" {
-			srcFile := entry.ID.Name + ext
-			if err := os.WriteFile(filepath.Join(dir, srcFile), []byte(src), 0644); err != nil {
+			srcFile := entryName + ext
+			srcPath, err := safeJoinSegments(dir, srcFile)
+			if err != nil {
+				return nil, err
+			}
+			if err := os.WriteFile(srcPath, []byte(src), 0644); err != nil {
 				return nil, fmt.Errorf("write source file %s: %w", srcFile, err)
 			}
 			addScalarPair(node, "source", "file://"+srcFile)
@@ -335,7 +379,10 @@ func extractResourceFS(targetDir string, resFS fs.ReadDirFS) error {
 			return err
 		}
 
-		outPath := filepath.Join(targetDir, path)
+		outPath, err := safeResourcePath(targetDir, path)
+		if err != nil {
+			return err
+		}
 		if d.IsDir() {
 			return os.MkdirAll(outPath, 0755)
 		}
@@ -344,17 +391,112 @@ func extractResourceFS(targetDir string, resFS fs.ReadDirFS) error {
 		if err != nil {
 			return fmt.Errorf("open resource file %s: %w", path, err)
 		}
-		defer f.Close()
-
-		data, err := io.ReadAll(f)
-		if err != nil {
-			return fmt.Errorf("read resource file %s: %w", path, err)
-		}
 		if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
+			_ = f.Close()
 			return err
 		}
-		return os.WriteFile(outPath, data, 0644)
+		// Keep extracted resource files readable like the previous os.WriteFile path.
+		out, err := os.OpenFile(outPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644) //nolint:gosec
+		if err != nil {
+			_ = f.Close()
+			return fmt.Errorf("create resource file %s: %w", path, err)
+		}
+
+		_, copyErr := io.Copy(out, f)
+		closeOutErr := out.Close()
+		closeInErr := f.Close()
+		if copyErr != nil {
+			return fmt.Errorf("copy resource file %s: %w", path, copyErr)
+		}
+		if closeOutErr != nil {
+			return fmt.Errorf("close extracted resource file %s: %w", path, closeOutErr)
+		}
+		if closeInErr != nil {
+			return fmt.Errorf("close resource file %s: %w", path, closeInErr)
+		}
+		return nil
 	})
+}
+
+func namespaceDir(targetDir, suffix string) (string, error) {
+	parts := strings.Split(suffix, ".")
+	segments := make([]string, 0, len(parts))
+	for _, part := range parts {
+		segment, err := safePathSegment("namespace segment", part)
+		if err != nil {
+			return "", err
+		}
+		segments = append(segments, segment)
+	}
+	return safeJoinSegments(targetDir, segments...)
+}
+
+func safeResourcePath(targetDir, resourcePath string) (string, error) {
+	if resourcePath == "." {
+		return targetDir, nil
+	}
+	if !fs.ValidPath(resourcePath) || pathpkg.IsAbs(resourcePath) || strings.Contains(resourcePath, `\`) {
+		return "", fmt.Errorf("unsafe resource path %q", resourcePath)
+	}
+	return safeJoinSegments(targetDir, strings.Split(resourcePath, "/")...)
+}
+
+func safeJoinSegments(base string, segments ...string) (string, error) {
+	if base == "" {
+		return "", fmt.Errorf("base directory is empty")
+	}
+
+	cleanBase := filepath.Clean(base)
+	parts := make([]string, 0, len(segments)+1)
+	parts = append(parts, cleanBase)
+	for _, segment := range segments {
+		safeSegment, err := safePathSegment("path segment", segment)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, safeSegment)
+	}
+
+	outPath := filepath.Join(parts...)
+	if err := ensureWithinBase(cleanBase, outPath); err != nil {
+		return "", err
+	}
+	return outPath, nil
+}
+
+func safePathSegment(label, segment string) (string, error) {
+	if segment == "" || segment == "." || segment == ".." {
+		return "", fmt.Errorf("unsafe %s %q", label, segment)
+	}
+	if filepath.IsAbs(segment) || strings.ContainsAny(segment, "/\\:\x00") {
+		return "", fmt.Errorf("unsafe %s %q", label, segment)
+	}
+	if filepath.Clean(segment) != segment {
+		return "", fmt.Errorf("unsafe %s %q", label, segment)
+	}
+	return segment, nil
+}
+
+func ensureWithinBase(base, candidate string) error {
+	absBase, err := filepath.Abs(base)
+	if err != nil {
+		return fmt.Errorf("resolve base path: %w", err)
+	}
+	absCandidate, err := filepath.Abs(candidate)
+	if err != nil {
+		return fmt.Errorf("resolve output path: %w", err)
+	}
+	rel, err := filepath.Rel(absBase, absCandidate)
+	if err != nil {
+		return fmt.Errorf("compare output path: %w", err)
+	}
+	if rel == "." {
+		return nil
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("output path escapes target directory: %s", candidate)
+	}
+	return nil
 }
 
 type sourceKind struct {

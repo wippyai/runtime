@@ -649,11 +649,16 @@ func (h *DependencyHandler) extractWappModule(wappPath, dirPath string) error {
 		}
 	}()
 
-	if err := wappextract.ExtractWappToDir(wappPath, tmpDir); err != nil {
+	if err := wappextract.ExtractWappToDirKeepSource(wappPath, tmpDir); err != nil {
 		return NewDependencyLoadError(wappPath, err)
 	}
 	if err := replaceDirectory(dirPath, tmpDir); err != nil {
 		return NewDependencyLoadError(dirPath, err)
+	}
+	if err := os.Remove(wappPath); err != nil {
+		h.logger.Warn("failed to remove unpacked module artifact",
+			zap.String("path", wappPath),
+			zap.Error(err))
 	}
 	cleanupTmp = false
 	return nil

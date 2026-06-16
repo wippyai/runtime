@@ -378,6 +378,53 @@ func TestBuildEmbedPackEffect_DropsPackWhenResolvedModuleIsDirectory(t *testing.
 	require.Error(t, err)
 }
 
+func TestBuildEmbedPackEffect_DropsPackWhenUnpackModulesEnabled(t *testing.T) {
+	reg := embedpkg.NewRegistry()
+	defer func() { require.NoError(t, reg.Close()) }()
+	ctx := embedapi.WithRegistry(newTestContext(), reg)
+	projectDir := t.TempDir()
+	vendorDir := filepath.Join(projectDir, ".wippy", "vendor")
+	lockPath := filepath.Join(projectDir, lock.DefaultFilename)
+	dirPath := filepath.Join(vendorDir, "org", "mod")
+	require.NoError(t, os.MkdirAll(dirPath, 0755))
+
+	lockObj, err := lock.New(lockPath)
+	require.NoError(t, err)
+	lockObj.SetDirectories(lock.Directories{Modules: ".wippy", Src: "."})
+	lockObj.SetOptions(lock.Options{UnpackModules: true})
+	lockObj.SetModule(lock.Module{Name: "org/mod", Version: "1.0.0"})
+	require.NoError(t, lockObj.Write())
+
+	oldReader := createHubResourceReader(t, "ui", "app", map[string]string{"v.txt": "old"})
+	require.NoError(t, reg.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, nil))
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getDownload: func(context.Context, *DownloadParams) (*DownloadInfo, error) {
+				t.Fatal("same-version unpacked module should use existing directory without downloading")
+				return nil, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		LockPath:  lockPath,
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	resolved := []ResolvedModule{{Org: "org", Name: "mod", Version: "1.0.0"}}
+	snapshot := regapi.State{moduleEntry("ui", "app", "org/mod", "1.0.0")}
+
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot)
+	require.NoError(t, err)
+	require.NotNil(t, eff)
+	assert.Empty(t, eff.staged)
+	assert.Equal(t, []obsoletePack{{module: "org/mod", version: "1.0.0"}}, eff.obsolete)
+
+	require.NoError(t, eff.Commit(context.Background()))
+	_, err = reg.GetFSForEntry(moduleEntry("ui", "app", "org/mod", "1.0.0"))
+	require.Error(t, err)
+}
+
 func TestBuildEmbedPackEffect_StagesOnlyChangedPacks(t *testing.T) {
 	reg := embedpkg.NewRegistry()
 	defer func() { require.NoError(t, reg.Close()) }()
