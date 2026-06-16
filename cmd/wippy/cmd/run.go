@@ -53,7 +53,7 @@ Use 'wippy run list' to see available commands.
 Examples:
   wippy run                                 # Start the runtime
   wippy run list                            # List available commands
-  wippy run test                            # Run the test command
+  wippy run greet                           # Run a named entrypoint
   wippy run -x app:cli                      # Execute specific process
   wippy run snapshot.wapp                   # Run from pack file
   wippy run acme/http                       # Run latest from hub
@@ -71,27 +71,57 @@ var listCmd = &cobra.Command{
 	RunE:  runList,
 }
 
+var testCmd = &cobra.Command{
+	Use:   "test [file.wapp|org/module[@version]]",
+	Short: "Run the test entrypoint",
+	Long: `Run the test entrypoint of the local app, a .wapp file, or a hub module.
+
+Only the entry declaring the "test" use case is executed; 'wippy run' never runs it.
+
+Examples:
+  wippy test                                # Run the local app's tests
+  wippy test acme/http                      # Run a hub module's tests`,
+	Args:               cobra.ArbitraryArgs,
+	DisableFlagParsing: false,
+	RunE:               runTest,
+}
+
 func init() {
 	rootCmd.AddCommand(runCmd)
+	rootCmd.AddCommand(testCmd)
 	runCmd.AddCommand(listCmd)
 	runCmd.Flags().StringSliceP("override", "o", nil, "Override entry values (format: namespace:entry:field=value)")
 	runCmd.Flags().StringP("exec", "x", "", "Execute process and exit (format: namespace:entry)")
 	runCmd.Flags().String("host", "", "Terminal host ID for exec (auto-detected if only one terminal.host exists)")
 	runCmd.Flags().String("registry", "", "Registry URL for hub modules (default: from credentials)")
 	runCmd.Flags().StringArray("set", nil, "Override a .wippy.yaml config value (format: section.path=value, repeatable)")
+
+	testCmd.Flags().StringSliceP("override", "o", nil, "Override entry values (format: namespace:entry:field=value)")
+	testCmd.Flags().String("host", "", "Terminal host ID for exec (auto-detected if only one terminal.host exists)")
+	testCmd.Flags().String("registry", "", "Registry URL for hub modules (default: from credentials)")
+	testCmd.Flags().StringArray("set", nil, "Override a .wippy.yaml config value (format: section.path=value, repeatable)")
 }
 
 // commandMeta represents the command metadata from entry.Meta
 type commandMeta struct {
-	Name  string `json:"name"`
-	Short string `json:"short"`
-	Main  bool   `json:"main"`
+	Name    string `json:"name"`
+	Short   string `json:"short"`
+	UseCase string `json:"use_case"`
+	Main    bool   `json:"main"`
 }
 
 // runApp is the primary `wippy run` execution flow.
 // It resolves invocation mode (runtime, pack, hub module, exec), bootstraps
 // components, loads registry entries, and blocks until shutdown.
 func runApp(cmd *cobra.Command, args []string) error {
+	return runWithUseCase(cmd, args, defaultUseCase)
+}
+
+func runTest(cmd *cobra.Command, args []string) error {
+	return runWithUseCase(cmd, args, "test")
+}
+
+func runWithUseCase(cmd *cobra.Command, args []string, useCase string) error {
 	memLimit := initMemoryLimit()
 
 	var commandName string
@@ -112,7 +142,7 @@ func runApp(cmd *cobra.Command, args []string) error {
 
 	if commandName != "" {
 		if strings.HasSuffix(commandName, ".wapp") {
-			return runFromPackFile(cmd, commandName, commandArgs)
+			return runFromPackFile(cmd, commandName, commandArgs, useCase)
 		}
 
 		if isHubModuleRef(commandName) {
@@ -120,11 +150,11 @@ func runApp(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return err
 			}
-			return runFromPackFiles(cmd, packPaths, commandArgs)
+			return runFromPackFiles(cmd, packPaths, commandArgs, useCase)
 		}
 	}
 
-	if execSpec != "" || commandName != "" {
+	if execSpec != "" || commandName != "" || useCase != defaultUseCase {
 		flagsChanged := cmd != nil && (cmd.Flags().Changed("silent") || cmd.Flags().Changed("verbose") || cmd.Flags().Changed("very-verbose") || cmd.Flags().Changed("console"))
 		if !flagsChanged {
 			silentLogs = true
@@ -208,12 +238,20 @@ func runApp(cmd *cobra.Command, args []string) error {
 		logger.Info("runtime ready")
 	}
 
-	// Resolve command name to entry ID
-	if commandName != "" {
-		entryID, err := resolveCommandToEntry(ctx, commandName)
+	// Resolve the entrypoint to execute. Bare `wippy run` (default use case, no
+	// named entrypoint) boots the app without executing one; any other use case,
+	// or an explicit name, selects an entrypoint declaratively by use case.
+	if commandName != "" || useCase != defaultUseCase {
+		commands, err := collectCommands(ctx)
 		if err != nil {
 			return err
 		}
+
+		entryID, err := selectEntrypoint(commands, commandName, useCase)
+		if err != nil {
+			return err
+		}
+
 		execSpec = entryID
 		args = commandArgs
 	}
@@ -235,32 +273,6 @@ func runApp(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
-}
-
-// resolveCommandToEntry finds an entry with meta.command.name matching the given name
-func resolveCommandToEntry(ctx context.Context, name string) (string, error) {
-	reg := registry.GetRegistry(ctx)
-	if reg == nil {
-		return "", fmt.Errorf("registry not available")
-	}
-
-	allEntries, err := reg.GetAllEntries()
-	if err != nil {
-		return "", fmt.Errorf("failed to query registry for commands: %w", err)
-	}
-
-	for _, e := range allEntries {
-		if !isProcessKind(e.Kind) {
-			continue
-		}
-
-		cmdMeta := extractCommandMeta(e.Meta)
-		if cmdMeta != nil && cmdMeta.Name == name {
-			return e.ID.String(), nil
-		}
-	}
-
-	return "", fmt.Errorf("command %q not found. Use 'wippy run list' to see available commands", name)
 }
 
 // loadRuntimeConfig resolves the effective runtime configuration for run-like
@@ -339,7 +351,12 @@ func extractCommandMeta(meta map[string]any) *commandMeta {
 
 	short, _ := cmdMap["short"].(string)
 	main, _ := cmdMap["main"].(bool)
-	return &commandMeta{Name: name, Short: short, Main: main}
+	useCase, _ := cmdMap["use_case"].(string)
+	if useCase == "" {
+		useCase = defaultUseCase
+	}
+
+	return &commandMeta{Name: name, Short: short, UseCase: useCase, Main: main}
 }
 
 // runList prints all command-enabled process entries from resolved lock modules.
@@ -359,6 +376,7 @@ func runList(cmd *cobra.Command, _ []string) error {
 	var commands []struct {
 		Name    string
 		Short   string
+		UseCase string
 		EntryID string
 	}
 
@@ -380,10 +398,12 @@ func runList(cmd *cobra.Command, _ []string) error {
 		commands = append(commands, struct {
 			Name    string
 			Short   string
+			UseCase string
 			EntryID string
 		}{
 			Name:    cmdMeta.Name,
 			Short:   cmdMeta.Short,
+			UseCase: cmdMeta.UseCase,
 			EntryID: e.ID.String(),
 		})
 	}
@@ -393,8 +413,8 @@ func runList(cmd *cobra.Command, _ []string) error {
 		fmt.Println("\nTo define a command, add 'command' to entry meta:")
 		fmt.Println("  meta:")
 		fmt.Println("    command:")
-		fmt.Println("      name: test")
-		fmt.Println("      short: Run tests")
+		fmt.Println("      name: greet")
+		fmt.Println("      short: Greet the user")
 		return nil
 	}
 
@@ -409,6 +429,9 @@ func runList(cmd *cobra.Command, _ []string) error {
 		fmt.Printf("  %s", nameStyle.Render(c.Name))
 		if c.Short != "" {
 			fmt.Printf("  %s", c.Short)
+		}
+		if c.UseCase != defaultUseCase {
+			fmt.Printf("  %s", dimStyle.Render(fmt.Sprintf("[wippy %s]", commandForUseCase(c.UseCase))))
 		}
 		fmt.Printf("  %s\n", dimStyle.Render("("+c.EntryID+")"))
 	}
