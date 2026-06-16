@@ -265,57 +265,6 @@ func TestID_String(t *testing.T) {
 	}
 }
 
-func TestID_Qualified(t *testing.T) {
-	tests := []struct {
-		name     string
-		id       ID
-		expected string
-	}{
-		{
-			name:     "with namespace and name",
-			id:       ID{NS: "test-ns", Name: "test-name"},
-			expected: "test-ns:test-name",
-		},
-		{
-			name:     "name only has no leading colon",
-			id:       ID{NS: "", Name: "test-name"},
-			expected: "test-name",
-		},
-		{
-			name:     "namespace only",
-			id:       ID{NS: "test-ns", Name: ""},
-			expected: "test-ns:",
-		},
-		{
-			name:     "empty ID",
-			id:       ID{NS: "", Name: ""},
-			expected: "",
-		},
-		{
-			name:     "complex namespace and name",
-			id:       ID{NS: "my.namespace", Name: "my/name"},
-			expected: "my.namespace:my/name",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := tt.id.Qualified()
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestID_Qualified_ParseRoundTrip(t *testing.T) {
-	bare := ParseID("PopulateItemRelation")
-	assert.Equal(t, ":PopulateItemRelation", bare.String())
-	assert.Equal(t, "PopulateItemRelation", bare.Qualified())
-
-	namespaced := ParseID("app:PopulateItemRelation")
-	assert.Equal(t, "app:PopulateItemRelation", namespaced.String())
-	assert.Equal(t, "app:PopulateItemRelation", namespaced.Qualified())
-}
-
 func TestID_MarshalJSON(t *testing.T) {
 	tests := []struct {
 		name     string

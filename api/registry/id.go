@@ -37,17 +37,6 @@ func (t *ID) String() string {
 	return t.NS + ":" + t.Name
 }
 
-// Qualified returns the namespace-qualified identifier as "ns:name", or just
-// "name" when the namespace is empty. Unlike String, it never emits a leading
-// colon, making it suitable as an external type identifier such as a Temporal
-// workflow or activity type name.
-func (t *ID) Qualified() string {
-	if t.NS == "" {
-		return t.Name
-	}
-	return t.String()
-}
-
 // Equal returns true if both IDs have the same namespace and name.
 func (t *ID) Equal(other ID) bool {
 	return t.NS == other.NS && t.Name == other.Name
