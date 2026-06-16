@@ -9,10 +9,12 @@ import (
 )
 
 var (
-	ErrPoolClosed          = apierror.New(apierror.Unavailable, "connection pool is closed").WithRetryable(apierror.False)
-	ErrTranscoderRequired  = apierror.New(apierror.Invalid, "transcoder is required").WithRetryable(apierror.False)
-	ErrEventBusRequired    = apierror.New(apierror.Invalid, "event bus is required").WithRetryable(apierror.False)
-	ErrPoolFactoryRequired = apierror.New(apierror.Invalid, "pool factory is required").WithRetryable(apierror.False)
+	ErrPoolClosed           = apierror.New(apierror.Unavailable, "connection pool is closed").WithRetryable(apierror.False)
+	ErrTranscoderRequired   = apierror.New(apierror.Invalid, "transcoder is required").WithRetryable(apierror.False)
+	ErrEventBusRequired     = apierror.New(apierror.Invalid, "event bus is required").WithRetryable(apierror.False)
+	ErrPoolFactoryRequired  = apierror.New(apierror.Invalid, "pool factory is required").WithRetryable(apierror.False)
+	ErrNotSQLiteConn        = apierror.New(apierror.Invalid, "underlying connection is not a SQLite connection").WithRetryable(apierror.False)
+	ErrCDCMemoryUnsupported = apierror.New(apierror.Invalid, "sqlite cdc requires a file-backed database").WithRetryable(apierror.False)
 )
 
 func NewPingError(err error) apierror.Error {

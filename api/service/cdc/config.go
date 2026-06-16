@@ -11,6 +11,7 @@ import (
 
 const (
 	Postgres registry.Kind = "db.cdc.postgres"
+	SQLite   registry.Kind = "db.cdc.sqlite"
 )
 
 const (

@@ -26,7 +26,10 @@ for arg in "$@"; do
 	esac
 done
 
-go test ./api/service/cdc ./service/cdc/postgres ./runtime/lua/modules/cdc ./boot/components/dispatchers
+go test ./api/service/cdc ./service/cdc/postgres ./service/cdc/sqlite ./runtime/lua/modules/cdc ./boot/components/dispatchers
+
+echo "running sqlite cdc integration tests (local temp file, no docker)"
+CGO_ENABLED=1 go test -tags "integration sqlite_preupdate_hook" ./service/cdc/sqlite
 
 if [[ -n "${WIPPY_CDC_IT_REPL_DSN:-}" && -n "${WIPPY_CDC_IT_ADMIN_DSN:-}" ]]; then
 	go test -tags integration ./service/cdc/postgres

@@ -8,6 +8,9 @@ type SourceInfo struct {
 	Name        string   `json:"name"`
 	Slot        string   `json:"slot"`
 	Publication string   `json:"publication,omitempty"`
+	Engine      string   `json:"engine,omitempty"`
+	File        string   `json:"file,omitempty"`
+	DBResource  string   `json:"db_resource,omitempty"`
 	Tables      []string `json:"tables,omitempty"`
 	Streaming   bool     `json:"streaming,omitempty"`
 	Failover    bool     `json:"failover,omitempty"`

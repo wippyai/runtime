@@ -15,4 +15,6 @@ var (
 	ErrInvalidInterval          = apierror.New(apierror.Invalid, "interval must be a non-negative duration (e.g. 10s)").WithRetryable(apierror.False)
 	ErrFailoverTemporary        = apierror.New(apierror.Invalid, "failover cannot be set on a temporary slot").WithRetryable(apierror.False)
 	ErrInvalidSnapshotFetchSize = apierror.New(apierror.Invalid, "snapshot_fetch_size must be non-negative").WithRetryable(apierror.False)
+	ErrDBResourceRequired       = apierror.New(apierror.Invalid, "db_resource is required").WithRetryable(apierror.False)
+	ErrSourceNotFound           = apierror.New(apierror.NotFound, "cdc source not found").WithRetryable(apierror.False)
 )

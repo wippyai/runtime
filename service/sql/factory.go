@@ -19,6 +19,8 @@ type PoolFactoryAPI interface {
 	CreateSQLitePool(ctx context.Context, cfg *config.SQLiteConfig) (*ConnPool, error)
 }
 
+var sqliteDriverName = "sqlite3"
+
 // DefaultPoolFactory is the default implementation of PoolFactoryAPI
 type DefaultPoolFactory struct{}
 
@@ -76,7 +78,7 @@ func (f *DefaultPoolFactory) CreateSQLitePool(ctx context.Context, cfg *config.S
 		dsn = "file:" + cfg.File + "?mode=rwc"
 	}
 
-	db, err := sql.Open("sqlite3", dsn)
+	db, err := sql.Open(sqliteDriverName, dsn)
 	if err != nil {
 		return nil, NewSQLiteConnectionCreationError(err)
 	}
