@@ -1064,7 +1064,7 @@ var (
 	ErrDependencyNoContent            = apierror.New(apierror.NotFound, "no download URL available").WithRetryable(apierror.False)
 )
 
-const registryAuthHint = "registry authentication required: start the process with WIPPY_TOKEN set, push a token at runtime via hub.auth.set_token, or run `wippy auth login`"
+const registryAuthHint = "registry authentication required: start the process with WIPPY_TOKEN set, push a token at runtime via hub.auth.authenticate, or run `wippy auth login`"
 
 func NewDependencyEntryInvalidError(entryID, detail, component string) apierror.Error {
 	return apierror.New(apierror.Invalid, "invalid dependency entry").

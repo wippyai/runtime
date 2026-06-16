@@ -60,8 +60,8 @@ func ModuleTypes() *io.Manifest {
 		Build()
 
 	authIface := typ.NewInterface("hub.auth", []typ.Method{
-		{Name: "set_token", Type: typ.Func().Param("token", typ.String).OptParam("registry", typ.String).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
-		{Name: "clear_token", Type: typ.Func().OptParam("registry", typ.String).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "authenticate", Type: typ.Func().Param("token", typ.String).OptParam("registry", typ.String).Returns(authStatus, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "logout", Type: typ.Func().OptParam("registry", typ.String).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "status", Type: typ.Func().OptParam("registry", typ.String).Returns(authStatus, typ.NewOptional(typ.LuaError)).Build()},
 	})
 

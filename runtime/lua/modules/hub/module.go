@@ -111,8 +111,8 @@ func (h *hubModule) build() (*lua.LTable, []luaapi.YieldType) {
 	files.Immutable = true
 
 	auth := lua.CreateTable(0, 3)
-	auth.RawSetString("set_token", lua.LGoFunc(h.authSetToken))
-	auth.RawSetString("clear_token", lua.LGoFunc(h.authClearToken))
+	auth.RawSetString("authenticate", lua.LGoFunc(h.authAuthenticate))
+	auth.RawSetString("logout", lua.LGoFunc(h.authLogout))
 	auth.RawSetString("status", lua.LGoFunc(h.authStatus))
 	auth.Immutable = true
 
@@ -697,7 +697,7 @@ func (h *hubModule) resolveRegistry(registry string) string {
 	return registry
 }
 
-func (h *hubModule) authSetToken(l *lua.LState) int {
+func (h *hubModule) authAuthenticate(l *lua.LState) int {
 	token := strings.TrimSpace(l.OptString(1, ""))
 	registry := h.resolveRegistry(l.OptString(2, ""))
 
@@ -705,31 +705,44 @@ func (h *hubModule) authSetToken(l *lua.LState) int {
 	if err != nil {
 		return pushError(l, err)
 	}
-	if !security.IsAllowed(ctx, "hub.auth.set_token", registry, nil) {
-		return pushError(l, permissionDenied(l, "hub.auth.set_token", registry))
+	if !security.IsAllowed(ctx, "hub.auth.authenticate", registry, nil) {
+		return pushError(l, permissionDenied(l, "hub.auth.authenticate", registry))
 	}
 
 	if formatErr := bootauth.ValidateTokenFormat(token); formatErr != nil {
 		return pushError(l, invalidArgument(l, formatErr.Error()))
 	}
 
+	client, clientErr := bootauth.NewClient(registry)
+	if clientErr != nil {
+		return pushError(l, lua.WrapErrorWithLua(l, clientErr, "auth client init").WithKind(lua.Invalid).WithRetryable(false))
+	}
+
+	result, validateErr := client.Validate(ctx, token)
+	if validateErr != nil {
+		if errors.Is(validateErr, authapi.ErrTokenInvalid) ||
+			errors.Is(validateErr, authapi.ErrTokenExpired) ||
+			errors.Is(validateErr, authapi.ErrInsufficientScope) {
+			return pushAuthStatus(l, registry, false, nil, nil)
+		}
+
+		return pushError(l, hubCallError(l, validateErr))
+	}
+
 	bootauth.SetRuntimeToken(registry, token)
 
-	l.Push(lua.LTrue)
-	l.Push(lua.LNil)
-
-	return 2
+	return pushAuthStatus(l, registry, true, &authapi.Credential{Token: token, Registry: registry}, result)
 }
 
-func (h *hubModule) authClearToken(l *lua.LState) int {
+func (h *hubModule) authLogout(l *lua.LState) int {
 	registry := h.resolveRegistry(l.OptString(1, ""))
 
 	ctx, err := h.requireContext(l)
 	if err != nil {
 		return pushError(l, err)
 	}
-	if !security.IsAllowed(ctx, "hub.auth.clear_token", registry, nil) {
-		return pushError(l, permissionDenied(l, "hub.auth.clear_token", registry))
+	if !security.IsAllowed(ctx, "hub.auth.logout", registry, nil) {
+		return pushError(l, permissionDenied(l, "hub.auth.logout", registry))
 	}
 
 	bootauth.ClearRuntimeToken(registry)
