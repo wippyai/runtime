@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -1063,6 +1064,8 @@ var (
 	ErrDependencyNoContent            = apierror.New(apierror.NotFound, "no download URL available").WithRetryable(apierror.False)
 )
 
+const registryAuthHint = "registry authentication required: start the process with WIPPY_TOKEN set, push a token at runtime via hub.auth.authenticate, or run `wippy auth login`"
+
 func NewDependencyEntryInvalidError(entryID, detail, component string) apierror.Error {
 	return apierror.New(apierror.Invalid, "invalid dependency entry").
 		WithDetails(attrs.NewBagFrom(map[string]any{
@@ -1095,21 +1098,30 @@ func NewDependencyResolutionError(cause error) apierror.Error {
 
 func NewDependencyResolutionErrors(errs []ResolutionError) apierror.Error {
 	details := make([]map[string]any, 0, len(errs))
+	unauthenticated := false
 	for _, e := range errs {
 		details = append(details, map[string]any{
 			"module":     e.Org + "/" + e.Name,
 			"constraint": e.Constraint,
 			"message":    e.Message,
 		})
+		if errors.Is(e.Err, ErrNotAuthenticated) {
+			unauthenticated = true
+		}
+	}
+
+	bag := map[string]any{
+		"count":   len(errs),
+		"summary": formatResolutionErrors(errs),
+		"errors":  details,
+	}
+	if unauthenticated {
+		bag["hint"] = registryAuthHint
 	}
 
 	return apierror.New(apierror.Conflict, "dependency resolution failed").
 		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{
-			"count":   len(errs),
-			"summary": formatResolutionErrors(errs),
-			"errors":  details,
-		}))
+		WithDetails(attrs.NewBagFrom(bag))
 }
 
 func NewDependencyDownloadError(module string, cause error) apierror.Error {

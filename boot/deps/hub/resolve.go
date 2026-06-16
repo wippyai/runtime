@@ -112,6 +112,7 @@ func (r *resolver) resolveOne(ctx context.Context, org, name, constraint string,
 	version, err := r.resolveConstraint(ctx, org, name, constraint)
 	if err != nil {
 		r.errors = append(r.errors, ResolutionError{
+			Err:        err,
 			Org:        org,
 			Name:       name,
 			Constraint: constraint,
@@ -123,6 +124,7 @@ func (r *resolver) resolveOne(ctx context.Context, org, name, constraint string,
 	manifest, err := r.fetchManifest(ctx, org, name, version)
 	if err != nil {
 		r.errors = append(r.errors, ResolutionError{
+			Err:        err,
 			Org:        org,
 			Name:       name,
 			Constraint: constraint,

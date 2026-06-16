@@ -53,12 +53,25 @@ func ModuleTypes() *io.Manifest {
 		{Name: "list", Type: typ.Func().Param("module", typ.Any).Param("version", typ.Any).OptParam("opts", typ.Any).Returns(listResponse, typ.NewOptional(typ.LuaError)).Build()},
 	})
 
+	authStatus := typ.NewRecord().
+		Field("authenticated", typ.Boolean).
+		Field("registry", typ.String).
+		Field("orgs", typ.Any).
+		Build()
+
+	authIface := typ.NewInterface("hub.auth", []typ.Method{
+		{Name: "authenticate", Type: typ.Func().Param("token", typ.String).OptParam("registry", typ.String).Returns(authStatus, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "logout", Type: typ.Func().OptParam("registry", typ.String).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "status", Type: typ.Func().OptParam("registry", typ.String).Returns(authStatus, typ.NewOptional(typ.LuaError)).Build()},
+	})
+
 	moduleType := typ.NewRecord().
 		Field("modules", modulesIface).
 		Field("versions", versionsIface).
 		Field("dependencies", dependenciesIface).
 		Field("dependents", dependentsIface).
 		Field("files", filesIface).
+		Field("auth", authIface).
 		Build()
 
 	m.SetExport(moduleType)

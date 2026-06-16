@@ -31,6 +31,7 @@ type DependencySpec struct {
 }
 
 type ResolutionError struct {
+	Err        error
 	Org        string
 	Name       string
 	Constraint string

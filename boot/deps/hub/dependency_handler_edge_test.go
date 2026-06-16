@@ -3,6 +3,8 @@
 package hub
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 )
@@ -430,6 +433,37 @@ func TestFormatResolutionErrors_Multiple(t *testing.T) {
 	assert.Contains(t, result, "no match")
 	assert.Contains(t, result, "; ")
 	assert.Contains(t, result, "conflict")
+}
+
+// --- NewDependencyResolutionErrors auth hint ---
+
+func TestNewDependencyResolutionErrors_AuthHint(t *testing.T) {
+	errs := []ResolutionError{
+		{Org: "acme", Name: "http", Constraint: "^1.0.0", Message: ErrNotAuthenticated.Error(), Err: ErrNotAuthenticated},
+	}
+
+	apiErr := NewDependencyResolutionErrors(errs)
+	assert.Equal(t, apierror.Conflict, apiErr.Kind())
+	assert.Equal(t, registryAuthHint, apiErr.Details().GetString("hint", ""))
+}
+
+func TestNewDependencyResolutionErrors_AuthHintWrapped(t *testing.T) {
+	wrapped := fmt.Errorf("fetch manifest: %w", ErrNotAuthenticated)
+	errs := []ResolutionError{
+		{Org: "acme", Name: "http", Message: wrapped.Error(), Err: wrapped},
+	}
+
+	apiErr := NewDependencyResolutionErrors(errs)
+	assert.Equal(t, registryAuthHint, apiErr.Details().GetString("hint", ""))
+}
+
+func TestNewDependencyResolutionErrors_NoHintWithoutAuthCause(t *testing.T) {
+	errs := []ResolutionError{
+		{Org: "acme", Name: "http", Message: "no match", Err: errors.New("no match")},
+	}
+
+	apiErr := NewDependencyResolutionErrors(errs)
+	assert.Empty(t, apiErr.Details().GetString("hint", ""))
 }
 
 // --- verifyDownloadedArtifact ---
