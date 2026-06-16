@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
 	regapi "github.com/wippyai/runtime/api/registry"
+	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
+	embedpkg "github.com/wippyai/runtime/service/fs/embed"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
@@ -228,6 +230,28 @@ func TestBuildEmbedPackEffect_NoRegistry(t *testing.T) {
 
 	// No embed registry installed in context: effect is skipped.
 	eff, err := handler.buildEmbedPackEffect(newTestContext(), nil, nil)
+	require.NoError(t, err)
+	assert.Nil(t, eff)
+}
+
+func TestBuildEmbedPackEffect_SkipsUnchangedResolvedPack(t *testing.T) {
+	ctx := embedapi.WithRegistry(newTestContext(), embedpkg.NewRegistry())
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getDownload: func(context.Context, *DownloadParams) (*DownloadInfo, error) {
+				t.Fatal("unchanged module should not resolve a pack path")
+				return nil, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	resolved := []ResolvedModule{{Org: "org", Name: "mod", Version: "1.0.0"}}
+	snapshot := regapi.State{moduleEntry("ui", "app", "org/mod", "1.0.0")}
+
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot)
 	require.NoError(t, err)
 	assert.Nil(t, eff)
 }

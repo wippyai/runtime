@@ -4,6 +4,7 @@ package embed
 
 import (
 	"context"
+	"io"
 	"io/fs"
 	"testing"
 
@@ -56,6 +57,14 @@ func TestLiveUpdate_NewVersionResolvesWhileOldStaged(t *testing.T) {
 	require.NoError(t, reg.RegisterPack("org/mod-v2.0.0.wapp", "org/mod", "2.0.0", newReader, nil))
 
 	manager := NewManager(eventbus.NewBus(), &mockDTT{}, reg, zap.NewNop())
+	oldEntry := registry.Entry{
+		ID:   registry.NewID("ui", "app"),
+		Kind: embedapi.Kind,
+		Meta: moduleMeta("org/mod", "1.0.0"),
+		Data: payload.New(&embedapi.Config{}),
+	}
+	require.NoError(t, manager.Add(context.Background(), oldEntry))
+	assert.Equal(t, "1", readManagerFile(t, manager, oldEntry.ID, "v.txt"))
 
 	newEntry := registry.Entry{
 		ID:   registry.NewID("ui", "app"),
@@ -63,6 +72,9 @@ func TestLiveUpdate_NewVersionResolvesWhileOldStaged(t *testing.T) {
 		Meta: moduleMeta("org/mod", "2.0.0"),
 		Data: payload.New(&embedapi.Config{}),
 	}
+
+	require.NoError(t, manager.Update(context.Background(), newEntry))
+	assert.Equal(t, "2", readManagerFile(t, manager, newEntry.ID, "v.txt"))
 
 	fsys, err := manager.resolveFS(newEntry)
 	require.NoError(t, err)
@@ -107,4 +119,21 @@ func moduleMeta(module, version string) attrs.Bag {
 	meta.Set(metaModuleKey, module)
 	meta.Set(metaModuleVersionKey, version)
 	return meta
+}
+
+func readManagerFile(t *testing.T, manager *Manager, id registry.ID, name string) string {
+	t.Helper()
+
+	manager.mu.RLock()
+	fsys := manager.filesystems[id]
+	manager.mu.RUnlock()
+	require.NotNil(t, fsys)
+
+	file, err := fsys.Open(name)
+	require.NoError(t, err)
+	defer func() { _ = file.Close() }()
+
+	data, err := io.ReadAll(file)
+	require.NoError(t, err)
+	return string(data)
 }

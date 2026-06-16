@@ -139,10 +139,15 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 	}
 
 	desired := make(map[string]string, len(resolved))
+	installed := snapshotModuleVersions(snapshot)
 	staged := make([]stagedPack, 0, len(resolved))
 	for _, mod := range resolved {
 		name := mod.Org + "/" + mod.Name
 		desired[name] = mod.Version
+
+		if installed[name] == mod.Version {
+			continue
+		}
 
 		path, isWapp, err := h.modulePackPath(ctx, mod)
 		if err != nil {
