@@ -12,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
+	secapi "github.com/wippyai/runtime/api/security"
 )
 
 // Instantiator implements contract.Instantiator interface for runtime execution.
@@ -60,6 +61,14 @@ type instanceImpl struct {
 	context   attrs.Bag
 	id        registry.ID
 	contracts []contract.Contract
+
+	// Security context the instance was opened with (via the contract wrapper's
+	// with_actor/with_scope). When set, every method call runs the bound function
+	// under this actor/scope rather than inheriting the caller's ambient one.
+	actor    secapi.Actor
+	hasActor bool
+	secScope secapi.Scope
+	hasScope bool
 }
 
 func (i *instanceImpl) Implements() []contract.Contract {
@@ -101,7 +110,12 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 		Options:  options,
 	}
 
-	// Merge scope values into task.Context for downstream consumers.
+	// Build the context overrides applied to the bound function's FrameContext:
+	// scope values, plus the actor/scope the instance was opened with so the
+	// function runs under the framed security context (the same Task.Context pair
+	// mechanism funcs uses for its with_actor/with_scope).
+	var pairs []ctxapi.Pair
+
 	if len(i.context) > 0 {
 		// Get existing values from FrameContext or create new
 		values := ctxapi.GetValues(ctx)
@@ -117,8 +131,18 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 			values.Set(k, v)
 		}
 
-		// Pass merged values via task.Context so they propagate through OpenFrameContext
-		task.Context = []ctxapi.Pair{ctxapi.ValuesPair(values)}
+		pairs = append(pairs, ctxapi.ValuesPair(values))
+	}
+
+	if i.hasActor {
+		pairs = append(pairs, secapi.ActorPair(i.actor))
+	}
+	if i.hasScope {
+		pairs = append(pairs, secapi.ScopePair(i.secScope))
+	}
+
+	if len(pairs) > 0 {
+		task.Context = pairs
 	}
 
 	// Call the function with context
