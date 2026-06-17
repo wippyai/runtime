@@ -467,9 +467,15 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 		LockedDigests:  h.lockedModuleDigests(),
 	})
 	if err != nil {
+		if h.logger != nil {
+			h.logger.Error("dependency resolution failed", zap.Error(err))
+		}
 		return nil, NewDependencyResolutionError(err)
 	}
 	if len(result.Errors) > 0 {
+		if h.logger != nil {
+			h.logger.Error("dependency resolution failed", zap.String("errors", formatResolutionErrors(result.Errors)))
+		}
 		return nil, NewDependencyResolutionErrors(result.Errors)
 	}
 
@@ -1238,16 +1244,22 @@ func NewDependencyResolutionErrors(errs []ResolutionError) apierror.Error {
 		}
 	}
 
+	summary := formatResolutionErrors(errs)
 	bag := map[string]any{
 		"count":   len(errs),
-		"summary": formatResolutionErrors(errs),
+		"summary": summary,
 		"errors":  details,
 	}
 	if unauthenticated {
 		bag["hint"] = registryAuthHint
 	}
 
-	return apierror.New(apierror.Conflict, "dependency resolution failed").
+	message := "dependency resolution failed"
+	if summary != "" {
+		message += ": " + summary
+	}
+
+	return apierror.New(apierror.Conflict, message).
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(bag))
 }
