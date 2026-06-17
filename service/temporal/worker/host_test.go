@@ -157,6 +157,46 @@ func TestWorker_Run_Success(t *testing.T) {
 	assert.NotEmpty(t, resultPID.UniqID)
 }
 
+func TestWorker_Run_WorkflowNameFromOption(t *testing.T) {
+	var gotType interface{}
+	w := newHostTestWorker(&testTemporalClient{
+		executeWorkflowFn: func(_ context.Context, _ client.StartWorkflowOptions, workflow interface{}, _ ...interface{}) (client.WorkflowRun, error) {
+			gotType = workflow
+			return &testWorkflowRun{}, nil
+		},
+	})
+
+	options := attrs.NewBag()
+	options.Set("workflow.name", "ExternalWorkflow")
+
+	start := &process.Start{
+		Source:  registry.NewID("app", "my-workflow"),
+		Options: options,
+	}
+
+	_, err := w.Run(context.Background(), start)
+	require.NoError(t, err)
+	assert.Equal(t, "ExternalWorkflow", gotType)
+}
+
+func TestWorker_Run_WorkflowNameDefaultsToQualifiedSource(t *testing.T) {
+	var gotType interface{}
+	w := newHostTestWorker(&testTemporalClient{
+		executeWorkflowFn: func(_ context.Context, _ client.StartWorkflowOptions, workflow interface{}, _ ...interface{}) (client.WorkflowRun, error) {
+			gotType = workflow
+			return &testWorkflowRun{}, nil
+		},
+	})
+
+	start := &process.Start{
+		Source: registry.ParseID("PopulateItemRelation"),
+	}
+
+	_, err := w.Run(context.Background(), start)
+	require.NoError(t, err)
+	assert.Equal(t, "PopulateItemRelation", gotType)
+}
+
 func TestWorker_Run_WithExplicitName(t *testing.T) {
 	var sawPolicy bool
 	var sawConflictPolicy enumspb.WorkflowIdConflictPolicy

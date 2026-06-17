@@ -11,6 +11,7 @@ import (
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
+	temporaloptions "github.com/wippyai/runtime/service/temporal/options"
 	"go.uber.org/zap"
 )
 
@@ -20,6 +21,7 @@ const (
 	MetaActivityBag      = "activity"
 	MetaActivityWorker   = "worker"
 	MetaActivityLocal    = "local"
+	MetaActivityName     = "name"
 )
 
 // WorkerRegistry provides access to workers for activity registration
@@ -91,8 +93,8 @@ func (l *Listener) handleEntry(ctx context.Context, entry registry.Entry) error 
 		return nil
 	}
 
-	// Always use full ID as activity name
-	activityName := entry.ID.String()
+	// Use custom name from metadata or default to qualified ID
+	activityName := activityMeta.GetString(MetaActivityName, temporaloptions.ActivityNameFromID(entry.ID))
 	isLocal := activityMeta.GetBool(MetaActivityLocal, false)
 
 	if isLocal {
@@ -139,8 +141,8 @@ func (l *Listener) handleDelete(ctx context.Context, entry registry.Entry) error
 		return nil
 	}
 
-	// Always use full ID as activity name
-	activityName := entry.ID.String()
+	// Use custom name from metadata or default to qualified ID
+	activityName := activityMeta.GetString(MetaActivityName, temporaloptions.ActivityNameFromID(entry.ID))
 
 	if err := l.workers.UnregisterActivity(ctx, workerID, activityName); err != nil {
 		l.log.Error("failed to unregister activity",

@@ -16,6 +16,20 @@ entries:
         workflow:
           worker: app.test.temporal:test_worker
 
+  # Named workflow - registered under an explicit string type name, decoupled
+  # from its registry id (proves meta.temporal.workflow.name on registration).
+  - name: named_hello_workflow
+    kind: workflow.lua
+    source: file://named_hello_workflow.lua
+    method: main
+    modules:
+      - time
+    meta:
+      temporal:
+        workflow:
+          worker: app.test.temporal:test_worker
+          name: ExternalNamedWorkflow
+
   # Concurrent workflow - demonstrates coroutines, channels, and timers
   - name: concurrent_workflow
     kind: workflow.lua

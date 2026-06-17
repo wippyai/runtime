@@ -17,6 +17,21 @@ entries:
     imports:
       assert2: app.lib:assert
 
+  - name: workflow_custom_name
+    kind: function.lua
+    meta:
+      type: test
+      suite: temporal
+      description: explicit workflow.name meta/option decouples type name from registry id
+    source: file://workflow_custom_name.lua
+    method: main
+    modules:
+      - process
+      - time
+      - channel
+    imports:
+      assert2: app.lib:assert
+
   - name: spawn_monitored
     kind: function.lua
     meta:

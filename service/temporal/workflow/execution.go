@@ -17,6 +17,7 @@ import (
 	workflowapi "github.com/wippyai/runtime/api/runtime/workflow"
 	"github.com/wippyai/runtime/api/topology"
 	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
+	temporaloptions "github.com/wippyai/runtime/service/temporal/options"
 	commonpb "go.temporal.io/api/common/v1"
 	bindings "go.temporal.io/sdk/internalbindings"
 	"go.uber.org/zap"
@@ -187,9 +188,9 @@ func (d *Definition) executeContinueAsNew() {
 		return
 	}
 
-	workflowType := d.id.String()
+	workflowType := temporaloptions.WorkflowNameFromID(d.id)
 	if req.Source.Name != "" {
-		workflowType = req.Source.String()
+		workflowType = temporaloptions.WorkflowNameFromID(req.Source)
 	}
 
 	var input *commonpb.Payloads

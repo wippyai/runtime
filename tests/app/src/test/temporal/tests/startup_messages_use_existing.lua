@@ -79,7 +79,7 @@ local function main()
 	if msg == nil then
 		error("missing ok for first startup increment")
 	end
-	local data = payload_data(msg)
+	local data = payload_data(msg as Message)
 	assert.is_table(data, "ok payload is table")
 	assert.eq(data.value, 3, "first startup increment applied")
 
@@ -111,7 +111,7 @@ local function main()
 	if msg == nil then
 		error("missing ok for second startup increment")
 	end
-	data = payload_data(msg)
+	data = payload_data(msg as Message)
 	assert.is_table(data, "second ok payload is table")
 	assert.eq(data.value, 5, "second startup increment applied to existing workflow")
 
@@ -130,7 +130,7 @@ local function main()
 	if msg == nil then
 		error("missing finish ok")
 	end
-	data = payload_data(msg)
+	data = payload_data(msg as Message)
 	assert.is_table(data, "finish ok payload is table")
 	assert.contains(tostring(data.message), "finishing", "finish confirmation")
 
