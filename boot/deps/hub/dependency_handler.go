@@ -686,20 +686,14 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 	}
 
 	url := mod.URL
+	urlIsFresh := false
 	if url == "" {
-		downloadURLCtx, cancel := withOptionalTimeout(ctx, h.downloadTimeout)
-		defer cancel()
-
-		info, err := h.hub.GetDownloadURL(downloadURLCtx, &DownloadParams{
-			Org:       mod.Org,
-			Module:    mod.Name,
-			Version:   mod.Version,
-			VersionID: mod.VersionID,
-		})
-		if err != nil {
-			return "", NewDependencyDownloadError(modKey(mod), err)
+		info, infoErr := h.freshDownloadInfo(ctx, mod)
+		if infoErr != nil {
+			return "", NewDependencyDownloadError(modKey(mod), infoErr)
 		}
 		url = info.URL
+		urlIsFresh = true
 		if expectedDigest == "" {
 			expectedDigest = info.Digest
 		}
@@ -714,8 +708,25 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 	downloadCtx, cancel := withOptionalTimeout(ctx, h.downloadTimeout)
 	defer cancel()
 
-	if err := h.hub.DownloadToFile(downloadCtx, url, wappPath); err != nil {
-		return "", NewDependencyDownloadError(modKey(mod), err)
+	downloadErr := h.hub.DownloadToFile(downloadCtx, url, wappPath)
+	if downloadErr != nil && !urlIsFresh {
+		// mod.URL is a presigned URL captured at resolve time; on a long-lived
+		// process it can expire (15-min TTL) before download. Fetch a fresh URL
+		// and retry once before giving up.
+		if info, infoErr := h.freshDownloadInfo(ctx, mod); infoErr == nil && info != nil && info.URL != "" {
+			if expectedDigest == "" {
+				expectedDigest = info.Digest
+			}
+			if expectedSize == 0 {
+				expectedSize = info.Size
+			}
+			retryCtx, retryCancel := withOptionalTimeout(ctx, h.downloadTimeout)
+			defer retryCancel()
+			downloadErr = h.hub.DownloadToFile(retryCtx, info.URL, wappPath)
+		}
+	}
+	if downloadErr != nil {
+		return "", NewDependencyDownloadError(modKey(mod), downloadErr)
 	}
 	if err := verifyDownloadedArtifact(wappPath, expectedDigest, expectedSize); err != nil {
 		_ = os.Remove(wappPath)
@@ -730,6 +741,21 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 	}
 
 	return wappPath, nil
+}
+
+// freshDownloadInfo fetches a current presigned download URL for a module.
+// Used both when the resolved manifest carries no URL and to refresh a URL
+// that expired before the artifact could be downloaded.
+func (h *DependencyHandler) freshDownloadInfo(ctx context.Context, mod ResolvedModule) (*DownloadInfo, error) {
+	downloadURLCtx, cancel := withOptionalTimeout(ctx, h.downloadTimeout)
+	defer cancel()
+
+	return h.hub.GetDownloadURL(downloadURLCtx, &DownloadParams{
+		Org:       mod.Org,
+		Module:    mod.Name,
+		Version:   mod.Version,
+		VersionID: mod.VersionID,
+	})
 }
 
 func (h *DependencyHandler) extractWappModule(wappPath, dirPath string) error {

@@ -195,6 +195,56 @@ func TestDependencyHandler_RejectsDownloadedArtifactWithDigestMismatch(t *testin
 	assert.Equal(t, "acme/http@v1.0.0", apiErr.Details().GetString("module", ""))
 }
 
+func TestDependencyHandler_RetriesDownloadWithFreshURLWhenPresignedExpired(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, "vendor")
+	moduleData := buildWappBytes(t, []wapp.Entry{
+		{ID: wapp.NewID("mod", "svc"), Kind: "service", Data: map[string]any{"ok": true}},
+	})
+	sum := sha256.Sum256(moduleData)
+	digest := "sha256:" + hex.EncodeToString(sum[:])
+
+	var freshFetched atomic.Int32
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, _ string) (*ModuleManifest, error) {
+				return &ModuleManifest{
+					Org: org, Name: module, Version: "v1.0.0",
+					URL:    "https://stale.invalid/expired.wapp",
+					Digest: digest,
+				}, nil
+			},
+			getDownload: func(_ context.Context, _ *DownloadParams) (*DownloadInfo, error) {
+				freshFetched.Add(1)
+				return &DownloadInfo{URL: "https://fresh.invalid/valid.wapp", Digest: digest}, nil
+			},
+			downloadFile: func(_ context.Context, url, destPath string) error {
+				if url == "https://stale.invalid/expired.wapp" {
+					return fmt.Errorf("download failed with status 403: Request has expired")
+				}
+				if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+					return err
+				}
+				return os.WriteFile(destPath, moduleData, 0600)
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	depEntry := regapi.Entry{
+		ID:   regapi.NewID("app", "dep"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/http","version":"v1.0.0"}`, payload.JSON),
+	}
+
+	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, nil)
+	require.NoError(t, err, "an expired presigned download URL must be refreshed and retried")
+	assert.GreaterOrEqual(t, freshFetched.Load(), int32(1), "a fresh download URL should be fetched for the retry")
+}
+
 func TestDependencyHandler_RedownloadsCorruptCachedArtifact(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()
