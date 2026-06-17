@@ -68,7 +68,7 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 	}
 
 	originalIDs := make(map[registry.ID]struct{}, len(changes))
-	expandedIDs := make(map[registry.ID]struct{})
+	expandedOpsByID := make(map[registry.ID]map[string]struct{})
 	scoped := make([]ScopedOp, 0, len(changes))
 	for _, op := range changes {
 		originalIDs[op.Entry.ID] = struct{}{}
@@ -117,10 +117,9 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 				if _, exists := originalIDs[addID]; exists {
 					continue
 				}
-				if _, exists := expandedIDs[addID]; exists {
+				if !recordExpandedOperation(expandedOpsByID, add.Operation) {
 					return nil, NewDirectiveExpansionConflictError(addID)
 				}
-				expandedIDs[addID] = struct{}{}
 				scoped = append(scoped, ScopedOp{
 					Operation: add.Operation,
 					Scope:     add.Scope,
@@ -133,6 +132,35 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 	}
 
 	return &Plan{Ops: scoped, Effects: effects, Expanded: expanded}, nil
+}
+
+func recordExpandedOperation(opsByID map[registry.ID]map[string]struct{}, op registry.Operation) bool {
+	id := op.Entry.ID
+	kinds := opsByID[id]
+	if kinds == nil {
+		opsByID[id] = map[string]struct{}{op.Kind: {}}
+		return true
+	}
+	if _, exists := kinds[op.Kind]; exists {
+		return false
+	}
+	if len(kinds) != 1 {
+		return false
+	}
+
+	if op.Kind == registry.EntryCreate {
+		if _, ok := kinds[registry.EntryDelete]; ok {
+			kinds[op.Kind] = struct{}{}
+			return true
+		}
+	}
+	if op.Kind == registry.EntryDelete {
+		if _, ok := kinds[registry.EntryCreate]; ok {
+			kinds[op.Kind] = struct{}{}
+			return true
+		}
+	}
+	return false
 }
 
 // SortOps sorts scoped operations with the canonical registry operation sorter.

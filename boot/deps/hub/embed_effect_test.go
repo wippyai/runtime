@@ -8,15 +8,21 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	moduleapi "github.com/wippyai/runtime/api/modules"
+	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
+	"github.com/wippyai/runtime/boot/deps/lock"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
+	yamlpayload "github.com/wippyai/runtime/system/payload/yaml"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
@@ -208,6 +214,26 @@ func TestEmbedPackEffect_PrepareMissingPackFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "open embedded pack failed")
 }
 
+func TestEmbedPackEffect_PreparePartialFailureRollsBackStagedPacks(t *testing.T) {
+	dir := t.TempDir()
+	firstPack := filepath.Join(dir, "org", "mod-v1.0.0.wapp")
+	missingPack := filepath.Join(dir, "org", "missing-v1.0.0.wapp")
+	writeResourceWapp(t, firstPack, "ui", "app", map[string]string{"index.html": "<html>"})
+
+	reg := newStubPackRegistry()
+	eff := newEffect(reg, []stagedPack{
+		{packPath: firstPack, module: "org/mod", version: "1.0.0"},
+		{packPath: missingPack, module: "org/missing", version: "1.0.0"},
+	}, nil)
+
+	err := eff.Prepare(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "open embedded pack failed")
+	assert.Contains(t, reg.unregistered, firstPack)
+	assert.NotContains(t, reg.registered, firstPack)
+	assert.Nil(t, eff.prepared)
+}
+
 func TestObsoletePacksFor(t *testing.T) {
 	snapshot := regapi.State{
 		moduleEntry("ui", "old-app", "org/mod", "1.0.0"),
@@ -251,16 +277,24 @@ func TestBuildEmbedPackEffect_NoRegistry(t *testing.T) {
 }
 
 func TestBuildEmbedPackEffect_SkipsUnchangedResolvedPack(t *testing.T) {
-	ctx := embedapi.WithRegistry(newTestContext(), embedpkg.NewRegistry())
+	reg := embedpkg.NewRegistry()
+	defer func() { require.NoError(t, reg.Close()) }()
+	ctx := embedapi.WithRegistry(newTestContext(), reg)
+	vendorDir := t.TempDir()
+	packPath := filepath.Join(vendorDir, "org", "mod-1.0.0.wapp")
+	writeResourceWapp(t, packPath, "ui", "app", map[string]string{"v.txt": "1"})
+	require.NoError(t, reg.RegisterPack(packPath, "org/mod", "1.0.0",
+		createHubResourceReader(t, "ui", "app", map[string]string{"v.txt": "1"}), nil))
+
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
 		Hub: &fakeHub{
 			getDownload: func(context.Context, *DownloadParams) (*DownloadInfo, error) {
-				t.Fatal("unchanged module should not resolve a pack path")
+				t.Fatal("unchanged registered module should not download")
 				return nil, nil
 			},
 		},
 		Logger:    zap.NewNop(),
-		VendorDir: t.TempDir(),
+		VendorDir: vendorDir,
 	})
 	require.NoError(t, err)
 
@@ -270,6 +304,125 @@ func TestBuildEmbedPackEffect_SkipsUnchangedResolvedPack(t *testing.T) {
 	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot)
 	require.NoError(t, err)
 	assert.Nil(t, eff)
+}
+
+func TestBuildEmbedPackEffect_StagesUnchangedPackWhenRegistryMissing(t *testing.T) {
+	reg := embedpkg.NewRegistry()
+	defer func() { require.NoError(t, reg.Close()) }()
+	ctx := embedapi.WithRegistry(newTestContext(), reg)
+	vendorDir := t.TempDir()
+	packPath := filepath.Join(vendorDir, "org", "mod-1.0.0.wapp")
+	writeResourceWapp(t, packPath, "ui", "app", map[string]string{"v.txt": "1"})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getDownload: func(context.Context, *DownloadParams) (*DownloadInfo, error) {
+				t.Fatal("test pack already exists in the vendor cache")
+				return nil, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	resolved := []ResolvedModule{{Org: "org", Name: "mod", Version: "1.0.0"}}
+	snapshot := regapi.State{moduleEntry("ui", "app", "org/mod", "1.0.0")}
+
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot)
+	require.NoError(t, err)
+	require.NotNil(t, eff)
+	assert.Equal(t, []stagedPack{{packPath: packPath, module: "org/mod", version: "1.0.0"}}, eff.staged)
+	assert.Empty(t, eff.obsolete)
+}
+
+func TestBuildEmbedPackEffect_DropsPackWhenResolvedModuleIsDirectory(t *testing.T) {
+	reg := embedpkg.NewRegistry()
+	defer func() { require.NoError(t, reg.Close()) }()
+	ctx := embedapi.WithRegistry(newTestContext(), reg)
+	projectDir := t.TempDir()
+	vendorDir := filepath.Join(projectDir, ".wippy", "vendor")
+	lockPath := filepath.Join(projectDir, lock.DefaultFilename)
+	replacementDir := filepath.Join(projectDir, "local", "mod")
+	require.NoError(t, os.MkdirAll(replacementDir, 0755))
+
+	lockObj, err := lock.New(lockPath)
+	require.NoError(t, err)
+	lockObj.SetDirectories(lock.Directories{Modules: ".wippy", Src: "."})
+	lockObj.SetModule(lock.Module{Name: "org/mod", Version: "1.0.0"})
+	lockObj.SetReplacement(lock.Replacement{From: "org/mod", To: "local/mod"})
+	require.NoError(t, lockObj.Write())
+
+	oldReader := createHubResourceReader(t, "ui", "app", map[string]string{"v.txt": "old"})
+	require.NoError(t, reg.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, nil))
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub:       &fakeHub{},
+		Logger:    zap.NewNop(),
+		LockPath:  lockPath,
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	resolved := []ResolvedModule{{Org: "org", Name: "mod", Version: "1.0.0"}}
+	snapshot := regapi.State{moduleEntry("ui", "app", "org/mod", "1.0.0")}
+
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot)
+	require.NoError(t, err)
+	require.NotNil(t, eff)
+	assert.Empty(t, eff.staged)
+	assert.Equal(t, []obsoletePack{{module: "org/mod", version: "1.0.0"}}, eff.obsolete)
+
+	require.NoError(t, eff.Commit(context.Background()))
+	_, err = reg.GetFSForEntry(moduleEntry("ui", "app", "org/mod", "1.0.0"))
+	require.Error(t, err)
+}
+
+func TestBuildEmbedPackEffect_DropsPackWhenUnpackModulesEnabled(t *testing.T) {
+	reg := embedpkg.NewRegistry()
+	defer func() { require.NoError(t, reg.Close()) }()
+	ctx := embedapi.WithRegistry(newTestContext(), reg)
+	projectDir := t.TempDir()
+	vendorDir := filepath.Join(projectDir, ".wippy", "vendor")
+	lockPath := filepath.Join(projectDir, lock.DefaultFilename)
+	dirPath := filepath.Join(vendorDir, "org", "mod")
+	require.NoError(t, os.MkdirAll(dirPath, 0755))
+
+	lockObj, err := lock.New(lockPath)
+	require.NoError(t, err)
+	lockObj.SetDirectories(lock.Directories{Modules: ".wippy", Src: "."})
+	lockObj.SetOptions(lock.Options{UnpackModules: true})
+	lockObj.SetModule(lock.Module{Name: "org/mod", Version: "1.0.0"})
+	require.NoError(t, lockObj.Write())
+
+	oldReader := createHubResourceReader(t, "ui", "app", map[string]string{"v.txt": "old"})
+	require.NoError(t, reg.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, nil))
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getDownload: func(context.Context, *DownloadParams) (*DownloadInfo, error) {
+				t.Fatal("same-version unpacked module should use existing directory without downloading")
+				return nil, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		LockPath:  lockPath,
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	resolved := []ResolvedModule{{Org: "org", Name: "mod", Version: "1.0.0"}}
+	snapshot := regapi.State{moduleEntry("ui", "app", "org/mod", "1.0.0")}
+
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot)
+	require.NoError(t, err)
+	require.NotNil(t, eff)
+	assert.Empty(t, eff.staged)
+	assert.Equal(t, []obsoletePack{{module: "org/mod", version: "1.0.0"}}, eff.obsolete)
+
+	require.NoError(t, eff.Commit(context.Background()))
+	_, err = reg.GetFSForEntry(moduleEntry("ui", "app", "org/mod", "1.0.0"))
+	require.Error(t, err)
 }
 
 func TestBuildEmbedPackEffect_StagesOnlyChangedPacks(t *testing.T) {
@@ -352,6 +505,171 @@ func TestEmbedPackEffect_UpdateRollbackKeepsLiveOldVersion(t *testing.T) {
 	assert.Equal(t, "1", readHubResource(t, reg, moduleEntry("ui", "app", "org/mod", "1.0.0"), "v.txt"))
 }
 
+func TestEnsureModuleAvailable_UnpackModulesExtractsCachedWapp(t *testing.T) {
+	projectDir := t.TempDir()
+	vendorDir := filepath.Join(projectDir, ".wippy", "vendor")
+	lockPath := filepath.Join(projectDir, lock.DefaultFilename)
+	packPath := filepath.Join(vendorDir, "org", "mod-1.0.0.wapp")
+	dirPath := filepath.Join(vendorDir, "org", "mod")
+	writeEmbeddedFSWapp(t, packPath, "ui", "app", map[string]string{"asset.txt": "new"})
+	require.NoError(t, os.MkdirAll(dirPath, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dirPath, "stale.txt"), []byte("old"), 0644))
+
+	lockObj, err := lock.New(lockPath)
+	require.NoError(t, err)
+	lockObj.SetDirectories(lock.Directories{Modules: ".wippy", Src: "."})
+	lockObj.SetOptions(lock.Options{UnpackModules: true})
+	lockObj.SetModule(lock.Module{Name: "org/mod", Version: "1.0.0"})
+	require.NoError(t, lockObj.Write())
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getDownload: func(context.Context, *DownloadParams) (*DownloadInfo, error) {
+				t.Fatal("cached pack should be extracted without downloading")
+				return nil, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		LockPath:  lockPath,
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	gotPath, err := handler.ensureModuleAvailable(
+		context.Background(),
+		ResolvedModule{Org: "org", Name: "mod", Version: "1.0.0"},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, dirPath, gotPath)
+	assert.NoFileExists(t, packPath)
+	assert.NoFileExists(t, filepath.Join(dirPath, "stale.txt"))
+	assert.FileExists(t, filepath.Join(dirPath, "app", "asset.txt"))
+
+	indexData, err := os.ReadFile(filepath.Join(dirPath, "_index.yaml"))
+	require.NoError(t, err)
+	assert.True(t, strings.Contains(string(indexData), "kind: fs.directory"), string(indexData))
+}
+
+func TestEnsureModuleAvailable_UnpackModulesDownloadsWhenDirectoryVersionStale(t *testing.T) {
+	projectDir := t.TempDir()
+	vendorDir := filepath.Join(projectDir, ".wippy", "vendor")
+	lockPath := filepath.Join(projectDir, lock.DefaultFilename)
+	dirPath := filepath.Join(vendorDir, "org", "mod")
+	require.NoError(t, os.MkdirAll(dirPath, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dirPath, "stale.txt"), []byte("old"), 0644))
+
+	lockObj, err := lock.New(lockPath)
+	require.NoError(t, err)
+	lockObj.SetDirectories(lock.Directories{Modules: ".wippy", Src: "."})
+	lockObj.SetOptions(lock.Options{UnpackModules: true})
+	lockObj.SetModule(lock.Module{Name: "org/mod", Version: "1.0.0"})
+	require.NoError(t, lockObj.Write())
+
+	downloaded := false
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getDownload: func(context.Context, *DownloadParams) (*DownloadInfo, error) {
+				return &DownloadInfo{URL: "memory://org/mod-2.0.0.wapp"}, nil
+			},
+			downloadFile: func(_ context.Context, _ string, destPath string) error {
+				downloaded = true
+				writeEmbeddedFSWapp(t, destPath, "ui", "app", map[string]string{"asset.txt": "new"})
+				return nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		LockPath:  lockPath,
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	gotPath, err := handler.ensureModuleAvailable(
+		context.Background(),
+		ResolvedModule{Org: "org", Name: "mod", Version: "2.0.0"},
+	)
+	require.NoError(t, err)
+	assert.True(t, downloaded)
+	assert.Equal(t, dirPath, gotPath)
+	assert.NoFileExists(t, filepath.Join(dirPath, "stale.txt"))
+	assert.FileExists(t, filepath.Join(dirPath, "app", "asset.txt"))
+	assert.NoFileExists(t, filepath.Join(vendorDir, "org", "mod-2.0.0.wapp"))
+}
+
+func TestExtractWappModule_FailurePreservesExistingDirectory(t *testing.T) {
+	projectDir := t.TempDir()
+	vendorDir := filepath.Join(projectDir, ".wippy", "vendor")
+	wappPath := filepath.Join(vendorDir, "org", "mod-2.0.0.wapp")
+	dirPath := filepath.Join(vendorDir, "org", "mod")
+	require.NoError(t, os.MkdirAll(filepath.Dir(wappPath), 0755))
+	require.NoError(t, os.MkdirAll(dirPath, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dirPath, "live.txt"), []byte("old"), 0644))
+	require.NoError(t, os.WriteFile(wappPath, []byte("not a wapp"), 0644))
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub:       &fakeHub{},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	err = handler.extractWappModule(wappPath, dirPath)
+	require.Error(t, err)
+	assert.FileExists(t, filepath.Join(dirPath, "live.txt"))
+	assert.FileExists(t, wappPath)
+}
+
+func TestLoadEntriesForModule_UnpackModulesRegistersRuntimeSourceRoot(t *testing.T) {
+	projectDir := t.TempDir()
+	vendorDir := filepath.Join(projectDir, ".wippy", "vendor")
+	lockPath := filepath.Join(projectDir, lock.DefaultFilename)
+	packPath := filepath.Join(vendorDir, "org", "mod-1.0.0.wapp")
+	dirPath := filepath.Join(vendorDir, "org", "mod")
+	writeEmbeddedFSWapp(t, packPath, "ui", "app", map[string]string{"asset.txt": "new"})
+
+	lockObj, err := lock.New(lockPath)
+	require.NoError(t, err)
+	lockObj.SetDirectories(lock.Directories{Modules: ".wippy", Src: "."})
+	lockObj.SetOptions(lock.Options{UnpackModules: true})
+	lockObj.SetModule(lock.Module{Name: "org/mod", Version: "1.0.0"})
+	require.NoError(t, lockObj.Write())
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getDownload: func(context.Context, *DownloadParams) (*DownloadInfo, error) {
+				t.Fatal("cached pack should be extracted without downloading")
+				return nil, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		LockPath:  lockPath,
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	ctx := moduleapi.WithSourceRootRegistry(newTestContext())
+	transcoder := payload.GetTranscoder(ctx)
+	register, ok := transcoder.(payload.TranscoderRegister)
+	require.True(t, ok)
+	yamlpayload.Register(register)
+	ac := ctxapi.AppFromContext(ctx)
+	require.NotNil(t, ac)
+	ac.Seal()
+
+	entries, err := handler.loadEntriesForModule(
+		ctx,
+		transcoder,
+		ResolvedModule{Org: "org", Name: "mod", Version: "1.0.0"},
+	)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, regapi.NewID("ui", "app"), entries[0].ID)
+	assert.Equal(t, regapi.Kind("fs.directory"), entries[0].Kind)
+
+	root, ok := moduleapi.SourceRoot(ctx, "org/mod")
+	require.True(t, ok)
+	assert.Equal(t, dirPath, root)
+}
+
 func moduleEntry(ns, name, module, version string) regapi.Entry {
 	meta := attrs.NewBag()
 	meta.Set(metaModuleKey, module)
@@ -373,6 +691,32 @@ func createHubResourceReader(t *testing.T, ns, name string, files map[string]str
 	reader, err := wapp.NewReader(file)
 	require.NoError(t, err)
 	return reader
+}
+
+func writeEmbeddedFSWapp(t *testing.T, path, ns, name string, files map[string]string) {
+	t.Helper()
+
+	mapFS := fstest.MapFS{}
+	for p, content := range files {
+		mapFS[p] = &fstest.MapFile{Data: []byte(content), Mode: 0644}
+	}
+
+	var buf bytes.Buffer
+	writer := wapp.NewWriter()
+	require.NoError(t, writer.PackWithResources(
+		wapp.Metadata{},
+		[]wapp.Entry{{
+			ID:   wapp.NewID(ns, name),
+			Kind: embedapi.Kind,
+			Meta: wapp.Metadata{},
+			Data: map[string]any{},
+		}},
+		[]wapp.ResourceSpec{{ID: wapp.NewID(ns, name), FS: mapFS}},
+		&buf,
+	))
+
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
+	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0600))
 }
 
 func readHubResource(t *testing.T, reg *embedpkg.Registry, entry regapi.Entry, name string) string {

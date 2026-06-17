@@ -196,6 +196,47 @@ func TestPlanner_Expand_ConflictBetweenDirectiveExpansions(t *testing.T) {
 	assert.Contains(t, err.Error(), "expansion produced entry")
 }
 
+func TestPlanner_Expand_AllowsDeleteCreateExpandedReplacement(t *testing.T) {
+	oldEntry := newEntry("mod", "assets", "fs.embed")
+	replacementEntry := newEntry("mod", "assets", "fs.directory")
+	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+		return registry.DirectiveResult{
+			Applied: true,
+			Additional: []registry.ScopedOperation{
+				{Operation: newOp(registry.EntryDelete, oldEntry), Scope: registry.ScopeBaseline},
+				{Operation: newOp(registry.EntryCreate, replacementEntry), Scope: registry.ScopeBaseline},
+			},
+		}, nil
+	}}
+
+	p := NewPlanner(map[registry.Kind][]registry.Directive{"dep": {dir}}, nil, zap.NewNop())
+	entry := newEntry("app", "dep", "dep")
+	changes := registry.ChangeSet{newOp(registry.EntryCreate, entry)}
+
+	plan, err := p.Expand(context.Background(), changes, nil)
+	require.NoError(t, err)
+	require.Len(t, plan.Ops, 3)
+
+	sorted, err := p.SortOps(registry.State{oldEntry}, plan.Ops)
+	require.NoError(t, err)
+
+	deleteIndex, createIndex := -1, -1
+	for i, op := range sorted {
+		if op.Operation.Entry.ID != oldEntry.ID {
+			continue
+		}
+		switch op.Operation.Kind {
+		case registry.EntryDelete:
+			deleteIndex = i
+		case registry.EntryCreate:
+			createIndex = i
+		}
+	}
+	require.NotEqual(t, -1, deleteIndex)
+	require.NotEqual(t, -1, createIndex)
+	assert.Less(t, deleteIndex, createIndex)
+}
+
 func TestPlanner_Expand_InvalidResult_NotAppliedButHasData(t *testing.T) {
 	dir := &stubDirective{expandFunc: func(_ context.Context, _ registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
 		return registry.DirectiveResult{
