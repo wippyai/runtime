@@ -32,6 +32,7 @@ import (
 	entrypkg "github.com/wippyai/runtime/internal/entry"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -462,9 +463,16 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 	if h.manifestCache != nil {
 		provider = h.manifestCache
 	}
+	lockedDigests := h.lockedModuleDigests()
+	provider = &replacementManifestProvider{
+		base:           provider,
+		handler:        h,
+		lockedVersions: lockedVersions,
+		lockedDigests:  lockedDigests,
+	}
 	result, err := Resolve(resolveCtx, provider, roots, &ResolveOptions{
 		LockedVersions: lockedVersions,
-		LockedDigests:  h.lockedModuleDigests(),
+		LockedDigests:  lockedDigests,
 	})
 	if err != nil {
 		if h.logger != nil {
@@ -480,6 +488,53 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 	}
 
 	return result.Modules, nil
+}
+
+// replacementManifestProvider resolves locally-replaced modules from their lock
+// replacement instead of the Hub. A replaced module's source of truth is local,
+// so it must never be re-fetched from the Hub during live changeset expansion —
+// otherwise installing any module fails when an already-installed, locally-sourced
+// module is absent from the Hub. Non-replaced modules delegate to the base provider.
+type replacementManifestProvider struct {
+	base           ManifestProvider
+	handler        *DependencyHandler
+	lockedVersions map[string]string
+	lockedDigests  map[string]string
+}
+
+func (p *replacementManifestProvider) replacedVersion(name, constraint string) string {
+	if version := p.lockedVersions[name]; version != "" {
+		return version
+	}
+	if version := p.handler.replacementModuleVersion(name); version != "" {
+		return version
+	}
+	return strings.TrimPrefix(constraint, "@")
+}
+
+func (p *replacementManifestProvider) GetManifest(ctx context.Context, org, module, constraint string) (*ModuleManifest, error) {
+	name := org + "/" + module
+	if _, ok := p.handler.replacementPath(name); ok {
+		if version := p.replacedVersion(name, constraint); version != "" {
+			return &ModuleManifest{
+				Org:     org,
+				Name:    module,
+				Version: version,
+				Digest:  p.lockedDigests[name],
+			}, nil
+		}
+	}
+	return p.base.GetManifest(ctx, org, module, constraint)
+}
+
+func (p *replacementManifestProvider) ListAllVersions(ctx context.Context, org, module string) ([]VersionInfo, error) {
+	name := org + "/" + module
+	if _, ok := p.handler.replacementPath(name); ok {
+		if version := p.replacedVersion(name, ""); version != "" {
+			return []VersionInfo{{Version: version}}, nil
+		}
+	}
+	return p.base.ListAllVersions(ctx, org, module)
 }
 
 // touchedModuleNames returns the resolved modules this operation actually
@@ -721,6 +776,44 @@ func (h *DependencyHandler) replacementPath(moduleName string) (string, bool) {
 		path = filepath.Join(filepath.Dir(lockObj.Path()), path)
 	}
 	return path, true
+}
+
+// replacementModuleVersion reads the authoritative version of a locally-replaced
+// module from its wippy.yaml, used when resolving the module from its local source
+// instead of the Hub.
+func (h *DependencyHandler) replacementModuleVersion(moduleName string) string {
+	path, ok := h.replacementPath(moduleName)
+	if !ok {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(path, "wippy.yaml"))
+	if err != nil {
+		return ""
+	}
+	var manifest struct {
+		Version string `yaml:"version"`
+	}
+	if err := yaml.Unmarshal(data, &manifest); err == nil {
+		if version := strings.TrimSpace(manifest.Version); version != "" {
+			return version
+		}
+	}
+	// version is a top-level scalar; read it directly so an unrelated YAML
+	// quirk elsewhere in the manifest cannot leave a locally replaced module
+	// unresolvable and wrongly send it to the Hub.
+	return topLevelYAMLScalar(data, "version")
+}
+
+func topLevelYAMLScalar(data []byte, key string) string {
+	prefix := key + ":"
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		value := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		return strings.Trim(value, `"'`)
+	}
+	return ""
 }
 
 func (h *DependencyHandler) shouldUnpackModules() bool {

@@ -1087,6 +1087,155 @@ func TestDependencyHandler_ResolveModules_PinsInstalledTransitiveVersions(t *tes
 	assert.NotContains(t, manifestRequests, "wippy/facade@0.6.0")
 }
 
+func TestDependencyHandler_ResolveModules_ToleratesReplacedModuleAbsentFromHub(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	lockPath := filepath.Join(tmpDir, "wippy.lock")
+	require.NoError(t, os.WriteFile(lockPath, []byte(`directories:
+  modules: .wippy
+  src: ./src
+modules:
+  - name: acme/app
+    version: 1.0.0
+  - name: local/mod
+    version: 0.1.0
+replacements:
+  - from: local/mod
+    to: ./local-mod
+`), 0600))
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				if org+"/"+module == "local/mod" {
+					return nil, fmt.Errorf("module not found")
+				}
+				return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		LockPath:  lockPath,
+		VendorDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	modules, err := handler.resolveModules(ctx,
+		[]DependencyDefinition{
+			{Component: "acme/app", Version: "1.0.0"},
+			{Component: "local/mod", Version: "0.1.0"},
+		},
+		map[string]string{"local/mod": "0.1.0"},
+	)
+
+	require.NoError(t, err, "a locally-replaced module absent from the Hub must not fail resolution")
+	require.Len(t, modules, 2)
+	var found bool
+	for _, m := range modules {
+		if m.Org == "local" && m.Name == "mod" {
+			found = true
+			assert.Equal(t, "0.1.0", m.Version)
+		}
+	}
+	assert.True(t, found, "replaced module should resolve from its local source")
+}
+
+func TestDependencyHandler_ResolveModules_ReplacedModuleRangeConstraintFromLocalManifest(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	lockPath := filepath.Join(tmpDir, "wippy.lock")
+	localMod := filepath.Join(tmpDir, "local-mod")
+	require.NoError(t, os.MkdirAll(localMod, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(localMod, "wippy.yaml"), []byte("organization: local\nmodule: mod\nversion: 0.2.0\n"), 0600))
+	require.NoError(t, os.WriteFile(lockPath, []byte(`directories:
+  modules: .wippy
+  src: ./src
+modules:
+  - name: acme/app
+    version: 1.0.0
+replacements:
+  - from: local/mod
+    to: ./local-mod
+`), 0600))
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				if org+"/"+module == "local/mod" {
+					return nil, fmt.Errorf("module not found")
+				}
+				return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+			},
+			listVersions: func(_ context.Context, org, module string) ([]VersionInfo, error) {
+				return nil, fmt.Errorf("module not found")
+			},
+		},
+		Logger:    zap.NewNop(),
+		LockPath:  lockPath,
+		VendorDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	modules, err := handler.resolveModules(ctx,
+		[]DependencyDefinition{{Component: "local/mod", Version: ">=v0.1.0"}},
+		map[string]string{},
+	)
+
+	require.NoError(t, err, "a replaced module with a range constraint and no locked version must resolve from its local wippy.yaml")
+	require.Len(t, modules, 1)
+	assert.Equal(t, "local", modules[0].Org)
+	assert.Equal(t, "mod", modules[0].Name)
+	assert.Equal(t, "0.2.0", modules[0].Version)
+}
+
+func TestDependencyHandler_ResolveModules_ReplacedModuleVersionFromManifestWithUnrelatedYAMLQuirk(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	lockPath := filepath.Join(tmpDir, "wippy.lock")
+	localMod := filepath.Join(tmpDir, "local-mod")
+	require.NoError(t, os.MkdirAll(localMod, 0755))
+	// description contains ": " which makes the full YAML document invalid,
+	// yet the top-level version scalar is well-formed.
+	require.NoError(t, os.WriteFile(filepath.Join(localMod, "wippy.yaml"),
+		[]byte("organization: local\nmodule: mod\nversion: 0.3.0\ndescription: Self-contained: builds and ships\n"), 0600))
+	require.NoError(t, os.WriteFile(lockPath, []byte(`directories:
+  modules: .wippy
+  src: ./src
+modules:
+  - name: acme/app
+    version: 1.0.0
+replacements:
+  - from: local/mod
+    to: ./local-mod
+`), 0600))
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				if org+"/"+module == "local/mod" {
+					return nil, fmt.Errorf("module not found")
+				}
+				return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+			},
+			listVersions: func(_ context.Context, _, _ string) ([]VersionInfo, error) {
+				return nil, fmt.Errorf("module not found")
+			},
+		},
+		Logger:    zap.NewNop(),
+		LockPath:  lockPath,
+		VendorDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	modules, err := handler.resolveModules(ctx,
+		[]DependencyDefinition{{Component: "local/mod", Version: ">=v0.1.0"}},
+		map[string]string{},
+	)
+
+	require.NoError(t, err)
+	require.Len(t, modules, 1)
+	assert.Equal(t, "0.3.0", modules[0].Version)
+}
+
 func TestDependencyHandler_CollectDesiredDependencies_DoesNotPinUpdatedDependency(t *testing.T) {
 	ctx := newTestContext()
 	transcoder := payload.GetTranscoder(ctx)
