@@ -521,7 +521,7 @@ func (p *replacementManifestProvider) GetManifest(ctx context.Context, org, modu
 				Org:     org,
 				Name:    module,
 				Version: version,
-				Digest:  p.lockedDigests[name],
+				Digest:  p.lockedDigests[name+"@"+version],
 			}, nil
 		}
 	}
@@ -984,10 +984,14 @@ func (h *DependencyHandler) lockedModuleDigests() map[string]string {
 	}
 	digests := make(map[string]string, len(modules))
 	for _, mod := range modules {
-		if mod.Hash == "" || mod.Name == "" {
+		if mod.Hash == "" || mod.Name == "" || mod.Version == "" {
 			continue
 		}
-		digests[mod.Name] = mod.Hash
+		// Key by name@version so the integrity check only fires when resolving
+		// the exact version the lock pins. A version-agnostic key would compare
+		// a new version's digest against the locked old version's and wrongly
+		// block updates.
+		digests[mod.Name+"@"+mod.Version] = mod.Hash
 	}
 	if len(digests) == 0 {
 		return nil
