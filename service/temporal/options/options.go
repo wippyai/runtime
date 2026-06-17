@@ -47,6 +47,7 @@ const (
 	OptionWorkflowWaitForCancellation = "workflow.wait_for_cancellation"
 	OptionWorkflowParentClosePolicy   = "workflow.parent_close_policy"
 	OptionWorkflowVersioningIntent    = "workflow.versioning_intent"
+	OptionWorkflowName                = "workflow.name"
 
 	OptionActivityID               = "activity.id"
 	OptionActivityTaskQueue        = "activity.task_queue"
@@ -60,6 +61,7 @@ const (
 	OptionActivityVersioningIntent = "activity.versioning_intent"
 	OptionActivitySummary          = "activity.summary"
 	OptionActivityPriority         = "activity.priority"
+	OptionActivityName             = "activity.name"
 
 	legacyWorkflowSearchAttributes      = "temporal.workflow.search_attributes"
 	legacyWorkflowTypedSearchAttributes = "temporal.workflow.typed_search_attributes"
@@ -96,6 +98,7 @@ var legacyOptionAliases = map[string][]string{
 	OptionWorkflowWaitForCancellation: {"temporal.workflow.wait_for_cancellation"},
 	OptionWorkflowParentClosePolicy:   {"temporal.workflow.parent_close_policy"},
 	OptionWorkflowVersioningIntent:    {"temporal.workflow.versioning_intent"},
+	OptionWorkflowName:                {"temporal.workflow.name"},
 
 	OptionActivityID:               {"temporal.activity.id"},
 	OptionActivityTaskQueue:        {"temporal.activity.task_queue"},
@@ -109,6 +112,7 @@ var legacyOptionAliases = map[string][]string{
 	OptionActivityVersioningIntent: {"temporal.activity.versioning_intent"},
 	OptionActivitySummary:          {"temporal.activity.summary"},
 	OptionActivityPriority:         {"temporal.activity.priority"},
+	OptionActivityName:             {"temporal.activity.name"},
 }
 
 // StartOptionState tracks which optional fields were explicitly set during option application.

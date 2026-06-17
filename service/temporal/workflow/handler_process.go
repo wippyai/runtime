@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	temporalerrors "github.com/wippyai/runtime/service/temporal/errors"
+	temporaloptions "github.com/wippyai/runtime/service/temporal/options"
 	"github.com/wippyai/runtime/service/temporal/propagator"
 	commonpb "go.temporal.io/api/common/v1"
 	bindings "go.temporal.io/sdk/internalbindings"
@@ -151,7 +152,7 @@ func (d *Definition) executeProcessSpawn(cmd *process.SpawnCmd, tag uint64) erro
 		return nil
 	}
 
-	workflowName := cmd.Start.Source.String()
+	workflowName := temporaloptions.WorkflowName(cmd.Start.Options, cmd.Start.Source)
 
 	args, err := d.dc.ToPayloads(cmd.Start.Input)
 	if err != nil {
@@ -304,7 +305,7 @@ func (d *Definition) executeProcessUnlink(_ *process.UnlinkCmd, tag uint64) erro
 
 // executeProcessExec handles process.exec from workflows by executing a child workflow synchronously.
 func (d *Definition) executeProcessExec(cmd *process.ExecCmd, tag uint64) error {
-	workflowName := cmd.Source.String()
+	workflowName := temporaloptions.WorkflowNameFromID(cmd.Source)
 
 	var args *commonpb.Payloads
 	if len(cmd.Input) > 0 {
