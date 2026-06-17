@@ -1087,6 +1087,41 @@ func TestDependencyHandler_ResolveModules_PinsInstalledTransitiveVersions(t *tes
 	assert.NotContains(t, manifestRequests, "wippy/facade@0.6.0")
 }
 
+func TestDependencyHandler_ResolveModules_LockedDigestDoesNotBlockUpdate(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	lockPath := filepath.Join(tmpDir, "wippy.lock")
+	require.NoError(t, os.WriteFile(lockPath, []byte(`directories:
+  modules: .wippy
+  src: ./src
+modules:
+  - name: acme/http
+    version: 1.0.0
+    hash: sha256:v1digest
+`), 0600))
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				return &ModuleManifest{Org: org, Name: module, Version: version, Digest: "sha256:v2digest"}, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		LockPath:  lockPath,
+		VendorDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	modules, err := handler.resolveModules(ctx,
+		[]DependencyDefinition{{Component: "acme/http", Version: "2.0.0"}},
+		map[string]string{},
+	)
+
+	require.NoError(t, err, "a digest locked for v1 must not block resolving/updating to v2")
+	require.Len(t, modules, 1)
+	assert.Equal(t, "2.0.0", modules[0].Version)
+}
+
 func TestDependencyHandler_ResolveModules_ToleratesReplacedModuleAbsentFromHub(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()
