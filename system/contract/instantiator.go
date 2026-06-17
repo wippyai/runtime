@@ -57,18 +57,14 @@ func (i *Instantiator) Instantiate(ctx context.Context, bindingID registry.ID, s
 // instanceImpl implements contract.Instance interface.
 type instanceImpl struct {
 	funcReg   function.Registry
+	secScope  secapi.Scope
 	binding   *contract.Binding
 	context   attrs.Bag
 	id        registry.ID
+	actor     secapi.Actor
 	contracts []contract.Contract
-
-	// Security context the instance was opened with (via the contract wrapper's
-	// with_actor/with_scope). When set, every method call runs the bound function
-	// under this actor/scope rather than inheriting the caller's ambient one.
-	actor    secapi.Actor
-	secScope secapi.Scope
-	hasActor bool
-	hasScope bool
+	hasActor  bool
+	hasScope  bool
 }
 
 // securityFramer is implemented by contract instances that can run their bound
