@@ -20,9 +20,11 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	relayapi "github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	secapi "github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/internal/uniqid"
 	functionSys "github.com/wippyai/runtime/system/function"
 	"github.com/wippyai/runtime/system/relay"
+	secsystem "github.com/wippyai/runtime/system/security"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -356,6 +358,131 @@ func TestInstanceImpl_Call_Integration(t *testing.T) {
 	_, err = instance.Call(ctx, "unknownMethod", payload.Payloads{}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "method 'unknownMethod' not bound")
+}
+
+// framePolicy is a minimal Policy used to prove a framed scope carries its
+// policies through to the bound function's execution context.
+type framePolicy struct {
+	id registry.ID
+}
+
+func (p framePolicy) ID() registry.ID { return p.id }
+
+func (p framePolicy) Evaluate(_ secapi.Actor, _, _ string, _ attrs.Bag) secapi.Result {
+	return secapi.Allow
+}
+
+// TestInstanceImpl_Call_FramesActorScopeAndPolicies asserts the security context
+// an instance is framed with (actor + scope, scope carrying its policies) reaches
+// the bound function's execution context on every call. This is the contract-level
+// counterpart to the Lua integration tests: it proves the propagation at the
+// instance boundary, including the scope's policy contents.
+func TestInstanceImpl_Call_FramesActorScopeAndPolicies(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	ctx = relayapi.WithNode(ctx, relay.NewNode("test"))
+
+	uniqGen := uniqid.NewGenerator()
+	pidGen := uniqid.NewPIDGenerator(uniqGen, "")
+	ctx = process.WithPIDGenerator(ctx, pidGen)
+
+	instantiator, bus, contractRegistry, functionRegistry := setupInstantiatorTest()
+
+	require.NoError(t, contractRegistry.Start(ctx))
+	require.NoError(t, functionRegistry.Start(ctx))
+	defer func() {
+		require.NoError(t, contractRegistry.Stop())
+		require.NoError(t, functionRegistry.Stop())
+	}()
+
+	var wg sync.WaitGroup
+
+	contractSub, err := eventbus.NewSubscriber(ctx, bus, contract.System, "contract.*", func(evt event.Event) {
+		if evt.Kind == contract.ContractAccept {
+			wg.Done()
+		}
+	})
+	require.NoError(t, err)
+	defer contractSub.Close()
+
+	functionSub, err := eventbus.NewSubscriber(ctx, bus, function.System, "function.*", func(evt event.Event) {
+		if evt.Kind == function.FunctionAccept {
+			wg.Done()
+		}
+	})
+	require.NoError(t, err)
+	defer functionSub.Close()
+
+	// The bound function reports the actor, scope presence, and the scope's policy
+	// IDs it observes in its own execution context.
+	funcID := registry.NewID("test", "report_security")
+	reportFunc := function.Func(func(fctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+		actorID := "none"
+		if actor, ok := secapi.GetActor(fctx); ok {
+			actorID = actor.ID
+		}
+		policyIDs := "none"
+		if scope, ok := secapi.GetScope(fctx); ok {
+			policies := scope.Policies()
+			if len(policies) > 0 {
+				pid := policies[0].ID()
+				policyIDs = pid.String()
+			} else {
+				policyIDs = "empty"
+			}
+		}
+		return &runtime.Result{Value: payload.New("actor:" + actorID + "|policy:" + policyIDs)}, nil
+	})
+
+	wg.Add(1)
+	bus.Send(ctx, event.Event{
+		System: function.System,
+		Kind:   function.FunctionRegister,
+		Path:   funcID.String(),
+		Data:   &function.FuncEntry{Handler: reportFunc},
+	})
+	wg.Wait()
+
+	contractID := registry.NewID("test", "secured_contract")
+	wg.Add(1)
+	bus.Send(ctx, event.Event{
+		System: contract.System,
+		Kind:   contract.RegisterDefinition,
+		Path:   contractID.String(),
+		Data:   &contract.Definition{Methods: []contract.MethodDef{{Name: "report"}}},
+	})
+	wg.Wait()
+
+	bindingID := registry.NewID("test", "secured_binding")
+	wg.Add(1)
+	bus.Send(ctx, event.Event{
+		System: contract.System,
+		Kind:   contract.RegisterBinding,
+		Path:   bindingID.String(),
+		Data: &contract.Binding{
+			Contracts: []contract.BoundContract{
+				{Contract: contractID, Methods: map[string]registry.ID{"report": funcID}},
+			},
+		},
+	})
+	wg.Wait()
+
+	instance, err := instantiator.Instantiate(ctx, bindingID, attrs.Bag{})
+	require.NoError(t, err)
+
+	framer, ok := instance.(securityFramer)
+	require.True(t, ok, "built-in instance must support security framing")
+
+	policyID := registry.NewID("test", "allow-report")
+	scope := secsystem.NewScope([]secapi.Policy{framePolicy{id: policyID}})
+	framer.frameSecurity(secapi.Actor{ID: "framed-owner"}, true, scope, true)
+
+	// Every call runs under the framed actor and scope, including its policies.
+	for i := 0; i < 2; i++ {
+		result, err := instance.Call(ctx, "report", payload.Payloads{}, nil)
+		require.NoError(t, err)
+		require.Nil(t, result.Error)
+		assert.Equal(t, "actor:framed-owner|policy:"+policyID.String(), result.Value.Data().(string))
+	}
 }
 
 func TestInstanceImpl_Call_WithOptions(t *testing.T) {

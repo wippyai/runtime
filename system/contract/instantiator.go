@@ -71,6 +71,19 @@ type instanceImpl struct {
 	hasScope bool
 }
 
+// securityFramer is implemented by contract instances that can run their bound
+// functions under an explicit open-time security context (the actor/scope set on
+// the contract wrapper via with_actor/with_scope). handleOpen frames the instance
+// through this capability rather than coupling to a concrete type.
+type securityFramer interface {
+	frameSecurity(actor secapi.Actor, hasActor bool, scope secapi.Scope, hasScope bool)
+}
+
+func (i *instanceImpl) frameSecurity(actor secapi.Actor, hasActor bool, scope secapi.Scope, hasScope bool) {
+	i.actor, i.hasActor = actor, hasActor
+	i.secScope, i.hasScope = scope, hasScope
+}
+
 func (i *instanceImpl) Implements() []contract.Contract {
 	return i.contracts
 }

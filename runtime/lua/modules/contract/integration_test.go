@@ -1291,3 +1291,156 @@ func TestIntegration_ActorPropagation_PersistsAcrossCalls(t *testing.T) {
 	require.NotNil(t, result.Value)
 	assert.Equal(t, "actor:owner-42|actor:owner-42", string(result.Value.Data().(lua.LString)))
 }
+
+// TestIntegration_ScopePropagation asserts that a scope framed on a contract via
+// with_scope() reaches the bound function's execution context. The ambient context
+// carries no scope, so the bound function only sees one if framing propagated it.
+func TestIntegration_ScopePropagation(t *testing.T) {
+	tc := setupIntegrationTest(t, 4)
+	defer tc.Close(t)
+
+	funcID := registry.NewID("test", "whichscope")
+	tc.registerFunction(t, funcID, func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+		if _, ok := security.GetScope(ctx); ok {
+			return &runtime.Result{Value: payload.New("scope:yes")}, nil
+		}
+		return &runtime.Result{Value: payload.New("scope:no")}, nil
+	})
+
+	contractID := registry.NewID("test", "whichscope_service")
+	tc.registerContract(t, contractID, &apicontract.Definition{
+		Methods: []apicontract.MethodDef{{Name: "run"}},
+	})
+
+	bindingID := registry.NewID("test", "whichscope_impl")
+	tc.registerBinding(t, bindingID, &apicontract.Binding{
+		Contracts: []apicontract.BoundContract{
+			{Contract: contractID, Methods: map[string]registry.ID{"run": funcID}},
+		},
+	})
+
+	script := `
+		local scope = security.new_scope()
+		local instance, err = contract.get("test:whichscope_service"):with_scope(scope):open("test:whichscope_impl")
+		if err then
+			return nil, tostring(err)
+		end
+		local result, err = instance:run()
+		if err then
+			return nil, tostring(err)
+		end
+		return result
+	`
+
+	frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
+	proc := newLuaProcessWithSecurity(t, script)
+
+	result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
+	require.NoError(t, err)
+	require.Nil(t, result.Error)
+	require.NotNil(t, result.Value)
+	assert.Equal(t, "scope:yes", string(result.Value.Data().(lua.LString)))
+}
+
+// TestIntegration_ActorPropagation_OverridesAmbient asserts that with_actor() wins
+// over an actor already present in the caller's ambient context: framing replaces
+// the inherited actor rather than merely filling an empty slot.
+func TestIntegration_ActorPropagation_OverridesAmbient(t *testing.T) {
+	tc := setupIntegrationTest(t, 4)
+	defer tc.Close(t)
+
+	funcID := registry.NewID("test", "whoami3")
+	tc.registerFunction(t, funcID, func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+		actor, ok := security.GetActor(ctx)
+		if !ok {
+			return &runtime.Result{Value: payload.New("no-actor")}, nil
+		}
+		return &runtime.Result{Value: payload.New("actor:" + actor.ID)}, nil
+	})
+
+	contractID := registry.NewID("test", "whoami3_service")
+	tc.registerContract(t, contractID, &apicontract.Definition{
+		Methods: []apicontract.MethodDef{{Name: "whoami"}},
+	})
+
+	bindingID := registry.NewID("test", "whoami3_impl")
+	tc.registerBinding(t, bindingID, &apicontract.Binding{
+		Contracts: []apicontract.BoundContract{
+			{Contract: contractID, Methods: map[string]registry.ID{"whoami": funcID}},
+		},
+	})
+
+	script := `
+		local actor = security.new_actor("framed-user", {})
+		local instance, err = contract.get("test:whoami3_service"):with_actor(actor):open("test:whoami3_impl")
+		if err then
+			return nil, tostring(err)
+		end
+		local result, err = instance:whoami()
+		if err then
+			return nil, tostring(err)
+		end
+		return result
+	`
+
+	frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
+	require.NoError(t, security.SetActor(frameCtx, security.Actor{ID: "ambient-user"}))
+	proc := newLuaProcessWithSecurity(t, script)
+
+	result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
+	require.NoError(t, err)
+	require.Nil(t, result.Error)
+	require.NotNil(t, result.Value)
+	assert.Equal(t, "actor:framed-user", string(result.Value.Data().(lua.LString)))
+}
+
+// TestIntegration_ContractInheritsAmbientActor asserts that without with_actor()
+// the bound function still runs under the caller's ambient actor. This guards the
+// framing change against regressing the default inheritance path.
+func TestIntegration_ContractInheritsAmbientActor(t *testing.T) {
+	tc := setupIntegrationTest(t, 4)
+	defer tc.Close(t)
+
+	funcID := registry.NewID("test", "whoami4")
+	tc.registerFunction(t, funcID, func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+		actor, ok := security.GetActor(ctx)
+		if !ok {
+			return &runtime.Result{Value: payload.New("no-actor")}, nil
+		}
+		return &runtime.Result{Value: payload.New("actor:" + actor.ID)}, nil
+	})
+
+	contractID := registry.NewID("test", "whoami4_service")
+	tc.registerContract(t, contractID, &apicontract.Definition{
+		Methods: []apicontract.MethodDef{{Name: "whoami"}},
+	})
+
+	bindingID := registry.NewID("test", "whoami4_impl")
+	tc.registerBinding(t, bindingID, &apicontract.Binding{
+		Contracts: []apicontract.BoundContract{
+			{Contract: contractID, Methods: map[string]registry.ID{"whoami": funcID}},
+		},
+	})
+
+	script := `
+		local instance, err = contract.get("test:whoami4_service"):open("test:whoami4_impl")
+		if err then
+			return nil, tostring(err)
+		end
+		local result, err = instance:whoami()
+		if err then
+			return nil, tostring(err)
+		end
+		return result
+	`
+
+	frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
+	require.NoError(t, security.SetActor(frameCtx, security.Actor{ID: "ambient-user"}))
+	proc := newLuaProcessWithSecurity(t, script)
+
+	result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
+	require.NoError(t, err)
+	require.Nil(t, result.Error)
+	require.NotNil(t, result.Value)
+	assert.Equal(t, "actor:ambient-user", string(result.Value.Data().(lua.LString)))
+}
