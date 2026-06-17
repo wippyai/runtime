@@ -1430,3 +1430,55 @@ func TestIntegration_ContractInheritsAmbientActor(t *testing.T) {
 	require.NotNil(t, result.Value)
 	assert.Equal(t, "actor:ambient-user", string(result.Value.Data().(lua.LString)))
 }
+
+// TestIntegration_ActorPropagation_AsyncCall asserts the framed actor also reaches
+// the bound function through the async call path (method_async + future), which
+// routes through the same instance as the sync path.
+func TestIntegration_ActorPropagation_AsyncCall(t *testing.T) {
+	tc := setupIntegrationTest(t, 4)
+	defer tc.Close(t)
+
+	funcID := registry.NewID("test", "whoami_async_fn")
+	tc.registerFunction(t, funcID, actorReportFunc)
+
+	contractID := registry.NewID("test", "whoami_async_service")
+	tc.registerContract(t, contractID, &apicontract.Definition{
+		Methods: []apicontract.MethodDef{{Name: "whoami"}},
+	})
+
+	bindingID := registry.NewID("test", "whoami_async_impl")
+	tc.registerBinding(t, bindingID, &apicontract.Binding{
+		Contracts: []apicontract.BoundContract{
+			{Contract: contractID, Methods: map[string]registry.ID{"whoami": funcID}, Default: true},
+		},
+	})
+
+	script := `
+		local actor = security.new_actor("async-owner", {})
+		local instance, err = contract.get("test:whoami_async_service"):with_actor(actor):open("test:whoami_async_impl")
+		if err then
+			return nil, tostring(err)
+		end
+		local future, err = instance:whoami_async()
+		if err then
+			return nil, "async start failed: " .. tostring(err)
+		end
+		local p, ok = future:response():receive()
+		if not ok then
+			return nil, "future channel closed without result"
+		end
+		if p == nil then
+			return nil, "nil result"
+		end
+		return p:data()
+	`
+
+	frameCtx, runPID := asyncFrameCtx(t, tc)
+	proc := newLuaProcessWithSecurity(t, script)
+
+	result, err := tc.scheduler.Execute(frameCtx, runPID, proc, "", nil)
+	require.NoError(t, err)
+	require.Nil(t, result.Error, "script error: %v", result.Error)
+	require.NotNil(t, result.Value)
+	assert.Equal(t, "actor:async-owner", string(result.Value.Data().(lua.LString)))
+}
