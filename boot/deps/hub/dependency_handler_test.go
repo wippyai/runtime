@@ -1236,6 +1236,59 @@ replacements:
 	assert.Equal(t, "0.3.0", modules[0].Version)
 }
 
+func TestDependencyHandler_LoadEntriesForModule_AppliesExcludeMetaForDirectorySource(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	lockPath := filepath.Join(tmpDir, "wippy.lock")
+	localMod := filepath.Join(tmpDir, "local-mod")
+	require.NoError(t, os.MkdirAll(localMod, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(localMod, "wippy.yaml"),
+		[]byte("organization: local\nmodule: mod\nversion: 0.1.0\nexclude_meta:\n  type:\n    - test\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(localMod, "_index.json"), []byte(`{
+  "namespace": "local.mod",
+  "entries": [
+    { "name": "keep", "kind": "fs.directory", "path": "./keep" },
+    { "name": "drop", "kind": "fs.directory", "meta": { "type": "test" }, "path": "./drop" }
+  ]
+}`), 0600))
+	require.NoError(t, os.WriteFile(lockPath, []byte(`directories:
+  modules: .wippy
+  src: ./src
+modules:
+  - name: local/mod
+    version: 0.1.0
+replacements:
+  - from: local/mod
+    to: ./local-mod
+`), 0600))
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub:       &fakeHub{},
+		Logger:    zap.NewNop(),
+		LockPath:  lockPath,
+		VendorDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	transcoder := payload.GetTranscoder(ctx)
+	require.NotNil(t, transcoder)
+
+	entries, err := handler.loadEntriesForModule(ctx, transcoder, ResolvedModule{Org: "local", Name: "mod", Version: "0.1.0"})
+	require.NoError(t, err)
+
+	var hasKeep, hasDrop bool
+	for _, e := range entries {
+		if e.ID == regapi.NewID("local.mod", "keep") {
+			hasKeep = true
+		}
+		if e.ID == regapi.NewID("local.mod", "drop") {
+			hasDrop = true
+		}
+	}
+	assert.True(t, hasKeep, "non-test entry must load")
+	assert.False(t, hasDrop, "test entry must be excluded per the module's exclude_meta")
+}
+
 func TestDependencyHandler_CollectDesiredDependencies_DoesNotPinUpdatedDependency(t *testing.T) {
 	ctx := newTestContext()
 	transcoder := payload.GetTranscoder(ctx)

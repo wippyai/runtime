@@ -24,6 +24,7 @@ import (
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
 	"github.com/wippyai/runtime/boot/deps/auth"
+	depconfig "github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/boot/deps/wappextract"
@@ -584,7 +585,40 @@ func (h *DependencyHandler) loadEntriesForModule(ctx context.Context, transcoder
 		return nil, err
 	}
 	registerResolvedModuleSourceRoot(ctx, mod.Org+"/"+mod.Name, modulePath)
-	return loadRawEntriesFromPaths(ctx, []string{modulePath}, h.logger, transcoder)
+	entries, err := loadRawEntriesFromPaths(ctx, []string{modulePath}, h.logger, transcoder)
+	if err != nil {
+		return nil, err
+	}
+	return h.applyModuleConfigFilters(ctx, modulePath, entries)
+}
+
+// applyModuleConfigFilters drops entries the module's wippy.yaml excludes
+// (exclude / exclude_meta) when the module is loaded from a directory tree —
+// e.g. a lock replacement pointed at the module's source. Without it a host app
+// picks up the module's own fixtures (test/_index.yaml under namespace "app"),
+// which then collide with the host's real entries during linking. .wapp packs
+// are skipped: they were already filtered at publish time.
+func (h *DependencyHandler) applyModuleConfigFilters(ctx context.Context, modulePath string, entries []regapi.Entry) ([]regapi.Entry, error) {
+	if filepath.Ext(modulePath) == ".wapp" {
+		return entries, nil
+	}
+	cfg, err := depconfig.Load(modulePath)
+	if err != nil {
+		return entries, nil
+	}
+	entryExcludes := cfg.EntryExcludes()
+	if len(entryExcludes) == 0 && len(cfg.ExcludeMeta) == 0 {
+		return entries, nil
+	}
+	filtered := append([]regapi.Entry(nil), entries...)
+	stage := stages.DisableWithOptions(stages.DisableOptions{
+		Entries:     entryExcludes,
+		MetaFilters: cfg.ExcludeMeta,
+	})
+	if err := stage.Execute(ctx, &filtered); err != nil {
+		return nil, NewDependencyLoadError(modulePath, err)
+	}
+	return filtered, nil
 }
 
 func registerResolvedModuleSourceRoot(ctx context.Context, moduleName, modulePath string) {
