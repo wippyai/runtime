@@ -66,8 +66,8 @@ type instanceImpl struct {
 	// with_actor/with_scope). When set, every method call runs the bound function
 	// under this actor/scope rather than inheriting the caller's ambient one.
 	actor    secapi.Actor
-	hasActor bool
 	secScope secapi.Scope
+	hasActor bool
 	hasScope bool
 }
 

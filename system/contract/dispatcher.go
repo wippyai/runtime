@@ -71,7 +71,7 @@ func (d *Dispatcher) handleOpen(ctx context.Context, cmd dispatcher.Command, tag
 		}
 		// Carry the open-time security framing (with_actor/with_scope) onto the
 		// instance so every method call runs the bound function under it.
-		if (openCmd.HasActor || openCmd.HasScope) && instance != nil {
+		if openCmd.HasActor || openCmd.HasScope {
 			if framer, ok := instance.(securityFramer); ok {
 				framer.frameSecurity(openCmd.Actor, openCmd.HasActor, openCmd.SecurityScope, openCmd.HasScope)
 			}

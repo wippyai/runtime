@@ -1185,6 +1185,16 @@ func newLuaProcessWithSecurity(t *testing.T, script string) *engine.Process {
 	return proc
 }
 
+// actorReportFunc reports the actor present in its execution context, used by the
+// framing tests to observe which actor the bound function runs under.
+func actorReportFunc(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+	actor, ok := security.GetActor(ctx)
+	if !ok {
+		return &runtime.Result{Value: payload.New("no-actor")}, nil
+	}
+	return &runtime.Result{Value: payload.New("actor:" + actor.ID)}, nil
+}
+
 // TestIntegration_ActorPropagation asserts that an actor framed on a contract via
 // with_actor() reaches the bound function's execution context. The bound function
 // reads the actor from its ctx and returns its id; the script frames a specific
@@ -1194,13 +1204,7 @@ func TestIntegration_ActorPropagation(t *testing.T) {
 	defer tc.Close(t)
 
 	funcID := registry.NewID("test", "whoami")
-	tc.registerFunction(t, funcID, func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
-		actor, ok := security.GetActor(ctx)
-		if !ok {
-			return &runtime.Result{Value: payload.New("no-actor")}, nil
-		}
-		return &runtime.Result{Value: payload.New("actor:" + actor.ID)}, nil
-	})
+	tc.registerFunction(t, funcID, actorReportFunc)
 
 	contractID := registry.NewID("test", "whoami_service")
 	tc.registerContract(t, contractID, &apicontract.Definition{
@@ -1245,13 +1249,7 @@ func TestIntegration_ActorPropagation_PersistsAcrossCalls(t *testing.T) {
 	defer tc.Close(t)
 
 	funcID := registry.NewID("test", "whoami2")
-	tc.registerFunction(t, funcID, func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
-		actor, ok := security.GetActor(ctx)
-		if !ok {
-			return &runtime.Result{Value: payload.New("no-actor")}, nil
-		}
-		return &runtime.Result{Value: payload.New("actor:" + actor.ID)}, nil
-	})
+	tc.registerFunction(t, funcID, actorReportFunc)
 
 	contractID := registry.NewID("test", "whoami2_service")
 	tc.registerContract(t, contractID, &apicontract.Definition{
@@ -1350,13 +1348,7 @@ func TestIntegration_ActorPropagation_OverridesAmbient(t *testing.T) {
 	defer tc.Close(t)
 
 	funcID := registry.NewID("test", "whoami3")
-	tc.registerFunction(t, funcID, func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
-		actor, ok := security.GetActor(ctx)
-		if !ok {
-			return &runtime.Result{Value: payload.New("no-actor")}, nil
-		}
-		return &runtime.Result{Value: payload.New("actor:" + actor.ID)}, nil
-	})
+	tc.registerFunction(t, funcID, actorReportFunc)
 
 	contractID := registry.NewID("test", "whoami3_service")
 	tc.registerContract(t, contractID, &apicontract.Definition{
@@ -1402,13 +1394,7 @@ func TestIntegration_ContractInheritsAmbientActor(t *testing.T) {
 	defer tc.Close(t)
 
 	funcID := registry.NewID("test", "whoami4")
-	tc.registerFunction(t, funcID, func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
-		actor, ok := security.GetActor(ctx)
-		if !ok {
-			return &runtime.Result{Value: payload.New("no-actor")}, nil
-		}
-		return &runtime.Result{Value: payload.New("actor:" + actor.ID)}, nil
-	})
+	tc.registerFunction(t, funcID, actorReportFunc)
 
 	contractID := registry.NewID("test", "whoami4_service")
 	tc.registerContract(t, contractID, &apicontract.Definition{
