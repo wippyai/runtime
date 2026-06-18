@@ -329,6 +329,71 @@ func TestUpgradeSuccess_ForksSealedFrameForReplacementProcess(t *testing.T) {
 	}
 }
 
+// pidAssertingProcess fails Init unless the upgrade frame carries the expected PID.
+type pidAssertingProcess struct {
+	wantPID pidapi.PID
+}
+
+func (p *pidAssertingProcess) Init(ctx context.Context, _ string, _ payload.Payloads) error {
+	got, ok := runtime.GetFramePID(ctx)
+	if !ok {
+		return errors.New("frame pid missing after upgrade")
+	}
+	if got.String() != p.wantPID.String() {
+		return fmt.Errorf("frame pid = %v, want %v", got, p.wantPID)
+	}
+	return nil
+}
+func (p *pidAssertingProcess) Step(_ []process.Event, out *process.StepOutput) error {
+	out.Done(nil)
+	return nil
+}
+func (p *pidAssertingProcess) Send(*relay.Package) error { return nil }
+func (p *pidAssertingProcess) Close()                    {}
+
+// TestUpgradeSuccess_PreservesFramePIDAcrossSealedFork guards the regression where
+// process.pid() returned nil in the upgraded instance: the upgrade path forks a fresh
+// frame off the sealed parent, which must re-assert FramePID so the new code keeps its PID.
+func TestUpgradeSuccess_PreservesFramePIDAcrossSealedFork(t *testing.T) {
+	reg := scheduler.NewRegistry()
+	te := newTestExecutorWithRegistry(1, reg)
+	te.Start()
+	defer te.Stop()
+
+	selfPID := pidapi.PID{UniqID: "upgrade-pid-preserve"}
+
+	root := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
+	ctx, fc := ctxapi.OpenFrameContext(root)
+	defer ctxapi.ReleaseFrameContext(fc)
+	if err := runtime.SetFramePID(ctx, selfPID); err != nil {
+		t.Fatalf("set frame pid: %v", err)
+	}
+	fc.Seal()
+
+	process.WithFactory(ctx, &mockFactory{
+		createFunc: func(_ registry.ID) (process.Process, *process.Meta, error) {
+			return &pidAssertingProcess{wantPID: selfPID}, &process.Meta{Method: "run"}, nil
+		},
+	})
+
+	runCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	proc := &UpgradeProcess{
+		upgradeReq: &process.UpgradeRequest{
+			Source: registry.ID{Name: "test"},
+		},
+	}
+
+	result, err := te.Execute(runCtx, selfPID, proc, "", nil)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+	if result.Error != nil {
+		t.Fatalf("upgrade dropped FramePID across sealed-frame fork: %v", result.Error)
+	}
+}
+
 // TestUpgradeSuccess_Stress guards against missed wakeup regressions by repeatedly
 // executing upgrade flow on a single-worker scheduler.
 func TestUpgradeSuccess_Stress(t *testing.T) {
