@@ -143,14 +143,9 @@ func NewMockConnPool(kind registry.Kind) *ConnPool {
 
 // Mock factory implementation
 type TestPoolFactory struct {
-	standardPoolCalls []struct {
-		Cfg  *apiconfig.DBConfig
-		Kind registry.Kind
-	}
-	sqlitePoolCalls []struct {
-		Cfg *apiconfig.SQLiteConfig
-	}
-	shouldFailNext bool
+	standardPoolCalls []registry.Kind
+	sqlitePoolCalls   []registry.Kind
+	shouldFailNext    bool
 }
 
 func NewTestPoolFactory() *TestPoolFactory {
@@ -160,32 +155,39 @@ func NewTestPoolFactory() *TestPoolFactory {
 	}
 }
 
-func (f *TestPoolFactory) CreateStandardPool(_ context.Context, kind registry.Kind, cfg *apiconfig.DBConfig) (*ConnPool, error) {
-	f.standardPoolCalls = append(f.standardPoolCalls, struct {
-		Cfg  *apiconfig.DBConfig
-		Kind registry.Kind
-	}{
-		Kind: kind,
-		Cfg:  cfg,
-	})
-
-	if f.shouldFailNext {
-		return nil, assert.AnError
+func mockEngineConfig(kind registry.Kind) apiconfig.EngineConfig {
+	lifecycle := supervisor.LifecycleConfig{StartTimeout: time.Minute}
+	if kind == apiconfig.SQLite {
+		return &apiconfig.SQLiteConfig{
+			File:      ":memory:",
+			Lifecycle: lifecycle,
+			Pool:      apiconfig.PoolConfig{MaxLifetime: time.Hour},
+		}
 	}
-	return NewMockConnPool(kind), nil
+	return &apiconfig.DBConfig{
+		Lifecycle: lifecycle,
+		Pool:      apiconfig.PoolConfig{MaxLifetime: time.Hour},
+	}
 }
 
-func (f *TestPoolFactory) CreateSQLitePool(_ context.Context, cfg *apiconfig.SQLiteConfig) (*ConnPool, error) {
-	f.sqlitePoolCalls = append(f.sqlitePoolCalls, struct {
-		Cfg *apiconfig.SQLiteConfig
-	}{
-		Cfg: cfg,
-	})
+func (f *TestPoolFactory) CreatePool(_ context.Context, _ EngineDeps, entry registry.Entry) (*ConnPool, apiconfig.EngineConfig, error) {
+	if entry.Kind == apiconfig.SQLite {
+		f.sqlitePoolCalls = append(f.sqlitePoolCalls, entry.Kind)
+	} else {
+		f.standardPoolCalls = append(f.standardPoolCalls, entry.Kind)
+	}
 
+	if f.shouldFailNext {
+		return nil, nil, assert.AnError
+	}
+	return NewMockConnPool(entry.Kind), mockEngineConfig(entry.Kind), nil
+}
+
+func (f *TestPoolFactory) UpdatePool(_ context.Context, _ EngineDeps, _ *ConnPool, entry registry.Entry) (apiconfig.EngineConfig, error) {
 	if f.shouldFailNext {
 		return nil, assert.AnError
 	}
-	return NewMockConnPool(apiconfig.SQLite), nil
+	return mockEngineConfig(entry.Kind), nil
 }
 
 // MockEnvRegistry implements envapi.Registry for testing
@@ -340,7 +342,12 @@ func TestManager_Add(t *testing.T) {
 		id            registry.ID
 		shouldFail    bool
 		expectSuccess bool
-	}{}
+	}{
+		{name: "add postgres", kind: apiconfig.Postgres, id: registry.NewID("test", "add-pg"), shouldFail: false, expectSuccess: true},
+		{name: "add sqlite", kind: apiconfig.SQLite, id: registry.NewID("test", "add-lite"), shouldFail: false, expectSuccess: true},
+		{name: "add failure", kind: apiconfig.Postgres, id: registry.NewID("test", "add-fail"), shouldFail: true, expectSuccess: false},
+		{name: "unsupported kind", kind: "db.unsupported", id: registry.NewID("test", "add-bad"), shouldFail: false, expectSuccess: false},
+	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -376,7 +383,7 @@ func TestManager_Add(t *testing.T) {
 					assert.GreaterOrEqual(t, len(factory.standardPoolCalls), 1)
 					if len(factory.standardPoolCalls) > 0 {
 						lastCall := factory.standardPoolCalls[len(factory.standardPoolCalls)-1]
-						assert.Equal(t, tt.kind, lastCall.Kind)
+						assert.Equal(t, tt.kind, lastCall)
 					}
 				}
 
@@ -602,106 +609,4 @@ func TestDecode_NilPayload(t *testing.T) {
 	_, err := entryutil.DecodeEntryConfig[apiconfig.DBConfig](ctx, transcoder, entry)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "configuration data is required")
-}
-
-func TestManager_ResolveEnv(t *testing.T) {
-	manager, _, _ := newTestManager(t)
-	ctx := ctxapi.NewRootContext()
-
-	// Create env registry with test values
-	envRegistry := NewMockEnvRegistry()
-	require.NoError(t, envRegistry.Set(ctx, "TEST_HOST", "test-host-value"))
-	require.NoError(t, envRegistry.Set(ctx, "TEST_PORT", "5432"))
-	manager.env = envRegistry
-
-	tests := []struct {
-		name     string
-		envVar   string
-		field    string
-		expected string
-	}{
-		{
-			name:     "Empty env var returns empty",
-			envVar:   "",
-			field:    "host",
-			expected: "",
-		},
-		{
-			name:     "Found env var returns value",
-			envVar:   "TEST_HOST",
-			field:    "host",
-			expected: "test-host-value",
-		},
-		{
-			name:     "Not found env var returns empty",
-			envVar:   "NONEXISTENT_VAR",
-			field:    "database",
-			expected: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := manager.resolveEnv(ctx, tt.envVar, tt.field)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestManager_AddWithEnvVars(t *testing.T) {
-	manager, _, _ := newTestManager(t)
-	ctx := ctxapi.NewRootContext()
-
-	// Create env registry with test values
-	envRegistry := NewMockEnvRegistry()
-	require.NoError(t, envRegistry.Set(ctx, "DB_HOST", "env-host"))
-	require.NoError(t, envRegistry.Set(ctx, "DB_PORT", "9999"))
-	require.NoError(t, envRegistry.Set(ctx, "DB_NAME", "env-db"))
-	require.NoError(t, envRegistry.Set(ctx, "DB_USER", "env-user"))
-	require.NoError(t, envRegistry.Set(ctx, "DB_PASS", "env-pass"))
-	manager.env = envRegistry
-
-	// Create a custom transcoder that uses env var fields
-	manager.dtt = &EnvConfigTranscoder{}
-
-	entry := registry.Entry{
-		ID:   registry.NewID("test", "env-db"),
-		Kind: apiconfig.Postgres,
-		Data: payload.New(map[string]string{"test": "data"}),
-	}
-
-	err := manager.Add(ctx, entry)
-	assert.NoError(t, err)
-}
-
-// EnvConfigTranscoder returns a config with env var fields set
-type EnvConfigTranscoder struct{}
-
-func (t *EnvConfigTranscoder) Marshal(v any) (payload.Payload, error) {
-	return payload.New(v), nil
-}
-
-func (t *EnvConfigTranscoder) Unmarshal(_ payload.Payload, v any) error {
-	switch target := v.(type) {
-	case *apiconfig.DBConfig:
-		*target = apiconfig.DBConfig{
-			HostEnv:     "DB_HOST",
-			PortEnv:     "DB_PORT",
-			DatabaseEnv: "DB_NAME",
-			UsernameEnv: "DB_USER",
-			PasswordEnv: "DB_PASS",
-			Pool: apiconfig.PoolConfig{
-				MaxOpen:     10,
-				MaxIdle:     5,
-				MaxLifetime: time.Hour,
-			},
-		}
-	default:
-		return fmt.Errorf("unsupported type: %T", v)
-	}
-	return nil
-}
-
-func (t *EnvConfigTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
-	return payload.NewPayload(p.Data(), format), nil
 }

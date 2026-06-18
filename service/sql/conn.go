@@ -5,10 +5,6 @@ package sql
 import (
 	"context"
 	"database/sql"
-	"net/url"
-	"sort"
-	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -71,46 +67,35 @@ func (p *ConnPool) Stop(ctx context.Context) error {
 	}
 }
 
-// UpdateConfig updates the pool configuration
+// UpdateConfig updates the pool configuration. It delegates engine-specific
+// validation and tuning to the engine registered for the pool's kind.
 func (p *ConnPool) UpdateConfig(cfg any) error {
 	if p.closed.Load() {
 		return ErrPoolClosed
 	}
 
-	switch c := cfg.(type) {
-	case *config.DBConfig:
-		if p.kind == config.SQLite {
-			return NewInvalidConfigTypeError("DBConfig", config.SQLite)
-		}
-
-		if err := c.Validate(); err != nil {
-			return NewInvalidConfigError(err)
-		}
-
-		p.db.SetMaxOpenConns(c.Pool.MaxOpen)
-		p.db.SetMaxIdleConns(c.Pool.MaxIdle)
-		p.db.SetConnMaxLifetime(c.Pool.MaxLifetime)
-
-		var cfg any = c
-		p.config.Store(&cfg)
-
-	case *config.SQLiteConfig:
-		if p.kind != config.SQLite {
-			return NewInvalidConfigTypeError("SQLiteConfig", p.kind)
-		}
-
-		if err := c.Validate(); err != nil {
-			return NewInvalidConfigError(err)
-		}
-
-		p.db.SetConnMaxLifetime(c.Pool.MaxLifetime)
-
-		var cfg any = c
-		p.config.Store(&cfg)
-
-	default:
+	ec, ok := cfg.(config.EngineConfig)
+	if !ok {
 		return NewUnsupportedConfigTypeError(p.kind)
 	}
+
+	eng, ok := engineFor(p.kind)
+	if !ok {
+		return NewUnsupportedConfigTypeError(p.kind)
+	}
+
+	if err := eng.ValidateConfigType(ec); err != nil {
+		return err
+	}
+
+	if err := ec.Validate(); err != nil {
+		return NewInvalidConfigError(err)
+	}
+
+	eng.Tune(p.db, ec)
+
+	var stored any = ec
+	p.config.Store(&stored)
 
 	return nil
 }
@@ -135,108 +120,6 @@ func (p *ConnPool) Acquire(
 	}
 
 	return newDBConn(p, p.db, p.kind), nil
-}
-
-// Helper to build DSN string for different database types
-func buildDSN(kind registry.Kind, cfg *config.DBConfig) (string, error) {
-	switch kind {
-	case config.Postgres:
-		opts := buildPostgresOptionsString(cfg.Options)
-		var b strings.Builder
-		b.Grow(128)
-		b.WriteString("host=")
-		b.WriteString(cfg.Host)
-		b.WriteString(" port=")
-		b.WriteString(strconv.Itoa(cfg.Port))
-		b.WriteString(" user=")
-		b.WriteString(cfg.Username)
-		b.WriteString(" password=")
-		b.WriteString(cfg.Password)
-		b.WriteString(" dbname=")
-		b.WriteString(cfg.Database)
-		if opts != "" {
-			b.WriteString(" ")
-			b.WriteString(opts)
-		}
-		return b.String(), nil
-
-	case config.MySQL:
-		opts := buildMySQLOptionsString(cfg.Options)
-		var b strings.Builder
-		b.Grow(128)
-		b.WriteString(cfg.Username)
-		b.WriteString(":")
-		b.WriteString(cfg.Password)
-		b.WriteString("@tcp(")
-		b.WriteString(cfg.Host)
-		b.WriteString(":")
-		b.WriteString(strconv.Itoa(cfg.Port))
-		b.WriteString(")/")
-		b.WriteString(cfg.Database)
-		if opts != "" {
-			b.WriteString("?")
-			b.WriteString(opts)
-		}
-		return b.String(), nil
-
-	default:
-		return "", NewUnsupportedDatabaseTypeError(kind)
-	}
-}
-
-func getDriver(kind registry.Kind) string {
-	switch kind {
-	case config.Postgres:
-		return "postgres"
-	case config.MySQL:
-		return "mysql"
-	default:
-		return kind
-	}
-}
-
-// buildPostgresOptionsString renders lib/pq keyword/value options.
-func buildPostgresOptionsString(options map[string]string) string {
-	if len(options) == 0 {
-		return ""
-	}
-
-	keys := make([]string, 0, len(options))
-	for k := range options {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	var b strings.Builder
-	b.Grow(len(options) * 20)
-	for i, k := range keys {
-		if i > 0 {
-			b.WriteString(" ")
-		}
-		b.WriteString(k)
-		b.WriteString("=")
-		b.WriteString(options[k])
-	}
-
-	return b.String()
-}
-
-func buildMySQLOptionsString(options map[string]string) string {
-	if len(options) == 0 {
-		return ""
-	}
-
-	values := url.Values{}
-	for k, v := range options {
-		values.Set(k, v)
-	}
-	return values.Encode()
-}
-
-// Helper kept for older internal tests and benchmarks. PostgreSQL was the only
-// historical caller that used this space-separated keyword/value form.
-func buildOptionsString(options map[string]string) string {
-	return buildPostgresOptionsString(options)
 }
 
 // DBConn represents a database connection resource

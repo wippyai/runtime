@@ -36,6 +36,14 @@ const (
 	DefaultMaxLifetime = 1 * time.Hour
 )
 
+// EngineConfig is the contract every engine configuration satisfies, letting the
+// generic pool lifecycle validate and read lifecycle settings without knowing the
+// concrete engine type.
+type EngineConfig interface {
+	Validate() error
+	LifecycleConfig() supervisor.LifecycleConfig
+}
+
 type (
 	// PoolConfig defines settings for a database connection pool
 	PoolConfig struct {
@@ -111,6 +119,11 @@ func (c *SQLiteConfig) InitDefaults() {
 	c.Lifecycle.InitDefaults()
 }
 
+// LifecycleConfig returns the supervisor lifecycle settings for the database.
+func (c *DBConfig) LifecycleConfig() supervisor.LifecycleConfig {
+	return c.Lifecycle
+}
+
 // Validate checks if the DBConfig has all required fields set to valid values
 func (c *DBConfig) Validate() error {
 	if c.Host == "" && c.HostEnv == "" {
@@ -146,6 +159,11 @@ func (c *DBConfig) Validate() error {
 	}
 
 	return nil
+}
+
+// LifecycleConfig returns the supervisor lifecycle settings for the database.
+func (c *SQLiteConfig) LifecycleConfig() supervisor.LifecycleConfig {
+	return c.Lifecycle
 }
 
 // Validate checks if the SQLiteConfig has all required fields set to valid values

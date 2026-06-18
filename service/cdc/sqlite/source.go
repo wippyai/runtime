@@ -169,7 +169,7 @@ func (s *Source) Start(ctx context.Context) (<-chan any, error) {
 
 	var file string
 	if rawErr := conn.Raw(func(dc any) error {
-		f, e := sqlservice.InstallCDCHooksOnRaw(dc, s)
+		f, e := installHooksOnRaw(dc, s)
 		file = f
 		return e
 	}); rawErr != nil {
@@ -177,7 +177,7 @@ func (s *Source) Start(ctx context.Context) (<-chan any, error) {
 		res.Release()
 		return nil, rawErr
 	}
-	sqlservice.RegisterCDCSink(file, s)
+	registerSink(file, s)
 
 	s.mu.Lock()
 	s.poolRes = res
@@ -319,12 +319,12 @@ func (s *Source) Stop(ctx context.Context) error {
 }
 
 func (s *Source) detachHooks(ctx context.Context, writerDB *sql.DB, file string) {
-	sqlservice.UnregisterCDCSink(file)
+	unregisterSink(file)
 	conn, err := writerDB.Conn(ctx)
 	if err != nil {
 		return
 	}
-	_ = conn.Raw(sqlservice.ClearCDCHooksOnRaw)
+	_ = conn.Raw(clearHooksOnRaw)
 	_ = conn.Close()
 }
 
@@ -436,11 +436,11 @@ func (s *Source) columnsFor(ctx context.Context, table string) []columnInfo {
 
 func opString(op int) string {
 	switch op {
-	case sqlservice.CDCInsert:
+	case cdcInsert:
 		return "insert"
-	case sqlservice.CDCUpdate:
+	case cdcUpdate:
 		return "update"
-	case sqlservice.CDCDelete:
+	case cdcDelete:
 		return "delete"
 	default:
 		return "unknown"

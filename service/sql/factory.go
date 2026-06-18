@@ -4,104 +4,42 @@ package sql
 
 import (
 	"context"
-	"database/sql"
 
 	"github.com/wippyai/runtime/api/registry"
 	config "github.com/wippyai/runtime/api/service/sql"
 )
 
-// PoolFactoryAPI defines the interface for creating database connection pools
-type PoolFactoryAPI interface {
-	// CreateStandardPool creates a connection pool for standard SQL databases (Postgres, MySQL)
-	CreateStandardPool(ctx context.Context, kind registry.Kind, cfg *config.DBConfig) (*ConnPool, error)
-
-	// CreateSQLitePool creates a connection pool for SQLite databases
-	CreateSQLitePool(ctx context.Context, cfg *config.SQLiteConfig) (*ConnPool, error)
+// Factory creates and updates connection pools. It dispatches to the engine
+// registered for an entry's kind, so it never needs per-engine branches.
+type Factory interface {
+	CreatePool(ctx context.Context, deps EngineDeps, entry registry.Entry) (*ConnPool, config.EngineConfig, error)
+	UpdatePool(ctx context.Context, deps EngineDeps, pool *ConnPool, entry registry.Entry) (config.EngineConfig, error)
 }
 
-var sqliteDriverName = "sqlite3"
-
-// DefaultPoolFactory is the default implementation of PoolFactoryAPI
+// DefaultPoolFactory is the registry-backed Factory used in production.
 type DefaultPoolFactory struct{}
 
-// NewDefaultPoolFactory creates a new default pool factory
-func NewDefaultPoolFactory() PoolFactoryAPI {
+// NewDefaultPoolFactory creates a new default pool factory.
+func NewDefaultPoolFactory() Factory {
 	return &DefaultPoolFactory{}
 }
 
-// CreateStandardPool implements PoolFactoryAPI.CreateStandardPool
-func (f *DefaultPoolFactory) CreateStandardPool(_ context.Context, kind registry.Kind, cfg *config.DBConfig) (*ConnPool, error) {
-	if err := cfg.Validate(); err != nil {
-		return nil, NewInvalidConfigError(err)
+// CreatePool implements Factory.CreatePool.
+func (f *DefaultPoolFactory) CreatePool(ctx context.Context, deps EngineDeps, entry registry.Entry) (*ConnPool, config.EngineConfig, error) {
+	eng, ok := engineFor(entry.Kind)
+	if !ok {
+		return nil, nil, NewUnsupportedEntryKindError(entry.Kind)
 	}
 
-	dsn, err := buildDSN(kind, cfg)
-	if err != nil {
-		return nil, NewInvalidDSNError(err)
-	}
-
-	db, err := sql.Open(getDriver(kind), dsn)
-	if err != nil {
-		return nil, NewConnectionPoolCreationError(err)
-	}
-
-	// Configure pool settings
-	db.SetMaxOpenConns(cfg.Pool.MaxOpen)
-	db.SetMaxIdleConns(cfg.Pool.MaxIdle)
-	db.SetConnMaxLifetime(cfg.Pool.MaxLifetime)
-
-	pool := &ConnPool{
-		kind:   kind,
-		db:     db,
-		status: make(chan any, 1),
-	}
-
-	var cfgAny any = cfg
-	pool.config.Store(&cfgAny)
-
-	return pool, nil
+	return createPool(ctx, deps, eng, entry)
 }
 
-// CreateSQLitePool implements PoolFactoryAPI.CreateSQLitePool
-func (f *DefaultPoolFactory) CreateSQLitePool(ctx context.Context, cfg *config.SQLiteConfig) (*ConnPool, error) {
-	if err := cfg.Validate(); err != nil {
-		return nil, NewInvalidConfigError(err)
+// UpdatePool implements Factory.UpdatePool.
+func (f *DefaultPoolFactory) UpdatePool(ctx context.Context, deps EngineDeps, pool *ConnPool, entry registry.Entry) (config.EngineConfig, error) {
+	eng, ok := engineFor(entry.Kind)
+	if !ok {
+		return nil, NewUnsupportedEntryKindError(entry.Kind)
 	}
 
-	var dsn string
-
-	// Handle in-memory database
-	if cfg.File == ":memory:" {
-		dsn = ":memory:"
-	} else {
-		// Use the file path directly
-		dsn = "file:" + cfg.File + "?mode=rwc"
-	}
-
-	db, err := sql.Open(sqliteDriverName, dsn)
-	if err != nil {
-		return nil, NewSQLiteConnectionCreationError(err)
-	}
-
-	// Enable WAL mode for better concurrency
-	if _, err := db.ExecContext(ctx, "PRAGMA journal_mode=WAL;"); err != nil {
-		_ = db.Close()
-		return nil, NewWALModeError(err)
-	}
-
-	// SQLite specific settings
-	db.SetMaxOpenConns(1) // SQLite supports only one writer
-	db.SetMaxIdleConns(1)
-	db.SetConnMaxLifetime(cfg.Pool.MaxLifetime)
-
-	pool := &ConnPool{
-		kind:   config.SQLite,
-		db:     db,
-		status: make(chan any, 1),
-	}
-
-	var cfgAny any = cfg
-	pool.config.Store(&cfgAny)
-
-	return pool, nil
+	return updatePool(ctx, deps, eng, pool, entry)
 }

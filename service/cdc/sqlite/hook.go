@@ -2,25 +2,38 @@
 
 //go:build sqlite_preupdate_hook
 
-package sql
+package sqlite
 
 import (
-	"database/sql"
 	"path/filepath"
 	"sync"
 
+	"database/sql"
+
 	"github.com/mattn/go-sqlite3"
+
+	apierror "github.com/wippyai/runtime/api/error"
+	sqlconfig "github.com/wippyai/runtime/api/service/sql"
+	sqlservice "github.com/wippyai/runtime/service/sql"
 )
 
+// sqliteCDCDriver is a SQLite driver variant whose ConnectHook rebinds preupdate
+// hooks on every connection the pool opens to a file with a registered sink.
 const sqliteCDCDriver = "sqlite3_wippy"
 
 const (
-	CDCInsert = sqlite3.SQLITE_INSERT
-	CDCUpdate = sqlite3.SQLITE_UPDATE
-	CDCDelete = sqlite3.SQLITE_DELETE
+	cdcInsert = sqlite3.SQLITE_INSERT
+	cdcUpdate = sqlite3.SQLITE_UPDATE
+	cdcDelete = sqlite3.SQLITE_DELETE
 )
 
-type CDCSink interface {
+var (
+	errNotSQLiteConn        = apierror.New(apierror.Invalid, "underlying connection is not a SQLite connection").WithRetryable(apierror.False)
+	errCDCMemoryUnsupported = apierror.New(apierror.Invalid, "sqlite cdc requires a file-backed database").WithRetryable(apierror.False)
+)
+
+// cdcSink receives row-level changes observed on the writer connection.
+type cdcSink interface {
 	PreUpdate(op int, table string, rowid int64, old, new []any)
 	Commit()
 	Rollback()
@@ -28,12 +41,12 @@ type CDCSink interface {
 
 var (
 	cdcMu    sync.RWMutex
-	cdcSinks = make(map[string]CDCSink)
+	cdcSinks = make(map[string]cdcSink)
 )
 
 func init() {
 	sql.Register(sqliteCDCDriver, &sqlite3.SQLiteDriver{ConnectHook: cdcConnectHook})
-	sqliteDriverName = sqliteCDCDriver
+	sqlservice.RegisterDriver(sqlconfig.SQLite, sqliteCDCDriver)
 }
 
 func cdcConnectHook(conn *sqlite3.SQLiteConn) error {
@@ -50,35 +63,35 @@ func cdcConnectHook(conn *sqlite3.SQLiteConn) error {
 	return nil
 }
 
-func RegisterCDCSink(file string, sink CDCSink) {
+func registerSink(file string, sink cdcSink) {
 	cdcMu.Lock()
 	cdcSinks[file] = sink
 	cdcMu.Unlock()
 }
 
-func UnregisterCDCSink(file string) {
+func unregisterSink(file string) {
 	cdcMu.Lock()
 	delete(cdcSinks, file)
 	cdcMu.Unlock()
 }
 
-func InstallCDCHooksOnRaw(raw any, sink CDCSink) (string, error) {
+func installHooksOnRaw(raw any, sink cdcSink) (string, error) {
 	conn, ok := raw.(*sqlite3.SQLiteConn)
 	if !ok {
-		return "", ErrNotSQLiteConn
+		return "", errNotSQLiteConn
 	}
 	file := normalizeCDCPath(conn.GetFilename("main"))
 	if file == "" {
-		return "", ErrCDCMemoryUnsupported
+		return "", errCDCMemoryUnsupported
 	}
 	bindCDCHooks(conn, sink)
 	return file, nil
 }
 
-func ClearCDCHooksOnRaw(raw any) error {
+func clearHooksOnRaw(raw any) error {
 	conn, ok := raw.(*sqlite3.SQLiteConn)
 	if !ok {
-		return ErrNotSQLiteConn
+		return errNotSQLiteConn
 	}
 	conn.RegisterPreUpdateHook(nil)
 	conn.RegisterCommitHook(nil)
@@ -97,7 +110,7 @@ func normalizeCDCPath(path string) string {
 	return abs
 }
 
-func bindCDCHooks(conn *sqlite3.SQLiteConn, sink CDCSink) {
+func bindCDCHooks(conn *sqlite3.SQLiteConn, sink cdcSink) {
 	conn.RegisterPreUpdateHook(func(d sqlite3.SQLitePreUpdateData) {
 		count := d.Count()
 		var oldRow, newRow []any
