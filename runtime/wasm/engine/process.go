@@ -54,6 +54,7 @@ type Process struct {
 	yieldSeq          uint64
 	waitingYield      bool
 	done              bool
+	started           bool
 }
 
 // NewProcess creates a scheduler process for WASM execution.
@@ -75,7 +76,7 @@ func NewProcess(
 
 // Init captures call parameters for this process execution.
 func (p *Process) Init(ctx context.Context, method string, input payload.Payloads) error {
-	p.endExecution()
+	p.softReset()
 	p.ctx = ctx
 	p.method = method
 	p.input = input
@@ -102,11 +103,12 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		return err
 	}
 
-	if p.inst == nil {
+	if !p.started {
 		if err := p.startExecution(); err != nil {
 			p.endExecution()
 			return err
 		}
+		p.started = true
 	}
 
 	if p.session == nil {
@@ -139,7 +141,7 @@ func (p *Process) stepSync(out *process.StepOutput) error {
 
 	p.result = result
 	p.done = true
-	p.endExecution()
+	p.softReset()
 	out.Done(result)
 	return nil
 }
@@ -218,29 +220,30 @@ func (p *Process) startExecution() error {
 	p.asyncValues = wippyhost.NewAsyncValueStore()
 	execCtx = wippyhost.WithAsyncValueStore(execCtx, p.asyncValues)
 
-	inst, err := p.module.InstantiateWithAsyncify(execCtx)
-	if err != nil {
-		cancel()
-		return runtimewasm.NewInstantiateModuleError(err)
+	if p.inst == nil {
+		inst, err := p.module.InstantiateWithAsyncify(execCtx)
+		if err != nil {
+			cancel()
+			return runtimewasm.NewInstantiateModuleError(err)
+		}
+		p.inst = inst
 	}
 
 	args, err := p.prepareArgs(execCtx)
 	if err != nil {
-		_ = inst.Close(context.Background())
 		cancel()
 		return err
 	}
 
 	p.execCtx = execCtx
 	p.cancel = cancel
-	p.inst = inst
 	p.callArgs = args
 
-	if inst.Scheduler() == nil {
+	if p.inst.Scheduler() == nil {
 		return nil
 	}
 
-	session, err := inst.StartCall(execCtx, p.method, args...)
+	session, err := p.inst.StartCall(execCtx, p.method, args...)
 	if err != nil {
 		p.endExecution()
 		return runtimewasm.NewCallMethodError(p.method, err)
@@ -254,6 +257,16 @@ func (p *Process) endExecution() {
 		_ = p.inst.Close(context.Background())
 		p.inst = nil
 	}
+	p.softReset()
+}
+
+// softReset clears per-call state while keeping the instance warm for reuse.
+// A WASI component's synthetic import bridges are bound to the core instance
+// that first created them, so re-instantiating from the same module after a
+// WASI host call has been made corrupts subsequent instances. Reusing one warm
+// instance for sequential synchronous calls (the inline pool serializes them)
+// sidesteps that. Asynchronous calls still close the instance per call below.
+func (p *Process) softReset() {
 	if p.cancel != nil {
 		p.cancel()
 		p.cancel = nil
@@ -264,6 +277,7 @@ func (p *Process) endExecution() {
 	p.pendingYield = nil
 	p.pendingTag = 0
 	p.waitingYield = false
+	p.started = false
 	if p.asyncValues != nil {
 		p.asyncValues.Reset()
 		p.asyncValues = nil
