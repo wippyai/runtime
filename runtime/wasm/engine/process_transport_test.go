@@ -9,9 +9,66 @@ import (
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
+	"github.com/wippyai/runtime/api/process"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 )
+
+// TestProcessRecyclesWarmInstanceAfterThreshold verifies that a reused warm
+// instance is kept across synchronous calls and recycled (closed, so the next
+// call instantiates fresh and reclaims linear memory) once it has served
+// recycleWarmInstanceAfter calls. This bounds the WASM linear-memory growth that
+// otherwise accumulated unbounded across reused calls.
+func TestProcessRecyclesWarmInstanceAfterThreshold(t *testing.T) {
+	ctx := context.Background()
+	rt, mod := compileEchoModule(ctx, t)
+	defer func() { _ = rt.Close(ctx) }()
+
+	p := &Process{module: mod, method: "run"}
+	var out process.StepOutput
+
+	for i := 1; i <= recycleWarmInstanceAfter+1; i++ {
+		if p.inst == nil {
+			inst, err := mod.Instantiate(ctx)
+			if err != nil {
+				t.Fatalf("call %d: Instantiate() error = %v", i, err)
+			}
+			p.inst = inst
+		}
+		// softReset clears execCtx after each sync call; restore it like
+		// startExecution would for the next call.
+		p.execCtx = ctx
+
+		out.Reset()
+		if err := p.stepSync(&out); err != nil {
+			t.Fatalf("call %d: stepSync() error = %v", i, err)
+		}
+
+		switch {
+		case i < recycleWarmInstanceAfter:
+			if p.inst == nil {
+				t.Fatalf("call %d: warm instance recycled before the threshold", i)
+			}
+			if p.warmCalls != i {
+				t.Fatalf("call %d: warmCalls = %d, want %d", i, p.warmCalls, i)
+			}
+		case i == recycleWarmInstanceAfter:
+			if p.inst != nil {
+				t.Fatalf("call %d: warm instance not recycled at the threshold", i)
+			}
+			if p.warmCalls != 0 {
+				t.Fatalf("call %d: warmCalls = %d after recycle, want 0", i, p.warmCalls)
+			}
+		default:
+			if p.inst == nil {
+				t.Fatalf("call %d: expected a fresh warm instance after recycle", i)
+			}
+			if p.warmCalls != i-recycleWarmInstanceAfter {
+				t.Fatalf("call %d: warmCalls = %d, want %d", i, p.warmCalls, i-recycleWarmInstanceAfter)
+			}
+		}
+	}
+}
 
 type processTestTransportRegistry struct {
 	items map[string]any

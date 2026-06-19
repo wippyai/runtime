@@ -23,6 +23,16 @@ import (
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 )
 
+// recycleWarmInstanceAfter bounds how many synchronous calls a reused warm
+// instance serves before it is recycled. WASM linear memory only ever grows, so a
+// warm instance kept alive across calls accumulates each call's guest allocations;
+// after this many calls the instance is closed so the next call instantiates a
+// fresh one and reclaims the memory. Re-instantiation is safe because wasm-runtime
+// rebuilds the per-instance import bridges, so this keeps the fast warm path for the
+// common case while bounding linear-memory growth, at the cost of one re-instantiation
+// (and bridge recompile) per recycle.
+const recycleWarmInstanceAfter = 512
+
 // Transport can map runtime payloads into call args and map call results back.
 type Transport interface {
 	Prepare(ctx context.Context, input payload.Payloads) ([]any, error)
@@ -55,6 +65,7 @@ type Process struct {
 	waitingYield      bool
 	done              bool
 	started           bool
+	warmCalls         int
 }
 
 // NewProcess creates a scheduler process for WASM execution.
@@ -141,7 +152,12 @@ func (p *Process) stepSync(out *process.StepOutput) error {
 
 	p.result = result
 	p.done = true
-	p.softReset()
+	p.warmCalls++
+	if p.warmCalls >= recycleWarmInstanceAfter {
+		p.endExecution()
+	} else {
+		p.softReset()
+	}
 	out.Done(result)
 	return nil
 }
@@ -257,6 +273,7 @@ func (p *Process) endExecution() {
 		_ = p.inst.Close(context.Background())
 		p.inst = nil
 	}
+	p.warmCalls = 0
 	p.softReset()
 }
 
