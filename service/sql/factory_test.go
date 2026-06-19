@@ -54,7 +54,7 @@ func TestDefaultPoolFactory_BuildDSN(t *testing.T) {
 					"sslmode": "disable",
 				},
 			},
-			expected: "host=localhost port=5432 user=user password=pass dbname=testdb sslmode=disable",
+			expected: "host='localhost' port=5432 user='user' password='pass' dbname='testdb' sslmode='disable'",
 			isError:  false,
 		},
 		{
@@ -71,7 +71,7 @@ func TestDefaultPoolFactory_BuildDSN(t *testing.T) {
 					"sslmode":         "disable",
 				},
 			},
-			expected: "host=localhost port=5432 user=user password=pass dbname=testdb connect_timeout=2 sslmode=disable",
+			expected: "host='localhost' port=5432 user='user' password='pass' dbname='testdb' connect_timeout='2' sslmode='disable'",
 			isError:  false,
 		},
 		{
@@ -112,6 +112,22 @@ func TestDefaultPoolFactory_BuildDSN(t *testing.T) {
 			name:     "Unsupported database type",
 			kind:     "db.unsupported",
 			cfg:      createTestDBConfig(),
+			expected: "",
+			isError:  true,
+		},
+		{
+			name: "PostgreSQL DSN with empty username is rejected",
+			kind: config.Postgres,
+			cfg: &config.DBConfig{
+				Host:     "localhost",
+				Port:     5432,
+				Database: "testdb",
+				Username: "",
+				Password: "secret",
+				Options: map[string]string{
+					"sslmode": "disable",
+				},
+			},
 			expected: "",
 			isError:  true,
 		},

@@ -63,6 +63,32 @@ func (r *Registry) getEnvName(variable *env.Variable) string {
 	return variable.ID.String()
 }
 
+func (r *Registry) storeNameShortcut(envName string, id registry.ID, path event.Path) {
+	if existing, ok := r.loadNameShortcut(envName); ok && !existing.Equal(id) {
+		r.log.Warn("env variable name shortcut already claimed by another id; variable registered by id only",
+			zap.String("path", path), zap.String("base_name", envName),
+			zap.String("owner_id", existing.String()), zap.String("id", id.String()))
+		return
+	}
+
+	r.variablesByName.Store(envName, id)
+}
+
+func (r *Registry) deleteNameShortcut(envName string, id registry.ID) {
+	if existing, ok := r.loadNameShortcut(envName); ok && existing.Equal(id) {
+		r.variablesByName.Delete(envName)
+	}
+}
+
+func (r *Registry) loadNameShortcut(envName string) (registry.ID, bool) {
+	if storedID, exists := r.variablesByName.Load(envName); exists {
+		if id, ok := storedID.(registry.ID); ok {
+			return id, true
+		}
+	}
+	return registry.ID{}, false
+}
+
 func (r *Registry) nsFromCtx(ctx context.Context) string {
 	if ctx == nil {
 		return ""
@@ -148,14 +174,8 @@ func (r *Registry) registerVariable(e event.Event) {
 
 	envName := r.getEnvName(&variable)
 
-	if _, exists := r.variablesByName.Load(envName); exists {
-		r.log.Error("variable name already exists", zap.String("path", e.Path), zap.String("base_name", envName))
-		r.sendReject(e.Path, NewVariableNameExistsError(envName).Error())
-		return
-	}
-
 	r.variablesByID.Store(variable.ID, variable)
-	r.variablesByName.Store(envName, variable.ID)
+	r.storeNameShortcut(envName, variable.ID, e.Path)
 	r.sendAccept(e.Path)
 	r.log.Debug("variable registered", zap.String("id", variable.ID.String()), zap.String("name", variable.Name), zap.String("base_name", envName))
 }
@@ -182,26 +202,17 @@ func (r *Registry) updateVariable(e event.Event) {
 
 	envName := r.getEnvName(&variable)
 
-	if existingID, exists := r.variablesByName.Load(envName); exists {
-		if existingVarID, ok := existingID.(registry.ID); ok && !existingVarID.Equal(variable.ID) {
-			r.log.Error("variable name already exists", zap.String("path", e.Path), zap.String("base_name", envName))
-			r.sendReject(e.Path, NewVariableNameExistsError(envName).Error())
-			return
-		}
-	}
-
-	// Clean up old name mappings if variable exists
 	if storedVar, exists := r.variablesByID.Load(variable.ID); exists {
 		if oldVariable, ok := storedVar.(env.Variable); ok {
 			oldBaseName := r.getEnvName(&oldVariable)
 			if oldBaseName != envName {
-				r.variablesByName.Delete(oldBaseName)
+				r.deleteNameShortcut(oldBaseName, variable.ID)
 			}
 		}
 	}
 
 	r.variablesByID.Store(variable.ID, variable)
-	r.variablesByName.Store(envName, variable.ID)
+	r.storeNameShortcut(envName, variable.ID, e.Path)
 
 	r.sendAccept(e.Path)
 
@@ -212,8 +223,7 @@ func (r *Registry) deleteVariable(e event.Event) {
 	varID := registry.ParseID(e.Path)
 
 	if variable, ok := r.loadVariable(varID); ok {
-		envName := r.getEnvName(variable)
-		r.variablesByName.Delete(envName)
+		r.deleteNameShortcut(r.getEnvName(variable), varID)
 	}
 
 	r.variablesByID.Delete(varID)

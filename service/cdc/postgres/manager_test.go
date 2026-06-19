@@ -11,9 +11,95 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/registry"
 	config "github.com/wippyai/runtime/api/service/cdc"
 )
+
+type mockEnvRegistry struct {
+	vars map[string]string
+}
+
+func (m *mockEnvRegistry) Get(_ context.Context, name string) (string, error) {
+	if v, ok := m.vars[name]; ok {
+		return v, nil
+	}
+	return "", envapi.ErrVariableNotFound
+}
+
+func (m *mockEnvRegistry) Lookup(_ context.Context, name string) (string, bool, error) {
+	v, ok := m.vars[name]
+	return v, ok, nil
+}
+
+func (m *mockEnvRegistry) Set(_ context.Context, name, value string) error {
+	m.vars[name] = value
+	return nil
+}
+
+func (m *mockEnvRegistry) All(_ context.Context) (map[string]string, error) {
+	return m.vars, nil
+}
+
+func (m *mockEnvRegistry) GetStorage(_ context.Context, _ registry.ID) (envapi.Storage, error) {
+	return nil, envapi.ErrStorageNotFound
+}
+
+func (m *mockEnvRegistry) RegisterStorage(_ registry.ID, _ envapi.Storage) {}
+
+func TestResolveEnv_FailsFastOnUnresolvable(t *testing.T) {
+	m := &Manager{env: &mockEnvRegistry{vars: map[string]string{"DB_HOST": "h"}}}
+	cfg := &config.Config{HostEnv: "DB_HOST", UsernameEnv: "MISSING_USER"}
+
+	err := m.resolveEnv(context.Background(), cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "could not be resolved")
+	assert.Contains(t, err.Error(), "environment variable not found")
+}
+
+func TestResolveEnv_AppliesResolvedValues(t *testing.T) {
+	m := &Manager{env: &mockEnvRegistry{vars: map[string]string{
+		"H": "resolved-host", "P": "6543", "D": "resolved-db", "U": "resolved-user", "PW": "resolved-pass",
+	}}}
+	cfg := &config.Config{HostEnv: "H", PortEnv: "P", DatabaseEnv: "D", UsernameEnv: "U", PasswordEnv: "PW"}
+
+	require.NoError(t, m.resolveEnv(context.Background(), cfg))
+	assert.Equal(t, "resolved-host", cfg.Host)
+	assert.Equal(t, 6543, cfg.Port)
+	assert.Equal(t, "resolved-db", cfg.Database)
+	assert.Equal(t, "resolved-user", cfg.Username)
+	assert.Equal(t, "resolved-pass", cfg.Password)
+}
+
+func TestBuildDSNs_RejectsEmptyRequiredField(t *testing.T) {
+	base := func() *config.Config {
+		return &config.Config{Host: "h", Port: 5432, Username: "u", Database: "d"}
+	}
+
+	c := base()
+	c.Host = ""
+	_, _, err := buildDSNs(c)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "host")
+
+	c = base()
+	c.Port = 0
+	_, _, err = buildDSNs(c)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "port")
+
+	c = base()
+	c.Username = ""
+	_, _, err = buildDSNs(c)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "username")
+
+	c = base()
+	c.Database = ""
+	_, _, err = buildDSNs(c)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "database")
+}
 
 func TestBuildDSNs(t *testing.T) {
 	cfg := &config.Config{
@@ -23,7 +109,8 @@ func TestBuildDSNs(t *testing.T) {
 		Password: "p@ss/word",
 		Database: "appdb",
 	}
-	repl, admin := buildDSNs(cfg)
+	repl, admin, err := buildDSNs(cfg)
+	require.NoError(t, err)
 
 	ru, err := url.Parse(repl)
 	require.NoError(t, err)
@@ -145,7 +232,8 @@ func TestBuildDSNsCarriesOptions(t *testing.T) {
 		Database: "d",
 		Options:  map[string]string{"sslmode": "require"},
 	}
-	repl, admin := buildDSNs(cfg)
+	repl, admin, err := buildDSNs(cfg)
+	require.NoError(t, err)
 
 	ru, err := url.Parse(repl)
 	require.NoError(t, err)

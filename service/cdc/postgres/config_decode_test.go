@@ -54,7 +54,8 @@ func TestConfigWireFormatMapsAndBuildsDSN(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 5*time.Second, standby)
 
-	repl, admin := buildDSNs(cfg)
+	repl, admin, err := buildDSNs(cfg)
+	require.NoError(t, err)
 	ru, err := url.Parse(repl)
 	require.NoError(t, err)
 	assert.Equal(t, "database", ru.Query().Get("replication"))

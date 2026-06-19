@@ -46,6 +46,17 @@ func NewInvalidConfigError(err error) apierror.Error {
 	return apiErr
 }
 
+func NewUnresolvedEnvError(field, envVar string, err error) apierror.Error {
+	apiErr := apierror.New(apierror.Invalid, "configured env variable could not be resolved").
+		WithRetryable(apierror.False)
+	details := attrs.NewBagFrom(map[string]any{"field": field, "env_var": envVar})
+	if err != nil {
+		details.Set("cause", err.Error())
+		apiErr = apiErr.WithCause(err)
+	}
+	return apiErr.WithDetails(details)
+}
+
 func NewSourceCreationError(err error) apierror.Error {
 	apiErr := apierror.New(apierror.Internal, "failed to create cdc source").WithRetryable(apierror.False)
 	if err != nil {
