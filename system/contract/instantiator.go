@@ -12,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
+	secapi "github.com/wippyai/runtime/api/security"
 )
 
 // Instantiator implements contract.Instantiator interface for runtime execution.
@@ -56,10 +57,27 @@ func (i *Instantiator) Instantiate(ctx context.Context, bindingID registry.ID, s
 // instanceImpl implements contract.Instance interface.
 type instanceImpl struct {
 	funcReg   function.Registry
+	secScope  secapi.Scope
 	binding   *contract.Binding
 	context   attrs.Bag
 	id        registry.ID
+	actor     secapi.Actor
 	contracts []contract.Contract
+	hasActor  bool
+	hasScope  bool
+}
+
+// securityFramer is implemented by contract instances that can run their bound
+// functions under an explicit open-time security context (the actor/scope set on
+// the contract wrapper via with_actor/with_scope). handleOpen frames the instance
+// through this capability rather than coupling to a concrete type.
+type securityFramer interface {
+	frameSecurity(actor secapi.Actor, hasActor bool, scope secapi.Scope, hasScope bool)
+}
+
+func (i *instanceImpl) frameSecurity(actor secapi.Actor, hasActor bool, scope secapi.Scope, hasScope bool) {
+	i.actor, i.hasActor = actor, hasActor
+	i.secScope, i.hasScope = scope, hasScope
 }
 
 func (i *instanceImpl) Implements() []contract.Contract {
@@ -101,7 +119,12 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 		Options:  options,
 	}
 
-	// Merge scope values into task.Context for downstream consumers.
+	// Build the context overrides applied to the bound function's FrameContext:
+	// scope values, plus the actor/scope the instance was opened with so the
+	// function runs under the framed security context (the same Task.Context pair
+	// mechanism funcs uses for its with_actor/with_scope).
+	var pairs []ctxapi.Pair
+
 	if len(i.context) > 0 {
 		// Get existing values from FrameContext or create new
 		values := ctxapi.GetValues(ctx)
@@ -117,8 +140,18 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 			values.Set(k, v)
 		}
 
-		// Pass merged values via task.Context so they propagate through OpenFrameContext
-		task.Context = []ctxapi.Pair{ctxapi.ValuesPair(values)}
+		pairs = append(pairs, ctxapi.ValuesPair(values))
+	}
+
+	if i.hasActor {
+		pairs = append(pairs, secapi.ActorPair(i.actor))
+	}
+	if i.hasScope {
+		pairs = append(pairs, secapi.ScopePair(i.secScope))
+	}
+
+	if len(pairs) > 0 {
+		task.Context = pairs
 	}
 
 	// Call the function with context
