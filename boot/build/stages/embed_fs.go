@@ -47,6 +47,7 @@ func (s *embedFSStage) Name() string {
 
 func (s *embedFSStage) Execute(ctx context.Context, entries *[]registry.Entry) error {
 	log := logs.GetLogger(ctx)
+	setResources(nil)
 
 	embeddableIDs := filterEmbeddableEntries(*entries, s.embedPatterns)
 	if len(embeddableIDs) == 0 {
@@ -73,9 +74,7 @@ func (s *embedFSStage) Execute(ctx context.Context, entries *[]registry.Entry) e
 		return err
 	}
 
-	resourcesMu.Lock()
-	resources = res
-	resourcesMu.Unlock()
+	setResources(res)
 
 	transformed := transformEntries(*entries, embeddableIDs)
 	*entries = transformed
@@ -92,6 +91,12 @@ func GetResources(_ context.Context) []wapp.ResourceSpec {
 	resourcesMu.RLock()
 	defer resourcesMu.RUnlock()
 	return resources
+}
+
+func setResources(res []wapp.ResourceSpec) {
+	resourcesMu.Lock()
+	defer resourcesMu.Unlock()
+	resources = res
 }
 
 func filterEmbeddableEntries(entries []registry.Entry, embedPatterns []string) []registry.ID {

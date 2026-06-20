@@ -165,6 +165,38 @@ func TestEmbedFSErrorsOnNilEntryData(t *testing.T) {
 	}
 }
 
+func TestEmbedFSClearsResourcesWhenNoDirectories(t *testing.T) {
+	moduleRoot := t.TempDir()
+	staticDir := filepath.Join(moduleRoot, "static")
+	if err := os.MkdirAll(staticDir, 0o755); err != nil {
+		t.Fatalf("mkdir static dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte("<html>ui</html>"), 0o644); err != nil {
+		t.Fatalf("write index.html: %v", err)
+	}
+
+	ctx := context.Background()
+	entries := []registry.Entry{{
+		ID:   registry.NewID("acme.ui", "ui_fs"),
+		Kind: dirapi.Kind,
+		Data: payload.New(map[string]any{"directory": "./static"}),
+	}}
+	if err := EmbedFS(moduleRoot, "ui_fs").Execute(ctx, &entries); err != nil {
+		t.Fatalf("first stage execute: %v", err)
+	}
+	if got := len(GetResources(ctx)); got != 1 {
+		t.Fatalf("resources after first run = %d, want 1", got)
+	}
+
+	entries = []registry.Entry{{ID: registry.NewID("acme.ui", "definition"), Kind: "ns.definition"}}
+	if err := EmbedFS(moduleRoot).Execute(ctx, &entries); err != nil {
+		t.Fatalf("second stage execute: %v", err)
+	}
+	if got := len(GetResources(ctx)); got != 0 {
+		t.Fatalf("resources after no-directory run = %d, want 0", got)
+	}
+}
+
 func TestFilterEmbeddableEntries(t *testing.T) {
 	dirA := registry.Entry{ID: registry.NewID("acme.app", "ui_fs"), Kind: dirapi.Kind}
 	dirB := registry.Entry{ID: registry.NewID("acme.app", "wasm_fs"), Kind: dirapi.Kind}
