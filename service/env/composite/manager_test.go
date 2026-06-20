@@ -20,9 +20,13 @@ import (
 
 type mockBus struct {
 	events []event.Event
+	onSend func(context.Context, event.Event)
 }
 
-func (m *mockBus) Send(_ context.Context, e event.Event) {
+func (m *mockBus) Send(ctx context.Context, e event.Event) {
+	if m.onSend != nil {
+		m.onSend(ctx, e)
+	}
 	m.events = append(m.events, e)
 }
 
@@ -165,9 +169,18 @@ func TestManager_Add(t *testing.T) {
 			Meta: attrs.NewBag(),
 			Data: payload.New(nil),
 		}
+		registeredSynchronously := false
+		bus.onSend = func(ctx context.Context, e event.Event) {
+			require.Equal(t, env.StorageRegister, e.Kind)
+			registeredStorage, err := mockReg.GetStorage(ctx, entry.ID)
+			require.NoError(t, err)
+			require.Same(t, e.Data, registeredStorage)
+			registeredSynchronously = true
+		}
 
 		err := mgr.Add(ctx, entry)
 		require.NoError(t, err)
+		require.True(t, registeredSynchronously)
 
 		require.Len(t, bus.events, 1)
 		assert.Equal(t, env.StorageRegister, bus.events[0].Kind)
