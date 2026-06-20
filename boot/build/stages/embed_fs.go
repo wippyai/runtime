@@ -4,7 +4,9 @@ package stages
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -23,13 +25,18 @@ var (
 )
 
 type embedFSStage struct {
+	moduleRoot    string
 	embedPatterns []string
 }
 
-// EmbedFS creates a stage that collects fs.directory entries for embedding.
-// It transforms these entries to fs.embed and stores resource specs in context.
-func EmbedFS(embedPatterns ...string) boot.Stage {
+// EmbedFS creates a stage that collects fs.directory entries for embedding and
+// transforms them to fs.embed. moduleRoot is the root that module-relative
+// directories resolve against when no module source root is registered in
+// context (publish, which loads entries straight from a module checkout); pass
+// an empty string when the lock loader has already registered source roots.
+func EmbedFS(moduleRoot string, embedPatterns ...string) boot.Stage {
 	return &embedFSStage{
+		moduleRoot:    moduleRoot,
 		embedPatterns: embedPatterns,
 	}
 }
@@ -40,6 +47,7 @@ func (s *embedFSStage) Name() string {
 
 func (s *embedFSStage) Execute(ctx context.Context, entries *[]registry.Entry) error {
 	log := logs.GetLogger(ctx)
+	setResources(nil)
 
 	embeddableIDs := filterEmbeddableEntries(*entries, s.embedPatterns)
 	if len(embeddableIDs) == 0 {
@@ -61,14 +69,12 @@ func (s *embedFSStage) Execute(ctx context.Context, entries *[]registry.Entry) e
 		}
 	}
 
-	res, err := collectResources(filteredEntries, log)
+	res, err := collectResources(ctx, s.moduleRoot, filteredEntries, log)
 	if err != nil {
 		return err
 	}
 
-	resourcesMu.Lock()
-	resources = res
-	resourcesMu.Unlock()
+	setResources(res)
 
 	transformed := transformEntries(*entries, embeddableIDs)
 	*entries = transformed
@@ -85,6 +91,12 @@ func GetResources(_ context.Context) []wapp.ResourceSpec {
 	resourcesMu.RLock()
 	defer resourcesMu.RUnlock()
 	return resources
+}
+
+func setResources(res []wapp.ResourceSpec) {
+	resourcesMu.Lock()
+	defer resourcesMu.Unlock()
+	resources = res
 }
 
 func filterEmbeddableEntries(entries []registry.Entry, embedPatterns []string) []registry.ID {
@@ -107,54 +119,65 @@ func filterEmbeddableEntries(entries []registry.Entry, embedPatterns []string) [
 	return embeddable
 }
 
-func collectResources(entries []registry.Entry, logger *zap.Logger) ([]wapp.ResourceSpec, error) {
+func collectResources(ctx context.Context, moduleRoot string, entries []registry.Entry, logger *zap.Logger) ([]wapp.ResourceSpec, error) {
 	specs := make([]wapp.ResourceSpec, 0, len(entries))
 	for _, entry := range entries {
 		if entry.Kind != dirapi.Kind {
 			continue
 		}
 
-		data := entry.Data.Data()
-		cfg, ok := data.(map[string]any)
-		if !ok {
-			logger.Warn("failed to decode directory config, skipping", zap.String("id", entry.ID.String()))
-			continue
+		cfg := directoryConfig(entry)
+		if cfg.Directory == "" {
+			return nil, fmt.Errorf("embed %s: directory path missing", entry.ID.String())
 		}
 
-		directory, ok := cfg["directory"].(string)
-		if !ok || directory == "" {
-			logger.Warn("directory path missing, skipping", zap.String("id", entry.ID.String()))
-			continue
-		}
+		dir := resolveEmbedDirectory(ctx, moduleRoot, entry, cfg)
 
-		info, err := os.Stat(directory)
+		info, err := os.Stat(dir)
 		if err != nil {
-			logger.Warn("directory not found, skipping",
-				zap.String("id", entry.ID.String()),
-				zap.String("directory", directory),
-				zap.Error(err))
-			continue
+			return nil, fmt.Errorf("embed %s: directory %q not found: %w", entry.ID.String(), dir, err)
 		}
-
 		if !info.IsDir() {
-			logger.Warn("path is not a directory, skipping",
-				zap.String("id", entry.ID.String()),
-				zap.String("directory", directory))
-			continue
+			return nil, fmt.Errorf("embed %s: path %q is not a directory", entry.ID.String(), dir)
 		}
 
-		spec := wapp.ResourceSpec{
+		specs = append(specs, wapp.ResourceSpec{
 			ID:   wapp.NewID(entry.ID.NS, entry.ID.Name),
-			FS:   os.DirFS(directory),
+			FS:   os.DirFS(dir),
 			Meta: wapp.Metadata(entry.Meta),
-		}
-		specs = append(specs, spec)
+		})
 
 		logger.Info("collected directory for embedding",
 			zap.String("id", entry.ID.String()),
-			zap.String("directory", directory))
+			zap.String("directory", dir))
 	}
 	return specs, nil
+}
+
+func directoryConfig(entry registry.Entry) *dirapi.Config {
+	cfg := &dirapi.Config{}
+	if entry.Data == nil {
+		return cfg
+	}
+	data, ok := entry.Data.Data().(map[string]any)
+	if !ok {
+		return cfg
+	}
+	if directory, ok := data["directory"].(string); ok {
+		cfg.Directory = directory
+	}
+	if base, ok := data["base"].(string); ok {
+		cfg.Base = base
+	}
+	return cfg
+}
+
+func resolveEmbedDirectory(ctx context.Context, moduleRoot string, entry registry.Entry, cfg *dirapi.Config) string {
+	dir := dirapi.ResolveDirectory(ctx, entry, cfg)
+	if moduleRoot != "" && cfg.Base != dirapi.BaseProject && !dirapi.IsConfiguredPathAbsolute(cfg.Directory) {
+		return filepath.Join(moduleRoot, cfg.Directory)
+	}
+	return dir
 }
 
 func transformEntries(entries []registry.Entry, embeddableIDs []registry.ID) []registry.Entry {

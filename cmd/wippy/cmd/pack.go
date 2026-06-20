@@ -481,7 +481,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 			percent: 0.55,
 			status:  fmt.Sprintf("Processing embed patterns: %s", strings.Join(embedPatterns, ", ")),
 		})
-		pipelineStages = append(pipelineStages, stages.EmbedFS(embedPatterns...))
+		pipelineStages = append(pipelineStages, stages.EmbedFS("", embedPatterns...))
 	}
 
 	pipeline := build.New(pipelineStages...)

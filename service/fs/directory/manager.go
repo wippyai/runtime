@@ -4,13 +4,10 @@ package directory
 
 import (
 	"context"
-	"path"
-	"path/filepath"
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
 	fsapi "github.com/wippyai/runtime/api/fs"
-	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	dirapi "github.com/wippyai/runtime/api/service/fs/directory"
@@ -177,34 +174,7 @@ func (m *Manager) registerFSLocked(ctx context.Context, entry registry.Entry, cf
 }
 
 func resolveDirectoryPath(ctx context.Context, entry registry.Entry, cfg *dirapi.Config) string {
-	if cfg == nil {
-		return ""
-	}
-	if cfg.Directory == "" || isAbsoluteConfiguredPath(cfg.Directory) {
-		return cfg.Directory
-	}
-	if cfg.Base == dirapi.BaseProject {
-		return cfg.Directory
-	}
-
-	moduleName := ""
-	if entry.Meta != nil {
-		moduleName = entry.Meta.GetString("module", "")
-	}
-	if moduleName == "" {
-		return cfg.Directory
-	}
-
-	root, ok := moduleapi.SourceRoot(ctx, moduleName)
-	if !ok {
-		return cfg.Directory
-	}
-
-	return filepath.Join(root, cfg.Directory)
-}
-
-func isAbsoluteConfiguredPath(dir string) bool {
-	return filepath.IsAbs(dir) || path.IsAbs(filepath.ToSlash(dir))
+	return dirapi.ResolveDirectory(ctx, entry, cfg)
 }
 
 // removeFS removes the filesystem from the fs system
