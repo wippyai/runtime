@@ -6,6 +6,7 @@ package lua
 import (
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/api/security"
 )
 
 // Registry kind constants for different Lua component types.
@@ -58,12 +59,13 @@ type (
 	// It includes the source code, execution method, required libraries and modules,
 	// and VM pool settings.
 	FunctionConfig struct {
-		Imports map[string]registry.ID `json:"imports,omitempty"`
-		Meta    attrs.Bag              `json:"meta,omitempty"`
-		Source  string                 `json:"source"`
-		Method  string                 `json:"method"`
-		Modules []string               `json:"modules,omitempty"`
-		Pool    PoolConfig             `json:"pool,omitempty"`
+		Imports  map[string]registry.ID `json:"imports,omitempty"`
+		Meta     attrs.Bag              `json:"meta,omitempty"`
+		Source   string                 `json:"source"`
+		Method   string                 `json:"method"`
+		Modules  []string               `json:"modules,omitempty"`
+		Pool     PoolConfig             `json:"pool,omitempty"`
+		Security *security.Config       `json:"security,omitempty" yaml:"security,omitempty"`
 	}
 
 	// LibraryConfig defines the configuration for a Lua library component.
@@ -106,14 +108,15 @@ type (
 	// BytecodeFunctionConfig defines configuration for a precompiled Lua function.
 	// The bytecode is loaded from a filesystem and verified by hash before use.
 	BytecodeFunctionConfig struct {
-		Imports map[string]registry.ID `json:"imports,omitempty"`
-		Meta    attrs.Bag              `json:"meta,omitempty"`
-		FS      string                 `json:"fs"`
-		Path    string                 `json:"path"`
-		Hash    string                 `json:"hash"`
-		Method  string                 `json:"method"`
-		Modules []string               `json:"modules,omitempty"`
-		Pool    PoolConfig             `json:"pool,omitempty"`
+		Imports  map[string]registry.ID `json:"imports,omitempty"`
+		Meta     attrs.Bag              `json:"meta,omitempty"`
+		FS       string                 `json:"fs"`
+		Path     string                 `json:"path"`
+		Hash     string                 `json:"hash"`
+		Method   string                 `json:"method"`
+		Modules  []string               `json:"modules,omitempty"`
+		Pool     PoolConfig             `json:"pool,omitempty"`
+		Security *security.Config       `json:"security,omitempty" yaml:"security,omitempty"`
 	}
 
 	// BytecodeLibraryConfig defines configuration for a precompiled Lua library.
