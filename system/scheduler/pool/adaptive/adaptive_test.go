@@ -19,6 +19,8 @@ import (
 type mockProcess struct {
 	mu      sync.Mutex
 	latency time.Duration
+	closeFn func()
+	stepErr error
 }
 
 func (p *mockProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
@@ -35,10 +37,14 @@ func (p *mockProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	}
 
 	out.Done(nil)
-	return nil
+	return p.stepErr
 }
 
-func (p *mockProcess) Close() {}
+func (p *mockProcess) Close() {
+	if p.closeFn != nil {
+		p.closeFn()
+	}
+}
 
 type mockDispatcher struct{}
 
@@ -144,6 +150,102 @@ func TestAdaptiveConcurrent(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestAdaptiveReplacesOnlyRequestingWorker(t *testing.T) {
+	created := atomic.Int32{}
+	closed := atomic.Int32{}
+	var eventsMu sync.Mutex
+	var events []string
+	record := func(event string) {
+		eventsMu.Lock()
+		events = append(events, event)
+		eventsMu.Unlock()
+	}
+	factory := func() (process.Process, error) {
+		n := created.Add(1)
+		if n == 1 {
+			record("create1")
+		} else if n == 2 {
+			record("create2")
+		}
+		return &mockProcess{
+			stepErr: process.ErrProcessReplacementRequested,
+			closeFn: func() {
+				closed.Add(1)
+				if n == 1 {
+					record("close1")
+				}
+			},
+		}, nil
+	}
+	p, err := New(factory, &mockDispatcher{}, testOptions(1)...)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer p.Stop()
+	p.Start()
+
+	result, err := p.Call(context.Background(), "test", nil)
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if result.Error != nil {
+		t.Fatalf("result error: %v", result.Error)
+	}
+	waitFor(t, time.Second, func() bool { return created.Load() == 2 && closed.Load() == 1 })
+
+	eventsMu.Lock()
+	defer eventsMu.Unlock()
+	if len(events) < 3 || events[0] != "create1" || events[1] != "close1" || events[2] != "create2" {
+		t.Fatalf("events = %v, want create1 close1 create2", events)
+	}
+}
+
+func TestAdaptiveReplacementFactoryErrorIsRecoverable(t *testing.T) {
+	wantErr := errors.New("replacement failed")
+	calls := atomic.Int32{}
+	factory := func() (process.Process, error) {
+		switch calls.Add(1) {
+		case 1:
+			return &mockProcess{stepErr: process.ErrProcessReplacementRequested}, nil
+		case 2, 3:
+			return nil, wantErr
+		default:
+			return &mockProcess{}, nil
+		}
+	}
+	p, err := New(factory, &mockDispatcher{}, testOptions(1)...)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer p.Stop()
+	p.Start()
+
+	result, err := p.Call(context.Background(), "test", nil)
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if result.Error != nil {
+		t.Fatalf("result error: %v", result.Error)
+	}
+	waitFor(t, time.Second, func() bool { return calls.Load() >= 2 })
+
+	result, err = p.Call(context.Background(), "test", nil)
+	if err != nil {
+		t.Fatalf("Call after failed replacement: %v", err)
+	}
+	if !errors.Is(result.Error, wantErr) {
+		t.Fatalf("result error = %v, want %v", result.Error, wantErr)
+	}
+
+	result, err = p.Call(context.Background(), "test", nil)
+	if err != nil {
+		t.Fatalf("Call after recovery: %v", err)
+	}
+	if result.Error != nil {
+		t.Fatalf("recovery result error: %v", result.Error)
+	}
 }
 
 func TestAdaptiveScalesUp(t *testing.T) {

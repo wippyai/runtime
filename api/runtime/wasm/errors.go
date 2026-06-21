@@ -29,6 +29,8 @@ var (
 
 	ErrInvalidExecutionLimit = apierror.New(apierror.Invalid, "limits.max_execution_ms cannot be negative").WithRetryable(apierror.False)
 
+	ErrInvalidRetainedMemoryLimit = apierror.New(apierror.Invalid, "limits.max_retained_memory_bytes cannot be negative").WithRetryable(apierror.False)
+
 	ErrWASICwdMustBeAbsolute = apierror.New(apierror.Invalid, "wasi.cwd must be absolute").WithRetryable(apierror.False)
 
 	ErrWASIEnvIDRequired = apierror.New(apierror.Invalid, "wasi.env[].id is required").WithRetryable(apierror.False)
