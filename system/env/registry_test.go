@@ -776,7 +776,6 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 		responses = nil
 		wg.Add(1)
 
-		// Register first variable
 		variable1 := env.Variable{
 			ID:        registry.ParseID("app:var1"),
 			Name:      "same_name",
@@ -785,10 +784,9 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 		reg.variablesByID.Store(variable1.ID, variable1)
 		reg.variablesByName.Store("same_name", variable1.ID)
 
-		// Try to register second variable with same name
 		variable2 := env.Variable{
 			ID:        registry.ParseID("app:var2"),
-			Name:      "same_name", // Same name as first variable
+			Name:      "same_name",
 			StorageID: registry.ParseID("app:storage"),
 		}
 		evt := event.Event{
@@ -800,7 +798,6 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 
 		bus.Send(ctx, evt)
 
-		// Wait for response
 		done := make(chan struct{})
 		go func() {
 			wg.Wait()
@@ -813,15 +810,17 @@ func TestRegistry_EventHandling_VariableRegister(t *testing.T) {
 			t.Fatal("timeout waiting for response")
 		}
 
-		// Verify second variable was not registered
-		_, exists := reg.variablesByID.Load(variable2.ID)
-		assert.False(t, exists)
+		stored, exists := reg.variablesByID.Load(variable2.ID)
+		assert.True(t, exists)
+		assert.Equal(t, variable2, stored)
 
-		// Verify reject event was sent
+		shortcut, ok := reg.variablesByName.Load("same_name")
+		require.True(t, ok)
+		assert.Equal(t, variable1.ID, shortcut)
+
 		mu.Lock()
 		require.Len(t, responses, 1)
-		assert.Equal(t, env.EnvReject, responses[0].Kind)
-		assert.Contains(t, responses[0].Data.(string), "variable name already exists")
+		assert.Equal(t, env.EnvAccept, responses[0].Kind)
 		mu.Unlock()
 	})
 }
@@ -1325,7 +1324,6 @@ func TestRegistry_UpdateVariable_NameConflict(t *testing.T) {
 	})
 	time.Sleep(10 * time.Millisecond)
 
-	// Try to update second variable to use first variable's name - should be rejected
 	bus.Send(ctx, event.Event{
 		System: env.System,
 		Kind:   env.VariableUpdate,
@@ -1338,10 +1336,16 @@ func TestRegistry_UpdateVariable_NameConflict(t *testing.T) {
 	})
 	time.Sleep(10 * time.Millisecond)
 
-	// Second variable should still be accessible by its original name
-	value, err := reg.Get(ctx, "other_name")
+	_, err := reg.Get(ctx, "other_name")
+	assert.ErrorIs(t, err, env.ErrVariableNotFound)
+
+	shortcut, ok := reg.variablesByName.Load("shared_name")
+	require.True(t, ok)
+	assert.Equal(t, registry.ParseID("app:var1"), shortcut)
+
+	value, err := reg.Get(ctx, "app:var2")
 	require.NoError(t, err)
-	assert.Equal(t, "value2", value)
+	assert.Equal(t, "value1", value)
 }
 
 func TestRegistry_GetStorage_InvalidType(t *testing.T) {
@@ -1379,6 +1383,106 @@ func TestRegistry_FindVariable_ByFullID(t *testing.T) {
 	value, err := reg.Get(ctx, "testns:myvar")
 	require.NoError(t, err)
 	assert.Equal(t, "value", value)
+}
+
+func TestRegistry_CrossNamespaceSameName_CoexistByID(t *testing.T) {
+	reg, bus, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	storageA := newMockStorage(map[string]string{"DB_USER": "alice"})
+	storageB := newMockStorage(map[string]string{"DB_USER": "bob"})
+	reg.storages.Store(registry.ParseID("a:storage"), storageA)
+	reg.storages.Store(registry.ParseID("b:storage"), storageB)
+
+	bus.Send(ctx, event.Event{
+		System: env.System,
+		Kind:   env.VariableRegister,
+		Path:   "a:db_user",
+		Data: env.Variable{
+			ID:        registry.ParseID("a:db_user"),
+			Name:      "DB_USER",
+			StorageID: registry.ParseID("a:storage"),
+		},
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	bus.Send(ctx, event.Event{
+		System: env.System,
+		Kind:   env.VariableRegister,
+		Path:   "b:db_user",
+		Data: env.Variable{
+			ID:        registry.ParseID("b:db_user"),
+			Name:      "DB_USER",
+			StorageID: registry.ParseID("b:storage"),
+		},
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	valueA, err := reg.Get(ctx, "a:db_user")
+	require.NoError(t, err)
+	assert.Equal(t, "alice", valueA)
+
+	valueB, err := reg.Get(ctx, "b:db_user")
+	require.NoError(t, err)
+	assert.Equal(t, "bob", valueB)
+
+	shortcut, ok := reg.variablesByName.Load("DB_USER")
+	require.True(t, ok)
+	assert.Equal(t, registry.ParseID("a:db_user"), shortcut)
+}
+
+func TestRegistry_DeleteNonOwner_KeepsOwnerShortcut(t *testing.T) {
+	reg, bus, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	storageA := newMockStorage(map[string]string{"DB_USER": "alice"})
+	storageB := newMockStorage(map[string]string{"DB_USER": "bob"})
+	reg.storages.Store(registry.ParseID("a:storage"), storageA)
+	reg.storages.Store(registry.ParseID("b:storage"), storageB)
+
+	bus.Send(ctx, event.Event{
+		System: env.System,
+		Kind:   env.VariableRegister,
+		Path:   "a:db_user",
+		Data: env.Variable{
+			ID:        registry.ParseID("a:db_user"),
+			Name:      "DB_USER",
+			StorageID: registry.ParseID("a:storage"),
+		},
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	bus.Send(ctx, event.Event{
+		System: env.System,
+		Kind:   env.VariableRegister,
+		Path:   "b:db_user",
+		Data: env.Variable{
+			ID:        registry.ParseID("b:db_user"),
+			Name:      "DB_USER",
+			StorageID: registry.ParseID("b:storage"),
+		},
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	bus.Send(ctx, event.Event{
+		System: env.System,
+		Kind:   env.VariableDelete,
+		Path:   "b:db_user",
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	shortcut, ok := reg.variablesByName.Load("DB_USER")
+	require.True(t, ok)
+	assert.Equal(t, registry.ParseID("a:db_user"), shortcut)
+
+	valueA, err := reg.Get(ctx, "a:db_user")
+	require.NoError(t, err)
+	assert.Equal(t, "alice", valueA)
+
+	_, err = reg.Get(ctx, "b:db_user")
+	assert.ErrorIs(t, err, env.ErrVariableNotFound)
 }
 
 func TestRegistry_NsFromCtx_NilContext(t *testing.T) {

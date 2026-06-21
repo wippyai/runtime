@@ -615,13 +615,14 @@ func TestManager_ResolveEnv(t *testing.T) {
 	manager.env = envRegistry
 
 	tests := []struct {
-		name     string
-		envVar   string
-		field    string
-		expected string
+		name      string
+		envVar    string
+		field     string
+		expected  string
+		expectErr bool
 	}{
 		{
-			name:     "Empty env var returns empty",
+			name:     "Empty env var returns empty without error",
 			envVar:   "",
 			field:    "host",
 			expected: "",
@@ -633,23 +634,88 @@ func TestManager_ResolveEnv(t *testing.T) {
 			expected: "test-host-value",
 		},
 		{
-			name:     "Not found env var returns empty",
-			envVar:   "NONEXISTENT_VAR",
-			field:    "database",
-			expected: "",
+			name:      "Configured but unresolvable env var fails fast",
+			envVar:    "NONEXISTENT_VAR",
+			field:     "database",
+			expectErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := manager.resolveEnv(ctx, tt.envVar, tt.field)
+			result, err := manager.resolveEnv(ctx, tt.envVar, tt.field)
+			if tt.expectErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "could not be resolved")
+				assert.Contains(t, err.Error(), "environment variable not found")
+				assert.Empty(t, result)
+				return
+			}
+
+			require.NoError(t, err)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
+func TestManager_AddWithUnresolvableEnv(t *testing.T) {
+	manager, _, factory := newTestManager(t)
+	ctx := ctxapi.NewRootContext()
+
+	envRegistry := NewMockEnvRegistry()
+	require.NoError(t, envRegistry.Set(ctx, "DB_HOST", "env-host"))
+	require.NoError(t, envRegistry.Set(ctx, "DB_PORT", "9999"))
+	require.NoError(t, envRegistry.Set(ctx, "DB_NAME", "env-db"))
+	require.NoError(t, envRegistry.Set(ctx, "DB_PASS", "env-pass"))
+	manager.env = envRegistry
+
+	manager.dtt = &UnresolvableEnvConfigTranscoder{}
+
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "env-db"),
+		Kind: apiconfig.Postgres,
+		Data: payload.New(map[string]string{"test": "data"}),
+	}
+
+	err := manager.Add(ctx, entry)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "could not be resolved")
+	assert.Empty(t, factory.standardPoolCalls)
+}
+
+type UnresolvableEnvConfigTranscoder struct{}
+
+func (t *UnresolvableEnvConfigTranscoder) Marshal(v any) (payload.Payload, error) {
+	return payload.New(v), nil
+}
+
+func (t *UnresolvableEnvConfigTranscoder) Unmarshal(_ payload.Payload, v any) error {
+	switch target := v.(type) {
+	case *apiconfig.DBConfig:
+		*target = apiconfig.DBConfig{
+			HostEnv:     "DB_HOST",
+			PortEnv:     "DB_PORT",
+			DatabaseEnv: "DB_NAME",
+			UsernameEnv: "MISSING_USER",
+			PasswordEnv: "DB_PASS",
+			Pool: apiconfig.PoolConfig{
+				MaxOpen:     10,
+				MaxIdle:     5,
+				MaxLifetime: time.Hour,
+			},
+		}
+	default:
+		return fmt.Errorf("unsupported type: %T", v)
+	}
+	return nil
+}
+
+func (t *UnresolvableEnvConfigTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
+	return payload.NewPayload(p.Data(), format), nil
+}
+
 func TestManager_AddWithEnvVars(t *testing.T) {
-	manager, _, _ := newTestManager(t)
+	manager, _, factory := newTestManager(t)
 	ctx := ctxapi.NewRootContext()
 
 	// Create env registry with test values
@@ -671,7 +737,15 @@ func TestManager_AddWithEnvVars(t *testing.T) {
 	}
 
 	err := manager.Add(ctx, entry)
-	assert.NoError(t, err)
+	require.NoError(t, err)
+
+	require.Len(t, factory.standardPoolCalls, 1)
+	applied := factory.standardPoolCalls[0].Cfg
+	assert.Equal(t, "env-host", applied.Host)
+	assert.Equal(t, 9999, applied.Port)
+	assert.Equal(t, "env-db", applied.Database)
+	assert.Equal(t, "env-user", applied.Username)
+	assert.Equal(t, "env-pass", applied.Password)
 }
 
 // EnvConfigTranscoder returns a config with env var fields set

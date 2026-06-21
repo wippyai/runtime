@@ -4,6 +4,7 @@ package sql
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"sync"
 
@@ -119,22 +120,32 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 		return NewInvalidConfigError(err)
 	}
 
-	if v := m.resolveEnv(ctx, cfg.HostEnv, "host"); v != "" {
+	if v, rerr := m.resolveEnv(ctx, cfg.HostEnv, "host"); rerr != nil {
+		return rerr
+	} else if v != "" {
 		cfg.Host = v
 	}
-	if v := m.resolveEnv(ctx, cfg.PortEnv, "port"); v != "" {
+	if v, rerr := m.resolveEnv(ctx, cfg.PortEnv, "port"); rerr != nil {
+		return rerr
+	} else if v != "" {
 		cfg.Port, err = strconv.Atoi(v)
 		if err != nil {
 			return NewInvalidPortError(cfg.PortEnv, err)
 		}
 	}
-	if v := m.resolveEnv(ctx, cfg.DatabaseEnv, "database"); v != "" {
+	if v, rerr := m.resolveEnv(ctx, cfg.DatabaseEnv, "database"); rerr != nil {
+		return rerr
+	} else if v != "" {
 		cfg.Database = v
 	}
-	if v := m.resolveEnv(ctx, cfg.UsernameEnv, "username"); v != "" {
+	if v, rerr := m.resolveEnv(ctx, cfg.UsernameEnv, "username"); rerr != nil {
+		return rerr
+	} else if v != "" {
 		cfg.Username = v
 	}
-	if v := m.resolveEnv(ctx, cfg.PasswordEnv, "password"); v != "" {
+	if v, rerr := m.resolveEnv(ctx, cfg.PasswordEnv, "password"); rerr != nil {
+		return rerr
+	} else if v != "" {
 		cfg.Password = v
 	}
 
@@ -284,20 +295,19 @@ func (m *Manager) unregisterService(ctx context.Context, entry registry.Entry) {
 		zap.String("id", entry.ID.String()))
 }
 
-// resolveEnv looks up an environment variable and returns its value.
-// Returns empty string if envVar is empty, lookup fails, or var not found.
-func (m *Manager) resolveEnv(ctx context.Context, envVar, field string) string {
-	if envVar == "" || m.env == nil {
-		return ""
+func (m *Manager) resolveEnv(ctx context.Context, envVar, field string) (string, error) {
+	if envVar == "" {
+		return "", nil
+	}
+	if m.env == nil {
+		return "", NewUnresolvedEnvError(field, envVar, errors.New("env registry not configured"))
 	}
 	val, found, err := m.env.Lookup(ctx, envVar)
 	if err != nil {
-		m.log.Warn("failed to lookup env var", zap.String("field", field), zap.String("var", envVar), zap.Error(err))
-		return ""
+		return "", NewUnresolvedEnvError(field, envVar, err)
 	}
 	if !found {
-		m.log.Warn("env var not found", zap.String("field", field), zap.String("var", envVar))
-		return ""
+		return "", NewUnresolvedEnvError(field, envVar, envapi.ErrVariableNotFound)
 	}
-	return val
+	return val, nil
 }

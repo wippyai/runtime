@@ -5,6 +5,8 @@ package sql
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	"net/url"
 	"sort"
 	"strconv"
@@ -141,19 +143,22 @@ func (p *ConnPool) Acquire(
 func buildDSN(kind registry.Kind, cfg *config.DBConfig) (string, error) {
 	switch kind {
 	case config.Postgres:
+		if err := validateDSNFields(cfg); err != nil {
+			return "", err
+		}
 		opts := buildPostgresOptionsString(cfg.Options)
 		var b strings.Builder
 		b.Grow(128)
 		b.WriteString("host=")
-		b.WriteString(cfg.Host)
+		b.WriteString(quotePostgresValue(cfg.Host))
 		b.WriteString(" port=")
 		b.WriteString(strconv.Itoa(cfg.Port))
 		b.WriteString(" user=")
-		b.WriteString(cfg.Username)
+		b.WriteString(quotePostgresValue(cfg.Username))
 		b.WriteString(" password=")
-		b.WriteString(cfg.Password)
+		b.WriteString(quotePostgresValue(cfg.Password))
 		b.WriteString(" dbname=")
-		b.WriteString(cfg.Database)
+		b.WriteString(quotePostgresValue(cfg.Database))
 		if opts != "" {
 			b.WriteString(" ")
 			b.WriteString(opts)
@@ -161,6 +166,9 @@ func buildDSN(kind registry.Kind, cfg *config.DBConfig) (string, error) {
 		return b.String(), nil
 
 	case config.MySQL:
+		if err := validateDSNFields(cfg); err != nil {
+			return "", err
+		}
 		opts := buildMySQLOptionsString(cfg.Options)
 		var b strings.Builder
 		b.Grow(128)
@@ -182,6 +190,35 @@ func buildDSN(kind registry.Kind, cfg *config.DBConfig) (string, error) {
 	default:
 		return "", NewUnsupportedDatabaseTypeError(kind)
 	}
+}
+
+func validateDSNFields(cfg *config.DBConfig) error {
+	switch {
+	case cfg.Host == "":
+		return NewInvalidDSNError(errors.New("host is empty"))
+	case cfg.Port <= 0:
+		return NewInvalidDSNError(fmt.Errorf("port is invalid: %d", cfg.Port))
+	case cfg.Username == "":
+		return NewInvalidDSNError(errors.New("username is empty"))
+	case cfg.Database == "":
+		return NewInvalidDSNError(errors.New("database is empty"))
+	}
+	return nil
+}
+
+func quotePostgresValue(value string) string {
+	var b strings.Builder
+	b.Grow(len(value) + 2)
+	b.WriteByte('\'')
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if c == '\\' || c == '\'' {
+			b.WriteByte('\\')
+		}
+		b.WriteByte(c)
+	}
+	b.WriteByte('\'')
+	return b.String()
 }
 
 func getDriver(kind registry.Kind) string {
@@ -215,7 +252,7 @@ func buildPostgresOptionsString(options map[string]string) string {
 		}
 		b.WriteString(k)
 		b.WriteString("=")
-		b.WriteString(options[k])
+		b.WriteString(quotePostgresValue(options[k]))
 	}
 
 	return b.String()
