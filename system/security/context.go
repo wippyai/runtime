@@ -8,14 +8,24 @@ import (
 	"github.com/wippyai/runtime/api/security"
 )
 
+func actorConfigured(actor security.Actor) bool {
+	return actor.ID != "" || len(actor.Meta) > 0
+}
+
 // WithSecurityConfig configures the security context based on the provided configuration.
 func WithSecurityConfig(ctx context.Context, config *security.Config) context.Context {
 	if config == nil {
 		return ctx
 	}
 
-	if err := security.SetActor(ctx, config.Actor); err != nil {
-		return ctx
+	if actorConfigured(config.Actor) {
+		if err := security.SetActor(ctx, config.Actor); err != nil {
+			return ctx
+		}
+	} else if _, ok := security.GetActor(ctx); !ok {
+		if err := security.SetActor(ctx, config.Actor); err != nil {
+			return ctx
+		}
 	}
 
 	reg, ok := security.GetRegistry(ctx)
@@ -41,6 +51,12 @@ func WithSecurityConfig(ctx context.Context, config *security.Config) context.Co
 
 	if len(allPolicies) > 0 {
 		scope := NewScope(allPolicies)
+		if existing, ok := security.GetScope(ctx); ok && existing != nil {
+			scope = existing
+			for _, policy := range allPolicies {
+				scope = scope.With(policy)
+			}
+		}
 		if err := security.SetScope(ctx, scope); err != nil {
 			return ctx
 		}

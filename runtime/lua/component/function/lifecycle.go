@@ -14,6 +14,7 @@ import (
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
+	securitysys "github.com/wippyai/runtime/system/security"
 	"go.uber.org/zap"
 )
 
@@ -120,6 +121,8 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 		}
 	}
 
+	ctx = securitysys.WithSecurityConfig(ctx, entry.security)
+
 	result, err := entry.pool.Call(ctx, entry.method, task.Payloads)
 	return result, err
 }
@@ -144,10 +147,11 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 
 	opts, _ := cfg.Meta.GetBag("options")
 	configEntry := &configEntry{
-		method:  cfg.Method,
-		pool:    cfg.Pool,
-		source:  cfg,
-		options: opts,
+		method:   cfg.Method,
+		pool:     cfg.Pool,
+		source:   cfg,
+		options:  opts,
+		security: cfg.Security,
 	}
 
 	if err := m.createPool(entry.ID, configEntry); err != nil {
@@ -199,6 +203,7 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 		pool:     cfg.Pool,
 		bytecode: cfg,
 		options:  opts,
+		security: cfg.Security,
 	}
 
 	if err := m.createPool(entry.ID, configEntry); err != nil {
@@ -243,10 +248,11 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 
 	opts, _ := cfg.Meta.GetBag("options")
 	configEntry := &configEntry{
-		method:  cfg.Method,
-		pool:    cfg.Pool,
-		source:  cfg,
-		options: opts,
+		method:   cfg.Method,
+		pool:     cfg.Pool,
+		source:   cfg,
+		options:  opts,
+		security: cfg.Security,
 	}
 
 	if err := m.replacePool(entry.ID, configEntry); err != nil {
@@ -291,6 +297,7 @@ func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) erro
 		pool:     cfg.Pool,
 		bytecode: cfg,
 		options:  opts,
+		security: cfg.Security,
 	}
 
 	if err := m.replacePool(entry.ID, configEntry); err != nil {
