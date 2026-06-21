@@ -33,25 +33,16 @@ func (f *DefaultPoolFactory) CreateStandardPool(_ context.Context, kind registry
 		return nil, NewInvalidConfigError(err)
 	}
 
-	dsn, err := buildDSN(kind, cfg)
+	db, err := openStandardDB(kind, cfg)
 	if err != nil {
-		return nil, NewInvalidDSNError(err)
+		return nil, err
 	}
-
-	db, err := sql.Open(getDriver(kind), dsn)
-	if err != nil {
-		return nil, NewConnectionPoolCreationError(err)
-	}
-
-	// Configure pool settings
-	db.SetMaxOpenConns(cfg.Pool.MaxOpen)
-	db.SetMaxIdleConns(cfg.Pool.MaxIdle)
-	db.SetConnMaxLifetime(cfg.Pool.MaxLifetime)
 
 	pool := &ConnPool{
-		kind:   kind,
-		db:     db,
-		status: make(chan any, 1),
+		kind:    kind,
+		db:      db,
+		current: newDBGeneration(db),
+		status:  make(chan any, 1),
 	}
 
 	var cfgAny any = cfg
@@ -93,9 +84,10 @@ func (f *DefaultPoolFactory) CreateSQLitePool(ctx context.Context, cfg *config.S
 	db.SetConnMaxLifetime(cfg.Pool.MaxLifetime)
 
 	pool := &ConnPool{
-		kind:   config.SQLite,
-		db:     db,
-		status: make(chan any, 1),
+		kind:    config.SQLite,
+		db:      db,
+		current: newDBGeneration(db),
+		status:  make(chan any, 1),
 	}
 
 	var cfgAny any = cfg
