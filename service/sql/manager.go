@@ -120,33 +120,8 @@ func (m *Manager) handleStandardDBAdd(ctx context.Context, entry registry.Entry)
 		return NewInvalidConfigError(err)
 	}
 
-	if v, rerr := m.resolveEnv(ctx, cfg.HostEnv, "host"); rerr != nil {
-		return rerr
-	} else if v != "" {
-		cfg.Host = v
-	}
-	if v, rerr := m.resolveEnv(ctx, cfg.PortEnv, "port"); rerr != nil {
-		return rerr
-	} else if v != "" {
-		cfg.Port, err = strconv.Atoi(v)
-		if err != nil {
-			return NewInvalidPortError(cfg.PortEnv, err)
-		}
-	}
-	if v, rerr := m.resolveEnv(ctx, cfg.DatabaseEnv, "database"); rerr != nil {
-		return rerr
-	} else if v != "" {
-		cfg.Database = v
-	}
-	if v, rerr := m.resolveEnv(ctx, cfg.UsernameEnv, "username"); rerr != nil {
-		return rerr
-	} else if v != "" {
-		cfg.Username = v
-	}
-	if v, rerr := m.resolveEnv(ctx, cfg.PasswordEnv, "password"); rerr != nil {
-		return rerr
-	} else if v != "" {
-		cfg.Password = v
+	if err := m.resolveDBConfigEnv(ctx, cfg); err != nil {
+		return err
 	}
 
 	pool, err := m.factory.CreateStandardPool(ctx, entry.Kind, cfg)
@@ -184,6 +159,10 @@ func (m *Manager) handleStandardDBUpdate(ctx context.Context, entry registry.Ent
 	cfg, err := entryutil.DecodeEntryConfig[config.DBConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return NewInvalidConfigError(err)
+	}
+
+	if err := m.resolveDBConfigEnv(ctx, cfg); err != nil {
+		return err
 	}
 
 	if err := pool.UpdateConfig(cfg); err != nil {
@@ -293,6 +272,39 @@ func (m *Manager) unregisterService(ctx context.Context, entry registry.Entry) {
 
 	m.log.Info("removed database service",
 		zap.String("id", entry.ID.String()))
+}
+
+func (m *Manager) resolveDBConfigEnv(ctx context.Context, cfg *config.DBConfig) error {
+	var err error
+	if v, rerr := m.resolveEnv(ctx, cfg.HostEnv, "host"); rerr != nil {
+		return rerr
+	} else if v != "" {
+		cfg.Host = v
+	}
+	if v, rerr := m.resolveEnv(ctx, cfg.PortEnv, "port"); rerr != nil {
+		return rerr
+	} else if v != "" {
+		cfg.Port, err = strconv.Atoi(v)
+		if err != nil {
+			return NewInvalidPortError(cfg.PortEnv, err)
+		}
+	}
+	if v, rerr := m.resolveEnv(ctx, cfg.DatabaseEnv, "database"); rerr != nil {
+		return rerr
+	} else if v != "" {
+		cfg.Database = v
+	}
+	if v, rerr := m.resolveEnv(ctx, cfg.UsernameEnv, "username"); rerr != nil {
+		return rerr
+	} else if v != "" {
+		cfg.Username = v
+	}
+	if v, rerr := m.resolveEnv(ctx, cfg.PasswordEnv, "password"); rerr != nil {
+		return rerr
+	} else if v != "" {
+		cfg.Password = v
+	}
+	return nil
 }
 
 func (m *Manager) resolveEnv(ctx context.Context, envVar, field string) (string, error) {

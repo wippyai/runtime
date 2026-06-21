@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/stretchr/testify/assert"
@@ -746,6 +747,87 @@ func TestManager_AddWithEnvVars(t *testing.T) {
 	assert.Equal(t, "env-db", applied.Database)
 	assert.Equal(t, "env-user", applied.Username)
 	assert.Equal(t, "env-pass", applied.Password)
+}
+
+func TestManager_UpdateWithEnvVars(t *testing.T) {
+	manager, _, _ := newTestManager(t)
+	ctx := ctxapi.NewRootContext()
+	id := registry.NewID("test", "env-update-db")
+
+	require.NoError(t, manager.Add(ctx, registry.Entry{
+		ID:   id,
+		Kind: apiconfig.Postgres,
+		Data: payload.New(map[string]string{"test": "data"}),
+	}))
+
+	envRegistry := NewMockEnvRegistry()
+	require.NoError(t, envRegistry.Set(ctx, "DB_HOST", "updated-host"))
+	require.NoError(t, envRegistry.Set(ctx, "DB_PORT", "6543"))
+	require.NoError(t, envRegistry.Set(ctx, "DB_NAME", "updated-db"))
+	require.NoError(t, envRegistry.Set(ctx, "DB_USER", "updated-user"))
+	require.NoError(t, envRegistry.Set(ctx, "DB_PASS", "updated-pass"))
+	manager.env = envRegistry
+	manager.dtt = &EnvConfigTranscoder{}
+
+	require.NoError(t, manager.Update(ctx, registry.Entry{
+		ID:   id,
+		Kind: apiconfig.Postgres,
+		Data: payload.New(map[string]string{"updated": "config"}),
+	}))
+
+	applied := currentPoolDBConfig(t, manager.services[id])
+	assert.Equal(t, "updated-host", applied.Host)
+	assert.Equal(t, 6543, applied.Port)
+	assert.Equal(t, "updated-db", applied.Database)
+	assert.Equal(t, "updated-user", applied.Username)
+	assert.Equal(t, "updated-pass", applied.Password)
+	require.NoError(t, manager.services[id].Stop(ctx))
+}
+
+func TestManager_UpdateWithUnresolvableEnvDoesNotMutatePool(t *testing.T) {
+	manager, _, _ := newTestManager(t)
+	ctx := ctxapi.NewRootContext()
+	id := registry.NewID("test", "env-update-fail-db")
+
+	require.NoError(t, manager.Add(ctx, registry.Entry{
+		ID:   id,
+		Kind: apiconfig.Postgres,
+		Data: payload.New(map[string]string{"test": "data"}),
+	}))
+	before := currentPoolDBConfig(t, manager.services[id])
+
+	envRegistry := NewMockEnvRegistry()
+	require.NoError(t, envRegistry.Set(ctx, "DB_HOST", "updated-host"))
+	require.NoError(t, envRegistry.Set(ctx, "DB_PORT", "6543"))
+	require.NoError(t, envRegistry.Set(ctx, "DB_NAME", "updated-db"))
+	require.NoError(t, envRegistry.Set(ctx, "DB_PASS", "updated-pass"))
+	manager.env = envRegistry
+	manager.dtt = &UnresolvableEnvConfigTranscoder{}
+
+	err := manager.Update(ctx, registry.Entry{
+		ID:   id,
+		Kind: apiconfig.Postgres,
+		Data: payload.New(map[string]string{"updated": "config"}),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "could not be resolved")
+
+	after := currentPoolDBConfig(t, manager.services[id])
+	assert.Equal(t, before.Host, after.Host)
+	assert.Equal(t, before.Port, after.Port)
+	assert.Equal(t, before.Database, after.Database)
+	assert.Equal(t, before.Username, after.Username)
+	assert.Equal(t, before.Password, after.Password)
+	require.NoError(t, manager.services[id].Stop(ctx))
+}
+
+func currentPoolDBConfig(t *testing.T, pool *ConnPool) *apiconfig.DBConfig {
+	t.Helper()
+	raw := pool.config.Load()
+	require.NotNil(t, raw)
+	cfg, ok := (*raw).(*apiconfig.DBConfig)
+	require.True(t, ok)
+	return cfg
 }
 
 // EnvConfigTranscoder returns a config with env var fields set
