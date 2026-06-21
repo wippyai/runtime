@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apicontract "github.com/wippyai/runtime/api/contract"
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -39,6 +40,7 @@ import (
 	sysrelay "github.com/wippyai/runtime/system/relay"
 	"github.com/wippyai/runtime/system/scheduler"
 	"github.com/wippyai/runtime/system/scheduler/actor"
+	securitysys "github.com/wippyai/runtime/system/security"
 	"go.uber.org/zap"
 )
 
@@ -1195,6 +1197,34 @@ func actorReportFunc(ctx context.Context, _ runtime.Task) (*runtime.Result, erro
 	return &runtime.Result{Value: payload.New("actor:" + actor.ID)}, nil
 }
 
+type ambientScopePolicy struct {
+	id registry.ID
+}
+
+func (p ambientScopePolicy) ID() registry.ID { return p.id }
+
+func (p ambientScopePolicy) Evaluate(security.Actor, string, string, attrs.Bag) security.Result {
+	return security.Allow
+}
+
+func actorScopeReportFunc(policyID registry.ID) function.Func {
+	return func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+		actorID := "none"
+		if actor, ok := security.GetActor(ctx); ok {
+			actorID = actor.ID
+		}
+		scopeStatus := "none"
+		if scope, ok := security.GetScope(ctx); ok && scope != nil {
+			if scope.Contains(policyID) {
+				scopeStatus = policyID.String()
+			} else {
+				scopeStatus = "present"
+			}
+		}
+		return &runtime.Result{Value: payload.New("actor:" + actorID + "|scope:" + scopeStatus)}, nil
+	}
+}
+
 // TestIntegration_ActorPropagation asserts that an actor framed on a contract via
 // with_actor() reaches the bound function's execution context. The bound function
 // reads the actor from its ctx and returns its id; the script frames a specific
@@ -1429,6 +1459,98 @@ func TestIntegration_ContractInheritsAmbientActor(t *testing.T) {
 	require.Nil(t, result.Error)
 	require.NotNil(t, result.Value)
 	assert.Equal(t, "actor:ambient-user", string(result.Value.Data().(lua.LString)))
+}
+
+func TestIntegration_DirectOpenInheritsAmbientActorAndScope(t *testing.T) {
+	tc := setupIntegrationTest(t, 4)
+	defer tc.Close(t)
+
+	policyID := registry.NewID("test", "ambient-direct")
+	funcID := registry.NewID("test", "direct_ambient_report")
+	tc.registerFunction(t, funcID, actorScopeReportFunc(policyID))
+
+	contractID := registry.NewID("test", "direct_ambient_service")
+	tc.registerContract(t, contractID, &apicontract.Definition{
+		Methods: []apicontract.MethodDef{{Name: "report"}},
+	})
+
+	bindingID := registry.NewID("test", "direct_ambient_impl")
+	tc.registerBinding(t, bindingID, &apicontract.Binding{
+		Contracts: []apicontract.BoundContract{
+			{Contract: contractID, Methods: map[string]registry.ID{"report": funcID}},
+		},
+	})
+
+	script := `
+		local instance, err = contract.open("test:direct_ambient_impl")
+		if err then
+			return nil, tostring(err)
+		end
+		local result, err = instance:report()
+		if err then
+			return nil, tostring(err)
+		end
+		return result
+	`
+
+	frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
+	require.NoError(t, security.SetActor(frameCtx, security.Actor{ID: "ambient-direct-user"}))
+	require.NoError(t, security.SetScope(frameCtx, securitysys.NewScope([]security.Policy{
+		ambientScopePolicy{id: policyID},
+	})))
+	proc := newLuaProcessWithSecurity(t, script)
+
+	result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
+	require.NoError(t, err)
+	require.Nil(t, result.Error)
+	require.NotNil(t, result.Value)
+	assert.Equal(t, "actor:ambient-direct-user|scope:"+policyID.String(), string(result.Value.Data().(lua.LString)))
+}
+
+func TestIntegration_ContractOpenInheritsAmbientActorAndScope(t *testing.T) {
+	tc := setupIntegrationTest(t, 4)
+	defer tc.Close(t)
+
+	policyID := registry.NewID("test", "ambient-wrapper")
+	funcID := registry.NewID("test", "wrapper_ambient_report")
+	tc.registerFunction(t, funcID, actorScopeReportFunc(policyID))
+
+	contractID := registry.NewID("test", "wrapper_ambient_service")
+	tc.registerContract(t, contractID, &apicontract.Definition{
+		Methods: []apicontract.MethodDef{{Name: "report"}},
+	})
+
+	bindingID := registry.NewID("test", "wrapper_ambient_impl")
+	tc.registerBinding(t, bindingID, &apicontract.Binding{
+		Contracts: []apicontract.BoundContract{
+			{Contract: contractID, Methods: map[string]registry.ID{"report": funcID}},
+		},
+	})
+
+	script := `
+		local instance, err = contract.get("test:wrapper_ambient_service"):open("test:wrapper_ambient_impl")
+		if err then
+			return nil, tostring(err)
+		end
+		local result, err = instance:report()
+		if err then
+			return nil, tostring(err)
+		end
+		return result
+	`
+
+	frameCtx, _ := ctxapi.OpenFrameContext(tc.ctx)
+	require.NoError(t, security.SetActor(frameCtx, security.Actor{ID: "ambient-wrapper-user"}))
+	require.NoError(t, security.SetScope(frameCtx, securitysys.NewScope([]security.Policy{
+		ambientScopePolicy{id: policyID},
+	})))
+	proc := newLuaProcessWithSecurity(t, script)
+
+	result, err := tc.scheduler.Execute(frameCtx, uniqueTestPID(), proc, "", nil)
+	require.NoError(t, err)
+	require.Nil(t, result.Error)
+	require.NotNil(t, result.Value)
+	assert.Equal(t, "actor:ambient-wrapper-user|scope:"+policyID.String(), string(result.Value.Data().(lua.LString)))
 }
 
 // TestIntegration_ActorPropagation_AsyncCall asserts the framed actor also reaches
