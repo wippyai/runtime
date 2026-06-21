@@ -54,7 +54,7 @@ type HostRegistry struct {
 	sharedResources any
 	profiles        map[string]HostProfile
 	aliases         map[string]string
-	loaded          map[string]bool
+	loaded          map[*wasmrt.Runtime]map[string]bool
 	mu              sync.RWMutex
 	registerMu      sync.Mutex
 }
@@ -64,7 +64,7 @@ func NewHostRegistry() *HostRegistry {
 	return &HostRegistry{
 		profiles: make(map[string]HostProfile),
 		aliases:  make(map[string]string),
-		loaded:   make(map[string]bool),
+		loaded:   make(map[*wasmrt.Runtime]map[string]bool),
 	}
 }
 
@@ -86,7 +86,7 @@ func (r *HostRegistry) SetSharedResources(v any) {
 // Call this when the runtime instance is recreated.
 func (r *HostRegistry) ResetLoaded() {
 	r.mu.Lock()
-	r.loaded = make(map[string]bool)
+	r.loaded = make(map[*wasmrt.Runtime]map[string]bool)
 	r.sharedResources = nil
 	r.mu.Unlock()
 }
@@ -194,7 +194,7 @@ func (r *HostRegistry) ensureLoaded(ctx context.Context, rt *wasmrt.Runtime, pro
 
 	name := normalizeImportToken(profile.Name)
 	r.mu.RLock()
-	loaded := r.loaded[name]
+	loaded := r.loadedForRuntimeLocked(rt, name)
 	r.mu.RUnlock()
 	if loaded {
 		return nil
@@ -204,7 +204,7 @@ func (r *HostRegistry) ensureLoaded(ctx context.Context, rt *wasmrt.Runtime, pro
 	defer r.registerMu.Unlock()
 
 	r.mu.RLock()
-	loaded = r.loaded[name]
+	loaded = r.loadedForRuntimeLocked(rt, name)
 	r.mu.RUnlock()
 	if loaded {
 		return nil
@@ -216,9 +216,19 @@ func (r *HostRegistry) ensureLoaded(ctx context.Context, rt *wasmrt.Runtime, pro
 	}
 
 	r.mu.Lock()
-	r.loaded[name] = true
+	if r.loaded[rt] == nil {
+		r.loaded[rt] = make(map[string]bool)
+	}
+	r.loaded[rt][name] = true
 	r.mu.Unlock()
 	return nil
+}
+
+func (r *HostRegistry) loadedForRuntimeLocked(rt *wasmrt.Runtime, name string) bool {
+	if r.loaded == nil {
+		return false
+	}
+	return r.loaded[rt] != nil && r.loaded[rt][name]
 }
 
 func normalizeImportToken(raw string) string {

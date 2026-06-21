@@ -271,6 +271,48 @@ func (m *Manager) loadModule(ctx context.Context, cfg *configEntry) (*wasmrt.Mod
 	}
 }
 
+func (m *Manager) loadIsolatedModule(ctx context.Context, cfg *configEntry) (*wasmrt.Module, error) {
+	if cfg.kind != api.FunctionWASM || cfg.wasm == nil {
+		return m.loadModule(ctx, cfg)
+	}
+
+	data, err := wasmcomponent.LoadAndVerifyWASM(m.fsRegistry, cfg.wasm.FS, cfg.wasm.Path, cfg.wasm.Hash)
+	if err != nil {
+		return nil, err
+	}
+
+	isComponent := wasmlib.IsComponent(data)
+	if !isComponent {
+		return m.loadModule(ctx, cfg)
+	}
+
+	rt, err := wasmrt.New(ctx)
+	if err != nil {
+		return nil, err
+	}
+	closeOnError := true
+	defer func() {
+		if closeOnError {
+			_ = rt.Close(ctx)
+		}
+	}()
+
+	if err := m.ensureImportHostsOnRuntime(ctx, rt, cfg.wasm.Imports, true); err != nil {
+		return nil, err
+	}
+
+	module, err := rt.LoadComponent(ctx, data)
+	if err != nil {
+		return nil, runtimewasm.NewLoadWASMError(err)
+	}
+	if err := module.Compile(ctx); err != nil {
+		return nil, runtimewasm.NewCompileModuleError(err)
+	}
+
+	closeOnError = false
+	return module, nil
+}
+
 func (m *Manager) loadWATModule(ctx context.Context, cfg *api.WATFunctionConfig) (*wasmrt.Module, error) {
 	if err := m.ensureImportHosts(ctx, cfg.Imports, false); err != nil {
 		return nil, err

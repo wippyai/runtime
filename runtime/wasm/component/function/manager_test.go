@@ -348,6 +348,37 @@ func TestEnsureImportHosts_RegistersOnceAcrossConcurrentLoads(t *testing.T) {
 	assert.Equal(t, int32(1), atomic.LoadInt32(&calls))
 }
 
+func TestEnsureImportHosts_RegistersOncePerRuntime(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+
+	m := NewManager(zap.NewNop(), nil, nil, nil)
+	var calls int32
+	require.NoError(t, m.RegisterHostProfiles(wasmcomponent.HostProfile{
+		Name:          "test-per-runtime",
+		ComponentOnly: true,
+		Register: func(context.Context, *wasmrt.Runtime) error {
+			atomic.AddInt32(&calls, 1)
+			return nil
+		},
+	}))
+
+	rt1, err := wasmrt.New(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = rt1.Close(ctx) })
+
+	rt2, err := wasmrt.New(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = rt2.Close(ctx) })
+
+	imports := []registry.ID{registry.ParseID("test-per-runtime")}
+
+	require.NoError(t, m.ensureImportHostsOnRuntime(ctx, rt1, imports, true))
+	require.NoError(t, m.ensureImportHostsOnRuntime(ctx, rt1, imports, true))
+	require.NoError(t, m.ensureImportHostsOnRuntime(ctx, rt2, imports, true))
+
+	assert.Equal(t, int32(2), atomic.LoadInt32(&calls))
+}
+
 func TestResolveHostProfile(t *testing.T) {
 	m := NewManager(zap.NewNop(), nil, nil, nil)
 	registerDefaultHostProfiles(t, m)

@@ -8,7 +8,32 @@ import (
 
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
+	wasmtranscoder "github.com/wippyai/wasm-runtime/transcoder"
 )
+
+func TestProcessDecodeOptionsUseBinaryStringByteLists(t *testing.T) {
+	f := NewFactory(
+		nil,
+		wasmapi.TransportTypePayload,
+		wasmapi.WASIConfig{},
+		wasmapi.LimitsConfig{},
+		nil,
+	)
+
+	procAny, err := f.Create()()
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	defer procAny.Close()
+
+	proc, ok := procAny.(*Process)
+	if !ok {
+		t.Fatalf("Create() returned %T, want *Process", procAny)
+	}
+	if got := proc.decodeOptions().ByteListResult; got != wasmtranscoder.ByteListResultBinaryString {
+		t.Fatalf("ByteListResult = %q, want %q", got, wasmtranscoder.ByteListResultBinaryString)
+	}
+}
 
 func TestFactoryWithModuleFactoryLoadsModulePerProcess(t *testing.T) {
 	loaded := 0

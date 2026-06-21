@@ -3,7 +3,6 @@
 package fs
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -413,14 +412,14 @@ func fsReadfile(l *lua.LState) int {
 	}
 	defer func() { _ = file.Close() }()
 
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, file); err != nil {
+	data, err := io.ReadAll(file)
+	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.WrapErrorWithLua(l, err, "failed to read file").WithKind(lua.Internal))
 		return 2
 	}
 
-	l.Push(lua.LString(buf.String()))
+	l.Push(lua.LString(data))
 	l.Push(lua.LNil)
 	return 2
 }

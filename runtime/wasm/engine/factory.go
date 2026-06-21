@@ -18,6 +18,7 @@ type Factory struct {
 	transport     string
 	wasi          wasmapi.WASIConfig
 	limits        wasmapi.LimitsConfig
+	ownedModule   bool
 }
 
 // NewFactory creates a process factory for a module and runtime settings.
@@ -38,9 +39,9 @@ func NewFactory(
 }
 
 // NewFactoryWithModuleFactory creates a process factory that loads a fresh
-// compiled module for each process. This is used when recycling retained-memory
-// WASI component workers because re-instantiating from an already-used component
-// module can leave host bridges bound to the old core instance.
+// compiled module for each process. Retained-memory recycling uses this for
+// WASI components today because re-instantiating from an already-used component
+// module can leave bridge state bound to the old core instance.
 func NewFactoryWithModuleFactory(
 	moduleFactory func() (*wasmrt.Module, error),
 	transport string,
@@ -54,6 +55,7 @@ func NewFactoryWithModuleFactory(
 		wasi:          wasi,
 		limits:        limits,
 		fsReg:         fsReg,
+		ownedModule:   true,
 	}
 }
 
@@ -68,6 +70,8 @@ func (f *Factory) Create() process.FactoryFunc {
 				return nil, err
 			}
 		}
-		return NewProcess(module, f.transport, f.wasi, f.limits, f.fsReg), nil
+		proc := NewProcess(module, f.transport, f.wasi, f.limits, f.fsReg)
+		proc.ownedModule = f.ownedModule
+		return proc, nil
 	}
 }

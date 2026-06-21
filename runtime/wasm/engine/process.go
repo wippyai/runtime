@@ -21,6 +21,7 @@ import (
 	wasmtransport "github.com/wippyai/runtime/runtime/wasm/transport"
 	wasmengine "github.com/wippyai/wasm-runtime/engine"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
+	wasmtranscoder "github.com/wippyai/wasm-runtime/transcoder"
 )
 
 // Transport can map runtime payloads into call args and map call results back.
@@ -53,6 +54,7 @@ type Process struct {
 	pendingTag        uint64
 	yieldSeq          uint64
 	waitingYield      bool
+	ownedModule       bool
 	done              bool
 	started           bool
 }
@@ -120,6 +122,12 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 // Close releases process resources.
 func (p *Process) Close() {
 	p.endExecution()
+	if p.ownedModule && p.module != nil {
+		if closer, ok := any(p.module).(interface{ Close(context.Context) error }); ok {
+			_ = closer.Close(context.Background())
+		}
+		p.module = nil
+	}
 	p.input = nil
 	p.ctx = nil
 	p.execCtx = nil
@@ -221,7 +229,10 @@ func (p *Process) startExecution() error {
 	execCtx = wippyhost.WithAsyncValueStore(execCtx, p.asyncValues)
 
 	if p.inst == nil {
-		inst, err := p.module.InstantiateWithAsyncify(execCtx)
+		inst, err := p.module.InstantiateWithConfig(execCtx, &wasmengine.InstanceConfig{
+			EnableAsyncify: true,
+			DecodeOptions:  p.decodeOptions(),
+		})
 		if err != nil {
 			cancel()
 			return runtimewasm.NewInstantiateModuleError(err)
@@ -250,6 +261,10 @@ func (p *Process) startExecution() error {
 	}
 	p.session = session
 	return nil
+}
+
+func (p *Process) decodeOptions() wasmtranscoder.DecodeOptions {
+	return wasmtranscoder.DecodeOptions{ByteListResult: wasmtranscoder.ByteListResultBinaryString}
 }
 
 func (p *Process) endExecution() {
