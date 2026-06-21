@@ -61,11 +61,11 @@ type (
 	FunctionConfig struct {
 		Imports  map[string]registry.ID `json:"imports,omitempty"`
 		Meta     attrs.Bag              `json:"meta,omitempty"`
+		Security *security.Config       `json:"security,omitempty" yaml:"security,omitempty"`
 		Source   string                 `json:"source"`
 		Method   string                 `json:"method"`
 		Modules  []string               `json:"modules,omitempty"`
 		Pool     PoolConfig             `json:"pool,omitempty"`
-		Security *security.Config       `json:"security,omitempty" yaml:"security,omitempty"`
 	}
 
 	// LibraryConfig defines the configuration for a Lua library component.
@@ -110,13 +110,13 @@ type (
 	BytecodeFunctionConfig struct {
 		Imports  map[string]registry.ID `json:"imports,omitempty"`
 		Meta     attrs.Bag              `json:"meta,omitempty"`
+		Security *security.Config       `json:"security,omitempty" yaml:"security,omitempty"`
 		FS       string                 `json:"fs"`
 		Path     string                 `json:"path"`
 		Hash     string                 `json:"hash"`
 		Method   string                 `json:"method"`
 		Modules  []string               `json:"modules,omitempty"`
 		Pool     PoolConfig             `json:"pool,omitempty"`
-		Security *security.Config       `json:"security,omitempty" yaml:"security,omitempty"`
 	}
 
 	// BytecodeLibraryConfig defines configuration for a precompiled Lua library.

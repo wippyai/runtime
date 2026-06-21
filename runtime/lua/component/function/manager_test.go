@@ -936,8 +936,8 @@ func (p *pidCapturePool) Send(*relay.Package) error {
 }
 
 type securityCapturePool struct {
-	actor security.Actor
 	scope security.Scope
+	actor security.Actor
 }
 
 func (p *securityCapturePool) Call(ctx context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {

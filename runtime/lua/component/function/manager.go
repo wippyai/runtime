@@ -40,11 +40,11 @@ type configEntry struct {
 type poolEntry struct {
 	drained  chan struct{}
 	pool     funcpool.Pool
+	security *security.Config
 	method   string
 	hostID   string
-	security *security.Config
-	mu       sync.Mutex
 	active   int
+	mu       sync.Mutex
 	stopOnce sync.Once
 	retired  bool
 }

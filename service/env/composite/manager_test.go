@@ -19,8 +19,8 @@ import (
 )
 
 type mockBus struct {
-	events []event.Event
 	onSend func(context.Context, event.Event)
+	events []event.Event
 }
 
 func (m *mockBus) Send(ctx context.Context, e event.Event) {

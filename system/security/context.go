@@ -50,7 +50,7 @@ func WithSecurityConfig(ctx context.Context, config *security.Config) context.Co
 	}
 
 	if len(allPolicies) > 0 {
-		var scope security.Scope = NewScope(allPolicies)
+		scope := NewScope(allPolicies)
 		if existing, ok := security.GetScope(ctx); ok && existing != nil {
 			scope = existing
 			for _, policy := range allPolicies {
