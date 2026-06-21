@@ -22,5 +22,9 @@ func (m *Manager) ensureImportHosts(ctx context.Context, imports []registry.ID, 
 	} else {
 		rt = m.runtimeInstance(false)
 	}
+	return m.ensureImportHostsOnRuntime(ctx, rt, imports, component)
+}
+
+func (m *Manager) ensureImportHostsOnRuntime(ctx context.Context, rt *wasmrt.Runtime, imports []registry.ID, component bool) error {
 	return m.hostRegistry.EnsureImports(ctx, rt, imports, component)
 }

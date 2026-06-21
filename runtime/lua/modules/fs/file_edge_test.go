@@ -975,6 +975,32 @@ func TestFsOpen_WriteReadRoundtrip(t *testing.T) {
 	assert.Equal(t, lua.LNil, l.Get(-1))
 }
 
+func TestFsReadfilePreservesBinaryBytes(t *testing.T) {
+	dir := t.TempDir()
+	fsys, err := directory.NewFS(dir, 0755, false)
+	require.NoError(t, err)
+	defer func() { _ = fsys.Close() }()
+	f := NewFS(fsys, "")
+
+	want := []byte{0x00, 0xff, 'P', 'D', 'F', 0x00, 0x7f}
+	require.NoError(t, os.WriteFile(dir+"/binary.bin", want, 0644))
+
+	l := lua.NewState()
+	defer l.Close()
+
+	ud := l.NewUserData()
+	ud.Value = f
+	l.Push(ud)
+	l.Push(lua.LString("/binary.bin"))
+	nret := fsReadfile(l)
+	require.Equal(t, 2, nret)
+	require.Equal(t, lua.LNil, l.Get(-1))
+
+	got, ok := l.Get(-2).(lua.LString)
+	require.True(t, ok, "readfile returned %T", l.Get(-2))
+	assert.Equal(t, want, []byte(string(got)))
+}
+
 // --- ModuleTypes ---
 
 func TestModuleTypes(t *testing.T) {

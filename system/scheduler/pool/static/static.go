@@ -4,6 +4,7 @@ package static
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 
@@ -114,7 +115,9 @@ func (s *Pool) Stop() {
 	close(s.done)
 	s.wg.Wait()
 	for _, w := range s.workers {
-		w.process.Close()
+		if w.process != nil {
+			w.process.Close()
+		}
 	}
 }
 
@@ -184,12 +187,42 @@ func (w *worker) drain() {
 }
 
 func (w *worker) execute(req *pool.Request) {
+	if w.process == nil {
+		if err := w.replaceProcess(); err != nil {
+			req.ResultCh <- &runtime.Result{Error: err}
+			return
+		}
+	}
+
 	pid, _ := runtime.GetFramePID(req.Ctx)
 	w.pool.active.Store(pid.UniqID, w.executor)
 
 	result := w.executor.Run(req.Ctx, w.process, req.Method, req.Input)
+	replace := errors.Is(result.Error, process.ErrProcessReplacementRequested)
+	if replace {
+		result.Error = nil
+	}
 
 	w.pool.active.Delete(pid.UniqID)
 	w.executor.Reset()
 	req.ResultCh <- result
+
+	if replace {
+		_ = w.replaceProcess()
+	}
+}
+
+func (w *worker) replaceProcess() error {
+	old := w.process
+	w.process = nil
+	if old != nil {
+		old.Close()
+	}
+
+	proc, err := w.pool.factory()
+	if err != nil {
+		return err
+	}
+	w.process = proc
+	return nil
 }
