@@ -16,10 +16,10 @@ import (
 )
 
 type mockProcess struct {
-	mu      sync.Mutex
-	latency time.Duration
 	closeFn func()
 	stepErr error
+	mu      sync.Mutex
+	latency time.Duration
 }
 
 func (p *mockProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {

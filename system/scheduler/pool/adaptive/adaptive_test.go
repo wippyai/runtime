@@ -17,10 +17,10 @@ import (
 )
 
 type mockProcess struct {
-	mu      sync.Mutex
-	latency time.Duration
 	closeFn func()
 	stepErr error
+	mu      sync.Mutex
+	latency time.Duration
 }
 
 func (p *mockProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
@@ -164,9 +164,10 @@ func TestAdaptiveReplacesOnlyRequestingWorker(t *testing.T) {
 	}
 	factory := func() (process.Process, error) {
 		n := created.Add(1)
-		if n == 1 {
+		switch n {
+		case 1:
 			record("create1")
-		} else if n == 2 {
+		case 2:
 			record("create2")
 		}
 		return &mockProcess{

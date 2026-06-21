@@ -15,10 +15,10 @@ import (
 )
 
 type mockProcess struct {
-	mu      sync.Mutex
-	latency time.Duration
 	closeFn func()
 	stepErr error
+	mu      sync.Mutex
+	latency time.Duration
 }
 
 func (p *mockProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
@@ -101,9 +101,10 @@ func TestInlineReplacesRequestingProcess(t *testing.T) {
 	factory := func() (process.Process, error) {
 		created++
 		n := created
-		if n == 1 {
+		switch n {
+		case 1:
 			events = append(events, "create1")
-		} else if n == 2 {
+		case 2:
 			events = append(events, "create2")
 		}
 		return &mockProcess{

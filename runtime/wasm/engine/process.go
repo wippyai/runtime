@@ -285,10 +285,7 @@ func (p *Process) resetAfterSync() error {
 }
 
 func (p *Process) shouldReplaceAfterSync() bool {
-	if p.shouldRecycleRetainedInstance() {
-		return true
-	}
-	return false
+	return p.shouldRecycleRetainedInstance()
 }
 
 func (p *Process) shouldRecycleRetainedInstance() bool {
