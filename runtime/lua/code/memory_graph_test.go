@@ -5,7 +5,6 @@ package code
 import (
 	"fmt"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -1141,21 +1140,21 @@ func TestMemoryGraph_Build_TransitiveAliasCollision(t *testing.T) {
 		}
 	}
 
-	// Create dependency tree:
-	// main imports const-x as "const"
-	// main imports library-a as "libA"
-	// library-a imports const-y as "const" <- This IS a collision because all deps are global
+	// Create dependency tree where the same alias resolves to different nodes
+	// in different chunks:
+	//   main imports const-x as "const" and library-a as "libA"
+	//   library-a imports const-y as "const"
+	// Aliases are scoped per chunk, so this is NOT a collision.
 	dependencies := []struct {
 		from  string
 		to    string
 		alias string
 	}{
-		{"main", "const-x", "const"},      // User imports const-x as "const"
-		{"main", "library-a", "libA"},     // User imports library-a
-		{"library-a", "const-y", "const"}, // Library-a imports const-y also as "const" - COLLISION
+		{"main", "const-x", "const"},
+		{"main", "library-a", "libA"},
+		{"library-a", "const-y", "const"},
 	}
 
-	// Add all dependencies
 	for _, dep := range dependencies {
 		from := nodes[dep.from]
 		to := nodes[dep.to]
@@ -1164,16 +1163,27 @@ func TestMemoryGraph_Build_TransitiveAliasCollision(t *testing.T) {
 		}
 	}
 
-	// Build should FAIL with alias collision - two different nodes use same alias "const"
-	_, err := mg.Build(nodes["main"].ID)
-	if err == nil {
-		t.Fatalf("expected collision error, but build succeeded")
+	main, err := mg.Build(nodes["main"].ID)
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
 	}
 
-	// Verify it's an alias collision error
-	if !strings.Contains(err.Error(), "collision") {
-		t.Errorf("expected collision error, got: %v", err)
+	// main's "const" resolves to const-x; library-a's "const" resolves to const-y.
+	wantAlias := func(id registry.ID, alias string, target registry.ID) {
+		t.Helper()
+		for _, imp := range main.Imports[id] {
+			if imp.Alias == alias {
+				if !imp.ID.Equal(target) {
+					t.Fatalf("alias %q in %v resolves to %v, want %v", alias, id, imp.ID, target)
+				}
+				return
+			}
+		}
+		t.Fatalf("alias %q not found for node %v", alias, id)
 	}
+	wantAlias(nodes["main"].ID, "const", nodes["const-x"].ID)
+	wantAlias(nodes["main"].ID, "libA", nodes["library-a"].ID)
+	wantAlias(nodes["library-a"].ID, "const", nodes["const-y"].ID)
 }
 
 func TestNewMemoryGraph(t *testing.T) {

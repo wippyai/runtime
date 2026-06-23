@@ -23,3 +23,11 @@ entries:
     source: file://sigv4.lua
     modules:
       - hash
+
+  - name: overlay
+    kind: library.lua
+    meta:
+      comment: Overlay library granted privileged funcs access for isolation tests
+    source: file://overlay.lua
+    modules:
+      - funcs
