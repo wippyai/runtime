@@ -54,6 +54,7 @@ func init() {
 	packCmd.Flags().StringSlice("exclude-ns", nil, "exclude entries by namespace patterns (e.g., app.**,test.*)")
 	packCmd.Flags().StringSlice("exclude", nil, "exclude entries by ID patterns (e.g., app:internal,test:*)")
 	packCmd.Flags().StringSlice("bytecode", nil, "compile Lua to bytecode (** for all, or patterns: app:**, lib:utils)")
+	packCmd.Flags().StringArray("profile", nil, "Apply a runtime profile from .wippy.yaml before packing (repeatable, applied in order)")
 }
 
 type packStage string
@@ -434,6 +435,11 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	bootCfg, err := loadBootConfig()
 	if err != nil {
 		return fmt.Errorf("load boot config: %w", err)
+	}
+	profiles, _ := cmd.Flags().GetStringArray("profile")
+	bootCfg, err = applyRuntimeProfilesAndVariables(bootCfg, profiles)
+	if err != nil {
+		return fmt.Errorf("apply runtime profiles: %w", err)
 	}
 	if bootCfg != nil {
 		boot.WithConfig(app.Ctx, bootCfg)

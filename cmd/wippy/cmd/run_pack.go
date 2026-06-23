@@ -519,6 +519,10 @@ type packReaderRegistry interface {
 	Register(packPath string, reader *wapp.Reader, file *os.File) error
 }
 
+type modulePackReaderRegistry interface {
+	RegisterPack(packPath, module, version string, reader *wapp.Reader, file *os.File) error
+}
+
 func loadPackEntries(packFiles []string, embedReg packReaderRegistry) ([]registry.Entry, error) {
 	packEntries := make([]registry.Entry, 0)
 
@@ -538,7 +542,8 @@ func loadPackEntries(packFiles []string, embedReg packReaderRegistry) ([]registr
 			return nil, fmt.Errorf("read pack %s: %w", packFile, err)
 		}
 
-		if err := embedReg.Register(packFile, packReader.Reader(), file); err != nil {
+		moduleName, moduleVersion := moduleIdentityFromPackMetadata(packReader.Reader())
+		if err := registerPackResources(embedReg, packFile, moduleName, moduleVersion, packReader.Reader(), file); err != nil {
 			file.Close()
 			return nil, fmt.Errorf("register embed resources for %s: %w", packFile, err)
 		}
@@ -548,7 +553,6 @@ func loadPackEntries(packFiles []string, embedReg packReaderRegistry) ([]registr
 			return nil, fmt.Errorf("read entries from %s: %w", packFile, err)
 		}
 
-		moduleName, moduleVersion := moduleIdentityFromPackMetadata(packReader.Reader())
 		if moduleName != "" {
 			annotateEntriesModuleMeta(loadedEntries, moduleName, moduleVersion)
 		}
@@ -557,6 +561,15 @@ func loadPackEntries(packFiles []string, embedReg packReaderRegistry) ([]registr
 	}
 
 	return packEntries, nil
+}
+
+func registerPackResources(embedReg packReaderRegistry, packFile, moduleName, moduleVersion string, reader *wapp.Reader, file *os.File) error {
+	if moduleName != "" {
+		if moduleReg, ok := embedReg.(modulePackReaderRegistry); ok {
+			return moduleReg.RegisterPack(packFile, moduleName, moduleVersion, reader, file)
+		}
+	}
+	return embedReg.Register(packFile, reader, file)
 }
 
 func moduleIdentityFromPackMetadata(reader *wapp.Reader) (moduleName string, moduleVersion string) {

@@ -66,6 +66,11 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	storage := NewStorage(cfg.FilePath, cfg.AutoCreate, fileMode, dirMode)
+	if cfg.AutoCreate {
+		if err := storage.ensureFile(); err != nil {
+			return err
+		}
+	}
 
 	m.mu.Lock()
 	m.storages[entry.ID] = storage
