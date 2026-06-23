@@ -597,8 +597,8 @@ github.com/wippyai/tree-sitter-sql v0.0.4 h1:0hJyjkV6/lhoGA5FJAaf96od2xyo+OJINSE
 github.com/wippyai/tree-sitter-sql v0.0.4/go.mod h1:QN9CfIO55fwQNVNk1p/7pjxrLk7iKxrQs42Zh6lrr84=
 github.com/wippyai/wapp v0.1.2 h1:fCoxKr9s3gk+pWx4XcnIQmOVgPiuimXf3QcE9mHbdmw=
 github.com/wippyai/wapp v0.1.2/go.mod h1:ndCkYR80+osLGbd7AFWlP+3DxwooR+R6cxQYPZhksg4=
-github.com/wippyai/wasm-runtime v0.0.0-20260621204001-8eab7f42df1b h1:/BeP9g3dy0dfVPCrWPUbUC3USj/2U25Pltz7xGr+C5M=
-github.com/wippyai/wasm-runtime v0.0.0-20260621204001-8eab7f42df1b/go.mod h1:1AVYdZibORqlBez081Seakxv2u9IR+KIMrvlBKsk2bQ=
+github.com/wippyai/wasm-runtime v0.0.0-20260623160937-4f371ee0f68a h1:hNZ5ujZpmQgWlvk9mCaN1Dzvdq2wokrGUVJ8w4OG+Zc=
+github.com/wippyai/wasm-runtime v0.0.0-20260623160937-4f371ee0f68a/go.mod h1:1AVYdZibORqlBez081Seakxv2u9IR+KIMrvlBKsk2bQ=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
 github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e h1:JVG44RsyaB9T2KIHavMF/ppJZNG9ZpyihvCd0w101no=
