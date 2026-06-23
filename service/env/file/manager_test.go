@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -80,11 +81,15 @@ func TestManager_AddAutoCreatesFile(t *testing.T) {
 
 	info, err := os.Stat(filePath)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+	}
 
 	dirInfo, err := os.Stat(filepath.Dir(filePath))
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0700), dirInfo.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		assert.Equal(t, os.FileMode(0700), dirInfo.Mode().Perm())
+	}
 
 	require.Len(t, bus.events, 1)
 	assert.Equal(t, env.StorageRegister, bus.events[0].Kind)

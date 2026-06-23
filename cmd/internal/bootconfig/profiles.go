@@ -316,9 +316,7 @@ func lookupVariable(name string, vars map[string]any) (any, error) {
 	if strings.HasPrefix(name, "env.") {
 		return nil, fmt.Errorf("OS environment interpolation %q is not supported; declare an env.variable entry and reference it by ID", name)
 	}
-	if strings.HasPrefix(name, "vars.") {
-		name = strings.TrimPrefix(name, "vars.")
-	}
+	name = strings.TrimPrefix(name, "vars.")
 	if name == "" {
 		return nil, fmt.Errorf("empty variable reference")
 	}
