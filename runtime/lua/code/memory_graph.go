@@ -60,7 +60,12 @@ type (
 	// Main aggregates a main function prototype, its method,
 	// all dependency prototypes, and any required modules.
 	Main struct {
-		Main         *Node
+		Main *Node
+		// Imports maps each code node (the entrypoint and every reachable
+		// library) to its directly declared imports. It is the source of
+		// truth for per-chunk import scoping: a chunk may only resolve the
+		// aliases listed for its own node, never the transitive closure.
+		Imports      map[registry.ID][]Import
 		Dependencies []Dependency
 	}
 )
@@ -638,6 +643,21 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 		}
 	}
 
+	// Build per-chunk direct imports from the edge map. Each code node (the
+	// entrypoint and every library) maps to the aliases it itself declared,
+	// so the runtime can scope each chunk to its own imports instead of the
+	// flattened closure.
+	imports := make(map[registry.ID][]Import, len(edgeMap))
+	for from, targets := range edgeMap {
+		for to, alias := range targets {
+			if alias == "" {
+				alias = to.Name
+			}
+			imports[from] = append(imports[from], Import{ID: to, Alias: alias})
+		}
+	}
+	rt.Imports = imports
+
 	// Build alias map: collect ALL aliases for each node from ALL edges pointing to it
 	// A node can have multiple aliases if different parents import it with different names
 	aliasMap := make(map[registry.ID]map[string]bool)
@@ -693,17 +713,10 @@ func (m *MemoryGraph) Build(entrypoint registry.ID) (*Main, error) {
 		}
 	}
 
-	// Validate no duplicate names pointing to different nodes
-	nameToNode := make(map[string]registry.ID)
-	for _, dep := range depNodes {
-		if existingNodeID, exists := nameToNode[dep.Name]; exists {
-			if !existingNodeID.Equal(dep.Node.ID) {
-				return nil, NewAliasCollisionError(dep.Name, entrypoint, existingNodeID, false, dep.Node.ID, false)
-			}
-		}
-		nameToNode[dep.Name] = dep.Node.ID
-	}
-
+	// Aliases are scoped per chunk (see rt.Imports), so the same alias may
+	// resolve to different nodes in different libraries without conflict.
+	// Per-node alias collisions are still rejected when edges are added
+	// (AddDependency / UpdateNode).
 	rt.Dependencies = depNodes
 	return &rt, nil
 }

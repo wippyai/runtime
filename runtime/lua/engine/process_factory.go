@@ -155,11 +155,26 @@ func (f *ProcessFactory) CreateFactory(id registry.ID, opts ...FactoryOption) (p
 func (f *ProcessFactory) buildBinders(compiled *code.CompiledMain, cfg *processConfig) ([]ModuleBinder, error) {
 	binders := []ModuleBinder{LoadCoreModules}
 
-	// Extra modules must load BEFORE dependencies so libraries can access them
+	// Extra modules are runtime-injected and globally available to every chunk
+	// via the shared base globals.
 	for _, mod := range cfg.extraModules {
 		m := mod
 		binders = append(binders, func(l *lua.LState) error {
 			LoadModuleDef(l, m)
+			return nil
+		})
+	}
+
+	// Preloaded modules are forced-available globals as well.
+	for _, pre := range compiled.Preloaded {
+		dep := pre
+		if dep.Node == nil || dep.Node.Module == nil {
+			continue
+		}
+		mod := dep.Node.Module
+		name := dep.Name
+		binders = append(binders, func(l *lua.LState) error {
+			l.SetGlobal(name, ModuleValue(mod))
 			return nil
 		})
 	}
@@ -170,93 +185,130 @@ func (f *ProcessFactory) buildBinders(compiled *code.CompiledMain, cfg *processC
 	forbidClassSet := toSet(cfg.forbidClasses)
 	forbidModuleSet := toSet(cfg.forbidModules)
 
-	// Bind compiled dependencies
-	depBinders, err := f.bindDependencies(compiled.Dependencies, cfg, excludeClassSet, excludeModuleSet, forbidClassSet, forbidModuleSet)
-	if err != nil {
-		return nil, err
-	}
-	binders = append(binders, depBinders...)
-
-	// Bind preloaded
-	preloadBinders, err := f.bindDependencies(compiled.Preloaded, cfg, excludeClassSet, excludeModuleSet, forbidClassSet, forbidModuleSet)
-	if err != nil {
-		return nil, err
-	}
-	binders = append(binders, preloadBinders...)
-
+	binders = append(binders, f.isolationBinder(compiled, cfg, excludeClassSet, excludeModuleSet, forbidClassSet, forbidModuleSet))
 	return binders, nil
 }
 
-// bindDependencies creates binders for compiled dependencies with filtering.
-func (f *ProcessFactory) bindDependencies(
-	deps []code.CompiledProto,
+// isolationBinder binds dependencies into per-chunk scoped environments.
+// Registry modules and libraries are never placed in the shared _G; instead
+// each chunk (the entrypoint and every library) runs under its own environment
+// table that exposes only the imports that chunk declared, plus a scoped
+// require that resolves the same set. The shared _G holds only the safe base
+// (core libs, extra/preloaded modules) reachable through each env's metatable.
+func (f *ProcessFactory) isolationBinder(
+	compiled *code.CompiledMain,
 	cfg *processConfig,
 	excludeClassSet, excludeModuleSet, forbidClassSet, forbidModuleSet map[string]struct{},
-) ([]ModuleBinder, error) {
-	binders := make([]ModuleBinder, 0, len(deps))
+) ModuleBinder {
+	return func(l *lua.LState) error {
+		base := l.Get(lua.GlobalsIndex).(*lua.LTable)
+		valueByNode := make(map[registry.ID]lua.LValue, len(compiled.Dependencies))
+		processed := make(map[registry.ID]struct{}, len(compiled.Dependencies))
 
-	for _, dep := range deps {
-		name := dep.Name
-		var classes []string
-		if dep.Node != nil && dep.Node.Module != nil {
-			classes = dep.Node.Module.Class
-		}
-
-		// Check exclusions
-		if _, excluded := excludeModuleSet[name]; excluded {
-			continue
-		}
-		if hasAnyClass(classes, excludeClassSet) {
-			continue
-		}
-
-		// Check forbids
-		if _, forbidden := forbidModuleSet[name]; forbidden {
-			return nil, fmt.Errorf("forbidden module: %s", name)
-		}
-		if hasAnyClass(classes, forbidClassSet) {
-			return nil, fmt.Errorf("forbidden class in module %s", name)
-		}
-
-		// Custom filter
-		if cfg.filter != nil {
-			include, err := cfg.filter(name, classes)
-			if err != nil {
-				return nil, fmt.Errorf("filter rejected module %s: %w", name, err)
-			}
-			if !include {
+		// Dependencies are ordered deepest-first, so a library's imports are
+		// resolved before the library itself runs.
+		for _, dep := range compiled.Dependencies {
+			if dep.Node == nil {
 				continue
 			}
-		}
+			id := dep.Node.ID
+			if _, done := processed[id]; done {
+				continue
+			}
+			processed[id] = struct{}{}
 
-		// Create binder based on type - eager load into _G
-		if dep.Node != nil && dep.Node.Module != nil {
-			mod := dep.Node.Module
-			alias := name // Use the import alias, not the module's internal name
-			binders = append(binders, func(l *lua.LState) error {
-				l.SetGlobal(alias, ModuleValue(mod))
-				return nil
-			})
-		}
+			if dep.Node.Kind == luaapi.ModuleKind && dep.Node.Module != nil {
+				mod := dep.Node.Module
+				name := mod.Info().Name
 
-		if dep.Proto != nil {
-			proto := dep.Proto
-			protoName := name
-			binders = append(binders, func(l *lua.LState) error {
-				fn := l.LoadProto(proto)
+				if _, excluded := excludeModuleSet[name]; excluded {
+					continue
+				}
+				if hasAnyClass(mod.Class, excludeClassSet) {
+					continue
+				}
+				if _, forbidden := forbidModuleSet[name]; forbidden {
+					return fmt.Errorf("forbidden module: %s", name)
+				}
+				if hasAnyClass(mod.Class, forbidClassSet) {
+					return fmt.Errorf("forbidden class in module %s", name)
+				}
+				if cfg.filter != nil {
+					include, err := cfg.filter(name, mod.Class)
+					if err != nil {
+						return fmt.Errorf("filter rejected module %s: %w", name, err)
+					}
+					if !include {
+						continue
+					}
+				}
+
+				valueByNode[id] = ModuleValue(mod)
+				continue
+			}
+
+			if dep.Proto != nil {
+				env := buildChunkEnv(l, base, compiled.Imports[id], valueByNode)
+				fn := l.LoadProto(dep.Proto)
+				fn.Env = env
 				l.Push(fn)
 				if err := l.PCall(0, 1, nil); err != nil {
-					return fmt.Errorf("failed to load dependency %s: %w", protoName, err)
+					return fmt.Errorf("failed to load dependency %s: %w", dep.Name, err)
 				}
-				result := l.Get(-1)
+				valueByNode[id] = l.Get(-1)
 				l.Pop(1)
-				l.SetGlobal(protoName, result)
-				return nil
-			})
+			}
 		}
+
+		// The entrypoint runs under its own scoped environment. Assigning it as
+		// the state environment makes LoadProto stamp the main chunk with it.
+		l.Env = buildChunkEnv(l, base, compiled.Imports[compiled.MainID], valueByNode)
+		return nil
+	}
+}
+
+// buildChunkEnv creates a scoped global environment for one code chunk. The
+// environment exposes only the chunk's declared imports (both as globals and
+// through a scoped require) and falls back to the shared safe base for standard
+// globals via its metatable. Undeclared modules resolve to nil and require
+// fails closed.
+func buildChunkEnv(l *lua.LState, base *lua.LTable, imports []code.Import, valueByNode map[registry.ID]lua.LValue) *lua.LTable {
+	env := l.NewTable()
+	mt := l.NewTable()
+	mt.RawSetString("__index", base)
+	l.SetMetatable(env, mt)
+
+	resolved := make(map[string]lua.LValue, len(imports))
+	for _, imp := range imports {
+		v, ok := valueByNode[imp.ID]
+		if !ok {
+			continue
+		}
+		alias := imp.Alias
+		if alias == "" {
+			alias = imp.ID.Name
+		}
+		env.RawSetString(alias, v)
+		resolved[alias] = v
 	}
 
-	return binders, nil
+	env.RawSetString("require", l.NewFunction(func(s *lua.LState) int {
+		name := s.CheckString(1)
+		if v, ok := resolved[name]; ok {
+			s.Push(v)
+			return 1
+		}
+		// Fall back to the always-available base (core libs, extra/preloaded
+		// modules). Registry modules are not in the base, so an undeclared
+		// capability module (e.g. funcs) still fails closed here.
+		if v := base.RawGetString(name); v != lua.LNil {
+			s.Push(v)
+			return 1
+		}
+		s.RaiseError("module '%s' not found", name)
+		return 0
+	}))
+	return env
 }
 
 // Helper functions

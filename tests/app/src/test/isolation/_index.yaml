@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MPL-2.0
+
+version: "1.0"
+namespace: app.test.isolation
+
+entries:
+  - name: import_isolation
+    kind: function.lua
+    meta:
+      type: test
+      suite: isolation
+      description: Evil runner cannot reach funcs granted to an overlay library
+    source: file://import_isolation.lua
+    method: main
+    imports:
+      overlay: app.lib:overlay
