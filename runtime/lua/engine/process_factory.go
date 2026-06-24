@@ -100,6 +100,13 @@ func WithModule(mod *luaapi.ModuleDef) FactoryOption {
 	}
 }
 
+// WithModules adds several extra modules to load.
+func WithModules(mods ...*luaapi.ModuleDef) FactoryOption {
+	return func(c *processConfig) {
+		c.extraModules = append(c.extraModules, mods...)
+	}
+}
+
 // WithFilter sets a custom filter function.
 // Return (true, nil) to include, (false, nil) to exclude, (false, err) to fail.
 func WithFilter(fn func(name string, classes []string) (bool, error)) FactoryOption {
@@ -268,17 +275,19 @@ func (f *ProcessFactory) isolationBinder(
 }
 
 // buildChunkEnv creates a scoped global environment for one code chunk. The
-// environment exposes only the chunk's declared imports (both as globals and
+// environment exposes only the chunk's declared imports (as global lookups and
 // through a scoped require) and falls back to the shared safe base for standard
-// globals via its metatable. Undeclared modules resolve to nil and require
-// fails closed.
+// globals via its metatable.
+//
+// A runtime-installed DSL global may temporarily shadow an import alias when
+// that global did not exist in the base environment at chunk creation time. This
+// preserves the old shared-_G migration DSL behavior without leaking declared
+// imports into _G. Undeclared modules resolve to nil and require fails closed.
 func buildChunkEnv(l *lua.LState, base *lua.LTable, imports []code.Import, valueByNode map[registry.ID]lua.LValue) *lua.LTable {
 	env := l.NewTable()
-	mt := l.NewTable()
-	mt.RawSetString("__index", base)
-	l.SetMetatable(env, mt)
 
 	resolved := make(map[string]lua.LValue, len(imports))
+	baseHadAlias := make(map[string]bool, len(imports))
 	for _, imp := range imports {
 		v, ok := valueByNode[imp.ID]
 		if !ok {
@@ -288,9 +297,33 @@ func buildChunkEnv(l *lua.LState, base *lua.LTable, imports []code.Import, value
 		if alias == "" {
 			alias = imp.ID.Name
 		}
-		env.RawSetString(alias, v)
 		resolved[alias] = v
+		baseHadAlias[alias] = base.RawGetString(alias) != lua.LNil
 	}
+
+	mt := l.NewTable()
+	mt.RawSetString("__index", l.NewFunction(func(s *lua.LState) int {
+		name := s.CheckString(2)
+		baseValue := base.RawGetString(name)
+		if baseValue != lua.LNil && !baseHadAlias[name] {
+			// Dynamic globals installed after chunk creation, such as the
+			// migration DSL's migration/up/down helpers, must be visible to
+			// closures running in this chunk environment.
+			s.Push(baseValue)
+			return 1
+		}
+		if v, ok := resolved[name]; ok {
+			s.Push(v)
+			return 1
+		}
+		if baseValue != lua.LNil {
+			s.Push(baseValue)
+			return 1
+		}
+		s.Push(lua.LNil)
+		return 1
+	}))
+	l.SetMetatable(env, mt)
 
 	env.RawSetString("require", l.NewFunction(func(s *lua.LState) int {
 		name := s.CheckString(1)

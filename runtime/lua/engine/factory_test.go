@@ -724,7 +724,7 @@ func TestFactory_ModuleAliasing_GoModule(t *testing.T) {
 	state := luaProc.State()
 
 	// Imports are scoped to the chunk environment, not the shared _G.
-	aliasedMod := state.Env.RawGetString("aliased_module")
+	aliasedMod := state.GetField(state.Env, "aliased_module")
 	if aliasedMod == lua.LNil {
 		t.Fatal("aliased_module not found in chunk env")
 	}
@@ -790,7 +790,7 @@ func TestFactory_ModuleAliasing_LuaLibrary(t *testing.T) {
 	state := luaProc.State()
 
 	// Imports are scoped to the chunk environment, not the shared _G.
-	utilsMod := state.Env.RawGetString("utils")
+	utilsMod := state.GetField(state.Env, "utils")
 	if utilsMod == lua.LNil {
 		t.Fatal("utils not found in chunk env")
 	}
@@ -884,7 +884,7 @@ func TestFactory_ModuleAliasing_MultipleAliases(t *testing.T) {
 	state := luaProc.State()
 
 	// Verify first alias
-	firstMod := state.Env.RawGetString("first")
+	firstMod := state.GetField(state.Env, "first")
 	if firstMod == lua.LNil {
 		t.Fatal("first not found in chunk env")
 	}
@@ -897,7 +897,7 @@ func TestFactory_ModuleAliasing_MultipleAliases(t *testing.T) {
 	}
 
 	// Verify second alias
-	secondMod := state.Env.RawGetString("second")
+	secondMod := state.GetField(state.Env, "second")
 	if secondMod == lua.LNil {
 		t.Fatal("second not found in chunk env")
 	}
@@ -979,7 +979,7 @@ func TestFactory_ModuleAliasing_SameModuleDifferentAliases(t *testing.T) {
 	state1 := proc1.(*Process).State()
 
 	// Verify alpha is set but not shared_mod
-	alphaMod := state1.Env.RawGetString("alpha")
+	alphaMod := state1.GetField(state1.Env, "alpha")
 	if alphaMod == lua.LNil {
 		t.Fatal("alpha not found in proc1 chunk env")
 	}
@@ -1007,7 +1007,7 @@ func TestFactory_ModuleAliasing_SameModuleDifferentAliases(t *testing.T) {
 	state2 := proc2.(*Process).State()
 
 	// Verify beta is set but not shared_mod
-	betaMod := state2.Env.RawGetString("beta")
+	betaMod := state2.GetField(state2.Env, "beta")
 	if betaMod == lua.LNil {
 		t.Fatal("beta not found in proc2 chunk env")
 	}

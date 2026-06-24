@@ -16,8 +16,8 @@ import (
 	api "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/supervisor"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
+	"github.com/wippyai/runtime/runtime/lua/component"
 	"github.com/wippyai/runtime/runtime/lua/engine"
-	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
 	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
 	"github.com/wippyai/runtime/system/scheduler/pool/adaptive"
 	"github.com/wippyai/runtime/system/scheduler/pool/inline"
@@ -107,7 +107,7 @@ func (m *Manager) createPool(id registry.ID, cfg *configEntry) error {
 }
 
 func (m *Manager) buildPool(id registry.ID, cfg *configEntry) (funcpool.Pool, error) {
-	factoryFn, err := m.factory.CreateFactory(id, engine.WithModule(processmod.Module))
+	factoryFn, err := m.factory.CreateFactory(id, engine.WithModules(component.ExecutableAmbientModules()...))
 	if err != nil {
 		return nil, err // Already has compile context from code.Manager
 	}
