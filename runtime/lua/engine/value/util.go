@@ -3,6 +3,7 @@
 package value
 
 import (
+	"strconv"
 	"sync"
 
 	lua "github.com/wippyai/go-lua"
@@ -11,6 +12,11 @@ import (
 // Global metatable storage using sync.Map for fast concurrent access
 // All stored metatables are made immutable for safe reuse across goroutines
 var metatableRegistry sync.Map
+
+const (
+	recursiveTableReference = "<recursive table>"
+	tableVisitStackSize     = 8
+)
 
 // IsTypeRegistered checks if a type metatable is already registered and immutable
 func IsTypeRegistered(typeName string) bool {
@@ -254,6 +260,11 @@ func GetFunc(l *lua.LState, value lua.LValue, field string) (*lua.LFunction, boo
 
 // ToGoAny converts a lua.LValue to its Go equivalent.
 func ToGoAny(v lua.LValue) any {
+	var path [tableVisitStackSize]*lua.LTable
+	return toGoAny(v, path[:0])
+}
+
+func toGoAny(v lua.LValue, path []*lua.LTable) any {
 	if v == nil {
 		return nil
 	}
@@ -270,12 +281,7 @@ func ToGoAny(v lua.LValue) any {
 	case lua.LTString:
 		return string(v.(lua.LString))
 	case lua.LTTable:
-		tbl := v.(*lua.LTable)
-		maxn := tbl.MaxN()
-		if maxn == 0 {
-			return TableToMap(tbl)
-		}
-		return TableToSlice(tbl, maxn)
+		return tableToGoAny(v.(*lua.LTable), path)
 	case lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
 		fallthrough
 	default:
@@ -283,20 +289,77 @@ func ToGoAny(v lua.LValue) any {
 	}
 }
 
+func tableToGoAny(tbl *lua.LTable, path []*lua.LTable) any {
+	for _, visited := range path {
+		if visited == tbl {
+			return recursiveTableReference
+		}
+	}
+	path = append(path, tbl)
+
+	maxn := tbl.MaxN()
+	if maxn == 0 {
+		return tableToMap(tbl, path)
+	}
+	return tableToSlice(tbl, maxn, path)
+}
+
 // TableToMap converts a Lua table to a Go map.
 func TableToMap(tbl *lua.LTable) map[string]any {
-	result := make(map[string]any, tbl.Len())
-	tbl.ForEach(func(key, value lua.LValue) {
-		result[key.String()] = ToGoAny(value)
-	})
+	var path [tableVisitStackSize]*lua.LTable
+	return tableToMap(tbl, append(path[:0], tbl))
+}
+
+func tableToMap(tbl *lua.LTable, path []*lua.LTable) map[string]any {
+	result := make(map[string]any, tableMapCap(tbl))
+	if tbl.Array != nil {
+		for i, value := range tbl.Array {
+			if value != lua.LNil {
+				result[strconv.Itoa(i+1)] = toGoAny(value, path)
+			}
+		}
+	}
+	if tbl.Strdict != nil {
+		for key, value := range tbl.Strdict {
+			if value != lua.LNil {
+				result[key] = toGoAny(value, path)
+			}
+		}
+	}
+	if tbl.Dict != nil {
+		for key, value := range tbl.Dict {
+			if value != lua.LNil {
+				result[key.String()] = toGoAny(value, path)
+			}
+		}
+	}
 	return result
+}
+
+func tableMapCap(tbl *lua.LTable) int {
+	capacity := 0
+	if tbl.Array != nil {
+		capacity += len(tbl.Array)
+	}
+	if tbl.Strdict != nil {
+		capacity += len(tbl.Strdict)
+	}
+	if tbl.Dict != nil {
+		capacity += len(tbl.Dict)
+	}
+	return capacity
 }
 
 // TableToSlice converts a Lua table to a Go slice.
 func TableToSlice(tbl *lua.LTable, maxn int) []any {
+	var path [tableVisitStackSize]*lua.LTable
+	return tableToSlice(tbl, maxn, append(path[:0], tbl))
+}
+
+func tableToSlice(tbl *lua.LTable, maxn int, path []*lua.LTable) []any {
 	result := make([]any, 0, maxn)
 	for i := 1; i <= maxn; i++ {
-		result = append(result, ToGoAny(tbl.RawGetInt(i)))
+		result = append(result, toGoAny(tbl.RawGetInt(i), path))
 	}
 	return result
 }
