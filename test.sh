@@ -33,6 +33,7 @@ go test \
 	./service/env/... \
 	./service/sql/... \
 	./service/cdc/postgres \
+	./runtime/lua/engine/value \
 	./runtime/lua/modules/cdc \
 	./boot/components/dispatchers
 
