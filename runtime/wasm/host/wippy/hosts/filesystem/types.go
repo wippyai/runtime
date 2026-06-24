@@ -160,9 +160,26 @@ const (
 	DescriptorTypeSocket
 )
 
+type Datetime struct {
+	Seconds     uint64
+	Nanoseconds uint32
+}
+
+// DescriptorStat must mirror every field of the wasi:filesystem descriptor-stat
+// record. The Canonical ABI encoder maps WIT record fields to Go struct fields by
+// name; a missing field (previously link-count and the timestamps) fails the record
+// lowering so later fields like size never reach the guest, which then reads garbage.
 type DescriptorStat struct {
-	Type DescriptorType
-	Size uint64
+	DataAccessTimestamp       *Datetime
+	DataModificationTimestamp *Datetime
+	StatusChangeTimestamp     *Datetime
+	LinkCount                 uint64
+	Size                      uint64
+	Type                      DescriptorType
+}
+
+func toDatetime(t time.Time) *Datetime {
+	return &Datetime{Seconds: uint64(t.Unix()), Nanoseconds: uint32(t.Nanosecond())}
 }
 
 func (h *TypesHost) getDescriptor(handle uint32) (*descriptorResource, *Error) {
@@ -317,9 +334,14 @@ func (h *TypesHost) MethodDescriptorStat(_ context.Context, self uint32) (*Descr
 		return nil, mapOSError(fsErr)
 	}
 
+	mod := toDatetime(info.ModTime())
 	return &DescriptorStat{
-		Type: fileInfoToDescriptorType(info),
-		Size: uint64(info.Size()),
+		Type:                      fileInfoToDescriptorType(info),
+		LinkCount:                 1,
+		Size:                      uint64(info.Size()),
+		DataAccessTimestamp:       mod,
+		DataModificationTimestamp: mod,
+		StatusChangeTimestamp:     mod,
 	}, nil
 }
 
@@ -672,9 +694,14 @@ func (h *TypesHost) MethodDescriptorStatAt(_ context.Context, self uint32, pathF
 		return nil, mapOSError(fsErr)
 	}
 
+	mod := toDatetime(info.ModTime())
 	return &DescriptorStat{
-		Type: fileInfoToDescriptorType(info),
-		Size: uint64(info.Size()),
+		Type:                      fileInfoToDescriptorType(info),
+		LinkCount:                 1,
+		Size:                      uint64(info.Size()),
+		DataAccessTimestamp:       mod,
+		DataModificationTimestamp: mod,
+		StatusChangeTimestamp:     mod,
 	}, nil
 }
 
