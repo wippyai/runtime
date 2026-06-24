@@ -5,6 +5,7 @@ package lua
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
@@ -13,6 +14,9 @@ import (
 	"github.com/wippyai/runtime/boot/components/dispatchers"
 	"github.com/wippyai/runtime/runtime/lua/evalhost"
 )
+
+// defaultEvalCacheSize bounds the eval compile cache when not configured.
+const defaultEvalCacheSize = 256
 
 const EvalHostName boot.Name = "runtime.lua.eval"
 
@@ -34,11 +38,26 @@ func Eval() boot.Component {
 				return ctx, ErrCodeManagerNotFound
 			}
 
+			// Resolve compile-cache settings (bounds recompilation of frequently
+			// evaluated source).
+			evalCacheSize := defaultEvalCacheSize
+			var evalCacheTTL time.Duration
+			if cfg := boot.GetConfig(ctx); cfg != nil {
+				if luaCfg := cfg.Sub("lua"); luaCfg != nil {
+					evalCacheSize = luaCfg.GetInt("eval.cache_size", evalCacheSize)
+					evalCacheTTL = luaCfg.GetDuration("eval.cache_ttl", evalCacheTTL)
+				}
+			}
+
 			// Create eval host with dynamic module provider
 			evalLogger := logger.Named("eval")
 			host := evalhost.NewHost(
 				evalLogger,
 				cm.GetModuleDefs,
+				evalhost.WithProgramCache(evalhost.HostConfig{
+					CacheSize: evalCacheSize,
+					CacheTTL:  evalCacheTTL,
+				}),
 			)
 
 			// Set up import loader to load library sources from code manager
