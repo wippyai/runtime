@@ -580,6 +580,76 @@ func TestToGoAny(t *testing.T) {
 		assert.Equal(t, float64(42), m["key2"])
 	})
 
+	t.Run("self-referential map table", func(t *testing.T) {
+		L := lua.NewState()
+		defer L.Close()
+
+		tbl := L.CreateTable(0, 2)
+		tbl.RawSetString("name", lua.LString("cycle"))
+		tbl.RawSetString("self", tbl)
+
+		result := ToGoAny(tbl)
+		m, ok := result.(map[string]any)
+		assert.True(t, ok)
+		assert.Equal(t, "cycle", m["name"])
+		assert.Equal(t, recursiveTableReference, m["self"])
+	})
+
+	t.Run("mutually-referential map tables", func(t *testing.T) {
+		L := lua.NewState()
+		defer L.Close()
+
+		a := L.CreateTable(0, 2)
+		b := L.CreateTable(0, 2)
+		a.RawSetString("name", lua.LString("a"))
+		a.RawSetString("b", b)
+		b.RawSetString("name", lua.LString("b"))
+		b.RawSetString("a", a)
+
+		result := ToGoAny(a)
+		ma, ok := result.(map[string]any)
+		assert.True(t, ok)
+		mb, ok := ma["b"].(map[string]any)
+		assert.True(t, ok)
+		assert.Equal(t, "b", mb["name"])
+		assert.Equal(t, recursiveTableReference, mb["a"])
+	})
+
+	t.Run("shared table is not treated as recursive", func(t *testing.T) {
+		L := lua.NewState()
+		defer L.Close()
+
+		shared := L.CreateTable(0, 1)
+		shared.RawSetString("value", lua.LString("shared"))
+		root := L.CreateTable(0, 2)
+		root.RawSetString("left", shared)
+		root.RawSetString("right", shared)
+
+		result := ToGoAny(root)
+		m, ok := result.(map[string]any)
+		assert.True(t, ok)
+		left, ok := m["left"].(map[string]any)
+		assert.True(t, ok)
+		right, ok := m["right"].(map[string]any)
+		assert.True(t, ok)
+		assert.Equal(t, "shared", left["value"])
+		assert.Equal(t, "shared", right["value"])
+	})
+
+	t.Run("self-referential array table", func(t *testing.T) {
+		L := lua.NewState()
+		defer L.Close()
+
+		tbl := L.CreateTable(1, 0)
+		tbl.RawSetInt(1, tbl)
+
+		result := ToGoAny(tbl)
+		arr, ok := result.([]any)
+		assert.True(t, ok)
+		assert.Len(t, arr, 1)
+		assert.Equal(t, recursiveTableReference, arr[0])
+	})
+
 	t.Run("function returns string representation", func(t *testing.T) {
 		L := lua.NewState()
 		defer L.Close()
