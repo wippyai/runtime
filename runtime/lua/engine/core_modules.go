@@ -98,12 +98,21 @@ func printFunc(l *lua.LState) int {
 	return 0
 }
 
+// coreModules are loaded as ambient globals into every Lua state by
+// LoadCoreModules and are therefore require-able without an import declaration.
+// ostime.Module is named "os" and supplies the standard os library.
+var coreModules = []*luaapi.ModuleDef{
+	payload.Module,
+	ostime.Module,
+	PrintModule,
+	ChannelModule,
+}
+
 // LoadCoreModules loads all core modules into the LState.
 func LoadCoreModules(l *lua.LState) error {
-	LoadModuleDef(l, payload.Module)
-	LoadModuleDef(l, ostime.Module)
-	LoadModuleDef(l, PrintModule)
-	LoadModuleDef(l, ChannelModule)
+	for _, m := range coreModules {
+		LoadModuleDef(l, m)
+	}
 	loadPubSubGlobals(l)
 	return nil
 }
@@ -118,4 +127,16 @@ func loadPubSubGlobals(l *lua.LState) {
 // CoreBinders returns the core module loader as a single binder.
 func CoreBinders() []ModuleBinder {
 	return []ModuleBinder{LoadCoreModules}
+}
+
+// AmbientBaseModuleNames returns the names of modules and standard libraries
+// that every Lua chunk can require without an explicit import declaration. It is
+// derived from coreModules (loaded by LoadCoreModules) and StdLibNames (installed
+// by BindCachedLibs), so it cannot drift from what the runtime actually installs.
+func AmbientBaseModuleNames() []string {
+	names := make([]string, 0, len(coreModules))
+	for _, m := range coreModules {
+		names = append(names, m.Name)
+	}
+	return append(names, StdLibNames()...)
 }
