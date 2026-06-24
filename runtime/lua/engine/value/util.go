@@ -252,8 +252,14 @@ func GetFunc(l *lua.LState, value lua.LValue, field string) (*lua.LFunction, boo
 	return nil, false
 }
 
+const cyclicTableSentinel = "<cyclic table>"
+
 // ToGoAny converts a lua.LValue to its Go equivalent.
 func ToGoAny(v lua.LValue) any {
+	return toGoAny(v, make(map[*lua.LTable]struct{}))
+}
+
+func toGoAny(v lua.LValue, stack map[*lua.LTable]struct{}) any {
 	if v == nil {
 		return nil
 	}
@@ -271,11 +277,14 @@ func ToGoAny(v lua.LValue) any {
 		return string(v.(lua.LString))
 	case lua.LTTable:
 		tbl := v.(*lua.LTable)
+		if _, ok := stack[tbl]; ok {
+			return cyclicTableSentinel
+		}
 		maxn := tbl.MaxN()
 		if maxn == 0 {
-			return TableToMap(tbl)
+			return tableToMap(tbl, stack)
 		}
-		return TableToSlice(tbl, maxn)
+		return tableToSlice(tbl, maxn, stack)
 	case lua.LTFunction, lua.LTUserData, lua.LTThread, lua.LTChannel:
 		fallthrough
 	default:
@@ -285,18 +294,32 @@ func ToGoAny(v lua.LValue) any {
 
 // TableToMap converts a Lua table to a Go map.
 func TableToMap(tbl *lua.LTable) map[string]any {
+	return tableToMap(tbl, make(map[*lua.LTable]struct{}))
+}
+
+func tableToMap(tbl *lua.LTable, stack map[*lua.LTable]struct{}) map[string]any {
 	result := make(map[string]any, tbl.Len())
+	stack[tbl] = struct{}{}
+	defer delete(stack, tbl)
+
 	tbl.ForEach(func(key, value lua.LValue) {
-		result[key.String()] = ToGoAny(value)
+		result[key.String()] = toGoAny(value, stack)
 	})
 	return result
 }
 
 // TableToSlice converts a Lua table to a Go slice.
 func TableToSlice(tbl *lua.LTable, maxn int) []any {
+	return tableToSlice(tbl, maxn, make(map[*lua.LTable]struct{}))
+}
+
+func tableToSlice(tbl *lua.LTable, maxn int, stack map[*lua.LTable]struct{}) []any {
 	result := make([]any, 0, maxn)
+	stack[tbl] = struct{}{}
+	defer delete(stack, tbl)
+
 	for i := 1; i <= maxn; i++ {
-		result = append(result, ToGoAny(tbl.RawGetInt(i)))
+		result = append(result, toGoAny(tbl.RawGetInt(i), stack))
 	}
 	return result
 }

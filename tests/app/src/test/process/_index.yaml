@@ -525,6 +525,17 @@ entries:
     imports:
       assert2: app.lib:assert
 
+  - name: context_cyclic_table
+    kind: function.lua
+    meta:
+      type: test
+      suite: process
+      description: Cyclic tables in process context do not recurse forever
+    source: file://context_cyclic_table.lua
+    method: main
+    imports:
+      assert2: app.lib:assert
+
   - name: ctx_actor
     kind: function.lua
     meta:

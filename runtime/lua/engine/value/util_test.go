@@ -580,6 +580,44 @@ func TestToGoAny(t *testing.T) {
 		assert.Equal(t, float64(42), m["key2"])
 	})
 
+	t.Run("cyclic map table uses sentinel", func(t *testing.T) {
+		L := lua.NewState()
+		defer L.Close()
+
+		tbl := L.CreateTable(0, 2)
+		nested := L.CreateTable(0, 1)
+		tbl.RawSetString("name", lua.LString("root"))
+		tbl.RawSetString("self", tbl)
+		nested.RawSetString("parent", tbl)
+		tbl.RawSetString("nested", nested)
+
+		result := ToGoAny(tbl)
+		m, ok := result.(map[string]any)
+		assert.True(t, ok)
+		assert.Equal(t, "root", m["name"])
+		assert.Equal(t, cyclicTableSentinel, m["self"])
+
+		nestedMap, ok := m["nested"].(map[string]any)
+		assert.True(t, ok)
+		assert.Equal(t, cyclicTableSentinel, nestedMap["parent"])
+	})
+
+	t.Run("cyclic array table uses sentinel", func(t *testing.T) {
+		L := lua.NewState()
+		defer L.Close()
+
+		tbl := L.CreateTable(2, 0)
+		tbl.RawSetInt(1, lua.LString("first"))
+		tbl.RawSetInt(2, tbl)
+
+		result := ToGoAny(tbl)
+		arr, ok := result.([]any)
+		assert.True(t, ok)
+		assert.Len(t, arr, 2)
+		assert.Equal(t, "first", arr[0])
+		assert.Equal(t, cyclicTableSentinel, arr[1])
+	})
+
 	t.Run("function returns string representation", func(t *testing.T) {
 		L := lua.NewState()
 		defer L.Close()
