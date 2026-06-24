@@ -16,11 +16,12 @@ import (
 
 // CompileYield is yielded by runner.compile to compile Lua source.
 type CompileYield struct {
-	Source       string
-	Method       string
-	Modules      []string
-	Imports      map[string]registry.ID
-	AllowClasses []string
+	Source        string
+	Method        string
+	Modules       []string
+	Imports       map[string]registry.ID
+	ImportModules map[string][]string
+	AllowClasses  []string
 }
 
 var compileYieldPool = sync.Pool{
@@ -36,6 +37,7 @@ func ReleaseCompileYield(y *CompileYield) {
 	y.Method = ""
 	y.Modules = nil
 	y.Imports = nil
+	y.ImportModules = nil
 	y.AllowClasses = nil
 	compileYieldPool.Put(y)
 }
@@ -46,11 +48,12 @@ func (y *CompileYield) Type() lua.LValueType        { return lua.LTUserData }
 func (y *CompileYield) CmdID() dispatcher.CommandID { return evalhost.Compile }
 func (y *CompileYield) ToCommand() dispatcher.Command {
 	return evalhost.CompileCmd{
-		Source:       y.Source,
-		Method:       y.Method,
-		Modules:      y.Modules,
-		Imports:      y.Imports,
-		AllowClasses: y.AllowClasses,
+		Source:        y.Source,
+		Method:        y.Method,
+		Modules:       y.Modules,
+		Imports:       y.Imports,
+		ImportModules: y.ImportModules,
+		AllowClasses:  y.AllowClasses,
 	}
 }
 
@@ -86,6 +89,7 @@ type RunYield struct {
 	Args          payload.Payloads
 	Modules       []string
 	Imports       map[string]registry.ID
+	ImportModules map[string][]string
 	Context       map[string]any
 	AllowClasses  []string
 	CustomModules map[string]any
@@ -106,6 +110,7 @@ func ReleaseRunYield(y *RunYield) {
 	y.Args = nil
 	y.Modules = nil
 	y.Imports = nil
+	y.ImportModules = nil
 	y.Context = nil
 	y.AllowClasses = nil
 	y.CustomModules = nil
@@ -124,6 +129,7 @@ func (y *RunYield) ToCommand() dispatcher.Command {
 		Args:          y.Args,
 		Modules:       y.Modules,
 		Imports:       y.Imports,
+		ImportModules: y.ImportModules,
 		Context:       y.Context,
 		AllowClasses:  y.AllowClasses,
 		CustomModules: y.CustomModules,

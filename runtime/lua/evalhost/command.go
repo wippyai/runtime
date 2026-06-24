@@ -22,11 +22,12 @@ func init() {
 
 // CompileCmd compiles Lua source code into a reusable Program.
 type CompileCmd struct {
-	Source       string                 // Lua source code
-	Method       string                 // Method name to execute
-	Modules      []string               // Allowed modules whitelist
-	Imports      map[string]registry.ID // Registry entries to import (alias -> ID)
-	AllowClasses []string               // Additional classes to allow (e.g., "process")
+	Source        string                 // Lua source code
+	Method        string                 // Method name to execute
+	Modules       []string               // Allowed modules whitelist
+	Imports       map[string]registry.ID // Registry entries to import (alias -> ID)
+	ImportModules map[string][]string    // Per-import privileged modules (alias -> module names) usable only inside that import
+	AllowClasses  []string               // Additional classes to allow (e.g., "process")
 }
 
 func (c CompileCmd) CmdID() dispatcher.CommandID {
@@ -40,6 +41,7 @@ type RunCmd struct {
 	Args          payload.Payloads       // Arguments to pass to method
 	Modules       []string               // Allowed modules whitelist
 	Imports       map[string]registry.ID // Registry entries to import (alias -> ID)
+	ImportModules map[string][]string    // Per-import privileged modules (alias -> module names) usable only inside that import
 	Context       map[string]any         // Context values to set
 	AllowClasses  []string               // Additional classes to allow (e.g., "process")
 	CustomModules map[string]any         // Custom Lua tables to inject as modules
