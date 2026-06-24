@@ -5,6 +5,7 @@ package cmd
 import (
 	"bytes"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -683,6 +684,38 @@ func TestLoadPackEntries_AnnotatesModuleMetadataFromPackMetadata(t *testing.T) {
 	}
 }
 
+func TestLoadPackEntries_RegistersModuleOwnedEmbeddedResources(t *testing.T) {
+	tmpDir := t.TempDir()
+	packPath := createModulePackWithEmbeddedResource(t, tmpDir, "ui-pack", wapp.Metadata{
+		"name":      "ui",
+		"namespace": "acme.ui",
+		"version":   "0.2.0",
+	})
+
+	embedReg := embedpkg.NewRegistry()
+	defer func() { _ = embedReg.Close() }()
+
+	packEntries, err := loadPackEntries([]string{packPath}, embedReg)
+	if err != nil {
+		t.Fatalf("loadPackEntries failed: %v", err)
+	}
+	if len(packEntries) != 1 {
+		t.Fatalf("entry count = %d, want 1", len(packEntries))
+	}
+
+	fsys, err := embedReg.GetFSForEntry(packEntries[0])
+	if err != nil {
+		t.Fatalf("GetFSForEntry failed: %v", err)
+	}
+	data, err := fs.ReadFile(fsys, "index.html")
+	if err != nil {
+		t.Fatalf("read embedded file: %v", err)
+	}
+	if string(data) != "<main>ok</main>\n" {
+		t.Fatalf("embedded file content = %q", string(data))
+	}
+}
+
 func TestLoadPackEntries_DoesNotOverrideExistingModuleMetadata(t *testing.T) {
 	tmpDir := t.TempDir()
 	packPath := createTestPackFileWithMetadata(t, tmpDir, "module-pack-existing-meta", wapp.Metadata{
@@ -921,6 +954,41 @@ func createTestPackFileWithMetadata(t *testing.T, dir, name string, metadata wap
 	}
 
 	return path
+}
+
+func createModulePackWithEmbeddedResource(t *testing.T, dir, name string, metadata wapp.Metadata) string {
+	t.Helper()
+
+	root := filepath.Join(dir, name+"-static")
+	writeTestFile(t, root, "index.html", []byte("<main>ok</main>\n"))
+
+	packPath := filepath.Join(dir, name+".wapp")
+	file, err := os.Create(packPath)
+	if err != nil {
+		t.Fatalf("create pack file: %v", err)
+	}
+
+	writer := wapp.NewWriter()
+	err = writer.PackWithResources(metadata, []wapp.Entry{
+		{
+			ID:   wapp.NewID("app", "app_fs"),
+			Kind: "fs.embed",
+			Data: map[string]any{},
+		},
+	}, []wapp.ResourceSpec{
+		{
+			ID: wapp.NewID("app", "app_fs"),
+			FS: os.DirFS(root),
+		},
+	}, file)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatalf("pack with resource: %v", err)
+	}
+
+	return packPath
 }
 
 func packTestResource(t *testing.T, root string) string {

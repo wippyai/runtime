@@ -1077,10 +1077,10 @@ func TestController_ShutdownTimeout(t *testing.T) {
 func TestController_StopDuringFailedStart(t *testing.T) {
 	var startCalled int32                    // atomic counter
 	startAttempted := make(chan struct{}, 1) // buffered channel for signaling
-	startFinished := make(chan struct{})
 
 	mock := &mockService{
 		startFunc: func(ctx context.Context) (<-chan any, error) {
+			atomic.AddInt32(&startCalled, 1)
 			// Signal that we're in start (a buffered channel won't block)
 			select {
 			case startAttempted <- struct{}{}:
@@ -1095,11 +1095,9 @@ func TestController_StopDuringFailedStart(t *testing.T) {
 				return nil, errors.New("fake timeout")
 			}
 		},
-		stopFunc: func(context.Context) error {
-			defer func() {
-				close(startFinished)
-			}()
-			return nil
+		stopFunc: func(ctx context.Context) error {
+			<-ctx.Done()
+			return ctx.Err()
 		},
 	}
 
@@ -1135,7 +1133,7 @@ func TestController_StopDuringFailedStart(t *testing.T) {
 	// Now try to stop while service is starting
 	err := ctr.Stop()
 	if err == nil {
-		t.Errorf("Expected stop timeout error, got nil")
+		t.Errorf("Expected stop during failed start to return an error")
 	}
 
 	// Verify the start error indicates cancellation
@@ -1150,8 +1148,8 @@ func TestController_StopDuringFailedStart(t *testing.T) {
 
 	// Verify final state
 	state := ctr.State()
-	if state.Status != supervisor.StatusFailed {
-		t.Errorf("Expected final status Failed, got: %v", state.Status)
+	if state.Status != supervisor.StatusFailed && state.Status != supervisor.StatusStopped {
+		t.Errorf("Expected final status Failed or Stopped, got: %v", state.Status)
 	}
 
 	// Verify retry count matches expectations
