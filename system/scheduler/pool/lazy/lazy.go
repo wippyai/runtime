@@ -4,6 +4,7 @@ package lazy
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -130,12 +131,16 @@ func (l *Pool) Call(ctx context.Context, method string, input payload.Payloads) 
 	l.activeExec.Store(pid.UniqID, executor)
 
 	result := executor.Run(ctx, proc, method, input)
+	replace := errors.Is(result.Error, process.ErrProcessReplacementRequested)
+	if replace {
+		result.Error = nil
+	}
 
 	l.activeExec.Delete(pid.UniqID)
 	executor.Reset()
 	l.executors.Put(executor)
 
-	l.release(proc)
+	l.release(proc, replace)
 	return result, nil
 }
 
@@ -226,12 +231,28 @@ func (l *Pool) acquire(ctx context.Context) (process.Process, error) {
 	}
 }
 
-// release returns process to idle pool.
-func (l *Pool) release(proc process.Process) {
+// release returns process to idle pool unless it requested replacement.
+func (l *Pool) release(proc process.Process, replace bool) {
 	l.mu.Lock()
 
 	l.active--
 	l.lastUsed = time.Now()
+	if replace {
+		if len(l.waiters) > 0 {
+			waiter := l.waiters[0]
+			l.waiters = l.waiters[1:]
+			l.mu.Unlock()
+			proc.Close()
+			select {
+			case waiter <- struct{}{}:
+			default:
+			}
+			return
+		}
+		l.mu.Unlock()
+		proc.Close()
+		return
+	}
 
 	// Wake one waiter if any
 	if len(l.waiters) > 0 {

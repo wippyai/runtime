@@ -45,7 +45,7 @@ jobs:
       prev_tag: ${{ steps.v.outputs.prev_tag }}
     steps:
       - name: Check out code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -105,7 +105,7 @@ jobs:
           - { goos: windows, goarch: amd64, runner: windows-latest }
     steps:
       - name: Check out code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup msys (Windows)
         if: matrix.goos == 'windows'
@@ -183,7 +183,7 @@ jobs:
       HUB_SERVICE_SECRET: ${{ secrets.HUB_SERVICE_SECRET }}
     steps:
       - name: Check out code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true

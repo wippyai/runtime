@@ -27,6 +27,7 @@ func TestSentinelErrors(t *testing.T) {
 		{"ErrInvalidPoolConfig", ErrInvalidPoolConfig, apierror.Invalid, "pool values cannot be negative"},
 		{"ErrInvalidTransportType", ErrInvalidTransportType, apierror.Invalid, "invalid transport type"},
 		{"ErrInvalidExecutionLimit", ErrInvalidExecutionLimit, apierror.Invalid, "limits.max_execution_ms cannot be negative"},
+		{"ErrInvalidRetainedMemoryLimit", ErrInvalidRetainedMemoryLimit, apierror.Invalid, "limits.max_retained_memory_bytes cannot be negative"},
 		{"ErrWASICwdMustBeAbsolute", ErrWASICwdMustBeAbsolute, apierror.Invalid, "wasi.cwd must be absolute"},
 		{"ErrWASIEnvIDRequired", ErrWASIEnvIDRequired, apierror.Invalid, "wasi.env[].id is required"},
 		{"ErrWASIEnvNameRequired", ErrWASIEnvNameRequired, apierror.Invalid, "wasi.env[].name is required"},

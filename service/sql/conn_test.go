@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/stretchr/testify/assert"
@@ -305,6 +306,63 @@ func TestConnPool_UpdateConfigAfterClose(t *testing.T) {
 	assert.Contains(t, err.Error(), "closed")
 }
 
+func TestConnPool_UpdateConfigKeepsCurrentDBOnInvalidStandardConfig(t *testing.T) {
+	pool := NewMockConnPool(apiconfig.Postgres)
+	ctx := context.Background()
+	defer func() { _ = pool.Stop(ctx) }()
+
+	oldDB := pool.currentGeneration().db
+
+	err := pool.UpdateConfig(&apiconfig.DBConfig{
+		Host:     "",
+		Port:     5432,
+		Database: "db",
+		Username: "user",
+		Password: "pass",
+		Pool:     apiconfig.PoolConfig{MaxLifetime: time.Hour},
+	})
+	require.Error(t, err)
+	assert.Same(t, oldDB, pool.currentGeneration().db)
+	require.NoError(t, oldDB.PingContext(ctx))
+}
+
+func TestConnPool_UpdateConfigSwapsStandardDBAndRetiresOldAfterRelease(t *testing.T) {
+	pool := NewMockConnPool(apiconfig.Postgres)
+	ctx := context.Background()
+
+	res, err := pool.Acquire(ctx, testID, resource.ModeNormal)
+	require.NoError(t, err)
+
+	oldResource, err := res.Get()
+	require.NoError(t, err)
+	oldDB := oldResource.(DBResource).DB
+
+	newCfg := &apiconfig.DBConfig{
+		Host:     "updated-host",
+		Port:     5432,
+		Database: "updated-db",
+		Username: "updated-user",
+		Password: "updated-pass",
+		Pool:     apiconfig.PoolConfig{MaxOpen: 7, MaxIdle: 3, MaxLifetime: time.Hour},
+	}
+
+	require.NoError(t, pool.UpdateConfig(newCfg))
+	require.NotSame(t, oldDB, pool.db)
+
+	stillBorrowed, err := res.Get()
+	require.NoError(t, err)
+	assert.Same(t, oldDB, stillBorrowed.(DBResource).DB)
+	require.NoError(t, oldDB.PingContext(ctx))
+
+	res.Release()
+
+	require.Eventually(t, func() bool {
+		return oldDB.PingContext(ctx) != nil
+	}, time.Second, 10*time.Millisecond)
+
+	require.NoError(t, pool.Stop(ctx))
+}
+
 func TestBuildDSN(t *testing.T) {
 	tests := []struct {
 		cfg     *apiconfig.DBConfig
@@ -358,7 +416,7 @@ func TestBuildOptionsString(t *testing.T) {
 
 	t.Run("single option", func(t *testing.T) {
 		result := buildOptionsString(map[string]string{"sslmode": "disable"})
-		assert.Equal(t, "sslmode=disable", result)
+		assert.Equal(t, "sslmode='disable'", result)
 	})
 
 	t.Run("postgres options are stable and space separated", func(t *testing.T) {
@@ -367,7 +425,7 @@ func TestBuildOptionsString(t *testing.T) {
 			"connect_timeout":  "10",
 			"application_name": "test",
 		})
-		assert.Equal(t, "application_name=test connect_timeout=10 sslmode=disable", result)
+		assert.Equal(t, "application_name='test' connect_timeout='10' sslmode='disable'", result)
 	})
 
 	t.Run("mysql options are stable query parameters", func(t *testing.T) {
@@ -378,6 +436,52 @@ func TestBuildOptionsString(t *testing.T) {
 		})
 		assert.Equal(t, "charset=utf8mb4&parseTime=true&timeout=2s", result)
 	})
+}
+
+func TestQuotePostgresValue(t *testing.T) {
+	assert.Equal(t, "'alice'", quotePostgresValue("alice"))
+	assert.Equal(t, "''", quotePostgresValue(""))
+	assert.Equal(t, "'se cret'", quotePostgresValue("se cret"))
+	assert.Equal(t, `'O\'Brien'`, quotePostgresValue("O'Brien"))
+	assert.Equal(t, `'a\\b'`, quotePostgresValue(`a\b`))
+}
+
+func TestValidateDSNFields(t *testing.T) {
+	base := func() *apiconfig.DBConfig {
+		return &apiconfig.DBConfig{Host: "h", Port: 5432, Username: "u", Database: "d"}
+	}
+
+	require.NoError(t, validateDSNFields(base()))
+
+	c := base()
+	c.Host = ""
+	assert.ErrorContains(t, validateDSNFields(c), "host is empty")
+
+	c = base()
+	c.Port = 0
+	assert.ErrorContains(t, validateDSNFields(c), "port is invalid")
+
+	c = base()
+	c.Username = ""
+	assert.ErrorContains(t, validateDSNFields(c), "username is empty")
+
+	c = base()
+	c.Database = ""
+	assert.ErrorContains(t, validateDSNFields(c), "database is empty")
+}
+
+func TestBuildDSN_EmptyUsernameDoesNotAbsorbNextToken(t *testing.T) {
+	cfg := &apiconfig.DBConfig{
+		Host:     "h",
+		Port:     5432,
+		Database: "d",
+		Username: "",
+		Password: "secret",
+	}
+
+	_, err := buildDSN(apiconfig.Postgres, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "username is empty")
 }
 
 func TestGetDriver(t *testing.T) {

@@ -158,7 +158,7 @@ func (r *resolver) fetchManifest(ctx context.Context, org, name, version string)
 		return nil, fmt.Errorf("hub returned no manifest for %s/%s@%s", org, name, version)
 	}
 
-	expected := r.lockedDigests[org+"/"+name]
+	expected := r.lockedDigests[org+"/"+name+"@"+version]
 	if expected == "" || manifest.Digest == expected {
 		return manifest, nil
 	}

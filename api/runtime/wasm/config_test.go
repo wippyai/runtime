@@ -61,6 +61,16 @@ func TestWATFunctionConfig_Validate(t *testing.T) {
 			},
 		},
 		{
+			name: "valid with retained memory limit",
+			config: WATFunctionConfig{
+				Source: "module",
+				Method: "handle",
+				Limits: LimitsConfig{
+					MaxRetainedMemoryBytes: 128 * 1024 * 1024,
+				},
+			},
+		},
+		{
 			name: "valid with wasi env and mounts",
 			config: WATFunctionConfig{
 				Source: "module",
@@ -172,6 +182,18 @@ func TestWATFunctionConfig_Validate(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  "limits.max_execution_ms cannot be negative",
+		},
+		{
+			name: "negative retained memory limit",
+			config: WATFunctionConfig{
+				Source: "module",
+				Method: "handle",
+				Limits: LimitsConfig{
+					MaxRetainedMemoryBytes: -1,
+				},
+			},
+			wantErr: true,
+			errMsg:  "limits.max_retained_memory_bytes cannot be negative",
 		},
 		{
 			name: "invalid wasi cwd relative",
@@ -286,6 +308,18 @@ func TestFunctionConfig_Validate(t *testing.T) {
 			},
 		},
 		{
+			name: "valid with retained memory limit",
+			config: FunctionConfig{
+				FS:     "app:wasm",
+				Path:   "/svc/handler.wasm",
+				Hash:   "sha256:abc123",
+				Method: "handle",
+				Limits: LimitsConfig{
+					MaxRetainedMemoryBytes: 128 * 1024 * 1024,
+				},
+			},
+		},
+		{
 			name: "valid with wasi mappings",
 			config: FunctionConfig{
 				FS:     "app:wasm",
@@ -375,6 +409,20 @@ func TestFunctionConfig_Validate(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  "limits.max_execution_ms cannot be negative",
+		},
+		{
+			name: "negative retained memory limit",
+			config: FunctionConfig{
+				FS:     "app:wasm",
+				Path:   "/svc/handler.wasm",
+				Hash:   "sha256:abc123",
+				Method: "handle",
+				Limits: LimitsConfig{
+					MaxRetainedMemoryBytes: -1,
+				},
+			},
+			wantErr: true,
+			errMsg:  "limits.max_retained_memory_bytes cannot be negative",
 		},
 		{
 			name: "workers without size",

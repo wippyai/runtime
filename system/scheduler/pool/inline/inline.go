@@ -4,6 +4,7 @@ package inline
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -18,10 +19,12 @@ import (
 // Single process, serialized via mutex.
 type Pool struct {
 	dispatcher dispatcher.Dispatcher
+	factory    process.FactoryFunc
 	process    process.Process
 	executor   *pool.Executor
 	active     sync.Map
 	mu         sync.Mutex
+	closed     bool
 }
 
 // New creates an inline executor.
@@ -38,6 +41,7 @@ func New(factory process.FactoryFunc, d dispatcher.Dispatcher, hooks ...pool.Exe
 
 	return &Pool{
 		dispatcher: d,
+		factory:    factory,
 		executor:   pool.NewExecutor(d).WithExecutionHooks(hooksCfg),
 		process:    proc,
 	}, nil
@@ -49,19 +53,47 @@ func (i *Pool) Call(ctx context.Context, method string, input payload.Payloads) 
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	if i.process == nil {
+	if i.closed {
 		return nil, pool.ErrPoolClosed
+	}
+
+	if i.process == nil {
+		if err := i.replaceProcess(); err != nil {
+			return &runtime.Result{Error: err}, nil
+		}
 	}
 
 	pid, _ := runtime.GetFramePID(ctx)
 	i.active.Store(pid.UniqID, i.executor)
 
 	result := i.executor.Run(ctx, i.process, method, input)
+	replace := errors.Is(result.Error, process.ErrProcessReplacementRequested)
+	if replace {
+		result.Error = nil
+	}
 
 	i.active.Delete(pid.UniqID)
 	i.executor.Reset()
+	if replace {
+		_ = i.replaceProcess()
+	}
 
 	return result, nil
+}
+
+func (i *Pool) replaceProcess() error {
+	old := i.process
+	i.process = nil
+	if old != nil {
+		old.Close()
+	}
+
+	proc, err := i.factory()
+	if err != nil {
+		return err
+	}
+	i.process = proc
+	return nil
 }
 
 // Send implements relay.Receiver. Routes package to target execution.
@@ -80,6 +112,7 @@ func (i *Pool) Start() {}
 func (i *Pool) Stop() {
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	i.closed = true
 	if i.process != nil {
 		i.process.Close()
 		i.process = nil

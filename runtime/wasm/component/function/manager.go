@@ -33,6 +33,7 @@ type configEntry struct {
 	wasi      api.WASIConfig
 	pool      api.PoolConfig
 	limits    api.LimitsConfig
+	component bool
 }
 
 // poolEntry is one callable generation. Relay host registration is non-replacing,
@@ -203,6 +204,11 @@ func (m *Manager) runtimeInstance(component bool) *wasmrt.Runtime {
 }
 
 func (m *Manager) processFactory(cfg *configEntry, module *wasmrt.Module) *wasmengine.Factory {
+	if cfg.component && cfg.limits.MaxRetainedMemoryBytes > 0 {
+		return wasmengine.NewFactoryWithModuleFactory(func() (*wasmrt.Module, error) {
+			return m.loadIsolatedModule(m.ctx, cfg)
+		}, cfg.transport, cfg.wasi, cfg.limits, m.fsRegistry)
+	}
 	return wasmengine.NewFactory(module, cfg.transport, cfg.wasi, cfg.limits, m.fsRegistry)
 }
 

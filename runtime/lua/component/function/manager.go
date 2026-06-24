@@ -16,6 +16,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/engine"
@@ -26,6 +27,7 @@ import (
 // configEntry holds config for either source or bytecode function.
 type configEntry struct {
 	options  runtime.Options
+	security *security.Config
 	source   *api.FunctionConfig
 	bytecode *api.BytecodeFunctionConfig
 	method   string
@@ -38,10 +40,11 @@ type configEntry struct {
 type poolEntry struct {
 	drained  chan struct{}
 	pool     funcpool.Pool
+	security *security.Config
 	method   string
 	hostID   string
-	mu       sync.Mutex
 	active   int
+	mu       sync.Mutex
 	stopOnce sync.Once
 	retired  bool
 }

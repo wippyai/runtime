@@ -94,12 +94,13 @@ func TestHostRegistryEnsureImports_RegistersOnceAcrossConcurrentLoads(t *testing
 	const workers = 16
 	errCh := make(chan error, workers)
 	var wg sync.WaitGroup
+	rt := &wasmrt.Runtime{}
 
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- r.EnsureImports(context.Background(), &wasmrt.Runtime{}, imports, true)
+			errCh <- r.EnsureImports(context.Background(), rt, imports, true)
 		}()
 	}
 

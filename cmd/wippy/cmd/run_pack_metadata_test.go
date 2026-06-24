@@ -42,6 +42,32 @@ func TestRuntimeConfigFromPackMetadata_NestedRuntimeMap(t *testing.T) {
 	require.Equal(t, "console", cfg.GetString("logger.encoding", ""))
 }
 
+func TestRuntimeConfigFromPackMetadata_PreservesProfiles(t *testing.T) {
+	cfg := runtimeConfigFromPackMetadata(wapp.Metadata{
+		"runtime": map[string]any{
+			"profiles": map[string]any{
+				"pg": map[string]any{
+					"override": map[string]any{
+						"app:db:kind": "db.sql.postgres",
+					},
+					"disable": map[string]any{
+						"namespaces": map[string]any{
+							"add": []any{"kickside.research.**"},
+						},
+					},
+				},
+			},
+		},
+	}, zap.NewNop())
+
+	require.NotNil(t, cfg)
+	require.Equal(t, "db.sql.postgres", cfg.GetString("profiles.pg.override.app:db:kind", ""))
+
+	namespaces, ok := cfg.Get("profiles.pg.disable.namespaces.add")
+	require.True(t, ok)
+	require.Equal(t, []any{"kickside.research.**"}, namespaces)
+}
+
 func TestLoadPackRuntimeDefaultsFromFiles_MergeOrder(t *testing.T) {
 	tmpDir := t.TempDir()
 

@@ -3,6 +3,7 @@
 package contract
 
 import (
+	"context"
 	"net/url"
 	"strconv"
 	"strings"
@@ -102,6 +103,24 @@ type InstanceWrapper struct {
 	instance   contract.Instance
 	options    attrs.Bag
 	hasOptions bool
+}
+
+func applyOpenSecurityContext(ctx context.Context, yield *OpenYield, actor secapi.Actor, hasActor bool, scope secapi.Scope, hasScope bool) {
+	if hasActor {
+		yield.Actor = actor
+		yield.HasActor = true
+	} else if ambientActor, ok := secapi.GetActor(ctx); ok {
+		yield.Actor = ambientActor
+		yield.HasActor = true
+	}
+
+	if hasScope {
+		yield.SecurityScope = scope
+		yield.HasScope = true
+	} else if ambientScope, ok := secapi.GetScope(ctx); ok {
+		yield.SecurityScope = ambientScope
+		yield.HasScope = true
+	}
 }
 
 // parseBindingID parses a binding ID with optional query parameters.
@@ -242,6 +261,7 @@ func openBinding(l *lua.LState) int {
 	yield.Scope = scope
 	yield.options = options
 	yield.hasOptions = hasOptions
+	applyOpenSecurityContext(l.Context(), yield, secapi.Actor{}, false, nil, false)
 
 	l.Push(yield)
 	return -1
@@ -464,12 +484,9 @@ func contractOpen(l *lua.LState) int {
 	yield.BindingID = registry.ParseID(bindingID)
 	yield.Scope = scope
 	yield.Values = wrapper.values
-	yield.Actor = wrapper.actor
-	yield.HasActor = wrapper.hasActor
-	yield.SecurityScope = wrapper.scope
-	yield.HasScope = wrapper.hasScope
 	yield.options = wrapper.options
 	yield.hasOptions = wrapper.hasOptions
+	applyOpenSecurityContext(l.Context(), yield, wrapper.actor, wrapper.hasActor, wrapper.scope, wrapper.hasScope)
 
 	l.Push(yield)
 	return -1

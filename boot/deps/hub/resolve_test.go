@@ -463,7 +463,7 @@ func TestResolve_LockedDigestMatch(t *testing.T) {
 	result, err := Resolve(context.Background(), p, []DependencySpec{
 		{Org: "acme", Name: "http", Constraint: "1.0.0"},
 	}, &ResolveOptions{
-		LockedDigests: map[string]string{"acme/http": "sha256:1.0.0"},
+		LockedDigests: map[string]string{"acme/http@1.0.0": "sha256:1.0.0"},
 	})
 
 	require.NoError(t, err)
@@ -479,7 +479,7 @@ func TestResolve_LockedDigestMismatchBareProvider(t *testing.T) {
 	result, err := Resolve(context.Background(), p, []DependencySpec{
 		{Org: "acme", Name: "http", Constraint: "1.0.0"},
 	}, &ResolveOptions{
-		LockedDigests: map[string]string{"acme/http": "sha256:expected"},
+		LockedDigests: map[string]string{"acme/http@1.0.0": "sha256:expected"},
 	})
 
 	require.NoError(t, err)
@@ -502,7 +502,7 @@ func TestResolve_LockedDigestCacheHeals(t *testing.T) {
 	result, err := Resolve(context.Background(), cache, []DependencySpec{
 		{Org: "acme", Name: "http", Constraint: "1.0.0"},
 	}, &ResolveOptions{
-		LockedDigests: map[string]string{"acme/http": "sha256:1.0.0"},
+		LockedDigests: map[string]string{"acme/http@1.0.0": "sha256:1.0.0"},
 	})
 
 	require.NoError(t, err)
@@ -524,7 +524,7 @@ func TestResolve_LockedDigestCacheDriftErrors(t *testing.T) {
 	result, err := Resolve(context.Background(), cache, []DependencySpec{
 		{Org: "acme", Name: "http", Constraint: "1.0.0"},
 	}, &ResolveOptions{
-		LockedDigests: map[string]string{"acme/http": "sha256:expected"},
+		LockedDigests: map[string]string{"acme/http@1.0.0": "sha256:expected"},
 	})
 
 	require.NoError(t, err)

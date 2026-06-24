@@ -490,6 +490,16 @@ func TestNewDependencyResolutionErrors_NoHintWithoutAuthCause(t *testing.T) {
 	assert.Empty(t, apiErr.Details().GetString("hint", ""))
 }
 
+func TestNewDependencyResolutionErrors_MessageIncludesCause(t *testing.T) {
+	errs := []ResolutionError{
+		{Org: "kickside", Name: "research", Constraint: "0.1.0", Message: "module not found", Err: errors.New("module not found")},
+	}
+
+	apiErr := NewDependencyResolutionErrors(errs)
+	assert.Contains(t, apiErr.Error(), "kickside/research@0.1.0")
+	assert.Contains(t, apiErr.Error(), "module not found")
+}
+
 // --- verifyDownloadedArtifact ---
 
 func TestVerifyDownloadedArtifact_NonExistentFile(t *testing.T) {

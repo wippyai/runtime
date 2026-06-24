@@ -65,6 +65,24 @@ func poolTestFactory() process.FactoryFunc {
 	}
 }
 
+func TestProcessFactory_RetainedComponentUsesIsolatedModuleFactory(t *testing.T) {
+	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil)
+	cfg := &configEntry{
+		component: true,
+		transport: wasmapi.TransportTypePayload,
+		limits: wasmapi.LimitsConfig{
+			MaxRetainedMemoryBytes: 64 * 1024,
+		},
+	}
+
+	factory := m.processFactory(cfg, nil).Create()
+	proc, err := factory()
+	if err == nil {
+		proc.Close()
+		t.Fatal("factory() unexpectedly succeeded without an isolated module config")
+	}
+}
+
 func TestAutoSelectPool_SelectsExpectedImplementation(t *testing.T) {
 	m := NewManager(zap.NewNop(), nil, poolTestDispatcher{}, nil)
 

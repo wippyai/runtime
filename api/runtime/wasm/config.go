@@ -24,9 +24,15 @@ type (
 		MaxSize   int  `json:"max_size"`   // Maximum workers for elastic pools
 	}
 
-	// LimitsConfig defines execution limits for a WASM function.
+	// LimitsConfig defines execution and warm-instance lifecycle limits for a
+	// WASM function.
 	LimitsConfig struct {
 		MaxExecutionMS int `json:"max_execution_ms,omitempty"`
+
+		// MaxRetainedMemoryBytes closes a warm synchronous instance after a
+		// completed call when its guest linear memory is above this size.
+		// 0 disables retained-memory recycling.
+		MaxRetainedMemoryBytes int64 `json:"max_retained_memory_bytes,omitempty"`
 	}
 
 	// WASIEnvVarConfig maps an env registry variable ID to a guest env var name.
@@ -203,6 +209,9 @@ func validatePool(pool PoolConfig) error {
 func validateLimits(limits LimitsConfig) error {
 	if limits.MaxExecutionMS < 0 {
 		return ErrInvalidExecutionLimit
+	}
+	if limits.MaxRetainedMemoryBytes < 0 {
+		return ErrInvalidRetainedMemoryLimit
 	}
 	return nil
 }

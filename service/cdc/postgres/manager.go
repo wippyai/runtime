@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -76,7 +77,10 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	standby, _ := cfg.StandbyDuration()
 	status, _ := cfg.StatusDuration()
-	replDSN, adminDSN := buildDSNs(cfg)
+	replDSN, adminDSN, err := buildDSNs(cfg)
+	if err != nil {
+		return err
+	}
 	src := NewSource(SourceOptions{
 		ReplDSN:           replDSN,
 		AdminDSN:          adminDSN,
@@ -122,6 +126,11 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return NewInvalidConfigError(err)
 	}
 
+	replDSN, adminDSN, err := buildDSNs(cfg)
+	if err != nil {
+		return err
+	}
+
 	old := m.sources[entry.ID]
 	if old != nil {
 		old.closeSubscriptions()
@@ -131,7 +140,6 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	standby, _ := cfg.StandbyDuration()
 	status, _ := cfg.StatusDuration()
-	replDSN, adminDSN := buildDSNs(cfg)
 	src := NewSource(SourceOptions{
 		ReplDSN:           replDSN,
 		AdminDSN:          adminDSN,
@@ -271,40 +279,69 @@ func (m *Manager) unregister(ctx context.Context, entry registry.Entry) {
 }
 
 func (m *Manager) resolveEnv(ctx context.Context, cfg *config.Config) error {
-	if v := m.lookup(ctx, cfg.HostEnv); v != "" {
+	if v, err := m.resolveField(ctx, cfg.HostEnv, "host"); err != nil {
+		return err
+	} else if v != "" {
 		cfg.Host = v
 	}
-	if v := m.lookup(ctx, cfg.PortEnv); v != "" {
-		p, err := strconv.Atoi(v)
-		if err != nil {
-			return NewInvalidConfigError(fmt.Errorf("port env %q is not numeric: %w", cfg.PortEnv, err))
+	if v, err := m.resolveField(ctx, cfg.PortEnv, "port"); err != nil {
+		return err
+	} else if v != "" {
+		p, perr := strconv.Atoi(v)
+		if perr != nil {
+			return NewInvalidConfigError(fmt.Errorf("port env %q is not numeric: %w", cfg.PortEnv, perr))
 		}
 		cfg.Port = p
 	}
-	if v := m.lookup(ctx, cfg.DatabaseEnv); v != "" {
+	if v, err := m.resolveField(ctx, cfg.DatabaseEnv, "database"); err != nil {
+		return err
+	} else if v != "" {
 		cfg.Database = v
 	}
-	if v := m.lookup(ctx, cfg.UsernameEnv); v != "" {
+	if v, err := m.resolveField(ctx, cfg.UsernameEnv, "username"); err != nil {
+		return err
+	} else if v != "" {
 		cfg.Username = v
 	}
-	if v := m.lookup(ctx, cfg.PasswordEnv); v != "" {
+	if v, err := m.resolveField(ctx, cfg.PasswordEnv, "password"); err != nil {
+		return err
+	} else if v != "" {
 		cfg.Password = v
 	}
 	return nil
 }
 
-func (m *Manager) lookup(ctx context.Context, name string) string {
-	if name == "" || m.env == nil {
-		return ""
+func (m *Manager) resolveField(ctx context.Context, envVar, field string) (string, error) {
+	if envVar == "" {
+		return "", nil
 	}
-	val, found, err := m.env.Lookup(ctx, name)
-	if err != nil || !found {
-		return ""
+	if m.env == nil {
+		return "", NewUnresolvedEnvError(field, envVar, errors.New("env registry not configured"))
 	}
-	return val
+	val, found, err := m.env.Lookup(ctx, envVar)
+	if err != nil {
+		return "", NewUnresolvedEnvError(field, envVar, err)
+	}
+	if !found {
+		return "", NewUnresolvedEnvError(field, envVar, envapi.ErrVariableNotFound)
+	}
+	return val, nil
 }
 
-func buildDSNs(cfg *config.Config) (replication, admin string) {
+func buildDSNs(cfg *config.Config) (replication, admin string, err error) {
+	if cfg.Host == "" {
+		return "", "", NewInvalidConfigError(errors.New("resolved host is empty"))
+	}
+	if cfg.Port <= 0 {
+		return "", "", NewInvalidConfigError(fmt.Errorf("resolved port is invalid: %d", cfg.Port))
+	}
+	if cfg.Username == "" {
+		return "", "", NewInvalidConfigError(errors.New("resolved username is empty"))
+	}
+	if cfg.Database == "" {
+		return "", "", NewInvalidConfigError(errors.New("resolved database is empty"))
+	}
+
 	host := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
 	base := url.URL{
 		Scheme: "postgres",
@@ -321,7 +358,7 @@ func buildDSNs(cfg *config.Config) (replication, admin string) {
 	q.Set("replication", "database")
 	replURL.RawQuery = q.Encode()
 
-	return replURL.String(), adminURL.String()
+	return replURL.String(), adminURL.String(), nil
 }
 
 func optionsQuery(options map[string]string) url.Values {

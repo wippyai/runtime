@@ -5,6 +5,8 @@ package sql
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	"net/url"
 	"sort"
 	"strconv"
@@ -21,12 +23,102 @@ import (
 // ConnPool represents a database connection pool that acts both as a service
 // and a resource provider
 type ConnPool struct {
-	db     *sql.DB
-	status chan any
-	config atomic.Pointer[any]
-	kind   registry.Kind
-	wg     sync.WaitGroup
-	closed atomic.Bool
+	db      *sql.DB
+	current *dbGeneration
+	status  chan any
+	config  atomic.Pointer[any]
+	kind    registry.Kind
+	mu      sync.RWMutex
+	wg      sync.WaitGroup
+	closed  atomic.Bool
+}
+
+type dbGeneration struct {
+	db       *sql.DB
+	closed   chan struct{}
+	closeErr error
+	closeMu  sync.Mutex
+	once     sync.Once
+	refs     atomic.Int32
+	closing  atomic.Bool
+}
+
+func newDBGeneration(db *sql.DB) *dbGeneration {
+	return &dbGeneration{
+		db:     db,
+		closed: make(chan struct{}),
+	}
+}
+
+func (g *dbGeneration) acquire() bool {
+	if g == nil || g.closing.Load() {
+		return false
+	}
+	g.refs.Add(1)
+	if g.closing.Load() {
+		g.release()
+		return false
+	}
+	return true
+}
+
+func (g *dbGeneration) release() {
+	if g == nil {
+		return
+	}
+	if g.refs.Add(-1) == 0 && g.closing.Load() {
+		g.closeNow()
+	}
+}
+
+func (g *dbGeneration) closeWhenIdle() {
+	if g == nil {
+		return
+	}
+	g.closing.Store(true)
+	if g.refs.Load() == 0 {
+		g.closeNow()
+	}
+}
+
+func (g *dbGeneration) closeNow() {
+	g.once.Do(func() {
+		g.closeMu.Lock()
+		g.closeErr = g.db.Close()
+		g.closeMu.Unlock()
+		close(g.closed)
+	})
+}
+
+func (g *dbGeneration) waitClosed(ctx context.Context) error {
+	if g == nil {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-g.closed:
+		g.closeMu.Lock()
+		err := g.closeErr
+		g.closeMu.Unlock()
+		return err
+	}
+}
+
+func (p *ConnPool) currentGeneration() *dbGeneration {
+	p.mu.RLock()
+	gen := p.current
+	p.mu.RUnlock()
+	if gen != nil {
+		return gen
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.current == nil && p.db != nil {
+		p.current = newDBGeneration(p.db)
+	}
+	return p.current
 }
 
 // Start implements supervisor.Service
@@ -35,8 +127,13 @@ func (p *ConnPool) Start(ctx context.Context) (<-chan any, error) {
 		return nil, ErrPoolClosed
 	}
 
+	gen := p.currentGeneration()
+	if gen == nil {
+		return nil, ErrPoolClosed
+	}
+
 	// Test connection
-	if err := p.db.PingContext(ctx); err != nil {
+	if err := gen.db.PingContext(ctx); err != nil {
 		return nil, NewPingError(err)
 	}
 
@@ -67,7 +164,16 @@ func (p *ConnPool) Stop(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-done:
-		return p.db.Close()
+		p.mu.Lock()
+		if p.current == nil && p.db != nil {
+			p.current = newDBGeneration(p.db)
+		}
+		gen := p.current
+		p.current = nil
+		p.db = nil
+		p.mu.Unlock()
+		gen.closeWhenIdle()
+		return gen.waitClosed(ctx)
 	}
 }
 
@@ -87,9 +193,29 @@ func (p *ConnPool) UpdateConfig(cfg any) error {
 			return NewInvalidConfigError(err)
 		}
 
-		p.db.SetMaxOpenConns(c.Pool.MaxOpen)
-		p.db.SetMaxIdleConns(c.Pool.MaxIdle)
-		p.db.SetConnMaxLifetime(c.Pool.MaxLifetime)
+		newDB, err := openStandardDB(p.kind, c)
+		if err != nil {
+			return err
+		}
+
+		newGen := newDBGeneration(newDB)
+		p.mu.Lock()
+		if p.closed.Load() {
+			p.mu.Unlock()
+			_ = newDB.Close()
+			return ErrPoolClosed
+		}
+		oldGen := p.current
+		if oldGen == nil && p.db != nil {
+			oldGen = newDBGeneration(p.db)
+		}
+		p.current = newGen
+		p.db = newDB
+		p.mu.Unlock()
+
+		if oldGen != nil {
+			oldGen.closeWhenIdle()
+		}
 
 		var cfg any = c
 		p.config.Store(&cfg)
@@ -103,7 +229,11 @@ func (p *ConnPool) UpdateConfig(cfg any) error {
 			return NewInvalidConfigError(err)
 		}
 
-		p.db.SetConnMaxLifetime(c.Pool.MaxLifetime)
+		gen := p.currentGeneration()
+		if gen == nil {
+			return ErrPoolClosed
+		}
+		gen.db.SetConnMaxLifetime(c.Pool.MaxLifetime)
 
 		var cfg any = c
 		p.config.Store(&cfg)
@@ -134,26 +264,59 @@ func (p *ConnPool) Acquire(
 		return nil, ErrPoolClosed
 	}
 
-	return newDBConn(p, p.db, p.kind), nil
+	for {
+		gen := p.currentGeneration()
+		if gen == nil {
+			p.wg.Done()
+			return nil, ErrPoolClosed
+		}
+		if gen.acquire() {
+			return newDBConn(p, gen, p.kind), nil
+		}
+		if p.closed.Load() {
+			p.wg.Done()
+			return nil, ErrPoolClosed
+		}
+	}
+}
+
+func openStandardDB(kind registry.Kind, cfg *config.DBConfig) (*sql.DB, error) {
+	dsn, err := buildDSN(kind, cfg)
+	if err != nil {
+		return nil, NewInvalidDSNError(err)
+	}
+
+	db, err := sql.Open(getDriver(kind), dsn)
+	if err != nil {
+		return nil, NewConnectionPoolCreationError(err)
+	}
+
+	db.SetMaxOpenConns(cfg.Pool.MaxOpen)
+	db.SetMaxIdleConns(cfg.Pool.MaxIdle)
+	db.SetConnMaxLifetime(cfg.Pool.MaxLifetime)
+	return db, nil
 }
 
 // Helper to build DSN string for different database types
 func buildDSN(kind registry.Kind, cfg *config.DBConfig) (string, error) {
 	switch kind {
 	case config.Postgres:
+		if err := validateDSNFields(cfg); err != nil {
+			return "", err
+		}
 		opts := buildPostgresOptionsString(cfg.Options)
 		var b strings.Builder
 		b.Grow(128)
 		b.WriteString("host=")
-		b.WriteString(cfg.Host)
+		b.WriteString(quotePostgresValue(cfg.Host))
 		b.WriteString(" port=")
 		b.WriteString(strconv.Itoa(cfg.Port))
 		b.WriteString(" user=")
-		b.WriteString(cfg.Username)
+		b.WriteString(quotePostgresValue(cfg.Username))
 		b.WriteString(" password=")
-		b.WriteString(cfg.Password)
+		b.WriteString(quotePostgresValue(cfg.Password))
 		b.WriteString(" dbname=")
-		b.WriteString(cfg.Database)
+		b.WriteString(quotePostgresValue(cfg.Database))
 		if opts != "" {
 			b.WriteString(" ")
 			b.WriteString(opts)
@@ -161,6 +324,9 @@ func buildDSN(kind registry.Kind, cfg *config.DBConfig) (string, error) {
 		return b.String(), nil
 
 	case config.MySQL:
+		if err := validateDSNFields(cfg); err != nil {
+			return "", err
+		}
 		opts := buildMySQLOptionsString(cfg.Options)
 		var b strings.Builder
 		b.Grow(128)
@@ -182,6 +348,35 @@ func buildDSN(kind registry.Kind, cfg *config.DBConfig) (string, error) {
 	default:
 		return "", NewUnsupportedDatabaseTypeError(kind)
 	}
+}
+
+func validateDSNFields(cfg *config.DBConfig) error {
+	switch {
+	case cfg.Host == "":
+		return NewInvalidDSNError(errors.New("host is empty"))
+	case cfg.Port <= 0:
+		return NewInvalidDSNError(fmt.Errorf("port is invalid: %d", cfg.Port))
+	case cfg.Username == "":
+		return NewInvalidDSNError(errors.New("username is empty"))
+	case cfg.Database == "":
+		return NewInvalidDSNError(errors.New("database is empty"))
+	}
+	return nil
+}
+
+func quotePostgresValue(value string) string {
+	var b strings.Builder
+	b.Grow(len(value) + 2)
+	b.WriteByte('\'')
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if c == '\\' || c == '\'' {
+			b.WriteByte('\\')
+		}
+		b.WriteByte(c)
+	}
+	b.WriteByte('\'')
+	return b.String()
 }
 
 func getDriver(kind registry.Kind) string {
@@ -215,7 +410,7 @@ func buildPostgresOptionsString(options map[string]string) string {
 		}
 		b.WriteString(k)
 		b.WriteString("=")
-		b.WriteString(options[k])
+		b.WriteString(quotePostgresValue(options[k]))
 	}
 
 	return b.String()
@@ -242,7 +437,7 @@ func buildOptionsString(options map[string]string) string {
 // DBConn represents a database connection resource
 type DBConn struct {
 	pool     *ConnPool
-	db       *sql.DB
+	gen      *dbGeneration
 	dbType   registry.Kind
 	released atomic.Bool
 }
@@ -254,10 +449,10 @@ type DBResource struct {
 }
 
 // newDBConn creates a new database resource
-func newDBConn(pool *ConnPool, db *sql.DB, dbType registry.Kind) *DBConn {
+func newDBConn(pool *ConnPool, gen *dbGeneration, dbType registry.Kind) *DBConn {
 	return &DBConn{
 		pool:   pool,
-		db:     db,
+		gen:    gen,
 		dbType: dbType,
 	}
 }
@@ -270,7 +465,7 @@ func (r *DBConn) Get() (any, error) {
 
 	// Return both the DB and its type
 	return DBResource{
-		DB:   r.db,
+		DB:   r.gen.db,
 		Type: r.dbType,
 	}, nil
 }
@@ -282,5 +477,6 @@ func (r *DBConn) Release() {
 		return
 	}
 
+	r.gen.release()
 	r.pool.wg.Done()
 }
