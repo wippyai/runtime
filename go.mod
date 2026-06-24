@@ -40,7 +40,7 @@ require (
 	github.com/hashicorp/raft-wal v0.4.2
 	github.com/jackc/pglogrepl v0.0.0-20260401131349-e37c41485510
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/kaptinlin/jsonschema v0.8.0
+	github.com/kaptinlin/jsonschema v0.9.2
 	github.com/klauspost/compress v1.18.6
 	github.com/lib/pq v1.12.3
 	github.com/mattn/go-sqlite3 v1.14.34
