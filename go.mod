@@ -5,7 +5,7 @@ module github.com/wippyai/runtime
 go 1.26.4
 
 require (
-	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260209202127-80ab13bee0bf.1
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260415201107-50325440f8f2.1
 	connectrpc.com/connect v1.20.0
 	github.com/CloudyKit/jet/v6 v6.3.2
 	github.com/Masterminds/semver/v3 v3.5.0
