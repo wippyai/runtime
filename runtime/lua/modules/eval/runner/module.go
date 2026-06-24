@@ -93,6 +93,71 @@ func checkImportPermissions(ctx context.Context, imports map[string]registry.ID)
 	return "", true
 }
 
+// checkImportModulePermissions verifies the caller may delegate each granted
+// module to an import. Granting a privileged module to an import uses the same
+// eval.module action as using the module directly, so a caller cannot hand an
+// import a capability it is not itself allowed to delegate.
+func checkImportModulePermissions(ctx context.Context, importModules map[string][]string) (string, bool) {
+	if len(importModules) == 0 {
+		return "", true
+	}
+
+	meta := attrs.NewBag()
+	if frameID, ok := runtime.GetFrameID(ctx); ok {
+		meta.Set("entry_id", frameID.String())
+	}
+
+	for alias, mods := range importModules {
+		meta.Set("alias", alias)
+		for _, module := range mods {
+			if !security.IsAllowed(ctx, "eval.module", module, meta) {
+				return module, false
+			}
+		}
+	}
+	return "", true
+}
+
+// parseImports reads the imports table. Each value is either a plain registry ID
+// string, or a table { id = "...", modules = { ... } } granting the imported
+// library a set of privileged modules usable only inside that import's code.
+func parseImports(t *lua.LTable) (map[string]registry.ID, map[string][]string) {
+	imports := make(map[string]registry.ID)
+	var importModules map[string][]string
+
+	t.ForEach(func(k, v lua.LValue) {
+		alias, ok := k.(lua.LString)
+		if !ok {
+			return
+		}
+		switch val := v.(type) {
+		case lua.LString:
+			imports[string(alias)] = registry.ParseID(string(val))
+		case *lua.LTable:
+			if idVal, ok := val.RawGetString("id").(lua.LString); ok {
+				imports[string(alias)] = registry.ParseID(string(idVal))
+			}
+			modsVal, ok := val.RawGetString("modules").(*lua.LTable)
+			if !ok {
+				return
+			}
+			var list []string
+			modsVal.ForEach(func(_, mv lua.LValue) {
+				if ms, ok := mv.(lua.LString); ok {
+					list = append(list, string(ms))
+				}
+			})
+			if len(list) > 0 {
+				if importModules == nil {
+					importModules = make(map[string][]string)
+				}
+				importModules[string(alias)] = list
+			}
+		}
+	})
+	return imports, importModules
+}
+
 // checkClassPermissions checks if each class is allowed to be enabled
 func checkClassPermissions(ctx context.Context, classes []string) (string, bool) {
 	if len(classes) == 0 {
@@ -133,6 +198,7 @@ func compileFunc(l *lua.LState) int {
 
 	var modules []string
 	var imports map[string]registry.ID
+	var importModules map[string][]string
 	if l.GetTop() >= 3 && l.Get(3).Type() == lua.LTTable {
 		opts := l.CheckTable(3)
 		if modulesVal := opts.RawGetString("modules"); modulesVal.Type() == lua.LTTable {
@@ -144,15 +210,7 @@ func compileFunc(l *lua.LState) int {
 			})
 		}
 		if importsVal := opts.RawGetString("imports"); importsVal.Type() == lua.LTTable {
-			imports = make(map[string]registry.ID)
-			importsTable := importsVal.(*lua.LTable)
-			importsTable.ForEach(func(k, v lua.LValue) {
-				if alias, ok := k.(lua.LString); ok {
-					if idStr, ok := v.(lua.LString); ok {
-						imports[string(alias)] = registry.ParseID(string(idStr))
-					}
-				}
-			})
+			imports, importModules = parseImports(importsVal.(*lua.LTable))
 		}
 	}
 
@@ -170,11 +228,19 @@ func compileFunc(l *lua.LState) int {
 		return 2
 	}
 
+	if denied, ok := checkImportModulePermissions(ctx, importModules); !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "permission denied: eval.module "+denied).
+			WithKind(lua.PermissionDenied).WithRetryable(false))
+		return 2
+	}
+
 	yield := AcquireCompileYield()
 	yield.Source = source
 	yield.Method = method
 	yield.Modules = modules
 	yield.Imports = imports
+	yield.ImportModules = importModules
 
 	l.Push(yield)
 	return -1
@@ -224,15 +290,9 @@ func runFunc(l *lua.LState) int {
 	}
 
 	var imports map[string]registry.ID
+	var importModules map[string][]string
 	if v := config.RawGetString("imports"); v.Type() == lua.LTTable {
-		imports = make(map[string]registry.ID)
-		v.(*lua.LTable).ForEach(func(k, iv lua.LValue) {
-			if alias, ok := k.(lua.LString); ok {
-				if idStr, ok := iv.(lua.LString); ok {
-					imports[string(alias)] = registry.ParseID(string(idStr))
-				}
-			}
-		})
+		imports, importModules = parseImports(v.(*lua.LTable))
 	}
 
 	if denied, ok := checkModulePermissions(ctx, modules); !ok {
@@ -245,6 +305,13 @@ func runFunc(l *lua.LState) int {
 	if denied, ok := checkImportPermissions(ctx, imports); !ok {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, "permission denied: eval.import "+denied).
+			WithKind(lua.PermissionDenied).WithRetryable(false))
+		return 2
+	}
+
+	if denied, ok := checkImportModulePermissions(ctx, importModules); !ok {
+		l.Push(lua.LNil)
+		l.Push(lua.NewLuaError(l, "permission denied: eval.module "+denied).
 			WithKind(lua.PermissionDenied).WithRetryable(false))
 		return 2
 	}
@@ -299,6 +366,7 @@ func runFunc(l *lua.LState) int {
 	yield.Args = args
 	yield.Modules = modules
 	yield.Imports = imports
+	yield.ImportModules = importModules
 	yield.Context = contextVals
 	yield.AllowClasses = allowClasses
 	yield.CustomModules = customModules
