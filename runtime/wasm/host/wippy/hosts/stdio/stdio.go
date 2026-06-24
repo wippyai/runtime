@@ -12,18 +12,18 @@ import (
 
 const (
 	// StdinNamespace exposes WASI preview2 CLI stdin API.
-	StdinNamespace = "wasi:cli/stdin@0.2.3"
+	StdinNamespace = "wasi:cli/stdin@0.2.8"
 	// StdoutNamespace exposes WASI preview2 CLI stdout API.
-	StdoutNamespace = "wasi:cli/stdout@0.2.3"
+	StdoutNamespace = "wasi:cli/stdout@0.2.8"
 	// StderrNamespace exposes WASI preview2 CLI stderr API.
-	StderrNamespace = "wasi:cli/stderr@0.2.3"
+	StderrNamespace = "wasi:cli/stderr@0.2.8"
 
 	// TerminalStdinNamespace exposes terminal stdin presence API.
-	TerminalStdinNamespace = "wasi:cli/terminal-stdin@0.2.3"
+	TerminalStdinNamespace = "wasi:cli/terminal-stdin@0.2.8"
 	// TerminalStdoutNamespace exposes terminal stdout presence API.
-	TerminalStdoutNamespace = "wasi:cli/terminal-stdout@0.2.3"
+	TerminalStdoutNamespace = "wasi:cli/terminal-stdout@0.2.8"
 	// TerminalStderrNamespace exposes terminal stderr presence API.
-	TerminalStderrNamespace = "wasi:cli/terminal-stderr@0.2.3"
+	TerminalStderrNamespace = "wasi:cli/terminal-stderr@0.2.8"
 )
 
 const (

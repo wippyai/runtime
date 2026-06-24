@@ -5,6 +5,7 @@ package filesystem
 import (
 	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"syscall"
@@ -14,7 +15,7 @@ import (
 )
 
 const (
-	TypesNamespace = "wasi:filesystem/types@0.2.3"
+	TypesNamespace = "wasi:filesystem/types@0.2.8"
 )
 
 // TypesHost implements wasi:filesystem/types using fsapi.FS abstractions.
@@ -214,7 +215,10 @@ func (h *TypesHost) FilesystemErrorCode(_ context.Context, err *Error) ErrorCode
 	return err.Code
 }
 
-func (h *TypesHost) MethodDescriptorRead(_ context.Context, self uint32, length uint64, offset uint64) ([]byte, *Error) {
+// MethodDescriptorRead implements wasi:filesystem/types descriptor.read, whose
+// WIT result is result<tuple<list<u8>, bool>, error-code>: the bytes read plus an
+// end-of-stream flag. The tuple is returned as []any{data, eof}.
+func (h *TypesHost) MethodDescriptorRead(_ context.Context, self uint32, length uint64, offset uint64) ([]any, *Error) {
 	desc, err := h.getDescriptor(self)
 	if err != nil {
 		return nil, err
@@ -243,11 +247,16 @@ func (h *TypesHost) MethodDescriptorRead(_ context.Context, self uint32, length 
 
 	buf := make([]byte, length)
 	n, fsErr := file.Read(buf)
-	if fsErr != nil && n == 0 {
-		return nil, mapOSError(fsErr)
+	eof := false
+	if fsErr != nil {
+		if errors.Is(fsErr, io.EOF) {
+			eof = true
+		} else if n == 0 {
+			return nil, mapOSError(fsErr)
+		}
 	}
 
-	return buf[:n], nil
+	return []any{buf[:n], eof}, nil
 }
 
 func (h *TypesHost) MethodDescriptorWrite(_ context.Context, self uint32, buffer []byte, offset uint64) (uint64, *Error) {

@@ -15,9 +15,9 @@ import (
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
 
-const UDPNamespace = "wasi:sockets/udp@0.2.0"
+const UDPNamespace = "wasi:sockets/udp@0.2.8"
 
-// UDPHost implements wasi:sockets/udp@0.2.0.
+// UDPHost implements wasi:sockets/udp@0.2.8.
 type UDPHost struct {
 	resources *preview2.ResourceTable
 }

@@ -16,9 +16,9 @@ import (
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
 
-const TCPNamespace = "wasi:sockets/tcp@0.2.0"
+const TCPNamespace = "wasi:sockets/tcp@0.2.8"
 
-// TCPHost implements wasi:sockets/tcp@0.2.0.
+// TCPHost implements wasi:sockets/tcp@0.2.8.
 type TCPHost struct {
 	resources *preview2.ResourceTable
 }

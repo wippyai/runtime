@@ -12,7 +12,7 @@ import (
 
 const (
 	// EnvironmentNamespace exposes WASI preview2 CLI environment APIs.
-	EnvironmentNamespace = "wasi:cli/environment@0.2.3"
+	EnvironmentNamespace = "wasi:cli/environment@0.2.8"
 )
 
 // EnvironmentHost provides invocation-scoped WASI env/args/cwd data.
