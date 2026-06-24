@@ -18,11 +18,12 @@ import (
 )
 
 type lintCache struct {
-	store          cache.Store
-	cfg            cache.Config
-	builtinHash    string
-	typecheckHash  string
-	builtinModules []string
+	store           cache.Store
+	requireBuiltins map[string]struct{}
+	builtinHash     string
+	typecheckHash   string
+	cfg             cache.Config
+	builtinModules  []string
 }
 
 type lintFingerprints struct {
