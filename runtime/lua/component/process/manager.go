@@ -17,7 +17,6 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
 	"github.com/wippyai/runtime/runtime/lua/engine"
-	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
 	"go.uber.org/zap"
 )
 
@@ -253,7 +252,7 @@ func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) erro
 // registerFactory registers a process factory with the factory registry and waits for confirmation.
 func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method string) error {
 	// Create factory using ProcessFactory
-	factoryFn, err := m.factory.CreateFactory(id, engine.WithModule(processmod.Module))
+	factoryFn, err := m.factory.CreateFactory(id, engine.WithModules(component.ExecutableAmbientModules()...))
 	if err != nil {
 		return err // Already has compile context from code.Manager
 	}

@@ -18,7 +18,6 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
 	"github.com/wippyai/runtime/runtime/lua/engine"
-	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
 	"go.uber.org/zap"
 )
 
@@ -272,7 +271,7 @@ func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method st
 	// Modules must have ClassDeterministic or ClassWorkflow to be allowed.
 	factoryFn, err := m.factory.CreateFactory(id,
 		engine.WithAllowedClasses(api.ClassDeterministic, api.ClassWorkflow),
-		engine.WithModule(processmod.Module),
+		engine.WithModules(component.ExecutableAmbientModules()...),
 	)
 	if err != nil {
 		return err // Already has compile context from code.Manager

@@ -18,6 +18,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+	"github.com/wippyai/go-lua/compiler/ast"
 	"github.com/wippyai/go-lua/compiler/parse"
 	"github.com/wippyai/go-lua/types/diag"
 	"github.com/wippyai/go-lua/types/io"
@@ -31,6 +32,8 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/code/lint"
 	_ "github.com/wippyai/runtime/runtime/lua/code/lint/rules" // register lint rules
+	"github.com/wippyai/runtime/runtime/lua/component"
+	"github.com/wippyai/runtime/runtime/lua/engine"
 	transcoder "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/registry/topology"
 	"go.uber.org/zap"
@@ -422,6 +425,19 @@ func createLinter(ctx context.Context, enableRules bool) (*lint.Linter, lintCach
 		lcache.builtinModules = append(lcache.builtinModules, mod.Name)
 		builtinManifests[mod.Name] = manifest
 	}
+
+	// requireBuiltins is the set of modules a scoped require resolves without an
+	// explicit import/module declaration. It mirrors the runtime ambient base
+	// (engine core modules and standard libs) plus the modules every executable
+	// Lua kind injects, so an undeclared require that would fail at runtime is
+	// flagged at lint time. Every other registered module must be declared.
+	lcache.requireBuiltins = make(map[string]struct{})
+	for _, name := range engine.AmbientBaseModuleNames() {
+		lcache.requireBuiltins[name] = struct{}{}
+	}
+	for _, name := range component.ExecutableAmbientModuleNames() {
+		lcache.requireBuiltins[name] = struct{}{}
+	}
 	lcache.builtinHash = code.BuiltinManifestHash(builtinManifests)
 
 	return lint.New(typeChecker, registry), lcache
@@ -659,6 +675,11 @@ func lintOneEntry(entry regapi.Entry, data entryData, linter *lint.Linter, manif
 	lintResult := linter.CheckParsedWithTypecheck(stmts, entryID, imports, enableTypecheck)
 	linter.ClearCache()
 
+	requireDiags := lintRequireDeclarations(stmts, entryID, data, lcache.requireBuiltins)
+	if len(requireDiags) > 0 {
+		lintResult.Diagnostics = append(requireDiags, lintResult.Diagnostics...)
+	}
+
 	if cachedDiagnostics != nil {
 		lintResult.Manifest = cachedManifest
 		lintResult.Diagnostics = append(cachedDiagnostics, lintResult.Diagnostics...)
@@ -726,6 +747,136 @@ func mergeEntryResult(result *LintResult, er *entryResult, manifestMap map[regap
 		result.ErrorCount += er.errors
 		result.WarningCount += er.warnings
 		result.HintCount += er.hints
+	}
+}
+
+func lintRequireDeclarations(stmts []ast.Stmt, entryID string, data entryData, builtinModules map[string]struct{}) []diag.Diagnostic {
+	declared := make(map[string]struct{}, len(data.Imports))
+	for alias := range data.Imports {
+		if alias != "" {
+			declared[alias] = struct{}{}
+		}
+	}
+
+	collector := diag.NewCollector(entryID)
+	walkRequireStmts(stmts, func(call *ast.FuncCallExpr, moduleName string) {
+		if _, ok := declared[moduleName]; ok {
+			return
+		}
+		if _, ok := builtinModules[moduleName]; ok {
+			return
+		}
+		collector.Add(call, diag.ErrNoHandler,
+			"require(%q) is not declared in _index.yaml imports or modules", moduleName)
+	})
+	return collector.All()
+}
+
+func walkRequireStmts(stmts []ast.Stmt, visit func(*ast.FuncCallExpr, string)) {
+	for _, stmt := range stmts {
+		walkRequireStmt(stmt, visit)
+	}
+}
+
+func walkRequireStmt(stmt ast.Stmt, visit func(*ast.FuncCallExpr, string)) {
+	if stmt == nil {
+		return
+	}
+
+	switch s := stmt.(type) {
+	case *ast.AssignStmt:
+		for _, expr := range s.Lhs {
+			walkRequireExpr(expr, visit)
+		}
+		for _, expr := range s.Rhs {
+			walkRequireExpr(expr, visit)
+		}
+	case *ast.LocalAssignStmt:
+		for _, expr := range s.Exprs {
+			walkRequireExpr(expr, visit)
+		}
+	case *ast.FuncCallStmt:
+		walkRequireExpr(s.Expr, visit)
+	case *ast.DoBlockStmt:
+		walkRequireStmts(s.Stmts, visit)
+	case *ast.WhileStmt:
+		walkRequireExpr(s.Condition, visit)
+		walkRequireStmts(s.Stmts, visit)
+	case *ast.RepeatStmt:
+		walkRequireStmts(s.Stmts, visit)
+		walkRequireExpr(s.Condition, visit)
+	case *ast.IfStmt:
+		walkRequireExpr(s.Condition, visit)
+		walkRequireStmts(s.Then, visit)
+		walkRequireStmts(s.Else, visit)
+	case *ast.NumberForStmt:
+		walkRequireExpr(s.Init, visit)
+		walkRequireExpr(s.Limit, visit)
+		walkRequireExpr(s.Step, visit)
+		walkRequireStmts(s.Stmts, visit)
+	case *ast.GenericForStmt:
+		for _, expr := range s.Exprs {
+			walkRequireExpr(expr, visit)
+		}
+		walkRequireStmts(s.Stmts, visit)
+	case *ast.FuncDefStmt:
+		if s.Func != nil {
+			walkRequireStmts(s.Func.Stmts, visit)
+		}
+	case *ast.ReturnStmt:
+		for _, expr := range s.Exprs {
+			walkRequireExpr(expr, visit)
+		}
+	}
+}
+
+func walkRequireExpr(expr ast.Expr, visit func(*ast.FuncCallExpr, string)) {
+	if expr == nil {
+		return
+	}
+
+	switch e := expr.(type) {
+	case *ast.FuncCallExpr:
+		if ident, ok := e.Func.(*ast.IdentExpr); ok && ident.Value == "require" && e.Receiver == nil && e.Method == "" && len(e.Args) > 0 {
+			if mod, ok := e.Args[0].(*ast.StringExpr); ok && mod.Value != "" {
+				visit(e, mod.Value)
+			}
+		}
+		walkRequireExpr(e.Func, visit)
+		walkRequireExpr(e.Receiver, visit)
+		for _, arg := range e.Args {
+			walkRequireExpr(arg, visit)
+		}
+	case *ast.AttrGetExpr:
+		walkRequireExpr(e.Object, visit)
+		walkRequireExpr(e.Key, visit)
+	case *ast.TableExpr:
+		for _, field := range e.Fields {
+			walkRequireExpr(field.Key, visit)
+			walkRequireExpr(field.Value, visit)
+		}
+	case *ast.FunctionExpr:
+		walkRequireStmts(e.Stmts, visit)
+	case *ast.LogicalOpExpr:
+		walkRequireExpr(e.Lhs, visit)
+		walkRequireExpr(e.Rhs, visit)
+	case *ast.RelationalOpExpr:
+		walkRequireExpr(e.Lhs, visit)
+		walkRequireExpr(e.Rhs, visit)
+	case *ast.ArithmeticOpExpr:
+		walkRequireExpr(e.Lhs, visit)
+		walkRequireExpr(e.Rhs, visit)
+	case *ast.StringConcatOpExpr:
+		walkRequireExpr(e.Lhs, visit)
+		walkRequireExpr(e.Rhs, visit)
+	case *ast.UnaryMinusOpExpr:
+		walkRequireExpr(e.Expr, visit)
+	case *ast.UnaryNotOpExpr:
+		walkRequireExpr(e.Expr, visit)
+	case *ast.UnaryLenOpExpr:
+		walkRequireExpr(e.Expr, visit)
+	case *ast.UnaryBNotOpExpr:
+		walkRequireExpr(e.Expr, visit)
 	}
 }
 
