@@ -5,6 +5,7 @@ package filesystem
 import (
 	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"syscall"
@@ -14,7 +15,7 @@ import (
 )
 
 const (
-	TypesNamespace = "wasi:filesystem/types@0.2.3"
+	TypesNamespace = "wasi:filesystem/types@0.2.8"
 )
 
 // TypesHost implements wasi:filesystem/types using fsapi.FS abstractions.
@@ -159,9 +160,26 @@ const (
 	DescriptorTypeSocket
 )
 
+type Datetime struct {
+	Seconds     uint64
+	Nanoseconds uint32
+}
+
+// DescriptorStat must mirror every field of the wasi:filesystem descriptor-stat
+// record. The Canonical ABI encoder maps WIT record fields to Go struct fields by
+// name; a missing field (previously link-count and the timestamps) fails the record
+// lowering so later fields like size never reach the guest, which then reads garbage.
 type DescriptorStat struct {
-	Type DescriptorType
-	Size uint64
+	DataAccessTimestamp       *Datetime
+	DataModificationTimestamp *Datetime
+	StatusChangeTimestamp     *Datetime
+	LinkCount                 uint64
+	Size                      uint64
+	Type                      DescriptorType
+}
+
+func toDatetime(t time.Time) *Datetime {
+	return &Datetime{Seconds: uint64(t.Unix()), Nanoseconds: uint32(t.Nanosecond())}
 }
 
 func (h *TypesHost) getDescriptor(handle uint32) (*descriptorResource, *Error) {
@@ -214,7 +232,10 @@ func (h *TypesHost) FilesystemErrorCode(_ context.Context, err *Error) ErrorCode
 	return err.Code
 }
 
-func (h *TypesHost) MethodDescriptorRead(_ context.Context, self uint32, length uint64, offset uint64) ([]byte, *Error) {
+// MethodDescriptorRead implements wasi:filesystem/types descriptor.read, whose
+// WIT result is result<tuple<list<u8>, bool>, error-code>: the bytes read plus an
+// end-of-stream flag. The tuple is returned as []any{data, eof}.
+func (h *TypesHost) MethodDescriptorRead(_ context.Context, self uint32, length uint64, offset uint64) ([]any, *Error) {
 	desc, err := h.getDescriptor(self)
 	if err != nil {
 		return nil, err
@@ -243,11 +264,16 @@ func (h *TypesHost) MethodDescriptorRead(_ context.Context, self uint32, length 
 
 	buf := make([]byte, length)
 	n, fsErr := file.Read(buf)
-	if fsErr != nil && n == 0 {
-		return nil, mapOSError(fsErr)
+	eof := false
+	if fsErr != nil {
+		if errors.Is(fsErr, io.EOF) {
+			eof = true
+		} else if n == 0 {
+			return nil, mapOSError(fsErr)
+		}
 	}
 
-	return buf[:n], nil
+	return []any{buf[:n], eof}, nil
 }
 
 func (h *TypesHost) MethodDescriptorWrite(_ context.Context, self uint32, buffer []byte, offset uint64) (uint64, *Error) {
@@ -308,9 +334,14 @@ func (h *TypesHost) MethodDescriptorStat(_ context.Context, self uint32) (*Descr
 		return nil, mapOSError(fsErr)
 	}
 
+	mod := toDatetime(info.ModTime())
 	return &DescriptorStat{
-		Type: fileInfoToDescriptorType(info),
-		Size: uint64(info.Size()),
+		Type:                      fileInfoToDescriptorType(info),
+		LinkCount:                 1,
+		Size:                      uint64(info.Size()),
+		DataAccessTimestamp:       mod,
+		DataModificationTimestamp: mod,
+		StatusChangeTimestamp:     mod,
 	}, nil
 }
 
@@ -663,9 +694,14 @@ func (h *TypesHost) MethodDescriptorStatAt(_ context.Context, self uint32, pathF
 		return nil, mapOSError(fsErr)
 	}
 
+	mod := toDatetime(info.ModTime())
 	return &DescriptorStat{
-		Type: fileInfoToDescriptorType(info),
-		Size: uint64(info.Size()),
+		Type:                      fileInfoToDescriptorType(info),
+		LinkCount:                 1,
+		Size:                      uint64(info.Size()),
+		DataAccessTimestamp:       mod,
+		DataModificationTimestamp: mod,
+		StatusChangeTimestamp:     mod,
 	}, nil
 }
 

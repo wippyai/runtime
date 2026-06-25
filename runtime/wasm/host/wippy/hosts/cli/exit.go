@@ -9,7 +9,7 @@ import (
 
 const (
 	// ExitNamespace exposes WASI preview2 CLI exit API.
-	ExitNamespace = "wasi:cli/exit@0.2.3"
+	ExitNamespace = "wasi:cli/exit@0.2.8"
 )
 
 // ExitError represents guest-requested wasi:cli/exit invocation.
