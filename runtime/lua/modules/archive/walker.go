@@ -191,6 +191,8 @@ func walkerExtractAll(l *lua.LState) int {
 		return invalidError(l, "destination must be an fs handle")
 	}
 	prefix, strip, filterFn := extractOptions(l, 3)
+	maxTotal := maxTotalBytes(lw.opts)
+	var total int64
 	count := 0
 	for {
 		e, r, err := lw.w.Next()
@@ -215,8 +217,13 @@ func walkerExtractAll(l *lua.LState) int {
 			mkdirAll(dest, strings.TrimSuffix(clean, "/"))
 			continue
 		}
-		if err := writeToFS(dest, clean, readNopCloser{r}, bufferSize(lw.opts)); err != nil {
+		n, err := writeToFS(dest, clean, readNopCloser{r}, bufferSize(lw.opts))
+		if err != nil {
 			return internalError(l, err, "extract "+e.Name)
+		}
+		total += n
+		if total > maxTotal {
+			return invalidError(l, "archive exceeds max_total_bytes")
 		}
 		count++
 	}

@@ -131,6 +131,13 @@ func bufferSize(o archiveapi.Options) int {
 	return sysarchive.DefaultBufferBytes
 }
 
+func maxTotalBytes(o archiveapi.Options) int64 {
+	if o.MaxTotalBytes > 0 {
+		return o.MaxTotalBytes
+	}
+	return sysarchive.DefaultMaxTotalBytes
+}
+
 // seekableSource resolves arg1..argN into a random-access source for open().
 // Returns the ReaderAt, total size, a name for sniffing, and a closer.
 func seekableSource(l *lua.LState) (ra io.ReaderAt, size int64, name string, closer io.Closer, optsIdx int, errCode int) {

@@ -247,7 +247,7 @@ func readerExtract(l *lua.LState) int {
 		}
 		return internalError(l, err, "open entry")
 	}
-	if err := writeToFS(dest, clean, rc, bufferSize(lr.opts)); err != nil {
+	if _, err := writeToFS(dest, clean, rc, bufferSize(lr.opts)); err != nil {
 		return internalError(l, err, "extract entry")
 	}
 	l.Push(lua.LTrue)
@@ -265,6 +265,8 @@ func readerExtractAll(l *lua.LState) int {
 		return invalidError(l, "destination must be an fs handle")
 	}
 	prefix, strip, filterFn := extractOptions(l, 3)
+	maxTotal := maxTotalBytes(lr.opts)
+	var total int64
 	count := 0
 	for _, e := range lr.r.Entries() {
 		name := applyStrip(e.Name, strip)
@@ -286,8 +288,13 @@ func readerExtractAll(l *lua.LState) int {
 		if err != nil {
 			return internalError(l, err, "open entry "+e.Name)
 		}
-		if err := writeToFS(dest, clean, rc, bufferSize(lr.opts)); err != nil {
+		n, err := writeToFS(dest, clean, rc, bufferSize(lr.opts))
+		if err != nil {
 			return internalError(l, err, "extract "+e.Name)
+		}
+		total += n
+		if total > maxTotal {
+			return invalidError(l, "archive exceeds max_total_bytes")
 		}
 		count++
 	}
@@ -317,22 +324,22 @@ func readerClose(l *lua.LState) int {
 
 // --- shared extraction helpers ---
 
-func writeToFS(dest fsapi.FS, destPath string, rc io.ReadCloser, bufSize int) error {
+func writeToFS(dest fsapi.FS, destPath string, rc io.ReadCloser, bufSize int) (int64, error) {
 	defer rc.Close()
 	if dir := path.Dir(destPath); dir != "." && dir != "/" {
 		mkdirAll(dest, dir)
 	}
 	f, err := dest.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	buf := make([]byte, bufSize)
-	_, copyErr := io.CopyBuffer(f, rc, buf)
+	n, copyErr := io.CopyBuffer(f, rc, buf)
 	closeErr := f.Close()
 	if copyErr != nil {
-		return copyErr
+		return n, copyErr
 	}
-	return closeErr
+	return n, closeErr
 }
 
 func mkdirAll(dest fsapi.FS, dir string) {

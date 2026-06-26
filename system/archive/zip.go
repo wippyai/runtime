@@ -284,6 +284,21 @@ func (w *zipWalker) Close() error {
 
 func msdosTime(d, t uint16) time.Time {
 	return time.Date(
-		int(d>>9)+1980, time.Month((d>>5)&0xf), int(d&0x1f),
-		int(t>>11), int((t>>5)&0x3f), int((t&0x1f)*2), 0, time.UTC)
+		int(d>>9)+1980,
+		time.Month(clamp(int((d>>5)&0xf), 1, 12)),
+		clamp(int(d&0x1f), 1, 31),
+		clamp(int(t>>11), 0, 23),
+		clamp(int((t>>5)&0x3f), 0, 59),
+		clamp(int((t&0x1f)*2), 0, 59),
+		0, time.UTC)
+}
+
+func clamp(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
