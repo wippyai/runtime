@@ -1,3 +1,5 @@
+//go:build unix
+
 // SPDX-License-Identifier: MPL-2.0
 
 package archive
