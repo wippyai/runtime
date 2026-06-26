@@ -246,12 +246,10 @@ func (w *zipWalker) Next() (archiveapi.Entry, io.Reader, error) {
 		CRC32:    h.CRC32,
 	}
 
+	// Directory entries are handled like any other: their (empty) body is still
+	// drained and any trailing data descriptor consumed, so the stream stays in
+	// sync. The caller distinguishes them via e.IsDir.
 	hasDesc := h.Flags&flagDataDesc != 0
-	if e.IsDir {
-		w.pendDesc = false
-		return e, eofReader{}, nil
-	}
-
 	w.pendDesc = hasDesc
 	w.pendZip64 = h.CompSize == zip64Sentinel || h.UncompSize == zip64Sentinel
 
@@ -285,10 +283,6 @@ func (w *zipWalker) Close() error {
 	}
 	return nil
 }
-
-type eofReader struct{}
-
-func (eofReader) Read([]byte) (int, error) { return 0, io.EOF }
 
 func msdosTime(d, t uint16) time.Time {
 	return time.Date(
