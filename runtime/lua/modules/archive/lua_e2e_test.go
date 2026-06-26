@@ -16,7 +16,7 @@ import (
 	"github.com/wippyai/runtime/service/fs/directory"
 )
 
-func setupEngine(t *testing.T) (*lua.LState, string) {
+func setupEngine(t *testing.T) (*lua.LState, string, *resource.Store) {
 	t.Helper()
 	dir := t.TempDir()
 	fsys, err := directory.NewFS(dir, 0o755, false)
@@ -42,7 +42,7 @@ func setupEngine(t *testing.T) (*lua.LState, string) {
 	ud.Value = fsmod.NewFS(fsys, ".")
 	l.SetGlobal("appfs", ud)
 
-	return l, dir
+	return l, dir, store
 }
 
 func run(t *testing.T, l *lua.LState, script string) {
@@ -53,7 +53,7 @@ func run(t *testing.T, l *lua.LState, script string) {
 }
 
 func TestLuaZipRoundTripAllApis(t *testing.T) {
-	l, dir := setupEngine(t)
+	l, dir, _ := setupEngine(t)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "source.bin"), []byte("streamed-from-fs"), 0o644))
 
 	run(t, l, `
@@ -98,7 +98,7 @@ func TestLuaZipRoundTripAllApis(t *testing.T) {
 }
 
 func TestLuaScanSequential(t *testing.T) {
-	l, dir := setupEngine(t)
+	l, dir, _ := setupEngine(t)
 
 	run(t, l, `
 		local w = assert(archive.create(appfs, "s.zip"))
@@ -131,7 +131,7 @@ func TestLuaScanSequential(t *testing.T) {
 }
 
 func TestLuaTarRoundTrip(t *testing.T) {
-	l, dir := setupEngine(t)
+	l, dir, _ := setupEngine(t)
 	run(t, l, `
 		local w = assert(archive.create(appfs, "out.tar", { format = "tar" }))
 		assert(w:add("x.txt", "tar-content"))
@@ -147,7 +147,7 @@ func TestLuaTarRoundTrip(t *testing.T) {
 }
 
 func TestLuaErrorPaths(t *testing.T) {
-	l, _ := setupEngine(t)
+	l, _, _ := setupEngine(t)
 	run(t, l, `
 		-- unknown format
 		local r, err = archive.open("not an archive at all")
@@ -169,5 +169,52 @@ func TestLuaErrorPaths(t *testing.T) {
 		local set = {}
 		for _, f in ipairs(fmts) do set[f] = true end
 		assert(set["zip"] and set["tar"] and set["tar.gz"] and set["tar.zst"], "missing formats")
+	`)
+}
+
+// TestLuaWalkDropsStreams proves walk() does not accumulate one resource-table
+// entry per archive member: each yielded stream is dropped as the walk advances.
+func TestLuaWalkDropsStreams(t *testing.T) {
+	l, dir, store := setupEngine(t)
+	run(t, l, `
+		local w = assert(archive.create(appfs, "multi.zip"))
+		for i = 1, 8 do assert(w:add("f"..i..".txt", "data"..i)) end
+		assert(w:close())
+	`)
+	zipBytes, err := os.ReadFile(filepath.Join(dir, "multi.zip"))
+	require.NoError(t, err)
+	l.SetGlobal("zipbytes", lua.LString(zipBytes))
+
+	run(t, l, `
+		local s = assert(archive.scan(zipbytes, { format = "zip" }))
+		local n = 0
+		for e, entry in s:walk() do n = n + 1 end
+		assert(n == 8, "walked "..n.." entries")
+		assert(s:close())
+	`)
+
+	if got := store.Table().Len(); got > 1 {
+		t.Fatalf("resource table retained %d entries after walking 8; streams not dropped", got)
+	}
+}
+
+// TestLuaMaxTotalBytes proves the cumulative uncompressed cap is enforced on
+// extract_all (decompression-bomb defense).
+func TestLuaMaxTotalBytes(t *testing.T) {
+	l, _, _ := setupEngine(t)
+	run(t, l, `
+		local w = assert(archive.create(appfs, "tot.zip"))
+		for i = 1, 3 do assert(w:add("f"..i..".txt", string.rep("x", 1000))) end
+		assert(w:close())
+
+		local r = assert(archive.open(appfs, "tot.zip", { max_total_bytes = 1500 }))
+		local n, err = r:extract_all(appfs, { prefix = "out/" })
+		assert(n == nil and err ~= nil, "expected max_total_bytes error, got n="..tostring(n))
+		assert(r:close())
+
+		-- a generous cap lets the same archive through
+		local r2 = assert(archive.open(appfs, "tot.zip", { max_total_bytes = 1 << 20 }))
+		assert(r2:extract_all(appfs, { prefix = "ok/" }) == 3)
+		assert(r2:close())
 	`)
 }

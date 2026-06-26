@@ -156,7 +156,62 @@ func TestMsdosTimeDecode(t *testing.T) {
 	if !got.Equal(want) {
 		t.Fatalf("msdosTime = %v, want %v", got, want)
 	}
+
+	// Out-of-range fields clamp to valid bounds rather than normalizing oddly.
+	lo := msdosTime(0, 0)
+	if lo.Month() != 1 || lo.Day() != 1 || lo.Hour() != 0 || lo.Minute() != 0 || lo.Second() != 0 {
+		t.Fatalf("msdosTime(0,0) = %v, want 1980-01-01 00:00:00", lo)
+	}
+	hi := msdosTime(0xffff, 0xffff)
+	if hi.Month() != 12 || hi.Day() != 31 || hi.Hour() != 23 || hi.Minute() != 59 || hi.Second() != 59 {
+		t.Fatalf("msdosTime(0xffff,0xffff) = %v, want clamped maxima", hi)
+	}
 }
+
+func TestCapReaderTrimsAcrossChunks(t *testing.T) {
+	src := &chunkReader{data: []byte("abcdefghijkl"), chunk: 4}
+	rc := capReader(src, 5)
+	buf := make([]byte, 8)
+	var got []byte
+	sawTooLarge := false
+	for i := 0; i < 4; i++ {
+		n, err := rc.Read(buf)
+		if n < 0 {
+			t.Fatalf("read returned negative n=%d (cap trim underflow)", n)
+		}
+		got = append(got, buf[:n]...)
+		if errors.Is(err, ErrTooLarge) {
+			sawTooLarge = true
+		}
+	}
+	if !sawTooLarge {
+		t.Fatal("never saw ErrTooLarge over the cap")
+	}
+	if string(got) != "abcde" {
+		t.Fatalf("delivered %q (%d bytes), want exactly the 5-byte cap", got, len(got))
+	}
+}
+
+type chunkReader struct {
+	data  []byte
+	pos   int
+	chunk int
+}
+
+func (c *chunkReader) Read(p []byte) (int, error) {
+	if c.pos >= len(c.data) {
+		return 0, io.EOF
+	}
+	end := c.pos + c.chunk
+	if end > len(c.data) {
+		end = len(c.data)
+	}
+	n := copy(p, c.data[c.pos:end])
+	c.pos += n
+	return n, nil
+}
+
+func (c *chunkReader) Close() error { return nil }
 
 func TestRandomEntryMetadata(t *testing.T) {
 	var buf bytes.Buffer
@@ -241,6 +296,10 @@ func TestStreamStoreDataDescriptorRejected(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "data descriptor") {
 		t.Fatalf("error = %v, want data-descriptor message", err)
+	}
+	// After rejecting, the walker must stop cleanly so a retry cannot desync.
+	if _, _, err2 := sw.Next(); !errors.Is(err2, io.EOF) {
+		t.Fatalf("after rejection, next Next() = %v, want EOF", err2)
 	}
 }
 
