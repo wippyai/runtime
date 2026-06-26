@@ -70,7 +70,12 @@ func (l *limitedReadCloser) Read(p []byte) (int, error) {
 	n, err := l.r.Read(p)
 	l.n += int64(n)
 	if l.n > l.max {
-		return n, ErrTooLarge
+		// Hand back only the bytes up to the cap, never beyond it.
+		over := int(l.n - l.max)
+		if over > n {
+			over = n
+		}
+		return n - over, ErrTooLarge
 	}
 	return n, err
 }

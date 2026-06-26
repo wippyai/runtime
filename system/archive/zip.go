@@ -77,7 +77,6 @@ func (zipCodec) OpenRandom(r io.ReaderAt, size int64, o archiveapi.Options) (arc
 
 type zipReader struct {
 	byName  map[string]*zip.File
-	closer  io.Closer
 	entries []archiveapi.Entry
 	opts    archiveapi.Options
 }
@@ -111,12 +110,7 @@ func (z *zipReader) Open(name string) (io.ReadCloser, archiveapi.Entry, error) {
 	return capReader(rc, z.opts.MaxFileBytes), e, nil
 }
 
-func (z *zipReader) Close() error {
-	if z.closer != nil {
-		return z.closer.Close()
-	}
-	return nil
-}
+func (z *zipReader) Close() error { return nil }
 
 // --- streaming (forward-only) over local file headers ---
 
@@ -251,12 +245,16 @@ func (w *zipWalker) Next() (archiveapi.Entry, io.Reader, error) {
 	// sync. The caller distinguishes them via e.IsDir.
 	hasDesc := h.Flags&flagDataDesc != 0
 	w.pendDesc = hasDesc
-	w.pendZip64 = h.CompSize == zip64Sentinel || h.UncompSize == zip64Sentinel
+	// A real zip64 entry sets BOTH local-header sizes to the sentinel; requiring
+	// both avoids misreading the data descriptor width for a non-zip64 entry
+	// whose size happens to be exactly 0xffffffff.
+	w.pendZip64 = h.CompSize == zip64Sentinel && h.UncompSize == zip64Sentinel
 
 	switch h.Method {
 	case zip.Store:
 		if hasDesc {
 			w.pendDesc = false
+			w.stopped = true
 			return e, nil, fmt.Errorf("stored entry %q uses a streaming data descriptor and cannot be read from a non-seekable source", e.Name)
 		}
 		w.body = capReader(io.NopCloser(io.LimitReader(w.br, int64(h.CompSize))), w.opts.MaxFileBytes)

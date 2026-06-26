@@ -131,8 +131,12 @@ func TestMaxFileBytesBoundary(t *testing.T) {
 
 func TestCapReaderEnforcesAndPassesThrough(t *testing.T) {
 	over := capReader(io.NopCloser(strings.NewReader("hello world")), 5)
-	if _, err := io.ReadAll(over); !errors.Is(err, ErrTooLarge) {
+	got, err := io.ReadAll(over)
+	if !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("over-limit read err = %v, want ErrTooLarge", err)
+	}
+	if string(got) != "hello" {
+		t.Fatalf("over-limit read delivered %q (%d bytes), want exactly the 5-byte cap", got, len(got))
 	}
 	exact := capReader(io.NopCloser(strings.NewReader("hello")), 5)
 	if b, err := io.ReadAll(exact); err != nil || string(b) != "hello" {
@@ -292,6 +296,44 @@ func TestSanitizeMoreCases(t *testing.T) {
 	for _, in := range bad {
 		if _, valid := SanitizeEntryName(in); valid {
 			t.Fatalf("SanitizeEntryName(%q) accepted, want rejected", in)
+		}
+	}
+}
+
+// TestTarRandomExtendedHeaders confirms the offset index points at real entry
+// data even when tar emits multi-block GNU/PAX extended headers for long names,
+// and across empty entries — i.e. cr.n stays exact through read-based skipping.
+func TestTarRandomExtendedHeaders(t *testing.T) {
+	longName := "deeply/nested/" + strings.Repeat("x", 150) + ".txt"
+	var buf bytes.Buffer
+	tc := codec(t, "tar")
+	w, _ := tc.(archiveapi.Writable).OpenWriter(&buf, archiveapi.Options{})
+	mustCreate(t, w, archiveapi.Entry{Name: "first.txt"}, "first")
+	mustCreate(t, w, archiveapi.Entry{Name: "empty/", IsDir: true}, "")
+	mustCreate(t, w, archiveapi.Entry{Name: longName}, "long-name-content")
+	mustCreate(t, w, archiveapi.Entry{Name: "after.txt"}, "after")
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := tc.(archiveapi.RandomReadable).OpenRandom(bytes.NewReader(buf.Bytes()), int64(buf.Len()), archiveapi.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	for name, want := range map[string]string{
+		"first.txt": "first",
+		longName:    "long-name-content",
+		"after.txt": "after",
+	} {
+		rd, _, err := r.Open(name)
+		if err != nil {
+			t.Fatalf("open %q: %v", name, err)
+		}
+		got, _ := io.ReadAll(rd)
+		rd.Close()
+		if string(got) != want {
+			t.Fatalf("entry %q = %q, want %q (offset index misaligned)", name, got, want)
 		}
 	}
 }

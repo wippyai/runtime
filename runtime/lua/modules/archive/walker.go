@@ -24,16 +24,32 @@ import (
 type luaWalker struct {
 	w             archiveapi.Walker
 	cancelCleanup func()
+	opts          archiveapi.Options
+	lastStreamID  uint64
 	mu            sync.Mutex
 	closed        bool
 }
 
-func newLuaWalker(ctx context.Context, w archiveapi.Walker) *luaWalker {
-	lw := &luaWalker{w: w}
+func newLuaWalker(ctx context.Context, w archiveapi.Walker, o archiveapi.Options) *luaWalker {
+	lw := &luaWalker{w: w, opts: o}
 	if store := resource.GetStore(ctx); store != nil {
 		lw.cancelCleanup = store.AddCleanup(lw.closeOnce)
 	}
 	return lw
+}
+
+// dropLastStream removes the previously yielded entry stream from the resource
+// table so a walk over a huge archive does not accumulate one table entry per
+// member, and a stream held past its iteration errors instead of reading the
+// next entry's bytes.
+func (lw *luaWalker) dropLastStream(ctx context.Context) {
+	if lw.lastStreamID == 0 {
+		return
+	}
+	if table := resource.GetTable(ctx); table != nil {
+		table.Remove(resource.Handle(lw.lastStreamID))
+	}
+	lw.lastStreamID = 0
 }
 
 func (lw *luaWalker) closeOnce() error {
@@ -94,7 +110,7 @@ func archiveScan(l *lua.LState) int {
 	if err != nil {
 		return internalError(l, err, "open archive stream")
 	}
-	value.PushUserData(l, newLuaWalker(ctx, w), walkerMetatable)
+	value.PushUserData(l, newLuaWalker(ctx, w, o), walkerMetatable)
 	l.Push(lua.LNil)
 	return 2
 }
@@ -142,6 +158,8 @@ func walkerWalkNext(l *lua.LState) int {
 	if !ok {
 		return 0
 	}
+	ctx := l.Context()
+	lw.dropLastStream(ctx)
 	e, r, err := lw.w.Next()
 	if errors.Is(err, io.EOF) {
 		l.Push(lua.LNil)
@@ -151,10 +169,11 @@ func walkerWalkNext(l *lua.LState) int {
 		l.RaiseError("archive walk: %v", err)
 		return 0
 	}
-	table := resource.GetTable(l.Context())
+	table := resource.GetTable(ctx)
 	l.Push(entryTable(l, e))
 	if table != nil && !e.IsDir {
 		id := streamsys.InsertWithSize(table, readNopCloser{r}, e.Size)
+		lw.lastStreamID = id
 		l.Push(streammod.NewStream(l, id))
 	} else {
 		l.Push(lua.LNil)
@@ -196,7 +215,7 @@ func walkerExtractAll(l *lua.LState) int {
 			mkdirAll(dest, strings.TrimSuffix(clean, "/"))
 			continue
 		}
-		if err := writeToFS(dest, clean, readNopCloser{r}, 64<<10); err != nil {
+		if err := writeToFS(dest, clean, readNopCloser{r}, bufferSize(lw.opts)); err != nil {
 			return internalError(l, err, "extract "+e.Name)
 		}
 		count++
@@ -211,6 +230,7 @@ func walkerClose(l *lua.LState) int {
 	if lw == nil {
 		return 0
 	}
+	lw.dropLastStream(l.Context())
 	if lw.cancelCleanup != nil {
 		lw.cancelCleanup()
 		lw.cancelCleanup = nil

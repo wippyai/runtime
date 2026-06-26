@@ -76,7 +76,6 @@ type tarIndexEntry struct {
 type tarReader struct {
 	ra      io.ReaderAt
 	byName  map[string]tarIndexEntry
-	closer  io.Closer
 	entries []archiveapi.Entry
 	opts    archiveapi.Options
 }
@@ -106,12 +105,7 @@ func (t *tarReader) Open(name string) (io.ReadCloser, archiveapi.Entry, error) {
 	return capReader(io.NopCloser(sr), t.opts.MaxFileBytes), ix.entry, nil
 }
 
-func (t *tarReader) Close() error {
-	if t.closer != nil {
-		return t.closer.Close()
-	}
-	return nil
-}
+func (t *tarReader) Close() error { return nil }
 
 // countingReader tracks the absolute byte offset consumed from the source so
 // the tar index can record each entry's data start without buffering data.
@@ -200,11 +194,13 @@ func (t *tarWriter) Create(e archiveapi.Entry) (io.Writer, error) {
 }
 
 func (t *tarWriter) Close() error {
-	if err := t.tw.Close(); err != nil {
-		return err
-	}
+	// Always close the decompression wrapper, even if the tar writer errors,
+	// so the gzip/zstd writer is flushed and not leaked.
+	err := t.tw.Close()
 	if t.extra != nil {
-		return t.extra.Close()
+		if cerr := t.extra.Close(); err == nil {
+			err = cerr
+		}
 	}
-	return nil
+	return err
 }
