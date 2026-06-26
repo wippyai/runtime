@@ -8,6 +8,7 @@ const (
 	EnvName          = "lua.env"
 	IOName           = "lua.io"
 	LoggerName       = "lua.logger"
+	ArchiveName      = "lua.archive"
 	Base64Name       = "lua.base64"
 	CloudStorageName = "lua.cloudstorage"
 	CompressName     = "lua.compress"
