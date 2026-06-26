@@ -5,6 +5,7 @@ package process
 import (
 	"sync"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
@@ -182,11 +183,14 @@ func (c *UnlinkCmd) Release() {
 	unlinkCmdPool.Put(c)
 }
 
-// ExecCmd executes a process and waits for its result.
+// ExecCmd executes a process and waits for its result. Context carries the
+// caller-supplied actor/scope/value pairs (from the spawn builder) so an exec can
+// run bounded to a specific security identity, mirroring Start.Context for spawn.
 type ExecCmd struct {
-	Source registry.ID
-	HostID pid.HostID
-	Input  payload.Payloads
+	Source  registry.ID
+	HostID  pid.HostID
+	Input   payload.Payloads
+	Context []ctxapi.Pair
 }
 
 var execCmdPool = sync.Pool{New: func() any { return &ExecCmd{} }}
@@ -198,6 +202,7 @@ func (c *ExecCmd) Release() {
 	c.Source = registry.ID{}
 	c.Input = nil
 	c.HostID = ""
+	c.Context = nil
 	execCmdPool.Put(c)
 }
 
