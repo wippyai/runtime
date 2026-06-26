@@ -17,15 +17,15 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	fsmod "github.com/wippyai/runtime/runtime/lua/modules/fs"
 	streammod "github.com/wippyai/runtime/runtime/lua/modules/stream"
-	streamsys "github.com/wippyai/runtime/system/stream"
 	"github.com/wippyai/runtime/runtime/security"
+	streamsys "github.com/wippyai/runtime/system/stream"
 )
 
 type luaWriter struct {
 	w             archiveapi.Writer
 	closer        io.Closer
-	format        string
 	cancelCleanup func()
+	format        string
 	bufSize       int
 	mu            sync.Mutex
 	closed        bool
@@ -62,36 +62,37 @@ func (lw *luaWriter) isTar() bool { return strings.HasPrefix(lw.format, "tar") }
 // writeDest resolves the create() destination into an io.Writer plus a closer
 // that owns the underlying sink (nil when the caller owns it, e.g. a stream).
 func writeDest(l *lua.LState) (w io.Writer, closer io.Closer, name string, optsIdx int, errCode int) {
-	switch v := l.Get(1).(type) {
-	case *lua.LUserData:
-		switch h := v.Value.(type) {
-		case *fsmod.FS:
-			path := l.CheckString(2)
-			resolved, err := h.Resolve(path)
-			if err != nil {
-				return nil, nil, "", 0, internalError(l, err, "resolve path")
-			}
-			f, err := h.Backend().OpenFile(resolved, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-			if err != nil {
-				return nil, nil, "", 0, internalError(l, err, "open destination")
-			}
-			return f, f, path, 3, 0
-		case *fsmod.File:
-			return h.Backend(), nil, "", 2, 0
-		case *streammod.Stream:
-			table := resource.GetTable(l.Context())
-			if table == nil {
-				return nil, nil, "", 0, internalError(l, errors.New("no resource table"), "create")
-			}
-			entry, err := streamsys.Get(table, h.ID)
-			if err != nil {
-				return nil, nil, "", 0, internalError(l, err, "resolve stream")
-			}
-			if !entry.Caps().Writable {
-				return nil, nil, "", 0, invalidError(l, "destination stream is not writable")
-			}
-			return entry.Writer(), nil, "", 2, 0
+	ud, ok := l.Get(1).(*lua.LUserData)
+	if !ok {
+		return nil, nil, "", 0, invalidError(l, "destination must be an fs handle, an fs file, or a writable stream")
+	}
+	switch h := ud.Value.(type) {
+	case *fsmod.FS:
+		path := l.CheckString(2)
+		resolved, err := h.Resolve(path)
+		if err != nil {
+			return nil, nil, "", 0, internalError(l, err, "resolve path")
 		}
+		f, err := h.Backend().OpenFile(resolved, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err != nil {
+			return nil, nil, "", 0, internalError(l, err, "open destination")
+		}
+		return f, f, path, 3, 0
+	case *fsmod.File:
+		return h.Backend(), nil, "", 2, 0
+	case *streammod.Stream:
+		table := resource.GetTable(l.Context())
+		if table == nil {
+			return nil, nil, "", 0, internalError(l, errors.New("no resource table"), "create")
+		}
+		entry, err := streamsys.Get(table, h.ID)
+		if err != nil {
+			return nil, nil, "", 0, internalError(l, err, "resolve stream")
+		}
+		if !entry.Caps().Writable {
+			return nil, nil, "", 0, invalidError(l, "destination stream is not writable")
+		}
+		return entry.Writer(), nil, "", 2, 0
 	}
 	return nil, nil, "", 0, invalidError(l, "destination must be an fs handle, an fs file, or a writable stream")
 }

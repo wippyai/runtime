@@ -133,10 +133,10 @@ func (tarCodec) OpenStream(r io.Reader, o archiveapi.Options) (archiveapi.Walker
 }
 
 type tarWalker struct {
-	tr      *tar.Reader
-	closer  io.Closer
-	opts    archiveapi.Options
-	count   int
+	tr     *tar.Reader
+	closer io.Closer
+	opts   archiveapi.Options
+	count  int
 }
 
 func (w *tarWalker) Next() (archiveapi.Entry, io.Reader, error) {

@@ -17,8 +17,8 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	fsmod "github.com/wippyai/runtime/runtime/lua/modules/fs"
 	streammod "github.com/wippyai/runtime/runtime/lua/modules/stream"
-	streamsys "github.com/wippyai/runtime/system/stream"
 	"github.com/wippyai/runtime/runtime/security"
+	streamsys "github.com/wippyai/runtime/system/stream"
 )
 
 type luaWalker struct {
