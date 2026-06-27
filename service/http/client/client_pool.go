@@ -20,6 +20,7 @@ import (
 	netapi "github.com/wippyai/runtime/api/net"
 	httpapi "github.com/wippyai/runtime/api/service/http"
 	lru "github.com/wippyai/runtime/internal/cache"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // clientKey identifies a unique client configuration. networkIdentity is a
@@ -153,6 +154,34 @@ func (p *Pool) getOrCreate(key clientKey, overlayNetworkID string) *clientOnce {
 	return co
 }
 
+// closeIdler is implemented by transports that can release idle connections.
+// Both *http.Transport and instrumentedTransport satisfy it.
+type closeIdler interface {
+	CloseIdleConnections()
+}
+
+// instrumentedTransport wraps an otelhttp-instrumented RoundTripper so outbound
+// HTTP requests get client spans and W3C trace-context injection, while still
+// exposing CloseIdleConnections on the underlying *http.Transport for the
+// pool's eviction/cleanup path.
+type instrumentedTransport struct {
+	traced gohttp.RoundTripper
+	base   *gohttp.Transport
+}
+
+func (t *instrumentedTransport) RoundTrip(req *gohttp.Request) (*gohttp.Response, error) {
+	return t.traced.RoundTrip(req)
+}
+
+func (t *instrumentedTransport) CloseIdleConnections() {
+	t.base.CloseIdleConnections()
+}
+
+// instrument returns an otelhttp-wrapped transport around base.
+func instrument(base *gohttp.Transport) *instrumentedTransport {
+	return &instrumentedTransport{traced: otelhttp.NewTransport(base), base: base}
+}
+
 // closeIdle closes idle connections on co's client transport if co has been
 // initialized. Safe to call on a never-initialized clientOnce and from any
 // goroutine — the atomic Load synchronizes with the Store inside once.Do.
@@ -164,7 +193,7 @@ func closeIdle(co *clientOnce) {
 	if c == nil {
 		return
 	}
-	if tr, ok := c.Transport.(*gohttp.Transport); ok {
+	if tr, ok := c.Transport.(closeIdler); ok {
 		tr.CloseIdleConnections()
 	}
 }
@@ -335,7 +364,7 @@ func createClientWithDialer(timeout time.Duration, dialFn func(ctx context.Conte
 		DialContext:           dialFn,
 	}
 	return &gohttp.Client{
-		Transport: transport,
+		Transport: instrument(transport),
 		Timeout:   timeout,
 	}
 }
@@ -369,7 +398,7 @@ func createClient(timeout time.Duration, unixSocket string, maxIdleConns, maxIdl
 	}
 
 	return &gohttp.Client{
-		Transport: transport,
+		Transport: instrument(transport),
 		Timeout:   timeout,
 	}
 }

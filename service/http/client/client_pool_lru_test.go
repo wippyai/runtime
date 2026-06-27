@@ -87,8 +87,9 @@ func TestPoolLRU_EvictionClosesIdleConnections(t *testing.T) {
 	pool := NewClientPoolWithConfig(PoolConfig{MaxClients: 1})
 
 	c1 := pool.GetClient(1*time.Second, "")
-	tr, ok := c1.Transport.(*gohttp.Transport)
-	require.True(t, ok, "expected *http.Transport")
+	tr, ok := c1.Transport.(*instrumentedTransport)
+	require.True(t, ok, "expected *instrumentedTransport")
+	base := tr.base
 
 	// Force an idle connection into the transport by dialing a listener
 	// and reading a tiny HTTP response.
@@ -117,7 +118,7 @@ func TestPoolLRU_EvictionClosesIdleConnections(t *testing.T) {
 	// observe this indirectly — a direct call must not panic and must
 	// leave the transport in a state where subsequent CloseIdleConnections
 	// is a no-op. The real guarantee is that eviction called it once.
-	tr.CloseIdleConnections()
+	base.CloseIdleConnections()
 	assert.Equal(t, 1, pool.Size())
 }
 
