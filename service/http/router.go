@@ -344,12 +344,15 @@ func (rm *RouteManager) Build() error {
 	registeredOptions := make(map[string]bool)
 	for _, routerEntry := range rm.routers {
 		for routeID, route := range routerEntry.routes {
-			pattern := buildPattern(route.method, routerEntry.prefix, route.path)
-			handler := rm.createRouteHandler(routeID, route, routerEntry)
-			if len(routerEntry.middleware) > 0 {
-				handler = applyMiddlewareChain(routerEntry.middleware, handler)
-			}
-			allPatterns = append(allPatterns, patternEntry{handler, pattern})
+		pattern := buildPattern(route.method, routerEntry.prefix, route.path)
+		handler := rm.createRouteHandler(routeID, route, routerEntry)
+		if len(routerEntry.middleware) > 0 {
+			handler = applyMiddlewareChain(routerEntry.middleware, handler)
+		}
+		// Set the route label as the outermost wrapper so pre-match middleware
+		// (e.g., OTel, http metrics) observes the real route instead of "unmatched".
+		handler = withRouteLabel(routeLabelFor(route.funcID, routeID), handler)
+		allPatterns = append(allPatterns, patternEntry{handler, pattern})
 
 			// Auto-generate OPTIONS handler so CORS middleware can intercept preflight
 			if route.method != "OPTIONS" {
@@ -397,6 +400,25 @@ func (rm *RouteManager) Build() error {
 	rm.router.Store(&h)
 
 	return nil
+}
+
+// routeLabelFor returns the route label used for observability, preferring the
+// function ID and falling back to the route ID.
+func routeLabelFor(funcID, routeID registry.ID) string {
+	if l := funcID.String(); l != "" {
+		return l
+	}
+	return routeID.String()
+}
+
+// withRouteLabel wraps next so the route label is set in the request frame
+// before next runs. Applied as the outermost route wrapper so pre-match
+// middleware (OTel, http metrics) sees the real route instead of "unmatched".
+func withRouteLabel(label string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = httpapi.SetRouteLabel(r.Context(), label)
+		next.ServeHTTP(w, r)
+	})
 }
 
 // createRouteHandler creates the handler for a route with param extraction and post-middleware
