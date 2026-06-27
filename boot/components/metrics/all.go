@@ -8,5 +8,6 @@ func All() []boot.Component {
 	return []boot.Component{
 		Metrics(),
 		Interceptor(),
+		Process(),
 	}
 }

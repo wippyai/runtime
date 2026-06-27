@@ -130,9 +130,12 @@ func (s *Service) OnStart(ctx stdcontext.Context, p pid.PID, _ process.Process) 
 		return nil
 	}
 
+	// Continue the spawning trace when a remote parent is present, otherwise
+	// start a root span so unsupervised spawns are still observable.
 	processSpanCtx, hasSpan := otelapi.GetRemoteSpanContext(ctx)
-	if !hasSpan || !processSpanCtx.IsValid() {
-		return nil
+	startCtx := ctx
+	if hasSpan && processSpanCtx.IsValid() {
+		startCtx = trace.ContextWithRemoteSpanContext(ctx, processSpanCtx)
 	}
 
 	sourceID, hasSource := runtime.GetFrameID(ctx)
@@ -141,8 +144,7 @@ func (s *Service) OnStart(ctx stdcontext.Context, p pid.PID, _ process.Process) 
 		startEventName = sourceID.String() + ".started"
 	}
 
-	ctxWithProcess := trace.ContextWithRemoteSpanContext(ctx, processSpanCtx)
-	_, startSpan := s.tracer.Start(ctxWithProcess, startEventName,
+	_, startSpan := s.tracer.Start(startCtx, startEventName,
 		trace.WithSpanKind(trace.SpanKindInternal))
 
 	startSpan.SetAttributes(
@@ -162,9 +164,12 @@ func (s *Service) OnComplete(ctx stdcontext.Context, p pid.PID, result *runtime.
 		return
 	}
 
+	// Continue the spawning trace when a remote parent is present, otherwise
+	// start a root span so unsupervised spawns are still observable.
 	remoteSpanCtx, hasRemote := otelapi.GetRemoteSpanContext(ctx)
-	if !hasRemote || !remoteSpanCtx.IsValid() {
-		return
+	completeCtx := ctx
+	if hasRemote && remoteSpanCtx.IsValid() {
+		completeCtx = trace.ContextWithRemoteSpanContext(ctx, remoteSpanCtx)
 	}
 
 	sourceID, hasSource := runtime.GetFrameID(ctx)
@@ -173,8 +178,7 @@ func (s *Service) OnComplete(ctx stdcontext.Context, p pid.PID, result *runtime.
 		spanName = sourceID.String() + ".terminated"
 	}
 
-	ctxWithRemote := trace.ContextWithRemoteSpanContext(ctx, remoteSpanCtx)
-	_, span := s.tracer.Start(ctxWithRemote, spanName,
+	_, span := s.tracer.Start(completeCtx, spanName,
 		trace.WithSpanKind(trace.SpanKindInternal))
 
 	attrs := []attribute.KeyValue{

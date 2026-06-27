@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	attrsapi "github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/pid"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
@@ -169,6 +170,30 @@ func TestInterceptor_ErrorStatus(t *testing.T) {
 
 	span := telemetrytest.MustSpanNamed(t, sr, "ns:func")
 	telemetrytest.SpanStatus(t, span, codes.Error)
+}
+
+func TestProcessLifecycle_RootSpanWhenNoRemoteParent(t *testing.T) {
+	tp, sr := telemetrytest.NewTracerProvider()
+	defer func() { _ = tp.Shutdown(context.Background()) }()
+
+	svc := NewService(otelapi.Config{Process: otelapi.ProcessConfig{Enabled: true, TraceLifecycle: true}}, zap.NewNop(), tp)
+
+	require.NoError(t, svc.OnStart(context.Background(), pid.PID{UniqID: "p1"}, nil))
+	svc.OnComplete(context.Background(), pid.PID{UniqID: "p1"}, &runtime.Result{})
+
+	started := false
+	terminated := false
+	for _, s := range sr.Ended() {
+		if s.Name() == "process.started" {
+			started = true
+			telemetrytest.SpanKind(t, s, trace.SpanKindInternal)
+		}
+		if s.Name() == "process.terminated" {
+			terminated = true
+		}
+	}
+	assert.True(t, started, "unsupervised spawn must emit process.started")
+	assert.True(t, terminated, "unsupervised spawn must emit process.terminated")
 }
 
 func TestHTTPMiddleware_CapturesStatusCode(t *testing.T) {
