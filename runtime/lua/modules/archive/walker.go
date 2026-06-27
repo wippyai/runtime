@@ -217,14 +217,18 @@ func walkerExtractAll(l *lua.LState) int {
 			mkdirAll(dest, strings.TrimSuffix(clean, "/"))
 			continue
 		}
-		n, err := writeToFS(dest, clean, readNopCloser{r}, bufferSize(lw.opts))
+		remaining := maxTotal - total
+		if e.Size > remaining {
+			return invalidError(l, "archive exceeds max_total_bytes")
+		}
+		n, err := writeToFSBounded(dest, clean, readNopCloser{r}, bufferSize(lw.opts), remaining)
+		if errors.Is(err, errTotalLimitExceeded) {
+			return invalidError(l, "archive exceeds max_total_bytes")
+		}
 		if err != nil {
 			return internalError(l, err, "extract "+e.Name)
 		}
 		total += n
-		if total > maxTotal {
-			return invalidError(l, "archive exceeds max_total_bytes")
-		}
 		count++
 	}
 	l.Push(lua.LNumber(count))

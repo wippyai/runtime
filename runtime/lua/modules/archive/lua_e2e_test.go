@@ -201,7 +201,7 @@ func TestLuaWalkDropsStreams(t *testing.T) {
 // TestLuaMaxTotalBytes proves the cumulative uncompressed cap is enforced on
 // extract_all (decompression-bomb defense).
 func TestLuaMaxTotalBytes(t *testing.T) {
-	l, _, _ := setupEngine(t)
+	l, dir, _ := setupEngine(t)
 	run(t, l, `
 		local w = assert(archive.create(appfs, "tot.zip"))
 		for i = 1, 3 do assert(w:add("f"..i..".txt", string.rep("x", 1000))) end
@@ -217,4 +217,35 @@ func TestLuaMaxTotalBytes(t *testing.T) {
 		assert(r2:extract_all(appfs, { prefix = "ok/" }) == 3)
 		assert(r2:close())
 	`)
+	if _, err := os.Stat(filepath.Join(dir, "out", "f1.txt")); err != nil {
+		t.Fatalf("first in-budget file missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "out", "f2.txt")); !os.IsNotExist(err) {
+		t.Fatalf("over-budget file exists or stat failed unexpectedly: %v", err)
+	}
+}
+
+func TestLuaScanMaxTotalBytesDoesNotLeaveOverBudgetFile(t *testing.T) {
+	l, dir, _ := setupEngine(t)
+	run(t, l, `
+		local w = assert(archive.create(appfs, "scan-total.tar", { format = "tar" }))
+		for i = 1, 3 do assert(w:add("f"..i..".txt", string.rep("x", 1000))) end
+		assert(w:close())
+	`)
+	tarBytes, err := os.ReadFile(filepath.Join(dir, "scan-total.tar"))
+	require.NoError(t, err)
+	l.SetGlobal("tarbytes", lua.LString(tarBytes))
+
+	run(t, l, `
+		local s = assert(archive.scan(tarbytes, { format = "tar", max_total_bytes = 1500 }))
+		local n, err = s:extract_all(appfs, { prefix = "scan-out/" })
+		assert(n == nil and err ~= nil, "expected max_total_bytes error")
+		assert(s:close())
+	`)
+	if _, err := os.Stat(filepath.Join(dir, "scan-out", "f1.txt")); err != nil {
+		t.Fatalf("first in-budget scanned file missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "scan-out", "f2.txt")); !os.IsNotExist(err) {
+		t.Fatalf("over-budget scanned file exists or stat failed unexpectedly: %v", err)
+	}
 }

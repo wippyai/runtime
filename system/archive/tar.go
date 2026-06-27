@@ -143,7 +143,10 @@ func (w *tarWalker) Next() (archiveapi.Entry, io.Reader, error) {
 		return archiveapi.Entry{}, nil, fmt.Errorf("%w: too many entries", ErrLimitExceeded)
 	}
 	e := tarEntry(h)
-	return e, w.tr, nil
+	if e.IsDir {
+		return e, w.tr, nil
+	}
+	return e, capReader(io.NopCloser(w.tr), w.opts.MaxFileBytes), nil
 }
 
 func (w *tarWalker) Close() error {

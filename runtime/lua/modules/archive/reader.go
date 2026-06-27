@@ -22,6 +22,8 @@ import (
 	streamsys "github.com/wippyai/runtime/system/stream"
 )
 
+var errTotalLimitExceeded = errors.New("archive exceeds max_total_bytes")
+
 func newBytesReaderAt(b []byte) *bytes.Reader { return bytes.NewReader(b) }
 
 type luaReader struct {
@@ -284,18 +286,22 @@ func readerExtractAll(l *lua.LState) int {
 			mkdirAll(dest, strings.TrimSuffix(clean, "/"))
 			continue
 		}
+		remaining := maxTotal - total
+		if e.Size > remaining {
+			return invalidError(l, "archive exceeds max_total_bytes")
+		}
 		rc, _, err := lr.r.Open(e.Name)
 		if err != nil {
 			return internalError(l, err, "open entry "+e.Name)
 		}
-		n, err := writeToFS(dest, clean, rc, bufferSize(lr.opts))
+		n, err := writeToFSBounded(dest, clean, rc, bufferSize(lr.opts), remaining)
+		if errors.Is(err, errTotalLimitExceeded) {
+			return invalidError(l, "archive exceeds max_total_bytes")
+		}
 		if err != nil {
 			return internalError(l, err, "extract "+e.Name)
 		}
 		total += n
-		if total > maxTotal {
-			return invalidError(l, "archive exceeds max_total_bytes")
-		}
 		count++
 	}
 	l.Push(lua.LNumber(count))
@@ -325,6 +331,10 @@ func readerClose(l *lua.LState) int {
 // --- shared extraction helpers ---
 
 func writeToFS(dest fsapi.FS, destPath string, rc io.ReadCloser, bufSize int) (int64, error) {
+	return writeToFSBounded(dest, destPath, rc, bufSize, -1)
+}
+
+func writeToFSBounded(dest fsapi.FS, destPath string, rc io.ReadCloser, bufSize int, maxBytes int64) (int64, error) {
 	defer rc.Close()
 	if dir := path.Dir(destPath); dir != "." && dir != "/" {
 		mkdirAll(dest, dir)
@@ -334,12 +344,61 @@ func writeToFS(dest fsapi.FS, destPath string, rc io.ReadCloser, bufSize int) (i
 		return 0, err
 	}
 	buf := make([]byte, bufSize)
-	n, copyErr := io.CopyBuffer(f, rc, buf)
+	n, copyErr := copyBufferBounded(f, rc, buf, maxBytes)
 	closeErr := f.Close()
 	if copyErr != nil {
+		if errors.Is(copyErr, errTotalLimitExceeded) {
+			_ = dest.Remove(destPath)
+		}
 		return n, copyErr
 	}
 	return n, closeErr
+}
+
+func copyBufferBounded(dst io.Writer, src io.Reader, buf []byte, maxBytes int64) (int64, error) {
+	if maxBytes < 0 {
+		return io.CopyBuffer(dst, src, buf)
+	}
+	if len(buf) == 0 {
+		buf = make([]byte, 32*1024)
+	}
+	var written int64
+	for {
+		readBuf := buf
+		remaining := maxBytes - written
+		if remaining < 0 {
+			return written, errTotalLimitExceeded
+		}
+		if remaining < int64(len(readBuf)) {
+			readBuf = readBuf[:int(remaining)+1]
+		}
+		nr, er := src.Read(readBuf)
+		if nr > 0 {
+			toWrite := nr
+			if written+int64(nr) > maxBytes {
+				toWrite = int(maxBytes - written)
+			}
+			if toWrite > 0 {
+				nw, ew := dst.Write(readBuf[:toWrite])
+				written += int64(nw)
+				if ew != nil {
+					return written, ew
+				}
+				if nw != toWrite {
+					return written, io.ErrShortWrite
+				}
+			}
+			if toWrite < nr {
+				return written, errTotalLimitExceeded
+			}
+		}
+		if er != nil {
+			if errors.Is(er, io.EOF) {
+				return written, nil
+			}
+			return written, er
+		}
+	}
 }
 
 func mkdirAll(dest fsapi.FS, dir string) {

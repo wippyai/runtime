@@ -129,6 +129,53 @@ func TestMaxFileBytesBoundary(t *testing.T) {
 	}
 }
 
+func TestStreamMaxFileBytesBoundaryTarFamily(t *testing.T) {
+	body := samples[0].body
+	size := int64(len(body))
+	for _, format := range []string{"tar", "tar.gz", "tar.zst"} {
+		t.Run(format, func(t *testing.T) {
+			data := buildArchive(t, format)
+			sc := codec(t, format).(archiveapi.StreamReadable)
+
+			sw, err := sc.OpenStream(bytes.NewReader(data), archiveapi.Options{MaxFileBytes: size})
+			if err != nil {
+				t.Fatal(err)
+			}
+			e, rd, err := sw.Next()
+			if err != nil {
+				t.Fatalf("exact-size Next: %v", err)
+			}
+			if e.Name != samples[0].name {
+				t.Fatalf("first entry = %q, want %q", e.Name, samples[0].name)
+			}
+			got, err := io.ReadAll(rd)
+			if err != nil || string(got) != body {
+				t.Fatalf("exact-size read = %q err=%v, want %q", got, err, body)
+			}
+			if err := sw.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			sw, err = sc.OpenStream(bytes.NewReader(data), archiveapi.Options{MaxFileBytes: size - 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sw.Close()
+			_, rd, err = sw.Next()
+			if err != nil {
+				t.Fatalf("over-limit Next: %v", err)
+			}
+			got, err = io.ReadAll(rd)
+			if !errors.Is(err, ErrTooLarge) {
+				t.Fatalf("over-limit read err = %v, want ErrTooLarge", err)
+			}
+			if int64(len(got)) != size-1 {
+				t.Fatalf("over-limit delivered %d bytes, want %d", len(got), size-1)
+			}
+		})
+	}
+}
+
 func TestCapReaderEnforcesAndPassesThrough(t *testing.T) {
 	over := capReader(io.NopCloser(strings.NewReader("hello world")), 5)
 	got, err := io.ReadAll(over)
