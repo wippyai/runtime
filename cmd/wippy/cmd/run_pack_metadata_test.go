@@ -89,6 +89,32 @@ func TestLoadPackRuntimeDefaultsFromFiles_MergeOrder(t *testing.T) {
 	require.Equal(t, "info", cfg.GetString("logger.level", ""))
 }
 
+func TestLoadPackRuntimeDefaultsFromFiles_ProfileConfigComesOnlyFromMainPack(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	depPack := filepath.Join(tmpDir, "dep.wapp")
+	require.NoError(t, writeTestPack(depPack, wapp.Metadata{
+		"runtime.logger.level":                      "info",
+		"runtime.vars.dep_only":                     "leaked",
+		"runtime.profiles.dep.override.app:db:kind": "db.sql.sqlite",
+	}))
+
+	mainPack := filepath.Join(tmpDir, "main.wapp")
+	require.NoError(t, writeTestPack(mainPack, wapp.Metadata{
+		"runtime.vars.main_only":                     "kept",
+		"runtime.profiles.main.override.app:db:kind": "db.sql.postgres",
+	}))
+
+	cfg, err := loadPackRuntimeDefaultsFromFiles([]string{depPack, mainPack}, zap.NewNop())
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	require.Equal(t, "info", cfg.GetString("logger.level", ""))
+	require.Equal(t, "", cfg.GetString("vars.dep_only", ""))
+	require.Equal(t, "kept", cfg.GetString("vars.main_only", ""))
+	require.Equal(t, "", cfg.GetString("profiles.dep.override.app:db:kind", ""))
+	require.Equal(t, "db.sql.postgres", cfg.GetString("profiles.main.override.app:db:kind", ""))
+}
+
 func writeTestPack(path string, metadata wapp.Metadata) error {
 	file, err := os.Create(path)
 	if err != nil {

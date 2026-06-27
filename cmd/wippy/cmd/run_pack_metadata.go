@@ -42,7 +42,8 @@ func loadPackRuntimeDefaults(packPath string, logger *zap.Logger) (boot.Config, 
 func loadPackRuntimeDefaultsFromFiles(packFiles []string, logger *zap.Logger) (boot.Config, error) {
 	var merged boot.Config
 
-	for _, packPath := range packFiles {
+	mainPackIndex := lastWappPackIndex(packFiles)
+	for idx, packPath := range packFiles {
 		if !hasWappExtension(packPath) {
 			continue
 		}
@@ -51,6 +52,9 @@ func loadPackRuntimeDefaultsFromFiles(packFiles []string, logger *zap.Logger) (b
 		if err != nil {
 			return nil, err
 		}
+		if idx != mainPackIndex {
+			cfg = withoutAppRuntimeProfileConfig(cfg)
+		}
 
 		if cfg != nil {
 			merged = bootconfig.Merge(merged, cfg)
@@ -58,6 +62,45 @@ func loadPackRuntimeDefaultsFromFiles(packFiles []string, logger *zap.Logger) (b
 	}
 
 	return merged, nil
+}
+
+func lastWappPackIndex(packFiles []string) int {
+	for idx := len(packFiles) - 1; idx >= 0; idx-- {
+		if hasWappExtension(packFiles[idx]) {
+			return idx
+		}
+	}
+	return -1
+}
+
+func withoutAppRuntimeProfileConfig(cfg boot.Config) boot.Config {
+	if cfg == nil {
+		return nil
+	}
+
+	sections := make(map[string]map[string]any)
+	for _, key := range cfg.Keys() {
+		section, subkey, ok := strings.Cut(key, ".")
+		if !ok || section == "" || subkey == "" || section == "profiles" || section == "vars" {
+			continue
+		}
+
+		if sections[section] == nil {
+			sections[section] = make(map[string]any)
+		}
+		value, _ := cfg.Get(key)
+		sections[section][subkey] = value
+	}
+
+	if len(sections) == 0 {
+		return nil
+	}
+
+	opts := make([]boot.ConfigOption, 0, len(sections))
+	for section, values := range sections {
+		opts = append(opts, boot.WithSection(section, values))
+	}
+	return boot.NewConfig(opts...)
 }
 
 // runtimeConfigFromPackMetadata extracts runtime.* metadata keys and builds a boot config.
