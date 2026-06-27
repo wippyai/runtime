@@ -69,6 +69,11 @@ otel-up:
 otel-down:
 	cd tests && docker-compose down
 
+# otel-e2e starts only Jaeger and runs the OTLP round-trip test (needs docker).
+otel-e2e:
+	cd tests && docker-compose up -d jaeger
+	go test -tags integration -run TestOTLP_TracesReachJaeger ./tests/ -timeout 120s
+
 # Wippy CLI build targets
 WIPPY_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 WIPPY_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
