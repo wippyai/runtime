@@ -18,19 +18,29 @@ const (
 
 type ModuleConfig struct {
 	ExcludeMeta  map[string][]string `yaml:"exclude_meta,omitempty"`
-	Organization string              `yaml:"organization"`
-	ModuleName   string              `yaml:"module"`
-	Version      string              `yaml:"version"`
+	Metadata     map[string]any      `yaml:"metadata,omitempty"`
+	Publish      PublishConfig       `yaml:"publish,omitempty"`
+	Repository   string              `yaml:"repository,omitempty"`
 	Description  string              `yaml:"description,omitempty"`
 	License      string              `yaml:"license,omitempty"`
-	Repository   string              `yaml:"repository,omitempty"`
+	Version      string              `yaml:"version"`
 	Homepage     string              `yaml:"homepage,omitempty"`
+	ModuleName   string              `yaml:"module"`
+	Organization string              `yaml:"organization"`
 	Keywords     []string            `yaml:"keywords,omitempty"`
 	Authors      []string            `yaml:"authors,omitempty"`
 	Include      []string            `yaml:"include,omitempty"`
 	Exclude      []string            `yaml:"exclude,omitempty"`
-	Metadata     map[string]any      `yaml:"metadata,omitempty"`
 	Embed        []string            `yaml:"embed,omitempty"`
+}
+
+type PublishConfig struct {
+	Profiles PublishProfilesConfig `yaml:"profiles,omitempty"`
+}
+
+type PublishProfilesConfig struct {
+	Enabled *bool  `yaml:"enabled,omitempty"`
+	Source  string `yaml:"source,omitempty"`
 }
 
 func Load(dir string) (*ModuleConfig, error) {

@@ -294,6 +294,25 @@ metadata:
 	assert.Equal(t, "debug", loggerMap["level"])
 }
 
+func TestLoad_WithPublishProfileConfig(t *testing.T) {
+	dir := t.TempDir()
+	content := `
+organization: myorg
+module: mymod
+publish:
+  profiles:
+    enabled: false
+    source: config/profiles.yaml
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, DefaultConfigFile), []byte(content), 0644))
+
+	cfg, err := Load(dir)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Publish.Profiles.Enabled)
+	assert.False(t, *cfg.Publish.Profiles.Enabled)
+	assert.Equal(t, "config/profiles.yaml", cfg.Publish.Profiles.Source)
+}
+
 // --- EntryExcludes ---
 
 func TestEntryExcludes(t *testing.T) {
