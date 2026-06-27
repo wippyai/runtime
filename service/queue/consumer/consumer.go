@@ -5,9 +5,11 @@ package consumer
 import (
 	"context"
 	"sync"
+	"time"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/function"
+	"github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
@@ -23,6 +25,7 @@ type Consumer struct {
 	funcReg      function.Registry
 	config       *consumerapi.Config
 	logger       *zap.Logger
+	tel          *telemetry
 	deliveries   chan *queueapi.Delivery
 	cancel       context.CancelFunc
 	workerCancel context.CancelFunc
@@ -41,6 +44,7 @@ func NewConsumer(
 	driver queueapi.Driver,
 	funcReg function.Registry,
 	logger *zap.Logger,
+	coll metrics.Collector,
 ) *Consumer {
 	if logger == nil {
 		logger = zap.NewNop()
@@ -53,6 +57,7 @@ func NewConsumer(
 		driver:  driver,
 		funcReg: funcReg,
 		logger:  logger,
+		tel:     newTelemetry(coll),
 	}
 }
 
@@ -173,9 +178,14 @@ func (c *Consumer) processDelivery(ctx context.Context, delivery *queueapi.Deliv
 		queueapi.ReleaseMessage(msg)
 	}()
 
+	queueID := c.queueID.String()
+	c.tel.inFlightInc(queueID)
+	defer c.tel.inFlightDec(queueID)
+	start := time.Now()
+
 	c.logger.Debug("processing message",
 		zap.String("consumer", c.id.String()),
-		zap.String("queue", c.queueID.String()),
+		zap.String("queue", queueID),
 		zap.String("func", c.funcID.String()),
 		zap.Int("worker_id", workerID),
 		zap.String("message_id", msg.ID))
@@ -195,15 +205,18 @@ func (c *Consumer) processDelivery(ctx context.Context, delivery *queueapi.Deliv
 		err = result.Error
 	}
 
+	outcome := "ack"
+
 	// Ack or Nack based on result. MarkSettled gates the broker call: if
 	// the handler already called msg:ack()/msg:nack() via the Lua
 	// wrapper, the settle slot is claimed and the consumer must skip its
 	// own settle to avoid double-ack (AMQP PRECONDITION_FAILED) or
 	// double-nack/visibility-timeout races.
 	if err != nil {
+		outcome = "nack"
 		c.logger.Error("message processing failed",
 			zap.String("consumer", c.id.String()),
-			zap.String("queue", c.queueID.String()),
+			zap.String("queue", queueID),
 			zap.String("func", c.funcID.String()),
 			zap.Int("worker_id", workerID),
 			zap.String("message_id", msg.ID),
@@ -232,4 +245,6 @@ func (c *Consumer) processDelivery(ctx context.Context, delivery *queueapi.Deliv
 			}
 		}
 	}
+
+	c.tel.recordProcessed(queueID, outcome, time.Since(start))
 }

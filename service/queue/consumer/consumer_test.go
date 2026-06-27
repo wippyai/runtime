@@ -42,6 +42,7 @@ func TestConsumer_StartStop(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	statusChan, err := consumer.Start(ctx)
@@ -77,6 +78,7 @@ func TestConsumer_ProcessMessage(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -140,6 +142,7 @@ func TestConsumer_ProcessMessage_Error(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -210,6 +213,7 @@ func TestConsumer_StopTimeout(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	statusChan, err := consumer.Start(ctx)
@@ -270,6 +274,7 @@ func TestConsumer_StopWithNoMessages(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	statusChan, err := consumer.Start(ctx)
@@ -310,6 +315,7 @@ func TestConsumer_MultipleStopCalls(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -352,6 +358,7 @@ func TestConsumer_ConcurrentMessageProcessing(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -411,6 +418,7 @@ func TestConsumer_StopDuringProcessing(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -464,6 +472,7 @@ func TestConsumer_ContextCancellationStopsWorkers(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	statusChan, err := consumer.Start(ctx)
@@ -504,6 +513,7 @@ func TestConsumer_AckNackAfterShutdown(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -572,6 +582,7 @@ func TestConsumer_SlowWorkers(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -636,6 +647,7 @@ func TestConsumer_DeadWorkerTimeout(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -699,6 +711,7 @@ func TestConsumer_MultipleWorkersOneBlocked(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -765,6 +778,7 @@ func TestConsumer_StopWithAllWorkersBlocked(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -903,6 +917,7 @@ func TestConsumer_StressHighThroughput(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -966,6 +981,7 @@ func TestConsumer_StressRapidStartStop(t *testing.T) {
 			driver,
 			funcReg,
 			zap.NewNop(),
+			nil,
 		)
 
 		_, err := consumer.Start(ctx)
@@ -1011,6 +1027,7 @@ func TestConsumer_StressStartStopWithMessages(t *testing.T) {
 			driver,
 			funcReg,
 			zap.NewNop(),
+			nil,
 		)
 
 		_, err := consumer.Start(ctx)
@@ -1078,6 +1095,7 @@ func TestConsumer_StressConcurrentConsumers(t *testing.T) {
 				driver,
 				funcReg,
 				zap.NewNop(),
+				nil,
 			)
 
 			_, err := consumer.Start(ctx)
@@ -1145,6 +1163,7 @@ func TestConsumer_StressNackRequeue(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -1207,6 +1226,7 @@ func TestConsumer_StressResourceCleanup(t *testing.T) {
 			driver,
 			funcReg,
 			zap.NewNop(),
+			nil,
 		)
 
 		statusChan, err := consumer.Start(ctx)
@@ -1258,6 +1278,7 @@ func TestConsumer_StressMixedAckNack(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
