@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	otelapi "github.com/wippyai/runtime/api/service/otel"
+	"go.opentelemetry.io/otel/attribute"
 	metricnoop "go.opentelemetry.io/otel/metric/noop"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace/noop"
@@ -209,6 +210,23 @@ func TestCreateResource_WithVersion(t *testing.T) {
 	res, err := createResource(cfg)
 	require.NoError(t, err)
 	require.NotNil(t, res)
+}
+
+func TestCreateResource_MergesStandardAttributes(t *testing.T) {
+	res, err := createResource(otelapi.Config{ServiceName: "test-service"})
+	require.NoError(t, err)
+
+	get := func(k string) string {
+		v, ok := res.Set().Value(attribute.Key(k))
+		if !ok {
+			return ""
+		}
+		return v.Emit()
+	}
+	assert.Equal(t, "test-service", get("service.name"))
+	for _, key := range []string{"host.name", "process.pid", "os.type", "telemetry.sdk.name"} {
+		assert.NotEmpty(t, get(key), "resource should carry standard semconv %q", key)
+	}
 }
 
 func TestInitializeMeterProvider_Disabled(t *testing.T) {

@@ -183,6 +183,31 @@ func ApplyEnvOverrides(cfg *otelapi.Config, logger *zap.Logger) {
 		}
 	}
 
+	// OTEL_TRACES_SAMPLER (sampler type). Applied after the ARG so explicit
+	// always_on/always_off win over a ratio argument.
+	if sampler := os.Getenv("OTEL_TRACES_SAMPLER"); sampler != "" {
+		switch strings.ToLower(strings.TrimSpace(sampler)) {
+		case "always_on":
+			cfg.SampleRate = 1.0
+		case "always_off":
+			cfg.SampleRate = 0.0
+		case "traceidratio", "parentbased_traceidratio":
+			// ratio comes from OTEL_TRACES_SAMPLER_ARG (handled above)
+		default:
+			logger.Warn("unsupported traces sampler, ignoring",
+				zap.String("var", "OTEL_TRACES_SAMPLER"),
+				zap.String("value", sampler))
+		}
+	}
+
+	// OTEL_EXPORTER_OTLP_INSECURE
+	if insecure := os.Getenv("OTEL_EXPORTER_OTLP_INSECURE"); insecure != "" {
+		cfg.Insecure = strings.ToLower(insecure) == "true"
+		logger.Debug("using insecure from env",
+			zap.String("var", "OTEL_EXPORTER_OTLP_INSECURE"),
+			zap.Bool("value", cfg.Insecure))
+	}
+
 	// OTEL_PROPAGATORS
 	if propagators := os.Getenv("OTEL_PROPAGATORS"); propagators != "" {
 		list := strings.Split(propagators, ",")

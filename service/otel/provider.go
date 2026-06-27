@@ -146,24 +146,37 @@ func createHTTPExporter(ctx context.Context, cfg otelapi.Config, logger *zap.Log
 	return otlptracehttp.New(ctx, opts...)
 }
 
-// createResource creates an OTEL resource with service information
+// createResource creates an OTEL resource with service information, merged
+// onto the SDK default resource so every exported span and metric also carries
+// standard process/host/os semconv attributes (host.name, process.pid,
+// os.type, etc.).
 func createResource(cfg otelapi.Config) (*resource.Resource, error) {
-	attrs := []resource.Option{
+	opts := []resource.Option{
 		resource.WithAttributes(
 			semconv.ServiceName(cfg.ServiceName),
 		),
+		resource.WithHost(),
+		resource.WithProcess(),
+		resource.WithOS(),
+		resource.WithTelemetrySDK(),
 	}
 
 	if cfg.ServiceVersion != "" {
-		attrs = append(attrs, resource.WithAttributes(
+		opts = append(opts, resource.WithAttributes(
 			semconv.ServiceVersion(cfg.ServiceVersion),
 		))
 	}
 
-	return resource.New(
-		context.Background(),
-		attrs...,
-	)
+	res, err := resource.New(context.Background(), opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	merged, err := resource.Merge(resource.Default(), res)
+	if err != nil {
+		return nil, err
+	}
+	return merged, nil
 }
 
 // createSampler creates a trace sampler based on sample rate
