@@ -15,6 +15,7 @@ type MetricsExporter struct {
 	meter    otelmetric.Meter
 	counters map[string]otelmetric.Float64Counter
 	gauges   map[string]otelmetric.Float64Gauge
+	upDowns  map[string]otelmetric.Float64UpDownCounter
 	histos   map[string]otelmetric.Float64Histogram
 	mu       sync.RWMutex
 }
@@ -24,6 +25,7 @@ func NewMetricsExporter(provider otelmetric.MeterProvider) *MetricsExporter {
 		meter:    provider.Meter("wippy-runtime"),
 		counters: make(map[string]otelmetric.Float64Counter),
 		gauges:   make(map[string]otelmetric.Float64Gauge),
+		upDowns:  make(map[string]otelmetric.Float64UpDownCounter),
 		histos:   make(map[string]otelmetric.Float64Histogram),
 	}
 }
@@ -49,6 +51,13 @@ func (e *MetricsExporter) Record(name string, typ api.MetricType, value float64,
 			return err
 		}
 		gauge.Record(context.Background(), value, otelmetric.WithAttributes(attrs...))
+
+	case api.TypeGaugeAdd:
+		udc, err := e.getOrCreateUpDownCounter(name)
+		if err != nil {
+			return err
+		}
+		udc.Add(context.Background(), value, otelmetric.WithAttributes(attrs...))
 
 	case api.TypeHistogram:
 		histo, err := e.getOrCreateHistogram(name)
@@ -105,6 +114,29 @@ func (e *MetricsExporter) getOrCreateGauge(name string) (otelmetric.Float64Gauge
 	}
 	e.gauges[name] = g
 	return g, nil
+}
+
+func (e *MetricsExporter) getOrCreateUpDownCounter(name string) (otelmetric.Float64UpDownCounter, error) {
+	e.mu.RLock()
+	u, ok := e.upDowns[name]
+	e.mu.RUnlock()
+	if ok {
+		return u, nil
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if u, ok = e.upDowns[name]; ok {
+		return u, nil
+	}
+
+	u, err := e.meter.Float64UpDownCounter(name)
+	if err != nil {
+		return nil, err
+	}
+	e.upDowns[name] = u
+	return u, nil
 }
 
 // otelHistogramBuckets aligns OTel histogram bucket boundaries with the

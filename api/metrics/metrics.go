@@ -6,7 +6,8 @@ package metrics
 // MetricType constants.
 const (
 	TypeCounter   MetricType = "counter"
-	TypeGauge     MetricType = "gauge"
+	TypeGauge     MetricType = "gauge"     // absolute set (GaugeSet)
+	TypeGaugeAdd  MetricType = "gauge_add" // relative delta (GaugeInc/GaugeDec)
 	TypeHistogram MetricType = "histogram"
 )
 

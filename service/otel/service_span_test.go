@@ -20,6 +20,7 @@ import (
 	httpapi "github.com/wippyai/runtime/api/service/http"
 	otelapi "github.com/wippyai/runtime/api/service/otel"
 	"github.com/wippyai/runtime/internal/telemetrytest"
+	"github.com/wippyai/runtime/service/http/middleware/httpmetrics"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
@@ -83,6 +84,28 @@ func TestHTTPMiddleware_ExtractsParent(t *testing.T) {
 	server := telemetrytest.MustSpanNamed(t, sr, "GET unmatched")
 	assert.Equal(t, parent.SpanContext().TraceID(), telemetrytest.TraceID(server),
 		"server span must continue the parent trace")
+}
+
+func TestInterceptor_SpanKind_QueueDeliveryWithoutTraceparent(t *testing.T) {
+	tp, sr := telemetrytest.NewTracerProvider()
+	defer func() { _ = tp.Shutdown(context.Background()) }()
+
+	// Delivery with no traceparent (message from a non-instrumented publisher).
+	delivery := &queueapi.Delivery{Message: &queueapi.Message{ID: "m2", Headers: attrsapi.NewBag()}}
+	inter := &interceptor{tracer: tp.Tracer("test"), logger: zap.NewNop()}
+	task := runtime.Task{
+		ID:      registry.NewID("ns", "func"),
+		Context: []ctxapi.Pair{{Value: delivery}},
+	}
+	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) { return &runtime.Result{}, nil }
+
+	_, err := inter.Handle(context.Background(), task, next)
+	require.NoError(t, err)
+
+	span := telemetrytest.MustSpanNamed(t, sr, "ns:func")
+	telemetrytest.SpanKind(t, span, trace.SpanKindConsumer)
+	telemetrytest.SpanHasStringAttr(t, span, "messaging.operation", "process")
+	telemetrytest.SpanHasStringAttr(t, span, "messaging.message.id", "m2")
 }
 
 func TestInterceptor_SpanKind_RootIsServer(t *testing.T) {
@@ -194,6 +217,27 @@ func TestProcessLifecycle_RootSpanWhenNoRemoteParent(t *testing.T) {
 	}
 	assert.True(t, started, "unsupervised spawn must emit process.started")
 	assert.True(t, terminated, "unsupervised spawn must emit process.terminated")
+}
+
+func TestHTTPMiddleware_StackedWithHttpmetrics_PreservesHijackFlush(t *testing.T) {
+	tp, _ := telemetrytest.NewTracerProvider()
+	defer func() { _ = tp.Shutdown(context.Background()) }()
+
+	svc := NewService(otelapi.Config{HTTP: otelapi.HTTPConfig{Enabled: true}}, zap.NewNop(), tp)
+	httpmw := httpmetrics.CreateHTTPMetricsMiddleware(telemetrytest.NewRecorder())(nil)
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, isFlusher := w.(http.Flusher)
+		assert.True(t, isFlusher, "inner handler must see http.Flusher through otel+httpmetrics")
+		_, isHijacker := w.(http.Hijacker)
+		assert.True(t, isHijacker, "inner handler must see http.Hijacker through otel+httpmetrics")
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// Stack order: otel (outer) -> httpmetrics -> handler, matching production.
+	stacked := svc.HTTPMiddleware()(httpmw(inner))
+	stacked.ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil))
 }
 
 func TestHTTPMiddleware_StatusRecorderPreservesFlusherAndHijacker(t *testing.T) {

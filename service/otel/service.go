@@ -260,17 +260,19 @@ func (i *interceptor) Handle(ctx stdcontext.Context, task runtime.Task, next fun
 	var delivery *queueapi.Delivery
 	var isQueueMessage bool
 
-	// Priority 0: Check for queue delivery in task.Context (before it's written to frame)
+	// Priority 0: Check for queue delivery in task.Context (before it's written to frame).
+	// Any queue delivery is a Consumer span - parented to the producer trace when a
+	// traceparent is present, otherwise a root Consumer span - so consume-side
+	// telemetry exists even for messages from non-instrumented publishers.
 	for _, pair := range task.Context {
 		if d, ok := pair.Value.(*queueapi.Delivery); ok {
 			delivery = d
-			extractedCtx, hasSpan := extractFromDelivery(ctx, delivery)
-			if hasSpan {
+			isQueueMessage = true
+			if extractedCtx, hasSpan := extractFromDelivery(ctx, delivery); hasSpan {
 				ctx = extractedCtx
-				ctx, span = i.tracer.Start(ctx, spanName,
-					trace.WithSpanKind(trace.SpanKindConsumer))
-				isQueueMessage = true
 			}
+			ctx, span = i.tracer.Start(ctx, spanName,
+				trace.WithSpanKind(trace.SpanKindConsumer))
 			break
 		}
 	}

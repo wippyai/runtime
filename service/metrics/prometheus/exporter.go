@@ -76,9 +76,13 @@ func (e *Exporter) Record(name string, typ api.MetricType, value float64, labels
 		counter := e.getOrCreateCounter(key, name, labelNames)
 		counter.WithLabelValues(labelVals...).Add(value)
 
-	case api.TypeGauge:
+	case api.TypeGauge, api.TypeGaugeAdd:
 		gauge := e.getOrCreateGauge(key, name, labelNames)
-		gauge.WithLabelValues(labelVals...).Set(value)
+		if typ == api.TypeGaugeAdd {
+			gauge.WithLabelValues(labelVals...).Add(value)
+		} else {
+			gauge.WithLabelValues(labelVals...).Set(value)
+		}
 
 	case api.TypeHistogram:
 		histo := e.getOrCreateHistogram(key, name, labelNames)

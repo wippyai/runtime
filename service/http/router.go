@@ -440,15 +440,10 @@ func (rm *RouteManager) createRouteHandler(routeID registry.ID, route *RouteEntr
 		routeInfo.Endpoint = routeID
 		routeInfo.Func = route.funcID
 
-		// Extract route label (prefer Func over Endpoint)
-		routeLabel := route.funcID.String()
-		if routeLabel == "" {
-			routeLabel = routeID.String()
-		}
-
-		// Add route info and label to FrameContext
+		// Add route info to FrameContext. The route label is set by the outer
+		// withRouteLabel wrapper so pre-match middleware (OTel, http metrics)
+		// already observes it; SetRouteInfo is still needed for downstream handlers.
 		_ = httpapi.SetRouteInfo(r.Context(), routeInfo)
-		_ = httpapi.SetRouteLabel(r.Context(), routeLabel)
 
 		// Apply post-match middleware and call endpoint handler
 		finalHandler := route.handler
