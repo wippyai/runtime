@@ -25,6 +25,7 @@ import (
 const (
 	retainedWALGauge = "wippy_cdc_retained_wal_bytes"
 	changesCounter   = "wippy_cdc_changes_total"
+	errorsCounter    = "wippy_cdc_errors_total"
 )
 
 const (
@@ -58,6 +59,7 @@ type SourceOptions struct {
 
 type Source struct {
 	log               *zap.Logger
+	coll              metrics.Collector
 	injectedCP        Checkpointer
 	cancel            context.CancelFunc
 	done              chan struct{}
@@ -196,7 +198,8 @@ func (s *Source) Start(ctx context.Context) (<-chan any, error) {
 	default:
 	}
 
-	go s.run(runCtx, conn, adminDB, cp, startLSN, snapshotName, publication, metrics.GetCollector(ctx), status, done)
+	s.coll = metrics.GetCollector(ctx)
+	go s.run(runCtx, conn, adminDB, cp, startLSN, snapshotName, publication, s.coll, status, done)
 	return status, nil
 }
 
@@ -410,6 +413,9 @@ func (s *Source) reportLag(ctx context.Context, adminDB *sql.DB, mc metrics.Coll
 
 func (s *Source) fail(_ context.Context, status chan any, err error) {
 	s.log.Error("cdc stream error", zap.String("slot", s.slot), zap.Error(err))
+	if s.coll != nil {
+		s.coll.CounterInc(errorsCounter, metrics.Labels{"slot": s.slot})
+	}
 	select {
 	case status <- err:
 	default:
