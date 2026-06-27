@@ -221,7 +221,7 @@ func TestCreateResource_MergesStandardAttributes(t *testing.T) {
 		if !ok {
 			return ""
 		}
-		return v.Emit()
+		return v.String()
 	}
 	assert.Equal(t, "test-service", get("service.name"))
 	for _, key := range []string{"host.name", "process.pid", "os.type", "telemetry.sdk.name"} {
