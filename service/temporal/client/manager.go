@@ -18,6 +18,7 @@ import (
 	"github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/internal/entry"
 	"github.com/wippyai/runtime/service/temporal/peer"
+	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/interceptor"
 	"go.uber.org/zap"
@@ -30,6 +31,7 @@ type Manager struct {
 	dtt                   payload.Transcoder
 	bus                   event.Bus
 	env                   env.Registry
+	metricsHandler        client.MetricsHandler
 	factory               Factory
 	dataConverter         converter.DataConverter
 	dataConverterProvider func() converter.DataConverter
@@ -94,6 +96,14 @@ func WithInterceptors(interceptors []interceptor.ClientInterceptor) ManagerOptio
 	}
 }
 
+// WithMetricsHandler sets the Temporal SDK metrics handler for the Manager,
+// bridging the SDK's workflow/worker metrics onto the wippy collector.
+func WithMetricsHandler(h client.MetricsHandler) ManagerOption {
+	return func(m *Manager) {
+		m.metricsHandler = h
+	}
+}
+
 // WithFactory sets a custom client factory for the Manager
 func WithFactory(factory Factory) ManagerOption {
 	return func(m *Manager) {
@@ -131,7 +141,7 @@ func NewManager(opts ...ManagerOption) (*Manager, error) {
 		if provider == nil && m.dataConverter != nil {
 			provider = func() converter.DataConverter { return m.dataConverter }
 		}
-		m.factory = NewDefaultClientFactory(m.env, provider, m.clientInterceptors)
+		m.factory = NewDefaultClientFactory(m.env, provider, m.clientInterceptors, m.metricsHandler)
 	}
 
 	return m, nil
