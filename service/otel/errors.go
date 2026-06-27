@@ -40,3 +40,10 @@ func newShutdownMeterProviderError(cause error) error {
 		WithDetails(attrs.NewBagFrom(map[string]any{"cause": cause.Error()})).
 		WithCause(cause)
 }
+
+func newShutdownTracerProviderError(cause error) error {
+	return apierror.New(apierror.Internal, "failed to shutdown tracer provider").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": cause.Error()})).
+		WithCause(cause)
+}

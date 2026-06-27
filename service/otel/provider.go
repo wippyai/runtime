@@ -301,3 +301,20 @@ func ShutdownMeterProvider(ctx context.Context, mp metric.MeterProvider, logger 
 	}
 	return nil
 }
+
+// ShutdownTracerProvider gracefully shuts down the tracer provider, flushing
+// any spans still held by the BatchSpanProcessor. Without this call the
+// processor's bounded queue is dropped on exit.
+func ShutdownTracerProvider(ctx context.Context, tp trace.TracerProvider, logger *zap.Logger) error {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	if sdkTP, ok := tp.(*sdktrace.TracerProvider); ok {
+		logger.Debug("shutting down OTEL tracer provider")
+		if err := sdkTP.Shutdown(ctx); err != nil {
+			return newShutdownTracerProviderError(err)
+		}
+		logger.Debug("OTEL tracer provider shutdown complete")
+	}
+	return nil
+}

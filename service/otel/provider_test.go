@@ -4,6 +4,8 @@ package otel
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,6 +16,28 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 	"go.uber.org/zap"
 )
+
+// recordingExporter records every exported span and does not clear on shutdown,
+// so a test can prove the BatchSpanProcessor flushed its queue.
+type recordingExporter struct {
+	mu    sync.Mutex
+	spans int
+}
+
+func (r *recordingExporter) ExportSpans(_ context.Context, spans []sdktrace.ReadOnlySpan) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.spans += len(spans)
+	return nil
+}
+
+func (r *recordingExporter) Shutdown(context.Context) error { return nil }
+
+func (r *recordingExporter) Count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.spans
+}
 
 func TestInitializeProvider_Disabled(t *testing.T) {
 	cfg := otelapi.Config{
@@ -233,6 +257,32 @@ func TestShutdownMeterProvider_NoopProvider(t *testing.T) {
 
 	// Noop provider doesn't implement *sdkmetric.MeterProvider, so shutdown is no-op
 	err := ShutdownMeterProvider(context.Background(), mp, logger)
+	assert.NoError(t, err)
+}
+
+func TestShutdownTracerProvider_FlushesSpans(t *testing.T) {
+	exp := &recordingExporter{}
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exp),
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+	)
+	tracer := tp.Tracer("test")
+
+	ctx := context.Background()
+	for i := 0; i < 10; i++ {
+		_, span := tracer.Start(ctx, fmt.Sprintf("op-%d", i))
+		span.End()
+	}
+
+	require.Zero(t, exp.Count(), "spans must still be queued before shutdown")
+
+	require.NoError(t, ShutdownTracerProvider(context.Background(), tp, zap.NewNop()))
+
+	require.Equal(t, 10, exp.Count(), "shutdown must flush all queued spans to the exporter")
+}
+
+func TestShutdownTracerProvider_NoopProvider(t *testing.T) {
+	err := ShutdownTracerProvider(context.Background(), noop.NewTracerProvider(), zap.NewNop())
 	assert.NoError(t, err)
 }
 
