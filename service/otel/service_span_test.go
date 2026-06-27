@@ -170,3 +170,39 @@ func TestInterceptor_ErrorStatus(t *testing.T) {
 	span := telemetrytest.MustSpanNamed(t, sr, "ns:func")
 	telemetrytest.SpanStatus(t, span, codes.Error)
 }
+
+func TestHTTPMiddleware_CapturesStatusCode(t *testing.T) {
+	useTraceContextPropagator(t)
+	tp, sr := telemetrytest.NewTracerProvider()
+	defer func() { _ = tp.Shutdown(context.Background()) }()
+
+	svc := NewService(otelapi.Config{HTTP: otelapi.HTTPConfig{Enabled: true}}, zap.NewNop(), tp)
+
+	cases := []struct {
+		name      string
+		status    int
+		wantError bool
+	}{
+		{"ok", http.StatusOK, false},
+		{"not_found", http.StatusNotFound, false},
+		{"server_error", http.StatusInternalServerError, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			sr.Reset()
+			wrapped := svc.HTTPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(c.status)
+			}))
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/x", nil)
+			wrapped.ServeHTTP(httptest.NewRecorder(), req)
+
+			span := telemetrytest.MustSpanNamed(t, sr, "GET unmatched")
+			telemetrytest.SpanHasInt64Attr(t, span, "http.response.status_code", int64(c.status))
+			if c.wantError {
+				telemetrytest.SpanStatus(t, span, codes.Error)
+			} else {
+				telemetrytest.SpanStatus(t, span, codes.Ok)
+			}
+		})
+	}
+}

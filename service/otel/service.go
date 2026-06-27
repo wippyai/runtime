@@ -86,10 +86,42 @@ func (s *Service) HTTPMiddleware() func(http.Handler) http.Handler {
 				propagator.Inject(ctx, propagation.HeaderCarrier(w.Header()))
 			}
 
+			rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 			r = r.WithContext(ctx)
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(rec, r)
+
+			span.SetAttributes(attribute.Int("http.response.status_code", rec.status))
+			if rec.status >= http.StatusInternalServerError {
+				span.SetStatus(codes.Error, http.StatusText(rec.status))
+			} else {
+				span.SetStatus(codes.Ok, "")
+			}
 		})
 	}
+}
+
+// statusRecorder wraps http.ResponseWriter to capture the response status code
+// without otherwise altering behavior. The first WriteHeader call fixes the
+// status; a handler that only calls Write defaults to 200 OK.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+	wrote  bool
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	if !r.wrote {
+		r.status = code
+		r.wrote = true
+	}
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *statusRecorder) Write(b []byte) (int, error) {
+	if !r.wrote {
+		r.wrote = true
+	}
+	return r.ResponseWriter.Write(b)
 }
 
 // OnStart implements scheduler.Lifecycle.

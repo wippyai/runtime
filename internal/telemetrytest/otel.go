@@ -75,6 +75,16 @@ func SpanHasStringAttr(t *testing.T, span sdktrace.ReadOnlySpan, key, want strin
 	assert.Equalf(t, want, v.AsString(), "span %q attribute %q", span.Name(), key)
 }
 
+// SpanHasInt64Attr asserts the span carries an int64 attribute key==want.
+func SpanHasInt64Attr(t *testing.T, span sdktrace.ReadOnlySpan, key string, want int64) {
+	t.Helper()
+	v, ok := SpanAttr(span, key)
+	if !ok {
+		t.Fatalf("span %q has no attribute %q", span.Name(), key)
+	}
+	assert.Equalf(t, want, v.AsInt64(), "span %q attribute %q", span.Name(), key)
+}
+
 // TraceID returns the trace ID carried by a recorded span.
 func TraceID(span sdktrace.ReadOnlySpan) trace.TraceID {
 	return span.SpanContext().TraceID()
