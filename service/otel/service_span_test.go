@@ -196,6 +196,23 @@ func TestProcessLifecycle_RootSpanWhenNoRemoteParent(t *testing.T) {
 	assert.True(t, terminated, "unsupervised spawn must emit process.terminated")
 }
 
+func TestHTTPMiddleware_StatusRecorderPreservesFlusherAndHijacker(t *testing.T) {
+	tp, _ := telemetrytest.NewTracerProvider()
+	defer func() { _ = tp.Shutdown(context.Background()) }()
+
+	svc := NewService(otelapi.Config{HTTP: otelapi.HTTPConfig{Enabled: true}}, zap.NewNop(), tp)
+	wrapped := svc.HTTPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, isFlusher := w.(http.Flusher)
+		assert.True(t, isFlusher, "inner handler must see http.Flusher (SSE relay depends on it)")
+		_, isHijacker := w.(http.Hijacker)
+		assert.True(t, isHijacker, "inner handler must see http.Hijacker (websocket relay depends on it)")
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	wrapped.ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil))
+}
+
 func TestHTTPMiddleware_CapturesStatusCode(t *testing.T) {
 	useTraceContextPropagator(t)
 	tp, sr := telemetrytest.NewTracerProvider()
@@ -226,7 +243,7 @@ func TestHTTPMiddleware_CapturesStatusCode(t *testing.T) {
 			if c.wantError {
 				telemetrytest.SpanStatus(t, span, codes.Error)
 			} else {
-				telemetrytest.SpanStatus(t, span, codes.Ok)
+				telemetrytest.SpanStatus(t, span, codes.Unset)
 			}
 		})
 	}

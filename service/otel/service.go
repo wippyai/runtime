@@ -3,7 +3,10 @@
 package otel
 
 import (
+	"bufio"
 	stdcontext "context"
+	"errors"
+	"net"
 	"net/http"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -93,8 +96,6 @@ func (s *Service) HTTPMiddleware() func(http.Handler) http.Handler {
 			span.SetAttributes(attribute.Int("http.response.status_code", rec.status))
 			if rec.status >= http.StatusInternalServerError {
 				span.SetStatus(codes.Error, http.StatusText(rec.status))
-			} else {
-				span.SetStatus(codes.Ok, "")
 			}
 		})
 	}
@@ -102,12 +103,17 @@ func (s *Service) HTTPMiddleware() func(http.Handler) http.Handler {
 
 // statusRecorder wraps http.ResponseWriter to capture the response status code
 // without otherwise altering behavior. The first WriteHeader call fixes the
-// status; a handler that only calls Write defaults to 200 OK.
+// status; a handler that only calls Write defaults to 200 OK. Flush/Hijack/
+// Unwrap forward to the underlying writer so SSE (Flush) and websocket
+// (Hijack) middlewares stacked inside the OTel middleware keep working, and
+// http.ResponseController reaches the real writer.
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
 	wrote  bool
 }
+
+func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
 
 func (r *statusRecorder) WriteHeader(code int) {
 	if !r.wrote {
@@ -122,6 +128,19 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 		r.wrote = true
 	}
 	return r.ResponseWriter.Write(b)
+}
+
+func (r *statusRecorder) Flush() {
+	if flusher, ok := r.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := r.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, errors.New("otel: underlying response writer does not support Hijack")
 }
 
 // OnStart implements scheduler.Lifecycle.

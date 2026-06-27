@@ -344,15 +344,15 @@ func (rm *RouteManager) Build() error {
 	registeredOptions := make(map[string]bool)
 	for _, routerEntry := range rm.routers {
 		for routeID, route := range routerEntry.routes {
-		pattern := buildPattern(route.method, routerEntry.prefix, route.path)
-		handler := rm.createRouteHandler(routeID, route, routerEntry)
-		if len(routerEntry.middleware) > 0 {
-			handler = applyMiddlewareChain(routerEntry.middleware, handler)
-		}
-		// Set the route label as the outermost wrapper so pre-match middleware
-		// (e.g., OTel, http metrics) observes the real route instead of "unmatched".
-		handler = withRouteLabel(routeLabelFor(route.funcID, routeID), handler)
-		allPatterns = append(allPatterns, patternEntry{handler, pattern})
+			pattern := buildPattern(route.method, routerEntry.prefix, route.path)
+			handler := rm.createRouteHandler(routeID, route, routerEntry)
+			if len(routerEntry.middleware) > 0 {
+				handler = applyMiddlewareChain(routerEntry.middleware, handler)
+			}
+			// Set the route label as the outermost wrapper so pre-match middleware
+			// (e.g., OTel, http metrics) observes the real route instead of "unmatched".
+			handler = withRouteLabel(routeLabelFor(route.funcID, routeID), handler)
+			allPatterns = append(allPatterns, patternEntry{handler, pattern})
 
 			// Auto-generate OPTIONS handler so CORS middleware can intercept preflight
 			if route.method != "OPTIONS" {

@@ -21,13 +21,7 @@ type telemetry struct {
 }
 
 func newTelemetry(coll metrics.Collector) *telemetry {
-	t := &telemetry{coll: coll}
-	if coll != nil {
-		coll.CounterAdd(metricMessagesTotal, 0, metrics.Labels{"queue": "_init", "result": "ack"})
-		coll.CounterAdd(metricMessagesTotal, 0, metrics.Labels{"queue": "_init", "result": "nack"})
-		coll.GaugeSet(metricInFlight, 0, metrics.Labels{"queue": "_init"})
-	}
-	return t
+	return &telemetry{coll: coll}
 }
 
 func (t *telemetry) recordProcessed(queue, result string, duration time.Duration) {

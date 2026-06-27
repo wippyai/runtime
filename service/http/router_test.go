@@ -80,7 +80,7 @@ func TestRouteManager_BasicOperations(t *testing.T) {
 		err = rm.ReplaceMount("/static", replacement)
 		require.NoError(t, err)
 		rec := httptest.NewRecorder()
-		rm.mounts["/static"].ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/app.js", nil))
+		rm.mounts["/static"].ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/static/app.js", nil))
 		assert.Equal(t, "replacement", rec.Body.String())
 
 		// Replace validates paths and only updates existing mounts

@@ -41,11 +41,3 @@ func TestTelemetry_InFlight(t *testing.T) {
 	assert.Equal(t, 1.0, rec.GaugeValue(metricInFlight,
 		metrics.Labels{"queue": "ns:orders"}))
 }
-
-func TestTelemetry_BootstrapsZeroSeries(t *testing.T) {
-	rec := telemetrytest.NewRecorder()
-	_ = newTelemetry(rec)
-
-	assert.Contains(t, rec.Names(), metricMessagesTotal)
-	assert.Contains(t, rec.Names(), metricInFlight)
-}

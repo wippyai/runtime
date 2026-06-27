@@ -24,13 +24,7 @@ type ProcessLifecycle struct {
 }
 
 func NewProcessLifecycle(coll metrics.Collector) *ProcessLifecycle {
-	p := &ProcessLifecycle{coll: coll}
-	if coll != nil {
-		coll.GaugeSet(ProcessActive, 0, metrics.Labels{})
-		coll.CounterAdd(ProcessTerminated, 0, metrics.Labels{"result": "completed"})
-		coll.CounterAdd(ProcessTerminated, 0, metrics.Labels{"result": "error"})
-	}
-	return p
+	return &ProcessLifecycle{coll: coll}
 }
 
 func (p *ProcessLifecycle) OnStart(_ context.Context, _ pid.PID, _ processapi.Process) error {
