@@ -21,6 +21,11 @@ type MetricsExporter struct {
 }
 
 func NewMetricsExporter(provider otelmetric.MeterProvider) *MetricsExporter {
+	// Note: TypeGauge and TypeGaugeAdd map to different OTel instrument kinds
+	// (Float64Gauge vs Float64UpDownCounter). The OTel SDK keys instruments by
+	// name, so a metric must not mix GaugeSet and GaugeInc/Dec on the same
+	// name — the second instrument kind registration returns an error and that
+	// metric silently stops exporting. Use one or the other per metric name.
 	return &MetricsExporter{
 		meter:    provider.Meter("wippy-runtime"),
 		counters: make(map[string]otelmetric.Float64Counter),
