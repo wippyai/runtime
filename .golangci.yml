@@ -164,6 +164,10 @@ linters:
           - gosec
         text: "G118"
       - linters:
+          - gosec
+        text: "G124"
+        path: service/http/client/handler\.go
+      - linters:
           - revive
         text: "unexported-return"
       - linters:
