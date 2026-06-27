@@ -45,14 +45,10 @@ entries:
     imports:
       assert: app.lib:assert
     security:
-      - action: eval.run
-        resource: ""
-      - action: eval.module
-        resource: http_client
-      - action: eval.class
-        resource: network
-      - action: eval.class
-        resource: io
+      policies:
+        - app.test.eval:policy_allow_classes_run
+        - app.test.eval:policy_allow_classes_module
+        - app.test.eval:policy_allow_classes_class
 
   - name: runner_imports
     kind: function.lua
@@ -68,10 +64,53 @@ entries:
     imports:
       assert: app.lib:assert
     security:
-      - action: eval.run
-        resource: ""
-      - action: eval.module
-        resource: json
-      - action: eval.import
-        resource: app.lib:test_sdk
+      policies:
+        - app.test.eval:policy_imports_run
+        - app.test.eval:policy_imports_module
+        - app.test.eval:policy_imports_import
 
+  # Policies granting runner_allow_classes exactly the eval capabilities it exercises.
+  - name: policy_allow_classes_run
+    kind: security.policy
+    policy:
+      actions: eval.run
+      resources: "*"
+      effect: allow
+
+  - name: policy_allow_classes_module
+    kind: security.policy
+    policy:
+      actions: eval.module
+      resources: http_client
+      effect: allow
+
+  - name: policy_allow_classes_class
+    kind: security.policy
+    policy:
+      actions: eval.class
+      resources:
+        - network
+        - io
+      effect: allow
+
+  # Policies granting runner_imports exactly the eval capabilities it exercises.
+  - name: policy_imports_run
+    kind: security.policy
+    policy:
+      actions: eval.run
+      resources: "*"
+      effect: allow
+
+  - name: policy_imports_module
+    kind: security.policy
+    policy:
+      actions: eval.module
+      resources: json
+      effect: allow
+
+  - name: policy_imports_import
+    kind: security.policy
+    policy:
+      actions: eval.import
+      resources: app.lib:test_sdk
+      effect: allow

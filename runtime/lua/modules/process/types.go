@@ -165,6 +165,13 @@ func init() {
 			Variadic(typ.Any).
 			Returns(typ.String, typ.NewOptional(typ.LuaError)).
 			Build()},
+		{Name: "exec", Type: typ.Func().
+			Param("self", typ.Self).
+			Param("module", typ.String).
+			Param("func", typ.String).
+			Variadic(typ.Any).
+			Returns(typ.Any, typ.NewOptional(typ.LuaError)).
+			Build()},
 	})
 }
 
