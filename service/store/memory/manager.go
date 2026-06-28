@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/wippyai/runtime/api/event"
+	"github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
@@ -22,6 +23,7 @@ type Manager struct {
 	dtt    payload.Transcoder
 	bus    event.Bus
 	log    *zap.Logger
+	coll   metrics.Collector
 	stores map[registry.ID]*Store
 	mu     sync.RWMutex
 }
@@ -31,6 +33,7 @@ func NewManager(
 	bus event.Bus,
 	dtt payload.Transcoder,
 	log *zap.Logger,
+	coll metrics.Collector,
 ) *Manager {
 	if log == nil {
 		log = zap.NewNop()
@@ -39,6 +42,7 @@ func NewManager(
 		log:    log,
 		dtt:    dtt,
 		bus:    bus,
+		coll:   coll,
 		stores: make(map[registry.ID]*Store),
 	}
 }
@@ -64,6 +68,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 
 	// Create memory store
 	store := NewStore(entry.ID, cfg, m.log)
+	store.coll = m.coll
 	m.stores[entry.ID] = store
 
 	// Register with supervisor
@@ -129,6 +134,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	// Create new store with updated config
 	newStore := NewStore(entry.ID, cfg, m.log)
+	newStore.coll = m.coll
 	m.stores[entry.ID] = newStore
 
 	// Update supervisor entry
