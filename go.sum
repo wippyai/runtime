@@ -597,8 +597,6 @@ github.com/wippyai/tree-sitter-sql v0.0.4 h1:0hJyjkV6/lhoGA5FJAaf96od2xyo+OJINSE
 github.com/wippyai/tree-sitter-sql v0.0.4/go.mod h1:QN9CfIO55fwQNVNk1p/7pjxrLk7iKxrQs42Zh6lrr84=
 github.com/wippyai/wapp v0.1.2 h1:fCoxKr9s3gk+pWx4XcnIQmOVgPiuimXf3QcE9mHbdmw=
 github.com/wippyai/wapp v0.1.2/go.mod h1:ndCkYR80+osLGbd7AFWlP+3DxwooR+R6cxQYPZhksg4=
-github.com/wippyai/wasm-runtime v0.0.0-20260623160937-4f371ee0f68a h1:hNZ5ujZpmQgWlvk9mCaN1Dzvdq2wokrGUVJ8w4OG+Zc=
-github.com/wippyai/wasm-runtime v0.0.0-20260623160937-4f371ee0f68a/go.mod h1:1AVYdZibORqlBez081Seakxv2u9IR+KIMrvlBKsk2bQ=
 github.com/wippyai/wasm-runtime v0.0.0-20260624004845-53368697b5c6 h1:KXsgwoyjcw6rLpltno8Vb7eV+Np0gvJk8s6evZ/vSec=
 github.com/wippyai/wasm-runtime v0.0.0-20260624004845-53368697b5c6/go.mod h1:1AVYdZibORqlBez081Seakxv2u9IR+KIMrvlBKsk2bQ=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
@@ -660,8 +658,8 @@ go.opentelemetry.io/otel/trace v1.44.0 h1:jxF5CsGYCe74MCRx2X4g7WsY/VBKRqqpNvXlX/
 go.opentelemetry.io/otel/trace v1.44.0/go.mod h1:oLl1jrMQAVo6v3GAggN+1VH9VIz9iUSvW53sW1Q8PIE=
 go.opentelemetry.io/proto/otlp v1.10.0 h1:IQRWgT5srOCYfiWnpqUYz9CVmbO8bFmKcwYxpuCSL2g=
 go.opentelemetry.io/proto/otlp v1.10.0/go.mod h1:/CV4QoCR/S9yaPj8utp3lvQPoqMtxXdzn7ozvvozVqk=
-go.temporal.io/api v1.62.14 h1:Tree3eqoKRt5Vv+nvYHMPp/ROiGmSOTtFUD9d0w8yJE=
-go.temporal.io/api v1.62.14/go.mod h1:0k75tRljEuELWGeXjEZZO7zYqBln4+1FrG6+IMOMy7Q=
+go.temporal.io/api v1.63.0 h1:YZFOTA0/thRUIUC4qunAWdHhPh/IG4vy/+WjfEvT+ZE=
+go.temporal.io/api v1.63.0/go.mod h1:0k75tRljEuELWGeXjEZZO7zYqBln4+1FrG6+IMOMy7Q=
 go.temporal.io/sdk v1.45.0 h1:kvsczo3SHTS60+zBWH9lljLmBLWSXcyGkBxr88z8iQI=
 go.temporal.io/sdk v1.45.0/go.mod h1:vkApR12F9/Y8OR+hkxe7WyXQFuCX6clhzqnAk6rzDAM=
 go.temporal.io/sdk/contrib/opentelemetry v0.7.0 h1:GSna1HP+1ibNXZ9xlVdQU2zFVqdt5VcdF0dzpeaYccQ=
