@@ -5,6 +5,7 @@ package function
 import (
 	"context"
 	"errors"
+	goruntime "runtime"
 	"strconv"
 	"time"
 
@@ -64,9 +65,12 @@ func (m *Manager) buildPool(cfg *configEntry, module *wasmrt.Module) (funcpool.P
 		err  error
 	)
 
-	if cfg.pool.Type != "" {
+	switch {
+	case cfg.pool.Class == api.PoolClassWASM:
+		pool, err = m.createPinnedPool(factoryFn, cfg.pool, execHooks)
+	case cfg.pool.Type != "":
 		pool, err = m.createPoolByType(cfg.pool.Type, factoryFn, cfg.pool, execHooks)
-	} else {
+	default:
 		pool, err = m.autoSelectPool(factoryFn, cfg.pool, execHooks)
 	}
 	if err != nil {
@@ -214,6 +218,42 @@ func (m *Manager) autoSelectPool(factory process.FactoryFunc, cfg api.PoolConfig
 	}
 
 	return inline.New(factory, m.dispatcher, hooks)
+}
+
+// defaultWASMClassWorkers bounds the default concurrency of an unconfigured
+// pool.class=wasm function. The static pool pre-warms one WASM instance per
+// worker, so a per-function default of NumCPU would pre-instantiate that many
+// multi-megabyte guests and lock that many OS threads. Authors raise concurrency
+// explicitly via pool.workers when a function needs more parallelism.
+const defaultWASMClassWorkers = 4
+
+// createPinnedPool builds a dedicated static pool whose worker goroutines are
+// locked to their own OS threads (and pinned to the reserved WASM CPU set when
+// affinity is enabled), keeping CPU-bound WASM execution off the actor workers.
+func (m *Manager) createPinnedPool(factory process.FactoryFunc, cfg api.PoolConfig, hooks funcpool.ExecutionHooks) (funcpool.Pool, error) {
+	workers := cfg.Workers
+	if workers == 0 {
+		workers = cfg.Size
+	}
+	if workers == 0 {
+		// When core affinity is enabled, match the reserved WASM core set.
+		workers = len(m.wasmAffinity)
+	}
+	if workers == 0 {
+		workers = min(goruntime.NumCPU(), defaultWASMClassWorkers)
+	}
+
+	queueSize := cfg.Buffer
+	if queueSize == 0 {
+		queueSize = workers * 64
+	}
+
+	return static.New(factory, m.dispatcher, static.Config{
+		Workers:   workers,
+		QueueSize: queueSize,
+		PinThread: true,
+		Affinity:  m.wasmAffinity,
+	}, hooks)
 }
 
 func (m *Manager) createPoolByType(poolType string, factory process.FactoryFunc, cfg api.PoolConfig, hooks funcpool.ExecutionHooks) (funcpool.Pool, error) {

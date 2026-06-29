@@ -15,6 +15,7 @@ type (
 	// PoolConfig defines settings for a pool of WASM executors.
 	PoolConfig struct {
 		Type    string `json:"type"`    // Pool type: static, lazy, inline, adaptive
+		Class   string `json:"class"`   // Worker class: "" (default) or "wasm" (dedicated thread-pinned pool)
 		Size    int    `json:"size"`    // Total pool size for non-flex pools
 		Workers int    `json:"workers"` // Number of worker threads
 		Buffer  int    `json:"buffer"`  // Queue buffer size (default: workers * 64)
@@ -190,6 +191,15 @@ func validatePool(pool PoolConfig) error {
 		default:
 			return ErrInvalidPoolType
 		}
+	}
+
+	if pool.Class != "" {
+		if pool.Class != PoolClassWASM {
+			return ErrInvalidPoolClass
+		}
+		// The dedicated WASM class derives its own worker/buffer defaults and
+		// is not bound by the legacy size semantics below.
+		return nil
 	}
 
 	// Legacy-compatible validation semantics from lua runtime:

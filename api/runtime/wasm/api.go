@@ -38,6 +38,14 @@ const (
 	PoolTypeAdaptive = "adaptive" // Auto-scaling worker pool.
 )
 
+// Pool worker-class constants. A class selects a worker-isolation strategy
+// independent of the pool type.
+const (
+	// PoolClassWASM runs the function on a dedicated, OS-thread-pinned pool,
+	// keeping CPU-bound WASM execution off the actor-scheduler workers.
+	PoolClassWASM = "wasm"
+)
+
 // Transport type constants for input/output mapping.
 const (
 	TransportTypePayload  = "payload"

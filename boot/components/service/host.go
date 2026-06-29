@@ -16,6 +16,7 @@ import (
 	"github.com/wippyai/runtime/boot/components/core"
 	"github.com/wippyai/runtime/boot/components/system"
 	"github.com/wippyai/runtime/service/host"
+	"github.com/wippyai/runtime/system/scheduler/affinity"
 	"go.uber.org/zap"
 )
 
@@ -77,6 +78,9 @@ func Host() boot.Component {
 			}
 
 			manager := host.NewManager(bus, dtt, registry, factory, pidGen, logger)
+			if part, ok := affinity.PartitionFromContext(ctx); ok && part.Enabled {
+				manager.SetActorAffinity(part.ActorCPUs)
+			}
 			handlers.RegisterListener("process.host", manager)
 
 			ctx = process.WithInspector(ctx, manager)

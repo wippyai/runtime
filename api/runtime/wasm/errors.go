@@ -19,6 +19,8 @@ var (
 
 	ErrInvalidPoolType = apierror.New(apierror.Invalid, "invalid pool type").WithRetryable(apierror.False)
 
+	ErrInvalidPoolClass = apierror.New(apierror.Invalid, "invalid pool class").WithRetryable(apierror.False)
+
 	ErrInvalidPoolSize = apierror.New(apierror.Invalid, "pool.size must be greater than 0 for non-flex pools").WithRetryable(apierror.False)
 
 	ErrInvalidWorkerPoolSize = apierror.New(apierror.Invalid, "pool.size must be greater than 0 for worker pools").WithRetryable(apierror.False)
