@@ -17,6 +17,10 @@ type cleanupNode struct {
 // Designed for fast access from both Lua and WASM runtimes.
 type Store struct {
 	table *Table
+	// leases indexes registry-backed resources acquired by this process. The
+	// table owns the underlying resource lifecycle; each Lease is only a logical
+	// borrow of the keyed table entry.
+	leases map[registryLeaseKey]Handle
 	// head and tail bound a doubly-linked list of live cleanups.
 	// Nodes are appended at tail; Close walks tail->head for LIFO order.
 	head, tail *cleanupNode
@@ -114,6 +118,9 @@ func (s *Store) Close() error {
 	s.head = nil
 	s.tail = nil
 	s.count = 0
+	if s.leases != nil {
+		clear(s.leases)
+	}
 	s.mu.Unlock()
 
 	var firstErr error

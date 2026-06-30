@@ -124,3 +124,64 @@ func TestStoreGetWithoutReleaseReproducesPerCallResourceLeak(t *testing.T) {
 			calls, acquires, releases, liveCleanups)
 	}
 }
+
+func TestStoreGetLeasedHandlesReleaseIndependently(t *testing.T) {
+	reg := newLeakReproRegistry(newMemoryStore())
+	l, resStore := setupLeakReproState(t, reg)
+
+	if err := l.DoString(`
+		local a, err = store.get("test:mystore")
+		if err then error(tostring(err)) end
+		local b, err = store.get("test:mystore")
+		if err then error(tostring(err)) end
+
+		a:release()
+
+		local info, info_err = b:info()
+		if info_err then error(tostring(info_err)) end
+		if info.id ~= "test:mystore" then error("wrong store id: " .. tostring(info.id)) end
+
+		b:release()
+	`); err != nil {
+		t.Fatalf("independent release script failed: %v", err)
+	}
+
+	if acquires := reg.acquires.Load(); acquires != 1 {
+		t.Fatalf("registry acquires = %d, want 1", acquires)
+	}
+	if releases := reg.releases.Load(); releases != 1 {
+		t.Fatalf("registry releases = %d, want 1 after last handle release", releases)
+	}
+	if liveCleanups := runtimeStoreLiveCleanups(resStore); liveCleanups != 0 {
+		t.Fatalf("live resource cleanups = %d, want 0", liveCleanups)
+	}
+}
+
+func TestStoreGetLeasedHandlesReleaseOnProcessResourceClose(t *testing.T) {
+	reg := newLeakReproRegistry(newMemoryStore())
+	l, resStore := setupLeakReproState(t, reg)
+
+	if err := l.DoString(`
+		for i = 1, 100 do
+			local s, err = store.get("test:mystore")
+			if err then error(tostring(err)) end
+			if s == nil then error("store.get returned nil") end
+		end
+	`); err != nil {
+		t.Fatalf("store.get loop failed: %v", err)
+	}
+
+	if acquires := reg.acquires.Load(); acquires != 1 {
+		t.Fatalf("registry acquires before close = %d, want 1", acquires)
+	}
+	if releases := reg.releases.Load(); releases != 0 {
+		t.Fatalf("registry releases before close = %d, want 0", releases)
+	}
+
+	if err := resStore.Close(); err != nil {
+		t.Fatalf("resource store close: %v", err)
+	}
+	if releases := reg.releases.Load(); releases != 1 {
+		t.Fatalf("registry releases after close = %d, want 1", releases)
+	}
+}
