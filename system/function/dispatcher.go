@@ -120,7 +120,7 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 	callCtx, fc := ctxapi.ForkFrameContext(ctx)
 	callCtx, cancel := context.WithCancel(callCtx)
 	key := asyncCallKey{target: framePID.String(), topic: topic}
-	d.asyncCalls.Store(key, context.CancelFunc(cancel))
+	d.asyncCalls.Store(key, cancel)
 
 	go func(callCtx context.Context, callFC ctxapi.FrameContext) {
 		defer ctxapi.ReleaseFrameContext(callFC)

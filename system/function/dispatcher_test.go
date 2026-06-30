@@ -53,7 +53,7 @@ func (m *mockRegistry) Call(ctx context.Context, task runtime.Task) (*runtime.Re
 	return &runtime.Result{}, nil
 }
 
-func startAsyncForTest(t *testing.T, d *Dispatcher, ctx context.Context, name, topic string) {
+func startAsyncForTest(ctx context.Context, t *testing.T, d *Dispatcher, name, topic string) {
 	t.Helper()
 
 	cmd := function.AcquireAsyncStartCmd()
@@ -74,7 +74,7 @@ func startAsyncForTest(t *testing.T, d *Dispatcher, ctx context.Context, name, t
 	}
 }
 
-func cancelAsyncForTest(t *testing.T, d *Dispatcher, ctx context.Context, topic string) {
+func cancelAsyncForTest(ctx context.Context, t *testing.T, d *Dispatcher, topic string) {
 	t.Helper()
 
 	cmd := function.AcquireAsyncCancelCmd()
@@ -515,7 +515,7 @@ func TestAsyncCancelHandler_DoesNotCancelDifferentTopic(t *testing.T) {
 
 	mock := &mockRegistry{
 		callFn: func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
-			name := string(task.ID.Name)
+			name := task.ID.Name
 			ctxByName[name] <- ctx
 			<-ctx.Done()
 			cancelByName[name] <- ctx.Err()
@@ -531,15 +531,15 @@ func TestAsyncCancelHandler_DoesNotCancelDifferentTopic(t *testing.T) {
 	testPID := pid.PID{Host: "test", UniqID: "1"}
 	require.NoError(t, runtime.SetFramePID(frameCtx, testPID))
 
-	startAsyncForTest(t, d, frameCtx, "first", "@future:first")
-	startAsyncForTest(t, d, frameCtx, "second", "@future:second")
+	startAsyncForTest(frameCtx, t, d, "first", "@future:first")
+	startAsyncForTest(frameCtx, t, d, "second", "@future:second")
 
 	firstCtx := receiveContextForTest(t, ctxByName["first"])
 	secondCtx := receiveContextForTest(t, ctxByName["second"])
 	require.NoError(t, firstCtx.Err())
 	require.NoError(t, secondCtx.Err())
 
-	cancelAsyncForTest(t, d, frameCtx, "@future:first")
+	cancelAsyncForTest(frameCtx, t, d, "@future:first")
 
 	select {
 	case err := <-cancelByName["first"]:
@@ -549,7 +549,7 @@ func TestAsyncCancelHandler_DoesNotCancelDifferentTopic(t *testing.T) {
 	}
 	require.NoError(t, secondCtx.Err(), "canceling one topic must not cancel another active topic")
 
-	cancelAsyncForTest(t, d, frameCtx, "@future:second")
+	cancelAsyncForTest(frameCtx, t, d, "@future:second")
 	select {
 	case err := <-cancelByName["second"]:
 		require.ErrorIs(t, err, context.Canceled)
@@ -578,7 +578,7 @@ func TestAsyncCancelHandler_DoesNotCancelSameTopicForDifferentCallerPID(t *testi
 	callerOneCtx, _ := ctxapi.OpenFrameContext(ctx)
 	callerOnePID := pid.PID{Host: "test", UniqID: "caller-1"}
 	require.NoError(t, runtime.SetFramePID(callerOneCtx, callerOnePID))
-	startAsyncForTest(t, d, callerOneCtx, "func", "@future:shared")
+	startAsyncForTest(callerOneCtx, t, d, "func", "@future:shared")
 
 	callCtx := receiveContextForTest(t, started)
 	require.NoError(t, callCtx.Err())
@@ -586,10 +586,10 @@ func TestAsyncCancelHandler_DoesNotCancelSameTopicForDifferentCallerPID(t *testi
 	callerTwoCtx, _ := ctxapi.OpenFrameContext(ctx)
 	callerTwoPID := pid.PID{Host: "test", UniqID: "caller-2"}
 	require.NoError(t, runtime.SetFramePID(callerTwoCtx, callerTwoPID))
-	cancelAsyncForTest(t, d, callerTwoCtx, "@future:shared")
+	cancelAsyncForTest(callerTwoCtx, t, d, "@future:shared")
 	require.NoError(t, callCtx.Err(), "same topic from a different caller PID must not cancel the call")
 
-	cancelAsyncForTest(t, d, callerOneCtx, "@future:shared")
+	cancelAsyncForTest(callerOneCtx, t, d, "@future:shared")
 	select {
 	case err := <-canceled:
 		require.ErrorIs(t, err, context.Canceled)
