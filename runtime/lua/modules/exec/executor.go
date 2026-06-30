@@ -17,34 +17,18 @@ import (
 )
 
 type Executor struct {
-	resource      resource.Resource[any]
-	factory       apiexec.ProcessExecutor
-	cancelCleanup func()
-	mu            sync.Mutex
-	released      bool
+	resource resource.Resource[any]
+	factory  apiexec.ProcessExecutor
+	mu       sync.Mutex
+	released bool
 }
 
-func NewExecutor(ctx context.Context, res resource.Resource[any], factory apiexec.ProcessExecutor) *Executor {
-	e := &Executor{
+func NewExecutor(_ context.Context, res resource.Resource[any], factory apiexec.ProcessExecutor) *Executor {
+	return &Executor{
 		resource: res,
 		factory:  factory,
 		released: false,
 	}
-
-	store := rtresource.GetStore(ctx)
-	if store != nil {
-		e.cancelCleanup = store.AddCleanup(func() error {
-			e.mu.Lock()
-			defer e.mu.Unlock()
-			if !e.released && e.resource != nil {
-				e.resource.Release()
-				e.released = true
-			}
-			return nil
-		})
-	}
-
-	return e
 }
 
 var executorMethods = map[string]lua.LGoFunc{
@@ -90,18 +74,10 @@ func execGet(l *lua.LState) int {
 	}
 
 	resID := registry.ParseID(id)
-	res, err := reg.Acquire(ctx, resID, resource.ModeNormal)
+	res, execRes, err := rtresource.AcquireRegistryResource(ctx, reg, resID, resource.ModeNormal)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.WrapErrorWithLua(l, err, "acquire resource").WithKind(lua.Internal).WithRetryable(false))
-		return 2
-	}
-
-	execRes, err := res.Get()
-	if err != nil {
-		res.Release()
-		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "get resource").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -194,12 +170,7 @@ func executorRelease(l *lua.LState) int {
 		e.resource.Release()
 		e.resource = nil
 		e.released = true
-		cancel := e.cancelCleanup
-		e.cancelCleanup = nil
 		e.mu.Unlock()
-		if cancel != nil {
-			cancel()
-		}
 	} else {
 		e.mu.Unlock()
 	}

@@ -22,37 +22,21 @@ const tokenStoreTypeName = "security.TokenStore"
 
 // TokenStore wraps a token store resource with cleanup handling.
 type TokenStore struct {
-	resource      resource.Resource[any]
-	tokenStore    security.TokenStore
-	cancelCleanup func()
-	id            registry.ID
-	mu            sync.Mutex
-	released      bool
+	resource   resource.Resource[any]
+	tokenStore security.TokenStore
+	id         registry.ID
+	mu         sync.Mutex
+	released   bool
 }
 
 // NewTokenStore creates a new token store wrapper.
-func NewTokenStore(ctx context.Context, id registry.ID, res resource.Resource[any], ts security.TokenStore) *TokenStore {
-	wrapper := &TokenStore{
+func NewTokenStore(_ context.Context, id registry.ID, res resource.Resource[any], ts security.TokenStore) *TokenStore {
+	return &TokenStore{
 		id:         id,
 		resource:   res,
 		tokenStore: ts,
 		released:   false,
 	}
-
-	store := rtresource.GetStore(ctx)
-	if store != nil {
-		wrapper.cancelCleanup = store.AddCleanup(func() error {
-			wrapper.mu.Lock()
-			defer wrapper.mu.Unlock()
-			if !wrapper.released && wrapper.resource != nil {
-				wrapper.resource.Release()
-				wrapper.released = true
-			}
-			return nil
-		})
-	}
-
-	return wrapper
 }
 
 var tokenStoreMethods = map[string]lua.LGoFunc{
@@ -100,18 +84,10 @@ func tokenStoreGet(l *lua.LState) int {
 	}
 
 	id := registry.ParseID(idStr)
-	res, err := reg.Acquire(ctx, id, resource.ModeNormal)
+	res, storeRes, err := rtresource.AcquireRegistryResource(ctx, reg, id, resource.ModeNormal)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.WrapErrorWithLua(l, err, "acquire token store").WithKind(lua.Internal).WithRetryable(false))
-		return 2
-	}
-
-	storeRes, err := res.Get()
-	if err != nil {
-		res.Release()
-		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "get token store").WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -293,12 +269,7 @@ func tokenStoreClose(l *lua.LState) int {
 		ts.resource.Release()
 		ts.resource = nil
 		ts.released = true
-		cancel := ts.cancelCleanup
-		ts.cancelCleanup = nil
 		ts.mu.Unlock()
-		if cancel != nil {
-			cancel()
-		}
 	} else {
 		ts.mu.Unlock()
 	}

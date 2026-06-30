@@ -17,11 +17,10 @@ import (
 )
 
 type DB struct {
-	resource      resource.Resource[any]
-	db            *sql.DB
-	cancelCleanup func()
-	dbType        string
-	released      bool
+	resource resource.Resource[any]
+	db       *sql.DB
+	dbType   string
+	released bool
 }
 
 func (d *DB) GetRawDB() *sql.DB {
@@ -32,25 +31,13 @@ func (d *DB) GetDBType() string {
 	return d.dbType
 }
 
-func NewDB(ctx context.Context, res resource.Resource[any], db *sql.DB, dbType string) *DB {
-	dbWrapper := &DB{
+func NewDB(_ context.Context, res resource.Resource[any], db *sql.DB, dbType string) *DB {
+	return &DB{
 		resource: res,
 		db:       db,
 		dbType:   dbType,
 		released: false,
 	}
-
-	store := rtresource.GetStore(ctx)
-	if store != nil {
-		dbWrapper.cancelCleanup = store.AddCleanup(func() error {
-			if !dbWrapper.released && dbWrapper.resource != nil {
-				dbWrapper.resource.Release()
-			}
-			return nil
-		})
-	}
-
-	return dbWrapper
 }
 
 var dbMethods = map[string]lua.LGoFunc{
@@ -101,18 +88,10 @@ func sqlGet(l *lua.LState) int {
 	}
 
 	resID := registry.ParseID(id)
-	res, err := reg.Acquire(ctx, resID, resource.ModeNormal)
+	res, dbRes, err := rtresource.AcquireRegistryResource(ctx, reg, resID, resource.ModeNormal)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.WrapErrorWithLua(l, err, "acquire resource"))
-		return 2
-	}
-
-	dbRes, err := res.Get()
-	if err != nil {
-		res.Release()
-		l.Push(lua.LNil)
-		l.Push(lua.WrapErrorWithLua(l, err, "get resource"))
 		return 2
 	}
 
@@ -267,10 +246,6 @@ func dbRelease(l *lua.LState) int {
 		db.resource.Release()
 		db.resource = nil
 		db.released = true
-		if db.cancelCleanup != nil {
-			db.cancelCleanup()
-			db.cancelCleanup = nil
-		}
 	}
 
 	l.Push(lua.LTrue)

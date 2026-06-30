@@ -4,7 +4,6 @@
 package pg
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -44,37 +43,21 @@ const pgInstanceTypeName = "pg.Instance"
 // Created by pg.open() and released automatically on frame cleanup or manually
 // via :release().
 type Instance struct {
-	resource      resource.Resource[any]
-	svc           pgapi.ScopeService
-	cancelCleanup func()
-	id            string
-	mu            sync.Mutex
-	released      bool
+	resource resource.Resource[any]
+	svc      pgapi.ScopeService
+	id       string
+	mu       sync.Mutex
+	released bool
 }
 
 // newPGInstance creates an Instance with automatic cleanup registration.
-func newPGInstance(ctx context.Context, id string, res resource.Resource[any], svc pgapi.ScopeService) *Instance {
-	inst := &Instance{
+func newPGInstance(id string, res resource.Resource[any], svc pgapi.ScopeService) *Instance {
+	return &Instance{
 		id:       id,
 		resource: res,
 		svc:      svc,
 		released: false,
 	}
-
-	resStore := rtresource.GetStore(ctx)
-	if resStore != nil {
-		inst.cancelCleanup = resStore.AddCleanup(func() error {
-			inst.mu.Lock()
-			defer inst.mu.Unlock()
-			if !inst.released && inst.resource != nil {
-				inst.resource.Release()
-				inst.released = true
-			}
-			return nil
-		})
-	}
-
-	return inst
 }
 
 var pgInstanceMethods = map[string]lua.LGoFunc{
@@ -134,12 +117,7 @@ func pgInstanceRelease(l *lua.LState) int {
 		inst.resource.Release()
 		inst.resource = nil
 		inst.released = true
-		cancel := inst.cancelCleanup
-		inst.cancelCleanup = nil
 		inst.mu.Unlock()
-		if cancel != nil {
-			cancel()
-		}
 	} else {
 		inst.mu.Unlock()
 	}
@@ -521,15 +499,9 @@ func pgOpen(l *lua.LState) int {
 	}
 
 	resID := registry.ParseID(id)
-	res, err := reg.Acquire(ctx, resID, resource.ModeNormal)
+	res, raw, err := rtresource.AcquireRegistryResource(ctx, reg, resID, resource.ModeNormal)
 	if err != nil {
 		return pushPGError(l, lua.LNil, newPGError(l, lua.Internal, fmt.Sprintf("failed to acquire pg scope: %v", err)))
-	}
-
-	raw, err := res.Get()
-	if err != nil {
-		res.Release()
-		return pushPGError(l, lua.LNil, newPGError(l, lua.Internal, fmt.Sprintf("failed to get pg scope resource: %v", err)))
 	}
 
 	svc, ok := raw.(pgapi.ScopeService)
@@ -538,7 +510,7 @@ func pgOpen(l *lua.LState) int {
 		return pushPGError(l, lua.LNil, newPGError(l, lua.Invalid, fmt.Sprintf("resource is not a pg scope: %T", raw)))
 	}
 
-	inst := newPGInstance(ctx, id, res, svc)
+	inst := newPGInstance(id, res, svc)
 	value.PushTypedUserData(l, inst, pgInstanceTypeName)
 	return 1
 }

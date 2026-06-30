@@ -21,36 +21,20 @@ import (
 )
 
 type Store struct {
-	resource      resource.Resource[any]
-	store         store.Store
-	cancelCleanup func()
-	id            string
-	mu            sync.Mutex
-	released      bool
+	resource resource.Resource[any]
+	store    store.Store
+	id       string
+	mu       sync.Mutex
+	released bool
 }
 
-func NewStore(ctx context.Context, id string, res resource.Resource[any], s store.Store) *Store {
-	storeWrapper := &Store{
+func NewStore(_ context.Context, id string, res resource.Resource[any], s store.Store) *Store {
+	return &Store{
 		id:       id,
 		resource: res,
 		store:    s,
 		released: false,
 	}
-
-	resStore := rtresource.GetStore(ctx)
-	if resStore != nil {
-		storeWrapper.cancelCleanup = resStore.AddCleanup(func() error {
-			storeWrapper.mu.Lock()
-			defer storeWrapper.mu.Unlock()
-			if !storeWrapper.released && storeWrapper.resource != nil {
-				storeWrapper.resource.Release()
-				storeWrapper.released = true
-			}
-			return nil
-		})
-	}
-
-	return storeWrapper
 }
 
 var storeMethods = map[string]lua.LGoFunc{
@@ -149,15 +133,9 @@ func storeGet(l *lua.LState) int {
 	}
 
 	resID := registry.ParseID(id)
-	res, err := reg.Acquire(ctx, resID, resource.ModeNormal)
+	res, storeRes, err := rtresource.AcquireRegistryResource(ctx, reg, resID, resource.ModeNormal)
 	if err != nil {
 		return internalError(l, err, "failed to acquire resource")
-	}
-
-	storeRes, err := res.Get()
-	if err != nil {
-		res.Release()
-		return internalError(l, err, "failed to get resource")
 	}
 
 	storeImpl, ok := storeRes.(store.Store)
@@ -447,12 +425,7 @@ func storeRelease(l *lua.LState) int {
 		s.resource.Release()
 		s.resource = nil
 		s.released = true
-		cancel := s.cancelCleanup
-		s.cancelCleanup = nil
 		s.mu.Unlock()
-		if cancel != nil {
-			cancel()
-		}
 	} else {
 		s.mu.Unlock()
 	}

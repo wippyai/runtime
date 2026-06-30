@@ -12,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
+	rtresource "github.com/wippyai/runtime/api/runtime/resource"
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/security"
 	servicetemplate "github.com/wippyai/runtime/service/template"
@@ -88,18 +89,9 @@ func templateGet(l *lua.LState) int {
 	}
 
 	resID := registry.ParseID(id)
-	res, acquireErr := reg.Acquire(ctx, resID, resource.ModeNormal)
+	res, templateRes, acquireErr := rtresource.AcquireRegistryResource(ctx, reg, resID, resource.ModeNormal)
 	if acquireErr != nil {
 		err := lua.WrapErrorWithLua(l, acquireErr, "failed to acquire resource").
-			WithKind(lua.Internal).
-			WithRetryable(false)
-		return pushError(l, err)
-	}
-
-	templateRes, getErr := res.Get()
-	if getErr != nil {
-		res.Release()
-		err := lua.WrapErrorWithLua(l, getErr, "failed to get resource").
 			WithKind(lua.Internal).
 			WithRetryable(false)
 		return pushError(l, err)
