@@ -53,6 +53,58 @@ func (m *mockRegistry) Call(ctx context.Context, task runtime.Task) (*runtime.Re
 	return &runtime.Result{}, nil
 }
 
+func startAsyncForTest(ctx context.Context, t *testing.T, d *Dispatcher, name, topic string) {
+	t.Helper()
+
+	cmd := function.AcquireAsyncStartCmd()
+	cmd.Task = runtime.Task{ID: registry.NewID("test", name)}
+	cmd.Topic = topic
+
+	done := make(chan function.AsyncStartResult, 1)
+	err := d.handleAsyncStart(ctx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+		done <- data.(function.AsyncStartResult)
+	}})
+	require.NoError(t, err)
+
+	select {
+	case result := <-done:
+		require.NoError(t, result.Error)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for async start")
+	}
+}
+
+func cancelAsyncForTest(ctx context.Context, t *testing.T, d *Dispatcher, topic string) {
+	t.Helper()
+
+	cmd := function.AcquireAsyncCancelCmd()
+	cmd.Topic = topic
+
+	done := make(chan struct{}, 1)
+	err := d.handleAsyncCancel(ctx, cmd, 0, &testReceiver{cb: func(_ any, _ error) {
+		done <- struct{}{}
+	}})
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for async cancel")
+	}
+}
+
+func receiveContextForTest(t *testing.T, ch <-chan context.Context) context.Context {
+	t.Helper()
+
+	select {
+	case ctx := <-ch:
+		return ctx
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for registry call context")
+		return nil
+	}
+}
+
 func TestCallHandler(t *testing.T) {
 	d := NewDispatcher(nil, nil)
 	mock := &mockRegistry{
@@ -333,6 +385,216 @@ func TestAsyncCancelHandler(t *testing.T) {
 		assert.True(t, payload.IsTerminal(pkg.Messages[0].Payloads[0]))
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for package")
+	}
+}
+
+func TestAsyncCancelHandler_CancelsRunningCallContext(t *testing.T) {
+	mockNode := &mockRelayNode{packages: make(chan *relay.Package, 10)}
+	started := make(chan struct{})
+	canceled := make(chan error, 1)
+
+	mock := &mockRegistry{
+		callFn: func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+			close(started)
+			<-ctx.Done()
+			canceled <- ctx.Err()
+			return nil, ctx.Err()
+		},
+	}
+
+	d := NewDispatcher(mockNode, nil)
+	ctx := ctxapi.NewRootContext()
+	ctx = function.WithRegistry(ctx, mock)
+	frameCtx, _ := ctxapi.OpenFrameContext(ctx)
+
+	testPID := pid.PID{Host: "test", UniqID: "1"}
+	require.NoError(t, runtime.SetFramePID(frameCtx, testPID))
+
+	startCmd := function.AcquireAsyncStartCmd()
+	startCmd.Task = runtime.Task{ID: registry.NewID("test", "func")}
+	startCmd.Topic = "@future:test-cancel"
+
+	startDone := make(chan function.AsyncStartResult, 1)
+	err := d.handleAsyncStart(frameCtx, startCmd, 0, &testReceiver{cb: func(data any, _ error) {
+		startDone <- data.(function.AsyncStartResult)
+	}})
+	require.NoError(t, err)
+
+	select {
+	case result := <-startDone:
+		require.NoError(t, result.Error)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for async start")
+	}
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for registry call to start")
+	}
+
+	cancelCmd := function.AcquireAsyncCancelCmd()
+	cancelCmd.Topic = startCmd.Topic
+
+	cancelDone := make(chan struct{}, 1)
+	err = d.handleAsyncCancel(frameCtx, cancelCmd, 0, &testReceiver{cb: func(_ any, _ error) {
+		cancelDone <- struct{}{}
+	}})
+	require.NoError(t, err)
+
+	select {
+	case <-cancelDone:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for async cancel")
+	}
+
+	select {
+	case err := <-canceled:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for call context cancellation")
+	}
+}
+
+func TestAsyncStartHandler_CleansCancelHandleAfterCompletion(t *testing.T) {
+	mockNode := &mockRelayNode{packages: make(chan *relay.Package, 10)}
+	d := NewDispatcher(mockNode, nil)
+	mock := &mockRegistry{
+		callFn: func(_ context.Context, _ runtime.Task) (*runtime.Result, error) {
+			return &runtime.Result{Value: payload.New("done")}, nil
+		},
+	}
+
+	ctx := ctxapi.NewRootContext()
+	ctx = function.WithRegistry(ctx, mock)
+	frameCtx, _ := ctxapi.OpenFrameContext(ctx)
+
+	testPID := pid.PID{Host: "test", UniqID: "1"}
+	require.NoError(t, runtime.SetFramePID(frameCtx, testPID))
+
+	cmd := function.AcquireAsyncStartCmd()
+	cmd.Task = runtime.Task{ID: registry.NewID("test", "func")}
+	cmd.Topic = "@future:complete"
+
+	done := make(chan function.AsyncStartResult, 1)
+	err := d.handleAsyncStart(frameCtx, cmd, 0, &testReceiver{cb: func(data any, _ error) {
+		done <- data.(function.AsyncStartResult)
+	}})
+	require.NoError(t, err)
+
+	select {
+	case result := <-done:
+		require.NoError(t, result.Error)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for async start")
+	}
+
+	select {
+	case <-mockNode.packages:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for async result")
+	}
+
+	key := asyncCallKey{target: testPID.String(), topic: cmd.Topic}
+	require.Eventually(t, func() bool {
+		_, ok := d.asyncCalls.Load(key)
+		return !ok
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestAsyncCancelHandler_DoesNotCancelDifferentTopic(t *testing.T) {
+	mockNode := &mockRelayNode{packages: make(chan *relay.Package, 10)}
+	ctxByName := map[string]chan context.Context{
+		"first":  make(chan context.Context, 1),
+		"second": make(chan context.Context, 1),
+	}
+	cancelByName := map[string]chan error{
+		"first":  make(chan error, 1),
+		"second": make(chan error, 1),
+	}
+
+	mock := &mockRegistry{
+		callFn: func(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
+			name := task.ID.Name
+			ctxByName[name] <- ctx
+			<-ctx.Done()
+			cancelByName[name] <- ctx.Err()
+			return nil, ctx.Err()
+		},
+	}
+
+	d := NewDispatcher(mockNode, nil)
+	ctx := ctxapi.NewRootContext()
+	ctx = function.WithRegistry(ctx, mock)
+	frameCtx, _ := ctxapi.OpenFrameContext(ctx)
+
+	testPID := pid.PID{Host: "test", UniqID: "1"}
+	require.NoError(t, runtime.SetFramePID(frameCtx, testPID))
+
+	startAsyncForTest(frameCtx, t, d, "first", "@future:first")
+	startAsyncForTest(frameCtx, t, d, "second", "@future:second")
+
+	firstCtx := receiveContextForTest(t, ctxByName["first"])
+	secondCtx := receiveContextForTest(t, ctxByName["second"])
+	require.NoError(t, firstCtx.Err())
+	require.NoError(t, secondCtx.Err())
+
+	cancelAsyncForTest(frameCtx, t, d, "@future:first")
+
+	select {
+	case err := <-cancelByName["first"]:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for first call cancellation")
+	}
+	require.NoError(t, secondCtx.Err(), "canceling one topic must not cancel another active topic")
+
+	cancelAsyncForTest(frameCtx, t, d, "@future:second")
+	select {
+	case err := <-cancelByName["second"]:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for second call cleanup")
+	}
+}
+
+func TestAsyncCancelHandler_DoesNotCancelSameTopicForDifferentCallerPID(t *testing.T) {
+	mockNode := &mockRelayNode{packages: make(chan *relay.Package, 10)}
+	started := make(chan context.Context, 1)
+	canceled := make(chan error, 1)
+	mock := &mockRegistry{
+		callFn: func(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+			started <- ctx
+			<-ctx.Done()
+			canceled <- ctx.Err()
+			return nil, ctx.Err()
+		},
+	}
+
+	d := NewDispatcher(mockNode, nil)
+	ctx := ctxapi.NewRootContext()
+	ctx = function.WithRegistry(ctx, mock)
+
+	callerOneCtx, _ := ctxapi.OpenFrameContext(ctx)
+	callerOnePID := pid.PID{Host: "test", UniqID: "caller-1"}
+	require.NoError(t, runtime.SetFramePID(callerOneCtx, callerOnePID))
+	startAsyncForTest(callerOneCtx, t, d, "func", "@future:shared")
+
+	callCtx := receiveContextForTest(t, started)
+	require.NoError(t, callCtx.Err())
+
+	callerTwoCtx, _ := ctxapi.OpenFrameContext(ctx)
+	callerTwoPID := pid.PID{Host: "test", UniqID: "caller-2"}
+	require.NoError(t, runtime.SetFramePID(callerTwoCtx, callerTwoPID))
+	cancelAsyncForTest(callerTwoCtx, t, d, "@future:shared")
+	require.NoError(t, callCtx.Err(), "same topic from a different caller PID must not cancel the call")
+
+	cancelAsyncForTest(callerOneCtx, t, d, "@future:shared")
+	select {
+	case err := <-canceled:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for owning caller cancellation")
 	}
 }
 
