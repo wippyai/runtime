@@ -20,9 +20,9 @@ type registryLeaseKey struct {
 }
 
 type registryLeaseEntry struct {
-	key   registryLeaseKey
 	res   apiresource.Resource[any]
 	value any
+	key   registryLeaseKey
 }
 
 func (e *registryLeaseEntry) Drop() {
