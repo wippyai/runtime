@@ -11,6 +11,7 @@ func All() []boot.Component {
 	components := []boot.Component{
 		PIDGen(),
 		Dispatcher(),
+		WASMIsolation(),
 		Profiler(),
 		Registry(),
 		Finder(),

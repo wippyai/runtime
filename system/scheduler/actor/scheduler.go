@@ -19,6 +19,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/topology"
+	"github.com/wippyai/runtime/system/scheduler/affinity"
 )
 
 type Option func(*Scheduler)
@@ -29,6 +30,13 @@ func WithWorkers(n int) Option {
 			s.numWorkers = n
 		}
 	}
+}
+
+// WithThreadPin locks each scheduler worker goroutine to its own OS thread and
+// pins it to the given CPU set, keeping actor execution on cores reserved for it
+// (Linux only; a no-op elsewhere or when the set is empty).
+func WithThreadPin(set affinity.Set) Option {
+	return func(s *Scheduler) { s.pinSet = set }
 }
 
 func WithLifecycle(l process.Lifecycle) Option {
@@ -67,6 +75,7 @@ type Scheduler struct {
 	byQueue        sync.Map
 	byPID          sync.Map
 	workers        []*Worker
+	pinSet         affinity.Set
 	wg             sync.WaitGroup
 	numWorkers     int
 	maxProcesses   int64
@@ -110,6 +119,11 @@ func (s *Scheduler) Start() {
 		s.wg.Add(1)
 		go func(worker *Worker) {
 			defer s.wg.Done()
+			if len(s.pinSet) > 0 {
+				goruntime.LockOSThread()
+				defer goruntime.UnlockOSThread()
+				_ = affinity.Apply(s.pinSet)
+			}
 			worker.run()
 		}(w)
 	}

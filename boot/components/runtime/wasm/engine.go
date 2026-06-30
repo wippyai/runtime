@@ -16,6 +16,7 @@ import (
 	wasmcomponent "github.com/wippyai/runtime/runtime/wasm/component"
 	wasmfunc "github.com/wippyai/runtime/runtime/wasm/component/function"
 	wasmproc "github.com/wippyai/runtime/runtime/wasm/component/process"
+	"github.com/wippyai/runtime/system/scheduler/affinity"
 )
 
 // Engine wires WASM function registry handling and runtime lifecycle.
@@ -55,6 +56,9 @@ func EngineWithHostProfiles(hostProfiles ...wasmcomponent.HostProfile) boot.Comp
 				disp,
 				fsReg,
 			)
+			if part, ok := affinity.PartitionFromContext(ctx); ok && part.Enabled {
+				funcs.SetWASMAffinity(part.WASMCPUs)
+			}
 			procs = wasmproc.NewManager(
 				logger.Named("wasm.process"),
 				bus,

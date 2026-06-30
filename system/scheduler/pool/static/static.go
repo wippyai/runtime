@@ -5,6 +5,7 @@ package static
 import (
 	"context"
 	"errors"
+	goruntime "runtime"
 	"sync"
 	"sync/atomic"
 
@@ -13,17 +14,27 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/system/scheduler/affinity"
 	"github.com/wippyai/runtime/system/scheduler/pool"
 )
 
 // Config contains static pool configuration.
 type Config struct {
+	// Affinity pins each pinned worker thread to this CPU set (Linux only;
+	// a no-op elsewhere or when empty). Requires PinThread.
+	Affinity affinity.Set
+
 	// Workers is the number of worker goroutines/processes.
 	Workers int
 
 	// QueueSize is the capacity of the work queue.
 	// Calls block when queue is full.
 	QueueSize int
+
+	// PinThread locks each worker goroutine to a dedicated OS thread via
+	// runtime.LockOSThread, keeping CPU-bound work off the actor-scheduler
+	// workers and giving the threads stable identity for CPU affinity.
+	PinThread bool
 }
 
 // worker owns one process and pulls from shared queue.
@@ -45,7 +56,9 @@ type Pool struct {
 	gate       *pool.AdmissionGate
 	active     sync.Map
 	workers    []*worker
+	affinity   affinity.Set
 	wg         sync.WaitGroup
+	pinThread  bool
 	closed     atomic.Bool
 }
 
@@ -71,6 +84,8 @@ func New(factory process.FactoryFunc, d dispatcher.Dispatcher, cfg Config, hooks
 		hooks:      hooksCfg,
 		done:       make(chan struct{}),
 		gate:       pool.NewAdmissionGate(),
+		pinThread:  cfg.PinThread,
+		affinity:   cfg.Affinity,
 	}
 
 	s.reqPool.New = func() any {
@@ -163,6 +178,12 @@ func (s *Pool) Call(ctx context.Context, method string, input payload.Payloads) 
 
 func (w *worker) run() {
 	defer w.pool.wg.Done()
+
+	if w.pool.pinThread {
+		goruntime.LockOSThread()
+		defer goruntime.UnlockOSThread()
+		_ = affinity.Apply(w.pool.affinity)
+	}
 
 	for {
 		select {
