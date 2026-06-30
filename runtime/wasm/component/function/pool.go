@@ -66,7 +66,7 @@ func (m *Manager) buildPool(cfg *configEntry, module *wasmrt.Module) (funcpool.P
 	)
 
 	switch {
-	case cfg.pool.Class == api.PoolClassWASM:
+	case cfg.pool.WorkerClass != "":
 		pool, err = m.createPinnedPool(factoryFn, cfg.pool, execHooks)
 	case cfg.pool.Type != "":
 		pool, err = m.createPoolByType(cfg.pool.Type, factoryFn, cfg.pool, execHooks)
@@ -221,7 +221,7 @@ func (m *Manager) autoSelectPool(factory process.FactoryFunc, cfg api.PoolConfig
 }
 
 // defaultWASMClassWorkers bounds the default concurrency of an unconfigured
-// pool.class=wasm function. The static pool pre-warms one WASM instance per
+// worker_class function pool. The static pool pre-warms one WASM instance per
 // worker, so a per-function default of NumCPU would pre-instantiate that many
 // multi-megabyte guests and lock that many OS threads. Authors raise concurrency
 // explicitly via pool.workers when a function needs more parallelism.

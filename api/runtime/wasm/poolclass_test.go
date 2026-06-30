@@ -3,32 +3,33 @@
 package wasm
 
 import (
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
-func TestValidatePoolClass(t *testing.T) {
+func TestValidatePoolWorkerClass(t *testing.T) {
 	cases := []struct {
 		wantErr error
 		name    string
 		pool    PoolConfig
 	}{
 		{
-			name: "wasm class with workers only",
-			pool: PoolConfig{Class: PoolClassWASM, Workers: 4},
+			name: "worker class with workers only",
+			pool: PoolConfig{WorkerClass: WorkerClassWASM, Workers: 4},
 		},
 		{
-			name: "wasm class with no sizing",
-			pool: PoolConfig{Class: PoolClassWASM},
+			name: "worker class with no sizing",
+			pool: PoolConfig{WorkerClass: WorkerClassWASM},
 		},
 		{
-			name:    "unknown class rejected",
-			pool:    PoolConfig{Class: "gpu"},
-			wantErr: ErrInvalidPoolClass,
+			name: "arbitrary class name accepted",
+			pool: PoolConfig{WorkerClass: "gpu"},
 		},
 		{
 			name:    "negative values still rejected under class",
-			pool:    PoolConfig{Class: PoolClassWASM, Workers: -1},
+			pool:    PoolConfig{WorkerClass: WorkerClassWASM, Workers: -1},
 			wantErr: ErrInvalidPoolConfig,
 		},
 		{
@@ -58,13 +59,34 @@ func TestValidatePoolClass(t *testing.T) {
 	}
 }
 
-func TestFunctionConfigValidateAcceptsWASMClass(t *testing.T) {
+// TestPoolConfigWorkerClassWireKey locks the JSON key to "worker_class" so the
+// entry declaration stays source-compatible with the v2 runtime scheduler
+// worker-class config.
+func TestPoolConfigWorkerClassWireKey(t *testing.T) {
+	raw, err := json.Marshal(PoolConfig{Type: PoolTypeStatic, WorkerClass: WorkerClassWASM})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if !strings.Contains(string(raw), `"worker_class":"wasm"`) {
+		t.Fatalf("PoolConfig JSON = %s, want worker_class key", raw)
+	}
+
+	var got PoolConfig
+	if err := json.Unmarshal([]byte(`{"type":"static","worker_class":"wasm"}`), &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if got.WorkerClass != WorkerClassWASM {
+		t.Fatalf("WorkerClass = %q, want %q", got.WorkerClass, WorkerClassWASM)
+	}
+}
+
+func TestFunctionConfigValidateAcceptsWorkerClass(t *testing.T) {
 	cfg := FunctionConfig{
 		FS:     "kickside.convert.doc2md:assets",
 		Path:   "doc2md.wasm",
 		Hash:   "sha256:deadbeef",
 		Method: "convert",
-		Pool:   PoolConfig{Class: PoolClassWASM, Workers: 4},
+		Pool:   PoolConfig{WorkerClass: WorkerClassWASM, Workers: 4},
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)

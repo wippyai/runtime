@@ -4,7 +4,7 @@
 // CPU-bound work executed directly on actor-scheduler workers (e.g. a CPU-bound
 // process.wasm, or any synchronous work on a worker) starves co-scheduled actors,
 // and moving that work off the workers (a dedicated pool) keeps the scheduler
-// responsive. It validates that the shipped pool.class=wasm pinned pool runs work
+// responsive. It validates that the shipped pool.worker_class=wasm pinned pool runs work
 // off the actor workers.
 //
 // Note: the funcs.call path already offloads WASM to a dispatcher goroutine
@@ -268,7 +268,7 @@ type nilDispatcher struct{}
 func (nilDispatcher) Dispatch(dispatcher.Command) dispatcher.Handler { return nil }
 
 // runScenarioPinnedPool drives heavy CPU work through the real shipped
-// thread-pinned static pool (pool.class=wasm) while the actor scheduler only
+// thread-pinned static pool (pool.worker_class=wasm) while the actor scheduler only
 // serves victims, measuring victim latency under the production code path.
 func runScenarioPinnedPool(t *testing.T, workers, poolWorkers int, window, tick time.Duration) scenarioResult {
 	t.Helper()
@@ -355,7 +355,7 @@ func TestPinnedPoolKeepsSchedulerResponsive(t *testing.T) {
 
 	t.Logf("ON-WORKER   (CPU on actor workers):  victims=%d p50=%s p99=%s max=%s",
 		inline.victims, inline.p50, inline.p99, inline.max)
-	t.Logf("OFF-WORKER  (pool.class=wasm pinned): victims=%d p50=%s p99=%s max=%s",
+	t.Logf("OFF-WORKER  (pool.worker_class=wasm pinned): victims=%d p50=%s p99=%s max=%s",
 		pinned.victims, pinned.p50, pinned.p99, pinned.max)
 
 	if pinned.p99 > 50*time.Millisecond {
