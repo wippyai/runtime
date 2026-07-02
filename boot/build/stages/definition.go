@@ -14,8 +14,9 @@ import (
 // This entry is required for publishing and contains module metadata.
 // Release notes are NOT part of definition - they're provided at publish time.
 type ModuleDefinition struct {
-	Module string `json:"module" yaml:"module"` // Module display name (defaults to entry name if empty)
-	Readme string `json:"readme" yaml:"readme"`
+	Wiki   map[string]string `json:"wiki" yaml:"wiki"`
+	Module string            `json:"module" yaml:"module"`
+	Readme string            `json:"readme" yaml:"readme"`
 }
 
 // FindDefinition finds the ns.definition entry in the entries slice.
