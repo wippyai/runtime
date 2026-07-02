@@ -240,10 +240,11 @@ func (p *Process) startExecution() error {
 			instCfg.Env = wc.Env
 			for _, mnt := range wc.Mounts {
 				m := wasmengine.Mount{Guest: mnt.Guest, ReadOnly: mnt.ReadOnly}
-				// Prefer a host directory path (supports read-write, needed for e.g.
-				// a scratch /tmp); fall back to a read-only fs.FS mount otherwise.
-				if rp, ok := mnt.Filesystem.(interface{ RootPath() string }); ok {
-					m.Host = rp.RootPath()
+				// Read-only mounts go through the sandboxed fs.FS; only writable
+				// mounts use a host directory path (resolved + access-checked in
+				// resolveWASICallConfig), which wazero sandboxes to that directory.
+				if mnt.Host != "" {
+					m.Host = mnt.Host
 				} else {
 					m.FS = mnt.Filesystem
 				}
@@ -399,6 +400,9 @@ func (p *Process) resolveWASICallConfig(ctx context.Context) (*wippyhost.WASICal
 		callCfg.Env = make(map[string]string, len(p.wasi.Env))
 		for _, item := range p.wasi.Env {
 			id := item.ID.String()
+			if !security.IsAllowed(ctx, "env.get", id, nil) {
+				return nil, runtimewasm.NewWASIEnvAccessDeniedError(id)
+			}
 			// Get (not Lookup) so a variable with only a default value still
 			// resolves — Lookup reads storage only and misses defaults.
 			value, err := envReg.Get(ctx, id)
@@ -429,11 +433,21 @@ func (p *Process) resolveWASICallConfig(ctx context.Context) (*wippyhost.WASICal
 			if !ok {
 				return nil, runtimewasm.NewWASIMountFilesystemNotFoundError(fsID)
 			}
-			callCfg.Mounts = append(callCfg.Mounts, wippyhost.WASIMountBinding{
+			binding := wippyhost.WASIMountBinding{
 				Filesystem: fsys,
 				Guest:      item.Guest,
 				ReadOnly:   item.ReadOnly,
-			})
+			}
+			// For a host-backed directory, mount it by its own sandboxed root
+			// path: wazero re-roots the guest at exactly that directory (never the
+			// host root), it is the only form that supports writable mounts, and
+			// it reads faithfully (an fs.FS mount is read-only and lossy for e.g.
+			// lazy-loaded package data). Non-directory filesystems fall back to the
+			// sandboxed fs.FS below.
+			if hp, ok := fsys.(fsapi.HostPathFS); ok {
+				binding.Host = hp.RootPath()
+			}
+			callCfg.Mounts = append(callCfg.Mounts, binding)
 		}
 	}
 

@@ -146,6 +146,7 @@ func TestResolveWASICallConfig_ResolvesEnvAndMounts(t *testing.T) {
 
 func TestResolveWASICallConfig_RequiredEnvMissing(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
+	secapi.SetStrictMode(ctx, false)
 	ctx = envapi.WithRegistry(ctx, &testEnvRegistry{values: map[string]string{}})
 
 	p := &Process{
@@ -171,6 +172,7 @@ func TestResolveWASICallConfig_RequiredEnvMissing(t *testing.T) {
 
 func TestResolveWASICallConfig_OptionalEnvMissing(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
+	secapi.SetStrictMode(ctx, false)
 	ctx = envapi.WithRegistry(ctx, &testEnvRegistry{values: map[string]string{}})
 
 	p := &Process{
