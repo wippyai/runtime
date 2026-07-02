@@ -304,6 +304,26 @@ func (m *Manager) resolveDBConfigEnv(ctx context.Context, cfg *config.DBConfig) 
 	} else if v != "" {
 		cfg.Password = v
 	}
+	if len(cfg.OptionsEnv) > 0 {
+		resolved := make(map[string]string, len(cfg.OptionsEnv))
+		for optKey, envVar := range cfg.OptionsEnv {
+			v, rerr := m.resolveEnv(ctx, envVar, "options."+optKey)
+			if rerr != nil {
+				return rerr
+			}
+			if v != "" {
+				resolved[optKey] = v
+			}
+		}
+		if len(resolved) > 0 {
+			if cfg.Options == nil {
+				cfg.Options = make(map[string]string)
+			}
+			for k, v := range resolved {
+				cfg.Options[k] = v
+			}
+		}
+	}
 	return nil
 }
 

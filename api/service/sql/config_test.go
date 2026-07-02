@@ -212,6 +212,47 @@ func TestDBConfig_Validate(t *testing.T) {
 			wantErr: true,
 			errMsg:  "max lifetime must be greater than 0",
 		},
+		{
+			name: "valid options_env",
+			config: DBConfig{
+				Host:       "localhost",
+				Port:       5432,
+				Database:   "testdb",
+				Username:   "user",
+				Password:   "pass",
+				Pool:       PoolConfig{MaxLifetime: 1 * time.Hour},
+				OptionsEnv: map[string]string{"sslmode": "DB_SSLMODE"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "options_env empty key",
+			config: DBConfig{
+				Host:       "localhost",
+				Port:       5432,
+				Database:   "testdb",
+				Username:   "user",
+				Password:   "pass",
+				Pool:       PoolConfig{MaxLifetime: 1 * time.Hour},
+				OptionsEnv: map[string]string{"": "DB_SSLMODE"},
+			},
+			wantErr: true,
+			errMsg:  "options_env key must not be empty",
+		},
+		{
+			name: "options_env empty value",
+			config: DBConfig{
+				Host:       "localhost",
+				Port:       5432,
+				Database:   "testdb",
+				Username:   "user",
+				Password:   "pass",
+				Pool:       PoolConfig{MaxLifetime: 1 * time.Hour},
+				OptionsEnv: map[string]string{"sslmode": ""},
+			},
+			wantErr: true,
+			errMsg:  "options_env value must reference an environment variable",
+		},
 	}
 
 	for _, tt := range tests {
@@ -288,6 +329,7 @@ func TestDBConfig_InitDefaults(t *testing.T) {
 	assert.Equal(t, DefaultMaxIdle, config.Pool.MaxIdle)
 	assert.Equal(t, DefaultMaxLifetime, config.Pool.MaxLifetime)
 	assert.NotNil(t, config.Options)
+	assert.NotNil(t, config.OptionsEnv)
 }
 
 func TestSQLiteConfig_InitDefaults(t *testing.T) {

@@ -250,6 +250,81 @@ func newTestManager(t *testing.T) (*Manager, event.Bus, *TestPoolFactory) {
 	return manager, bus, factory
 }
 
+func TestManager_ResolveOptionsEnv(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+
+	newMgr := func(t *testing.T, vars map[string]string) *Manager {
+		manager, _, _ := newTestManager(t)
+		env := NewMockEnvRegistry()
+		for k, v := range vars {
+			require.NoError(t, env.Set(ctx, k, v))
+		}
+		manager.env = env
+		return manager
+	}
+
+	t.Run("env value overrides static option", func(t *testing.T) {
+		manager := newMgr(t, map[string]string{"DB_SSLMODE": "disable"})
+		cfg := &apiconfig.DBConfig{
+			Options:    map[string]string{"sslmode": "require"},
+			OptionsEnv: map[string]string{"sslmode": "DB_SSLMODE"},
+		}
+		require.NoError(t, manager.resolveDBConfigEnv(ctx, cfg))
+		require.Equal(t, "disable", cfg.Options["sslmode"])
+	})
+
+	t.Run("non-overlapping keys are both preserved", func(t *testing.T) {
+		manager := newMgr(t, map[string]string{"DB_SSLMODE": "disable"})
+		cfg := &apiconfig.DBConfig{
+			Options:    map[string]string{"connect_timeout": "10"},
+			OptionsEnv: map[string]string{"sslmode": "DB_SSLMODE"},
+		}
+		require.NoError(t, manager.resolveDBConfigEnv(ctx, cfg))
+		require.Equal(t, "10", cfg.Options["connect_timeout"]) // static untouched
+		require.Equal(t, "disable", cfg.Options["sslmode"])    // env-provided added
+	})
+
+	t.Run("nil Options is initialized from OptionsEnv", func(t *testing.T) {
+		manager := newMgr(t, map[string]string{"DB_SSLMODE": "verify-full"})
+		cfg := &apiconfig.DBConfig{
+			OptionsEnv: map[string]string{"sslmode": "DB_SSLMODE"},
+		}
+		require.Nil(t, cfg.Options)
+		require.NoError(t, manager.resolveDBConfigEnv(ctx, cfg))
+		require.NotNil(t, cfg.Options)
+		require.Equal(t, "verify-full", cfg.Options["sslmode"])
+	})
+
+	t.Run("unresolved OptionsEnv variable returns an error", func(t *testing.T) {
+		manager := newMgr(t, nil) // DB_SSLMODE intentionally not set
+		cfg := &apiconfig.DBConfig{
+			OptionsEnv: map[string]string{"sslmode": "DB_SSLMODE"},
+		}
+		err := manager.resolveDBConfigEnv(ctx, cfg)
+		require.Error(t, err)
+		require.Empty(t, cfg.Options["sslmode"]) // nothing written on failure
+	})
+
+	t.Run("multiple env-bound options are all applied", func(t *testing.T) {
+		manager := newMgr(t, map[string]string{"DB_SSLMODE": "disable", "DB_TIMEOUT": "10"})
+		cfg := &apiconfig.DBConfig{
+			OptionsEnv: map[string]string{"sslmode": "DB_SSLMODE", "connect_timeout": "DB_TIMEOUT"},
+		}
+		require.NoError(t, manager.resolveDBConfigEnv(ctx, cfg))
+		require.Equal(t, "disable", cfg.Options["sslmode"])
+		require.Equal(t, "10", cfg.Options["connect_timeout"])
+	})
+
+	t.Run("a failed lookup is all-or-nothing (Options not partially mutated)", func(t *testing.T) {
+		manager := newMgr(t, map[string]string{"DB_SSLMODE": "disable"}) // DB_TIMEOUT missing
+		cfg := &apiconfig.DBConfig{
+			OptionsEnv: map[string]string{"sslmode": "DB_SSLMODE", "connect_timeout": "DB_TIMEOUT"},
+		}
+		require.Error(t, manager.resolveDBConfigEnv(ctx, cfg))
+		require.Empty(t, cfg.Options["sslmode"]) // staged value not committed on failure
+	})
+}
+
 func TestNewManagerWithFactory(t *testing.T) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()

@@ -47,6 +47,7 @@ type (
 	// DBConfig defines the base configuration for SQL databases
 	DBConfig struct {
 		Options     map[string]string          `json:"options"`
+		OptionsEnv  map[string]string          `json:"options_env,omitempty"`
 		Database    string                     `json:"database"`
 		Password    string                     `json:"password"`
 		UsernameEnv string                     `json:"username_env,omitempty"`
@@ -91,6 +92,11 @@ func (c *DBConfig) InitDefaults() {
 	// Initialize options map if nil
 	if c.Options == nil {
 		c.Options = make(map[string]string)
+	}
+
+	// Initialize options_env map if nil
+	if c.OptionsEnv == nil {
+		c.OptionsEnv = make(map[string]string)
 	}
 
 	// Initialize lifecycle defaults
@@ -143,6 +149,15 @@ func (c *DBConfig) Validate() error {
 
 	if c.Pool.MaxLifetime <= 0 {
 		return ErrInvalidMaxLifetime
+	}
+
+	for optKey, envVar := range c.OptionsEnv {
+		if optKey == "" {
+			return ErrEmptyOptionsEnvKey
+		}
+		if envVar == "" {
+			return ErrEmptyOptionsEnvValue
+		}
 	}
 
 	return nil
