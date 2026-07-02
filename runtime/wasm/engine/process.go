@@ -229,10 +229,28 @@ func (p *Process) startExecution() error {
 	execCtx = wippyhost.WithAsyncValueStore(execCtx, p.asyncValues)
 
 	if p.inst == nil {
-		inst, err := p.module.InstantiateWithConfig(execCtx, &wasmengine.InstanceConfig{
+		instCfg := &wasmengine.InstanceConfig{
 			EnableAsyncify: true,
 			DecodeOptions:  p.decodeOptions(),
-		})
+		}
+		// Core wasi_snapshot_preview1 modules read env/args/preopens from the wazero
+		// module config, so thread the resolved WASI mapping through.
+		if wc := wippyhost.GetWASICallConfig(execCtx); wc != nil {
+			instCfg.Args = wc.Args
+			instCfg.Env = wc.Env
+			for _, mnt := range wc.Mounts {
+				m := wasmengine.Mount{Guest: mnt.Guest, ReadOnly: mnt.ReadOnly}
+				// Prefer a host directory path (supports read-write, needed for e.g.
+				// a scratch /tmp); fall back to a read-only fs.FS mount otherwise.
+				if rp, ok := mnt.Filesystem.(interface{ RootPath() string }); ok {
+					m.Host = rp.RootPath()
+				} else {
+					m.FS = mnt.Filesystem
+				}
+				instCfg.Mounts = append(instCfg.Mounts, m)
+			}
+		}
+		inst, err := p.module.InstantiateWithConfig(execCtx, instCfg)
 		if err != nil {
 			cancel()
 			return runtimewasm.NewInstantiateModuleError(err)
@@ -381,7 +399,9 @@ func (p *Process) resolveWASICallConfig(ctx context.Context) (*wippyhost.WASICal
 		callCfg.Env = make(map[string]string, len(p.wasi.Env))
 		for _, item := range p.wasi.Env {
 			id := item.ID.String()
-			value, found, err := envReg.Lookup(ctx, id)
+			// Get (not Lookup) so a variable with only a default value still
+			// resolves — Lookup reads storage only and misses defaults.
+			value, err := envReg.Get(ctx, id)
 			if err != nil {
 				if errors.Is(err, envapi.ErrVariableNotFound) {
 					if item.Required {
@@ -390,12 +410,6 @@ func (p *Process) resolveWASICallConfig(ctx context.Context) (*wippyhost.WASICal
 					continue
 				}
 				return nil, runtimewasm.NewWASIEnvLookupError(id, err)
-			}
-			if !found {
-				if item.Required {
-					return nil, runtimewasm.NewWASIEnvRequiredNotFoundError(id)
-				}
-				continue
 			}
 			callCfg.Env[item.Name] = value
 		}

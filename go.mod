@@ -66,7 +66,7 @@ require (
 	github.com/wippyai/tree-sitter-markdown v0.0.3
 	github.com/wippyai/tree-sitter-sql v0.0.4
 	github.com/wippyai/wapp v0.1.2
-	github.com/wippyai/wasm-runtime v0.0.0-20260624004845-53368697b5c6
+	github.com/wippyai/wasm-runtime v0.0.0-20260702212830-23f68e57f5fc
 	github.com/xuri/excelize/v2 v2.10.1
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.44.0
