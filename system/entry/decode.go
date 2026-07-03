@@ -96,6 +96,7 @@ func decodeEntryConfig[T any](ctx context.Context, dtt payload.Transcoder, entry
 	// Unmarshal the original payload when nothing was resolved so the fast path
 	// stays identical to a decode without placeholder support.
 	source := entry.Data
+	var envData map[string]any
 	if resolve {
 		data, err := dataAsMap(dtt, entry.Data)
 		if err != nil {
@@ -105,6 +106,7 @@ func decodeEntryConfig[T any](ctx context.Context, dtt payload.Transcoder, entry
 		if err != nil {
 			return nil, err
 		}
+		envData = resolved
 		if changed {
 			source = payload.New(resolved)
 		}
@@ -142,9 +144,10 @@ func decodeEntryConfig[T any](ctx context.Context, dtt payload.Transcoder, entry
 		initer.InitDefaults()
 	}
 
-	// Resolve legacy *_env companion fields against the environment registry.
+	// Resolve legacy *_env directives from the entry data against the
+	// environment registry.
 	if resolve {
-		if err := resolveEnvFields(ctx, cfg); err != nil {
+		if err := resolveEnvFields(ctx, cfg, envData); err != nil {
 			return nil, err
 		}
 	}
@@ -163,10 +166,10 @@ func decodeEntryConfig[T any](ctx context.Context, dtt payload.Transcoder, entry
 // tag is "foo" with the value of an environment variable named by a sibling
 // "foo_env" field. The walk recurses into nested structs, non-nil struct
 // pointers, and embedded fields.
-func resolveEnvFields(ctx context.Context, cfg any) error {
+func resolveEnvFields(ctx context.Context, cfg any, data map[string]any) error {
 	// Without an env registry in context there is nothing to resolve against.
 	// A service that supplies its registry another way (an injected dependency)
-	// resolves its own *_env fields, so the fields are left untouched here.
+	// resolves its own directives, so nothing is applied here.
 	if env.GetRegistry(ctx) == nil {
 		return nil
 	}
@@ -183,78 +186,91 @@ func resolveEnvFields(ctx context.Context, cfg any) error {
 	}
 
 	var logged bool
-	return walkEnvStruct(ctx, v, &logged)
+	return walkEnvStruct(ctx, v, data, &logged)
 }
 
-func walkEnvStruct(ctx context.Context, v reflect.Value, logged *bool) error {
+// walkEnvStruct applies "<field>_env" directives read from the raw entry data
+// onto the decoded struct. The directive names an environment variable; its
+// resolved value is coerced to the target field's type and assigned. Because the
+// directive is read from the data map rather than a companion struct field, the
+// config type needs no "*Env" field. Nested structs and the data recurse
+// together so a directive like tls.cert_env reaches the nested field.
+func walkEnvStruct(ctx context.Context, v reflect.Value, data map[string]any, logged *bool) error {
 	t := v.Type()
-
-	// Index sibling fields by json name so a "foo_env" field can find "foo".
-	tagIndex := make(map[string]int, t.NumField())
-	for i := 0; i < t.NumField(); i++ {
-		if name := jsonName(t.Field(i)); name != "" && name != "-" {
-			tagIndex[name] = i
-		}
-	}
 
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
 		if !field.IsExported() {
 			continue
 		}
+		name := jsonName(field)
+		if name == "-" {
+			continue
+		}
 		fv := v.Field(i)
 
 		switch fv.Kind() {
 		case reflect.Struct:
-			if err := walkEnvStruct(ctx, fv, logged); err != nil {
+			if err := walkEnvStruct(ctx, fv, childMap(data, name), logged); err != nil {
 				return err
 			}
 		case reflect.Pointer:
 			if !fv.IsNil() && fv.Elem().Kind() == reflect.Struct {
-				if err := walkEnvStruct(ctx, fv.Elem(), logged); err != nil {
+				if err := walkEnvStruct(ctx, fv.Elem(), childMap(data, name), logged); err != nil {
 					return err
 				}
 			}
 		case reflect.Map:
 			// The attrs.Bag meta field uses the *_env convention for dependency
 			// references, not value resolution, so it is left untouched.
-			if field.Type == metaType {
-				continue
-			}
-			if err := resolveEnvMap(ctx, fv, logged); err != nil {
-				return err
+			if field.Type != metaType {
+				if err := resolveEnvMap(ctx, fv, logged); err != nil {
+					return err
+				}
 			}
 		}
 
-		if fv.Kind() != reflect.String {
+		if name == "" || !fv.CanSet() {
 			continue
 		}
-		name := jsonName(field)
-		base, ok := strings.CutSuffix(name, "_env")
-		if !ok || base == "" {
-			continue
-		}
-		variable := fv.String()
+		variable := dataEnvDirective(data, name)
 		if variable == "" {
 			continue
 		}
-		sibIdx, ok := tagIndex[base]
-		if !ok {
-			continue
-		}
-		sibling := v.Field(sibIdx)
-		if !sibling.CanSet() {
-			continue
-		}
-		if err := applyEnvField(ctx, variable, sibling, logged); err != nil {
+		value, overwrite, err := lookupEnvField(ctx, variable, logged)
+		if err != nil {
 			return err
 		}
-		// Clear the directive once applied so a validator that treats inline and
-		// env inputs as mutually exclusive (TLS cert/cert_env) sees only the
-		// resolved field.
-		fv.SetString("")
+		if !overwrite {
+			continue
+		}
+		if err := assignEnvValue(fv, value, variable); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// childMap returns the nested data submap under name, or nil when absent.
+func childMap(data map[string]any, name string) map[string]any {
+	if data == nil {
+		return nil
+	}
+	if m, ok := data[name].(map[string]any); ok {
+		return m
+	}
+	return nil
+}
+
+// dataEnvDirective returns the variable named by a "<base>_env" key in data.
+func dataEnvDirective(data map[string]any, base string) string {
+	if data == nil {
+		return ""
+	}
+	if v, ok := data[base+"_env"].(string); ok {
+		return v
+	}
+	return ""
 }
 
 // resolveEnvMap resolves "foo_env" keys inside a string-keyed map whose values
@@ -350,19 +366,6 @@ func lookupEnvField(ctx context.Context, name string, logged *bool) (value strin
 		return "", false, nil
 	}
 	return value, true, nil
-}
-
-// applyEnvField resolves the named variable and overwrites the sibling field.
-func applyEnvField(ctx context.Context, name string, sibling reflect.Value, logged *bool) error {
-	value, overwrite, err := lookupEnvField(ctx, name, logged)
-	if err != nil {
-		return err
-	}
-	if !overwrite {
-		return nil
-	}
-
-	return assignEnvValue(sibling, value, name)
 }
 
 // assignEnvValue converts a string to the sibling field's kind, honoring bit size.

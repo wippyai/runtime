@@ -142,44 +142,24 @@ func TestDecodeEntryConfigFromContext_NoTranscoder(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrTranscoderMissing))
 }
 
-// Legacy *_env companion field configs.
+// Config types carry no *_env fields; a "<field>_env" directive in the entry
+// data names the variable to resolve into the plain field.
 
 type TLSConfig struct {
-	CertFile    string `json:"cert_file"`
-	Password    string `json:"password"`
-	PasswordEnv string `json:"password_env"`
+	CertFile string `json:"cert_file"`
+	Password string `json:"password"`
 }
 
 type ServerEnvConfig struct {
-	TLS      TLSConfig `json:"tls"`
-	Host     string    `json:"host"`
-	HostEnv  string    `json:"host_env"`
-	PortEnv  string    `json:"port_env"`
-	DebugEnv string    `json:"debug_env"`
-	Port     int       `json:"port"`
-	Debug    bool      `json:"debug"`
+	TLS   TLSConfig `json:"tls"`
+	Host  string    `json:"host"`
+	Port  int       `json:"port"`
+	Debug bool      `json:"debug"`
 }
 
-// envDecodeTranscoder unmarshals a fixed config value, letting tests drive the
-// struct contents directly while exercising the reflection env pass.
-type envDecodeTranscoder struct {
-	cfg ServerEnvConfig
-}
-
-func (e *envDecodeTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
-	return payload.New(p.Data()), nil
-}
-
-func (e *envDecodeTranscoder) Unmarshal(_ payload.Payload, v any) error {
-	out, ok := v.(*ServerEnvConfig)
-	if !ok {
-		return errors.New("unexpected target type")
-	}
-	*out = e.cfg
-	return nil
-}
-
-func decodeServerEnv(t *testing.T, reg env.Registry, cfg ServerEnvConfig) (*ServerEnvConfig, error) {
+// decodeServerEnv decodes a ServerEnvConfig from a raw data map so *_env
+// directives are read from the entry data, as they are in production.
+func decodeServerEnv(t *testing.T, reg env.Registry, data map[string]any) (*ServerEnvConfig, error) {
 	t.Helper()
 	ctx := context.Background()
 	if reg != nil {
@@ -188,9 +168,9 @@ func decodeServerEnv(t *testing.T, reg env.Registry, cfg ServerEnvConfig) (*Serv
 	entry := registry.Entry{
 		ID:   registry.NewID("test", "server"),
 		Kind: "test.server",
-		Data: payload.New(map[string]any{"present": true}),
+		Data: payload.New(data),
 	}
-	return DecodeEntryConfig[ServerEnvConfig](ctx, &envDecodeTranscoder{cfg: cfg}, entry)
+	return DecodeEntryConfig[ServerEnvConfig](ctx, realTranscoder{}, entry)
 }
 
 func TestEnvField_StringIntBool(t *testing.T) {
@@ -200,10 +180,10 @@ func TestEnvField_StringIntBool(t *testing.T) {
 		{name: "SRV_DEBUG", value: "true"},
 	}}
 
-	cfg, err := decodeServerEnv(t, reg, ServerEnvConfig{
-		Host: "localhost", HostEnv: "SRV_HOST",
-		Port: 8080, PortEnv: "SRV_PORT",
-		Debug: false, DebugEnv: "SRV_DEBUG",
+	cfg, err := decodeServerEnv(t, reg, map[string]any{
+		"host": "localhost", "host_env": "SRV_HOST",
+		"port": 8080, "port_env": "SRV_PORT",
+		"debug": false, "debug_env": "SRV_DEBUG",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "prod.example.com", cfg.Host)
@@ -214,20 +194,20 @@ func TestEnvField_StringIntBool(t *testing.T) {
 func TestEnvField_NestedStruct(t *testing.T) {
 	reg := &fakeEnvRegistry{vars: []fakeVar{{name: "TLS_PASS", value: "topsecret"}}}
 
-	cfg, err := decodeServerEnv(t, reg, ServerEnvConfig{
-		TLS: TLSConfig{Password: "inline", PasswordEnv: "TLS_PASS"},
+	cfg, err := decodeServerEnv(t, reg, map[string]any{
+		"tls": map[string]any{"password": "inline", "password_env": "TLS_PASS"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "topsecret", cfg.TLS.Password)
 }
 
 func TestEnvField_NotFoundFails(t *testing.T) {
-	// A set *_env field whose variable is absent hard-fails the decode so a
+	// A directive naming an absent variable hard-fails the decode so a
 	// misconfigured reference never silently falls back to the inline value.
 	reg := &fakeEnvRegistry{}
 
-	_, err := decodeServerEnv(t, reg, ServerEnvConfig{
-		Host: "keep-me", HostEnv: "SRV_HOST",
+	_, err := decodeServerEnv(t, reg, map[string]any{
+		"host": "keep-me", "host_env": "SRV_HOST",
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "could not be resolved")
@@ -237,7 +217,7 @@ func TestEnvField_NotFoundFails(t *testing.T) {
 func TestEnvField_LookupErrorFails(t *testing.T) {
 	reg := &fakeEnvRegistry{lookupErr: errors.New("storage unavailable")}
 
-	_, err := decodeServerEnv(t, reg, ServerEnvConfig{Host: "x", HostEnv: "SRV_HOST"})
+	_, err := decodeServerEnv(t, reg, map[string]any{"host": "x", "host_env": "SRV_HOST"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "storage unavailable")
 }
@@ -245,23 +225,23 @@ func TestEnvField_LookupErrorFails(t *testing.T) {
 func TestEnvField_ConversionErrorFails(t *testing.T) {
 	reg := &fakeEnvRegistry{vars: []fakeVar{{name: "SRV_PORT", value: "not-a-port"}}}
 
-	_, err := decodeServerEnv(t, reg, ServerEnvConfig{Port: 8080, PortEnv: "SRV_PORT"})
+	_, err := decodeServerEnv(t, reg, map[string]any{"port": 8080, "port_env": "SRV_PORT"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "convert")
 	assert.Contains(t, err.Error(), "SRV_PORT")
 }
 
 func TestEnvField_NoRegistrySkips(t *testing.T) {
-	// Without a registry in context the central pass leaves *_env fields for a
-	// service that resolves them through an injected registry of its own.
-	cfg, err := decodeServerEnv(t, nil, ServerEnvConfig{Host: "x", HostEnv: "SRV_HOST"})
+	// Without a registry in context the central pass leaves the directive for a
+	// service that resolves it through an injected registry of its own.
+	cfg, err := decodeServerEnv(t, nil, map[string]any{"host": "x", "host_env": "SRV_HOST"})
 	require.NoError(t, err)
 	assert.Equal(t, "x", cfg.Host)
 }
 
-func TestEnvField_UnsetEnvFieldIgnored(t *testing.T) {
-	// No *_env values set: registry absence is fine because nothing is resolved.
-	cfg, err := decodeServerEnv(t, nil, ServerEnvConfig{Host: "plain", Port: 80})
+func TestEnvField_NoDirectiveIgnored(t *testing.T) {
+	// No *_env directive present: the plain fields decode unchanged.
+	cfg, err := decodeServerEnv(t, nil, map[string]any{"host": "plain", "port": 80})
 	require.NoError(t, err)
 	assert.Equal(t, "plain", cfg.Host)
 	assert.Equal(t, 80, cfg.Port)
@@ -424,14 +404,10 @@ func TestEnvMap_MetaBagNotResolved(t *testing.T) {
 
 // TypedEnvConfig covers the integer/float bit-size branches of assignEnvValue.
 type TypedEnvConfig struct {
-	SmallEnv string  `json:"small_env"`
-	CountEnv string  `json:"count_env"`
-	RatioEnv string  `json:"ratio_env"`
-	BigEnv   string  `json:"big_env"`
-	Big      int64   `json:"big"`
-	Count    uint32  `json:"count"`
-	Ratio    float32 `json:"ratio"`
-	Small    int8    `json:"small"`
+	Big   int64   `json:"big"`
+	Count uint32  `json:"count"`
+	Ratio float32 `json:"ratio"`
+	Small int8    `json:"small"`
 }
 
 func decodeTyped(t *testing.T, reg env.Registry, data map[string]any) (*TypedEnvConfig, error) {
@@ -509,10 +485,9 @@ func TestPlaceholder_MalformedDefaultFallsBackToString(t *testing.T) {
 	assert.Equal(t, "[unclosed", cfg.Name)
 }
 
-// SliceEnvConfig has an _env directive pointing at a non-scalar sibling.
+// SliceEnvConfig receives an _env directive pointing at a non-scalar field.
 type SliceEnvConfig struct {
-	TagsEnv string   `json:"tags_env"`
-	Tags    []string `json:"tags"`
+	Tags []string `json:"tags"`
 }
 
 func TestEnvField_UnsupportedSiblingKindFails(t *testing.T) {
@@ -528,22 +503,21 @@ func TestEnvField_UnsupportedSiblingKindFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "cannot convert")
 }
 
-// mutexTLSConfig mimics the TLS validators that reject inline and env inputs
-// set together; after resolution the directive field must be cleared so the
-// resolved sibling is unambiguous.
-type mutexTLSConfig struct {
-	Cert    string `json:"cert"`
-	CertEnv string `json:"cert_env"`
+// tlsLikeConfig mimics a TLS config that once carried a cert_env companion.
+// With the directive read from the data map there is no *Env field for a
+// mutual-exclusion validator to trip on.
+type tlsLikeConfig struct {
+	Cert string `json:"cert"`
 }
 
-func (c *mutexTLSConfig) Validate() error {
-	if c.Cert != "" && c.CertEnv != "" {
-		return errors.New("cert and cert_env are mutually exclusive")
+func (c *tlsLikeConfig) Validate() error {
+	if c.Cert == "" {
+		return errors.New("cert required")
 	}
 	return nil
 }
 
-func TestEnvField_DirectiveClearedForMutexValidator(t *testing.T) {
+func TestEnvField_TLSDirectiveResolvesNoAmbiguity(t *testing.T) {
 	reg := &fakeEnvRegistry{vars: []fakeVar{{name: "CERT", value: "PEMDATA"}}}
 	ctx := env.WithRegistry(ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext()), reg)
 	entry := registry.Entry{
@@ -551,17 +525,16 @@ func TestEnvField_DirectiveClearedForMutexValidator(t *testing.T) {
 		Kind: "test.tls",
 		Data: payload.New(map[string]any{"cert_env": "CERT"}),
 	}
-	cfg, err := DecodeEntryConfig[mutexTLSConfig](ctx, realTranscoder{}, entry)
+	cfg, err := DecodeEntryConfig[tlsLikeConfig](ctx, realTranscoder{}, entry)
 	require.NoError(t, err)
 	assert.Equal(t, "PEMDATA", cfg.Cert)
-	assert.Equal(t, "", cfg.CertEnv, "directive must be cleared so the validator sees only the resolved field")
 }
 
 func TestEnvField_HonorsVariableDefault(t *testing.T) {
 	// A variable with only a DefaultValue and no stored value resolves to the
 	// default (Get semantics), matching the resolvers this pass replaces.
 	reg := &fakeEnvRegistry{vars: []fakeVar{{name: "REGION", value: "", def: "us-east-1"}}}
-	cfg, err := decodeServerEnv(t, reg, ServerEnvConfig{HostEnv: "REGION"})
+	cfg, err := decodeServerEnv(t, reg, map[string]any{"host_env": "REGION"})
 	require.NoError(t, err)
 	assert.Equal(t, "us-east-1", cfg.Host)
 }
