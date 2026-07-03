@@ -77,9 +77,11 @@ type DependencyDefinition struct {
 }
 
 // Parameter represents a single parameter in a dependency definition.
+// Value carries the supplied value in its source type so typed parameters
+// decode without forcing a string.
 type Parameter struct {
 	Name  string `json:"name" yaml:"name"`
-	Value string `json:"value" yaml:"value"`
+	Value any    `json:"value" yaml:"value"`
 }
 
 type desiredDependency struct {
@@ -1292,7 +1294,7 @@ func resolveOperationEntry(op regapi.Operation, snapshot regapi.State) (regapi.E
 }
 
 func decodeDependency(ctx context.Context, transcoder payload.Transcoder, entry regapi.Entry) (DependencyDefinition, error) {
-	def, err := entrypkg.DecodeEntryConfig[DependencyDefinition](ctx, transcoder, entry)
+	def, err := entrypkg.DecodeEntryConfigRaw[DependencyDefinition](ctx, transcoder, entry)
 	if err != nil {
 		return DependencyDefinition{}, NewDependencyEntryDecodeError(entry.ID.String(), err)
 	}

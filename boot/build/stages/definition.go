@@ -43,7 +43,7 @@ func FindDefinitions(entries []registry.Entry) []registry.Entry {
 
 // DecodeDefinition decodes an ns.definition entry into ModuleDefinition.
 func DecodeDefinition(ctx context.Context, transcoder payload.Transcoder, e registry.Entry) (*ModuleDefinition, error) {
-	return entry.DecodeEntryConfig[ModuleDefinition](ctx, transcoder, e)
+	return entry.DecodeEntryConfigRaw[ModuleDefinition](ctx, transcoder, e)
 }
 
 // ValidateDefinitionForPublish validates that entries contain exactly one ns.definition.

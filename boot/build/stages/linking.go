@@ -5,6 +5,7 @@ package stages
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -17,12 +18,14 @@ import (
 )
 
 // RequirementDefinition represents the data structure of an ns.requirement entry.
-// Default is a pointer so an explicitly-empty default ("") is distinguishable
-// from an absent one (nil): a requirement with any default — including "" — is
-// optional and resolves to that default when no dependency parameter supplies a
-// value; a requirement with no default is mandatory.
+// Default carries the value verbatim in its source type (int, bool, float,
+// string, ...) so typed requirements flow into their targets unchanged. A
+// present default — including an empty string "" — makes the requirement
+// optional and resolves to that value when no dependency parameter supplies one.
+// A nil Default (an absent default key or an explicit null) leaves the
+// requirement mandatory and unresolved.
 type RequirementDefinition struct {
-	Default *string             `json:"default" yaml:"default"`
+	Default any                 `json:"default" yaml:"default"`
 	Targets []RequirementTarget `json:"targets" yaml:"targets"`
 }
 
@@ -39,10 +42,12 @@ type DependencyDefinition struct {
 	Parameters []Parameter `json:"parameters" yaml:"parameters"`
 }
 
-// Parameter represents a single parameter in a dependency definition
+// Parameter represents a single parameter in a dependency definition.
+// Value carries the supplied value in its source type so typed parameters flow
+// into requirement targets unchanged.
 type Parameter struct {
 	Name  string `json:"name" yaml:"name"`
-	Value string `json:"value" yaml:"value"`
+	Value any    `json:"value" yaml:"value"`
 }
 
 type LinkOption func(*linkStage)
@@ -122,7 +127,7 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 			continue
 		}
 
-		def, err := entry.DecodeEntryConfig[RequirementDefinition](ctx, transcoder, e)
+		def, err := entry.DecodeEntryConfigRaw[RequirementDefinition](ctx, transcoder, e)
 		if err != nil {
 			return NewDecodeRequirementError(e.ID.String(), err)
 		}
@@ -190,7 +195,7 @@ func (s *linkStage) collectDependencies(ctx context.Context, transcoder payload.
 			continue
 		}
 
-		def, err := entry.DecodeEntryConfig[DependencyDefinition](ctx, transcoder, e)
+		def, err := entry.DecodeEntryConfigRaw[DependencyDefinition](ctx, transcoder, e)
 		if err != nil {
 			return nil, NewDecodeDependencyError(e.ID.String(), err)
 		}
@@ -254,14 +259,14 @@ func (s *linkStage) processRequirement(
 
 func (s *linkStage) resolveValue(
 	requirementName string,
-	defaultValue *string,
+	defaultValue any,
 	requirementNS string,
 	requirementModule string,
 	dependencies map[string]decodedDependency,
-) (string, error) {
+) (any, error) {
 	// Find all dependencies that have a parameter with this name
 	var foundValues []struct {
-		value string
+		value any
 		depID string
 	}
 
@@ -281,7 +286,7 @@ func (s *linkStage) resolveValue(
 				continue
 			}
 			foundValues = append(foundValues, struct {
-				value string
+				value any
 				depID string
 			}{
 				value: param.Value,
@@ -296,7 +301,7 @@ func (s *linkStage) resolveValue(
 		firstValue := foundValues[0].value
 		hasConflict := false
 		for _, fv := range foundValues[1:] {
-			if fv.value != firstValue {
+			if !reflect.DeepEqual(fv.value, firstValue) {
 				hasConflict = true
 				break
 			}
@@ -305,9 +310,9 @@ func (s *linkStage) resolveValue(
 		if hasConflict {
 			var conflicts []string
 			for _, fv := range foundValues {
-				conflicts = append(conflicts, fmt.Sprintf("%s=%s (from %s)", requirementName, fv.value, fv.depID))
+				conflicts = append(conflicts, fmt.Sprintf("%s=%v (from %s)", requirementName, fv.value, fv.depID))
 			}
-			return "", NewParameterConflictError(strings.Join(conflicts, ", "))
+			return nil, NewParameterConflictError(strings.Join(conflicts, ", "))
 		}
 	}
 
@@ -320,16 +325,16 @@ func (s *linkStage) resolveValue(
 	// default ("") is a valid resolved value; only an absent default (nil)
 	// leaves the requirement unresolved.
 	if defaultValue != nil {
-		return *defaultValue, nil
+		return defaultValue, nil
 	}
 
 	// No value available
-	return "", ErrNoValueAvailable
+	return nil, ErrNoValueAvailable
 }
 
 func (s *linkStage) applyTarget(
 	target RequirementTarget,
-	value string,
+	value any,
 	requirementNS string,
 	entries *[]registry.Entry,
 	mutator *entry.Mutator,

@@ -53,6 +53,62 @@ var (
 	ErrCannotDeleteEntireMetaField = apierror.New(apierror.Invalid, "cannot delete entire meta field").WithRetryable(apierror.False)
 )
 
+var (
+	ErrEnvRegistryMissing = apierror.New(apierror.Invalid, "environment registry not available in context while resolving placeholders").WithRetryable(apierror.False)
+
+	ErrTranscoderMissing = apierror.New(apierror.Invalid, "payload transcoder not available in context").WithRetryable(apierror.False)
+)
+
+func NewPlaceholderNotFoundError(path, name string) apierror.Error {
+	return apierror.New(apierror.Invalid, "environment variable "+name+" not found for field "+path).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"path": path, "variable": name}))
+}
+
+func NewPlaceholderLookupError(path, name string, cause error) apierror.Error {
+	apiErr := apierror.New(apierror.Internal, "failed to look up environment variable "+name+" for field "+path).WithRetryable(apierror.False)
+	if cause != nil {
+		apiErr = apiErr.WithDetails(attrs.NewBagFrom(map[string]any{"path": path, "variable": name, "cause": cause.Error()})).
+			WithCause(cause)
+	}
+	return apiErr
+}
+
+func NewPlaceholderCoercionError(path, name, value, target string, cause error) apierror.Error {
+	apiErr := apierror.New(apierror.Invalid, "cannot coerce environment variable "+name+" to "+target+" for field "+path).WithRetryable(apierror.False)
+	details := map[string]any{"path": path, "variable": name, "value": value, "target": target}
+	if cause != nil {
+		details["cause"] = cause.Error()
+		apiErr = apiErr.WithCause(cause)
+	}
+	return apiErr.WithDetails(attrs.NewBagFrom(details))
+}
+
+func NewEnvFieldRegistryMissingError(name string) apierror.Error {
+	return apierror.New(apierror.Invalid, "environment registry not available in context while resolving env field for "+name).
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"variable": name}))
+}
+
+func NewEnvFieldLookupError(name string, cause error) apierror.Error {
+	apiErr := apierror.New(apierror.Internal, "failed to look up environment variable "+name).WithRetryable(apierror.False)
+	if cause != nil {
+		apiErr = apiErr.WithDetails(attrs.NewBagFrom(map[string]any{"variable": name, "cause": cause.Error()})).
+			WithCause(cause)
+	}
+	return apiErr
+}
+
+func NewEnvFieldConversionError(name, value, target string, cause error) apierror.Error {
+	apiErr := apierror.New(apierror.Invalid, "cannot convert environment variable "+name+" to "+target).WithRetryable(apierror.False)
+	details := map[string]any{"variable": name, "value": value, "target": target}
+	if cause != nil {
+		details["cause"] = cause.Error()
+		apiErr = apiErr.WithCause(cause)
+	}
+	return apiErr.WithDetails(attrs.NewBagFrom(details))
+}
+
 func NewTranscodeToGolangError(cause error) apierror.Error {
 	apiErr := apierror.New(apierror.Internal, "failed to transcode to golang").WithRetryable(apierror.False)
 	if cause != nil {
