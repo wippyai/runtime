@@ -62,7 +62,7 @@ type (
 		Imports  map[string]registry.ID `json:"imports,omitempty"`
 		Meta     attrs.Bag              `json:"meta,omitempty"`
 		Security *security.Config       `json:"security,omitempty" yaml:"security,omitempty"`
-		Source   string                 `json:"source"`
+		Source   string                 `json:"source" resolve:"-"`
 		Method   string                 `json:"method"`
 		Modules  []string               `json:"modules,omitempty"`
 		Pool     PoolConfig             `json:"pool,omitempty"`
@@ -72,7 +72,7 @@ type (
 	// It includes the library source code and required modules.
 	LibraryConfig struct {
 		Meta    attrs.Bag              `json:"meta"`              // Metadata for the library
-		Source  string                 `json:"source"`            // Library source code
+		Source  string                 `json:"source" resolve:"-"` // Library source code
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
 		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
 	}
@@ -80,7 +80,7 @@ type (
 	// ProcessConfig defines the configuration for a Lua processes.
 	ProcessConfig struct {
 		Meta    attrs.Bag              `json:"meta"`              // Metadata for the terminal
-		Source  string                 `json:"source"`            // Lua source code
+		Source  string                 `json:"source" resolve:"-"` // Lua source code
 		Method  string                 `json:"method"`            // Alias of the Lua method to execute
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
 		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
@@ -90,7 +90,7 @@ type (
 	// Workflows have restricted module access for deterministic execution.
 	WorkflowConfig struct {
 		Meta    attrs.Bag              `json:"meta"`              // Metadata for the workflow
-		Source  string                 `json:"source"`            // Lua source code
+		Source  string                 `json:"source" resolve:"-"` // Lua source code
 		Method  string                 `json:"method"`            // Alias of the Lua method to execute
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
 		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
@@ -99,7 +99,7 @@ type (
 	// BteaConfig defines the configuration for a Lua terminal app, this is custom process with host expectations.
 	BteaConfig struct {
 		Meta    attrs.Bag              `json:"meta"`              // Metadata for the terminal
-		Source  string                 `json:"source"`            // Lua source code
+		Source  string                 `json:"source" resolve:"-"` // Lua source code
 		Method  string                 `json:"method"`            // Alias of the Lua method to execute
 		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
 		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules

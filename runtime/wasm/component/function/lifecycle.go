@@ -11,6 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/runtime/wasm"
+	entrycfg "github.com/wippyai/runtime/internal/entry"
 	runtimewasm "github.com/wippyai/runtime/runtime/wasm"
 	wasmcomponent "github.com/wippyai/runtime/runtime/wasm/component"
 	wasmlib "github.com/wippyai/wasm-runtime/component"
@@ -102,7 +103,7 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 }
 
 func (m *Manager) addWAT(ctx context.Context, entry registry.Entry) error {
-	cfg, err := wasmcomponent.UnpackConfig[api.WATFunctionConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.WATFunctionConfig](ctx, entry)
 	if err != nil {
 		return runtimewasm.NewUnpackConfigError("function.wat", err)
 	}
@@ -143,7 +144,7 @@ func (m *Manager) addWAT(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) addWASM(ctx context.Context, entry registry.Entry) error {
-	cfg, err := wasmcomponent.UnpackConfig[api.FunctionConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.FunctionConfig](ctx, entry)
 	if err != nil {
 		return runtimewasm.NewUnpackConfigError("function.wasm", err)
 	}
@@ -187,7 +188,7 @@ func (m *Manager) addWASM(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) updateWAT(ctx context.Context, entry registry.Entry) error {
-	cfg, err := wasmcomponent.UnpackConfig[api.WATFunctionConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.WATFunctionConfig](ctx, entry)
 	if err != nil {
 		return runtimewasm.NewUnpackConfigError("function.wat", err)
 	}
@@ -223,7 +224,7 @@ func (m *Manager) updateWAT(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) updateWASM(ctx context.Context, entry registry.Entry) error {
-	cfg, err := wasmcomponent.UnpackConfig[api.FunctionConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.FunctionConfig](ctx, entry)
 	if err != nil {
 		return runtimewasm.NewUnpackConfigError("function.wasm", err)
 	}

@@ -262,3 +262,55 @@ func TestEnvField_UnsetEnvFieldIgnored(t *testing.T) {
 	assert.Equal(t, "plain", cfg.Host)
 	assert.Equal(t, 80, cfg.Port)
 }
+
+// SkipConfig marks its script field resolve:"-" so embedded code is exempt from
+// placeholder resolution, including inside nested structs.
+type SkipConfig struct {
+	Name   string        `json:"name"`
+	Script string        `json:"script" resolve:"-"`
+	Inner  SkipInner     `json:"inner"`
+	Items  []SkipElement `json:"items"`
+}
+
+type SkipInner struct {
+	Body string `json:"body" resolve:"-"`
+	Mode string `json:"mode"`
+}
+
+type SkipElement struct {
+	Code string `json:"code" resolve:"-"`
+	Tag  string `json:"tag"`
+}
+
+func TestDecodeEntryConfig_ResolveSkipTag(t *testing.T) {
+	reg := &fakeEnvRegistry{vars: []fakeVar{{name: "MODE", value: "fast"}, {name: "TAG", value: "v1"}}}
+	ctx := env.WithRegistry(ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext()), reg)
+
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "config"),
+		Kind: "test.config",
+		Data: payload.New(map[string]any{
+			"name":   "job",
+			"script": "echo ${env:UNSET} ${ALSO_UNSET|x}",
+			"inner": map[string]any{
+				"body": "run ${env:UNSET}",
+				"mode": "${env:MODE}",
+			},
+			"items": []any{
+				map[string]any{"code": "${env:UNSET}", "tag": "${env:TAG}"},
+			},
+		}),
+	}
+
+	cfg, err := DecodeEntryConfig[SkipConfig](ctx, realTranscoder{}, entry)
+	require.NoError(t, err)
+
+	// Tagged fields keep placeholder-shaped spans byte-identical.
+	assert.Equal(t, "echo ${env:UNSET} ${ALSO_UNSET|x}", cfg.Script)
+	assert.Equal(t, "run ${env:UNSET}", cfg.Inner.Body)
+	assert.Equal(t, "${env:UNSET}", cfg.Items[0].Code)
+
+	// Untagged siblings resolve, slice elements included.
+	assert.Equal(t, "fast", cfg.Inner.Mode)
+	assert.Equal(t, "v1", cfg.Items[0].Tag)
+}

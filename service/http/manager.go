@@ -8,13 +8,13 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	config "github.com/wippyai/runtime/api/service/http"
 	"github.com/wippyai/runtime/api/supervisor"
+	entrycfg "github.com/wippyai/runtime/internal/entry"
 	"go.uber.org/zap"
 )
 
@@ -238,7 +238,7 @@ func (m *Manager) Discard(_ context.Context) error {
 
 // handleServerCreate creates a new HTTP server
 func (m *Manager) handleServerCreate(ctx context.Context, entry registry.Entry) error {
-	cfg, err := decodeEntity[config.ServerConfig](entry, m.dtt)
+	cfg, err := entrycfg.DecodeEntryConfig[config.ServerConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -274,7 +274,7 @@ func (m *Manager) handleServerCreate(ctx context.Context, entry registry.Entry) 
 
 // handleServerUpdate updates an existing HTTP server
 func (m *Manager) handleServerUpdate(ctx context.Context, entry registry.Entry) error {
-	cfg, err := decodeEntity[config.ServerConfig](entry, m.dtt)
+	cfg, err := entrycfg.DecodeEntryConfig[config.ServerConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -352,8 +352,8 @@ func (m *Manager) handleServerDelete(ctx context.Context, entry registry.Entry) 
 //
 
 // handleRouterCreate adds a new router to a server
-func (m *Manager) handleRouterCreate(_ context.Context, entry registry.Entry) error {
-	cfg, err := decodeEntity[config.RouterConfig](entry, m.dtt)
+func (m *Manager) handleRouterCreate(ctx context.Context, entry registry.Entry) error {
+	cfg, err := entrycfg.DecodeEntryConfig[config.RouterConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -384,8 +384,8 @@ func (m *Manager) handleRouterCreate(_ context.Context, entry registry.Entry) er
 // handleRouterUpdate updates an existing router
 // CRITICAL: When moving a router between servers, we must ensure all endpoints
 // are properly migrated to prevent data loss.
-func (m *Manager) handleRouterUpdate(_ context.Context, entry registry.Entry) error {
-	cfg, err := decodeEntity[config.RouterConfig](entry, m.dtt)
+func (m *Manager) handleRouterUpdate(ctx context.Context, entry registry.Entry) error {
+	cfg, err := entrycfg.DecodeEntryConfig[config.RouterConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -485,7 +485,7 @@ func (m *Manager) handleRouterDelete(_ context.Context, entry registry.Entry) er
 // handleEndpointUpsert adds or updates an endpoint in a router
 // Uses upsert pattern - if the endpoint already exists, it will be updated
 func (m *Manager) handleEndpointUpsert(ctx context.Context, entry registry.Entry) error {
-	cfg, err := decodeEntity[config.EndpointConfig](entry, m.dtt)
+	cfg, err := entrycfg.DecodeEntryConfig[config.EndpointConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -566,7 +566,7 @@ func (m *Manager) handleEndpointDelete(_ context.Context, entry registry.Entry) 
 // handleStaticUpsert adds or updates a static file handler
 // Uses upsert pattern - if the handler already exists, it will be updated
 func (m *Manager) handleStaticUpsert(ctx context.Context, entry registry.Entry) error {
-	cfg, err := decodeEntity[config.StaticConfig](entry, m.dtt)
+	cfg, err := entrycfg.DecodeEntryConfig[config.StaticConfig](ctx, m.dtt, entry)
 	if err != nil {
 		return err
 	}
@@ -626,34 +626,4 @@ func (m *Manager) handleStaticDelete(_ context.Context, entry registry.Entry) er
 	delete(m.staticServers, entry.ID)
 	m.pending[serverID] = true
 	return nil
-}
-
-//
-// Helper functions
-//
-
-// decodeEntity is a helper to decode registry entries into specific configs
-func decodeEntity[T any](entry registry.Entry, transcoder payload.Transcoder) (*T, error) {
-	if entry.Data == nil {
-		return nil, ErrConfigDataRequired
-	}
-
-	cfg := new(T)
-	if err := transcoder.Unmarshal(entry.Data, cfg); err != nil {
-		return nil, NewUnmarshalConfigError(err)
-	}
-
-	// set meta if applicable
-	if metaHolder, ok := any(cfg).(interface{ SetMeta(attrs.Bag) }); ok {
-		metaHolder.SetMeta(entry.Meta)
-	}
-
-	// Validate if the config implements Validate()
-	if validator, ok := any(cfg).(interface{ Validate() error }); ok {
-		if err := validator.Validate(); err != nil {
-			return nil, NewInvalidConfigError(err)
-		}
-	}
-
-	return cfg, nil
 }

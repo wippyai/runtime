@@ -101,7 +101,7 @@ func decodeEntryConfig[T any](ctx context.Context, dtt payload.Transcoder, entry
 		if err != nil {
 			return nil, err
 		}
-		resolved, changed, err := resolveDataMap(ctx, "", data)
+		resolved, changed, err := resolveDataMap(ctx, "", "", skipPathsForType(reflect.TypeFor[T]()), data)
 		if err != nil {
 			return nil, err
 		}
@@ -309,4 +309,70 @@ func jsonName(field reflect.StructField) string {
 		tag = tag[:idx]
 	}
 	return tag
+}
+
+var skipPathCache sync.Map // map[reflect.Type]map[string]struct{}
+
+// skipPathsForType returns the data paths a config type excludes from
+// placeholder resolution via resolve:"-" field tags. Fields carrying opaque
+// content such as embedded source code use the tag so their values are never
+// interpolated.
+func skipPathsForType(t reflect.Type) map[string]struct{} {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return nil
+	}
+	if cached, ok := skipPathCache.Load(t); ok {
+		return cached.(map[string]struct{})
+	}
+
+	paths := make(map[string]struct{})
+	collectSkipPaths(t, "", paths, make(map[reflect.Type]bool))
+	if len(paths) == 0 {
+		paths = nil
+	}
+	skipPathCache.Store(t, paths)
+	return paths
+}
+
+func collectSkipPaths(t reflect.Type, prefix string, out map[string]struct{}, visiting map[reflect.Type]bool) {
+	if visiting[t] {
+		return
+	}
+	visiting[t] = true
+	defer delete(visiting, t)
+
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		name := jsonName(field)
+		if name == "-" {
+			continue
+		}
+
+		path := prefix
+		if !field.Anonymous || name != "" {
+			if name == "" {
+				name = field.Name
+			}
+			path = joinPath(prefix, name)
+		}
+
+		if field.Tag.Get("resolve") == "-" {
+			out[path] = struct{}{}
+			continue
+		}
+
+		ft := field.Type
+		for ft.Kind() == reflect.Pointer || ft.Kind() == reflect.Slice || ft.Kind() == reflect.Array || ft.Kind() == reflect.Map {
+			ft = ft.Elem()
+		}
+		if ft.Kind() == reflect.Struct {
+			collectSkipPaths(ft, path, out, visiting)
+		}
+	}
 }

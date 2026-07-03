@@ -77,46 +77,15 @@ func ctxWithEnv(reg env.Registry) context.Context {
 	return env.WithRegistry(ctx, reg)
 }
 
-func TestParsePlaceholderBody(t *testing.T) {
-	cases := []struct {
-		body       string
-		name       string
-		def        string
-		hasDefault bool
-		ok         bool
-	}{
-		{body: "env:FOO", name: "FOO", ok: true},
-		{body: "env:FOO|bar", name: "FOO", def: "bar", hasDefault: true, ok: true},
-		{body: "env:app:key", name: "app:key", ok: true},
-		{body: "env:ns.sub:key-1", name: "ns.sub:key-1", ok: true},
-		{body: "FOO", name: "FOO", ok: true},
-		{body: "FOO_BAR|9", name: "FOO_BAR", def: "9", hasDefault: true, ok: true},
-		{body: "env:", ok: false},
-		{body: "lower", ok: false},
-		{body: "1ABC", ok: false},
-		{body: "some text", ok: false},
-		{body: "MixedCase", ok: false},
-	}
-	for _, c := range cases {
-		name, def, hasDefault, ok := parsePlaceholderBody(c.body)
-		assert.Equal(t, c.ok, ok, "ok for %q", c.body)
-		if c.ok {
-			assert.Equal(t, c.name, name, "name for %q", c.body)
-			assert.Equal(t, c.def, def, "def for %q", c.body)
-			assert.Equal(t, c.hasDefault, hasDefault, "hasDefault for %q", c.body)
-		}
-	}
-}
-
 func TestExtractPlaceholderNames(t *testing.T) {
 	assert.Nil(t, ExtractPlaceholderNames("no placeholders here"))
 	assert.Equal(t, []string{"FOO"}, ExtractPlaceholderNames("${env:FOO}"))
-	assert.Equal(t, []string{"FOO", "BAR"}, ExtractPlaceholderNames("${FOO}-${env:BAR|x}"))
+	assert.Equal(t, []string{"FOO", "BAR"}, ExtractPlaceholderNames("${FOO|1}-${env:BAR|x}"))
 	assert.Equal(t, []string{"app:key"}, ExtractPlaceholderNames("prefix ${env:app:key} suffix"))
 	// Duplicates collapse, first-occurrence order preserved.
-	assert.Equal(t, []string{"A", "B"}, ExtractPlaceholderNames("${A}${B}${A}"))
-	// Escapes and malformed spans contribute no names.
-	assert.Nil(t, ExtractPlaceholderNames("$${env:FOO} ${lower} ${1BAD}"))
+	assert.Equal(t, []string{"A", "B"}, ExtractPlaceholderNames("${A|1}${B|2}${A|1}"))
+	// Escapes, malformed spans, and bare shorthand contribute no names.
+	assert.Nil(t, ExtractPlaceholderNames("$${env:FOO} ${lower} ${1BAD} ${BARE}"))
 }
 
 func TestResolve_FastPathNoOp(t *testing.T) {

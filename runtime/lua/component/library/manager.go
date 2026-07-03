@@ -8,6 +8,7 @@ import (
 	fsapi "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/lua"
+	entrycfg "github.com/wippyai/runtime/internal/entry"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	lua "github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
@@ -74,7 +75,7 @@ func (m *Manager) Invalidate(_ context.Context, _ []registry.ID) error {
 
 // addSource adds a source-based library.
 func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
-	cfg, err := component.UnpackConfig[api.LibraryConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.LibraryConfig](ctx, entry)
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("library", err)
 	}
@@ -95,7 +96,7 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 
 // addBytecode adds a bytecode-based library.
 func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
-	cfg, err := component.UnpackConfig[api.BytecodeLibraryConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.BytecodeLibraryConfig](ctx, entry)
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("library", err)
 	}
@@ -124,7 +125,7 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 
 // updateSource updates a source-based library.
 func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error {
-	cfg, err := component.UnpackConfig[api.LibraryConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.LibraryConfig](ctx, entry)
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("library", err)
 	}
@@ -145,7 +146,7 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 
 // updateBytecode updates a bytecode-based library.
 func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) error {
-	cfg, err := component.UnpackConfig[api.BytecodeLibraryConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.BytecodeLibraryConfig](ctx, entry)
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("library", err)
 	}

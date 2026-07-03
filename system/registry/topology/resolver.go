@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/wippyai/runtime/api/env/placeholder"
 	"github.com/wippyai/runtime/api/registry"
 )
 
@@ -104,22 +105,57 @@ func (r *Resolver) fetchDeps(entry registry.Entry) []string {
 	// returning to keep the contract stable across runs.
 	seen := make(map[string]struct{}, len(r.patterns)*2)
 	result := make([]string, 0, len(r.patterns)*2)
+	add := func(dep string) {
+		if dep == "" {
+			return
+		}
+		if _, ok := seen[dep]; ok {
+			return
+		}
+		seen[dep] = struct{}{}
+		result = append(result, dep)
+	}
+
 	for _, pathCfg := range r.patterns {
-		deps := resolverExtractFromPath(combined, pathCfg)
-		for _, dep := range deps {
-			if dep == "" {
-				continue
-			}
-			if _, ok := seen[dep]; ok {
-				continue
-			}
-			seen[dep] = struct{}{}
-			result = append(result, dep)
+		for _, dep := range resolverExtractFromPath(combined, pathCfg) {
+			add(dep)
 		}
 	}
+
+	// Placeholder references (${env:...} / ${NAME|...}) may appear in any string
+	// value, not only registered pattern paths, so scan the whole entry. Emitted
+	// as-is: ID-form refs create edges, bare names dangle and drop downstream.
+	resolverExtractPlaceholders(combined, add)
+
 	sort.Strings(result)
 
 	return result
+}
+
+// resolverExtractPlaceholders walks every string value in the entry data and
+// emits the variable names referenced by placeholders. Strings without a
+// placeholder marker cost near nothing (the parser has a fast path).
+func resolverExtractPlaceholders(value any, add func(string)) {
+	switch v := value.(type) {
+	case string:
+		for _, name := range placeholder.ExtractNames(v) {
+			add(name)
+		}
+	case map[string]any:
+		for _, item := range v {
+			resolverExtractPlaceholders(item, add)
+		}
+	case []any:
+		for _, item := range v {
+			resolverExtractPlaceholders(item, add)
+		}
+	case []string:
+		for _, item := range v {
+			for _, name := range placeholder.ExtractNames(item) {
+				add(name)
+			}
+		}
+	}
 }
 
 // resolverExtractFromPath extracts string values from a specific path in the data using cached segments.
