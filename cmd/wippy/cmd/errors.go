@@ -197,3 +197,19 @@ func NewInstallFailedError(cause error) apierror.Error {
 func NewLintFailedError(errors, warnings int) apierror.Error {
 	return apierror.New(apierror.Invalid, fmt.Sprintf("lint failed: %d errors, %d warnings", errors, warnings)).WithRetryable(apierror.False)
 }
+
+func NewFunctionRegistryNotAvailableError() apierror.Error {
+	return apierror.New(apierror.Internal, "function registry not available").WithRetryable(apierror.False)
+}
+
+func NewMigrationCallError(cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "failed to invoke migration bootloader").WithCause(cause).WithRetryable(apierror.False)
+}
+
+func NewMigrationFailedError(message string) apierror.Error {
+	msg := "migration failed"
+	if message != "" {
+		msg = "migration failed: " + message
+	}
+	return apierror.New(apierror.Internal, msg).WithRetryable(apierror.False)
+}
