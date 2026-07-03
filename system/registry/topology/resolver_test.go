@@ -560,6 +560,93 @@ func TestResolver_ComplexNested(t *testing.T) {
 	}`).ToEqual("db:main")
 }
 
+// Placeholder scanning is always-on and independent of registered patterns.
+func TestResolver_PlaceholderIDFormInNestedData(t *testing.T) {
+	sdk := NewResolverTestSDK(t)
+
+	sdk.ExpectDeps(`{
+		"kind": "service",
+		"data": {
+			"nested": {
+				"url": "postgres://${env:app.cfg:DB_URL}/db"
+			}
+		}
+	}`).ToEqual("app.cfg:DB_URL")
+}
+
+func TestResolver_PlaceholderBareName(t *testing.T) {
+	sdk := NewResolverTestSDK(t)
+
+	sdk.ExpectDeps(`{
+		"kind": "service",
+		"data": {"token": "${env:API_KEY}"}
+	}`).ToEqual("API_KEY")
+}
+
+func TestResolver_PlaceholderMultipleInOneString(t *testing.T) {
+	sdk := NewResolverTestSDK(t)
+
+	sdk.ExpectDeps(`{
+		"kind": "service",
+		"data": {"dsn": "${env:app:HOST}:${env:app:PORT}/${env:DB}"}
+	}`).ToEqual("app:HOST", "app:PORT", "DB")
+}
+
+func TestResolver_PlaceholderInMeta(t *testing.T) {
+	sdk := NewResolverTestSDK(t)
+
+	// Meta placeholders are never resolved at decode time, so they must not
+	// create dependency edges. A meta *_env key remains a dependency reference
+	// handled by the registered meta.*_env pattern, not by placeholder scanning.
+	sdk.ExpectDeps(`{
+		"kind": "service",
+		"meta": {"label": "${env:app:VAR}"}
+	}`).ToBeEmpty()
+}
+
+func TestResolver_PlaceholderInData(t *testing.T) {
+	sdk := NewResolverTestSDK(t)
+
+	sdk.ExpectDeps(`{
+		"kind": "service",
+		"data": {"endpoint": "${env:app:VAR}"}
+	}`).ToEqual("app:VAR")
+}
+
+func TestResolver_PlaceholderEscapedNotExtracted(t *testing.T) {
+	sdk := NewResolverTestSDK(t)
+
+	sdk.ExpectDeps(`{
+		"kind": "service",
+		"data": {"literal": "$${env:NOT_A_REF}"}
+	}`).ToBeEmpty()
+}
+
+func TestResolver_PlaceholderNoMarkerZeroRefs(t *testing.T) {
+	sdk := NewResolverTestSDK(t)
+
+	sdk.ExpectDeps(`{
+		"kind": "service",
+		"data": {"plain": "no placeholders here", "n": "123"}
+	}`).ToBeEmpty()
+}
+
+// A pattern-extracted value and a placeholder naming the same ref collapse to a
+// single dependency.
+func TestResolver_PlaceholderDedupWithPattern(t *testing.T) {
+	sdk := NewResolverTestSDK(t)
+
+	sdk.RegisterPattern("data.storage", "Storage backend", false)
+
+	sdk.ExpectDeps(`{
+		"kind": "env.variable",
+		"data": {
+			"storage": "app:router",
+			"url": "${env:app:router}"
+		}
+	}`).ToEqual("app:router")
+}
+
 // Benchmark resolver extraction
 func BenchmarkResolver_Extract(b *testing.B) {
 	resolver := NewResolver()

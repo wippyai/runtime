@@ -30,7 +30,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/wappextract"
 	"github.com/wippyai/runtime/boot/loader"
 	"github.com/wippyai/runtime/boot/loader/interpolate"
-	entrypkg "github.com/wippyai/runtime/internal/entry"
+	entrypkg "github.com/wippyai/runtime/system/entry"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
@@ -77,9 +77,11 @@ type DependencyDefinition struct {
 }
 
 // Parameter represents a single parameter in a dependency definition.
+// Value carries the supplied value in its source type so typed parameters
+// decode without forcing a string.
 type Parameter struct {
+	Value any    `json:"value" yaml:"value"`
 	Name  string `json:"name" yaml:"name"`
-	Value string `json:"value" yaml:"value"`
 }
 
 type desiredDependency struct {
@@ -1292,7 +1294,7 @@ func resolveOperationEntry(op regapi.Operation, snapshot regapi.State) (regapi.E
 }
 
 func decodeDependency(ctx context.Context, transcoder payload.Transcoder, entry regapi.Entry) (DependencyDefinition, error) {
-	def, err := entrypkg.DecodeEntryConfig[DependencyDefinition](ctx, transcoder, entry)
+	def, err := entrypkg.DecodeEntryConfigRaw[DependencyDefinition](ctx, transcoder, entry)
 	if err != nil {
 		return DependencyDefinition{}, NewDependencyEntryDecodeError(entry.ID.String(), err)
 	}

@@ -4,6 +4,7 @@ package config
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -19,88 +20,46 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	awsconfigapi "github.com/wippyai/runtime/api/service/aws/config"
+	entryutil "github.com/wippyai/runtime/system/entry"
 	"github.com/wippyai/runtime/system/eventbus"
 	systemresource "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )
 
-// MockPayload implements payload.Payload for testing
-type MockPayload struct {
-	data   any
-	format payload.Format
+// NewMockPayload wraps a raw data map so the central *_env decode pass reads
+// directives from the entry data, as it does in production.
+func NewMockPayload(data map[string]any) payload.Payload {
+	return payload.New(data)
 }
 
-func (p *MockPayload) Data() any {
-	return p.data
-}
-
-func (p *MockPayload) Format() payload.Format {
-	return p.format
-}
-
-func (p *MockPayload) Transcode(format payload.Format) (payload.Payload, error) {
-	return &MockPayload{data: p.data, format: format}, nil
-}
-
-// Function to create mock payloads
-func NewMockPayload(data any) payload.Payload {
-	return &MockPayload{data: data, format: payload.Golang}
-}
-
-// MockTranscoder implements payload.Transcoder for testing
+// MockTranscoder unmarshals a Golang map payload into the config struct via a
+// JSON round trip so the decode path exercises real type coercion. An injected
+// unmarshalError forces the failure branch.
 type MockTranscoder struct {
-	marshalError       error
-	unmarshalError     error
-	region             string
-	regionEnv          string
-	accessKeyIDEnv     string
-	secretAccessKeyEnv string
-	mockData           []byte
+	unmarshalError error
 }
 
 func NewMockTranscoder() *MockTranscoder {
-	return &MockTranscoder{
-		mockData:           []byte(`{"region":"us-east-1","access_key_id_env":"AWS_ACCESS_KEY_ID","secret_access_key_env":"AWS_SECRET_ACCESS_KEY"}`),
-		region:             "us-east-1",
-		accessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
-		secretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
-	}
-}
-
-func (m *MockTranscoder) Marshal(_ any) ([]byte, error) {
-	if m.marshalError != nil {
-		return nil, m.marshalError
-	}
-	return m.mockData, nil
+	return &MockTranscoder{}
 }
 
 func (m *MockTranscoder) Unmarshal(p payload.Payload, v any) error {
 	if m.unmarshalError != nil {
 		return m.unmarshalError
 	}
-
-	// Use the actual data from the payload
-	if cfg, ok := v.(*awsconfigapi.Config); ok {
-		if payloadData, ok := p.Data().(*awsconfigapi.Config); ok {
-			// Copy the values from the payload
-			cfg.Region = payloadData.Region
-			cfg.RegionEnv = payloadData.RegionEnv
-			cfg.AccessKeyIDEnv = payloadData.AccessKeyIDEnv
-			cfg.SecretAccessKeyEnv = payloadData.SecretAccessKeyEnv
-		} else {
-			// Fallback to predefined values if payload data is not the expected type
-			cfg.Region = m.region
-			cfg.RegionEnv = m.regionEnv
-			cfg.AccessKeyIDEnv = m.accessKeyIDEnv
-			cfg.SecretAccessKeyEnv = m.secretAccessKeyEnv
-		}
+	data, ok := p.Data().(map[string]any)
+	if !ok {
+		return errors.New("payload is not a map")
 	}
-
-	return nil
+	b, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, v)
 }
 
 func (m *MockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
-	return p, nil
+	return payload.New(p.Data()), nil
 }
 
 // MockEnvRegistry implements envapi.Registry for testing
@@ -134,7 +93,6 @@ func (m *MockEnvRegistry) Set(_ context.Context, name string, value string) erro
 }
 
 func (m *MockEnvRegistry) All(_ context.Context) (map[string]string, error) {
-	// For testing purposes, we return the variables map
 	return m.variables, nil
 }
 
@@ -151,25 +109,28 @@ func (m *MockEnvRegistry) GetStorage(_ context.Context, _ registry.ID) (envapi.S
 
 func (m *MockEnvRegistry) RegisterStorage(_ registry.ID, _ envapi.Storage) {}
 
+func (m *MockEnvRegistry) RegisterVariable(_ envapi.Variable) error { return nil }
+
+func (m *MockEnvRegistry) UnregisterVariable(_ registry.ID) {}
+
 // setupTestEnvironment creates a test environment with mocked dependencies
 func setupTestEnvironment(t *testing.T) (*Manager, event.Bus, context.Context) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 
-	// Set up the mock transcoder
 	transcoder := NewMockTranscoder()
 
-	// Create mock registry and populate it with test values
 	envRegistry := NewMockRegistry()
 
-	ctx := ctxapi.NewRootContext()
+	// Context carries the env registry so the central decode pass resolves every
+	// *_env directive (region, access key, secret key) from the entry data.
+	ctx := envapi.WithRegistry(ctxapi.NewRootContext(), envRegistry)
 
 	require.NoError(t, envRegistry.Set(ctx, "AWS_ACCESS_KEY_ID", "test-access-key"))
 	require.NoError(t, envRegistry.Set(ctx, "AWS_SECRET_ACCESS_KEY", "test-secret-key"))
 	require.NoError(t, envRegistry.Set(ctx, "AWS_REGION", "eu-west-1"))
 
-	// Create manager
-	manager := NewManager(bus, transcoder, logger, envRegistry)
+	manager := NewManager(bus, transcoder, logger)
 
 	return manager, bus, ctx
 }
@@ -198,8 +159,6 @@ func setupResourceEventsListener(ctx context.Context, bus event.Bus) (chan event
 }
 
 // waitForResourceEvent waits for a resource event with the specified kind
-//
-
 func waitForResourceEvent(t *testing.T, eventChan chan event.Event, expectedKind event.Kind, timeout time.Duration) event.Event {
 	t.Helper()
 
@@ -227,10 +186,10 @@ func TestManager_Add(t *testing.T) {
 		entry := registry.Entry{
 			ID:   testID,
 			Kind: awsconfigapi.Kind,
-			Data: NewMockPayload(&awsconfigapi.Config{
-				Region:             "us-east-1",
-				AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
-				SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
+			Data: NewMockPayload(map[string]any{
+				"region":                "us-east-1",
+				"access_key_id_env":     "AWS_ACCESS_KEY_ID",
+				"secret_access_key_env": "AWS_SECRET_ACCESS_KEY",
 			}),
 		}
 
@@ -255,6 +214,18 @@ func TestManager_Add(t *testing.T) {
 		// Verify metadata
 		meta := resourceEntry.Meta
 		assert.Equal(t, "us-east-1", meta["region"])
+
+		// Verify resolved credentials reach the AWS credentials provider.
+		res, err := manager.Acquire(ctx, testID, resource.ModeNormal)
+		require.NoError(t, err)
+		val, err := res.Get()
+		require.NoError(t, err)
+		awsCfg, ok := val.(aws.Config)
+		require.True(t, ok)
+		creds, err := awsCfg.Credentials.Retrieve(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, "test-access-key", creds.AccessKeyID)
+		assert.Equal(t, "test-secret-key", creds.SecretAccessKey)
 	})
 
 	t.Run("successful config addition with region env", func(t *testing.T) {
@@ -262,10 +233,10 @@ func TestManager_Add(t *testing.T) {
 		entry := registry.Entry{
 			ID:   envID,
 			Kind: awsconfigapi.Kind,
-			Data: NewMockPayload(&awsconfigapi.Config{
-				RegionEnv:          "AWS_REGION",
-				AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
-				SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
+			Data: NewMockPayload(map[string]any{
+				"region_env":            "AWS_REGION",
+				"access_key_id_env":     "AWS_ACCESS_KEY_ID",
+				"secret_access_key_env": "AWS_SECRET_ACCESS_KEY",
 			}),
 		}
 
@@ -287,9 +258,7 @@ func TestManager_Add(t *testing.T) {
 	t.Run("wrong entry kind", func(t *testing.T) {
 		entry := registry.Entry{
 			Kind: "invalid.kind",
-			Data: NewMockPayload(&awsconfigapi.Config{
-				Region: "us-east-1",
-			}),
+			Data: NewMockPayload(map[string]any{"region": "us-east-1"}),
 		}
 
 		err := manager.Add(ctx, entry)
@@ -308,7 +277,7 @@ func TestManager_Add(t *testing.T) {
 
 		entry := registry.Entry{
 			Kind: awsconfigapi.Kind,
-			Data: NewMockPayload("invalid json"),
+			Data: NewMockPayload(map[string]any{"region": "us-east-1"}),
 		}
 
 		err := manager.Add(ctx, entry)
@@ -328,9 +297,7 @@ func TestManager_Add(t *testing.T) {
 		entry := registry.Entry{
 			ID:   testID, // Same ID as in successful test
 			Kind: awsconfigapi.Kind,
-			Data: NewMockPayload(&awsconfigapi.Config{
-				Region: "us-east-1",
-			}),
+			Data: NewMockPayload(map[string]any{"region": "us-east-1"}),
 		}
 
 		err := manager.Add(ctx, entry)
@@ -358,10 +325,10 @@ func TestManager_Update(t *testing.T) {
 	addEntry := registry.Entry{
 		ID:   testID,
 		Kind: awsconfigapi.Kind,
-		Data: NewMockPayload(&awsconfigapi.Config{
-			Region:             "us-east-1",
-			AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
-			SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
+		Data: NewMockPayload(map[string]any{
+			"region":                "us-east-1",
+			"access_key_id_env":     "AWS_ACCESS_KEY_ID",
+			"secret_access_key_env": "AWS_SECRET_ACCESS_KEY",
 		}),
 	}
 
@@ -376,27 +343,16 @@ func TestManager_Update(t *testing.T) {
 		updateEntry := registry.Entry{
 			ID:   testID,
 			Kind: awsconfigapi.Kind,
-			Data: NewMockPayload(&awsconfigapi.Config{
-				Region:             "us-west-2",
-				AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
-				SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
+			Data: NewMockPayload(map[string]any{
+				"region":                "us-west-2",
+				"access_key_id_env":     "AWS_ACCESS_KEY_ID",
+				"secret_access_key_env": "AWS_SECRET_ACCESS_KEY",
 			}),
 		}
-
-		// Configure transcoder to return updated values
-		customTranscoder := NewMockTranscoder()
-		customTranscoder.region = "us-west-2"
-
-		// Replace the manager's transcoder
-		originalTranscoder := manager.dtt
-		manager.dtt = customTranscoder
 
 		// Update the config
 		err := manager.Update(ctx, updateEntry)
 		require.NoError(t, err)
-
-		// Reset transcoder
-		manager.dtt = originalTranscoder
 
 		// Verify config was updated in the manager's map
 		manager.mu.RLock()
@@ -424,9 +380,7 @@ func TestManager_Update(t *testing.T) {
 		entry := registry.Entry{
 			ID:   nonExistentID,
 			Kind: awsconfigapi.Kind,
-			Data: NewMockPayload(&awsconfigapi.Config{
-				Region: "us-east-1",
-			}),
+			Data: NewMockPayload(map[string]any{"region": "us-east-1"}),
 		}
 
 		err := manager.Update(ctx, entry)
@@ -443,7 +397,7 @@ func TestManager_Update(t *testing.T) {
 		entry := registry.Entry{
 			ID:   testID,
 			Kind: "invalid.kind",
-			Data: NewMockPayload(&awsconfigapi.Config{}),
+			Data: NewMockPayload(map[string]any{}),
 		}
 
 		err := manager.Update(ctx, entry)
@@ -463,7 +417,7 @@ func TestManager_Update(t *testing.T) {
 		entry := registry.Entry{
 			ID:   testID,
 			Kind: awsconfigapi.Kind,
-			Data: NewMockPayload("invalid json"),
+			Data: NewMockPayload(map[string]any{"region": "us-east-1"}),
 		}
 
 		err := manager.Update(ctx, entry)
@@ -494,10 +448,10 @@ func TestManager_Delete(t *testing.T) {
 	addEntry := registry.Entry{
 		ID:   testID,
 		Kind: awsconfigapi.Kind,
-		Data: NewMockPayload(&awsconfigapi.Config{
-			Region:             "us-east-1",
-			AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
-			SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
+		Data: NewMockPayload(map[string]any{
+			"region":                "us-east-1",
+			"access_key_id_env":     "AWS_ACCESS_KEY_ID",
+			"secret_access_key_env": "AWS_SECRET_ACCESS_KEY",
 		}),
 	}
 
@@ -544,7 +498,7 @@ func TestManager_Delete(t *testing.T) {
 		entry := registry.Entry{
 			ID:   testID,
 			Kind: "invalid.kind",
-			Data: NewMockPayload(&awsconfigapi.Config{}),
+			Data: NewMockPayload(map[string]any{}),
 		}
 
 		err := manager.Delete(ctx, entry)
@@ -567,10 +521,10 @@ func TestManager_Acquire(t *testing.T) {
 	addEntry := registry.Entry{
 		ID:   testID,
 		Kind: awsconfigapi.Kind,
-		Data: NewMockPayload(&awsconfigapi.Config{
-			Region:             "us-east-1",
-			AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
-			SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
+		Data: NewMockPayload(map[string]any{
+			"region":                "us-east-1",
+			"access_key_id_env":     "AWS_ACCESS_KEY_ID",
+			"secret_access_key_env": "AWS_SECRET_ACCESS_KEY",
 		}),
 	}
 
@@ -626,10 +580,10 @@ func TestConfigResource(t *testing.T) {
 	addEntry := registry.Entry{
 		ID:   testID,
 		Kind: awsconfigapi.Kind,
-		Data: NewMockPayload(&awsconfigapi.Config{
-			Region:             "us-east-1",
-			AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
-			SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
+		Data: NewMockPayload(map[string]any{
+			"region":                "us-east-1",
+			"access_key_id_env":     "AWS_ACCESS_KEY_ID",
+			"secret_access_key_env": "AWS_SECRET_ACCESS_KEY",
 		}),
 	}
 
@@ -668,15 +622,32 @@ func TestConfigResource(t *testing.T) {
 	})
 }
 
+// decodeConfig runs the config entry through the central decode pass so the test
+// observes the same *_env resolution that the manager relies on.
+func decodeConfig(ctx context.Context, t *testing.T, dtt payload.Transcoder, data map[string]any) *awsconfigapi.Config {
+	t.Helper()
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "awsconfig-decode"),
+		Kind: awsconfigapi.Kind,
+		Data: NewMockPayload(data),
+	}
+	cfg, err := entryutil.DecodeEntryConfig[awsconfigapi.Config](ctx, dtt, entry)
+	require.NoError(t, err)
+	return cfg
+}
+
 func TestCreateAWSConfig(t *testing.T) {
 	manager, _, ctx := setupTestEnvironment(t)
 
 	t.Run("with credentials", func(t *testing.T) {
-		cfg := &awsconfigapi.Config{
-			Region:             "us-east-1",
-			AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
-			SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
-		}
+		// The *_env directives resolve into the plain credential fields at decode.
+		cfg := decodeConfig(ctx, t, manager.dtt, map[string]any{
+			"region":                "us-east-1",
+			"access_key_id_env":     "AWS_ACCESS_KEY_ID",
+			"secret_access_key_env": "AWS_SECRET_ACCESS_KEY",
+		})
+		assert.Equal(t, "test-access-key", cfg.AccessKeyID)
+		assert.Equal(t, "test-secret-key", cfg.SecretAccessKey)
 
 		awsCfg, err := manager.createAWSConfig(ctx, cfg)
 		require.NoError(t, err)
@@ -690,10 +661,12 @@ func TestCreateAWSConfig(t *testing.T) {
 	})
 
 	t.Run("without credentials", func(t *testing.T) {
-		cfg := &awsconfigapi.Config{
-			Region: "us-west-2",
-			// No credential env vars specified
-		}
+		cfg := decodeConfig(ctx, t, manager.dtt, map[string]any{
+			"region": "us-west-2",
+			// No credential directives specified
+		})
+		assert.Empty(t, cfg.AccessKeyID)
+		assert.Empty(t, cfg.SecretAccessKey)
 
 		awsCfg, err := manager.createAWSConfig(ctx, cfg)
 		require.NoError(t, err)

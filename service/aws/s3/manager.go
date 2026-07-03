@@ -4,20 +4,18 @@ package s3
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/cloudstorage"
-	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	services3 "github.com/wippyai/runtime/api/service/aws/s3"
-	entryutil "github.com/wippyai/runtime/internal/entry"
+	entryutil "github.com/wippyai/runtime/system/entry"
 	systemresource "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )
@@ -26,7 +24,6 @@ import (
 type Manager struct {
 	dtt      payload.Transcoder
 	bus      event.Bus
-	env      envapi.Registry
 	log      *zap.Logger
 	storages map[registry.ID]*Storage
 	mu       sync.RWMutex
@@ -37,7 +34,6 @@ func NewManager(
 	bus event.Bus,
 	dtt payload.Transcoder,
 	log *zap.Logger,
-	envRegistry envapi.Registry,
 ) *Manager {
 	if log == nil {
 		log = zap.NewNop()
@@ -46,7 +42,6 @@ func NewManager(
 		log:      log,
 		dtt:      dtt,
 		bus:      bus,
-		env:      envRegistry,
 		storages: make(map[registry.ID]*Storage),
 	}
 }
@@ -188,27 +183,6 @@ func (m *Manager) set(ctx context.Context, entry registry.Entry) (attrs.Bag, err
 		return nil, NewDecodeConfigError(err)
 	}
 
-	if cfg.BucketEnv != "" {
-		bucket, found, err := m.getEnvValue(ctx, cfg.BucketEnv, "bucket")
-		if err != nil {
-			if cfg.Bucket == "" {
-				return nil, err
-			}
-		} else if found {
-			cfg.Bucket = bucket
-		}
-	}
-	if cfg.EndpointEnv != "" {
-		endpoint, found, err := m.getEnvValue(ctx, cfg.EndpointEnv, "endpoint")
-		if err != nil {
-			if cfg.Endpoint == "" {
-				return nil, err
-			}
-		} else if found {
-			cfg.Endpoint = endpoint
-		}
-	}
-
 	resourceRegistry := resource.GetRegistry(ctx)
 	rsc, err := resourceRegistry.Acquire(ctx, registry.ParseID(cfg.AWSConfig), resource.ModeNormal)
 	if err != nil {
@@ -239,23 +213,6 @@ func (m *Manager) set(ctx context.Context, entry registry.Entry) (attrs.Bag, err
 		"bucket":   cfg.Bucket,
 		"endpoint": cfg.Endpoint,
 	}, nil
-}
-
-func (m *Manager) getEnvValue(ctx context.Context, envName, field string) (string, bool, error) {
-	if envName == "" {
-		return "", false, nil
-	}
-	if m.env == nil {
-		return "", false, fmt.Errorf("%s_env %q requested but env registry is unavailable", field, envName)
-	}
-	value, err := m.env.Get(ctx, envName)
-	if err != nil {
-		return "", false, fmt.Errorf("lookup %s_env %q: %w", field, envName, err)
-	}
-	if value == "" {
-		return "", false, nil
-	}
-	return value, true, nil
 }
 
 // s3Resource represents an acquired S3 storage resource

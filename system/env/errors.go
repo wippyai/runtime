@@ -59,6 +59,12 @@ func NewStorageNotFoundError(storageID string) apierror.Error {
 		WithDetails(attrs.NewBagFrom(map[string]any{"storage_id": storageID}))
 }
 
+func NewReferencedStorageNotFoundError(storageID string) apierror.Error {
+	return apierror.New(apierror.NotFound, "referenced storage not found").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"storage_id": storageID}))
+}
+
 func NewInvalidVariableNameError(name string, reason string) apierror.Error {
 	return apierror.New(apierror.Invalid, "invalid environment variable name: "+reason).
 		WithRetryable(apierror.False).

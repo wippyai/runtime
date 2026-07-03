@@ -21,7 +21,7 @@ type Config struct {
 	Meta attrs.Bag `json:"meta"`
 
 	// Source defines the template content or location
-	Source string `json:"source"`
+	Source string `json:"source" resolve:"-"`
 
 	// Set is the template set this template belongs to
 	Set registry.ID `json:"set"`

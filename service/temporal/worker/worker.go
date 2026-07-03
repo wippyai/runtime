@@ -231,17 +231,11 @@ func (w *Worker) Start(ctx context.Context) (<-chan any, error) {
 		options.Identity = w.config.WorkerOptions.Identity
 	}
 	if w.config.WorkerOptions.UseVersioning {
-		buildID := w.config.WorkerOptions.BuildID
-		if buildID == "" && w.config.WorkerOptions.BuildIDEnv != "" && w.envReg != nil {
-			if val, err := w.envReg.Get(ctx, w.config.WorkerOptions.BuildIDEnv); err == nil {
-				buildID = val
-			}
-		}
 		options.DeploymentOptions = worker.DeploymentOptions{
 			UseVersioning: true,
 			Version: worker.WorkerDeploymentVersion{
 				DeploymentName: w.config.WorkerOptions.DeploymentName,
-				BuildID:        buildID,
+				BuildID:        w.config.WorkerOptions.BuildID,
 			},
 			DefaultVersioningBehavior: mapVersioningBehavior(w.config.WorkerOptions.DefaultVersioningBehavior),
 		}

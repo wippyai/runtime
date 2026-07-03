@@ -11,7 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/api/security"
-	entryutil "github.com/wippyai/runtime/internal/entry"
+	entryutil "github.com/wippyai/runtime/system/entry"
 )
 
 // Factory creates token stores from configuration

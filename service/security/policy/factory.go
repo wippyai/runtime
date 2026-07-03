@@ -9,7 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
 	policyapi "github.com/wippyai/runtime/api/service/security/policy"
-	entryutil "github.com/wippyai/runtime/internal/entry"
+	entryutil "github.com/wippyai/runtime/system/entry"
 )
 
 // FactoryAPI defines the interface for creating policy entries

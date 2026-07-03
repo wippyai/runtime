@@ -1348,6 +1348,204 @@ func TestRegistry_UpdateVariable_NameConflict(t *testing.T) {
 	assert.Equal(t, "value1", value)
 }
 
+func TestRegistry_RegisterVariableDirect(t *testing.T) {
+	reg, _, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	storage := newMockStorage(map[string]string{"test_var": "test_value"})
+	storageID := registry.ParseID("app:storage")
+	reg.RegisterStorage(storageID, storage)
+
+	variable := env.Variable{
+		ID:        registry.ParseID("app:my_var"),
+		Name:      "test_var",
+		StorageID: storageID,
+	}
+	require.NoError(t, reg.RegisterVariable(variable))
+
+	// Resolvable immediately without any bus round-trip.
+	value, found, err := reg.Lookup(ctx, "test_var")
+	require.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, "test_value", value)
+
+	value, err = reg.Get(ctx, "app:my_var")
+	require.NoError(t, err)
+	assert.Equal(t, "test_value", value)
+}
+
+func TestRegistry_RegisterVariableDirect_InvalidVariable(t *testing.T) {
+	reg, _, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	storageID := registry.ParseID("app:storage")
+	reg.RegisterStorage(storageID, newMockStorage(nil))
+
+	err := reg.RegisterVariable(env.Variable{
+		ID:        registry.ParseID("app:bad"),
+		Name:      "invalid-name",
+		StorageID: storageID,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid variable")
+
+	_, exists := reg.variablesByID.Load(registry.ParseID("app:bad"))
+	assert.False(t, exists)
+}
+
+func TestRegistry_RegisterVariableDirect_StorageNotFound(t *testing.T) {
+	reg, _, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	err := reg.RegisterVariable(env.Variable{
+		ID:        registry.ParseID("app:my_var"),
+		Name:      "test_var",
+		StorageID: registry.ParseID("app:nonexistent"),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "referenced storage not found")
+}
+
+func TestRegistry_RegisterVariableDirect_BusIdempotent(t *testing.T) {
+	reg, bus, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	storage := newMockStorage(map[string]string{"test_var": "test_value"})
+	storageID := registry.ParseID("app:storage")
+	reg.RegisterStorage(storageID, storage)
+
+	variable := env.Variable{
+		ID:        registry.ParseID("app:my_var"),
+		Name:      "test_var",
+		StorageID: storageID,
+	}
+
+	// Synchronous registration followed by the bus event for the same variable
+	// must not error or corrupt the index.
+	require.NoError(t, reg.RegisterVariable(variable))
+
+	bus.Send(ctx, event.Event{
+		System: env.System,
+		Kind:   env.VariableRegister,
+		Path:   variable.ID.String(),
+		Data:   variable,
+	})
+	time.Sleep(10 * time.Millisecond)
+
+	stored, exists := reg.variablesByID.Load(variable.ID)
+	require.True(t, exists)
+	assert.Equal(t, variable, stored)
+
+	shortcut, ok := reg.variablesByName.Load("test_var")
+	require.True(t, ok)
+	assert.Equal(t, variable.ID, shortcut)
+
+	value, err := reg.Get(ctx, "test_var")
+	require.NoError(t, err)
+	assert.Equal(t, "test_value", value)
+}
+
+func TestRegistry_RegisterVariableDirect_NameConflictKeepsOwner(t *testing.T) {
+	reg, _, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	storage := newMockStorage(map[string]string{"shared_name": "owner_value"})
+	storageID := registry.ParseID("app:storage")
+	reg.RegisterStorage(storageID, storage)
+
+	owner := env.Variable{
+		ID:        registry.ParseID("app:owner"),
+		Name:      "shared_name",
+		StorageID: storageID,
+	}
+	require.NoError(t, reg.RegisterVariable(owner))
+
+	// A different ID claiming the same name registers by ID but must not steal
+	// the name shortcut from the owner.
+	intruder := env.Variable{
+		ID:        registry.ParseID("app:intruder"),
+		Name:      "shared_name",
+		StorageID: storageID,
+	}
+	require.NoError(t, reg.RegisterVariable(intruder))
+
+	shortcut, ok := reg.variablesByName.Load("shared_name")
+	require.True(t, ok)
+	assert.Equal(t, owner.ID, shortcut)
+
+	value, err := reg.Get(ctx, "shared_name")
+	require.NoError(t, err)
+	assert.Equal(t, "owner_value", value)
+
+	_, exists := reg.variablesByID.Load(intruder.ID)
+	assert.True(t, exists)
+}
+
+func TestRegistry_RegisterVariableDirect_UpdateRenameCleansOldName(t *testing.T) {
+	reg, _, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	storage := newMockStorage(map[string]string{
+		"old_name": "value1",
+		"new_name": "value2",
+	})
+	storageID := registry.ParseID("app:storage")
+	reg.RegisterStorage(storageID, storage)
+
+	varID := registry.ParseID("app:myvar")
+	require.NoError(t, reg.RegisterVariable(env.Variable{
+		ID:        varID,
+		Name:      "old_name",
+		StorageID: storageID,
+	}))
+
+	require.NoError(t, reg.RegisterVariable(env.Variable{
+		ID:        varID,
+		Name:      "new_name",
+		StorageID: storageID,
+	}))
+
+	_, err := reg.Get(ctx, "old_name")
+	assert.ErrorIs(t, err, env.ErrVariableNotFound)
+
+	value, err := reg.Get(ctx, "new_name")
+	require.NoError(t, err)
+	assert.Equal(t, "value2", value)
+}
+
+func TestRegistry_UnregisterVariableDirect(t *testing.T) {
+	reg, _, ctx := setupTestRegistry()
+	require.NoError(t, reg.Start(ctx))
+	defer safeStop(t, reg)
+
+	storage := newMockStorage(map[string]string{"test_var": "test_value"})
+	storageID := registry.ParseID("app:storage")
+	reg.RegisterStorage(storageID, storage)
+
+	varID := registry.ParseID("app:my_var")
+	require.NoError(t, reg.RegisterVariable(env.Variable{
+		ID:        varID,
+		Name:      "test_var",
+		StorageID: storageID,
+	}))
+
+	reg.UnregisterVariable(varID)
+
+	_, exists := reg.variablesByID.Load(varID)
+	assert.False(t, exists)
+	_, exists = reg.variablesByName.Load("test_var")
+	assert.False(t, exists)
+
+	_, err := reg.Get(ctx, "test_var")
+	assert.ErrorIs(t, err, env.ErrVariableNotFound)
+}
+
 func TestRegistry_GetStorage_InvalidType(t *testing.T) {
 	reg, _, ctx := setupTestRegistry()
 	require.NoError(t, reg.Start(ctx))

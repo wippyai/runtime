@@ -24,9 +24,9 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 		{
 			name: "complete config",
 			config: Config{
-				Region:             "us-west-2",
-				AccessKeyIDEnv:     "AWS_ACCESS_KEY_ID",
-				SecretAccessKeyEnv: "AWS_SECRET_ACCESS_KEY",
+				Region:          "us-west-2",
+				AccessKeyID:     "AKIAEXAMPLE",
+				SecretAccessKey: "secret",
 			},
 			wantErr: false,
 		},
@@ -38,18 +38,11 @@ func TestConfig_MarshalUnmarshal(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "region from env",
+			name: "with credentials",
 			config: Config{
-				RegionEnv: "AWS_REGION",
-			},
-			wantErr: false,
-		},
-		{
-			name: "with env vars only",
-			config: Config{
-				Region:             "ap-southeast-1",
-				AccessKeyIDEnv:     "KEY_ID",
-				SecretAccessKeyEnv: "SECRET_KEY",
+				Region:          "ap-southeast-1",
+				AccessKeyID:     "KEY_ID",
+				SecretAccessKey: "SECRET_KEY",
 			},
 			wantErr: false,
 		},
@@ -87,18 +80,11 @@ func TestConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "valid with env vars",
+			name: "valid with credentials",
 			config: Config{
-				Region:             "us-west-1",
-				AccessKeyIDEnv:     "AWS_KEY",
-				SecretAccessKeyEnv: "AWS_SECRET",
-			},
-			wantErr: false,
-		},
-		{
-			name: "valid with region env",
-			config: Config{
-				RegionEnv: "AWS_REGION",
+				Region:          "us-west-1",
+				AccessKeyID:     "AWS_KEY",
+				SecretAccessKey: "AWS_SECRET",
 			},
 			wantErr: false,
 		},

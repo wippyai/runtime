@@ -20,14 +20,19 @@ import (
 	"testing"
 	"time"
 
+	"encoding/json"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	ctxapi "github.com/wippyai/runtime/api/context"
 	envapi "github.com/wippyai/runtime/api/env"
 	netapi "github.com/wippyai/runtime/api/net"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	secapi "github.com/wippyai/runtime/api/security"
 	config "github.com/wippyai/runtime/api/service/http"
+	entrycfg "github.com/wippyai/runtime/system/entry"
 	"go.uber.org/zap"
 )
 
@@ -295,6 +300,46 @@ func (r *testEnvRegistry) GetStorage(context.Context, registry.ID) (envapi.Stora
 	return nil, envapi.ErrStorageNotFound
 }
 func (r *testEnvRegistry) RegisterStorage(registry.ID, envapi.Storage) {}
+func (r *testEnvRegistry) RegisterVariable(envapi.Variable) error      { return nil }
+func (r *testEnvRegistry) UnregisterVariable(registry.ID)              {}
+
+// envCtx returns an overlay context carrying an env registry seeded with the
+// given values, so the central config-decode pass can resolve *_env directives.
+func envCtx(values map[string]string) context.Context {
+	return envapi.WithRegistry(overlayCtx(), &testEnvRegistry{values: values})
+}
+
+// jsonMapTranscoder unmarshals a Golang map payload into a struct via a JSON
+// round trip, exercising real type coercion during decode.
+type jsonMapTranscoder struct{}
+
+func (jsonMapTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
+	return payload.New(p.Data()), nil
+}
+
+func (jsonMapTranscoder) Unmarshal(p payload.Payload, v any) error {
+	m, ok := p.Data().(map[string]any)
+	if !ok {
+		return errors.New("payload is not a map")
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, v)
+}
+
+// decodeServerConfig decodes a ServerConfig from an entry whose data map is
+// data, exercising the central *_env resolution + validation path.
+func decodeServerConfig(ctx context.Context, t *testing.T, data map[string]any) (*config.ServerConfig, error) {
+	t.Helper()
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "http-server"),
+		Kind: config.Server,
+		Data: payload.New(data),
+	}
+	return entrycfg.DecodeEntryConfig[config.ServerConfig](ctx, jsonMapTranscoder{}, entry)
+}
 
 // --- buildListener --------------------------------------------------------
 
@@ -562,7 +607,7 @@ func TestLoadServerTLSConfig_InlineCert(t *testing.T) {
 		Key:  string(keyPEM),
 	}
 
-	out, err := loadServerTLSConfig(overlayCtx(), cfg)
+	out, err := loadServerTLSConfig(cfg)
 	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.Len(t, out.Certificates, 1)
@@ -571,50 +616,65 @@ func TestLoadServerTLSConfig_InlineCert(t *testing.T) {
 	assert.Nil(t, out.ClientCAs)
 }
 
-func TestLoadServerTLSConfig_EnvCert(t *testing.T) {
+// TestDecodeServerTLS_EnvCert is the central-pass regression: a manual-TLS
+// entry that names cert_env/key_env in its data map must decode AND validate
+// successfully, with the resolved PEM landing in cfg.TLS.Cert/Key and a usable
+// tls.Config. Previously the *Env struct fields plus the resolved inline PEM
+// tripped the mutual-exclusion validator; removing the fields fixes it.
+func TestDecodeServerTLS_EnvCert(t *testing.T) {
 	certPEM, keyPEM := selfSignedPEM(t)
 
-	ctx := overlayCtx()
-	ctx = envapi.WithRegistry(ctx, &testEnvRegistry{
-		values: map[string]string{
-			"app.env:tls_cert": string(certPEM),
-			"app.env:tls_key":  string(keyPEM),
-		},
+	ctx := envCtx(map[string]string{
+		"app.env:tls_cert": string(certPEM),
+		"app.env:tls_key":  string(keyPEM),
 	})
 
-	cfg := config.ServerTLSConfig{
-		Mode:    config.TLSModeManual,
-		CertEnv: "app.env:tls_cert",
-		KeyEnv:  "app.env:tls_key",
-	}
+	cfg, err := decodeServerConfig(ctx, t, map[string]any{
+		"addr": ":8443",
+		"tls": map[string]any{
+			"mode":     "manual",
+			"cert_env": "app.env:tls_cert",
+			"key_env":  "app.env:tls_key",
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, string(certPEM), cfg.TLS.Cert)
+	assert.Equal(t, string(keyPEM), cfg.TLS.Key)
 
-	out, err := loadServerTLSConfig(ctx, cfg)
+	out, err := loadServerTLSConfig(cfg.TLS)
 	require.NoError(t, err)
 	require.Len(t, out.Certificates, 1)
 }
 
-func TestLoadServerTLSConfig_EnvRegistryMissing(t *testing.T) {
-	cfg := config.ServerTLSConfig{
-		Mode:    config.TLSModeManual,
-		CertEnv: "app.env:tls_cert",
-		KeyEnv:  "app.env:tls_key",
-	}
-	_, err := loadServerTLSConfig(overlayCtx(), cfg)
+// TestDecodeServerTLS_EnvRegistryMissing: without an env registry the *_env
+// directive is left unapplied, so a manual entry ends up with empty cert/key
+// and fails validation at decode.
+func TestDecodeServerTLS_EnvRegistryMissing(t *testing.T) {
+	_, err := decodeServerConfig(overlayCtx(), t, map[string]any{
+		"addr": ":8443",
+		"tls": map[string]any{
+			"mode":     "manual",
+			"cert_env": "app.env:tls_cert",
+			"key_env":  "app.env:tls_key",
+		},
+	})
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrTLSEnvRegistryUnavailable)
+	assert.Contains(t, err.Error(), "cert+key")
 }
 
-func TestLoadServerTLSConfig_EnvLookupFails(t *testing.T) {
-	ctx := overlayCtx()
-	ctx = envapi.WithRegistry(ctx, &testEnvRegistry{values: map[string]string{}})
-	cfg := config.ServerTLSConfig{
-		Mode:    config.TLSModeManual,
-		CertEnv: "app.env:missing",
-		KeyEnv:  "app.env:missing2",
-	}
-	_, err := loadServerTLSConfig(ctx, cfg)
+// TestDecodeServerTLS_EnvLookupFails: a directive naming a variable the
+// registry cannot resolve surfaces as a decode error.
+func TestDecodeServerTLS_EnvLookupFails(t *testing.T) {
+	ctx := envCtx(map[string]string{})
+	_, err := decodeServerConfig(ctx, t, map[string]any{
+		"addr": ":8443",
+		"tls": map[string]any{
+			"mode":     "manual",
+			"cert_env": "app.env:missing",
+			"key_env":  "app.env:missing2",
+		},
+	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to resolve TLS env variable")
 }
 
 func TestLoadServerTLSConfig_InvalidPEM(t *testing.T) {
@@ -623,7 +683,7 @@ func TestLoadServerTLSConfig_InvalidPEM(t *testing.T) {
 		Cert: "not a pem",
 		Key:  "neither",
 	}
-	_, err := loadServerTLSConfig(overlayCtx(), cfg)
+	_, err := loadServerTLSConfig(cfg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "load TLS")
 }
@@ -637,26 +697,32 @@ func TestLoadServerTLSConfig_ClientCAInline(t *testing.T) {
 		ClientCA:   string(m.caCertPEM),
 		ClientAuth: config.ClientAuthRequireAndVerify,
 	}
-	out, err := loadServerTLSConfig(overlayCtx(), cfg)
+	out, err := loadServerTLSConfig(cfg)
 	require.NoError(t, err)
 	require.NotNil(t, out.ClientCAs)
 	assert.Equal(t, tls.RequireAndVerifyClientCert, out.ClientAuth)
 }
 
-func TestLoadServerTLSConfig_ClientCAEnv(t *testing.T) {
+// TestDecodeServerTLS_ClientCAEnv proves the central pass resolves a
+// client_ca_env directive into cfg.TLS.ClientCA and the CA pool is assembled.
+func TestDecodeServerTLS_ClientCAEnv(t *testing.T) {
 	m := newCAMaterial(t)
-	ctx := overlayCtx()
-	ctx = envapi.WithRegistry(ctx, &testEnvRegistry{
-		values: map[string]string{"app.env:ca": string(m.caCertPEM)},
+	ctx := envCtx(map[string]string{"app.env:ca": string(m.caCertPEM)})
+
+	cfg, err := decodeServerConfig(ctx, t, map[string]any{
+		"addr": ":8443",
+		"tls": map[string]any{
+			"mode":          "manual",
+			"cert":          string(m.serverCert),
+			"key":           string(m.serverKey),
+			"client_ca_env": "app.env:ca",
+			"client_auth":   "verify_if_given",
+		},
 	})
-	cfg := config.ServerTLSConfig{
-		Mode:        config.TLSModeManual,
-		Cert:        string(m.serverCert),
-		Key:         string(m.serverKey),
-		ClientCAEnv: "app.env:ca",
-		ClientAuth:  config.ClientAuthVerifyIfGiven,
-	}
-	out, err := loadServerTLSConfig(ctx, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, string(m.caCertPEM), cfg.TLS.ClientCA)
+
+	out, err := loadServerTLSConfig(cfg.TLS)
 	require.NoError(t, err)
 	require.NotNil(t, out.ClientCAs)
 	assert.Equal(t, tls.VerifyClientCertIfGiven, out.ClientAuth)
@@ -671,7 +737,7 @@ func TestLoadServerTLSConfig_ClientCAInvalid(t *testing.T) {
 		ClientCA:   "garbage",
 		ClientAuth: config.ClientAuthRequireAndVerify,
 	}
-	_, err := loadServerTLSConfig(overlayCtx(), cfg)
+	_, err := loadServerTLSConfig(cfg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no valid certificates")
 }
@@ -754,7 +820,7 @@ func TestLoadServerTLSConfig_MTLS_RequireAndVerify_Rejects(t *testing.T) {
 		ClientCA:   string(m.caCertPEM),
 		ClientAuth: config.ClientAuthRequireAndVerify,
 	}
-	srvCfg, err := loadServerTLSConfig(overlayCtx(), cfg)
+	srvCfg, err := loadServerTLSConfig(cfg)
 	require.NoError(t, err)
 
 	addr, done := serveTLSOnce(t, srvCfg)
@@ -778,7 +844,7 @@ func TestLoadServerTLSConfig_MTLS_RequireAndVerify_Accepts(t *testing.T) {
 		ClientCA:   string(m.caCertPEM),
 		ClientAuth: config.ClientAuthRequireAndVerify,
 	}
-	srvCfg, err := loadServerTLSConfig(overlayCtx(), cfg)
+	srvCfg, err := loadServerTLSConfig(cfg)
 	require.NoError(t, err)
 
 	addr, done := serveTLSOnce(t, srvCfg)
@@ -813,7 +879,7 @@ func TestLoadServerTLSConfig_MTLS_RejectsUnknownCA(t *testing.T) {
 		ClientCA:   string(m.caCertPEM),
 		ClientAuth: config.ClientAuthRequireAndVerify,
 	}
-	srvCfg, err := loadServerTLSConfig(overlayCtx(), cfg)
+	srvCfg, err := loadServerTLSConfig(cfg)
 	require.NoError(t, err)
 
 	addr, done := serveTLSOnce(t, srvCfg)
@@ -841,7 +907,7 @@ func TestLoadServerTLSConfig_MTLS_VerifyIfGiven_AcceptsNoCert(t *testing.T) {
 		ClientCA:   string(m.caCertPEM),
 		ClientAuth: config.ClientAuthVerifyIfGiven,
 	}
-	srvCfg, err := loadServerTLSConfig(overlayCtx(), cfg)
+	srvCfg, err := loadServerTLSConfig(cfg)
 	require.NoError(t, err)
 
 	addr, done := serveTLSOnce(t, srvCfg)
@@ -881,7 +947,7 @@ func TestLoadServerTLSConfig_ClientAuthRequest_NoCA(t *testing.T) {
 				Key:        string(keyPEM),
 				ClientAuth: tc.mode,
 			}
-			out, err := loadServerTLSConfig(overlayCtx(), cfg)
+			out, err := loadServerTLSConfig(cfg)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, out.ClientAuth)
 			assert.Nil(t, out.ClientCAs, "no pool expected when no CA configured")
@@ -930,29 +996,29 @@ func TestBuildListener_Clearnet_ManualTLS_Handshake(t *testing.T) {
 	assert.Equal(t, "hi", string(buf))
 }
 
-// TestBuildListener_Clearnet_ManualTLS_EnvCert covers the env-resolved
-// cert path through the full buildListener flow.
+// TestBuildListener_Clearnet_ManualTLS_EnvCert covers the env-resolved cert
+// path: the entry names cert_env/key_env, decode resolves them into the
+// config, and buildListener wraps a TLS listener with no env lookup at bind.
 func TestBuildListener_Clearnet_ManualTLS_EnvCert(t *testing.T) {
 	certPEM, keyPEM := selfSignedPEM(t)
 
-	cfg := &config.ServerConfig{
-		Addr: "127.0.0.1:0",
-		TLS: config.ServerTLSConfig{
-			Mode:    config.TLSModeManual,
-			CertEnv: "app.env:tls_cert",
-			KeyEnv:  "app.env:tls_key",
-		},
-	}
-	s := makeServer(t, cfg)
-
-	ctx := envapi.WithRegistry(overlayCtx(), &testEnvRegistry{
-		values: map[string]string{
-			"app.env:tls_cert": string(certPEM),
-			"app.env:tls_key":  string(keyPEM),
-		},
+	ctx := envCtx(map[string]string{
+		"app.env:tls_cert": string(certPEM),
+		"app.env:tls_key":  string(keyPEM),
 	})
 
-	ln, _, err := s.buildListener(ctx)
+	cfg, err := decodeServerConfig(ctx, t, map[string]any{
+		"addr": "127.0.0.1:0",
+		"tls": map[string]any{
+			"mode":     "manual",
+			"cert_env": "app.env:tls_cert",
+			"key_env":  "app.env:tls_key",
+		},
+	})
+	require.NoError(t, err)
+
+	s := makeServer(t, cfg)
+	ln, _, err := s.buildListener(overlayCtx())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ln.Close() })
 }

@@ -590,8 +590,8 @@ func TestTailscaleE2E_ConfigValidation(t *testing.T) {
 			wantErr: "auth_key",
 		},
 		{
-			name:    "empty auth key and env",
-			cfg:     netapi.TailscaleConfig{AuthKey: "", AuthKeyEnv: ""},
+			name:    "empty auth key",
+			cfg:     netapi.TailscaleConfig{AuthKey: ""},
 			wantErr: "auth_key",
 		},
 	}

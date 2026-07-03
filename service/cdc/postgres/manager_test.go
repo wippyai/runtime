@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 	"sort"
 	"testing"
@@ -11,9 +12,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	envapi "github.com/wippyai/runtime/api/env"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	config "github.com/wippyai/runtime/api/service/cdc"
+	entryutil "github.com/wippyai/runtime/system/entry"
 )
 
 type mockEnvRegistry struct {
@@ -47,23 +51,74 @@ func (m *mockEnvRegistry) GetStorage(_ context.Context, _ registry.ID) (envapi.S
 
 func (m *mockEnvRegistry) RegisterStorage(_ registry.ID, _ envapi.Storage) {}
 
-func TestResolveEnv_FailsFastOnUnresolvable(t *testing.T) {
-	m := &Manager{env: &mockEnvRegistry{vars: map[string]string{"DB_HOST": "h"}}}
-	cfg := &config.Config{HostEnv: "DB_HOST", UsernameEnv: "MISSING_USER"}
+func (m *mockEnvRegistry) RegisterVariable(_ envapi.Variable) error { return nil }
 
-	err := m.resolveEnv(context.Background(), cfg)
+func (m *mockEnvRegistry) UnregisterVariable(_ registry.ID) {}
+
+// jsonConfigTranscoder decodes an entry's raw data map into the target config the
+// same way the production transcoder does, so *_env directives carried in the
+// data map are seen by the central resolve pass.
+type jsonConfigTranscoder struct{}
+
+func (t *jsonConfigTranscoder) Marshal(v any) (payload.Payload, error) {
+	return payload.New(v), nil
+}
+
+func (t *jsonConfigTranscoder) Unmarshal(p payload.Payload, v any) error {
+	b, err := json.Marshal(p.Data())
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, v)
+}
+
+func (t *jsonConfigTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
+	return payload.NewPayload(p.Data(), format), nil
+}
+
+func cdcEntryWithData(data map[string]any) registry.Entry {
+	return registry.Entry{
+		ID:   registry.NewID("test", "resolve-cdc"),
+		Kind: config.Postgres,
+		Data: payload.New(data),
+	}
+}
+
+func ctxWithEnv(reg envapi.Registry) context.Context {
+	return envapi.WithRegistry(ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext()), reg)
+}
+
+func TestResolveEnv_FailsFastOnUnresolvable(t *testing.T) {
+	ctx := ctxWithEnv(&mockEnvRegistry{vars: map[string]string{"DB_HOST": "h"}})
+	data := map[string]any{
+		"host_env":     "DB_HOST",
+		"username_env": "MISSING_USER",
+		"slot_name":    "slot",
+		"publication":  "pub",
+	}
+
+	_, err := entryutil.DecodeEntryConfig[config.Config](ctx, &jsonConfigTranscoder{}, cdcEntryWithData(data))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "could not be resolved")
 	assert.Contains(t, err.Error(), "environment variable not found")
 }
 
 func TestResolveEnv_AppliesResolvedValues(t *testing.T) {
-	m := &Manager{env: &mockEnvRegistry{vars: map[string]string{
+	ctx := ctxWithEnv(&mockEnvRegistry{vars: map[string]string{
 		"H": "resolved-host", "P": "6543", "D": "resolved-db", "U": "resolved-user", "PW": "resolved-pass",
-	}}}
-	cfg := &config.Config{HostEnv: "H", PortEnv: "P", DatabaseEnv: "D", UsernameEnv: "U", PasswordEnv: "PW"}
+	}})
+	data := map[string]any{
+		"host_env":     "H",
+		"port_env":     "P",
+		"database_env": "D",
+		"username_env": "U",
+		"password_env": "PW",
+		"slot_name":    "slot",
+		"publication":  "pub",
+	}
 
-	require.NoError(t, m.resolveEnv(context.Background(), cfg))
+	cfg, err := entryutil.DecodeEntryConfig[config.Config](ctx, &jsonConfigTranscoder{}, cdcEntryWithData(data))
+	require.NoError(t, err)
 	assert.Equal(t, "resolved-host", cfg.Host)
 	assert.Equal(t, 6543, cfg.Port)
 	assert.Equal(t, "resolved-db", cfg.Database)

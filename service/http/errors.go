@@ -24,7 +24,6 @@ var (
 	ErrServerHostNotInitialized        = apierror.New(apierror.Internal, "server host not initialized").WithRetryable(apierror.False)
 	ErrNetworkRegistryNotAvailable     = apierror.New(apierror.Internal, "network registry not available in context").WithRetryable(apierror.False)
 	ErrClearnetAutoTLSUnsupported      = apierror.New(apierror.Invalid, "tls.mode=auto requires an overlay network driver").WithRetryable(apierror.False)
-	ErrTLSEnvRegistryUnavailable       = apierror.New(apierror.Internal, "env registry not available in context").WithRetryable(apierror.False)
 )
 
 func NewUnsupportedEntryKindError(kind string) apierror.Error {
@@ -231,13 +230,6 @@ func NewTLSLoadError(err error) apierror.Error {
 	return apierror.New(apierror.Invalid, "failed to load TLS cert/key").
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"cause": err.Error()})).
-		WithCause(err)
-}
-
-func NewTLSEnvResolveError(name string, err error) apierror.Error {
-	return apierror.New(apierror.Invalid, "failed to resolve TLS env variable: "+name).
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"variable": name, "cause": err.Error()})).
 		WithCause(err)
 }
 

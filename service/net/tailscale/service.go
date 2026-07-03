@@ -3,7 +3,7 @@
 // Package tailscale implements the Tailscale overlay network driver. It
 // runs a userspace tsnet node per registry entry and routes DialContext
 // / Listen through the tailnet. Authentication uses a raw auth key; the
-// enclosing Manager resolves env-var indirection before Create.
+// config-decode pass resolves an auth_key_env directive into it.
 package tailscale
 
 import (
@@ -33,8 +33,8 @@ type Service struct {
 }
 
 // NewService creates and starts a new Tailscale tsnet node. The caller is
-// responsible for populating cfg.AuthKey — upstream code resolves indirect
-// references like AuthKeyEnv before reaching here.
+// responsible for populating cfg.AuthKey — the config-decode pass resolves an
+// auth_key_env directive into it before reaching here.
 func NewService(cfg *netapi.TailscaleConfig) (*Service, error) {
 	hostname := cfg.Hostname
 	if hostname == "" {
