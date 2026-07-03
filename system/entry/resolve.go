@@ -175,21 +175,23 @@ func resolveInterpolation(ctx context.Context, path, s string) (any, bool, error
 }
 
 // lookupEnv resolves a variable against the registry in ctx, mapping a
-// not-found variable to (found=false) rather than an error.
+// not-found variable to (found=false) so the placeholder default applies. Get
+// honors a variable's DefaultValue, so a placeholder resolves to the variable
+// default before falling back to its own inline default.
 func lookupEnv(ctx context.Context, path, name string) (string, bool, error) {
 	reg := env.GetRegistry(ctx)
 	if reg == nil {
 		return "", false, ErrEnvRegistryMissing
 	}
 
-	value, found, err := reg.Lookup(ctx, name)
+	value, err := reg.Get(ctx, name)
 	if err != nil {
 		if errors.Is(err, env.ErrVariableNotFound) {
 			return "", false, nil
 		}
 		return "", false, NewPlaceholderLookupError(path, name, err)
 	}
-	return value, found, nil
+	return value, true, nil
 }
 
 // decodeScalar parses a default as a YAML scalar to determine its type; a quoted

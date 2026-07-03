@@ -122,10 +122,14 @@ func (r *Resolver) fetchDeps(entry registry.Entry) []string {
 		}
 	}
 
-	// Placeholder references (${env:...} / ${NAME|...}) may appear in any string
-	// value, not only registered pattern paths, so scan the whole entry. Emitted
-	// as-is: ID-form refs create edges, bare names dangle and drop downstream.
-	resolverExtractPlaceholders(combined, add)
+	// Placeholder references (${env:...} / ${NAME|...}) may appear in any data
+	// string value, not only registered pattern paths. Only entry data is
+	// resolved at decode time, so meta is excluded to avoid edges for
+	// placeholder-shaped text that is never resolved. Emitted as-is: ID-form
+	// refs create edges, bare names dangle and drop downstream.
+	if data, ok := combined["data"]; ok {
+		resolverExtractPlaceholders(data, add)
+	}
 
 	sort.Strings(result)
 

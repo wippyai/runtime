@@ -249,6 +249,10 @@ func walkEnvStruct(ctx context.Context, v reflect.Value, logged *bool) error {
 		if err := applyEnvField(ctx, variable, sibling, logged); err != nil {
 			return err
 		}
+		// Clear the directive once applied so a validator that treats inline and
+		// env inputs as mutually exclusive (TLS cert/cert_env) sees only the
+		// resolved field.
+		fv.SetString("")
 	}
 	return nil
 }
@@ -332,16 +336,16 @@ func lookupEnvField(ctx context.Context, name string, logged *bool) (value strin
 		return "", false, NewEnvFieldRegistryMissingError(name)
 	}
 
-	value, found, err := reg.Lookup(ctx, name)
+	// Get honors a variable's DefaultValue when its storage holds no value,
+	// matching the per-service resolvers this pass replaces.
+	value, err = reg.Get(ctx, name)
 	if err != nil {
 		if errors.Is(err, env.ErrVariableNotFound) {
 			return "", false, NewEnvFieldNotFoundError(name)
 		}
 		return "", false, NewEnvFieldLookupError(name, err)
 	}
-	if !found {
-		return "", false, NewEnvFieldNotFoundError(name)
-	}
+	// A registered-but-empty variable keeps the inline value.
 	if value == "" {
 		return "", false, nil
 	}

@@ -595,9 +595,21 @@ func TestResolver_PlaceholderMultipleInOneString(t *testing.T) {
 func TestResolver_PlaceholderInMeta(t *testing.T) {
 	sdk := NewResolverTestSDK(t)
 
+	// Meta placeholders are never resolved at decode time, so they must not
+	// create dependency edges. A meta *_env key remains a dependency reference
+	// handled by the registered meta.*_env pattern, not by placeholder scanning.
 	sdk.ExpectDeps(`{
 		"kind": "service",
 		"meta": {"label": "${env:app:VAR}"}
+	}`).ToBeEmpty()
+}
+
+func TestResolver_PlaceholderInData(t *testing.T) {
+	sdk := NewResolverTestSDK(t)
+
+	sdk.ExpectDeps(`{
+		"kind": "service",
+		"data": {"endpoint": "${env:app:VAR}"}
 	}`).ToEqual("app:VAR")
 }
 

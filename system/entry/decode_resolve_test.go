@@ -527,3 +527,41 @@ func TestEnvField_UnsupportedSiblingKindFails(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot convert")
 }
+
+// mutexTLSConfig mimics the TLS validators that reject inline and env inputs
+// set together; after resolution the directive field must be cleared so the
+// resolved sibling is unambiguous.
+type mutexTLSConfig struct {
+	Cert    string `json:"cert"`
+	CertEnv string `json:"cert_env"`
+}
+
+func (c *mutexTLSConfig) Validate() error {
+	if c.Cert != "" && c.CertEnv != "" {
+		return errors.New("cert and cert_env are mutually exclusive")
+	}
+	return nil
+}
+
+func TestEnvField_DirectiveClearedForMutexValidator(t *testing.T) {
+	reg := &fakeEnvRegistry{vars: []fakeVar{{name: "CERT", value: "PEMDATA"}}}
+	ctx := env.WithRegistry(ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext()), reg)
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "tls"),
+		Kind: "test.tls",
+		Data: payload.New(map[string]any{"cert_env": "CERT"}),
+	}
+	cfg, err := DecodeEntryConfig[mutexTLSConfig](ctx, realTranscoder{}, entry)
+	require.NoError(t, err)
+	assert.Equal(t, "PEMDATA", cfg.Cert)
+	assert.Equal(t, "", cfg.CertEnv, "directive must be cleared so the validator sees only the resolved field")
+}
+
+func TestEnvField_HonorsVariableDefault(t *testing.T) {
+	// A variable with only a DefaultValue and no stored value resolves to the
+	// default (Get semantics), matching the resolvers this pass replaces.
+	reg := &fakeEnvRegistry{vars: []fakeVar{{name: "REGION", value: "", def: "us-east-1"}}}
+	cfg, err := decodeServerEnv(t, reg, ServerEnvConfig{HostEnv: "REGION"})
+	require.NoError(t, err)
+	assert.Equal(t, "us-east-1", cfg.Host)
+}

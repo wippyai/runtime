@@ -20,6 +20,16 @@ type fakeVar struct {
 	name  string
 	id    string
 	value string
+	def   string
+}
+
+func (f *fakeEnvRegistry) find(key string) (*fakeVar, bool) {
+	for i := range f.vars {
+		if key == f.vars[i].name || key == f.vars[i].id {
+			return &f.vars[i], true
+		}
+	}
+	return nil, false
 }
 
 // fakeEnvRegistry is a test double of env.Registry that mirrors the real
@@ -33,26 +43,31 @@ func (f *fakeEnvRegistry) Lookup(_ context.Context, key string) (string, bool, e
 	if f.lookupErr != nil {
 		return "", false, f.lookupErr
 	}
-	for _, v := range f.vars {
-		if key == v.name || key == v.id {
-			if v.value == "" {
-				return "", false, nil
-			}
-			return v.value, true, nil
-		}
+	v, ok := f.find(key)
+	if !ok {
+		return "", false, env.ErrVariableNotFound
 	}
-	return "", false, env.ErrVariableNotFound
+	if v.value == "" {
+		return "", false, nil
+	}
+	return v.value, true, nil
 }
 
-func (f *fakeEnvRegistry) Get(ctx context.Context, name string) (string, error) {
-	value, found, err := f.Lookup(ctx, name)
-	if err != nil {
-		return "", err
+func (f *fakeEnvRegistry) Get(_ context.Context, name string) (string, error) {
+	if f.lookupErr != nil {
+		return "", f.lookupErr
 	}
-	if !found {
+	v, ok := f.find(name)
+	if !ok {
 		return "", env.ErrVariableNotFound
 	}
-	return value, nil
+	if v.value != "" {
+		return v.value, nil
+	}
+	if v.def != "" {
+		return v.def, nil
+	}
+	return "", env.ErrVariableNotFound
 }
 
 func (f *fakeEnvRegistry) Set(context.Context, string, string) error { return nil }
