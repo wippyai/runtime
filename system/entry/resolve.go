@@ -101,13 +101,15 @@ func resolveValue(ctx context.Context, path, logical string, skip map[string]str
 	}
 }
 
-// resolveString resolves placeholders in a single string value.
+// resolveString resolves placeholders in a single string value. Only a value
+// that is exactly one placeholder — no surrounding text or whitespace — takes
+// the typed whole-value path; anything else interpolates to a string.
 func resolveString(ctx context.Context, path, s string) (any, bool, error) {
 	if !strings.Contains(s, "${") {
 		return s, false, nil
 	}
 
-	if segs := placeholder.Parse(strings.TrimSpace(s)); len(segs) == 1 && segs[0].IsRef {
+	if segs := placeholder.Parse(s); len(segs) == 1 && segs[0].IsRef {
 		return resolveWholeValue(ctx, path, segs[0])
 	}
 

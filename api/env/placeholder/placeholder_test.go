@@ -76,3 +76,32 @@ func TestParse(t *testing.T) {
 	// Unrecognized bodies are preserved as literal text.
 	assert.Equal(t, []Segment{{Literal: "${lower}"}}, Parse("${lower}"))
 }
+
+func TestParse_MalformedSpansStayLiteral(t *testing.T) {
+	cases := []string{
+		"$",           // trailing dollar
+		"cost is $5",  // dollar not opening a span
+		"${unclosed",  // no closing brace
+		"${lower}",    // body not a recognized reference
+		"a ${1BAD} b", // invalid identifier
+		"${env:}",     // empty env name
+		"$${env:FOO}", // escaped, not a reference
+		"${BARE}",     // shorthand without a default pipe
+	}
+	for _, s := range cases {
+		segs := Parse(s)
+		for _, seg := range segs {
+			assert.False(t, seg.IsRef, "no reference expected in %q", s)
+		}
+		// Reassembling literals reproduces the input (with $${ collapsed).
+		var b string
+		for _, seg := range segs {
+			b += seg.Literal
+		}
+		want := s
+		if s == "$${env:FOO}" {
+			want = "${env:FOO}"
+		}
+		assert.Equal(t, want, b, "literal round-trip for %q", s)
+	}
+}

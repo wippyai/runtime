@@ -421,3 +421,75 @@ func TestEnvMap_MetaBagNotResolved(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "app:some_storage", cfg.Meta["storage_env"], "meta _env keys stay as dependency references")
 }
+
+// TypedEnvConfig covers the integer/float bit-size branches of assignEnvValue.
+type TypedEnvConfig struct {
+	Small    int8    `json:"small"`
+	SmallEnv string  `json:"small_env"`
+	Count    uint32  `json:"count"`
+	CountEnv string  `json:"count_env"`
+	Ratio    float32 `json:"ratio"`
+	RatioEnv string  `json:"ratio_env"`
+	Big      int64   `json:"big"`
+	BigEnv   string  `json:"big_env"`
+}
+
+func decodeTyped(t *testing.T, reg env.Registry, data map[string]any) (*TypedEnvConfig, error) {
+	t.Helper()
+	ctx := env.WithRegistry(ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext()), reg)
+	entry := registry.Entry{ID: registry.NewID("test", "typed"), Kind: "test.typed", Data: payload.New(data)}
+	return DecodeEntryConfig[TypedEnvConfig](ctx, realTranscoder{}, entry)
+}
+
+func TestEnvField_TypedBitSizes(t *testing.T) {
+	reg := &fakeEnvRegistry{vars: []fakeVar{
+		{name: "S", value: "7"}, {name: "C", value: "4000000000"},
+		{name: "R", value: "1.5"}, {name: "B", value: "9000000000"},
+	}}
+	cfg, err := decodeTyped(t, reg, map[string]any{
+		"small_env": "S", "count_env": "C", "ratio_env": "R", "big_env": "B",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int8(7), cfg.Small)
+	assert.Equal(t, uint32(4000000000), cfg.Count)
+	assert.Equal(t, float32(1.5), cfg.Ratio)
+	assert.Equal(t, int64(9000000000), cfg.Big)
+}
+
+func TestEnvField_TypedOverflowFails(t *testing.T) {
+	// 300 does not fit int8; conversion must fail rather than silently wrap.
+	reg := &fakeEnvRegistry{vars: []fakeVar{{name: "S", value: "300"}}}
+	_, err := decodeTyped(t, reg, map[string]any{"small_env": "S"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot convert")
+}
+
+func TestPlaceholder_WholeValueInt64AndFloat(t *testing.T) {
+	reg := &fakeEnvRegistry{vars: []fakeVar{{name: "N", value: "9000000000"}}}
+	ctx := env.WithRegistry(ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext()), reg)
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "s"),
+		Kind: "test.s",
+		Data: payload.New(map[string]any{"big": "${env:N|1}"}),
+	}
+	type C struct {
+		Big int64 `json:"big"`
+	}
+	cfg, err := DecodeEntryConfig[C](ctx, realTranscoder{}, entry)
+	require.NoError(t, err)
+	assert.Equal(t, int64(9000000000), cfg.Big)
+}
+
+func TestPlaceholder_WhitespaceInterpolatesNotTyped(t *testing.T) {
+	reg := &fakeEnvRegistry{vars: []fakeVar{{name: "N", value: "16"}}}
+	ctx := env.WithRegistry(ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext()), reg)
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "s"),
+		Kind: "test.s",
+		Data: payload.New(map[string]any{"name": " ${env:N} "}),
+	}
+	cfg, err := DecodeEntryConfig[ResolveConfig](ctx, realTranscoder{}, entry)
+	require.NoError(t, err)
+	// Surrounding whitespace forces string interpolation, preserving the spaces.
+	assert.Equal(t, " 16 ", cfg.Name)
+}

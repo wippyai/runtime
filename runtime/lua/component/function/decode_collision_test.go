@@ -122,3 +122,53 @@ func TestDecodeFunctionConfig_InjectsEntryMeta(t *testing.T) {
 	require.True(t, ok)
 	assert.True(t, opts.GetBool("public", false))
 }
+
+// TestDecodeFunctionConfig_NoLeakBackToRegistry proves resolution never writes
+// resolved values back into the sealed registry entry and never touches source:
+// the decoded struct carries resolved fields while entry.Data keeps the original
+// placeholders, so a resolved secret cannot reach Lua through the registry.
+func TestDecodeFunctionConfig_NoLeakBackToRegistry(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	transcoder := systempayload.NewTranscoder()
+	json.Register(transcoder)
+	ctx = payload.WithTranscoder(ctx, transcoder)
+	ctx = envapi.WithRegistry(ctx, resolvingEnvRegistry{value: "resolved-method"})
+
+	dataJSON := `{"source":"local x = ${SECRET}/${env:OTHER}","method":"${env:METHOD_VAR}","pool":{"type":"static","size":1}}`
+	entry := registry.Entry{
+		ID:   registry.NewID("app.test", "fn"),
+		Kind: api.Function,
+		Data: payload.NewPayload(dataJSON, payload.JSON),
+	}
+
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.FunctionConfig](ctx, entry)
+	require.NoError(t, err)
+
+	// The non-source field resolved in the returned struct.
+	assert.Equal(t, "resolved-method", cfg.Method)
+	// Source is exempt: every placeholder-shaped span survives verbatim.
+	assert.Contains(t, cfg.Source, `${SECRET}/${env:OTHER}`)
+	// The sealed entry payload still holds the original method placeholder.
+	raw, ok := entry.Data.Data().(string)
+	require.True(t, ok)
+	assert.Contains(t, raw, `${env:METHOD_VAR}`, "registry entry must keep the placeholder, not the resolved value")
+	assert.NotContains(t, raw, "resolved-method", "resolved value must not leak back into the registry entry")
+}
+
+// resolvingEnvRegistry resolves every variable to a fixed value.
+type resolvingEnvRegistry struct {
+	value string
+}
+
+func (r resolvingEnvRegistry) Get(context.Context, string) (string, error) { return r.value, nil }
+func (r resolvingEnvRegistry) Lookup(context.Context, string) (string, bool, error) {
+	return r.value, true, nil
+}
+func (resolvingEnvRegistry) Set(context.Context, string, string) error      { return nil }
+func (resolvingEnvRegistry) All(context.Context) (map[string]string, error) { return nil, nil }
+func (resolvingEnvRegistry) GetStorage(context.Context, registry.ID) (envapi.Storage, error) {
+	return nil, envapi.ErrStorageNotFound
+}
+func (resolvingEnvRegistry) RegisterStorage(registry.ID, envapi.Storage) {}
+func (resolvingEnvRegistry) RegisterVariable(envapi.Variable) error      { return nil }
+func (resolvingEnvRegistry) UnregisterVariable(registry.ID)              {}
