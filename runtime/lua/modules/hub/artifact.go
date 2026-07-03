@@ -37,61 +37,57 @@ type artifactInspection struct {
 }
 
 func inspectVersionArtifact(ctx context.Context, client ArtifactClient, params *boothub.DownloadParams, vendorDir string) (*artifactInspection, error) {
-	if client == nil {
-		return nil, fmt.Errorf("artifact client required")
-	}
-	info, err := client.GetDownloadURL(ctx, params)
+	path, info, err := ensureCachedArtifact(ctx, client, params, vendorDir)
 	if err != nil {
 		return nil, err
 	}
+	displayVersion := firstNonEmpty(info.Version, params.Version, params.VersionID, params.Label)
+	return inspectCachedArtifact(path, info, displayVersion)
+}
+
+func ensureCachedArtifact(ctx context.Context, client ArtifactClient, params *boothub.DownloadParams, vendorDir string) (string, *boothub.DownloadInfo, error) {
+	if client == nil {
+		return "", nil, fmt.Errorf("artifact client required")
+	}
+	info, err := client.GetDownloadURL(ctx, params)
+	if err != nil {
+		return "", nil, err
+	}
 	if info == nil || strings.TrimSpace(info.URL) == "" {
-		return nil, fmt.Errorf("artifact download URL unavailable")
+		return "", nil, fmt.Errorf("artifact download URL unavailable")
 	}
 
 	path, pathErr := artifactCachePath(params, info, vendorDir)
 	if pathErr != nil {
-		return nil, pathErr
+		return "", nil, pathErr
 	}
-	displayVersion := firstNonEmpty(info.Version, params.Version, params.VersionID, params.Label)
+
 	if _, statErr := os.Stat(path); statErr == nil {
 		if err := boothub.VerifyDownloadedArtifact(path, info.Digest, info.Size); err == nil {
-			inspection, inspectErr := inspectCachedArtifact(path, info, displayVersion)
-			if inspectErr == nil {
-				return inspection, nil
-			}
+			return path, info, nil
 		}
 		_ = os.Remove(path)
 	} else if !os.IsNotExist(statErr) {
-		return nil, statErr
+		return "", nil, statErr
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return nil, fmt.Errorf("create artifact cache directory: %w", err)
+		return "", nil, fmt.Errorf("create artifact cache directory: %w", err)
 	}
 	if err := client.DownloadToFile(ctx, info.URL, path); err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	if err := boothub.VerifyDownloadedArtifact(path, info.Digest, info.Size); err != nil {
 		_ = os.Remove(path)
-		return nil, fmt.Errorf("verify artifact: %w", err)
+		return "", nil, fmt.Errorf("verify artifact: %w", err)
 	}
-	return inspectCachedArtifact(path, info, displayVersion)
+	return path, info, nil
 }
 
 func inspectCachedArtifact(path string, info *boothub.DownloadInfo, version string) (*artifactInspection, error) {
-	file, err := os.Open(path)
+	entries, err := readEntriesFromFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("open artifact: %w", err)
-	}
-	defer file.Close()
-
-	reader, err := wapp.NewReader(file)
-	if err != nil {
-		return nil, fmt.Errorf("read artifact: %w", err)
-	}
-	entries, err := reader.GetEntries()
-	if err != nil {
-		return nil, fmt.Errorf("read artifact entries: %w", err)
+		return nil, err
 	}
 
 	kinds := make(map[string]struct{})
@@ -121,6 +117,48 @@ func inspectCachedArtifact(path string, info *boothub.DownloadInfo, version stri
 		EntryCount:   len(entries),
 		EntryKinds:   entryKinds,
 		Requirements: requirements,
+	}, nil
+}
+
+func readEntriesFromFile(path string) ([]wapp.Entry, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open artifact: %w", err)
+	}
+	defer file.Close()
+
+	reader, err := wapp.NewReader(file)
+	if err != nil {
+		return nil, fmt.Errorf("read artifact: %w", err)
+	}
+	entries, err := reader.GetEntries()
+	if err != nil {
+		return nil, fmt.Errorf("read artifact entries: %w", err)
+	}
+	return entries, nil
+}
+
+type versionEntries struct {
+	Version   string
+	Digest    string
+	CachePath string
+	Entries   []wapp.Entry
+}
+
+func collectVersionEntries(ctx context.Context, client ArtifactClient, params *boothub.DownloadParams) (*versionEntries, error) {
+	path, info, err := ensureCachedArtifact(ctx, client, params, "")
+	if err != nil {
+		return nil, err
+	}
+	entries, err := readEntriesFromFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return &versionEntries{
+		Version:   firstNonEmpty(info.Version, params.Version, params.VersionID, params.Label),
+		Digest:    info.Digest,
+		CachePath: path,
+		Entries:   entries,
 	}, nil
 }
 

@@ -62,6 +62,20 @@ Download and inspect a version artifact by `version` or `{ id, version, label }`
 Artifacts are cached under `.wippy/vendor` and verified before reuse.
 Returns artifact-derived metadata including `{ version, digest, size_bytes, entry_count, entry_kinds, requirements, cache_path }`.
 
+### `hub.versions.entries(module, version, opts?)`
+Download a version artifact and return its registry entries. The artifact goes
+through the verified `.wippy/vendor` disk cache and is reused across calls,
+same as `inspect`.
+
+Options:
+- `kind`: string or array of strings — return only entries of these kinds
+- `include_data`: boolean (default `true`) — include each entry's decoded `data`
+- `registry`, `token`, `timeout`
+
+Returns `{ items, total, version, digest, cache_path }`.
+`total` is the number of entries in the artifact before `kind` filtering; each item
+is `{ id = { ns, name }, kind, meta, data }` (`data` omitted when `include_data = false`).
+
 ### `hub.dependencies.get(module, version?, opts?)`
 Get dependencies for a module version.
 
