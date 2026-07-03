@@ -4,6 +4,7 @@ package s3
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -97,84 +98,40 @@ func (r *MockResourceRegistry) Exists(id registry.ID) bool {
 	return ok
 }
 
-// MockPayload implements payload.Payload for testing
-type MockPayload struct {
-	data   any
-	format payload.Format
+// NewMockPayload wraps a raw data map so the central *_env decode pass reads
+// directives from the entry data, as it does in production.
+func NewMockPayload(data map[string]any) payload.Payload {
+	return payload.New(data)
 }
 
-func (p *MockPayload) Data() any {
-	return p.data
-}
-
-func (p *MockPayload) Format() payload.Format {
-	return p.format
-}
-
-func (p *MockPayload) Transcode(format payload.Format) (payload.Payload, error) {
-	return &MockPayload{data: p.data, format: format}, nil
-}
-
-// Function to create mock payloads
-func NewMockPayload(data any) payload.Payload {
-	return &MockPayload{data: data, format: payload.Golang}
-}
-
-// MockTranscoder implements payload.Transcoder for testing
+// MockTranscoder unmarshals a Golang map payload into the config struct via a
+// JSON round trip so the decode path exercises real type coercion. An injected
+// unmarshalError forces the failure branch.
 type MockTranscoder struct {
-	marshalError   error
 	unmarshalError error
-	bucket         string
-	bucketEnv      string
-	awsConfig      string
-	endpoint       string
-	endpointEnv    string
-	mockData       []byte
 }
 
 func NewMockTranscoder() *MockTranscoder {
-	return &MockTranscoder{
-		mockData:  []byte(`{"bucket":"test-bucket","config":"aws/config","endpoint":"http://localhost:4566"}`),
-		bucket:    "test-bucket",
-		awsConfig: "aws/config",
-		endpoint:  "http://localhost:4566",
-	}
-}
-
-func (m *MockTranscoder) Marshal(_ any) ([]byte, error) {
-	if m.marshalError != nil {
-		return nil, m.marshalError
-	}
-	return m.mockData, nil
+	return &MockTranscoder{}
 }
 
 func (m *MockTranscoder) Unmarshal(p payload.Payload, v any) error {
 	if m.unmarshalError != nil {
 		return m.unmarshalError
 	}
-
-	// For simplicity, mock implementation that sets predefined values
-	if cfg, ok := v.(*services3.Config); ok {
-		if payloadData, ok := p.Data().(*services3.Config); ok {
-			cfg.Bucket = payloadData.Bucket
-			cfg.BucketEnv = payloadData.BucketEnv
-			cfg.AWSConfig = payloadData.AWSConfig
-			cfg.Endpoint = payloadData.Endpoint
-			cfg.EndpointEnv = payloadData.EndpointEnv
-		} else {
-			cfg.Bucket = m.bucket
-			cfg.BucketEnv = m.bucketEnv
-			cfg.AWSConfig = m.awsConfig
-			cfg.Endpoint = m.endpoint
-			cfg.EndpointEnv = m.endpointEnv
-		}
+	data, ok := p.Data().(map[string]any)
+	if !ok {
+		return errors.New("payload is not a map")
 	}
-
-	return nil
+	b, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, v)
 }
 
 func (m *MockTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
-	return p, nil
+	return payload.New(p.Data()), nil
 }
 
 type MockEnvRegistry struct {
@@ -316,10 +273,10 @@ func TestManager_Add(t *testing.T) {
 		entry := registry.Entry{
 			ID:   testID,
 			Kind: services3.Kind,
-			Data: NewMockPayload(&services3.Config{
-				Bucket:    "test-bucket",
-				AWSConfig: "aws/config",
-				Endpoint:  "http://localhost:4566",
+			Data: NewMockPayload(map[string]any{
+				"bucket":   "test-bucket",
+				"config":   "aws/config",
+				"endpoint": "http://localhost:4566",
 			}),
 		}
 
@@ -353,10 +310,10 @@ func TestManager_Add(t *testing.T) {
 		entry := registry.Entry{
 			ID:   envID,
 			Kind: services3.Kind,
-			Data: NewMockPayload(&services3.Config{
-				BucketEnv:   "S3_BUCKET",
-				AWSConfig:   "aws/config",
-				EndpointEnv: "S3_ENDPOINT",
+			Data: NewMockPayload(map[string]any{
+				"bucket_env":   "S3_BUCKET",
+				"config":       "aws/config",
+				"endpoint_env": "S3_ENDPOINT",
 			}),
 		}
 
@@ -375,10 +332,10 @@ func TestManager_Add(t *testing.T) {
 	t.Run("wrong entry kind", func(t *testing.T) {
 		entry := registry.Entry{
 			Kind: "invalid.kind",
-			Data: NewMockPayload(&services3.Config{
-				Bucket:    "test-bucket",
-				AWSConfig: "aws/config",
-				Endpoint:  "http://localhost:4566",
+			Data: NewMockPayload(map[string]any{
+				"bucket":   "test-bucket",
+				"config":   "aws/config",
+				"endpoint": "http://localhost:4566",
 			}),
 		}
 
@@ -393,7 +350,7 @@ func TestManager_Add(t *testing.T) {
 
 		entry := registry.Entry{
 			Kind: services3.Kind,
-			Data: NewMockPayload("invalid json"),
+			Data: NewMockPayload(map[string]any{"bucket": "test-bucket", "config": "aws/config"}),
 		}
 
 		err := manager.Add(ctx, entry)
@@ -408,10 +365,10 @@ func TestManager_Add(t *testing.T) {
 		entry := registry.Entry{
 			ID:   testID, // Same ID as in successful test
 			Kind: services3.Kind,
-			Data: NewMockPayload(&services3.Config{
-				Bucket:    "test-bucket",
-				AWSConfig: "aws/config",
-				Endpoint:  "http://localhost:4566",
+			Data: NewMockPayload(map[string]any{
+				"bucket":   "test-bucket",
+				"config":   "aws/config",
+				"endpoint": "http://localhost:4566",
 			}),
 		}
 
@@ -422,24 +379,17 @@ func TestManager_Add(t *testing.T) {
 
 	t.Run("aws config resource not found", func(t *testing.T) {
 		entry := registry.Entry{
+			ID:   registry.NewID("test", "s3storage-missing"),
 			Kind: services3.Kind,
-			Data: NewMockPayload(&services3.Config{}),
+			Data: NewMockPayload(map[string]any{
+				"bucket": "test-bucket",
+				"config": "missing/config", // Non-existent config
+			}),
 		}
-
-		// Create a custom transcoder for this test
-		customTranscoder := NewMockTranscoder()
-		customTranscoder.awsConfig = "missing/config" // Non-existent config
-
-		// Replace the manager's transcoder
-		originalTranscoder := manager.dtt
-		manager.dtt = customTranscoder
 
 		err := manager.Add(ctx, entry)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "add entry")
-
-		// Reset transcoder
-		manager.dtt = originalTranscoder
 	})
 }
 
@@ -457,10 +407,10 @@ func TestManager_Update(t *testing.T) {
 	addEntry := registry.Entry{
 		ID:   testID,
 		Kind: services3.Kind,
-		Data: NewMockPayload(&services3.Config{
-			Bucket:    "test-bucket",
-			AWSConfig: "aws/config",
-			Endpoint:  "http://localhost:4566",
+		Data: NewMockPayload(map[string]any{
+			"bucket":   "test-bucket",
+			"config":   "aws/config",
+			"endpoint": "http://localhost:4566",
 		}),
 	}
 
@@ -475,28 +425,16 @@ func TestManager_Update(t *testing.T) {
 		updateEntry := registry.Entry{
 			ID:   testID,
 			Kind: services3.Kind,
-			Data: NewMockPayload(&services3.Config{
-				Bucket:    "updated-bucket",
-				AWSConfig: "aws/config",
-				Endpoint:  "http://localhost:9000", // Changed endpoint
+			Data: NewMockPayload(map[string]any{
+				"bucket":   "updated-bucket",
+				"config":   "aws/config",
+				"endpoint": "http://localhost:9000", // Changed endpoint
 			}),
 		}
-
-		// Configure transcoder to return updated values
-		customTranscoder := NewMockTranscoder()
-		customTranscoder.bucket = "updated-bucket"
-		customTranscoder.endpoint = "http://localhost:9000"
-
-		// Replace the manager's transcoder
-		originalTranscoder := manager.dtt
-		manager.dtt = customTranscoder
 
 		// Update the storage
 		err := manager.Update(ctx, updateEntry)
 		require.NoError(t, err)
-
-		// Reset transcoder
-		manager.dtt = originalTranscoder
 
 		// Verify resource update event was sent
 		evt := waitForResourceEvent(t, resourceEvents, resource.Update, time.Second)
@@ -516,10 +454,10 @@ func TestManager_Update(t *testing.T) {
 		entry := registry.Entry{
 			ID:   nonExistentID,
 			Kind: services3.Kind,
-			Data: NewMockPayload(&services3.Config{
-				Bucket:    "test-bucket",
-				AWSConfig: "aws/config",
-				Endpoint:  "http://localhost:4566",
+			Data: NewMockPayload(map[string]any{
+				"bucket":   "test-bucket",
+				"config":   "aws/config",
+				"endpoint": "http://localhost:4566",
 			}),
 		}
 
@@ -532,7 +470,7 @@ func TestManager_Update(t *testing.T) {
 		entry := registry.Entry{
 			ID:   testID,
 			Kind: "invalid.kind",
-			Data: NewMockPayload(&services3.Config{}),
+			Data: NewMockPayload(map[string]any{}),
 		}
 
 		err := manager.Update(ctx, entry)
@@ -547,7 +485,7 @@ func TestManager_Update(t *testing.T) {
 		entry := registry.Entry{
 			ID:   testID,
 			Kind: services3.Kind,
-			Data: NewMockPayload("invalid json"),
+			Data: NewMockPayload(map[string]any{"bucket": "test-bucket", "config": "aws/config"}),
 		}
 
 		err := manager.Update(ctx, entry)
@@ -573,10 +511,10 @@ func TestManager_Delete(t *testing.T) {
 	addEntry := registry.Entry{
 		ID:   testID,
 		Kind: services3.Kind,
-		Data: NewMockPayload(&services3.Config{
-			Bucket:    "test-bucket",
-			AWSConfig: "aws/config",
-			Endpoint:  "http://localhost:4566",
+		Data: NewMockPayload(map[string]any{
+			"bucket":   "test-bucket",
+			"config":   "aws/config",
+			"endpoint": "http://localhost:4566",
 		}),
 	}
 
@@ -618,7 +556,7 @@ func TestManager_Delete(t *testing.T) {
 		entry := registry.Entry{
 			ID:   testID,
 			Kind: "invalid.kind",
-			Data: NewMockPayload(&services3.Config{}),
+			Data: NewMockPayload(map[string]any{}),
 		}
 
 		err := manager.Delete(ctx, entry)
@@ -636,10 +574,10 @@ func TestManager_Acquire(t *testing.T) {
 	addEntry := registry.Entry{
 		ID:   testID,
 		Kind: services3.Kind,
-		Data: NewMockPayload(&services3.Config{
-			Bucket:    "test-bucket",
-			AWSConfig: "aws/config",
-			Endpoint:  "http://localhost:4566",
+		Data: NewMockPayload(map[string]any{
+			"bucket":   "test-bucket",
+			"config":   "aws/config",
+			"endpoint": "http://localhost:4566",
 		}),
 	}
 
@@ -690,10 +628,10 @@ func TestS3Resource(t *testing.T) {
 	addEntry := registry.Entry{
 		ID:   testID,
 		Kind: services3.Kind,
-		Data: NewMockPayload(&services3.Config{
-			Bucket:    "test-bucket",
-			AWSConfig: "aws/config",
-			Endpoint:  "http://localhost:4566",
+		Data: NewMockPayload(map[string]any{
+			"bucket":   "test-bucket",
+			"config":   "aws/config",
+			"endpoint": "http://localhost:4566",
 		}),
 	}
 

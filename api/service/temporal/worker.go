@@ -34,7 +34,6 @@ type WorkerConfig struct {
 type WorkerOptionsConfig struct {
 	Identity                                string             `json:"identity,omitempty"`
 	DefaultVersioningBehavior               VersioningBehavior `json:"default_versioning_behavior,omitempty"`
-	BuildIDEnv                              string             `json:"build_id_env,omitempty"`
 	BuildID                                 string             `json:"build_id,omitempty"`
 	DeploymentName                          string             `json:"deployment_name,omitempty"`
 	DeadlockDetectionTimeout                time.Duration      `json:"deadlock_detection_timeout,omitzero,format:units"`

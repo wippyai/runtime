@@ -87,7 +87,6 @@ type TailscaleConfig struct {
 	Meta       attrs.Bag `json:"meta,omitempty" msgpack:"meta,omitempty"`
 	Hostname   string    `json:"hostname,omitempty" msgpack:"hostname,omitempty"`
 	AuthKey    string    `json:"auth_key,omitempty" msgpack:"auth_key,omitempty"`
-	AuthKeyEnv string    `json:"auth_key_env,omitempty" msgpack:"auth_key_env,omitempty"`
 	StateDir   string    `json:"state_dir,omitempty" msgpack:"state_dir,omitempty"`
 	ControlURL string    `json:"control_url,omitempty" msgpack:"control_url,omitempty"`
 	Ephemeral  bool      `json:"ephemeral,omitempty" msgpack:"ephemeral,omitempty"`
@@ -99,9 +98,10 @@ func (c *TailscaleConfig) SetMeta(meta attrs.Bag) {
 }
 
 // Validate checks that the Tailscale config has the minimum required fields.
-// Either AuthKey or AuthKeyEnv must be provided for non-interactive auth.
+// AuthKey must be provided for non-interactive auth; an auth_key_env directive
+// in the entry data resolves into AuthKey during config decode.
 func (c *TailscaleConfig) Validate() error {
-	if c.AuthKey == "" && c.AuthKeyEnv == "" {
+	if c.AuthKey == "" {
 		return ErrAuthKeyRequired
 	}
 	return nil

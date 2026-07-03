@@ -8,7 +8,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
-	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -23,7 +22,6 @@ import (
 type Manager struct {
 	dtt     payload.Transcoder
 	bus     event.Bus
-	env     envapi.Registry
 	log     *zap.Logger
 	configs map[registry.ID]aws.Config
 	mu      sync.RWMutex
@@ -34,7 +32,6 @@ func NewManager(
 	bus event.Bus,
 	dtt payload.Transcoder,
 	log *zap.Logger,
-	envRegistry envapi.Registry,
 ) *Manager {
 	if log == nil {
 		log = zap.NewNop()
@@ -44,7 +41,6 @@ func NewManager(
 		dtt:     dtt,
 		bus:     bus,
 		configs: make(map[registry.ID]aws.Config),
-		env:     envRegistry,
 	}
 }
 
@@ -240,34 +236,20 @@ func (r *configResource) Release() {
 	r.closed = true
 }
 
-// createAWSConfig creates an AWS configuration from Config
+// createAWSConfig creates an AWS configuration from Config. Region and
+// credentials arrive already resolved by the central *_env decode pass.
 func (m *Manager) createAWSConfig(ctx context.Context, cfg *awsconfigapi.Config) (aws.Config, error) {
 	options := []func(*config.LoadOptions) error{
 		config.WithRegion(cfg.Region),
 	}
 
-	var accessKey, secretKey string
-
-	// Only try to get credentials if environment variable names are provided
-	if cfg.AccessKeyIDEnv != "" {
-		if m.env != nil {
-			accessKey, _ = m.env.Get(ctx, cfg.AccessKeyIDEnv)
-		}
-	}
-
-	if cfg.SecretAccessKeyEnv != "" {
-		if m.env != nil {
-			secretKey, _ = m.env.Get(ctx, cfg.SecretAccessKeyEnv)
-		}
-	}
-
 	// Add credentials if provided
-	if accessKey != "" && secretKey != "" {
+	if cfg.AccessKeyID != "" && cfg.SecretAccessKey != "" {
 		options = append(options, config.WithCredentialsProvider(
 			aws.CredentialsProviderFunc(func(_ context.Context) (aws.Credentials, error) {
 				return aws.Credentials{
-					AccessKeyID:     accessKey,
-					SecretAccessKey: secretKey,
+					AccessKeyID:     cfg.AccessKeyID,
+					SecretAccessKey: cfg.SecretAccessKey,
 				}, nil
 			}),
 		))

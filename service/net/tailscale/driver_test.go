@@ -4,17 +4,21 @@ package tailscale
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	envapi "github.com/wippyai/runtime/api/env"
 	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	netservice "github.com/wippyai/runtime/service/net"
+	entryutil "github.com/wippyai/runtime/system/entry"
 )
 
 // --- test doubles ---
@@ -36,8 +40,45 @@ func (m *mockTranscoder) Unmarshal(p payload.Payload, v any) error {
 	return m.unmarshalFunc(p, v)
 }
 
+// jsonMapTranscoder unmarshals a Golang map payload into a struct via a JSON
+// round trip so the central auth_key_env resolution path decodes against the
+// config's json tags end to end.
+type jsonMapTranscoder struct{}
+
+func (jsonMapTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
+	return payload.New(p.Data()), nil
+}
+
+func (jsonMapTranscoder) Unmarshal(p payload.Payload, v any) error {
+	m, ok := p.Data().(map[string]any)
+	if !ok {
+		return fmt.Errorf("payload is not a map")
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, v)
+}
+
+// appContext mirrors production, where the boot pipeline seeds an app context
+// on the dispatch ctx; env.WithRegistry stores into it.
+func appContext() context.Context {
+	return ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
+}
+
+// authKeyEnvEntry builds a Tailscale entry whose raw data carries an
+// auth_key_env directive naming the given variable.
+func authKeyEnvEntry(variable string) registry.Entry {
+	return registry.Entry{
+		ID:   registry.NewID("app.net", "node"),
+		Kind: netapi.KindTailscale,
+		Data: payload.New(map[string]any{"auth_key_env": variable}),
+	}
+}
+
 // fakeEnvRegistry implements envapi.Registry with just enough to exercise
-// resolveAuthKey. Other methods panic so unexpected calls fail loudly.
+// auth_key_env resolution. Other methods panic so unexpected calls fail loudly.
 type fakeEnvRegistry struct {
 	getFn func(ctx context.Context, name string) (string, error)
 }
@@ -73,56 +114,30 @@ func TestDriver_Kind(t *testing.T) {
 	assert.Equal(t, netapi.KindTailscale, NewDriver().Kind())
 }
 
-// --- resolveAuthKey ---
+// --- auth_key_env resolution via the central decode pass ---
 
-func TestResolveAuthKey_AlreadySet_Noop(t *testing.T) {
-	cfg := &netapi.TailscaleConfig{AuthKey: "tskey-existing", AuthKeyEnv: "TS_KEY"}
-	env := &fakeEnvRegistry{getFn: func(context.Context, string) (string, error) {
-		t.Fatal("env registry must not be consulted when AuthKey is already set")
-		return "", nil
-	}}
-	err := resolveAuthKey(context.Background(), cfg, netservice.Deps{Env: env})
-	require.NoError(t, err)
-	assert.Equal(t, "tskey-existing", cfg.AuthKey)
-}
-
-func TestResolveAuthKey_NoEnvVarConfigured_Noop(t *testing.T) {
-	cfg := &netapi.TailscaleConfig{AuthKey: "tskey-existing"}
-	err := resolveAuthKey(context.Background(), cfg, netservice.Deps{})
-	require.NoError(t, err)
-	assert.Equal(t, "tskey-existing", cfg.AuthKey)
-}
-
-func TestResolveAuthKey_EnvRegistryMissing(t *testing.T) {
-	cfg := &netapi.TailscaleConfig{AuthKeyEnv: "TS_KEY"}
-	err := resolveAuthKey(context.Background(), cfg, netservice.Deps{Env: nil})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "TS_KEY")
-	assert.Empty(t, cfg.AuthKey)
-}
-
-func TestResolveAuthKey_LookupFails(t *testing.T) {
-	lookupErr := errors.New("secret backend down")
-	cfg := &netapi.TailscaleConfig{AuthKeyEnv: "TS_KEY"}
-	env := &fakeEnvRegistry{getFn: func(_ context.Context, name string) (string, error) {
-		assert.Equal(t, "TS_KEY", name)
-		return "", lookupErr
-	}}
-	err := resolveAuthKey(context.Background(), cfg, netservice.Deps{Env: env})
-	require.Error(t, err)
-	assert.ErrorIs(t, err, lookupErr)
-	assert.Empty(t, cfg.AuthKey)
-}
-
-func TestResolveAuthKey_Resolves(t *testing.T) {
-	cfg := &netapi.TailscaleConfig{AuthKeyEnv: "TS_KEY"}
+// A decode with the env registry injected resolves an auth_key_env directive
+// into cfg.AuthKey. This is the seam Driver.Create relies on; asserting it
+// directly avoids starting a real tsnet node on the success path.
+func TestAuthKeyEnv_ResolvesWhenRegistryInjected(t *testing.T) {
 	env := &fakeEnvRegistry{getFn: func(_ context.Context, name string) (string, error) {
 		assert.Equal(t, "TS_KEY", name)
 		return "tskey-resolved", nil
 	}}
-	err := resolveAuthKey(context.Background(), cfg, netservice.Deps{Env: env})
+	ctx := envapi.WithRegistry(appContext(), env)
+
+	cfg, err := entryutil.DecodeEntryConfig[netapi.TailscaleConfig](ctx, jsonMapTranscoder{}, authKeyEnvEntry("TS_KEY"))
 	require.NoError(t, err)
 	assert.Equal(t, "tskey-resolved", cfg.AuthKey)
+}
+
+// Without an env registry in context the directive is skipped, leaving AuthKey
+// empty; Validate then reports the key as not configured.
+func TestAuthKeyEnv_SkippedWithoutRegistry(t *testing.T) {
+	cfg, err := entryutil.DecodeEntryConfig[netapi.TailscaleConfig](context.Background(), jsonMapTranscoder{}, authKeyEnvEntry("TS_KEY"))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, netapi.ErrAuthKeyRequired)
+	assert.Nil(t, cfg)
 }
 
 // --- resolveStateDir ---
@@ -168,7 +183,7 @@ func TestDriver_Create_DecodeError(t *testing.T) {
 func TestDriver_Create_ValidationError_MissingAuth(t *testing.T) {
 	dtt := &mockTranscoder{
 		unmarshalFunc: func(payload.Payload, any) error {
-			// leave both AuthKey and AuthKeyEnv empty → Validate rejects
+			// leave AuthKey empty → Validate rejects
 			return nil
 		},
 	}
@@ -178,32 +193,24 @@ func TestDriver_Create_ValidationError_MissingAuth(t *testing.T) {
 	assert.ErrorIs(t, err, netapi.ErrAuthKeyRequired)
 }
 
+// With deps.Env nil the driver attaches no registry, the auth_key_env
+// directive is skipped, and Validate rejects the empty AuthKey. This replaces
+// the former hard EnvRegistryUnavailable failure: an unresolved env-backed key
+// now surfaces as the same "not configured" error as a missing key.
 func TestDriver_Create_AuthKeyEnvWithoutRegistry(t *testing.T) {
-	dtt := &mockTranscoder{
-		unmarshalFunc: func(_ payload.Payload, v any) error {
-			cfg := v.(*netapi.TailscaleConfig)
-			cfg.AuthKeyEnv = "TS_KEY"
-			return nil
-		},
-	}
-	// Env is nil → resolveAuthKey returns EnvRegistryUnavailable.
-	svc, err := NewDriver().Create(context.Background(), makeTailscaleEntry(), netservice.Deps{Transcoder: dtt, Env: nil})
+	svc, err := NewDriver().Create(appContext(), authKeyEnvEntry("TS_KEY"), netservice.Deps{Transcoder: jsonMapTranscoder{}, Env: nil})
 	require.Error(t, err)
 	assert.Nil(t, svc)
-	assert.Contains(t, err.Error(), "TS_KEY")
+	assert.ErrorIs(t, err, netapi.ErrAuthKeyRequired)
 }
 
+// A lookup failure surfaces through Create only because the driver attaches
+// deps.Env to the decode context; without the attach the directive would be
+// silently skipped.
 func TestDriver_Create_AuthKeyEnvLookupFails(t *testing.T) {
 	lookupErr := errors.New("secret backend down")
-	dtt := &mockTranscoder{
-		unmarshalFunc: func(_ payload.Payload, v any) error {
-			cfg := v.(*netapi.TailscaleConfig)
-			cfg.AuthKeyEnv = "TS_KEY"
-			return nil
-		},
-	}
 	env := &fakeEnvRegistry{getFn: func(context.Context, string) (string, error) { return "", lookupErr }}
-	svc, err := NewDriver().Create(context.Background(), makeTailscaleEntry(), netservice.Deps{Transcoder: dtt, Env: env})
+	svc, err := NewDriver().Create(appContext(), authKeyEnvEntry("TS_KEY"), netservice.Deps{Transcoder: jsonMapTranscoder{}, Env: env})
 	require.Error(t, err)
 	assert.Nil(t, svc)
 	assert.ErrorIs(t, err, lookupErr)

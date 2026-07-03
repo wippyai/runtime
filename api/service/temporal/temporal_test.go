@@ -80,15 +80,6 @@ func TestClientConfig_Validate(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
-	t.Run("api key auth - valid with env", func(t *testing.T) {
-		cfg := &ClientConfig{
-			Address: "localhost:7233",
-			Auth:    AuthConfig{Type: AuthTypeAPIKey, APIKeyEnv: "API_KEY"},
-		}
-		err := cfg.Validate()
-		assert.NoError(t, err)
-	})
-
 	t.Run("api key auth - valid with file", func(t *testing.T) {
 		cfg := &ClientConfig{
 			Address: "localhost:7233",
@@ -110,7 +101,7 @@ func TestClientConfig_Validate(t *testing.T) {
 	t.Run("api key auth - conflicting sources", func(t *testing.T) {
 		cfg := &ClientConfig{
 			Address: "localhost:7233",
-			Auth:    AuthConfig{Type: AuthTypeAPIKey, APIKey: "key", APIKeyEnv: "env"},
+			Auth:    AuthConfig{Type: AuthTypeAPIKey, APIKey: "key", APIKeyFile: "/path/to/key"},
 		}
 		err := cfg.Validate()
 		assert.Equal(t, ErrAPIKeySourceConflict, err)

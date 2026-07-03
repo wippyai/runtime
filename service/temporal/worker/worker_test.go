@@ -4,11 +4,14 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
@@ -50,6 +53,63 @@ func newWorkerTestTranscoder() payload.Transcoder {
 	msgpayload.Register(transcoder)
 	return transcoder
 }
+
+// jsonMapTranscoder unmarshals a Golang map payload into a struct via a JSON
+// round trip so the central *_env resolution path decodes against the config's
+// json tags end to end.
+type jsonMapTranscoder struct{}
+
+func (jsonMapTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
+	return payload.New(p.Data()), nil
+}
+
+func (jsonMapTranscoder) Unmarshal(p payload.Payload, v any) error {
+	m, ok := p.Data().(map[string]any)
+	if !ok {
+		return fmt.Errorf("payload is not a map")
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, v)
+}
+
+// mapEnvRegistry is a configurable env.Registry test double whose Get resolves
+// values from a map or returns getErr.
+type mapEnvRegistry struct {
+	values map[string]string
+	getErr error
+}
+
+func (m *mapEnvRegistry) Get(_ context.Context, key string) (string, error) {
+	if m.getErr != nil {
+		return "", m.getErr
+	}
+	if v, ok := m.values[key]; ok {
+		return v, nil
+	}
+	return "", fmt.Errorf("variable %s not found", key)
+}
+
+func (m *mapEnvRegistry) Lookup(_ context.Context, key string) (string, bool, error) {
+	v, ok := m.values[key]
+	return v, ok, nil
+}
+func (m *mapEnvRegistry) Set(_ context.Context, key, value string) error {
+	if m.values == nil {
+		m.values = map[string]string{}
+	}
+	m.values[key] = value
+	return nil
+}
+func (m *mapEnvRegistry) All(_ context.Context) (map[string]string, error) { return m.values, nil }
+func (m *mapEnvRegistry) GetStorage(_ context.Context, _ registry.ID) (env.Storage, error) {
+	return nil, nil
+}
+func (m *mapEnvRegistry) RegisterStorage(_ registry.ID, _ env.Storage) {}
+func (m *mapEnvRegistry) RegisterVariable(_ env.Variable) error        { return nil }
+func (m *mapEnvRegistry) UnregisterVariable(_ registry.ID)             {}
 
 // mockResourceRegistry implements resource.Registry for testing
 type mockResourceRegistry struct{}
@@ -958,6 +1018,62 @@ func TestManager_AddAndUpdate_DecodeErrorOnMissingData(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to decode worker config")
 
 	err = m.Update(context.Background(), ent)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to decode worker config")
+}
+
+// newResolvingManager builds a Manager whose decode path exercises the central
+// *_env resolution against the injected env registry.
+func newResolvingManager(t *testing.T, envReg env.Registry) *Manager {
+	t.Helper()
+	m, err := NewManager(
+		WithLogger(zap.NewNop()),
+		WithTranscoder(jsonMapTranscoder{}),
+		WithEventBus(&mockEventBus{}),
+		WithResourceRegistry(&mockResourceRegistry{}),
+		WithEnvRegistry(envReg),
+	)
+	require.NoError(t, err)
+	m.factory = &mockFactory{}
+	return m
+}
+
+func buildIDEnvEntry() registry.Entry {
+	return registry.Entry{
+		ID:   registry.ID{NS: "test", Name: "worker1"},
+		Kind: api.Worker,
+		Data: payload.New(map[string]any{
+			"client":     "test:client",
+			"task_queue": "q",
+			"worker_options": map[string]any{
+				"build_id_env": "TEMPORAL_BUILD_ID",
+			},
+		}),
+	}
+}
+
+// appContext mirrors production, where the boot pipeline seeds an app context
+// on the dispatch ctx; env.WithRegistry stores into it.
+func appContext() context.Context {
+	return ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
+}
+
+func TestManager_Add_ResolvesBuildIDEnvViaInjectedRegistry(t *testing.T) {
+	envReg := &mapEnvRegistry{values: map[string]string{"TEMPORAL_BUILD_ID": "build-42"}}
+	m := newResolvingManager(t, envReg)
+
+	require.NoError(t, m.Add(appContext(), buildIDEnvEntry()))
+
+	cfg, exists := m.GetConfig(registry.ID{NS: "test", Name: "worker1"})
+	require.True(t, exists)
+	assert.Equal(t, "build-42", cfg.WorkerOptions.BuildID)
+}
+
+func TestManager_Add_BuildIDEnvUnresolvable_Fails(t *testing.T) {
+	envReg := &mapEnvRegistry{getErr: errors.New("secret backend down")}
+	m := newResolvingManager(t, envReg)
+
+	err := m.Add(appContext(), buildIDEnvEntry())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to decode worker config")
 }

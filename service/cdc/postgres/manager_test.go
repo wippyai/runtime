@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 	"sort"
 	"testing"
@@ -54,34 +55,32 @@ func (m *mockEnvRegistry) RegisterVariable(_ envapi.Variable) error { return nil
 
 func (m *mockEnvRegistry) UnregisterVariable(_ registry.ID) {}
 
-// staticConfigTranscoder unmarshals a fixed CDC config, letting env-field tests
-// drive the decoded struct while exercising the central resolve pass.
-type staticConfigTranscoder struct {
-	cfg config.Config
-}
+// jsonConfigTranscoder decodes an entry's raw data map into the target config the
+// same way the production transcoder does, so *_env directives carried in the
+// data map are seen by the central resolve pass.
+type jsonConfigTranscoder struct{}
 
-func (t *staticConfigTranscoder) Marshal(v any) (payload.Payload, error) {
+func (t *jsonConfigTranscoder) Marshal(v any) (payload.Payload, error) {
 	return payload.New(v), nil
 }
 
-func (t *staticConfigTranscoder) Unmarshal(_ payload.Payload, v any) error {
-	target, ok := v.(*config.Config)
-	if !ok {
-		return assert.AnError
+func (t *jsonConfigTranscoder) Unmarshal(p payload.Payload, v any) error {
+	b, err := json.Marshal(p.Data())
+	if err != nil {
+		return err
 	}
-	*target = t.cfg
-	return nil
+	return json.Unmarshal(b, v)
 }
 
-func (t *staticConfigTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
+func (t *jsonConfigTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
 	return payload.NewPayload(p.Data(), format), nil
 }
 
-func cdcEntry() registry.Entry {
+func cdcEntryWithData(data map[string]any) registry.Entry {
 	return registry.Entry{
 		ID:   registry.NewID("test", "resolve-cdc"),
 		Kind: config.Postgres,
-		Data: payload.New(map[string]string{"test": "data"}),
+		Data: payload.New(data),
 	}
 }
 
@@ -91,9 +90,14 @@ func ctxWithEnv(reg envapi.Registry) context.Context {
 
 func TestResolveEnv_FailsFastOnUnresolvable(t *testing.T) {
 	ctx := ctxWithEnv(&mockEnvRegistry{vars: map[string]string{"DB_HOST": "h"}})
-	dtt := &staticConfigTranscoder{cfg: config.Config{HostEnv: "DB_HOST", UsernameEnv: "MISSING_USER"}}
+	data := map[string]any{
+		"host_env":     "DB_HOST",
+		"username_env": "MISSING_USER",
+		"slot_name":    "slot",
+		"publication":  "pub",
+	}
 
-	_, err := entryutil.DecodeEntryConfig[config.Config](ctx, dtt, cdcEntry())
+	_, err := entryutil.DecodeEntryConfig[config.Config](ctx, &jsonConfigTranscoder{}, cdcEntryWithData(data))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "could not be resolved")
 	assert.Contains(t, err.Error(), "environment variable not found")
@@ -103,12 +107,17 @@ func TestResolveEnv_AppliesResolvedValues(t *testing.T) {
 	ctx := ctxWithEnv(&mockEnvRegistry{vars: map[string]string{
 		"H": "resolved-host", "P": "6543", "D": "resolved-db", "U": "resolved-user", "PW": "resolved-pass",
 	}})
-	dtt := &staticConfigTranscoder{cfg: config.Config{
-		HostEnv: "H", PortEnv: "P", DatabaseEnv: "D", UsernameEnv: "U", PasswordEnv: "PW",
-		SlotName: "slot", Publication: "pub",
-	}}
+	data := map[string]any{
+		"host_env":     "H",
+		"port_env":     "P",
+		"database_env": "D",
+		"username_env": "U",
+		"password_env": "PW",
+		"slot_name":    "slot",
+		"publication":  "pub",
+	}
 
-	cfg, err := entryutil.DecodeEntryConfig[config.Config](ctx, dtt, cdcEntry())
+	cfg, err := entryutil.DecodeEntryConfig[config.Config](ctx, &jsonConfigTranscoder{}, cdcEntryWithData(data))
 	require.NoError(t, err)
 	assert.Equal(t, "resolved-host", cfg.Host)
 	assert.Equal(t, 6543, cfg.Port)

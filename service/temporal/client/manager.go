@@ -147,6 +147,10 @@ func (m *Manager) Add(ctx context.Context, ent registry.Entry) error {
 		zap.String("id", ent.ID.String()),
 		zap.String("kind", ent.Kind))
 
+	// Attach the injected env registry so the central decode pass resolves
+	// api_key_env / key_pem_env directives against it.
+	ctx = env.WithRegistry(ctx, m.env)
+
 	cfg, err := entry.DecodeEntryConfig[api.ClientConfig](ctx, m.dtt, ent)
 	if err != nil {
 		return fmt.Errorf("failed to decode client config: %w", err)
@@ -266,6 +270,10 @@ func (m *Manager) Update(ctx context.Context, ent registry.Entry) error {
 	m.log.Debug("updating temporal client entry",
 		zap.String("id", ent.ID.String()),
 		zap.String("kind", ent.Kind))
+
+	// Attach the injected env registry so the central decode pass resolves
+	// api_key_env / key_pem_env directives against it.
+	ctx = env.WithRegistry(ctx, m.env)
 
 	cfg, err := entry.DecodeEntryConfig[api.ClientConfig](ctx, m.dtt, ent)
 	if err != nil {

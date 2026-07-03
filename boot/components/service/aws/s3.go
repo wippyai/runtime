@@ -52,8 +52,6 @@ func S3() boot.Component {
 				{Path: "data.store", Description: "Reference to a store (e.g., 'session')"},
 				{Path: "data.storage", Description: "Reference to a storage"},
 				{Path: "data.bucket", Description: "Reference to a storage bucket"},
-				{Path: "data.bucket_env", Description: "Env variable holding the storage bucket name"},
-				{Path: "data.endpoint_env", Description: "Env variable holding the S3-compatible endpoint URL"},
 			}
 			for _, pattern := range storagePatterns {
 				if err := reg.RegisterDependencyPattern(pattern); err != nil {

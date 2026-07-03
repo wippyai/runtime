@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"time"
 
-	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/supervisor"
 )
@@ -60,31 +59,27 @@ type Config struct { //nolint:govet // fieldalignment: limited by LifecycleConfi
 
 // TLSConfig defines TLS connection settings for AMQP.
 //
-// Cert/Key/CA carry inline PEM content (the config-decode file:// interpolator
-// can populate them from disk at decode time). CertEnv/KeyEnv/CAEnv name env
-// variables resolved from the Wippy env.Registry at driver start.
-// Inline and env sources are mutually exclusive per field.
+// Cert/Key/CA carry PEM content resolved at config-decode time: inline PEM,
+// the file:// interpolator (from disk), or a <field>_env directive read from
+// the entry data that names an env variable in the Wippy env.Registry.
 type TLSConfig struct {
 	ServerName string `json:"server_name,omitempty"`
 
-	Cert    string `json:"cert,omitempty"`
-	CertEnv string `json:"cert_env,omitempty"`
+	Cert string `json:"cert,omitempty"`
 
-	Key    string `json:"key,omitempty"`
-	KeyEnv string `json:"key_env,omitempty"`
+	Key string `json:"key,omitempty"`
 
-	CA    string `json:"ca,omitempty"`
-	CAEnv string `json:"ca_env,omitempty"`
+	CA string `json:"ca,omitempty"`
 
 	Enabled bool `json:"enabled"`
 
 	InsecureSkipVerify bool `json:"insecure_skip_verify,omitempty"`
 }
 
-// BuildTLSConfig converts the TLSConfig into a Go *tls.Config. CertEnv/KeyEnv/
-// CAEnv are resolved via envapi.GetRegistry(ctx); inline Cert/Key/CA are used
-// directly. Returns (nil, nil) when TLS is not enabled.
-func (t *TLSConfig) BuildTLSConfig(ctx context.Context) (*tls.Config, error) {
+// BuildTLSConfig converts the TLSConfig into a Go *tls.Config using the
+// Cert/Key/CA PEM material already resolved at config-decode time. Returns
+// (nil, nil) when TLS is not enabled.
+func (t *TLSConfig) BuildTLSConfig(_ context.Context) (*tls.Config, error) {
 	if t == nil || !t.Enabled {
 		return nil, nil
 	}
@@ -95,57 +90,23 @@ func (t *TLSConfig) BuildTLSConfig(ctx context.Context) (*tls.Config, error) {
 		ServerName:         t.ServerName,
 	}
 
-	certPEM, err := resolveEnvOrInline(ctx, "cert", t.Cert, t.CertEnv)
-	if err != nil {
-		return nil, err
-	}
-	keyPEM, err := resolveEnvOrInline(ctx, "key", t.Key, t.KeyEnv)
-	if err != nil {
-		return nil, err
-	}
-	if len(certPEM) > 0 && len(keyPEM) > 0 {
-		cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if t.Cert != "" && t.Key != "" {
+		cert, err := tls.X509KeyPair([]byte(t.Cert), []byte(t.Key))
 		if err != nil {
 			return nil, fmt.Errorf("amqp tls: load client cert: %w", err)
 		}
 		tlsCfg.Certificates = []tls.Certificate{cert}
 	}
 
-	caPEM, err := resolveEnvOrInline(ctx, "ca", t.CA, t.CAEnv)
-	if err != nil {
-		return nil, err
-	}
-	if len(caPEM) > 0 {
+	if t.CA != "" {
 		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(caPEM) {
+		if !pool.AppendCertsFromPEM([]byte(t.CA)) {
 			return nil, fmt.Errorf("amqp tls: failed to parse ca certificate")
 		}
 		tlsCfg.RootCAs = pool
 	}
 
 	return tlsCfg, nil
-}
-
-// resolveEnvOrInline returns the PEM bytes for one TLS material (cert, key, ca).
-// Inline value wins if present; otherwise an env-var name is resolved via
-// envapi.Registry. An empty result is legal — the caller decides what is
-// required.
-func resolveEnvOrInline(ctx context.Context, field, inline, envName string) ([]byte, error) {
-	if inline != "" {
-		return []byte(inline), nil
-	}
-	if envName == "" {
-		return nil, nil
-	}
-	reg := envapi.GetRegistry(ctx)
-	if reg == nil {
-		return nil, fmt.Errorf("amqp tls: %s_env %q requested but env registry is unavailable", field, envName)
-	}
-	val, err := reg.Get(ctx, envName)
-	if err != nil {
-		return nil, fmt.Errorf("amqp tls: resolve %s_env %q: %w", field, envName, err)
-	}
-	return []byte(val), nil
 }
 
 // Validate validates the configuration.
@@ -164,24 +125,15 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// Validate enforces internal consistency of the TLS block:
-// inline/env sources are mutually exclusive per field, and cert+key form a pair.
+// Validate enforces internal consistency of the TLS block: cert and key form
+// a pair. Cert/Key/CA are resolved at config-decode time (inline PEM, file://
+// interpolation, or a *_env directive), so the validator reasons only about
+// the final PEM values.
 func (t *TLSConfig) Validate() error {
 	if t == nil || !t.Enabled {
 		return nil
 	}
-	if t.Cert != "" && t.CertEnv != "" {
-		return fmt.Errorf("amqp tls: cert and cert_env are mutually exclusive")
-	}
-	if t.Key != "" && t.KeyEnv != "" {
-		return fmt.Errorf("amqp tls: key and key_env are mutually exclusive")
-	}
-	if t.CA != "" && t.CAEnv != "" {
-		return fmt.Errorf("amqp tls: ca and ca_env are mutually exclusive")
-	}
-	hasCert := t.Cert != "" || t.CertEnv != ""
-	hasKey := t.Key != "" || t.KeyEnv != ""
-	if hasCert != hasKey {
+	if (t.Cert != "") != (t.Key != "") {
 		return fmt.Errorf("amqp tls: cert and key must be provided together")
 	}
 	return nil

@@ -122,6 +122,10 @@ func (m *Manager) Add(ctx context.Context, ent registry.Entry) error {
 		zap.String("id", ent.ID.String()),
 		zap.String("kind", ent.Kind))
 
+	// Attach the injected env registry so the central decode pass resolves
+	// build_id_env directives against it.
+	ctx = env.WithRegistry(ctx, m.envReg)
+
 	cfg, err := entry.DecodeEntryConfig[api.WorkerConfig](ctx, m.dtt, ent)
 	if err != nil {
 		return fmt.Errorf("failed to decode worker config: %w", err)
@@ -216,6 +220,10 @@ func (m *Manager) Update(ctx context.Context, ent registry.Entry) error {
 	m.log.Debug("updating temporal worker entry",
 		zap.String("id", ent.ID.String()),
 		zap.String("kind", ent.Kind))
+
+	// Attach the injected env registry so the central decode pass resolves
+	// build_id_env directives against it.
+	ctx = env.WithRegistry(ctx, m.envReg)
 
 	cfg, err := entry.DecodeEntryConfig[api.WorkerConfig](ctx, m.dtt, ent)
 	if err != nil {

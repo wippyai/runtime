@@ -45,22 +45,21 @@ type ClientConfig struct {
 
 // AuthConfig defines authentication settings for a Temporal client.
 // Exactly one auth method is active per Type: "none" (default), "api_key"
-// (requires one of APIKey/APIKeyEnv/APIKeyFile), or "mtls" (requires
-// exactly one cert source and one key source).
+// (requires one of APIKey/APIKeyFile), or "mtls" (requires exactly one cert
+// source and one key source). An api_key_env or key_pem_env directive in the
+// entry data resolves into APIKey or KeyPEM during config decode.
 type AuthConfig struct {
 	Type AuthType `json:"type"` // none, api_key, mtls
 
 	// API Key authentication
 	APIKey     string `json:"api_key,omitempty"`
-	APIKeyEnv  string `json:"api_key_env,omitempty"`  // Environment variable name
 	APIKeyFile string `json:"api_key_file,omitempty"` // Path to file containing API key
 
 	// mTLS authentication (certificate + private key)
-	CertFile  string `json:"cert_file,omitempty"`   // Path to certificate file
-	CertPEM   string `json:"cert_pem,omitempty"`    // Certificate as PEM string
-	KeyFile   string `json:"key_file,omitempty"`    // Path to private key file
-	KeyPEM    string `json:"key_pem,omitempty"`     // Private key as PEM string
-	KeyPEMEnv string `json:"key_pem_env,omitempty"` // Private key from environment variable
+	CertFile string `json:"cert_file,omitempty"` // Path to certificate file
+	CertPEM  string `json:"cert_pem,omitempty"`  // Certificate as PEM string
+	KeyFile  string `json:"key_file,omitempty"`  // Path to private key file
+	KeyPEM   string `json:"key_pem,omitempty"`   // Private key as PEM string
 }
 
 // TLSConfig defines TLS connection settings
@@ -123,9 +122,6 @@ func (c *ClientConfig) Validate() error {
 		if c.Auth.APIKey != "" {
 			sources++
 		}
-		if c.Auth.APIKeyEnv != "" {
-			sources++
-		}
 		if c.Auth.APIKeyFile != "" {
 			sources++
 		}
@@ -139,7 +135,7 @@ func (c *ClientConfig) Validate() error {
 	case AuthTypeMTLS:
 		// Must have certificate and key
 		hasCert := c.Auth.CertFile != "" || c.Auth.CertPEM != ""
-		hasKey := c.Auth.KeyFile != "" || c.Auth.KeyPEM != "" || c.Auth.KeyPEMEnv != ""
+		hasKey := c.Auth.KeyFile != "" || c.Auth.KeyPEM != ""
 
 		if !hasCert {
 			return ErrMTLSCertRequired
@@ -158,9 +154,6 @@ func (c *ClientConfig) Validate() error {
 			keySources++
 		}
 		if c.Auth.KeyPEM != "" {
-			keySources++
-		}
-		if c.Auth.KeyPEMEnv != "" {
 			keySources++
 		}
 		if keySources > 1 {

@@ -4,6 +4,8 @@ package tokenstore_test
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -52,55 +54,58 @@ func (m *envRegistryMock) RegisterVariable(_ envapi.Variable) error { return nil
 
 func (m *envRegistryMock) UnregisterVariable(_ registry.ID) {}
 
-// staticTokenConfigTranscoder unmarshals a fixed token store config so the test
-// drives the decoded struct while exercising the central resolve pass.
-type staticTokenConfigTranscoder struct {
-	cfg tokenstore.Config
-}
+// realTokenConfigTranscoder unmarshals a Golang map payload into the token store
+// config via a JSON round trip so the decode path reads the token_key_env
+// directive from the entry data, as it does in production.
+type realTokenConfigTranscoder struct{}
 
-func (t *staticTokenConfigTranscoder) Marshal(v any) (payload.Payload, error) {
-	return payload.New(v), nil
-}
-
-func (t *staticTokenConfigTranscoder) Unmarshal(_ payload.Payload, v any) error {
-	target, ok := v.(*tokenstore.Config)
+func (realTokenConfigTranscoder) Unmarshal(p payload.Payload, v any) error {
+	data, ok := p.Data().(map[string]any)
 	if !ok {
-		return assert.AnError
+		return errors.New("payload is not a map")
 	}
-	*target = t.cfg
-	return nil
+	b, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, v)
 }
 
-func (t *staticTokenConfigTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
-	return payload.NewPayload(p.Data(), format), nil
+func (realTokenConfigTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
+	return payload.New(p.Data()), nil
 }
 
-func tokenEntry() registry.Entry {
+func tokenEntry(data map[string]any) registry.Entry {
 	return registry.Entry{
 		ID:   registry.NewID("app", "sessions"),
 		Kind: tokenstore.TokenStore,
-		Data: payload.New(map[string]string{"test": "data"}),
+		Data: payload.New(data),
 	}
 }
 
 func TestManager_TokenKeyEnvResolves(t *testing.T) {
-	reg := &envRegistryMock{vars: map[string]string{"TOKEN_KEY": "secret-key"}}
+	reg := &envRegistryMock{vars: map[string]string{"TOKEN_KEY": "secret-key", "EMPTY_KEY": ""}}
 	ctx := envapi.WithRegistry(ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext()), reg)
 
-	base := tokenstore.Config{Store: registry.NewID("app", "sessions"), TokenLength: 32}
-
 	t.Run("resolves into TokenKey", func(t *testing.T) {
-		cfg := base
-		cfg.TokenKeyEnv = "TOKEN_KEY"
-		decoded, err := entryutil.DecodeEntryConfig[tokenstore.Config](ctx, &staticTokenConfigTranscoder{cfg: cfg}, tokenEntry())
+		entry := tokenEntry(map[string]any{
+			"store":         "app:sessions",
+			"token_length":  32,
+			"token_key_env": "TOKEN_KEY",
+		})
+		decoded, err := entryutil.DecodeEntryConfig[tokenstore.Config](ctx, realTokenConfigTranscoder{}, entry)
 		require.NoError(t, err)
 		assert.Equal(t, "secret-key", decoded.TokenKey)
 	})
 
 	t.Run("empty env field keeps inline value", func(t *testing.T) {
-		cfg := base
-		cfg.TokenKey = "inline-key"
-		decoded, err := entryutil.DecodeEntryConfig[tokenstore.Config](ctx, &staticTokenConfigTranscoder{cfg: cfg}, tokenEntry())
+		entry := tokenEntry(map[string]any{
+			"store":         "app:sessions",
+			"token_length":  32,
+			"token_key":     "inline-key",
+			"token_key_env": "EMPTY_KEY",
+		})
+		decoded, err := entryutil.DecodeEntryConfig[tokenstore.Config](ctx, realTokenConfigTranscoder{}, entry)
 		require.NoError(t, err)
 		assert.Equal(t, "inline-key", decoded.TokenKey)
 	})
