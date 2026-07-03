@@ -220,16 +220,17 @@ func TestEnvField_NestedStruct(t *testing.T) {
 	assert.Equal(t, "topsecret", cfg.TLS.Password)
 }
 
-func TestEnvField_NotFoundKeepsInline(t *testing.T) {
+func TestEnvField_NotFoundFails(t *testing.T) {
+	// A set *_env field whose variable is absent hard-fails the decode so a
+	// misconfigured reference never silently falls back to the inline value.
 	reg := &fakeEnvRegistry{}
 
-	cfg, err := decodeServerEnv(t, reg, ServerEnvConfig{
+	_, err := decodeServerEnv(t, reg, ServerEnvConfig{
 		Host: "keep-me", HostEnv: "SRV_HOST",
-		Port: 8080, PortEnv: "SRV_PORT",
 	})
-	require.NoError(t, err)
-	assert.Equal(t, "keep-me", cfg.Host)
-	assert.Equal(t, 8080, cfg.Port)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "could not be resolved")
+	assert.Contains(t, err.Error(), "SRV_HOST")
 }
 
 func TestEnvField_LookupErrorFails(t *testing.T) {

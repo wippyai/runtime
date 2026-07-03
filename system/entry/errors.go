@@ -90,6 +90,12 @@ func NewEnvFieldRegistryMissingError(name string) apierror.Error {
 		WithDetails(attrs.NewBagFrom(map[string]any{"variable": name}))
 }
 
+func NewEnvFieldNotFoundError(name string) apierror.Error {
+	return apierror.New(apierror.Invalid, "environment variable "+name+" could not be resolved: environment variable not found").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"variable": name}))
+}
+
 func NewEnvFieldLookupError(name string, cause error) apierror.Error {
 	apiErr := apierror.New(apierror.Internal, "failed to look up environment variable "+name).WithRetryable(apierror.False)
 	if cause != nil {

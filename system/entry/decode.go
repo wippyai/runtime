@@ -253,11 +253,16 @@ func applyEnvField(ctx context.Context, name string, sibling reflect.Value, logg
 	value, found, err := reg.Lookup(ctx, name)
 	if err != nil {
 		if errors.Is(err, env.ErrVariableNotFound) {
-			return nil
+			return NewEnvFieldNotFoundError(name)
 		}
 		return NewEnvFieldLookupError(name, err)
 	}
-	if !found || value == "" {
+	if !found {
+		return NewEnvFieldNotFoundError(name)
+	}
+	// A registered-but-empty variable keeps the inline value; only a present,
+	// non-empty value overwrites the sibling field.
+	if value == "" {
 		return nil
 	}
 
