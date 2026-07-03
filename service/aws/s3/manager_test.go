@@ -214,6 +214,10 @@ func (m *MockEnvRegistry) GetStorage(_ context.Context, _ registry.ID) (envapi.S
 
 func (m *MockEnvRegistry) RegisterStorage(_ registry.ID, _ envapi.Storage) {}
 
+func (m *MockEnvRegistry) RegisterVariable(_ envapi.Variable) error { return nil }
+
+func (m *MockEnvRegistry) UnregisterVariable(_ registry.ID) {}
+
 // setupTestEnvironment creates a test environment with mocked dependencies
 //
 
@@ -228,7 +232,7 @@ func setupTestEnvironment() (*Manager, event.Bus, *MockResourceRegistry, context
 	_ = envRegistry.Set(context.Background(), "S3_ENDPOINT", "http://env-minio:9000")
 
 	// Create manager
-	manager := NewManager(bus, transcoder, logger, envRegistry)
+	manager := NewManager(bus, transcoder, logger)
 
 	// Set up resource registry with AWS config provider
 	resourceRegistry := NewMockResourceRegistry()
@@ -252,8 +256,9 @@ func setupTestEnvironment() (*Manager, event.Bus, *MockResourceRegistry, context
 	awsConfigProvider.AddResource(configID, awsConfig, nil)
 	resourceRegistry.RegisterProvider(configID, awsConfigProvider)
 
-	// Create context with resource registry
-	ctx := resource.WithRegistry(ctxapi.NewRootContext(), resourceRegistry)
+	// Create context carrying the resource and env registries so the central
+	// decode pass can resolve legacy *_env companion fields.
+	ctx := envapi.WithRegistry(resource.WithRegistry(ctxapi.NewRootContext(), resourceRegistry), envRegistry)
 
 	return manager, bus, resourceRegistry, ctx
 }

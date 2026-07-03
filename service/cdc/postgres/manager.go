@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"sync"
 
-	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -24,7 +23,6 @@ import (
 type Manager struct {
 	dtt        payload.Transcoder
 	bus        event.Bus
-	env        envapi.Registry
 	log        *zap.Logger
 	sources    map[registry.ID]*Source
 	infos      map[registry.ID]config.SourceInfo
@@ -32,7 +30,7 @@ type Manager struct {
 	mu         sync.Mutex
 }
 
-func NewManager(dtt payload.Transcoder, bus event.Bus, log *zap.Logger, env envapi.Registry) (*Manager, error) {
+func NewManager(dtt payload.Transcoder, bus event.Bus, log *zap.Logger) (*Manager, error) {
 	if dtt == nil {
 		return nil, ErrTranscoderRequired
 	}
@@ -45,7 +43,6 @@ func NewManager(dtt payload.Transcoder, bus event.Bus, log *zap.Logger, env enva
 	return &Manager{
 		dtt:        dtt,
 		bus:        bus,
-		env:        env,
 		log:        log,
 		sources:    make(map[registry.ID]*Source),
 		infos:      make(map[registry.ID]config.SourceInfo),
@@ -67,9 +64,6 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	cfg, err := entryutil.DecodeEntryConfig[config.Config](ctx, m.dtt, entry)
 	if err != nil {
 		return NewInvalidConfigError(err)
-	}
-	if err := m.resolveEnv(ctx, cfg); err != nil {
-		return err
 	}
 	if err := cfg.Validate(); err != nil {
 		return NewInvalidConfigError(err)
@@ -118,9 +112,6 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	cfg, err := entryutil.DecodeEntryConfig[config.Config](ctx, m.dtt, entry)
 	if err != nil {
 		return NewInvalidConfigError(err)
-	}
-	if err := m.resolveEnv(ctx, cfg); err != nil {
-		return err
 	}
 	if err := cfg.Validate(); err != nil {
 		return NewInvalidConfigError(err)
@@ -276,56 +267,6 @@ func (m *Manager) unregister(ctx context.Context, entry registry.Entry) {
 		Path:   entry.ID.String(),
 	})
 	m.log.Info("removed cdc source", zap.String("id", entry.ID.String()))
-}
-
-func (m *Manager) resolveEnv(ctx context.Context, cfg *config.Config) error {
-	if v, err := m.resolveField(ctx, cfg.HostEnv, "host"); err != nil {
-		return err
-	} else if v != "" {
-		cfg.Host = v
-	}
-	if v, err := m.resolveField(ctx, cfg.PortEnv, "port"); err != nil {
-		return err
-	} else if v != "" {
-		p, perr := strconv.Atoi(v)
-		if perr != nil {
-			return NewInvalidConfigError(fmt.Errorf("port env %q is not numeric: %w", cfg.PortEnv, perr))
-		}
-		cfg.Port = p
-	}
-	if v, err := m.resolveField(ctx, cfg.DatabaseEnv, "database"); err != nil {
-		return err
-	} else if v != "" {
-		cfg.Database = v
-	}
-	if v, err := m.resolveField(ctx, cfg.UsernameEnv, "username"); err != nil {
-		return err
-	} else if v != "" {
-		cfg.Username = v
-	}
-	if v, err := m.resolveField(ctx, cfg.PasswordEnv, "password"); err != nil {
-		return err
-	} else if v != "" {
-		cfg.Password = v
-	}
-	return nil
-}
-
-func (m *Manager) resolveField(ctx context.Context, envVar, field string) (string, error) {
-	if envVar == "" {
-		return "", nil
-	}
-	if m.env == nil {
-		return "", NewUnresolvedEnvError(field, envVar, errors.New("env registry not configured"))
-	}
-	val, found, err := m.env.Lookup(ctx, envVar)
-	if err != nil {
-		return "", NewUnresolvedEnvError(field, envVar, err)
-	}
-	if !found {
-		return "", NewUnresolvedEnvError(field, envVar, envapi.ErrVariableNotFound)
-	}
-	return val, nil
 }
 
 func buildDSNs(cfg *config.Config) (replication, admin string, err error) {

@@ -11,9 +11,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
 	envapi "github.com/wippyai/runtime/api/env"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	config "github.com/wippyai/runtime/api/service/cdc"
+	entryutil "github.com/wippyai/runtime/system/entry"
 )
 
 type mockEnvRegistry struct {
@@ -47,23 +50,66 @@ func (m *mockEnvRegistry) GetStorage(_ context.Context, _ registry.ID) (envapi.S
 
 func (m *mockEnvRegistry) RegisterStorage(_ registry.ID, _ envapi.Storage) {}
 
-func TestResolveEnv_FailsFastOnUnresolvable(t *testing.T) {
-	m := &Manager{env: &mockEnvRegistry{vars: map[string]string{"DB_HOST": "h"}}}
-	cfg := &config.Config{HostEnv: "DB_HOST", UsernameEnv: "MISSING_USER"}
+func (m *mockEnvRegistry) RegisterVariable(_ envapi.Variable) error { return nil }
 
-	err := m.resolveEnv(context.Background(), cfg)
+func (m *mockEnvRegistry) UnregisterVariable(_ registry.ID) {}
+
+// staticConfigTranscoder unmarshals a fixed CDC config, letting env-field tests
+// drive the decoded struct while exercising the central resolve pass.
+type staticConfigTranscoder struct {
+	cfg config.Config
+}
+
+func (t *staticConfigTranscoder) Marshal(v any) (payload.Payload, error) {
+	return payload.New(v), nil
+}
+
+func (t *staticConfigTranscoder) Unmarshal(_ payload.Payload, v any) error {
+	target, ok := v.(*config.Config)
+	if !ok {
+		return assert.AnError
+	}
+	*target = t.cfg
+	return nil
+}
+
+func (t *staticConfigTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
+	return payload.NewPayload(p.Data(), format), nil
+}
+
+func cdcEntry() registry.Entry {
+	return registry.Entry{
+		ID:   registry.NewID("test", "resolve-cdc"),
+		Kind: config.Postgres,
+		Data: payload.New(map[string]string{"test": "data"}),
+	}
+}
+
+func ctxWithEnv(reg envapi.Registry) context.Context {
+	return envapi.WithRegistry(ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext()), reg)
+}
+
+func TestResolveEnv_FailsFastOnUnresolvable(t *testing.T) {
+	ctx := ctxWithEnv(&mockEnvRegistry{vars: map[string]string{"DB_HOST": "h"}})
+	dtt := &staticConfigTranscoder{cfg: config.Config{HostEnv: "DB_HOST", UsernameEnv: "MISSING_USER"}}
+
+	_, err := entryutil.DecodeEntryConfig[config.Config](ctx, dtt, cdcEntry())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "could not be resolved")
 	assert.Contains(t, err.Error(), "environment variable not found")
 }
 
 func TestResolveEnv_AppliesResolvedValues(t *testing.T) {
-	m := &Manager{env: &mockEnvRegistry{vars: map[string]string{
+	ctx := ctxWithEnv(&mockEnvRegistry{vars: map[string]string{
 		"H": "resolved-host", "P": "6543", "D": "resolved-db", "U": "resolved-user", "PW": "resolved-pass",
-	}}}
-	cfg := &config.Config{HostEnv: "H", PortEnv: "P", DatabaseEnv: "D", UsernameEnv: "U", PasswordEnv: "PW"}
+	}})
+	dtt := &staticConfigTranscoder{cfg: config.Config{
+		HostEnv: "H", PortEnv: "P", DatabaseEnv: "D", UsernameEnv: "U", PasswordEnv: "PW",
+		SlotName: "slot", Publication: "pub",
+	}}
 
-	require.NoError(t, m.resolveEnv(context.Background(), cfg))
+	cfg, err := entryutil.DecodeEntryConfig[config.Config](ctx, dtt, cdcEntry())
+	require.NoError(t, err)
 	assert.Equal(t, "resolved-host", cfg.Host)
 	assert.Equal(t, 6543, cfg.Port)
 	assert.Equal(t, "resolved-db", cfg.Database)

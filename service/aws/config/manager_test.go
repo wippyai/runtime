@@ -151,6 +151,10 @@ func (m *MockEnvRegistry) GetStorage(_ context.Context, _ registry.ID) (envapi.S
 
 func (m *MockEnvRegistry) RegisterStorage(_ registry.ID, _ envapi.Storage) {}
 
+func (m *MockEnvRegistry) RegisterVariable(_ envapi.Variable) error { return nil }
+
+func (m *MockEnvRegistry) UnregisterVariable(_ registry.ID) {}
+
 // setupTestEnvironment creates a test environment with mocked dependencies
 func setupTestEnvironment(t *testing.T) (*Manager, event.Bus, context.Context) {
 	logger := zap.NewNop()
@@ -162,7 +166,9 @@ func setupTestEnvironment(t *testing.T) (*Manager, event.Bus, context.Context) {
 	// Create mock registry and populate it with test values
 	envRegistry := NewMockRegistry()
 
-	ctx := ctxapi.NewRootContext()
+	// Context carries the env registry so the central decode pass resolves the
+	// region_env companion field; access/secret keys still resolve via m.env.
+	ctx := envapi.WithRegistry(ctxapi.NewRootContext(), envRegistry)
 
 	require.NoError(t, envRegistry.Set(ctx, "AWS_ACCESS_KEY_ID", "test-access-key"))
 	require.NoError(t, envRegistry.Set(ctx, "AWS_SECRET_ACCESS_KEY", "test-secret-key"))

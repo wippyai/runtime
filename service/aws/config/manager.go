@@ -4,7 +4,6 @@ package config
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -243,17 +242,6 @@ func (r *configResource) Release() {
 
 // createAWSConfig creates an AWS configuration from Config
 func (m *Manager) createAWSConfig(ctx context.Context, cfg *awsconfigapi.Config) (aws.Config, error) {
-	if cfg.RegionEnv != "" {
-		region, found, err := m.getEnvValue(ctx, cfg.RegionEnv, "region")
-		if err != nil {
-			if cfg.Region == "" {
-				return aws.Config{}, err
-			}
-		} else if found {
-			cfg.Region = region
-		}
-	}
-
 	options := []func(*config.LoadOptions) error{
 		config.WithRegion(cfg.Region),
 	}
@@ -287,21 +275,4 @@ func (m *Manager) createAWSConfig(ctx context.Context, cfg *awsconfigapi.Config)
 
 	// Load AWS configuration
 	return config.LoadDefaultConfig(ctx, options...)
-}
-
-func (m *Manager) getEnvValue(ctx context.Context, envName, field string) (string, bool, error) {
-	if envName == "" {
-		return "", false, nil
-	}
-	if m.env == nil {
-		return "", false, fmt.Errorf("%s_env %q requested but env registry is unavailable", field, envName)
-	}
-	value, err := m.env.Get(ctx, envName)
-	if err != nil {
-		return "", false, fmt.Errorf("lookup %s_env %q: %w", field, envName, err)
-	}
-	if value == "" {
-		return "", false, nil
-	}
-	return value, true, nil
 }

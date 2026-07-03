@@ -164,6 +164,13 @@ func decodeEntryConfig[T any](ctx context.Context, dtt payload.Transcoder, entry
 // "foo_env" field. The walk recurses into nested structs, non-nil struct
 // pointers, and embedded fields.
 func resolveEnvFields(ctx context.Context, cfg any) error {
+	// Without an env registry in context there is nothing to resolve against.
+	// A service that supplies its registry another way (an injected dependency)
+	// resolves its own *_env fields, so the fields are left untouched here.
+	if env.GetRegistry(ctx) == nil {
+		return nil
+	}
+
 	v := reflect.ValueOf(cfg)
 	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
@@ -208,6 +215,15 @@ func walkEnvStruct(ctx context.Context, v reflect.Value, logged *bool) error {
 					return err
 				}
 			}
+		case reflect.Map:
+			// The attrs.Bag meta field uses the *_env convention for dependency
+			// references, not value resolution, so it is left untouched.
+			if field.Type == metaType {
+				continue
+			}
+			if err := resolveEnvMap(ctx, fv, logged); err != nil {
+				return err
+			}
 		}
 
 		if fv.Kind() != reflect.String {
@@ -237,8 +253,74 @@ func walkEnvStruct(ctx context.Context, v reflect.Value, logged *bool) error {
 	return nil
 }
 
-// applyEnvField resolves the named variable and overwrites the sibling field.
-func applyEnvField(ctx context.Context, name string, sibling reflect.Value, logged *bool) error {
+// resolveEnvMap resolves "foo_env" keys inside a string-keyed map whose values
+// are strings (map[string]string) or arbitrary (map[string]any). Each directive
+// key populates its base "foo" key with the resolved variable and is removed so
+// it never leaks as a real option. Nested map[string]any values recurse, so a
+// meta options bag is covered.
+func resolveEnvMap(ctx context.Context, m reflect.Value, logged *bool) error {
+	if m.IsNil() || m.Type().Key().Kind() != reflect.String {
+		return nil
+	}
+	elemKind := m.Type().Elem().Kind()
+	if elemKind != reflect.String && elemKind != reflect.Interface {
+		return nil
+	}
+
+	for _, key := range m.MapKeys() {
+		val := m.MapIndex(key)
+
+		// Recurse into nested bags carried as map[string]any values.
+		if elemKind == reflect.Interface {
+			if nested, ok := val.Interface().(map[string]any); ok {
+				if err := resolveEnvMap(ctx, reflect.ValueOf(nested), logged); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+
+		base, ok := strings.CutSuffix(key.String(), "_env")
+		if !ok || base == "" {
+			continue
+		}
+		variable := envMapString(val)
+
+		// Drop the directive key regardless of outcome.
+		m.SetMapIndex(key, reflect.Value{})
+		if variable == "" {
+			continue
+		}
+
+		value, overwrite, err := lookupEnvField(ctx, variable, logged)
+		if err != nil {
+			return err
+		}
+		if !overwrite {
+			continue
+		}
+		m.SetMapIndex(reflect.ValueOf(base).Convert(m.Type().Key()), reflect.ValueOf(value).Convert(m.Type().Elem()))
+	}
+	return nil
+}
+
+// envMapString extracts a string from a map value that is a string or an
+// interface wrapping a string; anything else yields "".
+func envMapString(v reflect.Value) string {
+	if v.Kind() == reflect.Interface {
+		v = v.Elem()
+	}
+	if v.Kind() == reflect.String {
+		return v.String()
+	}
+	return ""
+}
+
+// lookupEnvField resolves a legacy *_env variable against the registry in ctx.
+// overwrite reports whether the caller should apply value: a registered-but-empty
+// variable keeps the existing value (overwrite=false) while an absent or
+// unresolvable variable is an error.
+func lookupEnvField(ctx context.Context, name string, logged *bool) (value string, overwrite bool, err error) {
 	if !*logged {
 		logs.GetLogger(ctx).Debug("entry uses deprecated *_env field; migrate to ${env:NAME} placeholders",
 			zap.String("variable", name))
@@ -247,22 +329,32 @@ func applyEnvField(ctx context.Context, name string, sibling reflect.Value, logg
 
 	reg := env.GetRegistry(ctx)
 	if reg == nil {
-		return NewEnvFieldRegistryMissingError(name)
+		return "", false, NewEnvFieldRegistryMissingError(name)
 	}
 
 	value, found, err := reg.Lookup(ctx, name)
 	if err != nil {
 		if errors.Is(err, env.ErrVariableNotFound) {
-			return NewEnvFieldNotFoundError(name)
+			return "", false, NewEnvFieldNotFoundError(name)
 		}
-		return NewEnvFieldLookupError(name, err)
+		return "", false, NewEnvFieldLookupError(name, err)
 	}
 	if !found {
-		return NewEnvFieldNotFoundError(name)
+		return "", false, NewEnvFieldNotFoundError(name)
 	}
-	// A registered-but-empty variable keeps the inline value; only a present,
-	// non-empty value overwrites the sibling field.
 	if value == "" {
+		return "", false, nil
+	}
+	return value, true, nil
+}
+
+// applyEnvField resolves the named variable and overwrites the sibling field.
+func applyEnvField(ctx context.Context, name string, sibling reflect.Value, logged *bool) error {
+	value, overwrite, err := lookupEnvField(ctx, name, logged)
+	if err != nil {
+		return err
+	}
+	if !overwrite {
 		return nil
 	}
 

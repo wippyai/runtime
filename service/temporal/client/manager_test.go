@@ -90,6 +90,10 @@ func (m *mockEnvRegistry) GetStorage(_ context.Context, _ registry.ID) (env.Stor
 func (m *mockEnvRegistry) RegisterStorage(_ registry.ID, _ env.Storage) {
 }
 
+func (m *mockEnvRegistry) RegisterVariable(_ env.Variable) error { return nil }
+
+func (m *mockEnvRegistry) UnregisterVariable(_ registry.ID) {}
+
 type mockClientFactory struct {
 	createFunc func(ctx context.Context, logger *zap.Logger, id registry.ID, config *api.ClientConfig) (*Client, error)
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/payload"
@@ -250,10 +251,12 @@ func TestEnvField_ConversionErrorFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "SRV_PORT")
 }
 
-func TestEnvField_NoRegistryFails(t *testing.T) {
-	_, err := decodeServerEnv(t, nil, ServerEnvConfig{Host: "x", HostEnv: "SRV_HOST"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "environment registry not available")
+func TestEnvField_NoRegistrySkips(t *testing.T) {
+	// Without a registry in context the central pass leaves *_env fields for a
+	// service that resolves them through an injected registry of its own.
+	cfg, err := decodeServerEnv(t, nil, ServerEnvConfig{Host: "x", HostEnv: "SRV_HOST"})
+	require.NoError(t, err)
+	assert.Equal(t, "x", cfg.Host)
 }
 
 func TestEnvField_UnsetEnvFieldIgnored(t *testing.T) {
@@ -314,4 +317,107 @@ func TestDecodeEntryConfig_ResolveSkipTag(t *testing.T) {
 	// Untagged siblings resolve, slice elements included.
 	assert.Equal(t, "fast", cfg.Inner.Mode)
 	assert.Equal(t, "v1", cfg.Items[0].Tag)
+}
+
+// OptionsConfig exercises legacy _env resolution inside map fields, including a
+// nested map[string]any bag.
+type OptionsConfig struct {
+	Name    string            `json:"name"`
+	Options map[string]string `json:"options"`
+	Extra   map[string]any    `json:"extra"`
+}
+
+func decodeOptions(t *testing.T, reg env.Registry, data map[string]any) (*OptionsConfig, error) {
+	t.Helper()
+	ctx := context.Background()
+	if reg != nil {
+		ctx = env.WithRegistry(ctxapi.WithAppContext(ctx, ctxapi.NewAppContext()), reg)
+	}
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "opts"),
+		Kind: "test.opts",
+		Data: payload.New(data),
+	}
+	return DecodeEntryConfig[OptionsConfig](ctx, realTranscoder{}, entry)
+}
+
+func TestEnvMap_ResolvesAndDropsDirective(t *testing.T) {
+	reg := &fakeEnvRegistry{vars: []fakeVar{{name: "DB_SSLMODE", value: "require"}}}
+
+	cfg, err := decodeOptions(t, reg, map[string]any{
+		"name": "db",
+		"options": map[string]any{
+			"sslmode_env": "DB_SSLMODE",
+			"timeout":     "30",
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "require", cfg.Options["sslmode"])
+	assert.Equal(t, "30", cfg.Options["timeout"])
+	_, present := cfg.Options["sslmode_env"]
+	assert.False(t, present, "directive key must be dropped")
+}
+
+func TestEnvMap_NotFoundFails(t *testing.T) {
+	reg := &fakeEnvRegistry{}
+
+	_, err := decodeOptions(t, reg, map[string]any{
+		"options": map[string]any{"sslmode_env": "MISSING"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "could not be resolved")
+	assert.Contains(t, err.Error(), "MISSING")
+}
+
+func TestEnvMap_EmptyDirectiveDropped(t *testing.T) {
+	reg := &fakeEnvRegistry{}
+
+	cfg, err := decodeOptions(t, reg, map[string]any{
+		"options": map[string]any{"sslmode_env": ""},
+	})
+	require.NoError(t, err)
+	_, present := cfg.Options["sslmode_env"]
+	assert.False(t, present)
+	_, base := cfg.Options["sslmode"]
+	assert.False(t, base)
+}
+
+func TestEnvMap_NestedBagResolves(t *testing.T) {
+	reg := &fakeEnvRegistry{vars: []fakeVar{{name: "TOK", value: "secret"}}}
+
+	cfg, err := decodeOptions(t, reg, map[string]any{
+		"extra": map[string]any{
+			"inner": map[string]any{"token_env": "TOK"},
+		},
+	})
+	require.NoError(t, err)
+	inner, ok := cfg.Extra["inner"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "secret", inner["token"])
+	_, present := inner["token_env"]
+	assert.False(t, present)
+}
+
+// MetaBagConfig has an attrs.Bag meta field to prove meta _env keys are left as
+// dependency references rather than resolved as variables.
+type MetaBagConfig struct {
+	Name string    `json:"name"`
+	Meta attrs.Bag `json:"meta"`
+}
+
+func TestEnvMap_MetaBagNotResolved(t *testing.T) {
+	// A missing variable would hard-fail if meta were resolved; it must not be.
+	reg := &fakeEnvRegistry{}
+	ctx := env.WithRegistry(ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext()), reg)
+
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "meta"),
+		Kind: "test.meta",
+		Data: payload.New(map[string]any{"name": "x"}),
+		Meta: attrs.Bag{"storage_env": "app:some_storage"},
+	}
+
+	cfg, err := DecodeEntryConfig[MetaBagConfig](ctx, realTranscoder{}, entry)
+	require.NoError(t, err)
+	assert.Equal(t, "app:some_storage", cfg.Meta["storage_env"], "meta _env keys stay as dependency references")
 }

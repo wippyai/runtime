@@ -6,7 +6,6 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/boot"
-	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
@@ -43,8 +42,6 @@ func S3() boot.Component {
 				return ctx, ErrHandlerRegistryNotAvailable
 			}
 
-			envRegistry := envapi.GetRegistry(ctx)
-
 			reg := regapi.GetRegistry(ctx)
 			if reg == nil {
 				return ctx, ErrRegistryNotAvailable
@@ -68,7 +65,6 @@ func S3() boot.Component {
 				bus,
 				dtt,
 				logger.Named("cloudstorage.s3"),
-				envRegistry,
 			)
 
 			handlers.RegisterListener("cloudstorage.s3", manager)

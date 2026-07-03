@@ -56,6 +56,8 @@ func (*fakeEnvRegistry) GetStorage(context.Context, registry.ID) (envapi.Storage
 	panic("not used")
 }
 func (*fakeEnvRegistry) RegisterStorage(registry.ID, envapi.Storage) { panic("not used") }
+func (*fakeEnvRegistry) RegisterVariable(envapi.Variable) error      { return nil }
+func (*fakeEnvRegistry) UnregisterVariable(registry.ID)              {}
 
 func makeTailscaleEntry() registry.Entry {
 	return registry.Entry{

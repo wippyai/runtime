@@ -237,15 +237,24 @@ func (m *MockEnvRegistry) GetStorage(_ context.Context, _ registry.ID) (envapi.S
 
 func (m *MockEnvRegistry) RegisterStorage(_ registry.ID, _ envapi.Storage) {}
 
+func (m *MockEnvRegistry) RegisterVariable(_ envapi.Variable) error { return nil }
+
+func (m *MockEnvRegistry) UnregisterVariable(_ registry.ID) {}
+
+// ctxWithEnv attaches an env registry to a fresh app context so the central
+// decode pass can resolve legacy *_env companion fields.
+func ctxWithEnv(reg envapi.Registry) context.Context {
+	return envapi.WithRegistry(ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext()), reg)
+}
+
 // Helper to create a test manager with mock components
 func newTestManager(t *testing.T) (*Manager, event.Bus, *TestPoolFactory) {
 	logger := zap.NewNop()
 	bus := eventbus.NewBus()
 	transcoder := &TestTranscoder{}
 	factory := NewTestPoolFactory()
-	envRegistry := NewMockEnvRegistry()
 
-	manager, err := NewManagerWithFactory(transcoder, bus, logger, envRegistry, factory)
+	manager, err := NewManagerWithFactory(transcoder, bus, logger, factory)
 	require.NoError(t, err)
 	return manager, bus, factory
 }
@@ -255,10 +264,9 @@ func TestNewManagerWithFactory(t *testing.T) {
 	bus := eventbus.NewBus()
 	transcoder := &TestTranscoder{}
 	factory := NewTestPoolFactory()
-	envRegistry := NewMockEnvRegistry()
 
 	t.Run("Valid initialization", func(t *testing.T) {
-		manager, err := NewManagerWithFactory(transcoder, bus, logger, envRegistry, factory)
+		manager, err := NewManagerWithFactory(transcoder, bus, logger, factory)
 		assert.NoError(t, err)
 		assert.NotNil(t, manager)
 		assert.Equal(t, logger, manager.log)
@@ -269,21 +277,21 @@ func TestNewManagerWithFactory(t *testing.T) {
 	})
 
 	t.Run("Nil transcoder", func(t *testing.T) {
-		manager, err := NewManagerWithFactory(nil, bus, logger, envRegistry, factory)
+		manager, err := NewManagerWithFactory(nil, bus, logger, factory)
 		require.Error(t, err)
 		assert.Nil(t, manager)
 		assert.Contains(t, err.Error(), "transcoder is required")
 	})
 
 	t.Run("Nil event bus", func(t *testing.T) {
-		manager, err := NewManagerWithFactory(transcoder, nil, logger, envRegistry, factory)
+		manager, err := NewManagerWithFactory(transcoder, nil, logger, factory)
 		require.Error(t, err)
 		assert.Nil(t, manager)
 		assert.Contains(t, err.Error(), "event bus is required")
 	})
 
 	t.Run("Nil factory", func(t *testing.T) {
-		manager, err := NewManagerWithFactory(transcoder, bus, logger, envRegistry, nil)
+		manager, err := NewManagerWithFactory(transcoder, bus, logger, nil)
 		require.Error(t, err)
 		assert.Nil(t, manager)
 		assert.Contains(t, err.Error(), "pool factory is required")
@@ -605,70 +613,93 @@ func TestDecode_NilPayload(t *testing.T) {
 	assert.Contains(t, err.Error(), "configuration data is required")
 }
 
+// staticDBConfigTranscoder unmarshals a fixed DBConfig, letting env-field tests
+// drive the decoded struct directly while exercising the central resolve pass.
+type staticDBConfigTranscoder struct {
+	cfg apiconfig.DBConfig
+}
+
+func (t *staticDBConfigTranscoder) Marshal(v any) (payload.Payload, error) {
+	return payload.New(v), nil
+}
+
+func (t *staticDBConfigTranscoder) Unmarshal(_ payload.Payload, v any) error {
+	target, ok := v.(*apiconfig.DBConfig)
+	if !ok {
+		return fmt.Errorf("unsupported type: %T", v)
+	}
+	*target = t.cfg
+	return nil
+}
+
+func (t *staticDBConfigTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
+	return payload.NewPayload(p.Data(), format), nil
+}
+
+// validDBConfig returns a fully valid inline config so env-field resolution is
+// exercised without tripping the config's own required-field validation.
+func validDBConfig() apiconfig.DBConfig {
+	return apiconfig.DBConfig{
+		Host:     "inline-host",
+		Port:     5432,
+		Database: "inline-db",
+		Username: "inline-user",
+		Password: "inline-pass",
+		Pool: apiconfig.PoolConfig{
+			MaxOpen:     10,
+			MaxIdle:     5,
+			MaxLifetime: time.Hour,
+		},
+	}
+}
+
+func dbEntry() registry.Entry {
+	return registry.Entry{
+		ID:   registry.NewID("test", "resolve-db"),
+		Kind: apiconfig.Postgres,
+		Data: payload.New(map[string]string{"test": "data"}),
+	}
+}
+
 func TestManager_ResolveEnv(t *testing.T) {
-	manager, _, _ := newTestManager(t)
-	ctx := ctxapi.NewRootContext()
-
-	// Create env registry with test values
 	envRegistry := NewMockEnvRegistry()
+	ctx := ctxWithEnv(envRegistry)
 	require.NoError(t, envRegistry.Set(ctx, "TEST_HOST", "test-host-value"))
-	require.NoError(t, envRegistry.Set(ctx, "TEST_PORT", "5432"))
-	manager.env = envRegistry
 
-	tests := []struct {
-		name      string
-		envVar    string
-		field     string
-		expected  string
-		expectErr bool
-	}{
-		{
-			name:     "Empty env var returns empty without error",
-			envVar:   "",
-			field:    "host",
-			expected: "",
-		},
-		{
-			name:     "Found env var returns value",
-			envVar:   "TEST_HOST",
-			field:    "host",
-			expected: "test-host-value",
-		},
-		{
-			name:      "Configured but unresolvable env var fails fast",
-			envVar:    "NONEXISTENT_VAR",
-			field:     "database",
-			expectErr: true,
-		},
-	}
+	t.Run("Empty env field keeps inline value", func(t *testing.T) {
+		cfg := validDBConfig()
+		decoded, err := entryutil.DecodeEntryConfig[apiconfig.DBConfig](ctx, &staticDBConfigTranscoder{cfg: cfg}, dbEntry())
+		require.NoError(t, err)
+		assert.Equal(t, "inline-host", decoded.Host)
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := manager.resolveEnv(ctx, tt.envVar, tt.field)
-			if tt.expectErr {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), "could not be resolved")
-				assert.Contains(t, err.Error(), "environment variable not found")
-				assert.Empty(t, result)
-				return
-			}
+	t.Run("Found env field overwrites sibling", func(t *testing.T) {
+		cfg := validDBConfig()
+		cfg.HostEnv = "TEST_HOST"
+		decoded, err := entryutil.DecodeEntryConfig[apiconfig.DBConfig](ctx, &staticDBConfigTranscoder{cfg: cfg}, dbEntry())
+		require.NoError(t, err)
+		assert.Equal(t, "test-host-value", decoded.Host)
+	})
 
-			require.NoError(t, err)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
+	t.Run("Configured but unresolvable env field fails fast", func(t *testing.T) {
+		cfg := validDBConfig()
+		cfg.DatabaseEnv = "NONEXISTENT_VAR"
+		_, err := entryutil.DecodeEntryConfig[apiconfig.DBConfig](ctx, &staticDBConfigTranscoder{cfg: cfg}, dbEntry())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "could not be resolved")
+		assert.Contains(t, err.Error(), "environment variable not found")
+	})
 }
 
 func TestManager_AddWithUnresolvableEnv(t *testing.T) {
 	manager, _, factory := newTestManager(t)
-	ctx := ctxapi.NewRootContext()
 
 	envRegistry := NewMockEnvRegistry()
+	ctx := ctxWithEnv(envRegistry)
 	require.NoError(t, envRegistry.Set(ctx, "DB_HOST", "env-host"))
 	require.NoError(t, envRegistry.Set(ctx, "DB_PORT", "9999"))
 	require.NoError(t, envRegistry.Set(ctx, "DB_NAME", "env-db"))
 	require.NoError(t, envRegistry.Set(ctx, "DB_PASS", "env-pass"))
-	manager.env = envRegistry
 
 	manager.dtt = &UnresolvableEnvConfigTranscoder{}
 
@@ -717,16 +748,15 @@ func (t *UnresolvableEnvConfigTranscoder) Transcode(p payload.Payload, format pa
 
 func TestManager_AddWithEnvVars(t *testing.T) {
 	manager, _, factory := newTestManager(t)
-	ctx := ctxapi.NewRootContext()
 
 	// Create env registry with test values
 	envRegistry := NewMockEnvRegistry()
+	ctx := ctxWithEnv(envRegistry)
 	require.NoError(t, envRegistry.Set(ctx, "DB_HOST", "env-host"))
 	require.NoError(t, envRegistry.Set(ctx, "DB_PORT", "9999"))
 	require.NoError(t, envRegistry.Set(ctx, "DB_NAME", "env-db"))
 	require.NoError(t, envRegistry.Set(ctx, "DB_USER", "env-user"))
 	require.NoError(t, envRegistry.Set(ctx, "DB_PASS", "env-pass"))
-	manager.env = envRegistry
 
 	// Create a custom transcoder that uses env var fields
 	manager.dtt = &EnvConfigTranscoder{}
@@ -751,7 +781,8 @@ func TestManager_AddWithEnvVars(t *testing.T) {
 
 func TestManager_UpdateWithEnvVars(t *testing.T) {
 	manager, _, _ := newTestManager(t)
-	ctx := ctxapi.NewRootContext()
+	envRegistry := NewMockEnvRegistry()
+	ctx := ctxWithEnv(envRegistry)
 	id := registry.NewID("test", "env-update-db")
 
 	require.NoError(t, manager.Add(ctx, registry.Entry{
@@ -760,13 +791,11 @@ func TestManager_UpdateWithEnvVars(t *testing.T) {
 		Data: payload.New(map[string]string{"test": "data"}),
 	}))
 
-	envRegistry := NewMockEnvRegistry()
 	require.NoError(t, envRegistry.Set(ctx, "DB_HOST", "updated-host"))
 	require.NoError(t, envRegistry.Set(ctx, "DB_PORT", "6543"))
 	require.NoError(t, envRegistry.Set(ctx, "DB_NAME", "updated-db"))
 	require.NoError(t, envRegistry.Set(ctx, "DB_USER", "updated-user"))
 	require.NoError(t, envRegistry.Set(ctx, "DB_PASS", "updated-pass"))
-	manager.env = envRegistry
 	manager.dtt = &EnvConfigTranscoder{}
 
 	require.NoError(t, manager.Update(ctx, registry.Entry{
@@ -786,7 +815,8 @@ func TestManager_UpdateWithEnvVars(t *testing.T) {
 
 func TestManager_UpdateWithUnresolvableEnvDoesNotMutatePool(t *testing.T) {
 	manager, _, _ := newTestManager(t)
-	ctx := ctxapi.NewRootContext()
+	envRegistry := NewMockEnvRegistry()
+	ctx := ctxWithEnv(envRegistry)
 	id := registry.NewID("test", "env-update-fail-db")
 
 	require.NoError(t, manager.Add(ctx, registry.Entry{
@@ -796,12 +826,10 @@ func TestManager_UpdateWithUnresolvableEnvDoesNotMutatePool(t *testing.T) {
 	}))
 	before := currentPoolDBConfig(t, manager.services[id])
 
-	envRegistry := NewMockEnvRegistry()
 	require.NoError(t, envRegistry.Set(ctx, "DB_HOST", "updated-host"))
 	require.NoError(t, envRegistry.Set(ctx, "DB_PORT", "6543"))
 	require.NoError(t, envRegistry.Set(ctx, "DB_NAME", "updated-db"))
 	require.NoError(t, envRegistry.Set(ctx, "DB_PASS", "updated-pass"))
-	manager.env = envRegistry
 	manager.dtt = &UnresolvableEnvConfigTranscoder{}
 
 	err := manager.Update(ctx, registry.Entry{
