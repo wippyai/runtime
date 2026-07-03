@@ -17,7 +17,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	services3 "github.com/wippyai/runtime/api/service/aws/s3"
-	entryutil "github.com/wippyai/runtime/internal/entry"
+	entryutil "github.com/wippyai/runtime/system/entry"
 	systemresource "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )

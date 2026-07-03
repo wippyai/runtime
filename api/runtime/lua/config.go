@@ -71,38 +71,38 @@ type (
 	// LibraryConfig defines the configuration for a Lua library component.
 	// It includes the library source code and required modules.
 	LibraryConfig struct {
-		Meta    attrs.Bag              `json:"meta"`              // Metadata for the library
+		Meta    attrs.Bag              `json:"meta"`               // Metadata for the library
 		Source  string                 `json:"source" resolve:"-"` // Library source code
-		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
-		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
+		Imports map[string]registry.ID `json:"imports,omitempty"`  // Imports aliases for the library
+		Modules []string               `json:"modules,omitempty"`  // Shortcut for importing modules
 	}
 
 	// ProcessConfig defines the configuration for a Lua processes.
 	ProcessConfig struct {
-		Meta    attrs.Bag              `json:"meta"`              // Metadata for the terminal
+		Meta    attrs.Bag              `json:"meta"`               // Metadata for the terminal
 		Source  string                 `json:"source" resolve:"-"` // Lua source code
-		Method  string                 `json:"method"`            // Alias of the Lua method to execute
-		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
-		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
+		Method  string                 `json:"method"`             // Alias of the Lua method to execute
+		Imports map[string]registry.ID `json:"imports,omitempty"`  // Imports aliases for the library
+		Modules []string               `json:"modules,omitempty"`  // Shortcut for importing modules
 	}
 
 	// WorkflowConfig defines the configuration for a Lua workflow.
 	// Workflows have restricted module access for deterministic execution.
 	WorkflowConfig struct {
-		Meta    attrs.Bag              `json:"meta"`              // Metadata for the workflow
+		Meta    attrs.Bag              `json:"meta"`               // Metadata for the workflow
 		Source  string                 `json:"source" resolve:"-"` // Lua source code
-		Method  string                 `json:"method"`            // Alias of the Lua method to execute
-		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
-		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
+		Method  string                 `json:"method"`             // Alias of the Lua method to execute
+		Imports map[string]registry.ID `json:"imports,omitempty"`  // Imports aliases for the library
+		Modules []string               `json:"modules,omitempty"`  // Shortcut for importing modules
 	}
 
 	// BteaConfig defines the configuration for a Lua terminal app, this is custom process with host expectations.
 	BteaConfig struct {
-		Meta    attrs.Bag              `json:"meta"`              // Metadata for the terminal
+		Meta    attrs.Bag              `json:"meta"`               // Metadata for the terminal
 		Source  string                 `json:"source" resolve:"-"` // Lua source code
-		Method  string                 `json:"method"`            // Alias of the Lua method to execute
-		Imports map[string]registry.ID `json:"imports,omitempty"` // Imports aliases for the library
-		Modules []string               `json:"modules,omitempty"` // Shortcut for importing modules
+		Method  string                 `json:"method"`             // Alias of the Lua method to execute
+		Imports map[string]registry.ID `json:"imports,omitempty"`  // Imports aliases for the library
+		Modules []string               `json:"modules,omitempty"`  // Shortcut for importing modules
 	}
 
 	// BytecodeFunctionConfig defines configuration for a precompiled Lua function.

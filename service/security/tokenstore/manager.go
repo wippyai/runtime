@@ -13,7 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/api/security"
 	tokenstoreapi "github.com/wippyai/runtime/api/service/security/tokenstore"
-	entryutil "github.com/wippyai/runtime/internal/entry"
+	entryutil "github.com/wippyai/runtime/system/entry"
 	systemresource "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )

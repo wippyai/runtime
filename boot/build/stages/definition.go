@@ -7,7 +7,7 @@ import (
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/internal/entry"
+	"github.com/wippyai/runtime/system/entry"
 )
 
 // ModuleDefinition represents the data structure of an ns.definition entry.

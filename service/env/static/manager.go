@@ -11,8 +11,8 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	envsvc "github.com/wippyai/runtime/api/service/env"
-	entryutil "github.com/wippyai/runtime/internal/entry"
 	envos "github.com/wippyai/runtime/service/env/os"
+	entryutil "github.com/wippyai/runtime/system/entry"
 	sysenv "github.com/wippyai/runtime/system/env"
 	"go.uber.org/zap"
 )

@@ -14,7 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	config "github.com/wippyai/runtime/api/service/http"
 	"github.com/wippyai/runtime/api/supervisor"
-	entrycfg "github.com/wippyai/runtime/internal/entry"
+	entrycfg "github.com/wippyai/runtime/system/entry"
 	"go.uber.org/zap"
 )
 

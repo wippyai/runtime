@@ -15,7 +15,7 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	api "github.com/wippyai/runtime/api/service/temporal"
 	"github.com/wippyai/runtime/api/supervisor"
-	"github.com/wippyai/runtime/internal/entry"
+	"github.com/wippyai/runtime/system/entry"
 	"go.temporal.io/sdk/interceptor"
 	"go.uber.org/zap"
 )

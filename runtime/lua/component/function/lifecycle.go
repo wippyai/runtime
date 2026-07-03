@@ -11,10 +11,10 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/runtime/lua"
-	entrycfg "github.com/wippyai/runtime/internal/entry"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
+	entrycfg "github.com/wippyai/runtime/system/entry"
 	securitysys "github.com/wippyai/runtime/system/security"
 	"go.uber.org/zap"
 )

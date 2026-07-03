@@ -13,8 +13,8 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	templateapi "github.com/wippyai/runtime/api/service/template"
-	entryutil "github.com/wippyai/runtime/internal/entry"
 	servicetemplate "github.com/wippyai/runtime/service/template"
+	entryutil "github.com/wippyai/runtime/system/entry"
 	"go.uber.org/zap"
 )
 

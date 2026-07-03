@@ -23,7 +23,7 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	apiconfig "github.com/wippyai/runtime/api/service/sql"
 	"github.com/wippyai/runtime/api/supervisor"
-	entryutil "github.com/wippyai/runtime/internal/entry"
+	entryutil "github.com/wippyai/runtime/system/entry"
 	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )

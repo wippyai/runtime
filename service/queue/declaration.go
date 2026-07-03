@@ -10,7 +10,7 @@ import (
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
 	queuecfg "github.com/wippyai/runtime/api/service/queue/queue"
-	entryutil "github.com/wippyai/runtime/internal/entry"
+	entryutil "github.com/wippyai/runtime/system/entry"
 	"go.uber.org/zap"
 )
 

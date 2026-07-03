@@ -30,7 +30,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/wappextract"
 	"github.com/wippyai/runtime/boot/loader"
 	"github.com/wippyai/runtime/boot/loader/interpolate"
-	entrypkg "github.com/wippyai/runtime/internal/entry"
+	entrypkg "github.com/wippyai/runtime/system/entry"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"

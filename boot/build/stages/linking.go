@@ -13,7 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/boot/deps/graph"
-	"github.com/wippyai/runtime/internal/entry"
+	"github.com/wippyai/runtime/system/entry"
 	"go.uber.org/zap"
 )
 

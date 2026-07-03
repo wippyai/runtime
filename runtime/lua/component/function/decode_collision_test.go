@@ -14,7 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	api "github.com/wippyai/runtime/api/runtime/lua"
-	entrycfg "github.com/wippyai/runtime/internal/entry"
+	entrycfg "github.com/wippyai/runtime/system/entry"
 	systempayload "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/payload/json"
 )

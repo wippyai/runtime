@@ -11,8 +11,8 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	execapi "github.com/wippyai/runtime/api/service/exec"
-	entryutil "github.com/wippyai/runtime/internal/entry"
 	serviceexec "github.com/wippyai/runtime/service/exec"
+	entryutil "github.com/wippyai/runtime/system/entry"
 	"go.uber.org/zap"
 )
 
