@@ -493,3 +493,37 @@ func TestPlaceholder_WhitespaceInterpolatesNotTyped(t *testing.T) {
 	// Surrounding whitespace forces string interpolation, preserving the spaces.
 	assert.Equal(t, " 16 ", cfg.Name)
 }
+
+func TestPlaceholder_MalformedDefaultFallsBackToString(t *testing.T) {
+	// An unresolved variable with a default that is not a valid YAML scalar
+	// falls back to the raw default string rather than erroring.
+	reg := &fakeEnvRegistry{}
+	ctx := env.WithRegistry(ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext()), reg)
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "s"),
+		Kind: "test.s",
+		Data: payload.New(map[string]any{"name": "${env:MISSING|[unclosed}"}),
+	}
+	cfg, err := DecodeEntryConfig[ResolveConfig](ctx, realTranscoder{}, entry)
+	require.NoError(t, err)
+	assert.Equal(t, "[unclosed", cfg.Name)
+}
+
+// SliceEnvConfig has an _env directive pointing at a non-scalar sibling.
+type SliceEnvConfig struct {
+	Tags    []string `json:"tags"`
+	TagsEnv string   `json:"tags_env"`
+}
+
+func TestEnvField_UnsupportedSiblingKindFails(t *testing.T) {
+	reg := &fakeEnvRegistry{vars: []fakeVar{{name: "TAGS", value: "a,b"}}}
+	ctx := env.WithRegistry(ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext()), reg)
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "s"),
+		Kind: "test.s",
+		Data: payload.New(map[string]any{"tags_env": "TAGS"}),
+	}
+	_, err := DecodeEntryConfig[SliceEnvConfig](ctx, realTranscoder{}, entry)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot convert")
+}
