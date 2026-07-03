@@ -181,3 +181,7 @@ func NewComponentHostImportError(importID string) apierror.Error {
 func NewFSAccessDeniedError(id string) apierror.Error {
 	return apierror.New(apierror.PermissionDenied, "not allowed to access filesystem: "+id).WithRetryable(apierror.False)
 }
+
+func NewWASIEnvAccessDeniedError(id string) apierror.Error {
+	return apierror.New(apierror.PermissionDenied, "not allowed to read env variable: "+id).WithRetryable(apierror.False)
+}

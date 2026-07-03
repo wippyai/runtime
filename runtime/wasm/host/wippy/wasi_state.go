@@ -14,7 +14,12 @@ type wasiCallConfigKey struct{}
 type WASIMountBinding struct {
 	Filesystem fsapi.FS
 	Guest      string
-	ReadOnly   bool
+	// Host is the absolute host directory backing Filesystem, when it is
+	// host-backed. Preferred for mounting (wazero sandboxes the guest to exactly
+	// this directory and it supports writes); empty for non-directory
+	// filesystems, which are mounted read-only through Filesystem.
+	Host     string
+	ReadOnly bool
 }
 
 // WASICallConfig carries resolved per-invocation WASI settings.
