@@ -46,8 +46,8 @@ type DependencyDefinition struct {
 // Value carries the supplied value in its source type so typed parameters flow
 // into requirement targets unchanged.
 type Parameter struct {
-	Name  string `json:"name" yaml:"name"`
 	Value any    `json:"value" yaml:"value"`
+	Name  string `json:"name" yaml:"name"`
 }
 
 type LinkOption func(*linkStage)

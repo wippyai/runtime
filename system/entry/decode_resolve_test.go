@@ -151,13 +151,13 @@ type TLSConfig struct {
 }
 
 type ServerEnvConfig struct {
+	TLS      TLSConfig `json:"tls"`
 	Host     string    `json:"host"`
 	HostEnv  string    `json:"host_env"`
-	Port     int       `json:"port"`
 	PortEnv  string    `json:"port_env"`
-	Debug    bool      `json:"debug"`
 	DebugEnv string    `json:"debug_env"`
-	TLS      TLSConfig `json:"tls"`
+	Port     int       `json:"port"`
+	Debug    bool      `json:"debug"`
 }
 
 // envDecodeTranscoder unmarshals a fixed config value, letting tests drive the
@@ -322,9 +322,9 @@ func TestDecodeEntryConfig_ResolveSkipTag(t *testing.T) {
 // OptionsConfig exercises legacy _env resolution inside map fields, including a
 // nested map[string]any bag.
 type OptionsConfig struct {
-	Name    string            `json:"name"`
 	Options map[string]string `json:"options"`
 	Extra   map[string]any    `json:"extra"`
+	Name    string            `json:"name"`
 }
 
 func decodeOptions(t *testing.T, reg env.Registry, data map[string]any) (*OptionsConfig, error) {
@@ -401,8 +401,8 @@ func TestEnvMap_NestedBagResolves(t *testing.T) {
 // MetaBagConfig has an attrs.Bag meta field to prove meta _env keys are left as
 // dependency references rather than resolved as variables.
 type MetaBagConfig struct {
-	Name string    `json:"name"`
 	Meta attrs.Bag `json:"meta"`
+	Name string    `json:"name"`
 }
 
 func TestEnvMap_MetaBagNotResolved(t *testing.T) {
@@ -424,14 +424,14 @@ func TestEnvMap_MetaBagNotResolved(t *testing.T) {
 
 // TypedEnvConfig covers the integer/float bit-size branches of assignEnvValue.
 type TypedEnvConfig struct {
-	Small    int8    `json:"small"`
 	SmallEnv string  `json:"small_env"`
-	Count    uint32  `json:"count"`
 	CountEnv string  `json:"count_env"`
-	Ratio    float32 `json:"ratio"`
 	RatioEnv string  `json:"ratio_env"`
-	Big      int64   `json:"big"`
 	BigEnv   string  `json:"big_env"`
+	Big      int64   `json:"big"`
+	Count    uint32  `json:"count"`
+	Ratio    float32 `json:"ratio"`
+	Small    int8    `json:"small"`
 }
 
 func decodeTyped(t *testing.T, reg env.Registry, data map[string]any) (*TypedEnvConfig, error) {
@@ -511,8 +511,8 @@ func TestPlaceholder_MalformedDefaultFallsBackToString(t *testing.T) {
 
 // SliceEnvConfig has an _env directive pointing at a non-scalar sibling.
 type SliceEnvConfig struct {
-	Tags    []string `json:"tags"`
 	TagsEnv string   `json:"tags_env"`
+	Tags    []string `json:"tags"`
 }
 
 func TestEnvField_UnsupportedSiblingKindFails(t *testing.T) {

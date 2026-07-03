@@ -80,8 +80,8 @@ type DependencyDefinition struct {
 // Value carries the supplied value in its source type so typed parameters
 // decode without forcing a string.
 type Parameter struct {
-	Name  string `json:"name" yaml:"name"`
 	Value any    `json:"value" yaml:"value"`
+	Name  string `json:"name" yaml:"name"`
 }
 
 type desiredDependency struct {

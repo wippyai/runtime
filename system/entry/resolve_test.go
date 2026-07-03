@@ -35,8 +35,8 @@ func (f *fakeEnvRegistry) find(key string) (*fakeVar, bool) {
 // fakeEnvRegistry is a test double of env.Registry that mirrors the real
 // registry's name-then-id lookup resolution.
 type fakeEnvRegistry struct {
-	vars      []fakeVar
 	lookupErr error
+	vars      []fakeVar
 }
 
 func (f *fakeEnvRegistry) Lookup(_ context.Context, key string) (string, bool, error) {
@@ -137,10 +137,10 @@ func TestResolve_WholeValueNoDefaultNotFound(t *testing.T) {
 
 func TestResolve_TypedDefaults(t *testing.T) {
 	cases := []struct {
-		name  string
-		value string // env value; empty means not found
-		def   string
 		want  any
+		name  string
+		value string
+		def   string
 	}{
 		{name: "int default not found", def: "8080", want: 8080},
 		{name: "int coerced", value: "9090", def: "8080", want: 9090},
