@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
+	"path"
 	"strings"
 
 	lua "github.com/wippyai/go-lua"
@@ -44,15 +44,16 @@ func (f *FS) resolvePath(p string) (string, error) {
 	case p[0] == '/':
 		res = strings.TrimLeft(p, "/")
 	default:
-		res = filepath.Join(f.cwd, p)
+		res = path.Join(f.cwd, p)
 	}
 	if res == "" {
 		return ".", nil
 	}
 
-	// Clean and validate path doesn't escape root
-	res = filepath.Clean(res)
-	if res == ".." || strings.HasPrefix(res, "../") || strings.HasPrefix(res, "..\\") {
+	// The underlying fsapi.FS follows the io/fs contract, where paths are always
+	// forward-slash regardless of OS, so clean with path (not filepath).
+	res = path.Clean(res)
+	if res == ".." || strings.HasPrefix(res, "../") {
 		return "", ErrPathTraversal
 	}
 
