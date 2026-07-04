@@ -5,7 +5,9 @@ package hub
 import (
 	"context"
 	"fmt"
+	iofs "io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -136,6 +138,55 @@ func readEntriesFromFile(path string) ([]wapp.Entry, error) {
 		return nil, fmt.Errorf("read artifact entries: %w", err)
 	}
 	return entries, nil
+}
+
+// openArtifactReader opens a cached artifact and returns its file and reader.
+// The caller owns both and must close the file when done; the reader reads
+// lazily from the file, so it must stay open while the reader is in use.
+func openArtifactReader(path string) (*os.File, *wapp.Reader, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open artifact: %w", err)
+	}
+	reader, err := wapp.NewReader(file)
+	if err != nil {
+		_ = file.Close()
+		return nil, nil, fmt.Errorf("read artifact: %w", err)
+	}
+	return file, reader, nil
+}
+
+// parseResourceID converts an "ns:name" resource identifier back to a wapp.ID.
+// A missing namespace maps to an empty namespace, the inverse of ID.String.
+func parseResourceID(raw string) wapp.ID {
+	raw = strings.TrimSpace(raw)
+	if i := strings.Index(raw, ":"); i >= 0 {
+		return wapp.NewID(raw[:i], raw[i+1:])
+	}
+	return wapp.NewID("", raw)
+}
+
+// readResourceFile reads a single file from an embedded filesystem resource.
+func readResourceFile(reader *wapp.Reader, resourceID, filePath string) ([]byte, error) {
+	rdfs, err := reader.GetFS(parseResourceID(resourceID))
+	if err != nil {
+		return nil, fmt.Errorf("open resource filesystem: %w", err)
+	}
+
+	name := strings.TrimLeft(filePath, "/")
+	if name == "" {
+		return nil, fmt.Errorf("file path required")
+	}
+	name = path.Clean(name)
+	if name == ".." || strings.HasPrefix(name, "../") {
+		return nil, fmt.Errorf("invalid file path: %s", filePath)
+	}
+
+	data, err := iofs.ReadFile(rdfs, name)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", filePath, err)
+	}
+	return data, nil
 }
 
 type versionEntries struct {

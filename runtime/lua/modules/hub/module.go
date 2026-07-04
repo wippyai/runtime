@@ -85,7 +85,7 @@ func (h *hubModule) authStore() *bootauth.Store {
 }
 
 func (h *hubModule) build() (*lua.LTable, []luaapi.YieldType) {
-	mod := lua.CreateTable(0, 6)
+	mod := lua.CreateTable(0, 7)
 
 	modules := lua.CreateTable(0, 4)
 	modules.RawSetString("list", lua.LGoFunc(h.modulesList))
@@ -94,11 +94,14 @@ func (h *hubModule) build() (*lua.LTable, []luaapi.YieldType) {
 	modules.RawSetString("readme", lua.LGoFunc(h.modulesReadme))
 	modules.Immutable = true
 
-	versions := lua.CreateTable(0, 4)
+	versions := lua.CreateTable(0, 7)
 	versions.RawSetString("list", lua.LGoFunc(h.versionsList))
 	versions.RawSetString("get", lua.LGoFunc(h.versionsGet))
 	versions.RawSetString("inspect", lua.LGoFunc(h.versionsInspect))
 	versions.RawSetString("entries", lua.LGoFunc(h.versionsEntries))
+	versions.RawSetString("open", lua.LGoFunc(h.versionsOpen))
+	versions.RawSetString("resources", lua.LGoFunc(h.versionsResources))
+	versions.RawSetString("read_file", lua.LGoFunc(h.versionsReadFile))
 	versions.Immutable = true
 
 	dependencies := lua.CreateTable(0, 1)
@@ -119,12 +122,19 @@ func (h *hubModule) build() (*lua.LTable, []luaapi.YieldType) {
 	auth.RawSetString("status", lua.LGoFunc(h.authStatus))
 	auth.Immutable = true
 
+	cache := lua.CreateTable(0, 3)
+	cache.RawSetString("list", lua.LGoFunc(h.cacheList))
+	cache.RawSetString("remove", lua.LGoFunc(h.cacheRemove))
+	cache.RawSetString("prune", lua.LGoFunc(h.cachePrune))
+	cache.Immutable = true
+
 	mod.RawSetString("modules", modules)
 	mod.RawSetString("versions", versions)
 	mod.RawSetString("dependencies", dependencies)
 	mod.RawSetString("dependents", dependents)
 	mod.RawSetString("files", files)
 	mod.RawSetString("auth", auth)
+	mod.RawSetString("cache", cache)
 	mod.Immutable = true
 
 	return mod, nil
@@ -466,6 +476,178 @@ func (h *hubModule) versionsEntries(l *lua.LState) int {
 	}
 	l.Push(out)
 	return 1
+}
+
+func (h *hubModule) versionsOpen(l *lua.LState) int {
+	moduleRef, moduleKey, err := parseModuleRef(l, 1)
+	if err != nil {
+		return pushError(l, err)
+	}
+	versionRef, err := parseVersionRef(l, 2)
+	if err != nil {
+		return pushError(l, err)
+	}
+
+	ctx, err := h.requireContext(l)
+	if err != nil {
+		return pushError(l, err)
+	}
+	if !security.IsAllowed(ctx, "hub.versions.open", moduleKey, nil) {
+		return pushError(l, permissionDenied(l, "hub.versions.open", moduleKey))
+	}
+
+	base, err := parseBaseOptions(l, 3)
+	if err != nil {
+		return pushError(l, err)
+	}
+
+	client, err := h.artifactClient(l, base)
+	if err != nil {
+		return pushError(l, err)
+	}
+	params, paramsErr := downloadParamsFromRefs(moduleRef, versionRef)
+	if paramsErr != nil {
+		return pushError(l, invalidArgument(l, paramsErr.Error()))
+	}
+
+	reqCtx, cancel := withTimeout(ctx, base.timeout)
+	defer cancel()
+
+	path, info, callErr := ensureCachedArtifact(reqCtx, client, params, "")
+	if callErr != nil {
+		return pushError(l, hubCallError(l, callErr))
+	}
+
+	file, reader, openErr := openArtifactReader(path)
+	if openErr != nil {
+		return pushError(l, hubCallError(l, openErr))
+	}
+
+	version := firstNonEmpty(info.Version, params.Version, params.VersionID, params.Label)
+	handle := newPackageHandle(ctx, file, reader, version, info.Digest)
+	pushPackageHandle(l, handle)
+	l.Push(lua.LNil)
+	return 2
+}
+
+func (h *hubModule) versionsResources(l *lua.LState) int {
+	moduleRef, moduleKey, err := parseModuleRef(l, 1)
+	if err != nil {
+		return pushError(l, err)
+	}
+	versionRef, err := parseVersionRef(l, 2)
+	if err != nil {
+		return pushError(l, err)
+	}
+
+	ctx, err := h.requireContext(l)
+	if err != nil {
+		return pushError(l, err)
+	}
+	if !security.IsAllowed(ctx, "hub.versions.resources", moduleKey, nil) {
+		return pushError(l, permissionDenied(l, "hub.versions.resources", moduleKey))
+	}
+
+	base, err := parseBaseOptions(l, 3)
+	if err != nil {
+		return pushError(l, err)
+	}
+
+	client, err := h.artifactClient(l, base)
+	if err != nil {
+		return pushError(l, err)
+	}
+	params, paramsErr := downloadParamsFromRefs(moduleRef, versionRef)
+	if paramsErr != nil {
+		return pushError(l, invalidArgument(l, paramsErr.Error()))
+	}
+
+	reqCtx, cancel := withTimeout(ctx, base.timeout)
+	defer cancel()
+
+	path, _, callErr := ensureCachedArtifact(reqCtx, client, params, "")
+	if callErr != nil {
+		return pushError(l, hubCallError(l, callErr))
+	}
+
+	file, reader, openErr := openArtifactReader(path)
+	if openErr != nil {
+		return pushError(l, hubCallError(l, openErr))
+	}
+	defer func() { _ = file.Close() }()
+
+	arr, convErr := resourcesToArray(l, reader.ListResources())
+	if convErr != nil {
+		return pushError(l, hubCallError(l, convErr))
+	}
+	l.Push(arr)
+	l.Push(lua.LNil)
+	return 2
+}
+
+func (h *hubModule) versionsReadFile(l *lua.LState) int {
+	moduleRef, moduleKey, err := parseModuleRef(l, 1)
+	if err != nil {
+		return pushError(l, err)
+	}
+	versionRef, err := parseVersionRef(l, 2)
+	if err != nil {
+		return pushError(l, err)
+	}
+	resourceID := strings.TrimSpace(l.CheckString(3))
+	filePath := l.CheckString(4)
+
+	ctx, err := h.requireContext(l)
+	if err != nil {
+		return pushError(l, err)
+	}
+	if !security.IsAllowed(ctx, "hub.versions.read_file", moduleKey, nil) {
+		return pushError(l, permissionDenied(l, "hub.versions.read_file", moduleKey))
+	}
+
+	if resourceID == "" {
+		return pushError(l, invalidArgument(l, "resource id required"))
+	}
+	if strings.TrimSpace(filePath) == "" {
+		return pushError(l, invalidArgument(l, "file path required"))
+	}
+
+	base, err := parseBaseOptions(l, 5)
+	if err != nil {
+		return pushError(l, err)
+	}
+
+	client, err := h.artifactClient(l, base)
+	if err != nil {
+		return pushError(l, err)
+	}
+	params, paramsErr := downloadParamsFromRefs(moduleRef, versionRef)
+	if paramsErr != nil {
+		return pushError(l, invalidArgument(l, paramsErr.Error()))
+	}
+
+	reqCtx, cancel := withTimeout(ctx, base.timeout)
+	defer cancel()
+
+	path, _, callErr := ensureCachedArtifact(reqCtx, client, params, "")
+	if callErr != nil {
+		return pushError(l, hubCallError(l, callErr))
+	}
+
+	file, reader, openErr := openArtifactReader(path)
+	if openErr != nil {
+		return pushError(l, hubCallError(l, openErr))
+	}
+	defer func() { _ = file.Close() }()
+
+	data, readErr := readResourceFile(reader, resourceID, filePath)
+	if readErr != nil {
+		return pushError(l, lua.WrapErrorWithLua(l, readErr, "read resource file").WithKind(lua.NotFound).WithRetryable(false))
+	}
+
+	l.Push(lua.LString(data))
+	l.Push(lua.LNil)
+	return 2
 }
 
 func (h *hubModule) dependenciesGet(l *lua.LState) int {

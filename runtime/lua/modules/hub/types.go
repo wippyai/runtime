@@ -48,6 +48,15 @@ func ModuleTypes() *io.Manifest {
 		{Name: "get", Type: typ.Func().Param("module", typ.Any).Param("version", typ.Any).OptParam("opts", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "inspect", Type: typ.Func().Param("module", typ.Any).Param("version", typ.Any).OptParam("opts", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "entries", Type: typ.Func().Param("module", typ.Any).Param("version", typ.Any).OptParam("opts", typ.Any).Returns(entriesResponse, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "open", Type: typ.Func().Param("module", typ.Any).Param("version", typ.Any).OptParam("opts", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "resources", Type: typ.Func().Param("module", typ.Any).Param("version", typ.Any).OptParam("opts", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "read_file", Type: typ.Func().Param("module", typ.Any).Param("version", typ.Any).Param("resource", typ.String).Param("path", typ.String).OptParam("opts", typ.Any).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
+	})
+
+	cacheIface := typ.NewInterface("hub.cache", []typ.Method{
+		{Name: "list", Type: typ.Func().OptParam("opts", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "remove", Type: typ.Func().Param("module", typ.String).Param("version", typ.String).OptParam("opts", typ.Any).Returns(typ.Boolean, typ.NewOptional(typ.LuaError)).Build()},
+		{Name: "prune", Type: typ.Func().OptParam("opts", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
 	})
 
 	dependenciesIface := typ.NewInterface("hub.dependencies", []typ.Method{
@@ -81,6 +90,7 @@ func ModuleTypes() *io.Manifest {
 		Field("dependents", dependentsIface).
 		Field("files", filesIface).
 		Field("auth", authIface).
+		Field("cache", cacheIface).
 		Build()
 
 	m.SetExport(moduleType)
