@@ -174,7 +174,7 @@ func TestModulesList(t *testing.T) {
 	mod := NewModule(Options{ModuleClient: fake})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -197,7 +197,7 @@ func TestVersionsGetRequiresVersion(t *testing.T) {
 	mod := NewModule(Options{ModuleClient: fake})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -250,7 +250,7 @@ func TestVersionsInspectExtractsRequirementsFromArtifact(t *testing.T) {
 	mod := NewModule(Options{ArtifactClient: fake})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -316,7 +316,7 @@ func TestVersionsEntriesReturnsEntries(t *testing.T) {
 	mod := NewModule(Options{ArtifactClient: fake})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -381,7 +381,7 @@ func TestVersionsEntriesCacheReusesArtifact(t *testing.T) {
 	mod := NewModule(Options{ArtifactClient: fake})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -417,7 +417,7 @@ func TestDependenciesGetOptionalVersion(t *testing.T) {
 	mod := NewModule(Options{ModuleClient: fake})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -438,7 +438,7 @@ func TestHubModule_ModuleClientShortCircuitDoesNotInitializeStore(t *testing.T) 
 
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	_, err := h.moduleClient(l, baseOptions{})
 	require.Nil(t, err)
@@ -477,7 +477,7 @@ func TestAuthAuthenticateSucceeds(t *testing.T) {
 	mod := NewModule(Options{})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -512,7 +512,7 @@ func TestAuthAuthenticateRejectedNotStored(t *testing.T) {
 	mod := NewModule(Options{})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -538,7 +538,7 @@ func TestAuthAuthenticateInvalidFormat(t *testing.T) {
 	mod := NewModule(Options{})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -587,7 +587,7 @@ func TestAuthLogout(t *testing.T) {
 	mod := NewModule(Options{})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -634,7 +634,7 @@ func TestAuthStatusAuthenticated(t *testing.T) {
 	mod := NewModule(Options{AuthStore: store})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -661,7 +661,7 @@ func TestAuthStatusNotAuthenticated(t *testing.T) {
 	mod := NewModule(Options{})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -695,7 +695,7 @@ func TestAuthStatusInvalidTokenSuppressesIdentity(t *testing.T) {
 	mod := NewModule(Options{AuthStore: store})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)

@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	boothub "github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/wapp"
 )
@@ -35,7 +36,7 @@ func newStrictReadSurfaceState(t *testing.T, fake *fakeArtifactClient) *lua.LSta
 	mod := NewModule(Options{ArtifactClient: fake})
 	l := lua.NewState()
 	t.Cleanup(l.Close)
-	l.SetContext(setupStrictContext())
+	l.SetContext(hubTestStoreContext(setupStrictContext(), t))
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
 	return l
@@ -583,4 +584,30 @@ func TestCachePermissionDenied(t *testing.T) {
 	}
 	// Nothing was touched under strict denial.
 	require.FileExists(t, pinnedPath)
+}
+
+// TestPackageHandleAutoClosedByStore verifies the frame-end contract that keeps
+// Windows TempDir cleanup working: newPackageHandle registers an AddCleanup on
+// the resource store, so closing the store (request end) releases the open .wapp
+// even when the caller never calls pkg:close().
+func TestPackageHandleAutoClosedByStore(t *testing.T) {
+	t.Chdir(t.TempDir())
+	artifact := buildWappBytesForHubModuleTest(t, []wapp.Entry{
+		{ID: wapp.NewID("wippy.dummy", "ping"), Kind: "function.lua"},
+	})
+	require.NoError(t, os.WriteFile("pkg.wapp", artifact, 0600))
+
+	ctx := setupContext()
+	store := resource.NewStore()
+	require.NoError(t, resource.SetStore(ctx, store))
+
+	file, reader, err := openArtifactReader("pkg.wapp")
+	require.NoError(t, err)
+	h := newPackageHandle(ctx, file, reader, "v0.1.2", "sha256:test")
+	require.False(t, h.isClosed())
+
+	require.NoError(t, store.Close())
+	require.True(t, h.isClosed(), "closing the resource store must release the handle")
+
+	require.NoError(t, h.Close()) // idempotent after store-driven close
 }

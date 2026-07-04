@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
+	"github.com/wippyai/runtime/api/runtime/resource"
 	boothub "github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/wapp"
 )
@@ -35,10 +36,22 @@ func newReadSurfaceState(t *testing.T, fake *fakeArtifactClient) *lua.LState {
 	mod := NewModule(Options{ArtifactClient: fake})
 	l := lua.NewState()
 	t.Cleanup(l.Close)
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
 	return l
+}
+
+// hubTestStoreContext attaches a resource store to ctx and closes it in test
+// cleanup, so a package handle's frame-end AddCleanup runs and releases the open
+// .wapp file before t.TempDir removal. On Windows an open handle blocks removal;
+// this mirrors the request-end store close that happens in production.
+func hubTestStoreContext(ctx context.Context, t *testing.T) context.Context {
+	t.Helper()
+	store := resource.NewStore()
+	require.NoError(t, resource.SetStore(ctx, store))
+	t.Cleanup(func() { _ = store.Close() })
+	return ctx
 }
 
 func artifactClientReturning(t *testing.T, artifact []byte, downloads *int) *fakeArtifactClient {
