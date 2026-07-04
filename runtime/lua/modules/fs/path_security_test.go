@@ -3,7 +3,6 @@
 package fs
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,9 +12,12 @@ import (
 // resolvePath only strips one leading slash. Double-slash input bypasses
 // the traversal check and produces an absolute path.
 
+// resolvePath returns forward-slash paths on every OS (the fsapi.FS io/fs
+// contract), so the expected value is compared as-is rather than converted to
+// OS separators.
 func assertResolvedPath(t *testing.T, expectedSlashPath, actual string, msgAndArgs ...any) {
 	t.Helper()
-	assert.Equal(t, filepath.FromSlash(expectedSlashPath), actual, msgAndArgs...)
+	assert.Equal(t, expectedSlashPath, actual, msgAndArgs...)
 }
 
 func TestResolvePath_DoubleSlashStrippedToRelative(t *testing.T) {
