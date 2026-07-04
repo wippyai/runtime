@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awsmiddleware "github.com/aws/aws-sdk-go-v2/aws/middleware"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -437,9 +438,16 @@ func (m *addRequestHeadersMiddleware) ID() string { return "wippyAddRequestHeade
 func (m *addRequestHeadersMiddleware) HandleBuild(
 	ctx context.Context, in middleware.BuildInput, next middleware.BuildHandler,
 ) (middleware.BuildOutput, middleware.Metadata, error) {
-	if req, ok := in.Request.(*smithyhttp.Request); ok {
-		for k, v := range m.headers {
-			req.Header.Set(k, v)
+	// Object-level headers belong only on the object-creating operations. The
+	// multipart uploader also issues UploadPart and CompleteMultipartUpload,
+	// which reject many headers valid on PutObject/CreateMultipartUpload, so
+	// applying the same headers to every request would fail multipart uploads.
+	switch awsmiddleware.GetOperationName(ctx) {
+	case "PutObject", "CreateMultipartUpload":
+		if req, ok := in.Request.(*smithyhttp.Request); ok {
+			for k, v := range m.headers {
+				req.Header.Set(k, v)
+			}
 		}
 	}
 	return next.HandleBuild(ctx, in)

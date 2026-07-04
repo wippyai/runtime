@@ -13,12 +13,14 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awsmiddleware "github.com/aws/aws-sdk-go-v2/aws/middleware"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
 	smithyendpoints "github.com/aws/smithy-go/endpoints"
+	"github.com/aws/smithy-go/middleware"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -883,4 +885,42 @@ func TestFlattenHeaders(t *testing.T) {
 		out := flattenHeaders(h)
 		assert.Equal(t, "a, b, c", out["x-repeated"])
 	})
+}
+
+// ctxWithS3Operation returns a context carrying the given S3 operation name,
+// the way the SDK sets it before the build step runs.
+func ctxWithS3Operation(t *testing.T, op string) context.Context {
+	t.Helper()
+	var captured context.Context
+	md := awsmiddleware.RegisterServiceMetadata{OperationName: op}
+	_, _, err := md.HandleInitialize(context.Background(), middleware.InitializeInput{},
+		middleware.InitializeHandlerFunc(func(ctx context.Context, _ middleware.InitializeInput) (middleware.InitializeOutput, middleware.Metadata, error) {
+			captured = ctx
+			return middleware.InitializeOutput{}, middleware.Metadata{}, nil
+		}))
+	require.NoError(t, err)
+	return captured
+}
+
+func TestAddRequestHeadersMiddleware_ScopedToObjectCreation(t *testing.T) {
+	mw := &addRequestHeadersMiddleware{headers: map[string]string{"x-amz-tagging": "k=v"}}
+
+	build := func(ctx context.Context) *smithyhttp.Request {
+		req, _ := smithyhttp.NewStackRequest().(*smithyhttp.Request)
+		_, _, err := mw.HandleBuild(ctx, middleware.BuildInput{Request: req},
+			middleware.BuildHandlerFunc(func(ctx context.Context, _ middleware.BuildInput) (middleware.BuildOutput, middleware.Metadata, error) {
+				return middleware.BuildOutput{}, middleware.Metadata{}, nil
+			}))
+		require.NoError(t, err)
+		return req
+	}
+
+	for _, op := range []string{"PutObject", "CreateMultipartUpload"} {
+		req := build(ctxWithS3Operation(t, op))
+		assert.Equal(t, "k=v", req.Header.Get("x-amz-tagging"), "headers must apply to %s", op)
+	}
+	for _, op := range []string{"UploadPart", "CompleteMultipartUpload"} {
+		req := build(ctxWithS3Operation(t, op))
+		assert.Empty(t, req.Header.Get("x-amz-tagging"), "headers must not apply to %s", op)
+	}
 }
