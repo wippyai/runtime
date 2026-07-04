@@ -206,7 +206,21 @@ func artifactCachePath(params *boothub.DownloadParams, info *boothub.DownloadInf
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(vendorDir, lock.WappPath(name, version)), nil
+	// A version or module component with separators or ".." (including a
+	// registry-returned version) would make filepath.Join write the downloaded
+	// artifact outside the vendor directory. Require clean components and verify
+	// the result stays inside the cache.
+	if !isCleanComponent(version) {
+		return "", fmt.Errorf("artifact version must be a single path component")
+	}
+	if !isCleanComponent(name.Module) || (name.Organization != "" && !isCleanComponent(name.Organization)) {
+		return "", fmt.Errorf("artifact module must be a single path component")
+	}
+	target := filepath.Join(vendorDir, lock.WappPath(name, version))
+	if !isWithinDir(vendorDir, target) {
+		return "", fmt.Errorf("resolved cache path escapes the vendor directory")
+	}
+	return target, nil
 }
 
 func sanitizeArtifactCachePart(value string) string {

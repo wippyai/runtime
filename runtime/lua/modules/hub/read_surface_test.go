@@ -692,3 +692,32 @@ func TestVersionsOpenCachesInLockResolvedVendorDir(t *testing.T) {
 	require.NoDirExists(t, filepath.Join(root, ".wippy", "vendor"),
 		"open must not fall back to the hard-coded default vendor dir")
 }
+
+// A version with path separators (including one returned by the registry) must
+// be rejected before it can steer the download write outside the vendor dir.
+func TestVersionsOpenRejectsTraversalVersion(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+
+	var downloads int
+	client := &fakeArtifactClient{
+		getDownloadFn: func(_ context.Context, _ *boothub.DownloadParams) (*boothub.DownloadInfo, error) {
+			return &boothub.DownloadInfo{URL: "memory://dummy", Version: "../../../outside"}, nil
+		},
+		downloadFn: func(_ context.Context, _, destPath string) error {
+			downloads++
+			return os.WriteFile(destPath, []byte("x"), 0600)
+		},
+	}
+	l := newReadSurfaceState(t, client)
+
+	if err := l.DoString(`
+		local pkg, err = hub.versions.open("wippy/dummy", "v0.1.2")
+		if err == nil then error("expected error for a traversal version") end
+	`); err != nil {
+		t.Fatalf("lua error: %v", err)
+	}
+
+	require.Equal(t, 0, downloads, "a traversal version must be rejected before any download write")
+	require.NoFileExists(t, filepath.Join(root, "outside.wapp"))
+}
