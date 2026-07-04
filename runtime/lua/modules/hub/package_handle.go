@@ -278,7 +278,7 @@ func packageClose(l *lua.LState) int {
 }
 
 // parsePackageEntryOptions parses the { kind?, include_data? } table accepted by
-// pkg:entries. include_data defaults to true, matching hub.versions.entries.
+// pkg:entries. include_data defaults to true.
 func parsePackageEntryOptions(l *lua.LState, idx int) (map[string]struct{}, bool, *lua.Error) {
 	includeData := true
 	if l.GetTop() < idx {

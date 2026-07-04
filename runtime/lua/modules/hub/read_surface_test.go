@@ -133,7 +133,7 @@ func TestVersionsOpenInspectsPackage(t *testing.T) {
 	require.Equal(t, 1, downloads)
 }
 
-func TestVersionsFlatResourcesAndReadFile(t *testing.T) {
+func TestVersionsOpenResourcesAndFileRead(t *testing.T) {
 	t.Chdir(t.TempDir())
 	artifact := buildWappWithResourceForHubTest(t,
 		[]wapp.Entry{{ID: wapp.NewID("wippy.dummy", "ping"), Kind: "function.lua"}},
@@ -144,20 +144,26 @@ func TestVersionsFlatResourcesAndReadFile(t *testing.T) {
 	l := newReadSurfaceState(t, artifactClientReturning(t, artifact, nil))
 
 	if err := l.DoString(`
-		local resources, err = hub.versions.resources("wippy/dummy", "v0.1.2")
+		local pkg, err = hub.versions.open("wippy/dummy", "v0.1.2")
 		if err then error(err) end
+
+		local resources, rserr = pkg:resources()
+		if rserr then error(rserr) end
 		if #resources ~= 1 then error("resources count mismatch") end
 		if resources[1].id ~= "wippy.dummy:assets" then error("resource id mismatch") end
 
-		local body, rerr = hub.versions.read_file("wippy/dummy", "v0.1.2", "wippy.dummy:assets", "data/readme.txt")
+		local vfs, verr = pkg:fs("wippy.dummy:assets")
+		if verr then error(verr) end
+
+		local body, rerr = vfs:read_file("data/readme.txt")
 		if rerr then error(rerr) end
 		if body ~= "hello" then error("read_file mismatch: " .. tostring(body)) end
 
-		local slashBody, serr = hub.versions.read_file("wippy/dummy", "v0.1.2", "wippy.dummy:assets", "/data/readme.txt")
+		local slashBody, serr = vfs:read_file("/data/readme.txt")
 		if serr then error(serr) end
 		if slashBody ~= "hello" then error("leading slash read mismatch") end
 
-		local _, missErr = hub.versions.read_file("wippy/dummy", "v0.1.2", "wippy.dummy:assets", "data/missing.txt")
+		local _, missErr = vfs:read_file("data/missing.txt")
 		if missErr == nil then error("expected error for missing file") end
 	`); err != nil {
 		t.Fatalf("lua error: %v", err)

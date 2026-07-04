@@ -62,20 +62,6 @@ Download and inspect a version artifact by `version` or `{ id, version, label }`
 Artifacts are cached under `.wippy/vendor` and verified before reuse.
 Returns artifact-derived metadata including `{ version, digest, size_bytes, entry_count, entry_kinds, requirements, cache_path }`.
 
-### `hub.versions.entries(module, version, opts?)`
-Download a version artifact and return its registry entries. The artifact goes
-through the verified `.wippy/vendor` disk cache and is reused across calls,
-same as `inspect`.
-
-Options:
-- `kind`: string or array of strings — return only entries of these kinds
-- `include_data`: boolean (default `true`) — include each entry's decoded `data`
-- `registry`, `token`, `timeout`
-
-Returns `{ items, total, version, digest, cache_path }`.
-`total` is the number of entries in the artifact before `kind` filtering; each item
-is `{ id = { ns, name }, kind, meta, data }` (`data` omitted when `include_data = false`).
-
 ### `hub.versions.open(module, version, opts?)`
 Open a version artifact for inspection before install and return an owned package
 handle. The artifact goes through the verified `.wippy/vendor` disk cache. The
@@ -91,17 +77,6 @@ The handle exposes fields and methods:
 - `pkg:resources()` — a bare array of `{ id = "ns:name", type, hash, size, file_count, meta }`.
 - `pkg:fs(resource_id)` — an `fs.FS` handle over the named resource, using the same handle type `fs.get` returns; read it with the normal fs verbs (`stat`, `readdir`, `read_file`, ...).
 - `pkg:close()` — close the handle explicitly. It is also closed automatically at frame end.
-
-### `hub.versions.resources(module, version, opts?)`
-Open, read, and close in one call. Returns the same bare array as `pkg:resources()`.
-
-Options: `registry`, `token`, `timeout`.
-
-### `hub.versions.read_file(module, version, resource, path, opts?)`
-Read a single file from an embedded filesystem `resource` inside a version
-artifact and return its bytes as a Lua string. Opens, reads, and closes per call.
-
-Options: `registry`, `token`, `timeout`.
 
 ### `hub.cache.list(opts?)`
 List cached artifacts under the resolved vendor directory. Returns a bare array of

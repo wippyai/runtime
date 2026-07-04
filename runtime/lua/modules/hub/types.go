@@ -28,14 +28,6 @@ func ModuleTypes() *io.Manifest {
 		Field("version", typ.String).
 		Build()
 
-	entriesResponse := typ.NewRecord().
-		Field("items", typ.Any).
-		Field("total", typ.Number).
-		Field("version", typ.String).
-		Field("digest", typ.String).
-		Field("cache_path", typ.String).
-		Build()
-
 	modulesIface := typ.NewInterface("hub.modules", []typ.Method{
 		{Name: "list", Type: typ.Func().OptParam("opts", typ.Any).Returns(listResponse, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "search", Type: typ.Func().Param("query", typ.String).OptParam("opts", typ.Any).Returns(listResponse, typ.NewOptional(typ.LuaError)).Build()},
@@ -47,10 +39,7 @@ func ModuleTypes() *io.Manifest {
 		{Name: "list", Type: typ.Func().Param("module", typ.Any).OptParam("opts", typ.Any).Returns(listResponse, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "get", Type: typ.Func().Param("module", typ.Any).Param("version", typ.Any).OptParam("opts", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "inspect", Type: typ.Func().Param("module", typ.Any).Param("version", typ.Any).OptParam("opts", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
-		{Name: "entries", Type: typ.Func().Param("module", typ.Any).Param("version", typ.Any).OptParam("opts", typ.Any).Returns(entriesResponse, typ.NewOptional(typ.LuaError)).Build()},
 		{Name: "open", Type: typ.Func().Param("module", typ.Any).Param("version", typ.Any).OptParam("opts", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
-		{Name: "resources", Type: typ.Func().Param("module", typ.Any).Param("version", typ.Any).OptParam("opts", typ.Any).Returns(typ.Any, typ.NewOptional(typ.LuaError)).Build()},
-		{Name: "read_file", Type: typ.Func().Param("module", typ.Any).Param("version", typ.Any).Param("resource", typ.String).Param("path", typ.String).OptParam("opts", typ.Any).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()},
 	})
 
 	cacheIface := typ.NewInterface("hub.cache", []typ.Method{

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -321,19 +322,21 @@ func TestVersionsEntriesReturnsEntries(t *testing.T) {
 	l.SetGlobal(mod.Name, tbl)
 
 	if err := l.DoString(`
-		local res, err = hub.versions.entries("wippy/dummy", "v0.1.2")
+		local pkg, err = hub.versions.open("wippy/dummy", "v0.1.2")
 		if err then error(err) end
-		if res.version ~= "v0.1.2" then error("version mismatch") end
-		if res.total ~= 2 then error("total mismatch: " .. tostring(res.total)) end
+		if pkg.version ~= "v0.1.2" then error("version mismatch") end
+
+		local entries, eerr = pkg:entries()
+		if eerr then error(eerr) end
+		if #entries ~= 2 then error("total mismatch: " .. tostring(#entries)) end
 
 		local router, ping
-		for _, e in ipairs(res.items) do
-			if e.id.name == "router" then router = e end
-			if e.id.name == "ping" then ping = e end
+		for _, e in ipairs(entries) do
+			if e.id == "wippy.dummy:router" then router = e end
+			if e.id == "wippy.dummy:ping" then ping = e end
 		end
 		if router == nil then error("router entry missing") end
 		if ping == nil then error("ping entry missing") end
-		if router.id.ns ~= "wippy.dummy" then error("ns mismatch") end
 		if router.kind ~= "ns.requirement" then error("kind mismatch") end
 		if router.meta.description ~= "Router to register endpoints on" then error("meta mismatch") end
 		if router.data.default ~= "app:router" then error("data default mismatch") end
@@ -341,13 +344,12 @@ func TestVersionsEntriesReturnsEntries(t *testing.T) {
 		if router.data.targets[1].path ~= "meta.router" then error("target path mismatch") end
 		if ping.kind ~= "function.lua" then error("ping kind mismatch") end
 
-		local filtered, ferr = hub.versions.entries("wippy/dummy", "v0.1.2", { kind = "ns.requirement", include_data = false })
+		local filtered, ferr = pkg:entries({ kind = "ns.requirement", include_data = false })
 		if ferr then error(ferr) end
-		if filtered.total ~= 2 then error("filtered total mismatch: " .. tostring(filtered.total)) end
-		if #filtered.items ~= 1 then error("filtered items count mismatch: " .. tostring(#filtered.items)) end
-		if filtered.items[1].kind ~= "ns.requirement" then error("filtered kind mismatch") end
-		if filtered.items[1].data ~= nil then error("expected no data when include_data=false") end
-		if filtered.items[1].meta.description ~= "Router to register endpoints on" then error("filtered meta mismatch") end
+		if #filtered ~= 1 then error("filtered items count mismatch: " .. tostring(#filtered)) end
+		if filtered[1].kind ~= "ns.requirement" then error("filtered kind mismatch") end
+		if filtered[1].data ~= nil then error("expected no data when include_data=false") end
+		if filtered[1].meta.description ~= "Router to register endpoints on" then error("filtered meta mismatch") end
 	`); err != nil {
 		t.Fatalf("lua error: %v", err)
 	}
@@ -385,20 +387,24 @@ func TestVersionsEntriesCacheReusesArtifact(t *testing.T) {
 	l.SetGlobal(mod.Name, tbl)
 
 	if err := l.DoString(`
-		local res, err = hub.versions.entries("wippy/dummy", "v0.1.2")
+		local pkg, err = hub.versions.open("wippy/dummy", "v0.1.2")
 		if err then error(err) end
-		if res.total ~= 1 then error("total mismatch") end
-		if res.items[1].id.name ~= "router" then error("name mismatch") end
-		local cache_path = string.gsub(res.cache_path, "\\", "/")
-		if cache_path ~= ".wippy/vendor/wippy/dummy-v0.1.2.wapp" then error("cache_path mismatch: " .. tostring(res.cache_path)) end
-		local again, err2 = hub.versions.entries("wippy/dummy", "v0.1.2")
+		local entries, eerr = pkg:entries()
+		if eerr then error(eerr) end
+		if #entries ~= 1 then error("total mismatch") end
+		if entries[1].id ~= "wippy.dummy:router" then error("name mismatch") end
+
+		local again, err2 = hub.versions.open("wippy/dummy", "v0.1.2")
 		if err2 then error(err2) end
-		if again.items[1].id.name ~= "router" then error("cached name mismatch") end
+		local cached, cerr = again:entries()
+		if cerr then error(cerr) end
+		if cached[1].id ~= "wippy.dummy:router" then error("cached name mismatch") end
 	`); err != nil {
 		t.Fatalf("lua error: %v", err)
 	}
 
 	require.Equal(t, 1, downloads)
+	require.FileExists(t, filepath.Join(".wippy", "vendor", "wippy", "dummy-v0.1.2.wapp"))
 }
 
 func TestDependenciesGetOptionalVersion(t *testing.T) {

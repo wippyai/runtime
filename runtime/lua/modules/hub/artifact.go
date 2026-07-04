@@ -5,9 +5,7 @@ package hub
 import (
 	"context"
 	"fmt"
-	iofs "io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -164,53 +162,6 @@ func parseResourceID(raw string) wapp.ID {
 		return wapp.NewID(raw[:i], raw[i+1:])
 	}
 	return wapp.NewID("", raw)
-}
-
-// readResourceFile reads a single file from an embedded filesystem resource.
-func readResourceFile(reader *wapp.Reader, resourceID, filePath string) ([]byte, error) {
-	rdfs, err := reader.GetFS(parseResourceID(resourceID))
-	if err != nil {
-		return nil, fmt.Errorf("open resource filesystem: %w", err)
-	}
-
-	name := strings.TrimLeft(filePath, "/")
-	if name == "" {
-		return nil, fmt.Errorf("file path required")
-	}
-	name = path.Clean(name)
-	if name == ".." || strings.HasPrefix(name, "../") {
-		return nil, fmt.Errorf("invalid file path: %s", filePath)
-	}
-
-	data, err := iofs.ReadFile(rdfs, name)
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", filePath, err)
-	}
-	return data, nil
-}
-
-type versionEntries struct {
-	Version   string
-	Digest    string
-	CachePath string
-	Entries   []wapp.Entry
-}
-
-func collectVersionEntries(ctx context.Context, client ArtifactClient, params *boothub.DownloadParams) (*versionEntries, error) {
-	path, info, err := ensureCachedArtifact(ctx, client, params, "")
-	if err != nil {
-		return nil, err
-	}
-	entries, err := readEntriesFromFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return &versionEntries{
-		Version:   firstNonEmpty(info.Version, params.Version, params.VersionID, params.Label),
-		Digest:    info.Digest,
-		CachePath: path,
-		Entries:   entries,
-	}, nil
 }
 
 func artifactCachePath(params *boothub.DownloadParams, info *boothub.DownloadInfo, vendorDir string) (string, error) {

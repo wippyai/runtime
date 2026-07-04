@@ -19,9 +19,7 @@ import (
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
 	boothub "github.com/wippyai/runtime/boot/deps/hub"
-	luaconv "github.com/wippyai/runtime/runtime/lua/engine/payload"
 	"github.com/wippyai/runtime/runtime/security"
-	"github.com/wippyai/wapp"
 )
 
 // Options configure the hub module.
@@ -94,14 +92,11 @@ func (h *hubModule) build() (*lua.LTable, []luaapi.YieldType) {
 	modules.RawSetString("readme", lua.LGoFunc(h.modulesReadme))
 	modules.Immutable = true
 
-	versions := lua.CreateTable(0, 7)
+	versions := lua.CreateTable(0, 4)
 	versions.RawSetString("list", lua.LGoFunc(h.versionsList))
 	versions.RawSetString("get", lua.LGoFunc(h.versionsGet))
 	versions.RawSetString("inspect", lua.LGoFunc(h.versionsInspect))
-	versions.RawSetString("entries", lua.LGoFunc(h.versionsEntries))
 	versions.RawSetString("open", lua.LGoFunc(h.versionsOpen))
-	versions.RawSetString("resources", lua.LGoFunc(h.versionsResources))
-	versions.RawSetString("read_file", lua.LGoFunc(h.versionsReadFile))
 	versions.Immutable = true
 
 	dependencies := lua.CreateTable(0, 1)
@@ -430,54 +425,6 @@ func (h *hubModule) versionsInspect(l *lua.LState) int {
 	return 1
 }
 
-func (h *hubModule) versionsEntries(l *lua.LState) int {
-	moduleRef, moduleKey, err := parseModuleRef(l, 1)
-	if err != nil {
-		return pushError(l, err)
-	}
-	versionRef, err := parseVersionRef(l, 2)
-	if err != nil {
-		return pushError(l, err)
-	}
-
-	ctx, err := h.requireContext(l)
-	if err != nil {
-		return pushError(l, err)
-	}
-	if !security.IsAllowed(ctx, "hub.versions.entries", moduleKey, nil) {
-		return pushError(l, permissionDenied(l, "hub.versions.entries", moduleKey))
-	}
-
-	base, opts, err := parseEntriesOptions(l, 3)
-	if err != nil {
-		return pushError(l, err)
-	}
-
-	client, err := h.artifactClient(l, base)
-	if err != nil {
-		return pushError(l, err)
-	}
-	params, paramsErr := downloadParamsFromRefs(moduleRef, versionRef)
-	if paramsErr != nil {
-		return pushError(l, invalidArgument(l, paramsErr.Error()))
-	}
-
-	ctx, cancel := withTimeout(ctx, base.timeout)
-	defer cancel()
-
-	result, callErr := collectVersionEntries(ctx, client, params)
-	if callErr != nil {
-		return pushError(l, hubCallError(l, callErr))
-	}
-
-	out, convErr := versionEntriesToTable(l, result, opts)
-	if convErr != nil {
-		return pushError(l, hubCallError(l, convErr))
-	}
-	l.Push(out)
-	return 1
-}
-
 func (h *hubModule) versionsOpen(l *lua.LState) int {
 	moduleRef, moduleKey, err := parseModuleRef(l, 1)
 	if err != nil {
@@ -526,126 +473,6 @@ func (h *hubModule) versionsOpen(l *lua.LState) int {
 	version := firstNonEmpty(info.Version, params.Version, params.VersionID, params.Label)
 	handle := newPackageHandle(ctx, file, reader, version, info.Digest)
 	pushPackageHandle(l, handle)
-	l.Push(lua.LNil)
-	return 2
-}
-
-func (h *hubModule) versionsResources(l *lua.LState) int {
-	moduleRef, moduleKey, err := parseModuleRef(l, 1)
-	if err != nil {
-		return pushError(l, err)
-	}
-	versionRef, err := parseVersionRef(l, 2)
-	if err != nil {
-		return pushError(l, err)
-	}
-
-	ctx, err := h.requireContext(l)
-	if err != nil {
-		return pushError(l, err)
-	}
-	if !security.IsAllowed(ctx, "hub.versions.resources", moduleKey, nil) {
-		return pushError(l, permissionDenied(l, "hub.versions.resources", moduleKey))
-	}
-
-	base, err := parseBaseOptions(l, 3)
-	if err != nil {
-		return pushError(l, err)
-	}
-
-	client, err := h.artifactClient(l, base)
-	if err != nil {
-		return pushError(l, err)
-	}
-	params, paramsErr := downloadParamsFromRefs(moduleRef, versionRef)
-	if paramsErr != nil {
-		return pushError(l, invalidArgument(l, paramsErr.Error()))
-	}
-
-	reqCtx, cancel := withTimeout(ctx, base.timeout)
-	defer cancel()
-
-	path, _, callErr := ensureCachedArtifact(reqCtx, client, params, "")
-	if callErr != nil {
-		return pushError(l, hubCallError(l, callErr))
-	}
-
-	file, reader, openErr := openArtifactReader(path)
-	if openErr != nil {
-		return pushError(l, hubCallError(l, openErr))
-	}
-	defer func() { _ = file.Close() }()
-
-	arr, convErr := resourcesToArray(l, reader.ListResources())
-	if convErr != nil {
-		return pushError(l, hubCallError(l, convErr))
-	}
-	l.Push(arr)
-	l.Push(lua.LNil)
-	return 2
-}
-
-func (h *hubModule) versionsReadFile(l *lua.LState) int {
-	moduleRef, moduleKey, err := parseModuleRef(l, 1)
-	if err != nil {
-		return pushError(l, err)
-	}
-	versionRef, err := parseVersionRef(l, 2)
-	if err != nil {
-		return pushError(l, err)
-	}
-	resourceID := strings.TrimSpace(l.CheckString(3))
-	filePath := l.CheckString(4)
-
-	ctx, err := h.requireContext(l)
-	if err != nil {
-		return pushError(l, err)
-	}
-	if !security.IsAllowed(ctx, "hub.versions.read_file", moduleKey, nil) {
-		return pushError(l, permissionDenied(l, "hub.versions.read_file", moduleKey))
-	}
-
-	if resourceID == "" {
-		return pushError(l, invalidArgument(l, "resource id required"))
-	}
-	if strings.TrimSpace(filePath) == "" {
-		return pushError(l, invalidArgument(l, "file path required"))
-	}
-
-	base, err := parseBaseOptions(l, 5)
-	if err != nil {
-		return pushError(l, err)
-	}
-
-	client, err := h.artifactClient(l, base)
-	if err != nil {
-		return pushError(l, err)
-	}
-	params, paramsErr := downloadParamsFromRefs(moduleRef, versionRef)
-	if paramsErr != nil {
-		return pushError(l, invalidArgument(l, paramsErr.Error()))
-	}
-
-	reqCtx, cancel := withTimeout(ctx, base.timeout)
-	defer cancel()
-
-	path, _, callErr := ensureCachedArtifact(reqCtx, client, params, "")
-	if callErr != nil {
-		return pushError(l, hubCallError(l, callErr))
-	}
-
-	file, reader, openErr := openArtifactReader(path)
-	if openErr != nil {
-		return pushError(l, hubCallError(l, openErr))
-	}
-	defer func() { _ = file.Close() }()
-
-	data, readErr := readResourceFile(reader, resourceID, filePath)
-	if readErr != nil {
-		return pushError(l, lua.WrapErrorWithLua(l, readErr, "read resource file").WithKind(lua.NotFound).WithRetryable(false))
-	}
-
-	l.Push(lua.LString(data))
 	l.Push(lua.LNil)
 	return 2
 }
@@ -845,11 +672,6 @@ type filesOptions struct {
 
 type readmeOptions struct {
 	version *versionv1.VersionRef
-}
-
-type entriesOptions struct {
-	kinds       map[string]struct{}
-	includeData bool
 }
 
 func (h *hubModule) requireContext(l *lua.LState) (context.Context, *lua.Error) {
@@ -1281,31 +1103,6 @@ func parseReadmeOptions(l *lua.LState, idx int) (baseOptions, readmeOptions, *lu
 			return base, opts, err
 		}
 		opts.version = versionRef
-	}
-
-	return base, opts, nil
-}
-
-func parseEntriesOptions(l *lua.LState, idx int) (baseOptions, entriesOptions, *lua.Error) {
-	base, tbl, err := parseOptionsTable(l, idx)
-	if err != nil {
-		return baseOptions{}, entriesOptions{}, err
-	}
-	opts := entriesOptions{includeData: true}
-	if tbl == nil {
-		return base, opts, nil
-	}
-
-	if kinds, ok, err := parseKindFilter(l, tbl); err != nil {
-		return base, opts, err
-	} else if ok {
-		opts.kinds = kinds
-	}
-
-	if includeData, ok, err := tableBool(l, tbl, "include_data"); err != nil {
-		return base, opts, err
-	} else if ok {
-		opts.includeData = includeData
 	}
 
 	return base, opts, nil
@@ -1837,58 +1634,6 @@ func artifactInspectionToTable(l *lua.LState, inspection *artifactInspection) *l
 	result.RawSetString("requirements", requirementsToTable(l, inspection.Requirements))
 	result.RawSetString("cache_path", lua.LString(inspection.Path))
 	return result
-}
-
-func versionEntriesToTable(l *lua.LState, result *versionEntries, opts entriesOptions) (*lua.LTable, error) {
-	out := lua.CreateTable(0, 5)
-	if result == nil {
-		return out, nil
-	}
-
-	items := lua.CreateTable(len(result.Entries), 0)
-	count := 0
-	for _, entry := range result.Entries {
-		if opts.kinds != nil {
-			if _, ok := opts.kinds[entry.Kind]; !ok {
-				continue
-			}
-		}
-		tbl, err := wappEntryToTable(l, entry, opts.includeData)
-		if err != nil {
-			return nil, err
-		}
-		count++
-		items.RawSetInt(count, tbl)
-	}
-
-	out.RawSetString("items", items)
-	out.RawSetString("total", lua.LNumber(len(result.Entries)))
-	out.RawSetString("version", lua.LString(result.Version))
-	out.RawSetString("digest", lua.LString(result.Digest))
-	out.RawSetString("cache_path", lua.LString(result.CachePath))
-	return out, nil
-}
-
-func wappEntryToTable(_ *lua.LState, entry wapp.Entry, includeData bool) (*lua.LTable, error) {
-	result := lua.CreateTable(0, 4)
-	id := lua.CreateTable(0, 2)
-	id.RawSetString("ns", lua.LString(entry.ID.Namespace))
-	id.RawSetString("name", lua.LString(entry.ID.Name))
-	result.RawSetString("id", id)
-	result.RawSetString("kind", lua.LString(entry.Kind))
-	meta, err := luaconv.GoToLua(entry.Meta)
-	if err != nil {
-		return nil, fmt.Errorf("convert entry %s meta: %w", entry.ID.String(), err)
-	}
-	result.RawSetString("meta", meta)
-	if includeData {
-		data, err := luaconv.GoToLua(entry.Data)
-		if err != nil {
-			return nil, fmt.Errorf("convert entry %s data: %w", entry.ID.String(), err)
-		}
-		result.RawSetString("data", data)
-	}
-	return result, nil
 }
 
 func dependencyToTable(_ *lua.LState, dep *versionv1.Dependency) *lua.LTable {
