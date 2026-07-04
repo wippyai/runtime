@@ -335,6 +335,7 @@ func TestParseWappRelPath(t *testing.T) {
 		{"wippy/orphan-v1.2.3-beta.1.wapp", "wippy/orphan", "v1.2.3-beta.1"},
 		{"wippy/my-module-v2.0.0.wapp", "wippy/my-module", "v2.0.0"},
 		{"wippy/tool-v1.0.0-rc.2.wapp", "wippy/tool", "v1.0.0-rc.2"},
+		{"org/api-v2-v1.0.0.wapp", "org/api-v2", "v1.0.0"},
 		{"org/mod.wapp", "org/mod", ""},
 	}
 	for _, tc := range cases {

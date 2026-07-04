@@ -292,14 +292,15 @@ func parseWappRelPath(rel string) (string, string) {
 	return strings.Trim(module, "/"), version
 }
 
-// splitModuleVersion splits "module-version" at the first hyphen whose suffix
-// parses as a semantic version. Because both module names and semver
-// prereleases contain hyphens (e.g. "my-module-v1.2.3-beta.1"), splitting on
-// the final hyphen loses the prerelease; anchoring on the version parse
-// round-trips both. Falls back to the final hyphen when no suffix is a valid
-// version.
+// splitModuleVersion splits "module-version" at the rightmost hyphen whose
+// suffix parses as a semantic version. Both module names and semver prereleases
+// contain hyphens (e.g. "my-module-v1.2.3-beta.1"), so the final hyphen alone
+// loses the prerelease. Scanning from the right takes the shortest valid version
+// suffix: a prerelease fragment like "beta.1" is not itself a valid version and
+// is skipped, while a module ending in a version-like segment ("api-v2-v1.0.0")
+// is not over-consumed. Falls back to the final hyphen when no suffix parses.
 func splitModuleVersion(file string) (string, string) {
-	for i := 0; i < len(file); i++ {
+	for i := len(file) - 1; i >= 0; i-- {
 		if file[i] != '-' {
 			continue
 		}
