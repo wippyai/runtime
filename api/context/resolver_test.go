@@ -60,6 +60,43 @@ func TestFrameResolvers_NilReceiverIsNoOp(t *testing.T) {
 	assert.Equal(t, existing, out)
 }
 
+func TestFrameResolvers_MissingClaimedResolverFailsClosed(t *testing.T) {
+	const claim = "test.claim.missing"
+	RegisterFrameResolverClaim(claim, func(_ context.Context, options attrs.Attributes) bool {
+		return options != nil && options.GetString("claimed", "") != ""
+	})
+
+	var r *FrameResolvers
+	options := attrs.NewBag()
+	options.Set("claimed", "selected")
+
+	out, err := r.Resolve(context.Background(), options, nil)
+	require.Error(t, err)
+	assert.Nil(t, out)
+	assert.True(t, errors.Is(err, ErrFrameResolverNotRegistered))
+	assert.Contains(t, err.Error(), claim)
+}
+
+func TestFrameResolvers_RegisteredClaimAllowsResolve(t *testing.T) {
+	const claim = "test.claim.covered"
+	RegisterFrameResolverClaim(claim, func(_ context.Context, options attrs.Attributes) bool {
+		return options != nil && options.GetString("covered", "") != ""
+	})
+
+	r := NewFrameResolvers()
+	key := &Key{Name: "covered.key"}
+	_, fn := pairResolver(10, key, "ok")
+	require.NoError(t, r.Register("covered", 10, fn, claim))
+
+	options := attrs.NewBag()
+	options.Set("covered", "selected")
+
+	out, err := r.Resolve(context.Background(), options, nil)
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	assert.Equal(t, "ok", out[0].Value)
+}
+
 func TestFrameResolvers_FirstErrorStopsAndWraps(t *testing.T) {
 	sentinel := errors.New("boom")
 	r := NewFrameResolvers()
@@ -122,5 +159,29 @@ func BenchmarkFrameResolvers_ResolveEmpty(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = r.Resolve(ctx, nil, nil)
+	}
+}
+
+func BenchmarkFrameResolvers_ResolveCoveredClaim(b *testing.B) {
+	const claim = "bench.claim.covered"
+	RegisterFrameResolverClaim(claim, func(_ context.Context, options attrs.Attributes) bool {
+		return options != nil && options.GetBool("bench", false)
+	})
+
+	r := NewFrameResolvers()
+	require.NoError(b, r.Register("bench", 10, func(context.Context, attrs.Attributes) ([]Pair, error) {
+		return nil, nil
+	}, claim))
+	options := attrs.NewBag()
+	options.Set("bench", true)
+
+	ctx := context.Background()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		out, err := r.Resolve(ctx, options, nil)
+		if err != nil || len(out) != 0 {
+			b.Fatal(err)
+		}
 	}
 }

@@ -3,7 +3,10 @@
 package net
 
 import (
+	"context"
+
 	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/registry"
 )
 
@@ -21,6 +24,12 @@ const (
 // the overlay network to route outbound traffic through. Its value is
 // a registry ID string such as "app.net:socks5".
 const OptionKeyNetwork = "network"
+
+func init() {
+	ctxapi.RegisterFrameResolverClaim("network", func(ctx context.Context, options attrs.Attributes) bool {
+		return ResolveOverlayID(ctx, options) != ""
+	})
+}
 
 // NetworkConfig holds common configuration for all network entries.
 type NetworkConfig struct {
