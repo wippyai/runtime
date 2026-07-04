@@ -47,7 +47,7 @@ func (m *Manager) Start(ctx context.Context, start *api.Start) (pid.PID, error) 
 		return pid.PID{}, NewInvalidHostError(start.HostID)
 	}
 
-	// Apply the registered frame-context resolvers (network overlay, fs root, ...)
+	// Apply the registered frame-context resolvers (e.g. the network overlay)
 	// generically; the manager stays agnostic of any specific subsystem.
 	var err error
 	if start.Context, err = ctxapi.FrameResolversFrom(ctx).Resolve(ctx, start.Options, start.Context); err != nil {

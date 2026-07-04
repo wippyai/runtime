@@ -9,17 +9,15 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 )
 
-// Frame-resolver apply order. Lower runs first; the resulting pairs are applied
-// to the frame in this order, so a later resolver's key wins a collision.
-const (
-	FrameResolverOrderNetwork = 200
-	FrameResolverOrderFSRoot  = 300
-)
+// FrameResolverOrderNetwork is the apply order of the network overlay resolver.
+// Lower orders run first; the resulting pairs are applied to the frame in that
+// order, so a later resolver's key wins a collision.
+const FrameResolverOrderNetwork = 200
 
 // FrameResolvers creates the frame-context resolver registry. Frame-decorating
-// options (network overlay, filesystem root, ...) register a resolver here at
-// boot; the function and process dispatchers apply the whole set generically,
-// so no dispatcher depends on a specific subsystem.
+// options register a resolver here at boot; the function and process
+// dispatchers apply the whole set generically, so no dispatcher depends on a
+// specific subsystem.
 func FrameResolvers() boot.Component {
 	return boot.New(boot.P{
 		Name:      FrameResolversName,

@@ -133,7 +133,7 @@ func TestWithAppDefaultNetwork_AppDefaultDoesNotReachFrame(t *testing.T) {
 	assert.Equal(t, "app.net:socks5", AppDefaultNetwork(ctx))
 }
 
-// --- ApplyOverlayPair (centralized spawn-site helper) ---
+// --- OverlayResolver (network frame-context resolver) ---
 
 // stubRegistry implements NetworkRegistry with an in-memory set of IDs.
 type stubRegistry struct {
@@ -239,4 +239,22 @@ func TestOverlayResolver_NoRegistry_Errors(t *testing.T) {
 	out, err := OverlayResolver()(ctx, optsWithNetwork("app.net:socks5"))
 	assert.True(t, errors.Is(err, ErrNetworkNotFound))
 	assert.Nil(t, out)
+}
+
+// ApplyOverlayPair is deprecated but retained for external callers; it must
+// still append the resolved overlay pair to the supplied slice.
+func TestApplyOverlayPair_DeprecatedWrapper(t *testing.T) {
+	ctx := ctxWithRegistry(newStubRegistry("app.net:socks5"))
+	marker := &ctxapi.Key{Name: "test.marker"}
+	existing := []ctxapi.Pair{{Key: marker, Value: "keep"}}
+
+	out, err := ApplyOverlayPair(ctx, optsWithNetwork("app.net:socks5"), existing)
+	require.NoError(t, err)
+	require.Len(t, out, 2)
+	assert.Equal(t, "keep", out[0].Value, "prior pairs preserved")
+	assert.Equal(t, "app.net:socks5", out[1].Value, "overlay pair appended")
+
+	// Unknown network still errors through the wrapper.
+	_, err = ApplyOverlayPair(ctx, optsWithNetwork("app.net:missing"), nil)
+	assert.True(t, errors.Is(err, ErrNetworkNotFound))
 }

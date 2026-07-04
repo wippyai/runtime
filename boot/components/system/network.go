@@ -31,11 +31,16 @@ func Network() boot.Component {
 			reg := netsystem.NewRegistry(logger.Named("network"))
 			ctx = netapi.WithNetworkRegistry(ctx, reg)
 
-			// Apply the overlay selection generically at spawn time.
-			if resolvers := ctxapi.FrameResolversFrom(ctx); resolvers != nil {
-				if err := resolvers.Register("network", FrameResolverOrderNetwork, netapi.OverlayResolver()); err != nil {
-					return nil, err
-				}
+			// Apply the overlay selection generically at spawn time. The
+			// registry is a hard dependency (DependsOn FrameResolversName); a
+			// missing one is a wiring bug, and failing loud here keeps the
+			// overlay from silently degrading to clearnet.
+			resolvers := ctxapi.FrameResolversFrom(ctx)
+			if resolvers == nil {
+				return nil, ErrFrameResolversMissing
+			}
+			if err := resolvers.Register("network", FrameResolverOrderNetwork, netapi.OverlayResolver()); err != nil {
+				return nil, err
 			}
 
 			return ctx, nil

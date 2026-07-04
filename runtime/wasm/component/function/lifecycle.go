@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 
-	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/runtime/wasm"
@@ -75,14 +74,8 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 	}
 	defer entry.release()
 
-	if len(task.Context) > 0 {
-		fc := ctxapi.FrameFromContext(ctx)
-		if fc != nil {
-			if err := fc.SetMultiple(task.Context...); err != nil {
-				return nil, fmt.Errorf("set task context: %w", err)
-			}
-		}
-	}
+	// task.Context is already applied to this forked frame by the function
+	// registry executor before this handler runs, so it is not re-set here.
 
 	if entry.hostID != "" {
 		if framePID, ok := runtime.GetFramePID(ctx); ok {

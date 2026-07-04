@@ -18,6 +18,7 @@ var (
 	ErrRouterNotAvailable               = apierror.New(apierror.Internal, "router not available in context").WithRetryable(apierror.False)
 	ErrTopologyNotAvailable             = apierror.New(apierror.Internal, "topology not available in context").WithRetryable(apierror.False)
 	ErrHandlerRegistryNotAvailable      = apierror.New(apierror.Internal, "handler registry not available in context").WithRetryable(apierror.False)
+	ErrFrameResolversMissing            = apierror.New(apierror.Internal, "frame resolver registry not available in context").WithRetryable(apierror.False)
 )
 
 func NewHostnameError(cause error) apierror.Error {
