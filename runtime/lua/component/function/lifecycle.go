@@ -6,8 +6,6 @@ import (
 	"context"
 	"errors"
 
-	ctxapi "github.com/wippyai/runtime/api/context"
-	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/runtime/lua"
@@ -99,19 +97,8 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 	}
 	defer entry.release()
 
-	var err error
-	if task.Context, err = netapi.ApplyOverlayPair(ctx, task.Options, task.Context); err != nil {
-		return nil, err
-	}
-
-	if len(task.Context) > 0 {
-		fc := ctxapi.FrameFromContext(ctx)
-		if fc != nil {
-			if err := fc.SetMultiple(task.Context...); err != nil {
-				return nil, runtimelua.NewOperationError("set task context", err)
-			}
-		}
-	}
+	// task.Context is already applied to this forked frame by the function
+	// registry executor before this handler runs, so it is not re-set here.
 
 	if entry.hostID != "" {
 		if framePID, ok := runtime.GetFramePID(ctx); ok {

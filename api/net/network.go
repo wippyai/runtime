@@ -3,7 +3,10 @@
 package net
 
 import (
+	"context"
+
 	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/registry"
 )
 
@@ -17,10 +20,23 @@ const (
 	KindTailscale registry.Kind = "network.tailscale"
 )
 
-// OptionKeyNetwork is the key under task/start Options bag that selects
-// the overlay network to route outbound traffic through. Its value is
-// a registry ID string such as "app.net:socks5".
-const OptionKeyNetwork = "network"
+const (
+	// OptionKeyNetwork is the key under task/start Options bag that selects
+	// the overlay network to route outbound traffic through. Its value is
+	// a registry ID string such as "app.net:socks5".
+	OptionKeyNetwork = "network"
+
+	// FrameResolverClaimNetwork is the global frame-resolver claim name for
+	// overlay network selection. Resolver registrations named this value, or
+	// explicitly covering it, satisfy the fail-closed network claim.
+	FrameResolverClaimNetwork = "network"
+)
+
+func init() {
+	ctxapi.RegisterFrameResolverClaim(FrameResolverClaimNetwork, func(ctx context.Context, options attrs.Attributes) bool {
+		return ResolveOverlayID(ctx, options) != ""
+	})
+}
 
 // NetworkConfig holds common configuration for all network entries.
 type NetworkConfig struct {

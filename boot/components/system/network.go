@@ -6,6 +6,7 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/boot"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	logapi "github.com/wippyai/runtime/api/logs"
 	netapi "github.com/wippyai/runtime/api/net"
 	netsystem "github.com/wippyai/runtime/system/net"
@@ -17,7 +18,8 @@ import (
 // registered at the service layer.
 func Network() boot.Component {
 	return boot.New(boot.P{
-		Name: NetworkName,
+		Name:      NetworkName,
+		DependsOn: []boot.Name{FrameResolversName},
 		Load: func(ctx context.Context) (context.Context, error) {
 			logger := logapi.GetLogger(ctx)
 
@@ -28,6 +30,18 @@ func Network() boot.Component {
 			// Overlay network registry (driver-agnostic lookup).
 			reg := netsystem.NewRegistry(logger.Named("network"))
 			ctx = netapi.WithNetworkRegistry(ctx, reg)
+
+			// Apply the overlay selection generically at spawn time. The
+			// registry is a hard dependency (DependsOn FrameResolversName); a
+			// missing one is a wiring bug, and failing loud here keeps the
+			// overlay from silently degrading to clearnet.
+			resolvers := ctxapi.FrameResolversFrom(ctx)
+			if resolvers == nil {
+				return nil, ErrFrameResolversMissing
+			}
+			if err := resolvers.Register(netapi.FrameResolverClaimNetwork, FrameResolverOrderNetwork, netapi.OverlayResolver()); err != nil {
+				return nil, err
+			}
 
 			return ctx, nil
 		},
