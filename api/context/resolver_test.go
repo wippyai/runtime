@@ -5,7 +5,10 @@ package context
 import (
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,7 +16,15 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 )
 
-var benchmarkCoveredClaimOnce sync.Once
+var (
+	benchmarkCoveredClaimOnce sync.Once
+	testFrameClaimSeq         atomic.Uint64
+)
+
+func testFrameResolverClaimName(t *testing.T) string {
+	t.Helper()
+	return "test.claim." + strings.NewReplacer("/", "_", " ", "_").Replace(t.Name()) + "." + strconv.FormatUint(testFrameClaimSeq.Add(1), 10)
+}
 
 func pairResolver(order int, key *Key, value string) (string, FrameResolver) {
 	return value, func(_ context.Context, _ attrs.Attributes) ([]Pair, error) {
@@ -64,14 +75,14 @@ func TestFrameResolvers_NilReceiverIsNoOp(t *testing.T) {
 }
 
 func TestFrameResolvers_MissingClaimedResolverFailsClosed(t *testing.T) {
-	const claim = "test.claim.missing"
+	claim := testFrameResolverClaimName(t)
 	RegisterFrameResolverClaim(claim, func(_ context.Context, options attrs.Attributes) bool {
-		return options != nil && options.GetString("claimed", "") != ""
+		return options != nil && options.GetString(claim, "") != ""
 	})
 
 	var r *FrameResolvers
 	options := attrs.NewBag()
-	options.Set("claimed", "selected")
+	options.Set(claim, "selected")
 
 	out, err := r.Resolve(context.Background(), options, nil)
 	require.Error(t, err)
@@ -81,9 +92,9 @@ func TestFrameResolvers_MissingClaimedResolverFailsClosed(t *testing.T) {
 }
 
 func TestFrameResolvers_RegisteredClaimAllowsResolve(t *testing.T) {
-	const claim = "test.claim.covered"
+	claim := testFrameResolverClaimName(t)
 	RegisterFrameResolverClaim(claim, func(_ context.Context, options attrs.Attributes) bool {
-		return options != nil && options.GetString("covered", "") != ""
+		return options != nil && options.GetString(claim, "") != ""
 	})
 
 	r := NewFrameResolvers()
@@ -92,7 +103,7 @@ func TestFrameResolvers_RegisteredClaimAllowsResolve(t *testing.T) {
 	require.NoError(t, r.Register("covered", 10, fn, claim))
 
 	options := attrs.NewBag()
-	options.Set("covered", "selected")
+	options.Set(claim, "selected")
 
 	out, err := r.Resolve(context.Background(), options, nil)
 	require.NoError(t, err)
@@ -101,7 +112,7 @@ func TestFrameResolvers_RegisteredClaimAllowsResolve(t *testing.T) {
 }
 
 func TestRegisterFrameResolverClaim_DuplicatePanics(t *testing.T) {
-	const claim = "test.claim.duplicate"
+	claim := testFrameResolverClaimName(t)
 	RegisterFrameResolverClaim(claim, func(context.Context, attrs.Attributes) bool {
 		return false
 	})
@@ -113,9 +124,9 @@ func TestRegisterFrameResolverClaim_DuplicatePanics(t *testing.T) {
 }
 
 func TestFrameResolvers_ResolverNameCoversSameNamedClaim(t *testing.T) {
-	const claim = "test.claim.name_covered"
+	claim := testFrameResolverClaimName(t)
 	RegisterFrameResolverClaim(claim, func(_ context.Context, options attrs.Attributes) bool {
-		return options != nil && options.GetBool("name_covered", false)
+		return options != nil && options.GetBool(claim, false)
 	})
 
 	r := NewFrameResolvers()
@@ -124,7 +135,7 @@ func TestFrameResolvers_ResolverNameCoversSameNamedClaim(t *testing.T) {
 	require.NoError(t, r.Register(claim, 10, fn))
 
 	options := attrs.NewBag()
-	options.Set("name_covered", true)
+	options.Set(claim, true)
 
 	out, err := r.Resolve(context.Background(), options, nil)
 	require.NoError(t, err)
