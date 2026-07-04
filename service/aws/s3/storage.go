@@ -12,6 +12,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go/middleware"
@@ -22,6 +23,15 @@ import (
 
 // DefaultPresignExpiration is the default expiration time for presigned URLs.
 const DefaultPresignExpiration = 15 * time.Minute
+
+// uploadPartSize is the multipart part size for streaming uploads. 16MiB is the
+// per-chunk ceiling S3-compatible stores (MinIO) allow on an aws-chunked payload,
+// so each part maps to a single acceptable chunk. It also keeps the part count
+// under the 10000-part limit for objects up to 160GiB streamed with unknown
+// length; for seekable bodies larger than that the SDK grows the part size to
+// stay within 10000 parts, which a store enforcing a strict 16MiB chunk cap
+// would then reject.
+const uploadPartSize = 16 * 1024 * 1024
 
 // Compile-time interface check.
 var _ cloudstorage.Storage = (*Storage)(nil)
@@ -293,7 +303,17 @@ func (s *Storage) UploadObject(ctx context.Context, key string, content io.Reade
 		})
 	}
 
-	_, err := s.client.PutObject(ctx, input, apiOptions...)
+	// Upload through the multipart manager so that unbounded streams (unknown
+	// length, non-seekable) and objects larger than a single request are split
+	// into parts. A single PutObject signs the body as one aws-chunked stream,
+	// which S3-compatible stores (MinIO) reject once a chunk exceeds 16MiB, and
+	// which cannot send a non-seekable body without a Content-Length at all.
+	uploader := manager.NewUploader(s.client, func(u *manager.Uploader) {
+		u.PartSize = uploadPartSize
+		u.ClientOptions = apiOptions
+	})
+
+	_, err := uploader.Upload(ctx, input)
 	if err != nil {
 		if mapped := mapKnownError(err); errors.Is(mapped, cloudstorage.ErrPreconditionFailed) {
 			return mapped
