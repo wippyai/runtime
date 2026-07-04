@@ -13,12 +13,14 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awsmiddleware "github.com/aws/aws-sdk-go-v2/aws/middleware"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
 	smithyendpoints "github.com/aws/smithy-go/endpoints"
+	"github.com/aws/smithy-go/middleware"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -883,4 +885,60 @@ func TestFlattenHeaders(t *testing.T) {
 		out := flattenHeaders(h)
 		assert.Equal(t, "a, b, c", out["x-repeated"])
 	})
+}
+
+// ctxWithS3Operation returns a context carrying the given S3 operation name,
+// the way the SDK sets it before the build step runs.
+func ctxWithS3Operation(t *testing.T, op string) context.Context {
+	t.Helper()
+	var captured context.Context
+	md := awsmiddleware.RegisterServiceMetadata{OperationName: op}
+	_, _, err := md.HandleInitialize(context.Background(), middleware.InitializeInput{},
+		middleware.InitializeHandlerFunc(func(ctx context.Context, _ middleware.InitializeInput) (middleware.InitializeOutput, middleware.Metadata, error) {
+			captured = ctx
+			return middleware.InitializeOutput{}, middleware.Metadata{}, nil
+		}))
+	require.NoError(t, err)
+	return captured
+}
+
+func TestAddRequestHeadersMiddleware_ScopedByOperation(t *testing.T) {
+	const (
+		tagging    = "x-amz-tagging"
+		sseC       = "x-amz-server-side-encryption-customer-key"
+		requestPay = "x-amz-request-payer"
+	)
+	mw := &addRequestHeadersMiddleware{headers: map[string]string{
+		tagging:    "k=v",
+		sseC:       "key-material",
+		requestPay: "requester",
+	}}
+
+	headerFor := func(op, header string) string {
+		req, _ := smithyhttp.NewStackRequest().(*smithyhttp.Request)
+		_, _, err := mw.HandleBuild(ctxWithS3Operation(t, op), middleware.BuildInput{Request: req},
+			middleware.BuildHandlerFunc(func(ctx context.Context, _ middleware.BuildInput) (middleware.BuildOutput, middleware.Metadata, error) {
+				return middleware.BuildOutput{}, middleware.Metadata{}, nil
+			}))
+		require.NoError(t, err)
+		return req.Header.Get(header)
+	}
+
+	// Object-metadata headers only on the object-creating operations.
+	for _, op := range []string{"PutObject", "CreateMultipartUpload"} {
+		assert.Equal(t, "k=v", headerFor(op, tagging), "tagging must apply to %s", op)
+	}
+	for _, op := range []string{"UploadPart", "CompleteMultipartUpload"} {
+		assert.Empty(t, headerFor(op, tagging), "tagging must not apply to %s", op)
+	}
+
+	// SSE-C customer key must reach UploadPart but not CompleteMultipartUpload.
+	assert.Equal(t, "key-material", headerFor("CreateMultipartUpload", sseC))
+	assert.Equal(t, "key-material", headerFor("UploadPart", sseC))
+	assert.Empty(t, headerFor("CompleteMultipartUpload", sseC))
+
+	// request-payer applies to every subrequest.
+	for _, op := range []string{"PutObject", "CreateMultipartUpload", "UploadPart", "CompleteMultipartUpload"} {
+		assert.Equal(t, "requester", headerFor(op, requestPay), "request-payer must apply to %s", op)
+	}
 }
