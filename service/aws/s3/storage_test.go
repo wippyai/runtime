@@ -902,25 +902,43 @@ func ctxWithS3Operation(t *testing.T, op string) context.Context {
 	return captured
 }
 
-func TestAddRequestHeadersMiddleware_ScopedToObjectCreation(t *testing.T) {
-	mw := &addRequestHeadersMiddleware{headers: map[string]string{"x-amz-tagging": "k=v"}}
+func TestAddRequestHeadersMiddleware_ScopedByOperation(t *testing.T) {
+	const (
+		tagging    = "x-amz-tagging"
+		sseC       = "x-amz-server-side-encryption-customer-key"
+		requestPay = "x-amz-request-payer"
+	)
+	mw := &addRequestHeadersMiddleware{headers: map[string]string{
+		tagging:    "k=v",
+		sseC:       "key-material",
+		requestPay: "requester",
+	}}
 
-	build := func(ctx context.Context) *smithyhttp.Request {
+	headerFor := func(op, header string) string {
 		req, _ := smithyhttp.NewStackRequest().(*smithyhttp.Request)
-		_, _, err := mw.HandleBuild(ctx, middleware.BuildInput{Request: req},
+		_, _, err := mw.HandleBuild(ctxWithS3Operation(t, op), middleware.BuildInput{Request: req},
 			middleware.BuildHandlerFunc(func(ctx context.Context, _ middleware.BuildInput) (middleware.BuildOutput, middleware.Metadata, error) {
 				return middleware.BuildOutput{}, middleware.Metadata{}, nil
 			}))
 		require.NoError(t, err)
-		return req
+		return req.Header.Get(header)
 	}
 
+	// Object-metadata headers only on the object-creating operations.
 	for _, op := range []string{"PutObject", "CreateMultipartUpload"} {
-		req := build(ctxWithS3Operation(t, op))
-		assert.Equal(t, "k=v", req.Header.Get("x-amz-tagging"), "headers must apply to %s", op)
+		assert.Equal(t, "k=v", headerFor(op, tagging), "tagging must apply to %s", op)
 	}
 	for _, op := range []string{"UploadPart", "CompleteMultipartUpload"} {
-		req := build(ctxWithS3Operation(t, op))
-		assert.Empty(t, req.Header.Get("x-amz-tagging"), "headers must not apply to %s", op)
+		assert.Empty(t, headerFor(op, tagging), "tagging must not apply to %s", op)
+	}
+
+	// SSE-C customer key must reach UploadPart but not CompleteMultipartUpload.
+	assert.Equal(t, "key-material", headerFor("CreateMultipartUpload", sseC))
+	assert.Equal(t, "key-material", headerFor("UploadPart", sseC))
+	assert.Empty(t, headerFor("CompleteMultipartUpload", sseC))
+
+	// request-payer applies to every subrequest.
+	for _, op := range []string{"PutObject", "CreateMultipartUpload", "UploadPart", "CompleteMultipartUpload"} {
+		assert.Equal(t, "requester", headerFor(op, requestPay), "request-payer must apply to %s", op)
 	}
 }

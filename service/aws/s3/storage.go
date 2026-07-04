@@ -438,19 +438,54 @@ func (m *addRequestHeadersMiddleware) ID() string { return "wippyAddRequestHeade
 func (m *addRequestHeadersMiddleware) HandleBuild(
 	ctx context.Context, in middleware.BuildInput, next middleware.BuildHandler,
 ) (middleware.BuildOutput, middleware.Metadata, error) {
-	// Object-level headers belong only on the object-creating operations. The
-	// multipart uploader also issues UploadPart and CompleteMultipartUpload,
-	// which reject many headers valid on PutObject/CreateMultipartUpload, so
-	// applying the same headers to every request would fail multipart uploads.
-	switch awsmiddleware.GetOperationName(ctx) {
-	case "PutObject", "CreateMultipartUpload":
-		if req, ok := in.Request.(*smithyhttp.Request); ok {
-			for k, v := range m.headers {
-				req.Header.Set(k, v)
-			}
+	req, ok := in.Request.(*smithyhttp.Request)
+	if !ok {
+		return next.HandleBuild(ctx, in)
+	}
+	op := awsmiddleware.GetOperationName(ctx)
+	for k, v := range m.headers {
+		if headerAllowedForOperation(k, op) {
+			req.Header.Set(k, v)
 		}
 	}
 	return next.HandleBuild(ctx, in)
+}
+
+// headerAllowedForOperation decides whether a pass-through header may be set on
+// a given S3 operation. Object-metadata headers (tagging, content-type,
+// SSE-KMS/S3, user metadata, ...) belong only on the object-creating
+// operations; applying them to UploadPart or CompleteMultipartUpload fails the
+// upload. A few headers must still reach the multipart subrequests: SSE-C
+// customer-key headers are required on UploadPart, and request-payer /
+// expected-bucket-owner apply to every subrequest.
+func headerAllowedForOperation(header, operation string) bool {
+	switch operation {
+	case "PutObject", "CreateMultipartUpload":
+		return true
+	case "UploadPart":
+		return isSSECustomerHeader(header) || isRequestScopedHeader(header)
+	case "CompleteMultipartUpload", "AbortMultipartUpload":
+		return isRequestScopedHeader(header)
+	default:
+		return false
+	}
+}
+
+// isSSECustomerHeader reports whether header is an SSE-C customer-key header,
+// which multipart UploadPart requires to match the CreateMultipartUpload key.
+func isSSECustomerHeader(header string) bool {
+	return strings.HasPrefix(strings.ToLower(header), "x-amz-server-side-encryption-customer-")
+}
+
+// isRequestScopedHeader reports whether header applies to every request of an
+// operation rather than only object creation.
+func isRequestScopedHeader(header string) bool {
+	switch strings.ToLower(header) {
+	case "x-amz-request-payer", "x-amz-expected-bucket-owner":
+		return true
+	default:
+		return false
+	}
 }
 
 // captureResponseHeadersMiddleware snapshots the raw HTTP response headers
