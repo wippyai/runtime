@@ -59,7 +59,7 @@ func NewDefaultClientFactory(
 // CreateClient creates a new Temporal client from configuration
 func (f *DefaultClientFactory) CreateClient(ctx context.Context, logger *zap.Logger, id registry.ID, config *api.ClientConfig) (*Client, error) {
 	// Build client options
-	opts, err := f.buildClientOptions(ctx, logger, config)
+	opts, err := f.buildClientOptions(logger, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build client options: %w", err)
 	}
@@ -83,7 +83,7 @@ func (f *DefaultClientFactory) CreateClient(ctx context.Context, logger *zap.Log
 }
 
 // buildClientOptions constructs Temporal client options from config
-func (f *DefaultClientFactory) buildClientOptions(ctx context.Context, logger *zap.Logger, config *api.ClientConfig) (client.Options, error) {
+func (f *DefaultClientFactory) buildClientOptions(logger *zap.Logger, config *api.ClientConfig) (client.Options, error) {
 	opts := client.Options{
 		HostPort:  config.Address,
 		Namespace: config.Namespace,
@@ -112,7 +112,7 @@ func (f *DefaultClientFactory) buildClientOptions(ctx context.Context, logger *z
 	}
 
 	// Configure authentication
-	if err := f.configureAuth(ctx, config, &opts); err != nil {
+	if err := f.configureAuth(config, &opts); err != nil {
 		return opts, fmt.Errorf("failed to configure auth: %w", err)
 	}
 
@@ -125,15 +125,17 @@ func (f *DefaultClientFactory) buildClientOptions(ctx context.Context, logger *z
 	return opts, nil
 }
 
-// configureAuth sets up authentication credentials
-func (f *DefaultClientFactory) configureAuth(ctx context.Context, config *api.ClientConfig, opts *client.Options) error {
+// configureAuth sets up authentication credentials. The APIKey and KeyPEM
+// values are already resolved from any api_key_env/key_pem_env directives by
+// the central config-decode pass before this runs.
+func (f *DefaultClientFactory) configureAuth(config *api.ClientConfig, opts *client.Options) error {
 	switch config.Auth.Type {
 	case api.AuthTypeNone:
 		// No credentials needed
 		return nil
 
 	case api.AuthTypeAPIKey:
-		apiKey, err := f.resolveAPIKey(ctx, config.Auth)
+		apiKey, err := f.resolveAPIKey(config.Auth)
 		if err != nil {
 			return fmt.Errorf("failed to resolve API key: %w", err)
 		}
@@ -141,7 +143,7 @@ func (f *DefaultClientFactory) configureAuth(ctx context.Context, config *api.Cl
 		return nil
 
 	case api.AuthTypeMTLS:
-		cert, err := f.loadClientCertificate(ctx, config.Auth)
+		cert, err := f.loadClientCertificate(config.Auth)
 		if err != nil {
 			return fmt.Errorf("failed to load client certificate: %w", err)
 		}
@@ -153,23 +155,11 @@ func (f *DefaultClientFactory) configureAuth(ctx context.Context, config *api.Cl
 	}
 }
 
-// resolveAPIKey resolves the API key from various sources
-func (f *DefaultClientFactory) resolveAPIKey(ctx context.Context, auth api.AuthConfig) (string, error) {
+// resolveAPIKey resolves the API key from its direct value or a file.
+func (f *DefaultClientFactory) resolveAPIKey(auth api.AuthConfig) (string, error) {
 	// Direct value
 	if auth.APIKey != "" {
 		return auth.APIKey, nil
-	}
-
-	// Environment variable
-	if auth.APIKeyEnv != "" {
-		if f.env == nil {
-			return "", fmt.Errorf("env registry not available for api_key_env resolution")
-		}
-		apiKey, err := f.env.Get(ctx, auth.APIKeyEnv)
-		if err != nil {
-			return "", fmt.Errorf("failed to get api_key from env %s: %w", auth.APIKeyEnv, err)
-		}
-		return apiKey, nil
 	}
 
 	// File
@@ -185,7 +175,7 @@ func (f *DefaultClientFactory) resolveAPIKey(ctx context.Context, auth api.AuthC
 }
 
 // loadClientCertificate loads the client certificate for mTLS
-func (f *DefaultClientFactory) loadClientCertificate(ctx context.Context, auth api.AuthConfig) (tls.Certificate, error) {
+func (f *DefaultClientFactory) loadClientCertificate(auth api.AuthConfig) (tls.Certificate, error) {
 	var certPEM, keyPEM []byte
 	var err error
 
@@ -211,15 +201,6 @@ func (f *DefaultClientFactory) loadClientCertificate(ctx context.Context, auth a
 		}
 	case auth.KeyPEM != "":
 		keyPEM = []byte(auth.KeyPEM)
-	case auth.KeyPEMEnv != "":
-		if f.env == nil {
-			return tls.Certificate{}, fmt.Errorf("env registry not available for key_pem_env resolution")
-		}
-		keyStr, err := f.env.Get(ctx, auth.KeyPEMEnv)
-		if err != nil {
-			return tls.Certificate{}, fmt.Errorf("failed to get key_pem from env %s: %w", auth.KeyPEMEnv, err)
-		}
-		keyPEM = []byte(keyStr)
 	default:
 		return tls.Certificate{}, fmt.Errorf("no private key source configured")
 	}

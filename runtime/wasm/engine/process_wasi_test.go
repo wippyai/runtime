@@ -56,6 +56,8 @@ func (r *testEnvRegistry) GetStorage(context.Context, registry.ID) (envapi.Stora
 }
 
 func (r *testEnvRegistry) RegisterStorage(registry.ID, envapi.Storage) {}
+func (r *testEnvRegistry) RegisterVariable(envapi.Variable) error      { return nil }
+func (r *testEnvRegistry) UnregisterVariable(registry.ID)              {}
 
 type testFSRegistry struct {
 	entries map[string]fsapi.FS
@@ -146,6 +148,7 @@ func TestResolveWASICallConfig_ResolvesEnvAndMounts(t *testing.T) {
 
 func TestResolveWASICallConfig_RequiredEnvMissing(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
+	secapi.SetStrictMode(ctx, false)
 	ctx = envapi.WithRegistry(ctx, &testEnvRegistry{values: map[string]string{}})
 
 	p := &Process{
@@ -171,6 +174,7 @@ func TestResolveWASICallConfig_RequiredEnvMissing(t *testing.T) {
 
 func TestResolveWASICallConfig_OptionalEnvMissing(t *testing.T) {
 	ctx := ctxapi.NewRootContext()
+	secapi.SetStrictMode(ctx, false)
 	ctx = envapi.WithRegistry(ctx, &testEnvRegistry{values: map[string]string{}})
 
 	p := &Process{

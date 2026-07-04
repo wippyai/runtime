@@ -676,6 +676,49 @@ func TestSortChangeSet_EnvStorageDependencies(t *testing.T) {
 	})
 }
 
+func TestSortChangeSet_PlaceholderDependencies(t *testing.T) {
+	builder := NewStateBuilder(zap.NewNop(), NewResolver())
+
+	t.Run("consumer with id-form placeholder sorts after the variable", func(t *testing.T) {
+		variable := envEntry("app.test.env", "CONFIG_VAR", "env.variable", map[string]any{
+			"storage": "app.test.env:router",
+		})
+		consumer := envEntry("app", "service", "service", map[string]any{
+			"url": "postgres://${env:app.test.env:CONFIG_VAR}/db",
+		})
+
+		changeSet := registry.ChangeSet{
+			{Kind: registry.EntryCreate, Entry: consumer},
+			{Kind: registry.EntryCreate, Entry: variable},
+		}
+
+		sorted, err := builder.SortChangeSet(nil, changeSet)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		assertOperationBefore(t, sorted, registry.EntryCreate, variable.ID, registry.EntryCreate, consumer.ID)
+	})
+
+	t.Run("bare-name placeholder dangles and drops", func(t *testing.T) {
+		consumer := envEntry("app", "service", "service", map[string]any{
+			"token": "${env:API_KEY}",
+		})
+
+		changeSet := registry.ChangeSet{
+			{Kind: registry.EntryCreate, Entry: consumer},
+		}
+
+		sorted, err := builder.SortChangeSet(nil, changeSet)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(sorted) != 1 || !sorted[0].Entry.ID.Equal(consumer.ID) {
+			t.Fatalf("bare-name placeholder must not create an edge, got:\n%s", formatDelta(sorted))
+		}
+	})
+}
+
 func TestSortChangeSet_ComplexScenarios(t *testing.T) {
 	builder := NewStateBuilder(zap.NewNop(), nil)
 

@@ -6,7 +6,6 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/boot"
-	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
@@ -23,14 +22,12 @@ func SQL() boot.Component {
 			logger := logapi.GetLogger(ctx)
 			dtt := payload.GetTranscoder(ctx)
 			bus := event.GetBus(ctx)
-			envRegistry := envapi.GetRegistry(ctx)
 			handlers := bootpkg.GetHandlerRegistry(ctx)
 
 			manager, err := sql.NewManager(
 				dtt,
 				bus,
 				logger.Named("sql"),
-				envRegistry,
 			)
 			if err != nil {
 				return ctx, NewSQLManagerError(err)

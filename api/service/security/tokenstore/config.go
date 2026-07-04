@@ -27,7 +27,6 @@ const (
 type Config struct {
 	Store             registry.ID   `json:"store"`
 	TokenKey          string        `json:"token_key,omitempty"`
-	TokenKeyEnv       string        `json:"token_key_env,omitempty"`
 	TokenLength       int           `json:"token_length"`
 	DefaultExpiration time.Duration `json:"default_expiration,omitzero,format:units"`
 }
@@ -60,7 +59,6 @@ func (c *Config) InitDefaults() {
 type configJSON struct {
 	Store             registry.ID `json:"store"`
 	TokenKey          string      `json:"token_key,omitempty"`
-	TokenKeyEnv       string      `json:"token_key_env,omitempty"`
 	DefaultExpiration string      `json:"default_expiration,omitempty"`
 	TokenLength       int         `json:"token_length"`
 }
@@ -75,7 +73,6 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	c.Store = raw.Store
 	c.TokenLength = raw.TokenLength
 	c.TokenKey = raw.TokenKey
-	c.TokenKeyEnv = raw.TokenKeyEnv
 
 	if raw.DefaultExpiration != "" {
 		d, err := time.ParseDuration(raw.DefaultExpiration)
@@ -94,7 +91,6 @@ func (c Config) MarshalJSON() ([]byte, error) {
 		Store:       c.Store,
 		TokenLength: c.TokenLength,
 		TokenKey:    c.TokenKey,
-		TokenKeyEnv: c.TokenKeyEnv,
 	}
 	if c.DefaultExpiration != 0 {
 		raw.DefaultExpiration = c.DefaultExpiration.String()

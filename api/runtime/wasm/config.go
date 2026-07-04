@@ -62,7 +62,7 @@ type (
 	// WATFunctionConfig defines configuration for inline WAT function entries.
 	WATFunctionConfig struct {
 		Meta      attrs.Bag     `json:"meta,omitempty"`
-		Source    string        `json:"source"`
+		Source    string        `json:"source" resolve:"-"`
 		Method    string        `json:"method"`
 		Transport string        `json:"transport,omitempty"`
 		WIT       string        `json:"wit,omitempty"`

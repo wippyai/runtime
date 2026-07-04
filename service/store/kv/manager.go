@@ -14,8 +14,8 @@ import (
 	"github.com/wippyai/runtime/api/store"
 	kvapi "github.com/wippyai/runtime/api/store/kv"
 	"github.com/wippyai/runtime/api/supervisor"
-	entryutil "github.com/wippyai/runtime/internal/entry"
 	storesvc "github.com/wippyai/runtime/service/store"
+	entryutil "github.com/wippyai/runtime/system/entry"
 	"go.uber.org/zap"
 )
 

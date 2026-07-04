@@ -229,10 +229,29 @@ func (p *Process) startExecution() error {
 	execCtx = wippyhost.WithAsyncValueStore(execCtx, p.asyncValues)
 
 	if p.inst == nil {
-		inst, err := p.module.InstantiateWithConfig(execCtx, &wasmengine.InstanceConfig{
+		instCfg := &wasmengine.InstanceConfig{
 			EnableAsyncify: true,
 			DecodeOptions:  p.decodeOptions(),
-		})
+		}
+		// Core wasi_snapshot_preview1 modules read env/args/preopens from the wazero
+		// module config, so thread the resolved WASI mapping through.
+		if wc := wippyhost.GetWASICallConfig(execCtx); wc != nil {
+			instCfg.Args = wc.Args
+			instCfg.Env = wc.Env
+			for _, mnt := range wc.Mounts {
+				m := wasmengine.Mount{Guest: mnt.Guest, ReadOnly: mnt.ReadOnly}
+				// Read-only mounts go through the sandboxed fs.FS; only writable
+				// mounts use a host directory path (resolved + access-checked in
+				// resolveWASICallConfig), which wazero sandboxes to that directory.
+				if mnt.Host != "" {
+					m.Host = mnt.Host
+				} else {
+					m.FS = mnt.Filesystem
+				}
+				instCfg.Mounts = append(instCfg.Mounts, m)
+			}
+		}
+		inst, err := p.module.InstantiateWithConfig(execCtx, instCfg)
 		if err != nil {
 			cancel()
 			return runtimewasm.NewInstantiateModuleError(err)
@@ -381,7 +400,12 @@ func (p *Process) resolveWASICallConfig(ctx context.Context) (*wippyhost.WASICal
 		callCfg.Env = make(map[string]string, len(p.wasi.Env))
 		for _, item := range p.wasi.Env {
 			id := item.ID.String()
-			value, found, err := envReg.Lookup(ctx, id)
+			if !security.IsAllowed(ctx, "env.get", id, nil) {
+				return nil, runtimewasm.NewWASIEnvAccessDeniedError(id)
+			}
+			// Get (not Lookup) so a variable with only a default value still
+			// resolves — Lookup reads storage only and misses defaults.
+			value, err := envReg.Get(ctx, id)
 			if err != nil {
 				if errors.Is(err, envapi.ErrVariableNotFound) {
 					if item.Required {
@@ -390,12 +414,6 @@ func (p *Process) resolveWASICallConfig(ctx context.Context) (*wippyhost.WASICal
 					continue
 				}
 				return nil, runtimewasm.NewWASIEnvLookupError(id, err)
-			}
-			if !found {
-				if item.Required {
-					return nil, runtimewasm.NewWASIEnvRequiredNotFoundError(id)
-				}
-				continue
 			}
 			callCfg.Env[item.Name] = value
 		}
@@ -415,11 +433,21 @@ func (p *Process) resolveWASICallConfig(ctx context.Context) (*wippyhost.WASICal
 			if !ok {
 				return nil, runtimewasm.NewWASIMountFilesystemNotFoundError(fsID)
 			}
-			callCfg.Mounts = append(callCfg.Mounts, wippyhost.WASIMountBinding{
+			binding := wippyhost.WASIMountBinding{
 				Filesystem: fsys,
 				Guest:      item.Guest,
 				ReadOnly:   item.ReadOnly,
-			})
+			}
+			// For a host-backed directory, mount it by its own sandboxed root
+			// path: wazero re-roots the guest at exactly that directory (never the
+			// host root), it is the only form that supports writable mounts, and
+			// it reads faithfully (an fs.FS mount is read-only and lossy for e.g.
+			// lazy-loaded package data). Non-directory filesystems fall back to the
+			// sandboxed fs.FS below.
+			if hp, ok := fsys.(fsapi.HostPathFS); ok {
+				binding.Host = hp.RootPath()
+			}
+			callCfg.Mounts = append(callCfg.Mounts, binding)
 		}
 	}
 

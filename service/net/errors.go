@@ -85,19 +85,3 @@ func NewProtocolRejectError(driver, phase, response string) apierror.Error {
 		WithRetryable(apierror.True).
 		WithDetails(attrs.NewBagFrom(map[string]any{"driver": driver, "phase": phase, "response": response}))
 }
-
-// NewEnvRegistryUnavailableError reports that a driver config references an env
-// var but the manager has no env registry wired in to resolve it.
-func NewEnvRegistryUnavailableError(envVar string) apierror.Error {
-	return apierror.New(apierror.Internal, "env registry unavailable: cannot resolve "+envVar).
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"env_var": envVar}))
-}
-
-// NewAuthKeyLookupError reports a failure to resolve an auth-key env var via the env registry.
-func NewAuthKeyLookupError(envVar string, err error) apierror.Error {
-	return apierror.New(apierror.NotFound, "failed to resolve auth key env var "+envVar).
-		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{"env_var": envVar, "cause": err.Error()})).
-		WithCause(err)
-}

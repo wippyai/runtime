@@ -4,13 +4,24 @@ package amqp
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
+	"errors"
+	"math/big"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
+	envapi "github.com/wippyai/runtime/api/env"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	entrycfg "github.com/wippyai/runtime/system/entry"
 )
 
 func TestKindConstant(t *testing.T) {
@@ -92,29 +103,6 @@ func TestConfig_Validate(t *testing.T) {
 			config: Config{
 				URL: "amqp://localhost:5672/",
 				TLS: &TLSConfig{Enabled: true, Cert: "pem", Key: "pem"},
-			},
-		},
-		{
-			name: "tls inline and env for cert",
-			config: Config{
-				URL: "amqp://localhost:5672/",
-				TLS: &TLSConfig{Enabled: true, Cert: "pem", CertEnv: "CERT"},
-			},
-			wantErr: "cert and cert_env are mutually exclusive",
-		},
-		{
-			name: "tls cert_env without key_env",
-			config: Config{
-				URL: "amqp://localhost:5672/",
-				TLS: &TLSConfig{Enabled: true, CertEnv: "CERT"},
-			},
-			wantErr: "cert and key must be provided together",
-		},
-		{
-			name: "tls cert_env and key_env",
-			config: Config{
-				URL: "amqp://localhost:5672/",
-				TLS: &TLSConfig{Enabled: true, CertEnv: "CERT", KeyEnv: "KEY"},
 			},
 		},
 	}
@@ -387,12 +375,174 @@ func TestTLSConfig_BuildTLSConfig_InvalidCAPEM(t *testing.T) {
 	assert.Contains(t, err.Error(), "parse ca certificate")
 }
 
-func TestTLSConfig_BuildTLSConfig_EnvRegistryUnavailable(t *testing.T) {
-	tlsCfg := &TLSConfig{
-		Enabled: true,
-		CAEnv:   "AMQP_TLS_CA",
+// --- central *_env resolution at decode ----------------------------------
+
+// selfSignedPEM returns a throwaway self-signed cert + key as PEM.
+func selfSignedPEM(t *testing.T) (certPEM, keyPEM []byte) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(time.Now().UnixNano()),
+		Subject:               pkix.Name{CommonName: "amqp-test"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
 	}
-	_, err := tlsCfg.BuildTLSConfig(context.Background())
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	require.NoError(t, err)
+	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	return certPEM, keyPEM
+}
+
+// testEnvRegistry is a minimal envapi.Registry shim backed by an in-memory map.
+type testEnvRegistry struct {
+	values map[string]string
+}
+
+func (r *testEnvRegistry) Get(_ context.Context, name string) (string, error) {
+	if v, ok := r.values[name]; ok {
+		return v, nil
+	}
+	return "", envapi.ErrVariableNotFound
+}
+
+func (r *testEnvRegistry) Lookup(_ context.Context, name string) (string, bool, error) {
+	v, ok := r.values[name]
+	if !ok {
+		return "", false, envapi.ErrVariableNotFound
+	}
+	return v, true, nil
+}
+
+func (r *testEnvRegistry) Set(context.Context, string, string) error { return nil }
+func (r *testEnvRegistry) All(context.Context) (map[string]string, error) {
+	return map[string]string{}, nil
+}
+func (r *testEnvRegistry) GetStorage(context.Context, registry.ID) (envapi.Storage, error) {
+	return nil, envapi.ErrStorageNotFound
+}
+func (r *testEnvRegistry) RegisterStorage(registry.ID, envapi.Storage) {}
+func (r *testEnvRegistry) RegisterVariable(envapi.Variable) error      { return nil }
+func (r *testEnvRegistry) UnregisterVariable(registry.ID)              {}
+
+// jsonMapTranscoder unmarshals a Golang map payload into a struct via a JSON
+// round trip, exercising real type coercion during decode.
+type jsonMapTranscoder struct{}
+
+func (jsonMapTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
+	return payload.New(p.Data()), nil
+}
+
+func (jsonMapTranscoder) Unmarshal(p payload.Payload, v any) error {
+	m, ok := p.Data().(map[string]any)
+	if !ok {
+		return errors.New("payload is not a map")
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, v)
+}
+
+// decodeAMQPConfig decodes a Config from an entry whose data map is data,
+// exercising the central *_env resolution + validation path.
+func decodeAMQPConfig(ctx context.Context, t *testing.T, data map[string]any) (*Config, error) {
+	t.Helper()
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "amqp"),
+		Kind: Kind,
+		Data: payload.New(data),
+	}
+	return entrycfg.DecodeEntryConfig[Config](ctx, jsonMapTranscoder{}, entry)
+}
+
+func envCtx(values map[string]string) context.Context {
+	return envapi.WithRegistry(ctxapi.NewRootContext(), &testEnvRegistry{values: values})
+}
+
+// TestDecodeAMQPTLS_EnvCertKey: cert_env/key_env directives in the entry data
+// resolve into cfg.TLS.Cert/Key at decode, and BuildTLSConfig loads the pair.
+func TestDecodeAMQPTLS_EnvCertKey(t *testing.T) {
+	certPEM, keyPEM := selfSignedPEM(t)
+	ctx := envCtx(map[string]string{
+		"app.env:amqp_cert": string(certPEM),
+		"app.env:amqp_key":  string(keyPEM),
+	})
+
+	cfg, err := decodeAMQPConfig(ctx, t, map[string]any{
+		"url": "amqp://localhost:5672/",
+		"tls": map[string]any{
+			"enabled":  true,
+			"cert_env": "app.env:amqp_cert",
+			"key_env":  "app.env:amqp_key",
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, cfg.TLS)
+	assert.Equal(t, string(certPEM), cfg.TLS.Cert)
+	assert.Equal(t, string(keyPEM), cfg.TLS.Key)
+
+	out, err := cfg.TLS.BuildTLSConfig(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	assert.Len(t, out.Certificates, 1)
+}
+
+// TestDecodeAMQPTLS_CAEnv: a ca_env directive resolves into cfg.TLS.CA and the
+// CA pool is assembled by BuildTLSConfig.
+func TestDecodeAMQPTLS_CAEnv(t *testing.T) {
+	caPEM, _ := selfSignedPEM(t)
+	ctx := envCtx(map[string]string{"app.env:amqp_ca": string(caPEM)})
+
+	cfg, err := decodeAMQPConfig(ctx, t, map[string]any{
+		"url": "amqp://localhost:5672/",
+		"tls": map[string]any{
+			"enabled": true,
+			"ca_env":  "app.env:amqp_ca",
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, cfg.TLS)
+	assert.Equal(t, string(caPEM), cfg.TLS.CA)
+
+	out, err := cfg.TLS.BuildTLSConfig(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, out.RootCAs)
+}
+
+// TestDecodeAMQPTLS_EnvLookupFails: a directive naming a variable the registry
+// cannot resolve surfaces as a decode error.
+func TestDecodeAMQPTLS_EnvLookupFails(t *testing.T) {
+	ctx := envCtx(map[string]string{})
+	_, err := decodeAMQPConfig(ctx, t, map[string]any{
+		"url": "amqp://localhost:5672/",
+		"tls": map[string]any{
+			"enabled":  true,
+			"cert_env": "app.env:missing",
+			"key_env":  "app.env:missing2",
+		},
+	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "env registry is unavailable")
+}
+
+// TestDecodeAMQPTLS_EnvRegistryMissing: without an env registry the directive
+// is left unapplied; the entry decodes with an empty cert.
+func TestDecodeAMQPTLS_EnvRegistryMissing(t *testing.T) {
+	cfg, err := decodeAMQPConfig(ctxapi.NewRootContext(), t, map[string]any{
+		"url": "amqp://localhost:5672/",
+		"tls": map[string]any{
+			"enabled":  true,
+			"cert_env": "app.env:amqp_cert",
+			"key_env":  "app.env:amqp_key",
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, cfg.TLS)
+	assert.True(t, cfg.TLS.Enabled)
+	assert.Empty(t, cfg.TLS.Cert)
 }

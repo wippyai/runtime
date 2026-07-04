@@ -132,6 +132,12 @@ func (m *mockRegistry) RegisterStorage(id registry.ID, storage env.Storage) {
 	m.storages[id] = storage
 }
 
+func (m *mockRegistry) RegisterVariable(env.Variable) error {
+	return nil
+}
+
+func (m *mockRegistry) UnregisterVariable(registry.ID) {}
+
 func TestNewManager(t *testing.T) {
 	bus := &mockBus{}
 	dtt := &mockTranscoder{}

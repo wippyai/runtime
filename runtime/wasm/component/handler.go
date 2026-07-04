@@ -6,10 +6,8 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/event"
-	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	wasmapi "github.com/wippyai/runtime/api/runtime/wasm"
-	runtimewasm "github.com/wippyai/runtime/runtime/wasm"
 	"github.com/wippyai/runtime/system/eventbus"
 	eventhandlers "github.com/wippyai/runtime/system/registry/events"
 )
@@ -59,25 +57,4 @@ func (h *Handler) RegistryTransactionParticipantID() string {
 		return ""
 	}
 	return participant.RegistryTransactionParticipantID()
-}
-
-// UnpackConfig unpacks and validates entry configuration.
-func UnpackConfig[T any](ctx context.Context, entry registry.Entry) (*T, error) {
-	dtt := payload.GetTranscoder(ctx)
-	if dtt == nil {
-		return nil, runtimewasm.ErrTranscoderNotFound
-	}
-
-	cfg := new(T)
-	if err := dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return nil, runtimewasm.NewUnpackConfigError("wasm", err)
-	}
-
-	if validator, ok := any(cfg).(interface{ Validate() error }); ok {
-		if err := validator.Validate(); err != nil {
-			return nil, runtimewasm.NewValidationError(err)
-		}
-	}
-
-	return cfg, nil
 }

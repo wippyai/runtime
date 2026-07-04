@@ -137,19 +137,7 @@ func TestDBConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "missing host but has env",
-			config: DBConfig{
-				HostEnv:  "DB_HOST",
-				Port:     5432,
-				Database: "testdb",
-				Username: "user",
-				Password: "pass",
-				Pool:     PoolConfig{MaxLifetime: 1 * time.Hour},
-			},
-			wantErr: false,
-		},
-		{
-			name: "missing host and env",
+			name: "missing host",
 			config: DBConfig{
 				Port:     5432,
 				Database: "testdb",

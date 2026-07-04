@@ -16,7 +16,7 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	hostapi "github.com/wippyai/runtime/api/service/host"
 	"github.com/wippyai/runtime/api/supervisor"
-	entryutil "github.com/wippyai/runtime/internal/entry"
+	entryutil "github.com/wippyai/runtime/system/entry"
 	"github.com/wippyai/runtime/system/scheduler/actor"
 	"github.com/wippyai/runtime/system/scheduler/affinity"
 	"go.uber.org/zap"

@@ -11,16 +11,13 @@ var (
 	ErrEmptyPath     = apierror.New(apierror.Invalid, "path is required").WithRetryable(apierror.False)
 	ErrEmptyMethod   = apierror.New(apierror.Invalid, "method is required").WithRetryable(apierror.False)
 
-	ErrTLSOffHasInputs         = apierror.New(apierror.Invalid, "tls.mode=off must not set cert/key or mTLS fields").WithRetryable(apierror.False)
-	ErrTLSAutoHasCertInputs    = apierror.New(apierror.Invalid, "tls.mode=auto must not set cert/key (driver-managed)").WithRetryable(apierror.False)
-	ErrTLSManualMissingCert    = apierror.New(apierror.Invalid, "tls.mode=manual requires cert+key or cert_env+key_env").WithRetryable(apierror.False)
-	ErrTLSManualAmbiguousCert  = apierror.New(apierror.Invalid, "tls.mode=manual: set either cert+key or cert_env+key_env, not both").WithRetryable(apierror.False)
-	ErrTLSManualPartialCert    = apierror.New(apierror.Invalid, "tls.mode=manual: cert and key must both be set").WithRetryable(apierror.False)
-	ErrTLSManualPartialCertEnv = apierror.New(apierror.Invalid, "tls.mode=manual: cert_env and key_env must both be set").WithRetryable(apierror.False)
-	ErrTLSMTLSRequiresManual   = apierror.New(apierror.Invalid, "mTLS (client_auth) requires tls.mode=manual").WithRetryable(apierror.False)
-	ErrTLSMTLSAmbiguousCA      = apierror.New(apierror.Invalid, "set either client_ca or client_ca_env, not both").WithRetryable(apierror.False)
-	ErrTLSMTLSCAWithoutAuth    = apierror.New(apierror.Invalid, "client_ca set but client_auth is empty").WithRetryable(apierror.False)
-	ErrTLSMTLSMissingCA        = apierror.New(apierror.Invalid, "client_auth verification modes require client_ca or client_ca_env").WithRetryable(apierror.False)
+	ErrTLSOffHasInputs       = apierror.New(apierror.Invalid, "tls.mode=off must not set cert/key or mTLS fields").WithRetryable(apierror.False)
+	ErrTLSAutoHasCertInputs  = apierror.New(apierror.Invalid, "tls.mode=auto must not set cert/key (driver-managed)").WithRetryable(apierror.False)
+	ErrTLSManualMissingCert  = apierror.New(apierror.Invalid, "tls.mode=manual requires cert+key").WithRetryable(apierror.False)
+	ErrTLSManualPartialCert  = apierror.New(apierror.Invalid, "tls.mode=manual: cert and key must both be set").WithRetryable(apierror.False)
+	ErrTLSMTLSRequiresManual = apierror.New(apierror.Invalid, "mTLS (client_auth) requires tls.mode=manual").WithRetryable(apierror.False)
+	ErrTLSMTLSCAWithoutAuth  = apierror.New(apierror.Invalid, "client_ca set but client_auth is empty").WithRetryable(apierror.False)
+	ErrTLSMTLSMissingCA      = apierror.New(apierror.Invalid, "client_auth verification modes require client_ca").WithRetryable(apierror.False)
 )
 
 // NewMissingMetadataError reports missing metadata for a specific field.
