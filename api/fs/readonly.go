@@ -5,6 +5,7 @@ package fs
 import (
 	"io/fs"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -19,6 +20,20 @@ type ReadOnlyFS struct {
 // NewReadOnlyFS creates a read-only filesystem adapter.
 func NewReadOnlyFS(fsys fs.ReadDirFS) *ReadOnlyFS {
 	return &ReadOnlyFS{ReadDirFS: fsys}
+}
+
+// Callers resolve paths with the OS separator, but the underlying fs.ReadDirFS
+// follows the io/fs convention where paths are always forward-slash (io/fs.ValidPath
+// rejects backslashes). Normalize at the boundary so nested paths work on Windows.
+
+// Open implements fs.FS, normalizing the path to the io/fs convention.
+func (r *ReadOnlyFS) Open(name string) (fs.File, error) {
+	return r.ReadDirFS.Open(filepath.ToSlash(name))
+}
+
+// ReadDir implements fs.ReadDirFS, normalizing the path to the io/fs convention.
+func (r *ReadOnlyFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	return r.ReadDirFS.ReadDir(filepath.ToSlash(name))
 }
 
 // OpenFile implements WriteFS.OpenFile for read-only access.
@@ -63,7 +78,7 @@ func (r *ReadOnlyFS) Mkdir(name string, _ fs.FileMode) error {
 // Stat implements ReadFS.Stat.
 func (r *ReadOnlyFS) Stat(name string) (fs.FileInfo, error) {
 	if statFS, ok := r.ReadDirFS.(fs.StatFS); ok {
-		return statFS.Stat(name)
+		return statFS.Stat(filepath.ToSlash(name))
 	}
 	file, err := r.Open(name)
 	if err != nil {
@@ -80,7 +95,7 @@ func (r *ReadOnlyFS) Lstat(name string) (fs.FileInfo, error) {
 		Lstat(name string) (fs.FileInfo, error)
 	}
 	if ls, ok := r.ReadDirFS.(lstater); ok {
-		return ls.Lstat(name)
+		return ls.Lstat(filepath.ToSlash(name))
 	}
 	return r.Stat(name)
 }
