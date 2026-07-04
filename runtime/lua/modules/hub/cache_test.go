@@ -324,3 +324,24 @@ func TestCachePermissionDenied(t *testing.T) {
 	// Nothing was touched under strict denial.
 	require.FileExists(t, pinnedPath)
 }
+
+func TestParseWappRelPath(t *testing.T) {
+	cases := []struct {
+		rel     string
+		module  string
+		version string
+	}{
+		{"wippy/pinned-v1.0.0.wapp", "wippy/pinned", "v1.0.0"},
+		{"wippy/orphan-v1.2.3-beta.1.wapp", "wippy/orphan", "v1.2.3-beta.1"},
+		{"wippy/my-module-v2.0.0.wapp", "wippy/my-module", "v2.0.0"},
+		{"wippy/tool-v1.0.0-rc.2.wapp", "wippy/tool", "v1.0.0-rc.2"},
+		{"org/mod.wapp", "org/mod", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.rel, func(t *testing.T) {
+			module, version := parseWappRelPath(tc.rel)
+			require.Equal(t, tc.module, module)
+			require.Equal(t, tc.version, version)
+		})
+	}
+}

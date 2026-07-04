@@ -9,7 +9,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Masterminds/semver/v3"
 	lua "github.com/wippyai/go-lua"
+
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/runtime/security"
@@ -240,8 +242,8 @@ func isWithinDir(dir, target string) bool {
 }
 
 // parseWappRelPath reverses lock.WappPath ("org/module-version.wapp") into a
-// module name and version. The version is taken after the final hyphen, which
-// round-trips module names containing hyphens but not hyphenated versions.
+// module name and version, splitting at the semantic-version boundary so both
+// hyphenated module names and prerelease versions round-trip.
 func parseWappRelPath(rel string) (string, string) {
 	rel = strings.TrimSuffix(rel, ".wapp")
 
@@ -252,16 +254,33 @@ func parseWappRelPath(rel string) (string, string) {
 		file = rel[slash+1:]
 	}
 
-	dash := strings.LastIndex(file, "-")
-	if dash < 0 {
-		return strings.Trim(org+"/"+file, "/"), ""
-	}
-
-	module := file[:dash]
+	module, version := splitModuleVersion(file)
 	if org != "" {
 		module = org + "/" + module
 	}
-	return module, file[dash+1:]
+	return strings.Trim(module, "/"), version
+}
+
+// splitModuleVersion splits "module-version" at the first hyphen whose suffix
+// parses as a semantic version. Because both module names and semver
+// prereleases contain hyphens (e.g. "my-module-v1.2.3-beta.1"), splitting on
+// the final hyphen loses the prerelease; anchoring on the version parse
+// round-trips both. Falls back to the final hyphen when no suffix is a valid
+// version.
+func splitModuleVersion(file string) (string, string) {
+	for i := 0; i < len(file); i++ {
+		if file[i] != '-' {
+			continue
+		}
+		candidate := file[i+1:]
+		if _, err := semver.NewVersion(candidate); err == nil {
+			return file[:i], candidate
+		}
+	}
+	if dash := strings.LastIndex(file, "-"); dash >= 0 {
+		return file[:dash], file[dash+1:]
+	}
+	return file, ""
 }
 
 func parseForceOption(l *lua.LState, idx int) (bool, *lua.Error) {
