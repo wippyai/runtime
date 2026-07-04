@@ -47,13 +47,18 @@ func (m *mockNetworkRegistry) NetworkKind(_ registry.ID) registry.Kind {
 }
 
 // ctxWithNetworkRegistry returns a context carrying the given NetworkRegistry
-// on a fresh AppContext.
+// and a frame-resolver registry with the network overlay resolver, matching how
+// boot wires them — the manager applies the resolver generically.
 func ctxWithNetworkRegistry(reg netapi.NetworkRegistry) context.Context {
 	ctx := ctxapi.NewRootContext()
 	if reg != nil {
 		ctx = netapi.WithNetworkRegistry(ctx, reg)
 	}
-	return ctx
+	resolvers := ctxapi.NewFrameResolvers()
+	if err := resolvers.Register("network", 200, netapi.OverlayResolver()); err != nil {
+		panic(err)
+	}
+	return ctxapi.WithFrameResolvers(ctx, resolvers)
 }
 
 // findNetworkPair returns the string value associated with the network key

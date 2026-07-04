@@ -88,8 +88,8 @@ func AppDefaultNetwork(ctx context.Context) string {
 // ResolveOverlayID picks the overlay network ID to apply to a newly-spawned
 // task or process. Precedence: per-call/per-entry options bag ("network"
 // key) first, then the app-wide boot default, then empty ("clearnet").
-// Prefer ApplyOverlayPair for spawn sites — ResolveOverlayID is exported for
-// callers that need the raw ID.
+// ResolveOverlayID is exported for callers that need the raw ID; spawn sites
+// go through OverlayResolver on the frame-resolver registry.
 func ResolveOverlayID(ctx context.Context, options attrs.Attributes) string {
 	if options != nil {
 		if id := options.GetString(OptionKeyNetwork, ""); id != "" {
@@ -99,20 +99,23 @@ func ResolveOverlayID(ctx context.Context, options attrs.Attributes) string {
 	return AppDefaultNetwork(ctx)
 }
 
-// ApplyOverlayPair is the single entry point spawn sites use to decorate a
-// new task/process context with its overlay network selection. It resolves
-// the ID (per-call options, then app default), verifies the network is
-// registered, and appends DefaultNetworkPair to pairs. When no overlay is
-// selected the input is returned unchanged. Returns ErrNetworkNotFound when
-// a selector names an unregistered network.
-func ApplyOverlayPair(ctx context.Context, options attrs.Attributes, pairs []ctxapi.Pair) ([]ctxapi.Pair, error) {
-	networkID := ResolveOverlayID(ctx, options)
-	if networkID == "" {
-		return pairs, nil
+// OverlayResolver is the frame-context resolver that decorates a new
+// task/process frame with its overlay network selection. It resolves the ID
+// (per-call options, then app default), verifies the network is registered,
+// and emits DefaultNetworkPair. It emits nothing when no overlay is selected
+// and returns ErrNetworkNotFound when a selector names an unregistered network.
+// Registered on the frame-resolver registry at boot; the dispatchers apply it
+// generically.
+func OverlayResolver() ctxapi.FrameResolver {
+	return func(ctx context.Context, options attrs.Attributes) ([]ctxapi.Pair, error) {
+		networkID := ResolveOverlayID(ctx, options)
+		if networkID == "" {
+			return nil, nil
+		}
+		reg := GetNetworkRegistry(ctx)
+		if reg == nil || !reg.HasNetwork(registry.ParseID(networkID)) {
+			return nil, ErrNetworkNotFound
+		}
+		return []ctxapi.Pair{DefaultNetworkPair(networkID)}, nil
 	}
-	reg := GetNetworkRegistry(ctx)
-	if reg == nil || !reg.HasNetwork(registry.ParseID(networkID)) {
-		return nil, ErrNetworkNotFound
-	}
-	return append(pairs, DefaultNetworkPair(networkID)), nil
 }
