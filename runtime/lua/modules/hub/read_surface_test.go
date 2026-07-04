@@ -8,7 +8,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -591,4 +594,68 @@ func TestPackageHandleAutoClosedByStore(t *testing.T) {
 	require.True(t, h.isClosed(), "closing the resource store must release the handle")
 
 	require.NoError(t, h.Close()) // idempotent after store-driven close
+}
+
+func findCachedWapp(t *testing.T, root string) string {
+	t.Helper()
+	var found string
+	require.NoError(t, filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(p, ".wapp") {
+			found = p
+		}
+		return nil
+	}))
+	require.NotEmpty(t, found, "no cached .wapp found under %s", root)
+	return found
+}
+
+// A cache entry that passes digest/size verification but is not a readable
+// WAPP (e.g. the registry omitted a digest and the file is truncated) must be
+// evicted and re-downloaded, not returned as-is.
+func TestVersionsOpenReDownloadsCorruptCache(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+
+	artifact := buildWappWithResourceForHubTest(t,
+		[]wapp.Entry{{ID: wapp.NewID("wippy.dummy", "ping"), Kind: "function.lua"}},
+		wapp.NewID("wippy.dummy", "assets"),
+		map[string]string{"a.txt": "hi"})
+
+	var downloads int
+	// No digest/size, so VerifyDownloadedArtifact is a no-op and cannot catch
+	// a corrupt cache entry on its own.
+	client := &fakeArtifactClient{
+		getDownloadFn: func(_ context.Context, _ *boothub.DownloadParams) (*boothub.DownloadInfo, error) {
+			return &boothub.DownloadInfo{URL: "memory://dummy", Version: "v0.1.2"}, nil
+		},
+		downloadFn: func(_ context.Context, _, destPath string) error {
+			downloads++
+			return os.WriteFile(destPath, artifact, 0600)
+		},
+	}
+	l := newReadSurfaceState(t, client)
+
+	if err := l.DoString(`
+		local pkg, err = hub.versions.open("wippy/dummy", "v0.1.2")
+		if err then error(err) end
+		pkg:close()
+	`); err != nil {
+		t.Fatalf("first open: %v", err)
+	}
+	require.Equal(t, 1, downloads)
+
+	cached := findCachedWapp(t, root)
+	require.NoError(t, os.WriteFile(cached, []byte("not a wapp"), 0600))
+
+	if err := l.DoString(`
+		local pkg, err = hub.versions.open("wippy/dummy", "v0.1.2")
+		if err then error(err) end
+		pkg:close()
+	`); err != nil {
+		t.Fatalf("second open after corruption: %v", err)
+	}
+	require.Equal(t, 2, downloads, "corrupt cache must trigger a re-download")
 }

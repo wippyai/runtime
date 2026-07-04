@@ -87,6 +87,9 @@ func (h *hubModule) cacheRemove(l *lua.LState) int {
 	}
 
 	target := filepath.Join(vendorDir, lock.WappPath(name, version))
+	if !isWithinDir(vendorDir, target) {
+		return pushError(l, invalidArgument(l, "module or version resolves outside the cache directory"))
+	}
 	if removeErr := os.RemoveAll(target); removeErr != nil {
 		return pushError(l, hubCallError(l, removeErr))
 	}
@@ -224,6 +227,16 @@ func collectCacheEntries() ([]cacheEntry, string, error) {
 	})
 
 	return entries, vendorDir, nil
+}
+
+// isWithinDir reports whether target resolves inside dir, guarding cache
+// removal against module or version components that contain "..".
+func isWithinDir(dir, target string) bool {
+	rel, err := filepath.Rel(dir, target)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // parseWappRelPath reverses lock.WappPath ("org/module-version.wapp") into a

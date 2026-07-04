@@ -63,7 +63,11 @@ func ensureCachedArtifact(ctx context.Context, client ArtifactClient, params *bo
 	}
 
 	if _, statErr := os.Stat(path); statErr == nil {
-		if err := boothub.VerifyDownloadedArtifact(path, info.Digest, info.Size); err == nil {
+		// A cached file is reused only when it both verifies and opens as a
+		// valid WAPP: a registry that omits digest/size makes VerifyDownloadedArtifact
+		// a no-op, so a truncated or corrupt cache entry would otherwise be
+		// returned and permanently break reads. Evict and re-download instead.
+		if err := boothub.VerifyDownloadedArtifact(path, info.Digest, info.Size); err == nil && isReadableArtifact(path) {
 			return path, info, nil
 		}
 		_ = os.Remove(path)
@@ -136,6 +140,18 @@ func readEntriesFromFile(path string) ([]wapp.Entry, error) {
 		return nil, fmt.Errorf("read artifact entries: %w", err)
 	}
 	return entries, nil
+}
+
+// isReadableArtifact reports whether path opens as a valid WAPP, used to reject
+// a cache entry that passed digest/size verification but is structurally
+// corrupt (e.g. truncated, or accepted because the registry omitted a digest).
+func isReadableArtifact(path string) bool {
+	file, _, err := openArtifactReader(path)
+	if err != nil {
+		return false
+	}
+	_ = file.Close()
+	return true
 }
 
 // openArtifactReader opens a cached artifact and returns its file and reader.

@@ -31,6 +31,29 @@ func writeLockFile(t *testing.T, dir string, modules ...[2]string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "wippy.lock"), []byte(content), 0600))
 }
 
+func TestCacheRemoveRejectsPathTraversal(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	require.NoError(t, os.MkdirAll(filepath.Join(root, ".wippy", "vendor"), 0755))
+	writeLockFile(t, root)
+
+	// A file outside the vendor directory that an unchecked traversal would hit:
+	// filepath.Join(vendorDir, "wippy/x-../../../../outside.wapp") resolves here.
+	outside := filepath.Join(root, "outside.wapp")
+	require.NoError(t, os.WriteFile(outside, []byte("keep"), 0600))
+
+	l := newReadSurfaceState(t, artifactClientReturning(t, nil, nil))
+
+	if err := l.DoString(`
+		local ok, err = hub.cache.remove("wippy/x", "../../../../outside")
+		if err == nil then error("expected error removing a traversing version") end
+	`); err != nil {
+		t.Fatalf("lua error: %v", err)
+	}
+
+	require.FileExists(t, outside, "path traversal must not delete files outside the cache")
+}
+
 func TestCacheListRemovePrune(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
