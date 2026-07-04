@@ -308,12 +308,15 @@ func (s *Storage) UploadObject(ctx context.Context, key string, content io.Reade
 	// into parts. A single PutObject signs the body as one aws-chunked stream,
 	// which S3-compatible stores (MinIO) reject once a chunk exceeds 16MiB, and
 	// which cannot send a non-seekable body without a Content-Length at all.
-	uploader := manager.NewUploader(s.client, func(u *manager.Uploader) {
+	// SA1019: the s3/manager uploader is the stable, widely-deployed multipart
+	// API; the s3/transfermanager replacement is not yet a dependency and its
+	// migration is out of scope here.
+	uploader := manager.NewUploader(s.client, func(u *manager.Uploader) { //nolint:staticcheck
 		u.PartSize = uploadPartSize
 		u.ClientOptions = apiOptions
 	})
 
-	_, err := uploader.Upload(ctx, input)
+	_, err := uploader.Upload(ctx, input) //nolint:staticcheck
 	if err != nil {
 		if mapped := mapKnownError(err); errors.Is(mapped, cloudstorage.ErrPreconditionFailed) {
 			return mapped
