@@ -88,6 +88,17 @@ func (h *hubModule) cacheRemove(l *lua.LState) int {
 		}))
 	}
 
+	// The pin and permission checks above were made for this exact module and
+	// version, so the deletion target must be that artifact and no other.
+	// Separators or traversal in the components could normalize to a sibling
+	// module's file (even a pinned one) inside the vendor dir, so reject them
+	// before building the path; isWithinDir then backstops any escape.
+	if !isCleanComponent(version) {
+		return pushError(l, invalidArgument(l, "version must be a single path component"))
+	}
+	if !isCleanComponent(name.Module) || (name.Organization != "" && !isCleanComponent(name.Organization)) {
+		return pushError(l, invalidArgument(l, "module must be a single path component"))
+	}
 	target := filepath.Join(vendorDir, lock.WappPath(name, version))
 	if !isWithinDir(vendorDir, target) {
 		return pushError(l, invalidArgument(l, "module or version resolves outside the cache directory"))
@@ -229,6 +240,15 @@ func collectCacheEntries() ([]cacheEntry, string, error) {
 	})
 
 	return entries, vendorDir, nil
+}
+
+// isCleanComponent reports whether s is a single safe path component: non-empty,
+// not a "." or ".." traversal element, and free of path separators.
+func isCleanComponent(s string) bool {
+	if s == "" || s == "." || s == ".." {
+		return false
+	}
+	return !strings.ContainsAny(s, `/\`)
 }
 
 // isWithinDir reports whether target resolves inside dir, guarding cache

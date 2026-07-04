@@ -345,3 +345,24 @@ func TestParseWappRelPath(t *testing.T) {
 		})
 	}
 }
+
+func TestCacheRemoveRejectsModuleSwap(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	vendorDir := filepath.Join(root, ".wippy", "vendor")
+
+	// A pinned artifact that a crafted version could normalize onto.
+	victim := writeCacheArtifact(t, vendorDir, "wippy", "other", "v1.0.0")
+	writeLockFile(t, root, [2]string{"wippy/other", "v1.0.0"})
+
+	l := newReadSurfaceState(t, artifactClientReturning(t, nil, nil))
+
+	if err := l.DoString(`
+		local ok, err = hub.cache.remove("wippy/mod", "x/../other-v1.0.0")
+		if err == nil then error("expected error for version with separators") end
+	`); err != nil {
+		t.Fatalf("lua error: %v", err)
+	}
+
+	require.FileExists(t, victim, "a crafted version must not delete another module's artifact")
+}
