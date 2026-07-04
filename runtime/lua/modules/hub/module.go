@@ -416,7 +416,7 @@ func (h *hubModule) versionsInspect(l *lua.LState) int {
 	ctx, cancel := withTimeout(ctx, base.timeout)
 	defer cancel()
 
-	inspection, callErr := inspectVersionArtifact(ctx, client, params, "")
+	inspection, callErr := inspectVersionArtifact(ctx, client, params, resolveVendorDir())
 	if callErr != nil {
 		return pushError(l, hubCallError(l, callErr))
 	}
@@ -460,7 +460,7 @@ func (h *hubModule) versionsOpen(l *lua.LState) int {
 	reqCtx, cancel := withTimeout(ctx, base.timeout)
 	defer cancel()
 
-	path, info, callErr := ensureCachedArtifact(reqCtx, client, params, "")
+	path, info, callErr := ensureCachedArtifact(reqCtx, client, params, resolveVendorDir())
 	if callErr != nil {
 		return pushError(l, hubCallError(l, callErr))
 	}

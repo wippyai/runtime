@@ -176,6 +176,17 @@ func loadLockAndVendor() (*lock.Lock, string, error) {
 	return lockObj, vendorDir, nil
 }
 
+// resolveVendorDir returns the lock-resolved vendor directory so read-surface
+// caching lands where hub.cache.* looks. Falls back to the default vendor path
+// (empty string, resolved downstream) when no project context is available.
+func resolveVendorDir() string {
+	_, vendorDir, err := loadLockAndVendor()
+	if err != nil {
+		return ""
+	}
+	return vendorDir
+}
+
 // collectCacheEntries scans the vendor directory for cached .wapp artifacts and
 // annotates each with lock-file pin status. Lock modules provide exact
 // module/version for pinned artifacts; orphans are parsed from their path.

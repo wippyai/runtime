@@ -659,3 +659,36 @@ func TestVersionsOpenReDownloadsCorruptCache(t *testing.T) {
 	}
 	require.Equal(t, 2, downloads, "corrupt cache must trigger a re-download")
 }
+
+// A directories.modules override must apply to the read-surface cache too, so
+// hub.versions.open caches where hub.cache.* looks.
+func TestVersionsOpenCachesInLockResolvedVendorDir(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	require.NoError(t, os.WriteFile(filepath.Join(root, "wippy.lock"),
+		[]byte("directories:\n  modules: custom-mods\n  src: .\n"), 0600))
+
+	artifact := buildWappWithResourceForHubTest(t,
+		[]wapp.Entry{{ID: wapp.NewID("wippy.dummy", "ping"), Kind: "function.lua"}},
+		wapp.NewID("wippy.dummy", "assets"),
+		map[string]string{"a.txt": "hi"})
+
+	l := newReadSurfaceState(t, artifactClientReturning(t, artifact, nil))
+
+	if err := l.DoString(`
+		local pkg, err = hub.versions.open("wippy/dummy", "v0.1.2")
+		if err then error(err) end
+		pkg:close()
+
+		local list, lerr = hub.cache.list()
+		if lerr then error(lerr) end
+		if #list < 1 then error("opened artifact not visible to cache.list under override") end
+	`); err != nil {
+		t.Fatalf("lua error: %v", err)
+	}
+
+	require.DirExists(t, filepath.Join(root, "custom-mods", "vendor"),
+		"open must cache under the lock-resolved vendor dir")
+	require.NoDirExists(t, filepath.Join(root, ".wippy", "vendor"),
+		"open must not fall back to the hard-coded default vendor dir")
+}
