@@ -37,61 +37,61 @@ type artifactInspection struct {
 }
 
 func inspectVersionArtifact(ctx context.Context, client ArtifactClient, params *boothub.DownloadParams, vendorDir string) (*artifactInspection, error) {
-	if client == nil {
-		return nil, fmt.Errorf("artifact client required")
-	}
-	info, err := client.GetDownloadURL(ctx, params)
+	path, info, err := ensureCachedArtifact(ctx, client, params, vendorDir)
 	if err != nil {
 		return nil, err
 	}
+	displayVersion := firstNonEmpty(info.Version, params.Version, params.VersionID, params.Label)
+	return inspectCachedArtifact(path, info, displayVersion)
+}
+
+func ensureCachedArtifact(ctx context.Context, client ArtifactClient, params *boothub.DownloadParams, vendorDir string) (string, *boothub.DownloadInfo, error) {
+	if client == nil {
+		return "", nil, fmt.Errorf("artifact client required")
+	}
+	info, err := client.GetDownloadURL(ctx, params)
+	if err != nil {
+		return "", nil, err
+	}
 	if info == nil || strings.TrimSpace(info.URL) == "" {
-		return nil, fmt.Errorf("artifact download URL unavailable")
+		return "", nil, fmt.Errorf("artifact download URL unavailable")
 	}
 
 	path, pathErr := artifactCachePath(params, info, vendorDir)
 	if pathErr != nil {
-		return nil, pathErr
+		return "", nil, pathErr
 	}
-	displayVersion := firstNonEmpty(info.Version, params.Version, params.VersionID, params.Label)
+
 	if _, statErr := os.Stat(path); statErr == nil {
-		if err := boothub.VerifyDownloadedArtifact(path, info.Digest, info.Size); err == nil {
-			inspection, inspectErr := inspectCachedArtifact(path, info, displayVersion)
-			if inspectErr == nil {
-				return inspection, nil
-			}
+		// A cached file is reused only when it both verifies and opens as a
+		// valid WAPP: a registry that omits digest/size makes VerifyDownloadedArtifact
+		// a no-op, so a truncated or corrupt cache entry would otherwise be
+		// returned and permanently break reads. Evict and re-download instead.
+		if err := boothub.VerifyDownloadedArtifact(path, info.Digest, info.Size); err == nil && isReadableArtifact(path) {
+			return path, info, nil
 		}
 		_ = os.Remove(path)
 	} else if !os.IsNotExist(statErr) {
-		return nil, statErr
+		return "", nil, statErr
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return nil, fmt.Errorf("create artifact cache directory: %w", err)
+		return "", nil, fmt.Errorf("create artifact cache directory: %w", err)
 	}
 	if err := client.DownloadToFile(ctx, info.URL, path); err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	if err := boothub.VerifyDownloadedArtifact(path, info.Digest, info.Size); err != nil {
 		_ = os.Remove(path)
-		return nil, fmt.Errorf("verify artifact: %w", err)
+		return "", nil, fmt.Errorf("verify artifact: %w", err)
 	}
-	return inspectCachedArtifact(path, info, displayVersion)
+	return path, info, nil
 }
 
 func inspectCachedArtifact(path string, info *boothub.DownloadInfo, version string) (*artifactInspection, error) {
-	file, err := os.Open(path)
+	entries, err := readEntriesFromFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("open artifact: %w", err)
-	}
-	defer file.Close()
-
-	reader, err := wapp.NewReader(file)
-	if err != nil {
-		return nil, fmt.Errorf("read artifact: %w", err)
-	}
-	entries, err := reader.GetEntries()
-	if err != nil {
-		return nil, fmt.Errorf("read artifact entries: %w", err)
+		return nil, err
 	}
 
 	kinds := make(map[string]struct{})
@@ -124,6 +124,62 @@ func inspectCachedArtifact(path string, info *boothub.DownloadInfo, version stri
 	}, nil
 }
 
+func readEntriesFromFile(path string) ([]wapp.Entry, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open artifact: %w", err)
+	}
+	defer file.Close()
+
+	reader, err := wapp.NewReader(file)
+	if err != nil {
+		return nil, fmt.Errorf("read artifact: %w", err)
+	}
+	entries, err := reader.GetEntries()
+	if err != nil {
+		return nil, fmt.Errorf("read artifact entries: %w", err)
+	}
+	return entries, nil
+}
+
+// isReadableArtifact reports whether path opens as a valid WAPP, used to reject
+// a cache entry that passed digest/size verification but is structurally
+// corrupt (e.g. truncated, or accepted because the registry omitted a digest).
+func isReadableArtifact(path string) bool {
+	file, _, err := openArtifactReader(path)
+	if err != nil {
+		return false
+	}
+	_ = file.Close()
+	return true
+}
+
+// openArtifactReader opens a cached artifact and returns its file and reader.
+// The caller owns both and must close the file when done; the reader reads
+// lazily from the file, so it must stay open while the reader is in use.
+func openArtifactReader(path string) (*os.File, *wapp.Reader, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open artifact: %w", err)
+	}
+	reader, err := wapp.NewReader(file)
+	if err != nil {
+		_ = file.Close()
+		return nil, nil, fmt.Errorf("read artifact: %w", err)
+	}
+	return file, reader, nil
+}
+
+// parseResourceID converts an "ns:name" resource identifier back to a wapp.ID.
+// A missing namespace maps to an empty namespace, the inverse of ID.String.
+func parseResourceID(raw string) wapp.ID {
+	raw = strings.TrimSpace(raw)
+	if i := strings.Index(raw, ":"); i >= 0 {
+		return wapp.NewID(raw[:i], raw[i+1:])
+	}
+	return wapp.NewID("", raw)
+}
+
 func artifactCachePath(params *boothub.DownloadParams, info *boothub.DownloadInfo, vendorDir string) (string, error) {
 	vendorDir = strings.TrimSpace(vendorDir)
 	if vendorDir == "" {
@@ -150,7 +206,21 @@ func artifactCachePath(params *boothub.DownloadParams, info *boothub.DownloadInf
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(vendorDir, lock.WappPath(name, version)), nil
+	// A version or module component with separators or ".." (including a
+	// registry-returned version) would make filepath.Join write the downloaded
+	// artifact outside the vendor directory. Require clean components and verify
+	// the result stays inside the cache.
+	if !isCleanComponent(version) {
+		return "", fmt.Errorf("artifact version must be a single path component")
+	}
+	if !isCleanComponent(name.Module) || (name.Organization != "" && !isCleanComponent(name.Organization)) {
+		return "", fmt.Errorf("artifact module must be a single path component")
+	}
+	target := filepath.Join(vendorDir, lock.WappPath(name, version))
+	if !isWithinDir(vendorDir, target) {
+		return "", fmt.Errorf("resolved cache path escapes the vendor directory")
+	}
+	return target, nil
 }
 
 func sanitizeArtifactCachePart(value string) string {

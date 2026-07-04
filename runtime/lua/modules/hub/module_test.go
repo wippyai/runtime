@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -173,7 +174,7 @@ func TestModulesList(t *testing.T) {
 	mod := NewModule(Options{ModuleClient: fake})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -196,7 +197,7 @@ func TestVersionsGetRequiresVersion(t *testing.T) {
 	mod := NewModule(Options{ModuleClient: fake})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -249,7 +250,7 @@ func TestVersionsInspectExtractsRequirementsFromArtifact(t *testing.T) {
 	mod := NewModule(Options{ArtifactClient: fake})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -260,7 +261,7 @@ func TestVersionsInspectExtractsRequirementsFromArtifact(t *testing.T) {
 		if res.version ~= "v0.1.2" then error("version mismatch") end
 		if res.entry_count ~= 2 then error("entry_count mismatch") end
 		local cache_path = string.gsub(res.cache_path, "\\", "/")
-		if cache_path ~= ".wippy/vendor/wippy/dummy-v0.1.2.wapp" then error("cache path mismatch: " .. tostring(res.cache_path)) end
+		if not cache_path:find("%.wippy/vendor/wippy/dummy%-v0%.1%.2%.wapp$") then error("cache path mismatch: " .. tostring(res.cache_path)) end
 		if res.requirements[1].name ~= "router" then error("requirement name mismatch") end
 		if res.requirements[1].description ~= "Router to register endpoints on" then error("description mismatch") end
 		if res.requirements[1].default ~= "app:router" then error("default mismatch") end
@@ -280,6 +281,132 @@ func TestVersionsInspectExtractsRequirementsFromArtifact(t *testing.T) {
 	require.Equal(t, "v0.1.2", requested.Version)
 }
 
+func TestVersionsEntriesReturnsEntries(t *testing.T) {
+	t.Chdir(t.TempDir())
+	artifact := buildWappBytesForHubModuleTest(t, []wapp.Entry{
+		{
+			ID:   wapp.NewID("wippy.dummy", "router"),
+			Kind: "ns.requirement",
+			Meta: wapp.Metadata{"description": "Router to register endpoints on"},
+			Data: map[string]any{
+				"default": "app:router",
+				"targets": []any{
+					map[string]any{"entry": "wippy.dummy:ping", "path": "meta.router"},
+				},
+			},
+		},
+		{
+			ID:   wapp.NewID("wippy.dummy", "ping"),
+			Kind: "function.lua",
+		},
+	})
+
+	var downloads int
+	fake := &fakeArtifactClient{
+		getDownloadFn: func(_ context.Context, _ *boothub.DownloadParams) (*boothub.DownloadInfo, error) {
+			return &boothub.DownloadInfo{URL: "memory://dummy", Version: "v0.1.2"}, nil
+		},
+		downloadFn: func(_ context.Context, url, destPath string) error {
+			downloads++
+			require.Equal(t, "memory://dummy", url)
+			return os.WriteFile(destPath, artifact, 0600)
+		},
+	}
+
+	mod := NewModule(Options{ArtifactClient: fake})
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(hubTestStoreContext(setupContext(), t))
+
+	tbl, _ := mod.Build()
+	l.SetGlobal(mod.Name, tbl)
+
+	if err := l.DoString(`
+		local pkg, err = hub.versions.open("wippy/dummy", "v0.1.2")
+		if err then error(err) end
+		if pkg.version ~= "v0.1.2" then error("version mismatch") end
+
+		local entries, eerr = pkg:entries()
+		if eerr then error(eerr) end
+		if #entries ~= 2 then error("total mismatch: " .. tostring(#entries)) end
+
+		local router, ping
+		for _, e in ipairs(entries) do
+			if e.id == "wippy.dummy:router" then router = e end
+			if e.id == "wippy.dummy:ping" then ping = e end
+		end
+		if router == nil then error("router entry missing") end
+		if ping == nil then error("ping entry missing") end
+		if router.kind ~= "ns.requirement" then error("kind mismatch") end
+		if router.meta.description ~= "Router to register endpoints on" then error("meta mismatch") end
+		if router.data.default ~= "app:router" then error("data default mismatch") end
+		if router.data.targets[1].entry ~= "wippy.dummy:ping" then error("target entry mismatch") end
+		if router.data.targets[1].path ~= "meta.router" then error("target path mismatch") end
+		if ping.kind ~= "function.lua" then error("ping kind mismatch") end
+
+		local filtered, ferr = pkg:entries({ kind = "ns.requirement", include_data = false })
+		if ferr then error(ferr) end
+		if #filtered ~= 1 then error("filtered items count mismatch: " .. tostring(#filtered)) end
+		if filtered[1].kind ~= "ns.requirement" then error("filtered kind mismatch") end
+		if filtered[1].data ~= nil then error("expected no data when include_data=false") end
+		if filtered[1].meta.description ~= "Router to register endpoints on" then error("filtered meta mismatch") end
+	`); err != nil {
+		t.Fatalf("lua error: %v", err)
+	}
+
+	require.Equal(t, 1, downloads)
+}
+
+func TestVersionsEntriesCacheReusesArtifact(t *testing.T) {
+	t.Chdir(t.TempDir())
+	artifact := buildWappBytesForHubModuleTest(t, []wapp.Entry{
+		{
+			ID:   wapp.NewID("wippy.dummy", "router"),
+			Kind: "ns.requirement",
+			Meta: wapp.Metadata{"description": "Router"},
+		},
+	})
+
+	var downloads int
+	fake := &fakeArtifactClient{
+		getDownloadFn: func(_ context.Context, _ *boothub.DownloadParams) (*boothub.DownloadInfo, error) {
+			return &boothub.DownloadInfo{URL: "memory://dummy", Version: "v0.1.2"}, nil
+		},
+		downloadFn: func(_ context.Context, _, destPath string) error {
+			downloads++
+			return os.WriteFile(destPath, artifact, 0600)
+		},
+	}
+
+	mod := NewModule(Options{ArtifactClient: fake})
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(hubTestStoreContext(setupContext(), t))
+
+	tbl, _ := mod.Build()
+	l.SetGlobal(mod.Name, tbl)
+
+	if err := l.DoString(`
+		local pkg, err = hub.versions.open("wippy/dummy", "v0.1.2")
+		if err then error(err) end
+		local entries, eerr = pkg:entries()
+		if eerr then error(eerr) end
+		if #entries ~= 1 then error("total mismatch") end
+		if entries[1].id ~= "wippy.dummy:router" then error("name mismatch") end
+
+		local again, err2 = hub.versions.open("wippy/dummy", "v0.1.2")
+		if err2 then error(err2) end
+		local cached, cerr = again:entries()
+		if cerr then error(cerr) end
+		if cached[1].id ~= "wippy.dummy:router" then error("cached name mismatch") end
+	`); err != nil {
+		t.Fatalf("lua error: %v", err)
+	}
+
+	require.Equal(t, 1, downloads)
+	require.FileExists(t, filepath.Join(".wippy", "vendor", "wippy", "dummy-v0.1.2.wapp"))
+}
+
 func TestDependenciesGetOptionalVersion(t *testing.T) {
 	fake := &fakeModuleClient{}
 	fake.getDepsFn = func(_ context.Context, req *connect.Request[modulev1.GetDependenciesRequest]) (*connect.Response[modulev1.GetDependenciesResponse], error) {
@@ -290,7 +417,7 @@ func TestDependenciesGetOptionalVersion(t *testing.T) {
 	mod := NewModule(Options{ModuleClient: fake})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -311,7 +438,7 @@ func TestHubModule_ModuleClientShortCircuitDoesNotInitializeStore(t *testing.T) 
 
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	_, err := h.moduleClient(l, baseOptions{})
 	require.Nil(t, err)
@@ -350,7 +477,7 @@ func TestAuthAuthenticateSucceeds(t *testing.T) {
 	mod := NewModule(Options{})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -385,7 +512,7 @@ func TestAuthAuthenticateRejectedNotStored(t *testing.T) {
 	mod := NewModule(Options{})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -411,7 +538,7 @@ func TestAuthAuthenticateInvalidFormat(t *testing.T) {
 	mod := NewModule(Options{})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -460,7 +587,7 @@ func TestAuthLogout(t *testing.T) {
 	mod := NewModule(Options{})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -507,7 +634,7 @@ func TestAuthStatusAuthenticated(t *testing.T) {
 	mod := NewModule(Options{AuthStore: store})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -534,7 +661,7 @@ func TestAuthStatusNotAuthenticated(t *testing.T) {
 	mod := NewModule(Options{})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
@@ -568,7 +695,7 @@ func TestAuthStatusInvalidTokenSuppressesIdentity(t *testing.T) {
 	mod := NewModule(Options{AuthStore: store})
 	l := lua.NewState()
 	defer l.Close()
-	l.SetContext(setupContext())
+	l.SetContext(hubTestStoreContext(setupContext(), t))
 
 	tbl, _ := mod.Build()
 	l.SetGlobal(mod.Name, tbl)
