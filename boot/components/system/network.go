@@ -39,7 +39,7 @@ func Network() boot.Component {
 			if resolvers == nil {
 				return nil, ErrFrameResolversMissing
 			}
-			if err := resolvers.Register("network", FrameResolverOrderNetwork, netapi.OverlayResolver(), netapi.OptionKeyNetwork); err != nil {
+			if err := resolvers.Register(netapi.FrameResolverClaimNetwork, FrameResolverOrderNetwork, netapi.OverlayResolver()); err != nil {
 				return nil, err
 			}
 

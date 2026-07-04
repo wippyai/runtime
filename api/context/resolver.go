@@ -64,7 +64,9 @@ func NewFrameResolvers() *FrameResolvers { return &FrameResolvers{} }
 //
 // Packages that define frame-context selections should call this from init,
 // then pass the same claim name to FrameResolvers.Register when their boot
-// component wires the resolver. The function is idempotent for the same name.
+// component wires the resolver. Duplicate claim names panic: claims are
+// process-global, and silently replacing one could make missing-resolver
+// validation fail open.
 func RegisterFrameResolverClaim(name string, selected FrameResolverClaim) {
 	if name == "" {
 		panic("frame resolver claim name cannot be empty")
@@ -79,6 +81,9 @@ func RegisterFrameResolverClaim(name string, selected FrameResolverClaim) {
 	if cur := frameClaims.Load(); cur != nil {
 		next = make(map[string]FrameResolverClaim, len(*cur)+1)
 		for k, v := range *cur {
+			if k == name {
+				panic(fmt.Sprintf("frame resolver claim %q already registered", name))
+			}
 			next[k] = v
 		}
 		next[name] = selected
@@ -172,6 +177,9 @@ func validateFrameResolverClaims(ctx context.Context, options attrs.Attributes, 
 
 func frameResolverClaimCovered(entries []frameResolverEntry, name string) bool {
 	for _, e := range entries {
+		if e.name == name {
+			return true
+		}
 		for _, claim := range e.claims {
 			if claim == name {
 				return true

@@ -55,7 +55,7 @@ func ctxWithNetworkRegistry(reg netapi.NetworkRegistry) context.Context {
 		ctx = netapi.WithNetworkRegistry(ctx, reg)
 	}
 	resolvers := ctxapi.NewFrameResolvers()
-	if err := resolvers.Register("network", 200, netapi.OverlayResolver(), netapi.OptionKeyNetwork); err != nil {
+	if err := resolvers.Register(netapi.FrameResolverClaimNetwork, 200, netapi.OverlayResolver()); err != nil {
 		panic(err)
 	}
 	return ctxapi.WithFrameResolvers(ctx, resolvers)

@@ -5,12 +5,15 @@ package context
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
 )
+
+var benchmarkCoveredClaimOnce sync.Once
 
 func pairResolver(order int, key *Key, value string) (string, FrameResolver) {
 	return value, func(_ context.Context, _ attrs.Attributes) ([]Pair, error) {
@@ -97,6 +100,38 @@ func TestFrameResolvers_RegisteredClaimAllowsResolve(t *testing.T) {
 	assert.Equal(t, "ok", out[0].Value)
 }
 
+func TestRegisterFrameResolverClaim_DuplicatePanics(t *testing.T) {
+	const claim = "test.claim.duplicate"
+	RegisterFrameResolverClaim(claim, func(context.Context, attrs.Attributes) bool {
+		return false
+	})
+	assert.Panics(t, func() {
+		RegisterFrameResolverClaim(claim, func(context.Context, attrs.Attributes) bool {
+			return true
+		})
+	})
+}
+
+func TestFrameResolvers_ResolverNameCoversSameNamedClaim(t *testing.T) {
+	const claim = "test.claim.name_covered"
+	RegisterFrameResolverClaim(claim, func(_ context.Context, options attrs.Attributes) bool {
+		return options != nil && options.GetBool("name_covered", false)
+	})
+
+	r := NewFrameResolvers()
+	key := &Key{Name: "name.covered.key"}
+	_, fn := pairResolver(10, key, "ok")
+	require.NoError(t, r.Register(claim, 10, fn))
+
+	options := attrs.NewBag()
+	options.Set("name_covered", true)
+
+	out, err := r.Resolve(context.Background(), options, nil)
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	assert.Equal(t, "ok", out[0].Value)
+}
+
 func TestFrameResolvers_FirstErrorStopsAndWraps(t *testing.T) {
 	sentinel := errors.New("boom")
 	r := NewFrameResolvers()
@@ -164,8 +199,10 @@ func BenchmarkFrameResolvers_ResolveEmpty(b *testing.B) {
 
 func BenchmarkFrameResolvers_ResolveCoveredClaim(b *testing.B) {
 	const claim = "bench.claim.covered"
-	RegisterFrameResolverClaim(claim, func(_ context.Context, options attrs.Attributes) bool {
-		return options != nil && options.GetBool("bench", false)
+	benchmarkCoveredClaimOnce.Do(func() {
+		RegisterFrameResolverClaim(claim, func(_ context.Context, options attrs.Attributes) bool {
+			return options != nil && options.GetBool("bench", false)
+		})
 	})
 
 	r := NewFrameResolvers()
