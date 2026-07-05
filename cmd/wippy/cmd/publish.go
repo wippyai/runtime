@@ -264,10 +264,6 @@ func publishViaHubOrLegacy(
 		FilePath:     outputFile,
 		Protected:    protected,
 	}
-	if label != "" {
-		// When publishing a label, the version is resolved server-side.
-		in.Version = ""
-	}
 
 	out, err := client.PublishViaHub(ctx, in)
 	if err == nil {
@@ -458,17 +454,7 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		MetaFilters: cfg.ExcludeMeta,
 	}
 
-	pipelineStages := []boot.Stage{
-		stages.Override(),
-		stages.DisableWithOptions(disableOpts),
-		stages.Link(),
-		stages.Override(),
-	}
-	if len(embedPatterns) > 0 {
-		pipelineStages = append(pipelineStages, stages.EmbedFS(embedPatterns...))
-	}
-
-	pipeline := build.New(pipelineStages...)
+	pipeline := build.New(publishPipelineStages(disableOpts, embedPatterns)...)
 	if err := pipeline.Execute(ctx, &srcEntries); err != nil {
 		return nil, NewExecutePipelineError(err)
 	}
@@ -559,6 +545,19 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		Size:   stat.Size(),
 		Digest: digest,
 	}, nil
+}
+
+func publishPipelineStages(disableOpts stages.DisableOptions, embedPatterns []string) []boot.Stage {
+	pipelineStages := []boot.Stage{
+		stages.Override(),
+		stages.DisableWithOptions(disableOpts),
+		stages.Link(),
+		stages.Override(),
+	}
+	if len(embedPatterns) > 0 {
+		pipelineStages = append(pipelineStages, stages.EmbedFS(embedPatterns...))
+	}
+	return pipelineStages
 }
 
 func computeFileDigest(path string) (string, error) {

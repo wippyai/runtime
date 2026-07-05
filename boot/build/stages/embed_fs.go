@@ -5,10 +5,13 @@ package stages
 import (
 	"context"
 	"os"
+	"path"
+	"path/filepath"
 	"sync"
 
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/logs"
+	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	dirapi "github.com/wippyai/runtime/api/service/fs/directory"
@@ -61,7 +64,7 @@ func (s *embedFSStage) Execute(ctx context.Context, entries *[]registry.Entry) e
 		}
 	}
 
-	res, err := collectResources(filteredEntries, log)
+	res, err := collectResources(ctx, filteredEntries, log)
 	if err != nil {
 		return err
 	}
@@ -107,7 +110,7 @@ func filterEmbeddableEntries(entries []registry.Entry, embedPatterns []string) [
 	return embeddable
 }
 
-func collectResources(entries []registry.Entry, logger *zap.Logger) ([]wapp.ResourceSpec, error) {
+func collectResources(ctx context.Context, entries []registry.Entry, logger *zap.Logger) ([]wapp.ResourceSpec, error) {
 	specs := make([]wapp.ResourceSpec, 0, len(entries))
 	for _, entry := range entries {
 		if entry.Kind != dirapi.Kind {
@@ -126,6 +129,7 @@ func collectResources(entries []registry.Entry, logger *zap.Logger) ([]wapp.Reso
 			logger.Warn("directory path missing, skipping", zap.String("id", entry.ID.String()))
 			continue
 		}
+		directory = resolveEmbedResourceDirectory(ctx, entry, cfg, directory)
 
 		info, err := os.Stat(directory)
 		if err != nil {
@@ -155,6 +159,32 @@ func collectResources(entries []registry.Entry, logger *zap.Logger) ([]wapp.Reso
 			zap.String("directory", directory))
 	}
 	return specs, nil
+}
+
+func resolveEmbedResourceDirectory(ctx context.Context, entry registry.Entry, cfg map[string]any, directory string) string {
+	if directory == "" || filepath.IsAbs(directory) || path.IsAbs(filepath.ToSlash(directory)) {
+		return directory
+	}
+
+	base, _ := cfg["base"].(string)
+	if base == dirapi.BaseProject {
+		return directory
+	}
+
+	moduleName := ""
+	if entry.Meta != nil {
+		moduleName = entry.Meta.GetString("module", "")
+	}
+	if moduleName == "" {
+		return directory
+	}
+
+	root, ok := moduleapi.SourceRoot(ctx, moduleName)
+	if !ok {
+		return directory
+	}
+
+	return filepath.Join(root, directory)
 }
 
 func transformEntries(entries []registry.Entry, embeddableIDs []registry.ID) []registry.Entry {

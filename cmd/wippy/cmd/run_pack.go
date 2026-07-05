@@ -307,10 +307,49 @@ func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]s
 		return nil, fmt.Errorf("main module %s/%s not found in resolved modules", org, module)
 	}
 
+	mainModuleName := org + "/" + module
+	monolithicMain, err := packContainsExternalModuleEntries(mainPackPath, mainModuleName)
+	if err != nil {
+		return nil, fmt.Errorf("inspect main module pack %s: %w", mainPackPath, err)
+	}
+	if monolithicMain {
+		fmt.Printf("%s Using self-contained application pack\n", dimStyle.Render(""))
+		fmt.Println()
+		return []string{mainPackPath}, nil
+	}
+
 	packPaths = append(packPaths, mainPackPath)
 
 	fmt.Println()
 	return packPaths, nil
+}
+
+func packContainsExternalModuleEntries(packPath, moduleName string) (bool, error) {
+	file, err := os.Open(packPath)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+
+	packReader, err := entries.NewPackReader(file, nil)
+	if err != nil {
+		return false, err
+	}
+
+	loadedEntries, err := packReader.GetEntries()
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range loadedEntries {
+		if entry.Meta == nil {
+			continue
+		}
+		entryModule, _ := entry.Meta["module"].(string)
+		if entryModule != "" && entryModule != moduleName {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // updateLockFile persists resolved module version/hash into wippy.lock.
@@ -519,6 +558,10 @@ type packReaderRegistry interface {
 	Register(packPath string, reader *wapp.Reader, file *os.File) error
 }
 
+type modulePackReaderRegistry interface {
+	RegisterPack(packPath, module, version string, reader *wapp.Reader, file *os.File) error
+}
+
 func loadPackEntries(packFiles []string, embedReg packReaderRegistry) ([]registry.Entry, error) {
 	packEntries := make([]registry.Entry, 0)
 
@@ -538,25 +581,77 @@ func loadPackEntries(packFiles []string, embedReg packReaderRegistry) ([]registr
 			return nil, fmt.Errorf("read pack %s: %w", packFile, err)
 		}
 
-		if err := embedReg.Register(packFile, packReader.Reader(), file); err != nil {
-			file.Close()
-			return nil, fmt.Errorf("register embed resources for %s: %w", packFile, err)
-		}
-
+		moduleName, moduleVersion := moduleIdentityFromPackMetadata(packReader.Reader())
 		loadedEntries, err := packReader.GetEntries()
 		if err != nil {
+			file.Close()
 			return nil, fmt.Errorf("read entries from %s: %w", packFile, err)
 		}
 
-		moduleName, moduleVersion := moduleIdentityFromPackMetadata(packReader.Reader())
 		if moduleName != "" {
 			annotateEntriesModuleMeta(loadedEntries, moduleName, moduleVersion)
+		}
+
+		if err := registerPackResources(embedReg, packFile, moduleName, moduleVersion, packReader.Reader(), file); err != nil {
+			file.Close()
+			return nil, fmt.Errorf("register embed resources for %s: %w", packFile, err)
+		}
+		if err := registerMonolithicPackResourceAliases(embedReg, packFile, packReader.Reader(), loadedEntries); err != nil {
+			return nil, fmt.Errorf("register embed resource aliases for %s: %w", packFile, err)
 		}
 
 		packEntries = append(packEntries, loadedEntries...)
 	}
 
 	return packEntries, nil
+}
+
+func registerPackResources(embedReg packReaderRegistry, packFile, moduleName, moduleVersion string, reader *wapp.Reader, file *os.File) error {
+	if moduleName != "" {
+		if moduleReg, ok := embedReg.(modulePackReaderRegistry); ok {
+			return moduleReg.RegisterPack(packFile, moduleName, moduleVersion, reader, file)
+		}
+	}
+	return embedReg.Register(packFile, reader, file)
+}
+
+func registerMonolithicPackResourceAliases(embedReg packReaderRegistry, packFile string, reader *wapp.Reader, loadedEntries []registry.Entry) error {
+	moduleReg, ok := embedReg.(modulePackReaderRegistry)
+	if !ok {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	for _, entry := range loadedEntries {
+		if entry.Meta == nil {
+			continue
+		}
+
+		moduleName, _ := entry.Meta["module"].(string)
+		if moduleName == "" {
+			continue
+		}
+
+		moduleVersion, _ := entry.Meta["module_version"].(string)
+		key := moduleName + "\x00" + moduleVersion
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		if err := moduleReg.RegisterPack(monolithicPackAliasPath(packFile, moduleName, moduleVersion), moduleName, moduleVersion, reader, nil); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func monolithicPackAliasPath(packFile, moduleName, moduleVersion string) string {
+	if moduleVersion == "" {
+		return packFile + "#" + moduleName
+	}
+	return packFile + "#" + moduleName + "@" + moduleVersion
 }
 
 func moduleIdentityFromPackMetadata(reader *wapp.Reader) (moduleName string, moduleVersion string) {

@@ -110,6 +110,10 @@ func NewPackIntegrityError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "pack integrity verification failed").WithCause(cause).WithRetryable(apierror.False)
 }
 
+func NewPackConfigError(cause error) apierror.Error {
+	return apierror.New(apierror.Invalid, "failed to load pack config").WithCause(cause).WithRetryable(apierror.False)
+}
+
 func NewStatOutputFileError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to stat output file").WithCause(cause).WithRetryable(apierror.False)
 }

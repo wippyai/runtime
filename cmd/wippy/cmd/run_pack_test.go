@@ -5,18 +5,22 @@ package cmd
 import (
 	"bytes"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
+	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/cmd/internal/shutdown"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
 	"github.com/wippyai/wapp"
@@ -416,7 +420,12 @@ func TestCommandsFromEntries(t *testing.T) {
 		{
 			ID:   regapi.NewID("app", "runner"),
 			Kind: "process.lua",
-			Meta: map[string]any{"command": map[string]any{"name": "test", "use_case": "test"}},
+			Meta: attrs.NewBagFrom(map[string]any{"command": attrs.NewBagFrom(map[string]any{"name": "test", "use_case": "test"})}),
+		},
+		{
+			ID:   regapi.NewID("app", "legacy_test_runner"),
+			Kind: "process.lua",
+			Meta: attrs.NewBagFrom(map[string]any{"command": attrs.NewBagFrom(map[string]any{"name": "test"})}),
 		},
 	}
 
@@ -424,6 +433,7 @@ func TestCommandsFromEntries(t *testing.T) {
 	want := []packCommand{
 		{name: "serve", entryID: "app:serve", useCase: defaultUseCase, main: true},
 		{name: "test", entryID: "app:runner", useCase: "test"},
+		{name: "test", entryID: "app:legacy_test_runner", useCase: "test"},
 	}
 
 	if len(got) != len(want) {
@@ -721,6 +731,262 @@ func TestLoadPackEntries_DoesNotOverrideExistingModuleMetadata(t *testing.T) {
 	}
 }
 
+func TestLoadPackEntries_MonolithicPackRegistersModuleResourceAliases(t *testing.T) {
+	tmpDir := t.TempDir()
+	root := filepath.Join(tmpDir, "static")
+	writeTestFile(t, root, "index.html", []byte("<html>module</html>\n"))
+
+	packPath := createTestResourcePackFile(t, tmpDir, "snapshot", wapp.Metadata{
+		"name": "snapshot",
+	}, []wapp.Entry{{
+		ID:   wapp.NewID("acme.ui", "static_fs"),
+		Kind: "fs.embed",
+		Meta: wapp.Metadata{
+			"module":         "acme/ui",
+			"module_version": "1.2.3",
+		},
+	}}, []wapp.ResourceSpec{{
+		ID: wapp.NewID("acme.ui", "static_fs"),
+		FS: os.DirFS(root),
+	}})
+
+	embedReg := embedpkg.NewRegistry()
+	defer func() { _ = embedReg.Close() }()
+
+	packEntries, err := loadPackEntries([]string{packPath}, embedReg)
+	if err != nil {
+		t.Fatalf("loadPackEntries failed: %v", err)
+	}
+	if len(packEntries) != 1 {
+		t.Fatalf("entry count = %d, want 1", len(packEntries))
+	}
+
+	fsys, err := embedReg.GetFSForEntry(packEntries[0])
+	if err != nil {
+		t.Fatalf("GetFSForEntry failed: %v", err)
+	}
+	data, err := fs.ReadFile(fsys, "index.html")
+	if err != nil {
+		t.Fatalf("read aliased resource: %v", err)
+	}
+	if string(data) != "<html>module</html>\n" {
+		t.Fatalf("aliased resource data = %q", string(data))
+	}
+}
+
+func TestLoadPackEntries_NamedMonolithicPackRegistersModuleResourceAliases(t *testing.T) {
+	tmpDir := t.TempDir()
+	root := filepath.Join(tmpDir, "static")
+	writeTestFile(t, root, "index.html", []byte("<html>named module</html>\n"))
+
+	packPath := createTestResourcePackFile(t, tmpDir, "app", wapp.Metadata{
+		"name":      "app",
+		"namespace": "acme.app",
+		"version":   "2.0.0",
+	}, []wapp.Entry{{
+		ID:   wapp.NewID("acme.ui", "static_fs"),
+		Kind: "fs.embed",
+		Meta: wapp.Metadata{
+			"module":         "acme/ui",
+			"module_version": "1.2.3",
+		},
+	}}, []wapp.ResourceSpec{{
+		ID: wapp.NewID("acme.ui", "static_fs"),
+		FS: os.DirFS(root),
+	}})
+
+	embedReg := embedpkg.NewRegistry()
+	defer func() { _ = embedReg.Close() }()
+
+	packEntries, err := loadPackEntries([]string{packPath}, embedReg)
+	if err != nil {
+		t.Fatalf("loadPackEntries failed: %v", err)
+	}
+	if len(packEntries) != 1 {
+		t.Fatalf("entry count = %d, want 1", len(packEntries))
+	}
+
+	fsys, err := embedReg.GetFSForEntry(packEntries[0])
+	if err != nil {
+		t.Fatalf("GetFSForEntry failed: %v", err)
+	}
+	data, err := fs.ReadFile(fsys, "index.html")
+	if err != nil {
+		t.Fatalf("read aliased resource: %v", err)
+	}
+	if string(data) != "<html>named module</html>\n" {
+		t.Fatalf("aliased resource data = %q", string(data))
+	}
+}
+
+func TestPackContainsExternalModuleEntries(t *testing.T) {
+	tmpDir := t.TempDir()
+	packPath := createTestPackFileWithMetadata(t, tmpDir, "app", wapp.Metadata{
+		"name":      "app",
+		"namespace": "acme.app",
+		"version":   "2.0.0",
+	}, []wapp.Entry{
+		{
+			ID:   wapp.NewID("acme.app", "main"),
+			Kind: "ns.definition",
+			Meta: wapp.Metadata{"module": "acme/app"},
+		},
+		{
+			ID:   wapp.NewID("acme.ui", "static"),
+			Kind: "fs.embed",
+			Meta: wapp.Metadata{"module": "acme/ui"},
+		},
+	})
+
+	contains, err := packContainsExternalModuleEntries(packPath, "acme/app")
+	if err != nil {
+		t.Fatalf("packContainsExternalModuleEntries failed: %v", err)
+	}
+	if !contains {
+		t.Fatal("expected external module entries to be detected")
+	}
+}
+
+func TestCollectEmbeddedPackResourcesCarriesDependencyResources(t *testing.T) {
+	tmpDir := t.TempDir()
+	depRoot := filepath.Join(tmpDir, "dep")
+	writeTestFile(t, depRoot, "index.html", []byte("<html>dep</html>\n"))
+
+	depPack := createTestResourcePackFile(t, tmpDir, "dep", wapp.Metadata{
+		"name":      "ui",
+		"namespace": "acme.ui",
+		"version":   "1.2.3",
+	}, []wapp.Entry{{
+		ID:   wapp.NewID("acme.ui", "static_fs"),
+		Kind: "fs.embed",
+	}}, []wapp.ResourceSpec{{
+		ID: wapp.NewID("acme.ui", "static_fs"),
+		FS: os.DirFS(depRoot),
+	}})
+
+	carried, handles, err := collectEmbeddedPackResources([]lock.ModuleLoadPath{
+		{Path: filepath.Join(tmpDir, "src")},
+		{Path: depPack, Module: "acme/ui", Version: "1.2.3"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("collectEmbeddedPackResources failed: %v", err)
+	}
+	t.Cleanup(func() { _ = closeEmbeddedPackResourceHandles(handles) })
+
+	if len(carried) != 1 {
+		t.Fatalf("carried resource count = %d, want 1", len(carried))
+	}
+	if got := carried[0].ID.String(); got != "acme.ui:static_fs" {
+		t.Fatalf("resource id = %q, want acme.ui:static_fs", got)
+	}
+
+	data, err := fs.ReadFile(carried[0].FS, "index.html")
+	if err != nil {
+		t.Fatalf("read carried resource: %v", err)
+	}
+	if string(data) != "<html>dep</html>\n" {
+		t.Fatalf("carried resource data = %q", string(data))
+	}
+
+	out := filepath.Join(tmpDir, "snapshot.wapp")
+	file, err := os.Create(out)
+	if err != nil {
+		t.Fatalf("create output pack: %v", err)
+	}
+	if err := wapp.NewWriter().PackWithResources(wapp.Metadata{"name": "snapshot"}, nil, carried, file); err != nil {
+		_ = file.Close()
+		t.Fatalf("pack carried resources: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close output pack: %v", err)
+	}
+
+	if err := verifyPackedResources(out, carried); err != nil {
+		t.Fatalf("verify carried resources: %v", err)
+	}
+}
+
+func TestCollectEmbeddedPackResourcesRejectsDuplicateResourceIDs(t *testing.T) {
+	tmpDir := t.TempDir()
+	depRoot := filepath.Join(tmpDir, "dep")
+	writeTestFile(t, depRoot, "index.html", []byte("<html>dep</html>\n"))
+
+	depPack := createTestResourcePackFile(t, tmpDir, "dep", wapp.Metadata{"name": "dep"}, nil, []wapp.ResourceSpec{{
+		ID: wapp.NewID("app", "static_fs"),
+		FS: os.DirFS(depRoot),
+	}})
+
+	_, handles, err := collectEmbeddedPackResources([]lock.ModuleLoadPath{
+		{Path: depPack, Module: "acme/ui", Version: "1.2.3"},
+	}, []wapp.ResourceSpec{{
+		ID: wapp.NewID("app", "static_fs"),
+		FS: os.DirFS(depRoot),
+	}})
+	if len(handles) > 0 {
+		t.Fatalf("handles returned after duplicate error: %d", len(handles))
+	}
+	if err == nil {
+		t.Fatal("expected duplicate resource error")
+	}
+	if !strings.Contains(err.Error(), "duplicate embedded resource app:static_fs") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestResolvePackEmbedPatterns(t *testing.T) {
+	t.Run("uses wippy yaml embed when flag not set", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		writeModuleConfig(t, tmpDir, "embed:\n  - app:app_fs\n  - app:static\n")
+
+		got, err := resolvePackEmbedPatterns(newPackTestCommand(t, nil), tmpDir)
+		if err != nil {
+			t.Fatalf("resolvePackEmbedPatterns failed: %v", err)
+		}
+
+		want := []string{"app:app_fs", "app:static"}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("embed patterns = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("explicit flag overrides wippy yaml embed", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		writeModuleConfig(t, tmpDir, "embed:\n  - app:app_fs\n")
+
+		got, err := resolvePackEmbedPatterns(newPackTestCommand(t, []string{"manual:assets"}), tmpDir)
+		if err != nil {
+			t.Fatalf("resolvePackEmbedPatterns failed: %v", err)
+		}
+
+		if strings.Join(got, ",") != "manual:assets" {
+			t.Fatalf("embed patterns = %v, want manual:assets", got)
+		}
+	})
+
+	t.Run("missing config preserves cli default", func(t *testing.T) {
+		got, err := resolvePackEmbedPatterns(newPackTestCommand(t, nil), t.TempDir())
+		if err != nil {
+			t.Fatalf("resolvePackEmbedPatterns failed: %v", err)
+		}
+		if len(got) != 0 {
+			t.Fatalf("embed patterns = %v, want none", got)
+		}
+	})
+
+	t.Run("malformed config fails", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		writeModuleConfig(t, tmpDir, ":\n")
+
+		_, err := resolvePackEmbedPatterns(newPackTestCommand(t, nil), tmpDir)
+		if err == nil {
+			t.Fatal("expected malformed config error")
+		}
+		if !strings.Contains(err.Error(), "failed to parse wippy.yaml") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
 func TestLoadBootConfig_OverridesAppliedToPipelineEntries(t *testing.T) {
 	t.Run("overrides from wippy.yaml are applied to entries", func(t *testing.T) {
 		tmpDir := t.TempDir()
@@ -947,6 +1213,26 @@ func packTestResource(t *testing.T, root string) string {
 	return packPath
 }
 
+func createTestResourcePackFile(t *testing.T, dir, name string, metadata wapp.Metadata, entries []wapp.Entry, resources []wapp.ResourceSpec) string {
+	t.Helper()
+
+	path := filepath.Join(dir, name+".wapp")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create resource pack: %v", err)
+	}
+
+	err = wapp.NewWriter().PackWithResources(metadata, entries, resources, file)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatalf("pack resource file: %v", err)
+	}
+
+	return path
+}
+
 func writeTestFile(t *testing.T, root, rel string, data []byte) {
 	t.Helper()
 
@@ -975,4 +1261,26 @@ type failingPackRegistry struct {
 
 func (f failingPackRegistry) Register(_ string, _ *wapp.Reader, _ *os.File) error {
 	return f.err
+}
+
+func newPackTestCommand(t *testing.T, embed []string) *cobra.Command {
+	t.Helper()
+
+	cmd := &cobra.Command{Use: "pack"}
+	cmd.Flags().StringSlice("embed", nil, "")
+	if embed != nil {
+		if err := cmd.Flags().Set("embed", strings.Join(embed, ",")); err != nil {
+			t.Fatalf("set embed flag: %v", err)
+		}
+	}
+	return cmd
+}
+
+func writeModuleConfig(t *testing.T, dir, extra string) {
+	t.Helper()
+
+	cfg := "organization: acme\nmodule: app\nversion: 0.1.0\n" + extra
+	if err := os.WriteFile(filepath.Join(dir, "wippy.yaml"), []byte(cfg), 0o644); err != nil {
+		t.Fatalf("write wippy.yaml: %v", err)
+	}
 }
