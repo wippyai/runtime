@@ -454,6 +454,58 @@ func TestLink_BareParametersWithSameNameAreScopedToDependencyComponent(t *testin
 	assert.Equal(t, "app:api.views", target.Meta["router"])
 }
 
+func TestLink_RootDependencyParametersOverrideModuleOwnedParameters(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app.deps", "bootloader"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "wippy/bootloader",
+				"parameters": []any{
+					map[string]any{"name": "wippy.bootloader:env_storage", "value": "app.env:store"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("app", "dep.wippy.bootloader"),
+			Kind: registry.NamespaceDependency,
+			Meta: map[string]any{"module": "wippy/migration"},
+			Data: payload.New(map[string]any{
+				"component": "wippy/bootloader",
+				"parameters": []any{
+					map[string]any{"name": "wippy.bootloader:env_storage", "value": "app:env_storage"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("wippy.bootloader", "env_storage"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "wippy/bootloader"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "env_loader", "path": ".meta.storage"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("wippy.bootloader", "env_loader"),
+			Kind: "env.loader",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"wippy/bootloader"}))
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	target := findEntry(entries, "wippy.bootloader", "env_loader")
+	require.NotNil(t, target)
+	assert.Equal(t, "app.env:store", target.Meta["storage"])
+}
+
 func TestLink_FullIDParameterName(t *testing.T) {
 	ctx, _ := setupTestContext()
 

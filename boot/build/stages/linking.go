@@ -209,6 +209,7 @@ func (s *linkStage) collectDependencies(ctx context.Context, transcoder payload.
 			definition:      def,
 			moduleNamespace: moduleNamespace,
 			component:       def.Component,
+			moduleOwned:     requirementModuleFromEntry(e) != "",
 		}
 	}
 
@@ -225,6 +226,7 @@ type decodedDependency struct {
 	entry           registry.Entry
 	moduleNamespace string
 	component       string
+	moduleOwned     bool
 }
 
 func (s *linkStage) processRequirement(
@@ -264,12 +266,13 @@ func (s *linkStage) resolveValue(
 	requirementModule string,
 	dependencies map[string]decodedDependency,
 ) (any, error) {
-	// Find all dependencies that have a parameter with this name
-	var foundValues []struct {
+	type foundValue struct {
 		value any
 		depID string
 	}
 
+	var rootValues []foundValue
+	var moduleValues []foundValue
 	requirementID := requirementNS + ":" + requirementName
 
 	for _, dep := range dependencies {
@@ -285,14 +288,21 @@ func (s *linkStage) resolveValue(
 			) {
 				continue
 			}
-			foundValues = append(foundValues, struct {
-				value any
-				depID string
-			}{
+			found := foundValue{
 				value: param.Value,
 				depID: dep.entry.ID.String(),
-			})
+			}
+			if dep.moduleOwned {
+				moduleValues = append(moduleValues, found)
+			} else {
+				rootValues = append(rootValues, found)
+			}
 		}
+	}
+
+	foundValues := rootValues
+	if len(foundValues) == 0 {
+		foundValues = moduleValues
 	}
 
 	// Check for conflicts

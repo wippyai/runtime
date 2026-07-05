@@ -814,6 +814,137 @@ func TestDependencyHandler_Expand_RejectsDuplicateRootComponentBeforeLinking(t *
 	assert.Equal(t, "app:dep.wippy.bootloader", apiErr.Details().GetString("requested_entry_id", ""))
 }
 
+func TestDependencyHandler_Expand_RootParametersOverrideModuleOwnedTransitiveParameters(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, "vendor")
+
+	writeWapp(t, filepath.Join(vendorDir, "wippy", "migration-v1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("app", "dep.wippy.bootloader"),
+			Kind: regapi.NamespaceDependency,
+			Data: map[string]any{
+				"component": "wippy/bootloader",
+				"version":   "v1.0.0",
+				"parameters": []any{
+					map[string]any{"name": "wippy.bootloader:env_storage", "value": "app:env_storage"},
+				},
+			},
+		},
+	})
+	writeWapp(t, filepath.Join(vendorDir, "wippy", "bootloader-v1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("wippy.bootloader", "env_storage"),
+			Kind: regapi.NamespaceRequirement,
+			Data: map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "env_loader", "path": ".meta.env_storage"},
+				},
+			},
+		},
+		{
+			ID:   wapp.NewID("wippy.bootloader", "env_loader"),
+			Kind: "env.loader",
+			Meta: map[string]any{},
+			Data: map[string]any{},
+		},
+	})
+	writeWapp(t, filepath.Join(vendorDir, "wippy", "views-v1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("wippy.views", "api_router"),
+			Kind: regapi.NamespaceRequirement,
+			Data: map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "pages_endpoint", "path": ".meta.router"},
+				},
+			},
+		},
+		{
+			ID:   wapp.NewID("wippy.views", "pages_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: map[string]any{},
+		},
+	})
+	writeWapp(t, filepath.Join(vendorDir, "kickside", "ui-v1.0.0.wapp"), []wapp.Entry{
+		{ID: wapp.NewID("kickside.ui", "component"), Kind: "registry.entry", Data: map[string]any{}},
+	})
+	writeWapp(t, filepath.Join(vendorDir, "kickside", "sessions-v1.0.0.wapp"), []wapp.Entry{
+		{ID: wapp.NewID("kickside.sessions", "component"), Kind: "registry.entry", Data: map[string]any{}},
+	})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	snapshot := regapi.State{
+		{
+			ID:   regapi.NewID("app.deps", "bootloader"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.NewPayload(`{
+				"component":"wippy/bootloader",
+				"version":"v1.0.0",
+				"parameters":[{"name":"wippy.bootloader:env_storage","value":"app.env:store"}]
+			}`, payload.JSON),
+		},
+		{
+			ID:   regapi.NewID("app.deps", "migration"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.NewPayload(`{"component":"wippy/migration","version":"v1.0.0"}`, payload.JSON),
+		},
+		{
+			ID:   regapi.NewID("app.deps", "views"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.NewPayload(`{
+				"component":"wippy/views",
+				"version":"v1.0.0",
+				"parameters":[{"name":"wippy.views:api_router","value":"app:api.views"}]
+			}`, payload.JSON),
+		},
+		{
+			ID:   regapi.NewID("app.deps", "kickside_ui"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.NewPayload(`{
+				"component":"kickside/ui",
+				"version":"v1.0.0",
+				"parameters":[{"name":"api_router","value":"app:api"}]
+			}`, payload.JSON),
+		},
+	}
+	rootDep := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "sessions"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"kickside/sessions","version":"v1.0.0"}`, payload.JSON),
+	}
+
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, snapshot)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+
+	envLoaderCreated := false
+	viewsEndpointCreated := false
+	for _, scoped := range result.Additional {
+		entry := scoped.Operation.Entry
+		switch entry.ID {
+		case regapi.NewID("wippy.bootloader", "env_loader"):
+			envLoaderCreated = true
+			assert.Equal(t, "app.env:store", entry.Meta.GetString("env_storage", ""))
+		case regapi.NewID("wippy.views", "pages_endpoint"):
+			viewsEndpointCreated = true
+			assert.Equal(t, "app:api.views", entry.Meta.GetString("router", ""))
+		}
+	}
+	assert.True(t, envLoaderCreated, "root bootloader parameter should configure the loaded target")
+	assert.True(t, viewsEndpointCreated, "root views parameter should configure the loaded views endpoint")
+}
+
 func TestDependencyHandler_Expand_AppliesCanonicalComponentParametersToAliasNamespaceRequirements(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()
