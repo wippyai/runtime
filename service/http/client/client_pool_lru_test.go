@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	gohttp "net/http"
+	goruntime "runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -164,6 +165,114 @@ func TestPoolLRU_ConcurrentDistinctKeys_RespectsCap(t *testing.T) {
 	wg.Wait()
 
 	assert.LessOrEqual(t, pool.Size(), cap, "pool size must never exceed cap under concurrency")
+}
+
+func TestPoolLRU_DefaultPoolIsBounded(t *testing.T) {
+	// NewClientPool() (no explicit config) must apply a sensible default cap
+	// so long-running processes don't accumulate transports without bound.
+	pool := NewClientPool()
+
+	// Use millisecond timeouts to avoid collapsing onto the default client
+	// (GetClient short-circuits to defaultClient at defaultTimeout).
+	for i := 1; i <= 500; i++ {
+		pool.GetClient(time.Duration(i)*time.Millisecond, "")
+	}
+
+	assert.LessOrEqual(t, pool.Size(), defaultMaxClients, "default pool must be bounded by defaultMaxClients")
+	assert.Equal(t, defaultMaxClients, pool.Size(), "pool should have filled to exactly the default cap")
+}
+
+func TestPoolLRU_CloseReleasesIdleConnections(t *testing.T) {
+	// Pool.Close must iterate all cached transports and release their idle
+	// connections, then shut down the cache. Calling Close multiple times
+	// must not panic.
+	pool := NewClientPoolWithConfig(PoolConfig{MaxClients: 3})
+
+	// Insert three distinct entries.
+	for i := 1; i <= 3; i++ {
+		pool.GetClient(time.Duration(i)*time.Millisecond, "")
+	}
+	require.Equal(t, 3, pool.Size())
+
+	// Close must not panic and must leave the pool in a clean state.
+	assert.NotPanics(t, func() {
+		pool.Close()
+		pool.Close() // idempotent
+	})
+
+	// After Close, the cache reports zero live entries.
+	assert.Equal(t, 0, pool.Size())
+}
+
+// TestPoolLRU_RegressionGrowingKeysDoesNotLeak is the regression guard for the
+// FD/goroutine leak fixed by bounding the default pool. Before the fix,
+// NewClientPool() passed MaxClients=0 (math.MaxInt32) to newPool, so every
+// distinct clientKey — including every distinct timeout value from Lua
+// http_client.get — produced a new *http.Transport that was never evicted.
+//
+// Reproduction (unfixed binary, growing-keys scenario): 65574 FDs and 97440
+// goroutines accumulated in 3 minutes of a workload that passed a unique
+// timeout on every request.
+//
+// This test asserts the two invariants that break if the fix is reverted:
+//  1. The default pool is bounded — Size never exceeds defaultMaxClients no
+//     matter how many distinct keys are inserted.
+//  2. Pool.Close() returns the process to its pre-pool goroutine count, so
+//     transports and their persistConn readLoop goroutines are released.
+//
+// If someone removes defaultMaxClients or breaks eviction/Close, this test
+// fails and points directly at the regression.
+func TestPoolLRU_RegressionGrowingKeysDoesNotLeak(t *testing.T) {
+	const distinctKeys = 2000 // well above defaultMaxClients=128
+
+	goruntime.GC()
+	baselineGoroutines := goruntime.NumGoroutine()
+
+	pool := NewClientPool()
+
+	// Use millisecond-precision timeouts so every key is distinct and none
+	// collapse onto the defaultClient short-circuit (GetClient returns the
+	// default client when timeout == defaultTimeout).
+	for i := 1; i <= distinctKeys; i++ {
+		pool.GetClient(time.Duration(i)*time.Millisecond, "")
+	}
+
+	assert.LessOrEqualf(t, pool.Size(), defaultMaxClients,
+		"default pool must cap at defaultMaxClients=%d even with %d distinct keys; "+
+			"if this fails, NewClientPool() is no longer bounding the pool (MaxClients=0 regression)",
+		defaultMaxClients, distinctKeys)
+	assert.Equal(t, defaultMaxClients, pool.Size(),
+		"pool should have filled to exactly the default cap")
+
+	// Live goroutine count must stay proportional to the cap, not to the
+	// number of distinct keys. Each cached client initializes a transport
+	// lazily inside once.Do, so no readLoop goroutine is spawned until the
+	// client is used. The cap therefore bounds live goroutines indirectly.
+	goruntime.GC()
+	liveGoroutines := goruntime.NumGoroutine() - baselineGoroutines
+	assert.Lessf(t, liveGoroutines, distinctKeys,
+		"goroutine delta must be bounded by the cap, not by the %d distinct keys", distinctKeys)
+
+	// Close releases every cached transport; goroutines must return to
+	// baseline (within scheduler slack) so the process can shut down
+	// without leaking persistConn readLoop goroutines.
+	pool.Close()
+
+	// Give the scheduler a moment to tear down the once.Do init goroutines
+	// that were waiting on concurrent GetClient callers.
+	for i := 0; i < 50; i++ {
+		goruntime.GC()
+		if goruntime.NumGoroutine()-baselineGoroutines < 20 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	goruntime.GC()
+	afterClose := goruntime.NumGoroutine() - baselineGoroutines
+	assert.Lessf(t, afterClose, 20,
+		"goroutines must return near baseline after Close; delta=%d (baseline=%d, now=%d)",
+		afterClose, baselineGoroutines, goruntime.NumGoroutine())
 }
 
 func TestPoolLRU_OverlayHotSwapEvictsStale(t *testing.T) {
