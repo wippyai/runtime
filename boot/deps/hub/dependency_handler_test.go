@@ -511,6 +511,237 @@ func TestDependencyHandler_Expand_UsesModuleDependencyEntriesForRequirementLinki
 	assert.True(t, serviceUpdated, "expected linked requirement values to update app:service")
 }
 
+func TestDependencyHandler_Expand_ScopesBareParametersByDependencyComponent(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, "vendor")
+
+	writeWapp(t, filepath.Join(vendorDir, "wippy", "views-v1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("wippy.views", "api_router"),
+			Kind: regapi.NamespaceRequirement,
+			Data: map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "pages_endpoint", "path": ".meta.router"},
+				},
+			},
+		},
+		{
+			ID:   wapp.NewID("wippy.views", "pages_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: map[string]any{},
+		},
+	})
+	writeWapp(t, filepath.Join(vendorDir, "kickside", "skills-v1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("kickside.skills", "api_router"),
+			Kind: regapi.NamespaceRequirement,
+			Data: map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "skill_endpoint", "path": ".meta.router"},
+				},
+			},
+		},
+		{
+			ID:   wapp.NewID("kickside.skills", "skill_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: map[string]any{},
+		},
+	})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				switch {
+				case org == "wippy" && module == "views" && version == "v1.0.0":
+					return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+				case org == "kickside" && module == "skills" && version == "v1.0.0":
+					return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+				default:
+					return nil, fmt.Errorf("unexpected manifest request: %s/%s@%s", org, module, version)
+				}
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	viewsDep := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "views"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"wippy/views","version":"v1.0.0","parameters":[{"name":"api_router","value":"app:api.views"}]}`, payload.JSON),
+	}
+	snapshot := regapi.State{
+		{
+			ID:   regapi.NewID("app.deps", "kickside_skills"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.NewPayload(`{"component":"kickside/skills","version":"v1.0.0","parameters":[{"name":"api_router","value":"app:api"}]}`, payload.JSON),
+		},
+	}
+
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: viewsDep}, snapshot)
+	require.NoError(t, err)
+	assert.True(t, result.Applied)
+
+	routers := map[string]any{}
+	for _, scoped := range result.Additional {
+		if scoped.Operation.Kind != regapi.EntryCreate && scoped.Operation.Kind != regapi.EntryUpdate {
+			continue
+		}
+		if scoped.Operation.Entry.Kind != "http.endpoint" {
+			continue
+		}
+		routers[scoped.Operation.Entry.ID.String()] = scoped.Operation.Entry.Meta["router"]
+	}
+	assert.Equal(t, "app:api.views", routers["wippy.views:pages_endpoint"])
+	assert.Equal(t, "app:api", routers["kickside.skills:skill_endpoint"])
+}
+
+func TestDependencyHandler_Expand_DoesNotTreatBareParametersAsGlobalAliases(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, "vendor")
+
+	writeWapp(t, filepath.Join(vendorDir, "wippy", "views-v1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("wippy.views", "api_router"),
+			Kind: regapi.NamespaceRequirement,
+			Data: map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "pages_endpoint", "path": ".meta.router"},
+				},
+			},
+		},
+		{
+			ID:   wapp.NewID("wippy.views", "pages_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: map[string]any{},
+		},
+	})
+	writeWapp(t, filepath.Join(vendorDir, "wippy", "bootloader-v1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("wippy.bootloader", "env_storage"),
+			Kind: regapi.NamespaceRequirement,
+			Data: map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "env_loader", "path": ".meta.storage"},
+				},
+			},
+		},
+		{
+			ID:   wapp.NewID("wippy.bootloader", "env_loader"),
+			Kind: "env.loader",
+			Meta: map[string]any{},
+			Data: map[string]any{},
+		},
+	})
+	writeWapp(t, filepath.Join(vendorDir, "kickside", "automation-v1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("kickside.automation", "api_router"),
+			Kind: regapi.NamespaceRequirement,
+			Data: map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "automation_endpoint", "path": ".meta.router"},
+				},
+			},
+		},
+		{
+			ID:   wapp.NewID("kickside.automation", "env_storage"),
+			Kind: regapi.NamespaceRequirement,
+			Data: map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "automation_env", "path": ".meta.storage"},
+				},
+			},
+		},
+		{
+			ID:   wapp.NewID("kickside.automation", "automation_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: map[string]any{},
+		},
+		{
+			ID:   wapp.NewID("kickside.automation", "automation_env"),
+			Kind: "env.variable",
+			Meta: map[string]any{},
+			Data: map[string]any{},
+		},
+	})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				switch {
+				case org == "wippy" && module == "views" && version == "v1.0.0":
+					return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+				case org == "wippy" && module == "bootloader" && version == "v1.0.0":
+					return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+				case org == "kickside" && module == "automation" && version == "v1.0.0":
+					return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+				default:
+					return nil, fmt.Errorf("unexpected manifest request: %s/%s@%s", org, module, version)
+				}
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	viewsDep := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "views"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{
+			"component":"wippy/views",
+			"version":"v1.0.0",
+			"parameters":[{"name":"api_router","value":"app:api.views"}]
+		}`, payload.JSON),
+	}
+	snapshot := regapi.State{
+		{
+			ID:   regapi.NewID("app.deps", "bootloader"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.NewPayload(`{
+				"component":"wippy/bootloader",
+				"version":"v1.0.0",
+				"parameters":[{"name":"env_storage","value":"app.env:store"}]
+			}`, payload.JSON),
+		},
+		{
+			ID:   regapi.NewID("app.deps", "kickside_automation"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.NewPayload(`{
+				"component":"kickside/automation",
+				"version":"v1.0.0",
+				"parameters":[
+					{"name":"api_router","value":"app:api"},
+					{"name":"env_storage","value":"app.env:store"}
+				]
+			}`, payload.JSON),
+		},
+	}
+
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: viewsDep}, snapshot)
+	require.NoError(t, err)
+	assert.True(t, result.Applied)
+
+	values := map[string]map[string]any{}
+	for _, scoped := range result.Additional {
+		if scoped.Operation.Kind != regapi.EntryCreate && scoped.Operation.Kind != regapi.EntryUpdate {
+			continue
+		}
+		values[scoped.Operation.Entry.ID.String()] = map[string]any(scoped.Operation.Entry.Meta)
+	}
+	assert.Equal(t, "app:api.views", values["wippy.views:pages_endpoint"]["router"])
+	assert.Equal(t, "app.env:store", values["wippy.bootloader:env_loader"]["storage"])
+	assert.Equal(t, "app:api", values["kickside.automation:automation_endpoint"]["router"])
+	assert.Equal(t, "app.env:store", values["kickside.automation:automation_env"]["storage"])
+}
+
 func TestDependencyHandler_Expand_AppliesCanonicalComponentParametersToAliasNamespaceRequirements(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()

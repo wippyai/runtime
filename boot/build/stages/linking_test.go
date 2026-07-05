@@ -403,6 +403,57 @@ func TestLink_BareParameterDoesNotCrossDifferentModuleMeta(t *testing.T) {
 	assert.Equal(t, ":memory2:", data2["file"])
 }
 
+func TestLink_BareParametersWithSameNameAreScopedToDependencyComponent(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app.deps", "views"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "wippy/views",
+				"parameters": []any{
+					map[string]any{"name": "api_router", "value": "app:api.views"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("app.deps", "skills"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "kickside/skills",
+				"parameters": []any{
+					map[string]any{"name": "api_router", "value": "app:api"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("wippy.views", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "wippy/views"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "pages_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("wippy.views", "pages_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"wippy/views"}))
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	target := findEntry(entries, "wippy.views", "pages_endpoint")
+	require.NotNil(t, target)
+	assert.Equal(t, "app:api.views", target.Meta["router"])
+}
+
 func TestLink_FullIDParameterName(t *testing.T) {
 	ctx, _ := setupTestContext()
 
