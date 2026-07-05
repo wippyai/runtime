@@ -879,6 +879,163 @@ func TestLink_AmbiguousBareNameOwnedRequirementsFails(t *testing.T) {
 	assert.ErrorContains(t, err, "kickside.core.retention:api_router")
 }
 
+// TestLink_AmbiguousQualifiedNameOwnedRequirementsFails verifies that a
+// module-qualified but non-exact parameter (moduleNamespace:bareName, not a
+// full requirement id) still resolves through the owned addressing index and
+// fails loud when that key is ambiguous, the same as a bare name would.
+func TestLink_AmbiguousQualifiedNameOwnedRequirementsFails(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app.deps", "core"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "kickside/core",
+				"parameters": []any{
+					map[string]any{"name": "kickside.core:api_router", "value": "app:router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.projections", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "kickside/core"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "proj_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.retention", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "kickside/core"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "ret_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
+	err := stage.Execute(ctx, &entries)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "ambiguously addresses")
+	assert.ErrorContains(t, err, "kickside.core:api_router")
+	assert.ErrorContains(t, err, "kickside.core.projections:api_router")
+	assert.ErrorContains(t, err, "kickside.core.retention:api_router")
+}
+
+// TestLink_ThreeWayBareCollisionFails verifies that three owned requirements
+// sharing one bare name across three namespaces still fail deterministically:
+// the error names the first two colliding requirement ids in sorted order.
+func TestLink_ThreeWayBareCollisionFails(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app.deps", "core"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "kickside/core",
+				"parameters": []any{
+					map[string]any{"name": "api_router", "value": "app:router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.projections", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "kickside/core"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "proj_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.retention", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "kickside/core"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "ret_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.threads", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "kickside/core"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "threads_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
+	err := stage.Execute(ctx, &entries)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "ambiguously addresses")
+	assert.ErrorContains(t, err, "api_router")
+	assert.ErrorContains(t, err, "kickside.core.projections:api_router")
+	assert.ErrorContains(t, err, "kickside.core.retention:api_router")
+	assert.NotContains(t, err.Error(), "kickside.core.threads:api_router")
+}
+
+// TestLink_MixedFullIDAndBareForSameBareNameFails verifies that a valid
+// full-id parameter alongside an ambiguous bare-name parameter for the same
+// owned requirements does not suppress the ambiguous-use failure.
+func TestLink_MixedFullIDAndBareForSameBareNameFails(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app.deps", "core"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "kickside/core",
+				"parameters": []any{
+					map[string]any{"name": "kickside.core.projections:api_router", "value": "app:router.proj"},
+					map[string]any{"name": "api_router", "value": "app:router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.projections", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "kickside/core"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "proj_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.retention", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "kickside/core"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "ret_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
+	err := stage.Execute(ctx, &entries)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "ambiguously addresses")
+	assert.ErrorContains(t, err, "api_router")
+	assert.ErrorContains(t, err, "kickside.core.projections:api_router")
+	assert.ErrorContains(t, err, "kickside.core.retention:api_router")
+}
+
 func TestLink_NoValueError(t *testing.T) {
 	ctx, _ := setupTestContext()
 
