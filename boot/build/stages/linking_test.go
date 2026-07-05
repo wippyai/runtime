@@ -830,11 +830,11 @@ func TestLink_SameBareNameOwnedRequirementsResolveByFullID(t *testing.T) {
 	assert.Equal(t, "app:router.ret", ret.Meta["router"])
 }
 
-// TestLink_AmbiguousBareNameOwnedRequirementsFails verifies that when a
-// dependency owns two requirements with the same bare name in different
-// namespaces, a parameter using the ambiguous bare name fails loudly rather
-// than silently binding to one of them.
-func TestLink_AmbiguousBareNameOwnedRequirementsFails(t *testing.T) {
+// TestLink_BareNameFansOutToAllOwnedRequirements verifies that a bare parameter
+// feeds its value to every owned requirement sharing that bare name across the
+// module's sub-namespaces. This is the app-wide authoring convention: one bare
+// param configures every same-named requirement the dependency owns.
+func TestLink_BareNameFansOutToAllOwnedRequirements(t *testing.T) {
 	ctx, _ := setupTestContext()
 
 	entries := []registry.Entry{
@@ -868,70 +868,36 @@ func TestLink_AmbiguousBareNameOwnedRequirementsFails(t *testing.T) {
 				},
 			}),
 		},
-	}
-
-	stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
-	err := stage.Execute(ctx, &entries)
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "ambiguously addresses")
-	assert.ErrorContains(t, err, "api_router")
-	assert.ErrorContains(t, err, "kickside.core.projections:api_router")
-	assert.ErrorContains(t, err, "kickside.core.retention:api_router")
-}
-
-// TestLink_AmbiguousQualifiedNameOwnedRequirementsFails verifies that a
-// module-qualified but non-exact parameter (moduleNamespace:bareName, not a
-// full requirement id) still resolves through the owned addressing index and
-// fails loud when that key is ambiguous, the same as a bare name would.
-func TestLink_AmbiguousQualifiedNameOwnedRequirementsFails(t *testing.T) {
-	ctx, _ := setupTestContext()
-
-	entries := []registry.Entry{
 		{
-			ID:   registry.NewID("app.deps", "core"),
-			Kind: registry.NamespaceDependency,
-			Data: payload.New(map[string]any{
-				"component": "kickside/core",
-				"parameters": []any{
-					map[string]any{"name": "kickside.core:api_router", "value": "app:router"},
-				},
-			}),
+			ID:   registry.NewID("kickside.core.projections", "proj_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.NewID("kickside.core.projections", "api_router"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "kickside/core"},
-			Data: payload.New(map[string]any{
-				"targets": []any{
-					map[string]any{"entry": "proj_endpoint", "path": ".meta.router"},
-				},
-			}),
-		},
-		{
-			ID:   registry.NewID("kickside.core.retention", "api_router"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "kickside/core"},
-			Data: payload.New(map[string]any{
-				"targets": []any{
-					map[string]any{"entry": "ret_endpoint", "path": ".meta.router"},
-				},
-			}),
+			ID:   registry.NewID("kickside.core.retention", "ret_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
 		},
 	}
 
 	stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
 	err := stage.Execute(ctx, &entries)
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "ambiguously addresses")
-	assert.ErrorContains(t, err, "kickside.core:api_router")
-	assert.ErrorContains(t, err, "kickside.core.projections:api_router")
-	assert.ErrorContains(t, err, "kickside.core.retention:api_router")
+	require.NoError(t, err)
+
+	proj := findEntry(entries, "kickside.core.projections", "proj_endpoint")
+	require.NotNil(t, proj)
+	assert.Equal(t, "app:router", proj.Meta["router"])
+
+	ret := findEntry(entries, "kickside.core.retention", "ret_endpoint")
+	require.NotNil(t, ret)
+	assert.Equal(t, "app:router", ret.Meta["router"])
 }
 
-// TestLink_ThreeWayBareCollisionFails verifies that three owned requirements
-// sharing one bare name across three namespaces still fail deterministically:
-// the error names the first two colliding requirement ids in sorted order.
-func TestLink_ThreeWayBareCollisionFails(t *testing.T) {
+// TestLink_ThreeWayBareNameFansOut verifies fan-out reaches all three owned
+// requirements when one bare name is shared across three sub-namespaces.
+func TestLink_ThreeWayBareNameFansOut(t *testing.T) {
 	ctx, _ := setupTestContext()
 
 	entries := []registry.Entry{
@@ -975,65 +941,127 @@ func TestLink_ThreeWayBareCollisionFails(t *testing.T) {
 				},
 			}),
 		},
+		{
+			ID:   registry.NewID("kickside.core.projections", "proj_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.retention", "ret_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.threads", "threads_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
 	}
 
 	stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
 	err := stage.Execute(ctx, &entries)
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "ambiguously addresses")
-	assert.ErrorContains(t, err, "api_router")
-	assert.ErrorContains(t, err, "kickside.core.projections:api_router")
-	assert.ErrorContains(t, err, "kickside.core.retention:api_router")
-	assert.NotContains(t, err.Error(), "kickside.core.threads:api_router")
+	require.NoError(t, err)
+
+	for _, tc := range []struct{ ns, entry string }{
+		{"kickside.core.projections", "proj_endpoint"},
+		{"kickside.core.retention", "ret_endpoint"},
+		{"kickside.core.threads", "threads_endpoint"},
+	} {
+		endpoint := findEntry(entries, tc.ns, tc.entry)
+		require.NotNil(t, endpoint)
+		assert.Equal(t, "app:router", endpoint.Meta["router"])
+	}
 }
 
-// TestLink_MixedFullIDAndBareForSameBareNameFails verifies that a valid
-// full-id parameter alongside an ambiguous bare-name parameter for the same
-// owned requirements does not suppress the ambiguous-use failure.
-func TestLink_MixedFullIDAndBareForSameBareNameFails(t *testing.T) {
-	ctx, _ := setupTestContext()
-
-	entries := []registry.Entry{
-		{
-			ID:   registry.NewID("app.deps", "core"),
-			Kind: registry.NamespaceDependency,
-			Data: payload.New(map[string]any{
-				"component": "kickside/core",
-				"parameters": []any{
-					map[string]any{"name": "kickside.core.projections:api_router", "value": "app:router.proj"},
-					map[string]any{"name": "api_router", "value": "app:router"},
-				},
-			}),
-		},
-		{
-			ID:   registry.NewID("kickside.core.projections", "api_router"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "kickside/core"},
-			Data: payload.New(map[string]any{
-				"targets": []any{
-					map[string]any{"entry": "proj_endpoint", "path": ".meta.router"},
-				},
-			}),
-		},
-		{
-			ID:   registry.NewID("kickside.core.retention", "api_router"),
-			Kind: registry.NamespaceRequirement,
-			Meta: map[string]any{"module": "kickside/core"},
-			Data: payload.New(map[string]any{
-				"targets": []any{
-					map[string]any{"entry": "ret_endpoint", "path": ".meta.router"},
-				},
-			}),
-		},
+// TestLink_BareFanOutWithConflictingFullIDValueFails verifies that a bare param
+// fanning out to a concrete requirement plus a full-id param naming that same
+// requirement with a different value conflicts on that requirement, while an
+// equal full-id value links cleanly.
+func TestLink_BareFanOutWithConflictingFullIDValueFails(t *testing.T) {
+	build := func(fullIDValue string) []registry.Entry {
+		return []registry.Entry{
+			{
+				ID:   registry.NewID("app.deps", "core"),
+				Kind: registry.NamespaceDependency,
+				Data: payload.New(map[string]any{
+					"component": "kickside/core",
+					"parameters": []any{
+						map[string]any{"name": "api_router", "value": "app:router"},
+						map[string]any{"name": "kickside.core.projections:api_router", "value": fullIDValue},
+					},
+				}),
+			},
+			{
+				ID:   registry.NewID("kickside.core.projections", "api_router"),
+				Kind: registry.NamespaceRequirement,
+				Meta: map[string]any{"module": "kickside/core"},
+				Data: payload.New(map[string]any{
+					"targets": []any{
+						map[string]any{"entry": "proj_endpoint", "path": ".meta.router"},
+					},
+				}),
+			},
+			{
+				ID:   registry.NewID("kickside.core.retention", "api_router"),
+				Kind: registry.NamespaceRequirement,
+				Meta: map[string]any{"module": "kickside/core"},
+				Data: payload.New(map[string]any{
+					"targets": []any{
+						map[string]any{"entry": "ret_endpoint", "path": ".meta.router"},
+					},
+				}),
+			},
+			{
+				ID:   registry.NewID("kickside.core.projections", "proj_endpoint"),
+				Kind: "http.endpoint",
+				Meta: map[string]any{},
+				Data: payload.New(map[string]any{}),
+			},
+			{
+				ID:   registry.NewID("kickside.core.retention", "ret_endpoint"),
+				Kind: "http.endpoint",
+				Meta: map[string]any{},
+				Data: payload.New(map[string]any{}),
+			},
+		}
 	}
 
-	stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
-	err := stage.Execute(ctx, &entries)
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "ambiguously addresses")
-	assert.ErrorContains(t, err, "api_router")
-	assert.ErrorContains(t, err, "kickside.core.projections:api_router")
-	assert.ErrorContains(t, err, "kickside.core.retention:api_router")
+	t.Run("conflicting value fails", func(t *testing.T) {
+		ctx, _ := setupTestContext()
+		entries := build("app:other")
+
+		stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
+		err := stage.Execute(ctx, &entries)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "parameter conflict")
+		assert.ErrorContains(t, err, "api_router=app:router")
+		assert.ErrorContains(t, err, "api_router=app:other")
+
+		proj := findEntry(entries, "kickside.core.projections", "proj_endpoint")
+		require.NotNil(t, proj)
+		_, set := proj.Meta["router"]
+		assert.False(t, set)
+	})
+
+	t.Run("equal value links cleanly", func(t *testing.T) {
+		ctx, _ := setupTestContext()
+		entries := build("app:router")
+
+		stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
+		err := stage.Execute(ctx, &entries)
+		require.NoError(t, err)
+
+		proj := findEntry(entries, "kickside.core.projections", "proj_endpoint")
+		require.NotNil(t, proj)
+		assert.Equal(t, "app:router", proj.Meta["router"])
+
+		ret := findEntry(entries, "kickside.core.retention", "ret_endpoint")
+		require.NotNil(t, ret)
+		assert.Equal(t, "app:router", ret.Meta["router"])
+	})
 }
 
 func TestLink_NoValueError(t *testing.T) {
@@ -2142,10 +2170,11 @@ func TestLink_NormalizationDeterministicAcrossShuffledOrderings(t *testing.T) {
 	}
 }
 
-// TestLink_OwnedRequirementAddressCollisionFailsLoud verifies that a dependency
-// owning two requirements that map to the same address key fails with the
-// ambiguity error rather than silently binding one of them.
-func TestLink_OwnedRequirementAddressCollisionFailsLoud(t *testing.T) {
+// TestLink_BareNameFansOutAcrossOwnershipForms verifies fan-out when a
+// dependency owns two same-bare-named requirements through both ownership
+// forms: one by living in the component's module namespace, one by meta.module.
+// The bare parameter feeds its value to both.
+func TestLink_BareNameFansOutAcrossOwnershipForms(t *testing.T) {
 	ctx, _ := setupTestContext()
 
 	entries := []registry.Entry{
@@ -2183,15 +2212,24 @@ func TestLink_OwnedRequirementAddressCollisionFailsLoud(t *testing.T) {
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
+		{
+			ID:   registry.NewID("extra.ns", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
 	}
 
 	stage := Link()
 	err := stage.Execute(ctx, &entries)
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "ambiguously addresses")
-	assert.ErrorContains(t, err, "app.deps:alpha")
-	assert.ErrorContains(t, err, "extra.ns:token")
-	assert.ErrorContains(t, err, "vendor.alpha:token")
+	require.NoError(t, err)
+
+	service := findEntry(entries, "vendor.alpha", "service")
+	require.NotNil(t, service)
+	assert.Equal(t, "some-token", service.Data.Data().(map[string]any)["token"])
+
+	extra := findEntry(entries, "extra.ns", "service")
+	require.NotNil(t, extra)
+	assert.Equal(t, "some-token", extra.Data.Data().(map[string]any)["token"])
 }
 
 // TestLink_TwoRequirementsSameTargetApplyDeterministically verifies that when

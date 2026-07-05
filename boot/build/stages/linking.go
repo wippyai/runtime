@@ -144,8 +144,9 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 		return err
 	}
 
-	// Normalize every dependency parameter to exactly one concrete requirement
-	// id up front. Ambiguous ownership fails the stage loudly.
+	// Normalize every dependency parameter to the set of concrete requirement
+	// ids it addresses up front. A bare name fans out to all owned requirements
+	// of that name; value conflicts on a concrete requirement fail later.
 	bindings, err := normalizeBindings(requirements, dependencies)
 	if err != nil {
 		return err
@@ -262,12 +263,13 @@ type binding struct {
 	transitive    bool
 }
 
-// normalizeBindings maps every dependency parameter to exactly one concrete
-// requirement id, grouped by that id. A bare parameter resolves through the
-// dependency's owned addressing index; a full ns:name parameter resolves to the
-// exact requirement id when one exists, otherwise through the owned index.
-// Parameters that address nothing are dropped. Iteration is sorted so the
-// result is independent of entry ordering.
+// normalizeBindings maps every dependency parameter to the set of concrete
+// requirement ids it addresses, grouped by requirement id. A bare parameter
+// fans out through the dependency's owned addressing index to every owned
+// requirement of that bare name; a full ns:name parameter addresses the exact
+// requirement id when one exists, otherwise fans out through the owned index.
+// A parameter addressing nothing is dropped. Iteration is sorted so the result
+// is independent of entry ordering.
 func normalizeBindings(
 	requirements map[string]decodedRequirement,
 	dependencies map[string]decodedDependency,
@@ -277,23 +279,18 @@ func normalizeBindings(
 
 	for _, depID := range sortedKeys(dependencies) {
 		dep := dependencies[depID]
-		owned, ambiguous := ownedAddressIndex(dep, reqIDs, requirements)
+		owned := ownedAddressIndex(dep, reqIDs, requirements)
 
 		for _, param := range dep.definition.Parameters {
-			reqID, ok, ambiguousIDs := resolveParameter(param.Name, requirements, owned, ambiguous)
-			if len(ambiguousIDs) >= 2 {
-				return nil, NewAmbiguousRequirementAddressError(depID, param.Name, ambiguousIDs[0], ambiguousIDs[1])
+			for _, reqID := range resolveParameter(param.Name, requirements, owned) {
+				bindings[reqID] = append(bindings[reqID], binding{
+					value:         param.Value,
+					dependencyID:  depID,
+					requirementID: reqID,
+					originalName:  param.Name,
+					transitive:    dep.transitive,
+				})
 			}
-			if !ok {
-				continue
-			}
-			bindings[reqID] = append(bindings[reqID], binding{
-				value:         param.Value,
-				dependencyID:  depID,
-				requirementID: reqID,
-				originalName:  param.Name,
-				transitive:    dep.transitive,
-			})
 		}
 	}
 
@@ -310,20 +307,18 @@ func normalizeBindings(
 	return bindings, nil
 }
 
-// ownedAddressIndex maps the address keys a dependency accepts to the concrete
-// requirement id they resolve to. Each owned requirement registers under both
-// its bare name and its module-qualified moduleNS:name form. A key that a single
-// owned requirement claims stays in owned; a key two or more owned requirements
-// claim moves to ambiguous, carrying every colliding requirement id. Owning
-// same-keyed requirements is legal here: the collision only fails a build when a
-// parameter actually addresses the ambiguous key (see resolveParameter).
+// ownedAddressIndex maps each address key a dependency accepts to the concrete
+// requirement ids it fans out to. Every owned requirement registers under both
+// its bare name and its module-qualified moduleNS:name form. Two or more owned
+// requirements sharing one bare name is the fan-out set: a bare parameter of
+// that name feeds its value to all of them. A given requirement id appears at
+// most once per key.
 func ownedAddressIndex(
 	dep decodedDependency,
 	reqIDs []string,
 	requirements map[string]decodedRequirement,
-) (owned map[string]string, ambiguous map[string][]string) {
-	owned = make(map[string]string)
-	ambiguous = make(map[string][]string)
+) map[string][]string {
+	owned := make(map[string][]string)
 	for _, reqID := range reqIDs {
 		req := requirements[reqID]
 		if !dep.owns(req) {
@@ -334,49 +329,39 @@ func ownedAddressIndex(
 			dep.moduleNamespace + ":" + req.entry.ID.Name,
 		}
 		for _, key := range keys {
-			if ids, ok := ambiguous[key]; ok {
-				ambiguous[key] = append(ids, reqID)
-				continue
+			if !containsID(owned[key], reqID) {
+				owned[key] = append(owned[key], reqID)
 			}
-			existing, ok := owned[key]
-			if !ok {
-				owned[key] = reqID
-				continue
-			}
-			if existing == reqID {
-				continue
-			}
-			delete(owned, key)
-			ambiguous[key] = []string{existing, reqID}
 		}
 	}
-	return owned, ambiguous
+	return owned
 }
 
-// resolveParameter maps a single parameter name to its concrete requirement id.
-// A full ns:name resolves to the exact requirement id when one exists, bypassing
-// the owned index. Otherwise the name resolves through the dependency's owned
-// index; a name that hits an ambiguous owned key returns the colliding
-// requirement ids so the caller fails the build on that use. A bare name that
-// hits nothing is not found (empty id, ok false, nil ambiguous ids).
+// resolveParameter maps a single parameter name to the set of concrete
+// requirement ids it addresses. A full ns:name addresses the exact requirement
+// id when one exists, bypassing the owned index. Otherwise the name fans out
+// through the dependency's owned index to every owned requirement of that name.
+// A name that addresses nothing returns an empty set.
 func resolveParameter(
 	name string,
 	requirements map[string]decodedRequirement,
-	owned map[string]string,
-	ambiguous map[string][]string,
-) (reqID string, ok bool, ambiguousIDs []string) {
+	owned map[string][]string,
+) []string {
 	if strings.Contains(name, ":") {
 		if _, exact := requirements[name]; exact {
-			return name, true, nil
+			return []string{name}
 		}
 	}
-	if reqID, ok := owned[name]; ok {
-		return reqID, true, nil
+	return owned[name]
+}
+
+func containsID(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
 	}
-	if ids, ok := ambiguous[name]; ok {
-		return "", false, ids
-	}
-	return "", false, nil
+	return false
 }
 
 func (s *linkStage) processRequirement(

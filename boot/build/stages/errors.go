@@ -109,18 +109,6 @@ func NewParameterConflictError(conflicts string) apierror.Error {
 	return apierror.New(apierror.Conflict, fmt.Sprintf("parameter conflict: multiple dependencies define different values: %s", conflicts))
 }
 
-func NewAmbiguousRequirementAddressError(dependencyID, addressKey, firstRequirementID, secondRequirementID string) apierror.Error {
-	return apierror.New(apierror.Conflict, fmt.Sprintf(
-		"dependency %s ambiguously addresses %q: requirements %s and %s both resolve to it",
-		dependencyID, addressKey, firstRequirementID, secondRequirementID)).
-		WithDetails(attrs.NewBagFrom(map[string]any{
-			"dependency":   dependencyID,
-			"address":      addressKey,
-			"requirements": []string{firstRequirementID, secondRequirementID},
-		})).
-		WithRetryable(apierror.False)
-}
-
 func NewAppendToEntryError(entryID string, cause error) apierror.Error {
 	return apierror.New(apierror.Internal, fmt.Sprintf("failed to append to entry %s", entryID)).WithCause(cause)
 }
