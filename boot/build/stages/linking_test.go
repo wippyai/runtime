@@ -895,6 +895,71 @@ func TestLink_BareNameFansOutToAllOwnedRequirements(t *testing.T) {
 	assert.Equal(t, "app:router", ret.Meta["router"])
 }
 
+// TestLink_ModuleQualifiedNameFansOutToAllOwnedRequirements verifies that a
+// module-qualified parameter (moduleNamespace:name, not a full requirement
+// id) fans out through the owned addressing index the same way a bare name
+// does, when it does not exact-match an entry in requirements.
+func TestLink_ModuleQualifiedNameFansOutToAllOwnedRequirements(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app.deps", "core"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "kickside/core",
+				"parameters": []any{
+					map[string]any{"name": "kickside.core:api_router", "value": "app:router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.projections", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "kickside/core"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "proj_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.retention", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "kickside/core"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "ret_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.projections", "proj_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.retention", "ret_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	proj := findEntry(entries, "kickside.core.projections", "proj_endpoint")
+	require.NotNil(t, proj)
+	assert.Equal(t, "app:router", proj.Meta["router"])
+
+	ret := findEntry(entries, "kickside.core.retention", "ret_endpoint")
+	require.NotNil(t, ret)
+	assert.Equal(t, "app:router", ret.Meta["router"])
+}
+
 // TestLink_ThreeWayBareNameFansOut verifies fan-out reaches all three owned
 // requirements when one bare name is shared across three sub-namespaces.
 func TestLink_ThreeWayBareNameFansOut(t *testing.T) {
