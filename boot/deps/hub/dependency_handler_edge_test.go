@@ -191,6 +191,21 @@ func TestMarkModuleMeta_ExistingMeta(t *testing.T) {
 	assert.Equal(t, true, result.Meta.GetBool("existing", false))
 }
 
+func TestMarkModuleMeta_PreservesExistingModuleOwner(t *testing.T) {
+	e := regapi.Entry{
+		ID: regapi.NewID("ns", "a"),
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey:        "wippy/session",
+			metaModuleVersionKey: "v1.0.0",
+		}),
+	}
+
+	result := markModuleMeta(e, "kickside/uploads", "v2.0.0")
+
+	assert.Equal(t, "wippy/session", entryModule(result))
+	assert.Equal(t, "v1.0.0", result.Meta.GetString(metaModuleVersionKey, ""))
+}
+
 func TestMarkModuleMeta_EmptyVersion(t *testing.T) {
 	e := regapi.Entry{ID: regapi.NewID("ns", "a")}
 	result := markModuleMeta(e, "acme/http", "")

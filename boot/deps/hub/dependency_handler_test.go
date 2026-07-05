@@ -1116,6 +1116,75 @@ func TestDependencyHandler_Expand_DoesNotReloadUntouchedInstalledModules(t *test
 	}
 }
 
+func TestDependencyHandler_Expand_PreservesPackedEntryModuleOwnership(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, "vendor")
+
+	writeWapp(t, filepath.Join(vendorDir, "kickside", "uploads-v1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("wippy.session", "dep.wippy.llm"),
+			Kind: regapi.NamespaceDependency,
+			Meta: map[string]any{
+				metaModuleKey:        "wippy/session",
+				metaModuleVersionKey: "v1.0.0",
+			},
+			Data: map[string]any{
+				"component": "wippy/llm",
+				"version":   "v1.0.0",
+			},
+		},
+	})
+	writeWapp(t, filepath.Join(vendorDir, "kickside", "sessions-v1.0.0.wapp"), []wapp.Entry{
+		{ID: wapp.NewID("kickside.sessions", "component"), Kind: "registry.entry", Data: map[string]any{}},
+	})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	existingSessionDep := regapi.Entry{
+		ID:   regapi.NewID("wippy.session", "dep.wippy.llm"),
+		Kind: regapi.NamespaceDependency,
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey:        "wippy/session",
+			metaModuleVersionKey: "v1.0.0",
+		}),
+		Data: payload.NewPayload(`{"component":"wippy/llm","version":"v1.0.0"}`, payload.JSON),
+	}
+	snapshot := regapi.State{
+		{
+			ID:   regapi.NewID("app.deps", "uploads"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.NewPayload(`{"component":"kickside/uploads","version":"v1.0.0"}`, payload.JSON),
+		},
+		existingSessionDep,
+	}
+	rootDep := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "sessions"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"kickside/sessions","version":"v1.0.0"}`, payload.JSON),
+	}
+
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, snapshot)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+
+	for _, scoped := range result.Additional {
+		entry := scoped.Operation.Entry
+		if entry.ID == existingSessionDep.ID {
+			assert.NotEqual(t, "kickside/uploads", entry.Meta.GetString(metaModuleKey, ""), "packed dependency entry ownership must stay with its declared module")
+		}
+	}
+}
+
 func TestDependencyHandler_Expand_AppliesCanonicalComponentParametersToAliasNamespaceRequirements(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()

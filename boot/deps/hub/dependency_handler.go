@@ -1320,8 +1320,13 @@ func markModuleMeta(entry regapi.Entry, moduleName, moduleVersion string) regapi
 	} else {
 		meta = attrs.NewBagFrom(meta)
 	}
-	meta.Set(metaModuleKey, moduleName)
-	if moduleVersion != "" {
+	existingModule := strings.TrimSpace(meta.GetString(metaModuleKey, ""))
+	if existingModule == "" {
+		meta.Set(metaModuleKey, moduleName)
+		if moduleVersion != "" {
+			meta.Set(metaModuleVersionKey, moduleVersion)
+		}
+	} else if existingModule == moduleName && moduleVersion != "" && meta.GetString(metaModuleVersionKey, "") == "" {
 		meta.Set(metaModuleVersionKey, moduleVersion)
 	}
 	entry.Meta = meta
