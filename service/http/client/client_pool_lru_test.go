@@ -166,6 +166,43 @@ func TestPoolLRU_ConcurrentDistinctKeys_RespectsCap(t *testing.T) {
 	assert.LessOrEqual(t, pool.Size(), cap, "pool size must never exceed cap under concurrency")
 }
 
+func TestPoolLRU_DefaultPoolIsBounded(t *testing.T) {
+	// NewClientPool() (no explicit config) must apply a sensible default cap
+	// so long-running processes don't accumulate transports without bound.
+	pool := NewClientPool()
+
+	// Use millisecond timeouts to avoid collapsing onto the default client
+	// (GetClient short-circuits to defaultClient at defaultTimeout).
+	for i := 1; i <= 500; i++ {
+		pool.GetClient(time.Duration(i)*time.Millisecond, "")
+	}
+
+	assert.LessOrEqual(t, pool.Size(), defaultMaxClients, "default pool must be bounded by defaultMaxClients")
+	assert.Equal(t, defaultMaxClients, pool.Size(), "pool should have filled to exactly the default cap")
+}
+
+func TestPoolLRU_CloseReleasesIdleConnections(t *testing.T) {
+	// Pool.Close must iterate all cached transports and release their idle
+	// connections, then shut down the cache. Calling Close multiple times
+	// must not panic.
+	pool := NewClientPoolWithConfig(PoolConfig{MaxClients: 3})
+
+	// Insert three distinct entries.
+	for i := 1; i <= 3; i++ {
+		pool.GetClient(time.Duration(i)*time.Millisecond, "")
+	}
+	require.Equal(t, 3, pool.Size())
+
+	// Close must not panic and must leave the pool in a clean state.
+	assert.NotPanics(t, func() {
+		pool.Close()
+		pool.Close() // idempotent
+	})
+
+	// After Close, the cache reports zero live entries.
+	assert.Equal(t, 0, pool.Size())
+}
+
 func TestPoolLRU_OverlayHotSwapEvictsStale(t *testing.T) {
 	pool := NewClientPool()
 

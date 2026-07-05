@@ -66,11 +66,16 @@ const (
 	defaultExpectContinue  = 1 * time.Second
 	defaultKeepAlive       = 30 * time.Second
 	defaultDialTimeout     = 30 * time.Second
+	defaultMaxClients      = 128
 )
 
-// NewClientPool creates a new HTTP client pool with default settings.
+// NewClientPool creates a new HTTP client pool with default settings. The
+// pool is bounded to defaultMaxClients distinct entries so long-running
+// processes that see many distinct TLS / unix-socket / timeout / overlay
+// keys don't accumulate transports without bound. Callers that genuinely
+// need an unbounded pool can pass MaxClients=0 via NewClientPoolWithConfig.
 func NewClientPool() *Pool {
-	return newPool(defaultTimeout, defaultMaxIdleConns, defaultMaxIdlePerHost, defaultIdleConnTimeout, 0)
+	return newPool(defaultTimeout, defaultMaxIdleConns, defaultMaxIdlePerHost, defaultIdleConnTimeout, defaultMaxClients)
 }
 
 // NewClientPoolWithConfig creates a pool with custom configuration.
@@ -321,6 +326,23 @@ func createClientFromTLS(timeout time.Duration, unixSocket string, tlsCfg *tls.C
 // Size returns the number of pooled clients (for monitoring/testing).
 func (p *Pool) Size() int {
 	return p.cache.Len()
+}
+
+// Close releases all idle connections held by cached transports and shuts
+// down the pool. It is safe to call multiple times. After Close, the pool
+// must not be used to obtain new clients — existing client pointers remain
+// valid but their transports' idle connections have been released.
+func (p *Pool) Close() {
+	if p.defaultClient != nil {
+		if tr, ok := p.defaultClient.Transport.(*gohttp.Transport); ok {
+			tr.CloseIdleConnections()
+		}
+	}
+	p.cache.Range(func(_ clientKey, co *clientOnce) bool {
+		closeIdle(co)
+		return true
+	})
+	p.cache.Close()
 }
 
 // createClientWithDialer builds an HTTP client with a custom DialContext function.
