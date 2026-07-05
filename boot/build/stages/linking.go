@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/wippyai/runtime/api/boot"
@@ -143,11 +144,20 @@ func (s *linkStage) Execute(ctx context.Context, entries *[]registry.Entry) erro
 		return err
 	}
 
-	// Process each requirement, log warnings instead of failing
+	// Normalize every dependency parameter to exactly one concrete requirement
+	// id up front. Ambiguous ownership fails the stage loudly.
+	bindings, err := normalizeBindings(requirements, dependencies)
+	if err != nil {
+		return err
+	}
+
+	// Process each requirement in sorted id order so applied values, warnings
+	// and strict errors are deterministic regardless of entry ordering.
 	warningCount := 0
 	var unresolved []error
-	for _, req := range requirements {
-		if err := s.processRequirement(req, dependencies, entries, mutator); err != nil {
+	for _, id := range sortedKeys(requirements) {
+		req := requirements[id]
+		if err := s.processRequirement(req, bindings[id], entries, mutator); err != nil {
 			log.Warn("unresolved requirement",
 				zap.String("requirement", req.entry.ID.String()),
 				zap.Error(err))
@@ -205,11 +215,10 @@ func (s *linkStage) collectDependencies(ctx context.Context, transcoder payload.
 		}
 
 		dependencies[e.ID.String()] = decodedDependency{
-			entry:           e,
 			definition:      def,
 			moduleNamespace: moduleNamespace,
 			component:       def.Component,
-			moduleOwned:     requirementModuleFromEntry(e) != "",
+			transitive:      requirementModuleFromEntry(e) != "",
 		}
 	}
 
@@ -223,30 +232,147 @@ type decodedRequirement struct {
 
 type decodedDependency struct {
 	definition      *DependencyDefinition
-	entry           registry.Entry
 	moduleNamespace string
 	component       string
-	moduleOwned     bool
+	// transitive marks a dependency injected by a package (its ns.dependency
+	// entry carries meta.module) as opposed to an explicit root dependency.
+	transitive bool
 }
 
-type foundDependencyValue struct {
-	value any
-	depID string
+// owns reports whether a dependency addresses a requirement: the requirement
+// lives in the dependency component's module namespace, or its meta.module
+// names that component.
+func (d decodedDependency) owns(req decodedRequirement) bool {
+	if req.entry.ID.NS == d.moduleNamespace {
+		return true
+	}
+	module := requirementModuleFromEntry(req.entry)
+	return module != "" && module == d.component
+}
+
+// binding records one dependency parameter resolved to a single concrete
+// requirement id. It exists only in memory; fully-qualified ids are never
+// written back into ns.dependency entries. transitive carries the provenance of
+// the dependency entry the parameter came from (see decodedDependency).
+type binding struct {
+	value         any
+	dependencyID  string
+	requirementID string
+	originalName  string
+	transitive    bool
+}
+
+// normalizeBindings maps every dependency parameter to exactly one concrete
+// requirement id, grouped by that id. A bare parameter resolves through the
+// dependency's owned addressing index; a full ns:name parameter resolves to the
+// exact requirement id when one exists, otherwise through the owned index.
+// Parameters that address nothing are dropped. Iteration is sorted so the
+// result is independent of entry ordering.
+func normalizeBindings(
+	requirements map[string]decodedRequirement,
+	dependencies map[string]decodedDependency,
+) (map[string][]binding, error) {
+	reqIDs := sortedKeys(requirements)
+	bindings := make(map[string][]binding)
+
+	for _, depID := range sortedKeys(dependencies) {
+		dep := dependencies[depID]
+		owned, err := ownedAddressIndex(depID, dep, reqIDs, requirements)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, param := range dep.definition.Parameters {
+			reqID, ok := resolveParameter(param.Name, requirements, owned)
+			if !ok {
+				continue
+			}
+			bindings[reqID] = append(bindings[reqID], binding{
+				value:         param.Value,
+				dependencyID:  depID,
+				requirementID: reqID,
+				originalName:  param.Name,
+				transitive:    dep.transitive,
+			})
+		}
+	}
+
+	for reqID := range bindings {
+		list := bindings[reqID]
+		sort.Slice(list, func(i, j int) bool {
+			if list[i].dependencyID != list[j].dependencyID {
+				return list[i].dependencyID < list[j].dependencyID
+			}
+			return list[i].originalName < list[j].originalName
+		})
+	}
+
+	return bindings, nil
+}
+
+// ownedAddressIndex maps the address keys a dependency accepts to the concrete
+// requirement id they resolve to. Each owned requirement registers under both
+// its bare name and its module-qualified moduleNS:name form. Two owned
+// requirements colliding on the same key fail loudly.
+func ownedAddressIndex(
+	depID string,
+	dep decodedDependency,
+	reqIDs []string,
+	requirements map[string]decodedRequirement,
+) (map[string]string, error) {
+	owned := make(map[string]string)
+	for _, reqID := range reqIDs {
+		req := requirements[reqID]
+		if !dep.owns(req) {
+			continue
+		}
+		keys := []string{
+			req.entry.ID.Name,
+			dep.moduleNamespace + ":" + req.entry.ID.Name,
+		}
+		for _, key := range keys {
+			if existing, ok := owned[key]; ok && existing != reqID {
+				return nil, NewAmbiguousRequirementAddressError(depID, key, existing, reqID)
+			}
+			owned[key] = reqID
+		}
+	}
+	return owned, nil
+}
+
+// resolveParameter maps a single parameter name to its concrete requirement id.
+// A full ns:name resolves to the exact requirement id when one exists, otherwise
+// through the dependency's owned index; a bare name resolves through the owned
+// index only.
+func resolveParameter(
+	name string,
+	requirements map[string]decodedRequirement,
+	owned map[string]string,
+) (string, bool) {
+	if strings.Contains(name, ":") {
+		if _, ok := requirements[name]; ok {
+			return name, true
+		}
+		if reqID, ok := owned[name]; ok {
+			return reqID, true
+		}
+		return "", false
+	}
+	if reqID, ok := owned[name]; ok {
+		return reqID, true
+	}
+	return "", false
 }
 
 func (s *linkStage) processRequirement(
 	req decodedRequirement,
-	dependencies map[string]decodedDependency,
+	bindings []binding,
 	entries *[]registry.Entry,
 	mutator *entry.Mutator,
 ) error {
-	requirementName := req.entry.ID.Name
-	requirementModule := requirementModuleFromEntry(req.entry)
-
-	// Find parameter value from dependencies
-	value, err := s.resolveValue(requirementName, req.definition.Default, req.entry.ID.NS, requirementModule, dependencies)
+	value, err := resolveValue(req, bindings)
 	if err != nil {
-		return NewRequirementError(requirementName, req.entry.ID.NS, err)
+		return NewRequirementError(req.entry.ID.Name, req.entry.ID.NS, err)
 	}
 
 	// Validate targets exist
@@ -264,82 +390,67 @@ func (s *linkStage) processRequirement(
 	return nil
 }
 
-func (s *linkStage) resolveValue(
-	requirementName string,
-	defaultValue any,
-	requirementNS string,
-	requirementModule string,
-	dependencies map[string]decodedDependency,
-) (any, error) {
-	var rootValues []foundDependencyValue
-	var moduleValues []foundDependencyValue
-	requirementID := requirementNS + ":" + requirementName
-
-	for _, dep := range dependencies {
-		for _, param := range dep.definition.Parameters {
-			if !matchesRequirement(
-				param.Name,
-				dep.moduleNamespace,
-				dep.component,
-				requirementNS,
-				requirementName,
-				requirementID,
-				requirementModule,
-			) {
-				continue
-			}
-			found := foundDependencyValue{
-				value: param.Value,
-				depID: dep.entry.ID.String(),
-			}
-			if dep.moduleOwned {
-				moduleValues = append(moduleValues, found)
-			} else {
-				rootValues = append(rootValues, found)
-			}
+// rootOverTransitive drops transitive bindings when any root binding is present,
+// leaving order unchanged. With no root binding it returns the input unchanged.
+func rootOverTransitive(bindings []binding) []binding {
+	hasRoot := false
+	for _, b := range bindings {
+		if !b.transitive {
+			hasRoot = true
+			break
 		}
 	}
-
-	foundValues := rootValues
-	if len(foundValues) == 0 {
-		foundValues = moduleValues
+	if !hasRoot {
+		return bindings
 	}
-
-	// Check for conflicts
-	if len(foundValues) > 1 {
-		// Check if all values are the same
-		firstValue := foundValues[0].value
-		hasConflict := false
-		for _, fv := range foundValues[1:] {
-			if !reflect.DeepEqual(fv.value, firstValue) {
-				hasConflict = true
-				break
-			}
-		}
-
-		if hasConflict {
-			var conflicts []string
-			for _, fv := range foundValues {
-				conflicts = append(conflicts, fmt.Sprintf("%s=%v (from %s)", requirementName, fv.value, fv.depID))
-			}
-			return nil, NewParameterConflictError(strings.Join(conflicts, ", "))
+	roots := make([]binding, 0, len(bindings))
+	for _, b := range bindings {
+		if !b.transitive {
+			roots = append(roots, b)
 		}
 	}
+	return roots
+}
 
-	// Use dependency parameter if found
-	if len(foundValues) > 0 {
-		return foundValues[0].value, nil
+// resolveValue selects the value for a requirement from its bindings, falling
+// back to the definition default. Explicit root dependency parameters override
+// transitive ones for the same concrete requirement id; among the surviving
+// same-provenance bindings, values that disagree conflict.
+func resolveValue(req decodedRequirement, bindings []binding) (any, error) {
+	effective := rootOverTransitive(bindings)
+
+	if len(effective) > 0 {
+		first := effective[0].value
+		for _, b := range effective[1:] {
+			if !reflect.DeepEqual(b.value, first) {
+				conflicts := make([]string, 0, len(effective))
+				for _, b := range effective {
+					conflicts = append(conflicts, fmt.Sprintf("%s=%v (from %s)", req.entry.ID.Name, b.value, b.dependencyID))
+				}
+				return nil, NewParameterConflictError(strings.Join(conflicts, ", "))
+			}
+		}
+		return effective[0].value, nil
 	}
 
 	// Fall back to the default when one is defined. A present-but-empty
 	// default ("") is a valid resolved value; only an absent default (nil)
 	// leaves the requirement unresolved.
-	if defaultValue != nil {
-		return defaultValue, nil
+	if req.definition.Default != nil {
+		return req.definition.Default, nil
 	}
 
 	// No value available
 	return nil, ErrNoValueAvailable
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func (s *linkStage) applyTarget(
@@ -413,48 +524,6 @@ func (s *linkStage) findTargetEntries(
 	}
 
 	return results
-}
-
-// matchesRequirement checks whether a parameter name references a requirement.
-// Supports two conventions:
-//   - Full ID: "ns:name" matches directly against the requirement entry ID
-//   - Bare name: "name" matches either:
-//   - requirement name within the computed module namespace, or
-//   - requirement name within the same module identity via requirement meta.module
-func matchesRequirement(paramName, moduleNS, component, reqNS, reqName, reqID, reqModule string) bool {
-	if strings.Contains(paramName, ":") {
-		paramNS, paramReqName, ok := strings.Cut(paramName, ":")
-		if !ok || paramReqName != reqName {
-			return false
-		}
-		if paramName == reqID {
-			return true
-		}
-		if paramNS != moduleNS {
-			return false
-		}
-		if reqNS == moduleNS {
-			return true
-		}
-		if component != "" && reqModule != "" && component == reqModule {
-			return true
-		}
-		return false
-	}
-
-	if paramName != reqName {
-		return false
-	}
-
-	if moduleNS == reqNS {
-		return true
-	}
-
-	// Fallback for modules that publish requirements under a different namespace.
-	if component != "" && reqModule != "" && component == reqModule {
-		return true
-	}
-	return false
 }
 
 func requirementModuleFromEntry(entry registry.Entry) string {

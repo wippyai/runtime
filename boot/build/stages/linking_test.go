@@ -454,7 +454,14 @@ func TestLink_BareParametersWithSameNameAreScopedToDependencyComponent(t *testin
 	assert.Equal(t, "app:api.views", target.Meta["router"])
 }
 
-func TestLink_RootDependencyParametersOverrideModuleOwnedParameters(t *testing.T) {
+// TestLink_DuplicateDependencyParametersForSameRequirementConflict verifies
+// that two dependencies of equal provenance resolving the same concrete
+// requirement id to different values conflict rather than silently picking one.
+// Both dependencies are root dependencies (no meta.module), so the deps merge
+// layer applies no precedence and both parameters reach the linker; the linker
+// is provenance-blind, so the disagreement surfaces as a conflict and, under
+// strict enforcement for that module, leaves the requirement unresolved.
+func TestLink_DuplicateDependencyParametersForSameRequirementConflict(t *testing.T) {
 	ctx, _ := setupTestContext()
 
 	entries := []registry.Entry{
@@ -469,9 +476,8 @@ func TestLink_RootDependencyParametersOverrideModuleOwnedParameters(t *testing.T
 			}),
 		},
 		{
-			ID:   registry.NewID("app", "dep.wippy.bootloader"),
+			ID:   registry.NewID("app.deps", "bootloader_alt"),
 			Kind: registry.NamespaceDependency,
-			Meta: map[string]any{"module": "wippy/migration"},
 			Data: payload.New(map[string]any{
 				"component": "wippy/bootloader",
 				"parameters": []any{
@@ -499,11 +505,15 @@ func TestLink_RootDependencyParametersOverrideModuleOwnedParameters(t *testing.T
 
 	stage := Link(WithStrictRequirementModules([]string{"wippy/bootloader"}))
 	err := stage.Execute(ctx, &entries)
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "parameter conflict")
+	assert.ErrorContains(t, err, "env_storage=app.env:store")
+	assert.ErrorContains(t, err, "env_storage=app:env_storage")
 
 	target := findEntry(entries, "wippy.bootloader", "env_loader")
 	require.NotNil(t, target)
-	assert.Equal(t, "app.env:store", target.Meta["storage"])
+	_, set := target.Meta["storage"]
+	assert.False(t, set)
 }
 
 func TestLink_FullAndBareParametersForSameRequirementConflict(t *testing.T) {
@@ -1684,6 +1694,456 @@ func TestLink_AppendTypedValue(t *testing.T) {
 	require.NotNil(t, target)
 	data := target.Data.Data().(map[string]any)
 	assert.Equal(t, []any{8080, 9090}, data["ports"])
+}
+
+// TestLink_BareParameterResolvesWithinOwnModule verifies a bare parameter name
+// resolves through its dependency's owned index and does not leak to a
+// same-named requirement in an unrelated namespace.
+func TestLink_BareParameterResolvesWithinOwnModule(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app.deps", "alpha"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "vendor/alpha",
+				"parameters": []any{
+					map[string]any{"name": "token", "value": "alpha-token"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.alpha", "token"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "service", "path": ".token"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.beta", "token"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"default": "beta-default",
+				"targets": []any{
+					map[string]any{"entry": "beta_service", "path": ".token"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.alpha", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+		{
+			ID:   registry.NewID("vendor.beta", "beta_service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link()
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	service := findEntry(entries, "vendor.alpha", "service")
+	require.NotNil(t, service)
+	assert.Equal(t, "alpha-token", service.Data.Data().(map[string]any)["token"])
+
+	beta := findEntry(entries, "vendor.beta", "beta_service")
+	require.NotNil(t, beta)
+	assert.Equal(t, "beta-default", beta.Data.Data().(map[string]any)["token"])
+}
+
+// TestLink_FullParameterResolvesExactRequirementNotOwned verifies that a full
+// ns:name parameter resolves to the exact registry requirement id even when the
+// dependency also owns a same-named requirement under its module namespace.
+func TestLink_FullParameterResolvesExactRequirementNotOwned(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app.deps", "alpha"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "vendor/alpha",
+				"parameters": []any{
+					map[string]any{"name": "shared:token", "value": "exact-token"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.alpha", "token"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"default": "owned-default",
+				"targets": []any{
+					map[string]any{"entry": "service", "path": ".token"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("shared", "token"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "shared:service", "path": ".token"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.alpha", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+		{
+			ID:   registry.NewID("shared", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link()
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	shared := findEntry(entries, "shared", "service")
+	require.NotNil(t, shared)
+	assert.Equal(t, "exact-token", shared.Data.Data().(map[string]any)["token"])
+
+	owned := findEntry(entries, "vendor.alpha", "service")
+	require.NotNil(t, owned)
+	assert.Equal(t, "owned-default", owned.Data.Data().(map[string]any)["token"])
+}
+
+// TestLink_NormalizationDeterministicAcrossShuffledOrderings verifies that the
+// linked result does not depend on entry ordering.
+func TestLink_NormalizationDeterministicAcrossShuffledOrderings(t *testing.T) {
+	base := []registry.Entry{
+		{
+			ID:   registry.NewID("app.deps", "alpha"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "vendor/alpha",
+				"parameters": []any{
+					map[string]any{"name": "token", "value": "alpha-token"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.alpha", "token"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "service", "path": ".token"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.alpha", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	orderings := [][]int{
+		{0, 1, 2},
+		{2, 1, 0},
+		{1, 0, 2},
+		{2, 0, 1},
+	}
+
+	for _, order := range orderings {
+		ctx, _ := setupTestContext()
+		entries := make([]registry.Entry, len(order))
+		for i, idx := range order {
+			entries[i] = base[idx]
+		}
+		err := Link().Execute(ctx, &entries)
+		require.NoError(t, err)
+		service := findEntry(entries, "vendor.alpha", "service")
+		require.NotNil(t, service)
+		assert.Equal(t, "alpha-token", service.Data.Data().(map[string]any)["token"])
+	}
+}
+
+// TestLink_OwnedRequirementAddressCollisionFailsLoud verifies that a dependency
+// owning two requirements that map to the same address key fails with the
+// ambiguity error rather than silently binding one of them.
+func TestLink_OwnedRequirementAddressCollisionFailsLoud(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app.deps", "alpha"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "vendor/alpha",
+				"parameters": []any{
+					map[string]any{"name": "token", "value": "some-token"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.alpha", "token"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "service", "path": ".token"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("extra.ns", "token"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "vendor/alpha"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "extra.ns:service", "path": ".token"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.alpha", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link()
+	err := stage.Execute(ctx, &entries)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "ambiguously addresses")
+	assert.ErrorContains(t, err, "app.deps:alpha")
+	assert.ErrorContains(t, err, "extra.ns:token")
+	assert.ErrorContains(t, err, "vendor.alpha:token")
+}
+
+// TestLink_TwoRequirementsSameTargetApplyDeterministically verifies that when
+// two requirements write the same entry path, the value from the requirement
+// with the sorted-last id wins, regardless of entry ordering.
+func TestLink_TwoRequirementsSameTargetApplyDeterministically(t *testing.T) {
+	base := []registry.Entry{
+		{
+			ID:   registry.NewID("test", "a_req"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"default": "from_a",
+				"targets": []any{
+					map[string]any{"entry": "service", "path": ".field"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("test", "b_req"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"default": "from_b",
+				"targets": []any{
+					map[string]any{"entry": "service", "path": ".field"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("test", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	orderings := [][]int{
+		{0, 1, 2},
+		{1, 0, 2},
+		{2, 1, 0},
+	}
+
+	for _, order := range orderings {
+		ctx, _ := setupTestContext()
+		entries := make([]registry.Entry, len(order))
+		for i, idx := range order {
+			entries[i] = base[idx]
+		}
+		err := Link().Execute(ctx, &entries)
+		require.NoError(t, err)
+		service := findEntry(entries, "test", "service")
+		require.NotNil(t, service)
+		assert.Equal(t, "from_b", service.Data.Data().(map[string]any)["field"])
+	}
+}
+
+// TestLink_RootParameterBeatsTransitiveBareAliasSpelling verifies root-over-
+// transitive precedence across alias spellings: a root dependency supplying a
+// requirement by its exact id beats a transitive dependency supplying the SAME
+// concrete requirement by a bare name. The root value wins with no conflict.
+func TestLink_RootParameterBeatsTransitiveBareAliasSpelling(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app.deps", "telegram_root"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "butschster/telegram",
+				"parameters": []any{
+					map[string]any{"name": "telegram:env_storage", "value": "app:root_env"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("app", "dep.telegram"),
+			Kind: registry.NamespaceDependency,
+			Meta: map[string]any{"module": "wippy/migration"},
+			Data: payload.New(map[string]any{
+				"component": "butschster/telegram",
+				"parameters": []any{
+					map[string]any{"name": "env_storage", "value": "app:transitive_env"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("telegram", "env_storage"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "butschster/telegram"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "telegram:bot_token", "path": ".storage"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("telegram", "bot_token"),
+			Kind: "env.variable",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"butschster/telegram"}))
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	botToken := findEntry(entries, "telegram", "bot_token")
+	require.NotNil(t, botToken)
+	data := botToken.Data.Data().(map[string]any)
+	assert.Equal(t, "app:root_env", data["storage"])
+}
+
+// TestLink_RootParameterBeatsTransitiveComponentNamespaceAliasSpelling verifies
+// the same precedence when the transitive dependency addresses the requirement
+// via its component-namespace-qualified alias rather than the requirement's own
+// registry namespace.
+func TestLink_RootParameterBeatsTransitiveComponentNamespaceAliasSpelling(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app.deps", "telegram_root"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "butschster/telegram",
+				"parameters": []any{
+					map[string]any{"name": "telegram:env_storage", "value": "app:root_env"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("app", "dep.telegram"),
+			Kind: registry.NamespaceDependency,
+			Meta: map[string]any{"module": "wippy/migration"},
+			Data: payload.New(map[string]any{
+				"component": "butschster/telegram",
+				"parameters": []any{
+					map[string]any{"name": "butschster.telegram:env_storage", "value": "app:transitive_env"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("telegram", "env_storage"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "butschster/telegram"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "telegram:bot_token", "path": ".storage"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("telegram", "bot_token"),
+			Kind: "env.variable",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link()
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	botToken := findEntry(entries, "telegram", "bot_token")
+	require.NotNil(t, botToken)
+	data := botToken.Data.Data().(map[string]any)
+	assert.Equal(t, "app:root_env", data["storage"])
+}
+
+// TestLink_TransitiveOnlyDuplicateForSameRequirementConflicts verifies that two
+// transitive dependencies (provenance-equal) resolving the same concrete
+// requirement to different values still conflict fail-loud: precedence only
+// resolves root-vs-transitive, never transitive-vs-transitive.
+func TestLink_TransitiveOnlyDuplicateForSameRequirementConflicts(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "dep.telegram.a"),
+			Kind: registry.NamespaceDependency,
+			Meta: map[string]any{"module": "wippy/migration"},
+			Data: payload.New(map[string]any{
+				"component": "butschster/telegram",
+				"parameters": []any{
+					map[string]any{"name": "telegram:env_storage", "value": "app:env_a"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("app", "dep.telegram.b"),
+			Kind: registry.NamespaceDependency,
+			Meta: map[string]any{"module": "wippy/other"},
+			Data: payload.New(map[string]any{
+				"component": "butschster/telegram",
+				"parameters": []any{
+					map[string]any{"name": "env_storage", "value": "app:env_b"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("telegram", "env_storage"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "butschster/telegram"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "telegram:bot_token", "path": ".storage"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("telegram", "bot_token"),
+			Kind: "env.variable",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"butschster/telegram"}))
+	err := stage.Execute(ctx, &entries)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "parameter conflict")
+	assert.ErrorContains(t, err, "env_storage=app:env_a")
+	assert.ErrorContains(t, err, "env_storage=app:env_b")
+
+	botToken := findEntry(entries, "telegram", "bot_token")
+	require.NotNil(t, botToken)
+	data := botToken.Data.Data().(map[string]any)
+	_, set := data["storage"]
+	assert.False(t, set)
 }
 
 // Helper functions
