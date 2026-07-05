@@ -184,11 +184,6 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		}
 	}
 
-	moduleEntries, err := h.loadModuleEntries(ctx, resolved, transcoder)
-	if err != nil {
-		return regapi.DirectiveResult{}, err
-	}
-	linkDeps := mergeLinkDependencies(desiredDepEntries, moduleEntries)
 	opComponent := ""
 	for _, dep := range desiredDeps {
 		if dep.entry.ID == op.Entry.ID {
@@ -201,11 +196,27 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
+	touchedModules := stringSet(strictModules)
+	for module := range mutableModules {
+		touchedModules[module] = struct{}{}
+	}
+	desiredModules := resolvedModuleSet(resolved)
+
+	moduleEntries, err := h.loadModuleEntries(ctx, filterResolvedModules(resolved, touchedModules), transcoder)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	linkDeps := mergeLinkDependencies(desiredDepEntries, moduleEntries)
 
 	combined := make([]regapi.Entry, 0, len(snapshot)+len(moduleEntries))
 	for _, e := range snapshot {
-		if entryModule(e) != "" {
-			continue
+		if module := entryModule(e); module != "" {
+			if _, desired := desiredModules[module]; !desired {
+				continue
+			}
+			if _, touched := touchedModules[module]; touched {
+				continue
+			}
 		}
 		combined = append(combined, e)
 	}
@@ -579,6 +590,43 @@ func touchedModuleNames(modules []ResolvedModule, snapshot regapi.State, opCompo
 		}
 	}
 	return names
+}
+
+func stringSet(values []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if value != "" {
+			out[value] = struct{}{}
+		}
+	}
+	return out
+}
+
+func resolvedModuleSet(modules []ResolvedModule) map[string]struct{} {
+	out := make(map[string]struct{}, len(modules))
+	for _, mod := range modules {
+		if mod.Org == "" || mod.Name == "" {
+			continue
+		}
+		out[mod.Org+"/"+mod.Name] = struct{}{}
+	}
+	return out
+}
+
+func filterResolvedModules(modules []ResolvedModule, keep map[string]struct{}) []ResolvedModule {
+	if len(modules) == 0 || len(keep) == 0 {
+		return nil
+	}
+	out := make([]ResolvedModule, 0, len(modules))
+	for _, mod := range modules {
+		if mod.Org == "" || mod.Name == "" {
+			continue
+		}
+		if _, ok := keep[mod.Org+"/"+mod.Name]; ok {
+			out = append(out, mod)
+		}
+	}
+	return out
 }
 
 func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []ResolvedModule, transcoder payload.Transcoder) ([]regapi.Entry, error) {

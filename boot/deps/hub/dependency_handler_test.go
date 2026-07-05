@@ -945,6 +945,82 @@ func TestDependencyHandler_Expand_RootParametersOverrideModuleOwnedTransitivePar
 	assert.True(t, viewsEndpointCreated, "root views parameter should configure the loaded views endpoint")
 }
 
+func TestDependencyHandler_Expand_DoesNotReloadUntouchedInstalledModules(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, "vendor")
+
+	writeWapp(t, filepath.Join(vendorDir, "wippy", "session-v1.0.0.wapp"), []wapp.Entry{
+		{ID: wapp.NewID("shared", "entry"), Kind: "library.lua", Data: map[string]any{}},
+	})
+	writeWapp(t, filepath.Join(vendorDir, "kickside", "kb10-v1.0.0.wapp"), []wapp.Entry{
+		{ID: wapp.NewID("shared", "entry"), Kind: "library.lua", Data: map[string]any{}},
+	})
+	writeWapp(t, filepath.Join(vendorDir, "kickside", "sessions-v1.0.0.wapp"), []wapp.Entry{
+		{ID: wapp.NewID("kickside.sessions", "component"), Kind: "registry.entry", Data: map[string]any{}},
+	})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	sharedEntry := regapi.Entry{
+		ID:   regapi.NewID("shared", "entry"),
+		Kind: "library.lua",
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey:        "wippy/session",
+			metaModuleVersionKey: "v1.0.0",
+		}),
+		Data: payload.NewPayload(`{}`, payload.JSON),
+	}
+	kbMarker := regapi.Entry{
+		ID:   regapi.NewID("kickside.kb10", "marker"),
+		Kind: "registry.entry",
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey:        "kickside/kb10",
+			metaModuleVersionKey: "v1.0.0",
+		}),
+		Data: payload.NewPayload(`{}`, payload.JSON),
+	}
+	snapshot := regapi.State{
+		{
+			ID:   regapi.NewID("app.deps", "session"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.NewPayload(`{"component":"wippy/session","version":"v1.0.0"}`, payload.JSON),
+		},
+		{
+			ID:   regapi.NewID("app.deps", "kickside_kb10"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.NewPayload(`{"component":"kickside/kb10","version":"v1.0.0"}`, payload.JSON),
+		},
+		sharedEntry,
+		kbMarker,
+	}
+	rootDep := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "sessions"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"kickside/sessions","version":"v1.0.0"}`, payload.JSON),
+	}
+
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, snapshot)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+
+	for _, scoped := range result.Additional {
+		entry := scoped.Operation.Entry
+		if entry.ID == sharedEntry.ID {
+			assert.NotEqual(t, "kickside/kb10", entry.Meta.GetString(metaModuleKey, ""), "untouched kb10 artifact should not overwrite an existing entry")
+		}
+	}
+}
+
 func TestDependencyHandler_Expand_AppliesCanonicalComponentParametersToAliasNamespaceRequirements(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()
