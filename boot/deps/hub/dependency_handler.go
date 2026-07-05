@@ -202,7 +202,7 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 	}
 	desiredModules := resolvedModuleSet(resolved)
 
-	moduleEntries, err := h.loadModuleEntries(ctx, filterResolvedModules(resolved, touchedModules), transcoder)
+	moduleEntries, err := h.loadModuleEntries(ctx, filterResolvedModules(resolved, touchedModules), resolved, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -629,8 +629,9 @@ func filterResolvedModules(modules []ResolvedModule, keep map[string]struct{}) [
 	return out
 }
 
-func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []ResolvedModule, transcoder payload.Transcoder) ([]regapi.Entry, error) {
+func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []ResolvedModule, ownerModules []ResolvedModule, transcoder payload.Transcoder) ([]regapi.Entry, error) {
 	entries := make([]regapi.Entry, 0)
+	owners := moduleOwnersByNamespace(ownerModules)
 
 	for _, mod := range modules {
 		moduleName := mod.Org + "/" + mod.Name
@@ -639,12 +640,32 @@ func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []Res
 			return nil, err
 		}
 		for i := range moduleEntries {
-			moduleEntries[i] = markModuleMeta(moduleEntries[i], moduleName, mod.Version)
+			moduleEntries[i] = markModuleMetaForGraph(moduleEntries[i], moduleName, mod.Version, owners)
 		}
 		entries = append(entries, moduleEntries...)
 	}
 
 	return entries, nil
+}
+
+type moduleOwner struct {
+	name    string
+	version string
+}
+
+func moduleOwnersByNamespace(modules []ResolvedModule) map[string]moduleOwner {
+	owners := make(map[string]moduleOwner, len(modules))
+	for _, mod := range modules {
+		if mod.Org == "" || mod.Name == "" {
+			continue
+		}
+		namespace := mod.Org + "." + mod.Name
+		owners[namespace] = moduleOwner{
+			name:    mod.Org + "/" + mod.Name,
+			version: mod.Version,
+		}
+	}
+	return owners
 }
 
 func (h *DependencyHandler) loadEntriesForModule(ctx context.Context, transcoder payload.Transcoder, mod ResolvedModule) ([]regapi.Entry, error) {
@@ -1331,6 +1352,16 @@ func markModuleMeta(entry regapi.Entry, moduleName, moduleVersion string) regapi
 	}
 	entry.Meta = meta
 	return entry
+}
+
+func markModuleMetaForGraph(entry regapi.Entry, moduleName, moduleVersion string, owners map[string]moduleOwner) regapi.Entry {
+	if entryModule(entry) != "" {
+		return markModuleMeta(entry, moduleName, moduleVersion)
+	}
+	if owner, ok := owners[entry.ID.NS]; ok && owner.name != "" {
+		return markModuleMeta(entry, owner.name, owner.version)
+	}
+	return markModuleMeta(entry, moduleName, moduleVersion)
 }
 
 func entriesEqual(a, b regapi.Entry) bool {

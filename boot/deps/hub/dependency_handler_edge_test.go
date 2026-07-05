@@ -206,6 +206,19 @@ func TestMarkModuleMeta_PreservesExistingModuleOwner(t *testing.T) {
 	assert.Equal(t, "v1.0.0", result.Meta.GetString(metaModuleVersionKey, ""))
 }
 
+func TestMarkModuleMetaForGraph_UsesResolvedNamespaceOwner(t *testing.T) {
+	e := regapi.Entry{ID: regapi.NewID("wippy.session", "delete_session_service")}
+	owners := moduleOwnersByNamespace([]ResolvedModule{
+		{Org: "wippy", Name: "session", Version: "v1.0.0"},
+		{Org: "kickside", Name: "uploads", Version: "v2.0.0"},
+	})
+
+	result := markModuleMetaForGraph(e, "kickside/uploads", "v2.0.0", owners)
+
+	assert.Equal(t, "wippy/session", entryModule(result))
+	assert.Equal(t, "v1.0.0", result.Meta.GetString(metaModuleVersionKey, ""))
+}
+
 func TestMarkModuleMeta_EmptyVersion(t *testing.T) {
 	e := regapi.Entry{ID: regapi.NewID("ns", "a")}
 	result := markModuleMeta(e, "acme/http", "")

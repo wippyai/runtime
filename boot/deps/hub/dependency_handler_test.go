@@ -1116,7 +1116,7 @@ func TestDependencyHandler_Expand_DoesNotReloadUntouchedInstalledModules(t *test
 	}
 }
 
-func TestDependencyHandler_Expand_PreservesPackedEntryModuleOwnership(t *testing.T) {
+func TestDependencyHandler_Expand_InfersPackedEntryModuleOwnershipFromResolvedGraph(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()
 	vendorDir := filepath.Join(tmpDir, "vendor")
@@ -1125,10 +1125,6 @@ func TestDependencyHandler_Expand_PreservesPackedEntryModuleOwnership(t *testing
 		{
 			ID:   wapp.NewID("wippy.session", "dep.wippy.llm"),
 			Kind: regapi.NamespaceDependency,
-			Meta: map[string]any{
-				metaModuleKey:        "wippy/session",
-				metaModuleVersionKey: "v1.0.0",
-			},
 			Data: map[string]any{
 				"component": "wippy/llm",
 				"version":   "v1.0.0",
@@ -1161,6 +1157,11 @@ func TestDependencyHandler_Expand_PreservesPackedEntryModuleOwnership(t *testing
 	}
 	snapshot := regapi.State{
 		{
+			ID:   regapi.NewID("app.deps", "session"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.NewPayload(`{"component":"wippy/session","version":"v1.0.0"}`, payload.JSON),
+		},
+		{
 			ID:   regapi.NewID("app.deps", "uploads"),
 			Kind: regapi.NamespaceDependency,
 			Data: payload.NewPayload(`{"component":"kickside/uploads","version":"v1.0.0"}`, payload.JSON),
@@ -1180,7 +1181,7 @@ func TestDependencyHandler_Expand_PreservesPackedEntryModuleOwnership(t *testing
 	for _, scoped := range result.Additional {
 		entry := scoped.Operation.Entry
 		if entry.ID == existingSessionDep.ID {
-			assert.NotEqual(t, "kickside/uploads", entry.Meta.GetString(metaModuleKey, ""), "packed dependency entry ownership must stay with its declared module")
+			assert.Equal(t, "wippy/session", entry.Meta.GetString(metaModuleKey, ""), "packed dependency entry ownership must follow the resolved graph")
 		}
 	}
 }
