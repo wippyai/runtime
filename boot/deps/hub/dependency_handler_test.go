@@ -945,6 +945,101 @@ func TestDependencyHandler_Expand_RootParametersOverrideModuleOwnedTransitivePar
 	assert.True(t, viewsEndpointCreated, "root views parameter should configure the loaded views endpoint")
 }
 
+func TestDependencyHandler_Expand_FullyQualifiedRootParameterBeatsTouchedModuleBareParameter(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, "vendor")
+
+	writeWapp(t, filepath.Join(vendorDir, "wippy", "views-v1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("wippy.views", "api_router"),
+			Kind: regapi.NamespaceRequirement,
+			Data: map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "pages_endpoint", "path": ".meta.router"},
+				},
+			},
+		},
+		{
+			ID:   wapp.NewID("wippy.views", "pages_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: map[string]any{},
+		},
+	})
+	writeWapp(t, filepath.Join(vendorDir, "kickside", "automation-v1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("wippy.views", "api_router"),
+			Kind: regapi.NamespaceRequirement,
+			Data: map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "pages_endpoint", "path": ".meta.router"},
+				},
+			},
+		},
+		{
+			ID:   wapp.NewID("wippy.views", "pages_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: map[string]any{},
+		},
+	})
+	writeWapp(t, filepath.Join(vendorDir, "kickside", "sessions-v1.0.0.wapp"), []wapp.Entry{
+		{ID: wapp.NewID("kickside.sessions", "component"), Kind: "registry.entry", Data: map[string]any{}},
+	})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	snapshot := regapi.State{
+		{
+			ID:   regapi.NewID("app.deps", "views"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.NewPayload(`{
+				"component":"wippy/views",
+				"version":"v1.0.0",
+				"parameters":[{"name":"wippy.views:api_router","value":"app:api.views"}]
+			}`, payload.JSON),
+		},
+		{
+			ID:   regapi.NewID("app.deps", "kickside_automation"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.NewPayload(`{
+				"component":"kickside/automation",
+				"version":"v1.0.0",
+				"parameters":[{"name":"api_router","value":"app:api"}]
+			}`, payload.JSON),
+		},
+	}
+	rootDep := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "sessions"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"kickside/sessions","version":"v1.0.0"}`, payload.JSON),
+	}
+
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, snapshot)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+
+	viewsEndpointCreated := false
+	for _, scoped := range result.Additional {
+		entry := scoped.Operation.Entry
+		if entry.ID == regapi.NewID("wippy.views", "pages_endpoint") {
+			viewsEndpointCreated = true
+			assert.Equal(t, "app:api.views", entry.Meta.GetString("router", ""))
+		}
+	}
+	assert.True(t, viewsEndpointCreated, "fully qualified views parameter should beat the touched module's bare api_router")
+}
+
 func TestDependencyHandler_Expand_DoesNotReloadUntouchedInstalledModules(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()
