@@ -1186,6 +1186,68 @@ func TestDependencyHandler_Expand_InfersPackedEntryModuleOwnershipFromResolvedGr
 	}
 }
 
+func TestDependencyHandler_Expand_PreservesSnapshotEntryOwnershipForPackedEntry(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, "vendor")
+
+	writeWapp(t, filepath.Join(vendorDir, "kickside", "skills-v1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("wippy.llm.openai_compat", "client"),
+			Kind: "library.lua",
+			Data: map[string]any{},
+		},
+	})
+	writeWapp(t, filepath.Join(vendorDir, "kickside", "sessions-v1.0.0.wapp"), []wapp.Entry{
+		{ID: wapp.NewID("kickside.sessions", "component"), Kind: "registry.entry", Data: map[string]any{}},
+	})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	existingLLMClient := regapi.Entry{
+		ID:   regapi.NewID("wippy.llm.openai_compat", "client"),
+		Kind: "library.lua",
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey:        "wippy/llm",
+			metaModuleVersionKey: "v1.0.0",
+		}),
+		Data: payload.NewPayload(`{}`, payload.JSON),
+	}
+	snapshot := regapi.State{
+		{
+			ID:   regapi.NewID("app.deps", "skills"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.NewPayload(`{"component":"kickside/skills","version":"v1.0.0"}`, payload.JSON),
+		},
+		existingLLMClient,
+	}
+	rootDep := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "sessions"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"kickside/sessions","version":"v1.0.0"}`, payload.JSON),
+	}
+
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, snapshot)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+
+	for _, scoped := range result.Additional {
+		entry := scoped.Operation.Entry
+		if entry.ID == existingLLMClient.ID {
+			assert.Equal(t, "wippy/llm", entry.Meta.GetString(metaModuleKey, ""), "packed entry ownership must preserve the installed owner for the same entry id")
+		}
+	}
+}
+
 func TestDependencyHandler_Expand_AppliesCanonicalComponentParametersToAliasNamespaceRequirements(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()

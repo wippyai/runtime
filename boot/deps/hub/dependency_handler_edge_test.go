@@ -213,10 +213,23 @@ func TestMarkModuleMetaForGraph_UsesResolvedNamespaceOwner(t *testing.T) {
 		{Org: "kickside", Name: "uploads", Version: "v2.0.0"},
 	})
 
-	result := markModuleMetaForGraph(e, "kickside/uploads", "v2.0.0", owners)
+	result := markModuleMetaForGraph(e, "kickside/uploads", "v2.0.0", owners, nil)
 
 	assert.Equal(t, "wippy/session", entryModule(result))
 	assert.Equal(t, "v1.0.0", result.Meta.GetString(metaModuleVersionKey, ""))
+}
+
+func TestMarkModuleMetaForGraph_UsesSnapshotEntryOwner(t *testing.T) {
+	id := regapi.NewID("wippy.llm.openai_compat", "client")
+	e := regapi.Entry{ID: id}
+	entryOwners := map[regapi.ID]moduleOwner{
+		id: {name: "wippy/llm", version: "v4.0.0"},
+	}
+
+	result := markModuleMetaForGraph(e, "kickside/skills", "v2.0.0", nil, entryOwners)
+
+	assert.Equal(t, "wippy/llm", entryModule(result))
+	assert.Equal(t, "v4.0.0", result.Meta.GetString(metaModuleVersionKey, ""))
 }
 
 func TestMarkModuleMeta_EmptyVersion(t *testing.T) {
