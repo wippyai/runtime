@@ -763,6 +763,122 @@ func TestLink_FullyQualifiedParameterDoesNotCrossRequirementNamespace(t *testing
 	assert.Equal(t, "app:api", dummyEndpoint.Meta["router"])
 }
 
+// TestLink_SameBareNameOwnedRequirementsResolveByFullID verifies that a
+// dependency owning two requirements with the same bare name in different
+// namespaces links cleanly when its parameters address each by its full
+// requirement id. Owning same-bare-named requirements is legal; the collision
+// only matters when a parameter uses the ambiguous bare name.
+func TestLink_SameBareNameOwnedRequirementsResolveByFullID(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app.deps", "core"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "kickside/core",
+				"parameters": []any{
+					map[string]any{"name": "kickside.core.projections:api_router", "value": "app:router.proj"},
+					map[string]any{"name": "kickside.core.retention:api_router", "value": "app:router.ret"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.projections", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "kickside/core"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "proj_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.retention", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "kickside/core"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "ret_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.projections", "proj_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.retention", "ret_endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	proj := findEntry(entries, "kickside.core.projections", "proj_endpoint")
+	require.NotNil(t, proj)
+	assert.Equal(t, "app:router.proj", proj.Meta["router"])
+
+	ret := findEntry(entries, "kickside.core.retention", "ret_endpoint")
+	require.NotNil(t, ret)
+	assert.Equal(t, "app:router.ret", ret.Meta["router"])
+}
+
+// TestLink_AmbiguousBareNameOwnedRequirementsFails verifies that when a
+// dependency owns two requirements with the same bare name in different
+// namespaces, a parameter using the ambiguous bare name fails loudly rather
+// than silently binding to one of them.
+func TestLink_AmbiguousBareNameOwnedRequirementsFails(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app.deps", "core"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "kickside/core",
+				"parameters": []any{
+					map[string]any{"name": "api_router", "value": "app:router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.projections", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "kickside/core"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "proj_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("kickside.core.retention", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "kickside/core"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "ret_endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"kickside/core"}))
+	err := stage.Execute(ctx, &entries)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "ambiguously addresses")
+	assert.ErrorContains(t, err, "api_router")
+	assert.ErrorContains(t, err, "kickside.core.projections:api_router")
+	assert.ErrorContains(t, err, "kickside.core.retention:api_router")
+}
+
 func TestLink_NoValueError(t *testing.T) {
 	ctx, _ := setupTestContext()
 
