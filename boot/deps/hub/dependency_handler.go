@@ -378,7 +378,25 @@ func (h *DependencyHandler) collectDesiredDependencies(
 		}
 		result = append(result, dep)
 	}
+	if err := validateRootDependencyComponents(result, operationID); err != nil {
+		return nil, err
+	}
 	return result, nil
+}
+
+func validateRootDependencyComponents(deps []desiredDependency, operationID regapi.ID) error {
+	seen := make(map[string]regapi.ID, len(deps))
+	for _, dep := range deps {
+		component := dep.definition.Component
+		if existingID, ok := seen[component]; ok && existingID != dep.entry.ID {
+			if existingID == operationID {
+				return NewDependencyRootConflictError(component, dep.entry.ID.String(), existingID.String())
+			}
+			return NewDependencyRootConflictError(component, existingID.String(), dep.entry.ID.String())
+		}
+		seen[component] = dep.entry.ID
+	}
+	return nil
 }
 
 func snapshotModuleVersions(snapshot regapi.State) map[string]string {
@@ -1461,6 +1479,17 @@ func NewDependencyEntryConflictError(entryID, existingModule, desiredModule stri
 			"entry_id":        entryID,
 			"existing_module": existingModule,
 			"desired_module":  desiredModule,
+		})).
+		WithRetryable(apierror.False)
+}
+
+func NewDependencyRootConflictError(component, existingEntryID, requestedEntryID string) apierror.Error {
+	msg := fmt.Sprintf("dependency component %q is already installed as %q; update that dependency instead of creating %q", component, existingEntryID, requestedEntryID)
+	return apierror.New(apierror.Conflict, msg).
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"component":          component,
+			"existing_entry_id":  existingEntryID,
+			"requested_entry_id": requestedEntryID,
 		})).
 		WithRetryable(apierror.False)
 }

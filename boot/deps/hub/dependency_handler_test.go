@@ -742,6 +742,78 @@ func TestDependencyHandler_Expand_DoesNotTreatBareParametersAsGlobalAliases(t *t
 	assert.Equal(t, "app.env:store", values["kickside.automation:automation_env"]["storage"])
 }
 
+func TestDependencyHandler_Expand_RejectsDuplicateRootComponentBeforeLinking(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, "vendor")
+
+	writeWapp(t, filepath.Join(vendorDir, "wippy", "bootloader-v1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("wippy.bootloader", "env_storage"),
+			Kind: regapi.NamespaceRequirement,
+			Data: map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "env_loader", "path": ".meta.storage"},
+				},
+			},
+		},
+		{
+			ID:   wapp.NewID("wippy.bootloader", "env_loader"),
+			Kind: "env.loader",
+			Meta: map[string]any{},
+			Data: map[string]any{},
+		},
+	})
+
+	var manifestCalls int
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				manifestCalls++
+				if org == "wippy" && module == "bootloader" && version == "v1.0.0" {
+					return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+				}
+				return nil, fmt.Errorf("unexpected manifest request: %s/%s@%s", org, module, version)
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	installGeneratedDep := regapi.Entry{
+		ID:   regapi.NewID("app", "dep.wippy.bootloader"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{
+			"component":"wippy/bootloader",
+			"version":"v1.0.0",
+			"parameters":[{"name":"env_storage","value":"app:env_storage"}]
+		}`, payload.JSON),
+	}
+	snapshot := regapi.State{
+		{
+			ID:   regapi.NewID("app.deps", "bootloader"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.NewPayload(`{
+				"component":"wippy/bootloader",
+				"version":"v1.0.0",
+				"parameters":[{"name":"wippy.bootloader:env_storage","value":"app.env:store"}]
+			}`, payload.JSON),
+		},
+	}
+
+	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: installGeneratedDep}, snapshot)
+	require.Error(t, err)
+	assert.Equal(t, 0, manifestCalls)
+
+	var apiErr apierror.Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, apierror.Conflict, apiErr.Kind())
+	assert.Equal(t, "wippy/bootloader", apiErr.Details().GetString("component", ""))
+	assert.Equal(t, "app.deps:bootloader", apiErr.Details().GetString("existing_entry_id", ""))
+	assert.Equal(t, "app:dep.wippy.bootloader", apiErr.Details().GetString("requested_entry_id", ""))
+}
+
 func TestDependencyHandler_Expand_AppliesCanonicalComponentParametersToAliasNamespaceRequirements(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()
