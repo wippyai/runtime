@@ -945,7 +945,7 @@ func TestDependencyHandler_Expand_RootParametersOverrideModuleOwnedTransitivePar
 	assert.True(t, viewsEndpointCreated, "root views parameter should configure the loaded views endpoint")
 }
 
-func TestDependencyHandler_Expand_FullyQualifiedRootParameterBeatsTouchedModuleBareParameter(t *testing.T) {
+func TestDependencyHandler_Expand_DoesNotTreatTouchedModuleBareParameterAsGlobal(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()
 	vendorDir := filepath.Join(tmpDir, "vendor")
@@ -1037,7 +1037,7 @@ func TestDependencyHandler_Expand_FullyQualifiedRootParameterBeatsTouchedModuleB
 			assert.Equal(t, "app:api.views", entry.Meta.GetString("router", ""))
 		}
 	}
-	assert.True(t, viewsEndpointCreated, "fully qualified views parameter should beat the touched module's bare api_router")
+	assert.True(t, viewsEndpointCreated, "the unrelated touched module's bare api_router must not apply to wippy.views")
 }
 
 func TestDependencyHandler_Expand_DoesNotReloadUntouchedInstalledModules(t *testing.T) {

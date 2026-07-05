@@ -506,7 +506,7 @@ func TestLink_RootDependencyParametersOverrideModuleOwnedParameters(t *testing.T
 	assert.Equal(t, "app.env:store", target.Meta["storage"])
 }
 
-func TestLink_FullyQualifiedRootParameterOverridesBareRootParameter(t *testing.T) {
+func TestLink_FullAndBareParametersForSameRequirementConflict(t *testing.T) {
 	ctx, _ := setupTestContext()
 
 	entries := []registry.Entry{
@@ -541,11 +541,10 @@ func TestLink_FullyQualifiedRootParameterOverridesBareRootParameter(t *testing.T
 
 	stage := Link(WithStrictRequirementModules([]string{"wippy/views"}))
 	err := stage.Execute(ctx, &entries)
-	require.NoError(t, err)
-
-	target := findEntry(entries, "wippy.views", "pages_endpoint")
-	require.NotNil(t, target)
-	assert.Equal(t, "app:api.views", target.Meta["router"])
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "parameter conflict")
+	assert.ErrorContains(t, err, "api_router=app:api.views")
+	assert.ErrorContains(t, err, "api_router=app:api")
 }
 
 func TestLink_FullIDParameterName(t *testing.T) {

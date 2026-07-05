@@ -232,7 +232,6 @@ type decodedDependency struct {
 type foundDependencyValue struct {
 	value any
 	depID string
-	rank  int
 }
 
 func (s *linkStage) processRequirement(
@@ -278,7 +277,7 @@ func (s *linkStage) resolveValue(
 
 	for _, dep := range dependencies {
 		for _, param := range dep.definition.Parameters {
-			rank := requirementMatchRank(
+			if !matchesRequirement(
 				param.Name,
 				dep.moduleNamespace,
 				dep.component,
@@ -286,14 +285,12 @@ func (s *linkStage) resolveValue(
 				requirementName,
 				requirementID,
 				requirementModule,
-			)
-			if rank == 0 {
+			) {
 				continue
 			}
 			found := foundDependencyValue{
 				value: param.Value,
 				depID: dep.entry.ID.String(),
-				rank:  rank,
 			}
 			if dep.moduleOwned {
 				moduleValues = append(moduleValues, found)
@@ -307,7 +304,6 @@ func (s *linkStage) resolveValue(
 	if len(foundValues) == 0 {
 		foundValues = moduleValues
 	}
-	foundValues = strongestMatches(foundValues)
 
 	// Check for conflicts
 	if len(foundValues) > 1 {
@@ -344,26 +340,6 @@ func (s *linkStage) resolveValue(
 
 	// No value available
 	return nil, ErrNoValueAvailable
-}
-
-func strongestMatches(values []foundDependencyValue) []foundDependencyValue {
-	bestRank := 0
-	for _, value := range values {
-		if value.rank > bestRank {
-			bestRank = value.rank
-		}
-	}
-	if bestRank == 0 {
-		return values
-	}
-
-	filtered := make([]foundDependencyValue, 0, len(values))
-	for _, value := range values {
-		if value.rank == bestRank {
-			filtered = append(filtered, value)
-		}
-	}
-	return filtered
 }
 
 func (s *linkStage) applyTarget(
@@ -439,46 +415,46 @@ func (s *linkStage) findTargetEntries(
 	return results
 }
 
-// requirementMatchRank returns how directly a parameter name references a requirement.
+// matchesRequirement checks whether a parameter name references a requirement.
 // Supports two conventions:
 //   - Full ID: "ns:name" matches directly against the requirement entry ID
 //   - Bare name: "name" matches either:
 //   - requirement name within the computed module namespace, or
 //   - requirement name within the same module identity via requirement meta.module
-func requirementMatchRank(paramName, moduleNS, component, reqNS, reqName, reqID, reqModule string) int {
+func matchesRequirement(paramName, moduleNS, component, reqNS, reqName, reqID, reqModule string) bool {
 	if strings.Contains(paramName, ":") {
 		paramNS, paramReqName, ok := strings.Cut(paramName, ":")
 		if !ok || paramReqName != reqName {
-			return 0
+			return false
 		}
 		if paramName == reqID {
-			return 3
+			return true
 		}
 		if paramNS != moduleNS {
-			return 0
+			return false
 		}
 		if reqNS == moduleNS {
-			return 2
+			return true
 		}
 		if component != "" && reqModule != "" && component == reqModule {
-			return 2
+			return true
 		}
-		return 0
+		return false
 	}
 
 	if paramName != reqName {
-		return 0
+		return false
 	}
 
 	if moduleNS == reqNS {
-		return 1
+		return true
 	}
 
 	// Fallback for modules that publish requirements under a different namespace.
 	if component != "" && reqModule != "" && component == reqModule {
-		return 1
+		return true
 	}
-	return 0
+	return false
 }
 
 func requirementModuleFromEntry(entry registry.Entry) string {
