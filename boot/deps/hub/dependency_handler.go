@@ -157,7 +157,7 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		return regapi.DirectiveResult{}, ErrDependencyTranscoderMissing
 	}
 
-	lockedVersions := snapshotModuleVersions(snapshot)
+	lockedVersions := h.installedModuleVersions(snapshot)
 
 	controlledModules, err := h.collectControlledModules(ctx, snapshot, transcoder)
 	if err != nil {
@@ -191,7 +191,7 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 			break
 		}
 	}
-	strictModules := touchedModuleNames(resolved, snapshot, opComponent)
+	strictModules := touchedModuleNames(resolved, lockedVersions, opComponent)
 	mutableModules, err := h.operationModules(ctx, op, snapshot, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
@@ -347,7 +347,7 @@ func (h *DependencyHandler) collectDesiredDependencies(
 	transcoder payload.Transcoder,
 ) ([]desiredDependency, error) {
 	deps := make(map[regapi.ID]desiredDependency)
-	lockedVersions := snapshotModuleVersions(snapshot)
+	lockedVersions := h.installedModuleVersions(snapshot)
 	operationID := op.Entry.ID
 
 	current, err := h.collectSnapshotDependencies(ctx, snapshot, transcoder)
@@ -408,6 +408,26 @@ func validateRootDependencyComponents(deps []desiredDependency, operationID rega
 		seen[component] = dep.entry.ID
 	}
 	return nil
+}
+
+func (h *DependencyHandler) installedModuleVersions(snapshot regapi.State) map[string]string {
+	versions := snapshotModuleVersions(snapshot)
+	if h.lockPath == "" {
+		return versions
+	}
+	lockObj, err := lock.New(h.lockPath)
+	if err != nil {
+		return versions
+	}
+	for _, mod := range lockObj.GetModules() {
+		if mod.Name == "" || mod.Version == "" {
+			continue
+		}
+		if _, ok := versions[mod.Name]; !ok {
+			versions[mod.Name] = mod.Version
+		}
+	}
+	return versions
 }
 
 func snapshotModuleVersions(snapshot regapi.State) map[string]string {
@@ -576,8 +596,7 @@ func (p *replacementManifestProvider) ListAllVersions(ctx context.Context, org, 
 // trusted — they were validated when installed — and are excluded from strict
 // requirement enforcement, so a partial update does not re-validate
 // dependencies it did not touch.
-func touchedModuleNames(modules []ResolvedModule, snapshot regapi.State, opComponent string) []string {
-	installed := snapshotModuleVersions(snapshot)
+func touchedModuleNames(modules []ResolvedModule, installed map[string]string, opComponent string) []string {
 	names := make([]string, 0, len(modules))
 	for _, mod := range modules {
 		if mod.Org == "" || mod.Name == "" {

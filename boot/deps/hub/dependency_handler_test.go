@@ -1116,6 +1116,71 @@ func TestDependencyHandler_Expand_DoesNotReloadUntouchedInstalledModules(t *test
 	}
 }
 
+func TestDependencyHandler_Expand_UsesLockVersionForUntouchedInstalledModules(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, "vendor")
+	lockPath := filepath.Join(tmpDir, "wippy.lock")
+
+	require.NoError(t, os.WriteFile(lockPath, []byte(`directories:
+    modules: vendor
+modules:
+    - name: acme/legacy
+      version: v1.0.0
+    - name: acme/fresh
+      version: v1.0.0
+`), 0600))
+
+	writeWapp(t, filepath.Join(vendorDir, "acme", "legacy-v1.0.0.wapp"), []wapp.Entry{
+		{ID: wapp.NewID("acme.legacy", "target"), Kind: "process.lua", Data: map[string]any{"changed": true}},
+	})
+	writeWapp(t, filepath.Join(vendorDir, "acme", "fresh-v1.0.0.wapp"), []wapp.Entry{
+		{ID: wapp.NewID("acme.fresh", "target"), Kind: "process.lua", Data: map[string]any{}},
+	})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		LockPath:  lockPath,
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	legacyTarget := regapi.Entry{
+		ID:   regapi.NewID("acme.legacy", "target"),
+		Kind: "process.lua",
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey: "acme/legacy",
+		}),
+		Data: payload.NewPayload(`{"changed":false}`, payload.JSON),
+	}
+	snapshot := regapi.State{
+		{
+			ID:   regapi.NewID("app.deps", "legacy"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.NewPayload(`{"component":"acme/legacy","version":"v1.0.0"}`, payload.JSON),
+		},
+		legacyTarget,
+	}
+	rootDep := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "fresh"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/fresh","version":"v1.0.0"}`, payload.JSON),
+	}
+
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, snapshot)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+
+	for _, scoped := range result.Additional {
+		assert.NotEqual(t, legacyTarget.ID, scoped.Operation.Entry.ID, "lock-pinned installed module without module_version metadata must stay untouched")
+	}
+}
+
 func TestDependencyHandler_Expand_InfersPackedEntryModuleOwnershipFromResolvedGraph(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()
