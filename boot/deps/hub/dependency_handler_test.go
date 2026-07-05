@@ -1248,6 +1248,65 @@ func TestDependencyHandler_Expand_PreservesSnapshotEntryOwnershipForPackedEntry(
 	}
 }
 
+func TestDependencyHandler_Expand_DoesNotClaimExistingHostEntryFromPackedModule(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, "vendor")
+
+	writeWapp(t, filepath.Join(vendorDir, "kickside", "security-v1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("app", "api"),
+			Kind: "http.router",
+			Data: map[string]any{"name": "packed"},
+		},
+	})
+	writeWapp(t, filepath.Join(vendorDir, "kickside", "sessions-v1.0.0.wapp"), []wapp.Entry{
+		{ID: wapp.NewID("kickside.sessions", "component"), Kind: "registry.entry", Data: map[string]any{}},
+	})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	hostRouter := regapi.Entry{
+		ID:   regapi.NewID("app", "api"),
+		Kind: "http.router",
+		Data: payload.NewPayload(`{"name":"host"}`, payload.JSON),
+	}
+	snapshot := regapi.State{
+		{
+			ID:   regapi.NewID("app.deps", "security"),
+			Kind: regapi.NamespaceDependency,
+			Data: payload.NewPayload(`{"component":"kickside/security","version":"v1.0.0"}`, payload.JSON),
+		},
+		hostRouter,
+	}
+	rootDep := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "sessions"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"kickside/sessions","version":"v1.0.0"}`, payload.JSON),
+	}
+
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, snapshot)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+
+	for _, scoped := range result.Additional {
+		entry := scoped.Operation.Entry
+		if entry.ID == hostRouter.ID {
+			assert.Empty(t, entry.Meta.GetString(metaModuleKey, ""), "existing host entry must stay unowned")
+			assert.Equal(t, hostRouter.Data, entry.Data)
+		}
+	}
+}
+
 func TestDependencyHandler_Expand_AppliesCanonicalComponentParametersToAliasNamespaceRequirements(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()

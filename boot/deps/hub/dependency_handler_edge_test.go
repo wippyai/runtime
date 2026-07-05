@@ -232,6 +232,31 @@ func TestMarkModuleMetaForGraph_UsesSnapshotEntryOwner(t *testing.T) {
 	assert.Equal(t, "v4.0.0", result.Meta.GetString(metaModuleVersionKey, ""))
 }
 
+func TestPreserveHostSnapshotEntry_KeepsExistingUnownedEntry(t *testing.T) {
+	id := regapi.NewID("app", "api")
+	existing := regapi.Entry{
+		ID:   id,
+		Kind: "http.router",
+		Data: payload.NewPayload(`{"name":"host"}`, payload.JSON),
+	}
+	loaded := regapi.Entry{
+		ID:   id,
+		Kind: "http.router",
+		Meta: attrs.NewBag(),
+		Data: payload.NewPayload(`{"name":"packed"}`, payload.JSON),
+	}
+
+	result, ok := preserveHostSnapshotEntry(
+		loaded,
+		"kickside/security",
+		map[regapi.ID]regapi.Entry{id: existing},
+		map[string]struct{}{"kickside/security": {}},
+	)
+
+	require.True(t, ok)
+	assert.Equal(t, existing.Data, result.Data)
+}
+
 func TestMarkModuleMeta_EmptyVersion(t *testing.T) {
 	e := regapi.Entry{ID: regapi.NewID("ns", "a")}
 	result := markModuleMeta(e, "acme/http", "")

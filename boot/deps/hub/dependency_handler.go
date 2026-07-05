@@ -633,6 +633,11 @@ func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []Res
 	entries := make([]regapi.Entry, 0)
 	owners := moduleOwnersByNamespace(ownerModules)
 	snapshotOwners := moduleOwnersByEntryID(snapshot)
+	snapshotByID := entriesByID(snapshot)
+	installedRoots, err := rootDependencyModules(ctx, transcoder, snapshot)
+	if err != nil {
+		return nil, err
+	}
 
 	for _, mod := range modules {
 		moduleName := mod.Org + "/" + mod.Name
@@ -641,12 +646,55 @@ func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []Res
 			return nil, err
 		}
 		for i := range moduleEntries {
+			if keep, ok := preserveHostSnapshotEntry(moduleEntries[i], moduleName, snapshotByID, installedRoots); ok {
+				moduleEntries[i] = keep
+				continue
+			}
 			moduleEntries[i] = markModuleMetaForGraph(moduleEntries[i], moduleName, mod.Version, owners, snapshotOwners)
 		}
 		entries = append(entries, moduleEntries...)
 	}
 
 	return entries, nil
+}
+
+func entriesByID(entries regapi.State) map[regapi.ID]regapi.Entry {
+	byID := make(map[regapi.ID]regapi.Entry, len(entries))
+	for _, entry := range entries {
+		byID[entry.ID] = entry
+	}
+	return byID
+}
+
+func rootDependencyModules(ctx context.Context, transcoder payload.Transcoder, entries regapi.State) (map[string]struct{}, error) {
+	modules := make(map[string]struct{})
+	for _, entry := range entries {
+		if !isRootDependency(entry) {
+			continue
+		}
+		def, err := decodeDependency(ctx, transcoder, entry)
+		if err != nil {
+			return nil, err
+		}
+		if def.Component != "" {
+			modules[def.Component] = struct{}{}
+		}
+	}
+	return modules, nil
+}
+
+func preserveHostSnapshotEntry(entry regapi.Entry, moduleName string, snapshot map[regapi.ID]regapi.Entry, installedRoots map[string]struct{}) (regapi.Entry, bool) {
+	if _, installed := installedRoots[moduleName]; !installed {
+		return regapi.Entry{}, false
+	}
+	if entryModule(entry) != "" {
+		return regapi.Entry{}, false
+	}
+	existing, ok := snapshot[entry.ID]
+	if !ok || entryModule(existing) != "" {
+		return regapi.Entry{}, false
+	}
+	return existing, true
 }
 
 type moduleOwner struct {
