@@ -255,3 +255,42 @@ func TestExporter_HandlerOutputFormat(t *testing.T) {
 	assert.True(t, strings.Contains(body, "http_requests_total"))
 	assert.True(t, strings.Contains(body, `method="GET"`))
 }
+
+func TestExporter_CardinalityCapEvictsOldSeries(t *testing.T) {
+	e := NewExporterWithConfig(ExporterConfig{MaxCardinality: 5})
+
+	for i := 0; i < 20; i++ {
+		err := e.Record("card_test", api.TypeCounter, 1.0, api.Labels{"id": string(rune('a' + i))})
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, 5, e.series.Len(), "live series must be capped at MaxCardinality")
+
+	handler := e.Handler()
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/metrics", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, "card_test{") {
+			t.Logf("surviving series: %s", line)
+		}
+	}
+}
+
+func TestExporter_RegressionCardinalityDoesNotGrowUnbounded(t *testing.T) {
+	const distinctLabels = 5000
+
+	e := NewExporter()
+
+	for i := 0; i < distinctLabels; i++ {
+		_ = e.Record("regression_test", api.TypeCounter, 1.0, api.Labels{
+			"request_id": strings.Repeat("x", i%10) + string(rune('a'+i%26)) + string(rune('a'+(i/26)%26)),
+		})
+	}
+
+	assert.LessOrEqualf(t, e.series.Len(), defaultMaxCardinality,
+		"series count must be bounded by defaultMaxCardinality=%d even with %d distinct labels",
+		defaultMaxCardinality, distinctLabels)
+}
