@@ -3,6 +3,7 @@
 package bootconfig
 
 import (
+	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 )
 
@@ -18,4 +19,10 @@ func NewParseYAMLError(cause error) apierror.Error {
 
 func NewUnsupportedVersionError(version string) apierror.Error {
 	return apierror.New(apierror.Invalid, "unsupported version: "+version).WithRetryable(apierror.False)
+}
+
+func NewMissingOSEnvError(name string) apierror.Error {
+	return apierror.New(apierror.Invalid, "missing OS environment variable: "+name).
+		WithDetails(attrs.NewBagFrom(map[string]any{"name": name})).
+		WithRetryable(apierror.False)
 }

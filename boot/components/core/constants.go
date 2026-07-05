@@ -34,6 +34,8 @@ const (
 	RegistryEnableHistory boot.Name = "enable_history"
 	RegistryHistoryType   boot.Name = "history_type"
 	RegistryHistoryPath   boot.Name = "history_path"
+	RegistryHistoryDSN    boot.Name = "history_dsn"
+	RegistryHistorySchema boot.Name = "history_schema"
 	// RegistryDispatchInternalKinds configures registry entry kinds that bypass event dispatch.
 	RegistryDispatchInternalKinds boot.Name = "dispatch_internal_kinds"
 
