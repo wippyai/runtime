@@ -1181,6 +1181,74 @@ modules:
 	}
 }
 
+func TestDependencyHandler_Expand_DoesNotTrustLockVersionWithoutInstalledRootDependency(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, "vendor")
+	lockPath := filepath.Join(tmpDir, "wippy.lock")
+
+	require.NoError(t, os.WriteFile(lockPath, []byte(`directories:
+    modules: vendor
+modules:
+    - name: acme/stale
+      version: v1.0.0
+    - name: acme/fresh
+      version: v1.0.0
+`), 0600))
+
+	writeWapp(t, filepath.Join(vendorDir, "acme", "fresh-v1.0.0.wapp"), []wapp.Entry{
+		{ID: wapp.NewID("acme.fresh", "target"), Kind: "process.lua", Data: map[string]any{}},
+	})
+	writeWapp(t, filepath.Join(vendorDir, "acme", "stale-v1.0.0.wapp"), []wapp.Entry{
+		{ID: wapp.NewID("acme.stale", "target"), Kind: "process.lua", Data: map[string]any{}},
+	})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				switch org + "/" + module + "@" + version {
+				case "acme/fresh@v1.0.0":
+					return &ModuleManifest{
+						Org:     org,
+						Name:    module,
+						Version: version,
+						Dependencies: []ManifestDep{
+							{Org: "acme", Name: "stale", Version: "v1.0.0"},
+						},
+					}, nil
+				case "acme/stale@v1.0.0":
+					return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+				default:
+					return nil, fmt.Errorf("unexpected manifest request: %s/%s@%s", org, module, version)
+				}
+			},
+		},
+		Logger:    zap.NewNop(),
+		LockPath:  lockPath,
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	rootDep := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "fresh"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/fresh","version":"v1.0.0"}`, payload.JSON),
+	}
+
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, nil)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+
+	created := make(map[regapi.ID]bool)
+	for _, scoped := range result.Additional {
+		if scoped.Operation.Kind == regapi.EntryCreate {
+			created[scoped.Operation.Entry.ID] = true
+		}
+	}
+	assert.True(t, created[regapi.NewID("acme.fresh", "target")])
+	assert.True(t, created[regapi.NewID("acme.stale", "target")], "a lock-only module is not installed and must still be materialized when reached by the graph")
+}
+
 func TestDependencyHandler_Expand_InfersPackedEntryModuleOwnershipFromResolvedGraph(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()
@@ -1370,6 +1438,52 @@ func TestDependencyHandler_Expand_DoesNotClaimExistingHostEntryFromPackedModule(
 			assert.Equal(t, hostRouter.Data, entry.Data)
 		}
 	}
+}
+
+func TestDependencyHandler_Expand_RejectsNewModuleClaimingExistingHostEntry(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, "vendor")
+
+	writeWapp(t, filepath.Join(vendorDir, "kickside", "security-v1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("app", "api"),
+			Kind: "http.router",
+			Data: map[string]any{"name": "packed"},
+		},
+	})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	hostRouter := regapi.Entry{
+		ID:   regapi.NewID("app", "api"),
+		Kind: "http.router",
+		Data: payload.NewPayload(`{"name":"host"}`, payload.JSON),
+	}
+	rootDep := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "security"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"kickside/security","version":"v1.0.0"}`, payload.JSON),
+	}
+
+	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, regapi.State{hostRouter})
+	require.Error(t, err)
+
+	var apiErr apierror.Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, apierror.Conflict, apiErr.Kind())
+	assert.Equal(t, "app:api", apiErr.Details().GetString("entry_id", ""))
+	assert.Equal(t, "", apiErr.Details().GetString("existing_module", "sentinel"))
+	assert.Equal(t, "kickside/security", apiErr.Details().GetString("desired_module", ""))
 }
 
 func TestDependencyHandler_Expand_AppliesCanonicalComponentParametersToAliasNamespaceRequirements(t *testing.T) {

@@ -157,7 +157,10 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		return regapi.DirectiveResult{}, ErrDependencyTranscoderMissing
 	}
 
-	lockedVersions := h.installedModuleVersions(snapshot)
+	lockedVersions, err := h.installedModuleVersions(ctx, transcoder, snapshot)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
 
 	controlledModules, err := h.collectControlledModules(ctx, snapshot, transcoder)
 	if err != nil {
@@ -347,7 +350,10 @@ func (h *DependencyHandler) collectDesiredDependencies(
 	transcoder payload.Transcoder,
 ) ([]desiredDependency, error) {
 	deps := make(map[regapi.ID]desiredDependency)
-	lockedVersions := h.installedModuleVersions(snapshot)
+	lockedVersions, err := h.installedModuleVersions(ctx, transcoder, snapshot)
+	if err != nil {
+		return nil, err
+	}
 	operationID := op.Entry.ID
 
 	current, err := h.collectSnapshotDependencies(ctx, snapshot, transcoder)
@@ -410,24 +416,31 @@ func validateRootDependencyComponents(deps []desiredDependency, operationID rega
 	return nil
 }
 
-func (h *DependencyHandler) installedModuleVersions(snapshot regapi.State) map[string]string {
+func (h *DependencyHandler) installedModuleVersions(ctx context.Context, transcoder payload.Transcoder, snapshot regapi.State) (map[string]string, error) {
 	versions := snapshotModuleVersions(snapshot)
 	if h.lockPath == "" {
-		return versions
+		return versions, nil
 	}
 	lockObj, err := lock.New(h.lockPath)
 	if err != nil {
-		return versions
+		return versions, nil
+	}
+	installedRoots, err := rootDependencyModules(ctx, transcoder, snapshot)
+	if err != nil {
+		return nil, err
 	}
 	for _, mod := range lockObj.GetModules() {
 		if mod.Name == "" || mod.Version == "" {
+			continue
+		}
+		if _, installed := installedRoots[mod.Name]; !installed {
 			continue
 		}
 		if _, ok := versions[mod.Name]; !ok {
 			versions[mod.Name] = mod.Version
 		}
 	}
-	return versions
+	return versions, nil
 }
 
 func snapshotModuleVersions(snapshot regapi.State) map[string]string {
