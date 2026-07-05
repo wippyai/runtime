@@ -10,8 +10,22 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 )
+
+// signalRef is an immutable snapshot of the fields an out-of-band scan
+// (SendOutdated) needs. It is published atomically at Submit and cleared at
+// release, so the cold-path scan never reads a Processor being concurrently
+// released or reused by the pool. gen is the processor's queue generation at
+// publish time: delivery pushes under this generation, so a released/reused
+// slot (whose Reset bumped the generation) rejects the push and a recycled pid
+// never mis-delivers to a different process.
+type signalRef struct {
+	pid    pid.PID
+	source registry.ID
+	gen    uint64
+}
 
 // ProcessState tracks a processor through the scheduler lifecycle.
 // Lower 4 bits store the state, bit 4 is the wakeup flag.
@@ -57,6 +71,7 @@ type Processor struct {
 	scheduler  *Scheduler
 	cancel     context.CancelFunc
 	queue      *process.EventQueue
+	sig        atomic.Pointer[signalRef]
 	pid        pid.PID
 	output     process.StepOutput
 	gen        atomic.Uint64
@@ -66,6 +81,21 @@ type Processor struct {
 	state      atomic.Int32
 	lastWorker atomic.Int32
 	pooled     bool
+}
+
+// publishSignalRef captures the processor's stable pid + source id into an
+// atomic snapshot for the out-of-band OUTDATED scan. Called after ctx and pid
+// are assigned; a processor with no frame source id publishes nil.
+func (p *Processor) publishSignalRef() {
+	if p.ctx == nil {
+		p.sig.Store(nil)
+		return
+	}
+	if src, ok := runtime.GetFrameID(p.ctx); ok {
+		p.sig.Store(&signalRef{pid: p.pid, source: src, gen: p.gen.Load()})
+		return
+	}
+	p.sig.Store(nil)
 }
 
 // casState atomically transitions the masked state from old to newState,
@@ -191,6 +221,7 @@ func acquireProcessor() *Processor {
 func releaseProcessor(p *Processor) {
 	p.id = 0
 	p.pid = pid.PID{}
+	p.sig.Store(nil)
 	p.startedAt = 0
 	// Never leave pooled processors in Ready state; stale queue references must
 	// fail Ready->Running CAS and be ignored.

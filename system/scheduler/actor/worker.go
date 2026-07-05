@@ -365,6 +365,19 @@ func (w *Worker) executeOne(proc *Processor) {
 		}
 		selfPID, hasSelfPID := runtime.GetFramePID(proc.ctx)
 		upgradeCtx, _ := ctxapi.OpenFrameContext(proc.ctx)
+		// The frame id does not inherit across frames; carry the resolved
+		// upgrade source onto the new frame so a cross-source upgrade classifies
+		// the process by its NEW definition (used by ListProcesses and OUTDATED
+		// notification), not the pre-upgrade source.
+		if err := runtime.SetFrameID(upgradeCtx, source); err != nil {
+			proc.Process.Close()
+			if !proc.casState(StateRunning, StateComplete) {
+				return
+			}
+			proc.queue.Close()
+			w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: set source failed: %w", err))
+			return
+		}
 		if hasSelfPID {
 			if err := runtime.SetFramePID(upgradeCtx, selfPID); err != nil {
 				proc.Process.Close()
@@ -386,6 +399,10 @@ func (w *Worker) executeOne(proc *Processor) {
 			return
 		}
 		proc.ctx = upgradeCtx
+		// Re-publish the out-of-band snapshot so future invalidations classify
+		// the process by its (possibly new) upgraded source. The queue
+		// generation is unchanged by upgrade, so in-flight deliveries stay valid.
+		proc.publishSignalRef()
 
 		// Success - re-queue to local
 		if !proc.casState(StateRunning, StateReady) {
