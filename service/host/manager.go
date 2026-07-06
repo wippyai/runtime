@@ -178,7 +178,11 @@ func (c *compositeLifecycle) OnStart(ctx context.Context, processID pid.PID, pro
 	if err := c.global.OnStart(ctx, processID, proc); err != nil {
 		return err
 	}
-	return c.host.OnStart(ctx, processID, proc)
+	if err := c.host.OnStart(ctx, processID, proc); err != nil {
+		c.global.OnComplete(ctx, processID, &runtime.Result{Error: err})
+		return err
+	}
+	return nil
 }
 
 func (c *compositeLifecycle) OnComplete(ctx context.Context, processID pid.PID, result *runtime.Result) {

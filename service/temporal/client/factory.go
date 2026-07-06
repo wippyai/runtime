@@ -39,6 +39,7 @@ type Factory interface {
 // DefaultClientFactory implements Factory
 type DefaultClientFactory struct {
 	env                env.Registry
+	metricsHandler     client.MetricsHandler
 	dataConverter      func() converter.DataConverter
 	clientInterceptors []interceptor.ClientInterceptor
 }
@@ -48,11 +49,13 @@ func NewDefaultClientFactory(
 	env env.Registry,
 	dataConverter func() converter.DataConverter,
 	clientInterceptors []interceptor.ClientInterceptor,
+	metricsHandler client.MetricsHandler,
 ) *DefaultClientFactory {
 	return &DefaultClientFactory{
 		env:                env,
 		dataConverter:      dataConverter,
 		clientInterceptors: clientInterceptors,
+		metricsHandler:     metricsHandler,
 	}
 }
 
@@ -85,9 +88,10 @@ func (f *DefaultClientFactory) CreateClient(ctx context.Context, logger *zap.Log
 // buildClientOptions constructs Temporal client options from config
 func (f *DefaultClientFactory) buildClientOptions(logger *zap.Logger, config *api.ClientConfig) (client.Options, error) {
 	opts := client.Options{
-		HostPort:  config.Address,
-		Namespace: config.Namespace,
-		Logger:    NewZapAdapter(logger),
+		HostPort:       config.Address,
+		Namespace:      config.Namespace,
+		Logger:         NewZapAdapter(logger),
+		MetricsHandler: f.metricsHandler,
 	}
 
 	// Set data converter if available

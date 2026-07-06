@@ -4,16 +4,41 @@ package otel
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	otelapi "github.com/wippyai/runtime/api/service/otel"
+	"go.opentelemetry.io/otel/attribute"
 	metricnoop "go.opentelemetry.io/otel/metric/noop"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 	"go.uber.org/zap"
 )
+
+// recordingExporter records every exported span and does not clear on shutdown,
+// so a test can prove the BatchSpanProcessor flushed its queue.
+type recordingExporter struct {
+	mu    sync.Mutex
+	spans int
+}
+
+func (r *recordingExporter) ExportSpans(_ context.Context, spans []sdktrace.ReadOnlySpan) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.spans += len(spans)
+	return nil
+}
+
+func (r *recordingExporter) Shutdown(context.Context) error { return nil }
+
+func (r *recordingExporter) Count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.spans
+}
 
 func TestInitializeProvider_Disabled(t *testing.T) {
 	cfg := otelapi.Config{
@@ -187,6 +212,23 @@ func TestCreateResource_WithVersion(t *testing.T) {
 	require.NotNil(t, res)
 }
 
+func TestCreateResource_MergesStandardAttributes(t *testing.T) {
+	res, err := createResource(otelapi.Config{ServiceName: "test-service"})
+	require.NoError(t, err)
+
+	get := func(k string) string {
+		v, ok := res.Set().Value(attribute.Key(k))
+		if !ok {
+			return ""
+		}
+		return v.String()
+	}
+	assert.Equal(t, "test-service", get("service.name"))
+	for _, key := range []string{"host.name", "process.pid", "os.type", "telemetry.sdk.name"} {
+		assert.NotEmpty(t, get(key), "resource should carry standard semconv %q", key)
+	}
+}
+
 func TestInitializeMeterProvider_Disabled(t *testing.T) {
 	cfg := otelapi.Config{
 		Enabled: false,
@@ -233,6 +275,32 @@ func TestShutdownMeterProvider_NoopProvider(t *testing.T) {
 
 	// Noop provider doesn't implement *sdkmetric.MeterProvider, so shutdown is no-op
 	err := ShutdownMeterProvider(context.Background(), mp, logger)
+	assert.NoError(t, err)
+}
+
+func TestShutdownTracerProvider_FlushesSpans(t *testing.T) {
+	exp := &recordingExporter{}
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exp),
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+	)
+	tracer := tp.Tracer("test")
+
+	ctx := context.Background()
+	for i := 0; i < 10; i++ {
+		_, span := tracer.Start(ctx, fmt.Sprintf("op-%d", i))
+		span.End()
+	}
+
+	require.Zero(t, exp.Count(), "spans must still be queued before shutdown")
+
+	require.NoError(t, ShutdownTracerProvider(context.Background(), tp, zap.NewNop()))
+
+	require.Equal(t, 10, exp.Count(), "shutdown must flush all queued spans to the exporter")
+}
+
+func TestShutdownTracerProvider_NoopProvider(t *testing.T) {
+	err := ShutdownTracerProvider(context.Background(), noop.NewTracerProvider(), zap.NewNop())
 	assert.NoError(t, err)
 }
 

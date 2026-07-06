@@ -133,6 +133,28 @@ func TestApplyEnvOverrides_SampleRateInvalid(t *testing.T) {
 	assert.Equal(t, originalRate, cfg.SampleRate)
 }
 
+func TestApplyEnvOverrides_TracesSamplerAlwaysOn(t *testing.T) {
+	cfg := DefaultConfig()
+	t.Setenv("OTEL_TRACES_SAMPLER", "always_on")
+	t.Setenv("OTEL_TRACES_SAMPLER_ARG", "0.25")
+	ApplyEnvOverrides(&cfg, zap.NewNop())
+	assert.Equal(t, 1.0, cfg.SampleRate, "always_on must win over sampler arg")
+}
+
+func TestApplyEnvOverrides_TracesSamplerAlwaysOff(t *testing.T) {
+	cfg := DefaultConfig()
+	t.Setenv("OTEL_TRACES_SAMPLER", "always_off")
+	ApplyEnvOverrides(&cfg, zap.NewNop())
+	assert.Equal(t, 0.0, cfg.SampleRate)
+}
+
+func TestApplyEnvOverrides_Insecure(t *testing.T) {
+	cfg := DefaultConfig()
+	t.Setenv("OTEL_EXPORTER_OTLP_INSECURE", "true")
+	ApplyEnvOverrides(&cfg, zap.NewNop())
+	assert.True(t, cfg.Insecure)
+}
+
 func TestApplyEnvOverrides_Propagators(t *testing.T) {
 	cfg := DefaultConfig()
 	logger := zap.NewNop()

@@ -349,6 +349,9 @@ func (rm *RouteManager) Build() error {
 			if len(routerEntry.middleware) > 0 {
 				handler = applyMiddlewareChain(routerEntry.middleware, handler)
 			}
+			// Set the route label as the outermost wrapper so pre-match middleware
+			// (e.g., OTel, http metrics) observes the real route instead of "unmatched".
+			handler = withRouteLabel(routeLabelFor(route.funcID, routeID), handler)
 			allPatterns = append(allPatterns, patternEntry{handler, pattern})
 
 			// Auto-generate OPTIONS handler so CORS middleware can intercept preflight
@@ -361,6 +364,7 @@ func (rm *RouteManager) Build() error {
 					if len(routerEntry.middleware) > 0 {
 						optionsHandler = applyMiddlewareChain(routerEntry.middleware, optionsHandler)
 					}
+					optionsHandler = withRouteLabel(routeLabelFor(route.funcID, routeID), optionsHandler)
 					allPatterns = append(allPatterns, patternEntry{optionsHandler, optionsPattern})
 					registeredOptions[optionsPattern] = true
 				}
@@ -399,6 +403,25 @@ func (rm *RouteManager) Build() error {
 	return nil
 }
 
+// routeLabelFor returns the route label used for observability, preferring the
+// function ID and falling back to the route ID.
+func routeLabelFor(funcID, routeID registry.ID) string {
+	if l := funcID.String(); l != "" {
+		return l
+	}
+	return routeID.String()
+}
+
+// withRouteLabel wraps next so the route label is set in the request frame
+// before next runs. Applied as the outermost route wrapper so pre-match
+// middleware (OTel, http metrics) sees the real route instead of "unmatched".
+func withRouteLabel(label string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = httpapi.SetRouteLabel(r.Context(), label)
+		next.ServeHTTP(w, r)
+	})
+}
+
 // createRouteHandler creates the handler for a route with param extraction and post-middleware
 func (rm *RouteManager) createRouteHandler(routeID registry.ID, route *RouteEntry, routerEntry *RouterEntry) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -418,15 +441,10 @@ func (rm *RouteManager) createRouteHandler(routeID registry.ID, route *RouteEntr
 		routeInfo.Endpoint = routeID
 		routeInfo.Func = route.funcID
 
-		// Extract route label (prefer Func over Endpoint)
-		routeLabel := route.funcID.String()
-		if routeLabel == "" {
-			routeLabel = routeID.String()
-		}
-
-		// Add route info and label to FrameContext
+		// Add route info to FrameContext. The route label is set by the outer
+		// withRouteLabel wrapper so pre-match middleware (OTel, http metrics)
+		// already observes it; SetRouteInfo is still needed for downstream handlers.
 		_ = httpapi.SetRouteInfo(r.Context(), routeInfo)
-		_ = httpapi.SetRouteLabel(r.Context(), routeLabel)
 
 		// Apply post-match middleware and call endpoint handler
 		finalHandler := route.handler

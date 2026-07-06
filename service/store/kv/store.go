@@ -7,7 +7,9 @@ import (
 	"errors"
 	"sort"
 	"sync"
+	"time"
 
+	"github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
@@ -42,6 +44,7 @@ type Store struct {
 	engine     kvapi.Engine
 	dtt        payload.Transcoder
 	log        *zap.Logger
+	coll       metrics.Collector
 	statusChan chan any
 	id         registry.ID
 	namespace  string
@@ -81,10 +84,13 @@ func NewStoreWithInfo(id registry.ID, namespace string, engine kvapi.Engine, dtt
 }
 
 // Start implements supervisor.Service.
-func (s *Store) Start(_ context.Context) (<-chan any, error) {
+func (s *Store) Start(ctx context.Context) (<-chan any, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.closed = false
+	if s.coll == nil {
+		s.coll = metrics.GetCollector(ctx)
+	}
 	select {
 	case s.statusChan <- "store.kv started":
 	default:
@@ -119,7 +125,9 @@ func (s *Store) StoreInfo(_ context.Context) store.Info {
 
 // Get implements store.Store.
 func (s *Store) Get(_ context.Context, key registry.ID) (payload.Payload, error) {
+	start := time.Now()
 	ent, err := s.engine.Get(physicalKey(s.namespace, key))
+	recordKVOp(s.coll, s.namespace, "get", kvResult(err), time.Since(start))
 	if err != nil {
 		return nil, mapNotFound(err)
 	}
@@ -137,26 +145,34 @@ func (s *Store) Entry(_ context.Context, key registry.ID) (store.VersionedEntry,
 
 // Set implements store.Store. A non-zero TTL binds the key to a fresh lease.
 func (s *Store) Set(ctx context.Context, entry store.Entry) error {
+	start := time.Now()
 	b, err := encodeValue(s.dtt, entry.Value)
 	if err != nil {
+		recordKVOp(s.coll, s.namespace, "set", "error", time.Since(start))
 		return err
 	}
 	phys := physicalKey(s.namespace, entry.Key)
 	if entry.TTL > 0 {
 		lease, err := s.engine.GrantLease(ctx, entry.TTL)
 		if err != nil {
+			recordKVOp(s.coll, s.namespace, "set", "error", time.Since(start))
 			return err
 		}
 		_, err = s.engine.SetWithLease(phys, b, lease.ID())
+		recordKVOp(s.coll, s.namespace, "set", kvResult(err), time.Since(start))
 		return err
 	}
 	_, err = s.engine.Set(phys, b)
+	recordKVOp(s.coll, s.namespace, "set", kvResult(err), time.Since(start))
 	return err
 }
 
 // Delete implements store.Store.
 func (s *Store) Delete(_ context.Context, key registry.ID) error {
-	return mapNotFound(s.engine.Delete(physicalKey(s.namespace, key)))
+	start := time.Now()
+	err := s.engine.Delete(physicalKey(s.namespace, key))
+	recordKVOp(s.coll, s.namespace, "delete", kvResult(err), time.Since(start))
+	return mapNotFound(err)
 }
 
 // Has implements store.Store.
@@ -241,7 +257,9 @@ func (s *Store) SetIfAbsent(ctx context.Context, entry store.Entry) (bool, error
 }
 
 // Put implements store.Putter.
-func (s *Store) Put(ctx context.Context, key registry.ID, value payload.Payload, opts store.PutOptions) (store.VersionedEntry, error) {
+func (s *Store) Put(ctx context.Context, key registry.ID, value payload.Payload, opts store.PutOptions) (ve store.VersionedEntry, err error) {
+	start := time.Now()
+	defer func() { recordKVOp(s.coll, s.namespace, "put", kvResult(err), time.Since(start)) }()
 	if opts.OnlyIfAbsent && opts.HasVersion {
 		return store.VersionedEntry{}, store.ErrInvalidOptions
 	}

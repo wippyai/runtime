@@ -11,6 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	funcapi "github.com/wippyai/runtime/api/function"
 	logapi "github.com/wippyai/runtime/api/logs"
+	metricsapi "github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
@@ -161,6 +162,7 @@ func Component() boot.Component {
 					return dcRegistry.Build()
 				}),
 				client.WithInterceptors(clientInterceptors),
+				client.WithMetricsHandler(client.NewMetricsHandler(metricsapi.GetCollector(ctx))),
 			)
 			if err != nil {
 				return ctx, fmt.Errorf("failed to create client manager: %w", err)

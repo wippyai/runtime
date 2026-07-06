@@ -24,7 +24,7 @@ func TestManager_Add(t *testing.T) {
 	funcReg := &mockFuncRegistry{}
 	dtt := &mockDTT{}
 
-	manager := NewManager(bus, queueMgr, funcReg, dtt, zap.NewNop())
+	manager := NewManager(bus, queueMgr, funcReg, dtt, zap.NewNop(), nil)
 
 	config := &consumerapi.Config{
 		ConsumerOptions: queueapi.ConsumerOptions{
@@ -62,7 +62,7 @@ func TestManager_Add_QueueNotFound(t *testing.T) {
 	funcReg := &mockFuncRegistry{}
 	dtt := &mockDTT{}
 
-	manager := NewManager(bus, queueMgr, funcReg, dtt, zap.NewNop())
+	manager := NewManager(bus, queueMgr, funcReg, dtt, zap.NewNop(), nil)
 
 	config := &consumerapi.Config{
 		ConsumerOptions: queueapi.ConsumerOptions{
@@ -93,7 +93,7 @@ func TestManager_Add_DriverNotFound(t *testing.T) {
 	funcReg := &mockFuncRegistry{}
 	dtt := &mockDTT{}
 
-	manager := NewManager(bus, queueMgr, funcReg, dtt, zap.NewNop())
+	manager := NewManager(bus, queueMgr, funcReg, dtt, zap.NewNop(), nil)
 
 	config := &consumerapi.Config{
 		ConsumerOptions: queueapi.ConsumerOptions{
@@ -122,7 +122,7 @@ func TestManager_Update(t *testing.T) {
 	funcReg := &mockFuncRegistry{}
 	dtt := &mockDTT{}
 
-	manager := NewManager(bus, queueMgr, funcReg, dtt, zap.NewNop())
+	manager := NewManager(bus, queueMgr, funcReg, dtt, zap.NewNop(), nil)
 
 	consumerID := registry.NewID("test", "consumer")
 
@@ -183,7 +183,7 @@ func TestManager_Delete(t *testing.T) {
 	funcReg := &mockFuncRegistry{}
 	dtt := &mockDTT{}
 
-	manager := NewManager(bus, queueMgr, funcReg, dtt, zap.NewNop())
+	manager := NewManager(bus, queueMgr, funcReg, dtt, zap.NewNop(), nil)
 
 	consumerID := registry.NewID("test", "consumer")
 

@@ -80,7 +80,7 @@ func TestRouteManager_BasicOperations(t *testing.T) {
 		err = rm.ReplaceMount("/static", replacement)
 		require.NoError(t, err)
 		rec := httptest.NewRecorder()
-		rm.mounts["/static"].ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/app.js", nil))
+		rm.mounts["/static"].ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/static/app.js", nil))
 		assert.Equal(t, "replacement", rec.Body.String())
 
 		// Replace validates paths and only updates existing mounts
@@ -277,6 +277,45 @@ func TestRouteManager_Middleware(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "applied", resp.Header.Get("X-Test-Middleware"))
 	assert.NoError(t, resp.Body.Close())
+}
+
+func TestRouteManager_OptionsRouteLabelVisibleToMiddleware(t *testing.T) {
+	rm, err := NewRouteManager()
+	require.NoError(t, err)
+
+	var observedLabel string
+	testMiddleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if label, ok := config.GetRouteLabel(r.Context()); ok {
+				observedLabel = label
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	routerID := registry.NewID("test", "router1")
+	err = rm.AddRouter(routerID, "/api", []func(http.Handler) http.Handler{testMiddleware}, nil)
+	require.NoError(t, err)
+
+	funcID := registry.NewID("test", "func1")
+	endpointID := registry.NewID("test", "endpoint1")
+	err = rm.AddRoute(routerID, endpointID, http.MethodGet, "/users/{id}", funcID, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	require.NoError(t, err)
+	require.NoError(t, rm.Build())
+
+	wrappedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, _ := contextapi.OpenFrameContext(r.Context())
+		rm.ServeHTTP(w, r.WithContext(ctx))
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodOptions, "/api/users/123", nil)
+	wrappedHandler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, funcID.String(), observedLabel)
 }
 
 func TestRouteManager_RouteUpdates(t *testing.T) {

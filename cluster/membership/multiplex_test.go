@@ -253,9 +253,7 @@ func TestMultiplex_TwoNodes_UserBroadcastDelivers(t *testing.T) {
 	if err := svcA.RegisterUserDelegate(delA); err != nil {
 		t.Fatalf("register a: %v", err)
 	}
-	if err := svcA.Start(ctx); err != nil {
-		t.Fatalf("start a: %v", err)
-	}
+	startMembershipServiceForTest(ctx, t, "node a", svcA)
 	defer func() { _ = svcA.Stop() }()
 
 	addrA := fmt.Sprintf("%s:%d", svcA.memberlist.LocalNode().Addr, svcA.memberlist.LocalNode().Port)
@@ -267,9 +265,7 @@ func TestMultiplex_TwoNodes_UserBroadcastDelivers(t *testing.T) {
 	if err := svcB.RegisterUserDelegate(delB); err != nil {
 		t.Fatalf("register b: %v", err)
 	}
-	if err := svcB.Start(ctx); err != nil {
-		t.Fatalf("start b: %v", err)
-	}
+	startMembershipServiceForTest(ctx, t, "node b", svcB)
 	defer func() { _ = svcB.Stop() }()
 
 	// Wait for membership convergence (both nodes see each other) before

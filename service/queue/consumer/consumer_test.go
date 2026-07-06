@@ -14,11 +14,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	consumerapi "github.com/wippyai/runtime/api/service/queue/consumer"
+	"github.com/wippyai/runtime/internal/telemetrytest"
 	"go.uber.org/zap"
 )
 
@@ -42,6 +44,7 @@ func TestConsumer_StartStop(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	statusChan, err := consumer.Start(ctx)
@@ -77,6 +80,7 @@ func TestConsumer_ProcessMessage(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -140,6 +144,7 @@ func TestConsumer_ProcessMessage_Error(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -181,6 +186,83 @@ func TestConsumer_ProcessMessage_Error(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestConsumer_ProcessDelivery_ManualSettlementMetric(t *testing.T) {
+	rec := telemetrytest.NewRecorder()
+	funcReg := &mockFuncRegistry{
+		onTask: func(task runtime.Task) {
+			for _, pair := range task.Context {
+				if delivery, ok := pair.Value.(*queueapi.Delivery); ok {
+					if delivery.MarkSettled() {
+						_ = delivery.Nack(context.Background())
+					}
+				}
+			}
+		},
+	}
+	consumer := NewConsumer(
+		registry.NewID("test", "consumer"),
+		&consumerapi.Config{ConsumerOptions: queueapi.ConsumerOptions{
+			Queue: registry.NewID("test", "queue"),
+			Func:  registry.NewID("test", "func"),
+		}},
+		&mockDriver{},
+		funcReg,
+		zap.NewNop(),
+		rec,
+	)
+
+	acked := atomic.Bool{}
+	nacked := atomic.Bool{}
+	delivery := &queueapi.Delivery{
+		Message: &queueapi.Message{ID: "msg1", Body: payload.New("test message"), Headers: attrs.NewBag()},
+		Ack: func(context.Context) error {
+			acked.Store(true)
+			return nil
+		},
+		Nack: func(context.Context) error {
+			nacked.Store(true)
+			return nil
+		},
+	}
+
+	consumer.processDelivery(context.Background(), delivery, 1)
+
+	assert.False(t, acked.Load())
+	assert.True(t, nacked.Load())
+	assert.Equal(t, 1.0, rec.CounterValue(metricMessagesTotal,
+		metrics.Labels{"queue": "test:queue", "result": "manual"}))
+	assert.Equal(t, 0.0, rec.CounterValue(metricMessagesTotal,
+		metrics.Labels{"queue": "test:queue", "result": "ack"}))
+}
+
+func TestConsumer_ProcessDelivery_AckErrorMetric(t *testing.T) {
+	rec := telemetrytest.NewRecorder()
+	consumer := NewConsumer(
+		registry.NewID("test", "consumer"),
+		&consumerapi.Config{ConsumerOptions: queueapi.ConsumerOptions{
+			Queue: registry.NewID("test", "queue"),
+			Func:  registry.NewID("test", "func"),
+		}},
+		&mockDriver{},
+		&mockFuncRegistry{},
+		zap.NewNop(),
+		rec,
+	)
+
+	delivery := &queueapi.Delivery{
+		Message: &queueapi.Message{ID: "msg1", Body: payload.New("test message"), Headers: attrs.NewBag()},
+		Ack:     func(context.Context) error { return errors.New("ack failed") },
+		Nack:    func(context.Context) error { return nil },
+	}
+
+	consumer.processDelivery(context.Background(), delivery, 1)
+
+	assert.Equal(t, 1.0, rec.CounterValue(metricMessagesTotal,
+		metrics.Labels{"queue": "test:queue", "result": "ack_error"}))
+	assert.Equal(t, 0.0, rec.CounterValue(metricMessagesTotal,
+		metrics.Labels{"queue": "test:queue", "result": "ack"}))
+}
+
 func TestConsumer_StopTimeout(t *testing.T) {
 	ctx := context.Background()
 	driver := &mockDriver{}
@@ -210,6 +292,7 @@ func TestConsumer_StopTimeout(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	statusChan, err := consumer.Start(ctx)
@@ -270,6 +353,7 @@ func TestConsumer_StopWithNoMessages(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	statusChan, err := consumer.Start(ctx)
@@ -310,6 +394,7 @@ func TestConsumer_MultipleStopCalls(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -352,6 +437,7 @@ func TestConsumer_ConcurrentMessageProcessing(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -411,6 +497,7 @@ func TestConsumer_StopDuringProcessing(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -464,6 +551,7 @@ func TestConsumer_ContextCancellationStopsWorkers(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	statusChan, err := consumer.Start(ctx)
@@ -504,6 +592,7 @@ func TestConsumer_AckNackAfterShutdown(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -572,6 +661,7 @@ func TestConsumer_SlowWorkers(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -636,6 +726,7 @@ func TestConsumer_DeadWorkerTimeout(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -699,6 +790,7 @@ func TestConsumer_MultipleWorkersOneBlocked(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -765,6 +857,7 @@ func TestConsumer_StopWithAllWorkersBlocked(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -850,14 +943,18 @@ func (m *mockDriver) GetQueueInfo(_ context.Context, _ registry.ID) (attrs.Attri
 type mockFuncRegistry struct {
 	callErr    error
 	onCall     func()
+	onTask     func(runtime.Task)
 	callDelay  time.Duration
 	callCalled atomic.Bool
 }
 
-func (m *mockFuncRegistry) Call(ctx context.Context, _ runtime.Task) (*runtime.Result, error) {
+func (m *mockFuncRegistry) Call(ctx context.Context, task runtime.Task) (*runtime.Result, error) {
 	m.callCalled.Store(true)
 	if m.onCall != nil {
 		m.onCall()
+	}
+	if m.onTask != nil {
+		m.onTask(task)
 	}
 	if m.callDelay > 0 {
 		select {
@@ -903,6 +1000,7 @@ func TestConsumer_StressHighThroughput(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -966,6 +1064,7 @@ func TestConsumer_StressRapidStartStop(t *testing.T) {
 			driver,
 			funcReg,
 			zap.NewNop(),
+			nil,
 		)
 
 		_, err := consumer.Start(ctx)
@@ -1011,6 +1110,7 @@ func TestConsumer_StressStartStopWithMessages(t *testing.T) {
 			driver,
 			funcReg,
 			zap.NewNop(),
+			nil,
 		)
 
 		_, err := consumer.Start(ctx)
@@ -1078,6 +1178,7 @@ func TestConsumer_StressConcurrentConsumers(t *testing.T) {
 				driver,
 				funcReg,
 				zap.NewNop(),
+				nil,
 			)
 
 			_, err := consumer.Start(ctx)
@@ -1145,6 +1246,7 @@ func TestConsumer_StressNackRequeue(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)
@@ -1207,6 +1309,7 @@ func TestConsumer_StressResourceCleanup(t *testing.T) {
 			driver,
 			funcReg,
 			zap.NewNop(),
+			nil,
 		)
 
 		statusChan, err := consumer.Start(ctx)
@@ -1258,6 +1361,7 @@ func TestConsumer_StressMixedAckNack(t *testing.T) {
 		driver,
 		funcReg,
 		zap.NewNop(),
+		nil,
 	)
 
 	_, err := consumer.Start(ctx)

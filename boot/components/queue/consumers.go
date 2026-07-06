@@ -9,6 +9,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/function"
 	logapi "github.com/wippyai/runtime/api/logs"
+	metricsapi "github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/api/payload"
 	queueapi "github.com/wippyai/runtime/api/queue"
 	regapi "github.com/wippyai/runtime/api/registry"
@@ -34,6 +35,7 @@ func Consumers() boot.Component {
 			handlers := bootpkg.GetHandlerRegistry(ctx)
 			queueMgr := queueapi.GetManager(ctx)
 			funcReg := function.GetRegistry(ctx)
+			coll := metricsapi.GetCollector(ctx)
 
 			if reg := regapi.GetRegistry(ctx); reg != nil {
 				consumerPatterns := []regapi.DependencyPattern{
@@ -53,6 +55,7 @@ func Consumers() boot.Component {
 				funcReg,
 				dtt,
 				logger.Named("queue.consumer"),
+				coll,
 			)
 
 			handlers.RegisterListener("queue.consumer", manager)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/wippyai/runtime/api/boot"
 	dispatcherapi "github.com/wippyai/runtime/api/dispatcher"
+	metricsapi "github.com/wippyai/runtime/api/metrics"
 	"github.com/wippyai/runtime/service/sql"
 )
 
@@ -20,6 +21,7 @@ func SQL() boot.Component {
 				return ctx, ErrDispatcherNotFound
 			}
 			svc := sql.NewDispatcher()
+			svc.SetCollector(metricsapi.GetCollector(ctx))
 			svc.RegisterAll(reg.Register)
 			return ctx, nil
 		},

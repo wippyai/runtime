@@ -107,8 +107,13 @@ func (e *Exporter) Record(name string, typ api.MetricType, value float64, labels
 		switch typ {
 		case api.TypeCounter:
 			e.getOrCreateCounter(key, name, labelNames).WithLabelValues(labelVals...).Add(value)
-		case api.TypeGauge:
-			e.getOrCreateGauge(key, name, labelNames).WithLabelValues(labelVals...).Set(value)
+		case api.TypeGauge, api.TypeGaugeAdd:
+			g := e.getOrCreateGauge(key, name, labelNames)
+			if typ == api.TypeGaugeAdd {
+				g.WithLabelValues(labelVals...).Add(value)
+			} else {
+				g.WithLabelValues(labelVals...).Set(value)
+			}
 		case api.TypeHistogram:
 			e.getOrCreateHistogram(key, name, labelNames).WithLabelValues(labelVals...).Observe(value)
 		}
@@ -121,10 +126,14 @@ func (e *Exporter) Record(name string, typ api.MetricType, value float64, labels
 			c := e.getOrCreateCounter(key, name, labelNames)
 			_ = e.series.Set(sig, &seriesEntry{deleteFn: c.DeleteLabelValues, labelVals: valsCopy})
 			c.WithLabelValues(labelVals...).Add(value)
-		case api.TypeGauge:
+		case api.TypeGauge, api.TypeGaugeAdd:
 			g := e.getOrCreateGauge(key, name, labelNames)
 			_ = e.series.Set(sig, &seriesEntry{deleteFn: g.DeleteLabelValues, labelVals: valsCopy})
-			g.WithLabelValues(labelVals...).Set(value)
+			if typ == api.TypeGaugeAdd {
+				g.WithLabelValues(labelVals...).Add(value)
+			} else {
+				g.WithLabelValues(labelVals...).Set(value)
+			}
 		case api.TypeHistogram:
 			h := e.getOrCreateHistogram(key, name, labelNames)
 			_ = e.series.Set(sig, &seriesEntry{deleteFn: h.DeleteLabelValues, labelVals: valsCopy})

@@ -27,7 +27,7 @@ import (
 
 func TestNewDefaultClientFactory(t *testing.T) {
 	env := &mockEnvRegistry{values: make(map[string]string)}
-	factory := NewDefaultClientFactory(env, nil, nil)
+	factory := NewDefaultClientFactory(env, nil, nil, nil)
 
 	require.NotNil(t, factory)
 	assert.Equal(t, env, factory.env)
@@ -37,7 +37,7 @@ func TestNewDefaultClientFactory(t *testing.T) {
 
 func TestDefaultClientFactory_buildClientOptions(t *testing.T) {
 	t.Run("basic options", func(t *testing.T) {
-		factory := NewDefaultClientFactory(nil, newTestDataConverterProvider(), nil)
+		factory := NewDefaultClientFactory(nil, newTestDataConverterProvider(), nil, nil)
 		config := &api.ClientConfig{
 			Address:   "localhost:7233",
 			Namespace: "default",
@@ -57,7 +57,7 @@ func TestDefaultClientFactory_buildClientOptions(t *testing.T) {
 
 	t.Run("with data converter", func(t *testing.T) {
 		dc := &mockDataConverter{}
-		factory := NewDefaultClientFactory(nil, func() converter.DataConverter { return dc }, nil)
+		factory := NewDefaultClientFactory(nil, func() converter.DataConverter { return dc }, nil, nil)
 		config := &api.ClientConfig{
 			Address:   "localhost:7233",
 			Namespace: "test",
@@ -75,7 +75,7 @@ func TestDefaultClientFactory_buildClientOptions(t *testing.T) {
 
 	t.Run("with interceptors", func(t *testing.T) {
 		interceptors := []interceptor.ClientInterceptor{&mockClientInterceptor{}}
-		factory := NewDefaultClientFactory(nil, newTestDataConverterProvider(), interceptors)
+		factory := NewDefaultClientFactory(nil, newTestDataConverterProvider(), interceptors, nil)
 		config := &api.ClientConfig{
 			Address:   "localhost:7233",
 			Namespace: "test",
@@ -99,7 +99,7 @@ func newTestDataConverterProvider() func() converter.DataConverter {
 
 func TestDefaultClientFactory_configureAuth(t *testing.T) {
 	t.Run("no auth", func(t *testing.T) {
-		factory := NewDefaultClientFactory(nil, nil, nil)
+		factory := NewDefaultClientFactory(nil, nil, nil, nil)
 		config := &api.ClientConfig{
 			Auth: api.AuthConfig{Type: api.AuthTypeNone},
 		}
@@ -112,7 +112,7 @@ func TestDefaultClientFactory_configureAuth(t *testing.T) {
 	})
 
 	t.Run("api key direct", func(t *testing.T) {
-		factory := NewDefaultClientFactory(nil, nil, nil)
+		factory := NewDefaultClientFactory(nil, nil, nil, nil)
 		config := &api.ClientConfig{
 			Auth: api.AuthConfig{
 				Type:   api.AuthTypeAPIKey,
@@ -134,7 +134,7 @@ func TestDefaultClientFactory_configureAuth(t *testing.T) {
 		err := os.WriteFile(keyFile, []byte("file-api-key\n"), 0600)
 		require.NoError(t, err)
 
-		factory := NewDefaultClientFactory(nil, nil, nil)
+		factory := NewDefaultClientFactory(nil, nil, nil, nil)
 		config := &api.ClientConfig{
 			Auth: api.AuthConfig{
 				Type:       api.AuthTypeAPIKey,
@@ -150,7 +150,7 @@ func TestDefaultClientFactory_configureAuth(t *testing.T) {
 	})
 
 	t.Run("api key from missing file fails", func(t *testing.T) {
-		factory := NewDefaultClientFactory(nil, nil, nil)
+		factory := NewDefaultClientFactory(nil, nil, nil, nil)
 		config := &api.ClientConfig{
 			Auth: api.AuthConfig{
 				Type:       api.AuthTypeAPIKey,
@@ -166,7 +166,7 @@ func TestDefaultClientFactory_configureAuth(t *testing.T) {
 	})
 
 	t.Run("api key no source fails", func(t *testing.T) {
-		factory := NewDefaultClientFactory(nil, nil, nil)
+		factory := NewDefaultClientFactory(nil, nil, nil, nil)
 		config := &api.ClientConfig{
 			Auth: api.AuthConfig{
 				Type: api.AuthTypeAPIKey,
@@ -181,7 +181,7 @@ func TestDefaultClientFactory_configureAuth(t *testing.T) {
 	})
 
 	t.Run("unsupported auth type fails", func(t *testing.T) {
-		factory := NewDefaultClientFactory(nil, nil, nil)
+		factory := NewDefaultClientFactory(nil, nil, nil, nil)
 		config := &api.ClientConfig{
 			Auth: api.AuthConfig{
 				Type: "unknown",
@@ -198,7 +198,7 @@ func TestDefaultClientFactory_configureAuth(t *testing.T) {
 
 func TestDefaultClientFactory_loadClientCertificate(t *testing.T) {
 	t.Run("missing cert source fails", func(t *testing.T) {
-		factory := NewDefaultClientFactory(nil, nil, nil)
+		factory := NewDefaultClientFactory(nil, nil, nil, nil)
 		auth := api.AuthConfig{
 			KeyPEM: "some-key",
 		}
@@ -210,7 +210,7 @@ func TestDefaultClientFactory_loadClientCertificate(t *testing.T) {
 	})
 
 	t.Run("missing key source fails", func(t *testing.T) {
-		factory := NewDefaultClientFactory(nil, nil, nil)
+		factory := NewDefaultClientFactory(nil, nil, nil, nil)
 		auth := api.AuthConfig{
 			CertPEM: "some-cert",
 		}
@@ -222,7 +222,7 @@ func TestDefaultClientFactory_loadClientCertificate(t *testing.T) {
 	})
 
 	t.Run("missing cert file fails", func(t *testing.T) {
-		factory := NewDefaultClientFactory(nil, nil, nil)
+		factory := NewDefaultClientFactory(nil, nil, nil, nil)
 		auth := api.AuthConfig{
 			CertFile: "/nonexistent/cert.pem",
 			KeyPEM:   "some-key",
@@ -239,7 +239,7 @@ func TestDefaultClientFactory_loadClientCertificate(t *testing.T) {
 		certFile := filepath.Join(tmpDir, "cert.pem")
 		require.NoError(t, os.WriteFile(certFile, []byte("test-cert"), 0600))
 
-		factory := NewDefaultClientFactory(nil, nil, nil)
+		factory := NewDefaultClientFactory(nil, nil, nil, nil)
 		auth := api.AuthConfig{
 			CertFile: certFile,
 			KeyFile:  "/nonexistent/key.pem",
@@ -252,7 +252,7 @@ func TestDefaultClientFactory_loadClientCertificate(t *testing.T) {
 	})
 
 	t.Run("invalid certificate fails", func(t *testing.T) {
-		factory := NewDefaultClientFactory(nil, nil, nil)
+		factory := NewDefaultClientFactory(nil, nil, nil, nil)
 		auth := api.AuthConfig{
 			CertPEM: "invalid-cert",
 			KeyPEM:  "invalid-key",
@@ -267,7 +267,7 @@ func TestDefaultClientFactory_loadClientCertificate(t *testing.T) {
 
 func TestDefaultClientFactory_configureTLS(t *testing.T) {
 	t.Run("TLS disabled", func(t *testing.T) {
-		factory := NewDefaultClientFactory(nil, nil, nil)
+		factory := NewDefaultClientFactory(nil, nil, nil, nil)
 		config := &api.ClientConfig{
 			TLS: nil,
 		}
@@ -279,7 +279,7 @@ func TestDefaultClientFactory_configureTLS(t *testing.T) {
 	})
 
 	t.Run("TLS enabled but not active", func(t *testing.T) {
-		factory := NewDefaultClientFactory(nil, nil, nil)
+		factory := NewDefaultClientFactory(nil, nil, nil, nil)
 		config := &api.ClientConfig{
 			TLS: &api.TLSConfig{Enabled: false},
 		}
@@ -291,7 +291,7 @@ func TestDefaultClientFactory_configureTLS(t *testing.T) {
 	})
 
 	t.Run("TLS with server name", func(t *testing.T) {
-		factory := NewDefaultClientFactory(nil, nil, nil)
+		factory := NewDefaultClientFactory(nil, nil, nil, nil)
 		config := &api.ClientConfig{
 			TLS: &api.TLSConfig{
 				Enabled:    true,
@@ -308,7 +308,7 @@ func TestDefaultClientFactory_configureTLS(t *testing.T) {
 	})
 
 	t.Run("TLS insecure skip verify", func(t *testing.T) {
-		factory := NewDefaultClientFactory(nil, nil, nil)
+		factory := NewDefaultClientFactory(nil, nil, nil, nil)
 		config := &api.ClientConfig{
 			TLS: &api.TLSConfig{
 				Enabled:            true,
@@ -324,7 +324,7 @@ func TestDefaultClientFactory_configureTLS(t *testing.T) {
 	})
 
 	t.Run("TLS with missing CA file fails", func(t *testing.T) {
-		factory := NewDefaultClientFactory(nil, nil, nil)
+		factory := NewDefaultClientFactory(nil, nil, nil, nil)
 		config := &api.ClientConfig{
 			TLS: &api.TLSConfig{
 				Enabled: true,
@@ -344,7 +344,7 @@ func TestDefaultClientFactory_configureTLS(t *testing.T) {
 		caFile := filepath.Join(tmpDir, "ca.pem")
 		require.NoError(t, os.WriteFile(caFile, []byte("invalid-ca"), 0600))
 
-		factory := NewDefaultClientFactory(nil, nil, nil)
+		factory := NewDefaultClientFactory(nil, nil, nil, nil)
 		config := &api.ClientConfig{
 			TLS: &api.TLSConfig{
 				Enabled: true,
@@ -388,7 +388,7 @@ func TestRewriteClientHeadersInterceptor(t *testing.T) {
 }
 
 func TestConfigureTransportHeaders_AppendsInterceptor(t *testing.T) {
-	factory := NewDefaultClientFactory(nil, nil, nil)
+	factory := NewDefaultClientFactory(nil, nil, nil, nil)
 	opts := &client.Options{}
 
 	factory.configureTransportHeaders(opts)
