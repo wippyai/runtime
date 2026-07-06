@@ -150,6 +150,9 @@ func (ep *EntryProcessor) processBatchEntries(ctx context.Context, content *File
 func (ep *EntryProcessor) processRawEntry(_ context.Context, content *FileContent, rawEntry map[string]any, index int) (registry.Entry, error) {
 	// Validate required fields
 	if err := ep.validator.ValidateRawEntry(rawEntry, index); err != nil {
+		if name := rawEntryName(rawEntry); name != "" {
+			return registry.Entry{}, ProcessingError{Operation: "validate", EntryID: name, Err: err}
+		}
 		return registry.Entry{}, err
 	}
 
@@ -176,6 +179,17 @@ func (ep *EntryProcessor) processRawEntry(_ context.Context, content *FileConten
 	}
 
 	return entry, nil
+}
+
+func rawEntryName(rawEntry map[string]any) string {
+	if rawEntry == nil {
+		return ""
+	}
+	name, ok := rawEntry["name"].(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(name)
 }
 
 // processSingleEntry processes a single entry format if applicable.

@@ -47,9 +47,7 @@ func (l *Loader) LoadFS(ctx context.Context, fs iofs.FS) ([]registry.Entry, erro
 	for _, p := range payloads {
 		fileEntries, err := l.processFile(ctx, fs, p)
 		if err != nil {
-			// Log warning instead of returning error
-			l.log.Warn("process file", zap.String("path", p.Source()), zap.Error(err))
-			continue
+			return nil, NewProcessFileError(p.Source(), err)
 		}
 		entries = append(entries, fileEntries...)
 	}
@@ -68,9 +66,7 @@ func (l *Loader) LoadDir(ctx context.Context, fs iofs.FS, dirPath string) ([]reg
 	for _, p := range payloads {
 		fileEntries, err := l.processFile(ctx, fs, p)
 		if err != nil {
-			// Log warning instead of returning error
-			l.log.Warn("process file", zap.String("path", p.Source()), zap.Error(err))
-			continue
+			return nil, NewProcessFileError(p.Source(), err)
 		}
 		entries = append(entries, fileEntries...)
 	}
