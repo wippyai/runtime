@@ -23,6 +23,7 @@ import (
 	regapi "github.com/wippyai/runtime/api/registry"
 	syspayload "github.com/wippyai/runtime/system/payload"
 	jsonpayload "github.com/wippyai/runtime/system/payload/json"
+	yamlpayload "github.com/wippyai/runtime/system/payload/yaml"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
@@ -296,6 +297,152 @@ func TestDependencyHandler_RedownloadsCorruptCachedArtifact(t *testing.T) {
 	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), downloadCalls.Load())
+}
+
+func TestDependencyHandler_Expand_DoesNotExtractUntouchedSiblingCache(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, ".wippy", "vendor")
+	lockPath := filepath.Join(tmpDir, "wippy.lock")
+
+	require.NoError(t, os.WriteFile(lockPath, []byte(`directories:
+  modules: .wippy
+options:
+  unpack_modules: true
+modules:
+  - name: acme/legacy
+    version: v1.0.0
+  - name: acme/fresh
+    version: v1.0.0
+`), 0600))
+
+	legacyDir := filepath.Join(vendorDir, "acme", "legacy")
+	require.NoError(t, os.MkdirAll(legacyDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(legacyDir, "_index.yaml"), []byte("version: \"1.0\"\nnamespace: acme.legacy\nentries: []\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(legacyDir, "sentinel.txt"), []byte("keep"), 0600))
+	writeWapp(t, filepath.Join(vendorDir, "acme", "legacy-v1.0.0.wapp"), []wapp.Entry{
+		{ID: wapp.NewID("acme.legacy", "rewritten"), Kind: "service", Data: map[string]any{"ok": true}},
+	})
+	before := mustReadFile(t, filepath.Join(legacyDir, "_index.yaml"))
+
+	writeWapp(t, filepath.Join(vendorDir, "acme", "fresh-v1.0.0.wapp"), []wapp.Entry{
+		{ID: wapp.NewID("acme.fresh", "svc"), Kind: "service", Data: map[string]any{"ok": true}},
+	})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		LockPath:  lockPath,
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	legacyRoot := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "legacy"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/legacy","version":"v1.0.0"}`, payload.JSON),
+	}
+	legacySvc := regapi.Entry{
+		ID:   regapi.NewID("acme.legacy", "svc"),
+		Kind: "service",
+		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/legacy", metaModuleVersionKey: "v1.0.0"}),
+		Data: payload.NewPayload(`{"ok":true}`, payload.JSON),
+	}
+	freshRoot := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "fresh"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/fresh","version":"v1.0.0"}`, payload.JSON),
+	}
+
+	_, err = handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: freshRoot}, regapi.State{legacyRoot, legacySvc})
+	require.NoError(t, err)
+
+	assert.Equal(t, string(before), string(mustReadFile(t, filepath.Join(legacyDir, "_index.yaml"))))
+	assert.FileExists(t, filepath.Join(vendorDir, "acme", "legacy-v1.0.0.wapp"))
+}
+
+func TestDependencyHandler_Expand_RefreshesUnpackedSameVersionWhenDigestMismatches(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, ".wippy", "vendor")
+	lockPath := filepath.Join(tmpDir, "wippy.lock")
+
+	freshData := buildWappBytes(t, []wapp.Entry{
+		{ID: wapp.NewID("acme.http", "fresh"), Kind: "function.lua", Data: map[string]any{"source": "return true"}},
+	})
+	sum := sha256.Sum256(freshData)
+	digest := "sha256:" + hex.EncodeToString(sum[:])
+
+	require.NoError(t, os.WriteFile(lockPath, []byte(fmt.Sprintf(`directories:
+  modules: .wippy
+options:
+  unpack_modules: true
+modules:
+  - name: acme/http
+    version: v1.0.0
+    hash: %s
+`, digest)), 0600))
+
+	staleDir := filepath.Join(vendorDir, "acme", "http")
+	require.NoError(t, os.MkdirAll(staleDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(staleDir, "_index.yaml"), []byte("version: \"1.0\"\nnamespace: acme.http\nentries:\n  - name: stale\n    kind: function.lua\n    source: file://stale.lua\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(staleDir, "stale.lua"), []byte("return false"), 0600))
+
+	var downloadCalls atomic.Int32
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				return &ModuleManifest{
+					Org:     org,
+					Name:    module,
+					Version: version,
+					URL:     "https://example.invalid/http-v1.0.0.wapp",
+					Digest:  digest,
+				}, nil
+			},
+			downloadFile: func(_ context.Context, _ string, destPath string) error {
+				downloadCalls.Add(1)
+				if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+					return err
+				}
+				return os.WriteFile(destPath, freshData, 0600)
+			},
+		},
+		Logger:    zap.NewNop(),
+		LockPath:  lockPath,
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	depEntry := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "http"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/http","version":"v1.0.0"}`, payload.JSON),
+	}
+
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: depEntry}, nil)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+	assert.Equal(t, int32(1), downloadCalls.Load())
+	assert.FileExists(t, filepath.Join(staleDir, "_index.yaml"))
+
+	entries, err := handler.loadEntriesForModule(ctx, payload.GetTranscoder(ctx), ResolvedModule{
+		Org:     "acme",
+		Name:    "http",
+		Version: "v1.0.0",
+		Digest:  digest,
+	})
+	require.NoError(t, err)
+	loaded := make(map[regapi.ID]bool)
+	for _, entry := range entries {
+		loaded[entry.ID] = true
+	}
+	assert.True(t, loaded[regapi.NewID("acme.http", "fresh")])
+	assert.False(t, loaded[regapi.NewID("acme.http", "stale")])
 }
 
 func TestDependencyHandler_ResolveTimeoutSetsDeadline(t *testing.T) {
@@ -2621,6 +2768,7 @@ func newTestContext() context.Context {
 	ctx := ctxapi.NewRootContext()
 	transcoder := syspayload.NewTranscoder()
 	jsonpayload.Register(transcoder)
+	yamlpayload.Register(transcoder)
 	ctx = payload.WithTranscoder(ctx, transcoder)
 	return ctx
 }
@@ -2630,6 +2778,13 @@ func writeWapp(t *testing.T, path string, entries []wapp.Entry) {
 	buf := buildWappBytes(t, entries)
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
 	require.NoError(t, os.WriteFile(path, buf, 0600))
+}
+
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return data
 }
 
 func buildWappBytes(t *testing.T, entries []wapp.Entry) []byte {

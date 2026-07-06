@@ -39,6 +39,7 @@ import (
 const (
 	metaModuleKey        = "module"
 	metaModuleVersionKey = "module_version"
+	extractedModuleMeta  = ".wippy-module.yaml"
 )
 
 type DependencyHandlerOptions struct {
@@ -851,7 +852,7 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 	if exists(wappPath) {
 		if err := verifyDownloadedArtifact(wappPath, expectedDigest, expectedSize); err == nil {
 			if shouldUnpack {
-				if err := h.extractWappModule(wappPath, dirPath); err != nil {
+				if err := h.extractWappModule(wappPath, dirPath, expectedDigest, expectedSize); err != nil {
 					return "", err
 				}
 				return dirPath, nil
@@ -866,7 +867,14 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 
 	if exists(dirPath) {
 		if installed, ok := h.installedVersion(name.String()); ok && installed == mod.Version {
-			return dirPath, nil
+			if err := verifyExtractedModule(dirPath, expectedDigest, expectedSize); err == nil {
+				return dirPath, nil
+			} else if expectedDigest != "" || expectedSize > 0 {
+				h.logger.Warn("unpacked dependency failed integrity check; redownloading",
+					zap.String("module", modKey(mod)),
+					zap.String("path", dirPath),
+					zap.Error(err))
+			}
 		}
 	}
 
@@ -919,7 +927,7 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 	}
 
 	if shouldUnpack {
-		if err := h.extractWappModule(wappPath, dirPath); err != nil {
+		if err := h.extractWappModule(wappPath, dirPath, expectedDigest, expectedSize); err != nil {
 			return "", err
 		}
 		return dirPath, nil
@@ -943,7 +951,7 @@ func (h *DependencyHandler) freshDownloadInfo(ctx context.Context, mod ResolvedM
 	})
 }
 
-func (h *DependencyHandler) extractWappModule(wappPath, dirPath string) error {
+func (h *DependencyHandler) extractWappModule(wappPath, dirPath string, digest string, size uint64) error {
 	tmpDir, err := os.MkdirTemp(filepath.Dir(dirPath), "."+filepath.Base(dirPath)+".extract-*")
 	if err != nil {
 		return NewDependencyLoadError(dirPath, err)
@@ -957,6 +965,9 @@ func (h *DependencyHandler) extractWappModule(wappPath, dirPath string) error {
 
 	if err := wappextract.ExtractWappToDirKeepSource(wappPath, tmpDir); err != nil {
 		return NewDependencyLoadError(wappPath, err)
+	}
+	if err := writeExtractedModuleMeta(tmpDir, digest, size); err != nil {
+		return NewDependencyLoadError(tmpDir, err)
 	}
 	if err := replaceDirectory(dirPath, tmpDir); err != nil {
 		return NewDependencyLoadError(dirPath, err)
@@ -1132,6 +1143,43 @@ func VerifyDownloadedArtifact(path, expectedDigest string, expectedSize uint64) 
 
 func verifyDownloadedArtifact(path, expectedDigest string, expectedSize uint64) error {
 	return VerifyDownloadedArtifact(path, expectedDigest, expectedSize)
+}
+
+type extractedModuleMetadata struct {
+	Digest string `yaml:"digest,omitempty"`
+	Size   uint64 `yaml:"size,omitempty"`
+}
+
+func writeExtractedModuleMeta(dirPath, digest string, size uint64) error {
+	if digest == "" && size == 0 {
+		return nil
+	}
+	data, err := yaml.Marshal(extractedModuleMetadata{Digest: digest, Size: size})
+	if err != nil {
+		return fmt.Errorf("marshal extracted module metadata: %w", err)
+	}
+	return os.WriteFile(filepath.Join(dirPath, extractedModuleMeta), data, 0600)
+}
+
+func verifyExtractedModule(dirPath, expectedDigest string, expectedSize uint64) error {
+	if expectedDigest == "" && expectedSize == 0 {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Join(dirPath, extractedModuleMeta))
+	if err != nil {
+		return err
+	}
+	var meta extractedModuleMetadata
+	if err := yaml.Unmarshal(data, &meta); err != nil {
+		return fmt.Errorf("read extracted module metadata: %w", err)
+	}
+	if expectedDigest != "" && !strings.EqualFold(meta.Digest, expectedDigest) {
+		return fmt.Errorf("digest mismatch: expected %s, got %s", expectedDigest, meta.Digest)
+	}
+	if expectedSize > 0 && meta.Size != expectedSize {
+		return fmt.Errorf("size mismatch: expected %d bytes, got %d bytes", expectedSize, meta.Size)
+	}
+	return nil
 }
 
 func parseExpectedDigest(raw string) (algorithm string, value string, err error) {
