@@ -80,8 +80,12 @@ func (d *Dispatcher) Start(_ context.Context) error {
 	return nil
 }
 
-// Stop shuts down the dispatcher.
+// Stop shuts down the dispatcher, releasing all pooled HTTP client idle
+// connections so kernel sockets don't linger after the process exits.
 func (d *Dispatcher) Stop(_ context.Context) error {
+	if d.pool != nil {
+		d.pool.Close()
+	}
 	return nil
 }
 

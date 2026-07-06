@@ -27,11 +27,6 @@ type Config struct {
 	Password          string                     `json:"password"`
 	Host              string                     `json:"host"`
 	Username          string                     `json:"username"`
-	HostEnv           string                     `json:"host_env,omitempty"`
-	PortEnv           string                     `json:"port_env,omitempty"`
-	DatabaseEnv       string                     `json:"database_env,omitempty"`
-	UsernameEnv       string                     `json:"username_env,omitempty"`
-	PasswordEnv       string                     `json:"password_env,omitempty"`
 	SlotName          string                     `json:"slot_name"`
 	Publication       string                     `json:"publication,omitempty"`
 	StandbyInterval   string                     `json:"standby_interval,omitempty"`
@@ -54,19 +49,19 @@ func (c *Config) InitDefaults() {
 }
 
 func (c *Config) Validate() error {
-	if c.Host == "" && c.HostEnv == "" {
+	if c.Host == "" {
 		return ErrHostRequired
 	}
-	if c.Port <= 0 && c.PortEnv == "" {
+	if c.Port <= 0 {
 		return ErrInvalidPort
 	}
-	if c.Database == "" && c.DatabaseEnv == "" {
+	if c.Database == "" {
 		return ErrDatabaseRequired
 	}
-	if c.Username == "" && c.UsernameEnv == "" {
+	if c.Username == "" {
 		return ErrUsernameRequired
 	}
-	if c.Password == "" && c.PasswordEnv == "" {
+	if c.Password == "" {
 		return ErrPasswordRequired
 	}
 	if c.SlotName == "" {

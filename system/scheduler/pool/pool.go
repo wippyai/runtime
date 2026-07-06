@@ -12,6 +12,7 @@ package pool
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -195,7 +196,16 @@ func (e *Executor) Run(ctx context.Context, proc process.Process, method string,
 		e.output.Reset()
 
 		// Step the process
-		if err := proc.Step(events, &e.output); err != nil {
+		err := proc.Step(events, &e.output)
+		if err != nil {
+			if errors.Is(err, process.ErrProcessReplacementRequested) && e.output.Status() == process.StepDone {
+				ret := runtime.Result{Value: e.output.Result()}
+				if e.hooks.OnComplete != nil {
+					e.hooks.OnComplete(ctx, &ret)
+				}
+				ret.Error = err
+				return &ret
+			}
 			result := &runtime.Result{Error: err}
 			if e.hooks.OnComplete != nil {
 				e.hooks.OnComplete(ctx, result)

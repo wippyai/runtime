@@ -465,7 +465,7 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		stages.Override(),
 	}
 	if len(embedPatterns) > 0 {
-		pipelineStages = append(pipelineStages, stages.EmbedFS(embedPatterns...))
+		pipelineStages = append(pipelineStages, stages.EmbedFS(srcDir, embedPatterns...))
 	}
 
 	pipeline := build.New(pipelineStages...)
@@ -513,6 +513,9 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 			continue
 		}
 		metadata[trimmed] = value
+	}
+	if err := addPublishedRuntimeProfileMetadata(metadata, srcDir, cfg.Publish.Profiles); err != nil {
+		return nil, NewPublishConfigError(err)
 	}
 
 	packWriter := wapp.NewWriter()

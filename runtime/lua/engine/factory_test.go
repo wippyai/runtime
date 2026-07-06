@@ -723,10 +723,10 @@ func TestFactory_ModuleAliasing_GoModule(t *testing.T) {
 	luaProc := proc.(*Process)
 	state := luaProc.State()
 
-	// Check aliased_module global exists
-	aliasedMod := state.GetGlobal("aliased_module")
+	// Imports are scoped to the chunk environment, not the shared _G.
+	aliasedMod := state.GetField(state.Env, "aliased_module")
 	if aliasedMod == lua.LNil {
-		t.Fatal("aliased_module global not found")
+		t.Fatal("aliased_module not found in chunk env")
 	}
 
 	// Verify it's a table with the expected marker
@@ -789,10 +789,10 @@ func TestFactory_ModuleAliasing_LuaLibrary(t *testing.T) {
 	luaProc := proc.(*Process)
 	state := luaProc.State()
 
-	// Check utils global exists
-	utilsMod := state.GetGlobal("utils")
+	// Imports are scoped to the chunk environment, not the shared _G.
+	utilsMod := state.GetField(state.Env, "utils")
 	if utilsMod == lua.LNil {
-		t.Fatal("utils global not found")
+		t.Fatal("utils not found in chunk env")
 	}
 
 	// Verify it's a table with the expected marker
@@ -884,9 +884,9 @@ func TestFactory_ModuleAliasing_MultipleAliases(t *testing.T) {
 	state := luaProc.State()
 
 	// Verify first alias
-	firstMod := state.GetGlobal("first")
+	firstMod := state.GetField(state.Env, "first")
 	if firstMod == lua.LNil {
-		t.Fatal("first global not found")
+		t.Fatal("first not found in chunk env")
 	}
 	if tbl, ok := firstMod.(*lua.LTable); ok {
 		if tbl.RawGetString("id").String() != "one" {
@@ -897,9 +897,9 @@ func TestFactory_ModuleAliasing_MultipleAliases(t *testing.T) {
 	}
 
 	// Verify second alias
-	secondMod := state.GetGlobal("second")
+	secondMod := state.GetField(state.Env, "second")
 	if secondMod == lua.LNil {
-		t.Fatal("second global not found")
+		t.Fatal("second not found in chunk env")
 	}
 	if tbl, ok := secondMod.(*lua.LTable); ok {
 		if tbl.RawGetString("id").String() != "two" {
@@ -979,9 +979,9 @@ func TestFactory_ModuleAliasing_SameModuleDifferentAliases(t *testing.T) {
 	state1 := proc1.(*Process).State()
 
 	// Verify alpha is set but not shared_mod
-	alphaMod := state1.GetGlobal("alpha")
+	alphaMod := state1.GetField(state1.Env, "alpha")
 	if alphaMod == lua.LNil {
-		t.Fatal("alpha global not found in proc1")
+		t.Fatal("alpha not found in proc1 chunk env")
 	}
 	if tbl, ok := alphaMod.(*lua.LTable); ok {
 		if tbl.RawGetString("name").String() != "shared" {
@@ -1007,9 +1007,9 @@ func TestFactory_ModuleAliasing_SameModuleDifferentAliases(t *testing.T) {
 	state2 := proc2.(*Process).State()
 
 	// Verify beta is set but not shared_mod
-	betaMod := state2.GetGlobal("beta")
+	betaMod := state2.GetField(state2.Env, "beta")
 	if betaMod == lua.LNil {
-		t.Fatal("beta global not found in proc2")
+		t.Fatal("beta not found in proc2 chunk env")
 	}
 	if tbl, ok := betaMod.(*lua.LTable); ok {
 		if tbl.RawGetString("name").String() != "shared" {

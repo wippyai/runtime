@@ -201,11 +201,13 @@ func (d *Dispatcher) handleExec(ctx context.Context, cmd dispatcher.Command, tag
 	options.Set(api.ProcessParentKey, watcherPID)
 	options.Set(api.ProcessMonitorKey, true)
 
-	// Start the process
+	// Start the process bounded to the exec's caller-supplied security context
+	// (actor/scope/values), mirroring how spawn applies Start.Context.
 	processPID, err := d.manager.Start(ctx, &api.Start{
 		HostID:  execCmd.HostID,
 		Source:  execCmd.Source,
 		Input:   execCmd.Input,
+		Context: execCmd.Context,
 		Options: options,
 	})
 	if err != nil {

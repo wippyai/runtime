@@ -4,6 +4,7 @@ package stages
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -1165,6 +1166,382 @@ func TestLink_EmptyProvidedValueResolvesUnderStrict(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestLink_IntDefaultLandsAsInt verifies that an integer default resolves and
+// lands in the target entry data as an int, and that decoding the target into a
+// struct with an int field yields the value.
+func TestLink_IntDefaultLandsAsInt(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("test", "concurrency"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"default": 20,
+				"targets": []any{
+					map[string]any{
+						"entry": "service",
+						"path":  ".concurrency",
+					},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("test", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link()
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	target := findEntry(entries, "test", "service")
+	require.NotNil(t, target)
+	data := target.Data.Data().(map[string]any)
+	assert.Equal(t, 20, data["concurrency"])
+
+	type serviceConfig struct {
+		Concurrency int `json:"concurrency"`
+	}
+	var cfg serviceConfig
+	raw, err := json.Marshal(data)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(raw, &cfg))
+	assert.Equal(t, 20, cfg.Concurrency)
+}
+
+// TestLink_StringDefaultStaysString verifies that a quoted numeric default is
+// kept as a string end to end.
+func TestLink_StringDefaultStaysString(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("test", "label"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"default": "20",
+				"targets": []any{
+					map[string]any{"entry": "service", "path": ".label"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("test", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link()
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	target := findEntry(entries, "test", "service")
+	require.NotNil(t, target)
+	data := target.Data.Data().(map[string]any)
+	assert.Equal(t, "20", data["label"])
+}
+
+// TestLink_BoolAndFloatDefaults verifies that bool and float defaults flow into
+// targets in their source types.
+func TestLink_BoolAndFloatDefaults(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("test", "enabled"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"default": true,
+				"targets": []any{
+					map[string]any{"entry": "service", "path": ".enabled"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("test", "ratio"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"default": 0.5,
+				"targets": []any{
+					map[string]any{"entry": "service", "path": ".ratio"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("test", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link()
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	target := findEntry(entries, "test", "service")
+	require.NotNil(t, target)
+	data := target.Data.Data().(map[string]any)
+	assert.Equal(t, true, data["enabled"])
+	assert.Equal(t, 0.5, data["ratio"])
+}
+
+// TestLink_TypedDependencyParameter verifies that a typed dependency parameter
+// value flows into the requirement target unchanged.
+func TestLink_TypedDependencyParameter(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "__dependency.module"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "vendor/module",
+				"parameters": []any{
+					map[string]any{"name": "concurrency", "value": 8},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.module", "concurrency"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "service", "path": ".concurrency"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.module", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link()
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	target := findEntry(entries, "vendor.module", "service")
+	require.NotNil(t, target)
+	data := target.Data.Data().(map[string]any)
+	assert.Equal(t, 8, data["concurrency"])
+}
+
+// TestLink_TypedParameterSameValueNoConflict verifies that two dependencies
+// supplying the same non-string value do not raise a conflict.
+func TestLink_TypedParameterSameValueNoConflict(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "__dependency.a"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "vendor/module",
+				"parameters": []any{
+					map[string]any{"name": "workers", "value": 4},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("app", "__dependency.b"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "vendor/module",
+				"parameters": []any{
+					map[string]any{"name": "workers", "value": 4},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.module", "workers"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "vendor/module"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "service", "path": ".workers"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.module", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"vendor/module"}))
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	target := findEntry(entries, "vendor.module", "service")
+	require.NotNil(t, target)
+	data := target.Data.Data().(map[string]any)
+	assert.Equal(t, 4, data["workers"])
+}
+
+// TestLink_TypedParameterConflictLeavesUnresolved verifies that two dependencies
+// supplying different non-string values conflict, leaving the requirement
+// unresolved under strict enforcement with a readable value in the error.
+func TestLink_TypedParameterConflictLeavesUnresolved(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "__dependency.a"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "vendor/module",
+				"parameters": []any{
+					map[string]any{"name": "workers", "value": 4},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("app", "__dependency.b"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "vendor/module",
+				"parameters": []any{
+					map[string]any{"name": "workers", "value": 8},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.module", "workers"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "vendor/module"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "service", "path": ".workers"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("vendor.module", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"vendor/module"}))
+	err := stage.Execute(ctx, &entries)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "workers=4")
+	assert.ErrorContains(t, err, "workers=8")
+
+	target := findEntry(entries, "vendor.module", "service")
+	require.NotNil(t, target)
+	data := target.Data.Data().(map[string]any)
+	_, set := data["workers"]
+	assert.False(t, set)
+}
+
+// TestLink_NullDefaultLeavesMandatory verifies that an explicit null default is
+// treated identically to an absent one: the requirement stays mandatory and
+// fails under strict enforcement.
+func TestLink_NullDefaultLeavesMandatory(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("test", "mandatory"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"default": nil,
+				"targets": []any{
+					map[string]any{"entry": "service", "path": ".field"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("test", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirements())
+	err := stage.Execute(ctx, &entries)
+	require.ErrorContains(t, err, "unresolved requirements")
+}
+
+// TestLink_PlaceholderDefaultPassesThroughUntouched verifies that a default
+// containing an env placeholder is a string carried into the target verbatim,
+// leaving later resolution to service decode time.
+func TestLink_PlaceholderDefaultPassesThroughUntouched(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	const placeholder = "${env:DATABASE_URL}"
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("test", "db_url"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"default": placeholder,
+				"targets": []any{
+					map[string]any{"entry": "service", "path": ".database.url"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("test", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link()
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	target := findEntry(entries, "test", "service")
+	require.NotNil(t, target)
+	data := target.Data.Data().(map[string]any)
+	database := data["database"].(map[string]any)
+	assert.Equal(t, placeholder, database["url"])
+}
+
+// TestLink_AppendTypedValue verifies that typed values append into an array
+// target via the "+=" operator.
+func TestLink_AppendTypedValue(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("test", "port_req"),
+			Kind: registry.NamespaceRequirement,
+			Data: payload.New(map[string]any{
+				"default": 9090,
+				"targets": []any{
+					map[string]any{"entry": "service", "path": ".ports +="},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("test", "service"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{
+				"ports": []any{8080},
+			}),
+		},
+	}
+
+	stage := Link()
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	target := findEntry(entries, "test", "service")
+	require.NotNil(t, target)
+	data := target.Data.Data().(map[string]any)
+	assert.Equal(t, []any{8080, 9090}, data["ports"])
+}
+
 // Helper functions
 
 type mockTranscoder struct{}
@@ -1184,9 +1561,8 @@ func (m *mockTranscoder) Unmarshal(p payload.Payload, v any) error {
 	if dataMap, ok := data.(map[string]any); ok {
 		// Simple reflection-based assignment for test structs
 		if reqDef, ok := v.(*RequirementDefinition); ok {
-			if def, ok := dataMap["default"].(string); ok {
-				d := def
-				reqDef.Default = &d
+			if def, ok := dataMap["default"]; ok {
+				reqDef.Default = def
 			}
 			if targets, ok := dataMap["targets"].([]any); ok {
 				for _, t := range targets {
@@ -1216,7 +1592,7 @@ func (m *mockTranscoder) Unmarshal(p payload.Payload, v any) error {
 						if name, ok := pMap["name"].(string); ok {
 							param.Name = name
 						}
-						if value, ok := pMap["value"].(string); ok {
+						if value, ok := pMap["value"]; ok {
 							param.Value = value
 						}
 						depDef.Parameters = append(depDef.Parameters, param)

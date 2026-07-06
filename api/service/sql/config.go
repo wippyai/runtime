@@ -54,19 +54,14 @@ type (
 
 	// DBConfig defines the base configuration for SQL databases
 	DBConfig struct {
-		Options     map[string]string          `json:"options"`
-		Database    string                     `json:"database"`
-		Password    string                     `json:"password"`
-		UsernameEnv string                     `json:"username_env,omitempty"`
-		PasswordEnv string                     `json:"password_env,omitempty"`
-		Host        string                     `json:"host"`
-		Username    string                     `json:"username"`
-		HostEnv     string                     `json:"host_env,omitempty"`
-		DatabaseEnv string                     `json:"database_env,omitempty"`
-		PortEnv     string                     `json:"port_env,omitempty"`
-		Lifecycle   supervisor.LifecycleConfig `json:"lifecycle"`
-		Pool        PoolConfig                 `json:"pool"`
-		Port        int                        `json:"port"`
+		Options   map[string]string          `json:"options"`
+		Database  string                     `json:"database"`
+		Password  string                     `json:"password"`
+		Host      string                     `json:"host"`
+		Username  string                     `json:"username"`
+		Lifecycle supervisor.LifecycleConfig `json:"lifecycle"`
+		Pool      PoolConfig                 `json:"pool"`
+		Port      int                        `json:"port"`
 	}
 
 	// SQLiteConfig defines SQLite-specific configuration
@@ -126,23 +121,23 @@ func (c *DBConfig) LifecycleConfig() supervisor.LifecycleConfig {
 
 // Validate checks if the DBConfig has all required fields set to valid values
 func (c *DBConfig) Validate() error {
-	if c.Host == "" && c.HostEnv == "" {
+	if c.Host == "" {
 		return ErrHostRequired
 	}
 
-	if c.Port <= 0 && c.PortEnv == "" {
+	if c.Port <= 0 {
 		return ErrInvalidPort
 	}
 
-	if c.Database == "" && c.DatabaseEnv == "" {
+	if c.Database == "" {
 		return ErrDatabaseRequired
 	}
 
-	if c.Username == "" && c.UsernameEnv == "" {
+	if c.Username == "" {
 		return ErrUsernameRequired
 	}
 
-	if c.Password == "" && c.PasswordEnv == "" {
+	if c.Password == "" {
 		return ErrPasswordRequired
 	}
 

@@ -12,6 +12,7 @@ import (
 
 	"connectrpc.com/connect"
 	lua "github.com/wippyai/go-lua"
+	authapi "github.com/wippyai/runtime/api/auth"
 	modulev1 "github.com/wippyai/runtime/api/hub/wippy/api/hub/module/v1"
 	modulev1connect "github.com/wippyai/runtime/api/hub/wippy/api/hub/module/v1/modulev1connect"
 	versionv1 "github.com/wippyai/runtime/api/hub/wippy/api/hub/version/v1"
@@ -82,7 +83,7 @@ func (h *hubModule) authStore() *bootauth.Store {
 }
 
 func (h *hubModule) build() (*lua.LTable, []luaapi.YieldType) {
-	mod := lua.CreateTable(0, 5)
+	mod := lua.CreateTable(0, 7)
 
 	modules := lua.CreateTable(0, 4)
 	modules.RawSetString("list", lua.LGoFunc(h.modulesList))
@@ -91,10 +92,11 @@ func (h *hubModule) build() (*lua.LTable, []luaapi.YieldType) {
 	modules.RawSetString("readme", lua.LGoFunc(h.modulesReadme))
 	modules.Immutable = true
 
-	versions := lua.CreateTable(0, 3)
+	versions := lua.CreateTable(0, 4)
 	versions.RawSetString("list", lua.LGoFunc(h.versionsList))
 	versions.RawSetString("get", lua.LGoFunc(h.versionsGet))
 	versions.RawSetString("inspect", lua.LGoFunc(h.versionsInspect))
+	versions.RawSetString("open", lua.LGoFunc(h.versionsOpen))
 	versions.Immutable = true
 
 	dependencies := lua.CreateTable(0, 1)
@@ -109,11 +111,25 @@ func (h *hubModule) build() (*lua.LTable, []luaapi.YieldType) {
 	files.RawSetString("list", lua.LGoFunc(h.filesList))
 	files.Immutable = true
 
+	auth := lua.CreateTable(0, 3)
+	auth.RawSetString("authenticate", lua.LGoFunc(h.authAuthenticate))
+	auth.RawSetString("logout", lua.LGoFunc(h.authLogout))
+	auth.RawSetString("status", lua.LGoFunc(h.authStatus))
+	auth.Immutable = true
+
+	cache := lua.CreateTable(0, 3)
+	cache.RawSetString("list", lua.LGoFunc(h.cacheList))
+	cache.RawSetString("remove", lua.LGoFunc(h.cacheRemove))
+	cache.RawSetString("prune", lua.LGoFunc(h.cachePrune))
+	cache.Immutable = true
+
 	mod.RawSetString("modules", modules)
 	mod.RawSetString("versions", versions)
 	mod.RawSetString("dependencies", dependencies)
 	mod.RawSetString("dependents", dependents)
 	mod.RawSetString("files", files)
+	mod.RawSetString("auth", auth)
+	mod.RawSetString("cache", cache)
 	mod.Immutable = true
 
 	return mod, nil
@@ -400,13 +416,65 @@ func (h *hubModule) versionsInspect(l *lua.LState) int {
 	ctx, cancel := withTimeout(ctx, base.timeout)
 	defer cancel()
 
-	inspection, callErr := inspectVersionArtifact(ctx, client, params, "")
+	inspection, callErr := inspectVersionArtifact(ctx, client, params, resolveVendorDir())
 	if callErr != nil {
 		return pushError(l, hubCallError(l, callErr))
 	}
 
 	l.Push(artifactInspectionToTable(l, inspection))
 	return 1
+}
+
+func (h *hubModule) versionsOpen(l *lua.LState) int {
+	moduleRef, moduleKey, err := parseModuleRef(l, 1)
+	if err != nil {
+		return pushError(l, err)
+	}
+	versionRef, err := parseVersionRef(l, 2)
+	if err != nil {
+		return pushError(l, err)
+	}
+
+	ctx, err := h.requireContext(l)
+	if err != nil {
+		return pushError(l, err)
+	}
+	if !security.IsAllowed(ctx, "hub.versions.open", moduleKey, nil) {
+		return pushError(l, permissionDenied(l, "hub.versions.open", moduleKey))
+	}
+
+	base, err := parseBaseOptions(l, 3)
+	if err != nil {
+		return pushError(l, err)
+	}
+
+	client, err := h.artifactClient(l, base)
+	if err != nil {
+		return pushError(l, err)
+	}
+	params, paramsErr := downloadParamsFromRefs(moduleRef, versionRef)
+	if paramsErr != nil {
+		return pushError(l, invalidArgument(l, paramsErr.Error()))
+	}
+
+	reqCtx, cancel := withTimeout(ctx, base.timeout)
+	defer cancel()
+
+	path, info, callErr := ensureCachedArtifact(reqCtx, client, params, resolveVendorDir())
+	if callErr != nil {
+		return pushError(l, hubCallError(l, callErr))
+	}
+
+	file, reader, openErr := openArtifactReader(path)
+	if openErr != nil {
+		return pushError(l, hubCallError(l, openErr))
+	}
+
+	version := firstNonEmpty(info.Version, params.Version, params.VersionID, params.Label)
+	handle := newPackageHandle(ctx, file, reader, version, info.Digest)
+	pushPackageHandle(l, handle)
+	l.Push(lua.LNil)
+	return 2
 }
 
 func (h *hubModule) dependenciesGet(l *lua.LState) int {
@@ -678,6 +746,159 @@ func (h *hubModule) newHubClient(l *lua.LState, base baseOptions) (*boothub.Clie
 	return client, nil
 }
 
+func (h *hubModule) resolveRegistry(registry string) string {
+	registry = firstNonEmpty(registry, h.opts.BaseURL)
+	if registry == "" {
+		if store := h.authStore(); store != nil {
+			registry = store.DefaultRegistry()
+		}
+	}
+
+	return registry
+}
+
+func (h *hubModule) authAuthenticate(l *lua.LState) int {
+	token := strings.TrimSpace(l.OptString(1, ""))
+	registry := h.resolveRegistry(l.OptString(2, ""))
+
+	ctx, err := h.requireContext(l)
+	if err != nil {
+		return pushError(l, err)
+	}
+	if !security.IsAllowed(ctx, "hub.auth.authenticate", registry, nil) {
+		return pushError(l, permissionDenied(l, "hub.auth.authenticate", registry))
+	}
+
+	if formatErr := bootauth.ValidateTokenFormat(token); formatErr != nil {
+		return pushError(l, invalidArgument(l, formatErr.Error()))
+	}
+
+	client, clientErr := bootauth.NewClient(registry)
+	if clientErr != nil {
+		return pushError(l, lua.WrapErrorWithLua(l, clientErr, "auth client init").WithKind(lua.Invalid).WithRetryable(false))
+	}
+
+	result, validateErr := client.Validate(ctx, token)
+	if validateErr != nil {
+		if errors.Is(validateErr, authapi.ErrTokenInvalid) ||
+			errors.Is(validateErr, authapi.ErrTokenExpired) ||
+			errors.Is(validateErr, authapi.ErrInsufficientScope) {
+			return pushAuthStatus(l, registry, false, nil, nil)
+		}
+
+		return pushError(l, hubCallError(l, validateErr))
+	}
+
+	bootauth.SetRuntimeToken(registry, token)
+
+	return pushAuthStatus(l, registry, true, &authapi.Credential{Token: token, Registry: registry}, result)
+}
+
+func (h *hubModule) authLogout(l *lua.LState) int {
+	registry := h.resolveRegistry(l.OptString(1, ""))
+
+	ctx, err := h.requireContext(l)
+	if err != nil {
+		return pushError(l, err)
+	}
+	if !security.IsAllowed(ctx, "hub.auth.logout", registry, nil) {
+		return pushError(l, permissionDenied(l, "hub.auth.logout", registry))
+	}
+
+	bootauth.ClearRuntimeToken(registry)
+
+	l.Push(lua.LTrue)
+	l.Push(lua.LNil)
+
+	return 2
+}
+
+func (h *hubModule) authStatus(l *lua.LState) int {
+	registry := h.resolveRegistry(l.OptString(1, ""))
+
+	ctx, err := h.requireContext(l)
+	if err != nil {
+		return pushError(l, err)
+	}
+	if !security.IsAllowed(ctx, "hub.auth.status", registry, nil) {
+		return pushError(l, permissionDenied(l, "hub.auth.status", registry))
+	}
+
+	var cred *authapi.Credential
+	if store := h.authStore(); store != nil {
+		cred, _ = store.Get(registry)
+	}
+
+	if cred == nil || cred.Token == "" {
+		return pushAuthStatus(l, registry, false, nil, nil)
+	}
+
+	client, clientErr := bootauth.NewClient(registry)
+	if clientErr != nil {
+		return pushError(l, lua.WrapErrorWithLua(l, clientErr, "auth client init").WithKind(lua.Invalid).WithRetryable(false))
+	}
+
+	result, validateErr := client.Validate(ctx, cred.Token)
+	if validateErr != nil {
+		if errors.Is(validateErr, authapi.ErrTokenInvalid) ||
+			errors.Is(validateErr, authapi.ErrTokenExpired) ||
+			errors.Is(validateErr, authapi.ErrInsufficientScope) {
+			return pushAuthStatus(l, registry, false, cred, nil)
+		}
+
+		return pushError(l, hubCallError(l, validateErr))
+	}
+
+	return pushAuthStatus(l, registry, true, cred, result)
+}
+
+func pushAuthStatus(l *lua.LState, registry string, authenticated bool, cred *authapi.Credential, result *bootauth.ValidateResult) int {
+	status := lua.CreateTable(0, 7)
+	status.RawSetString("authenticated", lua.LBool(authenticated))
+	status.RawSetString("registry", lua.LString(registry))
+
+	if authenticated && cred != nil {
+		if cred.Username != "" {
+			status.RawSetString("username", lua.LString(cred.Username))
+		}
+		if cred.UserID != "" {
+			status.RawSetString("user_id", lua.LString(cred.UserID))
+		}
+		if cred.Scope != "" {
+			status.RawSetString("scope", lua.LString(string(cred.Scope)))
+		}
+		if !cred.ExpiresAt.IsZero() {
+			status.RawSetString("expires_at", lua.LString(cred.ExpiresAt.Format(time.RFC3339)))
+			status.RawSetString("expired", lua.LBool(cred.IsExpired()))
+		}
+	}
+
+	var orgs []bootauth.OrgInfo
+	if result != nil {
+		orgs = result.Orgs
+	}
+	status.RawSetString("orgs", orgsToTable(orgs))
+
+	l.Push(status)
+	l.Push(lua.LNil)
+
+	return 2
+}
+
+func orgsToTable(orgs []bootauth.OrgInfo) *lua.LTable {
+	items := lua.CreateTable(len(orgs), 0)
+	for i, o := range orgs {
+		entry := lua.CreateTable(0, 4)
+		entry.RawSetString("id", lua.LString(o.ID))
+		entry.RawSetString("name", lua.LString(o.Name))
+		entry.RawSetString("display_name", lua.LString(o.DisplayName))
+		entry.RawSetString("role", lua.LString(o.Role))
+		items.RawSetInt(i+1, entry)
+	}
+
+	return items
+}
+
 func withTimeout(ctx context.Context, timeout time.Duration) (context.Context, func()) {
 	if timeout <= 0 {
 		return ctx, func() {}
@@ -885,6 +1106,38 @@ func parseReadmeOptions(l *lua.LState, idx int) (baseOptions, readmeOptions, *lu
 	}
 
 	return base, opts, nil
+}
+
+func parseKindFilter(l *lua.LState, tbl *lua.LTable) (map[string]struct{}, bool, *lua.Error) {
+	val := tbl.RawGetString("kind")
+	if val == lua.LNil {
+		return nil, false, nil
+	}
+
+	switch v := val.(type) {
+	case lua.LString:
+		return map[string]struct{}{string(v): {}}, true, nil
+	case *lua.LTable:
+		kinds := make(map[string]struct{})
+		var typeErr *lua.Error
+		v.ForEach(func(_, item lua.LValue) {
+			if typeErr != nil {
+				return
+			}
+			str, ok := item.(lua.LString)
+			if !ok {
+				typeErr = invalidOptionError(l, "kind", "array of strings", item)
+				return
+			}
+			kinds[string(str)] = struct{}{}
+		})
+		if typeErr != nil {
+			return nil, false, typeErr
+		}
+		return kinds, true, nil
+	default:
+		return nil, false, invalidOptionError(l, "kind", "string or array", val)
+	}
 }
 
 func parseBaseOptions(l *lua.LState, idx int) (baseOptions, *lua.Error) {

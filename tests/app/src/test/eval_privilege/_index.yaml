@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: MPL-2.0
+
+version: "1.0"
+namespace: app.test.eval_privilege
+
+entries:
+  - name: pricing
+    kind: library.lua
+    meta:
+      comment: Privileged DSL helper that uses funcs; granted to eval imports
+    source: file://pricing.lua
+    modules:
+      - funcs
+
+  - name: import_privilege
+    kind: function.lua
+    meta:
+      type: test
+      suite: eval_privilege
+      description: Eval grants funcs to an import; the DSL on top cannot reach funcs
+    source: file://import_privilege.lua
+    method: main
+    modules:
+      - eval_runner
+    imports:
+      assert: app.lib:assert

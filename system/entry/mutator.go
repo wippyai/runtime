@@ -264,26 +264,32 @@ func (m *Mutator) deleteInMeta(entry *registry.Entry, segments []string) error {
 
 // ensureDataAsMap ensures entry.Data is in map[string]any format
 func (m *Mutator) ensureDataAsMap(entry *registry.Entry) (map[string]any, error) {
-	if entry.Data == nil {
+	return dataAsMap(m.dtt, entry.Data)
+}
+
+// dataAsMap returns the payload data as a map[string]any, transcoding to Golang
+// format when necessary. A nil or non-map payload yields an empty map.
+func dataAsMap(dtt payload.Transcoder, data payload.Payload) (map[string]any, error) {
+	if data == nil {
 		return make(map[string]any), nil
 	}
 
 	// Check if already in Golang format
-	if entry.Data.Format() == payload.Golang {
-		if data, ok := entry.Data.Data().(map[string]any); ok {
-			return data, nil
+	if data.Format() == payload.Golang {
+		if m, ok := data.Data().(map[string]any); ok {
+			return m, nil
 		}
 		return make(map[string]any), nil
 	}
 
 	// Transcode to Golang format
-	golangPayload, err := m.dtt.Transcode(entry.Data, payload.Golang)
+	golangPayload, err := dtt.Transcode(data, payload.Golang)
 	if err != nil {
 		return nil, NewTranscodeToGolangError(err)
 	}
 
-	if data, ok := golangPayload.Data().(map[string]any); ok {
-		return data, nil
+	if m, ok := golangPayload.Data().(map[string]any); ok {
+		return m, nil
 	}
 
 	return make(map[string]any), nil

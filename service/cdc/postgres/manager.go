@@ -4,26 +4,25 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
 	"strconv"
 	"sync"
 
-	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	config "github.com/wippyai/runtime/api/service/cdc"
 	"github.com/wippyai/runtime/api/supervisor"
-	entryutil "github.com/wippyai/runtime/internal/entry"
+	entryutil "github.com/wippyai/runtime/system/entry"
 	"go.uber.org/zap"
 )
 
 type Manager struct {
 	dtt        payload.Transcoder
 	bus        event.Bus
-	env        envapi.Registry
 	log        *zap.Logger
 	sources    map[registry.ID]*Source
 	infos      map[registry.ID]config.SourceInfo
@@ -31,7 +30,7 @@ type Manager struct {
 	mu         sync.Mutex
 }
 
-func NewManager(dtt payload.Transcoder, bus event.Bus, log *zap.Logger, env envapi.Registry) (*Manager, error) {
+func NewManager(dtt payload.Transcoder, bus event.Bus, log *zap.Logger) (*Manager, error) {
 	if dtt == nil {
 		return nil, ErrTranscoderRequired
 	}
@@ -44,7 +43,6 @@ func NewManager(dtt payload.Transcoder, bus event.Bus, log *zap.Logger, env enva
 	return &Manager{
 		dtt:        dtt,
 		bus:        bus,
-		env:        env,
 		log:        log,
 		sources:    make(map[registry.ID]*Source),
 		infos:      make(map[registry.ID]config.SourceInfo),
@@ -67,16 +65,16 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if err != nil {
 		return NewInvalidConfigError(err)
 	}
-	if err := m.resolveEnv(ctx, cfg); err != nil {
-		return err
-	}
 	if err := cfg.Validate(); err != nil {
 		return NewInvalidConfigError(err)
 	}
 
 	standby, _ := cfg.StandbyDuration()
 	status, _ := cfg.StatusDuration()
-	replDSN, adminDSN := buildDSNs(cfg)
+	replDSN, adminDSN, err := buildDSNs(cfg)
+	if err != nil {
+		return err
+	}
 	src := NewSource(SourceOptions{
 		ReplDSN:           replDSN,
 		AdminDSN:          adminDSN,
@@ -115,11 +113,13 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if err != nil {
 		return NewInvalidConfigError(err)
 	}
-	if err := m.resolveEnv(ctx, cfg); err != nil {
-		return err
-	}
 	if err := cfg.Validate(); err != nil {
 		return NewInvalidConfigError(err)
+	}
+
+	replDSN, adminDSN, err := buildDSNs(cfg)
+	if err != nil {
+		return err
 	}
 
 	old := m.sources[entry.ID]
@@ -131,7 +131,6 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 
 	standby, _ := cfg.StandbyDuration()
 	status, _ := cfg.StatusDuration()
-	replDSN, adminDSN := buildDSNs(cfg)
 	src := NewSource(SourceOptions{
 		ReplDSN:           replDSN,
 		AdminDSN:          adminDSN,
@@ -270,41 +269,20 @@ func (m *Manager) unregister(ctx context.Context, entry registry.Entry) {
 	m.log.Info("removed cdc source", zap.String("id", entry.ID.String()))
 }
 
-func (m *Manager) resolveEnv(ctx context.Context, cfg *config.Config) error {
-	if v := m.lookup(ctx, cfg.HostEnv); v != "" {
-		cfg.Host = v
+func buildDSNs(cfg *config.Config) (replication, admin string, err error) {
+	if cfg.Host == "" {
+		return "", "", NewInvalidConfigError(errors.New("resolved host is empty"))
 	}
-	if v := m.lookup(ctx, cfg.PortEnv); v != "" {
-		p, err := strconv.Atoi(v)
-		if err != nil {
-			return NewInvalidConfigError(fmt.Errorf("port env %q is not numeric: %w", cfg.PortEnv, err))
-		}
-		cfg.Port = p
+	if cfg.Port <= 0 {
+		return "", "", NewInvalidConfigError(fmt.Errorf("resolved port is invalid: %d", cfg.Port))
 	}
-	if v := m.lookup(ctx, cfg.DatabaseEnv); v != "" {
-		cfg.Database = v
+	if cfg.Username == "" {
+		return "", "", NewInvalidConfigError(errors.New("resolved username is empty"))
 	}
-	if v := m.lookup(ctx, cfg.UsernameEnv); v != "" {
-		cfg.Username = v
+	if cfg.Database == "" {
+		return "", "", NewInvalidConfigError(errors.New("resolved database is empty"))
 	}
-	if v := m.lookup(ctx, cfg.PasswordEnv); v != "" {
-		cfg.Password = v
-	}
-	return nil
-}
 
-func (m *Manager) lookup(ctx context.Context, name string) string {
-	if name == "" || m.env == nil {
-		return ""
-	}
-	val, found, err := m.env.Lookup(ctx, name)
-	if err != nil || !found {
-		return ""
-	}
-	return val
-}
-
-func buildDSNs(cfg *config.Config) (replication, admin string) {
 	host := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
 	base := url.URL{
 		Scheme: "postgres",
@@ -321,7 +299,7 @@ func buildDSNs(cfg *config.Config) (replication, admin string) {
 	q.Set("replication", "database")
 	replURL.RawQuery = q.Encode()
 
-	return replURL.String(), adminURL.String()
+	return replURL.String(), adminURL.String(), nil
 }
 
 func optionsQuery(options map[string]string) url.Values {

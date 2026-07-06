@@ -8,9 +8,9 @@ import (
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
 
-const UDPCreateSocketNamespace = "wasi:sockets/udp-create-socket@0.2.0"
+const UDPCreateSocketNamespace = "wasi:sockets/udp-create-socket@0.2.8"
 
-// UDPCreateSocketHost implements wasi:sockets/udp-create-socket@0.2.0.
+// UDPCreateSocketHost implements wasi:sockets/udp-create-socket@0.2.8.
 type UDPCreateSocketHost struct {
 	resources *preview2.ResourceTable
 }

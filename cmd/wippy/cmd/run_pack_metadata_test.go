@@ -42,6 +42,32 @@ func TestRuntimeConfigFromPackMetadata_NestedRuntimeMap(t *testing.T) {
 	require.Equal(t, "console", cfg.GetString("logger.encoding", ""))
 }
 
+func TestRuntimeConfigFromPackMetadata_PreservesProfiles(t *testing.T) {
+	cfg := runtimeConfigFromPackMetadata(wapp.Metadata{
+		"runtime": map[string]any{
+			"profiles": map[string]any{
+				"pg": map[string]any{
+					"override": map[string]any{
+						"app:db:kind": "db.sql.postgres",
+					},
+					"disable": map[string]any{
+						"namespaces": map[string]any{
+							"add": []any{"kickside.research.**"},
+						},
+					},
+				},
+			},
+		},
+	}, zap.NewNop())
+
+	require.NotNil(t, cfg)
+	require.Equal(t, "db.sql.postgres", cfg.GetString("profiles.pg.override.app:db:kind", ""))
+
+	namespaces, ok := cfg.Get("profiles.pg.disable.namespaces.add")
+	require.True(t, ok)
+	require.Equal(t, []any{"kickside.research.**"}, namespaces)
+}
+
 func TestLoadPackRuntimeDefaultsFromFiles_MergeOrder(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -61,6 +87,32 @@ func TestLoadPackRuntimeDefaultsFromFiles_MergeOrder(t *testing.T) {
 	require.NotNil(t, cfg)
 	require.False(t, cfg.GetBool("lsp.enabled", true))
 	require.Equal(t, "info", cfg.GetString("logger.level", ""))
+}
+
+func TestLoadPackRuntimeDefaultsFromFiles_ProfileConfigComesOnlyFromMainPack(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	depPack := filepath.Join(tmpDir, "dep.wapp")
+	require.NoError(t, writeTestPack(depPack, wapp.Metadata{
+		"runtime.logger.level":                      "info",
+		"runtime.vars.dep_only":                     "leaked",
+		"runtime.profiles.dep.override.app:db:kind": "db.sql.sqlite",
+	}))
+
+	mainPack := filepath.Join(tmpDir, "main.wapp")
+	require.NoError(t, writeTestPack(mainPack, wapp.Metadata{
+		"runtime.vars.main_only":                     "kept",
+		"runtime.profiles.main.override.app:db:kind": "db.sql.postgres",
+	}))
+
+	cfg, err := loadPackRuntimeDefaultsFromFiles([]string{depPack, mainPack}, zap.NewNop())
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	require.Equal(t, "info", cfg.GetString("logger.level", ""))
+	require.Equal(t, "", cfg.GetString("vars.dep_only", ""))
+	require.Equal(t, "kept", cfg.GetString("vars.main_only", ""))
+	require.Equal(t, "", cfg.GetString("profiles.dep.override.app:db:kind", ""))
+	require.Equal(t, "db.sql.postgres", cfg.GetString("profiles.main.override.app:db:kind", ""))
 }
 
 func writeTestPack(path string, metadata wapp.Metadata) error {

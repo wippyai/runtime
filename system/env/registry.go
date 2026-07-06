@@ -63,6 +63,32 @@ func (r *Registry) getEnvName(variable *env.Variable) string {
 	return variable.ID.String()
 }
 
+func (r *Registry) storeNameShortcut(envName string, id registry.ID, path event.Path) {
+	if existing, ok := r.loadNameShortcut(envName); ok && !existing.Equal(id) {
+		r.log.Warn("env variable name shortcut already claimed by another id; variable registered by id only",
+			zap.String("path", path), zap.String("base_name", envName),
+			zap.String("owner_id", existing.String()), zap.String("id", id.String()))
+		return
+	}
+
+	r.variablesByName.Store(envName, id)
+}
+
+func (r *Registry) deleteNameShortcut(envName string, id registry.ID) {
+	if existing, ok := r.loadNameShortcut(envName); ok && existing.Equal(id) {
+		r.variablesByName.Delete(envName)
+	}
+}
+
+func (r *Registry) loadNameShortcut(envName string) (registry.ID, bool) {
+	if storedID, exists := r.variablesByName.Load(envName); exists {
+		if id, ok := storedID.(registry.ID); ok {
+			return id, true
+		}
+	}
+	return registry.ID{}, false
+}
+
 func (r *Registry) nsFromCtx(ctx context.Context) string {
 	if ctx == nil {
 		return ""
@@ -87,10 +113,8 @@ func (r *Registry) handleEvent(e event.Event) {
 		r.registerStorage(e)
 	case env.StorageDelete:
 		r.deleteStorage(e)
-	case env.VariableRegister:
-		r.registerVariable(e)
-	case env.VariableUpdate:
-		r.updateVariable(e)
+	case env.VariableRegister, env.VariableUpdate:
+		r.applyVariableEvent(e)
 	case env.VariableDelete:
 		r.deleteVariable(e)
 	default:
@@ -126,97 +150,81 @@ func (r *Registry) deleteStorage(e event.Event) {
 	r.log.Debug("storage deleted", zap.String("id", storageID.String()))
 }
 
-func (r *Registry) registerVariable(e event.Event) {
-	variable, ok := e.Data.(env.Variable)
-	if !ok {
-		r.log.Error("invalid variable payload", zap.String("path", e.Path))
-		r.sendReject(e.Path, "invalid variable data type")
-		return
-	}
-
+// storeVariable validates the variable and stores it by ID, maintaining the
+// name shortcut index. On a rename the old name shortcut owned by the same ID
+// is released. The name shortcut is only claimed when the name is free or already
+// owned by this ID; a name already owned by a different ID keeps its owner and
+// the variable is reachable by ID only. Shared by the bus-driven and synchronous
+// registration paths.
+func (r *Registry) storeVariable(variable env.Variable, path event.Path) error {
 	if err := variable.Validate(); err != nil {
-		r.log.Error("invalid variable", zap.String("path", e.Path), zap.Error(err))
-		r.sendReject(e.Path, NewInvalidVariableError(err).Error())
-		return
+		return NewInvalidVariableError(err)
 	}
 
 	if _, exists := r.storages.Load(variable.StorageID); !exists {
-		r.log.Error("referenced storage not found", zap.String("path", e.Path), zap.String("storage_id", variable.StorageID.String()))
-		r.sendReject(e.Path, "referenced storage not found")
-		return
+		return NewReferencedStorageNotFoundError(variable.StorageID.String())
 	}
 
 	envName := r.getEnvName(&variable)
 
-	if _, exists := r.variablesByName.Load(envName); exists {
-		r.log.Error("variable name already exists", zap.String("path", e.Path), zap.String("base_name", envName))
-		r.sendReject(e.Path, NewVariableNameExistsError(envName).Error())
-		return
-	}
-
-	r.variablesByID.Store(variable.ID, variable)
-	r.variablesByName.Store(envName, variable.ID)
-	r.sendAccept(e.Path)
-	r.log.Debug("variable registered", zap.String("id", variable.ID.String()), zap.String("name", variable.Name), zap.String("base_name", envName))
-}
-
-func (r *Registry) updateVariable(e event.Event) {
-	variable, ok := e.Data.(env.Variable)
-	if !ok {
-		r.log.Error("invalid variable payload", zap.String("path", e.Path))
-		r.sendReject(e.Path, "invalid variable data type")
-		return
-	}
-
-	if err := variable.Validate(); err != nil {
-		r.log.Error("invalid variable", zap.String("path", e.Path), zap.Error(err))
-		r.sendReject(e.Path, NewInvalidVariableError(err).Error())
-		return
-	}
-
-	if _, exists := r.storages.Load(variable.StorageID); !exists {
-		r.log.Error("referenced storage not found", zap.String("path", e.Path), zap.String("storage_id", variable.StorageID.String()))
-		r.sendReject(e.Path, "referenced storage not found")
-		return
-	}
-
-	envName := r.getEnvName(&variable)
-
-	if existingID, exists := r.variablesByName.Load(envName); exists {
-		if existingVarID, ok := existingID.(registry.ID); ok && !existingVarID.Equal(variable.ID) {
-			r.log.Error("variable name already exists", zap.String("path", e.Path), zap.String("base_name", envName))
-			r.sendReject(e.Path, NewVariableNameExistsError(envName).Error())
-			return
-		}
-	}
-
-	// Clean up old name mappings if variable exists
 	if storedVar, exists := r.variablesByID.Load(variable.ID); exists {
 		if oldVariable, ok := storedVar.(env.Variable); ok {
 			oldBaseName := r.getEnvName(&oldVariable)
 			if oldBaseName != envName {
-				r.variablesByName.Delete(oldBaseName)
+				r.deleteNameShortcut(oldBaseName, variable.ID)
 			}
 		}
 	}
 
 	r.variablesByID.Store(variable.ID, variable)
-	r.variablesByName.Store(envName, variable.ID)
+	r.storeNameShortcut(envName, variable.ID, path)
+	return nil
+}
+
+// unregisterVariable removes a variable by ID and releases its name shortcut.
+func (r *Registry) unregisterVariable(id registry.ID) {
+	if variable, ok := r.loadVariable(id); ok {
+		r.deleteNameShortcut(r.getEnvName(variable), id)
+	}
+	r.variablesByID.Delete(id)
+}
+
+func (r *Registry) applyVariableEvent(e event.Event) {
+	variable, ok := e.Data.(env.Variable)
+	if !ok {
+		r.log.Error("invalid variable payload", zap.String("path", e.Path))
+		r.sendReject(e.Path, "invalid variable data type")
+		return
+	}
+
+	if err := r.storeVariable(variable, e.Path); err != nil {
+		r.log.Error("invalid variable", zap.String("path", e.Path), zap.Error(err))
+		r.sendReject(e.Path, err.Error())
+		return
+	}
 
 	r.sendAccept(e.Path)
+	r.log.Debug("variable registered", zap.String("id", variable.ID.String()), zap.String("name", variable.Name), zap.String("base_name", r.getEnvName(&variable)))
+}
 
-	r.log.Debug("variable updated", zap.String("id", variable.ID.String()), zap.String("name", variable.Name), zap.String("base_name", envName))
+// RegisterVariable registers or updates a variable definition directly (synchronous).
+func (r *Registry) RegisterVariable(variable env.Variable) error {
+	if err := r.storeVariable(variable, variable.ID.String()); err != nil {
+		return err
+	}
+	r.log.Debug("variable registered directly", zap.String("id", variable.ID.String()), zap.String("name", variable.Name))
+	return nil
+}
+
+// UnregisterVariable removes a variable definition directly (synchronous).
+func (r *Registry) UnregisterVariable(id registry.ID) {
+	r.unregisterVariable(id)
+	r.log.Debug("variable unregistered directly", zap.String("id", id.String()))
 }
 
 func (r *Registry) deleteVariable(e event.Event) {
 	varID := registry.ParseID(e.Path)
-
-	if variable, ok := r.loadVariable(varID); ok {
-		envName := r.getEnvName(variable)
-		r.variablesByName.Delete(envName)
-	}
-
-	r.variablesByID.Delete(varID)
+	r.unregisterVariable(varID)
 	r.sendAccept(e.Path)
 	r.log.Debug("variable deleted", zap.String("id", varID.String()))
 }

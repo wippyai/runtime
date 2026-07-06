@@ -69,26 +69,20 @@ type (
 
 	// ServerTLSConfig configures TLS termination for an HTTP service.
 	//
-	// For TLSModeManual, the cert/key pair is supplied via exactly one of:
-	//   - Cert + Key: PEM content. Typically populated by the file://
-	//     interpolator (manifest-relative, traversal-safe) at config-decode
-	//     time, but inline PEM strings also work.
-	//   - CertEnv + KeyEnv: env variable names resolved from the Wippy
-	//     env.Registry (secure store) at bind time. The data.tls.*_env
-	//     wildcard dep pattern ensures the referenced env entries are
-	//     registered before this service boots.
+	// For TLSModeManual, Cert + Key carry the cert/key pair as PEM content.
+	// The values are resolved at config-decode time: inline PEM strings, the
+	// file:// interpolator (manifest-relative, traversal-safe), or a
+	// <field>_env directive read from the entry data that names an env
+	// variable in the Wippy env.Registry (secure store).
 	//
-	// Optional mTLS (Manual only) requires ClientAuth plus one of ClientCA
-	// or ClientCAEnv (a PEM bundle of trusted client CAs).
+	// Optional mTLS (Manual only) requires ClientAuth plus ClientCA (a PEM
+	// bundle of trusted client CAs).
 	ServerTLSConfig struct {
-		Mode        TLSMode        `json:"mode"`
-		Cert        string         `json:"cert,omitempty"`
-		Key         string         `json:"key,omitempty"`
-		CertEnv     string         `json:"cert_env,omitempty"`
-		KeyEnv      string         `json:"key_env,omitempty"`
-		ClientCA    string         `json:"client_ca,omitempty"`
-		ClientCAEnv string         `json:"client_ca_env,omitempty"`
-		ClientAuth  ClientAuthType `json:"client_auth,omitempty"`
+		Mode       TLSMode        `json:"mode"`
+		Cert       string         `json:"cert,omitempty"`
+		Key        string         `json:"key,omitempty"`
+		ClientCA   string         `json:"client_ca,omitempty"`
+		ClientAuth ClientAuthType `json:"client_auth,omitempty"`
 	}
 
 	HostConfig struct {
@@ -201,9 +195,11 @@ func (c *ServerConfig) Validate() error {
 	return nil
 }
 
-// Validate checks if the TLS configuration is internally consistent.
-// Network/driver compatibility and env-var resolution are enforced at
-// server start.
+// Validate checks if the TLS configuration is internally consistent. Cert,
+// Key and ClientCA are resolved at config-decode time (inline PEM, file://
+// interpolation, or a *_env directive), so the validator reasons only about
+// the final PEM values. Network/driver compatibility is enforced at server
+// start.
 func (c *ServerTLSConfig) Validate() error {
 	switch c.Mode {
 	case TLSModeOff:
@@ -222,21 +218,12 @@ func (c *ServerTLSConfig) Validate() error {
 		return nil
 
 	case TLSModeManual:
-		// Partial pairs take precedence over the generic "missing" message
-		// so users get an error pointing at the exact field they forgot.
+		// A partial pair points at the exact field the user forgot.
 		if (c.Cert != "") != (c.Key != "") {
 			return ErrTLSManualPartialCert
 		}
-		if (c.CertEnv != "") != (c.KeyEnv != "") {
-			return ErrTLSManualPartialCertEnv
-		}
-		hasInline := c.Cert != "" && c.Key != ""
-		hasEnv := c.CertEnv != "" && c.KeyEnv != ""
-		if !hasInline && !hasEnv {
+		if c.Cert == "" || c.Key == "" {
 			return ErrTLSManualMissingCert
-		}
-		if hasInline && hasEnv {
-			return ErrTLSManualAmbiguousCert
 		}
 		return c.validateClientAuth()
 
@@ -246,24 +233,20 @@ func (c *ServerTLSConfig) Validate() error {
 }
 
 func (c *ServerTLSConfig) hasAnyCertInput() bool {
-	return c.Cert != "" || c.Key != "" || c.CertEnv != "" || c.KeyEnv != ""
+	return c.Cert != "" || c.Key != ""
 }
 
 func (c *ServerTLSConfig) hasAnyMTLSInput() bool {
-	return c.ClientCA != "" || c.ClientCAEnv != "" || c.ClientAuth != ClientAuthNone
+	return c.ClientCA != "" || c.ClientAuth != ClientAuthNone
 }
 
 // validateClientAuth enforces mTLS invariants under TLSModeManual:
 //   - ClientAuth, when set, must be a known value
 //   - Verifying modes (verify_if_given, require_and_verify) require a CA
-//   - ClientCA and ClientCAEnv are mutually exclusive
 func (c *ServerTLSConfig) validateClientAuth() error {
-	if c.ClientCA != "" && c.ClientCAEnv != "" {
-		return ErrTLSMTLSAmbiguousCA
-	}
 	switch c.ClientAuth {
 	case ClientAuthNone:
-		if c.ClientCA != "" || c.ClientCAEnv != "" {
+		if c.ClientCA != "" {
 			return ErrTLSMTLSCAWithoutAuth
 		}
 		return nil
@@ -271,7 +254,7 @@ func (c *ServerTLSConfig) validateClientAuth() error {
 		// These modes do not verify against a CA pool; a pool is optional.
 		return nil
 	case ClientAuthVerifyIfGiven, ClientAuthRequireAndVerify:
-		if c.ClientCA == "" && c.ClientCAEnv == "" {
+		if c.ClientCA == "" {
 			return ErrTLSMTLSMissingCA
 		}
 		return nil

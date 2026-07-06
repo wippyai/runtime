@@ -7,8 +7,8 @@ import (
 
 	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/registry"
-	entryutil "github.com/wippyai/runtime/internal/entry"
 	netservice "github.com/wippyai/runtime/service/net"
+	entryutil "github.com/wippyai/runtime/system/entry"
 )
 
 // Driver implements netservice.Driver for the I2P overlay kind.

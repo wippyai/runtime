@@ -65,27 +65,16 @@ func createPool(ctx context.Context, deps EngineDeps, eng Engine, entry registry
 		return nil, nil, NewInvalidConfigError(err)
 	}
 
-	dsn, err := eng.BuildDSN(cfg)
+	db, err := openEngineDB(ctx, eng, cfg)
 	if err != nil {
-		return nil, nil, NewInvalidDSNError(err)
-	}
-
-	db, err := sql.Open(driverName(eng.Kind(), eng.DriverName()), dsn)
-	if err != nil {
-		return nil, nil, NewConnectionPoolCreationError(err)
-	}
-
-	if err := eng.Prepare(ctx, db, cfg); err != nil {
-		_ = db.Close()
 		return nil, nil, err
 	}
 
-	eng.Tune(db, cfg)
-
 	pool := &ConnPool{
-		kind:   eng.Kind(),
-		db:     db,
-		status: make(chan any, 1),
+		kind:    eng.Kind(),
+		db:      db,
+		current: newDBGeneration(db),
+		status:  make(chan any, 1),
 	}
 
 	var cfgAny any = cfg
@@ -105,9 +94,29 @@ func updatePool(ctx context.Context, deps EngineDeps, eng Engine, pool *ConnPool
 		return nil, err
 	}
 
-	if err := pool.UpdateConfig(cfg); err != nil {
+	if err := pool.updateConfig(ctx, eng, cfg); err != nil {
 		return nil, NewPoolUpdateError(err)
 	}
 
 	return cfg, nil
+}
+
+func openEngineDB(ctx context.Context, eng Engine, cfg config.EngineConfig) (*sql.DB, error) {
+	dsn, err := eng.BuildDSN(cfg)
+	if err != nil {
+		return nil, NewInvalidDSNError(err)
+	}
+
+	db, err := sql.Open(driverName(eng.Kind(), eng.DriverName()), dsn)
+	if err != nil {
+		return nil, NewConnectionPoolCreationError(err)
+	}
+
+	if err := eng.Prepare(ctx, db, cfg); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	eng.Tune(db, cfg)
+	return db, nil
 }

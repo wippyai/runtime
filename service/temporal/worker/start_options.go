@@ -37,6 +37,12 @@ type temporalStartOptionState struct {
 	hasErrorOnStarted bool
 }
 
+// resolveWorkflowName returns the Temporal workflow type name for a spawn, preferring
+// an explicit workflow.name option and falling back to the source ID's qualified form.
+func resolveWorkflowName(start *process.Start) string {
+	return temporaloptions.WorkflowName(start.Options, start.Source)
+}
+
 // applyTemporalStartWorkflowOptions maps process.Start options to Temporal StartWorkflowOptions.
 func applyTemporalStartWorkflowOptions(opts *client.StartWorkflowOptions, start *process.Start) (temporalStartOptionState, error) {
 	var state temporalStartOptionState

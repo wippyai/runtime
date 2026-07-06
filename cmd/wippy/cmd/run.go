@@ -95,11 +95,13 @@ func init() {
 	runCmd.Flags().String("host", "", "Terminal host ID for exec (auto-detected if only one terminal.host exists)")
 	runCmd.Flags().String("registry", "", "Registry URL for hub modules (default: from credentials)")
 	runCmd.Flags().StringArray("set", nil, "Override a .wippy.yaml config value (format: section.path=value, repeatable)")
+	runCmd.Flags().StringArray("profile", nil, "Apply a runtime profile from .wippy.yaml or packed runtime metadata (repeatable, applied in order)")
 
 	testCmd.Flags().StringSliceP("override", "o", nil, "Override entry values (format: namespace:entry:field=value)")
 	testCmd.Flags().String("host", "", "Terminal host ID for exec (auto-detected if only one terminal.host exists)")
 	testCmd.Flags().String("registry", "", "Registry URL for hub modules (default: from credentials)")
 	testCmd.Flags().StringArray("set", nil, "Override a .wippy.yaml config value (format: section.path=value, repeatable)")
+	testCmd.Flags().StringArray("profile", nil, "Apply a runtime profile from .wippy.yaml or packed runtime metadata (repeatable, applied in order)")
 }
 
 // commandMeta represents the command metadata from entry.Meta
@@ -301,10 +303,15 @@ func loadRuntimeConfigWithDefaults(cmd *cobra.Command, logger *zap.Logger, runti
 		cfg = bootconfig.Merge(runtimeDefaults, cfg)
 	}
 
+	cfg, err = bootconfig.ApplyProfiles(cfg, selectedProfiles(cmd))
+	if err != nil {
+		return nil, err
+	}
+
 	cfg = applyCLIOverrides(cfg)
 
 	if cmd == nil {
-		return cfg, nil
+		return bootconfig.ResolveVariables(cfg)
 	}
 
 	if sets, _ := cmd.Flags().GetStringArray("set"); len(sets) > 0 {
@@ -317,10 +324,30 @@ func loadRuntimeConfigWithDefaults(cmd *cobra.Command, logger *zap.Logger, runti
 
 	overrides, _ := cmd.Flags().GetStringSlice("override")
 	if len(overrides) == 0 {
-		return cfg, nil
+		return bootconfig.ResolveVariables(cfg)
 	}
 
-	return applyOverrideFlags(cfg, overrides, logger)
+	cfg, err = applyOverrideFlags(cfg, overrides, logger)
+	if err != nil {
+		return nil, err
+	}
+	return bootconfig.ResolveVariables(cfg)
+}
+
+func selectedProfiles(cmd *cobra.Command) []string {
+	if cmd == nil || cmd.Flags().Lookup("profile") == nil {
+		return nil
+	}
+	profiles, _ := cmd.Flags().GetStringArray("profile")
+	return profiles
+}
+
+func applyRuntimeProfilesAndVariables(cfg boot.Config, profiles []string) (boot.Config, error) {
+	profiled, err := bootconfig.ApplyProfiles(cfg, profiles)
+	if err != nil {
+		return nil, err
+	}
+	return bootconfig.ResolveVariables(profiled)
 }
 
 // isProcessKind returns true if the entry kind is a process type (lua or wasm).

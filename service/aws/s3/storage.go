@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awsmiddleware "github.com/aws/aws-sdk-go-v2/aws/middleware"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go/middleware"
@@ -22,6 +24,15 @@ import (
 
 // DefaultPresignExpiration is the default expiration time for presigned URLs.
 const DefaultPresignExpiration = 15 * time.Minute
+
+// uploadPartSize is the multipart part size for streaming uploads. 16MiB is the
+// per-chunk ceiling S3-compatible stores (MinIO) allow on an aws-chunked payload,
+// so each part maps to a single acceptable chunk. It also keeps the part count
+// under the 10000-part limit for objects up to 160GiB streamed with unknown
+// length; for seekable bodies larger than that the SDK grows the part size to
+// stay within 10000 parts, which a store enforcing a strict 16MiB chunk cap
+// would then reject.
+const uploadPartSize = 16 * 1024 * 1024
 
 // Compile-time interface check.
 var _ cloudstorage.Storage = (*Storage)(nil)
@@ -293,7 +304,20 @@ func (s *Storage) UploadObject(ctx context.Context, key string, content io.Reade
 		})
 	}
 
-	_, err := s.client.PutObject(ctx, input, apiOptions...)
+	// Upload through the multipart manager so that unbounded streams (unknown
+	// length, non-seekable) and objects larger than a single request are split
+	// into parts. A single PutObject signs the body as one aws-chunked stream,
+	// which S3-compatible stores (MinIO) reject once a chunk exceeds 16MiB, and
+	// which cannot send a non-seekable body without a Content-Length at all.
+	// SA1019: the s3/manager uploader is the stable, widely-deployed multipart
+	// API; the s3/transfermanager replacement is not yet a dependency and its
+	// migration is out of scope here.
+	uploader := manager.NewUploader(s.client, func(u *manager.Uploader) { //nolint:staticcheck
+		u.PartSize = uploadPartSize
+		u.ClientOptions = apiOptions
+	})
+
+	_, err := uploader.Upload(ctx, input) //nolint:staticcheck
 	if err != nil {
 		if mapped := mapKnownError(err); errors.Is(mapped, cloudstorage.ErrPreconditionFailed) {
 			return mapped
@@ -414,12 +438,54 @@ func (m *addRequestHeadersMiddleware) ID() string { return "wippyAddRequestHeade
 func (m *addRequestHeadersMiddleware) HandleBuild(
 	ctx context.Context, in middleware.BuildInput, next middleware.BuildHandler,
 ) (middleware.BuildOutput, middleware.Metadata, error) {
-	if req, ok := in.Request.(*smithyhttp.Request); ok {
-		for k, v := range m.headers {
+	req, ok := in.Request.(*smithyhttp.Request)
+	if !ok {
+		return next.HandleBuild(ctx, in)
+	}
+	op := awsmiddleware.GetOperationName(ctx)
+	for k, v := range m.headers {
+		if headerAllowedForOperation(k, op) {
 			req.Header.Set(k, v)
 		}
 	}
 	return next.HandleBuild(ctx, in)
+}
+
+// headerAllowedForOperation decides whether a pass-through header may be set on
+// a given S3 operation. Object-metadata headers (tagging, content-type,
+// SSE-KMS/S3, user metadata, ...) belong only on the object-creating
+// operations; applying them to UploadPart or CompleteMultipartUpload fails the
+// upload. A few headers must still reach the multipart subrequests: SSE-C
+// customer-key headers are required on UploadPart, and request-payer /
+// expected-bucket-owner apply to every subrequest.
+func headerAllowedForOperation(header, operation string) bool {
+	switch operation {
+	case "PutObject", "CreateMultipartUpload":
+		return true
+	case "UploadPart":
+		return isSSECustomerHeader(header) || isRequestScopedHeader(header)
+	case "CompleteMultipartUpload", "AbortMultipartUpload":
+		return isRequestScopedHeader(header)
+	default:
+		return false
+	}
+}
+
+// isSSECustomerHeader reports whether header is an SSE-C customer-key header,
+// which multipart UploadPart requires to match the CreateMultipartUpload key.
+func isSSECustomerHeader(header string) bool {
+	return strings.HasPrefix(strings.ToLower(header), "x-amz-server-side-encryption-customer-")
+}
+
+// isRequestScopedHeader reports whether header applies to every request of an
+// operation rather than only object creation.
+func isRequestScopedHeader(header string) bool {
+	switch strings.ToLower(header) {
+	case "x-amz-request-payer", "x-amz-expected-bucket-owner":
+		return true
+	default:
+		return false
+	}
 }
 
 // captureResponseHeadersMiddleware snapshots the raw HTTP response headers

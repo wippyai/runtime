@@ -12,7 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/resource"
 	config "github.com/wippyai/runtime/api/service/cdc"
 	"github.com/wippyai/runtime/api/supervisor"
-	entryutil "github.com/wippyai/runtime/internal/entry"
+	entryutil "github.com/wippyai/runtime/system/entry"
 	"go.uber.org/zap"
 )
 

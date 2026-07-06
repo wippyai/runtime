@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	envapi "github.com/wippyai/runtime/api/env"
-
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -63,8 +62,8 @@ func NewManagerWithFactory(
 		dtt:      dtt,
 		bus:      bus,
 		factory:  factory,
-		services: make(map[registry.ID]*ConnPool),
 		env:      envRegistry,
+		services: make(map[registry.ID]*ConnPool),
 	}, nil
 }
 

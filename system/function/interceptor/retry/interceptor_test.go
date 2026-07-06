@@ -318,8 +318,10 @@ func TestInterceptor_MaxDelayLimit(t *testing.T) {
 	delay2 := timestamps[2].Sub(timestamps[1])
 	delay3 := timestamps[3].Sub(timestamps[2])
 
-	assert.LessOrEqual(t, delay2.Milliseconds(), int64(120), "Delay should be capped at max_delay")
-	assert.LessOrEqual(t, delay3.Milliseconds(), int64(120), "Delay should be capped at max_delay")
+	// Windows CI under -race can overshoot a 100 ms timer by more than 20 ms.
+	// Keep the bound well below the uncapped 500 ms delay while allowing scheduler jitter.
+	assert.LessOrEqual(t, delay2.Milliseconds(), int64(250), "Delay should be capped at max_delay")
+	assert.LessOrEqual(t, delay3.Milliseconds(), int64(250), "Delay should be capped at max_delay")
 }
 
 func TestInterceptor_DefaultBackoff(t *testing.T) {

@@ -4,6 +4,7 @@ package embed
 
 import (
 	"bytes"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/wapp"
 )
@@ -19,8 +21,8 @@ import (
 func TestRegistry_NewRegistry(t *testing.T) {
 	r := NewRegistry()
 	require.NotNil(t, r)
-	assert.NotNil(t, r.readers)
-	assert.Nil(t, r.files)
+	assert.NotNil(t, r.packs)
+	assert.Len(t, r.packs, 0)
 }
 
 func TestRegistry_Register(t *testing.T) {
@@ -48,8 +50,8 @@ func TestRegistry_Register(t *testing.T) {
 		require.NoError(t, err)
 
 		r.mu.RLock()
-		assert.Len(t, r.readers, 1)
-		assert.Len(t, r.files, 0)
+		assert.Len(t, r.packs, 1)
+		assert.Nil(t, r.packs["test/pack"].file)
 		r.mu.RUnlock()
 	})
 
@@ -62,31 +64,62 @@ func TestRegistry_Register(t *testing.T) {
 		require.NoError(t, err)
 
 		r.mu.RLock()
-		assert.Len(t, r.readers, 1)
-		assert.Len(t, r.files, 1)
+		assert.Len(t, r.packs, 1)
+		assert.NotNil(t, r.packs["test/pack"].file)
 		r.mu.RUnlock()
 	})
 
-	t.Run("overwrites existing reader", func(t *testing.T) {
+	t.Run("overwrites existing reader and closes old file", func(t *testing.T) {
 		r := NewRegistry()
-		reader1 := createTestReader(t)
+		reader1, file1 := createTestReaderWithFile(t)
 		reader2 := createTestReader(t)
 
-		err := r.Register("test/pack", reader1, nil)
-		require.NoError(t, err)
+		require.NoError(t, r.Register("test/pack", reader1, file1))
+		require.NoError(t, r.Register("test/pack", reader2, nil))
 
-		err = r.Register("test/pack", reader2, nil)
+		r.mu.RLock()
+		assert.Len(t, r.packs, 1)
+		assert.Equal(t, reader2, r.packs["test/pack"].reader)
+		r.mu.RUnlock()
+
+		// The replaced file handle must be closed.
+		_, err := file1.Read(make([]byte, 1))
+		require.Error(t, err)
+	})
+}
+
+func TestRegistry_RegisterPack(t *testing.T) {
+	t.Run("records module and version", func(t *testing.T) {
+		r := NewRegistry()
+		reader := createTestReader(t)
+
+		err := r.RegisterPack("vendor/org/mod-v1.0.0.wapp", "org/mod", "1.0.0", reader, nil)
 		require.NoError(t, err)
 
 		r.mu.RLock()
-		assert.Len(t, r.readers, 1)
-		assert.Equal(t, reader2, r.readers["test/pack"])
+		p := r.packs["vendor/org/mod-v1.0.0.wapp"]
 		r.mu.RUnlock()
+		require.NotNil(t, p)
+		assert.Equal(t, "org/mod", p.module)
+		assert.Equal(t, "1.0.0", p.version)
+	})
+
+	t.Run("indexes pack resources", func(t *testing.T) {
+		r := NewRegistry()
+		reader := createReaderWithResource(t, "ui", "assets", map[string]string{"index.html": "<html>"})
+
+		require.NoError(t, r.RegisterPack("p.wapp", "org/mod", "1.0.0", reader, nil))
+
+		r.mu.RLock()
+		p := r.packs["p.wapp"]
+		r.mu.RUnlock()
+		assert.True(t, p.owns(registry.NewID("ui", "assets")))
+		assert.False(t, p.owns(registry.NewID("ui", "missing")))
 	})
 }
 
 func TestRegistry_GetFS(t *testing.T) {
-	t.Run("not found with no readers", func(t *testing.T) {
+	t.Run("not found with no packs", func(t *testing.T) {
 		r := NewRegistry()
 
 		_, err := r.GetFS(registry.NewID("test", "notfound"))
@@ -94,84 +127,212 @@ func TestRegistry_GetFS(t *testing.T) {
 		assert.Contains(t, err.Error(), "not found")
 	})
 
-	t.Run("not found with readers but no matching resource", func(t *testing.T) {
+	t.Run("not found with packs but no matching resource", func(t *testing.T) {
 		r := NewRegistry()
-		reader := createTestReader(t)
-		err := r.Register("test/pack", reader, nil)
-		require.NoError(t, err)
+		reader := createReaderWithResource(t, "ui", "assets", map[string]string{"a.txt": "a"})
+		require.NoError(t, r.RegisterPack("p.wapp", "org/mod", "1.0.0", reader, nil))
 
-		_, err = r.GetFS(registry.NewID("nonexistent", "resource"))
+		_, err := r.GetFS(registry.NewID("nonexistent", "resource"))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
+
+	t.Run("returns matching filesystem", func(t *testing.T) {
+		r := NewRegistry()
+		reader := createReaderWithResource(t, "ui", "assets", map[string]string{"index.html": "<html>hi</html>"})
+		require.NoError(t, r.RegisterPack("p.wapp", "org/mod", "1.0.0", reader, nil))
+
+		fsys, err := r.GetFS(registry.NewID("ui", "assets"))
+		require.NoError(t, err)
+		data, err := fs.ReadFile(fsys, "index.html")
+		require.NoError(t, err)
+		assert.Equal(t, "<html>hi</html>", string(data))
+	})
+}
+
+func TestRegistry_GetFSForEntry(t *testing.T) {
+	makeEntry := func(ns, name, module, version string) registry.Entry {
+		meta := attrs.NewBag()
+		if module != "" {
+			meta.Set(metaModuleKey, module)
+		}
+		if version != "" {
+			meta.Set(metaModuleVersionKey, version)
+		}
+		return registry.Entry{ID: registry.NewID(ns, name), Meta: meta}
+	}
+
+	t.Run("selects pack matching entry module and version", func(t *testing.T) {
+		r := NewRegistry()
+		// Two pack versions expose the SAME resource ID with different content.
+		oldReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "old"})
+		newReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "new"})
+		require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, nil))
+		require.NoError(t, r.RegisterPack("org/mod-v2.0.0.wapp", "org/mod", "2.0.0", newReader, nil))
+
+		fsysNew, err := r.GetFSForEntry(makeEntry("ui", "app", "org/mod", "2.0.0"))
+		require.NoError(t, err)
+		data, err := fs.ReadFile(fsysNew, "v.txt")
+		require.NoError(t, err)
+		assert.Equal(t, "new", string(data))
+
+		fsysOld, err := r.GetFSForEntry(makeEntry("ui", "app", "org/mod", "1.0.0"))
+		require.NoError(t, err)
+		data, err = fs.ReadFile(fsysOld, "v.txt")
+		require.NoError(t, err)
+		assert.Equal(t, "old", string(data))
+	})
+
+	t.Run("matches by module when version omitted", func(t *testing.T) {
+		r := NewRegistry()
+		reader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "only"})
+		require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", reader, nil))
+
+		fsys, err := r.GetFSForEntry(makeEntry("ui", "app", "org/mod", ""))
+		require.NoError(t, err)
+		data, err := fs.ReadFile(fsys, "v.txt")
+		require.NoError(t, err)
+		assert.Equal(t, "only", string(data))
+	})
+
+	t.Run("falls back to GetFS without module metadata", func(t *testing.T) {
+		r := NewRegistry()
+		reader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "legacy"})
+		require.NoError(t, r.RegisterPack("legacy.wapp", "", "", reader, nil))
+
+		fsys, err := r.GetFSForEntry(makeEntry("ui", "app", "", ""))
+		require.NoError(t, err)
+		data, err := fs.ReadFile(fsys, "v.txt")
+		require.NoError(t, err)
+		assert.Equal(t, "legacy", string(data))
+	})
+
+	t.Run("does not fall back to another pack when versioned owner is missing", func(t *testing.T) {
+		r := NewRegistry()
+		oldReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "old"})
+		otherReader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "other"})
+		require.NoError(t, r.RegisterPack("org/mod-v1.0.0.wapp", "org/mod", "1.0.0", oldReader, nil))
+		require.NoError(t, r.RegisterPack("org/other-v9.9.9.wapp", "org/other", "9.9.9", otherReader, nil))
+
+		_, err := r.GetFSForEntry(makeEntry("ui", "app", "org/mod", "2.0.0"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("falls back to GetFS when module version is omitted", func(t *testing.T) {
+		r := NewRegistry()
+		reader := createReaderWithResource(t, "ui", "app", map[string]string{"v.txt": "legacy"})
+		require.NoError(t, r.RegisterPack("legacy.wapp", "", "", reader, nil))
+
+		fsys, err := r.GetFSForEntry(makeEntry("ui", "app", "org/mod", ""))
+		require.NoError(t, err)
+		data, err := fs.ReadFile(fsys, "v.txt")
+		require.NoError(t, err)
+		assert.Equal(t, "legacy", string(data))
+	})
+}
+
+func TestRegistry_UnregisterPack(t *testing.T) {
+	t.Run("removes pack and closes file", func(t *testing.T) {
+		r := NewRegistry()
+		reader, file := createTestReaderWithFile(t)
+		require.NoError(t, r.RegisterPack("p.wapp", "org/mod", "1.0.0", reader, file))
+
+		require.NoError(t, r.UnregisterPack("p.wapp"))
+
+		r.mu.RLock()
+		assert.Len(t, r.packs, 0)
+		r.mu.RUnlock()
+
+		_, err := file.Read(make([]byte, 1))
+		require.Error(t, err)
+	})
+
+	t.Run("unknown pack is a no-op", func(t *testing.T) {
+		r := NewRegistry()
+		require.NoError(t, r.UnregisterPack("missing.wapp"))
+	})
+}
+
+func TestRegistry_UnregisterModule(t *testing.T) {
+	t.Run("removes only matching module and version", func(t *testing.T) {
+		r := NewRegistry()
+		readerOld, fileOld := createTestReaderWithFile(t)
+		readerNew := createTestReader(t)
+		require.NoError(t, r.RegisterPack("mod-v1.wapp", "org/mod", "1.0.0", readerOld, fileOld))
+		require.NoError(t, r.RegisterPack("mod-v2.wapp", "org/mod", "2.0.0", readerNew, nil))
+
+		require.NoError(t, r.UnregisterModule("org/mod", "1.0.0"))
+
+		r.mu.RLock()
+		_, hasOld := r.packs["mod-v1.wapp"]
+		_, hasNew := r.packs["mod-v2.wapp"]
+		r.mu.RUnlock()
+		assert.False(t, hasOld)
+		assert.True(t, hasNew)
+
+		_, err := fileOld.Read(make([]byte, 1))
+		require.Error(t, err)
+	})
+
+	t.Run("absent module is a no-op", func(t *testing.T) {
+		r := NewRegistry()
+		require.NoError(t, r.UnregisterModule("org/absent", "1.0.0"))
+	})
+}
+
+func TestRegistry_HasModulePack(t *testing.T) {
+	r := NewRegistry()
+	require.NoError(t, r.RegisterPack("mod-v1.wapp", "org/mod", "1.0.0", createTestReader(t), nil))
+
+	assert.True(t, r.HasModulePack("org/mod", "1.0.0"))
+	assert.False(t, r.HasModulePack("org/mod", "2.0.0"))
+	assert.False(t, r.HasModulePack("org/other", "1.0.0"))
 }
 
 func TestRegistry_Close(t *testing.T) {
-	t.Run("clears all readers", func(t *testing.T) {
+	t.Run("clears all packs", func(t *testing.T) {
 		r := NewRegistry()
-		reader := createTestReader(t)
-		err := r.Register("test/pack", reader, nil)
-		require.NoError(t, err)
+		require.NoError(t, r.RegisterPack("p.wapp", "org/mod", "1.0.0", createTestReader(t), nil))
+
+		require.NoError(t, r.Close())
 
 		r.mu.RLock()
-		assert.Len(t, r.readers, 1)
-		r.mu.RUnlock()
-
-		err = r.Close()
-		require.NoError(t, err)
-
-		r.mu.RLock()
-		assert.Len(t, r.readers, 0)
+		assert.Len(t, r.packs, 0)
 		r.mu.RUnlock()
 	})
 
 	t.Run("closes tracked files", func(t *testing.T) {
 		r := NewRegistry()
 		reader, file := createTestReaderWithFile(t)
+		require.NoError(t, r.RegisterPack("p.wapp", "org/mod", "1.0.0", reader, file))
 
-		err := r.Register("test/pack", reader, file)
-		require.NoError(t, err)
+		require.NoError(t, r.Close())
 
-		err = r.Close()
-		require.NoError(t, err)
-
-		// Verify file is closed by trying to read from it
-		_, err = file.Read(make([]byte, 1))
+		_, err := file.Read(make([]byte, 1))
 		require.Error(t, err)
 	})
 
 	t.Run("idempotent", func(t *testing.T) {
 		r := NewRegistry()
-
-		err := r.Close()
-		require.NoError(t, err)
-
-		err = r.Close()
-		require.NoError(t, err)
+		require.NoError(t, r.Close())
+		require.NoError(t, r.Close())
 
 		r.mu.RLock()
-		assert.Len(t, r.readers, 0)
+		assert.Len(t, r.packs, 0)
 		r.mu.RUnlock()
 	})
+}
 
-	t.Run("clears files list", func(t *testing.T) {
-		r := NewRegistry()
-		reader, file := createTestReaderWithFile(t)
+func TestRegistry_NoDoubleClose(t *testing.T) {
+	// Unregister then Close must not double-close the file handle.
+	r := NewRegistry()
+	reader, file := createTestReaderWithFile(t)
+	require.NoError(t, r.RegisterPack("p.wapp", "org/mod", "1.0.0", reader, file))
 
-		err := r.Register("test/pack", reader, file)
-		require.NoError(t, err)
-
-		r.mu.RLock()
-		assert.Len(t, r.files, 1)
-		r.mu.RUnlock()
-
-		err = r.Close()
-		require.NoError(t, err)
-
-		r.mu.RLock()
-		assert.Len(t, r.files, 0)
-		r.mu.RUnlock()
-	})
+	require.NoError(t, r.UnregisterPack("p.wapp"))
+	// Close has no remaining handles; must not error from a second close.
+	require.NoError(t, r.Close())
 }
 
 func TestRegistry_ConcurrentAccess(t *testing.T) {
@@ -179,18 +340,16 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 		r := NewRegistry()
 		var wg sync.WaitGroup
 
-		// Start multiple goroutines registering readers
 		for i := 0; i < 10; i++ {
 			wg.Add(1)
 			go func(idx int) {
 				defer wg.Done()
 				reader := createTestReader(t)
 				packPath := filepath.Join("test", "pack", string(rune('a'+idx)))
-				_ = r.Register(packPath, reader, nil)
+				_ = r.RegisterPack(packPath, "org/mod", "1.0.0", reader, nil)
 			}(i)
 		}
 
-		// Start multiple goroutines querying
 		for i := 0; i < 10; i++ {
 			wg.Add(1)
 			go func() {
@@ -211,117 +370,54 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				reader := createTestReader(t)
-				_ = r.Register("same/path", reader, nil)
+				_ = r.RegisterPack("same/path", "org/mod", "1.0.0", reader, nil)
 			}()
 		}
 
 		wg.Wait()
 
 		r.mu.RLock()
-		assert.Len(t, r.readers, 1)
+		assert.Len(t, r.packs, 1)
 		r.mu.RUnlock()
 	})
 
-	t.Run("concurrent close", func(t *testing.T) {
+	t.Run("concurrent unregister and close", func(t *testing.T) {
 		r := NewRegistry()
-		reader := createTestReader(t)
-		err := r.Register("test/pack", reader, nil)
-		require.NoError(t, err)
+		for i := 0; i < 20; i++ {
+			packPath := filepath.Join("p", string(rune('a'+i)))
+			require.NoError(t, r.RegisterPack(packPath, "org/mod", "1.0.0", createTestReader(t), nil))
+		}
 
 		var wg sync.WaitGroup
-		for i := 0; i < 10; i++ {
+		for i := 0; i < 20; i++ {
 			wg.Add(1)
-			go func() {
+			go func(idx int) {
 				defer wg.Done()
-				_ = r.Close()
-			}()
+				_ = r.UnregisterPack(filepath.Join("p", string(rune('a'+idx))))
+			}(i)
 		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = r.Close()
+		}()
 
 		wg.Wait()
 	})
 }
 
-func TestRegistry_MultipleReaders(t *testing.T) {
-	t.Run("registers multiple readers", func(t *testing.T) {
-		r := NewRegistry()
-
-		for i := 0; i < 5; i++ {
-			reader := createTestReader(t)
-			packPath := filepath.Join("test", "pack", string(rune('a'+i))+".wapp")
-			err := r.Register(packPath, reader, nil)
-			require.NoError(t, err)
-		}
-
-		r.mu.RLock()
-		assert.Len(t, r.readers, 5)
-		r.mu.RUnlock()
-	})
-
-	t.Run("close clears all readers", func(t *testing.T) {
-		r := NewRegistry()
-
-		for i := 0; i < 5; i++ {
-			reader := createTestReader(t)
-			packPath := filepath.Join("test", "pack", string(rune('a'+i))+".wapp")
-			err := r.Register(packPath, reader, nil)
-			require.NoError(t, err)
-		}
-
-		err := r.Close()
-		require.NoError(t, err)
-
-		r.mu.RLock()
-		assert.Len(t, r.readers, 0)
-		r.mu.RUnlock()
-	})
-}
-
-// createTestReader creates a minimal wapp reader for testing.
+// createTestReader creates a minimal wapp reader with no resources.
 func createTestReader(t *testing.T) *wapp.Reader {
 	t.Helper()
-
-	// Create a minimal wapp in memory
-	fsys := fstest.MapFS{
-		"test.txt": &fstest.MapFile{Data: []byte("test"), Mode: 0644},
-	}
-
-	var buf bytes.Buffer
-	writer := wapp.NewWriter()
-	err := writer.PackEntries(wapp.Metadata{}, nil, &buf)
-	require.NoError(t, err)
-
-	// Write to temp file since wapp.Reader needs io.ReaderAt
-	tmpDir := t.TempDir()
-	wappPath := filepath.Join(tmpDir, "test.wapp")
-	err = os.WriteFile(wappPath, buf.Bytes(), 0644)
-	require.NoError(t, err)
-
-	file, err := os.Open(wappPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { file.Close() })
-
-	reader, err := wapp.NewReader(file)
-	require.NoError(t, err)
-
-	_ = fsys // unused but kept for clarity
-	return reader
+	return readerFromBytes(t, packEntriesOnly(t))
 }
 
-// createTestReaderWithFile creates a wapp reader and returns the file handle.
+// createTestReaderWithFile creates a minimal wapp reader and returns the open file handle.
 func createTestReaderWithFile(t *testing.T) (*wapp.Reader, *os.File) {
 	t.Helper()
 
-	// Create a minimal wapp in memory
-	var buf bytes.Buffer
-	writer := wapp.NewWriter()
-	err := writer.PackEntries(wapp.Metadata{}, nil, &buf)
-	require.NoError(t, err)
-
-	// Write to temp file since wapp.Reader needs io.ReaderAt
-	tmpDir := t.TempDir()
-	wappPath := filepath.Join(tmpDir, "test.wapp")
-	err = os.WriteFile(wappPath, buf.Bytes(), 0644)
-	require.NoError(t, err)
+	wappPath := filepath.Join(t.TempDir(), "test.wapp")
+	require.NoError(t, os.WriteFile(wappPath, packEntriesOnly(t), 0644))
 
 	file, err := os.Open(wappPath)
 	require.NoError(t, err)
@@ -330,4 +426,49 @@ func createTestReaderWithFile(t *testing.T) (*wapp.Reader, *os.File) {
 	require.NoError(t, err)
 
 	return reader, file
+}
+
+// createReaderWithResource builds a wapp containing a single filesystem resource.
+func createReaderWithResource(t *testing.T, ns, name string, files map[string]string) *wapp.Reader {
+	t.Helper()
+
+	mapFS := fstest.MapFS{}
+	for path, content := range files {
+		mapFS[path] = &fstest.MapFile{Data: []byte(content), Mode: 0644}
+	}
+
+	var buf bytes.Buffer
+	writer := wapp.NewWriter()
+	err := writer.PackWithResources(
+		wapp.Metadata{},
+		nil,
+		[]wapp.ResourceSpec{{ID: wapp.NewID(ns, name), FS: mapFS}},
+		&buf,
+	)
+	require.NoError(t, err)
+
+	return readerFromBytes(t, buf.Bytes())
+}
+
+func packEntriesOnly(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	writer := wapp.NewWriter()
+	require.NoError(t, writer.PackEntries(wapp.Metadata{}, nil, &buf))
+	return buf.Bytes()
+}
+
+func readerFromBytes(t *testing.T, data []byte) *wapp.Reader {
+	t.Helper()
+
+	wappPath := filepath.Join(t.TempDir(), "pack.wapp")
+	require.NoError(t, os.WriteFile(wappPath, data, 0644))
+
+	file, err := os.Open(wappPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { file.Close() })
+
+	reader, err := wapp.NewReader(file)
+	require.NoError(t, err)
+	return reader
 }

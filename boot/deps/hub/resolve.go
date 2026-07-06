@@ -112,6 +112,7 @@ func (r *resolver) resolveOne(ctx context.Context, org, name, constraint string,
 	version, err := r.resolveConstraint(ctx, org, name, constraint)
 	if err != nil {
 		r.errors = append(r.errors, ResolutionError{
+			Err:        err,
 			Org:        org,
 			Name:       name,
 			Constraint: constraint,
@@ -123,6 +124,7 @@ func (r *resolver) resolveOne(ctx context.Context, org, name, constraint string,
 	manifest, err := r.fetchManifest(ctx, org, name, version)
 	if err != nil {
 		r.errors = append(r.errors, ResolutionError{
+			Err:        err,
 			Org:        org,
 			Name:       name,
 			Constraint: constraint,
@@ -156,7 +158,7 @@ func (r *resolver) fetchManifest(ctx context.Context, org, name, version string)
 		return nil, fmt.Errorf("hub returned no manifest for %s/%s@%s", org, name, version)
 	}
 
-	expected := r.lockedDigests[org+"/"+name]
+	expected := r.lockedDigests[org+"/"+name+"@"+version]
 	if expected == "" || manifest.Digest == expected {
 		return manifest, nil
 	}

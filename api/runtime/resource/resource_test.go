@@ -8,11 +8,14 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/registry"
+	apiresource "github.com/wippyai/runtime/api/resource"
 )
 
 func TestSetStore(t *testing.T) {
@@ -96,6 +99,136 @@ func TestStore_Table(t *testing.T) {
 	v, ok := table.Get(h)
 	assert.True(t, ok)
 	assert.Equal(t, "test", v)
+}
+
+type leaseTestRegistry struct {
+	value    any
+	acquires atomic.Int64
+	releases atomic.Int64
+}
+
+func (r *leaseTestRegistry) Acquire(_ context.Context, _ registry.ID, _ apiresource.AccessMode) (apiresource.Resource[any], error) {
+	r.acquires.Add(1)
+	return &leaseTestResource{value: r.value, releases: &r.releases}, nil
+}
+
+func (r *leaseTestRegistry) List() ([]registry.ID, error) {
+	return []registry.ID{registry.ParseID("test:resource")}, nil
+}
+
+func (r *leaseTestRegistry) Exists(registry.ID) bool {
+	return true
+}
+
+type leaseTestResource struct {
+	value    any
+	releases *atomic.Int64
+	released atomic.Bool
+}
+
+func (r *leaseTestResource) Get() (any, error) {
+	if r.released.Load() {
+		return nil, apiresource.ErrReleased
+	}
+	return r.value, nil
+}
+
+func (r *leaseTestResource) Release() {
+	if r.released.CompareAndSwap(false, true) {
+		r.releases.Add(1)
+	}
+}
+
+func TestAcquireRegistryResource_LeaseDedupeAndIndependentRelease(t *testing.T) {
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	store := NewStore()
+	defer func() { _ = store.Close() }()
+	require.NoError(t, SetStore(ctx, store))
+
+	reg := &leaseTestRegistry{value: "shared"}
+	id := registry.ParseID("test:resource")
+
+	leaseA, valueA, err := AcquireRegistryResource(ctx, reg, id, apiresource.ModeNormal)
+	require.NoError(t, err)
+	assert.Equal(t, "shared", valueA)
+
+	leaseB, valueB, err := AcquireRegistryResource(ctx, reg, id, apiresource.ModeNormal)
+	require.NoError(t, err)
+	assert.Equal(t, "shared", valueB)
+	assert.Equal(t, int64(1), reg.acquires.Load())
+
+	leaseA.Release()
+	assert.Equal(t, int64(0), reg.releases.Load(), "first logical release must not release shared resource")
+
+	got, err := leaseB.Get()
+	require.NoError(t, err)
+	assert.Equal(t, "shared", got)
+
+	leaseB.Release()
+	assert.Equal(t, int64(1), reg.releases.Load(), "last logical release should release shared resource once")
+}
+
+func TestAcquireRegistryResource_LeaseReleasedOnStoreClose(t *testing.T) {
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	store := NewStore()
+	require.NoError(t, SetStore(ctx, store))
+
+	reg := &leaseTestRegistry{value: "shared"}
+	id := registry.ParseID("test:resource")
+
+	leaseA, _, err := AcquireRegistryResource(ctx, reg, id, apiresource.ModeNormal)
+	require.NoError(t, err)
+	leaseB, _, err := AcquireRegistryResource(ctx, reg, id, apiresource.ModeNormal)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), reg.acquires.Load())
+
+	require.NoError(t, store.Close())
+	assert.Equal(t, int64(1), reg.releases.Load())
+
+	leaseA.Release()
+	leaseB.Release()
+	assert.Equal(t, int64(1), reg.releases.Load(), "logical release after store close must not double release")
+}
+
+func TestAcquireRegistryResource_FallsBackWithoutRuntimeStore(t *testing.T) {
+	reg := &leaseTestRegistry{value: "direct"}
+	id := registry.ParseID("test:resource")
+
+	leaseA, _, err := AcquireRegistryResource(context.Background(), reg, id, apiresource.ModeNormal)
+	require.NoError(t, err)
+	leaseB, _, err := AcquireRegistryResource(context.Background(), reg, id, apiresource.ModeNormal)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(2), reg.acquires.Load())
+	leaseA.Release()
+	leaseB.Release()
+	assert.Equal(t, int64(2), reg.releases.Load())
+}
+
+func TestAcquireRegistryResource_DoesNotCacheExclusiveMode(t *testing.T) {
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	store := NewStore()
+	defer func() { _ = store.Close() }()
+	require.NoError(t, SetStore(ctx, store))
+
+	reg := &leaseTestRegistry{value: "exclusive"}
+	id := registry.ParseID("test:resource")
+
+	leaseA, _, err := AcquireRegistryResource(ctx, reg, id, apiresource.ModeExclusive)
+	require.NoError(t, err)
+	leaseB, _, err := AcquireRegistryResource(ctx, reg, id, apiresource.ModeExclusive)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(2), reg.acquires.Load())
+	leaseA.Release()
+	leaseB.Release()
+	assert.Equal(t, int64(2), reg.releases.Load())
 }
 
 func TestStore_AddCleanup(t *testing.T) {

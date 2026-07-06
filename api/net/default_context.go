@@ -29,8 +29,9 @@ var appDefaultNetworkKey = &ctxapi.Key{Name: "net.app_default_network"}
 //  3. app-level  – network_service.default_network in .wippy.yaml
 //
 // Tiers 1 and 2 share the same options bag and are already merged by the
-// caller; the runtime dispatchers (process, lua, wasm managers) fall back to
-// tier 3 via AppDefaultNetwork when the merged bag has no "network" key.
+// caller; OverlayResolver (applied by the function registry executor and the
+// process manager) falls back to tier 3 via AppDefaultNetwork when the merged
+// bag has no "network" key.
 // The resulting ID is written onto the new FrameContext via DefaultNetworkPair
 // and inherited through every fork.
 
@@ -88,8 +89,8 @@ func AppDefaultNetwork(ctx context.Context) string {
 // ResolveOverlayID picks the overlay network ID to apply to a newly-spawned
 // task or process. Precedence: per-call/per-entry options bag ("network"
 // key) first, then the app-wide boot default, then empty ("clearnet").
-// Prefer ApplyOverlayPair for spawn sites — ResolveOverlayID is exported for
-// callers that need the raw ID.
+// ResolveOverlayID is exported for callers that need the raw ID; spawn sites
+// go through OverlayResolver on the frame-resolver registry.
 func ResolveOverlayID(ctx context.Context, options attrs.Attributes) string {
 	if options != nil {
 		if id := options.GetString(OptionKeyNetwork, ""); id != "" {
@@ -99,20 +100,36 @@ func ResolveOverlayID(ctx context.Context, options attrs.Attributes) string {
 	return AppDefaultNetwork(ctx)
 }
 
-// ApplyOverlayPair is the single entry point spawn sites use to decorate a
-// new task/process context with its overlay network selection. It resolves
-// the ID (per-call options, then app default), verifies the network is
-// registered, and appends DefaultNetworkPair to pairs. When no overlay is
-// selected the input is returned unchanged. Returns ErrNetworkNotFound when
-// a selector names an unregistered network.
+// OverlayResolver is the frame-context resolver that decorates a new
+// task/process frame with its overlay network selection. It resolves the ID
+// (per-call options, then app default), verifies the network is registered,
+// and emits DefaultNetworkPair. It emits nothing when no overlay is selected
+// and returns ErrNetworkNotFound when a selector names an unregistered network.
+// Registered on the frame-resolver registry at boot; the dispatchers apply it
+// generically.
+func OverlayResolver() ctxapi.FrameResolver {
+	return func(ctx context.Context, options attrs.Attributes) ([]ctxapi.Pair, error) {
+		networkID := ResolveOverlayID(ctx, options)
+		if networkID == "" {
+			return nil, nil
+		}
+		reg := GetNetworkRegistry(ctx)
+		if reg == nil || !reg.HasNetwork(registry.ParseID(networkID)) {
+			return nil, ErrNetworkNotFound
+		}
+		return []ctxapi.Pair{DefaultNetworkPair(networkID)}, nil
+	}
+}
+
+// ApplyOverlayPair resolves the overlay selection and appends its pair to pairs.
+//
+// Deprecated: spawn sites now apply the overlay through the frame-resolver
+// registry (OverlayResolver, registered at boot). Retained for external Go
+// callers; new code should register a FrameResolver instead.
 func ApplyOverlayPair(ctx context.Context, options attrs.Attributes, pairs []ctxapi.Pair) ([]ctxapi.Pair, error) {
-	networkID := ResolveOverlayID(ctx, options)
-	if networkID == "" {
-		return pairs, nil
+	got, err := OverlayResolver()(ctx, options)
+	if err != nil {
+		return nil, err
 	}
-	reg := GetNetworkRegistry(ctx)
-	if reg == nil || !reg.HasNetwork(registry.ParseID(networkID)) {
-		return nil, ErrNetworkNotFound
-	}
-	return append(pairs, DefaultNetworkPair(networkID)), nil
+	return append(pairs, got...), nil
 }

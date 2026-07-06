@@ -11,6 +11,8 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
+	secapi "github.com/wippyai/runtime/api/security"
+	secsystem "github.com/wippyai/runtime/system/security"
 )
 
 func bindProcess(l *lua.LState) {
@@ -336,5 +338,80 @@ func TestSpawnerWithOptions_PropagatesToStartOptions(t *testing.T) {
 	}
 	if !opts.GetBool(process.ProcessMonitorKey, false) {
 		t.Fatal("expected process.monitor=true for monitored spawn")
+	}
+}
+
+func TestSpawnerExec_YieldsExecWithSpawnerContext(t *testing.T) {
+	l, _ := newLuaWithPID(t)
+
+	values := ctxapi.NewValues()
+	values.Set("owner", "tenant-1")
+	actor := secapi.Actor{ID: "owner-actor"}
+	scope := secsystem.NewScope(nil)
+	spawner := &Spawner{
+		values:   values,
+		actor:    actor,
+		hasActor: true,
+		scope:    scope,
+		hasScope: true,
+	}
+
+	ud := l.NewUserData()
+	ud.Value = spawner
+	l.Push(ud)
+	l.Push(lua.LString("app.test:worker"))
+	l.Push(lua.LString("app:processes"))
+	l.Push(lua.LString("arg1"))
+
+	if got := spawnerExec(l); got != -1 {
+		t.Fatalf("expected -1 yield result, got %d", got)
+	}
+
+	yield, ok := l.Get(-1).(*ExecYield)
+	if !ok {
+		t.Fatalf("expected *ExecYield, got %T", l.Get(-1))
+	}
+
+	if yield.Source.String() != "app.test:worker" {
+		t.Fatalf("expected source app.test:worker, got %s", yield.Source)
+	}
+	if yield.HostID != "app:processes" {
+		t.Fatalf("expected host app:processes, got %s", yield.HostID)
+	}
+	if len(yield.Input) != 1 {
+		t.Fatalf("expected one input payload, got %d", len(yield.Input))
+	}
+	if len(yield.Context) != 3 {
+		t.Fatalf("expected actor, scope, and values context pairs, got %d", len(yield.Context))
+	}
+
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(fc)
+	if err := fc.SetMultiple(yield.Context...); err != nil {
+		t.Fatalf("failed to apply exec context pairs: %v", err)
+	}
+
+	gotActor, ok := secapi.GetActor(ctx)
+	if !ok {
+		t.Fatal("expected actor in exec context")
+	}
+	if gotActor.ID != actor.ID {
+		t.Fatalf("expected actor ID %q, got %q", actor.ID, gotActor.ID)
+	}
+
+	gotScope, ok := secapi.GetScope(ctx)
+	if !ok {
+		t.Fatal("expected scope in exec context")
+	}
+	if gotScope != scope {
+		t.Fatalf("expected scope %p, got %p", scope, gotScope)
+	}
+
+	gotValues := ctxapi.GetValues(ctx)
+	if gotValues == nil {
+		t.Fatal("expected values in exec context")
+	}
+	if got, ok := gotValues.Get("owner"); !ok || got != "tenant-1" {
+		t.Fatalf("expected owner context tenant-1, got %#v", got)
 	}
 }

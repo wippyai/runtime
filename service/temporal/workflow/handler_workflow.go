@@ -29,7 +29,8 @@ const (
 
 // executeFunctionCall executes a function as an activity.
 func (d *Definition) executeFunctionCall(cmd *function.CallCmd, tag uint64) error {
-	activityName := cmd.Task.ID.String()
+	merged := d.mergedFunctionTaskOptions(cmd.Task)
+	activityName := temporaloptions.ActivityName(merged, cmd.Task.ID)
 
 	args, err := d.dc.ToPayloads(cmd.Task.Payloads)
 	if err != nil {
@@ -40,7 +41,7 @@ func (d *Definition) executeFunctionCall(cmd *function.CallCmd, tag uint64) erro
 		TaskQueueName:       d.env.WorkflowInfo().TaskQueueName,
 		StartToCloseTimeout: defaultActivityTimeout,
 	}
-	if err := applyTemporalActivityOptions(&opts, d.mergedFunctionTaskOptions(cmd.Task)); err != nil {
+	if err := applyTemporalActivityOptions(&opts, merged); err != nil {
 		d.resumeProcess(tag, function.CallResult{
 			Error: fmt.Errorf("invalid temporal activity options for %s: %w", activityName, err),
 		}, nil)
@@ -61,7 +62,8 @@ func (d *Definition) executeFunctionCall(cmd *function.CallCmd, tag uint64) erro
 
 // executeFunctionAsyncStart starts an activity and wires its completion to a future topic.
 func (d *Definition) executeFunctionAsyncStart(cmd *function.AsyncStartCmd, tag uint64) error {
-	activityName := cmd.Task.ID.String()
+	merged := d.mergedFunctionTaskOptions(cmd.Task)
+	activityName := temporaloptions.ActivityName(merged, cmd.Task.ID)
 
 	args, err := d.dc.ToPayloads(cmd.Task.Payloads)
 	if err != nil {
@@ -72,7 +74,7 @@ func (d *Definition) executeFunctionAsyncStart(cmd *function.AsyncStartCmd, tag 
 		TaskQueueName:       d.env.WorkflowInfo().TaskQueueName,
 		StartToCloseTimeout: defaultActivityTimeout,
 	}
-	if err := applyTemporalActivityOptions(&opts, d.mergedFunctionTaskOptions(cmd.Task)); err != nil {
+	if err := applyTemporalActivityOptions(&opts, merged); err != nil {
 		d.resumeProcess(tag, function.AsyncStartResult{
 			Error: fmt.Errorf("invalid temporal activity options for %s: %w", activityName, err),
 		}, nil)
@@ -239,7 +241,7 @@ func (d *Definition) GetWorkflowInfo() workflowapi.Info {
 
 // executeWorkflowExec executes a child workflow synchronously and returns the result.
 func (d *Definition) executeWorkflowExec(cmd *workflowapi.ExecCmd, tag uint64) error {
-	workflowName := cmd.ID.String()
+	workflowName := temporaloptions.WorkflowNameFromID(cmd.ID)
 
 	var args *commonpb.Payloads
 	if len(cmd.Args) > 0 {

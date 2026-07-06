@@ -12,6 +12,7 @@ import (
 	runtimewasm "github.com/wippyai/runtime/runtime/wasm"
 	wasmcomponent "github.com/wippyai/runtime/runtime/wasm/component"
 	wasmengine "github.com/wippyai/runtime/runtime/wasm/engine"
+	entrycfg "github.com/wippyai/runtime/system/entry"
 	wasmlib "github.com/wippyai/wasm-runtime/component"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 	"go.uber.org/zap"
@@ -74,7 +75,7 @@ func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) {
 }
 
 func (m *Manager) addWASM(ctx context.Context, entry registry.Entry) error {
-	cfg, err := wasmcomponent.UnpackConfig[api.FunctionConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.FunctionConfig](ctx, entry)
 	if err != nil {
 		return runtimewasm.NewUnpackConfigError("process.wasm", err)
 	}
@@ -108,7 +109,7 @@ func (m *Manager) addWASM(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) updateWASM(ctx context.Context, entry registry.Entry) error {
-	cfg, err := wasmcomponent.UnpackConfig[api.FunctionConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.FunctionConfig](ctx, entry)
 	if err != nil {
 		return runtimewasm.NewUnpackConfigError("process.wasm", err)
 	}

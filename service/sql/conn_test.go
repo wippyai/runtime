@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/stretchr/testify/assert"
@@ -303,6 +304,63 @@ func TestConnPool_UpdateConfigAfterClose(t *testing.T) {
 	err = pool.UpdateConfig(newCfg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "closed")
+}
+
+func TestConnPool_UpdateConfigKeepsCurrentDBOnInvalidStandardConfig(t *testing.T) {
+	pool := NewMockConnPool(apiconfig.Postgres)
+	ctx := context.Background()
+	defer func() { _ = pool.Stop(ctx) }()
+
+	oldDB := pool.currentGeneration().db
+
+	err := pool.UpdateConfig(&apiconfig.DBConfig{
+		Host:     "",
+		Port:     5432,
+		Database: "db",
+		Username: "user",
+		Password: "pass",
+		Pool:     apiconfig.PoolConfig{MaxLifetime: time.Hour},
+	})
+	require.Error(t, err)
+	assert.Same(t, oldDB, pool.currentGeneration().db)
+	require.NoError(t, oldDB.PingContext(ctx))
+}
+
+func TestConnPool_UpdateConfigSwapsStandardDBAndRetiresOldAfterRelease(t *testing.T) {
+	pool := NewMockConnPool(apiconfig.Postgres)
+	ctx := context.Background()
+
+	res, err := pool.Acquire(ctx, testID, resource.ModeNormal)
+	require.NoError(t, err)
+
+	oldResource, err := res.Get()
+	require.NoError(t, err)
+	oldDB := oldResource.(DBResource).DB
+
+	newCfg := &apiconfig.DBConfig{
+		Host:     "updated-host",
+		Port:     5432,
+		Database: "updated-db",
+		Username: "updated-user",
+		Password: "updated-pass",
+		Pool:     apiconfig.PoolConfig{MaxOpen: 7, MaxIdle: 3, MaxLifetime: time.Hour},
+	}
+
+	require.NoError(t, pool.UpdateConfig(newCfg))
+	require.NotSame(t, oldDB, pool.db)
+
+	stillBorrowed, err := res.Get()
+	require.NoError(t, err)
+	assert.Same(t, oldDB, stillBorrowed.(DBResource).DB)
+	require.NoError(t, oldDB.PingContext(ctx))
+
+	res.Release()
+
+	require.Eventually(t, func() bool {
+		return oldDB.PingContext(ctx) != nil
+	}, time.Second, 10*time.Millisecond)
+
+	require.NoError(t, pool.Stop(ctx))
 }
 
 // Benchmarks

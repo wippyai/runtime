@@ -11,7 +11,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	envsvc "github.com/wippyai/runtime/api/service/env"
-	entryutil "github.com/wippyai/runtime/internal/entry"
+	entryutil "github.com/wippyai/runtime/system/entry"
 	sysenv "github.com/wippyai/runtime/system/env"
 	"go.uber.org/zap"
 )
@@ -72,6 +72,11 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	m.mu.Lock()
 	m.storages[entry.ID] = storage
 	m.mu.Unlock()
+
+	// Register directly in the central registry for synchronous access.
+	if reg := env.GetRegistry(ctx); reg != nil {
+		reg.RegisterStorage(entry.ID, storage)
+	}
 
 	m.bus.Send(ctx, event.Event{
 		System: env.System,

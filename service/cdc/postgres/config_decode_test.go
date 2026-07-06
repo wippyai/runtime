@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	config "github.com/wippyai/runtime/api/service/cdc"
+	entryutil "github.com/wippyai/runtime/system/entry"
 )
 
 func decodeConfig(t *testing.T, raw map[string]any) *config.Config {
@@ -54,7 +55,8 @@ func TestConfigWireFormatMapsAndBuildsDSN(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 5*time.Second, standby)
 
-	repl, admin := buildDSNs(cfg)
+	repl, admin, err := buildDSNs(cfg)
+	require.NoError(t, err)
 	ru, err := url.Parse(repl)
 	require.NoError(t, err)
 	assert.Equal(t, "database", ru.Query().Get("replication"))
@@ -65,7 +67,11 @@ func TestConfigWireFormatMapsAndBuildsDSN(t *testing.T) {
 }
 
 func TestConfigWireFormatEnvFields(t *testing.T) {
-	cfg := decodeConfig(t, map[string]any{
+	ctx := ctxWithEnv(&mockEnvRegistry{vars: map[string]string{
+		"PGHOST": "wire-host", "PGPORT": "5544", "PGUSER": "wire-user",
+		"PGPASS": "wire-pass", "PGDB": "wire-db",
+	}})
+	data := map[string]any{
 		"host_env":     "PGHOST",
 		"port_env":     "PGPORT",
 		"username_env": "PGUSER",
@@ -74,9 +80,14 @@ func TestConfigWireFormatEnvFields(t *testing.T) {
 		"slot_name":    "s",
 		"tables":       []any{"accounts"},
 		"temporary":    true,
-	})
-	require.NoError(t, cfg.Validate())
-	assert.Equal(t, "PGHOST", cfg.HostEnv)
-	assert.Equal(t, "PGPASS", cfg.PasswordEnv)
+	}
+
+	cfg, err := entryutil.DecodeEntryConfig[config.Config](ctx, &jsonConfigTranscoder{}, cdcEntryWithData(data))
+	require.NoError(t, err)
+	assert.Equal(t, "wire-host", cfg.Host)
+	assert.Equal(t, 5544, cfg.Port)
+	assert.Equal(t, "wire-user", cfg.Username)
+	assert.Equal(t, "wire-pass", cfg.Password)
+	assert.Equal(t, "wire-db", cfg.Database)
 	assert.True(t, cfg.Temporary)
 }

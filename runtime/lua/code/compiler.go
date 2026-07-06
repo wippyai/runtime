@@ -20,10 +20,14 @@ type CompiledProto struct {
 
 // CompiledMain holds the compiled versions of the main function and its dependencies
 type CompiledMain struct {
-	Main         *glua.FunctionProto
+	Main *glua.FunctionProto
+	// Imports maps each code node (entrypoint and libraries) to its directly
+	// declared imports, used to build per-chunk scoped environments.
+	Imports      map[registry.ID][]Import
 	FuncName     string
-	Dependencies []CompiledProto
+	MainID       registry.ID
 	Preloaded    []CompiledProto
+	Dependencies []CompiledProto
 }
 
 // CompileFn compiles a node against the graph snapshot used for the build.
@@ -179,6 +183,8 @@ func (c *Compiler) Compile(
 
 	compiled := &CompiledMain{}
 	compiled.FuncName = rt.Main.Method
+	compiled.MainID = rt.Main.ID
+	compiled.Imports = rt.Imports
 
 	for _, pre := range options.Preloaded {
 		if err := c.preloadModule(memGraph, pre, compiled); err != nil {

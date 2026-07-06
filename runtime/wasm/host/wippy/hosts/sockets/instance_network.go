@@ -8,9 +8,9 @@ import (
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
 
-const InstanceNetworkNamespace = "wasi:sockets/instance-network@0.2.0"
+const InstanceNetworkNamespace = "wasi:sockets/instance-network@0.2.8"
 
-// InstanceNetworkHost implements wasi:sockets/instance-network@0.2.0.
+// InstanceNetworkHost implements wasi:sockets/instance-network@0.2.8.
 type InstanceNetworkHost struct {
 	resources *preview2.ResourceTable
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
 
-const TCPCreateSocketNamespace = "wasi:sockets/tcp-create-socket@0.2.0"
+const TCPCreateSocketNamespace = "wasi:sockets/tcp-create-socket@0.2.8"
 
 // NetworkError represents a WASI network error.
 type NetworkError struct {
@@ -50,7 +50,7 @@ const (
 	AddressFamilyIPv6 uint8 = 1
 )
 
-// TCPCreateSocketHost implements wasi:sockets/tcp-create-socket@0.2.0.
+// TCPCreateSocketHost implements wasi:sockets/tcp-create-socket@0.2.8.
 type TCPCreateSocketHost struct {
 	resources *preview2.ResourceTable
 }

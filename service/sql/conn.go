@@ -17,12 +17,102 @@ import (
 // ConnPool represents a database connection pool that acts both as a service
 // and a resource provider
 type ConnPool struct {
-	db     *sql.DB
-	status chan any
-	config atomic.Pointer[any]
-	kind   registry.Kind
-	wg     sync.WaitGroup
-	closed atomic.Bool
+	db      *sql.DB
+	current *dbGeneration
+	status  chan any
+	config  atomic.Pointer[any]
+	kind    registry.Kind
+	mu      sync.RWMutex
+	wg      sync.WaitGroup
+	closed  atomic.Bool
+}
+
+type dbGeneration struct {
+	db       *sql.DB
+	closed   chan struct{}
+	closeErr error
+	closeMu  sync.Mutex
+	once     sync.Once
+	refs     atomic.Int32
+	closing  atomic.Bool
+}
+
+func newDBGeneration(db *sql.DB) *dbGeneration {
+	return &dbGeneration{
+		db:     db,
+		closed: make(chan struct{}),
+	}
+}
+
+func (g *dbGeneration) acquire() bool {
+	if g == nil || g.closing.Load() {
+		return false
+	}
+	g.refs.Add(1)
+	if g.closing.Load() {
+		g.release()
+		return false
+	}
+	return true
+}
+
+func (g *dbGeneration) release() {
+	if g == nil {
+		return
+	}
+	if g.refs.Add(-1) == 0 && g.closing.Load() {
+		g.closeNow()
+	}
+}
+
+func (g *dbGeneration) closeWhenIdle() {
+	if g == nil {
+		return
+	}
+	g.closing.Store(true)
+	if g.refs.Load() == 0 {
+		g.closeNow()
+	}
+}
+
+func (g *dbGeneration) closeNow() {
+	g.once.Do(func() {
+		g.closeMu.Lock()
+		g.closeErr = g.db.Close()
+		g.closeMu.Unlock()
+		close(g.closed)
+	})
+}
+
+func (g *dbGeneration) waitClosed(ctx context.Context) error {
+	if g == nil {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-g.closed:
+		g.closeMu.Lock()
+		err := g.closeErr
+		g.closeMu.Unlock()
+		return err
+	}
+}
+
+func (p *ConnPool) currentGeneration() *dbGeneration {
+	p.mu.RLock()
+	gen := p.current
+	p.mu.RUnlock()
+	if gen != nil {
+		return gen
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.current == nil && p.db != nil {
+		p.current = newDBGeneration(p.db)
+	}
+	return p.current
 }
 
 // Start implements supervisor.Service
@@ -31,8 +121,13 @@ func (p *ConnPool) Start(ctx context.Context) (<-chan any, error) {
 		return nil, ErrPoolClosed
 	}
 
+	gen := p.currentGeneration()
+	if gen == nil {
+		return nil, ErrPoolClosed
+	}
+
 	// Test connection
-	if err := p.db.PingContext(ctx); err != nil {
+	if err := gen.db.PingContext(ctx); err != nil {
 		return nil, NewPingError(err)
 	}
 
@@ -63,7 +158,19 @@ func (p *ConnPool) Stop(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-done:
-		return p.db.Close()
+		p.mu.Lock()
+		if p.current == nil && p.db != nil {
+			p.current = newDBGeneration(p.db)
+		}
+		gen := p.current
+		p.current = nil
+		p.db = nil
+		p.mu.Unlock()
+		if gen == nil {
+			return nil
+		}
+		gen.closeWhenIdle()
+		return gen.waitClosed(ctx)
 	}
 }
 
@@ -84,6 +191,14 @@ func (p *ConnPool) UpdateConfig(cfg any) error {
 		return NewUnsupportedConfigTypeError(p.kind)
 	}
 
+	return p.updateConfig(context.Background(), eng, ec)
+}
+
+func (p *ConnPool) updateConfig(ctx context.Context, eng Engine, ec config.EngineConfig) error {
+	if p.closed.Load() {
+		return ErrPoolClosed
+	}
+
 	if err := eng.ValidateConfigType(ec); err != nil {
 		return err
 	}
@@ -92,7 +207,40 @@ func (p *ConnPool) UpdateConfig(cfg any) error {
 		return NewInvalidConfigError(err)
 	}
 
-	eng.Tune(p.db, ec)
+	if p.kind == config.SQLite {
+		gen := p.currentGeneration()
+		if gen == nil {
+			return ErrPoolClosed
+		}
+		eng.Tune(gen.db, ec)
+		var stored any = ec
+		p.config.Store(&stored)
+		return nil
+	}
+
+	newDB, err := openEngineDB(ctx, eng, ec)
+	if err != nil {
+		return err
+	}
+	newGen := newDBGeneration(newDB)
+
+	p.mu.Lock()
+	if p.closed.Load() {
+		p.mu.Unlock()
+		_ = newDB.Close()
+		return ErrPoolClosed
+	}
+	oldGen := p.current
+	if oldGen == nil && p.db != nil {
+		oldGen = newDBGeneration(p.db)
+	}
+	p.current = newGen
+	p.db = newDB
+	p.mu.Unlock()
+
+	if oldGen != nil {
+		oldGen.closeWhenIdle()
+	}
 
 	var stored any = ec
 	p.config.Store(&stored)
@@ -119,13 +267,26 @@ func (p *ConnPool) Acquire(
 		return nil, ErrPoolClosed
 	}
 
-	return newDBConn(p, p.db, p.kind), nil
+	for {
+		gen := p.currentGeneration()
+		if gen == nil {
+			p.wg.Done()
+			return nil, ErrPoolClosed
+		}
+		if gen.acquire() {
+			return newDBConn(p, gen, p.kind), nil
+		}
+		if p.closed.Load() {
+			p.wg.Done()
+			return nil, ErrPoolClosed
+		}
+	}
 }
 
 // DBConn represents a database connection resource
 type DBConn struct {
 	pool     *ConnPool
-	db       *sql.DB
+	gen      *dbGeneration
 	dbType   registry.Kind
 	released atomic.Bool
 }
@@ -137,10 +298,10 @@ type DBResource struct {
 }
 
 // newDBConn creates a new database resource
-func newDBConn(pool *ConnPool, db *sql.DB, dbType registry.Kind) *DBConn {
+func newDBConn(pool *ConnPool, gen *dbGeneration, dbType registry.Kind) *DBConn {
 	return &DBConn{
 		pool:   pool,
-		db:     db,
+		gen:    gen,
 		dbType: dbType,
 	}
 }
@@ -153,7 +314,7 @@ func (r *DBConn) Get() (any, error) {
 
 	// Return both the DB and its type
 	return DBResource{
-		DB:   r.db,
+		DB:   r.gen.db,
 		Type: r.dbType,
 	}, nil
 }
@@ -165,5 +326,6 @@ func (r *DBConn) Release() {
 		return
 	}
 
+	r.gen.release()
 	r.pool.wg.Done()
 }

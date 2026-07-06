@@ -14,19 +14,26 @@ import (
 type (
 	// PoolConfig defines settings for a pool of WASM executors.
 	PoolConfig struct {
-		Type    string `json:"type"`    // Pool type: static, lazy, inline, adaptive
-		Size    int    `json:"size"`    // Total pool size for non-flex pools
-		Workers int    `json:"workers"` // Number of worker threads
-		Buffer  int    `json:"buffer"`  // Queue buffer size (default: workers * 64)
+		Type        string `json:"type"`         // Pool type: static, lazy, inline, adaptive
+		WorkerClass string `json:"worker_class"` // Optional scheduler worker class; a named class runs this pool on dedicated OS-thread-pinned workers (mirrors v2 scheduler worker classes)
+		Size        int    `json:"size"`         // Total pool size for non-flex pools
+		Workers     int    `json:"workers"`      // Number of worker threads
+		Buffer      int    `json:"buffer"`       // Queue buffer size (default: workers * 64)
 
 		// Elastic pool specifics.
 		WarmStart bool `json:"warm_start"` // Pre-instantiate workers where applicable
 		MaxSize   int  `json:"max_size"`   // Maximum workers for elastic pools
 	}
 
-	// LimitsConfig defines execution limits for a WASM function.
+	// LimitsConfig defines execution and warm-instance lifecycle limits for a
+	// WASM function.
 	LimitsConfig struct {
 		MaxExecutionMS int `json:"max_execution_ms,omitempty"`
+
+		// MaxRetainedMemoryBytes closes a warm synchronous instance after a
+		// completed call when its guest linear memory is above this size.
+		// 0 disables retained-memory recycling.
+		MaxRetainedMemoryBytes int64 `json:"max_retained_memory_bytes,omitempty"`
 	}
 
 	// WASIEnvVarConfig maps an env registry variable ID to a guest env var name.
@@ -55,7 +62,7 @@ type (
 	// WATFunctionConfig defines configuration for inline WAT function entries.
 	WATFunctionConfig struct {
 		Meta      attrs.Bag     `json:"meta,omitempty"`
-		Source    string        `json:"source"`
+		Source    string        `json:"source" resolve:"-"`
 		Method    string        `json:"method"`
 		Transport string        `json:"transport,omitempty"`
 		WIT       string        `json:"wit,omitempty"`
@@ -186,6 +193,13 @@ func validatePool(pool PoolConfig) error {
 		}
 	}
 
+	if pool.WorkerClass != "" {
+		// A worker class selects a dedicated, OS-thread-pinned pool that derives
+		// its own worker/buffer defaults, so the legacy size semantics below do
+		// not apply. The class name is resolved by the scheduler at boot.
+		return nil
+	}
+
 	// Legacy-compatible validation semantics from lua runtime:
 	// - workers=0,size=0 is flex/lazy style
 	// - workers>0 requires size>0
@@ -203,6 +217,9 @@ func validatePool(pool PoolConfig) error {
 func validateLimits(limits LimitsConfig) error {
 	if limits.MaxExecutionMS < 0 {
 		return ErrInvalidExecutionLimit
+	}
+	if limits.MaxRetainedMemoryBytes < 0 {
+		return ErrInvalidRetainedMemoryLimit
 	}
 	return nil
 }

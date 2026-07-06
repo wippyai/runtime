@@ -312,7 +312,7 @@ func (s *State) Register(name string, p pid.PID, wallMs int64, priority uint32) 
 	}
 
 	prevWinner := s.winnerOf(rec)
-	counter := s.localCounter.Add(1)
+	counter := s.nextCounter()
 	e := &Entry{
 		PID:      p,
 		Name:     name,
@@ -354,7 +354,7 @@ func (s *State) Unregister(name string, wallMs int64) *Entry {
 		return nil
 	}
 	prevWinner := s.winnerOf(rec)
-	counter := s.localCounter.Add(1)
+	counter := s.nextCounter()
 	e := &Entry{
 		Name:     name,
 		Node:     s.localNode,
@@ -554,6 +554,30 @@ func concurrentKeyCmp(a, b concurrentKey) int {
 		return -1
 	}
 	return 0
+}
+
+// nextCounter mints the next local-origin counter as a Lamport advance: strictly
+// greater than both localCounter and cv[localNode]. After a restart localCounter
+// is 0 while cv[localNode] still carries the prior incarnation's counter (relearned
+// via gossip, including a reap tombstone), so seeding above it keeps a fresh
+// registration from being dropped as causally stale.
+func (s *State) nextCounter() uint64 {
+	s.cvMu.RLock()
+	var seen uint64
+	if int(s.localNode) < len(s.cv) {
+		seen = s.cv[s.localNode]
+	}
+	s.cvMu.RUnlock()
+	for {
+		cur := s.localCounter.Load()
+		next := cur + 1
+		if seen >= next {
+			next = seen + 1
+		}
+		if s.localCounter.CompareAndSwap(cur, next) {
+			return next
+		}
+	}
 }
 
 // bumpCV advances cv[node] to max(cv[node], counter).

@@ -77,6 +77,13 @@ func (s *Store) Get(registry string) (*auth.Credential, error) {
 		registry = s.DefaultRegistry()
 	}
 
+	if token := runtimeToken(registry); token != "" {
+		return &auth.Credential{
+			Token:    token,
+			Registry: registry,
+		}, nil
+	}
+
 	// Environment override
 	if token := TokenFromEnv(); token != "" {
 		return &auth.Credential{

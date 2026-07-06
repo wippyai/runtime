@@ -18,7 +18,16 @@ var (
 	cachedCoroutineLib *lua.LTable
 	cachedStringLib    *lua.LTable
 	cachedErrorsLib    *lua.LTable
+
+	// cachedLibs is the ordered set of standard libraries bound as globals by
+	// BindCachedLibs. It is the single source for both binding and StdLibNames.
+	cachedLibs []cachedLib
 )
+
+type cachedLib struct {
+	tbl  *lua.LTable
+	name string
+}
 
 func initCachedLibs() {
 	initOnce.Do(func() {
@@ -48,6 +57,15 @@ func initCachedLibs() {
 		lua.OpenErrors(tmp)
 		cachedErrorsLib = tmp.GetGlobal(lua.ErrorsLibName).(*lua.LTable)
 		cachedErrorsLib.Immutable = true
+
+		cachedLibs = []cachedLib{
+			{name: lua.TabLibName, tbl: cachedTableLib},
+			{name: lua.MathLibName, tbl: cachedMathLib},
+			{name: "os", tbl: cachedOsLib},
+			{name: lua.CoroutineLibName, tbl: cachedCoroutineLib},
+			{name: lua.StringLibName, tbl: cachedStringLib},
+			{name: lua.ErrorsLibName, tbl: cachedErrorsLib},
+		}
 	})
 }
 
@@ -55,16 +73,25 @@ func initCachedLibs() {
 func BindCachedLibs(L *lua.LState) {
 	initCachedLibs()
 
-	L.SetGlobal(lua.TabLibName, cachedTableLib)
-	L.SetGlobal(lua.MathLibName, cachedMathLib)
-	L.SetGlobal("os", cachedOsLib)
-	L.SetGlobal(lua.CoroutineLibName, cachedCoroutineLib)
-	L.SetGlobal(lua.StringLibName, cachedStringLib)
-	L.SetGlobal(lua.ErrorsLibName, cachedErrorsLib)
+	for _, lib := range cachedLibs {
+		L.SetGlobal(lib.name, lib.tbl)
+	}
 
 	// Register error metatable (needed per-LState for builtinMts)
 	lua.RegisterErrorMetatable(L)
 
 	// String lib as metatable for string values (enables "hello":upper())
 	L.SetMetatable(lua.LString(""), cachedStringLib)
+}
+
+// StdLibNames returns the names of the standard libraries BindCachedLibs
+// installs as globals.
+func StdLibNames() []string {
+	initCachedLibs()
+
+	names := make([]string, len(cachedLibs))
+	for i, lib := range cachedLibs {
+		names[i] = lib.name
+	}
+	return names
 }

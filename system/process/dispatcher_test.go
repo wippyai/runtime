@@ -651,6 +651,59 @@ func TestDispatcher_HandleExec_Success(t *testing.T) {
 	assert.NotNil(t, result.Result)
 }
 
+func TestDispatcher_HandleExec_PassesCommandContextToStart(t *testing.T) {
+	manager := &mockProcessManager{}
+	router := &mockRouter{}
+	topo := &mockTopology{}
+
+	processPID := pid.PID{Host: "lua", UniqID: "proc-1"}
+	execContext := []ctxapi.Pair{
+		{Key: &ctxapi.Key{Name: "test.owner"}, Value: "owner-1"},
+	}
+	var gotStart *process.Start
+
+	topo.On("Register", mock.Anything).Return(nil)
+	topo.On("Remove", mock.Anything).Return()
+	manager.On("Start", mock.Anything, mock.MatchedBy(func(start *process.Start) bool {
+		gotStart = start
+		return true
+	})).Return(processPID, nil)
+
+	d := NewDispatcher(manager, router, topo, nil)
+
+	cmd := &process.ExecCmd{
+		Source:  registry.NewID("test", "handler"),
+		HostID:  "lua",
+		Context: execContext,
+	}
+
+	ctx := ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
+	pidGen := uniqid.NewPIDGenerator(uniqid.NewGenerator(), "")
+	ctx = process.WithPIDGenerator(ctx, pidGen)
+
+	node := sysrelay.NewNode("")
+	controlHost := &mockAttachableHost{}
+	_ = node.RegisterHost(topology.ControlHost, controlHost)
+	ctx = relay.WithNode(ctx, node)
+
+	receiver := &asyncResultReceiver{done: make(chan struct{})}
+	err := d.handleExec(ctx, cmd, 1, receiver)
+	assert.NoError(t, err)
+
+	time.Sleep(10 * time.Millisecond)
+	controlHost.sendExitEvent(&runtime.Result{Value: payload.New("success")})
+
+	select {
+	case <-receiver.done:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for result")
+	}
+
+	assert.Nil(t, receiver.err)
+	assert.NotNil(t, gotStart)
+	assert.Equal(t, execContext, gotStart.Context)
+}
+
 func TestDispatcher_HandleExec_ContextCanceled(t *testing.T) {
 	manager := &mockProcessManager{}
 	router := &mockRouter{}

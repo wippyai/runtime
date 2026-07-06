@@ -6,7 +6,6 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/boot"
-	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
 	logapi "github.com/wippyai/runtime/api/logs"
 	"github.com/wippyai/runtime/api/payload"
@@ -26,11 +25,10 @@ func CDC() boot.Component {
 			logger := logapi.GetLogger(ctx)
 			dtt := payload.GetTranscoder(ctx)
 			bus := event.GetBus(ctx)
-			envRegistry := envapi.GetRegistry(ctx)
 			resReg := resourceapi.GetRegistry(ctx)
 			handlers := bootpkg.GetHandlerRegistry(ctx)
 
-			pgManager, err := pgcdc.NewManager(dtt, bus, logger.Named("cdc.postgres"), envRegistry)
+			pgManager, err := pgcdc.NewManager(dtt, bus, logger.Named("cdc.postgres"))
 			if err != nil {
 				return ctx, NewCDCManagerError(err)
 			}

@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 	"sort"
 	"testing"
@@ -11,9 +12,149 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	ctxapi "github.com/wippyai/runtime/api/context"
+	envapi "github.com/wippyai/runtime/api/env"
+	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	config "github.com/wippyai/runtime/api/service/cdc"
+	entryutil "github.com/wippyai/runtime/system/entry"
 )
+
+type mockEnvRegistry struct {
+	vars map[string]string
+}
+
+func (m *mockEnvRegistry) Get(_ context.Context, name string) (string, error) {
+	if v, ok := m.vars[name]; ok {
+		return v, nil
+	}
+	return "", envapi.ErrVariableNotFound
+}
+
+func (m *mockEnvRegistry) Lookup(_ context.Context, name string) (string, bool, error) {
+	v, ok := m.vars[name]
+	return v, ok, nil
+}
+
+func (m *mockEnvRegistry) Set(_ context.Context, name, value string) error {
+	m.vars[name] = value
+	return nil
+}
+
+func (m *mockEnvRegistry) All(_ context.Context) (map[string]string, error) {
+	return m.vars, nil
+}
+
+func (m *mockEnvRegistry) GetStorage(_ context.Context, _ registry.ID) (envapi.Storage, error) {
+	return nil, envapi.ErrStorageNotFound
+}
+
+func (m *mockEnvRegistry) RegisterStorage(_ registry.ID, _ envapi.Storage) {}
+
+func (m *mockEnvRegistry) RegisterVariable(_ envapi.Variable) error { return nil }
+
+func (m *mockEnvRegistry) UnregisterVariable(_ registry.ID) {}
+
+// jsonConfigTranscoder decodes an entry's raw data map into the target config the
+// same way the production transcoder does, so *_env directives carried in the
+// data map are seen by the central resolve pass.
+type jsonConfigTranscoder struct{}
+
+func (t *jsonConfigTranscoder) Marshal(v any) (payload.Payload, error) {
+	return payload.New(v), nil
+}
+
+func (t *jsonConfigTranscoder) Unmarshal(p payload.Payload, v any) error {
+	b, err := json.Marshal(p.Data())
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, v)
+}
+
+func (t *jsonConfigTranscoder) Transcode(p payload.Payload, format payload.Format) (payload.Payload, error) {
+	return payload.NewPayload(p.Data(), format), nil
+}
+
+func cdcEntryWithData(data map[string]any) registry.Entry {
+	return registry.Entry{
+		ID:   registry.NewID("test", "resolve-cdc"),
+		Kind: config.Postgres,
+		Data: payload.New(data),
+	}
+}
+
+func ctxWithEnv(reg envapi.Registry) context.Context {
+	return envapi.WithRegistry(ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext()), reg)
+}
+
+func TestResolveEnv_FailsFastOnUnresolvable(t *testing.T) {
+	ctx := ctxWithEnv(&mockEnvRegistry{vars: map[string]string{"DB_HOST": "h"}})
+	data := map[string]any{
+		"host_env":     "DB_HOST",
+		"username_env": "MISSING_USER",
+		"slot_name":    "slot",
+		"publication":  "pub",
+	}
+
+	_, err := entryutil.DecodeEntryConfig[config.Config](ctx, &jsonConfigTranscoder{}, cdcEntryWithData(data))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "could not be resolved")
+	assert.Contains(t, err.Error(), "environment variable not found")
+}
+
+func TestResolveEnv_AppliesResolvedValues(t *testing.T) {
+	ctx := ctxWithEnv(&mockEnvRegistry{vars: map[string]string{
+		"H": "resolved-host", "P": "6543", "D": "resolved-db", "U": "resolved-user", "PW": "resolved-pass",
+	}})
+	data := map[string]any{
+		"host_env":     "H",
+		"port_env":     "P",
+		"database_env": "D",
+		"username_env": "U",
+		"password_env": "PW",
+		"slot_name":    "slot",
+		"publication":  "pub",
+	}
+
+	cfg, err := entryutil.DecodeEntryConfig[config.Config](ctx, &jsonConfigTranscoder{}, cdcEntryWithData(data))
+	require.NoError(t, err)
+	assert.Equal(t, "resolved-host", cfg.Host)
+	assert.Equal(t, 6543, cfg.Port)
+	assert.Equal(t, "resolved-db", cfg.Database)
+	assert.Equal(t, "resolved-user", cfg.Username)
+	assert.Equal(t, "resolved-pass", cfg.Password)
+}
+
+func TestBuildDSNs_RejectsEmptyRequiredField(t *testing.T) {
+	base := func() *config.Config {
+		return &config.Config{Host: "h", Port: 5432, Username: "u", Database: "d"}
+	}
+
+	c := base()
+	c.Host = ""
+	_, _, err := buildDSNs(c)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "host")
+
+	c = base()
+	c.Port = 0
+	_, _, err = buildDSNs(c)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "port")
+
+	c = base()
+	c.Username = ""
+	_, _, err = buildDSNs(c)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "username")
+
+	c = base()
+	c.Database = ""
+	_, _, err = buildDSNs(c)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "database")
+}
 
 func TestBuildDSNs(t *testing.T) {
 	cfg := &config.Config{
@@ -23,7 +164,8 @@ func TestBuildDSNs(t *testing.T) {
 		Password: "p@ss/word",
 		Database: "appdb",
 	}
-	repl, admin := buildDSNs(cfg)
+	repl, admin, err := buildDSNs(cfg)
+	require.NoError(t, err)
 
 	ru, err := url.Parse(repl)
 	require.NoError(t, err)
@@ -145,7 +287,8 @@ func TestBuildDSNsCarriesOptions(t *testing.T) {
 		Database: "d",
 		Options:  map[string]string{"sslmode": "require"},
 	}
-	repl, admin := buildDSNs(cfg)
+	repl, admin, err := buildDSNs(cfg)
+	require.NoError(t, err)
 
 	ru, err := url.Parse(repl)
 	require.NoError(t, err)

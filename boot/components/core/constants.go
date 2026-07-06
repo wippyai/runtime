@@ -17,6 +17,15 @@ const (
 	EventRouterName    boot.Name = "eventrouter"
 	DispatcherName     boot.Name = "dispatcher"
 
+	// SchedulerName is the .wippy.yaml section for scheduler tuning.
+	SchedulerName boot.Name = "scheduler"
+	// WASMIsolationName is the scheduler sub-section that reserves cores for WASM.
+	WASMIsolationName boot.Name = "wasm_isolation"
+	// WASMIsolationEnabled toggles the WASM/actor core partition (default false).
+	WASMIsolationEnabled boot.Name = "enabled"
+	// WASMIsolationReserved is the number of cores reserved for WASM execution.
+	WASMIsolationReserved boot.Name = "reserved_cores"
+
 	// FinderQueryCacheSize is a Finder configuration key
 	FinderQueryCacheSize boot.Name = "query_cache_size"
 	FinderRegexCacheSize boot.Name = "regex_cache_size"

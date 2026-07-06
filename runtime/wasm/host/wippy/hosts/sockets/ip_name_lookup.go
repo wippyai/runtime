@@ -14,9 +14,9 @@ import (
 	"github.com/wippyai/wasm-runtime/wasi/preview2"
 )
 
-const IPNameLookupNamespace = "wasi:sockets/ip-name-lookup@0.2.0"
+const IPNameLookupNamespace = "wasi:sockets/ip-name-lookup@0.2.8"
 
-// IPNameLookupHost implements wasi:sockets/ip-name-lookup@0.2.0.
+// IPNameLookupHost implements wasi:sockets/ip-name-lookup@0.2.8.
 type IPNameLookupHost struct {
 	resources *preview2.ResourceTable
 }

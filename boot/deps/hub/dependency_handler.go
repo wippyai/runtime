@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,18 +18,22 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
 	apierror "github.com/wippyai/runtime/api/error"
+	moduleapi "github.com/wippyai/runtime/api/modules"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
 	"github.com/wippyai/runtime/boot/deps/auth"
+	depconfig "github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/lock"
+	"github.com/wippyai/runtime/boot/deps/wappextract"
 	"github.com/wippyai/runtime/boot/loader"
 	"github.com/wippyai/runtime/boot/loader/interpolate"
-	entrypkg "github.com/wippyai/runtime/internal/entry"
+	entrypkg "github.com/wippyai/runtime/system/entry"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -72,9 +77,11 @@ type DependencyDefinition struct {
 }
 
 // Parameter represents a single parameter in a dependency definition.
+// Value carries the supplied value in its source type so typed parameters
+// decode without forcing a string.
 type Parameter struct {
+	Value any    `json:"value" yaml:"value"`
 	Name  string `json:"name" yaml:"name"`
-	Value string `json:"value" yaml:"value"`
 }
 
 type desiredDependency struct {
@@ -227,9 +234,19 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		})
 	}
 
+	var effects []regapi.Effect
+	packEffect, err := h.buildEmbedPackEffect(ctx, resolved, snapshot)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	if packEffect != nil {
+		effects = append(effects, packEffect)
+	}
+
 	return regapi.DirectiveResult{
 		Applied:    true,
 		Additional: scoped,
+		Effects:    effects,
 	}, nil
 }
 
@@ -449,18 +466,78 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 	if h.manifestCache != nil {
 		provider = h.manifestCache
 	}
+	lockedDigests := h.lockedModuleDigests()
+	provider = &replacementManifestProvider{
+		base:           provider,
+		handler:        h,
+		lockedVersions: lockedVersions,
+		lockedDigests:  lockedDigests,
+	}
 	result, err := Resolve(resolveCtx, provider, roots, &ResolveOptions{
 		LockedVersions: lockedVersions,
-		LockedDigests:  h.lockedModuleDigests(),
+		LockedDigests:  lockedDigests,
 	})
 	if err != nil {
+		if h.logger != nil {
+			h.logger.Error("dependency resolution failed", zap.Error(err))
+		}
 		return nil, NewDependencyResolutionError(err)
 	}
 	if len(result.Errors) > 0 {
+		if h.logger != nil {
+			h.logger.Error("dependency resolution failed", zap.String("errors", formatResolutionErrors(result.Errors)))
+		}
 		return nil, NewDependencyResolutionErrors(result.Errors)
 	}
 
 	return result.Modules, nil
+}
+
+// replacementManifestProvider resolves locally-replaced modules from their lock
+// replacement instead of the Hub. A replaced module's source of truth is local,
+// so it must never be re-fetched from the Hub during live changeset expansion —
+// otherwise installing any module fails when an already-installed, locally-sourced
+// module is absent from the Hub. Non-replaced modules delegate to the base provider.
+type replacementManifestProvider struct {
+	base           ManifestProvider
+	handler        *DependencyHandler
+	lockedVersions map[string]string
+	lockedDigests  map[string]string
+}
+
+func (p *replacementManifestProvider) replacedVersion(name, constraint string) string {
+	if version := p.lockedVersions[name]; version != "" {
+		return version
+	}
+	if version := p.handler.replacementModuleVersion(name); version != "" {
+		return version
+	}
+	return strings.TrimPrefix(constraint, "@")
+}
+
+func (p *replacementManifestProvider) GetManifest(ctx context.Context, org, module, constraint string) (*ModuleManifest, error) {
+	name := org + "/" + module
+	if _, ok := p.handler.replacementPath(name); ok {
+		if version := p.replacedVersion(name, constraint); version != "" {
+			return &ModuleManifest{
+				Org:     org,
+				Name:    module,
+				Version: version,
+				Digest:  p.lockedDigests[name+"@"+version],
+			}, nil
+		}
+	}
+	return p.base.GetManifest(ctx, org, module, constraint)
+}
+
+func (p *replacementManifestProvider) ListAllVersions(ctx context.Context, org, module string) ([]VersionInfo, error) {
+	name := org + "/" + module
+	if _, ok := p.handler.replacementPath(name); ok {
+		if version := p.replacedVersion(name, ""); version != "" {
+			return []VersionInfo{{Version: version}}, nil
+		}
+	}
+	return p.base.ListAllVersions(ctx, org, module)
 }
 
 // touchedModuleNames returns the resolved modules this operation actually
@@ -509,7 +586,56 @@ func (h *DependencyHandler) loadEntriesForModule(ctx context.Context, transcoder
 	if err != nil {
 		return nil, err
 	}
-	return loadRawEntriesFromPaths(ctx, []string{modulePath}, h.logger, transcoder)
+	registerResolvedModuleSourceRoot(ctx, mod.Org+"/"+mod.Name, modulePath)
+	entries, err := loadRawEntriesFromPaths(ctx, []string{modulePath}, h.logger, transcoder)
+	if err != nil {
+		return nil, err
+	}
+	return h.applyModuleConfigFilters(ctx, modulePath, entries)
+}
+
+// applyModuleConfigFilters drops entries the module's wippy.yaml excludes
+// (exclude / exclude_meta) when the module is loaded from a directory tree —
+// e.g. a lock replacement pointed at the module's source. Without it a host app
+// picks up the module's own fixtures (test/_index.yaml under namespace "app"),
+// which then collide with the host's real entries during linking. .wapp packs
+// are skipped: they were already filtered at publish time.
+func (h *DependencyHandler) applyModuleConfigFilters(ctx context.Context, modulePath string, entries []regapi.Entry) ([]regapi.Entry, error) {
+	if filepath.Ext(modulePath) == ".wapp" {
+		return entries, nil
+	}
+	cfg, err := depconfig.Load(modulePath)
+	if err != nil {
+		return entries, nil
+	}
+	entryExcludes := cfg.EntryExcludes()
+	if len(entryExcludes) == 0 && len(cfg.ExcludeMeta) == 0 {
+		return entries, nil
+	}
+	filtered := append([]regapi.Entry(nil), entries...)
+	stage := stages.DisableWithOptions(stages.DisableOptions{
+		Entries:     entryExcludes,
+		MetaFilters: cfg.ExcludeMeta,
+	})
+	if err := stage.Execute(ctx, &filtered); err != nil {
+		return nil, NewDependencyLoadError(modulePath, err)
+	}
+	return filtered, nil
+}
+
+func registerResolvedModuleSourceRoot(ctx context.Context, moduleName, modulePath string) {
+	if moduleName == "" || filepath.Ext(modulePath) == ".wapp" {
+		return
+	}
+	stat, err := os.Stat(modulePath)
+	if err != nil || !stat.IsDir() {
+		return
+	}
+	root, err := filepath.Abs(modulePath)
+	if err != nil {
+		return
+	}
+	moduleapi.WithSourceRoots(ctx, moduleapi.SourceRoots{moduleName: root})
 }
 
 func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod ResolvedModule) (string, error) {
@@ -534,11 +660,19 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 		return replacementPath, nil
 	}
 
+	shouldUnpack := h.shouldUnpackModules()
+	dirPath := filepath.Join(h.vendorDir, lock.ModulePath(name))
 	expectedDigest := mod.Digest
 	expectedSize := mod.SizeBytes
 	wappPath := filepath.Join(h.vendorDir, lock.WappPath(name, mod.Version))
 	if exists(wappPath) {
 		if err := verifyDownloadedArtifact(wappPath, expectedDigest, expectedSize); err == nil {
+			if shouldUnpack {
+				if err := h.extractWappModule(wappPath, dirPath); err != nil {
+					return "", err
+				}
+				return dirPath, nil
+			}
 			return wappPath, nil
 		}
 		h.logger.Warn("cached dependency artifact failed integrity check; redownloading",
@@ -547,7 +681,6 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 		_ = os.Remove(wappPath)
 	}
 
-	dirPath := filepath.Join(h.vendorDir, lock.ModulePath(name))
 	if exists(dirPath) {
 		if installed, ok := h.installedVersion(name.String()); ok && installed == mod.Version {
 			return dirPath, nil
@@ -555,20 +688,14 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 	}
 
 	url := mod.URL
+	urlIsFresh := false
 	if url == "" {
-		downloadURLCtx, cancel := withOptionalTimeout(ctx, h.downloadTimeout)
-		defer cancel()
-
-		info, err := h.hub.GetDownloadURL(downloadURLCtx, &DownloadParams{
-			Org:       mod.Org,
-			Module:    mod.Name,
-			Version:   mod.Version,
-			VersionID: mod.VersionID,
-		})
-		if err != nil {
-			return "", NewDependencyDownloadError(modKey(mod), err)
+		info, infoErr := h.freshDownloadInfo(ctx, mod)
+		if infoErr != nil {
+			return "", NewDependencyDownloadError(modKey(mod), infoErr)
 		}
 		url = info.URL
+		urlIsFresh = true
 		if expectedDigest == "" {
 			expectedDigest = info.Digest
 		}
@@ -583,15 +710,115 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 	downloadCtx, cancel := withOptionalTimeout(ctx, h.downloadTimeout)
 	defer cancel()
 
-	if err := h.hub.DownloadToFile(downloadCtx, url, wappPath); err != nil {
-		return "", NewDependencyDownloadError(modKey(mod), err)
+	downloadErr := h.hub.DownloadToFile(downloadCtx, url, wappPath)
+	if downloadErr != nil && !urlIsFresh {
+		// mod.URL is a presigned URL captured at resolve time; on a long-lived
+		// process it can expire (15-min TTL) before download. Fetch a fresh URL
+		// and retry once before giving up.
+		if info, infoErr := h.freshDownloadInfo(ctx, mod); infoErr == nil && info != nil && info.URL != "" {
+			if expectedDigest == "" {
+				expectedDigest = info.Digest
+			}
+			if expectedSize == 0 {
+				expectedSize = info.Size
+			}
+			retryCtx, retryCancel := withOptionalTimeout(ctx, h.downloadTimeout)
+			defer retryCancel()
+			downloadErr = h.hub.DownloadToFile(retryCtx, info.URL, wappPath)
+		}
+	}
+	if downloadErr != nil {
+		return "", NewDependencyDownloadError(modKey(mod), downloadErr)
 	}
 	if err := verifyDownloadedArtifact(wappPath, expectedDigest, expectedSize); err != nil {
 		_ = os.Remove(wappPath)
 		return "", NewDependencyIntegrityError(modKey(mod), err, expectedDigest, expectedSize)
 	}
 
+	if shouldUnpack {
+		if err := h.extractWappModule(wappPath, dirPath); err != nil {
+			return "", err
+		}
+		return dirPath, nil
+	}
+
 	return wappPath, nil
+}
+
+// freshDownloadInfo fetches a current presigned download URL for a module.
+// Used both when the resolved manifest carries no URL and to refresh a URL
+// that expired before the artifact could be downloaded.
+func (h *DependencyHandler) freshDownloadInfo(ctx context.Context, mod ResolvedModule) (*DownloadInfo, error) {
+	downloadURLCtx, cancel := withOptionalTimeout(ctx, h.downloadTimeout)
+	defer cancel()
+
+	return h.hub.GetDownloadURL(downloadURLCtx, &DownloadParams{
+		Org:       mod.Org,
+		Module:    mod.Name,
+		Version:   mod.Version,
+		VersionID: mod.VersionID,
+	})
+}
+
+func (h *DependencyHandler) extractWappModule(wappPath, dirPath string) error {
+	tmpDir, err := os.MkdirTemp(filepath.Dir(dirPath), "."+filepath.Base(dirPath)+".extract-*")
+	if err != nil {
+		return NewDependencyLoadError(dirPath, err)
+	}
+	cleanupTmp := true
+	defer func() {
+		if cleanupTmp {
+			_ = os.RemoveAll(tmpDir)
+		}
+	}()
+
+	if err := wappextract.ExtractWappToDirKeepSource(wappPath, tmpDir); err != nil {
+		return NewDependencyLoadError(wappPath, err)
+	}
+	if err := replaceDirectory(dirPath, tmpDir); err != nil {
+		return NewDependencyLoadError(dirPath, err)
+	}
+	if err := os.Remove(wappPath); err != nil {
+		h.logger.Warn("failed to remove unpacked module artifact",
+			zap.String("path", wappPath),
+			zap.Error(err))
+	}
+	cleanupTmp = false
+	return nil
+}
+
+func replaceDirectory(targetDir, replacementDir string) error {
+	parent := filepath.Dir(targetDir)
+	base := filepath.Base(targetDir)
+	var backupDir string
+
+	if exists(targetDir) {
+		var err error
+		backupDir, err = os.MkdirTemp(parent, "."+base+".backup-*")
+		if err != nil {
+			return fmt.Errorf("create backup directory: %w", err)
+		}
+		if err := os.Remove(backupDir); err != nil {
+			_ = os.RemoveAll(backupDir)
+			return fmt.Errorf("prepare backup directory: %w", err)
+		}
+		if err := os.Rename(targetDir, backupDir); err != nil {
+			_ = os.RemoveAll(backupDir)
+			return fmt.Errorf("move existing directory aside: %w", err)
+		}
+	}
+
+	if err := os.Rename(replacementDir, targetDir); err != nil {
+		if backupDir != "" {
+			_ = os.Rename(backupDir, targetDir)
+		}
+		return fmt.Errorf("activate extracted directory: %w", err)
+	}
+
+	if backupDir != "" {
+		_ = os.RemoveAll(backupDir)
+	}
+	return nil
 }
 
 func (h *DependencyHandler) replacementPath(moduleName string) (string, bool) {
@@ -611,6 +838,62 @@ func (h *DependencyHandler) replacementPath(moduleName string) (string, bool) {
 		path = filepath.Join(filepath.Dir(lockObj.Path()), path)
 	}
 	return path, true
+}
+
+// replacementModuleVersion reads the authoritative version of a locally-replaced
+// module from its wippy.yaml, used when resolving the module from its local source
+// instead of the Hub.
+func (h *DependencyHandler) replacementModuleVersion(moduleName string) string {
+	path, ok := h.replacementPath(moduleName)
+	if !ok {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(path, "wippy.yaml"))
+	if err != nil {
+		return ""
+	}
+	var manifest struct {
+		Version string `yaml:"version"`
+	}
+	if err := yaml.Unmarshal(data, &manifest); err == nil {
+		if version := strings.TrimSpace(manifest.Version); version != "" {
+			return version
+		}
+	}
+	// version is a top-level scalar; read it directly so an unrelated YAML
+	// quirk elsewhere in the manifest cannot leave a locally replaced module
+	// unresolvable and wrongly send it to the Hub.
+	return topLevelYAMLScalar(data, "version")
+}
+
+func topLevelYAMLScalar(data []byte, key string) string {
+	prefix := key + ":"
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		value := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		return strings.Trim(value, `"'`)
+	}
+	return ""
+}
+
+func (h *DependencyHandler) shouldUnpackModules() bool {
+	if h.lockPath == "" {
+		return false
+	}
+	lockObj, err := lock.New(h.lockPath)
+	if err != nil {
+		return false
+	}
+	return lockObj.ShouldUnpackModules()
+}
+
+func (h *DependencyHandler) moduleUsesDirectoryMode(moduleName string) bool {
+	if _, ok := h.replacementPath(moduleName); ok {
+		return true
+	}
+	return h.shouldUnpackModules()
 }
 
 func (h *DependencyHandler) operationModules(
@@ -729,10 +1012,14 @@ func (h *DependencyHandler) lockedModuleDigests() map[string]string {
 	}
 	digests := make(map[string]string, len(modules))
 	for _, mod := range modules {
-		if mod.Hash == "" || mod.Name == "" {
+		if mod.Hash == "" || mod.Name == "" || mod.Version == "" {
 			continue
 		}
-		digests[mod.Name] = mod.Hash
+		// Key by name@version so the integrity check only fires when resolving
+		// the exact version the lock pins. A version-agnostic key would compare
+		// a new version's digest against the locked old version's and wrongly
+		// block updates.
+		digests[mod.Name+"@"+mod.Version] = mod.Hash
 	}
 	if len(digests) == 0 {
 		return nil
@@ -867,6 +1154,13 @@ func buildOperations(
 				return nil, NewDependencyEntryConflictError(id.String(), entryModule(existing), entryModule(entry))
 			}
 			if !entriesEqual(existing, entry) {
+				if existing.Kind != entry.Kind {
+					ops = append(ops,
+						regapi.Operation{Kind: regapi.EntryDelete, Entry: existing},
+						regapi.Operation{Kind: regapi.EntryCreate, Entry: entry},
+					)
+					continue
+				}
 				if sameImmutableModuleVersion(existing, entry, mutableModules) {
 					continue
 				}
@@ -1000,7 +1294,7 @@ func resolveOperationEntry(op regapi.Operation, snapshot regapi.State) (regapi.E
 }
 
 func decodeDependency(ctx context.Context, transcoder payload.Transcoder, entry regapi.Entry) (DependencyDefinition, error) {
-	def, err := entrypkg.DecodeEntryConfig[DependencyDefinition](ctx, transcoder, entry)
+	def, err := entrypkg.DecodeEntryConfigRaw[DependencyDefinition](ctx, transcoder, entry)
 	if err != nil {
 		return DependencyDefinition{}, NewDependencyEntryDecodeError(entry.ID.String(), err)
 	}
@@ -1063,6 +1357,8 @@ var (
 	ErrDependencyNoContent            = apierror.New(apierror.NotFound, "no download URL available").WithRetryable(apierror.False)
 )
 
+const registryAuthHint = "registry authentication required: start the process with WIPPY_TOKEN set, push a token at runtime via hub.auth.authenticate, or run `wippy auth login`"
+
 func NewDependencyEntryInvalidError(entryID, detail, component string) apierror.Error {
 	return apierror.New(apierror.Invalid, "invalid dependency entry").
 		WithDetails(attrs.NewBagFrom(map[string]any{
@@ -1095,21 +1391,36 @@ func NewDependencyResolutionError(cause error) apierror.Error {
 
 func NewDependencyResolutionErrors(errs []ResolutionError) apierror.Error {
 	details := make([]map[string]any, 0, len(errs))
+	unauthenticated := false
 	for _, e := range errs {
 		details = append(details, map[string]any{
 			"module":     e.Org + "/" + e.Name,
 			"constraint": e.Constraint,
 			"message":    e.Message,
 		})
+		if errors.Is(e.Err, ErrNotAuthenticated) {
+			unauthenticated = true
+		}
 	}
 
-	return apierror.New(apierror.Conflict, "dependency resolution failed").
+	summary := formatResolutionErrors(errs)
+	bag := map[string]any{
+		"count":   len(errs),
+		"summary": summary,
+		"errors":  details,
+	}
+	if unauthenticated {
+		bag["hint"] = registryAuthHint
+	}
+
+	message := "dependency resolution failed"
+	if summary != "" {
+		message += ": " + summary
+	}
+
+	return apierror.New(apierror.Conflict, message).
 		WithRetryable(apierror.False).
-		WithDetails(attrs.NewBagFrom(map[string]any{
-			"count":   len(errs),
-			"summary": formatResolutionErrors(errs),
-			"errors":  details,
-		}))
+		WithDetails(attrs.NewBagFrom(bag))
 }
 
 func NewDependencyDownloadError(module string, cause error) apierror.Error {

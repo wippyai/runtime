@@ -72,6 +72,38 @@ func TestWorkflowListenerRegistration(t *testing.T) {
 	require.Equal(t, "app.test:my_workflow", factory.ID.String())
 }
 
+// TestWorkflowListenerCustomName verifies a workflow.name meta override is used symmetrically
+// for register and unregister.
+func TestWorkflowListenerCustomName(t *testing.T) {
+	log := zap.NewNop()
+
+	mockWorkers := newMockWorkerRegistry()
+	listener := workflow.NewListener(log, mockWorkers)
+
+	meta := attrs.NewBag()
+	meta.Set("temporal", map[string]any{
+		"workflow": map[string]any{
+			"worker": "app.test:worker",
+			"name":   "ExternalWorkflow",
+		},
+	})
+
+	entry := registry.Entry{
+		ID:   registry.ID{NS: "app.test", Name: "my_workflow"},
+		Kind: "workflow.lua",
+		Meta: meta,
+	}
+
+	err := listener.Add(context.Background(), entry)
+	require.NoError(t, err)
+	require.Contains(t, mockWorkers.registeredWorkflows, "ExternalWorkflow")
+	require.NotContains(t, mockWorkers.registeredWorkflows, "app.test:my_workflow")
+
+	err = listener.Delete(context.Background(), entry)
+	require.NoError(t, err)
+	require.NotContains(t, mockWorkers.registeredWorkflows, "ExternalWorkflow")
+}
+
 // TestWorkflowListenerIgnoresNonWorkflows tests that non-workflow entries are ignored
 func TestWorkflowListenerIgnoresNonWorkflows(t *testing.T) {
 	log := zap.NewNop()

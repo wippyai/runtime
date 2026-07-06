@@ -46,6 +46,7 @@ func init() {
 		"spawn_monitored":        spawnerSpawnMonitored,
 		"spawn_linked":           spawnerSpawnLinked,
 		"spawn_linked_monitored": spawnerSpawnLinkedMonitored,
+		"exec":                   spawnerExec,
 	})
 }
 
@@ -511,6 +512,11 @@ func doSpawnerSpawn(l *lua.LState, monitored, linked bool) int {
 		return 0
 	}
 
+	if !security.IsAllowed(ctx, "process.host", hostID, secAttrs) {
+		l.RaiseError("not allowed to spawn on host: %s", hostID)
+		return 0
+	}
+
 	var payloads payload.Payloads
 	for i := 4; i <= l.GetTop(); i++ {
 		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
@@ -549,3 +555,60 @@ func spawnerSpawn(l *lua.LState) int                { return doSpawnerSpawn(l, f
 func spawnerSpawnMonitored(l *lua.LState) int       { return doSpawnerSpawn(l, true, false) }
 func spawnerSpawnLinked(l *lua.LState) int          { return doSpawnerSpawn(l, false, true) }
 func spawnerSpawnLinkedMonitored(l *lua.LState) int { return doSpawnerSpawn(l, true, true) }
+
+// spawnerExec runs a process synchronously and returns its result, like
+// process.exec, but bounded to the spawner's actor/scope/values context — so a
+// deferred worker can exec under a reconstructed owner identity.
+func spawnerExec(l *lua.LState) int {
+	ud := l.CheckUserData(1)
+	spawner, ok := ud.Value.(*Spawner)
+	if !ok {
+		l.ArgError(1, "Spawner expected")
+		return 0
+	}
+
+	if l.GetTop() < 3 {
+		l.RaiseError("exec requires at least id and host arguments")
+		return 0
+	}
+
+	id := l.CheckString(2)
+	hostID := l.CheckString(3)
+
+	regID := registry.ParseID(id)
+	if regID.NS == "" || regID.Name == "" {
+		l.RaiseError("invalid process ID format (namespace:name required)")
+		return 0
+	}
+
+	ctx := l.Context()
+	self, ok := runtime.GetFramePID(ctx)
+	if !ok {
+		l.RaiseError("no PID found in frame context")
+		return 0
+	}
+
+	secAttrs := map[string]any{"pid": self.String()}
+	if !security.IsAllowed(ctx, "process.exec", id, secAttrs) {
+		l.RaiseError("not allowed to exec process: %s", id)
+		return 0
+	}
+	if !security.IsAllowed(ctx, "process.host", hostID, secAttrs) {
+		l.RaiseError("not allowed to exec on host: %s", hostID)
+		return 0
+	}
+
+	var payloads payload.Payloads
+	for i := 4; i <= l.GetTop(); i++ {
+		payloads = append(payloads, payload.NewPayload(l.Get(i), payload.Lua))
+	}
+
+	yield := AcquireExecYield()
+	yield.Source = regID
+	yield.HostID = hostID
+	yield.Input = payloads
+	yield.Context = buildSpawnerContext(spawner)
+
+	l.Push(yield)
+	return -1
+}

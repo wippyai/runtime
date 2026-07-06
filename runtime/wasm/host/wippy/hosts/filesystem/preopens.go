@@ -12,7 +12,7 @@ import (
 
 const (
 	// FilesystemPreopensNamespace exposes WASI preview2 filesystem preopens.
-	FilesystemPreopensNamespace = "wasi:filesystem/preopens@0.2.3"
+	FilesystemPreopensNamespace = "wasi:filesystem/preopens@0.2.8"
 )
 
 // PreopensHost maps invocation-scoped WASI mounts to descriptor resources.

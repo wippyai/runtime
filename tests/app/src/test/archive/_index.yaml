@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: MPL-2.0
+
+version: "1.0"
+namespace: app.test.archive
+
+entries:
+  - name: roundtrip
+    kind: function.lua
+    meta:
+      type: test
+      suite: archive
+      description: Create/open/read/extract round-trip for zip and tar
+    source: file://roundtrip.lua
+    method: main
+    modules:
+      - archive
+      - fs
+    imports:
+      assert2: app.lib:assert
+
+  - name: stream
+    kind: function.lua
+    meta:
+      type: test
+      suite: archive
+      description: Read an entry as a stream.Stream through the dispatcher
+    source: file://stream.lua
+    method: main
+    modules:
+      - archive
+      - fs
+    imports:
+      assert2: app.lib:assert
+
+  - name: scan
+    kind: function.lua
+    meta:
+      type: test
+      suite: archive
+      description: Forward-only scan/walk and extract_all from bytes
+    source: file://scan.lua
+    method: main
+    modules:
+      - archive
+      - fs
+    imports:
+      assert2: app.lib:assert
+
+  - name: errors
+    kind: function.lua
+    meta:
+      type: test
+      suite: archive
+      description: Error handling, limits, and formats listing
+    source: file://errors.lua
+    method: main
+    modules:
+      - archive
+      - fs
+    imports:
+      assert2: app.lib:assert

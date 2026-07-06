@@ -13,8 +13,8 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	config "github.com/wippyai/runtime/api/service/sql"
-	entryutil "github.com/wippyai/runtime/internal/entry"
 	sqlservice "github.com/wippyai/runtime/service/sql"
+	entryutil "github.com/wippyai/runtime/system/entry"
 )
 
 // defaultDriver is the stock SQLite driver. A build with the preupdate hook overrides

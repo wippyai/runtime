@@ -13,8 +13,8 @@ import (
 	kvcfg "github.com/wippyai/runtime/api/service/store/kv"
 	"github.com/wippyai/runtime/api/store"
 	"github.com/wippyai/runtime/api/supervisor"
-	entryutil "github.com/wippyai/runtime/internal/entry"
 	storesvc "github.com/wippyai/runtime/service/store"
+	entryutil "github.com/wippyai/runtime/system/entry"
 	systemkv "github.com/wippyai/runtime/system/kv"
 	"go.uber.org/zap"
 )

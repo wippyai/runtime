@@ -16,8 +16,9 @@ import (
 	"github.com/wippyai/runtime/api/runtime"
 	hostapi "github.com/wippyai/runtime/api/service/host"
 	"github.com/wippyai/runtime/api/supervisor"
-	entryutil "github.com/wippyai/runtime/internal/entry"
+	entryutil "github.com/wippyai/runtime/system/entry"
 	"github.com/wippyai/runtime/system/scheduler/actor"
+	"github.com/wippyai/runtime/system/scheduler/affinity"
 	"go.uber.org/zap"
 )
 
@@ -30,7 +31,15 @@ type Manager struct {
 	pidGen          process.PIDGenerator
 	log             *zap.Logger
 	hosts           map[registry.ID]*Host
+	actorAffinity   affinity.Set
 	mu              sync.RWMutex
+}
+
+// SetActorAffinity pins each host's scheduler workers to the given CPU set and
+// sizes the worker pool to it, keeping actor execution on cores reserved away
+// from WASM. Empty (the default) leaves scheduling unpinned. Call before Add.
+func (m *Manager) SetActorAffinity(set affinity.Set) {
+	m.actorAffinity = set
 }
 
 // NewManager creates a new host manager.
@@ -67,12 +76,17 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 		host:   h,
 	}
 
-	scheduler := actor.NewScheduler(m.commandRegistry,
+	opts := []actor.Option{
 		actor.WithWorkers(cfg.HostConfig.Workers),
 		actor.WithQueueSize(cfg.HostConfig.QueueSize),
 		actor.WithLocalQueueSize(cfg.HostConfig.LocalQueueSize),
 		actor.WithLifecycle(lifecycle),
-	)
+	}
+	if len(m.actorAffinity) > 0 {
+		opts = append(opts, actor.WithWorkers(len(m.actorAffinity)), actor.WithThreadPin(m.actorAffinity))
+	}
+
+	scheduler := actor.NewScheduler(m.commandRegistry, opts...)
 	h.scheduler = scheduler
 
 	m.mu.Lock()

@@ -12,7 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	envsvc "github.com/wippyai/runtime/api/service/env"
-	entryutil "github.com/wippyai/runtime/internal/entry"
+	entryutil "github.com/wippyai/runtime/system/entry"
 	sysenv "github.com/wippyai/runtime/system/env"
 	"go.uber.org/zap"
 )
@@ -66,6 +66,11 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	storage := NewStorage(cfg.FilePath, cfg.AutoCreate, fileMode, dirMode)
+	if cfg.AutoCreate {
+		if err := storage.ensureFile(); err != nil {
+			return err
+		}
+	}
 
 	m.mu.Lock()
 	m.storages[entry.ID] = storage

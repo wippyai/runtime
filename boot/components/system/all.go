@@ -17,6 +17,7 @@ func All() []boot.Component {
 		Lifecycle(),
 		Filesystem(),
 		Environment(),
+		FrameResolvers(),
 		Network(),
 		SocketDispatcher(),
 		Resources(),

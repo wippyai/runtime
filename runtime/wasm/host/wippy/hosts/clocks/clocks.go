@@ -23,7 +23,7 @@ var (
 
 const (
 	// WallClockNamespace exposes wall clock functions for WASI preview2 components.
-	WallClockNamespace = "wasi:clocks/wall-clock@0.2.3"
+	WallClockNamespace = "wasi:clocks/wall-clock@0.2.8"
 	// MonotonicClockNamespace exposes monotonic clock functions for WASI preview2 components.
 	MonotonicClockNamespace = "wasi:clocks/monotonic-clock@0.2.8"
 )

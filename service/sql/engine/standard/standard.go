@@ -8,19 +8,18 @@ package standard
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 
-	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	config "github.com/wippyai/runtime/api/service/sql"
-	entryutil "github.com/wippyai/runtime/internal/entry"
 	sqlservice "github.com/wippyai/runtime/service/sql"
-	"go.uber.org/zap"
+	entryutil "github.com/wippyai/runtime/system/entry"
 )
 
 // engine serves a network SQL dialect. Postgres and MySQL share the same DBConfig,
@@ -54,32 +53,7 @@ func (engine) DecodeConfig(ctx context.Context, dtt payload.Transcoder, entry re
 	return cfg, nil
 }
 
-func (e engine) ResolveEnv(ctx context.Context, deps sqlservice.EngineDeps, ec config.EngineConfig) error {
-	cfg, ok := ec.(*config.DBConfig)
-	if !ok {
-		return sqlservice.NewInvalidConfigTypeError(fmt.Sprintf("%T", ec), e.kind)
-	}
-
-	if v := resolveEnvVar(ctx, deps.Env, deps.Log, cfg.HostEnv, "host"); v != "" {
-		cfg.Host = v
-	}
-	if v := resolveEnvVar(ctx, deps.Env, deps.Log, cfg.PortEnv, "port"); v != "" {
-		port, err := strconv.Atoi(v)
-		if err != nil {
-			return sqlservice.NewInvalidPortError(cfg.PortEnv, err)
-		}
-		cfg.Port = port
-	}
-	if v := resolveEnvVar(ctx, deps.Env, deps.Log, cfg.DatabaseEnv, "database"); v != "" {
-		cfg.Database = v
-	}
-	if v := resolveEnvVar(ctx, deps.Env, deps.Log, cfg.UsernameEnv, "username"); v != "" {
-		cfg.Username = v
-	}
-	if v := resolveEnvVar(ctx, deps.Env, deps.Log, cfg.PasswordEnv, "password"); v != "" {
-		cfg.Password = v
-	}
-
+func (engine) ResolveEnv(context.Context, sqlservice.EngineDeps, config.EngineConfig) error {
 	return nil
 }
 
@@ -116,19 +90,22 @@ func (e engine) ValidateConfigType(ec config.EngineConfig) error {
 }
 
 func buildPostgresDSN(cfg *config.DBConfig) (string, error) {
+	if err := validateDSNFields(cfg); err != nil {
+		return "", err
+	}
 	opts := buildPostgresOptionsString(cfg.Options)
 	var b strings.Builder
 	b.Grow(128)
 	b.WriteString("host=")
-	b.WriteString(cfg.Host)
+	b.WriteString(quotePostgresValue(cfg.Host))
 	b.WriteString(" port=")
 	b.WriteString(strconv.Itoa(cfg.Port))
 	b.WriteString(" user=")
-	b.WriteString(cfg.Username)
+	b.WriteString(quotePostgresValue(cfg.Username))
 	b.WriteString(" password=")
-	b.WriteString(cfg.Password)
+	b.WriteString(quotePostgresValue(cfg.Password))
 	b.WriteString(" dbname=")
-	b.WriteString(cfg.Database)
+	b.WriteString(quotePostgresValue(cfg.Database))
 	if opts != "" {
 		b.WriteString(" ")
 		b.WriteString(opts)
@@ -138,6 +115,9 @@ func buildPostgresDSN(cfg *config.DBConfig) (string, error) {
 }
 
 func buildMySQLDSN(cfg *config.DBConfig) (string, error) {
+	if err := validateDSNFields(cfg); err != nil {
+		return "", err
+	}
 	opts := buildMySQLOptionsString(cfg.Options)
 	var b strings.Builder
 	b.Grow(128)
@@ -178,7 +158,7 @@ func buildPostgresOptionsString(options map[string]string) string {
 		}
 		b.WriteString(k)
 		b.WriteString("=")
-		b.WriteString(options[k])
+		b.WriteString(quotePostgresValue(options[k]))
 	}
 
 	return b.String()
@@ -197,26 +177,31 @@ func buildMySQLOptionsString(options map[string]string) string {
 	return values.Encode()
 }
 
-// resolveEnvVar looks up an environment variable and returns its value, logging and
-// returning empty on any miss.
-func resolveEnvVar(ctx context.Context, env envapi.Registry, log *zap.Logger, envVar, field string) string {
-	if envVar == "" || env == nil {
-		return ""
+func validateDSNFields(cfg *config.DBConfig) error {
+	switch {
+	case cfg.Host == "":
+		return sqlservice.NewInvalidDSNError(errors.New("host is empty"))
+	case cfg.Port <= 0:
+		return sqlservice.NewInvalidDSNError(fmt.Errorf("port is invalid: %d", cfg.Port))
+	case cfg.Username == "":
+		return sqlservice.NewInvalidDSNError(errors.New("username is empty"))
+	case cfg.Database == "":
+		return sqlservice.NewInvalidDSNError(errors.New("database is empty"))
 	}
+	return nil
+}
 
-	val, found, err := env.Lookup(ctx, envVar)
-	if err != nil {
-		if log != nil {
-			log.Warn("failed to lookup env var", zap.String("field", field), zap.String("var", envVar), zap.Error(err))
+func quotePostgresValue(value string) string {
+	var b strings.Builder
+	b.Grow(len(value) + 2)
+	b.WriteByte('\'')
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if c == '\\' || c == '\'' {
+			b.WriteByte('\\')
 		}
-		return ""
+		b.WriteByte(c)
 	}
-	if !found {
-		if log != nil {
-			log.Warn("env var not found", zap.String("field", field), zap.String("var", envVar))
-		}
-		return ""
-	}
-
-	return val
+	b.WriteByte('\'')
+	return b.String()
 }

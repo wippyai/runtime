@@ -6,14 +6,13 @@ import (
 	"context"
 	"sync"
 
-	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/resource"
 	"github.com/wippyai/runtime/api/security"
 	tokenstoreapi "github.com/wippyai/runtime/api/service/security/tokenstore"
-	entryutil "github.com/wippyai/runtime/internal/entry"
+	entryutil "github.com/wippyai/runtime/system/entry"
 	systemresource "github.com/wippyai/runtime/system/resource"
 	"go.uber.org/zap"
 )
@@ -24,7 +23,6 @@ type Manager struct {
 	bus         event.Bus
 	resources   resource.Registry
 	secRegistry security.Registry
-	env         envapi.Registry
 	log         *zap.Logger
 	configs     map[registry.ID]*tokenstoreapi.Config
 	stores      map[registry.ID]*TokenStore
@@ -37,7 +35,6 @@ func NewManager(
 	dtt payload.Transcoder,
 	resources resource.Registry,
 	secRegistry security.Registry,
-	envRegistry envapi.Registry,
 	log *zap.Logger,
 ) *Manager {
 	if log == nil {
@@ -49,7 +46,6 @@ func NewManager(
 		bus:         bus,
 		resources:   resources,
 		secRegistry: secRegistry,
-		env:         envRegistry,
 		configs:     make(map[registry.ID]*tokenstoreapi.Config),
 		stores:      make(map[registry.ID]*TokenStore),
 	}
@@ -75,11 +71,6 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 
 	cfg.Store = cfg.Store.WithDefaultNS(entry.ID.NS)
-
-	// Resolve token key from environment variable if specified
-	if v := m.resolveEnv(ctx, cfg.TokenKeyEnv, "token_key"); v != "" {
-		cfg.TokenKey = v
-	}
 
 	// Store the configuration (actual token store will be created during acquisition)
 	m.configs[entry.ID] = cfg
@@ -123,11 +114,6 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	}
 
 	cfg.Store = cfg.Store.WithDefaultNS(entry.ID.NS)
-
-	// Resolve token key from environment variable if specified
-	if v := m.resolveEnv(ctx, cfg.TokenKeyEnv, "token_key"); v != "" {
-		cfg.TokenKey = v
-	}
 
 	// Update configuration
 	m.configs[entry.ID] = cfg
@@ -256,22 +242,4 @@ func (r *tokenStoreResource) Release() {
 	}
 
 	r.closed = true
-}
-
-// resolveEnv looks up an environment variable and returns its value.
-// Returns empty string if envVar is empty, lookup fails, or var not found.
-func (m *Manager) resolveEnv(ctx context.Context, envVar, field string) string {
-	if envVar == "" || m.env == nil {
-		return ""
-	}
-	val, found, err := m.env.Lookup(ctx, envVar)
-	if err != nil {
-		m.log.Warn("failed to lookup env var", zap.String("field", field), zap.String("var", envVar), zap.Error(err))
-		return ""
-	}
-	if !found {
-		m.log.Warn("env var not found", zap.String("field", field), zap.String("var", envVar))
-		return ""
-	}
-	return val
 }

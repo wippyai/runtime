@@ -13,11 +13,11 @@ import (
 
 const (
 	// SecureNamespace is the WASI random/random namespace.
-	SecureNamespace = "wasi:random/random@0.2.0"
+	SecureNamespace = "wasi:random/random@0.2.8"
 	// InsecureNamespace is the WASI random/insecure namespace.
-	InsecureNamespace = "wasi:random/insecure@0.2.0"
+	InsecureNamespace = "wasi:random/insecure@0.2.8"
 	// InsecureSeedNamespace is the WASI random/insecure-seed namespace.
-	InsecureSeedNamespace = "wasi:random/insecure-seed@0.2.0"
+	InsecureSeedNamespace = "wasi:random/insecure-seed@0.2.8"
 )
 
 // MaxRandomBytes limits single-call allocation to prevent DoS (1MB).
@@ -131,8 +131,9 @@ func (h *InsecureSeedHost) Register() map[string]any {
 	}
 }
 
-// InsecureSeed returns a pair of uint64 values derived from current time.
-func (h *InsecureSeedHost) InsecureSeed(_ context.Context) (uint64, uint64) {
+// InsecureSeed returns the WIT tuple<u64, u64> seed as a single [2]uint64.
+// The result is one tuple, so the host returns one Go value, not two u64s.
+func (h *InsecureSeedHost) InsecureSeed(_ context.Context) [2]uint64 {
 	now := time.Now().UnixNano()
-	return uint64(now), uint64(now >> 32)
+	return [2]uint64{uint64(now), uint64(now >> 32)}
 }

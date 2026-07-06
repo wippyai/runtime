@@ -363,7 +363,19 @@ func (w *Worker) executeOne(proc *Processor) {
 		if meta != nil && meta.Method != "" {
 			method = meta.Method
 		}
+		selfPID, hasSelfPID := runtime.GetFramePID(proc.ctx)
 		upgradeCtx, _ := ctxapi.OpenFrameContext(proc.ctx)
+		if hasSelfPID {
+			if err := runtime.SetFramePID(upgradeCtx, selfPID); err != nil {
+				proc.Process.Close()
+				if !proc.casState(StateRunning, StateComplete) {
+					return
+				}
+				proc.queue.Close()
+				w.scheduler.complete(proc, nil, fmt.Errorf("upgrade: preserve pid failed: %w", err))
+				return
+			}
+		}
 		if err := newProc.Init(upgradeCtx, method, req.Input); err != nil {
 			proc.Process.Close()
 			if !proc.casState(StateRunning, StateComplete) {

@@ -17,7 +17,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
 	"github.com/wippyai/runtime/runtime/lua/engine"
-	processmod "github.com/wippyai/runtime/runtime/lua/modules/process"
+	entrycfg "github.com/wippyai/runtime/system/entry"
 	"go.uber.org/zap"
 )
 
@@ -124,7 +124,7 @@ func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) error {
 
 // addSource adds a source-based process.
 func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
-	cfg, err := component.UnpackConfig[api.ProcessConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.ProcessConfig](ctx, entry)
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("process", err)
 	}
@@ -154,7 +154,7 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 
 // addBytecode adds a bytecode-based process.
 func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
-	cfg, err := component.UnpackConfig[api.BytecodeProcessConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.BytecodeProcessConfig](ctx, entry)
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("process", err)
 	}
@@ -192,7 +192,7 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 
 // updateSource updates a source-based process.
 func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error {
-	cfg, err := component.UnpackConfig[api.ProcessConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.ProcessConfig](ctx, entry)
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("process", err)
 	}
@@ -220,7 +220,7 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 
 // updateBytecode updates a bytecode-based process.
 func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) error {
-	cfg, err := component.UnpackConfig[api.BytecodeProcessConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.BytecodeProcessConfig](ctx, entry)
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("process", err)
 	}
@@ -253,7 +253,7 @@ func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) erro
 // registerFactory registers a process factory with the factory registry and waits for confirmation.
 func (m *Manager) registerFactory(ctx context.Context, id registry.ID, method string) error {
 	// Create factory using ProcessFactory
-	factoryFn, err := m.factory.CreateFactory(id, engine.WithModule(processmod.Module))
+	factoryFn, err := m.factory.CreateFactory(id, engine.WithModules(component.ExecutableAmbientModules()...))
 	if err != nil {
 		return err // Already has compile context from code.Manager
 	}

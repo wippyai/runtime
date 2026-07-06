@@ -67,6 +67,14 @@ type (
 		WriteFS
 	}
 
+	// HostPathFS is implemented by filesystems backed by a real host directory.
+	// RootPath returns that directory's absolute host path, for the few callers
+	// that need a host path rather than the fs.FS abstraction (e.g. mounting a
+	// writable directory into a WASM guest, which the fs.FS interface can't express).
+	HostPathFS interface {
+		RootPath() string
+	}
+
 	// Registry provides access to named filesystem instances.
 	Registry interface {
 		// GetFS retrieves a filesystem by name.

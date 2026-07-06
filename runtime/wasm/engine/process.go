@@ -21,6 +21,7 @@ import (
 	wasmtransport "github.com/wippyai/runtime/runtime/wasm/transport"
 	wasmengine "github.com/wippyai/wasm-runtime/engine"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
+	wasmtranscoder "github.com/wippyai/wasm-runtime/transcoder"
 )
 
 // Transport can map runtime payloads into call args and map call results back.
@@ -53,7 +54,9 @@ type Process struct {
 	pendingTag        uint64
 	yieldSeq          uint64
 	waitingYield      bool
+	ownedModule       bool
 	done              bool
+	started           bool
 }
 
 // NewProcess creates a scheduler process for WASM execution.
@@ -75,7 +78,7 @@ func NewProcess(
 
 // Init captures call parameters for this process execution.
 func (p *Process) Init(ctx context.Context, method string, input payload.Payloads) error {
-	p.endExecution()
+	p.softReset()
 	p.ctx = ctx
 	p.method = method
 	p.input = input
@@ -102,11 +105,12 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		return err
 	}
 
-	if p.inst == nil {
+	if !p.started {
 		if err := p.startExecution(); err != nil {
 			p.endExecution()
 			return err
 		}
+		p.started = true
 	}
 
 	if p.session == nil {
@@ -118,6 +122,12 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 // Close releases process resources.
 func (p *Process) Close() {
 	p.endExecution()
+	if p.ownedModule && p.module != nil {
+		if closer, ok := any(p.module).(interface{ Close(context.Context) error }); ok {
+			_ = closer.Close(context.Background())
+		}
+		p.module = nil
+	}
 	p.input = nil
 	p.ctx = nil
 	p.execCtx = nil
@@ -139,9 +149,9 @@ func (p *Process) stepSync(out *process.StepOutput) error {
 
 	p.result = result
 	p.done = true
-	p.endExecution()
+	replaceErr := p.resetAfterSync()
 	out.Done(result)
-	return nil
+	return replaceErr
 }
 
 func (p *Process) stepAsync(out *process.StepOutput) error {
@@ -218,29 +228,52 @@ func (p *Process) startExecution() error {
 	p.asyncValues = wippyhost.NewAsyncValueStore()
 	execCtx = wippyhost.WithAsyncValueStore(execCtx, p.asyncValues)
 
-	inst, err := p.module.InstantiateWithAsyncify(execCtx)
-	if err != nil {
-		cancel()
-		return runtimewasm.NewInstantiateModuleError(err)
+	if p.inst == nil {
+		instCfg := &wasmengine.InstanceConfig{
+			EnableAsyncify: true,
+			DecodeOptions:  p.decodeOptions(),
+		}
+		// Core wasi_snapshot_preview1 modules read env/args/preopens from the wazero
+		// module config, so thread the resolved WASI mapping through.
+		if wc := wippyhost.GetWASICallConfig(execCtx); wc != nil {
+			instCfg.Args = wc.Args
+			instCfg.Env = wc.Env
+			for _, mnt := range wc.Mounts {
+				m := wasmengine.Mount{Guest: mnt.Guest, ReadOnly: mnt.ReadOnly}
+				// Read-only mounts go through the sandboxed fs.FS; only writable
+				// mounts use a host directory path (resolved + access-checked in
+				// resolveWASICallConfig), which wazero sandboxes to that directory.
+				if mnt.Host != "" {
+					m.Host = mnt.Host
+				} else {
+					m.FS = mnt.Filesystem
+				}
+				instCfg.Mounts = append(instCfg.Mounts, m)
+			}
+		}
+		inst, err := p.module.InstantiateWithConfig(execCtx, instCfg)
+		if err != nil {
+			cancel()
+			return runtimewasm.NewInstantiateModuleError(err)
+		}
+		p.inst = inst
 	}
 
 	args, err := p.prepareArgs(execCtx)
 	if err != nil {
-		_ = inst.Close(context.Background())
 		cancel()
 		return err
 	}
 
 	p.execCtx = execCtx
 	p.cancel = cancel
-	p.inst = inst
 	p.callArgs = args
 
-	if inst.Scheduler() == nil {
+	if p.inst.Scheduler() == nil {
 		return nil
 	}
 
-	session, err := inst.StartCall(execCtx, p.method, args...)
+	session, err := p.inst.StartCall(execCtx, p.method, args...)
 	if err != nil {
 		p.endExecution()
 		return runtimewasm.NewCallMethodError(p.method, err)
@@ -249,11 +282,45 @@ func (p *Process) startExecution() error {
 	return nil
 }
 
+func (p *Process) decodeOptions() wasmtranscoder.DecodeOptions {
+	return wasmtranscoder.DecodeOptions{ByteListResult: wasmtranscoder.ByteListResultBinaryString}
+}
+
 func (p *Process) endExecution() {
 	if p.inst != nil {
 		_ = p.inst.Close(context.Background())
 		p.inst = nil
 	}
+	p.softReset()
+}
+
+func (p *Process) resetAfterSync() error {
+	replace := p.shouldReplaceAfterSync()
+	p.softReset()
+	if replace {
+		return process.ErrProcessReplacementRequested
+	}
+	return nil
+}
+
+func (p *Process) shouldReplaceAfterSync() bool {
+	return p.shouldRecycleRetainedInstance()
+}
+
+func (p *Process) shouldRecycleRetainedInstance() bool {
+	if p.inst == nil || p.limits.MaxRetainedMemoryBytes <= 0 {
+		return false
+	}
+	return int64(p.inst.MemorySize()) > p.limits.MaxRetainedMemoryBytes
+}
+
+// softReset clears per-call state while keeping the instance warm for reuse.
+// A WASI component's synthetic import bridges are bound to the core instance
+// that first created them, so re-instantiating from the same module after a
+// WASI host call has been made corrupts subsequent instances. Reusing one warm
+// instance for sequential synchronous calls (the inline pool serializes them)
+// sidesteps that. Asynchronous calls still close the instance per call below.
+func (p *Process) softReset() {
 	if p.cancel != nil {
 		p.cancel()
 		p.cancel = nil
@@ -264,6 +331,7 @@ func (p *Process) endExecution() {
 	p.pendingYield = nil
 	p.pendingTag = 0
 	p.waitingYield = false
+	p.started = false
 	if p.asyncValues != nil {
 		p.asyncValues.Reset()
 		p.asyncValues = nil
@@ -332,7 +400,12 @@ func (p *Process) resolveWASICallConfig(ctx context.Context) (*wippyhost.WASICal
 		callCfg.Env = make(map[string]string, len(p.wasi.Env))
 		for _, item := range p.wasi.Env {
 			id := item.ID.String()
-			value, found, err := envReg.Lookup(ctx, id)
+			if !security.IsAllowed(ctx, "env.get", id, nil) {
+				return nil, runtimewasm.NewWASIEnvAccessDeniedError(id)
+			}
+			// Get (not Lookup) so a variable with only a default value still
+			// resolves — Lookup reads storage only and misses defaults.
+			value, err := envReg.Get(ctx, id)
 			if err != nil {
 				if errors.Is(err, envapi.ErrVariableNotFound) {
 					if item.Required {
@@ -341,12 +414,6 @@ func (p *Process) resolveWASICallConfig(ctx context.Context) (*wippyhost.WASICal
 					continue
 				}
 				return nil, runtimewasm.NewWASIEnvLookupError(id, err)
-			}
-			if !found {
-				if item.Required {
-					return nil, runtimewasm.NewWASIEnvRequiredNotFoundError(id)
-				}
-				continue
 			}
 			callCfg.Env[item.Name] = value
 		}
@@ -366,11 +433,21 @@ func (p *Process) resolveWASICallConfig(ctx context.Context) (*wippyhost.WASICal
 			if !ok {
 				return nil, runtimewasm.NewWASIMountFilesystemNotFoundError(fsID)
 			}
-			callCfg.Mounts = append(callCfg.Mounts, wippyhost.WASIMountBinding{
+			binding := wippyhost.WASIMountBinding{
 				Filesystem: fsys,
 				Guest:      item.Guest,
 				ReadOnly:   item.ReadOnly,
-			})
+			}
+			// For a host-backed directory, mount it by its own sandboxed root
+			// path: wazero re-roots the guest at exactly that directory (never the
+			// host root), it is the only form that supports writable mounts, and
+			// it reads faithfully (an fs.FS mount is read-only and lossy for e.g.
+			// lazy-loaded package data). Non-directory filesystems fall back to the
+			// sandboxed fs.FS below.
+			if hp, ok := fsys.(fsapi.HostPathFS); ok {
+				binding.Host = hp.RootPath()
+			}
+			callCfg.Mounts = append(callCfg.Mounts, binding)
 		}
 	}
 

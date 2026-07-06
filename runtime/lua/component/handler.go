@@ -6,11 +6,9 @@ import (
 	"context"
 
 	"github.com/wippyai/runtime/api/event"
-	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/internal/wildcard"
-	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	lua "github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/system/eventbus"
 	eventhandlers "github.com/wippyai/runtime/system/registry/events"
@@ -110,27 +108,6 @@ func (h *Handler) invalidateRequest(ctx context.Context, req luaapi.InvalidateNo
 		})
 	}
 	return err
-}
-
-// UnpackConfig unpacks entry configuration (todo: see internal entry unpack)
-func UnpackConfig[T any](ctx context.Context, entry registry.Entry) (*T, error) {
-	dtt := payload.GetTranscoder(ctx)
-	if dtt == nil {
-		return nil, luaapi.ErrTranscoderNotFound
-	}
-
-	cfg := new(T)
-	if err := dtt.Unmarshal(entry.Data, cfg); err != nil {
-		return nil, runtimelua.NewUnmarshalConfigError(err)
-	}
-
-	if validator, ok := any(cfg).(interface{ Validate() error }); ok {
-		if err := validator.Validate(); err != nil {
-			return nil, runtimelua.NewValidationError(err)
-		}
-	}
-
-	return cfg, nil
 }
 
 // BuildImports creates imports from a list of IDs and their aliases

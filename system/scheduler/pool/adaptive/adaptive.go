@@ -4,6 +4,7 @@ package adaptive
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -389,7 +390,9 @@ func (a *Pool) control(now time.Time) {
 func (w *worker) run() {
 	defer w.pool.wg.Done()
 	defer func() {
-		w.process.Close()
+		if w.process != nil {
+			w.process.Close()
+		}
 		w.pool.executors.Put(w.executor)
 	}()
 
@@ -420,16 +423,46 @@ func (w *worker) drain() {
 
 func (w *worker) execute(req *pool.Request) {
 	w.pool.busyWorkers.Add(1)
+	defer w.pool.busyWorkers.Add(-1)
+
+	if w.process == nil {
+		if err := w.replaceProcess(); err != nil {
+			req.ResultCh <- &runtime.Result{Error: err}
+			return
+		}
+	}
 
 	pid, _ := runtime.GetFramePID(req.Ctx)
 	w.pool.active.Store(pid.UniqID, w.executor)
 
 	result := w.executor.Run(req.Ctx, w.process, req.Method, req.Input)
+	replace := errors.Is(result.Error, process.ErrProcessReplacementRequested)
+	if replace {
+		result.Error = nil
+	}
 
 	w.pool.active.Delete(pid.UniqID)
 	w.executor.Reset()
-	w.pool.busyWorkers.Add(-1)
 	w.pool.completedOps.Add(1)
 
 	req.ResultCh <- result
+
+	if replace {
+		_ = w.replaceProcess()
+	}
+}
+
+func (w *worker) replaceProcess() error {
+	old := w.process
+	w.process = nil
+	if old != nil {
+		old.Close()
+	}
+
+	proc, err := w.pool.factory()
+	if err != nil {
+		return err
+	}
+	w.process = proc
+	return nil
 }

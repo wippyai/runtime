@@ -26,7 +26,19 @@ for arg in "$@"; do
 	esac
 done
 
-go test ./api/service/cdc ./service/cdc/postgres ./service/cdc/sqlite ./runtime/lua/modules/cdc ./boot/components/dispatchers
+go test \
+	./api/service/cdc \
+	./api/service/sql \
+	./system/env/... \
+	./service/env/... \
+	./service/sql/... \
+	./service/cdc/sqlite \
+	./service/cdc/postgres \
+	./runtime/lua/modules/cdc \
+	./runtime/lua/modules/hub \
+	./runtime/lua/modules/fs \
+	./api/fs \
+	./boot/components/dispatchers
 
 echo "running sqlite cdc integration tests (local temp file, no docker)"
 CGO_ENABLED=1 go test -tags "integration sqlite_preupdate_hook" ./service/cdc/sqlite

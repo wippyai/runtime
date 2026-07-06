@@ -3,6 +3,8 @@
 package hub
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 )
@@ -360,6 +363,30 @@ func TestBuildOperations_UpdatedEntries(t *testing.T) {
 	assert.Equal(t, regapi.EntryUpdate, ops[0].Kind)
 }
 
+func TestBuildOperations_KindChangeUsesDeleteCreate(t *testing.T) {
+	id := regapi.NewID("ui", "assets")
+	current := regapi.State{{
+		ID:   id,
+		Kind: "fs.embed",
+		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/ui"}),
+		Data: payload.New(map[string]any{}),
+	}}
+	desired := []regapi.Entry{{
+		ID:   id,
+		Kind: "fs.directory",
+		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/ui"}),
+		Data: payload.New(map[string]any{"directory": "assets", "base": "module"}),
+	}}
+
+	ops, err := buildOperations(current, desired, regapi.NewID("app", "dep"), nil, nil)
+	require.NoError(t, err)
+	require.Len(t, ops, 2)
+	assert.Equal(t, regapi.EntryDelete, ops[0].Kind)
+	assert.Equal(t, regapi.Kind("fs.embed"), ops[0].Entry.Kind)
+	assert.Equal(t, regapi.EntryCreate, ops[1].Kind)
+	assert.Equal(t, regapi.Kind("fs.directory"), ops[1].Entry.Kind)
+}
+
 func TestBuildOperations_UnchangedEntries(t *testing.T) {
 	entry := regapi.Entry{
 		ID:   regapi.NewID("app", "svc"),
@@ -430,6 +457,47 @@ func TestFormatResolutionErrors_Multiple(t *testing.T) {
 	assert.Contains(t, result, "no match")
 	assert.Contains(t, result, "; ")
 	assert.Contains(t, result, "conflict")
+}
+
+// --- NewDependencyResolutionErrors auth hint ---
+
+func TestNewDependencyResolutionErrors_AuthHint(t *testing.T) {
+	errs := []ResolutionError{
+		{Org: "acme", Name: "http", Constraint: "^1.0.0", Message: ErrNotAuthenticated.Error(), Err: ErrNotAuthenticated},
+	}
+
+	apiErr := NewDependencyResolutionErrors(errs)
+	assert.Equal(t, apierror.Conflict, apiErr.Kind())
+	assert.Equal(t, registryAuthHint, apiErr.Details().GetString("hint", ""))
+}
+
+func TestNewDependencyResolutionErrors_AuthHintWrapped(t *testing.T) {
+	wrapped := fmt.Errorf("fetch manifest: %w", ErrNotAuthenticated)
+	errs := []ResolutionError{
+		{Org: "acme", Name: "http", Message: wrapped.Error(), Err: wrapped},
+	}
+
+	apiErr := NewDependencyResolutionErrors(errs)
+	assert.Equal(t, registryAuthHint, apiErr.Details().GetString("hint", ""))
+}
+
+func TestNewDependencyResolutionErrors_NoHintWithoutAuthCause(t *testing.T) {
+	errs := []ResolutionError{
+		{Org: "acme", Name: "http", Message: "no match", Err: errors.New("no match")},
+	}
+
+	apiErr := NewDependencyResolutionErrors(errs)
+	assert.Empty(t, apiErr.Details().GetString("hint", ""))
+}
+
+func TestNewDependencyResolutionErrors_MessageIncludesCause(t *testing.T) {
+	errs := []ResolutionError{
+		{Org: "kickside", Name: "research", Constraint: "0.1.0", Message: "module not found", Err: errors.New("module not found")},
+	}
+
+	apiErr := NewDependencyResolutionErrors(errs)
+	assert.Contains(t, apiErr.Error(), "kickside/research@0.1.0")
+	assert.Contains(t, apiErr.Error(), "module not found")
 }
 
 // --- verifyDownloadedArtifact ---

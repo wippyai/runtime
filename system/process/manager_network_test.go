@@ -47,8 +47,21 @@ func (m *mockNetworkRegistry) NetworkKind(_ registry.ID) registry.Kind {
 }
 
 // ctxWithNetworkRegistry returns a context carrying the given NetworkRegistry
-// on a fresh AppContext.
+// and a frame-resolver registry with the network overlay resolver, matching how
+// boot wires them — the manager applies the resolver generically.
 func ctxWithNetworkRegistry(reg netapi.NetworkRegistry) context.Context {
+	ctx := ctxapi.NewRootContext()
+	if reg != nil {
+		ctx = netapi.WithNetworkRegistry(ctx, reg)
+	}
+	resolvers := ctxapi.NewFrameResolvers()
+	if err := resolvers.Register(netapi.FrameResolverClaimNetwork, 200, netapi.OverlayResolver()); err != nil {
+		panic(err)
+	}
+	return ctxapi.WithFrameResolvers(ctx, resolvers)
+}
+
+func ctxWithNetworkRegistryOnly(reg netapi.NetworkRegistry) context.Context {
 	ctx := ctxapi.NewRootContext()
 	if reg != nil {
 		ctx = netapi.WithNetworkRegistry(ctx, reg)
@@ -160,6 +173,50 @@ func TestManager_Start_NetworkOption_NoRegistry_ReturnsErrNetworkNotFound(t *tes
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, netapi.ErrNetworkNotFound))
 	assert.False(t, host.runCalled, "host.Run must not be called when registry is unavailable")
+}
+
+func TestManager_Start_NetworkOption_NoResolverFailsClosed(t *testing.T) {
+	node := newMockNode()
+	host := &mockHost{}
+	_ = node.RegisterHost("test-host", host)
+
+	mgr := NewManager(node, zap.NewNop())
+
+	opts := attrs.NewBag()
+	opts.Set(netapi.OptionKeyNetwork, "app.net:socks5")
+
+	start := &process.Start{
+		HostID:  "test-host",
+		Source:  registry.NewID("test", "source"),
+		Options: opts,
+	}
+
+	_, err := mgr.Start(ctxWithNetworkRegistryOnly(newMockNetworkRegistry("app.net:socks5")), start)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ctxapi.ErrFrameResolverNotRegistered))
+	assert.False(t, host.runCalled, "host.Run must not be called when network resolver is missing")
+}
+
+func TestManager_Start_AppDefaultNetwork_NoResolverFailsClosed(t *testing.T) {
+	node := newMockNode()
+	host := &mockHost{}
+	_ = node.RegisterHost("test-host", host)
+
+	mgr := NewManager(node, zap.NewNop())
+
+	ctx := ctxWithNetworkRegistryOnly(newMockNetworkRegistry("app.net:socks5"))
+	ctx = netapi.WithAppDefaultNetwork(ctx, "app.net:socks5")
+
+	start := &process.Start{
+		HostID:  "test-host",
+		Source:  registry.NewID("test", "source"),
+		Options: attrs.NewBag(),
+	}
+
+	_, err := mgr.Start(ctx, start)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ctxapi.ErrFrameResolverNotRegistered))
+	assert.False(t, host.runCalled, "host.Run must not be called when app-default network resolver is missing")
 }
 
 func TestManager_Start_NetworkOption_AppendsToExistingContext(t *testing.T) {
