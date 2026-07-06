@@ -37,7 +37,8 @@ go test \
 	./runtime/lua/modules/hub \
 	./runtime/lua/modules/fs \
 	./api/fs \
-	./boot/components/dispatchers
+	./boot/... \
+	./system/registry/...
 
 if [[ -n "${WIPPY_CDC_IT_REPL_DSN:-}" && -n "${WIPPY_CDC_IT_ADMIN_DSN:-}" ]]; then
 	go test -tags integration ./service/cdc/postgres
