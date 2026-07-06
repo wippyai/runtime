@@ -3,6 +3,8 @@
 package attrs
 
 import (
+	"encoding/json"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -32,21 +34,57 @@ func TestBag_GetString(t *testing.T) {
 }
 
 func TestBag_GetInt(t *testing.T) {
-	b := NewBagFrom(map[string]any{
-		"int": 42,
-		"str": "value",
-	})
-
-	if got := b.GetInt("int", 0); got != 42 {
-		t.Errorf("GetInt(int) = %d, want %d", got, 42)
+	cases := []struct {
+		val  any
+		name string
+		want int
+	}{
+		{val: 42, name: "int", want: 42},
+		{val: int64(10000), name: "int64", want: 10000},
+		{val: int32(777), name: "int32", want: 777},
+		{val: uint64(888), name: "uint64", want: 888},
+		{val: float64(10000), name: "integral float64", want: 10000},
+		{val: float32(123), name: "integral float32", want: 123},
+		{val: json.Number("10000"), name: "json.Number", want: 10000},
+		{val: "value", name: "string", want: 99},
+		{val: float64(1.5), name: "fractional float64", want: 99},
+		{val: json.Number("1.5"), name: "fractional json.Number", want: 99},
+		{val: uint64(intMax) + 1, name: "uint64 overflow", want: 99},
+		{val: json.Number("9223372036854775808"), name: "json.Number overflow", want: 99},
+		{val: maxSafeFloatInt + 2, name: "unsafe float integer", want: 99},
+		{val: true, name: "bool", want: 99},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b := NewBagFrom(map[string]any{"k": tc.val})
+			if got := b.GetInt("k", 99); got != tc.want {
+				t.Errorf("GetInt(%s=%v) = %d, want %d", tc.name, tc.val, got, tc.want)
+			}
+		})
 	}
 
-	if got := b.GetInt("str", 99); got != 99 {
-		t.Errorf("GetInt(str) = %d, want %d", got, 99)
-	}
-
-	if got := b.GetInt("missing", 99); got != 99 {
+	if got := NewBag().GetInt("missing", 99); got != 99 {
 		t.Errorf("GetInt(missing) = %d, want %d", got, 99)
+	}
+
+	if strconv.IntSize == 32 {
+		b := NewBagFrom(map[string]any{"k": int64(1) << 31})
+		if got := b.GetInt("k", 99); got != 99 {
+			t.Errorf("GetInt(int64 overflow) = %d, want %d", got, 99)
+		}
+	}
+}
+
+func TestBag_GetInt_FromJSONDecode(t *testing.T) {
+	var b Bag
+	if err := json.Unmarshal([]byte(`{"max_length":10000}`), &b); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := b["max_length"].(float64); !ok {
+		t.Fatalf("precondition: expected max_length stored as float64, got %T", b["max_length"])
+	}
+	if got := b.GetInt("max_length", 1000); got != 10000 {
+		t.Errorf("GetInt(max_length) after JSON decode = %d, want 10000", got)
 	}
 }
 
