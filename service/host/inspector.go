@@ -7,6 +7,7 @@ import (
 
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/system/scheduler/actor"
 )
 
 // ListHosts returns summary stats for all running hosts.
@@ -69,4 +70,29 @@ func (m *Manager) HostProcesses(hostID registry.ID) []process.Stats {
 	return result
 }
 
-var _ process.Inspector = (*Manager)(nil)
+// NotifyOutdated fans the affected set out to every host scheduler so running
+// instances whose source is in the set receive an OUTDATED event. Engine-
+// agnostic: the scheduler sends a generic package and each engine decides how to
+// react.
+func (m *Manager) NotifyOutdated(affected map[registry.ID]bool) {
+	if len(affected) == 0 {
+		return
+	}
+	m.mu.RLock()
+	schedulers := make([]*actor.Scheduler, 0, len(m.hosts))
+	for _, h := range m.hosts {
+		if h.scheduler != nil {
+			schedulers = append(schedulers, h.scheduler)
+		}
+	}
+	m.mu.RUnlock()
+
+	for _, s := range schedulers {
+		s.SendOutdated(affected)
+	}
+}
+
+var (
+	_ process.Inspector        = (*Manager)(nil)
+	_ process.OutdatedNotifier = (*Manager)(nil)
+)

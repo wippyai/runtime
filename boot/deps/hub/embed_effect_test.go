@@ -612,7 +612,7 @@ func TestExtractWappModule_FailurePreservesExistingDirectory(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = handler.extractWappModule(wappPath, dirPath)
+	err = handler.extractWappModule(wappPath, dirPath, "", 0)
 	require.Error(t, err)
 	assert.FileExists(t, filepath.Join(dirPath, "live.txt"))
 	assert.FileExists(t, wappPath)

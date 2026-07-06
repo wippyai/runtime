@@ -6,13 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/boot/loader/interpolate"
 	tr "github.com/wippyai/runtime/system/payload"
 	jsoncodec "github.com/wippyai/runtime/system/payload/json"
 	"github.com/wippyai/runtime/system/payload/yaml"
@@ -282,6 +285,26 @@ entries:
 			}
 		})
 	}
+}
+
+func TestLoader_LoadFSRejectsMalformedIndexEntry(t *testing.T) {
+	suite := NewTestSuite()
+	ldr := NewLoader(suite.transcoder, nil, interpolate.NewEntryInterpolator(suite.transcoder))
+	fsys := fstest.MapFS{
+		"_index.yaml": &fstest.MapFile{Data: []byte(`version: "1.0"
+namespace: app
+entries:
+  - name: ok
+    kind: service
+  - name: broken
+`)},
+	}
+
+	_, err := ldr.LoadFS(ctxapi.NewRootContext(), fsys)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "_index.yaml")
+	require.Contains(t, err.Error(), "broken")
+	require.True(t, strings.Contains(err.Error(), "kind"), "error should name the rejected field: %v", err)
 }
 
 // TestEntryProcessor tests the EntryProcessor functionality

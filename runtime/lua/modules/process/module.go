@@ -83,10 +83,11 @@ func init() {
 	moduleTable.RawSetString("upgrade", lua.LGoFunc(upgrade))
 	moduleTable.RawSetString("exec", lua.LGoFunc(exec))
 
-	eventsTbl := lua.CreateTable(0, 3)
+	eventsTbl := lua.CreateTable(0, 4)
 	eventsTbl.RawSetString("CANCEL", lua.LString(topology.Cancel))
 	eventsTbl.RawSetString("EXIT", lua.LString(topology.Exit))
 	eventsTbl.RawSetString("LINK_DOWN", lua.LString(topology.LinkDown))
+	eventsTbl.RawSetString("OUTDATED", lua.LString(topology.Outdated))
 	eventsTbl.Immutable = true
 	moduleTable.RawSetString("event", eventsTbl)
 
@@ -470,11 +471,13 @@ func cancel(l *lua.LState) int {
 func getOptions(l *lua.LState) int {
 	proc := engine.GetProcess(l)
 
-	options := l.CreateTable(0, 1)
+	options := l.CreateTable(0, 2)
 	if proc != nil {
 		options.RawSetString("trap_links", lua.LBool(proc.IsTrapLinks()))
+		options.RawSetString("upgradable", lua.LBool(proc.IsUpgradable()))
 	} else {
 		options.RawSetString("trap_links", lua.LBool(false))
+		options.RawSetString("upgradable", lua.LBool(false))
 	}
 
 	l.Push(options)
@@ -507,6 +510,12 @@ func setOptions(l *lua.LState) int {
 				return
 			}
 			proc.SetTrapLinks(bool(v.(lua.LBool)))
+		case "upgradable":
+			if v.Type() != lua.LTBool {
+				unsupportedOption = "upgradable must be a boolean"
+				return
+			}
+			proc.SetUpgradable(bool(v.(lua.LBool)))
 		default:
 			if unsupportedOption == "" {
 				unsupportedOption = fmt.Sprintf("option %s is not supported", key)

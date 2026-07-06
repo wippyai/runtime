@@ -9,6 +9,7 @@ import (
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	"github.com/wippyai/runtime/api/topology/namereg/global"
@@ -64,6 +65,9 @@ const (
 	Exit Kind = "pid.exit"
 	// LinkDown indicates a linked process is down.
 	LinkDown Kind = "pid.link.down"
+	// Outdated indicates a process's source code (or a transitively imported
+	// dependency) changed in the registry and the process may hot-swap.
+	Outdated Kind = "pid.outdated"
 	// MonitorRequest requests monitoring of a remote PID.
 	MonitorRequest Kind = "pid.monitor.request"
 	// MonitorRelease releases monitoring of a remote PID.
@@ -195,6 +199,13 @@ type (
 		Reason string    `json:"reason"`
 	}
 
+	// OutdatedEvent notifies a process that its source node (or a transitively
+	// imported dependency) changed in the registry. Sources lists the changed
+	// or affected registry ids.
+	OutdatedEvent struct {
+		Sources []registry.ID `json:"sources"`
+	}
+
 	// MonitorRequestEvent requests monitoring of a PID
 	MonitorRequestEvent struct {
 		At     time.Time `json:"at"`
@@ -242,6 +253,20 @@ func CancelPackage(from, to pid.PID, reason string) *relay.Package {
 			Kind:   Cancel,
 			Reason: reason,
 		}),
+	)
+}
+
+// OutdatedPackage creates a package notifying a process that its source (or a
+// transitively imported dependency) changed. Sources carries the changed or
+// affected registry ids and is delivered to the target on TopicEvents. The
+// package source is the topology system pid: OUTDATED originates from the
+// runtime, not from a peer process.
+func OutdatedPackage(to pid.PID, sources []registry.ID) *relay.Package {
+	return relay.NewPackage(
+		SystemPID,
+		to,
+		TopicEvents,
+		payload.New(&OutdatedEvent{Sources: sources}),
 	)
 }
 

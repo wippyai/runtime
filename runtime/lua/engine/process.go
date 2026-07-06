@@ -17,6 +17,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	"github.com/wippyai/runtime/api/runtime/resource"
@@ -82,24 +83,27 @@ type Process struct {
 	linkDownError  error
 	execErr        error
 	result         payload.Payload
-	state          *lua.LState
-	exported       map[string]*lua.LFunction
+	channelQueue   *TaskQueue
+	subs           *subscribeContext
 	mainTask       *Task
 	upgradeRequest *UpgradeRequest
 	proto          *lua.FunctionProto
 	queue          *TaskQueue
 	factory        *Factory
-	subs           *subscribeContext
-	pendingYields  map[uint64]*Task
-	channels       map[*Channel]int
-	channelQueue   *TaskQueue
-	handlers       map[string]TopicHandler
+	// pendingOutdated holds the single coalesced OUTDATED event awaiting
+	// delivery to an upgradable process's events channel. Nil when none pending.
+	pendingOutdated *topology.OutdatedEvent
+	pendingYields   map[uint64]*Task
+	channels        map[*Channel]int
+	state           *lua.LState
+	handlers        map[string]TopicHandler
 	// stalledChans tracks channels that retained an undeliverable message in
 	// the current flush pass, keyed on the resolved *Channel. Once a channel
 	// stalls, every later mailbox message for it (including a terminal) is also
 	// retained so a terminal cannot overtake earlier retained data on the same
 	// channel. Lazily created on first stall, cleared at the start of each flush.
 	stalledChans  map[*Channel]struct{}
+	exported      map[string]*lua.LFunction
 	scriptName    string
 	script        string
 	outTasks      []*Task
@@ -113,8 +117,9 @@ type Process struct {
 	// every SubscriptionFrame with the epoch they were registered under;
 	// deliverMessage compares atomically so frames from prior incarnations
 	// are dropped without locking.
-	epoch     atomic.Uint64
-	trapLinks bool
+	epoch      atomic.Uint64
+	trapLinks  bool
+	upgradable bool
 }
 
 // queuedMessage stores a message waiting to be delivered
@@ -307,6 +312,19 @@ func (p *Process) SetTrapLinks(trap bool) {
 // IsTrapLinks returns whether LINK_DOWN events are trapped.
 func (p *Process) IsTrapLinks() bool {
 	return p.trapLinks
+}
+
+// SetUpgradable enables or disables delivery of OUTDATED events.
+// When false (default), an OUTDATED event is dropped silently.
+// When true, the process receives the OUTDATED event and can hot-swap via
+// process.upgrade.
+func (p *Process) SetUpgradable(upgradable bool) {
+	p.upgradable = upgradable
+}
+
+// IsUpgradable returns whether OUTDATED events are delivered.
+func (p *Process) IsUpgradable() bool {
+	return p.upgradable
 }
 
 // ChannelQueue returns the channel layer task queue, creating it if needed.
@@ -519,6 +537,7 @@ func (p *Process) Init(ctx context.Context, method string, input payload.Payload
 
 	// Clear message queue
 	p.messageQueue = p.messageQueue[:0]
+	p.pendingOutdated = nil
 
 	// Seal the frame - no more modifications allowed after this
 	if fc := ctxapi.FrameFromContext(ctx); fc != nil {
@@ -715,7 +734,7 @@ func (p *Process) Step(events []process.Event, out *process.StepOutput) error {
 		// the next external event resumed the process — breaking
 		// rendezvous delivery on system topics like @pid/events.
 		if !hadSubscriptions && p.queue.IsEmpty() {
-			if p.subs != nil && len(p.messageQueue) > 0 {
+			if p.subs != nil && (len(p.messageQueue) > 0 || p.pendingOutdated != nil) {
 				p.flushMessageQueue(p.subs)
 				if !p.queue.IsEmpty() {
 					continue
@@ -1030,23 +1049,27 @@ func (p *Process) processSubscribeYields(tasks []*Task) ([]*Task, bool, error) {
 // then held until the backlog drains. Pure data is not held, so an
 // undeliverable message does not block unrelated later sends to the channel.
 func (p *Process) flushMessageQueue(subs *subscribeContext) {
-	if len(p.messageQueue) == 0 {
-		return
-	}
+	if len(p.messageQueue) > 0 {
+		// stalledChans tracks per-pass stalled channels. clear(nil) is a no-op;
+		// the map is created lazily on the first stall to avoid an allocation on
+		// the common no-stall flush.
+		clear(p.stalledChans)
 
-	// stalledChans tracks per-pass stalled channels. clear(nil) is a no-op;
-	// the map is created lazily on the first stall to avoid an allocation on
-	// the common no-stall flush.
-	clear(p.stalledChans)
-
-	// Process queue, retaining undelivered messages in order.
-	remaining := p.messageQueue[:0]
-	for _, qm := range p.messageQueue {
-		if p.deliverMessage(subs, qm) {
-			remaining = append(remaining, qm) // retain in queue
+		// Process queue, retaining undelivered messages in order.
+		remaining := p.messageQueue[:0]
+		for _, qm := range p.messageQueue {
+			if p.deliverMessage(subs, qm) {
+				remaining = append(remaining, qm) // retain in queue
+			}
 		}
+		p.messageQueue = remaining
 	}
-	p.messageQueue = remaining
+
+	// A coalesced OUTDATED event lives outside the queue in a single slot and is
+	// delivered here so it reaches a receiver that subscribes after it arrived.
+	if p.pendingOutdated != nil {
+		p.tryDeliverPendingOutdated(subs)
+	}
 }
 
 // markStalled records that a channel retained a message in the current flush
@@ -1086,6 +1109,20 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 		if isLinkDownEvent(qm.Payloads) {
 			p.linkDownError = errors.New("linked process failed")
 			return false // consume the message
+		}
+	}
+
+	// OUTDATED events are gated by the per-instance upgradable option. An
+	// upgradable process coalesces them into a single pending event (delivered
+	// by flushMessageQueue); a non-upgradable process drops them silently and is
+	// never terminated. Either way the queue entry is consumed, so repeated
+	// invalidations never grow the retained queue.
+	if topic == topology.TopicEvents {
+		if ev, ok := outdatedEventFromPayloads(qm.Payloads); ok {
+			if p.upgradable {
+				p.mergePendingOutdated(ev)
+			}
+			return false
 		}
 	}
 
@@ -1193,6 +1230,85 @@ func (p *Process) deliverMessage(subs *subscribeContext, qm queuedMessage) (keep
 	}
 
 	return false
+}
+
+// outdatedEventFromPayloads extracts an OutdatedEvent from the first payload,
+// reporting whether one is present.
+func outdatedEventFromPayloads(payloads []payload.Payload) (*topology.OutdatedEvent, bool) {
+	if len(payloads) == 0 {
+		return nil, false
+	}
+	pl := payloads[0]
+	if pl == nil {
+		return nil, false
+	}
+	if ev, ok := pl.Data().(*topology.OutdatedEvent); ok {
+		return ev, true
+	}
+	return nil, false
+}
+
+// mergePendingOutdated coalesces an OUTDATED event into the single pending slot,
+// unioning its sources (deduplicated). Repeated invalidations collapse to one
+// pending event, so an upgradable process that never drains events() retains
+// O(1) queue entries rather than one per invalidation. The unioned Sources
+// slice is O(distinct affected source ids) — bounded by the registry size and
+// deduplicated, not by the number of invalidations.
+func (p *Process) mergePendingOutdated(ev *topology.OutdatedEvent) {
+	if p.pendingOutdated == nil {
+		sources := make([]registry.ID, len(ev.Sources))
+		copy(sources, ev.Sources)
+		p.pendingOutdated = &topology.OutdatedEvent{Sources: sources}
+		return
+	}
+	seen := make(map[registry.ID]struct{}, len(p.pendingOutdated.Sources))
+	for _, id := range p.pendingOutdated.Sources {
+		seen[id] = struct{}{}
+	}
+	for _, id := range ev.Sources {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		p.pendingOutdated.Sources = append(p.pendingOutdated.Sources, id)
+	}
+}
+
+// tryDeliverPendingOutdated surfaces the pending OUTDATED event to the events
+// channel of an upgradable process, clearing the slot once delivered. With no
+// live events() subscription (or no waiting receiver on a zero-buffer channel)
+// the slot is retained and retried on the next flush. The event reaches Lua as
+// { kind = process.event.OUTDATED, sources = { "ns:name", ... } }.
+func (p *Process) tryDeliverPendingOutdated(subs *subscribeContext) {
+	sub, exists := subs.get(topology.TopicEvents)
+	if !exists {
+		return // no events() subscription yet: keep pending, retry
+	}
+
+	value := p.outdatedEventToLua(p.pendingOutdated)
+	result, sent := sub.channel.TrySend(value)
+	if !sent {
+		if sub.channel.IsClosed() {
+			p.closeChannel(sub.channel)
+			p.applyExternalChannelResult(result)
+			p.pendingOutdated = nil // channel gone; drop
+		}
+		return // no waiting receiver / full buffer: keep pending, retry
+	}
+	p.applyExternalChannelResult(result)
+	p.pendingOutdated = nil
+}
+
+// outdatedEventToLua builds the Lua table surfaced for an OUTDATED event.
+func (p *Process) outdatedEventToLua(ev *topology.OutdatedEvent) lua.LValue {
+	tbl := p.state.CreateTable(0, 2)
+	tbl.RawSetString("kind", lua.LString(topology.Outdated))
+	sources := p.state.CreateTable(len(ev.Sources), 0)
+	for i, id := range ev.Sources {
+		sources.RawSetInt(i+1, lua.LString(id.String()))
+	}
+	tbl.RawSetString("sources", sources)
+	return tbl
 }
 
 // isLinkDownEvent checks if the payload contains a LINK_DOWN event.
@@ -1469,6 +1585,8 @@ func (p *Process) Close() {
 	p.messageQueue = nil
 	p.stalledChans = nil
 	p.trapLinks = false
+	p.upgradable = false
+	p.pendingOutdated = nil
 	p.linkDownError = nil
 
 	// Return to pool

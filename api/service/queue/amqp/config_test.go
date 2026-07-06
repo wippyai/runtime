@@ -515,11 +515,12 @@ func TestDecodeAMQPTLS_CAEnv(t *testing.T) {
 	require.NotNil(t, out.RootCAs)
 }
 
-// TestDecodeAMQPTLS_EnvLookupFails: a directive naming a variable the registry
-// cannot resolve surfaces as a decode error.
-func TestDecodeAMQPTLS_EnvLookupFails(t *testing.T) {
+// TestDecodeAMQPTLS_EnvLookupUnresolved: a directive naming a variable the
+// registry does not resolve is left unapplied; the entry decodes with an empty
+// cert rather than failing on a false "not found".
+func TestDecodeAMQPTLS_EnvLookupUnresolved(t *testing.T) {
 	ctx := envCtx(map[string]string{})
-	_, err := decodeAMQPConfig(ctx, t, map[string]any{
+	cfg, err := decodeAMQPConfig(ctx, t, map[string]any{
 		"url": "amqp://localhost:5672/",
 		"tls": map[string]any{
 			"enabled":  true,
@@ -527,7 +528,10 @@ func TestDecodeAMQPTLS_EnvLookupFails(t *testing.T) {
 			"key_env":  "app.env:missing2",
 		},
 	})
-	require.Error(t, err)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.TLS)
+	assert.True(t, cfg.TLS.Enabled)
+	assert.Empty(t, cfg.TLS.Cert)
 }
 
 // TestDecodeAMQPTLS_EnvRegistryMissing: without an env registry the directive

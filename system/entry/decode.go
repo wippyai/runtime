@@ -237,11 +237,13 @@ func walkEnvStruct(ctx context.Context, v reflect.Value, data map[string]any, lo
 		if variable == "" {
 			continue
 		}
-		value, overwrite, err := lookupEnvField(ctx, variable, logged)
+		value, found, err := lookupEnvField(ctx, variable, logged)
 		if err != nil {
 			return err
 		}
-		if !overwrite {
+		// An unregistered name is not a directive and a registered-but-empty
+		// variable keeps the inline value: in both cases leave the field.
+		if !found || value == "" {
 			continue
 		}
 		if err := assignEnvValue(fv, value, variable); err != nil {
@@ -305,18 +307,28 @@ func resolveEnvMap(ctx context.Context, m reflect.Value, logged *bool) error {
 			continue
 		}
 		variable := envMapString(val)
-
-		// Drop the directive key regardless of outcome.
-		m.SetMapIndex(key, reflect.Value{})
 		if variable == "" {
+			// An empty directive value carries no variable to resolve; drop it
+			// so it never leaks as a real option.
+			m.SetMapIndex(key, reflect.Value{})
 			continue
 		}
 
-		value, overwrite, err := lookupEnvField(ctx, variable, logged)
+		value, found, err := lookupEnvField(ctx, variable, logged)
 		if err != nil {
 			return err
 		}
-		if !overwrite {
+		if !found {
+			// The name matches no registered variable, so the key is not a
+			// directive (an import alias like threads_env, whose value is a
+			// registry id). Leave the entry untouched.
+			continue
+		}
+
+		// A registered variable is a real directive: drop the directive key.
+		m.SetMapIndex(key, reflect.Value{})
+		if value == "" {
+			// A registered-but-empty variable keeps the inline base value.
 			continue
 		}
 		m.SetMapIndex(reflect.ValueOf(base).Convert(m.Type().Key()), reflect.ValueOf(value).Convert(m.Type().Elem()))
@@ -337,10 +349,13 @@ func envMapString(v reflect.Value) string {
 }
 
 // lookupEnvField resolves a legacy *_env variable against the registry in ctx.
-// overwrite reports whether the caller should apply value: a registered-but-empty
-// variable keeps the existing value (overwrite=false) while an absent or
-// unresolvable variable is an error.
-func lookupEnvField(ctx context.Context, name string, logged *bool) (value string, overwrite bool, err error) {
+// found reports whether the name matches a registered variable: an unregistered
+// name is not a directive at all (a key that merely ends in "_env", such as an
+// import alias) so the caller preserves the original entry untouched. A
+// registered variable is a real directive; a registered-but-empty one resolves
+// to "" so the caller keeps the inline value. A registry-missing or otherwise
+// failing lookup surfaces as an error.
+func lookupEnvField(ctx context.Context, name string, logged *bool) (value string, found bool, err error) {
 	if !*logged {
 		logs.GetLogger(ctx).Debug("entry uses deprecated *_env field; migrate to ${env:NAME} placeholders",
 			zap.String("variable", name))
@@ -357,13 +372,9 @@ func lookupEnvField(ctx context.Context, name string, logged *bool) (value strin
 	value, err = reg.Get(ctx, name)
 	if err != nil {
 		if errors.Is(err, env.ErrVariableNotFound) {
-			return "", false, NewEnvFieldNotFoundError(name)
+			return "", false, nil
 		}
 		return "", false, NewEnvFieldLookupError(name, err)
-	}
-	// A registered-but-empty variable keeps the inline value.
-	if value == "" {
-		return "", false, nil
 	}
 	return value, true, nil
 }

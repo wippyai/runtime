@@ -5,6 +5,7 @@ package hub
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,14 +14,18 @@ import (
 )
 
 type fakeManifestProvider struct {
-	manifests map[string]*ModuleManifest
-	versions  map[string][]VersionInfo
+	manifests      map[string]*ModuleManifest
+	versions       map[string][]VersionInfo
+	getManifest    map[string]int
+	listAllVersion map[string]int
 }
 
 func newFakeProvider() *fakeManifestProvider {
 	return &fakeManifestProvider{
-		manifests: make(map[string]*ModuleManifest),
-		versions:  make(map[string][]VersionInfo),
+		manifests:      make(map[string]*ModuleManifest),
+		versions:       make(map[string][]VersionInfo),
+		getManifest:    make(map[string]int),
+		listAllVersion: make(map[string]int),
 	}
 }
 
@@ -41,6 +46,7 @@ func (f *fakeManifestProvider) addModule(org, name, version string, deps ...Mani
 }
 
 func (f *fakeManifestProvider) GetManifest(_ context.Context, org, module, constraint string) (*ModuleManifest, error) {
+	f.getManifest[org+"/"+module]++
 	key := org + "/" + module + "@" + constraint
 	if m, ok := f.manifests[key]; ok {
 		return m, nil
@@ -49,6 +55,7 @@ func (f *fakeManifestProvider) GetManifest(_ context.Context, org, module, const
 }
 
 func (f *fakeManifestProvider) ListAllVersions(_ context.Context, org, module string) ([]VersionInfo, error) {
+	f.listAllVersion[org+"/"+module]++
 	key := org + "/" + module
 	if v, ok := f.versions[key]; ok {
 		return v, nil
@@ -547,6 +554,382 @@ func TestResolve_LockedDigestMissingKeyDoesNotValidate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, result.Errors)
 	require.Len(t, result.Modules, 1)
+}
+
+func TestResolve_IncompatibleConstraintsAcrossRootsFailLoud(t *testing.T) {
+	p := newFakeProvider()
+	p.addModule("acme", "a", "1.0.0", ManifestDep{Org: "acme", Name: "x", Version: "^1.0.0"})
+	p.addModule("acme", "b", "1.0.0", ManifestDep{Org: "acme", Name: "x", Version: ">=2.0.0"})
+	p.addModule("acme", "x", "1.5.0")
+	p.addModule("acme", "x", "2.0.0")
+
+	roots := []DependencySpec{
+		{Org: "acme", Name: "a", Constraint: "1.0.0"},
+		{Org: "acme", Name: "b", Constraint: "1.0.0"},
+	}
+
+	result, err := Resolve(context.Background(), p, roots, nil)
+	require.NoError(t, err)
+
+	var conflict *ResolutionError
+	for i := range result.Errors {
+		if result.Errors[i].Name == "x" {
+			conflict = &result.Errors[i]
+			break
+		}
+	}
+	require.NotNil(t, conflict, "incompatible constraints must surface a conflict naming module x")
+	assert.Contains(t, conflict.Message, "acme/x")
+	assert.Contains(t, conflict.Message, "^1.0.0")
+	assert.Contains(t, conflict.Message, ">=2.0.0")
+	assert.Contains(t, conflict.Message, "acme/a")
+	assert.Contains(t, conflict.Message, "acme/b")
+}
+
+func TestResolve_CompatibleConstraintsAcrossRootsAreOrderIndependent(t *testing.T) {
+	build := func() *fakeManifestProvider {
+		p := newFakeProvider()
+		p.addModule("acme", "a", "1.0.0", ManifestDep{Org: "acme", Name: "x", Version: "^1.0.0"})
+		p.addModule("acme", "b", "1.0.0", ManifestDep{Org: "acme", Name: "x", Version: ">=1.2.0"})
+		p.addModule("acme", "x", "1.0.0")
+		p.addModule("acme", "x", "1.5.0")
+		p.addModule("acme", "x", "2.0.0")
+		return p
+	}
+
+	versionOf := func(res *ResolveDependenciesResult) string {
+		for _, m := range res.Modules {
+			if m.Name == "x" {
+				return m.Version
+			}
+		}
+		return ""
+	}
+
+	rootA := DependencySpec{Org: "acme", Name: "a", Constraint: "1.0.0"}
+	rootB := DependencySpec{Org: "acme", Name: "b", Constraint: "1.0.0"}
+
+	ab, err := Resolve(context.Background(), build(), []DependencySpec{rootA, rootB}, nil)
+	require.NoError(t, err)
+	assert.Empty(t, ab.Errors)
+
+	ba, err := Resolve(context.Background(), build(), []DependencySpec{rootB, rootA}, nil)
+	require.NoError(t, err)
+	assert.Empty(t, ba.Errors)
+
+	assert.Equal(t, "1.5.0", versionOf(ab), "must pick the highest version satisfying both constraints")
+	assert.Equal(t, versionOf(ab), versionOf(ba), "resolved version must be independent of walk order")
+}
+
+func TestResolve_ConstraintCompatibilityMatrix(t *testing.T) {
+	tests := []struct {
+		name       string
+		c1         string
+		c2         string
+		compatible bool
+	}{
+		{name: "compatible carets same major", c1: "^1.2.0", c2: "^1.3.0", compatible: true},
+		{name: "incompatible carets different major", c1: "^1.0.0", c2: "^2.0.0", compatible: false},
+		{name: "compatible tildes same minor", c1: "~1.2.0", c2: "~1.2.3", compatible: true},
+		{name: "incompatible tildes different minor", c1: "~1.2.0", c2: "~1.3.0", compatible: false},
+		{name: "compatible ranges with overlap", c1: ">=1.0.0 <2.0.0", c2: ">=1.5.0 <3.0.0", compatible: true},
+		{name: "incompatible ranges no overlap", c1: ">=1.0.0 <2.0.0", c2: ">=2.0.0 <3.0.0", compatible: false},
+		{name: "exact different versions", c1: "1.2.3", c2: "1.2.4", compatible: false},
+		{name: "wildcard with anything", c1: "*", c2: "^1.0.0", compatible: true},
+	}
+
+	pool := []string{
+		"0.9.0", "1.2.0", "1.2.3", "1.2.4", "1.2.5",
+		"1.3.0", "1.5.0", "1.9.0", "2.0.0", "2.5.3", "3.0.0",
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newFakeProvider()
+			p.addModule("acme", "a", "1.0.0", ManifestDep{Org: "acme", Name: "x", Version: tt.c1})
+			p.addModule("acme", "b", "1.0.0", ManifestDep{Org: "acme", Name: "x", Version: tt.c2})
+			for _, v := range pool {
+				p.addModule("acme", "x", v)
+			}
+
+			result, err := Resolve(context.Background(), p, []DependencySpec{
+				{Org: "acme", Name: "a", Constraint: "1.0.0"},
+				{Org: "acme", Name: "b", Constraint: "1.0.0"},
+			}, nil)
+			require.NoError(t, err)
+
+			hasConflict := false
+			for _, e := range result.Errors {
+				if e.Name == "x" {
+					hasConflict = true
+				}
+			}
+
+			if tt.compatible {
+				assert.False(t, hasConflict, "constraints %q and %q must resolve to a shared version", tt.c1, tt.c2)
+			} else {
+				assert.True(t, hasConflict, "constraints %q and %q must fail loud as a conflict", tt.c1, tt.c2)
+			}
+		})
+	}
+}
+
+func TestResolve_NarrowingRetractsSupersededSubtree(t *testing.T) {
+	build := func() *fakeManifestProvider {
+		p := newFakeProvider()
+		// a alone would resolve x to its highest (1.9.0); b pins x to 1.0.0.
+		p.addModule("acme", "a", "1.0.0", ManifestDep{Org: "acme", Name: "x", Version: ">=1.0.0"})
+		p.addModule("acme", "b", "1.0.0", ManifestDep{Org: "acme", Name: "x", Version: "1.0.0"})
+		// x@1.9.0 pulls y ^2, x@1.0.0 pulls y ^1: the superseded y demand must be retracted.
+		p.addModule("acme", "x", "1.9.0", ManifestDep{Org: "acme", Name: "y", Version: "^2.0.0"})
+		p.addModule("acme", "x", "1.0.0", ManifestDep{Org: "acme", Name: "y", Version: "^1.0.0"})
+		p.addModule("acme", "y", "1.5.0")
+		p.addModule("acme", "y", "2.5.0")
+		return p
+	}
+
+	versionOf := func(res *ResolveDependenciesResult, name string) string {
+		for _, m := range res.Modules {
+			if m.Name == name {
+				return m.Version
+			}
+		}
+		return ""
+	}
+	set := func(res *ResolveDependenciesResult) map[string]string {
+		out := make(map[string]string)
+		for _, m := range res.Modules {
+			out[m.Name] = m.Version
+		}
+		return out
+	}
+
+	rootA := DependencySpec{Org: "acme", Name: "a", Constraint: "1.0.0"}
+	rootB := DependencySpec{Org: "acme", Name: "b", Constraint: "1.0.0"}
+
+	ab, err := Resolve(context.Background(), build(), []DependencySpec{rootA, rootB}, nil)
+	require.NoError(t, err)
+	assert.Empty(t, ab.Errors, "retracting the x@1.9 subtree must clear the stale y ^2.0.0 demand")
+
+	ba, err := Resolve(context.Background(), build(), []DependencySpec{rootB, rootA}, nil)
+	require.NoError(t, err)
+	assert.Empty(t, ba.Errors)
+
+	assert.Equal(t, "1.0.0", versionOf(ab, "x"))
+	assert.Equal(t, "1.5.0", versionOf(ab, "y"), "y must follow x@1.0.0's ^1.0.0 demand, not the retracted ^2.0.0")
+	assert.Equal(t, set(ab), set(ba), "resolved set must be independent of walk order")
+}
+
+func TestResolve_DirectIncompatibilityFailsLoud(t *testing.T) {
+	p := newFakeProvider()
+	p.addModule("acme", "a", "1.0.0", ManifestDep{Org: "acme", Name: "x", Version: "^1.0.0"})
+	p.addModule("acme", "b", "1.0.0", ManifestDep{Org: "acme", Name: "x", Version: "^2.0.0"})
+	p.addModule("acme", "x", "1.5.0")
+	p.addModule("acme", "x", "2.5.0")
+
+	result, err := Resolve(context.Background(), p, []DependencySpec{
+		{Org: "acme", Name: "a", Constraint: "1.0.0"},
+		{Org: "acme", Name: "b", Constraint: "1.0.0"},
+	}, nil)
+	require.NoError(t, err)
+
+	var conflict *ResolutionError
+	for i := range result.Errors {
+		if result.Errors[i].Name == "x" {
+			conflict = &result.Errors[i]
+			break
+		}
+	}
+	require.NotNil(t, conflict, "non-overlapping ^1 and ^2 must fail loud")
+	assert.Contains(t, conflict.Message, "acme/x")
+	assert.Contains(t, conflict.Message, "^1.0.0")
+	assert.Contains(t, conflict.Message, "^2.0.0")
+}
+
+func TestResolve_UnchangedRevisitMakesNoProviderCall(t *testing.T) {
+	p := newFakeProvider()
+	// shared is reached first via left (level 2) and again via mid->deep (level 3),
+	// both with the same semver constraint, so the second visit changes nothing.
+	p.addModule("acme", "app", "1.0.0",
+		ManifestDep{Org: "acme", Name: "left", Version: "1.0.0"},
+		ManifestDep{Org: "acme", Name: "mid", Version: "1.0.0"},
+	)
+	p.addModule("acme", "left", "1.0.0", ManifestDep{Org: "acme", Name: "shared", Version: "^1.0.0"})
+	p.addModule("acme", "mid", "1.0.0", ManifestDep{Org: "acme", Name: "deep", Version: "1.0.0"})
+	p.addModule("acme", "deep", "1.0.0", ManifestDep{Org: "acme", Name: "shared", Version: "^1.0.0"})
+	p.addModule("acme", "shared", "1.0.0")
+	p.addModule("acme", "shared", "1.2.0")
+
+	result, err := Resolve(context.Background(), p, []DependencySpec{
+		{Org: "acme", Name: "app", Constraint: "1.0.0"},
+	}, nil)
+	require.NoError(t, err)
+	assert.Empty(t, result.Errors)
+
+	assert.Equal(t, 1, p.listAllVersion["acme/shared"],
+		"unchanged revisit must short-circuit without re-listing versions")
+	assert.Equal(t, 1, p.getManifest["acme/shared"],
+		"unchanged revisit must not refetch the manifest")
+}
+
+func TestResolve_LabelWithDivergentSemverConflicts(t *testing.T) {
+	// A label combined with a divergent semver range cannot be intersected against
+	// available versions and is reported as a conflict rather than silently favoring one.
+	p := newFakeProvider()
+	p.addModule("acme", "a", "1.0.0", ManifestDep{Org: "acme", Name: "x", Version: "@latest"})
+	p.addModule("acme", "b", "1.0.0", ManifestDep{Org: "acme", Name: "x", Version: "^1.0.0"})
+	p.addModule("acme", "x", "1.5.0")
+
+	result, err := Resolve(context.Background(), p, []DependencySpec{
+		{Org: "acme", Name: "a", Constraint: "1.0.0"},
+		{Org: "acme", Name: "b", Constraint: "1.0.0"},
+	}, nil)
+	require.NoError(t, err)
+
+	hasConflict := false
+	for _, e := range result.Errors {
+		if e.Name == "x" {
+			hasConflict = true
+		}
+	}
+	assert.True(t, hasConflict, "label vs divergent semver is not deterministically intersectable")
+}
+
+func TestResolve_MaxDepthEnforcedAgainstLiveDepthAfterRetraction(t *testing.T) {
+	moduleNames := func(res *ResolveDependenciesResult) map[string]string {
+		out := make(map[string]string)
+		for _, m := range res.Modules {
+			out[m.Name] = m.Version
+		}
+		return out
+	}
+	depthError := func(res *ResolveDependenciesResult, name string) *ResolutionError {
+		for i := range res.Errors {
+			if res.Errors[i].Name == name && strings.Contains(res.Errors[i].Message, "maximum dependency depth") {
+				return &res.Errors[i]
+			}
+		}
+		return nil
+	}
+
+	t.Run("rejected when only the over-depth path stays live", func(t *testing.T) {
+		p := newFakeProvider()
+		// flip@2.0.0 pulls m at a shallow depth (2); the deep chain pulls m at depth 3.
+		// c2 (depth 2) later narrows flip to 1.0.0, retracting the shallow edge, so m is
+		// reachable only through the over-depth path and must be rejected against live depth.
+		p.addModule("acme", "r", "1.0.0",
+			ManifestDep{Org: "acme", Name: "flip", Version: ">=1.0.0"},
+			ManifestDep{Org: "acme", Name: "chain", Version: "1.0.0"},
+		)
+		p.addModule("acme", "flip", "1.0.0")
+		p.addModule("acme", "flip", "2.0.0", ManifestDep{Org: "acme", Name: "m", Version: "1.0.0"})
+		p.addModule("acme", "chain", "1.0.0", ManifestDep{Org: "acme", Name: "c2", Version: "1.0.0"})
+		p.addModule("acme", "c2", "1.0.0",
+			ManifestDep{Org: "acme", Name: "m", Version: "1.0.0"},
+			ManifestDep{Org: "acme", Name: "flip", Version: "1.0.0"},
+		)
+		p.addModule("acme", "m", "1.0.0")
+
+		result, err := Resolve(context.Background(), p, []DependencySpec{
+			{Org: "acme", Name: "r", Constraint: "1.0.0"},
+		}, &ResolveOptions{MaxDepth: 3})
+		require.NoError(t, err)
+
+		mods := moduleNames(result)
+		assert.Equal(t, "1.0.0", mods["flip"], "flip must narrow to 1.0.0, dropping its shallow edge to m")
+		assert.NotContains(t, mods, "m", "m must be rejected once only the over-depth path remains")
+		require.NotNil(t, depthError(result, "m"), "live depth must reject m for exceeding max depth")
+	})
+
+	t.Run("kept when a shallow path stays live", func(t *testing.T) {
+		p := newFakeProvider()
+		// stable pulls m at depth 2 and never narrows, so the shallow edge persists.
+		// flipD@2.0.0 pulls deepmid which redundantly pulls m at depth 3. An independent
+		// subtree (pinner -> subpin) narrows flipD to 1.0.0, retracting the deep path -
+		// m must survive on the live shallow path.
+		p.addModule("acme", "r", "1.0.0",
+			ManifestDep{Org: "acme", Name: "stable", Version: "1.0.0"},
+			ManifestDep{Org: "acme", Name: "flipd", Version: ">=1.0.0"},
+			ManifestDep{Org: "acme", Name: "pinner", Version: "1.0.0"},
+		)
+		p.addModule("acme", "stable", "1.0.0", ManifestDep{Org: "acme", Name: "m", Version: "1.0.0"})
+		p.addModule("acme", "flipd", "1.0.0")
+		p.addModule("acme", "flipd", "2.0.0", ManifestDep{Org: "acme", Name: "deepmid", Version: "1.0.0"})
+		p.addModule("acme", "deepmid", "1.0.0", ManifestDep{Org: "acme", Name: "m", Version: "1.0.0"})
+		p.addModule("acme", "pinner", "1.0.0", ManifestDep{Org: "acme", Name: "subpin", Version: "1.0.0"})
+		p.addModule("acme", "subpin", "1.0.0", ManifestDep{Org: "acme", Name: "flipd", Version: "1.0.0"})
+		p.addModule("acme", "m", "1.0.0")
+
+		result, err := Resolve(context.Background(), p, []DependencySpec{
+			{Org: "acme", Name: "r", Constraint: "1.0.0"},
+		}, &ResolveOptions{MaxDepth: 3})
+		require.NoError(t, err)
+
+		mods := moduleNames(result)
+		assert.Equal(t, "1.0.0", mods["flipd"], "flipd must narrow to 1.0.0 via the independent subtree")
+		assert.Equal(t, "1.0.0", mods["m"], "m must survive on its live shallow path")
+		assert.Nil(t, depthError(result, "m"), "m must not be rejected while a shallow path stays live")
+		assert.NotContains(t, mods, "deepmid", "the retracted deep path must be gone")
+	})
+}
+
+func TestResolve_DepthPropagatesWhenParentVersionUnchanged(t *testing.T) {
+	// p (only version 1.0.0) is reached via a shallow flip parent (constraint "1.0.0",
+	// depth 2) and via a deep chain (constraint ">=1.0.0", depth 3); it resolves to 1.0.0
+	// with child c accepted at depth 3. An independent narrower flips the shallow parent,
+	// retracting p's shallow source: p's live constraints change (so it re-resolves) but
+	// its version stays 1.0.0 (v == version) while its effective depth rises 2 -> 3. That
+	// new depth must propagate to c, pushing c to depth 4 and over the limit.
+	build := func() *fakeManifestProvider {
+		p := newFakeProvider()
+		p.addModule("acme", "sp", "1.0.0")
+		p.addModule("acme", "sp", "2.0.0", ManifestDep{Org: "acme", Name: "p", Version: "1.0.0"})
+		p.addModule("acme", "deepchain", "1.0.0", ManifestDep{Org: "acme", Name: "deepmid", Version: "1.0.0"})
+		p.addModule("acme", "deepmid", "1.0.0", ManifestDep{Org: "acme", Name: "p", Version: ">=1.0.0"})
+		p.addModule("acme", "p", "1.0.0", ManifestDep{Org: "acme", Name: "c", Version: "1.0.0"})
+		p.addModule("acme", "c", "1.0.0")
+		p.addModule("acme", "narrower", "1.0.0", ManifestDep{Org: "acme", Name: "subnarrow", Version: "1.0.0"})
+		p.addModule("acme", "subnarrow", "1.0.0", ManifestDep{Org: "acme", Name: "sp", Version: "1.0.0"})
+		return p
+	}
+
+	moduleNames := func(res *ResolveDependenciesResult) map[string]string {
+		out := make(map[string]string)
+		for _, m := range res.Modules {
+			out[m.Name] = m.Version
+		}
+		return out
+	}
+	hasDepthError := func(res *ResolveDependenciesResult, name string) bool {
+		for i := range res.Errors {
+			if res.Errors[i].Name == name && strings.Contains(res.Errors[i].Message, "maximum dependency depth") {
+				return true
+			}
+		}
+		return false
+	}
+
+	rootSP := DependencySpec{Org: "acme", Name: "sp", Constraint: ">=1.0.0"}
+	rootDeep := DependencySpec{Org: "acme", Name: "deepchain", Constraint: "1.0.0"}
+	rootNarrow := DependencySpec{Org: "acme", Name: "narrower", Constraint: "1.0.0"}
+
+	forward, err := Resolve(context.Background(), build(),
+		[]DependencySpec{rootSP, rootDeep, rootNarrow}, &ResolveOptions{MaxDepth: 3})
+	require.NoError(t, err)
+
+	fwd := moduleNames(forward)
+	assert.Equal(t, "1.0.0", fwd["p"], "p stays at 1.0.0 across the depth relabel")
+	assert.Equal(t, "1.0.0", fwd["sp"], "sp narrows to 1.0.0, retracting p's shallow source")
+	assert.NotContains(t, fwd, "c", "c must be relabeled to the deeper depth and rejected")
+	assert.True(t, hasDepthError(forward, "c"), "c must fail loud for exceeding max depth")
+
+	reverse, err := Resolve(context.Background(), build(),
+		[]DependencySpec{rootNarrow, rootDeep, rootSP}, &ResolveOptions{MaxDepth: 3})
+	require.NoError(t, err)
+
+	assert.Equal(t, fwd, moduleNames(reverse), "resolved set must not depend on root order")
+	assert.Equal(t, hasDepthError(forward, "c"), hasDepthError(reverse, "c"),
+		"depth outcome must not depend on root order")
 }
 
 func TestManifestCache_LRUBoundedCapacity(t *testing.T) {

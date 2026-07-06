@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -39,6 +40,7 @@ import (
 const (
 	metaModuleKey        = "module"
 	metaModuleVersionKey = "module_version"
+	extractedModuleMeta  = ".wippy-module.yaml"
 )
 
 type DependencyHandlerOptions struct {
@@ -157,7 +159,10 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		return regapi.DirectiveResult{}, ErrDependencyTranscoderMissing
 	}
 
-	lockedVersions := snapshotModuleVersions(snapshot)
+	lockedVersions, err := h.installedModuleVersions(ctx, transcoder, snapshot)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
 
 	controlledModules, err := h.collectControlledModules(ctx, snapshot, transcoder)
 	if err != nil {
@@ -184,11 +189,6 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		}
 	}
 
-	moduleEntries, err := h.loadModuleEntries(ctx, resolved, transcoder)
-	if err != nil {
-		return regapi.DirectiveResult{}, err
-	}
-	linkDeps := mergeLinkDependencies(desiredDepEntries, moduleEntries)
 	opComponent := ""
 	for _, dep := range desiredDeps {
 		if dep.entry.ID == op.Entry.ID {
@@ -196,16 +196,32 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 			break
 		}
 	}
-	strictModules := touchedModuleNames(resolved, snapshot, opComponent)
+	strictModules := touchedModuleNames(resolved, lockedVersions, opComponent)
 	mutableModules, err := h.operationModules(ctx, op, snapshot, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
+	touchedModules := stringSet(strictModules)
+	for module := range mutableModules {
+		touchedModules[module] = struct{}{}
+	}
+	desiredModules := resolvedModuleSet(resolved)
+
+	moduleEntries, err := h.loadModuleEntries(ctx, filterResolvedModules(resolved, touchedModules), resolved, snapshot, transcoder)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	linkDeps := mergeLinkDependencies(desiredDepEntries, moduleEntries)
 
 	combined := make([]regapi.Entry, 0, len(snapshot)+len(moduleEntries))
 	for _, e := range snapshot {
-		if entryModule(e) != "" {
-			continue
+		if module := entryModule(e); module != "" {
+			if _, desired := desiredModules[module]; !desired {
+				continue
+			}
+			if _, touched := touchedModules[module]; touched {
+				continue
+			}
 		}
 		combined = append(combined, e)
 	}
@@ -336,7 +352,10 @@ func (h *DependencyHandler) collectDesiredDependencies(
 	transcoder payload.Transcoder,
 ) ([]desiredDependency, error) {
 	deps := make(map[regapi.ID]desiredDependency)
-	lockedVersions := snapshotModuleVersions(snapshot)
+	lockedVersions, err := h.installedModuleVersions(ctx, transcoder, snapshot)
+	if err != nil {
+		return nil, err
+	}
 	operationID := op.Entry.ID
 
 	current, err := h.collectSnapshotDependencies(ctx, snapshot, transcoder)
@@ -378,7 +397,52 @@ func (h *DependencyHandler) collectDesiredDependencies(
 		}
 		result = append(result, dep)
 	}
+	if err := validateRootDependencyComponents(result, operationID); err != nil {
+		return nil, err
+	}
 	return result, nil
+}
+
+func validateRootDependencyComponents(deps []desiredDependency, operationID regapi.ID) error {
+	seen := make(map[string]regapi.ID, len(deps))
+	for _, dep := range deps {
+		component := dep.definition.Component
+		if existingID, ok := seen[component]; ok && existingID != dep.entry.ID {
+			if existingID == operationID {
+				return NewDependencyRootConflictError(component, dep.entry.ID.String(), existingID.String())
+			}
+			return NewDependencyRootConflictError(component, existingID.String(), dep.entry.ID.String())
+		}
+		seen[component] = dep.entry.ID
+	}
+	return nil
+}
+
+func (h *DependencyHandler) installedModuleVersions(ctx context.Context, transcoder payload.Transcoder, snapshot regapi.State) (map[string]string, error) {
+	versions := snapshotModuleVersions(snapshot)
+	if h.lockPath == "" {
+		return versions, nil
+	}
+	lockObj, err := lock.New(h.lockPath)
+	if err != nil {
+		return versions, nil
+	}
+	installedRoots, err := rootDependencyModules(ctx, transcoder, snapshot)
+	if err != nil {
+		return nil, err
+	}
+	for _, mod := range lockObj.GetModules() {
+		if mod.Name == "" || mod.Version == "" {
+			continue
+		}
+		if _, installed := installedRoots[mod.Name]; !installed {
+			continue
+		}
+		if _, ok := versions[mod.Name]; !ok {
+			versions[mod.Name] = mod.Version
+		}
+	}
+	return versions, nil
 }
 
 func snapshotModuleVersions(snapshot regapi.State) map[string]string {
@@ -517,17 +581,107 @@ func (p *replacementManifestProvider) replacedVersion(name, constraint string) s
 
 func (p *replacementManifestProvider) GetManifest(ctx context.Context, org, module, constraint string) (*ModuleManifest, error) {
 	name := org + "/" + module
-	if _, ok := p.handler.replacementPath(name); ok {
+	if path, ok := p.handler.replacementPath(name); ok {
 		if version := p.replacedVersion(name, constraint); version != "" {
+			dependencies, err := p.localReplacementDependencies(ctx, path)
+			if err != nil {
+				return nil, err
+			}
 			return &ModuleManifest{
-				Org:     org,
-				Name:    module,
-				Version: version,
-				Digest:  p.lockedDigests[name+"@"+version],
+				Org:          org,
+				Name:         module,
+				Version:      version,
+				Digest:       p.lockedDigests[name+"@"+version],
+				Dependencies: dependencies,
 			}, nil
 		}
 	}
 	return p.base.GetManifest(ctx, org, module, constraint)
+}
+
+func (p *replacementManifestProvider) localReplacementDependencies(ctx context.Context, path string) ([]ManifestDep, error) {
+	transcoder := payload.GetTranscoder(ctx)
+	if transcoder == nil {
+		return nil, ErrDependencyTranscoderMissing
+	}
+
+	entries, err := loadReplacementDependencyEntries(ctx, path, p.handler.logger, transcoder)
+	if err != nil {
+		return nil, err
+	}
+	entries, err = p.handler.applyModuleConfigFilters(ctx, path, entries)
+	if err != nil {
+		return nil, err
+	}
+
+	deps := make([]ManifestDep, 0)
+	seen := make(map[string]struct{})
+	for _, entry := range entries {
+		if entry.Kind != regapi.NamespaceDependency {
+			continue
+		}
+		def, err := decodeDependency(ctx, transcoder, entry)
+		if err != nil {
+			return nil, err
+		}
+		if def.Component == "" {
+			return nil, NewDependencyEntryInvalidError(entry.ID.String(), "component is required", "")
+		}
+		name, err := graph.ParseName(def.Component)
+		if err != nil {
+			return nil, NewDependencyEntryInvalidError(entry.ID.String(), "invalid component", def.Component)
+		}
+
+		key := name.String() + "@" + def.Version
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		deps = append(deps, ManifestDep{
+			Org:     name.Organization,
+			Name:    name.Module,
+			Version: def.Version,
+		})
+	}
+	return deps, nil
+}
+
+func loadReplacementDependencyEntries(
+	ctx context.Context,
+	path string,
+	logger *zap.Logger,
+	transcoder payload.Transcoder,
+) ([]regapi.Entry, error) {
+	stat, err := os.Stat(path)
+	if err != nil || !stat.IsDir() {
+		return nil, nil
+	}
+
+	dirFS := os.DirFS(path)
+	ldr := loaderFromContext(ctx, logger, transcoder)
+	var entries []regapi.Entry
+	if err := fs.WalkDir(dirFS, ".", func(rel string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || rel == depconfig.DefaultConfigFile {
+			return nil
+		}
+		switch filepath.Ext(rel) {
+		case ".json", ".yaml", ".yml":
+		default:
+			return nil
+		}
+		loaded, err := ldr.LoadFile(ctx, dirFS, rel)
+		if err != nil {
+			return err
+		}
+		entries = append(entries, loaded...)
+		return nil
+	}); err != nil {
+		return nil, NewDependencyLoadError(path, err)
+	}
+	return entries, nil
 }
 
 func (p *replacementManifestProvider) ListAllVersions(ctx context.Context, org, module string) ([]VersionInfo, error) {
@@ -547,8 +701,7 @@ func (p *replacementManifestProvider) ListAllVersions(ctx context.Context, org, 
 // trusted — they were validated when installed — and are excluded from strict
 // requirement enforcement, so a partial update does not re-validate
 // dependencies it did not touch.
-func touchedModuleNames(modules []ResolvedModule, snapshot regapi.State, opComponent string) []string {
-	installed := snapshotModuleVersions(snapshot)
+func touchedModuleNames(modules []ResolvedModule, installed map[string]string, opComponent string) []string {
 	names := make([]string, 0, len(modules))
 	for _, mod := range modules {
 		if mod.Org == "" || mod.Name == "" {
@@ -563,8 +716,52 @@ func touchedModuleNames(modules []ResolvedModule, snapshot regapi.State, opCompo
 	return names
 }
 
-func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []ResolvedModule, transcoder payload.Transcoder) ([]regapi.Entry, error) {
+func stringSet(values []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if value != "" {
+			out[value] = struct{}{}
+		}
+	}
+	return out
+}
+
+func resolvedModuleSet(modules []ResolvedModule) map[string]struct{} {
+	out := make(map[string]struct{}, len(modules))
+	for _, mod := range modules {
+		if mod.Org == "" || mod.Name == "" {
+			continue
+		}
+		out[mod.Org+"/"+mod.Name] = struct{}{}
+	}
+	return out
+}
+
+func filterResolvedModules(modules []ResolvedModule, keep map[string]struct{}) []ResolvedModule {
+	if len(modules) == 0 || len(keep) == 0 {
+		return nil
+	}
+	out := make([]ResolvedModule, 0, len(modules))
+	for _, mod := range modules {
+		if mod.Org == "" || mod.Name == "" {
+			continue
+		}
+		if _, ok := keep[mod.Org+"/"+mod.Name]; ok {
+			out = append(out, mod)
+		}
+	}
+	return out
+}
+
+func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []ResolvedModule, ownerModules []ResolvedModule, snapshot regapi.State, transcoder payload.Transcoder) ([]regapi.Entry, error) {
 	entries := make([]regapi.Entry, 0)
+	owners := moduleOwnersByNamespace(ownerModules)
+	snapshotOwners := moduleOwnersByEntryID(snapshot)
+	snapshotByID := entriesByID(snapshot)
+	installedRoots, err := rootDependencyModules(ctx, transcoder, snapshot)
+	if err != nil {
+		return nil, err
+	}
 
 	for _, mod := range modules {
 		moduleName := mod.Org + "/" + mod.Name
@@ -573,12 +770,90 @@ func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []Res
 			return nil, err
 		}
 		for i := range moduleEntries {
-			moduleEntries[i] = markModuleMeta(moduleEntries[i], moduleName, mod.Version)
+			if keep, ok := preserveHostSnapshotEntry(moduleEntries[i], moduleName, snapshotByID, installedRoots); ok {
+				moduleEntries[i] = keep
+				continue
+			}
+			moduleEntries[i] = markModuleMetaForGraph(moduleEntries[i], moduleName, mod.Version, owners, snapshotOwners)
 		}
 		entries = append(entries, moduleEntries...)
 	}
 
 	return entries, nil
+}
+
+func entriesByID(entries regapi.State) map[regapi.ID]regapi.Entry {
+	byID := make(map[regapi.ID]regapi.Entry, len(entries))
+	for _, entry := range entries {
+		byID[entry.ID] = entry
+	}
+	return byID
+}
+
+func rootDependencyModules(ctx context.Context, transcoder payload.Transcoder, entries regapi.State) (map[string]struct{}, error) {
+	modules := make(map[string]struct{})
+	for _, entry := range entries {
+		if !isRootDependency(entry) {
+			continue
+		}
+		def, err := decodeDependency(ctx, transcoder, entry)
+		if err != nil {
+			return nil, err
+		}
+		if def.Component != "" {
+			modules[def.Component] = struct{}{}
+		}
+	}
+	return modules, nil
+}
+
+func preserveHostSnapshotEntry(entry regapi.Entry, moduleName string, snapshot map[regapi.ID]regapi.Entry, installedRoots map[string]struct{}) (regapi.Entry, bool) {
+	if _, installed := installedRoots[moduleName]; !installed {
+		return regapi.Entry{}, false
+	}
+	if entryModule(entry) != "" {
+		return regapi.Entry{}, false
+	}
+	existing, ok := snapshot[entry.ID]
+	if !ok || entryModule(existing) != "" {
+		return regapi.Entry{}, false
+	}
+	return existing, true
+}
+
+type moduleOwner struct {
+	name    string
+	version string
+}
+
+func moduleOwnersByNamespace(modules []ResolvedModule) map[string]moduleOwner {
+	owners := make(map[string]moduleOwner, len(modules))
+	for _, mod := range modules {
+		if mod.Org == "" || mod.Name == "" {
+			continue
+		}
+		namespace := mod.Org + "." + mod.Name
+		owners[namespace] = moduleOwner{
+			name:    mod.Org + "/" + mod.Name,
+			version: mod.Version,
+		}
+	}
+	return owners
+}
+
+func moduleOwnersByEntryID(entries regapi.State) map[regapi.ID]moduleOwner {
+	owners := make(map[regapi.ID]moduleOwner, len(entries))
+	for _, entry := range entries {
+		module := entryModule(entry)
+		if module == "" {
+			continue
+		}
+		owners[entry.ID] = moduleOwner{
+			name:    module,
+			version: moduleVersion(entry),
+		}
+	}
+	return owners
 }
 
 func (h *DependencyHandler) loadEntriesForModule(ctx context.Context, transcoder payload.Transcoder, mod ResolvedModule) ([]regapi.Entry, error) {
@@ -668,7 +943,7 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 	if exists(wappPath) {
 		if err := verifyDownloadedArtifact(wappPath, expectedDigest, expectedSize); err == nil {
 			if shouldUnpack {
-				if err := h.extractWappModule(wappPath, dirPath); err != nil {
+				if err := h.extractWappModule(wappPath, dirPath, expectedDigest, expectedSize); err != nil {
 					return "", err
 				}
 				return dirPath, nil
@@ -683,7 +958,14 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 
 	if exists(dirPath) {
 		if installed, ok := h.installedVersion(name.String()); ok && installed == mod.Version {
-			return dirPath, nil
+			if err := verifyExtractedModule(dirPath, expectedDigest, expectedSize); err == nil {
+				return dirPath, nil
+			} else if expectedDigest != "" || expectedSize > 0 {
+				h.logger.Warn("unpacked dependency failed integrity check; redownloading",
+					zap.String("module", modKey(mod)),
+					zap.String("path", dirPath),
+					zap.Error(err))
+			}
 		}
 	}
 
@@ -736,7 +1018,7 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 	}
 
 	if shouldUnpack {
-		if err := h.extractWappModule(wappPath, dirPath); err != nil {
+		if err := h.extractWappModule(wappPath, dirPath, expectedDigest, expectedSize); err != nil {
 			return "", err
 		}
 		return dirPath, nil
@@ -760,7 +1042,7 @@ func (h *DependencyHandler) freshDownloadInfo(ctx context.Context, mod ResolvedM
 	})
 }
 
-func (h *DependencyHandler) extractWappModule(wappPath, dirPath string) error {
+func (h *DependencyHandler) extractWappModule(wappPath, dirPath string, digest string, size uint64) error {
 	tmpDir, err := os.MkdirTemp(filepath.Dir(dirPath), "."+filepath.Base(dirPath)+".extract-*")
 	if err != nil {
 		return NewDependencyLoadError(dirPath, err)
@@ -774,6 +1056,9 @@ func (h *DependencyHandler) extractWappModule(wappPath, dirPath string) error {
 
 	if err := wappextract.ExtractWappToDirKeepSource(wappPath, tmpDir); err != nil {
 		return NewDependencyLoadError(wappPath, err)
+	}
+	if err := writeExtractedModuleMeta(tmpDir, digest, size); err != nil {
+		return NewDependencyLoadError(tmpDir, err)
 	}
 	if err := replaceDirectory(dirPath, tmpDir); err != nil {
 		return NewDependencyLoadError(dirPath, err)
@@ -949,6 +1234,43 @@ func VerifyDownloadedArtifact(path, expectedDigest string, expectedSize uint64) 
 
 func verifyDownloadedArtifact(path, expectedDigest string, expectedSize uint64) error {
 	return VerifyDownloadedArtifact(path, expectedDigest, expectedSize)
+}
+
+type extractedModuleMetadata struct {
+	Digest string `yaml:"digest,omitempty"`
+	Size   uint64 `yaml:"size,omitempty"`
+}
+
+func writeExtractedModuleMeta(dirPath, digest string, size uint64) error {
+	if digest == "" && size == 0 {
+		return nil
+	}
+	data, err := yaml.Marshal(extractedModuleMetadata{Digest: digest, Size: size})
+	if err != nil {
+		return fmt.Errorf("marshal extracted module metadata: %w", err)
+	}
+	return os.WriteFile(filepath.Join(dirPath, extractedModuleMeta), data, 0600)
+}
+
+func verifyExtractedModule(dirPath, expectedDigest string, expectedSize uint64) error {
+	if expectedDigest == "" && expectedSize == 0 {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Join(dirPath, extractedModuleMeta))
+	if err != nil {
+		return err
+	}
+	var meta extractedModuleMetadata
+	if err := yaml.Unmarshal(data, &meta); err != nil {
+		return fmt.Errorf("read extracted module metadata: %w", err)
+	}
+	if expectedDigest != "" && !strings.EqualFold(meta.Digest, expectedDigest) {
+		return fmt.Errorf("digest mismatch: expected %s, got %s", expectedDigest, meta.Digest)
+	}
+	if expectedSize > 0 && meta.Size != expectedSize {
+		return fmt.Errorf("size mismatch: expected %d bytes, got %d bytes", expectedSize, meta.Size)
+	}
+	return nil
 }
 
 func parseExpectedDigest(raw string) (algorithm string, value string, err error) {
@@ -1254,12 +1576,36 @@ func markModuleMeta(entry regapi.Entry, moduleName, moduleVersion string) regapi
 	} else {
 		meta = attrs.NewBagFrom(meta)
 	}
-	meta.Set(metaModuleKey, moduleName)
-	if moduleVersion != "" {
+	existingModule := strings.TrimSpace(meta.GetString(metaModuleKey, ""))
+	if existingModule == "" {
+		meta.Set(metaModuleKey, moduleName)
+		if moduleVersion != "" {
+			meta.Set(metaModuleVersionKey, moduleVersion)
+		}
+	} else if existingModule == moduleName && moduleVersion != "" && meta.GetString(metaModuleVersionKey, "") == "" {
 		meta.Set(metaModuleVersionKey, moduleVersion)
 	}
 	entry.Meta = meta
 	return entry
+}
+
+func markModuleMetaForGraph(
+	entry regapi.Entry,
+	moduleName string,
+	moduleVersion string,
+	namespaceOwners map[string]moduleOwner,
+	entryOwners map[regapi.ID]moduleOwner,
+) regapi.Entry {
+	if entryModule(entry) != "" {
+		return markModuleMeta(entry, moduleName, moduleVersion)
+	}
+	if owner, ok := entryOwners[entry.ID]; ok && owner.name != "" {
+		return markModuleMeta(entry, owner.name, owner.version)
+	}
+	if owner, ok := namespaceOwners[entry.ID.NS]; ok && owner.name != "" {
+		return markModuleMeta(entry, owner.name, owner.version)
+	}
+	return markModuleMeta(entry, moduleName, moduleVersion)
 }
 
 func entriesEqual(a, b regapi.Entry) bool {
@@ -1461,6 +1807,17 @@ func NewDependencyEntryConflictError(entryID, existingModule, desiredModule stri
 			"entry_id":        entryID,
 			"existing_module": existingModule,
 			"desired_module":  desiredModule,
+		})).
+		WithRetryable(apierror.False)
+}
+
+func NewDependencyRootConflictError(component, existingEntryID, requestedEntryID string) apierror.Error {
+	msg := fmt.Sprintf("dependency component %q is already installed as %q; update that dependency instead of creating %q", component, existingEntryID, requestedEntryID)
+	return apierror.New(apierror.Conflict, msg).
+		WithDetails(attrs.NewBagFrom(map[string]any{
+			"component":          component,
+			"existing_entry_id":  existingEntryID,
+			"requested_entry_id": requestedEntryID,
 		})).
 		WithRetryable(apierror.False)
 }

@@ -96,6 +96,7 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 // Invalidate handles code invalidation for hot reload.
 func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) error {
 	var errs []error
+	reloaded := make([]registry.ID, 0, len(ids))
 	for _, id := range ids {
 		cfgAny, exists := m.configs.Load(id)
 		if !exists {
@@ -117,9 +118,34 @@ func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) error {
 		if err := m.registerFactory(ctx, id, cfg.method); err != nil {
 			m.log.Error("failed to invalidate process", zap.Error(err))
 			errs = append(errs, err)
+			continue
 		}
+		reloaded = append(reloaded, id)
 	}
+
+	// Notify running instances only for nodes whose factory swap succeeded, so a
+	// node whose reload failed never signals OUTDATED.
+	m.notifyOutdated(ctx, reloaded)
+
 	return errors.Join(errs...)
+}
+
+// notifyOutdated tells running instances that a source node in the affected set
+// changed. A missing notifier (isolated tests, minimal embedders) or an empty
+// set is a no-op.
+func (m *Manager) notifyOutdated(ctx context.Context, ids []registry.ID) {
+	if len(ids) == 0 {
+		return
+	}
+	notifier := process.GetOutdatedNotifier(ctx)
+	if notifier == nil {
+		return
+	}
+	affected := make(map[registry.ID]bool, len(ids))
+	for _, id := range ids {
+		affected[id] = true
+	}
+	notifier.NotifyOutdated(affected)
 }
 
 // addSource adds a source-based process.

@@ -64,12 +64,14 @@ func init() {
 
 var processOptionsType = typ.NewRecord().
 	Field("trap_links", typ.Boolean).
+	Field("upgradable", typ.Boolean).
 	Build()
 
 var eventType = typ.NewRecord().
 	Field("CANCEL", typ.String).
 	Field("EXIT", typ.String).
 	Field("LINK_DOWN", typ.String).
+	Field("OUTDATED", typ.String).
 	Build()
 
 // process.registry surface: scoped registration with optional foreign PID.
