@@ -83,24 +83,27 @@ type Process struct {
 	linkDownError  error
 	execErr        error
 	result         payload.Payload
-	state          *lua.LState
-	exported       map[string]*lua.LFunction
+	channelQueue   *TaskQueue
+	subs           *subscribeContext
 	mainTask       *Task
 	upgradeRequest *UpgradeRequest
 	proto          *lua.FunctionProto
 	queue          *TaskQueue
 	factory        *Factory
-	subs           *subscribeContext
-	pendingYields  map[uint64]*Task
-	channels       map[*Channel]int
-	channelQueue   *TaskQueue
-	handlers       map[string]TopicHandler
+	// pendingOutdated holds the single coalesced OUTDATED event awaiting
+	// delivery to an upgradable process's events channel. Nil when none pending.
+	pendingOutdated *topology.OutdatedEvent
+	pendingYields   map[uint64]*Task
+	channels        map[*Channel]int
+	state           *lua.LState
+	handlers        map[string]TopicHandler
 	// stalledChans tracks channels that retained an undeliverable message in
 	// the current flush pass, keyed on the resolved *Channel. Once a channel
 	// stalls, every later mailbox message for it (including a terminal) is also
 	// retained so a terminal cannot overtake earlier retained data on the same
 	// channel. Lazily created on first stall, cleared at the start of each flush.
 	stalledChans  map[*Channel]struct{}
+	exported      map[string]*lua.LFunction
 	scriptName    string
 	script        string
 	outTasks      []*Task
@@ -108,10 +111,7 @@ type Process struct {
 	yieldBuf      []*Task
 	messageQueue  []queuedMessage
 	threads       []*Task
-	// pendingOutdated holds the single coalesced OUTDATED event awaiting
-	// delivery to an upgradable process's events channel. Nil when none pending.
-	pendingOutdated *topology.OutdatedEvent
-	yieldSeq        uint64
+	yieldSeq      uint64
 	// epoch is the monotonic incarnation counter. Incremented on every
 	// Init / clearExecution / Close drain and on Abort. Producers stamp
 	// every SubscriptionFrame with the epoch they were registered under;
