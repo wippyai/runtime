@@ -182,6 +182,27 @@ func TestExtractDependenciesToEntries(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name:    "non-manifest top-level array is skipped",
+			input:   `["3dm", "3ds", "7z"]`,
+			format:  payload.JSON,
+			want:    []registry.Entry{},
+			wantErr: false,
+		},
+		{
+			name: "non-manifest package json is skipped",
+			input: `{
+				"name": "binary-extensions",
+				"version": "2.3.0",
+				"type": "module",
+				"exports": {
+					".": "./index.js"
+				}
+			}`,
+			format:  payload.JSON,
+			want:    []registry.Entry{},
+			wantErr: false,
+		},
+		{
 			name: "entry with missing required fields",
 			input: `{
 				"namespace": "test",
@@ -190,6 +211,16 @@ func TestExtractDependenciesToEntries(t *testing.T) {
 						"data": {"url": "http://example.com"}
 					}
 				]
+			}`,
+			format:  payload.JSON,
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "manifest-shaped file with invalid entries still errors",
+			input: `{
+				"namespace": "test",
+				"entries": ["not an entry"]
 			}`,
 			format:  payload.JSON,
 			want:    nil,
