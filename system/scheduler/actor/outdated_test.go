@@ -45,8 +45,8 @@ func (p *quickProcess) Close() {
 // receives and then parks. started is set on its first step (race-safe), so
 // tests can wait for it without polling the inspector.
 type outdatedRecorder struct {
-	mu       sync.Mutex
 	received [][]registry.ID
+	mu       sync.Mutex
 	started  atomic.Bool
 }
 
