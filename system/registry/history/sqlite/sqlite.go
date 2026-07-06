@@ -29,6 +29,8 @@ type History struct {
 	mu     sync.RWMutex
 }
 
+var openMu sync.Mutex
+
 type encodedPayload struct {
 	Data   any
 	Format payload.Format
@@ -52,10 +54,14 @@ func newMsgpackHandle() *codec.MsgpackHandle {
 }
 
 func NewSQLite(dbPath string, log *zap.Logger) (*History, error) {
+	openMu.Lock()
+	defer openMu.Unlock()
+
 	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000", dbPath))
 	if err != nil {
 		return nil, NewOpenDatabaseError(err)
 	}
+	db.SetMaxOpenConns(1)
 
 	ctx := context.Background()
 	if err := db.PingContext(ctx); err != nil {
