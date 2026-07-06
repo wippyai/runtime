@@ -2346,6 +2346,85 @@ replacements:
 	assert.True(t, found, "replaced module should resolve from its local source")
 }
 
+func TestDependencyHandler_Expand_ReplacedModuleDependenciesResolveFromLocalEntries(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, ".wippy", "vendor")
+	lockPath := filepath.Join(tmpDir, "wippy.lock")
+	localMod := filepath.Join(tmpDir, "local-mod")
+
+	require.NoError(t, os.MkdirAll(localMod, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(localMod, "wippy.yaml"),
+		[]byte("organization: local\nmodule: mod\nversion: v0.1.0\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(localMod, "_index.json"), []byte(`{
+  "namespace": "local.mod",
+  "entries": [
+    {
+      "name": "svc",
+      "kind": "process.lua",
+      "data": {}
+    },
+    {
+      "name": "transitive_dependency",
+      "kind": "ns.dependency",
+      "data": {
+        "component": "acme/transitive",
+        "version": "v1.0.0"
+      }
+    }
+  ]
+}`), 0600))
+	require.NoError(t, os.WriteFile(lockPath, []byte(`directories:
+  modules: .wippy
+  src: ./src
+replacements:
+  - from: local/mod
+    to: ./local-mod
+`), 0600))
+
+	writeWapp(t, filepath.Join(vendorDir, "acme", "transitive-v1.0.0.wapp"), []wapp.Entry{
+		{ID: wapp.NewID("acme.transitive", "svc"), Kind: "process.lua", Data: map[string]any{}},
+	})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				if org == "local" && module == "mod" {
+					return nil, fmt.Errorf("replacement module must not be fetched from hub")
+				}
+				if org == "acme" && module == "transitive" && version == "v1.0.0" {
+					return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+				}
+				return nil, fmt.Errorf("unexpected manifest request: %s/%s@%s", org, module, version)
+			},
+		},
+		Logger:    zap.NewNop(),
+		LockPath:  lockPath,
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	rootDep := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "local"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"local/mod","version":"v0.1.0"}`, payload.JSON),
+	}
+
+	result, err := handler.Expand(ctx, regapi.Operation{Kind: regapi.EntryCreate, Entry: rootDep}, nil)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+
+	created := make(map[regapi.ID]bool)
+	for _, scoped := range result.Additional {
+		if scoped.Operation.Kind == regapi.EntryCreate {
+			created[scoped.Operation.Entry.ID] = true
+		}
+	}
+
+	assert.True(t, created[regapi.NewID("local.mod", "svc")], "replacement root entry should be loaded")
+	assert.True(t, created[regapi.NewID("acme.transitive", "svc")], "replacement transitive dependency should be resolved and loaded")
+}
+
 func TestDependencyHandler_ResolveModules_ReplacedModuleRangeConstraintFromLocalManifest(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()

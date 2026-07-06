@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -580,17 +581,107 @@ func (p *replacementManifestProvider) replacedVersion(name, constraint string) s
 
 func (p *replacementManifestProvider) GetManifest(ctx context.Context, org, module, constraint string) (*ModuleManifest, error) {
 	name := org + "/" + module
-	if _, ok := p.handler.replacementPath(name); ok {
+	if path, ok := p.handler.replacementPath(name); ok {
 		if version := p.replacedVersion(name, constraint); version != "" {
+			dependencies, err := p.localReplacementDependencies(ctx, path)
+			if err != nil {
+				return nil, err
+			}
 			return &ModuleManifest{
-				Org:     org,
-				Name:    module,
-				Version: version,
-				Digest:  p.lockedDigests[name+"@"+version],
+				Org:          org,
+				Name:         module,
+				Version:      version,
+				Digest:       p.lockedDigests[name+"@"+version],
+				Dependencies: dependencies,
 			}, nil
 		}
 	}
 	return p.base.GetManifest(ctx, org, module, constraint)
+}
+
+func (p *replacementManifestProvider) localReplacementDependencies(ctx context.Context, path string) ([]ManifestDep, error) {
+	transcoder := payload.GetTranscoder(ctx)
+	if transcoder == nil {
+		return nil, ErrDependencyTranscoderMissing
+	}
+
+	entries, err := loadReplacementDependencyEntries(ctx, path, p.handler.logger, transcoder)
+	if err != nil {
+		return nil, err
+	}
+	entries, err = p.handler.applyModuleConfigFilters(ctx, path, entries)
+	if err != nil {
+		return nil, err
+	}
+
+	deps := make([]ManifestDep, 0)
+	seen := make(map[string]struct{})
+	for _, entry := range entries {
+		if entry.Kind != regapi.NamespaceDependency {
+			continue
+		}
+		def, err := decodeDependency(ctx, transcoder, entry)
+		if err != nil {
+			return nil, err
+		}
+		if def.Component == "" {
+			return nil, NewDependencyEntryInvalidError(entry.ID.String(), "component is required", "")
+		}
+		name, err := graph.ParseName(def.Component)
+		if err != nil {
+			return nil, NewDependencyEntryInvalidError(entry.ID.String(), "invalid component", def.Component)
+		}
+
+		key := name.String() + "@" + def.Version
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		deps = append(deps, ManifestDep{
+			Org:     name.Organization,
+			Name:    name.Module,
+			Version: def.Version,
+		})
+	}
+	return deps, nil
+}
+
+func loadReplacementDependencyEntries(
+	ctx context.Context,
+	path string,
+	logger *zap.Logger,
+	transcoder payload.Transcoder,
+) ([]regapi.Entry, error) {
+	stat, err := os.Stat(path)
+	if err != nil || !stat.IsDir() {
+		return nil, nil
+	}
+
+	dirFS := os.DirFS(path)
+	ldr := loaderFromContext(ctx, logger, transcoder)
+	var entries []regapi.Entry
+	if err := fs.WalkDir(dirFS, ".", func(rel string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || rel == depconfig.DefaultConfigFile {
+			return nil
+		}
+		switch filepath.Ext(rel) {
+		case ".json", ".yaml", ".yml":
+		default:
+			return nil
+		}
+		loaded, err := ldr.LoadFile(ctx, dirFS, rel)
+		if err != nil {
+			return err
+		}
+		entries = append(entries, loaded...)
+		return nil
+	}); err != nil {
+		return nil, NewDependencyLoadError(path, err)
+	}
+	return entries, nil
 }
 
 func (p *replacementManifestProvider) ListAllVersions(ctx context.Context, org, module string) ([]VersionInfo, error) {
