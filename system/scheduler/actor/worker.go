@@ -403,6 +403,7 @@ func (w *Worker) executeOne(proc *Processor) {
 		// the process by its (possibly new) upgraded source. The queue
 		// generation is unchanged by upgrade, so in-flight deliveries stay valid.
 		proc.publishSignalRef()
+		proc.publishInspectorRef()
 
 		// Success - re-queue to local
 		if !proc.casState(StateRunning, StateReady) {

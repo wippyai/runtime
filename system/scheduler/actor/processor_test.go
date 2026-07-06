@@ -4,6 +4,9 @@ package actor
 
 import (
 	"context"
+	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -120,4 +123,34 @@ func TestListProcesses_ReturnsState(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "idle process not found in ListProcesses")
+}
+
+func TestListProcesses_ConcurrentLifecycleRace(t *testing.T) {
+	sched := newTestScheduler(4)
+	sched.Start()
+	defer testStopScheduler(sched)
+
+	var stop atomic.Bool
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for !stop.Load() {
+			_ = sched.ListProcesses()
+		}
+	}()
+
+	for i := 0; i < 2000; i++ {
+		pid := pidapi.PID{UniqID: fmt.Sprintf("list-race-%d", i)}
+		_, err := sched.Submit(context.Background(), pid, &ImmediateProcess{}, "", nil)
+		require.NoError(t, err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for sched.processorCount.Load() != 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	stop.Store(true)
+	wg.Wait()
+	require.Equal(t, int64(0), sched.processorCount.Load())
 }

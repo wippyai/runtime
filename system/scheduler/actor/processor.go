@@ -12,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/process"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/security"
 )
 
 // signalRef is an immutable snapshot of the fields an out-of-band scan
@@ -25,6 +26,14 @@ type signalRef struct {
 	pid    pid.PID
 	source registry.ID
 	gen    uint64
+}
+
+type inspectorRef struct {
+	pid       pid.PID
+	parent    pid.PID
+	source    registry.ID
+	actorID   string
+	startedAt int64
 }
 
 // ProcessState tracks a processor through the scheduler lifecycle.
@@ -72,6 +81,7 @@ type Processor struct {
 	cancel     context.CancelFunc
 	queue      *process.EventQueue
 	sig        atomic.Pointer[signalRef]
+	inspector  atomic.Pointer[inspectorRef]
 	pid        pid.PID
 	output     process.StepOutput
 	gen        atomic.Uint64
@@ -96,6 +106,31 @@ func (p *Processor) publishSignalRef() {
 		return
 	}
 	p.sig.Store(nil)
+}
+
+func (p *Processor) publishInspectorRef() {
+	ref := &inspectorRef{
+		pid:       p.pid,
+		startedAt: p.startedAt,
+	}
+	if p.ctx != nil {
+		if src, ok := runtime.GetFrameID(p.ctx); ok {
+			ref.source = src
+		}
+		if opts := runtime.GetFrameLifecycleOptions(p.ctx); opts != nil {
+			if a, ok := opts.(attrs.Attributes); ok {
+				if parent, ok := a.Get(process.ProcessParentKey); ok {
+					if pp, ok := parent.(pid.PID); ok {
+						ref.parent = pp
+					}
+				}
+			}
+		}
+		if actor, ok := security.GetActor(p.ctx); ok {
+			ref.actorID = actor.ID
+		}
+	}
+	p.inspector.Store(ref)
 }
 
 // casState atomically transitions the masked state from old to newState,
@@ -222,6 +257,7 @@ func releaseProcessor(p *Processor) {
 	p.id = 0
 	p.pid = pid.PID{}
 	p.sig.Store(nil)
+	p.inspector.Store(nil)
 	p.startedAt = 0
 	// Never leave pooled processors in Ready state; stale queue references must
 	// fail Ready->Running CAS and be ignored.

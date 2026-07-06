@@ -18,7 +18,6 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
-	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/topology"
 	"github.com/wippyai/runtime/system/scheduler/affinity"
 )
@@ -277,6 +276,7 @@ func (s *Scheduler) Submit(ctx context.Context, pid pid.PID, p process.Process, 
 	proc.queue.Reset()
 	proc.gen.Store(proc.queue.Generation())
 	proc.publishSignalRef()
+	proc.publishInspectorRef()
 
 	s.processorCount.Add(1)
 	s.byPID.Store(pid.String(), proc)
@@ -407,6 +407,7 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 	proc.queue.Reset()
 	proc.gen.Store(proc.queue.Generation())
 	proc.publishSignalRef()
+	proc.publishInspectorRef()
 
 	s.processorCount.Add(1)
 	s.byPID.Store(pid.String(), proc)
@@ -418,6 +419,7 @@ func (s *Scheduler) CreateProcessor(ctx context.Context, pid pid.PID, p process.
 func (s *Scheduler) ReleaseProcessor(proc *Processor) {
 	s.processorCount.Add(-1)
 	proc.sig.Store(nil)
+	proc.inspector.Store(nil)
 	s.byPID.Delete(proc.pid.String())
 	s.byQueue.Delete(proc.queue)
 	if proc.cancel != nil {
@@ -591,28 +593,18 @@ func (s *Scheduler) ListProcesses() []ProcessInfo {
 
 	s.byPID.Range(func(_, value any) bool {
 		proc := value.(*Processor)
+		ref := proc.inspector.Load()
+		if ref == nil {
+			return true
+		}
 		info := ProcessInfo{
-			PID:       proc.pid,
+			PID:       ref.pid,
+			Parent:    ref.parent,
+			Source:    ref.source,
+			ActorID:   ref.actorID,
 			State:     StateName(ProcessState(proc.state.Load())),
 			Steps:     proc.steps.Load(),
-			StartedAt: proc.startedAt,
-		}
-		if proc.ctx != nil {
-			if src, ok := runtime.GetFrameID(proc.ctx); ok {
-				info.Source = src
-			}
-			if opts := runtime.GetFrameLifecycleOptions(proc.ctx); opts != nil {
-				if a, ok := opts.(attrs.Attributes); ok {
-					if parent, ok := a.Get(process.ProcessParentKey); ok {
-						if pp, ok := parent.(pid.PID); ok {
-							info.Parent = pp
-						}
-					}
-				}
-			}
-			if actor, ok := security.GetActor(proc.ctx); ok {
-				info.ActorID = actor.ID
-			}
+			StartedAt: ref.startedAt,
 		}
 		if bag := proc.stats.Load(); bag != nil {
 			info.Stats = *bag
