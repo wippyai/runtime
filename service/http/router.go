@@ -364,6 +364,7 @@ func (rm *RouteManager) Build() error {
 					if len(routerEntry.middleware) > 0 {
 						optionsHandler = applyMiddlewareChain(routerEntry.middleware, optionsHandler)
 					}
+					optionsHandler = withRouteLabel(routeLabelFor(route.funcID, routeID), optionsHandler)
 					allPatterns = append(allPatterns, patternEntry{optionsHandler, optionsPattern})
 					registeredOptions[optionsPattern] = true
 				}

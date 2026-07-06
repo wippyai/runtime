@@ -43,6 +43,18 @@ func (s *countingService) LookupHost(_ context.Context, _ string) ([]string, err
 	return nil, fmt.Errorf("unused")
 }
 
+type closeTrackingTransport struct {
+	closed atomic.Int64
+}
+
+func (t *closeTrackingTransport) RoundTrip(*gohttp.Request) (*gohttp.Response, error) {
+	return nil, fmt.Errorf("unused")
+}
+
+func (t *closeTrackingTransport) CloseIdleConnections() {
+	t.closed.Add(1)
+}
+
 func TestPoolLRU_BoundedCap(t *testing.T) {
 	pool := NewClientPoolWithConfig(PoolConfig{MaxClients: 3})
 
@@ -51,6 +63,16 @@ func TestPoolLRU_BoundedCap(t *testing.T) {
 	}
 
 	assert.Equal(t, 3, pool.Size(), "pool must not exceed MaxClients")
+}
+
+func TestPoolClose_ClosesDefaultCloseIdler(t *testing.T) {
+	pool := NewClientPool()
+	tr := &closeTrackingTransport{}
+	pool.defaultClient = &gohttp.Client{Transport: tr}
+
+	pool.Close()
+
+	assert.Equal(t, int64(1), tr.closed.Load(), "default client transport must be closed through closeIdler")
 }
 
 func TestPoolLRU_Unbounded(t *testing.T) {

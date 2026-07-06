@@ -148,6 +148,59 @@ func TestInterceptor_SpanKind_ParentIsInternal(t *testing.T) {
 	telemetrytest.SpanKind(t, span, trace.SpanKindInternal)
 }
 
+func TestInterceptor_FunctionSpanInheritsForkedProcessSpan(t *testing.T) {
+	tp, sr := telemetrytest.NewTracerProvider()
+	defer func() { _ = tp.Shutdown(context.Background()) }()
+
+	tracer := tp.Tracer("test")
+	parentCtx, parent := tracer.Start(context.Background(), "process.parent")
+	defer parent.End()
+
+	processCtx, processFC := ctxapi.OpenFrameContext(parentCtx)
+	defer ctxapi.ReleaseFrameContext(processFC)
+	require.NoError(t, otelapi.SetSpan(processCtx, parent))
+
+	callCtx, callFC := ctxapi.ForkFrameContext(processCtx)
+	defer ctxapi.ReleaseFrameContext(callFC)
+
+	inter := &interceptor{tracer: tracer, logger: zap.NewNop()}
+	task := runtime.Task{ID: registry.NewID("ns", "func")}
+	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) { return &runtime.Result{}, nil }
+
+	_, err := inter.Handle(callCtx, task, next)
+	require.NoError(t, err)
+
+	span := telemetrytest.MustSpanNamed(t, sr, "ns:func")
+	telemetrytest.SpanKind(t, span, trace.SpanKindInternal)
+	assert.Equal(t, parent.SpanContext().TraceID(), telemetrytest.TraceID(span),
+		"function span must continue the process frame trace after ForkFrameContext")
+}
+
+func TestInterceptor_FunctionSpanUsesPropagatedProcessSpanContext(t *testing.T) {
+	tp, sr := telemetrytest.NewTracerProvider()
+	defer func() { _ = tp.Shutdown(context.Background()) }()
+
+	tracer := tp.Tracer("test")
+	remoteCtx, remoteParent := tracer.Start(context.Background(), "remote.process.parent")
+	remoteParent.End()
+
+	ctx, fc := ctxapi.OpenFrameContext(context.Background())
+	defer ctxapi.ReleaseFrameContext(fc)
+	require.NoError(t, fc.Set(otelapi.GetSpanContextKey(), trace.SpanContextFromContext(remoteCtx)))
+
+	inter := &interceptor{tracer: tracer, logger: zap.NewNop()}
+	task := runtime.Task{ID: registry.NewID("ns", "func")}
+	next := func(_ context.Context, _ runtime.Task) (*runtime.Result, error) { return &runtime.Result{}, nil }
+
+	_, err := inter.Handle(ctx, task, next)
+	require.NoError(t, err)
+
+	span := telemetrytest.MustSpanNamed(t, sr, "ns:func")
+	telemetrytest.SpanKind(t, span, trace.SpanKindInternal)
+	assert.Equal(t, trace.SpanContextFromContext(remoteCtx).TraceID(), telemetrytest.TraceID(span),
+		"function span must continue propagated process trace context")
+}
+
 func TestInterceptor_SpanKind_QueueDeliveryIsConsumer(t *testing.T) {
 	useTraceContextPropagator(t)
 	tp, sr := telemetrytest.NewTracerProvider()

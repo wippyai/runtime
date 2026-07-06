@@ -342,8 +342,12 @@ func TestCompositeLifecycle_OnStart_GlobalError(t *testing.T) {
 func TestCompositeLifecycle_OnStart_HostError(t *testing.T) {
 	hostErr := errors.New("host lifecycle error")
 	var globalCalled bool
+	var rollbackResult *runtime.Result
 
-	global := &mockLifecycle{onStartFunc: func(context.Context, pid.PID, process.Process) { globalCalled = true }}
+	global := &mockLifecycle{
+		onStartFunc: func(context.Context, pid.PID, process.Process) { globalCalled = true },
+		onComplete:  func(_ context.Context, _ pid.PID, result *runtime.Result) { rollbackResult = result },
+	}
 	hostLC := &mockLifecycle{onStartErr: hostErr}
 
 	c := &compositeLifecycle{global: global, host: hostLC}
@@ -351,6 +355,8 @@ func TestCompositeLifecycle_OnStart_HostError(t *testing.T) {
 
 	assert.ErrorIs(t, err, hostErr)
 	assert.True(t, globalCalled) // global should be called before host fails
+	require.NotNil(t, rollbackResult)
+	assert.ErrorIs(t, rollbackResult.Error, hostErr)
 }
 
 func TestCompositeLifecycle_OnComplete(t *testing.T) {

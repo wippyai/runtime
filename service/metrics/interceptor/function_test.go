@@ -130,6 +130,26 @@ func TestFunctionInterceptor_Error(t *testing.T) {
 	assert.Equal(t, "error", records[3].labels["status"])
 }
 
+func TestFunctionInterceptor_PanicDecrementsInFlight(t *testing.T) {
+	mock := &mockCollector{}
+	interceptor := NewFunctionInterceptor(mock, true)
+
+	task := runtime.Task{ID: registry.NewID("ns", "test_func")}
+
+	assert.Panics(t, func() {
+		_, _ = interceptor.Handle(context.Background(), task, func(context.Context, runtime.Task) (*runtime.Result, error) {
+			panic("boom")
+		})
+	})
+
+	records := mock.getRecords()
+	assert.Equal(t, 2, len(records))
+	assert.Equal(t, "GaugeInc", records[0].method)
+	assert.Equal(t, FunctionInFlight, records[0].name)
+	assert.Equal(t, "GaugeDec", records[1].method)
+	assert.Equal(t, FunctionInFlight, records[1].name)
+}
+
 func TestFunctionInterceptor_Disabled(t *testing.T) {
 	mock := &mockCollector{}
 	interceptor := NewFunctionInterceptor(mock, false)

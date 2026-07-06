@@ -224,11 +224,14 @@ func (c *Consumer) processDelivery(ctx context.Context, delivery *queueapi.Deliv
 
 		if delivery.MarkSettled() {
 			if nackErr := delivery.Nack(ctx); nackErr != nil {
+				outcome = "nack_error"
 				c.logger.Error("failed to nack message",
 					zap.String("consumer", c.id.String()),
 					zap.String("message_id", msg.ID),
 					zap.Error(nackErr))
 			}
+		} else {
+			outcome = "manual"
 		}
 	} else {
 		c.logger.Debug("message processed successfully",
@@ -238,11 +241,14 @@ func (c *Consumer) processDelivery(ctx context.Context, delivery *queueapi.Deliv
 
 		if delivery.MarkSettled() {
 			if ackErr := delivery.Ack(ctx); ackErr != nil {
+				outcome = "ack_error"
 				c.logger.Error("failed to ack message",
 					zap.String("consumer", c.id.String()),
 					zap.String("message_id", msg.ID),
 					zap.Error(ackErr))
 			}
+		} else {
+			outcome = "manual"
 		}
 	}
 

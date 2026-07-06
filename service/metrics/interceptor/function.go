@@ -37,12 +37,19 @@ func (i *FunctionInterceptor) Handle(ctx context.Context, task runtime.Task, nex
 	baseLabels := metrics.Labels{"function_id": funcID}
 
 	i.collector.GaugeInc(FunctionInFlight, baseLabels)
+	inFlightDecremented := false
+	defer func() {
+		if !inFlightDecremented {
+			i.collector.GaugeDec(FunctionInFlight, baseLabels)
+		}
+	}()
 	start := time.Now()
 
 	result, err := next(ctx, task)
 
 	duration := time.Since(start).Seconds()
 	i.collector.GaugeDec(FunctionInFlight, baseLabels)
+	inFlightDecremented = true
 	i.collector.HistogramObserve(FunctionDuration, duration, baseLabels)
 
 	var status string

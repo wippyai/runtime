@@ -187,6 +187,15 @@ func instrument(base *gohttp.Transport) *instrumentedTransport {
 	return &instrumentedTransport{traced: otelhttp.NewTransport(base), base: base}
 }
 
+func closeClientIdle(c *gohttp.Client) {
+	if c == nil {
+		return
+	}
+	if tr, ok := c.Transport.(closeIdler); ok {
+		tr.CloseIdleConnections()
+	}
+}
+
 // closeIdle closes idle connections on co's client transport if co has been
 // initialized. Safe to call on a never-initialized clientOnce and from any
 // goroutine — the atomic Load synchronizes with the Store inside once.Do.
@@ -195,12 +204,7 @@ func closeIdle(co *clientOnce) {
 		return
 	}
 	c := co.client.Load()
-	if c == nil {
-		return
-	}
-	if tr, ok := c.Transport.(closeIdler); ok {
-		tr.CloseIdleConnections()
-	}
+	closeClientIdle(c)
 }
 
 // GetClient returns a pooled client for the given configuration.
@@ -362,11 +366,7 @@ func (p *Pool) Size() int {
 // must not be used to obtain new clients — existing client pointers remain
 // valid but their transports' idle connections have been released.
 func (p *Pool) Close() {
-	if p.defaultClient != nil {
-		if tr, ok := p.defaultClient.Transport.(*gohttp.Transport); ok {
-			tr.CloseIdleConnections()
-		}
-	}
+	closeClientIdle(p.defaultClient)
 	p.cache.Range(func(_ clientKey, co *clientOnce) bool {
 		closeIdle(co)
 		return true
