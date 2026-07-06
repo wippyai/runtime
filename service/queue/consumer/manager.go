@@ -14,8 +14,8 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	consumerapi "github.com/wippyai/runtime/api/service/queue/consumer"
 	"github.com/wippyai/runtime/api/supervisor"
-	entryutil "github.com/wippyai/runtime/internal/entry"
 	queuesvc "github.com/wippyai/runtime/service/queue"
+	entryutil "github.com/wippyai/runtime/system/entry"
 	"go.uber.org/zap"
 )
 

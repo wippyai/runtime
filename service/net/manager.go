@@ -53,10 +53,10 @@ func WithDriver(drivers ...Driver) Option {
 }
 
 // NewManager creates a new network overlay manager. The env registry is used
-// by drivers to resolve indirect credentials (e.g. Tailscale's AuthKeyEnv);
-// pass nil when no driver in use requires it. Drivers must be registered via
-// WithDriver — a Manager with no drivers rejects every entry with
-// ErrUnsupportedKind.
+// by drivers to resolve indirect credentials (e.g. Tailscale's auth_key_env
+// directive); pass nil when no driver in use requires it. Drivers must be
+// registered via WithDriver — a Manager with no drivers rejects every entry
+// with ErrUnsupportedKind.
 func NewManager(
 	reg *netsystem.Registry,
 	dtt payload.Transcoder,

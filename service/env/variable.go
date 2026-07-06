@@ -10,7 +10,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	envsvc "github.com/wippyai/runtime/api/service/env"
-	entryutil "github.com/wippyai/runtime/internal/entry"
+	entryutil "github.com/wippyai/runtime/system/entry"
 	sysenv "github.com/wippyai/runtime/system/env"
 	"go.uber.org/zap"
 )
@@ -46,6 +46,13 @@ func (m *VariableManager) Add(ctx context.Context, entry registry.Entry) error {
 		return sysenv.NewDecodeVariableError(err)
 	}
 
+	// Register directly in the central registry for synchronous access.
+	if reg := env.GetRegistry(ctx); reg != nil {
+		if err := reg.RegisterVariable(*variable); err != nil {
+			return err
+		}
+	}
+
 	m.bus.Send(ctx, event.Event{
 		System: env.System,
 		Kind:   env.VariableRegister,
@@ -70,6 +77,13 @@ func (m *VariableManager) Update(ctx context.Context, entry registry.Entry) erro
 		return sysenv.NewDecodeVariableError(err)
 	}
 
+	// Apply directly in the central registry for synchronous access.
+	if reg := env.GetRegistry(ctx); reg != nil {
+		if err := reg.RegisterVariable(*variable); err != nil {
+			return err
+		}
+	}
+
 	m.bus.Send(ctx, event.Event{
 		System: env.System,
 		Kind:   env.VariableUpdate,
@@ -87,6 +101,11 @@ func (m *VariableManager) Update(ctx context.Context, entry registry.Entry) erro
 func (m *VariableManager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != envsvc.Variable {
 		return sysenv.NewUnsupportedKindError(entry.Kind)
+	}
+
+	// Unregister directly from the central registry for synchronous access.
+	if reg := env.GetRegistry(ctx); reg != nil {
+		reg.UnregisterVariable(entry.ID)
 	}
 
 	m.bus.Send(ctx, event.Event{

@@ -14,10 +14,11 @@ import (
 type (
 	// PoolConfig defines settings for a pool of WASM executors.
 	PoolConfig struct {
-		Type    string `json:"type"`    // Pool type: static, lazy, inline, adaptive
-		Size    int    `json:"size"`    // Total pool size for non-flex pools
-		Workers int    `json:"workers"` // Number of worker threads
-		Buffer  int    `json:"buffer"`  // Queue buffer size (default: workers * 64)
+		Type        string `json:"type"`         // Pool type: static, lazy, inline, adaptive
+		WorkerClass string `json:"worker_class"` // Optional scheduler worker class; a named class runs this pool on dedicated OS-thread-pinned workers (mirrors v2 scheduler worker classes)
+		Size        int    `json:"size"`         // Total pool size for non-flex pools
+		Workers     int    `json:"workers"`      // Number of worker threads
+		Buffer      int    `json:"buffer"`       // Queue buffer size (default: workers * 64)
 
 		// Elastic pool specifics.
 		WarmStart bool `json:"warm_start"` // Pre-instantiate workers where applicable
@@ -61,7 +62,7 @@ type (
 	// WATFunctionConfig defines configuration for inline WAT function entries.
 	WATFunctionConfig struct {
 		Meta      attrs.Bag     `json:"meta,omitempty"`
-		Source    string        `json:"source"`
+		Source    string        `json:"source" resolve:"-"`
 		Method    string        `json:"method"`
 		Transport string        `json:"transport,omitempty"`
 		WIT       string        `json:"wit,omitempty"`
@@ -190,6 +191,13 @@ func validatePool(pool PoolConfig) error {
 		default:
 			return ErrInvalidPoolType
 		}
+	}
+
+	if pool.WorkerClass != "" {
+		// A worker class selects a dedicated, OS-thread-pinned pool that derives
+		// its own worker/buffer defaults, so the legacy size semantics below do
+		// not apply. The class name is resolved by the scheduler at boot.
+		return nil
 	}
 
 	// Legacy-compatible validation semantics from lua runtime:

@@ -18,6 +18,7 @@ import (
 	"github.com/wippyai/runtime/api/topology"
 	wasmcomponent "github.com/wippyai/runtime/runtime/wasm/component"
 	wasmengine "github.com/wippyai/runtime/runtime/wasm/engine"
+	"github.com/wippyai/runtime/system/scheduler/affinity"
 	funcpool "github.com/wippyai/runtime/system/scheduler/pool"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 	"go.uber.org/zap"
@@ -65,9 +66,17 @@ type Manager struct {
 	coreRT       *wasmrt.Runtime
 	componentRT  *wasmrt.Runtime
 	hostRegistry *wasmcomponent.HostRegistry
+	wasmAffinity affinity.Set
 	mu           sync.RWMutex
 	hostSeq      atomic.Uint64
 	started      bool
+}
+
+// SetWASMAffinity sets the CPU set that dedicated WASM-class pools pin their
+// worker threads to. Empty (the default) means no affinity, only thread
+// isolation. Must be called before Start.
+func (m *Manager) SetWASMAffinity(set affinity.Set) {
+	m.wasmAffinity = set
 }
 
 // NewManager creates a new WASM function manager.

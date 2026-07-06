@@ -18,6 +18,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
 	"github.com/wippyai/runtime/runtime/lua/engine"
+	entrycfg "github.com/wippyai/runtime/system/entry"
 	"go.uber.org/zap"
 )
 
@@ -127,7 +128,7 @@ func (m *Manager) Invalidate(ctx context.Context, ids []registry.ID) error {
 
 // addSource adds a source-based workflow.
 func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
-	cfg, err := component.UnpackConfig[api.WorkflowConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.WorkflowConfig](ctx, entry)
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("workflow", err)
 	}
@@ -160,7 +161,7 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 
 // addBytecode adds a bytecode-based workflow.
 func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
-	cfg, err := component.UnpackConfig[api.BytecodeWorkflowConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.BytecodeWorkflowConfig](ctx, entry)
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("workflow", err)
 	}
@@ -201,7 +202,7 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 
 // updateSource updates a source-based workflow.
 func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error {
-	cfg, err := component.UnpackConfig[api.WorkflowConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.WorkflowConfig](ctx, entry)
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("workflow", err)
 	}
@@ -232,7 +233,7 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 
 // updateBytecode updates a bytecode-based workflow.
 func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) error {
-	cfg, err := component.UnpackConfig[api.BytecodeWorkflowConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.BytecodeWorkflowConfig](ctx, entry)
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("workflow", err)
 	}

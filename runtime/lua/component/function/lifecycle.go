@@ -6,14 +6,13 @@ import (
 	"context"
 	"errors"
 
-	ctxapi "github.com/wippyai/runtime/api/context"
-	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/runtime/lua"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	"github.com/wippyai/runtime/runtime/lua/component"
+	entrycfg "github.com/wippyai/runtime/system/entry"
 	securitysys "github.com/wippyai/runtime/system/security"
 	"go.uber.org/zap"
 )
@@ -98,19 +97,8 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 	}
 	defer entry.release()
 
-	var err error
-	if task.Context, err = netapi.ApplyOverlayPair(ctx, task.Options, task.Context); err != nil {
-		return nil, err
-	}
-
-	if len(task.Context) > 0 {
-		fc := ctxapi.FrameFromContext(ctx)
-		if fc != nil {
-			if err := fc.SetMultiple(task.Context...); err != nil {
-				return nil, runtimelua.NewOperationError("set task context", err)
-			}
-		}
-	}
+	// task.Context is already applied to this forked frame by the function
+	// registry executor before this handler runs, so it is not re-set here.
 
 	if entry.hostID != "" {
 		if framePID, ok := runtime.GetFramePID(ctx); ok {
@@ -129,7 +117,7 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 
 // addSource adds a source-based function.
 func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
-	cfg, err := component.UnpackConfig[api.FunctionConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.FunctionConfig](ctx, entry)
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("function", err)
 	}
@@ -177,7 +165,7 @@ func (m *Manager) addSource(ctx context.Context, entry registry.Entry) error {
 
 // addBytecode adds a bytecode-based function.
 func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
-	cfg, err := component.UnpackConfig[api.BytecodeFunctionConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.BytecodeFunctionConfig](ctx, entry)
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("function", err)
 	}
@@ -230,7 +218,7 @@ func (m *Manager) addBytecode(ctx context.Context, entry registry.Entry) error {
 
 // updateSource updates a source-based function.
 func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error {
-	cfg, err := component.UnpackConfig[api.FunctionConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.FunctionConfig](ctx, entry)
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("function", err)
 	}
@@ -271,7 +259,7 @@ func (m *Manager) updateSource(ctx context.Context, entry registry.Entry) error 
 
 // updateBytecode updates a bytecode-based function.
 func (m *Manager) updateBytecode(ctx context.Context, entry registry.Entry) error {
-	cfg, err := component.UnpackConfig[api.BytecodeFunctionConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.BytecodeFunctionConfig](ctx, entry)
 	if err != nil {
 		return runtimelua.NewUnpackConfigError("function", err)
 	}

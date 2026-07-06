@@ -57,19 +57,6 @@ func TestConfigValidateErrors(t *testing.T) {
 	}
 }
 
-func TestConfigEnvSatisfiesRequired(t *testing.T) {
-	c := &Config{
-		HostEnv:     "H",
-		PortEnv:     "P",
-		UsernameEnv: "U",
-		PasswordEnv: "PW",
-		DatabaseEnv: "D",
-		SlotName:    "s",
-		Publication: "pub",
-	}
-	require.NoError(t, c.Validate())
-}
-
 func TestConfigIntervalsParse(t *testing.T) {
 	c := validConfig()
 	c.StandbyInterval = "5s"

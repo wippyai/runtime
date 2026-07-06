@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
@@ -88,6 +89,31 @@ func (m *mockEnvRegistry) GetStorage(_ context.Context, _ registry.ID) (env.Stor
 }
 
 func (m *mockEnvRegistry) RegisterStorage(_ registry.ID, _ env.Storage) {
+}
+
+func (m *mockEnvRegistry) RegisterVariable(_ env.Variable) error { return nil }
+
+func (m *mockEnvRegistry) UnregisterVariable(_ registry.ID) {}
+
+// jsonMapTranscoder unmarshals a Golang map payload into a struct via a JSON
+// round trip so the central *_env resolution path decodes against the config's
+// json tags end to end.
+type jsonMapTranscoder struct{}
+
+func (jsonMapTranscoder) Transcode(p payload.Payload, _ payload.Format) (payload.Payload, error) {
+	return payload.New(p.Data()), nil
+}
+
+func (jsonMapTranscoder) Unmarshal(p payload.Payload, v any) error {
+	m, ok := p.Data().(map[string]any)
+	if !ok {
+		return fmt.Errorf("payload is not a map")
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, v)
 }
 
 type mockClientFactory struct {
@@ -538,6 +564,67 @@ func TestManager_EntryListener(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, manager.Has(entry.ID))
 	})
+}
+
+func newResolvingManager(t *testing.T, envReg env.Registry) *Manager {
+	t.Helper()
+	factory := &mockClientFactory{
+		createFunc: func(_ context.Context, logger *zap.Logger, id registry.ID, config *api.ClientConfig) (*Client, error) {
+			return &Client{id: id, log: logger, client: &mockTemporalClient{}, config: config}, nil
+		},
+	}
+	manager, err := NewManager(
+		WithLogger(zap.NewNop()),
+		WithTranscoder(jsonMapTranscoder{}),
+		WithEventBus(&mockEventBus{events: make([]event.Event, 0)}),
+		WithEnvRegistry(envReg),
+		WithFactory(factory),
+		WithDataConverter(converter.GetDefaultDataConverter()),
+	)
+	require.NoError(t, err)
+	return manager
+}
+
+func apiKeyEnvEntry() registry.Entry {
+	return registry.Entry{
+		ID:   registry.NewID("test", "client1"),
+		Kind: api.Client,
+		Data: payload.New(map[string]any{
+			"address":   "localhost:7233",
+			"namespace": "default",
+			"auth": map[string]any{
+				"type":        "api_key",
+				"api_key_env": "TEMPORAL_API_KEY",
+			},
+		}),
+	}
+}
+
+// appContext mirrors production, where the boot pipeline seeds an app context
+// on the dispatch ctx; env.WithRegistry stores into it.
+func appContext() context.Context {
+	return ctxapi.WithAppContext(context.Background(), ctxapi.NewAppContext())
+}
+
+func TestManager_Add_ResolvesAPIKeyEnvViaInjectedRegistry(t *testing.T) {
+	envReg := &mockEnvRegistry{values: map[string]string{"TEMPORAL_API_KEY": "env-key"}}
+	manager := newResolvingManager(t, envReg)
+
+	require.NoError(t, manager.Add(appContext(), apiKeyEnvEntry()))
+
+	cfg, exists := manager.GetConfig(registry.NewID("test", "client1"))
+	require.True(t, exists)
+	assert.Equal(t, "env-key", cfg.Auth.APIKey)
+}
+
+func TestManager_Add_APIKeyEnvUnresolvable_Fails(t *testing.T) {
+	// Registry has no matching variable → central pass fails the decode.
+	envReg := &mockEnvRegistry{values: make(map[string]string)}
+	manager := newResolvingManager(t, envReg)
+
+	err := manager.Add(appContext(), apiKeyEnvEntry())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to decode client config")
 }
 
 func TestManager_GetTaskQueueName(t *testing.T) {

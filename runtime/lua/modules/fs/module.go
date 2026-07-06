@@ -128,6 +128,13 @@ func fsGet(l *lua.LState) int {
 	return 2
 }
 
+// PushFS wraps fsys in an fs.FS handle and pushes it onto the stack using the
+// shared fs.FS metatable. It lets other modules expose a filesystem through the
+// exact userdata type fs.get returns, so callers use the normal fs verbs.
+func PushFS(l *lua.LState, fsys fsapi.FS, cwd string) *lua.LUserData {
+	return value.PushUserData(l, NewFS(fsys, cwd), fsMetatable)
+}
+
 func checkFS(l *lua.LState, idx int) *FS { //nolint:unparam
 	ud := l.CheckUserData(idx)
 	if v, ok := ud.Value.(*FS); ok {

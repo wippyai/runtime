@@ -133,7 +133,7 @@ func TestWithAppDefaultNetwork_AppDefaultDoesNotReachFrame(t *testing.T) {
 	assert.Equal(t, "app.net:socks5", AppDefaultNetwork(ctx))
 }
 
-// --- ApplyOverlayPair (centralized spawn-site helper) ---
+// --- OverlayResolver (network frame-context resolver) ---
 
 // stubRegistry implements NetworkRegistry with an in-memory set of IDs.
 type stubRegistry struct {
@@ -178,80 +178,83 @@ func optsWithNetwork(id string) attrs.Attributes {
 	return b
 }
 
-func TestApplyOverlayPair_NoSelection_Passthrough(t *testing.T) {
+func TestOverlayResolver_NoSelection_Empty(t *testing.T) {
 	ctx := ctxWithRegistry(newStubRegistry())
-	pairs := []ctxapi.Pair{}
 
-	out, err := ApplyOverlayPair(ctx, nil, pairs)
+	out, err := OverlayResolver()(ctx, nil)
 	require.NoError(t, err)
-	assert.Empty(t, out, "no selection must leave pairs unchanged")
+	assert.Empty(t, out, "no selection must emit no pair")
 }
 
-func TestApplyOverlayPair_EmptyOptions_Passthrough(t *testing.T) {
+func TestOverlayResolver_EmptyOptions_Empty(t *testing.T) {
 	ctx := ctxWithRegistry(newStubRegistry())
-	empty := attrs.NewBag()
 
-	out, err := ApplyOverlayPair(ctx, empty, nil)
+	out, err := OverlayResolver()(ctx, attrs.NewBag())
 	require.NoError(t, err)
-	assert.Nil(t, out, "empty options with nil pairs must round-trip nil")
+	assert.Empty(t, out, "empty options must emit no pair")
 }
 
-func TestApplyOverlayPair_OptionsSelection_Appends(t *testing.T) {
+func TestOverlayResolver_OptionsSelection(t *testing.T) {
 	ctx := ctxWithRegistry(newStubRegistry("app.net:socks5"))
 
-	out, err := ApplyOverlayPair(ctx, optsWithNetwork("app.net:socks5"), nil)
+	out, err := OverlayResolver()(ctx, optsWithNetwork("app.net:socks5"))
 	require.NoError(t, err)
 	require.Len(t, out, 1)
 	assert.Equal(t, DefaultNetworkPair("app.net:socks5"), out[0])
 }
 
-func TestApplyOverlayPair_AppDefaultFallback_Appends(t *testing.T) {
+func TestOverlayResolver_AppDefaultFallback(t *testing.T) {
 	ctx := ctxWithRegistry(newStubRegistry("app.net:socks5"))
 	ctx = WithAppDefaultNetwork(ctx, "app.net:socks5")
 
-	out, err := ApplyOverlayPair(ctx, nil, nil)
+	out, err := OverlayResolver()(ctx, nil)
 	require.NoError(t, err)
 	require.Len(t, out, 1)
 	assert.Equal(t, "app.net:socks5", out[0].Value)
 }
 
-func TestApplyOverlayPair_OptionsBeatsAppDefault(t *testing.T) {
+func TestOverlayResolver_OptionsBeatsAppDefault(t *testing.T) {
 	ctx := ctxWithRegistry(newStubRegistry("app.net:tailscale"))
 	ctx = WithAppDefaultNetwork(ctx, "app.net:socks5")
 
-	out, err := ApplyOverlayPair(ctx, optsWithNetwork("app.net:tailscale"), nil)
+	out, err := OverlayResolver()(ctx, optsWithNetwork("app.net:tailscale"))
 	require.NoError(t, err)
 	require.Len(t, out, 1)
 	assert.Equal(t, "app.net:tailscale", out[0].Value,
 		"per-call options must override app-level default")
 }
 
-func TestApplyOverlayPair_UnknownNetwork_Errors(t *testing.T) {
+func TestOverlayResolver_UnknownNetwork_Errors(t *testing.T) {
 	ctx := ctxWithRegistry(newStubRegistry("app.net:other"))
 
-	out, err := ApplyOverlayPair(ctx, optsWithNetwork("app.net:missing"), nil)
+	out, err := OverlayResolver()(ctx, optsWithNetwork("app.net:missing"))
 	assert.True(t, errors.Is(err, ErrNetworkNotFound))
 	assert.Nil(t, out)
 }
 
-func TestApplyOverlayPair_NoRegistry_Errors(t *testing.T) {
+func TestOverlayResolver_NoRegistry_Errors(t *testing.T) {
 	// Selection present, but no registry on the AppContext to verify it.
 	ctx := ctxapi.NewRootContext()
 
-	out, err := ApplyOverlayPair(ctx, optsWithNetwork("app.net:socks5"), nil)
+	out, err := OverlayResolver()(ctx, optsWithNetwork("app.net:socks5"))
 	assert.True(t, errors.Is(err, ErrNetworkNotFound))
 	assert.Nil(t, out)
 }
 
-func TestApplyOverlayPair_PreservesExistingPairs(t *testing.T) {
+// ApplyOverlayPair is deprecated but retained for external callers; it must
+// still append the resolved overlay pair to the supplied slice.
+func TestApplyOverlayPair_DeprecatedWrapper(t *testing.T) {
 	ctx := ctxWithRegistry(newStubRegistry("app.net:socks5"))
-
 	marker := &ctxapi.Key{Name: "test.marker"}
-	existing := []ctxapi.Pair{{Key: marker, Value: "sentinel"}}
+	existing := []ctxapi.Pair{{Key: marker, Value: "keep"}}
 
 	out, err := ApplyOverlayPair(ctx, optsWithNetwork("app.net:socks5"), existing)
 	require.NoError(t, err)
 	require.Len(t, out, 2)
-	assert.Equal(t, "sentinel", out[0].Value, "prior pairs must be preserved")
-	assert.Equal(t, "app.net:socks5", out[1].Value, "overlay pair must be appended")
+	assert.Equal(t, "keep", out[0].Value, "prior pairs preserved")
+	assert.Equal(t, "app.net:socks5", out[1].Value, "overlay pair appended")
+
+	// Unknown network still errors through the wrapper.
+	_, err = ApplyOverlayPair(ctx, optsWithNetwork("app.net:missing"), nil)
+	assert.True(t, errors.Is(err, ErrNetworkNotFound))
 }

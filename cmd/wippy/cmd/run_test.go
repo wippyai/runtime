@@ -247,3 +247,38 @@ func TestLoadRuntimeConfig_ProfileFromPackDefaults(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "db.sql.postgres", cfg.GetString("override.app:db:kind", ""))
 }
+
+func TestLoadRuntimeConfig_LocalProfileOverridesPackProfile(t *testing.T) {
+	tempDir := t.TempDir()
+	cfgPath := filepath.Join(tempDir, "wippy.yaml")
+	cfgBody := []byte(`version: "1.0"
+profiles:
+  pg:
+    override:
+      "app:db:kind": db.sql.local
+`)
+	require.NoError(t, os.WriteFile(cfgPath, cfgBody, 0o644))
+
+	prevConfigFile := configFile
+	prevProfiler := profiler
+	configFile = cfgPath
+	profiler = false
+	t.Cleanup(func() {
+		configFile = prevConfigFile
+		profiler = prevProfiler
+	})
+
+	runtimeDefaults := boot.NewConfig(
+		boot.WithSection("profiles", map[string]any{
+			"pg.override.app:db:kind": "db.sql.postgres",
+		}),
+	)
+
+	cmd := &cobra.Command{}
+	cmd.Flags().StringArray("profile", nil, "")
+	require.NoError(t, cmd.Flags().Set("profile", "pg"))
+
+	cfg, err := loadRuntimeConfigWithDefaults(cmd, zap.NewNop(), runtimeDefaults)
+	require.NoError(t, err)
+	require.Equal(t, "db.sql.local", cfg.GetString("override.app:db:kind", ""))
+}

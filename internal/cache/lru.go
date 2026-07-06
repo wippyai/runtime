@@ -270,3 +270,21 @@ func (c *Cache[K, V]) Close() {
 		c.closed = true
 	}
 }
+
+// Range iterates over all cached entries in most-recently-used order, calling
+// fn for each. If fn returns false, iteration stops. Range holds the read
+// lock for the entire call, so fn must not call back into the cache.
+func (c *Cache[K, V]) Range(fn func(key K, value V) bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.closed {
+		return
+	}
+	for e := c.evictList.Front(); e != nil; e = e.Next() {
+		entry := e.Value.(*entry[K, V])
+		if !fn(entry.key, entry.value) {
+			return
+		}
+	}
+}

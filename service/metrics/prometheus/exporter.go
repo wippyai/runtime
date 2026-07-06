@@ -11,6 +11,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	api "github.com/wippyai/runtime/api/metrics"
+	lru "github.com/wippyai/runtime/internal/cache"
 )
 
 var (
@@ -36,21 +37,51 @@ var (
 	}
 )
 
+const defaultMaxCardinality = 1024
+
+type seriesEntry struct {
+	deleteFn  func(lvs ...string) bool
+	labelVals []string
+}
+
 type Exporter struct {
-	registry   *prometheus.Registry
-	counters   map[string]*prometheus.CounterVec
-	gauges     map[string]*prometheus.GaugeVec
-	histograms map[string]*prometheus.HistogramVec
-	mu         sync.RWMutex
+	registry       *prometheus.Registry
+	counters       map[string]*prometheus.CounterVec
+	gauges         map[string]*prometheus.GaugeVec
+	histograms     map[string]*prometheus.HistogramVec
+	series         *lru.Cache[string, *seriesEntry]
+	maxCardinality int
+	mu             sync.RWMutex
+}
+
+type ExporterConfig struct {
+	MaxCardinality int
 }
 
 func NewExporter() *Exporter {
-	return &Exporter{
-		registry:   prometheus.NewRegistry(),
-		counters:   make(map[string]*prometheus.CounterVec),
-		gauges:     make(map[string]*prometheus.GaugeVec),
-		histograms: make(map[string]*prometheus.HistogramVec),
+	return NewExporterWithConfig(ExporterConfig{MaxCardinality: defaultMaxCardinality})
+}
+
+func NewExporterWithConfig(cfg ExporterConfig) *Exporter {
+	if cfg.MaxCardinality <= 0 {
+		cfg.MaxCardinality = defaultMaxCardinality
 	}
+	e := &Exporter{
+		registry:       prometheus.NewRegistry(),
+		counters:       make(map[string]*prometheus.CounterVec),
+		gauges:         make(map[string]*prometheus.GaugeVec),
+		histograms:     make(map[string]*prometheus.HistogramVec),
+		maxCardinality: cfg.MaxCardinality,
+	}
+	e.series = lru.New[string, *seriesEntry](
+		lru.WithCapacity(cfg.MaxCardinality),
+		lru.WithOnEvict(func(_ string, entry *seriesEntry) {
+			if entry != nil && entry.deleteFn != nil {
+				entry.deleteFn(entry.labelVals...)
+			}
+		}),
+	)
+	return e
 }
 
 func (e *Exporter) Name() string {
@@ -70,23 +101,44 @@ func (e *Exporter) Record(name string, typ api.MetricType, value float64, labels
 	}
 
 	key := buildMetricKey(name, labelNames)
+	sig := buildSeriesSignature(key, labelVals)
 
-	switch typ {
-	case api.TypeCounter:
-		counter := e.getOrCreateCounter(key, name, labelNames)
-		counter.WithLabelValues(labelVals...).Add(value)
-
-	case api.TypeGauge, api.TypeGaugeAdd:
-		gauge := e.getOrCreateGauge(key, name, labelNames)
-		if typ == api.TypeGaugeAdd {
-			gauge.WithLabelValues(labelVals...).Add(value)
-		} else {
-			gauge.WithLabelValues(labelVals...).Set(value)
+	if _, ok := e.series.Get(sig); ok {
+		switch typ {
+		case api.TypeCounter:
+			e.getOrCreateCounter(key, name, labelNames).WithLabelValues(labelVals...).Add(value)
+		case api.TypeGauge, api.TypeGaugeAdd:
+			g := e.getOrCreateGauge(key, name, labelNames)
+			if typ == api.TypeGaugeAdd {
+				g.WithLabelValues(labelVals...).Add(value)
+			} else {
+				g.WithLabelValues(labelVals...).Set(value)
+			}
+		case api.TypeHistogram:
+			e.getOrCreateHistogram(key, name, labelNames).WithLabelValues(labelVals...).Observe(value)
 		}
+	} else {
+		valsCopy := make([]string, len(labelVals))
+		copy(valsCopy, labelVals)
 
-	case api.TypeHistogram:
-		histo := e.getOrCreateHistogram(key, name, labelNames)
-		histo.WithLabelValues(labelVals...).Observe(value)
+		switch typ {
+		case api.TypeCounter:
+			c := e.getOrCreateCounter(key, name, labelNames)
+			_ = e.series.Set(sig, &seriesEntry{deleteFn: c.DeleteLabelValues, labelVals: valsCopy})
+			c.WithLabelValues(labelVals...).Add(value)
+		case api.TypeGauge, api.TypeGaugeAdd:
+			g := e.getOrCreateGauge(key, name, labelNames)
+			_ = e.series.Set(sig, &seriesEntry{deleteFn: g.DeleteLabelValues, labelVals: valsCopy})
+			if typ == api.TypeGaugeAdd {
+				g.WithLabelValues(labelVals...).Add(value)
+			} else {
+				g.WithLabelValues(labelVals...).Set(value)
+			}
+		case api.TypeHistogram:
+			h := e.getOrCreateHistogram(key, name, labelNames)
+			_ = e.series.Set(sig, &seriesEntry{deleteFn: h.DeleteLabelValues, labelVals: valsCopy})
+			h.WithLabelValues(labelVals...).Observe(value)
+		}
 	}
 
 	releaseLabelSlice(labelNamesPtr)
@@ -178,6 +230,9 @@ func (e *Exporter) Handler() http.Handler {
 }
 
 func (e *Exporter) Close() error {
+	if e.series != nil {
+		e.series.Close()
+	}
 	return nil
 }
 
@@ -244,4 +299,23 @@ func buildMetricKey(name string, labelNames []string) string {
 	key := b.String()
 	builderPool.Put(b)
 	return key
+}
+
+func buildSeriesSignature(metricKey string, labelVals []string) string {
+	if len(labelVals) == 0 {
+		return metricKey
+	}
+	b := builderPool.Get().(*strings.Builder)
+	b.Reset()
+	b.WriteString(metricKey)
+	b.WriteByte('|')
+	for i, v := range labelVals {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(v)
+	}
+	sig := b.String()
+	builderPool.Put(b)
+	return sig
 }

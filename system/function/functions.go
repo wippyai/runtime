@@ -221,6 +221,13 @@ func (f *Registry) executor(ctx context.Context, handler function.Func, task run
 	)
 	pairs = append(pairs, task.Context...)
 
+	// Apply the registered frame-context resolvers (e.g. the network overlay)
+	// generically, so this dispatcher stays agnostic of any specific subsystem.
+	pairs, err := ctxapi.FrameResolversFrom(ctx).Resolve(ctx, task.Options, pairs)
+	if err != nil {
+		return nil, err
+	}
+
 	if err := fc.SetMultiple(pairs...); err != nil {
 		return nil, NewFrameContextError(err)
 	}

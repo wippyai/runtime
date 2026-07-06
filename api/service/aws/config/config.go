@@ -17,19 +17,16 @@ type Config struct {
 	// Region is the AWS region where the bucket is located.
 	Region string `json:"region"`
 
-	// RegionEnv is an env registry variable holding the AWS region.
-	RegionEnv string `json:"region_env,omitempty"`
+	// AccessKeyID is the AWS access key ID.
+	AccessKeyID string `json:"access_key_id,omitempty"`
 
-	// AccessKeyIDEnv is the AWS access key ID env name.
-	AccessKeyIDEnv string `json:"access_key_id_env,omitempty"`
-
-	// SecretAccessKeyEnv is the AWS secret access key env name.
-	SecretAccessKeyEnv string `json:"secret_access_key_env,omitempty"`
+	// SecretAccessKey is the AWS secret access key.
+	SecretAccessKey string `json:"secret_access_key,omitempty"`
 }
 
 // Validate checks if the configuration is valid.
 func (c *Config) Validate() error {
-	if c.Region == "" && c.RegionEnv == "" {
+	if c.Region == "" {
 		return errors.New("region is required")
 	}
 

@@ -3,7 +3,6 @@
 package cloudstorage
 
 import (
-	"context"
 	"io"
 
 	lua "github.com/wippyai/go-lua"
@@ -44,10 +43,9 @@ var Module = &luaapi.ModuleDef{
 
 // storageWrapper wraps a cloud storage instance with resource tracking.
 type storageWrapper struct {
-	storage   csapi.Storage
-	resource  resource.Resource[any]
-	onRelease context.CancelFunc
-	released  bool
+	storage  csapi.Storage
+	resource resource.Resource[any]
+	released bool
 }
 
 var storageMethods = map[string]lua.LGoFunc{
@@ -83,13 +81,6 @@ func apiGet(l *lua.LState) int {
 	}
 
 	ctx := l.Context()
-	store := rtresource.GetStore(ctx)
-	if store == nil {
-		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, "resource store not found").WithKind(lua.Internal).WithRetryable(false))
-		return 2
-	}
-
 	reg := resource.GetRegistry(ctx)
 	if reg == nil {
 		l.Push(lua.LNil)
@@ -104,23 +95,10 @@ func apiGet(l *lua.LState) int {
 		return 0
 	}
 
-	res, err := reg.Acquire(ctx, resID, resource.ModeNormal)
+	res, storageRes, err := rtresource.AcquireRegistryResource(ctx, reg, resID, resource.ModeNormal)
 	if err != nil {
 		l.Push(lua.LNil)
 		l.Push(lua.NewLuaError(l, err.Error()).WithKind(lua.NotFound).WithRetryable(false))
-		return 2
-	}
-
-	onRelease := store.AddCleanup(func() error {
-		res.Release()
-		return nil
-	})
-
-	storageRes, err := res.Get()
-	if err != nil {
-		res.Release()
-		l.Push(lua.LNil)
-		l.Push(lua.NewLuaError(l, err.Error()).WithKind(lua.Internal).WithRetryable(false))
 		return 2
 	}
 
@@ -133,9 +111,8 @@ func apiGet(l *lua.LState) int {
 	}
 
 	wrapper := &storageWrapper{
-		storage:   csRes,
-		resource:  res,
-		onRelease: onRelease,
+		storage:  csRes,
+		resource: res,
 	}
 
 	value.PushTypedUserData(l, wrapper, storageTypeName)
@@ -162,11 +139,6 @@ func storageRelease(l *lua.LState) int {
 	if wrapper.resource != nil {
 		wrapper.resource.Release()
 		wrapper.resource = nil
-	}
-
-	if wrapper.onRelease != nil {
-		wrapper.onRelease()
-		wrapper.onRelease = nil
 	}
 
 	wrapper.released = true

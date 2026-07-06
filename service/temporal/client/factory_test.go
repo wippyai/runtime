@@ -44,7 +44,7 @@ func TestDefaultClientFactory_buildClientOptions(t *testing.T) {
 			Auth:      api.AuthConfig{Type: api.AuthTypeNone},
 		}
 
-		opts, err := factory.buildClientOptions(context.Background(), zap.NewNop(), config)
+		opts, err := factory.buildClientOptions(zap.NewNop(), config)
 
 		require.NoError(t, err)
 		assert.Equal(t, "localhost:7233", opts.HostPort)
@@ -64,7 +64,7 @@ func TestDefaultClientFactory_buildClientOptions(t *testing.T) {
 			Auth:      api.AuthConfig{Type: api.AuthTypeNone},
 		}
 
-		opts, err := factory.buildClientOptions(context.Background(), zap.NewNop(), config)
+		opts, err := factory.buildClientOptions(zap.NewNop(), config)
 
 		require.NoError(t, err)
 		assert.Equal(t, dc, opts.DataConverter)
@@ -82,7 +82,7 @@ func TestDefaultClientFactory_buildClientOptions(t *testing.T) {
 			Auth:      api.AuthConfig{Type: api.AuthTypeNone},
 		}
 
-		opts, err := factory.buildClientOptions(context.Background(), zap.NewNop(), config)
+		opts, err := factory.buildClientOptions(zap.NewNop(), config)
 
 		require.NoError(t, err)
 		assert.Len(t, opts.Interceptors, 1)
@@ -105,7 +105,7 @@ func TestDefaultClientFactory_configureAuth(t *testing.T) {
 		}
 		opts := &client.Options{}
 
-		err := factory.configureAuth(context.Background(), config, opts)
+		err := factory.configureAuth(config, opts)
 
 		require.NoError(t, err)
 		assert.Nil(t, opts.Credentials)
@@ -121,43 +121,10 @@ func TestDefaultClientFactory_configureAuth(t *testing.T) {
 		}
 		opts := &client.Options{}
 
-		err := factory.configureAuth(context.Background(), config, opts)
+		err := factory.configureAuth(config, opts)
 
 		require.NoError(t, err)
 		assert.NotNil(t, opts.Credentials)
-	})
-
-	t.Run("api key from env", func(t *testing.T) {
-		env := &mockEnvRegistry{values: map[string]string{"TEMPORAL_API_KEY": "env-key"}}
-		factory := NewDefaultClientFactory(env, nil, nil, nil)
-		config := &api.ClientConfig{
-			Auth: api.AuthConfig{
-				Type:      api.AuthTypeAPIKey,
-				APIKeyEnv: "TEMPORAL_API_KEY",
-			},
-		}
-		opts := &client.Options{}
-
-		err := factory.configureAuth(context.Background(), config, opts)
-
-		require.NoError(t, err)
-		assert.NotNil(t, opts.Credentials)
-	})
-
-	t.Run("api key from env without registry fails", func(t *testing.T) {
-		factory := NewDefaultClientFactory(nil, nil, nil, nil)
-		config := &api.ClientConfig{
-			Auth: api.AuthConfig{
-				Type:      api.AuthTypeAPIKey,
-				APIKeyEnv: "TEMPORAL_API_KEY",
-			},
-		}
-		opts := &client.Options{}
-
-		err := factory.configureAuth(context.Background(), config, opts)
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "env registry not available")
 	})
 
 	t.Run("api key from file", func(t *testing.T) {
@@ -176,7 +143,7 @@ func TestDefaultClientFactory_configureAuth(t *testing.T) {
 		}
 		opts := &client.Options{}
 
-		err = factory.configureAuth(context.Background(), config, opts)
+		err = factory.configureAuth(config, opts)
 
 		require.NoError(t, err)
 		assert.NotNil(t, opts.Credentials)
@@ -192,7 +159,7 @@ func TestDefaultClientFactory_configureAuth(t *testing.T) {
 		}
 		opts := &client.Options{}
 
-		err := factory.configureAuth(context.Background(), config, opts)
+		err := factory.configureAuth(config, opts)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to read api_key_file")
@@ -207,7 +174,7 @@ func TestDefaultClientFactory_configureAuth(t *testing.T) {
 		}
 		opts := &client.Options{}
 
-		err := factory.configureAuth(context.Background(), config, opts)
+		err := factory.configureAuth(config, opts)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no API key source configured")
@@ -222,7 +189,7 @@ func TestDefaultClientFactory_configureAuth(t *testing.T) {
 		}
 		opts := &client.Options{}
 
-		err := factory.configureAuth(context.Background(), config, opts)
+		err := factory.configureAuth(config, opts)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported auth type")
@@ -236,7 +203,7 @@ func TestDefaultClientFactory_loadClientCertificate(t *testing.T) {
 			KeyPEM: "some-key",
 		}
 
-		_, err := factory.loadClientCertificate(context.Background(), auth)
+		_, err := factory.loadClientCertificate(auth)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no certificate source configured")
@@ -248,23 +215,10 @@ func TestDefaultClientFactory_loadClientCertificate(t *testing.T) {
 			CertPEM: "some-cert",
 		}
 
-		_, err := factory.loadClientCertificate(context.Background(), auth)
+		_, err := factory.loadClientCertificate(auth)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no private key source configured")
-	})
-
-	t.Run("key from env without registry fails", func(t *testing.T) {
-		factory := NewDefaultClientFactory(nil, nil, nil, nil)
-		auth := api.AuthConfig{
-			CertPEM:   "some-cert",
-			KeyPEMEnv: "TEMPORAL_KEY",
-		}
-
-		_, err := factory.loadClientCertificate(context.Background(), auth)
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "env registry not available")
 	})
 
 	t.Run("missing cert file fails", func(t *testing.T) {
@@ -274,7 +228,7 @@ func TestDefaultClientFactory_loadClientCertificate(t *testing.T) {
 			KeyPEM:   "some-key",
 		}
 
-		_, err := factory.loadClientCertificate(context.Background(), auth)
+		_, err := factory.loadClientCertificate(auth)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to read cert_file")
@@ -291,7 +245,7 @@ func TestDefaultClientFactory_loadClientCertificate(t *testing.T) {
 			KeyFile:  "/nonexistent/key.pem",
 		}
 
-		_, err := factory.loadClientCertificate(context.Background(), auth)
+		_, err := factory.loadClientCertificate(auth)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to read key_file")
@@ -304,7 +258,7 @@ func TestDefaultClientFactory_loadClientCertificate(t *testing.T) {
 			KeyPEM:  "invalid-key",
 		}
 
-		_, err := factory.loadClientCertificate(context.Background(), auth)
+		_, err := factory.loadClientCertificate(auth)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to parse certificate and key")

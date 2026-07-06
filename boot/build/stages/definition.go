@@ -7,15 +7,16 @@ import (
 
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
-	"github.com/wippyai/runtime/internal/entry"
+	"github.com/wippyai/runtime/system/entry"
 )
 
 // ModuleDefinition represents the data structure of an ns.definition entry.
 // This entry is required for publishing and contains module metadata.
 // Release notes are NOT part of definition - they're provided at publish time.
 type ModuleDefinition struct {
-	Module string `json:"module" yaml:"module"` // Module display name (defaults to entry name if empty)
-	Readme string `json:"readme" yaml:"readme"`
+	Wiki   map[string]string `json:"wiki" yaml:"wiki"`
+	Module string            `json:"module" yaml:"module"`
+	Readme string            `json:"readme" yaml:"readme"`
 }
 
 // FindDefinition finds the ns.definition entry in the entries slice.
@@ -42,7 +43,7 @@ func FindDefinitions(entries []registry.Entry) []registry.Entry {
 
 // DecodeDefinition decodes an ns.definition entry into ModuleDefinition.
 func DecodeDefinition(ctx context.Context, transcoder payload.Transcoder, e registry.Entry) (*ModuleDefinition, error) {
-	return entry.DecodeEntryConfig[ModuleDefinition](ctx, transcoder, e)
+	return entry.DecodeEntryConfigRaw[ModuleDefinition](ctx, transcoder, e)
 }
 
 // ValidateDefinitionForPublish validates that entries contain exactly one ns.definition.

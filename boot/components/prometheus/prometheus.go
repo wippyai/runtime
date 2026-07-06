@@ -60,7 +60,9 @@ func Prometheus() boot.Component {
 				return ctx, nil
 			}
 
-			exporter = prometheus.NewExporter()
+			exporter = prometheus.NewExporterWithConfig(prometheus.ExporterConfig{
+				MaxCardinality: promCfg.GetInt("max_cardinality", 0),
+			})
 			if err := collector.RegisterExporter(exporter); err != nil {
 				logger.Error("failed to register prometheus exporter")
 				return ctx, nil

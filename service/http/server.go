@@ -18,7 +18,6 @@ import (
 	relaysys "github.com/wippyai/runtime/system/relay"
 
 	contextapi "github.com/wippyai/runtime/api/context"
-	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/logs"
 	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/pid"
@@ -446,7 +445,7 @@ func (s *ServerService) overlayListen(ctx context.Context, svc netapi.Service) (
 		if err != nil {
 			return nil, NewNetworkListenError(s.config.Network.String(), err)
 		}
-		cfg, err := loadServerTLSConfig(ctx, s.config.TLS)
+		cfg, err := loadServerTLSConfig(s.config.TLS)
 		if err != nil {
 			raw.Close()
 			return nil, err
@@ -473,7 +472,7 @@ func (s *ServerService) clearnetListen(ctx context.Context) (net.Listener, error
 		return nil, err
 	}
 	if s.config.TLS.Mode == config.TLSModeManual {
-		cfg, err := loadServerTLSConfig(ctx, s.config.TLS)
+		cfg, err := loadServerTLSConfig(s.config.TLS)
 		if err != nil {
 			ln.Close()
 			return nil, err
@@ -483,17 +482,13 @@ func (s *ServerService) clearnetListen(ctx context.Context) (net.Listener, error
 	return ln, nil
 }
 
-// loadServerTLSConfig resolves cert/key material (inline PEM or env-backed)
-// and assembles a tls.Config. TLS 1.2 is the floor — 1.0/1.1 have been
-// deprecated since 2020 and are not user-selectable. Optional mTLS layers
-// a ClientCAs pool + ClientAuth policy on top.
-func loadServerTLSConfig(ctx context.Context, cfg config.ServerTLSConfig) (*tls.Config, error) {
-	certPEM, keyPEM, err := resolveCertKeyPEM(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+// loadServerTLSConfig assembles a tls.Config from the cert/key/CA PEM
+// material already resolved on cfg at config-decode time. TLS 1.2 is the
+// floor — 1.0/1.1 have been deprecated since 2020 and are not
+// user-selectable. Optional mTLS layers a ClientCAs pool + ClientAuth policy
+// on top.
+func loadServerTLSConfig(cfg config.ServerTLSConfig) (*tls.Config, error) {
+	cert, err := tls.X509KeyPair([]byte(cfg.Cert), []byte(cfg.Key))
 	if err != nil {
 		return nil, NewTLSLoadError(err)
 	}
@@ -503,69 +498,20 @@ func loadServerTLSConfig(ctx context.Context, cfg config.ServerTLSConfig) (*tls.
 		MinVersion:   tls.VersionTLS12,
 	}
 
-	if cfg.ClientAuth == config.ClientAuthNone && cfg.ClientCA == "" && cfg.ClientCAEnv == "" {
+	if cfg.ClientAuth == config.ClientAuthNone && cfg.ClientCA == "" {
 		return out, nil
 	}
 
 	out.ClientAuth = mapClientAuthType(cfg.ClientAuth)
 
-	caPEM, err := resolveClientCAPEM(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	if len(caPEM) > 0 {
+	if cfg.ClientCA != "" {
 		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(caPEM) {
+		if !pool.AppendCertsFromPEM([]byte(cfg.ClientCA)) {
 			return nil, NewTLSCAParseError()
 		}
 		out.ClientCAs = pool
 	}
 	return out, nil
-}
-
-// resolveCertKeyPEM returns the cert+key PEM bytes for Manual mode. The
-// config validator has already enforced the (inline XOR env) invariant.
-func resolveCertKeyPEM(ctx context.Context, cfg config.ServerTLSConfig) ([]byte, []byte, error) {
-	if cfg.Cert != "" {
-		return []byte(cfg.Cert), []byte(cfg.Key), nil
-	}
-	certPEM, err := lookupEnv(ctx, cfg.CertEnv)
-	if err != nil {
-		return nil, nil, err
-	}
-	keyPEM, err := lookupEnv(ctx, cfg.KeyEnv)
-	if err != nil {
-		return nil, nil, err
-	}
-	return certPEM, keyPEM, nil
-}
-
-// resolveClientCAPEM returns the optional client-CA PEM bundle (empty if
-// the user opted into a non-verifying auth mode without providing a pool).
-func resolveClientCAPEM(ctx context.Context, cfg config.ServerTLSConfig) ([]byte, error) {
-	if cfg.ClientCA != "" {
-		return []byte(cfg.ClientCA), nil
-	}
-	if cfg.ClientCAEnv != "" {
-		return lookupEnv(ctx, cfg.ClientCAEnv)
-	}
-	return nil, nil
-}
-
-// lookupEnv reads a named variable from the Wippy env registry (secure
-// store). Absence of the registry or variable is a hard error — callers
-// only reach this path when the config explicitly asked for env-backed
-// material.
-func lookupEnv(ctx context.Context, name string) ([]byte, error) {
-	reg := envapi.GetRegistry(ctx)
-	if reg == nil {
-		return nil, ErrTLSEnvRegistryUnavailable
-	}
-	val, err := reg.Get(ctx, name)
-	if err != nil {
-		return nil, NewTLSEnvResolveError(name, err)
-	}
-	return []byte(val), nil
 }
 
 func mapClientAuthType(a config.ClientAuthType) tls.ClientAuthType {

@@ -5,6 +5,7 @@ package function
 
 import (
 	"context"
+	"sync"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -18,8 +19,14 @@ import (
 
 // Dispatcher handles function call commands.
 type Dispatcher struct {
-	node   relay.Node
-	logger *zap.Logger
+	node       relay.Node
+	logger     *zap.Logger
+	asyncCalls sync.Map // map[asyncCallKey]context.CancelFunc
+}
+
+type asyncCallKey struct {
+	target string
+	topic  string
 }
 
 // NewDispatcher creates a new function dispatcher with relay node for message routing.
@@ -111,9 +118,14 @@ func (d *Dispatcher) handleAsyncStart(ctx context.Context, cmd dispatcher.Comman
 	logger := d.logger
 
 	callCtx, fc := ctxapi.ForkFrameContext(ctx)
+	callCtx, cancel := context.WithCancel(callCtx)
+	key := asyncCallKey{target: framePID.String(), topic: topic}
+	d.asyncCalls.Store(key, cancel)
 
 	go func(callCtx context.Context, callFC ctxapi.FrameContext) {
 		defer ctxapi.ReleaseFrameContext(callFC)
+		defer cancel()
+		defer d.asyncCalls.Delete(key)
 		result, err := registry.Call(callCtx, task)
 
 		resultPayload := resultToPayload(result, err)
@@ -158,6 +170,10 @@ func (d *Dispatcher) handleAsyncCancel(ctx context.Context, cmd dispatcher.Comma
 	}
 
 	topic := cancelCmd.Topic
+	key := asyncCallKey{target: framePID.String(), topic: topic}
+	if cancelFn, ok := d.asyncCalls.LoadAndDelete(key); ok {
+		cancelFn.(context.CancelFunc)()
+	}
 
 	if err := sendAsyncCancel(d.node, framePID, topic); err != nil {
 		d.logger.Warn("failed to send async cancel",

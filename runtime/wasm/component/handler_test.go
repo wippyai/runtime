@@ -4,7 +4,6 @@ package component
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
@@ -43,38 +42,6 @@ func (b *handlerTestBus) SubscribeP(context.Context, event.System, event.Kind, c
 func (b *handlerTestBus) Unsubscribe(context.Context, event.SubscriberID) {}
 func (b *handlerTestBus) Send(_ context.Context, evt event.Event) {
 	b.events = append(b.events, evt)
-}
-
-type unpackTestConfig struct {
-	Value string
-}
-
-func (c *unpackTestConfig) Validate() error {
-	if c.Value == "" {
-		return errors.New("value required")
-	}
-	return nil
-}
-
-type handlerTestTranscoder struct {
-	unmarshalErr error
-	value        string
-}
-
-func (t *handlerTestTranscoder) Transcode(p payload.Payload, f payload.Format) (payload.Payload, error) {
-	return p, nil
-}
-
-func (t *handlerTestTranscoder) Unmarshal(_ payload.Payload, v interface{}) error {
-	if t.unmarshalErr != nil {
-		return t.unmarshalErr
-	}
-	cfg, ok := v.(*unpackTestConfig)
-	if !ok {
-		return errors.New("unexpected target type")
-	}
-	cfg.Value = t.value
-	return nil
 }
 
 func TestHandlerPattern(t *testing.T) {
@@ -140,33 +107,4 @@ func TestHandlerHandleRegistryDelegates(t *testing.T) {
 	}
 }
 
-func TestUnpackConfig(t *testing.T) {
-	ctx := ctxapi.NewRootContext()
-	entry := registry.Entry{Data: payload.New("ignored")}
-
-	if _, err := UnpackConfig[unpackTestConfig](ctx, entry); err == nil {
-		t.Fatal("UnpackConfig() expected transcoder missing error")
-	}
-
-	ctxUnmarshal := payload.WithTranscoder(ctx, &handlerTestTranscoder{unmarshalErr: errors.New("boom")})
-	if _, err := UnpackConfig[unpackTestConfig](ctxUnmarshal, entry); err == nil {
-		t.Fatal("UnpackConfig() expected unmarshal error")
-	}
-
-	ctxInvalid := payload.WithTranscoder(ctxapi.NewRootContext(), &handlerTestTranscoder{value: ""})
-	if _, err := UnpackConfig[unpackTestConfig](ctxInvalid, entry); err == nil {
-		t.Fatal("UnpackConfig() expected validation error")
-	}
-
-	ctxValid := payload.WithTranscoder(ctxapi.NewRootContext(), &handlerTestTranscoder{value: "ok"})
-	cfg, err := UnpackConfig[unpackTestConfig](ctxValid, entry)
-	if err != nil {
-		t.Fatalf("UnpackConfig() error = %v", err)
-	}
-	if cfg.Value != "ok" {
-		t.Fatalf("cfg.Value = %q, want %q", cfg.Value, "ok")
-	}
-}
-
 var _ event.Bus = (*handlerTestBus)(nil)
-var _ payload.Transcoder = (*handlerTestTranscoder)(nil)

@@ -27,6 +27,13 @@ profiler:
   write_timeout: 15s          # HTTP write timeout
   idle_timeout: 60s           # HTTP idle timeout
 
+# Scheduler configuration
+# Optional CPU isolation between actor (Lua) execution and WASM execution.
+scheduler:
+  wasm_isolation:
+    enabled: false            # Opt-in. Reserve cores for WASM, keep actors off them (Linux pins; no-op elsewhere)
+    reserved_cores: 1         # Cores reserved for the dedicated WASM pool; the rest run actor workers
+
 # Security configuration
 # Controls security enforcement behavior
 security:

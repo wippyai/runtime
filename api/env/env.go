@@ -73,6 +73,12 @@ type (
 
 		// RegisterStorage registers a storage backend directly (synchronous).
 		RegisterStorage(id registry.ID, storage Storage)
+
+		// RegisterVariable registers or updates a variable definition directly (synchronous).
+		RegisterVariable(variable Variable) error
+
+		// UnregisterVariable removes a variable definition directly (synchronous).
+		UnregisterVariable(id registry.ID)
 	}
 )
 

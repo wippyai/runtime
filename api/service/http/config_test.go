@@ -981,38 +981,14 @@ func TestServerTLSConfig_Validate(t *testing.T) {
 			tls:  ServerTLSConfig{Mode: TLSModeManual, Cert: "pem", Key: "pem"},
 		},
 		{
-			name: "manual env cert is valid",
-			tls:  ServerTLSConfig{Mode: TLSModeManual, CertEnv: "A", KeyEnv: "B"},
-		},
-		{
-			name:    "manual inline+env is ambiguous",
-			tls:     ServerTLSConfig{Mode: TLSModeManual, Cert: "pem", Key: "pem", CertEnv: "A", KeyEnv: "B"},
-			wantErr: ErrTLSManualAmbiguousCert,
-		},
-		{
 			name:    "manual inline partial (cert without key)",
 			tls:     ServerTLSConfig{Mode: TLSModeManual, Cert: "pem"},
 			wantErr: ErrTLSManualPartialCert,
 		},
 		{
-			name:    "manual env partial (cert_env without key_env)",
-			tls:     ServerTLSConfig{Mode: TLSModeManual, CertEnv: "A"},
-			wantErr: ErrTLSManualPartialCertEnv,
-		},
-		{
-			name:    "manual inline partial after env set",
-			tls:     ServerTLSConfig{Mode: TLSModeManual, Cert: "pem", CertEnv: "A", KeyEnv: "B"},
+			name:    "manual inline partial (key without cert)",
+			tls:     ServerTLSConfig{Mode: TLSModeManual, Key: "pem"},
 			wantErr: ErrTLSManualPartialCert,
-		},
-		{
-			name:    "manual env partial after inline set",
-			tls:     ServerTLSConfig{Mode: TLSModeManual, Cert: "pem", Key: "pem", CertEnv: "A"},
-			wantErr: ErrTLSManualPartialCertEnv,
-		},
-		{
-			name:    "manual mTLS with both CA sources",
-			tls:     ServerTLSConfig{Mode: TLSModeManual, Cert: "pem", Key: "pem", ClientCA: "ca", ClientCAEnv: "X", ClientAuth: ClientAuthRequireAndVerify},
-			wantErr: ErrTLSMTLSAmbiguousCA,
 		},
 		{
 			name:    "manual CA without auth",
@@ -1040,10 +1016,6 @@ func TestServerTLSConfig_Validate(t *testing.T) {
 		{
 			name: "manual full mTLS inline is valid",
 			tls:  ServerTLSConfig{Mode: TLSModeManual, Cert: "pem", Key: "pem", ClientCA: "ca", ClientAuth: ClientAuthRequireAndVerify},
-		},
-		{
-			name: "manual full mTLS env is valid",
-			tls:  ServerTLSConfig{Mode: TLSModeManual, CertEnv: "A", KeyEnv: "B", ClientCAEnv: "C", ClientAuth: ClientAuthRequireAndVerify},
 		},
 		{
 			name:    "invalid tls mode",

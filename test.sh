@@ -34,6 +34,9 @@ go test \
 	./service/sql/... \
 	./service/cdc/postgres \
 	./runtime/lua/modules/cdc \
+	./runtime/lua/modules/hub \
+	./runtime/lua/modules/fs \
+	./api/fs \
 	./boot/components/dispatchers
 
 if [[ -n "${WIPPY_CDC_IT_REPL_DSN:-}" && -n "${WIPPY_CDC_IT_ADMIN_DSN:-}" ]]; then

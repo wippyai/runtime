@@ -62,6 +62,36 @@ Download and inspect a version artifact by `version` or `{ id, version, label }`
 Artifacts are cached under `.wippy/vendor` and verified before reuse.
 Returns artifact-derived metadata including `{ version, digest, size_bytes, entry_count, entry_kinds, requirements, cache_path }`.
 
+### `hub.versions.open(module, version, opts?)`
+Open a version artifact for inspection before install and return an owned package
+handle. The artifact goes through the verified `.wippy/vendor` disk cache. The
+handle keeps the underlying file open until it is closed or the frame ends, so
+`pkg:fs()` can read lazily from it.
+
+Options: `registry`, `token`, `timeout`.
+
+The handle exposes fields and methods:
+- `pkg.version` (string), `pkg.digest` (string), `pkg.packed` (boolean, currently always `true`).
+- `pkg:metadata()` — the pack manifest as a Lua table.
+- `pkg:entries({ kind?, include_data? })` — a bare array of `{ id = "ns:name", kind, meta, data }`. `include_data` defaults to `true`; `data` is raw (`${env:...}`/`_env` literals are preserved).
+- `pkg:resources()` — a bare array of `{ id = "ns:name", type, hash, size, file_count, meta }`.
+- `pkg:fs(resource_id)` — an `fs.FS` handle over the named resource, using the same handle type `fs.get` returns; read it with the normal fs verbs (`stat`, `readdir`, `read_file`, ...).
+- `pkg:close()` — close the handle explicitly. It is also closed automatically at frame end.
+
+### `hub.cache.list(opts?)`
+List cached artifacts under the resolved vendor directory. Returns a bare array of
+`{ module, version, size, pinned }`. `pinned` is `true` when the artifact is
+referenced by the lock file.
+
+### `hub.cache.remove(module, version, opts?)`
+Remove a cached artifact addressed by `module` name and `version`. Refuses to
+remove a lock-pinned artifact unless `opts.force` is `true`. Returns `true`.
+
+### `hub.cache.prune(opts?)`
+Remove cached artifacts not referenced by the lock file. With `opts.dry_run = true`
+nothing is deleted. Returns a bare array of the pruned (or would-be-pruned)
+`{ module, version, size, pinned }` entries.
+
 ### `hub.dependencies.get(module, version?, opts?)`
 Get dependencies for a module version.
 

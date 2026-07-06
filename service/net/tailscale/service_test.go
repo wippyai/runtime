@@ -558,14 +558,6 @@ func TestTailscaleConfig_Validation(t *testing.T) {
 			cfg:  netapi.TailscaleConfig{AuthKey: "tskey-auth-xxx"},
 		},
 		{
-			name: "auth_key_env set",
-			cfg:  netapi.TailscaleConfig{AuthKeyEnv: "TS_AUTHKEY"},
-		},
-		{
-			name: "both set",
-			cfg:  netapi.TailscaleConfig{AuthKey: "tskey-auth-xxx", AuthKeyEnv: "TS_AUTHKEY"},
-		},
-		{
 			name: "with hostname",
 			cfg:  netapi.TailscaleConfig{AuthKey: "tskey-auth-xxx", Hostname: "my-node"},
 		},

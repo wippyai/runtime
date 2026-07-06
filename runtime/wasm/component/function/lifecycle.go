@@ -6,13 +6,12 @@ import (
 	"context"
 	"fmt"
 
-	ctxapi "github.com/wippyai/runtime/api/context"
-	netapi "github.com/wippyai/runtime/api/net"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/runtime/wasm"
 	runtimewasm "github.com/wippyai/runtime/runtime/wasm"
 	wasmcomponent "github.com/wippyai/runtime/runtime/wasm/component"
+	entrycfg "github.com/wippyai/runtime/system/entry"
 	wasmlib "github.com/wippyai/wasm-runtime/component"
 	wasmrt "github.com/wippyai/wasm-runtime/runtime"
 	"go.uber.org/zap"
@@ -75,19 +74,8 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 	}
 	defer entry.release()
 
-	var err error
-	if task.Context, err = netapi.ApplyOverlayPair(ctx, task.Options, task.Context); err != nil {
-		return nil, err
-	}
-
-	if len(task.Context) > 0 {
-		fc := ctxapi.FrameFromContext(ctx)
-		if fc != nil {
-			if err := fc.SetMultiple(task.Context...); err != nil {
-				return nil, fmt.Errorf("set task context: %w", err)
-			}
-		}
-	}
+	// task.Context is already applied to this forked frame by the function
+	// registry executor before this handler runs, so it is not re-set here.
 
 	if entry.hostID != "" {
 		if framePID, ok := runtime.GetFramePID(ctx); ok {
@@ -102,7 +90,7 @@ func (m *Manager) Execute(ctx context.Context, task runtime.Task) (*runtime.Resu
 }
 
 func (m *Manager) addWAT(ctx context.Context, entry registry.Entry) error {
-	cfg, err := wasmcomponent.UnpackConfig[api.WATFunctionConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.WATFunctionConfig](ctx, entry)
 	if err != nil {
 		return runtimewasm.NewUnpackConfigError("function.wat", err)
 	}
@@ -143,7 +131,7 @@ func (m *Manager) addWAT(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) addWASM(ctx context.Context, entry registry.Entry) error {
-	cfg, err := wasmcomponent.UnpackConfig[api.FunctionConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.FunctionConfig](ctx, entry)
 	if err != nil {
 		return runtimewasm.NewUnpackConfigError("function.wasm", err)
 	}
@@ -187,7 +175,7 @@ func (m *Manager) addWASM(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) updateWAT(ctx context.Context, entry registry.Entry) error {
-	cfg, err := wasmcomponent.UnpackConfig[api.WATFunctionConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.WATFunctionConfig](ctx, entry)
 	if err != nil {
 		return runtimewasm.NewUnpackConfigError("function.wat", err)
 	}
@@ -223,7 +211,7 @@ func (m *Manager) updateWAT(ctx context.Context, entry registry.Entry) error {
 }
 
 func (m *Manager) updateWASM(ctx context.Context, entry registry.Entry) error {
-	cfg, err := wasmcomponent.UnpackConfig[api.FunctionConfig](ctx, entry)
+	cfg, err := entrycfg.DecodeEntryConfigFromContext[api.FunctionConfig](ctx, entry)
 	if err != nil {
 		return runtimewasm.NewUnpackConfigError("function.wasm", err)
 	}

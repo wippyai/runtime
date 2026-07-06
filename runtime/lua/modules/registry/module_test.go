@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	envapi "github.com/wippyai/runtime/api/env"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
@@ -780,5 +781,73 @@ func TestRegistryGetWithComplexEntryData(t *testing.T) {
 	`)
 	if err != nil {
 		t.Errorf("registry.get with complex entry data failed: %v", err)
+	}
+}
+
+// leakProbeEnvRegistry resolves every variable, so if the registry read path
+// wrongly resolved entry data the Lua-visible value would change.
+type leakProbeEnvRegistry struct{}
+
+func (leakProbeEnvRegistry) Get(context.Context, string) (string, error) { return "LEAKED", nil }
+func (leakProbeEnvRegistry) Lookup(context.Context, string) (string, bool, error) {
+	return "LEAKED", true, nil
+}
+func (leakProbeEnvRegistry) Set(context.Context, string, string) error      { return nil }
+func (leakProbeEnvRegistry) All(context.Context) (map[string]string, error) { return nil, nil }
+func (leakProbeEnvRegistry) GetStorage(context.Context, regapi.ID) (envapi.Storage, error) {
+	return nil, envapi.ErrStorageNotFound
+}
+func (leakProbeEnvRegistry) RegisterStorage(regapi.ID, envapi.Storage) {}
+func (leakProbeEnvRegistry) RegisterVariable(envapi.Variable) error    { return nil }
+func (leakProbeEnvRegistry) UnregisterVariable(regapi.ID)              {}
+
+func TestRegistryGet_DoesNotResolveEnvOrPlaceholders(t *testing.T) {
+	ctx := setupContextWithTranscoder()
+	// An env registry that resolves anything is present; the registry read path
+	// must ignore it so entries stay sealed.
+	ctx = envapi.WithRegistry(ctx, leakProbeEnvRegistry{})
+
+	mockReg := &mockRegistry{
+		entries: map[string]regapi.Entry{
+			"test:sealed": {
+				ID:   regapi.NewID("test", "sealed"),
+				Kind: "function.lua",
+				Meta: map[string]any{"label": "${env:SECRET_URL}", "storage_env": "app:store"},
+				Data: payload.NewPayload(map[string]any{
+					"endpoint":     "${env:SECRET_URL}",
+					"password_env": "DB_PASSWORD",
+					"options": map[string]any{
+						"sslmode_env": "DB_SSLMODE",
+						"timeout":     "${env:DB_TIMEOUT}",
+					},
+				}, payload.Golang),
+			},
+		},
+	}
+	ctx = regapi.WithRegistry(ctx, mockReg)
+
+	l := lua.NewState()
+	defer l.Close()
+	l.SetContext(ctx)
+	lua.OpenErrors(l)
+	setupModule(l)
+
+	err := l.DoString(`
+		local entry, err = registry.get("test:sealed")
+		if err then error("get failed: " .. tostring(err)) end
+		-- top-level data stays raw
+		assert(entry.data.endpoint == "${env:SECRET_URL}", "data placeholder must stay unresolved, got: " .. tostring(entry.data.endpoint))
+		assert(entry.data.password_env == "DB_PASSWORD", "data _env directive must stay verbatim")
+		assert(entry.data.password == nil, "resolved sibling must not appear in registry data")
+		-- options sub-map stays raw
+		assert(entry.data.options.sslmode_env == "DB_SSLMODE", "options _env directive must stay verbatim")
+		assert(entry.data.options.sslmode == nil, "resolved options sibling must not appear")
+		assert(entry.data.options.timeout == "${env:DB_TIMEOUT}", "options placeholder must stay unresolved")
+		-- meta stays raw
+		assert(entry.meta.label == "${env:SECRET_URL}", "meta placeholder must stay unresolved, got: " .. tostring(entry.meta.label))
+		assert(entry.meta.storage_env == "app:store", "meta _env dependency reference must stay verbatim")
+	`)
+	if err != nil {
+		t.Errorf("registry read leaked resolved values into Lua: %v", err)
 	}
 }

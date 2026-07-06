@@ -3,7 +3,10 @@
 package net
 
 import (
+	"context"
+
 	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/registry"
 )
 
@@ -17,10 +20,23 @@ const (
 	KindTailscale registry.Kind = "network.tailscale"
 )
 
-// OptionKeyNetwork is the key under task/start Options bag that selects
-// the overlay network to route outbound traffic through. Its value is
-// a registry ID string such as "app.net:socks5".
-const OptionKeyNetwork = "network"
+const (
+	// OptionKeyNetwork is the key under task/start Options bag that selects
+	// the overlay network to route outbound traffic through. Its value is
+	// a registry ID string such as "app.net:socks5".
+	OptionKeyNetwork = "network"
+
+	// FrameResolverClaimNetwork is the global frame-resolver claim name for
+	// overlay network selection. Resolver registrations named this value, or
+	// explicitly covering it, satisfy the fail-closed network claim.
+	FrameResolverClaimNetwork = "network"
+)
+
+func init() {
+	ctxapi.RegisterFrameResolverClaim(FrameResolverClaimNetwork, func(ctx context.Context, options attrs.Attributes) bool {
+		return ResolveOverlayID(ctx, options) != ""
+	})
+}
 
 // NetworkConfig holds common configuration for all network entries.
 type NetworkConfig struct {
@@ -87,7 +103,6 @@ type TailscaleConfig struct {
 	Meta       attrs.Bag `json:"meta,omitempty" msgpack:"meta,omitempty"`
 	Hostname   string    `json:"hostname,omitempty" msgpack:"hostname,omitempty"`
 	AuthKey    string    `json:"auth_key,omitempty" msgpack:"auth_key,omitempty"`
-	AuthKeyEnv string    `json:"auth_key_env,omitempty" msgpack:"auth_key_env,omitempty"`
 	StateDir   string    `json:"state_dir,omitempty" msgpack:"state_dir,omitempty"`
 	ControlURL string    `json:"control_url,omitempty" msgpack:"control_url,omitempty"`
 	Ephemeral  bool      `json:"ephemeral,omitempty" msgpack:"ephemeral,omitempty"`
@@ -99,9 +114,10 @@ func (c *TailscaleConfig) SetMeta(meta attrs.Bag) {
 }
 
 // Validate checks that the Tailscale config has the minimum required fields.
-// Either AuthKey or AuthKeyEnv must be provided for non-interactive auth.
+// AuthKey must be provided for non-interactive auth; an auth_key_env directive
+// in the entry data resolves into AuthKey during config decode.
 func (c *TailscaleConfig) Validate() error {
-	if c.AuthKey == "" && c.AuthKeyEnv == "" {
+	if c.AuthKey == "" {
 		return ErrAuthKeyRequired
 	}
 	return nil
