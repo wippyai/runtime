@@ -179,6 +179,10 @@ func Component() boot.Component {
 				return ctx, fmt.Errorf("failed to create worker manager: %w", err)
 			}
 
+			// Expose the worker manager so other components can register
+			// native Go workflows and function-backed activities.
+			ctx = temporalapi.WithWorkerRegistrar(ctx, workerManager)
+
 			// Create activity listener to auto-register functions as activities
 			activityListener := activity.NewListener(
 				logger.Named("activity"),

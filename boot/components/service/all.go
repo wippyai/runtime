@@ -37,6 +37,7 @@ func All() []boot.Component {
 	components = append(components, prometheus.All()...)
 	components = append(components, otel.All()...)
 	components = append(components, temporal.All()...)
+	components = append(components, CloudGraph())
 
 	return components
 }

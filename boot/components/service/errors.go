@@ -20,6 +20,7 @@ var (
 	ErrRelayNotAvailable              = apierror.New(apierror.Internal, "relay node not available").WithRetryable(apierror.False)
 	ErrTopologyNotAvailable           = apierror.New(apierror.Internal, "topology not available in context").WithRetryable(apierror.False)
 	ErrProcessManagerNotAvailable     = apierror.New(apierror.Internal, "process manager not available in context").WithRetryable(apierror.False)
+	ErrWorkerRegistrarNotAvailable    = apierror.New(apierror.Internal, "temporal worker registrar not available in context").WithRetryable(apierror.False)
 )
 
 func NewEndpointFactoryError(cause error) apierror.Error {

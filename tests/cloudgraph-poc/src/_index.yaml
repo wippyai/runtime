@@ -1,0 +1,108 @@
+# SPDX-License-Identifier: MPL-2.0
+
+version: "1.0"
+namespace: poc
+entries:
+  # poc:processes - Process host for provider actors and the demo command
+  - name: processes
+    kind: process.host
+    meta:
+      comment: Process host for cloudgraph provider actors
+    lifecycle:
+      auto_start: true
+
+  # poc:terminal - Terminal host so wippy run can attach the demo command
+  - name: terminal
+    kind: terminal.host
+    meta:
+      comment: Terminal host for the demo command
+    hide_logs: false
+    lifecycle:
+      auto_start: true
+
+  # poc:exec - Native executor the docker provider actor drives the docker CLI with
+  - name: exec
+    kind: exec.native
+    meta:
+      comment: Native executor for the docker provider actor
+
+  # poc:db - SQLite ledger database
+  - name: db
+    kind: db.sql.sqlite
+    meta:
+      comment: Cloudgraph ledger
+    file: ./cloudgraph.db
+    lifecycle:
+      auto_start: true
+
+  # poc:temporal_client - Temporal dev server connection
+  - name: temporal_client
+    kind: temporal.client
+    meta:
+      comment: Temporal dev server (tests/docker-compose.yml)
+    address: localhost:7233
+    namespace: default
+    auth:
+      type: none
+    lifecycle:
+      auto_start: true
+
+  # poc:temporal_worker - Worker running the deploy workflow and activities
+  - name: temporal_worker
+    kind: temporal.worker
+    meta:
+      comment: Cloudgraph engine worker
+    client: poc:temporal_client
+    task_queue: cloudgraph-poc
+    lifecycle:
+      auto_start: true
+
+  # poc:docker_actor - Lua provider actor provisioning docker containers
+  - name: docker_actor
+    kind: process.lua
+    meta:
+      comment: Cloudgraph docker provider actor
+    source: file://docker_actor.lua
+    method: main
+    modules:
+      - exec
+      - time
+
+  # poc:docker_provider - Provider binding manifest
+  - name: docker_provider
+    kind: cloudgraph.provider
+    meta:
+      comment: Docker provider for cloudgraph
+    provider_type: docker
+    actor_process: poc:docker_actor
+    executor: poc:exec
+    resource_types:
+      - container
+
+  # poc:engine - The cloudgraph engine (one shard)
+  - name: engine
+    kind: cloudgraph.engine
+    meta:
+      comment: Cloudgraph engine
+    worker: poc:temporal_worker
+    client: poc:temporal_client
+    database: poc:db
+    host: poc:processes
+    shard: local
+
+  # poc:deploy_demo - CLI demo command submitting the two-wave deploy
+  - name: deploy_demo
+    kind: process.lua
+    meta:
+      comment: Submits the demo deploy and polls it to a terminal status
+      default_host: poc:processes
+      command:
+        name: deploy-demo
+        short: Deploy the cloudgraph PoC demo stack
+    source: file://deploy_demo.lua
+    method: main
+    modules:
+      - funcs
+      - json
+      - time
+      - io

@@ -15,6 +15,7 @@ const (
 	TemplateName          boot.Name = "template"
 	ContractName          boot.Name = "contract"
 	InterceptorRetryName  boot.Name = "interceptor-retry"
+	CloudGraphName        boot.Name = "cloudgraph"
 )
 
 // Network service config keys, read from the network_service subsection of

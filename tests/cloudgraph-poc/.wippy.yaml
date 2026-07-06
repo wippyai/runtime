@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: MPL-2.0
+
+version: "1.0"
+
+logger:
+  mode: development
+  level: info
+  encoding: console
+
+registry:
+  enable_history: false
+
+relay:
+  node_name: local
+
+lua:
+  type_system:
+    enabled: true
+    strict: true
+
+shutdown:
+  timeout: 30s

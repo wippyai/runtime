@@ -6,6 +6,7 @@ import (
 	"context"
 
 	ctxapi "github.com/wippyai/runtime/api/context"
+	"github.com/wippyai/runtime/api/registry"
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/interceptor"
 )
@@ -19,7 +20,17 @@ var (
 	workerInterceptorRegKey = &ctxapi.Key{Name: "temporal.interceptor.worker"}
 	dataConverterRegKey     = &ctxapi.Key{Name: "temporal.dataconverter.registry"}
 	runHandoffRegKey        = &ctxapi.Key{Name: "temporal.run.handoff.registry"}
+	workerRegistrarKey      = &ctxapi.Key{Name: "temporal.worker.registrar"}
 )
+
+// WorkerRegistrar registers native Go workflows and function-registry-backed
+// activities on managed workers. The worker manager implements it; other boot
+// components reach it through the context.
+type WorkerRegistrar interface {
+	RegisterWorkflow(ctx context.Context, workerID registry.ID, workflowName string, handler any) error
+	RegisterActivity(ctx context.Context, workerID registry.ID, activityName string, funcID registry.ID) error
+	GetConfig(id registry.ID) (*WorkerConfig, bool)
+}
 
 // ClientInterceptorRegistry provides methods to register client interceptors
 type ClientInterceptorRegistry interface {
@@ -159,6 +170,36 @@ func GetWorkflowRunHandoff(ctx context.Context) WorkflowRunHandoff {
 	}
 	if val := ctx.Value(runHandoffRegKey); val != nil {
 		if reg, ok := val.(WorkflowRunHandoff); ok {
+			return reg
+		}
+	}
+	return nil
+}
+
+// WithWorkerRegistrar stores the worker registrar in context.
+func WithWorkerRegistrar(ctx context.Context, reg WorkerRegistrar) context.Context {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return context.WithValue(ctx, workerRegistrarKey, reg)
+	}
+	if ac.Get(workerRegistrarKey) == nil {
+		ac.With(workerRegistrarKey, reg)
+	}
+	return ctx
+}
+
+// GetWorkerRegistrar retrieves the worker registrar from context.
+func GetWorkerRegistrar(ctx context.Context) WorkerRegistrar {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac != nil {
+		if val := ac.Get(workerRegistrarKey); val != nil {
+			if reg, ok := val.(WorkerRegistrar); ok {
+				return reg
+			}
+		}
+	}
+	if val := ctx.Value(workerRegistrarKey); val != nil {
+		if reg, ok := val.(WorkerRegistrar); ok {
 			return reg
 		}
 	}
