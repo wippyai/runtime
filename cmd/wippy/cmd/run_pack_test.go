@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -18,6 +19,7 @@ import (
 	supervisorapi "github.com/wippyai/runtime/api/supervisor"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
+	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/cmd/internal/shutdown"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
 	"github.com/wippyai/wapp"
@@ -68,7 +70,7 @@ func TestRunPackEntries_InvalidRequirementFailsNormalizationPipeline(t *testing.
 		},
 	}
 
-	err = runPackEntries(ctx, loader, zap.NewNop(), packEntries, []string{"missing"}, defaultUseCase)
+	err = runPackEntries(ctx, loader, zap.NewNop(), packEntries, []string{"missing"}, defaultUseCase, "")
 	if err == nil {
 		t.Fatal("expected normalization pipeline error")
 	}
@@ -105,7 +107,7 @@ func TestRunPackEntries_NoEntrypointRunsAsServer(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- runPackEntries(ctx, loader, zap.NewNop(), nil, nil, defaultUseCase)
+		done <- runPackEntries(ctx, loader, zap.NewNop(), nil, nil, defaultUseCase, "")
 	}()
 
 	select {
@@ -147,7 +149,7 @@ func TestRunPackEntries_TestModeWithoutTestEntrypointErrors(t *testing.T) {
 		_ = embedReg.Close()
 	})
 
-	err = runPackEntries(ctx, loader, zap.NewNop(), nil, nil, "test")
+	err = runPackEntries(ctx, loader, zap.NewNop(), nil, nil, "test", "")
 	if err == nil {
 		t.Fatal("expected an error when there is no test entrypoint")
 	}
@@ -177,7 +179,7 @@ func TestRunPackEntries_RunModeUnknownCommandErrors(t *testing.T) {
 		_ = embedReg.Close()
 	})
 
-	err = runPackEntries(ctx, loader, zap.NewNop(), nil, []string{"nope"}, defaultUseCase)
+	err = runPackEntries(ctx, loader, zap.NewNop(), nil, []string{"nope"}, defaultUseCase, "")
 	if err == nil {
 		t.Fatal("expected an error for an unknown command")
 	}
@@ -435,6 +437,122 @@ func TestCommandsFromEntries(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("command[%d] = %+v, want %+v", i, got[i], want[i])
 		}
+	}
+}
+
+func TestCollectPackCommandsFiltersDependencyModules(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "wippy.yaml")
+	if err := os.WriteFile(cfgPath, []byte("version: \"1.0\"\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	prevConfigFile := configFile
+	configFile = cfgPath
+	t.Cleanup(func() {
+		configFile = prevConfigFile
+	})
+
+	ctx, loader, _, embedReg, err := bootstrapPackRuntime(nil, zap.NewNop())
+	if err != nil {
+		t.Fatalf("bootstrap pack runtime: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = embedReg.Close()
+	})
+	appCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if err := loader.Start(appCtx); err != nil {
+		t.Fatalf("start loader: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = shutdown.Perform(appCtx, loader, zap.NewNop(), true)
+	})
+
+	entries := []regapi.Entry{
+		{
+			ID:   regapi.NewID("wippy.test", "runner"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{"source": "return {}"}),
+			Meta: map[string]any{
+				"module":  "wippy/test",
+				"command": map[string]any{"name": "test"},
+			},
+		},
+		{
+			ID:   regapi.NewID("app", "serve"),
+			Kind: "process.lua",
+			Data: payload.New(map[string]any{"source": "return {}"}),
+			Meta: map[string]any{
+				"module":  "kickside/kickside",
+				"command": map[string]any{"name": "serve", "main": true},
+			},
+		},
+	}
+	if err := applyPackEntries(appCtx, entries, zap.NewNop()); err != nil {
+		t.Fatalf("apply entries: %v", err)
+	}
+
+	commands, err := collectPackCommands(appCtx, "kickside/kickside")
+	if err != nil {
+		t.Fatalf("collect pack commands: %v", err)
+	}
+	if len(commands) != 1 || commands[0].entryID != "app:serve" {
+		t.Fatalf("commands = %#v, want only app:serve", commands)
+	}
+
+	entryID, err := findPackCommandForModule(appCtx, "", defaultUseCase, "kickside/kickside")
+	if err != nil {
+		t.Fatalf("find pack command: %v", err)
+	}
+	if entryID != "app:serve" {
+		t.Fatalf("entryID = %q, want app:serve", entryID)
+	}
+}
+
+func TestPackCommandAllowed(t *testing.T) {
+	tests := []struct {
+		name       string
+		meta       map[string]any
+		mainModule string
+		want       bool
+	}{
+		{
+			name: "moduleless command allowed without pack identity",
+			meta: map[string]any{"command": map[string]any{"name": "serve"}},
+			want: true,
+		},
+		{
+			name: "dependency command excluded without pack identity",
+			meta: map[string]any{"module": "wippy/test", "command": map[string]any{"name": "test"}},
+			want: false,
+		},
+		{
+			name:       "main module command allowed",
+			meta:       map[string]any{"module": "kickside/kickside", "command": map[string]any{"name": "serve"}},
+			mainModule: "kickside/kickside",
+			want:       true,
+		},
+		{
+			name:       "dependency command excluded when main module known",
+			meta:       map[string]any{"module": "wippy/test", "command": map[string]any{"name": "test"}},
+			mainModule: "kickside/kickside",
+			want:       false,
+		},
+		{
+			name:       "moduleless command allowed when main module known",
+			meta:       map[string]any{"command": map[string]any{"name": "serve"}},
+			mainModule: "kickside/kickside",
+			want:       true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := packCommandAllowed(tc.meta, tc.mainModule); got != tc.want {
+				t.Fatalf("packCommandAllowed() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -754,6 +872,87 @@ func TestLoadPackEntries_DoesNotOverrideExistingModuleMetadata(t *testing.T) {
 	}
 }
 
+func TestLoadPackEntries_MonolithicPackRegistersModuleResourceAliases(t *testing.T) {
+	tmpDir := t.TempDir()
+	root := filepath.Join(tmpDir, "static")
+	writeTestFile(t, root, "index.html", []byte("<html>module</html>\n"))
+
+	packPath := createTestResourcePackFile(t, tmpDir, "snapshot", wapp.Metadata{
+		"name": "snapshot",
+	}, []wapp.Entry{{
+		ID:   wapp.NewID("acme.ui", "static_fs"),
+		Kind: "fs.embed",
+		Meta: wapp.Metadata{
+			"module":         "acme/ui",
+			"module_version": "1.2.3",
+		},
+	}}, []wapp.ResourceSpec{{
+		ID: wapp.NewID("acme.ui", "static_fs"),
+		FS: os.DirFS(root),
+	}})
+
+	embedReg := embedpkg.NewRegistry()
+	defer func() { _ = embedReg.Close() }()
+
+	packEntries, err := loadPackEntries([]string{packPath}, embedReg)
+	if err != nil {
+		t.Fatalf("loadPackEntries failed: %v", err)
+	}
+	if len(packEntries) != 1 {
+		t.Fatalf("entry count = %d, want 1", len(packEntries))
+	}
+
+	fsys, err := embedReg.GetFSForEntry(packEntries[0])
+	if err != nil {
+		t.Fatalf("GetFSForEntry failed: %v", err)
+	}
+	data, err := fs.ReadFile(fsys, "index.html")
+	if err != nil {
+		t.Fatalf("read aliased resource: %v", err)
+	}
+	if string(data) != "<html>module</html>\n" {
+		t.Fatalf("aliased resource data = %q", string(data))
+	}
+}
+
+func TestCollectEmbeddedPackResourcesCarriesDependencyResources(t *testing.T) {
+	tmpDir := t.TempDir()
+	depRoot := filepath.Join(tmpDir, "dep")
+	writeTestFile(t, depRoot, "index.html", []byte("<html>dep</html>\n"))
+
+	depPack := createTestResourcePackFile(t, tmpDir, "dep", wapp.Metadata{
+		"name":      "ui",
+		"namespace": "acme.ui",
+		"version":   "1.2.3",
+	}, []wapp.Entry{{
+		ID:   wapp.NewID("acme.ui", "static_fs"),
+		Kind: "fs.embed",
+	}}, []wapp.ResourceSpec{{
+		ID: wapp.NewID("acme.ui", "static_fs"),
+		FS: os.DirFS(depRoot),
+	}})
+
+	resources, handles, err := collectEmbeddedPackResources([]lock.ModuleLoadPath{{
+		Module:  "acme/ui",
+		Version: "1.2.3",
+		Path:    depPack,
+	}}, nil)
+	defer func() { _ = closeEmbeddedPackResourceHandles(handles) }()
+	if err != nil {
+		t.Fatalf("collectEmbeddedPackResources failed: %v", err)
+	}
+	if len(resources) != 1 {
+		t.Fatalf("resource count = %d, want 1", len(resources))
+	}
+	data, err := fs.ReadFile(resources[0].FS, "index.html")
+	if err != nil {
+		t.Fatalf("read carried resource: %v", err)
+	}
+	if string(data) != "<html>dep</html>\n" {
+		t.Fatalf("carried resource data = %q", string(data))
+	}
+}
+
 func TestLoadBootConfig_OverridesAppliedToPipelineEntries(t *testing.T) {
 	t.Run("overrides from wippy.yaml are applied to entries", func(t *testing.T) {
 		tmpDir := t.TempDir()
@@ -986,6 +1185,27 @@ func createModulePackWithEmbeddedResource(t *testing.T, dir, name string, metada
 	}
 	if err != nil {
 		t.Fatalf("pack with resource: %v", err)
+	}
+
+	return packPath
+}
+
+func createTestResourcePackFile(t *testing.T, dir, name string, metadata wapp.Metadata, entries []wapp.Entry, resources []wapp.ResourceSpec) string {
+	t.Helper()
+
+	packPath := filepath.Join(dir, name+".wapp")
+	file, err := os.Create(packPath)
+	if err != nil {
+		t.Fatalf("create pack file: %v", err)
+	}
+
+	writer := wapp.NewWriter()
+	err = writer.PackWithResources(metadata, entries, resources, file)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatalf("pack with resources: %v", err)
 	}
 
 	return packPath

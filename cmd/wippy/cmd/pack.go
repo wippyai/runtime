@@ -3,9 +3,11 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +21,7 @@ import (
 	"github.com/wippyai/runtime/api/version"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
+	moduleconfig "github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	appinit "github.com/wippyai/runtime/cmd/internal/app"
 	"github.com/wippyai/runtime/cmd/internal/entries"
@@ -37,7 +40,8 @@ The pack file contains fully linked entries ready for loading without additional
 Examples:
   wippy pack snapshot.wapp
   wippy pack release-v1.2.3.wapp
-  wippy pack --embed app:assets snapshot.wapp`,
+  wippy pack --embed app:assets snapshot.wapp
+  wippy pack --embed-all snapshot.wapp`,
 	Args: cobra.ExactArgs(1),
 	RunE: runPack,
 }
@@ -50,6 +54,7 @@ func init() {
 	packCmd.Flags().StringSliceP("tags", "t", nil, "pack tags")
 	packCmd.Flags().StringArray("meta", nil, "custom metadata (key=value, supports dotted notation)")
 	packCmd.Flags().StringSlice("embed", nil, "embed patterns (entry IDs or names to embed, e.g., app:assets,app:static)")
+	packCmd.Flags().Bool("embed-all", false, "embed all fs.directory entries")
 	packCmd.Flags().Bool("list", false, "list all fs.directory entries and exit (dry-run mode)")
 	packCmd.Flags().StringSlice("exclude-ns", nil, "exclude entries by namespace patterns (e.g., app.**,test.*)")
 	packCmd.Flags().StringSlice("exclude", nil, "exclude entries by ID patterns (e.g., app:internal,test:*)")
@@ -73,18 +78,19 @@ const (
 type packModel struct {
 	err           error
 	metadata      attrs.Bag
+	outputFile    string
 	status        string
 	stage         packStage
-	outputFile    string
+	embedPatterns []string
 	logs          []string
 	resources     []resourceInfo
-	embedPatterns []string
 	progress      progress.Model
-	entryCount    int
 	fileSize      int64
-	resourceCount int
 	percent       float64
+	entryCount    int
+	resourceCount int
 	maxLogs       int
+	embedAll      bool
 	done          bool
 	verbose       bool
 }
@@ -292,7 +298,9 @@ func (m *packModel) View() string {
 		Foreground(lipgloss.Color("8"))
 
 	var embedInfo string
-	if len(m.embedPatterns) > 0 {
+	if m.embedAll {
+		embedInfo = statusStyle.Render("  Embed patterns: all fs.directory entries\n")
+	} else if len(m.embedPatterns) > 0 {
 		embedInfo = statusStyle.Render(fmt.Sprintf("  Embed patterns: %s\n", strings.Join(m.embedPatterns, ", ")))
 	}
 
@@ -350,7 +358,10 @@ func runPack(cmd *cobra.Command, args []string) error {
 		return runListMode(app, lockPath, folderPath)
 	}
 
-	embedPatterns, _ := cmd.Flags().GetStringSlice("embed")
+	embedConfig, err := resolvePackEmbedConfig(cmd, folderPath)
+	if err != nil {
+		return NewPackConfigError(err)
+	}
 	verboseMode := rootCmd.PersistentFlags().Lookup("verbose").Changed
 
 	prog := progress.New(progress.WithDefaultGradient())
@@ -358,13 +369,14 @@ func runPack(cmd *cobra.Command, args []string) error {
 		stage:         stageInit,
 		progress:      prog,
 		status:        "Initializing...",
-		embedPatterns: embedPatterns,
+		embedPatterns: embedConfig.patterns,
+		embedAll:      embedConfig.all,
 		outputFile:    outputFile,
 		verbose:       verboseMode,
 		maxLogs:       20,
 	}
 
-	p := tea.NewProgram(m)
+	p := newCLIProgram(m)
 
 	go func() {
 		if err := performPack(cmd, args, app, p); err != nil {
@@ -389,7 +401,11 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	outputFile := args[0]
 	lockFile, _ := cmd.Flags().GetString("lock-file")
 	folderPath := "."
-	embedPatterns, _ := cmd.Flags().GetStringSlice("embed")
+	embedConfig, err := resolvePackEmbedConfig(cmd, folderPath)
+	if err != nil {
+		return NewPackConfigError(err)
+	}
+	embedPatterns := embedConfig.patterns
 	excludeNS, _ := cmd.Flags().GetStringSlice("exclude-ns")
 	excludeEntries, _ := cmd.Flags().GetStringSlice("exclude")
 	bytecodePatterns, _ := cmd.Flags().GetStringSlice("bytecode")
@@ -411,6 +427,7 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 
+	modulePaths := lockObj.GetModuleLoadPaths()
 	paths := lockObj.GetLoadPaths()
 
 	p.Send(progressMsg{stage: stageLoadEntries, percent: 0.2, status: fmt.Sprintf("Loading entries from %d paths...", len(paths))})
@@ -481,13 +498,17 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 		}
 	}
 
-	if len(embedPatterns) > 0 {
+	if embedConfig.enabled() {
+		status := "Processing all embed-capable directories"
+		if !embedConfig.all {
+			status = fmt.Sprintf("Processing embed patterns: %s", strings.Join(embedPatterns, ", "))
+		}
 		p.Send(progressMsg{
 			stage:   stagePipeline,
 			percent: 0.55,
-			status:  fmt.Sprintf("Processing embed patterns: %s", strings.Join(embedPatterns, ", ")),
+			status:  status,
 		})
-		pipelineStages = append(pipelineStages, stages.EmbedFS("", embedPatterns...))
+		pipelineStages = append(pipelineStages, stages.EmbedFS("", embedConfig.stagePatterns()...))
 	}
 
 	pipeline := build.New(pipelineStages...)
@@ -501,6 +522,18 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	// Add bytecode resource if compiled
 	if bcRes := stages.GetBytecodeResource(); bcRes != nil {
 		resources = append(resources, *bcRes)
+	}
+
+	carriedResources, carriedHandles, err := collectEmbeddedPackResources(modulePaths, resources)
+	if err != nil {
+		return NewPackWithResourcesError(err)
+	}
+	defer func() { _ = closeEmbeddedPackResourceHandles(carriedHandles) }()
+	if len(carriedResources) > 0 {
+		resources = append(resources, carriedResources...)
+		p.Send(logMsg{level: "info", message: "Carried embedded resources from dependency packs", fields: map[string]any{
+			"count": len(carriedResources),
+		}})
 	}
 
 	var resInfos []resourceInfo
@@ -630,6 +663,157 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	})
 
 	return nil
+}
+
+type packEmbedConfig struct {
+	patterns []string
+	all      bool
+}
+
+func (c packEmbedConfig) enabled() bool {
+	return c.all || len(c.patterns) > 0
+}
+
+func (c packEmbedConfig) stagePatterns() []string {
+	if c.all {
+		return nil
+	}
+	return c.patterns
+}
+
+func resolvePackEmbedConfig(cmd *cobra.Command, configDir string) (packEmbedConfig, error) {
+	flagPatterns, _ := cmd.Flags().GetStringSlice("embed")
+	flagAll, _ := cmd.Flags().GetBool("embed-all")
+	if flagAll && cmd.Flags().Changed("embed") && len(flagPatterns) > 0 {
+		return packEmbedConfig{}, fmt.Errorf("--embed-all cannot be combined with --embed")
+	}
+	if flagAll {
+		return packEmbedConfig{all: true}, nil
+	}
+	if cmd.Flags().Changed("embed") {
+		return packEmbedConfig{patterns: flagPatterns, all: hasEmbedAllPattern(flagPatterns)}, nil
+	}
+
+	configPath := filepath.Join(configDir, moduleconfig.DefaultConfigFile)
+	if _, err := os.Stat(configPath); err != nil {
+		if os.IsNotExist(err) {
+			return packEmbedConfig{patterns: flagPatterns}, nil
+		}
+		return packEmbedConfig{}, fmt.Errorf("stat %s: %w", configPath, err)
+	}
+
+	cfg, err := moduleconfig.Load(configDir)
+	if err != nil {
+		return packEmbedConfig{}, err
+	}
+	if len(cfg.Embed) == 0 {
+		return packEmbedConfig{patterns: flagPatterns}, nil
+	}
+	return packEmbedConfig{patterns: cfg.Embed, all: hasEmbedAllPattern(cfg.Embed)}, nil
+}
+
+func hasEmbedAllPattern(patterns []string) bool {
+	for _, pattern := range patterns {
+		if pattern == "*" || pattern == "**" {
+			return true
+		}
+	}
+	return false
+}
+
+type embeddedPackResourceHandle struct {
+	file *os.File
+}
+
+func collectEmbeddedPackResources(modulePaths []lock.ModuleLoadPath, existing []wapp.ResourceSpec) ([]wapp.ResourceSpec, []embeddedPackResourceHandle, error) {
+	seen := make(map[wapp.ID]string, len(existing))
+	for _, res := range existing {
+		seen[res.ID] = "current pack"
+	}
+
+	var resources []wapp.ResourceSpec
+	var handles []embeddedPackResourceHandle
+
+	fail := func(err error) ([]wapp.ResourceSpec, []embeddedPackResourceHandle, error) {
+		_ = closeEmbeddedPackResourceHandles(handles)
+		return nil, nil, err
+	}
+
+	for _, mp := range modulePaths {
+		if !hasWappExtension(mp.Path) {
+			continue
+		}
+
+		file, err := os.Open(mp.Path)
+		if err != nil {
+			return fail(fmt.Errorf("open embedded dependency pack %s: %w", mp.Path, err))
+		}
+
+		reader, err := wapp.NewReader(file)
+		if err != nil {
+			_ = file.Close()
+			return fail(fmt.Errorf("read embedded dependency pack %s: %w", mp.Path, err))
+		}
+
+		infos := reader.ListResources()
+		if len(infos) == 0 {
+			_ = file.Close()
+			continue
+		}
+
+		handleAdded := false
+		for _, info := range infos {
+			if prev, ok := seen[info.ID]; ok {
+				_ = file.Close()
+				return fail(fmt.Errorf("duplicate embedded resource %s from %s already provided by %s", info.ID.String(), embeddedPackResourceOrigin(mp), prev))
+			}
+
+			fsys, err := reader.GetFS(info.ID)
+			if err != nil {
+				_ = file.Close()
+				return fail(fmt.Errorf("open embedded resource %s from %s: %w", info.ID.String(), embeddedPackResourceOrigin(mp), err))
+			}
+
+			resources = append(resources, wapp.ResourceSpec{
+				ID:   info.ID,
+				Meta: info.Meta,
+				FS:   fsys,
+			})
+			seen[info.ID] = embeddedPackResourceOrigin(mp)
+			handleAdded = true
+		}
+
+		if handleAdded {
+			handles = append(handles, embeddedPackResourceHandle{file: file})
+		} else {
+			_ = file.Close()
+		}
+	}
+
+	return resources, handles, nil
+}
+
+func embeddedPackResourceOrigin(mp lock.ModuleLoadPath) string {
+	if mp.Module == "" {
+		return mp.Path
+	}
+	if mp.Version == "" {
+		return mp.Module + " at " + mp.Path
+	}
+	return mp.Module + "@" + mp.Version + " at " + mp.Path
+}
+
+func closeEmbeddedPackResourceHandles(handles []embeddedPackResourceHandle) error {
+	var errs []error
+	for _, handle := range handles {
+		if handle.file == nil {
+			continue
+		}
+		if err := handle.file.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func parseMetadataFlags(metaFlags []string, metadata attrs.Bag, logger *zap.Logger) error {

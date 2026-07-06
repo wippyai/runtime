@@ -1,0 +1,71 @@
+// SPDX-License-Identifier: MPL-2.0
+
+package cmd
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/wippyai/runtime/boot/deps/config"
+	"github.com/wippyai/runtime/boot/deps/hub"
+)
+
+func TestPublishViaHubOrLegacy_LabelUploadKeepsVersionHeader(t *testing.T) {
+	tmpDir := t.TempDir()
+	wappPath := filepath.Join(tmpDir, "module.wapp")
+	if err := os.WriteFile(wappPath, []byte("packed module"), 0o600); err != nil {
+		t.Fatalf("write wapp: %v", err)
+	}
+
+	var gotVersion, gotLabel string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/publish/upload" {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		gotVersion = r.Header.Get("X-Wippy-Version")
+		gotLabel = r.Header.Get("X-Wippy-Label")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"publish_id":"publish-1"}`))
+	}))
+	defer server.Close()
+
+	client, err := hub.NewClient(hub.Options{
+		BaseURL: server.URL,
+		Token:   "test-token",
+	})
+	if err != nil {
+		t.Fatalf("new hub client: %v", err)
+	}
+
+	cfg := &config.ModuleConfig{
+		Organization: "acme",
+		ModuleName:   "app",
+		Version:      "1.2.3",
+	}
+	publishID, err := publishViaHubOrLegacy(
+		context.Background(),
+		client,
+		server.URL,
+		cfg,
+		wappPath,
+		"latest",
+		"release notes",
+		false,
+	)
+	if err != nil {
+		t.Fatalf("publishViaHubOrLegacy failed: %v", err)
+	}
+	if publishID != "publish-1" {
+		t.Fatalf("publish id = %q, want publish-1", publishID)
+	}
+	if gotVersion != "1.2.3" {
+		t.Fatalf("X-Wippy-Version = %q, want 1.2.3", gotVersion)
+	}
+	if gotLabel != "latest" {
+		t.Fatalf("X-Wippy-Label = %q, want latest", gotLabel)
+	}
+}

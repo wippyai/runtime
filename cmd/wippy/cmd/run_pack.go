@@ -28,6 +28,10 @@ import (
 	"go.uber.org/zap"
 )
 
+type hubPackDownloader interface {
+	DownloadToFile(ctx context.Context, url, destPath string) error
+}
+
 // hubModulePattern matches hub references like org/module[@version|@label].
 var hubModulePattern = regexp.MustCompile(`^([a-z][a-z0-9-]*)/([a-z][a-z0-9-]*)(?:@(.+))?$`)
 var hubIdentPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
@@ -84,6 +88,27 @@ func collectCommands(ctx context.Context) ([]packCommand, error) {
 	return commandsFromEntries(allEntries), nil
 }
 
+func collectPackCommands(ctx context.Context, mainModule string) ([]packCommand, error) {
+	reg := registry.GetRegistry(ctx)
+	if reg == nil {
+		return nil, fmt.Errorf("registry not available")
+	}
+
+	allEntries, err := reg.GetAllEntries()
+	if err != nil {
+		return nil, fmt.Errorf("failed to query registry for commands: %w", err)
+	}
+
+	filtered := allEntries[:0]
+	for _, entry := range allEntries {
+		if !packCommandAllowed(entry.Meta, mainModule) {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return commandsFromEntries(filtered), nil
+}
+
 // commandForUseCase maps a declared use case to the top-level CLI command that
 // targets it (the default use case maps to `wippy run`, every other use case
 // maps to a command of the same name, e.g. `wippy test`).
@@ -95,15 +120,29 @@ func commandForUseCase(useCase string) string {
 	return useCase
 }
 
-// findPackCommand resolves the entrypoint to execute from the loaded registry
-// for the given use case. See selectEntrypoint for the selection rules.
-func findPackCommand(ctx context.Context, commandName, useCase string) (string, error) {
-	commands, err := collectCommands(ctx)
+func findPackCommandForModule(ctx context.Context, commandName, useCase, mainModule string) (string, error) {
+	commands, err := collectPackCommands(ctx, mainModule)
 	if err != nil {
 		return "", err
 	}
 
 	return selectEntrypoint(commands, commandName, useCase)
+}
+
+func moduleMeta(meta map[string]any) string {
+	if meta == nil {
+		return ""
+	}
+	module, _ := meta["module"].(string)
+	return module
+}
+
+func packCommandAllowed(meta map[string]any, mainModule string) bool {
+	module := moduleMeta(meta)
+	if mainModule == "" {
+		return module == ""
+	}
+	return module == "" || module == mainModule
 }
 
 // selectEntrypoint picks the entrypoint to execute for a use case.
@@ -280,16 +319,8 @@ func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]s
 		moduleName := fmt.Sprintf("%s/%s", m.Org, m.Name)
 		packPath := filepath.Join(cacheDir, m.Org, fmt.Sprintf("%s-%s.wapp", m.Name, m.Version))
 
-		if _, err := os.Stat(packPath); err == nil {
-			fmt.Printf("%s %s@%s (cached)\n", dimStyle.Render(""), moduleName, m.Version)
-		} else {
-			fmt.Printf("%s Downloading %s@%s...\n", dimStyle.Render(""), moduleName, m.Version)
-			if m.URL == "" {
-				return nil, fmt.Errorf("no download URL for %s@%s from %s", moduleName, m.Version, registryURL)
-			}
-			if err := client.DownloadToFile(downloadCtx, m.URL, packPath); err != nil {
-				return nil, fmt.Errorf("failed to download %s@%s from %s to %s: %w", moduleName, m.Version, registryURL, packPath, err)
-			}
+		if err := ensureHubPackCached(downloadCtx, client, m, packPath, moduleName, registryURL); err != nil {
+			return nil, err
 		}
 
 		if err := updateLockFile(moduleName, m.Version, m.Digest); err != nil {
@@ -311,6 +342,35 @@ func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]s
 
 	fmt.Println()
 	return packPaths, nil
+}
+
+func ensureHubPackCached(ctx context.Context, client hubPackDownloader, m hub.ResolvedModule, packPath, moduleName, registryURL string) error {
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	if _, err := os.Stat(packPath); err == nil {
+		if err := hub.VerifyDownloadedArtifact(packPath, m.Digest, m.SizeBytes); err == nil {
+			fmt.Printf("%s %s@%s (cached)\n", dimStyle.Render(""), moduleName, m.Version)
+			return nil
+		}
+		fmt.Printf("%s Cached %s@%s failed integrity check; redownloading...\n", dimStyle.Render(""), moduleName, m.Version)
+		if err := os.Remove(packPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove invalid cached pack %s: %w", packPath, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to stat cached pack %s: %w", packPath, err)
+	}
+
+	fmt.Printf("%s Downloading %s@%s...\n", dimStyle.Render(""), moduleName, m.Version)
+	if m.URL == "" {
+		return fmt.Errorf("no download URL for %s@%s from %s", moduleName, m.Version, registryURL)
+	}
+	if err := client.DownloadToFile(ctx, m.URL, packPath); err != nil {
+		return fmt.Errorf("failed to download %s@%s from %s to %s: %w", moduleName, m.Version, registryURL, packPath, err)
+	}
+	if err := hub.VerifyDownloadedArtifact(packPath, m.Digest, m.SizeBytes); err != nil {
+		_ = os.Remove(packPath)
+		return fmt.Errorf("failed to verify downloaded %s@%s from %s: %w", moduleName, m.Version, registryURL, err)
+	}
+	return nil
 }
 
 // updateLockFile persists resolved module version/hash into wippy.lock.
@@ -402,9 +462,14 @@ func runFromPackFile(cmd *cobra.Command, packFile string, args []string, useCase
 		return NewLoadEntriesError(packFile, err)
 	}
 
+	mainModule, _, err := moduleIdentityFromPackFile(packFile)
+	if err != nil {
+		return fmt.Errorf("failed to load main module identity from pack metadata: %w", err)
+	}
+
 	runLogger.Info("loaded entries from pack", zap.Int("count", len(packEntries)))
 
-	return runPackEntries(ctx, loader, runLogger, packEntries, args, useCase)
+	return runPackEntries(ctx, loader, runLogger, packEntries, args, useCase, mainModule)
 }
 
 // runFromPackFiles executes runtime from multiple already resolved .wapp files.
@@ -435,6 +500,15 @@ func runFromPackFiles(cmd *cobra.Command, packFiles []string, args []string, use
 	}
 	defer embedReg.Close()
 
+	mainModule := ""
+	if len(packFiles) > 0 {
+		var err error
+		mainModule, _, err = moduleIdentityFromPackFile(packFiles[len(packFiles)-1])
+		if err != nil {
+			return fmt.Errorf("failed to load main module identity from pack metadata: %w", err)
+		}
+	}
+
 	packEntries, err := loadPackEntries(packFiles, embedReg)
 	if err != nil {
 		runLogger.Error("failed to load entries from packs", zap.Error(err))
@@ -443,7 +517,7 @@ func runFromPackFiles(cmd *cobra.Command, packFiles []string, args []string, use
 
 	runLogger.Info("loaded entries from packs", zap.Int("count", len(packEntries)))
 
-	return runPackEntries(ctx, loader, runLogger, packEntries, args, useCase)
+	return runPackEntries(ctx, loader, runLogger, packEntries, args, useCase, mainModule)
 }
 
 // runPackEntries starts runtime, applies pack entries to registry, optionally
@@ -455,6 +529,7 @@ func runPackEntries(
 	packEntries []registry.Entry,
 	args []string,
 	useCase string,
+	mainModule string,
 ) error {
 	sigChan := setupSupervisorSignalChannel(ctx)
 	defer signal.Stop(sigChan)
@@ -481,7 +556,7 @@ func runPackEntries(
 		args = args[1:]
 	}
 
-	entryID, err := findPackCommand(appCtx, commandName, useCase)
+	entryID, err := findPackCommandForModule(appCtx, commandName, useCase, mainModule)
 	if err != nil {
 		logger.Error("failed to find command", zap.Error(err))
 		return err
@@ -503,6 +578,22 @@ func runPackEntries(
 	}
 
 	return nil
+}
+
+func moduleIdentityFromPackFile(packFile string) (moduleName string, moduleVersion string, err error) {
+	file, err := os.Open(packFile)
+	if err != nil {
+		return "", "", fmt.Errorf("open pack %s: %w", packFile, err)
+	}
+	defer file.Close()
+
+	reader, err := entries.NewPackReader(file, nil)
+	if err != nil {
+		return "", "", fmt.Errorf("read pack %s: %w", packFile, err)
+	}
+
+	moduleName, moduleVersion = moduleIdentityFromPackMetadata(reader.Reader())
+	return moduleName, moduleVersion, nil
 }
 
 // applyPackEntries restores packed entries as baseline state after applying the
@@ -555,6 +646,10 @@ func loadPackEntries(packFiles []string, embedReg packReaderRegistry) ([]registr
 
 		if moduleName != "" {
 			annotateEntriesModuleMeta(loadedEntries, moduleName, moduleVersion)
+		} else {
+			if err := registerMonolithicPackResourceAliases(embedReg, packFile, packReader.Reader(), loadedEntries); err != nil {
+				return nil, fmt.Errorf("register embed resource aliases for %s: %w", packFile, err)
+			}
 		}
 
 		packEntries = append(packEntries, loadedEntries...)
@@ -570,6 +665,45 @@ func registerPackResources(embedReg packReaderRegistry, packFile, moduleName, mo
 		}
 	}
 	return embedReg.Register(packFile, reader, file)
+}
+
+func registerMonolithicPackResourceAliases(embedReg packReaderRegistry, packFile string, reader *wapp.Reader, loadedEntries []registry.Entry) error {
+	moduleReg, ok := embedReg.(modulePackReaderRegistry)
+	if !ok {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	for _, entry := range loadedEntries {
+		if entry.Meta == nil {
+			continue
+		}
+
+		moduleName, _ := entry.Meta["module"].(string)
+		if moduleName == "" {
+			continue
+		}
+
+		moduleVersion, _ := entry.Meta["module_version"].(string)
+		key := moduleName + "\x00" + moduleVersion
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		if err := moduleReg.RegisterPack(monolithicPackAliasPath(packFile, moduleName, moduleVersion), moduleName, moduleVersion, reader, nil); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func monolithicPackAliasPath(packFile, moduleName, moduleVersion string) string {
+	if moduleVersion == "" {
+		return packFile + "#" + moduleName
+	}
+	return packFile + "#" + moduleName + "@" + moduleVersion
 }
 
 func moduleIdentityFromPackMetadata(reader *wapp.Reader) (moduleName string, moduleVersion string) {
