@@ -3,7 +3,10 @@
 // Package attrs provides a unified key-value attribute bag for metadata, options, and configuration.
 package attrs
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type (
 	// Attributes provides a type-safe interface for accessing key-value pairs.
@@ -64,8 +67,19 @@ func (b Bag) GetString(key string, def string) string {
 // GetInt retrieves the value as an int, returning def if not found or not an int.
 func (b Bag) GetInt(key string, def int) int {
 	if v, ok := b.Get(key); ok {
-		if i, ok := v.(int); ok {
-			return i
+		switch n := v.(type) {
+		case int:
+			return n
+		case int64:
+			return int(n)
+		case int32:
+			return int(n)
+		case float64:
+			return int(n)
+		case json.Number:
+			if i, err := n.Int64(); err == nil {
+				return int(i)
+			}
 		}
 	}
 	return def

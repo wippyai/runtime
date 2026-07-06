@@ -3,6 +3,7 @@
 package attrs
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -32,21 +33,44 @@ func TestBag_GetString(t *testing.T) {
 }
 
 func TestBag_GetInt(t *testing.T) {
-	b := NewBagFrom(map[string]any{
-		"int": 42,
-		"str": "value",
-	})
-
-	if got := b.GetInt("int", 0); got != 42 {
-		t.Errorf("GetInt(int) = %d, want %d", got, 42)
+	cases := []struct {
+		name string
+		val  any
+		want int
+	}{
+		{"int", 42, 42},
+		{"int64", int64(10000), 10000},
+		{"int32", int32(777), 777},
+		{"float64", float64(10000), 10000},
+		{"json.Number", json.Number("10000"), 10000},
+		{"string", "value", 99},                             // non-numeric → def
+		{"non-integer json.Number", json.Number("1.5"), 99}, // not an int → def
+		{"bool", true, 99},                                  // wrong type → def
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b := NewBagFrom(map[string]any{"k": tc.val})
+			if got := b.GetInt("k", 99); got != tc.want {
+				t.Errorf("GetInt(%s=%v) = %d, want %d", tc.name, tc.val, got, tc.want)
+			}
+		})
 	}
 
-	if got := b.GetInt("str", 99); got != 99 {
-		t.Errorf("GetInt(str) = %d, want %d", got, 99)
-	}
-
-	if got := b.GetInt("missing", 99); got != 99 {
+	if got := NewBag().GetInt("missing", 99); got != 99 {
 		t.Errorf("GetInt(missing) = %d, want %d", got, 99)
+	}
+}
+
+func TestBag_GetInt_FromJSONDecode(t *testing.T) {
+	var b Bag
+	if err := json.Unmarshal([]byte(`{"max_length":10000}`), &b); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := b["max_length"].(float64); !ok {
+		t.Fatalf("precondition: expected max_length stored as float64, got %T", b["max_length"])
+	}
+	if got := b.GetInt("max_length", 1000); got != 10000 {
+		t.Errorf("GetInt(max_length) after JSON decode = %d, want 10000", got)
 	}
 }
 
