@@ -274,44 +274,42 @@ func TestLink_ModuleScopedParameters(t *testing.T) {
 	assert.Equal(t, "app:router_a", target.Meta["router"])
 }
 
-func TestLink_BareParameterMatchesRequirementModuleMeta(t *testing.T) {
+func TestLink_BareParameterMatchesLegacyAliasRequirementModuleMeta(t *testing.T) {
 	ctx, _ := setupTestContext()
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.NewID("app", "__dependency.dataflow"),
+			ID:   registry.NewID("app", "__dependency.telegram"),
 			Kind: registry.NamespaceDependency,
 			Data: payload.New(map[string]any{
-				"component": "wippy/dataflow",
+				"component": "butschster/telegram",
 				"parameters": []any{
 					map[string]any{
-						"name":  "target_db",
-						"value": "app:db",
+						"name":  "env_storage",
+						"value": "app:env_file",
 					},
 				},
 			}),
 		},
 		{
-			ID:   registry.NewID("userspace.dataflow", "target_db"),
+			ID:   registry.NewID("telegram", "env_storage"),
 			Kind: registry.NamespaceRequirement,
 			Meta: map[string]any{
-				"module": "wippy/dataflow",
+				"module": "butschster/telegram",
 			},
 			Data: payload.New(map[string]any{
 				"targets": []any{
 					map[string]any{
-						"entry": "app:db",
-						"path":  ".file",
+						"entry": "telegram:bot_token",
+						"path":  ".storage",
 					},
 				},
 			}),
 		},
 		{
-			ID:   registry.NewID("app", "db"),
-			Kind: "db.sql.sqlite",
-			Data: payload.New(map[string]any{
-				"file": ":memory:",
-			}),
+			ID:   registry.NewID("telegram", "bot_token"),
+			Kind: "env.variable",
+			Data: payload.New(map[string]any{}),
 		},
 	}
 
@@ -319,13 +317,13 @@ func TestLink_BareParameterMatchesRequirementModuleMeta(t *testing.T) {
 	err := stage.Execute(ctx, &entries)
 	require.NoError(t, err)
 
-	target := findEntry(entries, "app", "db")
+	target := findEntry(entries, "telegram", "bot_token")
 	require.NotNil(t, target)
 	data := target.Data.Data().(map[string]any)
-	assert.Equal(t, "app:db", data["file"])
+	assert.Equal(t, "app:env_file", data["storage"])
 }
 
-func TestLink_BareParameterDoesNotCrossDifferentModuleMeta(t *testing.T) {
+func TestLink_BareParameterDoesNotCrossDottedModuleMeta(t *testing.T) {
 	ctx, _ := setupTestContext()
 
 	entries := []registry.Entry{
@@ -395,12 +393,64 @@ func TestLink_BareParameterDoesNotCrossDifferentModuleMeta(t *testing.T) {
 	target1 := findEntry(entries, "app", "db1")
 	require.NotNil(t, target1)
 	data1 := target1.Data.Data().(map[string]any)
-	assert.Equal(t, "app:db", data1["file"])
+	assert.Equal(t, ":memory1:", data1["file"])
 
 	target2 := findEntry(entries, "app", "db2")
 	require.NotNil(t, target2)
 	data2 := target2.Data.Data().(map[string]any)
 	assert.Equal(t, ":memory2:", data2["file"])
+}
+
+func TestLink_DottedNamespaceRequirementIgnoresForeignModuleMetaParameters(t *testing.T) {
+	ctx, _ := setupTestContext()
+
+	entries := []registry.Entry{
+		{
+			ID:   registry.NewID("app", "dep.keeper"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "keeper/keeper",
+				"parameters": []any{
+					map[string]any{"name": "keeper:api_router", "value": "app:api.public"},
+					map[string]any{"name": "api_router", "value": "app:api"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("app.deps", "views"),
+			Kind: registry.NamespaceDependency,
+			Data: payload.New(map[string]any{
+				"component": "wippy/views",
+				"parameters": []any{
+					map[string]any{"name": "wippy.views:api_router", "value": "app:api.views"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("wippy.views", "api_router"),
+			Kind: registry.NamespaceRequirement,
+			Meta: map[string]any{"module": "keeper/keeper"},
+			Data: payload.New(map[string]any{
+				"targets": []any{
+					map[string]any{"entry": "wippy.views.api:list_components.endpoint", "path": ".meta.router"},
+				},
+			}),
+		},
+		{
+			ID:   registry.NewID("wippy.views.api", "list_components.endpoint"),
+			Kind: "http.endpoint",
+			Meta: map[string]any{},
+			Data: payload.New(map[string]any{}),
+		},
+	}
+
+	stage := Link(WithStrictRequirementModules([]string{"wippy/views"}))
+	err := stage.Execute(ctx, &entries)
+	require.NoError(t, err)
+
+	endpoint := findEntry(entries, "wippy.views.api", "list_components.endpoint")
+	require.NotNil(t, endpoint)
+	assert.Equal(t, "app:api.views", endpoint.Meta["router"])
 }
 
 func TestLink_BareParametersWithSameNameAreScopedToDependencyComponent(t *testing.T) {
@@ -2235,11 +2285,11 @@ func TestLink_NormalizationDeterministicAcrossShuffledOrderings(t *testing.T) {
 	}
 }
 
-// TestLink_BareNameFansOutAcrossOwnershipForms verifies fan-out when a
+// TestLink_BareNameFansOutAcrossLegacyOwnershipForms verifies fan-out when a
 // dependency owns two same-bare-named requirements through both ownership
-// forms: one by living in the component's module namespace, one by meta.module.
-// The bare parameter feeds its value to both.
-func TestLink_BareNameFansOutAcrossOwnershipForms(t *testing.T) {
+// forms: one by living in the component's module namespace, one by a legacy
+// one-segment meta.module alias. The bare parameter feeds its value to both.
+func TestLink_BareNameFansOutAcrossLegacyOwnershipForms(t *testing.T) {
 	ctx, _ := setupTestContext()
 
 	entries := []registry.Entry{
@@ -2263,12 +2313,12 @@ func TestLink_BareNameFansOutAcrossOwnershipForms(t *testing.T) {
 			}),
 		},
 		{
-			ID:   registry.NewID("extra.ns", "token"),
+			ID:   registry.NewID("extra", "token"),
 			Kind: registry.NamespaceRequirement,
 			Meta: map[string]any{"module": "vendor/alpha"},
 			Data: payload.New(map[string]any{
 				"targets": []any{
-					map[string]any{"entry": "extra.ns:service", "path": ".token"},
+					map[string]any{"entry": "extra:service", "path": ".token"},
 				},
 			}),
 		},
@@ -2278,7 +2328,7 @@ func TestLink_BareNameFansOutAcrossOwnershipForms(t *testing.T) {
 			Data: payload.New(map[string]any{}),
 		},
 		{
-			ID:   registry.NewID("extra.ns", "service"),
+			ID:   registry.NewID("extra", "service"),
 			Kind: "process.lua",
 			Data: payload.New(map[string]any{}),
 		},
@@ -2292,7 +2342,7 @@ func TestLink_BareNameFansOutAcrossOwnershipForms(t *testing.T) {
 	require.NotNil(t, service)
 	assert.Equal(t, "some-token", service.Data.Data().(map[string]any)["token"])
 
-	extra := findEntry(entries, "extra.ns", "service")
+	extra := findEntry(entries, "extra", "service")
 	require.NotNil(t, extra)
 	assert.Equal(t, "some-token", extra.Data.Data().(map[string]any)["token"])
 }
