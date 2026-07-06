@@ -8,7 +8,9 @@ import (
 	"crypto/sha1" //nolint:gosec
 	"crypto/sha256"
 	"crypto/sha512"
+	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 	"hash"
 	"hash/fnv"
 
@@ -19,14 +21,14 @@ import (
 // Module is the hash module definition.
 var Module = &luaapi.ModuleDef{
 	Name:        "hash",
-	Description: "Cryptographic hash functions and HMAC",
+	Description: "Cryptographic hash functions, HMAC, and PBKDF2",
 	Class:       []string{luaapi.ClassEncoding, luaapi.ClassSecurity, luaapi.ClassDeterministic},
 	Build:       buildModule,
 	Types:       ModuleTypes,
 }
 
 func buildModule() (*lua.LTable, []luaapi.YieldType) {
-	mod := lua.CreateTable(0, 10)
+	mod := lua.CreateTable(0, 11)
 	mod.RawSetString("md5", lua.LGoFunc(hashMD5))
 	mod.RawSetString("sha1", lua.LGoFunc(hashSHA1))
 	mod.RawSetString("sha256", lua.LGoFunc(hashSHA256))
@@ -37,6 +39,7 @@ func buildModule() (*lua.LTable, []luaapi.YieldType) {
 	mod.RawSetString("hmac_sha512", lua.LGoFunc(hmacSHA512))
 	mod.RawSetString("hmac_sha1", lua.LGoFunc(hmacSHA1))
 	mod.RawSetString("hmac_md5", lua.LGoFunc(hmacMD5))
+	mod.RawSetString("pbkdf2", lua.LGoFunc(pbkdf2Derive))
 	mod.Immutable = true
 	return mod, nil
 }
@@ -67,6 +70,93 @@ func computeHmac(newHash func() hash.Hash, data, secret string, raw bool) lua.LV
 		return lua.LString(result)
 	}
 	return lua.LString(hex.EncodeToString(result))
+}
+
+const maxPBKDF2Iterations = 10_000_000
+
+func derivePBKDF2(password, salt []byte, iterations, keyLength int, newHash func() hash.Hash) []byte {
+	prf := hmac.New(newHash, password)
+	hashLen := prf.Size()
+	out := make([]byte, keyLength)
+	u := make([]byte, 0, hashLen)
+	block := make([]byte, hashLen)
+	saltBlock := make([]byte, len(salt)+4)
+	copy(saltBlock, salt)
+
+	for blockIndex, offset := uint32(1), 0; offset < keyLength; blockIndex++ {
+		binary.BigEndian.PutUint32(saltBlock[len(salt):], blockIndex)
+
+		prf.Reset()
+		_, _ = prf.Write(saltBlock)
+		u = prf.Sum(u[:0])
+		copy(block, u)
+
+		for i := 1; i < iterations; i++ {
+			prf.Reset()
+			_, _ = prf.Write(u)
+			u = prf.Sum(u[:0])
+			for j := range block {
+				block[j] ^= u[j]
+			}
+		}
+
+		offset += copy(out[offset:], block)
+		clear(block)
+	}
+
+	clear(u)
+	clear(saltBlock)
+	return out
+}
+
+func pbkdf2Derive(l *lua.LState) int {
+	if l.Get(1).Type() != lua.LTString {
+		return invalidError(l, "password must be a string")
+	}
+	if l.Get(2).Type() != lua.LTString {
+		return invalidError(l, "salt must be a string")
+	}
+
+	password := l.ToString(1)
+	salt := l.ToString(2)
+	iterations := l.CheckInt(3)
+	keyLength := l.CheckInt(4)
+
+	if password == "" {
+		return invalidError(l, "password cannot be empty")
+	}
+	if salt == "" {
+		return invalidError(l, "salt cannot be empty")
+	}
+	if iterations <= 0 {
+		return invalidError(l, "iterations must be positive")
+	}
+	if iterations > maxPBKDF2Iterations {
+		return invalidError(l, fmt.Sprintf("iterations exceeds maximum (%d)", maxPBKDF2Iterations))
+	}
+	if keyLength <= 0 {
+		return invalidError(l, "key length must be positive")
+	}
+
+	var newHash func() hash.Hash
+	algo := "sha256"
+	if l.GetTop() >= 5 && l.Get(5).Type() == lua.LTString {
+		algo = l.ToString(5)
+	}
+	switch algo {
+	case "sha256":
+		newHash = sha256.New
+	case "sha512":
+		newHash = sha512.New
+	default:
+		return invalidError(l, fmt.Sprintf("unsupported hash function: %s", algo))
+	}
+
+	key := derivePBKDF2([]byte(password), []byte(salt), iterations, keyLength, newHash)
+	l.Push(lua.LString(key))
+	l.Push(lua.LNil)
+	clear(key)
+	return 2
 }
 
 func hashMD5(l *lua.LState) int {

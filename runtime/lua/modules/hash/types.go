@@ -20,6 +20,9 @@ func ModuleTypes() *io.Manifest {
 	// hmac function type: (data: string, secret: string, raw?: boolean): string, Error?
 	hmacFn := typ.Func().Param("data", typ.String).Param("secret", typ.String).OptParam("raw", typ.Boolean).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()
 
+	// pbkdf2 function type: (password: string, salt: string, iterations: number, key_length: number, algo?: string): string, Error?
+	pbkdf2Fn := typ.Func().Param("password", typ.String).Param("salt", typ.String).Param("iterations", typ.Number).Param("key_length", typ.Number).OptParam("algo", typ.String).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build()
+
 	moduleType := typ.NewInterface("hash", []typ.Method{
 		{Name: "md5", Type: hashFn},
 		{Name: "sha1", Type: hashFn},
@@ -31,6 +34,7 @@ func ModuleTypes() *io.Manifest {
 		{Name: "hmac_sha512", Type: hmacFn},
 		{Name: "hmac_sha1", Type: hmacFn},
 		{Name: "hmac_md5", Type: hmacFn},
+		{Name: "pbkdf2", Type: pbkdf2Fn},
 	})
 
 	m.SetExport(moduleType)

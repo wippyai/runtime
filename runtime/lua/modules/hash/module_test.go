@@ -3,9 +3,13 @@
 package hash
 
 import (
+	"crypto/sha256"
+	"crypto/sha512"
+	"encoding/hex"
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
+	xpbkdf2 "golang.org/x/crypto/pbkdf2"
 )
 
 func TestLoad(t *testing.T) {
@@ -21,7 +25,7 @@ func TestLoad(t *testing.T) {
 	}
 
 	modTbl := mod.(*lua.LTable)
-	funcs := []string{"md5", "sha1", "sha256", "sha512", "fnv32", "fnv64", "hmac_sha256", "hmac_sha512", "hmac_sha1", "hmac_md5"}
+	funcs := []string{"md5", "sha1", "sha256", "sha512", "fnv32", "fnv64", "hmac_sha256", "hmac_sha512", "hmac_sha1", "hmac_md5", "pbkdf2"}
 	for _, fn := range funcs {
 		if modTbl.RawGetString(fn).Type() != lua.LTFunction {
 			t.Errorf("%s function not registered", fn)
@@ -284,6 +288,139 @@ func TestHMACRaw(t *testing.T) {
 	`)
 	if err != nil {
 		t.Errorf("hmac_sha256 raw test failed: %v", err)
+	}
+}
+
+func TestPBKDF2(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+	tbl, _ := Module.Build()
+	l.SetGlobal(Module.Name, tbl)
+
+	err := l.DoString(`
+		local key, err = hash.pbkdf2("password", "salt", 1000, 32)
+		if err ~= nil then
+			error("unexpected error: " .. tostring(err))
+		end
+		if #key ~= 32 then
+			error("expected 32 byte key")
+		end
+
+		local key2, err2 = hash.pbkdf2("password", "salt", 1000, 32)
+		if err2 ~= nil then
+			error("unexpected error: " .. tostring(err2))
+		end
+		if key ~= key2 then
+			error("pbkdf2 should be deterministic")
+		end
+
+		local key3, err3 = hash.pbkdf2("other", "salt", 1000, 32)
+		if err3 ~= nil then
+			error("unexpected error: " .. tostring(err3))
+		end
+		if key == key3 then
+			error("different password should produce different key")
+		end
+	`)
+	if err != nil {
+		t.Errorf("pbkdf2 test failed: %v", err)
+	}
+}
+
+func TestPBKDF2KnownVectors(t *testing.T) {
+	tests := []struct {
+		name     string
+		password string
+		salt     string
+		algo     string
+		wantHex  string
+
+		iterations int
+		keyLength  int
+	}{
+		{
+			name:       "sha256 iteration 1",
+			password:   "password",
+			salt:       "salt",
+			iterations: 1,
+			keyLength:  32,
+			algo:       "sha256",
+			wantHex:    "120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b",
+		},
+		{
+			name:       "sha256 iteration 2",
+			password:   "password",
+			salt:       "salt",
+			iterations: 2,
+			keyLength:  32,
+			algo:       "sha256",
+			wantHex:    "ae4d0c95af6b46d32d0adff928f06dd02a303f8ef3c251dfd6e2d85a95474c43",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var got []byte
+			switch tc.algo {
+			case "sha256":
+				got = derivePBKDF2([]byte(tc.password), []byte(tc.salt), tc.iterations, tc.keyLength, sha256.New)
+			case "sha512":
+				got = derivePBKDF2([]byte(tc.password), []byte(tc.salt), tc.iterations, tc.keyLength, sha512.New)
+			default:
+				t.Fatalf("unsupported test algo %q", tc.algo)
+			}
+
+			gotHex := hex.EncodeToString(got)
+			if gotHex != tc.wantHex {
+				t.Fatalf("pbkdf2 mismatch\nwant %s\n got %s", tc.wantHex, gotHex)
+			}
+		})
+	}
+}
+
+func TestPBKDF2ParityWithReference(t *testing.T) {
+	tests := []struct {
+		name string
+		algo string
+
+		iterations int
+		keyLength  int
+	}{
+		{name: "sha256", iterations: 4096, keyLength: 32, algo: "sha256"},
+		{name: "sha512", iterations: 4096, keyLength: 64, algo: "sha512"},
+		{name: "sha512 partial block", iterations: 4096, keyLength: 50, algo: "sha512"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var got, want []byte
+			switch tc.algo {
+			case "sha256":
+				got = derivePBKDF2([]byte("password"), []byte("salt"), tc.iterations, tc.keyLength, sha256.New)
+				want = xpbkdf2.Key([]byte("password"), []byte("salt"), tc.iterations, tc.keyLength, sha256.New)
+			case "sha512":
+				got = derivePBKDF2([]byte("password"), []byte("salt"), tc.iterations, tc.keyLength, sha512.New)
+				want = xpbkdf2.Key([]byte("password"), []byte("salt"), tc.iterations, tc.keyLength, sha512.New)
+			}
+			if string(got) != string(want) {
+				t.Fatalf("pbkdf2 reference mismatch")
+			}
+		})
+	}
+}
+
+func TestPBKDF2AllocationsDoNotScaleWithIterations(t *testing.T) {
+	password := []byte("password")
+	salt := []byte("salt")
+	allocsOne := testing.AllocsPerRun(10, func() {
+		_ = derivePBKDF2(password, salt, 1, 64, sha512.New)
+	})
+	allocsMany := testing.AllocsPerRun(10, func() {
+		_ = derivePBKDF2(password, salt, 4096, 64, sha512.New)
+	})
+
+	if allocsMany > allocsOne+2 {
+		t.Fatalf("pbkdf2 allocations scale with iterations: one=%0.2f many=%0.2f", allocsOne, allocsMany)
 	}
 }
 
