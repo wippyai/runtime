@@ -486,7 +486,7 @@ func runLintWithUI(luaEntries []regapi.Entry, reportSet map[regapi.ID]bool, lint
 		totalEntries: len(luaEntries),
 	}
 
-	p := tea.NewProgram(m)
+	p := newCLIProgram(m)
 
 	go func() {
 		defer func() {

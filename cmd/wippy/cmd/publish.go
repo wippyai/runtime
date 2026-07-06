@@ -264,11 +264,6 @@ func publishViaHubOrLegacy(
 		FilePath:     outputFile,
 		Protected:    protected,
 	}
-	if label != "" {
-		// When publishing a label, the version is resolved server-side.
-		in.Version = ""
-	}
-
 	out, err := client.PublishViaHub(ctx, in)
 	if err == nil {
 		return out.PublishID, nil
