@@ -29,6 +29,7 @@ func SecurityPolicy() boot.Component {
 
 			handlers.RegisterListener(policyapi.Policy, manager)
 			handlers.RegisterListener(policyapi.ExprKind, manager)
+			handlers.RegisterListener(policyapi.Scope, manager)
 
 			return ctx, nil
 		},

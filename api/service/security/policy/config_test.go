@@ -14,6 +14,7 @@ import (
 
 func TestKindConstant(t *testing.T) {
 	assert.Equal(t, "security.policy", Policy)
+	assert.Equal(t, "security.scope", Scope)
 }
 
 func TestEffectConstants(t *testing.T) {
@@ -445,6 +446,52 @@ func TestConfig_GetGroupIDs(t *testing.T) {
 	}
 }
 
+func TestScopeConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		errMsg  string
+		config  ScopeConfig
+		wantErr bool
+	}{
+		{
+			name:   "valid scope",
+			config: ScopeConfig{Policies: []string{"read", "app:write"}},
+		},
+		{
+			name:    "empty policies",
+			config:  ScopeConfig{},
+			wantErr: true,
+			errMsg:  "scope policies cannot be empty",
+		},
+		{
+			name:    "empty policy id",
+			config:  ScopeConfig{Policies: []string{"read", ""}},
+			wantErr: true,
+			errMsg:  "scope policy 1: policy id is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestScopeConfig_GetPolicyIDs(t *testing.T) {
+	cfg := ScopeConfig{Policies: []string{"local_policy", "other:shared_policy"}}
+	assert.Equal(t, []registry.ID{
+		registry.NewID("app", "local_policy"),
+		registry.NewID("other", "shared_policy"),
+	}, cfg.GetPolicyIDs("app"))
+}
+
 func TestExprKind(t *testing.T) {
 	assert.Equal(t, "security.policy.expr", ExprKind)
 }
@@ -632,4 +679,5 @@ func TestErrorConstants(t *testing.T) {
 	assert.Contains(t, ErrResourcesListEmpty.Error(), "resources list cannot be empty")
 	assert.Contains(t, ErrResourcesInvalidType.Error(), "resources must be a string or list")
 	assert.Contains(t, ErrExpressionEmpty.Error(), "expression cannot be empty")
+	assert.Contains(t, ErrScopePoliciesEmpty.Error(), "scope policies cannot be empty")
 }

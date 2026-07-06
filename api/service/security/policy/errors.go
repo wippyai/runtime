@@ -16,6 +16,7 @@ var (
 	ErrResourcesListEmpty   = apierror.New(apierror.Invalid, "resources list cannot be empty").WithRetryable(apierror.False)
 	ErrResourcesInvalidType = apierror.New(apierror.Invalid, "resources must be a string or list").WithRetryable(apierror.False)
 	ErrExpressionEmpty      = apierror.New(apierror.Invalid, "expression cannot be empty").WithRetryable(apierror.False)
+	ErrScopePoliciesEmpty   = apierror.New(apierror.Invalid, "scope policies cannot be empty").WithRetryable(apierror.False)
 )
 
 // NewInvalidPolicyEffectError reports an invalid policy effect value.
@@ -41,4 +42,9 @@ func NewConditionValueRequiredError(index int) apierror.Error {
 // NewConditionInvalidOperatorError reports an invalid condition operator.
 func NewConditionInvalidOperatorError(index int, operator string) apierror.Error {
 	return apierror.New(apierror.Invalid, fmt.Sprintf("condition %d: invalid operator: %s", index, operator)).WithRetryable(apierror.False)
+}
+
+// NewScopePolicyEmptyError reports an empty policy id in a scope declaration.
+func NewScopePolicyEmptyError(index int) apierror.Error {
+	return apierror.New(apierror.Invalid, fmt.Sprintf("scope policy %d: policy id is required", index)).WithRetryable(apierror.False)
 }

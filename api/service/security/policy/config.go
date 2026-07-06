@@ -15,6 +15,9 @@ var ErrFieldNotFound = errors.New("field not found")
 const (
 	// Policy represents the kind of policy entries in the registry
 	Policy registry.Kind = "security.policy"
+
+	// Scope represents an explicit named scope assembled from policy IDs.
+	Scope registry.Kind = "security.scope"
 )
 
 // Condition represents a policy condition
@@ -58,6 +61,11 @@ type Config struct {
 
 	// Groups defines the group IDs this policy belongs to
 	Groups []string `json:"groups,omitempty"`
+}
+
+// ScopeConfig represents a named security scope assembled from policy IDs.
+type ScopeConfig struct {
+	Policies []string `json:"policies" yaml:"policies"`
 }
 
 // Validate checks if the configuration is valid
@@ -172,6 +180,34 @@ func (c *Config) GetGroupIDs(defaultNS registry.Namespace) []registry.ID {
 	result := make([]registry.ID, 0, len(c.Groups))
 	for _, group := range c.Groups {
 		id := registry.ParseID(group)
+		ns := id.NS
+		if ns == "" {
+			ns = defaultNS
+		}
+		result = append(result, registry.NewID(ns, id.Name))
+	}
+	return result
+}
+
+// Validate checks if the scope configuration is valid.
+func (c *ScopeConfig) Validate() error {
+	if len(c.Policies) == 0 {
+		return ErrScopePoliciesEmpty
+	}
+	for i, policyID := range c.Policies {
+		if policyID == "" {
+			return NewScopePolicyEmptyError(i)
+		}
+	}
+	return nil
+}
+
+// GetPolicyIDs returns the configured policy IDs, defaulting unqualified IDs to
+// the scope entry's namespace.
+func (c *ScopeConfig) GetPolicyIDs(defaultNS registry.Namespace) []registry.ID {
+	result := make([]registry.ID, 0, len(c.Policies))
+	for _, policy := range c.Policies {
+		id := registry.ParseID(policy)
 		ns := id.NS
 		if ns == "" {
 			ns = defaultNS

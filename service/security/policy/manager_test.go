@@ -20,7 +20,8 @@ import (
 
 // mockFactory implements FactoryAPI for testing
 type mockFactory struct {
-	createFunc func(ctx context.Context, entry registry.Entry) (*security.PolicyEntry, error)
+	createFunc      func(ctx context.Context, entry registry.Entry) (*security.PolicyEntry, error)
+	createScopeFunc func(ctx context.Context, entry registry.Entry) (*security.ScopeEntry, error)
 }
 
 func (m *mockFactory) CreatePolicyEntry(ctx context.Context, entry registry.Entry) (*security.PolicyEntry, error) {
@@ -30,6 +31,16 @@ func (m *mockFactory) CreatePolicyEntry(ctx context.Context, entry registry.Entr
 	return &security.PolicyEntry{
 		Policy: &mockPolicy{id: entry.ID},
 		Groups: []registry.ID{},
+	}, nil
+}
+
+func (m *mockFactory) CreateScopeEntry(ctx context.Context, entry registry.Entry) (*security.ScopeEntry, error) {
+	if m.createScopeFunc != nil {
+		return m.createScopeFunc(ctx, entry)
+	}
+	return &security.ScopeEntry{
+		ID:       entry.ID,
+		Policies: []registry.ID{registry.NewID(entry.ID.NS, "policy1")},
 	}, nil
 }
 
@@ -103,6 +114,34 @@ func TestManager_Add_ExprPolicy(t *testing.T) {
 	case evt := <-eventCh:
 		assert.Equal(t, security.PolicyRegister, evt.Kind)
 		assert.Equal(t, "test:expr1", evt.Path)
+	case <-ctx.Done():
+		t.Fatal("timeout waiting for event")
+	}
+}
+
+func TestManager_Add_Scope(t *testing.T) {
+	ctx := context.Background()
+	manager, bus := setupManagerTest()
+
+	eventCh := make(chan event.Event, 10)
+	subID, err := bus.Subscribe(ctx, security.System, eventCh)
+	require.NoError(t, err)
+	defer bus.Unsubscribe(ctx, subID)
+
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "user"),
+		Kind: policyapi.Scope,
+	}
+
+	err = manager.Add(ctx, entry)
+	require.NoError(t, err)
+
+	select {
+	case evt := <-eventCh:
+		assert.Equal(t, security.System, evt.System)
+		assert.Equal(t, security.ScopeRegister, evt.Kind)
+		assert.Equal(t, "test:user", evt.Path)
+		assert.NotNil(t, evt.Data)
 	case <-ctx.Done():
 		t.Fatal("timeout waiting for event")
 	}
@@ -185,6 +224,32 @@ func TestManager_Update_ExprPolicy(t *testing.T) {
 	}
 }
 
+func TestManager_Update_Scope(t *testing.T) {
+	ctx := context.Background()
+	manager, bus := setupManagerTest()
+
+	eventCh := make(chan event.Event, 10)
+	subID, err := bus.Subscribe(ctx, security.System, eventCh)
+	require.NoError(t, err)
+	defer bus.Unsubscribe(ctx, subID)
+
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "user"),
+		Kind: policyapi.Scope,
+	}
+
+	err = manager.Update(ctx, entry)
+	require.NoError(t, err)
+
+	select {
+	case evt := <-eventCh:
+		assert.Equal(t, security.ScopeUpdate, evt.Kind)
+		assert.Equal(t, "test:user", evt.Path)
+	case <-ctx.Done():
+		t.Fatal("timeout waiting for event")
+	}
+}
+
 func TestManager_Delete_ConditionPolicy(t *testing.T) {
 	ctx := context.Background()
 	manager, bus := setupManagerTest()
@@ -238,6 +303,33 @@ func TestManager_Delete_ExprPolicy(t *testing.T) {
 	}
 }
 
+func TestManager_Delete_Scope(t *testing.T) {
+	ctx := context.Background()
+	manager, bus := setupManagerTest()
+
+	eventCh := make(chan event.Event, 10)
+	subID, err := bus.Subscribe(ctx, security.System, eventCh)
+	require.NoError(t, err)
+	defer bus.Unsubscribe(ctx, subID)
+
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "user"),
+		Kind: policyapi.Scope,
+	}
+
+	err = manager.Delete(ctx, entry)
+	require.NoError(t, err)
+
+	select {
+	case evt := <-eventCh:
+		assert.Equal(t, security.ScopeDelete, evt.Kind)
+		assert.Equal(t, "test:user", evt.Path)
+		assert.Nil(t, evt.Data)
+	case <-ctx.Done():
+		t.Fatal("timeout waiting for event")
+	}
+}
+
 func TestManager_Add_FactoryError(t *testing.T) {
 	ctx := context.Background()
 	bus := eventbus.NewBus()
@@ -261,6 +353,38 @@ func TestManager_Add_FactoryError(t *testing.T) {
 
 	err = manager.Add(ctx, entry)
 	apiErr := requireAPIError(t, err, apierror.Internal, "failed to create policy entry")
+	assertDetailString(t, apiErr, "cause", assert.AnError.Error())
+
+	select {
+	case <-eventCh:
+		t.Fatal("should not receive event when factory fails")
+	default:
+	}
+}
+
+func TestManager_Add_ScopeFactoryError(t *testing.T) {
+	ctx := context.Background()
+	bus := eventbus.NewBus()
+	factory := &mockFactory{
+		createScopeFunc: func(_ context.Context, _ registry.Entry) (*security.ScopeEntry, error) {
+			return nil, assert.AnError
+		},
+	}
+	logger := zap.NewNop()
+	manager := NewManager(bus, factory, logger)
+
+	eventCh := make(chan event.Event, 10)
+	subID, err := bus.Subscribe(ctx, security.System, eventCh)
+	require.NoError(t, err)
+	defer bus.Unsubscribe(ctx, subID)
+
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "scope1"),
+		Kind: policyapi.Scope,
+	}
+
+	err = manager.Add(ctx, entry)
+	apiErr := requireAPIError(t, err, apierror.Internal, "failed to create scope entry")
 	assertDetailString(t, apiErr, "cause", assert.AnError.Error())
 
 	select {

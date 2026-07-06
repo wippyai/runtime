@@ -4,6 +4,7 @@ package inline
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/wippyai/runtime/api/dispatcher"
@@ -18,6 +19,7 @@ import (
 // Single process, serialized via mutex.
 type Pool struct {
 	dispatcher dispatcher.Dispatcher
+	factory    process.FactoryFunc
 	process    process.Process
 	executor   *pool.Executor
 	active     sync.Map
@@ -38,6 +40,7 @@ func New(factory process.FactoryFunc, d dispatcher.Dispatcher, hooks ...pool.Exe
 
 	return &Pool{
 		dispatcher: d,
+		factory:    factory,
 		executor:   pool.NewExecutor(d).WithExecutionHooks(hooksCfg),
 		process:    proc,
 	}, nil
@@ -57,11 +60,28 @@ func (i *Pool) Call(ctx context.Context, method string, input payload.Payloads) 
 	i.active.Store(pid.UniqID, i.executor)
 
 	result := i.executor.Run(ctx, i.process, method, input)
+	replace := errors.Is(result.Error, process.ErrProcessReplacementRequested)
+	if replace {
+		result.Error = nil
+	}
 
 	i.active.Delete(pid.UniqID)
 	i.executor.Reset()
+	if replace {
+		i.replaceProcess()
+	}
 
 	return result, nil
+}
+
+func (i *Pool) replaceProcess() {
+	proc, err := i.factory()
+	if err != nil {
+		return
+	}
+	old := i.process
+	i.process = proc
+	old.Close()
 }
 
 // Send implements relay.Receiver. Routes package to target execution.

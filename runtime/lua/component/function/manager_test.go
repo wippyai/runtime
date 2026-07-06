@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/payload"
@@ -19,10 +20,12 @@ import (
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/runtime/lua/code"
 	systempayload "github.com/wippyai/runtime/system/payload"
 	"github.com/wippyai/runtime/system/payload/json"
 	systemrelay "github.com/wippyai/runtime/system/relay"
+	systemsecurity "github.com/wippyai/runtime/system/security"
 	"go.uber.org/zap"
 )
 
@@ -109,7 +112,7 @@ func TestManager_StartStartsPreexistingPools(t *testing.T) {
 	pool := &trackingPool{}
 	id := registry.NewID("test", "preexisting")
 	manager.mu.Lock()
-	manager.pools[id] = newPoolEntry(pool, "main", "test:preexisting#lua.test")
+	manager.pools[id] = newPoolEntry(pool, "main", "test:preexisting#lua.test", nil)
 	manager.mu.Unlock()
 
 	require.NoError(t, manager.Start(context.Background()))
@@ -136,7 +139,7 @@ func TestManager_StartRegistersPreexistingPoolHost(t *testing.T) {
 	hostID := "test:preexisting_host#lua.test"
 	pool := &trackingPool{}
 	manager.mu.Lock()
-	manager.pools[id] = newPoolEntry(pool, "main", hostID)
+	manager.pools[id] = newPoolEntry(pool, "main", hostID, nil)
 	manager.mu.Unlock()
 
 	ctx := relay.WithNode(ctxapi.NewRootContext(), node)
@@ -414,7 +417,7 @@ func TestManager_ExecuteUsesPoolGenerationHost(t *testing.T) {
 	hostID := "test:generation_func#lua.1"
 	pool := &pidCapturePool{}
 	manager.mu.Lock()
-	manager.pools[id] = newPoolEntry(pool, "main", hostID)
+	manager.pools[id] = newPoolEntry(pool, "main", hostID, nil)
 	manager.mu.Unlock()
 
 	ctx, fc := ctxapi.OpenFrameContext(context.Background())
@@ -436,8 +439,44 @@ func TestManager_ExecuteUsesPoolGenerationHost(t *testing.T) {
 	assert.Equal(t, "call-1", framePID.UniqID)
 }
 
+func TestManager_ExecuteAppliesFunctionSecurity(t *testing.T) {
+	log := zap.NewNop()
+	codeManager := &code.Manager{}
+	bus := newMockEventBus()
+	disp := &mockDispatcher{}
+	fsReg := newMockFSRegistry()
+	factory := newMockCompiledFactory()
+	manager := NewManager(log, codeManager, bus, disp, fsReg, factory)
+
+	policyID := registry.NewID("test", "db_access")
+	groupID := registry.NewID("test", "auth")
+	policy := newSecurityPolicy(policyID, security.Allow)
+	reg := newSecurityRegistry(map[registry.ID]security.Policy{policyID: policy}, map[registry.ID][]security.Policy{groupID: {policy}})
+
+	id := registry.NewID("test", "secured_func")
+	pool := &securityCapturePool{}
+	manager.mu.Lock()
+	manager.pools[id] = newPoolEntry(pool, "main", "test:secured_func#lua.1", &security.Config{
+		Actor:        security.Actor{ID: "userspace.user:auth"},
+		PolicyGroups: []registry.ID{groupID},
+	})
+	manager.mu.Unlock()
+
+	ctx, fc := ctxapi.OpenFrameContext(security.WithRegistry(ctxapi.NewRootContext(), reg))
+	defer func() { _ = fc.Close() }()
+	require.NoError(t, runtime.SetFramePID(ctx, (&pid.PID{Host: id.String(), UniqID: "call-1"}).Precomputed()))
+
+	result, err := manager.Execute(ctx, runtime.Task{ID: id})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "userspace.user:auth", pool.actor.ID)
+	require.NotNil(t, pool.scope)
+	assert.Equal(t, security.Allow, pool.scope.Evaluate(pool.actor, "db.get", "app:db", nil))
+}
+
 func TestPoolEntryRetireWaitsForActiveExecution(t *testing.T) {
-	entry := newPoolEntry(&trackingPool{}, "main", "test:retire#lua.1")
+	entry := newPoolEntry(&trackingPool{}, "main", "test:retire#lua.1", nil)
 	require.True(t, entry.acquire())
 
 	stopped := make(chan struct{})
@@ -474,7 +513,7 @@ func TestManager_RetiredPoolHostDrainsBeforeUnregister(t *testing.T) {
 	manager.node = node
 	hostID := "test:retired#lua.1"
 	pool := &trackingPool{}
-	entry := newPoolEntry(pool, "main", hostID)
+	entry := newPoolEntry(pool, "main", hostID, nil)
 	require.NoError(t, node.RegisterHost(hostID, pool))
 	require.True(t, entry.acquire())
 
@@ -894,4 +933,82 @@ func (p *pidCapturePool) Start() {}
 func (p *pidCapturePool) Stop()  {}
 func (p *pidCapturePool) Send(*relay.Package) error {
 	return nil
+}
+
+type securityCapturePool struct {
+	actor security.Actor
+	scope security.Scope
+}
+
+func (p *securityCapturePool) Call(ctx context.Context, _ string, _ payload.Payloads) (*runtime.Result, error) {
+	p.actor, _ = security.GetActor(ctx)
+	p.scope, _ = security.GetScope(ctx)
+	return &runtime.Result{Value: payload.New("ok")}, nil
+}
+
+func (p *securityCapturePool) Start() {}
+func (p *securityCapturePool) Stop()  {}
+func (p *securityCapturePool) Send(*relay.Package) error {
+	return nil
+}
+
+type testSecurityPolicy struct {
+	id       registry.ID
+	decision security.Result
+}
+
+func newSecurityPolicy(id registry.ID, decision security.Result) *testSecurityPolicy {
+	return &testSecurityPolicy{id: id, decision: decision}
+}
+
+func (p *testSecurityPolicy) ID() registry.ID {
+	return p.id
+}
+
+func (p *testSecurityPolicy) Evaluate(security.Actor, string, string, attrs.Bag) security.Result {
+	return p.decision
+}
+
+type testSecurityRegistry struct {
+	policies map[registry.ID]security.Policy
+	groups   map[registry.ID][]security.Policy
+}
+
+func newSecurityRegistry(
+	policies map[registry.ID]security.Policy,
+	groups map[registry.ID][]security.Policy,
+) *testSecurityRegistry {
+	return &testSecurityRegistry{policies: policies, groups: groups}
+}
+
+func (r *testSecurityRegistry) GetPolicy(id registry.ID) (security.Policy, error) {
+	policy, ok := r.policies[id]
+	if !ok {
+		return nil, security.ErrPolicyNotFound
+	}
+	return policy, nil
+}
+
+func (r *testSecurityRegistry) GetPolicyGroup(id registry.ID) (security.Scope, error) {
+	policies, ok := r.groups[id]
+	if !ok {
+		return nil, security.ErrGroupNotFound
+	}
+	return systemsecurity.NewScope(policies), nil
+}
+
+func (r *testSecurityRegistry) ListGroups() []registry.ID {
+	ids := make([]registry.ID, 0, len(r.groups))
+	for id := range r.groups {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func (r *testSecurityRegistry) ListPolicies() []registry.ID {
+	ids := make([]registry.ID, 0, len(r.policies))
+	for id := range r.policies {
+		ids = append(ids, id)
+	}
+	return ids
 }

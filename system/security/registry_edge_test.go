@@ -5,6 +5,7 @@ package security
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -12,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/security"
+	"github.com/wippyai/runtime/system/eventbus"
 	"go.uber.org/zap"
 )
 
@@ -257,6 +259,139 @@ func TestPolicyRegistry_RegisterPolicy_MultipleGroups(t *testing.T) {
 	assert.Len(t, groups, 2)
 }
 
+func TestPolicyRegistry_ExplicitScope(t *testing.T) {
+	reg := newTestRegistry(t)
+	policy := newMockPolicy("policy1", security.Allow)
+	policyID := policy.ID()
+	scopeID := registry.NewID("test", "user")
+
+	reg.handleEvent(event.Event{
+		Kind: security.PolicyRegister,
+		Path: policyID.String(),
+		Data: &security.PolicyEntry{Policy: policy},
+	})
+	reg.handleEvent(event.Event{
+		Kind: security.ScopeRegister,
+		Path: scopeID.String(),
+		Data: &security.ScopeEntry{
+			ID:       scopeID,
+			Policies: []registry.ID{policyID},
+		},
+	})
+
+	scope, err := reg.GetPolicyGroup(scopeID)
+	require.NoError(t, err)
+	assert.Len(t, scope.Policies(), 1)
+	assert.True(t, scope.Contains(policyID))
+}
+
+func TestPolicyRegistry_StartSubscribesToScopeEvents(t *testing.T) {
+	bus := eventbus.NewBus()
+	t.Cleanup(bus.Stop)
+
+	reg := NewPolicyRegistry(bus, zap.NewNop())
+	require.NoError(t, reg.Start(context.Background()))
+	t.Cleanup(func() { require.NoError(t, reg.Stop()) })
+
+	policy := newMockPolicy("policy1", security.Allow)
+	policyID := policy.ID()
+	scopeID := registry.NewID("test", "user")
+
+	bus.Send(context.Background(), event.Event{
+		System: security.System,
+		Kind:   security.PolicyRegister,
+		Path:   policyID.String(),
+		Data:   &security.PolicyEntry{Policy: policy},
+	})
+	bus.Send(context.Background(), event.Event{
+		System: security.System,
+		Kind:   security.ScopeRegister,
+		Path:   scopeID.String(),
+		Data:   &security.ScopeEntry{ID: scopeID, Policies: []registry.ID{policyID}},
+	})
+
+	require.Eventually(t, func() bool {
+		scope, err := reg.GetPolicyGroup(scopeID)
+		return err == nil && scope.Contains(policyID)
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestPolicyRegistry_ExplicitScopeUpdateAndDelete(t *testing.T) {
+	reg := newTestRegistry(t)
+	policy1 := newMockPolicy("policy1", security.Allow)
+	policy2 := newMockPolicy("policy2", security.Allow)
+	policy1ID := policy1.ID()
+	policy2ID := policy2.ID()
+	scopeID := registry.NewID("test", "user")
+
+	for _, policy := range []security.Policy{policy1, policy2} {
+		policyID := policy.ID()
+		reg.handleEvent(event.Event{
+			Kind: security.PolicyRegister,
+			Path: policyID.String(),
+			Data: &security.PolicyEntry{Policy: policy},
+		})
+	}
+
+	reg.handleEvent(event.Event{
+		Kind: security.ScopeRegister,
+		Path: scopeID.String(),
+		Data: &security.ScopeEntry{ID: scopeID, Policies: []registry.ID{policy1ID}},
+	})
+	scope, err := reg.GetPolicyGroup(scopeID)
+	require.NoError(t, err)
+	assert.True(t, scope.Contains(policy1ID))
+	assert.False(t, scope.Contains(policy2ID))
+
+	reg.handleEvent(event.Event{
+		Kind: security.ScopeUpdate,
+		Path: scopeID.String(),
+		Data: &security.ScopeEntry{ID: scopeID, Policies: []registry.ID{policy2ID}},
+	})
+	scope, err = reg.GetPolicyGroup(scopeID)
+	require.NoError(t, err)
+	assert.False(t, scope.Contains(policy1ID))
+	assert.True(t, scope.Contains(policy2ID))
+
+	reg.handleEvent(event.Event{Kind: security.ScopeDelete, Path: scopeID.String()})
+	_, err = reg.GetPolicyGroup(scopeID)
+	assert.Equal(t, security.ErrGroupNotFound, err)
+}
+
+func TestPolicyRegistry_ExplicitScopeUnionsLegacyGroupMembership(t *testing.T) {
+	reg := newTestRegistry(t)
+	scopeID := registry.NewID("test", "user")
+	policy1 := newMockPolicy("policy1", security.Allow)
+	policy2 := newMockPolicy("policy2", security.Allow)
+	policy1ID := policy1.ID()
+	policy2ID := policy2.ID()
+
+	reg.handleEvent(event.Event{
+		Kind: security.PolicyRegister,
+		Path: policy1ID.String(),
+		Data: &security.PolicyEntry{Policy: policy1, Groups: []registry.ID{scopeID}},
+	})
+	reg.handleEvent(event.Event{
+		Kind: security.PolicyRegister,
+		Path: policy2ID.String(),
+		Data: &security.PolicyEntry{Policy: policy2},
+	})
+	reg.handleEvent(event.Event{
+		Kind: security.ScopeRegister,
+		Path: scopeID.String(),
+		Data: &security.ScopeEntry{
+			ID:       scopeID,
+			Policies: []registry.ID{policy2ID, policy1ID},
+		},
+	})
+
+	scope, err := reg.GetPolicyGroup(scopeID)
+	require.NoError(t, err)
+	assert.Len(t, scope.Policies(), 2)
+	assert.True(t, scope.Contains(policy1ID))
+	assert.True(t, scope.Contains(policy2ID))
+}
+
 // --- NewSubscriberError ---
 
 func TestNewSubscriberError(t *testing.T) {
@@ -324,14 +459,14 @@ func TestWithSecurityConfig_WithRegisteredPolicies(t *testing.T) {
 	rootCtx := newFrameWithRegistry(t, reg)
 
 	config := &security.Config{
-		Actor:        security.Actor{ID: "user1"},
 		PolicyGroups: []registry.ID{groupID},
 	}
+	require.NoError(t, security.SetActor(rootCtx, security.Actor{ID: "caller"}))
 
 	result := WithSecurityConfig(rootCtx, config)
 	actor, ok := security.GetActor(result)
 	assert.True(t, ok)
-	assert.Equal(t, "user1", actor.ID)
+	assert.Equal(t, "caller", actor.ID)
 
 	scope, ok := security.GetScope(result)
 	assert.True(t, ok)

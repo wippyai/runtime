@@ -10,10 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/attrs"
+	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/contract"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
+	secapi "github.com/wippyai/runtime/api/security"
 )
 
 type mockInstanceForTest struct {
@@ -25,6 +27,30 @@ func (m *mockInstanceForTest) ID() registry.ID                 { return m.id }
 func (m *mockInstanceForTest) Implements() []contract.Contract { return m.contracts }
 func (m *mockInstanceForTest) Call(_ context.Context, _ string, _ payload.Payloads, _ runtime.Options) (*runtime.Result, error) {
 	return nil, nil
+}
+
+type mockSecurityScopeForContractTest struct {
+	id registry.ID
+}
+
+func (m *mockSecurityScopeForContractTest) With(policy secapi.Policy) secapi.Scope {
+	return m
+}
+
+func (m *mockSecurityScopeForContractTest) Without(policyID registry.ID) secapi.Scope {
+	return m
+}
+
+func (m *mockSecurityScopeForContractTest) Evaluate(actor secapi.Actor, action, resource string, meta attrs.Bag) secapi.Result {
+	return secapi.Allow
+}
+
+func (m *mockSecurityScopeForContractTest) Contains(policyID registry.ID) bool {
+	return policyID == m.id
+}
+
+func (m *mockSecurityScopeForContractTest) Policies() []secapi.Policy {
+	return nil
 }
 
 func TestModule_Info(t *testing.T) {
@@ -78,6 +104,50 @@ func TestOpenYield_ToCommand(t *testing.T) {
 	assert.Equal(t, "ns", openCmd.BindingID.NS)
 	assert.Equal(t, "binding", openCmd.BindingID.Name)
 	assert.Equal(t, "bar", openCmd.Scope["foo"])
+}
+
+func TestApplyOpenSecurityContext_InheritsAmbientSecurity(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	ctx, fc := ctxapi.OpenFrameContext(ctx)
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	actor := secapi.Actor{ID: "caller"}
+	scope := &mockSecurityScopeForContractTest{id: registry.NewID("test", "ambient")}
+	require.NoError(t, secapi.SetActor(ctx, actor))
+	require.NoError(t, secapi.SetScope(ctx, scope))
+
+	y := AcquireOpenYield()
+	defer ReleaseOpenYield(y)
+
+	applyOpenSecurityContext(ctx, y, secapi.Actor{}, false, nil, false)
+
+	require.True(t, y.HasActor)
+	assert.Equal(t, actor, y.Actor)
+	require.True(t, y.HasScope)
+	assert.Same(t, scope, y.SecurityScope)
+}
+
+func TestApplyOpenSecurityContext_ExplicitSecurityOverridesAmbient(t *testing.T) {
+	ctx := ctxapi.NewRootContext()
+	ctx, fc := ctxapi.OpenFrameContext(ctx)
+	defer ctxapi.ReleaseFrameContext(fc)
+
+	ambientActor := secapi.Actor{ID: "ambient"}
+	ambientScope := &mockSecurityScopeForContractTest{id: registry.NewID("test", "ambient")}
+	require.NoError(t, secapi.SetActor(ctx, ambientActor))
+	require.NoError(t, secapi.SetScope(ctx, ambientScope))
+
+	explicitActor := secapi.Actor{ID: "explicit"}
+	explicitScope := &mockSecurityScopeForContractTest{id: registry.NewID("test", "explicit")}
+	y := AcquireOpenYield()
+	defer ReleaseOpenYield(y)
+
+	applyOpenSecurityContext(ctx, y, explicitActor, true, explicitScope, true)
+
+	require.True(t, y.HasActor)
+	assert.Equal(t, explicitActor, y.Actor)
+	require.True(t, y.HasScope)
+	assert.Same(t, explicitScope, y.SecurityScope)
 }
 
 func TestOpenYield_CmdID(t *testing.T) {

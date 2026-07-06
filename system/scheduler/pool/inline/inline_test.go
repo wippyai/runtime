@@ -17,6 +17,8 @@ import (
 type mockProcess struct {
 	mu      sync.Mutex
 	latency time.Duration
+	closeFn func()
+	stepErr error
 }
 
 func (p *mockProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
@@ -33,10 +35,14 @@ func (p *mockProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	}
 
 	out.Done(nil)
-	return nil
+	return p.stepErr
 }
 
-func (p *mockProcess) Close() {}
+func (p *mockProcess) Close() {
+	if p.closeFn != nil {
+		p.closeFn()
+	}
+}
 
 type mockDispatcher struct{}
 
@@ -85,6 +91,37 @@ func TestInlineMultipleCalls(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Call %d: %v", i, err)
 		}
+	}
+}
+
+func TestInlineReplacesRequestingProcess(t *testing.T) {
+	created := 0
+	closed := 0
+	factory := func() (process.Process, error) {
+		created++
+		return &mockProcess{
+			stepErr: process.ErrProcessReplacementRequested,
+			closeFn: func() { closed++ },
+		}, nil
+	}
+	p, err := New(factory, &mockDispatcher{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer p.Stop()
+
+	result, err := p.Call(context.Background(), "test", nil)
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if result.Error != nil {
+		t.Fatalf("result error: %v", result.Error)
+	}
+	if created != 2 {
+		t.Fatalf("created = %d, want 2", created)
+	}
+	if closed != 1 {
+		t.Fatalf("closed = %d, want 1", closed)
 	}
 }
 

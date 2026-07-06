@@ -16,6 +16,9 @@ import (
 type FactoryAPI interface {
 	// CreatePolicyEntry creates a policy entry from the given registry entry
 	CreatePolicyEntry(ctx context.Context, entry registry.Entry) (*security.PolicyEntry, error)
+
+	// CreateScopeEntry creates an explicit named scope from the given registry entry
+	CreateScopeEntry(ctx context.Context, entry registry.Entry) (*security.ScopeEntry, error)
 }
 
 // DefaultFactory is the default implementation of FactoryAPI
@@ -40,6 +43,23 @@ func (f *DefaultFactory) CreatePolicyEntry(ctx context.Context, entry registry.E
 	default:
 		return nil, NewUnsupportedPolicyKindError(entry.Kind)
 	}
+}
+
+// CreateScopeEntry implements FactoryAPI.
+func (f *DefaultFactory) CreateScopeEntry(ctx context.Context, entry registry.Entry) (*security.ScopeEntry, error) {
+	if entry.Kind != policyapi.Scope {
+		return nil, NewUnsupportedPolicyKindError(entry.Kind)
+	}
+
+	cfg, err := entryutil.DecodeEntryConfig[policyapi.ScopeConfig](ctx, f.dtt, entry)
+	if err != nil {
+		return nil, NewDecodeScopeConfigError(err)
+	}
+
+	return &security.ScopeEntry{
+		ID:       entry.ID,
+		Policies: cfg.GetPolicyIDs(entry.ID.NS),
+	}, nil
 }
 
 // createConditionPolicy creates a condition-based policy

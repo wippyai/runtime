@@ -134,8 +134,22 @@ func NewCreateExprPolicyError(cause error) apierror.Error {
 		WithCause(cause)
 }
 
+func NewDecodeScopeConfigError(cause error) apierror.Error {
+	return apierror.New(apierror.Invalid, "failed to decode scope config").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": cause.Error()})).
+		WithCause(cause)
+}
+
 func NewCreatePolicyEntryError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to create policy entry").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": cause.Error()})).
+		WithCause(cause)
+}
+
+func NewCreateScopeEntryError(cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "failed to create scope entry").
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"cause": cause.Error()})).
 		WithCause(cause)

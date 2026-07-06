@@ -197,6 +197,24 @@ func TestExecutor_Run_StepError(t *testing.T) {
 	assert.ErrorIs(t, result.Error, stepErr)
 }
 
+func TestExecutor_Run_ReplacementRequestedAfterDone(t *testing.T) {
+	d := newMockDispatcher()
+	e := NewExecutor(d)
+
+	proc := &mockProcess{
+		stepFunc: func(_ []process.Event, out *process.StepOutput) error {
+			out.Done(payload.New("ok"))
+			return process.ErrProcessReplacementRequested
+		},
+	}
+
+	result := e.Run(context.Background(), proc, "main", nil)
+
+	require.NotNil(t, result)
+	assert.ErrorIs(t, result.Error, process.ErrProcessReplacementRequested)
+	assert.NotNil(t, result.Value)
+}
+
 func TestExecutor_Run_ContextCancelled(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping context cancellation test in short mode")

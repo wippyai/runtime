@@ -12,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
+	secapi "github.com/wippyai/runtime/api/security"
 )
 
 // Instantiator implements contract.Instantiator interface for runtime execution.
@@ -44,22 +45,33 @@ func (i *Instantiator) Instantiate(ctx context.Context, bindingID registry.ID, s
 		contracts = append(contracts, contractObj)
 	}
 
+	actor, hasActor := secapi.GetActor(ctx)
+	securityScope, hasSecurityScope := secapi.GetScope(ctx)
+
 	return &instanceImpl{
-		id:        bindingID,
-		binding:   binding,
-		contracts: contracts,
-		context:   scope,
-		funcReg:   i.funcReg,
+		id:               bindingID,
+		binding:          binding,
+		contracts:        contracts,
+		context:          scope,
+		funcReg:          i.funcReg,
+		actor:            actor,
+		hasActor:         hasActor,
+		securityScope:    securityScope,
+		hasSecurityScope: hasSecurityScope,
 	}, nil
 }
 
 // instanceImpl implements contract.Instance interface.
 type instanceImpl struct {
-	funcReg   function.Registry
-	binding   *contract.Binding
-	context   attrs.Bag
-	id        registry.ID
-	contracts []contract.Contract
+	funcReg          function.Registry
+	binding          *contract.Binding
+	context          attrs.Bag
+	id               registry.ID
+	contracts        []contract.Contract
+	actor            secapi.Actor
+	hasActor         bool
+	securityScope    secapi.Scope
+	hasSecurityScope bool
 }
 
 func (i *instanceImpl) Implements() []contract.Contract {
@@ -101,7 +113,8 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 		Options:  options,
 	}
 
-	// Merge scope values into task.Context for downstream consumers.
+	// Merge scope values and security metadata into task.Context for downstream consumers.
+	pairs := make([]ctxapi.Pair, 0, 3)
 	if len(i.context) > 0 {
 		// Get existing values from FrameContext or create new
 		values := ctxapi.GetValues(ctx)
@@ -118,7 +131,16 @@ func (i *instanceImpl) Call(ctx context.Context, method string, args payload.Pay
 		}
 
 		// Pass merged values via task.Context so they propagate through OpenFrameContext
-		task.Context = []ctxapi.Pair{ctxapi.ValuesPair(values)}
+		pairs = append(pairs, ctxapi.ValuesPair(values))
+	}
+	if i.hasActor {
+		pairs = append(pairs, secapi.ActorPair(i.actor))
+	}
+	if i.hasSecurityScope {
+		pairs = append(pairs, secapi.ScopePair(i.securityScope))
+	}
+	if len(pairs) > 0 {
+		task.Context = pairs
 	}
 
 	// Call the function with context

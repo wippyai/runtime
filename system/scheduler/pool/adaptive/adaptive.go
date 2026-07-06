@@ -4,6 +4,7 @@ package adaptive
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -425,6 +426,10 @@ func (w *worker) execute(req *pool.Request) {
 	w.pool.active.Store(pid.UniqID, w.executor)
 
 	result := w.executor.Run(req.Ctx, w.process, req.Method, req.Input)
+	replace := errors.Is(result.Error, process.ErrProcessReplacementRequested)
+	if replace {
+		result.Error = nil
+	}
 
 	w.pool.active.Delete(pid.UniqID)
 	w.executor.Reset()
@@ -432,4 +437,18 @@ func (w *worker) execute(req *pool.Request) {
 	w.pool.completedOps.Add(1)
 
 	req.ResultCh <- result
+
+	if replace {
+		w.replaceProcess()
+	}
+}
+
+func (w *worker) replaceProcess() {
+	proc, err := w.pool.factory()
+	if err != nil {
+		return
+	}
+	old := w.process
+	w.process = proc
+	old.Close()
 }

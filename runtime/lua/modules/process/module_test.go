@@ -4,6 +4,8 @@ package process
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	lua "github.com/wippyai/go-lua"
@@ -11,11 +13,46 @@ import (
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
+	"github.com/wippyai/runtime/api/registry"
+	secapi "github.com/wippyai/runtime/api/security"
+	secsystem "github.com/wippyai/runtime/system/security"
 )
 
 func bindProcess(l *lua.LState) {
 	tbl, _ := Module.Build()
 	l.SetGlobal(Module.Name, tbl)
+}
+
+type processTestPolicy struct {
+	allowed map[string]map[string]bool
+}
+
+func (p processTestPolicy) ID() registry.ID {
+	return registry.NewID("test", "process_policy")
+}
+
+func (p processTestPolicy) Evaluate(_ secapi.Actor, action, resource string, _ attrs.Bag) secapi.Result {
+	resources := p.allowed[action]
+	if resources == nil {
+		return secapi.Undefined
+	}
+	if resources[resource] || resources["*"] {
+		return secapi.Allow
+	}
+	return secapi.Undefined
+}
+
+func allowProcessActions(l *lua.LState, actions ...string) {
+	allowed := make(map[string]map[string]bool, len(actions))
+	for _, action := range actions {
+		allowed[action] = map[string]bool{"app.test:worker": true}
+	}
+	allowed["process.context"] = map[string]bool{"context": true}
+	scope := secsystem.NewScope([]secapi.Policy{processTestPolicy{allowed: allowed}})
+	ctx := l.Context()
+	_ = secapi.SetActor(ctx, secapi.Actor{ID: "tester"})
+	_ = secapi.SetScope(ctx, scope)
+	l.SetContext(ctx)
 }
 
 func TestModuleInfo(t *testing.T) {
@@ -336,5 +373,69 @@ func TestSpawnerWithOptions_PropagatesToStartOptions(t *testing.T) {
 	}
 	if !opts.GetBool(process.ProcessMonitorKey, false) {
 		t.Fatal("expected process.monitor=true for monitored spawn")
+	}
+}
+
+func TestDirectSpawnVariantsRequireHostPermission(t *testing.T) {
+	cases := []struct {
+		name string
+		fn   func(*lua.LState) int
+	}{
+		{name: "spawn", fn: spawn},
+		{name: "spawn_monitored", fn: spawnMonitored},
+		{name: "spawn_linked", fn: spawnLinked},
+		{name: "spawn_linked_monitored", fn: spawnLinkedMonitored},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			l, _ := newLuaWithPID(t)
+			allowProcessActions(l, "process.spawn", "process.spawn.monitored", "process.spawn.linked")
+
+			l.SetTop(0)
+			l.Push(lua.LString("app.test:worker"))
+			l.Push(lua.LString("denied-host"))
+
+			if got := tc.fn(l); got != 2 {
+				t.Fatalf("expected permission error pair, got return count %d and top %s", got, l.Get(-1).String())
+			}
+			if l.Get(-2) != lua.LNil {
+				t.Fatalf("expected nil result on denied host, got %s", l.Get(-2).String())
+			}
+			errText := l.Get(-1).String()
+			if !strings.Contains(errText, "not allowed to spawn on host: denied-host") {
+				t.Fatalf("expected host permission denial, got %q", errText)
+			}
+		})
+	}
+}
+
+func TestSpawnerSpawnRequiresHostPermission(t *testing.T) {
+	l, _ := newLuaWithPID(t)
+	allowProcessActions(l, "process.spawn", "process.spawn.monitored")
+
+	base := &Spawner{}
+	ud := l.NewUserData()
+	ud.Value = base
+	l.Push(ud)
+	l.Push(lua.LString("app.test:worker"))
+	l.Push(lua.LString("denied-host"))
+
+	didPanic := false
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				didPanic = true
+				if !strings.Contains(fmt.Sprint(r), "not allowed to spawn on host: denied-host") {
+					t.Fatalf("expected host permission denial, got %v", r)
+				}
+			}
+		}()
+		if got := doSpawnerSpawn(l, true, false); got == -1 {
+			t.Fatal("expected host permission denial, got spawn yield")
+		}
+	}()
+	if !didPanic {
+		t.Fatal("expected host permission denial")
 	}
 }

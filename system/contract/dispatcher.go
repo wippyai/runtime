@@ -12,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/relay"
 	"github.com/wippyai/runtime/api/runtime"
+	secapi "github.com/wippyai/runtime/api/security"
 	"go.uber.org/zap"
 )
 
@@ -60,6 +61,18 @@ func (d *Dispatcher) handleOpen(ctx context.Context, cmd dispatcher.Command, tag
 
 	go func(callCtx context.Context, callFC ctxapi.FrameContext) {
 		defer ctxapi.ReleaseFrameContext(callFC)
+		if openCmd.HasActor {
+			if err := secapi.SetActor(callCtx, openCmd.Actor); err != nil {
+				receiver.CompleteYield(tag, contract.OpenResult{Error: err}, nil)
+				return
+			}
+		}
+		if openCmd.HasScope {
+			if err := secapi.SetScope(callCtx, openCmd.SecurityScope); err != nil {
+				receiver.CompleteYield(tag, contract.OpenResult{Error: err}, nil)
+				return
+			}
+		}
 		instance, err := instantiator.Instantiate(callCtx, openCmd.BindingID, openCmd.Scope)
 		if callCtx.Err() != nil {
 			receiver.CompleteYield(tag, contract.OpenResult{Error: callCtx.Err()}, nil)

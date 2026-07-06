@@ -14,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	api "github.com/wippyai/runtime/api/runtime/lua"
+	"github.com/wippyai/runtime/api/security"
 	"github.com/wippyai/runtime/api/supervisor"
 	runtimelua "github.com/wippyai/runtime/runtime/lua"
 	"github.com/wippyai/runtime/runtime/lua/component"
@@ -26,12 +27,13 @@ import (
 	"go.uber.org/zap"
 )
 
-func newPoolEntry(pool funcpool.Pool, method, hostID string) *poolEntry {
+func newPoolEntry(pool funcpool.Pool, method, hostID string, securityConfig *security.Config) *poolEntry {
 	return &poolEntry{
-		pool:    pool,
-		method:  method,
-		hostID:  hostID,
-		drained: make(chan struct{}),
+		pool:     pool,
+		method:   method,
+		hostID:   hostID,
+		security: securityConfig,
+		drained:  make(chan struct{}),
 	}
 }
 
@@ -100,7 +102,7 @@ func (m *Manager) createPool(id registry.ID, cfg *configEntry) error {
 	}
 
 	m.mu.Lock()
-	m.pools[id] = newPoolEntry(pool, cfg.method, hostID)
+	m.pools[id] = newPoolEntry(pool, cfg.method, hostID, cfg.security)
 	m.mu.Unlock()
 
 	return nil
@@ -151,7 +153,7 @@ func (m *Manager) replacePool(id registry.ID, cfg *configEntry) error {
 		}
 	}
 
-	newEntry := newPoolEntry(pool, cfg.method, hostID)
+	newEntry := newPoolEntry(pool, cfg.method, hostID, cfg.security)
 	m.mu.Lock()
 	oldEntry, exists := m.pools[id]
 	m.pools[id] = newEntry

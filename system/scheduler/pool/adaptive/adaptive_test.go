@@ -19,6 +19,8 @@ import (
 type mockProcess struct {
 	mu      sync.Mutex
 	latency time.Duration
+	closeFn func()
+	stepErr error
 }
 
 func (p *mockProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
@@ -35,10 +37,14 @@ func (p *mockProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	}
 
 	out.Done(nil)
-	return nil
+	return p.stepErr
 }
 
-func (p *mockProcess) Close() {}
+func (p *mockProcess) Close() {
+	if p.closeFn != nil {
+		p.closeFn()
+	}
+}
 
 type mockDispatcher struct{}
 
@@ -144,6 +150,33 @@ func TestAdaptiveConcurrent(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestAdaptiveReplacesOnlyRequestingWorker(t *testing.T) {
+	created := atomic.Int32{}
+	closed := atomic.Int32{}
+	factory := func() (process.Process, error) {
+		created.Add(1)
+		return &mockProcess{
+			stepErr: process.ErrProcessReplacementRequested,
+			closeFn: func() { closed.Add(1) },
+		}, nil
+	}
+	p, err := New(factory, &mockDispatcher{}, testOptions(1)...)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer p.Stop()
+	p.Start()
+
+	result, err := p.Call(context.Background(), "test", nil)
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if result.Error != nil {
+		t.Fatalf("result error: %v", result.Error)
+	}
+	waitFor(t, time.Second, func() bool { return created.Load() == 2 && closed.Load() == 1 })
 }
 
 func TestAdaptiveScalesUp(t *testing.T) {

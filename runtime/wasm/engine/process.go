@@ -141,9 +141,9 @@ func (p *Process) stepSync(out *process.StepOutput) error {
 
 	p.result = result
 	p.done = true
-	p.softReset()
+	replaceErr := p.resetAfterSync()
 	out.Done(result)
-	return nil
+	return replaceErr
 }
 
 func (p *Process) stepAsync(out *process.StepOutput) error {
@@ -258,6 +258,29 @@ func (p *Process) endExecution() {
 		p.inst = nil
 	}
 	p.softReset()
+}
+
+func (p *Process) resetAfterSync() error {
+	replace := p.shouldReplaceAfterSync()
+	p.softReset()
+	if replace {
+		return process.ErrProcessReplacementRequested
+	}
+	return nil
+}
+
+func (p *Process) shouldReplaceAfterSync() bool {
+	if p.shouldRecycleRetainedInstance() {
+		return true
+	}
+	return false
+}
+
+func (p *Process) shouldRecycleRetainedInstance() bool {
+	if p.inst == nil || p.limits.MaxRetainedMemoryBytes <= 0 {
+		return false
+	}
+	return int64(p.inst.MemorySize()) > p.limits.MaxRetainedMemoryBytes
 }
 
 // softReset clears per-call state while keeping the instance warm for reuse.

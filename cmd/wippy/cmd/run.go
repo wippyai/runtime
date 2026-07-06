@@ -15,6 +15,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
 	logapi "github.com/wippyai/runtime/api/logs"
 	moduleapi "github.com/wippyai/runtime/api/modules"
@@ -334,29 +335,32 @@ func extractCommandMeta(meta map[string]any) *commandMeta {
 		return nil
 	}
 
-	cmdData, ok := meta["command"]
+	cmdMap, ok := attrs.Bag(meta).GetBag("command")
 	if !ok {
 		return nil
 	}
 
-	cmdMap, ok := cmdData.(map[string]any)
-	if !ok {
-		return nil
-	}
-
-	name, _ := cmdMap["name"].(string)
+	name := cmdMap.GetString("name", "")
 	if name == "" {
 		return nil
 	}
 
-	short, _ := cmdMap["short"].(string)
-	main, _ := cmdMap["main"].(bool)
-	useCase, _ := cmdMap["use_case"].(string)
+	short := cmdMap.GetString("short", "")
+	main := cmdMap.GetBool("main", false)
+	useCase := cmdMap.GetString("use_case", "")
 	if useCase == "" {
-		useCase = defaultUseCase
+		useCase = defaultUseCaseForCommandName(name)
 	}
 
 	return &commandMeta{Name: name, Short: short, UseCase: useCase, Main: main}
+}
+
+func defaultUseCaseForCommandName(name string) string {
+	if name == "test" {
+		return "test"
+	}
+
+	return defaultUseCase
 }
 
 // runList prints all command-enabled process entries from resolved lock modules.

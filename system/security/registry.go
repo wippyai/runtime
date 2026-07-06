@@ -23,6 +23,7 @@ type PolicyRegistry struct {
 	subscriber *eventbus.Subscriber
 	policies   sync.Map
 	groups     sync.Map
+	scopes     sync.Map
 	groupMu    sync.Mutex
 }
 
@@ -36,6 +37,7 @@ func NewPolicyRegistry(bus event.Bus, logger *zap.Logger) *PolicyRegistry {
 		logger:   logger,
 		policies: sync.Map{},
 		groups:   sync.Map{},
+		scopes:   sync.Map{},
 	}
 }
 
@@ -46,7 +48,7 @@ func (r *PolicyRegistry) Start(ctx context.Context) error {
 		r.ctx,
 		r.bus,
 		security.System,
-		"policy.(register|update|delete)",
+		"(policy|scope).(register|update|delete)",
 		r.handleEvent,
 	)
 	if err != nil {
@@ -73,6 +75,12 @@ func (r *PolicyRegistry) handleEvent(e event.Event) {
 		r.updatePolicy(e)
 	case security.PolicyDelete:
 		r.deletePolicy(e)
+	case security.ScopeRegister:
+		r.registerScope(e)
+	case security.ScopeUpdate:
+		r.updateScope(e)
+	case security.ScopeDelete:
+		r.deleteScope(e)
 	default:
 		r.logger.Warn("unknown policy event kind",
 			zap.String("kind", e.Kind),
@@ -187,6 +195,51 @@ func (r *PolicyRegistry) deletePolicy(e event.Event) {
 		zap.String("policy", policyID.String()))
 }
 
+func (r *PolicyRegistry) registerScope(e event.Event) {
+	entry, ok := e.Data.(*security.ScopeEntry)
+	if !ok {
+		r.logger.Error("invalid scope payload",
+			zap.String("scope", e.Path),
+			zap.String("type", fmt.Sprintf("%T", e.Data)))
+		return
+	}
+
+	r.setScope(entry.ID, entry.Policies)
+
+	r.logger.Debug("scope registered",
+		zap.String("scope", entry.ID.String()),
+		zap.Int("policies", len(entry.Policies)))
+}
+
+func (r *PolicyRegistry) updateScope(e event.Event) {
+	entry, ok := e.Data.(*security.ScopeEntry)
+	if !ok {
+		r.logger.Error("invalid scope update payload",
+			zap.String("scope", e.Path),
+			zap.String("type", fmt.Sprintf("%T", e.Data)))
+		return
+	}
+
+	r.setScope(entry.ID, entry.Policies)
+
+	r.logger.Debug("scope updated",
+		zap.String("scope", entry.ID.String()),
+		zap.Int("policies", len(entry.Policies)))
+}
+
+func (r *PolicyRegistry) deleteScope(e event.Event) {
+	scopeID := registry.ParseID(e.Path)
+	r.scopes.Delete(scopeID)
+
+	r.logger.Debug("scope deleted",
+		zap.String("scope", scopeID.String()))
+}
+
+func (r *PolicyRegistry) setScope(scopeID registry.ID, policyIDs []registry.ID) {
+	copied := append([]registry.ID(nil), policyIDs...)
+	r.scopes.Store(scopeID, copied)
+}
+
 func (r *PolicyRegistry) addPolicyToGroup(groupID, policyID registry.ID) {
 	r.groupMu.Lock()
 	defer r.groupMu.Unlock()
@@ -256,15 +309,11 @@ func (r *PolicyRegistry) GetPolicy(id registry.ID) (security.Policy, error) {
 }
 
 func (r *PolicyRegistry) GetPolicyGroup(groupID registry.ID) (security.Scope, error) {
-	val, ok := r.groups.Load(groupID)
+	policyIDs, ok := r.policyIDsForGroup(groupID)
 	if !ok {
 		return nil, security.ErrGroupNotFound
 	}
 
-	policyIDs, ok := val.([]registry.ID)
-	if !ok {
-		return nil, security.ErrGroupNotFound
-	}
 	policies := make([]security.Policy, 0, len(policyIDs))
 
 	for _, id := range policyIDs {
@@ -280,12 +329,63 @@ func (r *PolicyRegistry) GetPolicyGroup(groupID registry.ID) (security.Scope, er
 	return NewScope(policies), nil
 }
 
+func (r *PolicyRegistry) policyIDsForGroup(groupID registry.ID) ([]registry.ID, bool) {
+	seen := make(map[registry.ID]struct{})
+	policyIDs := make([]registry.ID, 0)
+	found := false
+
+	if val, ok := r.scopes.Load(groupID); ok {
+		if scopedPolicyIDs, ok := val.([]registry.ID); ok {
+			found = true
+			for _, id := range scopedPolicyIDs {
+				if _, exists := seen[id]; exists {
+					continue
+				}
+				seen[id] = struct{}{}
+				policyIDs = append(policyIDs, id)
+			}
+		} else {
+			r.logger.Error("invalid scope type in registry",
+				zap.String("scope", groupID.String()))
+		}
+	}
+
+	if val, ok := r.groups.Load(groupID); ok {
+		if groupedPolicyIDs, ok := val.([]registry.ID); ok {
+			found = true
+			for _, id := range groupedPolicyIDs {
+				if _, exists := seen[id]; exists {
+					continue
+				}
+				seen[id] = struct{}{}
+				policyIDs = append(policyIDs, id)
+			}
+		} else {
+			r.logger.Error("invalid group type in registry",
+				zap.String("group", groupID.String()))
+		}
+	}
+
+	return policyIDs, found
+}
+
 func (r *PolicyRegistry) ListGroups() []registry.ID {
 	var groups []registry.ID
+	seen := make(map[registry.ID]struct{})
 
 	r.groups.Range(func(key, _ any) bool {
 		if id, ok := key.(registry.ID); ok {
+			seen[id] = struct{}{}
 			groups = append(groups, id)
+		}
+		return true
+	})
+
+	r.scopes.Range(func(key, _ any) bool {
+		if id, ok := key.(registry.ID); ok {
+			if _, exists := seen[id]; !exists {
+				groups = append(groups, id)
+			}
 		}
 		return true
 	})

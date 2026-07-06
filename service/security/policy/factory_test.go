@@ -33,6 +33,11 @@ func (m *mockTranscoder) Unmarshal(p payload.Payload, v any) error {
 			*dest = *src
 			return nil
 		}
+	case *policyapi.ScopeConfig:
+		if src, ok := p.Data().(*policyapi.ScopeConfig); ok {
+			*dest = *src
+			return nil
+		}
 	}
 	return nil
 }
@@ -96,6 +101,31 @@ func TestDefaultFactory_CreateExprPolicy(t *testing.T) {
 	assert.Equal(t, registry.NewID("test", "user"), policyEntry.Groups[0])
 }
 
+func TestDefaultFactory_CreateScope(t *testing.T) {
+	ctx := context.Background()
+	dtt := &mockTranscoder{}
+	factory := NewDefaultFactory(dtt)
+
+	config := &policyapi.ScopeConfig{
+		Policies: []string{"local_policy", "shared:policy"},
+	}
+
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "user"),
+		Kind: policyapi.Scope,
+		Data: payload.New(config),
+	}
+
+	scopeEntry, err := factory.CreateScopeEntry(ctx, entry)
+	require.NoError(t, err)
+	require.NotNil(t, scopeEntry)
+	assert.Equal(t, entry.ID, scopeEntry.ID)
+	assert.Equal(t, []registry.ID{
+		registry.NewID("test", "local_policy"),
+		registry.NewID("shared", "policy"),
+	}, scopeEntry.Policies)
+}
+
 func TestDefaultFactory_UnsupportedKind(t *testing.T) {
 	ctx := context.Background()
 	dtt := &mockTranscoder{}
@@ -111,6 +141,23 @@ func TestDefaultFactory_UnsupportedKind(t *testing.T) {
 	apiErr := requireAPIError(t, err, apierror.Invalid, "unsupported policy kind")
 	assertDetailString(t, apiErr, "kind", "unsupported.kind")
 	assert.Nil(t, policyEntry)
+}
+
+func TestDefaultFactory_InvalidScopeConfig(t *testing.T) {
+	ctx := context.Background()
+	dtt := &mockTranscoder{}
+	factory := NewDefaultFactory(dtt)
+
+	entry := registry.Entry{
+		ID:   registry.NewID("test", "invalid-scope"),
+		Kind: policyapi.Scope,
+		Data: payload.New(&policyapi.ScopeConfig{}),
+	}
+
+	scopeEntry, err := factory.CreateScopeEntry(ctx, entry)
+	apiErr := requireAPIError(t, err, apierror.Invalid, "failed to decode scope config")
+	assert.Contains(t, apiErr.Details().GetString("cause", ""), policyapi.ErrScopePoliciesEmpty.Error())
+	assert.Nil(t, scopeEntry)
 }
 
 func TestDefaultFactory_InvalidConditionPolicyConfig(t *testing.T) {

@@ -38,12 +38,26 @@ func NewManager(
 
 // Add handles the registration of a new security policy
 func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
-	return m.processPolicy(ctx, entry, security.PolicyRegister, "registered")
+	switch entry.Kind {
+	case policyapi.Policy, policyapi.ExprKind:
+		return m.processPolicy(ctx, entry, security.PolicyRegister, "registered")
+	case policyapi.Scope:
+		return m.processScope(ctx, entry, security.ScopeRegister, "registered")
+	default:
+		return NewUnsupportedEntryKindError(entry.Kind)
+	}
 }
 
 // Update handles the update of an existing security policy
 func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
-	return m.processPolicy(ctx, entry, security.PolicyUpdate, "updated")
+	switch entry.Kind {
+	case policyapi.Policy, policyapi.ExprKind:
+		return m.processPolicy(ctx, entry, security.PolicyUpdate, "updated")
+	case policyapi.Scope:
+		return m.processScope(ctx, entry, security.ScopeUpdate, "updated")
+	default:
+		return NewUnsupportedEntryKindError(entry.Kind)
+	}
 }
 
 // Delete handles the removal of a security policy
@@ -52,13 +66,20 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 
+	eventKind := security.PolicyDelete
+	label := "security policy removed"
+	if entry.Kind == policyapi.Scope {
+		eventKind = security.ScopeDelete
+		label = "security scope removed"
+	}
+
 	m.bus.Send(ctx, event.Event{
 		System: security.System,
-		Kind:   security.PolicyDelete,
+		Kind:   eventKind,
 		Path:   entry.ID.String(),
 	})
 
-	m.log.Info("security policy removed", zap.String("id", entry.ID.String()))
+	m.log.Info(label, zap.String("id", entry.ID.String()))
 
 	return nil
 }
@@ -88,7 +109,27 @@ func (m *Manager) processPolicy(ctx context.Context, entry registry.Entry, event
 	return nil
 }
 
+func (m *Manager) processScope(ctx context.Context, entry registry.Entry, eventKind event.Kind, action string) error {
+	scopeEntry, err := m.factory.CreateScopeEntry(ctx, entry)
+	if err != nil {
+		return NewCreateScopeEntryError(err)
+	}
+
+	m.bus.Send(ctx, event.Event{
+		System: security.System,
+		Kind:   eventKind,
+		Path:   entry.ID.String(),
+		Data:   scopeEntry,
+	})
+
+	m.log.Info("security scope "+action,
+		zap.String("id", entry.ID.String()),
+		zap.Int("policies", len(scopeEntry.Policies)))
+
+	return nil
+}
+
 // isSupportedKind checks if the entry kind is a supported policy kind
 func (m *Manager) isSupportedKind(kind registry.Kind) bool {
-	return kind == policyapi.Policy || kind == policyapi.ExprKind
+	return kind == policyapi.Policy || kind == policyapi.ExprKind || kind == policyapi.Scope
 }

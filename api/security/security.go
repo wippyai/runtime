@@ -15,11 +15,15 @@ import (
 // System identifies the security system in the event bus.
 const System event.System = "security"
 
-// Event kinds for policy operations.
+// Event kinds for policy and scope operations.
 const (
 	PolicyRegister event.Kind = "policy.register"
 	PolicyUpdate   event.Kind = "policy.update"
 	PolicyDelete   event.Kind = "policy.delete"
+
+	ScopeRegister event.Kind = "scope.register"
+	ScopeUpdate   event.Kind = "scope.update"
+	ScopeDelete   event.Kind = "scope.delete"
 )
 
 // Result values for policy decisions.
@@ -89,6 +93,12 @@ type (
 	PolicyEntry struct {
 		Policy Policy
 		Groups []registry.ID
+	}
+
+	// ScopeEntry represents an explicit named scope registration payload.
+	ScopeEntry struct {
+		ID       registry.ID
+		Policies []registry.ID
 	}
 
 	// Registry defines the core interface for accessing security policies.

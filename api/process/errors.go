@@ -2,7 +2,11 @@
 
 package process
 
-import apierror "github.com/wippyai/runtime/api/error"
+import (
+	"errors"
+
+	apierror "github.com/wippyai/runtime/api/error"
+)
 
 // Error kind constants.
 const (
@@ -24,3 +28,8 @@ var (
 
 	ErrSchedulerStopping = apierror.New(InvalidState, "scheduler is stopping").WithRetryable(apierror.False)
 )
+
+// ErrProcessReplacementRequested is an internal scheduler sentinel. A process
+// may return it after writing StepDone when the current result is valid but the
+// owning pool should retire this process before the next call.
+var ErrProcessReplacementRequested = errors.New("process replacement requested")

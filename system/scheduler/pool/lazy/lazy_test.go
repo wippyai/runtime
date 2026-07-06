@@ -18,6 +18,8 @@ import (
 type mockProcess struct {
 	mu      sync.Mutex
 	latency time.Duration
+	closeFn func()
+	stepErr error
 }
 
 func (p *mockProcess) Init(_ context.Context, _ string, _ payload.Payloads) error {
@@ -34,10 +36,14 @@ func (p *mockProcess) Step(_ []process.Event, out *process.StepOutput) error {
 	}
 
 	out.Done(nil)
-	return nil
+	return p.stepErr
 }
 
-func (p *mockProcess) Close() {}
+func (p *mockProcess) Close() {
+	if p.closeFn != nil {
+		p.closeFn()
+	}
+}
 
 type mockDispatcher struct{}
 
@@ -132,6 +138,43 @@ func TestLazyReusesIdleProcess(t *testing.T) {
 
 	if count.Load() != 1 {
 		t.Fatalf("expected 1 process (reused), got %d", count.Load())
+	}
+}
+
+func TestLazyClosesRequestingProcessInsteadOfIdling(t *testing.T) {
+	created := atomic.Int32{}
+	closed := atomic.Int32{}
+	factory := func() (process.Process, error) {
+		created.Add(1)
+		return &mockProcess{
+			stepErr: process.ErrProcessReplacementRequested,
+			closeFn: func() { closed.Add(1) },
+		}, nil
+	}
+	p, err := New(factory, &mockDispatcher{}, Config{MaxWorkers: 1, IdleTimeout: time.Minute})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer p.Stop()
+	p.Start()
+
+	result, err := p.Call(context.Background(), "test", nil)
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if result.Error != nil {
+		t.Fatalf("result error: %v", result.Error)
+	}
+	if closed.Load() != 1 {
+		t.Fatalf("closed = %d, want 1", closed.Load())
+	}
+
+	_, err = p.Call(context.Background(), "test", nil)
+	if err != nil {
+		t.Fatalf("second Call: %v", err)
+	}
+	if created.Load() != 2 {
+		t.Fatalf("created = %d, want 2", created.Load())
 	}
 }
 

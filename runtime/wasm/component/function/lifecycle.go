@@ -148,7 +148,7 @@ func (m *Manager) addWASM(ctx context.Context, entry registry.Entry) error {
 		return runtimewasm.NewUnpackConfigError("function.wasm", err)
 	}
 
-	module, err := m.loadWASMModule(ctx, cfg)
+	module, component, err := m.loadWASMModule(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -161,6 +161,7 @@ func (m *Manager) addWASM(ctx context.Context, entry registry.Entry) error {
 		pool:      cfg.Pool,
 		limits:    cfg.Limits,
 		kind:      api.FunctionWASM,
+		component: component,
 	}
 	opts, _ := cfg.Meta.GetBag("options")
 	ce.options = opts
@@ -227,7 +228,7 @@ func (m *Manager) updateWASM(ctx context.Context, entry registry.Entry) error {
 		return runtimewasm.NewUnpackConfigError("function.wasm", err)
 	}
 
-	module, err := m.loadWASMModule(ctx, cfg)
+	module, component, err := m.loadWASMModule(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -240,6 +241,7 @@ func (m *Manager) updateWASM(ctx context.Context, entry registry.Entry) error {
 		pool:      cfg.Pool,
 		limits:    cfg.Limits,
 		kind:      api.FunctionWASM,
+		component: component,
 	}
 	opts, _ := cfg.Meta.GetBag("options")
 	ce.options = opts
@@ -262,7 +264,8 @@ func (m *Manager) loadModule(ctx context.Context, cfg *configEntry) (*wasmrt.Mod
 	case api.FunctionWAT:
 		return m.loadWATModule(ctx, cfg.wat)
 	case api.FunctionWASM:
-		return m.loadWASMModule(ctx, cfg.wasm)
+		module, _, err := m.loadWASMModule(ctx, cfg.wasm)
+		return module, err
 	default:
 		return nil, runtimewasm.NewInvalidEntryKindError(cfg.kind, api.FunctionWAT, api.FunctionWASM)
 	}
@@ -288,20 +291,20 @@ func (m *Manager) loadWATModule(ctx context.Context, cfg *api.WATFunctionConfig)
 	return module, nil
 }
 
-func (m *Manager) loadWASMModule(ctx context.Context, cfg *api.FunctionConfig) (*wasmrt.Module, error) {
+func (m *Manager) loadWASMModule(ctx context.Context, cfg *api.FunctionConfig) (*wasmrt.Module, bool, error) {
 	data, err := wasmcomponent.LoadAndVerifyWASM(m.fsRegistry, cfg.FS, cfg.Path, cfg.Hash)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	isComponent := wasmlib.IsComponent(data)
 	if err := m.ensureImportHosts(ctx, cfg.Imports, isComponent); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	rt := m.runtimeInstance(isComponent)
 	if rt == nil {
-		return nil, runtimewasm.ErrRuntimeNotStarted
+		return nil, false, runtimewasm.ErrRuntimeNotStarted
 	}
 
 	var module *wasmrt.Module
@@ -311,11 +314,11 @@ func (m *Manager) loadWASMModule(ctx context.Context, cfg *api.FunctionConfig) (
 		module, err = rt.LoadWASM(ctx, data, cfg.WIT)
 	}
 	if err != nil {
-		return nil, runtimewasm.NewLoadWASMError(err)
+		return nil, false, runtimewasm.NewLoadWASMError(err)
 	}
 
 	if err := module.Compile(ctx); err != nil {
-		return nil, runtimewasm.NewCompileModuleError(err)
+		return nil, false, runtimewasm.NewCompileModuleError(err)
 	}
-	return module, nil
+	return module, isComponent, nil
 }
