@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: MPL-2.0
 
-package sqlite
+package postgres
 
 import (
 	"bytes"
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"reflect"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/hashicorp/go-msgpack/v2/codec"
-	_ "github.com/mattn/go-sqlite3" // Register SQLite3 database driver
+	_ "github.com/lib/pq" // Register PostgreSQL database driver
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
@@ -22,14 +23,28 @@ import (
 	"go.uber.org/zap"
 )
 
+const defaultSchema = "wippy_registry"
+
 type History struct {
-	db     *sql.DB
-	handle *codec.MsgpackHandle
-	log    *zap.Logger
-	mu     sync.RWMutex
+	db      *sql.DB
+	handle  *codec.MsgpackHandle
+	log     *zap.Logger
+	queries postgresQueries
+	mu      sync.RWMutex
 }
 
-var openMu sync.Mutex
+type postgresQueries struct {
+	getChangeset        string
+	insertChangeset     string
+	insertRootChangeset string
+	insertRootVersion   string
+	insertVersion       string
+	queryHead           string
+	queryVersions       string
+	setHead             string
+	setInitialHead      string
+	updateHead          string
+}
 
 type encodedPayload struct {
 	Data   any
@@ -53,15 +68,23 @@ func newMsgpackHandle() *codec.MsgpackHandle {
 	return mh
 }
 
-func NewSQLite(dbPath string, log *zap.Logger) (*History, error) {
-	openMu.Lock()
-	defer openMu.Unlock()
+func NewPostgres(dsn string, schemaName string, log *zap.Logger) (*History, error) {
+	dsn = strings.TrimSpace(dsn)
+	if dsn == "" {
+		return nil, NewInvalidConfigError("history DSN is required")
+	}
+	schemaName = strings.TrimSpace(schemaName)
+	if schemaName == "" {
+		schemaName = defaultSchema
+	}
+	if err := schemamanager.ValidateIdentifier(schemaName); err != nil {
+		return nil, NewInvalidConfigError(err.Error())
+	}
 
-	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000", dbPath))
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, NewOpenDatabaseError(err)
 	}
-	db.SetMaxOpenConns(1)
 
 	ctx := context.Background()
 	if err := db.PingContext(ctx); err != nil {
@@ -69,10 +92,11 @@ func NewSQLite(dbPath string, log *zap.Logger) (*History, error) {
 		return nil, NewConnectError(err)
 	}
 
-	manager, err := schemamanager.NewManager(historyschema.SQLiteBundle(), schemamanager.Target{
-		Dialect:     schemamanager.DialectSQLite,
+	manager, err := schemamanager.NewManager(historyschema.PostgresBundle(), schemamanager.Target{
+		Dialect:     schemamanager.DialectPostgres,
 		DB:          db,
 		LogicalName: historyschema.BundleName,
+		SchemaName:  schemaName,
 	})
 	if err != nil {
 		_ = db.Close()
@@ -88,9 +112,10 @@ func NewSQLite(dbPath string, log *zap.Logger) (*History, error) {
 	}
 
 	h := &History{
-		db:     db,
-		handle: newMsgpackHandle(),
-		log:    log,
+		db:      db,
+		handle:  newMsgpackHandle(),
+		log:     log,
+		queries: buildQueries(schemaName),
 	}
 
 	if err := h.ensureRootVersion(); err != nil {
@@ -99,6 +124,28 @@ func NewSQLite(dbPath string, log *zap.Logger) (*History, error) {
 	}
 
 	return h, nil
+}
+
+func buildQueries(schemaName string) postgresQueries {
+	table := func(name string) string {
+		return schemamanager.QuoteIdentifier(schemaName) + "." + schemamanager.QuoteIdentifier(name)
+	}
+	versions := table("versions")
+	changesets := table("changesets")
+	metadata := table("metadata")
+
+	return postgresQueries{
+		getChangeset:        "SELECT data FROM " + changesets + " WHERE version_id = $1",
+		insertChangeset:     "INSERT INTO " + changesets + " (version_id, data) VALUES ($1, $2) ON CONFLICT(version_id) DO UPDATE SET data = EXCLUDED.data",
+		insertRootChangeset: "INSERT INTO " + changesets + " (version_id, data) VALUES (0, $1) ON CONFLICT(version_id) DO NOTHING",
+		insertRootVersion:   "INSERT INTO " + versions + " (id, parent_id) VALUES (0, NULL) ON CONFLICT(id) DO NOTHING",
+		insertVersion:       "INSERT INTO " + versions + " (id, parent_id) VALUES ($1, $2) ON CONFLICT(id) DO UPDATE SET parent_id = EXCLUDED.parent_id",
+		queryHead:           "SELECT value FROM " + metadata + " WHERE key = 'head'",
+		queryVersions:       "SELECT id, parent_id FROM " + versions + " ORDER BY id ASC",
+		setHead:             "INSERT INTO " + metadata + " (key, value) VALUES ('head', $1) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value",
+		setInitialHead:      "INSERT INTO " + metadata + " (key, value) VALUES ('head', '0') ON CONFLICT(key) DO NOTHING",
+		updateHead:          "INSERT INTO " + metadata + " (key, value) VALUES ('head', $1) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value",
+	}
 }
 
 func (h *History) ensureRootVersion() error {
@@ -112,17 +159,16 @@ func (h *History) ensureRootVersion() error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO versions (id, parent_id) VALUES (0, NULL)"); err != nil {
+	if _, err := tx.ExecContext(ctx, h.queries.insertRootVersion); err != nil {
 		return NewInsertRootVersionError(err)
 	}
 
-	// Create an empty changeset for v0.
-	emptyChangesetData := []byte{0x90} // MessagePack empty array
-	if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO changesets (version_id, data) VALUES (0, ?)", emptyChangesetData); err != nil {
+	emptyChangesetData := []byte{0x90}
+	if _, err := tx.ExecContext(ctx, h.queries.insertRootChangeset, emptyChangesetData); err != nil {
 		return NewInsertChangesetError(err)
 	}
 
-	if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO metadata (key, value) VALUES ('head', '0')"); err != nil {
+	if _, err := tx.ExecContext(ctx, h.queries.setInitialHead); err != nil {
 		return NewSetInitialHeadError(err)
 	}
 
@@ -141,7 +187,7 @@ func (h *History) Versions() ([]registry.Version, error) {
 }
 
 func (h *History) versions(ctx context.Context) ([]registry.Version, error) {
-	rows, err := h.db.QueryContext(ctx, "SELECT id, parent_id FROM versions ORDER BY id ASC")
+	rows, err := h.db.QueryContext(ctx, h.queries.queryVersions)
 	if err != nil {
 		return nil, NewQueryVersionsError(err)
 	}
@@ -189,7 +235,7 @@ func (h *History) Get(v registry.Version) (registry.ChangeSet, error) {
 
 	ctx := context.Background()
 	var data []byte
-	err := h.db.QueryRowContext(ctx, "SELECT data FROM changesets WHERE version_id = ?", v.ID()).Scan(&data)
+	err := h.db.QueryRowContext(ctx, h.queries.getChangeset, v.ID()).Scan(&data)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, NewChangesetNotFoundError(v.ID())
 	}
@@ -266,7 +312,7 @@ func (h *History) Save(v registry.Version, cs registry.ChangeSet, head bool) err
 		parentID = sql.NullInt64{Int64: int64(prevID), Valid: true}
 	}
 
-	_, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO versions (id, parent_id) VALUES (?, ?)", v.ID(), parentID)
+	_, err = tx.ExecContext(ctx, h.queries.insertVersion, v.ID(), parentID)
 	if err != nil {
 		return NewInsertVersionError(err)
 	}
@@ -326,13 +372,13 @@ func (h *History) Save(v registry.Version, cs registry.ChangeSet, head bool) err
 		return NewEncodeChangesetError(err)
 	}
 
-	_, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO changesets (version_id, data) VALUES (?, ?)", v.ID(), buf.Bytes())
+	_, err = tx.ExecContext(ctx, h.queries.insertChangeset, v.ID(), buf.Bytes())
 	if err != nil {
 		return NewInsertChangesetError(err)
 	}
 
 	if head {
-		_, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO metadata (key, value) VALUES ('head', ?)", v.ID())
+		_, err = tx.ExecContext(ctx, h.queries.updateHead, strconv.FormatUint(uint64(v.ID()), 10))
 		if err != nil {
 			return NewUpdateHeadError(err)
 		}
@@ -350,14 +396,19 @@ func (h *History) Head() (registry.Version, error) {
 	defer h.mu.RUnlock()
 
 	ctx := context.Background()
-	var headID uint
-	err := h.db.QueryRowContext(ctx, "SELECT value FROM metadata WHERE key = 'head'").Scan(&headID)
+	var headValue string
+	err := h.db.QueryRowContext(ctx, h.queries.queryHead).Scan(&headValue)
 	if errors.Is(err, sql.ErrNoRows) {
 		return version.New(0), nil
 	}
 	if err != nil {
 		return nil, NewQueryHeadError(err)
 	}
+	head64, err := strconv.ParseUint(headValue, 10, 0)
+	if err != nil {
+		return nil, NewParseHeadError(headValue, err)
+	}
+	headID := uint(head64)
 
 	versions, err := h.versions(ctx)
 	if err != nil {
@@ -378,7 +429,7 @@ func (h *History) SetHead(v registry.Version) error {
 	defer h.mu.Unlock()
 
 	ctx := context.Background()
-	_, err := h.db.ExecContext(ctx, "INSERT OR REPLACE INTO metadata (key, value) VALUES ('head', ?)", v.ID())
+	_, err := h.db.ExecContext(ctx, h.queries.setHead, strconv.FormatUint(uint64(v.ID()), 10))
 	if err != nil {
 		return NewSetHeadError(err)
 	}
@@ -390,18 +441,18 @@ func (h *History) Close() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	h.log.Debug("closing SQLite history", zap.Bool("db_initialized", h.db != nil))
+	h.log.Debug("closing PostgreSQL history", zap.Bool("db_initialized", h.db != nil))
 
 	if h.db != nil {
 		err := h.db.Close()
 		if err != nil {
-			h.log.Error("failed to close SQLite database", zap.Error(err))
+			h.log.Error("failed to close PostgreSQL database", zap.Error(err))
 			return NewCloseDatabaseError(err)
 		}
-		h.log.Debug("SQLite history closed successfully")
+		h.log.Debug("PostgreSQL history closed successfully")
 		return nil
 	}
 
-	h.log.Debug("SQLite history close skipped, database not initialized")
+	h.log.Debug("PostgreSQL history close skipped, database not initialized")
 	return nil
 }

@@ -205,6 +205,67 @@ metrics:
 		assert.Nil(t, cfg)
 		assert.Contains(t, err.Error(), "failed to parse YAML")
 	})
+
+	t.Run("expands scoped OS environment references", func(t *testing.T) {
+		t.Setenv("WIPPY_TEST_HISTORY_DSN", "postgres://user:pass@localhost/wippy?sslmode=disable")
+		yamlContent := `version: "1.0"
+registry:
+  enable_history: true
+  history_type: postgres
+  history_dsn: ${env:WIPPY_TEST_HISTORY_DSN}
+  history_schema: wippy_registry
+`
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "test.yaml")
+		err := os.WriteFile(configPath, []byte(yamlContent), 0600)
+		require.NoError(t, err)
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+		require.NotNil(t, cfg)
+
+		registryCfg := cfg.Sub("registry")
+		assert.Equal(t, "postgres://user:pass@localhost/wippy?sslmode=disable", registryCfg.GetString("history_dsn", ""))
+		assert.Equal(t, "wippy_registry", registryCfg.GetString("history_schema", ""))
+	})
+
+	t.Run("keeps profile variables for later profile resolution", func(t *testing.T) {
+		yamlContent := `version: "1.0"
+vars:
+  port: "18085"
+profiles:
+  dev:
+    gateway:
+      addr: ":${port}"
+`
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "test.yaml")
+		err := os.WriteFile(configPath, []byte(yamlContent), 0600)
+		require.NoError(t, err)
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+		require.NotNil(t, cfg)
+
+		profilesCfg := cfg.Sub("profiles")
+		assert.Equal(t, ":${port}", profilesCfg.GetString("dev.gateway.addr", ""))
+	})
+
+	t.Run("returns error for missing scoped OS environment reference", func(t *testing.T) {
+		yamlContent := `version: "1.0"
+registry:
+  history_dsn: ${env:WIPPY_TEST_MISSING_DSN}
+`
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "test.yaml")
+		err := os.WriteFile(configPath, []byte(yamlContent), 0600)
+		require.NoError(t, err)
+
+		cfg, err := Load(configPath)
+		require.Error(t, err)
+		assert.Nil(t, cfg)
+		assert.Contains(t, err.Error(), "WIPPY_TEST_MISSING_DSN")
+	})
 }
 
 func TestBuildBootConfig(t *testing.T) {

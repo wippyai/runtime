@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -119,6 +120,50 @@ func TestHistory_Persistence(t *testing.T) {
 	assert.Len(t, versions, 2)
 }
 
+func TestHistory_ConcurrentColdOpenInitializesRootOnce(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	const workers = 8
+	var wg sync.WaitGroup
+	errs := make(chan error, workers)
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			hist, err := NewSQLite(dbPath, zap.NewNop())
+			if err != nil {
+				errs <- err
+				return
+			}
+			errs <- hist.Close()
+		}()
+	}
+
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err)
+	}
+
+	hist, err := NewSQLite(dbPath, zap.NewNop())
+	require.NoError(t, err)
+	defer func() { _ = hist.Close() }()
+
+	versions, err := hist.Versions()
+	require.NoError(t, err)
+	require.Len(t, versions, 1)
+	assert.Equal(t, uint(0), versions[0].ID())
+
+	var changesets int
+	err = hist.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM changesets WHERE version_id = 0").Scan(&changesets)
+	require.NoError(t, err)
+	assert.Equal(t, 1, changesets)
+}
+
 func TestHistory_Versions(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
@@ -216,6 +261,23 @@ func TestHistory_DatabaseFileCreation(t *testing.T) {
 
 	_, err = os.Stat(dbPath)
 	assert.NoError(t, err)
+}
+
+func TestHistory_UsesManagedSchemaVersionTable(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	hist, err := NewSQLite(dbPath, zap.NewNop())
+	require.NoError(t, err)
+	defer func() { _ = hist.Close() }()
+
+	var version string
+	err = hist.db.QueryRowContext(
+		context.Background(),
+		"SELECT curr_version FROM schema_version WHERE name = 'registry_history'",
+	).Scan(&version)
+	require.NoError(t, err)
+	assert.Equal(t, "1.0", version)
 }
 
 func TestSQLitePersistence_OriginalEntry(t *testing.T) {

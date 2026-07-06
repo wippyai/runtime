@@ -158,8 +158,11 @@ security:
 
 registry:
   enable_history: true
-  history_type: memory # memory | sqlite | nil
+  history_type: memory # memory | sqlite | postgres | nil
   history_path: .wippy/registry.db
+  # For postgres history:
+  # history_dsn: ${env:WIPPY_REGISTRY_HISTORY_DSN}
+  # history_schema: wippy_registry
 
 finder:
   query_cache_size: 1000
@@ -274,4 +277,3 @@ Mozilla Public License 2.0
 - [Issues](https://github.com/wippyai/runtime/issues)
 
 [documentation]: https://wippy.ai/en/
-

@@ -20,3 +20,7 @@ func NewHistoryPathError(cause error) apierror.Error {
 func NewSQLiteHistoryError(cause error) apierror.Error {
 	return apierror.New(apierror.Internal, "failed to create SQLite history").WithCause(cause)
 }
+
+func NewPostgresHistoryError(cause error) apierror.Error {
+	return apierror.New(apierror.Internal, "failed to create PostgreSQL history").WithCause(cause)
+}

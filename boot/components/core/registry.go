@@ -20,6 +20,7 @@ import (
 	regexp "github.com/wippyai/runtime/system/registry/expansion"
 	historymem "github.com/wippyai/runtime/system/registry/history/memory"
 	historynil "github.com/wippyai/runtime/system/registry/history/nil"
+	"github.com/wippyai/runtime/system/registry/history/postgres"
 	"github.com/wippyai/runtime/system/registry/history/sqlite"
 	"github.com/wippyai/runtime/system/registry/runner"
 	regtop "github.com/wippyai/runtime/system/registry/topology"
@@ -74,6 +75,17 @@ func Registry() boot.Component {
 						}
 						hist = sqliteHist
 						histCloser = sqliteHist
+
+					case "postgres":
+						historyDSN := registryCfg.GetString(RegistryHistoryDSN, "")
+						historySchema := registryCfg.GetString(RegistryHistorySchema, "")
+
+						postgresHist, err := postgres.NewPostgres(historyDSN, historySchema, logger.Named("history"))
+						if err != nil {
+							return nil, NewPostgresHistoryError(err)
+						}
+						hist = postgresHist
+						histCloser = postgresHist
 
 					case "nil":
 						hist = historynil.New()
