@@ -100,12 +100,20 @@ func setResources(res []wapp.ResourceSpec) {
 }
 
 func filterEmbeddableEntries(entries []registry.Entry, embedPatterns []string) []registry.ID {
+	embedAll := false
+	for _, pattern := range embedPatterns {
+		if pattern == "*" || pattern == "**" {
+			embedAll = true
+			break
+		}
+	}
+
 	var embeddable []registry.ID
 	for _, entry := range entries {
 		if entry.Kind != dirapi.Kind {
 			continue
 		}
-		if len(embedPatterns) == 0 {
+		if len(embedPatterns) == 0 || embedAll {
 			embeddable = append(embeddable, entry.ID)
 			continue
 		}

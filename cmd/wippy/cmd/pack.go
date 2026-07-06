@@ -40,7 +40,8 @@ The pack file contains fully linked entries ready for loading without additional
 Examples:
   wippy pack snapshot.wapp
   wippy pack release-v1.2.3.wapp
-  wippy pack --embed app:assets snapshot.wapp`,
+  wippy pack --embed app:assets snapshot.wapp
+  wippy pack --embed-all snapshot.wapp`,
 	Args: cobra.ExactArgs(1),
 	RunE: runPack,
 }
@@ -53,6 +54,7 @@ func init() {
 	packCmd.Flags().StringSliceP("tags", "t", nil, "pack tags")
 	packCmd.Flags().StringArray("meta", nil, "custom metadata (key=value, supports dotted notation)")
 	packCmd.Flags().StringSlice("embed", nil, "embed patterns (entry IDs or names to embed, e.g., app:assets,app:static)")
+	packCmd.Flags().Bool("embed-all", false, "embed all fs.directory entries")
 	packCmd.Flags().Bool("list", false, "list all fs.directory entries and exit (dry-run mode)")
 	packCmd.Flags().StringSlice("exclude-ns", nil, "exclude entries by namespace patterns (e.g., app.**,test.*)")
 	packCmd.Flags().StringSlice("exclude", nil, "exclude entries by ID patterns (e.g., app:internal,test:*)")
@@ -76,18 +78,19 @@ const (
 type packModel struct {
 	err           error
 	metadata      attrs.Bag
+	outputFile    string
 	status        string
 	stage         packStage
-	outputFile    string
+	embedPatterns []string
 	logs          []string
 	resources     []resourceInfo
-	embedPatterns []string
 	progress      progress.Model
-	entryCount    int
 	fileSize      int64
-	resourceCount int
 	percent       float64
+	entryCount    int
+	resourceCount int
 	maxLogs       int
+	embedAll      bool
 	done          bool
 	verbose       bool
 }
@@ -295,7 +298,9 @@ func (m *packModel) View() string {
 		Foreground(lipgloss.Color("8"))
 
 	var embedInfo string
-	if len(m.embedPatterns) > 0 {
+	if m.embedAll {
+		embedInfo = statusStyle.Render("  Embed patterns: all fs.directory entries\n")
+	} else if len(m.embedPatterns) > 0 {
 		embedInfo = statusStyle.Render(fmt.Sprintf("  Embed patterns: %s\n", strings.Join(m.embedPatterns, ", ")))
 	}
 
@@ -353,7 +358,7 @@ func runPack(cmd *cobra.Command, args []string) error {
 		return runListMode(app, lockPath, folderPath)
 	}
 
-	embedPatterns, err := resolvePackEmbedPatterns(cmd, folderPath)
+	embedConfig, err := resolvePackEmbedConfig(cmd, folderPath)
 	if err != nil {
 		return NewPackConfigError(err)
 	}
@@ -364,7 +369,8 @@ func runPack(cmd *cobra.Command, args []string) error {
 		stage:         stageInit,
 		progress:      prog,
 		status:        "Initializing...",
-		embedPatterns: embedPatterns,
+		embedPatterns: embedConfig.patterns,
+		embedAll:      embedConfig.all,
 		outputFile:    outputFile,
 		verbose:       verboseMode,
 		maxLogs:       20,
@@ -395,10 +401,11 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	outputFile := args[0]
 	lockFile, _ := cmd.Flags().GetString("lock-file")
 	folderPath := "."
-	embedPatterns, err := resolvePackEmbedPatterns(cmd, folderPath)
+	embedConfig, err := resolvePackEmbedConfig(cmd, folderPath)
 	if err != nil {
 		return NewPackConfigError(err)
 	}
+	embedPatterns := embedConfig.patterns
 	excludeNS, _ := cmd.Flags().GetStringSlice("exclude-ns")
 	excludeEntries, _ := cmd.Flags().GetStringSlice("exclude")
 	bytecodePatterns, _ := cmd.Flags().GetStringSlice("bytecode")
@@ -491,13 +498,17 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 		}
 	}
 
-	if len(embedPatterns) > 0 {
+	if embedConfig.enabled() {
+		status := "Processing all embed-capable directories"
+		if !embedConfig.all {
+			status = fmt.Sprintf("Processing embed patterns: %s", strings.Join(embedPatterns, ", "))
+		}
 		p.Send(progressMsg{
 			stage:   stagePipeline,
 			percent: 0.55,
-			status:  fmt.Sprintf("Processing embed patterns: %s", strings.Join(embedPatterns, ", ")),
+			status:  status,
 		})
-		pipelineStages = append(pipelineStages, stages.EmbedFS("", embedPatterns...))
+		pipelineStages = append(pipelineStages, stages.EmbedFS("", embedConfig.stagePatterns()...))
 	}
 
 	pipeline := build.New(pipelineStages...)
@@ -654,28 +665,60 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 	return nil
 }
 
-func resolvePackEmbedPatterns(cmd *cobra.Command, configDir string) ([]string, error) {
+type packEmbedConfig struct {
+	patterns []string
+	all      bool
+}
+
+func (c packEmbedConfig) enabled() bool {
+	return c.all || len(c.patterns) > 0
+}
+
+func (c packEmbedConfig) stagePatterns() []string {
+	if c.all {
+		return nil
+	}
+	return c.patterns
+}
+
+func resolvePackEmbedConfig(cmd *cobra.Command, configDir string) (packEmbedConfig, error) {
 	flagPatterns, _ := cmd.Flags().GetStringSlice("embed")
+	flagAll, _ := cmd.Flags().GetBool("embed-all")
+	if flagAll && cmd.Flags().Changed("embed") && len(flagPatterns) > 0 {
+		return packEmbedConfig{}, fmt.Errorf("--embed-all cannot be combined with --embed")
+	}
+	if flagAll {
+		return packEmbedConfig{all: true}, nil
+	}
 	if cmd.Flags().Changed("embed") {
-		return flagPatterns, nil
+		return packEmbedConfig{patterns: flagPatterns, all: hasEmbedAllPattern(flagPatterns)}, nil
 	}
 
 	configPath := filepath.Join(configDir, moduleconfig.DefaultConfigFile)
 	if _, err := os.Stat(configPath); err != nil {
 		if os.IsNotExist(err) {
-			return flagPatterns, nil
+			return packEmbedConfig{patterns: flagPatterns}, nil
 		}
-		return nil, fmt.Errorf("stat %s: %w", configPath, err)
+		return packEmbedConfig{}, fmt.Errorf("stat %s: %w", configPath, err)
 	}
 
 	cfg, err := moduleconfig.Load(configDir)
 	if err != nil {
-		return nil, err
+		return packEmbedConfig{}, err
 	}
 	if len(cfg.Embed) == 0 {
-		return flagPatterns, nil
+		return packEmbedConfig{patterns: flagPatterns}, nil
 	}
-	return cfg.Embed, nil
+	return packEmbedConfig{patterns: cfg.Embed, all: hasEmbedAllPattern(cfg.Embed)}, nil
+}
+
+func hasEmbedAllPattern(patterns []string) bool {
+	for _, pattern := range patterns {
+		if pattern == "*" || pattern == "**" {
+			return true
+		}
+	}
+	return false
 }
 
 type embeddedPackResourceHandle struct {

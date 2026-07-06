@@ -28,6 +28,10 @@ import (
 	"go.uber.org/zap"
 )
 
+type hubPackDownloader interface {
+	DownloadToFile(ctx context.Context, url, destPath string) error
+}
+
 // hubModulePattern matches hub references like org/module[@version|@label].
 var hubModulePattern = regexp.MustCompile(`^([a-z][a-z0-9-]*)/([a-z][a-z0-9-]*)(?:@(.+))?$`)
 var hubIdentPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
@@ -315,16 +319,8 @@ func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]s
 		moduleName := fmt.Sprintf("%s/%s", m.Org, m.Name)
 		packPath := filepath.Join(cacheDir, m.Org, fmt.Sprintf("%s-%s.wapp", m.Name, m.Version))
 
-		if _, err := os.Stat(packPath); err == nil {
-			fmt.Printf("%s %s@%s (cached)\n", dimStyle.Render(""), moduleName, m.Version)
-		} else {
-			fmt.Printf("%s Downloading %s@%s...\n", dimStyle.Render(""), moduleName, m.Version)
-			if m.URL == "" {
-				return nil, fmt.Errorf("no download URL for %s@%s from %s", moduleName, m.Version, registryURL)
-			}
-			if err := client.DownloadToFile(downloadCtx, m.URL, packPath); err != nil {
-				return nil, fmt.Errorf("failed to download %s@%s from %s to %s: %w", moduleName, m.Version, registryURL, packPath, err)
-			}
+		if err := ensureHubPackCached(downloadCtx, client, m, packPath, moduleName, registryURL); err != nil {
+			return nil, err
 		}
 
 		if err := updateLockFile(moduleName, m.Version, m.Digest); err != nil {
@@ -346,6 +342,35 @@ func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]s
 
 	fmt.Println()
 	return packPaths, nil
+}
+
+func ensureHubPackCached(ctx context.Context, client hubPackDownloader, m hub.ResolvedModule, packPath, moduleName, registryURL string) error {
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	if _, err := os.Stat(packPath); err == nil {
+		if err := hub.VerifyDownloadedArtifact(packPath, m.Digest, m.SizeBytes); err == nil {
+			fmt.Printf("%s %s@%s (cached)\n", dimStyle.Render(""), moduleName, m.Version)
+			return nil
+		}
+		fmt.Printf("%s Cached %s@%s failed integrity check; redownloading...\n", dimStyle.Render(""), moduleName, m.Version)
+		if err := os.Remove(packPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove invalid cached pack %s: %w", packPath, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to stat cached pack %s: %w", packPath, err)
+	}
+
+	fmt.Printf("%s Downloading %s@%s...\n", dimStyle.Render(""), moduleName, m.Version)
+	if m.URL == "" {
+		return fmt.Errorf("no download URL for %s@%s from %s", moduleName, m.Version, registryURL)
+	}
+	if err := client.DownloadToFile(ctx, m.URL, packPath); err != nil {
+		return fmt.Errorf("failed to download %s@%s from %s to %s: %w", moduleName, m.Version, registryURL, packPath, err)
+	}
+	if err := hub.VerifyDownloadedArtifact(packPath, m.Digest, m.SizeBytes); err != nil {
+		_ = os.Remove(packPath)
+		return fmt.Errorf("failed to verify downloaded %s@%s from %s: %w", moduleName, m.Version, registryURL, err)
+	}
+	return nil
 }
 
 // updateLockFile persists resolved module version/hash into wippy.lock.
