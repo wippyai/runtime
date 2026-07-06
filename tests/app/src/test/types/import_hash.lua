@@ -27,8 +27,13 @@ local function test_hmac(): boolean
 	return #result == 64
 end
 
+local function test_pbkdf2(): boolean
+	local result: string = hash.pbkdf2("password", "salt", 1000, 32)
+	return #result == 32
+end
+
 local function main(): boolean
-	return test_md5() and test_sha256() and test_sha512() and test_hmac()
+	return test_md5() and test_sha256() and test_sha512() and test_hmac() and test_pbkdf2()
 end
 
 return { main = main }

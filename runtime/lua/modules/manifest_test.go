@@ -12,6 +12,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/modules/crypto"
 	"github.com/wippyai/runtime/runtime/lua/modules/ctx"
 	"github.com/wippyai/runtime/runtime/lua/modules/excel"
+	"github.com/wippyai/runtime/runtime/lua/modules/hash"
 	"github.com/wippyai/runtime/runtime/lua/modules/httpclient"
 	"github.com/wippyai/runtime/runtime/lua/modules/metrics"
 	"github.com/wippyai/runtime/runtime/lua/modules/payload"
@@ -82,6 +83,7 @@ func TestModuleTypes_ReturnsWithError(t *testing.T) {
 		{name: "payload.Payload.transcode", manifest: payload.ModuleTypes(), typeName: "Payload", method: "transcode"},
 		{name: "base64.encode", manifest: base64.ModuleTypes(), method: "encode"},
 		{name: "base64.decode", manifest: base64.ModuleTypes(), method: "decode"},
+		{name: "hash.pbkdf2", manifest: hash.ModuleTypes(), method: "pbkdf2"},
 		{name: "metrics.counter_inc", manifest: metrics.ModuleTypes(), method: "counter_inc"},
 		{name: "metrics.counter_add", manifest: metrics.ModuleTypes(), method: "counter_add"},
 		{name: "metrics.gauge_set", manifest: metrics.ModuleTypes(), method: "gauge_set"},
