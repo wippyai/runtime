@@ -165,3 +165,47 @@ func TestSearchSubstring(t *testing.T) {
 	assert.False(t, searchSubstring("abc", "xyz"))
 	assert.True(t, searchSubstring("abc", ""))
 }
+
+func TestMapConnectError_Unavailable_RateLimited(t *testing.T) {
+	connectErr := connect.NewError(connect.CodeUnavailable, errors.New(""))
+	connectErr.Meta().Set("Retry-After", "1")
+
+	mapped := MapConnectError(connectErr)
+	assert.ErrorIs(t, mapped, ErrHubUnavailable)
+	assert.Equal(t, "hub rate limited the request, retry in 1s", mapped.Error())
+	assert.Equal(t, connect.CodeUnavailable, connect.CodeOf(mapped))
+}
+
+func TestMapConnectError_Unavailable_NetworkDetail(t *testing.T) {
+	connectErr := connect.NewError(connect.CodeUnavailable, errors.New("dial tcp 1.2.3.4:443: connection refused"))
+
+	mapped := MapConnectError(connectErr)
+	assert.ErrorIs(t, mapped, ErrHubUnavailable)
+	assert.Equal(t, "hub unavailable: dial tcp 1.2.3.4:443: connection refused", mapped.Error())
+}
+
+func TestMapConnectError_Unavailable_NoDetail(t *testing.T) {
+	connectErr := connect.NewError(connect.CodeUnavailable, errors.New(""))
+
+	mapped := MapConnectError(connectErr)
+	assert.ErrorIs(t, mapped, ErrHubUnavailable)
+	assert.Equal(t, "hub unavailable: network error or service overloaded", mapped.Error())
+}
+
+func TestHubUnavailableError_Unwrap_PreservesConnectError(t *testing.T) {
+	connectErr := connect.NewError(connect.CodeUnavailable, errors.New("boom"))
+	mapped := MapConnectError(connectErr)
+
+	var ce *connect.Error
+	assert.True(t, errors.As(mapped, &ce))
+	assert.Equal(t, connect.CodeUnavailable, ce.Code())
+}
+
+func TestMapConnectError_Unavailable_HTTPDateRetryAfter(t *testing.T) {
+	connectErr := connect.NewError(connect.CodeUnavailable, errors.New(""))
+	connectErr.Meta().Set("Retry-After", "Wed, 21 Oct 2026 07:28:00 GMT")
+
+	mapped := MapConnectError(connectErr)
+	assert.ErrorIs(t, mapped, ErrHubUnavailable)
+	assert.Equal(t, "hub rate limited the request (Retry-After: Wed, 21 Oct 2026 07:28:00 GMT)", mapped.Error())
+}

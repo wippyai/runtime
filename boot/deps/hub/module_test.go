@@ -173,3 +173,23 @@ func TestGetReadme_VersionPreferredOverLabel(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "1.2.3", ver.Version)
 }
+
+func TestListAllVersions_RateLimited429_FriendlyError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "1")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"code":"rate_limited","message":"too many requests"}}`))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client, err := NewClient(Options{BaseURL: server.URL})
+	require.NoError(t, err)
+
+	_, err = client.ListAllVersions(context.Background(), "wippy", "agent")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrHubUnavailable)
+	assert.Equal(t, "hub rate limited the request, retry in 1s", err.Error())
+}

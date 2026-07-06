@@ -4,6 +4,7 @@ package hub
 
 import (
 	"errors"
+	"strconv"
 
 	"connectrpc.com/connect"
 )
@@ -18,7 +19,38 @@ var (
 	ErrUploadExpired     = errors.New("upload URL expired")
 	ErrPublishInProgress = errors.New("publish already in progress")
 	ErrQuotaExceeded     = errors.New("quota exceeded")
+	ErrHubUnavailable    = errors.New("hub unavailable")
 )
+
+type UnavailableError struct {
+	cause      error
+	RetryAfter string
+	Detail     string
+}
+
+func (e *UnavailableError) Error() string {
+	if seconds, err := strconv.Atoi(e.RetryAfter); err == nil && seconds >= 0 {
+		return "hub rate limited the request, retry in " + e.RetryAfter + "s"
+	}
+
+	if e.RetryAfter != "" {
+		return "hub rate limited the request (Retry-After: " + e.RetryAfter + ")"
+	}
+
+	if e.Detail != "" {
+		return "hub unavailable: " + e.Detail
+	}
+
+	return "hub unavailable: network error or service overloaded"
+}
+
+func (e *UnavailableError) Is(target error) bool {
+	return target == ErrHubUnavailable
+}
+
+func (e *UnavailableError) Unwrap() error {
+	return e.cause
+}
 
 type QuotaExceededError struct {
 	Reason string
@@ -82,6 +114,12 @@ func MapConnectError(err error) error {
 			return ErrPublishInProgress
 		}
 		return err
+	case connect.CodeUnavailable:
+		return &UnavailableError{
+			RetryAfter: connectErr.Meta().Get("Retry-After"),
+			Detail:     connectErr.Message(),
+			cause:      err,
+		}
 	default:
 		return err
 	}

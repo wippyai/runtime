@@ -118,6 +118,9 @@ func isRetryable(err error) bool {
 			code == http.StatusTooManyRequests ||
 			(code >= http.StatusInternalServerError && code < 600)
 	}
+	if errors.Is(err, ErrHubUnavailable) {
+		return true
+	}
 	return false
 }
 
