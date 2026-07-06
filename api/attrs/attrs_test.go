@@ -4,6 +4,7 @@ package attrs
 
 import (
 	"encoding/json"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -41,11 +42,17 @@ func TestBag_GetInt(t *testing.T) {
 		{val: 42, name: "int", want: 42},
 		{val: int64(10000), name: "int64", want: 10000},
 		{val: int32(777), name: "int32", want: 777},
-		{val: float64(10000), name: "float64", want: 10000},
+		{val: uint64(888), name: "uint64", want: 888},
+		{val: float64(10000), name: "integral float64", want: 10000},
+		{val: float32(123), name: "integral float32", want: 123},
 		{val: json.Number("10000"), name: "json.Number", want: 10000},
-		{val: "value", name: "string", want: 99},                             // non-numeric → def
-		{val: json.Number("1.5"), name: "non-integer json.Number", want: 99}, // not an int → def
-		{val: true, name: "bool", want: 99},                                  // wrong type → def
+		{val: "value", name: "string", want: 99},
+		{val: float64(1.5), name: "fractional float64", want: 99},
+		{val: json.Number("1.5"), name: "fractional json.Number", want: 99},
+		{val: uint64(intMax) + 1, name: "uint64 overflow", want: 99},
+		{val: json.Number("9223372036854775808"), name: "json.Number overflow", want: 99},
+		{val: maxSafeFloatInt + 2, name: "unsafe float integer", want: 99},
+		{val: true, name: "bool", want: 99},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -58,6 +65,13 @@ func TestBag_GetInt(t *testing.T) {
 
 	if got := NewBag().GetInt("missing", 99); got != 99 {
 		t.Errorf("GetInt(missing) = %d, want %d", got, 99)
+	}
+
+	if strconv.IntSize == 32 {
+		b := NewBagFrom(map[string]any{"k": int64(1) << 31})
+		if got := b.GetInt("k", 99); got != 99 {
+			t.Errorf("GetInt(int64 overflow) = %d, want %d", got, 99)
+		}
 	}
 }
 

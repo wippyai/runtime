@@ -5,7 +5,9 @@ package boot
 
 import (
 	"context"
+	"encoding/json"
 	"io/fs"
+	"strconv"
 	"testing"
 	"time"
 
@@ -81,8 +83,16 @@ func TestConfig_GetString(t *testing.T) {
 func TestConfig_GetInt(t *testing.T) {
 	cfg := NewConfig(
 		WithSection("test", map[string]any{
-			"int": 42,
-			"str": "hello",
+			"int":            42,
+			"str":            "hello",
+			"int64":          int64(10000),
+			"float":          float64(10000),
+			"fraction":       float64(1.5),
+			"json":           json.Number("10000"),
+			"json_fraction":  json.Number("1.5"),
+			"uint_overflow":  uint64(1) << 63,
+			"json_overflow":  json.Number("9223372036854775808"),
+			"unsafe_integer": float64(1<<53 + 1),
 		}),
 	)
 
@@ -106,6 +116,33 @@ func TestConfig_GetInt(t *testing.T) {
 			t.Errorf("expected 99, got %d", v)
 		}
 	})
+
+	t.Run("numeric types", func(t *testing.T) {
+		if v := cfg.GetInt("test.int64", 0); v != 10000 {
+			t.Errorf("expected 10000, got %d", v)
+		}
+		if v := cfg.GetInt("test.float", 0); v != 10000 {
+			t.Errorf("expected 10000, got %d", v)
+		}
+		if v := cfg.GetInt("test.json", 0); v != 10000 {
+			t.Errorf("expected 10000, got %d", v)
+		}
+	})
+
+	t.Run("unsafe numeric values return default", func(t *testing.T) {
+		for _, key := range []string{"fraction", "json_fraction", "uint_overflow", "json_overflow", "unsafe_integer"} {
+			if v := cfg.GetInt("test."+key, 99); v != 99 {
+				t.Errorf("expected default for %s, got %d", key, v)
+			}
+		}
+	})
+
+	if strconv.IntSize == 32 {
+		cfg := NewConfig(WithSection("test", map[string]any{"int64_overflow": int64(1) << 31}))
+		if v := cfg.GetInt("test.int64_overflow", 99); v != 99 {
+			t.Errorf("expected default for int64 overflow, got %d", v)
+		}
+	}
 }
 
 func TestConfig_GetBool(t *testing.T) {

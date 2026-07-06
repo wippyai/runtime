@@ -5,6 +5,7 @@ package attrs
 
 import (
 	"encoding/json"
+	"math"
 	"time"
 )
 
@@ -23,6 +24,12 @@ type (
 
 	// Bag is a map-based implementation of Attributes.
 	Bag map[string]any
+)
+
+const (
+	intMax          = int64(^uint(0) >> 1)
+	intMin          = -intMax - 1
+	maxSafeFloatInt = float64(1<<53 - 1)
 )
 
 // NewBag creates a new empty Bag.
@@ -67,22 +74,76 @@ func (b Bag) GetString(key string, def string) string {
 // GetInt retrieves the value as an int, returning def if not found or not an int.
 func (b Bag) GetInt(key string, def int) int {
 	if v, ok := b.Get(key); ok {
-		switch n := v.(type) {
-		case int:
-			return n
-		case int64:
-			return int(n)
-		case int32:
-			return int(n)
-		case float64:
-			return int(n)
-		case json.Number:
-			if i, err := n.Int64(); err == nil {
-				return int(i)
-			}
+		if i, ok := AsInt(v); ok {
+			return i
 		}
 	}
 	return def
+}
+
+// AsInt returns numeric values as int when the conversion is exact and in range.
+func AsInt(value any) (int, bool) {
+	switch n := value.(type) {
+	case int:
+		return n, true
+	case int8:
+		return int(n), true
+	case int16:
+		return int(n), true
+	case int32:
+		return int(n), true
+	case int64:
+		return intFromInt64(n)
+	case uint:
+		return intFromUint64(uint64(n))
+	case uint8:
+		return int(n), true
+	case uint16:
+		return int(n), true
+	case uint32:
+		return intFromUint64(uint64(n))
+	case uint64:
+		return intFromUint64(n)
+	case float32:
+		return intFromFloat64(float64(n))
+	case float64:
+		return intFromFloat64(n)
+	case json.Number:
+		i, err := n.Int64()
+		if err != nil {
+			return 0, false
+		}
+		return intFromInt64(i)
+	default:
+		return 0, false
+	}
+}
+
+func intFromInt64(n int64) (int, bool) {
+	if n < intMin || n > intMax {
+		return 0, false
+	}
+	return int(n), true
+}
+
+func intFromUint64(n uint64) (int, bool) {
+	if n > uint64(intMax) {
+		return 0, false
+	}
+	return int(n), true
+}
+
+func intFromFloat64(n float64) (int, bool) {
+	if math.IsNaN(n) || math.IsInf(n, 0) || math.Trunc(n) != n {
+		return 0, false
+	}
+	if n < float64(intMin) || n > float64(intMax) {
+		return 0, false
+	}
+	if n < -maxSafeFloatInt || n > maxSafeFloatInt {
+		return 0, false
+	}
+	return int(n), true
 }
 
 // GetFloat retrieves the value as a float64, returning def if not found or not a float64.

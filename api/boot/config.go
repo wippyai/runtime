@@ -6,6 +6,8 @@ package boot
 import (
 	"strings"
 	"time"
+
+	"github.com/wippyai/runtime/api/attrs"
 )
 
 // ConfigSep is the separator used for hierarchical config keys.
@@ -103,7 +105,7 @@ func (c *config) GetInt(key string, def int) int {
 	if !ok {
 		return def
 	}
-	if i, ok := v.(int); ok {
+	if i, ok := attrs.AsInt(v); ok {
 		return i
 	}
 	return def
