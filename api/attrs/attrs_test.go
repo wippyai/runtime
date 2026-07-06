@@ -34,18 +34,18 @@ func TestBag_GetString(t *testing.T) {
 
 func TestBag_GetInt(t *testing.T) {
 	cases := []struct {
-		name string
 		val  any
+		name string
 		want int
 	}{
-		{"int", 42, 42},
-		{"int64", int64(10000), 10000},
-		{"int32", int32(777), 777},
-		{"float64", float64(10000), 10000},
-		{"json.Number", json.Number("10000"), 10000},
-		{"string", "value", 99},                             // non-numeric → def
-		{"non-integer json.Number", json.Number("1.5"), 99}, // not an int → def
-		{"bool", true, 99},                                  // wrong type → def
+		{val: 42, name: "int", want: 42},
+		{val: int64(10000), name: "int64", want: 10000},
+		{val: int32(777), name: "int32", want: 777},
+		{val: float64(10000), name: "float64", want: 10000},
+		{val: json.Number("10000"), name: "json.Number", want: 10000},
+		{val: "value", name: "string", want: 99},                             // non-numeric → def
+		{val: json.Number("1.5"), name: "non-integer json.Number", want: 99}, // not an int → def
+		{val: true, name: "bool", want: 99},                                  // wrong type → def
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
