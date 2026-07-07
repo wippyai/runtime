@@ -38,14 +38,16 @@ const (
 	DefaultMaxEntries      = 100000
 )
 
-// Manager manages rate limiter stores with proper lifecycle management
-type Manager struct {
-	ctx context.Context
-}
+// Manager creates rate limit middleware instances.
+//
+// The context parameter on NewManager is retained for API compatibility with
+// the HTTP component wiring, but rate limit cleanup is request-driven and does
+// not start background goroutines.
+type Manager struct{}
 
-// NewManager creates a new rate limit manager with lifecycle tied to context
-func NewManager(ctx context.Context) *Manager {
-	return &Manager{ctx: ctx}
+// NewManager creates a new rate limit manager.
+func NewManager(_ context.Context) *Manager {
+	return &Manager{}
 }
 
 // limiterEntry holds a rate limiter with last access time
@@ -54,76 +56,81 @@ type limiterEntry struct {
 	lastAccess int64 // Unix nano timestamp
 }
 
-// limiterStore holds rate limiters per key with TTL-based cleanup
+// limiterStore holds rate limiters per key with TTL-based cleanup.
+// Cleanup is lazy: it runs inside getLimiter at the configured cadence,
+// avoiding the per-store background goroutine that previous versions
+// spawned (and that leaked permanently when tied to context.Background()
+// or to a long-lived Manager context under route reconfiguration).
 type limiterStore struct {
-	limiters   map[string]*limiterEntry
-	limit      rate.Limit
-	burst      int
-	ttl        time.Duration
-	maxEntries int
-	mu         sync.RWMutex
+	limiters        map[string]*limiterEntry
+	lastCleanup     time.Time
+	mu              sync.RWMutex
+	limit           rate.Limit
+	burst           int
+	maxEntries      int
+	ttl             time.Duration
+	cleanupInterval time.Duration
 }
 
-func newLimiterStore(ctx context.Context, limit rate.Limit, burst int, cleanupInterval, ttl time.Duration, maxEntries int) *limiterStore {
-	s := &limiterStore{
-		limiters:   make(map[string]*limiterEntry),
-		limit:      limit,
-		burst:      burst,
-		ttl:        ttl,
-		maxEntries: maxEntries,
-	}
-
-	go s.cleanupLoop(ctx, cleanupInterval)
-	return s
-}
-
-func (s *limiterStore) cleanupLoop(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			s.cleanup()
-		case <-ctx.Done():
-			return
-		}
+func newLimiterStore(limit rate.Limit, burst int, cleanupInterval, ttl time.Duration, maxEntries int) *limiterStore {
+	return &limiterStore{
+		limiters:        make(map[string]*limiterEntry),
+		limit:           limit,
+		burst:           burst,
+		ttl:             ttl,
+		maxEntries:      maxEntries,
+		cleanupInterval: cleanupInterval,
+		lastCleanup:     time.Now(),
 	}
 }
 
-func (s *limiterStore) cleanup() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := time.Now().UnixNano()
+// maybeCleanup evicts entries whose lastAccess is older than the TTL, but
+// only if cleanupInterval has elapsed since the last sweep. Caller must hold
+// s.mu (the write lock, since this mutates the map).
+func (s *limiterStore) maybeCleanup(now time.Time) {
+	if now.Sub(s.lastCleanup) < s.cleanupInterval {
+		return
+	}
+	s.lastCleanup = now
 	ttlNano := s.ttl.Nanoseconds()
-
+	nowNano := now.UnixNano()
 	for key, entry := range s.limiters {
-		if now-atomic.LoadInt64(&entry.lastAccess) > ttlNano {
+		if nowNano-atomic.LoadInt64(&entry.lastAccess) > ttlNano {
 			delete(s.limiters, key)
 		}
 	}
 }
 
 func (s *limiterStore) getLimiter(key string) *rate.Limiter {
-	now := time.Now().UnixNano()
+	now := time.Now()
+	nowNano := now.UnixNano()
 
-	// Try fast path with read lock, keeping lock until after atomic update
+	// Try fast path with read lock, keeping lock until after atomic update.
+	// If a cleanup is due, fall through to the write lock even for existing
+	// keys so stale entries are swept under steady traffic, not only on misses.
 	s.mu.RLock()
-	if entry, exists := s.limiters[key]; exists {
-		atomic.StoreInt64(&entry.lastAccess, now)
-		limiter := entry.limiter
-		s.mu.RUnlock()
-		return limiter
+	cleanupDue := now.Sub(s.lastCleanup) >= s.cleanupInterval
+	if !cleanupDue {
+		if entry, exists := s.limiters[key]; exists {
+			atomic.StoreInt64(&entry.lastAccess, nowNano)
+			limiter := entry.limiter
+			s.mu.RUnlock()
+			return limiter
+		}
 	}
 	s.mu.RUnlock()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Lazy TTL cleanup: runs at most once per cleanupInterval. This replaces
+	// the leaked background goroutine and is correct because no traffic means
+	// no cleanup is needed, while any later traffic performs the sweep.
+	s.maybeCleanup(now)
+
 	// Double-check after acquiring write lock
 	if entry, exists := s.limiters[key]; exists {
-		atomic.StoreInt64(&entry.lastAccess, now)
+		atomic.StoreInt64(&entry.lastAccess, nowNano)
 		return entry.limiter
 	}
 
@@ -135,7 +142,7 @@ func (s *limiterStore) getLimiter(key string) *rate.Limiter {
 	limiter := rate.NewLimiter(s.limit, s.burst)
 	s.limiters[key] = &limiterEntry{
 		limiter:    limiter,
-		lastAccess: now,
+		lastAccess: nowNano,
 	}
 	return limiter
 }
@@ -163,19 +170,19 @@ func (s *limiterStore) len() int {
 	return len(s.limiters)
 }
 
-// CreateMiddleware creates a rate limiting middleware with lifecycle tied to the manager's context
+// CreateMiddleware creates a rate limiting middleware.
 func (m *Manager) CreateMiddleware(options map[string]string) func(http.Handler) http.Handler {
-	return createRateLimitMiddlewareWithContext(m.ctx, options)
+	return createRateLimitMiddleware(options)
 }
 
 // CreateRateLimitMiddleware creates a rate limiting middleware using token bucket algorithm.
-// Note: The cleanup goroutine runs until the process exits. For proper lifecycle management,
-// use Manager.CreateMiddleware instead.
+// The returned middleware performs lazy TTL-based cleanup of stale limiter entries on each
+// request; no background goroutine is spawned.
 func CreateRateLimitMiddleware(options map[string]string) func(http.Handler) http.Handler {
-	return createRateLimitMiddlewareWithContext(context.Background(), options)
+	return createRateLimitMiddleware(options)
 }
 
-func createRateLimitMiddlewareWithContext(ctx context.Context, options map[string]string) func(http.Handler) http.Handler {
+func createRateLimitMiddleware(options map[string]string) func(http.Handler) http.Handler {
 	// Parse requests per window
 	requests := DefaultRequests
 	if reqStr := options[OptionRequests]; reqStr != "" {
@@ -242,7 +249,7 @@ func createRateLimitMiddlewareWithContext(ctx context.Context, options map[strin
 	}
 	limit := rate.Limit(float64(requests) / window.Seconds())
 
-	store := newLimiterStore(ctx, limit, burst, cleanupInterval, entryTTL, maxEntries)
+	store := newLimiterStore(limit, burst, cleanupInterval, entryTTL, maxEntries)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
