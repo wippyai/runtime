@@ -60,10 +60,22 @@ func NewQuery(ctx context.Context, query *treesitter.Query, cursor *treesitter.Q
 	return wrapper
 }
 
-// Close marks the query as closed and cancels the cleanup
+// Close frees the underlying C query and query cursor, and cancels the
+// registered store cleanup. Safe to call multiple times.
 func (q *QueryWrapper) Close() {
-	if !q.closed && q.cancelCleanup != nil {
-		q.closed = true
+	if q.closed {
+		return
+	}
+	q.closed = true
+	if q.cursor != nil {
+		q.cursor.Close()
+		q.cursor = nil
+	}
+	if q.query != nil {
+		q.query.Close()
+		q.query = nil
+	}
+	if q.cancelCleanup != nil {
 		q.cancelCleanup()
 		q.cancelCleanup = nil
 	}
