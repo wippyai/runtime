@@ -106,9 +106,7 @@ func TestStress_EvictionUnderPressure(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping stress test in short mode")
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	store := newLimiterStore(ctx, rate.Limit(1), 1, time.Hour, time.Hour, 100)
+	store := newLimiterStore(rate.Limit(1), 1, time.Hour, time.Hour, 100)
 
 	var wg sync.WaitGroup
 	numGoroutines := 50
@@ -290,9 +288,7 @@ func TestMemory_NoLeaks(t *testing.T) {
 		t.Skip("skipping memory test in short mode")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	store := newLimiterStore(ctx, rate.Limit(100), 10, 10*time.Millisecond, 50*time.Millisecond, 1000)
+	store := newLimiterStore(rate.Limit(100), 10, 10*time.Millisecond, 50*time.Millisecond, 1000)
 
 	var startMem, endMem runtime.MemStats
 	runtime.GC()
@@ -316,9 +312,7 @@ func TestMemory_NoLeaks(t *testing.T) {
 }
 
 func TestRace_CleanupDuringAccess(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	store := newLimiterStore(ctx, rate.Limit(1), 1, 1*time.Millisecond, 5*time.Millisecond, 100)
+	store := newLimiterStore(rate.Limit(1), 1, 1*time.Millisecond, 5*time.Millisecond, 100)
 
 	var wg sync.WaitGroup
 	done := make(chan struct{})
@@ -348,9 +342,7 @@ func TestRace_CleanupDuringAccess(t *testing.T) {
 }
 
 func TestRace_ConcurrentSameKey(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	store := newLimiterStore(ctx, rate.Limit(1000), 100, time.Hour, time.Hour, 1000)
+	store := newLimiterStore(rate.Limit(1000), 100, time.Hour, time.Hour, 1000)
 
 	var wg sync.WaitGroup
 	key := "shared-key"
@@ -371,9 +363,7 @@ func TestRace_ConcurrentSameKey(t *testing.T) {
 }
 
 func BenchmarkGetLimiter_SameKey(b *testing.B) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	store := newLimiterStore(ctx, rate.Limit(1000), 100, time.Hour, time.Hour, 10000)
+	store := newLimiterStore(rate.Limit(1000), 100, time.Hour, time.Hour, 10000)
 
 	key := "benchmark-key"
 	store.getLimiter(key)
@@ -387,9 +377,7 @@ func BenchmarkGetLimiter_SameKey(b *testing.B) {
 }
 
 func BenchmarkGetLimiter_UniqueKeys(b *testing.B) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	store := newLimiterStore(ctx, rate.Limit(1000), 100, time.Hour, time.Hour, 100000)
+	store := newLimiterStore(rate.Limit(1000), 100, time.Hour, time.Hour, 100000)
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {

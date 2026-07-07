@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -336,9 +337,7 @@ func TestParseDuration(t *testing.T) {
 
 func TestLimiterStoreCleanup(t *testing.T) {
 	t.Run("cleanup removes expired entries", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		store := newLimiterStore(ctx, rate.Limit(1), 1, 50*time.Millisecond, 100*time.Millisecond, 1000)
+		store := newLimiterStore(rate.Limit(1), 1, 50*time.Millisecond, 100*time.Millisecond, 1000)
 
 		// Add some limiters
 		store.getLimiter("key1")
@@ -346,16 +345,16 @@ func TestLimiterStoreCleanup(t *testing.T) {
 
 		assert.Equal(t, 2, store.len())
 
-		// Wait for TTL + cleanup interval
+		// Wait for TTL + cleanup interval. Cleanup is lazy: it runs inside
+		// the next getLimiter call once cleanupInterval has elapsed.
 		time.Sleep(200 * time.Millisecond)
+		store.getLimiter("trigger-cleanup")
 
-		assert.Equal(t, 0, store.len())
+		assert.Equal(t, 1, store.len(), "expired key1/key2 evicted; only the triggering key remains")
 	})
 
 	t.Run("active entries not cleaned up", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		store := newLimiterStore(ctx, rate.Limit(1), 1, 50*time.Millisecond, 100*time.Millisecond, 1000)
+		store := newLimiterStore(rate.Limit(1), 1, 50*time.Millisecond, 100*time.Millisecond, 1000)
 
 		// Add and keep accessing key1
 		store.getLimiter("key1")
@@ -370,9 +369,7 @@ func TestLimiterStoreCleanup(t *testing.T) {
 	})
 
 	t.Run("max entries enforced with eviction", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		store := newLimiterStore(ctx, rate.Limit(1), 1, time.Hour, time.Hour, 3)
+		store := newLimiterStore(rate.Limit(1), 1, time.Hour, time.Hour, 3)
 
 		store.getLimiter("key1")
 		time.Sleep(10 * time.Millisecond)
@@ -387,12 +384,18 @@ func TestLimiterStoreCleanup(t *testing.T) {
 		assert.Equal(t, 3, store.len())
 	})
 
-	t.Run("context cancellation stops cleanup goroutine", func(_ *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		_ = newLimiterStore(ctx, rate.Limit(1), 1, time.Millisecond, time.Millisecond, 1000)
-		cancel()
-		// Give goroutine time to exit
-		time.Sleep(10 * time.Millisecond)
+	t.Run("no background goroutine spawned", func(t *testing.T) {
+		before := runtime.NumGoroutine()
+		_ = newLimiterStore(rate.Limit(1), 1, time.Millisecond, time.Millisecond, 1000)
+		// Drive a few lookups so any lazy-cleanup path has a chance to run.
+		store := newLimiterStore(rate.Limit(1), 1, time.Millisecond, time.Millisecond, 1000)
+		for i := 0; i < 10; i++ {
+			store.getLimiter("k")
+		}
+		time.Sleep(20 * time.Millisecond)
+		after := runtime.NumGoroutine()
+		assert.InDelta(t, before, after, 2,
+			"newLimiterStore must not spawn a background cleanup goroutine; delta=%d", after-before)
 	})
 }
 
