@@ -1600,6 +1600,9 @@ func markModuleMetaForGraph(
 		return markModuleMeta(entry, moduleName, moduleVersion)
 	}
 	if owner, ok := entryOwners[entry.ID]; ok && owner.name != "" {
+		if owner.name == moduleName {
+			return markModuleMeta(entry, moduleName, moduleVersion)
+		}
 		return markModuleMeta(entry, owner.name, owner.version)
 	}
 	if owner, ok := namespaceOwners[entry.ID.NS]; ok && owner.name != "" {
