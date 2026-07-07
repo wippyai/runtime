@@ -87,6 +87,11 @@ func NewEntryProcessor(transcoder payload.Transcoder) *EntryProcessor {
 
 // ExtractDependenciesToEntries extracts and processes dependencies to registry entries
 func (ep *EntryProcessor) ExtractDependenciesToEntries(ctx context.Context, p payload.Payload) ([]registry.Entry, error) {
+	candidate, err := ep.isEntryFileCandidate(p)
+	if err == nil && !candidate {
+		return []registry.Entry{}, nil
+	}
+
 	content, err := ep.unmarshalContent(p)
 	if err != nil {
 		return nil, NewUnmarshalContentError(err)
@@ -120,6 +125,25 @@ func (ep *EntryProcessor) ExtractDependenciesToEntries(ctx context.Context, p pa
 	}
 
 	return entries, nil
+}
+
+// isEntryFileCandidate cheaply separates Wippy entry manifests from arbitrary
+// JSON/YAML files that may live in packaged assets. Only manifest-shaped objects
+// should reach the strict FileContent unmarshal; arrays/scalars and ordinary
+// objects without a namespace are not registry entry files.
+func (ep *EntryProcessor) isEntryFileCandidate(p payload.Payload) (bool, error) {
+	decoded, err := ep.transcoder.Transcode(p, payload.Golang)
+	if err != nil {
+		return true, err
+	}
+
+	obj, ok := decoded.Data().(map[string]any)
+	if !ok {
+		return false, nil
+	}
+
+	_, hasNamespace := obj["namespace"]
+	return hasNamespace, nil
 }
 
 // unmarshalContent unmarshals the payload into FileContent

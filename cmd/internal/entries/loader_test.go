@@ -663,7 +663,7 @@ func TestLoadEntriesFromPathsMultipleWappsWithDifferentKinds(t *testing.T) {
 	}
 }
 
-func TestLoadEntriesFromModuleLoadPaths_ResolvesRequirementByModuleMeta(t *testing.T) {
+func TestLoadEntriesFromModuleLoadPaths_ResolvesLegacyAliasRequirementByModuleMeta(t *testing.T) {
 	ctx := setupTestContext(t)
 	logger := zap.NewNop()
 	tmpDir := t.TempDir()
@@ -673,7 +673,7 @@ func TestLoadEntriesFromModuleLoadPaths_ResolvesRequirementByModuleMeta(t *testi
 		t.Fatalf("mkdir module dir: %v", err)
 	}
 	moduleYAML := `version: "1.0"
-namespace: userspace.user
+namespace: userspace
 entries:
   - name: public_router
     kind: ns.requirement
@@ -714,7 +714,7 @@ entries:
 
 	routerFlat := ""
 	for _, entry := range flatEntries {
-		if entry.ID.String() != "userspace.user:login.endpoint" {
+		if entry.ID.String() != "userspace:login.endpoint" {
 			continue
 		}
 		routerFlat = entry.Meta.GetString("router", "")
@@ -733,7 +733,7 @@ entries:
 
 	routerResolved := ""
 	for _, entry := range moduleAwareEntries {
-		if entry.ID.String() != "userspace.user:login.endpoint" {
+		if entry.ID.String() != "userspace:login.endpoint" {
 			continue
 		}
 		routerResolved = entry.Meta.GetString("router", "")
