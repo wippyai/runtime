@@ -240,12 +240,16 @@ type decodedDependency struct {
 	transitive bool
 }
 
-// owns reports whether a dependency addresses a requirement: the requirement
-// lives in the dependency component's module namespace, or its meta.module
-// names that component.
+// owns reports whether a dependency addresses a requirement. Dotted namespaces
+// are globally scoped and must live in the dependency component namespace or one
+// of its child namespaces. The meta.module bridge is kept only for legacy
+// one-segment alias namespaces such as "telegram".
 func (d decodedDependency) owns(req decodedRequirement) bool {
-	if req.entry.ID.NS == d.moduleNamespace {
+	if req.entry.ID.NS == d.moduleNamespace || strings.HasPrefix(req.entry.ID.NS, d.moduleNamespace+".") {
 		return true
+	}
+	if !isLegacyAliasNamespace(req.entry.ID.NS) {
+		return false
 	}
 	module := requirementModuleFromEntry(req.entry)
 	return module != "" && module == d.component
@@ -524,6 +528,10 @@ func (s *linkStage) findTargetEntries(
 	}
 
 	return results
+}
+
+func isLegacyAliasNamespace(ns string) bool {
+	return ns != "" && !strings.Contains(ns, ".")
 }
 
 func requirementModuleFromEntry(entry registry.Entry) string {

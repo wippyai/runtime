@@ -28,7 +28,7 @@ func TestLoadEntriesFromLockPaths_NilLock(t *testing.T) {
 	}
 }
 
-func TestLoadEntriesFromLockPaths_ResolvesRequirementByModuleMeta(t *testing.T) {
+func TestLoadEntriesFromLockPaths_ResolvesLegacyAliasRequirementByModuleMeta(t *testing.T) {
 	ctx := setupLoaderContext(t)
 	logger := zap.NewNop()
 	tmpDir := t.TempDir()
@@ -58,7 +58,7 @@ entries:
 	}
 
 	moduleYAML := `version: "1.0"
-namespace: userspace.user
+namespace: userspace
 entries:
   - name: public_router
     kind: ns.requirement
@@ -100,7 +100,7 @@ entries:
 	module := ""
 	moduleVersion := ""
 	for _, entry := range loaded {
-		if entry.ID.String() != "userspace.user:login.endpoint" {
+		if entry.ID.String() != "userspace:login.endpoint" {
 			continue
 		}
 		router = entry.Meta.GetString("router", "")
