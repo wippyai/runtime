@@ -38,14 +38,16 @@ const (
 	DefaultMaxEntries      = 100000
 )
 
-// Manager manages rate limiter stores with proper lifecycle management
-type Manager struct {
-	ctx context.Context
-}
+// Manager creates rate limit middleware instances.
+//
+// The context parameter on NewManager is retained for API compatibility with
+// the HTTP component wiring, but rate limit cleanup is request-driven and does
+// not start background goroutines.
+type Manager struct{}
 
-// NewManager creates a new rate limit manager with lifecycle tied to context
-func NewManager(ctx context.Context) *Manager {
-	return &Manager{ctx: ctx}
+// NewManager creates a new rate limit manager.
+func NewManager(_ context.Context) *Manager {
+	return &Manager{}
 }
 
 // limiterEntry holds a rate limiter with last access time
@@ -103,13 +105,18 @@ func (s *limiterStore) getLimiter(key string) *rate.Limiter {
 	now := time.Now()
 	nowNano := now.UnixNano()
 
-	// Try fast path with read lock, keeping lock until after atomic update
+	// Try fast path with read lock, keeping lock until after atomic update.
+	// If a cleanup is due, fall through to the write lock even for existing
+	// keys so stale entries are swept under steady traffic, not only on misses.
 	s.mu.RLock()
-	if entry, exists := s.limiters[key]; exists {
-		atomic.StoreInt64(&entry.lastAccess, nowNano)
-		limiter := entry.limiter
-		s.mu.RUnlock()
-		return limiter
+	cleanupDue := now.Sub(s.lastCleanup) >= s.cleanupInterval
+	if !cleanupDue {
+		if entry, exists := s.limiters[key]; exists {
+			atomic.StoreInt64(&entry.lastAccess, nowNano)
+			limiter := entry.limiter
+			s.mu.RUnlock()
+			return limiter
+		}
 	}
 	s.mu.RUnlock()
 
@@ -118,7 +125,7 @@ func (s *limiterStore) getLimiter(key string) *rate.Limiter {
 
 	// Lazy TTL cleanup: runs at most once per cleanupInterval. This replaces
 	// the leaked background goroutine and is correct because no traffic means
-	// no entries to expire, and high traffic means cleanup runs frequently.
+	// no cleanup is needed, while any later traffic performs the sweep.
 	s.maybeCleanup(now)
 
 	// Double-check after acquiring write lock
@@ -163,7 +170,7 @@ func (s *limiterStore) len() int {
 	return len(s.limiters)
 }
 
-// CreateMiddleware creates a rate limiting middleware with lifecycle tied to the manager's context
+// CreateMiddleware creates a rate limiting middleware.
 func (m *Manager) CreateMiddleware(options map[string]string) func(http.Handler) http.Handler {
 	return createRateLimitMiddleware(options)
 }

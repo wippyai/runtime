@@ -368,6 +368,23 @@ func TestLimiterStoreCleanup(t *testing.T) {
 		assert.Equal(t, 1, store.len())
 	})
 
+	t.Run("existing key traffic triggers cleanup", func(t *testing.T) {
+		store := newLimiterStore(rate.Limit(1), 1, 50*time.Millisecond, 100*time.Millisecond, 1000)
+
+		store.getLimiter("stale")
+		store.getLimiter("hot")
+
+		// Refresh only the hot key before TTL expires. The stale key should be
+		// eligible for eviction on the next hot-key request.
+		time.Sleep(75 * time.Millisecond)
+		store.getLimiter("hot")
+		time.Sleep(75 * time.Millisecond)
+
+		store.getLimiter("hot")
+
+		assert.Equal(t, 1, store.len(), "hot-key traffic should still sweep stale entries")
+	})
+
 	t.Run("max entries enforced with eviction", func(t *testing.T) {
 		store := newLimiterStore(rate.Limit(1), 1, time.Hour, time.Hour, 3)
 
