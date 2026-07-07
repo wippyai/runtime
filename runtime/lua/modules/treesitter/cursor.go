@@ -50,9 +50,18 @@ func NewCursor(ctx context.Context, cursor *treesitter.TreeCursor, source *strin
 	return wrapper
 }
 
+// Close frees the underlying C cursor and cancels the registered store cleanup.
+// Safe to call multiple times.
 func (c *CursorWrapper) Close() {
-	if !c.closed && c.cancelCleanup != nil {
-		c.closed = true
+	if c.closed {
+		return
+	}
+	c.closed = true
+	if c.cursor != nil {
+		c.cursor.Close()
+		c.cursor = nil
+	}
+	if c.cancelCleanup != nil {
 		c.cancelCleanup()
 		c.cancelCleanup = nil
 	}
