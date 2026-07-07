@@ -2294,6 +2294,77 @@ modules:
 	assert.Equal(t, "2.0.0", modules[0].Version)
 }
 
+func TestDependencyHandler_ExpandUpdateRootDependencyReplacesSameIDModuleEntries(t *testing.T) {
+	ctx := newTestContext()
+	vendorDir := t.TempDir()
+	writeWapp(t, filepath.Join(vendorDir, "acme", "widget-1.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("acme.widget", "service"),
+			Kind: "process.lua",
+			Data: map[string]any{"value": "old"},
+		},
+	})
+	writeWapp(t, filepath.Join(vendorDir, "acme", "widget-2.0.0.wapp"), []wapp.Entry{
+		{
+			ID:   wapp.NewID("acme.widget", "service"),
+			Kind: "process.lua",
+			Data: map[string]any{"value": "new"},
+		},
+	})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
+				return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	oldDep := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "widget"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/widget","version":"1.0.0"}`, payload.JSON),
+	}
+	newDep := regapi.Entry{
+		ID:   oldDep.ID,
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/widget","version":"2.0.0"}`, payload.JSON),
+	}
+	oldService := regapi.Entry{
+		ID:   regapi.NewID("acme.widget", "service"),
+		Kind: "process.lua",
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey:        "acme/widget",
+			metaModuleVersionKey: "1.0.0",
+		}),
+		Data: payload.New(map[string]any{"value": "old"}),
+	}
+
+	result, err := handler.Expand(ctx,
+		regapi.Operation{Kind: regapi.EntryUpdate, Entry: newDep},
+		regapi.State{oldDep, oldService},
+	)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+
+	var serviceUpdate *regapi.Operation
+	for i := range result.Additional {
+		op := result.Additional[i].Operation
+		if op.Entry.ID == oldService.ID {
+			serviceUpdate = &op
+			break
+		}
+	}
+	require.NotNil(t, serviceUpdate, "same-id module entry should be updated")
+	assert.Equal(t, regapi.EntryUpdate, serviceUpdate.Kind)
+	assert.Equal(t, "acme/widget", entryModule(serviceUpdate.Entry))
+	assert.Equal(t, "2.0.0", moduleVersion(serviceUpdate.Entry))
+	assert.Equal(t, "new", serviceUpdate.Entry.Data.Data().(map[string]any)["value"])
+}
+
 func TestDependencyHandler_ResolveModules_ToleratesReplacedModuleAbsentFromHub(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()
