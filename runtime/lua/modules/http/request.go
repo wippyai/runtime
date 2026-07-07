@@ -308,8 +308,8 @@ func requestBody(l *lua.LState) int {
 	)
 	defer cancel()
 
-	bodyChan := make(chan []byte)
-	errChan := make(chan error)
+	bodyChan := make(chan []byte, 1)
+	errChan := make(chan error, 1)
 
 	go func() {
 		b, err := io.ReadAll(limitedReader)
@@ -317,10 +317,7 @@ func requestBody(l *lua.LState) int {
 			errChan <- err
 			return
 		}
-		select {
-		case bodyChan <- b:
-		case <-ctx.Done():
-		}
+		bodyChan <- b
 	}()
 
 	select {
@@ -400,8 +397,8 @@ func requestBodyJSON(l *lua.LState) int {
 	var body []byte
 	var readErr error
 
-	bodyChan := make(chan []byte)
-	errChan := make(chan error)
+	bodyChan := make(chan []byte, 1)
+	errChan := make(chan error, 1)
 
 	go func() {
 		b, err := io.ReadAll(limitedReader)
@@ -409,10 +406,7 @@ func requestBodyJSON(l *lua.LState) int {
 			errChan <- err
 			return
 		}
-		select {
-		case bodyChan <- b:
-		case <-ctx.Done():
-		}
+		bodyChan <- b
 	}()
 
 	select {
