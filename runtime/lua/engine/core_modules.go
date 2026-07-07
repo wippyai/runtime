@@ -14,6 +14,7 @@ import (
 	"github.com/wippyai/runtime/runtime/lua/engine/value"
 	"github.com/wippyai/runtime/runtime/lua/modules/ostime"
 	"github.com/wippyai/runtime/runtime/lua/modules/payload"
+	"github.com/wippyai/runtime/runtime/lua/modules/traceback"
 	"go.uber.org/zap"
 )
 
@@ -104,6 +105,7 @@ func printFunc(l *lua.LState) int {
 var coreModules = []*luaapi.ModuleDef{
 	payload.Module,
 	ostime.Module,
+	traceback.Module,
 	PrintModule,
 	ChannelModule,
 }

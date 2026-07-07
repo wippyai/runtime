@@ -96,6 +96,94 @@ func TestBindCachedLibs_ErrorsLib(t *testing.T) {
 	`))
 }
 
+func TestBindCachedLibs_DebugLib_Present(t *testing.T) {
+	l := lua.NewState(lua.Options{SkipOpenLibs: true})
+	defer l.Close()
+	lua.OpenBase(l)
+	BindCachedLibs(l)
+
+	require.NoError(t, l.DoString(`
+		assert(type(debug) == "table")
+	`))
+}
+
+func TestBindCachedLibs_DebugLib_HasSafeFuncs(t *testing.T) {
+	l := lua.NewState(lua.Options{SkipOpenLibs: true})
+	defer l.Close()
+	lua.OpenBase(l)
+	BindCachedLibs(l)
+
+	for _, fn := range []string{"traceback", "getinfo", "getlocal", "getupvalue"} {
+		err := l.DoString(`assert(type(debug.` + fn + `) == "function", "debug.` + fn + ` must be a function")`)
+		require.NoError(t, err, "debug.%s must be exposed", fn)
+	}
+}
+
+func TestBindCachedLibs_DebugLib_MissingUnsafeFuncs(t *testing.T) {
+	l := lua.NewState(lua.Options{SkipOpenLibs: true})
+	defer l.Close()
+	lua.OpenBase(l)
+	BindCachedLibs(l)
+
+	for _, fn := range []string{"setlocal", "setmetatable", "setupvalue", "getmetatable"} {
+		err := l.DoString(`assert(debug.` + fn + ` == nil, "debug.` + fn + ` must be absent")`)
+		require.NoError(t, err, "debug.%s must NOT be exposed", fn)
+	}
+}
+
+func TestBindCachedLibs_DebugLib_Immutable(t *testing.T) {
+	l := lua.NewState(lua.Options{SkipOpenLibs: true})
+	defer l.Close()
+	lua.OpenBase(l)
+	BindCachedLibs(l)
+
+	setErr := l.DoString(`
+		local ok, err = pcall(function()
+			debug.setlocal = function() end
+		end)
+		assert(not ok, "mutating the immutable debug table must fail")
+	`)
+	require.NoError(t, setErr, "mutating debug table must error, not crash")
+
+	getErr := l.DoString(`assert(debug.setlocal == nil, "setlocal must remain nil")`)
+	require.NoError(t, getErr)
+}
+
+func TestBindCachedLibs_DebugLib_GetInfoWorks(t *testing.T) {
+	l := lua.NewState(lua.Options{SkipOpenLibs: true})
+	defer l.Close()
+	lua.OpenBase(l)
+	BindCachedLibs(l)
+
+	err := l.DoString(`
+		local function sample() return debug.getinfo(1) end
+		local info = sample()
+		assert(type(info) == "table")
+		assert(type(info.currentline) == "number")
+		assert(type(info.source) == "string")
+		assert(info.name == "sample")
+	`)
+	require.NoError(t, err)
+}
+
+func TestBindCachedLibs_DebugLib_GetLocalWorks(t *testing.T) {
+	l := lua.NewState(lua.Options{SkipOpenLibs: true})
+	defer l.Close()
+	lua.OpenBase(l)
+	BindCachedLibs(l)
+
+	err := l.DoString(`
+		local function sample()
+			local captured = "value-here"
+			local name, value = debug.getlocal(1, 1)
+			assert(name == "captured", "first local name should be 'captured'")
+			assert(value == "value-here", "first local value should be 'value-here'")
+		end
+		sample()
+	`)
+	require.NoError(t, err)
+}
+
 func TestBindCachedLibs_MultipleStates(t *testing.T) {
 	states := make([]*lua.LState, 3)
 	for i := range states {
@@ -123,4 +211,5 @@ func TestBindCachedLibs_Immutable(t *testing.T) {
 	assert.True(t, cachedCoroutineLib.Immutable)
 	assert.True(t, cachedStringLib.Immutable)
 	assert.True(t, cachedErrorsLib.Immutable)
+	assert.True(t, cachedDebugLib.Immutable)
 }
