@@ -58,6 +58,18 @@ func TestHistory_Basic(t *testing.T) {
 	assert.Equal(t, uint(0), head.ID())
 }
 
+func TestHistory_CreatesParentDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "nested", "registry", "history.db")
+
+	hist, err := NewSQLite(dbPath, zap.NewNop())
+	require.NoError(t, err)
+	defer func() { _ = hist.Close() }()
+
+	_, err = os.Stat(dbPath)
+	require.NoError(t, err)
+}
+
 func TestHistory_SaveAndGet(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")

@@ -163,6 +163,96 @@ func TestRegistry_LoadState_WithHistory(t *testing.T) {
 	assert.True(t, found, "entry1 should be updated")
 }
 
+func TestRegistry_LoadState_ReplaysHistoryThroughDirectives(t *testing.T) {
+	ctx := context.Background()
+	logger := zap.NewNop()
+	hist := history.NewMemory()
+	resolver := topology.NewResolver()
+
+	run := func(state registry.State, changes registry.ChangeSet) (registry.State, error) {
+		stateMap := make(map[registry.ID]registry.Entry)
+		for _, e := range state {
+			stateMap[e.ID] = e
+		}
+		for _, op := range changes {
+			switch op.Kind {
+			case registry.EntryCreate, registry.EntryUpdate:
+				stateMap[op.Entry.ID] = op.Entry
+			case registry.EntryDelete:
+				delete(stateMap, op.Entry.ID)
+			}
+		}
+		result := make(registry.State, 0, len(stateMap))
+		for _, e := range stateMap {
+			result = append(result, e)
+		}
+		return result, nil
+	}
+
+	depEntry := registry.Entry{
+		ID:   registry.NewID("app.deps", "sso"),
+		Kind: registry.NamespaceDependency,
+		Data: payload.New("dep"),
+	}
+	expandedEntry := registry.Entry{
+		ID:   registry.NewID("kickside.sso", "flow_store"),
+		Kind: "store.memory",
+		Data: payload.New("expanded"),
+	}
+	expander := directiveFunc(func(_ context.Context, op registry.Operation, _ registry.State) (registry.DirectiveResult, error) {
+		if op.Entry.Kind != registry.NamespaceDependency {
+			return registry.DirectiveResult{}, nil
+		}
+		return registry.DirectiveResult{
+			Applied: true,
+			Additional: []registry.ScopedOperation{{
+				Operation: registry.Operation{Kind: registry.EntryCreate, Entry: expandedEntry},
+				Scope:     registry.ScopeBaseline,
+			}},
+		}, nil
+	})
+
+	runner := NewMockRunner()
+	runner.RunFunc = run
+	reg := NewRegistry(
+		hist,
+		runner,
+		topology.NewStateBuilder(logger, resolver),
+		resolver,
+		logger,
+		WithKindDirective(registry.NamespaceDependency, expander),
+	)
+
+	v1, err := reg.Apply(ctx, registry.ChangeSet{{Kind: registry.EntryCreate, Entry: depEntry}})
+	require.NoError(t, err)
+	require.Equal(t, uint(1), v1.ID())
+
+	stored, err := hist.Get(v1)
+	require.NoError(t, err)
+	require.Len(t, stored, 1)
+	require.Equal(t, depEntry.ID, stored[0].Entry.ID)
+
+	runner2 := NewMockRunner()
+	runner2.RunFunc = run
+	reg2 := NewRegistry(
+		hist,
+		runner2,
+		topology.NewStateBuilder(logger, resolver),
+		resolver,
+		logger,
+		WithKindDirective(registry.NamespaceDependency, expander),
+	)
+
+	head, err := hist.Head()
+	require.NoError(t, err)
+	require.NoError(t, reg2.LoadState(ctx, nil, head))
+
+	_, err = reg2.GetEntry(depEntry.ID)
+	require.NoError(t, err)
+	_, err = reg2.GetEntry(expandedEntry.ID)
+	require.NoError(t, err)
+}
+
 func TestRegistry_LoadState_MultipleVersions(t *testing.T) {
 	ctx := context.Background()
 	logger := zap.NewNop()

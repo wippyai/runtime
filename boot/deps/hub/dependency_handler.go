@@ -194,7 +194,7 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 
 	opComponent := ""
 	for _, dep := range desiredDeps {
-		if dep.entry.ID == op.Entry.ID {
+		if idsEqual(dep.entry.ID, op.Entry.ID) {
 			opComponent = dep.definition.Component
 			break
 		}
@@ -231,10 +231,10 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 	combined = append(combined, moduleEntries...)
 
 	pipeline := build.New(
-		stages.Override(),
+		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
 		stages.Disable(),
 		stages.Link(stages.WithDependencies(linkDeps), stages.WithStrictRequirementModules(strictModules)),
-		stages.Override(),
+		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
 	)
 	if err := pipeline.Execute(ctx, &combined); err != nil {
 		return regapi.DirectiveResult{}, NewDependencyPipelineError(err)
@@ -354,7 +354,7 @@ func (h *DependencyHandler) collectDesiredDependencies(
 	snapshot regapi.State,
 	transcoder payload.Transcoder,
 ) ([]desiredDependency, error) {
-	deps := make(map[regapi.ID]desiredDependency)
+	deps := make(map[string]desiredDependency)
 	lockedVersions, err := h.installedModuleVersions(ctx, transcoder, snapshot)
 	if err != nil {
 		return nil, err
@@ -366,15 +366,15 @@ func (h *DependencyHandler) collectDesiredDependencies(
 		return nil, err
 	}
 	for _, dep := range current {
-		if dep.entry.ID != operationID {
+		if !idsEqual(dep.entry.ID, operationID) {
 			dep.definition = pinExistingDependencyVersion(dep.definition, lockedVersions)
 		}
-		deps[dep.entry.ID] = dep
+		deps[idKey(dep.entry.ID)] = dep
 	}
 
 	switch op.Kind {
 	case regapi.EntryDelete:
-		delete(deps, op.Entry.ID)
+		delete(deps, idKey(op.Entry.ID))
 	case regapi.EntryCreate, regapi.EntryUpdate:
 		entry, ok := resolveOperationEntry(op, snapshot)
 		if !ok {
@@ -387,7 +387,7 @@ func (h *DependencyHandler) collectDesiredDependencies(
 		if err != nil {
 			return nil, err
 		}
-		deps[entry.ID] = desiredDependency{
+		deps[idKey(entry.ID)] = desiredDependency{
 			entry:      entry,
 			definition: def,
 		}
@@ -396,7 +396,7 @@ func (h *DependencyHandler) collectDesiredDependencies(
 	result := make([]desiredDependency, 0, len(deps))
 	for id, dep := range deps {
 		if dep.definition.Component == "" {
-			return nil, NewDependencyEntryInvalidError(id.String(), "component is required", "")
+			return nil, NewDependencyEntryInvalidError(id, "component is required", "")
 		}
 		result = append(result, dep)
 	}
@@ -410,8 +410,8 @@ func validateRootDependencyComponents(deps []desiredDependency, operationID rega
 	seen := make(map[string]regapi.ID, len(deps))
 	for _, dep := range deps {
 		component := dep.definition.Component
-		if existingID, ok := seen[component]; ok && existingID != dep.entry.ID {
-			if existingID == operationID {
+		if existingID, ok := seen[component]; ok && !idsEqual(existingID, dep.entry.ID) {
+			if idsEqual(existingID, operationID) {
 				return NewDependencyRootConflictError(component, dep.entry.ID.String(), existingID.String())
 			}
 			return NewDependencyRootConflictError(component, existingID.String(), dep.entry.ID.String())
@@ -489,16 +489,17 @@ func pinExistingDependencyVersion(def DependencyDefinition, moduleVersions map[s
 
 func mergeLinkDependencies(explicitDeps, moduleEntries []regapi.Entry) []regapi.Entry {
 	merged := make([]regapi.Entry, 0, len(explicitDeps)+len(moduleEntries))
-	seen := make(map[regapi.ID]struct{}, len(explicitDeps)+len(moduleEntries))
+	seen := make(map[string]struct{}, len(explicitDeps)+len(moduleEntries))
 
 	appendDep := func(entry regapi.Entry) {
 		if entry.Kind != regapi.NamespaceDependency {
 			return
 		}
-		if _, ok := seen[entry.ID]; ok {
+		key := idKey(entry.ID)
+		if _, ok := seen[key]; ok {
 			return
 		}
-		seen[entry.ID] = struct{}{}
+		seen[key] = struct{}{}
 		merged = append(merged, entry)
 	}
 
@@ -785,10 +786,10 @@ func (h *DependencyHandler) loadModuleEntries(ctx context.Context, modules []Res
 	return entries, nil
 }
 
-func entriesByID(entries regapi.State) map[regapi.ID]regapi.Entry {
-	byID := make(map[regapi.ID]regapi.Entry, len(entries))
+func entriesByID(entries regapi.State) map[string]regapi.Entry {
+	byID := make(map[string]regapi.Entry, len(entries))
 	for _, entry := range entries {
-		byID[entry.ID] = entry
+		byID[idKey(entry.ID)] = entry
 	}
 	return byID
 }
@@ -810,14 +811,14 @@ func rootDependencyModules(ctx context.Context, transcoder payload.Transcoder, e
 	return modules, nil
 }
 
-func preserveHostSnapshotEntry(entry regapi.Entry, moduleName string, snapshot map[regapi.ID]regapi.Entry, installedRoots map[string]struct{}) (regapi.Entry, bool) {
+func preserveHostSnapshotEntry(entry regapi.Entry, moduleName string, snapshot map[string]regapi.Entry, installedRoots map[string]struct{}) (regapi.Entry, bool) {
 	if _, installed := installedRoots[moduleName]; !installed {
 		return regapi.Entry{}, false
 	}
 	if entryModule(entry) != "" {
 		return regapi.Entry{}, false
 	}
-	existing, ok := snapshot[entry.ID]
+	existing, ok := snapshot[idKey(entry.ID)]
 	if !ok || entryModule(existing) != "" {
 		return regapi.Entry{}, false
 	}
@@ -844,14 +845,14 @@ func moduleOwnersByNamespace(modules []ResolvedModule) map[string]moduleOwner {
 	return owners
 }
 
-func moduleOwnersByEntryID(entries regapi.State) map[regapi.ID]moduleOwner {
-	owners := make(map[regapi.ID]moduleOwner, len(entries))
+func moduleOwnersByEntryID(entries regapi.State) map[string]moduleOwner {
+	owners := make(map[string]moduleOwner, len(entries))
 	for _, entry := range entries {
 		module := entryModule(entry)
 		if module == "" {
 			continue
 		}
-		owners[entry.ID] = moduleOwner{
+		owners[idKey(entry.ID)] = moduleOwner{
 			name:    module,
 			version: moduleVersion(entry),
 		}
@@ -1483,25 +1484,26 @@ func buildOperationsWithResolver(
 	mutableModules map[string]struct{},
 	resolver regapi.DependencyResolver,
 ) ([]regapi.Operation, error) {
-	currentByID := make(map[regapi.ID]regapi.Entry, len(current))
+	currentByID := make(map[string]regapi.Entry, len(current))
 	for _, entry := range current {
-		currentByID[entry.ID] = entry
+		currentByID[idKey(entry.ID)] = entry
 	}
 
-	desiredByID := make(map[regapi.ID]regapi.Entry, len(desired))
+	desiredByID := make(map[string]regapi.Entry, len(desired))
 	for _, entry := range desired {
-		desiredByID[entry.ID] = entry
+		desiredByID[idKey(entry.ID)] = entry
 	}
 
 	ops := make([]regapi.Operation, 0)
+	originalKey := idKey(originalID)
 
-	for id, entry := range desiredByID {
-		if id == originalID {
+	for key, entry := range desiredByID {
+		if key == originalKey {
 			continue
 		}
-		if existing, ok := currentByID[id]; ok {
+		if existing, ok := currentByID[key]; ok {
 			if entryConflict(existing, entry) {
-				return nil, NewDependencyEntryConflictError(id.String(), entryModule(existing), entryModule(entry))
+				return nil, NewDependencyEntryConflictError(entry.ID.String(), entryModule(existing), entryModule(entry))
 			}
 			if !entriesEqual(existing, entry) {
 				if existing.Kind != entry.Kind {
@@ -1521,11 +1523,11 @@ func buildOperationsWithResolver(
 		}
 	}
 
-	for id, entry := range currentByID {
-		if id == originalID {
+	for key, entry := range currentByID {
+		if key == originalKey {
 			continue
 		}
-		if _, ok := desiredByID[id]; ok {
+		if _, ok := desiredByID[key]; ok {
 			continue
 		}
 		if module := entryModule(entry); module != "" {
@@ -1534,10 +1536,10 @@ func buildOperationsWithResolver(
 					continue
 				}
 			}
-			if hasLiveDependent(id, currentByID, desiredByID, controlledModules, resolver) {
+			if hasLiveDependent(entry.ID, currentByID, desiredByID, controlledModules, resolver) {
 				continue
 			}
-			ops = append(ops, regapi.Operation{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: id}})
+			ops = append(ops, regapi.Operation{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: entry.ID}})
 		}
 	}
 
@@ -1546,8 +1548,8 @@ func buildOperationsWithResolver(
 
 func hasLiveDependent(
 	target regapi.ID,
-	currentByID map[regapi.ID]regapi.Entry,
-	desiredByID map[regapi.ID]regapi.Entry,
+	currentByID map[string]regapi.Entry,
+	desiredByID map[string]regapi.Entry,
 	controlledModules map[string]struct{},
 	resolver regapi.DependencyResolver,
 ) bool {
@@ -1555,12 +1557,13 @@ func hasLiveDependent(
 		return false
 	}
 	universe := dependencyEntryUniverse(currentByID)
-	for id, current := range currentByID {
-		if id == target {
+	targetKey := idKey(target)
+	for key, current := range currentByID {
+		if key == targetKey {
 			continue
 		}
 		check := current
-		if desired, ok := desiredByID[id]; ok {
+		if desired, ok := desiredByID[key]; ok {
 			check = desired
 		} else if missingDesiredEntryWillBeDeleted(current, controlledModules) {
 			continue
@@ -1585,24 +1588,24 @@ func missingDesiredEntryWillBeDeleted(entry regapi.Entry, controlledModules map[
 }
 
 type dependencyEntryUniverseView struct {
-	entries map[regapi.ID]struct{}
+	entries map[string]regapi.ID
 	groups  map[string][]regapi.ID
 	ns      map[string][]regapi.ID
 }
 
-func dependencyEntryUniverse(entries map[regapi.ID]regapi.Entry) dependencyEntryUniverseView {
+func dependencyEntryUniverse(entries map[string]regapi.Entry) dependencyEntryUniverseView {
 	universe := dependencyEntryUniverseView{
-		entries: make(map[regapi.ID]struct{}, len(entries)),
+		entries: make(map[string]regapi.ID, len(entries)),
 		groups:  make(map[string][]regapi.ID),
 		ns:      make(map[string][]regapi.ID),
 	}
-	for id, entry := range entries {
-		universe.entries[id] = struct{}{}
+	for key, entry := range entries {
+		universe.entries[key] = entry.ID
 		for _, group := range entry.Meta.GetSlice(regapi.TagGroups) {
-			universe.groups[group] = append(universe.groups[group], id)
+			universe.groups[group] = append(universe.groups[group], entry.ID)
 		}
-		if id.NS != "" {
-			universe.ns[id.NS] = append(universe.ns[id.NS], id)
+		if entry.ID.NS != "" {
+			universe.ns[entry.ID.NS] = append(universe.ns[entry.ID.NS], entry.ID)
 		}
 	}
 	return universe
@@ -1732,12 +1735,12 @@ func markModuleMetaForGraph(
 	moduleName string,
 	moduleVersion string,
 	namespaceOwners map[string]moduleOwner,
-	entryOwners map[regapi.ID]moduleOwner,
+	entryOwners map[string]moduleOwner,
 ) regapi.Entry {
 	if entryModule(entry) != "" {
 		return markModuleMeta(entry, moduleName, moduleVersion)
 	}
-	if owner, ok := entryOwners[entry.ID]; ok && owner.name != "" {
+	if owner, ok := entryOwners[idKey(entry.ID)]; ok && owner.name != "" {
 		if owner.name == moduleName {
 			return markModuleMeta(entry, moduleName, moduleVersion)
 		}
@@ -1749,8 +1752,19 @@ func markModuleMetaForGraph(
 	return markModuleMeta(entry, moduleName, moduleVersion)
 }
 
+func idKey(id regapi.ID) string {
+	if id.NS != "" || id.Name != "" {
+		return strings.TrimSpace(id.NS) + ":" + strings.TrimSpace(id.Name)
+	}
+	return strings.TrimSpace(id.String())
+}
+
+func idsEqual(a, b regapi.ID) bool {
+	return idKey(a) == idKey(b)
+}
+
 func entriesEqual(a, b regapi.Entry) bool {
-	if a.ID != b.ID || a.Kind != b.Kind {
+	if !idsEqual(a.ID, b.ID) || a.Kind != b.Kind {
 		return false
 	}
 	if !reflect.DeepEqual(a.Meta, b.Meta) {
@@ -1773,7 +1787,7 @@ func resolveOperationEntry(op regapi.Operation, snapshot regapi.State) (regapi.E
 		return op.Entry, true
 	}
 	for _, entry := range snapshot {
-		if entry.ID == op.Entry.ID {
+		if idsEqual(entry.ID, op.Entry.ID) {
 			return entry, true
 		}
 	}

@@ -164,6 +164,52 @@ func TestLock_Write(t *testing.T) {
 	})
 }
 
+func TestLock_Read_NormalizesEmptySequenceFields(t *testing.T) {
+	tmpDir := t.TempDir()
+	lockPath := filepath.Join(tmpDir, "test.lock")
+	content := `directories:
+  modules: .wippy
+  src: .
+modules:
+  - name: wippy/test
+    version: v1.0.0
+replacements: {}
+`
+	if err := os.WriteFile(lockPath, []byte(content), 0600); err != nil {
+		t.Fatalf("write test lock: %v", err)
+	}
+
+	lockObj, err := New(lockPath)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if got := len(lockObj.data.Replacements); got != 0 {
+		t.Fatalf("expected no replacements, got %d", got)
+	}
+	if got := len(lockObj.data.Modules); got != 1 {
+		t.Fatalf("expected one module, got %d", got)
+	}
+}
+
+func TestLock_Read_RejectsNonEmptyReplacementMap(t *testing.T) {
+	tmpDir := t.TempDir()
+	lockPath := filepath.Join(tmpDir, "test.lock")
+	content := `directories:
+  modules: .wippy
+  src: .
+modules: []
+replacements:
+  from: wippy/local
+`
+	if err := os.WriteFile(lockPath, []byte(content), 0600); err != nil {
+		t.Fatalf("write test lock: %v", err)
+	}
+
+	if _, err := New(lockPath); err == nil {
+		t.Fatal("expected error for non-empty replacement map")
+	}
+}
+
 func TestLock_GetModule(t *testing.T) {
 	lock, _ := New(filepath.Join(t.TempDir(), "test.lock"))
 	lock.SetModule(Module{Name: "wippy/test", Version: "v1.0.0"})

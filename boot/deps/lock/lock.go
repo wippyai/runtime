@@ -58,11 +58,41 @@ func (l *Lock) Read() error {
 		return NewReadFileError(err)
 	}
 
-	if err := yaml.Unmarshal(data, &l.data); err != nil {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return NewUnmarshalYAMLError(err)
+	}
+	normalizeEmptySequenceField(&root, "modules")
+	normalizeEmptySequenceField(&root, "replacements")
+
+	if err := root.Decode(&l.data); err != nil {
 		return NewUnmarshalYAMLError(err)
 	}
 
 	return nil
+}
+
+func normalizeEmptySequenceField(root *yaml.Node, field string) {
+	if root == nil {
+		return
+	}
+	doc := root
+	if root.Kind == yaml.DocumentNode && len(root.Content) > 0 {
+		doc = root.Content[0]
+	}
+	if doc.Kind != yaml.MappingNode {
+		return
+	}
+	for i := 0; i+1 < len(doc.Content); i += 2 {
+		key := doc.Content[i]
+		value := doc.Content[i+1]
+		if key.Value == field && value.Kind == yaml.MappingNode && len(value.Content) == 0 {
+			value.Kind = yaml.SequenceNode
+			value.Tag = "!!seq"
+			value.Content = nil
+			return
+		}
+	}
 }
 
 // Write saves the lock file to disk with deduplication and sorting.

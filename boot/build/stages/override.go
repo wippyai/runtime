@@ -17,14 +17,30 @@ const (
 	sectionOverride boot.Name = "override"
 )
 
-type overrideStage struct{}
+type OverrideOption func(*overrideStage)
+
+type overrideStage struct {
+	ignoreMissingEntries bool
+}
+
+func WithMissingOverrideEntriesIgnored() OverrideOption {
+	return func(s *overrideStage) {
+		s.ignoreMissingEntries = true
+	}
+}
 
 // Override creates a new stage that applies configuration overrides from boot config.
 // Reads from the "override" config section and applies values to entries.
 // Keys should be in format: namespace:entry:path (e.g., "app:gateway:addr")
 // This format handles dots in namespace and entry names correctly.
-func Override() boot.Stage {
-	return &overrideStage{}
+func Override(opts ...OverrideOption) boot.Stage {
+	stage := &overrideStage{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(stage)
+		}
+	}
+	return stage
 }
 
 func (s *overrideStage) Name() string {
@@ -68,6 +84,9 @@ func (s *overrideStage) Execute(ctx context.Context, entries *[]registry.Entry) 
 
 		targetEntries := findEntries(*entries, namespace, entryName)
 		if len(targetEntries) == 0 {
+			if s.ignoreMissingEntries {
+				continue
+			}
 			errs = append(errs, NewEntryNotFoundError(namespace, entryName))
 			continue
 		}
