@@ -1753,11 +1753,14 @@ func markModuleMetaForGraph(
 }
 
 func idKey(id regapi.ID) string {
-	return id.String()
+	if id.NS != "" || id.Name != "" {
+		return strings.TrimSpace(string(id.NS)) + ":" + strings.TrimSpace(string(id.Name))
+	}
+	return strings.TrimSpace(id.String())
 }
 
 func idsEqual(a, b regapi.ID) bool {
-	return a.Equal(b)
+	return idKey(a) == idKey(b)
 }
 
 func entriesEqual(a, b regapi.Entry) bool {
