@@ -520,10 +520,11 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Build state map once from baseline
-	stateMap := make(map[registry.ID]registry.Entry, len(baseline))
-	for _, entry := range baseline {
-		stateMap[entry.ID] = entry
+	stateMap := topology.NewStateMap(baseline)
+	var planner *regexp.Planner
+	var preparedEff []registry.Effect
+	if len(r.directivesByKind) > 0 {
+		planner = regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
 	}
 
 	if targetVersion.ID() > 0 {
@@ -539,14 +540,43 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 			zap.Uint("target_version", targetVersion.ID()),
 			zap.Int("changeset_count", len(versions)))
 
-		// Apply all operations directly to the map
 		for _, ver := range versions {
 			cs, err := r.history.Get(ver)
 			if err != nil {
+				if planner != nil {
+					planner.RollbackEffects(ctx, preparedEff)
+				}
 				return NewGetChangesetError(ver.ID(), err)
 			}
 
-			for _, op := range cs {
+			ops := cs
+			snapshot := topology.StateMapToSlice(stateMap)
+			if planner != nil {
+				plan, err := planner.Expand(ctx, cs, snapshot)
+				if err != nil {
+					planner.RollbackEffects(ctx, preparedEff)
+					return NewExpandChangesError(err)
+				}
+				plan.Ops, err = planner.SortOps(snapshot, plan.Ops)
+				if err != nil {
+					planner.RollbackEffects(ctx, preparedEff)
+					return NewSortChangesError(err)
+				}
+				ops, _ = plan.SplitScopes()
+
+				prepared, err := planner.PrepareEffects(ctx, plan.Effects)
+				if err != nil {
+					planner.RollbackEffects(ctx, preparedEff)
+					planner.RollbackEffects(ctx, prepared)
+					return NewPrepareEffectsError(err)
+				}
+				preparedEff = append(preparedEff, prepared...)
+			}
+			if sorted, err := r.builder.SortChangeSet(snapshot, ops); err == nil {
+				ops = sorted
+			}
+
+			for _, op := range ops {
 				switch op.Kind {
 				case registry.EntryCreate, registry.EntryUpdate:
 					stateMap[op.Entry.ID] = op.Entry
@@ -557,21 +587,35 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 		}
 	}
 
-	// Convert map to slice once at the end
-	finalState := make(registry.State, 0, len(stateMap))
-	for _, entry := range stateMap {
-		finalState = append(finalState, entry)
-	}
+	finalState := topology.StateMapToSlice(stateMap)
 
 	newState, err := r.transitionState(ctx, r.state, finalState)
 	if err != nil {
 		r.log.Error("failed to load state", zap.String("version", targetVersion.String()), zap.Error(err))
 		if newState != nil && ctx.Err() == nil {
 			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+				if planner != nil {
+					planner.RollbackEffects(ctx, preparedEff)
+				}
 				return NewLoadStateError(err, rerr)
 			}
 		}
+		if planner != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+		}
 		return NewLoadStateError(err, nil)
+	}
+
+	if planner != nil {
+		if err := planner.CommitEffects(ctx, preparedEff); err != nil {
+			r.log.Error("failed to commit load-state effects", zap.Error(err))
+			if rerr := r.rollback(ctx, newState, r.state); rerr != nil {
+				planner.RollbackEffects(ctx, preparedEff)
+				return NewCommitEffectsError(err, rerr)
+			}
+			planner.RollbackEffects(ctx, preparedEff)
+			return NewCommitEffectsError(err, nil)
+		}
 	}
 
 	r.state = newState

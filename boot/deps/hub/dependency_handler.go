@@ -231,10 +231,10 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 	combined = append(combined, moduleEntries...)
 
 	pipeline := build.New(
-		stages.Override(),
+		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
 		stages.Disable(),
 		stages.Link(stages.WithDependencies(linkDeps), stages.WithStrictRequirementModules(strictModules)),
-		stages.Override(),
+		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
 	)
 	if err := pipeline.Execute(ctx, &combined); err != nil {
 		return regapi.DirectiveResult{}, NewDependencyPipelineError(err)

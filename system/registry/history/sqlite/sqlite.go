@@ -8,6 +8,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sync"
 
@@ -56,6 +58,12 @@ func newMsgpackHandle() *codec.MsgpackHandle {
 func NewSQLite(dbPath string, log *zap.Logger) (*History, error) {
 	openMu.Lock()
 	defer openMu.Unlock()
+
+	if dir := filepath.Dir(dbPath); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return nil, NewOpenDatabaseError(err)
+		}
+	}
 
 	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000", dbPath))
 	if err != nil {
