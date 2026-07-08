@@ -996,6 +996,34 @@ func TestDependencyHandler_CollectDesiredDependencies_TreatsHydratedSameIDAsSame
 	assert.Equal(t, "*", deps[0].definition.Version)
 }
 
+func TestValidateRootDependencyComponents_AllowsSameRootIDReplacement(t *testing.T) {
+	rootID := regapi.NewID("app.deps", "tools")
+	hydratedID := regapi.ID{Name: "app.deps:tools"}
+	err := validateRootDependencyComponents([]desiredDependency{
+		{
+			entry:      regapi.Entry{ID: hydratedID, Kind: regapi.NamespaceDependency},
+			definition: DependencyDefinition{Component: "acme/tools", Version: "0.1.0"},
+		},
+		{
+			entry:      regapi.Entry{ID: rootID, Kind: regapi.NamespaceDependency},
+			definition: DependencyDefinition{Component: "acme/tools", Version: "0.2.0"},
+		},
+	}, rootID)
+	require.NoError(t, err)
+
+	err = validateRootDependencyComponents([]desiredDependency{
+		{
+			entry:      regapi.Entry{ID: regapi.NewID("app.deps", "tools"), Kind: regapi.NamespaceDependency},
+			definition: DependencyDefinition{Component: "acme/tools", Version: "0.1.0"},
+		},
+		{
+			entry:      regapi.Entry{ID: regapi.NewID("app.deps", "other_tools"), Kind: regapi.NamespaceDependency},
+			definition: DependencyDefinition{Component: "acme/tools", Version: "0.2.0"},
+		},
+	}, rootID)
+	require.Error(t, err)
+}
+
 func TestDependencyHandler_Expand_RootParametersOverrideModuleOwnedTransitiveParameters(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()

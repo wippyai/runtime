@@ -19,6 +19,14 @@ type ID struct {
 	str string
 }
 
+func canonicalIDParts(id ID) (Namespace, Name) {
+	if id.NS == "" && strings.Contains(id.Name, ":") {
+		parsed := parseIDString(id.Name)
+		return parsed.NS, parsed.Name
+	}
+	return id.NS, id.Name
+}
+
 // NewID creates a new interned ID with the given namespace and name.
 // Use this instead of direct ID{} construction to ensure string deduplication.
 func NewID(ns, name string) ID {
@@ -39,7 +47,9 @@ func (t *ID) String() string {
 
 // Equal returns true if both IDs have the same namespace and name.
 func (t *ID) Equal(other ID) bool {
-	return t.NS == other.NS && t.Name == other.Name
+	ns, name := canonicalIDParts(*t)
+	otherNS, otherName := canonicalIDParts(other)
+	return ns == otherNS && name == otherName
 }
 
 // MarshalJSON implements the json.Marshaler interface.
@@ -95,7 +105,11 @@ func (t *ID) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(data, &obj); err != nil {
 			return err
 		}
-		id = ID{NS: obj.NS, Name: obj.Name, str: obj.NS + ":" + obj.Name}
+		if obj.NS == "" && strings.Contains(obj.Name, ":") {
+			id = parseIDString(obj.Name)
+		} else {
+			id = ID{NS: obj.NS, Name: obj.Name, str: obj.NS + ":" + obj.Name}
+		}
 	}
 
 	*t = unique.Make(id).Value()
