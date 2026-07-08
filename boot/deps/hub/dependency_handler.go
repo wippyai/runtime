@@ -1753,6 +1753,24 @@ func markModuleMetaForGraph(
 }
 
 func idKey(id regapi.ID) string {
+	if strings.TrimSpace(id.NS) == "" {
+		name := strings.TrimSpace(id.Name)
+		if strings.Contains(name, ":") {
+			parsed := regapi.ParseID(name)
+			if parsed.NS != "" || parsed.Name != "" {
+				return strings.TrimSpace(parsed.NS) + ":" + strings.TrimSpace(parsed.Name)
+			}
+		}
+	}
+	if s := strings.TrimSpace(id.String()); s != "" {
+		if strings.HasPrefix(s, ":") && strings.Contains(strings.TrimPrefix(s, ":"), ":") {
+			s = strings.TrimPrefix(s, ":")
+		}
+		parsed := regapi.ParseID(s)
+		if parsed.NS != "" || parsed.Name != "" {
+			return strings.TrimSpace(parsed.NS) + ":" + strings.TrimSpace(parsed.Name)
+		}
+	}
 	if id.NS != "" || id.Name != "" {
 		return strings.TrimSpace(id.NS) + ":" + strings.TrimSpace(id.Name)
 	}
@@ -1760,7 +1778,10 @@ func idKey(id regapi.ID) string {
 }
 
 func idsEqual(a, b regapi.ID) bool {
-	return idKey(a) == idKey(b)
+	if idKey(a) == idKey(b) {
+		return true
+	}
+	return strings.TrimSpace(a.String()) == strings.TrimSpace(b.String())
 }
 
 func entriesEqual(a, b regapi.Entry) bool {
