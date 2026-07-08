@@ -338,6 +338,45 @@ entries:
 	require.True(t, strings.Contains(err.Error(), "kind"), "error should name the rejected field: %v", err)
 }
 
+func TestLoader_LoadFSSkipsMalformedNonManifestAsset(t *testing.T) {
+	suite := NewTestSuite()
+	ldr := NewLoader(suite.transcoder, nil, interpolate.NewEntryInterpolator(suite.transcoder))
+	fsys := fstest.MapFS{
+		"_index.yaml": &fstest.MapFile{Data: []byte(`version: "1.0"
+namespace: app
+entries:
+  - name: ok
+    kind: service
+`)},
+		"ui/node_modules/es-errors/tsconfig.json": &fstest.MapFile{Data: []byte(`{
+  "extends": "./tsconfig.base.json",
+  // JSONC comments are valid for tsconfig, but not for Wippy manifests.
+  "compilerOptions": {}
+}`)},
+	}
+
+	entries, err := ldr.LoadFS(ctxapi.NewRootContext(), fsys)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	require.Equal(t, "app:ok", entries[0].ID.String())
+}
+
+func TestLoader_LoadFileSkipsMalformedNonManifestAsset(t *testing.T) {
+	suite := NewTestSuite()
+	ldr := NewLoader(suite.transcoder, nil, interpolate.NewEntryInterpolator(suite.transcoder))
+	fsys := fstest.MapFS{
+		"ui/node_modules/es-errors/tsconfig.json": &fstest.MapFile{Data: []byte(`{
+  "extends": "./tsconfig.base.json",
+  // JSONC comments are valid for tsconfig, but not for Wippy manifests.
+  "compilerOptions": {}
+}`)},
+	}
+
+	entries, err := ldr.LoadFile(ctxapi.NewRootContext(), fsys, "ui/node_modules/es-errors/tsconfig.json")
+	require.NoError(t, err)
+	require.Empty(t, entries)
+}
+
 // TestEntryProcessor tests the EntryProcessor functionality
 func TestEntryProcessor(t *testing.T) {
 	suite := NewTestSuite()
