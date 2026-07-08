@@ -46,6 +46,7 @@ const (
 type DependencyHandlerOptions struct {
 	Hub             HubClient
 	Logger          *zap.Logger
+	Resolver        regapi.DependencyResolver
 	LockPath        string
 	VendorDir       string
 	ResolveTimeout  time.Duration
@@ -56,6 +57,7 @@ type DependencyHandler struct {
 	hub             HubClient
 	manifestCache   *ManifestCache
 	logger          *zap.Logger
+	resolver        regapi.DependencyResolver
 	lockPath        string
 	vendorDir       string
 	resolveTimeout  time.Duration
@@ -128,6 +130,7 @@ func NewDependencyHandler(opts DependencyHandlerOptions) (*DependencyHandler, er
 		hub:             client,
 		manifestCache:   NewManifestCache(client),
 		logger:          logger,
+		resolver:        opts.Resolver,
 		lockPath:        lockPath,
 		vendorDir:       vendorDir,
 		resolveTimeout:  opts.ResolveTimeout,
@@ -237,7 +240,7 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		return regapi.DirectiveResult{}, NewDependencyPipelineError(err)
 	}
 
-	additional, err := buildOperations(snapshot, combined, op.Entry.ID, controlledModules, mutableModules)
+	additional, err := h.buildOperations(snapshot, combined, op.Entry.ID, controlledModules, mutableModules)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -1448,12 +1451,37 @@ func unwrapPayloadData(data any) any {
 	return data
 }
 
+func (h *DependencyHandler) buildOperations(
+	current regapi.State,
+	desired []regapi.Entry,
+	originalID regapi.ID,
+	controlledModules map[string]struct{},
+	mutableModules map[string]struct{},
+) ([]regapi.Operation, error) {
+	var resolver regapi.DependencyResolver
+	if h != nil {
+		resolver = h.resolver
+	}
+	return buildOperationsWithResolver(current, desired, originalID, controlledModules, mutableModules, resolver)
+}
+
 func buildOperations(
 	current regapi.State,
 	desired []regapi.Entry,
 	originalID regapi.ID,
 	controlledModules map[string]struct{},
 	mutableModules map[string]struct{},
+) ([]regapi.Operation, error) {
+	return buildOperationsWithResolver(current, desired, originalID, controlledModules, mutableModules, nil)
+}
+
+func buildOperationsWithResolver(
+	current regapi.State,
+	desired []regapi.Entry,
+	originalID regapi.ID,
+	controlledModules map[string]struct{},
+	mutableModules map[string]struct{},
+	resolver regapi.DependencyResolver,
 ) ([]regapi.Operation, error) {
 	currentByID := make(map[regapi.ID]regapi.Entry, len(current))
 	for _, entry := range current {
@@ -1506,11 +1534,121 @@ func buildOperations(
 					continue
 				}
 			}
+			if hasLiveDependent(id, currentByID, desiredByID, controlledModules, resolver) {
+				continue
+			}
 			ops = append(ops, regapi.Operation{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: id}})
 		}
 	}
 
 	return ops, nil
+}
+
+func hasLiveDependent(
+	target regapi.ID,
+	currentByID map[regapi.ID]regapi.Entry,
+	desiredByID map[regapi.ID]regapi.Entry,
+	controlledModules map[string]struct{},
+	resolver regapi.DependencyResolver,
+) bool {
+	if resolver == nil {
+		return false
+	}
+	universe := dependencyEntryUniverse(currentByID)
+	for id, current := range currentByID {
+		if id == target {
+			continue
+		}
+		check := current
+		if desired, ok := desiredByID[id]; ok {
+			check = desired
+		} else if missingDesiredEntryWillBeDeleted(current, controlledModules) {
+			continue
+		}
+		if entryDependsOn(check, target, universe, resolver) {
+			return true
+		}
+	}
+	return false
+}
+
+func missingDesiredEntryWillBeDeleted(entry regapi.Entry, controlledModules map[string]struct{}) bool {
+	module := entryModule(entry)
+	if module == "" {
+		return false
+	}
+	if controlledModules == nil {
+		return true
+	}
+	_, ok := controlledModules[module]
+	return ok
+}
+
+type dependencyEntryUniverseView struct {
+	entries map[regapi.ID]struct{}
+	groups  map[string][]regapi.ID
+	ns      map[string][]regapi.ID
+}
+
+func dependencyEntryUniverse(entries map[regapi.ID]regapi.Entry) dependencyEntryUniverseView {
+	universe := dependencyEntryUniverseView{
+		entries: make(map[regapi.ID]struct{}, len(entries)),
+		groups:  make(map[string][]regapi.ID),
+		ns:      make(map[string][]regapi.ID),
+	}
+	for id, entry := range entries {
+		universe.entries[id] = struct{}{}
+		for _, group := range entry.Meta.GetSlice(regapi.TagGroups) {
+			universe.groups[group] = append(universe.groups[group], id)
+		}
+		if id.NS != "" {
+			universe.ns[id.NS] = append(universe.ns[id.NS], id)
+		}
+	}
+	return universe
+}
+
+func entryDependsOn(entry regapi.Entry, target regapi.ID, universe dependencyEntryUniverseView, resolver regapi.DependencyResolver) bool {
+	dependencies := entry.Meta.GetSlice(regapi.TagDependsOn)
+	dependencies = append(dependencies, resolver.Extract(entry)...)
+	for _, dep := range dependencies {
+		switch depType, value := parseDependencyRef(dep); depType {
+		case "direct":
+			if resolveDependencyRef(entry.ID.NS, value) == target {
+				return true
+			}
+		case "group":
+			for _, id := range universe.groups[value] {
+				if id == target {
+					return true
+				}
+			}
+		case "namespace":
+			for _, id := range universe.ns[value] {
+				if id == target {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func parseDependencyRef(dep string) (depType string, value string) {
+	if strings.HasPrefix(dep, "group:") {
+		return "group", strings.TrimPrefix(dep, "group:")
+	}
+	if strings.HasPrefix(dep, "ns:") {
+		return "namespace", strings.TrimPrefix(dep, "ns:")
+	}
+	return "direct", dep
+}
+
+func resolveDependencyRef(sourceNS string, dep string) regapi.ID {
+	if strings.Contains(dep, ":") {
+		return regapi.ParseID(dep)
+	}
+	return regapi.NewID(sourceNS, dep)
 }
 
 func sameImmutableModuleVersion(existing, desired regapi.Entry, mutableModules map[string]struct{}) bool {

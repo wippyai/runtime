@@ -117,7 +117,7 @@ func Registry() boot.Component {
 
 			registryOpts := []registry.Option{}
 
-			depHandler, err := newDependencyHandler(cfg, logger.Named("dependency"))
+			depHandler, err := newDependencyHandler(cfg, logger.Named("dependency"), resolver)
 			if err != nil {
 				logger.Warn("dependency handler disabled", zap.Error(err))
 			} else if depHandler != nil {
@@ -217,14 +217,19 @@ func readKindSlice(cfg boot.Config, key boot.Name) ([]regapi.Kind, bool) {
 	return kinds, true
 }
 
-func newDependencyHandler(cfg boot.Config, logger *zap.Logger) (*hubdeps.DependencyHandler, error) {
+func newDependencyHandler(
+	cfg boot.Config,
+	logger *zap.Logger,
+	resolver regapi.DependencyResolver,
+) (*hubdeps.DependencyHandler, error) {
 	var registryCfg boot.Config
 	if cfg != nil {
 		registryCfg = cfg.Sub(RegistryName)
 	}
 
 	opts := hubdeps.DependencyHandlerOptions{
-		Logger: logger,
+		Logger:   logger,
+		Resolver: resolver,
 	}
 
 	if registryCfg != nil {

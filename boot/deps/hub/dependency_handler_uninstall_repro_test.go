@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	regtop "github.com/wippyai/runtime/system/registry/topology"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
@@ -199,4 +200,85 @@ func TestReproDeleteUnrelatedRootPreservesMcpRouterParam(t *testing.T) {
 				"mcp endpoint %s must keep its install-time router param during unrelated uninstall", op.Entry.ID)
 		}
 	}
+}
+
+func TestDeleteRootDependencyKeepsSharedLibraryImportedByBaselineEntry(t *testing.T) {
+	ctx := newTestContext()
+	resolver := regtop.NewResolver()
+	require.NoError(t, resolver.RegisterPattern(regapi.DependencyPattern{
+		Path:          "data.imports.*",
+		Description:   "Imported entries",
+		AllowWildcard: true,
+	}))
+
+	rootDep := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "plugin"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/plugin","version":"v1.0.0"}`, payload.JSON),
+	}
+	pluginDep := regapi.Entry{
+		ID:   regapi.NewID("acme.plugin", "dependency.migration"),
+		Kind: regapi.NamespaceDependency,
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey:        "acme/plugin",
+			metaModuleVersionKey: "v1.0.0",
+		}),
+		Data: payload.NewPayload(`{"component":"acme/migration","version":"v1.0.0"}`, payload.JSON),
+	}
+	pluginService := regapi.Entry{
+		ID:   regapi.NewID("acme.plugin", "service"),
+		Kind: "service",
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey:        "acme/plugin",
+			metaModuleVersionKey: "v1.0.0",
+		}),
+		Data: payload.NewPayload(`{"ok":true}`, payload.JSON),
+	}
+	sharedLibrary := regapi.Entry{
+		ID:   regapi.NewID("acme.migration", "runner"),
+		Kind: "function.lua",
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey:        "acme/migration",
+			metaModuleVersionKey: "v1.0.0",
+		}),
+		Data: payload.NewPayload(`{"source":"return {}"}`, payload.JSON),
+	}
+	baselineMigration := regapi.Entry{
+		ID:   regapi.NewID("acme.app.migrations", "01_bootstrap"),
+		Kind: "function.lua",
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey:        "acme/app-core",
+			metaModuleVersionKey: "v1.0.0",
+		}),
+		Data: payload.New(map[string]any{
+			"imports": map[string]any{"migration": "acme.migration:runner"},
+			"source":  "return {}",
+		}),
+	}
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub:      &fakeHub{},
+		Logger:   zap.NewNop(),
+		Resolver: resolver,
+	})
+	require.NoError(t, err)
+
+	result, err := handler.Expand(ctx,
+		regapi.Operation{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: rootDep.ID}},
+		regapi.State{rootDep, pluginDep, pluginService, sharedLibrary, baselineMigration},
+	)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+
+	deleted := map[regapi.ID]bool{}
+	for _, scoped := range result.Additional {
+		if scoped.Operation.Kind == regapi.EntryDelete {
+			deleted[scoped.Operation.Entry.ID] = true
+		}
+	}
+
+	assert.True(t, deleted[pluginDep.ID], "removed plugin's module-owned dependency entry should be deleted")
+	assert.True(t, deleted[pluginService.ID], "removed plugin's service should be deleted")
+	assert.False(t, deleted[sharedLibrary.ID], "shared imported library must stay while a baseline entry imports it")
+	assert.False(t, deleted[baselineMigration.ID], "baseline module entry is outside the removed root closure")
 }
