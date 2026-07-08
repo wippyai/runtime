@@ -195,40 +195,40 @@ func TestMarkModuleMeta_PreservesExistingModuleOwner(t *testing.T) {
 	e := regapi.Entry{
 		ID: regapi.NewID("ns", "a"),
 		Meta: attrs.NewBagFrom(map[string]any{
-			metaModuleKey:        "wippy/session",
+			metaModuleKey:        "acme/session",
 			metaModuleVersionKey: "v1.0.0",
 		}),
 	}
 
-	result := markModuleMeta(e, "kickside/uploads", "v2.0.0")
+	result := markModuleMeta(e, "acme/uploads", "v2.0.0")
 
-	assert.Equal(t, "wippy/session", entryModule(result))
+	assert.Equal(t, "acme/session", entryModule(result))
 	assert.Equal(t, "v1.0.0", result.Meta.GetString(metaModuleVersionKey, ""))
 }
 
 func TestMarkModuleMetaForGraph_UsesResolvedNamespaceOwner(t *testing.T) {
-	e := regapi.Entry{ID: regapi.NewID("wippy.session", "delete_session_service")}
+	e := regapi.Entry{ID: regapi.NewID("acme.session", "delete_session_service")}
 	owners := moduleOwnersByNamespace([]ResolvedModule{
-		{Org: "wippy", Name: "session", Version: "v1.0.0"},
-		{Org: "kickside", Name: "uploads", Version: "v2.0.0"},
+		{Org: "acme", Name: "session", Version: "v1.0.0"},
+		{Org: "example", Name: "uploads", Version: "v2.0.0"},
 	})
 
-	result := markModuleMetaForGraph(e, "kickside/uploads", "v2.0.0", owners, nil)
+	result := markModuleMetaForGraph(e, "example/uploads", "v2.0.0", owners, nil)
 
-	assert.Equal(t, "wippy/session", entryModule(result))
+	assert.Equal(t, "acme/session", entryModule(result))
 	assert.Equal(t, "v1.0.0", result.Meta.GetString(metaModuleVersionKey, ""))
 }
 
 func TestMarkModuleMetaForGraph_UsesSnapshotEntryOwner(t *testing.T) {
-	id := regapi.NewID("wippy.llm.openai_compat", "client")
+	id := regapi.NewID("acme.llm.openai_compat", "client")
 	e := regapi.Entry{ID: id}
-	entryOwners := map[regapi.ID]moduleOwner{
-		id: {name: "wippy/llm", version: "v4.0.0"},
+	entryOwners := map[string]moduleOwner{
+		idKey(id): {name: "acme/llm", version: "v4.0.0"},
 	}
 
-	result := markModuleMetaForGraph(e, "kickside/skills", "v2.0.0", nil, entryOwners)
+	result := markModuleMetaForGraph(e, "example/skills", "v2.0.0", nil, entryOwners)
 
-	assert.Equal(t, "wippy/llm", entryModule(result))
+	assert.Equal(t, "acme/llm", entryModule(result))
 	assert.Equal(t, "v4.0.0", result.Meta.GetString(metaModuleVersionKey, ""))
 }
 
@@ -248,9 +248,9 @@ func TestPreserveHostSnapshotEntry_KeepsExistingUnownedEntry(t *testing.T) {
 
 	result, ok := preserveHostSnapshotEntry(
 		loaded,
-		"kickside/security",
-		map[regapi.ID]regapi.Entry{id: existing},
-		map[string]struct{}{"kickside/security": {}},
+		"acme/security",
+		map[string]regapi.Entry{idKey(id): existing},
+		map[string]struct{}{"acme/security": {}},
 	)
 
 	require.True(t, ok)
@@ -388,9 +388,9 @@ func TestBuildOperations_DeletesOnlyControlledModules(t *testing.T) {
 			Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/http"}),
 		},
 		{
-			ID:   regapi.NewID("keeper.hub.tools", "dependencies"),
+			ID:   regapi.NewID("example.tools", "dependencies"),
 			Kind: "function.lua",
-			Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "keeper/keeper"}),
+			Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "example/keeper"}),
 		},
 	}
 	desired := []regapi.Entry{
@@ -558,11 +558,11 @@ func TestNewDependencyResolutionErrors_NoHintWithoutAuthCause(t *testing.T) {
 
 func TestNewDependencyResolutionErrors_MessageIncludesCause(t *testing.T) {
 	errs := []ResolutionError{
-		{Org: "kickside", Name: "research", Constraint: "0.1.0", Message: "module not found", Err: errors.New("module not found")},
+		{Org: "acme", Name: "research", Constraint: "0.1.0", Message: "module not found", Err: errors.New("module not found")},
 	}
 
 	apiErr := NewDependencyResolutionErrors(errs)
-	assert.Contains(t, apiErr.Error(), "kickside/research@0.1.0")
+	assert.Contains(t, apiErr.Error(), "acme/research@0.1.0")
 	assert.Contains(t, apiErr.Error(), "module not found")
 }
 

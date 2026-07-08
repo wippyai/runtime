@@ -961,6 +961,41 @@ func TestDependencyHandler_Expand_RejectsDuplicateRootComponentBeforeLinking(t *
 	assert.Equal(t, "app:dep.wippy.bootloader", apiErr.Details().GetString("requested_entry_id", ""))
 }
 
+func TestDependencyHandler_CollectDesiredDependencies_TreatsHydratedSameIDAsSameRoot(t *testing.T) {
+	ctx := newTestContext()
+	transcoder := payload.GetTranscoder(ctx)
+	require.NotNil(t, transcoder)
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub:       &fakeHub{},
+		Logger:    zap.NewNop(),
+		VendorDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	hydratedDep := regapi.Entry{
+		ID:   regapi.ID{NS: "app.deps", Name: "bootloader"},
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/bootloader","version":"0.3.12"}`, payload.JSON),
+	}
+	updatedDep := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "bootloader"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/bootloader","version":"*"}`, payload.JSON),
+	}
+
+	deps, err := handler.collectDesiredDependencies(ctx,
+		regapi.Operation{Kind: regapi.EntryCreate, Entry: updatedDep},
+		regapi.State{hydratedDep},
+		transcoder,
+	)
+	require.NoError(t, err)
+	require.Len(t, deps, 1)
+	assert.Equal(t, "app.deps:bootloader", deps[0].entry.ID.String())
+	assert.Equal(t, "acme/bootloader", deps[0].definition.Component)
+	assert.Equal(t, "*", deps[0].definition.Version)
+}
+
 func TestDependencyHandler_Expand_RootParametersOverrideModuleOwnedTransitiveParameters(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()
