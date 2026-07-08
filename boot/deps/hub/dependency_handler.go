@@ -1754,7 +1754,7 @@ func markModuleMetaForGraph(
 
 func idKey(id regapi.ID) string {
 	if id.NS != "" || id.Name != "" {
-		return strings.TrimSpace(string(id.NS)) + ":" + strings.TrimSpace(string(id.Name))
+		return strings.TrimSpace(id.NS) + ":" + strings.TrimSpace(id.Name)
 	}
 	return strings.TrimSpace(id.String())
 }
