@@ -12,15 +12,15 @@ updates:
     schedule:
       interval: daily
     reviewers:
-      - "rustatian"
+      - "wolfy-j"
     assignees:
-      - "rustatian"
+      - "wolfy-j"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: daily
     reviewers:
-      - "rustatian"
+      - "wolfy-j"
     assignees:
-      - "rustatian"
+      - "wolfy-j"
