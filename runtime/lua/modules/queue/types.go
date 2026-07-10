@@ -15,7 +15,7 @@ var messageType = typ.NewInterface("queue.Message", []typ.Method{
 	},
 	{
 		Name: "header",
-		Type: typ.Func().Param("_", typ.Self).Param("key", typ.String).Returns(typ.NewOptional(typ.Any), typ.NewOptional(typ.LuaError)).Build(),
+		Type: typ.Func().Param("_", typ.Self).Param("key", typ.String).Returns(typ.String, typ.NewOptional(typ.LuaError)).Build(),
 	},
 	{
 		Name: "headers",
