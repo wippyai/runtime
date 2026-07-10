@@ -8,7 +8,7 @@ local function main()
 	local json = require("json")
 
 	-- Query parameters via options
-	local resp, err = http.get("http://localhost:8085/test/echo?test=query", {
+	local resp, err = http.get("http://localhost:18085/test/echo?test=query", {
 		query = {foo = "bar", num = "123", value = "test_value"}
 	})
 	assert.is_nil(err, "GET with query should not error")

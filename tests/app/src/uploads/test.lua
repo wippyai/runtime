@@ -8,7 +8,7 @@ local function main()
 	local file_content = "Hello from uploaded file!\nThis is line 2.\n"
 	local filename = "test_upload.txt"
 
-	local resp, err = http.post("http://localhost:8085/test/upload", {
+	local resp, err = http.post("http://localhost:18085/test/upload", {
 		files = {
 			{
 				name = "file",

@@ -9,7 +9,7 @@ local function main()
 
 	-- Test 1: Request with body - should stream successfully
 	local body = "Hello from streaming test!"
-	local resp, err = http.post("http://localhost:8085/test/request-stream", {
+	local resp, err = http.post("http://localhost:18085/test/request-stream", {
 		body = body
 	})
 	assert.is_nil(err, "POST should not error")
@@ -26,7 +26,7 @@ local function main()
 
 	-- Test 2: Large body - multiple chunks
 	local large_body = string.rep("X", 2048)
-	local resp2, err2 = http.post("http://localhost:8085/test/request-stream", {
+	local resp2, err2 = http.post("http://localhost:18085/test/request-stream", {
 		body = large_body
 	})
 	assert.is_nil(err2, "large POST should not error")
@@ -38,7 +38,7 @@ local function main()
 	assert.eq(data2.content, large_body, "large content matches")
 
 	-- Test 3: Empty body
-	local resp3, err3 = http.post("http://localhost:8085/test/request-stream", {
+	local resp3, err3 = http.post("http://localhost:18085/test/request-stream", {
 		body = ""
 	})
 	assert.is_nil(err3, "empty POST should not error")

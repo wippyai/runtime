@@ -9,7 +9,7 @@ entries:
     kind: http.service
     meta:
       comment: Main HTTP gateway service
-    addr: :8085
+    addr: :18085
     lifecycle:
       auto_start: true
 

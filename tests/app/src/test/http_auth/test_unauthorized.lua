@@ -6,7 +6,7 @@ local function main()
 	local http = require("http_client")
 	local json = require("json")
 
-	local res, err = http.get("http://localhost:8085/auth/protected")
+	local res, err = http.get("http://localhost:18085/auth/protected")
 	if err then
 		return false, "request error: " .. tostring(err)
 	end

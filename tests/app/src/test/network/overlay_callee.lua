@@ -8,7 +8,7 @@
 
 local function main(args)
 	local http = require("http_client")
-	local url = (args and args.url) or "http://localhost:8085/hello"
+	local url = (args and args.url) or "http://localhost:18085/hello"
 
 	local resp, err = http.get(url, { timeout = "2s" })
 	if err ~= nil then

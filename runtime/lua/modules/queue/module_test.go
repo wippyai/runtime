@@ -462,8 +462,8 @@ func TestMessageHeader(t *testing.T) {
 
 		-- Test existing header
 		local priority = msg:header("priority")
-		if priority ~= 5 then
-			error("expected priority 5, got: " .. tostring(priority))
+		if priority ~= "5" then
+			error("expected normalized priority '5', got: " .. tostring(priority))
 		end
 
 		local tag = msg:header("tag")
@@ -502,8 +502,8 @@ func TestMessageHeaders(t *testing.T) {
 			error("expected key1='value1', got: " .. tostring(headers.key1))
 		end
 
-		if headers.key2 ~= 42 then
-			error("expected key2=42, got: " .. tostring(headers.key2))
+		if headers.key2 ~= "42" then
+			error("expected normalized key2='42', got: " .. tostring(headers.key2))
 		end
 	`)
 	if err != nil {
@@ -683,6 +683,28 @@ func TestInfoReturnsAllStatsKeys(t *testing.T) {
 	}
 }
 
+func TestInfoReturnsStructuredErrorForUnsupportedStatValue(t *testing.T) {
+	info := attrs.NewBag()
+	info.Set("unsupported", make(chan int))
+
+	mgr := newMockManager()
+	mgr.driver = &mockInfoDriver{info: info}
+	mgr.addQueue("test:myqueue")
+
+	l := setupStateWithManager(mgr)
+	defer l.Close()
+
+	err := l.DoString(`
+		local info, err = queue.info("test:myqueue")
+		if info ~= nil then error("expected nil info") end
+		if not err then error("expected conversion error") end
+		if err:kind() ~= errors.INTERNAL then error("expected INTERNAL") end
+	`)
+	if err != nil {
+		t.Errorf("test failed: %v", err)
+	}
+}
+
 func TestInfoQueueNotFound(t *testing.T) {
 	mgr := newMockManager()
 	l := setupStateWithManager(mgr)
@@ -809,8 +831,12 @@ func TestMessageHeaderTypes(t *testing.T) {
 	msg := queueapi.NewMessageWithID("msg-types", payload.NewPayload("test", payload.String))
 	msg.Headers.Set("string_val", "hello")
 	msg.Headers.Set("int_val", 42)
+	msg.Headers.Set("int32_val", int32(-7))
+	msg.Headers.Set("uint_val", uint(8))
 	msg.Headers.Set("float_val", 3.14)
 	msg.Headers.Set("bool_val", true)
+	msg.Headers.Set("binary_val", []byte("raw\x00bytes"))
+	msg.Headers.Set("nil_val", nil)
 
 	l := setupStateWithDelivery(msg)
 	defer l.Close()
@@ -824,18 +850,43 @@ func TestMessageHeaderTypes(t *testing.T) {
 		end
 
 		local num = msg:header("int_val")
-		if num ~= 42 then
-			error("expected int 42, got: " .. tostring(num))
+		if num ~= "42" then
+			error("expected normalized int '42', got: " .. tostring(num))
+		end
+
+		local int32 = msg:header("int32_val")
+		if int32 ~= "-7" then
+			error("expected normalized int32 '-7', got: " .. tostring(int32))
+		end
+
+		local uint = msg:header("uint_val")
+		if uint ~= "8" then
+			error("expected normalized uint '8', got: " .. tostring(uint))
 		end
 
 		local flt = msg:header("float_val")
-		if flt ~= 3.14 then
-			error("expected float 3.14, got: " .. tostring(flt))
+		if flt ~= "3.14" then
+			error("expected normalized float '3.14', got: " .. tostring(flt))
 		end
 
 		local bool = msg:header("bool_val")
-		if bool ~= true then
-			error("expected bool true, got: " .. tostring(bool))
+		if bool ~= "true" then
+			error("expected normalized bool 'true', got: " .. tostring(bool))
+		end
+
+		local binary = msg:header("binary_val")
+		if binary ~= "raw\0bytes" then
+			error("expected binary bytes to become a Lua string")
+		end
+
+		local nil_value = msg:header("nil_val")
+		if nil_value ~= nil then
+			error("expected a nil header value to be treated as absent")
+		end
+
+		local headers = msg:headers()
+		if headers.nil_val ~= nil then
+			error("expected nil-valued header to be absent from headers table")
 		end
 	`)
 	if err != nil {

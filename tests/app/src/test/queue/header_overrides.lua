@@ -36,7 +36,7 @@ local function main()
 
 	assert.not_nil(rec, "consumer should have processed the message")
 	assert.eq(rec.correlation_id, corr, "correlation_id preserved")
-	assert.eq(rec.headers.priority, 9, "priority preserved")
+	assert.eq(rec.headers.priority, "9", "priority normalized to string")
 	assert.eq(rec.headers.partition_key, "customer-7", "partition_key preserved")
 	assert.eq(rec.headers.reply_to, "app.queue:replies", "reply_to preserved")
 	assert.eq(rec.headers["amqp.expiration"], "30000", "amqp-prefixed header passed through")

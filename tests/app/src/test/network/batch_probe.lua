@@ -18,10 +18,10 @@ local function main()
 	local http = require("http_client")
 
 	local responses, err = http.request_batch({
-		{ "GET", "http://localhost:8085/hello" },
+		{ "GET", "http://localhost:18085/hello" },
 		{
 			"GET",
-			"http://localhost:8085/hello",
+			"http://localhost:18085/hello",
 			{
 				overlay_network = "app.test.network:fast_socks5",
 				timeout = "500ms",

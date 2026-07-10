@@ -183,7 +183,7 @@ local function main()
 
 	assert.ok(matched > 0, "matched requirement by name")
 
-	local resp, http_err = http.get("http://localhost:8085/dummy/ping")
+	local resp, http_err = http.get("http://localhost:18085/dummy/ping")
 	assert.is_nil(http_err, "http get /dummy/ping no error")
 	assert.not_nil(resp, "http response returned")
 	assert.eq(resp.status_code, 200, "http /dummy/ping status 200")

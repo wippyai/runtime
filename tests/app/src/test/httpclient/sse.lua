@@ -7,7 +7,7 @@ local function main()
 	local http = require("http_client")
 
 	-- SSE test - get events via streaming response
-	local resp, err = http.get("http://localhost:8085/test/echo?test=sse", {
+	local resp, err = http.get("http://localhost:18085/test/echo?test=sse", {
 		stream = true
 	})
 	assert.is_nil(err, "SSE GET should not error")

@@ -9,7 +9,7 @@ local json = require("json")
 
 local function main()
 -- Connect to local WebSocket echo server via wsrelay with timeout
-	local client, err = websocket.connect("ws://localhost:8085/ws/echo", {
+	local client, err = websocket.connect("ws://localhost:18085/ws/echo", {
 		dial_timeout = 3
 	})
 
