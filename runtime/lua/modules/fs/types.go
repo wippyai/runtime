@@ -30,6 +30,18 @@ var fileInfoType = typ.NewRecord().
 	Field("type", typ.String).
 	Build()
 
+// dirEntryType is the value produced by FS:readdir's generic-for iterator.
+// It intentionally differs from FileInfo: readdir exposes only the entry name
+// and kind, matching dirIteratorNext in fs.go.
+var dirEntryType = typ.NewRecord().
+	Field("name", typ.String).
+	Field("type", typ.String).
+	Build()
+
+var dirIteratorType = typ.Func().
+	Returns(typ.NewOptional(dirEntryType)).
+	Build()
+
 var scannerType = typ.NewInterface("fs.Scanner", []typ.Method{
 	{Name: "scan", Type: typ.Func().
 		Param("self", typ.Self).
@@ -108,7 +120,7 @@ func init() {
 		{Name: "readdir", Type: typ.Func().
 			Param("self", typ.Self).
 			Param("path", typ.String).
-			Returns(typ.NewArray(fileInfoType), typ.NewOptional(typ.LuaError)).
+			Returns(dirIteratorType, typ.Any).
 			Build()},
 		{Name: "mkdir", Type: typ.Func().
 			Param("self", typ.Self).
