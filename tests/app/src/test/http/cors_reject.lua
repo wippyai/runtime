@@ -7,7 +7,7 @@ local function main()
 	local http = require("http_client")
 
 	-- Test with disallowed origin (not in cors.allow.origins config)
-	local resp, err = http.post("http://localhost:8085/stream-echo", {
+	local resp, err = http.post("http://localhost:18085/stream-echo", {
 		body = "test",
 		headers = {
 			["Origin"] = "https://evil-site.com"

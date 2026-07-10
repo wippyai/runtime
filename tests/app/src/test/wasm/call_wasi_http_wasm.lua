@@ -4,7 +4,7 @@ local assert = require("assert2")
 local http = require("http_client")
 
 local function main()
-	local res, err = http.post("http://localhost:8085/wasm/greet", {
+	local res, err = http.post("http://localhost:18085/wasm/greet", {
 		body = "Wippy",
 		headers = {
 			["Content-Type"] = "text/plain"

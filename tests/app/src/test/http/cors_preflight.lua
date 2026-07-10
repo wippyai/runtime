@@ -7,7 +7,7 @@ local function main()
 	local http = require("http_client")
 
 	-- Test preflight OPTIONS request with CORS headers
-	local resp, err = http.request("OPTIONS", "http://localhost:8085/stream-echo", {
+	local resp, err = http.request("OPTIONS", "http://localhost:18085/stream-echo", {
 		headers = {
 			["Origin"] = "http://localhost:5173",
 			["Access-Control-Request-Method"] = "POST",
