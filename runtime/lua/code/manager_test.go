@@ -439,16 +439,33 @@ func TestManager_AddNodePreservesManifest(t *testing.T) {
 	manifest.SetExport(typ.NewRecord().
 		Field("get", typ.Func().Returns(typ.NewRecord().Field("id", typ.String).Build()).Build()).
 		Build())
-	nodeID := registry.NewID("", "registry")
+	module := &api.ModuleDef{
+		Name:  "registry",
+		Types: func() *io.Manifest { return manifest },
+	}
+	nodeID := registry.NewID("", module.Name)
 	require.NoError(t, cm.AddNode(context.Background(), Node{
 		ID:       nodeID,
 		Kind:     api.ModuleKind,
+		Module:   module,
 		Manifest: manifest,
 	}, nil))
 
 	node, err := cm.memGraph.GetNode(nodeID)
 	require.NoError(t, err)
 	require.Same(t, manifest, node.Manifest)
+
+	consumerID := registry.NewID("app", "consumer")
+	require.NoError(t, cm.AddNode(context.Background(), Node{
+		ID:   consumerID,
+		Kind: api.Function,
+	}, []Import{{ID: nodeID, Alias: "registry"}}))
+	require.Same(t, manifest, cm.GetNodeDependencyManifests(consumerID)["registry"],
+		"dependency aliases must retain the supplied host-module manifest")
+
+	cm.AddBuiltinType(module)
+	require.NotEmpty(t, cm.BuiltinManifestHash(),
+		"host-module manifests must participate in the builtin cache fingerprint")
 }
 
 func TestManager_UpdateNode(t *testing.T) {

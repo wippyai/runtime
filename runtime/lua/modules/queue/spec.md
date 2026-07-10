@@ -25,11 +25,15 @@ Publishes a message to a queue.
 **headers fields:**
 
 Headers can be any key-value pairs where keys are strings and values are string, integer, number, or boolean.
+Those input types remain available internally so drivers can map broker-specific
+properties correctly. On the consumer side, `Message:header()` and
+`Message:headers()` normalize every value to a string; missing or nil values
+are exposed as nil.
 
 Two header namespaces are recognized:
 
 - **Neutral keys** (driver-agnostic): `priority`, `correlation_id`, `reply_to`, `encoding`, `schema`, `source`, `traceparent`, `tracestate`, `content_type`, `message_type`. Drivers that have a native equivalent translate these onto typed fields (e.g. AMQP `CorrelationId`, SQS system attributes); otherwise they pass through unchanged.
-- **Driver-prefixed keys**: `amqp.*`, `sqs.*` (extensible to `kafka.*`, `jetstream.*`). The matching driver may consume some of them (e.g. AMQP consumes `amqp.mandatory` and `amqp.expiration`); any key the matching driver does not special-case, and every prefixed key on a non-matching driver, is carried through to the consumer verbatim. Publishers can therefore rely on every header they set being visible on the receive side.
+- **Driver-prefixed keys**: `amqp.*`, `sqs.*` (extensible to `kafka.*`, `jetstream.*`). The matching driver may consume some of them (e.g. AMQP consumes `amqp.mandatory` and `amqp.expiration`); any key the matching driver does not special-case, and every prefixed key on a non-matching driver, keeps its key through to the consumer. Publishers can therefore rely on every header they set being visible on the receive side, with its value normalized to string by the Lua consumer API.
 
 Keys prefixed with `x_` (e.g. `x_original_queue`, `x_dead_letter_reason`, `x_dead_letter_time`, `attempts`) are reserved for DLQ/redelivery bookkeeping written by the driver and MUST NOT be set by publishers.
 
@@ -125,7 +129,7 @@ Returned by `queue.message()`. Represents a queue message being processed.
 | Method | Signature | Returns | Notes |
 |--------|-----------|---------|-------|
 | id | () | string, error | Message unique identifier |
-| header | (key: string) | any, error | Get single header value, nil if not found |
+| header | (key: string) | string?, error | Get normalized string value, nil if not found |
 | headers | () | table, error | Get all headers as table |
 | ack | () | boolean, error | Acknowledge successful processing. Single-shot. |
 | nack | () | boolean, error | Signal failure, request redelivery or dead-letter. Single-shot. |
@@ -143,7 +147,7 @@ local msg = queue.message()
 local id = msg:id()
 ```
 
-#### msg:header(key: string) → any, error
+#### msg:header(key: string) → string?, error
 
 Returns a single header value by key.
 
@@ -152,7 +156,7 @@ Returns a single header value by key.
 | key | string | yes | Header key to retrieve |
 
 **Returns:**
-- `value, nil` - header value (string, number, or boolean) if exists
+- `value, nil` - header value normalized to string if it exists
 - `nil, nil` - if header doesn't exist
 
 **Example:**
@@ -165,9 +169,11 @@ local correlation_id = msg:header("correlation_id")
 
 #### msg:headers() → table, error
 
-Returns all message headers as a table.
+Returns all message headers as a string-valued table. Drivers retain typed
+values internally for broker-specific publishing, but the Lua consumer API
+normalizes strings, numbers, booleans, and binary attributes consistently.
 
-**Returns:** `table, nil` - table with all headers (empty table if no headers)
+**Returns:** `{[string]: string}, nil` - table with all headers (empty table if no headers)
 
 **Example:**
 

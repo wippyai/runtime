@@ -14,7 +14,7 @@ local function main(body)
 	end
 
 	local msg_id = msg:id()
-	local correlation_id = msg:header("correlation_id")
+	local correlation_id = msg:header("correlation_id") or ""
 
 	logger:info("processing task", {
 		msg_id = msg_id,
