@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	glua "github.com/wippyai/go-lua"
+	"github.com/wippyai/go-lua/types/io"
+	"github.com/wippyai/go-lua/types/typ"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	"github.com/wippyai/runtime/api/event"
 	"github.com/wippyai/runtime/api/registry"
@@ -427,6 +429,26 @@ func TestManager_AddNode(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestManager_AddNodePreservesManifest(t *testing.T) {
+	cm, err := NewCodeManager(zap.NewNop(), &testEventBus{}, Config{})
+	require.NoError(t, err)
+
+	manifest := io.NewManifest("registry")
+	manifest.SetExport(typ.NewRecord().
+		Field("get", typ.Func().Returns(typ.NewRecord().Field("id", typ.String).Build()).Build()).
+		Build())
+	nodeID := registry.NewID("", "registry")
+	require.NoError(t, cm.AddNode(context.Background(), Node{
+		ID:       nodeID,
+		Kind:     api.ModuleKind,
+		Manifest: manifest,
+	}, nil))
+
+	node, err := cm.memGraph.GetNode(nodeID)
+	require.NoError(t, err)
+	require.Same(t, manifest, node.Manifest)
 }
 
 func TestManager_UpdateNode(t *testing.T) {
