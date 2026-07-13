@@ -31,11 +31,11 @@ type PublishParams struct {
 	Label        string
 	ReleaseNotes string
 	Digest       string
-	Size         int64
-	Protected    bool
 	// ModuleType is the kind declared in wippy.yaml (or --module-type).
 	// Empty means "not declared" and maps to MODULE_TYPE_UNSPECIFIED.
 	ModuleType string
+	Size       int64
+	Protected  bool
 }
 
 // moduleTypeToProto maps the declared wippy.yaml type onto the wire enum.

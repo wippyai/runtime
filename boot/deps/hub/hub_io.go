@@ -27,11 +27,11 @@ type UploadInput struct {
 	Label        string
 	ReleaseNotes string
 	FilePath     string
-	Protected    bool
 	// ModuleType is the kind declared in wippy.yaml (or --module-type). Hub
 	// requires it when the publish creates the module, and reclassifies an
 	// existing module when it differs. Empty means "not declared".
 	ModuleType string
+	Protected  bool
 }
 
 // UploadOutput is the publish workflow id the caller polls on.
