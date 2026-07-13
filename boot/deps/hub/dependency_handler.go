@@ -355,6 +355,10 @@ func (h *DependencyHandler) collectDesiredDependencies(
 	transcoder payload.Transcoder,
 ) ([]desiredDependency, error) {
 	deps := make(map[string]desiredDependency)
+	lockedVersions, err := h.installedModuleVersions(ctx, transcoder, snapshot)
+	if err != nil {
+		return nil, err
+	}
 	operationID := op.Entry.ID
 
 	current, err := h.collectSnapshotDependencies(ctx, snapshot, transcoder)
@@ -362,9 +366,9 @@ func (h *DependencyHandler) collectDesiredDependencies(
 		return nil, err
 	}
 	for _, dep := range current {
-		// Keep each root's declaration intact. The lock records the installed
-		// snapshot; it must not be promoted to a new exact constraint while an
-		// unrelated changeset is being expanded.
+		if !idsEqual(dep.entry.ID, operationID) {
+			dep.definition = pinExistingDependencyVersion(dep.definition, lockedVersions)
+		}
 		deps[idKey(dep.entry.ID)] = dep
 	}
 
@@ -471,6 +475,16 @@ func snapshotModuleVersions(snapshot regapi.State) map[string]string {
 		versions[module] = version
 	}
 	return versions
+}
+
+func pinExistingDependencyVersion(def DependencyDefinition, moduleVersions map[string]string) DependencyDefinition {
+	if def.Component == "" {
+		return def
+	}
+	if version := moduleVersions[def.Component]; version != "" {
+		def.Version = version
+	}
+	return def
 }
 
 func mergeLinkDependencies(explicitDeps, moduleEntries []regapi.Entry) []regapi.Entry {
