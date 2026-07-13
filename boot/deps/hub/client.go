@@ -20,8 +20,20 @@ import (
 )
 
 const (
-	defaultTimeout = 5 * time.Minute
+	defaultTimeout         = 5 * time.Minute
+	defaultMaxIdleConns    = 100
+	defaultMaxIdlePerHost  = 10
+	defaultIdleConnTimeout = 90 * time.Second
 )
+
+var sharedTransport = &http.Transport{
+	TLSClientConfig: &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	},
+	MaxIdleConns:        defaultMaxIdleConns,
+	MaxIdleConnsPerHost: defaultMaxIdlePerHost,
+	IdleConnTimeout:     defaultIdleConnTimeout,
+}
 
 type Client struct {
 	Publish  publishv1connect.PublishServiceClient
@@ -68,15 +80,9 @@ func NewClient(opts Options) (*Client, error) {
 		timeout = defaultTimeout
 	}
 
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			MinVersion: tls.VersionTLS12,
-		},
-	}
-
 	httpClient := &http.Client{
 		Timeout:   timeout,
-		Transport: transport,
+		Transport: sharedTransport,
 	}
 
 	var connectOpts []connect.ClientOption
