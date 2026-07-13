@@ -319,10 +319,22 @@ func sortChangeSetInputForStableOrder(changeSet registry.ChangeSet) registry.Cha
 // cyclic dependency graphs. It prefers install/update before cleanup, but the
 // result may still be invalid and must be rejected by normal apply validation.
 func (b *StateBuilder) fallbackSortChangeSet(fromState registry.State, changeSet registry.ChangeSet) registry.ChangeSet {
+	replacementIDs := make(map[registry.ID]struct{})
+	for _, operation := range changeSet {
+		if operation.Kind == registry.EntryCreate {
+			replacementIDs[operation.Entry.ID] = struct{}{}
+		}
+	}
+
+	replacementDeleteOps := make([]registry.Operation, 0)
 	deleteOps := make([]registry.Operation, 0, len(changeSet))
 	createUpdateOps := make([]registry.Operation, 0, len(changeSet))
 	for _, operation := range changeSet {
 		if operation.Kind == registry.EntryDelete {
+			if _, replacing := replacementIDs[operation.Entry.ID]; replacing {
+				replacementDeleteOps = append(replacementDeleteOps, operation)
+				continue
+			}
 			deleteOps = append(deleteOps, operation)
 		} else {
 			createUpdateOps = append(createUpdateOps, operation)
@@ -330,6 +342,10 @@ func (b *StateBuilder) fallbackSortChangeSet(fromState registry.State, changeSet
 	}
 
 	sortedChangeSet := make(registry.ChangeSet, 0, len(changeSet))
+	if len(replacementDeleteOps) > 0 {
+		sortedReplacementDeletes := b.sortDeleteOperations(fromState, replacementDeleteOps)
+		sortedChangeSet = append(sortedChangeSet, sortedReplacementDeletes...)
+	}
 	if len(createUpdateOps) > 0 {
 		sortedCreateUpdates := b.sortCreateUpdateOperations(createUpdateOps)
 		sortedChangeSet = append(sortedChangeSet, sortedCreateUpdates...)

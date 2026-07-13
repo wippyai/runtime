@@ -1236,6 +1236,7 @@ func TestSortChangeSet_RewireMetaDependencies(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
+		assertOperationBefore(t, sorted, registry.EntryDelete, oldHandler.ID, registry.EntryCreate, newHandler.ID)
 		assertCannotApplyWithoutIncomingDependencyDelete(t, builder, registry.State{oldHandler, endpoint}, sorted)
 	})
 
