@@ -2212,7 +2212,7 @@ func TestDependencyHandler_CollectDesiredDependencies_IgnoresModuleOwnedDependen
 	assert.Equal(t, "acme/root", deps[0].definition.Component)
 }
 
-func TestDependencyHandler_CollectDesiredDependencies_PinsExistingInstalledVersions(t *testing.T) {
+func TestDependencyHandler_CollectDesiredDependencies_PreservesExistingDeclaredVersions(t *testing.T) {
 	ctx := newTestContext()
 	transcoder := payload.GetTranscoder(ctx)
 	require.NotNil(t, transcoder)
@@ -2258,7 +2258,7 @@ func TestDependencyHandler_CollectDesiredDependencies_PinsExistingInstalledVersi
 	for _, dep := range deps {
 		versions[dep.definition.Component] = dep.definition.Version
 	}
-	assert.Equal(t, "0.5.39", versions["wippy/facade"])
+	assert.Equal(t, ">=v0.5.16", versions["wippy/facade"])
 	assert.Equal(t, ">=v0.0.0", versions["wippy/dummy"])
 }
 
