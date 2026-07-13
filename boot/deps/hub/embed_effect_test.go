@@ -243,22 +243,33 @@ func TestObsoletePacksFor(t *testing.T) {
 
 	t.Run("update marks changed version obsolete", func(t *testing.T) {
 		desired := map[string]string{"org/mod": "2.0.0", "org/other": "3.0.0"}
-		obs := obsoletePacksFor(snapshot, desired)
+		controlled := map[string]struct{}{"org/mod": {}, "org/other": {}}
+		obs := obsoletePacksFor(snapshot, desired, controlled)
 		require.Len(t, obs, 1)
 		assert.Equal(t, obsoletePack{module: "org/mod", version: "1.0.0"}, obs[0])
 	})
 
 	t.Run("removal marks dropped module obsolete", func(t *testing.T) {
 		desired := map[string]string{"org/other": "3.0.0"}
-		obs := obsoletePacksFor(snapshot, desired)
+		controlled := map[string]struct{}{"org/mod": {}, "org/other": {}}
+		obs := obsoletePacksFor(snapshot, desired, controlled)
 		require.Len(t, obs, 1)
 		assert.Equal(t, obsoletePack{module: "org/mod", version: "1.0.0"}, obs[0])
 	})
 
 	t.Run("unchanged versions are not obsolete", func(t *testing.T) {
 		desired := map[string]string{"org/mod": "1.0.0", "org/other": "3.0.0"}
-		obs := obsoletePacksFor(snapshot, desired)
+		controlled := map[string]struct{}{"org/mod": {}, "org/other": {}}
+		obs := obsoletePacksFor(snapshot, desired, controlled)
 		assert.Empty(t, obs)
+	})
+
+	t.Run("unrelated modules remain live", func(t *testing.T) {
+		desired := map[string]string{"org/mod": "2.0.0"}
+		controlled := map[string]struct{}{"org/mod": {}}
+		obs := obsoletePacksFor(snapshot, desired, controlled)
+		require.Len(t, obs, 1)
+		assert.Equal(t, obsoletePack{module: "org/mod", version: "1.0.0"}, obs[0])
 	})
 }
 
@@ -271,7 +282,7 @@ func TestBuildEmbedPackEffect_NoRegistry(t *testing.T) {
 	require.NoError(t, err)
 
 	// No embed registry installed in context: effect is skipped.
-	eff, err := handler.buildEmbedPackEffect(newTestContext(), nil, nil)
+	eff, err := handler.buildEmbedPackEffect(newTestContext(), nil, nil, nil)
 	require.NoError(t, err)
 	assert.Nil(t, eff)
 }
@@ -301,7 +312,7 @@ func TestBuildEmbedPackEffect_SkipsUnchangedResolvedPack(t *testing.T) {
 	resolved := []ResolvedModule{{Org: "org", Name: "mod", Version: "1.0.0"}}
 	snapshot := regapi.State{moduleEntry("ui", "app", "org/mod", "1.0.0")}
 
-	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot)
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot, map[string]struct{}{"org/mod": {}})
 	require.NoError(t, err)
 	assert.Nil(t, eff)
 }
@@ -329,7 +340,7 @@ func TestBuildEmbedPackEffect_StagesUnchangedPackWhenRegistryMissing(t *testing.
 	resolved := []ResolvedModule{{Org: "org", Name: "mod", Version: "1.0.0"}}
 	snapshot := regapi.State{moduleEntry("ui", "app", "org/mod", "1.0.0")}
 
-	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot)
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot, map[string]struct{}{"org/mod": {}})
 	require.NoError(t, err)
 	require.NotNil(t, eff)
 	assert.Equal(t, []stagedPack{{packPath: packPath, module: "org/mod", version: "1.0.0"}}, eff.staged)
@@ -367,7 +378,7 @@ func TestBuildEmbedPackEffect_DropsPackWhenResolvedModuleIsDirectory(t *testing.
 	resolved := []ResolvedModule{{Org: "org", Name: "mod", Version: "1.0.0"}}
 	snapshot := regapi.State{moduleEntry("ui", "app", "org/mod", "1.0.0")}
 
-	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot)
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot, map[string]struct{}{"org/mod": {}})
 	require.NoError(t, err)
 	require.NotNil(t, eff)
 	assert.Empty(t, eff.staged)
@@ -414,7 +425,7 @@ func TestBuildEmbedPackEffect_DropsPackWhenUnpackModulesEnabled(t *testing.T) {
 	resolved := []ResolvedModule{{Org: "org", Name: "mod", Version: "1.0.0"}}
 	snapshot := regapi.State{moduleEntry("ui", "app", "org/mod", "1.0.0")}
 
-	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot)
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot, map[string]struct{}{"org/mod": {}})
 	require.NoError(t, err)
 	require.NotNil(t, eff)
 	assert.Empty(t, eff.staged)
@@ -463,7 +474,9 @@ func TestBuildEmbedPackEffect_StagesOnlyChangedPacks(t *testing.T) {
 		moduleEntry("ui", "removed", "org/removed", "3.0.0"),
 	}
 
-	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot)
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot, map[string]struct{}{
+		"org/mod": {}, "org/stable": {}, "org/removed": {},
+	})
 	require.NoError(t, err)
 	require.NotNil(t, eff)
 	assert.Equal(t, []stagedPack{{packPath: newPack, module: "org/mod", version: "2.0.0"}}, eff.staged)
@@ -482,6 +495,52 @@ func TestBuildEmbedPackEffect_StagesOnlyChangedPacks(t *testing.T) {
 	assert.Equal(t, "stable", readHubResource(t, reg, moduleEntry("ui", "stable", "org/stable", "1.0.0"), "v.txt"))
 	_, err = reg.GetFS(regapi.NewID("ui", "removed"))
 	require.Error(t, err)
+}
+
+func TestBuildEmbedPackEffect_InstallPreservesUnrelatedApplicationPack(t *testing.T) {
+	reg := embedpkg.NewRegistry()
+	defer func() { require.NoError(t, reg.Close()) }()
+	ctx := embedapi.WithRegistry(newTestContext(), reg)
+	vendorDir := t.TempDir()
+
+	appPack := filepath.Join(t.TempDir(), "kickside-0.1.63.wapp")
+	writeResourceWapp(t, appPack, "app", "app_fs", map[string]string{"index.js": "app"})
+	appFile, err := os.Open(appPack)
+	require.NoError(t, err)
+	appReader, err := wapp.NewReader(appFile)
+	require.NoError(t, err)
+	require.NoError(t, reg.RegisterPack(appPack, "kickside/kickside", "0.1.63", appReader, appFile))
+
+	crmPack := filepath.Join(vendorDir, "spiralscout", "crm-0.1.18.wapp")
+	writeResourceWapp(t, crmPack, "crm", "ui_fs", map[string]string{"index.js": "crm"})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getDownload: func(context.Context, *DownloadParams) (*DownloadInfo, error) {
+				t.Fatal("test pack already exists in the vendor cache")
+				return nil, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	resolved := []ResolvedModule{{Org: "spiralscout", Name: "crm", Version: "0.1.18"}}
+	snapshot := regapi.State{moduleEntry("app", "app_fs", "kickside/kickside", "0.1.63")}
+	controlled := map[string]struct{}{"spiralscout/crm": {}}
+
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot, controlled)
+	require.NoError(t, err)
+	require.NotNil(t, eff)
+	assert.Empty(t, eff.obsolete)
+
+	require.NoError(t, eff.Prepare(context.Background()))
+	require.NoError(t, eff.Commit(context.Background()))
+	assert.Equal(t, "app", readHubResource(t, reg,
+		moduleEntry("app", "app_fs", "kickside/kickside", "0.1.63"), "index.js"))
+	assert.Equal(t, "crm", readHubResource(t, reg,
+		moduleEntry("crm", "ui_fs", "spiralscout/crm", "0.1.18"), "index.js"))
 }
 
 func TestEmbedPackEffect_UpdateRollbackKeepsLiveOldVersion(t *testing.T) {

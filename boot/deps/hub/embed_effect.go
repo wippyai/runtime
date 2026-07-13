@@ -129,9 +129,10 @@ func (e *embedPackEffect) rollbackPrepared() {
 
 // buildEmbedPackEffect computes the pack-lifecycle effect for a module
 // operation. resolved are the desired modules after the operation; snapshot is
-// the registry state before it. staged packs are the resolved modules backed by
-// a .wapp on disk; obsolete packs are modules present in the snapshot whose
-// version is no longer desired (removed) or has changed (updated).
+// the registry state before it. controlled limits removals to modules owned by
+// dependency roots participating in this operation. staged packs are the
+// resolved modules backed by a .wapp on disk; obsolete packs are controlled
+// modules whose version is no longer desired (removed) or changed (updated).
 //
 // Returns nil when there is no embed registry in the context, or when neither
 // staged nor obsolete packs exist, so callers can append it unconditionally.
@@ -139,6 +140,7 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 	ctx context.Context,
 	resolved []ResolvedModule,
 	snapshot regapi.State,
+	controlled map[string]struct{},
 ) (*embedPackEffect, error) {
 	reg := embedpkg.GetRegistryFromContext(ctx)
 	if reg == nil {
@@ -171,7 +173,7 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 		})
 	}
 
-	obsolete := obsoletePacksFor(snapshot, desired)
+	obsolete := obsoletePacksFor(snapshot, desired, controlled)
 
 	if len(staged) == 0 && len(obsolete) == 0 {
 		return nil, nil
@@ -190,14 +192,18 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 	}, nil
 }
 
-// obsoletePacksFor returns the snapshot modules whose version is not the desired
-// version (changed) or which are no longer desired at all (removed). A staged
-// pack for the new version is keyed by its own path, so unregistering the old
-// version by (module, version) never affects the new pack.
-func obsoletePacksFor(snapshot regapi.State, desired map[string]string) []obsoletePack {
+// obsoletePacksFor returns controlled snapshot modules whose version is not the
+// desired version (changed) or which are no longer desired at all (removed).
+// Packs outside controlled are unrelated to this dependency operation and must
+// remain live. A staged pack for the new version is keyed by its own path, so
+// unregistering the old version never affects the new pack.
+func obsoletePacksFor(snapshot regapi.State, desired map[string]string, controlled map[string]struct{}) []obsoletePack {
 	current := snapshotModuleVersions(snapshot)
 	obsolete := make([]obsoletePack, 0)
 	for module, version := range current {
+		if _, ok := controlled[module]; !ok {
+			continue
+		}
 		if version == "" {
 			continue
 		}
