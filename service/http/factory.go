@@ -190,40 +190,31 @@ func (f *StaticFactory) CreateHandler(_ context.Context, cfg *config.StaticConfi
 		return nil, NewInvalidStaticConfigError(err)
 	}
 
-	fsys, ok := f.fsReg.GetFS(cfg.FS.String())
-	if !ok {
+	if _, ok := f.fsReg.GetFS(cfg.FS.String()); !ok {
 		return nil, NewFilesystemNotFoundError(cfg.FS.String())
 	}
-
-	// Create base handler
-	var handler http.Handler
-
-	// For SPA mode, use our custom handler
-	if cfg.StaticOptions.SPA {
-		if cfg.StaticOptions.IndexFile == "" {
-			return nil, ErrIndexFileRequired
-		}
-		handler = NewSPAHandler(fsys, cfg.StaticOptions.IndexFile)
-
-		if cfg.StaticOptions.CacheControl != "" {
-			handler = wrapWithCacheControl(handler, cfg.StaticOptions.CacheControl)
-		}
-	} else {
-		handler = http.FileServer(http.FS(fsys))
-
-		// Always strip the path prefix so the file server receives paths relative to the fs root
-		if cfg.Path != "" && cfg.Path != "/" {
-			handler = http.StripPrefix(cfg.Path, handler)
-		}
-
-		if cfg.StaticOptions.CacheControl != "" {
-			handler = wrapWithCacheControl(handler, cfg.StaticOptions.CacheControl)
-		}
+	if cfg.StaticOptions.SPA && cfg.StaticOptions.IndexFile == "" {
+		return nil, ErrIndexFileRequired
 	}
 
-	// Apply middleware if configured
+	// Do not retain a filesystem instance here. fs.directory and fs.embed can
+	// publish a replacement through the filesystem registry while this HTTP
+	// mount remains live. Resolving the current instance per request makes the
+	// mount observe that event instead of serving a closed or stale filesystem.
+	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fsys, ok := f.fsReg.GetFS(cfg.FS.String())
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		newStaticContentHandler(fsys, cfg).ServeHTTP(w, r)
+	})
+	if cfg.StaticOptions.CacheControl != "" {
+		handler = wrapWithCacheControl(handler, cfg.StaticOptions.CacheControl)
+	}
+
+	// Apply middleware once around the dynamic filesystem resolver.
 	if len(cfg.Middleware) > 0 {
-		// Build middleware chain
 		middlewareHandlers := make([]func(http.Handler) http.Handler, len(cfg.Middleware))
 		for i, name := range cfg.Middleware {
 			mw, err := f.middlewareFactory.CreateMiddleware(name, cfg.Options)
@@ -233,13 +224,28 @@ func (f *StaticFactory) CreateHandler(_ context.Context, cfg *config.StaticConfi
 			middlewareHandlers[i] = mw
 		}
 
-		// Apply middleware chain in reverse order
 		for i := len(middlewareHandlers) - 1; i >= 0; i-- {
 			handler = middlewareHandlers[i](handler)
 		}
 	}
 
 	return handler, nil
+}
+
+// newStaticContentHandler creates a content handler for one filesystem
+// generation. Callers should resolve that generation from the registry at the
+// boundary where a request is served.
+func newStaticContentHandler(fsys fs.FS, cfg *config.StaticConfig) http.Handler {
+	if cfg.StaticOptions.SPA {
+		return NewSPAHandler(fsys, cfg.StaticOptions.IndexFile)
+	}
+
+	handler := http.FileServer(http.FS(fsys))
+	if cfg.Path != "" && cfg.Path != "/" {
+		handler = http.StripPrefix(cfg.Path, handler)
+	}
+
+	return handler
 }
 
 // ServerFactory creates HTTP server instances

@@ -18,12 +18,15 @@ import (
 	"github.com/stretchr/testify/require"
 	ctxapi "github.com/wippyai/runtime/api/context"
 	apierror "github.com/wippyai/runtime/api/error"
+	"github.com/wippyai/runtime/api/event"
 	apifsLib "github.com/wippyai/runtime/api/fs"
 	"github.com/wippyai/runtime/api/function"
 	"github.com/wippyai/runtime/api/payload"
 	apiregistry "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/api/runtime"
 	config "github.com/wippyai/runtime/api/service/http"
+	"github.com/wippyai/runtime/system/eventbus"
+	fsregistry "github.com/wippyai/runtime/system/fs"
 	"go.uber.org/zap"
 )
 
@@ -415,6 +418,63 @@ func TestStaticFactory_CreateHandler(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "index file must be specified for SPA mode")
 	})
+}
+
+func TestStaticFactory_RefreshesMountedFilesAfterFilesystemRegisterEvent(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	bus := eventbus.NewBus()
+	defer bus.Stop()
+	registry := fsregistry.NewRegistry(bus, zap.NewNop())
+	require.NoError(t, registry.Start(ctx))
+	defer func() { require.NoError(t, registry.Stop()) }()
+
+	oldDir, cleanupOld := createFactoryTempDir(t, map[string]string{"app.html": "old bundle"})
+	defer cleanupOld()
+	newDir, cleanupNew := createFactoryTempDir(t, map[string]string{"app.html": "new bundle"})
+	defer cleanupNew()
+
+	oldFS := NewMockFS(oldDir)
+	newFS := NewMockFS(newDir)
+	fsID := "test:bundle"
+
+	bus.Send(ctx, event.Event{System: apifsLib.System, Kind: apifsLib.FsRegister, Path: fsID, Data: oldFS})
+	require.Eventually(t, func() bool {
+		got, ok := registry.GetFS(fsID)
+		return ok && got == oldFS
+	}, time.Second, 10*time.Millisecond)
+
+	factory, err := NewStaticFactory(registry, NewMiddlewareRegistry(nil))
+	require.NoError(t, err)
+	handler, err := factory.CreateHandler(ctx, &config.StaticConfig{
+		Meta: map[string]any{config.ServerID: "test:gateway"},
+		Path: "/app/keeper",
+		FS:   apiregistry.ParseID(fsID),
+	})
+	require.NoError(t, err)
+
+	serve := func() *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://example.com/app/keeper/app.html", nil))
+		return w
+	}
+
+	first := serve()
+	require.Equal(t, http.StatusOK, first.Code)
+	assert.Equal(t, "old bundle", first.Body.String())
+
+	// This is the same event emitted when fs.directory or fs.embed publishes a
+	// new package generation. The mounted HTTP route must now use newFS.
+	bus.Send(ctx, event.Event{System: apifsLib.System, Kind: apifsLib.FsRegister, Path: fsID, Data: newFS})
+	require.Eventually(t, func() bool {
+		got, ok := registry.GetFS(fsID)
+		return ok && got == newFS
+	}, time.Second, 10*time.Millisecond)
+
+	second := serve()
+	require.Equal(t, http.StatusOK, second.Code)
+	assert.Equal(t, "new bundle", second.Body.String())
 }
 
 func TestNewStaticFactory(t *testing.T) {
