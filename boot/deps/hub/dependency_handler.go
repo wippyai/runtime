@@ -254,7 +254,7 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 	}
 
 	var effects []regapi.Effect
-	packEffect, err := h.buildEmbedPackEffect(ctx, resolved, snapshot)
+	packEffect, err := h.buildEmbedPackEffect(ctx, resolved, snapshot, controlledModules)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
