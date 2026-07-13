@@ -990,3 +990,146 @@ func TestManifestCache_TTLExpiry(t *testing.T) {
 	_, hit := cache.store.Get("acme/http@1.0.0")
 	assert.False(t, hit, "expired entry must not be served after TTL")
 }
+
+// dataflowProvider mirrors the real keeper/dataflow graph: keeper declares
+// ">=v0.4.10" for dataflow, and the hub resolved that range to 0.5.2 at request
+// time. dataflow ships 0.4.x releases and a breaking 0.5.x line.
+func dataflowProvider(constraint string) *fakeManifestProvider {
+	p := newFakeProvider()
+	p.addModule("keeper", "keeper", "0.5.57", ManifestDep{
+		Org:        "wippy",
+		Name:       "dataflow",
+		Version:    "0.5.2",
+		Constraint: constraint,
+	})
+	for _, v := range []string{"0.4.10", "0.4.31", "0.5.0", "0.5.2"} {
+		p.addModule("wippy", "dataflow", v)
+	}
+	return p
+}
+
+func resolveKeeper(t *testing.T, p *fakeManifestProvider, opts *ResolveOptions) map[string]string {
+	t.Helper()
+
+	result, err := Resolve(context.Background(), p, []DependencySpec{
+		{Org: "keeper", Name: "keeper", Constraint: "0.5.57"},
+	}, opts)
+	require.NoError(t, err)
+	assert.Empty(t, result.Errors)
+
+	got := make(map[string]string, len(result.Modules))
+	for _, m := range result.Modules {
+		got[m.Org+"/"+m.Name] = m.Version
+	}
+	return got
+}
+
+// A lock pinning a version that satisfies the declared range must survive. The
+// hub resolving ">=v0.4.10" to 0.5.2 is not a demand for 0.5.2; treating it as
+// one discards the lock and force-bumps the install to latest.
+func TestResolve_LockedVersionSurvivesDeclaredRange(t *testing.T) {
+	got := resolveKeeper(t, dataflowProvider(">=v0.4.10"), &ResolveOptions{
+		LockedVersions: map[string]string{"wippy/dataflow": "0.4.31"},
+	})
+
+	assert.Equal(t, "0.4.31", got["wippy/dataflow"])
+}
+
+// Without a lock the range still selects the newest matching release: preserving
+// the constraint must not change what ">=" means.
+func TestResolve_UnlockedDeclaredRangeTakesNewest(t *testing.T) {
+	got := resolveKeeper(t, dataflowProvider(">=v0.4.10"), nil)
+
+	assert.Equal(t, "0.5.2", got["wippy/dataflow"])
+}
+
+// A hub predating the constraint field sends only the resolved version, so the
+// resolver has nothing but that pin to go on. Asserted against a lock the pin
+// does not satisfy: the lock must lose, which is what distinguishes this path
+// from a real range (where the lock would win). Without the lock the assertion
+// would hold either way and prove nothing.
+func TestResolve_MissingConstraintFallsBackToResolvedVersion(t *testing.T) {
+	got := resolveKeeper(t, dataflowProvider(""), &ResolveOptions{
+		LockedVersions: map[string]string{"wippy/dataflow": "0.4.31"},
+	})
+
+	assert.Equal(t, "0.5.2", got["wippy/dataflow"])
+}
+
+// An unconstrained dependency accepts any version, so a locked one still holds.
+// Hub reports it as "*"; treating that as a pin would bump it to latest.
+func TestResolve_LockedVersionSurvivesAnyConstraint(t *testing.T) {
+	got := resolveKeeper(t, dataflowProvider("*"), &ResolveOptions{
+		LockedVersions: map[string]string{"wippy/dataflow": "0.4.31"},
+	})
+
+	assert.Equal(t, "0.4.31", got["wippy/dataflow"])
+}
+
+// Many modules depending on one module, each declaring its own compatible
+// two-sided range, is an ordinary graph. Preserving the declared ranges makes
+// those constraints distinct, so the module now resolves through the
+// intersection path -- which must still resolve, not report a conflict.
+func TestResolve_ManyParentsWithCompatibleRanges(t *testing.T) {
+	p := newFakeProvider()
+
+	// Distinct ranges: each parent pins its own floor, all mutually compatible.
+	parents := map[string]string{
+		"alpha":   ">=v0.4.10 <v0.5.0",
+		"bravo":   ">=v0.4.11 <v0.5.0",
+		"charlie": ">=v0.4.12 <v0.5.0",
+		"delta":   ">=v0.4.13 <v0.5.0",
+		"echo":    ">=v0.4.14 <v0.5.0",
+		"foxtrot": ">=v0.4.15 <v0.5.0",
+	}
+	roots := make([]DependencySpec, 0, len(parents))
+	for parent, constraint := range parents {
+		p.addModule("acme", parent, "1.0.0", ManifestDep{
+			Org:        "wippy",
+			Name:       "dataflow",
+			Version:    "0.4.31",
+			Constraint: constraint,
+		})
+		roots = append(roots, DependencySpec{Org: "acme", Name: parent, Constraint: "1.0.0"})
+	}
+	for _, v := range []string{"0.4.10", "0.4.31", "0.5.0"} {
+		p.addModule("wippy", "dataflow", v)
+	}
+
+	result, err := Resolve(context.Background(), p, roots, nil)
+	require.NoError(t, err)
+
+	assert.Empty(t, result.Errors, "compatible ranges must not be reported as a conflict")
+
+	for _, m := range result.Modules {
+		if m.Org == "wippy" && m.Name == "dataflow" {
+			assert.Equal(t, "0.4.31", m.Version)
+			return
+		}
+	}
+	t.Fatal("wippy/dataflow was not resolved at all")
+}
+
+// A genuinely unsatisfiable set must still be reported as a conflict: matching
+// each constraint individually must not turn an incompatibility into a resolve.
+func TestResolve_IncompatibleRangesStillConflict(t *testing.T) {
+	p := newFakeProvider()
+	p.addModule("acme", "alpha", "1.0.0", ManifestDep{
+		Org: "wippy", Name: "dataflow", Version: "0.4.31", Constraint: ">=v0.4.10 <v0.5.0",
+	})
+	p.addModule("acme", "bravo", "1.0.0", ManifestDep{
+		Org: "wippy", Name: "dataflow", Version: "0.5.0", Constraint: ">=v0.5.0",
+	})
+	for _, v := range []string{"0.4.31", "0.5.0"} {
+		p.addModule("wippy", "dataflow", v)
+	}
+
+	result, err := Resolve(context.Background(), p, []DependencySpec{
+		{Org: "acme", Name: "alpha", Constraint: "1.0.0"},
+		{Org: "acme", Name: "bravo", Constraint: "1.0.0"},
+	}, nil)
+	require.NoError(t, err)
+
+	require.NotEmpty(t, result.Errors, "no version satisfies both ranges; this must conflict")
+	assert.Contains(t, result.Errors[0].Message, "conflicting version constraints")
+}
