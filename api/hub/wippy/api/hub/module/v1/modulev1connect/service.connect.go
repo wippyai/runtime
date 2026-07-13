@@ -76,18 +76,31 @@ const (
 
 // ModuleServiceClient is a client for the wippy.api.hub.module.v1.ModuleService service.
 type ModuleServiceClient interface {
+	// CreateModule registers a new module within an organization.
 	CreateModule(context.Context, *connect.Request[v1.CreateModuleRequest]) (*connect.Response[v1.CreateModuleResponse], error)
+	// GetModule returns a single module by ID or org/name.
 	GetModule(context.Context, *connect.Request[v1.GetModuleRequest]) (*connect.Response[v1.GetModuleResponse], error)
+	// ListModules returns a paginated list of modules, optionally filtered by organization.
 	ListModules(context.Context, *connect.Request[v1.ListModulesRequest]) (*connect.Response[v1.ListModulesResponse], error)
+	// UpdateModule updates mutable fields of an existing module.
 	UpdateModule(context.Context, *connect.Request[v1.UpdateModuleRequest]) (*connect.Response[v1.UpdateModuleResponse], error)
+	// DeleteModule permanently removes a module and all its versions.
 	DeleteModule(context.Context, *connect.Request[v1.DeleteModuleRequest]) (*connect.Response[v1.DeleteModuleResponse], error)
+	// DeprecateModule marks a module as deprecated with an optional alternative.
 	DeprecateModule(context.Context, *connect.Request[v1.DeprecateModuleRequest]) (*connect.Response[v1.DeprecateModuleResponse], error)
+	// SearchModules performs a full-text search across public modules.
 	SearchModules(context.Context, *connect.Request[v1.SearchModulesRequest]) (*connect.Response[v1.SearchModulesResponse], error)
+	// ListVersions returns a paginated list of versions for a module.
 	ListVersions(context.Context, *connect.Request[v1.ListVersionsRequest]) (*connect.Response[v1.ListVersionsResponse], error)
+	// GetVersion returns a single version by ID, semver string, or label.
 	GetVersion(context.Context, *connect.Request[v1.GetVersionRequest]) (*connect.Response[v1.GetVersionResponse], error)
+	// ListVersionFiles returns the file listing for a specific module version.
 	ListVersionFiles(context.Context, *connect.Request[v1.ListVersionFilesRequest]) (*connect.Response[v1.ListVersionFilesResponse], error)
+	// GetDependencies returns the declared dependencies of a module version.
 	GetDependencies(context.Context, *connect.Request[v1.GetDependenciesRequest]) (*connect.Response[v1.GetDependenciesResponse], error)
+	// GetDependents returns modules that depend on the specified module.
 	GetDependents(context.Context, *connect.Request[v1.GetDependentsRequest]) (*connect.Response[v1.GetDependentsResponse], error)
+	// GetReadme returns the README content for a module version.
 	GetReadme(context.Context, *connect.Request[v1.GetReadmeRequest]) (*connect.Response[v1.GetReadmeResponse], error)
 }
 
@@ -276,18 +289,31 @@ func (c *moduleServiceClient) GetReadme(ctx context.Context, req *connect.Reques
 
 // ModuleServiceHandler is an implementation of the wippy.api.hub.module.v1.ModuleService service.
 type ModuleServiceHandler interface {
+	// CreateModule registers a new module within an organization.
 	CreateModule(context.Context, *connect.Request[v1.CreateModuleRequest]) (*connect.Response[v1.CreateModuleResponse], error)
+	// GetModule returns a single module by ID or org/name.
 	GetModule(context.Context, *connect.Request[v1.GetModuleRequest]) (*connect.Response[v1.GetModuleResponse], error)
+	// ListModules returns a paginated list of modules, optionally filtered by organization.
 	ListModules(context.Context, *connect.Request[v1.ListModulesRequest]) (*connect.Response[v1.ListModulesResponse], error)
+	// UpdateModule updates mutable fields of an existing module.
 	UpdateModule(context.Context, *connect.Request[v1.UpdateModuleRequest]) (*connect.Response[v1.UpdateModuleResponse], error)
+	// DeleteModule permanently removes a module and all its versions.
 	DeleteModule(context.Context, *connect.Request[v1.DeleteModuleRequest]) (*connect.Response[v1.DeleteModuleResponse], error)
+	// DeprecateModule marks a module as deprecated with an optional alternative.
 	DeprecateModule(context.Context, *connect.Request[v1.DeprecateModuleRequest]) (*connect.Response[v1.DeprecateModuleResponse], error)
+	// SearchModules performs a full-text search across public modules.
 	SearchModules(context.Context, *connect.Request[v1.SearchModulesRequest]) (*connect.Response[v1.SearchModulesResponse], error)
+	// ListVersions returns a paginated list of versions for a module.
 	ListVersions(context.Context, *connect.Request[v1.ListVersionsRequest]) (*connect.Response[v1.ListVersionsResponse], error)
+	// GetVersion returns a single version by ID, semver string, or label.
 	GetVersion(context.Context, *connect.Request[v1.GetVersionRequest]) (*connect.Response[v1.GetVersionResponse], error)
+	// ListVersionFiles returns the file listing for a specific module version.
 	ListVersionFiles(context.Context, *connect.Request[v1.ListVersionFilesRequest]) (*connect.Response[v1.ListVersionFilesResponse], error)
+	// GetDependencies returns the declared dependencies of a module version.
 	GetDependencies(context.Context, *connect.Request[v1.GetDependenciesRequest]) (*connect.Response[v1.GetDependenciesResponse], error)
+	// GetDependents returns modules that depend on the specified module.
 	GetDependents(context.Context, *connect.Request[v1.GetDependentsRequest]) (*connect.Response[v1.GetDependentsResponse], error)
+	// GetReadme returns the README content for a module version.
 	GetReadme(context.Context, *connect.Request[v1.GetReadmeRequest]) (*connect.Response[v1.GetReadmeResponse], error)
 }
 

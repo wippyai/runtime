@@ -45,7 +45,9 @@ const (
 
 // DownloadServiceClient is a client for the wippy.api.hub.download.v1.DownloadService service.
 type DownloadServiceClient interface {
+	// GetDownloadURL returns a presigned download URL for a single module version.
 	GetDownloadURL(context.Context, *connect.Request[v1.GetDownloadURLRequest]) (*connect.Response[v1.GetDownloadURLResponse], error)
+	// GetBatchDownloadURLs returns presigned download URLs for multiple modules in one call.
 	GetBatchDownloadURLs(context.Context, *connect.Request[v1.GetBatchDownloadURLsRequest]) (*connect.Response[v1.GetBatchDownloadURLsResponse], error)
 }
 
@@ -96,7 +98,9 @@ func (c *downloadServiceClient) GetBatchDownloadURLs(ctx context.Context, req *c
 // DownloadServiceHandler is an implementation of the wippy.api.hub.download.v1.DownloadService
 // service.
 type DownloadServiceHandler interface {
+	// GetDownloadURL returns a presigned download URL for a single module version.
 	GetDownloadURL(context.Context, *connect.Request[v1.GetDownloadURLRequest]) (*connect.Response[v1.GetDownloadURLResponse], error)
+	// GetBatchDownloadURLs returns presigned download URLs for multiple modules in one call.
 	GetBatchDownloadURLs(context.Context, *connect.Request[v1.GetBatchDownloadURLsRequest]) (*connect.Response[v1.GetBatchDownloadURLsResponse], error)
 }
 

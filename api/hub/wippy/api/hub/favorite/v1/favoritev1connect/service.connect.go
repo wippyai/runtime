@@ -51,9 +51,13 @@ const (
 
 // FavoriteServiceClient is a client for the wippy.api.hub.favorite.v1.FavoriteService service.
 type FavoriteServiceClient interface {
+	// AddFavorite adds a module to the authenticated user's favorites.
 	AddFavorite(context.Context, *connect.Request[v1.AddFavoriteRequest]) (*connect.Response[v1.AddFavoriteResponse], error)
+	// RemoveFavorite removes a module from the authenticated user's favorites.
 	RemoveFavorite(context.Context, *connect.Request[v1.RemoveFavoriteRequest]) (*connect.Response[v1.RemoveFavoriteResponse], error)
+	// IsFavorited checks whether the authenticated user has favorited a module.
 	IsFavorited(context.Context, *connect.Request[v1.IsFavoritedRequest]) (*connect.Response[v1.IsFavoritedResponse], error)
+	// ListFavorites returns a paginated list of the authenticated user's favorited modules.
 	ListFavorites(context.Context, *connect.Request[v1.ListFavoritesRequest]) (*connect.Response[v1.ListFavoritesResponse], error)
 }
 
@@ -130,9 +134,13 @@ func (c *favoriteServiceClient) ListFavorites(ctx context.Context, req *connect.
 // FavoriteServiceHandler is an implementation of the wippy.api.hub.favorite.v1.FavoriteService
 // service.
 type FavoriteServiceHandler interface {
+	// AddFavorite adds a module to the authenticated user's favorites.
 	AddFavorite(context.Context, *connect.Request[v1.AddFavoriteRequest]) (*connect.Response[v1.AddFavoriteResponse], error)
+	// RemoveFavorite removes a module from the authenticated user's favorites.
 	RemoveFavorite(context.Context, *connect.Request[v1.RemoveFavoriteRequest]) (*connect.Response[v1.RemoveFavoriteResponse], error)
+	// IsFavorited checks whether the authenticated user has favorited a module.
 	IsFavorited(context.Context, *connect.Request[v1.IsFavoritedRequest]) (*connect.Response[v1.IsFavoritedResponse], error)
+	// ListFavorites returns a paginated list of the authenticated user's favorited modules.
 	ListFavorites(context.Context, *connect.Request[v1.ListFavoritesRequest]) (*connect.Response[v1.ListFavoritesResponse], error)
 }
 

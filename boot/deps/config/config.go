@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
@@ -27,11 +28,17 @@ type ModuleConfig struct {
 	Homepage     string              `yaml:"homepage,omitempty"`
 	ModuleName   string              `yaml:"module"`
 	Organization string              `yaml:"organization"`
-	Keywords     []string            `yaml:"keywords,omitempty"`
-	Authors      []string            `yaml:"authors,omitempty"`
-	Include      []string            `yaml:"include,omitempty"`
-	Exclude      []string            `yaml:"exclude,omitempty"`
-	Embed        []string            `yaml:"embed,omitempty"`
+	// Type is the module's kind on the hub: library, application, agent or
+	// plugin. Declaring it here makes the manifest the source of truth — hub
+	// requires it to create a module, and reclassifies the module when it
+	// changes. Empty means "not declared", which only works for a module that
+	// already exists.
+	Type     string   `yaml:"type,omitempty"`
+	Keywords []string `yaml:"keywords,omitempty"`
+	Authors  []string `yaml:"authors,omitempty"`
+	Include  []string `yaml:"include,omitempty"`
+	Exclude  []string `yaml:"exclude,omitempty"`
+	Embed    []string `yaml:"embed,omitempty"`
 }
 
 type PublishConfig struct {
@@ -65,6 +72,24 @@ func LoadFrom(path string) (*ModuleConfig, error) {
 	return &cfg, nil
 }
 
+// ModuleTypes are the module kinds hub accepts. Mirrors hub's
+// domain.ModuleType constants and the modules.module_type CHECK constraint.
+var ModuleTypes = []string{"library", "application", "agent", "plugin"}
+
+// ValidateModuleType accepts the empty string ("not declared") and any of
+// ModuleTypes. Anything else is a typo worth catching before the publish
+// round-trips to hub — notably "app", which is what the badge shows for
+// "application".
+func ValidateModuleType(t string) error {
+	if t == "" {
+		return nil
+	}
+	if slices.Contains(ModuleTypes, t) {
+		return nil
+	}
+	return fmt.Errorf("type must be one of %s (got %q)", strings.Join(ModuleTypes, ", "), t)
+}
+
 func (c *ModuleConfig) Validate() error {
 	if c.Organization == "" {
 		return fmt.Errorf("organization is required in wippy.yaml")
@@ -86,6 +111,10 @@ func (c *ModuleConfig) Validate() error {
 		if _, err := semver.NewVersion(c.Version); err != nil {
 			return fmt.Errorf("version must be valid semver: %w", err)
 		}
+	}
+
+	if err := ValidateModuleType(c.Type); err != nil {
+		return err
 	}
 
 	return nil
@@ -118,6 +147,10 @@ func (c *ModuleConfig) ValidateForLabel() error {
 
 	if !isValidIdentifier(c.ModuleName) {
 		return fmt.Errorf("module must be lowercase alphanumeric with hyphens")
+	}
+
+	if err := ValidateModuleType(c.Type); err != nil {
+		return err
 	}
 
 	return nil

@@ -26,6 +26,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// GetManifestRequest is the request for GetManifest.
 type GetManifestRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *v1.ModuleRef          `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -78,6 +79,7 @@ func (x *GetManifestRequest) GetVersion() *v11.VersionRef {
 	return nil
 }
 
+// GetManifestResponse is the response for GetManifest.
 type GetManifestResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Manifest      *ModuleManifest        `protobuf:"bytes,1,opt,name=manifest,proto3" json:"manifest,omitempty"`
@@ -122,6 +124,7 @@ func (x *GetManifestResponse) GetManifest() *ModuleManifest {
 	return nil
 }
 
+// ResolveDependenciesRequest is the request for ResolveDependencies.
 type ResolveDependenciesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Roots         []*DependencySpec      `protobuf:"bytes,1,rep,name=roots,proto3" json:"roots,omitempty"`
@@ -182,6 +185,7 @@ func (x *ResolveDependenciesRequest) GetStrategy() ResolutionStrategy {
 	return ResolutionStrategy_RESOLUTION_STRATEGY_UNSPECIFIED
 }
 
+// ResolveDependenciesResponse is the response for ResolveDependencies.
 type ResolveDependenciesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Modules       []*ResolvedModule      `protobuf:"bytes,1,rep,name=modules,proto3" json:"modules,omitempty"`
@@ -234,6 +238,7 @@ func (x *ResolveDependenciesResponse) GetErrors() []*ResolutionError {
 	return nil
 }
 
+// CheckUpdatesRequest is the request for CheckUpdates.
 type CheckUpdatesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Installed     []*InstalledModule     `protobuf:"bytes,1,rep,name=installed,proto3" json:"installed,omitempty"`
@@ -278,6 +283,7 @@ func (x *CheckUpdatesRequest) GetInstalled() []*InstalledModule {
 	return nil
 }
 
+// CheckUpdatesResponse is the response for CheckUpdates.
 type CheckUpdatesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Updates       []*ModuleUpdate        `protobuf:"bytes,1,rep,name=updates,proto3" json:"updates,omitempty"`

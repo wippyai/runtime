@@ -33,6 +33,27 @@ type PublishParams struct {
 	Digest       string
 	Size         int64
 	Protected    bool
+	// ModuleType is the kind declared in wippy.yaml (or --module-type).
+	// Empty means "not declared" and maps to MODULE_TYPE_UNSPECIFIED.
+	ModuleType string
+}
+
+// moduleTypeToProto maps the declared wippy.yaml type onto the wire enum.
+// An unrecognized or empty value becomes UNSPECIFIED — hub then decides
+// whether "not declared" is acceptable (it is, except when creating).
+func moduleTypeToProto(t string) modulev1.ModuleType {
+	switch t {
+	case "library":
+		return modulev1.ModuleType_MODULE_TYPE_LIBRARY
+	case "application":
+		return modulev1.ModuleType_MODULE_TYPE_APPLICATION
+	case "agent":
+		return modulev1.ModuleType_MODULE_TYPE_AGENT
+	case "plugin":
+		return modulev1.ModuleType_MODULE_TYPE_PLUGIN
+	default:
+		return modulev1.ModuleType_MODULE_TYPE_UNSPECIFIED
+	}
 }
 
 type PublishResult struct {
@@ -89,6 +110,7 @@ func (c *Client) InitiatePublish(ctx context.Context, params *PublishParams) (*P
 		Digest:            params.Digest,
 		Protected:         params.Protected,
 		ReleaseNotes:      params.ReleaseNotes,
+		ModuleType:        moduleTypeToProto(params.ModuleType),
 	}
 
 	if params.Version != "" {

@@ -48,9 +48,13 @@ const (
 
 // LabelServiceClient is a client for the wippy.api.hub.label.v1.LabelService service.
 type LabelServiceClient interface {
+	// SetLabel creates or updates a label to point at a specific module version.
 	SetLabel(context.Context, *connect.Request[v1.SetLabelRequest]) (*connect.Response[v1.SetLabelResponse], error)
+	// DeleteLabel removes a label from a module.
 	DeleteLabel(context.Context, *connect.Request[v1.DeleteLabelRequest]) (*connect.Response[v1.DeleteLabelResponse], error)
+	// GetLabel returns a label and the version it points to.
 	GetLabel(context.Context, *connect.Request[v1.GetLabelRequest]) (*connect.Response[v1.GetLabelResponse], error)
+	// ListLabels returns all labels defined on a module.
 	ListLabels(context.Context, *connect.Request[v1.ListLabelsRequest]) (*connect.Response[v1.ListLabelsResponse], error)
 }
 
@@ -125,9 +129,13 @@ func (c *labelServiceClient) ListLabels(ctx context.Context, req *connect.Reques
 
 // LabelServiceHandler is an implementation of the wippy.api.hub.label.v1.LabelService service.
 type LabelServiceHandler interface {
+	// SetLabel creates or updates a label to point at a specific module version.
 	SetLabel(context.Context, *connect.Request[v1.SetLabelRequest]) (*connect.Response[v1.SetLabelResponse], error)
+	// DeleteLabel removes a label from a module.
 	DeleteLabel(context.Context, *connect.Request[v1.DeleteLabelRequest]) (*connect.Response[v1.DeleteLabelResponse], error)
+	// GetLabel returns a label and the version it points to.
 	GetLabel(context.Context, *connect.Request[v1.GetLabelRequest]) (*connect.Response[v1.GetLabelResponse], error)
+	// ListLabels returns all labels defined on a module.
 	ListLabels(context.Context, *connect.Request[v1.ListLabelsRequest]) (*connect.Response[v1.ListLabelsResponse], error)
 }
 
