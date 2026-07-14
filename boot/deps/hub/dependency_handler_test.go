@@ -2435,6 +2435,24 @@ modules:
 	assert.Equal(t, "2.0.0", modules[0].Version)
 }
 
+func TestDependencyInputDigestCoversSolverInputsNotLinkParameters(t *testing.T) {
+	root := desiredDependency{
+		entry: regapi.Entry{ID: regapi.NewID("app.deps", "agent")},
+		definition: DependencyDefinition{
+			Component:  "wippy/agent",
+			Version:    "^0.4.0",
+			Parameters: []Parameter{{Name: "target", Value: regapi.NewID("app", "processes")}},
+		},
+	}
+	changedParameters := root
+	changedParameters.definition.Parameters = []Parameter{{Name: "target", Value: "app:processes"}}
+	changedRange := root
+	changedRange.definition.Version = "^0.5.0"
+
+	require.Equal(t, dependencyInputDigest([]desiredDependency{root}), dependencyInputDigest([]desiredDependency{changedParameters}))
+	require.NotEqual(t, dependencyInputDigest([]desiredDependency{root}), dependencyInputDigest([]desiredDependency{changedRange}))
+}
+
 func TestDependencyHandler_ExpandUpdateRootDependencyReplacesSameIDModuleEntries(t *testing.T) {
 	ctx := newTestContext()
 	vendorDir := t.TempDir()

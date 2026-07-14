@@ -12,10 +12,11 @@ import (
 
 // Storage is an in-memory implementation of the registry.History interface.
 type Storage struct {
-	versions map[uint]registry.Version
-	actions  map[uint]registry.ChangeSet
-	head     registry.Version
-	mutex    sync.RWMutex
+	resolutions map[uint]*registry.DependencyResolution
+	versions    map[uint]registry.Version
+	actions     map[uint]registry.ChangeSet
+	head        registry.Version
+	mutex       sync.RWMutex
 }
 
 // New creates a new Storage.
@@ -24,6 +25,7 @@ func New() *Storage {
 	v0 := version.New(0)
 
 	m := &Storage{
+		resolutions: make(map[uint]*registry.DependencyResolution),
 		versions: map[uint]registry.Version{
 			0: v0,
 		},
@@ -89,16 +91,50 @@ func cloneEntry(e registry.Entry) registry.Entry {
 
 // Save records a set of actions and creates a new version.
 func (m *Storage) Save(newVersion registry.Version, actions registry.ChangeSet, head bool) error {
+	return m.SaveWithDependencyResolution(newVersion, actions, nil, head)
+}
+
+func (m *Storage) SaveWithDependencyResolution(newVersion registry.Version, actions registry.ChangeSet, resolution *registry.DependencyResolution, head bool) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
 	m.actions[newVersion.ID()] = actions
 	m.versions[newVersion.ID()] = newVersion
+	if resolution != nil {
+		m.resolutions[newVersion.ID()] = resolution.Canonical()
+	} else if previous := newVersion.Previous(); previous != nil {
+		if inherited, ok := m.resolutions[previous.ID()]; ok {
+			m.resolutions[newVersion.ID()] = inherited.Canonical()
+		}
+	}
 
 	if head {
 		m.head = newVersion
 	}
 
+	return nil
+}
+
+func (m *Storage) GetDependencyResolution(v registry.Version) (*registry.DependencyResolution, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	resolution, ok := m.resolutions[v.ID()]
+	if !ok {
+		return nil, registry.ErrDependencyResolutionNotFound
+	}
+	return resolution.Canonical(), nil
+}
+
+func (m *Storage) CheckpointDependencyResolution(v registry.Version, resolution *registry.DependencyResolution) error {
+	if resolution == nil {
+		return registry.ErrDependencyResolutionNotFound
+	}
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	if _, ok := m.versions[v.ID()]; !ok {
+		return NewVersionNotFoundError(v.String())
+	}
+	m.resolutions[v.ID()] = resolution.Canonical()
 	return nil
 }
 

@@ -37,6 +37,18 @@ func (n *History) Save(newVersion registry.Version, _ registry.ChangeSet, head b
 	return nil
 }
 
+func (n *History) SaveWithDependencyResolution(newVersion registry.Version, cs registry.ChangeSet, _ *registry.DependencyResolution, head bool) error {
+	return n.Save(newVersion, cs, head)
+}
+
+func (n *History) GetDependencyResolution(registry.Version) (*registry.DependencyResolution, error) {
+	return nil, registry.ErrDependencyResolutionNotFound
+}
+
+func (n *History) CheckpointDependencyResolution(registry.Version, *registry.DependencyResolution) error {
+	return ErrHistoryNotAvailable
+}
+
 // Get returns an error as version history is not available with nil History.
 func (n *History) Get(_ registry.Version) (registry.ChangeSet, error) {
 	return nil, ErrHistoryNotAvailable

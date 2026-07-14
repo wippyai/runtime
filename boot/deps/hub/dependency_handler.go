@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -272,9 +274,248 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 
 	return regapi.DirectiveResult{
 		Applied:    true,
+		Resolution: dependencyResolution(desiredDeps, resolved),
 		Additional: scoped,
 		Effects:    effects,
 	}, nil
+}
+
+// ExpandChanges resolves the final declarative root set for one registry
+// transaction. Earlier operations are folded into a temporary snapshot and
+// the last operation drives the existing expansion path, so agents retain the
+// same simple entry-update surface for both single and multi-root updates.
+func (h *DependencyHandler) ExpandChanges(ctx context.Context, changes regapi.ChangeSet, snapshot regapi.State) (regapi.DirectiveResult, error) {
+	if len(changes) == 0 {
+		return regapi.DirectiveResult{}, nil
+	}
+	if len(changes) == 1 {
+		return h.Expand(ctx, changes[0], snapshot)
+	}
+	stateMap := make(regapi.StateMap, len(snapshot)+len(changes)-1)
+	for _, entry := range snapshot {
+		stateMap[entry.ID] = entry
+	}
+	for _, op := range changes[:len(changes)-1] {
+		switch op.Kind {
+		case regapi.EntryCreate, regapi.EntryUpdate:
+			stateMap[op.Entry.ID] = op.Entry
+		case regapi.EntryDelete:
+			delete(stateMap, op.Entry.ID)
+		}
+	}
+	working := make(regapi.State, 0, len(stateMap))
+	for _, entry := range stateMap {
+		working = append(working, entry)
+	}
+	return h.Expand(ctx, changes[len(changes)-1], working)
+}
+
+// ReconcileResolution materializes a previously selected graph without asking
+// the Hub to choose versions again. It is intentionally a whole-graph operation:
+// history is first reduced to its final declarative state, then reconciled once.
+func (h *DependencyHandler) ReconcileResolution(
+	ctx context.Context,
+	snapshot regapi.State,
+	resolution *regapi.DependencyResolution,
+) (regapi.DirectiveResult, error) {
+	if h == nil || h.hub == nil {
+		return regapi.DirectiveResult{}, ErrDependencyHandlerNotConfigured
+	}
+	if resolution == nil || !resolution.Valid() {
+		return regapi.DirectiveResult{}, NewDependencyResolutionError(fmt.Errorf("stored dependency resolution is invalid"))
+	}
+	transcoder := payload.GetTranscoder(ctx)
+	if transcoder == nil {
+		return regapi.DirectiveResult{}, ErrDependencyTranscoderMissing
+	}
+
+	desiredDeps, err := h.collectResolutionDependencies(ctx, snapshot, transcoder, resolution.Roots)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	if got := dependencyInputDigest(desiredDeps); got != resolution.InputDigest {
+		return regapi.DirectiveResult{}, NewDependencyResolutionError(fmt.Errorf(
+			"stored dependency input digest does not match declarations: stored %s, current %s",
+			resolution.InputDigest, got,
+		))
+	}
+
+	resolved := make([]ResolvedModule, 0, len(resolution.Modules))
+	seen := make(map[string]struct{}, len(resolution.Modules))
+	for _, mod := range resolution.Modules {
+		name, parseErr := graph.ParseName(mod.Name)
+		if parseErr != nil || mod.Version == "" {
+			return regapi.DirectiveResult{}, NewDependencyResolutionError(fmt.Errorf("invalid stored module %q@%s", mod.Name, mod.Version))
+		}
+		if _, duplicate := seen[mod.Name]; duplicate {
+			return regapi.DirectiveResult{}, NewDependencyResolutionError(fmt.Errorf("duplicate stored module %q", mod.Name))
+		}
+		seen[mod.Name] = struct{}{}
+		resolved = append(resolved, ResolvedModule{
+			Org:       name.Organization,
+			Name:      name.Module,
+			Version:   mod.Version,
+			VersionID: mod.VersionID,
+			Digest:    mod.Digest,
+			SizeBytes: mod.SizeBytes,
+			Protected: mod.Protected,
+		})
+	}
+	for _, root := range desiredDeps {
+		selected, ok := selectedModuleVersion(resolved, root.definition.Component)
+		if !ok || !lockedVersionSatisfies(selected, root.definition.Version) {
+			return regapi.DirectiveResult{}, NewDependencyResolutionError(fmt.Errorf(
+				"stored module %s@%s does not satisfy %s",
+				root.definition.Component, selected, root.definition.Version,
+			))
+		}
+	}
+
+	installed := snapshotModuleVersions(snapshot)
+	touched := stringSet(touchedModuleNames(resolved, installed, ""))
+	desiredModules := resolvedModuleSet(resolved)
+	controlled := make(map[string]struct{}, len(installed)+len(desiredModules))
+	for module := range installed {
+		controlled[module] = struct{}{}
+	}
+	for module := range desiredModules {
+		controlled[module] = struct{}{}
+	}
+
+	moduleEntries, err := h.loadModuleEntries(ctx, filterResolvedModules(resolved, touched), resolved, snapshot, transcoder)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	desiredDepEntries := make([]regapi.Entry, 0, len(desiredDeps))
+	for _, dep := range desiredDeps {
+		desiredDepEntries = append(desiredDepEntries, dep.entry)
+	}
+	combined := make([]regapi.Entry, 0, len(snapshot)+len(moduleEntries))
+	for _, entry := range snapshot {
+		if module := entryModule(entry); module != "" {
+			if _, desired := desiredModules[module]; !desired {
+				continue
+			}
+			if _, changed := touched[module]; changed {
+				continue
+			}
+		}
+		combined = append(combined, entry)
+	}
+	combined = append(combined, moduleEntries...)
+
+	pipeline := build.New(
+		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
+		stages.Disable(),
+		stages.Link(stages.WithDependencies(mergeLinkDependencies(desiredDepEntries, moduleEntries)), stages.WithStrictRequirementModules(touchedModuleNames(resolved, installed, ""))),
+		stages.Override(stages.WithMissingOverrideEntriesIgnored()),
+	)
+	if err := pipeline.Execute(ctx, &combined); err != nil {
+		return regapi.DirectiveResult{}, NewDependencyPipelineError(err)
+	}
+
+	additional, err := h.buildOperations(snapshot, combined, regapi.ID{}, controlled, controlled)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	scoped := make([]regapi.ScopedOperation, 0, len(additional))
+	for _, op := range additional {
+		scoped = append(scoped, regapi.ScopedOperation{Operation: op, Scope: regapi.ScopeBaseline})
+	}
+	packEffect, err := h.buildEmbedPackEffect(ctx, resolved, snapshot, controlled)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	var effects []regapi.Effect
+	if packEffect != nil {
+		effects = append(effects, packEffect)
+	}
+	return regapi.DirectiveResult{
+		Applied:    true,
+		Resolution: resolution.Canonical(),
+		Additional: scoped,
+		Effects:    effects,
+	}, nil
+}
+
+func selectedModuleVersion(modules []ResolvedModule, component string) (string, bool) {
+	for _, mod := range modules {
+		if mod.Org+"/"+mod.Name == component {
+			return mod.Version, true
+		}
+	}
+	return "", false
+}
+
+func dependencyResolution(roots []desiredDependency, modules []ResolvedModule) *regapi.DependencyResolution {
+	resolved := &regapi.DependencyResolution{
+		InputDigest: dependencyInputDigest(roots),
+		Roots:       dependencyRoots(roots),
+		Modules:     make([]regapi.ResolvedModule, 0, len(modules)),
+	}
+	for _, mod := range modules {
+		if mod.Org == "" || mod.Name == "" || mod.Version == "" {
+			continue
+		}
+		resolved.Modules = append(resolved.Modules, regapi.ResolvedModule{
+			Name:      mod.Org + "/" + mod.Name,
+			Version:   mod.Version,
+			VersionID: mod.VersionID,
+			Digest:    mod.Digest,
+			SizeBytes: mod.SizeBytes,
+			Protected: mod.Protected,
+		})
+	}
+	return resolved.Canonical()
+}
+
+func dependencyRoots(roots []desiredDependency) []regapi.DependencyRoot {
+	result := make([]regapi.DependencyRoot, 0, len(roots))
+	for _, root := range roots {
+		result = append(result, regapi.DependencyRoot{
+			ID: root.entry.ID.String(), Component: root.definition.Component, Version: root.definition.Version,
+		})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result
+}
+
+func dependencyInputDigest(roots []desiredDependency) string {
+	canonical := dependencyRoots(roots)
+	data, _ := json.Marshal(canonical)
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func (h *DependencyHandler) collectResolutionDependencies(
+	ctx context.Context,
+	snapshot regapi.State,
+	transcoder payload.Transcoder,
+	roots []regapi.DependencyRoot,
+) ([]desiredDependency, error) {
+	byID := make(map[string]regapi.Entry, len(snapshot))
+	for _, entry := range snapshot {
+		byID[entry.ID.String()] = entry
+	}
+	deps := make([]desiredDependency, 0, len(roots))
+	for _, root := range roots {
+		entry, ok := byID[root.ID]
+		if !ok || entry.Kind != regapi.NamespaceDependency {
+			return nil, NewDependencyResolutionError(fmt.Errorf("stored dependency root %s is missing", root.ID))
+		}
+		definition, err := decodeDependency(ctx, transcoder, entry)
+		if err != nil {
+			return nil, err
+		}
+		if definition.Component != root.Component || definition.Version != root.Version {
+			return nil, NewDependencyResolutionError(fmt.Errorf(
+				"stored dependency root %s expected %s@%s, got %s@%s",
+				root.ID, root.Component, root.Version, definition.Component, definition.Version,
+			))
+		}
+		deps = append(deps, desiredDependency{entry: entry, definition: definition})
+	}
+	return deps, nil
 }
 
 func (h *DependencyHandler) unchangedRootDependencySatisfied(

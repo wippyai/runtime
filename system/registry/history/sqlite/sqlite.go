@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -254,6 +255,10 @@ func (h *History) Get(v registry.Version) (registry.ChangeSet, error) {
 }
 
 func (h *History) Save(v registry.Version, cs registry.ChangeSet, head bool) error {
+	return h.SaveWithDependencyResolution(v, cs, nil, head)
+}
+
+func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.ChangeSet, resolution *registry.DependencyResolution, head bool) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -338,6 +343,24 @@ func (h *History) Save(v registry.Version, cs registry.ChangeSet, head bool) err
 	if err != nil {
 		return NewInsertChangesetError(err)
 	}
+	if resolution != nil {
+		canonical := resolution.Canonical()
+		data, marshalErr := json.Marshal(canonical)
+		if marshalErr != nil {
+			return NewEncodeChangesetError(marshalErr)
+		}
+		if _, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO resolution_graphs (digest, data) VALUES (?, ?)", canonical.Digest, data); err != nil {
+			return NewInsertChangesetError(err)
+		}
+		if _, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO version_resolutions (version_id, resolution_digest) VALUES (?, ?)", v.ID(), canonical.Digest); err != nil {
+			return NewInsertChangesetError(err)
+		}
+	} else if v.Previous() != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT OR REPLACE INTO version_resolutions (version_id, resolution_digest)
+			SELECT ?, resolution_digest FROM version_resolutions WHERE version_id = ?`, v.ID(), v.Previous().ID()); err != nil {
+			return NewInsertChangesetError(err)
+		}
+	}
 
 	if head {
 		_, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO metadata (key, value) VALUES ('head', ?)", v.ID())
@@ -350,6 +373,60 @@ func (h *History) Save(v registry.Version, cs registry.ChangeSet, head bool) err
 		return NewCommitTransactionError(err)
 	}
 
+	return nil
+}
+
+func (h *History) GetDependencyResolution(v registry.Version) (*registry.DependencyResolution, error) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	var data []byte
+	err := h.db.QueryRowContext(context.Background(), `
+		SELECT g.data
+		FROM version_resolutions vr
+		JOIN resolution_graphs g ON g.digest = vr.resolution_digest
+		WHERE vr.version_id = ?`, v.ID()).Scan(&data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, registry.ErrDependencyResolutionNotFound
+	}
+	if err != nil {
+		return nil, NewQueryChangesetError(err)
+	}
+	var resolution registry.DependencyResolution
+	if err := json.Unmarshal(data, &resolution); err != nil {
+		return nil, NewDecodeChangesetError(err)
+	}
+	if !resolution.Valid() {
+		return nil, NewDecodeChangesetError(errors.New("stored dependency resolution digest mismatch"))
+	}
+	return resolution.Canonical(), nil
+}
+
+func (h *History) CheckpointDependencyResolution(v registry.Version, resolution *registry.DependencyResolution) error {
+	if resolution == nil {
+		return registry.ErrDependencyResolutionNotFound
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	canonical := resolution.Canonical()
+	data, err := json.Marshal(canonical)
+	if err != nil {
+		return NewEncodeChangesetError(err)
+	}
+	ctx := context.Background()
+	tx, err := h.db.BeginTx(ctx, nil)
+	if err != nil {
+		return NewBeginTransactionError(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO resolution_graphs (digest, data) VALUES (?, ?)", canonical.Digest, data); err != nil {
+		return NewInsertChangesetError(err)
+	}
+	if _, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO version_resolutions (version_id, resolution_digest) VALUES (?, ?)", v.ID(), canonical.Digest); err != nil {
+		return NewInsertChangesetError(err)
+	}
+	if err = tx.Commit(); err != nil {
+		return NewCommitTransactionError(err)
+	}
 	return nil
 }
 

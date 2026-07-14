@@ -100,6 +100,74 @@ func TestHistory_SaveAndGet(t *testing.T) {
 	assert.Equal(t, "test", retrieved[0].Entry.ID.NS)
 }
 
+func TestHistory_DependencyResolutionIsAtomicDeduplicatedAndInherited(t *testing.T) {
+	hist, err := NewSQLite(filepath.Join(t.TempDir(), "history.db"), zap.NewNop())
+	require.NoError(t, err)
+	defer func() { _ = hist.Close() }()
+
+	v0, err := hist.Head()
+	require.NoError(t, err)
+	v1 := version.FromParent(v0, 1)
+	resolution := (&registry.DependencyResolution{
+		InputDigest: "roots",
+		Modules: []registry.ResolvedModule{{
+			Name: "acme/crm", Version: "v1.6.0", VersionID: "crm-16", Digest: "sha256:crm",
+		}},
+	}).Canonical()
+	require.NoError(t, hist.SaveWithDependencyResolution(v1, registry.ChangeSet{{
+		Kind: registry.EntryCreate, Entry: registry.Entry{ID: registry.NewID("app.deps", "crm")},
+	}}, resolution, true))
+
+	got, err := hist.GetDependencyResolution(v1)
+	require.NoError(t, err)
+	require.Equal(t, resolution, got)
+
+	v2 := version.FromParent(v1, 2)
+	require.NoError(t, hist.Save(v2, registry.ChangeSet{{
+		Kind: registry.EntryCreate, Entry: registry.Entry{ID: registry.NewID("app", "unrelated")},
+	}}, true))
+	inherited, err := hist.GetDependencyResolution(v2)
+	require.NoError(t, err)
+	require.Equal(t, resolution.Digest, inherited.Digest)
+
+	var graphs int
+	require.NoError(t, hist.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM resolution_graphs").Scan(&graphs))
+	require.Equal(t, 1, graphs, "versions sharing a graph must store its payload once")
+	var refs int
+	require.NoError(t, hist.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM version_resolutions").Scan(&refs))
+	require.Equal(t, 2, refs)
+}
+
+func TestHistory_DependencyResolutionFailureRollsBackVersionAndHead(t *testing.T) {
+	hist, err := NewSQLite(filepath.Join(t.TempDir(), "history.db"), zap.NewNop())
+	require.NoError(t, err)
+	defer func() { _ = hist.Close() }()
+
+	_, err = hist.db.ExecContext(context.Background(), `CREATE TRIGGER reject_resolution
+		BEFORE INSERT ON resolution_graphs
+		BEGIN SELECT RAISE(FAIL, 'injected resolution failure'); END`)
+	require.NoError(t, err)
+	v0, err := hist.Head()
+	require.NoError(t, err)
+	v1 := version.FromParent(v0, 1)
+	err = hist.SaveWithDependencyResolution(v1, registry.ChangeSet{{
+		Kind: registry.EntryCreate, Entry: registry.Entry{ID: registry.NewID("app.deps", "crm")},
+	}}, (&registry.DependencyResolution{
+		InputDigest: "roots",
+		Modules:     []registry.ResolvedModule{{Name: "acme/crm", Version: "v1.6.0"}},
+	}).Canonical(), true)
+	require.ErrorContains(t, err, "injected resolution failure")
+
+	head, err := hist.Head()
+	require.NoError(t, err)
+	require.Equal(t, uint(0), head.ID())
+	versions, err := hist.Versions()
+	require.NoError(t, err)
+	require.Len(t, versions, 1)
+	_, err = hist.Get(v1)
+	require.Error(t, err)
+}
+
 func TestHistory_Persistence(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
@@ -130,6 +198,31 @@ func TestHistory_Persistence(t *testing.T) {
 	versions, err := hist2.Versions()
 	require.NoError(t, err)
 	assert.Len(t, versions, 2)
+}
+
+func TestHistoryReplayUpdateReplacesCanonicalBaselineID(t *testing.T) {
+	hist, err := NewSQLite(filepath.Join(t.TempDir(), "history.db"), zap.NewNop())
+	require.NoError(t, err)
+	defer func() { _ = hist.Close() }()
+	v0, err := hist.Head()
+	require.NoError(t, err)
+	id := registry.NewID("app.deps", "agent")
+	baseline := registry.Entry{ID: id, Kind: registry.NamespaceDependency, Data: payload.New(map[string]any{"version": "*"})}
+	updated := baseline
+	updated.Data = payload.New(map[string]any{"version": "0.4.14"})
+	v1 := version.FromParent(v0, 1)
+	require.NoError(t, hist.Save(v1, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: updated, OriginalEntry: &baseline}}, true))
+
+	reg := registrysystem.NewRegistry(hist, &testRunner{}, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop())
+	require.NoError(t, reg.LoadState(context.Background(), registry.State{baseline}, v1))
+	entry, err := reg.GetEntry(id)
+	require.NoError(t, err)
+	data, ok := entry.Data.Data().(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "0.4.14", data["version"])
+	entries, err := reg.GetAllEntries()
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
 }
 
 func TestHistory_ConcurrentColdOpenInitializesRootOnce(t *testing.T) {
@@ -289,7 +382,7 @@ func TestHistory_UsesManagedSchemaVersionTable(t *testing.T) {
 		"SELECT curr_version FROM schema_version WHERE name = 'registry_history'",
 	).Scan(&version)
 	require.NoError(t, err)
-	assert.Equal(t, "1.0", version)
+	assert.Equal(t, "1.1", version)
 }
 
 func TestSQLitePersistence_OriginalEntry(t *testing.T) {

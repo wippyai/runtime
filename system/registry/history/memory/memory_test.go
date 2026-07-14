@@ -153,3 +153,38 @@ func TestStorage_Head(t *testing.T) {
 		t.Errorf("Expected head to be v3 (%v), got: %v", v3, head)
 	}
 }
+
+func TestStorage_DependencyResolutionRoundTripAndInheritance(t *testing.T) {
+	storage := New()
+	v0 := version.New(0)
+	v1 := version.FromParent(v0, 1)
+	resolution := (&registry.DependencyResolution{
+		InputDigest: "roots",
+		Modules: []registry.ResolvedModule{{
+			Name: "acme/crm", Version: "v1.6.0", Digest: "sha256:crm",
+		}},
+	}).Canonical()
+
+	if err := storage.SaveWithDependencyResolution(v1, nil, resolution, true); err != nil {
+		t.Fatalf("save resolution: %v", err)
+	}
+	got, err := storage.GetDependencyResolution(v1)
+	if err != nil {
+		t.Fatalf("get resolution: %v", err)
+	}
+	if got.Digest != resolution.Digest {
+		t.Fatalf("expected digest %s, got %s", resolution.Digest, got.Digest)
+	}
+
+	v2 := version.FromParent(v1, 2)
+	if err := storage.Save(v2, nil, true); err != nil {
+		t.Fatalf("save inherited version: %v", err)
+	}
+	inherited, err := storage.GetDependencyResolution(v2)
+	if err != nil {
+		t.Fatalf("get inherited resolution: %v", err)
+	}
+	if inherited.Digest != resolution.Digest {
+		t.Fatalf("expected inherited digest %s, got %s", resolution.Digest, inherited.Digest)
+	}
+}

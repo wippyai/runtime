@@ -18,9 +18,10 @@ type ScopedOp struct {
 
 // Plan contains expanded operations and effects.
 type Plan struct {
-	Ops      []ScopedOp
-	Effects  []registry.Effect
-	Expanded bool
+	Resolution *registry.DependencyResolution
+	Ops        []ScopedOp
+	Effects    []registry.Effect
+	Expanded   bool
 }
 
 // SplitScopes separates all operations from history-only operations.
@@ -80,8 +81,58 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 	}
 
 	var effects []registry.Effect
+	var resolution *registry.DependencyResolution
 	expanded := false
 	originalCount := len(scoped)
+	type batchKey struct {
+		kind           registry.Kind
+		directiveIndex int
+	}
+	type batchExpansion struct {
+		result     registry.DirectiveResult
+		firstIndex int
+	}
+	batchExpansions := make(map[batchKey]batchExpansion)
+	for kind, directives := range p.DirectivesByKind {
+		var changes registry.ChangeSet
+		firstIndex := -1
+		for i := 0; i < originalCount; i++ {
+			op := scoped[i].Operation
+			opKind := op.Entry.Kind
+			if opKind == "" {
+				if entry, ok := entryFromSnapshot(snapshot, op.Entry.ID); ok {
+					opKind = entry.Kind
+				}
+			}
+			if opKind != kind {
+				continue
+			}
+			if firstIndex < 0 {
+				firstIndex = i
+			}
+			changes = append(changes, op)
+		}
+		if len(changes) < 2 {
+			continue
+		}
+		for directiveIndex, directive := range directives {
+			batch, ok := directive.(registry.ChangesDirective)
+			if !ok {
+				continue
+			}
+			result, err := batch.ExpandChanges(ctx, changes, snapshot)
+			if err != nil {
+				return nil, err
+			}
+			if !result.Applied && result.OriginalScope == nil && result.Resolution == nil && len(result.Additional) == 0 && len(result.Effects) == 0 {
+				continue // Capability is present but not configured; use per-op expansion.
+			}
+			if result.OriginalScope != nil {
+				return nil, NewDirectiveResultInvalidError(changes[0].Entry.ID, kind)
+			}
+			batchExpansions[batchKey{kind: kind, directiveIndex: directiveIndex}] = batchExpansion{result: result, firstIndex: firstIndex}
+		}
+	}
 
 	for i := 0; i < originalCount; i++ {
 		op := scoped[i].Operation
@@ -97,18 +148,34 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 			continue
 		}
 
-		for _, directive := range directives {
-			res, err := directive.Expand(ctx, op, snapshot)
-			if err != nil {
-				return nil, err
+		for directiveIndex, directive := range directives {
+			var res registry.DirectiveResult
+			if batch, ok := batchExpansions[batchKey{kind: kind, directiveIndex: directiveIndex}]; ok {
+				if i != batch.firstIndex {
+					continue
+				}
+				res = batch.result
+			} else {
+				var err error
+				res, err = directive.Expand(ctx, op, snapshot)
+				if err != nil {
+					return nil, err
+				}
 			}
 			if !res.Applied {
-				if res.OriginalScope != nil || len(res.Additional) > 0 || len(res.Effects) > 0 {
+				if res.OriginalScope != nil || res.Resolution != nil || len(res.Additional) > 0 || len(res.Effects) > 0 {
 					return nil, NewDirectiveResultInvalidError(op.Entry.ID, kind)
 				}
 				continue
 			}
 			expanded = true
+			if res.Resolution != nil {
+				canonical := res.Resolution.Canonical()
+				if resolution != nil && resolution.Digest != canonical.Digest {
+					return nil, NewDirectiveExpansionConflictError(op.Entry.ID)
+				}
+				resolution = canonical
+			}
 			if res.OriginalScope != nil {
 				scoped[i].Scope = *res.OriginalScope
 			}
@@ -131,7 +198,7 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 		}
 	}
 
-	return &Plan{Ops: scoped, Effects: effects, Expanded: expanded}, nil
+	return &Plan{Ops: scoped, Effects: effects, Resolution: resolution, Expanded: expanded}, nil
 }
 
 func recordExpandedOperation(opsByID map[registry.ID]map[string]struct{}, op registry.Operation) bool {

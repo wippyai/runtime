@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strconv"
@@ -34,16 +35,20 @@ type History struct {
 }
 
 type postgresQueries struct {
-	getChangeset        string
-	insertChangeset     string
-	insertRootChangeset string
-	insertRootVersion   string
-	insertVersion       string
-	queryHead           string
-	queryVersions       string
-	setHead             string
-	setInitialHead      string
-	updateHead          string
+	getResolution        string
+	getChangeset         string
+	inheritResolution    string
+	insertResolution     string
+	setVersionResolution string
+	insertChangeset      string
+	insertRootChangeset  string
+	insertRootVersion    string
+	insertVersion        string
+	queryHead            string
+	queryVersions        string
+	setHead              string
+	setInitialHead       string
+	updateHead           string
 }
 
 type encodedPayload struct {
@@ -132,19 +137,25 @@ func buildQueries(schemaName string) postgresQueries {
 	}
 	versions := table("versions")
 	changesets := table("changesets")
+	resolutionGraphs := table("resolution_graphs")
+	versionResolutions := table("version_resolutions")
 	metadata := table("metadata")
 
 	return postgresQueries{
-		getChangeset:        "SELECT data FROM " + changesets + " WHERE version_id = $1",
-		insertChangeset:     "INSERT INTO " + changesets + " (version_id, data) VALUES ($1, $2) ON CONFLICT(version_id) DO UPDATE SET data = EXCLUDED.data",
-		insertRootChangeset: "INSERT INTO " + changesets + " (version_id, data) VALUES (0, $1) ON CONFLICT(version_id) DO NOTHING",
-		insertRootVersion:   "INSERT INTO " + versions + " (id, parent_id) VALUES (0, NULL) ON CONFLICT(id) DO NOTHING",
-		insertVersion:       "INSERT INTO " + versions + " (id, parent_id) VALUES ($1, $2) ON CONFLICT(id) DO UPDATE SET parent_id = EXCLUDED.parent_id",
-		queryHead:           "SELECT value FROM " + metadata + " WHERE key = 'head'",
-		queryVersions:       "SELECT id, parent_id FROM " + versions + " ORDER BY id ASC",
-		setHead:             "INSERT INTO " + metadata + " (key, value) VALUES ('head', $1) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value",
-		setInitialHead:      "INSERT INTO " + metadata + " (key, value) VALUES ('head', '0') ON CONFLICT(key) DO NOTHING",
-		updateHead:          "INSERT INTO " + metadata + " (key, value) VALUES ('head', $1) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value",
+		getResolution:        "SELECT g.data FROM " + versionResolutions + " vr JOIN " + resolutionGraphs + " g ON g.digest = vr.resolution_digest WHERE vr.version_id = $1",
+		getChangeset:         "SELECT data FROM " + changesets + " WHERE version_id = $1",
+		inheritResolution:    "INSERT INTO " + versionResolutions + " (version_id, resolution_digest) SELECT $1, resolution_digest FROM " + versionResolutions + " WHERE version_id = $2 ON CONFLICT(version_id) DO UPDATE SET resolution_digest = EXCLUDED.resolution_digest",
+		insertResolution:     "INSERT INTO " + resolutionGraphs + " (digest, data) VALUES ($1, $2) ON CONFLICT(digest) DO NOTHING",
+		setVersionResolution: "INSERT INTO " + versionResolutions + " (version_id, resolution_digest) VALUES ($1, $2) ON CONFLICT(version_id) DO UPDATE SET resolution_digest = EXCLUDED.resolution_digest",
+		insertChangeset:      "INSERT INTO " + changesets + " (version_id, data) VALUES ($1, $2) ON CONFLICT(version_id) DO UPDATE SET data = EXCLUDED.data",
+		insertRootChangeset:  "INSERT INTO " + changesets + " (version_id, data) VALUES (0, $1) ON CONFLICT(version_id) DO NOTHING",
+		insertRootVersion:    "INSERT INTO " + versions + " (id, parent_id) VALUES (0, NULL) ON CONFLICT(id) DO NOTHING",
+		insertVersion:        "INSERT INTO " + versions + " (id, parent_id) VALUES ($1, $2) ON CONFLICT(id) DO UPDATE SET parent_id = EXCLUDED.parent_id",
+		queryHead:            "SELECT value FROM " + metadata + " WHERE key = 'head'",
+		queryVersions:        "SELECT id, parent_id FROM " + versions + " ORDER BY id ASC",
+		setHead:              "INSERT INTO " + metadata + " (key, value) VALUES ('head', $1) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value",
+		setInitialHead:       "INSERT INTO " + metadata + " (key, value) VALUES ('head', '0') ON CONFLICT(key) DO NOTHING",
+		updateHead:           "INSERT INTO " + metadata + " (key, value) VALUES ('head', $1) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value",
 	}
 }
 
@@ -292,6 +303,10 @@ func (h *History) Get(v registry.Version) (registry.ChangeSet, error) {
 }
 
 func (h *History) Save(v registry.Version, cs registry.ChangeSet, head bool) error {
+	return h.SaveWithDependencyResolution(v, cs, nil, head)
+}
+
+func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.ChangeSet, resolution *registry.DependencyResolution, head bool) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -376,6 +391,23 @@ func (h *History) Save(v registry.Version, cs registry.ChangeSet, head bool) err
 	if err != nil {
 		return NewInsertChangesetError(err)
 	}
+	if resolution != nil {
+		canonical := resolution.Canonical()
+		data, marshalErr := json.Marshal(canonical)
+		if marshalErr != nil {
+			return NewEncodeChangesetError(marshalErr)
+		}
+		if _, err = tx.ExecContext(ctx, h.queries.insertResolution, canonical.Digest, data); err != nil {
+			return NewInsertChangesetError(err)
+		}
+		if _, err = tx.ExecContext(ctx, h.queries.setVersionResolution, v.ID(), canonical.Digest); err != nil {
+			return NewInsertChangesetError(err)
+		}
+	} else if v.Previous() != nil {
+		if _, err = tx.ExecContext(ctx, h.queries.inheritResolution, v.ID(), v.Previous().ID()); err != nil {
+			return NewInsertChangesetError(err)
+		}
+	}
 
 	if head {
 		_, err = tx.ExecContext(ctx, h.queries.updateHead, strconv.FormatUint(uint64(v.ID()), 10))
@@ -388,6 +420,55 @@ func (h *History) Save(v registry.Version, cs registry.ChangeSet, head bool) err
 		return NewCommitTransactionError(err)
 	}
 
+	return nil
+}
+
+func (h *History) GetDependencyResolution(v registry.Version) (*registry.DependencyResolution, error) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	var data []byte
+	err := h.db.QueryRowContext(context.Background(), h.queries.getResolution, v.ID()).Scan(&data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, registry.ErrDependencyResolutionNotFound
+	}
+	if err != nil {
+		return nil, NewQueryChangesetError(err)
+	}
+	var resolution registry.DependencyResolution
+	if err := json.Unmarshal(data, &resolution); err != nil {
+		return nil, NewDecodeChangesetError(err)
+	}
+	if !resolution.Valid() {
+		return nil, NewDecodeChangesetError(errors.New("stored dependency resolution digest mismatch"))
+	}
+	return resolution.Canonical(), nil
+}
+
+func (h *History) CheckpointDependencyResolution(v registry.Version, resolution *registry.DependencyResolution) error {
+	if resolution == nil {
+		return registry.ErrDependencyResolutionNotFound
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	canonical := resolution.Canonical()
+	data, err := json.Marshal(canonical)
+	if err != nil {
+		return NewEncodeChangesetError(err)
+	}
+	tx, err := h.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return NewBeginTransactionError(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err = tx.ExecContext(context.Background(), h.queries.insertResolution, canonical.Digest, data); err != nil {
+		return NewInsertChangesetError(err)
+	}
+	if _, err = tx.ExecContext(context.Background(), h.queries.setVersionResolution, v.ID(), canonical.Digest); err != nil {
+		return NewInsertChangesetError(err)
+	}
+	if err = tx.Commit(); err != nil {
+		return NewCommitTransactionError(err)
+	}
 	return nil
 }
 
