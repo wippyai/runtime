@@ -18,6 +18,7 @@ type ResolvedModule struct {
 	Name      string
 	Version   string
 	VersionID string
+	Source    string
 	Digest    string
 	URL       string
 	SizeBytes uint64

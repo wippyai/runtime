@@ -974,6 +974,37 @@ func TestManifestCache_RefreshOverwritesStale(t *testing.T) {
 	assert.Equal(t, "sha256:1.0.0", after.Digest, "subsequent Get must see refreshed manifest")
 }
 
+func TestManifestCache_MutableLabelAlwaysRefreshes(t *testing.T) {
+	p := newMutableProvider()
+	p.override("acme", "http", "@latest", "sha256:first")
+	cache := NewManifestCache(p)
+	defer cache.Close()
+
+	first, err := cache.GetManifest(context.Background(), "acme", "http", "@latest")
+	require.NoError(t, err)
+	require.Equal(t, "sha256:first", first.Digest)
+
+	p.override("acme", "http", "@latest", "sha256:second")
+	second, err := cache.GetManifest(context.Background(), "acme", "http", "@latest")
+	require.NoError(t, err)
+	require.Equal(t, "sha256:second", second.Digest)
+}
+
+func TestResolve_RejectsManifestIdentityMismatch(t *testing.T) {
+	p := newMutableProvider()
+	p.overrides["acme/http@1.0.0"] = &ModuleManifest{
+		Org: "other", Name: "module", Version: "1.0.0",
+	}
+
+	result, err := Resolve(context.Background(), p, []DependencySpec{{
+		Org: "acme", Name: "http", Constraint: "1.0.0",
+	}}, nil)
+	require.NoError(t, err)
+	require.Empty(t, result.Modules)
+	require.Len(t, result.Errors, 1)
+	require.Contains(t, result.Errors[0].Message, "manifest identity mismatch")
+}
+
 func TestManifestCache_TTLExpiry(t *testing.T) {
 	p := newFakeProvider()
 	p.addModule("acme", "http", "1.0.0")

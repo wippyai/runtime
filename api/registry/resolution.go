@@ -15,6 +15,10 @@ import (
 // checkpoint the result, but must not treat any other storage error as legacy.
 var ErrDependencyResolutionNotFound = errors.New("dependency resolution not found")
 
+// ErrInvalidDependencyResolution means a caller supplied a graph that cannot
+// be made into a durable snapshot without losing dependency semantics.
+var ErrInvalidDependencyResolution = errors.New("invalid dependency resolution")
+
 // ResolvedModule is an immutable module selection stored with a registry
 // version. Download URLs are intentionally excluded because they expire; a
 // missing artifact is fetched again by exact version/digest.
@@ -22,6 +26,7 @@ type ResolvedModule struct {
 	Name      string `json:"name"`
 	Version   string `json:"version"`
 	VersionID string `json:"version_id,omitempty"`
+	Source    string `json:"source,omitempty"`
 	Digest    string `json:"digest,omitempty"`
 	SizeBytes uint64 `json:"size_bytes,omitempty"`
 	Protected bool   `json:"protected,omitempty"`
@@ -94,6 +99,31 @@ func (r *DependencyResolution) Valid() bool {
 	if r == nil || r.Digest == "" {
 		return false
 	}
+	rootIDs := make(map[string]struct{}, len(r.Roots))
+	components := make(map[string]struct{}, len(r.Roots))
+	for _, root := range r.Roots {
+		if root.ID == "" || root.Component == "" || root.Version == "" {
+			return false
+		}
+		if _, duplicate := rootIDs[root.ID]; duplicate {
+			return false
+		}
+		if _, duplicate := components[root.Component]; duplicate {
+			return false
+		}
+		rootIDs[root.ID] = struct{}{}
+		components[root.Component] = struct{}{}
+	}
+	modules := make(map[string]struct{}, len(r.Modules))
+	for _, module := range r.Modules {
+		if module.Name == "" || module.Version == "" || module.Digest == "" {
+			return false
+		}
+		if _, duplicate := modules[module.Name]; duplicate {
+			return false
+		}
+		modules[module.Name] = struct{}{}
+	}
 	return r.Digest == r.Canonical().Digest
 }
 
@@ -120,4 +150,12 @@ type ResolutionHistory interface {
 	GetDependencyResolution(Version) (*DependencyResolution, error)
 	SaveWithDependencyResolution(Version, ChangeSet, *DependencyResolution, bool) error
 	CheckpointDependencyResolution(Version, *DependencyResolution) error
+}
+
+// ResolutionHeadCASHistory attaches an exact graph and moves head in one
+// atomic operation. A failed head comparison must leave the target version
+// unmodified, so a losing rollback cannot freeze a graph that was never live.
+type ResolutionHeadCASHistory interface {
+	ResolutionHistory
+	CompareAndSetHeadWithDependencyResolution(expected, target Version, resolution *DependencyResolution) error
 }

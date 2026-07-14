@@ -203,7 +203,19 @@ type (
 	// ordered ancestry of one target version. Database histories use it to avoid
 	// one query and one retained decoded changeset per historical version.
 	ChangeSetReplayer interface {
-		ReplayChanges(Version, func(ChangeSet) error) error
+		ReplayChanges(context.Context, Version, func(ChangeSet) error) error
+	}
+
+	// VersionIDBounds avoids enumerating an entire long history merely to seed
+	// the monotonic version allocator during boot.
+	VersionIDBounds interface {
+		MaxVersionID() (uint, error)
+	}
+
+	// VersionLookup loads one canonical root-to-version lineage without
+	// enumerating unrelated historical branches.
+	VersionLookup interface {
+		GetVersion(id uint) (Version, error)
 	}
 
 	// HeadCASHistory atomically moves the history head only when it still

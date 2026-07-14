@@ -34,6 +34,14 @@ type History struct {
 
 var openMu sync.Mutex
 
+const queryVersionLineage = `WITH RECURSIVE lineage(id, parent_id) AS (
+	SELECT id, parent_id FROM versions WHERE id = ?
+	UNION
+	SELECT v.id, v.parent_id
+	FROM versions v JOIN lineage ON v.id = lineage.parent_id
+)
+SELECT id, parent_id FROM lineage`
+
 type encodedPayload struct {
 	Data   any
 	Format payload.Format
@@ -149,6 +157,78 @@ func (h *History) Versions() ([]registry.Version, error) {
 	return h.versions(context.Background())
 }
 
+func (h *History) MaxVersionID() (uint, error) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	var maxID uint
+	if err := h.db.QueryRowContext(context.Background(), "SELECT COALESCE(MAX(id), 0) FROM versions").Scan(&maxID); err != nil {
+		return 0, NewGetVersionsError(err)
+	}
+	return maxID, nil
+}
+
+func (h *History) GetVersion(id uint) (registry.Version, error) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	rows, err := h.db.QueryContext(context.Background(), queryVersionLineage, id)
+	if err != nil {
+		return nil, NewQueryVersionsError(err)
+	}
+	parents := make(map[uint]sql.NullInt64)
+	for rows.Next() {
+		var versionID uint
+		var parentID sql.NullInt64
+		if err := rows.Scan(&versionID, &parentID); err != nil {
+			_ = rows.Close()
+			return nil, NewScanVersionError(err)
+		}
+		parents[versionID] = parentID
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, NewIterateVersionsError(err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, NewIterateVersionsError(err)
+	}
+	stored, err := versionFromLineage(id, parents)
+	if err != nil {
+		return nil, NewQueryVersionsError(err)
+	}
+	return stored, nil
+}
+
+func versionFromLineage(targetID uint, parents map[uint]sql.NullInt64) (registry.Version, error) {
+	ids := make([]uint, 0, len(parents))
+	seen := make(map[uint]struct{}, len(parents))
+	currentID := targetID
+	for currentID != registry.RootVersion {
+		if _, duplicate := seen[currentID]; duplicate {
+			return nil, fmt.Errorf("version %d lineage contains a cycle", targetID)
+		}
+		seen[currentID] = struct{}{}
+		parentID, ok := parents[currentID]
+		if !ok {
+			return nil, fmt.Errorf("version %d not found", currentID)
+		}
+		if !parentID.Valid || parentID.Int64 < 0 {
+			return nil, fmt.Errorf("version %d lineage does not terminate at root", targetID)
+		}
+		ids = append(ids, currentID)
+		currentID = uint(parentID.Int64)
+	}
+	rootParent, ok := parents[registry.RootVersion]
+	if !ok || rootParent.Valid {
+		return nil, fmt.Errorf("version %d lineage does not terminate at root", targetID)
+	}
+	current := version.New(registry.RootVersion)
+	for i := len(ids) - 1; i >= 0; i-- {
+		current = version.FromParent(current, ids[i])
+	}
+	return current, nil
+}
+
 func (h *History) versions(ctx context.Context) ([]registry.Version, error) {
 	rows, err := h.db.QueryContext(ctx, "SELECT id, parent_id FROM versions ORDER BY id ASC")
 	if err != nil {
@@ -177,8 +257,10 @@ func (h *History) versions(ctx context.Context) ([]registry.Version, error) {
 				return nil, NewParentVersionNotFoundError(uint(parentID.Int64), id)
 			}
 			v = version.FromParent(parent, id)
-		} else {
+		} else if id == registry.RootVersion {
 			v = version.New(id)
+		} else {
+			return nil, NewParentVersionNotFoundError(registry.RootVersion, id)
 		}
 
 		versionMap[id] = v
@@ -258,38 +340,20 @@ func (h *History) decodeChangeSet(data []byte) (registry.ChangeSet, error) {
 	return cs, nil
 }
 
-// ReplayChanges streams one target lineage in a single query. This keeps boot
-// replay at constant query count and bounded decoded-payload memory even when a
-// project has accumulated a very long history.
-func (h *History) ReplayChanges(target registry.Version, apply func(registry.ChangeSet) error) error {
+// ReplayChanges loads one target lineage in a single query. Encoded rows are
+// buffered so callbacks run after the query and history lock are released.
+func (h *History) ReplayChanges(ctx context.Context, target registry.Version, apply func(registry.ChangeSet) error) error {
 	h.mu.RLock()
-	defer h.mu.RUnlock()
-	ctx := context.Background()
-	var exists int
-	if err := h.db.QueryRowContext(ctx, "SELECT 1 FROM versions WHERE id = ?", target.ID()).Scan(&exists); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return NewChangesetNotFoundError(target.ID())
-		}
-		return NewQueryChangesetError(err)
-	}
-	rows, err := h.db.QueryContext(ctx, `WITH RECURSIVE lineage(id, parent_id, depth) AS (
-		SELECT id, parent_id, 0 FROM versions WHERE id = ?
-		UNION ALL
-		SELECT v.id, v.parent_id, lineage.depth + 1
-		FROM versions v JOIN lineage ON v.id = lineage.parent_id
-	)
-	SELECT c.data FROM lineage JOIN changesets c ON c.version_id = lineage.id
-	WHERE lineage.id <> 0 ORDER BY lineage.depth DESC`, target.ID())
+	encoded, err := h.replayLineage(ctx, target)
+	h.mu.RUnlock()
 	if err != nil {
-		return NewQueryChangesetError(err)
+		return err
 	}
-	defer func() { _ = rows.Close() }()
-	for rows.Next() {
-		var data []byte
-		if err := rows.Scan(&data); err != nil {
-			return NewQueryChangesetError(err)
+	for _, item := range encoded {
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		changes, err := h.decodeChangeSet(data)
+		changes, err := h.decodeChangeSet(item)
 		if err != nil {
 			return err
 		}
@@ -297,10 +361,78 @@ func (h *History) ReplayChanges(target registry.Version, apply func(registry.Cha
 			return err
 		}
 	}
-	if err := rows.Err(); err != nil {
-		return NewIterateVersionsError(err)
-	}
 	return nil
+}
+
+type replayLineageRow struct {
+	data     []byte
+	parentID sql.NullInt64
+}
+
+func (h *History) replayLineage(ctx context.Context, target registry.Version) ([][]byte, error) {
+	var exists int
+	if err := h.db.QueryRowContext(ctx, "SELECT 1 FROM versions WHERE id = ?", target.ID()).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, NewChangesetNotFoundError(target.ID())
+		}
+		return nil, NewQueryChangesetError(err)
+	}
+	rows, err := h.db.QueryContext(ctx, `WITH RECURSIVE lineage(id, parent_id) AS (
+		SELECT id, parent_id FROM versions WHERE id = ?
+		UNION
+		SELECT v.id, v.parent_id
+		FROM versions v JOIN lineage ON v.id = lineage.parent_id
+	)
+	SELECT lineage.id, lineage.parent_id, c.data
+	FROM lineage LEFT JOIN changesets c ON c.version_id = lineage.id`, target.ID())
+	if err != nil {
+		return nil, NewQueryChangesetError(err)
+	}
+	lineage := make(map[uint]replayLineageRow)
+	for rows.Next() {
+		var versionID uint
+		var parentID sql.NullInt64
+		var data []byte
+		if err := rows.Scan(&versionID, &parentID, &data); err != nil {
+			_ = rows.Close()
+			return nil, NewQueryChangesetError(err)
+		}
+		lineage[versionID] = replayLineageRow{parentID: parentID, data: data}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, NewIterateVersionsError(err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, NewIterateVersionsError(err)
+	}
+
+	encoded := make([][]byte, 0, len(lineage))
+	seen := make(map[uint]struct{}, len(lineage))
+	currentID := target.ID()
+	for currentID != registry.RootVersion {
+		if _, duplicate := seen[currentID]; duplicate {
+			return nil, NewQueryChangesetError(fmt.Errorf("version %d lineage is cyclic", target.ID()))
+		}
+		seen[currentID] = struct{}{}
+		row, ok := lineage[currentID]
+		if !ok || !row.parentID.Valid || row.parentID.Int64 < 0 {
+			return nil, NewQueryChangesetError(fmt.Errorf("version %d lineage does not terminate at root", target.ID()))
+		}
+		if row.data == nil {
+			return nil, NewChangesetNotFoundError(currentID)
+		}
+		encoded = append(encoded, row.data)
+		currentID = uint(row.parentID.Int64)
+	}
+	root, ok := lineage[registry.RootVersion]
+	if !ok || root.parentID.Valid {
+		return nil, NewQueryChangesetError(fmt.Errorf("version %d lineage does not terminate at root", target.ID()))
+	}
+	for left, right := 0, len(encoded)-1; left < right; left, right = left+1, right-1 {
+		encoded[left], encoded[right] = encoded[right], encoded[left]
+	}
+	return encoded, nil
 }
 
 func (h *History) Save(v registry.Version, cs registry.ChangeSet, head bool) error {
@@ -308,6 +440,16 @@ func (h *History) Save(v registry.Version, cs registry.ChangeSet, head bool) err
 }
 
 func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.ChangeSet, resolution *registry.DependencyResolution, head bool) error {
+	if v.ID() != registry.RootVersion && v.Previous() == nil {
+		return NewInsertVersionError(fmt.Errorf("non-root version %d has no parent", v.ID()))
+	}
+	var canonicalResolution *registry.DependencyResolution
+	if resolution != nil {
+		canonicalResolution = resolution.Canonical()
+		if !canonicalResolution.Valid() {
+			return registry.ErrInvalidDependencyResolution
+		}
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -321,8 +463,8 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 	var parentID sql.NullInt64
 	if v.Previous() != nil {
 		prevID := v.Previous().ID()
-		const maxInt64 = uint(1<<63 - 1)
-		if prevID > maxInt64 {
+		const maxInt64 = uint64(1<<63 - 1)
+		if uint64(prevID) > maxInt64 {
 			return NewParentVersionIDTooLargeError(prevID)
 		}
 		parentID = sql.NullInt64{Int64: int64(prevID), Valid: true}
@@ -392,19 +534,18 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 	if err != nil {
 		return NewInsertChangesetError(err)
 	}
-	if resolution != nil {
-		canonical := resolution.Canonical()
-		data, marshalErr := json.Marshal(canonical)
+	if canonicalResolution != nil {
+		data, marshalErr := json.Marshal(canonicalResolution)
 		if marshalErr != nil {
 			return NewEncodeChangesetError(marshalErr)
 		}
-		if _, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO resolution_graphs (digest, data) VALUES (?, ?)", canonical.Digest, data); err != nil {
+		if _, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO resolution_graphs (digest, data) VALUES (?, ?)", canonicalResolution.Digest, data); err != nil {
 			return NewInsertChangesetError(err)
 		}
-		if err = ensureResolutionGraph(ctx, tx, canonical.Digest); err != nil {
+		if err = ensureResolutionGraph(ctx, tx, canonicalResolution.Digest); err != nil {
 			return NewDecodeChangesetError(err)
 		}
-		if err = setVersionResolution(ctx, tx, v.ID(), canonical.Digest); err != nil {
+		if err = setVersionResolution(ctx, tx, v.ID(), canonicalResolution.Digest); err != nil {
 			return NewInsertChangesetError(err)
 		}
 	} else if v.Previous() != nil {
@@ -466,9 +607,12 @@ func (h *History) CheckpointDependencyResolution(v registry.Version, resolution 
 	if resolution == nil {
 		return registry.ErrDependencyResolutionNotFound
 	}
+	canonical := resolution.Canonical()
+	if !canonical.Valid() {
+		return registry.ErrInvalidDependencyResolution
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	canonical := resolution.Canonical()
 	data, err := json.Marshal(canonical)
 	if err != nil {
 		return NewEncodeChangesetError(err)
@@ -508,18 +652,28 @@ func (h *History) Head() (registry.Version, error) {
 		return nil, NewQueryHeadError(err)
 	}
 
-	versions, err := h.versions(ctx)
+	rows, err := h.db.QueryContext(ctx, queryVersionLineage, headID)
 	if err != nil {
-		return nil, NewGetVersionsError(err)
+		return nil, NewQueryHeadError(err)
 	}
-
-	for _, v := range versions {
-		if v.ID() == headID {
-			return v, nil
+	defer func() { _ = rows.Close() }()
+	parents := make(map[uint]sql.NullInt64)
+	for rows.Next() {
+		var id uint
+		var parentID sql.NullInt64
+		if err := rows.Scan(&id, &parentID); err != nil {
+			return nil, NewQueryHeadError(err)
 		}
+		parents[id] = parentID
 	}
-
-	return nil, NewHeadVersionNotFoundError(headID)
+	if err := rows.Err(); err != nil {
+		return nil, NewQueryHeadError(err)
+	}
+	stored, err := versionFromLineage(headID, parents)
+	if err != nil {
+		return nil, NewHeadVersionNotFoundError(headID)
+	}
+	return stored, nil
 }
 
 func (h *History) SetHead(v registry.Version) error {
@@ -559,6 +713,54 @@ func (h *History) CompareAndSetHead(expected, target registry.Version) error {
 	}
 	if updated != 1 {
 		return NewSetHeadError(fmt.Errorf("history head changed or target version %d does not exist", target.ID()))
+	}
+	return nil
+}
+
+func (h *History) CompareAndSetHeadWithDependencyResolution(expected, target registry.Version, resolution *registry.DependencyResolution) error {
+	if resolution == nil {
+		return registry.ErrDependencyResolutionNotFound
+	}
+	canonical := resolution.Canonical()
+	if !canonical.Valid() {
+		return registry.ErrInvalidDependencyResolution
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	data, err := json.Marshal(canonical)
+	if err != nil {
+		return NewEncodeChangesetError(err)
+	}
+	ctx := context.Background()
+	tx, err := h.db.BeginTx(ctx, nil)
+	if err != nil {
+		return NewBeginTransactionError(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO resolution_graphs (digest, data) VALUES (?, ?)", canonical.Digest, data); err != nil {
+		return NewInsertChangesetError(err)
+	}
+	if err = ensureResolutionGraph(ctx, tx, canonical.Digest); err != nil {
+		return NewDecodeChangesetError(err)
+	}
+	if err = setVersionResolution(ctx, tx, target.ID(), canonical.Digest); err != nil {
+		return NewInsertChangesetError(err)
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE metadata SET value = ?
+		WHERE key = 'head' AND value = ? AND EXISTS (SELECT 1 FROM versions WHERE id = ?)`,
+		target.ID(), expected.ID(), target.ID())
+	if err != nil {
+		return NewSetHeadError(err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return NewSetHeadError(err)
+	}
+	if updated != 1 {
+		return NewSetHeadError(fmt.Errorf("history head changed or target version %d does not exist", target.ID()))
+	}
+	if err = tx.Commit(); err != nil {
+		return NewCommitTransactionError(err)
 	}
 	return nil
 }

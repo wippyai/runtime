@@ -3,7 +3,10 @@
 package memory
 
 import (
+	"context"
 	"fmt"
+	"reflect"
+	"sort"
 	"sync"
 
 	"github.com/wippyai/runtime/api/attrs"
@@ -48,7 +51,30 @@ func (m *Storage) Versions() ([]registry.Version, error) {
 	for _, v := range m.versions {
 		versions = append(versions, v)
 	}
+	sort.Slice(versions, func(i, j int) bool { return versions[i].ID() < versions[j].ID() })
 	return versions, nil
+}
+
+func (m *Storage) MaxVersionID() (uint, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	var maxID uint
+	for id := range m.versions {
+		if id > maxID {
+			maxID = id
+		}
+	}
+	return maxID, nil
+}
+
+func (m *Storage) GetVersion(id uint) (registry.Version, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	stored, ok := m.versions[id]
+	if !ok {
+		return nil, NewVersionNotFoundError(fmt.Sprintf("%d", id))
+	}
+	return stored, nil
 }
 
 // Get returns the ChangeSet associated with a specific version.
@@ -75,29 +101,53 @@ func (m *Storage) Get(version registry.Version) (registry.ChangeSet, error) {
 	return actionsCopy, nil
 }
 
-// ReplayChanges streams root-to-target changesets without retaining decoded
-// history payloads. The root version is structural and is not replayed.
-func (m *Storage) ReplayChanges(target registry.Version, apply func(registry.ChangeSet) error) error {
+// ReplayChanges snapshots root-to-target changesets so callbacks may safely
+// call back into the history. The structural root version is not replayed.
+func (m *Storage) ReplayChanges(ctx context.Context, target registry.Version, apply func(registry.ChangeSet) error) error {
 	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-	stored, ok := m.versions[target.ID()]
-	if !ok {
-		return NewVersionNotFoundError(target.String())
+	changesets, err := m.replayChanges(ctx, target)
+	m.mutex.RUnlock()
+	if err != nil {
+		return err
 	}
-	lineage := make([]uint, 0)
-	for current := stored; current != nil && current.ID() > registry.RootVersion; current = current.Previous() {
-		lineage = append(lineage, current.ID())
-	}
-	for i := len(lineage) - 1; i >= 0; i-- {
-		actions, ok := m.actions[lineage[i]]
-		if !ok {
-			return NewVersionNotFoundError(fmt.Sprintf("%d", lineage[i]))
+	for _, changes := range changesets {
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		if err := apply(cloneChangeSet(actions)); err != nil {
+		if err := apply(changes); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (m *Storage) replayChanges(ctx context.Context, target registry.Version) ([]registry.ChangeSet, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	stored, ok := m.versions[target.ID()]
+	if !ok {
+		return nil, NewVersionNotFoundError(target.String())
+	}
+	lineage := make([]uint, 0)
+	for current := stored; current != nil && current.ID() > registry.RootVersion; current = current.Previous() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		lineage = append(lineage, current.ID())
+	}
+	changesets := make([]registry.ChangeSet, 0, len(lineage))
+	for i := len(lineage) - 1; i >= 0; i-- {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		actions, ok := m.actions[lineage[i]]
+		if !ok {
+			return nil, NewVersionNotFoundError(fmt.Sprintf("%d", lineage[i]))
+		}
+		changesets = append(changesets, cloneChangeSet(actions))
+	}
+	return changesets, nil
 }
 
 func cloneEntry(e registry.Entry) registry.Entry {
@@ -175,9 +225,19 @@ func (m *Storage) Save(newVersion registry.Version, actions registry.ChangeSet, 
 }
 
 func (m *Storage) SaveWithDependencyResolution(newVersion registry.Version, actions registry.ChangeSet, resolution *registry.DependencyResolution, head bool) error {
+	var canonicalResolution *registry.DependencyResolution
+	if resolution != nil {
+		canonicalResolution = resolution.Canonical()
+		if !canonicalResolution.Valid() {
+			return registry.ErrInvalidDependencyResolution
+		}
+	}
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	if newVersion.ID() != registry.RootVersion && newVersion.Previous() == nil {
+		return fmt.Errorf("non-root version %d has no parent", newVersion.ID())
+	}
 	if _, exists := m.versions[newVersion.ID()]; exists {
 		if newVersion.ID() == registry.RootVersion && len(actions) == 0 && resolution == nil {
 			if head {
@@ -187,19 +247,27 @@ func (m *Storage) SaveWithDependencyResolution(newVersion registry.Version, acti
 		}
 		return fmt.Errorf("version %d already exists", newVersion.ID())
 	}
+	storedVersion := newVersion
 	if previous := newVersion.Previous(); previous != nil {
-		if _, exists := m.versions[previous.ID()]; !exists {
+		storedParent, exists := m.versions[previous.ID()]
+		if !exists {
 			return NewVersionNotFoundError(previous.String())
 		}
 		if head && !memoryHeadMatchesParent(m.head, previous) {
 			return fmt.Errorf("history head changed: expected version %d", previous.ID())
 		}
+		// Preserve the caller's version object when it was constructed directly
+		// from the canonical stored parent. Rebuild foreign or truncated caller
+		// lineages in O(1), keeping sequential saves cheap for long histories.
+		if !sameVersionInstance(previous, storedParent) {
+			storedVersion = version.FromParent(storedParent, newVersion.ID())
+		}
 	}
 
 	m.actions[newVersion.ID()] = cloneChangeSet(actions)
-	m.versions[newVersion.ID()] = newVersion
-	if resolution != nil {
-		m.resolutions[newVersion.ID()] = resolution.Canonical()
+	m.versions[newVersion.ID()] = storedVersion
+	if canonicalResolution != nil {
+		m.resolutions[newVersion.ID()] = canonicalResolution
 	} else if previous := newVersion.Previous(); previous != nil {
 		if inherited, ok := m.resolutions[previous.ID()]; ok {
 			m.resolutions[newVersion.ID()] = inherited.Canonical()
@@ -207,10 +275,18 @@ func (m *Storage) SaveWithDependencyResolution(newVersion registry.Version, acti
 	}
 
 	if head {
-		m.head = newVersion
+		m.head = storedVersion
 	}
 
 	return nil
+}
+
+func sameVersionInstance(left, right registry.Version) bool {
+	leftValue := reflect.ValueOf(left)
+	rightValue := reflect.ValueOf(right)
+	return leftValue.IsValid() && rightValue.IsValid() &&
+		leftValue.Kind() == reflect.Pointer && rightValue.Kind() == reflect.Pointer &&
+		leftValue.Type() == rightValue.Type() && leftValue.Pointer() == rightValue.Pointer()
 }
 
 func (m *Storage) GetDependencyResolution(v registry.Version) (*registry.DependencyResolution, error) {
@@ -227,12 +303,15 @@ func (m *Storage) CheckpointDependencyResolution(v registry.Version, resolution 
 	if resolution == nil {
 		return registry.ErrDependencyResolutionNotFound
 	}
+	canonical := resolution.Canonical()
+	if !canonical.Valid() {
+		return registry.ErrInvalidDependencyResolution
+	}
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	if _, ok := m.versions[v.ID()]; !ok {
 		return NewVersionNotFoundError(v.String())
 	}
-	canonical := resolution.Canonical()
 	if existing, ok := m.resolutions[v.ID()]; ok && existing.Digest != canonical.Digest {
 		return fmt.Errorf("version %d already references dependency resolution %s, refusing %s", v.ID(), existing.Digest, canonical.Digest)
 	}
@@ -264,10 +343,11 @@ func (m *Storage) SetHead(v registry.Version) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	if _, ok := m.versions[v.ID()]; !ok {
+	stored, ok := m.versions[v.ID()]
+	if !ok {
 		return NewVersionNotFoundError(v.String())
 	}
-	m.head = v
+	m.head = stored
 	return nil
 }
 
@@ -278,9 +358,34 @@ func (m *Storage) CompareAndSetHead(expected, target registry.Version) error {
 	if !ok {
 		return NewVersionNotFoundError(target.String())
 	}
-	if m.head == nil || m.head.ID() != expected.ID() {
+	if !memoryHeadMatchesParent(m.head, expected) {
 		return fmt.Errorf("history head changed: expected version %d", expected.ID())
 	}
+	m.head = stored
+	return nil
+}
+
+func (m *Storage) CompareAndSetHeadWithDependencyResolution(expected, target registry.Version, resolution *registry.DependencyResolution) error {
+	if resolution == nil {
+		return registry.ErrDependencyResolutionNotFound
+	}
+	canonical := resolution.Canonical()
+	if !canonical.Valid() {
+		return registry.ErrInvalidDependencyResolution
+	}
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	stored, ok := m.versions[target.ID()]
+	if !ok {
+		return NewVersionNotFoundError(target.String())
+	}
+	if !memoryHeadMatchesParent(m.head, expected) {
+		return fmt.Errorf("history head changed: expected version %d", expected.ID())
+	}
+	if existing, ok := m.resolutions[target.ID()]; ok && existing.Digest != canonical.Digest {
+		return fmt.Errorf("version %d already references dependency resolution %s, refusing %s", target.ID(), existing.Digest, canonical.Digest)
+	}
+	m.resolutions[target.ID()] = canonical
 	m.head = stored
 	return nil
 }

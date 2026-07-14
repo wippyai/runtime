@@ -32,6 +32,8 @@ func TestDownloadToFileRetriesTransientStatus(t *testing.T) {
 	}
 
 	dest := filepath.Join(t.TempDir(), "cache", "module.wapp")
+	require.NoError(t, os.MkdirAll(filepath.Dir(dest), 0o755))
+	require.NoError(t, os.WriteFile(dest, []byte("existing"), 0o600))
 	err := client.DownloadToFile(context.Background(), server.URL, dest)
 	require.NoError(t, err)
 	require.Equal(t, 3, attempts)
@@ -55,8 +57,13 @@ func TestDownloadToFileDoesNotRetryForbidden(t *testing.T) {
 	}
 
 	dest := filepath.Join(t.TempDir(), "cache", "module.wapp")
+	require.NoError(t, os.MkdirAll(filepath.Dir(dest), 0o755))
+	require.NoError(t, os.WriteFile(dest, []byte("existing"), 0o600))
 	err := client.DownloadToFile(context.Background(), server.URL, dest)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "status 403")
 	require.Equal(t, 1, attempts)
+	data, readErr := os.ReadFile(dest)
+	require.NoError(t, readErr)
+	require.Equal(t, "existing", string(data))
 }

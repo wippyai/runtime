@@ -81,12 +81,128 @@ func TestHistory_ReplayChangesStreamsVeryLongLineage(t *testing.T) {
 	require.NoError(t, tx.Commit())
 
 	count := 0
-	require.NoError(t, hist.ReplayChanges(target, func(cs registry.ChangeSet) error {
+	require.NoError(t, hist.ReplayChanges(context.Background(), target, func(cs registry.ChangeSet) error {
 		require.Empty(t, cs)
 		count++
 		return nil
 	}))
 	require.Equal(t, versions, count)
+}
+
+func TestHistoryReplayRejectsMissingAncestorChangeset(t *testing.T) {
+	hist, err := NewSQLite(filepath.Join(t.TempDir(), "missing.db"), zap.NewNop())
+	require.NoError(t, err)
+	defer func() { require.NoError(t, hist.Close()) }()
+
+	v0, err := hist.Head()
+	require.NoError(t, err)
+	v1 := version.FromParent(v0, 1)
+	v2 := version.FromParent(v1, 2)
+	require.NoError(t, hist.Save(v1, registry.ChangeSet{}, true))
+	require.NoError(t, hist.Save(v2, registry.ChangeSet{}, true))
+	_, err = hist.db.ExecContext(context.Background(), "DELETE FROM changesets WHERE version_id = 1")
+	require.NoError(t, err)
+
+	err = hist.ReplayChanges(context.Background(), v2, func(registry.ChangeSet) error { return nil })
+	require.Error(t, err)
+}
+
+func TestHistoryReplayRejectsDisconnectedAndCyclicLineage(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		tamper string
+	}{
+		{name: "disconnected", tamper: "UPDATE versions SET parent_id = NULL WHERE id = 1"},
+		{name: "cycle", tamper: "UPDATE versions SET parent_id = 2 WHERE id = 1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			hist, err := NewSQLite(filepath.Join(t.TempDir(), "malformed.db"), zap.NewNop())
+			require.NoError(t, err)
+			defer func() { require.NoError(t, hist.Close()) }()
+			v0, err := hist.Head()
+			require.NoError(t, err)
+			v1 := version.FromParent(v0, 1)
+			v2 := version.FromParent(v1, 2)
+			require.NoError(t, hist.Save(v1, nil, true))
+			require.NoError(t, hist.Save(v2, nil, true))
+			_, err = hist.db.ExecContext(context.Background(), test.tamper)
+			require.NoError(t, err)
+
+			err = hist.ReplayChanges(context.Background(), v2, func(registry.ChangeSet) error { return nil })
+			require.ErrorContains(t, err, "lineage")
+			_, err = hist.Head()
+			require.Error(t, err, "head reconstruction must terminate and reject malformed lineage")
+		})
+	}
+}
+
+func TestHistoryReplayClosesRowsBeforeCallback(t *testing.T) {
+	hist, err := NewSQLite(filepath.Join(t.TempDir(), "callback.db"), zap.NewNop())
+	require.NoError(t, err)
+	defer func() { require.NoError(t, hist.Close()) }()
+	v0, err := hist.Head()
+	require.NoError(t, err)
+	v1 := version.FromParent(v0, 1)
+	require.NoError(t, hist.Save(v1, nil, true))
+
+	require.NoError(t, hist.ReplayChanges(context.Background(), v1, func(registry.ChangeSet) error {
+		_, callbackErr := hist.MaxVersionID()
+		return callbackErr
+	}))
+}
+
+func TestHistoryGetVersionIgnoresUnrelatedBranchCycle(t *testing.T) {
+	hist, err := NewSQLite(filepath.Join(t.TempDir(), "lookup.db"), zap.NewNop())
+	require.NoError(t, err)
+	defer func() { require.NoError(t, hist.Close()) }()
+
+	tx, err := hist.db.BeginTx(context.Background(), nil)
+	require.NoError(t, err)
+	for id := 1; id <= 2000; id++ {
+		_, err = tx.ExecContext(context.Background(), "INSERT INTO versions (id, parent_id) VALUES (?, 0)", id)
+		require.NoError(t, err)
+		_, err = tx.ExecContext(context.Background(), "INSERT INTO changesets (version_id, data) VALUES (?, ?)", id, []byte{0x90})
+		require.NoError(t, err)
+	}
+	_, err = tx.ExecContext(context.Background(), "INSERT INTO versions (id, parent_id) VALUES (2001, 1)")
+	require.NoError(t, err)
+	_, err = tx.ExecContext(context.Background(), "INSERT INTO changesets (version_id, data) VALUES (2001, ?)", []byte{0x90})
+	require.NoError(t, err)
+	_, err = tx.ExecContext(context.Background(), "UPDATE versions SET parent_id = 2000 WHERE id = 1999")
+	require.NoError(t, err)
+	_, err = tx.ExecContext(context.Background(), "UPDATE versions SET parent_id = 1999 WHERE id = 2000")
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+
+	stored, err := hist.GetVersion(2001)
+	require.NoError(t, err)
+	require.Equal(t, uint(2001), stored.ID())
+	require.NotNil(t, stored.Previous())
+	require.Equal(t, uint(1), stored.Previous().ID())
+	require.Equal(t, registry.RootVersion, stored.Previous().Previous().ID())
+	_, err = hist.GetVersion(2000)
+	require.Error(t, err)
+}
+
+func TestHistoryRejectsMalformedResolutionBeforeWrite(t *testing.T) {
+	hist, err := NewSQLite(filepath.Join(t.TempDir(), "invalid-resolution.db"), zap.NewNop())
+	require.NoError(t, err)
+	defer func() { require.NoError(t, hist.Close()) }()
+	malformed := (&registry.DependencyResolution{Modules: []registry.ResolvedModule{
+		{Name: "duplicate", Version: "1"},
+		{Name: "duplicate", Version: "2"},
+	}}).Canonical()
+	v1 := version.FromParent(version.New(registry.RootVersion), 1)
+
+	require.ErrorIs(t, hist.SaveWithDependencyResolution(v1, nil, malformed, true), registry.ErrInvalidDependencyResolution)
+	var versions, graphs int
+	require.NoError(t, hist.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM versions WHERE id = 1").Scan(&versions))
+	require.NoError(t, hist.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM resolution_graphs").Scan(&graphs))
+	require.Zero(t, versions)
+	require.Zero(t, graphs)
+	head, err := hist.Head()
+	require.NoError(t, err)
+	require.Equal(t, registry.RootVersion, head.ID())
 }
 
 func TestHistory_CreatesParentDirectory(t *testing.T) {
@@ -185,7 +301,7 @@ func TestHistory_DependencyResolutionFailureRollsBackVersionAndHead(t *testing.T
 		Kind: registry.EntryCreate, Entry: registry.Entry{ID: registry.NewID("app.deps", "crm")},
 	}}, (&registry.DependencyResolution{
 		InputDigest: "roots",
-		Modules:     []registry.ResolvedModule{{Name: "acme/crm", Version: "v1.6.0"}},
+		Modules:     []registry.ResolvedModule{{Name: "acme/crm", Version: "v1.6.0", Digest: "sha256:crm"}},
 	}).Canonical(), true)
 	require.ErrorContains(t, err, "injected resolution failure")
 
@@ -197,6 +313,26 @@ func TestHistory_DependencyResolutionFailureRollsBackVersionAndHead(t *testing.T
 	require.Len(t, versions, 1)
 	_, err = hist.Get(v1)
 	require.Error(t, err)
+}
+
+func TestHistory_AtomicResolutionHeadCASFailureLeavesTargetUnannotated(t *testing.T) {
+	hist, err := NewSQLite(filepath.Join(t.TempDir(), "history.db"), zap.NewNop())
+	require.NoError(t, err)
+	defer func() { _ = hist.Close() }()
+
+	v0, err := hist.Head()
+	require.NoError(t, err)
+	v1 := version.FromParent(v0, 1)
+	require.NoError(t, hist.Save(v1, nil, false))
+	resolution := (&registry.DependencyResolution{InputDigest: "losing-command"}).Canonical()
+
+	err = hist.CompareAndSetHeadWithDependencyResolution(v1, v1, resolution)
+	require.ErrorContains(t, err, "history head changed")
+	_, err = hist.GetDependencyResolution(v1)
+	require.ErrorIs(t, err, registry.ErrDependencyResolutionNotFound)
+	var graphs int
+	require.NoError(t, hist.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM resolution_graphs").Scan(&graphs))
+	require.Zero(t, graphs, "the losing transaction must roll back its graph payload and version reference")
 }
 
 func TestHistory_EnforcesForeignKeysAndRejectsMissingCheckpointVersion(t *testing.T) {
@@ -237,6 +373,19 @@ func TestHistory_SaveIsInsertOnlyAndHeadUsesParentCAS(t *testing.T) {
 	head, err := hist.Head()
 	require.NoError(t, err)
 	require.Equal(t, v2.ID(), head.ID())
+}
+
+func TestHistoryRejectsParentlessNonRootVersionBeforePersistence(t *testing.T) {
+	hist, err := NewSQLite(filepath.Join(t.TempDir(), "history.db"), zap.NewNop())
+	require.NoError(t, err)
+	defer func() { require.NoError(t, hist.Close()) }()
+
+	err = hist.Save(version.New(1), nil, false)
+	require.ErrorContains(t, err, "non-root version 1 has no parent")
+
+	var count int
+	require.NoError(t, hist.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM versions WHERE id = 1").Scan(&count))
+	require.Zero(t, count)
 }
 
 func TestHistory_ResolutionReferenceIsImmutableAndCorruptionIsNotLegacy(t *testing.T) {

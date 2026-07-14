@@ -45,6 +45,28 @@ func TestBuildQueriesUseImmutableRowsCASAndCorruptionAwareResolutionRead(t *test
 	assert.Contains(t, queries.setHead, "EXISTS", "SetHead must validate the target version")
 	assert.Contains(t, queries.getResolution, "LEFT JOIN", "dangling graph refs must be distinguishable from legacy versions")
 	assert.Contains(t, queries.getResolution, "resolution_digest", "the graph row key must be validated against its payload")
+	assert.Contains(t, queries.queryMaxVersionID, `"wippy_registry"."versions"`, "max ID lookup must respect the configured schema")
+	assert.Contains(t, queries.queryVersionLineage, "UNION", "target lookup must deduplicate cycles")
+	assert.NotContains(t, queries.queryVersionLineage, "UNION ALL", "target lookup must terminate on cycles")
+}
+
+func TestHistoryRejectsParentlessNonRootVersionBeforeDatabaseAccess(t *testing.T) {
+	hist := &History{}
+	err := hist.Save(version.New(1), nil, false)
+	require.ErrorContains(t, err, "non-root version 1 has no parent")
+}
+
+func TestHistoryRejectsMalformedResolutionBeforeDatabaseAccess(t *testing.T) {
+	hist := &History{}
+	malformed := (&registry.DependencyResolution{Roots: []registry.DependencyRoot{{
+		ID: "missing-component", Version: "1",
+	}}}).Canonical()
+	v0 := version.New(registry.RootVersion)
+	v1 := version.FromParent(v0, 1)
+
+	require.ErrorIs(t, hist.SaveWithDependencyResolution(v1, nil, malformed, false), registry.ErrInvalidDependencyResolution)
+	require.ErrorIs(t, hist.CheckpointDependencyResolution(v0, malformed), registry.ErrInvalidDependencyResolution)
+	require.ErrorIs(t, hist.CompareAndSetHeadWithDependencyResolution(v0, v0, malformed), registry.ErrInvalidDependencyResolution)
 }
 
 func TestPostgresHistory_SaveAndGet(t *testing.T) {
@@ -86,6 +108,56 @@ func TestPostgresHistory_SaveAndGet(t *testing.T) {
 	assert.Equal(t, registry.EntryCreate, retrieved[0].Kind)
 	assert.Equal(t, "test", retrieved[0].Entry.ID.NS)
 	assert.Equal(t, "entry1", retrieved[0].Entry.ID.Name)
+
+	v2 := version.FromParent(v1, 2)
+	require.NoError(t, hist.Save(v2, nil, false))
+	resolution := (&registry.DependencyResolution{InputDigest: "postgres-atomic"}).Canonical()
+	err = hist.CompareAndSetHeadWithDependencyResolution(v2, v2, resolution)
+	require.ErrorContains(t, err, "history head changed")
+	_, err = hist.GetDependencyResolution(v2)
+	require.ErrorIs(t, err, registry.ErrDependencyResolutionNotFound)
+	require.NoError(t, hist.CompareAndSetHeadWithDependencyResolution(v1, v2, resolution))
+	storedResolution, err := hist.GetDependencyResolution(v2)
+	require.NoError(t, err)
+	require.Equal(t, resolution.Digest, storedResolution.Digest)
+	var replayed int
+	require.NoError(t, hist.ReplayChanges(context.Background(), v2, func(registry.ChangeSet) error {
+		replayed++
+		return nil
+	}))
+	require.Equal(t, 2, replayed)
+
+	_, err = db.ExecContext(context.Background(), fmt.Sprintf(`
+		INSERT INTO %q.versions (id, parent_id)
+		SELECT n, n - 1 FROM generate_series(3, 5000) AS series(n)`, schemaName))
+	require.NoError(t, err)
+	_, err = db.ExecContext(context.Background(), fmt.Sprintf(`
+		INSERT INTO %q.changesets (version_id, data)
+		SELECT n, $1 FROM generate_series(3, 5000) AS series(n)`, schemaName), []byte{0x90})
+	require.NoError(t, err)
+	replayed = 0
+	require.NoError(t, hist.ReplayChanges(context.Background(), version.New(5000), func(registry.ChangeSet) error {
+		replayed++
+		return nil
+	}))
+	require.Equal(t, 5000, replayed)
+	stored, err := hist.GetVersion(5000)
+	require.NoError(t, err)
+	require.Equal(t, uint(5000), stored.ID())
+	lineageLength := 0
+	for current := stored; current != nil; current = current.Previous() {
+		lineageLength++
+	}
+	require.Equal(t, 5001, lineageLength)
+
+	_, err = db.ExecContext(context.Background(), fmt.Sprintf(`UPDATE %q.versions SET parent_id = 2 WHERE id = 1`, schemaName))
+	require.NoError(t, err)
+	err = hist.ReplayChanges(context.Background(), v2, func(registry.ChangeSet) error { return nil })
+	require.ErrorContains(t, err, "lineage")
+	_, err = hist.Head()
+	require.Error(t, err, "head reconstruction must terminate and reject cyclic lineage")
+	_, err = hist.GetVersion(2)
+	require.Error(t, err, "target lookup must terminate and reject cyclic lineage")
 
 	var schemaVersion string
 	err = db.QueryRowContext(

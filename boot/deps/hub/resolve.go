@@ -600,6 +600,19 @@ func (r *resolver) fetchManifest(ctx context.Context, org, name, version string)
 	if manifest == nil {
 		return nil, fmt.Errorf("hub returned no manifest for %s/%s@%s", org, name, version)
 	}
+	if manifest.Org != org || manifest.Name != name {
+		return nil, fmt.Errorf(
+			"manifest identity mismatch: requested %s/%s@%s, hub returned %s/%s@%s",
+			org, name, version, manifest.Org, manifest.Name, manifest.Version,
+		)
+	}
+	if version != "" && !strings.HasPrefix(version, "@") &&
+		strings.TrimPrefix(manifest.Version, "v") != strings.TrimPrefix(version, "v") {
+		return nil, fmt.Errorf(
+			"manifest version mismatch for %s/%s: requested %s, hub returned %s",
+			org, name, version, manifest.Version,
+		)
+	}
 
 	expected := r.lockedDigests[org+"/"+name+"@"+version]
 	if expected == "" || manifest.Digest == expected {

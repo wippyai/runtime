@@ -22,6 +22,22 @@ type hardeningHistory struct {
 	failCheckpoint bool
 }
 
+// historyWithoutResolution deliberately exposes only the base History method
+// set even when the wrapped backend supports richer optional capabilities.
+type historyWithoutResolution struct {
+	regapi.History
+}
+
+type lookupHistory struct {
+	*memory.Storage
+	versionsCalled bool
+}
+
+func (h *lookupHistory) Versions() ([]regapi.Version, error) {
+	h.versionsCalled = true
+	return nil, errors.New("full history enumeration must not be used")
+}
+
 func (h *hardeningHistory) SetHead(v regapi.Version) error {
 	if h.failSetHeadFor != 0 && h.failSetHeadFor == v.ID() {
 		h.failSetHeadFor = 0
@@ -43,6 +59,17 @@ func (h *hardeningHistory) CheckpointDependencyResolution(v regapi.Version, reso
 		return errors.New("injected checkpoint failure")
 	}
 	return h.Storage.CheckpointDependencyResolution(v, resolution)
+}
+
+func (h *hardeningHistory) CompareAndSetHeadWithDependencyResolution(expected, target regapi.Version, resolution *regapi.DependencyResolution) error {
+	if h.failCheckpoint {
+		return errors.New("injected checkpoint failure")
+	}
+	if h.failSetHeadFor != 0 && h.failSetHeadFor == target.ID() {
+		h.failSetHeadFor = 0
+		return errors.New("injected set-head failure")
+	}
+	return h.Storage.CompareAndSetHeadWithDependencyResolution(expected, target, resolution)
 }
 
 type hardeningRunner struct {
@@ -110,7 +137,7 @@ func (d hardeningDirective) ReconcileResolution(ctx context.Context, state regap
 func hardeningResolution() *regapi.DependencyResolution {
 	return (&regapi.DependencyResolution{
 		InputDigest: "legacy-roots",
-		Modules:     []regapi.ResolvedModule{{Name: "acme/module", Version: "v1.0.0"}},
+		Modules:     []regapi.ResolvedModule{{Name: "acme/module", Version: "v1.0.0", Digest: "sha256:test"}},
 	}).Canonical()
 }
 
@@ -139,9 +166,30 @@ func TestApplyVersion_SetHeadFailureCompensatesRuntimeAndEffects(t *testing.T) {
 	head, headErr := history.Head()
 	require.NoError(t, headErr)
 	require.Equal(t, v0.ID(), head.ID())
+	_, resolutionErr := history.GetDependencyResolution(v1)
+	require.ErrorIs(t, resolutionErr, regapi.ErrDependencyResolutionNotFound,
+		"a failed atomic head update must not annotate the target graph")
 	require.Equal(t, 2, runner.transitions, "target transition must be compensated")
 	require.Equal(t, 1, effect.committed)
 	require.Equal(t, 1, effect.rolledBack)
+}
+
+func TestApplyVersionNoOpRejectsChangedDurableHead(t *testing.T) {
+	ctx := context.Background()
+	history := memory.New()
+	reg := NewRegistry(history, &hardeningRunner{}, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop())
+	v1, err := reg.Apply(ctx, regapi.ChangeSet{{
+		Kind:  regapi.EntryCreate,
+		Entry: regapi.Entry{ID: regapi.NewID("app", "one"), Kind: "service"},
+	}})
+	require.NoError(t, err)
+	require.NoError(t, history.SetHead(version.New(0)), "simulate a concurrent runtime moving durable head")
+
+	err = reg.ApplyVersion(ctx, v1)
+	require.ErrorContains(t, err, "history head changed")
+	current, currentErr := reg.Current()
+	require.NoError(t, currentErr)
+	require.Equal(t, v1.ID(), current.ID(), "failed validation must not mutate local state")
 }
 
 func TestApplyVersion_LegacyResolutionCheckpointFailureCompensates(t *testing.T) {
@@ -193,6 +241,36 @@ func TestApplyVersion_LegacyResolutionIsCheckpointed(t *testing.T) {
 	require.Equal(t, hardeningResolution().Digest, stored.Digest)
 }
 
+func TestApplyVersionRejectsExactResolutionWithoutDurableHistorySupport(t *testing.T) {
+	ctx := context.Background()
+	v0 := version.New(0)
+	v1 := version.FromParent(v0, 1)
+	dep := regapi.Entry{ID: regapi.NewID("app.deps", "module"), Kind: regapi.NamespaceDependency}
+	durable := memory.New()
+	require.NoError(t, durable.Save(v1, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: dep}}, false))
+	require.NoError(t, durable.SetHead(v0))
+	history := &historyWithoutResolution{History: durable}
+	effect := &hardeningEffect{}
+	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error) {
+		return regapi.DirectiveResult{Applied: true, Resolution: hardeningResolution(), Effects: []regapi.Effect{effect}}, nil
+	}}
+	runner := &hardeningRunner{}
+	reg := NewRegistry(history, runner, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
+		WithKindDirective(regapi.NamespaceDependency, directive))
+	require.NoError(t, reg.LoadState(ctx, nil, v0))
+
+	err := reg.ApplyVersion(ctx, v1)
+	require.ErrorContains(t, err, "history does not support durable dependency resolutions")
+	head, headErr := durable.Head()
+	require.NoError(t, headErr)
+	require.Equal(t, v0.ID(), head.ID())
+	_, getErr := reg.GetEntry(dep.ID)
+	require.Error(t, getErr)
+	require.Zero(t, runner.transitions, "capability failure must happen before runtime transition")
+	require.Equal(t, 1, effect.prepared)
+	require.Equal(t, 1, effect.rolledBack)
+}
+
 func TestApplyVersion_LegacyUnrelatedTransitionResolvesFinalRoots(t *testing.T) {
 	ctx := context.Background()
 	v0 := version.New(0)
@@ -239,6 +317,29 @@ func TestLoadState_CheckpointFailureCompensatesRuntimeAndEffects(t *testing.T) {
 	require.Empty(t, entries)
 	require.Equal(t, 2, runner.transitions)
 	require.Equal(t, 1, effect.committed)
+	require.Equal(t, 1, effect.rolledBack)
+}
+
+func TestLoadStateRejectsExactResolutionWithoutDurableHistorySupport(t *testing.T) {
+	ctx := context.Background()
+	dep := regapi.Entry{ID: regapi.NewID("app.deps", "module"), Kind: regapi.NamespaceDependency}
+	durable := memory.New()
+	history := &historyWithoutResolution{History: durable}
+	effect := &hardeningEffect{}
+	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error) {
+		return regapi.DirectiveResult{Applied: true, Resolution: hardeningResolution(), Effects: []regapi.Effect{effect}}, nil
+	}}
+	runner := &hardeningRunner{}
+	reg := NewRegistry(history, runner, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),
+		WithKindDirective(regapi.NamespaceDependency, directive))
+
+	err := reg.LoadState(ctx, regapi.State{dep}, version.New(0))
+	require.ErrorContains(t, err, "history does not support durable dependency resolutions")
+	entries, getErr := reg.GetAllEntries()
+	require.NoError(t, getErr)
+	require.Empty(t, entries)
+	require.Zero(t, runner.transitions, "capability failure must happen before runtime transition")
+	require.Equal(t, 1, effect.prepared)
 	require.Equal(t, 1, effect.rolledBack)
 }
 
@@ -339,4 +440,23 @@ func TestApplyVersion_CrossBranchWorksInBothIDDirections(t *testing.T) {
 	require.Error(t, err)
 	_, err = reg.GetEntry(branchBID)
 	require.NoError(t, err)
+}
+
+func TestFindStoredVersionUsesTargetLookupAcrossManyBranches(t *testing.T) {
+	storage := memory.New()
+	root := version.New(regapi.RootVersion)
+	const branches = 5000
+	for id := uint(1); id <= branches; id++ {
+		require.NoError(t, storage.Save(version.FromParent(root, id), nil, false))
+	}
+	target := version.FromParent(version.FromParent(root, 1), branches+1)
+	require.NoError(t, storage.Save(target, nil, false))
+	history := &lookupHistory{Storage: storage}
+	reg := &Reg{history: history}
+
+	stored, err := reg.findStoredVersion(version.New(branches + 1))
+	require.NoError(t, err)
+	require.False(t, history.versionsCalled)
+	require.Equal(t, uint(branches+1), stored.ID())
+	require.Equal(t, uint(1), stored.Previous().ID())
 }

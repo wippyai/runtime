@@ -35,6 +35,13 @@ func (n *History) Save(newVersion registry.Version, _ registry.ChangeSet, head b
 }
 
 func (n *History) SaveWithDependencyResolution(newVersion registry.Version, _ registry.ChangeSet, resolution *registry.DependencyResolution, head bool) error {
+	var canonical *registry.DependencyResolution
+	if resolution != nil {
+		canonical = resolution.Canonical()
+		if !canonical.Valid() {
+			return registry.ErrInvalidDependencyResolution
+		}
+	}
 	if head {
 		n.mu.Lock()
 		defer n.mu.Unlock()
@@ -42,8 +49,8 @@ func (n *History) SaveWithDependencyResolution(newVersion registry.Version, _ re
 			return ErrRollbackNotSupported
 		}
 		n.head = newVersion
-		if resolution != nil {
-			n.resolution = resolution.Canonical()
+		if canonical != nil {
+			n.resolution = canonical
 			n.resolutionVersion = newVersion.ID()
 		} else if n.resolution != nil {
 			n.resolutionVersion = newVersion.ID()
@@ -65,6 +72,10 @@ func (n *History) CheckpointDependencyResolution(v registry.Version, resolution 
 	if resolution == nil {
 		return registry.ErrDependencyResolutionNotFound
 	}
+	canonical := resolution.Canonical()
+	if !canonical.Valid() {
+		return registry.ErrInvalidDependencyResolution
+	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if n.head != nil && n.head.ID() != v.ID() {
@@ -73,12 +84,36 @@ func (n *History) CheckpointDependencyResolution(v registry.Version, resolution 
 	if n.head == nil && v.ID() != registry.RootVersion {
 		return ErrHistoryNotAvailable
 	}
-	canonical := resolution.Canonical()
 	if n.resolution != nil && n.resolutionVersion == v.ID() && n.resolution.Digest != canonical.Digest {
 		return ErrHistoryNotAvailable
 	}
 	n.resolution = canonical
 	n.resolutionVersion = v.ID()
+	return nil
+}
+
+func (n *History) CompareAndSetHeadWithDependencyResolution(expected, target registry.Version, resolution *registry.DependencyResolution) error {
+	if resolution == nil {
+		return registry.ErrDependencyResolutionNotFound
+	}
+	canonical := resolution.Canonical()
+	if !canonical.Valid() {
+		return registry.ErrInvalidDependencyResolution
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if !nilHeadMatchesParent(n.head, expected) {
+		return ErrRollbackNotSupported
+	}
+	if target.ID() != expected.ID() {
+		return ErrHistoryNotAvailable
+	}
+	if n.resolution != nil && n.resolutionVersion == target.ID() && n.resolution.Digest != canonical.Digest {
+		return ErrHistoryNotAvailable
+	}
+	n.resolution = canonical
+	n.resolutionVersion = target.ID()
+	n.head = target
 	return nil
 }
 

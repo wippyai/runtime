@@ -49,6 +49,46 @@ func (r *SourceRootRegistry) SetAll(roots SourceRoots) {
 	}
 }
 
+// SwapSubset atomically replaces the roots for modules with desired and
+// returns the roots that existed before the replacement. Empty module names,
+// roots, and desired entries outside modules are ignored.
+func (r *SourceRootRegistry) SwapSubset(desired SourceRoots, modules ...string) SourceRoots {
+	if r == nil || len(modules) == 0 {
+		return nil
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	previous := make(SourceRoots)
+	controlled := make(map[string]struct{}, len(modules))
+	for _, module := range modules {
+		if module == "" {
+			continue
+		}
+		if _, seen := controlled[module]; seen {
+			continue
+		}
+		controlled[module] = struct{}{}
+		if root := r.roots[module]; root != "" {
+			previous[module] = root
+		}
+		delete(r.roots, module)
+	}
+	if r.roots == nil {
+		r.roots = SourceRoots{}
+	}
+	for module, root := range desired {
+		if root == "" {
+			continue
+		}
+		if _, ok := controlled[module]; ok {
+			r.roots[module] = root
+		}
+	}
+	return previous
+}
+
 // Get returns a module root.
 func (r *SourceRootRegistry) Get(module string) (string, bool) {
 	if r == nil || module == "" {
@@ -95,6 +135,21 @@ func WithSourceRoots(ctx context.Context, roots SourceRoots) context.Context {
 	reg.SetAll(roots)
 
 	return ctx
+}
+
+// SwapSourceRoots atomically replaces the controlled module roots and returns
+// the roots that existed before the replacement. It is a no-op when ctx has no
+// source-root registry.
+func SwapSourceRoots(ctx context.Context, desired SourceRoots, modules ...string) SourceRoots {
+	ac := ctxapi.AppFromContext(ctx)
+	if ac == nil {
+		return nil
+	}
+	reg, _ := ac.Get(sourceRootsKey).(*SourceRootRegistry)
+	if reg == nil {
+		return nil
+	}
+	return reg.SwapSubset(desired, modules...)
 }
 
 // SourceRoot returns the local load root for a module, when one is available.

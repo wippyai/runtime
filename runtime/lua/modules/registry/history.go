@@ -63,22 +63,14 @@ func historyGetVersion(l *lua.LState) int {
 		return 2
 	}
 
-	versions, versErr := history.hist.Versions()
-	if versErr != nil {
-		err := lua.WrapErrorWithLua(l, versErr, "get versions").
+	foundVersion, lookupErr := findHistoryVersion(history.hist, uint(vID))
+	if lookupErr != nil {
+		err := lua.WrapErrorWithLua(l, lookupErr, "get version").
 			WithKind(lua.Internal).
 			WithRetryable(false)
 		l.Push(lua.LNil)
 		l.Push(err)
 		return 2
-	}
-
-	var foundVersion regapi.Version
-	for _, ver := range versions {
-		if ver.ID() == uint(vID) {
-			foundVersion = ver
-			break
-		}
 	}
 
 	if foundVersion == nil {
@@ -93,6 +85,22 @@ func historyGetVersion(l *lua.LState) int {
 	value.PushTypedUserData(l, foundVersion, typeVersion)
 	l.Push(lua.LNil)
 	return 2
+}
+
+func findHistoryVersion(history regapi.History, id uint) (regapi.Version, error) {
+	if lookup, ok := history.(regapi.VersionLookup); ok {
+		return lookup.GetVersion(id)
+	}
+	versions, err := history.Versions()
+	if err != nil {
+		return nil, err
+	}
+	for _, stored := range versions {
+		if stored.ID() == id {
+			return stored, nil
+		}
+	}
+	return nil, nil
 }
 
 // historySnapshotAt returns a snapshot of the registry at a specific version

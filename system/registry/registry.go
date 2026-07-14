@@ -142,6 +142,7 @@ func (r *Reg) GetEntry(path registry.ID) (registry.Entry, error) {
 func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.Version, error) {
 	r.applyMu.Lock()
 	defer r.applyMu.Unlock()
+	changes = append(registry.ChangeSet(nil), changes...)
 	canonicalizeChangeSetIDs(changes)
 
 	r.log.Info("apply started", zap.Int("change_count", len(changes)))
@@ -174,6 +175,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 
 		plan.Ops, err = planner.SortOps(snapshot, plan.Ops)
 		if err != nil {
+			planner.RollbackEffects(ctx, plan.Effects)
 			return nil, NewSortChangesError(err)
 		}
 
@@ -264,7 +266,7 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 		if resolutionChanged {
 			resolutionHistory, ok := r.history.(registry.ResolutionHistory)
 			if !ok {
-				saveErr = errors.New("history does not support durable dependency resolutions")
+				saveErr = ErrDurableResolutionUnsupported
 			} else {
 				saveErr = resolutionHistory.SaveWithDependencyResolution(newVersion, enrichedChanges, resolution, true)
 			}
@@ -335,6 +337,11 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	r.mu.RUnlock()
 
 	if baseVersion != nil && baseVersion.ID() == v.ID() {
+		if cas, ok := r.history.(registry.HeadCASHistory); ok {
+			if err := cas.CompareAndSetHead(baseVersion, baseVersion); err != nil {
+				return NewSetHeadError(baseVersion.ID(), err)
+			}
+		}
 		return nil
 	}
 
@@ -363,13 +370,11 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		preparedEff      []registry.Effect
 		planner          *regexp.Planner
 		targetResolution *registry.DependencyResolution
-		resolutionStored bool
 	)
 	if resolutionHistory, ok := r.history.(registry.ResolutionHistory); ok {
 		stored, resolutionErr := resolutionHistory.GetDependencyResolution(targetVersion)
 		if resolutionErr == nil {
 			targetResolution = stored
-			resolutionStored = true
 		} else if !errors.Is(resolutionErr, registry.ErrDependencyResolutionNotFound) {
 			return NewGetChangesetError(targetVersion.ID(), resolutionErr)
 		}
@@ -428,6 +433,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 
 		plan.Ops, err = planner.SortOps(snapshot, plan.Ops)
 		if err != nil {
+			planner.RollbackEffects(ctx, plan.Effects)
 			return NewSortChangesError(err)
 		}
 
@@ -460,10 +466,12 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 					return NewExpandChangesError(expandErr)
 				}
 				if rootPlan.Resolution == nil {
+					planner.RollbackEffects(ctx, rootPlan.Effects)
 					continue
 				}
 				rootPlan.Ops, expandErr = planner.SortOps(intermediate, rootPlan.Ops)
 				if expandErr != nil {
+					planner.RollbackEffects(ctx, rootPlan.Effects)
 					planner.RollbackEffects(ctx, preparedEff)
 					return NewSortChangesError(expandErr)
 				}
@@ -491,6 +499,14 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			return NewSortChangesError(err)
 		}
 		allOps = sorted
+	}
+
+	resolutionHeadCAS, supportsAtomicResolutionHead := r.history.(registry.ResolutionHeadCASHistory)
+	if targetResolution != nil && !supportsAtomicResolutionHead {
+		if planner != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+		}
+		return NewSaveVersionError(ErrDurableResolutionUnsupported, nil)
 	}
 
 	// Topologically sort before dispatching to the runner. Same invariant as
@@ -545,8 +561,14 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		}
 	}
 
-	if err := compareAndSetHistoryHead(r.history, baseVersion, targetVersion); err != nil {
-		headErr := NewSetHeadError(targetVersion.ID(), err)
+	var headUpdateErr error
+	if targetResolution != nil {
+		headUpdateErr = resolutionHeadCAS.CompareAndSetHeadWithDependencyResolution(baseVersion, targetVersion, targetResolution)
+	} else {
+		headUpdateErr = compareAndSetHistoryHead(r.history, baseVersion, targetVersion)
+	}
+	if headUpdateErr != nil {
+		headErr := NewSetHeadError(targetVersion.ID(), headUpdateErr)
 		var compensationErr error
 		if rollbackErr := r.rollback(ctx, newState, r.state); rollbackErr != nil {
 			compensationErr = errors.Join(compensationErr, rollbackErr)
@@ -558,25 +580,6 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			return NewApplyVersionChangesError(headErr, compensationErr)
 		}
 		return headErr
-	}
-
-	resolutionHistory, supportsResolutionHistory := r.history.(registry.ResolutionHistory)
-	if targetResolution != nil && supportsResolutionHistory && !resolutionStored {
-		if checkpointErr := resolutionHistory.CheckpointDependencyResolution(targetVersion, targetResolution); checkpointErr != nil {
-			var compensationErr error
-			if baseVersion != nil {
-				if restoreErr := compareAndSetHistoryHead(r.history, targetVersion, baseVersion); restoreErr != nil {
-					compensationErr = errors.Join(compensationErr, restoreErr)
-				}
-			}
-			if rollbackErr := r.rollback(ctx, newState, r.state); rollbackErr != nil {
-				compensationErr = errors.Join(compensationErr, rollbackErr)
-			}
-			if planner != nil {
-				planner.RollbackEffects(ctx, preparedEff)
-			}
-			return NewSaveVersionError(checkpointErr, compensationErr)
-		}
 	}
 	if planner != nil {
 		if finalizeErr := planner.FinalizeEffects(ctx, preparedEff); finalizeErr != nil {
@@ -595,13 +598,24 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 }
 
 func compareAndSetHistoryHead(history registry.History, expected, target registry.Version) error {
-	if cas, ok := history.(registry.HeadCASHistory); ok && expected != nil {
-		return cas.CompareAndSetHead(expected, target)
+	if expected == nil {
+		return history.SetHead(target)
 	}
-	return history.SetHead(target)
+	cas, ok := history.(registry.HeadCASHistory)
+	if !ok {
+		return errors.New("history does not support atomic head updates")
+	}
+	return cas.CompareAndSetHead(expected, target)
 }
 
 func (r *Reg) findStoredVersion(v registry.Version) (registry.Version, error) {
+	if lookup, ok := r.history.(registry.VersionLookup); ok {
+		stored, err := lookup.GetVersion(v.ID())
+		if err != nil {
+			return nil, NewGetVersionsError(err)
+		}
+		return stored, nil
+	}
 	versions, err := r.history.Versions()
 	if err != nil {
 		return nil, NewGetVersionsError(err)
@@ -719,8 +733,15 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	defer r.mu.Unlock()
 
 	allocatorVersion := targetVersion.ID()
-	versionsInHistory, versionsErr := r.history.Versions()
-	if versionsErr != nil {
+	if bounds, ok := r.history.(registry.VersionIDBounds); ok {
+		maxID, err := bounds.MaxVersionID()
+		if err != nil {
+			return NewGetVersionsError(err)
+		}
+		if maxID > allocatorVersion {
+			allocatorVersion = maxID
+		}
+	} else if versionsInHistory, versionsErr := r.history.Versions(); versionsErr != nil {
 		// Forward-only histories cannot enumerate versions and have no branches to
 		// preserve. Durable histories must enumerate successfully so a rewind does
 		// not make the allocator reuse an existing branch ID.
@@ -739,7 +760,6 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	var planner *regexp.Planner
 	var preparedEff []registry.Effect
 	var resolution *registry.DependencyResolution
-	resolutionWasStored := false
 	if len(r.directivesByKind) > 0 {
 		planner = regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
 	}
@@ -755,7 +775,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 		}
 		if replayer, ok := r.history.(registry.ChangeSetReplayer); ok {
 			r.log.Debug("streaming history changesets on baseline", zap.Uint("target_version", targetVersion.ID()))
-			if err := replayer.ReplayChanges(targetVersion, applyChanges); err != nil {
+			if err := replayer.ReplayChanges(ctx, targetVersion, applyChanges); err != nil {
 				return NewGetChangesetError(targetVersion.ID(), err)
 			}
 		} else {
@@ -781,7 +801,6 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 		stored, err := resolutionHistory.GetDependencyResolution(targetVersion)
 		if err == nil {
 			resolution = stored
-			resolutionWasStored = true
 		} else if !errors.Is(err, registry.ErrDependencyResolutionNotFound) {
 			return NewGetChangesetError(targetVersion.ID(), err)
 		}
@@ -813,6 +832,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 			}
 			plan.Ops, err = planner.SortOps(snapshot, plan.Ops)
 			if err != nil {
+				planner.RollbackEffects(ctx, plan.Effects)
 				planner.RollbackEffects(ctx, preparedEff)
 				return NewSortChangesError(err)
 			}
@@ -850,6 +870,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 			}
 			plan.Ops, err = planner.SortOps(snapshot, plan.Ops)
 			if err != nil {
+				planner.RollbackEffects(ctx, plan.Effects)
 				planner.RollbackEffects(ctx, preparedEff)
 				return NewSortChangesError(err)
 			}
@@ -865,6 +886,15 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 				resolution = plan.Resolution.Canonical()
 			}
 			applyStateOperations(stateMap, ops)
+		}
+	}
+
+	if resolution != nil {
+		if _, ok := r.history.(registry.ResolutionHeadCASHistory); !ok {
+			if planner != nil {
+				planner.RollbackEffects(ctx, preparedEff)
+			}
+			return NewSaveVersionError(ErrDurableResolutionUnsupported, nil)
 		}
 	}
 
@@ -898,19 +928,22 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 		}
 	}
 
-	if resolution != nil && !resolutionWasStored {
-		if resolutionHistory, ok := r.history.(registry.ResolutionHistory); ok {
-			if checkpointErr := resolutionHistory.CheckpointDependencyResolution(targetVersion, resolution); checkpointErr != nil {
-				var rollbackErr error
-				if transitionErr := r.rollback(ctx, newState, r.state); transitionErr != nil {
-					rollbackErr = transitionErr
-				}
-				if planner != nil {
-					planner.RollbackEffects(ctx, preparedEff)
-				}
-				return NewSaveVersionError(checkpointErr, rollbackErr)
-			}
+	var headCheckErr error
+	if resolution != nil {
+		headCheckErr = r.history.(registry.ResolutionHeadCASHistory).
+			CompareAndSetHeadWithDependencyResolution(targetVersion, targetVersion, resolution)
+	} else if cas, ok := r.history.(registry.HeadCASHistory); ok {
+		headCheckErr = cas.CompareAndSetHead(targetVersion, targetVersion)
+	}
+	if headCheckErr != nil {
+		var rollbackErr error
+		if transitionErr := r.rollback(ctx, newState, r.state); transitionErr != nil {
+			rollbackErr = transitionErr
 		}
+		if planner != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+		}
+		return NewSaveVersionError(headCheckErr, rollbackErr)
 	}
 	if planner != nil {
 		if finalizeErr := planner.FinalizeEffects(ctx, preparedEff); finalizeErr != nil {

@@ -4,8 +4,11 @@ package hub
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
@@ -32,7 +35,7 @@ type stagedPack struct {
 	version  string
 }
 
-// obsoletePack identifies a module pack to unregister (and close) on Commit
+// obsoletePack identifies a module pack to unregister (and close) on Finalize
 // because the module was removed or replaced by a newer version.
 type obsoletePack struct {
 	module  string
@@ -97,22 +100,24 @@ func (e *embedPackEffect) Commit(_ context.Context) error {
 }
 
 func (e *embedPackEffect) Finalize(_ context.Context) error {
+	var errs []error
 	for _, op := range e.obsolete {
 		if err := e.reg.UnregisterModule(op.module, op.version); err != nil {
-			// Logged, not fatal: the changeset already committed and the old
-			// pack is no longer referenced by any live entry. Failing here
-			// would only leak a file handle for the rest of the process life.
+			// The changeset is already durable, so callers only report this as a
+			// cleanup warning. Return it for observability instead of pretending
+			// the obsolete handle was released.
 			e.logger.Warn("failed to unregister obsolete embedded pack",
 				zap.String("module", op.module),
 				zap.String("version", op.version),
 				zap.Error(err))
+			errs = append(errs, fmt.Errorf("unregister embedded pack %s@%s: %w", op.module, op.version, err))
 			continue
 		}
 		e.logger.Debug("released obsolete embedded pack",
 			zap.String("module", op.module),
 			zap.String("version", op.version))
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func (e *embedPackEffect) Rollback(_ context.Context) error {
@@ -153,11 +158,29 @@ func (h *DependencyHandler) buildEmbedPackEffect(
 
 	desired := make(map[string]string, len(resolved))
 	installed := snapshotModuleVersions(snapshot)
+	installedDigests := snapshotModuleDigests(snapshot)
 	staged := make([]stagedPack, 0, len(resolved))
 	for _, mod := range resolved {
 		name := mod.Org + "/" + mod.Name
+		if h.moduleUsesDirectoryMode(name) {
+			continue
+		}
 
-		if installed[name] == mod.Version && reg.HasModulePack(name, mod.Version) && !h.moduleUsesDirectoryMode(name) {
+		if installed[name] == mod.Version && reg.HasModulePack(name, mod.Version) {
+			// The embed registry addresses packs by module and version. Replacing a
+			// pack with different bytes at the same identity would close the old
+			// handle during Prepare, so Rollback could not restore it. Fail closed
+			// when both generations have durable identities; legacy snapshots that
+			// predate module digests retain the existing behavior.
+			if installedDigest := installedDigests[name]; installedDigest != "" && mod.Digest != "" &&
+				!strings.EqualFold(installedDigest, mod.Digest) {
+				return nil, NewDependencyIntegrityError(
+					modKey(mod),
+					errors.New("cannot replace an active embedded pack at the same module version"),
+					mod.Digest,
+					mod.SizeBytes,
+				)
+			}
 			desired[name] = mod.Version
 			continue
 		}
@@ -223,6 +246,9 @@ func obsoletePacksFor(snapshot regapi.State, desired map[string]string, controll
 // and whether that path is a .wapp pack. Replacement (local source) and
 // unpacked modules are directories and are reported as non-pack.
 func (h *DependencyHandler) modulePackPath(ctx context.Context, mod ResolvedModule) (string, bool, error) {
+	if h.moduleUsesDirectoryMode(mod.Org + "/" + mod.Name) {
+		return "", false, nil
+	}
 	path, err := h.ensureModuleAvailable(ctx, mod)
 	if err != nil {
 		return "", false, err

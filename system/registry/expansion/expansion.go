@@ -82,6 +82,13 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 	}
 
 	var effects []registry.Effect
+	var ownedEffects []registry.Effect
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			p.RollbackEffects(ctx, ownedEffects)
+		}
+	}()
 	var resolution *registry.DependencyResolution
 	expanded := false
 	originalCount := len(scoped)
@@ -125,6 +132,7 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 			if err != nil {
 				return nil, err
 			}
+			ownedEffects = append(ownedEffects, result.Effects...)
 			if !result.Applied && result.OriginalScope == nil && result.Resolution == nil && len(result.Additional) == 0 && len(result.Effects) == 0 {
 				continue // Capability is present but not configured; use per-op expansion.
 			}
@@ -162,6 +170,7 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 				if err != nil {
 					return nil, err
 				}
+				ownedEffects = append(ownedEffects, res.Effects...)
 			}
 			if !res.Applied {
 				if res.OriginalScope != nil || res.Resolution != nil || len(res.Additional) > 0 || len(res.Effects) > 0 {
@@ -199,6 +208,7 @@ func (p *Planner) Expand(ctx context.Context, changes registry.ChangeSet, snapsh
 		}
 	}
 
+	succeeded = true
 	return &Plan{Ops: scoped, Effects: effects, Resolution: resolution, Expanded: expanded}, nil
 }
 

@@ -29,7 +29,11 @@ func hardeningModuleEntry(id, module, version string) regapi.Entry {
 	return regapi.Entry{
 		ID:   regapi.ParseID(id),
 		Kind: regapi.EntryKind,
-		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: module, metaModuleVersionKey: version}),
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey:        module,
+			metaModuleVersionKey: version,
+			metaModuleDigestKey:  hardeningDigest,
+		}),
 		Data: payload.New(map[string]any{"module": module}),
 	}
 }
@@ -48,10 +52,14 @@ func hardeningResolution(roots ...regapi.Entry) *regapi.DependencyResolution {
 		}
 		seen[component] = struct{}{}
 		name, _ := graph.ParseName(component)
-		modules = append(modules, ResolvedModule{Org: name.Organization, Name: name.Module, Version: "v1.0.0"})
+		modules = append(modules, ResolvedModule{
+			Org: name.Organization, Name: name.Module, Version: "v1.0.0", Digest: hardeningDigest,
+		})
 	}
 	return dependencyResolution(desired, modules)
 }
+
+const hardeningDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
 func TestDependencyHandler_ExpandChangesDeletesEarlierRootModulesAndReturnsResolution(t *testing.T) {
 	ctx := newTestContext()
@@ -127,6 +135,31 @@ func TestDependencyHandler_ExpandChangesRetargetsEarlierRootWithoutLeavingOldMod
 	})
 }
 
+func TestDependencyHandler_ExpandChangesRetaggingRootStillRemovesOwnedModule(t *testing.T) {
+	ctx := newTestContext()
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{}, Logger: zap.NewNop(), VendorDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	root := hardeningRoot("app.deps:a", "acme/a", "v1.0.0")
+	owned := hardeningModuleEntry("acme.a:entry", "acme/a", "v1.0.0")
+	retagged := root
+	retagged.Meta = attrs.NewBagFrom(map[string]any{
+		metaModuleKey: "host/owner",
+	})
+
+	result, err := handler.ExpandChanges(ctx, regapi.ChangeSet{{
+		Kind: regapi.EntryUpdate, Entry: retagged,
+	}}, regapi.State{root, owned})
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+	require.Contains(t, result.Additional, regapi.ScopedOperation{
+		Operation: regapi.Operation{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: owned.ID}},
+		Scope:     regapi.ScopeBaseline,
+	})
+}
+
 func TestDependencyHandler_ExpandUnchangedRootStillReturnsLegacyCheckpointGraph(t *testing.T) {
 	ctx := newTestContext()
 	root := hardeningRoot("app.deps:a", "acme/a", "v1.0.0")
@@ -163,11 +196,11 @@ func TestDependencyHandler_ReconcileRejectsRootSetDriftAndDuplicates(t *testing.
 	duplicate.Roots[1] = duplicate.Roots[0]
 	duplicate = duplicate.Canonical()
 	_, err = handler.ReconcileResolution(ctx, regapi.State{rootA, rootB}, duplicate)
-	require.ErrorContains(t, err, "duplicate stored dependency root")
+	require.ErrorContains(t, err, "stored dependency resolution is invalid")
 
 	rootBDuplicateComponent := hardeningRoot("app.deps:b", "acme/a", "v1.0.0")
 	_, err = handler.ReconcileResolution(ctx, regapi.State{rootA, rootBDuplicateComponent}, hardeningResolution(rootA, rootBDuplicateComponent))
-	require.ErrorContains(t, err, "duplicate stored dependency component")
+	require.ErrorContains(t, err, "stored dependency resolution is invalid")
 }
 
 func TestDependencyHandler_ReconcileAcceptsStoredLabelSelectionOffline(t *testing.T) {
@@ -201,6 +234,10 @@ func TestDependencyHandler_ReconcileRejectsUnsafeStoredArtifactIdentity(t *testi
 	require.Error(t, validateModuleArtifactIdentity(graph.Name{Organization: "acme", Module: "safe"}, "1.0.0/../../escape", ""))
 	_, err = containedPath(t.TempDir(), filepath.Join("..", "escape.wapp"))
 	require.ErrorContains(t, err, "escapes vendor")
+	vendor := t.TempDir()
+	require.NoError(t, os.Symlink(t.TempDir(), filepath.Join(vendor, "linked")))
+	_, err = containedPath(vendor, filepath.Join("linked", "module.wapp"))
+	require.ErrorContains(t, err, "traverses symlink")
 }
 
 func TestValidateDownloadInfoRejectsStoredIdentityDrift(t *testing.T) {
@@ -208,4 +245,16 @@ func TestValidateDownloadInfoRejectsStoredIdentityDrift(t *testing.T) {
 	require.ErrorContains(t, validateDownloadInfo(mod, &DownloadInfo{Version: "v2.0.0"}), "version mismatch")
 	require.ErrorContains(t, validateDownloadInfo(mod, &DownloadInfo{Version: "v1.0.0", Digest: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}), "digest mismatch")
 	require.ErrorContains(t, validateDownloadInfo(mod, &DownloadInfo{Version: "v1.0.0", Size: 11}), "size mismatch")
+}
+
+func TestVerifyExtractedModuleRejectsContentTampering(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "module.yaml")
+	require.NoError(t, os.WriteFile(file, []byte("value: original\n"), 0o600))
+	digest := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	require.NoError(t, writeExtractedModuleMeta(dir, digest, 10))
+	require.NoError(t, verifyExtractedModule(dir, digest, 10))
+
+	require.NoError(t, os.WriteFile(file, []byte("value: tampered\n"), 0o600))
+	require.ErrorContains(t, verifyExtractedModule(dir, digest, 10), "tree digest mismatch")
 }

@@ -4,14 +4,18 @@ package version
 
 import (
 	"fmt"
+	"sync/atomic"
 
 	"github.com/wippyai/runtime/api/registry"
 )
 
-// version represents a version with parent/next pointers
+// version represents a version with an immutable parent and a legacy next
+// pointer. A version can have several children, so next retains only the
+// lowest-ID child for deterministic linear traversal. Branch-aware callers
+// must enumerate history and choose an explicit target version.
 type version struct {
 	previous *version
-	next     *version
+	next     atomic.Pointer[version]
 	id       uint
 }
 
@@ -35,10 +39,11 @@ func (v *version) Previous() registry.Version {
 
 // Next returns the next version.
 func (v *version) Next() registry.Version {
-	if v.next == nil {
+	next := v.next.Load()
+	if next == nil {
 		return nil
 	}
-	return v.next
+	return next
 }
 
 // New creates a new version struct.
@@ -63,6 +68,18 @@ func FromParent(parent registry.Version, id uint) registry.Version {
 		id:       id,
 		previous: parentVersion,
 	}
-	parentVersion.next = child
+	parentVersion.retainFirstChild(child)
 	return child
+}
+
+func (v *version) retainFirstChild(child *version) {
+	for {
+		current := v.next.Load()
+		if current != nil && current.id <= child.id {
+			return
+		}
+		if v.next.CompareAndSwap(current, child) {
+			return
+		}
+	}
 }

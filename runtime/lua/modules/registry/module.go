@@ -482,22 +482,14 @@ func makeSnapshotAt(log *zap.Logger) lua.LGoFunc {
 			return 2
 		}
 
-		versions, versErr := hist.Versions()
-		if versErr != nil {
-			err := lua.WrapErrorWithLua(l, versErr, "get versions").
+		foundVersion, lookupErr := findHistoryVersion(hist, uint(versionID))
+		if lookupErr != nil {
+			err := lua.WrapErrorWithLua(l, lookupErr, "get version").
 				WithKind(lua.Internal).
 				WithRetryable(false)
 			l.Push(lua.LNil)
 			l.Push(err)
 			return 2
-		}
-
-		var foundVersion regapi.Version
-		for _, ver := range versions {
-			if ver.ID() == uint(versionID) {
-				foundVersion = ver
-				break
-			}
 		}
 
 		if foundVersion == nil {

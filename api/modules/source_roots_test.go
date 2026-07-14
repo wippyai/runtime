@@ -83,3 +83,45 @@ func TestSourceRootsNoPanicWhenSealedWithoutRegistry(t *testing.T) {
 		t.Fatal("source root should not be registered when sealed registry is absent")
 	}
 }
+
+func TestSwapSourceRootsReplacesOnlyControlledSubset(t *testing.T) {
+	ctx := WithSourceRootRegistry(ctxapi.NewRootContext())
+	WithSourceRoots(ctx, SourceRoots{
+		"acme/old":       "/repo/old",
+		"acme/updated":   "/repo/updated-v1",
+		"acme/unrelated": "/repo/unrelated",
+	})
+
+	previous := SwapSourceRoots(ctx, SourceRoots{
+		"acme/updated":   "/repo/updated-v2",
+		"acme/new":       "/repo/new",
+		"acme/unrelated": "/must-not-apply",
+	}, "acme/old", "acme/updated", "acme/new")
+
+	if len(previous) != 2 || previous["acme/old"] != "/repo/old" || previous["acme/updated"] != "/repo/updated-v1" {
+		t.Fatalf("previous roots = %#v", previous)
+	}
+	if _, ok := SourceRoot(ctx, "acme/old"); ok {
+		t.Fatal("controlled root omitted from desired must be removed")
+	}
+	if root, ok := SourceRoot(ctx, "acme/updated"); !ok || root != "/repo/updated-v2" {
+		t.Fatalf("updated root = %q, %v", root, ok)
+	}
+	if root, ok := SourceRoot(ctx, "acme/new"); !ok || root != "/repo/new" {
+		t.Fatalf("new root = %q, %v", root, ok)
+	}
+	if root, ok := SourceRoot(ctx, "acme/unrelated"); !ok || root != "/repo/unrelated" {
+		t.Fatalf("unrelated root = %q, %v", root, ok)
+	}
+
+	SwapSourceRoots(ctx, previous, "acme/old", "acme/updated", "acme/new")
+	if root, ok := SourceRoot(ctx, "acme/old"); !ok || root != "/repo/old" {
+		t.Fatalf("restored old root = %q, %v", root, ok)
+	}
+	if root, ok := SourceRoot(ctx, "acme/updated"); !ok || root != "/repo/updated-v1" {
+		t.Fatalf("restored updated root = %q, %v", root, ok)
+	}
+	if _, ok := SourceRoot(ctx, "acme/new"); ok {
+		t.Fatal("new root must be removed during restore")
+	}
+}

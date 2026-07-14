@@ -3,22 +3,51 @@
 package memory
 
 import (
+	"context"
 	"reflect"
 	"sort"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/wippyai/runtime/api/payload"
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
 )
 
+func TestStorageCanonicalizesSavedAncestryAndHead(t *testing.T) {
+	storage := New()
+	v0 := version.New(0)
+	v1 := version.FromParent(v0, 1)
+	if err := storage.Save(v1, nil, false); err != nil {
+		t.Fatal(err)
+	}
+
+	// The caller supplies the right parent ID with a deliberately truncated
+	// parent chain. Storage must link to its canonical v1, not retain this object.
+	v2 := version.FromParent(version.New(1), 2)
+	if err := storage.Save(v2, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.SetHead(version.New(2)); err != nil {
+		t.Fatal(err)
+	}
+	head, err := storage.Head()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if head.Previous() == nil || head.Previous().ID() != 1 || head.Previous().Previous() == nil || head.Previous().Previous().ID() != 0 {
+		t.Fatalf("head ancestry was not canonicalized: %#v", head)
+	}
+}
+
 func TestStorage_Versions(t *testing.T) {
 	storage := New()
 
 	v0 := version.New(0)
-	v1 := version.New(1)
-	v2 := version.New(2)
-	v3 := version.New(3)
+	v1 := version.FromParent(v0, 1)
+	v2 := version.FromParent(v1, 2)
+	v3 := version.FromParent(v2, 3)
 
 	_ = storage.Save(v1, registry.ChangeSet{}, false)
 	_ = storage.Save(v2, registry.ChangeSet{}, false)
@@ -33,9 +62,9 @@ func TestStorage_Versions(t *testing.T) {
 		return versions[i].ID() < versions[j].ID()
 	})
 
-	expectedVersions := []registry.Version{v0, v1, v2, v3}
-	if !reflect.DeepEqual(versions, expectedVersions) {
-		t.Errorf("Expected versions: %v, got: %v", expectedVersions, versions)
+	expectedIDs := []uint{v0.ID(), v1.ID(), v2.ID(), v3.ID()}
+	if got := versionIDs(versions); !reflect.DeepEqual(got, expectedIDs) {
+		t.Errorf("Expected version IDs: %v, got: %v", expectedIDs, got)
 	}
 }
 
@@ -58,7 +87,7 @@ func TestStorage_ReplayChangesFollowsOnlyTargetAncestry(t *testing.T) {
 		t.Fatal(err)
 	}
 	var names []string
-	if err := storage.ReplayChanges(v3, func(cs registry.ChangeSet) error {
+	if err := storage.ReplayChanges(context.Background(), v3, func(cs registry.ChangeSet) error {
 		for _, op := range cs {
 			names = append(names, op.Entry.ID.Name)
 		}
@@ -71,9 +100,61 @@ func TestStorage_ReplayChangesFollowsOnlyTargetAncestry(t *testing.T) {
 	}
 }
 
+func TestStorageReplayHonorsCanceledContextAtRoot(t *testing.T) {
+	storage := New()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := storage.ReplayChanges(ctx, version.New(registry.RootVersion), func(registry.ChangeSet) error {
+		t.Fatal("root replay must not invoke callback")
+		return nil
+	})
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestStorageReplayDoesNotHoldLockDuringCallback(t *testing.T) {
+	storage := New()
+	v0 := version.New(0)
+	v1 := version.FromParent(v0, 1)
+	require.NoError(t, storage.Save(v1, nil, false))
+	v2 := version.FromParent(v1, 2)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- storage.ReplayChanges(context.Background(), v1, func(registry.ChangeSet) error {
+			return storage.Save(v2, nil, false)
+		})
+	}()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("replay callback could not re-enter history")
+	}
+	_, err := storage.Get(v2)
+	require.NoError(t, err)
+}
+
+func TestStorageRejectsMalformedResolutionWithoutMutation(t *testing.T) {
+	storage := New()
+	malformed := (&registry.DependencyResolution{Modules: []registry.ResolvedModule{
+		{Name: "duplicate", Version: "1.0.0"},
+		{Name: "duplicate", Version: "2.0.0"},
+	}}).Canonical()
+	v1 := version.FromParent(version.New(0), 1)
+
+	require.ErrorIs(t, storage.SaveWithDependencyResolution(v1, nil, malformed, true), registry.ErrInvalidDependencyResolution)
+	_, err := storage.GetVersion(v1.ID())
+	require.Error(t, err)
+	_, err = storage.Head()
+	require.Error(t, err)
+}
+
 func TestStorage_Get(t *testing.T) {
 	storage := New()
-	v2 := version.New(2)
+	v0 := version.New(0)
+	v1 := version.FromParent(v0, 1)
+	v2 := version.FromParent(v1, 2)
 
 	actions := registry.ChangeSet{
 		{
@@ -85,6 +166,7 @@ func TestStorage_Get(t *testing.T) {
 		},
 	}
 
+	_ = storage.Save(v1, nil, false)
 	_ = storage.Save(v2, actions, false)
 
 	retrievedActions, err := storage.Get(v2)
@@ -105,8 +187,8 @@ func TestStorage_Get(t *testing.T) {
 func TestStorage_Save(t *testing.T) {
 	storage := New()
 	v0 := version.New(0)
-	v1 := version.New(1)
-	v2 := version.New(2)
+	v1 := version.FromParent(v0, 1)
+	v2 := version.FromParent(v1, 2)
 
 	actions := registry.ChangeSet{
 		{
@@ -133,9 +215,9 @@ func TestStorage_Save(t *testing.T) {
 		return versions[i].ID() < versions[j].ID()
 	})
 
-	expectedVersions := []registry.Version{v0, v1, v2}
-	if !reflect.DeepEqual(versions, expectedVersions) {
-		t.Errorf("Expected versions: %v, got: %v", expectedVersions, versions)
+	expectedIDs := []uint{v0.ID(), v1.ID(), v2.ID()}
+	if got := versionIDs(versions); !reflect.DeepEqual(got, expectedIDs) {
+		t.Errorf("Expected version IDs: %v, got: %v", expectedIDs, got)
 	}
 
 	retrievedActions, _ := storage.Get(v2)
@@ -144,45 +226,69 @@ func TestStorage_Save(t *testing.T) {
 	}
 }
 
+func versionIDs(versions []registry.Version) []uint {
+	ids := make([]uint, len(versions))
+	for i, stored := range versions {
+		ids[i] = stored.ID()
+	}
+	return ids
+}
+
 func TestStorage_Head(t *testing.T) {
 	storage := New()
+	v0 := version.New(0)
 
 	_, err := storage.Head()
 	if err == nil {
 		t.Errorf("Expected error when getting head of empty history, got nil")
 	}
 
-	v1 := version.New(1)
+	v1 := version.FromParent(v0, 1)
 	_ = storage.Save(v1, registry.ChangeSet{}, true)
 
 	head, err := storage.Head()
 	if err != nil {
 		t.Fatalf("Unexpected error getting head: %v", err)
 	}
-	if !reflect.DeepEqual(head, v1) {
+	if head.ID() != v1.ID() {
 		t.Errorf("Expected head to be v1 (%v), got: %v", v1, head)
 	}
 
-	v2 := version.New(2)
+	v2 := version.FromParent(v1, 2)
 	_ = storage.Save(v2, registry.ChangeSet{}, false)
 
 	head, err = storage.Head()
 	if err != nil {
 		t.Fatalf("Unexpected error getting head: %v", err)
 	}
-	if !reflect.DeepEqual(head, v1) {
+	if head.ID() != v1.ID() {
 		t.Errorf("Expected head to remain v1 (%v), got: %v", v1, head)
 	}
 
-	v3 := version.New(3)
+	v3 := version.FromParent(v1, 3)
 	_ = storage.Save(v3, registry.ChangeSet{}, true)
 
 	head, err = storage.Head()
 	if err != nil {
 		t.Fatalf("Unexpected error getting head: %v", err)
 	}
-	if !reflect.DeepEqual(head, v3) {
+	if head.ID() != v3.ID() {
 		t.Errorf("Expected head to be v3 (%v), got: %v", v3, head)
+	}
+}
+
+func TestStorageRejectsParentlessNonRootVersion(t *testing.T) {
+	storage := New()
+	err := storage.Save(version.New(1), nil, false)
+	if err == nil {
+		t.Fatal("expected parentless non-root version to be rejected")
+	}
+	versions, versionsErr := storage.Versions()
+	if versionsErr != nil {
+		t.Fatal(versionsErr)
+	}
+	if len(versions) != 1 || versions[0].ID() != registry.RootVersion {
+		t.Fatalf("rejected version was partially persisted: %v", versions)
 	}
 }
 

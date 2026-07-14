@@ -508,6 +508,28 @@ func TestPlanner_RollbackEffects_Empty(t *testing.T) {
 	p.RollbackEffects(context.Background(), nil)
 }
 
+func TestPlanner_ExpandErrorRollsBackEarlierUnpreparedEffects(t *testing.T) {
+	effect := &testEffect{}
+	kind := registry.Kind("test.kind")
+	planner := NewPlanner(map[registry.Kind][]registry.Directive{
+		kind: {
+			&stubDirective{expandFunc: func(context.Context, registry.Operation, registry.State) (registry.DirectiveResult, error) {
+				return registry.DirectiveResult{Applied: true, Effects: []registry.Effect{effect}}, nil
+			}},
+			&stubDirective{expandFunc: func(context.Context, registry.Operation, registry.State) (registry.DirectiveResult, error) {
+				return registry.DirectiveResult{}, errors.New("later planning failure")
+			}},
+		},
+	}, nil, zap.NewNop())
+
+	_, err := planner.Expand(context.Background(), registry.ChangeSet{{
+		Kind:  registry.EntryCreate,
+		Entry: registry.Entry{ID: registry.NewID("test", "entry"), Kind: kind},
+	}}, nil)
+	require.ErrorContains(t, err, "later planning failure")
+	assert.Equal(t, 1, effect.rollbackCall)
+}
+
 // --- helpers ---
 
 type testEffect struct {

@@ -251,13 +251,15 @@ func TestInMemoryRegistry_Apply(t *testing.T) {
 		t.Errorf("Expected new version to be v1, got: %v", newVersion)
 	}
 
-	if !reflect.DeepEqual(head, newVersion) {
-		t.Errorf("Expected new version to be head: %v, got: %v", head, newVersion)
+	if head == nil || head.ID() != newVersion.ID() {
+		t.Errorf("Expected head version %v, got: %v", newVersion, head)
 	}
 
 	savedChanges, _ := hist.Get(newVersion)
-	if !reflect.DeepEqual(savedChanges, changes) {
-		t.Errorf("Expected saved changes: %v, got: %v", changes, savedChanges)
+	expectedChanges := append(registry.ChangeSet(nil), changes...)
+	canonicalizeChangeSetIDs(expectedChanges)
+	if !reflect.DeepEqual(savedChanges, expectedChanges) {
+		t.Errorf("Expected saved changes: %v, got: %v", expectedChanges, savedChanges)
 	}
 
 	// Verify that the state is updated from the runner
@@ -372,7 +374,7 @@ func TestInMemoryRegistry_ApplyVersion(t *testing.T) {
 		t.Errorf("Expected state: %v, got: %v", runner.newState, reg.state)
 	}
 
-	if !reflect.DeepEqual(reg.currentVersion, v1) {
+	if reg.currentVersion == nil || reg.currentVersion.ID() != v1.ID() {
 		t.Errorf("Expected current version: %v, got: %v", v1, reg.currentVersion)
 	}
 
