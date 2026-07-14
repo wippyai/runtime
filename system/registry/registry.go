@@ -204,6 +204,11 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	// against any dependency-aware runner (memory_graph.RemoveNode).
 	if sorted, sortErr := r.sortWithIndex(snapshot, allOps); sortErr == nil {
 		allOps = sorted
+	} else {
+		if planner != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+		}
+		return nil, NewSortChangesError(sortErr)
 	}
 
 	r.mu.Lock()
@@ -279,6 +284,11 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 			}
 			return nil, NewSaveVersionError(saveErr, nil)
 		}
+		if planner != nil {
+			if finalizeErr := planner.FinalizeEffects(ctx, preparedEff); finalizeErr != nil {
+				r.log.Warn("failed to finalize effects after saving version", zap.Error(finalizeErr))
+			}
+		}
 
 		r.state = newState
 		r.rebuildIndex()
@@ -291,6 +301,11 @@ func (r *Reg) Apply(ctx context.Context, changes registry.ChangeSet) (registry.V
 	r.state = newState
 	r.rebuildIndex()
 	r.patchDepIndex(allOps)
+	if planner != nil {
+		if finalizeErr := planner.FinalizeEffects(ctx, preparedEff); finalizeErr != nil {
+			r.log.Warn("failed to finalize effects after baseline transition", zap.Error(finalizeErr))
+		}
+	}
 	return r.currentVersion, nil
 }
 
@@ -338,14 +353,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		zap.Uint("to", targetVersion.ID()),
 		zap.Int("steps", len(path)))
 
-	isForward := currentVersionID < targetVersion.ID()
-	var changeset registry.ChangeSet
-
-	if isForward {
-		changeset, err = r.collectForwardChangesets(path)
-	} else {
-		changeset, err = r.collectBackwardChangesets(path, targetVersion)
-	}
+	changeset, err := r.collectTransitionChangesets(baseVersion, targetVersion)
 	if err != nil {
 		return err
 	}
@@ -356,11 +364,13 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		preparedEff      []registry.Effect
 		planner          *regexp.Planner
 		targetResolution *registry.DependencyResolution
+		resolutionStored bool
 	)
 	if resolutionHistory, ok := r.history.(registry.ResolutionHistory); ok {
 		stored, resolutionErr := resolutionHistory.GetDependencyResolution(targetVersion)
 		if resolutionErr == nil {
 			targetResolution = stored
+			resolutionStored = true
 		} else if !errors.Is(resolutionErr, registry.ErrDependencyResolutionNotFound) {
 			return NewGetChangesetError(targetVersion.ID(), resolutionErr)
 		}
@@ -382,12 +392,14 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 			intermediate := topology.StateMapToSlice(stateMap)
 			result, reconcileErr := reconciler.ReconcileResolution(ctx, intermediate, targetResolution)
 			if reconcileErr != nil {
+				planner.RollbackEffects(ctx, preparedEff)
 				return NewExpandChangesError(reconcileErr)
 			}
 			reconciled = reconciled || result.Applied
 			prepared, prepareErr := planner.PrepareEffects(ctx, result.Effects)
 			if prepareErr != nil {
 				planner.RollbackEffects(ctx, prepared)
+				planner.RollbackEffects(ctx, preparedEff)
 				return NewPrepareEffectsError(prepareErr)
 			}
 			preparedEff = append(preparedEff, prepared...)
@@ -421,10 +433,58 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		}
 
 		allOps, _ = plan.SplitScopes()
+		if plan.Resolution != nil {
+			targetResolution = plan.Resolution.Canonical()
+		}
 		preparedEff, err = planner.PrepareEffects(ctx, plan.Effects)
 		if err != nil {
 			planner.RollbackEffects(ctx, preparedEff)
 			return NewPrepareEffectsError(err)
+		}
+
+		// A legacy target may change only unrelated declarations even though its
+		// final state still contains dependency roots. Resolve that final root set
+		// once so the target can be checkpointed instead of inheriting whatever
+		// derived modules happen to be present in the source state.
+		if targetResolution == nil {
+			stateMap := topology.NewStateMap(snapshot)
+			applyStateOperations(stateMap, allOps)
+			declarations := topology.StateMapToSlice(stateMap)
+			for _, entry := range declarations {
+				if entry.Kind != registry.NamespaceDependency {
+					continue
+				}
+				intermediate := topology.StateMapToSlice(stateMap)
+				rootPlan, expandErr := planner.Expand(ctx, registry.ChangeSet{{Kind: registry.EntryUpdate, Entry: entry}}, intermediate)
+				if expandErr != nil {
+					planner.RollbackEffects(ctx, preparedEff)
+					return NewExpandChangesError(expandErr)
+				}
+				if rootPlan.Resolution == nil {
+					continue
+				}
+				rootPlan.Ops, expandErr = planner.SortOps(intermediate, rootPlan.Ops)
+				if expandErr != nil {
+					planner.RollbackEffects(ctx, preparedEff)
+					return NewSortChangesError(expandErr)
+				}
+				rootOps, _ := rootPlan.SplitScopes()
+				rootPrepared, prepareErr := planner.PrepareEffects(ctx, rootPlan.Effects)
+				if prepareErr != nil {
+					planner.RollbackEffects(ctx, rootPrepared)
+					planner.RollbackEffects(ctx, preparedEff)
+					return NewPrepareEffectsError(prepareErr)
+				}
+				preparedEff = append(preparedEff, rootPrepared...)
+				applyStateOperations(stateMap, rootOps)
+				targetResolution = rootPlan.Resolution.Canonical()
+				allOps, expandErr = r.builder.BuildDelta(snapshot, topology.StateMapToSlice(stateMap))
+				if expandErr != nil {
+					planner.RollbackEffects(ctx, preparedEff)
+					return NewComputeTransitionError(expandErr)
+				}
+				break
+			}
 		}
 	} else {
 		sorted, err := r.builder.SortChangeSet(snapshot, changeset)
@@ -440,6 +500,11 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	// through expansion.
 	if sorted, sortErr := r.builder.SortChangeSet(snapshot, allOps); sortErr == nil {
 		allOps = sorted
+	} else {
+		if planner != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+		}
+		return NewSortChangesError(sortErr)
 	}
 
 	r.mu.Lock()
@@ -482,7 +547,47 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	}
 
 	if err := r.history.SetHead(targetVersion); err != nil {
-		return NewSetHeadError(targetVersion.ID(), err)
+		headErr := NewSetHeadError(targetVersion.ID(), err)
+		var compensationErr error
+		if baseVersion != nil {
+			if restoreErr := r.history.SetHead(baseVersion); restoreErr != nil {
+				compensationErr = errors.Join(compensationErr, restoreErr)
+			}
+		}
+		if rollbackErr := r.rollback(ctx, newState, r.state); rollbackErr != nil {
+			compensationErr = errors.Join(compensationErr, rollbackErr)
+		}
+		if planner != nil {
+			planner.RollbackEffects(ctx, preparedEff)
+		}
+		if compensationErr != nil {
+			return NewApplyVersionChangesError(headErr, compensationErr)
+		}
+		return headErr
+	}
+
+	resolutionHistory, supportsResolutionHistory := r.history.(registry.ResolutionHistory)
+	if targetResolution != nil && supportsResolutionHistory && !resolutionStored {
+		if checkpointErr := resolutionHistory.CheckpointDependencyResolution(targetVersion, targetResolution); checkpointErr != nil {
+			var compensationErr error
+			if baseVersion != nil {
+				if restoreErr := r.history.SetHead(baseVersion); restoreErr != nil {
+					compensationErr = errors.Join(compensationErr, restoreErr)
+				}
+			}
+			if rollbackErr := r.rollback(ctx, newState, r.state); rollbackErr != nil {
+				compensationErr = errors.Join(compensationErr, rollbackErr)
+			}
+			if planner != nil {
+				planner.RollbackEffects(ctx, preparedEff)
+			}
+			return NewSaveVersionError(checkpointErr, compensationErr)
+		}
+	}
+	if planner != nil {
+		if finalizeErr := planner.FinalizeEffects(ctx, preparedEff); finalizeErr != nil {
+			r.log.Warn("failed to finalize effects after applying version", zap.Error(finalizeErr))
+		}
 	}
 
 	r.state = newState
@@ -530,13 +635,53 @@ func (r *Reg) computeVersionPath(current registry.Version, v registry.Version, c
 	return targetVersion, path, nil
 }
 
-func (r *Reg) collectForwardChangesets(path []registry.Version) (registry.ChangeSet, error) {
-	changesets := make([]registry.ChangeSet, 0, len(path))
-	for _, ver := range path {
-		cs, err := r.history.Get(ver)
-		if err != nil {
-			return nil, NewGetChangesetError(ver.ID(), err)
+// collectTransitionChangesets builds a source-to-target transition from parent
+// edges. Numeric version IDs are allocation order only; they do not tell us
+// whether two versions are ancestors or siblings on different branches.
+func (r *Reg) collectTransitionChangesets(source, target registry.Version) (registry.ChangeSet, error) {
+	if source == nil || target == nil {
+		return nil, NewComputePathError(0, 0, ErrNoCommonAncestor)
+	}
+
+	sourceAncestors := make(map[uint]registry.Version)
+	for current := source; current != nil; current = current.Previous() {
+		sourceAncestors[current.ID()] = current
+	}
+
+	var (
+		commonAncestor registry.Version
+		targetTail     []registry.Version
+	)
+	for current := target; current != nil; current = current.Previous() {
+		if ancestor, ok := sourceAncestors[current.ID()]; ok {
+			commonAncestor = ancestor
+			break
 		}
+		targetTail = append(targetTail, current)
+	}
+	if commonAncestor == nil {
+		return nil, NewComputePathError(source.ID(), target.ID(), ErrNoCommonAncestor)
+	}
+
+	changesets := make([]registry.ChangeSet, 0, len(targetTail)+1)
+	for current := source; current != nil && current.ID() != commonAncestor.ID(); current = current.Previous() {
+		cs, err := r.history.Get(current)
+		if err != nil {
+			return nil, NewGetChangesetError(current.ID(), err)
+		}
+		canonicalizeChangeSetIDs(cs)
+		reversed, err := r.builder.ReverseChangeset(cs)
+		if err != nil {
+			return nil, NewReverseChangesetError(err)
+		}
+		changesets = append(changesets, reversed)
+	}
+	for i := len(targetTail) - 1; i >= 0; i-- {
+		cs, err := r.history.Get(targetTail[i])
+		if err != nil {
+			return nil, NewGetChangesetError(targetTail[i].ID(), err)
+		}
+		canonicalizeChangeSetIDs(cs)
 		changesets = append(changesets, cs)
 	}
 
@@ -594,6 +739,23 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	allocatorVersion := targetVersion.ID()
+	versionsInHistory, versionsErr := r.history.Versions()
+	if versionsErr != nil {
+		// Forward-only histories cannot enumerate versions and have no branches to
+		// preserve. Durable histories must enumerate successfully so a rewind does
+		// not make the allocator reuse an existing branch ID.
+		if targetVersion.ID() > registry.RootVersion {
+			return NewGetVersionsError(versionsErr)
+		}
+	} else {
+		for _, storedVersion := range versionsInHistory {
+			if storedVersion.ID() > allocatorVersion {
+				allocatorVersion = storedVersion.ID()
+			}
+		}
+	}
+
 	stateMap := topology.NewStateMap(baseline)
 	var planner *regexp.Planner
 	var preparedEff []registry.Effect
@@ -622,7 +784,6 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 			zap.Uint("target_version", targetVersion.ID()),
 			zap.Int("changeset_count", len(versions)))
 
-		changesets := make([]registry.ChangeSet, 0, len(versions))
 		for _, ver := range versions {
 			cs, err := r.history.Get(ver)
 			if err != nil {
@@ -631,17 +792,9 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 				}
 				return NewGetChangesetError(ver.ID(), err)
 			}
-
-			changesets = append(changesets, cs)
+			canonicalizeChangeSetIDs(cs)
+			applyStateOperations(stateMap, cs)
 		}
-		// Squash the declarative tail before touching the state. History reads are
-		// linear, while superseded edits do not make registry reconstruction grow.
-		changes := r.builder.SquashChangesets(changesets)
-		snapshot := topology.StateMapToSlice(stateMap)
-		if sorted, err := r.builder.SortChangeSet(snapshot, changes); err == nil {
-			changes = sorted
-		}
-		applyStateOperations(stateMap, changes)
 	}
 
 	if resolutionHistory, ok := r.history.(registry.ResolutionHistory); ok {
@@ -670,6 +823,7 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 			snapshot := topology.StateMapToSlice(stateMap)
 			result, err := reconciler.ReconcileResolution(ctx, snapshot, resolution)
 			if err != nil {
+				planner.RollbackEffects(ctx, preparedEff)
 				return NewExpandChangesError(err)
 			}
 			reconciled = reconciled || result.Applied
@@ -679,12 +833,14 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 			}
 			plan.Ops, err = planner.SortOps(snapshot, plan.Ops)
 			if err != nil {
+				planner.RollbackEffects(ctx, preparedEff)
 				return NewSortChangesError(err)
 			}
 			ops, _ := plan.SplitScopes()
 			prepared, err := planner.PrepareEffects(ctx, plan.Effects)
 			if err != nil {
 				planner.RollbackEffects(ctx, prepared)
+				planner.RollbackEffects(ctx, preparedEff)
 				return NewPrepareEffectsError(err)
 			}
 			preparedEff = append(preparedEff, prepared...)
@@ -697,6 +853,9 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	} else if planner != nil {
 		declarations := topology.StateMapToSlice(stateMap)
 		for _, entry := range declarations {
+			if resolution != nil && entry.Kind == registry.NamespaceDependency {
+				continue // One dependency expansion resolves the complete legacy root graph.
+			}
 			if len(r.directivesByKind[entry.Kind]) == 0 {
 				continue
 			}
@@ -717,8 +876,8 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 			ops, _ := plan.SplitScopes()
 			prepared, err := planner.PrepareEffects(ctx, plan.Effects)
 			if err != nil {
-				planner.RollbackEffects(ctx, preparedEff)
 				planner.RollbackEffects(ctx, prepared)
+				planner.RollbackEffects(ctx, preparedEff)
 				return NewPrepareEffectsError(err)
 			}
 			preparedEff = append(preparedEff, prepared...)
@@ -730,17 +889,6 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	}
 
 	finalState := topology.StateMapToSlice(stateMap)
-	if resolution != nil && !resolutionWasStored {
-		if resolutionHistory, ok := r.history.(registry.ResolutionHistory); ok {
-			if err := resolutionHistory.CheckpointDependencyResolution(targetVersion, resolution); err != nil {
-				if planner != nil {
-					planner.RollbackEffects(ctx, preparedEff)
-				}
-				return NewSaveVersionError(err, nil)
-			}
-		}
-	}
-
 	newState, err := r.transitionState(ctx, r.state, finalState)
 	if err != nil {
 		r.log.Error("failed to load state", zap.String("version", targetVersion.String()), zap.Error(err))
@@ -770,12 +918,32 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 		}
 	}
 
+	if resolution != nil && !resolutionWasStored {
+		if resolutionHistory, ok := r.history.(registry.ResolutionHistory); ok {
+			if checkpointErr := resolutionHistory.CheckpointDependencyResolution(targetVersion, resolution); checkpointErr != nil {
+				var rollbackErr error
+				if transitionErr := r.rollback(ctx, newState, r.state); transitionErr != nil {
+					rollbackErr = transitionErr
+				}
+				if planner != nil {
+					planner.RollbackEffects(ctx, preparedEff)
+				}
+				return NewSaveVersionError(checkpointErr, rollbackErr)
+			}
+		}
+	}
+	if planner != nil {
+		if finalizeErr := planner.FinalizeEffects(ctx, preparedEff); finalizeErr != nil {
+			r.log.Warn("failed to finalize effects after loading state", zap.Error(finalizeErr))
+		}
+	}
+
 	r.state = newState
 	r.rebuildIndex()
 	r.rebuildDepIndex()
 	r.currentVersion = targetVersion
 	r.currentResolution = resolution
-	r.versionNum.Store(uint64(targetVersion.ID()))
+	r.versionNum.Store(uint64(allocatorVersion))
 
 	return nil
 }
