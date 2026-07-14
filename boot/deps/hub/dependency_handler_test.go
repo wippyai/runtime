@@ -98,6 +98,84 @@ func TestDependencyHandler_ResolveErrors(t *testing.T) {
 	}
 }
 
+func TestDependencyHandler_UnchangedLoadedRootIsIdempotent(t *testing.T) {
+	ctx := newTestContext()
+	manifestCalls := 0
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(context.Context, string, string, string) (*ModuleManifest, error) {
+				manifestCalls++
+				return nil, assert.AnError
+			},
+		},
+		Logger:    zap.NewNop(),
+		LockPath:  filepath.Join(t.TempDir(), "wippy.lock"),
+		VendorDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	depEntry := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "http"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/http","version":">=v1.0.0 <v2.0.0"}`, payload.JSON),
+	}
+	moduleEntry := regapi.Entry{
+		ID:   regapi.NewID("acme.http", "service"),
+		Kind: "service",
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey:        "acme/http",
+			metaModuleVersionKey: "v1.4.2",
+		}),
+	}
+
+	result, err := handler.Expand(ctx, regapi.Operation{
+		Kind: regapi.EntryUpdate, Entry: depEntry,
+	}, regapi.State{depEntry, moduleEntry})
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+	require.Empty(t, result.Additional)
+	require.Empty(t, result.Effects)
+	require.Zero(t, manifestCalls, "a compatible module already assembled at boot must not be resolved again")
+}
+
+func TestDependencyHandler_UnchangedRootWithIncompatibleLoadedVersionResolves(t *testing.T) {
+	ctx := newTestContext()
+	manifestCalls := 0
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(context.Context, string, string, string) (*ModuleManifest, error) {
+				manifestCalls++
+				return nil, assert.AnError
+			},
+		},
+		Logger:    zap.NewNop(),
+		LockPath:  filepath.Join(t.TempDir(), "wippy.lock"),
+		VendorDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	depEntry := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "http"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/http","version":"v2.0.0"}`, payload.JSON),
+	}
+	moduleEntry := regapi.Entry{
+		ID:   regapi.NewID("acme.http", "service"),
+		Kind: "service",
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey:        "acme/http",
+			metaModuleVersionKey: "v1.4.2",
+		}),
+	}
+
+	_, err = handler.Expand(ctx, regapi.Operation{
+		Kind: regapi.EntryUpdate, Entry: depEntry,
+	}, regapi.State{depEntry, moduleEntry})
+	require.Error(t, err)
+	require.ErrorContains(t, err, assert.AnError.Error())
+	require.Equal(t, 1, manifestCalls, "an incompatible loaded version must be resolved instead of accepted")
+}
+
 func TestDependencyHandler_EntryConflict(t *testing.T) {
 	ctx := newTestContext()
 	tmpDir := t.TempDir()

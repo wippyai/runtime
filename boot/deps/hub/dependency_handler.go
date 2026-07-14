@@ -162,6 +162,14 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		return regapi.DirectiveResult{}, ErrDependencyTranscoderMissing
 	}
 
+	satisfied, err := h.unchangedRootDependencySatisfied(ctx, transcoder, op, entry, snapshot)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	if satisfied {
+		return regapi.DirectiveResult{Applied: true}, nil
+	}
+
 	lockedVersions, err := h.installedModuleVersions(ctx, transcoder, snapshot)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
@@ -267,6 +275,45 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		Additional: scoped,
 		Effects:    effects,
 	}, nil
+}
+
+func (h *DependencyHandler) unchangedRootDependencySatisfied(
+	ctx context.Context,
+	transcoder payload.Transcoder,
+	op regapi.Operation,
+	entry regapi.Entry,
+	snapshot regapi.State,
+) (bool, error) {
+	if op.Kind != regapi.EntryUpdate {
+		return false, nil
+	}
+
+	var current regapi.Entry
+	found := false
+	for _, candidate := range snapshot {
+		if idsEqual(candidate.ID, entry.ID) {
+			current = candidate
+			found = true
+			break
+		}
+	}
+	if !found || !entriesEqual(current, entry) {
+		return false, nil
+	}
+
+	definition, err := decodeDependency(ctx, transcoder, entry)
+	if err != nil {
+		return false, err
+	}
+	if definition.Component == "" {
+		return false, nil
+	}
+
+	installedVersion := snapshotModuleVersions(snapshot)[definition.Component]
+	if installedVersion == "" {
+		installedVersion = h.replacementModuleVersion(definition.Component)
+	}
+	return lockedVersionSatisfies(installedVersion, definition.Version), nil
 }
 
 func (h *DependencyHandler) collectSnapshotDependencies(
