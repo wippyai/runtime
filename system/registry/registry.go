@@ -527,6 +527,55 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 		planner = regexp.NewPlanner(r.directivesByKind, r.resolver, r.log.Named("expansion"))
 	}
 
+	// Baseline entries are declarations just like entries restored from history.
+	// Expand them before replay so every history operation observes a complete
+	// state rather than causing an unrelated declaration to materialize later.
+	if planner != nil {
+		baselineEntries := topology.StateMapToSlice(stateMap)
+		for _, entry := range baselineEntries {
+			if len(r.directivesByKind[entry.Kind]) == 0 {
+				continue
+			}
+
+			snapshot := topology.StateMapToSlice(stateMap)
+			plan, err := planner.Expand(ctx, registry.ChangeSet{{
+				Kind:  registry.EntryUpdate,
+				Entry: entry,
+			}}, snapshot)
+			if err != nil {
+				planner.RollbackEffects(ctx, preparedEff)
+				return NewExpandChangesError(err)
+			}
+			if !plan.Expanded {
+				continue
+			}
+
+			plan.Ops, err = planner.SortOps(snapshot, plan.Ops)
+			if err != nil {
+				planner.RollbackEffects(ctx, preparedEff)
+				return NewSortChangesError(err)
+			}
+			ops, _ := plan.SplitScopes()
+
+			prepared, err := planner.PrepareEffects(ctx, plan.Effects)
+			if err != nil {
+				planner.RollbackEffects(ctx, preparedEff)
+				planner.RollbackEffects(ctx, prepared)
+				return NewPrepareEffectsError(err)
+			}
+			preparedEff = append(preparedEff, prepared...)
+
+			for _, op := range ops {
+				switch op.Kind {
+				case registry.EntryCreate, registry.EntryUpdate:
+					stateMap[op.Entry.ID] = op.Entry
+				case registry.EntryDelete:
+					delete(stateMap, op.Entry.ID)
+				}
+			}
+		}
+	}
+
 	if targetVersion.ID() > 0 {
 		current := targetVersion
 		var versions []registry.Version
