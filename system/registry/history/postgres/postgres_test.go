@@ -35,6 +35,18 @@ func TestNewPostgresRejectsInvalidSchemaName(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid schema name")
 }
 
+func TestBuildQueriesUseImmutableRowsCASAndCorruptionAwareResolutionRead(t *testing.T) {
+	queries := buildQueries("wippy_registry")
+
+	assert.NotContains(t, queries.insertVersion, "ON CONFLICT", "versions must be insert-only")
+	assert.NotContains(t, queries.insertChangeset, "ON CONFLICT", "changesets must be insert-only")
+	assert.Contains(t, queries.setVersionResolution, "DO NOTHING", "version resolution refs may only be inserted idempotently")
+	assert.Contains(t, queries.updateHeadCAS, "value = $2", "head advancement must compare the expected parent")
+	assert.Contains(t, queries.setHead, "EXISTS", "SetHead must validate the target version")
+	assert.Contains(t, queries.getResolution, "LEFT JOIN", "dangling graph refs must be distinguishable from legacy versions")
+	assert.Contains(t, queries.getResolution, "resolution_digest", "the graph row key must be validated against its payload")
+}
+
 func TestPostgresHistory_SaveAndGet(t *testing.T) {
 	dsn := os.Getenv("WIPPY_POSTGRES_HISTORY_TEST_DSN")
 	if strings.TrimSpace(dsn) == "" {

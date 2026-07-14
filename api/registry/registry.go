@@ -199,6 +199,20 @@ type (
 		SetHead(Version) error
 	}
 
+	// ChangeSetReplayer is an optional history capability for streaming the
+	// ordered ancestry of one target version. Database histories use it to avoid
+	// one query and one retained decoded changeset per historical version.
+	ChangeSetReplayer interface {
+		ReplayChanges(Version, func(ChangeSet) error) error
+	}
+
+	// HeadCASHistory atomically moves the history head only when it still
+	// matches the caller's source version. It prevents rollback/redo in one
+	// runtime instance from overwriting a concurrent writer's head.
+	HeadCASHistory interface {
+		CompareAndSetHead(expected, target Version) error
+	}
+
 	// Runner defines how ChangeSets are applied to a State to produce a new State
 	Runner interface {
 		// Transition applies a given ChangeSet to a State and returns the resulting modified State

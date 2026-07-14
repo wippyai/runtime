@@ -58,3 +58,12 @@ type Effect interface {
 	Commit(context.Context) error
 	Rollback(context.Context) error
 }
+
+// FinalizingEffect performs irreversible cleanup only after the registry state
+// and its history head are durably committed. Finalize must not be required for
+// correctness: a failure may leak temporary resources, but must not invalidate
+// the committed registry state.
+type FinalizingEffect interface {
+	Effect
+	Finalize(context.Context) error
+}

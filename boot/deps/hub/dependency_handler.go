@@ -29,6 +29,7 @@ import (
 	"github.com/wippyai/runtime/boot/deps/auth"
 	depconfig "github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/graph"
+	hubsemver "github.com/wippyai/runtime/boot/deps/hub/semver"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/boot/deps/wappextract"
 	"github.com/wippyai/runtime/boot/loader"
@@ -141,6 +142,16 @@ func NewDependencyHandler(opts DependencyHandlerOptions) (*DependencyHandler, er
 }
 
 func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, snapshot regapi.State) (regapi.DirectiveResult, error) {
+	return h.expand(ctx, op, snapshot, nil, nil)
+}
+
+func (h *DependencyHandler) expand(
+	ctx context.Context,
+	op regapi.Operation,
+	snapshot regapi.State,
+	extraControlled map[string]struct{},
+	extraMutable map[string]struct{},
+) (regapi.DirectiveResult, error) {
 	if h == nil || h.hub == nil {
 		return regapi.DirectiveResult{}, ErrDependencyHandlerNotConfigured
 	}
@@ -164,14 +175,6 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		return regapi.DirectiveResult{}, ErrDependencyTranscoderMissing
 	}
 
-	satisfied, err := h.unchangedRootDependencySatisfied(ctx, transcoder, op, entry, snapshot)
-	if err != nil {
-		return regapi.DirectiveResult{}, err
-	}
-	if satisfied {
-		return regapi.DirectiveResult{Applied: true}, nil
-	}
-
 	lockedVersions, err := h.installedModuleVersions(ctx, transcoder, snapshot)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
@@ -180,6 +183,9 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 	controlledModules, err := h.collectControlledModules(ctx, snapshot, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
+	}
+	for module := range extraControlled {
+		controlledModules[module] = struct{}{}
 	}
 
 	desiredDeps, err := h.collectDesiredDependencies(ctx, op, snapshot, transcoder)
@@ -210,9 +216,24 @@ func (h *DependencyHandler) Expand(ctx context.Context, op regapi.Operation, sna
 		}
 	}
 	strictModules := touchedModuleNames(resolved, lockedVersions, opComponent)
+	strictSet := stringSet(strictModules)
+	resolvedSet := resolvedModuleSet(resolved)
+	for module := range extraMutable {
+		if _, desired := resolvedSet[module]; desired {
+			strictSet[module] = struct{}{}
+		}
+	}
+	strictModules = make([]string, 0, len(strictSet))
+	for module := range strictSet {
+		strictModules = append(strictModules, module)
+	}
+	sort.Strings(strictModules)
 	mutableModules, err := h.operationModules(ctx, op, snapshot, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
+	}
+	for module := range extraMutable {
+		mutableModules[module] = struct{}{}
 	}
 	touchedModules := stringSet(strictModules)
 	for module := range mutableModules {
@@ -291,11 +312,37 @@ func (h *DependencyHandler) ExpandChanges(ctx context.Context, changes regapi.Ch
 	if len(changes) == 1 {
 		return h.Expand(ctx, changes[0], snapshot)
 	}
+	if h == nil || h.hub == nil {
+		return regapi.DirectiveResult{}, ErrDependencyHandlerNotConfigured
+	}
+	transcoder := payload.GetTranscoder(ctx)
+	if transcoder == nil {
+		return regapi.DirectiveResult{}, ErrDependencyTranscoderMissing
+	}
+	// Preserve ownership from both sides of the batch. Looking only at the
+	// folded state loses modules owned by an earlier delete or retarget, leaving
+	// their entries and embedded packs live after the root has gone away.
+	extraControlled, err := h.collectControlledModules(ctx, snapshot, transcoder)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	extraMutable := make(map[string]struct{})
 	stateMap := make(regapi.StateMap, len(snapshot)+len(changes)-1)
 	for _, entry := range snapshot {
 		stateMap[entry.ID] = entry
 	}
 	for _, op := range changes[:len(changes)-1] {
+		rolling := make(regapi.State, 0, len(stateMap))
+		for _, entry := range stateMap {
+			rolling = append(rolling, entry)
+		}
+		affected, opErr := h.operationModules(ctx, op, rolling, transcoder)
+		if opErr != nil {
+			return regapi.DirectiveResult{}, opErr
+		}
+		for module := range affected {
+			extraMutable[module] = struct{}{}
+		}
 		switch op.Kind {
 		case regapi.EntryCreate, regapi.EntryUpdate:
 			stateMap[op.Entry.ID] = op.Entry
@@ -307,7 +354,8 @@ func (h *DependencyHandler) ExpandChanges(ctx context.Context, changes regapi.Ch
 	for _, entry := range stateMap {
 		working = append(working, entry)
 	}
-	return h.Expand(ctx, changes[len(changes)-1], working)
+	// A final no-op must not suppress earlier operations in the same batch.
+	return h.expand(ctx, changes[len(changes)-1], working, extraControlled, extraMutable)
 }
 
 // ReconcileResolution materializes a previously selected graph without asking
@@ -347,6 +395,9 @@ func (h *DependencyHandler) ReconcileResolution(
 		if parseErr != nil || mod.Version == "" {
 			return regapi.DirectiveResult{}, NewDependencyResolutionError(fmt.Errorf("invalid stored module %q@%s", mod.Name, mod.Version))
 		}
+		if identityErr := validateModuleArtifactIdentity(name, mod.Version, mod.Digest); identityErr != nil {
+			return regapi.DirectiveResult{}, NewDependencyResolutionError(identityErr)
+		}
 		if _, duplicate := seen[mod.Name]; duplicate {
 			return regapi.DirectiveResult{}, NewDependencyResolutionError(fmt.Errorf("duplicate stored module %q", mod.Name))
 		}
@@ -363,7 +414,7 @@ func (h *DependencyHandler) ReconcileResolution(
 	}
 	for _, root := range desiredDeps {
 		selected, ok := selectedModuleVersion(resolved, root.definition.Component)
-		if !ok || !lockedVersionSatisfies(selected, root.definition.Version) {
+		if !ok || !storedVersionSatisfies(selected, root.definition.Version) {
 			return regapi.DirectiveResult{}, NewDependencyResolutionError(fmt.Errorf(
 				"stored module %s@%s does not satisfy %s",
 				root.definition.Component, selected, root.definition.Version,
@@ -438,6 +489,17 @@ func (h *DependencyHandler) ReconcileResolution(
 	}, nil
 }
 
+// storedVersionSatisfies validates selectors that can be checked without the
+// resolver. A label is intentionally accepted here: the graph digest binds the
+// authored label to the exact version selected when the graph was created, and
+// resolving the moving label again would defeat deterministic offline restore.
+func storedVersionSatisfies(version, constraint string) bool {
+	if strings.HasPrefix(strings.TrimSpace(constraint), "@") {
+		return strings.TrimSpace(version) != ""
+	}
+	return lockedVersionSatisfies(version, constraint)
+}
+
 func selectedModuleVersion(modules []ResolvedModule, component string) (string, bool) {
 	for _, mod := range modules {
 		if mod.Org+"/"+mod.Name == component {
@@ -495,12 +557,29 @@ func (h *DependencyHandler) collectResolutionDependencies(
 ) ([]desiredDependency, error) {
 	byID := make(map[string]regapi.Entry, len(snapshot))
 	for _, entry := range snapshot {
-		byID[entry.ID.String()] = entry
+		if isRootDependency(entry) {
+			byID[idKey(entry.ID)] = entry
+		}
+	}
+	if len(byID) != len(roots) {
+		return nil, NewDependencyResolutionError(fmt.Errorf(
+			"stored dependency root set has %d entries, current declarations have %d", len(roots), len(byID),
+		))
 	}
 	deps := make([]desiredDependency, 0, len(roots))
+	seenIDs := make(map[string]struct{}, len(roots))
+	seenComponents := make(map[string]string, len(roots))
 	for _, root := range roots {
-		entry, ok := byID[root.ID]
-		if !ok || entry.Kind != regapi.NamespaceDependency {
+		rootKey := idKey(regapi.ParseID(root.ID))
+		if rootKey == ":" {
+			return nil, NewDependencyResolutionError(fmt.Errorf("stored dependency root has an empty id"))
+		}
+		if _, duplicate := seenIDs[rootKey]; duplicate {
+			return nil, NewDependencyResolutionError(fmt.Errorf("duplicate stored dependency root %s", root.ID))
+		}
+		seenIDs[rootKey] = struct{}{}
+		entry, ok := byID[rootKey]
+		if !ok {
 			return nil, NewDependencyResolutionError(fmt.Errorf("stored dependency root %s is missing", root.ID))
 		}
 		definition, err := decodeDependency(ctx, transcoder, entry)
@@ -513,48 +592,15 @@ func (h *DependencyHandler) collectResolutionDependencies(
 				root.ID, root.Component, root.Version, definition.Component, definition.Version,
 			))
 		}
+		if previousID, duplicate := seenComponents[definition.Component]; duplicate {
+			return nil, NewDependencyResolutionError(fmt.Errorf(
+				"duplicate stored dependency component %s in roots %s and %s", definition.Component, previousID, root.ID,
+			))
+		}
+		seenComponents[definition.Component] = root.ID
 		deps = append(deps, desiredDependency{entry: entry, definition: definition})
 	}
 	return deps, nil
-}
-
-func (h *DependencyHandler) unchangedRootDependencySatisfied(
-	ctx context.Context,
-	transcoder payload.Transcoder,
-	op regapi.Operation,
-	entry regapi.Entry,
-	snapshot regapi.State,
-) (bool, error) {
-	if op.Kind != regapi.EntryUpdate {
-		return false, nil
-	}
-
-	var current regapi.Entry
-	found := false
-	for _, candidate := range snapshot {
-		if idsEqual(candidate.ID, entry.ID) {
-			current = candidate
-			found = true
-			break
-		}
-	}
-	if !found || !entriesEqual(current, entry) {
-		return false, nil
-	}
-
-	definition, err := decodeDependency(ctx, transcoder, entry)
-	if err != nil {
-		return false, err
-	}
-	if definition.Component == "" {
-		return false, nil
-	}
-
-	installedVersion := snapshotModuleVersions(snapshot)[definition.Component]
-	if installedVersion == "" {
-		installedVersion = h.replacementModuleVersion(definition.Component)
-	}
-	return lockedVersionSatisfies(installedVersion, definition.Version), nil
 }
 
 func (h *DependencyHandler) collectSnapshotDependencies(
@@ -828,8 +874,53 @@ func (h *DependencyHandler) resolveModules(ctx context.Context, deps []Dependenc
 		}
 		return nil, NewDependencyResolutionErrors(result.Errors)
 	}
+	for _, mod := range result.Modules {
+		name := graph.Name{Organization: mod.Org, Module: mod.Name}
+		if err := validateModuleArtifactIdentity(name, mod.Version, mod.Digest); err != nil {
+			return nil, NewDependencyIntegrityError(modKey(mod), err, mod.Digest, mod.SizeBytes)
+		}
+		if mod.VersionID == "" && mod.Digest == "" {
+			if _, replaced := h.replacementPath(name.String()); !replaced && h.logger != nil {
+				h.logger.Warn("resolved module has legacy identity without version id or digest",
+					zap.String("module", name.String()), zap.String("version", mod.Version))
+			}
+		}
+	}
 
 	return result.Modules, nil
+}
+
+func validateModuleArtifactIdentity(name graph.Name, version, digest string) error {
+	if !validModuleIdentifier(name.Organization) || !validModuleIdentifier(name.Module) {
+		return fmt.Errorf("invalid module name %q: organization and module must be lowercase alphanumeric with hyphens", name.String())
+	}
+	if _, err := hubsemver.ParseVersion(strings.TrimSpace(version)); err != nil {
+		return fmt.Errorf("invalid exact module version %q for %s", version, name.String())
+	}
+	if digest == "" {
+		return nil // Older hubs and local replacements did not always provide one.
+	}
+	algorithm, value, err := parseExpectedDigest(digest)
+	if err != nil || algorithm != "sha256" || len(value) != sha256.Size*2 {
+		return fmt.Errorf("invalid sha256 digest for %s@%s", name.String(), version)
+	}
+	if _, err := hex.DecodeString(value); err != nil {
+		return fmt.Errorf("invalid sha256 digest for %s@%s", name.String(), version)
+	}
+	return nil
+}
+
+func validModuleIdentifier(value string) bool {
+	if value == "" || value[0] < 'a' || value[0] > 'z' {
+		return false
+	}
+	for i := 1; i < len(value); i++ {
+		c := value[i]
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 // replacementManifestProvider resolves locally-replaced modules from their lock
@@ -1211,10 +1302,16 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 	}
 
 	shouldUnpack := h.shouldUnpackModules()
-	dirPath := filepath.Join(h.vendorDir, lock.ModulePath(name))
+	dirPath, err := containedPath(h.vendorDir, lock.ModulePath(name))
+	if err != nil {
+		return "", NewDependencyDownloadError(modKey(mod), err)
+	}
 	expectedDigest := mod.Digest
 	expectedSize := mod.SizeBytes
-	wappPath := filepath.Join(h.vendorDir, lock.WappPath(name, mod.Version))
+	wappPath, err := containedPath(h.vendorDir, lock.WappPath(name, mod.Version))
+	if err != nil {
+		return "", NewDependencyDownloadError(modKey(mod), err)
+	}
 	if exists(wappPath) {
 		if err := verifyDownloadedArtifact(wappPath, expectedDigest, expectedSize); err == nil {
 			if shouldUnpack {
@@ -1251,6 +1348,9 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 		if infoErr != nil {
 			return "", NewDependencyDownloadError(modKey(mod), infoErr)
 		}
+		if infoErr = validateDownloadInfo(mod, info); infoErr != nil {
+			return "", NewDependencyIntegrityError(modKey(mod), infoErr, expectedDigest, expectedSize)
+		}
 		url = info.URL
 		urlIsFresh = true
 		if expectedDigest == "" {
@@ -1273,6 +1373,9 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 		// process it can expire (15-min TTL) before download. Fetch a fresh URL
 		// and retry once before giving up.
 		if info, infoErr := h.freshDownloadInfo(ctx, mod); infoErr == nil && info != nil && info.URL != "" {
+			if infoErr = validateDownloadInfo(mod, info); infoErr != nil {
+				return "", NewDependencyIntegrityError(modKey(mod), infoErr, expectedDigest, expectedSize)
+			}
 			if expectedDigest == "" {
 				expectedDigest = info.Digest
 			}
@@ -1300,6 +1403,49 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 	}
 
 	return wappPath, nil
+}
+
+func containedPath(root, relative string) (string, error) {
+	if filepath.IsAbs(relative) {
+		return "", fmt.Errorf("artifact path %q is absolute", relative)
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve vendor directory: %w", err)
+	}
+	targetAbs, err := filepath.Abs(filepath.Join(rootAbs, relative))
+	if err != nil {
+		return "", fmt.Errorf("resolve artifact path: %w", err)
+	}
+	rel, err := filepath.Rel(rootAbs, targetAbs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("artifact path %q escapes vendor directory", relative)
+	}
+	return targetAbs, nil
+}
+
+func validateDownloadInfo(mod ResolvedModule, info *DownloadInfo) error {
+	if info == nil {
+		return ErrDependencyNoContent
+	}
+	if info.Version != "" {
+		got := strings.TrimPrefix(strings.TrimSpace(info.Version), "v")
+		want := strings.TrimPrefix(strings.TrimSpace(mod.Version), "v")
+		if got != want {
+			return fmt.Errorf("download version mismatch: expected %s, got %s", mod.Version, info.Version)
+		}
+	}
+	if mod.Digest != "" && info.Digest != "" {
+		wantAlgorithm, want, wantErr := parseExpectedDigest(mod.Digest)
+		gotAlgorithm, got, gotErr := parseExpectedDigest(info.Digest)
+		if wantErr != nil || gotErr != nil || wantAlgorithm != gotAlgorithm || !strings.EqualFold(want, got) {
+			return fmt.Errorf("download digest mismatch: expected %s, got %s", mod.Digest, info.Digest)
+		}
+	}
+	if mod.SizeBytes > 0 && info.Size > 0 && mod.SizeBytes != info.Size {
+		return fmt.Errorf("download size mismatch: expected %d bytes, got %d bytes", mod.SizeBytes, info.Size)
+	}
+	return nil
 }
 
 // freshDownloadInfo fetches a current presigned download URL for a module.

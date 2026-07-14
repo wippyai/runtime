@@ -30,6 +30,14 @@ func (h *hardeningHistory) SetHead(v regapi.Version) error {
 	return h.Storage.SetHead(v)
 }
 
+func (h *hardeningHistory) CompareAndSetHead(expected, target regapi.Version) error {
+	if h.failSetHeadFor != 0 && h.failSetHeadFor == target.ID() {
+		h.failSetHeadFor = 0
+		return errors.New("injected set-head failure")
+	}
+	return h.Storage.CompareAndSetHead(expected, target)
+}
+
 func (h *hardeningHistory) CheckpointDependencyResolution(v regapi.Version, resolution *regapi.DependencyResolution) error {
 	if h.failCheckpoint {
 		return errors.New("injected checkpoint failure")
@@ -113,6 +121,7 @@ func TestApplyVersion_SetHeadFailureCompensatesRuntimeAndEffects(t *testing.T) {
 	dep := regapi.Entry{ID: regapi.NewID("app.deps", "module"), Kind: regapi.NamespaceDependency}
 	history := &hardeningHistory{Storage: memory.New(), failSetHeadFor: v1.ID()}
 	require.NoError(t, history.Save(v1, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: dep}}, false))
+	require.NoError(t, history.SetHead(v0))
 
 	effect := &hardeningEffect{}
 	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error) {
@@ -142,6 +151,7 @@ func TestApplyVersion_LegacyResolutionCheckpointFailureCompensates(t *testing.T)
 	dep := regapi.Entry{ID: regapi.NewID("app.deps", "module"), Kind: regapi.NamespaceDependency}
 	history := &hardeningHistory{Storage: memory.New(), failCheckpoint: true}
 	require.NoError(t, history.Save(v1, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: dep}}, false))
+	require.NoError(t, history.SetHead(v0))
 
 	effect := &hardeningEffect{}
 	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error) {
@@ -170,6 +180,7 @@ func TestApplyVersion_LegacyResolutionIsCheckpointed(t *testing.T) {
 	dep := regapi.Entry{ID: regapi.NewID("app.deps", "module"), Kind: regapi.NamespaceDependency}
 	history := &hardeningHistory{Storage: memory.New()}
 	require.NoError(t, history.Save(v1, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: dep}}, false))
+	require.NoError(t, history.SetHead(v0))
 	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{Applied: true, Resolution: hardeningResolution()}, nil
 	}}
@@ -190,6 +201,7 @@ func TestApplyVersion_LegacyUnrelatedTransitionResolvesFinalRoots(t *testing.T) 
 	unrelated := regapi.Entry{ID: regapi.NewID("app", "setting"), Kind: "setting"}
 	history := &hardeningHistory{Storage: memory.New()}
 	require.NoError(t, history.Save(v1, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: unrelated}}, false))
+	require.NoError(t, history.SetHead(v0))
 	expansions := 0
 	directive := hardeningDirective{expand: func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error) {
 		expansions++

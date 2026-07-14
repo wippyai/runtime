@@ -66,7 +66,7 @@ func NewSQLite(dbPath string, log *zap.Logger) (*History, error) {
 		}
 	}
 
-	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000", dbPath))
+	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on", dbPath))
 	if err != nil {
 		return nil, NewOpenDatabaseError(err)
 	}
@@ -206,6 +206,10 @@ func (h *History) Get(v registry.Version) (registry.ChangeSet, error) {
 		return nil, NewQueryChangesetError(err)
 	}
 
+	return h.decodeChangeSet(data)
+}
+
+func (h *History) decodeChangeSet(data []byte) (registry.ChangeSet, error) {
 	var encodedOps []struct {
 		Entry         encodedEntry
 		OriginalEntry *encodedEntry
@@ -254,6 +258,51 @@ func (h *History) Get(v registry.Version) (registry.ChangeSet, error) {
 	return cs, nil
 }
 
+// ReplayChanges streams one target lineage in a single query. This keeps boot
+// replay at constant query count and bounded decoded-payload memory even when a
+// project has accumulated a very long history.
+func (h *History) ReplayChanges(target registry.Version, apply func(registry.ChangeSet) error) error {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	ctx := context.Background()
+	var exists int
+	if err := h.db.QueryRowContext(ctx, "SELECT 1 FROM versions WHERE id = ?", target.ID()).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return NewChangesetNotFoundError(target.ID())
+		}
+		return NewQueryChangesetError(err)
+	}
+	rows, err := h.db.QueryContext(ctx, `WITH RECURSIVE lineage(id, parent_id, depth) AS (
+		SELECT id, parent_id, 0 FROM versions WHERE id = ?
+		UNION ALL
+		SELECT v.id, v.parent_id, lineage.depth + 1
+		FROM versions v JOIN lineage ON v.id = lineage.parent_id
+	)
+	SELECT c.data FROM lineage JOIN changesets c ON c.version_id = lineage.id
+	WHERE lineage.id <> 0 ORDER BY lineage.depth DESC`, target.ID())
+	if err != nil {
+		return NewQueryChangesetError(err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var data []byte
+		if err := rows.Scan(&data); err != nil {
+			return NewQueryChangesetError(err)
+		}
+		changes, err := h.decodeChangeSet(data)
+		if err != nil {
+			return err
+		}
+		if err := apply(changes); err != nil {
+			return err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return NewIterateVersionsError(err)
+	}
+	return nil
+}
+
 func (h *History) Save(v registry.Version, cs registry.ChangeSet, head bool) error {
 	return h.SaveWithDependencyResolution(v, cs, nil, head)
 }
@@ -279,7 +328,7 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 		parentID = sql.NullInt64{Int64: int64(prevID), Valid: true}
 	}
 
-	_, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO versions (id, parent_id) VALUES (?, ?)", v.ID(), parentID)
+	_, err = tx.ExecContext(ctx, "INSERT INTO versions (id, parent_id) VALUES (?, ?)", v.ID(), parentID)
 	if err != nil {
 		return NewInsertVersionError(err)
 	}
@@ -339,7 +388,7 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 		return NewEncodeChangesetError(err)
 	}
 
-	_, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO changesets (version_id, data) VALUES (?, ?)", v.ID(), buf.Bytes())
+	_, err = tx.ExecContext(ctx, "INSERT INTO changesets (version_id, data) VALUES (?, ?)", v.ID(), buf.Bytes())
 	if err != nil {
 		return NewInsertChangesetError(err)
 	}
@@ -352,20 +401,34 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 		if _, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO resolution_graphs (digest, data) VALUES (?, ?)", canonical.Digest, data); err != nil {
 			return NewInsertChangesetError(err)
 		}
-		if _, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO version_resolutions (version_id, resolution_digest) VALUES (?, ?)", v.ID(), canonical.Digest); err != nil {
+		if err = ensureResolutionGraph(ctx, tx, canonical.Digest); err != nil {
+			return NewDecodeChangesetError(err)
+		}
+		if err = setVersionResolution(ctx, tx, v.ID(), canonical.Digest); err != nil {
 			return NewInsertChangesetError(err)
 		}
 	} else if v.Previous() != nil {
-		if _, err = tx.ExecContext(ctx, `INSERT OR REPLACE INTO version_resolutions (version_id, resolution_digest)
+		if _, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO version_resolutions (version_id, resolution_digest)
 			SELECT ?, resolution_digest FROM version_resolutions WHERE version_id = ?`, v.ID(), v.Previous().ID()); err != nil {
 			return NewInsertChangesetError(err)
 		}
 	}
 
 	if head {
-		_, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO metadata (key, value) VALUES ('head', ?)", v.ID())
+		if v.Previous() == nil {
+			return NewUpdateHeadError(errors.New("head updates require an expected parent version"))
+		}
+		result, updateErr := tx.ExecContext(ctx, "UPDATE metadata SET value = ? WHERE key = 'head' AND value = ?", v.ID(), v.Previous().ID())
+		err = updateErr
 		if err != nil {
 			return NewUpdateHeadError(err)
+		}
+		updated, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			return NewUpdateHeadError(rowsErr)
+		}
+		if updated != 1 {
+			return NewUpdateHeadError(fmt.Errorf("history head changed: expected version %d", v.Previous().ID()))
 		}
 	}
 
@@ -379,26 +442,24 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 func (h *History) GetDependencyResolution(v registry.Version) (*registry.DependencyResolution, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+	var digest string
 	var data []byte
 	err := h.db.QueryRowContext(context.Background(), `
-		SELECT g.data
+		SELECT vr.resolution_digest, g.data
 		FROM version_resolutions vr
-		JOIN resolution_graphs g ON g.digest = vr.resolution_digest
-		WHERE vr.version_id = ?`, v.ID()).Scan(&data)
+		LEFT JOIN resolution_graphs g ON g.digest = vr.resolution_digest
+		WHERE vr.version_id = ?`, v.ID()).Scan(&digest, &data)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, registry.ErrDependencyResolutionNotFound
 	}
 	if err != nil {
 		return nil, NewQueryChangesetError(err)
 	}
-	var resolution registry.DependencyResolution
-	if err := json.Unmarshal(data, &resolution); err != nil {
+	resolution, err := decodeResolutionGraph(digest, data)
+	if err != nil {
 		return nil, NewDecodeChangesetError(err)
 	}
-	if !resolution.Valid() {
-		return nil, NewDecodeChangesetError(errors.New("stored dependency resolution digest mismatch"))
-	}
-	return resolution.Canonical(), nil
+	return resolution, nil
 }
 
 func (h *History) CheckpointDependencyResolution(v registry.Version, resolution *registry.DependencyResolution) error {
@@ -421,7 +482,10 @@ func (h *History) CheckpointDependencyResolution(v registry.Version, resolution 
 	if _, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO resolution_graphs (digest, data) VALUES (?, ?)", canonical.Digest, data); err != nil {
 		return NewInsertChangesetError(err)
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO version_resolutions (version_id, resolution_digest) VALUES (?, ?)", v.ID(), canonical.Digest); err != nil {
+	if err = ensureResolutionGraph(ctx, tx, canonical.Digest); err != nil {
+		return NewDecodeChangesetError(err)
+	}
+	if err = setVersionResolution(ctx, tx, v.ID(), canonical.Digest); err != nil {
 		return NewInsertChangesetError(err)
 	}
 	if err = tx.Commit(); err != nil {
@@ -463,11 +527,90 @@ func (h *History) SetHead(v registry.Version) error {
 	defer h.mu.Unlock()
 
 	ctx := context.Background()
-	_, err := h.db.ExecContext(ctx, "INSERT OR REPLACE INTO metadata (key, value) VALUES ('head', ?)", v.ID())
+	result, err := h.db.ExecContext(ctx, `UPDATE metadata SET value = ?
+		WHERE key = 'head' AND EXISTS (SELECT 1 FROM versions WHERE id = ?)`, v.ID(), v.ID())
 	if err != nil {
 		return NewSetHeadError(err)
 	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return NewSetHeadError(err)
+	}
+	if updated != 1 {
+		return NewSetHeadError(fmt.Errorf("version %d does not exist", v.ID()))
+	}
 
+	return nil
+}
+
+func (h *History) CompareAndSetHead(expected, target registry.Version) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	ctx := context.Background()
+	result, err := h.db.ExecContext(ctx, `UPDATE metadata SET value = ?
+		WHERE key = 'head' AND value = ? AND EXISTS (SELECT 1 FROM versions WHERE id = ?)`,
+		target.ID(), expected.ID(), target.ID())
+	if err != nil {
+		return NewSetHeadError(err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return NewSetHeadError(err)
+	}
+	if updated != 1 {
+		return NewSetHeadError(fmt.Errorf("history head changed or target version %d does not exist", target.ID()))
+	}
+	return nil
+}
+
+func ensureResolutionGraph(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, digest string) error {
+	var data []byte
+	if err := q.QueryRowContext(ctx, "SELECT data FROM resolution_graphs WHERE digest = ?", digest).Scan(&data); err != nil {
+		return fmt.Errorf("query stored dependency resolution %s: %w", digest, err)
+	}
+	_, err := decodeResolutionGraph(digest, data)
+	return err
+}
+
+func decodeResolutionGraph(digest string, data []byte) (*registry.DependencyResolution, error) {
+	if len(data) == 0 {
+		return nil, fmt.Errorf("stored dependency resolution %s has no graph payload", digest)
+	}
+	var resolution registry.DependencyResolution
+	if err := json.Unmarshal(data, &resolution); err != nil {
+		return nil, err
+	}
+	if !resolution.Valid() {
+		return nil, errors.New("stored dependency resolution digest mismatch")
+	}
+	canonical := resolution.Canonical()
+	if canonical.Digest != digest {
+		return nil, fmt.Errorf("stored dependency resolution key mismatch: row %s, payload %s", digest, canonical.Digest)
+	}
+	return canonical, nil
+}
+
+func setVersionResolution(ctx context.Context, tx *sql.Tx, versionID uint, digest string) error {
+	result, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO version_resolutions (version_id, resolution_digest) VALUES (?, ?)", versionID, digest)
+	if err != nil {
+		return err
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if inserted == 1 {
+		return nil
+	}
+	var stored string
+	if err := tx.QueryRowContext(ctx, "SELECT resolution_digest FROM version_resolutions WHERE version_id = ?", versionID).Scan(&stored); err != nil {
+		return err
+	}
+	if stored != digest {
+		return fmt.Errorf("version %d already references dependency resolution %s, refusing %s", versionID, stored, digest)
+	}
 	return nil
 }
 

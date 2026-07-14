@@ -131,6 +131,7 @@ func TestEmbedPackEffect_PrepareCommit(t *testing.T) {
 	require.Len(t, eff.prepared, 1)
 
 	require.NoError(t, eff.Commit(context.Background()))
+	require.NoError(t, eff.Finalize(context.Background()))
 	// Commit must not unregister the staged pack on a fresh install.
 	assert.Empty(t, reg.unregistered)
 	assert.Empty(t, reg.modulesDropped)
@@ -168,7 +169,8 @@ func TestEmbedPackEffect_Update(t *testing.T) {
 	assert.Contains(t, reg.registered, newPack)
 
 	require.NoError(t, eff.Commit(context.Background()))
-	// Old version dropped on commit; new pack remains registered.
+	require.NoError(t, eff.Finalize(context.Background()))
+	// Old version is dropped only after durable finalization; new pack remains registered.
 	require.Len(t, reg.modulesDropped, 1)
 	assert.Equal(t, droppedModule{module: "org/mod", version: "1.0.0"}, reg.modulesDropped[0])
 	assert.Contains(t, reg.registered, newPack)
@@ -186,9 +188,11 @@ func TestEmbedPackEffect_UpdateRollbackKeepsOld(t *testing.T) {
 	)
 
 	require.NoError(t, eff.Prepare(context.Background()))
+	require.NoError(t, eff.Commit(context.Background()))
 	require.NoError(t, eff.Rollback(context.Background()))
 
-	// New pack removed; old version never dropped because Commit did not run.
+	// Commit remains reversible: the new pack is removed and the old version is
+	// not dropped until the separate durable Finalize phase.
 	assert.Contains(t, reg.unregistered, newPack)
 	assert.Empty(t, reg.modulesDropped)
 }
@@ -201,6 +205,7 @@ func TestEmbedPackEffect_Uninstall(t *testing.T) {
 	assert.Empty(t, reg.registered)
 
 	require.NoError(t, eff.Commit(context.Background()))
+	require.NoError(t, eff.Finalize(context.Background()))
 	require.Len(t, reg.modulesDropped, 1)
 	assert.Equal(t, droppedModule{module: "org/mod", version: "1.0.0"}, reg.modulesDropped[0])
 }
@@ -385,6 +390,7 @@ func TestBuildEmbedPackEffect_DropsPackWhenResolvedModuleIsDirectory(t *testing.
 	assert.Equal(t, []obsoletePack{{module: "org/mod", version: "1.0.0"}}, eff.obsolete)
 
 	require.NoError(t, eff.Commit(context.Background()))
+	require.NoError(t, eff.Finalize(context.Background()))
 	_, err = reg.GetFSForEntry(moduleEntry("ui", "app", "org/mod", "1.0.0"))
 	require.Error(t, err)
 }
@@ -432,6 +438,7 @@ func TestBuildEmbedPackEffect_DropsPackWhenUnpackModulesEnabled(t *testing.T) {
 	assert.Equal(t, []obsoletePack{{module: "org/mod", version: "1.0.0"}}, eff.obsolete)
 
 	require.NoError(t, eff.Commit(context.Background()))
+	require.NoError(t, eff.Finalize(context.Background()))
 	_, err = reg.GetFSForEntry(moduleEntry("ui", "app", "org/mod", "1.0.0"))
 	require.Error(t, err)
 }
@@ -491,6 +498,9 @@ func TestBuildEmbedPackEffect_StagesOnlyChangedPacks(t *testing.T) {
 	assert.Equal(t, "stable", readHubResource(t, reg, moduleEntry("ui", "stable", "org/stable", "1.0.0"), "v.txt"))
 
 	require.NoError(t, eff.Commit(context.Background()))
+	// Commit is still reversible; obsolete packs remain until history/head is durable.
+	assert.Equal(t, "1", readHubResource(t, reg, moduleEntry("ui", "app", "org/mod", "1.0.0"), "v.txt"))
+	require.NoError(t, eff.Finalize(context.Background()))
 	assert.Equal(t, "2", readHubResource(t, reg, moduleEntry("ui", "app", "org/mod", "2.0.0"), "v.txt"))
 	assert.Equal(t, "stable", readHubResource(t, reg, moduleEntry("ui", "stable", "org/stable", "1.0.0"), "v.txt"))
 	_, err = reg.GetFS(regapi.NewID("ui", "removed"))

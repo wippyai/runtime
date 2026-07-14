@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -36,6 +37,8 @@ type History struct {
 
 type postgresQueries struct {
 	getResolution        string
+	getResolutionGraph   string
+	getVersionResolution string
 	getChangeset         string
 	inheritResolution    string
 	insertResolution     string
@@ -48,7 +51,9 @@ type postgresQueries struct {
 	queryVersions        string
 	setHead              string
 	setInitialHead       string
-	updateHead           string
+	updateHeadCAS        string
+	versionExists        string
+	replayChanges        string
 }
 
 type encodedPayload struct {
@@ -142,20 +147,31 @@ func buildQueries(schemaName string) postgresQueries {
 	metadata := table("metadata")
 
 	return postgresQueries{
-		getResolution:        "SELECT g.data FROM " + versionResolutions + " vr JOIN " + resolutionGraphs + " g ON g.digest = vr.resolution_digest WHERE vr.version_id = $1",
+		getResolution:        "SELECT vr.resolution_digest, g.data FROM " + versionResolutions + " vr LEFT JOIN " + resolutionGraphs + " g ON g.digest = vr.resolution_digest WHERE vr.version_id = $1",
+		getResolutionGraph:   "SELECT data FROM " + resolutionGraphs + " WHERE digest = $1",
+		getVersionResolution: "SELECT resolution_digest FROM " + versionResolutions + " WHERE version_id = $1",
 		getChangeset:         "SELECT data FROM " + changesets + " WHERE version_id = $1",
-		inheritResolution:    "INSERT INTO " + versionResolutions + " (version_id, resolution_digest) SELECT $1, resolution_digest FROM " + versionResolutions + " WHERE version_id = $2 ON CONFLICT(version_id) DO UPDATE SET resolution_digest = EXCLUDED.resolution_digest",
+		inheritResolution:    "INSERT INTO " + versionResolutions + " (version_id, resolution_digest) SELECT $1, resolution_digest FROM " + versionResolutions + " WHERE version_id = $2 ON CONFLICT(version_id) DO NOTHING",
 		insertResolution:     "INSERT INTO " + resolutionGraphs + " (digest, data) VALUES ($1, $2) ON CONFLICT(digest) DO NOTHING",
-		setVersionResolution: "INSERT INTO " + versionResolutions + " (version_id, resolution_digest) VALUES ($1, $2) ON CONFLICT(version_id) DO UPDATE SET resolution_digest = EXCLUDED.resolution_digest",
-		insertChangeset:      "INSERT INTO " + changesets + " (version_id, data) VALUES ($1, $2) ON CONFLICT(version_id) DO UPDATE SET data = EXCLUDED.data",
+		setVersionResolution: "INSERT INTO " + versionResolutions + " (version_id, resolution_digest) VALUES ($1, $2) ON CONFLICT(version_id) DO NOTHING",
+		insertChangeset:      "INSERT INTO " + changesets + " (version_id, data) VALUES ($1, $2)",
 		insertRootChangeset:  "INSERT INTO " + changesets + " (version_id, data) VALUES (0, $1) ON CONFLICT(version_id) DO NOTHING",
 		insertRootVersion:    "INSERT INTO " + versions + " (id, parent_id) VALUES (0, NULL) ON CONFLICT(id) DO NOTHING",
-		insertVersion:        "INSERT INTO " + versions + " (id, parent_id) VALUES ($1, $2) ON CONFLICT(id) DO UPDATE SET parent_id = EXCLUDED.parent_id",
+		insertVersion:        "INSERT INTO " + versions + " (id, parent_id) VALUES ($1, $2)",
 		queryHead:            "SELECT value FROM " + metadata + " WHERE key = 'head'",
 		queryVersions:        "SELECT id, parent_id FROM " + versions + " ORDER BY id ASC",
-		setHead:              "INSERT INTO " + metadata + " (key, value) VALUES ('head', $1) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value",
+		setHead:              "UPDATE " + metadata + " SET value = $1 WHERE key = 'head' AND EXISTS (SELECT 1 FROM " + versions + " WHERE id = $2)",
 		setInitialHead:       "INSERT INTO " + metadata + " (key, value) VALUES ('head', '0') ON CONFLICT(key) DO NOTHING",
-		updateHead:           "INSERT INTO " + metadata + " (key, value) VALUES ('head', $1) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value",
+		updateHeadCAS:        "UPDATE " + metadata + " SET value = $1 WHERE key = 'head' AND value = $2 AND EXISTS (SELECT 1 FROM " + versions + " WHERE id = $3)",
+		versionExists:        "SELECT 1 FROM " + versions + " WHERE id = $1",
+		replayChanges: `WITH RECURSIVE lineage(id, parent_id, depth) AS (
+			SELECT id, parent_id, 0 FROM ` + versions + ` WHERE id = $1
+			UNION ALL
+			SELECT v.id, v.parent_id, lineage.depth + 1
+			FROM ` + versions + ` v JOIN lineage ON v.id = lineage.parent_id
+		)
+		SELECT c.data FROM lineage JOIN ` + changesets + ` c ON c.version_id = lineage.id
+		WHERE lineage.id <> 0 ORDER BY lineage.depth DESC`,
 	}
 }
 
@@ -254,6 +270,10 @@ func (h *History) Get(v registry.Version) (registry.ChangeSet, error) {
 		return nil, NewQueryChangesetError(err)
 	}
 
+	return h.decodeChangeSet(data)
+}
+
+func (h *History) decodeChangeSet(data []byte) (registry.ChangeSet, error) {
 	var encodedOps []struct {
 		Entry         encodedEntry
 		OriginalEntry *encodedEntry
@@ -300,6 +320,41 @@ func (h *History) Get(v registry.Version) (registry.ChangeSet, error) {
 	}
 
 	return cs, nil
+}
+
+func (h *History) ReplayChanges(target registry.Version, apply func(registry.ChangeSet) error) error {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	ctx := context.Background()
+	var exists int
+	if err := h.db.QueryRowContext(ctx, h.queries.versionExists, target.ID()).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return NewChangesetNotFoundError(target.ID())
+		}
+		return NewQueryChangesetError(err)
+	}
+	rows, err := h.db.QueryContext(ctx, h.queries.replayChanges, target.ID())
+	if err != nil {
+		return NewQueryChangesetError(err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var data []byte
+		if err := rows.Scan(&data); err != nil {
+			return NewQueryChangesetError(err)
+		}
+		changes, err := h.decodeChangeSet(data)
+		if err != nil {
+			return err
+		}
+		if err := apply(changes); err != nil {
+			return err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return NewIterateVersionsError(err)
+	}
+	return nil
 }
 
 func (h *History) Save(v registry.Version, cs registry.ChangeSet, head bool) error {
@@ -400,7 +455,10 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 		if _, err = tx.ExecContext(ctx, h.queries.insertResolution, canonical.Digest, data); err != nil {
 			return NewInsertChangesetError(err)
 		}
-		if _, err = tx.ExecContext(ctx, h.queries.setVersionResolution, v.ID(), canonical.Digest); err != nil {
+		if err = h.ensureResolutionGraph(ctx, tx, canonical.Digest); err != nil {
+			return NewDecodeChangesetError(err)
+		}
+		if err = h.setVersionResolution(ctx, tx, v.ID(), canonical.Digest); err != nil {
 			return NewInsertChangesetError(err)
 		}
 	} else if v.Previous() != nil {
@@ -410,9 +468,21 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 	}
 
 	if head {
-		_, err = tx.ExecContext(ctx, h.queries.updateHead, strconv.FormatUint(uint64(v.ID()), 10))
+		if v.Previous() == nil {
+			return NewUpdateHeadError(errors.New("head updates require an expected parent version"))
+		}
+		result, updateErr := tx.ExecContext(ctx, h.queries.updateHeadCAS,
+			strconv.FormatUint(uint64(v.ID()), 10), strconv.FormatUint(uint64(v.Previous().ID()), 10), v.ID())
+		err = updateErr
 		if err != nil {
 			return NewUpdateHeadError(err)
+		}
+		updated, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			return NewUpdateHeadError(rowsErr)
+		}
+		if updated != 1 {
+			return NewUpdateHeadError(fmt.Errorf("history head changed: expected version %d", v.Previous().ID()))
 		}
 	}
 
@@ -426,22 +496,20 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 func (h *History) GetDependencyResolution(v registry.Version) (*registry.DependencyResolution, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+	var digest string
 	var data []byte
-	err := h.db.QueryRowContext(context.Background(), h.queries.getResolution, v.ID()).Scan(&data)
+	err := h.db.QueryRowContext(context.Background(), h.queries.getResolution, v.ID()).Scan(&digest, &data)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, registry.ErrDependencyResolutionNotFound
 	}
 	if err != nil {
 		return nil, NewQueryChangesetError(err)
 	}
-	var resolution registry.DependencyResolution
-	if err := json.Unmarshal(data, &resolution); err != nil {
+	resolution, err := decodeResolutionGraph(digest, data)
+	if err != nil {
 		return nil, NewDecodeChangesetError(err)
 	}
-	if !resolution.Valid() {
-		return nil, NewDecodeChangesetError(errors.New("stored dependency resolution digest mismatch"))
-	}
-	return resolution.Canonical(), nil
+	return resolution, nil
 }
 
 func (h *History) CheckpointDependencyResolution(v registry.Version, resolution *registry.DependencyResolution) error {
@@ -463,7 +531,10 @@ func (h *History) CheckpointDependencyResolution(v registry.Version, resolution 
 	if _, err = tx.ExecContext(context.Background(), h.queries.insertResolution, canonical.Digest, data); err != nil {
 		return NewInsertChangesetError(err)
 	}
-	if _, err = tx.ExecContext(context.Background(), h.queries.setVersionResolution, v.ID(), canonical.Digest); err != nil {
+	if err = h.ensureResolutionGraph(context.Background(), tx, canonical.Digest); err != nil {
+		return NewDecodeChangesetError(err)
+	}
+	if err = h.setVersionResolution(context.Background(), tx, v.ID(), canonical.Digest); err != nil {
 		return NewInsertChangesetError(err)
 	}
 	if err = tx.Commit(); err != nil {
@@ -510,11 +581,88 @@ func (h *History) SetHead(v registry.Version) error {
 	defer h.mu.Unlock()
 
 	ctx := context.Background()
-	_, err := h.db.ExecContext(ctx, h.queries.setHead, strconv.FormatUint(uint64(v.ID()), 10))
+	result, err := h.db.ExecContext(ctx, h.queries.setHead, strconv.FormatUint(uint64(v.ID()), 10), v.ID())
 	if err != nil {
 		return NewSetHeadError(err)
 	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return NewSetHeadError(err)
+	}
+	if updated != 1 {
+		return NewSetHeadError(fmt.Errorf("version %d does not exist", v.ID()))
+	}
 
+	return nil
+}
+
+func (h *History) CompareAndSetHead(expected, target registry.Version) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	ctx := context.Background()
+	result, err := h.db.ExecContext(ctx, h.queries.updateHeadCAS,
+		strconv.FormatUint(uint64(target.ID()), 10), strconv.FormatUint(uint64(expected.ID()), 10), target.ID())
+	if err != nil {
+		return NewSetHeadError(err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return NewSetHeadError(err)
+	}
+	if updated != 1 {
+		return NewSetHeadError(fmt.Errorf("history head changed or target version %d does not exist", target.ID()))
+	}
+	return nil
+}
+
+func (h *History) ensureResolutionGraph(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, digest string) error {
+	var data []byte
+	if err := q.QueryRowContext(ctx, h.queries.getResolutionGraph, digest).Scan(&data); err != nil {
+		return fmt.Errorf("query stored dependency resolution %s: %w", digest, err)
+	}
+	_, err := decodeResolutionGraph(digest, data)
+	return err
+}
+
+func decodeResolutionGraph(digest string, data []byte) (*registry.DependencyResolution, error) {
+	if len(data) == 0 {
+		return nil, fmt.Errorf("stored dependency resolution %s has no graph payload", digest)
+	}
+	var resolution registry.DependencyResolution
+	if err := json.Unmarshal(data, &resolution); err != nil {
+		return nil, err
+	}
+	if !resolution.Valid() {
+		return nil, errors.New("stored dependency resolution digest mismatch")
+	}
+	canonical := resolution.Canonical()
+	if canonical.Digest != digest {
+		return nil, fmt.Errorf("stored dependency resolution key mismatch: row %s, payload %s", digest, canonical.Digest)
+	}
+	return canonical, nil
+}
+
+func (h *History) setVersionResolution(ctx context.Context, tx *sql.Tx, versionID uint, digest string) error {
+	result, err := tx.ExecContext(ctx, h.queries.setVersionResolution, versionID, digest)
+	if err != nil {
+		return err
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if inserted == 1 {
+		return nil
+	}
+	var stored string
+	if err := tx.QueryRowContext(ctx, h.queries.getVersionResolution, versionID).Scan(&stored); err != nil {
+		return err
+	}
+	if stored != digest {
+		return fmt.Errorf("version %d already references dependency resolution %s, refusing %s", versionID, stored, digest)
+	}
 	return nil
 }
 

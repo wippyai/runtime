@@ -205,3 +205,33 @@ func TestHistory_ConcurrentHeadRead(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestHistory_RetainsCurrentDependencyResolution(t *testing.T) {
+	hist := New()
+	v0 := version.New(registry.RootVersion)
+	first := (&registry.DependencyResolution{InputDigest: "first"}).Canonical()
+	second := (&registry.DependencyResolution{InputDigest: "second"}).Canonical()
+
+	if err := hist.CheckpointDependencyResolution(v0, first); err != nil {
+		t.Fatalf("checkpoint baseline resolution: %v", err)
+	}
+	got, err := hist.GetDependencyResolution(v0)
+	if err != nil || got.Digest != first.Digest {
+		t.Fatalf("get baseline resolution: %#v, %v", got, err)
+	}
+	if err := hist.CheckpointDependencyResolution(v0, second); err == nil {
+		t.Fatal("expected immutable checkpoint conflict")
+	}
+
+	v1 := version.FromParent(v0, 1)
+	if err := hist.SaveWithDependencyResolution(v1, nil, second, true); err != nil {
+		t.Fatalf("save runtime resolution: %v", err)
+	}
+	got, err = hist.GetDependencyResolution(v1)
+	if err != nil || got.Digest != second.Digest {
+		t.Fatalf("get runtime resolution: %#v, %v", got, err)
+	}
+	if _, err := hist.GetDependencyResolution(v0); err == nil {
+		t.Fatal("nil history must expose only the current resolution")
+	}
+}

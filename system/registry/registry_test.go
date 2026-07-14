@@ -352,6 +352,7 @@ func TestInMemoryRegistry_ApplyVersion(t *testing.T) {
 
 	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 	reg.currentVersion = v2 // Set current version to v2
+	_ = hist.SetHead(v2)
 	// Set initial state to v2 state
 	reg.state = registry.State{
 		{ID: registry.NewID("", "/foo"), Kind: "test", Data: payload.New("data2")},
@@ -1703,6 +1704,7 @@ func TestApplyVersion_Rollback_RespectsDependencyOrder(t *testing.T) {
 
 	reg := NewRegistry(hist, runner, stateBuilder, resolver, zap.NewNop())
 	reg.currentVersion = v1
+	_ = hist.SetHead(v1)
 	reg.state = registry.State{
 		{ID: libID, Kind: "library", Data: payload.New("lib")},
 		{ID: testID, Kind: "test", Data: payload.New("test")},

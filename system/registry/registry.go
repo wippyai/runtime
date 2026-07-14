@@ -343,15 +343,14 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		currentVersionID = baseVersion.ID()
 	}
 
-	targetVersion, path, err := r.computeVersionPath(baseVersion, v, currentVersionID)
+	targetVersion, err := r.findStoredVersion(v)
 	if err != nil {
 		return err
 	}
 
-	r.log.Debug("computed version path",
+	r.log.Debug("resolving version transition",
 		zap.Uint("from", currentVersionID),
-		zap.Uint("to", targetVersion.ID()),
-		zap.Int("steps", len(path)))
+		zap.Uint("to", targetVersion.ID()))
 
 	changeset, err := r.collectTransitionChangesets(baseVersion, targetVersion)
 	if err != nil {
@@ -546,14 +545,9 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		}
 	}
 
-	if err := r.history.SetHead(targetVersion); err != nil {
+	if err := compareAndSetHistoryHead(r.history, baseVersion, targetVersion); err != nil {
 		headErr := NewSetHeadError(targetVersion.ID(), err)
 		var compensationErr error
-		if baseVersion != nil {
-			if restoreErr := r.history.SetHead(baseVersion); restoreErr != nil {
-				compensationErr = errors.Join(compensationErr, restoreErr)
-			}
-		}
 		if rollbackErr := r.rollback(ctx, newState, r.state); rollbackErr != nil {
 			compensationErr = errors.Join(compensationErr, rollbackErr)
 		}
@@ -571,7 +565,7 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		if checkpointErr := resolutionHistory.CheckpointDependencyResolution(targetVersion, targetResolution); checkpointErr != nil {
 			var compensationErr error
 			if baseVersion != nil {
-				if restoreErr := r.history.SetHead(baseVersion); restoreErr != nil {
+				if restoreErr := compareAndSetHistoryHead(r.history, targetVersion, baseVersion); restoreErr != nil {
 					compensationErr = errors.Join(compensationErr, restoreErr)
 				}
 			}
@@ -600,39 +594,24 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 	return nil
 }
 
-func (r *Reg) computeVersionPath(current registry.Version, v registry.Version, currentVersionID uint) (registry.Version, []registry.Version, error) {
+func compareAndSetHistoryHead(history registry.History, expected, target registry.Version) error {
+	if cas, ok := history.(registry.HeadCASHistory); ok && expected != nil {
+		return cas.CompareAndSetHead(expected, target)
+	}
+	return history.SetHead(target)
+}
+
+func (r *Reg) findStoredVersion(v registry.Version) (registry.Version, error) {
 	versions, err := r.history.Versions()
 	if err != nil {
-		return nil, nil, NewGetVersionsError(err)
+		return nil, NewGetVersionsError(err)
 	}
-
-	var targetVersion registry.Version
 	for _, ver := range versions {
 		if ver.ID() == v.ID() {
-			targetVersion = ver
-			break
+			return ver, nil
 		}
 	}
-	if targetVersion == nil {
-		return nil, nil, NewVersionNotFoundError(v.ID())
-	}
-
-	vm := version.NewVersionMap()
-	for _, ver := range versions {
-		if err := vm.Add(ver); err != nil {
-			r.log.Warn("failed to add version to map", zap.Uint("version", ver.ID()), zap.Error(err))
-		}
-	}
-
-	path, err := vm.Path(current, targetVersion)
-	if err != nil {
-		return nil, nil, NewComputePathError(currentVersionID, targetVersion.ID(), err)
-	}
-	if len(path) == 0 {
-		return nil, nil, NewComputePathError(currentVersionID, targetVersion.ID(), ErrEmptyVersionPath)
-	}
-
-	return targetVersion, path, nil
+	return nil, NewVersionNotFoundError(v.ID())
 }
 
 // collectTransitionChangesets builds a source-to-target transition from parent
@@ -769,31 +748,32 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	// without expanding directives: expansion can consult external systems and
 	// must never run once per historical version during boot.
 	if targetVersion.ID() > 0 {
-		current := targetVersion
-		var versions []registry.Version
-
-		for current != nil && current.ID() > 0 {
-			versions = append(versions, current)
-			current = current.Previous()
-		}
-		for left, right := 0, len(versions)-1; left < right; left, right = left+1, right-1 {
-			versions[left], versions[right] = versions[right], versions[left]
-		}
-
-		r.log.Debug("replaying changesets on baseline",
-			zap.Uint("target_version", targetVersion.ID()),
-			zap.Int("changeset_count", len(versions)))
-
-		for _, ver := range versions {
-			cs, err := r.history.Get(ver)
-			if err != nil {
-				if planner != nil {
-					planner.RollbackEffects(ctx, preparedEff)
-				}
-				return NewGetChangesetError(ver.ID(), err)
-			}
+		applyChanges := func(cs registry.ChangeSet) error {
 			canonicalizeChangeSetIDs(cs)
 			applyStateOperations(stateMap, cs)
+			return nil
+		}
+		if replayer, ok := r.history.(registry.ChangeSetReplayer); ok {
+			r.log.Debug("streaming history changesets on baseline", zap.Uint("target_version", targetVersion.ID()))
+			if err := replayer.ReplayChanges(targetVersion, applyChanges); err != nil {
+				return NewGetChangesetError(targetVersion.ID(), err)
+			}
+		} else {
+			current := targetVersion
+			var versions []registry.Version
+			for current != nil && current.ID() > 0 {
+				versions = append(versions, current)
+				current = current.Previous()
+			}
+			for i := len(versions) - 1; i >= 0; i-- {
+				cs, err := r.history.Get(versions[i])
+				if err != nil {
+					return NewGetChangesetError(versions[i].ID(), err)
+				}
+				if err := applyChanges(cs); err != nil {
+					return NewGetChangesetError(versions[i].ID(), err)
+				}
+			}
 		}
 	}
 

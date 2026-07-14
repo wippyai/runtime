@@ -47,12 +47,12 @@ type obsoletePack struct {
 //     the same changeset resolve during apply. New packs are keyed by their own
 //     .wapp path, so a version update stages the new pack without disturbing the
 //     pack still serving the old version.
-//   - Commit unregisters and closes packs made obsolete by the operation
-//     (removed modules on uninstall, prior versions on update). The new packs
-//     stay registered.
+//   - Commit activates the staged set but remains reversible.
+//   - Finalize unregisters and closes obsolete packs only after the registry
+//     history/head is durable. The new packs stay registered.
 //   - Rollback unregisters and closes the packs staged in Prepare, restoring the
 //     pre-operation set. Obsolete packs are left untouched because they are only
-//     dropped on a successful Commit.
+//     dropped during Finalize after a successful durable commit.
 type embedPackEffect struct {
 	reg      embedPackRegistry
 	staged   []stagedPack
@@ -93,6 +93,10 @@ func (e *embedPackEffect) Prepare(_ context.Context) error {
 }
 
 func (e *embedPackEffect) Commit(_ context.Context) error {
+	return nil
+}
+
+func (e *embedPackEffect) Finalize(_ context.Context) error {
 	for _, op := range e.obsolete {
 		if err := e.reg.UnregisterModule(op.module, op.version); err != nil {
 			// Logged, not fatal: the changeset already committed and the old

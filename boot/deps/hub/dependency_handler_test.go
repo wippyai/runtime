@@ -98,19 +98,25 @@ func TestDependencyHandler_ResolveErrors(t *testing.T) {
 	}
 }
 
-func TestDependencyHandler_UnchangedLoadedRootIsIdempotent(t *testing.T) {
+func TestDependencyHandler_UnchangedLoadedRootProducesCheckpointResolution(t *testing.T) {
 	ctx := newTestContext()
 	manifestCalls := 0
+	vendorDir := t.TempDir()
+	artifact := buildWappBytes(t, []wapp.Entry{{ID: wapp.NewID("acme.http", "service"), Kind: "service"}})
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
 		Hub: &fakeHub{
-			getManifest: func(context.Context, string, string, string) (*ModuleManifest, error) {
+			getManifest: func(_ context.Context, org, module, _ string) (*ModuleManifest, error) {
 				manifestCalls++
-				return nil, assert.AnError
+				return &ModuleManifest{Org: org, Name: module, Version: "v1.4.2", URL: "memory://http"}, nil
+			},
+			downloadFile: func(_ context.Context, _ string, dest string) error {
+				require.NoError(t, os.MkdirAll(filepath.Dir(dest), 0o755))
+				return os.WriteFile(dest, artifact, 0o600)
 			},
 		},
 		Logger:    zap.NewNop(),
 		LockPath:  filepath.Join(t.TempDir(), "wippy.lock"),
-		VendorDir: t.TempDir(),
+		VendorDir: vendorDir,
 	})
 	require.NoError(t, err)
 
@@ -133,9 +139,8 @@ func TestDependencyHandler_UnchangedLoadedRootIsIdempotent(t *testing.T) {
 	}, regapi.State{depEntry, moduleEntry})
 	require.NoError(t, err)
 	require.True(t, result.Applied)
-	require.Empty(t, result.Additional)
-	require.Empty(t, result.Effects)
-	require.Zero(t, manifestCalls, "a compatible module already assembled at boot must not be resolved again")
+	require.NotNil(t, result.Resolution, "legacy boot must have an exact graph to checkpoint")
+	require.Equal(t, 1, manifestCalls)
 }
 
 func TestDependencyHandler_UnchangedRootWithIncompatibleLoadedVersionResolves(t *testing.T) {
@@ -2416,7 +2421,7 @@ modules:
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
 		Hub: &fakeHub{
 			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
-				return &ModuleManifest{Org: org, Name: module, Version: version, Digest: "sha256:v2digest"}, nil
+				return &ModuleManifest{Org: org, Name: module, Version: version, Digest: "sha256:2222222222222222222222222222222222222222222222222222222222222222"}, nil
 			},
 		},
 		Logger:    zap.NewNop(),

@@ -4,6 +4,7 @@ package expansion
 
 import (
 	"context"
+	"errors"
 
 	"github.com/wippyai/runtime/api/registry"
 	regtop "github.com/wippyai/runtime/system/registry/topology"
@@ -293,6 +294,23 @@ func (p *Planner) CommitEffects(ctx context.Context, effects []registry.Effect) 
 		}
 	}
 	return nil
+}
+
+// FinalizeEffects runs optional irreversible cleanup after history persistence.
+// Callers deliberately treat failures as cleanup leaks rather than rolling back
+// an already durable registry transition.
+func (p *Planner) FinalizeEffects(ctx context.Context, effects []registry.Effect) error {
+	var errs []error
+	for _, eff := range effects {
+		finalizer, ok := eff.(registry.FinalizingEffect)
+		if !ok {
+			continue
+		}
+		if err := finalizer.Finalize(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // RollbackEffects runs Rollback on each effect in reverse order.

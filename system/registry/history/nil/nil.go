@@ -17,8 +17,10 @@ import (
 //   - When you want to minimize memory overhead
 //   - When you only need forward progression without rollback capability
 type History struct {
-	head registry.Version
-	mu   sync.RWMutex
+	head              registry.Version
+	resolution        *registry.DependencyResolution
+	resolutionVersion uint
+	mu                sync.RWMutex
 }
 
 // New creates a new nil History instance.
@@ -29,24 +31,62 @@ func New() *History {
 // Save accepts a new version and updates the current head version.
 // The changeset is not persisted. Setting head to true updates the current version.
 func (n *History) Save(newVersion registry.Version, _ registry.ChangeSet, head bool) error {
+	return n.SaveWithDependencyResolution(newVersion, nil, nil, head)
+}
+
+func (n *History) SaveWithDependencyResolution(newVersion registry.Version, _ registry.ChangeSet, resolution *registry.DependencyResolution, head bool) error {
 	if head {
 		n.mu.Lock()
+		defer n.mu.Unlock()
+		if previous := newVersion.Previous(); previous != nil && !nilHeadMatchesParent(n.head, previous) {
+			return ErrRollbackNotSupported
+		}
 		n.head = newVersion
-		n.mu.Unlock()
+		if resolution != nil {
+			n.resolution = resolution.Canonical()
+			n.resolutionVersion = newVersion.ID()
+		} else if n.resolution != nil {
+			n.resolutionVersion = newVersion.ID()
+		}
 	}
 	return nil
 }
 
-func (n *History) SaveWithDependencyResolution(newVersion registry.Version, cs registry.ChangeSet, _ *registry.DependencyResolution, head bool) error {
-	return n.Save(newVersion, cs, head)
+func (n *History) GetDependencyResolution(v registry.Version) (*registry.DependencyResolution, error) {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	if n.resolution == nil || n.resolutionVersion != v.ID() {
+		return nil, registry.ErrDependencyResolutionNotFound
+	}
+	return n.resolution.Canonical(), nil
 }
 
-func (n *History) GetDependencyResolution(registry.Version) (*registry.DependencyResolution, error) {
-	return nil, registry.ErrDependencyResolutionNotFound
+func (n *History) CheckpointDependencyResolution(v registry.Version, resolution *registry.DependencyResolution) error {
+	if resolution == nil {
+		return registry.ErrDependencyResolutionNotFound
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.head != nil && n.head.ID() != v.ID() {
+		return ErrHistoryNotAvailable
+	}
+	if n.head == nil && v.ID() != registry.RootVersion {
+		return ErrHistoryNotAvailable
+	}
+	canonical := resolution.Canonical()
+	if n.resolution != nil && n.resolutionVersion == v.ID() && n.resolution.Digest != canonical.Digest {
+		return ErrHistoryNotAvailable
+	}
+	n.resolution = canonical
+	n.resolutionVersion = v.ID()
+	return nil
 }
 
-func (n *History) CheckpointDependencyResolution(registry.Version, *registry.DependencyResolution) error {
-	return ErrHistoryNotAvailable
+func nilHeadMatchesParent(head, parent registry.Version) bool {
+	if head == nil {
+		return parent != nil && parent.ID() == registry.RootVersion
+	}
+	return parent != nil && head.ID() == parent.ID()
 }
 
 // Get returns an error as version history is not available with nil History.
