@@ -50,21 +50,23 @@ const (
 )
 
 type DependencyHandlerOptions struct {
-	Hub             HubClient
-	Logger          *zap.Logger
-	Resolver        regapi.DependencyResolver
-	LockPath        string
-	VendorDir       string
-	ResolveTimeout  time.Duration
-	DownloadTimeout time.Duration
+	Hub                   HubClient
+	Resolver              regapi.DependencyResolver
+	Logger                *zap.Logger
+	LockPath              string
+	VendorDir             string
+	WorkspaceReplacements []lock.Replacement
+	ResolveTimeout        time.Duration
+	DownloadTimeout       time.Duration
 }
 
 type DependencyHandler struct {
 	hub             HubClient
+	resolver        regapi.DependencyResolver
 	manifestCache   *ManifestCache
 	logger          *zap.Logger
-	resolver        regapi.DependencyResolver
-	lockPath        string
+	lock            *lock.Lock
+	replacements    map[string]lock.Replacement
 	vendorDir       string
 	resolveTimeout  time.Duration
 	downloadTimeout time.Duration
@@ -121,15 +123,29 @@ func NewDependencyHandler(opts DependencyHandlerOptions) (*DependencyHandler, er
 		}
 	}
 
-	vendorDir := opts.VendorDir
-	if vendorDir == "" && lockPath != "" {
-		if lockObj, err := lock.New(lockPath); err == nil {
-			lockDir := filepath.Dir(lockObj.Path())
-			vendorDir = filepath.Join(lockDir, lockObj.GetVendorPath())
+	var lockObj *lock.Lock
+	if lockPath != "" {
+		var err error
+		lockObj, err = lock.New(lockPath, lock.WithWorkspaceReplacements(opts.WorkspaceReplacements))
+		if err != nil {
+			return nil, err
 		}
+	}
+
+	vendorDir := opts.VendorDir
+	if vendorDir == "" && lockObj != nil {
+		lockDir := filepath.Dir(lockObj.Path())
+		vendorDir = filepath.Join(lockDir, lockObj.GetVendorPath())
 	}
 	if vendorDir == "" {
 		vendorDir = filepath.Join(".wippy", "vendor")
+	}
+
+	replacements := make(map[string]lock.Replacement)
+	if lockObj != nil {
+		for _, replacement := range lockObj.GetReplacements() {
+			replacements[replacement.From] = replacement
+		}
 	}
 
 	return &DependencyHandler{
@@ -137,10 +153,11 @@ func NewDependencyHandler(opts DependencyHandlerOptions) (*DependencyHandler, er
 		manifestCache:   NewManifestCache(client),
 		logger:          logger,
 		resolver:        opts.Resolver,
-		lockPath:        lockPath,
 		vendorDir:       vendorDir,
 		resolveTimeout:  opts.ResolveTimeout,
 		downloadTimeout: opts.DownloadTimeout,
+		lock:            lockObj,
+		replacements:    replacements,
 	}, nil
 }
 
@@ -842,18 +859,14 @@ func validateRootDependencyComponents(deps []desiredDependency, operationID rega
 
 func (h *DependencyHandler) installedModuleVersions(ctx context.Context, transcoder payload.Transcoder, snapshot regapi.State) (map[string]string, error) {
 	versions := snapshotModuleVersions(snapshot)
-	if h.lockPath == "" {
-		return versions, nil
-	}
-	lockObj, err := lock.New(h.lockPath)
-	if err != nil {
+	if h.lock == nil {
 		return versions, nil
 	}
 	installedRoots, err := rootDependencyModules(ctx, transcoder, snapshot)
 	if err != nil {
 		return nil, err
 	}
-	for _, mod := range lockObj.GetModules() {
+	for _, mod := range h.lock.GetModules() {
 		if mod.Name == "" || mod.Version == "" {
 			continue
 		}
@@ -1957,20 +1970,16 @@ func (h *DependencyHandler) freshDownloadInfo(ctx context.Context, mod ResolvedM
 }
 
 func (h *DependencyHandler) replacementPath(moduleName string) (string, bool) {
-	if h.lockPath == "" {
-		return "", false
-	}
-	lockObj, err := lock.New(h.lockPath)
-	if err != nil {
-		return "", false
-	}
-	replacement, ok := lockObj.GetReplacement(moduleName)
+	replacement, ok := h.replacements[moduleName]
 	if !ok || strings.TrimSpace(replacement.To) == "" {
 		return "", false
 	}
 	path := replacement.To
 	if !filepath.IsAbs(path) {
-		path = filepath.Join(filepath.Dir(lockObj.Path()), path)
+		if h.lock == nil {
+			return "", false
+		}
+		path = filepath.Join(filepath.Dir(h.lock.Path()), path)
 	}
 	return path, true
 }
@@ -2014,14 +2023,10 @@ func topLevelYAMLScalar(data []byte, key string) string {
 }
 
 func (h *DependencyHandler) shouldUnpackModules() bool {
-	if h.lockPath == "" {
+	if h.lock == nil {
 		return false
 	}
-	lockObj, err := lock.New(h.lockPath)
-	if err != nil {
-		return false
-	}
-	return lockObj.ShouldUnpackModules()
+	return h.lock.ShouldUnpackModules()
 }
 
 func (h *DependencyHandler) moduleUsesDirectoryMode(moduleName string) bool {
@@ -2171,14 +2176,10 @@ func sha256FileHex(path string) (string, error) {
 }
 
 func (h *DependencyHandler) lockedModuleDigests() map[string]string {
-	if h.lockPath == "" {
+	if h.lock == nil {
 		return nil
 	}
-	lockObj, err := lock.New(h.lockPath)
-	if err != nil {
-		return nil
-	}
-	modules := lockObj.GetModules()
+	modules := h.lock.GetModules()
 	if len(modules) == 0 {
 		return nil
 	}

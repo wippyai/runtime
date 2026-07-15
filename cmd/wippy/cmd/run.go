@@ -90,18 +90,20 @@ func init() {
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(testCmd)
 	runCmd.AddCommand(listCmd)
+	listCmd.Flags().StringArray("profile", nil, "apply a workspace profile from the merged runtime config (repeatable, applied in order)")
+	listCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
 	runCmd.Flags().StringSliceP("override", "o", nil, "Override entry values (format: namespace:entry:field=value)")
 	runCmd.Flags().StringP("exec", "x", "", "Execute process and exit (format: namespace:entry)")
 	runCmd.Flags().String("host", "", "Terminal host ID for exec (auto-detected if only one terminal.host exists)")
 	runCmd.Flags().String("registry", "", "Registry URL for hub modules (default: from credentials)")
-	runCmd.Flags().StringArray("set", nil, "Override a .wippy.yaml config value (format: section.path=value, repeatable)")
-	runCmd.Flags().StringArray("profile", nil, "Apply a runtime profile from .wippy.yaml or packed runtime metadata (repeatable, applied in order)")
+	runCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
+	runCmd.Flags().StringArray("profile", nil, "apply a profile from the merged runtime config or packed runtime metadata (repeatable, applied in order)")
 
 	testCmd.Flags().StringSliceP("override", "o", nil, "Override entry values (format: namespace:entry:field=value)")
 	testCmd.Flags().String("host", "", "Terminal host ID for exec (auto-detected if only one terminal.host exists)")
 	testCmd.Flags().String("registry", "", "Registry URL for hub modules (default: from credentials)")
-	testCmd.Flags().StringArray("set", nil, "Override a .wippy.yaml config value (format: section.path=value, repeatable)")
-	testCmd.Flags().StringArray("profile", nil, "Apply a runtime profile from .wippy.yaml or packed runtime metadata (repeatable, applied in order)")
+	testCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
+	testCmd.Flags().StringArray("profile", nil, "apply a profile from the merged runtime config or packed runtime metadata (repeatable, applied in order)")
 }
 
 // commandMeta represents the command metadata from entry.Meta
@@ -394,8 +396,13 @@ func runList(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return NewInitAppError(err)
 	}
+	runtimeCfg, err := loadRuntimeConfig(cmd, app.Logger)
+	if err != nil {
+		return err
+	}
+	boot.WithConfig(app.Ctx, runtimeCfg)
 
-	lockPath, lockObj, err := loadValidatedLock(".", defaultLockFile)
+	lockPath, lockObj, err := loadValidatedLock(".", defaultLockFile, runtimeCfg, app.Logger)
 	if err != nil {
 		return err
 	}
@@ -472,20 +479,23 @@ func runList(cmd *cobra.Command, _ []string) error {
 // loadBootConfig reads config from file, applies defaults, and injects boot
 // metadata (config path + directory) into the effective config.
 func loadBootConfig() (boot.Config, error) {
-	cfgPath := configFile
-	if cfgPath == "" {
-		cfgPath = defaultConfigFile
+	cfgPaths := runtimeConfigPaths()
+	configPathsAbs := make([]string, len(cfgPaths))
+	for i, path := range cfgPaths {
+		absolute, err := filepath.Abs(path)
+		if err != nil {
+			absolute = path
+		}
+		configPathsAbs[i] = absolute
 	}
-	cfgPathAbs, err := filepath.Abs(cfgPath)
-	if err != nil {
-		cfgPathAbs = cfgPath
-	}
+	cfgPathAbs := configPathsAbs[0]
 	configMeta := boot.NewConfig(boot.WithSection("boot", map[string]any{
-		"config_path": cfgPathAbs,
-		"config_dir":  filepath.Dir(cfgPathAbs),
+		"config_path":  cfgPathAbs,
+		"config_paths": configPathsAbs,
+		"config_dir":   filepath.Dir(cfgPathAbs),
 	}))
 
-	cfg, err := bootconfig.Load(cfgPath)
+	cfg, err := loadRuntimeConfigFiles()
 	if err != nil {
 		return nil, err
 	}
@@ -496,6 +506,13 @@ func loadBootConfig() (boot.Config, error) {
 	}
 
 	return bootconfig.Merge(bootconfig.Merge(defaults, cfg), configMeta), nil
+}
+
+func loadRuntimeConfigFiles() (boot.Config, error) {
+	if len(configFiles) == 0 {
+		return bootconfig.Load(defaultConfigFile)
+	}
+	return bootconfig.LoadFiles(configFiles)
 }
 
 // createDefaultConfig returns the baseline config implied by global CLI flags.

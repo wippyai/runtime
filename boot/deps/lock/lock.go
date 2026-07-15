@@ -16,13 +16,27 @@ const DefaultFilename = "wippy.lock"
 
 // Lock represents a lock file with operations for reading, writing, and querying.
 type Lock struct {
-	path string
-	data File
+	path             string
+	workspaceOverlay []Replacement
+	data             File
+}
+
+// Option configures local, non-persistent lock behavior.
+type Option func(*Lock) error
+
+// WithWorkspaceReplacements overlays replacements selected from the effective
+// .wippy.yaml workspace configuration. They affect loading only and are never
+// serialized into wippy.lock.
+func WithWorkspaceReplacements(replacements []Replacement) Option {
+	return func(l *Lock) error {
+		l.workspaceOverlay = append([]Replacement(nil), replacements...)
+		return nil
+	}
 }
 
 // New creates a new Lock instance from the given path.
 // If the file exists, it loads the content. Otherwise, creates an empty lock with default directories.
-func New(path string) (*Lock, error) {
+func New(path string, opts ...Option) (*Lock, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, NewResolveAbsolutePathError(err)
@@ -48,7 +62,35 @@ func New(path string) (*Lock, error) {
 		return nil, NewStatLockFileError(err)
 	}
 
+	for _, opt := range opts {
+		if opt != nil {
+			if err := opt(lock); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	return lock, nil
+}
+
+// effectiveReplacements overlays workspace replacements on the portable lock
+// set. Order is stable: existing entries are updated in place and workspace-only
+// entries are appended.
+func (l *Lock) effectiveReplacements() []Replacement {
+	capacity := len(l.data.Replacements) + len(l.workspaceOverlay)
+	index := make(map[string]int, capacity)
+	merged := make([]Replacement, 0, capacity)
+	for _, layer := range [][]Replacement{l.data.Replacements, l.workspaceOverlay} {
+		for _, replacement := range layer {
+			if i, ok := index[replacement.From]; ok {
+				merged[i] = replacement
+				continue
+			}
+			index[replacement.From] = len(merged)
+			merged = append(merged, replacement)
+		}
+	}
+	return merged
 }
 
 // Read loads the lock file from disk.
@@ -158,10 +200,10 @@ func (l *Lock) GetModules() []Module {
 	return l.data.Modules
 }
 
-// GetReplacement retrieves a replacement by from field.
+// GetReplacement retrieves a replacement by from field from the effective set.
 // Returns the replacement and true if found, zero value and false otherwise.
 func (l *Lock) GetReplacement(from string) (Replacement, bool) {
-	for _, r := range l.data.Replacements {
+	for _, r := range l.effectiveReplacements() {
 		if r.From == from {
 			return r, true
 		}
@@ -192,8 +234,15 @@ func (l *Lock) RemoveReplacement(from string) {
 	l.data.Replacements = filtered
 }
 
-// GetReplacements returns all replacements.
+// GetReplacements returns the effective tracked and workspace set.
 func (l *Lock) GetReplacements() []Replacement {
+	return l.effectiveReplacements()
+}
+
+// GetTrackedReplacements returns only replacements persisted in the lock file.
+// Portable lock regeneration must use this view so machine-local state cannot
+// leak into wippy.lock.
+func (l *Lock) GetTrackedReplacements() []Replacement {
 	return l.data.Replacements
 }
 
@@ -314,7 +363,8 @@ type ModuleLoadPath struct {
 // Replacement paths carry Module from replacement "from" and empty Version.
 func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 	lockDir := filepath.Dir(l.path)
-	paths := make([]ModuleLoadPath, 0, 1+len(l.data.Replacements)+len(l.data.Modules))
+	replacements := l.effectiveReplacements()
+	paths := make([]ModuleLoadPath, 0, 1+len(replacements)+len(l.data.Modules))
 
 	if l.data.Directories.Src != "" {
 		paths = append(paths, ModuleLoadPath{
@@ -322,7 +372,9 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 		})
 	}
 
-	for _, repl := range l.data.Replacements {
+	replaced := make(map[string]struct{}, len(replacements))
+	for _, repl := range replacements {
+		replaced[repl.From] = struct{}{}
 		if repl.To != "" {
 			root := ResolveLockPath(lockDir, repl.To)
 			path := moduleEntryLoadPath(root)
@@ -338,7 +390,7 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 	fullVendorDir := ResolveLockPath(lockDir, vendorDir)
 
 	for _, mod := range l.data.Modules {
-		if _, hasReplacement := l.GetReplacement(mod.Name); hasReplacement {
+		if _, hasReplacement := replaced[mod.Name]; hasReplacement {
 			continue
 		}
 

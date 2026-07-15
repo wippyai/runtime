@@ -268,6 +268,92 @@ registry:
 	})
 }
 
+func TestLoadFilesMergesInOrder(t *testing.T) {
+	tmpDir := t.TempDir()
+	basePath := filepath.Join(tmpDir, "base.yaml")
+	devPath := filepath.Join(tmpDir, "dev.yaml")
+	workspacePath := filepath.Join(tmpDir, "workspace.yaml")
+	require.NoError(t, os.WriteFile(basePath, []byte(`version: "1.0"
+logger:
+  level: info
+  encoding: json
+network:
+  name: shared
+profiles:
+  dev:
+    logger:
+      encoding: console
+`), 0o600))
+	require.NoError(t, os.WriteFile(devPath, []byte(`version: "1.0"
+logger:
+  level: debug
+network:
+  bind: 127.0.0.1
+profiles:
+  dev:
+    network:
+      name: docker
+`), 0o600))
+	require.NoError(t, os.WriteFile(workspacePath, []byte(`version: "1.0"
+workspace:
+  replacements:
+    acme/http: ../http
+profiles:
+  dev:
+    logger:
+      level: trace
+`), 0o600))
+
+	cfg, err := LoadFiles([]string{basePath, devPath, workspacePath})
+	require.NoError(t, err)
+	require.Equal(t, "debug", cfg.GetString("logger.level", ""))
+	require.Equal(t, "json", cfg.GetString("logger.encoding", ""))
+	require.Equal(t, "shared", cfg.GetString("network.name", ""))
+	require.Equal(t, "127.0.0.1", cfg.GetString("network.bind", ""))
+	require.Equal(t, "../http", cfg.GetString("workspace.replacements.acme/http", ""))
+	require.Equal(t, "console", cfg.GetString("profiles.dev.logger.encoding", ""))
+	require.Equal(t, "trace", cfg.GetString("profiles.dev.logger.level", ""))
+	require.Equal(t, "docker", cfg.GetString("profiles.dev.network.name", ""))
+}
+
+func TestLoadFilesRequiresEveryPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	basePath := filepath.Join(tmpDir, "base.yaml")
+	missingPath := filepath.Join(tmpDir, "missing.yaml")
+	require.NoError(t, os.WriteFile(basePath, []byte("version: \"1.0\"\n"), 0o600))
+
+	cfg, err := LoadFiles([]string{basePath, missingPath})
+	require.Error(t, err)
+	require.ErrorContains(t, err, missingPath)
+	require.ErrorContains(t, err, "failed to read config file")
+	require.Nil(t, cfg)
+}
+
+func TestLoadFilesIdentifiesInvalidFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	basePath := filepath.Join(tmpDir, "base.yaml")
+	invalidPath := filepath.Join(tmpDir, "invalid.yaml")
+	require.NoError(t, os.WriteFile(basePath, []byte("version: \"1.0\"\n"), 0o600))
+	require.NoError(t, os.WriteFile(invalidPath, []byte("logger:\n  level: debug\n"), 0o600))
+
+	cfg, err := LoadFiles([]string{basePath, invalidPath})
+	require.ErrorContains(t, err, invalidPath)
+	require.ErrorContains(t, err, "missing version field")
+	require.Nil(t, cfg)
+}
+
+func TestLoadFilesEmpty(t *testing.T) {
+	cfg, err := LoadFiles(nil)
+	require.NoError(t, err)
+	require.Nil(t, cfg)
+}
+
+func TestLoadFilesRejectsEmptyExplicitPath(t *testing.T) {
+	cfg, err := LoadFiles([]string{""})
+	require.ErrorContains(t, err, "path is empty")
+	require.Nil(t, cfg)
+}
+
 func TestBuildBootConfig(t *testing.T) {
 	t.Run("builds config from flat sections", func(t *testing.T) {
 		sections := map[string]map[string]any{

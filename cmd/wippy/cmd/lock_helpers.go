@@ -6,19 +6,20 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/wippyai/runtime/api/boot"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/cmd/internal/entries"
 	"go.uber.org/zap"
 )
 
-func loadValidatedLock(folderPath, lockFile string) (string, *lock.Lock, error) {
+func loadValidatedLock(folderPath, lockFile string, cfg boot.Config, logger *zap.Logger) (string, *lock.Lock, error) {
 	lockPath, err := lock.Find(folderPath, lockFile)
 	if err != nil {
 		return "", nil, NewLockFileNotFoundError(err)
 	}
 
-	lockObj, err := lock.New(lockPath)
+	lockObj, err := newConfiguredLock(lockPath, cfg, logger)
 	if err != nil {
 		return lockPath, nil, NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
 	}

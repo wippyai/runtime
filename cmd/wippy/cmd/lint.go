@@ -22,6 +22,7 @@ import (
 	"github.com/wippyai/go-lua/compiler/parse"
 	"github.com/wippyai/go-lua/types/diag"
 	"github.com/wippyai/go-lua/types/io"
+	"github.com/wippyai/runtime/api/boot"
 	regapi "github.com/wippyai/runtime/api/registry"
 	luaapi "github.com/wippyai/runtime/api/runtime/lua"
 	bootpkg "github.com/wippyai/runtime/boot"
@@ -76,6 +77,8 @@ func init() {
 	lintCmd.Flags().Int("limit", 0, "limit number of diagnostics shown (0 = unlimited)")
 	lintCmd.Flags().Bool("rules", false, "enable lint rules (style and quality warnings)")
 	lintCmd.Flags().Bool("cache-reset", false, "clear lua cache before linting")
+	lintCmd.Flags().StringArray("profile", nil, "apply a workspace profile from the merged runtime config (repeatable, applied in order)")
+	lintCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
 }
 
 // ----------------------------------------------------------------------------
@@ -364,14 +367,19 @@ func bootstrapLintContext() (ctx context.Context, loader *bootpkg.Loader, err er
 func loadLuaEntries(cmd *cobra.Command, lockFile string, nsFilters []string) ([]regapi.Entry, map[regapi.ID]bool, error) {
 	logger := zap.NewNop()
 
-	lockPath, lockObj, err := loadValidatedLock(".", lockFile)
-	if err != nil {
-		return nil, nil, err
-	}
-
 	app, err := appinit.Init(cmd.Context(), verbose, veryVerbose, console, silentLogs, appStartTime)
 	if err != nil {
 		return nil, nil, NewInitAppError(err)
+	}
+	runtimeCfg, err := loadRuntimeConfig(cmd, logger)
+	if err != nil {
+		return nil, nil, err
+	}
+	boot.WithConfig(app.Ctx, runtimeCfg)
+
+	lockPath, lockObj, err := loadValidatedLock(".", lockFile, runtimeCfg, logger)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	allEntries, err := ensureModulesAndLoadEntries(app.Ctx, lockPath, lockObj, logger, false)

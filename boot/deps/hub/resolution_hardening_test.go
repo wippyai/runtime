@@ -13,6 +13,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/boot/deps/graph"
+	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
@@ -23,6 +24,40 @@ func hardeningRoot(id, component, version string) regapi.Entry {
 		Kind: regapi.NamespaceDependency,
 		Data: payload.New(map[string]any{"component": component, "version": version}),
 	}
+}
+
+func TestReplacementResolutionRevalidatesCurrentTree(t *testing.T) {
+	tmpDir := t.TempDir()
+	lockPath := filepath.Join(tmpDir, lock.DefaultFilename)
+	replacementPath := filepath.Join(tmpDir, "local-http")
+	require.NoError(t, os.MkdirAll(replacementPath, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(replacementPath, "entry.yaml"), []byte("first"), 0o600))
+	require.NoError(t, os.WriteFile(lockPath, []byte("directories:\n  modules: .wippy\n  src: ./src\n"), 0o600))
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub:      &fakeHub{},
+		Logger:   zap.NewNop(),
+		LockPath: lockPath,
+		WorkspaceReplacements: []lock.Replacement{
+			{From: "acme/http", To: replacementPath},
+		},
+	})
+	require.NoError(t, err)
+
+	digest, size, err := digestDirectoryTree(replacementPath)
+	require.NoError(t, err)
+	module := ResolvedModule{
+		Org:       "acme",
+		Name:      "http",
+		Version:   "v1.0.0",
+		Source:    moduleSourceReplacementTreeV1,
+		Digest:    digest,
+		SizeBytes: size,
+	}
+	require.True(t, handler.hasCurrentUnpackedModule(module))
+
+	require.NoError(t, os.WriteFile(filepath.Join(replacementPath, "entry.yaml"), []byte("changed"), 0o600))
+	require.False(t, handler.hasCurrentUnpackedModule(module), "history must not trust stale entry metadata after replacement content changes")
 }
 
 func hardeningModuleEntry(id, module, version string) regapi.Entry {

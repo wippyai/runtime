@@ -303,6 +303,7 @@ publish:
   profiles:
     enabled: false
     source: config/profiles.yaml
+    include: [production, staging]
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, DefaultConfigFile), []byte(content), 0644))
 
@@ -311,6 +312,24 @@ publish:
 	require.NotNil(t, cfg.Publish.Profiles.Enabled)
 	assert.False(t, *cfg.Publish.Profiles.Enabled)
 	assert.Equal(t, "config/profiles.yaml", cfg.Publish.Profiles.Source)
+	assert.Equal(t, []string{"production", "staging"}, cfg.Publish.Profiles.Include)
+}
+
+func TestLoad_WithExplicitEmptyPublishProfileInclude(t *testing.T) {
+	dir := t.TempDir()
+	content := `
+organization: myorg
+module: mymod
+publish:
+  profiles:
+    include: []
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, DefaultConfigFile), []byte(content), 0o644))
+
+	cfg, err := Load(dir)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Publish.Profiles.Include)
+	assert.Empty(t, cfg.Publish.Profiles.Include)
 }
 
 // --- EntryExcludes ---

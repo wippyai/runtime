@@ -3,6 +3,7 @@
 package bootconfig
 
 import (
+	"fmt"
 	"os"
 	"regexp"
 
@@ -17,14 +18,35 @@ type config struct {
 
 var osEnvRefPattern = regexp.MustCompile(`\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}`)
 
+// LoadFiles loads required configuration files in order. Later files override
+// matching leaves from earlier files.
+func LoadFiles(paths []string) (boot.Config, error) {
+	var merged boot.Config
+	for _, path := range paths {
+		if path == "" {
+			return nil, fmt.Errorf("load config file: path is empty")
+		}
+		cfg, err := load(path, true)
+		if err != nil {
+			return nil, fmt.Errorf("load config file %s: %w", path, err)
+		}
+		merged = Merge(merged, cfg)
+	}
+	return merged, nil
+}
+
 func Load(path string) (boot.Config, error) {
+	return load(path, false)
+}
+
+func load(path string, required bool) (boot.Config, error) {
 	if path == "" {
 		return nil, nil //nolint:nilnil // empty path means no config
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if os.IsNotExist(err) && !required {
 			return nil, nil //nolint:nilnil // missing file means no config
 		}
 		return nil, NewReadConfigFileError(err)

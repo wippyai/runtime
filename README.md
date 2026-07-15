@@ -263,6 +263,65 @@ shutdown:
   timeout: 30s
 ```
 
+### Runtime configuration composition
+
+Dependency ranges remain `ns.dependency` registry entries and exact portable
+versions remain in `wippy.lock`. For local development, a runtime profile can
+replace a locked module with a checkout without changing the lock:
+
+Pass `--config` more than once to compose any set of runtime configuration
+files. Files use the same schema and merge from left to right, so later files
+override matching leaves while preserving unrelated settings:
+
+```sh
+wippy run \
+  --config .wippy.yaml \
+  --config .wippy.dev.yaml \
+  --config config/postgres-history.yaml \
+  --config .wippy.workspace.yaml \
+  --profile workspace
+```
+
+Every explicitly named file must exist. With no `--config`, `.wippy.yaml`
+remains the optional default. The first file defines the project directory used
+to resolve relative runtime paths. Profiles are applied after all files merge,
+in requested order, and CLI overrides such as `--set` are applied last.
+
+Configuration filenames have no reserved meaning. Keep private or
+machine-specific files out of version control using the repository's normal
+ignore policy. For example, the final file above could contain:
+
+```yaml
+version: "1.0"
+
+profiles:
+  workspace:
+    workspace:
+      replacements:
+        wippy/runtime: ../runtime
+```
+
+Use the same composition for commands that load dependencies:
+
+```sh
+wippy update --config .wippy.yaml --config .wippy.workspace.yaml --profile workspace
+wippy install --config .wippy.yaml --config .wippy.workspace.yaml --profile workspace
+```
+
+The runtime configuration stack is not a publishing input, and the `workspace`
+section is never exported in module metadata. A module can also restrict which
+non-workspace runtime profiles are published from its `wippy.yaml` manifest:
+
+```yaml
+publish:
+  profiles:
+    include: [production]
+```
+
+Existing `replacements:` in `wippy.lock` remain readable for compatibility but
+emit a deprecation warning. Move them to any runtime configuration file; new
+workspace replacements should not be added to the portable lock.
+
 ## Requirements
 
 - Go 1.26+

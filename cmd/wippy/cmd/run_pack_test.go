@@ -33,11 +33,7 @@ func TestRunPackEntries_InvalidRequirementFailsNormalizationPipeline(t *testing.
 		t.Fatalf("write config: %v", err)
 	}
 
-	prevConfigFile := configFile
-	configFile = cfgPath
-	t.Cleanup(func() {
-		configFile = prevConfigFile
-	})
+	setTestConfigFiles(t, cfgPath)
 
 	ctx, loader, logger, embedReg, err := bootstrapPackRuntime(nil, zap.NewNop())
 	if err != nil {
@@ -91,11 +87,7 @@ func TestRunPackEntries_NoEntrypointRunsAsServer(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	prevConfigFile := configFile
-	configFile = cfgPath
-	t.Cleanup(func() {
-		configFile = prevConfigFile
-	})
+	setTestConfigFiles(t, cfgPath)
 
 	ctx, loader, _, embedReg, err := bootstrapPackRuntime(nil, zap.NewNop())
 	if err != nil {
@@ -135,11 +127,7 @@ func TestRunPackEntries_TestModeWithoutTestEntrypointErrors(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	prevConfigFile := configFile
-	configFile = cfgPath
-	t.Cleanup(func() {
-		configFile = prevConfigFile
-	})
+	setTestConfigFiles(t, cfgPath)
 
 	ctx, loader, _, embedReg, err := bootstrapPackRuntime(nil, zap.NewNop())
 	if err != nil {
@@ -165,11 +153,7 @@ func TestRunPackEntries_RunModeUnknownCommandErrors(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	prevConfigFile := configFile
-	configFile = cfgPath
-	t.Cleanup(func() {
-		configFile = prevConfigFile
-	})
+	setTestConfigFiles(t, cfgPath)
 
 	ctx, loader, _, embedReg, err := bootstrapPackRuntime(nil, zap.NewNop())
 	if err != nil {
@@ -195,11 +179,7 @@ func TestRunFromPackFiles_InvalidRequirementFailsNormalizationPipeline(t *testin
 		t.Fatalf("write config: %v", err)
 	}
 
-	prevConfigFile := configFile
-	configFile = cfgPath
-	t.Cleanup(func() {
-		configFile = prevConfigFile
-	})
+	setTestConfigFiles(t, cfgPath)
 
 	packPath := createTestPackFile(t, tmpDir, "snapshot", []wapp.Entry{
 		{
@@ -447,11 +427,7 @@ func TestCollectPackCommandsFiltersDependencyModules(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	prevConfigFile := configFile
-	configFile = cfgPath
-	t.Cleanup(func() {
-		configFile = prevConfigFile
-	})
+	setTestConfigFiles(t, cfgPath)
 
 	ctx, loader, _, embedReg, err := bootstrapPackRuntime(nil, zap.NewNop())
 	if err != nil {
@@ -564,11 +540,7 @@ func TestBootstrapPackRuntimeWithDefaults_Harness(t *testing.T) {
 			t.Fatalf("write config: %v", err)
 		}
 
-		prevConfigFile := configFile
-		configFile = cfgPath
-		t.Cleanup(func() {
-			configFile = prevConfigFile
-		})
+		setTestConfigFiles(t, cfgPath)
 
 		runtimeDefaults := boot.NewConfig(boot.WithSection("lsp", map[string]any{
 			"enabled": true,
@@ -598,11 +570,7 @@ func TestBootstrapPackRuntimeWithDefaults_Harness(t *testing.T) {
 			t.Fatalf("write config: %v", err)
 		}
 
-		prevConfigFile := configFile
-		configFile = cfgPath
-		t.Cleanup(func() {
-			configFile = prevConfigFile
-		})
+		setTestConfigFiles(t, cfgPath)
 
 		runtimeDefaults := boot.NewConfig(boot.WithSection("lsp", map[string]any{
 			"enabled": true,
@@ -966,11 +934,7 @@ override:
 			t.Fatalf("write config: %v", err)
 		}
 
-		prevConfigFile := configFile
-		configFile = cfgPath
-		t.Cleanup(func() {
-			configFile = prevConfigFile
-		})
+		setTestConfigFiles(t, cfgPath)
 
 		cfg, err := loadBootConfig()
 		if err != nil {
@@ -1030,15 +994,10 @@ override:
 		}
 	})
 
-	t.Run("no wippy.yaml does not break pipeline", func(t *testing.T) {
+	t.Run("missing optional default does not break pipeline", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		cfgPath := filepath.Join(tmpDir, ".wippy.yaml.nonexistent")
-
-		prevConfigFile := configFile
-		configFile = cfgPath
-		t.Cleanup(func() {
-			configFile = prevConfigFile
-		})
+		t.Chdir(tmpDir)
+		setTestConfigFiles(t)
 
 		cfg, err := loadBootConfig()
 		if err != nil {

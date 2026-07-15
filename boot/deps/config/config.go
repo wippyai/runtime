@@ -46,8 +46,9 @@ type PublishConfig struct {
 }
 
 type PublishProfilesConfig struct {
-	Enabled *bool  `yaml:"enabled,omitempty"`
-	Source  string `yaml:"source,omitempty"`
+	Enabled *bool    `yaml:"enabled,omitempty"`
+	Source  string   `yaml:"source,omitempty"`
+	Include []string `yaml:"include,omitempty"`
 }
 
 func Load(dir string) (*ModuleConfig, error) {

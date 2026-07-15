@@ -42,6 +42,10 @@ func NewReplacementPathNotExistError(path string) apierror.Error {
 	return apierror.New(apierror.NotFound, fmt.Sprintf("replacement path %q does not exist", path))
 }
 
+func NewReplacementPathNotDirectoryError(path string) apierror.Error {
+	return apierror.New(apierror.Invalid, fmt.Sprintf("replacement path %q is not a directory", path))
+}
+
 func NewCheckReplacementPathError(path string, cause error) apierror.Error {
 	return apierror.New(apierror.Internal, fmt.Sprintf("failed to check replacement path %q", path)).WithCause(cause)
 }
