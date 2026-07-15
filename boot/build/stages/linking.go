@@ -219,7 +219,7 @@ func (s *linkStage) collectDependencies(ctx context.Context, transcoder payload.
 			definition:      def,
 			moduleNamespace: moduleNamespace,
 			component:       def.Component,
-			transitive:      requirementModuleFromEntry(e) != "",
+			transitive:      requirementModuleFromEntry(e) != "" && !e.DependencyRoot,
 		}
 	}
 
@@ -235,8 +235,9 @@ type decodedDependency struct {
 	definition      *DependencyDefinition
 	moduleNamespace string
 	component       string
-	// transitive marks a dependency injected by a package (its ns.dependency
-	// entry carries meta.module) as opposed to an explicit root dependency.
+	// transitive marks a dependency injected by a package, as opposed to an
+	// explicitly selected deployment root. Ownership and root provenance are
+	// independent for published application modules.
 	transitive bool
 }
 

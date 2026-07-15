@@ -2474,8 +2474,10 @@ func TestLink_RootParameterBeatsTransitiveBareAliasSpelling(t *testing.T) {
 
 	entries := []registry.Entry{
 		{
-			ID:   registry.NewID("app.deps", "telegram_root"),
-			Kind: registry.NamespaceDependency,
+			ID:             registry.NewID("app.deps", "telegram_root"),
+			Kind:           registry.NamespaceDependency,
+			Meta:           map[string]any{"module": "acme/app"},
+			DependencyRoot: true,
 			Data: payload.New(map[string]any{
 				"component": "butschster/telegram",
 				"parameters": []any{

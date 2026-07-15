@@ -98,6 +98,10 @@ type (
 		Meta attrs.Bag       `json:"meta"`
 		ID   ID              `json:"id"`
 		Kind Kind            `json:"kind"`
+		// DependencyRoot identifies an ns.dependency selected as a deployment
+		// root. It is independent of package ownership, so a published app entry
+		// can retain meta.module while remaining a root.
+		DependencyRoot bool `json:"dependency_root,omitempty"`
 	}
 
 	// ChangeSet represents a set of operations to transition the registry from one state to another
@@ -105,9 +109,9 @@ type (
 
 	// Operation represents a single operation within a ChangeSet
 	Operation struct {
-		Entry         Entry      `json:"entry"`
 		OriginalEntry *Entry     `json:"original_entry,omitempty"`
 		Kind          event.Kind `json:"kind"`
+		Entry         Entry      `json:"entry"`
 	}
 
 	// DependencyPattern defines a pattern for extracting dependencies from entries

@@ -172,6 +172,21 @@ func TestEntryModule_ValidModule(t *testing.T) {
 	assert.Equal(t, "acme/http", entryModule(e))
 }
 
+func TestIsRootDependencyKeepsOwnershipSeparate(t *testing.T) {
+	root := regapi.Entry{
+		ID:             regapi.NewID("workspace.modules", "search"),
+		Kind:           regapi.NamespaceDependency,
+		Meta:           attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/app"}),
+		DependencyRoot: true,
+	}
+	assert.True(t, isRootDependency(root))
+	assert.Equal(t, "acme/app", entryModule(root))
+
+	transitive := root
+	transitive.DependencyRoot = false
+	assert.False(t, isRootDependency(transitive))
+}
+
 // --- markModuleMeta ---
 
 func TestMarkModuleMeta_NilMeta(t *testing.T) {

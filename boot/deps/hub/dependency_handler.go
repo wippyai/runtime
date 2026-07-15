@@ -2594,7 +2594,7 @@ func snapshotModuleDigests(snapshot regapi.State) map[string]string {
 }
 
 func isRootDependency(entry regapi.Entry) bool {
-	return entry.Kind == regapi.NamespaceDependency && entryModule(entry) == ""
+	return entry.Kind == regapi.NamespaceDependency && (entry.DependencyRoot || entryModule(entry) == "")
 }
 
 func markModuleMeta(entry regapi.Entry, moduleName, moduleVersion string) regapi.Entry {

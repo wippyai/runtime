@@ -11,6 +11,7 @@ import (
 // Validate validates the entire lock file structure.
 // Returns an error if any validation fails.
 func Validate(l *Lock) error {
+	rootCount := 0
 	for _, mod := range l.data.Modules {
 		if err := ValidateModuleName(mod.Name); err != nil {
 			return NewInvalidModuleError(mod.Name, err)
@@ -19,6 +20,12 @@ func Validate(l *Lock) error {
 		if mod.Version == "" {
 			return NewModuleEmptyVersionError(mod.Name)
 		}
+		if mod.Root {
+			rootCount++
+		}
+	}
+	if rootCount > 1 {
+		return NewMultipleRootModulesError()
 	}
 
 	if err := ValidateReplacements(l.path, l.GetReplacements()); err != nil {

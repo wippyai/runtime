@@ -27,6 +27,7 @@ type Module struct {
 	Version   string `yaml:"version"`              // Semantic version (e.g., v0.0.11)
 	Hash      string `yaml:"hash,omitempty"`       // Manifest digest (e.g. sha256:...), populated on install
 	LocalHash string `yaml:"local_hash,omitempty"` // Computed hash from loaded entries for verification
+	Root      bool   `yaml:"root,omitempty"`       // Selected deployment root, not a transitive module
 }
 
 // Replacement represents a local module override for development.

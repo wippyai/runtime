@@ -615,7 +615,7 @@ func TestLoadPackEntries_RawLoadSkipsLinkPipeline(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, err := loadPackEntries([]string{packPath}, embedReg)
+	packEntries, err := loadPackEntries([]string{packPath}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}
@@ -628,7 +628,7 @@ func TestLoadPackEntries_RejectsUnsupportedExtension(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	_, err := loadPackEntries([]string{"./not-a-pack.yaml"}, embedReg)
+	_, err := loadPackEntries([]string{"./not-a-pack.yaml"}, "", embedReg)
 	if err == nil {
 		t.Fatal("expected error for unsupported pack extension")
 	}
@@ -657,7 +657,7 @@ func TestLoadPackEntries_AcceptsUppercaseExtension(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, err := loadPackEntries([]string{upperPath}, embedReg)
+	packEntries, err := loadPackEntries([]string{upperPath}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}
@@ -676,7 +676,7 @@ func TestLoadPackEntries_RegisterErrorIncludesPath(t *testing.T) {
 		},
 	})
 
-	_, err := loadPackEntries([]string{packPath}, failingPackRegistry{err: errors.New("boom")})
+	_, err := loadPackEntries([]string{packPath}, "", failingPackRegistry{err: errors.New("boom")})
 	if err == nil {
 		t.Fatal("expected register error")
 	}
@@ -708,7 +708,7 @@ func TestLoadPackEntries_MultiPackOrder(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, err := loadPackEntries([]string{depPack, mainPack}, embedReg)
+	packEntries, err := loadPackEntries([]string{depPack, mainPack}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}
@@ -753,7 +753,7 @@ func TestLoadPackEntries_AnnotatesModuleMetadataFromPackMetadata(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, err := loadPackEntries([]string{packPath}, embedReg)
+	packEntries, err := loadPackEntries([]string{packPath}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}
@@ -770,6 +770,44 @@ func TestLoadPackEntries_AnnotatesModuleMetadataFromPackMetadata(t *testing.T) {
 	}
 }
 
+func TestLoadPackEntries_UsesExplicitRootIdentityNotPackOrder(t *testing.T) {
+	tmpDir := t.TempDir()
+	rootPack := createTestPackFileWithMetadata(t, tmpDir, "root-pack", wapp.Metadata{
+		"name": "app", "namespace": "acme.app", "version": "1.0.0",
+	}, []wapp.Entry{{
+		ID: wapp.NewID("workspace.modules", "search"), Kind: regapi.NamespaceDependency,
+		Data: map[string]any{"component": "acme/search", "version": "*"},
+	}})
+	transitivePack := createTestPackFileWithMetadata(t, tmpDir, "transitive-pack", wapp.Metadata{
+		"name": "lib", "namespace": "acme.lib", "version": "2.0.0",
+	}, []wapp.Entry{{
+		ID: wapp.NewID("acme.lib", "dep.child"), Kind: regapi.NamespaceDependency,
+		Data: map[string]any{"component": "acme/child", "version": "*"},
+	}})
+
+	embedReg := embedpkg.NewRegistry()
+	defer func() { _ = embedReg.Close() }()
+	packEntries, err := loadPackEntries([]string{rootPack, transitivePack}, "acme/app", embedReg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packEntries) != 2 {
+		t.Fatalf("entry count = %d, want 2", len(packEntries))
+	}
+	if !packEntries[0].DependencyRoot {
+		t.Fatal("explicit root module dependency was not marked as a deployment root")
+	}
+	if packEntries[1].DependencyRoot {
+		t.Fatal("last pack was incorrectly promoted to a deployment root")
+	}
+	if got := packEntries[0].Meta.GetString("module", ""); got != "acme/app" {
+		t.Fatalf("root ownership was discarded: %q", got)
+	}
+	if got := packEntries[1].Meta.GetString("module", ""); got != "acme/lib" {
+		t.Fatalf("transitive ownership = %q, want acme/lib", got)
+	}
+}
+
 func TestLoadPackEntries_RegistersModuleOwnedEmbeddedResources(t *testing.T) {
 	tmpDir := t.TempDir()
 	packPath := createModulePackWithEmbeddedResource(t, tmpDir, "ui-pack", wapp.Metadata{
@@ -781,7 +819,7 @@ func TestLoadPackEntries_RegistersModuleOwnedEmbeddedResources(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, err := loadPackEntries([]string{packPath}, embedReg)
+	packEntries, err := loadPackEntries([]string{packPath}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}
@@ -823,7 +861,7 @@ func TestLoadPackEntries_DoesNotOverrideExistingModuleMetadata(t *testing.T) {
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, err := loadPackEntries([]string{packPath}, embedReg)
+	packEntries, err := loadPackEntries([]string{packPath}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}
@@ -862,7 +900,7 @@ func TestLoadPackEntries_MonolithicPackRegistersModuleResourceAliases(t *testing
 	embedReg := embedpkg.NewRegistry()
 	defer func() { _ = embedReg.Close() }()
 
-	packEntries, err := loadPackEntries([]string{packPath}, embedReg)
+	packEntries, err := loadPackEntries([]string{packPath}, "", embedReg)
 	if err != nil {
 		t.Fatalf("loadPackEntries failed: %v", err)
 	}

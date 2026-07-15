@@ -359,6 +359,9 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 		if mp.Module != "" {
 			for i := range loaded {
 				loaded[i] = markModuleMeta(loaded[i], mp.Module, mp.Version)
+				if mp.Root && loaded[i].Kind == regapi.NamespaceDependency {
+					loaded[i].DependencyRoot = true
+				}
 			}
 		}
 

@@ -323,7 +323,8 @@ func downloadHubModule(ctx context.Context, ref string, registryURL string) ([]s
 			return nil, err
 		}
 
-		if err := updateLockFile(moduleName, m.Version, m.Digest); err != nil {
+		isRoot := m.Org == org && m.Name == module
+		if err := updateLockFile(moduleName, m.Version, m.Digest, isRoot); err != nil {
 			fmt.Printf("%s Warning: could not update lock file for %s: %v\n", dimStyle.Render(""), moduleName, err)
 		}
 
@@ -374,7 +375,7 @@ func ensureHubPackCached(ctx context.Context, client hubPackDownloader, m hub.Re
 }
 
 // updateLockFile persists resolved module version/hash into wippy.lock.
-func updateLockFile(moduleName, version, digest string) error {
+func updateLockFile(moduleName, version, digest string, root bool) error {
 	lockObj, err := lock.New(defaultLockFile)
 	if err != nil {
 		return fmt.Errorf("lock file %s: %w", defaultLockFile, err)
@@ -387,6 +388,9 @@ func updateLockFile(moduleName, version, digest string) error {
 	}
 
 	lockObj.SetModule(mod)
+	if root {
+		lockObj.SetRootModule(moduleName)
+	}
 	if err := lockObj.Write(); err != nil {
 		return fmt.Errorf("lock file %s: %w", lockObj.Path(), err)
 	}
@@ -456,15 +460,15 @@ func runFromPackFile(cmd *cobra.Command, packFile string, args []string, useCase
 	}
 	defer embedReg.Close()
 
-	packEntries, err := loadPackEntries([]string{packFile}, embedReg)
-	if err != nil {
-		runLogger.Error("failed to load entries from pack", zap.Error(err))
-		return NewLoadEntriesError(packFile, err)
-	}
-
 	mainModule, _, err := moduleIdentityFromPackFile(packFile)
 	if err != nil {
 		return fmt.Errorf("failed to load main module identity from pack metadata: %w", err)
+	}
+
+	packEntries, err := loadPackEntries([]string{packFile}, mainModule, embedReg)
+	if err != nil {
+		runLogger.Error("failed to load entries from pack", zap.Error(err))
+		return NewLoadEntriesError(packFile, err)
 	}
 
 	runLogger.Info("loaded entries from pack", zap.Int("count", len(packEntries)))
@@ -509,7 +513,7 @@ func runFromPackFiles(cmd *cobra.Command, packFiles []string, args []string, use
 		}
 	}
 
-	packEntries, err := loadPackEntries(packFiles, embedReg)
+	packEntries, err := loadPackEntries(packFiles, mainModule, embedReg)
 	if err != nil {
 		runLogger.Error("failed to load entries from packs", zap.Error(err))
 		return NewLoadEntriesError("pack files", err)
@@ -614,7 +618,7 @@ type modulePackReaderRegistry interface {
 	RegisterPack(packPath, module, version string, reader *wapp.Reader, file *os.File) error
 }
 
-func loadPackEntries(packFiles []string, embedReg packReaderRegistry) ([]registry.Entry, error) {
+func loadPackEntries(packFiles []string, rootModule string, embedReg packReaderRegistry) ([]registry.Entry, error) {
 	packEntries := make([]registry.Entry, 0)
 
 	for _, packFile := range packFiles {
@@ -645,7 +649,7 @@ func loadPackEntries(packFiles []string, embedReg packReaderRegistry) ([]registr
 		}
 
 		if moduleName != "" {
-			annotateEntriesModuleMeta(loadedEntries, moduleName, moduleVersion)
+			annotateEntriesModuleMeta(loadedEntries, moduleName, moduleVersion, moduleName == rootModule)
 		} else {
 			if err := registerMonolithicPackResourceAliases(embedReg, packFile, packReader.Reader(), loadedEntries); err != nil {
 				return nil, fmt.Errorf("register embed resource aliases for %s: %w", packFile, err)
@@ -737,12 +741,15 @@ func moduleIdentityFromPackMetadata(reader *wapp.Reader) (moduleName string, mod
 	return org + "/" + name, version
 }
 
-func annotateEntriesModuleMeta(items []registry.Entry, moduleName string, moduleVersion string) {
+func annotateEntriesModuleMeta(items []registry.Entry, moduleName string, moduleVersion string, root bool) {
 	if moduleName == "" {
 		return
 	}
 
 	for i := range items {
+		if root && items[i].Kind == registry.NamespaceDependency {
+			items[i].DependencyRoot = true
+		}
 		meta := items[i].Meta
 		if meta == nil {
 			meta = attrs.NewBag()
