@@ -1281,18 +1281,12 @@ func loadReplacementEntries(
 	}
 
 	cfg, _ := depconfig.Load(path)
-	dirFS := os.DirFS(path)
+	dirFS := depconfig.NewSourceFS(os.DirFS(path), cfg, path, path)
 	ldr := loaderFromContext(ctx, logger, transcoder)
 	var entries []regapi.Entry
 	if err := fs.WalkDir(dirFS, ".", func(rel string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
-		}
-		if rel != "." && cfg != nil && cfg.ExcludesSourcePath(rel) {
-			if d.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
 		}
 		if d.IsDir() || rel == depconfig.DefaultConfigFile {
 			return nil

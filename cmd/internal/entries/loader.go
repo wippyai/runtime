@@ -344,7 +344,7 @@ func loadEntriesWithModuleMeta(ctx context.Context, modulePaths []lock.ModuleLoa
 	var entries []regapi.Entry
 
 	for _, mp := range modulePaths {
-		loaded, err := loadEntriesFromPath(ctx, mp.Path, ldr, dtt, logger)
+		loaded, err := loadEntriesFromModulePath(ctx, mp, ldr, dtt, logger)
 		if err != nil {
 			return nil, err
 		}
@@ -453,8 +453,11 @@ func NormalizeEntries(ctx context.Context, entries *[]regapi.Entry) error {
 	return nil
 }
 
-// loadEntriesFromPath loads entries from a single path (directory or .wapp file).
-func loadEntriesFromPath(ctx context.Context, path string, ldr boot.Loader, dtt payload.Transcoder, logger *zap.Logger) ([]regapi.Entry, error) {
+// loadEntriesFromModulePath loads entries from a single module path and applies
+// source-file exclusions before decoding manifests. Entry-ID and metadata
+// filters are applied separately after decoding.
+func loadEntriesFromModulePath(ctx context.Context, mp lock.ModuleLoadPath, ldr boot.Loader, dtt payload.Transcoder, logger *zap.Logger) ([]regapi.Entry, error) {
+	path := mp.Path
 	if filepath.Ext(path) == ".wapp" {
 		return loadEntriesFromWapp(path, dtt)
 	}
@@ -469,7 +472,16 @@ func loadEntriesFromPath(ctx context.Context, path string, ldr boot.Loader, dtt 
 	}
 
 	if stat.IsDir() {
-		dirFS := os.DirFS(path)
+		configDir := path
+		var moduleConfig *depconfig.ModuleConfig
+		if shouldApplyModuleConfigFilters(mp) {
+			configDir = mp.SourceRoot
+			if configDir == "" {
+				configDir = path
+			}
+			moduleConfig, _ = depconfig.Load(configDir)
+		}
+		dirFS := depconfig.NewSourceFS(os.DirFS(path), moduleConfig, configDir, path)
 		loaded, err := ldr.LoadFS(ctx, dirFS)
 		if err != nil {
 			return nil, NewLoadFromPathError(path, err)
