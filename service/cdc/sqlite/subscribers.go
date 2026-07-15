@@ -26,7 +26,7 @@ func newSubscribers() *subscribers {
 	return &subscribers{m: make(map[uint64]*subscription)}
 }
 
-func (s *subscribers) subscribe(opts config.StreamOptions) config.ChangeStream {
+func (s *subscribers) subscribe(sourceName string, opts config.StreamOptions, wantSnapshot bool) *subscription {
 	buffer := opts.Buffer
 	if buffer <= 0 {
 		buffer = defaultStreamBuffer
@@ -38,22 +38,29 @@ func (s *subscribers) subscribe(opts config.StreamOptions) config.ChangeStream {
 	s.mu.Lock()
 	s.next++
 	sub := &subscription{
-		parent: s,
-		id:     s.next,
-		in:     make(chan config.Change, buffer),
-		out:    make(chan config.Change, buffer),
-		done:   make(chan struct{}),
-		tables: filterSet(opts.Tables),
-		ops:    filterSet(opts.Ops),
+		parent:       s,
+		id:           s.next,
+		sourceName:   sourceName,
+		in:           make(chan config.Change, buffer),
+		out:          make(chan config.Change, buffer),
+		done:         make(chan struct{}),
+		termCh:       make(chan struct{}),
+		tables:       filterSet(opts.Tables),
+		ops:          filterSet(opts.Ops),
+		wantSnapshot: wantSnapshot,
+	}
+	if wantSnapshot {
+		sub.snap = make(chan config.Change)
 	}
 	s.m[sub.id] = sub
 	s.mu.Unlock()
 
 	go sub.run()
+
 	return sub
 }
 
-func (s *subscribers) publish(ctx context.Context, change config.Change) {
+func (s *subscribers) publish(_ context.Context, change config.Change) {
 	s.mu.RLock()
 	matched := make([]*subscription, 0, len(s.m))
 	for _, sub := range s.m {
@@ -64,7 +71,7 @@ func (s *subscribers) publish(ctx context.Context, change config.Change) {
 	s.mu.RUnlock()
 
 	for _, sub := range matched {
-		sub.send(ctx, change)
+		sub.send(change)
 	}
 }
 
@@ -89,15 +96,21 @@ func (s *subscribers) closeAll() {
 }
 
 type subscription struct {
-	parent *subscribers
-	in     chan config.Change
-	out    chan config.Change
-	done   chan struct{}
-	tables map[string]struct{}
-	ops    map[string]struct{}
-	id     uint64
-	once   sync.Once
-	closed atomic.Bool
+	parent       *subscribers
+	in           chan config.Change
+	out          chan config.Change
+	snap         chan config.Change
+	done         chan struct{}
+	termCh       chan struct{}
+	tables       map[string]struct{}
+	ops          map[string]struct{}
+	term         atomic.Pointer[config.Change]
+	sourceName   string
+	id           uint64
+	closeOnce    sync.Once
+	failOnce     sync.Once
+	closed       atomic.Bool
+	wantSnapshot bool
 }
 
 func (s *subscription) Changes() <-chan config.Change {
@@ -105,7 +118,7 @@ func (s *subscription) Changes() <-chan config.Change {
 }
 
 func (s *subscription) Close() {
-	s.once.Do(func() {
+	s.closeOnce.Do(func() {
 		s.closed.Store(true)
 		if s.parent != nil {
 			s.parent.remove(s.id)
@@ -114,39 +127,76 @@ func (s *subscription) Close() {
 	})
 }
 
+func (s *subscription) fail(reason string) {
+	s.failOnce.Do(func() {
+		c := config.Change{Source: s.sourceName, Op: "error", Error: reason}
+		s.term.Store(&c)
+		s.closed.Store(true)
+		if s.parent != nil {
+			s.parent.remove(s.id)
+		}
+		close(s.termCh)
+	})
+}
+
 func (s *subscription) run() {
 	defer close(s.out)
+
+	if s.wantSnapshot && !s.pump(s.snap, true) {
+		s.flushTerm()
+		return
+	}
+	if !s.pump(s.in, false) {
+		s.flushTerm()
+	}
+}
+
+func (s *subscription) pump(src <-chan config.Change, snapshotPhase bool) bool {
 	for {
 		select {
 		case <-s.done:
-			return
-		default:
-		}
-		select {
-		case change := <-s.in:
+			return false
+		case <-s.termCh:
+			return false
+		case change, ok := <-src:
+			if !ok {
+				return snapshotPhase
+			}
 			select {
 			case <-s.done:
-				return
+				return false
+			case <-s.termCh:
+				return false
 			case s.out <- change:
 			}
-		case <-s.done:
-			return
 		}
 	}
 }
 
-func (s *subscription) send(_ context.Context, change config.Change) {
+func (s *subscription) flushTerm() {
+	if t := s.term.Load(); t != nil {
+		select {
+		case s.out <- *t:
+		case <-s.done:
+		}
+	}
+}
+
+func (s *subscription) send(change config.Change) {
 	if s.closed.Load() {
 		return
 	}
 	select {
 	case s.in <- change:
 	default:
-		s.Close()
+		s.fail("sqlite cdc subscriber backlog overflow")
 	}
 }
 
 func (s *subscription) matches(change config.Change) bool {
+	if change.Op == "error" || change.Op == "snapshot" {
+		return true
+	}
 	if len(s.ops) > 0 {
 		if _, ok := s.ops[strings.ToLower(change.Op)]; !ok {
 			return false
@@ -159,8 +209,10 @@ func (s *subscription) matches(change config.Change) bool {
 		if _, ok := s.tables[strings.ToLower(change.Table)]; ok {
 			return true
 		}
+
 		return false
 	}
+
 	return true
 }
 
@@ -168,6 +220,7 @@ func filterSet(values []string) map[string]struct{} {
 	if len(values) == 0 {
 		return nil
 	}
+
 	out := make(map[string]struct{}, len(values))
 	for _, v := range values {
 		v = strings.ToLower(strings.TrimSpace(v))
@@ -178,5 +231,6 @@ func filterSet(values []string) map[string]struct{} {
 	if len(out) == 0 {
 		return nil
 	}
+
 	return out
 }

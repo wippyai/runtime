@@ -264,9 +264,24 @@ func (s *Stream) closeWithUnsubscribe(unsubscribe bool) {
 }
 
 func sourceInfoToTable(l *lua.LState, info cdcapi.SourceInfo) *lua.LTable {
-	t := l.CreateTable(0, 8)
+	t := l.CreateTable(0, 12)
 	t.RawSetString("name", lua.LString(info.Name))
 	t.RawSetString("slot", lua.LString(info.Slot))
+	if info.Engine != "" {
+		t.RawSetString("engine", lua.LString(info.Engine))
+	}
+	if info.File != "" {
+		t.RawSetString("file", lua.LString(info.File))
+	}
+	if info.DBResource != "" {
+		t.RawSetString("db_resource", lua.LString(info.DBResource))
+	}
+	if info.Epoch != "" {
+		t.RawSetString("epoch", lua.LString(info.Epoch))
+	}
+	if info.Error != "" {
+		t.RawSetString("error", lua.LString(info.Error))
+	}
 	if info.Publication != "" {
 		t.RawSetString("publication", lua.LString(info.Publication))
 	}
@@ -281,6 +296,7 @@ func sourceInfoToTable(l *lua.LState, info cdcapi.SourceInfo) *lua.LTable {
 	t.RawSetString("failover", lua.LBool(info.Failover))
 	t.RawSetString("temporary", lua.LBool(info.Temporary))
 	t.RawSetString("snapshot", lua.LBool(info.Snapshot))
+	t.RawSetString("faulted", lua.LBool(info.Faulted))
 	return t
 }
 
@@ -311,6 +327,9 @@ func streamOptionsFromLua(l *lua.LState, idx int) (cdcapi.StreamOptions, *lua.Er
 				WithRetryable(false)
 		}
 		opts.Buffer = n
+	}
+	if v := table.RawGetString("snapshot"); v != lua.LNil {
+		opts.Snapshot = lua.LVAsBool(v)
 	}
 	return opts, nil
 }

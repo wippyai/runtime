@@ -17,8 +17,6 @@ import (
 	sqlservice "github.com/wippyai/runtime/service/sql"
 )
 
-// sqliteCDCDriver is a SQLite driver variant whose ConnectHook rebinds preupdate
-// hooks on every connection the pool opens to a file with a registered sink.
 const sqliteCDCDriver = "sqlite3_wippy"
 
 const (
@@ -30,18 +28,24 @@ const (
 var (
 	errNotSQLiteConn        = apierror.New(apierror.Invalid, "underlying connection is not a SQLite connection").WithRetryable(apierror.False)
 	errCDCMemoryUnsupported = apierror.New(apierror.Invalid, "sqlite cdc requires a file-backed database").WithRetryable(apierror.False)
+	errCaptureOwned         = apierror.New(apierror.Conflict, "sqlite cdc capture already owned for this database").WithRetryable(apierror.True)
 )
 
-// cdcSink receives row-level changes observed on the writer connection.
 type cdcSink interface {
-	PreUpdate(op int, table string, rowid int64, old, new []any)
+	PreUpdate(op int, schema, table string, rowid int64, ncols int, old, new []any, scanErr error)
 	Commit()
 	Rollback()
 }
 
+type captureOwner struct {
+	sink  cdcSink
+	token uint64
+}
+
 var (
-	cdcMu    sync.RWMutex
-	cdcSinks = make(map[string]cdcSink)
+	cdcMu     sync.Mutex
+	captures  = make(map[string]captureOwner)
+	captureNo uint64
 )
 
 func init() {
@@ -54,59 +58,95 @@ func cdcConnectHook(conn *sqlite3.SQLiteConn) error {
 	if file == "" {
 		return nil
 	}
-	cdcMu.RLock()
-	sink, ok := cdcSinks[file]
-	cdcMu.RUnlock()
-	if ok {
-		bindCDCHooks(conn, sink)
+
+	cdcMu.Lock()
+	defer cdcMu.Unlock()
+	if owner, ok := captures[file]; ok {
+		bindCDCHooks(conn, owner.sink)
 	}
+
 	return nil
 }
 
-func registerSink(file string, sink cdcSink) {
+func claimCapture(file string, sink cdcSink) (uint64, error) {
 	cdcMu.Lock()
-	cdcSinks[file] = sink
-	cdcMu.Unlock()
+	defer cdcMu.Unlock()
+	if _, ok := captures[file]; ok {
+		return 0, errCaptureOwned
+	}
+
+	captureNo++
+	captures[file] = captureOwner{sink: sink, token: captureNo}
+
+	return captureNo, nil
 }
 
-func unregisterSink(file string) {
+func releaseCapture(file string, token uint64) {
 	cdcMu.Lock()
-	delete(cdcSinks, file)
-	cdcMu.Unlock()
+	defer cdcMu.Unlock()
+	if owner, ok := captures[file]; ok && owner.token == token {
+		delete(captures, file)
+	}
 }
 
-func installHooksOnRaw(raw any, sink cdcSink) (string, error) {
+func installHooksOnRaw(raw any, sink cdcSink) (string, uint64, error) {
 	conn, ok := raw.(*sqlite3.SQLiteConn)
 	if !ok {
-		return "", errNotSQLiteConn
+		return "", 0, errNotSQLiteConn
 	}
+
 	file := normalizeCDCPath(conn.GetFilename("main"))
 	if file == "" {
-		return "", errCDCMemoryUnsupported
+		return "", 0, errCDCMemoryUnsupported
 	}
+
+	token, err := claimCapture(file, sink)
+	if err != nil {
+		return file, 0, err
+	}
+
 	bindCDCHooks(conn, sink)
-	return file, nil
+
+	return file, token, nil
 }
 
-func clearHooksOnRaw(raw any) error {
+func applyOwnerOnRaw(raw any, file string) error {
 	conn, ok := raw.(*sqlite3.SQLiteConn)
 	if !ok {
 		return errNotSQLiteConn
 	}
+
+	cdcMu.Lock()
+	defer cdcMu.Unlock()
+	if owner, ok := captures[file]; ok {
+		bindCDCHooks(conn, owner.sink)
+	} else {
+		clearHooks(conn)
+	}
+
+	return nil
+}
+
+func clearHooks(conn *sqlite3.SQLiteConn) {
 	conn.RegisterPreUpdateHook(nil)
 	conn.RegisterCommitHook(nil)
 	conn.RegisterRollbackHook(nil)
-	return nil
 }
 
 func normalizeCDCPath(path string) string {
 	if path == "" {
 		return ""
 	}
+
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return filepath.Clean(path)
 	}
+
 	return abs
 }
 
@@ -115,22 +155,27 @@ func bindCDCHooks(conn *sqlite3.SQLiteConn, sink cdcSink) {
 		count := d.Count()
 		var oldRow, newRow []any
 		var rowid int64
+		var scanErr error
 		switch d.Op {
 		case sqlite3.SQLITE_INSERT:
-			newRow = scanPreUpdateRow(&d, count, true)
+			newRow, scanErr = scanPreUpdateRow(&d, count, true)
 			rowid = d.NewRowID
 		case sqlite3.SQLITE_DELETE:
-			oldRow = scanPreUpdateRow(&d, count, false)
+			oldRow, scanErr = scanPreUpdateRow(&d, count, false)
 			rowid = d.OldRowID
 		case sqlite3.SQLITE_UPDATE:
-			oldRow = scanPreUpdateRow(&d, count, false)
-			newRow = scanPreUpdateRow(&d, count, true)
+			oldRow, scanErr = scanPreUpdateRow(&d, count, false)
+			if scanErr == nil {
+				newRow, scanErr = scanPreUpdateRow(&d, count, true)
+			}
 			rowid = d.NewRowID
 		}
-		sink.PreUpdate(d.Op, d.TableName, rowid, oldRow, newRow)
+
+		sink.PreUpdate(d.Op, d.DatabaseName, d.TableName, rowid, count, oldRow, newRow, scanErr)
 	})
 	conn.RegisterCommitHook(func() int {
 		sink.Commit()
+
 		return 0
 	})
 	conn.RegisterRollbackHook(func() {
@@ -138,15 +183,21 @@ func bindCDCHooks(conn *sqlite3.SQLiteConn, sink cdcSink) {
 	})
 }
 
-func scanPreUpdateRow(d *sqlite3.SQLitePreUpdateData, count int, isNew bool) []any {
+func scanPreUpdateRow(d *sqlite3.SQLitePreUpdateData, count int, isNew bool) ([]any, error) {
 	if count <= 0 {
-		return nil
+		return nil, nil
 	}
+
 	vals := make([]any, count)
+	var err error
 	if isNew {
-		_ = d.New(vals...)
+		err = d.New(vals...)
 	} else {
-		_ = d.Old(vals...)
+		err = d.Old(vals...)
 	}
-	return vals
+	if err != nil {
+		return nil, err
+	}
+
+	return vals, nil
 }

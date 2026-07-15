@@ -20,7 +20,8 @@ type sourceHandle interface {
 	supervisor.Service
 	Subscribe(opts config.StreamOptions) config.ChangeStream
 	closeSubscriptions()
-	markDrop()
+	Epoch() string
+	Faulted() (bool, string)
 }
 
 type sourceOptions struct {
@@ -142,7 +143,6 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if !exists {
 		return NewServiceNotFoundError(entry.ID)
 	}
-	src.markDrop()
 	src.closeSubscriptions()
 	m.removeInfo(entry.ID)
 	m.unregister(ctx, entry)
@@ -188,8 +188,8 @@ func (m *Manager) List() []config.SourceInfo {
 	defer m.mu.Unlock()
 
 	out := make([]config.SourceInfo, 0, len(m.infos))
-	for _, info := range m.infos {
-		out = append(out, info)
+	for id, info := range m.infos {
+		out = append(out, m.enrich(id, info))
 	}
 	return out
 }
@@ -200,10 +200,24 @@ func (m *Manager) Get(name string) (config.SourceInfo, bool) {
 
 	if id, ok := m.infosByName[name]; ok {
 		if info, present := m.infos[id]; present {
-			return info, true
+			return m.enrich(id, info), true
 		}
 	}
 	return config.SourceInfo{}, false
+}
+
+func (m *Manager) enrich(id registry.ID, info config.SourceInfo) config.SourceInfo {
+	src := m.sources[id]
+	if src == nil {
+		return info
+	}
+
+	info.Epoch = src.Epoch()
+	if faulted, reason := src.Faulted(); faulted {
+		info.Faulted = true
+		info.Error = reason
+	}
+	return info
 }
 
 func (m *Manager) Stream(_ context.Context, name string, opts config.StreamOptions) (config.ChangeStream, config.SourceInfo, error) {
@@ -212,6 +226,12 @@ func (m *Manager) Stream(_ context.Context, name string, opts config.StreamOptio
 	m.mu.Unlock()
 	if !ok {
 		return nil, config.SourceInfo{}, NewServiceNotFoundError(registry.ParseID(name))
+	}
+
+	info.Epoch = src.Epoch()
+	if faulted, reason := src.Faulted(); faulted {
+		info.Faulted = true
+		info.Error = reason
 	}
 	return src.Subscribe(opts), info, nil
 }

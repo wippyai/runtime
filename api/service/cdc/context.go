@@ -11,11 +11,14 @@ type SourceInfo struct {
 	Engine      string   `json:"engine,omitempty"`
 	File        string   `json:"file,omitempty"`
 	DBResource  string   `json:"db_resource,omitempty"`
+	Epoch       string   `json:"epoch,omitempty"`
+	Error       string   `json:"error,omitempty"`
 	Tables      []string `json:"tables,omitempty"`
 	Streaming   bool     `json:"streaming,omitempty"`
 	Failover    bool     `json:"failover,omitempty"`
 	Temporary   bool     `json:"temporary,omitempty"`
 	Snapshot    bool     `json:"snapshot,omitempty"`
+	Faulted     bool     `json:"faulted,omitempty"`
 }
 
 type SourceInspector interface {

@@ -7,6 +7,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -26,47 +27,62 @@ import (
 )
 
 const (
-	offsetsTable           = "wippy_cdc_offsets"
 	changesCounter         = "wippy_cdc_changes_total"
 	walGauge               = "wippy_cdc_wal_size_bytes"
 	defaultStatusInterval  = 30 * time.Second
 	commitQueueSize        = 256
+	maxTxnRows             = 200_000
+	maxTxnBytes            = 128 << 20
 	auxBusyTimeoutMillisec = 5000
+	claimAttempts          = 40
+	claimRetryDelay        = 50 * time.Millisecond
+	cleanupTimeout         = 5 * time.Second
 )
 
 type capturedChange struct {
-	table string
-	old   []any
-	new   []any
-	op    int
-	rowid int64
+	schema string
+	table  string
+	old    []any
+	new    []any
+	op     int
+	rowid  int64
+	ncols  int
 }
 
 type Source struct {
-	poolRes        resource.Resource[any]
 	res            resource.Registry
+	poolRes        resource.Resource[any]
 	readDB         *sql.DB
-	checkpointDB   *sql.DB
+	writerDB       *sql.DB
+	runCtx         context.Context
+	cancel         context.CancelFunc
 	runDone        chan struct{}
 	commits        chan []capturedChange
+	faultCh        chan struct{}
 	subs           *subscribers
-	writerDB       *sql.DB
 	cols           map[string][]columnInfo
-	cancel         context.CancelFunc
 	tables         map[string]struct{}
 	log            *zap.Logger
-	dbResID        registry.ID
-	file           string
+	faultMsg       atomic.Pointer[string]
 	name           string
+	file           string
+	epoch          string
+	dbResID        registry.ID
 	pending        []capturedChange
 	statusInterval time.Duration
+	token          uint64
+	pendingBytes   int
+	maxRows        int
+	maxBytes       int
 	seq            atomic.Uint64
+	schemaVer      atomic.Int64
 	colMu          sync.RWMutex
 	mu             sync.Mutex
 	pendMu         sync.Mutex
+	faultOnce      sync.Once
 	stopped        atomic.Bool
-	dropCP         atomic.Bool
-	snap           bool
+	faulted        atomic.Bool
+	defaultSnap    bool
 }
 
 func buildSource(opts sourceOptions) (sourceHandle, error) {
@@ -74,6 +90,7 @@ func buildSource(opts sourceOptions) (sourceHandle, error) {
 	if log == nil {
 		log = zap.NewNop()
 	}
+
 	interval := defaultStatusInterval
 	if opts.statusInterval != "" {
 		d, err := time.ParseDuration(opts.statusInterval)
@@ -84,6 +101,7 @@ func buildSource(opts sourceOptions) (sourceHandle, error) {
 			interval = d
 		}
 	}
+
 	return &Source{
 		log:            log,
 		res:            opts.res,
@@ -93,60 +111,138 @@ func buildSource(opts sourceOptions) (sourceHandle, error) {
 		dbResID:        opts.dbResource,
 		tables:         filterSet(opts.tables),
 		cols:           make(map[string][]columnInfo),
-		snap:           opts.snapshot,
+		faultCh:        make(chan struct{}),
+		maxRows:        maxTxnRows,
+		maxBytes:       maxTxnBytes,
+		defaultSnap:    opts.snapshot,
 	}, nil
 }
 
 func (s *Source) Subscribe(opts config.StreamOptions) config.ChangeStream {
-	return s.subs.subscribe(opts)
+	wantSnapshot := opts.Snapshot || s.defaultSnap
+	sub := s.subs.subscribe(s.name, opts, wantSnapshot)
+	if faulted, reason := s.Faulted(); faulted {
+		sub.fail(reason)
+		return sub
+	}
+	if !wantSnapshot {
+		return sub
+	}
+
+	s.mu.Lock()
+	ctx := s.runCtx
+	ready := s.readDB != nil && !s.stopped.Load()
+	s.mu.Unlock()
+
+	if ready && ctx != nil {
+		go s.bootstrapSubscription(ctx, sub)
+	} else {
+		sub.finishSnapshot()
+	}
+
+	return sub
 }
 
 func (s *Source) closeSubscriptions() {
 	s.subs.closeAll()
 }
 
-func (s *Source) markDrop() {
-	s.dropCP.Store(true)
+func (s *Source) Epoch() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.epoch
 }
 
-func (s *Source) PreUpdate(op int, table string, rowid int64, old, new []any) {
-	if !s.tableAllowed(table) {
+func (s *Source) Faulted() (bool, string) {
+	if !s.faulted.Load() {
+		return false, ""
+	}
+
+	msg := ""
+	if p := s.faultMsg.Load(); p != nil {
+		msg = *p
+	}
+
+	return true, msg
+}
+
+func (s *Source) fault(reason string) {
+	s.faultOnce.Do(func() {
+		s.faulted.Store(true)
+		r := reason
+		s.faultMsg.Store(&r)
+		s.resetPending()
+		close(s.faultCh)
+	})
+}
+
+func (s *Source) resetPending() {
+	s.pendMu.Lock()
+	s.pending = nil
+	s.pendingBytes = 0
+	s.pendMu.Unlock()
+}
+
+func (s *Source) PreUpdate(op int, schema, table string, rowid int64, ncols int, old, new []any, scanErr error) {
+	if s.faulted.Load() {
 		return
 	}
+	if !schemaAllowed(schema) || !s.tableAllowed(table) {
+		return
+	}
+	if scanErr != nil {
+		s.fault("read preupdate row: " + scanErr.Error())
+		return
+	}
+
 	s.pendMu.Lock()
-	s.pending = append(s.pending, capturedChange{op: op, table: table, rowid: rowid, old: old, new: new})
+	if len(s.pending) >= s.maxRows || s.pendingBytes >= s.maxBytes {
+		s.pendMu.Unlock()
+		s.fault(ErrChangeBacklogOverflow.Error())
+		return
+	}
+	s.pending = append(s.pending, capturedChange{op: op, schema: schema, table: table, rowid: rowid, ncols: ncols, old: old, new: new})
+	s.pendingBytes += approxRowSize(old) + approxRowSize(new)
 	s.pendMu.Unlock()
 }
 
 func (s *Source) Commit() {
+	if s.faulted.Load() {
+		s.resetPending()
+		return
+	}
+
 	s.pendMu.Lock()
 	batch := s.pending
 	s.pending = nil
+	s.pendingBytes = 0
 	s.pendMu.Unlock()
 	if len(batch) == 0 {
 		return
 	}
+
 	select {
 	case s.commits <- batch:
-	case <-s.runDone:
+	default:
+		s.fault(ErrChangeBacklogOverflow.Error())
 	}
 }
 
 func (s *Source) Rollback() {
-	s.pendMu.Lock()
-	s.pending = nil
-	s.pendMu.Unlock()
+	s.resetPending()
+}
+
+func schemaAllowed(schema string) bool {
+	return schema == "" || strings.EqualFold(schema, "main")
 }
 
 func (s *Source) tableAllowed(table string) bool {
-	lower := strings.ToLower(table)
-	if lower == offsetsTable {
-		return false
-	}
 	if len(s.tables) == 0 {
 		return true
 	}
-	_, ok := s.tables[lower]
+	_, ok := s.tables[strings.ToLower(table)]
+
 	return ok
 }
 
@@ -167,46 +263,21 @@ func (s *Source) Start(ctx context.Context) (<-chan any, error) {
 		return nil, fmt.Errorf("acquire writer conn: %w", err)
 	}
 
-	var file string
-	if rawErr := conn.Raw(func(dc any) error {
-		f, e := installHooksOnRaw(dc, s)
-		file = f
-		return e
-	}); rawErr != nil {
+	file, token, err := s.installWithRetry(ctx, conn)
+	if err != nil {
 		_ = conn.Close()
 		res.Release()
-		return nil, rawErr
+		return nil, err
 	}
-	registerSink(file, s)
 
-	s.mu.Lock()
-	s.poolRes = res
-	s.writerDB = writerDB
-	s.file = file
-	s.mu.Unlock()
-
-	readDB, checkpointDB, err := openAuxConns(file)
+	readDB, err := openReadConn(file)
 	if err != nil {
-		s.abortStart(ctx, conn, writerDB, file)
+		_ = conn.Close()
+		s.detachHooks(ctx, writerDB, file, token)
+		res.Release()
 		return nil, err
 	}
-
-	s.mu.Lock()
-	s.readDB = readDB
-	s.checkpointDB = checkpointDB
-	s.mu.Unlock()
-
-	if err := ensureOffsets(ctx, checkpointDB); err != nil {
-		s.abortStart(ctx, conn, writerDB, file)
-		return nil, err
-	}
-	snapDone, lastSeq, loadErr := loadOffset(ctx, checkpointDB, s.name)
-	if loadErr != nil {
-		s.log.Warn("load cdc offset failed; treating as fresh", zap.Error(loadErr))
-	}
-	if lastSeq > s.seq.Load() {
-		s.seq.Store(lastSeq)
-	}
+	_ = conn.Close()
 
 	runCtx, cancel := context.WithCancel(ctx)
 	status := make(chan any, 8)
@@ -217,44 +288,61 @@ func (s *Source) Start(ctx context.Context) (<-chan any, error) {
 	if s.stopped.Load() {
 		s.mu.Unlock()
 		cancel()
-		s.abortStart(ctx, conn, writerDB, file)
+		_ = readDB.Close()
+		s.detachHooks(ctx, writerDB, file, token)
+		res.Release()
 		return nil, ErrSourceClosed
 	}
+	epoch := strconv.FormatInt(time.Now().UnixNano(), 10)
+	s.poolRes = res
+	s.writerDB = writerDB
+	s.readDB = readDB
+	s.file = file
+	s.token = token
+	s.epoch = epoch
 	s.cancel = cancel
+	s.runCtx = runCtx
 	s.runDone = runDone
 	s.commits = commits
 	s.mu.Unlock()
-
-	doSnapshot := s.snap && !snapDone
-	if doSnapshot {
-		if err := s.runSnapshot(runCtx, conn); err != nil {
-			cancel()
-			s.abortStart(ctx, conn, writerDB, file)
-			return nil, fmt.Errorf("snapshot: %w", err)
-		}
-		if serr := saveSnapshotDone(runCtx, checkpointDB, s.name); serr != nil {
-			s.log.Warn("persist snapshot completion failed; restart may re-snapshot", zap.Error(serr))
-		}
-	}
-
-	go s.run(runCtx, status, runDone, metrics.GetCollector(ctx))
-
-	_ = conn.Close()
 
 	select {
 	case status <- "sqlite cdc started":
 	default:
 	}
-	s.log.Info("sqlite cdc source started",
-		zap.String("file", s.file),
-		zap.Bool("snapshot", doSnapshot))
+
+	go s.run(runCtx, status, runDone, metrics.GetCollector(ctx))
+
+	s.log.Info("sqlite cdc source started", zap.String("file", file), zap.String("epoch", epoch))
+
 	return status, nil
 }
 
-func (s *Source) abortStart(ctx context.Context, conn *sql.Conn, writerDB *sql.DB, file string) {
-	_ = conn.Close()
-	s.detachHooks(ctx, writerDB, file)
-	s.releaseResources(ctx)
+func (s *Source) installWithRetry(ctx context.Context, conn *sql.Conn) (string, uint64, error) {
+	var file string
+	var token uint64
+	for attempt := 0; attempt < claimAttempts; attempt++ {
+		err := conn.Raw(func(dc any) error {
+			f, t, e := installHooksOnRaw(dc, s)
+			file, token = f, t
+
+			return e
+		})
+		if err == nil {
+			return file, token, nil
+		}
+		if !errors.Is(err, errCaptureOwned) {
+			return "", 0, err
+		}
+
+		select {
+		case <-ctx.Done():
+			return "", 0, ctx.Err()
+		case <-time.After(claimRetryDelay):
+		}
+	}
+
+	return "", 0, errCaptureOwned
 }
 
 func (s *Source) acquirePool(ctx context.Context) (sqlservice.DBResource, resource.Resource[any], error) {
@@ -262,11 +350,13 @@ func (s *Source) acquirePool(ctx context.Context) (sqlservice.DBResource, resour
 	if err != nil {
 		return sqlservice.DBResource{}, nil, fmt.Errorf("acquire db resource: %w", err)
 	}
+
 	dbAny, err := res.Get()
 	if err != nil {
 		res.Release()
 		return sqlservice.DBResource{}, nil, fmt.Errorf("get db resource: %w", err)
 	}
+
 	dbRes, ok := dbAny.(sqlservice.DBResource)
 	if !ok {
 		res.Release()
@@ -276,6 +366,7 @@ func (s *Source) acquirePool(ctx context.Context) (sqlservice.DBResource, resour
 		res.Release()
 		return sqlservice.DBResource{}, nil, fmt.Errorf("resource %s is not a sqlite database (kind %s)", s.name, dbRes.Type)
 	}
+
 	return dbRes, res, nil
 }
 
@@ -290,6 +381,7 @@ func (s *Source) Stop(ctx context.Context) error {
 	runDone := s.runDone
 	writerDB := s.writerDB
 	file := s.file
+	token := s.token
 	s.mu.Unlock()
 
 	if cancel != nil {
@@ -299,50 +391,42 @@ func (s *Source) Stop(ctx context.Context) error {
 		select {
 		case <-runDone:
 		case <-ctx.Done():
-			return ctx.Err()
+			<-runDone
 		}
 	}
 
 	if writerDB != nil {
-		s.detachHooks(ctx, writerDB, file)
+		s.detachHooks(ctx, writerDB, file, token)
 	}
-	if s.dropCP.Load() {
-		s.mu.Lock()
-		cpDB := s.checkpointDB
-		s.mu.Unlock()
-		if cpDB != nil {
-			_ = deleteOffset(ctx, cpDB, s.name)
-		}
-	}
-	s.releaseResources(ctx)
+	s.releaseResources()
+
 	return nil
 }
 
-func (s *Source) detachHooks(ctx context.Context, writerDB *sql.DB, file string) {
-	unregisterSink(file)
-	conn, err := writerDB.Conn(ctx)
+func (s *Source) detachHooks(ctx context.Context, writerDB *sql.DB, file string, token uint64) {
+	releaseCapture(file, token)
+
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+	defer cancel()
+
+	conn, err := writerDB.Conn(cleanupCtx)
 	if err != nil {
 		return
 	}
-	_ = conn.Raw(clearHooksOnRaw)
+	_ = conn.Raw(func(dc any) error { return applyOwnerOnRaw(dc, file) })
 	_ = conn.Close()
 }
 
-func (s *Source) releaseResources(_ context.Context) {
+func (s *Source) releaseResources() {
 	s.mu.Lock()
 	readDB := s.readDB
-	cpDB := s.checkpointDB
 	res := s.poolRes
 	s.readDB = nil
-	s.checkpointDB = nil
 	s.poolRes = nil
 	s.mu.Unlock()
 
 	if readDB != nil {
 		_ = readDB.Close()
-	}
-	if cpDB != nil {
-		_ = cpDB.Close()
 	}
 	if res != nil {
 		res.Release()
@@ -356,14 +440,23 @@ func (s *Source) run(ctx context.Context, status chan any, runDone chan struct{}
 	ticker := time.NewTicker(s.statusInterval)
 	defer ticker.Stop()
 
+	faultCh := s.faultCh
 	for {
 		select {
 		case batch := <-s.commits:
-			s.process(ctx, batch, mc)
+			if !s.faulted.Load() {
+				s.process(ctx, batch, mc)
+			}
+		case <-faultCh:
+			s.emitFault(ctx)
+			faultCh = nil
 		case <-ticker.C:
-			s.onTick(ctx, mc)
+			s.onTick(mc)
 		case <-ctx.Done():
-			s.drainRemaining(ctx, mc)
+			if !s.faulted.Load() {
+				s.drainRemaining(ctx, mc)
+			}
+
 			return
 		}
 	}
@@ -380,14 +473,31 @@ func (s *Source) drainRemaining(ctx context.Context, mc metrics.Collector) {
 	}
 }
 
+func (s *Source) emitFault(ctx context.Context) {
+	msg := "sqlite cdc source faulted"
+	if p := s.faultMsg.Load(); p != nil {
+		msg = *p
+	}
+
+	s.log.Error("sqlite cdc source faulted", zap.String("source", s.name), zap.String("reason", msg))
+	s.subs.publish(ctx, config.Change{Source: s.name, Op: "error", Error: msg})
+}
+
 func (s *Source) process(ctx context.Context, batch []capturedChange, mc metrics.Collector) {
+	s.refreshSchemaVersion(ctx)
 	for _, ch := range batch {
 		cols := s.columnsFor(ctx, ch.table)
+		if ch.ncols > 0 && len(cols) > 0 && len(cols) != ch.ncols {
+			s.invalidateColumns(ch.table)
+			cols = s.columnsFor(ctx, ch.table)
+		}
+
 		op := opString(ch.op)
 		seq := s.seq.Add(1)
 		change := config.Change{
 			Source:   s.name,
 			Op:       op,
+			Schema:   normalizeSchema(ch.schema),
 			Table:    ch.table,
 			Relation: ch.table,
 			Before:   mapRow(cols, ch.old),
@@ -401,16 +511,32 @@ func (s *Source) process(ctx context.Context, batch []capturedChange, mc metrics
 	}
 }
 
-func (s *Source) onTick(ctx context.Context, mc metrics.Collector) {
-	if mc != nil {
-		if info, err := os.Stat(s.file + "-wal"); err == nil {
-			mc.GaugeSet(walGauge, float64(info.Size()), metrics.Labels{"source": s.name})
-		}
+func (s *Source) refreshSchemaVersion(ctx context.Context) {
+	var ver int64
+	if err := s.readDB.QueryRowContext(ctx, "PRAGMA schema_version").Scan(&ver); err != nil {
+		return
 	}
-	if seq := s.seq.Load(); seq > 0 {
-		if err := saveOffset(ctx, s.checkpointDB, s.name, seq); err != nil {
-			s.log.Warn("persist cdc offset failed", zap.Error(err))
-		}
+
+	prev := s.schemaVer.Swap(ver)
+	if prev != 0 && prev != ver {
+		s.colMu.Lock()
+		s.cols = make(map[string][]columnInfo)
+		s.colMu.Unlock()
+	}
+}
+
+func (s *Source) invalidateColumns(table string) {
+	s.colMu.Lock()
+	delete(s.cols, table)
+	s.colMu.Unlock()
+}
+
+func (s *Source) onTick(mc metrics.Collector) {
+	if mc == nil {
+		return
+	}
+	if info, err := os.Stat(s.file + "-wal"); err == nil {
+		mc.GaugeSet(walGauge, float64(info.Size()), metrics.Labels{"source": s.name})
 	}
 }
 
@@ -426,12 +552,23 @@ func (s *Source) columnsFor(ctx context.Context, table string) []columnInfo {
 	if err != nil {
 		s.log.Warn("resolve columns failed; emitting positional column names",
 			zap.String("table", table), zap.Error(err))
+
 		return nil
 	}
+
 	s.colMu.Lock()
 	s.cols[table] = cols
 	s.colMu.Unlock()
+
 	return cols
+}
+
+func normalizeSchema(schema string) string {
+	if schema == "" {
+		return "main"
+	}
+
+	return schema
 }
 
 func opString(op int) string {
@@ -447,20 +584,42 @@ func opString(op int) string {
 	}
 }
 
-func openAuxConns(file string) (read, checkpoint *sql.DB, err error) {
-	read, err = sql.Open("sqlite3", "file:"+file+"?mode=rwc&_busy_timeout="+strconv.Itoa(auxBusyTimeoutMillisec)+"&_query_only=ON")
+func openReadConn(file string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite3", "file:"+file+"?mode=rwc&_busy_timeout="+strconv.Itoa(auxBusyTimeoutMillisec)+"&_query_only=ON")
 	if err != nil {
-		return nil, nil, fmt.Errorf("open read connection: %w", err)
+		return nil, fmt.Errorf("open read connection: %w", err)
 	}
-	read.SetMaxOpenConns(1)
-	read.SetMaxIdleConns(1)
 
-	checkpoint, err = sql.Open("sqlite3", "file:"+file+"?mode=rwc&_busy_timeout="+strconv.Itoa(auxBusyTimeoutMillisec))
-	if err != nil {
-		_ = read.Close()
-		return nil, nil, fmt.Errorf("open checkpoint connection: %w", err)
+	db.SetMaxOpenConns(2)
+	db.SetMaxIdleConns(2)
+
+	return db, nil
+}
+
+func approxRowSize(vals []any) int {
+	size := 0
+	for _, v := range vals {
+		switch t := v.(type) {
+		case []byte:
+			size += len(t)
+		case string:
+			size += len(t)
+		default:
+			size += 8
+		}
 	}
-	checkpoint.SetMaxOpenConns(1)
-	checkpoint.SetMaxIdleConns(1)
-	return read, checkpoint, nil
+
+	return size
+}
+
+func openSnapshotConn(file string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite3", "file:"+file+"?mode=rwc&_busy_timeout="+strconv.Itoa(auxBusyTimeoutMillisec)+"&_query_only=ON")
+	if err != nil {
+		return nil, fmt.Errorf("open snapshot connection: %w", err)
+	}
+
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
+	return db, nil
 }

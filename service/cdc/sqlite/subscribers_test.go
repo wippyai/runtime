@@ -39,7 +39,7 @@ func TestSubscriptionMatches(t *testing.T) {
 
 func TestSubscribersPublishAndClose(t *testing.T) {
 	subs := newSubscribers()
-	stream := subs.subscribe(config.StreamOptions{})
+	stream := subs.subscribe("s", config.StreamOptions{}, false)
 
 	subs.publish(context.Background(), config.Change{Op: "insert", Table: "users", Source: "s"})
 
@@ -63,30 +63,30 @@ func TestSubscribersPublishAndClose(t *testing.T) {
 func TestSubscribeBufferClamp(t *testing.T) {
 	subs := newSubscribers()
 
-	def := subs.subscribe(config.StreamOptions{Buffer: 0}).(*subscription)
+	def := subs.subscribe("s", config.StreamOptions{Buffer: 0}, false)
 	assert.Equal(t, defaultStreamBuffer, cap(def.in))
 
-	neg := subs.subscribe(config.StreamOptions{Buffer: -5}).(*subscription)
+	neg := subs.subscribe("s", config.StreamOptions{Buffer: -5}, false)
 	assert.Equal(t, defaultStreamBuffer, cap(neg.in))
 
-	exact := subs.subscribe(config.StreamOptions{Buffer: 7}).(*subscription)
+	exact := subs.subscribe("s", config.StreamOptions{Buffer: 7}, false)
 	assert.Equal(t, 7, cap(exact.in))
 
-	huge := subs.subscribe(config.StreamOptions{Buffer: maxStreamBuffer + 100}).(*subscription)
+	huge := subs.subscribe("s", config.StreamOptions{Buffer: maxStreamBuffer + 100}, false)
 	assert.Equal(t, maxStreamBuffer, cap(huge.in))
 }
 
 func TestSubscribeAssignsUniqueIncreasingIDs(t *testing.T) {
 	subs := newSubscribers()
-	a := subs.subscribe(config.StreamOptions{}).(*subscription)
-	b := subs.subscribe(config.StreamOptions{}).(*subscription)
+	a := subs.subscribe("s", config.StreamOptions{}, false)
+	b := subs.subscribe("s", config.StreamOptions{}, false)
 	assert.Equal(t, uint64(1), a.id)
 	assert.Equal(t, uint64(2), b.id)
 }
 
 func TestPublishNeverBlocksAndClosesLaggard(t *testing.T) {
 	subs := newSubscribers()
-	stream := subs.subscribe(config.StreamOptions{Buffer: 1})
+	stream := subs.subscribe("s", config.StreamOptions{Buffer: 1}, false)
 
 	done := make(chan struct{})
 	go func() {
@@ -116,7 +116,7 @@ func TestPublishNeverBlocksAndClosesLaggard(t *testing.T) {
 
 func TestSubscribersFilterByOp(t *testing.T) {
 	subs := newSubscribers()
-	stream := subs.subscribe(config.StreamOptions{Ops: []string{"delete"}})
+	stream := subs.subscribe("s", config.StreamOptions{Ops: []string{"delete"}}, false)
 	defer stream.Close()
 
 	subs.publish(context.Background(), config.Change{Op: "insert", Table: "users"})

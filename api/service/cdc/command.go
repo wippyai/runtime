@@ -18,9 +18,10 @@ const (
 )
 
 type StreamOptions struct {
-	Tables []string
-	Ops    []string
-	Buffer int
+	Tables   []string
+	Ops      []string
+	Buffer   int
+	Snapshot bool
 }
 
 type Change struct {
@@ -33,6 +34,7 @@ type Change struct {
 	Relation  string         `json:"relation"`
 	LSN       string         `json:"lsn"`
 	CommitLSN string         `json:"commit_lsn,omitempty"`
+	Error     string         `json:"error,omitempty"`
 	XID       uint32         `json:"xid,omitempty"`
 }
 

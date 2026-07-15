@@ -169,13 +169,13 @@ func TestIntegrationSnapshotBootstrap(t *testing.T) {
 	_, err = db.Exec(`INSERT INTO users (id, email) VALUES (1, 'existing@b.com')`)
 	require.NoError(t, err)
 
-	src := newSource(t, db, sourceOptions{snapshot: true})
-	stream := src.Subscribe(config.StreamOptions{})
-	defer stream.Close()
-
+	src := newSource(t, db, sourceOptions{})
 	_, err = src.Start(context.Background())
 	require.NoError(t, err)
 	defer func() { _ = src.Stop(context.Background()) }()
+
+	stream := src.Subscribe(config.StreamOptions{Snapshot: true})
+	defer stream.Close()
 
 	snap := waitChange(t, stream.Changes())
 	assert.Equal(t, "snapshot", snap.Op)
@@ -188,35 +188,37 @@ func TestIntegrationSnapshotBootstrap(t *testing.T) {
 	assert.Equal(t, "new@b.com", live.After["email"])
 }
 
-func TestIntegrationRestartKeepsCheckpoint(t *testing.T) {
+func TestIntegrationRestartResnapshots(t *testing.T) {
 	db, _ := openPool(t)
 	_, err := db.Exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)`)
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO users (id, email) VALUES (1, 'existing@b.com')`)
 	require.NoError(t, err)
 
-	first := newSource(t, db, sourceOptions{snapshot: true, name: "src"})
-	s1 := first.Subscribe(config.StreamOptions{})
+	first := newSource(t, db, sourceOptions{name: "src"})
 	_, err = first.Start(context.Background())
 	require.NoError(t, err)
+	s1 := first.Subscribe(config.StreamOptions{Snapshot: true})
 	snap := waitChange(t, s1.Changes())
 	require.Equal(t, "snapshot", snap.Op)
 	s1.Close()
 	require.NoError(t, first.Stop(context.Background()))
 
-	second := newSource(t, db, sourceOptions{snapshot: true, name: "src"})
-	s2 := second.Subscribe(config.StreamOptions{})
-	defer s2.Close()
+	epoch1 := first.Epoch()
+
+	second := newSource(t, db, sourceOptions{name: "src"})
 	_, err = second.Start(context.Background())
 	require.NoError(t, err)
 	defer func() { _ = second.Stop(context.Background()) }()
 
-	_, err = db.Exec(`INSERT INTO users (id, email) VALUES (2, 'new@b.com')`)
-	require.NoError(t, err)
+	assert.NotEqual(t, epoch1, second.Epoch(), "each Start must mint a fresh session epoch")
+
+	s2 := second.Subscribe(config.StreamOptions{Snapshot: true})
+	defer s2.Close()
 
 	got := waitChange(t, s2.Changes())
-	assert.Equal(t, "insert", got.Op, "restart must not re-snapshot; first event should be the live insert")
-	assert.Equal(t, "new@b.com", got.After["email"])
+	assert.Equal(t, "snapshot", got.Op, "honest v1: no durable checkpoint, so a fresh snapshot subscriber re-sees existing state")
+	assert.Equal(t, "existing@b.com", got.After["email"])
 }
 
 func TestIntegrationLaggardDoesNotStallWrites(t *testing.T) {
@@ -255,9 +257,17 @@ func TestIntegrationLaggardDoesNotStallWrites(t *testing.T) {
 	_, err = db.Exec(`INSERT INTO t (v) VALUES ('final')`)
 	require.NoError(t, err)
 
-	got := waitChange(t, reader.Changes())
-	assert.Equal(t, "insert", got.Op)
-	assert.Equal(t, "final", got.After["v"])
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case got := <-reader.Changes():
+			if got.Op == "insert" && got.After["v"] == "final" {
+				return
+			}
+		case <-deadline:
+			t.Fatal("did not observe the 'final' insert on a fresh subscriber")
+		}
+	}
 }
 
 func TestIntegrationTableAllowlist(t *testing.T) {

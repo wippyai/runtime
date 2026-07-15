@@ -155,6 +155,9 @@ func changeToLua(l *lua.LState, change cdcapi.Change) (lua.LValue, error) {
 	if change.CommitLSN != "" {
 		tbl.RawSetString("commit_lsn", lua.LString(change.CommitLSN))
 	}
+	if change.Error != "" {
+		tbl.RawSetString("error", lua.LString(change.Error))
+	}
 	if change.XID != 0 {
 		tbl.RawSetString("xid", lua.LInteger(change.XID))
 	}
