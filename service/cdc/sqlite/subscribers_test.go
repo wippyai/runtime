@@ -37,6 +37,18 @@ func TestSubscriptionMatches(t *testing.T) {
 	assert.False(t, byTable.matches(config.Change{Op: "insert", Table: "orders"}))
 }
 
+func TestSubscriptionMatchesBypassesFiltersForControlEvents(t *testing.T) {
+	sub := &subscription{
+		ops:    map[string]struct{}{"insert": {}},
+		tables: map[string]struct{}{"users": {}},
+	}
+
+	assert.True(t, sub.matches(config.Change{Op: "error", Table: "orders"}), "terminal error must reach every subscriber")
+	assert.True(t, sub.matches(config.Change{Op: "snapshot", Table: "orders"}), "snapshot rows must bypass op/table filters")
+	assert.False(t, sub.matches(config.Change{Op: "delete", Table: "users"}), "op filter still applies to normal changes")
+	assert.False(t, sub.matches(config.Change{Op: "insert", Table: "orders"}), "table filter still applies to normal changes")
+}
+
 func TestSubscribersPublishAndClose(t *testing.T) {
 	subs := newSubscribers()
 	stream := subs.subscribe("s", config.StreamOptions{}, false)

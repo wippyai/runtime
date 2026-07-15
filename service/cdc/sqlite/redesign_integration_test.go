@@ -223,3 +223,107 @@ func TestIntegrationStopCleansUpWithExpiredContext(t *testing.T) {
 	require.NoError(t, err, "hooks must be released after Stop so a new source can claim capture")
 	require.NoError(t, src2.Stop(context.Background()))
 }
+
+func TestIntegrationMultipleSubscribersFilters(t *testing.T) {
+	db, _ := openPool(t)
+	_, err := db.Exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, v TEXT)`)
+	require.NoError(t, err)
+	_, err = db.Exec(`CREATE TABLE orders (id INTEGER PRIMARY KEY, v TEXT)`)
+	require.NoError(t, err)
+
+	src := newSource(t, db, sourceOptions{})
+	_, err = src.Start(context.Background())
+	require.NoError(t, err)
+	defer func() { _ = src.Stop(context.Background()) }()
+
+	subAll := src.Subscribe(config.StreamOptions{})
+	defer subAll.Close()
+	subUsers := src.Subscribe(config.StreamOptions{Tables: []string{"users"}})
+	defer subUsers.Close()
+
+	_, err = db.Exec(`INSERT INTO orders (id, v) VALUES (1, 'o')`)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO users (id, v) VALUES (1, 'u')`)
+	require.NoError(t, err)
+
+	only := waitChange(t, subUsers.Changes())
+	assert.Equal(t, "users", only.Table, "the users-filtered subscriber must skip the orders write")
+	assert.Equal(t, "u", only.After["v"])
+
+	first := waitChange(t, subAll.Changes())
+	assert.Equal(t, "orders", first.Table)
+	second := waitChange(t, subAll.Changes())
+	assert.Equal(t, "users", second.Table)
+}
+
+func TestIntegrationSnapshotCoversMultipleTables(t *testing.T) {
+	db, _ := openPool(t)
+	_, err := db.Exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)`)
+	require.NoError(t, err)
+	_, err = db.Exec(`CREATE TABLE orders (id INTEGER PRIMARY KEY, total REAL)`)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO users (id, email) VALUES (1, 'a@b.com')`)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO orders (id, total) VALUES (1, 99.5)`)
+	require.NoError(t, err)
+
+	src := newSource(t, db, sourceOptions{})
+	_, err = src.Start(context.Background())
+	require.NoError(t, err)
+	defer func() { _ = src.Stop(context.Background()) }()
+
+	sub := src.Subscribe(config.StreamOptions{Snapshot: true})
+	defer sub.Close()
+
+	seen := map[string]bool{}
+	for i := 0; i < 2; i++ {
+		c := waitChange(t, sub.Changes())
+		require.Equal(t, "snapshot", c.Op)
+		seen[c.Table] = true
+	}
+	assert.True(t, seen["users"], "snapshot must cover the users table")
+	assert.True(t, seen["orders"], "snapshot must cover the orders table")
+}
+
+func TestIntegrationSnapshotWithConcurrentWritesNoGap(t *testing.T) {
+	db, _ := openPool(t)
+	_, err := db.Exec(`CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)`)
+	require.NoError(t, err)
+
+	const preRows = 20
+	const liveRows = 20
+	for i := 1; i <= preRows; i++ {
+		_, err = db.Exec(`INSERT INTO t (id, v) VALUES (?, 'pre')`, i)
+		require.NoError(t, err)
+	}
+
+	src := newSource(t, db, sourceOptions{})
+	_, err = src.Start(context.Background())
+	require.NoError(t, err)
+	defer func() { _ = src.Stop(context.Background()) }()
+
+	sub := src.Subscribe(config.StreamOptions{Snapshot: true})
+	defer sub.Close()
+
+	go func() {
+		for i := preRows + 1; i <= preRows+liveRows; i++ {
+			_, _ = db.Exec(`INSERT INTO t (id, v) VALUES (?, 'live')`, i)
+		}
+	}()
+
+	seen := map[int64]bool{}
+	deadline := time.After(15 * time.Second)
+	for len(seen) < preRows+liveRows {
+		select {
+		case c := <-sub.Changes():
+			if id, ok := c.After["id"].(int64); ok {
+				seen[id] = true
+			}
+		case <-deadline:
+			t.Fatalf("did not observe all rows without a gap; saw %d/%d", len(seen), preRows+liveRows)
+		}
+	}
+	for i := int64(1); i <= preRows+liveRows; i++ {
+		assert.Truef(t, seen[i], "row %d missing: snapshot+live must cover every row with no gap", i)
+	}
+}
