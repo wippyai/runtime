@@ -1211,12 +1211,15 @@ func TestSortChangeSet_RewireMetaDependencies(t *testing.T) {
 		}
 
 		sorted, err := builder.SortChangeSet(registry.State{oldHandler, endpoint}, changeSet)
-		if err != nil {
+		if err == nil {
+			t.Fatalf("expected unsatisfiable replacement cycle error, got sorted changeset:\n%s", formatDelta(sorted))
+		}
+		if !strings.Contains(err.Error(), "same-ID replacement has an unsatisfiable dependency cycle") {
 			t.Fatalf("unexpected error: %v", err)
 		}
-
-		assertOperationBefore(t, sorted, registry.EntryDelete, oldHandler.ID, registry.EntryCreate, newHandler.ID)
-		assertCannotApplyWithoutIncomingDependencyDelete(t, builder, registry.State{oldHandler, endpoint}, sorted)
+		if sorted != nil {
+			t.Fatalf("unsatisfiable replacement must not return a fallback changeset:\n%s", formatDelta(sorted))
+		}
 	})
 
 	t.Run("same id replacement cannot be repaired by dependent update to same id", func(t *testing.T) {
@@ -1232,12 +1235,15 @@ func TestSortChangeSet_RewireMetaDependencies(t *testing.T) {
 		}
 
 		sorted, err := builder.SortChangeSet(registry.State{oldHandler, endpoint}, changeSet)
-		if err != nil {
+		if err == nil {
+			t.Fatalf("expected unsatisfiable replacement cycle error, got sorted changeset:\n%s", formatDelta(sorted))
+		}
+		if !strings.Contains(err.Error(), "same-ID replacement has an unsatisfiable dependency cycle") {
 			t.Fatalf("unexpected error: %v", err)
 		}
-
-		assertOperationBefore(t, sorted, registry.EntryDelete, oldHandler.ID, registry.EntryCreate, newHandler.ID)
-		assertCannotApplyWithoutIncomingDependencyDelete(t, builder, registry.State{oldHandler, endpoint}, sorted)
+		if sorted != nil {
+			t.Fatalf("unsatisfiable replacement must not return a fallback changeset:\n%s", formatDelta(sorted))
+		}
 	})
 
 	t.Run("missing dependent operation remains visibly invalid", func(t *testing.T) {
