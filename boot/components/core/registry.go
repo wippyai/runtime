@@ -4,6 +4,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootpkg "github.com/wippyai/runtime/boot"
 	hubdeps "github.com/wippyai/runtime/boot/deps/hub"
+	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/system/registry"
 	regexp "github.com/wippyai/runtime/system/registry/expansion"
 	historymem "github.com/wippyai/runtime/system/registry/history/memory"
@@ -231,6 +233,11 @@ func newDependencyHandler(
 		Logger:   logger,
 		Resolver: resolver,
 	}
+	workspaceReplacements, err := lock.WorkspaceReplacements(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("load workspace replacements: %w", err)
+	}
+	opts.WorkspaceReplacements = workspaceReplacements
 
 	if registryCfg != nil {
 		opts.ResolveTimeout = registryCfg.GetDuration(RegistryDependencyResolveTimeout, 0)

@@ -150,6 +150,18 @@ func TestValidateReplacements(t *testing.T) {
 			t.Errorf("expected no error, got %v", err)
 		}
 	})
+
+	t.Run("existing file fails", func(t *testing.T) {
+		localFile := filepath.Join(tmpDir, "not-a-directory")
+		if err := os.WriteFile(localFile, []byte("not a module"), 0o600); err != nil {
+			t.Fatalf("create local file: %v", err)
+		}
+
+		replacements := []Replacement{{From: "wippy/test", To: localFile}}
+		if err := ValidateReplacements(lockPath, replacements); err == nil {
+			t.Error("expected a replacement file to be rejected")
+		}
+	})
 }
 
 func TestValidateModuleName(t *testing.T) {

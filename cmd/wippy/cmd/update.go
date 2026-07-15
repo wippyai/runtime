@@ -48,6 +48,8 @@ func init() {
 	updateCmd.Flags().StringP("src-dir", "d", "./src", "source directory path")
 	updateCmd.Flags().String("modules-dir", ".wippy", "modules directory path")
 	updateCmd.Flags().String("registry", "", "registry URL (default: from credentials)")
+	updateCmd.Flags().StringArray("profile", nil, "apply a workspace profile from the merged runtime config (repeatable, applied in order)")
+	updateCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {
@@ -57,6 +59,10 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	logger := app.Logger.Named("update")
+	runtimeCfg, err := loadRuntimeConfig(cmd, logger)
+	if err != nil {
+		return err
+	}
 
 	lockFilePath, _ := cmd.Flags().GetString("lock-file")
 	registryURL, _ := cmd.Flags().GetString("registry")
@@ -112,7 +118,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	// Targeted update if modules specified
 	if len(args) > 0 {
-		return runTargetedUpdate(cmd, lockFilePath, srcDir, modulesDir, args, app, hubClient)
+		return runTargetedUpdate(cmd, lockFilePath, srcDir, modulesDir, args, app, hubClient, runtimeCfg)
 	}
 
 	// Full update otherwise
@@ -121,11 +127,12 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	// Load old lock file for comparison
 	var oldLockObj *lock.Lock
 	if stat, err := os.Stat(lockFilePath); err == nil && !stat.IsDir() {
-		oldLockObj, _ = lock.New(lockFilePath)
-		if oldLockObj != nil {
-			if err := lock.Validate(oldLockObj); err != nil {
-				return NewInvalidExistingLockFileError(fmt.Errorf("lock file %s: %w", lockFilePath, err))
-			}
+		oldLockObj, err = newConfiguredLock(lockFilePath, runtimeCfg, logger)
+		if err != nil {
+			return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockFilePath, err))
+		}
+		if err := lock.Validate(oldLockObj); err != nil {
+			return NewInvalidExistingLockFileError(fmt.Errorf("lock file %s: %w", lockFilePath, err))
 		}
 	}
 
@@ -146,7 +153,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	// Build set of replaced modules to exclude from hub resolution
 	replacedModules := make(map[string]bool)
 	if oldLockObj != nil {
-		for _, repl := range oldLockObj.GetReplacements() {
+		for _, repl := range oldLockObj.GetTrackedReplacements() {
 			replacedModules[repl.From] = true
 		}
 	}
@@ -196,7 +203,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	// Preserve all replacements from old lock file
 	if oldLockObj != nil {
-		preserveReplacements(newLockObj, oldLockObj.GetReplacements())
+		preserveReplacements(newLockObj, oldLockObj.GetTrackedReplacements())
 	}
 
 	// Save lock file
@@ -299,12 +306,12 @@ func convertResolvedToLock(lockFilePath string, modules []hub.ResolvedModule, mo
 	return lockObj, nil
 }
 
-func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir string, targetModules []string, app *appinit.Context, hubClient *hub.Client) error {
+func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir string, targetModules []string, app *appinit.Context, hubClient *hub.Client, runtimeCfg boot.Config) error {
 	logger := app.Logger.Named("update")
 	logger.Info("updating specific modules", zap.Strings("modules", targetModules))
 
 	// Load current lock file
-	lockObj, err := lock.New(lockFilePath)
+	lockObj, err := newConfiguredLock(lockFilePath, runtimeCfg, logger)
 	if err != nil {
 		return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockFilePath, err))
 	}
@@ -313,10 +320,10 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 
-	oldLockObj, _ := lock.New(lockFilePath)
+	oldLockObj := lockObj
 
 	replacedModules := make(map[string]bool)
-	for _, repl := range lockObj.GetReplacements() {
+	for _, repl := range lockObj.GetTrackedReplacements() {
 		replacedModules[repl.From] = true
 	}
 
@@ -416,7 +423,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 	}
 
 	// Preserve all replacements from current lock file
-	preserveReplacements(newLockObj, lockObj.GetReplacements())
+	preserveReplacements(newLockObj, lockObj.GetTrackedReplacements())
 
 	// Detect changes
 	changes := lock.Diff(oldLockObj, newLockObj)
@@ -498,7 +505,7 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 
 	if lockObj != nil {
 		replacements := make(map[string]bool)
-		for _, repl := range lockObj.GetReplacements() {
+		for _, repl := range lockObj.GetTrackedReplacements() {
 			replacements[repl.From] = true
 		}
 		for _, mp := range lockObj.GetModuleLoadPaths() {

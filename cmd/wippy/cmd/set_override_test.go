@@ -73,7 +73,7 @@ func TestApplySetOverrides_Malformed(t *testing.T) {
 }
 
 // TestLoadRuntimeConfig_SetFlag exercises --set end to end: through the cobra
-// flag, into loadRuntimeConfig, merged over an on-disk .wippy.yaml.
+// flag, into loadRuntimeConfig, merged over the on-disk runtime config.
 func TestLoadRuntimeConfig_SetFlag(t *testing.T) {
 	tempDir := t.TempDir()
 	cfgPath := filepath.Join(tempDir, "wippy.yaml")
@@ -85,12 +85,12 @@ func TestLoadRuntimeConfig_SetFlag(t *testing.T) {
 		"    join_addrs: \"seed:7946\"\n")
 	require.NoError(t, os.WriteFile(cfgPath, cfgBody, 0o644))
 
-	prevConfigFile, prevProfiler := configFile, profiler
+	prevProfiler := profiler
 	prevVerbose, prevVeryVerbose, prevConsole, prevEventStreams := verbose, veryVerbose, console, eventStreams
-	configFile = cfgPath
+	setTestConfigFiles(t, cfgPath)
 	profiler, verbose, veryVerbose, console, eventStreams = false, false, false, false, false
 	t.Cleanup(func() {
-		configFile, profiler = prevConfigFile, prevProfiler
+		profiler = prevProfiler
 		verbose, veryVerbose, console, eventStreams = prevVerbose, prevVeryVerbose, prevConsole, prevEventStreams
 	})
 

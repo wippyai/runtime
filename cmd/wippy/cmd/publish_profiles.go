@@ -44,7 +44,7 @@ func addPublishedRuntimeProfileMetadata(metadata attrs.Bag, configDir string, pr
 		return nil
 	}
 
-	profiles, err := runtimeProfilesFromConfig(cfg)
+	profiles, err := runtimeProfilesFromConfig(cfg, profileCfg.Include)
 	if err != nil {
 		return err
 	}
@@ -70,10 +70,10 @@ func addPublishedRuntimeProfileMetadata(metadata attrs.Bag, configDir string, pr
 	return nil
 }
 
-func runtimeProfilesFromConfig(cfg boot.Config) (map[string]any, error) {
-	profiles := make(map[string]any)
+func runtimeProfilesFromConfig(cfg boot.Config, include []string) (map[string]any, error) {
+	allProfiles := make(map[string]any)
 	if cfg == nil {
-		return profiles, nil
+		return allProfiles, nil
 	}
 
 	for _, key := range cfg.Keys() {
@@ -90,11 +90,16 @@ func runtimeProfilesFromConfig(cfg boot.Config) (map[string]any, error) {
 		if !ok || section == "" || subkey == "" {
 			return nil, fmt.Errorf("invalid runtime profile key %q", key)
 		}
+		// Workspace configuration is machine-local by definition. It must never
+		// enter package metadata, even when the containing profile is published.
+		if section == "workspace" {
+			continue
+		}
 
-		profileMap, ok := profiles[profileName].(map[string]any)
+		profileMap, ok := allProfiles[profileName].(map[string]any)
 		if !ok {
 			profileMap = make(map[string]any)
-			profiles[profileName] = profileMap
+			allProfiles[profileName] = profileMap
 		}
 
 		sectionMap, ok := profileMap[section].(map[string]any)
@@ -107,6 +112,27 @@ func runtimeProfilesFromConfig(cfg boot.Config) (map[string]any, error) {
 		sectionMap[subkey] = value
 	}
 
+	if include == nil {
+		return allProfiles, nil
+	}
+
+	profiles := make(map[string]any, len(include))
+	seen := make(map[string]struct{}, len(include))
+	for _, name := range include {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return nil, fmt.Errorf("publish.profiles.include contains an empty profile name")
+		}
+		if _, duplicate := seen[name]; duplicate {
+			continue
+		}
+		seen[name] = struct{}{}
+		profile, ok := allProfiles[name]
+		if !ok {
+			return nil, fmt.Errorf("publish profile %q not found in runtime profile source", name)
+		}
+		profiles[name] = profile
+	}
 	return profiles, nil
 }
 

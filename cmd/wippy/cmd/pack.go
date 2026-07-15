@@ -59,7 +59,7 @@ func init() {
 	packCmd.Flags().StringSlice("exclude-ns", nil, "exclude entries by namespace patterns (e.g., app.**,test.*)")
 	packCmd.Flags().StringSlice("exclude", nil, "exclude entries by ID patterns (e.g., app:internal,test:*)")
 	packCmd.Flags().StringSlice("bytecode", nil, "compile Lua to bytecode (** for all, or patterns: app:**, lib:utils)")
-	packCmd.Flags().StringArray("profile", nil, "Apply a runtime profile from .wippy.yaml before packing (repeatable, applied in order)")
+	packCmd.Flags().StringArray("profile", nil, "apply a profile from the merged runtime config before packing (repeatable, applied in order)")
 }
 
 type packStage string
@@ -337,6 +337,16 @@ func runPack(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return NewInitAppError(err)
 	}
+	bootCfg, err := loadBootConfig()
+	if err != nil {
+		return fmt.Errorf("load runtime config: %w", err)
+	}
+	profiles, _ := cmd.Flags().GetStringArray("profile")
+	bootCfg, err = applyRuntimeProfilesAndVariables(bootCfg, profiles)
+	if err != nil {
+		return fmt.Errorf("apply runtime profiles: %w", err)
+	}
+	boot.WithConfig(app.Ctx, bootCfg)
 
 	outputFile := args[0]
 	lockFile, _ := cmd.Flags().GetString("lock-file")
@@ -418,7 +428,8 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 		return NewLockFileNotFoundError(err)
 	}
 
-	lockObj, err := lock.New(lockPath)
+	bootCfg := boot.GetConfig(app.Ctx)
+	lockObj, err := newConfiguredLock(lockPath, bootCfg, logger)
 	if err != nil {
 		return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
 	}
@@ -448,16 +459,8 @@ func performPack(cmd *cobra.Command, args []string, app *appinit.Context, p *tea
 
 	p.Send(progressMsg{stage: stagePipeline, percent: 0.5, status: "Executing pipeline stages..."})
 
-	// Load .wippy.yaml config so Override stages apply overrides to packed entries
-	bootCfg, err := loadBootConfig()
-	if err != nil {
-		return fmt.Errorf("load boot config: %w", err)
-	}
-	profiles, _ := cmd.Flags().GetStringArray("profile")
-	bootCfg, err = applyRuntimeProfilesAndVariables(bootCfg, profiles)
-	if err != nil {
-		return fmt.Errorf("apply runtime profiles: %w", err)
-	}
+	// Apply entry overrides from the same effective profile that selected
+	// workspace replacements.
 	if bootCfg != nil {
 		boot.WithConfig(app.Ctx, bootCfg)
 	}
@@ -865,7 +868,7 @@ func parseMetadataValue(value string) any {
 }
 
 func runListMode(app *appinit.Context, lockPath, _ string) error {
-	lockObj, err := lock.New(lockPath)
+	lockObj, err := newConfiguredLock(lockPath, boot.GetConfig(app.Ctx), app.Logger)
 	if err != nil {
 		return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
 	}

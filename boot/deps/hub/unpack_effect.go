@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	regapi "github.com/wippyai/runtime/api/registry"
@@ -123,7 +124,15 @@ func (h *DependencyHandler) buildModuleFilesystemEffect(
 }
 
 func (h *DependencyHandler) hasCurrentUnpackedModule(mod ResolvedModule) bool {
-	if !h.shouldUnpackModules() || mod.Source == moduleSourceReplacementTreeV1 {
+	if mod.Source == moduleSourceReplacementTreeV1 {
+		path, ok := h.replacementPath(mod.Org + "/" + mod.Name)
+		if !ok {
+			return false
+		}
+		digest, size, err := digestDirectoryTree(path)
+		return err == nil && strings.EqualFold(digest, mod.Digest) && (mod.SizeBytes == 0 || size == mod.SizeBytes)
+	}
+	if !h.shouldUnpackModules() {
 		return true
 	}
 	name := graph.Name{Organization: mod.Org, Module: mod.Name}

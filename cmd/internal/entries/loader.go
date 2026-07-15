@@ -43,10 +43,11 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 
 	logger.Info("loading entries from lock file", zap.String("path", lockPath))
 
-	lockObj, err := lock.New(lockPath)
+	lockObj, err := lock.New(lockPath, lock.WithWorkspaceConfig(boot.GetConfig(ctx)))
 	if err != nil {
 		return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
 	}
+	warnTrackedLockReplacements(lockObj, logger)
 
 	if err := lock.Validate(lockObj); err != nil {
 		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
@@ -87,16 +88,25 @@ func LoadFromLockFile(ctx context.Context, logger *zap.Logger) error {
 // EnsureModulesInstalled checks if modules from the lock file are installed,
 // and auto-installs them if missing using the hub client.
 func EnsureModulesInstalled(ctx context.Context, lockPath string, logger *zap.Logger) error {
-	lockObj, err := lock.New(lockPath)
+	lockObj, err := lock.New(lockPath, lock.WithWorkspaceConfig(boot.GetConfig(ctx)))
 	if err != nil {
 		return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
 	}
+	warnTrackedLockReplacements(lockObj, logger)
 
 	if err := lock.Validate(lockObj); err != nil {
 		return NewInvalidLockFileError(fmt.Errorf("lock file %s: %w", lockObj.Path(), err))
 	}
 
 	return ensureModulesInstalledFromLock(ctx, lockObj, logger)
+}
+
+func warnTrackedLockReplacements(lockObj *lock.Lock, logger *zap.Logger) {
+	if lockObj == nil || logger == nil || len(lockObj.GetTrackedReplacements()) == 0 {
+		return
+	}
+	logger.Warn("DEPRECATED: lock-file replacements are loaded only for compatibility; move them to workspace.replacements in a runtime config file",
+		zap.String("lock_file", lockObj.Path()))
 }
 
 func ensureModulesInstalledFromLock(ctx context.Context, lockObj *lock.Lock, logger *zap.Logger) error {

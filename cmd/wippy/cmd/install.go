@@ -44,8 +44,8 @@ Downloads and installs all modules specified in the lock file.
 If the lock file is missing, runs 'wippy init' followed by 'wippy update'.
 
 Modules are installed to the vendor directory specified in the lock file.
-Local replacements are validated by the lock file and skipped by install because
-the runtime loads those modules directly from their replacement paths.
+Workspace replacements selected from the merged runtime config are validated and skipped by
+install because the runtime loads those modules directly from local source.
 
 When module names are provided as arguments, only those modules are processed.
 Use with --refresh to re-download modules when cache might be stale:
@@ -62,6 +62,8 @@ func init() {
 	installCmd.Flags().Bool("force", false, "alias for --refresh")
 	installCmd.Flags().Bool("repair", false, "alias for --refresh")
 	installCmd.Flags().String("registry", "", "registry URL (default: from credentials)")
+	installCmd.Flags().StringArray("profile", nil, "apply a workspace profile from the merged runtime config (repeatable, applied in order)")
+	installCmd.Flags().StringArray("set", nil, "override a merged runtime config value (format: section.path=value, repeatable)")
 }
 
 func runInstall(cmd *cobra.Command, args []string) error {
@@ -71,6 +73,10 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	}
 
 	logger := app.Logger.Named("install")
+	runtimeCfg, err := loadRuntimeConfig(cmd, logger)
+	if err != nil {
+		return err
+	}
 
 	lockPath, _ := cmd.Flags().GetString("lock-file")
 	registryURL, _ := cmd.Flags().GetString("registry")
@@ -87,7 +93,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	logger.Info("installing dependencies", zap.String("lock_file", lockPath))
 
-	lockObj, err := lock.New(lockPath)
+	lockObj, err := newConfiguredLock(lockPath, runtimeCfg, logger)
 	if err != nil {
 		return NewLoadLockFileError(fmt.Errorf("lock file %s: %w", lockPath, err))
 	}

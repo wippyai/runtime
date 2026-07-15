@@ -3,7 +3,6 @@
 package cmd
 
 import (
-	"github.com/wippyai/runtime/cmd/internal/bootconfig"
 	clilogger "github.com/wippyai/runtime/cmd/internal/logger"
 	"go.uber.org/zap"
 )
@@ -13,7 +12,7 @@ import (
 //
 // Logger encoding resolution (highest precedence first):
 //  1. --console / -c flag (humanized console)
-//  2. logger.encoding from .wippy.yaml (canonical config)
+//  2. logger.encoding from the merged runtime config
 //  3. development console default
 func createCommandLogger() (*zap.Logger, error) {
 	return clilogger.CreateLogger(clilogger.Config{
@@ -31,11 +30,7 @@ func createCommandLogger() (*zap.Logger, error) {
 // JSON from the first line. Returns "" on any failure — the caller
 // falls back to the humanized development encoder.
 func preloadLoggerEncoding() string {
-	path := configFile
-	if path == "" {
-		path = defaultConfigFile
-	}
-	cfg, err := bootconfig.Load(path)
+	cfg, err := loadRuntimeConfigFiles()
 	if err != nil || cfg == nil {
 		return ""
 	}

@@ -21,7 +21,7 @@ func Validate(l *Lock) error {
 		}
 	}
 
-	if err := ValidateReplacements(l.path, l.data.Replacements); err != nil {
+	if err := ValidateReplacements(l.path, l.GetReplacements()); err != nil {
 		return NewInvalidReplacementsError(err)
 	}
 
@@ -56,11 +56,15 @@ func ValidateReplacements(lockPath string, replacements []Replacement) error {
 
 		replacementPath := ResolveLockPath(lockDir, r.To)
 
-		if _, err := os.Stat(replacementPath); err != nil {
+		info, err := os.Stat(replacementPath)
+		if err != nil {
 			if os.IsNotExist(err) {
 				return NewReplacementPathNotExistError(r.To)
 			}
 			return NewCheckReplacementPathError(r.To, err)
+		}
+		if !info.IsDir() {
+			return NewReplacementPathNotDirectoryError(r.To)
 		}
 	}
 
