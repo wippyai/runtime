@@ -208,6 +208,27 @@ entries:
 	if err := os.WriteFile(filepath.Join(replacementSrcDir, "_index.yaml"), []byte(replacementYAML), 0o644); err != nil {
 		t.Fatalf("write replacement index: %v", err)
 	}
+	replacementConfig := `organization: acme
+module: ui
+exclude:
+  - "src/excluded/**"
+`
+	if err := os.WriteFile(filepath.Join(replacementDir, "wippy.yaml"), []byte(replacementConfig), 0o644); err != nil {
+		t.Fatalf("write replacement config: %v", err)
+	}
+	excludedYAML := `version: "1.0"
+namespace: local.ui.deps
+entries:
+  - name: excluded
+    kind: ns.dependency
+    component: bad/excluded
+`
+	if err := os.MkdirAll(filepath.Join(replacementSrcDir, "excluded"), 0o755); err != nil {
+		t.Fatalf("mkdir excluded replacement source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(replacementSrcDir, "excluded", "_index.yaml"), []byte(excludedYAML), 0o644); err != nil {
+		t.Fatalf("write excluded replacement source: %v", err)
+	}
 
 	nodeModulesYAML := `version: "1.0"
 namespace: should.not.load
@@ -251,6 +272,9 @@ entries:
 	}
 	if _, ok := got["bad/module"]; ok {
 		t.Fatalf("replacement scan should use src subtree and ignore node_modules noise: got %v", got)
+	}
+	if _, ok := got["bad/excluded"]; ok {
+		t.Fatalf("replacement scan ignored manifest source exclusions: got %v", got)
 	}
 }
 

@@ -1152,11 +1152,9 @@ entries:
 	}
 }
 
-// A module whose exclude list holds only source-file globs (no entry-ID
-// patterns and no exclude_meta) must load all its entries unchanged: file
-// globs are pack-time file filters, not entry patterns, so they neither drop
-// entries nor error out.
-func TestLoadEntriesFromModuleLoadPaths_OnlyFileGlobExcludesIsNoOp(t *testing.T) {
+// Source globs are evaluated before manifests are decoded, using paths relative
+// to the module root even when the actual load root is <module>/src.
+func TestLoadEntriesFromModuleLoadPaths_AppliesSourceGlobsWithSrcLayout(t *testing.T) {
 	ctx := setupTestContext(t)
 	logger := zap.NewNop()
 	tmpDir := t.TempDir()
@@ -1169,7 +1167,7 @@ func TestLoadEntriesFromModuleLoadPaths_OnlyFileGlobExcludesIsNoOp(t *testing.T)
 	moduleConfig := `organization: kickside
 module: events
 exclude:
-  - "_old/**"
+  - "src/_old/**"
   - "test/**"
 `
 	if err := os.WriteFile(filepath.Join(moduleRoot, "wippy.yaml"), []byte(moduleConfig), 0o644); err != nil {
@@ -1190,6 +1188,20 @@ entries:
 	if err := os.WriteFile(filepath.Join(srcDir, "_index.yaml"), []byte(moduleYAML), 0o644); err != nil {
 		t.Fatalf("write module _index.yaml: %v", err)
 	}
+	excludedYAML := `version: "1.0"
+namespace: kickside.events
+entries:
+  - name: legacy
+    kind: function.lua
+    source: |
+      return {}
+`
+	if err := os.MkdirAll(filepath.Join(srcDir, "_old"), 0o755); err != nil {
+		t.Fatalf("mkdir excluded source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "_old", "_index.yaml"), []byte(excludedYAML), 0o644); err != nil {
+		t.Fatalf("write excluded source: %v", err)
+	}
 
 	entries, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{
 		{Path: srcDir, Module: "kickside/events", SourceRoot: moduleRoot},
@@ -1206,6 +1218,9 @@ entries:
 		if !found[id] {
 			t.Fatalf("entry %s dropped by file-glob-only exclude", id)
 		}
+	}
+	if found["kickside.events:legacy"] {
+		t.Fatal("source-glob-excluded entry was loaded on restart path")
 	}
 }
 

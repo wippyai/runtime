@@ -439,7 +439,7 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		srcPath = filepath.Join(srcDir, "src")
 	}
 
-	dirFS := os.DirFS(srcPath)
+	dirFS := config.NewSourceFS(os.DirFS(srcPath), cfg, srcDir, srcPath)
 	srcEntries, err := app.Loader.LoadFS(ctx, dirFS)
 	if err != nil {
 		return nil, NewLoadEntriesError(fmt.Sprintf("source path %s", srcPath), err)

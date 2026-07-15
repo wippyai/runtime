@@ -1045,7 +1045,7 @@ func (h *DependencyHandler) completeResolvedModuleIdentities(ctx context.Context
 		mod := &modules[i]
 		name := graph.Name{Organization: mod.Org, Module: mod.Name}
 		if replacement, ok := h.replacementPath(name.String()); ok {
-			digest, size, err := digestDirectoryTree(replacement)
+			digest, size, err := digestReplacementTree(replacement)
 			if err != nil {
 				return NewDependencyIntegrityError(modKey(*mod), err, mod.Digest, mod.SizeBytes)
 			}
@@ -1228,7 +1228,7 @@ func (p *replacementManifestProvider) localReplacementDependencies(ctx context.C
 		return nil, ErrDependencyTranscoderMissing
 	}
 
-	entries, err := loadReplacementDependencyEntries(ctx, path, p.handler.logger, transcoder)
+	entries, err := loadReplacementEntries(ctx, path, p.handler.logger, transcoder)
 	if err != nil {
 		return nil, err
 	}
@@ -1269,7 +1269,7 @@ func (p *replacementManifestProvider) localReplacementDependencies(ctx context.C
 	return deps, nil
 }
 
-func loadReplacementDependencyEntries(
+func loadReplacementEntries(
 	ctx context.Context,
 	path string,
 	logger *zap.Logger,
@@ -1280,7 +1280,8 @@ func loadReplacementDependencyEntries(
 		return nil, nil
 	}
 
-	dirFS := os.DirFS(path)
+	cfg, _ := depconfig.Load(path)
+	dirFS := depconfig.NewSourceFS(os.DirFS(path), cfg, path, path)
 	ldr := loaderFromContext(ctx, logger, transcoder)
 	var entries []regapi.Entry
 	if err := fs.WalkDir(dirFS, ".", func(rel string, d fs.DirEntry, err error) error {
@@ -1513,7 +1514,12 @@ func (h *DependencyHandler) loadEntriesForModulePlan(ctx context.Context, transc
 	if err != nil {
 		return nil, nil, err
 	}
-	entries, err := loadRawEntriesFromPaths(ctx, []string{modulePath}, h.logger, transcoder)
+	var entries []regapi.Entry
+	if mod.Source == moduleSourceReplacementTreeV1 {
+		entries, err = loadReplacementEntries(ctx, modulePath, h.logger, transcoder)
+	} else {
+		entries, err = loadRawEntriesFromPaths(ctx, []string{modulePath}, h.logger, transcoder)
+	}
 	if err != nil {
 		if staged != nil {
 			_ = os.RemoveAll(staged.stagingDir)
@@ -1528,7 +1534,7 @@ func (h *DependencyHandler) loadEntriesForModulePlan(ctx context.Context, transc
 		return nil, nil, err
 	}
 	if mod.Source == moduleSourceReplacementTreeV1 {
-		digest, size, digestErr := digestDirectoryTree(modulePath)
+		digest, size, digestErr := digestReplacementTree(modulePath)
 		if digestErr != nil {
 			return nil, nil, NewDependencyIntegrityError(modKey(mod), digestErr, mod.Digest, mod.SizeBytes)
 		}
@@ -1664,7 +1670,7 @@ func (h *DependencyHandler) ensureModuleAvailable(ctx context.Context, mod Resol
 		if !stat.IsDir() {
 			return "", NewDependencyLoadError(replacementPath, fmt.Errorf("replacement path is not a directory"))
 		}
-		digest, size, err := digestDirectoryTree(replacementPath)
+		digest, size, err := digestReplacementTree(replacementPath)
 		if err != nil {
 			return "", NewDependencyIntegrityError(modKey(mod), err, mod.Digest, mod.SizeBytes)
 		}

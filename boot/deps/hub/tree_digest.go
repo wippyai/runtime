@@ -10,6 +10,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	depconfig "github.com/wippyai/runtime/boot/deps/config"
 )
 
 const treeIdentityModeMask = os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky
@@ -19,6 +21,20 @@ const treeIdentityModeMask = os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.Mo
 // deterministic and unambiguous. Empty directories and executable/permission
 // changes are significant; unstable or unsupported node types fail closed.
 func digestDirectoryTree(root string) (string, uint64, error) {
+	return digestDirectoryTreeFiltered(root, nil)
+}
+
+// digestReplacementTree applies the same source exclusions used when loading
+// entries from a replacement tree.
+func digestReplacementTree(root string) (string, uint64, error) {
+	cfg, err := depconfig.Load(root)
+	if err != nil {
+		return digestDirectoryTree(root)
+	}
+	return digestDirectoryTreeFiltered(root, cfg.ExcludesSourcePath)
+}
+
+func digestDirectoryTreeFiltered(root string, excluded func(string) bool) (string, uint64, error) {
 	hash := sha256.New()
 	var total uint64
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -34,6 +50,12 @@ func digestDirectoryTree(root string) (string, uint64, error) {
 			return filepath.SkipDir
 		}
 		if rel == extractedModuleMeta {
+			return nil
+		}
+		if rel != "." && excluded != nil && excluded(rel) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 

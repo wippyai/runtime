@@ -15,6 +15,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	bootauth "github.com/wippyai/runtime/boot/deps/auth"
+	depconfig "github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/hub"
 	"github.com/wippyai/runtime/boot/deps/lock"
@@ -498,11 +499,16 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 		logger = zap.NewNop()
 	}
 
+	moduleRoot, _ := os.Getwd()
+	if lockObj != nil {
+		moduleRoot = filepath.Dir(lockObj.Path())
+	}
 	paths := []struct {
 		label string
 		path  string
+		root  string
 	}{
-		{label: "source", path: srcDir},
+		{label: "source", path: srcDir, root: moduleRoot},
 	}
 
 	if lockObj != nil {
@@ -514,12 +520,18 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 			if mp.Module == "" || !replacements[mp.Module] {
 				continue
 			}
+			replacementRoot := mp.SourceRoot
+			if replacementRoot == "" {
+				replacementRoot = mp.Path
+			}
 			paths = append(paths, struct {
 				label string
 				path  string
+				root  string
 			}{
 				label: "replacement " + mp.Module,
 				path:  mp.Path,
+				root:  replacementRoot,
 			})
 		}
 	}
@@ -540,7 +552,9 @@ func loadDependencyScanEntries(ctx context.Context, ldr boot.Loader, srcDir stri
 			zap.String("kind", scanPath.label),
 			zap.String("path", absPath))
 
-		loaded, err := ldr.LoadFS(ctx, os.DirFS(absPath))
+		cfg, _ := depconfig.Load(scanPath.root)
+		sourceFS := depconfig.NewSourceFS(os.DirFS(absPath), cfg, scanPath.root, absPath)
+		loaded, err := ldr.LoadFS(ctx, sourceFS)
 		if err != nil {
 			return nil, fmt.Errorf("%s path %s: %w", scanPath.label, absPath, err)
 		}
