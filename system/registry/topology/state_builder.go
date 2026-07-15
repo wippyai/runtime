@@ -3,6 +3,7 @@
 package topology
 
 import (
+	"context"
 	"reflect"
 	"sort"
 
@@ -132,6 +133,29 @@ func (b *StateBuilder) GetInverseOperation(op registry.Operation) (registry.Oper
 
 // BuildState constructs a registry State by applying the version history up to targetVersion.
 func (b *StateBuilder) BuildState(history registry.History, targetVersion registry.Version) (registry.State, error) {
+	if replayer, ok := history.(registry.ChangeSetReplayer); ok {
+		state := make(StateMap)
+		var replayApplyErr error
+		err := replayer.ReplayChanges(context.Background(), targetVersion, func(changes registry.ChangeSet) error {
+			for _, operation := range changes {
+				newState, applyErr := b.ApplyOperation(state, operation)
+				if applyErr != nil {
+					replayApplyErr = NewApplyOperationError(targetVersion.String(), operation.Entry.ID.String(), applyErr)
+					return replayApplyErr
+				}
+				state = newState
+			}
+			return nil
+		})
+		if err != nil {
+			if replayApplyErr != nil {
+				return nil, replayApplyErr
+			}
+			return nil, NewGetChangesetError(targetVersion.String(), err)
+		}
+		return StateMapToSlice(state), nil
+	}
+
 	vm := version.NewVersionMap()
 	versions, err := history.Versions()
 	if err != nil {

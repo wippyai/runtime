@@ -20,6 +20,7 @@ import (
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
 	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
+	"github.com/wippyai/runtime/boot/deps/graph"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	embedpkg "github.com/wippyai/runtime/service/fs/embed"
 	yamlpayload "github.com/wippyai/runtime/system/payload/yaml"
@@ -131,6 +132,7 @@ func TestEmbedPackEffect_PrepareCommit(t *testing.T) {
 	require.Len(t, eff.prepared, 1)
 
 	require.NoError(t, eff.Commit(context.Background()))
+	require.NoError(t, eff.Finalize(context.Background()))
 	// Commit must not unregister the staged pack on a fresh install.
 	assert.Empty(t, reg.unregistered)
 	assert.Empty(t, reg.modulesDropped)
@@ -168,7 +170,8 @@ func TestEmbedPackEffect_Update(t *testing.T) {
 	assert.Contains(t, reg.registered, newPack)
 
 	require.NoError(t, eff.Commit(context.Background()))
-	// Old version dropped on commit; new pack remains registered.
+	require.NoError(t, eff.Finalize(context.Background()))
+	// Old version is dropped only after durable finalization; new pack remains registered.
 	require.Len(t, reg.modulesDropped, 1)
 	assert.Equal(t, droppedModule{module: "org/mod", version: "1.0.0"}, reg.modulesDropped[0])
 	assert.Contains(t, reg.registered, newPack)
@@ -186,9 +189,11 @@ func TestEmbedPackEffect_UpdateRollbackKeepsOld(t *testing.T) {
 	)
 
 	require.NoError(t, eff.Prepare(context.Background()))
+	require.NoError(t, eff.Commit(context.Background()))
 	require.NoError(t, eff.Rollback(context.Background()))
 
-	// New pack removed; old version never dropped because Commit did not run.
+	// Commit remains reversible: the new pack is removed and the old version is
+	// not dropped until the separate durable Finalize phase.
 	assert.Contains(t, reg.unregistered, newPack)
 	assert.Empty(t, reg.modulesDropped)
 }
@@ -201,6 +206,7 @@ func TestEmbedPackEffect_Uninstall(t *testing.T) {
 	assert.Empty(t, reg.registered)
 
 	require.NoError(t, eff.Commit(context.Background()))
+	require.NoError(t, eff.Finalize(context.Background()))
 	require.Len(t, reg.modulesDropped, 1)
 	assert.Equal(t, droppedModule{module: "org/mod", version: "1.0.0"}, reg.modulesDropped[0])
 }
@@ -243,22 +249,33 @@ func TestObsoletePacksFor(t *testing.T) {
 
 	t.Run("update marks changed version obsolete", func(t *testing.T) {
 		desired := map[string]string{"org/mod": "2.0.0", "org/other": "3.0.0"}
-		obs := obsoletePacksFor(snapshot, desired)
+		controlled := map[string]struct{}{"org/mod": {}, "org/other": {}}
+		obs := obsoletePacksFor(snapshot, desired, controlled)
 		require.Len(t, obs, 1)
 		assert.Equal(t, obsoletePack{module: "org/mod", version: "1.0.0"}, obs[0])
 	})
 
 	t.Run("removal marks dropped module obsolete", func(t *testing.T) {
 		desired := map[string]string{"org/other": "3.0.0"}
-		obs := obsoletePacksFor(snapshot, desired)
+		controlled := map[string]struct{}{"org/mod": {}, "org/other": {}}
+		obs := obsoletePacksFor(snapshot, desired, controlled)
 		require.Len(t, obs, 1)
 		assert.Equal(t, obsoletePack{module: "org/mod", version: "1.0.0"}, obs[0])
 	})
 
 	t.Run("unchanged versions are not obsolete", func(t *testing.T) {
 		desired := map[string]string{"org/mod": "1.0.0", "org/other": "3.0.0"}
-		obs := obsoletePacksFor(snapshot, desired)
+		controlled := map[string]struct{}{"org/mod": {}, "org/other": {}}
+		obs := obsoletePacksFor(snapshot, desired, controlled)
 		assert.Empty(t, obs)
+	})
+
+	t.Run("unrelated modules remain live", func(t *testing.T) {
+		desired := map[string]string{"org/mod": "2.0.0"}
+		controlled := map[string]struct{}{"org/mod": {}}
+		obs := obsoletePacksFor(snapshot, desired, controlled)
+		require.Len(t, obs, 1)
+		assert.Equal(t, obsoletePack{module: "org/mod", version: "1.0.0"}, obs[0])
 	})
 }
 
@@ -271,7 +288,7 @@ func TestBuildEmbedPackEffect_NoRegistry(t *testing.T) {
 	require.NoError(t, err)
 
 	// No embed registry installed in context: effect is skipped.
-	eff, err := handler.buildEmbedPackEffect(newTestContext(), nil, nil)
+	eff, err := handler.buildEmbedPackEffect(newTestContext(), nil, nil, nil)
 	require.NoError(t, err)
 	assert.Nil(t, eff)
 }
@@ -301,9 +318,44 @@ func TestBuildEmbedPackEffect_SkipsUnchangedResolvedPack(t *testing.T) {
 	resolved := []ResolvedModule{{Org: "org", Name: "mod", Version: "1.0.0"}}
 	snapshot := regapi.State{moduleEntry("ui", "app", "org/mod", "1.0.0")}
 
-	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot)
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot, map[string]struct{}{"org/mod": {}})
 	require.NoError(t, err)
 	assert.Nil(t, eff)
+}
+
+func TestBuildEmbedPackEffect_RejectsSameVersionDifferentDigest(t *testing.T) {
+	reg := embedpkg.NewRegistry()
+	defer func() { require.NoError(t, reg.Close()) }()
+	ctx := embedapi.WithRegistry(newTestContext(), reg)
+	vendorDir := t.TempDir()
+	packPath := filepath.Join(vendorDir, "org", "mod-1.0.0.wapp")
+	writeResourceWapp(t, packPath, "ui", "app", map[string]string{"v.txt": "old"})
+	require.NoError(t, reg.RegisterPack(packPath, "org/mod", "1.0.0",
+		createHubResourceReader(t, "ui", "app", map[string]string{"v.txt": "old"}), nil))
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getDownload: func(context.Context, *DownloadParams) (*DownloadInfo, error) {
+				t.Fatal("unsafe same-version replacement must fail before materialization")
+				return nil, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	const oldDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	const newDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	snapshotEntry := markModuleIdentity(moduleEntry("ui", "app", "org/mod", "1.0.0"), "org/mod", "1.0.0", oldDigest)
+	resolved := []ResolvedModule{{
+		Org: "org", Name: "mod", Version: "1.0.0", Source: moduleSourceHub, Digest: newDigest,
+	}}
+
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, regapi.State{snapshotEntry}, map[string]struct{}{"org/mod": {}})
+	require.Error(t, err)
+	assert.Nil(t, eff)
+	assert.Equal(t, "old", readHubResource(t, reg, moduleEntry("ui", "app", "org/mod", "1.0.0"), "v.txt"))
 }
 
 func TestBuildEmbedPackEffect_StagesUnchangedPackWhenRegistryMissing(t *testing.T) {
@@ -313,6 +365,11 @@ func TestBuildEmbedPackEffect_StagesUnchangedPackWhenRegistryMissing(t *testing.
 	vendorDir := t.TempDir()
 	packPath := filepath.Join(vendorDir, "org", "mod-1.0.0.wapp")
 	writeResourceWapp(t, packPath, "ui", "app", map[string]string{"v.txt": "1"})
+	digest, _, err := artifactIdentityFromPath(packPath)
+	require.NoError(t, err)
+	immutableRelative, err := immutableWappRelativePath(graph.MustParseName("org/mod"), "1.0.0", digest)
+	require.NoError(t, err)
+	immutablePackPath := filepath.Join(vendorDir, immutableRelative)
 
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
 		Hub: &fakeHub{
@@ -329,10 +386,10 @@ func TestBuildEmbedPackEffect_StagesUnchangedPackWhenRegistryMissing(t *testing.
 	resolved := []ResolvedModule{{Org: "org", Name: "mod", Version: "1.0.0"}}
 	snapshot := regapi.State{moduleEntry("ui", "app", "org/mod", "1.0.0")}
 
-	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot)
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot, map[string]struct{}{"org/mod": {}})
 	require.NoError(t, err)
 	require.NotNil(t, eff)
-	assert.Equal(t, []stagedPack{{packPath: packPath, module: "org/mod", version: "1.0.0"}}, eff.staged)
+	assert.Equal(t, []stagedPack{{packPath: immutablePackPath, module: "org/mod", version: "1.0.0"}}, eff.staged)
 	assert.Empty(t, eff.obsolete)
 }
 
@@ -367,13 +424,14 @@ func TestBuildEmbedPackEffect_DropsPackWhenResolvedModuleIsDirectory(t *testing.
 	resolved := []ResolvedModule{{Org: "org", Name: "mod", Version: "1.0.0"}}
 	snapshot := regapi.State{moduleEntry("ui", "app", "org/mod", "1.0.0")}
 
-	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot)
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot, map[string]struct{}{"org/mod": {}})
 	require.NoError(t, err)
 	require.NotNil(t, eff)
 	assert.Empty(t, eff.staged)
 	assert.Equal(t, []obsoletePack{{module: "org/mod", version: "1.0.0"}}, eff.obsolete)
 
 	require.NoError(t, eff.Commit(context.Background()))
+	require.NoError(t, eff.Finalize(context.Background()))
 	_, err = reg.GetFSForEntry(moduleEntry("ui", "app", "org/mod", "1.0.0"))
 	require.Error(t, err)
 }
@@ -387,6 +445,8 @@ func TestBuildEmbedPackEffect_DropsPackWhenUnpackModulesEnabled(t *testing.T) {
 	lockPath := filepath.Join(projectDir, lock.DefaultFilename)
 	dirPath := filepath.Join(vendorDir, "org", "mod")
 	require.NoError(t, os.MkdirAll(dirPath, 0755))
+	digest := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	require.NoError(t, writeExtractedModuleMeta(dirPath, digest, 0))
 
 	lockObj, err := lock.New(lockPath)
 	require.NoError(t, err)
@@ -411,16 +471,17 @@ func TestBuildEmbedPackEffect_DropsPackWhenUnpackModulesEnabled(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	resolved := []ResolvedModule{{Org: "org", Name: "mod", Version: "1.0.0"}}
+	resolved := []ResolvedModule{{Org: "org", Name: "mod", Version: "1.0.0", Source: moduleSourceHub, Digest: digest}}
 	snapshot := regapi.State{moduleEntry("ui", "app", "org/mod", "1.0.0")}
 
-	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot)
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot, map[string]struct{}{"org/mod": {}})
 	require.NoError(t, err)
 	require.NotNil(t, eff)
 	assert.Empty(t, eff.staged)
 	assert.Equal(t, []obsoletePack{{module: "org/mod", version: "1.0.0"}}, eff.obsolete)
 
 	require.NoError(t, eff.Commit(context.Background()))
+	require.NoError(t, eff.Finalize(context.Background()))
 	_, err = reg.GetFSForEntry(moduleEntry("ui", "app", "org/mod", "1.0.0"))
 	require.Error(t, err)
 }
@@ -440,6 +501,11 @@ func TestBuildEmbedPackEffect_StagesOnlyChangedPacks(t *testing.T) {
 
 	newPack := filepath.Join(vendorDir, "org", "mod-2.0.0.wapp")
 	writeResourceWapp(t, newPack, "ui", "app", map[string]string{"v.txt": "2"})
+	newDigest, _, err := artifactIdentityFromPath(newPack)
+	require.NoError(t, err)
+	newImmutableRelative, err := immutableWappRelativePath(graph.MustParseName("org/mod"), "2.0.0", newDigest)
+	require.NoError(t, err)
+	newImmutablePack := filepath.Join(vendorDir, newImmutableRelative)
 
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
 		Hub: &fakeHub{
@@ -463,10 +529,12 @@ func TestBuildEmbedPackEffect_StagesOnlyChangedPacks(t *testing.T) {
 		moduleEntry("ui", "removed", "org/removed", "3.0.0"),
 	}
 
-	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot)
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot, map[string]struct{}{
+		"org/mod": {}, "org/stable": {}, "org/removed": {},
+	})
 	require.NoError(t, err)
 	require.NotNil(t, eff)
-	assert.Equal(t, []stagedPack{{packPath: newPack, module: "org/mod", version: "2.0.0"}}, eff.staged)
+	assert.Equal(t, []stagedPack{{packPath: newImmutablePack, module: "org/mod", version: "2.0.0"}}, eff.staged)
 	assert.ElementsMatch(t, []obsoletePack{
 		{module: "org/mod", version: "1.0.0"},
 		{module: "org/removed", version: "3.0.0"},
@@ -478,10 +546,59 @@ func TestBuildEmbedPackEffect_StagesOnlyChangedPacks(t *testing.T) {
 	assert.Equal(t, "stable", readHubResource(t, reg, moduleEntry("ui", "stable", "org/stable", "1.0.0"), "v.txt"))
 
 	require.NoError(t, eff.Commit(context.Background()))
+	// Commit is still reversible; obsolete packs remain until history/head is durable.
+	assert.Equal(t, "1", readHubResource(t, reg, moduleEntry("ui", "app", "org/mod", "1.0.0"), "v.txt"))
+	require.NoError(t, eff.Finalize(context.Background()))
 	assert.Equal(t, "2", readHubResource(t, reg, moduleEntry("ui", "app", "org/mod", "2.0.0"), "v.txt"))
 	assert.Equal(t, "stable", readHubResource(t, reg, moduleEntry("ui", "stable", "org/stable", "1.0.0"), "v.txt"))
 	_, err = reg.GetFS(regapi.NewID("ui", "removed"))
 	require.Error(t, err)
+}
+
+func TestBuildEmbedPackEffect_InstallPreservesUnrelatedApplicationPack(t *testing.T) {
+	reg := embedpkg.NewRegistry()
+	defer func() { require.NoError(t, reg.Close()) }()
+	ctx := embedapi.WithRegistry(newTestContext(), reg)
+	vendorDir := t.TempDir()
+
+	appPack := filepath.Join(t.TempDir(), "kickside-0.1.63.wapp")
+	writeResourceWapp(t, appPack, "app", "app_fs", map[string]string{"index.js": "app"})
+	appFile, err := os.Open(appPack)
+	require.NoError(t, err)
+	appReader, err := wapp.NewReader(appFile)
+	require.NoError(t, err)
+	require.NoError(t, reg.RegisterPack(appPack, "kickside/kickside", "0.1.63", appReader, appFile))
+
+	crmPack := filepath.Join(vendorDir, "spiralscout", "crm-0.1.18.wapp")
+	writeResourceWapp(t, crmPack, "crm", "ui_fs", map[string]string{"index.js": "crm"})
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getDownload: func(context.Context, *DownloadParams) (*DownloadInfo, error) {
+				t.Fatal("test pack already exists in the vendor cache")
+				return nil, nil
+			},
+		},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	resolved := []ResolvedModule{{Org: "spiralscout", Name: "crm", Version: "0.1.18"}}
+	snapshot := regapi.State{moduleEntry("app", "app_fs", "kickside/kickside", "0.1.63")}
+	controlled := map[string]struct{}{"spiralscout/crm": {}}
+
+	eff, err := handler.buildEmbedPackEffect(ctx, resolved, snapshot, controlled)
+	require.NoError(t, err)
+	require.NotNil(t, eff)
+	assert.Empty(t, eff.obsolete)
+
+	require.NoError(t, eff.Prepare(context.Background()))
+	require.NoError(t, eff.Commit(context.Background()))
+	assert.Equal(t, "app", readHubResource(t, reg,
+		moduleEntry("app", "app_fs", "kickside/kickside", "0.1.63"), "index.js"))
+	assert.Equal(t, "crm", readHubResource(t, reg,
+		moduleEntry("crm", "ui_fs", "spiralscout/crm", "0.1.18"), "index.js"))
 }
 
 func TestEmbedPackEffect_UpdateRollbackKeepsLiveOldVersion(t *testing.T) {
@@ -505,7 +622,7 @@ func TestEmbedPackEffect_UpdateRollbackKeepsLiveOldVersion(t *testing.T) {
 	assert.Equal(t, "1", readHubResource(t, reg, moduleEntry("ui", "app", "org/mod", "1.0.0"), "v.txt"))
 }
 
-func TestEnsureModuleAvailable_UnpackModulesExtractsCachedWapp(t *testing.T) {
+func TestMaterializeModuleForLoad_StagesCachedWappUntilPrepare(t *testing.T) {
 	projectDir := t.TempDir()
 	vendorDir := filepath.Join(projectDir, ".wippy", "vendor")
 	lockPath := filepath.Join(projectDir, lock.DefaultFilename)
@@ -534,23 +651,33 @@ func TestEnsureModuleAvailable_UnpackModulesExtractsCachedWapp(t *testing.T) {
 		VendorDir: vendorDir,
 	})
 	require.NoError(t, err)
+	digest, size, err := artifactIdentityFromPath(packPath)
+	require.NoError(t, err)
 
-	gotPath, err := handler.ensureModuleAvailable(
+	gotPath, staged, err := handler.materializeModuleForLoad(
 		context.Background(),
-		ResolvedModule{Org: "org", Name: "mod", Version: "1.0.0"},
+		ResolvedModule{Org: "org", Name: "mod", Version: "1.0.0", Digest: digest, SizeBytes: size},
 	)
 	require.NoError(t, err)
-	assert.Equal(t, dirPath, gotPath)
-	assert.NoFileExists(t, packPath)
+	require.NotNil(t, staged)
+	assert.Equal(t, staged.stagingDir, gotPath)
+	assert.FileExists(t, packPath)
+	assert.FileExists(t, filepath.Join(dirPath, "stale.txt"), "planning must leave the active tree untouched")
+	assert.FileExists(t, filepath.Join(gotPath, "app", "asset.txt"))
+
+	effect := &moduleFilesystemEffect{staged: []stagedModuleDirectory{*staged}}
+	require.NoError(t, effect.Prepare(context.Background()))
 	assert.NoFileExists(t, filepath.Join(dirPath, "stale.txt"))
 	assert.FileExists(t, filepath.Join(dirPath, "app", "asset.txt"))
+	require.NoError(t, effect.Commit(context.Background()))
+	require.NoError(t, effect.Finalize(context.Background()))
 
 	indexData, err := os.ReadFile(filepath.Join(dirPath, "_index.yaml"))
 	require.NoError(t, err)
 	assert.True(t, strings.Contains(string(indexData), "kind: fs.directory"), string(indexData))
 }
 
-func TestEnsureModuleAvailable_UnpackModulesDownloadsWhenDirectoryVersionStale(t *testing.T) {
+func TestMaterializeModuleForLoad_DownloadsPrivatelyUntilPrepare(t *testing.T) {
 	projectDir := t.TempDir()
 	vendorDir := filepath.Join(projectDir, ".wippy", "vendor")
 	lockPath := filepath.Join(projectDir, lock.DefaultFilename)
@@ -565,6 +692,12 @@ func TestEnsureModuleAvailable_UnpackModulesDownloadsWhenDirectoryVersionStale(t
 	lockObj.SetModule(lock.Module{Name: "org/mod", Version: "1.0.0"})
 	require.NoError(t, lockObj.Write())
 
+	sourcePack := filepath.Join(t.TempDir(), "mod-2.0.0.wapp")
+	writeEmbeddedFSWapp(t, sourcePack, "ui", "app", map[string]string{"asset.txt": "new"})
+	downloadBytes, err := os.ReadFile(sourcePack)
+	require.NoError(t, err)
+	digest, size, err := artifactIdentityFromPath(sourcePack)
+	require.NoError(t, err)
 	downloaded := false
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
 		Hub: &fakeHub{
@@ -573,8 +706,10 @@ func TestEnsureModuleAvailable_UnpackModulesDownloadsWhenDirectoryVersionStale(t
 			},
 			downloadFile: func(_ context.Context, _ string, destPath string) error {
 				downloaded = true
-				writeEmbeddedFSWapp(t, destPath, "ui", "app", map[string]string{"asset.txt": "new"})
-				return nil
+				if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+					return err
+				}
+				return os.WriteFile(destPath, downloadBytes, 0600)
 			},
 		},
 		Logger:    zap.NewNop(),
@@ -583,42 +718,27 @@ func TestEnsureModuleAvailable_UnpackModulesDownloadsWhenDirectoryVersionStale(t
 	})
 	require.NoError(t, err)
 
-	gotPath, err := handler.ensureModuleAvailable(
+	gotPath, staged, err := handler.materializeModuleForLoad(
 		context.Background(),
-		ResolvedModule{Org: "org", Name: "mod", Version: "2.0.0"},
+		ResolvedModule{Org: "org", Name: "mod", Version: "2.0.0", Digest: digest, SizeBytes: size},
 	)
 	require.NoError(t, err)
 	assert.True(t, downloaded)
-	assert.Equal(t, dirPath, gotPath)
+	require.NotNil(t, staged)
+	assert.Equal(t, staged.stagingDir, gotPath)
+	assert.FileExists(t, filepath.Join(dirPath, "stale.txt"), "planning must leave the active tree untouched")
+	assert.FileExists(t, filepath.Join(gotPath, "app", "asset.txt"))
+	assert.NoFileExists(t, filepath.Join(vendorDir, "org", "mod-2.0.0.wapp"))
+
+	effect := &moduleFilesystemEffect{staged: []stagedModuleDirectory{*staged}}
+	require.NoError(t, effect.Prepare(context.Background()))
 	assert.NoFileExists(t, filepath.Join(dirPath, "stale.txt"))
 	assert.FileExists(t, filepath.Join(dirPath, "app", "asset.txt"))
-	assert.NoFileExists(t, filepath.Join(vendorDir, "org", "mod-2.0.0.wapp"))
+	require.NoError(t, effect.Rollback(context.Background()))
+	assert.FileExists(t, filepath.Join(dirPath, "stale.txt"), "history failure must restore the old tree")
 }
 
-func TestExtractWappModule_FailurePreservesExistingDirectory(t *testing.T) {
-	projectDir := t.TempDir()
-	vendorDir := filepath.Join(projectDir, ".wippy", "vendor")
-	wappPath := filepath.Join(vendorDir, "org", "mod-2.0.0.wapp")
-	dirPath := filepath.Join(vendorDir, "org", "mod")
-	require.NoError(t, os.MkdirAll(filepath.Dir(wappPath), 0755))
-	require.NoError(t, os.MkdirAll(dirPath, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(dirPath, "live.txt"), []byte("old"), 0644))
-	require.NoError(t, os.WriteFile(wappPath, []byte("not a wapp"), 0644))
-
-	handler, err := NewDependencyHandler(DependencyHandlerOptions{
-		Hub:       &fakeHub{},
-		Logger:    zap.NewNop(),
-		VendorDir: vendorDir,
-	})
-	require.NoError(t, err)
-
-	err = handler.extractWappModule(wappPath, dirPath, "", 0)
-	require.Error(t, err)
-	assert.FileExists(t, filepath.Join(dirPath, "live.txt"))
-	assert.FileExists(t, wappPath)
-}
-
-func TestLoadEntriesForModule_UnpackModulesRegistersRuntimeSourceRoot(t *testing.T) {
+func TestSourceRootEffect_UnpackedModulePrepareAndRollback(t *testing.T) {
 	projectDir := t.TempDir()
 	vendorDir := filepath.Join(projectDir, ".wippy", "vendor")
 	lockPath := filepath.Join(projectDir, lock.DefaultFilename)
@@ -654,20 +774,58 @@ func TestLoadEntriesForModule_UnpackModulesRegistersRuntimeSourceRoot(t *testing
 	ac := ctxapi.AppFromContext(ctx)
 	require.NotNil(t, ac)
 	ac.Seal()
+	moduleapi.WithSourceRoots(ctx, moduleapi.SourceRoots{
+		"org/removed":   "/old/removed",
+		"org/unrelated": "/old/unrelated",
+	})
 
+	resolved := ResolvedModule{Org: "org", Name: "mod", Version: "1.0.0"}
 	entries, err := handler.loadEntriesForModule(
 		ctx,
 		transcoder,
-		ResolvedModule{Org: "org", Name: "mod", Version: "1.0.0"},
+		resolved,
 	)
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	assert.Equal(t, regapi.NewID("ui", "app"), entries[0].ID)
 	assert.Equal(t, regapi.Kind("fs.directory"), entries[0].Kind)
+	_, ok = moduleapi.SourceRoot(ctx, "org/mod")
+	require.False(t, ok, "planning must not publish a source root before effect preparation")
+
+	effect, err := handler.buildSourceRootEffect(
+		[]ResolvedModule{resolved},
+		map[string]struct{}{"org/mod": {}, "org/removed": {}},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, effect)
+	require.NoError(t, effect.Prepare(ctx))
 
 	root, ok := moduleapi.SourceRoot(ctx, "org/mod")
 	require.True(t, ok)
 	assert.Equal(t, dirPath, root)
+	_, ok = moduleapi.SourceRoot(ctx, "org/removed")
+	require.False(t, ok)
+	root, ok = moduleapi.SourceRoot(ctx, "org/unrelated")
+	require.True(t, ok)
+	assert.Equal(t, "/old/unrelated", root)
+
+	require.NoError(t, effect.Commit(ctx))
+	require.NoError(t, effect.Rollback(ctx))
+	_, ok = moduleapi.SourceRoot(ctx, "org/mod")
+	require.False(t, ok)
+	root, ok = moduleapi.SourceRoot(ctx, "org/removed")
+	require.True(t, ok)
+	assert.Equal(t, "/old/removed", root)
+	root, ok = moduleapi.SourceRoot(ctx, "org/unrelated")
+	require.True(t, ok)
+	assert.Equal(t, "/old/unrelated", root)
+
+	// Lifecycle cleanup is idempotent; a duplicate rollback must not remove the
+	// restored roots.
+	require.NoError(t, effect.Rollback(ctx))
+	root, ok = moduleapi.SourceRoot(ctx, "org/removed")
+	require.True(t, ok)
+	assert.Equal(t, "/old/removed", root)
 }
 
 func moduleEntry(ns, name, module, version string) regapi.Entry {

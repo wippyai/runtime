@@ -9,13 +9,15 @@ import (
 )
 
 const (
-	BundleName         = "registry_history"
-	InitialVersion     = "1.0"
-	sqliteSchemaPath   = "sqlite/registry/schema.sql"
-	postgresSchemaPath = "postgres/registry/schema.sql"
+	BundleName            = "registry_history"
+	InitialVersion        = "1.0"
+	sqliteSchemaPath      = "sqlite/registry/schema.sql"
+	postgresSchemaPath    = "postgres/registry/schema.sql"
+	sqliteVersionedPath   = "sqlite/registry/versioned"
+	postgresVersionedPath = "postgres/registry/versioned"
 )
 
-//go:embed sqlite/registry/schema.sql postgres/registry/schema.sql
+//go:embed sqlite/registry/schema.sql sqlite/registry/versioned/*/* postgres/registry/schema.sql postgres/registry/versioned/*/*
 var assets embed.FS
 
 func SQLiteBundle() schemamanager.Bundle {
@@ -24,6 +26,7 @@ func SQLiteBundle() schemamanager.Bundle {
 		Name:           BundleName,
 		InitialVersion: InitialVersion,
 		SchemaPath:     sqliteSchemaPath,
+		VersionedPath:  sqliteVersionedPath,
 	}
 }
 
@@ -33,5 +36,6 @@ func PostgresBundle() schemamanager.Bundle {
 		Name:           BundleName,
 		InitialVersion: InitialVersion,
 		SchemaPath:     postgresSchemaPath,
+		VersionedPath:  postgresVersionedPath,
 	}
 }

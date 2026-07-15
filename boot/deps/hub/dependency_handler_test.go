@@ -21,6 +21,7 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	"github.com/wippyai/runtime/boot/deps/lock"
 	syspayload "github.com/wippyai/runtime/system/payload"
 	jsonpayload "github.com/wippyai/runtime/system/payload/json"
 	yamlpayload "github.com/wippyai/runtime/system/payload/yaml"
@@ -96,6 +97,89 @@ func TestDependencyHandler_ResolveErrors(t *testing.T) {
 		require.Len(t, errorsList, 1)
 		assert.Equal(t, "acme/http", errorsList[0]["module"])
 	}
+}
+
+func TestDependencyHandler_UnchangedLoadedRootProducesCheckpointResolution(t *testing.T) {
+	ctx := newTestContext()
+	manifestCalls := 0
+	vendorDir := t.TempDir()
+	artifact := buildWappBytes(t, []wapp.Entry{{ID: wapp.NewID("acme.http", "service"), Kind: "service"}})
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(_ context.Context, org, module, _ string) (*ModuleManifest, error) {
+				manifestCalls++
+				return &ModuleManifest{Org: org, Name: module, Version: "v1.4.2", URL: "memory://http"}, nil
+			},
+			downloadFile: func(_ context.Context, _ string, dest string) error {
+				require.NoError(t, os.MkdirAll(filepath.Dir(dest), 0o755))
+				return os.WriteFile(dest, artifact, 0o600)
+			},
+		},
+		Logger:    zap.NewNop(),
+		LockPath:  filepath.Join(t.TempDir(), "wippy.lock"),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+
+	depEntry := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "http"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/http","version":">=v1.0.0 <v2.0.0"}`, payload.JSON),
+	}
+	moduleEntry := regapi.Entry{
+		ID:   regapi.NewID("acme.http", "service"),
+		Kind: "service",
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey:        "acme/http",
+			metaModuleVersionKey: "v1.4.2",
+		}),
+	}
+
+	result, err := handler.Expand(ctx, regapi.Operation{
+		Kind: regapi.EntryUpdate, Entry: depEntry,
+	}, regapi.State{depEntry, moduleEntry})
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+	require.NotNil(t, result.Resolution, "legacy boot must have an exact graph to checkpoint")
+	require.Equal(t, 1, manifestCalls)
+}
+
+func TestDependencyHandler_UnchangedRootWithIncompatibleLoadedVersionResolves(t *testing.T) {
+	ctx := newTestContext()
+	manifestCalls := 0
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{
+			getManifest: func(context.Context, string, string, string) (*ModuleManifest, error) {
+				manifestCalls++
+				return nil, assert.AnError
+			},
+		},
+		Logger:    zap.NewNop(),
+		LockPath:  filepath.Join(t.TempDir(), "wippy.lock"),
+		VendorDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	depEntry := regapi.Entry{
+		ID:   regapi.NewID("app.deps", "http"),
+		Kind: regapi.NamespaceDependency,
+		Data: payload.NewPayload(`{"component":"acme/http","version":"v2.0.0"}`, payload.JSON),
+	}
+	moduleEntry := regapi.Entry{
+		ID:   regapi.NewID("acme.http", "service"),
+		Kind: "service",
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey:        "acme/http",
+			metaModuleVersionKey: "v1.4.2",
+		}),
+	}
+
+	_, err = handler.Expand(ctx, regapi.Operation{
+		Kind: regapi.EntryUpdate, Entry: depEntry,
+	}, regapi.State{depEntry, moduleEntry})
+	require.Error(t, err)
+	require.ErrorContains(t, err, assert.AnError.Error())
+	require.Equal(t, 1, manifestCalls, "an incompatible loaded version must be resolved instead of accepted")
 }
 
 func TestDependencyHandler_EntryConflict(t *testing.T) {
@@ -320,19 +404,29 @@ modules:
 	require.NoError(t, os.MkdirAll(legacyDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(legacyDir, "_index.yaml"), []byte("version: \"1.0\"\nnamespace: acme.legacy\nentries: []\n"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(legacyDir, "sentinel.txt"), []byte("keep"), 0600))
-	writeWapp(t, filepath.Join(vendorDir, "acme", "legacy-v1.0.0.wapp"), []wapp.Entry{
+	legacyWapp := filepath.Join(vendorDir, "acme", "legacy-v1.0.0.wapp")
+	writeWapp(t, legacyWapp, []wapp.Entry{
 		{ID: wapp.NewID("acme.legacy", "rewritten"), Kind: "service", Data: map[string]any{"ok": true}},
 	})
+	legacyDigest, err := sha256FileHex(legacyWapp)
+	require.NoError(t, err)
 	before := mustReadFile(t, filepath.Join(legacyDir, "_index.yaml"))
 
-	writeWapp(t, filepath.Join(vendorDir, "acme", "fresh-v1.0.0.wapp"), []wapp.Entry{
+	freshWapp := filepath.Join(vendorDir, "acme", "fresh-v1.0.0.wapp")
+	writeWapp(t, freshWapp, []wapp.Entry{
 		{ID: wapp.NewID("acme.fresh", "svc"), Kind: "service", Data: map[string]any{"ok": true}},
 	})
+	freshDigest, err := sha256FileHex(freshWapp)
+	require.NoError(t, err)
+	digests := map[string]string{
+		"legacy": "sha256:" + legacyDigest,
+		"fresh":  "sha256:" + freshDigest,
+	}
 
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
 		Hub: &fakeHub{
 			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
-				return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+				return &ModuleManifest{Org: org, Name: module, Version: version, Digest: digests[module]}, nil
 			},
 		},
 		Logger:    zap.NewNop(),
@@ -349,7 +443,11 @@ modules:
 	legacySvc := regapi.Entry{
 		ID:   regapi.NewID("acme.legacy", "svc"),
 		Kind: "service",
-		Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/legacy", metaModuleVersionKey: "v1.0.0"}),
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey:        "acme/legacy",
+			metaModuleVersionKey: "v1.0.0",
+			metaModuleDigestKey:  digests["legacy"],
+		}),
 		Data: payload.NewPayload(`{"ok":true}`, payload.JSON),
 	}
 	freshRoot := regapi.Entry{
@@ -428,6 +526,13 @@ modules:
 	require.NoError(t, err)
 	require.True(t, result.Applied)
 	assert.Equal(t, int32(1), downloadCalls.Load())
+	assert.FileExists(t, filepath.Join(staleDir, "stale.lua"), "planning must not replace the live tree")
+	require.Len(t, result.Effects, 1)
+	require.NoError(t, result.Effects[0].Prepare(ctx))
+	require.NoError(t, result.Effects[0].Commit(ctx))
+	finalizer, ok := result.Effects[0].(regapi.FinalizingEffect)
+	require.True(t, ok)
+	require.NoError(t, finalizer.Finalize(ctx))
 	assert.FileExists(t, filepath.Join(staleDir, "_index.yaml"))
 
 	entries, err := handler.loadEntriesForModule(ctx, payload.GetTranscoder(ctx), ResolvedModule{
@@ -1464,7 +1569,8 @@ func TestDependencyHandler_Expand_InfersPackedEntryModuleOwnershipFromResolvedGr
 	tmpDir := t.TempDir()
 	vendorDir := filepath.Join(tmpDir, "vendor")
 
-	writeWapp(t, filepath.Join(vendorDir, "kickside", "uploads-v1.0.0.wapp"), []wapp.Entry{
+	uploadsWapp := filepath.Join(vendorDir, "kickside", "uploads-v1.0.0.wapp")
+	writeWapp(t, uploadsWapp, []wapp.Entry{
 		{
 			ID:   wapp.NewID("wippy.session", "dep.wippy.llm"),
 			Kind: regapi.NamespaceDependency,
@@ -1474,14 +1580,24 @@ func TestDependencyHandler_Expand_InfersPackedEntryModuleOwnershipFromResolvedGr
 			},
 		},
 	})
-	writeWapp(t, filepath.Join(vendorDir, "kickside", "sessions-v1.0.0.wapp"), []wapp.Entry{
+	sessionsWapp := filepath.Join(vendorDir, "kickside", "sessions-v1.0.0.wapp")
+	writeWapp(t, sessionsWapp, []wapp.Entry{
 		{ID: wapp.NewID("kickside.sessions", "component"), Kind: "registry.entry", Data: map[string]any{}},
 	})
+	uploadsDigest, err := sha256FileHex(uploadsWapp)
+	require.NoError(t, err)
+	sessionsDigest, err := sha256FileHex(sessionsWapp)
+	require.NoError(t, err)
+	digests := map[string]string{
+		"kickside/uploads":  "sha256:" + uploadsDigest,
+		"kickside/sessions": "sha256:" + sessionsDigest,
+		"wippy/session":     "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+	}
 
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
 		Hub: &fakeHub{
 			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
-				return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+				return &ModuleManifest{Org: org, Name: module, Version: version, Digest: digests[org+"/"+module]}, nil
 			},
 		},
 		Logger:    zap.NewNop(),
@@ -1495,6 +1611,7 @@ func TestDependencyHandler_Expand_InfersPackedEntryModuleOwnershipFromResolvedGr
 		Meta: attrs.NewBagFrom(map[string]any{
 			metaModuleKey:        "wippy/session",
 			metaModuleVersionKey: "v1.0.0",
+			metaModuleDigestKey:  digests["wippy/session"],
 		}),
 		Data: payload.NewPayload(`{"component":"wippy/llm","version":"v1.0.0"}`, payload.JSON),
 	}
@@ -1766,6 +1883,13 @@ func TestDependencyHandler_Expand_FailsBeforeRegistryApplyWhenRequirementTargetI
 	ctx := newTestContext()
 	tmpDir := t.TempDir()
 	vendorDir := filepath.Join(tmpDir, "vendor")
+	lockPath := filepath.Join(tmpDir, lock.DefaultFilename)
+	lockObj, err := lock.New(lockPath)
+	require.NoError(t, err)
+	lockObj.SetDirectories(lock.Directories{Modules: ".wippy", Src: "."})
+	lockObj.SetOptions(lock.Options{UnpackModules: true})
+	lockObj.SetModule(lock.Module{Name: "butschster/telegram", Version: "0.3.0"})
+	require.NoError(t, lockObj.Write())
 
 	writeWapp(t, filepath.Join(vendorDir, "butschster", "telegram-0.3.0.wapp"), []wapp.Entry{
 		{
@@ -1796,6 +1920,7 @@ func TestDependencyHandler_Expand_FailsBeforeRegistryApplyWhenRequirementTargetI
 			},
 		},
 		Logger:    zap.NewNop(),
+		LockPath:  lockPath,
 		VendorDir: vendorDir,
 	})
 	require.NoError(t, err)
@@ -1815,6 +1940,9 @@ func TestDependencyHandler_Expand_FailsBeforeRegistryApplyWhenRequirementTargetI
 	require.ErrorContains(t, err, "telegram.handler:webhook_endpoint")
 	assert.False(t, result.Applied)
 	assert.Empty(t, result.Additional)
+	staging, globErr := filepath.Glob(filepath.Join(vendorDir, "butschster", ".telegram.stage-*"))
+	require.NoError(t, globErr)
+	assert.Empty(t, staging, "planning errors must remove private extracted trees")
 }
 
 func TestDependencyHandler_Expand_DoesNotFailOnUnrelatedSnapshotRequirement(t *testing.T) {
@@ -1882,7 +2010,8 @@ func TestDependencyHandler_Expand_DoesNotReValidateUntouchedInstalledModule(t *t
 	vendorDir := filepath.Join(tmpDir, "vendor")
 
 	// Newly installed module (the op); no requirements.
-	writeWapp(t, filepath.Join(vendorDir, "acme", "fresh-v1.0.0.wapp"), []wapp.Entry{
+	freshWapp := filepath.Join(vendorDir, "acme", "fresh-v1.0.0.wapp")
+	writeWapp(t, freshWapp, []wapp.Entry{
 		{
 			ID:   wapp.NewID("acme.fresh", "service"),
 			Kind: "process.lua",
@@ -1890,7 +2019,8 @@ func TestDependencyHandler_Expand_DoesNotReValidateUntouchedInstalledModule(t *t
 		},
 	})
 	// Already installed sibling module with an unprovided, no-default requirement.
-	writeWapp(t, filepath.Join(vendorDir, "acme", "legacy-v1.0.0.wapp"), []wapp.Entry{
+	legacyWapp := filepath.Join(vendorDir, "acme", "legacy-v1.0.0.wapp")
+	writeWapp(t, legacyWapp, []wapp.Entry{
 		{
 			ID:   wapp.NewID("acme.legacy", "needs_value"),
 			Kind: regapi.NamespaceRequirement,
@@ -1906,11 +2036,19 @@ func TestDependencyHandler_Expand_DoesNotReValidateUntouchedInstalledModule(t *t
 			Data: map[string]any{},
 		},
 	})
+	freshDigest, err := sha256FileHex(freshWapp)
+	require.NoError(t, err)
+	legacyDigest, err := sha256FileHex(legacyWapp)
+	require.NoError(t, err)
+	digests := map[string]string{
+		"fresh":  "sha256:" + freshDigest,
+		"legacy": "sha256:" + legacyDigest,
+	}
 
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
 		Hub: &fakeHub{
 			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
-				return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+				return &ModuleManifest{Org: org, Name: module, Version: version, Digest: digests[module]}, nil
 			},
 		},
 		Logger:    zap.NewNop(),
@@ -1925,11 +2063,11 @@ func TestDependencyHandler_Expand_DoesNotReValidateUntouchedInstalledModule(t *t
 			Data: payload.NewPayload(`{"component":"acme/legacy","version":"v1.0.0"}`, payload.JSON),
 		},
 		// Module-owned entry stamping legacy's installed version into the snapshot.
-		markModuleMeta(regapi.Entry{
+		markModuleIdentity(regapi.Entry{
 			ID:   regapi.NewID("acme.legacy", "target"),
 			Kind: "process.lua",
 			Data: payload.NewPayload(`{}`, payload.JSON),
-		}, "acme/legacy", "v1.0.0"),
+		}, "acme/legacy", "v1.0.0", digests["legacy"]),
 	}
 
 	rootDep := regapi.Entry{
@@ -2212,7 +2350,7 @@ func TestDependencyHandler_CollectDesiredDependencies_IgnoresModuleOwnedDependen
 	assert.Equal(t, "acme/root", deps[0].definition.Component)
 }
 
-func TestDependencyHandler_CollectDesiredDependencies_PinsExistingInstalledVersions(t *testing.T) {
+func TestDependencyHandler_CollectDesiredDependencies_PreservesExistingDeclaredVersions(t *testing.T) {
 	ctx := newTestContext()
 	transcoder := payload.GetTranscoder(ctx)
 	require.NotNil(t, transcoder)
@@ -2258,7 +2396,7 @@ func TestDependencyHandler_CollectDesiredDependencies_PinsExistingInstalledVersi
 	for _, dep := range deps {
 		versions[dep.definition.Component] = dep.definition.Version
 	}
-	assert.Equal(t, "0.5.39", versions["wippy/facade"])
+	assert.Equal(t, ">=v0.5.16", versions["wippy/facade"])
 	assert.Equal(t, ">=v0.0.0", versions["wippy/dummy"])
 }
 
@@ -2338,7 +2476,7 @@ modules:
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
 		Hub: &fakeHub{
 			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
-				return &ModuleManifest{Org: org, Name: module, Version: version, Digest: "sha256:v2digest"}, nil
+				return &ModuleManifest{Org: org, Name: module, Version: version, Digest: "sha256:2222222222222222222222222222222222222222222222222222222222222222"}, nil
 			},
 		},
 		Logger:    zap.NewNop(),
@@ -2355,6 +2493,24 @@ modules:
 	require.NoError(t, err, "a digest locked for v1 must not block resolving/updating to v2")
 	require.Len(t, modules, 1)
 	assert.Equal(t, "2.0.0", modules[0].Version)
+}
+
+func TestDependencyInputDigestCoversSolverInputsNotLinkParameters(t *testing.T) {
+	root := desiredDependency{
+		entry: regapi.Entry{ID: regapi.NewID("app.deps", "agent")},
+		definition: DependencyDefinition{
+			Component:  "wippy/agent",
+			Version:    "^0.4.0",
+			Parameters: []Parameter{{Name: "target", Value: regapi.NewID("app", "processes")}},
+		},
+	}
+	changedParameters := root
+	changedParameters.definition.Parameters = []Parameter{{Name: "target", Value: "app:processes"}}
+	changedRange := root
+	changedRange.definition.Version = "^0.5.0"
+
+	require.Equal(t, dependencyInputDigest([]desiredDependency{root}), dependencyInputDigest([]desiredDependency{changedParameters}))
+	require.NotEqual(t, dependencyInputDigest([]desiredDependency{root}), dependencyInputDigest([]desiredDependency{changedRange}))
 }
 
 func TestDependencyHandler_ExpandUpdateRootDependencyReplacesSameIDModuleEntries(t *testing.T) {

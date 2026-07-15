@@ -251,13 +251,15 @@ func TestInMemoryRegistry_Apply(t *testing.T) {
 		t.Errorf("Expected new version to be v1, got: %v", newVersion)
 	}
 
-	if !reflect.DeepEqual(head, newVersion) {
-		t.Errorf("Expected new version to be head: %v, got: %v", head, newVersion)
+	if head == nil || head.ID() != newVersion.ID() {
+		t.Errorf("Expected head version %v, got: %v", newVersion, head)
 	}
 
 	savedChanges, _ := hist.Get(newVersion)
-	if !reflect.DeepEqual(savedChanges, changes) {
-		t.Errorf("Expected saved changes: %v, got: %v", changes, savedChanges)
+	expectedChanges := append(registry.ChangeSet(nil), changes...)
+	canonicalizeChangeSetIDs(expectedChanges)
+	if !reflect.DeepEqual(savedChanges, expectedChanges) {
+		t.Errorf("Expected saved changes: %v, got: %v", expectedChanges, savedChanges)
 	}
 
 	// Verify that the state is updated from the runner
@@ -352,6 +354,7 @@ func TestInMemoryRegistry_ApplyVersion(t *testing.T) {
 
 	reg := NewRegistry(hist, runner, stateBuilder, topology.NewResolver(), zap.NewNop())
 	reg.currentVersion = v2 // Set current version to v2
+	_ = hist.SetHead(v2)
 	// Set initial state to v2 state
 	reg.state = registry.State{
 		{ID: registry.NewID("", "/foo"), Kind: "test", Data: payload.New("data2")},
@@ -371,7 +374,7 @@ func TestInMemoryRegistry_ApplyVersion(t *testing.T) {
 		t.Errorf("Expected state: %v, got: %v", runner.newState, reg.state)
 	}
 
-	if !reflect.DeepEqual(reg.currentVersion, v1) {
+	if reg.currentVersion == nil || reg.currentVersion.ID() != v1.ID() {
 		t.Errorf("Expected current version: %v, got: %v", v1, reg.currentVersion)
 	}
 
@@ -1703,6 +1706,7 @@ func TestApplyVersion_Rollback_RespectsDependencyOrder(t *testing.T) {
 
 	reg := NewRegistry(hist, runner, stateBuilder, resolver, zap.NewNop())
 	reg.currentVersion = v1
+	_ = hist.SetHead(v1)
 	reg.state = registry.State{
 		{ID: libID, Kind: "library", Data: payload.New("lib")},
 		{ID: testID, Kind: "test", Data: payload.New("test")},

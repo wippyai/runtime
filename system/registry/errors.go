@@ -10,10 +10,11 @@ import (
 
 // Sentinel errors
 var (
-	ErrNoCurrentVersion          = apierror.New(apierror.NotFound, "no current version").WithRetryable(apierror.False)
-	ErrDependencyResolverNotInit = apierror.New(apierror.Internal, "dependency resolver not initialized").WithRetryable(apierror.False)
-	ErrEmptyVersionPath          = apierror.New(apierror.Internal, "empty version path").WithRetryable(apierror.False)
-	ErrNoCommonAncestor          = apierror.New(apierror.Internal, "no common ancestor found in version path").WithRetryable(apierror.False)
+	ErrNoCurrentVersion             = apierror.New(apierror.NotFound, "no current version").WithRetryable(apierror.False)
+	ErrDependencyResolverNotInit    = apierror.New(apierror.Internal, "dependency resolver not initialized").WithRetryable(apierror.False)
+	ErrDurableResolutionUnsupported = apierror.New(apierror.Internal, "history does not support durable dependency resolutions").WithRetryable(apierror.False)
+	ErrEmptyVersionPath             = apierror.New(apierror.Internal, "empty version path").WithRetryable(apierror.False)
+	ErrNoCommonAncestor             = apierror.New(apierror.Internal, "no common ancestor found in version path").WithRetryable(apierror.False)
 )
 
 // NewEntryNotFoundError creates an error when an entry is not found

@@ -202,15 +202,19 @@ func (x *ModuleManifest) GetProtected() bool {
 
 // Resolved dependency with download info.
 type ResolvedDependency struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Org           string                 `protobuf:"bytes,1,opt,name=org,proto3" json:"org,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Version       string                 `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
-	VersionId     string                 `protobuf:"bytes,4,opt,name=version_id,json=versionId,proto3" json:"version_id,omitempty"`
-	Digest        string                 `protobuf:"bytes,5,opt,name=digest,proto3" json:"digest,omitempty"`
-	SizeBytes     uint64                 `protobuf:"varint,6,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
-	Download      *v11.DownloadInfo      `protobuf:"bytes,7,opt,name=download,proto3" json:"download,omitempty"`
-	Protected     bool                   `protobuf:"varint,8,opt,name=protected,proto3" json:"protected,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Org       string                 `protobuf:"bytes,1,opt,name=org,proto3" json:"org,omitempty"`
+	Name      string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Version   string                 `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
+	VersionId string                 `protobuf:"bytes,4,opt,name=version_id,json=versionId,proto3" json:"version_id,omitempty"`
+	Digest    string                 `protobuf:"bytes,5,opt,name=digest,proto3" json:"digest,omitempty"`
+	SizeBytes uint64                 `protobuf:"varint,6,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	Download  *v11.DownloadInfo      `protobuf:"bytes,7,opt,name=download,proto3" json:"download,omitempty"`
+	Protected bool                   `protobuf:"varint,8,opt,name=protected,proto3" json:"protected,omitempty"`
+	// Version range the parent module declared for this dependency, verbatim
+	// (e.g. ">=v0.4.10"). Consumers resolve and lock against this range; version
+	// above is only the release it resolved to at request time.
+	Constraint    string `protobuf:"bytes,9,opt,name=constraint,proto3" json:"constraint,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -299,6 +303,13 @@ func (x *ResolvedDependency) GetProtected() bool {
 		return x.Protected
 	}
 	return false
+}
+
+func (x *ResolvedDependency) GetConstraint() string {
+	if x != nil {
+		return x.Constraint
+	}
+	return ""
 }
 
 // Dependency specification for resolution.
@@ -713,7 +724,7 @@ const file_wippy_api_hub_manifest_v1_message_proto_rawDesc = "" +
 	"\fdependencies\x18\t \x03(\v2-.wippy.api.hub.manifest.v1.ResolvedDependencyR\fdependencies\x12A\n" +
 	"\bdownload\x18\n" +
 	" \x01(\v2%.wippy.api.hub.common.v1.DownloadInfoR\bdownload\x12\x1c\n" +
-	"\tprotected\x18\v \x01(\bR\tprotected\"\x8b\x02\n" +
+	"\tprotected\x18\v \x01(\bR\tprotected\"\xab\x02\n" +
 	"\x12ResolvedDependency\x12\x10\n" +
 	"\x03org\x18\x01 \x01(\tR\x03org\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
@@ -724,7 +735,10 @@ const file_wippy_api_hub_manifest_v1_message_proto_rawDesc = "" +
 	"\n" +
 	"size_bytes\x18\x06 \x01(\x04R\tsizeBytes\x12A\n" +
 	"\bdownload\x18\a \x01(\v2%.wippy.api.hub.common.v1.DownloadInfoR\bdownload\x12\x1c\n" +
-	"\tprotected\x18\b \x01(\bR\tprotected\"V\n" +
+	"\tprotected\x18\b \x01(\bR\tprotected\x12\x1e\n" +
+	"\n" +
+	"constraint\x18\t \x01(\tR\n" +
+	"constraint\"V\n" +
 	"\x0eDependencySpec\x12\x10\n" +
 	"\x03org\x18\x01 \x01(\tR\x03org\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1e\n" +

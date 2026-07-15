@@ -3,6 +3,7 @@
 package version
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/wippyai/runtime/api/registry"
@@ -71,5 +72,34 @@ func TestChain(_ *testing.T) {
 	v := v3
 	for i := 3; i > 0; i-- {
 		v = v.Previous()
+	}
+}
+
+func TestNextRetainsLowestIDChild(t *testing.T) {
+	parent := New(1)
+	FromParent(parent, 9)
+	lowest := FromParent(parent, 3)
+	FromParent(parent, 7)
+
+	if next := parent.Next(); next == nil || next.ID() != lowest.ID() {
+		t.Fatalf("expected deterministic lowest-ID child v%d, got %v", lowest.ID(), next)
+	}
+}
+
+func TestNextConcurrentBranches(t *testing.T) {
+	parent := New(1)
+	var wg sync.WaitGroup
+	for id := uint(2); id < 100; id++ {
+		wg.Add(1)
+		go func(id uint) {
+			defer wg.Done()
+			FromParent(parent, id)
+			_ = parent.Next()
+		}(id)
+	}
+	wg.Wait()
+
+	if next := parent.Next(); next == nil || next.ID() != 2 {
+		t.Fatalf("expected lowest concurrent child v2, got %v", next)
 	}
 }

@@ -4,6 +4,7 @@ package hub
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	lru "github.com/wippyai/runtime/internal/cache"
@@ -75,14 +76,16 @@ func NewManifestCacheWithOptions(provider ManifestProvider, capacity int, ttl, g
 	}
 }
 
-// GetManifest serves from the LRU when the (org, name, constraint)
-// triple is cached; otherwise it falls through to the wrapped provider
-// and stores the result. Both the constraint key and the resolved
-// version key are populated so subsequent calls with either form hit.
+// GetManifest caches exact versions. Mutable selectors (the empty selector and
+// labels such as @latest) always reach the provider; their resolved exact
+// version is cached for later immutable lookups.
 func (c *ManifestCache) GetManifest(ctx context.Context, org, module, constraint string) (*ModuleManifest, error) {
 	key := manifestCacheKey(org, module, constraint)
-	if cached, hit := c.store.Get(key); hit {
-		return cached, nil
+	mutable := constraint == "" || strings.HasPrefix(strings.TrimSpace(constraint), "@")
+	if !mutable {
+		if cached, hit := c.store.Get(key); hit {
+			return cached, nil
+		}
 	}
 
 	manifest, err := c.inner.GetManifest(ctx, org, module, constraint)
@@ -93,7 +96,9 @@ func (c *ManifestCache) GetManifest(ctx context.Context, org, module, constraint
 		return nil, nil
 	}
 
-	_ = c.store.Set(key, manifest)
+	if !mutable {
+		_ = c.store.Set(key, manifest)
+	}
 	if resolved := manifestCacheKey(org, module, manifest.Version); resolved != key {
 		_ = c.store.Set(resolved, manifest)
 	}
@@ -124,7 +129,11 @@ func (c *ManifestCache) Refresh(ctx context.Context, org, module, constraint str
 	}
 
 	key := manifestCacheKey(org, module, constraint)
-	_ = c.store.Set(key, manifest)
+	if constraint != "" && !strings.HasPrefix(strings.TrimSpace(constraint), "@") {
+		_ = c.store.Set(key, manifest)
+	} else {
+		c.store.Delete(key)
+	}
 	if resolved := manifestCacheKey(org, module, manifest.Version); resolved != key {
 		_ = c.store.Set(resolved, manifest)
 	}

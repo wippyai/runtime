@@ -266,8 +266,20 @@ func (r *resolver) process(ctx context.Context, key string) {
 
 	source := moduleSource(key, version)
 	for _, dep := range manifest.Dependencies {
-		r.addConstraint(dep.Org+"/"+dep.Name, source, dep.Version)
+		r.addConstraint(dep.Org+"/"+dep.Name, source, declaredConstraint(dep))
 	}
+}
+
+// declaredConstraint returns the range the parent module declared for a
+// dependency. A hub that predates the constraint field sends only the version it
+// resolved to; fall back to it so an older server still yields a usable graph.
+// Grafting a resolved version in place of a real range would pin the dependency,
+// discarding any lock that satisfies the range and defeating intersection.
+func declaredConstraint(dep ManifestDep) string {
+	if dep.Constraint != "" {
+		return dep.Constraint
+	}
+	return dep.Version
 }
 
 // orphan removes a module that no live constraint demands and retracts its subtree.
@@ -383,6 +395,12 @@ func (r *resolver) resolveVersion(ctx context.Context, org, name string, live []
 
 // resolveIntersection selects the highest available version satisfying every
 // constraint, or errConstraintsIncompatible when none does.
+//
+// The constraints are matched individually rather than concatenated into one
+// string and reparsed: the parser caps a constraint at maxConstraintParts, a
+// budget sized for a single authored range, and a handful of parents each
+// declaring a two-sided range exceeds it. Concatenating would turn a perfectly
+// satisfiable set into a parse failure reported as a version conflict.
 func (r *resolver) resolveIntersection(ctx context.Context, org, name string, constraints []string) (string, error) {
 	key := org + "/" + name
 
@@ -390,9 +408,13 @@ func (r *resolver) resolveIntersection(ctx context.Context, org, name string, co
 		return locked, nil
 	}
 
-	merged, err := semver.ParseConstraint(strings.Join(constraints, " "))
-	if err != nil {
-		return "", errConstraintsIncompatible
+	parsed := make([]semver.Constraint, 0, len(constraints))
+	for _, c := range constraints {
+		p, err := semver.ParseConstraint(c)
+		if err != nil {
+			return "", fmt.Errorf("invalid constraint %q: %w", c, err)
+		}
+		parsed = append(parsed, p)
 	}
 
 	versions, err := r.provider.ListAllVersions(ctx, org, name)
@@ -400,34 +422,42 @@ func (r *resolver) resolveIntersection(ctx context.Context, org, name string, co
 		return "", fmt.Errorf("list versions: %w", err)
 	}
 
-	type indexedVersion struct {
-		original string
-		parsed   semver.Version
-	}
+	var best, bestStable *VersionInfo
+	var bestSem, bestStableSem semver.Version
 
-	indexed := make([]indexedVersion, 0, len(versions))
-	semverVersions := make([]semver.Version, 0, len(versions))
-	for _, v := range versions {
+	for i := range versions {
+		v := &versions[i]
 		sv, err := semver.ParseVersion(v.Version)
-		if err != nil {
+		if err != nil || !matchesAll(parsed, sv) {
 			continue
 		}
-		indexed = append(indexed, indexedVersion{parsed: sv, original: v.Version})
-		semverVersions = append(semverVersions, sv)
-	}
-
-	best, err := merged.FindBestMatch(semverVersions)
-	if err != nil {
-		return "", errConstraintsIncompatible
-	}
-
-	for _, iv := range indexed {
-		if iv.parsed.Equal(best) {
-			return iv.original, nil
+		if best == nil || sv.GreaterThan(bestSem) {
+			best, bestSem = v, sv
+		}
+		if !sv.IsPrerelease() && (bestStable == nil || sv.GreaterThan(bestStableSem)) {
+			bestStable, bestStableSem = v, sv
 		}
 	}
 
-	return best.String(), nil
+	// Mirror FindBestMatch: a stable release always wins over a prerelease.
+	if bestStable != nil {
+		return bestStable.Version, nil
+	}
+	if best != nil {
+		return best.Version, nil
+	}
+
+	return "", errConstraintsIncompatible
+}
+
+// matchesAll reports whether a version satisfies every constraint.
+func matchesAll(constraints []semver.Constraint, v semver.Version) bool {
+	for _, c := range constraints {
+		if !c.Match(v) {
+			return false
+		}
+	}
+	return true
 }
 
 // lockedSatisfiesAll reports whether a locked version satisfies every constraint.
@@ -569,6 +599,19 @@ func (r *resolver) fetchManifest(ctx context.Context, org, name, version string)
 	}
 	if manifest == nil {
 		return nil, fmt.Errorf("hub returned no manifest for %s/%s@%s", org, name, version)
+	}
+	if manifest.Org != org || manifest.Name != name {
+		return nil, fmt.Errorf(
+			"manifest identity mismatch: requested %s/%s@%s, hub returned %s/%s@%s",
+			org, name, version, manifest.Org, manifest.Name, manifest.Version,
+		)
+	}
+	if version != "" && !strings.HasPrefix(version, "@") &&
+		strings.TrimPrefix(manifest.Version, "v") != strings.TrimPrefix(version, "v") {
+		return nil, fmt.Errorf(
+			"manifest version mismatch for %s/%s: requested %s, hub returned %s",
+			org, name, version, manifest.Version,
+		)
 	}
 
 	expected := r.lockedDigests[org+"/"+name+"@"+version]

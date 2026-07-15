@@ -18,6 +18,7 @@ type ResolvedModule struct {
 	Name      string
 	Version   string
 	VersionID string
+	Source    string
 	Digest    string
 	URL       string
 	SizeBytes uint64
@@ -66,14 +67,18 @@ type ModuleManifest struct {
 
 // ManifestDep represents a dependency declared by a resolved manifest.
 type ManifestDep struct {
-	Org       string
-	Name      string
-	Version   string
-	VersionID string
-	Digest    string
-	URL       string
-	SizeBytes uint64
-	Protected bool
+	Org     string
+	Name    string
+	Version string
+	// Constraint is the range the parent module declared, verbatim (e.g.
+	// ">=v0.4.10"). Version is only what the server resolved it to; resolving or
+	// locking against Version would collapse the range into a pin.
+	Constraint string
+	VersionID  string
+	Digest     string
+	URL        string
+	SizeBytes  uint64
+	Protected  bool
 }
 
 // GetManifest retrieves the manifest for a single module version. The
@@ -130,13 +135,14 @@ func (c *Client) GetManifest(ctx context.Context, org, module, constraint string
 
 	for _, dep := range m.Dependencies {
 		md := ManifestDep{
-			Org:       dep.Org,
-			Name:      dep.Name,
-			Version:   dep.Version,
-			VersionID: dep.VersionId,
-			Digest:    dep.Digest,
-			SizeBytes: dep.SizeBytes,
-			Protected: dep.Protected,
+			Org:        dep.Org,
+			Name:       dep.Name,
+			Version:    dep.Version,
+			VersionID:  dep.VersionId,
+			Digest:     dep.Digest,
+			SizeBytes:  dep.SizeBytes,
+			Protected:  dep.Protected,
+			Constraint: dep.Constraint,
 		}
 		if dep.Download != nil {
 			md.URL = dep.Download.Url

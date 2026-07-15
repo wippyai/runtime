@@ -18,6 +18,15 @@ type stubDirective struct {
 	expandFunc func(context.Context, registry.Operation, registry.State) (registry.DirectiveResult, error)
 }
 
+type stubChangesDirective struct {
+	stubDirective
+	expandChangesFunc func(context.Context, registry.ChangeSet, registry.State) (registry.DirectiveResult, error)
+}
+
+func (s *stubChangesDirective) ExpandChanges(ctx context.Context, changes registry.ChangeSet, state registry.State) (registry.DirectiveResult, error) {
+	return s.expandChangesFunc(ctx, changes, state)
+}
+
 func (s *stubDirective) Expand(ctx context.Context, op registry.Operation, snap registry.State) (registry.DirectiveResult, error) {
 	return s.expandFunc(ctx, op, snap)
 }
@@ -132,6 +141,33 @@ func TestPlanner_Expand_DirectiveApplied_AddsOps(t *testing.T) {
 	assert.Len(t, plan.Ops, 2)
 	assert.True(t, plan.Expanded)
 	assert.Equal(t, registry.ScopeBaseline, plan.Ops[1].Scope)
+}
+
+func TestPlanner_Expand_BatchesSameKindTransactionOnce(t *testing.T) {
+	perOperationCalls := 0
+	batchCalls := 0
+	dir := &stubChangesDirective{
+		stubDirective: stubDirective{expandFunc: func(context.Context, registry.Operation, registry.State) (registry.DirectiveResult, error) {
+			perOperationCalls++
+			return registry.DirectiveResult{Applied: true}, nil
+		}},
+		expandChangesFunc: func(_ context.Context, changes registry.ChangeSet, _ registry.State) (registry.DirectiveResult, error) {
+			batchCalls++
+			require.Len(t, changes, 2)
+			return registry.DirectiveResult{Applied: true}, nil
+		},
+	}
+	p := NewPlanner(map[registry.Kind][]registry.Directive{"dep": {dir}}, nil, zap.NewNop())
+	changes := registry.ChangeSet{
+		newOp(registry.EntryCreate, newEntry("app", "one", "dep")),
+		newOp(registry.EntryCreate, newEntry("app", "two", "dep")),
+	}
+
+	plan, err := p.Expand(context.Background(), changes, nil)
+	require.NoError(t, err)
+	require.Len(t, plan.Ops, 2)
+	require.Equal(t, 1, batchCalls)
+	require.Zero(t, perOperationCalls)
 }
 
 func TestPlanner_Expand_DirectiveError(t *testing.T) {
@@ -470,6 +506,28 @@ func TestPlanner_RollbackEffects_ContinuesOnError(t *testing.T) {
 func TestPlanner_RollbackEffects_Empty(t *testing.T) {
 	p := NewPlanner(nil, nil, zap.NewNop())
 	p.RollbackEffects(context.Background(), nil)
+}
+
+func TestPlanner_ExpandErrorRollsBackEarlierUnpreparedEffects(t *testing.T) {
+	effect := &testEffect{}
+	kind := registry.Kind("test.kind")
+	planner := NewPlanner(map[registry.Kind][]registry.Directive{
+		kind: {
+			&stubDirective{expandFunc: func(context.Context, registry.Operation, registry.State) (registry.DirectiveResult, error) {
+				return registry.DirectiveResult{Applied: true, Effects: []registry.Effect{effect}}, nil
+			}},
+			&stubDirective{expandFunc: func(context.Context, registry.Operation, registry.State) (registry.DirectiveResult, error) {
+				return registry.DirectiveResult{}, errors.New("later planning failure")
+			}},
+		},
+	}, nil, zap.NewNop())
+
+	_, err := planner.Expand(context.Background(), registry.ChangeSet{{
+		Kind:  registry.EntryCreate,
+		Entry: registry.Entry{ID: registry.NewID("test", "entry"), Kind: kind},
+	}}, nil)
+	require.ErrorContains(t, err, "later planning failure")
+	assert.Equal(t, 1, effect.rollbackCall)
 }
 
 // --- helpers ---
