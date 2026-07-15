@@ -98,3 +98,61 @@ func TestRegisterModule_BadStatus(t *testing.T) {
 		t.Fatalf("expected 403 error, got %v", err)
 	}
 }
+
+func TestUpdateModuleType_HappyPath(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.Path != "/api/v1/account/modules/tmp/hello-world/type" {
+			http.NotFound(w, r)
+			return
+		}
+		var got map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if len(got) != 1 || got["module_type"] != "plugin" {
+			http.Error(w, "unexpected fields", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"abc","org_name":"tmp","name":"hello-world","display_name":"Hello","module_type":"plugin","visibility":"private"}`))
+	}))
+	defer srv.Close()
+
+	c, err := NewClient(Options{BaseURL: srv.URL, Token: "wpy_test"})
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	c.httpClient = srv.Client()
+	got, err := c.UpdateModuleType(context.Background(), &UpdateModuleTypeParams{
+		Org: "tmp", Name: "hello-world", ModuleType: "plugin",
+	})
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if got.ModuleType != "plugin" {
+		t.Fatalf("unexpected response: %+v", got)
+	}
+}
+
+func TestUpdateModuleType_NotFoundIsClassified(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":{"code":"not_found","message":"module not found"}}`))
+	}))
+	defer srv.Close()
+
+	c, _ := NewClient(Options{BaseURL: srv.URL, Token: "wpy_test"})
+	c.httpClient = srv.Client()
+	_, err := c.UpdateModuleType(context.Background(), &UpdateModuleTypeParams{
+		Org: "tmp", Name: "missing", ModuleType: "plugin",
+	})
+	if !IsModuleNotFound(err) {
+		t.Fatalf("expected module-not-found classification, got %v", err)
+	}
+}

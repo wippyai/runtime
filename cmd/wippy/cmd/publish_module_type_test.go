@@ -63,3 +63,56 @@ func TestEnsureModuleRegistered_DefaultsAndWarnsWhenTypeUndeclared(t *testing.T)
 		t.Errorf("module_type sent = %q, want %q (grace-period default)", gotType, "application")
 	}
 }
+
+func TestSynchronizeDeclaredModuleType_UsesNarrowEndpoint(t *testing.T) {
+	t.Parallel()
+	cfg := &config.ModuleConfig{
+		Organization: "acme", ModuleName: "widgets", Type: "plugin",
+	}
+	var updatedType string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && r.URL.Path == "/api/v1/account/modules/acme/widgets/type" {
+			var body struct {
+				ModuleType string `json:"module_type"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			updatedType = body.ModuleType
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"org_name": "acme", "name": "widgets", "module_type": body.ModuleType,
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	client, err := hub.NewClient(hub.Options{BaseURL: srv.URL, Token: "tok"})
+	if err != nil {
+		t.Fatalf("NewClient(): %v", err)
+	}
+	if err := synchronizeDeclaredModuleType(t.Context(), client, srv.URL, cfg); err != nil {
+		t.Fatalf("synchronizeDeclaredModuleType(): %v", err)
+	}
+	if updatedType != "plugin" {
+		t.Fatalf("updated module_type = %q, want plugin", updatedType)
+	}
+}
+
+func TestSynchronizeDeclaredModuleType_RejectsUnconfirmedType(t *testing.T) {
+	t.Parallel()
+	cfg := &config.ModuleConfig{Organization: "acme", ModuleName: "widgets", Type: "plugin"}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"org_name": "acme", "name": "widgets", "module_type": "application",
+		})
+	}))
+	defer srv.Close()
+
+	client, err := hub.NewClient(hub.Options{BaseURL: srv.URL, Token: "tok"})
+	if err != nil {
+		t.Fatalf("NewClient(): %v", err)
+	}
+	if err := synchronizeDeclaredModuleType(t.Context(), client, srv.URL, cfg); err == nil {
+		t.Fatal("expected a mismatched response type to fail publish preparation")
+	}
+}

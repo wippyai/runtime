@@ -31,6 +31,14 @@ type RegisterModuleParams struct {
 	Keywords      []string `json:"keywords"`
 }
 
+// UpdateModuleTypeParams covers the publisher-only classification endpoint.
+// It intentionally cannot replace owner-managed catalog metadata.
+type UpdateModuleTypeParams struct {
+	Org        string `json:"-"`
+	Name       string `json:"-"`
+	ModuleType string `json:"module_type"`
+}
+
 // RegisteredModule is the subset of the hub's REST response we surface to
 // the CLI; the full payload includes timestamps, owner ID, etc.
 type RegisteredModule struct {
@@ -92,4 +100,42 @@ func (c *Client) RegisterModule(ctx context.Context, p *RegisterModuleParams) (*
 	default:
 		return nil, fmt.Errorf("hub register-module %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
+}
+
+// UpdateModuleType synchronizes only the manifest-declared classification for
+// an existing module.
+func (c *Client) UpdateModuleType(ctx context.Context, p *UpdateModuleTypeParams) (*RegisteredModule, error) {
+	if c.baseURL == "" {
+		return nil, errors.New("hub client missing base URL")
+	}
+	body, err := json.Marshal(p)
+	if err != nil {
+		return nil, fmt.Errorf("marshal update-module-type request: %w", err)
+	}
+
+	path := c.baseURL + "/api/v1/account/modules/" + p.Org + "/" + p.Name + "/type"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, path, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("build update-module-type request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("put update-module-type: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, &hubStatusError{statusCode: resp.StatusCode, body: strings.TrimSpace(string(respBody))}
+	}
+
+	var out RegisteredModule
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return nil, fmt.Errorf("decode update-module-type response: %w", err)
+	}
+	return &out, nil
 }

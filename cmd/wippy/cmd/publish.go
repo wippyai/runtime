@@ -199,6 +199,16 @@ func runPublish(cmd *cobra.Command, _ []string) error {
 
 	ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Minute)
 	defer cancel()
+	if cfg.Type != "" {
+		if syncErr := synchronizeDeclaredModuleType(ctx, client, registryURL, cfg); syncErr != nil {
+			// A normal first publish discovers absence here before the existing
+			// auto-registration path below. Let that path create the module with
+			// the requested type; every other sync failure is actionable.
+			if registeredThisRun || !hub.IsModuleNotFound(syncErr) {
+				return syncErr
+			}
+		}
+	}
 
 	// Prefer the hub-mediated upload path (one robust HTTP hop, hub-side
 	// retry into S3, never the brittle client→S3 path that's bitten
@@ -729,6 +739,9 @@ func ensureModuleRegistered(ctx context.Context, client *hub.Client, registryURL
 	})
 	switch {
 	case regErr == nil:
+		if regResult.ModuleType != moduleType {
+			return fmt.Errorf("register module on %s: hub returned type %q, want %q", registryURL, regResult.ModuleType, moduleType)
+		}
 		printStatus(fmt.Sprintf("Registered module %s/%s (visibility=%s, type=%s)",
 			regResult.OrgName, regResult.Name, regResult.Visibility, regResult.ModuleType))
 		return nil
@@ -738,6 +751,24 @@ func ensureModuleRegistered(ctx context.Context, client *hub.Client, registryURL
 	default:
 		return fmt.Errorf("register module on %s: %w", registryURL, regErr)
 	}
+}
+
+func synchronizeDeclaredModuleType(ctx context.Context, client *hub.Client, registryURL string, cfg *config.ModuleConfig) error {
+	syncCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	updated, err := client.UpdateModuleType(syncCtx, &hub.UpdateModuleTypeParams{
+		Org: cfg.Organization, Name: cfg.ModuleName, ModuleType: cfg.Type,
+	})
+	if err != nil {
+		return fmt.Errorf("synchronize module type on %s: %w", registryURL, err)
+	}
+	if updated.ModuleType != cfg.Type {
+		return fmt.Errorf("synchronize module type on %s: hub returned type %q, want %q", registryURL, updated.ModuleType, cfg.Type)
+	}
+
+	printStatus(fmt.Sprintf("Synchronized module %s/%s (type=%s)", updated.OrgName, updated.Name, updated.ModuleType))
+	return nil
 }
 
 func NewPublishUploadError(registryURL string, cause error) error {
