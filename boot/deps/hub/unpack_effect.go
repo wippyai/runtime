@@ -129,7 +129,7 @@ func (h *DependencyHandler) hasCurrentUnpackedModule(mod ResolvedModule) bool {
 		if !ok {
 			return false
 		}
-		digest, size, err := digestDirectoryTree(path)
+		digest, size, err := digestReplacementTree(path)
 		return err == nil && strings.EqualFold(digest, mod.Digest) && (mod.SizeBytes == 0 || size == mod.SizeBytes)
 	}
 	if !h.shouldUnpackModules() {

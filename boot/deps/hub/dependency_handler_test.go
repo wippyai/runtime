@@ -2645,7 +2645,7 @@ func TestDependencyHandler_Expand_ReplacedModuleDependenciesResolveFromLocalEntr
 
 	require.NoError(t, os.MkdirAll(localMod, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(localMod, "wippy.yaml"),
-		[]byte("organization: local\nmodule: mod\nversion: v0.1.0\n"), 0600))
+		[]byte("organization: local\nmodule: mod\nversion: v0.1.0\nexclude:\n  - test/**\n  - ui/node_modules/**\n"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(localMod, "_index.json"), []byte(`{
   "namespace": "local.mod",
   "entries": [
@@ -2664,6 +2664,22 @@ func TestDependencyHandler_Expand_ReplacedModuleDependenciesResolveFromLocalEntr
     }
   ]
 }`), 0600))
+	require.NoError(t, os.MkdirAll(filepath.Join(localMod, "test"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(localMod, "test", "_index.json"), []byte(`{
+  "namespace": "local.mod.test",
+  "entries": [
+    {
+      "name": "excluded_dependency",
+      "kind": "ns.dependency",
+      "data": {
+        "component": "acme/excluded-test-dependency",
+        "version": "v1.0.0"
+      }
+    }
+  ]
+}`), 0600))
+	require.NoError(t, os.MkdirAll(filepath.Join(localMod, "ui", "node_modules", ".bin"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(localMod, "ui", "node_modules", ".bin", "tool"), []byte("excluded"), 0600))
 	require.NoError(t, os.WriteFile(lockPath, []byte(`directories:
   modules: .wippy
   src: ./src
@@ -2676,6 +2692,7 @@ replacements:
 		{ID: wapp.NewID("acme.transitive", "svc"), Kind: "process.lua", Data: map[string]any{}},
 	})
 
+	excludedManifestRequests := 0
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{
 		Hub: &fakeHub{
 			getManifest: func(_ context.Context, org, module, version string) (*ModuleManifest, error) {
@@ -2684,6 +2701,10 @@ replacements:
 				}
 				if org == "acme" && module == "transitive" && version == "v1.0.0" {
 					return &ModuleManifest{Org: org, Name: module, Version: version}, nil
+				}
+				if org == "acme" && module == "excluded-test-dependency" {
+					excludedManifestRequests++
+					return nil, fmt.Errorf("excluded dependency must not be resolved")
 				}
 				return nil, fmt.Errorf("unexpected manifest request: %s/%s@%s", org, module, version)
 			},
@@ -2713,6 +2734,8 @@ replacements:
 
 	assert.True(t, created[regapi.NewID("local.mod", "svc")], "replacement root entry should be loaded")
 	assert.True(t, created[regapi.NewID("acme.transitive", "svc")], "replacement transitive dependency should be resolved and loaded")
+	assert.Zero(t, excludedManifestRequests, "dependencies declared under excluded source trees must not be resolved")
+	assert.False(t, created[regapi.NewID("local.mod.test", "excluded_dependency")])
 }
 
 func TestDependencyHandler_ResolveModules_ReplacedModuleRangeConstraintFromLocalManifest(t *testing.T) {

@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -175,6 +176,83 @@ func (c *ModuleConfig) EntryExcludes() []string {
 	}
 
 	return out
+}
+
+// SourceExcludes returns module-root-relative file globs from exclude. Registry
+// entry patterns contain ':' and are handled after entries are decoded.
+func (c *ModuleConfig) SourceExcludes() []string {
+	if len(c.Exclude) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(c.Exclude))
+	for _, pattern := range c.Exclude {
+		if !strings.Contains(pattern, ":") {
+			out = append(out, pattern)
+		}
+	}
+	return out
+}
+
+// ExcludesSourcePath reports whether a module-root-relative source path matches
+// a file exclusion. A ** path segment spans zero or more directory segments;
+// other segments use path.Match semantics.
+func (c *ModuleConfig) ExcludesSourcePath(relative string) bool {
+	relative = cleanSourcePath(relative)
+	if relative == "" {
+		return false
+	}
+	for _, pattern := range c.SourceExcludes() {
+		if matchSourceGlob(cleanSourcePath(pattern), relative) {
+			return true
+		}
+	}
+	return false
+}
+
+func cleanSourcePath(value string) string {
+	value = filepath.ToSlash(strings.TrimSpace(value))
+	value = strings.TrimPrefix(value, "./")
+	if value == "" || value == "." {
+		return ""
+	}
+	return strings.TrimPrefix(path.Clean(value), "/")
+}
+
+func matchSourceGlob(pattern, relative string) bool {
+	if pattern == "" || relative == "" {
+		return false
+	}
+	patterns := strings.Split(pattern, "/")
+	parts := strings.Split(relative, "/")
+	type position struct{ pattern, part int }
+	memo := make(map[position]bool)
+	seen := make(map[position]bool)
+
+	var match func(int, int) bool
+	match = func(patternIndex, partIndex int) bool {
+		key := position{pattern: patternIndex, part: partIndex}
+		if seen[key] {
+			return memo[key]
+		}
+		seen[key] = true
+
+		var matched bool
+		switch {
+		case patternIndex == len(patterns):
+			matched = partIndex == len(parts)
+		case patterns[patternIndex] == "**":
+			matched = match(patternIndex+1, partIndex) ||
+				(partIndex < len(parts) && match(patternIndex, partIndex+1))
+		case partIndex < len(parts):
+			segmentMatched, err := path.Match(patterns[patternIndex], parts[partIndex])
+			matched = err == nil && segmentMatched && match(patternIndex+1, partIndex+1)
+		}
+		memo[key] = matched
+		return matched
+	}
+
+	return match(0, 0)
 }
 
 func (c *ModuleConfig) Namespace() string {

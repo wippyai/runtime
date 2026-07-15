@@ -354,6 +354,43 @@ func TestEntryExcludes(t *testing.T) {
 	}
 }
 
+func TestSourceExcludesAndMatching(t *testing.T) {
+	cfg := &ModuleConfig{Exclude: []string{
+		"test/**",
+		"ui/node_modules/**",
+		"src/**/stubs/**",
+		"src/**/*.spec.ts",
+		"app:**",
+	}}
+
+	assert.Equal(t, []string{
+		"test/**",
+		"ui/node_modules/**",
+		"src/**/stubs/**",
+		"src/**/*.spec.ts",
+	}, cfg.SourceExcludes())
+
+	for _, relative := range []string{
+		"test",
+		"test/_index.yaml",
+		"ui/node_modules",
+		"ui/node_modules/.bin/css-beautify",
+		"src/feature/stubs/_index.yaml",
+		"src/root.spec.ts",
+		"src/feature/deep/view.spec.ts",
+	} {
+		assert.True(t, cfg.ExcludesSourcePath(relative), relative)
+	}
+	for _, relative := range []string{
+		"src/_index.yaml",
+		"src/feature/view.ts",
+		"ui/dist/index.js",
+		"app:entry",
+	} {
+		assert.False(t, cfg.ExcludesSourcePath(relative), relative)
+	}
+}
+
 func TestValidateModuleType(t *testing.T) {
 	t.Parallel()
 

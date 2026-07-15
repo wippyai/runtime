@@ -55,6 +55,34 @@ func TestDigestDirectoryTree_IsDeterministicAcrossCreationOrder(t *testing.T) {
 	assert.Equal(t, firstSize, secondSize)
 }
 
+func TestDigestReplacementTree_ExcludesNodeModulesSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows symlink creation requires additional privileges")
+	}
+
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "wippy.yaml"), []byte(`organization: local
+module: mod
+version: v0.1.0
+exclude:
+  - ui/node_modules/**
+`), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "module.lua"), []byte("return true"), 0644))
+	require.NoError(t, os.Mkdir(filepath.Join(root, "ui"), 0755))
+
+	before, beforeSize, err := digestReplacementTree(root)
+	require.NoError(t, err)
+
+	binDir := filepath.Join(root, "ui", "node_modules", ".bin")
+	require.NoError(t, os.MkdirAll(binDir, 0755))
+	require.NoError(t, os.Symlink("../css-beautify/bin/css-beautify.js", filepath.Join(binDir, "css-beautify")))
+
+	after, afterSize, err := digestReplacementTree(root)
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
+	assert.Equal(t, beforeSize, afterSize)
+}
+
 func writeDigestFixture(t *testing.T, root string, names []string) {
 	t.Helper()
 	for _, name := range names {
