@@ -1288,9 +1288,6 @@ func loadReplacementEntries(
 		if err != nil {
 			return err
 		}
-		if d.IsDir() && d.Name() == "node_modules" {
-			return fs.SkipDir
-		}
 		if rel != "." && cfg != nil && cfg.ExcludesSourcePath(rel) {
 			if d.IsDir() {
 				return fs.SkipDir
