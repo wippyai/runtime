@@ -211,6 +211,38 @@ func setupTestContext(t *testing.T) context.Context {
 	return ctx
 }
 
+func TestLoadEntriesFromModuleLoadPathsPreservesRootAndOwnership(t *testing.T) {
+	ctx := setupTestContext(t)
+	moduleDir := t.TempDir()
+	manifest := `version: "1.0"
+namespace: workspace.modules
+entries:
+  - name: search
+    kind: ns.dependency
+    component: acme/search
+    version: "*"
+`
+	if err := os.WriteFile(filepath.Join(moduleDir, "_index.yaml"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
+		Path: moduleDir, Module: "acme/app", Version: "1.0.0", SourceRoot: moduleDir, Root: true,
+	}}, zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 1 {
+		t.Fatalf("entries = %d, want 1", len(loaded))
+	}
+	if !loaded[0].DependencyRoot {
+		t.Fatal("selected lock root dependency lost root provenance")
+	}
+	if got := loaded[0].Meta.GetString("module", ""); got != "acme/app" {
+		t.Fatalf("package ownership = %q, want acme/app", got)
+	}
+}
+
 func TestLoadEntriesFromPathsSingleWapp(t *testing.T) {
 	ctx := setupTestContext(t)
 	logger := zap.NewNop()

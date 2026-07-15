@@ -177,6 +177,9 @@ func (l *Lock) GetModule(name string) (Module, bool) {
 func (l *Lock) SetModule(module Module) {
 	for i, mod := range l.data.Modules {
 		if mod.Name == module.Name {
+			if mod.Root {
+				module.Root = true
+			}
 			l.data.Modules[i] = module
 			return
 		}
@@ -187,7 +190,50 @@ func (l *Lock) SetModule(module Module) {
 // ReplaceModules replaces the complete resolved module snapshot while leaving
 // lock-level configuration such as directories, replacements, and options intact.
 func (l *Lock) ReplaceModules(modules []Module) {
+	roots := make(map[string]struct{})
+	for _, module := range l.data.Modules {
+		if module.Root {
+			roots[module.Name] = struct{}{}
+		}
+	}
+	for i := range modules {
+		if _, root := roots[modules[i].Name]; root {
+			modules[i].Root = true
+		}
+	}
 	l.data.Modules = append([]Module(nil), modules...)
+}
+
+// SetRootModule makes name the sole selected published deployment root.
+func (l *Lock) SetRootModule(name string) {
+	for i := range l.data.Modules {
+		l.data.Modules[i].Root = name != "" && l.data.Modules[i].Name == name
+	}
+}
+
+// IsRootModule reports whether name is the selected published deployment root.
+func (l *Lock) IsRootModule(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, module := range l.data.Modules {
+		if module.Name == name {
+			return module.Root
+		}
+	}
+	return false
+}
+
+// GetRootModules returns selected root identities in stable order.
+func (l *Lock) GetRootModules() []string {
+	roots := make([]string, 0, 1)
+	for _, module := range l.data.Modules {
+		if module.Root {
+			roots = append(roots, module.Name)
+		}
+	}
+	sort.Strings(roots)
+	return roots
 }
 
 // RemoveModule removes a module by name.
@@ -362,6 +408,7 @@ type ModuleLoadPath struct {
 	Module     string // module name in org/module format, empty for app source
 	Version    string // module version, empty for app source
 	SourceRoot string // module root for module-relative resources; defaults to Path
+	Root       bool   // selected deployment root from the lock graph
 }
 
 // GetModuleLoadPaths returns load paths annotated with module ownership.
@@ -388,6 +435,7 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 				Path:       path,
 				Module:     repl.From,
 				SourceRoot: root,
+				Root:       l.IsRootModule(repl.From),
 			})
 		}
 	}
@@ -411,6 +459,7 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 			Module:     mod.Name,
 			Version:    mod.Version,
 			SourceRoot: resolved.Path,
+			Root:       mod.Root,
 		})
 	}
 

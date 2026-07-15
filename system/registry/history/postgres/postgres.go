@@ -65,10 +65,11 @@ type encodedPayload struct {
 }
 
 type encodedEntry struct {
-	Meta attrs.Bag
-	Data *encodedPayload
-	ID   registry.ID
-	Kind string
+	Meta           attrs.Bag
+	Data           *encodedPayload
+	ID             registry.ID
+	Kind           string
+	DependencyRoot bool
 }
 
 func newMsgpackHandle() *codec.MsgpackHandle {
@@ -362,9 +363,9 @@ func (h *History) Get(v registry.Version) (registry.ChangeSet, error) {
 
 func (h *History) decodeChangeSet(data []byte) (registry.ChangeSet, error) {
 	var encodedOps []struct {
-		Entry         encodedEntry
 		OriginalEntry *encodedEntry
 		Kind          string
+		Entry         encodedEntry
 	}
 
 	decoder := codec.NewDecoder(bytes.NewReader(data), h.handle)
@@ -375,9 +376,10 @@ func (h *History) decodeChangeSet(data []byte) (registry.ChangeSet, error) {
 	cs := make(registry.ChangeSet, len(encodedOps))
 	for i, encOp := range encodedOps {
 		entry := registry.Entry{
-			ID:   encOp.Entry.ID,
-			Kind: encOp.Entry.Kind,
-			Meta: encOp.Entry.Meta,
+			ID:             encOp.Entry.ID,
+			Kind:           encOp.Entry.Kind,
+			Meta:           encOp.Entry.Meta,
+			DependencyRoot: encOp.Entry.DependencyRoot,
 		}
 
 		if encOp.Entry.Data != nil {
@@ -391,9 +393,10 @@ func (h *History) decodeChangeSet(data []byte) (registry.ChangeSet, error) {
 
 		if encOp.OriginalEntry != nil {
 			originalEntry := registry.Entry{
-				ID:   encOp.OriginalEntry.ID,
-				Kind: encOp.OriginalEntry.Kind,
-				Meta: encOp.OriginalEntry.Meta,
+				ID:             encOp.OriginalEntry.ID,
+				Kind:           encOp.OriginalEntry.Kind,
+				Meta:           encOp.OriginalEntry.Meta,
+				DependencyRoot: encOp.OriginalEntry.DependencyRoot,
 			}
 
 			if encOp.OriginalEntry.Data != nil {
@@ -536,9 +539,9 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 	}
 
 	encodedOps := make([]struct {
-		Entry         encodedEntry
 		OriginalEntry *encodedEntry
 		Kind          string
+		Entry         encodedEntry
 	}, len(cs))
 
 	for i, op := range cs {
@@ -561,24 +564,26 @@ func (h *History) SaveWithDependencyResolution(v registry.Version, cs registry.C
 			}
 
 			encOriginal = &encodedEntry{
-				ID:   op.OriginalEntry.ID,
-				Kind: op.OriginalEntry.Kind,
-				Meta: op.OriginalEntry.Meta,
-				Data: encOrigPayload,
+				ID:             op.OriginalEntry.ID,
+				Kind:           op.OriginalEntry.Kind,
+				Meta:           op.OriginalEntry.Meta,
+				Data:           encOrigPayload,
+				DependencyRoot: op.OriginalEntry.DependencyRoot,
 			}
 		}
 
 		encodedOps[i] = struct {
-			Entry         encodedEntry
 			OriginalEntry *encodedEntry
 			Kind          string
+			Entry         encodedEntry
 		}{
 			Kind: op.Kind,
 			Entry: encodedEntry{
-				ID:   op.Entry.ID,
-				Kind: op.Entry.Kind,
-				Meta: op.Entry.Meta,
-				Data: encPayload,
+				ID:             op.Entry.ID,
+				Kind:           op.Entry.Kind,
+				Meta:           op.Entry.Meta,
+				Data:           encPayload,
+				DependencyRoot: op.Entry.DependencyRoot,
 			},
 			OriginalEntry: encOriginal,
 		}

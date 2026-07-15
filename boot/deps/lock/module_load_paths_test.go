@@ -267,3 +267,39 @@ func TestLock_GetModuleLoadPaths(t *testing.T) {
 		}
 	})
 }
+
+func TestLock_GetModuleLoadPathsCarriesSelectedRoot(t *testing.T) {
+	tmpDir := t.TempDir()
+	l, err := New(filepath.Join(tmpDir, DefaultFilename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.SetDirectories(Directories{Modules: ".wippy", Src: "src"})
+	l.SetModule(Module{Name: "acme/lib", Version: "v1.0.0"})
+	l.SetModule(Module{Name: "acme/app", Version: "v2.0.0"})
+	l.SetRootModule("acme/app")
+
+	paths := l.GetModuleLoadPaths()
+	if len(paths) != 3 {
+		t.Fatalf("paths = %d, want source plus two modules", len(paths))
+	}
+	for _, modulePath := range paths {
+		if modulePath.Module == "acme/app" && !modulePath.Root {
+			t.Fatal("selected application module was not marked as root")
+		}
+		if modulePath.Module == "acme/lib" && modulePath.Root {
+			t.Fatal("transitive library was incorrectly marked as root")
+		}
+	}
+
+	if err := l.Write(); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := New(l.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reloaded.IsRootModule("acme/app") || reloaded.IsRootModule("acme/lib") {
+		t.Fatalf("root provenance did not survive lock round trip: %v", reloaded.GetRootModules())
+	}
+}

@@ -712,27 +712,21 @@ func TestSQLitePersistence_OriginalEntry(t *testing.T) {
 
 	v1, err := reg.Apply(ctx, registry.ChangeSet{
 		{Kind: registry.EntryCreate, Entry: registry.Entry{
-			ID:   entryID,
-			Kind: "service",
-			Data: payload.NewString("v1"),
+			ID: entryID, Kind: "service", Data: payload.NewString("v1"), DependencyRoot: true,
 		}},
 	})
 	require.NoError(t, err)
 
 	v2, err := reg.Apply(ctx, registry.ChangeSet{
 		{Kind: registry.EntryUpdate, Entry: registry.Entry{
-			ID:   entryID,
-			Kind: "service",
-			Data: payload.NewString("v2"),
+			ID: entryID, Kind: "service", Data: payload.NewString("v2"), DependencyRoot: true,
 		}},
 	})
 	require.NoError(t, err)
 
 	_, err = reg.Apply(ctx, registry.ChangeSet{
 		{Kind: registry.EntryUpdate, Entry: registry.Entry{
-			ID:   entryID,
-			Kind: "service",
-			Data: payload.NewString("v3"),
+			ID: entryID, Kind: "service", Data: payload.NewString("v3"), DependencyRoot: true,
 		}},
 	})
 	require.NoError(t, err)
@@ -748,12 +742,14 @@ func TestSQLitePersistence_OriginalEntry(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, cs1, 1)
 	assert.Nil(t, cs1[0].OriginalEntry, "Create operation should not have OriginalEntry")
+	assert.True(t, cs1[0].Entry.DependencyRoot, "root provenance must survive SQLite persistence")
 
 	cs2, err := hist2.Get(v2)
 	require.NoError(t, err)
 	require.Len(t, cs2, 1)
 	require.NotNil(t, cs2[0].OriginalEntry, "Update operation MUST have OriginalEntry after loading from SQLite")
 	assert.Equal(t, "v1", cs2[0].OriginalEntry.Data.Data().(string), "OriginalEntry should contain v1 data")
+	assert.True(t, cs2[0].OriginalEntry.DependencyRoot, "original root provenance must survive SQLite persistence")
 
 	runner2 := &testRunner{}
 	builder2 := topology.NewStateBuilder(logger, nil)

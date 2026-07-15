@@ -56,7 +56,7 @@ func TestConvertResolvedToLock_ReplacesResolvedGraphAndPreservesLockConfig(t *te
 		t.Fatalf("create existing lock: %v", err)
 	}
 	existing.SetDirectories(lock.Directories{Modules: "old-modules", Src: "old-src"})
-	existing.SetModule(lock.Module{Name: "acme/keep", Version: "1.0.0", Hash: "old"})
+	existing.SetModule(lock.Module{Name: "acme/keep", Version: "1.0.0", Hash: "old", Root: true})
 	existing.SetModule(lock.Module{Name: "acme/stale", Version: "1.0.0", Hash: "stale"})
 	existing.SetModule(lock.Module{Name: "acme/local", Version: "1.0.0", LocalHash: "local"})
 	existing.SetReplacement(lock.Replacement{From: "acme/local", To: "../local"})
@@ -78,6 +78,9 @@ func TestConvertResolvedToLock_ReplacesResolvedGraphAndPreservesLockConfig(t *te
 	}
 	if modules[0].Name != "acme/keep" || modules[0].Version != "2.0.0" || modules[0].Hash != "new" {
 		t.Fatalf("resolved module = %+v, want regenerated acme/keep", modules[0])
+	}
+	if !modules[0].Root {
+		t.Fatal("full graph regeneration demoted the selected deployment root")
 	}
 	if _, ok := regenerated.GetModule("acme/stale"); ok {
 		t.Fatal("stale module survived full graph regeneration")

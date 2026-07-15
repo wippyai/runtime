@@ -93,6 +93,15 @@ func TestValidate(t *testing.T) {
 			t.Error("expected error for nonexistent replacement path")
 		}
 	})
+
+	t.Run("multiple deployment roots fail", func(t *testing.T) {
+		lock, _ := New(filepath.Join(t.TempDir(), "test.lock"))
+		lock.SetModule(Module{Name: "acme/app-a", Version: "v1.0.0", Root: true})
+		lock.SetModule(Module{Name: "acme/app-b", Version: "v1.0.0", Root: true})
+		if err := Validate(lock); err == nil {
+			t.Fatal("expected multiple deployment roots to be rejected")
+		}
+	})
 }
 
 func TestValidateReplacements(t *testing.T) {
