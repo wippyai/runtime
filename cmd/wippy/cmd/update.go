@@ -288,13 +288,15 @@ func convertResolvedToLock(lockFilePath string, modules []hub.ResolvedModule, mo
 		Src:     srcDir,
 	})
 
+	lockedModules := make([]lock.Module, 0, len(modules))
 	for _, m := range modules {
-		lockObj.SetModule(lock.Module{
+		lockedModules = append(lockedModules, lock.Module{
 			Name:    fmt.Sprintf("%s/%s", m.Org, m.Name),
 			Version: m.Version,
 			Hash:    m.Digest,
 		})
 	}
+	lockObj.ReplaceModules(lockedModules)
 
 	return lockObj, nil
 }

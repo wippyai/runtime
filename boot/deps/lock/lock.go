@@ -142,6 +142,12 @@ func (l *Lock) SetModule(module Module) {
 	l.data.Modules = append(l.data.Modules, module)
 }
 
+// ReplaceModules replaces the complete resolved module snapshot while leaving
+// lock-level configuration such as directories, replacements, and options intact.
+func (l *Lock) ReplaceModules(modules []Module) {
+	l.data.Modules = append([]Module(nil), modules...)
+}
+
 // RemoveModule removes a module by name.
 func (l *Lock) RemoveModule(name string) {
 	filtered := make([]Module, 0, len(l.data.Modules))

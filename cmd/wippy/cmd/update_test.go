@@ -47,6 +47,55 @@ func TestConvertResolvedToLock_UsesProvidedPath(t *testing.T) {
 	}
 }
 
+func TestConvertResolvedToLock_ReplacesResolvedGraphAndPreservesLockConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	lockPath := filepath.Join(tmpDir, "wippy.lock")
+
+	existing, err := lock.New(lockPath)
+	if err != nil {
+		t.Fatalf("create existing lock: %v", err)
+	}
+	existing.SetDirectories(lock.Directories{Modules: "old-modules", Src: "old-src"})
+	existing.SetModule(lock.Module{Name: "acme/keep", Version: "1.0.0", Hash: "old"})
+	existing.SetModule(lock.Module{Name: "acme/stale", Version: "1.0.0", Hash: "stale"})
+	existing.SetModule(lock.Module{Name: "acme/local", Version: "1.0.0", LocalHash: "local"})
+	existing.SetReplacement(lock.Replacement{From: "acme/local", To: "../local"})
+	existing.SetOptions(lock.Options{UnpackModules: true})
+	if err := existing.Write(); err != nil {
+		t.Fatalf("write existing lock: %v", err)
+	}
+
+	regenerated, err := convertResolvedToLock(lockPath, []hub.ResolvedModule{
+		{Org: "acme", Name: "keep", Version: "2.0.0", Digest: "new"},
+	}, "new-modules", "new-src")
+	if err != nil {
+		t.Fatalf("convertResolvedToLock failed: %v", err)
+	}
+
+	modules := regenerated.GetModules()
+	if len(modules) != 1 {
+		t.Fatalf("modules = %+v, want only the newly resolved graph", modules)
+	}
+	if modules[0].Name != "acme/keep" || modules[0].Version != "2.0.0" || modules[0].Hash != "new" {
+		t.Fatalf("resolved module = %+v, want regenerated acme/keep", modules[0])
+	}
+	if _, ok := regenerated.GetModule("acme/stale"); ok {
+		t.Fatal("stale module survived full graph regeneration")
+	}
+	if _, ok := regenerated.GetModule("acme/local"); ok {
+		t.Fatal("replacement-only module should not survive as a locked remote module")
+	}
+	if replacement, ok := regenerated.GetReplacement("acme/local"); !ok || replacement.To != "../local" {
+		t.Fatalf("replacement = %+v, %v; want preserved local replacement", replacement, ok)
+	}
+	if !regenerated.ShouldUnpackModules() {
+		t.Fatal("lock options were not preserved")
+	}
+	if dirs := regenerated.GetDirectories(); dirs.Modules != "new-modules" || dirs.Src != "new-src" {
+		t.Fatalf("directories = %+v, want command-selected directories", dirs)
+	}
+}
+
 func TestPreserveReplacements_KeepsAll(t *testing.T) {
 	tmpDir := t.TempDir()
 	lockPath := filepath.Join(tmpDir, "wippy.lock")
