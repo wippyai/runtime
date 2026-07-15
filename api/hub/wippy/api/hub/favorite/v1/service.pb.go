@@ -25,6 +25,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// AddFavoriteRequest is the request for AddFavorite.
 type AddFavoriteRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *v1.ModuleRef          `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -69,6 +70,7 @@ func (x *AddFavoriteRequest) GetModule() *v1.ModuleRef {
 	return nil
 }
 
+// AddFavoriteResponse is the response for AddFavorite.
 type AddFavoriteResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -105,6 +107,7 @@ func (*AddFavoriteResponse) Descriptor() ([]byte, []int) {
 	return file_wippy_api_hub_favorite_v1_service_proto_rawDescGZIP(), []int{1}
 }
 
+// RemoveFavoriteRequest is the request for RemoveFavorite.
 type RemoveFavoriteRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *v1.ModuleRef          `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -149,6 +152,7 @@ func (x *RemoveFavoriteRequest) GetModule() *v1.ModuleRef {
 	return nil
 }
 
+// RemoveFavoriteResponse is the response for RemoveFavorite.
 type RemoveFavoriteResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -185,6 +189,7 @@ func (*RemoveFavoriteResponse) Descriptor() ([]byte, []int) {
 	return file_wippy_api_hub_favorite_v1_service_proto_rawDescGZIP(), []int{3}
 }
 
+// IsFavoritedRequest is the request for IsFavorited.
 type IsFavoritedRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *v1.ModuleRef          `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -229,6 +234,7 @@ func (x *IsFavoritedRequest) GetModule() *v1.ModuleRef {
 	return nil
 }
 
+// IsFavoritedResponse is the response for IsFavorited.
 type IsFavoritedResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Favorited     bool                   `protobuf:"varint,1,opt,name=favorited,proto3" json:"favorited,omitempty"`
@@ -273,6 +279,7 @@ func (x *IsFavoritedResponse) GetFavorited() bool {
 	return false
 }
 
+// ListFavoritesRequest is the request for ListFavorites.
 type ListFavoritesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Page          int32                  `protobuf:"varint,1,opt,name=page,proto3" json:"page,omitempty"`
@@ -325,6 +332,7 @@ func (x *ListFavoritesRequest) GetPageSize() int32 {
 	return 0
 }
 
+// ListFavoritesResponse is the response for ListFavorites.
 type ListFavoritesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Modules       []*v1.Module           `protobuf:"bytes,1,rep,name=modules,proto3" json:"modules,omitempty"`

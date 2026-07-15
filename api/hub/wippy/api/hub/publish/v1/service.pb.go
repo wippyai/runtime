@@ -27,6 +27,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// InitiatePublishRequest is the request for InitiatePublish.
 type InitiatePublishRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	Module *v1.ModuleRef          `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -39,8 +40,13 @@ type InitiatePublishRequest struct {
 	Digest            string                          `protobuf:"bytes,5,opt,name=digest,proto3" json:"digest,omitempty"`
 	Protected         bool                            `protobuf:"varint,6,opt,name=protected,proto3" json:"protected,omitempty"`
 	ReleaseNotes      string                          `protobuf:"bytes,7,opt,name=release_notes,json=releaseNotes,proto3" json:"release_notes,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Declares the module's kind. Consulted when the module does not exist yet
+	// (publish creates it) or when it differs from the stored value, in which
+	// case the declared type wins. UNSPECIFIED means the publisher declared no
+	// type; creating a module that way is rejected.
+	ModuleType    v1.ModuleType `protobuf:"varint,8,opt,name=module_type,json=moduleType,proto3,enum=wippy.api.hub.module.v1.ModuleType" json:"module_type,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *InitiatePublishRequest) Reset() {
@@ -133,6 +139,13 @@ func (x *InitiatePublishRequest) GetReleaseNotes() string {
 	return ""
 }
 
+func (x *InitiatePublishRequest) GetModuleType() v1.ModuleType {
+	if x != nil {
+		return x.ModuleType
+	}
+	return v1.ModuleType(0)
+}
+
 type isInitiatePublishRequest_Target interface {
 	isInitiatePublishRequest_Target()
 }
@@ -149,6 +162,7 @@ func (*InitiatePublishRequest_Version) isInitiatePublishRequest_Target() {}
 
 func (*InitiatePublishRequest_Label) isInitiatePublishRequest_Target() {}
 
+// InitiatePublishResponse is the response for InitiatePublish.
 type InitiatePublishResponse struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	PublishId       string                 `protobuf:"bytes,1,opt,name=publish_id,json=publishId,proto3" json:"publish_id,omitempty"`
@@ -209,6 +223,7 @@ func (x *InitiatePublishResponse) GetUploadExpiresAt() *timestamppb.Timestamp {
 	return nil
 }
 
+// ConfirmPublishRequest is the request for ConfirmPublish.
 type ConfirmPublishRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	PublishId     string                 `protobuf:"bytes,1,opt,name=publish_id,json=publishId,proto3" json:"publish_id,omitempty"`
@@ -253,6 +268,7 @@ func (x *ConfirmPublishRequest) GetPublishId() string {
 	return ""
 }
 
+// ConfirmPublishResponse is the response for ConfirmPublish.
 type ConfirmPublishResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Status        PublishStatus          `protobuf:"varint,1,opt,name=status,proto3,enum=wippy.api.hub.publish.v1.PublishStatus" json:"status,omitempty"`
@@ -297,6 +313,7 @@ func (x *ConfirmPublishResponse) GetStatus() PublishStatus {
 	return PublishStatus_PUBLISH_STATUS_UNSPECIFIED
 }
 
+// GetPublishStatusRequest is the request for GetPublishStatus.
 type GetPublishStatusRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	PublishId     string                 `protobuf:"bytes,1,opt,name=publish_id,json=publishId,proto3" json:"publish_id,omitempty"`
@@ -341,6 +358,7 @@ func (x *GetPublishStatusRequest) GetPublishId() string {
 	return ""
 }
 
+// GetPublishStatusResponse is the response for GetPublishStatus.
 type GetPublishStatusResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Status        PublishStatus          `protobuf:"varint,1,opt,name=status,proto3,enum=wippy.api.hub.publish.v1.PublishStatus" json:"status,omitempty"`
@@ -393,6 +411,7 @@ func (x *GetPublishStatusResponse) GetDetails() *PublishStatusDetails {
 	return nil
 }
 
+// CancelPublishRequest is the request for CancelPublish.
 type CancelPublishRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	PublishId     string                 `protobuf:"bytes,1,opt,name=publish_id,json=publishId,proto3" json:"publish_id,omitempty"`
@@ -437,6 +456,7 @@ func (x *CancelPublishRequest) GetPublishId() string {
 	return ""
 }
 
+// CancelPublishResponse is the response for CancelPublish.
 type CancelPublishResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Cancelled     bool                   `protobuf:"varint,1,opt,name=cancelled,proto3" json:"cancelled,omitempty"`
@@ -481,6 +501,7 @@ func (x *CancelPublishResponse) GetCancelled() bool {
 	return false
 }
 
+// YankVersionRequest is the request for YankVersion.
 type YankVersionRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *v1.ModuleRef          `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -541,6 +562,7 @@ func (x *YankVersionRequest) GetReason() string {
 	return ""
 }
 
+// YankVersionResponse is the response for YankVersion.
 type YankVersionResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Version       *v11.Version           `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
@@ -589,7 +611,7 @@ var File_wippy_api_hub_publish_v1_service_proto protoreflect.FileDescriptor
 
 const file_wippy_api_hub_publish_v1_service_proto_rawDesc = "" +
 	"\n" +
-	"&wippy/api/hub/publish/v1/service.proto\x12\x18wippy.api.hub.publish.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a%wippy/api/hub/module/v1/message.proto\x1a&wippy/api/hub/publish/v1/message.proto\x1a&wippy/api/hub/version/v1/message.proto\"\xd4\x02\n" +
+	"&wippy/api/hub/publish/v1/service.proto\x12\x18wippy.api.hub.publish.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a%wippy/api/hub/module/v1/message.proto\x1a&wippy/api/hub/publish/v1/message.proto\x1a&wippy/api/hub/version/v1/message.proto\"\x9a\x03\n" +
 	"\x16InitiatePublishRequest\x12B\n" +
 	"\x06module\x18\x01 \x01(\v2\".wippy.api.hub.module.v1.ModuleRefB\x06\xbaH\x03\xc8\x01\x01R\x06module\x12#\n" +
 	"\aversion\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x18@H\x00R\aversion\x122\n" +
@@ -597,7 +619,9 @@ const file_wippy_api_hub_publish_v1_service_proto_rawDesc = "" +
 	"\x13expected_size_bytes\x18\x04 \x01(\x04R\x11expectedSizeBytes\x12 \n" +
 	"\x06digest\x18\x05 \x01(\tB\b\xbaH\x05r\x03\x98\x01@R\x06digest\x12\x1c\n" +
 	"\tprotected\x18\x06 \x01(\bR\tprotected\x12#\n" +
-	"\rrelease_notes\x18\a \x01(\tR\freleaseNotesB\b\n" +
+	"\rrelease_notes\x18\a \x01(\tR\freleaseNotes\x12D\n" +
+	"\vmodule_type\x18\b \x01(\x0e2#.wippy.api.hub.module.v1.ModuleTypeR\n" +
+	"moduleTypeB\b\n" +
 	"\x06target\"\x9f\x01\n" +
 	"\x17InitiatePublishResponse\x12\x1d\n" +
 	"\n" +
@@ -660,34 +684,36 @@ var file_wippy_api_hub_publish_v1_service_proto_goTypes = []any{
 	(*YankVersionRequest)(nil),       // 8: wippy.api.hub.publish.v1.YankVersionRequest
 	(*YankVersionResponse)(nil),      // 9: wippy.api.hub.publish.v1.YankVersionResponse
 	(*v1.ModuleRef)(nil),             // 10: wippy.api.hub.module.v1.ModuleRef
-	(*timestamppb.Timestamp)(nil),    // 11: google.protobuf.Timestamp
-	(PublishStatus)(0),               // 12: wippy.api.hub.publish.v1.PublishStatus
-	(*PublishStatusDetails)(nil),     // 13: wippy.api.hub.publish.v1.PublishStatusDetails
-	(*v11.Version)(nil),              // 14: wippy.api.hub.version.v1.Version
+	(v1.ModuleType)(0),               // 11: wippy.api.hub.module.v1.ModuleType
+	(*timestamppb.Timestamp)(nil),    // 12: google.protobuf.Timestamp
+	(PublishStatus)(0),               // 13: wippy.api.hub.publish.v1.PublishStatus
+	(*PublishStatusDetails)(nil),     // 14: wippy.api.hub.publish.v1.PublishStatusDetails
+	(*v11.Version)(nil),              // 15: wippy.api.hub.version.v1.Version
 }
 var file_wippy_api_hub_publish_v1_service_proto_depIdxs = []int32{
 	10, // 0: wippy.api.hub.publish.v1.InitiatePublishRequest.module:type_name -> wippy.api.hub.module.v1.ModuleRef
-	11, // 1: wippy.api.hub.publish.v1.InitiatePublishResponse.upload_expires_at:type_name -> google.protobuf.Timestamp
-	12, // 2: wippy.api.hub.publish.v1.ConfirmPublishResponse.status:type_name -> wippy.api.hub.publish.v1.PublishStatus
-	12, // 3: wippy.api.hub.publish.v1.GetPublishStatusResponse.status:type_name -> wippy.api.hub.publish.v1.PublishStatus
-	13, // 4: wippy.api.hub.publish.v1.GetPublishStatusResponse.details:type_name -> wippy.api.hub.publish.v1.PublishStatusDetails
-	10, // 5: wippy.api.hub.publish.v1.YankVersionRequest.module:type_name -> wippy.api.hub.module.v1.ModuleRef
-	14, // 6: wippy.api.hub.publish.v1.YankVersionResponse.version:type_name -> wippy.api.hub.version.v1.Version
-	0,  // 7: wippy.api.hub.publish.v1.PublishService.InitiatePublish:input_type -> wippy.api.hub.publish.v1.InitiatePublishRequest
-	2,  // 8: wippy.api.hub.publish.v1.PublishService.ConfirmPublish:input_type -> wippy.api.hub.publish.v1.ConfirmPublishRequest
-	4,  // 9: wippy.api.hub.publish.v1.PublishService.GetPublishStatus:input_type -> wippy.api.hub.publish.v1.GetPublishStatusRequest
-	6,  // 10: wippy.api.hub.publish.v1.PublishService.CancelPublish:input_type -> wippy.api.hub.publish.v1.CancelPublishRequest
-	8,  // 11: wippy.api.hub.publish.v1.PublishService.YankVersion:input_type -> wippy.api.hub.publish.v1.YankVersionRequest
-	1,  // 12: wippy.api.hub.publish.v1.PublishService.InitiatePublish:output_type -> wippy.api.hub.publish.v1.InitiatePublishResponse
-	3,  // 13: wippy.api.hub.publish.v1.PublishService.ConfirmPublish:output_type -> wippy.api.hub.publish.v1.ConfirmPublishResponse
-	5,  // 14: wippy.api.hub.publish.v1.PublishService.GetPublishStatus:output_type -> wippy.api.hub.publish.v1.GetPublishStatusResponse
-	7,  // 15: wippy.api.hub.publish.v1.PublishService.CancelPublish:output_type -> wippy.api.hub.publish.v1.CancelPublishResponse
-	9,  // 16: wippy.api.hub.publish.v1.PublishService.YankVersion:output_type -> wippy.api.hub.publish.v1.YankVersionResponse
-	12, // [12:17] is the sub-list for method output_type
-	7,  // [7:12] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	11, // 1: wippy.api.hub.publish.v1.InitiatePublishRequest.module_type:type_name -> wippy.api.hub.module.v1.ModuleType
+	12, // 2: wippy.api.hub.publish.v1.InitiatePublishResponse.upload_expires_at:type_name -> google.protobuf.Timestamp
+	13, // 3: wippy.api.hub.publish.v1.ConfirmPublishResponse.status:type_name -> wippy.api.hub.publish.v1.PublishStatus
+	13, // 4: wippy.api.hub.publish.v1.GetPublishStatusResponse.status:type_name -> wippy.api.hub.publish.v1.PublishStatus
+	14, // 5: wippy.api.hub.publish.v1.GetPublishStatusResponse.details:type_name -> wippy.api.hub.publish.v1.PublishStatusDetails
+	10, // 6: wippy.api.hub.publish.v1.YankVersionRequest.module:type_name -> wippy.api.hub.module.v1.ModuleRef
+	15, // 7: wippy.api.hub.publish.v1.YankVersionResponse.version:type_name -> wippy.api.hub.version.v1.Version
+	0,  // 8: wippy.api.hub.publish.v1.PublishService.InitiatePublish:input_type -> wippy.api.hub.publish.v1.InitiatePublishRequest
+	2,  // 9: wippy.api.hub.publish.v1.PublishService.ConfirmPublish:input_type -> wippy.api.hub.publish.v1.ConfirmPublishRequest
+	4,  // 10: wippy.api.hub.publish.v1.PublishService.GetPublishStatus:input_type -> wippy.api.hub.publish.v1.GetPublishStatusRequest
+	6,  // 11: wippy.api.hub.publish.v1.PublishService.CancelPublish:input_type -> wippy.api.hub.publish.v1.CancelPublishRequest
+	8,  // 12: wippy.api.hub.publish.v1.PublishService.YankVersion:input_type -> wippy.api.hub.publish.v1.YankVersionRequest
+	1,  // 13: wippy.api.hub.publish.v1.PublishService.InitiatePublish:output_type -> wippy.api.hub.publish.v1.InitiatePublishResponse
+	3,  // 14: wippy.api.hub.publish.v1.PublishService.ConfirmPublish:output_type -> wippy.api.hub.publish.v1.ConfirmPublishResponse
+	5,  // 15: wippy.api.hub.publish.v1.PublishService.GetPublishStatus:output_type -> wippy.api.hub.publish.v1.GetPublishStatusResponse
+	7,  // 16: wippy.api.hub.publish.v1.PublishService.CancelPublish:output_type -> wippy.api.hub.publish.v1.CancelPublishResponse
+	9,  // 17: wippy.api.hub.publish.v1.PublishService.YankVersion:output_type -> wippy.api.hub.publish.v1.YankVersionResponse
+	13, // [13:18] is the sub-list for method output_type
+	8,  // [8:13] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_wippy_api_hub_publish_v1_service_proto_init() }

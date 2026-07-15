@@ -54,10 +54,15 @@ const (
 
 // PublishServiceClient is a client for the wippy.api.hub.publish.v1.PublishService service.
 type PublishServiceClient interface {
+	// InitiatePublish starts a new publish operation and returns a presigned upload URL.
 	InitiatePublish(context.Context, *connect.Request[v1.InitiatePublishRequest]) (*connect.Response[v1.InitiatePublishResponse], error)
+	// ConfirmPublish confirms the upload is complete and triggers validation and processing.
 	ConfirmPublish(context.Context, *connect.Request[v1.ConfirmPublishRequest]) (*connect.Response[v1.ConfirmPublishResponse], error)
+	// GetPublishStatus returns the current status and details of a publish operation.
 	GetPublishStatus(context.Context, *connect.Request[v1.GetPublishStatusRequest]) (*connect.Response[v1.GetPublishStatusResponse], error)
+	// CancelPublish cancels a pending publish operation.
 	CancelPublish(context.Context, *connect.Request[v1.CancelPublishRequest]) (*connect.Response[v1.CancelPublishResponse], error)
+	// YankVersion marks a published version as yanked, hiding it from resolution.
 	YankVersion(context.Context, *connect.Request[v1.YankVersionRequest]) (*connect.Response[v1.YankVersionResponse], error)
 }
 
@@ -143,10 +148,15 @@ func (c *publishServiceClient) YankVersion(ctx context.Context, req *connect.Req
 // PublishServiceHandler is an implementation of the wippy.api.hub.publish.v1.PublishService
 // service.
 type PublishServiceHandler interface {
+	// InitiatePublish starts a new publish operation and returns a presigned upload URL.
 	InitiatePublish(context.Context, *connect.Request[v1.InitiatePublishRequest]) (*connect.Response[v1.InitiatePublishResponse], error)
+	// ConfirmPublish confirms the upload is complete and triggers validation and processing.
 	ConfirmPublish(context.Context, *connect.Request[v1.ConfirmPublishRequest]) (*connect.Response[v1.ConfirmPublishResponse], error)
+	// GetPublishStatus returns the current status and details of a publish operation.
 	GetPublishStatus(context.Context, *connect.Request[v1.GetPublishStatusRequest]) (*connect.Response[v1.GetPublishStatusResponse], error)
+	// CancelPublish cancels a pending publish operation.
 	CancelPublish(context.Context, *connect.Request[v1.CancelPublishRequest]) (*connect.Response[v1.CancelPublishResponse], error)
+	// YankVersion marks a published version as yanked, hiding it from resolution.
 	YankVersion(context.Context, *connect.Request[v1.YankVersionRequest]) (*connect.Response[v1.YankVersionResponse], error)
 }
 

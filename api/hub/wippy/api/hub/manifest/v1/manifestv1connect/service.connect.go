@@ -48,8 +48,11 @@ const (
 
 // ManifestServiceClient is a client for the wippy.api.hub.manifest.v1.ManifestService service.
 type ManifestServiceClient interface {
+	// GetManifest returns the full manifest for a specific module version.
 	GetManifest(context.Context, *connect.Request[v1.GetManifestRequest]) (*connect.Response[v1.GetManifestResponse], error)
+	// ResolveDependencies computes a resolved dependency tree from root specifications.
 	ResolveDependencies(context.Context, *connect.Request[v1.ResolveDependenciesRequest]) (*connect.Response[v1.ResolveDependenciesResponse], error)
+	// CheckUpdates returns available updates for a set of installed modules.
 	CheckUpdates(context.Context, *connect.Request[v1.CheckUpdatesRequest]) (*connect.Response[v1.CheckUpdatesResponse], error)
 }
 
@@ -113,8 +116,11 @@ func (c *manifestServiceClient) CheckUpdates(ctx context.Context, req *connect.R
 // ManifestServiceHandler is an implementation of the wippy.api.hub.manifest.v1.ManifestService
 // service.
 type ManifestServiceHandler interface {
+	// GetManifest returns the full manifest for a specific module version.
 	GetManifest(context.Context, *connect.Request[v1.GetManifestRequest]) (*connect.Response[v1.GetManifestResponse], error)
+	// ResolveDependencies computes a resolved dependency tree from root specifications.
 	ResolveDependencies(context.Context, *connect.Request[v1.ResolveDependenciesRequest]) (*connect.Response[v1.ResolveDependenciesResponse], error)
+	// CheckUpdates returns available updates for a set of installed modules.
 	CheckUpdates(context.Context, *connect.Request[v1.CheckUpdatesRequest]) (*connect.Response[v1.CheckUpdatesResponse], error)
 }
 

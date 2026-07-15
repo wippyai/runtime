@@ -25,6 +25,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Visibility controls who can see and access a module.
 type Visibility int32
 
 const (
@@ -77,6 +78,7 @@ func (Visibility) EnumDescriptor() ([]byte, []int) {
 	return file_wippy_api_hub_module_v1_message_proto_rawDescGZIP(), []int{0}
 }
 
+// ModuleType classifies the kind of module.
 type ModuleType int32
 
 const (
@@ -293,8 +295,10 @@ type Module struct {
 	Protected          bool                   `protobuf:"varint,20,opt,name=protected,proto3" json:"protected,omitempty"`
 	Contracts          []*Contract            `protobuf:"bytes,21,rep,name=contracts,proto3" json:"contracts,omitempty"`
 	DownloadStats      []*DownloadStat        `protobuf:"bytes,22,rep,name=download_stats,json=downloadStats,proto3" json:"download_stats,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Owner name (user or org). Prefer this over organization_name for new clients.
+	OwnerName     string `protobuf:"bytes,23,opt,name=owner_name,json=ownerName,proto3" json:"owner_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Module) Reset() {
@@ -479,6 +483,13 @@ func (x *Module) GetDownloadStats() []*DownloadStat {
 		return x.DownloadStats
 	}
 	return nil
+}
+
+func (x *Module) GetOwnerName() string {
+	if x != nil {
+		return x.OwnerName
+	}
+	return ""
 }
 
 // Organization in the hub.
@@ -769,7 +780,7 @@ const file_wippy_api_hub_module_v1_message_proto_rawDesc = "" +
 	"\n" +
 	"ModuleName\x12\x1b\n" +
 	"\x03org\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18@R\x03org\x12\x1d\n" +
-	"\x04name\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18@R\x04name\"\xda\a\n" +
+	"\x04name\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18@R\x04name\"\xf9\a\n" +
 	"\x06Module\x12\x18\n" +
 	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\x120\n" +
 	"\x04name\x18\x02 \x01(\tB\x1c\xbaH\x19r\x17\x10\x01\x18@2\x11^[a-z][a-z0-9-]*$R\x04name\x12!\n" +
@@ -801,7 +812,9 @@ const file_wippy_api_hub_module_v1_message_proto_rawDesc = "" +
 	"\bhomepage\x18\x13 \x01(\tR\bhomepage\x12\x1c\n" +
 	"\tprotected\x18\x14 \x01(\bR\tprotected\x12?\n" +
 	"\tcontracts\x18\x15 \x03(\v2!.wippy.api.hub.module.v1.ContractR\tcontracts\x12L\n" +
-	"\x0edownload_stats\x18\x16 \x03(\v2%.wippy.api.hub.module.v1.DownloadStatR\rdownloadStats\"\xc9\x02\n" +
+	"\x0edownload_stats\x18\x16 \x03(\v2%.wippy.api.hub.module.v1.DownloadStatR\rdownloadStats\x12\x1d\n" +
+	"\n" +
+	"owner_name\x18\x17 \x01(\tR\townerName\"\xc9\x02\n" +
 	"\fOrganization\x12\x18\n" +
 	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\x120\n" +
 	"\x04name\x18\x02 \x01(\tB\x1c\xbaH\x19r\x17\x10\x01\x18@2\x11^[a-z][a-z0-9-]*$R\x04name\x12!\n" +

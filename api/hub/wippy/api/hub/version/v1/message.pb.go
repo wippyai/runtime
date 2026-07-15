@@ -25,6 +25,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// ProtectionType indicates the protection level applied to a version's archive.
 type ProtectionType int32
 
 const (

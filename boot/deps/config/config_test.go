@@ -334,3 +334,79 @@ func TestEntryExcludes(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateModuleType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{name: "empty means not declared", input: "", wantErr: false},
+		{name: "library", input: "library", wantErr: false},
+		{name: "application", input: "application", wantErr: false},
+		{name: "agent", input: "agent", wantErr: false},
+		{name: "plugin", input: "plugin", wantErr: false},
+		// "app" is the badge label for "application" — an easy thing to write
+		// in wippy.yaml and exactly what the CHECK constraint would reject.
+		{name: "app is not application", input: "app", wantErr: true},
+		{name: "unknown", input: "widget", wantErr: true},
+		{name: "case sensitive", input: "Library", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := ValidateModuleType(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateModuleType(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestModuleConfig_ParsesType proves the new key actually round-trips through
+// the YAML decoder — the whole feature depends on it reaching hub.
+func TestModuleConfig_ParsesType(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, DefaultConfigFile)
+	body := "organization: acme\nmodule: widgets\nversion: 1.0.0\ntype: plugin\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom(): %v", err)
+	}
+	if cfg.Type != "plugin" {
+		t.Errorf("cfg.Type = %q, want %q", cfg.Type, "plugin")
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate(): %v", err)
+	}
+}
+
+// TestModuleConfig_RejectsBadType: a typo in wippy.yaml must fail before the
+// publish leaves the machine.
+func TestModuleConfig_RejectsBadType(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, DefaultConfigFile)
+	body := "organization: acme\nmodule: widgets\nversion: 1.0.0\ntype: app\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom(): %v", err)
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Error("Validate() must reject type: app")
+	}
+}

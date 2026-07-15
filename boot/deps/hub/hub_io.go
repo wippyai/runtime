@@ -27,7 +27,11 @@ type UploadInput struct {
 	Label        string
 	ReleaseNotes string
 	FilePath     string
-	Protected    bool
+	// ModuleType is the kind declared in wippy.yaml (or --module-type). Hub
+	// requires it when the publish creates the module, and reclassifies an
+	// existing module when it differs. Empty means "not declared".
+	ModuleType string
+	Protected  bool
 }
 
 // UploadOutput is the publish workflow id the caller polls on.
@@ -86,6 +90,9 @@ func (c *Client) PublishViaHub(ctx context.Context, in UploadInput) (*UploadOutp
 		}
 		if in.ReleaseNotes != "" {
 			req.Header.Set("X-Wippy-Release-Notes", in.ReleaseNotes)
+		}
+		if in.ModuleType != "" {
+			req.Header.Set("X-Wippy-Module-Type", in.ModuleType)
 		}
 
 		resp, err := c.httpClient.Do(req)

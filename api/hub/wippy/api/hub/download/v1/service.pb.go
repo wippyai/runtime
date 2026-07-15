@@ -27,6 +27,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// GetDownloadURLRequest is the request for GetDownloadURL.
 type GetDownloadURLRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Module        *v1.ModuleRef          `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
@@ -79,6 +80,7 @@ func (x *GetDownloadURLRequest) GetVersion() *v11.VersionRef {
 	return nil
 }
 
+// GetDownloadURLResponse is the response for GetDownloadURL.
 type GetDownloadURLResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Download      *v12.DownloadInfo      `protobuf:"bytes,1,opt,name=download,proto3" json:"download,omitempty"`
@@ -139,6 +141,7 @@ func (x *GetDownloadURLResponse) GetProtected() bool {
 	return false
 }
 
+// GetBatchDownloadURLsRequest is the request for GetBatchDownloadURLs.
 type GetBatchDownloadURLsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Items         []*BatchDownloadItem   `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
@@ -183,6 +186,7 @@ func (x *GetBatchDownloadURLsRequest) GetItems() []*BatchDownloadItem {
 	return nil
 }
 
+// BatchDownloadItem identifies a single module version within a batch download request.
 type BatchDownloadItem struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Org           string                 `protobuf:"bytes,1,opt,name=org,proto3" json:"org,omitempty"`
@@ -243,6 +247,7 @@ func (x *BatchDownloadItem) GetVersion() string {
 	return ""
 }
 
+// GetBatchDownloadURLsResponse is the response for GetBatchDownloadURLs.
 type GetBatchDownloadURLsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Results       []*BatchDownloadResult `protobuf:"bytes,1,rep,name=results,proto3" json:"results,omitempty"`
@@ -287,6 +292,7 @@ func (x *GetBatchDownloadURLsResponse) GetResults() []*BatchDownloadResult {
 	return nil
 }
 
+// BatchDownloadResult contains the download URL or error for one item in a batch.
 type BatchDownloadResult struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Org           string                 `protobuf:"bytes,1,opt,name=org,proto3" json:"org,omitempty"`
