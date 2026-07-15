@@ -3,10 +3,25 @@
 package topology
 
 import (
+	"sort"
+
 	"github.com/wippyai/runtime/api/attrs"
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/registry"
 )
+
+// NewReplacementDependencyCycleError reports a same-ID delete/create
+// replacement that cannot be serialized without breaking a live dependency.
+func NewReplacementDependencyCycleError(ids []registry.ID) apierror.Error {
+	entryIDs := make([]string, len(ids))
+	for i, id := range ids {
+		entryIDs[i] = id.String()
+	}
+	sort.Strings(entryIDs)
+	return apierror.New(apierror.Conflict, "same-ID replacement has an unsatisfiable dependency cycle").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"entry_ids": entryIDs}))
+}
 
 // ErrEmptyPatternPath is a sentinel error
 var (
