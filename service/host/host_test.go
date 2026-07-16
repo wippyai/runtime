@@ -249,7 +249,12 @@ func TestHost_StopNotRunning(t *testing.T) {
 	th := newTestHost()
 
 	err := th.host.Stop(context.Background())
-	assert.NoError(t, err)
+	require.NoError(t, err)
+	assert.False(t, th.host.running.Load())
+	assert.True(t, th.host.shutdown.Load())
+
+	_, err = th.host.Start(ctxWithAppContext())
+	assert.ErrorIs(t, err, ErrHostShuttingDown)
 }
 
 func TestHost_StopIdempotent(t *testing.T) {

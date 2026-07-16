@@ -26,3 +26,22 @@ func NewUnsupportedEntryKindError(kind registry.Kind) apierror.Error {
 		WithRetryable(apierror.False).
 		WithDetails(attrs.NewBagFrom(map[string]any{"kind": kind}))
 }
+
+func NewHostNotFoundError(id registry.ID) apierror.Error {
+	return apierror.New(apierror.NotFound, "process host not found").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"id": id.String()}))
+}
+
+func NewUnsupportedHostUpdateError(fields []string) apierror.Error {
+	return apierror.New(apierror.Conflict, "process host update requires unsupported runtime changes").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"fields": fields}))
+}
+
+func NewResizeWorkersError(cause error) apierror.Error {
+	return apierror.New(apierror.Conflict, "failed to resize process host workers").
+		WithRetryable(apierror.False).
+		WithDetails(attrs.NewBagFrom(map[string]any{"cause": cause.Error()})).
+		WithCause(cause)
+}

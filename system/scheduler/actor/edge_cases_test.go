@@ -732,7 +732,7 @@ func TestWorkerStealEmpty(t *testing.T) {
 	sched := newTestScheduler(4)
 	// Don't start, just test steal logic
 
-	w := sched.workers[0]
+	w := sched.workerSnapshot()[0]
 	proc := w.steal()
 	if proc != nil {
 		t.Fatal("expected nil from empty steal")
