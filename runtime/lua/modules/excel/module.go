@@ -98,10 +98,8 @@ func (wb *Workbook) Close() {
 // closeCursors closes all row cursors still open on this workbook.
 func (wb *Workbook) closeCursors() {
 	for r := range wb.cursors {
-		if !r.closed {
-			r.closed = true
-			_ = r.rows.Close()
-		}
+		r.closed = true
+		_ = r.release()
 	}
 	wb.cursors = nil
 }

@@ -270,7 +270,8 @@ Reads the next batch of up to n rows.
 - Synchronous, pull-based; does not yield
 - Cell value semantics identical to `get_rows` (numbers, booleans, dates formatted to strings)
 - EOF and errors are terminal: subsequent `read()` calls keep returning the same state
-- A read failure is never reported as EOF
+- Iterator errors reported by the Excel reader are returned as errors, not EOF
+- The underlying iterator is released automatically at EOF or a terminal read error
 - Empty rows are returned as empty tables `{}` (distinct from `nil` EOF)
 - An argument error (batch size < 1) does not poison the cursor
 

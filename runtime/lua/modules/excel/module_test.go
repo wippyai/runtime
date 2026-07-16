@@ -484,18 +484,28 @@ func TestWorkbook_Rows(t *testing.T) {
 		defer l.Close()
 
 		err := l.DoString(`
-			local wb = excel.new()
+			wb = excel.new()
 			wb:new_sheet("Data")
 			wb:set_cell_value("Data", "A1", "only")
 
-			local cur = wb:rows("Data")
+			cur = wb:rows("Data")
 			cur:read(10)
 			for i = 1, 3 do
 				local batch, err = cur:read(10)
 				assert(batch == nil, "EOF batch should stay nil")
 				assert(err == nil, "EOF should stay error-free")
 			end
-			cur:close()
+		`)
+		require.NoError(t, err)
+
+		wb := l.GetGlobal("wb").(*lua.LUserData).Value.(*Workbook)
+		cur := l.GetGlobal("cur").(*lua.LUserData).Value.(*Rows)
+		assert.Empty(t, wb.cursors, "EOF cursor should unregister from workbook")
+		assert.True(t, cur.released, "EOF cursor should release its iterator")
+		assert.False(t, cur.closed, "automatic release should preserve EOF reads")
+
+		err = l.DoString(`
+			assert(cur:close() == nil, "close after EOF should succeed")
 			wb:close()
 		`)
 		assert.NoError(t, err)
@@ -700,6 +710,12 @@ func TestWorkbook_RowsContextCancellation(t *testing.T) {
 	batch, errVal := readCursor()
 	assert.Equal(t, lua.LNil, batch, "read after cancellation should return nil rows")
 	assert.NotEqual(t, lua.LNil, errVal, "read after cancellation should error")
+
+	wb := l.GetGlobal("wb").(*lua.LUserData).Value.(*Workbook)
+	rows := cur.(*lua.LUserData).Value.(*Rows)
+	assert.Empty(t, wb.cursors, "cancelled cursor should unregister from workbook")
+	assert.True(t, rows.released, "cancelled cursor should release its iterator")
+	assert.False(t, rows.closed, "automatic release should preserve terminal error reads")
 
 	// cancellation is terminal
 	batch, errVal = readCursor()

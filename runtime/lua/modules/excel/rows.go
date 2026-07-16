@@ -22,11 +22,12 @@ var rowsMetatable *lua.LTable
 // once the cursor reaches end of sheet or fails, that terminal state is
 // sticky for all subsequent read() calls.
 type Rows struct {
-	rows   *excelize.Rows
-	wb     *Workbook
-	err    error
-	done   bool
-	closed bool
+	rows     *excelize.Rows
+	wb       *Workbook
+	err      error
+	done     bool
+	closed   bool
+	released bool
 }
 
 // Close closes the cursor and unregisters it from its workbook. Idempotent.
@@ -35,6 +36,17 @@ func (r *Rows) Close() error {
 		return nil
 	}
 	r.closed = true
+	return r.release()
+}
+
+// release closes the underlying iterator and unregisters it from its
+// workbook. Unlike Close, it does not make a terminal EOF or error state
+// unreadable, so subsequent reads can keep returning that sticky state.
+func (r *Rows) release() error {
+	if r.released {
+		return nil
+	}
+	r.released = true
 
 	err := r.rows.Close()
 	if r.wb != nil && r.wb.cursors != nil {
@@ -119,15 +131,22 @@ func rowsRead(l *lua.LState) int {
 			select {
 			case <-ctx.Done():
 				r.err = ctx.Err()
+				_ = r.release()
 				return internalError(l, r.err, "read rows")
 			default:
 			}
 		}
 
 		if !r.rows.Next() {
-			if err := r.rows.Error(); err != nil {
-				r.err = err
-				return internalError(l, err, "read rows")
+			readErr := r.rows.Error()
+			closeErr := r.release()
+			if readErr != nil {
+				r.err = readErr
+				return internalError(l, readErr, "read rows")
+			}
+			if closeErr != nil {
+				r.err = closeErr
+				return internalError(l, closeErr, "close rows cursor")
 			}
 			r.done = true
 			break
@@ -136,6 +155,7 @@ func rowsRead(l *lua.LState) int {
 		row, err := r.rows.Columns()
 		if err != nil {
 			r.err = err
+			_ = r.release()
 			return internalError(l, err, "read row")
 		}
 
