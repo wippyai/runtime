@@ -373,9 +373,9 @@ func TestSchedulerShrinkFinishesCurrentStepAndHandsOffContinuation(t *testing.T)
 	gate := &resizeGateProcess{entered: make(chan struct{}), release: make(chan struct{})}
 	var proc *Processor
 	for id, item := range []struct {
-		pid  string
 		gate *resizeGateProcess
-	}{{"shrink-survivor-gate", survivorGate}, {"shrink-gate", gate}} {
+		pid  string
+	}{{survivorGate, "shrink-survivor-gate"}, {gate, "shrink-gate"}} {
 		submitted, err := sched.Submit(context.Background(), pidapi.PID{UniqID: item.pid}, item.gate, "", nil)
 		if err != nil {
 			t.Fatal(err)
