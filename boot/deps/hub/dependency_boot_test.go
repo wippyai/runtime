@@ -157,7 +157,7 @@ func TestDependencyHandler_PersistedResolutionBootRollbackRedoAndLongHistory(t *
 func TestDependencyHandler_ApplyVersionReconciliationSemantics(t *testing.T) {
 	t.Run("removes departing graph without touching deployment owner", func(t *testing.T) {
 		packRegistry := embedpkg.NewRegistry()
-		t.Cleanup(func() { require.NoError(t, packRegistry.Close()) })
+		defer func() { require.NoError(t, packRegistry.Close()) }()
 		ctx := embedapi.WithRegistry(newTestContext(), packRegistry)
 		reg, runner, baselineVersion, hostID := newLegacyArtifactRollbackRegistry(ctx, t)
 
@@ -210,7 +210,7 @@ func TestDependencyHandler_ApplyVersionReconciliationSemantics(t *testing.T) {
 
 	t.Run("restores authored host drift without derived rewrite", func(t *testing.T) {
 		packRegistry := embedpkg.NewRegistry()
-		t.Cleanup(func() { require.NoError(t, packRegistry.Close()) })
+		defer func() { require.NoError(t, packRegistry.Close()) }()
 		ctx := embedapi.WithRegistry(newTestContext(), packRegistry)
 		reg, runner, baselineVersion, hostID := newLegacyArtifactRollbackRegistry(ctx, t)
 
