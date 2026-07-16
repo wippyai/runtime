@@ -4,8 +4,11 @@ package hub
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -95,6 +98,12 @@ func hardeningResolution(roots ...regapi.Entry) *regapi.DependencyResolution {
 }
 
 const hardeningDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+func TestArtifactDigestsEqualNormalizesLegacyLockHashes(t *testing.T) {
+	require.True(t, artifactDigestsEqual(strings.TrimPrefix(hardeningDigest, "sha256:"), hardeningDigest))
+	require.False(t, artifactDigestsEqual("", hardeningDigest))
+	require.False(t, artifactDigestsEqual("sha256:deadbeef", hardeningDigest))
+}
 
 func TestDependencyHandler_ExpandChangesDeletesEarlierRootModulesAndReturnsResolution(t *testing.T) {
 	ctx := newTestContext()
@@ -224,17 +233,17 @@ func TestDependencyHandler_ReconcileRejectsRootSetDriftAndDuplicates(t *testing.
 	rootA := hardeningRoot("app.deps:a", "acme/a", "v1.0.0")
 	rootB := hardeningRoot("app.deps:b", "acme/b", "v1.0.0")
 
-	_, err = handler.ReconcileResolution(ctx, regapi.State{rootA, rootB}, hardeningResolution(rootA))
+	_, err = handler.ReconcileResolution(ctx, regapi.State{rootA, rootB}, regapi.State{rootA, rootB}, hardeningResolution(rootA))
 	require.ErrorContains(t, err, "root set")
 
 	duplicate := hardeningResolution(rootA, rootB)
 	duplicate.Roots[1] = duplicate.Roots[0]
 	duplicate = duplicate.Canonical()
-	_, err = handler.ReconcileResolution(ctx, regapi.State{rootA, rootB}, duplicate)
+	_, err = handler.ReconcileResolution(ctx, regapi.State{rootA, rootB}, regapi.State{rootA, rootB}, duplicate)
 	require.ErrorContains(t, err, "stored dependency resolution is invalid")
 
 	rootBDuplicateComponent := hardeningRoot("app.deps:b", "acme/a", "v1.0.0")
-	_, err = handler.ReconcileResolution(ctx, regapi.State{rootA, rootBDuplicateComponent}, hardeningResolution(rootA, rootBDuplicateComponent))
+	_, err = handler.ReconcileResolution(ctx, regapi.State{rootA, rootBDuplicateComponent}, regapi.State{rootA, rootBDuplicateComponent}, hardeningResolution(rootA, rootBDuplicateComponent))
 	require.ErrorContains(t, err, "stored dependency resolution is invalid")
 }
 
@@ -245,9 +254,94 @@ func TestDependencyHandler_ReconcileAcceptsStoredLabelSelectionOffline(t *testin
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{Hub: &fakeHub{}, Logger: zap.NewNop(), VendorDir: t.TempDir()})
 	require.NoError(t, err)
 	resolution := hardeningResolution(root)
-	result, err := handler.ReconcileResolution(ctx, regapi.State{root, module}, resolution)
+	result, err := handler.ReconcileResolution(ctx, regapi.State{root, module}, regapi.State{root, module}, resolution)
 	require.NoError(t, err)
 	require.Equal(t, resolution.Digest, result.Resolution.Digest)
+}
+
+func TestDependencyHandler_ReconcileReloadsOnlyModuleWithChangedRootParameters(t *testing.T) {
+	ctx := newTestContext()
+	vendorDir := t.TempDir()
+	artifact := buildWappBytes(t, []wapp.Entry{
+		{
+			ID:   wapp.NewID("acme.feature", "scope"),
+			Kind: regapi.NamespaceRequirement,
+			Data: map[string]any{
+				"targets": []any{map[string]any{"entry": "policy", "path": ".groups +="}},
+			},
+		},
+		{
+			ID:   wapp.NewID("acme.feature", "policy"),
+			Kind: "security.policy",
+			Data: map[string]any{"groups": []any{}},
+		},
+	})
+	require.NoError(t, os.MkdirAll(filepath.Join(vendorDir, "acme"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(vendorDir, "acme", "feature-v1.0.0.wapp"), artifact, 0o600))
+	sum := sha256.Sum256(artifact)
+	digest := "sha256:" + hex.EncodeToString(sum[:])
+
+	root := func(value string) regapi.Entry {
+		return regapi.Entry{
+			ID:             regapi.NewID("app.deps", "feature"),
+			Kind:           regapi.NamespaceDependency,
+			DependencyRoot: true,
+			Data: payload.New(map[string]any{
+				"component": "acme/feature",
+				"version":   "v1.0.0",
+				"parameters": []any{
+					map[string]any{"name": "scope", "value": value},
+				},
+			}),
+		}
+	}
+	moduleMeta := attrs.NewBagFrom(map[string]any{
+		metaModuleKey:        "acme/feature",
+		metaModuleVersionKey: "v1.0.0",
+		metaModuleDigestKey:  digest,
+	})
+	requirement := regapi.Entry{
+		ID:   regapi.NewID("acme.feature", "scope"),
+		Kind: regapi.NamespaceRequirement,
+		Meta: moduleMeta,
+		Data: payload.New(map[string]any{
+			"targets": []any{map[string]any{"entry": "policy", "path": ".groups +="}},
+		}),
+	}
+	policy := regapi.Entry{
+		ID:   regapi.NewID("acme.feature", "policy"),
+		Kind: "security.policy",
+		Meta: moduleMeta,
+		Data: payload.New(map[string]any{"groups": []any{"scope:old"}}),
+	}
+	beforeRoot, targetRoot := root("scope:old"), root("scope:new")
+	current := regapi.State{beforeRoot, requirement, policy}
+	target := regapi.State{targetRoot, requirement, policy}
+	resolution := hardeningResolution(targetRoot)
+	resolution.Modules[0].Digest = digest
+	resolution.Modules[0].SizeBytes = uint64(len(artifact))
+	resolution = resolution.Canonical()
+
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub:       &fakeHub{},
+		Logger:    zap.NewNop(),
+		VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+	result, err := handler.ReconcileResolution(ctx, current, target, resolution)
+	require.NoError(t, err)
+
+	var updated *regapi.Entry
+	for _, scoped := range result.Additional {
+		if scoped.Operation.Kind == regapi.EntryUpdate && scoped.Operation.Entry.ID == policy.ID {
+			entry := scoped.Operation.Entry
+			updated = &entry
+		}
+	}
+	require.NotNil(t, updated, "changed root parameter must update its linked target")
+	data, ok := updated.Data.Data().(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, []any{"scope:new"}, data["groups"], "reconciliation must link from raw artifact without duplicating append values")
 }
 
 func TestDependencyHandler_ReconcileRejectsUnsafeStoredArtifactIdentity(t *testing.T) {
@@ -256,14 +350,14 @@ func TestDependencyHandler_ReconcileRejectsUnsafeStoredArtifactIdentity(t *testi
 	resolution := hardeningResolution(root)
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{Hub: &fakeHub{}, Logger: zap.NewNop(), VendorDir: t.TempDir()})
 	require.NoError(t, err)
-	_, err = handler.ReconcileResolution(ctx, regapi.State{root}, resolution)
+	_, err = handler.ReconcileResolution(ctx, regapi.State{root}, regapi.State{root}, resolution)
 	require.ErrorContains(t, err, "invalid module name")
 
 	safeRoot := hardeningRoot("app.deps:safe", "acme/safe", "v1.0.0")
 	badDigest := hardeningResolution(safeRoot)
 	badDigest.Modules[0].Digest = "sha256:deadbeef"
 	badDigest = badDigest.Canonical()
-	_, err = handler.ReconcileResolution(ctx, regapi.State{safeRoot}, badDigest)
+	_, err = handler.ReconcileResolution(ctx, regapi.State{safeRoot}, regapi.State{safeRoot}, badDigest)
 	require.ErrorContains(t, err, "invalid sha256 digest")
 
 	require.Error(t, validateModuleArtifactIdentity(graph.Name{Organization: "acme", Module: "safe"}, "1.0.0/../../escape", ""))

@@ -451,7 +451,8 @@ func rootExpansionDriver(op regapi.Operation, snapshot regapi.State) (regapi.Ope
 // history is first reduced to its final declarative state, then reconciled once.
 func (h *DependencyHandler) ReconcileResolution(
 	ctx context.Context,
-	snapshot regapi.State,
+	current regapi.State,
+	target regapi.State,
 	resolution *regapi.DependencyResolution,
 ) (regapi.DirectiveResult, error) {
 	if h == nil || h.hub == nil {
@@ -465,7 +466,7 @@ func (h *DependencyHandler) ReconcileResolution(
 		return regapi.DirectiveResult{}, ErrDependencyTranscoderMissing
 	}
 
-	desiredDeps, err := h.collectResolutionDependencies(ctx, snapshot, transcoder, resolution.Roots)
+	desiredDeps, err := h.collectResolutionDependencies(ctx, target, transcoder, resolution.Roots)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -515,16 +516,41 @@ func (h *DependencyHandler) ReconcileResolution(
 	// A stored graph is authoritative by content identity, not merely version.
 	// Reload modules whose entries do not carry the exact stored digest. Entries
 	// written before module_digest existed are deliberately reloaded once.
-	installedDigests := snapshotModuleDigests(snapshot)
+	installedDigests := snapshotModuleDigests(target)
+	lockedDigests := h.lockedModuleDigests()
 	touched := make(map[string]struct{}, len(desiredModules))
+	mutable := make(map[string]struct{}, len(desiredModules))
+	parameterModules, err := changedDependencyParameterModules(ctx, current, target, transcoder)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	for module := range parameterModules {
+		if _, desired := desiredModules[module]; !desired {
+			continue
+		}
+		// Parameter changes must be linked from the raw artifact. Re-linking the
+		// resident entry would apply append targets ("+=") a second time.
+		mutable[module] = struct{}{}
+		touched[module] = struct{}{}
+	}
 	for _, mod := range resolved {
 		module := mod.Org + "/" + mod.Name
-		if installedDigests[module] != mod.Digest || !h.hasCurrentUnpackedModule(mod) {
+		installedDigest := installedDigests[module]
+		if installedDigest == "" {
+			// Legacy entries predate module_digest. The exact name@version lock
+			// hash is still authoritative and prevents a history restore from
+			// rewriting every resident module merely to backfill metadata.
+			installedDigest = lockedDigests[module+"@"+mod.Version]
+		}
+		if !artifactDigestsEqual(installedDigest, mod.Digest) {
+			mutable[module] = struct{}{}
+			touched[module] = struct{}{}
+		} else if !h.hasCurrentUnpackedModule(mod) {
 			touched[module] = struct{}{}
 		}
 	}
-	controlled := make(map[string]struct{}, len(snapshot)+len(desiredModules))
-	for _, entry := range snapshot {
+	controlled := make(map[string]struct{}, len(target)+len(desiredModules))
+	for _, entry := range target {
 		if module := entryModule(entry); module != "" {
 			controlled[module] = struct{}{}
 		}
@@ -533,7 +559,7 @@ func (h *DependencyHandler) ReconcileResolution(
 		controlled[module] = struct{}{}
 	}
 
-	moduleEntries, unpackPlan, err := h.loadModuleEntries(ctx, filterResolvedModules(resolved, touched), resolved, snapshot, transcoder)
+	moduleEntries, unpackPlan, err := h.loadModuleEntries(ctx, filterResolvedModules(resolved, touched), resolved, target, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -542,8 +568,8 @@ func (h *DependencyHandler) ReconcileResolution(
 	for _, dep := range desiredDeps {
 		desiredDepEntries = append(desiredDepEntries, dep.entry)
 	}
-	combined := make([]regapi.Entry, 0, len(snapshot)+len(moduleEntries))
-	for _, entry := range snapshot {
+	combined := make([]regapi.Entry, 0, len(target)+len(moduleEntries))
+	for _, entry := range target {
 		if module := entryModule(entry); module != "" {
 			if _, desired := desiredModules[module]; !desired {
 				continue
@@ -566,7 +592,13 @@ func (h *DependencyHandler) ReconcileResolution(
 		return regapi.DirectiveResult{}, NewDependencyPipelineError(err)
 	}
 
-	additional, err := h.buildOperations(snapshot, combined, regapi.ID{}, controlled, controlled)
+	// Reconciliation owns the whole graph for deletes, but only artifacts whose
+	// content identity or authored root parameters changed are mutable. A module
+	// can be reloaded solely to repair its unpacked filesystem cache; relinking
+	// that artifact must not turn harmless normalization into registry updates
+	// and restart unrelated services during undo/redo (including the governance
+	// worker itself).
+	additional, err := h.buildOperations(target, combined, regapi.ID{}, controlled, mutable)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -574,7 +606,7 @@ func (h *DependencyHandler) ReconcileResolution(
 	for _, op := range additional {
 		scoped = append(scoped, regapi.ScopedOperation{Operation: op, Scope: regapi.ScopeBaseline})
 	}
-	packEffect, err := h.buildEmbedPackEffect(ctx, resolved, snapshot, controlled)
+	packEffect, err := h.buildEmbedPackEffect(ctx, resolved, target, controlled)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -595,6 +627,87 @@ func (h *DependencyHandler) ReconcileResolution(
 		Additional: scoped,
 		Effects:    effects,
 	}, nil
+}
+
+// changedDependencyParameterModules returns the modules whose authored root
+// parameters differ across a history transition. A root parameter normally
+// configures its own component. Fully-qualified requirement IDs may address a
+// requirement in another module, so those owners are included as well.
+func changedDependencyParameterModules(
+	ctx context.Context,
+	current regapi.State,
+	target regapi.State,
+	transcoder payload.Transcoder,
+) (map[string]struct{}, error) {
+	type declaration struct {
+		definition DependencyDefinition
+		present    bool
+	}
+
+	decodeRoots := func(state regapi.State) (map[string]declaration, error) {
+		roots := make(map[string]declaration)
+		for _, entry := range state {
+			if !isRootDependency(entry) {
+				continue
+			}
+			definition, err := decodeDependency(ctx, transcoder, entry)
+			if err != nil {
+				return nil, err
+			}
+			roots[idKey(entry.ID)] = declaration{definition: definition, present: true}
+		}
+		return roots, nil
+	}
+
+	currentRoots, err := decodeRoots(current)
+	if err != nil {
+		return nil, err
+	}
+	targetRoots, err := decodeRoots(target)
+	if err != nil {
+		return nil, err
+	}
+
+	changed := make(map[string]struct{})
+	rootIDs := make(map[string]struct{}, len(currentRoots)+len(targetRoots))
+	for id := range currentRoots {
+		rootIDs[id] = struct{}{}
+	}
+	for id := range targetRoots {
+		rootIDs[id] = struct{}{}
+	}
+	for id := range rootIDs {
+		before := currentRoots[id]
+		after := targetRoots[id]
+		if before.present == after.present && reflect.DeepEqual(before.definition.Parameters, after.definition.Parameters) {
+			continue
+		}
+		for _, item := range []declaration{before, after} {
+			if !item.present {
+				continue
+			}
+			if item.definition.Component != "" {
+				changed[item.definition.Component] = struct{}{}
+			}
+			for _, parameter := range item.definition.Parameters {
+				if !strings.Contains(parameter.Name, ":") {
+					continue
+				}
+				requirementID := regapi.ParseID(parameter.Name)
+				for _, state := range []regapi.State{current, target} {
+					for _, entry := range state {
+						if entry.ID != requirementID || entry.Kind != regapi.NamespaceRequirement {
+							continue
+						}
+						if module := entryModule(entry); module != "" {
+							changed[module] = struct{}{}
+						}
+					}
+				}
+			}
+		}
+	}
+	return changed, nil
 }
 
 // storedVersionSatisfies validates selectors that can be checked without the
@@ -2165,6 +2278,13 @@ func parseExpectedDigest(raw string) (algorithm string, value string, err error)
 		return "", "", fmt.Errorf("invalid digest format %q", raw)
 	}
 	return algorithm, value, nil
+}
+
+func artifactDigestsEqual(left, right string) bool {
+	leftAlgorithm, leftValue, leftErr := parseExpectedDigest(left)
+	rightAlgorithm, rightValue, rightErr := parseExpectedDigest(right)
+	return leftErr == nil && rightErr == nil &&
+		leftAlgorithm == rightAlgorithm && strings.EqualFold(leftValue, rightValue)
 }
 
 func sha256FileHex(path string) (string, error) {

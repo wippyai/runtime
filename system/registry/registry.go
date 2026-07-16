@@ -389,12 +389,10 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 		applyStateOperations(stateMap, changeset)
 		reconciled := false
 		for _, directive := range r.directivesByKind[registry.NamespaceDependency] {
-			reconciler, ok := directive.(registry.ResolutionDirective)
+			result, ok, reconcileErr := reconcileStoredResolution(ctx, directive, snapshot, topology.StateMapToSlice(stateMap), targetResolution)
 			if !ok {
 				continue
 			}
-			intermediate := topology.StateMapToSlice(stateMap)
-			result, reconcileErr := reconciler.ReconcileResolution(ctx, intermediate, targetResolution)
 			if reconcileErr != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 				return NewExpandChangesError(reconcileErr)
@@ -815,12 +813,11 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 		}
 		reconciled := false
 		for _, directive := range r.directivesByKind[registry.NamespaceDependency] {
-			reconciler, ok := directive.(registry.ResolutionDirective)
+			snapshot := topology.StateMapToSlice(stateMap)
+			result, ok, err := reconcileStoredResolution(ctx, directive, baseline, snapshot, resolution)
 			if !ok {
 				continue
 			}
-			snapshot := topology.StateMapToSlice(stateMap)
-			result, err := reconciler.ReconcileResolution(ctx, snapshot, resolution)
 			if err != nil {
 				planner.RollbackEffects(ctx, preparedEff)
 				return NewExpandChangesError(err)
@@ -959,6 +956,24 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 	r.versionNum.Store(uint64(allocatorVersion))
 
 	return nil
+}
+
+func reconcileStoredResolution(
+	ctx context.Context,
+	directive registry.Directive,
+	current registry.State,
+	target registry.State,
+	resolution *registry.DependencyResolution,
+) (registry.DirectiveResult, bool, error) {
+	if reconciler, ok := directive.(registry.ResolutionTransitionDirective); ok {
+		result, err := reconciler.ReconcileResolutionTransition(ctx, current, target, resolution)
+		return result, true, err
+	}
+	if reconciler, ok := directive.(registry.ResolutionDirective); ok {
+		result, err := reconciler.ReconcileResolution(ctx, target, resolution)
+		return result, true, err
+	}
+	return registry.DirectiveResult{}, false, nil
 }
 
 func applyStateOperations(stateMap registry.StateMap, ops registry.ChangeSet) {

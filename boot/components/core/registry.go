@@ -124,7 +124,7 @@ func Registry() boot.Component {
 				logger.Warn("dependency handler disabled", zap.Error(err))
 			} else if depHandler != nil {
 				registryOpts = append(registryOpts,
-					registry.WithKindDirective(regapi.NamespaceDependency, regexp.NewDependencyDirective(depHandler.Expand, depHandler.ReconcileResolution).WithChangesExpansion(depHandler.ExpandChanges)),
+					registry.WithKindDirective(regapi.NamespaceDependency, regexp.NewDependencyDirective(depHandler.Expand).WithResolutionTransition(depHandler.ReconcileResolution).WithChangesExpansion(depHandler.ExpandChanges)),
 				)
 			}
 

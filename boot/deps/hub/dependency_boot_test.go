@@ -75,7 +75,7 @@ func TestDependencyHandler_PersistedResolutionBootRollbackRedoAndLongHistory(t *
 		handler.resolver = resolver
 		return registryimpl.NewRegistry(
 			hist, &bootRecordingRunner{}, topology.NewStateBuilder(zap.NewNop(), resolver), resolver, zap.NewNop(),
-			registryimpl.WithKindDirective(regapi.NamespaceDependency, regexp.NewDependencyDirective(handler.Expand, handler.ReconcileResolution)),
+			registryimpl.WithKindDirective(regapi.NamespaceDependency, regexp.NewDependencyDirective(handler.Expand).WithResolutionTransition(handler.ReconcileResolution)),
 		)
 	}
 

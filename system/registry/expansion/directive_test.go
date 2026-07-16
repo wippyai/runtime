@@ -53,6 +53,36 @@ func TestDependencyDirective_Expand_CancelledContext(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
+func TestDependencyDirective_ReconcileResolutionCompatibility(t *testing.T) {
+	called := false
+	d := NewDependencyDirective(nil, func(_ context.Context, snapshot registry.State, _ *registry.DependencyResolution) (registry.DirectiveResult, error) {
+		called = true
+		require.Len(t, snapshot, 1)
+		return registry.DirectiveResult{Applied: true}, nil
+	})
+
+	result, err := d.ReconcileResolution(context.Background(), registry.State{{Kind: "service"}}, nil)
+	require.NoError(t, err)
+	require.True(t, called)
+	require.True(t, result.Applied)
+}
+
+func TestDependencyDirective_ReconcileResolutionTransitionKeepsSourceAndTarget(t *testing.T) {
+	current := registry.State{{ID: registry.NewID("app", "before"), Kind: "service"}}
+	target := registry.State{{ID: registry.NewID("app", "after"), Kind: "service"}}
+	d := NewDependencyDirective(nil).WithResolutionTransition(
+		func(_ context.Context, gotCurrent registry.State, gotTarget registry.State, _ *registry.DependencyResolution) (registry.DirectiveResult, error) {
+			require.Equal(t, current, gotCurrent)
+			require.Equal(t, target, gotTarget)
+			return registry.DirectiveResult{Applied: true}, nil
+		},
+	)
+
+	result, err := d.ReconcileResolutionTransition(context.Background(), current, target, nil)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+}
+
 // --- Error constructors ---
 
 func TestNewDirectiveResultInvalidError(t *testing.T) {

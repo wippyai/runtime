@@ -444,6 +444,34 @@ func TestBuildOperations_UpdatedEntries(t *testing.T) {
 	assert.Equal(t, regapi.EntryUpdate, ops[0].Kind)
 }
 
+func TestBuildOperations_ReconcileSkipsUntouchedImmutableModuleUpdates(t *testing.T) {
+	moduleMeta := attrs.NewBagFrom(map[string]any{
+		metaModuleKey:        "acme/http",
+		metaModuleVersionKey: "v1.0.0",
+	})
+	current := regapi.State{{
+		ID:   regapi.NewID("app", "svc"),
+		Kind: "service",
+		Meta: moduleMeta,
+		Data: payload.New("resident"),
+	}}
+	desired := []regapi.Entry{{
+		ID:   regapi.NewID("app", "svc"),
+		Kind: "service",
+		Meta: moduleMeta,
+		Data: payload.New("normalized"),
+	}}
+
+	ops, err := buildOperations(current, desired, regapi.ID{}, map[string]struct{}{"acme/http": {}}, map[string]struct{}{})
+	require.NoError(t, err)
+	require.Empty(t, ops, "an unchanged immutable artifact must not be rewritten during history reconciliation")
+
+	ops, err = buildOperations(current, desired, regapi.ID{}, map[string]struct{}{"acme/http": {}}, map[string]struct{}{"acme/http": {}})
+	require.NoError(t, err)
+	require.Len(t, ops, 1, "an explicitly mutable artifact must still update")
+	assert.Equal(t, regapi.EntryUpdate, ops[0].Kind)
+}
+
 func TestBuildOperations_KindChangeUsesDeleteCreate(t *testing.T) {
 	id := regapi.NewID("ui", "assets")
 	current := regapi.State{{

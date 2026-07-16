@@ -117,7 +117,7 @@ func (e *hardeningEffect) Rollback(context.Context) error {
 
 type hardeningDirective struct {
 	expand    func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error)
-	reconcile func(context.Context, regapi.State, *regapi.DependencyResolution) (regapi.DirectiveResult, error)
+	reconcile func(context.Context, regapi.State, regapi.State, *regapi.DependencyResolution) (regapi.DirectiveResult, error)
 }
 
 func (d hardeningDirective) Expand(ctx context.Context, op regapi.Operation, state regapi.State) (regapi.DirectiveResult, error) {
@@ -131,7 +131,14 @@ func (d hardeningDirective) ReconcileResolution(ctx context.Context, state regap
 	if d.reconcile == nil {
 		return regapi.DirectiveResult{}, nil
 	}
-	return d.reconcile(ctx, state, resolution)
+	return d.reconcile(ctx, state, state, resolution)
+}
+
+func (d hardeningDirective) ReconcileResolutionTransition(ctx context.Context, current regapi.State, target regapi.State, resolution *regapi.DependencyResolution) (regapi.DirectiveResult, error) {
+	if d.reconcile == nil {
+		return regapi.DirectiveResult{}, nil
+	}
+	return d.reconcile(ctx, current, target, resolution)
 }
 
 func hardeningResolution() *regapi.DependencyResolution {
@@ -371,10 +378,10 @@ func TestApplyVersion_ReconcilerErrorRollsBackPreviouslyPreparedEffects(t *testi
 	history := memory.New()
 	require.NoError(t, history.SaveWithDependencyResolution(v1, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: dep}}, hardeningResolution(), false))
 	effect := &hardeningEffect{}
-	first := hardeningDirective{reconcile: func(context.Context, regapi.State, *regapi.DependencyResolution) (regapi.DirectiveResult, error) {
+	first := hardeningDirective{reconcile: func(context.Context, regapi.State, regapi.State, *regapi.DependencyResolution) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{Applied: true, Effects: []regapi.Effect{effect}}, nil
 	}}
-	second := hardeningDirective{reconcile: func(context.Context, regapi.State, *regapi.DependencyResolution) (regapi.DirectiveResult, error) {
+	second := hardeningDirective{reconcile: func(context.Context, regapi.State, regapi.State, *regapi.DependencyResolution) (regapi.DirectiveResult, error) {
 		return regapi.DirectiveResult{}, errors.New("injected reconcile failure")
 	}}
 	reg := NewRegistry(history, &hardeningRunner{}, topology.NewStateBuilder(zap.NewNop(), nil), nil, zap.NewNop(),

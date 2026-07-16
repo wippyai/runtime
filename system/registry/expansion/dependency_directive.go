@@ -13,12 +13,14 @@ import (
 type DependencyDirectiveFunc func(ctx context.Context, op registry.Operation, snapshot registry.State) (registry.DirectiveResult, error)
 type DependencyChangesDirectiveFunc func(ctx context.Context, changes registry.ChangeSet, snapshot registry.State) (registry.DirectiveResult, error)
 type ResolutionDirectiveFunc func(ctx context.Context, snapshot registry.State, resolution *registry.DependencyResolution) (registry.DirectiveResult, error)
+type ResolutionTransitionDirectiveFunc func(ctx context.Context, current registry.State, target registry.State, resolution *registry.DependencyResolution) (registry.DirectiveResult, error)
 
 // DependencyDirective expands dependency operations using a direct handler.
 type DependencyDirective struct {
-	ExpandFunc    DependencyDirectiveFunc
-	ChangesFunc   DependencyChangesDirectiveFunc
-	ReconcileFunc ResolutionDirectiveFunc
+	ExpandFunc              DependencyDirectiveFunc
+	ChangesFunc             DependencyChangesDirectiveFunc
+	ReconcileFunc           ResolutionDirectiveFunc
+	ReconcileTransitionFunc ResolutionTransitionDirectiveFunc
 }
 
 // NewDependencyDirective constructs a dependency directive backed by the given handler.
@@ -39,6 +41,15 @@ func (d *DependencyDirective) WithChangesExpansion(expand DependencyChangesDirec
 	return d
 }
 
+// WithResolutionTransition configures exact graph reconciliation with both the
+// live source and declarative target state.
+func (d *DependencyDirective) WithResolutionTransition(reconcile ResolutionTransitionDirectiveFunc) *DependencyDirective {
+	if d != nil {
+		d.ReconcileTransitionFunc = reconcile
+	}
+	return d
+}
+
 func (d *DependencyDirective) ExpandChanges(ctx context.Context, changes registry.ChangeSet, snapshot registry.State) (registry.DirectiveResult, error) {
 	if d == nil || d.ChangesFunc == nil {
 		return registry.DirectiveResult{}, nil
@@ -47,10 +58,23 @@ func (d *DependencyDirective) ExpandChanges(ctx context.Context, changes registr
 }
 
 func (d *DependencyDirective) ReconcileResolution(ctx context.Context, snapshot registry.State, resolution *registry.DependencyResolution) (registry.DirectiveResult, error) {
-	if d == nil || d.ReconcileFunc == nil {
+	if d == nil {
 		return registry.DirectiveResult{}, nil
 	}
-	return d.ReconcileFunc(ctx, snapshot, resolution)
+	if d.ReconcileFunc != nil {
+		return d.ReconcileFunc(ctx, snapshot, resolution)
+	}
+	if d.ReconcileTransitionFunc != nil {
+		return d.ReconcileTransitionFunc(ctx, snapshot, snapshot, resolution)
+	}
+	return registry.DirectiveResult{}, nil
+}
+
+func (d *DependencyDirective) ReconcileResolutionTransition(ctx context.Context, current registry.State, target registry.State, resolution *registry.DependencyResolution) (registry.DirectiveResult, error) {
+	if d == nil || d.ReconcileTransitionFunc == nil {
+		return registry.DirectiveResult{}, nil
+	}
+	return d.ReconcileTransitionFunc(ctx, current, target, resolution)
 }
 
 // Expand implements registry.Directive.
