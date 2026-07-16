@@ -36,6 +36,15 @@ type ResolutionDirective interface {
 	ReconcileResolution(context.Context, State, *DependencyResolution) (DirectiveResult, error)
 }
 
+// ResolutionTransitionDirective is the transition-aware form of
+// ResolutionDirective. Current is the live state before the transition and
+// target is the declarative target reconstructed from history. The registry
+// prefers this interface when implemented and falls back to
+// ResolutionDirective for compatibility.
+type ResolutionTransitionDirective interface {
+	ReconcileResolutionTransition(context.Context, State, State, *DependencyResolution) (DirectiveResult, error)
+}
+
 // ChangesDirective expands all same-kind operations in one resolution pass.
 // It prevents a multi-root transaction from staging intermediate graphs.
 type ChangesDirective interface {
