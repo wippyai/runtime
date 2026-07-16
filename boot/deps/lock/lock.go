@@ -422,6 +422,7 @@ func (l *Lock) GetModuleLoadPaths() []ModuleLoadPath {
 	if l.data.Directories.Src != "" {
 		paths = append(paths, ModuleLoadPath{
 			Path: ResolveLockPath(lockDir, l.data.Directories.Src),
+			Root: true,
 		})
 	}
 

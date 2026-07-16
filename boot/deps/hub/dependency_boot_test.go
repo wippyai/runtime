@@ -14,9 +14,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	embedapi "github.com/wippyai/runtime/api/service/fs/embed"
 	"github.com/wippyai/runtime/internal/version"
+	embedpkg "github.com/wippyai/runtime/service/fs/embed"
 	registryimpl "github.com/wippyai/runtime/system/registry"
 	regexp "github.com/wippyai/runtime/system/registry/expansion"
 	historymem "github.com/wippyai/runtime/system/registry/history/memory"
@@ -149,6 +152,224 @@ func TestDependencyHandler_PersistedResolutionBootRollbackRedoAndLongHistory(t *
 	require.NoError(t, err)
 	require.Equal(t, "v2.0.0", moduleVersion(entry))
 	require.Zero(t, manifestCalls)
+}
+
+func TestDependencyHandler_ApplyVersionReconciliationSemantics(t *testing.T) {
+	t.Run("removes departing graph without touching deployment owner", func(t *testing.T) {
+		packRegistry := embedpkg.NewRegistry()
+		defer func() { require.NoError(t, packRegistry.Close()) }()
+		ctx := embedapi.WithRegistry(newTestContext(), packRegistry)
+		reg, runner, baselineVersion, hostID := newLegacyArtifactRollbackRegistry(ctx, t)
+
+		addonRoot := regapi.Entry{
+			ID:             regapi.NewID("app.deps", "addon"),
+			Kind:           regapi.NamespaceDependency,
+			DependencyRoot: true,
+			Meta: attrs.NewBagFrom(map[string]any{
+				metaModuleKey: "acme/deployment", metaModuleVersionKey: "v1.0.0",
+			}),
+			Data: payload.New(map[string]any{"component": "acme/addon", "version": "v1.0.0"}),
+		}
+		_, err := reg.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: addonRoot}})
+		require.NoError(t, err)
+		_, err = reg.GetEntry(regapi.NewID("acme.addon", "service"))
+		require.NoError(t, err, "fixture must install the departing module before rollback")
+		require.True(t, packRegistry.HasModulePack("acme/addon", "v1.0.0"))
+		runner.transitions = nil
+
+		require.NoError(t, reg.ApplyVersion(ctx, baselineVersion))
+		var rollbackOps []regapi.Operation
+		for _, transition := range runner.transitions {
+			rollbackOps = append(rollbackOps, transition...)
+		}
+		require.Len(t, rollbackOps, 2, "rollback must remove only the departing root and module entry")
+		deleted := make(map[regapi.ID]struct{}, len(rollbackOps))
+		for _, op := range rollbackOps {
+			require.Equal(t, regapi.EntryDelete, op.Kind)
+			deleted[op.Entry.ID] = struct{}{}
+			require.NotEqual(t, hostID, op.Entry.ID)
+		}
+		require.Contains(t, deleted, addonRoot.ID)
+		require.Contains(t, deleted, regapi.NewID("acme.addon", "service"))
+		_, err = reg.GetEntry(regapi.NewID("app.security", "admin_all_access"))
+		require.NoError(t, err, "rollback must preserve entries owned by the deployment package")
+		_, err = reg.GetEntry(regapi.NewID("app.deps", "app"))
+		require.NoError(t, err, "an owned deployment root must remain present after rollback")
+		_, err = reg.GetEntry(addonRoot.ID)
+		require.Error(t, err)
+		_, err = reg.GetEntry(regapi.NewID("acme.addon", "service"))
+		require.Error(t, err)
+		require.False(t, packRegistry.HasModulePack("acme/addon", "v1.0.0"), "rollback must unregister the departing embedded pack")
+
+		_, err = reg.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryCreate, Entry: addonRoot}})
+		require.NoError(t, err, "a follow-up install must succeed after rollback")
+		_, err = reg.GetEntry(regapi.NewID("acme.addon", "service"))
+		require.NoError(t, err)
+		require.True(t, packRegistry.HasModulePack("acme/addon", "v1.0.0"))
+	})
+
+	t.Run("restores authored host drift without derived rewrite", func(t *testing.T) {
+		packRegistry := embedpkg.NewRegistry()
+		defer func() { require.NoError(t, packRegistry.Close()) }()
+		ctx := embedapi.WithRegistry(newTestContext(), packRegistry)
+		reg, runner, baselineVersion, hostID := newLegacyArtifactRollbackRegistry(ctx, t)
+
+		current, err := reg.GetEntry(hostID)
+		require.NoError(t, err)
+		changed := current
+		changed.Data = payload.New(map[string]any{
+			"host":      map[string]any{"max_processes": 500, "workers": 16},
+			"lifecycle": map[string]any{"auto_start": true},
+		})
+		_, err = reg.Apply(ctx, regapi.ChangeSet{{Kind: regapi.EntryUpdate, Entry: changed}})
+		require.NoError(t, err)
+		runner.transitions = nil
+
+		require.NoError(t, reg.ApplyVersion(ctx, baselineVersion))
+		var hostOps []regapi.Operation
+		for _, transition := range runner.transitions {
+			for _, op := range transition {
+				if op.Entry.ID == hostID {
+					hostOps = append(hostOps, op)
+				}
+			}
+		}
+		require.Len(t, hostOps, 1)
+		require.Equal(t, regapi.EntryUpdate, hostOps[0].Kind)
+		hostData, ok := hostOps[0].Entry.Data.Data().(map[string]any)
+		require.True(t, ok)
+		hostConfig, ok := hostData["host"].(map[string]any)
+		require.True(t, ok)
+		require.EqualValues(t, 8, hostConfig["workers"])
+	})
+}
+
+func newLegacyArtifactRollbackRegistry(
+	ctx context.Context,
+	t *testing.T,
+) (*registryimpl.Reg, *bootRecordingRunner, regapi.Version, regapi.ID) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	vendorDir := filepath.Join(tmpDir, "vendor")
+	lockPath := filepath.Join(tmpDir, "wippy.lock")
+	hostID := regapi.NewID("keeper.gov", "processes")
+	hostData := map[string]any{
+		"host":      map[string]any{"max_processes": 500, "workers": 8},
+		"lifecycle": map[string]any{"auto_start": true},
+	}
+	artifacts := map[string][]byte{
+		"app": buildWappBytes(t, []wapp.Entry{{
+			ID: wapp.NewID("acme.app", "marker"), Kind: regapi.EntryKind,
+			Data: map[string]any{"enabled": true},
+		}}),
+		"runtime": buildWappBytes(t, []wapp.Entry{{
+			ID: wapp.NewID(hostID.NS, hostID.Name), Kind: "process.host", Data: hostData,
+		}}),
+		"addon": buildWappBytes(t, []wapp.Entry{{
+			ID: wapp.NewID("acme.addon", "service"), Kind: regapi.EntryKind,
+			Data: map[string]any{"enabled": true},
+		}}),
+	}
+	digests := make(map[string]string, len(artifacts))
+	for module, artifact := range artifacts {
+		sum := sha256.Sum256(artifact)
+		digests[module] = "sha256:" + hex.EncodeToString(sum[:])
+	}
+	require.NoError(t, os.WriteFile(lockPath, []byte(fmt.Sprintf(`directories:
+  modules: vendor
+modules:
+  - name: acme/app
+    version: v1.0.0
+    hash: %s
+  - name: acme/runtime
+    version: v1.0.0
+    hash: %s
+`, digests["app"], digests["runtime"])), 0o600))
+
+	fixturePath := filepath.Join(tmpDir, "runtime-fixture.wapp")
+	require.NoError(t, os.WriteFile(fixturePath, artifacts["runtime"], 0o600))
+	loadedRuntime, err := loadEntriesFromWapp(fixturePath)
+	require.NoError(t, err)
+	require.Len(t, loadedRuntime, 1)
+	legacyHost := loadedRuntime[0]
+	legacyHost.Meta = attrs.NewBagFrom(map[string]any{
+		metaModuleKey: "acme/runtime", metaModuleVersionKey: "v1.0.0",
+	})
+
+	hubClient := &fakeHub{
+		getManifest: func(_ context.Context, org, module, _ string) (*ModuleManifest, error) {
+			artifact, ok := artifacts[module]
+			if !ok {
+				return nil, fmt.Errorf("unexpected module %s/%s", org, module)
+			}
+			manifest := &ModuleManifest{
+				Org: org, Name: module, Version: "v1.0.0", VersionID: "v1.0.0",
+				Digest: digests[module], SizeBytes: uint64(len(artifact)), URL: "memory://" + module,
+			}
+			if module == "app" {
+				manifest.Dependencies = []ManifestDep{{Org: "acme", Name: "runtime", Version: "v1.0.0"}}
+			}
+			return manifest, nil
+		},
+		downloadFile: func(_ context.Context, url, dest string) error {
+			module := strings.TrimPrefix(url, "memory://")
+			artifact, ok := artifacts[module]
+			if !ok {
+				return fmt.Errorf("unexpected artifact %q", url)
+			}
+			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+				return err
+			}
+			return os.WriteFile(dest, artifact, 0o600)
+		},
+	}
+	resolver := topology.NewResolver()
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: hubClient, Logger: zap.NewNop(), Resolver: resolver,
+		LockPath: lockPath, VendorDir: vendorDir,
+	})
+	require.NoError(t, err)
+	runner := &bootRecordingRunner{}
+	reg := registryimpl.NewRegistry(
+		historymem.New(), runner, topology.NewStateBuilder(zap.NewNop(), resolver), resolver, zap.NewNop(),
+		registryimpl.WithKindDirective(
+			regapi.NamespaceDependency,
+			regexp.NewDependencyDirective(handler.Expand).WithResolutionTransition(handler.ReconcileResolution),
+		),
+	)
+	root := regapi.Entry{
+		ID: regapi.NewID("app.deps", "app"), Kind: regapi.NamespaceDependency,
+		DependencyRoot: true,
+		Meta: attrs.NewBagFrom(map[string]any{
+			metaModuleKey: "acme/deployment", metaModuleVersionKey: "v1.0.0",
+		}),
+		Data: payload.New(map[string]any{"component": "acme/app", "version": "v1.0.0"}),
+	}
+	baseline := regapi.State{
+		root,
+		{
+			ID: regapi.NewID("app.security", "admin_all_access"), Kind: "security.policy",
+			Meta: attrs.NewBagFrom(map[string]any{
+				metaModuleKey: "acme/deployment", metaModuleVersionKey: "v1.0.0",
+			}),
+			Data: payload.New(map[string]any{"allow": true}),
+		},
+		{
+			ID: regapi.NewID("acme.app", "marker"), Kind: regapi.EntryKind,
+			Meta: attrs.NewBagFrom(map[string]any{
+				metaModuleKey: "acme/app", metaModuleVersionKey: "v1.0.0",
+			}),
+			Data: payload.New(map[string]any{"enabled": true}),
+		},
+		legacyHost,
+	}
+	baselineVersion := version.FromParent(nil, 0)
+	require.NoError(t, reg.LoadState(ctx, baseline, baselineVersion))
+	persistedHost, err := reg.GetEntry(hostID)
+	require.NoError(t, err)
+	require.Empty(t, moduleDigest(persistedHost), "fixture requires a legacy host without module_digest")
+	runner.transitions = nil
+	return reg, runner, baselineVersion, hostID
 }
 
 type bootDirectiveFunc func(context.Context, regapi.Operation, regapi.State) (regapi.DirectiveResult, error)

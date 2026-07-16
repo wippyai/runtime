@@ -243,6 +243,39 @@ entries:
 	}
 }
 
+func TestLoadEntriesFromModuleLoadPathsMarksUnownedAppSourceDependencyRoot(t *testing.T) {
+	ctx := setupTestContext(t)
+	appDir := t.TempDir()
+	manifest := `version: "1.0"
+namespace: custom.dependencies
+entries:
+  - name: search
+    kind: ns.dependency
+    component: acme/search
+    version: "*"
+`
+	if err := os.WriteFile(filepath.Join(appDir, "_index.yaml"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := LoadEntriesFromModuleLoadPaths(ctx, []lock.ModuleLoadPath{{
+		Path: appDir,
+		Root: true,
+	}}, zap.NewNop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 1 {
+		t.Fatalf("entries = %d, want 1", len(loaded))
+	}
+	if !loaded[0].DependencyRoot {
+		t.Fatal("application source dependency was not marked as a deployment root")
+	}
+	if got := loaded[0].Meta.GetString("module", ""); got != "" {
+		t.Fatalf("application source ownership = %q, want empty", got)
+	}
+}
+
 func TestLoadEntriesFromPathsSingleWapp(t *testing.T) {
 	ctx := setupTestContext(t)
 	logger := zap.NewNop()
