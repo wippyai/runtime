@@ -260,6 +260,65 @@ func TestManager_Delete_StopsHost(t *testing.T) {
 	assert.False(t, h.running.Load())
 }
 
+func TestManager_DeleteDoesNotBlockUnrelatedMutationWhileHostDrains(t *testing.T) {
+	mgr, _ := newTestManagerWithBus(t)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	mgr.factory = &mockFactory{proc: &mockProcess{stepFunc: func(_ []process.Event, out *process.StepOutput) error {
+		close(entered)
+		<-release
+		out.Done(nil)
+		return nil
+	}}}
+
+	deletingID := registry.NewID("test", "deleting")
+	processCtx := process.WithLifecycleRegistry(ctxWithAppContext(), processSystem.NewLifecycleRegistry())
+	require.NoError(t, mgr.Add(processCtx, makeHostEntry(deletingID)))
+	deleting := mgr.hosts[deletingID]
+	_, err := deleting.Start(processCtx)
+	require.NoError(t, err)
+	_, err = deleting.Run(ctxWithAppContext(), &process.Start{Source: registry.NewID("test", "proc")})
+	require.NoError(t, err)
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("process did not enter gated step")
+	}
+
+	deleteDone := make(chan error, 1)
+	deleteFinished := make(chan struct{})
+	go func() {
+		deleteDone <- mgr.Delete(context.Background(), makeHostEntry(deletingID))
+		close(deleteFinished)
+	}()
+	t.Cleanup(func() {
+		releaseOnce.Do(func() { close(release) })
+		select {
+		case <-deleteFinished:
+		case <-time.After(time.Second):
+		}
+	})
+	require.Eventually(t, func() bool {
+		_, ok := mgr.GetHost(deletingID.String())
+		return !ok
+	}, time.Second, time.Millisecond)
+
+	newID := registry.NewID("test", "new")
+	addDone := make(chan error, 1)
+	go func() { addDone <- mgr.Add(context.Background(), makeHostEntry(newID)) }()
+	select {
+	case err := <-addDone:
+		require.NoError(t, err)
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("unrelated Add blocked behind draining host")
+	}
+	t.Cleanup(func() { require.NoError(t, mgr.Delete(context.Background(), makeHostEntry(newID))) })
+
+	releaseOnce.Do(func() { close(release) })
+	require.NoError(t, <-deleteDone)
+}
+
 // --- Manager Update Tests ---
 
 func TestManager_UpdateEquivalentEffectiveConfigIsNoOp(t *testing.T) {
@@ -456,6 +515,30 @@ func TestManager_UpdateRejectsWorkerChangeManagedByAffinity(t *testing.T) {
 	assert.Equal(t, []string{"host.workers"}, hostErr.Details().GetSlice("fields"))
 	assert.Same(t, config, h.cfg)
 	assert.EqualValues(t, 3, h.scheduler.Stats()["workers"])
+	assert.Empty(t, bus.snapshot())
+}
+
+func TestManager_AffinityChangeAppliesOnlyToNewHosts(t *testing.T) {
+	mgr, bus := newTestManagerWithBus(t)
+	existingID := registry.NewID("test", "existing")
+	require.NoError(t, mgr.Add(context.Background(), makeHostEntry(existingID)))
+	existing := mgr.hosts[existingID]
+
+	mgr.SetActorAffinity(affinity.Set{0, 1, 2})
+	newID := registry.NewID("test", "new")
+	require.NoError(t, mgr.Add(context.Background(), makeHostEntry(newID)))
+	newHost := mgr.hosts[newID]
+	bus.reset()
+
+	require.NoError(t, mgr.Update(context.Background(), makeConfiguredHostEntry(existingID, 4, 1024, 256, nil)))
+	assert.EqualValues(t, 4, existing.scheduler.Stats()["workers"])
+
+	err := mgr.Update(context.Background(), makeConfiguredHostEntry(newID, 4, 1024, 256, nil))
+	require.Error(t, err)
+	var hostErr apierror.Error
+	require.ErrorAs(t, err, &hostErr)
+	assert.Equal(t, []string{"host.workers"}, hostErr.Details().GetSlice("fields"))
+	assert.EqualValues(t, 3, newHost.scheduler.Stats()["workers"])
 	assert.Empty(t, bus.snapshot())
 }
 

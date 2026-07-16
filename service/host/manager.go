@@ -89,6 +89,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 	if len(m.actorAffinity) > 0 {
 		opts = append(opts, actor.WithWorkers(len(m.actorAffinity)), actor.WithThreadPin(m.actorAffinity))
+		h.affinityManaged = true
 	}
 
 	scheduler := actor.NewScheduler(m.commandRegistry, opts...)
@@ -142,7 +143,7 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 		return NewHostNotFoundError(entry.ID)
 	}
 
-	changed, err := h.updateConfig(cfg, len(m.actorAffinity) > 0)
+	changed, err := h.updateConfig(cfg, h.affinityManaged)
 	if err != nil {
 		return err
 	}
@@ -161,11 +162,11 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		return NewUnsupportedEntryKindError(entry.Kind)
 	}
 	m.mutationMu.Lock()
-	defer m.mutationMu.Unlock()
 	m.mu.Lock()
 	h, ok := m.hosts[entry.ID]
 	if !ok {
 		m.mu.Unlock()
+		m.mutationMu.Unlock()
 		return nil
 	}
 	delete(m.hosts, entry.ID)
@@ -182,7 +183,11 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		Kind:   relay.HostDelete,
 		Path:   entry.ID.String(),
 	})
+	m.mutationMu.Unlock()
 
+	// The host is no longer discoverable and its unregister events are ordered
+	// before any replacement Add. Draining can now proceed without blocking
+	// unrelated manager mutations for the scheduler shutdown timeout.
 	if err := h.Stop(ctx); err != nil {
 		m.log.Error("failed to stop host", zap.Error(err))
 	}

@@ -31,17 +31,21 @@ func WithPIDRegistry(reg topology.PIDRegistry) Option {
 
 // Host implements process.Host using the actor scheduler.
 type Host struct {
-	factory     process.Factory
-	pidGen      process.PIDGenerator
-	pidReg      topology.PIDRegistry
-	ctx         context.Context
-	cfg         *hostapi.EntryConfig
-	log         *zap.Logger
-	scheduler   *actor.Scheduler
-	id          registry.ID
-	lifecycleMu sync.Mutex
-	running     atomic.Bool
-	shutdown    atomic.Bool
+	factory   process.Factory
+	pidGen    process.PIDGenerator
+	pidReg    topology.PIDRegistry
+	ctx       context.Context
+	cfg       *hostapi.EntryConfig
+	log       *zap.Logger
+	scheduler *actor.Scheduler
+	id        registry.ID
+	// affinityManaged is fixed when the host is built. Manager affinity changes
+	// apply only to subsequently created hosts and must not change which live
+	// updates an existing scheduler can accept.
+	affinityManaged bool
+	lifecycleMu     sync.Mutex
+	running         atomic.Bool
+	shutdown        atomic.Bool
 }
 
 // NewHost creates a new host with actor scheduler.
