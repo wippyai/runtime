@@ -27,7 +27,7 @@ type Option func(*Scheduler)
 func WithWorkers(n int) Option {
 	return func(s *Scheduler) {
 		if n > 0 {
-			s.numWorkers = n
+			s.initialWorkers = n
 		}
 	}
 }
@@ -68,29 +68,33 @@ func WithMaxProcesses(maxProcs int64) Option {
 }
 
 type Scheduler struct {
-	lifecycle      process.Lifecycle
-	registry       dispatcher.Registry
-	global         *Queue
-	drainCh        chan struct{}
-	byQueue        sync.Map
-	byPID          sync.Map
-	workers        []*Worker
-	pinSet         affinity.Set
-	wg             sync.WaitGroup
-	numWorkers     int
-	maxProcesses   int64
-	localQueueSize int
-	processorCount atomic.Int64
-	queueSize      int
-	nextID         atomic.Uint64
-	stopping       atomic.Bool
-	collectStats   atomic.Bool
+	lifecycle       process.Lifecycle
+	registry        dispatcher.Registry
+	global          *Queue
+	drainCh         chan struct{}
+	byQueue         sync.Map
+	byPID           sync.Map
+	workers         atomic.Pointer[workerSet]
+	pinSet          affinity.Set
+	wg              sync.WaitGroup
+	controlMu       sync.Mutex
+	initialWorkers  int
+	maxProcesses    int64
+	localQueueSize  int
+	processorCount  atomic.Int64
+	retiredExecuted atomic.Uint64
+	retiredStolen   atomic.Uint64
+	queueSize       int
+	nextID          atomic.Uint64
+	stopping        atomic.Bool
+	collectStats    atomic.Bool
+	started         bool
 }
 
 func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
 	s := &Scheduler{
 		registry:       registry,
-		numWorkers:     goruntime.GOMAXPROCS(0),
+		initialWorkers: goruntime.GOMAXPROCS(0),
 		queueSize:      1024,
 		localQueueSize: 256,
 	}
@@ -101,11 +105,11 @@ func NewScheduler(registry dispatcher.Registry, opts ...Option) *Scheduler {
 
 	s.global = NewQueue(s.queueSize)
 	s.drainCh = make(chan struct{}, 1)
-	s.workers = make([]*Worker, s.numWorkers)
-
-	for i := range s.workers {
-		s.workers[i] = newWorker(i, s)
+	workers := make([]*Worker, s.initialWorkers)
+	for i := range workers {
+		workers[i] = newWorker(i, s)
 	}
+	s.storeWorkers(workers)
 
 	return s
 }
@@ -114,26 +118,17 @@ func (s *Scheduler) getHandler(cmd dispatcher.Command) dispatcher.Handler {
 	return s.registry.Get(cmd.CmdID())
 }
 
-func (s *Scheduler) Start() {
-	for _, w := range s.workers {
-		s.wg.Add(1)
-		go func(worker *Worker) {
-			defer s.wg.Done()
-			if len(s.pinSet) > 0 {
-				goruntime.LockOSThread()
-				defer goruntime.UnlockOSThread()
-				_ = affinity.Apply(s.pinSet)
-			}
-			worker.run()
-		}(w)
-	}
-}
-
 // Stop gracefully shuts down the scheduler.
 // Sends cancel events and waits for processes to complete or context deadline.
 func (s *Scheduler) Stop(ctx context.Context) {
-	// Set stopping first - prevents new submissions and pool release
-	s.stopping.Store(true)
+	// Publish the terminal state while serialized with Start and Resize, then
+	// release the control lock before lifecycle callbacks and worker waits.
+	s.controlMu.Lock()
+	if s.stopping.Swap(true) {
+		s.controlMu.Unlock()
+		return
+	}
+	s.controlMu.Unlock()
 
 	// Push cancel event directly to each processor's queue.
 	// Safe because stopping=true prevents pool release.
@@ -199,7 +194,7 @@ func (s *Scheduler) Stop(ctx context.Context) {
 }
 
 func (s *Scheduler) wakeAny() {
-	for _, w := range s.workers {
+	for _, w := range s.workerSnapshot() {
 		if w.signal() {
 			return
 		}
@@ -207,20 +202,23 @@ func (s *Scheduler) wakeAny() {
 }
 
 func (s *Scheduler) wakeAll() {
-	for _, w := range s.workers {
+	for _, w := range s.workerSnapshot() {
 		_ = w.signal()
 	}
 }
 
 func (s *Scheduler) injectOrGlobal(proc *Processor) {
 	workerID := proc.lastWorker.Load()
-	if workerID >= 0 && int(workerID) < len(s.workers) {
-		s.workers[workerID].inject.Push(proc)
-		s.workers[workerID].signal()
-	} else {
-		s.global.Push(proc)
-		s.wakeAny()
+	workers := s.workerSnapshot()
+	if workerID >= 0 && int(workerID) < len(workers) {
+		worker := workers[workerID]
+		if worker.injectProcessor(proc) {
+			return
+		}
 	}
+	proc.lastWorker.Store(noWorkerAffinity)
+	s.global.Push(proc)
+	s.wakeAny()
 }
 
 // WakeProcessor implements process.YieldScheduler.
@@ -477,8 +475,10 @@ func (s *Scheduler) deliverToProc(proc *Processor, gen uint64, pkg *relay.Packag
 func (s *Scheduler) Stats() map[string]uint64 {
 	stats := make(map[string]uint64, 8)
 
-	var executed, stolen uint64
-	for _, w := range s.workers {
+	executed := s.retiredExecuted.Load()
+	stolen := s.retiredStolen.Load()
+	workers := s.workerSnapshot()
+	for _, w := range workers {
 		executed += w.executed.Load()
 		stolen += w.stolen.Load()
 	}
@@ -489,15 +489,16 @@ func (s *Scheduler) Stats() map[string]uint64 {
 	stats["executed"] = executed
 	stats["stolen"] = stolen
 	stats["global_queue"] = uint64(max(0, s.global.Len()))
-	stats["workers"] = uint64(len(s.workers))
+	stats["workers"] = uint64(len(workers))
 	stats["processes"] = processCount
 
 	return stats
 }
 
 func (s *Scheduler) WorkerStats() []map[string]uint64 {
-	result := make([]map[string]uint64, len(s.workers))
-	for i, w := range s.workers {
+	workers := s.workerSnapshot()
+	result := make([]map[string]uint64, len(workers))
+	for i, w := range workers {
 		result[i] = map[string]uint64{
 			"executed":    w.executed.Load(),
 			"stolen":      w.stolen.Load(),

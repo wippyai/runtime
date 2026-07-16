@@ -32,6 +32,7 @@ type Manager struct {
 	log             *zap.Logger
 	hosts           map[registry.ID]*Host
 	actorAffinity   affinity.Set
+	mutationMu      sync.Mutex
 	mu              sync.RWMutex
 }
 
@@ -39,7 +40,9 @@ type Manager struct {
 // sizes the worker pool to it, keeping actor execution on cores reserved away
 // from WASM. Empty (the default) leaves scheduling unpinned. Call before Add.
 func (m *Manager) SetActorAffinity(set affinity.Set) {
-	m.actorAffinity = set
+	m.mutationMu.Lock()
+	m.actorAffinity = append(affinity.Set(nil), set...)
+	m.mutationMu.Unlock()
 }
 
 // NewManager creates a new host manager.
@@ -67,6 +70,8 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	if err != nil {
 		return NewDecodeConfigError(err)
 	}
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
 
 	h := NewHost(entry.ID, cfg, nil, m.factory, m.pidGen, m.log)
 
@@ -84,6 +89,7 @@ func (m *Manager) Add(ctx context.Context, entry registry.Entry) error {
 	}
 	if len(m.actorAffinity) > 0 {
 		opts = append(opts, actor.WithWorkers(len(m.actorAffinity)), actor.WithThreadPin(m.actorAffinity))
+		h.affinityManaged = true
 	}
 
 	scheduler := actor.NewScheduler(m.commandRegistry, opts...)
@@ -119,10 +125,35 @@ func (m *Manager) Update(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != hostapi.Host {
 		return NewUnsupportedEntryKindError(entry.Kind)
 	}
-	if err := m.Delete(ctx, entry); err != nil {
+
+	// Validate the complete replacement before looking up or mutating the live
+	// host. A malformed registry update must never take a healthy executor down.
+	cfg, err := entryutil.DecodeEntryConfig[hostapi.EntryConfig](ctx, m.dtt, entry)
+	if err != nil {
+		return NewDecodeConfigError(err)
+	}
+
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
+
+	m.mu.RLock()
+	h, ok := m.hosts[entry.ID]
+	m.mu.RUnlock()
+	if !ok {
+		return NewHostNotFoundError(entry.ID)
+	}
+
+	changed, err := h.updateConfig(cfg, h.affinityManaged)
+	if err != nil {
 		return err
 	}
-	return m.Add(ctx, entry)
+	if !changed {
+		return nil
+	}
+	m.log.Info("host workers resized",
+		zap.String("id", entry.ID.String()),
+		zap.Int("workers", cfg.HostConfig.Workers))
+	return nil
 }
 
 // Delete implements registry.EntryListener.
@@ -130,10 +161,12 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 	if entry.Kind != hostapi.Host {
 		return NewUnsupportedEntryKindError(entry.Kind)
 	}
+	m.mutationMu.Lock()
 	m.mu.Lock()
 	h, ok := m.hosts[entry.ID]
 	if !ok {
 		m.mu.Unlock()
+		m.mutationMu.Unlock()
 		return nil
 	}
 	delete(m.hosts, entry.ID)
@@ -150,7 +183,11 @@ func (m *Manager) Delete(ctx context.Context, entry registry.Entry) error {
 		Kind:   relay.HostDelete,
 		Path:   entry.ID.String(),
 	})
+	m.mutationMu.Unlock()
 
+	// The host is no longer discoverable and its unregister events are ordered
+	// before any replacement Add. Draining can now proceed without blocking
+	// unrelated manager mutations for the scheduler shutdown timeout.
 	if err := h.Stop(ctx); err != nil {
 		m.log.Error("failed to stop host", zap.Error(err))
 	}
