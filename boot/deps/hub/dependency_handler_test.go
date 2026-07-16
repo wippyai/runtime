@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -2947,9 +2948,11 @@ func TestDependencyHandler_CollectControlledModules_FollowsInstalledDependencyLi
 	require.NoError(t, err)
 
 	rootDep := regapi.Entry{
-		ID:   regapi.NewID("app.deps", "root"),
-		Kind: regapi.NamespaceDependency,
-		Data: payload.NewPayload(`{"component":"acme/app","version":"1.0.0"}`, payload.JSON),
+		ID:             regapi.NewID("app.deps", "root"),
+		Kind:           regapi.NamespaceDependency,
+		DependencyRoot: true,
+		Meta:           attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/deployment"}),
+		Data:           payload.NewPayload(`{"component":"acme/app","version":"1.0.0"}`, payload.JSON),
 	}
 	appDep := regapi.Entry{
 		ID:   regapi.NewID("acme.app", "lib_dep"),
@@ -2975,8 +2978,49 @@ func TestDependencyHandler_CollectControlledModules_FollowsInstalledDependencyLi
 	assert.Contains(t, controlled, "acme/app")
 	assert.Contains(t, controlled, "acme/lib")
 	assert.Contains(t, controlled, "acme/core")
+	assert.NotContains(t, controlled, "acme/deployment", "an owned root controls its declared component, not its deployment package")
 	assert.NotContains(t, controlled, "keeper/keeper")
 	assert.NotContains(t, controlled, "keeper/helper")
+}
+
+func TestDependencyHandler_ReconciliationControlSpansBothGraphsWithoutOwningDeployment(t *testing.T) {
+	ctx := newTestContext()
+	transcoder := payload.GetTranscoder(ctx)
+	require.NotNil(t, transcoder)
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{
+		Hub: &fakeHub{}, Logger: zap.NewNop(), VendorDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	root := func(name, component string) regapi.Entry {
+		return regapi.Entry{
+			ID:             regapi.NewID("app.deps", name),
+			Kind:           regapi.NamespaceDependency,
+			DependencyRoot: true,
+			Meta:           attrs.NewBagFrom(map[string]any{metaModuleKey: "acme/deployment"}),
+			Data:           payload.New(map[string]any{"component": component, "version": "v1.0.0"}),
+		}
+	}
+	child := func(owner, component string) regapi.Entry {
+		return regapi.Entry{
+			ID:   regapi.NewID(strings.ReplaceAll(owner, "/", "."), "child_dep"),
+			Kind: regapi.NamespaceDependency,
+			Meta: attrs.NewBagFrom(map[string]any{metaModuleKey: owner}),
+			Data: payload.New(map[string]any{"component": component, "version": "v1.0.0"}),
+		}
+	}
+
+	current := regapi.State{root("old", "acme/old"), child("acme/old", "acme/old-child")}
+	target := regapi.State{root("new", "acme/new"), child("acme/new", "acme/new-child")}
+	controlled, err := handler.reconciliationControlledModules(
+		ctx, current, target, transcoder, map[string]struct{}{"acme/new": {}},
+	)
+	require.NoError(t, err)
+	assert.Contains(t, controlled, "acme/old")
+	assert.Contains(t, controlled, "acme/old-child")
+	assert.Contains(t, controlled, "acme/new")
+	assert.Contains(t, controlled, "acme/new-child")
+	assert.NotContains(t, controlled, "acme/deployment")
 }
 
 func TestDependencyHandler_Expand_PreservesLockLoadedModuleEntries(t *testing.T) {
