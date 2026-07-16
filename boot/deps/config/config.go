@@ -44,12 +44,22 @@ type ModuleConfig struct {
 
 type PublishConfig struct {
 	Profiles PublishProfilesConfig `yaml:"profiles,omitempty"`
+	Runtime  PublishRuntimeConfig  `yaml:"runtime,omitempty"`
 }
 
 type PublishProfilesConfig struct {
 	Enabled *bool    `yaml:"enabled,omitempty"`
 	Source  string   `yaml:"source,omitempty"`
 	Include []string `yaml:"include,omitempty"`
+}
+
+// PublishRuntimeConfig selects application runtime sections to carry as pack
+// defaults. Sections are opt-in because runtime configuration may contain
+// credentials and machine-local paths which must not become package metadata.
+type PublishRuntimeConfig struct {
+	Source   string   `yaml:"source,omitempty"`
+	Sections []string `yaml:"sections,omitempty"`
+	Vars     []string `yaml:"vars,omitempty"`
 }
 
 func Load(dir string) (*ModuleConfig, error) {
@@ -118,6 +128,9 @@ func (c *ModuleConfig) Validate() error {
 	if err := ValidateModuleType(c.Type); err != nil {
 		return err
 	}
+	if err := c.validatePublishOwnership(); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -154,7 +167,18 @@ func (c *ModuleConfig) ValidateForLabel() error {
 	if err := ValidateModuleType(c.Type); err != nil {
 		return err
 	}
+	if err := c.validatePublishOwnership(); err != nil {
+		return err
+	}
 
+	return nil
+}
+
+func (c *ModuleConfig) validatePublishOwnership() error {
+	runtime := c.Publish.Runtime
+	if (len(runtime.Sections) > 0 || len(runtime.Vars) > 0 || strings.TrimSpace(runtime.Source) != "") && c.Type != "application" {
+		return fmt.Errorf("publish.runtime is application-owned and requires type: application")
+	}
 	return nil
 }
 

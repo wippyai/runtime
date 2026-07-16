@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/wippyai/runtime/api/attrs"
+	"github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
 )
@@ -25,7 +27,7 @@ func TestRuntimeConfigFromPackMetadata_DottedKeys(t *testing.T) {
 	require.Equal(t, "debug", cfg.GetString("logger.level", ""))
 }
 
-func TestRuntimeConfigFromPackMetadata_NestedRuntimeMap(t *testing.T) {
+func TestRuntimeConfigFromPackMetadata_NestedRuntimeMapPreservesScalarTypes(t *testing.T) {
 	cfg := runtimeConfigFromPackMetadata(wapp.Metadata{
 		"runtime": map[string]any{
 			"lsp": map[string]any{
@@ -33,13 +35,21 @@ func TestRuntimeConfigFromPackMetadata_NestedRuntimeMap(t *testing.T) {
 			},
 			"logger": map[string]any{
 				"encoding": "console",
+				"label":    "  padded  ",
+			},
+			"vars": map[string]any{
+				"port":    "5432",
+				"enabled": "false",
 			},
 		},
 	}, zap.NewNop())
 
 	require.NotNil(t, cfg)
-	require.True(t, cfg.GetBool("lsp.enabled", false))
+	require.Equal(t, "true", cfg.GetString("lsp.enabled", ""))
 	require.Equal(t, "console", cfg.GetString("logger.encoding", ""))
+	require.Equal(t, "  padded  ", cfg.GetString("logger.label", ""))
+	require.Equal(t, "5432", cfg.GetString("vars.port", ""))
+	require.Equal(t, "false", cfg.GetString("vars.enabled", ""))
 }
 
 func TestRuntimeConfigFromPackMetadata_PreservesProfiles(t *testing.T) {
@@ -68,28 +78,30 @@ func TestRuntimeConfigFromPackMetadata_PreservesProfiles(t *testing.T) {
 	require.Equal(t, []any{"kickside.research.**"}, namespaces)
 }
 
-func TestLoadPackRuntimeDefaultsFromFiles_MergeOrder(t *testing.T) {
+func TestLoadPackRuntimeDefaultsFromFiles_UsesOnlyMainPack(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	basePack := filepath.Join(tmpDir, "base.wapp")
-	require.NoError(t, writeTestPack(basePack, wapp.Metadata{
-		"runtime.lsp.enabled":  true,
-		"runtime.logger.level": "info",
+	dependencyPack := filepath.Join(tmpDir, "dependency.wapp")
+	require.NoError(t, writeTestPack(dependencyPack, wapp.Metadata{
+		"runtime.security.strict_mode": false,
+		"runtime.logger.level":         "dependency",
 	}))
 
-	overridePack := filepath.Join(tmpDir, "override.wapp")
-	require.NoError(t, writeTestPack(overridePack, wapp.Metadata{
-		"runtime.lsp.enabled": false,
+	mainPack := filepath.Join(tmpDir, "main.wapp")
+	require.NoError(t, writeTestPack(mainPack, wapp.Metadata{
+		"runtime.security.strict_mode":  true,
+		"runtime.registry.history_type": "memory",
 	}))
 
-	cfg, err := loadPackRuntimeDefaultsFromFiles([]string{basePack, overridePack}, zap.NewNop())
+	cfg, err := loadPackRuntimeDefaultsFromFiles([]string{dependencyPack, mainPack}, zap.NewNop())
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
-	require.False(t, cfg.GetBool("lsp.enabled", true))
-	require.Equal(t, "info", cfg.GetString("logger.level", ""))
+	require.True(t, cfg.GetBool("security.strict_mode", false))
+	require.Equal(t, "memory", cfg.GetString("registry.history_type", ""))
+	require.Equal(t, "", cfg.GetString("logger.level", ""))
 }
 
-func TestLoadPackRuntimeDefaultsFromFiles_ProfileConfigComesOnlyFromMainPack(t *testing.T) {
+func TestLoadPackRuntimeDefaultsFromFiles_DependencyCannotContributeConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	depPack := filepath.Join(tmpDir, "dep.wapp")
@@ -108,11 +120,90 @@ func TestLoadPackRuntimeDefaultsFromFiles_ProfileConfigComesOnlyFromMainPack(t *
 	cfg, err := loadPackRuntimeDefaultsFromFiles([]string{depPack, mainPack}, zap.NewNop())
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
-	require.Equal(t, "info", cfg.GetString("logger.level", ""))
+	require.Equal(t, "", cfg.GetString("logger.level", ""))
 	require.Equal(t, "", cfg.GetString("vars.dep_only", ""))
 	require.Equal(t, "kept", cfg.GetString("vars.main_only", ""))
 	require.Equal(t, "", cfg.GetString("profiles.dep.override.app:db:kind", ""))
 	require.Equal(t, "db.sql.postgres", cfg.GetString("profiles.main.override.app:db:kind", ""))
+}
+
+func TestPublishedApplicationRuntimeConfigSurvivesPackRoundTripWithoutLocalConfig(t *testing.T) {
+	publisherDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(publisherDir, "wippy.yaml"), []byte(`
+organization: kickside
+module: kickside
+type: application
+publish:
+  runtime:
+    sections:
+      - security
+      - registry
+      - override
+`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(publisherDir, ".wippy.yaml"), []byte(`
+version: "1.0"
+security:
+  strict_mode: true
+registry:
+  enable_history: true
+  history_type: sqlite
+  history_path: ./.wippy/registry.db
+  event_wait_timeout: 120s
+vars:
+  public_url: http://localhost:8085
+override:
+  "app.env:defaults:values.PUBLIC_API_URL": "${public_url}"
+`), 0o600))
+
+	manifest, err := config.Load(publisherDir)
+	require.NoError(t, err)
+	require.NoError(t, manifest.Validate())
+
+	metadata := attrs.Bag{}
+	require.NoError(t, addPublishedRuntimeMetadata(metadata, publisherDir, manifest.Publish))
+
+	packDir := t.TempDir()
+	dependencyPack := filepath.Join(packDir, "dependency.wapp")
+	require.NoError(t, writeTestPack(dependencyPack, wapp.Metadata{
+		"runtime": map[string]any{
+			"security": map[string]any{"strict_mode": false},
+			"registry": map[string]any{"history_type": "memory"},
+			"logger":   map[string]any{"level": "dependency-must-not-leak"},
+		},
+	}))
+	applicationPack := filepath.Join(packDir, "application.wapp")
+	require.NoError(t, writeTestPack(applicationPack, wapp.Metadata(metadata)))
+
+	packDefaults, err := loadPackRuntimeDefaultsFromFiles(
+		[]string{dependencyPack, applicationPack},
+		zap.NewNop(),
+	)
+	require.NoError(t, err)
+
+	destinationDir := t.TempDir()
+	previousDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(destinationDir))
+	t.Cleanup(func() { require.NoError(t, os.Chdir(previousDir)) })
+	setTestConfigFiles(t)
+
+	previousProfiler := profiler
+	profiler = false
+	t.Cleanup(func() { profiler = previousProfiler })
+
+	effective, err := loadRuntimeConfigWithDefaults(nil, zap.NewNop(), packDefaults)
+	require.NoError(t, err)
+	require.True(t, effective.GetBool("security.strict_mode", false))
+	require.True(t, effective.GetBool("registry.enable_history", false))
+	require.Equal(t, "sqlite", effective.GetString("registry.history_type", ""))
+	require.Equal(t, "./.wippy/registry.db", effective.GetString("registry.history_path", ""))
+	require.Equal(t, "120s", effective.GetString("registry.event_wait_timeout", ""))
+	require.Equal(t, "http://localhost:8085", effective.GetString("vars.public_url", ""))
+	require.Equal(
+		t, "http://localhost:8085",
+		effective.GetString("override.app.env:defaults:values.PUBLIC_API_URL", ""),
+	)
+	require.Equal(t, "", effective.GetString("logger.level", ""))
 }
 
 func writeTestPack(path string, metadata wapp.Metadata) error {

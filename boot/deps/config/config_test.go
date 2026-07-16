@@ -315,6 +315,56 @@ publish:
 	assert.Equal(t, []string{"production", "staging"}, cfg.Publish.Profiles.Include)
 }
 
+func TestLoad_WithPublishRuntimeSections(t *testing.T) {
+	dir := t.TempDir()
+	content := `
+organization: myorg
+module: mymod
+publish:
+  runtime:
+    source: config/runtime.yaml
+    sections: [security, registry, override]
+    vars: [public_url]
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, DefaultConfigFile), []byte(content), 0o644))
+
+	cfg, err := Load(dir)
+	require.NoError(t, err)
+	assert.Equal(t, "config/runtime.yaml", cfg.Publish.Runtime.Source)
+	assert.Equal(t, []string{"security", "registry", "override"}, cfg.Publish.Runtime.Sections)
+	assert.Equal(t, []string{"public_url"}, cfg.Publish.Runtime.Vars)
+}
+
+func TestValidate_PublishRuntimeIsApplicationOnly(t *testing.T) {
+	for _, moduleType := range []string{"", "library", "agent", "plugin"} {
+		t.Run("reject_"+moduleType, func(t *testing.T) {
+			cfg := ModuleConfig{
+				Organization: "acme",
+				ModuleName:   "module",
+				Type:         moduleType,
+				Publish: PublishConfig{Runtime: PublishRuntimeConfig{
+					Vars: []string{"public_url"},
+				}},
+			}
+			err := cfg.Validate()
+			require.ErrorContains(t, err, "requires type: application")
+			require.ErrorContains(t, cfg.ValidateForLabel(), "requires type: application")
+		})
+	}
+
+	cfg := ModuleConfig{
+		Organization: "acme",
+		ModuleName:   "app",
+		Type:         "application",
+		Publish: PublishConfig{Runtime: PublishRuntimeConfig{
+			Sections: []string{"security", "registry"},
+			Vars:     []string{"public_url"},
+		}},
+	}
+	require.NoError(t, cfg.Validate())
+	require.NoError(t, cfg.ValidateForLabel())
+}
+
 func TestLoad_WithExplicitEmptyPublishProfileInclude(t *testing.T) {
 	dir := t.TempDir()
 	content := `
