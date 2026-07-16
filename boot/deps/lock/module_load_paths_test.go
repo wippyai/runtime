@@ -40,8 +40,8 @@ func TestLock_GetModuleLoadPaths(t *testing.T) {
 			t.Fatalf("path count = %d, want 3", len(paths))
 		}
 
-		if got := paths[0]; got.Path != filepath.Join(tmpDir, "app") || got.Module != "" || got.Version != "" {
-			t.Fatalf("src path = %+v, want app path with empty module/version", got)
+		if got := paths[0]; got.Path != filepath.Join(tmpDir, "app") || got.Module != "" || got.Version != "" || !got.Root {
+			t.Fatalf("src path = %+v, want root app path with empty module/version", got)
 		}
 
 		if got := paths[1]; got.Path != filepath.Join(tmpDir, "local/users") || got.SourceRoot != filepath.Join(tmpDir, "local/users") || got.Module != "userspace/users" || got.Version != "" {
