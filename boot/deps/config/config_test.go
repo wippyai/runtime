@@ -324,6 +324,7 @@ publish:
   runtime:
     source: config/runtime.yaml
     sections: [security, registry, override]
+    vars: [public_url]
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, DefaultConfigFile), []byte(content), 0o644))
 
@@ -331,9 +332,10 @@ publish:
 	require.NoError(t, err)
 	assert.Equal(t, "config/runtime.yaml", cfg.Publish.Runtime.Source)
 	assert.Equal(t, []string{"security", "registry", "override"}, cfg.Publish.Runtime.Sections)
+	assert.Equal(t, []string{"public_url"}, cfg.Publish.Runtime.Vars)
 }
 
-func TestValidate_PublishRuntimeSectionsAreApplicationOnly(t *testing.T) {
+func TestValidate_PublishRuntimeIsApplicationOnly(t *testing.T) {
 	for _, moduleType := range []string{"", "library", "agent", "plugin"} {
 		t.Run("reject_"+moduleType, func(t *testing.T) {
 			cfg := ModuleConfig{
@@ -341,7 +343,7 @@ func TestValidate_PublishRuntimeSectionsAreApplicationOnly(t *testing.T) {
 				ModuleName:   "module",
 				Type:         moduleType,
 				Publish: PublishConfig{Runtime: PublishRuntimeConfig{
-					Sections: []string{"security"},
+					Vars: []string{"public_url"},
 				}},
 			}
 			err := cfg.Validate()
@@ -356,6 +358,7 @@ func TestValidate_PublishRuntimeSectionsAreApplicationOnly(t *testing.T) {
 		Type:         "application",
 		Publish: PublishConfig{Runtime: PublishRuntimeConfig{
 			Sections: []string{"security", "registry"},
+			Vars:     []string{"public_url"},
 		}},
 	}
 	require.NoError(t, cfg.Validate())

@@ -46,8 +46,7 @@ profiles:
 	runtime := requireMap(t, metadata["runtime"])
 	require.Equal(t, map[string]any{"level": "info"}, requireMap(t, runtime["logger"]))
 
-	vars := requireMap(t, runtime["vars"])
-	require.Equal(t, "localhost", vars["db_host"])
+	require.NotContains(t, runtime, "vars", "profile-local variables must not cause unrelated base variables to be published")
 
 	profiles := requireMap(t, runtime["profiles"])
 	local := requireMap(t, profiles["local"])
@@ -157,7 +156,7 @@ override:
 	require.ErrorContains(t, err, `published runtime sections references undefined runtime variable "missing_port"`)
 }
 
-func TestAddPublishedRuntimeProfileMetadataPreservesLegacyBaseVariables(t *testing.T) {
+func TestAddPublishedRuntimeProfileMetadataExportsOnlyReferencedBaseVariables(t *testing.T) {
 	dir := t.TempDir()
 	writeRuntimeProfileConfig(t, dir, `.wippy.yaml`, `version: "1.0"
 vars:
@@ -173,14 +172,73 @@ profiles:
 	require.NoError(t, addPublishedRuntimeProfileMetadata(metadata, dir, config.PublishProfilesConfig{}))
 	vars := requireMap(t, requireMap(t, metadata["runtime"])["vars"])
 	require.Equal(t, "localhost", vars["public_host"])
-	require.Equal(t, "30s", vars["public_timeout"])
+	require.NotContains(t, vars, "public_timeout")
 }
 
-func TestAddPublishedRuntimeMetadataRequiresExplicitSectionAllowList(t *testing.T) {
+func TestAddPublishedRuntimeMetadataProfileVariablesSelectBaseDependenciesTransitively(t *testing.T) {
+	dir := t.TempDir()
+	writeRuntimeProfileConfig(t, dir, `.wippy.yaml`, `version: "1.0"
+vars:
+  public_host: localhost
+  public_url: "http://${public_host}:8085"
+  signing_key: must-never-be-packed
+profiles:
+  local:
+    vars:
+      api_url: "${public_url}/api"
+    override:
+      "app.env:defaults:values.PUBLIC_API_URL": "${api_url}"
+`)
+
+	metadata := attrs.Bag{}
+	require.NoError(t, addPublishedRuntimeProfileMetadata(metadata, dir, config.PublishProfilesConfig{}))
+	runtime := requireMap(t, metadata["runtime"])
+	vars := requireMap(t, runtime["vars"])
+	require.Equal(t, "localhost", vars["public_host"])
+	require.Equal(t, "http://${public_host}:8085", vars["public_url"])
+	require.NotContains(t, vars, "signing_key")
+
+	local := requireMap(t, requireMap(t, runtime["profiles"])["local"])
+	require.Equal(t, "${public_url}/api", requireMap(t, local["vars"])["api_url"])
+}
+
+func TestAddPublishedRuntimeMetadataExportsExplicitPublicVariables(t *testing.T) {
+	dir := t.TempDir()
+	writeRuntimeProfileConfig(t, dir, `.wippy.yaml`, `version: "1.0"
+vars:
+  public_host: localhost
+  public_url: "http://${public_host}:8085"
+  signing_key: must-never-be-packed
+`)
+
+	metadata := attrs.Bag{}
+	require.NoError(t, addPublishedRuntimeMetadata(metadata, dir, config.PublishConfig{
+		Runtime: config.PublishRuntimeConfig{Vars: []string{"public_url"}},
+	}))
+	vars := requireMap(t, requireMap(t, metadata["runtime"])["vars"])
+	require.Equal(t, "localhost", vars["public_host"])
+	require.Equal(t, "http://${public_host}:8085", vars["public_url"])
+	require.NotContains(t, vars, "signing_key")
+}
+
+func TestAddPublishedRuntimeMetadataRejectsUnknownExplicitVariable(t *testing.T) {
+	dir := t.TempDir()
+	writeRuntimeProfileConfig(t, dir, `.wippy.yaml`, `version: "1.0"
+vars:
+  public_url: http://localhost:8085
+`)
+
+	err := addPublishedRuntimeMetadata(attrs.Bag{}, dir, config.PublishConfig{
+		Runtime: config.PublishRuntimeConfig{Vars: []string{"missing"}},
+	})
+	require.ErrorContains(t, err, `publish runtime variable "missing" not found`)
+}
+
+func TestAddPublishedRuntimeMetadataRequiresExplicitAllowList(t *testing.T) {
 	err := addPublishedRuntimeMetadata(attrs.Bag{}, t.TempDir(), config.PublishConfig{
 		Runtime: config.PublishRuntimeConfig{Source: "config/runtime.yaml"},
 	})
-	require.ErrorContains(t, err, "requires an explicit publish.runtime.sections allow-list")
+	require.ErrorContains(t, err, "requires an explicit sections or vars allow-list")
 }
 
 func TestAddPublishedRuntimeMetadataRejectsAmbiguousSectionMetadata(t *testing.T) {

@@ -32,9 +32,10 @@ var nonPublishableRuntimeSections = map[string]struct{}{
 }
 
 type publishedRuntimeConfig struct {
-	sections map[string]map[string]any
-	profiles map[string]any
-	vars     map[string]publishedRuntimeVar
+	sections     map[string]map[string]any
+	profiles     map[string]any
+	vars         map[string]publishedRuntimeVar
+	explicitVars []string
 }
 
 type publishedRuntimeVar struct {
@@ -59,7 +60,7 @@ func addPublishedRuntimeMetadata(metadata attrs.Bag, configDir string, publishCf
 	if err := collectPublishedRuntimeProfiles(&collected, configDir, publishCfg.Profiles); err != nil {
 		return err
 	}
-	if len(collected.sections) == 0 && len(collected.profiles) == 0 {
+	if len(collected.sections) == 0 && len(collected.profiles) == 0 && len(collected.explicitVars) == 0 {
 		return nil
 	}
 	vars, err := publishedRuntimeVars(collected)
@@ -93,33 +94,20 @@ func addPublishedRuntimeMetadata(metadata attrs.Bag, configDir string, publishCf
 }
 
 func publishedRuntimeVars(collected publishedRuntimeConfig) (map[string]any, error) {
-	// Profile publication predates section publication and intentionally exposes
-	// base vars so destination-local config can reference those public defaults.
-	// Keep that contract, but read source literally and reject environment refs.
-	if len(collected.profiles) > 0 {
-		return allPublishedVars(collected.vars)
+	selected, err := referencedPublishedVars(collected.vars, collected.sections, collected.profiles)
+	if err != nil {
+		return nil, err
 	}
-	return referencedPublishedVars(collected.vars, collected.sections, nil)
-}
-
-func allPublishedVars(available map[string]publishedRuntimeVar) (map[string]any, error) {
-	selected := make(map[string]any, len(available))
-	for name, variable := range available {
-		if variable.conflictSource != "" {
-			return nil, fmt.Errorf("runtime variable %q has conflicting values in %s and %s", name, variable.source, variable.conflictSource)
-		}
-		if path, found := findPublishEnvReference(variable.value, publishRuntimeVarsMetadataKey+"."+name); found {
-			return nil, fmt.Errorf("runtime setting %s references the publisher environment; use a public default or omit it", path)
-		}
-		selected[name] = variable.value
+	if err := selectNamedPublishedVars(collected.vars, collected.explicitVars, "publish.runtime.vars", selected); err != nil {
+		return nil, err
 	}
 	return selected, nil
 }
 
 func collectPublishedRuntimeSections(dst *publishedRuntimeConfig, configDir string, runtimeCfg config.PublishRuntimeConfig) error {
-	if runtimeCfg.Sections == nil {
+	if len(runtimeCfg.Sections) == 0 && len(runtimeCfg.Vars) == 0 {
 		if strings.TrimSpace(runtimeCfg.Source) != "" {
-			return fmt.Errorf("publish.runtime.source requires an explicit publish.runtime.sections allow-list")
+			return fmt.Errorf("publish.runtime.source requires an explicit sections or vars allow-list")
 		}
 		return nil
 	}
@@ -128,7 +116,7 @@ func collectPublishedRuntimeSections(dst *publishedRuntimeConfig, configDir stri
 	if err != nil {
 		return err
 	}
-	if cfg == nil && len(runtimeCfg.Sections) > 0 {
+	if cfg == nil {
 		return fmt.Errorf("runtime publish source %s does not exist", source)
 	}
 
@@ -159,8 +147,22 @@ func collectPublishedRuntimeSections(dst *publishedRuntimeConfig, configDir stri
 		dst.sections[section] = values
 	}
 
-	if len(dst.sections) > 0 {
-		mergePublishedVars(dst.vars, runtimeSectionFromConfig(cfg, publishRuntimeVarsMetadataKey), source)
+	vars := runtimeSectionFromConfig(cfg, publishRuntimeVarsMetadataKey)
+	mergePublishedVars(dst.vars, vars, source)
+	seenVars := make(map[string]struct{}, len(runtimeCfg.Vars))
+	for _, rawName := range runtimeCfg.Vars {
+		name := strings.TrimSpace(rawName)
+		if name == "" {
+			return fmt.Errorf("publish.runtime.vars contains an empty variable name")
+		}
+		if _, duplicate := seenVars[name]; duplicate {
+			continue
+		}
+		seenVars[name] = struct{}{}
+		if _, exists := vars[name]; !exists {
+			return fmt.Errorf("publish runtime variable %q not found in %s", name, source)
+		}
+		dst.explicitVars = append(dst.explicitVars, name)
 	}
 	return nil
 }
@@ -222,6 +224,18 @@ func referencedPublishedVars(available map[string]publishedRuntimeVar, sections 
 func selectReferencedVars(available map[string]publishedRuntimeVar, local map[string]any, values any, context string, selected map[string]any) error {
 	pending := make(map[string]struct{})
 	collectPublishVarReferences(values, pending)
+	return selectPendingPublishedVars(available, local, pending, context, selected)
+}
+
+func selectNamedPublishedVars(available map[string]publishedRuntimeVar, names []string, context string, selected map[string]any) error {
+	pending := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		pending[name] = struct{}{}
+	}
+	return selectPendingPublishedVars(available, nil, pending, context, selected)
+}
+
+func selectPendingPublishedVars(available map[string]publishedRuntimeVar, local map[string]any, pending map[string]struct{}, context string, selected map[string]any) error {
 	resolved := make(map[string]struct{})
 	for len(pending) > 0 {
 		name := firstSortedKey(pending)

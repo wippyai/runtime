@@ -316,7 +316,18 @@ non-workspace runtime profiles are published from its `wippy.yaml` manifest:
 publish:
   profiles:
     include: [production]
+  runtime:
+    sections: [security, registry, override]
+    vars: [public_url]
 ```
+
+Published runtime configuration is application-owned. The selected sections
+and any variables they or the published profiles reference are carried into the
+application pack as defaults. Variable references are followed transitively.
+Use `publish.runtime.vars` only for intentionally public defaults which are not
+otherwise referenced; unlisted variables are not packaged. Publisher
+environment references and machine-local `boot`, `extensions`, and `workspace`
+sections are rejected.
 
 Existing `replacements:` in `wippy.lock` remain readable for compatibility but
 emit a deprecation warning. Move them to any runtime configuration file; new

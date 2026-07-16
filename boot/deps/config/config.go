@@ -59,6 +59,7 @@ type PublishProfilesConfig struct {
 type PublishRuntimeConfig struct {
 	Source   string   `yaml:"source,omitempty"`
 	Sections []string `yaml:"sections,omitempty"`
+	Vars     []string `yaml:"vars,omitempty"`
 }
 
 func Load(dir string) (*ModuleConfig, error) {
@@ -174,8 +175,9 @@ func (c *ModuleConfig) ValidateForLabel() error {
 }
 
 func (c *ModuleConfig) validatePublishOwnership() error {
-	if len(c.Publish.Runtime.Sections) > 0 && c.Type != "application" {
-		return fmt.Errorf("publish.runtime.sections is application-owned and requires type: application")
+	runtime := c.Publish.Runtime
+	if (len(runtime.Sections) > 0 || len(runtime.Vars) > 0 || strings.TrimSpace(runtime.Source) != "") && c.Type != "application" {
+		return fmt.Errorf("publish.runtime is application-owned and requires type: application")
 	}
 	return nil
 }
