@@ -56,6 +56,19 @@ entries:
     imports:
       assert_primitives: app.lib:assert
 
+  - name: stream
+    kind: function.lua
+    meta:
+      type: test
+      suite: excel
+      description: excel workbook rows streaming cursor
+    source: file://stream.lua
+    method: main
+    modules:
+      - excel
+    imports:
+      assert_primitives: app.lib:assert
+
   - name: errors
     kind: function.lua
     meta:

@@ -60,6 +60,8 @@ func TestModuleTypes_ReturnsWithError(t *testing.T) {
 		{name: "excel.Workbook.new_sheet", manifest: excel.ModuleTypes(), typeName: "Workbook", method: "new_sheet"},
 		{name: "excel.Workbook.get_sheet_list", manifest: excel.ModuleTypes(), typeName: "Workbook", method: "get_sheet_list"},
 		{name: "excel.Workbook.get_rows", manifest: excel.ModuleTypes(), typeName: "Workbook", method: "get_rows"},
+		{name: "excel.Workbook.rows", manifest: excel.ModuleTypes(), typeName: "Workbook", method: "rows"},
+		{name: "excel.Rows.read", manifest: excel.ModuleTypes(), typeName: "Rows", method: "read"},
 		{name: "excel.new", manifest: excel.ModuleTypes(), method: "new"},
 		{name: "excel.open", manifest: excel.ModuleTypes(), method: "open"},
 		{name: "http_client.StreamReader.read", manifest: httpclient.ModuleTypes(), typeName: "StreamReader", method: "read"},
