@@ -229,6 +229,22 @@ registry:
 		assert.Equal(t, "wippy_registry", registryCfg.GetString("history_schema", ""))
 	})
 
+	t.Run("publish load never reads the publisher environment", func(t *testing.T) {
+		t.Setenv("WIPPY_TEST_PUBLISH_SECRET", "must-not-enter-pack-metadata")
+		yamlContent := `version: "1.0"
+registry:
+  history_dsn: ${env:WIPPY_TEST_PUBLISH_SECRET}
+`
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "test.yaml")
+		require.NoError(t, os.WriteFile(configPath, []byte(yamlContent), 0o600))
+
+		cfg, err := LoadForPublish(configPath)
+		require.NoError(t, err)
+		require.NotNil(t, cfg)
+		assert.Equal(t, "${env:WIPPY_TEST_PUBLISH_SECRET}", cfg.GetString("registry.history_dsn", ""))
+	})
+
 	t.Run("keeps profile variables for later profile resolution", func(t *testing.T) {
 		yamlContent := `version: "1.0"
 vars:

@@ -26,7 +26,7 @@ func LoadFiles(paths []string) (boot.Config, error) {
 		if path == "" {
 			return nil, fmt.Errorf("load config file: path is empty")
 		}
-		cfg, err := load(path, true)
+		cfg, err := load(path, true, true)
 		if err != nil {
 			return nil, fmt.Errorf("load config file %s: %w", path, err)
 		}
@@ -36,10 +36,17 @@ func LoadFiles(paths []string) (boot.Config, error) {
 }
 
 func Load(path string) (boot.Config, error) {
-	return load(path, false)
+	return load(path, false, true)
 }
 
-func load(path string, required bool) (boot.Config, error) {
+// LoadForPublish reads declared configuration without expanding references to
+// the publisher's environment. Package metadata must be derived from source,
+// never from machine-local values present while the package is built.
+func LoadForPublish(path string) (boot.Config, error) {
+	return load(path, false, false)
+}
+
+func load(path string, required, resolveEnv bool) (boot.Config, error) {
 	if path == "" {
 		return nil, nil //nolint:nilnil // empty path means no config
 	}
@@ -60,8 +67,10 @@ func load(path string, required bool) (boot.Config, error) {
 	if err := validateVersion(cfg.Version); err != nil {
 		return nil, err
 	}
-	if err := resolveOSEnvRefs(cfg.Sections); err != nil {
-		return nil, err
+	if resolveEnv {
+		if err := resolveOSEnvRefs(cfg.Sections); err != nil {
+			return nil, err
+		}
 	}
 
 	return buildBootConfig(cfg.Sections)

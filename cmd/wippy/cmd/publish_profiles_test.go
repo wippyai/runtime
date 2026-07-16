@@ -26,6 +26,7 @@ profiles:
       db_host: db.internal
     override:
       "app:db:kind": db.sql.postgres
+      "app:db:host": "${db_host}"
     disable:
       namespaces:
         add:
@@ -60,6 +61,142 @@ profiles:
 	require.Equal(t, "db.sql.postgres", prodOverride["app:db:kind"])
 	prodDisable := requireMap(t, prod["disable"])
 	require.Equal(t, []any{"app.dev.**"}, prodDisable["namespaces.add"])
+}
+
+func TestAddPublishedRuntimeMetadataExportsSelectedBaseConfigAndProfiles(t *testing.T) {
+	dir := t.TempDir()
+	writeRuntimeProfileConfig(t, dir, `.wippy.yaml`, `version: "1.0"
+security:
+  strict_mode: true
+registry:
+  enable_history: true
+  dispatch_internal_kinds:
+    - registry.entry
+    - ns.requirement
+vars:
+  port: 8085
+  signing_key: must-never-be-packed
+override:
+  "app:gateway:addr": ":${port}"
+profiles:
+  local:
+    override:
+      "app:gateway:addr": ":18085"
+workspace:
+  replacements:
+    acme/http: ../http
+secrets:
+  signing_key: must-never-be-packed
+`)
+
+	metadata := attrs.Bag{}
+	disabled := false
+	require.NoError(t, addPublishedRuntimeMetadata(metadata, dir, config.PublishConfig{
+		Runtime: config.PublishRuntimeConfig{
+			Sections: []string{"security", "registry", "override"},
+		},
+		Profiles: config.PublishProfilesConfig{Enabled: &disabled},
+	}))
+
+	runtime := requireMap(t, metadata["runtime"])
+	require.Equal(t, true, requireMap(t, runtime["security"])["strict_mode"])
+	registry := requireMap(t, runtime["registry"])
+	require.Equal(t, true, registry["enable_history"])
+	require.Equal(t, []any{"registry.entry", "ns.requirement"}, registry["dispatch_internal_kinds"])
+	require.Equal(t, ":${port}", requireMap(t, runtime["override"])["app:gateway:addr"])
+	require.Equal(t, 8085, requireMap(t, runtime["vars"])["port"])
+	require.NotContains(t, requireMap(t, runtime["vars"]), "signing_key")
+	require.NotContains(t, runtime, "profiles")
+	require.NotContains(t, runtime, "workspace")
+	require.NotContains(t, runtime, "secrets")
+}
+
+func TestAddPublishedRuntimeMetadataRejectsMachineLocalSections(t *testing.T) {
+	dir := t.TempDir()
+	writeRuntimeProfileConfig(t, dir, `.wippy.yaml`, `version: "1.0"
+workspace:
+  replacements:
+    acme/http: ../http
+`)
+
+	err := addPublishedRuntimeMetadata(attrs.Bag{}, dir, config.PublishConfig{
+		Runtime: config.PublishRuntimeConfig{Sections: []string{"workspace"}},
+	})
+	require.ErrorContains(t, err, `runtime section "workspace" is machine-local`)
+}
+
+func TestAddPublishedRuntimeMetadataNeverResolvesPublisherSecrets(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("WIPPY_PUBLISH_TEST_SECRET", "publisher-secret-value")
+	writeRuntimeProfileConfig(t, dir, `.wippy.yaml`, `version: "1.0"
+vars:
+  history_dsn: ${env:WIPPY_PUBLISH_TEST_SECRET}
+registry:
+  history_dsn: ${history_dsn}
+`)
+
+	metadata := attrs.Bag{}
+	err := addPublishedRuntimeMetadata(metadata, dir, config.PublishConfig{
+		Runtime: config.PublishRuntimeConfig{Sections: []string{"registry"}},
+	})
+	require.ErrorContains(t, err, "vars.history_dsn references the publisher environment")
+	require.NotContains(t, err.Error(), "publisher-secret-value")
+	require.NotContains(t, metadata, "runtime")
+}
+
+func TestAddPublishedRuntimeMetadataRejectsUndefinedReferencedVariable(t *testing.T) {
+	dir := t.TempDir()
+	writeRuntimeProfileConfig(t, dir, `.wippy.yaml`, `version: "1.0"
+override:
+  "app:gateway:addr": ":${missing_port}"
+`)
+
+	err := addPublishedRuntimeMetadata(attrs.Bag{}, dir, config.PublishConfig{
+		Runtime: config.PublishRuntimeConfig{Sections: []string{"override"}},
+	})
+	require.ErrorContains(t, err, `published runtime sections references undefined runtime variable "missing_port"`)
+}
+
+func TestAddPublishedRuntimeProfileMetadataPreservesLegacyBaseVariables(t *testing.T) {
+	dir := t.TempDir()
+	writeRuntimeProfileConfig(t, dir, `.wippy.yaml`, `version: "1.0"
+vars:
+  public_host: localhost
+  public_timeout: 30s
+profiles:
+  local:
+    override:
+      "app:db:host": "${public_host}"
+`)
+
+	metadata := attrs.Bag{}
+	require.NoError(t, addPublishedRuntimeProfileMetadata(metadata, dir, config.PublishProfilesConfig{}))
+	vars := requireMap(t, requireMap(t, metadata["runtime"])["vars"])
+	require.Equal(t, "localhost", vars["public_host"])
+	require.Equal(t, "30s", vars["public_timeout"])
+}
+
+func TestAddPublishedRuntimeMetadataRequiresExplicitSectionAllowList(t *testing.T) {
+	err := addPublishedRuntimeMetadata(attrs.Bag{}, t.TempDir(), config.PublishConfig{
+		Runtime: config.PublishRuntimeConfig{Source: "config/runtime.yaml"},
+	})
+	require.ErrorContains(t, err, "requires an explicit publish.runtime.sections allow-list")
+}
+
+func TestAddPublishedRuntimeMetadataRejectsAmbiguousSectionMetadata(t *testing.T) {
+	dir := t.TempDir()
+	writeRuntimeProfileConfig(t, dir, `.wippy.yaml`, `version: "1.0"
+security:
+  strict_mode: true
+`)
+	metadata := attrs.Bag{"runtime": map[string]any{
+		"security": map[string]any{"strict_mode": false},
+	}}
+
+	err := addPublishedRuntimeMetadata(metadata, dir, config.PublishConfig{
+		Runtime: config.PublishRuntimeConfig{Sections: []string{"security"}},
+	})
+	require.ErrorContains(t, err, `runtime section "security" is defined in both`)
 }
 
 func TestAddPublishedRuntimeProfileMetadataUsesConfiguredSource(t *testing.T) {

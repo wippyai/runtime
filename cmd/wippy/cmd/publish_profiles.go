@@ -4,41 +4,27 @@ package cmd
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/wippyai/runtime/api/attrs"
 	"github.com/wippyai/runtime/api/boot"
 	"github.com/wippyai/runtime/boot/deps/config"
-	"github.com/wippyai/runtime/cmd/internal/bootconfig"
 )
 
-const (
-	publishRuntimeMetadataKey         = "runtime"
-	publishRuntimeProfilesMetadataKey = "profiles"
-	publishRuntimeVarsMetadataKey     = "vars"
-)
-
+// addPublishedRuntimeProfileMetadata retains the focused helper used by
+// callers and tests which only configure profile publication.
 func addPublishedRuntimeProfileMetadata(metadata attrs.Bag, configDir string, profileCfg config.PublishProfilesConfig) error {
-	if hasNestedRuntimeMetadata(metadata, publishRuntimeProfilesMetadataKey) {
-		return fmt.Errorf("wippy.yaml metadata.runtime.profiles is not supported; declare publishable profiles in .wippy.yaml or publish.profiles.source")
-	}
+	return addPublishedRuntimeMetadata(metadata, configDir, config.PublishConfig{Profiles: profileCfg})
+}
 
+func collectPublishedRuntimeProfiles(dst *publishedRuntimeConfig, configDir string, profileCfg config.PublishProfilesConfig) error {
 	if profileCfg.Enabled != nil && !*profileCfg.Enabled {
 		return nil
 	}
 
-	source := strings.TrimSpace(profileCfg.Source)
-	if source == "" {
-		source = defaultConfigFile
-	}
-	if !filepath.IsAbs(source) {
-		source = filepath.Join(configDir, source)
-	}
-
-	cfg, err := bootconfig.Load(source)
+	cfg, source, err := loadPublishRuntimeSource(configDir, profileCfg.Source)
 	if err != nil {
-		return fmt.Errorf("load runtime profile source %s: %w", source, err)
+		return err
 	}
 	if cfg == nil {
 		return nil
@@ -51,22 +37,11 @@ func addPublishedRuntimeProfileMetadata(metadata attrs.Bag, configDir string, pr
 	if len(profiles) == 0 {
 		return nil
 	}
-
-	if hasNestedRuntimeMetadata(metadata, publishRuntimeVarsMetadataKey) {
-		return fmt.Errorf("runtime vars are defined in both %s and wippy.yaml metadata; keep profile variables in the profile source", source)
+	if path, found := findPublishEnvReference(profiles, publishRuntimeProfilesMetadataKey); found {
+		return fmt.Errorf("runtime setting %s references the publisher environment; use a runtime variable or an entry *_env setting instead", path)
 	}
-
-	runtime, err := runtimeMetadataMap(metadata)
-	if err != nil {
-		return err
-	}
-	runtime[publishRuntimeProfilesMetadataKey] = profiles
-
-	vars := runtimeSectionFromConfig(cfg, publishRuntimeVarsMetadataKey)
-	if len(vars) > 0 {
-		runtime[publishRuntimeVarsMetadataKey] = vars
-	}
-
+	dst.profiles = profiles
+	mergePublishedVars(dst.vars, runtimeSectionFromConfig(cfg, publishRuntimeVarsMetadataKey), source)
 	return nil
 }
 
@@ -134,73 +109,4 @@ func runtimeProfilesFromConfig(cfg boot.Config, include []string) (map[string]an
 		profiles[name] = profile
 	}
 	return profiles, nil
-}
-
-func runtimeSectionFromConfig(cfg boot.Config, section string) map[string]any {
-	values := make(map[string]any)
-	if cfg == nil {
-		return values
-	}
-
-	prefix := section + "."
-	for _, key := range cfg.Keys() {
-		if !strings.HasPrefix(key, prefix) {
-			continue
-		}
-		value, _ := cfg.Get(key)
-		values[strings.TrimPrefix(key, prefix)] = value
-	}
-	return values
-}
-
-func runtimeMetadataMap(metadata attrs.Bag) (map[string]any, error) {
-	if metadata == nil {
-		return nil, fmt.Errorf("metadata bag is nil")
-	}
-
-	raw, exists := metadata[publishRuntimeMetadataKey]
-	if !exists {
-		runtime := make(map[string]any)
-		metadata[publishRuntimeMetadataKey] = runtime
-		return runtime, nil
-	}
-
-	switch typed := raw.(type) {
-	case map[string]any:
-		return typed, nil
-	case attrs.Bag:
-		runtime := map[string]any(typed)
-		metadata[publishRuntimeMetadataKey] = runtime
-		return runtime, nil
-	default:
-		return nil, fmt.Errorf("wippy.yaml metadata.runtime must be a map when publishing runtime profiles")
-	}
-}
-
-func hasNestedRuntimeMetadata(metadata attrs.Bag, nestedKey string) bool {
-	if metadata == nil {
-		return false
-	}
-
-	dotted := publishRuntimeMetadataKey + "." + nestedKey
-	for key := range metadata {
-		if key == dotted || strings.HasPrefix(key, dotted+".") {
-			return true
-		}
-	}
-
-	raw, exists := metadata[publishRuntimeMetadataKey]
-	if !exists {
-		return false
-	}
-	switch typed := raw.(type) {
-	case map[string]any:
-		_, exists = typed[nestedKey]
-		return exists
-	case attrs.Bag:
-		_, exists = typed[nestedKey]
-		return exists
-	default:
-		return false
-	}
 }

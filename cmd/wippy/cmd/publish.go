@@ -521,7 +521,7 @@ func packModule(ctx context.Context, app *appinit.Context, cfg *config.ModuleCon
 		}
 		metadata[trimmed] = value
 	}
-	if err := addPublishedRuntimeProfileMetadata(metadata, srcDir, cfg.Publish.Profiles); err != nil {
+	if err := addPublishedRuntimeMetadata(metadata, srcDir, cfg.Publish); err != nil {
 		return nil, NewPublishConfigError(err)
 	}
 

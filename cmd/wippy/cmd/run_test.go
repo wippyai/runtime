@@ -355,3 +355,66 @@ profiles:
 	require.NoError(t, err)
 	require.Equal(t, "db.sql.file", cfg.GetString("override.app:db:kind", ""))
 }
+
+func TestLoadRuntimeConfig_PackedApplicationParityAndLocalPrecedence(t *testing.T) {
+	tempDir := t.TempDir()
+	cfgPath := filepath.Join(tempDir, "wippy.yaml")
+	cfgBody := []byte(`version: "1.0"
+registry:
+  event_wait_timeout: 30s
+override:
+  "app:local:enabled": true
+profiles:
+  production:
+    vars:
+      port: 19000
+    registry:
+      history_type: local-postgres
+`)
+	require.NoError(t, os.WriteFile(cfgPath, cfgBody, 0o644))
+
+	prevProfiler := profiler
+	setTestConfigFiles(t, cfgPath)
+	profiler = false
+	t.Cleanup(func() { profiler = prevProfiler })
+
+	runtimeDefaults := boot.NewConfig(
+		boot.WithSection("security", map[string]any{
+			"strict_mode": true,
+		}),
+		boot.WithSection("registry", map[string]any{
+			"history_type":            "memory",
+			"dispatch_internal_kinds": []any{"registry.entry", "ns.requirement"},
+		}),
+		boot.WithSection("vars", map[string]any{
+			"port": 8085,
+		}),
+		boot.WithSection("override", map[string]any{
+			"app:gateway:addr": ":${port}",
+		}),
+		boot.WithSection("profiles", map[string]any{
+			"production.vars.port":             18085,
+			"production.registry.history_type": "pack-postgres",
+		}),
+	)
+
+	cmd := &cobra.Command{}
+	cmd.Flags().StringArray("profile", nil, "")
+	require.NoError(t, cmd.Flags().Set("profile", "production"))
+
+	cfg, err := loadRuntimeConfigWithDefaults(cmd, zap.NewNop(), runtimeDefaults)
+	require.NoError(t, err)
+	require.True(t, cfg.GetBool("security.strict_mode", false))
+	require.Equal(t, []any{"registry.entry", "ns.requirement"}, mustConfigValue(t, cfg, "registry.dispatch_internal_kinds"))
+	require.Equal(t, "30s", cfg.GetString("registry.event_wait_timeout", ""))
+	require.Equal(t, "local-postgres", cfg.GetString("registry.history_type", ""))
+	require.Equal(t, ":19000", cfg.GetString("override.app:gateway:addr", ""))
+	require.True(t, cfg.GetBool("override.app:local:enabled", false))
+}
+
+func mustConfigValue(t *testing.T, cfg boot.Config, key string) any {
+	t.Helper()
+	value, ok := cfg.Get(key)
+	require.Truef(t, ok, "missing config value %s", key)
+	return value
+}
