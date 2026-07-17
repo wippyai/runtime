@@ -18,7 +18,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.33
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.105.2
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.45.1
-	github.com/aws/smithy-go v1.27.3
+	github.com/aws/smithy-go v1.27.4
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/charmbracelet/bubbles v0.21.1
 	github.com/charmbracelet/bubbletea v1.3.10
