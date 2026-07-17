@@ -107,7 +107,10 @@ local function delete_leftovers()
 end
 
 local function receive_from(channel_value, message)
-	local timer = time.after(1000 * time.MILLISECOND)
+	-- The deadline only guards against a hang; a real event arrives in
+	-- milliseconds. At 1s it raced the async round-trip under load and flaked
+	-- (~50% on a busy host), so give it ample headroom.
+	local timer = time.after(10 * time.SECOND)
 	local selected = channel.select{
 		channel_value:case_receive(),
 		timer:case_receive(),
