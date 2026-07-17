@@ -7,12 +7,40 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	lua "github.com/wippyai/go-lua"
 	"github.com/wippyai/runtime/api/dispatcher"
+	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/pid"
 	"github.com/wippyai/runtime/api/process"
 	runtimeapi "github.com/wippyai/runtime/api/runtime"
+	"github.com/wippyai/runtime/api/topology"
 )
+
+func configureAPIErrorMetadataExtractor(t *testing.T) {
+	t.Helper()
+
+	lua.SetErrorMetadataExtractor(func(err error) *lua.ErrorMetadata {
+		var apiErr apierror.Error
+		if !errors.As(err, &apiErr) {
+			return nil
+		}
+
+		meta := &lua.ErrorMetadata{Kind: lua.Kind(apiErr.Kind())}
+		switch apiErr.Retryable() {
+		case apierror.True:
+			retryable := true
+			meta.Retryable = &retryable
+		case apierror.False:
+			retryable := false
+			meta.Retryable = &retryable
+		}
+		return meta
+	})
+	t.Cleanup(func() {
+		lua.SetErrorMetadataExtractor(nil)
+	})
+}
 
 func TestSendYield_HandleResult_Success(t *testing.T) {
 	l := lua.NewState()
@@ -154,6 +182,64 @@ func TestMonitorYield_HandleResult_Success(t *testing.T) {
 	assert.Len(t, result, 2)
 	assert.Equal(t, lua.LTrue, result[0])
 	assert.Equal(t, lua.LNil, result[1])
+}
+
+func TestMonitorYield_HandleResult_PreservesAlreadyMonitoringMetadata(t *testing.T) {
+	configureAPIErrorMetadataExtractor(t)
+	l := lua.NewState()
+	defer l.Close()
+
+	yield := AcquireMonitorYield()
+	defer yield.Release()
+
+	result := yield.HandleResult(l, nil, topology.ErrAlreadyMonitoring)
+	require.Len(t, result, 2)
+	assert.Equal(t, lua.LNil, result[0])
+	assert.Equal(t, "already monitoring pid", result[1].String())
+
+	luaErr, ok := lua.AsError(result[1])
+	require.True(t, ok, "expected Lua error userdata")
+	assert.Equal(t, lua.AlreadyExists, luaErr.Kind())
+	assert.Equal(t, lua.TernaryFalse, luaErr.Retryable())
+}
+
+func TestMonitorYield_HandleResult_PreservesGenericAPIErrorMetadata(t *testing.T) {
+	configureAPIErrorMetadataExtractor(t)
+	l := lua.NewState()
+	defer l.Close()
+
+	yield := AcquireMonitorYield()
+	defer yield.Release()
+
+	monitorErr := apierror.New(apierror.Unavailable, "monitor backend unavailable").
+		WithRetryable(apierror.True)
+	result := yield.HandleResult(l, nil, monitorErr)
+	require.Len(t, result, 2)
+	assert.Equal(t, lua.LNil, result[0])
+	assert.Equal(t, "monitor backend unavailable", result[1].String())
+
+	luaErr, ok := lua.AsError(result[1])
+	require.True(t, ok, "expected Lua error userdata")
+	assert.Equal(t, lua.Unavailable, luaErr.Kind())
+	assert.Equal(t, lua.TernaryTrue, luaErr.Retryable())
+}
+
+func TestMonitorYield_HandleResult_DefaultsUnstructuredErrors(t *testing.T) {
+	l := lua.NewState()
+	defer l.Close()
+
+	yield := AcquireMonitorYield()
+	defer yield.Release()
+
+	result := yield.HandleResult(l, nil, errors.New("target unreachable"))
+	require.Len(t, result, 2)
+	assert.Equal(t, lua.LNil, result[0])
+	assert.Equal(t, "target unreachable", result[1].String())
+
+	luaErr, ok := lua.AsError(result[1])
+	require.True(t, ok, "expected Lua error userdata")
+	assert.Equal(t, lua.Internal, luaErr.Kind())
+	assert.Equal(t, lua.TernaryFalse, luaErr.Retryable())
 }
 
 func TestUnmonitorYield_HandleResult_Success(t *testing.T) {
