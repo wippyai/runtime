@@ -95,6 +95,7 @@ func (h *DependencyHandler) resolutionForSnapshot(
 	ctx context.Context,
 	baseline regapi.State,
 	roots []desiredDependency,
+	references []desiredDependency,
 	modules []ResolvedModule,
 	transcoder payload.Transcoder,
 ) (*regapi.DependencyResolution, error) {
@@ -102,7 +103,7 @@ func (h *DependencyHandler) resolutionForSnapshot(
 	if err != nil {
 		return nil, err
 	}
-	resolution := dependencyResolution(roots, modules)
+	resolution := dependencyResolution(roots, references, modules)
 	resolution.BaselineDigest = baselineDigest
 	return resolution.Canonical(), nil
 }

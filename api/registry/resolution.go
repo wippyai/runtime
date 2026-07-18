@@ -49,7 +49,15 @@ type DependencyResolution struct {
 	InputDigest    string           `json:"input_digest"`
 	BaselineDigest string           `json:"baseline_digest,omitempty"`
 	Roots          []DependencyRoot `json:"roots"`
-	Modules        []ResolvedModule `json:"modules"`
+	// References are root-shaped declarations folded into an existing root for
+	// the same component: a workspace package declaring a dependency the
+	// deployment already installs. They are recorded facts of the selection —
+	// their constraints joined the solve — but they do not control install or
+	// uninstall and stay outside InputDigest, so the declared root-set identity
+	// is unchanged; a reference-free Digest stays byte-identical to prior
+	// releases while referenced graphs are content-distinct.
+	References []DependencyRoot `json:"references,omitempty"`
+	Modules    []ResolvedModule `json:"modules"`
 }
 
 // CanRebaseDependencyResolution reports whether next may replace the graph
@@ -77,17 +85,14 @@ func (r *DependencyResolution) Canonical() *DependencyResolution {
 		InputDigest:    r.InputDigest,
 		BaselineDigest: r.BaselineDigest,
 		Roots:          append([]DependencyRoot(nil), r.Roots...),
+		References:     append([]DependencyRoot(nil), r.References...),
 		Modules:        append([]ResolvedModule(nil), r.Modules...),
 	}
-	sort.Slice(out.Roots, func(i, j int) bool {
-		if out.Roots[i].ID != out.Roots[j].ID {
-			return out.Roots[i].ID < out.Roots[j].ID
-		}
-		if out.Roots[i].Component != out.Roots[j].Component {
-			return out.Roots[i].Component < out.Roots[j].Component
-		}
-		return out.Roots[i].Version < out.Roots[j].Version
-	})
+	if len(out.References) == 0 {
+		out.References = nil
+	}
+	sortDependencyRoots(out.Roots)
+	sortDependencyRoots(out.References)
 	sort.Slice(out.Modules, func(i, j int) bool {
 		left, right := out.Modules[i], out.Modules[j]
 		if left.Name != right.Name {
@@ -111,6 +116,18 @@ func (r *DependencyResolution) Canonical() *DependencyResolution {
 	return out
 }
 
+func sortDependencyRoots(roots []DependencyRoot) {
+	sort.Slice(roots, func(i, j int) bool {
+		if roots[i].ID != roots[j].ID {
+			return roots[i].ID < roots[j].ID
+		}
+		if roots[i].Component != roots[j].Component {
+			return roots[i].Component < roots[j].Component
+		}
+		return roots[i].Version < roots[j].Version
+	})
+}
+
 // Valid reports whether the stored digest matches the canonical resolution.
 func (r *DependencyResolution) Valid() bool {
 	if r == nil || r.Digest == "" {
@@ -131,6 +148,23 @@ func (r *DependencyResolution) Valid() bool {
 		rootIDs[root.ID] = struct{}{}
 		components[root.Component] = struct{}{}
 	}
+	rootComponents := components
+	referenceIDs := make(map[string]struct{}, len(r.References))
+	for _, reference := range r.References {
+		if reference.ID == "" || reference.Component == "" || reference.Version == "" {
+			return false
+		}
+		if _, duplicate := referenceIDs[reference.ID]; duplicate {
+			return false
+		}
+		if _, collides := rootIDs[reference.ID]; collides {
+			return false
+		}
+		if _, anchored := rootComponents[reference.Component]; !anchored {
+			return false
+		}
+		referenceIDs[reference.ID] = struct{}{}
+	}
 	modules := make(map[string]struct{}, len(r.Modules))
 	for _, module := range r.Modules {
 		if module.Name == "" || module.Version == "" || module.Digest == "" {
@@ -149,11 +183,16 @@ func (r *DependencyResolution) computeDigest() string {
 		InputDigest    string           `json:"input_digest"`
 		BaselineDigest string           `json:"baseline_digest,omitempty"`
 		Roots          []DependencyRoot `json:"roots"`
-		Modules        []ResolvedModule `json:"modules"`
+		// omitempty keeps a reference-free digest byte-identical to prior
+		// releases while distinct reference sets produce distinct graphs in
+		// content-addressed stores.
+		References []DependencyRoot `json:"references,omitempty"`
+		Modules    []ResolvedModule `json:"modules"`
 	}{
 		InputDigest:    r.InputDigest,
 		BaselineDigest: r.BaselineDigest,
 		Roots:          r.Roots,
+		References:     r.References,
 		Modules:        r.Modules,
 	}
 	data, _ := json.Marshal(payload) // Struct contains only JSON-safe primitives.

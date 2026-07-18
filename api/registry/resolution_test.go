@@ -99,3 +99,61 @@ func TestCanRebaseDependencyResolutionRequiresBaselineTransition(t *testing.T) {
 		t.Fatal("an idempotent checkpoint is not a rebase")
 	}
 }
+
+func TestDependencyResolutionReferencesStayOutsideDigests(t *testing.T) {
+	base := &DependencyResolution{
+		InputDigest: "sha256:input",
+		Roots: []DependencyRoot{
+			{ID: "app.deps:tools", Component: "acme/tools", Version: ">=0.1.0"},
+		},
+		Modules: []ResolvedModule{
+			{Name: "acme/tools", Version: "0.2.5", Digest: "sha256:mod"},
+		},
+	}
+	withReferences := &DependencyResolution{
+		InputDigest: base.InputDigest,
+		Roots:       append([]DependencyRoot(nil), base.Roots...),
+		References: []DependencyRoot{
+			{ID: "acme.pkg:__dependency.acme.tools", Component: "acme/tools", Version: ">=0.1.0"},
+		},
+		Modules: append([]ResolvedModule(nil), base.Modules...),
+	}
+
+	// References are digest-relevant — a referenced graph must not collide with
+	// its reference-free shape in content-addressed stores — while an EMPTY
+	// reference set keeps the digest byte-identical to prior releases.
+	if base.Canonical().Digest == withReferences.Canonical().Digest {
+		t.Fatalf("referenced graph must be content-distinct from the reference-free graph")
+	}
+	emptyRefs := &DependencyResolution{
+		InputDigest: base.InputDigest,
+		Roots:       append([]DependencyRoot(nil), base.Roots...),
+		References:  []DependencyRoot{},
+		Modules:     append([]ResolvedModule(nil), base.Modules...),
+	}
+	if base.Canonical().Digest != emptyRefs.Canonical().Digest {
+		t.Fatalf("empty reference set must keep the legacy digest")
+	}
+
+	canonical := withReferences.Canonical()
+	if len(canonical.References) != 1 || canonical.References[0].ID != "acme.pkg:__dependency.acme.tools" {
+		t.Fatalf("canonical resolution must retain references: %+v", canonical.References)
+	}
+	if !canonical.Valid() {
+		t.Fatalf("referenced resolution must validate")
+	}
+
+	// References must anchor to a root component and never duplicate root IDs.
+	broken := withReferences.Canonical()
+	broken.References[0].Component = "acme/other"
+	broken.Digest = broken.computeDigest()
+	if broken.Valid() {
+		t.Fatalf("unanchored reference must invalidate the resolution")
+	}
+	colliding := withReferences.Canonical()
+	colliding.References[0].ID = "app.deps:tools"
+	colliding.Digest = colliding.computeDigest()
+	if colliding.Valid() {
+		t.Fatalf("reference colliding with a root ID must invalidate the resolution")
+	}
+}

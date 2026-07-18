@@ -204,9 +204,36 @@ func (h *DependencyHandler) expand(
 		controlledModules[module] = struct{}{}
 	}
 
-	desiredDeps, err := h.collectDesiredDependencies(ctx, op, snapshot, transcoder)
+	rootDeps, refDeps, err := h.collectDesiredDependencies(ctx, op, snapshot, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
+	}
+	desiredDeps := append(append([]desiredDependency(nil), rootDeps...), refDeps...)
+
+	// A reference introduced by this very operation for a component that is not
+	// installed yet is a planning error, not a fold: the second install attempt
+	// keeps the established "update that dependency instead" answer.
+	if installed, installedErr := h.installedModuleVersions(ctx, transcoder, snapshot); installedErr != nil {
+		return regapi.DirectiveResult{}, installedErr
+	} else {
+		for _, ref := range refDeps {
+			if !idsEqual(ref.entry.ID, op.Entry.ID) {
+				continue
+			}
+			if installed[ref.definition.Component] != "" {
+				continue
+			}
+			controllerID := ref.entry.ID
+			for _, root := range rootDeps {
+				if root.definition.Component == ref.definition.Component {
+					controllerID = root.entry.ID
+					break
+				}
+			}
+			return regapi.DirectiveResult{}, NewDependencyRootConflictError(
+				ref.definition.Component, controllerID.String(), ref.entry.ID.String(),
+			)
+		}
 	}
 
 	desiredDepEntries := make([]regapi.Entry, 0, len(desiredDeps))
@@ -224,6 +251,15 @@ func (h *DependencyHandler) expand(
 		}
 		if err = h.completeResolvedModuleIdentities(ctx, resolved); err != nil {
 			return regapi.DirectiveResult{}, err
+		}
+	}
+	for _, ref := range refDeps {
+		selected, ok := selectedModuleVersion(resolved, ref.definition.Component)
+		if !ok || !storedVersionSatisfies(selected, ref.definition.Version) {
+			return regapi.DirectiveResult{}, NewDependencyResolutionError(fmt.Errorf(
+				"folded dependency reference %s requires %s@%s, selection is %s",
+				ref.entry.ID.String(), ref.definition.Component, ref.definition.Version, selected,
+			))
 		}
 	}
 
@@ -332,7 +368,7 @@ func (h *DependencyHandler) expand(
 		effects = append(effects, packEffect)
 	}
 
-	selectedResolution, err := h.resolutionForSnapshot(ctx, snapshot, desiredDeps, resolved, transcoder)
+	selectedResolution, err := h.resolutionForSnapshot(ctx, snapshot, rootDeps, refDeps, resolved, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -475,19 +511,21 @@ func (h *DependencyHandler) ReconcileResolution(
 		return regapi.DirectiveResult{}, ErrDependencyTranscoderMissing
 	}
 
-	desiredDeps, err := h.collectSnapshotDependencies(ctx, target, transcoder)
+	snapshotDeps, err := h.collectSnapshotDependencies(ctx, target, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
-	if err := validateRootDependencyComponents(desiredDeps, regapi.ID{}); err != nil {
+	rootDeps, refDeps, err := foldRootDependencyComponents(snapshotDeps, regapi.ID{})
+	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
+	desiredDeps := append(append([]desiredDependency(nil), rootDeps...), refDeps...)
 
 	baselineDigest, err := h.deploymentBaselineDigest(ctx, current, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
-	refreshReason, err := h.resolutionRefreshReason(ctx, current, desiredDeps, resolution, baselineDigest, transcoder)
+	refreshReason, err := h.resolutionRefreshReason(ctx, current, rootDeps, resolution, baselineDigest, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -526,15 +564,16 @@ func (h *DependencyHandler) ReconcileResolution(
 		if err = h.completeResolvedModuleIdentities(ctx, resolved); err != nil {
 			return regapi.DirectiveResult{}, err
 		}
-		effectiveResolution = dependencyResolution(desiredDeps, resolved)
+		effectiveResolution = dependencyResolution(rootDeps, refDeps, resolved)
 		effectiveResolution.BaselineDigest = baselineDigest
 		effectiveResolution = effectiveResolution.Canonical()
 	} else {
-		desiredDeps, err = h.collectResolutionDependencies(ctx, target, transcoder, resolution.Roots)
+		rootDeps, refDeps, err = h.collectResolutionDependencies(ctx, target, transcoder, resolution.Roots, resolution.References)
 		if err != nil {
 			return regapi.DirectiveResult{}, err
 		}
-		if got := dependencyInputDigest(desiredDeps); got != resolution.InputDigest {
+		desiredDeps = append(append([]desiredDependency(nil), rootDeps...), refDeps...)
+		if got := dependencyInputDigest(rootDeps); got != resolution.InputDigest {
 			return regapi.DirectiveResult{}, NewDependencyResolutionError(fmt.Errorf(
 				"stored dependency input digest does not match declarations: stored %s, current %s",
 				resolution.InputDigest, got,
@@ -773,10 +812,11 @@ func selectedModuleVersion(modules []ResolvedModule, component string) (string, 
 	return "", false
 }
 
-func dependencyResolution(roots []desiredDependency, modules []ResolvedModule) *regapi.DependencyResolution {
+func dependencyResolution(roots, references []desiredDependency, modules []ResolvedModule) *regapi.DependencyResolution {
 	resolved := &regapi.DependencyResolution{
 		InputDigest: dependencyInputDigest(roots),
 		Roots:       dependencyRoots(roots),
+		References:  dependencyReferenceRoots(references),
 		Modules:     make([]regapi.ResolvedModule, 0, len(modules)),
 	}
 	for _, mod := range modules {
@@ -794,6 +834,19 @@ func dependencyResolution(roots []desiredDependency, modules []ResolvedModule) *
 		})
 	}
 	return resolved.Canonical()
+}
+
+// dependencyReferenceRoots renders folded references for the durable
+// resolution; an absent constraint is recorded as the explicit wildcard so
+// every stored reference carries a non-empty version.
+func dependencyReferenceRoots(references []desiredDependency) []regapi.DependencyRoot {
+	result := dependencyRoots(references)
+	for i := range result {
+		if strings.TrimSpace(result[i].Version) == "" {
+			result[i].Version = "*"
+		}
+	}
+	return result
 }
 
 func dependencyRoots(roots []desiredDependency) []regapi.DependencyRoot {
@@ -819,53 +872,90 @@ func (h *DependencyHandler) collectResolutionDependencies(
 	snapshot regapi.State,
 	transcoder payload.Transcoder,
 	roots []regapi.DependencyRoot,
-) ([]desiredDependency, error) {
+	references []regapi.DependencyRoot,
+) ([]desiredDependency, []desiredDependency, error) {
 	byID := make(map[string]regapi.Entry, len(snapshot))
 	for _, entry := range snapshot {
 		if isRootDependency(entry) {
 			byID[idKey(entry.ID)] = entry
 		}
 	}
-	if len(byID) != len(roots) {
-		return nil, NewDependencyResolutionError(fmt.Errorf(
-			"stored dependency root set has %d entries, current declarations have %d", len(roots), len(byID),
+	if len(byID) != len(roots)+len(references) {
+		return nil, nil, NewDependencyResolutionError(fmt.Errorf(
+			"stored dependency root set has %d entries, current declarations have %d",
+			len(roots)+len(references), len(byID),
 		))
 	}
 	deps := make([]desiredDependency, 0, len(roots))
-	seenIDs := make(map[string]struct{}, len(roots))
+	seenIDs := make(map[string]struct{}, len(roots)+len(references))
 	seenComponents := make(map[string]string, len(roots))
 	for _, root := range roots {
 		rootKey := idKey(regapi.ParseID(root.ID))
 		if rootKey == ":" {
-			return nil, NewDependencyResolutionError(fmt.Errorf("stored dependency root has an empty id"))
+			return nil, nil, NewDependencyResolutionError(fmt.Errorf("stored dependency root has an empty id"))
 		}
 		if _, duplicate := seenIDs[rootKey]; duplicate {
-			return nil, NewDependencyResolutionError(fmt.Errorf("duplicate stored dependency root %s", root.ID))
+			return nil, nil, NewDependencyResolutionError(fmt.Errorf("duplicate stored dependency root %s", root.ID))
 		}
 		seenIDs[rootKey] = struct{}{}
 		entry, ok := byID[rootKey]
 		if !ok {
-			return nil, NewDependencyResolutionError(fmt.Errorf("stored dependency root %s is missing", root.ID))
+			return nil, nil, NewDependencyResolutionError(fmt.Errorf("stored dependency root %s is missing", root.ID))
 		}
 		definition, err := decodeDependency(ctx, transcoder, entry)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if definition.Component != root.Component || definition.Version != root.Version {
-			return nil, NewDependencyResolutionError(fmt.Errorf(
+			return nil, nil, NewDependencyResolutionError(fmt.Errorf(
 				"stored dependency root %s expected %s@%s, got %s@%s",
 				root.ID, root.Component, root.Version, definition.Component, definition.Version,
 			))
 		}
 		if previousID, duplicate := seenComponents[definition.Component]; duplicate {
-			return nil, NewDependencyResolutionError(fmt.Errorf(
+			return nil, nil, NewDependencyResolutionError(fmt.Errorf(
 				"duplicate stored dependency component %s in roots %s and %s", definition.Component, previousID, root.ID,
 			))
 		}
 		seenComponents[definition.Component] = root.ID
 		deps = append(deps, desiredDependency{entry: entry, definition: definition})
 	}
-	return deps, nil
+	refs := make([]desiredDependency, 0, len(references))
+	for _, reference := range references {
+		refKey := idKey(regapi.ParseID(reference.ID))
+		if refKey == ":" {
+			return nil, nil, NewDependencyResolutionError(fmt.Errorf("stored dependency reference has an empty id"))
+		}
+		if _, duplicate := seenIDs[refKey]; duplicate {
+			return nil, nil, NewDependencyResolutionError(fmt.Errorf("duplicate stored dependency declaration %s", reference.ID))
+		}
+		seenIDs[refKey] = struct{}{}
+		entry, ok := byID[refKey]
+		if !ok {
+			return nil, nil, NewDependencyResolutionError(fmt.Errorf("stored dependency reference %s is missing", reference.ID))
+		}
+		definition, err := decodeDependency(ctx, transcoder, entry)
+		if err != nil {
+			return nil, nil, err
+		}
+		declared := strings.TrimSpace(definition.Version)
+		if declared == "" {
+			declared = "*"
+		}
+		if definition.Component != reference.Component || declared != reference.Version {
+			return nil, nil, NewDependencyResolutionError(fmt.Errorf(
+				"stored dependency reference %s expected %s@%s, got %s@%s",
+				reference.ID, reference.Component, reference.Version, definition.Component, declared,
+			))
+		}
+		if _, anchored := seenComponents[definition.Component]; !anchored {
+			return nil, nil, NewDependencyResolutionError(fmt.Errorf(
+				"stored dependency reference %s has no root for component %s", reference.ID, definition.Component,
+			))
+		}
+		refs = append(refs, desiredDependency{entry: entry, definition: definition})
+	}
+	return deps, refs, nil
 }
 
 func (h *DependencyHandler) collectSnapshotDependencies(
@@ -906,13 +996,13 @@ func (h *DependencyHandler) collectDesiredDependencies(
 	op regapi.Operation,
 	snapshot regapi.State,
 	transcoder payload.Transcoder,
-) ([]desiredDependency, error) {
+) ([]desiredDependency, []desiredDependency, error) {
 	deps := make(map[string]desiredDependency)
 	operationID := op.Entry.ID
 
 	current, err := h.collectSnapshotDependencies(ctx, snapshot, transcoder)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, dep := range current {
 		deps[idKey(dep.entry.ID)] = dep
@@ -924,14 +1014,14 @@ func (h *DependencyHandler) collectDesiredDependencies(
 	case regapi.EntryCreate, regapi.EntryUpdate:
 		entry, ok := resolveOperationEntry(op, snapshot)
 		if !ok {
-			return nil, NewDependencyEntryMissingError(op.Entry.ID.String())
+			return nil, nil, NewDependencyEntryMissingError(op.Entry.ID.String())
 		}
 		if !isRootDependency(entry) {
 			break
 		}
 		def, err := decodeDependency(ctx, transcoder, entry)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		deps[idKey(entry.ID)] = desiredDependency{
 			entry:      entry,
@@ -942,29 +1032,89 @@ func (h *DependencyHandler) collectDesiredDependencies(
 	result := make([]desiredDependency, 0, len(deps))
 	for id, dep := range deps {
 		if dep.definition.Component == "" {
-			return nil, NewDependencyEntryInvalidError(id, "component is required", "")
+			return nil, nil, NewDependencyEntryInvalidError(id, "component is required", "")
 		}
 		result = append(result, dep)
 	}
-	if err := validateRootDependencyComponents(result, operationID); err != nil {
-		return nil, err
-	}
-	return result, nil
+	return foldRootDependencyComponents(result, operationID)
 }
 
-func validateRootDependencyComponents(deps []desiredDependency, operationID regapi.ID) error {
-	seen := make(map[string]regapi.ID, len(deps))
+// foldRootDependencyComponents partitions root declarations into one
+// controlling root per component plus folded references. The established
+// declaration controls: the operation's own entry never controls while another
+// declaration for the component exists, and ties break on the lowest canonical
+// entry ID so the outcome is reconstructible from any snapshot. A duplicate
+// folds structurally; only a parameter disagreement conflicts here — whether
+// the reference's version constraint holds is decided by the resolution it
+// joins, which is deterministic within a deployment baseline.
+func foldRootDependencyComponents(deps []desiredDependency, operationID regapi.ID) (roots, references []desiredDependency, err error) {
+	sort.SliceStable(deps, func(i, j int) bool {
+		return deps[i].entry.ID.String() < deps[j].entry.ID.String()
+	})
+
+	groups := make(map[string][]desiredDependency, len(deps))
+	order := make([]string, 0, len(deps))
 	for _, dep := range deps {
 		component := dep.definition.Component
-		if existingID, ok := seen[component]; ok && !idsEqual(existingID, dep.entry.ID) {
-			if idsEqual(existingID, operationID) {
-				return NewDependencyRootConflictError(component, dep.entry.ID.String(), existingID.String())
-			}
-			return NewDependencyRootConflictError(component, existingID.String(), dep.entry.ID.String())
+		if _, seen := groups[component]; !seen {
+			order = append(order, component)
 		}
-		seen[component] = dep.entry.ID
+		groups[component] = append(groups[component], dep)
 	}
-	return nil
+
+	roots = make([]desiredDependency, 0, len(deps))
+	for _, component := range order {
+		group := groups[component]
+		controller := group[0]
+		for _, dep := range group[1:] {
+			if !idsEqual(dep.entry.ID, operationID) && idsEqual(controller.entry.ID, operationID) {
+				controller = dep
+			}
+		}
+		for _, dep := range group {
+			if idsEqual(dep.entry.ID, controller.entry.ID) {
+				// The controlling declaration itself, possibly observed through
+				// two ID spellings; every such shape stays a root.
+				roots = append(roots, dep)
+				continue
+			}
+			if len(dep.definition.Parameters) > 0 && !dependencyParametersEqual(dep.definition.Parameters, controller.definition.Parameters) {
+				if idsEqual(controller.entry.ID, operationID) {
+					return nil, nil, NewDependencyRootConflictError(component, dep.entry.ID.String(), controller.entry.ID.String())
+				}
+				return nil, nil, NewDependencyRootConflictError(component, controller.entry.ID.String(), dep.entry.ID.String())
+			}
+			references = append(references, dep)
+		}
+	}
+	return roots, references, nil
+}
+
+// dependencyParametersEqual compares parameter sets by name over their
+// canonical JSON forms, so transcoder-specific value typing cannot split
+// equal declarations.
+func dependencyParametersEqual(a, b []Parameter) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	canonical := func(v any) string {
+		data, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprintf("%#v", v)
+		}
+		return string(data)
+	}
+	byName := make(map[string]string, len(a))
+	for _, p := range a {
+		byName[p.Name] = canonical(p.Value)
+	}
+	for _, p := range b {
+		value, ok := byName[p.Name]
+		if !ok || value != canonical(p.Value) {
+			return false
+		}
+	}
+	return true
 }
 
 func (h *DependencyHandler) installedModuleVersions(ctx context.Context, transcoder payload.Transcoder, snapshot regapi.State) (map[string]string, error) {

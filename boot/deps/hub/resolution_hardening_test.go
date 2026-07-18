@@ -94,7 +94,7 @@ func hardeningResolution(roots ...regapi.Entry) *regapi.DependencyResolution {
 			Org: name.Organization, Name: name.Module, Version: "v1.0.0", Digest: hardeningDigest,
 		})
 	}
-	return dependencyResolution(desired, modules)
+	return dependencyResolution(desired, nil, modules)
 }
 
 const hardeningDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"

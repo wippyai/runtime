@@ -390,8 +390,33 @@ func (b *StateBuilder) ReverseChangeset(changeset registry.ChangeSet) (registry.
 	return reversed, nil
 }
 
+// firstDuplicateID reports the first entry ID that occurs more than once in a
+// state, by canonical identity.
+func firstDuplicateID(state registry.State) (registry.ID, bool) {
+	seen := make(map[registry.ID]struct{}, len(state))
+	for _, entry := range state {
+		id := registry.NewID(entry.ID.NS, entry.ID.Name)
+		if _, ok := seen[id]; ok {
+			return id, true
+		}
+		seen[id] = struct{}{}
+	}
+	return registry.ID{}, false
+}
+
 // BuildDelta calculates the changes required to transition from one state to another.
 func (b *StateBuilder) BuildDelta(from, to registry.State) (registry.ChangeSet, error) {
+	// A state carrying two entries under one ID has no single target shape: the
+	// delta would emit duplicate operations that fail mid-apply with a rollback
+	// far from the real cause (typically the same source loaded through two
+	// paths). Reject it here, naming the entry.
+	if dup, ok := firstDuplicateID(to); ok {
+		return nil, NewDuplicateEntryIDError("target", dup.NS, dup.Name)
+	}
+	if dup, ok := firstDuplicateID(from); ok {
+		return nil, NewDuplicateEntryIDError("source", dup.NS, dup.Name)
+	}
+
 	fromState := NewStateMap(from)
 	toState := NewStateMap(to)
 
