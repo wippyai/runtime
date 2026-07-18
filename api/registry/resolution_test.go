@@ -70,3 +70,32 @@ func TestDependencyResolutionValidRequiresArtifactIdentity(t *testing.T) {
 	}).Canonical()
 	require.False(t, missingDigest.Valid())
 }
+
+func TestCanRebaseDependencyResolutionRequiresBaselineTransition(t *testing.T) {
+	graph := func(baseline, version string) *DependencyResolution {
+		return (&DependencyResolution{
+			BaselineDigest: baseline,
+			InputDigest:    "sha256:inputs",
+			Roots:          []DependencyRoot{{ID: "app.deps:app", Component: "acme/app", Version: ">=v1.0.0"}},
+			Modules:        []ResolvedModule{{Name: "acme/app", Version: version, Digest: "sha256:artifact" + version}},
+		}).Canonical()
+	}
+
+	existing := graph("sha256:baseline-a", "v1.0.0")
+	rebased := graph("sha256:baseline-b", "v2.0.0")
+	rewritten := graph("sha256:baseline-a", "v2.0.0")
+	legacy := graph("", "v1.0.0")
+
+	if !CanRebaseDependencyResolution(existing, rebased) {
+		t.Fatal("a changed deployment baseline must permit graph rebinding")
+	}
+	if !CanRebaseDependencyResolution(legacy, rebased) {
+		t.Fatal("a legacy unbound graph must be upgradeable")
+	}
+	if CanRebaseDependencyResolution(existing, rewritten) {
+		t.Fatal("the graph must remain immutable within one deployment baseline")
+	}
+	if CanRebaseDependencyResolution(existing, existing) {
+		t.Fatal("an idempotent checkpoint is not a rebase")
+	}
+}

@@ -120,6 +120,18 @@ func TestPostgresHistory_SaveAndGet(t *testing.T) {
 	storedResolution, err := hist.GetDependencyResolution(v2)
 	require.NoError(t, err)
 	require.Equal(t, resolution.Digest, storedResolution.Digest)
+	baselineGraph := func(baseline, input string) *registry.DependencyResolution {
+		return (&registry.DependencyResolution{BaselineDigest: baseline, InputDigest: input}).Canonical()
+	}
+	baselineA := baselineGraph("sha256:baseline-a", "postgres-rebased-a")
+	require.NoError(t, hist.CompareAndSetHeadWithDependencyResolution(v2, v2, baselineA), "legacy graphs may bind to a deployment baseline")
+	require.Error(t, hist.CompareAndSetHeadWithDependencyResolution(v2, v2,
+		baselineGraph("sha256:baseline-a", "postgres-rewrite")), "same-baseline graphs remain immutable")
+	baselineB := baselineGraph("sha256:baseline-b", "postgres-rebased-b")
+	require.NoError(t, hist.CompareAndSetHeadWithDependencyResolution(v2, v2, baselineB))
+	storedResolution, err = hist.GetDependencyResolution(v2)
+	require.NoError(t, err)
+	require.Equal(t, baselineB.Digest, storedResolution.Digest)
 	var replayed int
 	require.NoError(t, hist.ReplayChanges(context.Background(), v2, func(registry.ChangeSet) error {
 		replayed++

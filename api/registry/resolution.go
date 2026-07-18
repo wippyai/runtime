@@ -45,10 +45,26 @@ type DependencyRoot struct {
 // InputDigest identifies the declared root set; Digest identifies the complete
 // immutable selection independently of mutable download URLs.
 type DependencyResolution struct {
-	Digest      string           `json:"digest"`
-	InputDigest string           `json:"input_digest"`
-	Roots       []DependencyRoot `json:"roots"`
-	Modules     []ResolvedModule `json:"modules"`
+	Digest         string           `json:"digest"`
+	InputDigest    string           `json:"input_digest"`
+	BaselineDigest string           `json:"baseline_digest,omitempty"`
+	Roots          []DependencyRoot `json:"roots"`
+	Modules        []ResolvedModule `json:"modules"`
+}
+
+// CanRebaseDependencyResolution reports whether next may replace the graph
+// checkpoint for the same declarative registry version. A registry version is
+// immutable within one deployment baseline, but its effective graph must be
+// recomputed when that independently versioned baseline changes. An unbound
+// legacy graph may be upgraded once to a baseline-bound graph.
+func CanRebaseDependencyResolution(existing, next *DependencyResolution) bool {
+	if existing == nil || next == nil || !existing.Valid() || !next.Valid() {
+		return false
+	}
+	if next.BaselineDigest == "" || existing.Digest == next.Digest {
+		return false
+	}
+	return existing.BaselineDigest == "" || existing.BaselineDigest != next.BaselineDigest
 }
 
 // Canonical returns a detached, deterministically ordered resolution and
@@ -58,9 +74,10 @@ func (r *DependencyResolution) Canonical() *DependencyResolution {
 		return nil
 	}
 	out := &DependencyResolution{
-		InputDigest: r.InputDigest,
-		Roots:       append([]DependencyRoot(nil), r.Roots...),
-		Modules:     append([]ResolvedModule(nil), r.Modules...),
+		InputDigest:    r.InputDigest,
+		BaselineDigest: r.BaselineDigest,
+		Roots:          append([]DependencyRoot(nil), r.Roots...),
+		Modules:        append([]ResolvedModule(nil), r.Modules...),
 	}
 	sort.Slice(out.Roots, func(i, j int) bool {
 		if out.Roots[i].ID != out.Roots[j].ID {
@@ -129,13 +146,15 @@ func (r *DependencyResolution) Valid() bool {
 
 func (r *DependencyResolution) computeDigest() string {
 	payload := struct {
-		InputDigest string           `json:"input_digest"`
-		Roots       []DependencyRoot `json:"roots"`
-		Modules     []ResolvedModule `json:"modules"`
+		InputDigest    string           `json:"input_digest"`
+		BaselineDigest string           `json:"baseline_digest,omitempty"`
+		Roots          []DependencyRoot `json:"roots"`
+		Modules        []ResolvedModule `json:"modules"`
 	}{
-		InputDigest: r.InputDigest,
-		Roots:       r.Roots,
-		Modules:     r.Modules,
+		InputDigest:    r.InputDigest,
+		BaselineDigest: r.BaselineDigest,
+		Roots:          r.Roots,
+		Modules:        r.Modules,
 	}
 	data, _ := json.Marshal(payload) // Struct contains only JSON-safe primitives.
 	sum := sha256.Sum256(data)
@@ -157,5 +176,9 @@ type ResolutionHistory interface {
 // unmodified, so a losing rollback cannot freeze a graph that was never live.
 type ResolutionHeadCASHistory interface {
 	ResolutionHistory
+	// CompareAndSetHeadWithDependencyResolution atomically moves the history
+	// head and checkpoints the effective graph. It may rebind an existing
+	// version only when CanRebaseDependencyResolution permits a deployment
+	// baseline transition.
 	CompareAndSetHeadWithDependencyResolution(expected, target Version, resolution *DependencyResolution) error
 }

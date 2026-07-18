@@ -421,6 +421,35 @@ func TestHistory_ResolutionReferenceIsImmutableAndCorruptionIsNotLegacy(t *testi
 	require.False(t, errors.Is(err, registry.ErrDependencyResolutionNotFound), "a dangling graph reference is corruption, not a legacy version")
 }
 
+func TestHistory_AtomicResolutionHeadCASAllowsOnlyDeploymentBaselineRebase(t *testing.T) {
+	hist, err := NewSQLite(filepath.Join(t.TempDir(), "history.db"), zap.NewNop())
+	require.NoError(t, err)
+	defer func() { _ = hist.Close() }()
+
+	v0, err := hist.Head()
+	require.NoError(t, err)
+	v1 := version.FromParent(v0, 1)
+	resolution := func(baseline, selected string) *registry.DependencyResolution {
+		return (&registry.DependencyResolution{
+			BaselineDigest: baseline,
+			InputDigest:    "roots",
+			Modules: []registry.ResolvedModule{{
+				Name: "acme/app", Version: selected, Digest: "sha256:" + selected,
+			}},
+		}).Canonical()
+	}
+	first := resolution("sha256:baseline-a", "v1")
+	sameBaseline := resolution("sha256:baseline-a", "v2")
+	newBaseline := resolution("sha256:baseline-b", "v2")
+	require.NoError(t, hist.SaveWithDependencyResolution(v1, nil, first, true))
+	require.Error(t, hist.CompareAndSetHeadWithDependencyResolution(v1, v1, sameBaseline))
+	require.NoError(t, hist.CompareAndSetHeadWithDependencyResolution(v1, v1, newBaseline))
+	stored, err := hist.GetDependencyResolution(v1)
+	require.NoError(t, err)
+	require.Equal(t, newBaseline.Digest, stored.Digest)
+	require.Error(t, hist.CheckpointDependencyResolution(v1, first), "non-CAS checkpoints remain immutable")
+}
+
 func TestHistory_Persistence(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")

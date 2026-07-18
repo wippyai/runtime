@@ -393,3 +393,16 @@ func TestStorage_DependencyResolutionCheckpointIsImmutable(t *testing.T) {
 		t.Fatal("expected immutable resolution reference conflict")
 	}
 }
+
+func TestStorage_ResolutionHeadCASRebasesOnlyAcrossDeploymentBaselines(t *testing.T) {
+	storage := New()
+	v0 := version.New(registry.RootVersion)
+	v1 := version.FromParent(v0, 1)
+	graph := func(baseline, input string) *registry.DependencyResolution {
+		return (&registry.DependencyResolution{BaselineDigest: baseline, InputDigest: input}).Canonical()
+	}
+	first := graph("sha256:baseline-a", "first")
+	require.NoError(t, storage.SaveWithDependencyResolution(v1, nil, first, true))
+	require.Error(t, storage.CompareAndSetHeadWithDependencyResolution(v1, v1, graph("sha256:baseline-a", "rewrite")))
+	require.NoError(t, storage.CompareAndSetHeadWithDependencyResolution(v1, v1, graph("sha256:baseline-b", "rebased")))
+}

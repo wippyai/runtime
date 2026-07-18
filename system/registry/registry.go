@@ -398,6 +398,9 @@ func (r *Reg) ApplyVersion(ctx context.Context, v registry.Version) error {
 				return NewExpandChangesError(reconcileErr)
 			}
 			reconciled = reconciled || result.Applied
+			if result.Resolution != nil {
+				targetResolution = result.Resolution.Canonical()
+			}
 			prepared, prepareErr := planner.PrepareEffects(ctx, result.Effects)
 			if prepareErr != nil {
 				planner.RollbackEffects(ctx, prepared)
@@ -823,6 +826,9 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 				return NewExpandChangesError(err)
 			}
 			reconciled = reconciled || result.Applied
+			if result.Resolution != nil {
+				resolution = result.Resolution.Canonical()
+			}
 			plan := &regexp.Plan{Effects: result.Effects, Resolution: result.Resolution, Expanded: result.Applied}
 			for _, additional := range result.Additional {
 				plan.Ops = append(plan.Ops, regexp.ScopedOp{Operation: additional.Operation, Scope: additional.Scope})

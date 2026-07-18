@@ -27,10 +27,162 @@ import (
 	"github.com/wippyai/runtime/system/registry/topology"
 	"github.com/wippyai/wapp"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 type bootRecordingRunner struct {
 	transitions []regapi.ChangeSet
+}
+
+func TestDependencyHandler_DeploymentRootSelfUpdateRepairsStoredResolution(t *testing.T) {
+	ctx := newTestContext()
+	tmpDir := t.TempDir()
+	lockPath := filepath.Join(tmpDir, "wippy.lock")
+	vendorDir := filepath.Join(tmpDir, "vendor")
+	dbPath := filepath.Join(tmpDir, "registry.db")
+
+	artifacts := map[string][]byte{
+		"v1.0.0": buildWappBytes(t, []wapp.Entry{{
+			ID: wapp.NewID("acme.app", "service"), Kind: "service", Data: map[string]any{"version": "v1"},
+		}}),
+		"v2.0.0": buildWappBytes(t, []wapp.Entry{{
+			ID: wapp.NewID("acme.app", "service"), Kind: "service", Data: map[string]any{"version": "v2"},
+		}}),
+	}
+	digests := make(map[string]string, len(artifacts))
+	for selected, artifact := range artifacts {
+		sum := sha256.Sum256(artifact)
+		digests[selected] = "sha256:" + hex.EncodeToString(sum[:])
+	}
+	writeLock := func(selected string) {
+		require.NoError(t, os.WriteFile(lockPath, []byte(fmt.Sprintf(`directories:
+  modules: vendor
+modules:
+  - name: acme/app
+    version: %s
+    hash: %s
+    root: true
+`, selected, digests[selected])), 0o600))
+	}
+	baseline := func(selected string) regapi.State {
+		root := regapi.Entry{
+			ID: regapi.NewID("app.deps", "app"), Kind: regapi.NamespaceDependency,
+			DependencyRoot: true,
+			Data:           payload.New(map[string]any{"component": "acme/app", "version": selected}),
+		}
+		service := markModuleIdentity(regapi.Entry{
+			ID: regapi.NewID("acme.app", "service"), Kind: "service",
+			Data: payload.New(map[string]any{"version": strings.TrimPrefix(selected, "v")}),
+		}, "acme/app", selected, digests[selected])
+		return regapi.State{root, service}
+	}
+	newHub := func(selected string, calls *int) HubClient {
+		return &fakeHub{
+			getManifest: func(_ context.Context, org, module, constraint string) (*ModuleManifest, error) {
+				*calls++
+				if org != "acme" || module != "app" || constraint != selected {
+					return nil, fmt.Errorf("unexpected manifest request %s/%s@%s", org, module, constraint)
+				}
+				return &ModuleManifest{
+					Org: org, Name: module, Version: selected, VersionID: selected,
+					Digest: digests[selected], SizeBytes: uint64(len(artifacts[selected])), URL: "memory://" + selected,
+				}, nil
+			},
+			downloadFile: func(_ context.Context, _ string, destination string) error {
+				if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+					return err
+				}
+				return os.WriteFile(destination, artifacts[selected], 0o600)
+			},
+		}
+	}
+	newRegistry := func(history regapi.History, client HubClient, logger *zap.Logger) *registryimpl.Reg {
+		resolver := topology.NewResolver()
+		handler, err := NewDependencyHandler(DependencyHandlerOptions{
+			Hub: client, Logger: logger, Resolver: resolver, LockPath: lockPath, VendorDir: vendorDir,
+		})
+		require.NoError(t, err)
+		return registryimpl.NewRegistry(
+			history, &bootRecordingRunner{}, topology.NewStateBuilder(zap.NewNop(), resolver), resolver, zap.NewNop(),
+			registryimpl.WithKindDirective(regapi.NamespaceDependency,
+				regexp.NewDependencyDirective(handler.Expand).WithResolutionTransition(handler.ReconcileResolution)),
+		)
+	}
+
+	writeLock("v1.0.0")
+	history, err := historysqlite.NewSQLite(dbPath, zap.NewNop())
+	require.NoError(t, err)
+	v1Calls := 0
+	initial := newRegistry(history, newHub("v1.0.0", &v1Calls), zap.NewNop())
+	require.NoError(t, initial.LoadState(ctx, baseline("v1.0.0"), version.FromParent(nil, 0)))
+	_, err = initial.Apply(ctx, regapi.ChangeSet{{
+		Kind:  regapi.EntryCreate,
+		Entry: regapi.Entry{ID: regapi.NewID("user.settings", "theme"), Kind: regapi.EntryKind, Data: payload.New("dark")},
+	}})
+	require.NoError(t, err)
+	head, err := history.Head()
+	require.NoError(t, err)
+	oldResolution, err := history.GetDependencyResolution(head)
+	require.NoError(t, err)
+	require.NoError(t, history.Close())
+
+	writeLock("v2.0.0")
+	history, err = historysqlite.NewSQLite(dbPath, zap.NewNop())
+	require.NoError(t, err)
+	failing := newRegistry(history, &fakeHub{getManifest: func(context.Context, string, string, string) (*ModuleManifest, error) {
+		return nil, errors.New("injected resolution failure")
+	}}, zap.NewNop())
+	require.Error(t, failing.LoadState(ctx, baseline("v2.0.0"), head))
+	unchanged, err := history.GetDependencyResolution(head)
+	require.NoError(t, err)
+	require.Equal(t, oldResolution.Digest, unchanged.Digest, "a failed transition must not rebind history")
+	require.NoError(t, history.Close())
+
+	history, err = historysqlite.NewSQLite(dbPath, zap.NewNop())
+	require.NoError(t, err)
+	core, logs := observer.New(zap.WarnLevel)
+	v2Calls := 0
+	updated := newRegistry(history, newHub("v2.0.0", &v2Calls), zap.New(core))
+	require.NoError(t, updated.LoadState(ctx, baseline("v2.0.0"), head))
+	require.Equal(t, 1, v2Calls, "a changed deployment baseline must resolve the final root graph once")
+	service, err := updated.GetEntry(regapi.NewID("acme.app", "service"))
+	require.NoError(t, err)
+	require.Equal(t, "v2.0.0", moduleVersion(service))
+	_, err = updated.GetEntry(regapi.NewID("user.settings", "theme"))
+	require.NoError(t, err, "history-owned overlays must survive a root package update")
+	entries := logs.FilterMessage("stored dependency resolution does not match deployment baseline; resolving final declarations").All()
+	require.Len(t, entries, 1)
+	require.Equal(t, "deployment baseline changed", entries[0].ContextMap()["reason"])
+	repaired, err := history.GetDependencyResolution(head)
+	require.NoError(t, err)
+	require.NotEmpty(t, repaired.BaselineDigest)
+	require.Equal(t, "v2.0.0", repaired.Modules[0].Version)
+	require.NoError(t, history.Close())
+
+	// Once repaired, the exact graph is restart-safe. Undo rebinds the older
+	// declarative version once to the current deployment; redo then reuses its
+	// already-repaired graph without another resolution.
+	history, err = historysqlite.NewSQLite(dbPath, zap.NewNop())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = history.Close() })
+	restartCalls := 0
+	restarted := newRegistry(history, newHub("v2.0.0", &restartCalls), zap.NewNop())
+	require.NoError(t, restarted.LoadState(ctx, baseline("v2.0.0"), head))
+	require.Zero(t, restartCalls)
+	service, err = restarted.GetEntry(regapi.NewID("acme.app", "service"))
+	require.NoError(t, err)
+	require.Equal(t, "v2.0.0", moduleVersion(service))
+	require.NoError(t, restarted.ApplyVersion(ctx, version.New(regapi.RootVersion)))
+	require.Equal(t, 1, restartCalls, "the older version is rebound to the new deployment once")
+	_, err = restarted.GetEntry(regapi.NewID("user.settings", "theme"))
+	require.Error(t, err)
+	service, err = restarted.GetEntry(regapi.NewID("acme.app", "service"))
+	require.NoError(t, err)
+	require.Equal(t, "v2.0.0", moduleVersion(service), "undo must never roll back the root deployment")
+	require.NoError(t, restarted.ApplyVersion(ctx, head))
+	require.Equal(t, 1, restartCalls, "redo must reuse the repaired target graph")
+	_, err = restarted.GetEntry(regapi.NewID("user.settings", "theme"))
+	require.NoError(t, err)
 }
 
 func TestDependencyHandler_PersistedResolutionBootRollbackRedoAndLongHistory(t *testing.T) {

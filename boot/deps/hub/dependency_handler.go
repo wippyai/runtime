@@ -332,9 +332,13 @@ func (h *DependencyHandler) expand(
 		effects = append(effects, packEffect)
 	}
 
+	selectedResolution, err := h.resolutionForSnapshot(ctx, snapshot, desiredDeps, resolved, transcoder)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
 	return regapi.DirectiveResult{
 		Applied:    true,
-		Resolution: dependencyResolution(desiredDeps, resolved),
+		Resolution: selectedResolution,
 		Additional: scoped,
 		Effects:    effects,
 	}, nil
@@ -449,9 +453,11 @@ func rootExpansionDriver(op regapi.Operation, snapshot regapi.State) (regapi.Ope
 	return regapi.Operation{}, false
 }
 
-// ReconcileResolution materializes a previously selected graph without asking
-// the Hub to choose versions again. It is intentionally a whole-graph operation:
-// history is first reduced to its final declarative state, then reconciled once.
+// ReconcileResolution materializes a previously selected graph. An unchanged
+// deployment replays it without resolving again. A changed deployment resolves
+// the final combined declarations once and binds the repaired graph to the new
+// baseline. History is reduced before either path, so this remains a whole-graph
+// operation rather than one expansion per historical version.
 func (h *DependencyHandler) ReconcileResolution(
 	ctx context.Context,
 	current regapi.State,
@@ -469,41 +475,75 @@ func (h *DependencyHandler) ReconcileResolution(
 		return regapi.DirectiveResult{}, ErrDependencyTranscoderMissing
 	}
 
-	desiredDeps, err := h.collectResolutionDependencies(ctx, target, transcoder, resolution.Roots)
+	desiredDeps, err := h.collectSnapshotDependencies(ctx, target, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
-	if got := dependencyInputDigest(desiredDeps); got != resolution.InputDigest {
-		return regapi.DirectiveResult{}, NewDependencyResolutionError(fmt.Errorf(
-			"stored dependency input digest does not match declarations: stored %s, current %s",
-			resolution.InputDigest, got,
-		))
+	if err := validateRootDependencyComponents(desiredDeps, regapi.ID{}); err != nil {
+		return regapi.DirectiveResult{}, err
 	}
 
-	resolved := make([]ResolvedModule, 0, len(resolution.Modules))
-	seen := make(map[string]struct{}, len(resolution.Modules))
-	for _, mod := range resolution.Modules {
-		name, parseErr := graph.ParseName(mod.Name)
-		if parseErr != nil || mod.Version == "" {
-			return regapi.DirectiveResult{}, NewDependencyResolutionError(fmt.Errorf("invalid stored module %q@%s", mod.Name, mod.Version))
+	baselineDigest, err := h.deploymentBaselineDigest(ctx, current, transcoder)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+	refreshReason, err := h.resolutionRefreshReason(ctx, current, desiredDeps, resolution, baselineDigest, transcoder)
+	if err != nil {
+		return regapi.DirectiveResult{}, err
+	}
+
+	var resolved []ResolvedModule
+	effectiveResolution := resolution.Canonical()
+	if refreshReason != "" {
+		logger := h.logger
+		if logger == nil {
+			logger = zap.NewNop()
 		}
-		if identityErr := validateStoredModuleArtifactIdentity(name, mod.Version, mod.Source, mod.Digest); identityErr != nil {
-			return regapi.DirectiveResult{}, NewDependencyResolutionError(identityErr)
+		logger.Warn("stored dependency resolution does not match deployment baseline; resolving final declarations",
+			zap.String("reason", refreshReason),
+			zap.String("stored_baseline_digest", resolution.BaselineDigest),
+			zap.String("deployment_baseline_digest", baselineDigest),
+			zap.String("stored_resolution_digest", resolution.Digest))
+		lockedVersions := storedResolutionVersions(resolution)
+		deploymentVersions, versionErr := h.installedModuleVersions(ctx, transcoder, current)
+		if versionErr != nil {
+			return regapi.DirectiveResult{}, versionErr
 		}
-		if _, duplicate := seen[mod.Name]; duplicate {
-			return regapi.DirectiveResult{}, NewDependencyResolutionError(fmt.Errorf("duplicate stored module %q", mod.Name))
+		for module, version := range deploymentVersions {
+			lockedVersions[module] = version
 		}
-		seen[mod.Name] = struct{}{}
-		resolved = append(resolved, ResolvedModule{
-			Org:       name.Organization,
-			Name:      name.Module,
-			Version:   mod.Version,
-			VersionID: mod.VersionID,
-			Source:    mod.Source,
-			Digest:    mod.Digest,
-			SizeBytes: mod.SizeBytes,
-			Protected: mod.Protected,
-		})
+		if h.lock != nil {
+			for _, mod := range h.lock.GetModules() {
+				if mod.Name != "" && mod.Version != "" {
+					lockedVersions[mod.Name] = mod.Version
+				}
+			}
+		}
+		resolved, err = h.resolveModules(ctx, dependencyDefinitions(desiredDeps), lockedVersions)
+		if err != nil {
+			return regapi.DirectiveResult{}, err
+		}
+		if err = h.completeResolvedModuleIdentities(ctx, resolved); err != nil {
+			return regapi.DirectiveResult{}, err
+		}
+		effectiveResolution = dependencyResolution(desiredDeps, resolved)
+		effectiveResolution.BaselineDigest = baselineDigest
+		effectiveResolution = effectiveResolution.Canonical()
+	} else {
+		desiredDeps, err = h.collectResolutionDependencies(ctx, target, transcoder, resolution.Roots)
+		if err != nil {
+			return regapi.DirectiveResult{}, err
+		}
+		if got := dependencyInputDigest(desiredDeps); got != resolution.InputDigest {
+			return regapi.DirectiveResult{}, NewDependencyResolutionError(fmt.Errorf(
+				"stored dependency input digest does not match declarations: stored %s, current %s",
+				resolution.InputDigest, got,
+			))
+		}
+		resolved, err = resolvedModulesFromStored(resolution)
+		if err != nil {
+			return regapi.DirectiveResult{}, err
+		}
 	}
 	for _, root := range desiredDeps {
 		selected, ok := selectedModuleVersion(resolved, root.definition.Component)
@@ -626,7 +666,7 @@ func (h *DependencyHandler) ReconcileResolution(
 	}
 	return regapi.DirectiveResult{
 		Applied:    true,
-		Resolution: resolution.Canonical(),
+		Resolution: effectiveResolution,
 		Additional: scoped,
 		Effects:    effects,
 	}, nil

@@ -43,6 +43,7 @@ type postgresQueries struct {
 	inheritResolution    string
 	insertResolution     string
 	setVersionResolution string
+	rebindResolution     string
 	insertChangeset      string
 	insertRootChangeset  string
 	insertRootVersion    string
@@ -165,6 +166,7 @@ func buildQueries(schemaName string) postgresQueries {
 		inheritResolution:    "INSERT INTO " + versionResolutions + " (version_id, resolution_digest) SELECT $1, resolution_digest FROM " + versionResolutions + " WHERE version_id = $2 ON CONFLICT(version_id) DO NOTHING",
 		insertResolution:     "INSERT INTO " + resolutionGraphs + " (digest, data) VALUES ($1, $2) ON CONFLICT(digest) DO NOTHING",
 		setVersionResolution: "INSERT INTO " + versionResolutions + " (version_id, resolution_digest) VALUES ($1, $2) ON CONFLICT(version_id) DO NOTHING",
+		rebindResolution:     "UPDATE " + versionResolutions + " SET resolution_digest = $1 WHERE version_id = $2 AND resolution_digest = $3",
 		insertChangeset:      "INSERT INTO " + changesets + " (version_id, data) VALUES ($1, $2)",
 		insertRootChangeset:  "INSERT INTO " + changesets + " (version_id, data) VALUES (0, $1) ON CONFLICT(version_id) DO NOTHING",
 		insertRootVersion:    "INSERT INTO " + versions + " (id, parent_id) VALUES (0, NULL) ON CONFLICT(id) DO NOTHING",
@@ -806,7 +808,7 @@ func (h *History) CompareAndSetHeadWithDependencyResolution(expected, target reg
 	if err = h.ensureResolutionGraph(ctx, tx, canonical.Digest); err != nil {
 		return NewDecodeChangesetError(err)
 	}
-	if err = h.setVersionResolution(ctx, tx, target.ID(), canonical.Digest); err != nil {
+	if err = h.rebindVersionResolution(ctx, tx, target.ID(), canonical); err != nil {
 		return NewInsertChangesetError(err)
 	}
 	result, err := tx.ExecContext(ctx, h.queries.updateHeadCAS,
@@ -874,6 +876,48 @@ func (h *History) setVersionResolution(ctx context.Context, tx *sql.Tx, versionI
 	}
 	if stored != digest {
 		return fmt.Errorf("version %d already references dependency resolution %s, refusing %s", versionID, stored, digest)
+	}
+	return nil
+}
+
+func (h *History) rebindVersionResolution(ctx context.Context, tx *sql.Tx, versionID uint, next *registry.DependencyResolution) error {
+	result, err := tx.ExecContext(ctx, h.queries.setVersionResolution, versionID, next.Digest)
+	if err != nil {
+		return err
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil || inserted == 1 {
+		return err
+	}
+	var storedDigest string
+	if err := tx.QueryRowContext(ctx, h.queries.getVersionResolution, versionID).Scan(&storedDigest); err != nil {
+		return err
+	}
+	if storedDigest == next.Digest {
+		return nil
+	}
+	var data []byte
+	if err := tx.QueryRowContext(ctx, h.queries.getResolutionGraph, storedDigest).Scan(&data); err != nil {
+		return err
+	}
+	existing, err := decodeResolutionGraph(storedDigest, data)
+	if err != nil {
+		return err
+	}
+	if !registry.CanRebaseDependencyResolution(existing, next) {
+		return fmt.Errorf("version %d already references dependency resolution %s for baseline %s, refusing %s for baseline %s",
+			versionID, storedDigest, existing.BaselineDigest, next.Digest, next.BaselineDigest)
+	}
+	updated, err := tx.ExecContext(ctx, h.queries.rebindResolution, next.Digest, versionID, storedDigest)
+	if err != nil {
+		return err
+	}
+	rows, err := updated.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return fmt.Errorf("version %d dependency resolution changed concurrently", versionID)
 	}
 	return nil
 }

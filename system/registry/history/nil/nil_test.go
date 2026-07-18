@@ -255,6 +255,24 @@ func TestHistory_AtomicResolutionInitializesRootHead(t *testing.T) {
 	}
 }
 
+func TestHistory_AtomicResolutionRebasesOnlyAcrossDeploymentBaselines(t *testing.T) {
+	hist := New()
+	v0 := version.New(registry.RootVersion)
+	graph := func(baseline, input string) *registry.DependencyResolution {
+		return (&registry.DependencyResolution{BaselineDigest: baseline, InputDigest: input}).Canonical()
+	}
+	first := graph("sha256:baseline-a", "first")
+	if err := hist.CompareAndSetHeadWithDependencyResolution(v0, v0, first); err != nil {
+		t.Fatalf("initialize resolution: %v", err)
+	}
+	if err := hist.CompareAndSetHeadWithDependencyResolution(v0, v0, graph("sha256:baseline-a", "rewrite")); err == nil {
+		t.Fatal("expected same-baseline rewrite rejection")
+	}
+	if err := hist.CompareAndSetHeadWithDependencyResolution(v0, v0, graph("sha256:baseline-b", "rebased")); err != nil {
+		t.Fatalf("rebase resolution: %v", err)
+	}
+}
+
 func TestHistory_RejectsMalformedResolutionWithoutMutation(t *testing.T) {
 	hist := New()
 	malformed := (&registry.DependencyResolution{Roots: []registry.DependencyRoot{
