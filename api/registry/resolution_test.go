@@ -157,3 +157,40 @@ func TestDependencyResolutionReferencesStayOutsideDigests(t *testing.T) {
 		t.Fatalf("reference colliding with a root ID must invalidate the resolution")
 	}
 }
+
+func TestCanRebaseDependencyResolutionIgnoresReferenceOnlyChanges(t *testing.T) {
+	base := (&DependencyResolution{
+		InputDigest:    "sha256:input",
+		BaselineDigest: "sha256:baseline",
+		Roots: []DependencyRoot{
+			{ID: "app.deps:tools", Component: "acme/tools", Version: ">=0.1.0"},
+		},
+		Modules: []ResolvedModule{
+			{Name: "acme/tools", Version: "0.2.5", Digest: "sha256:mod"},
+		},
+	}).Canonical()
+	referenced := (&DependencyResolution{
+		InputDigest:    base.InputDigest,
+		BaselineDigest: base.BaselineDigest,
+		Roots:          append([]DependencyRoot(nil), base.Roots...),
+		References: []DependencyRoot{
+			{ID: "acme.pkg:__dependency.acme.tools", Component: "acme/tools", Version: ">=0.1.0"},
+		},
+		Modules: append([]ResolvedModule(nil), base.Modules...),
+	}).Canonical()
+
+	// A reference-only change shares the deployment baseline: it is a normal
+	// new registry version, never a rebind of an existing one.
+	if CanRebaseDependencyResolution(base, referenced) {
+		t.Fatalf("reference-only change within one baseline must not permit a rebind")
+	}
+
+	// A baseline transition keeps permitting the one-shot rebind even when the
+	// next graph carries references.
+	rebased := referenced.Canonical()
+	rebased.BaselineDigest = "sha256:next-baseline"
+	rebased = rebased.Canonical()
+	if !CanRebaseDependencyResolution(base, rebased) {
+		t.Fatalf("baseline transition with references must permit the rebind")
+	}
+}
