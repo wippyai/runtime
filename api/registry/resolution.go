@@ -8,6 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
+
+	"github.com/wippyai/runtime/api/semver"
 )
 
 // ErrDependencyResolutionNotFound means a history version predates durable
@@ -165,7 +168,7 @@ func (r *DependencyResolution) Valid() bool {
 		}
 		referenceIDs[reference.ID] = struct{}{}
 	}
-	modules := make(map[string]struct{}, len(r.Modules))
+	modules := make(map[string]string, len(r.Modules))
 	for _, module := range r.Modules {
 		if module.Name == "" || module.Version == "" || module.Digest == "" {
 			return false
@@ -173,9 +176,45 @@ func (r *DependencyResolution) Valid() bool {
 		if _, duplicate := modules[module.Name]; duplicate {
 			return false
 		}
-		modules[module.Name] = struct{}{}
+		modules[module.Name] = module.Version
+	}
+	// A graph that selects no module for one of its own declarations, or
+	// selects a version a declaration provably excludes, is not a resolution
+	// of those declarations and must not enter durable stores.
+	for _, root := range r.Roots {
+		selected, present := modules[root.Component]
+		if !present || !constraintPermitsSelection(root.Version, selected) {
+			return false
+		}
+	}
+	for _, reference := range r.References {
+		// Anchoring above guarantees the component has a selected module.
+		if !constraintPermitsSelection(reference.Version, modules[reference.Component]) {
+			return false
+		}
 	}
 	return r.Digest == r.Canonical().Digest
+}
+
+// constraintPermitsSelection rejects only provable mismatches: the check binds
+// when the declared spelling is a semver constraint and the selected version
+// parses under the same grammar. Channel pins ("@beta"), branch selections,
+// and exact literals carry hub semantics the model cannot interpret; the
+// resolver validates those at solve time.
+func constraintPermitsSelection(constraint, selected string) bool {
+	constraint = strings.TrimSpace(constraint)
+	if !semver.IsConstraint(constraint) {
+		return true
+	}
+	parsed, err := semver.ParseConstraint(constraint)
+	if err != nil {
+		return true
+	}
+	version, err := semver.ParseVersion(strings.TrimSpace(selected))
+	if err != nil {
+		return true
+	}
+	return parsed.Match(version)
 }
 
 func (r *DependencyResolution) computeDigest() string {

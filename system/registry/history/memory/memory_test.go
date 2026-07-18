@@ -406,3 +406,43 @@ func TestStorage_ResolutionHeadCASRebasesOnlyAcrossDeploymentBaselines(t *testin
 	require.Error(t, storage.CompareAndSetHeadWithDependencyResolution(v1, v1, graph("sha256:baseline-a", "rewrite")))
 	require.NoError(t, storage.CompareAndSetHeadWithDependencyResolution(v1, v1, graph("sha256:baseline-b", "rebased")))
 }
+
+func TestStorage_ReferencedResolutionRoundTripsAndRejectsUnsound(t *testing.T) {
+	storage := New()
+	referenced := (&registry.DependencyResolution{
+		InputDigest: "sha256:input",
+		Roots: []registry.DependencyRoot{
+			{ID: "app.deps:tools", Component: "acme/tools", Version: ">=1.0.0"},
+		},
+		References: []registry.DependencyRoot{
+			{ID: "acme.pkg:__dependency.acme.tools", Component: "acme/tools", Version: ">=1.2.0"},
+		},
+		Modules: []registry.ResolvedModule{
+			{Name: "acme/tools", Version: "1.4.0", Digest: "sha256:mod"},
+		},
+	}).Canonical()
+	v1 := version.FromParent(version.New(0), 1)
+
+	require.NoError(t, storage.SaveWithDependencyResolution(v1, nil, referenced, true))
+	stored, err := storage.GetDependencyResolution(v1)
+	require.NoError(t, err)
+	require.Equal(t, referenced.Digest, stored.Digest)
+	require.Equal(t, referenced.References, stored.References)
+
+	// A graph whose reference constraint provably excludes its own selection is
+	// not a resolution; the store must refuse to make it durable.
+	unsound := (&registry.DependencyResolution{
+		InputDigest: "sha256:input",
+		Roots: []registry.DependencyRoot{
+			{ID: "app.deps:tools", Component: "acme/tools", Version: ">=1.0.0"},
+		},
+		References: []registry.DependencyRoot{
+			{ID: "acme.pkg:__dependency.acme.tools", Component: "acme/tools", Version: ">=2.0.0"},
+		},
+		Modules: []registry.ResolvedModule{
+			{Name: "acme/tools", Version: "1.4.0", Digest: "sha256:mod"},
+		},
+	}).Canonical()
+	v2 := version.FromParent(v1, 2)
+	require.ErrorIs(t, storage.SaveWithDependencyResolution(v2, nil, unsound, true), registry.ErrInvalidDependencyResolution)
+}

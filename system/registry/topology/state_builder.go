@@ -391,6 +391,17 @@ func (b *StateBuilder) ReverseChangeset(changeset registry.ChangeSet) (registry.
 	return reversed, nil
 }
 
+// ValidateUniqueEntryIDs rejects a state carrying two entries under one
+// canonical ID; side names the input in the error (e.g. "baseline"). Raw
+// externally supplied states must pass through this before map construction,
+// which keeps whichever duplicate came last.
+func ValidateUniqueEntryIDs(side string, state registry.State) error {
+	if dup, ok := firstDuplicateID(state); ok {
+		return NewDuplicateEntryIDError(side, dup.NS, dup.Name)
+	}
+	return nil
+}
+
 // firstDuplicateID reports the first entry ID that occurs more than once in a
 // state, by canonical identity.
 func firstDuplicateID(state registry.State) (registry.ID, bool) {

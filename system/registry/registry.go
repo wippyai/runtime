@@ -757,6 +757,10 @@ func (r *Reg) LoadState(ctx context.Context, baseline registry.State, targetVers
 		}
 	}
 
+	if err := topology.ValidateUniqueEntryIDs("baseline", baseline); err != nil {
+		return err
+	}
+
 	stateMap := topology.NewStateMap(baseline)
 	var planner *regexp.Planner
 	var preparedEff []registry.Effect

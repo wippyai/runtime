@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/wippyai/runtime/boot/deps/hub/semver"
+	"github.com/wippyai/runtime/api/semver"
 )
 
 const (

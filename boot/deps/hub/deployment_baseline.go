@@ -198,6 +198,79 @@ func (h *DependencyHandler) legacyResolutionConflictsWithBaseline(
 	return false, nil
 }
 
+// upgradeLegacyReferencedResolution upgrades a baseline-unbound graph whose
+// only deficit is folded reference declarations the stored selection already
+// satisfies. The stored graph is the durable record of controller identity, so
+// declarations partition by its recorded roots — never by re-running election —
+// and every extra declaration becomes a reference. The stored module closure
+// is retained exactly and the graph binds to the current baseline without a
+// hub round trip, so a cold offline restart never wedges on declarations that
+// change nothing about the selection. Any ineligibility falls back to the
+// standard refresh.
+func (h *DependencyHandler) upgradeLegacyReferencedResolution(
+	ctx context.Context,
+	baseline regapi.State,
+	declarations []desiredDependency,
+	resolution *regapi.DependencyResolution,
+	baselineDigest string,
+	transcoder payload.Transcoder,
+) (*regapi.DependencyResolution, []ResolvedModule, bool) {
+	if resolution.BaselineDigest != "" {
+		return nil, nil, false
+	}
+	storedRoots := make(map[string]regapi.DependencyRoot, len(resolution.Roots))
+	rootComponents := make(map[string]struct{}, len(resolution.Roots))
+	for _, root := range resolution.Roots {
+		storedRoots[idKey(regapi.ParseID(root.ID))] = root
+		rootComponents[root.Component] = struct{}{}
+	}
+
+	rootDeps := make([]desiredDependency, 0, len(resolution.Roots))
+	refDeps := make([]desiredDependency, 0, len(declarations))
+	for _, dep := range declarations {
+		root, isStored := storedRoots[idKey(dep.entry.ID)]
+		if !isStored {
+			if _, anchored := rootComponents[dep.definition.Component]; !anchored {
+				return nil, nil, false
+			}
+			refDeps = append(refDeps, dep)
+			continue
+		}
+		if dep.definition.Component != root.Component || dep.definition.Version != root.Version {
+			return nil, nil, false
+		}
+		rootDeps = append(rootDeps, dep)
+	}
+	if len(rootDeps) != len(resolution.Roots) || len(refDeps) <= len(resolution.References) {
+		return nil, nil, false
+	}
+	if dependencyInputDigest(rootDeps) != resolution.InputDigest {
+		return nil, nil, false
+	}
+	conflict, err := h.legacyResolutionConflictsWithBaseline(ctx, baseline, resolution, transcoder)
+	if err != nil || conflict {
+		return nil, nil, false
+	}
+	resolved, err := resolvedModulesFromStored(resolution)
+	if err != nil {
+		return nil, nil, false
+	}
+	for _, dep := range declarations {
+		selected, ok := selectedModuleVersion(resolved, dep.definition.Component)
+		if !ok || !storedVersionSatisfies(selected, dep.definition.Version) {
+			return nil, nil, false
+		}
+	}
+	upgraded := resolution.Canonical()
+	upgraded.References = dependencyReferenceRoots(refDeps)
+	upgraded.BaselineDigest = baselineDigest
+	upgraded = upgraded.Canonical()
+	if !upgraded.Valid() {
+		return nil, nil, false
+	}
+	return upgraded, resolved, true
+}
+
 func storedResolutionVersions(resolution *regapi.DependencyResolution) map[string]string {
 	versions := make(map[string]string, len(resolution.Modules))
 	for _, mod := range resolution.Modules {

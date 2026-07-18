@@ -324,15 +324,29 @@ func TestReconcile_StoredSelectionMustSatisfyReferenceConstraint(t *testing.T) {
 	handler, err := NewDependencyHandler(DependencyHandlerOptions{Hub: &fakeHub{}, Logger: zap.NewNop(), VendorDir: t.TempDir()})
 	require.NoError(t, err)
 
+	// A graph pairing a v1.0.0 selection with a >=2.0.0 reference is invalid at
+	// the model level: it cannot pass Valid(), so it cannot enter a durable
+	// store, and a hand-fed copy is rejected before replay.
 	root := hardeningRoot("app.deps:a", "acme/a", "v1.0.0")
 	tight := hardeningRoot("acme.pkg:__dependency.acme.a", "acme/a", ">=2.0.0")
 	moduleEntry := hardeningModuleEntry("acme.a:entry", "acme/a", "v1.0.0")
-	// The stored graph inconsistently pairs a v1.0.0 selection with a >=2.0.0
-	// reference; the satisfaction sweep must reject it.
 	resolution := hardeningReferencedResolution([]regapi.Entry{root}, []regapi.Entry{tight})
+	require.False(t, resolution.Valid())
 
 	state := regapi.State{root, tight, moduleEntry}
 	_, err = handler.ReconcileResolution(ctx, state, state, resolution)
+	require.ErrorContains(t, err, "stored dependency resolution is invalid")
+
+	// Exact-pin spellings carry hub semantics the model deliberately leaves
+	// uninterpreted; the handler's satisfaction sweep still rejects a stored
+	// selection that does not literally match such a declaration.
+	pinnedRoot := hardeningRoot("app.deps:a", "acme/a", "v1.0.0")
+	pinnedRef := hardeningRoot("acme.pkg:__dependency.acme.a", "acme/a", "2.0.0")
+	pinned := hardeningReferencedResolution([]regapi.Entry{pinnedRoot}, []regapi.Entry{pinnedRef})
+	require.True(t, pinned.Valid())
+
+	pinnedState := regapi.State{pinnedRoot, pinnedRef, moduleEntry}
+	_, err = handler.ReconcileResolution(ctx, pinnedState, pinnedState, pinned)
 	require.ErrorContains(t, err, "does not satisfy")
 }
 
@@ -380,4 +394,171 @@ func TestExpandChanges_BatchCannotBypassFreshDuplicateGate(t *testing.T) {
 		require.Len(t, result.Resolution.References, 1)
 		assert.Equal(t, "acme.pkg:__dependency.acme.a", result.Resolution.References[0].ID)
 	}
+}
+
+func TestReconcile_LegacyReferenceUpgradeWorksOffline(t *testing.T) {
+	ctx := newTestContext()
+	// The hub is unreachable: a cold restart must still upgrade a legacy graph
+	// when the stored selection already satisfies every folded reference.
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{Hub: &fakeHub{}, Logger: zap.NewNop(), VendorDir: t.TempDir()})
+	require.NoError(t, err)
+
+	root := hardeningRoot("app.deps:a", "acme/a", "v1.0.0")
+	moduleEntry := hardeningModuleEntry("acme.a:entry", "acme/a", "v1.0.0")
+	reference := hardeningRoot("acme.pkg:__dependency.acme.a", "acme/a", ">=1.0.0")
+	legacy := hardeningReferencedResolution([]regapi.Entry{root}, nil)
+	require.Empty(t, legacy.BaselineDigest)
+
+	state := regapi.State{root, reference, moduleEntry}
+	result, err := handler.ReconcileResolution(ctx, state, state, legacy)
+	require.NoError(t, err)
+	require.NotNil(t, result.Resolution)
+	require.NotEmpty(t, result.Resolution.BaselineDigest, "offline upgrade must bind the baseline")
+	require.Len(t, result.Resolution.References, 1)
+	require.Equal(t, "acme.pkg:__dependency.acme.a", result.Resolution.References[0].ID)
+	// The stored selection is retained exactly; no re-resolution happened.
+	require.Equal(t, legacy.Modules, result.Resolution.Modules)
+	require.True(t, result.Resolution.Valid())
+}
+
+func TestReconcile_LegacyUpgradeUnsatisfiedReferenceRequiresResolution(t *testing.T) {
+	ctx := newTestContext()
+	handler, err := NewDependencyHandler(DependencyHandlerOptions{Hub: &fakeHub{}, Logger: zap.NewNop(), VendorDir: t.TempDir()})
+	require.NoError(t, err)
+
+	root := hardeningRoot("app.deps:a", "acme/a", "v1.0.0")
+	moduleEntry := hardeningModuleEntry("acme.a:entry", "acme/a", "v1.0.0")
+	// The stored v1.0.0 selection cannot satisfy this reference; the upgrade
+	// must go through a real resolution, which the unreachable hub fails.
+	tight := hardeningRoot("acme.pkg:__dependency.acme.a", "acme/a", ">=2.0.0")
+	legacy := hardeningReferencedResolution([]regapi.Entry{root}, nil)
+
+	state := regapi.State{root, tight, moduleEntry}
+	_, err = handler.ReconcileResolution(ctx, state, state, legacy)
+	require.Error(t, err)
+}
+
+// Adding parameters to one of two folded declarations transfers control to the
+// carrier: parameters are link configuration, and carrying them claims the
+// component deliberately. Lifecycle safety does not depend on which
+// declaration controls — deleting either leaves the module installed while the
+// other remains.
+func TestFoldRootDependencyComponents_ParametersAddedLaterTransferControl(t *testing.T) {
+	appRoot := desiredDependency{
+		entry:      regapi.Entry{ID: regapi.NewID("app.deps", "a"), Kind: regapi.NamespaceDependency},
+		definition: DependencyDefinition{Component: "acme/a", Version: ">=1.0.0"},
+	}
+	pkgRef := desiredDependency{
+		entry:      regapi.Entry{ID: regapi.NewID("acme.pkg", "__dependency.acme.a"), Kind: regapi.NamespaceDependency},
+		definition: DependencyDefinition{Component: "acme/a", Version: ">=1.0.0"},
+	}
+
+	// Parameterless established pair: the lowest canonical key controls.
+	roots, _, err := foldRootDependencyComponents([]desiredDependency{appRoot, pkgRef}, nil, true)
+	require.NoError(t, err)
+	require.Len(t, roots, 1)
+	require.Equal(t, "acme.pkg:__dependency.acme.a", roots[0].entry.ID.String())
+
+	// An update adding parameters to the app declaration is not fresh; the
+	// carrier wins the election and control transfers without a conflict.
+	withParams := appRoot
+	withParams.definition.Parameters = []Parameter{{Name: "db", Value: "app:db"}}
+	roots, refs, err := foldRootDependencyComponents([]desiredDependency{withParams, pkgRef}, nil, true)
+	require.NoError(t, err)
+	require.Len(t, roots, 1)
+	require.Equal(t, "app.deps:a", roots[0].entry.ID.String())
+	require.Len(t, refs, 1)
+	require.Equal(t, "acme.pkg:__dependency.acme.a", refs[0].entry.ID.String())
+}
+
+// Committed parameter disagreement never wedges boot: reconcile folds
+// leniently and replays the stored graph. The next dependency mutation runs
+// the strict fold and surfaces the disagreement as a conflict naming both
+// declarations, which is the operator's cue to reconcile the spellings.
+func TestReconcile_ParameterDisagreementBootsThenConflictsOnNextOperation(t *testing.T) {
+	ctx := newTestContext()
+	handler := referenceFoldHandler(t)
+
+	root := paramRoot("app.deps:a", "acme/a", "v1.0.0", map[string]any{"db": "app:db"})
+	disagreeing := paramRoot("acme.pkg:__dependency.acme.a", "acme/a", ">=1.0.0", map[string]any{"db": "other:db"})
+	moduleEntry := hardeningModuleEntry("acme.a:entry", "acme/a", "v1.0.0")
+	state := regapi.State{root, disagreeing, moduleEntry}
+
+	transcoder := payload.GetTranscoder(ctx)
+	baseline, err := handler.deploymentBaselineDigest(ctx, state, transcoder)
+	require.NoError(t, err)
+	resolution := hardeningReferencedResolution([]regapi.Entry{root}, []regapi.Entry{disagreeing})
+	resolution.BaselineDigest = baseline
+	resolution = resolution.Canonical()
+
+	_, err = handler.ReconcileResolution(ctx, state, state, resolution)
+	require.NoError(t, err, "committed parameter disagreement must not wedge boot")
+
+	unrelated := hardeningRoot("app.deps:b", "acme/b", ">=1.0.0")
+	_, err = handler.Expand(ctx,
+		regapi.Operation{Kind: regapi.EntryCreate, Entry: unrelated},
+		state,
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "acme/a")
+	require.Contains(t, err.Error(), "app.deps:a")
+	require.Contains(t, err.Error(), "acme.pkg:__dependency.acme.a")
+}
+
+// One changeset deletes the controller and creates a new duplicate. The
+// established reference is promoted — a fresh declaration never takes control —
+// the newcomer folds under it, and the module survives the batch.
+func TestExpandChanges_DeleteControllerAndCreateReferenceInOneBatch(t *testing.T) {
+	ctx := newTestContext()
+	handler := referenceFoldHandler(t)
+
+	root := hardeningRoot("app.deps:a", "acme/a", "v1.0.0")
+	reference := hardeningRoot("acme.pkg:__dependency.acme.a", "acme/a", ">=1.0.0")
+	newcomer := hardeningRoot("other.pkg:__dependency.acme.a", "acme/a", ">=1.0.0")
+	moduleEntry := hardeningModuleEntry("acme.a:entry", "acme/a", "v1.0.0")
+
+	for _, batch := range []regapi.ChangeSet{
+		{{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: root.ID}}, {Kind: regapi.EntryCreate, Entry: newcomer}},
+		{{Kind: regapi.EntryCreate, Entry: newcomer}, {Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: root.ID}}},
+	} {
+		result, err := handler.ExpandChanges(ctx, batch, regapi.State{root, reference, moduleEntry})
+		require.NoError(t, err)
+		require.NotNil(t, result.Resolution)
+		require.Len(t, result.Resolution.Roots, 1)
+		assert.Equal(t, "acme.pkg:__dependency.acme.a", result.Resolution.Roots[0].ID)
+		require.Len(t, result.Resolution.References, 1)
+		assert.Equal(t, "other.pkg:__dependency.acme.a", result.Resolution.References[0].ID)
+		for _, op := range result.Additional {
+			if op.Operation.Kind == regapi.EntryDelete && op.Operation.Entry.ID.String() == "acme.a:entry" {
+				t.Fatalf("batch must not uninstall a module that still has declarations")
+			}
+		}
+	}
+}
+
+// Deleting and recreating the same declaration ID in one changeset is a
+// replacement of an established declaration, never a fresh install attempt.
+func TestExpandChanges_SameIDDeleteRecreateIsReplacement(t *testing.T) {
+	ctx := newTestContext()
+	handler := referenceFoldHandler(t)
+
+	root := hardeningRoot("app.deps:a", "acme/a", "v1.0.0")
+	recreated := hardeningRoot("app.deps:a", "acme/a", ">=1.0.0")
+	reference := hardeningRoot("acme.pkg:__dependency.acme.a", "acme/a", ">=1.0.0")
+	moduleEntry := hardeningModuleEntry("acme.a:entry", "acme/a", "v1.0.0")
+
+	result, err := handler.ExpandChanges(ctx, regapi.ChangeSet{
+		{Kind: regapi.EntryDelete, Entry: regapi.Entry{ID: root.ID}},
+		{Kind: regapi.EntryCreate, Entry: recreated},
+	}, regapi.State{root, reference, moduleEntry})
+	require.NoError(t, err)
+	require.NotNil(t, result.Resolution)
+	require.Len(t, result.Resolution.Roots, 1)
+	require.Len(t, result.Resolution.References, 1)
+	ids := map[string]struct{}{
+		result.Resolution.Roots[0].ID:      {},
+		result.Resolution.References[0].ID: {},
+	}
+	require.Contains(t, ids, "app.deps:a")
+	require.Contains(t, ids, "acme.pkg:__dependency.acme.a")
 }

@@ -194,3 +194,90 @@ func TestCanRebaseDependencyResolutionIgnoresReferenceOnlyChanges(t *testing.T) 
 		t.Fatalf("baseline transition with references must permit the rebind")
 	}
 }
+
+func TestDependencyResolutionValidRequiresModuleForEveryRoot(t *testing.T) {
+	orphanRoot := (&DependencyResolution{
+		InputDigest: "sha256:input",
+		Roots: []DependencyRoot{
+			{ID: "app.deps:tools", Component: "acme/tools", Version: ">=0.1.0"},
+		},
+		Modules: []ResolvedModule{
+			{Name: "acme/other", Version: "1.0.0", Digest: "sha256:mod"},
+		},
+	}).Canonical()
+	require.False(t, orphanRoot.Valid(), "a root whose component has no selected module is not a resolution of its own declarations")
+}
+
+func TestDependencyResolutionValidRejectsProvablyUnsatisfiedConstraints(t *testing.T) {
+	unsoundReference := (&DependencyResolution{
+		InputDigest: "sha256:input",
+		Roots: []DependencyRoot{
+			{ID: "app.deps:tools", Component: "acme/tools", Version: ">=1.0.0"},
+		},
+		References: []DependencyRoot{
+			{ID: "acme.pkg:__dependency.acme.tools", Component: "acme/tools", Version: ">=2.0.0"},
+		},
+		Modules: []ResolvedModule{
+			{Name: "acme/tools", Version: "1.0.0", Digest: "sha256:mod"},
+		},
+	}).Canonical()
+	require.False(t, unsoundReference.Valid(), "a reference constraint the selected version cannot satisfy must not be storable")
+
+	unsoundRoot := (&DependencyResolution{
+		InputDigest: "sha256:input",
+		Roots: []DependencyRoot{
+			{ID: "app.deps:tools", Component: "acme/tools", Version: ">=2.0.0"},
+		},
+		Modules: []ResolvedModule{
+			{Name: "acme/tools", Version: "1.0.0", Digest: "sha256:mod"},
+		},
+	}).Canonical()
+	require.False(t, unsoundRoot.Valid(), "a root constraint the selected version cannot satisfy must not be storable")
+}
+
+func TestDependencyResolutionValidBindsOnlyOnParseableSemverSpellings(t *testing.T) {
+	graph := func(constraint, selected string) *DependencyResolution {
+		return (&DependencyResolution{
+			InputDigest: "sha256:input",
+			Roots: []DependencyRoot{
+				{ID: "app.deps:tools", Component: "acme/tools", Version: constraint},
+			},
+			Modules: []ResolvedModule{
+				{Name: "acme/tools", Version: selected, Digest: "sha256:mod"},
+			},
+		}).Canonical()
+	}
+
+	// Channel pins, branch selections, and exact literals carry hub semantics
+	// the model cannot interpret; validity must not bind on them.
+	require.True(t, graph("@beta", "1.0.0-beta.2").Valid())
+	require.True(t, graph("main", "main").Valid())
+	require.True(t, graph("2.0.0", "1.0.0").Valid())
+	// A semver constraint over an uninterpretable selected version stays open.
+	require.True(t, graph(">=1.0.0", "branch-build").Valid())
+	// Wildcards are constraints and always satisfied.
+	require.True(t, graph("*", "0.0.1").Valid())
+	require.True(t, graph("1.x", "1.4.0").Valid())
+	require.False(t, graph("1.x", "2.0.0").Valid())
+}
+
+// The digest below was produced by the code preceding the reference fold
+// (7d61cc743) over this exact fixture. A reference-free graph must keep it
+// byte-for-byte: existing applications' history rows and content-addressed
+// graphs depend on the recipe never shifting for the empty-reference shape.
+func TestDependencyResolutionGoldenPreChangeDigest(t *testing.T) {
+	graph := (&DependencyResolution{
+		InputDigest:    "sha256:golden-input",
+		BaselineDigest: "sha256:golden-baseline",
+		Roots: []DependencyRoot{
+			{ID: "app.deps:tools", Component: "acme/tools", Version: ">=0.1.0"},
+			{ID: "app.deps:app", Component: "acme/app", Version: "v1.0.0"},
+		},
+		Modules: []ResolvedModule{
+			{Name: "acme/tools", Version: "0.2.5", VersionID: "vid-tools", Source: "hub", Digest: "sha256:tools", SizeBytes: 42},
+			{Name: "acme/app", Version: "v1.0.0", Digest: "sha256:app", Protected: true},
+		},
+	}).Canonical()
+	require.Equal(t, "sha256:baccc9647874aef7aa046c781fc4eb087e2ad7c65e4bb10f3b41801c8a5ab4bc", graph.Digest)
+	require.True(t, graph.Valid())
+}

@@ -23,12 +23,12 @@ import (
 	apierror "github.com/wippyai/runtime/api/error"
 	"github.com/wippyai/runtime/api/payload"
 	regapi "github.com/wippyai/runtime/api/registry"
+	hubsemver "github.com/wippyai/runtime/api/semver"
 	"github.com/wippyai/runtime/boot/build"
 	"github.com/wippyai/runtime/boot/build/stages"
 	"github.com/wippyai/runtime/boot/deps/auth"
 	depconfig "github.com/wippyai/runtime/boot/deps/config"
 	"github.com/wippyai/runtime/boot/deps/graph"
-	hubsemver "github.com/wippyai/runtime/boot/deps/hub/semver"
 	"github.com/wippyai/runtime/boot/deps/lock"
 	"github.com/wippyai/runtime/boot/deps/wappextract"
 	"github.com/wippyai/runtime/boot/loader"
@@ -375,7 +375,10 @@ func (h *DependencyHandler) expand(
 		effects = append(effects, packEffect)
 	}
 
-	selectedResolution, err := h.resolutionForSnapshot(ctx, snapshot, rootDeps, refDeps, resolved, transcoder)
+	// The graph describes the state this operation produces; its baseline
+	// binding must be computed over that state, never over the one being left,
+	// or a later version transition sees a digest that names the wrong side.
+	selectedResolution, err := h.resolutionForSnapshot(ctx, applyOperationToState(snapshot, op), rootDeps, refDeps, resolved, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -498,6 +501,27 @@ func (h *DependencyHandler) ExpandChanges(ctx context.Context, changes regapi.Ch
 	return h.expand(ctx, driver, working, extraControlled, extraMutable, freshRoots)
 }
 
+// applyOperationToState materializes the state an operation produces, so a
+// recorded graph can bind to the deployment identity of its own version.
+func applyOperationToState(snapshot regapi.State, op regapi.Operation) regapi.State {
+	next := make(regapi.State, 0, len(snapshot)+1)
+	replaced := false
+	for _, entry := range snapshot {
+		if idsEqual(entry.ID, op.Entry.ID) {
+			if op.Kind == regapi.EntryCreate || op.Kind == regapi.EntryUpdate {
+				next = append(next, op.Entry)
+				replaced = true
+			}
+			continue
+		}
+		next = append(next, entry)
+	}
+	if !replaced && (op.Kind == regapi.EntryCreate || op.Kind == regapi.EntryUpdate) {
+		next = append(next, op.Entry)
+	}
+	return next
+}
+
 func rootExpansionDriver(op regapi.Operation, snapshot regapi.State) (regapi.Operation, bool) {
 	if entry, ok := resolveOperationEntry(op, snapshot); ok && isRootDependency(entry) {
 		return op, true
@@ -508,6 +532,41 @@ func rootExpansionDriver(op regapi.Operation, snapshot regapi.State) (regapi.Ope
 		}
 	}
 	return regapi.Operation{}, false
+}
+
+// refreshResolvedModules re-resolves the final declarations for a graph whose
+// stored selection cannot be replayed, seeding the solver with stored,
+// installed, and locked versions so an unchanged module keeps its selection.
+func (h *DependencyHandler) refreshResolvedModules(
+	ctx context.Context,
+	current regapi.State,
+	transcoder payload.Transcoder,
+	resolution *regapi.DependencyResolution,
+	desiredDeps []desiredDependency,
+) ([]ResolvedModule, error) {
+	lockedVersions := storedResolutionVersions(resolution)
+	deploymentVersions, err := h.installedModuleVersions(ctx, transcoder, current)
+	if err != nil {
+		return nil, err
+	}
+	for module, version := range deploymentVersions {
+		lockedVersions[module] = version
+	}
+	if h.lock != nil {
+		for _, mod := range h.lock.GetModules() {
+			if mod.Name != "" && mod.Version != "" {
+				lockedVersions[mod.Name] = mod.Version
+			}
+		}
+	}
+	resolved, err := h.resolveModules(ctx, dependencyDefinitions(desiredDeps), lockedVersions)
+	if err != nil {
+		return nil, err
+	}
+	if err = h.completeResolvedModuleIdentities(ctx, resolved); err != nil {
+		return nil, err
+	}
+	return resolved, nil
 }
 
 // ReconcileResolution materializes a previously selected graph. An unchanged
@@ -545,7 +604,12 @@ func (h *DependencyHandler) ReconcileResolution(
 	}
 	desiredDeps := append(append([]desiredDependency(nil), rootDeps...), refDeps...)
 
-	baselineDigest, err := h.deploymentBaselineDigest(ctx, current, transcoder)
+	// Deployment identity is evaluated on the state the stored graph
+	// describes. The current state names the version being left; comparing
+	// against it makes every transition across a baseline-owned declaration
+	// change look like a deployment change and rebind graphs in both
+	// directions.
+	baselineDigest, err := h.deploymentBaselineDigest(ctx, target, transcoder)
 	if err != nil {
 		return regapi.DirectiveResult{}, err
 	}
@@ -561,36 +625,26 @@ func (h *DependencyHandler) ReconcileResolution(
 		if logger == nil {
 			logger = zap.NewNop()
 		}
-		logger.Warn("stored dependency resolution does not match deployment baseline; resolving final declarations",
-			zap.String("reason", refreshReason),
-			zap.String("stored_baseline_digest", resolution.BaselineDigest),
-			zap.String("deployment_baseline_digest", baselineDigest),
-			zap.String("stored_resolution_digest", resolution.Digest))
-		lockedVersions := storedResolutionVersions(resolution)
-		deploymentVersions, versionErr := h.installedModuleVersions(ctx, transcoder, current)
-		if versionErr != nil {
-			return regapi.DirectiveResult{}, versionErr
-		}
-		for module, version := range deploymentVersions {
-			lockedVersions[module] = version
-		}
-		if h.lock != nil {
-			for _, mod := range h.lock.GetModules() {
-				if mod.Name != "" && mod.Version != "" {
-					lockedVersions[mod.Name] = mod.Version
-				}
+		if upgraded, stored, ok := h.upgradeLegacyReferencedResolution(ctx, current, snapshotDeps, resolution, baselineDigest, transcoder); ok {
+			logger.Info("upgrading legacy dependency resolution in place: stored selection satisfies folded reference declarations",
+				zap.String("stored_resolution_digest", resolution.Digest),
+				zap.String("upgraded_resolution_digest", upgraded.Digest))
+			effectiveResolution = upgraded
+			resolved = stored
+		} else {
+			logger.Warn("stored dependency resolution does not match deployment baseline; resolving final declarations",
+				zap.String("reason", refreshReason),
+				zap.String("stored_baseline_digest", resolution.BaselineDigest),
+				zap.String("deployment_baseline_digest", baselineDigest),
+				zap.String("stored_resolution_digest", resolution.Digest))
+			resolved, err = h.refreshResolvedModules(ctx, current, transcoder, resolution, desiredDeps)
+			if err != nil {
+				return regapi.DirectiveResult{}, err
 			}
+			effectiveResolution = dependencyResolution(rootDeps, refDeps, resolved)
+			effectiveResolution.BaselineDigest = baselineDigest
+			effectiveResolution = effectiveResolution.Canonical()
 		}
-		resolved, err = h.resolveModules(ctx, dependencyDefinitions(desiredDeps), lockedVersions)
-		if err != nil {
-			return regapi.DirectiveResult{}, err
-		}
-		if err = h.completeResolvedModuleIdentities(ctx, resolved); err != nil {
-			return regapi.DirectiveResult{}, err
-		}
-		effectiveResolution = dependencyResolution(rootDeps, refDeps, resolved)
-		effectiveResolution.BaselineDigest = baselineDigest
-		effectiveResolution = effectiveResolution.Canonical()
 	} else {
 		rootDeps, refDeps, err = h.collectResolutionDependencies(ctx, target, transcoder, resolution.Roots, resolution.References)
 		if err != nil {
@@ -1160,7 +1214,7 @@ func foldRootDependencyComponents(deps []desiredDependency, fresh map[string]str
 	return roots, references, nil
 }
 
-// dependencyParametersEqual compares parameter sets by name over their// dependencyParametersEqual compares parameter sets by name over their
+// dependencyParametersEqual compares parameter sets by name over their
 // canonical JSON forms, so transcoder-specific value typing cannot split
 // equal declarations.
 func dependencyParametersEqual(a, b []Parameter) bool {
