@@ -1094,6 +1094,7 @@ func TestDependencyHandler_CollectDesiredDependencies_TreatsHydratedSameIDAsSame
 		regapi.Operation{Kind: regapi.EntryCreate, Entry: updatedDep},
 		regapi.State{hydratedDep},
 		transcoder,
+		nil,
 	)
 	require.NoError(t, err)
 	require.Len(t, deps, 1)
@@ -1114,7 +1115,7 @@ func TestFoldRootDependencyComponents_AllowsSameRootIDReplacement(t *testing.T) 
 			entry:      regapi.Entry{ID: rootID, Kind: regapi.NamespaceDependency},
 			definition: DependencyDefinition{Component: "acme/tools", Version: "0.2.0"},
 		},
-	}, rootID)
+	}, map[string]struct{}{idKey(rootID): {}}, true)
 	require.NoError(t, err)
 	require.Len(t, roots, 2)
 	require.Empty(t, refs)
@@ -1129,11 +1130,12 @@ func TestFoldRootDependencyComponents_FoldsDuplicateIntoReference(t *testing.T) 
 		entry:      regapi.Entry{ID: regapi.NewID("acme.pkg", "__dependency.acme.tools"), Kind: regapi.NamespaceDependency},
 		definition: DependencyDefinition{Component: "acme/tools", Version: ">=0.1.0"},
 	}
+	fresh := map[string]struct{}{idKey(packageRef.entry.ID): {}}
 
-	// The operation's own entry folds into the established root regardless of
-	// input order or namespace naming.
+	// A fresh declaration folds under the established root regardless of input
+	// order or namespace naming.
 	for _, input := range [][]desiredDependency{{appRoot, packageRef}, {packageRef, appRoot}} {
-		roots, refs, err := foldRootDependencyComponents(input, packageRef.entry.ID)
+		roots, refs, err := foldRootDependencyComponents(input, fresh, true)
 		require.NoError(t, err)
 		require.Len(t, roots, 1)
 		require.Len(t, refs, 1)
@@ -1141,15 +1143,49 @@ func TestFoldRootDependencyComponents_FoldsDuplicateIntoReference(t *testing.T) 
 		assert.Equal(t, "acme.pkg:__dependency.acme.tools", refs[0].entry.ID.String())
 	}
 
-	// Without an operation entry (reconcile), the lowest canonical ID controls.
-	roots, refs, err := foldRootDependencyComponents([]desiredDependency{appRoot, packageRef}, regapi.ID{})
+	// Without a fresh set (reconcile), the lowest canonical key controls.
+	roots, refs, err := foldRootDependencyComponents([]desiredDependency{appRoot, packageRef}, nil, false)
 	require.NoError(t, err)
 	require.Len(t, roots, 1)
 	require.Len(t, refs, 1)
 	assert.Equal(t, "acme.pkg:__dependency.acme.tools", roots[0].entry.ID.String())
 }
 
-func TestFoldRootDependencyComponents_ParameterDisagreementConflicts(t *testing.T) {
+func TestFoldRootDependencyComponents_ParameterCarrierControlsForever(t *testing.T) {
+	paramRoot := desiredDependency{
+		entry: regapi.Entry{ID: regapi.NewID("app.deps", "acme_tools"), Kind: regapi.NamespaceDependency},
+		definition: DependencyDefinition{
+			Component:  "acme/tools",
+			Version:    ">=0.1.0",
+			Parameters: []Parameter{{Name: "db", Value: "app:db"}},
+		},
+	}
+	bareRef := desiredDependency{
+		entry:      regapi.Entry{ID: regapi.NewID("acme.pkg", "__dependency.acme.tools"), Kind: regapi.NamespaceDependency},
+		definition: DependencyDefinition{Component: "acme/tools", Version: ">=0.1.0"},
+	}
+
+	// Creation: the parameter carrier controls even though the reference has
+	// the lower canonical key.
+	roots, refs, err := foldRootDependencyComponents([]desiredDependency{bareRef, paramRoot},
+		map[string]struct{}{idKey(bareRef.entry.ID): {}}, true)
+	require.NoError(t, err)
+	require.Len(t, roots, 1)
+	require.Len(t, refs, 1)
+	assert.Equal(t, "app.deps:acme_tools", roots[0].entry.ID.String())
+
+	// Every later evaluation — any other operation, and the zero-op reconcile
+	// fold — elects the same controller: the recorded state stays foldable.
+	for _, fresh := range []map[string]struct{}{nil, {idKey(regapi.NewID("app.deps", "other")): {}}} {
+		roots, refs, err = foldRootDependencyComponents([]desiredDependency{paramRoot, bareRef}, fresh, true)
+		require.NoError(t, err)
+		require.Len(t, roots, 1)
+		require.Len(t, refs, 1)
+		assert.Equal(t, "app.deps:acme_tools", roots[0].entry.ID.String())
+	}
+}
+
+func TestFoldRootDependencyComponents_ParameterDisagreementConflictsOnlyStrictly(t *testing.T) {
 	appRoot := desiredDependency{
 		entry: regapi.Entry{ID: regapi.NewID("app.deps", "acme_tools"), Kind: regapi.NamespaceDependency},
 		definition: DependencyDefinition{
@@ -1166,22 +1202,75 @@ func TestFoldRootDependencyComponents_ParameterDisagreementConflicts(t *testing.
 			Parameters: []Parameter{{Name: "db", Value: "other:db"}},
 		},
 	}
-	_, _, err := foldRootDependencyComponents([]desiredDependency{appRoot, conflicting}, conflicting.entry.ID)
+	_, _, err := foldRootDependencyComponents([]desiredDependency{appRoot, conflicting},
+		map[string]struct{}{idKey(conflicting.entry.ID): {}}, true)
 	require.Error(t, err)
+
+	// Committed state reconciles leniently: parameter drift never wedges boot.
+	roots, refs, err := foldRootDependencyComponents([]desiredDependency{appRoot, conflicting}, nil, false)
+	require.NoError(t, err)
+	require.Len(t, roots, 1)
+	require.Len(t, refs, 1)
 
 	identical := conflicting
 	identical.definition.Parameters = []Parameter{{Name: "db", Value: "app:db"}}
-	roots, refs, err := foldRootDependencyComponents([]desiredDependency{appRoot, identical}, identical.entry.ID)
+	roots, refs, err = foldRootDependencyComponents([]desiredDependency{appRoot, identical},
+		map[string]struct{}{idKey(identical.entry.ID): {}}, true)
 	require.NoError(t, err)
 	require.Len(t, roots, 1)
 	require.Len(t, refs, 1)
 
 	parameterless := conflicting
 	parameterless.definition.Parameters = nil
-	roots, refs, err = foldRootDependencyComponents([]desiredDependency{appRoot, parameterless}, parameterless.entry.ID)
+	roots, refs, err = foldRootDependencyComponents([]desiredDependency{appRoot, parameterless},
+		map[string]struct{}{idKey(parameterless.entry.ID): {}}, true)
 	require.NoError(t, err)
 	require.Len(t, roots, 1)
 	require.Len(t, refs, 1)
+}
+
+func TestFoldRootDependencyComponents_NormalizesReferenceConstraints(t *testing.T) {
+	root := desiredDependency{
+		entry:      regapi.Entry{ID: regapi.NewID("app.deps", "acme_tools"), Kind: regapi.NamespaceDependency},
+		definition: DependencyDefinition{Component: "acme/tools", Version: ">=0.1.0"},
+	}
+	padded := desiredDependency{
+		entry:      regapi.Entry{ID: regapi.NewID("acme.pkg", "__dependency.acme.tools"), Kind: regapi.NamespaceDependency},
+		definition: DependencyDefinition{Component: "acme/tools", Version: "  >=1.0.0  "},
+	}
+	bare := desiredDependency{
+		entry:      regapi.Entry{ID: regapi.NewID("acme.other", "__dependency.acme.tools"), Kind: regapi.NamespaceDependency},
+		definition: DependencyDefinition{Component: "acme/tools"},
+	}
+	fresh := map[string]struct{}{
+		idKey(padded.entry.ID): {},
+		idKey(bare.entry.ID):   {},
+	}
+	roots, refs, err := foldRootDependencyComponents([]desiredDependency{root, padded, bare}, fresh, true)
+	require.NoError(t, err)
+	require.Len(t, roots, 1)
+	require.Equal(t, "app.deps:acme_tools", roots[0].entry.ID.String())
+	require.Len(t, refs, 2)
+	versions := map[string]string{}
+	for _, ref := range refs {
+		versions[ref.entry.ID.String()] = ref.definition.Version
+	}
+	// Trimmed and wildcard-normalized at the fold: the durable record, the
+	// solver input, and strict replay all see one spelling.
+	assert.Equal(t, ">=1.0.0", versions["acme.pkg:__dependency.acme.tools"])
+	assert.Equal(t, "*", versions["acme.other:__dependency.acme.tools"])
+}
+
+func TestDependencyParametersEqualIsSymmetric(t *testing.T) {
+	a := []Parameter{{Name: "x", Value: 1}, {Name: "x", Value: 2}}
+	b := []Parameter{{Name: "x", Value: 2}, {Name: "x", Value: 2}}
+	assert.Equal(t, dependencyParametersEqual(a, b), dependencyParametersEqual(b, a))
+	assert.False(t, dependencyParametersEqual(a, b))
+
+	c := []Parameter{{Name: "db", Value: "app:db"}, {Name: "mode", Value: "fast"}}
+	d := []Parameter{{Name: "mode", Value: "fast"}, {Name: "db", Value: "app:db"}}
+	assert.True(t, dependencyParametersEqual(c, d))
+	assert.True(t, dependencyParametersEqual(d, c))
 }
 
 func TestDependencyHandler_Expand_RootParametersOverrideModuleOwnedTransitiveParameters(t *testing.T) {
@@ -2398,6 +2487,7 @@ func TestDependencyHandler_CollectDesiredDependencies_IgnoresModuleOwnedDependen
 		regapi.Operation{Kind: regapi.EntryUpdate, Entry: rootDep},
 		regapi.State{rootDep, moduleDep},
 		transcoder,
+		nil,
 	)
 	require.NoError(t, err)
 	require.Len(t, deps, 1)
@@ -2444,6 +2534,7 @@ func TestDependencyHandler_CollectDesiredDependencies_PreservesExistingDeclaredV
 		regapi.Operation{Kind: regapi.EntryCreate, Entry: newDep},
 		snapshot,
 		transcoder,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -2982,6 +3073,7 @@ func TestDependencyHandler_CollectDesiredDependencies_DoesNotPinUpdatedDependenc
 		regapi.Operation{Kind: regapi.EntryUpdate, Entry: updatedDep},
 		snapshot,
 		transcoder,
+		nil,
 	)
 	require.NoError(t, err)
 	require.Len(t, deps, 1)

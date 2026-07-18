@@ -3,6 +3,7 @@
 package topology
 
 import (
+	"strings"
 	"context"
 	"reflect"
 	"sort"
@@ -395,7 +396,17 @@ func (b *StateBuilder) ReverseChangeset(changeset registry.ChangeSet) (registry.
 func firstDuplicateID(state registry.State) (registry.ID, bool) {
 	seen := make(map[registry.ID]struct{}, len(state))
 	for _, entry := range state {
-		id := registry.NewID(entry.ID.NS, entry.ID.Name)
+		ns, name := entry.ID.NS, entry.ID.Name
+		if strings.TrimSpace(ns) == "" && strings.Contains(name, ":") {
+			// Hydrated spelling {Name: "ns:name"} names the same entry as the
+			// split form; normalize so the duplicate is caught here, not as an
+			// invalid-resolution error far from the cause.
+			parsed := registry.ParseID(name)
+			if parsed.NS != "" || parsed.Name != "" {
+				ns, name = parsed.NS, parsed.Name
+			}
+		}
+		id := registry.NewID(strings.TrimSpace(ns), strings.TrimSpace(name))
 		if _, ok := seen[id]; ok {
 			return id, true
 		}

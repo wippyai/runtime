@@ -163,7 +163,7 @@ func TestFoldRootDependencyComponents_OrderIndependentDigest(t *testing.T) {
 	var digest string
 	var refIDs []string
 	for _, perm := range permutations {
-		roots, refs, err := foldRootDependencyComponents(perm, regapi.ID{})
+		roots, refs, err := foldRootDependencyComponents(perm, nil, false)
 		require.NoError(t, err)
 		got := dependencyInputDigest(roots)
 		ids := make([]string, 0, len(refs))
@@ -243,11 +243,41 @@ func TestReconcile_UnrecordedDeclarationIsDrift(t *testing.T) {
 	root := hardeningRoot("app.deps:a", "acme/a", "v1.0.0")
 	reference := hardeningRoot("acme.pkg:__dependency.acme.a", "acme/a", ">=1.0.0")
 	moduleEntry := hardeningModuleEntry("acme.a:entry", "acme/a", "v1.0.0")
-	resolution := hardeningReferencedResolution([]regapi.Entry{root}, nil)
-
 	state := regapi.State{root, reference, moduleEntry}
+
+	// Bind the stored graph to the current deployment baseline: within an
+	// unchanged baseline an unrecorded declaration is drift, never an upgrade.
+	transcoder := payload.GetTranscoder(ctx)
+	baseline, err := handler.deploymentBaselineDigest(ctx, state, transcoder)
+	require.NoError(t, err)
+	resolution := hardeningReferencedResolution([]regapi.Entry{root}, nil)
+	resolution.BaselineDigest = baseline
+	resolution = resolution.Canonical()
+
 	_, err = handler.ReconcileResolution(ctx, state, state, resolution)
 	require.ErrorContains(t, err, "root set")
+}
+
+func TestReconcile_LegacyGraphUpgradesRegardlessOfDeclarationOrder(t *testing.T) {
+	ctx := newTestContext()
+	// The refresh path resolves online; the fake hub serves the module.
+	handler := referenceFoldHandler(t)
+
+	root := hardeningRoot("app.deps:a", "acme/a", "v1.0.0")
+	moduleEntry := hardeningModuleEntry("acme.a:entry", "acme/a", "v1.0.0")
+	// A duplicate whose ID sorts AFTER the stored controller previously never
+	// triggered the legacy refresh and wedged on the strict count check.
+	late := hardeningRoot("zzz.pkg:__dependency.acme.a", "acme/a", ">=1.0.0")
+	legacy := hardeningReferencedResolution([]regapi.Entry{root}, nil)
+	require.Empty(t, legacy.BaselineDigest)
+
+	state := regapi.State{root, late, moduleEntry}
+	result, err := handler.ReconcileResolution(ctx, state, state, legacy)
+	require.NoError(t, err)
+	require.NotNil(t, result.Resolution)
+	require.NotEmpty(t, result.Resolution.BaselineDigest, "legacy upgrade must bind the baseline")
+	require.Len(t, result.Resolution.References, 1)
+	require.Equal(t, "zzz.pkg:__dependency.acme.a", result.Resolution.References[0].ID)
 }
 
 func TestReconcile_ReferenceConstraintDriftIsRejected(t *testing.T) {
@@ -304,4 +334,50 @@ func TestReconcile_StoredSelectionMustSatisfyReferenceConstraint(t *testing.T) {
 	state := regapi.State{root, tight, moduleEntry}
 	_, err = handler.ReconcileResolution(ctx, state, state, resolution)
 	require.ErrorContains(t, err, "does not satisfy")
+}
+
+func TestExpandChanges_BatchCannotBypassFreshDuplicateGate(t *testing.T) {
+	ctx := newTestContext()
+	handler := referenceFoldHandler(t)
+
+	root := hardeningRoot("app.deps:a", "acme/a", "v1.0.0")
+	reference := hardeningRoot("acme.pkg:__dependency.acme.a", "acme/a", ">=1.0.0")
+	other := hardeningRoot("app.deps:b", "acme/b", "v1.0.0")
+
+	// acme/a is NOT installed. A single-op duplicate create conflicts; hiding
+	// the same create behind another root op in one changeset must conflict
+	// identically instead of electing the fresh declaration as controller.
+	_, err := handler.ExpandChanges(ctx, regapi.ChangeSet{
+		{Kind: regapi.EntryCreate, Entry: reference},
+		{Kind: regapi.EntryCreate, Entry: other},
+	}, regapi.State{root})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already installed")
+
+	// Reversed order must behave the same.
+	_, err = handler.ExpandChanges(ctx, regapi.ChangeSet{
+		{Kind: regapi.EntryCreate, Entry: other},
+		{Kind: regapi.EntryCreate, Entry: reference},
+	}, regapi.State{root})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already installed")
+
+	// With the component installed, the same batch folds and records the
+	// reference under the established root in either order.
+	moduleEntry := hardeningModuleEntry("acme.a:entry", "acme/a", "v1.0.0")
+	for _, batch := range []regapi.ChangeSet{
+		{{Kind: regapi.EntryCreate, Entry: reference}, {Kind: regapi.EntryCreate, Entry: other}},
+		{{Kind: regapi.EntryCreate, Entry: other}, {Kind: regapi.EntryCreate, Entry: reference}},
+	} {
+		result, err := handler.ExpandChanges(ctx, batch, regapi.State{root, moduleEntry})
+		require.NoError(t, err)
+		require.NotNil(t, result.Resolution)
+		rootIDs := make([]string, 0, len(result.Resolution.Roots))
+		for _, r := range result.Resolution.Roots {
+			rootIDs = append(rootIDs, r.ID)
+		}
+		assert.Contains(t, rootIDs, "app.deps:a", "the established root must keep control")
+		require.Len(t, result.Resolution.References, 1)
+		assert.Equal(t, "acme.pkg:__dependency.acme.a", result.Resolution.References[0].ID)
+	}
 }

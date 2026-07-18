@@ -112,6 +112,7 @@ func (h *DependencyHandler) resolutionRefreshReason(
 	ctx context.Context,
 	baseline regapi.State,
 	roots []desiredDependency,
+	references []desiredDependency,
 	resolution *regapi.DependencyResolution,
 	baselineDigest string,
 	transcoder payload.Transcoder,
@@ -123,6 +124,13 @@ func (h *DependencyHandler) resolutionRefreshReason(
 		// With an unchanged deployment, a root-set mismatch can only be
 		// inconsistent history. Leave it to strict stored-root validation.
 		return "", nil
+	}
+	// A legacy graph predates recorded references. Folded declarations the
+	// stored graph does not carry can never replay strictly — and whether the
+	// duplicate's ID sorts before or after the stored controller must not
+	// decide the outcome — so upgrade once through the standard refresh.
+	if len(references) > len(resolution.References) {
+		return "legacy resolution predates folded reference declarations", nil
 	}
 	if dependencyInputDigest(roots) != resolution.InputDigest {
 		for _, entry := range baseline {
