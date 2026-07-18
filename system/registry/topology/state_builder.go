@@ -3,10 +3,10 @@
 package topology
 
 import (
-	"strings"
 	"context"
 	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/wippyai/runtime/api/registry"
 	"github.com/wippyai/runtime/internal/version"
