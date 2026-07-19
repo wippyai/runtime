@@ -205,6 +205,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	// Preserve all replacements from old lock file
 	if oldLockObj != nil {
 		preserveReplacements(newLockObj, oldLockObj.GetTrackedReplacements())
+		preserveReplacedModuleRows(newLockObj, oldLockObj)
 	}
 
 	// Save lock file
@@ -427,6 +428,7 @@ func runTargetedUpdate(cmd *cobra.Command, lockFilePath, srcDir, modulesDir stri
 
 	// Preserve all replacements from current lock file
 	preserveReplacements(newLockObj, lockObj.GetTrackedReplacements())
+	preserveReplacedModuleRows(newLockObj, lockObj)
 
 	// Detect changes
 	changes := lock.Diff(oldLockObj, newLockObj)
@@ -593,6 +595,28 @@ func preserveReplacements(lockObj *lock.Lock, replacements []lock.Replacement) {
 
 	for _, repl := range replacements {
 		lockObj.SetReplacement(repl)
+	}
+}
+
+// preserveReplacedModuleRows carries forward the old lock's module rows for
+// tracked replacements. A replaced module is excluded from hub resolution by
+// design, so the rebuilt lock never contains its row; without the carry the
+// replacement points at a module the graph no longer declares (a harness or
+// local workspace module loses its root row on every update). Rows the new
+// resolution did produce stay authoritative.
+func preserveReplacedModuleRows(newLock *lock.Lock, oldLock *lock.Lock) {
+	if newLock == nil || oldLock == nil {
+		return
+	}
+	for _, repl := range oldLock.GetTrackedReplacements() {
+		if _, resolved := newLock.GetModule(repl.From); resolved {
+			continue
+		}
+		row, ok := oldLock.GetModule(repl.From)
+		if !ok {
+			continue
+		}
+		newLock.SetModule(row)
 	}
 }
 
