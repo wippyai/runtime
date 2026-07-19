@@ -189,7 +189,9 @@ modules:
 	for i := range workerEntries {
 		workerEntries[i] = markModuleIdentity(workerEntries[i], "acme/worker", "v1.0.0", digests[selection{"acme/worker", "v1.0.0"}])
 	}
-	baseline := append(v1AppEntries, workerEntries...)
+	baseline := make(regapi.State, 0, len(v1AppEntries)+len(workerEntries))
+	baseline = append(baseline, v1AppEntries...)
+	baseline = append(baseline, workerEntries...)
 	v0 := version.FromParent(nil, regapi.RootVersion)
 	require.NoError(t, reg.LoadState(ctx, baseline, v0))
 	v0Resolution, err := history.GetDependencyResolution(v0)
