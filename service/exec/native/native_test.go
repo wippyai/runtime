@@ -473,8 +473,8 @@ func TestExecutor_Stderr(t *testing.T) {
 	// quickly, which made this test race the implementation it was testing.
 	assert.NoError(t, process.Start())
 	type readResult struct {
-		output []byte
 		err    error
+		output []byte
 	}
 	readDone := make(chan readResult, 1)
 	go func() {
